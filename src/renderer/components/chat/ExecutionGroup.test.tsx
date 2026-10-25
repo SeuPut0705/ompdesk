@@ -164,14 +164,13 @@ describe("ExecutionGroup", () => {
 				</I18nProvider>,
 			);
 		});
-		// One run model: the head counts the run once; failures are stated once, in the head.
-		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("1 failed · 2 commands");
-		const rows = [...container.querySelectorAll('.omp-work-outcome li[data-kind="command"]')];
-		expect(rows.map(row => row.querySelector('[role="img"]')?.getAttribute("aria-label"))).toEqual([
-			"Failed",
-			"Interrupted",
-		]);
-		expect(container.querySelector(".omp-work-outcome summary")?.textContent).toBe("Outcome");
+		// One run model: the head's label counts the run once; the failed command is a verdict block, the cut one a chip.
+		expect(headLabel()).toMatch(/1 failed · 2 commands/);
+		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("2 steps");
+		expect(container.querySelectorAll('[data-work-finding="error"]')).toHaveLength(1);
+		expect(container.querySelector('[data-work-finding="error"]')?.textContent).toContain("exit failed");
+		expect(container.querySelector('[data-work-finding="stopped"]')?.textContent).toContain("1 interrupted");
+		expect(container.querySelector(".omp-work-outcome")).toBeNull();
 	});
 
 	it("counts a file written and then edited in one group as one edited file", async () => {
@@ -189,8 +188,8 @@ describe("ExecutionGroup", () => {
 		);
 		await mount(["write", "edit"]);
 		expect(headLabel()).toMatch(/^Steps: 1 file changed \+1 −0/);
-		// Files are said by the metric strip below, not twice in the head.
-		expect(container.querySelector(".omp-execution-group-summary")).toBeNull();
+		// The head says its step count; the files are the chip's.
+		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("2 steps");
 		expect(container.querySelector('[data-work-finding="changes"]')?.textContent).toContain("1");
 	});
 
@@ -200,7 +199,7 @@ describe("ExecutionGroup", () => {
 		expect(container.querySelector('[data-testid="details"]')).toBeNull();
 
 		await act(async () => {
-			(container.querySelector("button") as unknown as { click: () => void }).click();
+			(container.querySelector(".omp-execution-group-header") as unknown as { click: () => void }).click();
 		});
 		expect(container.querySelector('[data-testid="details"]')).not.toBeNull();
 	});
@@ -209,18 +208,18 @@ describe("ExecutionGroup", () => {
 		useToolsStore.setState(toolEntriesState([["tool-1", toolEntry("error", true)]]));
 		await mount(["tool-1"]);
 
-		expect(container.textContent).toContain("1 failed · 2 steps");
+		expect(headLabel()).toContain("1 failed · 2 steps");
 		expect(container.querySelector('[data-testid="details"]')).toBeNull();
 
 		await act(async () => {
-			(container.querySelector("button") as unknown as { click: () => void }).click();
+			(container.querySelector(".omp-execution-group-header") as unknown as { click: () => void }).click();
 		});
 		expect(container.querySelector('[data-testid="details"]')).not.toBeNull();
 	});
 
 	it("includes failed completion events in the existing group status", async () => {
 		await mount([], false, undefined, 1);
-		expect(container.textContent).toContain("1 failed · 2 steps");
+		expect(headLabel()).toContain("1 failed · 2 steps");
 		expect(container.querySelector('[data-state="failed"]')).not.toBeNull();
 	});
 
@@ -230,7 +229,7 @@ describe("ExecutionGroup", () => {
 		expect(container.querySelector('[data-testid="details"]')).toBeNull();
 
 		await act(async () => {
-			(container.querySelector("button") as unknown as { click: () => void }).click();
+			(container.querySelector(".omp-execution-group-header") as unknown as { click: () => void }).click();
 		});
 		expect(container.querySelector('[data-testid="details"]')).not.toBeNull();
 
@@ -238,11 +237,11 @@ describe("ExecutionGroup", () => {
 			useToolsStore.setState(toolEntriesState([["tool-1", toolEntry("error", true)]]));
 		});
 
-		expect(container.textContent).toContain("1 failed · 2 steps");
+		expect(headLabel()).toContain("1 failed · 2 steps");
 		expect(container.querySelector('[data-testid="details"]')).not.toBeNull();
 
 		await act(async () => {
-			(container.querySelector("button") as unknown as { click: () => void }).click();
+			(container.querySelector(".omp-execution-group-header") as unknown as { click: () => void }).click();
 			useToolsStore.setState(toolEntriesState([["tool-1", toolEntry("running")]]));
 		});
 		expect(container.querySelector('[data-testid="details"]')).toBeNull();
@@ -368,8 +367,8 @@ describe("ExecutionGroup", () => {
 
 		// The same run model as the outcome: what changed and what ran, not one count per tool kind.
 		expect(headLabel()).toBe("Steps: 1 file changed · 1 command · 16.0s");
-		// The head keeps what the strip does not say; the files are the strip's.
-		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("1 command");
+		// The head draws its time and step count; the file count is a chip's, the command count only the label's.
+		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("2 steps");
 		expect(container.textContent).toContain("16.0s");
 		expect(container.querySelector('[data-state="complete"]')).not.toBeNull();
 	});
@@ -428,39 +427,7 @@ describe("ExecutionGroup", () => {
 		expect(container.querySelector(".omp-work-stage-shell")?.getAttribute("data-open")).toBe("false");
 	});
 
-	it("replays a past step and resumes live following using keyboard-reachable controls", async () => {
-		useToolsStore.setState(
-			toolEntriesState([
-				[
-					"read",
-					{
-						...toolEntry("running"),
-						toolName: "read",
-						args: { path: "src/a.ts" },
-						status: "done",
-						result: { content: [{ type: "text", text: "read contents" }] },
-					},
-				],
-				["bash", { ...toolEntry("running"), args: { command: "bun test" }, startTime: 5 }],
-			]),
-		);
-		await mount(["read", "bash"], true);
-		await act(async () => {
-			container.querySelector<HTMLButtonElement>('[data-step-id="read"]')?.click();
-		});
-		expect(container.querySelector(".omp-live-step")?.getAttribute("data-surface")).toBe("read");
-		expect(container.querySelector(".omp-live-step")?.getAttribute("data-following")).toBe("false");
-		await act(async () => {
-			container.querySelector<HTMLButtonElement>(".omp-live-work-follow")?.click();
-		});
-		expect(container.querySelector(".omp-live-step")?.getAttribute("data-surface")).toBe("bash");
-		expect(container.querySelector(".omp-live-step")?.getAttribute("data-following")).toBe("true");
-		// Following draws no "live" label: the strip holds only the two steps.
-		expect(container.querySelectorAll(".omp-live-work-strip button")).toHaveLength(2);
-		expect(container.querySelector(".omp-live-work-follow")).toBeNull();
-	});
-
-	it("collapses consecutive identical waits to one elapsed line in the head and one chip", async () => {
+	it("collapses consecutive identical waits to one elapsed line in the head, with no strip of steps", async () => {
 		useToolsStore.setState(
 			toolEntriesState([
 				[
@@ -473,7 +440,7 @@ describe("ExecutionGroup", () => {
 		await mount(["wait-1", "wait-2"], true);
 		// A calm wait has no output of its own: the head says it, no empty surface is drawn.
 		expect(container.querySelector(".omp-work-surface")).toBeNull();
-		expect(container.querySelectorAll("[data-step-id]")).toHaveLength(1);
+		expect(container.querySelector(".omp-live-work-strip, [data-step-id]")).toBeNull();
 		expect(container.querySelector(".omp-work-sub")?.textContent).toContain("Waiting for background activity");
 	});
 
@@ -631,7 +598,7 @@ describe("ExecutionGroup", () => {
 		// One name for a user stop: "Interrupted", never stock's "cancelled".
 		expect(work?.querySelector(".omp-work-head [role='img']")?.getAttribute("aria-label")).toBe("Interrupted");
 		expect(headLabel()).toMatch(/^Steps: 1 interrupted · /);
-		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("1 interrupted");
+		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("2 steps");
 		expect(container.textContent).not.toContain("Work complete");
 	});
 

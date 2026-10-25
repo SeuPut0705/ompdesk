@@ -1,11 +1,10 @@
 /**
  * The work board's rows for the sessions an agent opened: status only (working, waiting, failed), no buttons. The
- * opener's agent reviews and lands its children with its tools; a click on a row focuses the child. The finished ones
- * fold into one "n done" row like the plan's, and the last row opens the Work tree sheet (every family of the window,
- * finished children and unused worktrees too). Loaded on demand by `WorkBoard.tsx` (the phone's first screen never
- * needs them).
+ * opener's agent reviews and lands its children with its tools; a click on a row focuses the child. The ones that
+ * wait for an answer are rows of Needs you, the others of Now, where the finished ones fold into one "n done" row like
+ * the plan's. Loaded on demand by `WorkBoard.tsx` (the phone's first screen never needs them).
  */
-import { Check, GitFork, Network } from "lucide-react";
+import { Check, GitFork } from "lucide-react";
 import { useState } from "react";
 import { useLiveReview } from "../../../hooks/use-live-review";
 import { useSessionSpend } from "../../../hooks/use-session-spend";
@@ -16,13 +15,12 @@ import { useAgentReviewStore } from "../../../stores/agent-review";
 import { useClosedChildrenStore } from "../../../stores/closed-children";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useTabsStore } from "../../../stores/tabs";
-import { useUiStore } from "../../../stores/ui";
 import { CostAmount, hasCost } from "../../common/CostAmount";
-import { BoardRow, BoardSection, CappedRows, elapsedLabel, KindMark, SECTION_CAP } from "./board-parts";
+import { BoardRow, CappedRows, elapsedLabel, KindMark, type RowTag, SECTION_CAP } from "./board-parts";
 import { childActivity, type OpenedChildRow } from "./opened-children";
 
 /** A session this one's agent opened, as a child like a subagent: status, what it does now, how long, its branch. */
-function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
+function OpenedRow({ row, now, tag }: { row: OpenedChildRow; now: number; tag?: RowTag }) {
 	const t = useT();
 	// What it runs on and has cost: main's push for an open one, else what main recorded when it closed it.
 	const live = useAgentReviewStore(state => state.usage[row.sessionPath ?? row.tabId ?? ""]);
@@ -66,6 +64,7 @@ function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
 				"data-status": status ?? "open",
 				...(row.report ? { "data-board-report": row.report.kind } : {}),
 			}}
+			tag={tag}
 			label={
 				<>
 					{title}
@@ -132,11 +131,20 @@ function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
 	);
 }
 
+/** Children that wait for an answer: rows of Needs you, each saying it is a child session. */
+export function WaitingChildren({ rows, now, tag }: { rows: readonly OpenedChildRow[]; now: number; tag: RowTag }) {
+	return (
+		<CappedRows cap={SECTION_CAP.children} items={rows}>
+			{row => <OpenedRow key={row.key} now={now} row={row} tag={tag} />}
+		</CappedRows>
+	);
+}
+
 /**
- * The children still at work or worth a look as rows; every finished one (a done tab, a session main closed after its
- * work landed) folds into one "n done" row worded as the plan's, which lists them in place on a tap.
+ * The children still at work or worth a look as rows of Now; every finished one (a done tab, a session main closed
+ * after its work landed) folds into one "n done" row worded as the plan's, which lists them in place on a tap.
  */
-export function OpenedSection({ rows, now }: { rows: readonly OpenedChildRow[]; now: number }) {
+export function NowChildren({ rows, now }: { rows: readonly OpenedChildRow[]; now: number }) {
 	const t = useT();
 	const runtimeTabId = useRuntimeTabId();
 	const activeTabId = useTabsStore(state => state.activeTabId);
@@ -148,8 +156,8 @@ export function OpenedSection({ rows, now }: { rows: readonly OpenedChildRow[]; 
 	const open = rows.filter(row => row.status !== "done");
 	const done = rows.filter(row => row.status === "done");
 	return (
-		<BoardSection count={open.length > 0 ? open.length : undefined} id="opened" title={t("workBoard.opened")}>
-			<CappedRows cap={SECTION_CAP.opened} items={open}>
+		<>
+			<CappedRows cap={SECTION_CAP.children} items={open}>
 				{row => <OpenedRow key={row.key} now={now} row={row} />}
 			</CappedRows>
 			{done.length > 0 && (
@@ -164,12 +172,6 @@ export function OpenedSection({ rows, now }: { rows: readonly OpenedChildRow[]; 
 				/>
 			)}
 			{doneOpen && done.map(row => <OpenedRow key={row.key} now={now} row={row} />)}
-			<BoardRow
-				data={{ "data-board-work-tree": "" }}
-				label={<span className="text-(--sc-text-muted)">{t("workBoard.opened.workTree")}</span>}
-				lead={<Network aria-hidden className="size-3.5 text-(--sc-text-subtle)" />}
-				onClick={() => useUiStore.getState().openViewSheet("work")}
-			/>
-		</BoardSection>
+		</>
 	);
 }

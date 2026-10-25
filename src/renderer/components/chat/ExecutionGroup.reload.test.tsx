@@ -379,7 +379,7 @@ describe("agents after a relaunch", () => {
 		expect(container.querySelector(".omp-execution-group-header")?.getAttribute("aria-label")).toMatch(
 			/^Steps: 2 interrupted · build OK · 1 command · 1 agent/,
 		);
-		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("2 interrupted · 1 command");
+		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("3 steps");
 	});
 
 	it("heads a finished run with one agent by how the run ended, never the agent's own task", async () => {
@@ -463,7 +463,9 @@ describe("background job that fails after its run", () => {
 			</ExecutionGroup>,
 		);
 		expect(container.querySelector(".omp-execution-group")?.getAttribute("data-state")).toBe("failed");
-		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toMatch(/^1 failed/);
+		expect(container.querySelector(".omp-execution-group-header")?.getAttribute("aria-label")).toMatch(
+			/^Steps: 1 failed/,
+		);
 		await act(async () => root?.unmount());
 		container.remove();
 

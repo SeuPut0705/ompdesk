@@ -1,5 +1,5 @@
 /**
- * Jump into the work board of the focused session pane: its first row that waits on the user,
+ * Jump into the work board of the focused session pane: the first row of Needs you (what waits on the user),
  * else its first row, else the board itself. Returns whether a board took the focus.
  */
 export function focusWorkBoard(): boolean {
@@ -8,7 +8,7 @@ export function focusWorkBoard(): boolean {
 		document.querySelector<HTMLElement>("[data-work-board-panel]");
 	if (!board) return false;
 	const target =
-		board.querySelector<HTMLElement>("button[data-board-waiting]") ??
+		board.querySelector<HTMLElement>('[data-board-section="needs"] button.omp-work-board-row') ??
 		board.querySelector<HTMLElement>("button.omp-work-board-row") ??
 		board.querySelector<HTMLElement>("button");
 	(target ?? board).focus();

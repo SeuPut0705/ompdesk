@@ -150,6 +150,16 @@ export function liveSubagents(subagents: ReadonlyMap<string, SubagentSnapshot>):
 	return live.sort((a, b) => a.index - b.index);
 }
 
+/** A subagent that waits (parked, idle) is live but not at work: the pulse and "Working…" leave it out. */
+export function isWaitingSubagent(status: string): boolean {
+	return status === "parked" || status === "idle";
+}
+
+/** The live subagents that are at work. */
+export function workingSubagents(agents: readonly SubagentSnapshot[]): SubagentSnapshot[] {
+	return agents.filter(agent => !isWaitingSubagent(agent.status));
+}
+
 /** One line for a question or approval waiting on the user, in the user's language. */
 export function requestLabel(
 	request: ExtensionUIRequest,
@@ -174,4 +184,49 @@ export function requestLabel(
 		default:
 			return t("workBoard.question");
 	}
+}
+
+/** What the board counts, once: its head, the Needs you section, the live region and the strip's label all read these. */
+export interface BoardCounts {
+	/** Questions and approvals waiting on the person, a plan up for review included. */
+	asks: number;
+	/** Sessions the agent opened that wait for an answer. */
+	children: number;
+	/** 1 when the newest check failed. */
+	failed: number;
+	/** What the Needs you section lists: asks, waiting children and a failed check. */
+	needs: number;
+	/** Subagents and background jobs (children at work are counted apart, as the board's "Now" lists them apart). */
+	running: number;
+	/** Sessions the agent opened that run. */
+	childrenRunning: number;
+	/** Whatever is at work, a parked subagent excluded: the pulse and "Working…" read it. */
+	working: number;
+	/** The pulse: anything Needs you lists (a failed check too), else something works, else nothing. */
+	pulse: "waiting" | "working" | "idle";
+}
+
+export function boardCounts(input: {
+	asks: number;
+	childrenWaiting: number;
+	childrenRunning: number;
+	checkFailed: boolean;
+	agents: number;
+	agentsWorking: number;
+	jobs: number;
+	/** The turn runs, or an Autopilot run does. */
+	turnWorking: boolean;
+}): BoardCounts {
+	const failed = input.checkFailed ? 1 : 0;
+	const working = input.agentsWorking + input.jobs + input.childrenRunning + (input.turnWorking ? 1 : 0);
+	return {
+		asks: input.asks,
+		children: input.childrenWaiting,
+		failed,
+		needs: input.asks + input.childrenWaiting + failed,
+		running: input.agents + input.jobs,
+		childrenRunning: input.childrenRunning,
+		working,
+		pulse: input.asks + input.childrenWaiting + failed > 0 ? "waiting" : working > 0 ? "working" : "idle",
+	};
 }

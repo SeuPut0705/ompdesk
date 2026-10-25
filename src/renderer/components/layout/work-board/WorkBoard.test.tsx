@@ -250,7 +250,9 @@ describe("WorkBoard header", () => {
 			},
 		]);
 		await mount();
-		expect(pane.querySelector("[data-board-status]")?.textContent).toBe("2 running · 1 waiting for you");
+		// What needs the person first; what runs is a figure beside it.
+		expect(pane.querySelector("[data-board-status]")?.textContent).toBe("1 needs you");
+		expect(pane.querySelector(".omp-work-board-figure")?.textContent).toBe("2 running");
 		expect(pane.querySelector(".omp-work-board-pulse")?.getAttribute("data-state")).toBe("waiting");
 		const bar = pane.querySelector(".omp-work-board-segments");
 		expect(bar?.getAttribute("aria-label")).toBe("1 of 3 done");
@@ -259,20 +261,27 @@ describe("WorkBoard header", () => {
 			"in_progress",
 			"pending",
 		]);
-		expect(pane.querySelector(".omp-work-board-progress")?.textContent).toBe("1/3");
-		// The plan's figure is stated once, in the head: its section carries no count.
-		expect(section("todos")?.querySelector(".omp-work-board-count")).toBeNull();
+		// The plan's bar and figure are said once, in the plan's own header; the section carries no count.
+		expect(section("plan")?.querySelector(".omp-work-board-progress")?.textContent).toBe("1/3");
+		expect(pane.querySelectorAll(".omp-work-board-progress")).toHaveLength(1);
+		expect(section("plan")?.querySelector(".omp-work-board-count")).toBeNull();
 	});
 
-	it("says it is idle when only the last turn is left", async () => {
+	it("says what the last turn left, not that it is idle, once the turn ended", async () => {
 		await mount();
 		await act(async () => useTodoStore.getState().setTurnActive(true, Date.now() - 3000));
 		await act(async () => useTodoStore.getState().setTurnActive(false));
-		expect(pane.querySelector("[data-board-status]")?.textContent).toBe("Idle");
+		expect(pane.querySelector("[data-board-status]")?.textContent).toBe("Turn finished");
 		expect(pane.querySelector(".omp-work-board-pulse")?.getAttribute("data-state")).toBe("idle");
 	});
 
-	it("counts in the sentence exactly what the sections it summarizes count", async () => {
+	it("says it is idle when a plan is all there is", async () => {
+		useTodoStore.getState().setPhases([{ name: "Work", tasks: [{ content: "a", status: "pending" }] }]);
+		await mount();
+		expect(pane.querySelector("[data-board-status]")?.textContent).toBe("Idle");
+	});
+
+	it("counts what needs the person once: the head, the section and its rows say the same figure", async () => {
 		useSubagentsStore.getState().setSnapshots([agent("a1", "running", 0), agent("a2", "parked", 1)]);
 		rows = [jobRow({ id: "j1", type: "bash", status: "running", label: "watch", startTime: Date.now() })];
 		useExtensionUiStore
@@ -294,13 +303,17 @@ describe("WorkBoard header", () => {
 			]),
 		});
 		await mount();
-		await vi.waitFor(() => expect(section("check")).not.toBeNull());
-		const counted = (id: string) => Number(section(id)?.querySelector(".omp-work-board-count")?.textContent);
-		expect(counted("running")).toBe(3);
-		expect(counted("waiting")).toBe(2);
-		expect(pane.querySelector("[data-board-status]")?.textContent).toBe(
-			`${counted("running")} running · ${counted("waiting")} waiting for you · 1 failed`,
+		await vi.waitFor(() =>
+			expect(pane.querySelector('[data-board-section="needs"] [data-board-session="check"]')).not.toBeNull(),
 		);
+		const needs = section("needs");
+		// Two asks (a question, a plan up for review) and a failed check: one figure, in the head, the section's count and
+		// the strip's label; what runs is its own figure.
+		expect(needs?.querySelector(".omp-work-board-count")?.textContent).toBe("3");
+		expect(needs?.querySelectorAll("li")).toHaveLength(3);
+		expect(pane.querySelector("[data-board-status]")?.textContent).toBe("3 need you");
+		expect(pane.querySelector(".omp-work-board-figure")?.textContent).toBe("3 running");
+		expect(needs?.querySelector('[aria-live="polite"]')?.textContent).toBe("3 need you");
 	});
 });
 
@@ -326,7 +339,8 @@ describe("WorkBoard sections", () => {
 			jobRow({ id: "j3", type: "bash", status: "completed", label: "done", startTime: 0 }),
 		];
 		await mount();
-		expect(section("running")?.textContent).toContain("Running4");
+		expect(pane.querySelectorAll("[data-board-agent], [data-board-job]")).toHaveLength(4);
+		expect(section("now")?.textContent).toContain("Now");
 		expect(pane.querySelector('[data-board-job="j4"]')?.textContent).toContain("nested watch");
 		const first = pane.querySelector('[data-board-agent="a1"]');
 		// One line: its title and how long it has run; what it does now, its tokens and model are the tooltip.
@@ -370,9 +384,9 @@ describe("WorkBoard sections", () => {
 		await mount();
 		expect(pane.hasAttribute("data-work-board-todo")).toBe(true);
 		expect(pane.hasAttribute("data-work-board-running")).toBe(false);
-		const plan = section("todos");
-		// The plan's figure is the head's one bar; the section lists the work and carries no count.
-		expect(pane.querySelector(".omp-work-board-progress")?.textContent).toBe("5/7");
+		const plan = section("plan");
+		// The plan's figure is its header's one bar; the section lists the work and carries no count.
+		expect(plan?.querySelector(".omp-work-board-progress")?.textContent).toBe("5/7");
 		expect(plan?.querySelector(".omp-work-board-count")).toBeNull();
 		expect(plan?.textContent).toContain("5 done");
 		expect(plan?.querySelector('[data-todo-status="in_progress"]')?.textContent).toContain("Write the board");
@@ -398,13 +412,13 @@ describe("WorkBoard sections", () => {
 			useMessagesStore.setState({ turnMeter: { ...EMPTY_TURN_METER, startedAt: Date.now() - 24_000, rate: 70.4 } });
 		});
 		// The turn's clock reads in ten-second steps (24 s of it, or 25 s on a slow run, shows as 20s).
-		expect(section("turn")?.querySelector(".omp-work-board-aside")?.textContent).toMatch(/^20s · 70 tok\/s$/);
+		expect(section("now")?.querySelector(".omp-work-board-aside")?.textContent).toMatch(/^20s · 70 tok\/s$/);
 		await act(async () =>
 			useMessagesStore.setState({
 				turnMeter: { ...EMPTY_TURN_METER, startedAt: Date.now() - 24_000, endedAt: Date.now(), rate: 70.4 },
 			}),
 		);
-		expect(section("turn")?.textContent ?? "").not.toContain("tok/s");
+		expect(section("now")?.textContent ?? "").not.toContain("tok/s");
 	});
 
 	it("exits a finished agent's row with an animation flag, then removes it", async () => {
@@ -427,6 +441,54 @@ describe("WorkBoard sections", () => {
 		}
 	});
 
+	it("keeps Now until the last agent's row has faded out", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		try {
+			useSubagentsStore.getState().setSnapshots([agent("a1", "running", 0)]);
+			await mount();
+			await act(async () => useSubagentsStore.getState().setSnapshots([agent("a1", "completed", 0)]));
+			// Nothing runs any more, but the row is still fading out inside its section.
+			expect(section("now")).not.toBeNull();
+			expect(pane.querySelector('[data-board-agent="a1"]')?.closest("li")?.getAttribute("data-exiting")).toBe(
+				"true",
+			);
+			await act(async () => {
+				vi.advanceTimersByTime(200);
+			});
+			expect(section("now")).toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("turns the pulse to waiting for a failed check alone, and names the plan's section for what it holds", async () => {
+		useToolsStore.setState({
+			finishedTools: new Map([
+				[
+					"b1",
+					tool({
+						args: { command: "bun test" },
+						status: "error",
+						isError: true,
+						endTime: 9,
+						result: { content: [{ type: "text", text: "1 fail" }], details: { exitCode: 1 } },
+					}),
+				],
+			]),
+		});
+		useTodoStore.getState().setPhases([{ name: "Work", tasks: [{ content: "a", status: "pending" }] }]);
+		await mount();
+		await vi.waitFor(() => expect(section("needs")).not.toBeNull());
+		expect(pane.querySelector(".omp-work-board-pulse")?.getAttribute("data-state")).toBe("waiting");
+		expect(pane.querySelector("[data-board-status]")?.textContent).toBe("1 needs you");
+		// Todos alone: "Todos", not "Plan" (the plan-mode card's word, which Needs you's "plan ready for review" says).
+		expect(section("plan")?.querySelector(".omp-work-board-title")?.textContent).toContain("Todos");
+		useSessionStore.setState({ goal: { objective: "Ship it" }, goalState: { status: "active" } });
+		goal = { enabled: true, status: "active", objective: "Ship it" };
+		await act(async () => {});
+		expect(section("plan")?.querySelector(".omp-work-board-title")?.textContent).toContain("Goal & todos");
+	});
+
 	it("shows the goal with its status and a budget and a time meter", async () => {
 		useSessionStore.setState({ goal: { objective: "Ship the release" }, goalState: { status: "active" } });
 		goal = {
@@ -441,6 +503,8 @@ describe("WorkBoard sections", () => {
 		await mount();
 		const row = pane.querySelector("[data-board-goal]");
 		expect(row?.getAttribute("data-board-goal")).toBe("active");
+		// The goal is the plan's lead line, in the plan's section.
+		expect(section("plan")?.querySelector("[data-board-goal]")).toBe(row);
 		// One line: the objective and the larger share used (25% of the budget, 5% of the time); both in words in the
 		// tooltip.
 		expect(row?.textContent).toContain("Ship the release");
@@ -494,7 +558,7 @@ describe("WorkBoard sections", () => {
 		expect(meta()).toBe("75%");
 	});
 
-	it("puts the questions waiting on the user first and announces them politely", async () => {
+	it("puts what needs the person first, each row saying what kind it is, and announces them politely", async () => {
 		useSubagentsStore.getState().setSnapshots([agent("a1", "running", 0)]);
 		useExtensionUiStore.getState().pushRequest({
 			type: "extension_ui_request",
@@ -511,16 +575,16 @@ describe("WorkBoard sections", () => {
 		const sections = [...pane.querySelectorAll("[data-board-section]")].map(el =>
 			el.getAttribute("data-board-section"),
 		);
-		expect(sections[0]).toBe("waiting");
-		expect(section("waiting")?.textContent).toContain("Waiting on you2");
-		expect(section("waiting")?.querySelector("kbd")?.textContent).toBe("⌥B");
-		expect(pane.querySelector('[data-board-waiting="ap1"]')?.textContent).toContain("Allow bash?");
-		expect(pane.querySelector('[data-board-waiting="plan"]')?.textContent).toContain("Plan ready for review");
+		expect(sections[0]).toBe("needs");
+		expect(section("needs")?.textContent).toContain("Needs you2");
+		expect(section("needs")?.querySelector("kbd")?.textContent).toBe("⌥B");
+		expect(pane.querySelector('[data-board-waiting="ap1"]')?.textContent).toMatch(/^Ask.*Allow bash\?/);
+		expect(pane.querySelector('[data-board-waiting="plan"]')?.textContent).toMatch(/^Review.*Plan ready for review/);
 		expect(pane.querySelector('[data-board-waiting="n1"]')).toBeNull();
 		const live = pane.querySelector('[aria-live="polite"]');
 		expect(live?.getAttribute("role")).toBe("status");
-		expect(live?.textContent).toBe("2 waiting on you");
-		expect(live?.closest("[data-board-section]")?.getAttribute("data-board-section")).toBe("waiting");
+		expect(live?.textContent).toBe("2 need you");
+		expect(live?.closest("[data-board-section]")?.getAttribute("data-board-section")).toBe("needs");
 		// Nothing else on the board is a live region.
 		expect(pane.querySelectorAll("[aria-live]")).toHaveLength(1);
 	});
@@ -545,7 +609,7 @@ describe("WorkBoard sections", () => {
 		expect(focus).toHaveBeenCalled();
 	});
 
-	it("shows the turn's current step, its recent steps with durations and the elapsed time", async () => {
+	it("shows the turn's current step and the elapsed time under Now", async () => {
 		await mount();
 		const startedAt = Date.now() - 12_000;
 		await act(async () => {
@@ -567,11 +631,10 @@ describe("WorkBoard sections", () => {
 			});
 		});
 		// 12 s into the turn the clock reads 10s: steps of ten seconds, not a count that moves every second.
-		expect(section("turn")?.textContent).toContain("10s");
-		expect(pane.querySelectorAll("[data-board-step]")).toHaveLength(2);
-		const done = pane.querySelector('[data-board-step="done"]');
-		expect(done?.textContent).toContain("src/a.ts");
-		expect(done?.textContent).toContain("700ms");
+		expect(section("now")?.textContent).toContain("10s");
+		// One step: the live one; the finished calls are the work card's list, which is on screen beside the board.
+		expect(pane.querySelectorAll("[data-board-step]")).toHaveLength(1);
+		expect(pane.querySelector('[data-board-step="done"]')).toBeNull();
 		const current = pane.querySelector("[data-board-turn]");
 		expect(current?.getAttribute("data-board-step")).toBe("running");
 		expect(current?.textContent).toContain("Run the unit tests");
@@ -606,7 +669,7 @@ describe("WorkBoard sections", () => {
 		expect(section("current")?.querySelector(".omp-work-board-title")?.textContent).toMatch(/^Current work5\.\ds$/);
 		expect(changed?.textContent).toContain("1 file changed");
 		expect(changed?.textContent).toContain("+3");
-		expect(section("turn")).toBeNull();
+		expect(section("now")).toBeNull();
 		await click('[data-board-session="changes"]');
 		expect(useUiStore.getState().panelTab).toBe("diff");
 	});
@@ -640,15 +703,14 @@ describe("WorkBoard folds", () => {
 	it("folds a section to its header and remembers it", async () => {
 		useSubagentsStore.getState().setSnapshots([agent("a1", "running", 0)]);
 		await mount();
-		const fold = () =>
-			section("running")?.querySelector("button.omp-work-board-fold") as unknown as HTMLButtonElement;
+		const fold = () => section("now")?.querySelector("button.omp-work-board-fold") as unknown as HTMLButtonElement;
 		expect(fold().getAttribute("aria-expanded")).toBe("true");
 		expect(pane.querySelector('[data-board-agent="a1"]')).not.toBeNull();
 		await act(async () => fold().click());
 		expect(fold().getAttribute("aria-expanded")).toBe("false");
-		expect(fold().getAttribute("title")).toBe("Expand Running");
+		expect(fold().getAttribute("title")).toBe("Expand Now");
 		expect(pane.querySelector('[data-board-agent="a1"]')).toBeNull();
-		expect(prefsSet).toHaveBeenCalledWith("workBoardCollapsed", { running: true });
+		expect(prefsSet).toHaveBeenCalledWith("workBoardCollapsed", { now: true });
 		await act(async () => fold().click());
 		expect(pane.querySelector('[data-board-agent="a1"]')).not.toBeNull();
 		expect(prefsSet).toHaveBeenLastCalledWith("workBoardCollapsed", {});

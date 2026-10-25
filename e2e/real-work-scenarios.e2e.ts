@@ -22,10 +22,12 @@ const SCENARIOS: ReadonlyArray<{ name: string; prompt: string; during?: (page: P
 			prompt:
 				"Use your todo tool to create a list with three tasks: Read, Count, Report. Mark Read in progress, run the bash command `ls`, mark Read completed and Count in progress, run `wc -l notes.txt`, then stop and reply in one sentence. Leave Count and Report open.",
 			during: async page => {
-				await expect(page.locator(".omp-live-step .omp-work-todo-toggle")).toBeVisible({ timeout: 120_000 });
+				// The dock above the composer carries the todos; the running card draws none of its own.
+				await expect(page.locator('[data-testid="workspace-dock"] section[aria-label="Todos"]')).toBeVisible({
+					timeout: 120_000,
+				});
 				await capture(page, "todo-running");
-				// The running card carries the todos; the dock above the composer does not repeat them.
-				await expect(page.locator('[data-testid="workspace-dock"] section[aria-label="Todos"]')).toHaveCount(0);
+				await expect(page.locator(".omp-live-step .omp-work-todo")).toHaveCount(0);
 			},
 		},
 		{

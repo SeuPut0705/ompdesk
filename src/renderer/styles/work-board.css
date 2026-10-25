@@ -15,12 +15,13 @@
 	scrollbar-width: thin;
 }
 
-/* Head: the status sentence (what is running, waiting, failed) with the pulse, the plan's one bar, the project of a
-   linked worktree, then the meters line. The board has no close: it docks whenever a pane has room and nothing opened
-   it again (the user's call, 22 Oct 2026). */
+/* Head: the pulse, one clause of what matters most (what needs the person, else what runs, else what the last turn
+   left) and a figure for what runs, then the project of a linked worktree and the meters line. It never wraps: the
+   clause clips before it takes a second line. The board has no close: it docks whenever a pane has room and nothing
+   opened it again (the user's call, 22 Oct 2026). */
 .omp-work-board-head {
 	display: grid;
-	grid-template-columns: auto minmax(0, 1fr);
+	grid-template-columns: auto minmax(0, 1fr) auto;
 	align-items: center;
 	column-gap: var(--sc-space-2);
 	row-gap: var(--sc-space-1-5);
@@ -61,19 +62,16 @@
 	white-space: nowrap;
 }
 
-/* The sentence wraps to a second line before it clips (the clause cut off at the end would be the failure), and
-   it wraps between clauses, never inside one. */
 .omp-work-board-status {
 	min-width: 0;
 	margin: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 	font-size: var(--sc-font-sm);
 	font-weight: 600;
 	line-height: 18px;
 	color: var(--sc-text);
-}
-
-.omp-work-board-status > span {
-	white-space: nowrap;
 }
 
 .omp-work-board-status [data-tone="warning"] {
@@ -82,11 +80,6 @@
 
 .omp-work-board-status [data-tone="danger"] {
 	color: var(--sc-danger);
-}
-
-/* The strip hides the pulse, so the sentence would land in the grid's auto column. */
-.omp-work-strip-panel .omp-work-board-status {
-	grid-column: 1 / -1;
 }
 
 /* A linked worktree's project and what it is for (`acme-web · Autopilot`); the full path is its tooltip. */
@@ -128,12 +121,13 @@
 	background: var(--sc-warning);
 }
 
-/* The plan's progress sits on the head's line, between the name and the close: the bar takes the width the line
-   leaves, starting right after the name, then "1/3". Segments shrink to fit (min-width 0), so a long plan never
-   spills past its box over the count (30 segments once overflowed a 64 px box onto "18/30"). */
+/* The plan's progress sits in its section's head, between the title and the end of the fold button: the bar takes the
+   width the line leaves, then "1/3". Segments shrink to fit (min-width 0), so a long plan never spills past its box
+   over the count (30 segments once overflowed a 64 px box onto "18/30"). */
 .omp-work-board-progress {
 	display: flex;
-	grid-column: 1 / -1;
+	flex: 1 1 0;
+	margin-inline-start: var(--sc-space-1-5);
 	min-width: 0;
 	align-items: center;
 	gap: var(--sc-space-1-5);
@@ -554,4 +548,56 @@ button.omp-work-board-row[data-board-opened][data-status="waiting"]:hover {
 	padding: 2px var(--sc-space-1);
 	font-size: var(--sc-font-xs);
 	color: var(--sc-text-secondary);
+}
+
+/* What a row of Needs you is, in a word of fixed width before its label ("Ask", "Check"); colour only as the state it
+   names. */
+.omp-work-board-tag {
+	flex: none;
+	min-width: 2.6em;
+	font-size: var(--sc-font-xs);
+	font-weight: 600;
+	color: var(--sc-text-muted);
+}
+
+.omp-work-board-tag[data-tone="warning"] {
+	color: var(--sc-warning-on-soft);
+}
+
+.omp-work-board-tag[data-tone="danger"] {
+	color: var(--sc-danger-on-soft);
+}
+
+/* How many things run, beside the clause when something else comes first (what needs the person). */
+.omp-work-board-figure {
+	font-size: var(--sc-font-xs);
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+	color: var(--sc-info);
+}
+
+/* A section's title never clips (the plan's bar takes what it leaves). */
+.omp-work-board-zone-title {
+	flex: none;
+	white-space: nowrap;
+}
+
+/* The Work tree's icon button, in the head of the section that lists the sessions this one opened. */
+.omp-work-board-action {
+	flex: none;
+	color: var(--sc-text-subtle);
+}
+
+/* The sidebar's usage block says the same accounts (both read `lastUsedAccounts`): while it is expanded and on screen
+   and shows every provider, the board does not repeat its gauges. Where the sidebar is not on screen (the phone's
+   strip, a window or tablet that folds it), its usage block is folded, or it stacks only its first
+   `USAGE_LINE_CAP` providers (`data-capped`), the board keeps them, and a metered provider's real charge (which the
+   sidebar does not show) always stays. */
+.omp-shell[data-sidebar="docked"]:has(.omp-sidebar-usage:not([data-collapsed], [data-capped])) .omp-work-board-account {
+	display: none;
+}
+
+.omp-shell[data-sidebar="docked"]:has(.omp-sidebar-usage:not([data-collapsed], [data-capped])) .omp-work-board-meters:not(:has(> :not(.omp-work-board-account))) {
+	display: none;
 }

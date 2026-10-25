@@ -5,16 +5,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StoreApi } from "zustand/vanilla";
 import type { AgentProgress, RpcCommand, RpcResponse, SubagentFrame } from "../../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../../lib/i18n";
-import { deleteSessionRuntime, SessionRuntimeProvider } from "../../../stores/session-runtime-context";
+import { deleteSessionRuntime } from "../../../stores/session-runtime-context";
 import type { SubagentsStore } from "../../../stores/subagents";
 import { createSubagentsStore, useSubagentsStore } from "../../../stores/subagents";
 import { createTabRuntime } from "../../../stores/tab-runtime";
 import { useTabsStore } from "../../../stores/tabs";
-import type { ToolsStore } from "../../../stores/tools";
 import { type ToolEntry, toolEntriesState, useToolsStore } from "../../../stores/tools";
 import { useUiStore } from "../../../stores/ui";
 import { routeCommands } from "../../../test-support/route-commands";
-import { WorkOutcome } from "./WorkOutcome";
+import { WorkMedia } from "./WorkMedia";
 import { workNarrative, workOutcomes } from "./work-view";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -208,10 +207,9 @@ describe("live work", () => {
 		expect(container.querySelector(".omp-work-narrative")?.textContent).toBe("Work complete");
 		expect(container.querySelector(".omp-live-step")?.getAttribute("data-state")).toBe("complete");
 		expect(container.querySelector(".omp-work-card-button")?.textContent).toContain("Twelve lines.");
-		// The lane already states the agent's conclusion; an outcome with nothing else stays out.
-		expect(container.querySelector(".omp-work-outcome")).toBeNull();
+		// The lane already states the agent's conclusion; the card draws no outcome list and no replay strip.
 		expect(container.querySelector(".omp-live-work-heading")).toBeNull();
-		expect(container.querySelectorAll(".omp-live-work-chips button")).toHaveLength(1);
+		expect(container.querySelector(".omp-live-work-strip, .omp-live-work-chips")).toBeNull();
 		expect(container.textContent).not.toContain("Skipped due to");
 	});
 	it("renders the intent carried by stock tool_execution_start", async () => {
@@ -443,16 +441,10 @@ describe("live work", () => {
 		);
 		expect(useToolsStore.getState().liveTools.has("missed-end|fc")).toBe(false);
 		expect(useToolsStore.getState().finishedTools.get("missed-end|fc")?.status).toBe("done");
-		await act(async () =>
-			root.render(
-				<I18nProvider>
-					<WorkOutcome toolCallIds={["missed-end|fc"]} />
-				</I18nProvider>,
-			),
-		);
-		const row = container.querySelector('li[data-kind="command"]');
-		expect(row?.querySelector('[role="img"]')?.getAttribute("aria-label")).toBe("Succeeded");
-		expect(row?.textContent).toBe("wc -l a.ts 3.0s");
+		const settled = useToolsStore.getState().finishedTools.get("missed-end|fc");
+		expect(settled && workOutcomes([settled]).commands).toEqual([
+			{ command: "wc -l a.ts", exitCode: null, failed: false, durationMs: 3000 },
+		]);
 	});
 	it.each([true, false])("shares a pending replay and follows only a still-missing gap (served=%s)", async served => {
 		const replies = [Promise.withResolvers<RpcResponse>(), Promise.withResolvers<RpcResponse>()];
@@ -613,23 +605,6 @@ describe("live work", () => {
 				["unknown", unknown],
 			]),
 		);
-		await mount(["succeeded", "unknown"]);
-		await act(async () =>
-			root.render(
-				<I18nProvider>
-					<WorkOutcome toolCallIds={["succeeded", "unknown"]} />
-				</I18nProvider>,
-			),
-		);
-		const rows = [...container.querySelectorAll('li[data-kind="command"]')];
-		// Stopped and failed commands lead: their output is what needs reading.
-		expect(rows.map(row => row.querySelector('[role="img"]')?.getAttribute("aria-label"))).toEqual([
-			"Interrupted",
-			"Succeeded",
-		]);
-		expect(rows[1]?.textContent).toBe("wc -l a.ts 3.0s");
-		expect(rows[0]?.textContent).toContain("Interrupted");
-		expect(container.textContent).not.toContain("exit 0");
 	});
 	it("summarizes changed files and exit statuses without a new diff engine", () => {
 		const outcome = workOutcomes([
@@ -660,47 +635,28 @@ describe("live work", () => {
 		await act(async () =>
 			root.render(
 				<I18nProvider>
-					<WorkOutcome toolCallIds={["shot", "again"]} />
+					<WorkMedia toolCallIds={["shot", "again"]} />
 				</I18nProvider>,
 			),
 		);
 		const images = [...container.querySelectorAll(".omp-work-images img")];
 		expect(images.map(image => image.getAttribute("src"))).toEqual(["data:image/png;base64,iVBORw0KGgo="]);
 		expect(container.querySelector(".omp-work-images figcaption")?.textContent).toBe("menu_1280x720.png");
-		// Nothing else happened, so there is no outcome list to open.
-		expect(container.querySelector("details")).toBeNull();
 	});
-	it("renders outcome evidence and respects transcript detail", async () => {
+	it("keeps the ledger behind a finished card's facts: files and commands by what they did", () => {
 		const entries: Array<[string, ToolEntry]> = [
 			["file", entry("write", { path: "a.ts", content: "one\ntwo" }, { content: [] })],
 			["pass", entry("bash", { command: "bun test" }, { details: { exitCode: 0 } })],
 			["fail", entry("bash", { command: "false" }, { details: { exitCode: 1 } })],
 			["agents", entry("task", {}, { details: { results: [{ id: "LineCounter", output: "Two lines." }] } })],
 		];
-		useToolsStore.setState(toolEntriesState(entries));
-		await mount([]);
-		await act(async () =>
-			root.render(
-				<I18nProvider>
-					<WorkOutcome toolCallIds={entries.map(([id]) => id)} />
-				</I18nProvider>,
-			),
-		);
-		expect(container.querySelector('li[data-kind="file"]')?.textContent).toBe("a.ts +2 −0");
-		const commands = [...container.querySelectorAll('li[data-kind="command"]')];
-		expect(commands.map(row => row.querySelector('[role="img"]')?.getAttribute("aria-label"))).toEqual([
-			"Failed",
-			"Passed",
-		]);
-		// Exit 0 is the check mark; only a failing code is spelled out.
-		expect(commands[1]?.textContent).toBe("bun test ");
-		expect(commands[0]?.textContent).toBe("false exit 1");
-		// Counts and conclusions live in the head and on lanes, never repeated in the outcome.
-		expect(container.querySelector("summary")?.textContent).toBe("Outcome");
-		expect(container.querySelector('li[data-kind="agent"]')).toBeNull();
-		expect(container.querySelector("details")?.hasAttribute("open")).toBe(false);
-		await act(async () => useUiStore.getState().setTranscriptDetail("full"));
-		expect(container.querySelector("details")?.hasAttribute("open")).toBe(true);
+		const outcome = workOutcomes(entries.map(([, item]) => item));
+		expect(outcome.files).toEqual([{ path: "a.ts", added: 2, removed: 0 }]);
+		// Exit 0 carries no figure; a failing code is kept for the verdict block.
+		expect(outcome.commands[0]).toEqual({ command: "bun test", exitCode: 0, failed: false });
+		expect(outcome.commands[1]).toMatchObject({ command: "false", exitCode: 1 });
+		// Conclusions live on the lanes, never in the ledger.
+		expect(JSON.stringify(outcome)).not.toContain("Two lines.");
 	});
 	it("shows the no-output label after ten seconds using fake timers", async () => {
 		vi.useFakeTimers();
@@ -733,78 +689,6 @@ describe("live work", () => {
 		const clock = lane?.querySelector(".omp-work-clock");
 		expect(clock?.textContent).toBe("No output for 11s");
 		expect(clock?.getAttribute("data-stalled")).toBe("true");
-	});
-	it("counts only steps advanced outside visibility", async () => {
-		await mount();
-		Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
-		await act(async () => document.dispatchEvent(new Event("visibilitychange")));
-		useToolsStore.setState(
-			toolEntriesState([
-				["parent", entry("bash", {})],
-				["second", entry("read", { path: "b.ts" })],
-			]),
-		);
-		await act(async () =>
-			root.render(
-				<I18nProvider>
-					<LiveStepPeek thinkingLive={false} toolCallIds={["parent", "second"]} />
-				</I18nProvider>,
-			),
-		);
-		Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
-		await act(async () => document.dispatchEvent(new Event("visibilitychange")));
-		expect(container.textContent).toContain("1 step advanced while you were away");
-	});
-	it("preserves the away baseline across a cached tab remount until hydration", async () => {
-		const runtime = createTabRuntime("work-view-test");
-		const tools = runtime.stores.get("tools") as StoreApi<ToolsStore>;
-		tools.setState(toolEntriesState([["parent", entry("read", { path: "a.ts" })]]));
-		useTabsStore.setState({ activeTabId: runtime.tabId });
-		await mount([]);
-		const view = (ids: string[]) => (
-			<I18nProvider>
-				<SessionRuntimeProvider runtime={runtime}>
-					<LiveStepPeek thinkingLive={false} toolCallIds={ids} />
-				</SessionRuntimeProvider>
-			</I18nProvider>
-		);
-		await act(async () => root.render(view(["parent"])));
-		await act(async () => {
-			useTabsStore.setState({ activeTabId: "other" });
-			root.render(<div />);
-		});
-		await act(async () => {
-			useTabsStore.setState({ activeTabId: runtime.tabId });
-			root.render(view(["parent"]));
-		});
-		expect(container.querySelector(".omp-work-catch-up")).toBeNull();
-		await act(async () => {
-			tools.getState().hydrateMessages(
-				[
-					{
-						role: "assistant",
-						content: [{ type: "toolCall", id: "parent", name: "read", arguments: { path: "a.ts" } }],
-						timestamp: 1,
-					},
-					{
-						role: "toolResult",
-						toolCallId: "parent",
-						toolName: "read",
-						content: [{ type: "text", text: "a" }],
-						timestamp: 2,
-					},
-					{
-						role: "assistant",
-						content: [{ type: "toolCall", id: "second", name: "read", arguments: { path: "b.ts" } }],
-						timestamp: 3,
-					},
-				],
-				{ turnIsLive: true },
-			);
-			root.render(view(["parent", "second"]));
-		});
-		await flush();
-		expect(container.textContent).toContain("1 step advanced while you were away");
 	});
 	it("omits motion classes under reduced motion", async () => {
 		Object.assign(window, { matchMedia: () => ({ matches: true, addEventListener() {}, removeEventListener() {} }) });

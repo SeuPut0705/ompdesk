@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import type { ExtensionUIRequest, SubagentSnapshot, TodoTask } from "../../../../shared/rpc-types";
 import { translate } from "../../../lib/i18n";
 import {
+	boardCounts,
 	goalMeta,
+	isWaitingSubagent,
 	liveSubagents,
 	READING_COLUMN_PX,
 	requestLabel,
@@ -20,6 +22,7 @@ import {
 	workBoardFits,
 	workBoardForm,
 	workBoardWidth,
+	workingSubagents,
 } from "./work-board";
 
 const stylesheet = readFileSync(new URL("../../../styles/components.css", import.meta.url), "utf8");
@@ -234,5 +237,60 @@ describe("requestLabel", () => {
 		expect(
 			label({ ...base, id: "3", method: "ask", questions: [{ id: "q", question: "Which branch?", options: [] }] }),
 		).toBe("Which branch?");
+	});
+});
+
+describe("boardCounts", () => {
+	const idle = {
+		asks: 0,
+		childrenWaiting: 0,
+		childrenRunning: 0,
+		checkFailed: false,
+		agents: 0,
+		agentsWorking: 0,
+		jobs: 0,
+		turnWorking: false,
+	};
+
+	it("counts what needs the person once: asks, waiting children and a failed check", () => {
+		const counts = boardCounts({ ...idle, asks: 2, childrenWaiting: 1, checkFailed: true });
+		expect(counts).toMatchObject({ asks: 2, children: 1, failed: 1, needs: 4, pulse: "waiting" });
+	});
+
+	it("turns the pulse to waiting for anything Needs you lists, a failed check alone included", () => {
+		expect(boardCounts({ ...idle, checkFailed: true })).toMatchObject({ needs: 1, pulse: "waiting" });
+		expect(boardCounts({ ...idle, childrenWaiting: 1, turnWorking: true })).toMatchObject({ pulse: "waiting" });
+	});
+
+	it("counts subagents and jobs as running and children at work apart, a parked subagent not as working", () => {
+		const counts = boardCounts({ ...idle, agents: 3, agentsWorking: 1, jobs: 2, childrenRunning: 1 });
+		expect(counts).toMatchObject({ running: 5, childrenRunning: 1, working: 4, pulse: "working" });
+	});
+
+	it("reads a lone running child, or a turn, as working", () => {
+		expect(boardCounts({ ...idle, childrenRunning: 1 })).toMatchObject({ running: 0, working: 1, pulse: "working" });
+		expect(boardCounts({ ...idle, turnWorking: true })).toMatchObject({ running: 0, working: 1, pulse: "working" });
+		expect(boardCounts(idle)).toMatchObject({ needs: 0, working: 0, pulse: "idle" });
+	});
+});
+
+describe("workingSubagents", () => {
+	it("leaves out a parked or idle subagent, which is live but not at work", () => {
+		const agent = (id: string, status: SubagentSnapshot["status"]) => ({ id, status }) as SubagentSnapshot;
+		expect(
+			workingSubagents([agent("a", "running"), agent("b", "parked"), agent("c", "idle")]).map(a => a.id),
+		).toEqual(["a"]);
+		expect(isWaitingSubagent("parked")).toBe(true);
+		expect(isWaitingSubagent("running")).toBe(false);
+	});
+});
+
+describe("the board's quota gauges beside the sidebar's", () => {
+	const css = readFileSync(new URL("../../../styles/work-board.css", import.meta.url), "utf8");
+
+	it("hides only while the sidebar's usage block is expanded and shows every provider", () => {
+		expect(css).toContain(
+			'.omp-shell[data-sidebar="docked"]:has(.omp-sidebar-usage:not([data-collapsed], [data-capped])) .omp-work-board-account',
+		);
 	});
 });

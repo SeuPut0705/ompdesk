@@ -3,6 +3,7 @@ import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { useOpenedChildren } from "../../../hooks/use-opened-children";
 import { useT } from "../../../lib/i18n";
 import { isUserBlockingRequest, useExtensionUiStore } from "../../../stores/extension-ui";
+import { useSessionStore } from "../../../stores/session";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { revealSidebarSubagents } from "../../../stores/sidebar-subagents";
 import { useSubagentsStore } from "../../../stores/subagents";
@@ -19,8 +20,9 @@ const SEGMENT =
 /**
  * One row above the composer collecting the session's work that outlives a
  * turn: subagents still working or waiting (with how many questions block on
- * the user) and background shells. While a turn runs, the work card shows the
- * same lanes, so the dock mounts this only between turns.
+ * the user) and background shells. While a turn runs the work card shows the
+ * same lanes and the sessions its agent waits on, so the row hides itself
+ * until the turn ends.
  */
 export function WorkspaceIsland() {
 	const t = useT();
@@ -46,8 +48,10 @@ export function WorkspaceIsland() {
 	const opened = useOpenedChildren(tabId);
 	// Only sessions at work or waiting: a finished one folds away like a finished subagent.
 	const sessions = opened.counts.running + opened.counts.waiting;
+	// While a turn runs the live work card says all of it (its lanes, the sessions its agent waits on): no second row.
+	const turnRuns = useSessionStore(state => state.isStreaming);
 
-	if (agents === 0 && shells === 0 && sessions === 0) return null;
+	if (turnRuns || (agents === 0 && shells === 0 && sessions === 0)) return null;
 
 	return (
 		<section

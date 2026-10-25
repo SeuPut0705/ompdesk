@@ -8,6 +8,7 @@
  * never shows them (scripts/check-main-bundle.ts).
  */
 import { Suspense, useEffect, useMemo } from "react";
+import { AGENT_CONTROL_TOOLS } from "../../../../shared/agent-control";
 import { useOpenedChildren } from "../../../hooks/use-opened-children";
 import { lazyChunk } from "../../../lib/chunk-load";
 import { ensureAgentReviewSubscription, useAgentReviewItems } from "../../../stores/agent-review";
@@ -20,15 +21,12 @@ const ChildrenAtWorkList = lazyChunk(() =>
 	import("./ChildrenAtWorkList").then(module => ({ default: module.ChildrenAtWorkList })),
 );
 
-/** The control tool whose `wait` blocks the parent's turn on its children, called directly or as stock's `xd://` device. */
-const CHILDREN_WAIT_TOOL = "ompdesk_session_result";
-
 /** A running call of the parent's agent that waits on the sessions it opened. */
 export function waitsOnChildren(entry: ToolEntry | undefined): boolean {
 	if (!entry || (entry.status !== "running" && entry.status !== "pending")) return false;
 	return (
-		entry.toolName === CHILDREN_WAIT_TOOL ||
-		(entry.toolName === "write" && entry.args.path === `xd://${CHILDREN_WAIT_TOOL}`)
+		entry.toolName === AGENT_CONTROL_TOOLS.result ||
+		(entry.toolName === "write" && entry.args.path === `xd://${AGENT_CONTROL_TOOLS.result}`)
 	);
 }
 

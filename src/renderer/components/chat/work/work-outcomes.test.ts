@@ -1,22 +1,9 @@
 import { posix, win32 } from "node:path";
-import { parseHTML } from "linkedom";
-import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
-import { I18nProvider } from "../../../lib/i18n";
-import { useSessionStore } from "../../../stores/session";
-import { useSubagentsStore } from "../../../stores/subagents";
-import { type ToolEntry, toolEntriesState, useToolsStore } from "../../../stores/tools";
-import { useUiStore } from "../../../stores/ui";
+import { describe, expect, it } from "vitest";
+import type { ToolEntry } from "../../../stores/tools";
 import { workFilePathKey } from "../../tools/edit-args";
-import { WorkOutcome } from "./WorkOutcome";
 import { workOutcomes } from "./work-view";
 
-const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
-Object.assign(globalThis, { document, window, Event, HTMLElement, Element, Node, IS_REACT_ACT_ENVIRONMENT: true });
-
-let root: Root | undefined;
-let container: HTMLElement | undefined;
 let sequence = 0;
 function entry(toolName: string, args: Record<string, unknown>, details: Record<string, unknown> = {}): ToolEntry {
 	return {
@@ -34,31 +21,6 @@ function write(path = "tools/_menu_shot.gd") {
 	// Stock write returns resolvedPath, but no diff or creation flag.
 	return entry("write", { path, content: "alpha\nbeta\ngamma\n" }, { resolvedPath: `/project/${path}` });
 }
-async function mount(entries: ToolEntry[]) {
-	const ids = entries.map((_, index) => `call-${index}`);
-	useToolsStore.setState(toolEntriesState(entries.map((item, index) => [ids[index], item])));
-	container = document.createElement("div") as unknown as HTMLElement;
-	document.body.appendChild(container as never);
-	root = createRoot(container);
-	await act(async () => {
-		root?.render(
-			<I18nProvider>
-				<WorkOutcome toolCallIds={ids} />
-			</I18nProvider>,
-		);
-	});
-	return container;
-}
-afterEach(async () => {
-	await act(async () => root?.unmount());
-	root = undefined;
-	container?.remove();
-	useToolsStore.getState().reset();
-	useSubagentsStore.getState().reset();
-	useUiStore.getState().setTranscriptDetail("compact");
-	useSessionStore.getState().reset();
-	sequence = 0;
-});
 
 describe("work outcome evidence", () => {
 	it.each(["rm tools/_menu_shot.gd", "rm -f tools/_menu_shot.gd", "git rm -f -- tools/_menu_shot.gd"])(
@@ -171,19 +133,27 @@ describe("work outcome evidence", () => {
 	it("does not merge equal basenames in different directories", () => {
 		expect(workFilePathKey("notes.txt", "/project")).not.toBe(workFilePathKey("/elsewhere/notes.txt", "/project"));
 	});
-	it("renders the real relative-write plus absolute-edit shape as one net changed file", async () => {
-		useSessionStore.setState({ cwd: "/project" });
+	it("nets the real relative-write plus absolute-edit shape to one changed file", () => {
 		const created = entry("write", { path: "notes.txt", content: "alpha\n" }, { resolvedPath: "/project/notes.txt" });
 		const edited = entry(
 			"edit",
 			{ path: "notes.txt" },
 			{ path: "/project/notes.txt", diff: "-alpha\n+beta", op: "update" },
 		);
-		const view = await mount([created, edited]);
-		// Counts live once, in the card's head; the outcome lists the file, project-relative.
-		expect(view.querySelector("summary")?.textContent).toBe("Outcome");
-		expect(view.querySelectorAll('[data-kind="file"]')).toHaveLength(1);
-		expect(view.querySelector('[data-kind="file"]')?.textContent).toBe("notes.txt +1 −0");
+		expect(workOutcomes([created, edited], undefined, "/project").files).toEqual([
+			{ path: "notes.txt", added: 1, removed: 0 },
+		]);
+	});
+	it("keeps a removed plain write as a deleted file next to its removing command", () => {
+		const outcome = workOutcomes([write(), entry("bash", { command: "rm -f tools/_menu_shot.gd" })]);
+		expect(outcome.files).toEqual([{ path: "tools/_menu_shot.gd", deleted: true }]);
+		expect(outcome.commands).toHaveLength(1);
+	});
+	it("keeps net line counts for a write followed by an edit", () => {
+		const path = "a/very/long/path/notes.txt";
+		expect(workOutcomes([write(path), entry("edit", { path }, { diff: "-beta\n+updated" })]).files).toEqual([
+			{ path, added: 3, removed: 0 },
+		]);
 	});
 	it.each([
 		["/project/src", "../notes.txt", false],
@@ -212,67 +182,5 @@ describe("work outcome evidence", () => {
 		expect(
 			workOutcomes([write("notes.txt"), entry("edit", { path: "notes.txt" }, { diff: "-a\n-b\n-c\n-d" })]).files,
 		).toEqual([{ path: "notes.txt", added: 3, removed: 4 }]);
-	});
-	it("renders a removed plain write as deleted, not as added lines", async () => {
-		const view = await mount([write(), entry("bash", { command: "rm -f tools/_menu_shot.gd" })]);
-		expect(view.querySelector('[data-kind="file"]')?.textContent).toContain("Deleted");
-		expect(view.querySelector("summary")?.textContent).not.toContain("+3");
-		expect(view.querySelector('[data-kind="command"]')).not.toBeNull();
-	});
-	it("renders net line counts and preserves full path text on hover", async () => {
-		const path = "a/very/long/path/notes.txt";
-		const view = await mount([write(path), entry("edit", { path }, { diff: "-beta\n+updated" })]);
-		expect(view.querySelector('[data-kind="file"]')?.textContent).toContain("+3 −0");
-		expect(view.querySelector('[data-kind="file"] [title]')?.getAttribute("title")).toBe(path);
-	});
-	it("caps images and expands the remaining accessible zoom thumbnails on click", async () => {
-		let imageExtractions = 0;
-		const reads = Array.from({ length: 5 }, (_, index) => ({
-			...entry("read", { path: `shots/image-${index}.png` }),
-			result: {
-				get content() {
-					imageExtractions++;
-					return [{ type: "image", mimeType: "image/png", data: `image${index}` }];
-				},
-			},
-		}));
-		const view = await mount(reads);
-		const initialExtractions = imageExtractions;
-		expect(view.querySelectorAll("[data-zoomable-image]")).toHaveLength(4);
-		const more = view.querySelector(".omp-work-images > button");
-		expect(more?.textContent).toBe("+1 more");
-		await act(async () => more?.dispatchEvent(new Event("click", { bubbles: true })));
-		expect(view.querySelectorAll("[data-zoomable-image]")).toHaveLength(5);
-		expect(more?.getAttribute("aria-expanded")).toBe("true");
-		expect(imageExtractions).toBe(initialExtractions);
-		// Named by the file, never a raw path as alt text.
-		expect(view.querySelector("img")?.getAttribute("alt")).toBe("image-0.png");
-		expect(view.querySelector("details")).toBeNull();
-	});
-	it("draws a stored read image and shows one whose bytes are gone as its file, never a broken image", async () => {
-		// Stock's read of a PNG as a subagent journal persists it: the bytes live in the blob store.
-		const read = (path: string, data: string): ToolEntry => ({
-			...entry("read", { path }),
-			result: {
-				content: [
-					{ type: "text", text: "Read image file [image/png]" },
-					{ type: "image", data, mimeType: "image/png" },
-				],
-				details: { fileSize: 120207, meta: { source: { type: "path", value: path } }, mediaPath: path },
-			},
-		});
-		const view = await mount([
-			read("/tmp/ReloadTruth-real/scenarios/ko-group-1.png", "iVBORw0KGgo="),
-			read("/tmp/final2/real/scenarios/ko-group-1.png", `blob:sha256:${"0".repeat(64)}`),
-		]);
-		const images = [...view.querySelectorAll(".omp-work-images img")];
-		expect(images.map(image => image.getAttribute("src"))).toEqual(["data:image/png;base64,iVBORw0KGgo="]);
-		for (const image of view.querySelectorAll("img")) {
-			expect(image.getAttribute("src")).not.toContain("blob:sha256:");
-			expect(image.getAttribute("alt")).not.toContain("/");
-		}
-		const chip = view.querySelector(".omp-work-images [data-image-unavailable]");
-		expect(chip?.textContent).toContain("ko-group-1.png");
-		expect(chip?.querySelector("button")?.getAttribute("title")).toBe("/tmp/final2/real/scenarios/ko-group-1.png");
 	});
 });

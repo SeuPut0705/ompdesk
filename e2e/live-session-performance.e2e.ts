@@ -177,7 +177,7 @@ test("long real session with a live work card: open, scroll, idle and streaming 
 								appendJournal(10),
 							);
 							for (let step = 0; step < 3; step++) await control("fixture:work-next");
-							await expect(card.locator('[data-step-id="work-view-3"]')).toHaveAttribute("aria-pressed", "true");
+							await expect(card.locator(".omp-execution-group-summary")).toHaveText("4 steps");
 							await control("fixture:work-output");
 							await page.waitForTimeout(1000);
 							const cardIdle = await measure(app, page, `${subject.name}-${run}-card-idle`, 10);

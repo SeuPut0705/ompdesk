@@ -147,7 +147,7 @@ test("fan out into worktrees, compare, merge two through the tool, close a third
 
 	// The board has no review section and no Approve/Discard/Review buttons: the agent reviews and lands its own
 	// children with the tools. The children show only as "Opened sessions" status rows.
-	await expect(page.locator('[data-board-section="opened"] [data-board-opened]')).toHaveCount(3, { timeout: 30_000 });
+	await expect(page.locator("[data-work-board-panel] [data-board-opened]")).toHaveCount(3, { timeout: 30_000 });
 	await expect(page.locator('[data-board-section="review"]')).toHaveCount(0);
 	await expect(page.locator("[data-review-child]")).toHaveCount(0);
 	await expect(page.getByText("Needs review")).toHaveCount(0);

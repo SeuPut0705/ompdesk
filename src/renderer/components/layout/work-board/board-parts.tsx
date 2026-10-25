@@ -2,11 +2,13 @@
  * The work board's building blocks (WorkBoard.tsx and every section beside it): a state dot, a kind icon, a folding
  * section and a one-line row. Look in styles/work-board.css.
  */
-import { ChevronRight, type LucideIcon } from "lucide-react";
+import { ChevronRight, type LucideIcon, Network } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 import { translate, useT } from "../../../lib/i18n";
 import { revealAndFocus } from "../../../lib/reveal-focus";
+import { useUiStore } from "../../../stores/ui";
 import { useWorkBoardStore, type WorkBoardSectionId } from "../../../stores/work-board";
+import { IconButton } from "../../common";
 
 /**
  * A running row's clock: nothing in the first ten seconds, ten-second steps under a minute, then whole minutes, so a
@@ -26,7 +28,7 @@ export function elapsedLabel(ms: number): string {
  * The board stays a glance in every environment: a waiting question, the running work and a failure stay above the
  * fold even beside a long plan. The plan folds its own rest (todoBoard), so it has no entry here.
  */
-export const SECTION_CAP = { waiting: 3, running: 4, opened: 3, followups: 3 } as const;
+export const SECTION_CAP = { asks: 3, running: 4, children: 3, followups: 3 } as const;
 
 /**
  * The first `cap` of `items`, then one row naming how many more there are; a tap on it lists the rest. `total` counts
@@ -104,16 +106,22 @@ export function BoardSection({
 	title,
 	count,
 	aside,
+	mid,
+	action,
 	tone,
 	live,
 	children,
 }: {
 	id: WorkBoardSectionId;
-	/** Announced politely whenever it changes (the waiting section only). */
+	/** Announced politely whenever it changes (the Needs you section only). */
 	live?: string;
 	title: string;
 	count?: ReactNode;
 	aside?: ReactNode;
+	/** Between the title and the right end of the head's fold button: the plan's bar. */
+	mid?: ReactNode;
+	/** A control of its own after the fold button (the work tree's icon button). */
+	action?: ReactNode;
 	tone?: "warning" | "danger";
 	children: ReactNode;
 }) {
@@ -137,9 +145,11 @@ export function BoardSection({
 					type="button"
 				>
 					<ChevronRight aria-hidden className="omp-work-board-chevron" data-open={!folded || undefined} />
-					<span className="truncate">{title}</span>
+					<span className={mid ? "omp-work-board-zone-title" : "truncate"}>{title}</span>
+					{mid}
 					{count !== undefined && <span className="omp-work-board-count">{count}</span>}
 				</button>
+				{action}
 				{aside ? <span className="omp-work-board-aside">{aside}</span> : null}
 			</h3>
 			{live ? (
@@ -150,6 +160,30 @@ export function BoardSection({
 			{folded ? null : <ul className="omp-work-board-list">{children}</ul>}
 		</section>
 	);
+}
+
+/**
+ * The Work tree sheet (every family of the window, finished children and unused worktrees too) is an action of the
+ * sessions this one opened, not a status row: an icon button in the head of the section that lists them.
+ */
+export function WorkTreeButton() {
+	const t = useT();
+	return (
+		<IconButton
+			className="omp-work-board-action"
+			data-board-work-tree=""
+			icon={<Network />}
+			label={t("workBoard.opened.workTree")}
+			onClick={() => useUiStore.getState().openViewSheet("work")}
+			size="sm"
+		/>
+	);
+}
+
+/** What a row of Needs you is, in a word of fixed width before its label. */
+export interface RowTag {
+	word: string;
+	tone: "warning" | "danger";
 }
 
 /**
@@ -166,6 +200,7 @@ export function BoardRow({
 	title,
 	data,
 	exiting = false,
+	tag,
 }: {
 	lead: ReactNode;
 	label: ReactNode;
@@ -174,6 +209,8 @@ export function BoardRow({
 	title?: string;
 	data?: Record<string, string>;
 	exiting?: boolean;
+	/** Needs you's rows say what kind of thing they are, in a word of fixed width before the label ("Ask", "Check"). */
+	tag?: RowTag;
 } & ({ onClick?: () => void; action?: never } | { onClick?: never; action?: ReactNode })) {
 	const body = (
 		<>
@@ -181,6 +218,11 @@ export function BoardRow({
 			{/* The text column never outgrows the row: a long branch, path or title truncates instead of widening the board. */}
 			<span className="flex min-w-0 flex-1 flex-col overflow-hidden">
 				<span className="flex min-w-0 items-baseline gap-2">
+					{tag ? (
+						<span className="omp-work-board-tag" data-tone={tag.tone}>
+							{tag.word}
+						</span>
+					) : null}
 					<span className="min-w-0 flex-1 truncate">{label}</span>
 					{meta ? <span className="omp-work-board-meta">{meta}</span> : null}
 				</span>

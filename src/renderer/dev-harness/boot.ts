@@ -12,6 +12,7 @@ import { PushClient } from "../web/push-client";
 import { setWebPwa } from "../web/pwa";
 import { setWebRuntime } from "../web/runtime";
 import { BOARD_BUSY, boardBusyStores, CHILDREN_WAIT, CHILDREN_WAIT_CALL } from "./fixture-board";
+import { CARD_LIVE_CALL } from "./fixture-card";
 import { createHarnessTransport } from "./transport";
 
 const query = new URLSearchParams(location.search);
@@ -215,6 +216,42 @@ if (BOARD_BUSY) {
 			}
 			tools.setState({ finishedTools, liveTools, finishedVersion: state.finishedVersion + 1 });
 		}
+	}, 1_500);
+}
+
+// `?card=live` (./fixture-card.ts): the card's run still goes on, its test run in flight, with a goal.
+if (query.get("card") === "live") {
+	setTimeout(() => {
+		const ko = query.get("lang") === "ko";
+		todo.setState({ turnActive: true, turnStartedAt: Date.now() - 50_000 });
+		session.setState({
+			goal: {
+				objective: ko
+					? "휴대폰, 태블릿, 4K 모니터 어디서든 한눈에 읽히는 작업현황을 출시하기"
+					: "Ship a work board that reads at a glance on a phone, a tablet and a 4K monitor alike",
+			},
+			goalState: { status: "active" },
+			isStreaming: true,
+		});
+		const state = tools.getState();
+		const finishedTools = new Map(state.finishedTools);
+		const liveTools = new Map(state.liveTools);
+		const partialResults = new Map(state.partialResults);
+		for (const [key, entry] of state.finishedTools) {
+			if (!key.startsWith(CARD_LIVE_CALL)) continue;
+			finishedTools.delete(key);
+			liveTools.set(key, { ...entry, status: "running", endTime: null, startTime: Date.now() - 12_000 });
+			// The run has printed its first files, so the stage shows output rather than a silent command.
+			partialResults.set(key, {
+				content: [
+					{
+						type: "text",
+						text: " RUN  v3.2.4 /repo\n\n ✓ src/state/workspace.test.ts (12 tests) 31ms\n ✓ src/state/todo.test.ts (8 tests) 22ms\n ✓ src/components/WorkBoard.test.tsx (41 tests) 410ms\n ✓ src/components/ExecutionGroup.test.tsx (36 tests) 388ms\n ❯ src/components/LiveStepPeek.test.tsx (31 tests | 2 skipped) 290ms",
+					},
+				],
+			});
+		}
+		tools.setState({ finishedTools, liveTools, partialResults, finishedVersion: state.finishedVersion + 1 });
 	}, 1_500);
 }
 

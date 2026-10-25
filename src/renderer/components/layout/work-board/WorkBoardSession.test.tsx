@@ -6,7 +6,7 @@ import type { CheckoutPeer, CheckoutPeers } from "../../../../../resources/gui-b
 import type { AgentReviewItem } from "../../../../shared/agent-control";
 import type { AgentMessage, RpcAsyncJobItem, RpcJobRow } from "../../../../shared/rpc-types";
 import type { FamilyEdits, FamilyMemberEdits, RpcTurnEdits } from "../../../../shared/turn-edits";
-import { I18nProvider } from "../../../lib/i18n";
+import { I18nProvider, translate } from "../../../lib/i18n";
 import { useAgentReviewStore } from "../../../stores/agent-review";
 import { useClosedChildrenStore } from "../../../stores/closed-children";
 import { useMessagesStore } from "../../../stores/messages";
@@ -50,18 +50,23 @@ Reflect.set(window, "omp", {
 
 // Loaded after the linkedom globals exist: react-dom reads `window`/`document` at import.
 const { createRoot } = await import("react-dom/client");
-const { FailedCheckSection, FailedCheckWatch, CurrentSection, useSessionBoard } = await import("./WorkBoardSession");
+const { FailedCheckWatch, NeedsCheck, SessionSlot, quietOutcome } = await import("./WorkBoardSession");
 const { peerOpen } = await import("./session-board");
 const { REVEAL_STEP_EVENT } = await import("../../chat/work/reveal-step");
 /** What the strip's watcher reports (WorkBoardChip's failed-check label). */
 const watched = vi.fn();
 
+/** What the quiet head would say (the slot tells the board). */
+const outcome = vi.fn();
+
+/** The board's own parts: a failed check is a row of Needs you, the rest is Current work. */
 function Host() {
-	const board = useSessionBoard(turn);
 	return (
 		<>
-			{board.failedCheck ? <FailedCheckSection check={board.failedCheck} /> : null}
-			<CurrentSection rows={board.rows} />
+			<ul data-needs="">
+				<NeedsCheck tag={{ word: "Check", tone: "danger" }} />
+			</ul>
+			<SessionSlot onOutcome={outcome} turn={turn} />
 			<FailedCheckWatch onChange={watched} />
 		</>
 	);
@@ -519,7 +524,7 @@ describe("Last check row", () => {
 		expect(check?.textContent).toContain("2.0s");
 		expect(check?.closest("button")?.getAttribute("title") ?? check?.getAttribute("title")).toBe("bunx vitest run");
 		expect(section("current")).not.toBeNull();
-		expect(section("check")).toBeNull();
+		expect(container.querySelector('[data-needs] [data-board-session="check"]')).toBeNull();
 	});
 
 	it("is absent when the session ran no check", async () => {
@@ -529,7 +534,7 @@ describe("Last check row", () => {
 		expect(section("current")).toBeNull();
 	});
 
-	it("a failed newest check is its own section, not a session row, and its tap asks the transcript for the call", async () => {
+	it("a failed newest check is a row of Needs you, not of Current work, and its tap asks the transcript for the call", async () => {
 		finished(
 			["b1", bash("bun run build", { startTime: 100, endTime: 200 })],
 			[
@@ -544,11 +549,13 @@ describe("Last check row", () => {
 			],
 		);
 		await mount();
-		const failed = section("check")?.querySelector('[data-board-session="check"]');
+		const failed = container.querySelector('[data-needs] [data-board-session="check"]');
 		expect(failed?.getAttribute("data-state")).toBe("failed");
 		expect(failed?.textContent).toContain("2 tests failed");
+		// It says what kind it is, in the word Needs you gives its rows.
+		expect(failed?.textContent).toMatch(/^Check/);
 		expect(container.querySelectorAll('[data-board-section="current"] [data-board-session="check"]')).toHaveLength(0);
-		// The strip hears it too (FailedCheckWatch, the strip's label "Check failed").
+		// The head and the strip hear it too (FailedCheckWatch): it is part of their Needs-you figure.
 		expect(watched).toHaveBeenLastCalledWith(true);
 		// The tap asks the board's own tab's transcript to open the card holding the call (it may be collapsed or
 		// not mounted), not the document at large.
@@ -566,7 +573,7 @@ describe("Last check row", () => {
 			["b2", bash("bun test", { startTime: 300, endTime: 400, result: result("4 pass", 0) })],
 		);
 		await mount();
-		expect(section("check")).toBeNull();
+		expect(container.querySelector('[data-needs] [data-board-session="check"]')).toBeNull();
 		expect(row("check")?.getAttribute("data-state")).toBe("passed");
 		expect(watched).toHaveBeenLastCalledWith(false);
 	});
@@ -778,5 +785,52 @@ describe("Current work section", () => {
 		await mount();
 		expect(rowKinds()).toEqual(["changes", "unlanded", "check", "dev-server", "peers", "recall"]);
 		expect(section("current")?.querySelector(".omp-work-board-title")?.textContent).toBe("Current work");
+	});
+});
+
+describe("What a quiet board's head says", () => {
+	const t = (key: string, params?: Record<string, string | number>) => translate(key, params);
+
+	it("names the files the last turn changed with their lines, before a passing check or an unlanded branch", async () => {
+		turn = { start: 500, end: null };
+		unlanded = { branch: "omp/agent/x", target: "main", truncated: false, files: [{ path: "a.ts", status: "M" }] };
+		finished(["e1", edit("src/a.ts", "+1 a", 600)], ["b1", bash("bun run build")]);
+		await mount();
+		expect(outcome).toHaveBeenLastCalledWith("1 file changed +1 −0");
+	});
+
+	it("falls back to the passing check, then to what the branch has not landed, then to nothing", () => {
+		const passed = {
+			kind: "check" as const,
+			check: {
+				kind: "test" as const,
+				state: "passed" as const,
+				count: 128,
+				command: "bun test",
+				key: "b1",
+				startedAt: 0,
+			},
+		};
+		const unlandedRow = {
+			kind: "unlanded" as const,
+			branch: "omp/agent/x",
+			target: "main",
+			files: 3,
+			added: 1,
+			removed: 0,
+			capped: false,
+		};
+		expect(quietOutcome(t, [passed, unlandedRow])).toBe("128 tests passed");
+		expect(quietOutcome(t, [unlandedRow])).toBe("Not in main yet · 3 files");
+		expect(quietOutcome(t, [{ kind: "recall", titles: ["x"] }])).toBeNull();
+		expect(quietOutcome(t, [])).toBeNull();
+	});
+
+	it("says nothing for a check that has not passed", () => {
+		const running = {
+			kind: "check" as const,
+			check: { kind: "test" as const, state: "running" as const, command: "bun test", key: "b1", startedAt: 0 },
+		};
+		expect(quietOutcome(t, [running])).toBeNull();
 	});
 });

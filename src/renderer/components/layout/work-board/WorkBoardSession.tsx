@@ -27,7 +27,7 @@ import { backgroundJobVerdicts } from "../../chat/completion-events";
 import { requestRevealStep } from "../../chat/work/reveal-step";
 import { useRunStores } from "../../chat/work/use-work-run";
 import { workOutcomes } from "../../chat/work/work-view";
-import { BoardRow, BoardSection, elapsedLabel, KindMark } from "./board-parts";
+import { BoardRow, BoardSection, elapsedLabel, KindMark, type RowTag } from "./board-parts";
 import {
 	type ChangesSummary,
 	type DevServer,
@@ -58,10 +58,8 @@ export type SessionRowModel =
 	| { kind: "recall"; titles: string[] };
 
 export interface SessionBoard {
-	/** The newest check when it failed: the board's own section. */
-	failedCheck: LastCheck | null;
-	/** Changed, not in main yet, last check (passed or running), dev servers, same checkout, memory: only those with
-	 * something to say. */
+	/** Changed, not in main yet, last check (passed or running; a failed one is a row of Needs you), dev servers, same
+	 * checkout, memory: only those with something to say. */
 	rows: SessionRowModel[];
 }
 
@@ -304,13 +302,13 @@ export function useSessionBoard(turn: TurnWindow | null = null): SessionBoard {
 		const company = summarizePeers(peers);
 		if (company) rows.push({ kind: "peers", ...company });
 		if (titles.length > 0) rows.push({ kind: "recall", titles });
-		return { failedCheck: check?.state === "failed" ? check : null, rows };
+		return { rows };
 	}, [changes, unlanded, check, servers, peers, titles]);
 }
 
 const plural = (count: number) => (count === 1 ? "" : "s");
 
-function CheckRow({ check }: { check: LastCheck }) {
+function CheckRow({ check, tag }: { check: LastCheck; tag?: RowTag }) {
 	const t = useT();
 	// The transcript of the board's own tab opens the card holding the call (a collapsed or unmounted one too).
 	const runtimeTabId = useRuntimeTabId();
@@ -332,6 +330,7 @@ function CheckRow({ check }: { check: LastCheck }) {
 	return (
 		<BoardRow
 			data={{ "data-board-session": "check", "data-state": check.state }}
+			tag={tag}
 			label={label}
 			lead={
 				<KindMark icon={FlaskConical} tone={running ? "info" : check.state === "passed" ? "success" : "danger"} />
@@ -564,16 +563,6 @@ function SessionRow({ row }: { row: SessionRowModel }) {
 	}
 }
 
-/** The newest check failed: its own section at the top of the board, tap shows the call in the transcript. */
-export function FailedCheckSection({ check }: { check: LastCheck }) {
-	const t = useT();
-	return (
-		<BoardSection id="check" title={t("workBoard.session.checkFailed")} tone="danger">
-			<CheckRow check={check} />
-		</BoardSection>
-	);
-}
-
 export function CurrentSection({ rows, aside }: { rows: SessionRowModel[]; aside?: string }) {
 	const t = useT();
 	if (rows.length === 0) return null;
@@ -587,16 +576,64 @@ export function CurrentSection({ rows, aside }: { rows: SessionRowModel[]; aside
 }
 
 /**
- * The board mounts these from a lazy chunk (the phone's first screen has no room for the rows' code): the failed
- * check at its top, the "Current work" section near its foot, and a watcher that tells the strip a check failed.
+ * What a quiet board's head says the last turn left, in one phrase: the files it changed with their lines, else its
+ * passing check, else what its branch has not landed; null when there is nothing to say (the head reads "Idle").
  */
-export function FailedCheckSlot() {
-	const check = useLastCheck();
-	return check?.state === "failed" ? <FailedCheckSection check={check} /> : null;
+export function quietOutcome(
+	t: (key: string, params?: Record<string, string | number>) => string,
+	rows: readonly SessionRowModel[],
+): string | null {
+	const changes = rows.find(row => row.kind === "changes");
+	if (changes?.kind === "changes") {
+		const files = t("chat.work.filesChanged", {
+			count: changes.capped ? `${changes.files}+` : changes.files,
+			plural: plural(changes.files),
+		});
+		return changes.capped ? files : `${files} +${changes.added} −${changes.removed}`;
+	}
+	const check = rows.find(row => row.kind === "check");
+	if (check?.kind === "check" && check.check.state === "passed") {
+		const { kind, count } = check.check;
+		return count !== undefined
+			? t(`chat.work.check.${kind}.passedCount`, { count })
+			: t(`chat.work.check.${kind}.passed`);
+	}
+	const unlanded = rows.find(row => row.kind === "unlanded");
+	if (unlanded?.kind !== "unlanded") return null;
+	return t("workBoard.current.unlanded", {
+		target: unlanded.target,
+		count: unlanded.capped ? `${unlanded.files}+` : unlanded.files,
+		plural: plural(unlanded.files),
+	});
 }
 
-export function SessionSlot({ turn, aside }: { turn: TurnWindow | null; aside?: string }) {
-	return <CurrentSection aside={aside} rows={useSessionBoard(turn).rows} />;
+/**
+ * The board mounts these from a lazy chunk (the phone's first screen has no room for the rows' code): the failed
+ * check as a row of Needs you, the "Current work" section near its foot (which also tells the head what the last
+ * turn left), and a watcher that tells the head and the strip a check failed.
+ */
+export function NeedsCheck({ tag }: { tag: RowTag }) {
+	const check = useLastCheck();
+	return check?.state === "failed" ? <CheckRow check={check} tag={tag} /> : null;
+}
+
+export function SessionSlot({
+	turn,
+	aside,
+	onOutcome,
+}: {
+	turn: TurnWindow | null;
+	aside?: string;
+	onOutcome: (outcome: string | null) => void;
+}) {
+	const t = useT();
+	const { rows } = useSessionBoard(turn);
+	const outcome = quietOutcome(t, rows);
+	useEffect(() => {
+		onOutcome(outcome);
+		return () => onOutcome(null);
+	}, [outcome, onOutcome]);
+	return <CurrentSection aside={aside} rows={rows} />;
 }
 
 export function FailedCheckWatch({ onChange }: { onChange: (failed: boolean) => void }) {

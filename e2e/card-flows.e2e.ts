@@ -114,7 +114,6 @@ async function installProbe(page: Page): Promise<void> {
 					head ? text(head, ".omp-work-sub") : "",
 					card.querySelector(".omp-execution-group-header")?.getAttribute("aria-label") ?? "",
 					`h${head?.offsetHeight ?? 0}`,
-					text(card, ".omp-work-catch-up"),
 					`lanes:${[...card.querySelectorAll(".omp-work-card-button")].map(lane => lane.textContent?.trim()).join(" | ")}`,
 				].join(" ¦ ");
 				if (signatures.get(id) !== sig) {
@@ -531,7 +530,6 @@ test("switching tabs away and back mid-run", async () => {
 		const backState = {
 			elapsedSeconds: Math.round((back - started) / 1000),
 			clock: await cards(page).last().locator(".omp-work-head-clock").textContent(),
-			catchUp: await page.locator(".omp-work-catch-up").allTextContents(),
 			head: await head(page).textContent(),
 		};
 		await page.waitForTimeout(1500);

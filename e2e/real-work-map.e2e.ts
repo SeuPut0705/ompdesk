@@ -76,8 +76,7 @@ test("real omp 18.8.7 streams inline subagent tools", async () => {
 			scale: "css",
 		});
 		await expect(page.locator('.omp-execution-group[data-state="running"]')).toHaveCount(0, { timeout: 180_000 });
-		await expect(page.locator(".omp-work-outcome")).toBeVisible();
-		await page.locator(".omp-work-outcome summary").click();
+		await expect(page.locator('.omp-live-step[data-outcome="true"]')).toBeVisible();
 		await page.screenshot({
 			path: path.join(evidenceDir, "real-work-complete.png"),
 			animations: "disabled",

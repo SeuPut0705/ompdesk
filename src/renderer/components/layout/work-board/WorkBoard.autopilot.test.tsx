@@ -15,6 +15,7 @@ import type {
 } from "../../../../../resources/gui-bridge/modes/autopilot-contracts";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { useAutopilotStore } from "../../../stores/autopilot";
+import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useSessionStore } from "../../../stores/session";
 import { useTabsStore } from "../../../stores/tabs";
 import { useToolsStore } from "../../../stores/tools";
@@ -172,6 +173,7 @@ afterEach(async () => {
 	useWorkBoardStore.getState().reset();
 	useToolsStore.getState().reset();
 	useSessionStore.getState().reset();
+	useExtensionUiStore.setState({ pendingRequests: [] });
 	useTabsStore.getState().reset();
 	useUiStore.setState({ panelVisible: false, panelTab: "diff" });
 });
@@ -203,6 +205,15 @@ describe("an Autopilot tab's work board", () => {
 		// The Goal under the run is not shown a second time.
 		expect($("[data-board-goal]")).toBeNull();
 		expect(useUiStore.getState().panelVisible).toBe(false);
+	});
+
+	it("lists what needs the person first, the run's own sections right after it", async () => {
+		useAutopilotStore.getState().apply(running);
+		useExtensionUiStore
+			.getState()
+			.pushRequest({ type: "extension_ui_request", id: "c1", method: "confirm", title: "Go?", message: "" });
+		await mount();
+		expect(sections().slice(0, 3)).toEqual(["needs", "autopilot", "cycles"]);
 	});
 
 	it("says it is picking an item before the cycle has one", async () => {

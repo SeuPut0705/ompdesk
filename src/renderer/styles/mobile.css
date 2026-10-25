@@ -613,6 +613,15 @@ html[data-input="touch"] [data-autopilot-controls] {
 	--hit-gap-y: 14px;
 }
 
+/* The Work tree's icon button ends its section's head, as the aside does: a 22 px box that reaches 36 (7 px each way,
+   14 px apart from the fold button beside it and bounded 14 px), 8 px in from the board's edge so its reach stays inside
+   the board and never makes a docked board scroll sideways. */
+html[data-input="touch"] .omp-work-board-title > .omp-work-board-action {
+	margin-inline-end: 8px;
+	--hit-gap-x: 14px;
+	--hit-gap-y: 14px;
+}
+
 html[data-input="touch"] .omp-work-board-title > .omp-work-board-aside {
 	padding-inline-end: 8px;
 	--hit-gap-x: 14px;
@@ -1139,8 +1148,18 @@ html[data-shell="phone"] .omp-live-step {
 	margin-block: var(--sc-space-0-5) var(--sc-space-1);
 }
 
-html[data-shell="phone"] .omp-work-outcome-content > .omp-work-outcome {
-	padding-inline: var(--sc-space-2-5, 10px);
+/* A phone's facts start at the card's own inset, not under the headline, and its chips are compact, so the usual
+   three fit one row; the dev-server chip is its globe alone (its name stays in the label read aloud and the tooltip). */
+html[data-shell="phone"] .omp-work-facts {
+	margin-inline: var(--sc-space-2-5, 10px);
+}
+
+html[data-shell="phone"] .omp-work-metric {
+	padding-inline: var(--sc-space-1-5);
+}
+
+html[data-shell="phone"] .omp-work-metric[data-work-finding="preview"] .omp-work-metric-label {
+	display: none;
 }
 
 html[data-shell="phone"] .omp-live-work-strip {
@@ -1477,11 +1496,10 @@ html[data-shell="phone"] [data-autopilot-run-actions] {
 	--hit-gap-y: 14px;
 }
 
-/* A finished work card's facts (the metric buttons, the cause under them) and its copy button sit 10 px apart (a
-   wrapped line 14 px) and reach 36 (26 px chips 4 px apart reached 26), and its outcome summary ("Result") is a touch
-   row tall. The row no longer tucks 4 px up under the headline, and keeps 10 px below, so the reach stays inside its
-   card. It sits 4 px under the head, whose 8 px of padding is the Steps toggle's 6 px reach: the cause's 6 px reach
-   up starts past it (flush, it took the toggle's bottom edge on a tablet). */
+/* A finished work card's facts (the verdict blocks, then the chip row) sit 14 px apart and the chips reach 36 (26 px
+   chips 4 px apart reached 26). The row no longer tucks 4 px up under the headline, and keeps 10 px below, so the
+   reach stays inside its card. It sits 4 px under the head, whose 8 px of padding is the Steps toggle's 6 px reach:
+   the first block's or chip's 6 px reach up starts past it (flush, it took the toggle's bottom edge on a tablet). */
 html[data-input="touch"] .omp-work-facts {
 	gap: 14px;
 	margin-top: 4px;
@@ -1494,9 +1512,14 @@ html[data-input="touch"] .omp-work-metrics {
 	--hit-gap-y: 10px;
 }
 
-/* The failing step's cause has no border: a 12 px bound makes its 24 px box 36. */
-html[data-input="touch"] .omp-work-facts > .omp-work-cause {
-	--hit-gap-y: 12px;
+/* A verdict block and its "+N more failed" line are each at least a touch row tall (a box is its reach); they sit
+   flush, so no reach grows into the other, and the 14 px gap keeps the group clear of the chips below. */
+html[data-input="touch"] .omp-work-verdict-group {
+	--hit-gap-y: 0px;
+}
+
+html[data-input="touch"] :is(.omp-work-verdict, .omp-work-verdict-more) {
+	min-height: var(--sc-row-touch);
 }
 
 /* A phone draws the chips 24 px (22 inside the border): 14 px apart each way and bounded at 14 they reach 36 (10 left
@@ -1521,15 +1544,13 @@ html[data-input="touch"] .omp-work-head-side {
 	--hit-gap-y: 12px;
 }
 
-/* The copy button is 24 px on a phone: a 14 px bound makes it 36 (the row's 10 left it 32); it sits apart at the
-   row's end, so its reach covers no chip. */
-html[data-shell="phone"] .omp-work-metrics > .omp-work-copy {
-	--hit-gap-x: 14px;
-	--hit-gap-y: 14px;
-}
-
-html[data-input="touch"] .omp-work-outcome summary {
-	min-height: var(--sc-row-touch);
+/* The copy button rides in the head beside the Steps toggle. It is 24 px on a phone: a 12 px bound each way makes it
+   36 (the head-side's 12 px bound already caps its vertical reach). Its 6 px of reach toward the toggle needs empty
+   ground, so it keeps 4 px more than the row's gap (8 px in all): the toggle's tap starts at its own edge, and the
+   audit's stolen-tap rule sees nothing taken. */
+html[data-input="touch"] .omp-work-head-side .omp-work-copy {
+	--hit-gap-x: 12px;
+	margin-inline-end: 4px;
 }
 
 /* Each address sits in 7 px above and below, inside its own row: the first one's reach stops short of the setting's
@@ -2173,7 +2194,7 @@ html[data-input="touch"] .omp-session-sidebar [data-sidebar-group-new][data-side
 		--hit-gap-y: 10px;
 	}
 
-	/* A work card's head: the "Steps" row is 36 px high (its step chips are 36 px taps under any finger, above). */
+	/* A work card's head: the "Steps" toggle row is 36 px high (an agent lane's step chips are 36 px taps, above). */
 	html[data-shell="phone"] :is(.omp-work-head-side, .omp-execution-group-header--embedded) {
 		min-height: 36px;
 	}

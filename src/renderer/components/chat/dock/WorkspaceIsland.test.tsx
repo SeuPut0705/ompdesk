@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RpcAsyncJobItem, RpcJobRow, SubagentSnapshot } from "../../../../shared/rpc-types";
 import { I18nProvider } from "../../../lib/i18n";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
+import { useSessionStore } from "../../../stores/session";
 import { useSidebarSubagentsStore } from "../../../stores/sidebar-subagents";
 import { useSubagentsStore } from "../../../stores/subagents";
 import { useTabsStore } from "../../../stores/tabs";
@@ -73,6 +74,7 @@ afterEach(async () => {
 	useTabsStore.getState().reset();
 	useSidebarSubagentsStore.setState({ reveal: null });
 	useUiStore.setState({ sidebarVisible: true });
+	useSessionStore.setState({ isStreaming: false });
 });
 
 describe("WorkspaceIsland", () => {
@@ -82,6 +84,15 @@ describe("WorkspaceIsland", () => {
 		await mount();
 		expect(getJobs).toHaveBeenCalled();
 		expect(container.querySelector("[data-workspace-island]")).toBeNull();
+	});
+
+	it("hides while a turn runs on the tab (the live work card says the same lanes), and shows again after", async () => {
+		useSubagentsStore.getState().setSnapshots([agent("a1", "running")]);
+		useSessionStore.setState({ isStreaming: true });
+		await mount();
+		expect(container.querySelector("[data-workspace-island]")).toBeNull();
+		await act(async () => useSessionStore.setState({ isStreaming: false }));
+		expect(segment("agents")).not.toBeNull();
 	});
 
 	it("counts working and waiting agents and the questions that block on the user, and reveals them", async () => {

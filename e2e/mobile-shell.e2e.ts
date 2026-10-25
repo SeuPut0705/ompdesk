@@ -347,13 +347,13 @@ for (const { engine, device } of variants(
 			await expect(chip).toHaveAttribute("aria-expanded", "true");
 			await expect(panel).toBeVisible();
 			await expect(panel.locator("[data-board-turn], [data-todo-status]").first()).toBeVisible();
-			// The plan's bar opens across the head's width: with the name and pulse out of the head's flow it once
-			// fell into the grid's first `auto` column and shrank to its 24 px floor.
-			const plan = await panel.locator(".omp-work-board-head").evaluate(head => ({
+			// The plan's bar opens across its header's width: it once fell into a grid's first `auto` column and shrank to
+			// its 24 px floor.
+			const plan = await panel.locator("[data-board-section='plan'] .omp-work-board-title").evaluate(head => ({
 				head: head.getBoundingClientRect().width,
 				bar: head.querySelector(".omp-work-board-segments")?.getBoundingClientRect().width ?? 0,
 			}));
-			expect(plan.bar).toBeGreaterThan(plan.head * 0.6);
+			expect(plan.bar).toBeGreaterThan(plan.head * 0.5);
 			// The harness session's Current work rows (a lazy chunk, the branch's not-in-main read) land after the panel opens and grow it: measure
 			// the panel once they are in, or a tap "below" it lands inside.
 			await expect(panel.locator("[data-board-section='current']")).toBeVisible();

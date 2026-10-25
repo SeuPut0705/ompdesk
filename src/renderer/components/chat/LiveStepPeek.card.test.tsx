@@ -124,17 +124,15 @@ describe("head sub line", () => {
 		await tools([["eval", call("eval", { code: "1 + 1", language: "js" })]]);
 		await show(<LiveStepPeek thinkingLive={false} toolCallIds={["eval"]} />);
 		expect(narrative()).toBe("Run JavaScript");
-		// The stage heading and the replay chip call the step by the head's own words.
+		// The stage heading calls the step by the head's own words; the card draws no strip of icon chips.
 		const heading = () => container.querySelector(".omp-live-work-heading > span.shrink-0")?.textContent;
-		const chip = () => container.querySelector(".omp-live-work-chip[data-step-id]")?.getAttribute("aria-label");
 		expect(heading()).toBe("Run JavaScript");
-		expect(chip()).toBe("1. Run JavaScript");
+		expect(container.querySelector(".omp-live-work-chip[data-step-id]")).toBeNull();
 		// Its sub line never repeats the language or title the narrative already states.
 		expect(sub()).not.toContain("js");
 		await tools([["eval", call("eval", { code: "1 + 1", language: "py", title: "Count rows" })]]);
 		expect(narrative()).toBe("Count rows");
 		expect(heading()).toBe("Run Python");
-		expect(chip()).toBe("1. Run Python · Count rows");
 		expect(sub()).not.toContain("Count rows");
 	});
 });
@@ -176,29 +174,6 @@ describe("silent command", () => {
 		expect(silent()?.querySelector(".omp-bash-badge")?.textContent).toBe("exit 3");
 		expect(container.querySelector(".omp-work-stage")?.textContent).not.toContain("(no output)");
 		expect(silent()?.querySelector(".omp-work-clock")).toBeNull();
-	});
-});
-
-describe("catch-up note", () => {
-	it("does not outlive the live run", async () => {
-		// Seen-step counts persist per store and group: ids unique to this test.
-		await tools([["gone-a", call("bash", { command: "echo a" }, { status: "done", endTime: 1 })]]);
-		await show(<LiveStepPeek thinkingLive={false} toolCallIds={["gone-a", "gone-b"]} />);
-		Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
-		await act(async () => document.dispatchEvent(new Event("visibilitychange")));
-		await tools([
-			["gone-a", call("bash", { command: "echo a" }, { status: "done", endTime: 1 })],
-			["gone-b", call("bash", { command: "echo b" }, { startTime: 2 })],
-		]);
-		Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
-		await act(async () => document.dispatchEvent(new Event("visibilitychange")));
-		expect(container.querySelector(".omp-work-catch-up")).not.toBeNull();
-		await tools([
-			["gone-a", call("bash", { command: "echo a" }, { status: "done", endTime: 1 })],
-			["gone-b", call("bash", { command: "echo b" }, { startTime: 2, status: "error", isError: true, endTime: 3 })],
-		]);
-		await show(<LiveStepPeek thinkingLive={false} toolCallIds={["gone-a", "gone-b"]} state="failed" />);
-		expect(container.querySelector(".omp-work-catch-up")).toBeNull();
 	});
 });
 

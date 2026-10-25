@@ -2,21 +2,45 @@ import { create } from "zustand";
 
 /** The work board's sections, in the order it lists them. */
 export type WorkBoardSectionId =
+	| "needs"
 	| "autopilot"
 	| "cycles"
 	| "ship"
 	| "followups"
-	| "waiting"
-	| "check"
 	| "review"
-	| "turn"
-	| "running"
-	| "opened"
-	| "todos"
-	| "goal"
+	| "now"
+	| "plan"
 	| "current";
 
 const PREF = "workBoardCollapsed";
+
+const SECTION_IDS: readonly WorkBoardSectionId[] = [
+	"needs",
+	"autopilot",
+	"cycles",
+	"ship",
+	"followups",
+	"review",
+	"now",
+	"plan",
+	"current",
+];
+
+/**
+ * The folds a saved pref holds that today's board still has. An id of the board before the four zones (23 Oct 2026:
+ * waiting, check, turn, running, opened, todos, goal) is dropped, not mapped to the zone that took its rows: one fold
+ * of a single old section would fold a whole zone (a folded failed check, Needs you; a folded child list, Now), and
+ * unfolded is the safe default. Read once when the pref loads; the next fold the person makes writes today's ids back.
+ */
+export function migrateCollapsed(saved: unknown): Partial<Record<WorkBoardSectionId, true>> {
+	if (!saved || typeof saved !== "object") return {};
+	const folded: Partial<Record<WorkBoardSectionId, true>> = {};
+	for (const [id, value] of Object.entries(saved)) {
+		const known = SECTION_IDS.find(section => section === id);
+		if (known && value === true) folded[known] = true;
+	}
+	return folded;
+}
 
 interface WorkBoardStore {
 	/** Sections the user folded to their header; kept across launches and shared by every pane. */
@@ -42,25 +66,7 @@ export const useWorkBoardStore = create<WorkBoardStore>()((set, get) => ({
 		set({ hydrated: true });
 		try {
 			const saved = await window.omp?.prefs?.get?.(PREF);
-			if (!saved || typeof saved !== "object") return;
-			const known: WorkBoardSectionId[] = [
-				"autopilot",
-				"cycles",
-				"ship",
-				"followups",
-				"waiting",
-				"check",
-				"review",
-				"turn",
-				"running",
-				"opened",
-				"todos",
-				"goal",
-				"current",
-			];
-			const collapsed = Object.fromEntries(
-				known.filter(id => (saved as Record<string, unknown>)[id] === true).map(id => [id, true as const]),
-			);
+			const collapsed = migrateCollapsed(saved);
 			set(state => ({ collapsed: { ...collapsed, ...state.collapsed } }));
 		} catch {
 			// Unfolded is the safe default.

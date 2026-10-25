@@ -18,7 +18,7 @@ import { useOpenedChildren } from "../../../hooks/use-opened-children";
 import { lazyChunk } from "../../../lib/chunk-load";
 import { useT } from "../../../lib/i18n";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
-import { isAutopilotTab, useAutopilotStore } from "../../../stores/autopilot";
+import { isAutopilotTab, isLiveAutopilot, useAutopilotStore } from "../../../stores/autopilot";
 import { isUserBlockingRequest, useExtensionUiStore } from "../../../stores/extension-ui";
 import { usePlanApprovalStore } from "../../../stores/plan-approval";
 import { useSessionStore } from "../../../stores/session";
@@ -27,7 +27,7 @@ import { useSubagentsStore } from "../../../stores/subagents";
 import { useTabsStore } from "../../../stores/tabs";
 import { selectTodoCardVisible, useTodoStore } from "../../../stores/todo";
 import { useAutopilotStateText } from "../../autopilot/use-autopilot-state-text";
-import { liveSubagents, todoBoard } from "./work-board";
+import { boardCounts, liveSubagents, todoBoard, workingSubagents } from "./work-board";
 
 const PANEL_ID = "omp-work-strip-panel";
 /** Exit time of the panel's height transition (mobile.css `omp-strip-out`). */
@@ -170,28 +170,37 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 	const runText = useAutopilotStateText();
 	const ended = useAutopilotStore(state => isAutopilotTab(state) && state.status.state === "ended");
 	const autopilotState = runText ?? (ended ? t("autopilot.state.ended") : null);
+	const autopilotRunning = useAutopilotStore(state => isLiveAutopilot(state) && state.status.state === "running");
 
-	const waiting = blocking.length + (planProposal ? 1 : 0) + opened.counts.waiting;
-	const running = agents.length + jobs.length + opened.counts.running;
-	// A failed check is said right after what waits on the person: the board puts it at its top too. Its rules are the
-	// session rows' lazy chunk (the phone's first screen has no room), which reports here once loaded.
+	// A failed check is a row of Needs you, so it is said with what waits on the person: the board counts it in the same
+	// figure. Its rules are the session rows' lazy chunk (the phone's first screen has no room), which reports here
+	// once loaded.
 	const [failed, setFailed] = useState(false);
+	const counts = boardCounts({
+		asks: blocking.length + (planProposal ? 1 : 0),
+		childrenWaiting: opened.counts.waiting,
+		childrenRunning: opened.counts.running,
+		checkFailed: failed,
+		agents: agents.length,
+		agentsWorking: workingSubagents(agents).length,
+		jobs: jobs.length,
+		turnWorking: turnActive || autopilotRunning,
+	});
+	const running = counts.running + counts.childrenRunning;
 	const label =
-		waiting > 0
-			? t("workBoard.status.waiting", { count: waiting })
-			: failed
-				? t("workBoard.session.checkFailed")
-				: autopilotState
-					? `${t("autopilot.name")} · ${autopilotState}`
-					: plan
-						? t("workBoard.planProgress", { done: plan.done, total: plan.total })
-						: turnActive
-							? t("workBoard.step.working")
-							: running > 0
-								? `${t("workBoard.running")} · ${running}`
-								: goal
-									? t("workBoard.goal")
-									: null;
+		counts.needs > 0
+			? t("workBoard.head.needs", { count: counts.needs, s: counts.needs === 1 ? "s" : "" })
+			: autopilotState
+				? `${t("autopilot.name")} · ${autopilotState}`
+				: plan
+					? t("workBoard.planProgress", { done: plan.done, total: plan.total })
+					: turnActive
+						? t("workBoard.step.working")
+						: running > 0
+							? `${t("workBoard.running")} · ${running}`
+							: goal
+								? t("workBoard.goal")
+								: null;
 	// What the strip says is gone (the run ended and the board emptied): nothing to expand either.
 	useEffect(() => {
 		if (label === null && open) close();
@@ -222,7 +231,7 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 		const to = event.changedTouches[0]?.clientY;
 		if (open && from !== null && to !== undefined && from - to >= SWIPE_UP_PX) close();
 	};
-	const state = waiting > 0 ? "waiting" : turnActive || running > 0 ? "working" : "idle";
+	const state = counts.pulse;
 	return (
 		<div className="omp-work-strip" data-work-strip="" ref={root}>
 			{watch}
@@ -242,7 +251,7 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 			>
 				<span aria-hidden className="omp-work-board-pulse" data-state={state} />
 				<span aria-live="polite" className="omp-work-chip-label" role="status">
-					{plan && waiting === 0 && !failed && !autopilotState ? (
+					{plan && counts.needs === 0 && !autopilotState ? (
 						<>
 							<span className="sr-only">{label}</span>
 							<span aria-hidden className="omp-work-chip-plan">
@@ -255,7 +264,7 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 								{plan.active ? <span className="omp-work-chip-active">{plan.active}</span> : null}
 							</span>
 						</>
-					) : waiting === 0 && !failed && autopilotState ? (
+					) : counts.needs === 0 && autopilotState ? (
 						// A run is its rocket, then its state (the user's call, 23 Oct 2026); the word is for screen readers.
 						<span className="inline-flex min-w-0 items-center gap-1.5">
 							<Rocket aria-hidden className="size-(--sc-icon-sm) shrink-0" data-work-chip-run />

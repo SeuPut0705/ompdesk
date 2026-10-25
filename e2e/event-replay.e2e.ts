@@ -3,9 +3,9 @@
  * tool frame a second time behind the next one (`OMP_GUI_TEST_REPLAY_FRAMES`), and main holds
  * each batch for 400 ms (`OMP_GUI_TEST_BATCH_INTERVAL_MS`), so transcript snapshots taken on a
  * tab switch overtake the frames they already hold. The run must still end as it ran: every
- * step settled, each command counted once, the outcome shown, and every finished head shows its
+ * step settled, each command counted once, the facts shown, and every finished head shows its
  * whole summary row (the inline work card's walk itself is component-tested: ExecutionGroup,
- * WorkOutcome, LiveStepPeek).
+ * work-outcomes, LiveStepPeek).
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -55,12 +55,10 @@ test("a work run whose frames arrive late and twice ends without phantom or dupl
 		await advance();
 		await advance();
 		await page.locator(`[data-session-path="tab:${tab}"]`).click();
-		await expect(page.locator(".omp-work-catch-up")).toContainText(/steps? advanced while you were away/);
-		await page.locator(".omp-work-catch-up").click();
 		// Each step taken while frames of the last one are still in flight.
 		for (let index = 0; index < 8; index++) await advance();
 
-		await expect(page.locator(".omp-work-outcome")).toBeVisible();
+		await expect(page.locator('.omp-execution-group[data-state="complete"]').last()).toBeVisible();
 		// No step is left running behind the outcome, and nothing counts twice.
 		await expect(page.locator(".omp-execution-group-header[aria-label*='running']")).toHaveCount(0);
 		// Three commands: one type check, which reads as its result, and two others. The head's accessible
@@ -76,13 +74,10 @@ test("a work run whose frames arrive late and twice ends without phantom or dupl
 				.locator(".omp-execution-group")
 				.last()
 				.screenshot({ path: `${process.env.OMP_GUI_WORK_CARD_SHOTS}/desktop-en-light.png` });
-		await page.locator(".omp-work-outcome summary").click();
-		await expect(page.locator(".omp-work-outcome li").filter({ hasText: "wc -l src/workspace.ts" })).toHaveCount(2);
-		await expect(page.locator('.omp-work-outcome li[data-kind="command"] [role="img"]').first()).toHaveAttribute(
-			"aria-label",
-			"Passed",
-		);
-		await expect(page.locator(".omp-work-outcome")).not.toContainText("exit 0");
+		// The steps behind the head's toggle list the run's commands; the card itself carries no outcome list.
+		await page.locator(".omp-execution-group-header").last().click();
+		await expect(page.locator(".omp-execution-group-body").last()).toContainText("bun run check:types");
+		await expect(page.locator(".omp-work-outcome, .omp-live-work-strip")).toHaveCount(0);
 		await expect(page.getByText("Live workspace finished", { exact: true })).toHaveCount(1);
 		// At normal width no summary part (duration, counts, meter) is ellipsized or dropped.
 		await expect

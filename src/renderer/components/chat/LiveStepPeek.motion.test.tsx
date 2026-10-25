@@ -257,7 +257,7 @@ it("never puts a read file's last line under the head", async () => {
 	expect(container.querySelector(".omp-work-head .omp-work-sub")?.textContent).toBe("\u00a0");
 });
 
-it("#2 #3 opens the stage through a clip that can animate and closes it in the same move as the outcome", async () => {
+it("#2 #3 opens the stage through a clip that can animate and closes it as the run ends", async () => {
 	await tools([["run", bash("echo hi")]]);
 	await show(<LiveStepPeek thinkingLive={false} toolCallIds={["run"]} />);
 	const shell = container.querySelector(".omp-work-stage-shell");
@@ -271,9 +271,9 @@ it("#2 #3 opens the stage through a clip that can animate and closes it in the s
 	);
 	await tools([["run", bash("echo hi", { status: "done", endTime: 2 })]]);
 	await show(<LiveStepPeek thinkingLive={false} toolCallIds={["run"]} state="complete" />);
-	// One move: the stage folds while the outcome unfolds, then the folded stage leaves.
+	// One move: the stage folds as the run ends, then the folded stage leaves; the card has no outcome list to unfold.
 	expect(container.querySelector(".omp-work-stage-shell")?.getAttribute("data-open")).toBe("false");
-	expect(container.querySelector(".omp-work-outcome-shell")).not.toBeNull();
+	expect(container.querySelector(".omp-work-outcome-shell, .omp-work-outcome")).toBeNull();
 	await act(async () => vi.advanceTimersByTime(220));
 	expect(container.querySelector(".omp-work-stage-shell")).toBeNull();
 });
@@ -426,13 +426,13 @@ it("#25 #35 an open lane's steps replace the card's strip, named for the agent; 
 	expect(container.querySelectorAll("[role=region]")).toHaveLength(1);
 });
 
-it("#35 the strip is one tab stop and arrow keys move along it", async () => {
+it("#35 an agent lane's strip is one tab stop and arrow keys move along it", async () => {
 	await tools([
 		["a", bash("echo a", { status: "done", endTime: 1 })],
 		["b", bash("echo b", { startTime: 2, status: "done", endTime: 3 })],
 		["c", bash("echo c", { startTime: 4 })],
 	]);
-	await show(<LiveStepPeek thinkingLive={false} toolCallIds={["a", "b", "c"]} />);
+	await show(<LiveStepPeek nested thinkingLive={false} toolCallIds={["a", "b", "c"]} />);
 	const chips = () => [...container.querySelectorAll<HTMLButtonElement>("[data-step-id]")];
 	const stops = () => chips().map(chip => chip.getAttribute("tabindex"));
 	expect(stops()).toEqual(["-1", "-1", "0"]);
@@ -447,25 +447,6 @@ it("#35 the strip is one tab stop and arrow keys move along it", async () => {
 	expect(stops()).toEqual(["0", "-1", "-1"]);
 	await press(chips()[0], "End");
 	expect(stops()).toEqual(["-1", "-1", "0"]);
-});
-
-it("#28 the catch-up chip rides in the strip, colorless", async () => {
-	// Seen-step counts persist per store and group: ids unique to this test.
-	await tools([["away-a", bash("echo a", { status: "done", endTime: 1 })]]);
-	await show(<LiveStepPeek thinkingLive={false} toolCallIds={["away-a", "away-b"]} />);
-	Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
-	await act(async () => document.dispatchEvent(new Event("visibilitychange")));
-	await tools([
-		["away-a", bash("echo a", { status: "done", endTime: 1 })],
-		["away-b", bash("echo b", { startTime: 2 })],
-	]);
-	Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
-	await act(async () => document.dispatchEvent(new Event("visibilitychange")));
-	const chip = container.querySelector(".omp-work-catch-up");
-	expect(chip?.textContent).toBe("1 step advanced while you were away");
-	expect(chip?.parentElement?.className).toBe("omp-live-work-strip");
-	expect(chip?.className).toContain("omp-live-work-chip");
-	expect(rule(".omp-work-catch-up")).not.toMatch(/accent|background/);
 });
 
 it("#7 a note arriving mid-step does not re-run the narrative's fade", async () => {

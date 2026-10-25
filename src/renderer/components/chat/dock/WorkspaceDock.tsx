@@ -1,13 +1,11 @@
 /**
- * Workspace dock: the region between the transcript and the composer. While
- * this tab's transcript has a live work tail (state, not a card mount), that
- * tail carries todo progress, the goal and every subagent lane, so the dock keeps only
- * the plan-mode card; otherwise it shows the todo list (collapsed to one line)
- * and the goal strip. A plan proposal awaiting a decision carries the plan and
- * its choices itself, so the plan card steps aside until it is answered.
- * Subagents never get a card of their own: while a turn runs their lanes live
- * in the work card and the roster in the sidebar; between turns the island
- * row sums up agents still working or waiting and running background shells.
+ * Workspace dock: the region between the transcript and the composer. It holds the plan-mode card, the todo list
+ * (collapsed to one line), the goal strip and the island (which hides itself while a turn runs: the work card then
+ * says its agents and sessions). The work card draws no todo or goal: the dock (and the work board, where it docks)
+ * is the one place the todo progress and the goal live.
+ * A plan proposal awaiting a decision carries the plan and its choices itself, so the plan card steps aside until it
+ * is answered. Subagents never get a card of their own: while a turn runs their lanes live in the work card and the
+ * roster in the sidebar; the island row sums up agents still working or waiting and running background shells.
  * The dock still owns the stream-time roster poll, since it is mounted in every tab.
  * Each card self-gates its visibility, so the region collapses to zero height
  * on an idle session; the stack scrolls within a capped height so the composer
@@ -16,14 +14,12 @@
  */
 
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSubagentRosterPoll } from "../../../hooks/use-subagent-roster-poll";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
-import { liveWorkKey, useLiveWorkStore } from "../../../stores/live-work";
 import { usePlanApprovalStore } from "../../../stores/plan-approval";
 import { useSessionStore } from "../../../stores/session";
-import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { selectTodoCardVisible, useTodoStore } from "../../../stores/todo";
 import { PanelErrorBoundary } from "../../common";
 import { GoalDockBar } from "./GoalDockBar";
@@ -49,19 +45,13 @@ function defaultFocusHeight(): number {
 }
 
 function WorkspaceDockContent() {
-	const { focusedCard, clearFocus } = useWorkspaceDockFocus();
+	const { focusedCard } = useWorkspaceDockFocus();
 	const t = useT();
 	const proposalPending = usePlanApprovalStore(s => s.pending !== null);
 	const planCardVisible = useSessionStore(state => state.planModeEnabled) && !proposalPending;
-	const tabId = useRuntimeTabId();
-	// The running work card shows todos and the goal itself.
-	const carriedByWork = useLiveWorkStore(state => state.cards[liveWorkKey(tabId)] ?? false);
-	const goalVisible = useSessionStore(state => state.goal !== null) && !carriedByWork;
-	const todoVisible = useTodoStore(selectTodoCardVisible) && !carriedByWork;
+	const goalVisible = useSessionStore(state => state.goal !== null);
+	const todoVisible = useTodoStore(selectTodoCardVisible);
 	const cardsVisible = planCardVisible || todoVisible;
-	useLayoutEffect(() => {
-		if (carriedByWork && focusedCard === "todo") clearFocus();
-	}, [carriedByWork, focusedCard, clearFocus]);
 
 	// Focused-card height: user-resizable via the drag handle above the stack,
 	// persisted across launches. null = fall back to the viewport-derived cap.
@@ -126,15 +116,11 @@ function WorkspaceDockContent() {
 		persistHeight(next);
 	};
 
-	if (!cardsVisible && !goalVisible && carriedByWork) return null;
-
 	return (
 		<div className="flex flex-col gap-2 pb-2 empty:hidden" data-focused-card={focusedCard ?? undefined}>
-			{!carriedByWork && (
-				<PanelErrorBoundary>
-					<WorkspaceIsland />
-				</PanelErrorBoundary>
-			)}
+			<PanelErrorBoundary>
+				<WorkspaceIsland />
+			</PanelErrorBoundary>
 			{cardsVisible && (
 				<>
 					{focusedCard && (

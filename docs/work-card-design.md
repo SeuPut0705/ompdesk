@@ -86,3 +86,62 @@ agent lanes do not say; all of them stay in its accessible name and in Copy summ
 conclusions are content), the card is one frame with no rule inside, the replay strip is labeled, and opened steps sit
 inside the frame on a quiet well. B's idea of folding the agents behind a metric was dropped: nothing visible by default
 hides behind a click.
+
+## Redesign round 2 (25 Oct 2026): one surface
+
+Round 1 polished the structure. Its problems, from the card on the harness (`?card=pass|fail|cmd|one|live`, `?board=busy&children=wait`):
+three views of the same commands (metric row, the "Outcome" disclosure, the opened steps), with the disclosure a
+collapsed row that said nothing until opened; a row of unlabeled tool icons repeating the head's toggle; a head that said
+"39.0s 1 command" beside chips that already said it; "✕ Tests 2" (2 what?); a live card whose ~270 px stage dumped a
+coordination call's raw arguments over empty space, with the goal and todo drawn inside it while the dock and the board
+showed them too; a cause line that `truncate` cut to one line though its two-line clamp was written; and a one-command
+card 105 px tall. Two directions were built as throwaway prototypes (CSS keyed on `html[data-design]`, one harness flag)
+and captured at 1440 and 390, Korean dark and English light:
+
+| | before | X: one surface | Y: outcome list |
+| --- | --- | --- | --- |
+| Finished, shape | head, chips, cause, lanes, Outcome, media, strip | head, **verdict block** (failed), chips, lanes, media | head, one always-visible row per file group, check and failed command, lanes, media |
+| Passing run, 1440 / 390 | 321 / 411 px | **259 / 303** | 344 / 413 |
+| Failed check, 1440 / 390 | 353 / 449 | **312 / 383** | 344 / 413 |
+| Failed non-check command | 353 / 449 | **330 / 383–421** | 373 / 450 |
+| One-command card | 105 / 111 | 43 / 41 | 43 / 41 |
+| Live, several steps | 483 / 514 | 282 / 317 | **180 / 215** |
+| Live, waiting on children | 484 / 493 | **123 / 136** | 123 / 136 |
+| Cause readable | one line, cut | two lines, whole | one line in a row, cut at about 40 characters |
+| Live output | stage, 270 px | stage, 160 px, every tool's surface | last three lines of a command only; diffs and reads not shown |
+
+**Pick: X.** A passing run is the common one, and Y's rows make it taller than today (344 against 321) because it always
+shows three or four rows; X is 259. A failing run reads in one pass in X: the verdict, the exit code and the whole cause in
+one block. Y keeps the cause to the width of one row (the user's one-line rule), so the thing a person scanning a red card
+wants is cut. Y's live card is the shortest, but only because it drops the stage: an edit or a read in progress would no
+longer be visible, which is the live card's reason to exist. X keeps every tool's own surface in a stage that is 160 px
+for every step (a measured 483 to 282 px in the harness, the head and the stage the same height across five kinds of
+step) and removes what was wrong with it.
+
+What shipped, and where the facts of what was deleted live now:
+
+- **The head** draws its time, one step-count toggle and the copy button (`omp-work-copy`, 36 px to reach, over nothing of
+  the toggle's tap), plus the token meter. "N commands", "N failed" and the read/search counts are gone; every fact stays in
+  the toggle's accessible name and in Copy summary.
+- **A failed check or command is a verdict block** (`data-work-finding="error"`): its sentence ("2 tests failed", "git push
+  failed"), the exit code on its right, the cause under it up to two lines (the `truncate` class that defeated the clamp is
+  gone), one button that opens the failing step. Passing checks stay short chips (Tests 128), then Files N +a −r, Preview,
+  and a chip for a stopped command or one whose result never arrived.
+- **The Outcome disclosure is deleted.** Its exit code is on the verdict block; its per-file +/− is in Changes (the Files chip
+  opens it) with the total on the chip; its per-command verdicts are the chips and, per call, each `ToolCard` in the opened
+  steps. It was collapsed by default, so nothing visible by default went. Pictures, audio and video it also drew stay
+  (`WorkMedia`).
+- **The replay strips are deleted**, finished and live, with the "while you were away" chip (`chat.work.catchUp`): the strip
+  repeated the head's toggle, and a card that is open lists every step. The strip of an agent lane the reader opened stays.
+- **The live card draws no goal and no todo row.** The dock above the composer and the work board carry them
+  (`WorkspaceDock` no longer yields to the card: `carriedByWork` and `stores/live-work.ts` are gone, with `GoalDockBar`'s and
+  `AutopilotDockRow`'s inline mode and `WorkTodo`). A finished card keeps its recorded todo as one read-only row.
+- **A coordination call is said in words** (`work/coordination.ts`): "Continues when one of 2 sessions reports", "…all 3
+  sessions report", "Waiting on Skill packs", "Waiting on your sessions", else "Working with your sessions". Raw arguments
+  are never drawn, and the stage keeps the last real surface dimmed (or never opens) instead of an argument table.
+- **A command that has printed nothing** sits as a prompt line at the top of the stage, not as a pill in the middle of an
+  empty one.
+
+Phone: the facts start at the card's inset, the chips are compact and the dev-server chip is its globe alone, so the usual
+three chips fit one row; with four chips (files, two checks, preview) they still wrap, because a phone's chips keep their
+14 px touch gap.

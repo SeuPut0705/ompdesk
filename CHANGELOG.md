@@ -1,5 +1,45 @@
 # Changelog
 
+## [0.74.0] - 2026-10-25
+
+작업 상자와 작업 현황을 한 번 더 새로 짜서, 같은 내용을 두세 번 말하던 곳을 없애고 화면 하나에 다 들어오게 했어요.
+
+### 작업 상자
+- 실패는 맨 위 빨간 판정 블록 하나로 보여 줘요. 무엇이 실패했는지("타입 검사 실패", "git push 실패"), 종료 코드, 원인 두 줄이 한 번에 읽히고, 누르면 그 단계가 열려요. 실패가 여러 개면 같은 블록 안에 "+N개 더 실패"로 접어요.
+- 통과한 검사, 바뀐 파일, 미리보기는 짧은 칩으로 남기고, 접혀 있던 "결과" 목록과 아래 도구 아이콘 줄은 없앴어요. 같은 내용은 칩, 판정 블록, 펼친 단계 목록, 요약 복사에 있어요. 머리에는 시간과 단계 수만 남아요.
+- 실행 중인 상자는 단계 화면이 160px로 고정되어 단계가 바뀌어도 높이가 흔들리지 않아요. 하위 세션을 기다리는 동안에는 도구 인수 대신 "하위 세션 2개 중 하나가 보고하면 이어가요"처럼 말로 보여 줘요.
+- 목표와 할 일은 실행 중인 상자 안에 다시 그리지 않고, 입력창 위 목표 바와 작업 현황에서만 보여요.
+- 높이: 실패한 상자 353→312px, 한 단계 상자 105→43px, 실행 중 483→282px, 하위 세션 대기 484→123px.
+
+### 작업 현황
+- 네 구역으로 묶었어요. **확인이 필요해요**(질문, 계획 검토, 실패한 검사, 답변을 기다리는 하위 세션), **지금**(진행 중인 단계, 하위 에이전트, 백그라운드 작업, 일하는 하위 세션), **목표와 할 일**, **현재 작업**이에요.
+- 맨 위는 한 줄로 끝나요("3개 확인이 필요해요 · 실행 6"). 쉬는 동안에는 "대기 중" 대신 마지막 턴이 남긴 결과를 말해요.
+- 왼쪽 사이드바에 사용 한도가 펼쳐져 있으면 작업 현황의 한도 게이지는 숨겨요. 휴대폰과 사이드바를 접은 창에서는 그대로 보여요.
+- 1600×1000 창에서 보드 전체가 스크롤 없이 들어와요(1013→850px).
+
+### 성능 (v0.73.1과 같은 세션으로 비교, 3회 중앙값)
+- 응답이 흐르는 동안 렌더러 CPU 44.8→38.3%, GPU 17.2→14.8%. 탭 전환 중 긴 프레임 합계 188→54ms.
+
+<!-- en -->
+
+The work card and the work board are restructured once more: what was said two or three times is said once, and each fits one screen.
+
+### Work card
+- A failure is one red verdict block at the top: what failed ("type check failed", "git push failed"), its exit code and two lines of cause, read at once; a tap opens that step. More failures fold into "+N more failed" inside the same block.
+- Passing checks, changed files and the preview stay as short chips; the collapsed "Outcome" list and the tool icon strip are gone. Their facts live in the chips, the verdict block, the opened steps and Copy summary. The head keeps only the time and the step count.
+- A running card's stage is a fixed 160 px, so it never jumps between steps. While it waits on child sessions it says so in words ("Continues when one of 2 sessions reports") instead of the tool's arguments.
+- The goal and todos are no longer drawn again inside a running card; the goal bar over the composer and the work board show them.
+- Heights: failed card 353→312 px, one-step card 105→43 px, running 483→282 px, waiting on children 484→123 px.
+
+### Work board
+- Four zones: **Needs you** (questions, plan review, a failed check, child sessions waiting for an answer), **Now** (the current step, subagents, background jobs, working child sessions), **Goal & todos**, and **Current work**.
+- The head is one line ("3 need you · 6 running"); between turns it says what the last turn left instead of "Idle".
+- While the sidebar shows its usage block expanded, the board hides its quota gauges; phones and windows with the sidebar folded keep them.
+- At 1600×1000 the whole board fits without scrolling (1013→850 px).
+
+### Performance (same session as v0.73.1, median of 3 runs)
+- While a reply streams: renderer CPU 44.8→38.3 %, GPU 17.2→14.8 %. Long frames while switching tabs 188→54 ms in total.
+
 ## [0.73.1] - 2026-10-25
 
 작업 현황 맨 위 문장이 하위 세션만 실행 중일 때도 "작업 중…"이라고 말해요.

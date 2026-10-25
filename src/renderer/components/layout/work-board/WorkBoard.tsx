@@ -1,7 +1,8 @@
 /**
- * Work board: this session's live state docked in the right margin of a wide session pane —
- * questions waiting on the user, the current turn with its last steps, running agents and
- * background jobs, the todo list, the goal and, once idle, a line on the last turn. Everything is
+ * Work board: this session's live state docked in the right margin of a wide session pane, in four
+ * zones — Needs you (a question or approval, a plan up for review, a failed check, a session the agent
+ * opened that waits for an answer), Now (the turn's current step, subagents, jobs, sessions at work),
+ * the plan (the goal, then the todos) and Current work (what the turn left). Everything is
  * read from the stores and bridge data the rest of the app already keeps; nothing here derives
  * state of its own.
  *
@@ -14,17 +15,7 @@
  */
 
 import { Bot, Check, Rocket, SquareTerminal, Target } from "lucide-react";
-import {
-	type CSSProperties,
-	Fragment,
-	lazy,
-	Suspense,
-	useEffect,
-	useLayoutEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
+import { type CSSProperties, lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { SessionSpend } from "../../../../../resources/gui-bridge/model-setup-contracts";
 import type { RpcGoalState, SubagentSnapshot } from "../../../../shared/rpc-types";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
@@ -60,10 +51,21 @@ import { statusMeta, subagentElapsedMs, subagentPrimaryLabel } from "../../panel
 import { getToolHeader } from "../../tools/index";
 import { AccountLimit } from "../AccountLimit";
 import { childUsageText } from "../sidebar/sidebar-family";
-import { BoardRow, BoardSection, CappedRows, Dot, elapsedLabel, KindMark, SECTION_CAP } from "./board-parts";
+import {
+	BoardRow,
+	BoardSection,
+	CappedRows,
+	Dot,
+	elapsedLabel,
+	KindMark,
+	SECTION_CAP,
+	WorkTreeButton,
+} from "./board-parts";
 import { WorkBoardChip } from "./WorkBoardChip";
 import {
+	boardCounts,
 	goalMeta,
+	isWaitingSubagent,
 	liveSubagents,
 	requestLabel,
 	type TodoBoard,
@@ -71,6 +73,7 @@ import {
 	workBoardDocks,
 	workBoardForm,
 	workBoardWidth,
+	workingSubagents,
 } from "./work-board";
 
 /** An Autopilot run's head line and sections: a lazy chunk, since only a run's tab draws them. */
@@ -81,14 +84,13 @@ const AutopilotBoardSections = lazyChunk(() =>
 	import("../../autopilot/AutopilotBoard").then(module => ({ default: module.AutopilotBoardSections })),
 );
 /** The opened-session rows load when a session has such children: most never do. */
-const OpenedSection = lazy(() => import("./WorkBoardOpened").then(module => ({ default: module.OpenedSection })));
+const NowChildren = lazy(() => import("./WorkBoardOpened").then(module => ({ default: module.NowChildren })));
+const WaitingChildren = lazy(() => import("./WorkBoardOpened").then(module => ({ default: module.WaitingChildren })));
 /** The session rows (changes, last check, dev servers, same checkout, memory) and a failed check: a lazy chunk, since
  * the phone's first screen (the strip) never draws them. */
-const FailedCheckSlot = lazyChunk(() =>
-	import("./WorkBoardSession").then(module => ({ default: module.FailedCheckSlot })),
-);
+const NeedsCheck = lazyChunk(() => import("./WorkBoardSession").then(module => ({ default: module.NeedsCheck })));
 const SessionSlot = lazyChunk(() => import("./WorkBoardSession").then(module => ({ default: module.SessionSlot })));
-/** Whether the newest check failed, for the prototypes' head (the counters and the status sentence). */
+/** Whether the newest check failed: a row of Needs you and the head's count. */
 const FailedCheckWatch = lazyChunk(() =>
 	import("./WorkBoardSession").then(module => ({ default: module.FailedCheckWatch })),
 );
@@ -102,12 +104,10 @@ function hasCharge(spend: SessionSpend | null): spend is SessionSpend {
 	return spend !== null && Object.values(spend.providers).some(row => row.billing === "metered" && row.cost > 0);
 }
 
-/** Steps the turn section lists: the newest few, oldest first, the live one last. */
-const TURN_STEPS = 3;
+/** Steps Now lists for the turn: the newest one, the live one when a call runs. */
+const TURN_STEPS = 1;
 /** A call's clock and the turn's come from different events of one batch: a call within this of the start is the turn's. */
 const TURN_CLOCK_SLACK_MS = 500;
-
-const WAITING_AGENT: Record<string, true> = { parked: true, idle: true };
 
 function SegmentBar({ segments, label }: { segments: TodoBoard["segments"]; label: string }) {
 	return (
@@ -174,7 +174,7 @@ function useGoalDetail(objective: string | undefined, frame: unknown, turnActive
 	return detail;
 }
 
-/** The turn's newest few calls, live and finished, oldest first. */
+/** The turn's newest calls, live and finished, oldest first. */
 function useTurnSteps(active: boolean, startedAt: number | null): ToolEntry[] {
 	const { tools } = useRunStores();
 	const live = useToolsStore(state => state.liveTools);
@@ -204,7 +204,7 @@ function AgentRow({
 	const t = useT();
 	const label = subagentPrimaryLabel(agent, 48);
 	const status = t(statusMeta(agent.status).labelKey);
-	const waiting = WAITING_AGENT[agent.status] === true;
+	const waiting = isWaitingSubagent(agent.status);
 	const elapsed = subagentElapsedMs(agent, now);
 	const progress = agent.progress;
 	const step = progress?.currentToolIntent ?? progress?.lastIntent ?? progress?.currentTool ?? status;
@@ -307,14 +307,17 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 		void hydrate();
 	}, [hydrate]);
 	const [checkFailed, setCheckFailed] = useState(false);
+	// What the last turn left (the session rows' lazy chunk tells it), for a quiet board's head.
+	const [outcome, setOutcome] = useState<string | null>(null);
 
-	const waiting = blocking.length + (planProposal ? 1 : 0);
+	const asks = blocking.length + (planProposal ? 1 : 0);
 	const showsLast = !turnActive && lastTurn !== null;
 	const present =
 		turnActive ||
 		autopilotTab ||
-		waiting > 0 ||
+		asks > 0 ||
 		running > 0 ||
+		presentedAgents.length + presentedJobs.length > 0 ||
 		plan !== null ||
 		goal !== null ||
 		showsLast ||
@@ -335,46 +338,35 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	}, [pane, present, inline, showsRunning, showsTodos]);
 	if (!present) return null;
 
-	const working =
-		agents.filter(agent => !WAITING_AGENT[agent.status]).length +
-		jobs.length +
-		opened.counts.running +
-		(turnActive || autopilotRunning ? 1 : 0);
-	const pulse = waiting > 0 || opened.counts.waiting > 0 ? "waiting" : working > 0 ? "working" : "idle";
-	// The head's sentence and the sections' headers read these, so a figure is never stated twice with two values.
-	// "Waiting on you" is the Waiting section's questions and plan review; a child session that waits for an answer
-	// has its own clause (its row is in Child sessions); a child at work is not "running".
-	const counts = {
-		running: agents.length + jobs.length,
-		waiting,
-		children: opened.counts.waiting,
-		failed: checkFailed ? 1 : 0,
-	};
-	const statusParts = [
-		...(counts.running > 0
-			? [{ key: "running", tone: undefined, text: t("workBoard.head.running", { count: counts.running }) }]
-			: []),
-		...(counts.waiting > 0
-			? [{ key: "waiting", tone: "warning", text: t("workBoard.head.waiting", { count: counts.waiting }) }]
-			: []),
-		...(counts.children > 0
-			? [
-					{
-						key: "children",
-						tone: "warning",
-						text: t("workBoard.head.children", {
-							count: counts.children,
-							plural: counts.children === 1 ? "" : "s",
-						}),
-					},
-				]
-			: []),
-		...(counts.failed > 0
-			? [{ key: "failed", tone: "danger", text: t("workBoard.head.failed", { count: counts.failed }) }]
-			: []),
-	];
-	// No clause to say: the same `working` the pulse reads, so a running child alone is "Working…", never "Idle".
-	const statusFallback = working > 0 ? t("workBoard.step.working") : t("workBoard.head.idle");
+	// The head, the Needs you section and its live region read these (the strip's label reads the same), so a figure is
+	// never stated twice with two values.
+	const counts = boardCounts({
+		asks,
+		childrenWaiting: opened.counts.waiting,
+		childrenRunning: opened.counts.running,
+		checkFailed,
+		agents: agents.length,
+		agentsWorking: workingSubagents(agents).length,
+		jobs: jobs.length,
+		turnWorking: turnActive || autopilotRunning,
+	});
+	const needsText = t("workBoard.head.needs", { count: counts.needs, s: counts.needs === 1 ? "s" : "" });
+	const waitingOnYou = counts.asks + counts.children > 0;
+	// One clause, the most important: what needs the person, else what runs, else that the board works (a child at
+	// work alone is "Working…", never "Idle"), else what the last turn left.
+	const clause =
+		counts.needs > 0
+			? { tone: waitingOnYou ? "warning" : "danger", text: needsText }
+			: counts.running > 0
+				? { tone: undefined, text: t("workBoard.head.running", { count: counts.running }) }
+				: counts.working > 0
+					? { tone: undefined, text: t("workBoard.step.working") }
+					: {
+							tone: undefined,
+							text:
+								[showsLast ? t("workBoard.head.done") : null, outcome].filter(Boolean).join(" · ") ||
+								t("workBoard.head.idle"),
+						};
 
 	const turnState = retryInfo
 		? t("chat.retry.inflight", { attempt: retryInfo.attempt, maxAttempts: retryInfo.maxAttempts })
@@ -391,16 +383,29 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	const speed = turnLive && rate != null && rate > 0 ? t("chat.meter.rate", { rate: formatTokenRate(rate) }) : "";
 	const jumpKey = actionShortcut("board.focus");
 
+	const askItems = [
+		...(planProposal ? [{ id: "plan", label: t("workBoard.planReview"), review: true }] : []),
+		...blocking.map(request => ({ id: request.id, label: requestLabel(request, t), review: false })),
+	];
+	const waitingChildren = opened.rows.filter(row => row.status === "waiting");
+	const nowChildren = opened.rows.filter(row => row.status !== "waiting");
+	// The presented lists, not the live ones: the last row of a finished agent or job fades out inside its section.
+	const runsNow = turnActive || presentedAgents.length + presentedJobs.length > 0 || opened.counts.running > 0;
+	const showsNow = runsNow || nowChildren.length > 0;
+	// What the sessions this one opened lead to (the Work tree sheet) sits in the head of the section that lists them.
+	const workTree = opened.rows.length === 0 ? null : showsNow ? "now" : "needs";
+	const showsGoal = goal !== null && !autopilotTab;
+
 	return (
 		<aside aria-label={t("workBoard.label")} className="omp-work-board" data-work-board-panel>
-			{/* One line: the board's name, the plan's progress and its close; then the project of a linked worktree; then
-			   one line of meters, the subscription accounts' windows and a metered provider's charge side by side where
-			   they fit (each item's details are its tooltip). */}
+			{/* One line of status (the pulse, the one clause that matters, a figure for what runs), the project of a
+			   linked worktree, then one line of meters: the subscription accounts' windows and a metered provider's
+			   charge side by side where they fit (each item's details are its tooltip). The strip names itself above. */}
 			<header className="omp-work-board-head" data-board-head>
 				<Suspense fallback={null}>
 					<FailedCheckWatch onChange={setCheckFailed} />
 				</Suspense>
-				<span aria-hidden className="omp-work-board-pulse" data-state={pulse} />
+				<span aria-hidden className="omp-work-board-pulse" data-state={counts.pulse} />
 				<h2 className="omp-work-board-name" data-board-name>
 					{autopilotTab ? (
 						// A run's board is named by its rocket (the user's call, 23 Oct 2026); the word is for screen readers.
@@ -412,30 +417,22 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 						t("workBoard.label")
 					)}
 				</h2>
-				<p className="omp-work-board-status" data-board-status>
-					{statusParts.length === 0
-						? statusFallback
-						: statusParts.map((part, index) => (
-								<Fragment key={part.key}>
-									{index > 0 ? " · " : null}
-									<span data-tone={part.tone}>{part.text}</span>
-								</Fragment>
-							))}
-				</p>
-				{plan ? (
-					<span
-						className="omp-work-board-progress"
-						title={t("workBoard.planProgress", { done: plan.done, total: plan.total })}
-					>
-						<SegmentBar
-							label={t("workBoard.planProgress", { done: plan.done, total: plan.total })}
-							segments={plan.segments}
-						/>
-						<span aria-hidden>
-							{plan.done}/{plan.total}
-						</span>
-					</span>
-				) : null}
+				{inline ? null : (
+					<>
+						<p className="omp-work-board-status" data-board-status>
+							<span data-tone={clause.tone}>{clause.text}</span>
+						</p>
+						{counts.needs > 0 && counts.running > 0 ? (
+							<span
+								className="omp-work-board-figure"
+								data-tone="info"
+								title={t("workBoard.head.running", { count: counts.running })}
+							>
+								{t("workBoard.head.runningShort", { count: counts.running })}
+							</span>
+						) : null}
+					</>
+				)}
 				{autopilotTab ? (
 					<Suspense fallback={null}>
 						<AutopilotBoardHead />
@@ -465,22 +462,17 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 				</div>
 			</header>
 
-			{waiting > 0 && (
+			{counts.needs > 0 && (
 				<BoardSection
+					action={workTree === "needs" ? <WorkTreeButton /> : null}
 					aside={jumpKey ? <Kbd shortcut={jumpKey} /> : null}
-					count={counts.waiting}
-					live={t("workBoard.status.waiting", { count: waiting })}
-					id="waiting"
-					title={t("workBoard.waiting")}
-					tone="warning"
+					count={counts.needs}
+					live={needsText}
+					id="needs"
+					title={t("workBoard.needs")}
+					tone={waitingOnYou ? "warning" : "danger"}
 				>
-					<CappedRows
-						cap={SECTION_CAP.waiting}
-						items={[
-							...(planProposal ? [{ id: "plan", label: t("workBoard.planReview") }] : []),
-							...blocking.map(request => ({ id: request.id, label: requestLabel(request, t) })),
-						]}
-					>
+					<CappedRows cap={SECTION_CAP.asks} items={askItems}>
 						{item => (
 							<BoardRow
 								data={{ "data-board-waiting": item.id }}
@@ -488,16 +480,27 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 								label={item.label}
 								lead={<Dot tone="warning" />}
 								onClick={() => focusPrompt(pane)}
+								tag={{ word: t(item.review ? "workBoard.kind.review" : "workBoard.kind.ask"), tone: "warning" }}
 								title={item.label}
 							/>
 						)}
 					</CappedRows>
+					{checkFailed && (
+						<Suspense fallback={null}>
+							<NeedsCheck tag={{ word: t("workBoard.kind.check"), tone: "danger" }} />
+						</Suspense>
+					)}
+					{waitingChildren.length > 0 && (
+						<Suspense fallback={null}>
+							<WaitingChildren
+								now={now}
+								rows={waitingChildren}
+								tag={{ word: t("workBoard.kind.child"), tone: "warning" }}
+							/>
+						</Suspense>
+					)}
 				</BoardSection>
 			)}
-
-			<Suspense fallback={null}>
-				<FailedCheckSlot />
-			</Suspense>
 
 			{autopilotTab && (
 				<Suspense fallback={null}>
@@ -505,53 +508,50 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 				</Suspense>
 			)}
 
-			{turnActive && (
+			{showsNow && (
 				<BoardSection
-					aside={[clock(startedAt), speed].filter(Boolean).join(" · ")}
-					id="turn"
-					title={t("workBoard.turn")}
+					action={workTree === "now" ? <WorkTreeButton /> : null}
+					aside={turnActive ? [clock(startedAt), speed].filter(Boolean).join(" · ") : undefined}
+					id="now"
+					title={runsNow ? t("workBoard.now") : t("workBoard.opened")}
 				>
-					{turnState ? (
-						<BoardRow
-							data={{ "data-board-turn": "" }}
-							label={turnState}
-							lead={<Dot tone="info" />}
-							title={turnState}
-						/>
-					) : (
-						steps.map((entry, index) => {
-							const header = getToolHeader(entry.toolName, entry.args);
-							const Icon = header.icon;
-							const running = entry.status === "pending" || entry.status === "running";
-							const text =
-								header.target || (header.labelKey ? t(header.labelKey, header.labelParams) : header.tool);
-							const last = index === steps.length - 1;
-							return (
-								<BoardRow
-									data={{ "data-board-step": entry.status, ...(last ? { "data-board-turn": "" } : {}) }}
-									key={`${entry.startTime}:${index}`}
-									label={entry.intent?.trim() && last ? entry.intent : text}
-									lead={
-										<Icon
-											aria-hidden
-											className={cx("size-3.5", running ? "text-(--sc-info)" : "text-(--sc-text-subtle)")}
-										/>
-									}
-									meta={
-										running
-											? clock(entry.startTime)
-											: formatDuration(Math.max(0, (entry.endTime ?? entry.startTime) - entry.startTime))
-									}
-									title={text}
-								/>
-							);
-						})
-					)}
-				</BoardSection>
-			)}
-
-			{presentedAgents.length + presentedJobs.length > 0 && (
-				<BoardSection count={counts.running} id="running" title={t("workBoard.running")}>
+					{turnActive &&
+						(turnState ? (
+							<BoardRow
+								data={{ "data-board-turn": "" }}
+								label={turnState}
+								lead={<Dot tone="info" />}
+								title={turnState}
+							/>
+						) : (
+							steps.map((entry, index) => {
+								const header = getToolHeader(entry.toolName, entry.args);
+								const Icon = header.icon;
+								const live = entry.status === "pending" || entry.status === "running";
+								const text =
+									header.target || (header.labelKey ? t(header.labelKey, header.labelParams) : header.tool);
+								const last = index === steps.length - 1;
+								return (
+									<BoardRow
+										data={{ "data-board-step": entry.status, ...(last ? { "data-board-turn": "" } : {}) }}
+										key={`${entry.startTime}:${index}`}
+										label={entry.intent?.trim() && last ? entry.intent : text}
+										lead={
+											<Icon
+												aria-hidden
+												className={cx("size-3.5", live ? "text-(--sc-info)" : "text-(--sc-text-subtle)")}
+											/>
+										}
+										meta={
+											live
+												? clock(entry.startTime)
+												: formatDuration(Math.max(0, (entry.endTime ?? entry.startTime) - entry.startTime))
+										}
+										title={text}
+									/>
+								);
+							})
+						))}
 					<CappedRows
 						cap={SECTION_CAP.running}
 						items={[
@@ -584,18 +584,69 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 							)
 						}
 					</CappedRows>
+					{nowChildren.length > 0 && (
+						<Suspense fallback={null}>
+							<NowChildren now={now} rows={nowChildren} />
+						</Suspense>
+					)}
 				</BoardSection>
 			)}
 
-			{opened.rows.length > 0 && (
-				<Suspense fallback={null}>
-					<OpenedSection now={now} rows={opened.rows} />
-				</Suspense>
-			)}
-
-			{plan && (
-				<BoardSection id="todos" title={t("dock.todo")}>
-					{plan.done > 0 && (
+			{(plan || showsGoal) && (
+				<BoardSection
+					id="plan"
+					mid={
+						plan ? (
+							<span
+								className="omp-work-board-progress"
+								title={t("workBoard.planProgress", { done: plan.done, total: plan.total })}
+							>
+								<SegmentBar
+									label={t("workBoard.planProgress", { done: plan.done, total: plan.total })}
+									segments={plan.segments}
+								/>
+								<span aria-hidden>
+									{plan.done}/{plan.total}
+								</span>
+							</span>
+						) : undefined
+					}
+					// Not "Plan": that is the plan-mode card's word, and Needs you can say "a plan is ready for review".
+					title={t(plan ? (showsGoal ? "workBoard.goalAndTodos" : "dock.todo") : "workBoard.goal")}
+				>
+					{showsGoal && goal && (
+						<BoardRow
+							data={{ "data-board-goal": goalStatus ?? "" }}
+							label={goal.objective?.trim() || t("input.goal.label")}
+							lead={
+								<KindMark
+									icon={Target}
+									tone={goalStatus === "complete" ? "success" : goalStatus === "active" ? "info" : "warning"}
+								/>
+							}
+							meta={goalMeta(goalDetail) ?? goalNote(goalStatus, t)}
+							onClick={() => useUiStore.getState().openModes("goal")}
+							title={[
+								goal.objective,
+								goalNote(goalStatus, t),
+								goalDetail?.tokenBudget
+									? `${t("workBoard.goalBudgetLabel")}: ${t("workBoard.goalBudget", {
+											used: formatTokens(goalDetail.tokensUsed ?? 0),
+											budget: formatTokens(goalDetail.tokenBudget),
+										})}`
+									: null,
+								goalDetail?.timeLimitSeconds
+									? `${t("workBoard.goalTimeLabel")}: ${t("workBoard.goalTime", {
+											used: formatDuration((goalDetail.timeUsedSeconds ?? 0) * 1000),
+											limit: formatDuration(goalDetail.timeLimitSeconds * 1000),
+										})}`
+									: null,
+							]
+								.filter(Boolean)
+								.join("\n")}
+						/>
+					)}
+					{plan && plan.done > 0 && (
 						<BoardRow
 							data={{ "data-board-done-folded": "" }}
 							label={
@@ -606,7 +657,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 							lead={<Check aria-hidden className="size-3 text-(--sc-success)" />}
 						/>
 					)}
-					{plan.rows.map((row, index) => (
+					{plan?.rows.map((row, index) => (
 						<BoardRow
 							data={{ "data-todo-status": row.status }}
 							key={`${index}:${row.content}`}
@@ -635,49 +686,16 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 							title={row.content}
 						/>
 					))}
-					{plan.hidden > 0 && (
+					{plan && plan.hidden > 0 && (
 						<li className="omp-work-board-more">{t("workBoard.moreTodos", { count: plan.hidden })}</li>
 					)}
-				</BoardSection>
-			)}
-
-			{goal && !autopilotTab && (
-				<BoardSection id="goal" title={t("workBoard.goal")} aside={goalNote(goalStatus, t)}>
-					<BoardRow
-						data={{ "data-board-goal": goalStatus ?? "" }}
-						label={goal.objective?.trim() || t("input.goal.label")}
-						lead={
-							<KindMark
-								icon={Target}
-								tone={goalStatus === "complete" ? "success" : goalStatus === "active" ? "info" : "warning"}
-							/>
-						}
-						meta={goalMeta(goalDetail)}
-						onClick={() => useUiStore.getState().openModes("goal")}
-						title={[
-							goal.objective,
-							goalDetail?.tokenBudget
-								? `${t("workBoard.goalBudgetLabel")}: ${t("workBoard.goalBudget", {
-										used: formatTokens(goalDetail.tokensUsed ?? 0),
-										budget: formatTokens(goalDetail.tokenBudget),
-									})}`
-								: null,
-							goalDetail?.timeLimitSeconds
-								? `${t("workBoard.goalTimeLabel")}: ${t("workBoard.goalTime", {
-										used: formatDuration((goalDetail.timeUsedSeconds ?? 0) * 1000),
-										limit: formatDuration(goalDetail.timeLimitSeconds * 1000),
-									})}`
-								: null,
-						]
-							.filter(Boolean)
-							.join("\n")}
-					/>
 				</BoardSection>
 			)}
 
 			<Suspense fallback={null}>
 				<SessionSlot
 					aside={showsLast && lastTurn ? formatDuration(lastTurn.end - lastTurn.start) : undefined}
+					onOutcome={setOutcome}
 					turn={turnActive && startedAt !== null ? { start: startedAt, end: null } : lastTurn}
 				/>
 			</Suspense>

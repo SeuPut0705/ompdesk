@@ -91,7 +91,7 @@ it("opens only for real output and keeps the same fixed viewport through overlap
 	const style = stage?.getAttribute("style");
 	const stylesheet = readFileSync(new URL("../../styles/components.css", import.meta.url), "utf8");
 	const stageRule = stylesheet.match(/\.omp-work-stage \{([^}]+)\}/)?.[1] ?? "";
-	expect(stageRule).toContain("--omp-work-stage: clamp(");
+	expect(stageRule).toContain("--omp-work-stage: 10rem;");
 	expect(stageRule).toContain("height: var(--omp-work-stage)");
 	await act(async () =>
 		useToolsStore.setState(
@@ -109,6 +109,49 @@ it("opens only for real output and keeps the same fixed viewport through overlap
 	expect(stage?.querySelector("[data-incoming]")?.textContent).toContain("echo second");
 	await act(async () => vi.advanceTimersByTime(220));
 	expect(stage?.querySelector("[data-outgoing]")).toBeNull();
+});
+it("keeps one 160 px stage through every kind of step, so the card never changes height per step", async () => {
+	const stylesheet = readFileSync(new URL("../../styles/components.css", import.meta.url), "utf8");
+	const stageRule = stylesheet.match(/\.omp-work-stage \{([^}]+)\}/)?.[1] ?? "";
+	// 10rem is 160 px at the 16 px root; the stage's height is that one variable, never content.
+	expect(stageRule).toContain("--omp-work-stage: 10rem;");
+	expect(stageRule).toContain("height: var(--omp-work-stage)");
+	expect(stageRule).not.toMatch(/(?:min|max)-height:\s*[1-9]/);
+	await act(async () => useToolsStore.setState(toolEntriesState([["call", entry]])));
+	await render(["call"]);
+	const stage = container.querySelector<HTMLElement>(".omp-work-stage");
+	const sub = container.querySelector(".omp-work-sub-shell");
+	expect(stage).not.toBeNull();
+	const style = stage?.getAttribute("style");
+	const kinds: [string, Partial<ToolEntry>][] = [
+		["a read", { toolName: "read", args: { path: "src/a.ts" } }],
+		["a write", { toolName: "write", args: { path: "src/b.ts", content: "export const b = 1;" } }],
+		["an edit", { toolName: "edit", args: { path: "src/a.ts" } }],
+		["a calm wait", { toolName: "wait", args: { i: "background activity" } }],
+		[
+			"a session wait",
+			{
+				toolName: "write",
+				args: { path: "xd://ompdesk_session_result", content: '{"sessions":["a","b"],"wait":true,"until":"any"}' },
+			},
+		],
+		["a command again", {}],
+	];
+	for (const [name, patch] of kinds) {
+		await act(async () => useToolsStore.setState(toolEntriesState([["call", { ...entry, ...patch }]])));
+		await flush();
+		await render(["call"]);
+		const label = `after ${name}`;
+		expect(container.querySelectorAll(".omp-work-stage").length, label).toBe(1);
+		expect(container.querySelector(".omp-work-stage"), label).toBe(stage);
+		expect(stage?.getAttribute("style"), label).toBe(style);
+		expect(container.querySelector(".omp-work-sub-shell"), label).toBe(sub);
+		// The head's own line is reserved all run long; the arguments of a session wait are never drawn.
+		expect(container.textContent, label).not.toContain('"sessions"');
+	}
+	await act(async () => useToolsStore.setState(toolEntriesState([["call", { ...entry, ...kinds[4]?.[1] }]])));
+	await render(["call"]);
+	expect(container.querySelector(".omp-work-sub")?.textContent).toBe("Continues when one of 2 sessions reports");
 });
 it("keeps concurrent picks inside the fixed stage", async () => {
 	useToolsStore.setState(

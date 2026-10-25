@@ -4,10 +4,12 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../../lib/i18n";
 import { useAutopilotStore } from "../../../stores/autopilot";
+import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useSessionStore } from "../../../stores/session";
 import { useSubagentsStore } from "../../../stores/subagents";
 import { useTabsStore } from "../../../stores/tabs";
 import { useTodoStore } from "../../../stores/todo";
+import { type ToolEntry, useToolsStore } from "../../../stores/tools";
 
 // The back gesture itself is lib/back-layer's (its own test); here only what a layer's close does to the strip.
 const backLayer = vi.hoisted(() => ({ close: null as (() => void) | null }));
@@ -62,6 +64,8 @@ afterEach(async () => {
 	container.remove();
 	useTodoStore.getState().reset();
 	useSubagentsStore.getState().reset();
+	useExtensionUiStore.setState({ pendingRequests: [] });
+	useToolsStore.getState().reset();
 });
 
 describe("WorkBoardChip, the phone's work strip", () => {
@@ -116,6 +120,55 @@ describe("WorkBoardChip, the phone's work strip", () => {
 		expect(strip?.querySelector('[data-count="jobs"]')).toBeNull();
 		// The live region still carries the spoken label.
 		expect(strip?.querySelector('[role="status"] .sr-only')?.textContent).toBe("1 of 3 done");
+	});
+
+	it("says the figure Needs you counts, ahead of the plan's progress", async () => {
+		useTodoStore.getState().setPhases([{ name: "Fix", tasks: [{ content: "Reproduce", status: "in_progress" }] }]);
+		for (const id of ["c1", "c2"])
+			useExtensionUiStore
+				.getState()
+				.pushRequest({ type: "extension_ui_request", id, method: "confirm", title: "Go?", message: "" });
+		await mount();
+		const strip = container.querySelector("[data-work-chip]");
+		expect(strip?.querySelector('[role="status"]')?.textContent).toBe("2 need you");
+		expect(strip?.getAttribute("data-state")).toBe("waiting");
+		await act(async () => useExtensionUiStore.setState({ pendingRequests: [] }));
+		expect(strip?.querySelector('[role="status"] .sr-only')?.textContent).toBe("0 of 1 done");
+	});
+
+	it("reads a failed check as Needs you's one item, with the waiting pulse, though nothing else waits", async () => {
+		const failed: ToolEntry = {
+			toolName: "bash",
+			args: { command: "bun test" },
+			status: "error",
+			streamingArgs: "",
+			result: { content: [{ type: "text", text: "1 fail" }], details: { exitCode: 1 } },
+			isError: true,
+			startTime: 1,
+			endTime: 9,
+		};
+		useToolsStore.setState({ finishedTools: new Map([["b1", failed]]) });
+		useTodoStore.getState().setPhases([{ name: "Fix", tasks: [{ content: "Reproduce", status: "in_progress" }] }]);
+		await mount();
+		// The failed-check watcher loads after the first screen.
+		const strip = container.querySelector("[data-work-chip]");
+		await vi.waitFor(() => expect(strip?.querySelector('[role="status"]')?.textContent).toBe("1 needs you"));
+		expect(strip?.getAttribute("data-state")).toBe("waiting");
+	});
+
+	it("works only while a subagent is at work: a parked one is live but leaves the strip's pulse idle", async () => {
+		useSubagentsStore
+			.getState()
+			.setSnapshots([{ id: "a1", index: 1, agent: "scout", status: "parked", lastUpdate: Date.now() }]);
+		await mount();
+		const strip = container.querySelector("[data-work-chip]");
+		expect(strip?.getAttribute("data-state")).toBe("idle");
+		await act(async () =>
+			useSubagentsStore
+				.getState()
+				.setSnapshots([{ id: "a1", index: 1, agent: "scout", status: "running", lastUpdate: Date.now() }]),
+		);
+		expect(strip?.getAttribute("data-state")).toBe("working");
 	});
 
 	describe("expanding in place", () => {

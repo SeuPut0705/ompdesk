@@ -154,3 +154,49 @@ export function summarizeChecks(commands: readonly CheckInput[]): CheckSummary[]
 export function firstFailure(commands: readonly CheckInput[]): CheckInput | undefined {
 	return commands.findLast(command => command.failed && !command.interrupted && !checkKind(command.command));
 }
+
+const RUNNER_WRAPPERS = /^(?:npx|bunx|uvx|pnpx)$/;
+const SUBCOMMAND_WRAPPERS = /^(?:pnpm|yarn|npm|bun)$/;
+const PRIVILEGE_WRAPPERS = /^(?:env|sudo|time|nohup|command|exec|nice)$/;
+const SETUP_COMMANDS = /^(?:cd|export|set|source|\.|pushd|popd|unset|umask)$/;
+const ASSIGNMENT = /^[A-Za-z_]\w*=/;
+
+/**
+ * The program a shell command really runs, for naming a failure ("git push", "tsc", "bun test"): the first command
+ * after `cd …`/`export …` setup, past `VAR=…` prefixes, `env`, `sudo` and their flags, and an `npx`/`bunx`/`pnpm dlx`
+ * wrapper (the tool it runs). The program's basename, plus its subcommand when that is a plain word (`git push`,
+ * `bun run`). `undefined` for an empty command.
+ */
+export function commandProgram(command: string): string | undefined {
+	for (const segment of command.split(/&&|\|\||;|\n/)) {
+		const words = (segment.split("|")[0] ?? "").trim().split(/\s+/).filter(Boolean);
+		let index = 0;
+		const skip = (): boolean => {
+			const word = words[index];
+			if (word === undefined) return false;
+			if (ASSIGNMENT.test(word) || PRIVILEGE_WRAPPERS.test(word)) {
+				index++;
+				return true;
+			}
+			if (word.startsWith("-") && index > 0) {
+				index++;
+				return true;
+			}
+			if (
+				RUNNER_WRAPPERS.test(word) ||
+				(SUBCOMMAND_WRAPPERS.test(word) && /^(?:dlx|exec|x)$/.test(words[index + 1] ?? ""))
+			) {
+				index += RUNNER_WRAPPERS.test(word) ? 1 : 2;
+				return true;
+			}
+			return false;
+		};
+		while (skip()) {}
+		const first = words[index];
+		if (first === undefined || SETUP_COMMANDS.test(first)) continue;
+		const program = first.split("/").at(-1) ?? first;
+		const next = words[index + 1];
+		return next !== undefined && /^[a-z][\w:-]*$/i.test(next) ? `${program} ${next}` : program;
+	}
+	return undefined;
+}

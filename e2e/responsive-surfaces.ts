@@ -151,7 +151,7 @@ export const SURFACES: readonly Surface[] = [
 		open: async page => {
 			// The busy fixture's turn, question and goal land 1.5 s after boot (dev-harness/boot.ts).
 			const chip = page.locator("[data-work-chip][data-state='waiting']");
-			const docked = page.locator(".omp-work-board-slot [data-board-section='waiting']");
+			const docked = page.locator(".omp-work-board-slot [data-board-section='needs']");
 			await chip.or(docked).first().waitFor({ state: "visible", timeout: 15_000 });
 			if ((await chip.count()) > 0 && (await chip.getAttribute("aria-expanded")) !== "true") await chip.click();
 		},

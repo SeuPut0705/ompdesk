@@ -237,15 +237,22 @@ describe("controls close enough to take each other's taps", () => {
 			/margin-block-end:\s*12px/,
 		);
 		expect(rule('html[data-input="touch"] [data-benchmark-chips]')).toMatch(/gap:\s*12px;[^}]*--hit-gap-y:\s*12px/);
-		// A finished work card's facts and copy reach 36 (26 before), staying clear of the steps header and inside the
+		// A finished work card's chips reach 36 (26 before), staying clear of the steps header and inside the
 		// card; the phone Run sheet's Autopilot buttons sit 14 px apart (10 left a phone's 24 px buttons 32).
 		expect(rule('html[data-input="touch"] .omp-work-facts')).toMatch(/gap:\s*14px;[^}]*margin-top:\s*4px/);
 		expect(rule('html[data-input="touch"] .omp-work-metrics')).toMatch(
 			/gap:\s*14px 10px;[^}]*--hit-gap-x:\s*10px;[^}]*--hit-gap-y:\s*10px/,
 		);
-		expect(rule('html[data-input="touch"] .omp-work-facts > .omp-work-cause')).toMatch(/--hit-gap-y:\s*12px/);
-		expect(rule('html[data-shell="phone"] .omp-work-metrics > .omp-work-copy')).toMatch(/--hit-gap-y:\s*14px/);
-		expect(rule('html[data-input="touch"] .omp-work-outcome summary')).toMatch(/min-height:\s*var\(--sc-row-touch\)/);
+		// A failed fact's verdict block and its "+N more failed" line are each a touch row tall (a box is its reach) and
+		// sit flush; the copy button rides in the head and reaches 36 sideways without taking the Steps toggle's tap.
+		expect(rule('html[data-input="touch"] :is(.omp-work-verdict, .omp-work-verdict-more)')).toMatch(
+			/min-height:\s*var\(--sc-row-touch\)/,
+		);
+		expect(rule('html[data-input="touch"] .omp-work-verdict-group')).toMatch(/--hit-gap-y:\s*0px/);
+		expect(rule('html[data-input="touch"] .omp-work-head-side .omp-work-copy')).toMatch(
+			/--hit-gap-x:\s*12px;[^}]*margin-inline-end:\s*4px/,
+		);
+		expect(rule('html[data-input="touch"] .omp-work-head-side')).toMatch(/--hit-gap-y:\s*12px/);
 		expect(rule('html[data-shell="phone"] [data-autopilot-run-actions]')).toMatch(
 			/gap:\s*14px;[^}]*--hit-gap-x:\s*14px;[^}]*--hit-gap-y:\s*14px/,
 		);
@@ -294,6 +301,10 @@ describe("controls close enough to take each other's taps", () => {
 		);
 		expect(rule('html[data-input="touch"] .omp-work-board-title > .omp-work-board-aside')).toMatch(
 			/padding-inline-end:\s*8px;[^}]*--hit-gap-x:\s*14px;[^}]*--hit-gap-y:\s*14px/,
+		);
+		// The Work tree's icon button ends its section's head like the aside: 36 from a 22 px box, 8 px in from the edge.
+		expect(rule('html[data-input="touch"] .omp-work-board-title > .omp-work-board-action')).toMatch(
+			/margin-inline-end:\s*8px;[^}]*--hit-gap-x:\s*14px;[^}]*--hit-gap-y:\s*14px/,
 		);
 		// The Changes view: its 24 px controls behind a 1 px border reach 36 from 14 px apart; a file row's parts are
 		// as tall as the row (they drew 26 px with no reach between the flush rows).

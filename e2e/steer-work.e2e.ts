@@ -90,7 +90,7 @@ test("a steer sent mid-run stays inside the turn's one work card with every agen
 		await capture("live");
 
 		await fixture("fixture:steer-finish");
-		await expect(page.locator(".omp-work-outcome")).toBeVisible();
+		await expect(page.locator('.omp-live-step[data-outcome="true"]')).toBeVisible();
 		await expectOneCard(page);
 		await expect(page.locator('.omp-live-step[data-state="running"]')).toHaveCount(0);
 		const summary = page.locator(".omp-execution-group-header");

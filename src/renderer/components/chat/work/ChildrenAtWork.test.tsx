@@ -105,7 +105,7 @@ describe("the parent's live work card while it waits on its children", () => {
 		await act(async () =>
 			root.render(
 				<I18nProvider>
-					<LiveStepPeek carriesContext thinkingLive={false} toolCallIds={["w"]} />
+					<LiveStepPeek liveTail thinkingLive={false} toolCallIds={["w"]} />
 				</I18nProvider>,
 			),
 		);
@@ -133,7 +133,7 @@ describe("the parent's live work card while it waits on its children", () => {
 		await act(async () =>
 			root.render(
 				<I18nProvider>
-					<LiveStepPeek carriesContext thinkingLive={false} toolCallIds={["w"]} />
+					<LiveStepPeek liveTail thinkingLive={false} toolCallIds={["w"]} />
 					<ChildrenAtWork />
 				</I18nProvider>,
 			),

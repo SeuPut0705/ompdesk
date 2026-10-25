@@ -79,11 +79,11 @@ describe("summary row on a narrow card", () => {
 		);
 		const line = container.querySelector(".omp-summary-line");
 		const parts = [...(line?.querySelectorAll(".omp-summary-part") ?? [])].map(part => part.textContent);
-		// Seen as "2 commands · 2 age… · 2.1s · 408 tokens · avg 46 …" in a 2×2 pane: every figure
-		// is its own part, so a narrow card drops whole parts from the end instead. The file is the
-		// metric strip's to say, so the head's own parts are the time, the command and the meter.
-		expect(parts).toEqual(["16.0s", "1 command", "· 408 tokens", " · avg 46 tok/s"]);
-		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("1 command");
+		// Seen as "2 commands · 2 age… · 2.1s · 408 tokens · avg 46 …" in a 2×2 pane: every figure is its own part, so
+		// a narrow card drops whole parts from the end instead. The head's own parts are the time, the step count
+		// and the meter; the file and the command are the chips' (and the label's).
+		expect(parts).toEqual(["16.0s", "2 steps", "· 408 tokens", " · avg 46 tok/s"]);
+		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("2 steps");
 		const box = rule(".omp-summary-line");
 		expect(box).toContain("flex-wrap: wrap");
 		expect(box).toContain("height: 1lh");

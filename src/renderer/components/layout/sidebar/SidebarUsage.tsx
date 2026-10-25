@@ -44,6 +44,8 @@ export function SidebarUsage({
 	return (
 		<div
 			className="omp-sidebar-usage"
+			// The block stacks `USAGE_LINE_CAP` providers: past it, the work board's gauges are the only place the rest show.
+			data-capped={lines.length > USAGE_LINE_CAP || undefined}
 			data-collapsed={collapsed || undefined}
 			data-rail-pin="usage"
 			onContextMenu={onContextMenu}

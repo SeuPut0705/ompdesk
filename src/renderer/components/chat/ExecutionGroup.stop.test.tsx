@@ -108,10 +108,11 @@ describe("stop truth", () => {
 		await mount(row.stoppedAt, false);
 		expect(container?.querySelector(".omp-execution-group")?.getAttribute("data-state")).toBe("failed");
 		expect(container?.querySelector(".omp-work-head [role='img']")?.getAttribute("data-state")).toBe("failed");
-		expect(container?.querySelector(".omp-live-work-chip")?.getAttribute("data-state")).toBe("failed");
-		expect(container?.querySelector(".omp-work-outcome li [role='img']")?.getAttribute("aria-label")).toBe("Failed");
+		// The failure is a verdict block; there is no strip of steps and no outcome list.
+		expect(container?.querySelector('[data-work-finding="error"]')).not.toBeNull();
+		expect(container?.querySelector(".omp-live-work-strip, .omp-work-outcome")).toBeNull();
 	});
-	it("uses the actual stop time consistently in summary, head, chip and outcome", async () => {
+	it("uses the actual stop time consistently in head and chips", async () => {
 		const row = stoppedRun();
 		if (row?.kind !== "process") throw new Error("Missing process");
 		expect(row.stoppedAt).toBe(20_000);
@@ -123,14 +124,14 @@ describe("stop truth", () => {
 		);
 		await mount(row.stoppedAt, true);
 		expect(container?.querySelector(".omp-execution-group")?.getAttribute("data-state")).toBe("interrupted");
-		expect(container?.querySelector(".omp-execution-group-summary")?.textContent).toContain("2 interrupted");
+		expect(container?.querySelector(".omp-execution-group-header")?.getAttribute("aria-label")).toContain(
+			"2 interrupted",
+		);
 		expect(container?.querySelector(".omp-work-head [role='img']")?.getAttribute("data-state")).toBe("stopped");
-		expect(container?.querySelector(".omp-live-work-chip")?.getAttribute("data-state")).toBe("stopped");
-		expect(
-			[...(container?.querySelectorAll(".omp-work-outcome li [role='img']") ?? [])].map(mark =>
-				mark.getAttribute("aria-label"),
-			),
-		).toEqual(["Interrupted", "Interrupted", "Interrupted", "Interrupted"]);
+		// A stopped command is its own chip, never a failed verdict block.
+		expect(container?.querySelector('[data-work-finding="stopped"]')?.textContent).toMatch(/interrupted/);
+		expect(container?.querySelector('[data-work-finding="error"]')).toBeNull();
+		expect(container?.querySelector(".omp-live-work-strip, .omp-work-outcome")).toBeNull();
 	});
 	it("does not reinterpret old errors or live errors and always interrupts explicit aborted calls", () => {
 		expect(isInterruptedError(error(5_000), 20_000)).toBe(false);

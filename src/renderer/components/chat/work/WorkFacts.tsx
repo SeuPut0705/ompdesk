@@ -1,18 +1,24 @@
-import { Check, CircleX, FileDiff, Globe, type LucideIcon } from "lucide-react";
+import { Ban, Check, CircleX, FileDiff, Globe, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { cx } from "../../../lib/format";
 
 type WorkFactTone = "ok" | "fail" | "neutral";
 
-/** One thing a finished run did, drawn as a labeled metric button: a word, then its figure. */
+/** One thing a finished run did: a failed one is a verdict block, every other a labeled chip. */
 export interface WorkFact {
 	key: string;
-	/** The `data-work-finding` value the tests and captures look for. */
+	/** The `data-work-finding` value the tests and captures look for; `error` for every failed fact. */
 	finding: string;
 	tone: WorkFactTone;
-	icon: "files" | "check" | "error" | "preview";
+	icon: "files" | "check" | "error" | "preview" | "stopped";
 	label: string;
 	figure?: ReactNode;
+	/** A verdict block's cause: the first line of output that says what failed. */
+	detail?: string;
+	/** A verdict block's right-hand figure: the exit code. */
+	meta?: string;
+	/** Failures folded into this block: one quiet line under it that opens the steps (no call to reveal). */
+	more?: { label: string; onSelect: () => void };
 	/** The whole fact as one sentence: the button's accessible name. */
 	sentence: string;
 	title: string;
@@ -24,27 +30,66 @@ const ICONS: Record<WorkFact["icon"], LucideIcon> = {
 	check: Check,
 	error: CircleX,
 	preview: Globe,
+	stopped: Ban,
 };
 
+function FactIcon({ fact }: { fact: WorkFact }) {
+	const Icon = ICONS[fact.icon];
+	return (
+		<Icon
+			aria-hidden="true"
+			className={cx(
+				"size-(--sc-icon-sm) shrink-0",
+				fact.tone === "ok" && "text-(--sc-success)",
+				fact.tone === "fail" && "text-(--sc-danger)",
+			)}
+		/>
+	);
+}
+
 /**
- * A finished card's one row of facts, each its own action (a failed check shows its step, files open
- * Changes, the preview opens Preview), then the failing step's cause in danger and the Copy button.
+ * A finished card's facts, each its own action. A failed check or command is a verdict block: its verdict, exit
+ * code and cause (two lines at most) in one button that shows the failing step, and, when more than one thing
+ * failed, one quiet "+N more failed" line that opens the steps. Files open Changes, a passing check shows its run,
+ * the dev server opens Preview.
  */
-export function WorkMetrics({
-	facts,
-	cause,
-	trailing,
-}: {
-	facts: readonly WorkFact[];
-	cause: ReactNode;
-	trailing: ReactNode;
-}) {
+export function WorkMetrics({ facts }: { facts: readonly WorkFact[] }) {
+	const blocks = facts.filter(fact => fact.tone === "fail");
+	const chips = facts.filter(fact => fact.tone !== "fail");
 	return (
 		<div className="omp-work-facts">
-			<div className="omp-work-metrics">
-				{facts.map(fact => {
-					const Icon = ICONS[fact.icon];
-					return (
+			{blocks.map(fact => (
+				<div className="omp-work-verdict-group" key={fact.key}>
+					{/* controls-ok: the omp-work-verdict class draws the whole control */}
+					<button
+						aria-label={fact.detail ? `${fact.sentence}: ${fact.detail}` : fact.sentence}
+						className="omp-work-verdict"
+						data-work-finding={fact.finding}
+						onClick={fact.onSelect}
+						title={fact.detail ?? fact.title}
+						type="button"
+					>
+						<FactIcon fact={fact} />
+						<span className="omp-work-verdict-label">{fact.label}</span>
+						{fact.meta ? <span className="omp-work-verdict-meta tabular-nums">{fact.meta}</span> : <span />}
+						{fact.detail ? <span className="omp-work-verdict-cause">{fact.detail}</span> : null}
+					</button>
+					{fact.more ? (
+						// controls-ok: the omp-work-verdict-more class draws the whole control
+						<button
+							className="omp-work-verdict-more"
+							data-work-finding="more-failed"
+							onClick={fact.more.onSelect}
+							type="button"
+						>
+							{fact.more.label}
+						</button>
+					) : null}
+				</div>
+			))}
+			{chips.length ? (
+				<div className="omp-work-metrics">
+					{chips.map(fact => (
 						// controls-ok: the omp-work-metric class draws the whole control
 						<button
 							aria-label={fact.sentence}
@@ -56,22 +101,13 @@ export function WorkMetrics({
 							title={fact.title}
 							type="button"
 						>
-							<Icon
-								aria-hidden="true"
-								className={cx(
-									"size-(--sc-icon-sm) shrink-0",
-									fact.tone === "ok" && "text-(--sc-success)",
-									fact.tone === "fail" && "text-(--sc-danger)",
-								)}
-							/>
-							<span>{fact.label}</span>
+							<FactIcon fact={fact} />
+							<span className="omp-work-metric-label">{fact.label}</span>
 							{fact.figure ? <span className="omp-work-metric-figure tabular-nums">{fact.figure}</span> : null}
 						</button>
-					);
-				})}
-				{trailing}
-			</div>
-			{cause}
+					))}
+				</div>
+			) : null}
 		</div>
 	);
 }

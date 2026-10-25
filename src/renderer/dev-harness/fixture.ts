@@ -454,7 +454,12 @@ export function entriesFor(tabId: string): Entry[] {
 	const all = [
 		...entriesFixture(tabId).map(entry => entry.message),
 		...(params.has("stress") ? stressMessages(NOW - 20 * MINUTE) : []),
-		...(card ? cardTurnMessages(NOW - 30 * MINUTE, card === "fail") : []),
+		...(card
+			? cardTurnMessages(
+					card === "live" ? Date.now() - 50_000 : NOW - 30 * MINUTE,
+					card === "fail" || card === "cmd" || card === "one" || card === "live" ? card : "pass",
+				)
+			: []),
 		...(params.has("mail") ? mailMessages(NOW - 10 * MINUTE) : []),
 		// The live wait (`&children=wait`) is the turn running now: its clock reads from real time, not the fixture's day.
 		...(BOARD_BUSY ? boardTurnMessages(CHILDREN_WAIT ? Date.now() - 3 * MINUTE : NOW - 8 * MINUTE) : []),

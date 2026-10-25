@@ -3,7 +3,6 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
-import { useLiveWorkStore } from "../../stores/live-work";
 import { useSessionStore } from "../../stores/session";
 import { useSubagentsStore } from "../../stores/subagents";
 import { useTodoStore } from "../../stores/todo";
@@ -34,7 +33,6 @@ Object.assign(window, {
 const { createRoot } = await import("react-dom/client");
 const { LiveStepPeek } = await import("./LiveStepPeek");
 const { ExecutionGroup } = await import("./ExecutionGroup");
-const { WorkContext } = await import("./work/WorkContext");
 const { WorkspaceDock } = await import("./dock/WorkspaceDock");
 await import("./dock/TodoSortableList");
 async function flushFrame() {
@@ -66,7 +64,6 @@ afterEach(async () => {
 	container.remove();
 	useToolsStore.getState().reset();
 	useTodoStore.getState().reset();
-	useLiveWorkStore.getState().reset();
 	useSessionStore.setState({ goal: null, goalState: null });
 	useSubagentsStore.getState().reset();
 	useUiStore.setState({ dockFocus: null, dockCollapsed: {} });
@@ -133,79 +130,6 @@ it("does not show a Thinking surface for a finished yield-only lane", async () =
 	expect(container.querySelector(".omp-work-surface")).toBeNull();
 	expect(container.textContent).not.toContain("Thinking");
 });
-it("only the designated live-tail card carries context, without mount-owned handoff", async () => {
-	useTodoStore.getState().setPhases([{ name: "Work", tasks: [{ content: "Next task", status: "pending" }] }]);
-	useLiveWorkStore.getState().setCarried("", true);
-	await act(async () =>
-		root.render(
-			<I18nProvider>
-				<LiveStepPeek thinkingLive={false} toolCallIds={[]} />
-				<LiveStepPeek carriesContext thinkingLive={false} toolCallIds={[]} />
-			</I18nProvider>,
-		),
-	);
-	expect(container.querySelectorAll(".omp-work-todo")).toHaveLength(1);
-	await act(async () => root.render(<I18nProvider>{null}</I18nProvider>));
-	expect(useLiveWorkStore.getState().cards[""]).toBe(true);
-});
-it("opens and scrolls the carried todo for every edit focus signal", async () => {
-	useTodoStore.getState().setPhases([{ name: "Work", tasks: [{ content: "Next task", status: "pending" }] }]);
-	const scroll = vi.fn();
-	Object.assign(HTMLElement.prototype, { scrollIntoView: scroll });
-	await act(async () =>
-		root.render(
-			<I18nProvider>
-				<WorkContext />
-			</I18nProvider>,
-		),
-	);
-	await act(async () => useUiStore.getState().focusDockCard("todo"));
-	expect(container.querySelector(".omp-work-todo-toggle")?.getAttribute("aria-expanded")).toBe("true");
-	expect(scroll).toHaveBeenCalled();
-	await act(async () => (container.querySelector(".omp-work-todo-toggle") as unknown as { click(): void }).click());
-	await act(async () => useUiStore.getState().focusDockCard("todo"));
-	expect(container.querySelector(".omp-work-todo-toggle")?.getAttribute("aria-expanded")).toBe("true");
-});
-it("keeps a zero-task stock reminder visible and open", async () => {
-	useTodoStore.getState().showReminder([{ content: "Unfinished stock task", status: "pending" }]);
-	await act(async () =>
-		root.render(
-			<I18nProvider>
-				<WorkContext />
-			</I18nProvider>,
-		),
-	);
-	expect(container.querySelector(".omp-work-todo-toggle")?.getAttribute("aria-expanded")).toBe("true");
-	expect(container.querySelector(".omp-work-todo-list")).not.toBeNull();
-});
-it("clears stale todo dock focus when the transcript takes context", async () => {
-	useSessionStore.setState({ planModeEnabled: true });
-	useUiStore.setState({ dockCollapsed: { todo: false } });
-	useTodoStore.getState().setPhases([
-		{
-			name: "Work",
-			tasks: Array.from({ length: 12 }, (_, index) => ({ content: `Task ${index}`, status: "completed" as const })),
-		},
-	]);
-	useTodoStore.getState().revealClosed();
-	await act(async () =>
-		root.render(
-			<I18nProvider>
-				<WorkspaceDock />
-			</I18nProvider>,
-		),
-	);
-	const viewAll = [...container.querySelectorAll<HTMLButtonElement>("button")].find(button =>
-		button.textContent?.includes("view all 12 todos"),
-	);
-	expect(viewAll).toBeDefined();
-	await act(async () => viewAll?.click());
-	expect(container.querySelector("[data-testid=workspace-dock-resize]")).not.toBeNull();
-	await act(async () => useLiveWorkStore.getState().setCarried("", true));
-	expect(container.querySelector("[data-testid=workspace-dock-resize]")).toBeNull();
-	expect(container.querySelector("[data-focused-card]")).toBeNull();
-	await act(async () => useSessionStore.setState({ planModeEnabled: false }));
-});
 it("the focused card's height handle names its height and bounds, and steps with the keyboard", async () => {
 	useUiStore.setState({ dockCollapsed: { todo: false } });
 	useTodoStore.getState().setPhases([
@@ -248,40 +172,7 @@ it("the focused card's height handle names its height and bounds, and steps with
 	await press("Enter");
 	expect(handle.getAttribute("aria-valuenow")).toBe("248");
 });
-it("ignores todo focus already present when the context mounts", async () => {
-	useTodoStore.getState().setPhases([{ name: "Work", tasks: [{ content: "Next task", status: "pending" }] }]);
-	useUiStore.getState().focusDockCard("todo");
-	const scroll = vi.fn();
-	Object.assign(HTMLElement.prototype, { scrollIntoView: scroll });
-	await act(async () =>
-		root.render(
-			<I18nProvider>
-				<WorkContext />
-			</I18nProvider>,
-		),
-	);
-	expect(container.querySelector(".omp-work-todo-toggle")?.getAttribute("aria-expanded")).toBe("false");
-	expect(scroll).not.toHaveBeenCalled();
-});
-it("starts an existing reminder open without scrolling on mount and only scrolls on a new reminder", async () => {
-	useTodoStore.getState().setPhases([{ name: "Work", tasks: [{ content: "Stock task", status: "pending" }] }]);
-	useTodoStore.getState().showReminder([{ content: "Stock task", status: "pending" }]);
-	const scroll = vi.fn();
-	Object.assign(HTMLElement.prototype, { scrollIntoView: scroll });
-	await act(async () =>
-		root.render(
-			<I18nProvider>
-				<WorkContext />
-			</I18nProvider>,
-		),
-	);
-	expect(container.querySelector(".omp-work-todo-toggle")?.getAttribute("aria-expanded")).toBe("true");
-	expect(scroll).not.toHaveBeenCalled();
-	await act(async () => useTodoStore.getState().clearReminder());
-	await act(async () => useTodoStore.getState().showReminder([{ content: "Stock task", status: "pending" }]));
-	expect(scroll).toHaveBeenCalledTimes(1);
-});
-it("returns a finished parallel pin to following even when the replay strip is hidden", async () => {
+it("returns a finished parallel pin to following", async () => {
 	useToolsStore.setState(
 		toolEntriesState([
 			["test", command],
@@ -291,7 +182,7 @@ it("returns a finished parallel pin to following even when the replay strip is h
 	await act(async () =>
 		root.render(
 			<I18nProvider>
-				<LiveStepPeek stepsListed thinkingLive={false} toolCallIds={["test", "lint"]} />
+				<LiveStepPeek thinkingLive={false} toolCallIds={["test", "lint"]} />
 			</I18nProvider>,
 		),
 	);

@@ -1,4 +1,4 @@
-import { ChevronRight, CircleX } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { useFrameSelector } from "../../hooks/use-frame-selector";
@@ -17,7 +17,7 @@ import { revealStep, type StepReveal, StepRevealContext } from "./work/reveal-st
 import { useRunOutcome, useRunStores } from "./work/use-work-run";
 import { type WorkFact, WorkMetrics } from "./work/WorkFacts";
 import { type GroupAgent, isInterruptedError, resolveWorkGroup } from "./work/WorkStatus";
-import { checkKind, summarizeChecks } from "./work/work-checks";
+import { checkKind, commandProgram, firstErrorLine, summarizeChecks } from "./work/work-checks";
 import { deriveFindings, workSummaryText } from "./work/work-findings";
 import { finishedHeadline, parseTaskResults, runSpan, transcriptTodoSnapshot } from "./work/work-run";
 import { messageSourceTimestamp } from "./work/work-turn";
@@ -181,13 +181,12 @@ export function ExecutionGroup({
 	});
 	const totalSteps = Math.max(0, stepCount - skipped);
 	const plural = totalSteps === 1 ? "" : "s";
-	// Every fact of a finished card, for the head button's accessible name and Copy summary. The ones
-	// the metric strip and the agent lanes below do not already say stay in the head beside the time.
+	// Every fact of a finished card, for the head button's accessible name and Copy summary. The head itself draws its
+	// time and the step count (or, for a card that produced nothing, what it read and searched): the verdict blocks,
+	// chips and agent lanes below carry every other fact.
 	const facts: string[] = [];
-	const headFacts: string[] = [];
-	const say = (fact: string, shownBelow = false) => {
+	const say = (fact: string) => {
 		facts.push(fact);
-		if (!shownBelow) headFacts.push(fact);
 	};
 	if (failed > 0) say(t("chat.work.commandsFailed", { count: failed }));
 	if (state === "interrupted" && interrupted > 0) say(t("chat.work.interruptedCount", { count: interrupted }));
@@ -199,7 +198,7 @@ export function ExecutionGroup({
 		const files = t("chat.work.filesChanged", {
 			count: outcome.files.length,
 		});
-		say(hasStats ? `${files} +${added} −${removed}` : files, state !== "running");
+		say(hasStats ? `${files} +${added} −${removed}` : files);
 	}
 	// What the commands checked reads as its result ("tests passed", "build failed"); the
 	// other commands keep their count.
@@ -215,15 +214,18 @@ export function ExecutionGroup({
 					: t(`chat.work.check.${check.kind}.${verdict}`),
 		};
 	});
-	for (const check of checkLabels) say(check.label, true);
+	for (const check of checkLabels) say(check.label);
 	const otherCommands = outcome.commands.filter(
 		command => command.interrupted || command.unknown || !checkKind(command.command),
 	).length;
 	if (otherCommands) say(t("chat.work.commandsRun", { count: otherCommands }));
-	if (agents.length) say(t("chat.work.agentsDone", { count: agents.length }), true);
+	if (agents.length) say(t("chat.work.agentsDone", { count: agents.length }));
+	const readFacts: string[] = [];
 	if (facts.length === produced) {
-		if (reads) say(t("chat.process.kind.read", { count: reads }));
-		if (searches) say(t("chat.process.kind.search", { count: searches, plural: searches === 1 ? "" : "es" }));
+		if (reads) readFacts.push(t("chat.process.kind.read", { count: reads }));
+		if (searches)
+			readFacts.push(t("chat.process.kind.search", { count: searches, plural: searches === 1 ? "" : "es" }));
+		for (const fact of readFacts) say(fact);
 	}
 	if (facts.length === produced) say(t("chat.work.stepCount", { total: totalSteps, plural }));
 	const summary =
@@ -236,9 +238,10 @@ export function ExecutionGroup({
 					: facts.join(" · ");
 	const spanMs = clock.spanMs || toolSpanMs;
 	const duration = state !== "running" && spanMs > 0 ? formatDuration(spanMs) : null;
-	// While running, the card's status mark and narrative already say what is running:
-	// the row keeps only the step count and the toggle.
-	const shownParts = state === "running" ? [t("chat.work.stepCount", { total: totalSteps, plural })] : headFacts;
+	// A running card says its step count; a finished one that produced nothing (only reads and searches) says what it
+	// read and searched instead, so its head is not an empty "7 steps".
+	const shownParts =
+		state !== "running" && readFacts.length ? readFacts : [t("chat.work.stepCount", { total: totalSteps, plural })];
 	const groupEntries = toolCallIds.flatMap(id => {
 		const entry = selectToolEntry(tools.getState(), id);
 		return entry ? [[id, entry] as const] : [];
@@ -322,21 +325,6 @@ export function ExecutionGroup({
 		onExpandedChange(true);
 		if (key) setReveal({ key });
 	};
-	const causeButton = error ? (
-		// controls-ok: the omp-work-cause class draws the whole control
-		<button
-			aria-label={`${t("chat.work.cause.open")}${error.cause ? `: ${error.cause}` : ""}`}
-			className="omp-work-cause"
-			data-work-cause={error.cause ? "" : undefined}
-			data-work-finding="error"
-			onClick={() => show(error.toolCallId)}
-			title={error.cause ?? t("chat.work.cause.open")}
-			type="button"
-		>
-			<CircleX aria-hidden="true" className="size-(--sc-icon-sm) shrink-0" />
-			<span className="truncate">{error.cause ?? t("chat.work.chip.error")}</span>
-		</button>
-	) : null;
 	const copyButton = (
 		<CopyButton
 			className="omp-work-copy"
@@ -359,20 +347,28 @@ export function ExecutionGroup({
 			}
 		/>
 	);
-	// What the run did, as the metric strip's buttons: what failed, what changed, what passed, the dev
-	// server. Finished cards only, so a running card never reflows.
+	// What the run did, finished cards only so a running card never reflows: what failed (each a verdict block with
+	// its cause and exit code), then what changed, what passed and the dev server, each one button.
 	const metrics: WorkFact[] = [];
 	if (state !== "running") {
+		const exitMeta = (code: number | null | undefined) =>
+			code !== null && code !== undefined && code !== 0 ? t("chat.work.exit", { code }) : undefined;
 		const checkFact = (check: (typeof checks)[number], index: number): WorkFact => {
 			const sentence = checkLabels[index]?.label ?? "";
 			const count = check.passed ? check.tests?.passed : check.tests?.failed;
+			const exit = check.passed ? undefined : exitMeta(check.exitCode);
 			return {
 				key: `check-${check.kind}`,
-				finding: check.kind === "test" && check.passed ? "tests" : `check-${check.kind}`,
+				finding: check.passed ? (check.kind === "test" ? "tests" : `check-${check.kind}`) : "error",
 				tone: check.passed ? "ok" : "fail",
 				icon: check.passed ? "check" : "error",
-				label: t(check.kind === "test" ? "chat.work.chip.tests" : `chat.work.metric.${check.kind}`),
-				...(count !== undefined ? { figure: count } : {}),
+				// A failed check reads as its verdict ("2 tests failed"); a passing one stays short ("Tests 128").
+				label: check.passed
+					? t(check.kind === "test" ? "chat.work.chip.tests" : `chat.work.metric.${check.kind}`)
+					: sentence,
+				...(count !== undefined && check.passed ? { figure: count } : {}),
+				...(!check.passed && check.cause ? { detail: check.cause } : {}),
+				...(exit ? { meta: exit } : {}),
 				sentence,
 				title: !check.passed
 					? t("chat.work.cause.open")
@@ -383,7 +379,88 @@ export function ExecutionGroup({
 			};
 		};
 		const checkFacts = checks.map((check, index) => checkFact(check, index));
-		metrics.push(...checkFacts.filter((_, index) => !checks[index]?.passed));
+		// A failed command that is no check reads as a verdict too; the last one is the one shown (the run's latest word).
+		const failedCommands = outcome.commands.filter(
+			command =>
+				!command.interrupted &&
+				!command.unknown &&
+				(command.failed || (command.exitCode !== null && command.exitCode !== 0)) &&
+				!checkKind(command.command),
+		);
+		const commandFacts = failedCommands.map((command, index): WorkFact => {
+			const program = commandProgram(command.command) ?? command.command.trim().split(/\s+/)[0] ?? "";
+			const label = t("chat.work.metric.commandFailed", {
+				command: program.length > 24 ? `${program.slice(0, 23)}…` : program,
+			});
+			const cause = firstErrorLine(command.text ?? "");
+			const exit = exitMeta(command.exitCode);
+			return {
+				key: `command-${index}`,
+				finding: "error",
+				tone: "fail",
+				icon: "error",
+				label,
+				...(cause ? { detail: cause } : {}),
+				...(exit ? { meta: exit } : {}),
+				sentence: `${label}: ${command.command}`,
+				title: t("chat.work.cause.open"),
+				// A subagent's command has no call of ours to reveal: the click just opens the steps.
+				onSelect: () => show(command.toolCallId),
+			};
+		});
+		// One verdict block, never a stack: the failing check first, else the last failed command; the rest fold into
+		// one quiet line of it that opens the steps.
+		const failures = [...checkFacts.filter((_, index) => !checks[index]?.passed), ...commandFacts.toReversed()];
+		const [primary] = failures;
+		if (primary) {
+			const others = failures.length - 1;
+			metrics.push(
+				others > 0
+					? {
+							...primary,
+							more: { label: t("chat.work.verdict.more", { count: others }), onSelect: () => show() },
+						}
+					: primary,
+			);
+		} else if (error) {
+			metrics.push({
+				key: "error",
+				finding: "error",
+				tone: "fail",
+				icon: "error",
+				label: t("chat.work.chip.error"),
+				...(error.cause ? { detail: error.cause } : {}),
+				sentence: `${t("chat.work.chip.error")}${error.cause ? `: ${error.cause}` : ""}`,
+				title: t("chat.work.cause.open"),
+				onSelect: () => show(error.toolCallId),
+			});
+		}
+		const stopped = outcome.commands.filter(command => command.interrupted);
+		if (stopped.length) {
+			metrics.push({
+				key: "stopped",
+				finding: "stopped",
+				tone: "neutral",
+				icon: "stopped",
+				label: t("chat.work.interruptedCount", { count: stopped.length }),
+				sentence: t("chat.work.interruptedCount", { count: stopped.length }),
+				title: t("chat.work.metric.stopped"),
+				onSelect: () => show(stopped[0]?.toolCallId),
+			});
+		}
+		const unknown = outcome.commands.filter(command => command.unknown && !command.interrupted);
+		if (unknown.length) {
+			metrics.push({
+				key: "unknown",
+				finding: "unknown",
+				tone: "neutral",
+				icon: "stopped",
+				label: t("chat.work.unknown"),
+				sentence: t("chat.work.unknown"),
+				title: t("chat.work.unknown"),
+				onSelect: () => show(unknown[0]?.toolCallId),
+			});
+		}
 		if (changed) {
 			const stats = outcome.files.some(file => file.added !== undefined);
 			const added = outcome.files.reduce((sum, file) => sum + (file.added ?? 0), 0);
@@ -423,8 +500,8 @@ export function ExecutionGroup({
 			});
 		}
 	}
-	const findings =
-		metrics.length || causeButton ? <WorkMetrics facts={metrics} cause={causeButton} trailing={copyButton} /> : null;
+	const hasFindings = metrics.length > 0;
+	const findings = hasFindings ? <WorkMetrics facts={metrics} /> : null;
 
 	return (
 		<section
@@ -435,14 +512,22 @@ export function ExecutionGroup({
 		>
 			<LiveStepPeek
 				attention={attention}
-				summaryRow={header}
+				summaryRow={
+					hasFindings ? (
+						<>
+							{copyButton}
+							{header}
+						</>
+					) : (
+						header
+					)
+				}
 				findings={findings}
 				thinkingLive={thinkingLive}
 				toolCallIds={toolCallIds}
 				state={state}
 				stoppedAt={stoppedAt}
-				stepsListed={expanded}
-				carriesContext={live}
+				liveTail={live}
 				todoSnapshots={todo ? [todo] : undefined}
 				notes={shownNotes}
 				headline={headline}

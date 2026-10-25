@@ -964,7 +964,7 @@
 	overflow: visible;
 }
 
-/* A finished card reads head, facts, the agents, then the notes, outcome and replay strip. */
+/* A finished card reads head, facts, the agents, then the notes and the media. */
 .omp-execution-group > .omp-live-step[data-outcome="true"] > * {
 	order: 4;
 }
@@ -985,7 +985,7 @@
 	order: 3;
 }
 
-/* A finished card's facts (`WorkFacts.tsx`): one row of labeled metric buttons, then the failing step's cause. */
+/* A finished card's facts (`WorkFacts.tsx`): the verdict blocks of what failed, then one row of labeled chips. */
 .omp-work-facts {
 	display: grid;
 	gap: var(--sc-space-1);
@@ -1005,24 +1005,20 @@
 	--hit-gap-x: var(--sc-space-1);
 }
 
-.omp-work-metric,
-.omp-work-cause {
+.omp-work-metric {
 	display: inline-flex;
 	align-items: center;
-	min-width: 0;
-	max-width: 100%;
-	border-radius: var(--sc-radius-sm);
-	transition: background-color var(--sc-duration-instant);
-}
-
-.omp-work-metric {
 	flex: none;
 	gap: var(--sc-space-1-5);
+	min-width: 0;
+	max-width: 100%;
 	height: var(--sc-control-sm);
 	padding: 0 var(--sc-space-2);
 	border: var(--sc-hairline) solid var(--sc-divider);
+	border-radius: var(--sc-radius-sm);
 	color: var(--sc-text-muted);
 	white-space: nowrap;
+	transition: background-color var(--sc-duration-instant);
 }
 
 .omp-work-metric-figure {
@@ -1032,53 +1028,78 @@
 	font-weight: var(--sc-weight-medium);
 }
 
-/* A failed check is the only loud chip. */
-.omp-work-metric[data-tone="fail"] {
-	border-color: transparent;
-	background: var(--sc-danger-soft);
-	color: var(--sc-danger-on-soft);
-}
-
-.omp-work-metric[data-tone="fail"] .omp-work-metric-figure {
-	color: inherit;
-}
-
-.omp-work-metric:hover,
-.omp-work-cause:hover {
+.omp-work-metric:hover {
 	background: var(--sc-hover);
 	color: var(--sc-text);
 }
 
-.omp-work-metric[data-tone="fail"]:hover {
+/* A failed check or command is one verdict block, the only loud part of the card: its verdict and exit code, then the
+   cause under them (two lines at most), all one button that shows the failing step. The group carries the danger
+   ground, so the quiet "+N more failed" line under the button sits inside the same block. */
+.omp-work-verdict-group {
+	min-width: 0;
+	border-radius: var(--sc-radius-md);
 	background: var(--sc-danger-soft);
+	color: var(--sc-danger-on-soft);
+	font-size: var(--sc-font-sm);
 }
 
-/* The cause continues the failed chip above it, so it carries no mark of its own there; it may take two lines. */
-.omp-work-cause {
-	align-items: flex-start;
-	gap: var(--sc-space-1);
-	padding: var(--sc-space-0-5) 0;
-	min-height: var(--sc-control-sm);
-	color: var(--sc-danger);
-	font-family: var(--sc-font-mono);
+.omp-work-verdict {
+	display: grid;
+	grid-template-columns: var(--sc-icon-sm) minmax(0, 1fr) auto;
+	align-items: center;
+	column-gap: var(--sc-space-2);
+	row-gap: var(--sc-space-0-5);
+	width: 100%;
+	min-width: 0;
+	padding: var(--sc-space-1) var(--sc-space-2);
+	border-radius: var(--sc-radius-md);
+	text-align: start;
+	transition: background-color var(--sc-duration-instant) var(--sc-ease-standard);
+}
+
+.omp-work-verdict:hover,
+.omp-work-verdict-more:hover {
+	background: color-mix(in srgb, var(--sc-danger) 10%, transparent);
+}
+
+.omp-work-verdict-more {
+	display: block;
+	width: 100%;
+	padding: var(--sc-space-0-5) var(--sc-space-2) var(--sc-space-1) calc(var(--sc-space-2) * 2 + var(--sc-icon-sm));
+	border-radius: var(--sc-radius-md);
+	font-size: var(--sc-font-xs);
+	opacity: 0.8;
 	text-align: start;
 }
 
-.omp-work-cause > span {
+.omp-work-verdict-label {
+	min-width: 0;
+	overflow: hidden;
+	font-weight: var(--sc-weight-medium);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.omp-work-verdict-meta {
+	font-size: var(--sc-font-xs);
+	white-space: nowrap;
+}
+
+.omp-work-verdict-cause {
 	display: -webkit-box;
+	grid-column: 2 / -1;
+	overflow: hidden;
+	font-family: var(--sc-font-mono);
+	font-size: var(--sc-font-xs);
+	overflow-wrap: anywhere;
 	-webkit-box-orient: vertical;
 	-webkit-line-clamp: 2;
-	overflow: hidden;
-	overflow-wrap: anywhere;
 }
 
-.omp-work-metrics + .omp-work-cause > svg {
-	display: none;
-}
-
-/* The copy button sits at the row's end, apart from the chips. */
-.omp-work-copy {
-	margin-inline-start: auto;
+/* The copy button rides in the head, before the step toggle. */
+.omp-work-head-side .omp-work-copy {
+	margin-inline-start: 0;
 }
 
 /* The opened steps sit inside the card on a quiet well. */
@@ -1124,9 +1145,9 @@
 	color: var(--sc-text-muted);
 }
 
-/* Live work card: one hairline card under a running (or agent) group's summary.
-   Head (status, what is happening now, counts) → agent lanes → the current
-   step's own surface, sized to its content → a quiet replay strip. Content
+/* Work card: one hairline card under a running (or agent) group's summary.
+   Head (status, what is happening now, the step toggle) → agent lanes → the current
+   step's own surface in a fixed 160 px stage. Content
    stays colorless; only state marks (status, failures, diff counts) carry
    color. Tool renderers keep their own code/diff paint. */
 .omp-live-step {
@@ -1435,17 +1456,6 @@
 	border-inline-start: var(--sc-hairline) solid var(--sc-divider);
 }
 
-/* Rides in the strip row like any chip: colorless, and never a row of its own. */
-.omp-work-catch-up {
-	margin-inline-start: auto;
-	padding-inline: var(--sc-space-2);
-	white-space: nowrap;
-}
-
-.omp-work-catch-up + .omp-live-work-follow {
-	margin-inline-start: 0;
-}
-
 /* Status mark (head, lanes, outcome rows) ────────────────────────────── */
 .omp-work-status {
 	position: relative;
@@ -1654,8 +1664,8 @@
 }
 
 
-/* The stage opens once, then every step shares exactly the same viewport. The clip is the
-   grid item: a fixed-height item would pin a 0fr track to its own height, so the open and
+/* The stage opens once, then every step shares exactly the same 160 px viewport: no step changes the card's height.
+   The clip is the grid item: a fixed-height item would pin a 0fr track to its own height, so the open and
    the close into the outcome would each land in a single frame. */
 .omp-work-stage-shell {
 	display: grid;
@@ -1673,7 +1683,7 @@
 	overflow: hidden;
 }
 .omp-work-stage {
-	--omp-work-stage: clamp(9rem, 34cqh, 17rem);
+	--omp-work-stage: 10rem;
 	display: flex;
 	flex-direction: column;
 	height: var(--omp-work-stage);
@@ -1708,11 +1718,13 @@
 	flex: 1;
 	overflow: hidden;
 }
+/* The pinned command line sits flush at the top of the scroller, so no scrolled line shows above it. */
 .omp-work-stage .omp-live-step-scroll {
 	flex: 1;
 	min-height: 0;
 	max-height: none;
 	height: auto;
+	padding-block-start: 0;
 }
 .omp-work-stage .omp-work-surface-content {
 	display: flex;
@@ -1723,13 +1735,12 @@
 .omp-work-stage .omp-bash-terminal {
 	flex: 1;
 }
-/* A command that has printed nothing: its command line and clock rest at the centre of the
-   same fixed stage instead of an empty terminal stretched across it. */
+/* A command that has printed nothing: its command line and clock sit at the top of the same fixed stage, as a
+   prompt line does, instead of an empty terminal stretched across it. */
 .omp-work-stage .omp-work-silent {
 	display: flex;
 	flex-direction: column;
-	align-items: center;
-	justify-content: center;
+	align-items: flex-start;
 	gap: var(--sc-space-2);
 	min-width: 0;
 }
@@ -1986,16 +1997,6 @@
 	padding: 0 var(--sc-space-1-5) var(--sc-space-1-5) var(--sc-space-2);
 }
 
-/* The card's own strip names what its icons are; an open lane's strip carries its agent's name instead. */
-.omp-execution-group > .omp-live-step > .omp-live-work-strip:not([data-lane])::before {
-	content: attr(aria-label);
-	flex-shrink: 0;
-	padding-inline-end: var(--sc-space-1);
-	color: var(--sc-text-subtle);
-	font-size: var(--sc-font-xs);
-	white-space: nowrap;
-}
-
 .omp-live-step[data-nested="true"] > .omp-live-work-strip {
 	padding-inline: 0;
 	border-top: 0;
@@ -2097,9 +2098,7 @@
 
 .omp-live-work-chip:focus-visible,
 .omp-live-step-scroll:focus-visible,
-.omp-work-card-button:focus-visible,
-.omp-work-catch-up:focus-visible,
-.omp-work-outcome summary:focus-visible {
+.omp-work-card-button:focus-visible {
 	outline: var(--sc-focus-width) solid var(--sc-focus-ring);
 	outline-offset: -2px;
 }
@@ -2190,67 +2189,6 @@
 }
 
 
-/* Outcome ──────────────────────────────────────────────────────────────── */
-.omp-work-outcome {
-	margin: var(--sc-space-0-5) 0 var(--sc-space-1-5) calc(var(--sc-space-1-5) + var(--sc-icon-sm) + var(--sc-space-2));
-	min-width: 0;
-	font-size: var(--sc-font-sm);
-}
-
-.omp-work-outcome-shell {
-	display: grid;
-	grid-template-rows: 1fr;
-	transition: grid-template-rows var(--sc-duration-med) var(--sc-ease-standard);
-}
-.omp-work-outcome-content {
-	min-height: 0;
-	overflow: hidden;
-}
-@starting-style {
-	.omp-work-motion .omp-work-outcome-shell { grid-template-rows: 0fr; }
-}
-.omp-work-outcome-content > .omp-work-outcome {
-	margin: 0;
-	padding: 0 var(--sc-space-3) var(--sc-space-1);
-}
-
-.omp-work-outcome summary {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: var(--sc-space-0-5) var(--sc-space-2);
-	min-height: var(--sc-control-sm);
-	line-height: var(--sc-leading-normal);
-	color: var(--sc-text-muted);
-	list-style: none;
-	cursor: pointer;
-}
-
-.omp-work-outcome summary::-webkit-details-marker {
-	display: none;
-}
-
-.omp-work-outcome-chevron {
-	width: var(--sc-icon-sm);
-	height: var(--sc-icon-sm);
-	flex-shrink: 0;
-	color: var(--sc-text-subtle);
-	transition: transform var(--sc-duration-fast) var(--sc-ease-standard);
-}
-
-.omp-work-outcome[open] .omp-work-outcome-chevron {
-	transform: rotate(90deg);
-}
-
-.omp-work-outcome summary:hover {
-	color: var(--sc-text-secondary);
-}
-
-.omp-work-outcome-title {
-	color: var(--sc-text-secondary);
-	font-weight: var(--sc-weight-medium);
-}
-
 .omp-work-diff {
 	display: inline-flex;
 	gap: var(--sc-space-1);
@@ -2266,104 +2204,7 @@
 	color: var(--sc-danger);
 }
 
-.omp-work-outcome-list {
-	display: grid;
-	gap: 1px;
-	margin: var(--sc-space-0-5) 0 0;
-	padding: 0;
-	list-style: none;
-}
-
-.omp-work-outcome-list > li {
-	display: grid;
-	grid-template-columns: var(--sc-icon-sm) minmax(0, 1fr) fit-content(40%);
-	align-items: center;
-	column-gap: var(--sc-space-2);
-	min-height: 26px;
-	padding-block: var(--sc-space-0-5);
-}
-
-.omp-work-outcome-icon {
-	width: var(--sc-icon-sm);
-	height: var(--sc-icon-sm);
-	color: var(--sc-text-subtle);
-}
-
-.omp-work-outcome-main {
-	min-width: 0;
-	overflow: hidden;
-	color: var(--sc-text);
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.omp-work-outcome-list .font-mono {
-	font-size: var(--sc-font-xs);
-}
-
-.omp-work-outcome-list > li[data-kind="agent"] {
-	align-items: start;
-}
-
-.omp-work-outcome-list > li[data-kind="agent"] > .omp-work-outcome-icon {
-	margin-block-start: calc((var(--sc-font-sm) * var(--sc-leading-normal) - var(--sc-icon-sm)) / 2);
-}
-
-.omp-work-outcome-list > li[data-kind="agent"] > .omp-work-outcome-main {
-	grid-column: 2 / -1;
-	line-height: var(--sc-leading-normal);
-	white-space: normal;
-	overflow-wrap: anywhere;
-}
-
-.omp-work-outcome-meta {
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	color: var(--sc-text-subtle);
-	font-size: var(--sc-font-xs);
-	font-variant-numeric: tabular-nums;
-	white-space: nowrap;
-}
-
-.omp-work-outcome-list > li[data-failed="true"] .omp-work-outcome-meta {
-	color: var(--sc-danger);
-}
-
-/* A stopped command's name opens what it printed before the stop. */
-.omp-work-outcome-toggle {
-	text-align: start;
-	border-radius: var(--sc-radius-sm);
-	cursor: pointer;
-}
-
-.omp-work-outcome-toggle:hover {
-	background: var(--sc-hover);
-}
-
-.omp-work-outcome-toggle:focus-visible {
-	outline: var(--sc-focus-width) solid var(--sc-focus-ring);
-	outline-offset: 1px;
-}
-
-.omp-work-outcome-output {
-	grid-column: 2 / -1;
-	max-height: calc(var(--sc-font-xs) * var(--sc-leading-normal) * 12);
-	margin: var(--sc-space-1) 0 0;
-	padding: var(--sc-space-1-5) var(--sc-space-2);
-	overflow: auto;
-	border: var(--sc-hairline) solid var(--sc-divider);
-	border-radius: var(--sc-radius-sm);
-	background: var(--omp-code-bg);
-	color: var(--sc-text-secondary);
-	font-family: var(--sc-font-mono);
-	font-size: var(--sc-font-xs);
-	line-height: var(--sc-leading-normal);
-	white-space: pre-wrap;
-	overflow-wrap: anywhere;
-}
-
-/* Pictures the work made or read back: always visible thumbnails under the outcome. */
+/* Pictures the work made or read back: always visible thumbnails at the card's foot. */
 .omp-work-images {
 	display: flex;
 	align-items: start;
@@ -2371,11 +2212,6 @@
 	gap: var(--sc-space-2);
 	min-width: 0;
 	scrollbar-width: thin;
-	padding-block-end: var(--sc-space-1);
-	margin: var(--sc-space-1) 0 var(--sc-space-2) calc(var(--sc-space-1-5) + var(--sc-icon-sm) + var(--sc-space-2));
-}
-
-.omp-work-outcome-content > .omp-work-images {
 	margin: 0;
 	padding: 0 var(--sc-space-3) var(--sc-space-2);
 }
@@ -2832,7 +2668,7 @@ button.omp-file-chip-name:hover {
 	margin-top: 0;
 }
 
-.omp-work-outcome-more {
+.omp-work-images-more {
 	margin: var(--sc-space-1) 0 0 calc(var(--sc-icon-sm) + var(--sc-space-2));
 	font-size: var(--sc-font-xs);
 }

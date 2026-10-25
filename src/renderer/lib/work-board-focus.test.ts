@@ -20,7 +20,7 @@ afterEach(() => {
 function panes(activeBoard: string): void {
 	document.body.innerHTML = `
 		<div class="omp-session-pane" data-active="false">
-			<aside data-work-board-panel id="other"><button data-board-waiting="q0" id="other-waiting">Waiting</button></aside>
+			<aside data-work-board-panel id="other"><section data-board-section="needs"><button class="omp-work-board-row" id="other-waiting">Waiting</button></section></aside>
 		</div>
 		<div class="omp-session-pane" data-active="true">
 			<aside data-work-board-panel id="board" tabindex="-1">${activeBoard}</aside>
@@ -28,9 +28,9 @@ function panes(activeBoard: string): void {
 }
 
 describe("focusWorkBoard (⌥B)", () => {
-	it("lands on the focused pane's first row that waits on the user, ahead of the rows above it", () => {
+	it("lands on the focused pane's first row of Needs you, ahead of the rows above it", () => {
 		panes(`<button>Fold</button><button class="omp-work-board-row" id="agent">Agent</button>
-			<button data-board-waiting="q1" id="waiting">Question</button>`);
+			<section data-board-section="needs"><button>Fold</button><button class="omp-work-board-row" id="waiting">Question</button></section>`);
 		expect(focusWorkBoard()).toBe(true);
 		expect(focused?.id).toBe("waiting");
 	});
@@ -48,7 +48,7 @@ describe("focusWorkBoard (⌥B)", () => {
 	});
 
 	it("uses any board when no pane is focused, and reports when there is none", () => {
-		document.body.innerHTML = `<aside data-work-board-panel><button data-board-waiting="q" id="only">Q</button></aside>`;
+		document.body.innerHTML = `<aside data-work-board-panel><section data-board-section="needs"><button class="omp-work-board-row" id="only">Q</button></section></aside>`;
 		expect(focusWorkBoard()).toBe(true);
 		expect(focused?.id).toBe("only");
 		document.body.innerHTML = "<main></main>";

@@ -309,8 +309,8 @@ async function flowBLaunch(root: string): Promise<FlowBLaunched> {
 async function flowBExpectClean(page: Page, merged: boolean): Promise<void> {
 	await expect(page.locator("[data-sidebar-opened-session]")).toHaveCount(0);
 	await expect(page.locator('[data-board-section="review"]')).toHaveCount(0);
-	const rows = page.locator('[data-board-section="opened"] [data-board-opened]');
-	const fold = page.locator('[data-board-section="opened"] [data-board-opened-done]');
+	const rows = page.locator('[data-board-section="now"] [data-board-opened]');
+	const fold = page.locator('[data-board-section="now"] [data-board-opened-done]');
 	await expect(rows).toHaveCount(0);
 	if (merged) {
 		await expect(fold).toHaveText("1 done");
@@ -321,7 +321,7 @@ async function flowBExpectClean(page: Page, merged: boolean): Promise<void> {
 	} else await expect(fold).toHaveCount(0);
 	// The opener's transcript may say it deleted the session (a mail note); no list or row may.
 	const lists = [
-		...(await page.locator('[data-board-section="opened"]').allInnerTexts()),
+		...(await page.locator('[data-board-section="now"]').allInnerTexts()),
 		...(await page.locator("aside, nav").allInnerTexts()),
 	];
 	for (const text of lists) {

@@ -29,20 +29,17 @@ import { getToolHeader, getToolRenderer, type ToolHeader } from "../tools/index"
 import { isSilentCommand } from "../tools/renderers/BashRenderer";
 import { ToolPathTarget } from "../tools/ToolCard";
 import { ChildrenAtWork, waitsOnChildren } from "./work/ChildrenAtWork";
+import { CoordinationSub } from "./work/CoordinationSub";
+import { isCoordination } from "./work/coordination";
 import { collapseWaitSteps, selectLiveStep, type WorkStripStep } from "./work/live-step";
 import { liveFocusTarget, revealLiveFocus, STAGE_SCROLL_KEYS } from "./work/stage-follow";
-import { WorkContext } from "./work/WorkContext";
 import { useWorkFrameOutgoing, WorkCrossfade, workMotionDuration } from "./work/WorkCrossfade";
 import { SubagentSurface, WorkMap } from "./work/WorkMap";
+import { WorkMedia } from "./work/WorkMedia";
 import { WorkNotes } from "./work/WorkNotes";
-import { WorkOutcome } from "./work/WorkOutcome";
 import { isInterruptedError, type WorkGroupState, type WorkState, WorkStatus } from "./work/WorkStatus";
+import { WorkTodoSnapshot } from "./work/WorkTodoSnapshot";
 import { isSkippedWork, lastReasoningSentence, workNarrative } from "./work/work-view";
-
-const seenSteps = new WeakMap<
-	StoreApi<ToolsStore>,
-	Map<string, { count: number; hydration: number; away: boolean; waitingForHydration: boolean }>
->();
 
 /** An auto-followed agent keeps the stage at least this long before a main step may take it. */
 const AGENT_DWELL_MS = 2000;
@@ -154,11 +151,10 @@ export function LiveStepPeek({
 	nested = false,
 	state = "running",
 	stoppedAt,
-	stepsListed = false,
 	summaryRow,
 	findings,
 	attention = false,
-	carriesContext = false,
+	liveTail = false,
 	todoSnapshots,
 	notes,
 	runStartedAt,
@@ -172,16 +168,14 @@ export function LiveStepPeek({
 	state?: WorkGroupState;
 	/** Timestamp of stock's empty aborted reply after this group. */
 	stoppedAt?: number;
-	/** The group's own step list is open below: the replay strip would only repeat it. */
-	stepsListed?: boolean;
 	/** The group's summary row (counts, output meter, step-list toggle), carried in this card's head. */
 	summaryRow?: ReactNode;
 	/** A finished run's findings (failure cause, Changes), right under the head. */
 	findings?: ReactNode;
 	/** A finished run whose own check or command failed: the head's mark says so instead of a green tick. */
 	attention?: boolean;
-	/** Only the transcript's live-tail group carries the session context. */
-	carriesContext?: boolean;
+	/** Only the transcript's live-tail group lists the sessions its agent waits on. */
+	liveTail?: boolean;
 	todoSnapshots?: readonly TodoSnapshot[];
 	notes?: readonly AgentMessage[];
 	/** When the run began; the head's clock counts the whole run from here (default: its first step). */
@@ -201,10 +195,7 @@ export function LiveStepPeek({
 	const outgoingFrame = useWorkFrameOutgoing();
 	const boxRef = useRef<HTMLDivElement>(null);
 	const [visible, setVisible] = useState(true);
-	const [catchUp, setCatchUp] = useState(0);
-	const [catchUpReplay, setCatchUpReplay] = useState<string[]>([]);
 	const [focusStep, setFocusStep] = useState<string | null>(null);
-	const hydrationVersion = useFrameSelector(tools, s => s.hydrationVersion);
 	// Not steps of their own: stock's internal skipped waits, and in an agent lane the
 	// agent's `yield` submission (its result already reads as the lane's conclusion).
 	const hidden = (entry: ToolEntry | undefined) => isSkippedWork(entry) || (nested && entry?.toolName === "yield");
@@ -422,7 +413,6 @@ export function LiveStepPeek({
 		return () => clearTimeout(timer);
 	}, [holdLeft]);
 	const shownAgent = expandedAgent ?? autoShown;
-	const groupKey = toolCallIds[0] ?? "thinking";
 	useEffect(() => {
 		if (typeof IntersectionObserver === "undefined") return;
 		const observer = new IntersectionObserver(entries => setVisible(entries[0]?.isIntersecting ?? false));
@@ -434,50 +424,6 @@ export function LiveStepPeek({
 		document.addEventListener("visibilitychange", visibility);
 		return () => document.removeEventListener("visibilitychange", visibility);
 	}, []);
-	useEffect(() => {
-		let seen = seenSteps.get(tools);
-		if (!seen) {
-			seen = new Map();
-			seenSteps.set(tools, seen);
-		}
-		let previous = seen.get(groupKey);
-		if (!previous || previous.hydration > hydrationVersion) {
-			previous = { count: steps.length, hydration: hydrationVersion, away: false, waitingForHydration: false };
-			seen.set(groupKey, previous);
-		}
-		if (!focused || !visible) {
-			previous.away = true;
-			previous.waitingForHydration ||= !focused;
-			return;
-		}
-		if (previous.waitingForHydration && previous.hydration === hydrationVersion) return;
-		if (previous.away && steps.length > previous.count) setCatchUp(steps.length - previous.count);
-		previous.count = Math.max(previous.count, steps.length);
-		previous.hydration = hydrationVersion;
-		previous.away = false;
-		previous.waitingForHydration = false;
-	}, [focused, visible, groupKey, tools, steps.length, hydrationVersion]);
-	useEffect(
-		() => () => {
-			const previous = seenSteps.get(tools)?.get(groupKey);
-			if (!previous) return;
-			previous.away = true;
-			previous.waitingForHydration ||= Boolean(runtime && useTabsStore.getState().activeTabId !== runtime.tabId);
-		},
-		[tools, groupKey, runtime],
-	);
-	useEffect(() => {
-		if (!catchUpReplay.length) return;
-		setReplay(catchUpReplay[0] ?? null);
-		const timer = setTimeout(
-			() => {
-				setCatchUpReplay(rest => rest.slice(1));
-				if (catchUpReplay.length === 1) setReplay(null);
-			},
-			reducedMotion ? 0 : 350,
-		);
-		return () => clearTimeout(timer);
-	}, [catchUpReplay, reducedMotion]);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: streaming content must repin the nested renderer after layout.
 	useLayoutEffect(() => {
 		if (previousStep.current !== selected) {
@@ -550,9 +496,12 @@ export function LiveStepPeek({
 			(!!entry &&
 				kind !== "thinking" &&
 				!calmWait &&
+				// A task with agent lanes: the lanes are its surface.
 				!(kind === "task" && hasLanes) &&
-				// The todo row above already shows the list this step writes.
-				!(kind === "todo" && carriesContext)));
+				// A todo call writes the dock's list, and a session-coordination call's arguments are plumbing: neither
+				// is a surface; the head says what the step waits on.
+				kind !== "todo" &&
+				!isCoordination(entry)));
 	const narrative =
 		!nested && !turnIsLive
 			? completion
@@ -560,6 +509,8 @@ export function LiveStepPeek({
 				? workNarrative(entry.toolName, settledArgs(entry), t, undefined, entry.intent)
 				: t("chat.thinking.live");
 	const waitingNames = waitingFor ? waitingFor.split(", ") : [];
+	// A running session-control call is said in words by the head's own line (CoordinationSub names the children).
+	const coordinating = !nested && running && (following || pinnedLive) && isCoordination(entry);
 	const liveSub =
 		!following && !pinnedLive
 			? ""
@@ -675,9 +626,13 @@ export function LiveStepPeek({
 						</WorkCrossfade>
 						{reserveSub ? (
 							<div className="omp-work-sub-shell" data-open={turnIsLive}>
-								<div className="omp-work-sub" title={sub || undefined} aria-hidden={!sub || undefined}>
-									{sub || "\u00a0"}
-								</div>
+								{coordinating && entry ? (
+									<CoordinationSub entry={entry} />
+								) : (
+									<div className="omp-work-sub" title={sub || undefined} aria-hidden={!sub || undefined}>
+										{sub || "\u00a0"}
+									</div>
+								)}
 							</div>
 						) : null}
 					</div>
@@ -699,7 +654,7 @@ export function LiveStepPeek({
 						? narrative
 						: ""}
 			</span>
-			{!nested ? <WorkContext live={carriesContext} snapshot={todoSnapshots?.at(-1)} /> : null}
+			{!nested && !turnIsLive ? <WorkTodoSnapshot snapshot={todoSnapshots?.at(-1)} /> : null}
 			{!nested && notes?.length ? <WorkNotes messages={notes} live={turnIsLive} /> : null}
 			{!nested ? (
 				<WorkMap
@@ -712,7 +667,7 @@ export function LiveStepPeek({
 					}}
 				/>
 			) : null}
-			{!nested && carriesContext && turnIsLive && waitingOnChildren ? <ChildrenAtWork /> : null}
+			{!nested && liveTail && turnIsLive && waitingOnChildren ? <ChildrenAtWork /> : null}
 			{!nested && (stageOpen || stagePresent) ? (
 				<div className="omp-work-stage-shell" data-open={stageOpen} aria-hidden={!stageOpen} inert={!stageOpen}>
 					<div className="omp-work-stage-clip">
@@ -739,13 +694,7 @@ export function LiveStepPeek({
 					</WorkCrossfade>
 				</>
 			) : null}
-			{outcomeMode ? (
-				<div className="omp-work-outcome-shell">
-					<div className="omp-work-outcome-content">
-						<WorkOutcome toolCallIds={toolCallIds} stoppedAt={stoppedAt} />
-					</div>
-				</div>
-			) : null}
+			{outcomeMode ? <WorkMedia toolCallIds={toolCallIds} stoppedAt={stoppedAt} /> : null}
 			{renderStrip()}
 		</div>
 	);
@@ -835,8 +784,8 @@ export function LiveStepPeek({
 		const kind = header?.tool ?? "thinking";
 		const calmWait = kind === "wait" && !entry?.isError && entry?.status !== "error" && entry?.status !== "aborted";
 		const isPartial = entry?.status === "pending" || entry?.status === "running";
-		// A command that has printed nothing keeps the stage calm: its command line and clock at the
-		// centre of the same fixed stage, instead of an empty terminal filling it.
+		// A command that has printed nothing keeps the stage calm: its command line and clock sit at the top of the
+		// same fixed stage, as a prompt line, instead of an empty terminal filling it.
 		const silent = kind === "bash" && !!entry && isSilentCommand(entry.args, isPartial ? partial : entry.result);
 		const clock =
 			(following || pinnedLive) && !thinkingBetween && stepClock && id === surfaceKey ? (
@@ -977,7 +926,6 @@ export function LiveStepPeek({
 				>
 					<span className="omp-live-work-strip-label">{shownAgent}</span>
 					<div className="omp-live-work-strip-lane" ref={setLaneSlot} />
-					{renderCatchUp()}
 					{expandedAgent === null ? null : (
 						// controls-ok: the omp-live-work-chip class draws the whole control
 						<button
@@ -1002,7 +950,8 @@ export function LiveStepPeek({
 				? null
 				: createPortal(renderStripContent(), laneStripSlot);
 		}
-		return steps.length === 0 || stepsListed || (nested && following && steps.length <= 1) ? null : (
+		// The card's own head toggle opens the steps; only a nested agent's view keeps a strip of its steps.
+		return !nested || steps.length === 0 || (following && steps.length <= 1) ? null : (
 			<div className="omp-live-work-strip" role="group" aria-label={t("chat.work.steps")}>
 				{renderStripContent()}
 			</div>
@@ -1065,7 +1014,6 @@ export function LiveStepPeek({
 						);
 					})}
 				</div>
-				{renderCatchUp()}
 				{following && expandedAgent === null ? null : (
 					// controls-ok: the omp-live-work-chip class draws the whole control
 					<button
@@ -1089,23 +1037,5 @@ export function LiveStepPeek({
 				)}
 			</>
 		);
-	}
-	function renderCatchUp() {
-		// Steps that advanced while the reader was away matter only while the run goes on:
-		// a finished card states its outcome instead.
-		return catchUp > 0 && turnIsLive ? (
-			// controls-ok: the omp-live-work-chip class draws the whole control
-			<button
-				type="button"
-				className="omp-live-work-chip omp-work-catch-up"
-				onClick={() => {
-					setCatchUpReplay(steps.slice(-catchUp).map(step => step.id));
-					setCatchUp(0);
-					setExpandedAgent(null);
-				}}
-			>
-				{t("chat.work.catchUp", { count: catchUp })}
-			</button>
-		) : null;
 	}
 }

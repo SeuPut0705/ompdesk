@@ -112,16 +112,16 @@ describe("work card findings", () => {
 		expect(facts()).toContain("128 tests passed");
 		expect(facts()).toContain("1 command");
 		expect(finding("tests").getAttribute("aria-label")).toBe("128 tests passed");
-		expect(container.querySelector("[data-work-cause]")).toBeNull();
+		expect(container.querySelector('[data-work-finding="error"]')).toBeNull();
 	});
 
-	it("says each fact once: the strip holds files and checks, the head only what the strip does not", async () => {
+	it("says each fact once: the head its steps, the chips files and checks, the command count only the label", async () => {
 		await mount([
 			["edit-1", edit],
 			["test-1", bash("bunx vitest run", " Tests  128 passed (128)", 0, 1_000)],
 			["status-1", bash("git status --short", " M src/a.ts", 0, 3_000)],
 		]);
-		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("1 command");
+		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("3 steps");
 		expect(finding("changes")).not.toBeNull();
 		expect(finding("tests")).not.toBeNull();
 	});
@@ -135,8 +135,14 @@ describe("work card findings", () => {
 			},
 		);
 		expect(facts()).toContain("build failed");
-		const cause = container.querySelector("[data-work-cause]") as unknown as HTMLElement;
-		expect(cause.textContent).toBe("error during build: Could not resolve './x'");
+		const block = finding("error");
+		expect(block.querySelector(".omp-work-verdict-cause")?.textContent).toBe(
+			"error during build: Could not resolve './x'",
+		);
+		// The block is the cause: verdict, exit code and cause in one button.
+		expect(block.querySelector(".omp-work-verdict-label")?.textContent).toBe("build failed");
+		expect(container.querySelectorAll('[data-work-finding="error"]')).toHaveLength(1);
+		const cause = block;
 		await click(cause);
 		expect(expanded).toBe(true);
 	});
@@ -160,10 +166,13 @@ describe("work card verdict", () => {
 		expect(mark()?.getAttribute("aria-label")).toBe("Done, but a check failed");
 		expect(container.querySelector(".omp-work-narrative")?.textContent).toBe("Done, but a check failed");
 		expect(container.querySelector(".omp-execution-group")?.getAttribute("data-verdict")).toBe("failed");
-		expect(finding("check-typecheck").getAttribute("data-tone")).toBe("fail");
-		await click(finding("check-typecheck"));
+		expect(container.querySelector('[data-work-finding^="check-"]')).toBeNull();
+		const block = finding("error");
+		expect(block.textContent).toContain("type check failed");
+		expect(block.querySelector(".omp-work-verdict-meta")?.textContent).toBe("exit 2");
+		expect(block.querySelector(".omp-work-verdict-cause")?.textContent).toContain("TS2322");
+		await click(block);
 		expect(expanded).toBe(true);
-		expect(container.querySelector("[data-work-cause]")?.textContent).toContain("TS2322");
 	});
 
 	it("keeps an interrupted run interrupted, never a failed check", async () => {
@@ -171,7 +180,78 @@ describe("work card verdict", () => {
 		await mount([["types-1", aborted]]);
 		expect(mark()?.getAttribute("data-state")).toBe("stopped");
 		expect(container.querySelector(".omp-execution-group")?.getAttribute("data-verdict")).toBeNull();
-		expect(container.querySelector("[data-work-finding]")).toBeNull();
+		expect(container.querySelector('[data-work-finding="error"], [data-work-finding^="check-"]')).toBeNull();
+		// A stopped command is never silent: it is its own chip.
+		expect(finding("stopped")?.textContent).toContain("1 interrupted");
+	});
+});
+
+describe("work card failures", () => {
+	it("shows one verdict block for several failures: the failing check first, the rest folded into one line", async () => {
+		let expanded = false;
+		await mount(
+			[
+				["push-1", bash("git push origin main", "fatal: denied", 128, 0)],
+				["types-1", typesFailedQuietly],
+				["deploy-1", bash("./deploy.sh", "deploy: no target", 2, 5_000)],
+			],
+			next => {
+				expanded = next;
+			},
+		);
+		const blocks = [...container.querySelectorAll('[data-work-finding="error"]')];
+		expect(blocks).toHaveLength(1);
+		expect(blocks[0]?.textContent).toContain("type check failed");
+		const more = container.querySelector('[data-work-finding="more-failed"]') as unknown as HTMLElement;
+		expect(more.textContent).toBe("+2 more failed");
+		await click(more);
+		expect(expanded).toBe(true);
+	});
+
+	it("shows the last failed command when no check failed, named by the program it ran", async () => {
+		await mount([
+			["a", bash("cd src && FOO=1 ./first.sh", "first: boom", 1, 0)],
+			["b", bash("cd src && FOO=1 env git push origin main", "fatal: denied", 128, 5_000)],
+		]);
+		const block = finding("error");
+		expect(block.querySelector(".omp-work-verdict-label")?.textContent).toBe("git push failed");
+		expect(block.querySelector(".omp-work-verdict-cause")?.textContent).toBe("fatal: denied");
+		expect(container.querySelector('[data-work-finding="more-failed"]')?.textContent).toBe("+1 more failed");
+	});
+
+	it("has no folded line for a single failure", async () => {
+		await mount([["a", bash("./first.sh", "first: boom", 1, 0)]]);
+		expect(container.querySelector('[data-work-finding="more-failed"]')).toBeNull();
+	});
+
+	it("opens the steps, with nothing to reveal, for a failed command that has no call of its own", async () => {
+		let expanded = false;
+		await mount([["a", bash("./first.sh", "first: boom", 1, 0)]], next => {
+			expanded = next;
+		});
+		await click(finding("error"));
+		expect(expanded).toBe(true);
+	});
+});
+
+describe("work card without output", () => {
+	it("says what a run of only reads and searches read and searched in its head", async () => {
+		const read = (path: string, at: number): ToolEntry => ({
+			...edit,
+			toolName: "read",
+			args: { path },
+			result: { content: [{ type: "text", text: "x" }] },
+			startTime: at,
+			endTime: at + 100,
+		});
+		const search: ToolEntry = { ...read("src", 900), toolName: "grep", args: { pattern: "x" } };
+		await mount([
+			["r1", read("a.ts", 0)],
+			["r2", read("b.ts", 200)],
+			["s1", search],
+		]);
+		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("Read 2 files · 1 search");
+		expect(container.querySelector(".omp-execution-group-summary")?.textContent).not.toContain("3 steps");
 	});
 });
 

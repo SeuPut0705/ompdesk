@@ -201,12 +201,10 @@ describe("token rate and count wording (#32)", () => {
 });
 
 describe("more/less wording (#33)", () => {
-	it("uses one more/less pair for every folded list in the card", () => {
+	it("uses one less wording for every folded list in the card", () => {
 		for (const locale of [en, ko]) {
-			expect(locale["chat.workNotes.more"]).toBe(locale["chat.work.more"]);
 			expect(locale["chat.workNotes.less"]).toBe(locale["chat.work.fewer"]);
 		}
-		expect(ko["chat.work.more"]).toBe("{count}개 더 보기");
 		expect(ko["chat.work.fewer"]).toBe("접기");
 	});
 });

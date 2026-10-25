@@ -168,7 +168,9 @@ describe("work board without a review section", () => {
 });
 
 describe("work board opened sessions", () => {
-	const opened = () => pane.querySelector('[data-board-section="opened"]');
+	// The children that wait for an answer are rows of Needs you; the others, with the fold of the finished, of Now.
+	const opened = () => pane.querySelector('[data-board-section="now"]');
+	const needs = () => pane.querySelector('[data-board-section="needs"]');
 	const child = (id: string, extra: Record<string, unknown> = {}) => ({
 		id,
 		cwd: "/w",
@@ -179,7 +181,7 @@ describe("work board opened sessions", () => {
 		...extra,
 	});
 
-	it("lists the unfinished ones as children, waiting first; the finished ones fold into one 'n done' row", async () => {
+	it("lists the ones that wait under Needs you and the other unfinished under Now; the finished fold into one 'n done' row", async () => {
 		listed = [
 			item({ tabId: "c-run", state: "running", step: "running bash (vitest)", runningSince: Date.now() - 5_000 }),
 			item({ tabId: "c-merge", branch: "omp/agent/m", baseBranch: "main", commitsAhead: 1 }),
@@ -208,18 +210,21 @@ describe("work board opened sessions", () => {
 				],
 			}),
 		);
-		expect(opened()?.textContent).toContain("Child sessions");
+		// A child at work is "Now"; one waiting for an answer is the person's, with a word saying it is a child session.
+		expect(opened()?.textContent).toContain("Now");
+		const waiting = [...(needs()?.querySelectorAll("[data-board-opened]") ?? [])];
+		expect(waiting.map(row => [row.getAttribute("data-board-opened"), row.getAttribute("data-status")])).toEqual([
+			["c-ask", "waiting"],
+		]);
+		expect(waiting[0]?.textContent).toMatch(/^Child/);
 		const listedRows = () => [...(opened()?.querySelectorAll("[data-board-opened]") ?? [])];
 		const rows = listedRows();
 		expect(rows.map(row => [row.getAttribute("data-board-opened"), row.getAttribute("data-status")])).toEqual([
-			["c-ask", "waiting"],
 			["c-merge", "problem"],
 			["c-run", "running"],
 		]);
 		expect(opened()?.querySelector("[data-board-more]")).toBeNull();
-		// The section counts what is left to look at; the finished tab and the closed session are one row, worded as
-		// the plan's fold, with no "closed" count beside the title.
-		expect(opened()?.querySelector(".omp-work-board-count")?.textContent).toBe("3");
+		// The finished tab and the closed session are one row, worded as the plan's fold, with no "closed" count.
 		const fold = opened()?.querySelector("[data-board-opened-done]") as HTMLElement | null;
 		expect(fold?.textContent).toBe("2 done");
 		expect(fold?.getAttribute("data-open")).toBe("false");
@@ -230,26 +235,28 @@ describe("work board opened sessions", () => {
 		expect(fold?.getAttribute("data-open")).toBe("true");
 		expect(listedRows().map(row => [row.getAttribute("data-board-opened"), row.getAttribute("data-status")])).toEqual(
 			[
-				["c-ask", "waiting"],
 				["c-merge", "problem"],
 				["c-run", "running"],
 				["c-done", "done"],
 				["/s/closed.jsonl", "done"],
 			],
 		);
-		// Only the waiting child is marked; the list itself never takes the warning tone (it tinted every row).
+		// Now never takes the warning tone (it tinted every row); Needs you does.
 		expect(opened()?.hasAttribute("data-tone")).toBe(false);
+		expect(needs()?.getAttribute("data-tone")).toBe("warning");
 		// One line each: the title on the row; what it does now, its branch and merge state in the tooltip.
-		expect(rows[2]?.textContent).toContain("Run the suite");
-		expect(rows[2]?.getAttribute("title")).toContain("running bash (vitest)");
-		expect(rows[1]?.getAttribute("title")).toContain("omp/agent/m → main");
-		expect(rows[1]?.getAttribute("title")).toContain("Not merged");
+		expect(rows[1]?.textContent).toContain("Run the suite");
+		expect(rows[1]?.getAttribute("title")).toContain("running bash (vitest)");
+		expect(rows[0]?.getAttribute("title")).toContain("omp/agent/m → main");
+		expect(rows[0]?.getAttribute("title")).toContain("Not merged");
 	});
 
 	it("shows only the fold when every child finished", async () => {
 		await mount([child("c-done", { title: "Landed work", lastRun: { stopReason: "stop", text: "ok" } })]);
 		expect(opened()?.querySelectorAll("[data-board-opened]")).toHaveLength(0);
 		expect(opened()?.querySelector("[data-board-opened-done]")?.textContent).toBe("1 done");
+		// Nothing runs: the section is the sessions' own, not "Now".
+		expect(opened()?.textContent).toContain("Child sessions");
 		expect(opened()?.querySelector(".omp-work-board-count")).toBeNull();
 	});
 
@@ -259,11 +266,13 @@ describe("work board opened sessions", () => {
 			child("c-ask2", { title: "Second question", awaitingInput: "input" }),
 			child("c-run", { status: "running", task: "Run the suite" }),
 		]);
-		const waitingRows = opened()?.querySelectorAll('[data-board-opened][data-status="waiting"]') ?? [];
+		const waitingRows = needs()?.querySelectorAll('[data-board-opened][data-status="waiting"]') ?? [];
 		expect(waitingRows).toHaveLength(2);
-		expect(pane.querySelector("[data-board-status]")?.textContent).toBe("2 child sessions waiting");
-		// Not "waiting on you": that section is the questions and plan reviews of this session only.
-		expect(pane.querySelector('[data-board-section="waiting"]')).toBeNull();
+		// The head says the figure Needs you counts: its two rows.
+		expect(pane.querySelector("[data-board-status]")?.textContent).toBe("2 need you");
+		expect(needs()?.querySelector(".omp-work-board-count")?.textContent).toBe("2");
+		// A child at work is not "running": it is Now's row, not part of the head's figure.
+		expect(pane.querySelector(".omp-work-board-figure")).toBeNull();
 		expect(pane.querySelector(".omp-work-board-pulse")?.getAttribute("data-state")).toBe("waiting");
 	});
 
@@ -285,8 +294,25 @@ describe("work board opened sessions", () => {
 		expect(rows.map(row => row.getAttribute("data-status"))).toEqual(["running", "running", "running"]);
 		expect(rows.map(row => row.textContent)).toEqual(tasks.slice(0, 3).map(task => expect.stringContaining(task)));
 		for (const row of rows) expect(row.getAttribute("title")).toContain("running bash");
-		// The section's count names all four.
-		expect(opened()?.querySelector(".omp-work-board-count")?.textContent).toBe("4");
+		// The fourth folds into "+1 more".
+		expect(opened()?.querySelector("[data-board-more]")?.getAttribute("data-board-more")).toBe("1");
+	});
+
+	it("opens the Work tree from an icon button in the head of the section that lists the children, never from a row", async () => {
+		await mount([child("c-run", { status: "running", task: "Run the suite" })]);
+		const button = opened()?.querySelector("[data-board-work-tree]") as unknown as HTMLButtonElement | null;
+		expect(button?.tagName).toBe("BUTTON");
+		expect(button?.getAttribute("aria-label")).toBe("Open the work tree");
+		expect(opened()?.querySelector("li [data-board-work-tree]")).toBeNull();
+		await act(async () => button?.click());
+		expect(useUiStore.getState().viewSheet?.view).toBe("work");
+		expect(pane.querySelectorAll("[data-board-work-tree]")).toHaveLength(1);
+	});
+
+	it("puts the Work tree button in Needs you's head when every child waits and Now has nothing to list", async () => {
+		await mount([child("c-ask", { title: "Needs an answer", awaitingInput: "input" })]);
+		expect(opened()).toBeNull();
+		expect(needs()?.querySelector(".omp-work-board-title [data-board-work-tree]")).not.toBeNull();
 	});
 
 	it("taps a row to show that session, and is absent without children", async () => {

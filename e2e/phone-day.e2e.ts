@@ -620,7 +620,7 @@ async function runDay(browser: Browser, rig: Rig, device: DeviceSpec): Promise<S
 		notes.queued = await p.locator("[data-queue-pill]").innerText();
 		await fixture(p, "fixture:steer-next");
 		await fixture(p, "fixture:steer-finish");
-		await expect(p.locator(".omp-work-outcome")).toBeVisible({ timeout: 20_000 });
+		await expect(p.locator('.omp-live-step[data-outcome="true"]')).toBeVisible({ timeout: 20_000 });
 	});
 
 	// 5. Autopilot: the start sheet from the Run chip.

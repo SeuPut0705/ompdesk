@@ -84,11 +84,9 @@ test("the live work surface never stretches the transcript below its rows", asyn
 		await input.press("Enter");
 		const surface = page.locator(".omp-work-stage > .omp-work-crossfade > [data-incoming] .omp-live-step-scroll");
 		await expect(surface).toContainText("step 7 output 8", { timeout: 30_000 });
-		await expect(
-			page.locator(
-				'.omp-execution-group[data-state="running"] > .omp-live-step > .omp-live-work-strip [data-step-id]',
-			),
-		).toHaveCount(7);
+		await expect(page.locator('.omp-execution-group[data-state="running"] .omp-execution-group-summary')).toHaveText(
+			"7 steps",
+		);
 
 		const layout = () =>
 			page.evaluate(() => {
@@ -115,7 +113,7 @@ test("the live work surface never stretches the transcript below its rows", asyn
 	});
 });
 
-test("live work follows tool kinds, streams output and replays past steps", async () => {
+test("live work follows tool kinds and streams output", async () => {
 	test.setTimeout(process.env.OMP_GUI_WORK_SCREENSHOTS ? 300_000 : 120_000);
 	await withLiveWorkApp(0, async page => {
 		const directory = process.env.OMP_GUI_WORK_SCREENSHOTS;
@@ -221,10 +219,12 @@ test("live work follows tool kinds, streams output and replays past steps", asyn
 		for (const [index, kind] of kinds.entries()) {
 			await control("fixture:work-next");
 			await expect(surface).toHaveAttribute("data-surface", kind);
-			await expect(surface.locator(`[data-step-id="work-view-${index}"]`)).toHaveAttribute("aria-pressed", "true");
 			const height = await surface.locator(".omp-work-stage").evaluate(element => element.clientHeight);
-			if (index === 0) stageHeight = height;
-			else expect(height).toBe(stageHeight);
+			// 10rem: the stage is 160 px for every kind of step.
+			if (index === 0) {
+				stageHeight = height;
+				expect(stageHeight).toBe(160);
+			} else expect(height).toBe(stageHeight);
 			if (kind === "bash") {
 				await expect(content).toContainText("Checking renderer components");
 				await expect(surface.locator(".omp-work-notes-line")).toHaveCount(2);
@@ -256,9 +256,8 @@ test("live work follows tool kinds, streams output and replays past steps", asyn
 			} else if (kind === "wait") {
 				await expect(surface.locator(".omp-work-sub")).toContainText("Waiting for");
 				await expect(surface.locator(".omp-work-stage")).toBeVisible();
-				// One strip: an auto-followed agent draws none of its own, the card's strip stays.
-				await expect(surface.locator(".omp-live-work-strip")).toHaveCount(1);
-				await expect(surface.locator(":scope > .omp-live-work-strip [data-step-id]")).toHaveCount(5);
+				// The card draws no strip of steps of its own, and an auto-followed agent none either.
+				await expect(surface.locator(".omp-live-work-strip")).toHaveCount(0);
 			} else if (kind === "browser" || kind === "computer") {
 				await expect(content.locator("img")).toBeVisible();
 				// The capture fits the stage whole: nothing to scroll, its bottom above the strip.
@@ -317,20 +316,6 @@ test("live work follows tool kinds, streams output and replays past steps", asyn
 				);
 			expect(scrollers.length, `${kind}: ${scrollers.join(" | ")}`).toBeLessThanOrEqual(1);
 			if (index !== 5) await capture(kind);
-			if (index === 2) {
-				const past = surface.locator('[data-step-id="work-view-0"]');
-				await past.focus();
-				await past.press("Enter");
-				await expect(surface).toHaveAttribute("data-following", "false");
-				await expect(surface).toHaveAttribute("data-surface", "bash");
-				await expect(content).toContainText("All types are valid");
-				await capture("replay");
-				await surface.getByRole("button", { name: "Back to current step", exact: true }).click();
-				// Following again: no status label is drawn, only the step strip.
-				await expect(surface.locator(".omp-live-work-follow")).toHaveCount(0);
-				await expect(surface).toHaveAttribute("data-following", "true");
-				await expect(surface).toHaveAttribute("data-surface", "read");
-			}
 		}
 		const frames = await page.evaluate(() => {
 			const sampler = Reflect.get(window, "__ompCardFrames") as {
@@ -367,8 +352,6 @@ test("live work follows tool kinds, streams output and replays past steps", asyn
 		// The stage opens by unfolding, never in one frame.
 		const opening = frames.findIndex(frame => frame.shell > 0);
 		expect(frames[opening]?.shell ?? 0, "stage first open frame").toBeLessThan(frames.at(-1)?.shell ?? 0);
-		await surface.locator('[data-step-id="work-view-1"]').click();
-		await expect(surface).toHaveAttribute("data-surface", "write");
 		// Exercise the exact drag-to-split path, including a 2×2 pane layout.
 		if (directory) {
 			const tabs = await page.evaluate(() => window.omp.tabs.list());
@@ -418,10 +401,10 @@ test("live work follows tool kinds, streams output and replays past steps", asyn
 			expect(await pane.locator(".omp-work-stage").evaluate(element => element.clientHeight)).toBeGreaterThanOrEqual(
 				96,
 			);
-			for (const chip of [pane.locator('.omp-live-work-chips [aria-pressed="true"]')]) {
+			for (const toggle of [pane.locator(".omp-live-step .omp-execution-group-header")]) {
 				await expect
 					.poll(async () => {
-						const bounds = await chip.boundingBox();
+						const bounds = await toggle.boundingBox();
 						return (
 							bounds !== null &&
 							bounds.x >= work.x &&

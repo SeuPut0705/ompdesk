@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentMessage } from "../../../../shared/rpc-types";
 import type { ToolEntry } from "../../../stores/tools";
 import { type BackgroundJobVerdict, backgroundJobVerdicts } from "../completion-events";
-import { checkKind, firstErrorLine, firstFailure, summarizeChecks, testCounts } from "./work-checks";
+import { checkKind, commandProgram, firstErrorLine, firstFailure, summarizeChecks, testCounts } from "./work-checks";
 import { workOutcomes } from "./work-view";
 
 describe("checkKind", () => {
@@ -186,5 +186,28 @@ describe("backgrounded checks", () => {
 		} as unknown as AgentMessage;
 		const [check] = summary(backgroundJobVerdicts([waited]));
 		expect(check).toMatchObject({ kind: "test", passed: false, exitCode: 1, cause: "(fail) math > adds [0.40ms]" });
+	});
+});
+
+describe("commandProgram", () => {
+	it.each([
+		["git push origin main", "git push"],
+		["cd src && git push", "git push"],
+		["cd src; export A=1; cargo build --release", "cargo build"],
+		["FOO=1 BAR=2 bun test src", "bun test"],
+		["env NODE_ENV=test bun run build", "bun run"],
+		["sudo -n systemctl restart nginx", "systemctl restart"],
+		["npx -y tsc --noEmit", "tsc"],
+		["bunx vitest run", "vitest run"],
+		["pnpm dlx prettier --check .", "prettier"],
+		["/usr/bin/make all", "make all"],
+		["ls | head", "ls"],
+		["tsc", "tsc"],
+	])("names %s by what it runs: %s", (command, expected) => {
+		expect(commandProgram(command)).toBe(expected);
+	});
+	it("has no name for an empty command or one that is only setup", () => {
+		expect(commandProgram("")).toBeUndefined();
+		expect(commandProgram("cd src && export A=1")).toBeUndefined();
 	});
 });

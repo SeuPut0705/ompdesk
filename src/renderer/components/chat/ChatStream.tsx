@@ -27,7 +27,6 @@ import { collapsibleReadTarget, groupReadRows, type ReadGroupEntry } from "../..
 import { useTabRpc } from "../../lib/tab-rpc";
 import { summarizeMessagesOutput } from "../../lib/turn-meter";
 import { useFirstRunStore } from "../../stores/first-run";
-import { liveWorkKey, useLiveWorkStore } from "../../stores/live-work";
 import { useMessagesStore } from "../../stores/messages";
 import { useHostView } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
@@ -248,21 +247,6 @@ function SessionTranscript() {
 	const { liveTail, lastWorkRow } = liveWorkTail(historyRows, isStreaming);
 	const tailRowIndex = liveTail ? (hiddenCount > 0 ? 1 : 0) + lastWorkRow : -1;
 	const showStreamingRow = hasStreamedContent && (!liveTail || hasStreamingText);
-	// Transcript state owns this handoff; virtualization never changes the dock.
-	const carriesContext =
-		liveTail ||
-		(showStreamingRow &&
-			transcriptDetail === "compact" &&
-			(hasStreamingThinking ||
-				hasLiveToolsForStream ||
-				(Array.isArray(streamingMessage?.content) &&
-					streamingMessage.content.some(block => block.type === "toolCall"))));
-	useLayoutEffect(() => {
-		const key = liveWorkKey(tabId);
-		useLiveWorkStore.getState().setCarried(key, carriesContext);
-		return () => useLiveWorkStore.getState().setCarried(key, false);
-	}, [tabId, carriesContext]);
-
 	// Streaming deltas rerender this component for the live row, but they do not
 	// change finalized history. Keep the O(history) row/key projection stable so
 	// a long transcript does not get rebuilt for every token.
@@ -532,18 +516,6 @@ function SessionTranscript() {
 		if (!userScrollIntentRef.current)
 			virtualizer.scrollOffset = Math.max(0, virtualizer.getTotalSize() - (virtualizer.scrollRect?.height ?? 0));
 	}
-	const dockFocus = useUiStore(state => state.dockFocus);
-	const revealedTodoFocus = useRef(useUiStore.getState().dockFocus?.seq ?? null);
-	useLayoutEffect(() => {
-		if (!carriesContext || dockFocus?.id !== "todo" || revealedTodoFocus.current === dockFocus.seq) return;
-		// Reveal an off-screen virtualized owner first; its WorkTodo then opens
-		// and scrolls the editable row into view using this same focus signal.
-		const index = liveTail ? tailRowIndex : rows.findLastIndex(row => row.kind === "streaming");
-		if (index < 0) return;
-		const offset = virtualizer.getOffsetForIndex(index, "start")?.[0];
-		if (offset !== undefined) virtualizer.scrollToOffset(offset);
-		revealedTodoFocus.current = dockFocus.seq;
-	}, [dockFocus, carriesContext, liveTail, tailRowIndex, rows, virtualizer]);
 	const totalSize = virtualizer.getTotalSize();
 	const virtualItems = virtualizer.getVirtualItems();
 	useLayoutEffect(() => {

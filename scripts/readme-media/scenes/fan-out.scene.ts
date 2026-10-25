@@ -98,7 +98,7 @@ test("fan-out, compare, merge", async () => {
 			{ op: "end", id: "compare", text: "Three branches, one commit each. Compare runs no tests." },
 			main,
 		);
-		const opened = page.locator('[data-board-section="opened"] [data-board-opened]');
+		const opened = page.locator("[data-work-board-panel] [data-board-opened]");
 		await expect(opened).toHaveCount(3, { timeout: 30_000 });
 		await page.waitForTimeout(2_400);
 

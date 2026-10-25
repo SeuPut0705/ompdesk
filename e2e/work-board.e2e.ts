@@ -16,8 +16,8 @@ type Language = "en" | "ko";
 type Theme = "light" | "dark";
 
 const TEXT = {
-	en: { board: "Work board", closePanel: "Close side panel", running: "Running" },
-	ko: { board: "작업 현황", closePanel: "사이드 패널 닫기", running: "실행 중" },
+	en: { board: "Work board", closePanel: "Close side panel", now: "Now" },
+	ko: { board: "작업 현황", closePanel: "사이드 패널 닫기", now: "지금" },
 } as const;
 
 interface Launched {
@@ -127,13 +127,13 @@ for (const language of variants(["en", "ko"] as const))
 				await fixture(page, "fixture:todo");
 				await expect(board).toBeVisible();
 				await expect(pane).toHaveAttribute("data-work-board", "");
-				await expect(board.getByRole("heading", { name: text.running })).toBeVisible();
+				await expect(board.getByRole("heading", { name: text.now, exact: true })).toBeVisible();
 				const explore = board.locator('[data-board-agent="sa-explore"]');
 				await expect(explore).toContainText("Map the settings code");
 				await expect(board.locator('[data-board-agent="sa-review"]')).toHaveCount(0);
-				// The plan's count is said once, by the head's bar.
+				// The plan's count is said once, by the bar in the plan's own header.
 				await expect(board.locator(".omp-work-board-progress")).toContainText("0/6");
-				await expect(board.locator('[data-board-section="todos"]')).toContainText("Fixture task 1");
+				await expect(board.locator('[data-board-section="plan"]')).toContainText("Fixture task 1");
 
 				// The board sits in the right margin, clear of the columns, which line up with each other.
 				const boardBox = await board.boundingBox();
@@ -188,11 +188,11 @@ for (const language of variants(["en", "ko"] as const))
 			}
 		});
 
-test("a 30-task plan's bar stays left of its count, and the count stays in the head, narrow and with large text (en light)", async () => {
+test("a 30-task plan's bar stays left of its count, and the count stays in the plan's header, narrow and with large text (en light)", async () => {
 	test.setTimeout(180_000);
 	const { app, page, root } = await launch("en", "light");
 	try {
-		// The docked board itself (a narrow pane shows a chip and sheet instead, which have no head line).
+		// The docked board itself (a narrow pane shows a chip and sheet instead, which have no plan header line).
 		const board = page.locator("aside[data-work-board-panel]").first();
 		await send(page, "hello");
 		await fixture(page, "fixture:todo 30");
@@ -207,18 +207,17 @@ test("a 30-task plan's bar stays left of its count, and the count stays in the h
 				}, fontSize);
 				await resize(app, width, 900);
 				await expect(board, `board docked at ${width} px, ${fontSize} px text`).toBeVisible();
-				const geometry = await board.locator(".omp-work-board-head").evaluate(head => {
-					const box = (selector: string) => head.querySelector(selector)?.getBoundingClientRect();
+				const geometry = await board.locator('[data-board-section="plan"] .omp-work-board-title').evaluate(head => {
 					const bar = head.querySelector(".omp-work-board-segments");
 					const count = head
 						.querySelector(".omp-work-board-progress > span[aria-hidden]")
 						?.getBoundingClientRect();
-					const pulse = box(".omp-work-board-pulse");
+					const title = head.querySelector(".omp-work-board-zone-title")?.getBoundingClientRect();
 					const headBox = head.getBoundingClientRect();
 					const last = bar?.lastElementChild?.getBoundingClientRect();
 					return {
 						barClearOfCount: !!last && !!count && last.right <= count.left,
-						barAfterPulse: !!bar && !!pulse && bar.getBoundingClientRect().left >= pulse.left,
+						barAfterTitle: !!bar && !!title && bar.getBoundingClientRect().left >= title.right,
 						countInHead: !!count && count.right <= headBox.right,
 					};
 				});
@@ -226,7 +225,7 @@ test("a 30-task plan's bar stays left of its count, and the count stays in the h
 					fontSize,
 					width,
 					barClearOfCount: true,
-					barAfterPulse: true,
+					barAfterTitle: true,
 					countInHead: true,
 				});
 			}

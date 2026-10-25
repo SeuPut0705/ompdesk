@@ -136,7 +136,9 @@ describe("work card chips", () => {
 			["test-1", bash("bunx vitest run", "FAIL src/a.test.ts\n  ✕ adds\nTests  1 failed | 4 passed (5)", 1, 1_000)],
 		]);
 		expect(chip("tests")).toBeNull();
-		expect(chip("error")?.textContent).toBe("FAIL src/a.test.ts");
+		expect(chip("error")?.querySelector(".omp-work-verdict-label")?.textContent).toBe("1 test failed");
+		expect(chip("error")?.querySelector(".omp-work-verdict-cause")?.textContent).toBe("FAIL src/a.test.ts");
+		expect(chip("error")?.querySelector(".omp-work-verdict-meta")?.textContent).toBe("exit 1");
 		await click(chip("error"));
 		await wait(120);
 		const run = container.querySelector('[data-tool-call-id="test-1"]') as unknown as HTMLElement;
@@ -162,7 +164,7 @@ describe("work card chips", () => {
 			],
 		]);
 		expect(chip("error")?.textContent).toBe("Error");
-		expect(container.querySelector("[data-work-cause]")).toBeNull();
+		expect(container.querySelector(".omp-work-verdict-cause")).toBeNull();
 	});
 
 	it("offers Preview for a dev server's address and opens it in the Preview panel", async () => {

@@ -24,7 +24,7 @@ Reflect.set(window, "omp", { rpc: { command } });
 
 // Imported after the DOM globals exist (React DOM reads them at load), as the other board tests do.
 const { createRoot } = await import("react-dom/client");
-const { OpenedSection } = await import("./WorkBoardOpened");
+const { NowChildren } = await import("./WorkBoardOpened");
 const { LIVE_REVIEW_MS } = await import("../../../hooks/use-live-review");
 
 const row = (status: OpenedChildRow["status"]): OpenedChildRow => ({ key: "c1", tabId: "c1", title: "Kid", status });
@@ -40,7 +40,9 @@ async function mount(rows: OpenedChildRow[]): Promise<void> {
 	await act(async () =>
 		root.render(
 			<I18nProvider>
-				<OpenedSection now={Date.now()} rows={rows} />
+				<ul>
+					<NowChildren now={Date.now()} rows={rows} />
+				</ul>
 			</I18nProvider>,
 		),
 	);

@@ -441,7 +441,7 @@ test.describe("on a paired device", () => {
 		await app.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1600, 900));
 		// The opener's work board lists it like a local child: one opened-session row with its status, the device's
 		// name and its last report.
-		const row = app.page.locator(`[data-board-section="opened"] [data-board-opened="${child}"]`);
+		const row = app.page.locator(`[data-work-board-panel] [data-board-opened="${child}"]`);
 		await expect(row).toBeVisible({ timeout: 30_000 });
 		await expect(row).toHaveAttribute("data-board-report", "done");
 		await expect(row.locator("[data-board-device]")).toHaveText("PC-B");
@@ -517,7 +517,7 @@ test.describe("on a paired device", () => {
 			child as string,
 		);
 
-		const row = app.page.locator(`[data-board-section="opened"] [data-board-opened="${child}"]`);
+		const row = app.page.locator(`[data-work-board-panel] [data-board-opened="${child}"]`);
 		await expect(row).toHaveAttribute("data-status", "running", { timeout: 30_000 });
 		await expect(row.locator("[data-board-device]")).toHaveText("PC-B");
 		// Its clock runs while the turn on the host does.
@@ -540,7 +540,7 @@ test.describe("on a paired device", () => {
 			id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:finish" }),
 			child as string,
 		);
-		await expect(app.page.locator('[data-board-section="opened"] [data-board-opened-done]')).toHaveText("1 done", {
+		await expect(app.page.locator('[data-board-section="now"] [data-board-opened-done]')).toHaveText("1 done", {
 			timeout: 30_000,
 		});
 		await expect(row).toHaveCount(0);
@@ -559,7 +559,7 @@ test.describe("on a paired device", () => {
 			id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "fixture running" }),
 			child as string,
 		);
-		const row = app.page.locator(`[data-board-section="opened"] [data-board-opened="${child}"]`);
+		const row = app.page.locator(`[data-work-board-panel] [data-board-opened="${child}"]`);
 		await expect(row).toHaveAttribute("data-status", "running", { timeout: 30_000 });
 		const seconds = async (): Promise<number | null> => {
 			const text = (await row.textContent()) ?? "";
@@ -606,7 +606,7 @@ test.describe("on a paired device", () => {
 			id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:finish" }),
 			child as string,
 		);
-		await expect(app.page.locator('[data-board-section="opened"] [data-board-opened-done]')).toHaveText("1 done", {
+		await expect(app.page.locator('[data-board-section="now"] [data-board-opened-done]')).toHaveText("1 done", {
 			timeout: 30_000,
 		});
 		await expect(row).toHaveCount(0);

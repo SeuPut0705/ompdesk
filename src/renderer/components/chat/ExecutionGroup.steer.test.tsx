@@ -220,7 +220,7 @@ describe("steer line", () => {
 });
 
 describe("step strip", () => {
-	it("keeps every step in one non-wrapping scroll row", async () => {
+	it("keeps every step of an agent lane in one non-wrapping scroll row", async () => {
 		const ids = Array.from({ length: 24 }, (_, index) => `step-${index}`);
 		useToolsStore.setState(
 			toolEntriesState(
@@ -230,7 +230,7 @@ describe("step strip", () => {
 				]),
 			),
 		);
-		await render(<LiveStepPeek thinkingLive={false} toolCallIds={ids} />);
+		await render(<LiveStepPeek nested thinkingLive={false} toolCallIds={ids} />);
 		const strip = container.querySelector(".omp-live-work-strip");
 		const rows = strip?.querySelectorAll(".omp-live-work-chips");
 		expect(rows).toHaveLength(1);
