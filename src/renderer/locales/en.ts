@@ -4775,10 +4775,10 @@ export const en: Record<string, string> = {
 	"titlebar.switchProject": "Switch project",
 	"titlebar.sidePanel": "Side panel",
 	// What a session needs from the person, one word set for every surface (lib/attention.ts).
-	"attention.question": "Needs your answer",
+	"attention.question": "Needs input",
 	"attention.approval": "Needs approval",
-	"attention.childWaiting": "A child session needs you",
-	"attention.checkFailed": "A check failed",
+	"attention.childWaiting": "Child waiting",
+	"attention.checkFailed": "Check failed",
 	"sessionStatus.title": "Session status",
 	"sessionStatus.trigger": "Session status, cost {cost}",
 	"sessionStatus.tokens": "Tokens",

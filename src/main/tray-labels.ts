@@ -38,10 +38,10 @@ export const TRAY_LABELS = {
 	statusIdle: { en: "Ready", ko: "준비됨" },
 	statusStreaming: { en: "Working", ko: "작업 중" },
 	// The renderer's attention words (`attention.*`), pinned by native-labels.test.ts.
-	statusQuestion: { en: "Needs your answer", ko: "답변 필요" },
+	statusQuestion: { en: "Needs input", ko: "답변 필요" },
 	statusApproval: { en: "Needs approval", ko: "승인 필요" },
-	statusChildWaiting: { en: "A child session needs you", ko: "하위 세션 확인 필요" },
-	statusCheckFailed: { en: "A check failed", ko: "검사 실패" },
+	statusChildWaiting: { en: "Child waiting", ko: "하위 세션 대기" },
+	statusCheckFailed: { en: "Check failed", ko: "검사 실패" },
 	statusError: { en: "Error", ko: "오류" },
 	// Thinking levels by the names the composer's thinking control uses.
 	thinkingOff: { en: "Off", ko: "끔" },

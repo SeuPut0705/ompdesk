@@ -21,9 +21,7 @@ export interface Attention {
 export interface AttentionState {
 	/** The session's own prompts in the order it raised them; the first is the card on screen. */
 	asks: readonly AskKind[];
-	/** Sessions it opened that wait for an answer. */
 	childrenWaiting: number;
-	/** Its newest check failed. */
 	checkFailed: boolean;
 }
 

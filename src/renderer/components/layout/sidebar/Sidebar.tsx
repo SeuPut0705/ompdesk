@@ -1935,7 +1935,9 @@ export function Sidebar() {
 		const runningOpened = opened.filter(child => child.status === "running").length;
 		const age = waiting ? (
 			<Badge className="omp-sidebar-approval" variant={waiting === "checkFailed" ? "error" : "warning"}>
-				{waitingLabel}
+				<span className="min-w-0 truncate" title={waitingLabel ?? undefined}>
+					{waitingLabel}
+				</span>
 			</Badge>
 		) : (
 			<SessionLiveAge

@@ -242,7 +242,7 @@ export function boardCounts(input: {
 
 /**
  * What the head and the strip say of what needs the person: one thing by its word, the title bar's and the sidebar's
- * ("A check failed"), several by their count ("3 need you").
+ * ("Check failed"), several by their count ("3 need you").
  */
 export function attentionClause(
 	attention: Attention,

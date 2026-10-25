@@ -933,7 +933,7 @@ describe("Sidebar menus and pinned ordering", () => {
 
 		const waiting = rowFor("Session /work/beta/three");
 		expect(waiting.getAttribute("data-signal")).toBe("waiting");
-		expect(waiting.textContent).toContain("Needs your answer");
+		expect(waiting.textContent).toContain("Needs input");
 		const failed = rowFor("Session /work/alpha/one");
 		expect(failed.getAttribute("data-signal")).toBe("error");
 		expect(failed.textContent).toContain("Failed");
@@ -1002,7 +1002,7 @@ describe("Sidebar menus and pinned ordering", () => {
 
 		act(() => useHostedSessionsStore.setState({ sessions: [{ ...hosted, status: "running", awaitingInput: true }] }));
 		expect(rowFor("Fix login").getAttribute("data-signal")).toBe("waiting");
-		expect(rowFor("Fix login").textContent).toContain("Needs your answer");
+		expect(rowFor("Fix login").textContent).toContain("Needs input");
 
 		// Before it was known as a hosted session, the brief folded it away as a finished helper of nobody listed.
 		act(() => useHostedSessionsStore.setState({ sessions: [] }));

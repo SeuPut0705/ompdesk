@@ -118,7 +118,7 @@ test("with full control and manage stored off a sensitive action asks with the c
 	await start({ agentControlFull: false, agentControlManage: false });
 	const denied = app_("settings.toolsAutoUpdate", { value: false });
 	await page
-		.getByRole("button", { name: /Needs your answer/ })
+		.getByRole("button", { name: /Needs input/ })
 		.first()
 		.click({ timeout: 30_000 });
 	await expect(page.getByText("[OMPdesk]").first()).toBeVisible({ timeout: 30_000 });
@@ -130,7 +130,7 @@ test("with full control and manage stored off a sensitive action asks with the c
 
 	const approved = app_("settings.toolsAutoUpdate", { value: false });
 	await page
-		.getByRole("button", { name: /Needs your answer/ })
+		.getByRole("button", { name: /Needs input/ })
 		.first()
 		.click({ timeout: 30_000 });
 	await expect(page.getByText("[OMPdesk]").first()).toBeVisible({ timeout: 30_000 });
@@ -167,7 +167,7 @@ test("with full control stored off a sensitive action runs without a card, a del
 	// Erasing a saved session asks whatever the switch says; a refusal runs nothing.
 	const erased = app_("sessions.delete", { sessionPath: path.join(profile, "agent", "never-saved.jsonl") });
 	await page
-		.getByRole("button", { name: /Needs your answer/ })
+		.getByRole("button", { name: /Needs input/ })
 		.first()
 		.click({ timeout: 30_000 });
 	await expect(page.getByText("[OMPdesk]").first()).toBeVisible({ timeout: 30_000 });

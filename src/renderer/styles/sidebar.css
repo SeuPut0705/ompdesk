@@ -91,7 +91,10 @@
 	background-color: var(--sc-pressed);
 }
 
+/* The attention word shares the row with the title: a translation longer than the English and Korean words (97 px
+   at most) ends in an ellipsis, the word staying the tooltip and the row's accessible text. */
 .omp-session-sidebar .omp-sidebar-approval {
+	max-width: 7.5rem;
 	white-space: nowrap;
 	font-weight: var(--sc-weight-regular);
 }

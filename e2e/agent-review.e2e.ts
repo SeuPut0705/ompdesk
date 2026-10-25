@@ -182,7 +182,7 @@ test("fan out into worktrees, compare, merge two through the tool, close a third
 	});
 	const asked = call("ompdesk_merge", { session: second.tabId });
 	await page
-		.getByRole("button", { name: /Needs your answer/ })
+		.getByRole("button", { name: /Needs input/ })
 		.first()
 		.click({ timeout: 30_000 });
 	await expect(page.getByText("[OMPdesk]").first()).toBeVisible({ timeout: 30_000 });

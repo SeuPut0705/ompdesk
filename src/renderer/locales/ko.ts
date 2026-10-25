@@ -4766,7 +4766,7 @@ export const ko: Record<string, string> = {
 	// What a session needs from the person, one word set for every surface (lib/attention.ts).
 	"attention.question": "답변 필요",
 	"attention.approval": "승인 필요",
-	"attention.childWaiting": "하위 세션 확인 필요",
+	"attention.childWaiting": "하위 세션 대기",
 	"attention.checkFailed": "검사 실패",
 	"sessionStatus.title": "세션 상태",
 	"sessionStatus.trigger": "세션 상태, 비용 {cost}",
