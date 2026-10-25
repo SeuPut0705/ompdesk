@@ -8,6 +8,7 @@ import type { AgentMessage, RpcAsyncJobItem, RpcJobRow } from "../../../../share
 import type { FamilyEdits, FamilyMemberEdits, RpcTurnEdits } from "../../../../shared/turn-edits";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { useAgentReviewStore } from "../../../stores/agent-review";
+import { useAttentionStore } from "../../../stores/attention";
 import { useClosedChildrenStore } from "../../../stores/closed-children";
 import { useMessagesStore } from "../../../stores/messages";
 import { useSessionStore } from "../../../stores/session";
@@ -58,9 +59,6 @@ const { createRoot } = await import("react-dom/client");
 const { FailedCheckWatch, NeedsCheck, SessionSlot, quietOutcome } = await import("./WorkBoardSession");
 const { peerOpen } = await import("./session-board");
 const { REVEAL_STEP_EVENT } = await import("../../chat/work/reveal-step");
-/** What the strip's watcher reports (WorkBoardChip's failed-check label). */
-const watched = vi.fn();
-
 /** What the quiet head would say (the slot tells the board). */
 const outcome = vi.fn();
 
@@ -72,7 +70,7 @@ function Host() {
 				<NeedsCheck tag={{ word: "Check", tone: "danger" }} />
 			</ul>
 			<SessionSlot onOutcome={outcome} turn={turn} />
-			<FailedCheckWatch onChange={watched} />
+			<FailedCheckWatch />
 		</>
 	);
 }
@@ -560,8 +558,8 @@ describe("Last check row", () => {
 		// It says what kind it is, in the word Needs you gives its rows.
 		expect(failed?.textContent).toMatch(/^Check/);
 		expect(container.querySelectorAll('[data-board-section="current"] [data-board-session="check"]')).toHaveLength(0);
-		// The head and the strip hear it too (FailedCheckWatch): it is part of their Needs-you figure.
-		expect(watched).toHaveBeenLastCalledWith(true);
+		// The head, the strip, the title bar and the sidebar hear it too (FailedCheckWatch writes the attention store).
+		expect(Object.hasOwn(useAttentionStore.getState().checkFailed, "t1")).toBe(true);
 		// The tap asks the board's own tab's transcript to open the card holding the call (it may be collapsed or
 		// not mounted), not the document at large.
 		const asked: unknown[] = [];
@@ -580,7 +578,7 @@ describe("Last check row", () => {
 		await mount();
 		expect(container.querySelector('[data-needs] [data-board-session="check"]')).toBeNull();
 		expect(row("check")?.getAttribute("data-state")).toBe("passed");
-		expect(watched).toHaveBeenLastCalledWith(false);
+		expect(Object.hasOwn(useAttentionStore.getState().checkFailed, "t1")).toBe(false);
 	});
 
 	it("reads running while the call runs", async () => {

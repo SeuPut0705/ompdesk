@@ -23,6 +23,7 @@ import { useOpenedChildren } from "../../../hooks/use-opened-children";
 import { usePresence } from "../../../hooks/use-presence";
 import { useSessionSpend } from "../../../hooks/use-session-spend";
 import { useShellMode } from "../../../hooks/use-shell-mode";
+import { pendingAsks } from "../../../lib/attention";
 import { lazyChunk } from "../../../lib/chunk-load";
 import { cx, formatDuration, formatTokens } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
@@ -32,6 +33,7 @@ import { useProjectNames, useWorktreeKindLabels } from "../../../lib/project-ori
 import { costKinds, costWords } from "../../../lib/spend";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
+import { useCheckFailed } from "../../../stores/attention";
 import { isAutopilotTab, isLiveAutopilot, useAutopilotStore } from "../../../stores/autopilot";
 import { isUserBlockingRequest, useExtensionUiStore } from "../../../stores/extension-ui";
 import { useMessagesStore } from "../../../stores/messages";
@@ -63,6 +65,7 @@ import {
 } from "./board-parts";
 import { WorkBoardChip } from "./WorkBoardChip";
 import {
+	attentionClause,
 	boardCounts,
 	goalMeta,
 	isWaitingSubagent,
@@ -306,16 +309,16 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	useEffect(() => {
 		void hydrate();
 	}, [hydrate]);
-	const [checkFailed, setCheckFailed] = useState(false);
+	const checkFailed = useCheckFailed(tabId);
 	// What the last turn left (the session rows' lazy chunk tells it), for a quiet board's head.
 	const [outcome, setOutcome] = useState<string | null>(null);
 
-	const asks = blocking.length + (planProposal ? 1 : 0);
+	const asks = pendingAsks({ pendingRequests: pending, loginRequestIds }, planProposal !== null);
 	const showsLast = !turnActive && lastTurn !== null;
 	const present =
 		turnActive ||
 		autopilotTab ||
-		asks > 0 ||
+		asks.length > 0 ||
 		running > 0 ||
 		presentedAgents.length + presentedJobs.length > 0 ||
 		plan !== null ||
@@ -350,23 +353,22 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 		jobs: jobs.length,
 		turnWorking: turnActive || autopilotRunning,
 	});
-	const needsText = t("workBoard.head.needs", { count: counts.needs, s: counts.needs === 1 ? "s" : "" });
-	const waitingOnYou = counts.asks + counts.children > 0;
+	const needsText = counts.attention ? attentionClause(counts.attention, t) : "";
+	const needsTone = counts.attention?.kind === "checkFailed" ? "danger" : "warning";
 	// One clause, the most important: what needs the person, else what runs, else that the board works (a child at
 	// work alone is "Working…", never "Idle"), else what the last turn left.
-	const clause =
-		counts.needs > 0
-			? { tone: waitingOnYou ? "warning" : "danger", text: needsText }
-			: counts.running > 0
-				? { tone: undefined, text: t("workBoard.head.running", { count: counts.running }) }
-				: counts.working > 0
-					? { tone: undefined, text: t("workBoard.step.working") }
-					: {
-							tone: undefined,
-							text:
-								[showsLast ? t("workBoard.head.done") : null, outcome].filter(Boolean).join(" · ") ||
-								t("workBoard.head.idle"),
-						};
+	const clause = counts.attention
+		? { tone: needsTone, text: needsText }
+		: counts.running > 0
+			? { tone: undefined, text: t("workBoard.head.running", { count: counts.running }) }
+			: counts.working > 0
+				? { tone: undefined, text: t("workBoard.step.working") }
+				: {
+						tone: undefined,
+						text:
+							[showsLast ? t("workBoard.head.done") : null, outcome].filter(Boolean).join(" · ") ||
+							t("workBoard.head.idle"),
+					};
 
 	const turnState = retryInfo
 		? t("chat.retry.inflight", { attempt: retryInfo.attempt, maxAttempts: retryInfo.maxAttempts })
@@ -402,9 +404,6 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 			   linked worktree, then one line of meters: the subscription accounts' windows and a metered provider's
 			   charge side by side where they fit (each item's details are its tooltip). The strip names itself above. */}
 			<header className="omp-work-board-head" data-board-head>
-				<Suspense fallback={null}>
-					<FailedCheckWatch onChange={setCheckFailed} />
-				</Suspense>
 				<span aria-hidden className="omp-work-board-pulse" data-state={counts.pulse} />
 				<h2 className="omp-work-board-name" data-board-name>
 					{autopilotTab ? (
@@ -470,7 +469,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 					live={needsText}
 					id="needs"
 					title={t("workBoard.needs")}
-					tone={waitingOnYou ? "warning" : "danger"}
+					tone={needsTone}
 				>
 					<CappedRows cap={SECTION_CAP.asks} items={askItems}>
 						{item => (
@@ -770,6 +769,11 @@ export function WorkBoardHost() {
 	}, [pane, width]);
 	return (
 		<>
+			{/* The pane's one failed-check watcher, mounted whatever the board shows and wherever it sits (docked, the
+			   strip, the strip's open panel): two watchers on one tab entry let a closing one clear the failure. */}
+			<Suspense fallback={null}>
+				<FailedCheckWatch />
+			</Suspense>
 			<div className="omp-work-board-slot" ref={slot}>
 				{form === "docked" && pane ? <WorkBoard pane={pane} /> : null}
 			</div>

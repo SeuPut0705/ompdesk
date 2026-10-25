@@ -617,14 +617,13 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	});
 	ipc.handle(IPC_COMMANDS.LOG_SNAPSHOT, () => logWatcher.getSnapshot());
 
-	// RPC command passthrough — always returns a response, never throws.
-	// Throwing here causes "Error occurred in handler" console spam AND
 	// Tray/dock are app-global OS surfaces; with N parallel windows each pushing
 	// its own state, aggregate per-window instead of last-write-wins (which made
 	// the indicator flap with push order) or focus-gating (which let it go
-	// stale). Status aggregates across windows: any error > streaming > waiting
-	// > idle; the displayed blob is the most recently pushed one, with its
-	// status replaced by the aggregate.
+	// stale). Status aggregates across windows, loudest first
+	// (`aggregateTrayStatus`): an error, a question, an approval, a waiting
+	// child, work going on, a failed check, idle; the displayed blob is the most
+	// recently pushed one, with its status replaced by the aggregate.
 	ipc.on(IPC_EVENTS.TRAY_STATE_PUSH, (caller, state: TrayState) => {
 		const winId = caller.win?.webContents.id;
 		if (winId === undefined) return;
@@ -634,7 +633,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	});
 
 	// Run-progress (terminal.showProgress): aggregate per-window the same way —
-	// any window working → working, else any waiting → waiting, else idle.
+	// any window waiting on the person → waiting, else any working → working, else idle.
 	ipc.on(IPC_EVENTS.PROGRESS_SET, (caller, state: RunProgressState) => {
 		const winId = caller.win?.webContents.id;
 		if (winId === undefined) return;
@@ -1731,7 +1730,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			const target = sidecarPool.tabTarget(win, tabId);
 			return target && target.device === undefined ? target.sidecar.bridgeRequest?.bind(target.sidecar) : undefined;
 		},
-		needsYouTitle: title => mainT("notify.needsYou", undefined, { title }),
+		needsYouTitle: title => mainT("notify.needsInput", undefined, { title }),
 		deliver: (win, winId, notice) => {
 			if (win && !notifyBatchedWindows.has(winId)) {
 				notifyBatchedWindows.add(winId);

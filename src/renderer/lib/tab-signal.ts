@@ -1,4 +1,5 @@
 import type { SessionTab } from "../stores/tabs";
+import { ATTENTION_LABEL_KEY } from "./attention";
 
 export interface TabSignalPresentation {
 	active: boolean;
@@ -20,6 +21,14 @@ export function isTabFailed(tab: { status: string; sessionHeld?: boolean }): boo
 	return tab.status === "error" && !isSessionHeld(tab);
 }
 
+/**
+ * The session is not up: connecting, restarting, failed, exited (a held session too). Its own state outranks what it
+ * needs from the person on the title bar and the sidebar row, as the tray already says it.
+ */
+export function isSessionDown(tab: { status: string }): boolean {
+	return tab.status === "starting" || tab.status === "restarting" || tab.status === "error" || tab.status === "exited";
+}
+
 /** A tab's signal; any tab-shaped state works (the sidebar's row of a paired device's tab on this computer too). */
 export function tabSignalPresentation(
 	tab: Pick<SessionTab, "status" | "compacting" | "awaitingInput" | "unreadDone" | "sessionHeld">,
@@ -27,8 +36,8 @@ export function tabSignalPresentation(
 ): TabSignalPresentation {
 	const running = tab.status === "running" || tab.compacting === true || activeRuntime;
 	// A session blocked on the user outranks "running": it needs the user, not just time.
-	if (tab.awaitingInput) {
-		const labelKey = tab.awaitingInput === "approval" ? "sidebar.row.needsApproval" : "sidebar.row.needsInput";
+	if (tab.awaitingInput && !isSessionDown(tab)) {
+		const labelKey = ATTENTION_LABEL_KEY[tab.awaitingInput === "approval" ? "approval" : "question"];
 		return { active: true, color: "var(--omp-warning)", labelKey, running };
 	}
 	if (running) {

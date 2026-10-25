@@ -5,6 +5,7 @@
 
 import type { ExtensionUIRequest, RpcGoalState, SubagentSnapshot, TodoTask } from "../../../../shared/rpc-types";
 import { APPROVAL_TITLE_PREFIX } from "../../../../shared/tool-approval";
+import { type AskKind, ATTENTION_LABEL_KEY, type Attention, sessionAttention } from "../../../lib/attention";
 import { formatDuration } from "../../../lib/format";
 import { isApprovalRequest } from "../../../stores/extension-ui";
 import { isLiveSubagentStatus } from "../../panels/subagent-graph";
@@ -194,6 +195,8 @@ export interface BoardCounts {
 	children: number;
 	/** 1 when the newest check failed. */
 	failed: number;
+	/** What needs the person (`sessionAttention`, as the title bar and the sidebar say it); null when nothing does. */
+	attention: Attention | null;
 	/** What the Needs you section lists: asks, waiting children and a failed check. */
 	needs: number;
 	/** Subagents and background jobs (children at work are counted apart, as the board's "Now" lists them apart). */
@@ -202,12 +205,15 @@ export interface BoardCounts {
 	childrenRunning: number;
 	/** Whatever is at work, a parked subagent excluded: the pulse and "Working…" read it. */
 	working: number;
-	/** The pulse: anything Needs you lists (a failed check too), else something works, else nothing. */
-	pulse: "waiting" | "working" | "idle";
+	/**
+	 * The pulse: a question, an approval or a waiting child (warning), else something works, else a failed check
+	 * (danger; it never overrides work, which may be fixing it), else nothing.
+	 */
+	pulse: "waiting" | "working" | "failed" | "idle";
 }
 
 export function boardCounts(input: {
-	asks: number;
+	asks: readonly AskKind[];
 	childrenWaiting: number;
 	childrenRunning: number;
 	checkFailed: boolean;
@@ -217,16 +223,42 @@ export function boardCounts(input: {
 	/** The turn runs, or an Autopilot run does. */
 	turnWorking: boolean;
 }): BoardCounts {
-	const failed = input.checkFailed ? 1 : 0;
+	const attention = sessionAttention({
+		asks: input.asks,
+		childrenWaiting: input.childrenWaiting,
+		checkFailed: input.checkFailed,
+	});
+	const needs = attention?.count ?? 0;
 	const working = input.agentsWorking + input.jobs + input.childrenRunning + (input.turnWorking ? 1 : 0);
 	return {
-		asks: input.asks,
+		asks: input.asks.length,
 		children: input.childrenWaiting,
-		failed,
-		needs: input.asks + input.childrenWaiting + failed,
+		failed: input.checkFailed ? 1 : 0,
+		attention,
+		needs,
 		running: input.agents + input.jobs,
 		childrenRunning: input.childrenRunning,
 		working,
-		pulse: input.asks + input.childrenWaiting + failed > 0 ? "waiting" : working > 0 ? "working" : "idle",
+		pulse:
+			input.asks.length + input.childrenWaiting > 0
+				? "waiting"
+				: working > 0
+					? "working"
+					: input.checkFailed
+						? "failed"
+						: "idle",
 	};
+}
+
+/**
+ * What the head and the strip say of what needs the person: one thing by its word, the title bar's and the sidebar's
+ * ("Check failed"), several by their count ("3 need you").
+ */
+export function attentionClause(
+	attention: Attention,
+	t: (key: string, params?: Record<string, string | number>) => string,
+): string {
+	return attention.count === 1
+		? t(ATTENTION_LABEL_KEY[attention.kind])
+		: t("workBoard.head.needs", { count: attention.count });
 }

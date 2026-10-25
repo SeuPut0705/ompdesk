@@ -93,7 +93,6 @@ export const en: Record<string, string> = {
 	"titlebar.openProjectFailed": "Couldn't open project",
 	"titlebar.renameFailed": "Couldn't rename session",
 
-	// Session tab strip (TabBar)
 	"tabs.kindMismatch":
 		"That session has a different type. Agent and chat sessions can't be converted, so open it from the session list instead.",
 	"tabs.folderMissing":
@@ -4756,8 +4755,6 @@ export const en: Record<string, string> = {
 	"sidebar.project.newFolder": "Open or create project folder",
 	"sidebar.project.newFolderTitle": "Choose a project folder, or make one with “New Folder”",
 	"sidebar.project.newFolderButton": "Start here",
-	"sidebar.row.needsApproval": "Needs approval",
-	"sidebar.row.needsInput": "Needs input",
 	"sidebar.row.failed": "Failed",
 	"sidebar.row.open": "Open",
 	"sidebar.row.fork": "Branch",
@@ -4777,8 +4774,11 @@ export const en: Record<string, string> = {
 	"titlebar.breadcrumb": "Project and session",
 	"titlebar.switchProject": "Switch project",
 	"titlebar.sidePanel": "Side panel",
-	"titlebar.status.needsApproval": "Needs approval",
-	"titlebar.status.needsInput": "Needs input",
+	// What a session needs from the person, one word set for every surface (lib/attention.ts).
+	"attention.question": "Needs input",
+	"attention.approval": "Needs approval",
+	"attention.childWaiting": "Child waiting",
+	"attention.checkFailed": "Check failed",
 	"sessionStatus.title": "Session status",
 	"sessionStatus.trigger": "Session status, cost {cost}",
 	"sessionStatus.tokens": "Tokens",
@@ -4804,13 +4804,11 @@ export const en: Record<string, string> = {
 	"dock.goal.active": "Active goal",
 	"dock.goal.paused": "Paused goal",
 	"dock.goal.edit": "Edit goal",
-	"dock.goal.needsAnswer": "Needs your answer",
 	"dock.goal.actionFailed": "Couldn't update goal",
 	"dock.island.label": "Background work",
 	"dock.island.agents": "Agents",
 	"dock.island.working": "{count} working",
 	"dock.island.waiting": "{count} waiting",
-	"dock.island.needsYou": "Needs you {count}",
 	"dock.island.agentsOpen": "Show this session's agents in the sidebar",
 	"dock.island.sessions": "Sessions",
 	"dock.island.sessionsOpen": "Show the sessions this session opened in the sidebar",
@@ -4882,7 +4880,7 @@ export const en: Record<string, string> = {
 	"workBoard.session.recall.collapse": "Hide the memory used this turn",
 	"workBoard.head.running": "{count} running",
 	"workBoard.head.idle": "Idle",
-	"workBoard.head.needs": "{count} need{s} you",
+	"workBoard.head.needs": "{count} need you",
 	"workBoard.head.runningShort": "{count} running",
 	"workBoard.head.done": "Turn finished",
 	"workBoard.needs": "Needs you",

@@ -6,6 +6,7 @@ import type { RpcAsyncJobItem, RpcGoalState, RpcJobRow, SubagentSnapshot } from 
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { EMPTY_TURN_METER } from "../../../lib/turn-meter";
 import { accountWindows, shortWindowLabel } from "../../../lib/usage-windows";
+import { useAttentionStore } from "../../../stores/attention";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useMessagesStore } from "../../../stores/messages";
 import { useModelStore } from "../../../stores/model";
@@ -250,8 +251,8 @@ describe("WorkBoard header", () => {
 			},
 		]);
 		await mount();
-		// What needs the person first; what runs is a figure beside it.
-		expect(pane.querySelector("[data-board-status]")?.textContent).toBe("1 needs you");
+		// What needs the person first, one thing by its word; what runs is a figure beside it.
+		expect(pane.querySelector("[data-board-status]")?.textContent).toBe(translate("attention.question"));
 		expect(pane.querySelector(".omp-work-board-figure")?.textContent).toBe("2 running");
 		expect(pane.querySelector(".omp-work-board-pulse")?.getAttribute("data-state")).toBe("waiting");
 		const bar = pane.querySelector(".omp-work-board-segments");
@@ -461,7 +462,7 @@ describe("WorkBoard sections", () => {
 		}
 	});
 
-	it("turns the pulse to waiting for a failed check alone, and names the plan's section for what it holds", async () => {
+	it("turns the pulse to failed for a failed check alone, and names the plan's section for what it holds", async () => {
 		useToolsStore.setState({
 			finishedTools: new Map([
 				[
@@ -479,14 +480,63 @@ describe("WorkBoard sections", () => {
 		useTodoStore.getState().setPhases([{ name: "Work", tasks: [{ content: "a", status: "pending" }] }]);
 		await mount();
 		await vi.waitFor(() => expect(section("needs")).not.toBeNull());
-		expect(pane.querySelector(".omp-work-board-pulse")?.getAttribute("data-state")).toBe("waiting");
-		expect(pane.querySelector("[data-board-status]")?.textContent).toBe("1 needs you");
+		expect(pane.querySelector(".omp-work-board-pulse")?.getAttribute("data-state")).toBe("failed");
+		expect(pane.querySelector("[data-board-status]")?.textContent).toBe(translate("attention.checkFailed"));
 		// Todos alone: "Todos", not "Plan" (the plan-mode card's word, which Needs you's "plan ready for review" says).
 		expect(section("plan")?.querySelector(".omp-work-board-title")?.textContent).toContain("Todos");
 		useSessionStore.setState({ goal: { objective: "Ship it" }, goalState: { status: "active" } });
 		goal = { enabled: true, status: "active", objective: "Ship it" };
 		await act(async () => {});
 		expect(section("plan")?.querySelector(".omp-work-board-title")?.textContent).toContain("Goal & todos");
+	});
+
+	it("keeps saying a failed check after the strip's panel opens and closes", async () => {
+		useToolsStore.setState({
+			finishedTools: new Map([
+				[
+					"b1",
+					tool({
+						args: { command: "bun test" },
+						status: "error",
+						isError: true,
+						endTime: 9,
+						result: { content: [{ type: "text", text: "1 fail" }], details: { exitCode: 1 } },
+					}),
+				],
+			]),
+		});
+		useTodoStore.getState().setPhases([{ name: "Work", tasks: [{ content: "a", status: "pending" }] }]);
+		await mount(700);
+		const label = () => pane.querySelector('[data-work-chip] [role="status"]')?.textContent;
+		await vi.waitFor(() => expect(label()).toBe(translate("attention.checkFailed")));
+		await click("[data-work-chip]");
+		await vi.waitFor(() =>
+			expect(pane.querySelector("[data-work-strip-panel] [data-work-board-panel]")).not.toBeNull(),
+		);
+		await click("[data-work-chip]");
+		await vi.waitFor(() => expect(pane.querySelector("[data-work-strip-panel]")).toBeNull());
+		await act(async () => {});
+		expect(label()).toBe(translate("attention.checkFailed"));
+		expect(Object.hasOwn(useAttentionStore.getState().checkFailed, "t1")).toBe(true);
+	});
+
+	it("knows a failed check where the docked board has nothing else to show, as the strip does", async () => {
+		useToolsStore.setState({
+			finishedTools: new Map([
+				[
+					"b1",
+					tool({
+						args: { command: "bun test" },
+						status: "error",
+						isError: true,
+						endTime: 9,
+						result: { content: [{ type: "text", text: "1 fail" }], details: { exitCode: 1 } },
+					}),
+				],
+			]),
+		});
+		await mount(1600);
+		await vi.waitFor(() => expect(Object.hasOwn(useAttentionStore.getState().checkFailed, "t1")).toBe(true));
 	});
 
 	it("shows the goal with its status and a budget and a time meter", async () => {

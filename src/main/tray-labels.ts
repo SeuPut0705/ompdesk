@@ -37,8 +37,11 @@ export const TRAY_LABELS = {
 	noModel: { en: "No model", ko: "모델 없음" },
 	statusIdle: { en: "Ready", ko: "준비됨" },
 	statusStreaming: { en: "Working", ko: "작업 중" },
+	// The renderer's attention words (`attention.*`), pinned by native-labels.test.ts.
+	statusQuestion: { en: "Needs input", ko: "답변 필요" },
 	statusApproval: { en: "Needs approval", ko: "승인 필요" },
-	statusInput: { en: "Needs input", ko: "입력 필요" },
+	statusChildWaiting: { en: "Child waiting", ko: "하위 세션 대기" },
+	statusCheckFailed: { en: "Check failed", ko: "검사 실패" },
 	statusError: { en: "Error", ko: "오류" },
 	// Thinking levels by the names the composer's thinking control uses.
 	thinkingOff: { en: "Off", ko: "끔" },
@@ -57,33 +60,47 @@ export function t(lang: TrayLang, key: TrayLabelKey): string {
 	return TRAY_LABELS[key][lang];
 }
 
+const STATUS_KEYS: Record<TrayStatus, TrayLabelKey> = {
+	idle: "statusIdle",
+	streaming: "statusStreaming",
+	question: "statusQuestion",
+	approval: "statusApproval",
+	childWaiting: "statusChildWaiting",
+	checkFailed: "statusCheckFailed",
+	error: "statusError",
+};
+
 /** Which run state to show; the aggregate across windows, never per-window. */
 export function statusLabel(lang: TrayLang, status: TrayStatus): string {
-	if (status === "error") return t(lang, "statusError");
-	if (status === "streaming") return t(lang, "statusStreaming");
-	if (status === "approval") return t(lang, "statusApproval");
-	if (status === "input") return t(lang, "statusInput");
-	return t(lang, "statusIdle");
+	return t(lang, STATUS_KEYS[status]);
 }
 
 /**
- * Collapse per-window statuses to one: any error > streaming > waiting > idle.
- * Windows waiting on different things read as the neutral `input`.
+ * Loudest first: an error, what a window needs from the person (a question, an approval, a waiting child), work that
+ * goes on, then a failed check (it never overrides work: the agent may be fixing it), then idle.
+ */
+const STATUS_RANK: readonly TrayStatus[] = [
+	"error",
+	"question",
+	"approval",
+	"childWaiting",
+	"streaming",
+	"checkFailed",
+	"idle",
+];
+
+/**
+ * Collapse per-window statuses to the loudest. Precedence is app-global, so the first window's state never hides a
+ * louder later one; a window waiting on the person outranks another one working, as inside one window (App.tsx). A
+ * status this build does not know (a newer renderer's) counts as nothing, never as louder than an error.
  */
 export function aggregateTrayStatus(states: Iterable<TrayState>): TrayStatus {
-	// Precedence is app-global, so a single early return on the first window's
-	// streaming would hide a later window's error. A window waiting on the person
-	// outranks another one working, as inside one window (App.tsx): work goes on
-	// by itself, an answer does not.
-	let streaming = false;
-	let waiting: "approval" | "input" | null = null;
+	let loudest = STATUS_RANK.length - 1;
 	for (const { status } of states) {
-		if (status === "error") return "error";
-		if (status === "streaming") streaming = true;
-		if (status === "approval" || status === "input")
-			waiting = waiting === null || waiting === status ? status : "input";
+		const rank = STATUS_RANK.indexOf(status);
+		if (rank >= 0) loudest = Math.min(loudest, rank);
 	}
-	return waiting ?? (streaming ? "streaming" : "idle");
+	return STATUS_RANK[loudest] ?? "idle";
 }
 
 const APPROVAL_KEYS: Record<TrayApprovalMode, TrayLabelKey> = {

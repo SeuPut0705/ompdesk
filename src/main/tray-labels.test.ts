@@ -38,9 +38,9 @@ describe("tray status surface", () => {
 	it("names the run state in the hover text, in the language the renderer reports", () => {
 		expect(trayTooltip(state({ status: "streaming" }))).toBe("OMPdesk — alpha · Working");
 		expect(trayTooltip(state({ status: "approval", language: "ko" }))).toBe("OMPdesk — alpha · 승인 필요");
-		// A question is not an approval.
-		expect(trayTooltip(state({ status: "input" }))).toBe("OMPdesk — alpha · Needs input");
-		expect(trayTooltip(state({ status: "input", language: "ko" }))).toBe("OMPdesk — alpha · 입력 필요");
+		// A question is not an approval, and a waiting child or a failed check is said by its own word.
+		for (const status of ["question", "childWaiting", "checkFailed"] as const)
+			expect(trayTooltip(state({ status, language: "ko" }))).toBe(`OMPdesk — alpha · ${statusLabel("ko", status)}`);
 		expect(trayTooltip(state({ status: "streaming", language: "ko" }))).toBe("OMPdesk — alpha · 작업 중");
 		expect(trayTooltip(state({ status: "error" }))).toContain("Error");
 		expect(trayTooltip(state({ status: "idle" }))).toContain("Ready");
@@ -103,7 +103,7 @@ describe("menuSignature", () => {
 
 describe("statusLabel", () => {
 	it("gives every status its own text", () => {
-		const statuses = ["idle", "streaming", "approval", "input", "error"] as const;
+		const statuses = ["idle", "streaming", "question", "approval", "childWaiting", "checkFailed", "error"] as const;
 		expect(new Set(statuses.map(s => statusLabel("en", s))).size).toBe(statuses.length);
 	});
 });
@@ -114,15 +114,24 @@ describe("aggregateTrayStatus", () => {
 		// A streaming window pushed before an erroring one must not mask the error.
 		expect(aggregateTrayStatus(windows(["streaming", "error"]))).toBe("error");
 		expect(aggregateTrayStatus(windows(["idle", "error"]))).toBe("error");
-		// Waiting on the person outranks another window's work.
+		// Waiting on the person outranks another window's work, a waiting child too.
 		expect(aggregateTrayStatus(windows(["approval", "streaming"]))).toBe("approval");
-		expect(aggregateTrayStatus(windows(["streaming", "input"]))).toBe("input");
+		expect(aggregateTrayStatus(windows(["streaming", "childWaiting"]))).toBe("childWaiting");
 		expect(aggregateTrayStatus(windows(["idle", "streaming"]))).toBe("streaming");
-		expect(aggregateTrayStatus(windows(["idle", "approval"]))).toBe("approval");
-		expect(aggregateTrayStatus(windows(["idle", "input"]))).toBe("input");
-		// Windows waiting on different things read neutral.
-		expect(aggregateTrayStatus(windows(["approval", "input"]))).toBe("input");
-		expect(aggregateTrayStatus(windows(["approval", "approval"]))).toBe("approval");
+		// A failed check never overrides work going on; it still outranks idle.
+		expect(aggregateTrayStatus(windows(["checkFailed", "streaming"]))).toBe("streaming");
+		expect(aggregateTrayStatus(windows(["idle", "checkFailed"]))).toBe("checkFailed");
+		// Windows waiting on different things read as the loudest: a question, an approval, a child, a check.
+		expect(aggregateTrayStatus(windows(["approval", "question"]))).toBe("question");
+		expect(aggregateTrayStatus(windows(["checkFailed", "approval"]))).toBe("approval");
+		expect(aggregateTrayStatus(windows(["checkFailed", "childWaiting"]))).toBe("childWaiting");
+	});
+
+	it("never lets a status it does not know hide an error or a wait", () => {
+		const unknown = state({ status: "someday" as TrayState["status"] });
+		expect(aggregateTrayStatus([unknown, state({ status: "error" })])).toBe("error");
+		expect(aggregateTrayStatus([state({ status: "question" }), unknown])).toBe("question");
+		expect(aggregateTrayStatus([unknown])).toBe("idle");
 	});
 
 	it("shows the app icon waiting while any window waits on the person, whatever another one runs", () => {

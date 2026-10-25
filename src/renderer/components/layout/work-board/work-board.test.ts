@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { ExtensionUIRequest, SubagentSnapshot, TodoTask } from "../../../../shared/rpc-types";
+import type { AskKind } from "../../../lib/attention";
 import { translate } from "../../../lib/i18n";
 import {
 	boardCounts,
@@ -242,7 +243,7 @@ describe("requestLabel", () => {
 
 describe("boardCounts", () => {
 	const idle = {
-		asks: 0,
+		asks: [] as AskKind[],
 		childrenWaiting: 0,
 		childrenRunning: 0,
 		checkFailed: false,
@@ -253,13 +254,20 @@ describe("boardCounts", () => {
 	};
 
 	it("counts what needs the person once: asks, waiting children and a failed check", () => {
-		const counts = boardCounts({ ...idle, asks: 2, childrenWaiting: 1, checkFailed: true });
+		const counts = boardCounts({ ...idle, asks: ["question", "approval"], childrenWaiting: 1, checkFailed: true });
 		expect(counts).toMatchObject({ asks: 2, children: 1, failed: 1, needs: 4, pulse: "waiting" });
+		expect(counts.attention).toEqual({ kind: "question", count: 4 });
 	});
 
-	it("turns the pulse to waiting for anything Needs you lists, a failed check alone included", () => {
-		expect(boardCounts({ ...idle, checkFailed: true })).toMatchObject({ needs: 1, pulse: "waiting" });
+	it("turns the pulse to waiting for a question or a waiting child, and to failed for a failed check alone", () => {
+		expect(boardCounts({ ...idle, checkFailed: true })).toMatchObject({ needs: 1, pulse: "failed" });
 		expect(boardCounts({ ...idle, childrenWaiting: 1, turnWorking: true })).toMatchObject({ pulse: "waiting" });
+		expect(boardCounts({ ...idle, asks: ["question"], checkFailed: true })).toMatchObject({ pulse: "waiting" });
+		// A failed check never overrides work going on: the agent may be fixing it.
+		expect(boardCounts({ ...idle, checkFailed: true, turnWorking: true })).toMatchObject({
+			needs: 1,
+			pulse: "working",
+		});
 	});
 
 	it("counts subagents and jobs as running and children at work apart, a parked subagent not as working", () => {

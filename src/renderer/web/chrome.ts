@@ -25,9 +25,9 @@ export class WebChrome {
 		this.#deps = deps;
 	}
 
-	/** A turn waits for an answer: a badge and a title mark; cleared when nothing waits. */
+	/** The session needs the person (a question, an approval, a waiting child, a failed check): a badge and a title mark. */
 	applyTray(state: TrayState): void {
-		const attention = state.status === "approval" || state.status === "input";
+		const attention = state.status !== "idle" && state.status !== "streaming" && state.status !== "error";
 		const doc = this.#deps.document;
 		const current = doc.title;
 		if (this.#baseTitle === null || (!current.startsWith(ATTENTION_PREFIX) && current !== this.#baseTitle)) {

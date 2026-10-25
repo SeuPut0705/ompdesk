@@ -61,10 +61,10 @@ describe("tabSignalPresentation", () => {
 
 	it("flags a tab waiting on the user over its run, without hiding that it is still running", () => {
 		const waiting = tabSignalPresentation(tab({ status: "running", awaitingInput: "input" }));
-		// A question is not an approval: the neutral word, the approval word only for approvals.
-		expect(waiting.labelKey).toBe("sidebar.row.needsInput");
+		// A question is not an approval: the question word, the approval word only for approvals.
+		expect(waiting.labelKey).toBe("attention.question");
 		expect(tabSignalPresentation(tab({ status: "running", awaitingInput: "approval" })).labelKey).toBe(
-			"sidebar.row.needsApproval",
+			"attention.approval",
 		);
 		// ⌘W's confirm reads `running`: a blocked run is still a run.
 		expect(waiting.running).toBe(true);

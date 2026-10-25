@@ -89,45 +89,16 @@ describe("GoalDockBar", () => {
 		expect(container.textContent).toContain("Paused goal");
 	});
 
-	it("says the goal needs an answer while a question blocks on the user", async () => {
+	it("leaves a waiting question to its prompt card instead of saying it again", async () => {
 		useSessionStore.setState({ goal: { objective: "Ship it" }, goalState: { status: "active" } });
 		await mount();
-		expect(container.querySelector("[data-goal-needs-answer]")).toBeNull();
+		const before = container.querySelector("[data-goal-dock]")?.textContent;
 		await act(async () =>
 			useExtensionUiStore
 				.getState()
 				.pushRequest({ type: "extension_ui_request", id: "q", method: "ask", title: "Which?" } as never),
 		);
-		expect(container.querySelector("[data-goal-needs-answer]")?.textContent).toBe("Needs your answer");
+		expect(container.querySelector("[data-goal-dock]")?.textContent).toBe(before);
 		await act(async () => useExtensionUiStore.getState().clearAll());
-		expect(container.querySelector("[data-goal-needs-answer]")).toBeNull();
-	});
-
-	it("does not flip to needing an answer for a provider sign-in's own requests", async () => {
-		useSessionStore.setState({ goal: { objective: "Ship it" }, goalState: { status: "active" } });
-		await mount();
-		await act(async () => {
-			useExtensionUiStore.setState({ inlineLogins: 0, loginRequestIds: {} });
-			useExtensionUiStore.getState().beginInlineLogin();
-			useExtensionUiStore
-				.getState()
-				.pushRequest({ type: "extension_ui_request", id: "url", method: "open_url", url: "https://x" } as never);
-			useExtensionUiStore
-				.getState()
-				.pushRequest({ type: "extension_ui_request", id: "paste", method: "input", title: "Paste" } as never);
-		});
-		expect(useExtensionUiStore.getState().pendingRequests).toHaveLength(2);
-		expect(container.querySelector("[data-goal-needs-answer]")).toBeNull();
-		// A real question during the sign-in still counts.
-		await act(async () =>
-			useExtensionUiStore
-				.getState()
-				.pushRequest({ type: "extension_ui_request", id: "q", method: "ask", title: "Which?" } as never),
-		);
-		expect(container.querySelector("[data-goal-needs-answer]")).not.toBeNull();
-		await act(async () => {
-			useExtensionUiStore.getState().clearAll();
-			useExtensionUiStore.setState({ inlineLogins: 0, loginRequestIds: {} });
-		});
 	});
 });

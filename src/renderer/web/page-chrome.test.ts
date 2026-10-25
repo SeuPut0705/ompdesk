@@ -16,7 +16,7 @@ function page() {
 const tray = (status: TrayState["status"]) => ({ status }) as TrayState;
 
 describe("WebChrome", () => {
-	it("marks the title and the app badge while a turn waits for an answer, and clears them after", () => {
+	it("marks the title and the app badge while the session needs the person, and clears them after", () => {
 		const doc = page();
 		const badge: string[] = [];
 		const chrome = new WebChrome({
@@ -28,7 +28,7 @@ describe("WebChrome", () => {
 		});
 		chrome.applyTray(tray("approval"));
 		expect(doc.title).toBe("(!) OMPdesk");
-		chrome.applyTray(tray("input"));
+		chrome.applyTray(tray("childWaiting"));
 		expect(doc.title).toBe("(!) OMPdesk");
 		chrome.applyTray(tray("streaming"));
 		expect(doc.title).toBe("OMPdesk");

@@ -6,7 +6,6 @@
  * move to project, pinned-first ordering,
  * per-session busy gates, status as icon + text, and tab-first opening (an
  * untouched empty tab is replaced instead of left behind).
- * Same linkedom + react-dom harness as TabBar.test.tsx.
  */
 
 import { readFileSync } from "node:fs";
@@ -35,7 +34,11 @@ import { useQueueStore } from "../../../stores/queue";
 import { useRemoteStore } from "../../../stores/remote";
 import { useSessionStore } from "../../../stores/session";
 import { resetSessionListFeeds, sessionListFeed } from "../../../stores/session-list";
-import { deleteSessionRuntime, sessionRuntimeStore } from "../../../stores/session-runtime-context";
+import {
+	deleteSessionRuntime,
+	sessionRuntimeStore,
+	setFocusedSessionRuntime,
+} from "../../../stores/session-runtime-context";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { type RailPin, useSidebarPrefs } from "../../../stores/sidebar-prefs";
 import { useSidebarProjects } from "../../../stores/sidebar-projects";
@@ -2924,19 +2927,70 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		expect(edge()?.getAttribute("data-working")).toBe("background");
 		expect(slotOf(boss())).toBe("background");
 
-		// One now waits for the person: its row keeps the warning look and no light; the other still runs.
+		// One now waits for the person: its row keeps the warning look and no light; the other still runs. The boss
+		// says so too, though this window looks at another session.
 		await setTab("ta", { awaitingInput: "input" });
 		const waiting = familyRows().find(row => row.getAttribute("data-session-path") === "/wt/a.jsonl");
 		expect(waiting?.getAttribute("data-signal")).toBe("waiting");
 		expect(waiting?.querySelector('[data-working="turn"], [data-working="background"]')).toBeNull();
 		expect(waiting?.querySelector(".omp-working-arc")).toBeNull();
-		expect(edge()?.getAttribute("data-working")).toBe("background");
-		expect(slotOf(boss())).toBe("background");
+		expect(edge()?.getAttribute("data-working")).toBe("waiting");
+		expect(boss().getAttribute("data-signal")).toBe("waiting");
+		expect(boss().textContent).toContain(translate("attention.childWaiting"));
 
-		// Nothing runs behind the idle boss any more (one waits, the other finished): no light.
+		// Nothing runs behind the idle boss any more (one waits, the other finished): no light, the wait stays.
 		await setTab("tc", { status: "ready" });
-		expect(boss().querySelector("[data-working]")).toBeNull();
-		expect(slotOf(boss())).toBe("age");
+		expect(boss().querySelector('[data-working="turn"], [data-working="background"]')).toBeNull();
+		expect(slotOf(boss())).toBe("waiting");
+	});
+
+	it("marks the attached idle boss's row when a session it opened waits, and still lets it be deleted", async () => {
+		mountFamily();
+		useTabsStore.setState({ activeTabId: "t1" });
+		setFocusedSessionRuntime("t1");
+		try {
+			await mount(<Sidebar />);
+			const boss = () => rowFor("Session /work/alpha/two");
+			expect(boss().getAttribute("data-signal")).toBeNull();
+			await act(async () => {
+				useTabsStore.setState(state => ({
+					tabs: state.tabs.map(tab => (tab.id === "ta" ? { ...tab, awaitingInput: "input" as const } : tab)),
+				}));
+			});
+			await flush();
+			expect(boss().getAttribute("data-signal")).toBe("waiting");
+			expect(boss().textContent).toContain(translate("attention.childWaiting"));
+			// Its own turn is idle: a waiting child does not make it busy.
+			await openRowMenu(boss());
+			expect(menuItem("Delete").hasAttribute("disabled")).toBe(false);
+		} finally {
+			setFocusedSessionRuntime(null);
+		}
+	});
+
+	it("keeps an attached child's family row running while a session it opened waits", async () => {
+		mountFamily({
+			tabsExtra: [
+				{
+					id: "tg",
+					cwd: WT_A,
+					status: "running",
+					kind: "agent",
+					unreadDone: false,
+					openedBy: "ta",
+					awaitingInput: "input",
+				},
+			],
+		});
+		useTabsStore.setState({ activeTabId: "ta" });
+		setFocusedSessionRuntime("ta");
+		try {
+			await mount(<Sidebar />);
+			const child = familyRows().find(row => row.getAttribute("data-session-path") === "/wt/a.jsonl");
+			expect(child?.getAttribute("data-signal")).toBe("running");
+		} finally {
+			setFocusedSessionRuntime(null);
+		}
 	});
 
 	it("lights the boss's row in a window viewing it while a session its agent opened runs as another window's tab", async () => {

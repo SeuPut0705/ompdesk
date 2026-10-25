@@ -16,6 +16,7 @@ import { formatDuration } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useNowTick } from "../../../lib/now-tick";
 import { useTabRpc } from "../../../lib/tab-rpc";
+import { useAttentionStore } from "../../../stores/attention";
 import { useMessagesStore } from "../../../stores/messages";
 import { useSessionStore } from "../../../stores/session";
 import { useRuntimeTabId, useTabCommand } from "../../../stores/session-runtime-context";
@@ -668,8 +669,14 @@ export function SessionSlot({
 	return <CurrentSection aside={aside} rows={rows} />;
 }
 
-export function FailedCheckWatch({ onChange }: { onChange: (failed: boolean) => void }) {
+/** Says in `useAttentionStore` whether this tab's newest check failed, while the board or its strip is mounted. */
+export function FailedCheckWatch() {
+	const tabId = useBoardTabId();
 	const failed = useLastCheck()?.state === "failed";
-	useEffect(() => onChange(failed), [failed, onChange]);
+	useEffect(() => {
+		if (!tabId) return;
+		useAttentionStore.getState().setCheckFailed(tabId, failed);
+		return () => useAttentionStore.getState().setCheckFailed(tabId, false);
+	}, [tabId, failed]);
 	return null;
 }

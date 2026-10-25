@@ -776,8 +776,8 @@ export type IpcModelSetupRunResult =
 
 /** Compact snapshot the renderer pushes to main to build the tray menu. */
 export interface TrayState {
-	/** `approval`: a tool or plan approval is pending; `input`: any other answer (ask, confirm, …). */
-	status: "idle" | "streaming" | "approval" | "input" | "error";
+	/** What the focused session needs from the person (the renderer's `sessionAttention` kinds), else its run state. */
+	status: "idle" | "streaming" | "question" | "approval" | "childWaiting" | "checkFailed" | "error";
 	language: UiLanguage;
 	cwd: string | null;
 	projectName: string;

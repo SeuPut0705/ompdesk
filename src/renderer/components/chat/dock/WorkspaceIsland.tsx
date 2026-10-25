@@ -1,8 +1,8 @@
 import { Bot, GitBranch, SquareTerminal } from "lucide-react";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { useOpenedChildren } from "../../../hooks/use-opened-children";
+import { ATTENTION_LABEL_KEY } from "../../../lib/attention";
 import { useT } from "../../../lib/i18n";
-import { isUserBlockingRequest, useExtensionUiStore } from "../../../stores/extension-ui";
 import { useSessionStore } from "../../../stores/session";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { revealSidebarSubagents } from "../../../stores/sidebar-subagents";
@@ -19,10 +19,11 @@ const SEGMENT =
 
 /**
  * One row above the composer collecting the session's work that outlives a
- * turn: subagents still working or waiting (with how many questions block on
- * the user) and background shells. While a turn runs the work card shows the
- * same lanes and the sessions its agent waits on, so the row hides itself
- * until the turn ends.
+ * turn: subagents still working or waiting, the sessions its agent opened (with
+ * how many wait on the person, in the title bar's word) and background shells.
+ * The session's own question is its prompt card's to say, not this row's. While
+ * a turn runs the work card shows the same lanes and the sessions its agent
+ * waits on, so the row hides itself until the turn ends.
  */
 export function WorkspaceIsland() {
 	const t = useT();
@@ -39,9 +40,6 @@ export function WorkspaceIsland() {
 		for (const agent of state.subagents.values()) if (WAITING_STATUSES[agent.status]) count++;
 		return count;
 	});
-	const needsYou = useExtensionUiStore(
-		state => state.pendingRequests.filter(request => isUserBlockingRequest(state, request)).length,
-	);
 	const openJobs = useUiStore(state => state.openJobs);
 	const shells = useBackgroundJobs().length;
 	const agents = working + waiting;
@@ -80,14 +78,6 @@ export function WorkspaceIsland() {
 							{t("dock.island.waiting", { count: waiting })}
 						</span>
 					)}
-					{needsYou > 0 && (
-						<span
-							className="shrink-0 rounded-(--sc-radius-full) bg-(--sc-warning-soft) px-1.5 tabular-nums text-(--sc-warning-on-soft)"
-							data-island-needs-you
-						>
-							{t("dock.island.needsYou", { count: needsYou })}
-						</span>
-					)}
 				</button>
 			)}
 			{sessions > 0 && (
@@ -111,7 +101,7 @@ export function WorkspaceIsland() {
 							className="shrink-0 rounded-(--sc-radius-full) bg-(--sc-warning-soft) px-1.5 tabular-nums text-(--sc-warning-on-soft)"
 							data-island-sessions-need-you
 						>
-							{t("dock.island.needsYou", { count: opened.counts.waiting })}
+							{t(ATTENTION_LABEL_KEY.childWaiting)} {opened.counts.waiting}
 						</span>
 					)}
 				</button>

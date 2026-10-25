@@ -51,7 +51,7 @@ function build(answer: BridgeAsk = async () => ({ needsUser: true })): World {
 		isShared: tabId => shared.has(tabId),
 		judgeEnabled: () => enabled.current,
 		bridgeFor,
-		needsYouTitle: title => `Needs you · ${title}`,
+		needsYouTitle: title => `Needs input · ${title}`,
 		deliver: (_win, winId, notice) => void delivered.push({ winId, notice }),
 	});
 	return { delivered, ask, bridgeFor, enabled, shared, clock, notify };
@@ -73,7 +73,12 @@ describe("a completion the judge says waits for the person", () => {
 		expect(world.delivered).toEqual([
 			{
 				winId: 1,
-				notice: { title: "Needs you · Back task", body: "Two ways to go. Which one?", tabId: "t1", kind: "ask" },
+				notice: {
+					title: "Needs input · Back task",
+					body: "Two ways to go. Which one?",
+					tabId: "t1",
+					kind: "ask",
+				},
 			},
 		]);
 	});

@@ -3337,8 +3337,14 @@ button.omp-file-chip-name:hover {
 		padding-inline: 0.5rem;
 	}
 
+	/* The word leaves the narrow bar, not its screen reader (the status's aria-label and tooltip say it too). */
 	.omp-titlebar-status-label {
-		display: none;
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
 	}
 }
 

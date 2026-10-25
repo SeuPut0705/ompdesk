@@ -52,6 +52,11 @@
 	background: var(--sc-warning);
 }
 
+/* A failed check alone, while nothing works: the danger tone the title bar and the sidebar row give it. */
+.omp-work-board-pulse[data-state="failed"] {
+	background: var(--sc-danger);
+}
+
 /* The board's name is for screen readers: the sentence under the pulse says what the board is saying. */
 .omp-work-board-name {
 	position: absolute;
