@@ -1,5 +1,5 @@
 import { ChevronRight, ListChecks } from "lucide-react";
-import { type ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentMessage } from "../../../../shared/rpc-types";
 import { useDisplayPreference } from "../../../lib/display-preferences";
 import { cx } from "../../../lib/format";
@@ -9,11 +9,12 @@ import { useMessagesStore } from "../../../stores/messages";
 import { selectToolEntry, useToolsStore } from "../../../stores/tools";
 import { ReadGroupCard } from "../../tools/renderers/ReadGroupCard";
 import { type StepThoughts, ThoughtCount, TOOL_ROW_CLASS, ToolCard, ToolStatusIcon } from "../../tools/ToolCard";
+import { useStageCall } from "../LiveStepPeek";
 import { MessageBubble } from "../MessageBubble";
 import { ThinkingBlock } from "../ThinkingBlock";
 import { UsageRow } from "../UsageRow";
 import { type StepReveal, StepRevealContext } from "./reveal-step";
-import { groupSteps, type StepGroup, type StepItem, type StepRow } from "./work-steps";
+import { groupSteps, type StepGroup, type StepItem } from "./work-steps";
 
 /** Messages an open card mounts per task (about 7 ms of render, style and layout). */
 const MOUNT_SLICE = 60;
@@ -23,7 +24,7 @@ const MOUNT_SLICE = 60;
  * frame (all 490 messages of a 245-step card in one commit made a 60 ms frame), and rows that come
  * later mount as they arrive.
  */
-export function useMountedCount(total: number): number {
+function useMountedCount(total: number): number {
 	const [limit, setLimit] = useState(() => (total <= MOUNT_SLICE ? Number.POSITIVE_INFINITY : MOUNT_SLICE));
 	useEffect(() => {
 		if (limit >= total) {
@@ -215,12 +216,48 @@ function IntentGroup({ group }: { group: StepGroup }) {
 	);
 }
 
-/** A finished card's steps, grouped by intent (`groupSteps`). */
-export function StepGroups({ messages }: { messages: readonly AgentMessage[] }) {
+const ONE_BATCH: readonly number[] = [];
+
+/**
+ * Batch starts for a list that was ever append-only: no row is grouped across one, so a row a person saw keeps its
+ * shape, also after the run ends.
+ */
+function useShownCuts(count: number, appendOnly: boolean): readonly number[] {
+	const shown = useRef<{ cuts: readonly number[]; seen: number } | null>(null);
+	if (appendOnly && !shown.current) shown.current = { cuts: ONE_BATCH, seen: 0 };
+	const state = shown.current;
+	if (!state) return ONE_BATCH;
+	if (count < state.seen) state.cuts = state.cuts.filter(cut => cut < count);
+	else if (count > state.seen && state.seen > (state.cuts.at(-1) ?? 0)) state.cuts = [...state.cuts, state.seen];
+	state.seen = count;
+	return state.cuts;
+}
+
+/**
+ * A card's steps, grouped by intent (`groupSteps`). The call the live stage shows running is left off the end, so it
+ * is not said twice; it joins the list where it stands once it ends.
+ */
+export function StepGroups({
+	messages,
+	appendOnly = false,
+}: {
+	messages: readonly AgentMessage[];
+	/** A running card: rows already shown never regroup, later calls only add rows after them. */
+	appendOnly?: boolean;
+}) {
 	const readTargets = useMessagesStore(state => state.readTargets);
-	const rows = useMemo<StepRow[]>(() => groupSteps(messages, readTargets), [messages, readTargets]);
-	const mounted = useMountedCount(rows.length);
-	return rows
+	const cuts = useShownCuts(messages.length, appendOnly);
+	const rows = useMemo(() => {
+		const starts = [0, ...cuts];
+		return starts.flatMap((start, index) =>
+			groupSteps(messages.slice(start, starts[index + 1] ?? messages.length), readTargets),
+		);
+	}, [messages, readTargets, cuts]);
+	const stageCall = useStageCall();
+	const last = rows.at(-1);
+	const listed = last?.kind === "call" && last.key === stageCall ? rows.slice(0, -1) : rows;
+	const mounted = useMountedCount(listed.length);
+	return listed
 		.slice(0, mounted)
 		.map(row =>
 			row.kind === "intent" ? <IntentGroup group={row} key={row.key} /> : <StepItemView item={row} key={row.key} />,

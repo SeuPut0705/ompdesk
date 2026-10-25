@@ -12,7 +12,8 @@ import {
 	useState,
 } from "react";
 import { createPortal } from "react-dom";
-import type { StoreApi } from "zustand/vanilla";
+import { useStore } from "zustand";
+import { createStore, type StoreApi } from "zustand/vanilla";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { useFrameSelector } from "../../hooks/use-frame-selector";
 import { useMediaQuery } from "../../hooks/use-media-query";
@@ -115,6 +116,15 @@ function agentHasOutput(node: SubagentNode, store: SubagentsStore) {
     `undefined`: not inside a lane; `null`: inside a lane that draws no strip (auto-followed, or its
     row has not mounted yet): the card's own strip stays the one strip. */
 const LaneStripSlot = createContext<HTMLElement | null | undefined>(undefined);
+
+type StageCallStore = StoreApi<{ key: string | null }>;
+/** The call a live card's stage shows while it runs, so the opened step list does not end with it again. */
+export const StageCallContext = createContext<StageCallStore | null>(null);
+export const createStageCall = (): StageCallStore => createStore(() => ({ key: null }));
+const NO_STAGE_CALL = createStageCall();
+export function useStageCall(): string | null {
+	return useStore(useContext(StageCallContext) ?? NO_STAGE_CALL, state => state.key);
+}
 
 /**
  * The card's frame before the model's first event: the same head the run then fills,
@@ -585,6 +595,13 @@ export function LiveStepPeek({
 		(!nested && following && turnIsLive && !!entry && !running && !shownAgent) ||
 		(!shownAgent && !showSurface) ||
 		(canAutoFollow && !!shownAgent && !waitingFor);
+	const stageCall = useContext(StageCallContext);
+	const onStage = !nested && stageOpen && showSurface && running ? surfaceKey : null;
+	useLayoutEffect(() => {
+		if (!stageCall) return;
+		stageCall.setState({ key: onStage });
+		return () => stageCall.setState({ key: null });
+	}, [stageCall, onStage]);
 	return (
 		<div
 			// Entrance motion (chips popping in, lanes fading in, the outcome unfolding) is for

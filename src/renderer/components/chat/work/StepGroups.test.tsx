@@ -24,6 +24,7 @@ Object.assign(window, { requestAnimationFrame: () => 0, cancelAnimationFrame: ()
 const { createRoot } = await import("react-dom/client");
 const { StepGroups } = await import("./StepGroups");
 const { StepRevealContext } = await import("./reveal-step");
+const { createStageCall, StageCallContext } = await import("../LiveStepPeek");
 
 let container: HTMLElement;
 let root: Root | undefined;
@@ -241,6 +242,123 @@ describe("StepGroups", () => {
 		expect(groups()[0]?.getAttribute("data-open")).toBe("true");
 		expect(groups()[0]?.querySelector("button")?.textContent).toContain("1 thought");
 		expect(cards()).toEqual(["a", "b"]);
+	});
+
+	describe("append-only (a running card)", () => {
+		const stage = createStageCall();
+		async function show(messages: AgentMessage[], appendOnly: boolean) {
+			if (!root) {
+				container = document.createElement("div") as unknown as HTMLElement;
+				document.body.appendChild(container as never);
+				root = createRoot(container as unknown as Element);
+			}
+			await act(async () =>
+				root?.render(
+					<I18nProvider>
+						<StageCallContext.Provider value={stage}>
+							<StepGroups appendOnly={appendOnly} messages={messages} />
+						</StageCallContext.Provider>
+					</I18nProvider>,
+				),
+			);
+		}
+		const rows = () => [...container.children];
+		const step = (index: number): AgentMessage[] => [
+			assistant([
+				call(
+					`c${index}`,
+					"bash",
+					{ command: `step ${index}` },
+					index < 10 ? "Reading the board" : "Checking the types",
+				),
+			]),
+			{
+				role: "toolResult",
+				toolCallId: `c${index}`,
+				toolName: "bash",
+				content: [],
+				timestamp: ++clock,
+			} as AgentMessage,
+		];
+		afterEach(() => stage.setState({ key: null }));
+
+		it("streams 20 calls of two intents and keeps every row it showed, in place, through the finish", async () => {
+			const entries: [string, ToolEntry][] = [];
+			const messages: AgentMessage[] = [];
+			let seen: Element[] = [];
+			for (let index = 0; index < 20; index++) {
+				if (index > 0) entries[index - 1] = [`c${index - 1}`, bash(`step ${index - 1}`)];
+				entries.push([`c${index}`, bash(`step ${index}`, "running")]);
+				act(() => useToolsStore.setState(toolEntriesState(entries)));
+				messages.push(...step(index));
+				await show([...messages], true);
+				const now = rows();
+				expect(now.slice(0, seen.length)).toEqual(seen);
+				expect(now.length).toBe(seen.length + 1);
+				seen = now;
+			}
+			act(() => useToolsStore.setState(toolEntriesState(entries.map(([id]) => [id, bash(id)]))));
+			await show([...messages], false);
+			expect(rows()).toEqual(seen);
+			expect(cards()).toEqual(Array.from({ length: 20 }, (_, index) => `c${index}`));
+			expect(groups()).toHaveLength(0);
+		});
+
+		it("a list mounted on the finished messages (a reload) lines the same calls up by intent", async () => {
+			act(() =>
+				useToolsStore.setState(
+					toolEntriesState(Array.from({ length: 20 }, (_, index) => [`c${index}`, bash(`step ${index}`)])),
+				),
+			);
+			await show(Array.from({ length: 20 }, (_, index) => step(index)).flat(), false);
+			expect(groups().map(group => group.querySelector(".omp-step-group-label")?.textContent)).toEqual([
+				"Reading the board",
+				"Checking the types",
+			]);
+		});
+
+		it("groups same-intent calls that arrive together, and never pulls a later call into a shown row", async () => {
+			const together = assistant([
+				call("a", "bash", { command: "a" }, "Reading the board"),
+				call("b", "bash", { command: "b" }, "Reading the board"),
+			]);
+			act(() =>
+				useToolsStore.setState(
+					toolEntriesState([
+						["a", bash("a")],
+						["b", bash("b")],
+						["c", bash("c")],
+					]),
+				),
+			);
+			await show([together], true);
+			expect(groups()).toHaveLength(1);
+			const group = groups()[0];
+			await show([together, assistant([call("c", "bash", { command: "c" }, "Reading the board")])], true);
+			expect(groups()).toEqual([group]);
+			expect(group?.querySelector("button")?.textContent).toContain("2 steps");
+			expect(rows()).toHaveLength(2);
+		});
+
+		it("leaves off its last row while the live stage shows that call running, then lists it there", async () => {
+			act(() =>
+				useToolsStore.setState(
+					toolEntriesState([
+						["c9", bash("step 9")],
+						["c10", bash("step 10", "running")],
+					]),
+				),
+			);
+			const messages = [...step(9), ...step(10)];
+			act(() => stage.setState({ key: "c10" }));
+			await show(messages, true);
+			expect(cards()).toEqual(["c9"]);
+			const first = rows()[0];
+			act(() => stage.setState({ key: null }));
+			await show(messages, true);
+			expect(cards()).toEqual(["c9", "c10"]);
+			expect(rows()[0]).toBe(first);
+		});
 	});
 });
 

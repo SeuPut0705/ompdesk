@@ -41,8 +41,7 @@ consecutive collapsible reads into the transcript's own read-group card. Rules t
   and calls with no intent, stay plain rows.
 - A group with a failed call opens by itself, and again when a finding asks for a step inside it (Error, Tests).
 - Only thinking may sit between two calls of one intent; a visible reply or a note ends the group.
-- Only a finished card groups. A running card keeps one bubble per message as it arrives, so the live list never
-  rearranges under the reader's eye; it lines up when the run ends.
+- A running card lists its steps the same way, but append-only (below): rows already shown never regroup.
 - `transcriptDetail` full mode has no work card and keeps its own read grouping; its tool rows are `ToolCard`s too,
   so they lead with the intent as below.
 
@@ -79,6 +78,21 @@ with a "Thought · 144 words" line between most steps (28 % of its rows). Every 
   row neither counts nor opens to them. On the long turn no "Thought · N words" line is left between steps.
 - A lone read is a plain row that opens straight to the file; two or more consecutive reads still fold into the
   read-group card, which leads with their intent when they came as one run of it.
+
+### One list, live and finished (R3-5, 25 Oct 2026)
+
+A running card used to list one bubble per message and line its steps up by intent only once the run ended, so the
+rows a person was reading rearranged at the finish. Now one list (`StepGroups`) draws the steps in the running
+card, the finished card, and the subagent side panel and sheet (which draw through the same `ProcessGroup`).
+
+- Running, the list is append-only. Each time more messages arrive, the count already shown closes a batch, and
+  grouping never crosses that line: a later call only adds rows after the shown ones, and the run's end changes no
+  row. Calls that arrive in one message, or before the card was opened, still group.
+- The cost: same-intent calls or reads that arrived in separate messages stay separate rows in a card watched live,
+  and a remount or reload of the finished card groups them. A reload equals the live list except there.
+- The stage already shows the running call, so the list leaves it off its end until it finishes, then lists it in
+  place: nothing above it moves.
+- An opened agent lane keeps its own strip of the agent's steps: it has tool entries, not messages, to list.
 
 ## Chips
 

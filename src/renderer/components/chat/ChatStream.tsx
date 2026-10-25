@@ -67,7 +67,7 @@ import {
 } from "./chat-stream-utils";
 import { type ContentAnchor, contentAnchor } from "./content-anchor";
 import { ExecutionGroup } from "./ExecutionGroup";
-import { WorkCardPending } from "./LiveStepPeek";
+import { createStageCall, StageCallContext, useStageCall, WorkCardPending } from "./LiveStepPeek";
 import { MessageBubble } from "./MessageBubble";
 import { installPaneKeys } from "./pane-keys";
 import { StreamingText } from "./StreamingText";
@@ -77,7 +77,7 @@ import { TurnEndAnnouncer } from "./TurnEndAnnouncer";
 import { estimateRowSize, RowSizeLearner, rowSizeKey } from "./transcript-row-estimate";
 import { ChildrenAtWork, useHasChildrenAtWork } from "./work/ChildrenAtWork";
 import { REVEAL_STEP_EVENT, type RevealStepRequest, revealStep, type StepReveal } from "./work/reveal-step";
-import { StepGroups, useMountedCount } from "./work/StepGroups";
+import { StepGroups } from "./work/StepGroups";
 import { messageTimestampMs } from "./work/work-turn";
 
 // TanStack's end check needs one CSS pixel for fractional scrollTop rounding.
@@ -1244,6 +1244,7 @@ export const ProcessGroup = memo(function ProcessGroup({
 	reveal?: StepReveal | null;
 }) {
 	const changeExpanded = useCallback((next: boolean) => onExpandedChange(rowKey, next), [onExpandedChange, rowKey]);
+	const stageCall = useMemo(createStageCall, []);
 	const output = useMemo(() => summarizeMessagesOutput(row.messages), [row.messages]);
 	// Non-live rows select constants, so tool and token events never re-render them.
 	const streamingMessage = useMessagesStore(s => (live ? s.streamingMessage : null));
@@ -1261,39 +1262,33 @@ export const ProcessGroup = memo(function ProcessGroup({
 		<>
 			{hasWork ? (
 				<div className={WORK_TURN_CLASS}>
-					<ExecutionGroup
-						expanded={expanded}
-						failureCount={row.failedEvents}
-						stoppedAt={row.stoppedAt}
-						live={live}
-						onExpandedChange={changeExpanded}
-						output={output}
-						notes={row.notes}
-						superseded={superseded}
-						stepCount={row.stepCount + liveCards.length + (hasThinking ? 1 : 0)}
-						thinkingLive={hasThinking && !hasText}
-						toolCallIds={toolCallIds}
-						revealRequest={reveal}
-						todoSnapshots={row.todoSnapshots}
-					>
-						<div className="omp-process-group">
-							{live ? <ProcessMessages messages={row.messages} /> : <StepGroups messages={row.messages} />}
-							{hasThinking || liveCards.length > 0 ? (
-								<div className="omp-process-group--live">
-									{hasThinking ? <ThinkingBlock live /> : null}
-									{liveCards.map(card => (
-										<ToolCard
-											args={card.args}
-											key={card.id}
-											runningIndicator="dot"
-											toolCallId={card.id}
-											toolName={card.name}
-										/>
-									))}
-								</div>
-							) : null}
-						</div>
-					</ExecutionGroup>
+					<StageCallContext.Provider value={stageCall}>
+						<ExecutionGroup
+							expanded={expanded}
+							failureCount={row.failedEvents}
+							stoppedAt={row.stoppedAt}
+							live={live}
+							onExpandedChange={changeExpanded}
+							output={output}
+							notes={row.notes}
+							superseded={superseded}
+							stepCount={row.stepCount + liveCards.length + (hasThinking ? 1 : 0)}
+							thinkingLive={hasThinking && !hasText}
+							toolCallIds={toolCallIds}
+							revealRequest={reveal}
+							todoSnapshots={row.todoSnapshots}
+						>
+							<div className="omp-process-group">
+								<StepGroups appendOnly={live} messages={row.messages} />
+								{hasThinking || liveCards.length > 0 ? (
+									<div className="omp-process-group--live">
+										{hasThinking ? <ThinkingBlock live /> : null}
+										<StreamingCards cards={liveCards} />
+									</div>
+								) : null}
+							</div>
+						</ExecutionGroup>
+					</StageCallContext.Provider>
 				</div>
 			) : null}
 			{streaming && hasText ? <StreamingReply /> : null}
@@ -1301,22 +1296,13 @@ export const ProcessGroup = memo(function ProcessGroup({
 	);
 });
 
-/**
- * A live card's steps as they arrive, one bubble per message, mounted a slice per task after the
- * click's frame (see `useMountedCount`). A finished card lines its steps up by intent instead.
- */
-function ProcessMessages({ messages }: { messages: readonly AgentMessage[] }) {
-	const mounted = useMountedCount(messages.length);
-	return messages
-		.slice(0, mounted)
-		.map((message, index) => (
-			<MessageBubble
-				compact
-				key={typeof message.id === "string" ? message.id : `${String(message.timestamp ?? "process")}-${index}`}
-				message={message}
-				runningIndicator="dot"
-			/>
-		));
+/** The in-flight message's calls; the one the stage shows running is not listed again at the end. */
+function StreamingCards({ cards }: { cards: readonly LiveCard[] }) {
+	const stageCall = useStageCall();
+	const listed = cards.at(-1)?.id === stageCall ? cards.slice(0, -1) : cards;
+	return listed.map(card => (
+		<ToolCard args={card.args} key={card.id} runningIndicator="dot" toolCallId={card.id} toolName={card.name} />
+	));
 }
 
 /**
