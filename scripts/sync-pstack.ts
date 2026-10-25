@@ -34,6 +34,10 @@ const SKIPPED_PATHS: RegExp[] = [
 	/^poteto-mode\/scripts\/(bootstrap\.ts|bun\.lock|package\.json|check-plan\.test\.ts)$/,
 	/^poteto-mode\/playbooks\/orchestrate\.md$/,
 	/^poteto-mode\/references\/bugbot-triage\.md$/,
+	// Upstream's own test suites and their fixtures: no skill reads them, and a `*.test.*` file under `resources/` is
+	// collected by this repository's vitest node project (pstack 0.15.30's statechart suite turned main's CI red).
+	/^[^/]+\/scripts\/test\//,
+	/\.test\.[cm]?[jt]sx?$/,
 ];
 /** Skills renamed so none collides with a stock or common user skill (`tdd`, `teach`). */
 const RENAMED_SKILLS: Record<string, string> = { tdd: "pstack-tdd", teach: "pstack-teach" };
