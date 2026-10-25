@@ -263,7 +263,7 @@ describe("StepGroups", () => {
 			);
 		}
 		const rows = () => [...container.children];
-		const step = (index: number): AgentMessage[] => [
+		const said = (index: number): AgentMessage =>
 			assistant([
 				call(
 					`c${index}`,
@@ -271,15 +271,16 @@ describe("StepGroups", () => {
 					{ command: `step ${index}` },
 					index < 10 ? "Reading the board" : "Checking the types",
 				),
-			]),
-			{
+			]);
+		const result = (index: number): AgentMessage =>
+			({
 				role: "toolResult",
 				toolCallId: `c${index}`,
 				toolName: "bash",
 				content: [],
 				timestamp: ++clock,
-			} as AgentMessage,
-		];
+			}) as AgentMessage;
+		const step = (index: number): AgentMessage[] => [said(index), result(index)];
 		afterEach(() => stage.setState({ key: null }));
 
 		it("streams 20 calls of two intents and keeps every row it showed, in place, through the finish", async () => {
@@ -287,17 +288,25 @@ describe("StepGroups", () => {
 			const messages: AgentMessage[] = [];
 			let seen: Element[] = [];
 			for (let index = 0; index < 20; index++) {
-				if (index > 0) entries[index - 1] = [`c${index - 1}`, bash(`step ${index - 1}`)];
+				// The call arrives and runs on the stage: the list says it only while it is the one step.
 				entries.push([`c${index}`, bash(`step ${index}`, "running")]);
 				act(() => useToolsStore.setState(toolEntriesState(entries)));
-				messages.push(...step(index));
+				act(() => stage.setState({ key: `c${index}` }));
+				messages.push(said(index));
+				await show([...messages], true);
+				expect(rows().slice(0, seen.length)).toEqual(seen);
+				expect(rows()).toHaveLength(index === 0 ? 1 : seen.length);
+				// Its result lands and the stage lets it go: it joins the list after every row shown before.
+				entries[index] = [`c${index}`, bash(`step ${index}`)];
+				act(() => useToolsStore.setState(toolEntriesState(entries)));
+				messages.push(result(index));
+				act(() => stage.setState({ key: null }));
 				await show([...messages], true);
 				const now = rows();
 				expect(now.slice(0, seen.length)).toEqual(seen);
-				expect(now.length).toBe(seen.length + 1);
+				expect(now).toHaveLength(seen.length + 1);
 				seen = now;
 			}
-			act(() => useToolsStore.setState(toolEntriesState(entries.map(([id]) => [id, bash(id)]))));
 			await show([...messages], false);
 			expect(rows()).toEqual(seen);
 			expect(cards()).toEqual(Array.from({ length: 20 }, (_, index) => `c${index}`));

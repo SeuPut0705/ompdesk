@@ -598,10 +598,13 @@ export function LiveStepPeek({
 	const stageCall = useContext(StageCallContext);
 	const onStage = !nested && stageOpen && showSurface && running ? surfaceKey : null;
 	useLayoutEffect(() => {
-		if (!stageCall) return;
+		// An agent lane's own card inside the stage says nothing here: its mount or leave must not clear the card's call.
+		if (!stageCall || nested) return;
 		stageCall.setState({ key: onStage });
-		return () => stageCall.setState({ key: null });
-	}, [stageCall, onStage]);
+		return () => {
+			if (stageCall.getState().key === onStage) stageCall.setState({ key: null });
+		};
+	}, [stageCall, onStage, nested]);
 	return (
 		<div
 			// Entrance motion (chips popping in, lanes fading in, the outcome unfolding) is for

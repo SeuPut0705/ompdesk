@@ -24,7 +24,7 @@ Object.assign(window, {
 });
 // React DOM must initialize only after the linkedom browser globals exist.
 const { createRoot } = await import("react-dom/client");
-const { LiveStepPeek } = await import("./LiveStepPeek");
+const { createStageCall, LiveStepPeek, StageCallContext } = await import("./LiveStepPeek");
 const { ExecutionGroup } = await import("./ExecutionGroup");
 const { ProcessGroup, STREAMING_WORK_ROW } = await import("./ChatStream");
 let root: Root;
@@ -260,5 +260,83 @@ describe("screen reader outcome", () => {
 		await tools([["one", call("bash", { command: "ls" }, { status: "done", endTime: 2 })]]);
 		await show(<LiveStepPeek thinkingLive={false} toolCallIds={["one"]} state="complete" />);
 		expect(status()).toBe("");
+	});
+});
+
+describe("the opened live card's step list", () => {
+	const said = (id: string, command: string, intent?: string): AgentMessage[] => [
+		{
+			role: "assistant",
+			content: [{ type: "toolCall", id, name: "bash", arguments: { command }, ...(intent ? { intent } : {}) }],
+			timestamp: 1,
+		},
+		{ role: "toolResult", toolCallId: id, toolName: "bash", content: [], isError: false, timestamp: 2 },
+	];
+	const live = (messages: AgentMessage[], ids: string[]) => (
+		<ProcessGroup
+			expanded
+			live
+			onExpandedChange={() => {}}
+			row={{
+				...STREAMING_WORK_ROW,
+				messages,
+				stepCount: ids.length,
+				toolCallIds: ids,
+				toolNames: ids.map(() => "bash"),
+			}}
+			rowKey="live"
+		/>
+	);
+	const listed = () =>
+		[...container.querySelectorAll(".omp-process-group [data-tool-call-id]")].map(card =>
+			card.getAttribute("data-tool-call-id"),
+		);
+
+	it("lists the running call in the stage only, by the key the list uses", async () => {
+		await tools([
+			["ls", call("bash", { command: "ls" }, { status: "done", endTime: 2 })],
+			["run", call("bash", { command: "sleep 60" }, { startTime: 3 })],
+		]);
+		await show(live([...said("ls", "ls"), said("run", "sleep 60")[0]!], ["ls", "run"]));
+		expect(listed()).toEqual(["ls"]);
+		expect(container.querySelector(".omp-work-stage")?.textContent).toContain("sleep 60");
+	});
+
+	it("keeps the running call listed while it is the only step, so the opened list is never empty", async () => {
+		await tools([["run", call("bash", { command: "sleep 60" })]]);
+		await show(live([said("run", "sleep 60")[0]!], ["run"]));
+		expect(container.querySelector(".omp-work-stage")?.textContent).toContain("sleep 60");
+		expect(listed()).toEqual(["run"]);
+	});
+
+	it("adds a same-intent call after the shown row instead of regrouping it", async () => {
+		const done = { status: "done" as const, endTime: 2 };
+		await tools([
+			["a", call("bash", { command: "a" }, done)],
+			["b", call("bash", { command: "b" }, done)],
+		]);
+		const first = said("a", "a", "Reading the board");
+		await show(live(first, ["a"]));
+		const row = container.querySelector(".omp-process-group > *");
+		await show(live([...first, ...said("b", "b", "Reading the board")], ["a", "b"]));
+		expect(container.querySelector("[data-step-group]")).toBeNull();
+		expect(container.querySelector(".omp-process-group > *")).toBe(row);
+		expect(listed()).toEqual(["a", "b"]);
+	});
+
+	it("keeps the stage's call when an agent lane's own card mounts and leaves inside the stage", async () => {
+		const stage = createStageCall();
+		await tools([["run", call("bash", { command: "sleep 60" })]]);
+		const card = (lane: boolean) => (
+			<StageCallContext.Provider value={stage}>
+				<LiveStepPeek thinkingLive={false} toolCallIds={["run"]} />
+				{lane ? <LiveStepPeek nested thinkingLive={false} toolCallIds={["run"]} /> : null}
+			</StageCallContext.Provider>
+		);
+		await show(card(true));
+		expect(stage.getState().key).toBe("run");
+		// The crossfade's leaving frame unmounts the lane's card a moment after the stage moved on.
+		await show(card(false));
+		expect(stage.getState().key).toBe("run");
 	});
 });

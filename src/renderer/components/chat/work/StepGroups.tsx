@@ -1,6 +1,6 @@
 import { ChevronRight, ListChecks } from "lucide-react";
-import { type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
-import type { AgentMessage } from "../../../../shared/rpc-types";
+import { memo, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
+import type { AgentMessage, ReadGroupTarget } from "../../../../shared/rpc-types";
 import { useDisplayPreference } from "../../../lib/display-preferences";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
@@ -14,7 +14,7 @@ import { MessageBubble } from "../MessageBubble";
 import { ThinkingBlock } from "../ThinkingBlock";
 import { UsageRow } from "../UsageRow";
 import { type StepReveal, StepRevealContext } from "./reveal-step";
-import { groupSteps, type StepGroup, type StepItem } from "./work-steps";
+import { groupSteps, type StepGroup, type StepItem, type StepRow } from "./work-steps";
 
 /** Messages an open card mounts per task (about 7 ms of render, style and layout). */
 const MOUNT_SLICE = 60;
@@ -80,7 +80,7 @@ function useStepThoughts(messages: readonly AgentMessage[] | undefined): StepTho
  * One step. Inside an intent group the group's row already says the intent, so its calls do not repeat it. `hidden`
  * is the call the live stage shows running: a read group leaves it out until it ends.
  */
-function StepItemView({
+const StepItemView = memo(function StepItemView({
 	item,
 	inGroup = false,
 	hidden = null,
@@ -110,7 +110,7 @@ function StepItemView({
 		case "reads":
 			return <ReadsRow hidden={hidden} inGroup={inGroup} item={item} thoughts={thoughts} />;
 	}
-}
+});
 
 /** How the calls under a line stand: one word each, joined, so only a change re-renders the line. */
 function useStepOutcomes(keys: readonly string[]): string {
@@ -165,7 +165,7 @@ function ReadsRow({
  * Calls of one intent under one line. A group holding a failed step opens by itself (and again when a
  * finding asks for one of its steps); the rest stay one line, whose count and mark say what is inside.
  */
-function IntentGroup({ group, hidden = null }: { group: StepGroup; hidden?: string | null }) {
+const IntentGroup = memo(function IntentGroup({ group, hidden = null }: { group: StepGroup; hidden?: string | null }) {
 	const t = useT();
 	const outcomes = useStepOutcomes(group.callKeys);
 	const failed = outcomes.includes("failed");
@@ -228,7 +228,7 @@ function IntentGroup({ group, hidden = null }: { group: StepGroup; hidden?: stri
 			) : null}
 		</div>
 	);
-}
+});
 
 const ONE_BATCH: readonly number[] = [];
 
@@ -247,11 +247,49 @@ function useShownCuts(count: number, appendOnly: boolean): readonly number[] {
 	return state.cuts;
 }
 
+interface Batch {
+	messages: readonly AgentMessage[];
+	readTargets: ReadonlyMap<string, ReadGroupTarget | null> | undefined;
+	rows: StepRow[];
+}
+
+/**
+ * The rows of every batch. A batch whose messages and read targets are the very same objects keeps its row objects,
+ * so a new message re-renders only the batch it joined.
+ */
+function useBatchRows(
+	messages: readonly AgentMessage[],
+	cuts: readonly number[],
+	readTargets: ReadonlyMap<string, ReadGroupTarget | null> | undefined,
+): StepRow[] {
+	const cache = useRef<Map<number, Batch>>(new Map());
+	return useMemo(() => {
+		const starts = [0, ...cuts];
+		const next = new Map<number, Batch>();
+		const rows = starts.flatMap((start, index) => {
+			const slice = messages.slice(start, starts[index + 1] ?? messages.length);
+			const kept = cache.current.get(start);
+			const batch =
+				kept &&
+				kept.readTargets === readTargets &&
+				kept.messages.length === slice.length &&
+				kept.messages.every((message, at) => message === slice[at])
+					? kept
+					: { messages: slice, readTargets, rows: groupSteps(slice, readTargets) };
+			next.set(start, batch);
+			return batch.rows;
+		});
+		cache.current = next;
+		return rows;
+	}, [messages, cuts, readTargets]);
+}
+
 /**
  * A card's steps, grouped by intent (`groupSteps`). The call the live stage shows running is left off the end, so it
- * is not said twice; it joins the list where it stands once it ends.
+ * is not said twice, unless it is the only step; it joins the list where it stands once it ends. Memoized: a running
+ * card re-renders on every streamed token, and its rows have nothing new to show.
  */
-export function StepGroups({
+export const StepGroups = memo(function StepGroups({
 	messages,
 	appendOnly = false,
 }: {
@@ -260,25 +298,24 @@ export function StepGroups({
 	appendOnly?: boolean;
 }) {
 	const readTargets = useMessagesStore(state => state.readTargets);
-	const cuts = useShownCuts(messages.length, appendOnly);
-	const rows = useMemo(() => {
-		const starts = [0, ...cuts];
-		return starts.flatMap((start, index) =>
-			groupSteps(messages.slice(start, starts[index + 1] ?? messages.length), readTargets),
-		);
-	}, [messages, readTargets, cuts]);
+	const rows = useBatchRows(messages, useShownCuts(messages.length, appendOnly), readTargets);
 	const stageCall = useStageCall();
 	const last = rows.at(-1);
-	const listed = last?.kind === "call" && last.key === stageCall ? rows.slice(0, -1) : rows;
-	// A grouped last row keeps its line and count; opened, it leaves the stage's call out.
-	const tail = listed === rows ? last?.key : undefined;
-	const mounted = useMountedCount(listed.length);
-	return listed.slice(0, mounted).map(row => {
-		const hidden = row.key === tail ? stageCall : null;
-		return row.kind === "intent" ? (
-			<IntentGroup group={row} hidden={hidden} key={row.key} />
-		) : (
-			<StepItemView hidden={hidden} item={row} key={row.key} />
+	const leaveLast = rows.length > 1 && last?.kind === "call" && last.key === stageCall;
+	const mounted = useMountedCount(rows.length - (leaveLast ? 1 : 0));
+	const shown: ReactNode[] = [];
+	for (let index = 0; index < mounted; index++) {
+		const row = rows[index];
+		if (!row) continue;
+		// A grouped last row keeps its line and count; opened, it leaves the stage's call out.
+		const hidden = row === last ? stageCall : null;
+		shown.push(
+			row.kind === "intent" ? (
+				<IntentGroup group={row} hidden={hidden} key={row.key} />
+			) : (
+				<StepItemView hidden={hidden} item={row} key={row.key} />
+			),
 		);
-	});
-}
+	}
+	return shown;
+});

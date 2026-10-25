@@ -1283,7 +1283,7 @@ export const ProcessGroup = memo(function ProcessGroup({
 								{hasThinking || liveCards.length > 0 ? (
 									<div className="omp-process-group--live">
 										{hasThinking ? <ThinkingBlock live /> : null}
-										<StreamingCards cards={liveCards} />
+										<StreamingCards cards={liveCards} listed={row.messages.length > 0} />
 									</div>
 								) : null}
 							</div>
@@ -1296,13 +1296,18 @@ export const ProcessGroup = memo(function ProcessGroup({
 	);
 });
 
-/** The in-flight message's calls; the one the stage shows running is not listed again at the end. */
-function StreamingCards({ cards }: { cards: readonly LiveCard[] }) {
+/**
+ * The in-flight message's calls; the one the stage shows running is not listed again at the end, unless it would
+ * leave the opened list empty (`listed`: the card's finalized steps show above).
+ */
+function StreamingCards({ cards, listed }: { cards: readonly LiveCard[]; listed: boolean }) {
 	const stageCall = useStageCall();
-	const listed = cards.at(-1)?.id === stageCall ? cards.slice(0, -1) : cards;
-	return listed.map(card => (
-		<ToolCard args={card.args} key={card.id} runningIndicator="dot" toolCallId={card.id} toolName={card.name} />
-	));
+	const leaveLast = (listed || cards.length > 1) && cards.at(-1)?.id === stageCall;
+	return cards.map((card, index) =>
+		leaveLast && index === cards.length - 1 ? null : (
+			<ToolCard args={card.args} key={card.id} runningIndicator="dot" toolCallId={card.id} toolName={card.name} />
+		),
+	);
 }
 
 /**
