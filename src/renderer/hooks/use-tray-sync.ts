@@ -17,7 +17,7 @@ import { isTabFailed } from "../lib/tab-signal";
 import { useModelStore } from "../stores/model";
 import { useSessionStore } from "../stores/session";
 import { useSettingsStore } from "../stores/settings";
-import { useSessionAttention } from "./use-awaited-input";
+import { useSessionAttention } from "./use-session-attention";
 import { useSessionList } from "./use-session-list";
 
 /** What the tray says of the focused session. A session another omp still holds is a wait that ends by itself, not an error. */

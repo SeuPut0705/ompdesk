@@ -520,6 +520,25 @@ describe("WorkBoard sections", () => {
 		expect(Object.hasOwn(useAttentionStore.getState().checkFailed, "t1")).toBe(true);
 	});
 
+	it("knows a failed check where the docked board has nothing else to show, as the strip does", async () => {
+		useToolsStore.setState({
+			finishedTools: new Map([
+				[
+					"b1",
+					tool({
+						args: { command: "bun test" },
+						status: "error",
+						isError: true,
+						endTime: 9,
+						result: { content: [{ type: "text", text: "1 fail" }], details: { exitCode: 1 } },
+					}),
+				],
+			]),
+		});
+		await mount(1600);
+		await vi.waitFor(() => expect(Object.hasOwn(useAttentionStore.getState().checkFailed, "t1")).toBe(true));
+	});
+
 	it("shows the goal with its status and a budget and a time meter", async () => {
 		useSessionStore.setState({ goal: { objective: "Ship the release" }, goalState: { status: "active" } });
 		goal = {

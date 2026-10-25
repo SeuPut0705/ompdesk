@@ -4798,7 +4798,6 @@ export const ko: Record<string, string> = {
 	"dock.island.agents": "에이전트",
 	"dock.island.working": "{count}개 작업 중",
 	"dock.island.waiting": "{count}개 대기 중",
-	"dock.island.needsYou": "응답 필요 {count}",
 	"dock.island.agentsOpen": "사이드바에서 이 세션의 에이전트 보기",
 	"dock.island.sessions": "세션",
 	"dock.island.sessionsOpen": "사이드바에서 이 세션이 연 세션 보기",

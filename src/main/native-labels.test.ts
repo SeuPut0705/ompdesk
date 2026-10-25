@@ -119,7 +119,7 @@ describe("one name per place", () => {
 				expect(statusLabel(language, kind)).toBe(RENDERER[language][`attention.${kind}`]);
 			// The judge's "this reply waits for you" banner says the question word too.
 			expect(
-				MAIN_TEXT["notify.needsYou"][language].startsWith(`${RENDERER[language]["attention.question"]} · `),
+				MAIN_TEXT["notify.needsInput"][language].startsWith(`${RENDERER[language]["attention.question"]} · `),
 			).toBe(true);
 		});
 		it(`names each palette command like the help menu and the window it opens (${language})`, () => {

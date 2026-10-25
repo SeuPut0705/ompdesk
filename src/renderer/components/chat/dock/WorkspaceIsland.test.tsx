@@ -3,7 +3,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RpcAsyncJobItem, RpcJobRow, SubagentSnapshot } from "../../../../shared/rpc-types";
-import { I18nProvider } from "../../../lib/i18n";
+import { I18nProvider, translate } from "../../../lib/i18n";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useSessionStore } from "../../../stores/session";
 import { useSidebarSubagentsStore } from "../../../stores/sidebar-subagents";
@@ -95,16 +95,13 @@ describe("WorkspaceIsland", () => {
 		expect(segment("agents")).not.toBeNull();
 	});
 
-	it("counts working and waiting agents and the questions that block on the user, and reveals them", async () => {
+	it("counts working and waiting agents and reveals them, leaving the session's own question to its card", async () => {
 		useSubagentsStore
 			.getState()
 			.setSnapshots([agent("a1", "running"), agent("a2", "pending"), agent("a3", "parked"), agent("a4", "failed")]);
 		useExtensionUiStore
 			.getState()
 			.pushRequest({ type: "extension_ui_request", id: "q1", method: "ask", title: "?" } as never);
-		useExtensionUiStore
-			.getState()
-			.pushRequest({ type: "extension_ui_request", id: "n1", method: "notify", message: "hi" } as never);
 		useUiStore.setState({ sidebarVisible: false });
 		await mount();
 
@@ -112,32 +109,12 @@ describe("WorkspaceIsland", () => {
 		expect(agents?.textContent).toContain("Agents");
 		expect(agents?.textContent).toContain("2 working");
 		expect(agents?.textContent).toContain("1 waiting");
-		expect(container.querySelector("[data-island-needs-you]")?.textContent).toBe("Needs you 1");
+		expect(agents?.textContent).not.toContain(translate("attention.question"));
 		expect(segment("shells")).toBeNull();
 
 		await act(async () => agents?.click());
 		expect(useUiStore.getState().sidebarVisible).toBe(true);
 		expect(useSidebarSubagentsStore.getState().reveal?.tabId).toBe("t1");
-	});
-
-	it("leaves a provider sign-in's own requests out of the Needs you count", async () => {
-		useSubagentsStore.getState().setSnapshots([agent("a1", "running")]);
-		useExtensionUiStore.setState({ inlineLogins: 0, loginRequestIds: {} });
-		useExtensionUiStore.getState().beginInlineLogin();
-		useExtensionUiStore
-			.getState()
-			.pushRequest({ type: "extension_ui_request", id: "url", method: "open_url", url: "https://x" } as never);
-		useExtensionUiStore
-			.getState()
-			.pushRequest({ type: "extension_ui_request", id: "paste", method: "input", title: "Paste" } as never);
-		try {
-			await mount();
-			expect(useExtensionUiStore.getState().pendingRequests).toHaveLength(2);
-			expect(segment("agents")).not.toBeNull();
-			expect(container.querySelector("[data-island-needs-you]")).toBeNull();
-		} finally {
-			await act(async () => useExtensionUiStore.setState({ inlineLogins: 0, loginRequestIds: {} }));
-		}
 	});
 
 	it("counts running background shells, a subagent's nested ones too, and opens Background tasks", async () => {

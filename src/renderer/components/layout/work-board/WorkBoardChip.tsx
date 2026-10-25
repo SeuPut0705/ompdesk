@@ -3,7 +3,6 @@ import {
 	type CSSProperties,
 	type ReactNode,
 	type RefObject,
-	Suspense,
 	type TouchEvent,
 	useCallback,
 	useEffect,
@@ -16,7 +15,6 @@ import { useBackLayer } from "../../../hooks/use-back-layer";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { useOpenedChildren } from "../../../hooks/use-opened-children";
 import { pendingAsks } from "../../../lib/attention";
-import { lazyChunk } from "../../../lib/chunk-load";
 import { useT } from "../../../lib/i18n";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
 import { useCheckFailed } from "../../../stores/attention";
@@ -104,11 +102,6 @@ function useStripRoom(root: RefObject<HTMLDivElement | null>, open: boolean, sho
 	return room;
 }
 
-/** The session rows' rules (`WorkBoardSession.tsx`), loaded after the first screen: only whether the newest check failed. */
-const FailedCheckWatch = lazyChunk(() =>
-	import("./WorkBoardSession").then(module => ({ default: module.FailedCheckWatch })),
-);
-
 /**
  * The work board where it has no room beside the pane (a phone, a portrait tablet; design §6.3): one status strip
  * under the header — what waits for you first, then the turn, the plan's progress with the current task, the
@@ -171,8 +164,7 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 	const autopilotRunning = useAutopilotStore(state => isLiveAutopilot(state) && state.status.state === "running");
 
 	// A failed check is a row of Needs you, so it is said with what waits on the person: the board counts it in the same
-	// figure. Its rules are the session rows' lazy chunk (the phone's first screen has no room), which writes it to the
-	// attention store once loaded.
+	// figure, read from the attention store the pane's one watcher (`WorkBoardHost`) writes.
 	const failed = useCheckFailed(runtimeTabId ?? activeTabId);
 	const counts = boardCounts({
 		asks: pendingAsks({ pendingRequests: pending, loginRequestIds }, planPending),
@@ -211,14 +203,9 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 		document.addEventListener("pointerdown", away);
 		return () => document.removeEventListener("pointerdown", away);
 	}, [open, close]);
-	const watch = (
-		<Suspense fallback={null}>
-			<FailedCheckWatch />
-		</Suspense>
-	);
 	// Measured while collapsed too (the chevron points the way the panel will open), and again at each open.
 	const room = useStripRoom(root, open, label !== null);
-	if (label === null) return watch;
+	if (label === null) return null;
 	const swipeStart = (event: TouchEvent<HTMLElement>) => {
 		swipe.current = event.touches[0]?.clientY ?? null;
 	};
@@ -231,7 +218,6 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 	const state = counts.pulse;
 	return (
 		<div className="omp-work-strip" data-work-strip="" ref={root}>
-			{watch}
 			{/* controls-ok: the omp-work-chip class draws the whole control */}
 			<button
 				aria-controls={open || leaving ? PANEL_ID : undefined}

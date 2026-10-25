@@ -75,24 +75,31 @@ export function statusLabel(lang: TrayLang, status: TrayStatus): string {
 	return t(lang, STATUS_KEYS[status]);
 }
 
-/** Loudest first: an error, what a window needs from the person (in `sessionAttention`'s order), streaming, idle. */
+/**
+ * Loudest first: an error, what a window needs from the person (a question, an approval, a waiting child), work that
+ * goes on, then a failed check (it never overrides work: the agent may be fixing it), then idle.
+ */
 const STATUS_RANK: readonly TrayStatus[] = [
 	"error",
 	"question",
 	"approval",
 	"childWaiting",
-	"checkFailed",
 	"streaming",
+	"checkFailed",
 	"idle",
 ];
 
 /**
  * Collapse per-window statuses to the loudest. Precedence is app-global, so the first window's state never hides a
- * louder later one; a window waiting on the person outranks another one working, as inside one window (App.tsx).
+ * louder later one; a window waiting on the person outranks another one working, as inside one window (App.tsx). A
+ * status this build does not know (a newer renderer's) counts as nothing, never as louder than an error.
  */
 export function aggregateTrayStatus(states: Iterable<TrayState>): TrayStatus {
 	let loudest = STATUS_RANK.length - 1;
-	for (const { status } of states) loudest = Math.min(loudest, STATUS_RANK.indexOf(status));
+	for (const { status } of states) {
+		const rank = STATUS_RANK.indexOf(status);
+		if (rank >= 0) loudest = Math.min(loudest, rank);
+	}
 	return STATUS_RANK[loudest] ?? "idle";
 }
 

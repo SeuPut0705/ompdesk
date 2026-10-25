@@ -69,11 +69,11 @@ import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
 import type { HostView, IpcHostedSession, SessionInfo } from "../../../../shared/ipc-types";
 import { autopilotRunOf, worktreeKindOf, worktreeLabel } from "../../../../shared/project-origin";
 import { splitTabIds } from "../../../../shared/split-layout";
-import { useSessionAttention } from "../../../hooks/use-awaited-input";
+import { useSessionAttention } from "../../../hooks/use-session-attention";
 import { useSessionList } from "../../../hooks/use-session-list";
 import { requestSessionSwitch } from "../../../hooks/use-session-switch";
 import { useShellInput } from "../../../hooks/use-shell-mode";
-import { ATTENTION_LABEL_KEY, type AttentionKind } from "../../../lib/attention";
+import { ATTENTION_LABEL_KEY, type AttentionKind, isAsk } from "../../../lib/attention";
 import { activeComposerInput } from "../../../lib/composer-focus";
 import { saveDiagnosticBundle } from "../../../lib/diagnostic-bundle";
 import { hideNativeDragImage } from "../../../lib/drag-image";
@@ -97,7 +97,7 @@ import { clampSidebarWidth, readSidebarWidth, writeSidebarWidth } from "../../..
 import { snapshotNs, snapshots } from "../../../lib/snapshot-cache";
 import { performTabClose } from "../../../lib/tab-close";
 import { useTabRpc } from "../../../lib/tab-rpc";
-import { isTabFailed, tabSignalPresentation } from "../../../lib/tab-signal";
+import { isSessionDown, isTabFailed, tabSignalPresentation } from "../../../lib/tab-signal";
 import { pickWorkspaceDirectory } from "../../../lib/workspace-dirs";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
 import { ensureClosedChildren, useClosedChildrenStore } from "../../../stores/closed-children";
@@ -140,6 +140,7 @@ import { WorkspaceDialog } from "../../dialogs/WorkspaceDialog";
 import { StarterGuide } from "../../onboarding/StarterGuide";
 import { ForkParent } from "../ForkParent";
 import { SessionLiveAge, SessionLiveTitle } from "../SessionLiveTitle";
+import { openedChildCounts, openedChildRows } from "../work-board/opened-children";
 import { RAIL_PIN_ICONS } from "./rail-pin-icons";
 import { SidebarChats } from "./SidebarChats";
 import { SidebarDeviceSections } from "./SidebarDeviceSections";
@@ -822,6 +823,17 @@ export function Sidebar() {
 		() => new Map(Object.values(reviewByTab).flatMap(items => items.map(item => [item.tabId, item]))),
 		[reviewByTab],
 	);
+	// How many sessions each tab here opened wait on the person, for every parent row, not only the attached one: the
+	// board's own rows (`openedChildRows` over the tabs and that parent's review list).
+	const childrenWaitingOf = useMemo(() => {
+		const waiting = new Map<string, number>();
+		for (const parent of localTabs) {
+			const review = new Map((reviewByTab[parent.id] ?? []).map(item => [item.tabId, item]));
+			const count = openedChildCounts(openedChildRows({ parent, tabs, review, closed: [] })).waiting;
+			if (count > 0) waiting.set(parent.id, count);
+		}
+		return waiting;
+	}, [localTabs, tabs, reviewByTab]);
 	// A window viewing an opener another window holds (a phone or tablet viewing a desktop's session) holds no tab of
 	// the sessions its agent opened: main's review list, pushed to every window showing the opener, is all it knows of
 	// them. Child session file → its item, and → the opener's file (exact, where the brief only names a title that may
@@ -1262,7 +1274,7 @@ export function Sidebar() {
 			: null;
 	};
 	const isSessionBusy = (session: SidebarSession) => {
-		if (isCurrentSession(session) && attention && attention.kind !== "checkFailed") return true;
+		if (isCurrentSession(session) && isAsk(attention?.kind)) return true;
 		const signal = sessionTabSignal(session);
 		if (signal) return signal.active;
 		if (isCurrentSession(session) && (isStreaming || isCompacting)) return true;
@@ -1618,13 +1630,20 @@ export function Sidebar() {
 		// Background tabs park their dialogs in their own runtime; the tab entry carries the flag. A paired device's
 		// tab here that no tab of this window shows says it through its hosted state.
 		const hosted = tab === undefined ? hostedFor(session) : undefined;
-		// What the session needs from the person: the attached one's from `sessionAttention`, another tab's prompt from
-		// its tab entry, a paired device's from its hosted state (which only knows a question waits).
-		const waiting: AttentionKind | undefined =
-			(isCurrent ? attention?.kind : undefined) ??
-			(tab?.awaitingInput ? (tab.awaitingInput === "approval" ? "approval" : "question") : undefined) ??
-			(hosted?.awaitingInput ? "question" : undefined);
-		const running = !waiting && (tabSignal?.running === true || (tabSignal === null && isSessionBusy(session)));
+		// A session that is not up says that, never what it needs from the person (the title bar's order).
+		const down = tab ? isSessionDown(tab) : hosted ? isSessionDown(hosted) : false;
+		// What the session needs from the person: the attached one's from `sessionAttention`, another tab's own prompt
+		// from its tab entry, then a child of its waiting, a paired device's from its hosted state (which only knows a
+		// question waits).
+		const waiting: AttentionKind | undefined = down
+			? undefined
+			: ((isCurrent ? attention?.kind : undefined) ??
+				(tab?.awaitingInput ? (tab.awaitingInput === "approval" ? "approval" : "question") : undefined) ??
+				(tab && childrenWaitingOf.has(tab.id) ? "childWaiting" : undefined) ??
+				(hosted?.awaitingInput ? "question" : undefined));
+		// Only its own prompt stops the session's run; a waiting child or a failed check leaves a running turn running.
+		const running =
+			!isAsk(waiting) && (tabSignal?.running === true || (tabSignal === null && isSessionBusy(session)));
 		// Of `running`: its turn ended and only stock's background work keeps it on (the light's `background`).
 		const settling = running && (tab?.settling === true || hosted?.settling === true);
 		const failed =
@@ -1633,7 +1652,9 @@ export function Sidebar() {
 			(tabSignal ? tabSignal.labelKey === "titlebar.status.error" : session.status === "error");
 		const done = !waiting && !running && !failed && tabSignal?.labelKey === "tabs.done";
 		const openElsewhere = tab !== undefined && !isCurrent && !inVisibleSplit;
-		const busy = (waiting !== undefined && waiting !== "checkFailed") || running || tabSignal?.active === true;
+		// Busy (no delete, the project busy) only while it runs or its own prompt waits: an idle parent whose child waits
+		// is not.
+		const busy = isAsk(waiting) || running || tabSignal?.active === true;
 		const waitingLabel = waiting ? t(ATTENTION_LABEL_KEY[waiting]) : null;
 		const statusLabel =
 			waitingLabel ??
@@ -1706,9 +1727,14 @@ export function Sidebar() {
 		const elsewhere = row.tab === undefined && row.hosted === undefined ? reviewOfPath.get(child.path) : undefined;
 		const review = openTabId ? reviewOf.get(openTabId) : elsewhere;
 		const failed =
-			row.failed || review?.failed === true || lastRun?.stopReason === "error" || lastRun?.stopReason === "aborted";
+			row.failed ||
+			row.waiting === "checkFailed" ||
+			review?.failed === true ||
+			lastRun?.stopReason === "error" ||
+			lastRun?.stopReason === "aborted";
 		const status = openedChildStatus({
-			waiting: row.waiting !== undefined || elsewhere?.waiting === true,
+			// Only the child's own question or approval waits; its failed check is a problem, its waiting child its own.
+			waiting: isAsk(row.waiting) || elsewhere?.waiting === true,
 			running: elsewhere ? elsewhere.state === "running" : row.running,
 			finished: elsewhere
 				? elsewhere.state !== "running"
@@ -1724,7 +1750,7 @@ export function Sidebar() {
 				? t(failed ? "sidebar.row.failed" : "sidebar.family.unmerged")
 				: status === "done"
 					? t("tabs.done")
-					: status === "waiting" && row.waiting === undefined
+					: status === "waiting" && !isAsk(row.waiting)
 						? t(ATTENTION_LABEL_KEY.question)
 						: status === "running" && !row.running
 							? t("sidebar.signal.running")

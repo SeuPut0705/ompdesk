@@ -15,9 +15,8 @@ describe("trayStatusOf", () => {
 	it("puts what the person owes ahead of streaming, by its kind", () => {
 		expect(trayStatusOf({ ...base, attention: { kind: "approval", count: 1 }, isStreaming: true })).toBe("approval");
 		expect(trayStatusOf({ ...base, attention: { kind: "childWaiting", count: 2 } })).toBe("childWaiting");
-		expect(trayStatusOf({ ...base, attention: { kind: "checkFailed", count: 1 }, isStreaming: true })).toBe(
-			"checkFailed",
-		);
+		// `useSessionAttention` names a failed check only while the session is idle.
+		expect(trayStatusOf({ ...base, attention: { kind: "checkFailed", count: 1 } })).toBe("checkFailed");
 		expect(trayStatusOf({ ...base, isStreaming: true })).toBe("streaming");
 	});
 });

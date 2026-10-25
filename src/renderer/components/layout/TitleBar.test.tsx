@@ -6,6 +6,7 @@ import type { RemoteState } from "../../../shared/ipc-types";
 import type { RpcResponse } from "../../../shared/rpc-types";
 import { formatTimeAgo } from "../../lib/format";
 import { I18nProvider, translate } from "../../lib/i18n";
+import { useAttentionStore } from "../../stores/attention";
 import type { ExtensionUiStore } from "../../stores/extension-ui";
 import { useMessagesStore } from "../../stores/messages";
 import { useRemoteStore } from "../../stores/remote";
@@ -512,6 +513,7 @@ describe("TitleBar", () => {
 		await mount("t1");
 		const extensionUi = sessionRuntimeStore<ExtensionUiStore>("t1", "extensionUi");
 		await act(async () => {
+			sessionRuntimeStore<SessionStore>("t1", "session")?.setState({ status: "ready" });
 			extensionUi?.getState().pushRequest({
 				type: "extension_ui_request",
 				id: "ask",
@@ -560,6 +562,7 @@ describe("TitleBar", () => {
 			activeTabId: "t1",
 		});
 		await mount("t1");
+		await act(async () => sessionRuntimeStore<SessionStore>("t1", "session")?.setState({ status: "ready" }));
 		expect(container.textContent).toContain(translate("attention.childWaiting"));
 		expect(container.textContent).not.toContain(translate("titlebar.status.ready"));
 		await act(async () => {
@@ -568,6 +571,45 @@ describe("TitleBar", () => {
 			}));
 		});
 		expect(container.textContent).not.toContain(translate("attention.childWaiting"));
+		deleteSessionRuntime("t1");
+	});
+
+	it("says a failed check only once the session is idle: while it works, it says it works", async () => {
+		useTabsStore.setState({
+			tabs: [{ id: "t1", cwd: "/tmp/project", status: "ready", kind: "agent", unreadDone: false }],
+			activeTabId: "t1",
+		});
+		useAttentionStore.getState().setCheckFailed("t1", true);
+		await mount("t1");
+		const session = sessionRuntimeStore<SessionStore>("t1", "session");
+		await act(async () => session?.setState({ status: "ready", isStreaming: true }));
+		expect(container.textContent).toContain(translate("titlebar.status.working"));
+		expect(container.textContent).not.toContain(translate("attention.checkFailed"));
+		await act(async () => session?.setState({ isStreaming: false }));
+		expect(container.textContent).toContain(translate("attention.checkFailed"));
+		useAttentionStore.setState({ checkFailed: {} });
+		deleteSessionRuntime("t1");
+	});
+
+	it("says a session that is down over what it needs from the person", async () => {
+		useTabsStore.setState({
+			tabs: [{ id: "t1", cwd: "/tmp/project", status: "ready", kind: "agent", unreadDone: false }],
+			activeTabId: "t1",
+		});
+		await mount("t1");
+		const session = sessionRuntimeStore<SessionStore>("t1", "session");
+		await act(async () => {
+			session?.setState({ status: "ready" });
+			sessionRuntimeStore<ExtensionUiStore>("t1", "extensionUi")
+				?.getState()
+				.pushRequest({ type: "extension_ui_request", id: "ask", method: "ask", questions: [] });
+		});
+		expect(container.textContent).toContain(translate("attention.question"));
+		for (const status of ["error", "exited", "restarting", "starting"] as const) {
+			await act(async () => session?.setState({ status }));
+			expect(container.textContent, status).not.toContain(translate("attention.question"));
+		}
+		expect(container.textContent).toContain(translate("titlebar.status.connecting"));
 		deleteSessionRuntime("t1");
 	});
 

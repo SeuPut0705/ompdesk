@@ -3,13 +3,14 @@ import { act, type ReactNode } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider, translate } from "../../../lib/i18n";
+import { useAttentionStore } from "../../../stores/attention";
 import { useAutopilotStore } from "../../../stores/autopilot";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useSessionStore } from "../../../stores/session";
 import { useSubagentsStore } from "../../../stores/subagents";
 import { useTabsStore } from "../../../stores/tabs";
 import { useTodoStore } from "../../../stores/todo";
-import { type ToolEntry, useToolsStore } from "../../../stores/tools";
+import { useToolsStore } from "../../../stores/tools";
 
 // The back gesture itself is lib/back-layer's (its own test); here only what a layer's close does to the strip.
 const backLayer = vi.hoisted(() => ({ close: null as (() => void) | null }));
@@ -66,6 +67,7 @@ afterEach(async () => {
 	useSubagentsStore.getState().reset();
 	useExtensionUiStore.setState({ pendingRequests: [] });
 	useToolsStore.getState().reset();
+	useAttentionStore.setState({ checkFailed: {} });
 });
 
 describe("WorkBoardChip, the phone's work strip", () => {
@@ -137,26 +139,12 @@ describe("WorkBoardChip, the phone's work strip", () => {
 	});
 
 	it("says a failed check by its word, with the waiting pulse, though nothing else waits", async () => {
-		const failed: ToolEntry = {
-			toolName: "bash",
-			args: { command: "bun test" },
-			status: "error",
-			streamingArgs: "",
-			result: { content: [{ type: "text", text: "1 fail" }], details: { exitCode: 1 } },
-			isError: true,
-			startTime: 1,
-			endTime: 9,
-		};
-		useToolsStore.setState({ finishedTools: new Map([["b1", failed]]) });
+		// The pane's watcher (WorkBoardHost) wrote the tab's failure; WorkBoard.test.tsx covers that write.
+		useAttentionStore.getState().setCheckFailed("t1", true);
 		useTodoStore.getState().setPhases([{ name: "Fix", tasks: [{ content: "Reproduce", status: "in_progress" }] }]);
 		await mount();
-		// The failed-check watcher loads after the first screen: its chunk transforms on first import, past a second
-		// under a busy test run.
 		const strip = container.querySelector("[data-work-chip]");
-		await vi.waitFor(
-			() => expect(strip?.querySelector('[role="status"]')?.textContent).toBe(translate("attention.checkFailed")),
-			{ timeout: 5000 },
-		);
+		expect(strip?.querySelector('[role="status"]')?.textContent).toBe(translate("attention.checkFailed"));
 		expect(strip?.getAttribute("data-state")).toBe("waiting");
 	});
 

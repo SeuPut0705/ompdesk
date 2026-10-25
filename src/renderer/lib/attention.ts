@@ -22,18 +22,24 @@ export interface AttentionState {
 	/** The session's own prompts in the order it raised them; the first is the card on screen. */
 	asks: readonly AskKind[];
 	childrenWaiting: number;
+	/** The newest check failed. Outside the work board only while the session is idle (`useSessionAttention`). */
 	checkFailed: boolean;
 }
 
 /**
  * The session's own prompt comes first (it is the card on this screen), then a child waiting on the person, then a
- * failed check, which waits for nobody and is said last.
+ * failed check, which waits for nobody: it is said last, and outside the board never over work that goes on.
  */
 export function sessionAttention(state: AttentionState): Attention | null {
 	const count = state.asks.length + state.childrenWaiting + (state.checkFailed ? 1 : 0);
 	const kind: AttentionKind | undefined =
 		state.asks[0] ?? (state.childrenWaiting > 0 ? "childWaiting" : state.checkFailed ? "checkFailed" : undefined);
 	return kind ? { kind, count } : null;
+}
+
+/** The session's own prompt, which only the person can answer: a session waiting on one counts as busy. */
+export function isAsk(kind: AttentionKind | undefined): kind is AskKind {
+	return kind === "question" || kind === "approval";
 }
 
 /** The session's own prompts: its blocking requests (a sign-in's own left out), then a plan up for review. */

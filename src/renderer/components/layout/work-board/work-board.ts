@@ -250,5 +250,5 @@ export function attentionClause(
 ): string {
 	return attention.count === 1
 		? t(ATTENTION_LABEL_KEY[attention.kind])
-		: t("workBoard.head.needs", { count: attention.count, s: "" });
+		: t("workBoard.head.needs", { count: attention.count });
 }
