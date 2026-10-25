@@ -259,9 +259,15 @@ describe("boardCounts", () => {
 		expect(counts.attention).toEqual({ kind: "question", count: 4 });
 	});
 
-	it("turns the pulse to waiting for anything Needs you lists, a failed check alone included", () => {
-		expect(boardCounts({ ...idle, checkFailed: true })).toMatchObject({ needs: 1, pulse: "waiting" });
+	it("turns the pulse to waiting for a question or a waiting child, and to failed for a failed check alone", () => {
+		expect(boardCounts({ ...idle, checkFailed: true })).toMatchObject({ needs: 1, pulse: "failed" });
 		expect(boardCounts({ ...idle, childrenWaiting: 1, turnWorking: true })).toMatchObject({ pulse: "waiting" });
+		expect(boardCounts({ ...idle, asks: ["question"], checkFailed: true })).toMatchObject({ pulse: "waiting" });
+		// A failed check never overrides work going on: the agent may be fixing it.
+		expect(boardCounts({ ...idle, checkFailed: true, turnWorking: true })).toMatchObject({
+			needs: 1,
+			pulse: "working",
+		});
 	});
 
 	it("counts subagents and jobs as running and children at work apart, a parked subagent not as working", () => {

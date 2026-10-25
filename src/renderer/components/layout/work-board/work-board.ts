@@ -205,8 +205,11 @@ export interface BoardCounts {
 	childrenRunning: number;
 	/** Whatever is at work, a parked subagent excluded: the pulse and "Working…" read it. */
 	working: number;
-	/** The pulse: anything Needs you lists (a failed check too), else something works, else nothing. */
-	pulse: "waiting" | "working" | "idle";
+	/**
+	 * The pulse: a question, an approval or a waiting child (warning), else something works, else a failed check
+	 * (danger; it never overrides work, which may be fixing it), else nothing.
+	 */
+	pulse: "waiting" | "working" | "failed" | "idle";
 }
 
 export function boardCounts(input: {
@@ -236,7 +239,14 @@ export function boardCounts(input: {
 		running: input.agents + input.jobs,
 		childrenRunning: input.childrenRunning,
 		working,
-		pulse: needs > 0 ? "waiting" : working > 0 ? "working" : "idle",
+		pulse:
+			input.asks.length + input.childrenWaiting > 0
+				? "waiting"
+				: working > 0
+					? "working"
+					: input.checkFailed
+						? "failed"
+						: "idle",
 	};
 }
 

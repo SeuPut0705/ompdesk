@@ -565,6 +565,10 @@ describe("TitleBar", () => {
 		await act(async () => sessionRuntimeStore<SessionStore>("t1", "session")?.setState({ status: "ready" }));
 		expect(container.textContent).toContain(translate("attention.childWaiting"));
 		expect(container.textContent).not.toContain(translate("titlebar.status.ready"));
+		// A phone's bar hides the word: the status keeps it as its tooltip.
+		expect(document.querySelector(".omp-titlebar-status")?.getAttribute("title")).toBe(
+			translate("attention.childWaiting"),
+		);
 		await act(async () => {
 			useTabsStore.setState(state => ({
 				tabs: state.tabs.map(tab => (tab.id === "c1" ? { ...tab, awaitingInput: undefined } : tab)),
@@ -585,7 +589,19 @@ describe("TitleBar", () => {
 		await act(async () => session?.setState({ status: "ready", isStreaming: true }));
 		expect(container.textContent).toContain(translate("titlebar.status.working"));
 		expect(container.textContent).not.toContain(translate("attention.checkFailed"));
-		await act(async () => session?.setState({ isStreaming: false }));
+		// Compacting or waiting to retry is work too, with no stream.
+		await act(async () => session?.setState({ isStreaming: false, isCompacting: true }));
+		expect(container.textContent).toContain(translate("titlebar.status.working"));
+		expect(container.textContent).not.toContain(translate("attention.checkFailed"));
+		await act(async () =>
+			session?.setState({
+				isCompacting: false,
+				retryInfo: { attempt: 1, maxAttempts: 3, delayMs: 1000, errorMessage: "overloaded", startedAt: 0 },
+			}),
+		);
+		expect(container.textContent).toContain(translate("titlebar.status.working"));
+		expect(container.textContent).not.toContain(translate("attention.checkFailed"));
+		await act(async () => session?.setState({ retryInfo: null }));
 		expect(container.textContent).toContain(translate("attention.checkFailed"));
 		useAttentionStore.setState({ checkFailed: {} });
 		deleteSessionRuntime("t1");

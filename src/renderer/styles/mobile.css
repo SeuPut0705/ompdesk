@@ -284,9 +284,19 @@ html[data-shell="phone"] .omp-titlebar {
    session sheet — the info popover keeps the status). */
 html[data-shell="phone"] .omp-titlebar-project,
 html[data-shell="phone"] .omp-titlebar-crumb-sep,
-html[data-shell="phone"] .omp-session-status-cost,
-html[data-shell="phone"] .omp-titlebar-status-label {
+html[data-shell="phone"] .omp-session-status-cost {
 	display: none;
+}
+
+/* The status word leaves the phone's bar but not its screen reader: the badge's icon says the tone, the hidden word
+   (and the status's tooltip) the kind, as "Child waiting" or "Check failed". */
+html[data-shell="phone"] .omp-titlebar-status-label {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
 }
 
 html[data-shell="phone"] .omp-titlebar-status {
@@ -377,6 +387,10 @@ html[data-shell] .omp-composer-region.pb-3 {
 
 .omp-work-chip[data-state="waiting"] {
 	border-color: var(--sc-warning);
+}
+
+.omp-work-chip[data-state="failed"] {
+	border-color: var(--sc-danger);
 }
 
 .omp-work-chip > .omp-work-chip-label {

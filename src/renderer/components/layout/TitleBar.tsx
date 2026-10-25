@@ -27,7 +27,7 @@ import { useCurrentSessionTitle } from "../../hooks/use-current-session-title";
 import { useSessionAttention } from "../../hooks/use-session-attention";
 import { useSessionList } from "../../hooks/use-session-list";
 import { useDrawerMode } from "../../hooks/use-shell-mode";
-import { ATTENTION_LABEL_KEY } from "../../lib/attention";
+import { ATTENTION_LABEL_KEY, sessionWorking } from "../../lib/attention";
 import { cx, formatCost, formatDuration, formatPercent, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -313,7 +313,7 @@ export function TitleBar() {
 		setEditingName(false);
 	};
 
-	const working = isStreaming || isCompacting;
+	const working = useSessionStore(sessionWorking);
 	// Another omp still holds the session: the tab opens it by itself, a wait like connecting, not a failure.
 	const sessionHeld = useSessionStore(s => s.sidecarHeld);
 	// The session's own state (connecting, restarting, failed, exited) outranks what it needs from the person: a
@@ -537,6 +537,7 @@ export function TitleBar() {
 				className="omp-titlebar-status no-drag flex min-w-0 shrink-0 items-center px-1.5"
 				data-tone={tone}
 				role="status"
+				title={statusLabel}
 			>
 				<StatusPill label={statusLabel} tone={tone} />
 			</div>

@@ -42,6 +42,18 @@ export function isAsk(kind: AttentionKind | undefined): kind is AskKind {
 	return kind === "question" || kind === "approval";
 }
 
+/**
+ * The session works: its turn streams, compacts or waits to retry. Work outranks a failed check on every surface
+ * outside the board (the title bar, the sidebar row, the window title, the dock badge, the tray), so they share it.
+ */
+export function sessionWorking(session: {
+	isStreaming: boolean;
+	isCompacting: boolean;
+	retryInfo: object | null;
+}): boolean {
+	return session.isStreaming || session.isCompacting || session.retryInfo !== null;
+}
+
 /** The session's own prompts: its blocking requests (a sign-in's own left out), then a plan up for review. */
 export function pendingAsks(
 	extensionUi: Pick<ExtensionUiStore, "pendingRequests" | "loginRequestIds">,

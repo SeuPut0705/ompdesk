@@ -9,7 +9,7 @@
 
 import { useEffect } from "react";
 import type { TrayState } from "../../shared/ipc-types";
-import type { Attention } from "../lib/attention";
+import { type Attention, sessionWorking } from "../lib/attention";
 import { contextUsageView } from "../lib/context-usage";
 import { basename } from "../lib/format";
 import { useLang } from "../lib/i18n";
@@ -25,10 +25,10 @@ export function trayStatusOf(state: {
 	status: string;
 	sessionHeld: boolean;
 	attention: Attention | null;
-	isStreaming: boolean;
+	working: boolean;
 }): TrayState["status"] {
 	if (isTabFailed(state)) return "error";
-	return state.attention?.kind ?? (state.isStreaming ? "streaming" : "idle");
+	return state.attention?.kind ?? (state.working ? "streaming" : "idle");
 }
 
 export function useTraySync(): void {
@@ -38,7 +38,7 @@ export function useTraySync(): void {
 	const fastMode = useModelStore(s => s.fastModeEnabled);
 	const approvalMode = useSettingsStore(s => s.approvalMode);
 	const cwd = useSessionStore(s => s.cwd);
-	const isStreaming = useSessionStore(s => s.isStreaming);
+	const working = useSessionStore(sessionWorking);
 	const attention = useSessionAttention();
 	const status = useSessionStore(s => s.status);
 	const sessionHeld = useSessionStore(s => s.sidecarHeld);
@@ -62,7 +62,7 @@ export function useTraySync(): void {
 			.slice(0, 9)
 			.map(wsCwd => ({ cwd: wsCwd, name: basename(wsCwd) || wsCwd, current: wsCwd === cwd }));
 
-		const trayStatus = trayStatusOf({ status, sessionHeld, attention, isStreaming });
+		const trayStatus = trayStatusOf({ status, sessionHeld, attention, working });
 
 		window.omp.tray.pushState({
 			status: trayStatus,
@@ -84,7 +84,7 @@ export function useTraySync(): void {
 		fastMode,
 		approvalMode,
 		cwd,
-		isStreaming,
+		working,
 		attention,
 		status,
 		sessionHeld,

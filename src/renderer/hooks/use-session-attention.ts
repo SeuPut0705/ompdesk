@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { type Attention, pendingAsks, sessionAttention } from "../lib/attention";
+import { type Attention, pendingAsks, sessionAttention, sessionWorking } from "../lib/attention";
 import { useCheckFailed } from "../stores/attention";
 import { useExtensionUiStore } from "../stores/extension-ui";
 import { usePlanApprovalStore } from "../stores/plan-approval";
@@ -24,7 +24,7 @@ export function useSessionAttention(): Attention | null {
 	const loginRequestIds = useExtensionUiStore(state => state.loginRequestIds);
 	const planPending = usePlanApprovalStore(state => state.pending !== null);
 	const childrenWaiting = useOpenedChildren(tabId).counts.waiting;
-	const working = useSessionStore(state => state.isStreaming || state.isCompacting || state.retryInfo !== null);
+	const working = useSessionStore(sessionWorking);
 	const checkFailed = useCheckFailed(tabId) && !working;
 	const attention = sessionAttention({
 		asks: pendingAsks({ pendingRequests, loginRequestIds }, planPending),

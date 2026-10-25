@@ -47,6 +47,7 @@ import { newSessionNow, requestSessionSwitch } from "./hooks/use-session-switch"
 import { useTraySync } from "./hooks/use-tray-sync";
 import { useWorkspaceRecency } from "./hooks/use-workspace-recency";
 import { startAgentAppEvents } from "./lib/agent-app";
+import { sessionWorking } from "./lib/attention";
 import { subscribeBridgeHealth } from "./lib/bridge-health";
 import { lazyChunk } from "./lib/chunk-load";
 import { restartSidecarFromGui, retryFailedTurn, runSessionCommand } from "./lib/command-registry";
@@ -129,14 +130,14 @@ function FocusedSessionEffects() {
 	useTraySync();
 	useWorkspaceRecency();
 	// The run state in the window title and progress on the app icon are always on (no setting).
-	const titleStreaming = useSessionStore(s => s.isStreaming);
+	// The window title's ● and the dock badge's: a turn that streams, compacts or waits to retry (`sessionWorking`).
+	const working = useSessionStore(sessionWorking);
 	const titleSessionName = useSessionStore(s => s.sessionName);
 	// An extension's `setTitle` (stock rpc `PI_RPC_EMIT_TITLE`) names the window
 	// while its tab is in front; each tab keeps its own.
 	const titleExtension = useExtensionUiStore(s => s.title);
 	// One read for the window title and the dock badge: a waiting child or a failed check counts as a question does.
 	const awaiting = useSessionAttention() !== null;
-	const progressStreaming = useSessionStore(s => s.isStreaming);
 	const compactDensity = useUiStore(s => s.compactDensity);
 	const colorBlindMode = useUiStore(s => s.colorBlindMode);
 
@@ -152,15 +153,15 @@ function FocusedSessionEffects() {
 	useEffect(() => {
 		const base = titleExtension ?? titleSessionName ?? "OMPdesk";
 		const name = titleProject ? `${base} — ${titleProject}` : base;
-		document.title = awaiting ? `! ${name}` : titleStreaming ? `● ${name}` : `› ${name}`;
-	}, [awaiting, titleStreaming, titleSessionName, titleExtension, titleProject]);
+		document.title = awaiting ? `! ${name}` : working ? `● ${name}` : `› ${name}`;
+	}, [awaiting, working, titleSessionName, titleExtension, titleProject]);
 	useEffect(() => startVoiceAutoSpeak(), []);
 	useEffect(() => startAgentAppEvents(), []);
 	useEffect(() => {
-		const state: RunProgressState = awaiting ? "waiting" : progressStreaming ? "working" : "idle";
+		const state: RunProgressState = awaiting ? "waiting" : working ? "working" : "idle";
 		const timer = setTimeout(() => window.omp.progress.set(state), 200);
 		return () => clearTimeout(timer);
-	}, [awaiting, progressStreaming]);
+	}, [awaiting, working]);
 	useEffect(() => {
 		document.documentElement.dataset.density = compactDensity ? "tight" : "comfortable";
 		document.documentElement.dataset.colorblind = colorBlindMode ? "true" : "false";

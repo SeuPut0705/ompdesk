@@ -462,7 +462,7 @@ describe("WorkBoard sections", () => {
 		}
 	});
 
-	it("turns the pulse to waiting for a failed check alone, and names the plan's section for what it holds", async () => {
+	it("turns the pulse to failed for a failed check alone, and names the plan's section for what it holds", async () => {
 		useToolsStore.setState({
 			finishedTools: new Map([
 				[
@@ -480,7 +480,7 @@ describe("WorkBoard sections", () => {
 		useTodoStore.getState().setPhases([{ name: "Work", tasks: [{ content: "a", status: "pending" }] }]);
 		await mount();
 		await vi.waitFor(() => expect(section("needs")).not.toBeNull());
-		expect(pane.querySelector(".omp-work-board-pulse")?.getAttribute("data-state")).toBe("waiting");
+		expect(pane.querySelector(".omp-work-board-pulse")?.getAttribute("data-state")).toBe("failed");
 		expect(pane.querySelector("[data-board-status]")?.textContent).toBe(translate("attention.checkFailed"));
 		// Todos alone: "Todos", not "Plan" (the plan-mode card's word, which Needs you's "plan ready for review" says).
 		expect(section("plan")?.querySelector(".omp-work-board-title")?.textContent).toContain("Todos");
