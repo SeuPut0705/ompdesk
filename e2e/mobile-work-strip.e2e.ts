@@ -14,7 +14,7 @@ import { type BrowserType, chromium, devices, expect, type Page, test, webkit } 
 import { type ElectronApplication, _electron as electron } from "playwright";
 import { fixtureTailscale } from "./fixture/fake-tailscale-install";
 import { phonePaired, recordPhoneLoads, ServeProxy, serveSites } from "./fixture/phone-serve";
-import { controlToolCaller, exitApp, fixtureOmp, openedSessions, variants } from "./harness";
+import { controlToolCaller, exitApp, fixtureOmp, openedSessions, untilAnswered, variants } from "./harness";
 
 const ENGINES = variants([
 	{ name: "webkit", type: webkit as BrowserType, device: devices["iPhone 15"] },
@@ -190,15 +190,7 @@ for (const engine of ENGINES)
 			const [child] = openedSessions(open.text);
 			if (!child) throw new Error(open.text);
 			// The brief comes wrapped as an agent message, which the fake answers at once: a second message runs.
-			await expect
-				.poll(
-					async () =>
-						(await desk.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === child)?.lastRun?.reply,
-					{
-						timeout: 30_000,
-					},
-				)
-				.toBe("Local fixture reply");
+			await untilAnswered(desk, child);
 			await desk.evaluate(
 				id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "fixture steer work" }),
 				child,

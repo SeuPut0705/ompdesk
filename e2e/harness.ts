@@ -209,6 +209,41 @@ export function openedSessions(text: string): string[] {
 }
 
 /**
+ * Wait until tab `tabId` is idle and its transcript holds the fake's answer `text` (by default its reply to a plain
+ * prompt or an agent's brief). Never read it as the tab's last answer: main asks an agent-opened child whose turn
+ * ended with no `Result:` line and no report to report (`#nudgeSilent`, agent-control/service.ts, about a second after
+ * that turn), and the fake's answer to that note ("Read the note report from …") then follows the reply.
+ */
+export async function untilAnswered(page: Page, tabId: string, text = "Local fixture reply"): Promise<void> {
+	await expect
+		.poll(
+			() =>
+				page.evaluate(
+					async ([id, wanted]) => {
+						const tab = (await window.omp.tabs.list()).find(entry => entry.tabId === id);
+						if (tab?.status !== "ready") return false;
+						const response = await window.omp.rpc.commandForTab(id, {
+							type: "get_transcript_page",
+							fromEnd: true,
+							limit: 50,
+						});
+						const messages = (response.data as { messages?: { role: string; content?: unknown }[] } | undefined)
+							?.messages;
+						return (messages ?? []).some(
+							message =>
+								message.role === "assistant" &&
+								Array.isArray(message.content) &&
+								message.content.some(part => part?.type === "text" && part.text === wanted),
+						);
+					},
+					[tabId, text] as const,
+				),
+			{ timeout: 30_000 },
+		)
+		.toBe(true);
+}
+
+/**
  * Press an app shortcut and wait for `target`. A key pressed while the renderer is still mounting has no listener
  * and is lost, so it is sent again, but only after a long wait: a slow runner may take seconds to show a page the
  * first press already opened, and a quick second press would toggle it shut again.

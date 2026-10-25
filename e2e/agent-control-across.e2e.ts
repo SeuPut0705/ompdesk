@@ -269,12 +269,15 @@ test.describe("on a paired device", () => {
 		const read = await throughBlip(() => call("ompdesk_session_read", { session: child }));
 		expect(read.isError, read.text).toBe(false);
 		expect(read.text).toContain("Work there");
+		// The fake's answer to the brief; not necessarily the last answer: main asks a child whose turn ended with no
+		// `Result:` line to report, and the fake answers that note too (`untilAnswered` in harness.ts).
+		expect(read.text).toContain("[assistant] Local fixture reply");
 		const stored = await throughBlip(() => call("ompdesk_sessions", { scope: "stored", device: "PC-B" }));
 		expect(stored.isError, stored.text).toBe(false);
 		expect(stored.text).toContain("saved on PC-B");
 		const result = await throughBlip(() => call("ompdesk_session_result", { session: "blip work" }));
 		expect(result.isError, result.text).toBe(false);
-		expect(result.text).toContain("Local fixture reply");
+		expect(result.text).toContain(`[${child}]: idle`);
 		await link.close();
 	});
 

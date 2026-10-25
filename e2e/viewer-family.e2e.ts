@@ -14,7 +14,7 @@ import { chromium, devices, expect, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
 import { fixtureTailscale } from "./fixture/fake-tailscale-install";
 import { phonePaired, ServeProxy, serveSites } from "./fixture/phone-serve";
-import { captureTo, controlToolCaller, cssString, exitApp, fixtureOmp, openedSessions } from "./harness";
+import { captureTo, controlToolCaller, cssString, exitApp, fixtureOmp, openedSessions, untilAnswered } from "./harness";
 
 const CAPTURES = process.env.OMP_GUI_VIEWER_FAMILY;
 
@@ -86,11 +86,7 @@ test("a phone viewing a desktop's session lists the sessions its agent opened, r
 			if (!child) throw new Error(open.text);
 			children.push(child);
 			// The brief comes wrapped as an agent message, which the fake answers at once; then a turn that keeps working.
-			await expect
-				.poll(async () => (await deskTabs()).find(tab => tab.tabId === child)?.lastRun?.reply, {
-					timeout: 30_000,
-				})
-				.toBe("Local fixture reply");
+			await untilAnswered(desk, child);
 			await desk.evaluate(
 				id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "fixture steer work" }),
 				child,

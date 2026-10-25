@@ -10,7 +10,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import { controlToolCaller, cssString, exitApp, openedSessions } from "./harness";
+import { controlToolCaller, cssString, exitApp, openedSessions, untilAnswered } from "./harness";
 import { connectHost, launchRemote, makeRemoteProfile, type RemoteInstance } from "./remote-harness";
 
 test("a device nests the sessions a host's own agent opened under their opener, folded, like the host", async () => {
@@ -52,11 +52,7 @@ test("a device nests the sessions a host's own agent opened under their opener, 
 		const [child] = openedSessions(open.text);
 		if (!child) throw new Error(open.text);
 		// The brief comes wrapped as an agent message, which the fake answers at once; then a turn that keeps working.
-		await expect
-			.poll(async () => (await hostTabs()).find(tab => tab.tabId === child)?.lastRun !== undefined, {
-				timeout: 30_000,
-			})
-			.toBe(true);
+		await untilAnswered(b, child);
 		await b.evaluate(
 			id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "fixture steer work" }),
 			child,
