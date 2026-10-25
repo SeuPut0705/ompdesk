@@ -556,26 +556,42 @@
 	max-height: min(55vh, 38rem, max(9rem, var(--omp-prompt-room, 100vh)));
 }
 
-/* A plan under review: its text box gives way first, down to 7.5rem, so the
-   first choice stays in view while the card is capped. */
-.omp-prompt-card > :has(> * > [data-plan-content]) {
-	display: flex;
-	flex-direction: column;
+/* The card's and the widgets' margins stay inside the ask dock, so the
+   composer box measures the same with a card as without one. */
+.omp-ask-dock {
+	display: flow-root;
 }
 
-.omp-prompt-card > * > :has(> [data-plan-content]) {
-	flex: 1 1 auto;
-	min-height: 0;
+/* A plan under review: its text box gives way first, down to 7.5rem or its
+   own height, so the first choice stays in view while the card is capped.
+   Without calc-size (WebKit) the box keeps its height and the body scrolls. */
+@supports (min-height: calc-size(max-content, size)) {
+	.omp-prompt-card > :has(> * > [data-plan-content]) {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.omp-prompt-card > * > :has(> [data-plan-content]) {
+		flex: 1 1 auto;
+		min-height: 0;
+	}
+
+	.omp-prompt-card [data-plan-content] {
+		flex: 0 1 auto;
+		min-height: calc-size(max-content, min(size, 7.5rem));
+	}
 }
 
-.omp-prompt-card [data-plan-content] {
-	flex: 0 1 auto;
-	min-height: 7.5rem;
+/* The dock's cards left with no room beside a waiting card leave the tab
+   order and the accessibility tree too. */
+[data-workspace-dock][data-dock-yielded] > :is([data-testid="workspace-dock"], [data-testid="workspace-dock-resize"]) {
+	visibility: hidden;
 }
 
 /* While a card waits for an answer, the draft yields: the textarea keeps two
-   lines (it scrolls), so even a quarter pane has room for the question and its
-   controls. The draft itself is untouched and regrows when the card closes. */
+   lines (it scrolls), so a short or split pane keeps room for the question
+   and its controls. The draft itself is untouched and regrows when the card
+   closes. */
 .omp-composer-region:has(.omp-prompt-card) .omp-composer-box textarea {
 	max-height: 2lh;
 	overflow-y: auto;
