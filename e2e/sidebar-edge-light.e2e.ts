@@ -54,7 +54,12 @@ test("three running rows add no visible renderer or GPU cost", async () => {
 			.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 60_000 })
 			.toBe("ready");
 		const tabs = () => page.evaluate(() => window.omp.tabs.list());
-		const open = async () => {
+		// A tab is typed into before the next one is opened: an empty tab the person leaves is closed.
+		const open = async (current: string, title: string) => {
+			await page.evaluate(([id, command]) => window.omp.rpc.commandForTab(id, { type: "bash", command }), [
+				current,
+				`fixture:title:${title}`,
+			] as const);
 			const before = (await tabs()).map(tab => tab.tabId);
 			await page.keyboard.press("ControlOrMeta+t");
 			await expect.poll(async () => (await tabs()).length).toBe(before.length + 1);
@@ -64,7 +69,7 @@ test("three running rows add no visible renderer or GPU cost", async () => {
 			return created.tabId;
 		};
 		const ids = [(await tabs())[0]?.tabId ?? ""];
-		for (let i = 0; i < 3; i++) ids.push(await open()); // ids[0..3]; the last one stays in front, idle
+		for (let i = 0; i < 3; i++) ids.push(await open(ids[i] ?? "", `Tab ${i + 1}`)); // ids[0..3]; the last stays in front
 		const running = ids.slice(0, 3);
 
 		await page.waitForTimeout(1500);

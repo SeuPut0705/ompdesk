@@ -18,6 +18,12 @@ import {
 } from "./worktree-lifecycle";
 
 const WIN = 1;
+/**
+ * A question appears after the lifecycle's git reads (status, rev-list, merge-base). expect.poll's 1 s default is
+ * shorter than those on a loaded windows-latest runner, where one git process can pass a second (win-platform,
+ * run 40111321215).
+ */
+const ASKED = { timeout: 20_000 };
 
 /** One live window that records what main pushes to it. */
 function fakeWindows(live: number[] = [WIN]) {
@@ -236,14 +242,14 @@ describe("WorktreeLifecycle", () => {
 		const { lifecycle, prompts, ui } = setup();
 		const fake = creatingBridge(settings({ onStart: "ask" }));
 		const gate = lifecycle.startGate("tab", WIN)(fake.bridge, repo);
-		await expect.poll(() => ui.prompts()).toEqual([expect.objectContaining({ kind: "start", cwd: repo })]);
+		await expect.poll(() => ui.prompts(), ASKED).toEqual([expect.objectContaining({ kind: "start", cwd: repo })]);
 		prompts.answer(WIN, ui.prompts()[0]?.id ?? "", false);
 		expect(await gate).toBeNull();
 		expect(fake.calls).toEqual(["worktree_lifecycle_settings"]);
 
 		const yes = creatingBridge(settings({ onStart: "ask" }), "20261009-120001");
 		const accepted = lifecycle.startGate("tab", WIN)(yes.bridge, repo);
-		await expect.poll(() => ui.prompts()).toHaveLength(1);
+		await expect.poll(() => ui.prompts(), ASKED).toHaveLength(1);
 		prompts.answer(WIN, ui.prompts()[0]?.id ?? "", true);
 		expect(await accepted).toBe(yes.created()?.path);
 	});
@@ -266,7 +272,7 @@ describe("WorktreeLifecycle", () => {
 		const { lifecycle, ui } = setup();
 		const fake = creatingBridge(settings({ onStart: "ask" }));
 		const gate = lifecycle.startGate("tab", WIN)(fake.bridge, repo);
-		await expect.poll(() => ui.prompts()).toHaveLength(1);
+		await expect.poll(() => ui.prompts(), ASKED).toHaveLength(1);
 		fake.disconnect();
 		lifecycle.released("tab", Promise.resolve());
 		expect(await gate).toBeNull();
@@ -334,7 +340,7 @@ describe("WorktreeLifecycle", () => {
 		gitSync(wt.path, "add", ".");
 		gitSync(wt.path, "commit", "-q", "-m", "work");
 		lifecycle.released("tab", Promise.resolve());
-		await expect.poll(() => ui.prompts()).toEqual([expect.objectContaining({ moved: true, dirty: false })]);
+		await expect.poll(() => ui.prompts(), ASKED).toEqual([expect.objectContaining({ moved: true, dirty: false })]);
 		prompts.answer(WIN, ui.prompts()[0]?.id ?? "", true);
 		await settle();
 		expect(await pathExists(wt.path)).toBe(false);
@@ -345,7 +351,7 @@ describe("WorktreeLifecycle", () => {
 		const { lifecycle, prompts, settle, ui } = setup();
 		const wt = await startOwned(lifecycle, "ask");
 		lifecycle.released("tab", Promise.resolve());
-		await expect.poll(() => ui.prompts()).toEqual([expect.objectContaining({ kind: "exit", dirty: false })]);
+		await expect.poll(() => ui.prompts(), ASKED).toEqual([expect.objectContaining({ kind: "exit", dirty: false })]);
 		prompts.answer(WIN, ui.prompts()[0]?.id ?? "", true);
 		await settle();
 		expect(await pathExists(wt.path)).toBe(false);
@@ -355,7 +361,7 @@ describe("WorktreeLifecycle", () => {
 		const { lifecycle, prompts, settle, ui } = setup();
 		const wt = await startOwned(lifecycle, "ask");
 		lifecycle.released("tab", Promise.resolve());
-		await expect.poll(() => ui.prompts()).toHaveLength(1);
+		await expect.poll(() => ui.prompts(), ASKED).toHaveLength(1);
 		await fs.writeFile(path.join(wt.path, "late.txt"), "written while the question was open");
 		prompts.answer(WIN, ui.prompts()[0]?.id ?? "", true);
 		await settle();
@@ -422,7 +428,7 @@ describe("WorktreeLifecycle", () => {
 				released.push(tabId);
 			},
 		});
-		await expect.poll(() => ui.prompts()).toHaveLength(1);
+		await expect.poll(() => ui.prompts(), ASKED).toHaveLength(1);
 		prompts.answer(WIN, ui.prompts()[0]?.id ?? "", false);
 		await done;
 		expect(prepared.sort()).toEqual(["other", "tab"]);
