@@ -346,8 +346,12 @@ for (const { engine, device } of variants(
 			await chip.click();
 			await expect(chip).toHaveAttribute("aria-expanded", "true");
 			await expect(panel).toBeVisible();
-			await panel.locator('[data-board-summary="plan"]').click();
-			await expect(panel.locator("[data-todo-status]").first()).toBeVisible();
+			// Zones still arriving can move the plan's line under the tap: tap it again while it stays closed.
+			const planLine = panel.locator('[data-board-summary="plan"]');
+			await expect(async () => {
+				if ((await planLine.count()) > 0) await planLine.click({ timeout: 2_000 });
+				await expect(panel.locator("[data-todo-status]").first()).toBeVisible({ timeout: 1_000 });
+			}).toPass({ timeout: 15_000 });
 			await expect(panel).toBeVisible();
 			// The plan's bar opens across its header's width: it once fell into a grid's first `auto` column and shrank to
 			// its 24 px floor.

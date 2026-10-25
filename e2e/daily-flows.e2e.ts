@@ -165,7 +165,12 @@ test("daily flow a: a quit mid-turn with subagents and a background job resumes 
 			const inStrip = (await docked.count()) === 0;
 			if (inStrip) await strip.click();
 			const panel = inStrip ? page.locator("[data-work-strip-panel]") : docked;
-			if (inStrip) await panel.locator('[data-board-summary="now"]').click({ timeout: 15_000 });
+			const nowLine = panel.locator('[data-board-summary="now"]');
+			if (inStrip)
+				await expect(async () => {
+					if ((await nowLine.count()) > 0) await nowLine.click({ timeout: 2_000 });
+					await expect(panel.locator("[data-board-agent]").first()).toBeVisible({ timeout: 1_000 });
+				}).toPass({ timeout: 15_000 });
 			await expect(panel.locator("[data-board-agent]")).toHaveCount(2, { timeout: 15_000 });
 			await expect(panel.locator("[data-board-job]").first()).toBeVisible();
 			if (inStrip) await strip.click();
