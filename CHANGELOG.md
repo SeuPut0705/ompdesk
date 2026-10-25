@@ -1,5 +1,53 @@
 # Changelog
 
+## [0.75.0] - 2026-10-26
+
+세션이 나에게 바라는 것과 작업이 실제로 실패했는지를 화면마다 한 가지로 말하게 했어요. 단계는 무엇을 하려던 것인지로 이름 붙이고, 질문 카드가 떠도 대화가 화면에서 밀려나지 않아요.
+
+### 주의 상태
+- 답변 필요, 승인 필요, 하위 세션 대기, 검사 실패 네 단어를 제목 표시줄, 사이드바, 창 제목, 트레이, 작업 띠에서 똑같이 써요. 하위 세션이 기다릴 때도 Dock 배지가 켜져요. 목표 바의 따로 놀던 "답변 필요" 칩은 없앴어요.
+- 일하는 중(응답, 압축, 재시도)에는 실패한 검사가 작업을 가리지 않아요. 검사 실패만 남으면 빨간 톤으로 보여요.
+- 휴대폰 상단 바의 상태 단어는 화면 읽기 프로그램이 읽어요.
+
+### 작업 상자
+- 실패한 호출은 나중에 같은 호출이 성공했을 때만 해결된 것으로 봐요. 같은 명령을 같은 폴더에서 다시 실행했거나, 같은 파일을 다시 고쳤거나, 같은 인수로 다시 부른 경우예요. 고쳐진 실패만 있는 상자는 초록이고, 펼친 단계에는 ✕가 남고 요약 복사에는 "실패 후 고침"으로 적혀요.
+- 판정 블록, 머리 표시, 검사 칩, 작업 현황의 검사 행이 같은 목록을 읽어요. 판정은 명령이 실제로 시작한 프로그램 이름을 말해요.
+- 단계 행은 에이전트가 하려던 일("타입 확인 중")을 먼저 말하고, 그 뒤에 도구와 대상을 보여 줘요. 생각은 그다음 단계에 접혀 들어가고, 행에서 잘린 경로나 명령은 펼친 본문에 한 번 나와요.
+- 실행 중인 상자와 끝난 상자가 같은 단계 목록을 써요. 이미 보이는 행은 다시 묶이거나 움직이지 않고, 새 단계만 아래에 붙어요. 무대에 떠 있는 실행 중 호출은 끝날 때까지 목록에 두 번 나오지 않아요.
+
+### 질문 카드와 대화 높이
+- 질문, 계획 검토, 승인 카드가 떠도 대화가 240px 이상 보이게 남겨요. 긴 카드는 안에서 스크롤돼요. 1000×800 창에서 8개 선택지 질문이 떠도 대화가 0px에서 240px로 남아요.
+
+### 휴대폰 작업 띠
+- 띠를 열면 작업 현황의 요약부터 보여요. 확인이 필요해요는 다 펼치고, 나머지 구역은 한 줄씩이에요. 390×844 휴대폰에서 보드 내용이 한 화면에 다 들어와요(404/1,078px → 344/344px). 줄을 누르면 그 구역이 그 자리에서 열려요.
+
+### 고친 것
+- 원격 기기에서 볼 때 호스트의 하위 세션이 연 세션 아래에 묶여요. 실패했거나 반영되지 않은 하위 세션도 빠지지 않아요.
+
+<!-- en -->
+
+Each surface now says what a session needs from you, and whether its work really failed, in one way. Steps are named by what the agent meant to do, and a question card no longer pushes the conversation off screen.
+
+### Attention
+- Four words, Needs input, Needs approval, Child waiting and Check failed, read the same in the title bar, sidebar, window title, tray and work strip. The Dock badge now lights for a waiting child too. The goal bar's separate "Needs your answer" chip is gone.
+- While a session works (streaming, compacting or retrying), a failed check never hides its work. A failed check alone shows in the danger tone.
+- The phone's top bar status word is read by screen readers.
+
+### Work card
+- A failed call counts as fixed only when the same call later succeeds: the same command in the same folder, the same files edited again, or the same arguments sent again. A card whose failures were all fixed is green; its opened steps keep the ✕ and Copy summary lists them as failed, then fixed.
+- The verdict block, the head mark, the check chips and the board's check row read one list, and the verdict names the program a command actually started.
+- Step rows lead with what the agent meant to do ("Checking the types"), then the tool and its target. Thoughts fold into the step they led to, and a path or command the row clips is shown once in the opened body.
+- A running card and a finished card use the same step list. Rows already on screen never regroup or move; new steps only append below them. The running call on the stage is not listed a second time until it ends.
+
+### Question cards and transcript height
+- A question, plan review or approval card leaves at least 240 px of the conversation visible; a tall card scrolls inside itself. In a 1000×800 window an 8-option question now leaves 240 px of transcript instead of 0.
+
+### Phone work strip
+- Opening the strip starts on a summary of the board: Needs you in full, every other zone one line. On a 390×844 phone the whole board fits one screen (404 of 1,078 px → 344 of 344 px). Tapping a line opens that zone in place.
+
+### Fixes
+- On a viewing device, a host's children nest under the session that opened them, failed or unlanded ones included.
+
 ## [0.74.0] - 2026-10-25
 
 작업 상자와 작업 현황을 한 번 더 새로 짜서, 같은 내용을 두세 번 말하던 곳을 없애고 화면 하나에 다 들어오게 했어요.
