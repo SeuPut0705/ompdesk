@@ -1,6 +1,6 @@
 import { ChevronRight, ListChecks } from "lucide-react";
-import { type ReactNode, useContext, useEffect, useMemo, useState } from "react";
-import type { AgentMessage } from "../../../../shared/rpc-types";
+import { memo, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
+import type { AgentMessage, ReadGroupTarget } from "../../../../shared/rpc-types";
 import { useDisplayPreference } from "../../../lib/display-preferences";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
@@ -9,6 +9,7 @@ import { useMessagesStore } from "../../../stores/messages";
 import { selectToolEntry, useToolsStore } from "../../../stores/tools";
 import { ReadGroupCard } from "../../tools/renderers/ReadGroupCard";
 import { type StepThoughts, ThoughtCount, TOOL_ROW_CLASS, ToolCard, ToolStatusIcon } from "../../tools/ToolCard";
+import { useStageCall } from "../LiveStepPeek";
 import { MessageBubble } from "../MessageBubble";
 import { ThinkingBlock } from "../ThinkingBlock";
 import { UsageRow } from "../UsageRow";
@@ -23,7 +24,7 @@ const MOUNT_SLICE = 60;
  * frame (all 490 messages of a 245-step card in one commit made a 60 ms frame), and rows that come
  * later mount as they arrive.
  */
-export function useMountedCount(total: number): number {
+function useMountedCount(total: number): number {
 	const [limit, setLimit] = useState(() => (total <= MOUNT_SLICE ? Number.POSITIVE_INFINITY : MOUNT_SLICE));
 	useEffect(() => {
 		if (limit >= total) {
@@ -75,8 +76,19 @@ function useStepThoughts(messages: readonly AgentMessage[] | undefined): StepTho
 	};
 }
 
-/** One step. Inside an intent group the group's row already says the intent, so its calls do not repeat it. */
-function StepItemView({ item, inGroup = false }: { item: StepItem; inGroup?: boolean }) {
+/**
+ * One step. Inside an intent group the group's row already says the intent, so its calls do not repeat it. `hidden`
+ * is the call the live stage shows running: a read group leaves it out until it ends.
+ */
+const StepItemView = memo(function StepItemView({
+	item,
+	inGroup = false,
+	hidden = null,
+}: {
+	item: StepItem;
+	inGroup?: boolean;
+	hidden?: string | null;
+}) {
 	const thoughts = useStepThoughts(item.kind === "message" ? undefined : item.thoughts);
 	switch (item.kind) {
 		case "message":
@@ -96,9 +108,9 @@ function StepItemView({ item, inGroup = false }: { item: StepItem; inGroup?: boo
 				</StepFrame>
 			);
 		case "reads":
-			return <ReadsRow inGroup={inGroup} item={item} thoughts={thoughts} />;
+			return <ReadsRow hidden={hidden} inGroup={inGroup} item={item} thoughts={thoughts} />;
 	}
-}
+});
 
 /** How the calls under a line stand: one word each, joined, so only a change re-renders the line. */
 function useStepOutcomes(keys: readonly string[]): string {
@@ -125,16 +137,19 @@ function ReadsRow({
 	item,
 	inGroup,
 	thoughts,
+	hidden,
 }: {
 	item: Extract<StepItem, { kind: "reads" }>;
 	inGroup: boolean;
 	thoughts: StepThoughts | undefined;
+	hidden: string | null;
 }) {
 	const keys = useMemo(() => item.entries.map(entry => entry.toolKey), [item.entries]);
 	const opens = useOpensItself(keys, useStepOutcomes(keys));
+	const entries = useMemo(() => item.entries.filter(entry => entry.toolKey !== hidden), [item.entries, hidden]);
 	return (
 		<ReadGroupCard
-			entries={item.entries}
+			entries={entries}
 			forceOpen={opens}
 			inset
 			intent={item.intent}
@@ -150,7 +165,7 @@ function ReadsRow({
  * Calls of one intent under one line. A group holding a failed step opens by itself (and again when a
  * finding asks for one of its steps); the rest stay one line, whose count and mark say what is inside.
  */
-function IntentGroup({ group }: { group: StepGroup }) {
+const IntentGroup = memo(function IntentGroup({ group, hidden = null }: { group: StepGroup; hidden?: string | null }) {
 	const t = useT();
 	const outcomes = useStepOutcomes(group.callKeys);
 	const failed = outcomes.includes("failed");
@@ -206,23 +221,100 @@ function IntentGroup({ group }: { group: StepGroup }) {
 			{open ? (
 				<div className="omp-step-group-body">
 					{thoughts ? <StepFrame>{thoughts.body}</StepFrame> : null}
-					{group.items.map(item => (
-						<StepItemView inGroup item={item} key={item.key} />
-					))}
+					{group.items.map(item =>
+						item.key === hidden ? null : <StepItemView hidden={hidden} inGroup item={item} key={item.key} />,
+					)}
 				</div>
 			) : null}
 		</div>
 	);
+});
+
+/**
+ * Batch starts for a list that was ever append-only: no row is grouped across one, so a row a person saw keeps its
+ * shape, also after the run ends. `null` for a list that never was.
+ */
+function useShownCuts(count: number, appendOnly: boolean): readonly number[] | null {
+	const shown = useRef<{ cuts: readonly number[]; seen: number } | null>(null);
+	if (appendOnly && !shown.current) shown.current = { cuts: [], seen: 0 };
+	const state = shown.current;
+	if (!state) return null;
+	if (count < state.seen) state.cuts = state.cuts.filter(cut => cut < count);
+	else if (count > state.seen && state.seen > (state.cuts.at(-1) ?? 0)) state.cuts = [...state.cuts, state.seen];
+	state.seen = count;
+	return state.cuts;
 }
 
-/** A finished card's steps, grouped by intent (`groupSteps`). */
-export function StepGroups({ messages }: { messages: readonly AgentMessage[] }) {
-	const readTargets = useMessagesStore(state => state.readTargets);
-	const rows = useMemo<StepRow[]>(() => groupSteps(messages, readTargets), [messages, readTargets]);
-	const mounted = useMountedCount(rows.length);
-	return rows
-		.slice(0, mounted)
-		.map(row =>
-			row.kind === "intent" ? <IntentGroup group={row} key={row.key} /> : <StepItemView item={row} key={row.key} />,
-		);
+interface Batch {
+	messages: readonly AgentMessage[];
+	readTargets: ReadonlyMap<string, ReadGroupTarget | null> | undefined;
+	rows: StepRow[];
 }
+
+/**
+ * The rows of every batch. A batch whose messages are the very same objects keeps its row objects, so a new message
+ * re-renders only the batch it joined. Read metadata arriving later regroups a batch only in a list that was never
+ * append-only: in one that was, the rows were seen as they are.
+ */
+function useBatchRows(
+	messages: readonly AgentMessage[],
+	cuts: readonly number[] | null,
+	readTargets: ReadonlyMap<string, ReadGroupTarget | null> | undefined,
+): StepRow[] {
+	const cache = useRef<Map<number, Batch>>(new Map());
+	return useMemo(() => {
+		const starts = [0, ...(cuts ?? [])];
+		const next = new Map<number, Batch>();
+		const rows = starts.flatMap((start, index) => {
+			const slice = messages.slice(start, starts[index + 1] ?? messages.length);
+			const kept = cache.current.get(start);
+			const batch =
+				kept &&
+				(cuts !== null || kept.readTargets === readTargets) &&
+				kept.messages.length === slice.length &&
+				kept.messages.every((message, at) => message === slice[at])
+					? kept
+					: { messages: slice, readTargets, rows: groupSteps(slice, readTargets) };
+			next.set(start, batch);
+			return batch.rows;
+		});
+		cache.current = next;
+		return rows;
+	}, [messages, cuts, readTargets]);
+}
+
+/**
+ * A card's steps, grouped by intent (`groupSteps`). The call the live stage shows running is left off the end, so it
+ * is not said twice, unless it is the only step; it joins the list where it stands once it ends. Memoized: a running
+ * card re-renders on every streamed token, and its rows have nothing new to show.
+ */
+export const StepGroups = memo(function StepGroups({
+	messages,
+	appendOnly = false,
+}: {
+	messages: readonly AgentMessage[];
+	/** A running card: rows already shown never regroup, later calls only add rows after them. */
+	appendOnly?: boolean;
+}) {
+	const readTargets = useMessagesStore(state => state.readTargets);
+	const rows = useBatchRows(messages, useShownCuts(messages.length, appendOnly), readTargets);
+	const stageCall = useStageCall();
+	const last = rows.at(-1);
+	const leaveLast = rows.length > 1 && last?.kind === "call" && last.key === stageCall;
+	const mounted = useMountedCount(rows.length - (leaveLast ? 1 : 0));
+	const shown: ReactNode[] = [];
+	for (let index = 0; index < mounted; index++) {
+		const row = rows[index];
+		if (!row) continue;
+		// A grouped last row keeps its line and count; opened, it leaves the stage's call out.
+		const hidden = row === last ? stageCall : null;
+		shown.push(
+			row.kind === "intent" ? (
+				<IntentGroup group={row} hidden={hidden} key={row.key} />
+			) : (
+				<StepItemView hidden={hidden} item={row} key={row.key} />
+			),
+		);
+	}
+	return shown;
+});

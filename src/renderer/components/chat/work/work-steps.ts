@@ -1,5 +1,5 @@
 /**
- * How a finished work card lists its steps when opened: consecutive calls that carry the same stock
+ * How a work card lists its steps when opened: consecutive calls that carry the same stock
  * intent ("Checking the types" ×3) sit under one line, two or more consecutive collapsible reads fold
  * into the transcript's own read-group card, and the thoughts before a step fold into that step's row
  * (`thoughts`, shown as a count; the opened row shows them first). Every call stays one `ToolCard` in the
@@ -226,9 +226,9 @@ export function itemCallKeys(item: StepItem): string[] {
 }
 
 /**
- * A finished card's step rows. Two or more consecutive calls of one intent become a `StepGroup`;
- * every other call stays a row of its own, reads fold wherever two or more are consecutive, and
- * thoughts fold into the step after them.
+ * A card's step rows (a running card groups each batch of messages on its own). Two or more consecutive calls of one
+ * intent become a `StepGroup`; every other call stays a row of its own, reads fold wherever two or more are
+ * consecutive, and thoughts fold into the step after them.
  */
 export function groupSteps(
 	messages: readonly AgentMessage[],

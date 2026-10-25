@@ -4,6 +4,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentMessage, MessageContent, ToolCallContent } from "../../../../shared/rpc-types";
 import { I18nProvider } from "../../../lib/i18n";
+import { useMessagesStore } from "../../../stores/messages";
 import { type ToolEntry, toolEntriesState, useToolsStore } from "../../../stores/tools";
 import { useUiStore } from "../../../stores/ui";
 import type { StepReveal } from "./reveal-step";
@@ -24,6 +25,7 @@ Object.assign(window, { requestAnimationFrame: () => 0, cancelAnimationFrame: ()
 const { createRoot } = await import("react-dom/client");
 const { StepGroups } = await import("./StepGroups");
 const { StepRevealContext } = await import("./reveal-step");
+const { createStageCall, StageCallContext } = await import("../LiveStepPeek");
 
 let container: HTMLElement;
 let root: Root | undefined;
@@ -33,6 +35,7 @@ afterEach(async () => {
 	container?.remove();
 	root = undefined;
 	useToolsStore.getState().reset();
+	useMessagesStore.getState().reset();
 	useUiStore.setState({ displayPreferences: {} });
 });
 
@@ -241,6 +244,216 @@ describe("StepGroups", () => {
 		expect(groups()[0]?.getAttribute("data-open")).toBe("true");
 		expect(groups()[0]?.querySelector("button")?.textContent).toContain("1 thought");
 		expect(cards()).toEqual(["a", "b"]);
+	});
+
+	describe("append-only (a running card)", () => {
+		const stage = createStageCall();
+		async function show(messages: AgentMessage[], appendOnly: boolean) {
+			if (!root) {
+				container = document.createElement("div") as unknown as HTMLElement;
+				document.body.appendChild(container as never);
+				root = createRoot(container as unknown as Element);
+			}
+			await act(async () =>
+				root?.render(
+					<I18nProvider>
+						<StageCallContext.Provider value={stage}>
+							<StepGroups appendOnly={appendOnly} messages={messages} />
+						</StageCallContext.Provider>
+					</I18nProvider>,
+				),
+			);
+		}
+		const rows = () => [...container.children];
+		const said = (index: number): AgentMessage =>
+			assistant([
+				call(
+					`c${index}`,
+					"bash",
+					{ command: `step ${index}` },
+					index < 10 ? "Reading the board" : "Checking the types",
+				),
+			]);
+		const result = (index: number): AgentMessage =>
+			({
+				role: "toolResult",
+				toolCallId: `c${index}`,
+				toolName: "bash",
+				content: [],
+				timestamp: ++clock,
+			}) as AgentMessage;
+		const step = (index: number): AgentMessage[] => [said(index), result(index)];
+		afterEach(() => stage.setState({ key: null }));
+
+		it("streams 20 calls of two intents and keeps every row it showed, in place, through the finish", async () => {
+			const entries: [string, ToolEntry][] = [];
+			const messages: AgentMessage[] = [];
+			let seen: Element[] = [];
+			for (let index = 0; index < 20; index++) {
+				// The call arrives and runs on the stage: the list says it only while it is the one step.
+				entries.push([`c${index}`, bash(`step ${index}`, "running")]);
+				act(() => useToolsStore.setState(toolEntriesState(entries)));
+				act(() => stage.setState({ key: `c${index}` }));
+				messages.push(said(index));
+				await show([...messages], true);
+				expect(rows().slice(0, seen.length)).toEqual(seen);
+				expect(rows()).toHaveLength(index === 0 ? 1 : seen.length);
+				// Its result lands and the stage lets it go: it joins the list after every row shown before.
+				entries[index] = [`c${index}`, bash(`step ${index}`)];
+				act(() => useToolsStore.setState(toolEntriesState(entries)));
+				messages.push(result(index));
+				act(() => stage.setState({ key: null }));
+				await show([...messages], true);
+				const now = rows();
+				expect(now.slice(0, seen.length)).toEqual(seen);
+				expect(now).toHaveLength(seen.length + 1);
+				seen = now;
+			}
+			await show([...messages], false);
+			expect(rows()).toEqual(seen);
+			expect(cards()).toEqual(Array.from({ length: 20 }, (_, index) => `c${index}`));
+			expect(groups()).toHaveLength(0);
+		});
+
+		it("a list mounted on the finished messages (a reload) lines the same calls up by intent", async () => {
+			act(() =>
+				useToolsStore.setState(
+					toolEntriesState(Array.from({ length: 20 }, (_, index) => [`c${index}`, bash(`step ${index}`)])),
+				),
+			);
+			await show(Array.from({ length: 20 }, (_, index) => step(index)).flat(), false);
+			expect(groups().map(group => group.querySelector(".omp-step-group-label")?.textContent)).toEqual([
+				"Reading the board",
+				"Checking the types",
+			]);
+		});
+
+		it("groups same-intent calls that arrive together, and never pulls a later call into a shown row", async () => {
+			const together = assistant([
+				call("a", "bash", { command: "a" }, "Reading the board"),
+				call("b", "bash", { command: "b" }, "Reading the board"),
+			]);
+			act(() =>
+				useToolsStore.setState(
+					toolEntriesState([
+						["a", bash("a")],
+						["b", bash("b")],
+						["c", bash("c")],
+					]),
+				),
+			);
+			await show([together], true);
+			expect(groups()).toHaveLength(1);
+			const group = groups()[0];
+			await show([together, assistant([call("c", "bash", { command: "c" }, "Reading the board")])], true);
+			expect(groups()).toEqual([group]);
+			expect(group?.querySelector("button")?.textContent).toContain("2 steps");
+			expect(rows()).toHaveLength(2);
+		});
+
+		it("leaves off its last row while the live stage shows that call running, then lists it there", async () => {
+			act(() =>
+				useToolsStore.setState(
+					toolEntriesState([
+						["c9", bash("step 9")],
+						["c10", bash("step 10", "running")],
+					]),
+				),
+			);
+			const messages = [...step(9), ...step(10)];
+			act(() => stage.setState({ key: "c10" }));
+			await show(messages, true);
+			expect(cards()).toEqual(["c9"]);
+			const first = rows()[0];
+			act(() => stage.setState({ key: null }));
+			await show(messages, true);
+			expect(cards()).toEqual(["c9", "c10"]);
+			expect(rows()[0]).toBe(first);
+		});
+
+		it("keeps a grouped last row whole while the stage shows its last call, and leaves that call out when opened", async () => {
+			act(() =>
+				useToolsStore.setState(
+					toolEntriesState([
+						["a", bash("a")],
+						["b", bash("b", "running")],
+					]),
+				),
+			);
+			const messages = [
+				assistant([
+					call("a", "bash", { command: "a" }, "Reading the board"),
+					call("b", "bash", { command: "b" }, "Reading the board"),
+				]),
+			];
+			act(() => stage.setState({ key: "b" }));
+			await show(messages, true);
+			const group = groups()[0];
+			expect(group?.querySelector("button")?.textContent).toContain("2 steps");
+			await act(async () =>
+				group?.querySelector("button")?.dispatchEvent(new Event("click", { bubbles: true }) as never),
+			);
+			expect(cards()).toEqual(["a"]);
+			act(() => stage.setState({ key: null }));
+			await show(messages, true);
+			expect(groups()[0]).toBe(group);
+			expect(cards()).toEqual(["a", "b"]);
+		});
+
+		it("leaves the stage's read out of an opened read group at the end, and lists it once it ends", async () => {
+			act(() =>
+				useToolsStore.setState(
+					toolEntriesState([
+						["r1", entry("read", { path: "a.ts" })],
+						["r2", entry("read", { path: "b.ts" }, "running")],
+					]),
+				),
+			);
+			const messages = [
+				assistant([
+					call("r1", "read", { path: "a.ts", __ompReadGroup: { path: "a.ts" } }),
+					call("r2", "read", { path: "b.ts", __ompReadGroup: { path: "b.ts" } }),
+				]),
+			];
+			act(() => stage.setState({ key: "r2" }));
+			await show(messages, true);
+			const readGroup = container.querySelector(".omp-read-group");
+			expect(readGroup?.textContent).toContain("a.ts");
+			expect(readGroup?.textContent).not.toContain("b.ts");
+			act(() => stage.setState({ key: null }));
+			await show(messages, true);
+			expect(container.querySelector(".omp-read-group")).toBe(readGroup);
+			expect(readGroup?.textContent).toContain("b.ts");
+		});
+
+		it("keeps two shown reads as they were when their read metadata arrives later", async () => {
+			act(() =>
+				useToolsStore.setState(
+					toolEntriesState([
+						["r1", entry("read", { path: "a.ts" })],
+						["r2", entry("read", { path: "b.ts" })],
+					]),
+				),
+			);
+			const messages = [
+				assistant([call("r1", "read", { path: "a.ts" })]),
+				assistant([call("r2", "read", { path: "b.ts" })]),
+			];
+			await show(messages, true);
+			const shown = rows();
+			expect(cards()).toEqual(["r1", "r2"]);
+			act(() =>
+				useMessagesStore.setState({
+					readTargets: new Map([
+						["r1", { path: "a.ts" }],
+						["r2", { path: "b.ts" }],
+					]),
+				}),
+			);
+			await show(messages, true);
+			expect(container.querySelector(".omp-read-group")).toBeNull();
+			expect(rows()).toEqual(shown);
+		});
 	});
 });
 

@@ -47,6 +47,7 @@ interface TestElement {
 	querySelector: (selector: string) => TestElement | null;
 	querySelectorAll: (selector: string) => ArrayLike<TestElement>;
 	remove: () => void;
+	click: () => void;
 }
 
 let commandForTab: Mock<(tabId: string, command: RpcCommand) => Promise<unknown>>;
@@ -296,6 +297,40 @@ describe("Subagent view transcript", () => {
 		const cards = all(".omp-execution-group");
 		expect(cards.length).toBeGreaterThan(0);
 		expect(cards.at(-1)?.getAttribute("data-state")).toBe("running");
+	});
+
+	it("opens the running agent's work card on the transcript's own step list: thoughts fold into the next step's row", async () => {
+		const last = pages.at(-1)!;
+		const at = Number(last.timestamp);
+		pages = [
+			...pages.slice(0, -1),
+			{
+				role: "assistant",
+				timestamp: at - 2,
+				content: [
+					{ type: "thinking", thinking: "Lint before the suite." },
+					{ type: "toolCall", id: "c-lint", name: "bash", arguments: { command: "bun run lint" } },
+				],
+			},
+			{
+				role: "toolResult",
+				toolCallId: "c-lint",
+				toolName: "bash",
+				content: [{ type: "text", text: "ok" }],
+				details: { exitCode: 0 },
+				isError: false,
+				timestamp: at - 1,
+			},
+			last,
+		];
+		seed([snap()]);
+		await mount(<SubagentPanel subagent={{ tabId: TAB, agentId: "r1" }} />);
+		const card = all(".omp-execution-group").at(-1);
+		expect(card?.getAttribute("data-state")).toBe("running");
+		await act(async () => card?.querySelector(".omp-execution-group-header")?.click());
+		const lint = card?.querySelector("[data-tool-call-id='c-lint']");
+		expect(lint?.querySelector("button")?.textContent).toContain("1 thought");
+		expect(card?.querySelector(".omp-execution-group-body .omp-thinking-block")).toBeNull();
 	});
 
 	it("shows the same tool cards as the main transcript in full detail, with the edit's diff stats and a running call", async () => {

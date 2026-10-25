@@ -4,7 +4,11 @@ import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { dragTabToPane, exitApp, launchApp } from "./harness";
 
-async function withLiveWorkApp(history: number, body: (page: Page) => Promise<void>): Promise<void> {
+async function withLiveWorkApp(
+	history: number,
+	body: (page: Page) => Promise<void>,
+	env: Record<string, string> = {},
+): Promise<void> {
 	const profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-steps-"));
 	const project = path.join(profile, "project");
 	const desktop = path.join(profile, "desktop");
@@ -18,6 +22,7 @@ async function withLiveWorkApp(history: number, body: (page: Page) => Promise<vo
 		profile,
 		env: {
 			OMP_GUI_TEST_HISTORY: String(history),
+			...env,
 		},
 	});
 	try {
@@ -74,6 +79,45 @@ test("a multi-step turn keeps one live work group and work surface", async () =>
 		expect(result.probe.filter(state => !state.startsWith("groups=0") && !state.startsWith("groups=1"))).toEqual([]);
 		expect(result.panelMounts).toBeLessThanOrEqual(2);
 	});
+});
+
+// The call the stage shows running is not listed again in the opened steps, through every kind and the agent lanes
+// whose own cards leave the stage (their leaving frame once cleared it, and the browser call after them showed twice).
+test("an opened running card lists each call the stage shows running only once it ends", async () => {
+	await withLiveWorkApp(
+		0,
+		async page => {
+			const input = page.locator("textarea").first();
+			await input.fill("fixture work view");
+			await input.press("Enter");
+			const control = (command: string) =>
+				page.evaluate(command => window.omp.rpc.command({ type: "bash", command }), command);
+			const card = page.locator(".omp-execution-group").last();
+			const surface = card.locator(":scope > .omp-live-step");
+			const listed = () =>
+				card
+					.locator(".omp-process-group [data-tool-call-id]")
+					.evaluateAll(cards => [...new Set(cards.map(item => item.getAttribute("data-tool-call-id")))]);
+			const kinds = ["bash", "write", "read", "task", "wait", "wait", "browser", "computer", "edit"];
+			await expect(surface).toHaveAttribute("data-surface", "thinking");
+			for (const [index, kind] of kinds.entries()) {
+				await control("fixture:work-next");
+				await expect(surface).toHaveAttribute("data-surface", kind);
+				if (index === 0) await card.locator("button.omp-execution-group-header").click();
+				const id = `work-view-${index}`;
+				// A task's or a wait's stage shows its agents, not the call: the list keeps it.
+				const staged = index > 0 && kind !== "task" && kind !== "wait";
+				await expect(surface).toHaveAttribute("data-running", "true");
+				// After the stage's crossfade, whose leaving frame (an agent lane's card) once cleared the stage's call.
+				await expect(surface.locator("[data-outgoing]")).toHaveCount(0);
+				await expect
+					.poll(async () => (await listed()).includes(id), { message: `${kind} (${id}) listed` })
+					.toBe(!staged);
+				if (index > 0) expect(await listed(), "the step before is listed").toContain(`work-view-${index - 1}`);
+			}
+		},
+		{ OMP_GUI_TEST_WORK_RICH: "1" },
+	);
 });
 
 // The bounded work surface must not create overflow beneath transcript rows.

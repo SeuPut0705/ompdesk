@@ -2155,6 +2155,13 @@
 	.omp-execution-group-header--embedded {
 		min-height: 24px;
 	}
+	/* Centred on the shorter line by its own 24 px, never above the head's padding: the live step's box holds it. */
+	.omp-work-head-side {
+		margin-block-start: max(
+			calc(var(--sc-space-0-5) * -1),
+			calc((var(--omp-work-head-line) - 24px) / 2)
+		);
+	}
 	.omp-work-narrative {
 		font-size: var(--sc-font-md);
 	}
