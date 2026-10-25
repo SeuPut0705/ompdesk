@@ -340,6 +340,45 @@ export function useSessionBoard(turn: TurnWindow | null = null): SessionBoard {
 
 const plural = (count: number) => (count === 1 ? "" : "s");
 
+function checkWords(t: (key: string, params?: Record<string, string | number>) => string, check: LastCheck): string {
+	if (check.state === "running") return t(`workBoard.session.check.${check.kind}.running`);
+	const verdict = check.state === "passed" ? "passed" : "failed";
+	return check.count !== undefined
+		? t(`chat.work.check.${check.kind}.${verdict}Count`, { count: check.count })
+		: t(`chat.work.check.${check.kind}.${verdict}`);
+}
+
+function rowWords(t: (key: string, params?: Record<string, string | number>) => string, row: SessionRowModel): string {
+	switch (row.kind) {
+		case "changes": {
+			const files = t("chat.work.filesChanged", {
+				count: row.capped ? `${row.files}+` : row.files,
+				plural: plural(row.files),
+			});
+			return row.capped ? files : `${files} +${row.added} −${row.removed}`;
+		}
+		case "unlanded":
+			return t("workBoard.current.unlanded", {
+				target: row.target,
+				count: row.capped ? `${row.files}+` : row.files,
+				plural: plural(row.files),
+			});
+		case "check":
+			return checkWords(t, row.check);
+		case "dev-server":
+			return row.host;
+		case "peers":
+			return row.worktree > 0 && row.repo > 0
+				? t("workBoard.session.peers.both", { count: row.worktree, plural: plural(row.worktree), repo: row.repo })
+				: t(`workBoard.session.peers.${row.worktree > 0 ? "worktree" : "repo"}`, {
+						count: row.peers.length,
+						plural: plural(row.peers.length),
+					});
+		case "recall":
+			return t("workBoard.session.recall.label", { title: row.titles[0] ?? "" });
+	}
+}
+
 function CheckRow({ check, tag }: { check: LastCheck; tag?: RowTag }) {
 	const t = useT();
 	// The transcript of the board's own tab opens the card holding the call (a collapsed or unmounted one too).
@@ -349,12 +388,7 @@ function CheckRow({ check, tag }: { check: LastCheck; tag?: RowTag }) {
 	const running = check.state === "running";
 	const key = check.key;
 	const now = useNowTick(running);
-	const verdict = check.state === "passed" ? "passed" : "failed";
-	const label = running
-		? t(`workBoard.session.check.${check.kind}.running`)
-		: check.count !== undefined
-			? t(`chat.work.check.${check.kind}.${verdict}Count`, { count: check.count })
-			: t(`chat.work.check.${check.kind}.${verdict}`);
+	const label = checkWords(t, check);
 	const meta = running
 		? elapsedLabel(now - check.startedAt)
 		: check.durationMs !== undefined
@@ -417,11 +451,11 @@ function ChangesRow(summary: FamilyChangesSummary) {
 
 function UnlandedRow(summary: UnlandedSummary) {
 	const t = useT();
-	const { count, meta } = changesText(summary);
+	const { meta } = changesText(summary);
 	return (
 		<BoardRow
 			data={{ "data-board-session": "unlanded" }}
-			label={t("workBoard.current.unlanded", { target: summary.target, count, plural: plural(summary.files) })}
+			label={rowWords(t, { kind: "unlanded", ...summary })}
 			lead={<KindMark icon={GitBranch} tone="muted" />}
 			meta={meta}
 			title={t("workBoard.current.unlandedTitle", { branch: summary.branch, target: summary.target })}
@@ -476,14 +510,7 @@ function PeersRow({ worktree, repo, peers }: PeersSummary) {
 		<>
 			<BoardRow
 				data={{ "data-board-session": "peers", "data-open": String(open), "data-board-expands": "" }}
-				label={
-					worktree > 0 && repo > 0
-						? t("workBoard.session.peers.both", { count: worktree, plural: plural(worktree), repo })
-						: t(`workBoard.session.peers.${worktree > 0 ? "worktree" : "repo"}`, {
-								count: peers.length,
-								plural: plural(peers.length),
-							})
-				}
+				label={rowWords(t, { kind: "peers", worktree, repo, peers })}
 				lead={<KindMark icon={Users} tone="muted" />}
 				onClick={() => setOpen(!open)}
 				title={peers.map(peer => (peer.device ? `${name(peer)} (${peer.device})` : name(peer))).join("\n")}
@@ -529,12 +556,12 @@ function PeersRow({ worktree, repo, peers }: PeersSummary) {
 function RecallRow({ titles }: { titles: string[] }) {
 	const t = useT();
 	const [open, setOpen] = useState(false);
-	const [first, ...rest] = titles;
+	const [, ...rest] = titles;
 	return (
 		<>
 			<BoardRow
 				data={{ "data-board-session": "recall", "data-open": String(open), "data-board-expands": "" }}
-				label={t("workBoard.session.recall.label", { title: first ?? "" })}
+				label={rowWords(t, { kind: "recall", titles })}
 				lead={<KindMark icon={Brain} tone="muted" />}
 				meta={rest.length > 0 ? `+${rest.length}` : undefined}
 				onClick={rest.length > 0 ? () => setOpen(!open) : undefined}
@@ -598,9 +625,10 @@ function SessionRow({ row }: { row: SessionRowModel }) {
 
 export function CurrentSection({ rows, aside }: { rows: SessionRowModel[]; aside?: string }) {
 	const t = useT();
-	if (rows.length === 0) return null;
+	const lead = rows[0];
+	if (!lead) return null;
 	return (
-		<BoardSection aside={aside} id="current" title={t("workBoard.current")}>
+		<BoardSection aside={aside} id="current" summary={{ lead: rowWords(t, lead) }} title={t("workBoard.current")}>
 			{rows.map(row => (
 				<SessionRow key={row.kind === "dev-server" ? `dev-server:${row.url}` : row.kind} row={row} />
 			))}
@@ -616,28 +644,11 @@ export function quietOutcome(
 	t: (key: string, params?: Record<string, string | number>) => string,
 	rows: readonly SessionRowModel[],
 ): string | null {
-	const changes = rows.find(row => row.kind === "changes");
-	if (changes?.kind === "changes") {
-		const files = t("chat.work.filesChanged", {
-			count: changes.capped ? `${changes.files}+` : changes.files,
-			plural: plural(changes.files),
-		});
-		return changes.capped ? files : `${files} +${changes.added} −${changes.removed}`;
-	}
-	const check = rows.find(row => row.kind === "check");
-	if (check?.kind === "check" && check.check.state === "passed") {
-		const { kind, count } = check.check;
-		return count !== undefined
-			? t(`chat.work.check.${kind}.passedCount`, { count })
-			: t(`chat.work.check.${kind}.passed`);
-	}
-	const unlanded = rows.find(row => row.kind === "unlanded");
-	if (unlanded?.kind !== "unlanded") return null;
-	return t("workBoard.current.unlanded", {
-		target: unlanded.target,
-		count: unlanded.capped ? `${unlanded.files}+` : unlanded.files,
-		plural: plural(unlanded.files),
-	});
+	const lead =
+		rows.find(row => row.kind === "changes") ??
+		rows.find(row => row.kind === "check" && row.check.state === "passed") ??
+		rows.find(row => row.kind === "unlanded");
+	return lead ? rowWords(t, lead) : null;
 }
 
 /**

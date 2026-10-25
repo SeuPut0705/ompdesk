@@ -22,10 +22,11 @@ import { useToolsStore } from "../../../stores/tools";
 import { useUiStore } from "../../../stores/ui";
 import { useWorkBoardStore } from "../../../stores/work-board";
 
-const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
+const { document, window, Element, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
 	document,
 	window,
+	Element,
 	Event,
 	HTMLElement,
 	Node,
@@ -316,5 +317,46 @@ describe("the run is reachable in every layout", () => {
 		await act(async () => useUiStore.getState().revealWorkBoard("t2"));
 		await settle();
 		expect($("[data-work-strip-panel]")).toBeNull();
+	});
+
+	it("opens the strip on the run's zones as the docked board left them, and never writes those folds", async () => {
+		useWorkBoardStore.setState({ collapsed: { autopilot: true }, hydrated: true });
+		useAutopilotStore.getState().apply(running);
+		await mount(760);
+		await click("[data-work-chip]");
+		await settle();
+		const fold = () => $('[data-work-strip-panel] [data-board-section="autopilot"] .omp-work-board-fold');
+		expect(fold()?.getAttribute("aria-expanded")).toBe("false");
+		expect($("[data-work-strip-panel] [data-autopilot-cycle-live]")).toBeNull();
+		await click('[data-work-strip-panel] [data-board-section="autopilot"] .omp-work-board-fold');
+		expect($("[data-work-strip-panel] [data-autopilot-cycle-live]")).not.toBeNull();
+		expect(prefsSet).not.toHaveBeenCalled();
+		expect(useWorkBoardStore.getState().collapsed).toEqual({ autopilot: true });
+	});
+
+	it("shows the run in the strip on a reveal without unfolding the docked board's fold", async () => {
+		useWorkBoardStore.setState({ collapsed: { autopilot: true }, hydrated: true });
+		useAutopilotStore.getState().apply(running);
+		await mount(760);
+		await act(async () => useUiStore.getState().revealWorkBoard("t1"));
+		await settle();
+		expect($("[data-work-strip-panel] [data-autopilot-cycle-live]")).not.toBeNull();
+		expect(prefsSet).not.toHaveBeenCalled();
+		expect(useWorkBoardStore.getState().collapsed).toEqual({ autopilot: true });
+	});
+
+	it("keeps an open strip's run zone as it opened when another pane folds it", async () => {
+		useWorkBoardStore.setState({ collapsed: {}, hydrated: true });
+		useAutopilotStore.getState().apply(running);
+		await mount(760);
+		await click("[data-work-chip]");
+		await settle();
+		expect($("[data-work-strip-panel] [data-autopilot-cycle-live]")).not.toBeNull();
+		await act(async () => useWorkBoardStore.setState({ collapsed: { autopilot: true } }));
+		expect($("[data-work-strip-panel] [data-autopilot-cycle-live]")).not.toBeNull();
+		await click("[data-work-chip]");
+		await click("[data-work-chip]");
+		await settle();
+		expect($("[data-work-strip-panel] [data-autopilot-cycle-live]")).toBeNull();
 	});
 });

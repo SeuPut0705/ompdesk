@@ -3,7 +3,7 @@
  * section and a one-line row. Look in styles/work-board.css.
  */
 import { ChevronRight, type LucideIcon, Network } from "lucide-react";
-import { type ReactNode, useId, useState } from "react";
+import { createContext, type ReactNode, useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { translate, useT } from "../../../lib/i18n";
 import { revealAndFocus } from "../../../lib/reveal-focus";
 import { useUiStore } from "../../../stores/ui";
@@ -101,6 +101,51 @@ export function KindMark({
 	return <Icon aria-hidden className="omp-work-board-kind" data-tone={tone} />;
 }
 
+/** The zones a person opened (true) or closed (false) since the strip's panel opened. */
+export type ZoneOpen = Partial<Record<WorkBoardSectionId, boolean>>;
+
+interface SummaryScope {
+	open: ZoneOpen;
+	/** The docked board's folds as they were when the panel opened. */
+	folded: Readonly<Partial<Record<WorkBoardSectionId, true>>>;
+	set: (id: WorkBoardSectionId, open: boolean) => void;
+}
+
+const SummaryContext = createContext<SummaryScope | null>(null);
+
+/**
+ * The strip panel's board (WorkBoardChip holds `open` and `folded` for one open of the panel). A zone with a summary
+ * line starts closed; Needs you starts open; any other zone starts as the docked board's fold was when the panel
+ * opened (`folded`, a snapshot: another pane folding it later leaves this open alone). The folds are only read, so
+ * `workBoardCollapsed` never changes from the strip.
+ */
+export function SummaryBoard({
+	open,
+	folded,
+	onChange,
+	children,
+}: {
+	open: ZoneOpen;
+	folded: SummaryScope["folded"];
+	onChange: (id: WorkBoardSectionId, open: boolean) => void;
+	children: ReactNode;
+}) {
+	const scope = useMemo<SummaryScope>(() => ({ open, folded, set: onChange }), [open, folded, onChange]);
+	return <SummaryContext.Provider value={scope}>{children}</SummaryContext.Provider>;
+}
+
+/** How long a zone just opened keeps itself in view while its rows still arrive (a lazy chunk's). */
+const FOLLOW_MS = 1000;
+
+function scrollIntoStripBody(zone: HTMLElement): void {
+	const body = zone.closest<HTMLElement>(".omp-work-strip-body");
+	if (!body) return;
+	const box = zone.getBoundingClientRect();
+	const view = body.getBoundingClientRect();
+	const by = Math.min(box.top - view.top, box.bottom - view.bottom);
+	if (by > 0) body.scrollTop += by;
+}
+
 export function BoardSection({
 	id,
 	title,
@@ -110,6 +155,7 @@ export function BoardSection({
 	action,
 	tone,
 	live,
+	summary,
 	children,
 }: {
 	id: WorkBoardSectionId;
@@ -123,31 +169,69 @@ export function BoardSection({
 	/** A control of its own after the fold button (the work tree's icon button). */
 	action?: ReactNode;
 	tone?: "warning" | "danger";
+	/**
+	 * Inside a `SummaryBoard`: the zone's one line while closed, its lead item's words and its figure in the head; a tap
+	 * opens it in place.
+	 */
+	summary?: { lead: string; count?: ReactNode };
 	children: ReactNode;
 }) {
 	const t = useT();
 	const headId = useId();
-	const folded = useWorkBoardStore(state => state.collapsed[id] === true);
+	const scope = useContext(SummaryContext);
+	const stored = useWorkBoardStore(state => state.collapsed[id] === true);
+	const open = scope
+		? (scope.open[id] ?? (summary === undefined && (id === "needs" || scope.folded[id] !== true)))
+		: !stored;
+	const zone = useRef<HTMLElement>(null);
+	const opening = useRef(false);
+	const toggle = () => {
+		if (!scope) return useWorkBoardStore.getState().toggle(id);
+		opening.current = !open;
+		scope.set(id, !open);
+	};
+	useLayoutEffect(() => {
+		const element = zone.current;
+		if (!open || !opening.current || !element) return;
+		opening.current = false;
+		scrollIntoStripBody(element);
+		if (typeof ResizeObserver !== "function") return;
+		const grown = new ResizeObserver(() => scrollIntoStripBody(element));
+		grown.observe(element);
+		const stop = window.setTimeout(() => grown.disconnect(), FOLLOW_MS);
+		return () => {
+			grown.disconnect();
+			window.clearTimeout(stop);
+		};
+	}, [open]);
+	const folded = !open;
+	const line = scope && folded ? summary : undefined;
 	return (
 		<section
 			aria-labelledby={headId}
 			className="omp-work-board-section omp-fade-up"
 			data-board-section={id}
 			data-tone={tone}
+			ref={zone}
 		>
 			<h3 className="omp-work-board-title" id={headId}>
 				{/* controls-ok: the omp-work-board-fold class draws the whole row */}
 				<button
 					aria-expanded={!folded}
 					className="omp-work-board-fold"
-					onClick={() => useWorkBoardStore.getState().toggle(id)}
+					data-board-summary={line ? id : undefined}
+					onClick={toggle}
 					title={t(folded ? "workBoard.expand" : "workBoard.collapse", { section: title })}
 					type="button"
 				>
 					<ChevronRight aria-hidden className="omp-work-board-chevron" data-open={!folded || undefined} />
-					<span className={mid ? "omp-work-board-zone-title" : "truncate"}>{title}</span>
-					{mid}
-					{count !== undefined && <span className="omp-work-board-count">{count}</span>}
+					<span className={mid || line ? "omp-work-board-zone-title" : "truncate"}>{title}</span>
+					{line ? <span className="omp-work-board-summary">{line.lead}</span> : mid}
+					{line ? (
+						line.count !== undefined && <span className="omp-work-board-count">{line.count}</span>
+					) : count !== undefined ? (
+						<span className="omp-work-board-count">{count}</span>
+					) : null}
 				</button>
 				{action}
 				{aside ? <span className="omp-work-board-aside">{aside}</span> : null}

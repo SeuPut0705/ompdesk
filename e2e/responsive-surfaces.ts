@@ -159,6 +159,25 @@ export const SURFACES: readonly Surface[] = [
 		settle: 600,
 	},
 	{
+		id: "board-strip-open",
+		area: "A",
+		title: "Work board strip with every zone opened from its summary line: the rows a phone reaches with a tap more",
+		query: "&board=busy",
+		open: async page => {
+			const chip = page.locator("[data-work-chip][data-state='waiting']");
+			const docked = page.locator(".omp-work-board-slot [data-board-section='needs']");
+			await chip.or(docked).first().waitFor({ state: "visible", timeout: 15_000 });
+			if ((await chip.count()) === 0) return;
+			if ((await chip.getAttribute("aria-expanded")) !== "true") await chip.click();
+			// Current work's rows are a lazy chunk: its line arrives last, after the others.
+			const lines = page.locator("[data-work-strip-panel] [data-board-summary]");
+			await page.locator("[data-work-strip-panel] [data-board-section='current']").waitFor({ timeout: 15_000 });
+			for (let left = await lines.count(); left > 0; left = await lines.count()) await lines.first().click();
+		},
+		ready: "[data-work-board-panel]",
+		settle: 600,
+	},
+	{
 		id: "sidebar",
 		area: "A",
 		title: "Session list: the drawer on a phone, docked beside the page from 800 px",

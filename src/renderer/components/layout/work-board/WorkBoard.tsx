@@ -86,7 +86,7 @@ const AutopilotBoardHead = lazyChunk(() =>
 const AutopilotBoardSections = lazyChunk(() =>
 	import("../../autopilot/AutopilotBoard").then(module => ({ default: module.AutopilotBoardSections })),
 );
-/** The opened-session rows load when a session has such children: most never do. */
+/** The opened-session rows load when a session has such children: most never do (the strip loads them ahead). */
 const NowChildren = lazy(() => import("./WorkBoardOpened").then(module => ({ default: module.NowChildren })));
 const WaitingChildren = lazy(() => import("./WorkBoardOpened").then(module => ({ default: module.WaitingChildren })));
 /** The session rows (changes, last check, dev servers, same checkout, memory) and a failed check: a lazy chunk, since
@@ -111,6 +111,14 @@ function hasCharge(spend: SessionSpend | null): spend is SessionSpend {
 const TURN_STEPS = 1;
 /** A call's clock and the turn's come from different events of one batch: a call within this of the start is the turn's. */
 const TURN_CLOCK_SLACK_MS = 500;
+
+function stepHeader(entry: ToolEntry, t: (key: string, params?: Record<string, string | number>) => string) {
+	const header = getToolHeader(entry.toolName, entry.args);
+	return {
+		Icon: header.icon,
+		text: header.target || (header.labelKey ? t(header.labelKey, header.labelParams) : header.tool),
+	};
+}
 
 function SegmentBar({ segments, label }: { segments: TodoBoard["segments"]; label: string }) {
 	return (
@@ -397,6 +405,22 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	// What the sessions this one opened lead to (the Work tree sheet) sits in the head of the section that lists them.
 	const workTree = opened.rows.length === 0 ? null : showsNow ? "now" : "needs";
 	const showsGoal = goal !== null && !autopilotTab;
+	const lastStep = steps.at(-1);
+	const nowLead = turnActive
+		? (turnState ?? (lastStep ? lastStep.intent?.trim() || stepHeader(lastStep, t).text : ""))
+		: presentedAgents[0]
+			? subagentPrimaryLabel(presentedAgents[0].item, 48)
+			: (presentedJobs[0]?.item.label ??
+				(nowChildren[0] ? nowChildren[0].title || t("workBoard.review.untitled") : ""));
+	const nowFigure = counts.running + counts.childrenRunning;
+	const planLead =
+		plan?.active ??
+		plan?.rows[0]?.content ??
+		(showsGoal && goal
+			? goal.objective?.trim() || t("input.goal.label")
+			: t("workBoard.doneFolded", { count: plan?.done ?? 0 }));
+	// A finished plan with no goal leads with its "N done": that is its figure already.
+	const planFigure = plan && (plan.rows.length > 0 || showsGoal) ? `${plan.done}/${plan.total}` : undefined;
 
 	return (
 		<aside aria-label={t("workBoard.label")} className="omp-work-board" data-work-board-panel>
@@ -512,6 +536,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 					action={workTree === "now" ? <WorkTreeButton /> : null}
 					aside={turnActive ? [clock(startedAt), speed].filter(Boolean).join(" · ") : undefined}
 					id="now"
+					summary={{ lead: nowLead, count: nowFigure > 0 ? nowFigure : undefined }}
 					title={runsNow ? t("workBoard.now") : t("workBoard.opened")}
 				>
 					{turnActive &&
@@ -524,11 +549,8 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 							/>
 						) : (
 							steps.map((entry, index) => {
-								const header = getToolHeader(entry.toolName, entry.args);
-								const Icon = header.icon;
+								const { Icon, text } = stepHeader(entry, t);
 								const live = entry.status === "pending" || entry.status === "running";
-								const text =
-									header.target || (header.labelKey ? t(header.labelKey, header.labelParams) : header.tool);
 								const last = index === steps.length - 1;
 								return (
 									<BoardRow
@@ -594,6 +616,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 			{(plan || showsGoal) && (
 				<BoardSection
 					id="plan"
+					summary={{ lead: planLead, count: planFigure }}
 					mid={
 						plan ? (
 							<span
@@ -747,16 +770,18 @@ export function WorkBoardHost() {
 		if (!reveal || reveal.seq === seenReveal.current) return;
 		seenReveal.current = reveal.seq;
 		if (reveal.tabId !== null && reveal.tabId !== tabId) return;
-		const folds = useWorkBoardStore.getState();
-		if (folds.collapsed.autopilot) folds.toggle("autopilot");
 		if (form === "strip") setStripReveal(reveal.seq);
-		else if (form === "docked")
+		else if (form === "docked") {
+			// The strip opens the run's zone in its panel instead, never through the docked board's folds.
+			const folds = useWorkBoardStore.getState();
+			if (folds.collapsed.autopilot) folds.toggle("autopilot");
 			// After the unfold above has rendered the section's rows.
 			setTimeout(() => {
 				const section = pane?.querySelector<HTMLElement>('[data-board-section="autopilot"]');
 				section?.scrollIntoView?.({ block: "nearest" });
 				section?.querySelector<HTMLElement>(".omp-work-board-fold")?.focus();
 			}, 0);
+		}
 	}, [reveal, tabId, form, pane]);
 	const width = form === "docked" ? workBoardWidth(paneWidth) : null;
 	// The slot and the columns' reserve read the width from the pane (components.css `--omp-board-width`).

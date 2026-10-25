@@ -78,7 +78,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // its base (main 7dfaf5a13 3,315,869 → 3,323,103).
 // R3-1's one attention rule (lib/attention.ts, the per-tab failed-check store, the title bar's and the sidebar row's
 // kinds) adds 1,656 bytes over its base (main 23cc62bd1 3,323,103 → 3,324,759).
-const WEB_FIRST_SCREEN_JS_BYTES = 3_325_000;
+// R3-6's strip summary (the per-open zone state and fold snapshot in WorkBoardChip, SummaryBoard and the summary line
+// in board-parts.tsx, the sessions-opened chunk's preload) adds 3,155 bytes over its base (main 5c542e92b 3,324,759 →
+// 3,327,914); the session rows' chunk stays off the first screen.
+const WEB_FIRST_SCREEN_JS_BYTES = 3_328_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

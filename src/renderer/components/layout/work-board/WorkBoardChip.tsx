@@ -26,7 +26,9 @@ import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useSubagentsStore } from "../../../stores/subagents";
 import { useTabsStore } from "../../../stores/tabs";
 import { selectTodoCardVisible, useTodoStore } from "../../../stores/todo";
+import { useWorkBoardStore } from "../../../stores/work-board";
 import { useAutopilotStateText } from "../../autopilot/use-autopilot-state-text";
+import { SummaryBoard, type ZoneOpen } from "./board-parts";
 import { attentionClause, boardCounts, liveSubagents, todoBoard, workingSubagents } from "./work-board";
 
 const PANEL_ID = "omp-work-strip-panel";
@@ -106,7 +108,8 @@ function useStripRoom(root: RefObject<HTMLDivElement | null>, open: boolean, sho
  * The work board where it has no room beside the pane (a phone, a portrait tablet; design §6.3): one status strip
  * under the header — what waits for you first, then the turn, the plan's progress with the current task, the
  * running subagents and jobs — and a tap expands the strip itself downward into the board, an inline panel over
- * the top of the transcript (no scrim, nothing dimmed, nothing pushed). It collapses on a second tap, a swipe up
+ * the top of the transcript (no scrim, nothing dimmed, nothing pushed), opening on its summary (`SummaryBoard`:
+ * Needs you listed, every other zone one line until a tap opens it). It collapses on a second tap, a swipe up
  * on the strip or the panel's grip, the back gesture, a tap outside, or a tap on a row (which also acts). Nothing
  * is remembered: every mount starts collapsed. The strip says what the dock's todo card would, so mobile.css hides
  * that card beside it. The line is a live region, so the board's announcements stay. A bump of `reveal` (the pane's
@@ -115,12 +118,34 @@ function useStripRoom(root: RefObject<HTMLDivElement | null>, open: boolean, sho
 export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; reveal?: number }) {
 	const t = useT();
 	const [open, setOpen] = useState(false);
+	// The zones opened or closed in this open of the panel: a fresh open, also one while the last still leaves, starts
+	// on the summary; a reveal ("show the run") opens the run's zone, also in a panel already open.
+	const [zones, setZones] = useState<ZoneOpen>({});
+	// The docked board's folds, read once per open: a zone with no summary line starts as they leave it.
+	const [folded, setFolded] = useState(() => useWorkBoardStore.getState().collapsed);
+	// The saved folds are read before the first open (the board mounts only inside the open panel).
+	useEffect(() => {
+		void useWorkBoardStore.getState().hydrate();
+	}, []);
+	const setZone = useCallback((id: keyof ZoneOpen, value: boolean) => {
+		setZones(previous => ({ ...previous, [id]: value }));
+	}, []);
+	const expand = useCallback(
+		(revealed = false) => {
+			if (!open) {
+				setZones(revealed ? { autopilot: true } : {});
+				setFolded(useWorkBoardStore.getState().collapsed);
+			} else if (revealed) setZone("autopilot", true);
+			setOpen(true);
+		},
+		[open, setZone],
+	);
 	const seenReveal = useRef(reveal);
 	useEffect(() => {
 		if (reveal === seenReveal.current) return;
 		seenReveal.current = reveal;
-		setOpen(true);
-	}, [reveal]);
+		expand(true);
+	}, [reveal, expand]);
 	/** The panel stays mounted for its exit (height transition); never under reduced motion. */
 	const [leaving, setLeaving] = useState(false);
 	const root = useRef<HTMLDivElement>(null);
@@ -152,6 +177,12 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 		ensureAgentReviewSubscription();
 		if (tabId) void useAgentReviewStore.getState().refresh(tabId);
 	}, [runtimeTabId, activeTabId]);
+	const hasOpened = opened.rows.length > 0;
+	// The board's rows of those sessions are a lazy chunk: loaded before the panel opens, so a tap on Now's line shows
+	// them with the zone instead of a frame after it.
+	useEffect(() => {
+		if (hasOpened) void import("./WorkBoardOpened").catch(() => {});
+	}, [hasOpened]);
 	const goal = useSessionStore(state => state.goal);
 	const pending = useExtensionUiStore(state => state.pendingRequests);
 	const loginRequestIds = useExtensionUiStore(state => state.loginRequestIds);
@@ -227,7 +258,7 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 				data-opens={room?.up ? "up" : undefined}
 				data-state={state}
 				data-work-chip=""
-				onClick={() => (open ? close() : setOpen(true))}
+				onClick={() => (open ? close() : expand())}
 				onTouchEnd={swipeEnd}
 				onTouchStart={swipeStart}
 				type="button"
@@ -297,7 +328,11 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 						if (row && !row.hasAttribute("data-board-expands")) close();
 					}}
 				>
-					<div className="omp-work-strip-body">{children}</div>
+					<div className="omp-work-strip-body">
+						<SummaryBoard folded={folded} onChange={setZone} open={zones}>
+							{children}
+						</SummaryBoard>
+					</div>
 					<div aria-hidden className="omp-work-strip-grip" onTouchEnd={swipeEnd} onTouchStart={swipeStart} />
 				</div>
 			)}

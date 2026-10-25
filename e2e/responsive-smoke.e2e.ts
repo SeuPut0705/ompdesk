@@ -157,8 +157,9 @@ for (const look of BOARD_LOOKS) {
 	test(`responsive smoke ${lookTag(look)}: the busy work board never scrolls sideways`, async () => {
 		if (!browser) throw new Error("the browser is not up");
 		const page = await openLook(browser, look, { origin, query: "&board=busy" });
-		const strip = SURFACES.find(surface => surface.id === "board-strip");
-		if (!strip) throw new Error("no board-strip surface");
+		// Every zone opened from its summary line, so the strip's rows are measured too, not only the lines.
+		const strip = SURFACES.find(surface => surface.id === "board-strip-open");
+		if (!strip) throw new Error("no board-strip-open surface");
 		await strip.open(page, look);
 		if (strip.ready) await page.locator(strip.ready).first().waitFor({ state: "visible" });
 		await page.waitForTimeout(600);

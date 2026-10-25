@@ -21,10 +21,11 @@ import { useUiStore } from "../../../stores/ui";
 import { useWorkBoardStore } from "../../../stores/work-board";
 import { bareEmail, shortAccountLabel } from "../AccountLimit";
 
-const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
+const { document, window, Element, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
 	document,
 	window,
+	Element,
 	Event,
 	HTMLElement,
 	Node,
@@ -764,6 +765,142 @@ describe("WorkBoard folds", () => {
 		await act(async () => fold().click());
 		expect(pane.querySelector('[data-board-agent="a1"]')).not.toBeNull();
 		expect(prefsSet).toHaveBeenLastCalledWith("workBoardCollapsed", {});
+	});
+});
+
+describe("the strip panel's summary", () => {
+	const phases = [
+		{
+			name: "Work",
+			tasks: [
+				{ content: "Reproduce", status: "completed" as const },
+				{ content: "Fix the strip", status: "in_progress" as const },
+				{ content: "Run the suite", status: "pending" as const },
+			],
+		},
+	];
+	/** A question, two subagents at work and a plan, on a pane too narrow to dock: the strip with its panel open. */
+	async function openStrip(): Promise<void> {
+		useExtensionUiStore
+			.getState()
+			.pushRequest({ type: "extension_ui_request", id: "c1", method: "confirm", title: "Go?", message: "" });
+		useSubagentsStore.getState().setSnapshots([agent("a1", "running", 0), agent("a2", "running", 1)]);
+		useTodoStore.getState().setPhases(phases);
+		await mount(390);
+		await click("[data-work-chip]");
+	}
+	const panel = () => pane.querySelector("[data-work-strip-panel]:not([data-leaving])");
+	const line = (id: string) => pane.querySelector(`[data-work-strip-panel] [data-board-summary="${id}"]`);
+
+	it("lists Needs you and shows every other zone as one line with its lead and its figure", async () => {
+		await openStrip();
+		expect(panel()?.querySelector('[data-board-waiting="c1"]')).not.toBeNull();
+		expect(line("needs")).toBeNull();
+		expect(line("now")?.querySelector(".omp-work-board-count")?.textContent).toBe("2");
+		expect(panel()?.querySelector("[data-board-agent]")).toBeNull();
+		expect(line("plan")?.querySelector(".omp-work-board-count")?.textContent).toBe("1/3");
+		expect(line("plan")?.textContent).toContain("Fix the strip");
+		expect(panel()?.querySelector("[data-todo-status]")).toBeNull();
+	});
+
+	it("leads Now with the turn's live step while a turn runs", async () => {
+		const startedAt = Date.now() - 12_000;
+		useTodoStore.getState().setTurnActive(true, startedAt);
+		useToolsStore.setState({
+			liveTools: new Map([["c1", tool({ intent: "Run the unit tests", startTime: startedAt + 3000 })]]),
+		});
+		await mount(390);
+		await click("[data-work-chip]");
+		expect(line("now")?.textContent).toContain("Run the unit tests");
+		expect(panel()?.querySelector("[data-board-step]")).toBeNull();
+	});
+
+	it("leads Current work with its first row's words", async () => {
+		const startedAt = Date.now() - 5000;
+		useTodoStore.getState().setTurnActive(true, startedAt);
+		useToolsStore.setState({
+			finishedTools: new Map([
+				[
+					"e1",
+					tool({
+						toolName: "write",
+						args: { path: "src/a.ts", content: "one\ntwo\n" },
+						status: "done",
+						result: { details: { path: "src/a.ts" } },
+						startTime: startedAt + 1000,
+						endTime: startedAt + 2000,
+					}),
+				],
+			]),
+		});
+		useTodoStore.getState().setTurnActive(false);
+		// The strip shows only while it has something to say: the plan gives it its label.
+		useTodoStore.getState().setPhases(phases);
+		await mount(390);
+		await click("[data-work-chip]");
+		await expect.poll(() => line("current")).not.toBeNull();
+		expect(line("current")?.textContent).toContain("1 file changed +2 −0");
+		expect(panel()?.querySelector('[data-board-session="changes"]')).toBeNull();
+		await act(async () => (line("current") as unknown as HTMLButtonElement).click());
+		expect(panel()?.querySelector('[data-board-session="changes"]')).not.toBeNull();
+	});
+
+	it("says a finished plan's figure once", async () => {
+		useTodoStore.getState().setPhases([
+			{
+				name: "Work",
+				tasks: [
+					{ content: "Reproduce", status: "completed" },
+					{ content: "Fix", status: "completed" },
+					{ content: "Check", status: "completed" },
+				],
+			},
+		]);
+		// A list the agent just finished stays on screen until it is dismissed.
+		useTodoStore.setState({ keepClosedVisible: true });
+		await mount(390);
+		await click("[data-work-chip]");
+		expect(line("plan")?.textContent).toContain("3 done");
+		expect(line("plan")?.textContent).not.toContain("3/3");
+	});
+
+	it("keeps the zones the person opened when the run is revealed into the open panel", async () => {
+		await openStrip();
+		await act(async () => (line("now") as unknown as HTMLButtonElement).click());
+		expect(line("now")).toBeNull();
+		await act(async () => useUiStore.getState().revealWorkBoard("t1"));
+		expect(panel()?.querySelector('[data-board-agent="a1"]')).not.toBeNull();
+		expect(line("now")).toBeNull();
+	});
+
+	it("opens a zone in place on a tap and keeps the panel open, never touching the docked board's folds", async () => {
+		useWorkBoardStore.setState({ collapsed: { plan: true }, hydrated: true });
+		await openStrip();
+		await act(async () => (line("now") as unknown as HTMLButtonElement).click());
+		expect(panel()?.querySelector('[data-board-agent="a1"]')).not.toBeNull();
+		expect(line("now")).toBeNull();
+		await act(async () => (line("plan") as unknown as HTMLButtonElement).click());
+		expect(panel()?.querySelectorAll("[data-todo-status]").length).toBe(2);
+		await click('[data-work-strip-panel] [data-board-section="now"] button.omp-work-board-fold');
+		expect(line("now")).not.toBeNull();
+		expect(prefsSet).not.toHaveBeenCalled();
+		expect(useWorkBoardStore.getState().collapsed).toEqual({ plan: true });
+		await resize(1600);
+		expect(section("plan")?.querySelector("button.omp-work-board-fold")?.getAttribute("aria-expanded")).toBe("false");
+		expect(section("now")?.querySelector("button.omp-work-board-fold")?.getAttribute("aria-expanded")).toBe("true");
+	});
+
+	it("starts every open on the summary, a reopen while the panel still leaves too", async () => {
+		await openStrip();
+		await act(async () => (line("now") as unknown as HTMLButtonElement).click());
+		expect(line("now")).toBeNull();
+		await click("[data-work-chip]");
+		expect(panel()).toBeNull();
+		expect(pane.querySelector("[data-work-strip-panel][data-leaving]")).not.toBeNull();
+		await click("[data-work-chip]");
+		expect(panel()).not.toBeNull();
+		expect(line("now")).not.toBeNull();
+		expect(line("plan")).not.toBeNull();
 	});
 });
 
