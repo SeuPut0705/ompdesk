@@ -7,7 +7,7 @@
  */
 
 import { ChevronRight, FileText } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { basename, cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { mergeReadGroupEntries, type ReadGroupEntry, type ReadGroupUsage } from "../../../lib/read-group";
@@ -22,6 +22,7 @@ import {
 	ToolCard,
 	ToolPathTarget,
 	ToolStatusIcon,
+	useSliverGuard,
 } from "../ToolCard";
 
 function statusOf(status: string | undefined): "pending" | "success" | "error" | "aborted" {
@@ -77,17 +78,21 @@ export function ReadGroupCard({
 	const anyAborted = entries.some(entry => statuses.get(entry.toolKey) === "aborted");
 	const state = anyPending ? "running" : anyError ? "error" : anyAborted ? "aborted" : "done";
 	const single = rows.length === 1 ? rows[0] : undefined;
+	const rowRef = useRef<HTMLButtonElement>(null);
+	useSliverGuard(rowRef);
 
 	return (
 		<div className={cx("omp-read-group", pad)}>
 			{/* controls-ok: the omp-read-group-header class draws the whole control */}
 			<button
+				ref={rowRef}
 				type="button"
 				aria-expanded={open}
 				onClick={() => setOpen(value => !value)}
 				className={cx("omp-read-group-header", TOOL_ROW_CLASS)}
 			>
 				<ToolStatusIcon kindIcon={<FileText />} runningIndicator={runningIndicator} state={state} />
+				{intent ? <span className="sr-only">{`${t("tools.label.read")}, `}</span> : null}
 				<span
 					className={cx(
 						intent ? "min-w-0 truncate" : "shrink-0",
@@ -124,7 +129,9 @@ export function ReadGroupCard({
 					<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">{t("tools.status.interrupted")}</span>
 				) : state === "running" ? (
 					<span className="sr-only">{t("chat.exec.running")}</span>
-				) : null}
+				) : (
+					<span className="sr-only">{t("tools.status.done")}</span>
+				)}
 				{thoughts ? <ThoughtCount count={thoughts.count} /> : null}
 				<ChevronRight
 					aria-hidden

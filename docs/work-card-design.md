@@ -54,12 +54,15 @@ with a "Thought · 144 words" line between most steps (28 % of its rows). Every 
 - A row leads with what the agent meant to do (`stepIntent`: "Montaging board captures side by side"), and the
   call's target (file name first, command, pattern) follows muted. The target starts from no width and takes only
   the room the intent leaves (`AFTER_INTENT_CLASS`), so a narrow row clips the target first and the intent only when
-  it alone does not fit. A row with no other target names the tool that ran after the intent (an MCP server's tool,
-  a device). A call with no intent, a generic one, and a call inside an intent group (whose row already says it;
-  reads in a read group there too) keep the tool's label and target. A target that only restates the intent (a
-  wait's `i`, a subagent's, also when the row cut it to its first line or 160 characters) is said once. A done row
-  says "Done" to a screen reader; failed and interrupted rows and groups say it in words, a running one to a screen
-  reader.
+  it alone does not fit. A clipped target left under about four characters (32 px; at 390 px, 16 rows of the long
+  turn showed "g." or ":") is not drawn (`useSliverGuard`: one shared `ResizeObserver` marks it `data-sliver`, no
+  re-render), and the opened body then names the file or command. A row with no other target names the tool that
+  ran after the intent (an MCP server's tool, a device). A call with no intent, a generic one, and a call inside an
+  intent group (whose row already says it; reads in a read group there too) keep the tool's label and target. A
+  target that only restates the intent (a wait's `i`, a subagent's, also when the row cut it to its first line or
+  160 characters) is said once. A screen reader hears the kind of tool first, then the intent, the target and the
+  state ("Run command, Checking the types, bun run check:types, Done"); failed and interrupted rows and groups show
+  their state in words.
 - An opened body starts with what its row did not say. `ToolCard` measures its target while the body is open (a
   `ResizeObserver` on the row, so a narrowed window, split, side panel or rotation counts) and passes
   `rowShowsTarget` only while the target shows whole. Then edit, write and read bodies keep an "Open file" link (the

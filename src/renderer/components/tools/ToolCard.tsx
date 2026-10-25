@@ -1,5 +1,5 @@
 import { Ban, ChevronRight, CircleX } from "lucide-react";
-import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { basename, cx, dirname, durationBetween, resultDetails } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
@@ -67,14 +67,44 @@ export const TOOL_ROW_CLASS =
 
 /**
  * Under an intent, the target is the row's muted second part: it starts from no width and takes only the room
- * the intent leaves, so a narrow row clips the target first and the intent last.
+ * the intent leaves, so a narrow row clips the target first and the intent last. A target squeezed to a sliver
+ * ("g.", ":") is not drawn (`useSliverGuard`); it keeps its slot, so hiding it moves nothing, and stays read aloud.
  */
-export const AFTER_INTENT_CLASS = "basis-0 grow text-(--sc-text-muted)";
+export const AFTER_INTENT_CLASS = "basis-0 grow text-(--sc-text-muted) data-sliver:opacity-0";
+
+/** Below this a clipped target says nothing: about four characters of the row's monospace text. */
+const TARGET_MIN_PX = 32;
+
+/** A step row's target: its file, command or pattern, else the tool's name after the intent; never the slot wait. */
+const ROW_TARGET = ".omp-tool-summary:not([data-desktop-slot-waiting]), .omp-tool-kind";
+
+let sliverObserver: ResizeObserver | undefined;
+
+function markSlivers(entries: readonly ResizeObserverEntry[]): void {
+	for (const { target } of entries) {
+		const summary = target.querySelector<HTMLElement>(ROW_TARGET);
+		summary?.toggleAttribute(
+			"data-sliver",
+			summary.clientWidth < TARGET_MIN_PX && summary.scrollWidth > summary.clientWidth,
+		);
+	}
+}
 
 /**
- * The one status/kind icon slot of a step row: live, failed, stopped, or the kind icon when done. A done
- * row says so to a screen reader here; the other states say it in words on the row.
+ * Marks a step row's target `data-sliver` while the row leaves it too little room to say anything. One observer
+ * for every row, and only a DOM attribute: a 165-step card re-renders nothing when its rows are measured.
  */
+export function useSliverGuard(row: RefObject<HTMLElement | null>): void {
+	useEffect(() => {
+		const element = row.current;
+		if (!element || typeof ResizeObserver === "undefined") return;
+		sliverObserver ??= new ResizeObserver(markSlivers);
+		sliverObserver.observe(element);
+		return () => sliverObserver?.unobserve(element);
+	}, [row]);
+}
+
+/** The one status/kind icon slot of a step row: live, failed, stopped, or the kind icon when done. */
 export function ToolStatusIcon({
 	state,
 	runningIndicator,
@@ -84,10 +114,9 @@ export function ToolStatusIcon({
 	runningIndicator: RunningIndicator;
 	kindIcon: ReactNode;
 }) {
-	const t = useT();
 	return (
 		<span
-			{...(state === "done" ? { role: "img", "aria-label": t("tools.status.done") } : { "aria-hidden": true })}
+			aria-hidden
 			className={cx(
 				"omp-tool-status-icon flex size-(--sc-icon-sm) shrink-0 items-center justify-center [&>svg]:size-(--sc-icon-sm)",
 				state === "error" ? "text-(--sc-danger)" : "text-(--sc-text-muted)",
@@ -227,11 +256,12 @@ export function ToolCard({
 	// split or the side panel), so the body repeats only what the row cannot show.
 	const [targetShown, setTargetShown] = useState(false);
 	const rowRef = useRef<HTMLButtonElement>(null);
+	useSliverGuard(rowRef);
 	useLayoutEffect(() => {
 		const row = rowRef.current;
 		if (!expanded || !row) return;
 		const measure = () => {
-			const summary = row.querySelector<HTMLElement>(".omp-tool-summary:not([data-desktop-slot-waiting])");
+			const summary = row.querySelector<HTMLElement>(ROW_TARGET);
 			setTargetShown(
 				summary !== null &&
 					summary.clientWidth > 0 &&
@@ -283,6 +313,8 @@ export function ToolCard({
 			((header.target.endsWith("…") || intent.includes("\n")) && intent.toLocaleLowerCase().startsWith(targetCore)));
 	const target = restates ? "" : header.target;
 	const label = header.labelKey ? t(header.labelKey, header.labelParams) : header.tool;
+	// With no other target the tool's label follows the intent on the row; otherwise a screen reader hears it first.
+	const labelAfterIntent = intent !== undefined && !header.path && !target && !streamingSummary;
 	const diffStats = useMemo(
 		() => (isAborted ? null : toolDiffStats(toolName, args, result, failed)),
 		[toolName, args, result, failed, isAborted],
@@ -313,6 +345,7 @@ export function ToolCard({
 					runningIndicator={runningIndicator}
 					state={failed ? "error" : isAborted ? "aborted" : status === "running" ? "running" : "done"}
 				/>
+				{intent && !labelAfterIntent ? <span className="sr-only">{`${label}, `}</span> : null}
 				<span
 					className={cx(
 						intent ? "omp-tool-intent min-w-0 truncate" : "omp-tool-name shrink-0",
@@ -323,7 +356,6 @@ export function ToolCard({
 				>
 					{intent ?? label}
 				</span>
-				{status === "running" && !failed ? <span className="sr-only">{t("chat.exec.running")}</span> : null}
 				{slotPosition !== null && !failed ? (
 					<span
 						className="omp-tool-summary min-w-0 truncate text-(--sc-text-muted)"
@@ -348,7 +380,7 @@ export function ToolCard({
 					<span className="omp-tool-summary min-w-0 truncate font-mono text-(--sc-text-subtle)">
 						{streamingSummary}…
 					</span>
-				) : intent ? (
+				) : labelAfterIntent ? (
 					// No other target: the tool that ran (an MCP server's tool, a device) stays named after the intent.
 					<span className={cx("omp-tool-kind min-w-0 truncate", AFTER_INTENT_CLASS)} title={label}>
 						{label}
@@ -364,7 +396,11 @@ export function ToolCard({
 					<span className="omp-tool-state shrink-0 text-sc-xs text-(--sc-text-muted)">
 						{t("tools.status.interrupted")}
 					</span>
-				) : null}
+				) : status === "running" ? (
+					<span className="sr-only">{t("chat.exec.running")}</span>
+				) : (
+					<span className="sr-only">{t("tools.status.done")}</span>
+				)}
 				{thoughts ? <ThoughtCount count={thoughts.count} /> : null}
 				{duration && (
 					<span className="omp-tool-duration shrink-0 text-sc-xs tabular-nums text-(--sc-text-subtle)">

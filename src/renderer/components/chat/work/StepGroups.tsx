@@ -191,7 +191,9 @@ function IntentGroup({ group }: { group: StepGroup }) {
 					<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">{t("tools.status.interrupted")}</span>
 				) : state === "running" ? (
 					<span className="sr-only">{t("chat.exec.running")}</span>
-				) : null}
+				) : (
+					<span className="sr-only">{t("tools.status.done")}</span>
+				)}
 				{thoughts ? <ThoughtCount count={thoughts.count} /> : null}
 				<ChevronRight
 					aria-hidden
