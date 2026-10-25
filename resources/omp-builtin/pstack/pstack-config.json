@@ -1,6 +1,6 @@
 {
 	"repo": "cursor/plugins",
-	"commit": "88d47514b82e7c44f00f2b2a72ff6dd12158038c",
+	"commit": "eb4db2b55b2b7dec3d9282754cddf0a56bf4ff10",
 	"path": "pstack",
-	"version": "0.15.29"
+	"version": "0.15.30"
 }
