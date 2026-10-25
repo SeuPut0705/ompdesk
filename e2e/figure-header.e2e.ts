@@ -156,7 +156,12 @@ for (const language of variants(["en", "ko"] as const satisfies readonly Languag
 				await page.locator("textarea").first().fill("fixture write figure");
 				await page.keyboard.press("Enter");
 				const card = page.locator("[data-figure]").filter({ hasText: "flow.mmd" }).first();
-				await expect(page.getByText("docs/flow.mmd").first()).toBeAttached({ timeout: 30_000 });
+				// A finished card names its files only in its steps (v0.74.0 removed the Outcome list): wait for the run
+				// to finish, then open its steps.
+				const work = page.locator('.omp-execution-group[data-state="complete"]').last();
+				await expect(work).toBeAttached({ timeout: 30_000 });
+				await work.locator(".omp-execution-group-header").click();
+				await expect(work.getByText("flow.mmd").first()).toBeAttached({ timeout: 10_000 });
 				// The finished turn folds its steps; open every fold, then the card's own chevron.
 				await page.evaluate(() => {
 					for (const details of document.querySelectorAll("details")) details.open = true;
