@@ -80,28 +80,29 @@ const ROW_TARGET = ".omp-tool-summary:not([data-desktop-slot-waiting]), .omp-too
 
 let sliverObserver: ResizeObserver | undefined;
 
-function markSlivers(entries: readonly ResizeObserverEntry[]): void {
-	for (const { target } of entries) {
-		const summary = target.querySelector<HTMLElement>(ROW_TARGET);
-		summary?.toggleAttribute(
-			"data-sliver",
-			summary.clientWidth < TARGET_MIN_PX && summary.scrollWidth > summary.clientWidth,
-		);
-	}
+function markSliver(summary: Element): void {
+	summary.toggleAttribute(
+		"data-sliver",
+		summary.clientWidth < TARGET_MIN_PX && summary.scrollWidth > summary.clientWidth,
+	);
 }
 
 /**
- * Marks a step row's target `data-sliver` while the row leaves it too little room to say anything. One observer
- * for every row, and only a DOM attribute: a 165-step card re-renders nothing when its rows are measured.
+ * Marks a step row's target `data-sliver` while the row leaves it too little room to say anything. One observer for
+ * every row, watching the target's own box (its room shrinks when the intent, the state or the time beside it grows,
+ * though the row keeps its width), and only a DOM attribute: a 165-step card re-renders nothing when its rows are
+ * measured. `text` is what the target shows: a new text is observed afresh, which measures it again.
  */
-export function useSliverGuard(row: RefObject<HTMLElement | null>): void {
+export function useSliverGuard(row: RefObject<HTMLElement | null>, text: string): void {
 	useEffect(() => {
-		const element = row.current;
-		if (!element || typeof ResizeObserver === "undefined") return;
-		sliverObserver ??= new ResizeObserver(markSlivers);
-		sliverObserver.observe(element);
-		return () => sliverObserver?.unobserve(element);
-	}, [row]);
+		const summary = text ? row.current?.querySelector(ROW_TARGET) : null;
+		if (!summary || typeof ResizeObserver === "undefined") return;
+		sliverObserver ??= new ResizeObserver(entries => {
+			for (const { target } of entries) markSliver(target);
+		});
+		sliverObserver.observe(summary);
+		return () => sliverObserver?.unobserve(summary);
+	}, [row, text]);
 }
 
 /** The one status/kind icon slot of a step row: live, failed, stopped, or the kind icon when done. */
@@ -256,25 +257,6 @@ export function ToolCard({
 	// split or the side panel), so the body repeats only what the row cannot show.
 	const [targetShown, setTargetShown] = useState(false);
 	const rowRef = useRef<HTMLButtonElement>(null);
-	useSliverGuard(rowRef);
-	useLayoutEffect(() => {
-		const row = rowRef.current;
-		if (!expanded || !row) return;
-		const measure = () => {
-			const summary = row.querySelector<HTMLElement>(ROW_TARGET);
-			setTargetShown(
-				summary !== null &&
-					summary.clientWidth > 0 &&
-					summary.scrollWidth <= summary.clientWidth &&
-					!summary.textContent?.endsWith("…"),
-			);
-		};
-		measure();
-		if (typeof ResizeObserver === "undefined") return;
-		const observer = new ResizeObserver(measure);
-		observer.observe(row);
-		return () => observer.disconnect();
-	}, [expanded]);
 	// Only an open body shows streaming output, so a collapsed card ignores it.
 	const partialResult = useToolsStore(s => (expanded ? s.partialResults.get(toolCallId) : undefined));
 
@@ -315,6 +297,27 @@ export function ToolCard({
 	const label = header.labelKey ? t(header.labelKey, header.labelParams) : header.tool;
 	// With no other target the tool's label follows the intent on the row; otherwise a screen reader hears it first.
 	const labelAfterIntent = intent !== undefined && !header.path && !target && !streamingSummary;
+	// The text the row's target shows: a change measures it again even when its box keeps its size.
+	const targetText = header.path ?? (target || streamingSummary || (labelAfterIntent ? label : ""));
+	useSliverGuard(rowRef, targetText);
+	useLayoutEffect(() => {
+		const summary = targetText ? rowRef.current?.querySelector<HTMLElement>(ROW_TARGET) : null;
+		if (!expanded) return;
+		const measure = () =>
+			setTargetShown(
+				summary != null &&
+					summary.clientWidth > 0 &&
+					summary.scrollWidth <= summary.clientWidth &&
+					!summary.textContent?.endsWith("…"),
+			);
+		measure();
+		if (!summary || typeof ResizeObserver === "undefined") return;
+		// The target's own box: it narrows when the window, a split or the side panel narrows the row, and when the
+		// intent, the state or the time beside it takes more of a row already at its widest.
+		const observer = new ResizeObserver(measure);
+		observer.observe(summary);
+		return () => observer.disconnect();
+	}, [expanded, targetText]);
 	const diffStats = useMemo(
 		() => (isAborted ? null : toolDiffStats(toolName, args, result, failed)),
 		[toolName, args, result, failed, isAborted],

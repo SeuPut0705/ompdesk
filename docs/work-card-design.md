@@ -64,7 +64,8 @@ with a "Thought · 144 words" line between most steps (28 % of its rows). Every 
   state ("Run command, Checking the types, bun run check:types, Done"); failed and interrupted rows and groups show
   their state in words.
 - An opened body starts with what its row did not say. `ToolCard` measures its target while the body is open (a
-  `ResizeObserver` on the row, so a narrowed window, split, side panel or rotation counts) and passes
+  `ResizeObserver` on the target's own box, so a narrowed window, split, side panel or rotation counts, and so does a
+  longer intent, state or time beside it in a row already at its widest; a new target text is measured again) and passes
   `rowShowsTarget` only while the target shows whole. Then edit, write and read bodies keep an "Open file" link (the
   file name read aloud with it, an edit's first changed line beside it) instead of the path and `+N −M`; a URL or
   internal resource read keeps nothing about it; bash keeps its exit, timeout and wall-time badges without the

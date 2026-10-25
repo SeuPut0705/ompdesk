@@ -79,7 +79,7 @@ export function ReadGroupCard({
 	const state = anyPending ? "running" : anyError ? "error" : anyAborted ? "aborted" : "done";
 	const single = rows.length === 1 ? rows[0] : undefined;
 	const rowRef = useRef<HTMLButtonElement>(null);
-	useSliverGuard(rowRef);
+	useSliverGuard(rowRef, rows.map(row => `${row.path}:${row.selector ?? ""}`).join("\n"));
 
 	return (
 		<div className={cx("omp-read-group", pad)}>
