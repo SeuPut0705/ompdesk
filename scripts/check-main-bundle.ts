@@ -74,7 +74,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
  * not in it.
  */
 // R3-4 intent rows add 7,595 bytes to the eager main chunk (trunk 9d1a7d055 3,303,582 → 3,311,177).
-const WEB_FIRST_SCREEN_JS_BYTES = 3_319_000;
+// R3-3's same-call verdict (the work card's settle and step list, the board's newest-turn check) adds 7,234 bytes over
+// its base (main 7dfaf5a13 3,315,869 → 3,323,103).
+const WEB_FIRST_SCREEN_JS_BYTES = 3_324_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
