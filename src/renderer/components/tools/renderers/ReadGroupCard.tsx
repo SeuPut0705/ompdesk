@@ -13,7 +13,16 @@ import { useT } from "../../../lib/i18n";
 import { mergeReadGroupEntries, type ReadGroupEntry, type ReadGroupUsage } from "../../../lib/read-group";
 import { selectToolEntry, useToolsStore } from "../../../stores/tools";
 import { UsageRow } from "../../chat/UsageRow";
-import { type RunningIndicator, TOOL_ROW_CLASS, ToolCard, ToolPathTarget, ToolStatusIcon } from "../ToolCard";
+import {
+	AFTER_INTENT_CLASS,
+	type RunningIndicator,
+	type StepThoughts,
+	ThoughtCount,
+	TOOL_ROW_CLASS,
+	ToolCard,
+	ToolPathTarget,
+	ToolStatusIcon,
+} from "../ToolCard";
 
 function statusOf(status: string | undefined): "pending" | "success" | "error" | "aborted" {
 	if (status === "error") return "error";
@@ -26,14 +35,20 @@ export function ReadGroupCard({
 	entries,
 	forceOpen = false,
 	inset,
+	intent,
 	runningIndicator = "spinner",
+	thoughts,
 	usage,
 }: {
 	entries: ReadGroupEntry[];
 	/** Opens the group (again) whenever this changes to something truthy: a work card showing a failed or asked-for read. */
 	forceOpen?: boolean | object;
 	inset?: boolean;
+	/** What every read in it was for: the row leads with it, the files follow muted. */
+	intent?: string;
 	runningIndicator?: RunningIndicator;
+	/** The thoughts just before the reads, folded into the row. */
+	thoughts?: StepThoughts;
 	/** Usage carried from fully-consumed assistant turns (TUI parity). */
 	usage?: ReadGroupUsage[];
 }) {
@@ -72,17 +87,26 @@ export function ReadGroupCard({
 				<ToolStatusIcon kindIcon={<FileText />} runningIndicator={runningIndicator} state={state} />
 				<span
 					className={cx(
-						"shrink-0 font-medium",
+						intent ? "min-w-0 truncate" : "shrink-0",
+						"font-medium",
 						state === "error" ? "text-(--sc-danger)" : "text-(--sc-text-secondary)",
 					)}
+					title={intent}
 				>
-					{t("tools.label.read")}
+					{intent ?? t("tools.label.read")}
 				</span>
 				{single ? (
-					<ToolPathTarget path={single.path} suffix={single.selector ? `:${single.selector}` : undefined} />
+					<ToolPathTarget
+						afterIntent={!!intent}
+						path={single.path}
+						suffix={single.selector ? `:${single.selector}` : undefined}
+					/>
 				) : (
 					<span
-						className="omp-tool-summary min-w-0 truncate text-(--sc-text-muted)"
+						className={cx(
+							"omp-tool-summary min-w-0 truncate",
+							intent ? AFTER_INTENT_CLASS : "text-(--sc-text-muted)",
+						)}
 						title={rows.map(row => row.path).join("\n")}
 					>
 						{t("readGroup.files", { count: rows.length })}
@@ -96,6 +120,7 @@ export function ReadGroupCard({
 				) : state === "aborted" ? (
 					<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">{t("tools.status.interrupted")}</span>
 				) : null}
+				{thoughts ? <ThoughtCount count={thoughts.count} /> : null}
 				<ChevronRight
 					aria-hidden
 					className={cx(
@@ -106,6 +131,7 @@ export function ReadGroupCard({
 			</button>
 			{open && (
 				<div className="omp-read-group-body">
+					{thoughts?.body}
 					{entries.map(entry => (
 						<ToolCard
 							key={entry.toolKey}
@@ -113,6 +139,7 @@ export function ReadGroupCard({
 							toolName="read"
 							args={entry.args}
 							runningIndicator="dot"
+							showIntent={!intent}
 						/>
 					))}
 				</div>

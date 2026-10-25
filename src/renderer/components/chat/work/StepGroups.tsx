@@ -3,11 +3,13 @@ import { type ReactNode, useContext, useEffect, useMemo, useState } from "react"
 import type { AgentMessage } from "../../../../shared/rpc-types";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
+import { isRenderableMessageText } from "../../../lib/messages";
 import { useMessagesStore } from "../../../stores/messages";
 import { selectToolEntry, useToolsStore } from "../../../stores/tools";
 import { ReadGroupCard } from "../../tools/renderers/ReadGroupCard";
-import { TOOL_ROW_CLASS, ToolCard, ToolStatusIcon } from "../../tools/ToolCard";
+import { type StepThoughts, ThoughtCount, TOOL_ROW_CLASS, ToolCard, ToolStatusIcon } from "../../tools/ToolCard";
 import { MessageBubble } from "../MessageBubble";
+import { ThinkingBlock } from "../ThinkingBlock";
 import { UsageRow } from "../UsageRow";
 import { type StepReveal, StepRevealContext } from "./reveal-step";
 import { groupSteps, type StepGroup, type StepItem, type StepRow } from "./work-steps";
@@ -42,7 +44,30 @@ function StepFrame({ children }: { children: ReactNode }) {
 	);
 }
 
-function StepItemView({ item }: { item: StepItem }) {
+/** The thoughts folded into a step's row, as they read when it opens: each one's own Thought line. */
+function stepThoughts(messages: readonly AgentMessage[] | undefined): StepThoughts | undefined {
+	if (!messages?.length) return undefined;
+	return {
+		count: messages.length,
+		body: (
+			<div className="omp-step-thoughts-body">
+				{messages.map((message, index) => (
+					<div key={index}>
+						{(Array.isArray(message.content) ? message.content : []).map((block, blockIndex) =>
+							block.type === "thinking" && isRenderableMessageText(block.thinking) ? (
+								<ThinkingBlock key={blockIndex} text={block.thinking} />
+							) : null,
+						)}
+						{message.usage ? <UsageRow message={message} /> : null}
+					</div>
+				))}
+			</div>
+		),
+	};
+}
+
+/** One step. Inside an intent group the group's row already says the intent, so its calls do not repeat it. */
+function StepItemView({ item, inGroup = false }: { item: StepItem; inGroup?: boolean }) {
 	switch (item.kind) {
 		case "message":
 			return <MessageBubble compact message={item.message} runningIndicator="dot" />;
@@ -52,6 +77,8 @@ function StepItemView({ item }: { item: StepItem }) {
 					<ToolCard
 						args={item.call.arguments}
 						runningIndicator="dot"
+						showIntent={!inGroup}
+						thoughts={stepThoughts(item.thoughts)}
 						toolCallId={item.key}
 						toolName={item.call.name}
 					/>
@@ -87,7 +114,17 @@ function useOpensItself(keys: readonly string[], outcomes: string): boolean | St
 function ReadsRow({ item }: { item: Extract<StepItem, { kind: "reads" }> }) {
 	const keys = useMemo(() => item.entries.map(entry => entry.toolKey), [item.entries]);
 	const opens = useOpensItself(keys, useStepOutcomes(keys));
-	return <ReadGroupCard entries={item.entries} forceOpen={opens} inset runningIndicator="dot" usage={item.usage} />;
+	return (
+		<ReadGroupCard
+			entries={item.entries}
+			forceOpen={opens}
+			inset
+			intent={item.intent}
+			runningIndicator="dot"
+			thoughts={stepThoughts(item.thoughts)}
+			usage={item.usage}
+		/>
+	);
 }
 
 /**
@@ -106,6 +143,7 @@ function IntentGroup({ group }: { group: StepGroup }) {
 		if (opens) setOpen(true);
 	}, [opens]);
 	const state = running ? "running" : failed ? "error" : outcomes.includes("interrupted") ? "aborted" : "done";
+	const thoughts = stepThoughts(group.thoughts);
 	return (
 		<div className="omp-step-group" data-step-group="" data-open={open} data-state={state}>
 			{/* controls-ok: the omp-step-group-header class draws the whole control */}
@@ -131,6 +169,7 @@ function IntentGroup({ group }: { group: StepGroup }) {
 				{failed ? (
 					<span className="shrink-0 text-sc-xs font-medium text-(--sc-danger)">{t("tools.status.failed")}</span>
 				) : null}
+				{thoughts ? <ThoughtCount count={thoughts.count} /> : null}
 				<ChevronRight
 					aria-hidden
 					className={cx(
@@ -141,8 +180,9 @@ function IntentGroup({ group }: { group: StepGroup }) {
 			</button>
 			{open ? (
 				<div className="omp-step-group-body">
+					{thoughts ? <StepFrame>{thoughts.body}</StepFrame> : null}
 					{group.items.map(item => (
-						<StepItemView item={item} key={item.key} />
+						<StepItemView inGroup item={item} key={item.key} />
 					))}
 				</div>
 			) : null}

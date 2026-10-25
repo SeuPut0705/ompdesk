@@ -93,3 +93,137 @@ describe("ToolCard terminal states", () => {
 		ticker.mockRestore();
 	});
 });
+
+/** A finished call as stock records it: the call (with its wire intent) and its result. */
+function finished(
+	id: string,
+	name: string,
+	args: Record<string, unknown>,
+	intent?: string,
+	details?: Record<string, unknown>,
+): AgentMessage[] {
+	return [
+		{
+			role: "assistant",
+			content: [{ type: "toolCall", id, name, arguments: args, ...(intent ? { intent } : {}) }],
+			timestamp: 1_000,
+		},
+		{
+			role: "toolResult",
+			toolCallId: id,
+			toolName: name,
+			content: [{ type: "text", text: "ok" }],
+			...(details ? { details } : {}),
+			isError: false,
+			timestamp: 2_000,
+		} as unknown as AgentMessage,
+	];
+}
+
+/** The row's accessible name: its text and labelled images, without what is hidden from assistive tech. */
+function accessibleName(node: Element): string {
+	if (node.getAttribute("aria-hidden") === "true") return "";
+	if (node.getAttribute("role") === "img") return node.getAttribute("aria-label") ?? "";
+	return [...node.childNodes]
+		.map(child => (child.nodeType === 3 ? (child.textContent ?? "") : accessibleName(child as Element)))
+		.join(" ");
+}
+
+async function renderRow(
+	messages: AgentMessage[],
+	name: string,
+	args: Record<string, unknown>,
+	props: { showIntent?: boolean } = {},
+): Promise<{ root: Root; row: HTMLElement }> {
+	useToolsStore.getState().hydrateMessages(messages);
+	const container = document.createElement("div");
+	document.body.appendChild(container);
+	const root = createRoot(container);
+	await act(async () => {
+		root.render(
+			<I18nProvider>
+				<ToolCard args={args} toolCallId="c" toolName={name} {...props} />
+			</I18nProvider>,
+		);
+	});
+	return { root, row: container.querySelector("button") as unknown as HTMLElement };
+}
+
+const words = (text: string) => text.replace(/\s+/g, " ").trim();
+
+describe("ToolCard rows by intent", () => {
+	it.each([
+		["bash", { command: "bun run check:types" }, "Checking the types", "bun run check:types", "Run command"],
+		["edit", { path: "src/app/main.ts", edits: [] }, "Fixing the import", "main.ts", "Edit"],
+		["read", { path: "src/app/main.ts" }, "Reading the entry point", "main.ts", "Read"],
+		[
+			"eval",
+			{ language: "py", title: "Montage", code: "print(1)" },
+			"Montaging captures side by side",
+			"Montage",
+			"Run",
+		],
+	])(
+		"leads a %s row with its intent, the target after it, the tool label gone",
+		async (name, args, intent, target, label) => {
+			const { root, row } = await renderRow(finished("c", name, args, intent), name, args);
+			const text = words(row.textContent ?? "");
+			expect(text.startsWith(intent)).toBe(true);
+			expect(text.indexOf(target)).toBeGreaterThan(intent.length - 1);
+			expect(text.slice(intent.length)).not.toContain(label);
+			const spoken = words(accessibleName(row));
+			expect(spoken).toContain(intent);
+			expect(spoken).toContain(target);
+			expect(spoken).toContain("Done");
+			await act(async () => root.unmount());
+		},
+	);
+
+	it("says a subagent's intent once when its target only restates it", async () => {
+		const args = { i: "Reviewing the diff", agent: "reviewer", tasks: [] };
+		const { root, row } = await renderRow(finished("c", "task", args), "task", args);
+		expect(words(row.textContent ?? "").split("Reviewing the diff")).toHaveLength(2);
+		await act(async () => root.unmount());
+	});
+
+	it("keeps the tool's label and target for a call with no intent, a generic one, or under a row that says it", async () => {
+		const args = { command: "ls -la" };
+		for (const [intent, props] of [
+			[undefined, {}],
+			["Running requested command", {}],
+			["Listing files", { showIntent: false }],
+		] as const) {
+			useToolsStore.getState().reset();
+			const { root, row } = await renderRow(finished("c", "bash", args, intent), "bash", args, props);
+			const text = words(row.textContent ?? "");
+			expect(text.startsWith("Run command")).toBe(true);
+			expect(text).toContain("ls -la");
+			expect(text).not.toContain("Listing files");
+			await act(async () => root.unmount());
+		}
+	});
+});
+
+describe("ToolCard opened bodies", () => {
+	const count = (text: string, part: string) => text.split(part).length - 1;
+
+	it.each([
+		["edit", { path: "src/app/main.ts", edits: [] }, { diff: "@@ -1,2 +1,3 @@\n a\n-b\n+c\n+d\n" }],
+		["read", { path: "src/app/main.ts" }, undefined],
+	])(
+		"names an opened %s step's file and line counts once, and keeps a link that opens it",
+		async (name, args, details) => {
+			const { root, row } = await renderRow(finished("c", name, args, "Fixing the import", details), name, args);
+			await act(async () => row.dispatchEvent(new Event("click", { bubbles: true }) as never));
+			const card = row.parentElement as HTMLElement;
+			expect(card.querySelector(".omp-tool-body")).not.toBeNull();
+			expect(count(card.textContent ?? "", "main.ts")).toBe(1);
+			expect(count(card.textContent ?? "", "src/app")).toBe(1);
+			if (details) expect(card.querySelectorAll(".omp-tool-diffstat")).toHaveLength(1);
+			const open = card.querySelector(".omp-tool-body .omp-tool-open-file");
+			expect(open?.textContent).toBe("Open file");
+			expect(open?.getAttribute("title")).toBe("src/app/main.ts");
+			await act(async () => root.unmount());
+		},
+	);
+});

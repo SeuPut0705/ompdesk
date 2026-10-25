@@ -16,11 +16,12 @@ const result = (id: string): AgentMessage =>
 
 const readTarget = (path: string) => ({ __ompReadGroup: { path } });
 
-/** A row as a short word: `call:id`, `reads:a+b`, `intent:label[...]`, `text`, `thinking`. */
+/** A row as a short word: `call:id`, `reads:a+b`, `intent:label[...]`, `text`, `thinking`; `^N` = N thoughts folded in. */
 function shape(row: StepRow): string {
-	if (row.kind === "call") return `call:${row.call.id}`;
-	if (row.kind === "reads") return `reads:${row.entries.map(entry => entry.callId).join("+")}`;
-	if (row.kind === "intent") return `intent:${row.label}[${row.items.map(shape).join(",")}]`;
+	const folded = row.kind !== "message" && row.thoughts ? `^${row.thoughts.length}` : "";
+	if (row.kind === "call") return `call:${row.call.id}${folded}`;
+	if (row.kind === "reads") return `reads:${row.entries.map(entry => entry.callId).join("+")}${folded}`;
+	if (row.kind === "intent") return `intent:${row.label}[${row.items.map(shape).join(",")}]${folded}`;
 	return row.thinkingOnly ? "thinking" : "text";
 }
 
@@ -61,7 +62,7 @@ describe("groupSteps", () => {
 		expect(rows.map(shape)).toEqual(["call:a", "call:b", "call:c", "call:d"]);
 	});
 
-	it("lets thinking sit inside a group and ends it at a visible reply", () => {
+	it("lets thinking sit inside a group, folded into the call after it, and ends the group at a visible reply", () => {
 		const thinking: MessageContent = { type: "thinking", thinking: "hmm" };
 		const text: MessageContent = { type: "text", text: "Looks fine so far." };
 		expect(
@@ -71,20 +72,40 @@ describe("groupSteps", () => {
 				assistant([text, call("c", "bash", {}, "Running tests")]),
 				assistant([call("d", "bash", {}, "Running tests")]),
 			]).map(shape),
-		).toEqual(["intent:Running tests[call:a,thinking,call:b]", "text", "intent:Running tests[call:c,call:d]"]);
+		).toEqual(["intent:Running tests[call:a,call:b^1]", "text", "intent:Running tests[call:c,call:d]"]);
 	});
 
-	it("keeps a thinking that no further call follows outside the group", () => {
-		const thinking: MessageContent = { type: "thinking", thinking: "hmm" };
-		expect(
-			groupSteps([
-				assistant([call("a", "bash", {}, "Same"), call("b", "bash", {}, "Same")]),
-				assistant([thinking, call("c", "bash", {}, "Other")]),
-			]).map(shape),
-		).toEqual(["intent:Same[call:a,call:b]", "thinking", "call:c"]);
+	it("folds the thoughts before a step into its row, the group's row too, and keeps them in order", () => {
+		const first: MessageContent = { type: "thinking", thinking: "first" };
+		const second: MessageContent = { type: "thinking", thinking: "second" };
+		const rows = groupSteps([
+			assistant([first]),
+			assistant([second, call("a", "bash", {}, "Same"), call("b", "bash", {}, "Same")]),
+			assistant([{ type: "thinking", thinking: "third" }, call("c", "bash", {}, "Other")]),
+		]);
+		expect(rows.map(shape)).toEqual(["intent:Same[call:a,call:b]^2", "call:c^1"]);
+		const group = rows[0];
+		expect(group?.kind === "intent" && group.thoughts?.map(message => message.content)).toEqual([[first], [second]]);
 	});
 
-	it("folds consecutive collapsible reads into the read group, inside and outside an intent", () => {
+	it("keeps a run of thoughts no step follows as one row, at the end and before a reply", () => {
+		const usage = { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 3, cost: { total: 0.01 } };
+		const rows = groupSteps([
+			assistant([call("a", "bash", {})]),
+			assistant([{ type: "thinking", thinking: "one" }]),
+			assistant([{ type: "thinking", thinking: "two" }]),
+			assistant([{ type: "text", text: "Done." }]),
+			assistant([{ type: "thinking", thinking: "three" }]),
+			assistant([{ type: "thinking", thinking: "four" }], { usage }),
+		]);
+		expect(rows.map(shape)).toEqual(["call:a", "thinking", "text", "thinking"]);
+		const merged = rows.map(row => (row.kind === "message" && row.thinkingOnly ? row.message : null));
+		expect(merged[1]?.content).toEqual([{ type: "thinking", thinking: "one\n\ntwo" }]);
+		expect(merged[3]?.content).toEqual([{ type: "thinking", thinking: "three\n\nfour" }]);
+		expect(merged[3]?.usage).toBe(usage);
+	});
+
+	it("folds two or more consecutive collapsible reads into the read group, inside and outside an intent", () => {
 		const rows = groupSteps([
 			assistant([
 				call("r1", "read", readTarget("a.ts")),
@@ -94,33 +115,46 @@ describe("groupSteps", () => {
 				call("r4", "read", readTarget("d.ts"), "Looking around"),
 				call("g", "grep", {}, "Looking around"),
 				call("r5", "read", readTarget("e.ts"), "Looking around"),
+				call("r6", "read", readTarget("f.ts")),
 			]),
 		]);
-		expect(rows.map(shape)).toEqual(["reads:r1+r2", "call:e", "intent:Looking around[reads:r3+r4,call:g,reads:r5]"]);
+		expect(rows.map(shape)).toEqual([
+			"reads:r1+r2",
+			"call:e",
+			"intent:Looking around[reads:r3+r4,call:g,call:r5]",
+			"call:r6",
+		]);
 		const group = rows[2];
 		expect(group?.kind === "intent" && group.callKeys).toEqual(["r3", "r4", "g", "r5"]);
 	});
 
-	it("shows a group made only of folded reads as the read group itself", () => {
-		expect(
-			groupSteps([
-				assistant([
-					call("r1", "read", readTarget("a.ts"), "Reading the sources"),
-					call("r2", "read", readTarget("b.ts"), "Reading the sources"),
-				]),
-			]).map(shape),
-		).toEqual(["reads:r1+r2"]);
+	it("shows a group made only of folded reads as the read group itself, led by their intent", () => {
+		const rows = groupSteps([
+			assistant([
+				call("r1", "read", readTarget("a.ts"), "Reading the sources"),
+				call("r2", "read", readTarget("b.ts"), "Reading the sources"),
+			]),
+		]);
+		expect(rows.map(shape)).toEqual(["reads:r1+r2"]);
+		expect(rows[0]?.kind === "reads" && rows[0].intent).toBe("Reading the sources");
 	});
 
 	it("takes a read's target from the messages store's metadata when the call carries none", () => {
 		const rows = groupSteps(
-			[assistant([call("r1", "read", { path: "a.ts" }), call("r2", "read", { path: "b.ts" })])],
+			[
+				assistant([
+					call("r1", "read", { path: "a.ts" }),
+					call("r2", "read", { path: "b.ts" }),
+					call("r3", "read", { path: "c.ts" }),
+				]),
+			],
 			new Map([
 				["r1", { path: "a.ts" }],
-				["r2", null],
+				["r2", { path: "b.ts" }],
+				["r3", null],
 			]),
 		);
-		expect(rows.map(shape)).toEqual(["reads:r1", "call:r2"]);
+		expect(rows.map(shape)).toEqual(["reads:r1+r2", "call:r3"]);
 	});
 
 	it("splits a message around its calls with the same block objects, and keeps the usage under the last piece", () => {

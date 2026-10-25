@@ -10,8 +10,7 @@ import { MermaidBlock } from "../../chat/MermaidBlock";
 import { SvgBlock } from "../../chat/SvgBlock";
 import { DisclosureButton } from "../../common";
 import { unifiedDiffStats } from "../diff-stats";
-import { PathLink } from "../media/PathLink";
-import { DiffStatChip, ToolPathTarget, type ToolRendererProps } from "../ToolCard";
+import { BodyPathLink, DiffStatChip, type ToolRendererProps } from "../ToolCard";
 import { ProtocolWriteRenderer } from "./CoordinationRenderer";
 import { DiagnosticsChip, DiagnosticsSection, resultDiagnostics } from "./Diagnostics";
 import { liveDiffProps } from "./live-diff";
@@ -133,6 +132,7 @@ export function WriteRenderer({
 	partialResult,
 	interrupted,
 	livePreview,
+	rowShowsTarget,
 }: ToolRendererProps) {
 	const t = useT();
 	const [open, setOpen] = useState(livePreview === true);
@@ -231,18 +231,16 @@ export function WriteRenderer({
 						<FilePlus2 aria-hidden size={12} className="shrink-0 text-[var(--omp-dim)]" />
 					</DisclosureButton>
 				</span>
-				<PathLink path={openPath} className="truncate">
-					<ToolPathTarget path={path} />
-				</PathLink>
+				<BodyPathLink openPath={openPath} path={path} rowShowsTarget={rowShowsTarget} />
 				<span className="ml-auto flex shrink-0 items-center gap-1.5 text-omp-xs text-[var(--omp-dim)]">
-					{stats && <DiffStatChip stats={stats} />}
+					{stats && !rowShowsTarget && <DiffStatChip stats={stats} />}
 					{overwritten && !diff && (
 						<span className="text-[var(--omp-warning)]">{t("tools.write.overwritten")}</span>
 					)}
 					{details?.madeExecutable === true && (
 						<span className="text-[var(--omp-success)]">{t("tools.write.executable")}</span>
 					)}
-					<DiagnosticsChip files={diagnostics} />
+					{rowShowsTarget ? null : <DiagnosticsChip files={diagnostics} />}
 					<span>{t("tools.write.lines", { count: lineCount })}</span>
 				</span>
 			</div>

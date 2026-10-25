@@ -43,7 +43,25 @@ collapsible reads into the transcript's own read-group card. Rules that keep it 
 - Only thinking may sit between two calls of one intent; a visible reply or a note ends the group.
 - Only a finished card groups. A running card keeps one bubble per message as it arrives, so the live list never
   rearranges under the reader's eye; it lines up when the run ends.
-- `transcriptDetail` full mode is unchanged: it has no work card, and its own read grouping is untouched.
+- `transcriptDetail` full mode has no work card and keeps its own read grouping; its tool rows are `ToolCard`s too,
+  so they lead with the intent as below.
+
+### Rows by intent (R3-4, 25 Oct 2026)
+
+Opened, the 165-step v0.73 redesign turn read as tool names: "Read board-cmp-phone.png", "Run command grep -n …",
+with a "Thought · 144 words" line between most steps (28 % of its rows). Every one of its 352 calls carried an intent.
+
+- A row leads with what the agent meant to do (`stepIntent`: "Montaging board captures side by side"), and the
+  call's target (file name first, command, pattern) follows muted. The target starts from no width and takes only
+  the room the intent leaves (`AFTER_INTENT_CLASS`), so a narrow row clips the target first and the intent only when
+  it alone does not fit. A call with no intent, a generic one, and a call inside an intent group (whose row already
+  says it) keep the tool's label and target. A target that only restates the intent (a wait's `i`, a subagent's)
+  is said once. A done row says "Done" to a screen reader; the other states say theirs in words.
+- Thoughts fold into the step after them: the row counts them ("1 thought") and, opened, shows them first, each its
+  own collapsed Thought line. A run of thoughts no step follows (the card's end, or before a reply) stays one row,
+  their thinking joined. On the long turn no "Thought · N words" line is left between steps.
+- A lone read is a plain row that opens straight to the file; two or more consecutive reads still fold into the
+  read-group card, which leads with their intent when they came as one run of it.
 
 ## Chips
 

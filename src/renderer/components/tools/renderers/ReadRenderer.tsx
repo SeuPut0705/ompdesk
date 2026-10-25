@@ -11,9 +11,8 @@ import { useT } from "../../../lib/i18n";
 import { PREVIEW_HEIGHT_LG, PREVIEW_SCROLL_LG, READ_PREVIEW_LINES } from "../../../lib/preview";
 import { asArray, asNumber, asRecord, asString } from "../../../lib/wire-value";
 import { CodeBlock } from "../../chat/CodeBlock";
-import { PathLink } from "../media/PathLink";
 import { ToolImage } from "../media/ToolImage";
-import { ToolPathTarget, type ToolRendererProps } from "../ToolCard";
+import { BodyPathLink, type ToolRendererProps } from "../ToolCard";
 import { ProcReadRenderer } from "./CoordinationRenderer";
 import { metaTruncation, TruncationNote } from "./output-meta";
 
@@ -71,7 +70,15 @@ function stripReadSelector(path: string): string {
 	return index > 1 ? path.slice(0, index) : path;
 }
 
-export function ReadRenderer({ args, result, isError, isPartial, partialResult, livePreview }: ToolRendererProps) {
+export function ReadRenderer({
+	args,
+	result,
+	isError,
+	isPartial,
+	partialResult,
+	livePreview,
+	rowShowsTarget,
+}: ToolRendererProps) {
 	const t = useT();
 	const path = typeof args.path === "string" ? args.path : "";
 	const effective = isPartial ? partialResult : result;
@@ -133,13 +140,13 @@ export function ReadRenderer({ args, result, isError, isPartial, partialResult, 
 			{!livePreview && (
 				<div className="flex flex-col gap-0.5">
 					<div className="flex items-center gap-1.5 font-mono text-omp-sm">
-						<HeadIcon size={12} className="shrink-0 text-[var(--omp-dim)]" />
+						{rowShowsTarget && cfgPath === null ? null : (
+							<HeadIcon size={12} className="shrink-0 text-[var(--omp-dim)]" />
+						)}
 						{cfgPath !== null ? (
 							<span className="min-w-0 truncate text-[var(--omp-muted)]">{cfgPath || t("tools.cfg.all")}</span>
 						) : (
-							<PathLink path={basePath} className="truncate">
-								<ToolPathTarget path={basePath} />
-							</PathLink>
+							<BodyPathLink path={basePath} rowShowsTarget={rowShowsTarget} />
 						)}
 						{conflicts > 0 && (
 							<span className="shrink-0 text-sc-xs text-(--sc-warning)">

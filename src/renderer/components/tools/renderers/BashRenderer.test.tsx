@@ -84,8 +84,8 @@ describe("BashRenderer", () => {
 		expect(container.textContent).not.toContain("[32m");
 	});
 
-	it("restates the exit and wall-time trailer as badges on the command line, never raw", async () => {
-		await mount(
+	it("restates the exit and wall-time trailer as badges, never raw; the elapsed time only on the live stage", async () => {
+		const failed = (livePreview: boolean) => (
 			<BashRenderer
 				args={{ command: "false" }}
 				result={bashResult("boom output\n\nWall time: 0.42 seconds\n\nCommand exited with code 1", {
@@ -94,19 +94,25 @@ describe("BashRenderer", () => {
 					timeoutSeconds: 300,
 				})}
 				isError
-			/>,
+				livePreview={livePreview}
+			/>
 		);
+		await mount(failed(false));
 		const prompt = container.querySelector(".omp-bash-prompt");
 		expect(container.textContent).toContain("boom output");
 		expect(prompt?.querySelector(".omp-bash-badge")?.textContent).toBe("exit 1");
-		expect(prompt?.querySelector(".omp-bash-elapsed")?.textContent).toBe("420ms");
-		expect(prompt?.querySelector(".omp-bash-elapsed")?.getAttribute("title")).toBe("Wall time");
+		// The step row above a finished body already shows its time.
+		expect(prompt?.querySelector(".omp-bash-elapsed")).toBeNull();
 		for (const raw of ["Command exited with code", "Wall time:", "Wall:", "Timeout:", "Exit:", "["]) {
 			expect(container.textContent).not.toContain(raw);
 		}
+		await mount(failed(true));
+		const live = container.querySelector(".omp-bash-prompt .omp-bash-elapsed");
+		expect(live?.textContent).toBe("420ms");
+		expect(live?.getAttribute("title")).toBe("Wall time");
 	});
 
-	it("states the timeout and elapsed time in the UI language", async () => {
+	it("states the timeout in the UI language", async () => {
 		setLanguage("ko");
 		await mount(
 			<BashRenderer
@@ -120,8 +126,30 @@ describe("BashRenderer", () => {
 			/>,
 		);
 		const badges = [...container.querySelectorAll(".omp-bash-prompt > span")].slice(2).map(el => el.textContent);
-		expect(badges).toEqual(["시간 초과", "5.0초"]);
+		expect(badges).toEqual(["시간 초과"]);
 		expect(container.textContent).not.toContain("Command timed out");
+	});
+
+	it("does not repeat a one-line command the row shows whole, and keeps its exit code", async () => {
+		const run = (command: string, rowShowsTarget: boolean, exitCode?: number) => (
+			<BashRenderer
+				args={{ command }}
+				result={bashResult("listing", exitCode === undefined ? {} : { exitCode })}
+				rowShowsTarget={rowShowsTarget}
+			/>
+		);
+		await mount(run("ls -la", true, 2));
+		expect(container.textContent).not.toContain("ls -la");
+		expect(container.querySelector(".omp-bash-prompt .omp-bash-badge")?.textContent).toBe("exit 2");
+		expect(container.textContent).toContain("listing");
+		await mount(run("ls -la", true));
+		expect(container.querySelector(".omp-bash-prompt")).toBeNull();
+		expect(container.textContent).toBe("listing");
+		// A clipped row, or a command whose later lines the row never shows, keeps the command in the body.
+		await mount(run("ls -la", false));
+		expect(container.querySelector(".omp-bash-prompt")?.textContent).toContain("ls -la");
+		await mount(run("cd src\nls -la", true));
+		expect(container.querySelector(".omp-bash-prompt")?.textContent).toContain("ls -la");
 	});
 
 	it("strips the background-job trailer and restates the job id", async () => {

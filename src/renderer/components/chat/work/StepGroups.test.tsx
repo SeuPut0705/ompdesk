@@ -198,4 +198,46 @@ describe("StepGroups", () => {
 		expect(container.textContent).toContain("Looking.");
 		expect(cards()).toEqual(["a", "b"]);
 	});
+
+	it("folds the thoughts before a step into its row as a count, shows them first when it opens, and keeps a trailing run one row", async () => {
+		const think = (text: string) => assistant([{ type: "thinking", thinking: text }]);
+		await mount(
+			[
+				think("First idea"),
+				assistant([{ type: "thinking", thinking: "Second idea" }, call("a", "bash", { command: "ls" }, "Listing")]),
+				think("Wrapping up"),
+				think("Really done"),
+			],
+			[["a", { ...bash("ls"), intent: "Listing" }]],
+		);
+		const card = container.querySelector("[data-tool-call-id='a']");
+		const header = card?.querySelector("button");
+		expect(header?.textContent).toContain("Listing");
+		expect(header?.textContent).toContain("2 thoughts");
+		expect(container.querySelectorAll(".omp-thinking-block")).toHaveLength(1);
+		await act(async () => header?.dispatchEvent(new Event("click", { bubbles: true }) as never));
+		const body = card?.querySelector(".omp-tool-body");
+		expect(body?.firstElementChild?.querySelectorAll(".omp-thinking-block")).toHaveLength(2);
+		expect(body?.querySelector(".omp-bash-terminal")).not.toBeNull();
+	});
+
+	it("still opens a failed group by itself when thoughts folded into its row", async () => {
+		await mount(
+			[
+				assistant([{ type: "thinking", thinking: "Try the suite" }]),
+				assistant([
+					call("a", "bash", { command: "x" }, "Running the tests"),
+					call("b", "bash", { command: "x" }, "Running the tests"),
+				]),
+			],
+			[
+				["a", bash("x")],
+				["b", bash("x", "error")],
+			],
+		);
+		expect(groups()).toHaveLength(1);
+		expect(groups()[0]?.getAttribute("data-open")).toBe("true");
+		expect(groups()[0]?.querySelector("button")?.textContent).toContain("1 thought");
+		expect(cards()).toEqual(["a", "b"]);
+	});
 });
