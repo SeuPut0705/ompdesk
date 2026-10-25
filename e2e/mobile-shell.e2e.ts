@@ -346,12 +346,16 @@ for (const { engine, device } of variants(
 			await chip.click();
 			await expect(chip).toHaveAttribute("aria-expanded", "true");
 			await expect(panel).toBeVisible();
-			// Zones still arriving can move the plan's line under the tap: tap it again while it stays closed.
-			const planLine = panel.locator('[data-board-summary="plan"]');
-			await expect(async () => {
-				if ((await planLine.count()) > 0) await planLine.click({ timeout: 2_000 });
-				await expect(panel.locator("[data-todo-status]").first()).toBeVisible({ timeout: 1_000 });
-			}).toPass({ timeout: 15_000 });
+			// Current work's line (a lazy chunk) lands last and moves nothing above it once in: tap the plan's line then.
+			await expect(panel.locator("[data-board-section='current']")).toBeVisible();
+			await settledBox(panel);
+			await panel.locator('[data-board-summary="plan"]').click();
+			await expect(panel.locator("[data-board-section='plan'] .omp-work-board-fold")).toHaveAttribute(
+				"aria-expanded",
+				"true",
+			);
+			await expect(panel.locator("[data-todo-status]").first()).toBeVisible();
+			await expect(panel.locator('[data-board-summary="current"]')).toHaveCount(1);
 			await expect(panel).toBeVisible();
 			// The plan's bar opens across its header's width: it once fell into a grid's first `auto` column and shrank to
 			// its 24 px floor.

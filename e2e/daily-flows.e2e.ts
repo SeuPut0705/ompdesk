@@ -165,12 +165,26 @@ test("daily flow a: a quit mid-turn with subagents and a background job resumes 
 			const inStrip = (await docked.count()) === 0;
 			if (inStrip) await strip.click();
 			const panel = inStrip ? page.locator("[data-work-strip-panel]") : docked;
-			const nowLine = panel.locator('[data-board-summary="now"]');
-			if (inStrip)
-				await expect(async () => {
-					if ((await nowLine.count()) > 0) await nowLine.click({ timeout: 2_000 });
-					await expect(panel.locator("[data-board-agent]").first()).toBeVisible({ timeout: 1_000 });
-				}).toPass({ timeout: 15_000 });
+			if (inStrip) {
+				// The zones arrive one by one (lazy chunks); tap Now's line once the panel stops growing.
+				let last = "";
+				await expect
+					.poll(async () => {
+						const box = JSON.stringify(await panel.boundingBox());
+						const settled = box === last;
+						last = box;
+						return settled;
+					})
+					.toBe(true);
+				const lines = panel.locator("[data-board-summary]");
+				const before = await lines.count();
+				await panel.locator('[data-board-summary="now"]').click();
+				await expect(panel.locator("[data-board-section='now'] .omp-work-board-fold")).toHaveAttribute(
+					"aria-expanded",
+					"true",
+				);
+				await expect(lines).toHaveCount(before - 1);
+			}
 			await expect(panel.locator("[data-board-agent]")).toHaveCount(2, { timeout: 15_000 });
 			await expect(panel.locator("[data-board-job]").first()).toBeVisible();
 			if (inStrip) await strip.click();
