@@ -442,7 +442,7 @@ describe("live work", () => {
 		expect(useToolsStore.getState().liveTools.has("missed-end|fc")).toBe(false);
 		expect(useToolsStore.getState().finishedTools.get("missed-end|fc")?.status).toBe("done");
 		const settled = useToolsStore.getState().finishedTools.get("missed-end|fc");
-		expect(settled && workOutcomes([settled]).commands).toEqual([
+		expect(settled && workOutcomes([settled]).commands).toMatchObject([
 			{ command: "wc -l a.ts", exitCode: null, failed: false, durationMs: 3000 },
 		]);
 	});
@@ -591,8 +591,13 @@ describe("live work", () => {
 			isError: true,
 		};
 		const outcomes = workOutcomes([succeeded, unknown]);
-		expect(outcomes.commands[0]).toEqual({ command: "wc -l a.ts", exitCode: null, failed: false, durationMs: 3000 });
-		expect(outcomes.commands[1]).toEqual({
+		expect(outcomes.commands[0]).toMatchObject({
+			command: "wc -l a.ts",
+			exitCode: null,
+			failed: false,
+			durationMs: 3000,
+		});
+		expect(outcomes.commands[1]).toMatchObject({
 			command: "interrupted command",
 			exitCode: null,
 			failed: false,
@@ -612,11 +617,11 @@ describe("live work", () => {
 			entry("bash", { command: "bun test" }, { details: { exitCode: 0 } }),
 		]);
 		expect(outcome.files).toEqual([{ path: "a.ts", added: 2, removed: 0 }]);
-		expect(outcome.commands[0]).toEqual({ command: "bun test", exitCode: 0, failed: false });
+		expect(outcome.commands[0]).toMatchObject({ command: "bun test", exitCode: 0, failed: false });
 		const child = workOutcomes([
 			{ entry: entry("bash", { command: "wc -l a.ts" }, { details: { exitCode: 0 } }), agentName: "LineCounter" },
 		]);
-		expect(child.commands[0]).toEqual({
+		expect(child.commands[0]).toMatchObject({
 			command: "wc -l a.ts",
 			exitCode: 0,
 			failed: false,
@@ -653,7 +658,7 @@ describe("live work", () => {
 		const outcome = workOutcomes(entries.map(([, item]) => item));
 		expect(outcome.files).toEqual([{ path: "a.ts", added: 2, removed: 0 }]);
 		// Exit 0 carries no figure; a failing code is kept for the verdict block.
-		expect(outcome.commands[0]).toEqual({ command: "bun test", exitCode: 0, failed: false });
+		expect(outcome.commands[0]).toMatchObject({ command: "bun test", exitCode: 0, failed: false });
 		expect(outcome.commands[1]).toMatchObject({ command: "false", exitCode: 1 });
 		// Conclusions live on the lanes, never in the ledger.
 		expect(JSON.stringify(outcome)).not.toContain("Two lines.");

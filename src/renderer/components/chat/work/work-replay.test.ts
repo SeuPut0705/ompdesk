@@ -453,9 +453,9 @@ function verdict(steps: readonly Step[]) {
 	};
 }
 
-const run = (command: string, exitCode = 0, text = "ok"): Step => ({
+const run = (command: string, exitCode = 0, text = "ok", cwd?: string): Step => ({
 	name: "bash",
-	args: { command },
+	args: { command, ...(cwd ? { cwd } : {}) },
 	text: exitCode ? `${text}${exited(exitCode)}` : text,
 	isError: exitCode !== 0,
 	details: { exitCode },
@@ -535,6 +535,47 @@ describe("each failure shape of the replayed turns", () => {
 			"a type check that failed in one folder and passed in another",
 			[run("cd a && bun run check:types", 2, "error TS2322"), run("cd b && bun run check:types")],
 			{ unresolved: ["cd a && bun run check:types"], recovered: [] },
+		],
+		[
+			"a vitest that failed in packages/a, then passed in packages/b",
+			[run("bunx vitest run", 1, " FAIL a.test.ts", "packages/a"), run("bunx vitest run", 0, "ok", "packages/b")],
+			{ unresolved: ["bunx vitest run"], recovered: [] },
+		],
+		[
+			"tsc -p a failed, then tsc -p b passed",
+			[run("tsc -p a", 2, "error TS2322"), run("tsc -p b")],
+			{ unresolved: ["tsc -p a"], recovered: [] },
+		],
+		[
+			"check:types failed, then passed in the same folder",
+			[run("bun run check:types", 2, "error TS2322", "app"), run("cd app && bun run check:types")],
+			{ unresolved: [], recovered: ["bun run check:types"] },
+		],
+		[
+			"an edit without a path, rejected, then another edit without one",
+			[
+				{ name: "edit", args: { input: "garbled" }, text: "Edit rejected: no file", isError: true },
+				{ name: "edit", args: { input: "garbled again" } },
+			],
+			{ unresolved: ["edit"], recovered: [] },
+		],
+		[
+			"a multi-file edit rejected, then only one of its files redone",
+			[
+				{
+					name: "edit",
+					args: {
+						edits: [
+							{ path: "src/a.ts", old_text: "a", new_text: "b" },
+							{ path: "src/b.ts", old_text: "a", new_text: "b" },
+						],
+					},
+					text: "Edit rejected: old text not found in src/b.ts",
+					isError: true,
+				},
+				editing("src/a.ts"),
+			],
+			{ unresolved: ["edit src/a.ts, src/b.ts"], recovered: [] },
 		],
 		[
 			"a failed todo call",

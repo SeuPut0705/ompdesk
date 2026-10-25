@@ -3,6 +3,7 @@
  * failing step, the dev server a command started, and the plain-text summary Copy puts on the
  * clipboard. Pure; `ExecutionGroup.tsx` draws it.
  */
+import { TURN_EDIT_TOOLS } from "../../../../shared/turn-edits";
 import { xdevWriteTarget } from "../../../lib/xdev";
 import type { ToolEntry } from "../../../stores/tools";
 import { editArgumentPaths } from "../../tools/edit-args";
@@ -55,7 +56,10 @@ export function stepOperations(
 ): (OperationCall & { toolCallId: string })[] {
 	return entries.flatMap(([toolCallId, entry]) => {
 		if (entry.toolName === "bash") return [];
-		const { activity } = getToolActivity(entry.toolName, entry.args);
+		// An edit is never a read: its activity would also count its files.
+		const activity = TURN_EDIT_TOOLS.includes(entry.toolName)
+			? "edit"
+			: getToolActivity(entry.toolName, entry.args).activity;
 		const settled =
 			entry.status !== "aborted" &&
 			entry.status !== "pending" &&
@@ -68,6 +72,8 @@ export function stepOperations(
 				toolName: entry.toolName,
 				args: entry.args,
 				inert: activity === "read" || activity === "search" || entry.toolName === "wait",
+				startTime: entry.startTime,
+				...(entry.endTime !== null ? { endTime: entry.endTime } : {}),
 				...(settled ? { outcome: failed ? ("failed" as const) : ("passed" as const) } : {}),
 			},
 		];

@@ -189,8 +189,23 @@ describe("settleFailures", () => {
 			"a subagent's check, then the main agent's same command",
 			[{ ...bash("bun test", 1), agentName: "Worker" }, bash("bun test", 0)],
 		],
+		[
+			"a check run with `cd <dir> &&`, then the same check with that folder as its cwd",
+			[bash("cd packages/a && bun test", 1), bash("bun test", 0, "packages/a")],
+		],
+		[
+			"a command with the session's folder as cwd, then without one",
+			[bash("bun test", 1, "/repo"), bash("bun test", 0)],
+		],
+		[
+			"a failure, then the same call started once it ended",
+			[
+				{ ...bash("bun test", 1), startTime: 0, endTime: 1_000 },
+				{ ...bash("bun test", 0), startTime: 1_000, endTime: 2_000 },
+			],
+		],
 	])("is fixed by a later success of the same call: %s", (_, calls) => {
-		expect(settleFailures(calls)).toEqual({ unresolved: [], recovered: [calls[0]] });
+		expect(settleFailures(calls, "/repo")).toEqual({ unresolved: [], recovered: [calls[0]] });
 	});
 
 	it.each<[string, OperationCall[]]>([
@@ -281,9 +296,39 @@ describe("settleFailures", () => {
 				{ toolName: "eval", args: { language: "py", code: "1", i: "Checking" }, outcome: "passed" },
 			],
 		],
+		[
+			"the main agent's failure, then a subagent's same call",
+			[bash("bun test", 1), { ...bash("bun test", 0), agentName: "Worker" }],
+		],
+		[
+			"one subagent's failure, then another subagent's same call",
+			[
+				{ ...bash("bun test", 1), agentName: "A" },
+				{ ...bash("bun test", 0), agentName: "B" },
+			],
+		],
+		[
+			"a failure, then the same call started before it ended",
+			[
+				{ ...bash("bun test", 1), startTime: 0, endTime: 5_000 },
+				{ ...bash("bun test", 0), startTime: 1_000, endTime: 2_000 },
+			],
+		],
+		[
+			"a failure the transcript reports on its own (a backgrounded job), then the same call",
+			[{ ...bash("bun test", 1), reported: true }, bash("bun test", 0)],
+		],
+		["a check in one folder by `cd`, then in another", [bash("cd a && bun test", 1), bash("bun test", 0, "b")]],
+		[
+			"a multi-file edit, then only one of its files redone",
+			[
+				{ toolName: "edit", args: { edits: [{ path: "a.ts" }, { path: "b.ts" }] }, outcome: "failed" },
+				editOf("a.ts", false),
+			],
+		],
 		["a failure after the success", [bash("bun run build", 0), bash("bun run build", 1)]],
 	])("stays unresolved: %s", (_, calls) => {
-		expect(unresolvedFailures(calls)).toEqual(calls.filter(call => call.outcome === "failed"));
+		expect(unresolvedFailures(calls, "/repo")).toEqual(calls.filter(call => call.outcome === "failed"));
 	});
 
 	it.each([
@@ -408,8 +453,11 @@ describe("commandProgram", () => {
 		["ls | head", "ls"],
 		["tsc", "tsc"],
 		["cd /tmp/board && (command -v magick || command -v montage) && magick a.png b.png +append c.png", "magick"],
-		["test -f dist/app.js && ./scripts/deploy.sh", "deploy.sh"],
-		["{ ! grep -q x a.txt; } && rm a.txt", "rm"],
+		["test -f dist/app.js && ./scripts/deploy.sh", "test"],
+		["{ ! grep -q x a.txt; } && rm a.txt", "grep"],
+		["grep -rn foo src && echo ok", "grep"],
+		["which gh", "gh"],
+		["command -v /usr/local/bin/magick", "magick"],
 		["test -f dist/app.js", "test"],
 	])("names %s by what it runs: %s", (command, expected) => {
 		expect(commandProgram(command)).toBe(expected);

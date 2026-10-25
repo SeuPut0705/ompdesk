@@ -192,7 +192,7 @@ export function ExecutionGroup({
 			),
 		];
 		return {
-			checks: summarizeChecks(outcome.commands, cwd),
+			checks: summarizeChecks(commands, cwd, new Set(fromCommands.unresolved)),
 			failedCommands: fromCommands.unresolved,
 			failedSteps: fromSteps.unresolved,
 			clearedFailures,

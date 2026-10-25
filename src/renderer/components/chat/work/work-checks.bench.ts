@@ -1,30 +1,139 @@
+/**
+ * The finished card's verdict over 226 synthetic turns: the ledger (`workOutcomes`), the checks (`summarizeChecks`)
+ * and whatever decides the verdict (`settleFailures` where it exists, else trunk's `firstFailure` and failed-step scan),
+ * as `ExecutionGroup` runs them. Entries are hydrated through the tools store with unique command and output text;
+ * building them is outside the timed body. Runs unchanged on trunk and head, so the two can be compared.
+ */
 import { bench, describe } from "vitest";
-import { commandOperation, type OperationCall, settleFailures, summarizeChecks } from "./work-checks";
+import type { AgentMessage } from "../../../../shared/rpc-types";
+import { createToolsStore, type ToolEntry } from "../../../stores/tools";
+import * as checks from "./work-checks";
+import * as findings from "./work-findings";
+import { workOutcomes } from "./work-view";
 
-// 226 synthetic turns shaped like the replayed ones (about 45 calls each: edits, some rejected and redone, commands,
-// checks and probes); the real journals stay out of the public repository.
-const turns = Array.from({ length: 226 }, (_, turn) =>
-	Array.from({ length: 45 }, (_, index): OperationCall & { command?: string } => {
-		const failed = (turn + index) % 7 === 0;
-		if (index % 3 === 0)
-			return { toolName: "edit", args: { path: `src/file-${index % 9}.ts` }, outcome: failed ? "failed" : "passed" };
-		const command = index % 5 === 0 ? "bun run check:types 2>&1 | tail -20" : `git log --oneline -${index % 4}`;
-		return commandOperation({ command, failed, exitCode: failed ? 1 : 0, text: failed ? "error TS2322" : "" });
-	}),
-);
+type Call = { name: string; args: Record<string, unknown>; text: string; isError: boolean; exitCode?: number };
 
-describe("the verdict over 226 turns", () => {
-	bench("settleFailures and summarizeChecks", () => {
-		for (const calls of turns) {
-			settleFailures(calls, "/repo");
-			summarizeChecks(
-				calls.flatMap(call =>
-					typeof call.args.command === "string"
-						? [{ command: call.args.command, failed: call.outcome === "failed", exitCode: null }]
-						: [],
-				),
+function turnCalls(turn: number): Call[] {
+	return Array.from({ length: 45 }, (_, index): Call => {
+		const failed = (turn * 7 + index) % 9 === 0;
+		const tag = `${turn}-${index}`;
+		switch (index % 9) {
+			case 0:
+			case 1:
+				return {
+					name: "edit",
+					args: {
+						path: `src/area-${turn % 13}/file-${index % 6}.ts`,
+						edits: [{ old_text: tag, new_text: `${tag}!` }],
+					},
+					text: failed ? `Edit rejected: old text ${tag} not found` : `Updated ${tag}`,
+					isError: failed,
+				};
+			case 2:
+				return {
+					name: "bash",
+					args: { command: `bun run check:types 2>&1 | tail -${index}`, cwd: `packages/p${turn % 4}` },
+					text: failed ? `src/x${tag}.ts(3,3): error TS2322: nope\nCommand exited with code 2` : `ok ${tag}`,
+					isError: failed,
+					exitCode: failed ? 2 : 0,
+				};
+			case 3:
+				return {
+					name: "bash",
+					args: { command: `bunx vitest run src/t${tag}.test.ts` },
+					text: failed ? ` FAIL t${tag}\n Tests  1 failed (4)` : ` Tests  ${index} passed (${index})`,
+					isError: failed,
+					exitCode: failed ? 1 : 0,
+				};
+			case 4:
+				return {
+					name: "bash",
+					args: { command: `git log --oneline -${index} -- src/${tag}` },
+					text: `a1b2c3 change ${tag}`,
+					isError: false,
+					exitCode: 0,
+				};
+			case 5:
+				return {
+					name: "bash",
+					args: { command: `command -v tool${tag}` },
+					text: "",
+					isError: failed,
+					exitCode: failed ? 1 : 0,
+				};
+			case 6:
+				return {
+					name: "eval",
+					args: { language: "py", code: `print(${index})  # ${tag}` },
+					text: `${index}`,
+					isError: failed,
+				};
+			case 7:
+				return {
+					name: "task",
+					args: { tasks: [{ name: `T${tag}`, task: `look at ${tag}` }] },
+					text: "done",
+					isError: false,
+				};
+			default:
+				return {
+					name: "write",
+					args: { path: "xd://ompdesk_report", content: JSON.stringify({ kind: "progress", text: tag }) },
+					text: "Delivered",
+					isError: failed,
+				};
+		}
+	});
+}
+
+function hydrate(turn: number): [string, ToolEntry][] {
+	const store = createToolsStore();
+	const messages = turnCalls(turn).flatMap((call, index): AgentMessage[] => [
+		{
+			role: "assistant",
+			timestamp: index * 10 + 1,
+			content: [{ type: "toolCall", id: `c${turn}-${index}`, name: call.name, arguments: call.args }],
+		},
+		{
+			role: "toolResult",
+			toolCallId: `c${turn}-${index}`,
+			toolName: call.name,
+			timestamp: index * 10 + 2,
+			content: [{ type: "text", text: call.text }],
+			details: call.exitCode === undefined ? undefined : { exitCode: call.exitCode },
+			isError: call.isError,
+		},
+	]);
+	store.getState().hydrateMessages(messages);
+	return [...store.getState().finishedTools];
+}
+
+const turns = Array.from({ length: 226 }, (_, turn) => hydrate(turn));
+const exported = { ...checks, ...findings } as Record<string, unknown>;
+type Fn = (...args: unknown[]) => unknown;
+const settle = exported.settleFailures as Fn | undefined;
+const commandOperation = exported.commandOperation as Fn | undefined;
+const stepOperations = exported.stepOperations as Fn | undefined;
+const firstFailure = exported.firstFailure as Fn | undefined;
+
+describe("the finished card's verdict over 226 turns", () => {
+	bench("workOutcomes + summarizeChecks + verdict", () => {
+		for (const entries of turns) {
+			const outcome = workOutcomes(
+				entries.map(([toolCallId, entry]) => ({ entry, toolCallId })),
+				undefined,
 				"/repo",
 			);
+			if (settle && commandOperation && stepOperations) {
+				const calls = outcome.commands.map(command => commandOperation(command) as checks.CheckInput);
+				const settled = settle(calls, "/repo") as { unresolved: checks.CheckInput[] };
+				checks.summarizeChecks(calls, "/repo", new Set(settled.unresolved));
+				settle(stepOperations(entries), "/repo");
+			} else {
+				checks.summarizeChecks(outcome.commands);
+				firstFailure?.(outcome.commands);
+				entries.find(([, entry]) => entry.status === "error" || entry.isError);
+			}
 		}
 	});
 });

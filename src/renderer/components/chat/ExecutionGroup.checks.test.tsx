@@ -23,6 +23,7 @@ Object.defineProperty(globalThis.navigator, "clipboard", { configurable: true, v
 // React DOM must initialize after linkedom globals; static imports initialize it too early.
 const { createRoot } = await import("react-dom/client");
 const { ExecutionGroup } = await import("./ExecutionGroup");
+const { ToolCard } = await import("../tools/ToolCard");
 
 let container: HTMLElement;
 let root: Root | undefined;
@@ -61,7 +62,7 @@ const edit: ToolEntry = {
 	endTime: 500,
 };
 
-async function mount(entries: [string, ToolEntry][], onExpand: (next: boolean) => void = () => {}) {
+async function mount(entries: [string, ToolEntry][], onExpand: (next: boolean) => void = () => {}, expanded = false) {
 	useToolsStore.setState(toolEntriesState(entries));
 	container = document.createElement("div") as unknown as HTMLElement;
 	document.body.appendChild(container as never);
@@ -70,12 +71,14 @@ async function mount(entries: [string, ToolEntry][], onExpand: (next: boolean) =
 		root?.render(
 			<I18nProvider>
 				<ExecutionGroup
-					expanded={false}
+					expanded={expanded}
 					onExpandedChange={onExpand}
 					stepCount={entries.length}
 					toolCallIds={entries.map(([id]) => id)}
 				>
-					<div />
+					{entries.map(([id, entry]) => (
+						<ToolCard args={entry.args} key={id} toolCallId={id} toolName={entry.toolName} />
+					))}
 				</ExecutionGroup>
 			</I18nProvider>,
 		),
@@ -256,6 +259,22 @@ describe("work card recovery", () => {
 		expect(container.querySelector('[data-work-finding="error"]')).toBeNull();
 		await click(container.querySelector(".omp-work-copy") as unknown as HTMLElement);
 		expect(writeText.mock.calls[0]?.[0]).toContain("Failed, then fixed by a later run\n- ✕ → ✓ edit src/a.ts");
+	});
+
+	it("keeps the rejected edit marked failed in the opened steps of the green card", async () => {
+		await mount(
+			[
+				["edit-1", rejected],
+				["edit-2", redone],
+			],
+			() => {},
+			true,
+		);
+		expect(mark()?.getAttribute("data-state")).toBe("complete");
+		const step = (id: string) => container.querySelector(`.omp-tool-card[data-tool-call-id="${id}"]`);
+		expect(step("edit-1")?.getAttribute("data-tool-error")).toBe("true");
+		expect(step("edit-1")?.querySelector(".omp-tool-state")?.textContent).toBe("Failed");
+		expect(step("edit-2")?.getAttribute("data-tool-error")).toBeNull();
 	});
 
 	it("stays red for a rejected edit when only another file was edited after it", async () => {
