@@ -102,7 +102,7 @@ describe("stop truth", () => {
 		useToolsStore.setState(
 			toolEntriesState([
 				["test", error(5_000)],
-				["done", { ...error(6_000), status: "done", isError: false }],
+				["done", { ...error(6_000), args: { command: "git status" }, status: "done", isError: false }],
 			]),
 		);
 		await mount(row.stoppedAt, false);

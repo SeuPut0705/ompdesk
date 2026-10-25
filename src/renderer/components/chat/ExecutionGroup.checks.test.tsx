@@ -1,7 +1,7 @@
 import { parseHTML } from "linkedom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
 import { type ToolEntry, toolEntriesState, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
@@ -17,6 +17,8 @@ Object.assign(globalThis as Record<string, unknown>, {
 	IS_REACT_ACT_ENVIRONMENT: true,
 });
 Object.assign(window, { requestAnimationFrame: () => 0, cancelAnimationFrame: () => {} });
+const writeText = vi.fn(async (_text: string) => {});
+Object.defineProperty(globalThis.navigator, "clipboard", { configurable: true, value: { writeText } });
 
 // React DOM must initialize after linkedom globals; static imports initialize it too early.
 const { createRoot } = await import("react-dom/client");
@@ -31,6 +33,7 @@ afterEach(async () => {
 	root = undefined;
 	useToolsStore.getState().reset();
 	useUiStore.setState({ panelVisible: false, panelTab: "terminal" });
+	writeText.mockClear();
 });
 
 /** A stock bash result: its text and `details.exitCode`. */
@@ -231,6 +234,119 @@ describe("work card failures", () => {
 		});
 		await click(finding("error"));
 		expect(expanded).toBe(true);
+	});
+});
+
+describe("work card recovery", () => {
+	const rejected: ToolEntry = {
+		...edit,
+		status: "error",
+		isError: true,
+		result: { content: [{ type: "text", text: "Edit rejected: old text not found in src/a.ts" }] },
+	};
+	const redone: ToolEntry = { ...edit, startTime: 1_000, endTime: 1_500 };
+
+	it("stays green for a rejected edit redone on the same path, and copies it as fixed", async () => {
+		await mount([
+			["edit-1", rejected],
+			["edit-2", redone],
+		]);
+		expect(mark()?.getAttribute("data-state")).toBe("complete");
+		expect(container.querySelector(".omp-execution-group")?.getAttribute("data-verdict")).toBeNull();
+		expect(container.querySelector('[data-work-finding="error"]')).toBeNull();
+		await click(container.querySelector(".omp-work-copy") as unknown as HTMLElement);
+		expect(writeText.mock.calls[0]?.[0]).toContain("Failed, then fixed by a later run\n- ✕ → ✓ edit src/a.ts");
+	});
+
+	it("stays red for a rejected edit when only another file was edited after it", async () => {
+		await mount([
+			["edit-1", rejected],
+			["edit-2", { ...redone, args: { path: "src/b.ts" } }],
+		]);
+		expect(mark()?.getAttribute("data-state")).toBe("failed");
+		expect(finding("error")).not.toBeNull();
+	});
+
+	it("stays red for a check that failed in packages/a when only packages/b passed after it, and skips a probe", async () => {
+		let expanded = false;
+		await mount(
+			[
+				[
+					"test-a",
+					{
+						...bash("bunx vitest run", " FAIL packages/a/src/x.test.ts > adds\n Tests  1 failed (3)", 1, 0),
+						args: { command: "bunx vitest run", cwd: "packages/a" },
+					},
+				],
+				["probe", bash("command -v magick", "", 1, 2_000)],
+				[
+					"test-b",
+					{
+						...bash("bunx vitest run", " Tests  4 passed (4)", 0, 4_000),
+						args: { command: "bunx vitest run", cwd: "packages/b" },
+					},
+				],
+			],
+			next => {
+				expanded = next;
+			},
+		);
+		expect(mark()?.getAttribute("data-state")).toBe("failed");
+		const block = finding("error");
+		expect(block.querySelector(".omp-work-verdict-label")?.textContent).toBe("1 test failed");
+		expect(block.querySelector(".omp-work-verdict-cause")?.textContent).toBe("FAIL packages/a/src/x.test.ts > adds");
+		expect(container.querySelectorAll('[data-work-finding="error"]')).toHaveLength(1);
+		expect(container.querySelector('[data-work-finding="more-failed"]')).toBeNull();
+		await click(block);
+		expect(expanded).toBe(true);
+	});
+
+	it("stays red for a failed push followed only by a git status", async () => {
+		await mount([
+			["push-1", bash("git push origin main", "fatal: denied", 128, 0)],
+			["status-1", bash("git status", "nothing to commit", 0, 2_000)],
+		]);
+		expect(finding("error").querySelector(".omp-work-verdict-label")?.textContent).toBe("git push failed");
+	});
+
+	it("goes green once the same push is retried and passes", async () => {
+		await mount([
+			["push-1", bash("git push origin main", "fatal: denied", 128, 0)],
+			["push-2", bash("git push origin main", "main -> main", 0, 2_000)],
+		]);
+		expect(mark()?.getAttribute("data-state")).toBe("complete");
+		expect(container.querySelector('[data-work-finding="error"]')).toBeNull();
+	});
+
+	it("says one thing for a check rerun inside a compound command: failed in the mark, the block and Copy summary", async () => {
+		await mount([
+			["lint-1", bash("node scripts/lint-surfaces.mjs", "✖ raw button in Foo.tsx", 1, 0)],
+			["lint-2", bash("node scripts/lint-surfaces.mjs && bunx biome check src", "Checked 9 files", 0, 2_000)],
+		]);
+		expect(mark()?.getAttribute("data-state")).toBe("failed");
+		expect(finding("error").querySelector(".omp-work-verdict-label")?.textContent).toBe("lint failed");
+		await click(container.querySelector(".omp-work-copy") as unknown as HTMLElement);
+		const text = writeText.mock.calls[0]?.[0] ?? "";
+		expect(text).toContain("- ✕ lint failed");
+		expect(text).not.toContain("Failed, then fixed");
+	});
+
+	it("stays green for a read that found nothing", async () => {
+		await mount([
+			[
+				"read-1",
+				{
+					...edit,
+					toolName: "read",
+					args: { path: "missing.ts" },
+					status: "error",
+					isError: true,
+					result: { content: [{ type: "text", text: "ENOENT" }] },
+				},
+			],
+		]);
+		expect(mark()?.getAttribute("data-state")).toBe("complete");
+		expect(container.querySelector('[data-work-finding="error"]')).toBeNull();
 	});
 });
 

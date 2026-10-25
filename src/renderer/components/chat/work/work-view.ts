@@ -160,6 +160,7 @@ export interface WorkCommandOutcome {
 	text?: string;
 	/** The call's entry key (a main-agent call only). */
 	toolCallId?: string;
+	cwd?: string;
 	/** The address a dev server printed, when this command started one. */
 	previewUrl?: string;
 }
@@ -388,6 +389,7 @@ export function workOutcomes(
 				...(output && output !== "Command aborted" ? { output } : {}),
 				...(text ? { text } : {}),
 				...(toolCallId ? { toolCallId } : {}),
+				...(typeof entry.args.cwd === "string" && entry.args.cwd ? { cwd: entry.args.cwd } : {}),
 				...(previewUrl ? { previewUrl } : {}),
 			});
 		}

@@ -1,5 +1,5 @@
 import { ChevronRight } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { useFrameSelector } from "../../hooks/use-frame-selector";
 import { cx, formatDuration, resultText } from "../../lib/format";
@@ -17,8 +17,15 @@ import { revealStep, type StepReveal, StepRevealContext } from "./work/reveal-st
 import { useRunOutcome, useRunStores } from "./work/use-work-run";
 import { type WorkFact, WorkMetrics } from "./work/WorkFacts";
 import { type GroupAgent, isInterruptedError, resolveWorkGroup } from "./work/WorkStatus";
-import { checkKind, commandProgram, firstErrorLine, summarizeChecks } from "./work/work-checks";
-import { deriveFindings, workSummaryText } from "./work/work-findings";
+import {
+	checkKind,
+	commandOperation,
+	commandProgram,
+	firstErrorLine,
+	settleFailures,
+	summarizeChecks,
+} from "./work/work-checks";
+import { deriveFindings, operationLabel, stepOperations, workSummaryText } from "./work/work-findings";
 import { finishedHeadline, parseTaskResults, runSpan, transcriptTodoSnapshot } from "./work/work-run";
 import { messageSourceTimestamp } from "./work/work-turn";
 import { isSkippedWork } from "./work/work-view";
@@ -98,6 +105,7 @@ export function ExecutionGroup({
 	useEffect(() => (reveal && expanded ? revealStep(sectionRef.current, reveal.key) : undefined), [reveal, expanded]);
 	const setPanelTab = useUiStore(state => state.setPanelTab);
 	const goal = useSessionStore(state => (live ? state.goal?.objective : undefined));
+	const cwd = useSessionStore(state => state.cwd);
 	const { tools, messages } = useRunStores();
 	// Primitive selector: encode (running, failed, skipped, interrupted, span, reads, searches)
 	// so unrelated tool events — partial results on cards outside this group — never re-render it.
@@ -153,6 +161,44 @@ export function ExecutionGroup({
 	});
 	const [clockStart = "", clockSpan = "0"] = clockKey.split(":");
 	const clock = { startedAt: clockStart ? Number(clockStart) : undefined, spanMs: Number(clockSpan) };
+	const groupEntries = toolCallIds.flatMap(id => {
+		const entry = selectToolEntry(tools.getState(), id);
+		return entry ? [[id, entry] as const] : [];
+	});
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `encoded` holds every status of the entries read here.
+	const { checks, failedCommands, failedSteps, clearedFailures, recovered } = useMemo(() => {
+		const commands = outcome.commands.map(commandOperation);
+		const steps = stepOperations(groupEntries, stoppedAt);
+		const fromCommands = settleFailures(commands, cwd);
+		const fromSteps = settleFailures(steps, cwd);
+		const standing = new Set<object>([...fromCommands.unresolved, ...fromSteps.unresolved]);
+		const cleared = new Set(
+			[...commands, ...steps].flatMap(call =>
+				call.outcome === "failed" && !standing.has(call) && call.toolCallId ? [call.toolCallId] : [],
+			),
+		);
+		const clearedFailures = groupEntries.filter(
+			([id, entry]) =>
+				cleared.has(id) &&
+				entry.status !== "aborted" &&
+				(entry.status === "error" || entry.isError) &&
+				!isInterruptedError(entry, stoppedAt),
+		).length;
+		const recovered = [
+			...new Set(
+				[...fromCommands.recovered, ...fromSteps.recovered].map(
+					call => `${call.agentName ? `${call.agentName}: ` : ""}${operationLabel(call, cwd)}`,
+				),
+			),
+		];
+		return {
+			checks: summarizeChecks(outcome.commands, cwd),
+			failedCommands: fromCommands.unresolved,
+			failedSteps: fromSteps.unresolved,
+			clearedFailures,
+			recovered,
+		};
+	}, [outcome, encoded, toolCallIds.join("\u0000"), stoppedAt, cwd]);
 	const groupAgents: GroupAgent[] = agents.map(node => {
 		const parent = node.parentToolCallId
 			? selectToolEntry(tools.getState(), tools.getState().entryKeyForCallId(node.parentToolCallId))
@@ -172,7 +218,7 @@ export function ExecutionGroup({
 	const { state, failed, interrupted, runningAgents } = resolveWorkGroup({
 		live,
 		runningTools: running,
-		failedTools: toolFailures,
+		failedTools: toolFailures - clearedFailures,
 		reportedFailures: failureCount,
 		interruptedTools,
 		agents: groupAgents,
@@ -202,7 +248,6 @@ export function ExecutionGroup({
 	}
 	// What the commands checked reads as its result ("tests passed", "build failed"); the
 	// other commands keep their count.
-	const checks = summarizeChecks(outcome.commands);
 	const checkLabels = checks.map(check => {
 		const verdict = check.passed ? "passed" : "failed";
 		const count = check.passed ? check.tests?.passed : check.tests?.failed;
@@ -242,24 +287,13 @@ export function ExecutionGroup({
 	// read and searched instead, so its head is not an empty "7 steps".
 	const shownParts =
 		state !== "running" && readFacts.length ? readFacts : [t("chat.work.stepCount", { total: totalSteps, plural })];
-	const groupEntries = toolCallIds.flatMap(id => {
-		const entry = selectToolEntry(tools.getState(), id);
-		return entry ? [[id, entry] as const] : [];
-	});
-	const failedStep =
-		toolFailures > 0
-			? groupEntries.find(
-					([, entry]) =>
-						entry.status !== "aborted" &&
-						(entry.status === "error" || entry.isError) &&
-						!isInterruptedError(entry, stoppedAt),
-				)?.[0]
-			: undefined;
+	const commandFailures = failedCommands.filter(command => !checkKind(command.command));
 	const { error, previewUrl } = deriveFindings({
 		running: state === "running",
 		checks,
+		failures: commandFailures,
 		commands: outcome.commands,
-		failedStep,
+		failedStep: failedSteps[0]?.toolCallId,
 	});
 	const changed = state !== "running" && outcome.files.length > 0;
 	// The run's todo as its own todo call recorded it, so a reload shows the same row as live.
@@ -335,11 +369,13 @@ export function ExecutionGroup({
 					cause: error?.cause,
 					files: outcome.files,
 					checks: checkLabels,
+					recovered,
 					previewUrl,
 					labels: {
 						cause: t("chat.work.copy.cause"),
 						changed: t("chat.work.copy.changed", { count: outcome.files.length }),
 						checks: t("chat.work.copy.checks"),
+						recovered: t("chat.work.copy.recovered"),
 						preview: t("chat.work.chip.preview"),
 						deleted: t("chat.work.copy.deleted"),
 					},
@@ -358,7 +394,7 @@ export function ExecutionGroup({
 			const count = check.passed ? check.tests?.passed : check.tests?.failed;
 			const exit = check.passed ? undefined : exitMeta(check.exitCode);
 			return {
-				key: `check-${check.kind}`,
+				key: `check-${check.kind}-${index}`,
 				finding: check.passed ? (check.kind === "test" ? "tests" : `check-${check.kind}`) : "error",
 				tone: check.passed ? "ok" : "fail",
 				icon: check.passed ? "check" : "error",
@@ -380,14 +416,7 @@ export function ExecutionGroup({
 		};
 		const checkFacts = checks.map((check, index) => checkFact(check, index));
 		// A failed command that is no check reads as a verdict too; the last one is the one shown (the run's latest word).
-		const failedCommands = outcome.commands.filter(
-			command =>
-				!command.interrupted &&
-				!command.unknown &&
-				(command.failed || (command.exitCode !== null && command.exitCode !== 0)) &&
-				!checkKind(command.command),
-		);
-		const commandFacts = failedCommands.map((command, index): WorkFact => {
+		const commandFacts = commandFailures.map((command, index): WorkFact => {
 			const program = commandProgram(command.command) ?? command.command.trim().split(/\s+/)[0] ?? "";
 			const label = t("chat.work.metric.commandFailed", {
 				command: program.length > 24 ? `${program.slice(0, 23)}…` : program,

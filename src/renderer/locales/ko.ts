@@ -3275,6 +3275,7 @@ export const ko: Record<string, string> = {
 	"chat.work.copy.changed": "변경된 파일 ({count})",
 	"chat.work.copy.checks": "점검",
 	"chat.work.copy.deleted": "삭제됨",
+	"chat.work.copy.recovered": "실패했다가 다시 해서 고친 것",
 	"chat.work.verdict.failed": "끝났지만 검사가 실패했어요",
 	"chat.work.verdict.stepFailed": "끝났지만 일부 단계가 실패했어요",
 	"chat.work.metric.files": "파일",

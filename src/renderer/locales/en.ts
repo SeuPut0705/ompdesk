@@ -3283,6 +3283,7 @@ export const en: Record<string, string> = {
 	"chat.work.copy.changed": "Changed files ({count})",
 	"chat.work.copy.checks": "Checks",
 	"chat.work.copy.deleted": "deleted",
+	"chat.work.copy.recovered": "Failed, then fixed by a later run",
 	"chat.work.verdict.failed": "Done, but a check failed",
 	"chat.work.verdict.stepFailed": "Done, but a step failed",
 	"chat.work.metric.files": "Files",

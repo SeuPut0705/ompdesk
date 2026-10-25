@@ -11,8 +11,14 @@ import { resultDetails } from "../../../lib/format";
 import { devServerUrl } from "../../../lib/panel-auto-open";
 import type { ToolEntry } from "../../../stores/tools";
 import type { BackgroundJobVerdict } from "../../chat/completion-events";
-import { type CheckKind, checkKind, summarizeChecks } from "../../chat/work/work-checks";
-import { workOutcomes } from "../../chat/work/work-view";
+import {
+	type CheckKind,
+	checkKind,
+	commandOperation,
+	summarizeChecks,
+	unresolvedFailures,
+} from "../../chat/work/work-checks";
+import { type WorkCommandOutcome, workOutcomes } from "../../chat/work/work-view";
 import { workFilePathKey } from "../../tools/edit-args";
 
 /** A count of changed files and their lines. */
@@ -121,9 +127,10 @@ export interface LastCheck {
 }
 
 /**
- * The newest check among `entries` (key and call, live and finished). One that never reported (a backgrounded job
- * whose verdict has not arrived, a call still running) is `running`, never passed; a stopped one is skipped, as the
- * work card skips it.
+ * The check the board names among `entries` (key and call, live and finished): the newest one while it has not
+ * reported (a backgrounded job whose verdict has not arrived, a call still running: `running`, never passed), else the
+ * newest failed run no later run of the same command fixed (`unresolvedFailures`, the work card's verdict), else the
+ * newest run. A stopped one is skipped, as the work card skips it.
  */
 export function lastCheck(
 	entries: Iterable<readonly [string, ToolEntry]>,
@@ -137,25 +144,37 @@ export function lastCheck(
 		const kind = checkKind(command);
 		if (kind) candidates.push({ key, entry, command, kind });
 	}
-	candidates.sort((a, b) => b.entry.startTime - a.entry.startTime);
-	for (const { key, entry, command, kind } of candidates) {
-		const base = { kind, command, startedAt: entry.startTime, key };
-		if (entry.status === "pending" || entry.status === "running") return { ...base, state: "running" };
+	candidates.sort((a, b) => a.entry.startTime - b.entry.startTime);
+	type Run = (typeof candidates)[number] & { outcome?: WorkCommandOutcome };
+	const runs = candidates.flatMap((candidate): Run[] => {
+		const { key, entry } = candidate;
+		if (entry.status === "pending" || entry.status === "running") return [{ ...candidate, outcome: undefined }];
 		const [outcome] = workOutcomes([{ entry, toolCallId: key }], undefined, cwd, verdicts).commands;
-		if (!outcome || outcome.interrupted) continue;
-		if (outcome.unknown) return { ...base, state: "running" };
-		const [summary] = summarizeChecks([outcome]);
-		if (!summary) continue;
-		const durationMs = outcome.durationMs ?? (entry.endTime === null ? undefined : entry.endTime - entry.startTime);
-		const count = summary.passed ? summary.tests?.passed : summary.tests?.failed;
-		return {
-			...base,
-			state: summary.passed ? "passed" : "failed",
-			...(count !== undefined ? { count } : {}),
-			...(durationMs !== undefined ? { durationMs } : {}),
-		};
-	}
-	return null;
+		return !outcome || outcome.interrupted ? [] : [{ ...candidate, outcome }];
+	});
+	const newest = runs.at(-1);
+	if (!newest) return null;
+	const base = (run: typeof newest) => ({
+		kind: run.kind,
+		command: run.command,
+		startedAt: run.entry.startTime,
+		key: run.key,
+	});
+	if (!newest.outcome || newest.outcome.unknown) return { ...base(newest), state: "running" };
+	const settled = runs.flatMap(run => (run.outcome ? [{ ...commandOperation(run.outcome), run }] : []));
+	const shown = unresolvedFailures(settled, cwd).at(-1)?.run ?? newest;
+	const outcome = shown.outcome ?? newest.outcome;
+	const [summary] = summarizeChecks([outcome]);
+	if (!summary) return null;
+	const durationMs =
+		outcome.durationMs ?? (shown.entry.endTime === null ? undefined : shown.entry.endTime - shown.entry.startTime);
+	const count = summary.passed ? summary.tests?.passed : summary.tests?.failed;
+	return {
+		...base(shown),
+		state: summary.passed ? "passed" : "failed",
+		...(count !== undefined ? { count } : {}),
+		...(durationMs !== undefined ? { durationMs } : {}),
+	};
 }
 
 /** One other session and where it works: this worktree, or another worktree of the repository. */

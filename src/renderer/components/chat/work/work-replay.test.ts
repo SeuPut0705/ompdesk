@@ -10,7 +10,17 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { AgentMessage, AgentSessionEvent } from "../../../../shared/rpc-types";
 import { createToolsStore } from "../../../stores/tools";
-import { checkKind, firstErrorLine, firstFailure, summarizeChecks, testCounts } from "./work-checks";
+import {
+	checkKind,
+	commandOperation,
+	firstErrorLine,
+	type OperationCall,
+	settleFailures,
+	summarizeChecks,
+	testCounts,
+	unresolvedFailures,
+} from "./work-checks";
+import { operationLabel, stepOperations } from "./work-findings";
 import { workOutcomes } from "./work-view";
 
 const recording: { events: AgentSessionEvent[] } = JSON.parse(
@@ -63,7 +73,7 @@ describe("the real advisor recording", () => {
 		// Nothing here is a check, and nothing failed in a way the card can see.
 		expect(outcome.commands.map(command => checkKind(command.command))).toEqual([undefined, undefined, undefined]);
 		expect(summarizeChecks(outcome.commands)).toEqual([]);
-		expect(firstFailure(outcome.commands)).toBeUndefined();
+		expect(unresolvedFailures(outcome.commands.map(commandOperation))).toEqual([]);
 		// Non-check, non-failed output is not carried at all.
 		expect(outcome.commands.map(command => command.text)).toEqual([undefined, undefined, undefined]);
 	});
@@ -397,5 +407,167 @@ describe("stock's bash envelope", () => {
 		const [command] = stockBash("bunx vitest run", long, { exitCode: 1 }, true);
 		expect(command?.text?.length).toBeLessThanOrEqual(8000);
 		expect(testCounts(command?.text ?? "")).toEqual({ passed: 3, failed: 1 });
+	});
+});
+
+interface Step {
+	name: string;
+	args: Record<string, unknown>;
+	text?: string;
+	isError?: boolean;
+	details?: Record<string, unknown>;
+}
+
+function verdict(steps: readonly Step[]) {
+	const store = createToolsStore();
+	store.getState().hydrateMessages(
+		steps.flatMap((step, index): AgentMessage[] => [
+			{
+				role: "assistant",
+				timestamp: index * 10 + 1,
+				content: [{ type: "toolCall", id: `call-${index}`, name: step.name, arguments: step.args }],
+			},
+			{
+				role: "toolResult",
+				toolCallId: `call-${index}`,
+				toolName: step.name,
+				timestamp: index * 10 + 2,
+				content: [{ type: "text", text: step.text ?? "ok" }],
+				details: step.details,
+				isError: step.isError ?? false,
+			},
+		]),
+	);
+	const entries = [...store.getState().finishedTools];
+	const commands = workOutcomes(entries.map(([toolCallId, entry]) => ({ entry, toolCallId }))).commands.map(
+		commandOperation,
+	);
+	const settled: { unresolved: OperationCall[]; recovered: OperationCall[] }[] = [
+		settleFailures(commands, "/repo"),
+		settleFailures(stepOperations(entries), "/repo"),
+	];
+	const label = (call: OperationCall) => operationLabel(call, "/repo");
+	return {
+		unresolved: settled.flatMap(({ unresolved }) => unresolved.map(label)),
+		recovered: settled.flatMap(({ recovered }) => recovered.map(label)),
+	};
+}
+
+const run = (command: string, exitCode = 0, text = "ok"): Step => ({
+	name: "bash",
+	args: { command },
+	text: exitCode ? `${text}${exited(exitCode)}` : text,
+	isError: exitCode !== 0,
+	details: { exitCode },
+});
+const editing = (path: string, rejected = false): Step => ({
+	name: "edit",
+	args: { path, edits: [{ old_text: "a", new_text: "b" }] },
+	text: rejected ? "Edit rejected: old text not found" : "Updated",
+	isError: rejected,
+	details: rejected ? undefined : { diff: "-a\n+b" },
+});
+
+describe("each failure shape of the replayed turns", () => {
+	it.each<[string, Step[], { unresolved: string[]; recovered: string[] }]>([
+		[
+			"a rejected edit, redone on the same file",
+			[editing("src/a.ts", true), editing("/repo/src/a.ts")],
+			{ unresolved: [], recovered: ["edit src/a.ts"] },
+		],
+		[
+			"a rejected edit, then only another file edited",
+			[editing("src/a.ts", true), editing("src/b.ts")],
+			{ unresolved: ["edit src/a.ts"], recovered: [] },
+		],
+		[
+			"a failed push, then a git status",
+			[run("git push origin main", 1, "rejected"), run("git status")],
+			{ unresolved: ["git push origin main"], recovered: [] },
+		],
+		[
+			"a failed push, then a push of another branch",
+			[run("git push origin main", 1, "rejected"), run("git push origin other")],
+			{ unresolved: ["git push origin main"], recovered: [] },
+		],
+		[
+			"a failed push, retried",
+			[run("git push origin main", 1, "rejected"), run("git push origin main")],
+			{ unresolved: [], recovered: ["git push origin main"] },
+		],
+		[
+			"a whole probe's exit 1, and a probe after other work",
+			[run("command -v magick", 1, ""), run("ls; grep -n needle src/a.ts", 1, "")],
+			{ unresolved: ["ls; grep -n needle src/a.ts"], recovered: [] },
+		],
+		[
+			"a read and a search that found nothing",
+			[
+				{ name: "read", args: { path: "missing.ts" }, text: "ENOENT", isError: true },
+				{ name: "grep", args: { pattern: "x" }, text: "no matches", isError: true },
+			],
+			{ unresolved: [], recovered: [] },
+		],
+		[
+			"a wait whose job failed",
+			[{ name: "wait", args: {}, text: "bg_1 failed", isError: true }],
+			{ unresolved: [], recovered: [] },
+		],
+		[
+			"a failed eval, run again",
+			[
+				{ name: "eval", args: { code: "1/0" }, text: "ZeroDivisionError", isError: true },
+				{ name: "eval", args: { code: "1" } },
+			],
+			{ unresolved: ["eval"], recovered: [] },
+		],
+		[
+			"a lint that failed and was never rerun",
+			[run("bunx biome check src", 1, "✖ This let is only assigned once.")],
+			{ unresolved: ["bunx biome check src"], recovered: [] },
+		],
+		[
+			"a lint that failed and passed on its rerun",
+			[run("bunx biome check src", 1, "✖ This let is only assigned once."), run("bunx biome check src")],
+			{ unresolved: [], recovered: ["bunx biome check src"] },
+		],
+		[
+			"a type check that failed in one folder and passed in another",
+			[run("cd a && bun run check:types", 2, "error TS2322"), run("cd b && bun run check:types")],
+			{ unresolved: ["cd a && bun run check:types"], recovered: [] },
+		],
+		[
+			"a failed todo call",
+			[{ name: "todo", args: { op: "done" }, text: "unknown task", isError: true }],
+			{ unresolved: ["todo"], recovered: [] },
+		],
+		[
+			"a device write rejected, then sent again unchanged",
+			[
+				{
+					name: "write",
+					args: { path: "xd://ompdesk_report", content: '{"kind":"done"}' },
+					text: "busy",
+					isError: true,
+				},
+				{ name: "write", args: { path: "xd://ompdesk_report", content: '{"kind":"done"}' } },
+			],
+			{ unresolved: [], recovered: ["xd://ompdesk_report"] },
+		],
+		[
+			"a device write rejected, then another write to it",
+			[
+				{
+					name: "write",
+					args: { path: "xd://ompdesk_report", content: '{"kind":"done"}' },
+					text: "invalid",
+					isError: true,
+				},
+				{ name: "write", args: { path: "xd://ompdesk_report", content: '{"kind":"done","text":"ok"}' } },
+			],
+			{ unresolved: ["xd://ompdesk_report"], recovered: [] },
+		],
+	])("%s", (_, steps, expected) => {
+		expect(verdict(steps)).toEqual(expected);
 	});
 });

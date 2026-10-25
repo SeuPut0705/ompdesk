@@ -2,7 +2,16 @@ import { describe, expect, it } from "vitest";
 import type { AgentMessage } from "../../../../shared/rpc-types";
 import type { ToolEntry } from "../../../stores/tools";
 import { type BackgroundJobVerdict, backgroundJobVerdicts } from "../completion-events";
-import { checkKind, commandProgram, firstErrorLine, firstFailure, summarizeChecks, testCounts } from "./work-checks";
+import {
+	checkKind,
+	commandProgram,
+	firstErrorLine,
+	type OperationCall,
+	settleFailures,
+	summarizeChecks,
+	testCounts,
+	unresolvedFailures,
+} from "./work-checks";
 import { workOutcomes } from "./work-view";
 
 describe("checkKind", () => {
@@ -109,16 +118,211 @@ describe("summarizeChecks", () => {
 			summarizeChecks([{ command: "bunx biome check", failed: false, exitCode: 1, text: "x lint/style" }])[0]
 				?.passed,
 		).toBe(false));
+	it("keeps a check that failed in one package failed when only another package's run passed after it", () => {
+		const checks = summarizeChecks([
+			{ command: "bunx vitest run", cwd: "packages/a", failed: true, exitCode: 1, text: " FAIL a.test.ts" },
+			{ command: "bunx vitest run", cwd: "packages/b", failed: false, exitCode: 0, text: " Tests  4 passed (4)" },
+		]);
+		expect(checks.map(check => [check.kind, check.passed, check.cause])).toEqual([["test", false, "FAIL a.test.ts"]]);
+	});
+	it("reads a check fixed by a compound command as the verdict does: still failed", () => {
+		const checks = summarizeChecks([
+			{ command: "node scripts/lint-surfaces.mjs", failed: true, exitCode: 1, text: "✖ raw button" },
+			{ command: "node scripts/lint-surfaces.mjs && bunx biome check src", failed: false, exitCode: 0 },
+		]);
+		expect(checks.map(check => [check.kind, check.passed])).toEqual([["lint", false]]);
+	});
 });
 
-describe("firstFailure", () => {
-	it("returns the last failed non-check command", () =>
-		expect(
-			firstFailure([
-				{ command: "git push", failed: true, exitCode: 1 },
-				{ command: "bun run build", failed: true, exitCode: 1 },
-			])?.command,
-		).toBe("git push"));
+const bash = (command: string, exitCode: number, cwd?: string): OperationCall => ({
+	toolName: "bash",
+	args: { command, ...(cwd ? { cwd } : {}) },
+	outcome: exitCode === 0 ? "passed" : "failed",
+	exitCode,
+});
+const editOf = (path: string, failed: boolean): OperationCall => ({
+	toolName: "edit",
+	args: { path },
+	outcome: failed ? "failed" : "passed",
+});
+const write = (path: string, content: string, failed: boolean): OperationCall => ({
+	toolName: "write",
+	args: { path, content },
+	outcome: failed ? "failed" : "passed",
+});
+
+describe("settleFailures", () => {
+	it.each<[string, OperationCall[]]>([
+		["the same command rerun green", [bash("bun run check:types", 2), bash("bun run check:types", 0)]],
+		[
+			"the same command, its spacing changed",
+			[bash("git push origin main", 1), bash("  git  push origin\nmain ", 0)],
+		],
+		[
+			"the same command in the same folder",
+			[bash("bunx tsc --noEmit", 2, "app"), bash("bunx tsc --noEmit", 0, "./app")],
+		],
+		["a rejected edit redone on the same path", [editOf("src/a.ts", true), editOf("./src/a.ts", false)]],
+		[
+			"a device write sent again with the same arguments, its intent reworded",
+			[
+				{
+					toolName: "write",
+					args: { path: "xd://ompdesk_report", content: "{}", i: "Reporting" },
+					outcome: "failed",
+				},
+				{
+					toolName: "write",
+					args: { content: "{}", path: "xd://ompdesk_report", i: "Retrying" },
+					outcome: "passed",
+				},
+			],
+		],
+		[
+			"an eval run again with the same code, its intent reworded",
+			[
+				{ toolName: "eval", args: { language: "py", code: "1/0", intent: "Dividing" }, outcome: "failed" },
+				{ toolName: "eval", args: { language: "py", code: "1/0", intent: "Retrying" }, outcome: "passed" },
+			],
+		],
+		[
+			"a subagent's check, then the main agent's same command",
+			[{ ...bash("bun test", 1), agentName: "Worker" }, bash("bun test", 0)],
+		],
+	])("is fixed by a later success of the same call: %s", (_, calls) => {
+		expect(settleFailures(calls)).toEqual({ unresolved: [], recovered: [calls[0]] });
+	});
+
+	it.each<[string, OperationCall[]]>([
+		["a failed push, then a git status", [bash("git push origin main", 1), bash("git status", 0)]],
+		[
+			"a failed push, then a push of another branch",
+			[bash("git push origin main", 1), bash("git push origin other", 0)],
+		],
+		["a failed push, then a dry run", [bash("git push origin main", 1), bash("git push --dry-run origin main", 0)]],
+		["a failed publish, then a dry run", [bash("npm publish", 1), bash("npm publish --dry-run", 0)]],
+		["a failed delete, then a push", [bash("git push --delete origin feat", 1), bash("git push origin feat", 0)]],
+		["a squash merge, then auto-merge", [bash("gh pr merge 3 --squash", 1), bash("gh pr merge 3 --auto", 0)]],
+		[
+			"one repository, then another",
+			[bash("gh pr merge 3 --squash --repo=acme/a", 1), bash("gh pr merge 3 --squash --repo=acme/b", 0)],
+		],
+		[
+			"one cluster, then another",
+			[bash("kubectl --context=prod apply -f d.yaml", 1), bash("kubectl --context=staging apply -f d.yaml", 0)],
+		],
+		[
+			"one test selector, then another",
+			[bash('bunx vitest run -t "login flow"', 1), bash('bunx vitest run -t "signup flow"', 0)],
+		],
+		["one script, then another of the same kind", [bash("bun run test:e2e", 1), bash("bun run test:platform", 0)]],
+		["one test runner, then another", [bash("cargo test", 101), bash("bun test", 0)]],
+		[
+			"one package's tests, then another's",
+			[bash("bunx vitest run", 1, "packages/a"), bash("bunx vitest run", 0, "packages/b")],
+		],
+		["one workspace filter, then another", [bash("pnpm --filter=a test", 1), bash("pnpm --filter=b test", 0)]],
+		["tsc -p a, then tsc -p b", [bash("tsc -p a", 2), bash("tsc -p b", 0)]],
+		[
+			"a check, then the same check piped into tail",
+			[bash("bun run check:types", 2), bash("bun run check:types 2>&1 | tail -20", 0)],
+		],
+		[
+			"a lint, then that lint and another after &&",
+			[bash("node scripts/lint-surfaces.mjs", 1), bash("node scripts/lint-surfaces.mjs && bunx biome check src", 0)],
+		],
+		[
+			"one migration on stdin, then another",
+			[bash('psql "$DB" < migrations/001.sql', 1), bash('psql "$DB" < migrations/002.sql', 0)],
+		],
+		[
+			"a pipeline, then one with another last stage",
+			[bash("cat m.sql | psql prod", 1), bash("cat m.sql | wc -l", 0)],
+		],
+		["one quoted path removed, then another", [bash('rm "build out/a.txt"', 1), bash('rm "tmp dir/b.txt"', 0)]],
+		[
+			"one environment, then another",
+			[
+				bash("AWS_PROFILE=prod aws s3 sync dist s3://site", 1),
+				bash("AWS_PROFILE=dev aws s3 sync dist s3://site", 0),
+			],
+		],
+		[
+			"one script path, then another",
+			[bash("packages/a/scripts/release.sh", 1), bash("packages/b/scripts/release.sh", 0)],
+		],
+		[
+			"one inline command, then another",
+			[bash('bash -lc "git push origin main"', 1), bash('bash -lc "git status"', 0)],
+		],
+		[
+			"a commit with an escaped quote, then another commit",
+			[bash('git commit -m "say \\"hi\\"" && git push origin main', 1), bash('git commit -m "another"', 0)],
+		],
+		["a rejected edit of a.ts, then a good edit of b.ts", [editOf("a.ts", true), editOf("b.ts", false)]],
+		[
+			"one site deployed, then another",
+			[
+				write("xd://mcp__higgsfield_deploy_website", '{"website_id":"A"}', true),
+				write("xd://mcp__higgsfield_deploy_website", '{"website_id":"B"}', false),
+			],
+		],
+		[
+			"an edit with no path",
+			[
+				{ toolName: "edit", args: {}, outcome: "failed" },
+				{ toolName: "edit", args: {}, outcome: "passed" },
+			],
+		],
+		[
+			"an eval with the same intent and other code",
+			[
+				{ toolName: "eval", args: { language: "py", code: "1/0", i: "Checking" }, outcome: "failed" },
+				{ toolName: "eval", args: { language: "py", code: "1", i: "Checking" }, outcome: "passed" },
+			],
+		],
+		["a failure after the success", [bash("bun run build", 0), bash("bun run build", 1)]],
+	])("stays unresolved: %s", (_, calls) => {
+		expect(unresolvedFailures(calls)).toEqual(calls.filter(call => call.outcome === "failed"));
+	});
+
+	it.each([
+		"command -v magick",
+		"command -v magick >/dev/null 2>&1",
+		"which gh",
+		"type jq",
+		"test -f dist/app.js",
+		"[ -d out ]",
+		"grep -q TODO src/a.ts",
+		"rg needle src",
+	])("never counts a whole probe's exit 1 as a failure: %s", command => {
+		expect(settleFailures([bash(command, 1)])).toEqual({ unresolved: [], recovered: [] });
+	});
+
+	it.each([
+		"git push origin main && grep -q needle file",
+		"test -d . && false",
+		"test -d . & false",
+		"grep -q x file & wait",
+		"test -f $(false)",
+		"[ -d out ] || (exit 1)",
+		"cd shots && (command -v magick || command -v montage) && magick a.png b.png c.png",
+		"command -v gh >/dev/null && gh pr merge 3 --squash >/dev/null 2>&1",
+		'bun run release 2>&1 | rg -q "published"',
+		"ls src; grep -n needle src/a.ts",
+	])("keeps an exit 1 of a command that does more than ask a failure: %s", command => {
+		expect(unresolvedFailures([bash(command, 1)])).toHaveLength(1);
+	});
+
+	it("keeps a probe's other exit codes failures", () => {
+		expect(unresolvedFailures([bash("grep -q x missing.txt", 2)])).toHaveLength(1);
+	});
+
+	it("skips inert calls and calls without an outcome", () => {
+		const read: OperationCall = { toolName: "read", args: { path: "a.ts" }, outcome: "failed", inert: true };
+		const cut: OperationCall = { toolName: "bash", args: { command: "bun run build" } };
+		expect(settleFailures([read, cut])).toEqual({ unresolved: [], recovered: [] });
+	});
 });
 
 describe("backgrounded checks", () => {
@@ -203,6 +407,10 @@ describe("commandProgram", () => {
 		["/usr/bin/make all", "make all"],
 		["ls | head", "ls"],
 		["tsc", "tsc"],
+		["cd /tmp/board && (command -v magick || command -v montage) && magick a.png b.png +append c.png", "magick"],
+		["test -f dist/app.js && ./scripts/deploy.sh", "deploy.sh"],
+		["{ ! grep -q x a.txt; } && rm a.txt", "rm"],
+		["test -f dist/app.js", "test"],
 	])("names %s by what it runs: %s", (command, expected) => {
 		expect(commandProgram(command)).toBe(expected);
 	});
