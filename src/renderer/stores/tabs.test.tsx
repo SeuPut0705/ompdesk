@@ -1258,6 +1258,40 @@ describe("tabs store close races and failures", () => {
 		expect(useTabsStore.getState().closedTabs.map(entry => entry.sessionPath)).toEqual(["/s/beta.jsonl"]);
 	});
 
+	it("a close whose answer the dropped link lost stays closed without an error once main no longer lists the tab", async () => {
+		seedTabs("t0");
+		useTabsStore.setState(state => ({
+			tabs: state.tabs.map(tab => (tab.id === "t1" ? { ...tab, sessionPath: "/s/beta.jsonl" } : tab)),
+		}));
+		useToastStore.setState({ toasts: [] });
+		// A paired page's socket dropped while the call was out: main closed the tab, the answer never came back.
+		omp.tabs.close.mockRejectedValue(new Error("The connection to the computer dropped"));
+		omp.tabs.list.mockResolvedValue(
+			[tabInfo("t0", "/alpha"), tabInfo("t2", "/gamma")].map(info => ({ ...info, active: info.tabId === "t0" })),
+		);
+
+		await useTabsStore.getState().closeTab("t1");
+
+		expect(useToastStore.getState().toasts).toEqual([]);
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t0", "t2"]);
+		expect(isTabClosed("t1")).toBe(true);
+		expect(sessionRuntime("t1")).toBeNull();
+		expect(useTabsStore.getState().closedTabs.map(entry => entry.sessionPath)).toEqual(["/s/beta.jsonl"]);
+	});
+
+	it("a close that failed with the tab list unreadable keeps the tab and says so", async () => {
+		seedTabs("t0");
+		useToastStore.setState({ toasts: [] });
+		omp.tabs.close.mockRejectedValue(new Error("The connection to the computer dropped"));
+		omp.tabs.list.mockRejectedValue(new Error("unreachable"));
+
+		await useTabsStore.getState().closeTab("t1");
+
+		expect(useToastStore.getState().toasts.map(toast => toast.title)).toContain(translate("tabs.closeFailed"));
+		expect(isTabClosed("t1")).toBe(false);
+		expect(sessionRuntime("t1")).not.toBeNull();
+	});
+
 	it("settles when routing the split without the closing pane fails: no tab is left in no pane", async () => {
 		seedTabs("t0");
 		const split: SplitLayout = { axis: "columns", ratio: 0.5, first: { tabId: "t0" }, second: { tabId: "t1" } };

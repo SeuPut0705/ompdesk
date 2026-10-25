@@ -1031,10 +1031,11 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		if (failure !== null) {
 			// Main may still hold the tab and its sidecar: let the next list show it again instead of leaving a
 			// live session nobody can see. Its runtime stayed, so it comes back with its asks, draft and
-			// transcript. A tab main answers `false` for and no longer lists was already gone.
+			// transcript. A tab main no longer lists was closed: it answered `false` for one already gone, or a
+			// paired page's dropped link lost the answer to a close main had carried out.
 			closedTabIds.delete(id);
-			await get().reconcileTabs();
-			if (refused && !get().tabs.some(tab => tab.id === id)) {
+			const listed = await get().reconcileTabs();
+			if (listed && !get().tabs.some(tab => tab.id === id)) {
 				closedTabIds.add(id);
 				deleteSessionRuntime(id);
 				return;
