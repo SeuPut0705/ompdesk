@@ -26,6 +26,7 @@ import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useSubagentsStore } from "../../../stores/subagents";
 import { useTabsStore } from "../../../stores/tabs";
 import { selectTodoCardVisible, useTodoStore } from "../../../stores/todo";
+import { useWorkBoardStore } from "../../../stores/work-board";
 import { useAutopilotStateText } from "../../autopilot/use-autopilot-state-text";
 import { SummaryBoard, type ZoneOpen } from "./board-parts";
 import { attentionClause, boardCounts, liveSubagents, todoBoard, workingSubagents } from "./work-board";
@@ -120,13 +121,21 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 	// The zones opened or closed in this open of the panel: a fresh open, also one while the last still leaves, starts
 	// on the summary; a reveal ("show the run") opens the run's zone, also in a panel already open.
 	const [zones, setZones] = useState<ZoneOpen>({});
+	// The docked board's folds, read once per open: a zone with no summary line starts as they leave it.
+	const [folded, setFolded] = useState(() => useWorkBoardStore.getState().collapsed);
+	// The saved folds are read before the first open (the board mounts only inside the open panel).
+	useEffect(() => {
+		void useWorkBoardStore.getState().hydrate();
+	}, []);
 	const setZone = useCallback((id: keyof ZoneOpen, value: boolean) => {
 		setZones(previous => ({ ...previous, [id]: value }));
 	}, []);
 	const expand = useCallback(
 		(revealed = false) => {
-			if (!open) setZones(revealed ? { autopilot: true } : {});
-			else if (revealed) setZone("autopilot", true);
+			if (!open) {
+				setZones(revealed ? { autopilot: true } : {});
+				setFolded(useWorkBoardStore.getState().collapsed);
+			} else if (revealed) setZone("autopilot", true);
 			setOpen(true);
 		},
 		[open, setZone],
@@ -320,7 +329,7 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 					}}
 				>
 					<div className="omp-work-strip-body">
-						<SummaryBoard onChange={setZone} open={zones}>
+						<SummaryBoard folded={folded} onChange={setZone} open={zones}>
 							{children}
 						</SummaryBoard>
 					</div>

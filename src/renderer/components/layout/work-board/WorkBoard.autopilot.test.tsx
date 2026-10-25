@@ -344,4 +344,19 @@ describe("the run is reachable in every layout", () => {
 		expect(prefsSet).not.toHaveBeenCalled();
 		expect(useWorkBoardStore.getState().collapsed).toEqual({ autopilot: true });
 	});
+
+	it("keeps an open strip's run zone as it opened when another pane folds it", async () => {
+		useWorkBoardStore.setState({ collapsed: {}, hydrated: true });
+		useAutopilotStore.getState().apply(running);
+		await mount(760);
+		await click("[data-work-chip]");
+		await settle();
+		expect($("[data-work-strip-panel] [data-autopilot-cycle-live]")).not.toBeNull();
+		await act(async () => useWorkBoardStore.setState({ collapsed: { autopilot: true } }));
+		expect($("[data-work-strip-panel] [data-autopilot-cycle-live]")).not.toBeNull();
+		await click("[data-work-chip]");
+		await click("[data-work-chip]");
+		await settle();
+		expect($("[data-work-strip-panel] [data-autopilot-cycle-live]")).toBeNull();
+	});
 });

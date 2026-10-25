@@ -106,26 +106,31 @@ export type ZoneOpen = Partial<Record<WorkBoardSectionId, boolean>>;
 
 interface SummaryScope {
 	open: ZoneOpen;
+	/** The docked board's folds as they were when the panel opened. */
+	folded: Readonly<Partial<Record<WorkBoardSectionId, true>>>;
 	set: (id: WorkBoardSectionId, open: boolean) => void;
 }
 
 const SummaryContext = createContext<SummaryScope | null>(null);
 
 /**
- * The strip panel's board (WorkBoardChip holds `open` for one open of the panel). A zone with a summary line starts
- * closed; Needs you starts open; any other zone starts as the docked board's fold left it. The folds are only read
- * here, so `workBoardCollapsed` never changes from the strip.
+ * The strip panel's board (WorkBoardChip holds `open` and `folded` for one open of the panel). A zone with a summary
+ * line starts closed; Needs you starts open; any other zone starts as the docked board's fold was when the panel
+ * opened (`folded`, a snapshot: another pane folding it later leaves this open alone). The folds are only read, so
+ * `workBoardCollapsed` never changes from the strip.
  */
 export function SummaryBoard({
 	open,
+	folded,
 	onChange,
 	children,
 }: {
 	open: ZoneOpen;
+	folded: SummaryScope["folded"];
 	onChange: (id: WorkBoardSectionId, open: boolean) => void;
 	children: ReactNode;
 }) {
-	const scope = useMemo<SummaryScope>(() => ({ open, set: onChange }), [open, onChange]);
+	const scope = useMemo<SummaryScope>(() => ({ open, folded, set: onChange }), [open, folded, onChange]);
 	return <SummaryContext.Provider value={scope}>{children}</SummaryContext.Provider>;
 }
 
@@ -175,7 +180,9 @@ export function BoardSection({
 	const headId = useId();
 	const scope = useContext(SummaryContext);
 	const stored = useWorkBoardStore(state => state.collapsed[id] === true);
-	const open = scope ? (scope.open[id] ?? (summary === undefined && (id === "needs" || !stored))) : !stored;
+	const open = scope
+		? (scope.open[id] ?? (summary === undefined && (id === "needs" || scope.folded[id] !== true)))
+		: !stored;
 	const zone = useRef<HTMLElement>(null);
 	const opening = useRef(false);
 	const toggle = () => {
