@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.73.0] - 2026-10-25
+
+작업 상자와 작업 현황을 새로 디자인해서, 무슨 일이 일어났고 지금 무엇이 진행 중인지 한눈에 읽혀요.
+
+### 작업 상자
+- 검사나 명령이 실패한 작업은 더 이상 초록 체크로 끝나지 않아요. 빨간 ✕와 "끝났지만 검사가 실패했어요"(검사가 아닌 명령이면 "끝났지만 일부 단계가 실패했어요"), 빨간 테두리로 보여 줘요.
+- 회색 사실 문장과 아래 칩을 하나로 합쳤어요. 검사 종류마다 결과(✓/✕)와 개수, 바뀐 파일(+/−), 미리보기가 각각 누를 수 있는 버튼이라 같은 내용을 두 번 말하지 않아요. 실패 원인은 바로 아래 한 줄에 보여요.
+- 상자 안의 가로줄을 없애고 간격으로 나눴어요. 펼친 단계 목록은 상자 테두리 안에 들어가고, 아래 도구 아이콘 줄에는 "작업 단계" 이름이 붙어요. 같은 내용이 23~26% 낮은 상자에 담겨요.
+
+### 작업 현황
+- 맨 위 한 문장이 지금 상황을 말해요("6개 실행 중 · 1개 답변 대기 · 1개 실패"). 문장의 숫자는 각 섹션의 숫자와 같은 값에서 나와요. 답변을 기다리는 하위 세션은 따로 적어요.
+- 계획 진행 막대와 개수는 한 번만 보여요. 답변 대기와 검사 실패는 색을 칠한 블록으로 맨 위에 두어 가장 먼저 눈에 띄어요.
+- 모든 행 앞의 같은 점 대신 종류 아이콘(하위 에이전트, 백그라운드 작업, 하위 세션, 바뀐 파일, 브랜치, 미리보기, 같은 체크아웃, 메모리, 검사, 목표)을 상태 색으로 보여 줘요.
+- 실행 시간은 1초마다 바뀌지 않고, 10초 단위와 분 단위로 보여요. 행 간격도 줄여 같은 내용이 더 짧게 들어가요.
+
+<!-- en -->
+
+The work card and the work board are redesigned so what happened and what is running now read at a glance.
+
+### Work card
+- A run whose check or command failed no longer ends with a green tick: it shows a red ✕, "Done, but a check failed" (or "Done, but a step failed" for a command that is no check) and a red edge.
+- The gray facts sentence and the chips under it are one row: each check kind with its verdict and count, the changed files with +/−, and the preview are their own buttons, so nothing is said twice. The failure's cause is the line right under them.
+- No rules inside the card, spacing instead. The opened steps sit inside its frame, and the tool icon strip is labeled "Work steps". The same content fits a card 23–26 % shorter.
+
+### Work board
+- One sentence at the top says what is happening now ("6 running · 1 waiting for you · 1 failed"), with the same figures the sections show. A child session waiting for an answer has its own clause.
+- The plan's bar and count appear once. Waiting on you and a failed check are washed blocks at the top.
+- Rows lead with a kind icon (subagent, background job, child session, changed files, branch, preview, shared checkout, memory, check, goal) in its state colour instead of the same dot.
+- Running clocks no longer tick every second: 10-second steps, then minutes. Denser rows fit the same content in less height.
+
 ## [0.72.3] - 2026-10-25
 
 휴대폰과 원격 세션에서 구독 계정 로그인을 진행할 수 있도록 브라우저 연결과 인증 화면을 고쳤어요.
