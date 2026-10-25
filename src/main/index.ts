@@ -1270,6 +1270,7 @@ app.whenReady().then(() => {
 		home: homedir(),
 		agentDir,
 		rootDir: join(app.getPath("userData"), "ai-memory", "omp-ext"),
+		relaySource: join(builtinDir, "ai-memory", "memory-relay.mjs"),
 		enabled: () => aiMemoryEnabled(prefs.get(AI_MEMORY_PREF)),
 		persistEnabled: enabled => prefs.set(AI_MEMORY_PREF, enabled),
 		terminalPref: () => {

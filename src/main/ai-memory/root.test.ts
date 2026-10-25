@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RM_TEMP } from "../test-fake-omp";
-import { generateRoot, type RunAiMemory, rootComplete } from "./root";
+import { generateRoot, ROOT_RELAY, type RunAiMemory, rootComplete } from "./root";
 
 let base: string;
 let root: string;
@@ -19,7 +19,7 @@ afterEach(async () => {
 const arg = (args: string[], flag: string) => args[args.indexOf(flag) + 1] ?? "";
 
 /** Stands in for ai-memory's three generators: each writes only the file its flag names, as the real ones do. */
-function generators(options: { skip?: string; stray?: boolean; version?: string } = {}): {
+function generators(options: { skip?: string; stray?: boolean; version?: string; entry?: object } = {}): {
 	run: RunAiMemory;
 	calls: string[][];
 } {
@@ -35,7 +35,10 @@ function generators(options: { skip?: string; stray?: boolean; version?: string 
 			await write(arg(args, "--config-file"), `// ext ${options.version ?? "1"}\n`);
 			if (options.stray) await write(`${arg(args, "--config-file")}.bak-123`, "backup");
 		}
-		if (args[0] === "install-mcp") await write(arg(args, "--config-file"), '{"mcpServers":{"ai-memory":{}}}');
+		if (args[0] === "install-mcp") {
+			const entry = options.entry ?? {};
+			await write(arg(args, "--config-file"), JSON.stringify({ mcpServers: { "ai-memory": entry } }));
+		}
 		if (args[0] === "install-skills")
 			await write(join(arg(args, "--target-dir"), "ai-memory-handoff", "SKILL.md"), "s");
 		return { ok: true, cancelled: false, output: "" };
@@ -87,5 +90,62 @@ describe("generateRoot", () => {
 		expect(await generateRoot(root, run, text => text)).toBe(false);
 		expect(existsSync(root)).toBe(false);
 		expect(existsSync(`${root}.next`)).toBe(false);
+	});
+
+	describe("with the relay", () => {
+		const entry = {
+			type: "stdio",
+			command: "/bin/ai-memory",
+			args: ["mcp-bridge", "--no-session-id"],
+			enabled: true,
+		};
+		let relay: { source: string; command: string };
+		beforeEach(async () => {
+			relay = { source: join(base, "memory-relay.mjs"), command: "bun" };
+			await writeFile(relay.source, "// relay 1\n");
+		});
+		const mcp = async () => JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers["ai-memory"];
+
+		it("starts ai-memory's own entry through the relay, keeping its command, arguments and other keys", async () => {
+			await generateRoot(root, generators({ entry }).run, text => text, relay);
+			expect(await mcp()).toEqual({
+				type: "stdio",
+				command: "bun",
+				args: ["$" + "{OMP_PLUGIN_ROOT}/memory-relay.mjs", "/bin/ai-memory", "mcp-bridge", "--no-session-id"],
+				enabled: true,
+			});
+			expect(await readFile(join(root, ROOT_RELAY), "utf8")).toBe("// relay 1\n");
+			expect(await readdir(root)).toEqual([".mcp.json", "index.ts", "memory-relay.mjs", "skills"].sort());
+		});
+
+		it("is complete only while the relay file is there", async () => {
+			await generateRoot(root, generators({ entry }).run, text => text, relay);
+			expect(await rootComplete(root)).toBe(true);
+			await rm(join(root, ROOT_RELAY));
+			expect(await rootComplete(root)).toBe(false);
+		});
+
+		it("leaves an unchanged root alone and swaps in a new relay", async () => {
+			const { run } = generators({ entry });
+			await generateRoot(root, run, text => text, relay);
+			const first = (await stat(join(root, ROOT_RELAY))).ino;
+			await generateRoot(root, run, text => text, relay);
+			expect((await stat(join(root, ROOT_RELAY))).ino).toBe(first);
+			await writeFile(relay.source, "// relay 2\n");
+			await generateRoot(root, run, text => text, relay);
+			expect(await readFile(join(root, ROOT_RELAY), "utf8")).toBe("// relay 2\n");
+		});
+
+		it("takes the runtime from the caller, so a missing Bun on Windows is a path, not a PATH lookup", async () => {
+			await generateRoot(root, generators({ entry }).run, text => text, { ...relay, command: "C:\\Bun\\bun.exe" });
+			expect((await mcp()).command).toBe("C:\\Bun\\bun.exe");
+		});
+
+		it("leaves an entry that is not a stdio command as ai-memory wrote it, with no relay file", async () => {
+			await generateRoot(root, generators({ entry: { url: "http://127.0.0.1:1/mcp" } }).run, text => text, relay);
+			expect(await mcp()).toEqual({ url: "http://127.0.0.1:1/mcp" });
+			expect(existsSync(join(root, ROOT_RELAY))).toBe(false);
+			expect(await rootComplete(root)).toBe(true);
+		});
 	});
 });
