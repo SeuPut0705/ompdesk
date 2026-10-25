@@ -16,8 +16,9 @@ export const TERMINAL_READ_DEFINITION: HostToolDefinition = {
 	name: TERMINAL_READ_TOOL,
 	label: "Read terminal",
 	description:
+		"Read the user's recent terminal output: an error, a server log, a command they ran.\n" +
 		"Read the recent output of the user's terminals in OMPdesk's Terminal panel for this tab (read-only; it cannot type or run anything). " +
-		"Use it when the user refers to something in their terminal: an error, a server log, a command they ran. " +
+		"Use it when the user refers to something in their terminal. " +
 		"Lists every terminal with its state and returns the last lines of the chosen one (default: the first).",
 	parameters: {
 		type: "object",

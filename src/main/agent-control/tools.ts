@@ -98,6 +98,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		name: T.list,
 		label: "OMPdesk sessions",
 		description:
+			"List your open sessions, saved sessions and paired devices.\n" +
 			"List sessions: those open in this OMPdesk window (default), in every window of this app (scope app, which includes sessions running on paired devices), or the saved sessions on this computer or a paired device (scope stored: closed ones too, with text search). Each with id, title, folder, device, state (running with its current step, waiting for the user's answer, idle), subagents, todos and the start of its last answer; also the paired devices. Sessions the user hid from agents show as private. See skill://ompdesk.",
 		parameters: {
 			type: "object",
@@ -127,7 +128,9 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 	{
 		name: T.open,
 		label: "Open OMPdesk session",
-		description: `Open new sessions (tabs) so they work in parallel with you; returns their ids. Give one session's fields, or sessions: [...] to fan out. See skill://ompdesk.`,
+		description:
+			"Open new sessions (tabs) to work in parallel with you; returns ids.\n" +
+			`Open new sessions (tabs) so they work in parallel with you; returns their ids. Give one session's fields, or sessions: [...] to fan out. See skill://ompdesk.`,
 		parameters: {
 			type: "object",
 			properties: {
@@ -151,6 +154,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		name: T.send,
 		label: "Message OMPdesk session",
 		description:
+			"Send a message to another open session.\n" +
 			"Send a message to any other open session. An idle session starts on it; a running one gets it as steer (now, between steps) or follow_up (queued until its turn ends, the default). The session sees it as sent by you, an agent, with your session's title. It cannot answer that session's pending question: only the user does. See skill://ompdesk.",
 		parameters: {
 			type: "object",
@@ -176,6 +180,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		name: T.report,
 		label: "Report to OMPdesk opener",
 		description:
+			"Report progress or results to the session that opened you.\n" +
 			"Tell the session that opened you (or a sibling it opened) about your work, instead of waiting to be asked; or tell a session working in the same checkout (the <shared-checkout> section names it) what you are about to do, or ask it to commit or hold off. Every report reaches a working session between its steps (its tool calls are not cut, a `wait` returns on it). kind: progress (a short status; coalesced; never wakes an idle session), done (the work is finished: summary, changed files, checks you ran; wakes it when idle), question or blocked (you need its decision; wakes it when idle; do not guess meanwhile), review (ready for its review; wakes it when idle), note (to a sibling or a session in the same checkout: e.g. 'I am committing src/a.ts'; never wakes an idle session). See skill://ompdesk.",
 		parameters: {
 			type: "object",
@@ -215,6 +220,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		name: T.result,
 		label: "Read OMPdesk session result",
 		description:
+			"Read another session's last answer and state, optionally waiting for it.\n" +
 			"Read the last answer and state of one session (session) or several at once (sessions: a compact table). wait: true waits until they have finished (until all, the default, or any), one needs the user's answer, or the timeout passes. See skill://ompdesk.",
 		parameters: {
 			type: "object",
@@ -245,6 +251,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		name: T.read,
 		label: "Read OMPdesk session transcript",
 		description:
+			"Read another session's transcript, open or stored.\n" +
 			"Read the most recent messages of any session's transcript, open or stored (user, assistant, tool calls; bounded). Pass the returned before cursor to page further back. Read-only. See skill://ompdesk.",
 		parameters: {
 			type: "object",
@@ -265,7 +272,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 	{
 		name: T.focus,
 		label: "Show OMPdesk session",
-		description: "Show a session to the user: switch to its tab, or open it beside the current view as a split.",
+		description: "Show a session to the user: switch to its tab or open it as a split.",
 		parameters: {
 			type: "object",
 			properties: { session: SESSION, how: { type: "string", enum: PLACEMENT, description: "Default focus." } },
@@ -277,6 +284,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		name: T.notify,
 		label: "Notify the user",
 		description:
+			"Show the user a system notification when work finishes or needs them.\n" +
 			"Show the user a system notification (for work that finished or needs them while they look elsewhere); clicking it opens this session.",
 		parameters: {
 			type: "object",
@@ -289,6 +297,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		name: T.answer,
 		label: "Answer OMPdesk session question",
 		description:
+			"Answer the question another session is waiting on.\n" +
 			"Answer the question another session is waiting on (shown by ompdesk_sessions as waiting for the user's answer or for plan approval). The answer is marked as given by an agent. A tool approval or a plan approval is approved only if the user allowed agents to (Settings), else the user must; deny and plan feedback always work. See skill://ompdesk.",
 		parameters: {
 			type: "object",
@@ -331,6 +340,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		name: T.compare,
 		label: "Compare OMPdesk sessions' work",
 		description:
+			"Compare and judge sessions' work: checks, branches, optional ranked verdict.\n" +
 			"Compare and judge sessions' work: for each one the final answer, the checks it ran (test, build, lint commands from its transcript, with their outcome) and, for a git worktree, branch, commits ahead, changed files with line counts and uncommitted work. With criteria, a judge model (your slow role) grades each against them and returns a ranked verdict with reasons and a winner. It runs no tests itself. Default: every worktree session you opened. See skill://ompdesk.",
 		parameters: {
 			type: "object",
@@ -353,6 +363,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		name: T.merge,
 		label: "Merge an OMPdesk session's branch",
 		description:
+			"Merge a worktree session's branch into the parent checkout.\n" +
 			"Merge a worktree session's branch into the parent checkout's current branch on the computer the session runs on (a merge commit, never pushed). No card by default; the user confirms first only if they turned off \"Let agents manage other sessions\". A conflict aborts the merge and lists the files. Refuses when the session or the parent has uncommitted changes. See skill://ompdesk.",
 		parameters: {
 			type: "object",
@@ -364,7 +375,9 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 	{
 		name: T.schedule,
 		label: "Schedule an OMPdesk run",
-		description: `Create, list or cancel a scheduled run: a prompt that OMPdesk runs on a timer as a fresh print-mode session in a folder, only while the app is open on that device (its Settings › Schedules shows it, marked ${AGENT_SCHEDULE_PREFIX.trim()}). device picks the computer it runs on (default: the one your session runs on). create needs name, prompt and either every_minutes or daily_at (HH:MM, optional days 0-6). No card by default; the user confirms a new one only if they turned off "Let agents manage other sessions". It never runs with auto-approve, and you can cancel only agent-made schedules. See skill://ompdesk.`,
+		description:
+			"Create, list or cancel timed scheduled runs of a prompt.\n" +
+			`Create, list or cancel a scheduled run: a prompt that OMPdesk runs on a timer as a fresh print-mode session in a folder, only while the app is open on that device (its Settings › Schedules shows it, marked ${AGENT_SCHEDULE_PREFIX.trim()}). device picks the computer it runs on (default: the one your session runs on). create needs name, prompt and either every_minutes or daily_at (HH:MM, optional days 0-6). No card by default; the user confirms a new one only if they turned off "Let agents manage other sessions". It never runs with auto-approve, and you can cancel only agent-made schedules. See skill://ompdesk.`,
 		parameters: {
 			type: "object",
 			properties: {
@@ -403,7 +416,9 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 	{
 		name: T.autopilot,
 		label: "OMPdesk Autopilot",
-		description: `Start, inspect or stop an Autopilot run: an unattended loop that keeps improving a git repo in its own worktree (cycles of audit, change, check, commit; it can push and release when the ship level allows). start opens the run as a new session of yours and returns its id; status reads its cycle, current item, red streak, last commit/push/release and why it paused or ended; stop ends it after the cycle in flight (now: true aborts the turn at once and pauses it). No card by default; the user confirms a start only if they turned off "Let agents manage other sessions", and always for ship release or the repo's default branch. See skill://ompdesk.`,
+		description:
+			"Start, inspect or stop an unattended Autopilot run on a git repo.\n" +
+			`Start, inspect or stop an Autopilot run: an unattended loop that keeps improving a git repo in its own worktree (cycles of audit, change, check, commit; it can push and release when the ship level allows). start opens the run as a new session of yours and returns its id; status reads its cycle, current item, red streak, last commit/push/release and why it paused or ended; stop ends it after the cycle in flight (now: true aborts the turn at once and pauses it). No card by default; the user confirms a start only if they turned off "Let agents manage other sessions", and always for ship release or the repo's default branch. See skill://ompdesk.`,
 		parameters: {
 			type: "object",
 			properties: {
@@ -489,6 +504,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		name: T.stop,
 		label: "Stop OMPdesk session",
 		description:
+			"Stop another session's work; optionally close or delete it.\n" +
 			"Stop another session's running work; close: true also closes its tab (the session stays saved), delete: true also deletes the saved session (also one no tab holds: its stored id, with device for a paired device's). Sessions you opened: no question asked. Other sessions: stop and close need no card by default (the user may turn that off); deleting one's saved session always asks the user first (a refusal is final).",
 		parameters: {
 			type: "object",
@@ -509,6 +525,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		name: T.appList,
 		label: "OMPdesk app actions",
 		description:
+			"List the OMPdesk app actions you can take: settings, panels, usage, models.\n" +
 			"List what you can do to OMPdesk itself (settings, side panel, usage, models, saved sessions, updates, sign-in starts) with each action's tier and argument schema. Filter by area or query. See skill://ompdesk/references/app-control.md.",
 		parameters: {
 			type: "object",
@@ -523,6 +540,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		name: T.app,
 		label: "OMPdesk app action",
 		description:
+			"Run one OMPdesk app action from ompdesk_app_list.\n" +
 			"Do one OMPdesk app action from ompdesk_app_list: change a setting, open a panel, read usage, and so on. Changes are shown to the user with an undo; some actions ask the user first whatever their settings say (they erase data, install code, start a sign-in, change the proxy, expose the computer or end running work); some are never available. See skill://ompdesk/references/app-control.md.",
 		parameters: {
 			type: "object",

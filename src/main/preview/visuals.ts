@@ -103,6 +103,7 @@ export const VISUALIZE_DEFINITION: HostToolDefinition = {
 	name: VISUALIZE_TOOL,
 	label: "Visualize",
 	description:
+		"Show the user a page, SVG or image in OMPdesk's Preview panel beside the chat.\n" +
 		"Show the user a page, SVG or image you made, or a web page, in OMPdesk's Preview panel beside the chat, and keep each change as a version they can flip through. " +
 		"open: show `target` (a .html/.svg/image file inside the working directory, or an http(s) URL) or `html` (a complete HTML document you write); opening the same file, URL or visual id again adds a version. " +
 		"The user can comment on elements or regions of the page and tweak its CSS variables; that feedback arrives as their next message. " +
