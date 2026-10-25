@@ -5,6 +5,9 @@
  * card's head and chips read this, so a finished turn says "tests passed · build
  * failed: <cause>" without opening it.
  */
+import { TURN_EDIT_TOOLS } from "../../../../shared/turn-edits";
+import { xdevWriteTarget } from "../../../lib/xdev";
+import { editArgumentPaths, workFilePathKey } from "../../tools/edit-args";
 
 export type CheckKind = "test" | "typecheck" | "lint" | "build";
 
@@ -107,11 +110,17 @@ export interface CheckInput {
 	/** The command's printed output (stock's bash result text). */
 	text?: string;
 	toolCallId?: string;
+	cwd?: string;
+	agentName?: string;
+	startTime?: number;
+	endTime?: number;
+	/** Backgrounded: a failure the transcript also reports (`failedEvents`), which nothing resolves. */
+	background?: true;
 }
 
 export interface CheckSummary {
 	kind: CheckKind;
-	/** The last run of this kind decides: a test run that failed and then passed reads as passed. */
+	/** The kind's last run passed and none of its failures is unresolved (`summarizeChecks`). */
 	passed: boolean;
 	runs: number;
 	exitCode: number | null;
@@ -124,35 +133,56 @@ export interface CheckSummary {
 
 const KIND_ORDER: readonly CheckKind[] = ["test", "typecheck", "lint", "build"];
 
-/** Per check kind, the outcome of the last run of it; failed checks first, then the fixed kind order. */
-export function summarizeChecks(commands: readonly CheckInput[]): CheckSummary[] {
-	const byKind = new Map<CheckKind, CheckSummary>();
-	for (const command of commands) {
-		if (command.interrupted || command.unknown) continue;
+/**
+ * Per check kind, the outcome of its last run, unless a failed run of that kind is still unresolved: then the last
+ * such run, so the chips and the verdict read the same failures. `unresolved` is the caller's own settle of these very
+ * commands (`settleFailures`), else they are settled here. Failed checks first, then the fixed kind order.
+ */
+export function summarizeChecks(
+	commands: readonly CheckInput[],
+	cwd = "",
+	unresolved?: ReadonlySet<CheckInput>,
+): CheckSummary[] {
+	const calls = commands.flatMap(command => {
+		if (command.interrupted || command.unknown) return [];
 		const kind = checkKind(command.command);
-		if (!kind) continue;
-		const failed = command.failed || (command.exitCode !== null && command.exitCode !== 0);
-		const text = command.text ?? "";
-		const tests = kind === "test" ? testCounts(text) : undefined;
-		const cause = failed ? firstErrorLine(text) : undefined;
-		byKind.set(kind, {
-			kind,
-			passed: !failed,
-			runs: (byKind.get(kind)?.runs ?? 0) + 1,
-			exitCode: command.exitCode,
-			...(tests && (tests.passed !== undefined || tests.failed !== undefined) ? { tests } : {}),
-			...(cause ? { cause } : {}),
-			...(command.toolCallId ? { toolCallId: command.toolCallId } : {}),
-		});
+		return kind ? [{ command, kind, failed: commandFailed(command) }] : [];
+	});
+	let standing = unresolved;
+	if (!standing && !calls.some(entry => entry.failed)) standing = new Set();
+	if (!standing) {
+		const ops = calls.map(({ command }) => commandOperation(command));
+		const left = new Set(unresolvedFailures(ops, cwd));
+		standing = new Set(
+			calls.flatMap(({ command }, index) => {
+				const op = ops[index];
+				return op && left.has(op) ? [command] : [];
+			}),
+		);
 	}
-	return [...byKind.values()].sort(
-		(a, b) => Number(a.passed) - Number(b.passed) || KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind),
-	);
-}
-
-/** A failed command that is no check (a script, a `git` call): the card still names its cause. */
-export function firstFailure(commands: readonly CheckInput[]): CheckInput | undefined {
-	return commands.findLast(command => command.failed && !command.interrupted && !checkKind(command.command));
+	const isStanding = (entry: (typeof calls)[number]) => standing.has(entry.command);
+	const byKind = new Map<CheckKind, { entry: (typeof calls)[number]; runs: number }>();
+	for (const entry of calls) {
+		const seen = byKind.get(entry.kind);
+		const keep = seen && isStanding(seen.entry) && !isStanding(entry);
+		byKind.set(entry.kind, { entry: keep ? seen.entry : entry, runs: (seen?.runs ?? 0) + 1 });
+	}
+	return [...byKind.values()]
+		.map(({ entry: { command, kind, failed }, runs }): CheckSummary => {
+			const text = command.text ?? "";
+			const tests = kind === "test" ? testCounts(text) : undefined;
+			const cause = failed ? firstErrorLine(text) : undefined;
+			return {
+				kind,
+				passed: !failed,
+				runs,
+				exitCode: command.exitCode,
+				...(tests && (tests.passed !== undefined || tests.failed !== undefined) ? { tests } : {}),
+				...(cause ? { cause } : {}),
+				...(command.toolCallId ? { toolCallId: command.toolCallId } : {}),
+			};
+		})
+		.sort((a, b) => Number(a.passed) - Number(b.passed) || KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind));
 }
 
 const RUNNER_WRAPPERS = /^(?:npx|bunx|uvx|pnpx)$/;
@@ -162,14 +192,21 @@ const SETUP_COMMANDS = /^(?:cd|export|set|source|\.|pushd|popd|unset|umask)$/;
 const ASSIGNMENT = /^[A-Za-z_]\w*=/;
 
 /**
- * The program a shell command really runs, for naming a failure ("git push", "tsc", "bun test"): the first command
- * after `cd …`/`export …` setup, past `VAR=…` prefixes, `env`, `sudo` and their flags, and an `npx`/`bunx`/`pnpm dlx`
- * wrapper (the tool it runs). The program's basename, plus its subcommand when that is a plain word (`git push`,
- * `bun run`). `undefined` for an empty command.
+ * The program a shell command starts, for naming a failure ("git push", "tsc", "bun test"): the first command after
+ * `cd …`/`export …` setup and grouping or negation (`(`, `{`, `!`), past `VAR=…` prefixes, `env`, `sudo` and their
+ * flags, and an `npx`/`bunx`/`pnpm dlx` wrapper (the tool it runs). The program's basename, plus its subcommand when
+ * that is a plain word (`git push`, `bun run`); a question names what it asks about (`command -v magick`, `which gh`:
+ * the program) or itself (`test`, `[`, `grep`). Never a program after it in the chain, which may not have run.
+ * `undefined` for an empty command.
  */
 export function commandProgram(command: string): string | undefined {
 	for (const segment of command.split(/&&|\|\||;|\n/)) {
-		const words = (segment.split("|")[0] ?? "").trim().split(/\s+/).filter(Boolean);
+		const words = (segment.split("|")[0] ?? "")
+			.trim()
+			.split(/\s+/)
+			.map(word => word.replace(/^[({!]+/, ""))
+			.filter(word => word && !/^[)}]+$/.test(word));
+		if (words[0] === "command" && /^-[vV]$/.test(words[1] ?? "") && words[2]) return basename(words[2]);
 		let index = 0;
 		const skip = (): boolean => {
 			const word = words[index];
@@ -194,9 +231,154 @@ export function commandProgram(command: string): string | undefined {
 		while (skip()) {}
 		const first = words[index];
 		if (first === undefined || SETUP_COMMANDS.test(first)) continue;
-		const program = first.split("/").at(-1) ?? first;
+		const program = basename(first);
 		const next = words[index + 1];
+		if (/^(?:which|type)$/.test(program) && next) return basename(next);
+		if (/^(?:test|\[\[?|grep|egrep|rg)$/.test(program)) return program;
 		return next !== undefined && /^[a-z][\w:-]*$/i.test(next) ? `${program} ${next}` : program;
 	}
 	return undefined;
+}
+
+function basename(path: string): string {
+	return path.split("/").at(-1) ?? path;
+}
+
+export interface OperationCall {
+	toolName: string;
+	args: Record<string, unknown>;
+	/** How the call settled; none while it runs, when it was cut off or when its result never came. */
+	outcome?: "passed" | "failed";
+	exitCode?: number | null;
+	/** Neither fails nor fixes anything: a read, a search, a wait. */
+	inert?: boolean;
+	/** A subagent's call: its success resolves only its own failures (an isolated task runs in its own checkout). */
+	agentName?: string;
+	startTime?: number;
+	endTime?: number;
+	/** A failure the transcript reports on its own (`failedEvents`): nothing resolves it. */
+	reported?: boolean;
+}
+
+function commandFailed(command: CheckInput): boolean {
+	return command.failed || (command.exitCode !== null && command.exitCode !== 0);
+}
+
+export function commandOperation<T extends CheckInput>(command: T): T & OperationCall {
+	const failed = commandFailed(command);
+	return {
+		...command,
+		toolName: "bash",
+		args: { command: command.command, ...(command.cwd ? { cwd: command.cwd } : {}) },
+		...(command.interrupted || command.unknown ? {} : { outcome: failed ? "failed" : "passed" }),
+		...(failed && command.background ? { reported: true } : {}),
+	};
+}
+
+// A whole command that only asks: exit 1 is its answer ("not installed", "no such file", "no match"). Any control or
+// grouping syntax (`;`, `|`, `&&`, a background `&`, a newline, a subshell, a substitution) runs something else whose
+// exit may be the one seen; a redirection's `&` (`2>&1`, `>&2`, `&>`) does not.
+const PROBE = /^(?:command\s+-[vV]|which|type|test|\[|grep|rg)\s/;
+const CONTROL = /[;|\n()`]|(?<![<>])&(?!>)/;
+// A command's key by its folder, the session's folder and its raw text: a card's commands are settled again on every
+// tool event.
+const commandKeys = new Map<string, string>();
+
+function isProbe(call: OperationCall): boolean {
+	if (call.exitCode !== 1 || call.toolName !== "bash" || typeof call.args.command !== "string") return false;
+	const command = call.args.command.trim();
+	return PROBE.test(command) && !CONTROL.test(command);
+}
+
+// Stock's bash tool runs a leading `cd <dir> &&` as its `cwd` (pi-coding-agent tools/shell-tokenize.ts
+// `extractLeadingCdTarget`, which the renderer cannot import): one plain or quoted path, then `&&`.
+const LEADING_CD = /^cd[ \t]+("[^"$`\\]*"|'[^']*'|[^\s;&|<>()'"`$\\]+)[ \t]*&&[ \t]*([\s\S]+)$/;
+
+function canonical(value: unknown): unknown {
+	if (Array.isArray(value)) return value.map(canonical);
+	if (value === null || typeof value !== "object") return value;
+	return Object.fromEntries(
+		Object.keys(value)
+			.filter(key => key !== "i" && key !== "intent")
+			.sort()
+			.map(key => [key, canonical((value as Record<string, unknown>)[key])]),
+	);
+}
+
+/**
+ * What makes a later call the same call: a command's text (whitespace collapsed) in its folder (stock bash `cwd`, else
+ * the session's, then a leading `cd <dir> &&`); each file an edit touches; any other tool, an `xd://` write included,
+ * its arguments (the model's intent aside). Empty for an edit without a path: nothing resolves it.
+ */
+export function callKeys(call: OperationCall, cwd = ""): readonly string[] {
+	const { command, cwd: folder } = call.args;
+	if (call.toolName === "bash" && typeof command === "string") {
+		const base = typeof folder === "string" && folder ? folder : cwd;
+		const memo = `${base}\0${cwd}\0${command}`;
+		let key = commandKeys.get(memo);
+		if (key === undefined) {
+			if (commandKeys.size >= 16_384) commandKeys.clear();
+			let dir = workFilePathKey(base, cwd);
+			let text = command.trim().replace(/\s+/g, " ");
+			const cd = LEADING_CD.exec(text);
+			if (cd?.[1] && cd[2]) {
+				dir = workFilePathKey(cd[1].replace(/^(["'])(.*)\1$/, "$2"), dir);
+				text = cd[2];
+			}
+			key = `bash\0${dir}\0${text}`;
+			commandKeys.set(memo, key);
+		}
+		return [key];
+	}
+	// Stock's arguments object of a call never changes once the call is made: its keys are read once per folder.
+	const cached = argumentKeys.get(call.args);
+	if (cached?.cwd === cwd && cached.toolName === call.toolName) return cached.keys;
+	const keys =
+		TURN_EDIT_TOOLS.includes(call.toolName) && !xdevWriteTarget(call.args)
+			? [...new Set(editArgumentPaths(call.args).map(path => `edit\0${workFilePathKey(path, cwd)}`))]
+			: [`${call.toolName}\0${JSON.stringify(canonical(call.args))}`];
+	argumentKeys.set(call.args, { cwd, toolName: call.toolName, keys });
+	return keys;
+}
+
+const argumentKeys = new WeakMap<object, { cwd: string; toolName: string; keys: readonly string[] }>();
+
+/**
+ * The failed calls, in order, split by whether a successful call of the same call (`callKeys`; an edit, of every file
+ * it touched) started after the failure ended: the main agent's success resolves anyone's failure, a subagent's only
+ * its own. Probes and inert calls are neither failures nor fixes; a reported failure is never resolved.
+ */
+export function settleFailures<T extends OperationCall>(
+	calls: readonly T[],
+	cwd = "",
+): { unresolved: T[]; recovered: T[] } {
+	const unresolved: T[] = [];
+	const recovered: T[] = [];
+	// Only a success after a failure of the same tool can fix anything: a card without failures keys nothing.
+	const counts = (call: T | undefined): call is T => !!call?.outcome && !call.inert && !isProbe(call);
+	const first = calls.findIndex(call => call.outcome === "failed" && counts(call));
+	if (first < 0) return { unresolved, recovered };
+	const family = (call: T) =>
+		TURN_EDIT_TOOLS.includes(call.toolName) && !xdevWriteTarget(call.args) ? "edit" : call.toolName;
+	const failed = new Set(calls.slice(first).flatMap(call => (call.outcome === "failed" ? [family(call)] : [])));
+	const fixes = new Map<string, OperationCall[]>();
+	for (let index = calls.length - 1; index >= first; index--) {
+		const call = calls[index];
+		if (!counts(call) || (call.outcome === "passed" && !failed.has(family(call)))) continue;
+		const keys = callKeys(call, cwd);
+		if (call.outcome === "passed") {
+			for (const key of keys) fixes.set(key, [...(fixes.get(key) ?? []), call]);
+			continue;
+		}
+		const fixedBy = (fix: OperationCall) =>
+			(fix.agentName === undefined || fix.agentName === call.agentName) &&
+			(fix.startTime === undefined || call.endTime === undefined || fix.startTime >= call.endTime);
+		const resolved = !call.reported && keys.length > 0 && keys.every(key => fixes.get(key)?.some(fixedBy));
+		(resolved ? recovered : unresolved).unshift(call);
+	}
+	return { unresolved, recovered };
+}
+
+export function unresolvedFailures<T extends OperationCall>(calls: readonly T[], cwd = ""): T[] {
+	return settleFailures(calls, cwd).unresolved;
 }

@@ -11,8 +11,14 @@ import { resultDetails } from "../../../lib/format";
 import { devServerUrl } from "../../../lib/panel-auto-open";
 import type { ToolEntry } from "../../../stores/tools";
 import type { BackgroundJobVerdict } from "../../chat/completion-events";
-import { type CheckKind, checkKind, summarizeChecks } from "../../chat/work/work-checks";
-import { workOutcomes } from "../../chat/work/work-view";
+import {
+	type CheckKind,
+	checkKind,
+	commandOperation,
+	summarizeChecks,
+	unresolvedFailures,
+} from "../../chat/work/work-checks";
+import { type WorkCommandOutcome, workOutcomes } from "../../chat/work/work-view";
 import { workFilePathKey } from "../../tools/edit-args";
 
 /** A count of changed files and their lines. */
@@ -107,7 +113,7 @@ export function familyChanges(parts: readonly FamilyPart[]): FamilyChangesSummar
 	};
 }
 
-/** The session's newest test, typecheck, lint or build command, as the work card reads it. */
+/** The check the board names, as the newest work card reads it. */
 export interface LastCheck {
 	state: "passed" | "failed" | "running";
 	kind: CheckKind;
@@ -116,17 +122,38 @@ export interface LastCheck {
 	count?: number;
 	startedAt: number;
 	durationMs?: number;
-	/** The call's entry key, for the card in the transcript. */
-	key: string;
+	/** The call's entry key, for the card in the transcript; none for a subagent's call. */
+	key?: string;
+}
+
+function checkOf(outcome: WorkCommandOutcome, kind: CheckKind): LastCheck | null {
+	const [summary] = summarizeChecks([outcome]);
+	if (!summary) return null;
+	const { startTime, endTime } = outcome;
+	const durationMs =
+		outcome.durationMs ?? (startTime !== undefined && endTime !== undefined ? endTime - startTime : undefined);
+	const count = summary.passed ? summary.tests?.passed : summary.tests?.failed;
+	return {
+		kind,
+		command: outcome.command,
+		startedAt: startTime ?? 0,
+		state: summary.passed ? "passed" : "failed",
+		...(outcome.toolCallId ? { key: outcome.toolCallId } : {}),
+		...(count !== undefined ? { count } : {}),
+		...(durationMs !== undefined ? { durationMs } : {}),
+	};
 }
 
 /**
- * The newest check among `entries` (key and call, live and finished). One that never reported (a backgrounded job
- * whose verdict has not arrived, a call still running) is `running`, never passed; a stopped one is skipped, as the
+ * The check the board names: the session's newest one while it has not reported (a backgrounded job whose verdict
+ * has not arrived, a call still running: `running`, never passed); else the newest turn's last check failure no later
+ * run of the same call fixed (`unresolvedFailures` over `turnCommands`, the ledger its work card reads, subagents'
+ * calls included), as that card's verdict says; else the session's newest check run. A stopped one is skipped, as the
  * work card skips it.
  */
 export function lastCheck(
 	entries: Iterable<readonly [string, ToolEntry]>,
+	turnCommands: readonly WorkCommandOutcome[],
 	cwd: string,
 	verdicts: ReadonlyMap<string, BackgroundJobVerdict>,
 ): LastCheck | null {
@@ -138,24 +165,22 @@ export function lastCheck(
 		if (kind) candidates.push({ key, entry, command, kind });
 	}
 	candidates.sort((a, b) => b.entry.startTime - a.entry.startTime);
+	let newest: LastCheck | null = null;
 	for (const { key, entry, command, kind } of candidates) {
 		const base = { kind, command, startedAt: entry.startTime, key };
 		if (entry.status === "pending" || entry.status === "running") return { ...base, state: "running" };
 		const [outcome] = workOutcomes([{ entry, toolCallId: key }], undefined, cwd, verdicts).commands;
 		if (!outcome || outcome.interrupted) continue;
 		if (outcome.unknown) return { ...base, state: "running" };
-		const [summary] = summarizeChecks([outcome]);
-		if (!summary) continue;
-		const durationMs = outcome.durationMs ?? (entry.endTime === null ? undefined : entry.endTime - entry.startTime);
-		const count = summary.passed ? summary.tests?.passed : summary.tests?.failed;
-		return {
-			...base,
-			state: summary.passed ? "passed" : "failed",
-			...(count !== undefined ? { count } : {}),
-			...(durationMs !== undefined ? { durationMs } : {}),
-		};
+		newest = checkOf(outcome, kind);
+		if (newest) break;
 	}
-	return null;
+	const checks = turnCommands.flatMap(command => {
+		const kind = checkKind(command.command);
+		return kind ? [{ ...commandOperation(command), kind }] : [];
+	});
+	const standing = unresolvedFailures(checks, cwd).at(-1);
+	return (standing && checkOf(standing, standing.kind)) ?? newest;
 }
 
 /** One other session and where it works: this worktree, or another worktree of the repository. */

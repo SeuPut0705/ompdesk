@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { type CheckInput, summarizeChecks } from "./work-checks";
-import { deriveFindings, workSummaryText } from "./work-findings";
+import { type CheckInput, checkKind, commandOperation, summarizeChecks, unresolvedFailures } from "./work-checks";
+import { deriveFindings, operationLabel, workSummaryText } from "./work-findings";
 
 function bash(command: string, text: string, exitCode: number, toolCallId: string, previewUrl?: string) {
 	return {
@@ -14,7 +14,8 @@ function bash(command: string, text: string, exitCode: number, toolCallId: strin
 }
 
 function derive(commands: ReturnType<typeof bash>[], failedStep?: string, running = false) {
-	return deriveFindings({ running, checks: summarizeChecks(commands), commands, failedStep });
+	const failures = unresolvedFailures(commands.map(commandOperation)).filter(command => !checkKind(command.command));
+	return deriveFindings({ running, checks: summarizeChecks(commands), failures, commands, failedStep });
 }
 
 describe("deriveFindings", () => {
@@ -39,6 +40,12 @@ describe("deriveFindings", () => {
 		expect(derive([], undefined).error).toBeUndefined();
 	});
 
+	it("has no verdict for a command a later run of the same command fixed", () => {
+		expect(
+			derive([bash("git push origin main", "rejected", 1, "p1"), bash("git push origin main", "ok", 0, "p2")]),
+		).toEqual({});
+	});
+
 	it("takes the last dev server's address", () => {
 		expect(
 			derive([
@@ -58,6 +65,7 @@ describe("workSummaryText", () => {
 		cause: "Cause",
 		changed: "Changed files (2)",
 		checks: "Checks",
+		recovered: "Failed, then fixed",
 		preview: "Preview",
 		deleted: "deleted",
 	};
@@ -75,6 +83,7 @@ describe("workSummaryText", () => {
 					{ passed: false, label: "type check failed" },
 					{ passed: true, label: "128 tests passed" },
 				],
+				recovered: ["edit src/a.ts"],
 				previewUrl: "http://localhost:5173/",
 				labels,
 			}),
@@ -84,14 +93,25 @@ describe("workSummaryText", () => {
 				"Cause: error TS2322: nope",
 				"Changed files (2)\n- src/a.ts +3 -1\n- src/old.ts (deleted)",
 				"Checks\n- ✕ type check failed\n- ✓ 128 tests passed",
+				"Failed, then fixed\n- ✕ → ✓ edit src/a.ts",
 				"Preview: http://localhost:5173/",
 			].join("\n\n"),
 		);
 	});
 
 	it("leaves out what the run did not have", () => {
-		expect(workSummaryText({ head: "3 commands", files: [{ path: "a.ts" }], checks: [], labels })).toBe(
-			"3 commands\n\nChanged files (2)\n- a.ts",
+		expect(
+			workSummaryText({ head: "3 commands", files: [{ path: "a.ts" }], checks: [], recovered: [], labels }),
+		).toBe("3 commands\n\nChanged files (2)\n- a.ts");
+	});
+});
+
+describe("operationLabel", () => {
+	it("names a command as typed, an edit by its project paths and a device write by its device", () => {
+		expect(operationLabel({ toolName: "bash", args: { command: "git  push\norigin main" } }, "/p")).toBe(
+			"git push origin main",
 		);
+		expect(operationLabel({ toolName: "edit", args: { path: "/p/src/a.ts" } }, "/p")).toBe("edit src/a.ts");
+		expect(operationLabel({ toolName: "write", args: { path: "xd://lsp", content: "{}" } }, "/p")).toBe("xd://lsp");
 	});
 });

@@ -160,6 +160,12 @@ export interface WorkCommandOutcome {
 	text?: string;
 	/** The call's entry key (a main-agent call only). */
 	toolCallId?: string;
+	cwd?: string;
+	/** When the call started and, once it answered, ended (the tool entry's clock). */
+	startTime?: number;
+	endTime?: number;
+	/** Backgrounded: its outcome is the job's, whose failure the transcript also reports (`failedEvents`). */
+	background?: true;
 	/** The address a dev server printed, when this command started one. */
 	previewUrl?: string;
 }
@@ -388,6 +394,10 @@ export function workOutcomes(
 				...(output && output !== "Command aborted" ? { output } : {}),
 				...(text ? { text } : {}),
 				...(toolCallId ? { toolCallId } : {}),
+				...(typeof entry.args.cwd === "string" && entry.args.cwd ? { cwd: entry.args.cwd } : {}),
+				startTime: entry.startTime,
+				...(entry.endTime !== null ? { endTime: entry.endTime } : {}),
+				...(backgroundId ? { background: true as const } : {}),
 				...(previewUrl ? { previewUrl } : {}),
 			});
 		}

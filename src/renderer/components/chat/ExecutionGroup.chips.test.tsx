@@ -150,13 +150,13 @@ describe("work card chips", () => {
 	it("names a failed step that is no command by the word Error", async () => {
 		await mount([
 			[
-				"read-1",
+				"eval-1",
 				{
-					toolName: "read",
-					args: { path: "missing.ts" },
+					toolName: "eval",
+					args: { language: "py", code: "1 / 0" },
 					status: "error",
 					streamingArgs: "",
-					result: { content: [{ type: "text", text: "ENOENT" }] },
+					result: { content: [{ type: "text", text: "ZeroDivisionError" }] },
 					isError: true,
 					startTime: 0,
 					endTime: 1,

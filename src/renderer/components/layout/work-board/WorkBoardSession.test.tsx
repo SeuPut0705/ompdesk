@@ -28,6 +28,11 @@ Object.assign(globalThis as Record<string, unknown>, {
 	Node,
 	IS_REACT_ACT_ENVIRONMENT: true,
 });
+// The check row reads the newest turn through the work card's builder, which batches store reads into a frame.
+Object.assign(window, {
+	requestAnimationFrame: (callback: () => void) => setTimeout(callback, 0),
+	cancelAnimationFrame: (handle: ReturnType<typeof setTimeout>) => clearTimeout(handle),
+});
 
 let rows: RpcJobRow[] = [];
 /** What `get_git_unlanded` answers: null on main itself, as by default. */
