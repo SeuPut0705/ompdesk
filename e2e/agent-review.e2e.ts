@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
-import { exitApp, launchApp, readRecords } from "./harness";
+import { exitApp, launchApp, readRecords, untilAnswered } from "./harness";
 
 // Fan-out into git worktrees, then compare and merge (src/main/agent-control): the work board shows the children as
 // plain rows and no review section; the opener's agent lands them with the tools. The fake
@@ -116,6 +116,7 @@ test("fan out into worktrees, compare, merge two through the tool, close a third
 
 	for (const child of made) expect(child.branch).toMatch(/^omp\/agent\//);
 	await call("ompdesk_session_result", { sessions: made.map(child => child.tabId), wait: true, timeout_seconds: 90 });
+	for (const child of made) await untilAnswered(page, child.tabId);
 
 	// The fake children do not edit; commit a file in each checkout the way a real child's work would land.
 	for (const [index, child] of made.entries()) {
