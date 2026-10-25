@@ -63,7 +63,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { agentMessageSender } from "../../../../shared/agent-control";
+import { agentMessageSender, reviewUnmerged } from "../../../../shared/agent-control";
 import { SIDEBAR_WIDTH } from "../../../../shared/boot-shell-geometry";
 import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
 import type { HostView, IpcHostedSession, SessionInfo } from "../../../../shared/ipc-types";
@@ -1714,10 +1714,7 @@ export function Sidebar() {
 					(row.tab === undefined && row.hosted === undefined) ||
 					(!row.busy && child.messageCount >= 2),
 			failed,
-			unmerged:
-				review?.branch !== undefined &&
-				review.state !== "running" &&
-				(review.commitsAhead > 0 || review.uncommitted > 0),
+			unmerged: reviewUnmerged(review),
 		});
 		const statusLabel =
 			status === "problem"
@@ -1815,10 +1812,7 @@ export function Sidebar() {
 			running,
 			finished: tab.lastRun !== undefined,
 			failed,
-			unmerged:
-				review?.branch !== undefined &&
-				review.state !== "running" &&
-				(review.commitsAhead > 0 || review.uncommitted > 0),
+			unmerged: reviewUnmerged(review),
 		});
 		const device = hosts.find(host => host.deviceId === tab.device)?.name ?? tab.device ?? "";
 		const title = tab.title || tab.task || t("sidebar.newSession");

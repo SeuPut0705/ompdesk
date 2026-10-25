@@ -1728,6 +1728,12 @@ export interface SessionInfo {
 	 * own rows and from an older host's.
 	 */
 	openedBySession?: string | null;
+	/**
+	 * A paired host's row of a session an agent opened there whose last turn failed, or whose finished work has not
+	 * landed, as that host's review list says (`reviewUnmerged`): a device viewing the host lists it as the host does,
+	 * though no tab of the device holds its opener. Absent when neither, and from an older host.
+	 */
+	childProblem?: "failed" | "unmerged";
 }
 
 // ============================================================================

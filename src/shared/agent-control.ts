@@ -237,6 +237,11 @@ export interface AgentReviewItem {
 	foreign?: true;
 }
 
+/** A child that stopped with work its branch has not landed: commits nothing merged, or uncommitted files. */
+export function reviewUnmerged(item: AgentReviewItem | undefined): boolean {
+	return item?.branch !== undefined && item.state !== "running" && (item.commitsAhead > 0 || item.uncommitted > 0);
+}
+
 /**
  * A paired host's review list as this computer's windows read it. Each child keeps the machine it runs on: the host
  * for its own (`device` absent there), the device the host named for one opened elsewhere, and none for one that runs

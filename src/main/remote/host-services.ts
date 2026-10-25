@@ -42,6 +42,7 @@ import { isAbsolute } from "node:path";
 import { z } from "zod";
 import { PROMPT_ORIGIN_HOST_ID, type PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origin-contracts";
 import { ACCOUNT_ROTATION_MODES } from "../../shared/account-rotation";
+import { type AgentReviewResult, reviewUnmerged } from "../../shared/agent-control";
 import { codedError } from "../../shared/ipc-error-codes";
 import { HOST_UPLOAD_MAX_BYTES, type HostLiveSession, type IpcHostedSession } from "../../shared/ipc-types";
 import { ModelSetupRequestSchema } from "../../shared/model-setup";
@@ -498,6 +499,11 @@ export class LocalHostServices implements HostServices {
 	readonly #closedWhileOpening = new Set<string>();
 	readonly #runningListeners = new Set<() => void>();
 	readonly #hostedListeners = new Set<() => void>();
+	/**
+	 * What the review list last said of each child of this computer it names: opener session file → that list's
+	 * failed or unmerged children (`sessions.list` tells a device, whose tabs hold neither opener nor child).
+	 */
+	readonly #childProblems = new Map<string, Map<string, "failed" | "unmerged">>();
 	/** `hostedSessions` as last announced: a listener hears only a real change. */
 	#hostedSnapshot = "[]";
 	/** `liveSessions` as last sent to the devices, and the timer that batches a burst of changes into one push. */
@@ -570,7 +576,19 @@ export class LocalHostServices implements HostServices {
 	 * The review list of the session `sessionPath` changed on this computer: every device tab viewing it hears it (a
 	 * device's own tab is its own opener, so its list is the device's).
 	 */
-	agentReviewChanged(sessionPath: string, review: unknown): void {
+	agentReviewChanged(sessionPath: string, review: AgentReviewResult): void {
+		const problems = new Map<string, "failed" | "unmerged">();
+		for (const item of review.items) {
+			// A child on another device is that device's row, not one of this computer's.
+			if (!item.sessionPath || item.device) continue;
+			const problem = item.failed ? "failed" : reviewUnmerged(item) ? "unmerged" : undefined;
+			if (problem) problems.set(item.sessionPath, problem);
+		}
+		const before = JSON.stringify([...(this.#childProblems.get(sessionPath) ?? [])]);
+		if (problems.size > 0) this.#childProblems.set(sessionPath, problems);
+		else this.#childProblems.delete(sessionPath);
+		// A device reads the list again only when told: a child's landing check ends after its file last changed.
+		if (JSON.stringify([...problems]) !== before) this.sessionsChanged();
 		for (const tab of this.#tabs.values())
 			if (tab.viewsWindow && tab.sessionFile === sessionPath) this.#emit(tab, AGENT_REVIEW_EVENT, review);
 	}
@@ -945,8 +963,16 @@ export class LocalHostServices implements HostServices {
 				const { scope, cwd } = parse(SessionsListParams, method, params);
 				const rows = await this.#deps.sessionIndex.list(scope, cwd);
 				const openers = this.#deps.sessionOpeners?.() ?? new Map<string, string>();
+				const problems = new Map([...this.#childProblems.values()].flatMap(children => [...children]));
 				// Every row says, even `null` for none: an older host's rows say nothing, and a device lists those as before.
-				return rows.map(row => ({ ...row, openedBySession: openers.get(row.path) ?? null }));
+				return rows.map(row => {
+					const childProblem = problems.get(row.path);
+					return {
+						...row,
+						openedBySession: openers.get(row.path) ?? null,
+						...(childProblem ? { childProblem } : {}),
+					};
+				});
 			}
 			case "sessions.search": {
 				const { query, scope, cwd } = parse(SessionsSearchParams, method, params);

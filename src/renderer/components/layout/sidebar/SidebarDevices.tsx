@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { Fragment, type ReactNode, useMemo, useState } from "react";
 import { useStore } from "zustand";
+import { reviewUnmerged } from "../../../../shared/agent-control";
 import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
 import type { HostView, SessionInfo, SessionKind } from "../../../../shared/ipc-types";
 import { splitTabIds } from "../../../../shared/split-layout";
@@ -605,24 +606,22 @@ function DeviceSessions({
 
 	/**
 	 * A session the host's own agent opened, as a one-line child under its opener: the tab here when one holds it,
-	 * else what the host says of it (its working cue, the review list), by the local rows' status rule (Sidebar.tsx).
+	 * else what the host says of it (its working cue, its review list's verdict on the row, the review list here when
+	 * this window views the opener, the indexed failure), by the local rows' status rule (Sidebar.tsx).
 	 */
 	const familyChildFor = (child: DeviceSession): FamilyOpened => {
 		const tab = tabFor(child);
 		if (tab) return childForTab(tab);
 		const live = hostLive.get(child.path);
 		const review = reviewOfPath.get(child.path);
-		const failed = review?.failed === true;
+		const failed = review?.failed === true || child.childProblem === "failed" || child.status === "error";
 		const running = live === "turn" || live === "background" || review?.state === "running";
 		const status = openedChildStatus({
 			waiting: live === "waiting" || review?.waiting === true,
 			running,
 			finished: !running,
 			failed,
-			unmerged:
-				review?.branch !== undefined &&
-				review.state !== "running" &&
-				(review.commitsAhead > 0 || review.uncommitted > 0),
+			unmerged: reviewUnmerged(review) || child.childProblem === "unmerged",
 		});
 		const title = sessionDisplayTitle(child, t("sidebar.untitled"));
 		const statusLabel =

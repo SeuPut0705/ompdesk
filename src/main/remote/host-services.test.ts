@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fixtureProviderOptions } from "../../../e2e/models-config-fixture";
 import type { PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origin-contracts";
 import type { AccountRotationMode, AccountRotationState } from "../../shared/account-rotation";
+import type { AgentReviewItem, AgentReviewResult } from "../../shared/agent-control";
 import { ipcErrorCode } from "../../shared/ipc-error-codes";
 import type {
 	CustomProviderInput,
@@ -1785,6 +1786,46 @@ describe("LocalHostServices", () => {
 		]);
 	});
 
+	it("tells a device which listed children its review list holds failed or unlanded, and forgets what landed", async () => {
+		const paths = ["/s/failed.jsonl", "/s/unmerged.jsonl", "/s/clean.jsonl", "/s/elsewhere.jsonl"];
+		const { services } = setup(60_000, {
+			sessionIndex: {
+				list: async () => paths.map(path => ({ path, id: path, title: path, cwd: workDir, firstMessage: "" })),
+			} as unknown as HostServicesDeps["sessionIndex"],
+		});
+		const item = (sessionPath: string, extra: Partial<AgentReviewItem>): AgentReviewItem => ({
+			tabId: sessionPath,
+			sessionPath,
+			title: sessionPath,
+			state: "needs-review",
+			commitsAhead: 0,
+			files: 0,
+			added: 0,
+			removed: 0,
+			uncommitted: 0,
+			answer: "",
+			...extra,
+		});
+		const x = new FakeConnection(peer("device-x"));
+		const problems = async () =>
+			((await services.call(x.peer, "sessions.list", { scope: "global" }, x)) as SessionInfo[]).map(
+				entry => entry.childProblem,
+			);
+		services.agentReviewChanged("/s/boss.jsonl", {
+			items: [
+				item("/s/failed.jsonl", { failed: true }),
+				item("/s/unmerged.jsonl", { branch: "omp/agent/x", commitsAhead: 2 }),
+				item("/s/clean.jsonl", { branch: "omp/agent/y" }),
+				// One the opener runs on another device is that device's row.
+				item("/s/elsewhere.jsonl", { failed: true, device: "dev-3" }),
+			],
+			usage: {},
+		});
+		expect(await problems()).toEqual(["failed", "unmerged", undefined, undefined]);
+		services.agentReviewChanged("/s/boss.jsonl", { items: [], usage: {} });
+		expect(await problems()).toEqual([undefined, undefined, undefined, undefined]);
+	});
+
 	it("reports which devices have a host tab running a turn, through settle, restart and close", async () => {
 		const { services, sidecars } = setup();
 		const changes = vi.fn();
@@ -2520,7 +2561,22 @@ describe("LocalHostServices: Autopilot of a device's tab", () => {
 		const x = new FakeConnection(peer("device-x"));
 		await context.services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: "/s/run.jsonl" }, x);
 		const asked: { sessionPath?: string; command: unknown }[] = [];
-		const review = { items: [{ tabId: "child-1", title: "Child", state: "running" }], usage: {} };
+		const review: AgentReviewResult = {
+			items: [
+				{
+					tabId: "child-1",
+					title: "Child",
+					state: "running",
+					commitsAhead: 0,
+					files: 0,
+					added: 0,
+					removed: 0,
+					uncommitted: 0,
+					answer: "",
+				},
+			],
+			usage: {},
+		};
 		context.services.attachAgentReview(async (target, command) => {
 			asked.push({ sessionPath: target.sessionPath, command });
 			return { type: "response", command: command.type, success: true, data: review } as RpcResponse;

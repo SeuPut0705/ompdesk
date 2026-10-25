@@ -3328,6 +3328,40 @@ describe("Sidebar device sections", () => {
 			expect(listed()).toEqual([BOSS]);
 		});
 
+		it("keeps a finished child that failed or left work unlanded in the family, as the host does", async () => {
+			// Neither is at work on the host and no tab here holds them: the indexed failure and the host's own
+			// review verdict are all that say they need a look.
+			await mountHost(
+				hostRows(path =>
+					path === BOSS
+						? { openedBySession: null }
+						: path === AT_WORK
+							? { openedBySession: BOSS, status: "error" }
+							: path === ASKING
+								? { openedBySession: BOSS, childProblem: "unmerged" }
+								: { openedBySession: BOSS },
+				),
+			);
+			// Neither is live on the host in this case.
+			const remote = useRemoteStore.getState().state;
+			if (!remote) throw new Error("no remote state");
+			await act(async () =>
+				useRemoteStore.getState().apply({
+					...remote,
+					hosts: [{ deviceId: "dev-studio", name: "studio", state: "online" }],
+				}),
+			);
+			expect(listed()).toEqual([BOSS]);
+			await fire(
+				device()?.querySelector(`[data-device-session="${BOSS}"] [data-sidebar-subagents-toggle]`) ?? null,
+				"onClick",
+			);
+			expect(familyPaths()).toEqual([AT_WORK, ASKING]);
+			const status = (path: string) =>
+				device()?.querySelector(`[data-session-path="${path}"]`)?.getAttribute("data-child-status");
+			expect([status(AT_WORK), status(ASKING)]).toEqual(["problem", "problem"]);
+		});
+
 		it("lists an older host's rows, which name no opener, as before", async () => {
 			await mountHost(hostRows(() => ({})));
 			expect(listed().toSorted()).toEqual([AT_WORK, ASKING, BOSS, LANDED].toSorted());
