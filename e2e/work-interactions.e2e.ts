@@ -171,7 +171,8 @@ for (const variant of VARIANTS)
 			await run({ op: "call", id: "r1", name: "read", args: { path: "out/clip.webm" } });
 			await input.fill("Also keep the tone");
 			await input.press("Enter");
-			await expect(pane.getByText("Also keep the tone")).toBeVisible();
+			// A steer typed mid-run waits in the toolbar's queue pill, not as a bubble.
+			await expect(pane.locator("[data-queue-pill]")).toBeVisible();
 			await capture(page, `${variant.name}-2-steer-queued`);
 			await page.reload();
 			await page.waitForFunction(() => window.omp?.rpc != null);
@@ -267,7 +268,7 @@ for (const variant of VARIANTS.filter(entry => !entry.split))
 			});
 			await input.fill("Also keep the tone");
 			await input.press("Enter");
-			await expect(page.getByText("Also keep the tone")).toBeVisible();
+			await expect(page.locator("[data-queue-pill]").first()).toBeVisible();
 			await capture(page, `stop-${variant.name}-1-running-queued`);
 			await page.getByRole("button", { name: variant.language === "en" ? "Stop" : "중단", exact: true }).click();
 			await expect(page.locator('.omp-execution-group[data-state="running"]')).toHaveCount(0, { timeout: 30_000 });
