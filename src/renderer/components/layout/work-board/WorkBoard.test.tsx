@@ -3,6 +3,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RpcAsyncJobItem, RpcGoalState, RpcJobRow, SubagentSnapshot } from "../../../../shared/rpc-types";
+import { pendingAsks } from "../../../lib/attention";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { EMPTY_TURN_METER } from "../../../lib/turn-meter";
 import { accountWindows, shortWindowLabel } from "../../../lib/usage-windows";
@@ -20,11 +21,13 @@ import { type ToolEntry, useToolsStore } from "../../../stores/tools";
 import { useUiStore } from "../../../stores/ui";
 import { useWorkBoardStore } from "../../../stores/work-board";
 import { bareEmail, shortAccountLabel } from "../AccountLimit";
+import { boardCounts, todoBoard } from "./work-board";
 
-const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
+const { document, window, Element, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
 	document,
 	window,
+	Element,
 	Event,
 	HTMLElement,
 	Node,
@@ -764,6 +767,86 @@ describe("WorkBoard folds", () => {
 		await act(async () => fold().click());
 		expect(pane.querySelector('[data-board-agent="a1"]')).not.toBeNull();
 		expect(prefsSet).toHaveBeenLastCalledWith("workBoardCollapsed", {});
+	});
+});
+
+describe("the strip panel's summary", () => {
+	const phases = [
+		{
+			name: "Work",
+			tasks: [
+				{ content: "Reproduce", status: "completed" as const },
+				{ content: "Fix the strip", status: "in_progress" as const },
+				{ content: "Run the suite", status: "pending" as const },
+			],
+		},
+	];
+	/** A question, two subagents at work and a plan, on a pane too narrow to dock: the strip with its panel open. */
+	async function openStrip(): Promise<void> {
+		useExtensionUiStore
+			.getState()
+			.pushRequest({ type: "extension_ui_request", id: "c1", method: "confirm", title: "Go?", message: "" });
+		useSubagentsStore.getState().setSnapshots([agent("a1", "running", 0), agent("a2", "running", 1)]);
+		useTodoStore.getState().setPhases(phases);
+		await mount(390);
+		await click("[data-work-chip]");
+	}
+	const panel = () => pane.querySelector("[data-work-strip-panel]:not([data-leaving])");
+	const line = (id: string) => pane.querySelector(`[data-work-strip-panel] [data-board-summary="${id}"]`);
+
+	it("lists Needs you and shows every other zone as one line whose figure the board's counts give", async () => {
+		await openStrip();
+		expect(panel()?.querySelector('[data-board-waiting="c1"]')).not.toBeNull();
+		expect(line("needs")).toBeNull();
+		const extensionUi = useExtensionUiStore.getState();
+		const counts = boardCounts({
+			asks: pendingAsks(extensionUi, false),
+			childrenWaiting: 0,
+			childrenRunning: 0,
+			checkFailed: false,
+			agents: 2,
+			agentsWorking: 2,
+			jobs: 0,
+			turnWorking: false,
+		});
+		expect(line("now")?.querySelector(".omp-work-board-count")?.textContent).toBe(
+			String(counts.running + counts.childrenRunning),
+		);
+		expect(panel()?.querySelector("[data-board-agent]")).toBeNull();
+		const plan = todoBoard(phases);
+		expect(line("plan")?.querySelector(".omp-work-board-count")?.textContent).toBe(`${plan?.done}/${plan?.total}`);
+		expect(line("plan")?.textContent).toContain("Fix the strip");
+		expect(panel()?.querySelector("[data-todo-status]")).toBeNull();
+	});
+
+	it("opens a zone in place on a tap and keeps the panel open, never touching the docked board's folds", async () => {
+		useWorkBoardStore.setState({ collapsed: { plan: true }, hydrated: true });
+		await openStrip();
+		await act(async () => (line("now") as unknown as HTMLButtonElement).click());
+		expect(panel()?.querySelector('[data-board-agent="a1"]')).not.toBeNull();
+		expect(line("now")).toBeNull();
+		await act(async () => (line("plan") as unknown as HTMLButtonElement).click());
+		expect(panel()?.querySelectorAll("[data-todo-status]").length).toBe(2);
+		await click('[data-work-strip-panel] [data-board-section="now"] button.omp-work-board-fold');
+		expect(line("now")).not.toBeNull();
+		expect(prefsSet).not.toHaveBeenCalled();
+		expect(useWorkBoardStore.getState().collapsed).toEqual({ plan: true });
+		await resize(1600);
+		expect(section("plan")?.querySelector("button.omp-work-board-fold")?.getAttribute("aria-expanded")).toBe("false");
+		expect(section("now")?.querySelector("button.omp-work-board-fold")?.getAttribute("aria-expanded")).toBe("true");
+	});
+
+	it("starts every open on the summary, a reopen while the panel still leaves too", async () => {
+		await openStrip();
+		await act(async () => (line("now") as unknown as HTMLButtonElement).click());
+		expect(line("now")).toBeNull();
+		await click("[data-work-chip]");
+		expect(panel()).toBeNull();
+		expect(pane.querySelector("[data-work-strip-panel][data-leaving]")).not.toBeNull();
+		await click("[data-work-chip]");
+		expect(panel()).not.toBeNull();
+		expect(line("now")).not.toBeNull();
+		expect(line("plan")).not.toBeNull();
 	});
 });
 

@@ -474,6 +474,17 @@ html[data-shell] .omp-composer-region.pb-3 {
 	padding-block: var(--sc-space-2);
 }
 
+/* While the panel shows zones as one line each (WorkBoardChip's summary) its sections sit half a gap apart and a
+   closed zone keeps no margin for a list it does not draw: every line then shows at 360×740 beside three Needs you
+   rows (25 Oct 2026, busy harness board: 344 px of a 352 px body). */
+.omp-work-strip-body .omp-work-board:has([data-board-summary]) {
+	gap: var(--sc-space-1);
+}
+
+.omp-work-strip-body .omp-work-board-section:has([data-board-summary]) .omp-work-board-title {
+	margin-block-end: 0;
+}
+
 /* The swipe-up grip: a short bar in a 16 px strip, never taller than its own box. */
 .omp-work-strip-grip {
 	position: relative;

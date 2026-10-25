@@ -212,6 +212,17 @@ button.omp-work-board-row:focus-visible {
 	padding-inline-end: var(--sc-space-1-5);
 }
 
+.omp-work-board-summary {
+	min-width: 0;
+	flex: 1 1 auto;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	text-align: start;
+	font-weight: 400;
+	color: var(--sc-text-muted);
+}
+
 .omp-work-board-list {
 	display: flex;
 	flex-direction: column;

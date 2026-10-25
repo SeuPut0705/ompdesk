@@ -3,7 +3,7 @@
  * section and a one-line row. Look in styles/work-board.css.
  */
 import { ChevronRight, type LucideIcon, Network } from "lucide-react";
-import { type ReactNode, useId, useState } from "react";
+import { createContext, type ReactNode, useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { translate, useT } from "../../../lib/i18n";
 import { revealAndFocus } from "../../../lib/reveal-focus";
 import { useUiStore } from "../../../stores/ui";
@@ -101,6 +101,36 @@ export function KindMark({
 	return <Icon aria-hidden className="omp-work-board-kind" data-tone={tone} />;
 }
 
+interface SummaryScope {
+	open: Partial<Record<WorkBoardSectionId, boolean>>;
+	set: (id: WorkBoardSectionId, open: boolean) => void;
+}
+
+const SummaryContext = createContext<SummaryScope | null>(null);
+
+/**
+ * The strip panel's board (WorkBoardChip): the zones the person opened or closed since the panel opened. A zone with a
+ * summary line starts closed, every other zone open. Nothing here is stored, so the docked board's folds
+ * (`workBoardCollapsed`) never change and every open of the panel starts the same.
+ */
+export function SummaryBoard({ children }: { children: ReactNode }) {
+	const [open, setOpen] = useState<SummaryScope["open"]>({});
+	const scope = useMemo<SummaryScope>(
+		() => ({ open, set: (id, value) => setOpen(previous => ({ ...previous, [id]: value })) }),
+		[open],
+	);
+	return <SummaryContext.Provider value={scope}>{children}</SummaryContext.Provider>;
+}
+
+function scrollIntoStripBody(zone: HTMLElement | null): void {
+	const body = zone?.closest<HTMLElement>(".omp-work-strip-body");
+	if (!zone || !body) return;
+	const box = zone.getBoundingClientRect();
+	const view = body.getBoundingClientRect();
+	const by = Math.min(box.top - view.top, box.bottom - view.bottom);
+	if (by > 0) body.scrollTop += by;
+}
+
 export function BoardSection({
 	id,
 	title,
@@ -110,6 +140,7 @@ export function BoardSection({
 	action,
 	tone,
 	live,
+	summary,
 	children,
 }: {
 	id: WorkBoardSectionId;
@@ -123,31 +154,58 @@ export function BoardSection({
 	/** A control of its own after the fold button (the work tree's icon button). */
 	action?: ReactNode;
 	tone?: "warning" | "danger";
+	/**
+	 * Inside a `SummaryBoard`: the zone's one line while closed, its lead item's words and its figure in the head; a tap
+	 * opens it in place.
+	 */
+	summary?: { lead: string; count?: ReactNode };
 	children: ReactNode;
 }) {
 	const t = useT();
 	const headId = useId();
-	const folded = useWorkBoardStore(state => state.collapsed[id] === true);
+	const scope = useContext(SummaryContext);
+	const stored = useWorkBoardStore(state => state.collapsed[id] === true);
+	const open = scope ? (scope.open[id] ?? summary === undefined) : !stored;
+	const zone = useRef<HTMLElement>(null);
+	const opening = useRef(false);
+	const toggle = () => {
+		if (!scope) return useWorkBoardStore.getState().toggle(id);
+		opening.current = !open;
+		scope.set(id, !open);
+	};
+	useLayoutEffect(() => {
+		if (!open || !opening.current) return;
+		opening.current = false;
+		scrollIntoStripBody(zone.current);
+	}, [open]);
+	const folded = !open;
+	const line = scope && folded ? summary : undefined;
 	return (
 		<section
 			aria-labelledby={headId}
 			className="omp-work-board-section omp-fade-up"
 			data-board-section={id}
 			data-tone={tone}
+			ref={zone}
 		>
 			<h3 className="omp-work-board-title" id={headId}>
 				{/* controls-ok: the omp-work-board-fold class draws the whole row */}
 				<button
 					aria-expanded={!folded}
 					className="omp-work-board-fold"
-					onClick={() => useWorkBoardStore.getState().toggle(id)}
+					data-board-summary={line ? id : undefined}
+					onClick={toggle}
 					title={t(folded ? "workBoard.expand" : "workBoard.collapse", { section: title })}
 					type="button"
 				>
 					<ChevronRight aria-hidden className="omp-work-board-chevron" data-open={!folded || undefined} />
-					<span className={mid ? "omp-work-board-zone-title" : "truncate"}>{title}</span>
-					{mid}
-					{count !== undefined && <span className="omp-work-board-count">{count}</span>}
+					<span className={mid || line ? "omp-work-board-zone-title" : "truncate"}>{title}</span>
+					{line ? <span className="omp-work-board-summary">{line.lead}</span> : mid}
+					{line ? (
+						line.count !== undefined && <span className="omp-work-board-count">{line.count}</span>
+					) : count !== undefined ? (
+						<span className="omp-work-board-count">{count}</span>
+					) : null}
 				</button>
 				{action}
 				{aside ? <span className="omp-work-board-aside">{aside}</span> : null}

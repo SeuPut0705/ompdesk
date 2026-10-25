@@ -346,7 +346,9 @@ for (const { engine, device } of variants(
 			await chip.click();
 			await expect(chip).toHaveAttribute("aria-expanded", "true");
 			await expect(panel).toBeVisible();
-			await expect(panel.locator("[data-board-turn], [data-todo-status]").first()).toBeVisible();
+			await panel.locator('[data-board-summary="plan"]').click();
+			await expect(panel.locator("[data-todo-status]").first()).toBeVisible();
+			await expect(panel).toBeVisible();
 			// The plan's bar opens across its header's width: it once fell into a grid's first `auto` column and shrank to
 			// its 24 px floor.
 			const plan = await panel.locator("[data-board-section='plan'] .omp-work-board-title").evaluate(head => ({

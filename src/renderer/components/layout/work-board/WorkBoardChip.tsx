@@ -27,6 +27,7 @@ import { useSubagentsStore } from "../../../stores/subagents";
 import { useTabsStore } from "../../../stores/tabs";
 import { selectTodoCardVisible, useTodoStore } from "../../../stores/todo";
 import { useAutopilotStateText } from "../../autopilot/use-autopilot-state-text";
+import { SummaryBoard } from "./board-parts";
 import { attentionClause, boardCounts, liveSubagents, todoBoard, workingSubagents } from "./work-board";
 
 const PANEL_ID = "omp-work-strip-panel";
@@ -106,7 +107,8 @@ function useStripRoom(root: RefObject<HTMLDivElement | null>, open: boolean, sho
  * The work board where it has no room beside the pane (a phone, a portrait tablet; design §6.3): one status strip
  * under the header — what waits for you first, then the turn, the plan's progress with the current task, the
  * running subagents and jobs — and a tap expands the strip itself downward into the board, an inline panel over
- * the top of the transcript (no scrim, nothing dimmed, nothing pushed). It collapses on a second tap, a swipe up
+ * the top of the transcript (no scrim, nothing dimmed, nothing pushed), opening on its summary (`SummaryBoard`:
+ * Needs you listed, every other zone one line until a tap opens it). It collapses on a second tap, a swipe up
  * on the strip or the panel's grip, the back gesture, a tap outside, or a tap on a row (which also acts). Nothing
  * is remembered: every mount starts collapsed. The strip says what the dock's todo card would, so mobile.css hides
  * that card beside it. The line is a live region, so the board's announcements stay. A bump of `reveal` (the pane's
@@ -115,12 +117,18 @@ function useStripRoom(root: RefObject<HTMLDivElement | null>, open: boolean, sho
 export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; reveal?: number }) {
 	const t = useT();
 	const [open, setOpen] = useState(false);
+	// Each open draws a fresh board, so its zones start as summary lines even when it reopens while still leaving.
+	const [opens, setOpens] = useState(0);
+	const expand = useCallback(() => {
+		setOpen(true);
+		setOpens(count => count + 1);
+	}, []);
 	const seenReveal = useRef(reveal);
 	useEffect(() => {
 		if (reveal === seenReveal.current) return;
 		seenReveal.current = reveal;
-		setOpen(true);
-	}, [reveal]);
+		expand();
+	}, [reveal, expand]);
 	/** The panel stays mounted for its exit (height transition); never under reduced motion. */
 	const [leaving, setLeaving] = useState(false);
 	const root = useRef<HTMLDivElement>(null);
@@ -227,7 +235,7 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 				data-opens={room?.up ? "up" : undefined}
 				data-state={state}
 				data-work-chip=""
-				onClick={() => (open ? close() : setOpen(true))}
+				onClick={() => (open ? close() : expand())}
 				onTouchEnd={swipeEnd}
 				onTouchStart={swipeStart}
 				type="button"
@@ -297,7 +305,9 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 						if (row && !row.hasAttribute("data-board-expands")) close();
 					}}
 				>
-					<div className="omp-work-strip-body">{children}</div>
+					<div className="omp-work-strip-body" key={opens}>
+						<SummaryBoard>{children}</SummaryBoard>
+					</div>
 					<div aria-hidden className="omp-work-strip-grip" onTouchEnd={swipeEnd} onTouchStart={swipeStart} />
 				</div>
 			)}
