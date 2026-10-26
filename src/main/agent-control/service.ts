@@ -3370,7 +3370,12 @@ export class AgentControl {
 				if (tab.status !== "ready" && !(tab.restored && tab.status === "asleep")) continue;
 				if (!tab.lastRun && !tab.restored) continue;
 				const facts = await this.#autoCloseFacts(tab, openerIdle);
-				await this.#autoDone(caller, tabs, tab, facts);
+				const reported = await this.#autoDone(caller, tabs, tab, facts);
+				// A problem child's tab holds the only live trace of its failure: the report just sent is read in the
+				// opener's next turn, so the tab closes in a later pass (the opener idle again, or a read of it).
+				if (reported && facts.result === "problem") continue;
+				// A question or blocker the opener has not answered is the child waiting: it stays open for the answer.
+				if (facts.result === "problem" && this.#mailbox.state(tab.tabId, caller.tabId)?.waiting) continue;
 				const decision = autoCloseDecision(facts);
 				if (decision.action === "close") await this.#autoCloseTab(caller, tab, decision.removeWorktree);
 				else await this.#nudgeSilent(caller, tab, facts);
@@ -3385,9 +3390,9 @@ export class AgentControl {
 	 * opener nothing on the current dispatch gets its `done` report sent for it: the final answer, through `#report`
 	 * (custody line, outbox, dedupe id, delivery). Measured: the child's own `ompdesk_report` done cost every worker
 	 * dispatch two extra model requests. Never a failed or stopped turn, one the person typed into, one a relaunch
-	 * restored, or a dispatch that already has a report.
+	 * restored, or a dispatch that already has a report. Resolves true when it sent the report.
 	 */
-	async #autoDone(caller: ControlTab, tabs: ControlTab[], tab: ControlTab, facts: AutoCloseFacts): Promise<void> {
+	async #autoDone(caller: ControlTab, tabs: ControlTab[], tab: ControlTab, facts: AutoCloseFacts): Promise<boolean> {
 		if (
 			!facts.openedByAgent ||
 			!facts.idle ||
@@ -3399,24 +3404,28 @@ export class AgentControl {
 			tab.restored ||
 			this.#host.parentOf(tab.tabId) !== caller.tabId
 		)
-			return;
+			return false;
 		const dispatch = this.#mailbox.current(tab.tabId);
 		const state = this.#mailbox.state(tab.tabId, caller.tabId);
 		// A question or blocker the opener has not answered stays the child's standing word: a done would read as settled.
-		if (state?.waiting) return;
+		if (state?.waiting) return false;
 		// Only a finishing report of this dispatch stands for the answer: a milestone's progress or a note leaves the finish
 		// to tell.
 		const report = state?.last;
-		if (report && report.dispatch === dispatch && (report.kind === "done" || report.kind === "review")) return;
-		if (this.#autoDoneFor.get(tab.tabId) === (dispatch ?? "")) return;
+		if (report && report.dispatch === dispatch && (report.kind === "done" || report.kind === "review")) return false;
+		if (this.#autoDoneFor.get(tab.tabId) === (dispatch ?? "")) return false;
 		const answer = ((await this.#state(tab)).last ?? "").trim();
-		if (!parseWorkerResult(answer)) return;
+		if (!parseWorkerResult(answer)) return false;
 		this.#autoDoneFor.set(tab.tabId, dispatch ?? "");
-		await this.#report(tab, tabs, {
+		const sent = await this.#report(tab, tabs, {
 			kind: "done",
 			text: cut(answer, MESSAGE_MAX_CHARS),
 			...(dispatch ? { dispatch } : {}),
-		}).catch(() => undefined);
+		}).then(
+			() => true,
+			() => false,
+		);
+		return sent;
 	}
 
 	/**

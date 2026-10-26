@@ -2,9 +2,10 @@
  * When a session an agent opened (`ompdesk_session_open`) closes by itself. Pure rules: `AgentControl.autoClose`
  * gathers the facts (tab state, git, what the person is doing) and applies the decision.
  *
- * A tab closes only once its work has landed and nobody is using it; the session file always stays. A finished child
- * that needs a look (it ended in an error or was stopped, its branch holds commits nothing merged, its worktree holds
- * uncommitted or untracked files) stays a row.
+ * A tab closes only once its work has landed and nobody is using it; the session file always stays. A child that
+ * ended `Result: problem` closes its tab too, once its opener read the answer: its worktree stays when its branch
+ * has not landed. A finished child that needs a look (it ended in an error or was stopped, its branch holds commits
+ * nothing merged, its worktree holds uncommitted or untracked files, it gave no verdict) stays a row.
  */
 
 /** What git says about the child's branch; null for a session without a worktree. */
@@ -65,14 +66,18 @@ export function autoCloseDecision(facts: AutoCloseFacts): AutoCloseDecision {
 	if (!facts.openedByAgent) return { action: "keep", reason: "not-agent-opened" };
 	if (!facts.idle || !facts.settled) return { action: "keep", reason: "working" };
 	if (!facts.answered) return { action: "keep", reason: "no-answer" };
-	if (facts.ended === "failed" || facts.result === "problem") return { action: "keep", reason: "failed" };
+	if (facts.ended === "failed") return { action: "keep", reason: "failed" };
 	if (facts.userTouched) return { action: "keep", reason: "user-touched" };
 	if (facts.looked) return { action: "keep", reason: "looked-at" };
 	if (!facts.stored) return { action: "keep", reason: "not-stored" };
 	if (!facts.collected) return { action: "keep", reason: "not-collected" };
-	// Only a worker that says its work is fine closes; a missing verdict is done, but left for the person.
-	if (facts.result === "missing") return { action: "keep", reason: "no-result" };
 	const branch = facts.branch;
+	// A problem verdict is delivered to the opener as its done report; the tab has nothing left to show. Its work is
+	// not landed work, so the worktree goes only where a clean, landed branch makes that safe anyway.
+	if (facts.result === "problem")
+		return { action: "close", removeWorktree: branch ? branch.hasWork && branch.landed && branch.clean : false };
+	// Without a verdict line the work is done, but left for the person.
+	if (facts.result === "missing") return { action: "keep", reason: "no-result" };
 	if (!branch) return { action: "close", removeWorktree: false };
 	if (!branch.hasWork) return { action: "keep", reason: "nothing-landed" };
 	if (!branch.landed) return { action: "keep", reason: "unmerged" };

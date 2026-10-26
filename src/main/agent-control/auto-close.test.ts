@@ -70,11 +70,34 @@ describe("autoCloseDecision", () => {
 		});
 	});
 
-	it("closes only on a Result: ok line: a problem verdict or no verdict leaves a finished session open", () => {
+	it("closes a Result: problem session's tab once the opener read it, whatever its branch says, and keeps an unlanded worktree", () => {
+		expect(autoCloseDecision({ ...finished, result: "problem" })).toEqual({ action: "close", removeWorktree: false });
+		for (const branch of [
+			{ hasWork: true, landed: false, clean: true },
+			{ hasWork: true, landed: true, clean: false },
+			{ hasWork: false, landed: false, clean: true },
+		])
+			expect(autoCloseDecision({ ...finished, result: "problem", branch })).toEqual({
+				action: "close",
+				removeWorktree: false,
+			});
 		expect(autoCloseDecision({ ...finished, result: "problem", branch: landed })).toEqual({
-			action: "keep",
-			reason: "failed",
+			action: "close",
+			removeWorktree: true,
 		});
+	});
+
+	it("keeps a problem session until its opener read the answer, and every guard that holds an ok one", () => {
+		const problem = { ...finished, result: "problem" } as const;
+		expect(autoCloseDecision({ ...problem, collected: false })).toEqual({ action: "keep", reason: "not-collected" });
+		expect(autoCloseDecision({ ...problem, looked: true })).toEqual({ action: "keep", reason: "looked-at" });
+		expect(autoCloseDecision({ ...problem, userTouched: true })).toEqual({ action: "keep", reason: "user-touched" });
+		expect(autoCloseDecision({ ...problem, ended: "failed" })).toEqual({ action: "keep", reason: "failed" });
+		expect(autoCloseDecision({ ...problem, idle: false })).toEqual({ action: "keep", reason: "working" });
+		expect(autoCloseDecision({ ...problem, answered: false })).toEqual({ action: "keep", reason: "no-answer" });
+	});
+
+	it("leaves a finished session with no verdict line open", () => {
 		expect(autoCloseDecision({ ...finished, result: "missing", branch: landed })).toEqual({
 			action: "keep",
 			reason: "no-result",

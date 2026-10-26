@@ -2429,6 +2429,7 @@ describe("autoClose: opened sessions whose work landed", () => {
 					host.mails.filter(mail => mail.to === "main0001" && mail.content.includes("Result:")),
 					kind,
 				).toHaveLength(0);
+				expect(closes(host), kind).toHaveLength(0);
 				await service.run("main0001", T.send, { session: child.tabId, message: "use v2" });
 				child.busy = true;
 				await service.autoClose("main0001");
@@ -2544,16 +2545,80 @@ describe("autoClose: opened sessions whose work landed", () => {
 		}
 	});
 
-	it("closes only on a Result: ok line, whatever the prose says", async () => {
+	it("closes on a Result line, ok at once and problem once the opener has the report; prose without a verdict line stays", async () => {
 		for (const [last, closed] of [
-			["All tests failed, nothing works.\nResult: problem — tests failed", false],
+			["All tests failed, nothing works.\nResult: problem — tests failed", true],
 			["Everything is done and checked.", false],
 			["Done.\nResult: ok", true],
 		] as const) {
 			const { host, service } = await finishedChild({ patch: { last } });
 			await service.autoClose("main0001");
+			await service.autoClose("main0001");
 			expect(closes(host), last).toHaveLength(closed ? 1 : 0);
 		}
+	});
+
+	describe("a child that ended with Result: problem", () => {
+		const problem = "Two tests still fail.\nResult: problem — two tests fail";
+
+		it("is not closed before its opener read it: the report waits for the opener's turn, a result read counts too", async () => {
+			const { host, service } = await finishedChild({ patch: { last: problem } });
+			const opener = host.tabsById.get("main0001") as FakeTab;
+			opener.busy = true;
+			await service.autoClose("main0001");
+			expect(
+				host.mails.filter(mail => mail.to === "main0001" && mail.content.includes("two tests fail")),
+			).toHaveLength(1);
+			await service.autoClose("main0001");
+			expect(closes(host)).toHaveLength(0);
+			opener.busy = false;
+			await service.autoClose("main0001");
+			expect(closes(host)).toHaveLength(1);
+			expect(host.closedRecords).toHaveLength(1);
+
+			const read = await finishedChild({ patch: { last: problem } });
+			(read.host.tabsById.get("main0001") as FakeTab).busy = true;
+			await read.service.autoClose("main0001");
+			expect(closes(read.host)).toHaveLength(0);
+			await read.service.run("main0001", T.result, { sessions: [read.child.tabId] });
+			await read.service.autoClose("main0001");
+			expect(closes(read.host)).toHaveLength(1);
+		});
+
+		it("is not closed in the pass that sent its done report to an idle opener, but in the next", async () => {
+			const { host, service } = await finishedChild({ patch: { last: problem } });
+			await service.autoClose("main0001");
+			expect(host.mails.filter(mail => mail.to === "main0001")).toHaveLength(1);
+			expect(closes(host)).toHaveLength(0);
+			await service.autoClose("main0001");
+			expect(closes(host)).toHaveLength(1);
+		});
+
+		it("keeps an unlanded worktree and its branch when its tab closes", async () => {
+			const { host, service } = await finishedChild({ worktree: true, patch: { last: problem } });
+			host.landings.set("omp/agent/w", { hasWork: true, landed: false, clean: true });
+			await service.autoClose("main0001");
+			await service.autoClose("main0001");
+			expect(closes(host)).toHaveLength(1);
+			expect(host.removed).toEqual([]);
+			expect(host.deleted).toEqual([]);
+			expect(host.closedRecords).toHaveLength(1);
+		});
+
+		it("still stays for the person looking, typing, a failed turn, a running turn or a waiting question", async () => {
+			for (const patch of [
+				{ looked: true },
+				{ userTouched: true },
+				{ lastRun: { stopReason: "error" } },
+				{ busy: true },
+				{ asks: [select("Allow tool: bash", ["Approve", "Deny"])] },
+			] satisfies Partial<FakeTab>[]) {
+				const { host, service } = await finishedChild({ patch: { last: problem, ...patch } });
+				await service.autoClose("main0001");
+				await service.autoClose("main0001");
+				expect(closes(host), JSON.stringify(Object.keys(patch))).toHaveLength(0);
+			}
+		});
 	});
 
 	it("keeps a session with unmerged commits or an error ending open", async () => {
@@ -2658,6 +2723,13 @@ describe("autoClose: opened sessions whose work landed", () => {
 		await started.service.autoClose("main0001");
 		expect(closes(started.host)).toHaveLength(1);
 
+		// Its transcript ends Result: problem: closed too, the opener reads the same report.
+		const problem = await finishedChild({
+			patch: { restored: true, lastRun: undefined, messages: finalTurn("Done.\nResult: problem — tests failed") },
+		});
+		await problem.service.autoClose("main0001");
+		expect(closes(problem.host)).toHaveLength(1);
+
 		// Not started at all (a deferred tab): no omp to ask, the saved transcript answers, on its own computer.
 		for (const device of [undefined, "dev-win-1"]) {
 			const asleep = await finishedChild({
@@ -2694,7 +2766,6 @@ describe("autoClose: opened sessions whose work landed", () => {
 				{ role: "assistant", content: "Checked.\nResult: ok", stopReason: "stop" },
 			]),
 			[...finalTurn("Done."), { role: "assistant", content: "Result: ok", stopReason: "error" }],
-			finalTurn("Done.\nResult: problem — tests failed"),
 			// Cut off mid-turn: its last message is a tool call, not an answer.
 			[
 				...finalTurn("Done.\nResult: ok"),
@@ -3706,7 +3777,18 @@ describe("closing a tab a paired web page owns", () => {
 		}
 	});
 
-	async function finishedWebChild(webEdits: "clean" | "dirty" | "unreported") {
+	it("auto-closes a finished Result: problem web child in main once its opener read it", async () => {
+		const { host, service, child } = await finishedWebChild("unreported", "Broke it.\nResult: problem — broke it");
+		await service.autoClose("main0001");
+		await service.autoClose("main0001");
+		expect(host.releases).toEqual([child.tabId]);
+		expect(host.closedRecords).toHaveLength(1);
+	});
+
+	async function finishedWebChild(
+		webEdits: "clean" | "dirty" | "unreported",
+		last = "Done: parser fixed.\nResult: ok",
+	) {
 		const host = new FakeHost({ tabId: "main0001", title: "Boss", sessionPath: "/s/boss.jsonl" });
 		const service = control(host);
 		await service.run("main0001", T.open, { message: "do it" });
@@ -3717,7 +3799,7 @@ describe("closing a tab a paired web page owns", () => {
 			sessionPath: "/s/kid.jsonl",
 			autoClosable: true,
 			lastRun: { stopReason: "stop" },
-			last: "Done: parser fixed.\nResult: ok",
+			last,
 			webEdits,
 		});
 		return { host, service, child };
