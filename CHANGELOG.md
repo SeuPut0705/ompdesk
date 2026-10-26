@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.75.6] - 2026-10-26
+
+실행된 뒤 종료 상태를 잃은 명령이 다시 실패로 보여요.
+
+### 고친 것
+- 0.75.5는 실행 전에 거절된 호출을 실패로 세지 않게 바꾸면서, 실행은 됐지만 종료 상태를 받지 못한 명령(omp가 "Command failed: missing exit status"로 끝내는 경우)과 사용자가 멈추지 않았는데 취소된 명령까지 함께 뺐어요. 그래서 그런 빌드가 실패해도 작업 상자가 초록으로 끝날 수 있었어요. 이제 실행 전에 거절된 호출만 빼고, 실행된 명령은 종료 상태를 잃어도 실패로 남아요.
+
+<!-- en -->
+
+A command that ran and lost its exit status reads failed again.
+
+### Fixes
+- 0.75.5 stopped counting a call the tool refused before running it, but it also stopped counting a command that ran and never reported an exit (omp ends it with "Command failed: missing exit status") and one cancelled without a stop, so the work card could finish green over such a build. Only a call refused before it ran is left out now; a command that ran stays failed when its exit status is lost.
+
 ## [0.75.5] - 2026-10-26
 
 실행되지도 않은 명령을 작업 현황이 "빌드 실패"로 계속 보여 주던 문제를 고쳤어요.
