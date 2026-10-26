@@ -123,4 +123,13 @@ describe("lastCheck", () => {
 			state: "passed",
 		});
 	});
+
+	it("names a build that ran and lost its exit status failed", () => {
+		const text = "Creating an optimized build…\n\nCommand failed: missing exit status";
+		const lost: ToolEntry = {
+			...bash("pnpm build", text, 1, 0),
+			result: { content: [{ type: "text", text }], details: {} },
+		};
+		expect(check([["b", lost]], [main("b", lost)])).toMatchObject({ key: "b", state: "failed" });
+	});
 });

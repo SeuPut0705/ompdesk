@@ -475,6 +475,23 @@ describe("a call the bash tool refused", () => {
 		expect(summarizeChecks(commands(timedOut))).toMatchObject([{ kind: "build", passed: false }]);
 		expect(unresolvedFailures(commands(exited).map(commandOperation))).toHaveLength(1);
 	});
+
+	// Stock also throws for a command that ran and reported no exit (tools/bash.ts `#throwIfUnfinished`, `execute`'s
+	// cancelled branch), so its details are empty too: only the notice it ends or starts with says the command ran.
+	it.each([
+		["lost its exit status", "Creating an optimized build…\n\nCommand failed: missing exit status"],
+		[
+			"lost its exit status and its full output",
+			"Creating an optimized build…\n\nCommand failed: missing exit status\n\n[Full output was not saved completely (artifact 3 failed)]",
+		],
+		["was cancelled by its shell", "[Command cancelled]\nCreating an optimized build…"],
+		["was aborted with no stop", "Creating an optimized build…\n\n[Command aborted]"],
+		["was aborted before it printed", "Command aborted"],
+	])("keeps a build that ran and %s failed", (_, text) => {
+		const build = commands(ran({}, text));
+		expect(summarizeChecks(build)).toMatchObject([{ kind: "build", passed: false }]);
+		expect(unresolvedFailures(build.map(commandOperation))).toHaveLength(1);
+	});
 });
 
 describe("commandProgram", () => {

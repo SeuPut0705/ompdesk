@@ -173,6 +173,31 @@ describe("ExecutionGroup", () => {
 		expect(container.querySelector(".omp-work-outcome")).toBeNull();
 	});
 
+	it("counts a build that ran and lost its exit status failed, and no call stock refused before running", async () => {
+		const thrown = (command: string, text: string): ToolEntry => ({
+			...toolEntry("error", true),
+			args: { command },
+			result: { content: [{ type: "text", text }], details: {} },
+		});
+		useToolsStore.setState(
+			toolEntriesState([
+				[
+					"refused",
+					thrown(
+						"NEXT_DIST_DIR=.next-3d pnpm build 2>&1 | tail -40",
+						"Service mode does not accept async or timeout; use ready.timeout for readiness.",
+					),
+				],
+				["lost", thrown("pnpm build", "Creating an optimized build…\n\nCommand failed: missing exit status")],
+			]),
+		);
+		await mount(["refused", "lost"]);
+		expect(headLabel()).toMatch(/\b1 failed\b/);
+		expect(container.querySelector('[data-state="failed"]')).not.toBeNull();
+		expect(container.querySelectorAll('[data-work-finding="error"]')).toHaveLength(1);
+		expect(container.querySelector('[data-work-finding="error"]')?.textContent).toContain("build failed");
+	});
+
 	it("counts a file written and then edited in one group as one edited file", async () => {
 		const done = (toolName: string): ToolEntry => ({
 			...toolEntry("error"),
