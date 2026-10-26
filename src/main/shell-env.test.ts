@@ -360,6 +360,40 @@ describe("SidecarManager spawn env", () => {
 		}
 	});
 
+	// The browser section tells agents to run a bare `ego-browser`; it is found in `~/.local/bin` too, which a login
+	// shell's PATH may lack. The session's PATH must then hold its folder, or the command the section names fails.
+	it("puts ego-browser's folder on the session's PATH, also when the login shell's PATH lacks it", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-ego-"));
+		const envPath = path.join(tempDir, "path.txt");
+		const egoDir = path.join(tempDir, "ego-bin");
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(envPath)}, process.env.PATH ?? "");\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+		);
+		const sidecar = new SidecarManager({
+			omp: async () => ({
+				ok: true,
+				runtime: { bin: binaryPath, version: "18.8.0", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
+			}),
+			cwd: tempDir,
+			shellEnv: async () => ({ PATH: "/usr/bin:/bin" }),
+			defaultBrowser: async () => "ego" as const,
+			egoBrowserDir: async () => egoDir,
+		});
+		const ready = Promise.withResolvers<void>();
+		sidecar.on("status", ({ status }) => {
+			if (status === "ready") ready.resolve();
+		});
+		try {
+			sidecar.start();
+			await ready.promise;
+			expect((await fs.readFile(envPath, "utf8")).split(path.delimiter)).toContain(egoDir);
+		} finally {
+			sidecar.dispose();
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	});
+
 	it("spawns omp with OTLP telemetry export off, over whatever the user's environment says", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-otel-"));
 		const envPath = path.join(tempDir, "otel.json");
