@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.75.3] - 2026-10-26
+
+메모리가 이번 요청에 무엇을 건넸는지 대화에서 바로 펼쳐 볼 수 있고, 작업 상자의 실패 판정이 더 정확해졌어요.
+
+### 메모리
+- 대화의 "메모리 N건 참고" 줄을 누르면 메모마다 종류, 제목, 날짜, 에이전트가 받은 내용 일부가 펼쳐져요. "메모리에서 열기"로 그 페이지로 가고, "도움 안 됨"으로 엉뚱한 메모를 바로 표시할 수 있어요.
+- 두 버튼은 메모가 실제로 있던 곳(그 프로젝트 또는 모든 프로젝트 공통)을 써요. 어디서 왔는지 모르는 예전 메시지에는 버튼을 보이지 않아요. "도움 안 됨"은 한 번만 보내고 접었다 펴도 표시가 남아요. 메모리 쓰기 권한이 없는 연결 기기에서는 이 버튼이 보이지 않아요.
+
+### 작업 상자
+- `| tail`, `| head`로 출력을 줄여도, 테스트 실패나 타입 오류가 출력에 찍혔으면 검사 실패로 봐요. 전에는 종료 코드만 봐서 "통과"로 표시됐어요.
+- 형식이 틀린 표시로 거절된 수정을 같은 파일의 다음 수정이 고쳤으면 해결된 것으로 봐요.
+- `a; b`처럼 이어진 명령은 결과를 정한 마지막 명령의 이름으로 실패를 말하고, `…; grep`이 아무것도 찾지 못한 것은 실패로 세지 않아요.
+
+### 고친 것
+- 같은 기기에서 연 페이지 두 개 중 하나가 Files에 저장하지 않은 편집을 갖고 있으면, 다른 페이지가 새로 연결돼도 그 탭을 닫지 않아요.
+- 오토파일럿을 시작하려고 잠깐 연 탭도 휴대폰 연결과 상관없이 닫혀요.
+
+<!-- en -->
+
+The transcript's memory line now opens to show what memory handed the agent, and the work card's failure verdict is more accurate.
+
+### Memory
+- The "Memory: N notes" line opens into one row per note: its kind, title, date and the part the agent received. "Open in Memory" goes to the page, and "Not helpful" marks a note that did not belong.
+- Both actions use the place the note came from (its project, or the notes shared by all projects); an older message that does not say where shows no actions. "Not helpful" is sent once and stays marked across folding. A paired device without memory write permission does not show it.
+
+### Work card
+- A check whose output shows failing tests or type errors counts as failed even when `| tail` or `| head` hid its exit code; before, it read passed.
+- An edit rejected for a malformed tag counts as fixed once a later edit of the same file succeeds.
+- A `a; b` command list names the last command, the one that decided the result, and a trailing `…; grep` that found nothing is not a failure.
+
+### Fixes
+- When one of two pages open on the same device holds unsaved Files edits, the other page connecting no longer lets that tab close.
+- The tab opened briefly to start an Autopilot run now closes even while the phone is disconnected.
+
 ## [0.75.2] - 2026-10-26
 
 일이 끝난 하위 세션이 남지 않고 정리되게 했고, 작업 현황에 계정 사용 한도가 다시 항상 보여요.
