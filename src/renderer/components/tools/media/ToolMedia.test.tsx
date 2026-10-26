@@ -50,7 +50,7 @@ interface FsMock {
 	readBinary: Mock<ReadBinary>;
 	readImage: Mock<ReadImage>;
 	read: Mock<ReadText>;
-	stat: Mock<() => Promise<{ ok: boolean; mtimeMs: number; size: number }>>;
+	stat: Mock<() => Promise<{ ok: boolean; mtimeMs?: number; size?: number; error?: string; code?: string }>>;
 }
 
 const PNG = "data:image/png;base64,iVBORw0KGgo=";
