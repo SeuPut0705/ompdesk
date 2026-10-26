@@ -398,3 +398,17 @@ describe("parseRecallText", () => {
 		expect(parseRecallText("1. Rule · x")).toEqual([]);
 	});
 });
+
+describe("each note keeps the scope it was read from", () => {
+	it("a _global hit and a project hit with the same path stay two notes, each with its own scope in the details", () => {
+		const project = { workspace: "default", project: "ompdesk" };
+		const answer = {
+			hits: [{ id: "p1", path: "preferences/style.md", title: "Project style", snippet: "project copy" }],
+			global_scope_hits: [{ id: "g1", path: "preferences/style.md", title: "Global style", snippet: "global copy" }],
+		};
+		const candidates = recallCandidates(answer, project);
+		expect(candidates.map(candidate => candidate.title)).toEqual(["Project style", "Global style"]);
+		const details = recallDetails(candidates, false, project);
+		expect(details.items.map(item => item.scope)).toEqual([project, { workspace: "default", project: "_global" }]);
+	});
+});

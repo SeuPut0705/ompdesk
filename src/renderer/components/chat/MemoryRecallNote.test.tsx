@@ -153,3 +153,53 @@ describe("memory recall line", () => {
 		expect(useUiStore.getState()).toMatchObject({ destination: "settings", settingsTab: "memory:pages" });
 	});
 });
+
+describe("memory recall line, per-item scope", () => {
+	const GLOBAL = { workspace: "default", project: "_global" };
+	const scoped: AgentMessage = {
+		...message,
+		content: recallText([
+			{ kind: "preference", title: "Global style", text: "g", path: "preferences/style.md", order: 0 },
+			{ kind: "preference", title: "Project style", text: "p", path: "preferences/style.md", order: 1 },
+		]),
+		details: {
+			v: 1,
+			judged: true,
+			scope: SCOPE,
+			items: [
+				{ title: "Global style", kind: "preference", path: "preferences/style.md", scope: GLOBAL },
+				{ title: "Project style", kind: "preference", path: "preferences/style.md", scope: SCOPE },
+			],
+		},
+	};
+
+	async function open(): Promise<void> {
+		container = document.createElement("div") as unknown as TestElement;
+		document.body.appendChild(container as never);
+		root = createRoot(container as unknown as Element);
+		await act(async () => {
+			root.render(
+				<I18nProvider>
+					<MemoryRecallNote message={scoped} />
+				</I18nProvider>,
+			);
+		});
+		await act(async () => toggle()?.click());
+	}
+
+	it("Not helpful targets each note's own scope", async () => {
+		await open();
+		await act(async () => rows()[0].querySelector("[data-memory-recall-rate]")?.click());
+		await act(async () => rows()[1].querySelector("[data-memory-recall-rate]")?.click());
+		expect(feedback).toHaveBeenNthCalledWith(1, { ...GLOBAL, path: "preferences/style.md" }, "not_helpful");
+		expect(feedback).toHaveBeenNthCalledWith(2, { ...SCOPE, path: "preferences/style.md" }, "not_helpful");
+	});
+
+	it("Open in Memory targets each note's own scope", async () => {
+		await open();
+		await act(async () => rows()[0].querySelector("[data-memory-recall-open]")?.click());
+		expect(useMemoryPageStore.getState().pending).toEqual({ ...GLOBAL, path: "preferences/style.md" });
+		await act(async () => rows()[1].querySelector("[data-memory-recall-open]")?.click());
+		expect(useMemoryPageStore.getState().pending).toEqual({ ...SCOPE, path: "preferences/style.md" });
+	});
+});
