@@ -206,34 +206,59 @@ export function turnCutBehindNotes(branch: readonly JournalEntry[], startedAt: n
 }
 
 /**
- * A background subagent the processes this one replaced took down when they shut down, which stock's restore cannot
- * see: `entries` are its transcript, `parent` the session's journal.
- *
- * A graceful stop (stdin closed: OMPdesk's app quit and update restart) disposes the session; the task executor parks
- * its subagents without a tombstone (abort kind `shutdown`) and their transcripts end on an aborted assistant reply
- * ("Request was aborted"). Stock's `hasRestorableTurn` reads that as a finished turn, so the relaunch revives nothing:
- * the parent's `wait` finds nothing to wait for and the work is lost (24 Oct 2026, two subagents, ~40 min redone). Only
- * a SIGKILL or a crash leaves the unanswered tool call stock does revive.
- *
- * The reply is the shutdown's when the parent's last `session_exit` before `startedAt` (this process's start, epoch ms)
- * came first (stock journals it as the dispose starts, the subagent's abort follows within moments) and the reply is
- * journaled before `startedAt`. An abort from before that exit (the parent cancelled the job, a runtime limit) or a
- * parent that journaled no exit proves nothing, so the subagent stays as it is; one the user stopped has a tombstone,
- * which the caller checks. The caller also leaves to stock a transcript it already revives (`hasRestorableTurn`).
+ * How long before the parent's exit record one stop journals a subagent's own: a quit's cleanup pass records every
+ * session's exit at once (26 Oct 2026: the subagents' 4–23 ms before the parent's), far inside OMPdesk's 4 s grace
+ * between closing an omp's stdin and ending it.
  */
-export function subagentCutByShutdown(
+const STOP_SPAN_MS = 5_000;
+
+/**
+ * The entries a stop of the processes this one replaced journaled in a background subagent's transcript (indices,
+ * newest first; empty when it left none), which hide from stock's restore that the subagent was mid-turn: `entries`
+ * are its transcript, `parent` the session's journal. Without them the transcript ends where the stop cut it, and the
+ * caller closes that turn with stock's own interrupted-turn record, which stock declines for a finished reply or a tool
+ * result that closes a failed one; stock then revives the subagent.
+ *
+ * Two stops leave a subagent in the middle of a turn that stock's `hasRestorableTurn` reads as finished, so the
+ * relaunch revived nothing, the parent's `wait` found nothing to wait for and the work was lost:
+ * - Closing omp's stdin (OMPdesk's app quit) disposes the session; the task executor parks its subagents without a
+ *   tombstone (abort kind `shutdown`) and their transcripts end on an aborted reply ("Request was aborted") and their
+ *   own exit (24 Oct 2026, two subagents, ~40 min redone).
+ * - The app going away under omp (an update swap) breaks its stdout; stock's stdout-disconnect handling quits at once,
+ *   journaling every session's exit as `normal` (reason `manual`) with nothing pending while a subagent waits for its
+ *   model's answer, then an aborted reply or none at all (26 Oct 2026, four subagents).
+ * Only a SIGKILL or a crash leaves the unanswered call stock revives.
+ *
+ * The marks: the subagent's own exit records journaled from `STOP_SPAN_MS` before the parent's last `session_exit`
+ * before `startedAt` (this process's start, epoch ms), and an aborted reply journaled at or after that exit (the
+ * subagent's abort follows the parent's dispose within moments), all before `startedAt`. An abort from before that exit
+ * (the parent cancelled the job, a runtime limit), an exit of an earlier stop, or a parent that journaled no exit proves
+ * nothing, so the subagent stays as it is; one the user stopped has a tombstone, which the caller checks. The caller also
+ * leaves to stock a transcript it already revives (`hasRestorableTurn`).
+ */
+export function shutdownMarks(
 	entries: readonly JournalEntry[],
 	parent: readonly JournalEntry[],
 	startedAt: number,
-): boolean {
+): number[] {
 	const exit = parent.findLast(entry => isExit(entry) && journaledBefore(entry, startedAt));
 	const exitAt = exit?.timestamp === undefined ? Number.NaN : Date.parse(exit.timestamp);
-	const tail = entries.findLast(entry => entry.type === "message");
-	if (!Number.isFinite(exitAt) || tail?.message?.role !== "assistant" || tail.message.stopReason !== "aborted") {
-		return false;
+	if (!Number.isFinite(exitAt)) return [];
+	const marks: number[] = [];
+	for (let index = entries.length - 1; index >= 0; index--) {
+		const entry = entries[index];
+		if (!entry) continue;
+		const at = entry.timestamp === undefined ? Number.NaN : Date.parse(entry.timestamp);
+		if (isExit(entry)) {
+			if (at >= exitAt - STOP_SPAN_MS && at < startedAt) marks.push(index);
+			continue;
+		}
+		if (entry.type !== "message") continue;
+		const { role, stopReason } = entry.message ?? {};
+		if (role !== "assistant" || stopReason !== "aborted" || !(at >= exitAt && at < startedAt)) break;
+		marks.push(index);
 	}
-	const abortedAt = tail.timestamp === undefined ? Number.NaN : Date.parse(tail.timestamp);
-	return abortedAt >= exitAt && abortedAt < startedAt;
+	return marks;
 }
 
 /** A subagent stock `restoreSession` revived: its id and what it was asked to do. */

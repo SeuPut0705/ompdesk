@@ -24,7 +24,7 @@ import {
 	requestCutAtExit,
 	restartFollowUp,
 	revivedSubagents,
-	subagentCutByShutdown,
+	shutdownMarks,
 	turnCutBehindNotes,
 } from "./restart-core";
 import type { BridgeMethods } from "./types";
@@ -137,11 +137,12 @@ async function sharePreview(session: Session) {
 
 // ── Restore ──────────────────────────────────────────────────────────────────
 /**
- * Closes, with stock's own interrupted-turn record, the background subagents a graceful stop parked on an aborted
- * reply (`subagentCutByShutdown`), so stock's `restoreSession` revives them: it reads that reply as a finished turn.
- * The record goes through stock's session writer; a subagent stock cannot revive (no `session_init`, isolated) or
- * whose record stock cannot build is left alone. A subagent whose transcript cannot be written is reported to
- * `onFailure`, never blocks the restore of the others or of the session's own turn.
+ * Closes, with stock's own interrupted-turn record, the background subagents a stop of the last processes cut in the
+ * middle of a turn that stock's `restoreSession` reads as finished (`shutdownMarks`: an aborted reply, or a clean exit
+ * record while the subagent waited for its model), so stock revives them. The record is stock's, built from the
+ * transcript without those marks; a subagent stock cannot revive (no `session_init`, isolated) or whose turn stock
+ * reads as ended there is left alone. The record goes through stock's session writer; a subagent whose transcript
+ * cannot be written is reported to `onFailure`, never blocks the restore of the others or of the session's own turn.
  */
 async function closeShutdownSubagents(
 	session: Session,
@@ -160,17 +161,17 @@ async function closeShutdownSubagents(
 	const subSessions = await collectSubSessions(sessionFile);
 	for (const [key, sub] of Object.entries(subSessions)) {
 		if (sub.aborted || diagnostics.hasRestorableTurn(sub.entries)) continue;
-		if (!subagentCutByShutdown(sub.entries as readonly JournalEntry[], branch, startedAt)) continue;
+		const marks = new Set(shutdownMarks(sub.entries as readonly JournalEntry[], branch, startedAt));
+		if (marks.size === 0) continue;
 		const init = extractSessionInit(sub.entries);
 		if (!init || init.isolated) continue;
-		// What stock would have recorded had the exit not been read as clean: it builds the record from the
-		// transcript up to the aborted reply, under that reply's own model.
-		const tailAt = sub.entries.findLastIndex(entry => entry.type === "message");
-		const tail = sub.entries[tailAt];
-		if (tail?.type !== "message" || tail.message.role !== "assistant") continue;
-		const { api, provider, model } = tail.message as AssistantMessage;
+		// What stock would have recorded had the stop not been read as a finished turn: it builds the record from the
+		// transcript the stop cut, under the model of the subagent's last reply.
+		const reply = sub.entries.findLast(entry => entry.type === "message" && entry.message.role === "assistant");
+		if (reply?.type !== "message") continue;
+		const { api, provider, model } = reply.message as AssistantMessage;
 		const interrupted = diagnostics.createInterruptedTurnAbortMessage(
-			sub.entries.slice(0, tailAt),
+			sub.entries.filter((_, index) => !marks.has(index)),
 			{ api, provider, model },
 			{ assumeExit: true },
 		);
@@ -377,8 +378,9 @@ export const methods: BridgeMethods = {
 		 * running at the cut, so a turn stock's journal shows ended between a message and the model's
 		 * answer (`requestCutAtExit`: a clean exit record and no reply after it) is closed first with
 		 * stock's own interrupted-turn record, which stock's restore then continues (`cutBeforeRequest`).
-		 * A background subagent a graceful stop (stdin closed) parked on an aborted reply, which stock's restore
-		 * reads as finished, is closed the same way first (`closeShutdownSubagents`), so stock revives it.
+		 * A background subagent the stop cut mid-turn (an aborted reply, or a clean exit record while it waited for its
+		 * model), which stock's restore reads as finished, is closed the same way first (`closeShutdownSubagents`), so
+		 * stock revives it.
 		 * Stock leaves the agent unaware of some of
 		 * what the restart did; one follow-up tells it (displayed, shown in the transcript as muted lines
 		 * and never as a message, so it carries on without narrating the restart; `followUp` says it went):
@@ -421,7 +423,7 @@ export const methods: BridgeMethods = {
 						)
 					: undefined;
 			if (abort) session.sessionManager.appendMessage(abort);
-			// Before stock reads the subagents' transcripts: a graceful stop left some of them parked on an aborted reply.
+			// Before stock reads the subagents' transcripts: the stop left some of them cut mid-turn.
 			await closeShutdownSubagents(session, branch, startedAt, (id, error) =>
 				env.emit({
 					type: "notice",
