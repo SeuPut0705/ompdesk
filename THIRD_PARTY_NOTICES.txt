@@ -7145,7 +7145,7 @@ SOFTWARE.
 ------------------------------------------------------------------------------
 
 ECC skills (https://github.com/affaan-m/ECC)
-Copyright (c) 2026 Affaan Mustafa, licensed under the MIT License. Skills and prompt commands copied from the ecc-pi-core 2.2.3 profile (pi/core, commit 5af4395e5c52643b7f5ecc716079cd253504b354) into resources/omp-builtin/ecc/ by scripts/sync-ecc.ts. Changes: every skill is hidden from the model's skill list and reached through one generated index skill (ecc); the plan command is renamed ecc-plan; skills that duplicate the built-in pstack workflow are left out, references to them point at pstack's counterparts; Claude Code names and paths are replaced by omp ones. The license text is also in resources/omp-builtin/ecc/UPSTREAM-LICENSE.
+Copyright (c) 2026 Affaan Mustafa, licensed under the MIT License. Skills and prompt commands copied from the ecc-pi-core 2.2.3 profile (pi/core, commit 3ffb0d90af1e8501ef80209992ecc8749fa5fc08) into resources/omp-builtin/ecc/ by scripts/sync-ecc.ts. Changes: every skill is hidden from the model's skill list and reached through one generated index skill (ecc); the plan command is renamed ecc-plan; skills that duplicate the built-in pstack workflow are left out, references to them point at pstack's counterparts; Claude Code names and paths are replaced by omp ones. The license text is also in resources/omp-builtin/ecc/UPSTREAM-LICENSE.
 
 MIT License
 
