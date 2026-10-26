@@ -23,6 +23,8 @@ export interface IpcCaller {
 	/** The same window as Electron's own, for a dialog sheet, the title-bar overlay or the preview; null for a web caller. */
 	readonly browserWindow: BrowserWindow | null;
 	readonly sender: IpcSender;
+	/** A paired web page's connection the call came over (a device's pages share one window); absent for an Electron caller. */
+	readonly connId?: string;
 }
 
 type IpcHandler = (caller: IpcCaller, ...args: unknown[]) => unknown;

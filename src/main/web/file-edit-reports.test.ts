@@ -53,13 +53,33 @@ describe("FileEditReports", () => {
 		const phone = page(-1);
 		const heard = vi.fn();
 		reports.onReport(heard);
-		reports.report(phone, null);
-		reports.forget(-1);
+		reports.report(phone, null, "a");
+		reports.forget(-1, "a");
 		expect(reports.edits(-1, "t1")).toBe("unreported");
 		expect(heard).toHaveBeenCalledTimes(1);
-		reports.report(phone, "t1");
+		reports.report(phone, "t1", "a");
 		expect(reports.edits(-1, "t1")).toBe("dirty");
 		phone.close();
+		expect(reports.edits(-1, "t1")).toBe("unreported");
+	});
+
+	it("keeps one report per connection: a second page's null never erases the first page's dirty tab", () => {
+		const reports = new FileEditReports();
+		const phone = page(-1);
+		reports.report(phone, "t1", "a");
+		reports.report(phone, null, "b");
+		expect(reports.edits(-1, "t1")).toBe("dirty");
+		expect(reports.edits(-1, "t2")).toBe("clean");
+	});
+
+	it("lets the remaining connection decide when one disconnects, and is unreported only with none left", () => {
+		const reports = new FileEditReports();
+		const phone = page(-1);
+		reports.report(phone, "t1", "a");
+		reports.report(phone, null, "b");
+		reports.forget(-1, "a");
+		expect(reports.edits(-1, "t1")).toBe("clean");
+		reports.forget(-1, "b");
 		expect(reports.edits(-1, "t1")).toBe("unreported");
 	});
 

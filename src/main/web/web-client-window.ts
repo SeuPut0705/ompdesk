@@ -78,10 +78,10 @@ export class WebWindows {
 		return this.#windows.has(deviceId);
 	}
 
-	/** The caller a handler sees for this device's page. */
-	callerFor(deviceId: string): IpcCaller {
+	/** The caller a handler sees for this device's page; `connId` names the one socket of the page's up to four it came over. */
+	callerFor(deviceId: string, connId?: string): IpcCaller {
 		const win = this.windowFor(deviceId);
-		return { win, browserWindow: null, sender: win.webContents };
+		return { win, browserWindow: null, sender: win.webContents, connId };
 	}
 
 	destroy(deviceId: string): void {

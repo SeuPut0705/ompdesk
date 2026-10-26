@@ -3734,7 +3734,9 @@ export class AgentControl {
 			if (error instanceof ToolError) throw error;
 			return fail(`Autopilot did not start: ${error instanceof Error ? error.message : String(error)}`);
 		} finally {
-			if (sourceOpened) this.#host.view(caller.tabId, { tabId: sourceOpened, how: "close" });
+			// Best effort, no note: a web page's tab is released in main, a desktop window closes its own.
+			if (sourceOpened)
+				void this.#closeTab(caller.tabId, sourceOpened, { waitMs: CLOSE_WAIT_MS }).catch(() => undefined);
 		}
 	}
 

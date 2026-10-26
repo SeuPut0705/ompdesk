@@ -1497,7 +1497,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipc.handle(IPC_COMMANDS.FILE_EDIT_REPORT, (caller, payload: IpcFileEditReportPayload) => {
 		const win = caller.win;
 		if (!win || (payload?.dirtyTabId !== null && typeof payload?.dirtyTabId !== "string")) return;
-		fileEditReports.report(win, payload.dirtyTabId);
+		fileEditReports.report(win, payload.dirtyTabId, caller.connId);
 	});
 
 	// The calling window's open `worktree.onStart` / `worktree.onExit` questions.

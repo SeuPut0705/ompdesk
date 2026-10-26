@@ -144,7 +144,7 @@ export interface WsRouterDeps {
 		send(channel: string, caller: IpcCaller, args: readonly unknown[]): void;
 	};
 	devices: Pick<WebDevices, "get">;
-	windows: Pick<WebWindows, "windowFor" | "callerFor">;
+	windows: Pick<WebWindows, "windowFor"> & { callerFor(deviceId: string, connId?: string): IpcCaller };
 	quota: Pick<PeerQuota, "reserve" | "record">;
 	webChannels: WebChannelTable;
 	features: () => WebFeatures;
@@ -160,8 +160,8 @@ export interface WsRouterDeps {
 	toModelImage: (image: InlineImage) => Promise<InlineImage>;
 	/** A device's connection count changed (the settings list shows who is connected). */
 	onConnectionsChanged?: (deviceId: string) => void;
-	/** The device's last connection ended: nothing reaches its page until it reconnects. */
-	onDeviceOffline?: (deviceId: string) => void;
+	/** One connection of the device ended (its socket closed, was retired or timed out); others of the device may remain. */
+	onConnectionEnded?: (deviceId: string, connId: string) => void;
 	/** The device's page got a hello it must resync from (`resumed: false`): it missed pushes. */
 	onResync?: (deviceId: string) => void;
 	now?: () => number;
@@ -430,7 +430,7 @@ export class WsRouter {
 			at: now,
 		});
 		this.#deps.onConnectionsChanged?.(connection.deviceId);
-		if (!this.#connections.has(connection.deviceId)) this.#deps.onDeviceOffline?.(connection.deviceId);
+		this.#deps.onConnectionEnded?.(connection.deviceId, connection.connId);
 	}
 
 	/** A push the pool or a handler made to the device's window. */
@@ -619,6 +619,7 @@ export class WsConnection {
 			connId: this.connId,
 			resumed,
 			features: this.#router.deps.features(),
+			grants: this.#router.deps.devices.get(this.deviceId)?.grants ?? [],
 		});
 	}
 
@@ -673,7 +674,7 @@ export class WsConnection {
 			this.close(CLOSE_REVOKED, "revoked");
 			return null;
 		}
-		return { device, win: windows.windowFor(this.deviceId), caller: windows.callerFor(this.deviceId) };
+		return { device, win: windows.windowFor(this.deviceId), caller: windows.callerFor(this.deviceId, this.connId) };
 	}
 
 	async #invoke(id: number, channel: string, args: readonly unknown[]): Promise<void> {

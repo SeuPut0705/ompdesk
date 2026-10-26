@@ -278,9 +278,12 @@ class FakeHost implements AgentControlHost {
 	};
 	reviewChanged = vi.fn();
 
+	/** Extra fields of every tab `spawn` opens (a paired web page's tab carries `webEdits`). */
+	spawnPatch: Partial<FakeTab> = {};
 	spawn = async (caller: string, request: SpawnRequest) => {
 		this.spawned.push(request);
 		const tab = this.add({
+			...this.spawnPatch,
 			title: "",
 			cwd: request.folder ?? "/repo",
 			...(typeof request.device === "string" ? { device: request.device, deviceName: "DESKTOP-PC" } : {}),
@@ -2169,6 +2172,18 @@ describe("ompdesk_autopilot", () => {
 		);
 		expect(away.text).toMatch(/offline/);
 		expect(pilot.starts).toHaveLength(2);
+	});
+
+	it("releases the tab it opened to start from in main when that tab belongs to a paired web page", async () => {
+		const { host, pilot, service } = setup();
+		host.manage = true;
+		host.deviceList = [{ id: "dev1", name: "Mac", state: "online" }];
+		host.spawnPatch = { webEdits: "unreported" };
+		const fresh = await service.run("main0001", T.autopilot, { action: "start", device: "dev1", folder: "/far" });
+		expect(fresh.isError, fresh.text).toBe(false);
+		const opened = pilot.starts[0]?.source as string;
+		await vi.waitFor(() => expect(host.releases).toEqual([opened]));
+		expect(host.views).not.toContainEqual({ tabId: opened, how: "close" });
 	});
 
 	it("starts as many agent runs as asked", async () => {

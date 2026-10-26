@@ -137,7 +137,7 @@ function rig(options: RigOptions = {}) {
 		mimeType: "image/jpeg",
 	}));
 	const resyncs: string[] = [];
-	const offline: string[] = [];
+	const ended: { deviceId: string; connId: string }[] = [];
 	let routerRef: WsRouter | null = null;
 	const windows = new WebWindows((id, channel, payload) => routerRef?.deliver(id, channel, payload));
 	const router = new WsRouter({
@@ -152,7 +152,7 @@ function rig(options: RigOptions = {}) {
 		uploads,
 		toModelImage,
 		onResync: deviceId => resyncs.push(deviceId),
-		onDeviceOffline: deviceId => offline.push(deviceId),
+		onConnectionEnded: (deviceId, connId) => ended.push({ deviceId, connId }),
 		now: () => clock.now,
 		timers,
 	});
@@ -183,7 +183,7 @@ function rig(options: RigOptions = {}) {
 		frame,
 		settle,
 		resyncs,
-		offline,
+		ended,
 		revoke: () => {
 			current = undefined;
 		},
@@ -828,27 +828,44 @@ describe("limits", () => {
 	});
 });
 
-describe("a device going offline", () => {
-	it("is told only when its last connection ends", () => {
+describe("a connection ending", () => {
+	it("is told for each connection, with its id, whether or not others remain", () => {
 		const r = rig();
 		const second = r.router.attach("dev1", new FakeSocket());
+		const first = r.connection.connId;
 		r.connection.dispose();
-		expect(r.offline).toEqual([]);
+		expect(r.ended).toEqual([{ deviceId: "dev1", connId: first }]);
 		second?.dispose();
-		expect(r.offline).toEqual(["dev1"]);
+		expect(r.ended.map(end => end.connId)).toEqual([first, second?.connId]);
 	});
 
-	it("lets main forget a page's Files-edit report, so a page that was clean is unreported until it reports again", () => {
+	it("carries the connection id on the caller of each call", async () => {
+		const r = rig();
+		const second = r.router.attach("dev1", new FakeSocket());
+		if (!second) throw new Error("attach failed");
+		r.frame({ t: "inv", id: 1, ch: IPC_COMMANDS.FILE_EDIT_REPORT, a: [{ dirtyTabId: "t1" }] });
+		second.receive(JSON.stringify({ t: "inv", id: 1, ch: IPC_COMMANDS.FILE_EDIT_REPORT, a: [{ dirtyTabId: null }] }));
+		await r.settle();
+		expect(r.callers.map(call => call.caller.connId)).toEqual([r.connection.connId, second.connId]);
+		expect(r.connection.connId).not.toBe(second.connId);
+	});
+
+	it("lets main drop only that connection's Files-edit report: the other page's stands, none left is unreported", () => {
 		const reports = new FileEditReports();
 		const r = rig();
+		const second = r.router.attach("dev1", new FakeSocket());
+		if (!second) throw new Error("attach failed");
 		const win = r.windows.windowFor("dev1");
-		reports.report(win, null);
-		expect(reports.edits(win.webContents.id, "t1")).toBe("clean");
+		const id = win.webContents.id;
+		reports.report(win, "t1", r.connection.connId);
+		reports.report(win, null, second.connId);
+		expect(reports.edits(id, "t1")).toBe("dirty");
 		r.connection.dispose();
-		for (const deviceId of r.offline) reports.forget(r.windows.windowFor(deviceId).webContents.id);
-		expect(reports.edits(win.webContents.id, "t1")).toBe("unreported");
-		reports.report(win, null);
-		expect(reports.edits(win.webContents.id, "t1")).toBe("clean");
+		for (const end of r.ended) reports.forget(r.windows.windowFor(end.deviceId).webContents.id, end.connId);
+		expect(reports.edits(id, "t1")).toBe("clean");
+		second.dispose();
+		for (const end of r.ended) reports.forget(r.windows.windowFor(end.deviceId).webContents.id, end.connId);
+		expect(reports.edits(id, "t1")).toBe("unreported");
 	});
 });
 
