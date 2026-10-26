@@ -17,6 +17,12 @@ import { checkKind } from "./work-checks";
 /** Enough of a check's output for its runner summary and first error line. */
 const CHECK_TEXT_MAX = 8000;
 
+// The error stock's bash throws for a command that ran and reported no exit, its details as empty as a refusal's
+// (tools/bash.ts `#throwIfUnfinished`: "…Command failed: missing exit status"; `execute`'s cancelled branch: a leading
+// "[Command cancelled]", a trailing "[Command aborted]", or "Command aborted" alone), a capture notice optionally after.
+const RAN_WITHOUT_EXIT =
+	/^\[Command cancelled\]|(?:^|\n\n)(?:Command failed: missing exit status|\[Command aborted\]|Command aborted)(?:\n\n\[[^\n]*\])?$/;
+
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
 /** A model intent that names no target ("Running requested command") yields to the command itself. */
@@ -154,11 +160,12 @@ export interface WorkCommandOutcome {
 	unknown?: boolean;
 	interrupted?: boolean;
 	/**
-	 * Stock answered with an error and no exit report: a ToolError it threw instead of running the command (its
-	 * arguments, a blocked command, a missing folder) or for a command that never reported an exit. It says nothing about
-	 * the command, so it neither fails nor passes a check, and fixes nothing.
+	 * An error stock answered with no run to report: it refused the call before running the command (its arguments, a
+	 * blocked command, a missing folder), or omp ended before the call returned (its card reads that one as interrupted,
+	 * by the aborted reply after it). No exit report and none of the notices a command that ran without one ends with
+	 * (`RAN_WITHOUT_EXIT`): it says nothing about the command, so it neither fails nor passes a check, and fixes nothing.
 	 */
-	noExit?: true;
+	refused?: true;
 	durationMs?: number;
 	/** What a stopped command printed before the stop, without stock's abort annotation. */
 	output?: string;
@@ -375,10 +382,16 @@ export function workOutcomes(
 						.trim()
 				: "";
 			// A command that ran reports its exit in the details (stock tools/bash.ts `#buildCompletedResult`: a failed exit's
-			// code, a timeout); an error with neither is a ToolError stock threw before or without an exit.
-			const noExit =
-				!verdict && errored && !cut && typeof details?.exitCode !== "number" && details?.timedOut !== true;
-			const failed = errored && !cut && !noExit;
+			// code, a timeout) or, run without one, ends its error with stock's notice; an error with neither is a ToolError
+			// stock threw before running the command.
+			const refused =
+				!verdict &&
+				errored &&
+				!cut &&
+				typeof details?.exitCode !== "number" &&
+				details?.timedOut !== true &&
+				!RAN_WITHOUT_EXIT.test(resultText(entry.result).trim());
+			const failed = errored && !cut && !refused;
 			const text = verdict
 				? failed || exitCode || checkKind(entry.args.command)
 					? delivered.slice(-CHECK_TEXT_MAX)
@@ -400,7 +413,7 @@ export function workOutcomes(
 				...(agentName ? { agentName } : {}),
 				...(pending || entry.status === "aborted" || entry.result == null ? { unknown: true } : {}),
 				...(cut ? { interrupted: true } : {}),
-				...(noExit ? { noExit: true as const } : {}),
+				...(refused ? { refused: true as const } : {}),
 				...(typeof details?.wallTimeMs === "number" ? { durationMs: details.wallTimeMs } : {}),
 				...(output && output !== "Command aborted" ? { output } : {}),
 				...(text ? { text } : {}),

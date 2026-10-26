@@ -107,8 +107,8 @@ export interface CheckInput {
 	exitCode: number | null;
 	interrupted?: boolean;
 	unknown?: boolean;
-	/** Stock answered with an error and no exit report: it refused the call or the command never reported an exit. */
-	noExit?: true;
+	/** Stock refused the call before running the command (`WorkCommandOutcome.refused`): no check run, no failure. */
+	refused?: true;
 	/** The command's printed output (stock's bash result text). */
 	text?: string;
 	toolCallId?: string;
@@ -146,7 +146,7 @@ export function summarizeChecks(
 	unresolved?: ReadonlySet<CheckInput>,
 ): CheckSummary[] {
 	const calls = commands.flatMap(command => {
-		if (command.interrupted || command.unknown || command.noExit) return [];
+		if (command.interrupted || command.unknown || command.refused) return [];
 		const kind = checkKind(command.command);
 		return kind ? [{ command, kind, failed: commandFailed(command) }] : [];
 	});
@@ -309,7 +309,7 @@ const TS_ERROR = /\berror TS\d{4}\b/;
 
 function commandFailed(command: CheckInput): boolean {
 	if (command.failed || (command.exitCode !== null && command.exitCode !== 0)) return true;
-	if (command.interrupted || command.unknown || command.noExit || !command.text) return false;
+	if (command.interrupted || command.unknown || command.refused || !command.text) return false;
 	const kind = checkKind(command.command);
 	if (kind === "test") return (testCounts(command.text).failed ?? 0) > 0;
 	if (kind === "typecheck") return TS_ERROR.test(command.text);
@@ -322,7 +322,7 @@ export function commandOperation<T extends CheckInput>(command: T): T & Operatio
 		...command,
 		toolName: "bash",
 		args: { command: command.command, ...(command.cwd ? { cwd: command.cwd } : {}) },
-		...(command.interrupted || command.unknown || command.noExit ? {} : { outcome: failed ? "failed" : "passed" }),
+		...(command.interrupted || command.unknown || command.refused ? {} : { outcome: failed ? "failed" : "passed" }),
 		...(failed && command.background ? { reported: true } : {}),
 	};
 }
