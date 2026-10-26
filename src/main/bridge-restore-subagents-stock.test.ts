@@ -97,10 +97,11 @@ interface Provider {
 }
 
 /**
- * The parent runs `script` (one step per tool result so far), then answers in text; the subagent's model call never
- * answers; a parent request carrying the bridge's follow-up is answered `PARENT-NOTED`.
+ * The parent runs `script` (one step per tool result so far), then answers in text; the subagent runs `subagentScript`
+ * the same way and then its model call never answers; a parent request carrying the bridge's follow-up is answered
+ * `PARENT-NOTED`.
  */
-async function startProvider(script: readonly Step[]): Promise<Provider> {
+async function startProvider(script: readonly Step[], subagentScript: readonly Step[] = []): Promise<Provider> {
 	const provider: Provider = { url: "", subagentRequests: 0, noticeRequests: [], close: async () => undefined };
 	const server = http.createServer((req, res) => {
 		let body = "";
@@ -125,6 +126,11 @@ async function startProvider(script: readonly Step[]): Promise<Provider> {
 			const notice = user.find(text => text.includes(NOTICE_MARK));
 			if (!notice && user.some(text => text.includes(SUBTASK))) {
 				provider.subagentRequests++;
+				const step = subagentScript[parsed.messages.filter(message => message.role === "tool").length];
+				if (step) {
+					res.end(completion(step, tools, `sub_${provider.subagentRequests}`));
+					return;
+				}
 				return; // the subagent works until omp is killed (and again once revived)
 			}
 			// Side requests (the next-prompt suggestion, a title) offer no task tool: a plain answer.
@@ -156,13 +162,15 @@ interface Omp {
 	frames: Array<{ type: string; [key: string]: unknown }>;
 	send(command: Record<string, unknown>): Promise<Record<string, unknown>>;
 	/**
-	 * What a restart does to omp: an update's approved quit (SIGTERM, stock journals the exit), a crash, or the way
-	 * SidecarManager stops it, closing its stdin (`EOF`; stock disposes the session and parks its background subagents).
+	 * What a restart does to omp: an update's approved quit (SIGTERM, stock journals the exit), a crash, the way
+	 * SidecarManager stops it, closing its stdin (`EOF`; stock disposes the session and parks its background subagents),
+	 * or the app going away under it (`GONE`, an update swap: its next write to the closed stdout fails, and stock's
+	 * stdout-disconnect handling quits at once, journaling every session's exit as `manual` and aborting nothing).
 	 */
 	kill(signal?: Signal): Promise<void>;
 }
 
-type Signal = "SIGKILL" | "SIGTERM" | "EOF";
+type Signal = "SIGKILL" | "SIGTERM" | "EOF" | "GONE";
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterAll(async () => {
@@ -228,7 +236,10 @@ async function startOmp(provider: Provider, isolated: string, root: string, resu
 	const kill = async (signal: Signal = "SIGKILL") => {
 		bridge.close();
 		if (signal === "EOF") child.stdin.end();
-		else child.kill(signal);
+		else if (signal === "GONE") {
+			child.stdout.destroy();
+			child.stdin.write(`${JSON.stringify({ id: "gone", type: "get_state" })}\n`);
+		} else child.kill(signal);
 		await exited;
 		removeBridgeAddress(address);
 	};
@@ -288,9 +299,12 @@ interface Restored {
 	followUp: boolean;
 }
 
-/** One isolated omp life whose parent runs `script` until the subagent is mid-call, killed, then relaunched. */
-async function cutOff(script: readonly Step[], signal: Signal) {
-	const provider = await startProvider(script);
+/**
+ * One isolated omp life whose parent runs `script` until the subagent is mid-call (after `subagentScript`'s tool
+ * calls), stopped by `signal`, then relaunched.
+ */
+async function cutOff(script: readonly Step[], signal: Signal, subagentScript: readonly Step[] = []) {
+	const provider = await startProvider(script, subagentScript);
 	cleanups.push(() => provider.close());
 	const isolated = mkdtempSync(join(tmpdir(), "ompdesk-revive-"));
 	chmodSync(isolated, 0o700);
@@ -301,7 +315,7 @@ async function cutOff(script: readonly Step[], signal: Signal) {
 	});
 	const first = await startOmp(provider, isolated, root, false);
 	await first.send({ type: "prompt", message: "start the background work" });
-	await expect.poll(() => provider.subagentRequests, { timeout: 90_000 }).toBeGreaterThan(0);
+	await expect.poll(() => provider.subagentRequests, { timeout: 90_000 }).toBeGreaterThan(subagentScript.length);
 	const waits = script.at(-1) === WAIT;
 	await expect
 		.poll(
@@ -417,5 +431,19 @@ describe.skipIf(!existsSync(omp))("revived subagents on stock omp", () => {
 			)
 			.toBe(true);
 		expect(mainJournal(isolated).some(entry => entry.customType === "ompdesk-restart-subagents")).toBe(false);
+	}, 240_000);
+
+	// 26 Oct 2026 (v0.75.2 → v0.75.3 update restart), four subagents lost: each was waiting for its model's answer to a
+	// tool result. The graceful stop journaled their `session_exit` as normal with nothing pending and no aborted reply
+	// after it, so stock read their turns as finished and the parent's rerun `wait` found nothing to wait for.
+	it("revives a subagent a graceful stop cut off between a tool result and its model's answer", async () => {
+		const READ: Step = { tool: "read", args: { path: ".", i: "listing the folder" } };
+		const { provider, second, outcome, id } = await cutOff([SPAWN, WAIT], "GONE", [READ]);
+		expect(outcome).toMatchObject({ turn: true, subagents: [id] });
+		const before = provider.subagentRequests;
+		await expect.poll(() => provider.subagentRequests, { timeout: 90_000 }).toBeGreaterThan(before);
+		await expect
+			.poll(() => roster(second), { timeout: 30_000 })
+			.toEqual([expect.objectContaining({ id, status: "running" })]);
 	}, 240_000);
 });

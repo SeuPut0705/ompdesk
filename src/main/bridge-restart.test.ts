@@ -17,7 +17,7 @@ import {
 	requestCutAtExit,
 	restartFollowUp,
 	revivedSubagents,
-	subagentCutByShutdown,
+	shutdownMarks,
 	turnCutBehindNotes,
 } from "../../resources/gui-bridge/restart-core";
 
@@ -293,7 +293,7 @@ describe("turnCutBehindNotes", () => {
 	});
 });
 
-describe("subagentCutByShutdown", () => {
+describe("shutdownMarks", () => {
 	/** The relaunch started at 14:50:00; the parent's dispose journaled its exit at 14:48:11.385 (the 24 Oct 2026 repro). */
 	const startedAt = Date.parse("2026-10-24T14:50:00.000Z");
 	const at = (time: string) => `2026-10-24T${time}Z`;
@@ -324,40 +324,77 @@ describe("subagentCutByShutdown", () => {
 		timestamp: at("14:48:11.442"),
 		message: { role: "assistant", stopReason: "aborted" },
 	};
-	const ownExit: JournalEntry = { type: "custom", customType: "session_exit", timestamp: at("14:48:11.445") };
+	const ownExit: JournalEntry = {
+		type: "custom",
+		customType: "session_exit",
+		timestamp: at("14:48:11.445"),
+		data: { reason: "dispose", kind: "normal" },
+	};
+	/** What a relaunch builds stock's record from: the transcript without the stop's marks. */
+	const withoutMarks = (entries: JournalEntry[], journal = parent) => {
+		const marks = shutdownMarks(entries, journal, startedAt);
+		return marks.length === 0 ? undefined : entries.filter((_, index) => !marks.includes(index));
+	};
 
 	it("finds the transcript a graceful stop parked: an aborted reply after the parent's exit, then its own exit", () => {
-		expect(subagentCutByShutdown([call, abortedResult, aborted, ownExit], parent, startedAt)).toBe(true);
-		expect(subagentCutByShutdown([call, abortedResult, aborted], parent, startedAt)).toBe(true);
+		expect(withoutMarks([call, abortedResult, aborted, ownExit])).toEqual([call, abortedResult]);
+		expect(withoutMarks([call, abortedResult, aborted])).toEqual([call, abortedResult]);
+	});
+
+	// 26 Oct 2026, v0.75.2 → v0.75.3: the app went away under omp, whose stdout-disconnect quit journaled each
+	// subagent's exit as `manual` from a few ms before the parent's, while each waited for its model's answer.
+	it("finds a subagent the app's going away cut while it waited for its model: its own exit, an abort after or none", () => {
+		const parentQuit: JournalEntry = {
+			...parentExit,
+			data: { reason: "manual", kind: "normal", pendingToolCalls: [{ toolName: "wait" }] },
+		};
+		const result: JournalEntry = { type: "message", timestamp: at("14:46:07.000"), message: { role: "toolResult" } };
+		const quit: JournalEntry = {
+			...ownExit,
+			timestamp: at("14:48:11.362"),
+			data: { reason: "manual", kind: "normal" },
+		};
+		const lateAbort: JournalEntry = { ...aborted, timestamp: at("14:48:11.400") };
+		expect(withoutMarks([call, result, quit], [parentReply, parentQuit])).toEqual([call, result]);
+		expect(withoutMarks([call, result, quit, lateAbort], [parentReply, parentQuit])).toEqual([call, result]);
+	});
+
+	it("leaves an exit of an earlier stop: the subagent sat cut since a relaunch that did not revive it", () => {
+		const earlierQuit: JournalEntry = {
+			...ownExit,
+			timestamp: at("12:00:00.000"),
+			data: { reason: "manual", kind: "normal" },
+		};
+		expect(withoutMarks([call, abortedResult, earlierQuit])).toBeUndefined();
 	});
 
 	it("leaves a reply that is not an abort: a finished turn, a failure, a cut tool call", () => {
 		const finished: JournalEntry = { ...aborted, message: { role: "assistant", stopReason: "stop" } };
 		const failed: JournalEntry = { ...aborted, message: { role: "assistant", stopReason: "error" } };
-		expect(subagentCutByShutdown([call, abortedResult, finished, ownExit], parent, startedAt)).toBe(false);
-		expect(subagentCutByShutdown([call, abortedResult, failed, ownExit], parent, startedAt)).toBe(false);
-		expect(subagentCutByShutdown([call, abortedResult], parent, startedAt)).toBe(false);
-		expect(subagentCutByShutdown([], parent, startedAt)).toBe(false);
+		expect(withoutMarks([call, abortedResult, finished, ownExit])).toEqual([call, abortedResult, finished]);
+		expect(withoutMarks([call, abortedResult, failed])).toBeUndefined();
+		expect(withoutMarks([call, abortedResult])).toBeUndefined();
+		expect(withoutMarks([])).toBeUndefined();
 	});
 
 	it("leaves an abort that came before the parent's exit: the parent cancelled the job, or a limit ran out", () => {
 		const cancelled: JournalEntry = { ...aborted, timestamp: at("14:31:02.000") };
-		expect(subagentCutByShutdown([call, abortedResult, cancelled, ownExit], parent, startedAt)).toBe(false);
+		expect(withoutMarks([call, abortedResult, cancelled])).toBeUndefined();
 	});
 
 	it("leaves an abort this process made, and a parent that journaled no exit of the processes it replaced", () => {
 		const late: JournalEntry = { ...aborted, timestamp: at("14:51:00.000") };
-		expect(subagentCutByShutdown([call, abortedResult, late], parent, startedAt)).toBe(false);
-		expect(subagentCutByShutdown([call, abortedResult, aborted], [parentReply], startedAt)).toBe(false);
+		expect(withoutMarks([call, abortedResult, late])).toBeUndefined();
+		expect(withoutMarks([call, abortedResult, aborted], [parentReply])).toBeUndefined();
 		const ownLife: JournalEntry = { ...parentExit, timestamp: at("14:51:30.000") };
-		expect(subagentCutByShutdown([call, abortedResult, aborted], [ownLife], startedAt)).toBe(false);
+		expect(withoutMarks([call, abortedResult, aborted], [ownLife])).toBeUndefined();
 	});
 
 	it("reads the parent's last exit before this process: an earlier relaunch's exit does not date a newer abort", () => {
 		const earlier: JournalEntry = { ...parentExit, timestamp: at("12:00:00.000") };
-		expect(subagentCutByShutdown([call, abortedResult, aborted], [earlier, ...parent], startedAt)).toBe(true);
+		expect(withoutMarks([call, abortedResult, aborted], [earlier, ...parent])).toEqual([call, abortedResult]);
 		const next: JournalEntry = { ...parentExit, timestamp: at("14:49:00.000") };
-		expect(subagentCutByShutdown([call, abortedResult, aborted], [...parent, next], startedAt)).toBe(false);
+		expect(withoutMarks([call, abortedResult, aborted], [...parent, next])).toBeUndefined();
 	});
 });
 
