@@ -19,6 +19,7 @@ import type { UserProfile } from "../../resources/gui-bridge/modes/user-profile-
 import { OMPDESK_ROLES_ENV } from "../../resources/gui-bridge/ompdesk-role-contracts";
 import type { PromptOriginEnv } from "../../resources/gui-bridge/prompt-origin-contracts";
 import type { AccountRotationMode } from "../shared/account-rotation";
+import { type AgentBrowser, DEFAULT_BROWSER_ENV } from "../shared/default-browser";
 import { parseLaunchProfile, profileToFlags, stripDenylistedFlags } from "../shared/launch-profile";
 import { DEFAULT_ROLE_MODEL_SELECTOR, parseModelRestoreFailure } from "../shared/model-restore";
 import type {
@@ -76,6 +77,7 @@ const FRESH_LAUNCH_CONFIG = "fresh-launch.yml";
 const SESSION_OWNED_ENV = [
 	"OMP_GUI_BRIDGE",
 	"OMP_GUI_REPLY_LANGUAGE",
+	DEFAULT_BROWSER_ENV,
 	"OMP_GUI_USER_PROFILE",
 	"OMP_GUI_NEXT_PROMPT",
 	"OMP_GUI_AUTO_TITLE",
@@ -279,6 +281,13 @@ export interface SidecarOptions {
 	 */
 	replyLanguage?: () => string | undefined;
 	/**
+	 * The browser agents use (`ego` or `builtin`: the Default browser pref met with whether ego-browser is
+	 * installed), passed to omp as `OMP_GUI_BROWSER` for the gui-bridge's browser section. Resolved on every
+	 * `start()` (a restart after an exit reuses it) and by `syncDefaultBrowser()` for the live session. Absent: no
+	 * variable, the section stays off.
+	 */
+	defaultBrowser?: () => Promise<AgentBrowser> | AgentBrowser;
+	/**
 	 * Settings › General › Profile (how the agent addresses the user, their
 	 * development experience), passed to omp as JSON in `OMP_GUI_USER_PROFILE`
 	 * and pushed by `syncUserProfile()` (same point-of-use pattern as
@@ -468,6 +477,7 @@ export class SidecarManager extends EventEmitter {
 	#runtime: OmpRuntime | null = null;
 	#proxyEnvVars: Record<string, string> = {};
 	#builtinMcp: { args: string[]; root?: string; env?: Record<string, string> } = { args: [] };
+	#defaultBrowser: AgentBrowser | undefined;
 	#shellEnvVars: Record<string, string> = {};
 	#resumeSessionPath: string | null = null;
 	#freshLaunchPending: boolean;
@@ -559,7 +569,8 @@ export class SidecarManager extends EventEmitter {
 			this.#resumeSessionPath && this.#options.sessionFree
 				? this.#options.sessionFree(this.#resumeSessionPath).catch(() => "free" as const)
 				: ("free" as const),
-		]).then(([resolution, proxyVars, shellVars, builtinMcp, session]) => {
+			Promise.resolve(this.#options.defaultBrowser?.()).catch(() => undefined),
+		]).then(([resolution, proxyVars, shellVars, builtinMcp, session, defaultBrowser]) => {
 			if (this.#disposed || seq !== this.#startSeq) return;
 			if (session === "owned") {
 				this.#setStatus(
@@ -582,6 +593,7 @@ export class SidecarManager extends EventEmitter {
 			this.#proxyEnvVars = proxyVars;
 			this.#shellEnvVars = shellVars;
 			this.#builtinMcp = builtinMcp;
+			this.#defaultBrowser = defaultBrowser;
 			this.#spawn();
 		});
 	}
@@ -687,6 +699,7 @@ export class SidecarManager extends EventEmitter {
 					...(accountRotationLedger ? { OMP_GUI_ACCOUNT_ROTATION_STATE: accountRotationLedger } : {}),
 					...(ompdeskRolesFile ? { [OMPDESK_ROLES_ENV]: ompdeskRolesFile } : {}),
 					...(this.#builtinMcp.root ? { OMP_GUI_REA_ROOT: this.#builtinMcp.root } : {}),
+					...(this.#defaultBrowser ? { [DEFAULT_BROWSER_ENV]: this.#defaultBrowser } : {}),
 					...this.#builtinMcp.env,
 					PI_RPC_EMIT_TITLE: "1",
 					PI_NO_PTY: "1",
@@ -972,6 +985,7 @@ export class SidecarManager extends EventEmitter {
 							this.syncImageGeneration();
 							// The setting may have changed between spawn (env) and connect.
 							this.syncReplyLanguage();
+							this.syncDefaultBrowser();
 							this.syncUserProfile();
 							this.syncNextPrompt();
 							this.syncAutoTitle();
@@ -1194,6 +1208,19 @@ export class SidecarManager extends EventEmitter {
 	syncReplyLanguage(): void {
 		const language = this.#options.replyLanguage?.() ?? null;
 		void this.#bridge?.request("reply_language_set", { language }).catch(() => {});
+	}
+
+	/**
+	 * Push the resolved default browser to this omp (gui-bridge `default_browser_set`); its next turn's system
+	 * prompt follows. Fire-and-forget like syncReplyLanguage: an unconnected bridge syncs on connect.
+	 */
+	syncDefaultBrowser(): void {
+		const bridge = this.#bridge;
+		const resolve = this.#options.defaultBrowser;
+		if (!bridge || !resolve) return;
+		void Promise.resolve(resolve())
+			.then(browser => bridge.request("default_browser_set", { browser }))
+			.catch(() => {});
 	}
 
 	/**

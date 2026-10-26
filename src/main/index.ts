@@ -56,6 +56,7 @@ import {
 	aiMemoryEnabled,
 } from "../shared/ai-memory";
 import { REA_PREF, reaEnabled } from "../shared/builtin-mcp";
+import { DEFAULT_BROWSER_PREF } from "../shared/default-browser";
 import {
 	APP_AUTO_UPDATE_PREF,
 	CLOSE_TO_TRAY_NOTICE_PREF,
@@ -748,6 +749,7 @@ app.whenReady().then(() => {
 		bridgeHealth,
 		sessionKinds,
 		replyLanguagePref: () => prefsStore().get(REPLY_LANGUAGE_PREF),
+		defaultBrowserPref: () => prefsStore().get(DEFAULT_BROWSER_PREF),
 		userProfilePref: () => prefsStore().get(USER_PROFILE_PREF),
 		nextPromptPrefs: () =>
 			nextPromptFromPrefs(prefsStore().get(NEXT_PROMPT_PREF), prefsStore().get(NEXT_PROMPT_INLINE_PREF)),

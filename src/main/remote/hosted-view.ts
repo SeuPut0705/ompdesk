@@ -175,6 +175,7 @@ export class HostedTabView extends EventEmitter implements SidecarLike {
 	// This computer's settings reach the hosted omp through LocalHostServices, once.
 	syncImageGeneration(): void {}
 	syncReplyLanguage(): void {}
+	syncDefaultBrowser(): void {}
 	syncUserProfile(): void {}
 	syncNextPrompt(): void {}
 	syncAutoTitle(): void {}

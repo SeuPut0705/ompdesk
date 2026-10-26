@@ -93,7 +93,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // the old budget (measured 3,339,620).
 // omp's advisor notices read in the UI's language (`lib/notice-toast.ts`: its rule table and two shapes): 312 bytes
 // more (measured 3,340,312).
-const WEB_FIRST_SCREEN_JS_BYTES = 3_340_400;
+// The agents' default browser (`sessions`/`prefs` API members and the bridge feature label; the Settings row itself
+// is lazy): 45 bytes more (measured 3,340,445).
+const WEB_FIRST_SCREEN_JS_BYTES = 3_340_500;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

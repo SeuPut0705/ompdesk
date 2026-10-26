@@ -603,6 +603,11 @@ export class RemoteDevices {
 		this.#deps.services.syncReplyLanguage();
 	}
 
+	/** This machine's default browser changed: tabs it hosts for devices follow it. */
+	hostDefaultBrowserChanged(): void {
+		this.#deps.services.syncDefaultBrowser();
+	}
+
 	/** This machine's profile setting changed: tabs it hosts for devices follow it. */
 	hostUserProfileChanged(): void {
 		this.#deps.services.syncUserProfile();

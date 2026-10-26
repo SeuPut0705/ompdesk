@@ -663,6 +663,7 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			get: (key?: string) => transport.invoke(IPC_COMMANDS.PREFS_GET, { key }),
 			set: (key: string, value: unknown) => transport.invoke(IPC_COMMANDS.PREFS_SET, { key, value }),
 			getLaunchProfile: (cwd, device) => transport.invoke(IPC_COMMANDS.PREFS_GET_LAUNCH_PROFILE, { cwd, device }),
+			defaultBrowserStatus: () => transport.invoke(IPC_COMMANDS.DEFAULT_BROWSER_STATUS),
 			updateLaunchProfile: (cwd, patch, device) =>
 				transport.invoke(IPC_COMMANDS.PREFS_UPDATE_LAUNCH_PROFILE, { cwd, patch, device }),
 			onChanged: callback => subscribe<IpcPrefsChangedPayload>(IPC_EVENTS.PREFS_CHANGED, callback),

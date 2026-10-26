@@ -15,6 +15,7 @@ import { NEXT_PROMPT_INLINE_PREF, NEXT_PROMPT_PREF } from "../../../resources/gu
 import { ACCOUNT_ROTATION_PREF } from "../../shared/account-rotation";
 import { AGENT_PANEL_TABS } from "../../shared/agent-control";
 import { REA_PREF } from "../../shared/builtin-mcp";
+import { DEFAULT_BROWSER_PREF } from "../../shared/default-browser";
 import {
 	APP_AUTO_UPDATE_PREF,
 	AUTO_OPEN_CHANGES_PREF,
@@ -130,6 +131,14 @@ export const SETTINGS: readonly Setting[] = [
 	pref("autoMode", AUTO_MODE_PREF, "agent", "Auto mode", "자동 모드"),
 	pref("nextPromptSuggestions", NEXT_PROMPT_PREF, "agent", "Next prompt suggestions", "다음 메시지 제안"),
 	pref("nextPromptInline", NEXT_PROMPT_INLINE_PREF, "agent", "Inline completion", "이어서 완성"),
+	pref(
+		"defaultBrowser",
+		DEFAULT_BROWSER_PREF,
+		"agent",
+		"Default browser",
+		"기본 브라우저",
+		options("auto", "ego", "builtin"),
+	),
 	pref("autoTitle", AUTO_TITLE_PREF, "agent", "Automatic session titles", "세션 제목 자동 생성"),
 	pref("autoTitleEvolve", AUTO_TITLE_EVOLVE_PREF, "agent", "Keep titles current", "제목 최신으로 유지"),
 	pref(

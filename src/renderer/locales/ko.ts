@@ -4380,6 +4380,7 @@ export const ko: Record<string, string> = {
 	"bridgeHealth.feature.sessionOwner": "다른 omp가 놓은 뒤에만 세션 열기",
 	"bridgeHealth.feature.pstack": "pstack 엔지니어링 모드",
 	"bridgeHealth.feature.eccHint": "프로젝트 언어에 맞는 ECC 스킬 안내",
+	"bridgeHealth.feature.defaultBrowser": "에이전트 기본 브라우저",
 	"bridgeHealth.feature.backgroundChecks": "긴 검사 백그라운드 실행",
 	"bridgeHealth.feature.checkoutPeers": "같은 체크아웃을 쓰는 세션",
 	"bridgeHealth.feature.xdevNotice": "요청에 도구 목록 중복 없음",
@@ -5954,6 +5955,15 @@ export const ko: Record<string, string> = {
 	"settings.gui.ecc": "ECC 언어·프레임워크 스킬",
 	"settings.gui.eccDesc":
 		"ECC(Affaan Mustafa, MIT)의 언어·프레임워크·도구 스킬을 필요할 때만 읽어요. 작업 순서는 pstack 플레이북을 따라요. 끄면 ECC 스킬과 명령을 쓰지 않아요.",
+	"settings.gui.defaultBrowser": "기본 브라우저",
+	"settings.gui.defaultBrowserDesc":
+		"에이전트가 웹 작업에 쓰는 브라우저예요. 자동은 ego-browser가 설치돼 있으면 그걸, 없으면 기본 내장 브라우저(omp)를 써요. 열려 있는 세션엔 다음 메시지부터 적용돼요.",
+	"settings.gui.defaultBrowser.auto": "자동",
+	"settings.gui.defaultBrowser.autoResolved": "자동 · {browser}",
+	"settings.gui.defaultBrowser.ego": "ego-browser",
+	"settings.gui.defaultBrowser.builtin": "기본 내장 (omp)",
+	"settings.gui.defaultBrowserMissing": "ego-browser가 설치돼 있지 않아 에이전트가 기본 내장 브라우저(omp)를 써요.",
+	"settings.gui.defaultBrowserLoadFailed": "기본 브라우저 설정을 읽지 못했어요",
 	"settings.gui.autoMode": "자동 모드",
 	"settings.gui.autoModeDesc": "새 요청 하나에만 계획·목표를 써요. 내 모드는 바꾸지 않아요",
 	"settings.gui.autoPreviewDevServer": "개발 서버를 미리보기로 열기",

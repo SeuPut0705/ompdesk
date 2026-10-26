@@ -1255,6 +1255,11 @@ export class LocalHostServices implements HostServices {
 		for (const tab of this.#tabs.values()) tab.sidecar.syncReplyLanguage();
 	}
 
+	/** This machine's default browser changed: the tabs it runs for paired devices follow it. */
+	syncDefaultBrowser(): void {
+		for (const tab of this.#tabs.values()) tab.sidecar.syncDefaultBrowser();
+	}
+
 	/** This machine's profile setting changed: the tabs it runs for paired devices follow it. */
 	syncUserProfile(): void {
 		for (const tab of this.#tabs.values()) tab.sidecar.syncUserProfile();

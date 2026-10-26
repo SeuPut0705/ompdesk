@@ -4393,6 +4393,7 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.sessionOwner": "Opening a session only once another omp let go of it",
 	"bridgeHealth.feature.pstack": "pstack engineering mode",
 	"bridgeHealth.feature.eccHint": "ECC skills named for the project's languages",
+	"bridgeHealth.feature.defaultBrowser": "Default browser for agents",
 	"bridgeHealth.feature.backgroundChecks": "Long checks run in the background",
 	"bridgeHealth.feature.checkoutPeers": "Sessions sharing a checkout",
 	"bridgeHealth.feature.xdevNotice": "Tool list not repeated in the request",
@@ -5967,6 +5968,15 @@ export const en: Record<string, string> = {
 	"settings.gui.ecc": "ECC language and framework skills",
 	"settings.gui.eccDesc":
 		"Language, framework and tool skills from ECC (Affaan Mustafa, MIT), read only when a task needs them. pstack's playbooks still lead the workflow. Off: no ECC skills or commands.",
+	"settings.gui.defaultBrowser": "Default browser",
+	"settings.gui.defaultBrowserDesc":
+		"The browser agents use for web tasks. Automatic uses ego-browser when it is installed and omp's built-in browser otherwise. Applies from the next message of open sessions.",
+	"settings.gui.defaultBrowser.auto": "Automatic",
+	"settings.gui.defaultBrowser.autoResolved": "Automatic · {browser}",
+	"settings.gui.defaultBrowser.ego": "ego-browser",
+	"settings.gui.defaultBrowser.builtin": "Built-in (omp)",
+	"settings.gui.defaultBrowserMissing": "ego-browser is not installed, so agents use the built-in browser (omp).",
+	"settings.gui.defaultBrowserLoadFailed": "Couldn't read the default browser setting",
 	"settings.gui.autoMode": "Auto mode",
 	"settings.gui.autoModeDesc": "Uses Plan or Goal for one new request, never changes your mode",
 	"settings.gui.autoPreviewDevServer": "Open dev servers in Preview",

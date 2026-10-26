@@ -325,6 +325,41 @@ describe("SidecarManager spawn env", () => {
 		}
 	});
 
+	it("passes the default browser as OMP_GUI_BROWSER, resolved on every start (an async source included)", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-env-"));
+		const envPath = path.join(tempDir, "browser.txt");
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(envPath)}, process.env.OMP_GUI_BROWSER ?? "");\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+		);
+		let browser: "ego" | "builtin" = "ego";
+		const sidecar = new SidecarManager({
+			omp: async () => ({
+				ok: true,
+				runtime: { bin: binaryPath, version: "18.8.0", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
+			}),
+			cwd: tempDir,
+			defaultBrowser: async () => browser,
+		});
+		let ready = Promise.withResolvers<void>();
+		sidecar.on("status", ({ status }) => {
+			if (status === "ready") ready.resolve();
+		});
+		try {
+			sidecar.start();
+			await ready.promise;
+			expect(await fs.readFile(envPath, "utf8")).toBe("ego");
+			browser = "builtin";
+			ready = Promise.withResolvers<void>();
+			sidecar.restart();
+			await ready.promise;
+			expect(await fs.readFile(envPath, "utf8")).toBe("builtin");
+		} finally {
+			sidecar.dispose();
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	});
+
 	it("spawns omp with OTLP telemetry export off, over whatever the user's environment says", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-otel-"));
 		const envPath = path.join(tempDir, "otel.json");
@@ -728,6 +763,7 @@ describe("SidecarManager spawn env", () => {
 			OMP_GUI_DELEGATION: "solo",
 			OMP_GUI_MEMORY: path.join(tempDir, "parent-recall.json"),
 			OMP_GUI_REPLY_LANGUAGE: "Korean",
+			OMP_GUI_BROWSER: "ego",
 			OMP_GUI_TEST_KEEP: "kept",
 		};
 		const saved = Object.fromEntries(Object.keys(parent).map(key => [key, process.env[key]]));

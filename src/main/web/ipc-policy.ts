@@ -257,6 +257,7 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 		web: "Appearance and layout keys (shared/device-prefs.ts) are written by the page's shim to web:device.uiPrefs.set and never reach here; other keys write here and push PREFS_CHANGED",
 	},
 	[C.PREFS_GET_LAUNCH_PROFILE]: { dir: "invoke", permission: "workspace", mode: "pass" },
+	[C.DEFAULT_BROWSER_STATUS]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.PREFS_UPDATE_LAUNCH_PROFILE]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.MODELS_PROVIDERS_LIST]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.MODELS_SIGNED_IN]: { dir: "invoke", permission: "workspace", mode: "pass" },

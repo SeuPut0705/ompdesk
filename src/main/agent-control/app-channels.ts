@@ -140,6 +140,7 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[C.PREFS_GET]: read("settings.get"),
 	[C.PREFS_SET]: SETTINGS_WRITE,
 	[C.PREFS_GET_LAUNCH_PROFILE]: never(DENY),
+	[C.DEFAULT_BROWSER_STATUS]: never(DENY),
 	[C.PREFS_UPDATE_LAUNCH_PROFILE]: never(OPERATOR),
 	[C.MODELS_PROVIDERS_LIST]: never(DENY),
 	[C.MODELS_SIGNED_IN]: never(DENY),

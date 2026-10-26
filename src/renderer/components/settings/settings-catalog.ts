@@ -236,6 +236,13 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 			"ecc everything claude code language framework skills go rust python java kotlin swift react 언어 프레임워크 스킬",
 	},
 	{
+		id: "defaultBrowser",
+		section: "agent",
+		labelKey: "settings.gui.defaultBrowser",
+		aliases:
+			"default browser ego ego-browser chrome built-in builtin web browse browsing agent 기본 브라우저 브라우저 크롬 웹 에이전트 자동 내장",
+	},
+	{
 		id: "autoTitle",
 		section: "agent",
 		labelKey: "settings.gui.autoTitle",

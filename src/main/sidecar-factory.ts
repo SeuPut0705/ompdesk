@@ -15,12 +15,14 @@ import type { PromptOriginEnv } from "../../resources/gui-bridge/prompt-origin-c
 import { parseAccountRotationPref } from "../shared/account-rotation";
 import { agentControlEnabled } from "../shared/agent-control";
 import { reaEnabled, reaExtensionArgs } from "../shared/builtin-mcp";
+import { parseDefaultBrowser, resolveAgentBrowser } from "../shared/default-browser";
 import { eccEnabled } from "../shared/ecc";
 import { pstackEnabled } from "../shared/pstack";
 import { deviceLanguageTag, replyLanguageName, resolveReplyLanguage } from "../shared/reply-language";
 import { bootModelSelector } from "./boot-model";
 import type { BridgeConnectResult, BridgeHealth } from "./bridge-health";
 import { builtinReaState } from "./builtin-mcp";
+import { egoBrowserInstalled } from "./ego-browser";
 import { mainT, ompFailureText } from "./i18n";
 import { ompAvailability } from "./omp-availability";
 import { systemOmp } from "./omp-runtime";
@@ -52,6 +54,8 @@ export interface LocalSidecarDeps {
 	sessionKinds: SessionKindStore;
 	/** The stored Settings › General conversation-language pref (`replyLanguage`), read per use. */
 	replyLanguagePref: () => unknown;
+	/** The stored Settings › Agent behavior › Default browser pref (`defaultBrowser`), read per spawn; absent = built-in (tests only). */
+	defaultBrowserPref?: () => unknown;
 	/** The stored Settings › General profile pref (`userProfile`), read per use. */
 	userProfilePref: () => unknown;
 	/** The prompt-suggestion switches (`nextPromptSuggestions`, `nextPromptInline`; both default on), read per use. */
@@ -164,6 +168,12 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 				? { sessionFree: deps.sessionFree, sessionOwnedText: () => mainT("omp.sessionOwned") }
 				: {}),
 			replyLanguage: () => resolveReplyLanguage(deps.replyLanguagePref(), replyLanguageName(deviceLanguage())),
+			...(deps.defaultBrowserPref
+				? {
+						defaultBrowser: async () =>
+							resolveAgentBrowser(parseDefaultBrowser(deps.defaultBrowserPref?.()), await egoBrowserInstalled()),
+					}
+				: {}),
 			userProfile: () => normalizeUserProfile(deps.userProfilePref()),
 			nextPrompt: deps.nextPromptPrefs,
 			autoTitle: deps.autoTitlePrefs,

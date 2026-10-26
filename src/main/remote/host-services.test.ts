@@ -87,6 +87,7 @@ class FakeHostSidecar extends EventEmitter {
 	sideFrames: object[] = [];
 	imageSyncs = 0;
 	replyLanguageSyncs = 0;
+	defaultBrowserSyncs = 0;
 	userProfileSyncs = 0;
 	nextPromptSyncs = 0;
 	autoTitleSyncs = 0;
@@ -132,6 +133,9 @@ class FakeHostSidecar extends EventEmitter {
 	}
 	syncReplyLanguage(): void {
 		this.replyLanguageSyncs++;
+	}
+	syncDefaultBrowser(): void {
+		this.defaultBrowserSyncs++;
 	}
 	syncUserProfile(): void {
 		this.userProfileSyncs++;
@@ -858,6 +862,15 @@ describe("LocalHostServices", () => {
 		services.syncReplyLanguage();
 		expect(sidecars.map(sidecar => sidecar.replyLanguageSyncs)).toEqual([1, 1]);
 		expect(local.tab.replyLanguageSyncs).toBe(0);
+	});
+
+	it("pushes this machine's default browser to every tab it hosts, leaving the local pool to ipc", async () => {
+		const { services, sidecars, local } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+		services.syncDefaultBrowser();
+		expect(sidecars.map(sidecar => sidecar.defaultBrowserSyncs)).toEqual([1]);
+		expect(local.tab.defaultBrowserSyncs).toBe(0);
 	});
 
 	it("pushes this machine's profile setting to every tab it hosts, leaving the local pool to ipc", async () => {

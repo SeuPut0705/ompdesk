@@ -254,6 +254,8 @@ export const IPC_COMMANDS = {
 	PREFS_UPDATE_LAUNCH_PROFILE: "prefs:update-launch-profile",
 	/** One workspace's launch profile, from the machine that spawns its omp */
 	PREFS_GET_LAUNCH_PROFILE: "prefs:get-launch-profile",
+	/** Whether ego-browser is installed on the machine that spawns the agents */
+	DEFAULT_BROWSER_STATUS: "prefs:default-browser-status",
 	/** Restart sidecar */
 	SIDECAR_RESTART: "sidecar:restart",
 	/** Get sidecar status */
@@ -863,6 +865,11 @@ export interface IpcTabListChangedPayload {
 /** `PREFS_CHANGED` event payload: the preference key another window wrote. */
 export interface IpcPrefsChangedPayload {
 	key: string;
+}
+
+/** Answer of `DEFAULT_BROWSER_STATUS`. */
+export interface IpcDefaultBrowserStatus {
+	egoInstalled: boolean;
 }
 
 /**
@@ -2291,6 +2298,8 @@ export interface OmpApi {
 		/** `device` = the paired host whose profile it is; absent = this device. */
 		getLaunchProfile(cwd: string, device?: string): Promise<LaunchProfile>;
 		updateLaunchProfile(cwd: string, patch: Partial<LaunchProfile>, device?: string): Promise<LaunchProfile>;
+		/** Whether ego-browser is installed on this computer (Settings › Agent behavior › Default browser). */
+		defaultBrowserStatus(): Promise<IpcDefaultBrowserStatus>;
 		/** Another window wrote a preference. */
 		onChanged(callback: (payload: IpcPrefsChangedPayload) => void): () => void;
 	};

@@ -37,6 +37,7 @@ import {
 	reviewFromDevice,
 } from "../shared/agent-control";
 import { REA_PREF } from "../shared/builtin-mcp";
+import { DEFAULT_BROWSER_PREF, isDefaultBrowserPref } from "../shared/default-browser";
 import { codedError, type IpcErrorCode, ipcErrorCode } from "../shared/ipc-error-codes";
 import type {
 	CustomProviderInput,
@@ -98,6 +99,7 @@ import type {
 import {
 	IPC_COMMANDS,
 	IPC_EVENTS,
+	type IpcDefaultBrowserStatus,
 	type IpcSessionsChanged,
 	type RunProgressState,
 	type TrayState,
@@ -124,6 +126,7 @@ import { ensureDefaultWorkspace } from "./default-workspace";
 import { DesktopSlotHost } from "./desktop-slot-host";
 import { savedWorktreesForSpawn } from "./disk/saved-worktrees";
 import { openInExternalEditor } from "./editor";
+import { egoBrowserInstalled } from "./ego-browser";
 import { isOpenableExternalUrl } from "./external-url";
 import { getMainLanguage, mainT } from "./i18n";
 import type { MainTextKey } from "./i18n-text";
@@ -1796,6 +1799,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (replyLanguage && !isReplyLanguagePref(payload.value)) {
 			throw codedError("invalid_preference_key", "Invalid reply language");
 		}
+		const defaultBrowser = payload.key === DEFAULT_BROWSER_PREF;
+		if (defaultBrowser && !isDefaultBrowserPref(payload.value)) {
+			throw codedError("invalid_preference_key", "Invalid default browser");
+		}
 		const userProfile = payload.key === USER_PROFILE_PREF;
 		if (userProfile && !isUserProfile(payload.value)) {
 			throw codedError("invalid_preference_key", "Invalid profile");
@@ -1841,6 +1848,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncReplyLanguage();
 			remoteDevices.hostReplyLanguageChanged();
 		}
+		if (defaultBrowser) {
+			for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncDefaultBrowser();
+			remoteDevices.hostDefaultBrowserChanged();
+		}
 		if (userProfile) {
 			for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncUserProfile();
 			remoteDevices.hostUserProfileChanged();
@@ -1881,6 +1892,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			? remoteDevices.request(device, "launchProfile.get", { cwd: payload.cwd })
 			: readLaunchProfile(launchProfilePrefs, payload?.cwd);
 	});
+	ipc.handle(
+		IPC_COMMANDS.DEFAULT_BROWSER_STATUS,
+		async (): Promise<IpcDefaultBrowserStatus> => ({
+			egoInstalled: await egoBrowserInstalled(),
+		}),
+	);
 
 	ipc.handle(IPC_COMMANDS.PREFS_UPDATE_LAUNCH_PROFILE, (_caller, payload: IpcUpdateLaunchProfilePayload) => {
 		const device = deviceOf(payload?.device);
