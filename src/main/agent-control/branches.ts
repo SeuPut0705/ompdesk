@@ -166,15 +166,55 @@ async function patchesAllIn(cwd: string, target: string, tip: string): Promise<b
 	return lines.length > 0 && lines.every(line => line.startsWith("-"));
 }
 
+/** Bytes of patch text one landing check reads; a bigger diff is not judged landed by it. */
+const PATCH_BYTES = 64 * 1024 * 1024;
+
+/** Pipes `input` through `git patch-id --stable`; the ids of its patches, first column of each output line. */
+async function patchIds(cwd: string, input: Buffer): Promise<string[] | null> {
+	const result = await gitRaw(cwd, ["patch-id", "--stable"], { input, timeoutMs: TIMEOUT_MS, maxBytes: PATCH_BYTES });
+	if (result.code !== 0) return null;
+	return result.stdout
+		.toString("utf8")
+		.split("\n")
+		.map(line => line.split(" ", 1)[0] ?? "")
+		.filter(Boolean);
+}
+
+/**
+ * A squash merge: the whole change `tip` made since its merge-base with `target` has the patch-id of one commit that
+ * `target` gained since. Holds after `target` edited the same lines, where the merge-tree and `git cherry` tests fail.
+ * A squash whose content was altered has another patch-id and does not match.
+ */
+async function squashedInto(cwd: string, target: string, tip: string): Promise<boolean> {
+	const mb = await gitRaw(cwd, ["merge-base", target, tip]);
+	if (mb.code !== 0) return false;
+	const base = mb.stdout.toString("utf8").trim();
+	if (!base) return false;
+	const [own, log] = await Promise.all([
+		gitRaw(cwd, ["diff", base, tip], { timeoutMs: TIMEOUT_MS, maxBytes: PATCH_BYTES }),
+		gitRaw(cwd, ["log", "-p", "--no-merges", "--format=commit %H", `${base}..${target}`], {
+			timeoutMs: TIMEOUT_MS,
+			maxBytes: PATCH_BYTES,
+		}),
+	]);
+	if (own.code !== 0 || log.code !== 0 || own.truncated || log.truncated || own.stdout.length === 0) return false;
+	const [mine, theirs] = await Promise.all([patchIds(cwd, own.stdout), patchIds(cwd, log.stdout)]);
+	const id = mine?.[0];
+	return id !== undefined && (theirs?.includes(id) ?? false);
+}
+
 /**
  * Whether `target` already holds what `tip` changed although `tip` is not in its history: a squash merge (merging adds
- * nothing) or a rebase or cherry-pick (every commit has a patch-equivalent there). Both arguments are commit ids.
+ * nothing, or its whole patch is one commit of `target`) or a rebase or cherry-pick (every commit has a patch-equivalent there). Both arguments are commit ids.
  */
 async function landedByContent(cwd: string, target: string, tip: string): Promise<boolean> {
 	const key = `${target} ${tip}`;
 	const known = contentVerdicts.get(key);
 	if (known !== undefined) return known;
-	const verdict = (await mergesAddNothing(cwd, target, tip)) || (await patchesAllIn(cwd, target, tip));
+	const verdict =
+		(await mergesAddNothing(cwd, target, tip)) ||
+		(await patchesAllIn(cwd, target, tip)) ||
+		(await squashedInto(cwd, target, tip));
 	if (contentVerdicts.size >= MAX_CONTENT_VERDICTS) {
 		const oldest = contentVerdicts.keys().next();
 		if (!oldest.done) contentVerdicts.delete(oldest.value);

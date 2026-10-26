@@ -29,6 +29,8 @@ export interface ExecOptions {
 	timeoutMs?: number;
 	maxBytes?: number;
 	env?: Record<string, string>;
+	/** Bytes written to the process's stdin; without it stdin is closed. */
+	input?: Buffer;
 }
 
 const binCache = new Map<string, Promise<string | null>>();
@@ -97,7 +99,7 @@ export async function execBin(bin: string, args: string[], opts: ExecOptions): P
 		// repository `cwd` is in; a selector the caller means (disk care's scratch GIT_INDEX_FILE) comes in `opts.env`.
 		env: { ...withoutGitSelectors(process.env), PATH: pathEnv, GIT_OPTIONAL_LOCKS: "0", ...opts.env },
 		shell: false,
-		stdio: ["ignore", "pipe", "pipe"],
+		stdio: ["pipe", "pipe", "pipe"],
 		windowsHide: true,
 	});
 	const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES;
@@ -125,6 +127,9 @@ export async function execBin(bin: string, args: string[], opts: ExecOptions): P
 	child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
 		if (stderr.length < 64 * 1024) stderr += chunk;
 	});
+	// A process that exits before reading its input (a failing git) closes the pipe: that is its exit code's news, not ours.
+	child.stdin.on("error", () => {});
+	child.stdin.end(opts.input);
 	child.on("error", err => {
 		clearTimeout(timer);
 		reject(err);
