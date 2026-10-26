@@ -86,7 +86,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // The memory recall line's rows (`MemoryRecallNote` in CustomMessageCard.tsx: kind, title, date, excerpt, Open in Memory,
 // Not helpful, and `parseRecallText` with its kind table in memory-recall-contracts.ts; the transcript is the first
 // screen) add 6,002 bytes over its base (3,328,634 → 3,334,636).
-const WEB_FIRST_SCREEN_JS_BYTES = 3_335_000;
+// The recall line's per-item scope, its remembered Not helpful (`lib/recall-rated.ts`), and the page's own grants from
+// the hello frame (`pageMayUse`, so a page without host-admin hides the action) add 3,601 bytes (3,334,636 → 3,338,237).
+const WEB_FIRST_SCREEN_JS_BYTES = 3_339_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
