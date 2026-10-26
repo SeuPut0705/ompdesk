@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.75.7] - 2026-10-26
+
+다른 창이나 컴퓨터에서 작업 중인 세션도, 누르지 않아도 세션 목록에 작업 중으로 보여요.
+
+### 고친 것
+- 휴대폰이나 두 번째 창의 세션 목록은 그 창이 직접 연 세션만 작업 중으로 표시했어요. 그래서 컴퓨터 창에서 돌고 있는 세션은 시간만 보이다가, 눌러서 열어야 비로소 작업 중으로 바뀌었어요. 이제 모든 창이 이 컴퓨터에서 지금 작업 중인 세션 목록을 받아서, 열지 않은 세션도 작업 중·답을 기다리는 중·백그라운드 작업 중으로 바로 보여요.
+
+<!-- en -->
+
+A session another window or the computer works on now shows as working in the session list without a tap.
+
+### Fixes
+- A phone's or a second window's session list showed a session as working only when that window had it open, so a session running in the computer's window showed just its age until it was tapped. Every window now hears which sessions this computer works on, and an unopened row shows working, waiting for an answer or background work at once.
+
 ## [0.75.6] - 2026-10-26
 
 실행된 뒤 종료 상태를 잃은 명령이 다시 실패로 보여요.
