@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.75.1] - 2026-10-26
+
+에이전트가 연 하위 세션이 일을 마친 뒤 사이드바에 ✕로 계속 남던 문제를 고쳤어요.
+
+### 고친 것
+- 휴대폰에서 쓰는 세션이 연 하위 세션을 이제 컴퓨터가 직접 닫아요. 전에는 휴대폰 화면에 닫으라는 신호만 보내서, 화면이 꺼져 있으면 닫히지 않고 다시 켤 때 그대로 돌아왔어요. 휴대폰의 Files 편집기에 저장하지 않은 편집이 있는 탭은 닫지 않고, 휴대폰이 연결돼 있지 않으면 다시 연결돼 편집이 없다고 알려 올 때까지 기다려요.
+- 닫히지 않았는데 "닫았어요" 알림이 가던 문제를 고쳤어요. 알림은 탭이 실제로 사라진 뒤에만 가요.
+- squash로 합쳐진 작업을, 그 뒤 main이 같은 줄을 고쳤다는 이유로 "아직 안 합쳐짐"(✕)으로 읽던 문제를 고쳤어요. 이제 합쳐진 것으로 보고 자동으로 정리돼요.
+
+<!-- en -->
+
+Child sessions an agent opened no longer stay in the sidebar as ✕ after their work is done.
+
+### Fixes
+- A child session opened from a session you drive on your phone is now closed by the computer itself. Before, the phone page was only told to close it, so with its screen off the tab stayed and came back on the next launch. A tab whose Files editor on the phone holds unsaved edits is never closed, and while the phone is not connected the close waits until it reconnects and reports no edits.
+- A "Closed" note no longer arrives for a tab that did not close; it is sent only once the tab is gone.
+- Work squash-merged into main no longer reads as unmerged (✕) after main edits the same lines; it reads landed and is cleaned up on its own.
+
 ## [0.75.0] - 2026-10-26
 
 세션이 나에게 바라는 것과 작업이 실제로 실패했는지를 화면마다 한 가지로 말하게 했어요. 단계는 무엇을 하려던 것인지로 이름 붙이고, 질문 카드가 떠도 대화가 화면에서 밀려나지 않아요.
