@@ -103,6 +103,7 @@ import { steppingFromTabId, useActiveTabKind, useSessionTabs, useTabsStore, visi
 import { toast, toastError } from "./stores/toast";
 import { isSidebarDrawerMode, migrateDefaultPanelTab, useUiStore } from "./stores/ui";
 import { checkForUpdatesInPlace, subscribeUpdaterStatus } from "./stores/updater";
+import { FileEditReporter } from "./web/FileEditReporter";
 import { WebHostUi } from "./web/host-ui/WebHostUi";
 
 // Heavy overlays code-split: they render null while closed, so they download
@@ -940,6 +941,7 @@ export function App() {
 				<WebPairingDialog />
 				<WebDeviceNotice />
 				<WebHostUi />
+				<FileEditReporter />
 				<SshPromptDialog />
 				{benchmarkMounted ? (
 					<Suspense fallback={null}>
