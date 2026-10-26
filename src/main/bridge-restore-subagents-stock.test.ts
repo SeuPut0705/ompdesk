@@ -331,9 +331,11 @@ async function cutOff(script: readonly Step[], signal: Signal, subagentScript: r
 	const [spawned] = await roster(first);
 	expect(spawned).toMatchObject({ status: "running" });
 	await first.kill(signal);
+	// Counted with no omp running: stock starts a revived subagent during the restore, before it answers.
+	const requestsAtCut = provider.subagentRequests;
 	const second = await startOmp(provider, isolated, root, true);
 	const outcome = await second.bridge.request<Restored>("composer.restore_interrupted", {});
-	return { provider, isolated, second, outcome, id: spawned?.id };
+	return { provider, isolated, second, outcome, id: spawned?.id, requestsAtCut };
 }
 
 describe.skipIf(!existsSync(omp))("revived subagents on stock omp", () => {
@@ -438,10 +440,9 @@ describe.skipIf(!existsSync(omp))("revived subagents on stock omp", () => {
 	// after it, so stock read their turns as finished and the parent's rerun `wait` found nothing to wait for.
 	it("revives a subagent a graceful stop cut off between a tool result and its model's answer", async () => {
 		const READ: Step = { tool: "read", args: { path: ".", i: "listing the folder" } };
-		const { provider, second, outcome, id } = await cutOff([SPAWN, WAIT], "GONE", [READ]);
+		const { provider, second, outcome, id, requestsAtCut } = await cutOff([SPAWN, WAIT], "GONE", [READ]);
 		expect(outcome).toMatchObject({ turn: true, subagents: [id] });
-		const before = provider.subagentRequests;
-		await expect.poll(() => provider.subagentRequests, { timeout: 90_000 }).toBeGreaterThan(before);
+		await expect.poll(() => provider.subagentRequests, { timeout: 90_000 }).toBeGreaterThan(requestsAtCut);
 		await expect
 			.poll(() => roster(second), { timeout: 30_000 })
 			.toEqual([expect.objectContaining({ id, status: "running" })]);
