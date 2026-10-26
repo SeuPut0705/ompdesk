@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.75.5] - 2026-10-26
+
+실행되지도 않은 명령을 작업 현황이 "빌드 실패"로 계속 보여 주던 문제를 고쳤어요.
+
+### 고친 것
+- 에이전트가 잘못된 옵션으로 명령을 부르면, 명령을 실행하기 전에 도구가 거절해요. 그런데도 작업 상자와 작업 현황은 그 명령을 "빌드 실패"처럼 실패한 검사로 셌고, "검사 실패"가 제목 표시줄과 사이드바에까지 켜진 채 그 턴 내내 남았어요. 이제 이런 호출은 실패로도, 검사로도 세지 않아요. 실제로 실행돼 실패한 명령과 시간이 초과된 명령은 그대로 실패로 보여요.
+
+<!-- en -->
+
+The work board no longer shows "build failed" for a command that never ran.
+
+### Fixes
+- When an agent called a command with options the tool refuses, the tool declined it before running anything, yet the work card and the work board counted it as a failed check ("build failed"), and "Check failed" stayed lit in the title bar and sidebar for the rest of the turn. Such a call now counts as neither a failure nor a check. A command that ran and failed, or ran out of time, still reads failed.
+
 ## [0.75.4] - 2026-10-26
 
 업데이트로 앱이 다시 켜질 때, 모델의 답을 기다리던 하위 작업도 이어서 진행해요.
