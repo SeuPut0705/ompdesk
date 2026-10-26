@@ -9,6 +9,7 @@ import type { AgentSessionEvent } from "../../shared/rpc-types";
 import { WEB_PERMISSIONS, type WebPermission, type WebServerFrame } from "../../shared/web-protocol";
 import { BlobStore } from "./blobs";
 import type { WebDevice } from "./devices-store";
+import { FileEditReports } from "./file-edit-reports";
 import { IPC_POLICY, type IpcChannel } from "./ipc-policy";
 import type { IpcCaller } from "./ipc-registry";
 import { WebClientWindow, WebWindows } from "./web-client-window";
@@ -136,6 +137,7 @@ function rig(options: RigOptions = {}) {
 		mimeType: "image/jpeg",
 	}));
 	const resyncs: string[] = [];
+	const offline: string[] = [];
 	let routerRef: WsRouter | null = null;
 	const windows = new WebWindows((id, channel, payload) => routerRef?.deliver(id, channel, payload));
 	const router = new WsRouter({
@@ -150,6 +152,7 @@ function rig(options: RigOptions = {}) {
 		uploads,
 		toModelImage,
 		onResync: deviceId => resyncs.push(deviceId),
+		onDeviceOffline: deviceId => offline.push(deviceId),
 		now: () => clock.now,
 		timers,
 	});
@@ -180,6 +183,7 @@ function rig(options: RigOptions = {}) {
 		frame,
 		settle,
 		resyncs,
+		offline,
 		revoke: () => {
 			current = undefined;
 		},
@@ -821,6 +825,30 @@ describe("limits", () => {
 		expect(r.router.isConnected("dev1")).toBe(false);
 		other?.dispose();
 		expect(onConnectionsChanged).not.toHaveBeenCalled();
+	});
+});
+
+describe("a device going offline", () => {
+	it("is told only when its last connection ends", () => {
+		const r = rig();
+		const second = r.router.attach("dev1", new FakeSocket());
+		r.connection.dispose();
+		expect(r.offline).toEqual([]);
+		second?.dispose();
+		expect(r.offline).toEqual(["dev1"]);
+	});
+
+	it("lets main forget a page's Files-edit report, so a page that was clean is unreported until it reports again", () => {
+		const reports = new FileEditReports();
+		const r = rig();
+		const win = r.windows.windowFor("dev1");
+		reports.report(win, null);
+		expect(reports.edits(win.webContents.id, "t1")).toBe("clean");
+		r.connection.dispose();
+		for (const deviceId of r.offline) reports.forget(r.windows.windowFor(deviceId).webContents.id);
+		expect(reports.edits(win.webContents.id, "t1")).toBe("unreported");
+		reports.report(win, null);
+		expect(reports.edits(win.webContents.id, "t1")).toBe("clean");
 	});
 });
 

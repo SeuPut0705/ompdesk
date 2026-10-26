@@ -48,6 +48,21 @@ describe("FileEditReports", () => {
 		expect(heard).toHaveBeenCalledTimes(2);
 	});
 
+	it("forgets a page's report on demand without telling its listeners, and takes the next one", () => {
+		const reports = new FileEditReports();
+		const phone = page(-1);
+		const heard = vi.fn();
+		reports.onReport(heard);
+		reports.report(phone, null);
+		reports.forget(-1);
+		expect(reports.edits(-1, "t1")).toBe("unreported");
+		expect(heard).toHaveBeenCalledTimes(1);
+		reports.report(phone, "t1");
+		expect(reports.edits(-1, "t1")).toBe("dirty");
+		phone.close();
+		expect(reports.edits(-1, "t1")).toBe("unreported");
+	});
+
 	it("forgets a window that closed", () => {
 		const reports = new FileEditReports();
 		const phone = page(-1);
