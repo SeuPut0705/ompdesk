@@ -202,8 +202,8 @@ const text = (
 });
 
 describe("hello and calls", () => {
-	it("sends hello first with the protocol, the connection id and the host's features", () => {
-		const { socket, connection } = rig();
+	it("sends hello first with the protocol, the connection id, the host's features and the device's grants", () => {
+		const { socket, connection } = rig({ grants: ["workspace", "device-self"] });
 		expect(socket.sent[0]).toEqual({
 			t: "hello",
 			protocol: 1,
@@ -211,6 +211,7 @@ describe("hello and calls", () => {
 			connId: connection.connId,
 			resumed: false,
 			features: { push: false, preview: false, upload: true, passkey: false },
+			grants: ["workspace", "device-self"],
 		});
 	});
 

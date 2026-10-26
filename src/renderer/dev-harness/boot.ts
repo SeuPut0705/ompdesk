@@ -6,6 +6,7 @@
 
 import { createOmpApi } from "../../shared/omp-api";
 import { migrateThemeName, schemeOfTheme } from "../../shared/theme-names";
+import { DEFAULT_WEB_GRANTS } from "../../shared/web-protocol";
 import type { HostActions } from "../web/host-hooks";
 import { InstallPrompt } from "../web/install";
 import { PushClient } from "../web/push-client";
@@ -112,6 +113,7 @@ if (query.get("host") === "1") {
 		connectionState: () => "open",
 		onConnectionState: () => () => {},
 		features: () => ({ push: true, preview: true, upload: true, passkey: false }),
+		grants: () => DEFAULT_WEB_GRANTS,
 		emitMenuAction: () => {},
 		onResynced: () => () => {},
 		reload: () => location.reload(),

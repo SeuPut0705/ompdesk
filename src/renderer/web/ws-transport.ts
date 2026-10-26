@@ -17,7 +17,7 @@
  * - Calls made while the link is down wait for it (up to `connectWaitMs`); calls in flight when it drops fail.
  */
 import type { OmpTransport } from "../../shared/omp-api";
-import type { WebClientFrame, WebFeatures, WebServerFrame } from "../../shared/web-protocol";
+import type { WebClientFrame, WebFeatures, WebPermission, WebServerFrame } from "../../shared/web-protocol";
 import { WEB_PROTOCOL_VERSION } from "../../shared/web-protocol";
 import { translate } from "../lib/i18n";
 import { UnpairedError } from "./session";
@@ -144,6 +144,7 @@ export class WsTransport implements OmpTransport {
 	/** Frames received on this page so far; the wake probe compares it before and after. */
 	#inbound = 0;
 	#features: WebFeatures | null = null;
+	#grants: readonly WebPermission[] | null = null;
 	/** The last connection's id: a reconnect offers it (`resume.<connId>`) so the host can continue it. */
 	#connId: string | null = null;
 	/** A call failed when the last link dropped: the page loads its state again even if the host resumes. */
@@ -165,6 +166,11 @@ export class WsTransport implements OmpTransport {
 	/** What the host offered in its last `hello`. */
 	get features(): WebFeatures | null {
 		return this.#features;
+	}
+
+	/** What the host's last `hello` said this device may call. */
+	get grants(): readonly WebPermission[] | null {
+		return this.#grants;
 	}
 
 	onState(listener: (state: WsConnectionState) => void): () => void {
@@ -369,6 +375,7 @@ export class WsTransport implements OmpTransport {
 		this.#ready = true;
 		this.#attempt = 0;
 		this.#features = frame.features;
+		this.#grants = frame.grants;
 		this.#lastSeq = 0;
 		this.#ackedSeq = 0;
 		this.#lastInbound = this.#now();

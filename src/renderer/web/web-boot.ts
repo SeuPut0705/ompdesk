@@ -187,6 +187,7 @@ async function bootApp(): Promise<void> {
 		connectionState: () => transport.state,
 		onConnectionState: listener => transport.onState(listener),
 		features: () => transport.features,
+		grants: () => transport.grants,
 		emitMenuAction: web.emitMenuAction,
 		onResynced: listener => {
 			resyncListeners.add(listener);

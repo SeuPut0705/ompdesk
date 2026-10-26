@@ -44,10 +44,12 @@ import {
 import { useT } from "../../lib/i18n";
 import { rememberedMailOpen, rememberMailOpen } from "../../lib/mail-open";
 import { MarkdownRenderer } from "../../lib/markdown";
+import { rateRecall, recallRatedKey, useRecallRate } from "../../lib/recall-rated";
 import { revealAndFocus } from "../../lib/reveal-focus";
 import { asArray } from "../../lib/wire-value";
 import { useMemoryPageStore } from "../../stores/memory-page";
 import { useUiStore } from "../../stores/ui";
+import { pageMayUse } from "../../web/runtime";
 import { Badge, type BadgeVariant } from "../common/Badge";
 import { Button } from "../common/Button";
 import { DisclosureButton } from "../common/DisclosureButton";
@@ -724,39 +726,43 @@ export function RecapCard({ message }: { message: AgentMessage }) {
 /** Report kinds that wait on this session's decision: shown open until the person closes them. */
 const MAIL_KINDS_OPEN: Record<string, true> = { question: true, blocked: true };
 
-type RecallRate = "idle" | "saving" | "done" | "failed";
-
 function RecallRow({
 	item,
 	excerpt,
 	scope,
+	timestamp,
 }: {
 	item: MemoryRecallItem;
 	excerpt: string;
 	scope: { workspace: string; project: string } | null;
+	timestamp: unknown;
 }) {
 	const t = useT();
-	const [rate, setRate] = useState<RecallRate>("idle");
 	const path = item.path;
 	const target = item.scope ?? scope;
+	const rateKey = target && path ? recallRatedKey(timestamp, target, path) : "";
+	const rate = useRecallRate(rateKey);
+	const canRate = pageMayUse("host-admin");
 	const when = item.at ? new Date(item.at) : null;
 	const date =
 		when && !Number.isNaN(when.getTime())
 			? when.toLocaleDateString(uiLocale(), { year: "numeric", month: "short", day: "numeric" })
 			: null;
 	const rateNotHelpful = () => {
-		if (!target || !path || rate === "saving" || rate === "done") return;
-		setRate("saving");
-		window.omp.aiMemory.feedback({ ...target, path }, "not_helpful").then(
-			() => setRate("done"),
-			() => setRate("failed"),
-		);
+		if (!target || !path) return;
+		rateRecall(rateKey, () => window.omp.aiMemory.feedback({ ...target, path }, "not_helpful"));
 	};
 	return (
 		<li className="flex min-w-0 flex-col gap-1 py-1.5" data-memory-recall-item={item.kind}>
 			<div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
 				<Badge variant="muted">{t(`chat.custom.memoryRecall.kind.${item.kind}`)}</Badge>
-				<span className="min-w-0 truncate font-medium text-(--sc-text-secondary)">{item.title}</span>
+				<span
+					className="min-w-0 font-medium break-words text-(--sc-text-secondary)"
+					data-memory-recall-title
+					title={item.title}
+				>
+					{item.title}
+				</span>
 				{date && <time className="shrink-0 text-sc-xs text-(--sc-text-subtle)">{date}</time>}
 			</div>
 			{excerpt && (
@@ -781,22 +787,24 @@ function RecallRow({
 					>
 						{t("chat.custom.memoryRecall.open")}
 					</Button>
-					<Button
-						data-memory-recall-rate={rate}
-						disabled={rate === "saving" || rate === "done"}
-						icon={rate === "done" ? <Check aria-hidden /> : <ThumbsDown aria-hidden />}
-						onClick={rateNotHelpful}
-						size="sm"
-						variant="ghost"
-					>
-						{t(
-							rate === "done"
-								? "chat.custom.memoryRecall.rated"
-								: rate === "failed"
-									? "chat.custom.memoryRecall.rateFailed"
-									: "chat.custom.memoryRecall.notHelpful",
-						)}
-					</Button>
+					{canRate && (
+						<Button
+							data-memory-recall-rate={rate}
+							disabled={rate === "saving" || rate === "done"}
+							icon={rate === "done" ? <Check aria-hidden /> : <ThumbsDown aria-hidden />}
+							onClick={rateNotHelpful}
+							size="sm"
+							variant="ghost"
+						>
+							{t(
+								rate === "done"
+									? "chat.custom.memoryRecall.rated"
+									: rate === "failed"
+										? "chat.custom.memoryRecall.rateFailed"
+										: "chat.custom.memoryRecall.notHelpful",
+							)}
+						</Button>
+					)}
 				</div>
 			)}
 		</li>
@@ -815,10 +823,9 @@ export function MemoryRecallNote({ message }: { message: AgentMessage }) {
 	const recall = memoryRecallDetails(resultDetails(message));
 	const id = `recall:${message.timestamp ?? ""}:${recall?.items.map(item => item.title).join("|") ?? ""}`;
 	const [open, setOpen] = useState(() => rememberedMailOpen(id) ?? false);
-	const picked = useMemoryPageStore(s => s.project);
 	if (!recall) return null;
 	const notes = parseRecallText(resultText(message));
-	const scope = recall.scope ?? picked;
+	const scope = recall.scope ?? null;
 	const kinds = [...new Set(recall.items.map(item => t(`chat.custom.memoryRecall.kind.${item.kind}`)))].join(", ");
 	const toggle = () => {
 		rememberMailOpen(id, !open);
@@ -860,6 +867,7 @@ export function MemoryRecallNote({ message }: { message: AgentMessage }) {
 							excerpt={notes[index]?.kind === item.kind ? notes[index].text : ""}
 							item={item}
 							scope={scope}
+							timestamp={message.timestamp}
 						/>
 					))}
 				</ul>

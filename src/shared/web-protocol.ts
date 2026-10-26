@@ -138,6 +138,8 @@ export type WebServerFrame =
 			/** The connection continued an earlier one without losing events. */
 			resumed: boolean;
 			features: WebFeatures;
+			/** What this device may call as of this connection (never `pairing-admin`); a page hides what it would be refused. */
+			grants: WebPermission[];
 	  }
 	| { t: "ping" }
 	| { t: "pong" };

@@ -3,7 +3,7 @@
  * register hooks, the Settings page of a device, the connection banner): the connection state and the
  * calls only a web page has. `web-boot.ts` sets it before the app loads; a desktop window never does.
  */
-import type { WebFeatures } from "../../shared/web-protocol";
+import type { WebFeatures, WebPermission } from "../../shared/web-protocol";
 import type { HostActions } from "./host-hooks";
 import type { ReloadReason } from "./reload-reason";
 import type { WsConnectionState } from "./ws-transport";
@@ -14,6 +14,8 @@ export interface WebRuntime {
 	onConnectionState(listener: (state: WsConnectionState) => void): () => void;
 	/** What the host offered in its last `hello`; null before the first one. */
 	features(): WebFeatures | null;
+	/** What the host's last `hello` said this device may call; null before the first one. */
+	grants(): readonly WebPermission[] | null;
 	/** Raise a native-menu action on the page (the More sheet and the command palette). */
 	emitMenuAction(action: string, payload?: Record<string, unknown>): void;
 	/**
@@ -39,4 +41,14 @@ export function setWebRuntime(next: WebRuntime): void {
 /** The runtime of a web page; null in the desktop app. */
 export function webRuntime(): WebRuntime | null {
 	return runtime;
+}
+
+/**
+ * Whether this page may call a channel that needs `permission` (`ipc-policy.ts`): always on the desktop, and on a
+ * paired web page only what the host's last `hello` granted (nothing before the first one), so a button the host
+ * would refuse is never drawn.
+ */
+export function pageMayUse(permission: WebPermission): boolean {
+	if (!runtime) return true;
+	return runtime.grants()?.includes(permission) ?? false;
 }

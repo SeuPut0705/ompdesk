@@ -92,6 +92,7 @@ const HELLO = (resumed = false, minClient = 1): WebServerFrame => ({
 	connId: "c1",
 	resumed,
 	features: { push: false, preview: true, upload: true, passkey: false },
+	grants: ["workspace", "device-self"],
 });
 
 /** Let pending microtasks (the ticket fetch) run. */
@@ -147,6 +148,7 @@ describe("WsTransport", () => {
 		expect(transport.state).toBe("open");
 		expect(states).toEqual(["connecting", "open"]);
 		expect(transport.features?.upload).toBe(true);
+		expect(transport.grants).toEqual(["workspace", "device-self"]);
 		expect(last().framesOf("presence")).toEqual([{ t: "presence", visible: true }]);
 	});
 

@@ -57,6 +57,7 @@ describe("FileEditReporter", () => {
 				};
 			},
 			features: () => null,
+			grants: () => null,
 			emitMenuAction: () => {},
 			onResynced: () => () => {},
 			reload: () => {},

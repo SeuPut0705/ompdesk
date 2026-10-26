@@ -6,9 +6,16 @@ import { recallText } from "../../../../resources/gui-bridge/modes/memory-recall
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { resetMailOpenForTest } from "../../lib/mail-open";
+import { resetRecallRatedForTest } from "../../lib/recall-rated";
 import { useMemoryPageStore } from "../../stores/memory-page";
 import { useUiStore } from "../../stores/ui";
 import { MemoryRecallNote } from "./CustomMessageCard";
+
+const host = vi.hoisted(() => ({ grants: null as string[] | null }));
+vi.mock("../../web/runtime", async importOriginal => ({
+	...(await importOriginal<Record<string, unknown>>()),
+	pageMayUse: (permission: string) => host.grants === null || host.grants.includes(permission),
+}));
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
@@ -87,8 +94,10 @@ const rows = () => container.querySelectorAll("[data-memory-recall-item]");
 
 beforeEach(() => {
 	resetMailOpenForTest();
+	resetRecallRatedForTest();
 	window.sessionStorage?.clear?.();
 	feedback.mockClear();
+	host.grants = null;
 	(window as unknown as { omp: unknown }).omp = { aiMemory: { feedback } };
 	useMemoryPageStore.getState().reset();
 });
@@ -201,5 +210,77 @@ describe("memory recall line, per-item scope", () => {
 		expect(useMemoryPageStore.getState().pending).toEqual({ ...GLOBAL, path: "preferences/style.md" });
 		await act(async () => rows()[1].querySelector("[data-memory-recall-open]")?.click());
 		expect(useMemoryPageStore.getState().pending).toEqual({ ...SCOPE, path: "preferences/style.md" });
+	});
+});
+
+describe("memory recall line, audit fixes", () => {
+	async function mountMessage(next: AgentMessage): Promise<void> {
+		container = document.createElement("div") as unknown as TestElement;
+		document.body.appendChild(container as never);
+		root = createRoot(container as unknown as Element);
+		await act(async () => {
+			root.render(
+				<I18nProvider>
+					<MemoryRecallNote message={next} />
+				</I18nProvider>,
+			);
+		});
+		if (rows().length === 0) await act(async () => toggle()?.click());
+	}
+
+	it("never borrows the Memory page's selected project for a message without a scope", async () => {
+		useMemoryPageStore.getState().setProject({ workspace: "default", project: "other" });
+		const old: AgentMessage = { ...message, details: { ...(message.details as object), scope: undefined } };
+		await mountMessage(old);
+		const list = rows();
+		expect(list[0].textContent).toContain("Jev 1.14 pinned");
+		expect(list[0].querySelector("[data-memory-recall-excerpt]")).not.toBeNull();
+		expect(list[0].querySelector("[data-memory-recall-open]")).toBeNull();
+		expect(list[0].querySelector("[data-memory-recall-rate]")).toBeNull();
+	});
+
+	it("keeps the done state across fold and unfold and never sends twice", async () => {
+		await mountMessage(message);
+		await act(async () => rows()[0].querySelector("[data-memory-recall-rate]")?.click());
+		await act(async () => toggle()?.click());
+		expect(rows()).toHaveLength(0);
+		await act(async () => toggle()?.click());
+		const rate = rows()[0].querySelector("[data-memory-recall-rate]");
+		expect(rate?.getAttribute("data-memory-recall-rate")).toBe("done");
+		await act(async () => rate?.click());
+		expect(feedback).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps the done state when the line is mounted again", async () => {
+		await mountMessage(message);
+		await act(async () => rows()[0].querySelector("[data-memory-recall-rate]")?.click());
+		await act(async () => root.unmount());
+		container.remove();
+		await mountMessage(message);
+		expect(rows()[0].querySelector("[data-memory-recall-rate]")?.getAttribute("data-memory-recall-rate")).toBe(
+			"done",
+		);
+		expect(feedback).toHaveBeenCalledTimes(1);
+	});
+
+	it("hides Not helpful on a paired page without host-admin, keeping Open in Memory", async () => {
+		host.grants = ["workspace", "device-self"];
+		await mountMessage(message);
+		expect(rows()[0].querySelector("[data-memory-recall-rate]")).toBeNull();
+		expect(rows()[0].querySelector("[data-memory-recall-open]")).not.toBeNull();
+	});
+
+	it("shows Not helpful on a paired page that holds host-admin", async () => {
+		host.grants = ["workspace", "host-admin"];
+		await mountMessage(message);
+		expect(rows()[0].querySelector("[data-memory-recall-rate]")).not.toBeNull();
+	});
+
+	it("wraps a long title instead of cutting it, keeping the full title as the tooltip", async () => {
+		await mountMessage(message);
+		const title = rows()[0].querySelector("[data-memory-recall-title]");
+		expect(title?.getAttribute("title")).toBe("Jev 1.14 pinned");
+		expect(title?.getAttribute("class")).toContain("break-words");
+		expect(title?.getAttribute("class")).not.toContain("truncate");
 	});
 });
