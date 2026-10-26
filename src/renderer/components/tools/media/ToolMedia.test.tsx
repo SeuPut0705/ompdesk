@@ -388,6 +388,14 @@ describe("files a reply names", () => {
 		expect(container.querySelector("[data-file-card='image'] .omp-file-card-name")?.textContent).toBe("gone.png");
 	});
 
+	it("draws nothing for a document the reply names that is gone, never a Deleted card", async () => {
+		install({ stat: vi.fn(async () => ({ ok: false, error: "missing", code: "file_not_found" })) });
+		await mount(<ReplyFiles references={[{ path: "요구사항.csv", kind: "document" }]} />);
+		await vi.waitFor(() => expect(window.omp.fs.stat).toHaveBeenCalled());
+		await vi.waitFor(() => expect(container.querySelector("[data-file-card]")).toBeNull());
+		expect(container.textContent).not.toContain("Deleted");
+	});
+
 	it("draws the files a prompt attached as cards under it, without the line that only named them", () => {
 		const html = renderToStaticMarkup(
 			<I18nProvider>

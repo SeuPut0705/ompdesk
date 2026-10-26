@@ -7,8 +7,8 @@
  * the phone) and its menu. A picture a tool already showed in this tab (the
  * main agent's or a subagent's read, screenshot or capture of that path) is not
  * drawn a second time; a text file it links by an absolute path inside the
- * tab's folder is a citation and stays in the text; a file it hands over that
- * is not there draws nothing.
+ * tab's folder is a citation and stays in the text; a file it names that is
+ * not there (moved, deleted, never written) draws nothing.
  */
 import { useMemo } from "react";
 import { useFrameSelector } from "../../hooks/use-frame-selector";
@@ -50,7 +50,7 @@ function ReplyFileList({ references }: { references: readonly ChatFileReference[
 				kind === "video" || kind === "audio" ? (
 					<ChatMedia key={path} kind={kind} path={path} />
 				) : (
-					<FileCard hideMissing={kind === "file"} key={path} path={path} />
+					<FileCard hideMissing key={path} path={path} />
 				),
 			)}
 		</div>
