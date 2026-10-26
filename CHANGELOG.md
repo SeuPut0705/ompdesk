@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.75.2] - 2026-10-26
+
+일이 끝난 하위 세션이 남지 않고 정리되게 했고, 작업 현황에 계정 사용 한도가 다시 항상 보여요.
+
+### 고친 것
+- 에이전트가 하위 세션을 닫을 때, 그 탭을 가진 휴대폰이나 태블릿이 연결돼 있지 않아도 기다리지 않고 바로 닫아요. 그 기기가 저장 안 한 Files 편집이 있다고 알려 온 탭만 남겨요.
+- 문제를 보고하고 끝난(`Result: problem`) 하위 세션도 연 쪽이 그 보고를 읽으면 탭을 닫아요. main에 들어가지 않은 작업 폴더는 지우지 않고 남겨요.
+- 사이드바에 사용 한도가 펼쳐져 있어도 작업 현황 머리에 계정 사용 한도를 항상 보여 줘요.
+- 답변이 언급한 파일이 이미 없으면 답변 아래에 "삭제됨" 카드를 그리지 않아요.
+
+<!-- en -->
+
+Finished child sessions no longer pile up, and the work board shows the account usage gauges again at all times.
+
+### Fixes
+- An agent's close of a child no longer waits for the phone or tablet that holds its tab to connect; it closes at once. Only a tab that device reported as holding unsaved Files edits stays.
+- A child that ended reporting a problem (`Result: problem`) also closes its tab once its opener has read the report. A worktree with work not in main is kept.
+- The work board's head always shows the account usage gauges, also while the sidebar's usage block is expanded.
+- A file a reply names that no longer exists draws no "Deleted" card under the reply.
+
 ## [0.75.1] - 2026-10-26
 
 에이전트가 연 하위 세션이 일을 마친 뒤 사이드바에 ✕로 계속 남던 문제를 고쳤어요.
