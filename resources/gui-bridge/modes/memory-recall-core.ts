@@ -241,6 +241,8 @@ export interface RecallCandidate {
 	version?: string;
 	sessionId?: string;
 	at?: string;
+	/** The project a page hit came from (`_global` for the standing preferences). */
+	scope?: { workspace: string; project: string };
 	/** Position in the server's answer (its own relevance order), conclusions after pages. */
 	order: number;
 }
@@ -316,7 +318,7 @@ function candidateTitle(raw: unknown, fallback: string): string {
  * The candidates in a `memory_query` answer (the JSON its MCP text part carries): `hits` and `global_scope_hits`
  * (the `_global` preferences every project sees) as durable pages, `conclusion_hits` as conclusions.
  */
-export function recallCandidates(response: unknown): RecallCandidate[] {
+export function recallCandidates(response: unknown, scope?: RecallScope): RecallCandidate[] {
 	const pages: RecallCandidate[] = [];
 	const conclusions: RecallCandidate[] = [];
 	const seen = new Set<string>();
@@ -324,21 +326,33 @@ export function recallCandidates(response: unknown): RecallCandidate[] {
 		const value = field(response, key);
 		return Array.isArray(value) ? value : [];
 	};
-	for (const hit of [...rows("hits"), ...rows("global_scope_hits")]) {
+	const globalScope = { workspace: "default", project: "_global" };
+	const hitScopes: [unknown[], RecallScope | undefined][] = [
+		[rows("hits"), scope],
+		[rows("global_scope_hits"), globalScope],
+	];
+	for (const [hit, hitScope] of hitScopes.flatMap(([list, own]) => list.map(row => [row, own] as const))) {
 		const path = text(field(hit, "path"));
 		const snippet = plain(text(field(hit, "snippet")));
 		// A session page is never a candidate: its list of prompts and tool counts matched almost every prompt (the
 		// replay's false injections came from one 32 KB orchestrator page), and what a session settled is its conclusion.
-		if (!path || path.startsWith("sessions/") || field(hit, "superseded") === true || seen.has(path)) continue;
+		if (
+			!path ||
+			path.startsWith("sessions/") ||
+			field(hit, "superseded") === true ||
+			seen.has(`${hitScope?.project ?? ""}/${path}`)
+		)
+			continue;
 		const title = candidateTitle(field(hit, "title"), snippet || path.replace(/^.*\//, "").replace(/\.md$/, ""));
 		if (!title) continue;
-		seen.add(path);
+		seen.add(`${hitScope?.project ?? ""}/${path}`);
 		const version = text(field(hit, "id"));
 		pages.push({
 			kind: FOLDER_KINDS[path.split("/", 1)[0]] ?? "note",
 			title,
 			text: snippet,
 			path,
+			...(hitScope ? { scope: { ...hitScope } } : {}),
 			...(version ? { version } : {}),
 			order: pages.length,
 		});
@@ -628,6 +642,7 @@ export function recallDetails(
 		items: items.map(item => {
 			const entry: MemoryRecallItem = { title: item.title, kind: item.kind };
 			if (item.path) entry.path = item.path;
+			if (item.scope) entry.scope = { ...item.scope };
 			if (item.version) entry.version = item.version;
 			if (item.sessionId) entry.sessionId = item.sessionId;
 			if (item.at) entry.at = item.at;

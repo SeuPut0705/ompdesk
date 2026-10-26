@@ -187,6 +187,7 @@ export function install(pi: RecallHost): void {
 						limit: RECALL_QUERY_LIMIT,
 						conclusions: true,
 					}),
+					scope,
 				),
 				sessionId,
 				ctx.sessionManager.getBranch(),

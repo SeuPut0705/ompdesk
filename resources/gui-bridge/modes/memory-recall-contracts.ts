@@ -90,6 +90,8 @@ export interface MemoryRecallItem {
 	sessionId?: string;
 	/** When it was recorded (ISO-8601), when the server says. */
 	at?: string;
+	/** The project the page was read from (`_global` for a standing preference). */
+	scope?: { workspace: string; project: string };
 }
 
 export interface MemoryRecallDetails {
@@ -128,6 +130,10 @@ export function memoryRecallDetails(details: unknown): MemoryRecallDetails | und
 			const value = Reflect.get(entry, key);
 			if (typeof value === "string" && value) item[key] = value;
 		}
+		const own = Reflect.get(entry, "scope");
+		const ws = own !== null && typeof own === "object" ? Reflect.get(own, "workspace") : undefined;
+		const pr = own !== null && typeof own === "object" ? Reflect.get(own, "project") : undefined;
+		if (typeof ws === "string" && ws && typeof pr === "string" && pr) item.scope = { workspace: ws, project: pr };
 		items.push(item);
 	}
 	const scope = Reflect.get(details, "scope");

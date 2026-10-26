@@ -738,15 +738,16 @@ function RecallRow({
 	const t = useT();
 	const [rate, setRate] = useState<RecallRate>("idle");
 	const path = item.path;
+	const target = item.scope ?? scope;
 	const when = item.at ? new Date(item.at) : null;
 	const date =
 		when && !Number.isNaN(when.getTime())
 			? when.toLocaleDateString(uiLocale(), { year: "numeric", month: "short", day: "numeric" })
 			: null;
 	const rateNotHelpful = () => {
-		if (!scope || !path || rate === "saving" || rate === "done") return;
+		if (!target || !path || rate === "saving" || rate === "done") return;
 		setRate("saving");
-		window.omp.aiMemory.feedback({ ...scope, path }, "not_helpful").then(
+		window.omp.aiMemory.feedback({ ...target, path }, "not_helpful").then(
 			() => setRate("done"),
 			() => setRate("failed"),
 		);
@@ -766,13 +767,13 @@ function RecallRow({
 					{excerpt}
 				</p>
 			)}
-			{scope && path && (
+			{target && path && (
 				<div className="flex flex-wrap items-center gap-x-2" style={{ "--hit-gap-x": "4px" } as CSSProperties}>
 					<Button
 						data-memory-recall-open
 						icon={<ArrowUpRight aria-hidden />}
 						onClick={() => {
-							useMemoryPageStore.getState().openPage({ ...scope, path });
+							useMemoryPageStore.getState().openPage({ ...target, path });
 							useUiStore.getState().openSettings("memory:pages");
 						}}
 						size="sm"
