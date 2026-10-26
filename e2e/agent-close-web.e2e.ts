@@ -1,0 +1,266 @@
+/**
+ * An agent closes a child tab a paired phone page owns (`ompdesk_session_stop {close:true}`, src/main/agent-control
+ * `#closeTab`): main releases it itself, because the page's `AGENT_CONTROL_VIEW` is dropped while it has no socket.
+ * It does so only for a tab the page last reported clean (`FileEditReporter` → `FILE_EDIT_REPORT`, `web/file-edit-
+ * reports.ts`); a tab whose Files editor holds unsaved edits stays; a page that has said nothing since this launch is
+ * `unreported`, so the close waits for it and is carried out once it reconnects and reports clean. The built app runs
+ * on the fake omp and the fake Tailscale CLI; the phone is the app's real `web.html` in Chromium behind the fake
+ * serve (e2e/fixture/phone-serve.ts), the agent is the fake omp's `fixture:host-tool:` line.
+ *
+ * Unit counterparts: `service.test.ts` ("a close is told only once the tab is gone", "closing a tab a paired web page
+ * owns"), `host.test.ts`, `tab-release.test.ts`, `web/file-edit-reports.test.ts`, `FileEditReporter.test.tsx`.
+ */
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
+import { type Browser, type BrowserContext, chromium, devices, expect, type Page, test } from "@playwright/test";
+import type { ElectronApplication } from "playwright";
+import { _electron as electron } from "playwright";
+import { type FixtureTailscale, fixtureTailscale } from "./fixture/fake-tailscale-install";
+import { phonePaired, ServeProxy, serveSites } from "./fixture/phone-serve";
+import { appLaunchOptions, controlToolCaller, exitApp, openedSessions, readRecords, untilAnswered } from "./harness";
+
+/** A control tool called by an agent (`controlToolCaller`). */
+type ControlCall = (name: string, args?: Record<string, unknown>) => Promise<{ text: string; isError: boolean }>;
+
+interface Profile {
+	root: string;
+	project: string;
+	desktop: string;
+	agent: string;
+	record: string;
+	tailscale: FixtureTailscale;
+}
+
+let profile: Profile;
+let app: ElectronApplication | null = null;
+let browser: Browser | null = null;
+let proxy: ServeProxy | null = null;
+let context: BrowserContext | null = null;
+
+test.beforeEach(async () => {
+	const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-agent-close-web-")));
+	const project = path.join(root, "project");
+	const desktop = path.join(root, "desktop");
+	const agent = path.join(root, "agent");
+	await Promise.all([fs.mkdir(project), fs.mkdir(desktop), fs.mkdir(agent)]);
+	await fs.writeFile(path.join(project, "README.md"), "hello\n");
+	await fs.writeFile(
+		path.join(desktop, "prefs.json"),
+		JSON.stringify({ language: "en", themeName: "light", firstRunComplete: true, lastProject: project }),
+	);
+	profile = {
+		root,
+		project,
+		desktop,
+		agent,
+		record: path.join(root, "rpc.jsonl"),
+		tailscale: await fixtureTailscale(root, { backendState: "Running" }),
+	};
+});
+
+test.afterEach(async () => {
+	await context?.close().catch(() => undefined);
+	await browser?.close().catch(() => undefined);
+	await proxy?.close().catch(() => undefined);
+	if (app) await exitApp(app);
+	app = null;
+	browser = null;
+	proxy = null;
+	context = null;
+	if (profile) {
+		await fs.copyFile(profile.record, test.info().outputPath("rpc.jsonl")).catch(() => undefined);
+		await fs.rm(profile.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
+});
+
+/** Launch on the profile's userData with no argv cwd, so a relaunch restores what the last run saved. */
+async function launch(): Promise<Page> {
+	const options = await appLaunchOptions({
+		project: profile.project,
+		desktop: profile.desktop,
+		agent: profile.agent,
+		profile: profile.root,
+		env: {
+			...profile.tailscale.env,
+			OMP_GUI_HEADLESS: "1",
+			OMP_GUI_TEST_RECORD: profile.record,
+			OMP_GUI_TEST_SESSION_FILES: "1",
+		},
+	});
+	app = await electron.launch(options);
+	const page = await app.firstWindow();
+	await page.waitForFunction(() => window.omp?.rpc != null);
+	await expect.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status).toBe("ready");
+	return page;
+}
+
+async function mobileWebReady(page: Page): Promise<void> {
+	await expect
+		.poll(() => page.evaluate(async () => (await window.omp.mobileWeb.getState()).phase).catch(() => "starting"), {
+			timeout: 60_000,
+		})
+		.toBe("ready");
+}
+
+/** The phone's page, paired. With `tab`, it opens a session tab in the project first. */
+async function openPhone(desktop: Page, options: { spawn: boolean }): Promise<Page> {
+	await desktop.evaluate(() => window.omp.mobileWeb.command({ action: "enable" }));
+	await mobileWebReady(desktop);
+	const [site] = serveSites(profile.tailscale);
+	if (!site) throw new Error("no serve handler published");
+	proxy = await ServeProxy.start(site, "seuput@example.com");
+	browser = await chromium.launch();
+	context = await browser.newContext({ ...devices["Pixel 7"], colorScheme: "light" });
+	const phone = await context.newPage();
+	await phone.goto(`${proxy.url}/`);
+	await phonePaired(phone);
+	if (options.spawn) {
+		// A web window starts with no tab: the phone opens one in the project.
+		await phone.evaluate(cwd => window.omp.tabs.spawn({ cwd, kind: "agent" }), profile.project);
+		await phone.reload();
+		await expect(phone.locator("[data-composer-input]").first()).toBeVisible({ timeout: 60_000 });
+	}
+	return phone;
+}
+
+function phoneTabs(phone: Page) {
+	return phone.evaluate(() => window.omp.tabs.list());
+}
+
+/** The close notes the caller's omp journaled (`agent_control.mail`, id `close:…`), the closed session's own aside. */
+async function closeNotes(): Promise<string[]> {
+	return (await readRecords(profile.record))
+		.filter(frame => {
+			const details = (frame.details ?? {}) as { id?: unknown };
+			return (
+				frame.type === "agent_control.mail" &&
+				typeof details.id === "string" &&
+				details.id.startsWith("close:") &&
+				/^(Closed|Deleted) /.test(String(frame.content))
+			);
+		})
+		.map(frame => String(frame.content));
+}
+
+/** Open a child from `call` (the phone session's agent) and wait for its brief's reply. */
+async function openChild(phone: Page, call: ControlCall, title: string): Promise<string> {
+	const opened = await call("ompdesk_session_open", { message: `Title: ${title}\nSay hello`, show: "background" });
+	expect(opened.isError, opened.text).toBe(false);
+	const [child] = openedSessions(opened.text);
+	expect(child).toBeTruthy();
+	await untilAnswered(phone, child as string);
+	return child as string;
+}
+
+test("an agent's close of a child the phone page owns releases it when clean, keeps it with unsaved Files edits", async () => {
+	test.setTimeout(240_000);
+	const desktop = await launch();
+	const phone = await openPhone(desktop, { spawn: true });
+	const main = (await phoneTabs(phone)).find(tab => tab.active)?.tabId ?? "";
+	expect(main).not.toBe("");
+	const call = await controlToolCaller(phone, profile.record, main);
+
+	// 1. A clean page: the tab is released in main and gone from the page, the caller is told "Closed" once.
+	const clean = await openChild(phone, call, "Child clean");
+	expect((await phoneTabs(phone)).map(tab => tab.tabId)).toContain(clean);
+	const closed = await call("ompdesk_session_stop", { session: clean, close: true });
+	expect(closed.isError, closed.text).toBe(false);
+	expect(closed.text).toMatch(/^Closed .*\(its session stays saved\)\./);
+	await expect.poll(async () => (await phoneTabs(phone)).map(tab => tab.tabId)).not.toContain(clean);
+	expect((await call("ompdesk_sessions", { scope: "app" })).text).not.toContain(`[${clean}]`);
+	await expect.poll(async () => (await closeNotes()).length, { timeout: 15_000 }).toBe(1);
+	// Nothing sends a second note later.
+	await phone.waitForTimeout(1500);
+	expect(await closeNotes()).toHaveLength(1);
+
+	// 2. The child's Files editor on the page holds an unsaved edit: the close is refused, naming it, and sends no note.
+	const dirty = await openChild(phone, call, "Child dirty");
+	const focused = await call("ompdesk_tab_focus", { session: dirty });
+	expect(focused.isError, focused.text).toBe(false);
+	await expect.poll(async () => (await phoneTabs(phone)).find(tab => tab.active)?.tabId).toBe(dirty);
+	const sheet = phone.locator("[data-sheet-panel]").or(phone.locator(":has(> .omp-panel-topbar)")).first();
+	if (!(await sheet.isVisible().catch(() => false))) await phone.locator('[data-tour="panel"]').tap();
+	await expect(sheet).toBeVisible();
+	await phone.locator("[data-panel-tabbar]").getByRole("button", { name: "Files", exact: true }).tap();
+	await sheet.getByRole("treeitem", { name: /README\.md/ }).tap();
+	await sheet.getByRole("button", { name: "Edit", exact: true }).tap();
+	const editor = sheet.locator("[data-file-editor] [contenteditable], [data-file-editor] textarea").first();
+	await expect(editor).toBeVisible();
+	await editor.click();
+	await phone.keyboard.press("ControlOrMeta+End");
+	await phone.keyboard.type("unsaved edit\n");
+	await expect(sheet.locator("[data-editor-status]")).toHaveText("Unsaved");
+	// The person's view goes back to the caller (the panel stays on the child while its edits are unsaved): a tab in
+	// view is refused for that reason before the page's word is read.
+	expect((await call("ompdesk_tab_focus", { session: main })).isError).toBe(false);
+	await expect.poll(async () => (await phoneTabs(phone)).find(tab => tab.active)?.tabId).toBe(main);
+	await expect(sheet.locator("[data-editor-status]")).toHaveText("Unsaved");
+	const notesBefore = (await closeNotes()).length;
+	// The page's report reaches main a moment after the edit: the close is refused whatever the timing after it.
+	const refused = await (async () => {
+		let last = await call("ompdesk_session_stop", { session: dirty, close: true });
+		for (let tries = 0; tries < 10 && !last.isError; tries++) {
+			await phone.waitForTimeout(300);
+			last = await call("ompdesk_session_stop", { session: dirty, close: true });
+		}
+		return last;
+	})();
+	expect(refused.isError, refused.text).toBe(true);
+	expect(refused.text).toContain("unsaved edits");
+	expect(refused.text).toContain("Files editor");
+	expect((await phoneTabs(phone)).map(tab => tab.tabId)).toContain(dirty);
+	expect((await call("ompdesk_sessions", { scope: "app" })).text).toContain(dirty);
+	await phone.waitForTimeout(1000);
+	expect((await closeNotes()).length).toBe(notesBefore);
+});
+
+test("a close asked while the phone page is away waits, and is carried out once the page reconnects clean", async () => {
+	test.setTimeout(300_000);
+	let desktop = await launch();
+	let phone = await openPhone(desktop, { spawn: true });
+	const main = (await phoneTabs(phone)).find(tab => tab.active)?.tabId ?? "";
+	const phoneCall = await controlToolCaller(phone, profile.record, main);
+	await openChild(phone, phoneCall, "Child waits");
+	expect(await phoneTabs(phone)).toHaveLength(2);
+
+	// The page goes away and the computer restarts: its tabs come back deferred in its window, and the page has
+	// said nothing since this launch.
+	await phone.close();
+	await exitApp(app as ElectronApplication);
+	app = null;
+	desktop = await launch();
+	await mobileWebReady(desktop);
+	const [site] = serveSites(profile.tailscale);
+	if (!site) throw new Error("no serve handler after the relaunch");
+	(proxy as ServeProxy).retarget(site);
+
+	// A session on the computer's own window closes the page's child.
+	const desktopMain = (await desktop.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId ?? "";
+	const deskCall = await controlToolCaller(desktop, profile.record, desktopMain);
+	const listed = await deskCall("ompdesk_sessions", { scope: "app" });
+	// Its tab id is new after the restart (the old one still names it); it is told apart by its title.
+	expect(listed.text).toContain('"Child waits"');
+	const notesBefore = (await closeNotes()).length;
+	const asked = await deskCall("ompdesk_session_stop", { session: "Child waits", close: true });
+	expect(asked.isError, asked.text).toBe(false);
+	expect(asked.text).toContain("has not reported its Files editor");
+	expect(asked.text).toContain("It will close when the phone page connects");
+	expect(asked.text).not.toMatch(/^Closed /);
+	expect((await deskCall("ompdesk_sessions", { scope: "app" })).text).toContain('"Child waits"');
+	await desktop.waitForTimeout(1500);
+	expect((await closeNotes()).length).toBe(notesBefore);
+
+	// The page comes back with nothing unsaved: main releases the tab then and the note arrives.
+	phone = await (context as BrowserContext).newPage();
+	await phone.goto(`${(proxy as ServeProxy).url}/`);
+	await phonePaired(phone);
+	await expect
+		.poll(async () => (await deskCall("ompdesk_sessions", { scope: "app" })).text, { timeout: 60_000 })
+		.not.toContain('"Child waits"');
+	await expect.poll(async () => (await closeNotes()).length, { timeout: 30_000 }).toBe(notesBefore + 1);
+	// The page lists only its caller's tab now (the child's new id is not `child`, so it is counted).
+	await expect.poll(async () => (await phoneTabs(phone)).length).toBe(1);
+	await desktop.waitForTimeout(1500);
+	expect((await closeNotes()).length).toBe(notesBefore + 1);
+});
