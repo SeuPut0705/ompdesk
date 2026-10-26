@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.76.0] - 2026-10-26
+
+설정에서 에이전트가 쓸 브라우저를 고를 수 있어요. ego-browser나 이 컴퓨터에 설치된 브라우저를 고르면 에이전트가 알아서 그 브라우저를 써요.
+
+### 새로 생긴 것
+- 설정 › 에이전트 동작 › 기본 브라우저: 자동, ego-browser, 설치된 Chrome·Edge·Brave·Arc·Chromium, 기본 내장(omp) 중에서 고를 수 있어요. 자동은 ego-browser가 있으면 ego-browser, 없으면 omp 확장을 넣은 브라우저, 그것도 없으면 기본 내장 브라우저를 써요. 바꾸면 열린 세션에도 다음 메시지부터 적용돼요.
+  - ego-browser를 고르면 에이전트가 ego-browser 안내서를 읽고 ego-browser로 웹 작업을 해요.
+  - Chrome 같은 브라우저를 고르면 로그인된 내 브라우저를 그대로 써요. 처음 한 번은 "확장 설치" 버튼으로 omp 확장을 넣어야 해요. 그 전까지는 기본 내장 브라우저를 써요. 브라우저마다 따로 연결되어서, Chrome을 골랐는데 Edge가 움직이는 일은 없어요.
+
+### 고친 것
+- 어드바이저(검토 보조 모델)를 쓸 수 없다는 알림이 영어 문장 그대로 뜨던 것을, 설정한 언어로 보여 줘요. omp의 원래 문장은 상세에 남아요.
+
+<!-- en -->
+
+Pick the browser agents use in Settings. Choose ego-browser or a browser installed on this computer, and agents use it on their own.
+
+### New
+- Settings › Agent behavior › Default browser: Automatic, ego-browser, any installed Chrome, Edge, Brave, Arc or Chromium, or Built-in (omp). Automatic takes ego-browser when it is installed, else a browser with the omp extension, else the built-in browser. A change reaches open sessions from their next message.
+  - With ego-browser, agents read its guide and do web work through it.
+  - With a browser such as Chrome, agents use your own signed-in browser. Add the omp extension once with Install extension; until then they use the built-in browser. Each browser has its own connection, so picking Chrome never drives Edge.
+
+### Fixes
+- An advisor that could not run showed omp's English sentence; the notice now reads in your language, with omp's sentence kept as its detail.
+
 ## [0.75.7] - 2026-10-26
 
 다른 창이나 컴퓨터에서 작업 중인 세션도, 누르지 않아도 세션 목록에 작업 중으로 보여요.
