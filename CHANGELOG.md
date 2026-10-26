@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.75.4] - 2026-10-26
+
+업데이트로 앱이 다시 켜질 때, 모델의 답을 기다리던 하위 작업도 이어서 진행해요.
+
+### 고친 것
+- 업데이트로 앱이 꺼지는 순간 모델의 답을 기다리던 하위 작업은, 다시 켜진 뒤 멈춘 채로 남았어요. 상위 세션은 "기다릴 게 없다"며 넘어갔어요. 이제 이런 하위 작업도 끊긴 자리에서 다시 시작해요. 직접 멈춘 하위 작업이나 이미 끝난 하위 작업은 다시 시작하지 않아요.
+
+<!-- en -->
+
+When an update restarts the app, subagents that were waiting for their model's answer now carry on too.
+
+### Fixes
+- A subagent waiting for its model's answer when an update closed the app stayed parked after the restart, and its parent's wait found nothing to wait for. Such subagents now resume where they were cut. A subagent you stopped or one that had finished is not restarted.
+
 ## [0.75.3] - 2026-10-26
 
 메모리가 이번 요청에 무엇을 건넸는지 대화에서 바로 펼쳐 볼 수 있고, 작업 상자의 실패 판정이 더 정확해졌어요.
