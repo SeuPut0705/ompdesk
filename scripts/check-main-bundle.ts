@@ -83,7 +83,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // 3,327,914); the session rows' chunk stays off the first screen.
 // The phone page's Files-edit report (web/FileEditReporter.tsx: which tab's editor holds unsaved edits, so the computer
 // never closes it for an agent) adds 720 bytes over its base (main ad86fb309 3,327,914 → 3,328,634).
-const WEB_FIRST_SCREEN_JS_BYTES = 3_329_000;
+// The memory recall line's rows (`MemoryRecallNote` in CustomMessageCard.tsx: kind, title, date, excerpt, Open in Memory,
+// Not helpful, and `parseRecallText` with its kind table in memory-recall-contracts.ts; the transcript is the first
+// screen) add 6,002 bytes over its base (3,328,634 → 3,334,636).
+const WEB_FIRST_SCREEN_JS_BYTES = 3_335_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

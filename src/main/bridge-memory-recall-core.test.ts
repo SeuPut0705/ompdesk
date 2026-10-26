@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
 	memoryRecallDetails,
 	parseMemoryEnv,
+	parseRecallText,
 	RECALL_JUDGE_MIN,
 	RECALL_MAX_ITEMS,
 	RECALL_MAX_TOKENS,
@@ -351,5 +352,49 @@ describe("IDF coverage gate for conclusions", () => {
 
 	it("treats the new Korean chatter as stopwords", () => {
 		for (const word of ["아니", "그걸", "맞아", "맞지", "하나", "전부"]) expect(contentTerms(word)).toEqual([]);
+	});
+});
+
+describe("parseRecallText", () => {
+	const candidate = (over: Partial<RecallCandidate>): RecallCandidate => ({
+		kind: "decision",
+		title: "T",
+		text: "",
+		order: 0,
+		...over,
+	});
+
+	it("reads back every note recallText wrote: kind, heading and the text the model received", () => {
+		const items = [
+			candidate({ kind: "decision", title: "Jev 1.14 · 고정", text: "Pin Jev to 1.14.", path: "decisions/jev.md" }),
+			candidate({
+				kind: "conclusion",
+				title: "테일스케일로만",
+				text: "line one\nline two",
+				at: "2026-10-18T10:12:00Z",
+			}),
+			candidate({ kind: "rule", title: "No text here", text: "", path: "_rules/a.md" }),
+		];
+		expect(parseRecallText(recallText(items))).toEqual([
+			{ kind: "decision", heading: "Jev 1.14 · 고정 · decisions/jev.md", text: "Pin Jev to 1.14." },
+			{ kind: "conclusion", heading: "테일스케일로만 · 2026-10-18", text: "line one\nline two" },
+			{ kind: "rule", heading: "No text here · _rules/a.md", text: "" },
+		]);
+	});
+
+	it("does not split a note on a line that looks like a heading out of sequence", () => {
+		const items = [candidate({ title: "A", text: "intro\n5. Rule · fake\nend", path: "decisions/a.md" })];
+		expect(parseRecallText(recallText(items))[0].text).toBe("intro\n5. Rule · fake\nend");
+	});
+
+	it("keeps the notes recallText kept when the budget dropped trailing ones, and gives nothing for other text", () => {
+		const items = Array.from({ length: 3 }, (_, index) =>
+			candidate({ title: `Note ${index}`, text: "word ".repeat(2000), path: `decisions/${index}.md` }),
+		);
+		const parsed = parseRecallText(recallText(items));
+		expect(parsed.length).toBe(3);
+		expect(parsed.every(note => note.text.length > 0)).toBe(true);
+		expect(parseRecallText("")).toEqual([]);
+		expect(parseRecallText("1. Rule · x")).toEqual([]);
 	});
 });

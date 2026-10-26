@@ -12,25 +12,44 @@
 import {
 	AlertTriangle,
 	ArrowRightLeft,
+	ArrowUpRight,
 	Brain,
+	Check,
 	CheckCircle2,
 	ChevronRight,
 	History,
 	Lightbulb,
 	MessagesSquare,
+	ThumbsDown,
 	XCircle,
 	Zap,
 } from "lucide-react";
-import { createContext, type ReactNode, useContext, useId, useState } from "react";
-import { memoryRecallDetails } from "../../../../resources/gui-bridge/modes/memory-recall-contracts";
+import { type CSSProperties, createContext, type ReactNode, useContext, useId, useState } from "react";
+import {
+	type MemoryRecallItem,
+	memoryRecallDetails,
+	parseRecallText,
+} from "../../../../resources/gui-bridge/modes/memory-recall-contracts";
 import type { AgentMessage } from "../../../shared/rpc-types";
-import { cx, formatAgo, formatClock, formatDuration, headLines, resultDetails, resultText } from "../../lib/format";
+import {
+	cx,
+	formatAgo,
+	formatClock,
+	formatDuration,
+	headLines,
+	resultDetails,
+	resultText,
+	uiLocale,
+} from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { rememberedMailOpen, rememberMailOpen } from "../../lib/mail-open";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { revealAndFocus } from "../../lib/reveal-focus";
 import { asArray } from "../../lib/wire-value";
+import { useMemoryPageStore } from "../../stores/memory-page";
+import { useUiStore } from "../../stores/ui";
 import { Badge, type BadgeVariant } from "../common/Badge";
+import { Button } from "../common/Button";
 import { DisclosureButton } from "../common/DisclosureButton";
 import { LinkButton } from "../common/LinkButton";
 import {
@@ -705,39 +724,145 @@ export function RecapCard({ message }: { message: AgentMessage }) {
 /** Report kinds that wait on this session's decision: shown open until the person closes them. */
 const MAIL_KINDS_OPEN: Record<string, true> = { question: true, blocked: true };
 
+type RecallRate = "idle" | "saving" | "done" | "failed";
+
+function RecallRow({
+	item,
+	excerpt,
+	scope,
+}: {
+	item: MemoryRecallItem;
+	excerpt: string;
+	scope: { workspace: string; project: string } | null;
+}) {
+	const t = useT();
+	const [rate, setRate] = useState<RecallRate>("idle");
+	const path = item.path;
+	const when = item.at ? new Date(item.at) : null;
+	const date =
+		when && !Number.isNaN(when.getTime())
+			? when.toLocaleDateString(uiLocale(), { year: "numeric", month: "short", day: "numeric" })
+			: null;
+	const rateNotHelpful = () => {
+		if (!scope || !path || rate === "saving" || rate === "done") return;
+		setRate("saving");
+		window.omp.aiMemory.feedback({ ...scope, path }, "not_helpful").then(
+			() => setRate("done"),
+			() => setRate("failed"),
+		);
+	};
+	return (
+		<li className="flex min-w-0 flex-col gap-1 py-1.5" data-memory-recall-item={item.kind}>
+			<div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+				<Badge variant="muted">{t(`chat.custom.memoryRecall.kind.${item.kind}`)}</Badge>
+				<span className="min-w-0 truncate font-medium text-(--sc-text-secondary)">{item.title}</span>
+				{date && <time className="shrink-0 text-sc-xs text-(--sc-text-subtle)">{date}</time>}
+			</div>
+			{excerpt && (
+				<p
+					className="min-w-0 text-sc-xs whitespace-pre-wrap break-words text-(--sc-text-muted)"
+					data-memory-recall-excerpt
+				>
+					{excerpt}
+				</p>
+			)}
+			{scope && path && (
+				<div className="flex flex-wrap items-center gap-x-2" style={{ "--hit-gap-x": "4px" } as CSSProperties}>
+					<Button
+						data-memory-recall-open
+						icon={<ArrowUpRight aria-hidden />}
+						onClick={() => {
+							useMemoryPageStore.getState().openPage({ ...scope, path });
+							useUiStore.getState().openSettings("memory:pages");
+						}}
+						size="sm"
+						variant="ghost"
+					>
+						{t("chat.custom.memoryRecall.open")}
+					</Button>
+					<Button
+						data-memory-recall-rate={rate}
+						disabled={rate === "saving" || rate === "done"}
+						icon={rate === "done" ? <Check aria-hidden /> : <ThumbsDown aria-hidden />}
+						onClick={rateNotHelpful}
+						size="sm"
+						variant="ghost"
+					>
+						{t(
+							rate === "done"
+								? "chat.custom.memoryRecall.rated"
+								: rate === "failed"
+									? "chat.custom.memoryRecall.rateFailed"
+									: "chat.custom.memoryRecall.notHelpful",
+						)}
+					</Button>
+				</div>
+			)}
+		</li>
+	);
+}
+
 /**
  * Memory the bridge handed the model for this prompt (modes/memory-recall.ts, custom type `ompdesk-memory-recall`):
- * one quiet muted line naming how many and their titles; each one's kind and date in the tooltip. The notes' text is
- * the model's, never shown.
+ * one quiet muted line (count and kinds) whose chevron opens one row per note: kind, title, date, the excerpt the
+ * model received (parsed from the message content, `parseRecallText`, never copied into `details`), Open in Memory
+ * and Not helpful. Starts closed; the toggle is remembered per message (`lib/mail-open.ts`).
  */
 export function MemoryRecallNote({ message }: { message: AgentMessage }) {
 	const t = useT();
+	const bodyId = useId();
 	const recall = memoryRecallDetails(resultDetails(message));
+	const id = `recall:${message.timestamp ?? ""}:${recall?.items.map(item => item.title).join("|") ?? ""}`;
+	const [open, setOpen] = useState(() => rememberedMailOpen(id) ?? false);
+	const picked = useMemoryPageStore(s => s.project);
 	if (!recall) return null;
-	const titles = recall.items.map(item => item.title);
-	const tooltip = recall.items
-		.map(item => {
-			const when = item.at?.slice(0, 10);
-			return `${t(`chat.custom.memoryRecall.kind.${item.kind}`)} · ${item.title}${when ? ` · ${when}` : ""}`;
-		})
-		.join("\n");
+	const notes = parseRecallText(resultText(message));
+	const scope = recall.scope ?? picked;
+	const kinds = [...new Set(recall.items.map(item => t(`chat.custom.memoryRecall.kind.${item.kind}`)))].join(", ");
+	const toggle = () => {
+		rememberMailOpen(id, !open);
+		setOpen(!open);
+	};
 	return (
-		<div className="omp-custom-turn omp-fade-up ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-1.5">
-			<p
-				className="omp-transcript-content flex min-w-0 items-center gap-1.5 text-sc-sm text-(--sc-text-muted)"
-				data-memory-recall={recall.items.length}
-				title={tooltip}
+		<div
+			className="omp-custom-turn omp-fade-up flex-col ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-1"
+			data-memory-recall={recall.items.length}
+			data-open={open || undefined}
+		>
+			<DisclosureButton
+				aria-controls={bodyId}
+				chevronClassName="size-(--sc-icon-sm) text-(--sc-text-subtle)"
+				className="min-h-7 min-w-0 rounded-(--sc-radius-sm) px-1 text-sc-sm text-(--sc-text-muted) transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover) hover:text-(--sc-text-secondary)"
+				inline
+				onToggle={toggle}
+				open={open}
 			>
-				<Brain aria-hidden className={HEADER_ICON_CLASS} />
+				<Brain aria-hidden className={cx(HEADER_ICON_CLASS, "text-[var(--omp-accent)]")} />
 				<span className="min-w-0 truncate">
 					<span className="font-medium">
 						{t(recall.items.length === 1 ? "chat.custom.memoryRecall.one" : "chat.custom.memoryRecall.other", {
 							count: recall.items.length,
 						})}
 					</span>
-					{titles.map(title => ` · ${title}`).join("")}
+					{` · ${kinds}`}
 				</span>
-			</p>
+			</DisclosureButton>
+			{open && (
+				<ul
+					id={bodyId}
+					className="ms-[calc(var(--sc-icon-sm)+0.75rem)] mt-1 flex min-w-0 flex-col divide-y divide-(--sc-border-subtle) border-s-2 border-(--sc-border-subtle) ps-3 text-sc-sm"
+					data-memory-recall-body
+				>
+					{recall.items.map((item, index) => (
+						<RecallRow
+							key={`${item.path ?? item.sessionId ?? item.title}:${index}`}
+							excerpt={notes[index]?.kind === item.kind ? notes[index].text : ""}
+							item={item}
+							scope={scope}
+						/>
+					))}
+				</ul>
+			)}
 		</div>
 	);
 }

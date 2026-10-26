@@ -210,7 +210,7 @@ export function install(pi: RecallHost): void {
 					customType: MEMORY_RECALL_MESSAGE_TYPE,
 					content: recallText(items),
 					display: true,
-					details: recallDetails(items, judged),
+					details: recallDetails(items, judged, scope),
 					attribution: "agent",
 				},
 			};

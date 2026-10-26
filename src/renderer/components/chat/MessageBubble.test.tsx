@@ -565,21 +565,16 @@ describe("MessageBubble memory recall line", () => {
 		{ title: "테일스케일 신원으로만", kind: "conclusion", sessionId: "s1", at: "2026-10-18T10:12:00Z" },
 	];
 
-	it("is one quiet line with the count and the titles, sources on hover, never the notes' text", () => {
+	it("is one closed line with the count and kinds; the notes' text and rows stay out until it opens", () => {
 		const html = render(recall({ v: 1, items, judged: true }));
 		expect(html).toContain('data-memory-recall="2"');
-		expect(visible(html)).toBe("Used 2 memories · Jev 1.14 고정 · 테일스케일 신원으로만");
-		expect(html).toContain("Decision · Jev 1.14 고정");
-		expect(html).toContain("Earlier conclusion · 테일스케일 신원으로만 · 2026-10-18");
+		expect(html).toContain('aria-expanded="false"');
+		expect(visible(html)).toBe("Memory: 2 notes · Decision, Earlier conclusion");
 		expect(html).not.toContain("SECRET_BODY");
-		expect(html).not.toContain("memory-recall&gt;");
-		expect(html).not.toContain("border");
+		expect(html).not.toContain("data-memory-recall-item");
 	});
 
-	it("says one memory for one, and nothing for unreadable details or a hidden message", () => {
-		expect(visible(render(recall({ v: 1, items: items.slice(0, 1), judged: false })))).toBe(
-			"Used 1 memory · Jev 1.14 고정",
-		);
+	it("shows nothing for unreadable details or a hidden message", () => {
 		expect(render(recall({ v: 2, items }))).toBe("");
 		expect(render({ ...recall({ v: 1, items, judged: true }), display: false })).toBe("");
 	});

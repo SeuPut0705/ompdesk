@@ -97,6 +97,8 @@ export interface MemoryRecallDetails {
 	items: MemoryRecallItem[];
 	/** Whether the judge chose the items (else the code rule did). */
 	judged: boolean;
+	/** The project the notes were read from: where the transcript opens a page or rates it. Absent on older messages. */
+	scope?: { workspace: string; project: string };
 }
 
 const KINDS: Record<MemoryRecallKind, true> = {
@@ -128,5 +130,71 @@ export function memoryRecallDetails(details: unknown): MemoryRecallDetails | und
 		}
 		items.push(item);
 	}
-	return items.length ? { v: 1, items, judged: Reflect.get(details, "judged") === true } : undefined;
+	const scope = Reflect.get(details, "scope");
+	const workspace = scope !== null && typeof scope === "object" ? Reflect.get(scope, "workspace") : undefined;
+	const project = scope !== null && typeof scope === "object" ? Reflect.get(scope, "project") : undefined;
+	return items.length
+		? {
+				v: 1,
+				items,
+				judged: Reflect.get(details, "judged") === true,
+				...(typeof workspace === "string" && workspace && typeof project === "string" && project
+					? { scope: { workspace, project } }
+					: {}),
+			}
+		: undefined;
+}
+
+// The text format of `recallText` (memory-recall-core.ts) and its inverse live together here, so the renderer reads
+// it without pulling in the selection rules.
+/** The kind words `recallText` writes in each note's heading (the model's text; the transcript has its own). */
+export const KIND_LABEL: Record<MemoryRecallKind, string> = {
+	decision: "Decision",
+	rule: "Rule",
+	gotcha: "Gotcha",
+	procedure: "Procedure",
+	preference: "Preference",
+	profile: "Profile",
+	note: "Note",
+	conclusion: "Earlier conclusion",
+};
+
+export const RECALL_OPEN = "<memory-recall>";
+export const RECALL_CLOSE = "</memory-recall>";
+
+/** One note of a recall message's text, as `recallText` wrote it. */
+export interface RecallTextNote {
+	kind: MemoryRecallKind;
+	/** The heading after the kind: `title`, or `title · path-or-date`. */
+	heading: string;
+	/** The note's text as the model received it (cut to its budget, `<`/`>` made inert); empty when none fit. */
+	text: string;
+}
+
+const KIND_BY_LABEL = new Map<string, MemoryRecallKind>(
+	(Object.entries(KIND_LABEL) as [MemoryRecallKind, string][]).map(([kind, label]) => [label, kind]),
+);
+
+/**
+ * The notes inside a `recallText` block, in order: the inverse of `recallText`, so the transcript can show what the
+ * model received without the bridge repeating it in the message's details. Headings are numbered 1..n and a note's
+ * text runs to the next heading in sequence, so a note line that itself starts like a heading does not split it.
+ * Anything that is not such a block gives an empty list.
+ */
+export function parseRecallText(content: string): RecallTextNote[] {
+	const start = content.indexOf(RECALL_OPEN);
+	const end = content.indexOf(RECALL_CLOSE, start + 1);
+	if (start < 0 || end < 0) return [];
+	const lines = content.slice(start + RECALL_OPEN.length, end).split("\n");
+	const notes: { kind: MemoryRecallKind; heading: string; lines: string[] }[] = [];
+	for (const line of lines) {
+		const match = /^(\d+)\. (.+?) · (.*)$/.exec(line);
+		const kind = match ? KIND_BY_LABEL.get(match[2]) : undefined;
+		if (match && kind && Number(match[1]) === notes.length + 1) {
+			notes.push({ kind, heading: match[3], lines: [] });
+		} else if (notes.length) {
+			notes[notes.length - 1].lines.push(line);
+		}
+	}
+	return notes.map(note => ({ kind: note.kind, heading: note.heading, text: note.lines.join("\n").trim() }));
 }

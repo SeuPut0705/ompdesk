@@ -158,11 +158,22 @@ export function boardTurnMessages(base: number): Record<string, unknown>[] {
 		{
 			role: "custom",
 			customType: "ompdesk-memory-recall",
-			content: "<memory-recall>\nNotes from earlier sessions…\n</memory-recall>",
+			content: [
+				"<memory-recall>",
+				"Notes from this person's earlier sessions that memory search matched to this prompt.",
+				"1. Rule · Run tests with bun test, never npm · rules/tests.md",
+				"The repo's tests run on bun test; npm test skips the renderer harness and reports a pass it did not earn.",
+				"2. Gotcha · Sidebar rows paint a frame late · gotchas/sidebar.md",
+				"A row mounts with its snapshot first and the live read lands a frame later, so a measurement taken on mount is stale.",
+				"3. Decision · Why the work board waits for the first paint · decisions/work-board.md",
+				"The board reads the checkout's changes after the first paint so a slow disk never delays the transcript.",
+				"</memory-recall>",
+			].join("\n"),
 			display: true,
 			details: {
 				v: 1,
 				judged: true,
+				scope: { workspace: "default", project: "ompdesk" },
 				items: [
 					item(
 						text("Run tests with bun test, never npm", "테스트는 npm이 아니라 bun test로 돌린다"),
