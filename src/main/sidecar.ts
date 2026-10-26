@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import type { McpLiveChange } from "../../resources/gui-bridge/extensions/mcp-contracts";
 import { type AutoTitleSettings, titleSuppressedByEnv } from "../../resources/gui-bridge/modes/auto-title-contracts";
+import { agentBrowserEnv } from "../../resources/gui-bridge/modes/default-browser-contracts";
 import type { DelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
 import { JUDGE_ASSIST_ENV, JUDGE_ASSIST_SET } from "../../resources/gui-bridge/modes/judge-assist-contracts";
 import { MEMORY_ENV } from "../../resources/gui-bridge/modes/memory-recall-contracts";
@@ -712,7 +713,7 @@ export class SidecarManager extends EventEmitter {
 					...(accountRotationLedger ? { OMP_GUI_ACCOUNT_ROTATION_STATE: accountRotationLedger } : {}),
 					...(ompdeskRolesFile ? { [OMPDESK_ROLES_ENV]: ompdeskRolesFile } : {}),
 					...(this.#builtinMcp.root ? { OMP_GUI_REA_ROOT: this.#builtinMcp.root } : {}),
-					...(this.#defaultBrowser ? { [DEFAULT_BROWSER_ENV]: this.#defaultBrowser } : {}),
+					...(this.#defaultBrowser ? { [DEFAULT_BROWSER_ENV]: agentBrowserEnv(this.#defaultBrowser) } : {}),
 					...this.#builtinMcp.env,
 					PI_RPC_EMIT_TITLE: "1",
 					PI_NO_PTY: "1",

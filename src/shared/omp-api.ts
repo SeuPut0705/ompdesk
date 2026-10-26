@@ -63,6 +63,7 @@ import type {
 	IpcHostedSession,
 	IpcHostOmpUpdate,
 	IpcHostSchedules,
+	IpcInstallBrowserRelayPayload,
 	IpcModelSetupRunResult,
 	IpcNotifyKind,
 	IpcNotifyPayload,
@@ -664,6 +665,10 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			set: (key: string, value: unknown) => transport.invoke(IPC_COMMANDS.PREFS_SET, { key, value }),
 			getLaunchProfile: (cwd, device) => transport.invoke(IPC_COMMANDS.PREFS_GET_LAUNCH_PROFILE, { cwd, device }),
 			defaultBrowserStatus: () => transport.invoke(IPC_COMMANDS.DEFAULT_BROWSER_STATUS),
+			installBrowserRelay: browser =>
+				transport.invoke(IPC_COMMANDS.DEFAULT_BROWSER_INSTALL_RELAY, {
+					browser,
+				} satisfies IpcInstallBrowserRelayPayload),
 			updateLaunchProfile: (cwd, patch, device) =>
 				transport.invoke(IPC_COMMANDS.PREFS_UPDATE_LAUNCH_PROFILE, { cwd, patch, device }),
 			onChanged: callback => subscribe<IpcPrefsChangedPayload>(IPC_EVENTS.PREFS_CHANGED, callback),

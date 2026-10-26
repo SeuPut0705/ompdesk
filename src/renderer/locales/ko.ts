@@ -5957,13 +5957,25 @@ export const ko: Record<string, string> = {
 		"ECC(Affaan Mustafa, MIT)의 언어·프레임워크·도구 스킬을 필요할 때만 읽어요. 작업 순서는 pstack 플레이북을 따라요. 끄면 ECC 스킬과 명령을 쓰지 않아요.",
 	"settings.gui.defaultBrowser": "기본 브라우저",
 	"settings.gui.defaultBrowserDesc":
-		"에이전트가 웹 작업에 쓰는 브라우저예요. 자동은 ego-browser가 설치돼 있으면 그걸, 없으면 기본 내장 브라우저(omp)를 써요. 열려 있는 세션엔 다음 메시지부터 적용돼요.",
+		"에이전트가 웹 작업에 쓰는 브라우저예요. 자동은 ego-browser가 있으면 그걸, 없으면 omp 확장을 추가한 브라우저(로그인된 내 브라우저를 써요), 그것도 없으면 기본 내장 브라우저(omp)를 써요. 열려 있는 세션엔 다음 메시지부터 적용돼요.",
 	"settings.gui.defaultBrowser.auto": "자동",
 	"settings.gui.defaultBrowser.autoResolved": "자동 · {browser}",
 	"settings.gui.defaultBrowser.ego": "ego-browser",
 	"settings.gui.defaultBrowser.builtin": "기본 내장 (omp)",
 	"settings.gui.defaultBrowserMissing": "ego-browser가 설치돼 있지 않아 에이전트가 기본 내장 브라우저(omp)를 써요.",
 	"settings.gui.defaultBrowserLoadFailed": "기본 브라우저 설정을 읽지 못했어요",
+	"settings.gui.defaultBrowser.notInstalled": "{name} (설치 안 됨)",
+	"settings.gui.defaultBrowserBrowserMissing":
+		"{name} 브라우저는 설치돼 있지 않아 에이전트가 기본 내장 브라우저(omp)를 써요.",
+	"settings.gui.defaultBrowserRelayMissing":
+		"{name}에 omp 확장을 설치하면 에이전트가 로그인된 내 브라우저를 쓸 수 있어요. 그 전까지는 기본 내장 브라우저(omp)를 써요.",
+	"settings.gui.defaultBrowserInstall": "확장 설치",
+	"settings.gui.defaultBrowserRelayConnected": "연결됨: 에이전트가 로그인된 {name} 브라우저를 써요.",
+	"settings.gui.defaultBrowserRelayWaiting": "{name} 브라우저를 열면 연결돼요. 열려 있어야 에이전트가 쓸 수 있어요.",
+	"settings.gui.defaultBrowserInstallFailed": "확장을 설치하지 못했어요",
+	"settings.gui.defaultBrowserStepsTitle": "{name}에 확장 추가하기",
+	"settings.gui.defaultBrowserSteps":
+		"1. 개발자 모드를 켜세요. 2. ‘압축해제된 확장 프로그램을 로드’ 버튼을 누르세요. 3. 방금 열린 폴더를 고르세요.",
 	"settings.gui.autoMode": "자동 모드",
 	"settings.gui.autoModeDesc": "새 요청 하나에만 계획·목표를 써요. 내 모드는 바꾸지 않아요",
 	"settings.gui.autoPreviewDevServer": "개발 서버를 미리보기로 열기",

@@ -72,7 +72,7 @@ export const FEATURES = {
 	sessionOwner: "Opening a session only once another omp let go of it",
 	pstack: "pstack engineering mode (always-on playbook section)",
 	eccHint: "ECC skills named for the project's languages (prompt section)",
-	defaultBrowser: "Default browser for agents, ego-browser or built-in (prompt section)",
+	defaultBrowser: "Default browser for agents: ego-browser, the user's own browser or built-in (prompt section)",
 	backgroundChecks: "Long checks run as background jobs (prompt section)",
 	checkoutPeers: "Sessions sharing a checkout (prompt section and git guard)",
 	xdevNotice: "No xd:// device listed twice in a request (mount notice)",
@@ -400,8 +400,23 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	},
 	/** modes/ecc-hint.ts: the public `before_agent_start` hook and the context's `cwd` only. */
 	eccHint: {},
-	/** modes/default-browser.ts: the public `before_agent_start` hook only. */
-	defaultBrowser: {},
+	/**
+	 * modes/default-browser.ts: the public `before_agent_start` hook for the section, and `browser.relay` and
+	 * `browser.relayUrl` held as runtime overrides of the session's settings (handles via `lookup`) while the choice is
+	 * the user's own browser.
+	 */
+	defaultBrowser: {
+		session: ["settings"],
+		modules: {
+			[`${AGENT}/config/registry`]: ["lookup()"],
+			[`${AGENT}/tools/browser/settings`]: [
+				"cfgBrowserRelay.override()",
+				"cfgBrowserRelay.clearOverride()",
+				"cfgBrowserRelayUrl.override()",
+				"cfgBrowserRelayUrl.clearOverride()",
+			],
+		},
+	},
 	/** modes/background-checks.ts: reads stock `async.enabled` by id. */
 	backgroundChecks: {
 		pkg: ["Settings.instance"],

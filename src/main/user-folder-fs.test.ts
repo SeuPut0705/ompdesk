@@ -13,6 +13,7 @@ const MAIN = __dirname;
 
 /** Modules that walk, copy, read or remove files of the user's folders and worktrees. */
 const USER_FOLDER_MODULES = [
+	"agent-browsers.ts",
 	"open-path.ts",
 	"workspace-fs.ts",
 	"worktree-orphans.ts",

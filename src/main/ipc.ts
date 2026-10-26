@@ -37,7 +37,12 @@ import {
 	reviewFromDevice,
 } from "../shared/agent-control";
 import { REA_PREF } from "../shared/builtin-mcp";
-import { DEFAULT_BROWSER_PREF, isDefaultBrowserPref } from "../shared/default-browser";
+import {
+	type AgentBrowserStatus,
+	CHROMIUM_BROWSER_IDS,
+	DEFAULT_BROWSER_PREF,
+	isDefaultBrowserPref,
+} from "../shared/default-browser";
 import { codedError, type IpcErrorCode, ipcErrorCode } from "../shared/ipc-error-codes";
 import type {
 	CustomProviderInput,
@@ -99,7 +104,8 @@ import type {
 import {
 	IPC_COMMANDS,
 	IPC_EVENTS,
-	type IpcDefaultBrowserStatus,
+	type IpcInstallBrowserRelayPayload,
+	type IpcInstallBrowserRelayResult,
 	type IpcSessionsChanged,
 	type RunProgressState,
 	type TrayState,
@@ -111,6 +117,12 @@ import type { AgentSessionEvent, RpcCommand, RpcResponse, RpcSessionState } from
 import { SCHEDULES_COMMAND, SCHEDULES_LOG, type SchedulesRequest } from "../shared/schedules";
 import { SIDEBAR_PROJECTS_COMMAND, type SidebarProjectsRequest } from "../shared/sidebar-projects";
 import { isUiLanguage } from "../shared/ui-language";
+import {
+	findChromiumBrowsers,
+	installRelayExtension,
+	openExtensionsPage,
+	reprobeAgentBrowserStatus,
+} from "./agent-browsers";
 import { AgentControlRuntime } from "./agent-control/host";
 import { appNotification } from "./app-icon";
 import { requestQuit } from "./app-quit";
@@ -126,7 +138,6 @@ import { ensureDefaultWorkspace } from "./default-workspace";
 import { DesktopSlotHost } from "./desktop-slot-host";
 import { savedWorktreesForSpawn } from "./disk/saved-worktrees";
 import { openInExternalEditor } from "./editor";
-import { egoBrowserInstalled } from "./ego-browser";
 import { isOpenableExternalUrl } from "./external-url";
 import { getMainLanguage, mainT } from "./i18n";
 import type { MainTextKey } from "./i18n-text";
@@ -1848,10 +1859,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncReplyLanguage();
 			remoteDevices.hostReplyLanguageChanged();
 		}
-		if (defaultBrowser) {
-			for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncDefaultBrowser();
-			remoteDevices.hostDefaultBrowserChanged();
-		}
+		if (defaultBrowser) syncDefaultBrowserEverywhere();
 		if (userProfile) {
 			for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncUserProfile();
 			remoteDevices.hostUserProfileChanged();
@@ -1892,11 +1900,30 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			? remoteDevices.request(device, "launchProfile.get", { cwd: payload.cwd })
 			: readLaunchProfile(launchProfilePrefs, payload?.cwd);
 	});
+	const syncDefaultBrowserEverywhere = (): void => {
+		for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncDefaultBrowser();
+		remoteDevices.hostDefaultBrowserChanged();
+	};
+	ipc.handle(IPC_COMMANDS.DEFAULT_BROWSER_STATUS, async (): Promise<AgentBrowserStatus> => {
+		const { status, changed } = await reprobeAgentBrowserStatus();
+		// The person installed ego-browser or loaded the extension: open sessions follow, as for a pref change.
+		if (changed) syncDefaultBrowserEverywhere();
+		return status;
+	});
 	ipc.handle(
-		IPC_COMMANDS.DEFAULT_BROWSER_STATUS,
-		async (): Promise<IpcDefaultBrowserStatus> => ({
-			egoInstalled: await egoBrowserInstalled(),
-		}),
+		IPC_COMMANDS.DEFAULT_BROWSER_INSTALL_RELAY,
+		async (_caller, payload: IpcInstallBrowserRelayPayload): Promise<IpcInstallBrowserRelayResult> => {
+			const id = CHROMIUM_BROWSER_IDS.find(candidate => candidate === payload?.browser);
+			const browser = (await findChromiumBrowsers()).find(candidate => candidate.id === id);
+			if (!browser) throw new Error("That browser is not installed");
+			const omp = await systemOmp();
+			if (!omp.ok) throw new Error(omp.error);
+			const dir = await installRelayExtension(omp.runtime, browser.id);
+			// The folder is shown even if the browser fails to open: the steps work from either.
+			shell.showItemInFolder(dir);
+			await openExtensionsPage(browser);
+			return { dir };
+		},
 	);
 
 	ipc.handle(IPC_COMMANDS.PREFS_UPDATE_LAUNCH_PROFILE, (_caller, payload: IpcUpdateLaunchProfilePayload) => {

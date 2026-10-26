@@ -19,10 +19,10 @@ import { parseDefaultBrowser, resolveAgentBrowser } from "../shared/default-brow
 import { eccEnabled } from "../shared/ecc";
 import { pstackEnabled } from "../shared/pstack";
 import { deviceLanguageTag, replyLanguageName, resolveReplyLanguage } from "../shared/reply-language";
+import { agentBrowserStatus, resolveEgoBrowser } from "./agent-browsers";
 import { bootModelSelector } from "./boot-model";
 import type { BridgeConnectResult, BridgeHealth } from "./bridge-health";
 import { builtinReaState } from "./builtin-mcp";
-import { egoBrowserInstalled, resolveEgoBrowser } from "./ego-browser";
 import { mainT, ompFailureText } from "./i18n";
 import { ompAvailability } from "./omp-availability";
 import { systemOmp } from "./omp-runtime";
@@ -171,7 +171,7 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 			...(deps.defaultBrowserPref
 				? {
 						defaultBrowser: async () =>
-							resolveAgentBrowser(parseDefaultBrowser(deps.defaultBrowserPref?.()), await egoBrowserInstalled()),
+							resolveAgentBrowser(parseDefaultBrowser(deps.defaultBrowserPref?.()), await agentBrowserStatus()),
 						egoBrowserDir: async () => {
 							const bin = await resolveEgoBrowser();
 							return bin ? dirname(bin) : null;

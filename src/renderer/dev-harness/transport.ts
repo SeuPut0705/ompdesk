@@ -408,7 +408,12 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 			case IPC_COMMANDS.PREFS_GET_LAUNCH_PROFILE:
 				return launchProfiles.get((payload as { cwd: string }).cwd) ?? {};
 			case IPC_COMMANDS.DEFAULT_BROWSER_STATUS:
-				return { egoInstalled: true };
+				return {
+					egoInstalled: true,
+					browsers: [{ id: "chrome", name: "Google Chrome", relayInstalled: false, relayConnected: false }],
+				};
+			case IPC_COMMANDS.DEFAULT_BROWSER_INSTALL_RELAY:
+				return { dir: "/home/dev/.omp/browser-relay/extension-chrome" };
 			case IPC_COMMANDS.PREFS_UPDATE_LAUNCH_PROFILE: {
 				const { cwd, patch } = payload as { cwd: string; patch: Partial<LaunchProfile> };
 				const next = { ...launchProfiles.get(cwd), ...patch };

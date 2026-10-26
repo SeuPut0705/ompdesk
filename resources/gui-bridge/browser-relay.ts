@@ -12,32 +12,13 @@
  * binds 127.0.0.1 only and refuses browser Origins on its CDP socket.
  */
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
-import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
 import { findFreeCdpPort } from "@oh-my-pi/pi-coding-agent/tools/browser/attach";
 import { type RelayServer, startRelayServer } from "@oh-my-pi/pi-coding-agent/tools/browser/relay/server";
 import { guard } from "./health";
+import { previewRelayStarted, previewRelayStopped } from "./modes/default-browser";
 import { attach } from "./modes/shared";
+import { overridable } from "./settings-override";
 import type { BridgeMethods } from "./types";
-
-interface OverridableSetting {
-	override(scope: object, value: unknown): void;
-	clearOverride(scope: object): void;
-}
-
-function overridable(id: string): OverridableSetting {
-	const setting: unknown = lookup(id);
-	if (
-		!setting ||
-		typeof setting !== "object" ||
-		!("override" in setting) ||
-		typeof setting.override !== "function" ||
-		!("clearOverride" in setting) ||
-		typeof setting.clearOverride !== "function"
-	) {
-		throw new Error(`omp has no overridable ${id} setting`);
-	}
-	return setting as OverridableSetting;
-}
 
 interface RunningRelay {
 	server: RelayServer;
@@ -55,6 +36,7 @@ function stop(): void {
 	server.stop();
 	overridable("browser.relay").clearOverride(scope);
 	overridable("browser.relayUrl").clearOverride(scope);
+	previewRelayStopped(scope);
 }
 
 export const methods: BridgeMethods = guard("agentBrowser", {
@@ -68,6 +50,7 @@ export const methods: BridgeMethods = guard("agentBrowser", {
 			const server = startRelayServer({ port, token, group: false });
 			running = { server, url: `http://127.0.0.1:${server.port}`, token, scope };
 		}
+		previewRelayStarted(scope);
 		overridable("browser.relay").override(scope, true);
 		overridable("browser.relayUrl").override(scope, running.url);
 		return { url: running.url, token: running.token };

@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AutoTitleSettings } from "../../resources/gui-bridge/modes/auto-title-contracts";
+import type { AgentBrowser } from "../../resources/gui-bridge/modes/default-browser-contracts";
 import type { DelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
 import type { NextPromptSettings } from "../../resources/gui-bridge/modes/next-prompt-contracts";
 import type { UserProfile } from "../../resources/gui-bridge/modes/user-profile-contracts";
@@ -332,7 +333,7 @@ describe("SidecarManager spawn env", () => {
 			tempDir,
 			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(envPath)}, process.env.OMP_GUI_BROWSER ?? "");\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
 		);
-		let browser: "ego" | "builtin" = "ego";
+		let browser: AgentBrowser = { kind: "ego" };
 		const sidecar = new SidecarManager({
 			omp: async () => ({
 				ok: true,
@@ -349,7 +350,12 @@ describe("SidecarManager spawn env", () => {
 			sidecar.start();
 			await ready.promise;
 			expect(await fs.readFile(envPath, "utf8")).toBe("ego");
-			browser = "builtin";
+			browser = { kind: "relay", name: "Google Chrome", url: "http://127.0.0.1:9231" };
+			ready = Promise.withResolvers<void>();
+			sidecar.restart();
+			await ready.promise;
+			expect(await fs.readFile(envPath, "utf8")).toBe("relay:Google Chrome@http://127.0.0.1:9231");
+			browser = { kind: "builtin" };
 			ready = Promise.withResolvers<void>();
 			sidecar.restart();
 			await ready.promise;
@@ -377,7 +383,7 @@ describe("SidecarManager spawn env", () => {
 			}),
 			cwd: tempDir,
 			shellEnv: async () => ({ PATH: "/usr/bin:/bin" }),
-			defaultBrowser: async () => "ego" as const,
+			defaultBrowser: async () => ({ kind: "ego" as const }),
 			egoBrowserDir: async () => egoDir,
 		});
 		const ready = Promise.withResolvers<void>();

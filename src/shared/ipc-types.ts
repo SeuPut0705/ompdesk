@@ -25,6 +25,7 @@ import type {
 } from "./ai-memory";
 import type { BuiltinReaState } from "./builtin-mcp";
 import type { CliToolId, CliUpdateState } from "./cli-update";
+import type { AgentBrowserStatus, ChromiumBrowserId } from "./default-browser";
 import type { DiagnosticBundleRequest, DiagnosticBundleResult } from "./diagnostic-bundle";
 import type { DiskCareState } from "./disk-care";
 import type { ExtensionUpdateState } from "./extension-update";
@@ -254,8 +255,10 @@ export const IPC_COMMANDS = {
 	PREFS_UPDATE_LAUNCH_PROFILE: "prefs:update-launch-profile",
 	/** One workspace's launch profile, from the machine that spawns its omp */
 	PREFS_GET_LAUNCH_PROFILE: "prefs:get-launch-profile",
-	/** Whether ego-browser is installed on the machine that spawns the agents */
+	/** What the machine that spawns the agents has for the Default browser setting (ego-browser, Chromium browsers) */
 	DEFAULT_BROWSER_STATUS: "prefs:default-browser-status",
+	/** Install the omp Browser Relay extension for a Chromium browser and open its extensions page */
+	DEFAULT_BROWSER_INSTALL_RELAY: "prefs:default-browser-install-relay",
 	/** Restart sidecar */
 	SIDECAR_RESTART: "sidecar:restart",
 	/** Get sidecar status */
@@ -867,9 +870,14 @@ export interface IpcPrefsChangedPayload {
 	key: string;
 }
 
-/** Answer of `DEFAULT_BROWSER_STATUS`. */
-export interface IpcDefaultBrowserStatus {
-	egoInstalled: boolean;
+/** `DEFAULT_BROWSER_INSTALL_RELAY` payload. */
+export interface IpcInstallBrowserRelayPayload {
+	browser: ChromiumBrowserId;
+}
+
+/** `DEFAULT_BROWSER_INSTALL_RELAY` answer: the folder the person loads as an unpacked extension. */
+export interface IpcInstallBrowserRelayResult {
+	dir: string;
 }
 
 /**
@@ -2298,8 +2306,10 @@ export interface OmpApi {
 		/** `device` = the paired host whose profile it is; absent = this device. */
 		getLaunchProfile(cwd: string, device?: string): Promise<LaunchProfile>;
 		updateLaunchProfile(cwd: string, patch: Partial<LaunchProfile>, device?: string): Promise<LaunchProfile>;
-		/** Whether ego-browser is installed on this computer (Settings › Agent behavior › Default browser). */
-		defaultBrowserStatus(): Promise<IpcDefaultBrowserStatus>;
+		/** What this computer has for the Default browser setting: ego-browser, and each Chromium browser with its relay state. Probes again. */
+		defaultBrowserStatus(): Promise<AgentBrowserStatus>;
+		/** Write the omp Browser Relay extension to disk, open the browser's extensions page and show the folder. */
+		installBrowserRelay(browser: ChromiumBrowserId): Promise<IpcInstallBrowserRelayResult>;
 		/** Another window wrote a preference. */
 		onChanged(callback: (payload: IpcPrefsChangedPayload) => void): () => void;
 	};
