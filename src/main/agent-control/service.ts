@@ -72,6 +72,7 @@ import {
 	type RpcTurnEdits,
 	turnEdits,
 } from "../../shared/turn-edits";
+import type { FileEdits } from "../web/file-edit-reports";
 import { AppControl, type AppPorts, AppRefusal } from "./app-control";
 import { type AutoCloseFacts, autoCloseDecision } from "./auto-close";
 import {
@@ -162,6 +163,11 @@ export interface ControlTab {
 	busySince?: number;
 	/** The ids this session's tab had before relaunches, newest first (the saved tab layout): they still name it. */
 	formerIds?: readonly string[];
+	/**
+	 * Only on a tab a paired web page owns: what that page last said about unsaved Files edits in it. `unreported`: it
+	 * has said nothing since this launch (not connected yet), which is no leave to close the tab.
+	 */
+	webEdits?: FileEdits;
 }
 
 /** A saved session (stock's session index on this computer or a paired device), open in a tab or not. */
@@ -303,6 +309,13 @@ export interface AgentControlHost {
 	/** Name a tab that already exists (a relaunched one, from its saved session); a new one gets its task at the spawn. */
 	setTask(tabId: string, task: string): void;
 	view(callerTabId: string, event: AgentControlViewEvent): void;
+	/**
+	 * Release a tab a paired web page owns in main, as its own close would (worktree exit policy, terminals, the pool),
+	 * and tell that page to drop it. False when nothing was released.
+	 */
+	release(callerTabId: string, tabId: string): Promise<boolean>;
+	/** Be called whenever a paired web page reports its Files editor state; returns the unsubscribe. */
+	onFileEdits(listener: () => void): () => void;
 	/** Resolves once the omp of a tab the window closed has exited (at once when none is exiting, and for a paired device's tab). */
 	exited(tabId: string): Promise<void>;
 	notify(callerTabId: string, title: string, body: string): void;
@@ -972,12 +985,20 @@ interface SessionState {
 
 type OpenArgs = OpenOne & { show?: "background" | AgentControlViewEvent["how"] };
 
+/** What closing a tab came to: gone, still open, or (a paired web page's tab) held back by what its page says. */
+type TabClose = "closed" | "kept" | "dirty" | "unreported";
+
 export class AgentControl {
 	readonly #host: AgentControlHost;
 	/** Tabs each calling tab opened, for the "opened by you" marks. */
 	readonly #opened = new Map<string, Set<string>>();
 	/** Tabs whose stop or close is in flight. */
 	readonly #closing = new Set<string>();
+	/**
+	 * Closes of a paired web page's tab that wait for the page's first report of its Files editor (nothing is known
+	 * about unsaved edits before it), by tab: who asked, as it was then.
+	 */
+	readonly #queuedCloses = new Map<string, { caller: ControlTab; target: ControlTab }>();
 	/** Children whose review item the person settled (approved, discarded, dismissed). */
 	readonly #reviewed = new Set<string>();
 	/** Files a child's last merge conflicted in, until it merges. */
@@ -1036,6 +1057,7 @@ export class AgentControl {
 				this.#host.reviewChanged?.(mail.to);
 			},
 		});
+		host.onFileEdits(() => void this.#carryOutQueuedCloses());
 	}
 
 	/** Live tabs `callerTabId` opened. */
@@ -1099,6 +1121,7 @@ export class AgentControl {
 		this.#closing.delete(tabId);
 		this.#reviewed.delete(tabId);
 		this.#conflicts.delete(tabId);
+		this.#queuedCloses.delete(tabId);
 		this.#mailbox.forget(tabId);
 		this.#cardsTold.delete(tabId);
 		this.#lastSpend.delete(tabId);
@@ -1890,14 +1913,16 @@ export class AgentControl {
 			// A child that cannot be set up does not linger half-configured, nor does the worktree made for it.
 			opened.delete(tabId);
 			const tabDevice = this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === tabId)?.device;
-			this.#host.view(caller.tabId, { tabId, how: "close" });
-			if (!worktree) throw error;
+			const closing = this.#closeTab(caller.tabId, tabId, { waitMs: CLOSE_WAIT_MS });
+			if (!worktree) {
+				void closing.catch(() => undefined);
+				throw error;
+			}
 			const made = worktree;
 			const message = error instanceof Error ? error.message : String(error);
 			// Its worktree goes only once the tab is gone and its omp has exited (it works there until then): a tab
 			// still open (the window kept it, or it is slow to close) works there, so the worktree stays and is named.
-			await this.#whenGone(caller.tabId, tabId, CLOSE_WAIT_MS);
-			if (this.#host.tabs(caller.tabId)?.some(tab => tab.tabId === tabId))
+			if ((await closing.catch((): TabClose => "kept")) !== "closed")
 				throw new Error(
 					`${message} (its tab is still open, so its worktree ${made.path} and branch ${made.branch} were kept)`,
 				);
@@ -2625,6 +2650,7 @@ export class AgentControl {
 		this.#closing.add(target.tabId);
 		const running = target.busy && (target.status === "ready" || target.status === "running");
 		let confirmed = !running;
+		let queued = false;
 		try {
 			// Stock answers an abort once the turn unwound; a close never waits on that (closing ends the omp), a stop
 			// and a delete (which needs the turn over) wait a bounded while and say what they saw.
@@ -2634,24 +2660,34 @@ export class AgentControl {
 					target,
 					args.close && !args.delete ? ABORT_BEFORE_CLOSE_MS : STOP_WAIT_MS,
 				);
-			if (args.close || args.delete)
-				await this.#within(this.#journalClose(caller, target, args.delete === true), ABORT_BEFORE_CLOSE_MS);
 			if (args.delete) await this.#deleteWhenIdle(caller, target);
 			else if (args.close) {
 				// The card and the lines took time: the person may have opened it meanwhile.
 				const now = this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === target.tabId);
 				if (now && (now.looked || now.userTouched))
 					fail(`${label(target)} came into the user's view meanwhile; it stays open.`);
-				this.#host.view(caller.tabId, { tabId: target.tabId, how: "close" });
-				await this.#whenGone(caller.tabId, target.tabId, CLOSE_WAIT_MS);
-				if (this.#host.tabs(caller.tabId)?.some(tab => tab.tabId === target.tabId))
+				const outcome = await this.#closeTab(caller.tabId, target.tabId, { waitMs: CLOSE_WAIT_MS });
+				if (outcome === "kept")
 					fail(
 						`${label(target)} is still open: its window kept the tab (it is that window's last tab, or it holds unsaved Files edits). Ask the user to close it; its session is saved either way.`,
 					);
+				if (outcome === "dirty")
+					fail(
+						`${label(target)} is still open: its page holds unsaved edits in the Files editor of this tab, and closing it would lose them. Ask the user to save or discard them, then close it again; its session is saved either way.`,
+					);
+				if (outcome === "unreported") {
+					this.#queuedCloses.set(target.tabId, { caller, target });
+					queued = true;
+				}
 			}
+			// Told only once the tab is gone: a close that did not happen sends no note.
+			if ((args.close || args.delete) && !queued)
+				await this.#within(this.#journalClose(caller, target, args.delete === true), ABORT_BEFORE_CLOSE_MS);
 		} finally {
 			this.#closing.delete(target.tabId);
 		}
+		if (queued)
+			return `${label(target)} belongs to a phone or web page that has not reported its Files editor since this computer started, so it is not closed yet. It will close when the phone page connects and reports no unsaved edits in it, unless the user comes to it first; its session is saved either way. Nothing more to do.`;
 		if (args.delete) {
 			const done = `Stopped, closed and deleted ${label(target)}.`;
 			return own && target.worktree ? `${done} ${await this.#dropWorktree(target.worktree, target.device)}` : done;
@@ -3300,6 +3336,53 @@ export class AgentControl {
 	}
 
 	/**
+	 * Close one open tab and wait for it to be gone. A desktop window closes its own tab (its renderer refuses one in
+	 * use, with unsaved Files edits or the window's last); a tab a paired web page owns is released here, because its
+	 * page may be offline or may not know the tab, and only once that page said its Files editor holds no unsaved edits
+	 * in it. `kept`: the tab is still open; `dirty`/`unreported`: not touched, and why.
+	 */
+	async #closeTab(callerTabId: string, tabId: string, how: { auto?: boolean; waitMs: number }): Promise<TabClose> {
+		const tabs = this.#host.tabs(callerTabId);
+		if (!tabs) return "kept";
+		const tab = tabs.find(entry => entry.tabId === tabId);
+		if (!tab) return "closed";
+		if (tab.webEdits === undefined) {
+			this.#host.view(callerTabId, { tabId, how: "close", ...(how.auto ? { auto: true } : {}) });
+		} else {
+			if (tab.webEdits !== "clean") return tab.webEdits;
+			// The last look before the release: the person may have come to it, or typed into it, meanwhile.
+			if (tab.looked || tab.userTouched) return "kept";
+			if (!(await this.#host.release(callerTabId, tabId))) return "kept";
+		}
+		await this.#whenGone(callerTabId, tabId, how.waitMs);
+		return this.#host.tabs(callerTabId)?.some(entry => entry.tabId === tabId) ? "kept" : "closed";
+	}
+
+	/**
+	 * A paired web page reported its Files editor: the closes that waited for it go ahead for a tab it now says is
+	 * clean. A tab with unsaved edits, one the person came to or that runs again, one gone, or a caller gone drops its
+	 * close (the agent was told it would close only if nothing stood in the way).
+	 */
+	async #carryOutQueuedCloses(): Promise<void> {
+		for (const [tabId, queued] of [...this.#queuedCloses]) {
+			const tab = this.#host.tabs(queued.caller.tabId)?.find(entry => entry.tabId === tabId);
+			if (tab?.webEdits === "unreported") continue;
+			this.#queuedCloses.delete(tabId);
+			if (tab?.webEdits !== "clean" || tab.looked || tab.userTouched || tab.busy || waits(tab)) continue;
+			this.#closing.add(tabId);
+			try {
+				const outcome = await this.#closeTab(queued.caller.tabId, tabId, { waitMs: CLOSE_WAIT_MS }).catch(
+					(): TabClose => "kept",
+				);
+				if (outcome === "closed")
+					await this.#within(this.#journalClose(queued.caller, queued.target, false), ABORT_BEFORE_CLOSE_MS);
+			} finally {
+				this.#closing.delete(tabId);
+			}
+		}
+	}
+
+	/**
 	 * Close the sessions `callerTabId` opened whose work has landed and that nobody is using (`autoCloseDecision`):
 	 * the tab closes the way the person's close does (the window refuses it for a tab in use), the session file stays
 	 * and the opener's family keeps a row for it; the worktree goes only when its branch is merged and it is clean.
@@ -3486,6 +3569,8 @@ export class AgentControl {
 	}
 
 	async #autoCloseTab(caller: ControlTab, tab: ControlTab, removeWorktree: boolean): Promise<void> {
+		// A paired page that has not said its Files editor is clean cannot be closed under: not worth reading the child.
+		if (tab.webEdits !== undefined && tab.webEdits !== "clean") return;
 		this.#closing.add(tab.tabId);
 		try {
 			// Read before the close: the closed record keeps them for the opener's family cost.
@@ -3497,10 +3582,10 @@ export class AgentControl {
 				this.#cost(tab),
 				this.#split(tab),
 			]);
-			this.#host.view(caller.tabId, { tabId: tab.tabId, how: "close", auto: true });
-			await this.#whenGone(caller.tabId, tab.tabId, AUTO_CLOSE_WAIT_MS);
-			// The window kept it (the person came to it meanwhile): nothing else changes.
-			if (this.#host.tabs(caller.tabId)?.some(entry => entry.tabId === tab.tabId)) return;
+			// Not closed (the window kept it, the person came to it meanwhile, or a paired page has not said its Files
+			// editor is clean): nothing else changes, and a later pass tries again.
+			const outcome = await this.#closeTab(caller.tabId, tab.tabId, { auto: true, waitMs: AUTO_CLOSE_WAIT_MS });
+			if (outcome !== "closed") return;
 			const removed =
 				removeWorktree && tab.worktree
 					? (await this.#host.removeSafeWorktree(tab.worktree, tab.device).catch(() => null)) !== null

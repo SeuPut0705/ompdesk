@@ -1271,6 +1271,20 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 		expect(await closing).toBe(true);
 	});
 
+	it("announceClosed tells the owner's window a tab main released is gone, with the rest of its list", () => {
+		const { pool } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
+		pool.acquire("/b", fw.win, "tab-b", "/sessions/b.jsonl");
+		expect(pool.releaseTab("tab-a")).toBe(true);
+		pool.announceClosed(fw.win, "tab-a");
+		expect(fw.sentTo(IPC_EVENTS.TAB_LIST_CHANGED).at(-1)?.data).toEqual({
+			tabs: pool.tabsForWindow(fw.win),
+			closed: ["tab-a"],
+		});
+		expect(pool.tabsForWindow(fw.win).map(tab => tab.tabId)).toEqual(["tab-b"]);
+	});
+
 	it("closeSessionTab closes the owner like a tab close, tells its window and waits for its omp to exit", async () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);

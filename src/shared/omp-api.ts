@@ -48,6 +48,7 @@ import type {
 	IpcBenchmarkRunOptions,
 	IpcBenchmarkRunResult,
 	IpcExtensionUiPayload,
+	IpcFileEditReportPayload,
 	IpcFsListResult,
 	IpcFsMediaStreamResult,
 	IpcFsReadBinaryResult,
@@ -571,6 +572,10 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				return switched;
 			},
 			reorder: (tabIds: string[]) => transport.invoke(IPC_COMMANDS.REORDER_TABS, { tabIds }) as Promise<boolean>,
+			reportFileEdits: async (dirtyTabId: string | null) => {
+				const payload: IpcFileEditReportPayload = { dirtyTabId };
+				await transport.invoke(IPC_COMMANDS.FILE_EDIT_REPORT, payload);
+			},
 			getSessionOwner: (sessionPath: string, device?: string) =>
 				transport.invoke(IPC_COMMANDS.GET_SESSION_OWNER, {
 					sessionPath,

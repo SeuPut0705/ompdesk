@@ -54,8 +54,6 @@ interface FakeTab extends ControlTab {
 	cost?: number;
 	/** What the fake omp answers `get_session_spend.providers` with (its own host's billing); absent = an older omp. */
 	spend?: Record<string, { billing: string; name?: string; cost: number; today: number }>;
-	/** Present only on a tab a paired web page owns: what that page last reported about unsaved Files edits in it. */
-	webEdits?: "clean" | "dirty" | "unreported";
 }
 
 class FakeHost implements AgentControlHost {

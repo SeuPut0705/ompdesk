@@ -61,11 +61,6 @@ function fakeFileEdits(): FakeFileEdits {
 	};
 }
 
-interface WebCloseDeps {
-	fileEdits: FakeFileEdits;
-	releaseTab: (win: ClientWindow, tabId: string) => Promise<boolean>;
-}
-
 function setup(
 	options: {
 		prefs?: Record<string, unknown>;
@@ -111,7 +106,7 @@ function setup(
 	const spawned: IpcSpawnTabPayload[] = [];
 	const activity: ((event: { type: string; tabId: string }) => void)[] = [];
 	const sidecars = new Map<string, { cwd: string; device?: string }>([["main0001", { cwd: "/repo" }]]);
-	const deps: AgentControlHostDeps & WebCloseDeps = {
+	const deps: AgentControlHostDeps = {
 		pool: {
 			tabsForWindow: target => (target === win2 ? otherTabs : target === webWin ? webTabs : tabs),
 			tabFacts: tabId => ({ title: "", busy: tabId === "busy0002", awaitingConnection: false, retrying: false }),

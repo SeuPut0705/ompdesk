@@ -156,6 +156,7 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	},
 	[C.SPAWN_TAB]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.CLOSE_TAB]: { dir: "invoke", permission: "workspace", mode: "pass" },
+	[C.FILE_EDIT_REPORT]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.SET_ACTIVE_TAB]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.SET_TAB_VIEW]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.REORDER_TABS]: { dir: "invoke", permission: "workspace", mode: "pass" },

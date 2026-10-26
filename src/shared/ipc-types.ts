@@ -309,6 +309,8 @@ export const IPC_COMMANDS = {
 	SPAWN_TAB: "tab:spawn",
 	/** Close a tab: release its sidecar; last tab leaves the window tab-less */
 	CLOSE_TAB: "tab:close",
+	/** A paired web page says which of its tabs holds unsaved Files edits (`IpcFileEditReportPayload`); main closes a tab for an agent only while that page says it is clean. */
+	FILE_EDIT_REPORT: "tab:file-edit-report",
 	/** Move full event forwarding to the window's active tab */
 	SET_ACTIVE_TAB: "tab:set-active",
 	/** Atomically set the focused tab and the one or two tabs receiving full event streams. */
@@ -1674,6 +1676,11 @@ export interface IpcCloseTabPayload {
 	tabId: string;
 }
 
+export interface IpcFileEditReportPayload {
+	/** The tab whose Files editor holds unsaved edits; null when no editor does. */
+	dirtyTabId: string | null;
+}
+
 export interface IpcSetActiveTabPayload {
 	tabId: string;
 }
@@ -2195,6 +2202,8 @@ export interface OmpApi {
 		): Promise<boolean>;
 		/** Put the window's tabs in this order (every tab id once). */
 		reorder(tabIds: string[]): Promise<boolean>;
+		/** Say which tab's Files editor holds unsaved edits (null: none). A web page only; main closes a tab for an agent only while this says it is clean. */
+		reportFileEdits(dirtyTabId: string | null): Promise<void>;
 		/** The tab/window currently attached to a session file on `device` (absent = this device), if any (F-OWN). */
 		getSessionOwner(sessionPath: string, device?: string): Promise<IpcSessionOwner | null>;
 	};

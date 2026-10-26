@@ -80,7 +80,8 @@ import {
 import type { ScheduleService } from "../schedules";
 import type { SidecarPool } from "../sidecar-pool";
 import type { SidecarLike } from "../sidecar-types";
-import type { ClientWindow } from "../web/client-window";
+import { type ClientWindow, isWebWindow } from "../web/client-window";
+import type { FileEditReports } from "../web/file-edit-reports";
 import { sessionOpenFolders } from "../worktree-orphans";
 import type { AppPorts } from "./app-control";
 import {
@@ -196,6 +197,13 @@ export interface AgentControlHostDeps {
 			command: { type: "get_autopilot" } | ({ type: "set_autopilot" } & AutopilotAction),
 		) => Promise<RpcResponse>;
 	};
+	/** What paired web pages last reported about unsaved Files edits in their tabs (ipc.ts `FILE_EDIT_REPORT`). */
+	fileEdits: Pick<FileEditReports, "edits" | "onReport">;
+	/**
+	 * Close a tab of `win` the way the window's own close does (ipc.ts `closeWindowTab`) and tell that window it is
+	 * gone. Only for a paired web page's window: a desktop window closes its own tab when asked (`AGENT_CONTROL_VIEW`).
+	 */
+	releaseTab: (win: ClientWindow, tabId: string) => Promise<boolean>;
 	/** Settings › Schedules (`ScheduleService`); absent or null where there is none. */
 	schedules?: () => Pick<ScheduleService, "command" | "create"> | null;
 	/** The app's own handlers `ompdesk_app` goes through (src/main/ipc.ts): the `IpcRegistry` for the window, `PREFS_SET`, the language. */
@@ -305,6 +313,11 @@ export class AgentControlRuntime {
 				this.control.released(activity.tabId);
 			}
 		});
+		// A paired page's first (or changed) word about its Files editor lets a child it holds close at once, not at the
+		// next timer tick.
+		deps.fileEdits.onReport(() => {
+			for (const opener of this.#openers()) this.#sweepSoon(opener);
+		});
 		const every = deps.sweepMs ?? SWEEP_INTERVAL_MS;
 		if (every > 0)
 			setInterval(() => {
@@ -369,15 +382,7 @@ export class AgentControlRuntime {
 	 * (it leaves the queue) or appeared (it joins).
 	 */
 	#sweepAll(): void {
-		const openers = new Set<string>();
-		const { pool } = this.#deps;
-		for (const win of pool.tabWindows()) {
-			if (win.isDestroyed()) continue;
-			for (const info of pool.tabsForWindow(win)) {
-				const opener = this.#autoClosable(info) ? this.#openerOf(info.tabId) : undefined;
-				if (opener) openers.add(opener);
-			}
-		}
+		const openers = this.#openers();
 		for (const opener of openers) {
 			this.#sweepSoon(opener);
 			if (this.#sweepReviews.has(opener)) continue;
@@ -393,6 +398,20 @@ export class AgentControlRuntime {
 				)
 				.finally(() => this.#sweepReviews.delete(opener));
 		}
+	}
+
+	/** The tabs that opened a session the auto-close pass may close, over every window. */
+	#openers(): Set<string> {
+		const openers = new Set<string>();
+		const { pool } = this.#deps;
+		for (const win of pool.tabWindows()) {
+			if (win.isDestroyed()) continue;
+			for (const info of pool.tabsForWindow(win)) {
+				const opener = this.#autoClosable(info) ? this.#openerOf(info.tabId) : undefined;
+				if (opener) openers.add(opener);
+			}
+		}
+		return openers;
 	}
 
 	/**
@@ -553,6 +572,12 @@ export class AgentControlRuntime {
 		const autoClosable = this.#autoClosable(info);
 		const formerIds = this.#deps.pool.formerTabIds(info.tabId);
 		const facts = this.#deps.pool.tabFacts(info.tabId);
+		const owner = this.#deps.pool.windowOfTab(info.tabId);
+		// A paired web page's tab: what its page last said about unsaved Files edits in it (never assumed clean).
+		const webEdits =
+			owner && isWebWindow(owner.webContents.id)
+				? this.#deps.fileEdits.edits(owner.webContents.id, info.tabId)
+				: undefined;
 		return {
 			tabId: info.tabId,
 			// Until stock names an opened session, it reads as the work it was opened for (`IpcTabInfo.task`).
@@ -578,6 +603,7 @@ export class AgentControlRuntime {
 			...(this.#deps.pool.hasDraft(info.tabId) ? { drafting: true } : {}),
 			...(facts?.runningSince !== undefined ? { busySince: facts.runningSince } : {}),
 			...(formerIds.length > 0 ? { formerIds } : {}),
+			...(webEdits ? { webEdits } : {}),
 		};
 	}
 
@@ -925,6 +951,11 @@ export class AgentControlRuntime {
 			autopilot: this.#autopilotSource(),
 			start: tabId => void deps.pool.startTab(tabId),
 			setTask: (tabId, task) => deps.pool.setTabTask(tabId, task),
+			release: async (_callerTabId, tabId) => {
+				const win = deps.pool.windowOfTab(tabId);
+				return win && isWebWindow(win.webContents.id) ? deps.releaseTab(win, tabId) : false;
+			},
+			onFileEdits: listener => deps.fileEdits.onReport(listener),
 			view: (callerTabId, event: AgentControlViewEvent) => {
 				// The window that holds the session (another window's tab closes or shows there), else the caller's.
 				const win = deps.pool.windowOfTab(event.tabId) ?? this.#win(callerTabId);

@@ -1788,6 +1788,14 @@ export class SidecarPool {
 	}
 
 	/**
+	 * Tell `win` that main closed its tab `tabId` (already released): the window drops it as it drops a tab whose session
+	 * was deleted (`TAB_LIST_CHANGED` `closed`), and a page that was not connected finds it gone at its next resync.
+	 */
+	announceClosed(win: ClientWindow, tabId: string): void {
+		this.#sendTabList(win, [tabId]);
+	}
+
+	/**
 	 * Bind a worktree `worktree.onStart` created to a tab that is still starting
 	 * (it restarts there next). Pushes TAB_STATUS so the chip shows it. False
 	 * when the tab is gone.

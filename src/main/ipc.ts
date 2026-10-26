@@ -44,6 +44,7 @@ import type {
 	IpcBenchmarkRunResult,
 	IpcCloseTabPayload,
 	IpcExtensionUiRespondPayload,
+	IpcFileEditReportPayload,
 	IpcFsListPayload,
 	IpcFsListResult,
 	IpcFsMediaStreamPayload,
@@ -162,6 +163,7 @@ import type { SidecarLike } from "./sidecar-types";
 import { registerSshToolsIpc } from "./ssh/ipc";
 import { markStartupFromRenderer } from "./startup-timing";
 import { stockHelperRequest } from "./stock-helper";
+import { closeWindowTab, type TabReleaseDeps } from "./tab-release";
 import { type SessionFolderState, type SpawnTabRemote, sessionFolderState, spawnTabForWindow } from "./tab-spawn";
 import { formatTerminalRead, TERMINAL_READ_TOOL } from "./terminal/agent-tool";
 import { closeTabTerminals, readTabTerminals, registerTerminalIpc } from "./terminal/ipc";
@@ -171,6 +173,7 @@ import { type RelaunchContinuation, TOUCH_COMMANDS } from "./turn-resume";
 import { dispatchedCommand, STOP_COMMANDS } from "./turn-stop-log";
 import { appVersion } from "./updater";
 import { type ClientWindow, isWebWindow } from "./web/client-window";
+import { FileEditReports } from "./web/file-edit-reports";
 import type { IpcCaller, IpcRegistry } from "./web/ipc-registry";
 import { writeDialogPreload } from "./web/preview-dialog";
 import { attachHere, type UploadStore } from "./web/uploads";
@@ -190,7 +193,7 @@ import {
 	statWorkspacePath,
 } from "./workspace-fs";
 import { searchWorkspace } from "./workspace-search";
-import { readLiveLifecycleSettings, type WorktreeLifecycle, type WorktreePrompts } from "./worktree-lifecycle";
+import type { WorktreeLifecycle, WorktreePrompts } from "./worktree-lifecycle";
 
 /** The caller `ompdesk_app` hands a handler: the calling session's window, no native browser window. */
 function agentCaller(win: ClientWindow): IpcCaller {
@@ -1180,8 +1183,21 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (activity.type === "busy" || activity.type === "idle" || activity.type === "released") refreshCheckoutPeers();
 	});
 
+	// The steps of closing a tab, for the window's own close and for main closing a paired web page's tab (below).
+	const tabRelease: TabReleaseDeps = {
+		sidecarPool: deps.sidecarPool,
+		worktreeLifecycle: deps.worktreeLifecycle,
+		closeTabTerminals,
+	};
+	const fileEditReports = new FileEditReports();
 	// OMPdesk control tools (src/main/agent-control): the same pool, dispatcher, spawn path and notifications the GUI uses.
 	const agentControl: AgentControlRuntime = new AgentControlRuntime({
+		fileEdits: fileEditReports,
+		releaseTab: async (win, tabId) => {
+			const released = await closeWindowTab(tabRelease, win, tabId, win.webContents.id);
+			if (released) sidecarPool.announceClosed(win, tabId);
+			return released;
+		},
 		isStopping: callerTabId => autopilot.isStopping(callerTabId),
 		beforeFirstPrompt: child => autopilot.beforeFirstPrompt(child),
 		isAutopilotRun: tabId => autopilot.runRootOf(tabId) !== undefined,
@@ -1472,18 +1488,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipc.handle(IPC_COMMANDS.CLOSE_TAB, async (caller, payload: IpcCloseTabPayload) => {
 		const win = caller.win;
 		if (!win || typeof payload?.tabId !== "string") return false;
-		const sidecar = deps.sidecarPool.sidecarForTab(win, payload.tabId);
-		if (!sidecar) return false;
-		// A window viewing another window's tab only leaves it; the owner's close releases it for all.
-		if (deps.sidecarPool.detachViewer(win, payload.tabId)) return true;
-		// A view of a paired device's tab here only leaves it: the omp and its worktree are the device's.
-		if (deps.sidecarPool.isHostedView(payload.tabId)) {
-			closeTabTerminals(caller.sender.id, payload.tabId);
-			return deps.sidecarPool.releaseTab(payload.tabId);
-		}
-		await deps.worktreeLifecycle.refreshExitPolicy(payload.tabId, () => readLiveLifecycleSettings(sidecar));
-		closeTabTerminals(caller.sender.id, payload.tabId);
-		return deps.sidecarPool.releaseTab(payload.tabId);
+		return closeWindowTab(tabRelease, win, payload.tabId, caller.sender.id);
+	});
+
+	// A paired web page's Files editor state, which decides whether main may close one of its tabs for an agent.
+	ipc.handle(IPC_COMMANDS.FILE_EDIT_REPORT, (caller, payload: IpcFileEditReportPayload) => {
+		const win = caller.win;
+		if (!win || (payload?.dirtyTabId !== null && typeof payload?.dirtyTabId !== "string")) return;
+		fileEditReports.report(win, payload.dirtyTabId);
 	});
 
 	// The calling window's open `worktree.onStart` / `worktree.onExit` questions.
