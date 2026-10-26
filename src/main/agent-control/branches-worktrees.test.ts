@@ -312,6 +312,28 @@ describe("a branch squash-merged into the parent's main", () => {
 		expect((await landingFacts(other)).landed).toBe(false);
 	});
 
+	it("counts a squash as landed after main edited the same lines (neither merge-tree nor cherry can tell)", async () => {
+		const wt = await agentWorktree("sq8");
+		await commitIn(wt.path, "a.ts", "a\n");
+		await commitIn(wt.path, "a.ts", "a\nb\n");
+		squashMerge(wt);
+		await commitIn(repo, "a.ts", "a\nb\nlater\n");
+		expect(await landingFacts(wt)).toMatchObject({ landed: true, squashed: true });
+		expect(await branchFacts(wt)).toMatchObject({ merged: true, commitsAhead: 0 });
+	});
+
+	it("keeps a squash unlanded when its content was changed during the squash", async () => {
+		const wt = await agentWorktree("sq9");
+		await commitIn(wt.path, "a.ts", "a\n");
+		await commitIn(wt.path, "a.ts", "a\nb\n");
+		gitSync(repo, "merge", "--squash", wt.branch);
+		await fs.writeFile(path.join(repo, "a.ts"), "a\nb\nextra\n");
+		gitSync(repo, "add", "a.ts");
+		gitSync(repo, "commit", "-q", "-m", "squash with edits");
+		await commitIn(repo, "a.ts", "a\nb\nextra\nlater\n");
+		expect((await landingFacts(wt)).landed).toBe(false);
+	});
+
 	it("lets removeSafeWorktree take the worktree and keep the branch, which `branch -d` refuses", async () => {
 		const wt = await agentWorktree("sq6");
 		await commitIn(wt.path, "a.ts", "a\n");
