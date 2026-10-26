@@ -40,6 +40,7 @@ import { errorDetail } from "../lib/error-detail";
 import { formatClock } from "../lib/format";
 import { translate } from "../lib/i18n";
 import { describeTurnError, messageText, turnErrorToast } from "../lib/messages";
+import { noticeToast } from "../lib/notice-toast";
 import { playNotificationSound } from "../lib/notification-sound";
 import { handleAutoOpenEvents, installPanelAutoOpen } from "../lib/panel-auto-open";
 import { useUsageSignal } from "../lib/usage-reports";
@@ -73,14 +74,6 @@ import { toastError, useToastStore } from "../stores/toast";
 import { useTodoStore } from "../stores/todo";
 import { useToolsStore } from "../stores/tools";
 import { useUiStore } from "../stores/ui";
-
-/**
- * Routine informational notice sources suppressed from the toast stack — they
- * fire on every model switch (tool mount/unmount reconciliation) and need no
- * user action. Only their info-level notices are dropped; warnings/errors and
- * notices from any other source still surface as toasts.
- */
-const QUIET_NOTICE_SOURCES = new Set(["vision", "xdev"]);
 
 /**
  * Frames that change nothing a `get_state` or transcript snapshot reports, so
@@ -579,25 +572,8 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 							break;
 						}
 						case "notice": {
-							// Suppress routine informational churn from chatty sources — vision/xdev
-							// mount/unmount notices fire on every model switch and need no action,
-							// flooding the toast stack. Warnings/errors and other sources still toast.
-							if (event.level === "info" && event.source && QUIET_NOTICE_SOURCES.has(event.source)) break;
-							const variant = event.level === "error" ? "error" : event.level === "warning" ? "warning" : "info";
-							if (event.source === "compaction" && variant !== "info") {
-								// A compaction failure reads like a failed turn: humanized title and
-								// guidance; anything unrecognized keeps its text under a localized title.
-								const failure = turnErrorToast(event.message);
-								const known = failure.kind !== "unknown";
-								useToastStore.getState().push({
-									variant,
-									title: known ? failure.title : translate("events.compactionNotice"),
-									message: known ? failure.message : translate("toast.failedRetry"),
-									detail: errorDetail(event.message),
-								});
-								break;
-							}
-							useToastStore.getState().push({ variant, message: event.message, title: event.source });
+							const toast = noticeToast(event);
+							if (toast) useToastStore.getState().push(toast);
 							break;
 						}
 						case "ttsr_triggered": {
