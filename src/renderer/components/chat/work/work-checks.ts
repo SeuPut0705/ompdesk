@@ -197,10 +197,44 @@ const ASSIGNMENT = /^[A-Za-z_]\w*=/;
  * flags, and an `npx`/`bunx`/`pnpm dlx` wrapper (the tool it runs). The program's basename, plus its subcommand when
  * that is a plain word (`git push`, `bun run`); a question names what it asks about (`command -v magick`, `which gh`:
  * the program) or itself (`test`, `[`, `grep`). Never a program after it in the chain, which may not have run.
- * `undefined` for an empty command.
+ * `undefined` for an empty command, one that is only setup, and a shell keyword or glob (`for`, `while`, `*.sh`).
+ * For a `;`/newline list it names the last command that runs: its exit code is the list's. `timeout <n>` and `time`
+ * are skipped like the other wrappers.
  */
 export function commandProgram(command: string): string | undefined {
-	for (const segment of command.split(/&&|\|\||;|\n/)) {
+	// The exit code is the last unconditional command's: name the last `;`/newline segment that runs something.
+	const lists = listSegments(command);
+	for (let list = lists.length - 1; list >= 0; list--) {
+		const found = segmentProgram(lists[list] ?? "");
+		if (found !== NONE) return found;
+	}
+	return undefined;
+}
+
+// A command's `;`/newline-separated list, not splitting inside a `{ …; }` or `( … )` group.
+function listSegments(command: string): string[] {
+	const parts: string[] = [];
+	let depth = 0;
+	let start = 0;
+	for (let index = 0; index < command.length; index++) {
+		const char = command[index];
+		if (char === "{" || char === "(") depth++;
+		else if ((char === "}" || char === ")") && depth > 0) depth--;
+		else if ((char === ";" || char === "\n") && depth === 0) {
+			parts.push(command.slice(start, index));
+			start = index + 1;
+		}
+	}
+	parts.push(command.slice(start));
+	return parts;
+}
+// A segment that only sets up (`cd`, `export`, assignments): look at the one before it.
+const NONE = Symbol("setup");
+const SHELL_KEYWORD = /^(?:for|while|until|if|then|elif|else|fi|do|done|case|esac|select|function)$/;
+const DURATION = /^\d+(?:\.\d+)?[smhd]?$/;
+
+function segmentProgram(list: string): string | undefined | typeof NONE {
+	for (const segment of list.split(/&&|\|\|/)) {
 		const words = (segment.split("|")[0] ?? "")
 			.trim()
 			.split(/\s+/)
@@ -213,6 +247,12 @@ export function commandProgram(command: string): string | undefined {
 			if (word === undefined) return false;
 			if (ASSIGNMENT.test(word) || PRIVILEGE_WRAPPERS.test(word)) {
 				index++;
+				return true;
+			}
+			if (word === "timeout") {
+				index++;
+				while (words[index]?.startsWith("-")) index += /^-[ks]$/.test(words[index] ?? "") ? 2 : 1;
+				if (DURATION.test(words[index] ?? "")) index++;
 				return true;
 			}
 			if (word.startsWith("-") && index > 0) {
@@ -231,13 +271,14 @@ export function commandProgram(command: string): string | undefined {
 		while (skip()) {}
 		const first = words[index];
 		if (first === undefined || SETUP_COMMANDS.test(first)) continue;
+		if (SHELL_KEYWORD.test(first) || /[*?]/.test(first)) return undefined;
 		const program = basename(first);
 		const next = words[index + 1];
 		if (/^(?:which|type)$/.test(program) && next) return basename(next);
 		if (/^(?:test|\[\[?|grep|egrep|rg)$/.test(program)) return program;
 		return next !== undefined && /^[a-z][\w:-]*$/i.test(next) ? `${program} ${next}` : program;
 	}
-	return undefined;
+	return NONE;
 }
 
 function basename(path: string): string {
@@ -260,8 +301,17 @@ export interface OperationCall {
 	reported?: boolean;
 }
 
+// What a check's own output says when its exit code does not (`vitest … | tail`, `tsc … | head`: the pipe's last
+// stage sets the code).
+const TS_ERROR = /\berror TS\d{4}\b/;
+
 function commandFailed(command: CheckInput): boolean {
-	return command.failed || (command.exitCode !== null && command.exitCode !== 0);
+	if (command.failed || (command.exitCode !== null && command.exitCode !== 0)) return true;
+	if (command.interrupted || command.unknown || !command.text) return false;
+	const kind = checkKind(command.command);
+	if (kind === "test") return (testCounts(command.text).failed ?? 0) > 0;
+	if (kind === "typecheck") return TS_ERROR.test(command.text);
+	return false;
 }
 
 export function commandOperation<T extends CheckInput>(command: T): T & OperationCall {
@@ -286,9 +336,17 @@ const commandKeys = new Map<string, string>();
 
 function isProbe(call: OperationCall): boolean {
 	if (call.exitCode !== 1 || call.toolName !== "bash" || typeof call.args.command !== "string") return false;
-	const command = call.args.command.trim();
-	return PROBE.test(command) && !CONTROL.test(command);
+	// The exit code is the last `;`/newline segment's: that one must be a whole lookup.
+	const last = listSegments(call.args.command)
+		.map(part => part.trim())
+		.findLast(Boolean);
+	if (!last || (last.match(/["']/g)?.length ?? 0) % 2 !== 0) return false;
+	return PROBE.test(last) && !CONTROL.test(last);
 }
+
+// A hashline header's tag as the model wrote it: `#2C1F`, but also `#?`, `#ANY`, `#`, `#*`, `#2C FB`. Stock's preview
+// strips only a 4-hex tag, so a rejected edit's key must drop whatever tag follows the path's last `/`.
+const HASHLINE_TAG = /#[^/]*$/;
 
 // Stock's bash tool runs a leading `cd <dir> &&` as its `cwd` (pi-coding-agent tools/shell-tokenize.ts
 // `extractLeadingCdTarget`, which the renderer cannot import): one plain or quoted path, then `&&`.
@@ -335,7 +393,13 @@ export function callKeys(call: OperationCall, cwd = ""): readonly string[] {
 	if (cached?.cwd === cwd && cached.toolName === call.toolName) return cached.keys;
 	const keys =
 		TURN_EDIT_TOOLS.includes(call.toolName) && !xdevWriteTarget(call.args)
-			? [...new Set(editArgumentPaths(call.args).map(path => `edit\0${workFilePathKey(path, cwd)}`))]
+			? [
+					...new Set(
+						editArgumentPaths(call.args).map(
+							path => `edit\0${workFilePathKey(path.replace(HASHLINE_TAG, ""), cwd)}`,
+						),
+					),
+				]
 			: [`${call.toolName}\0${JSON.stringify(canonical(call.args))}`];
 	argumentKeys.set(call.args, { cwd, toolName: call.toolName, keys });
 	return keys;

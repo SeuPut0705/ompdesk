@@ -207,9 +207,9 @@ The rule: a failed call stops counting once a **later successful call is the sam
 | Call | The same call |
 | --- | --- |
 | Command | the same text (whitespace collapsed) in the same folder (stock bash `cwd`, else the session's; a leading `cd <dir> &&` is the folder, as stock runs it) |
-| Edit tool | a successful edit of every file the failed one touched |
+| Edit tool | a successful edit of every file the failed one touched; a hashline header's tag is dropped however it was written (`#A1B2`, but also `#?`, `#ANY`, `#`, `#*`, `#2C FB`: stock's preview strips only 4 hex digits, so a rejected edit with a malformed tag once never matched the good edit of its file) |
 | Any other tool, an `xd://` write included | the same tool with the same arguments (the model's `i`/`intent` aside) |
-| A whole `command -v X`, `which X`, `type X`, `test …`, `[ … ]`, `grep …` or `rg …` with exit 1 and no `&&`, `||`, `;`, `|`, background `&`, newline, subshell or substitution | no failure: its exit 1 is the answer |
+| A `command -v X`, `which X`, `type X`, `test …`, `[ … ]`, `grep …` or `rg …` that closes the command (the whole command, or the last `;`/newline segment of a list: its exit code is the list's) with exit 1 and no `&&`, `\|\|`, `\|`, background `&`, subshell or substitution | no failure: its exit 1 is the answer |
 | Read, search, `wait` | neither fails nor fixes |
 
 The success must start after the failure ended. The main agent's success resolves anyone's failure (it runs in the
@@ -221,6 +221,12 @@ failures in every direction (a dry run fixing a publish, `test:platform` fixing 
 `check` though stock bash has no `pipefail`, another `--repo=`, another test selector, another stdin file). A rerun
 of the exact command is the common fix and the only one trusted. The chips, the verdict block and the board's check
 row read the same unresolved list, so a card never says a check both failed and was fixed.
+
+A check also fails when its own output says so though its exit code is 0 (`commandFailed`; the pipe's last stage sets
+the code: `vitest … | tail` printing "Tests 1 failed | 20 passed", `tsc … | head` printing `error TS2551`): a test run
+with a printed failure count, a type check with an `error TS<n>` line. The card, the chips and the board read it from
+that one function. A failure's name (`commandProgram`) is the last unconditional command of a `;`/newline list (its
+exit code), past `timeout <n>` and `time`; a shell keyword or glob names nothing.
 
 Replayed at the head's own functions over the same 226 turns: 38.5 red per 100 turns (57.1 before). Of 476 failed
 calls, 264 rejected edits and 2 commands are fixed by the same call, 59 reads, searches and waits are skipped, and

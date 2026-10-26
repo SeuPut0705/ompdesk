@@ -4,6 +4,7 @@ import type { ToolEntry } from "../../../stores/tools";
 import { type BackgroundJobVerdict, backgroundJobVerdicts } from "../completion-events";
 import {
 	checkKind,
+	commandOperation,
 	commandProgram,
 	firstErrorLine,
 	type OperationCall,
@@ -354,7 +355,7 @@ describe("settleFailures", () => {
 		"cd shots && (command -v magick || command -v montage) && magick a.png b.png c.png",
 		"command -v gh >/dev/null && gh pr merge 3 --squash >/dev/null 2>&1",
 		'bun run release 2>&1 | rg -q "published"',
-		"ls src; grep -n needle src/a.ts",
+		"ls src; grep -n needle src/a.ts | head",
 	])("keeps an exit 1 of a command that does more than ask a failure: %s", command => {
 		expect(unresolvedFailures([bash(command, 1)])).toHaveLength(1);
 	});
@@ -466,4 +467,77 @@ describe("commandProgram", () => {
 		expect(commandProgram("")).toBeUndefined();
 		expect(commandProgram("cd src && export A=1")).toBeUndefined();
 	});
+});
+
+describe("audit fixes", () => {
+	const hashEdit = (header: string, outcome: "passed" | "failed"): OperationCall => ({
+		toolName: "edit",
+		args: { input: `${header}\nPUT 1:\n+x` },
+		outcome,
+	});
+	it.each(["[a.gd#?]", "[a.gd#ANY]", "[a.gd#]", "[a.gd#PLACEHOLDER]", "[a.gd#*]", "[a.gd#__TAG__]", "[a.gd#2C FB]"])(
+		"a rejected edit with the malformed tag %s is fixed by the good edit of the file",
+		header => {
+			const calls = [hashEdit(header, "failed"), hashEdit("[a.gd#A1B2]", "passed")];
+			expect(settleFailures(calls, "/repo")).toEqual({ unresolved: [], recovered: [calls[0]] });
+		},
+	);
+
+	it("fails a test run whose own output shows failures though a pipe hid the exit code", () => {
+		const run = {
+			command: "bunx vitest run | tail -5",
+			failed: false,
+			exitCode: 0,
+			text: " Tests  1 failed | 20 passed (21)",
+		};
+		expect(summarizeChecks([run])[0]).toMatchObject({ kind: "test", passed: false });
+		expect(commandOperation(run).outcome).toBe("failed");
+	});
+	it("fails a type check whose output has a TS error though a pipe hid the exit code", () => {
+		const run = {
+			command: "bunx tsc --noEmit | head -20",
+			failed: false,
+			exitCode: 0,
+			text: "src/a.ts(3,1): error TS2551: Property 'x' does not exist.",
+		};
+		expect(summarizeChecks([run])[0]).toMatchObject({ kind: "typecheck", passed: false });
+	});
+	it("keeps a clean piped test run passed", () =>
+		expect(
+			summarizeChecks([
+				{ command: "bunx vitest run | tail", failed: false, exitCode: 0, text: "Tests  20 passed (20)" },
+			])[0]?.passed,
+		).toBe(true));
+
+	it.each([
+		["git log --oneline -5; gh run list", "gh run"],
+		["gh run list; ls", "ls"],
+		["timeout 60 bun test", "bun test"],
+		["timeout -k 5 30 gh run watch", "gh run"],
+		["time bun run build", "bun run"],
+		["cd app; export A=1", undefined],
+		["for f in *.ts; do echo $f; done", undefined],
+		["while true; do sleep 1; done", undefined],
+		["if [ -f a ]; then ls; fi", undefined],
+		["*.sh", undefined],
+		["A=1", undefined],
+	])("names the last unconditional command: %s", (command, expected) => {
+		expect(commandProgram(command)).toBe(expected);
+	});
+
+	it.each([
+		"git status; grep -q foo a.txt",
+		"echo start\ngrep -rn needle src",
+		"cd app; test -f dist/app.js",
+		"ls; [ -d build ]",
+	])("a lookup closing a list exiting 1 is no failure: %s", command => {
+		expect(settleFailures([bash(command, 1)], "/repo")).toEqual({ unresolved: [], recovered: [] });
+	});
+	it.each(["grep -q x a.txt; echo done && false", "grep x a | wc -l; ls | grep -q zz", "ls; grep a b || exit 1"])(
+		"a list whose last segment is more than a lookup stays a failure: %s",
+		command => {
+			const call = bash(command, 1);
+			expect(settleFailures([call], "/repo").unresolved).toEqual([call]);
+		},
+	);
 });

@@ -496,9 +496,9 @@ describe("each failure shape of the replayed turns", () => {
 			{ unresolved: [], recovered: ["git push origin main"] },
 		],
 		[
-			"a whole probe's exit 1, and a probe after other work",
-			[run("command -v magick", 1, ""), run("ls; grep -n needle src/a.ts", 1, "")],
-			{ unresolved: ["ls; grep -n needle src/a.ts"], recovered: [] },
+			"a whole probe's exit 1, a probe closing a list, and a probe followed by more",
+			[run("command -v magick", 1, ""), run("ls; grep -n needle src/a.ts", 1, ""), run("grep -n x a; ls", 1, "")],
+			{ unresolved: ["grep -n x a; ls"], recovered: [] },
 		],
 		[
 			"a read and a search that found nothing",
