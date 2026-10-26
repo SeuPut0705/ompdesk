@@ -153,6 +153,12 @@ export interface WorkCommandOutcome {
 	agentName?: string;
 	unknown?: boolean;
 	interrupted?: boolean;
+	/**
+	 * Stock answered with an error and no exit report: a ToolError it threw instead of running the command (its
+	 * arguments, a blocked command, a missing folder) or for a command that never reported an exit. It says nothing about
+	 * the command, so it neither fails nor passes a check, and fixes nothing.
+	 */
+	noExit?: true;
 	durationMs?: number;
 	/** What a stopped command printed before the stop, without stock's abort annotation. */
 	output?: string;
@@ -368,7 +374,11 @@ export function workOutcomes(
 						.replace(/\n*\[Command (?:aborted|cancelled)\]\s*$/, "")
 						.trim()
 				: "";
-			const failed = errored && !cut;
+			// A command that ran reports its exit in the details (stock tools/bash.ts `#buildCompletedResult`: a failed exit's
+			// code, a timeout); an error with neither is a ToolError stock threw before or without an exit.
+			const noExit =
+				!verdict && errored && !cut && typeof details?.exitCode !== "number" && details?.timedOut !== true;
+			const failed = errored && !cut && !noExit;
 			const text = verdict
 				? failed || exitCode || checkKind(entry.args.command)
 					? delivered.slice(-CHECK_TEXT_MAX)
@@ -390,6 +400,7 @@ export function workOutcomes(
 				...(agentName ? { agentName } : {}),
 				...(pending || entry.status === "aborted" || entry.result == null ? { unknown: true } : {}),
 				...(cut ? { interrupted: true } : {}),
+				...(noExit ? { noExit: true as const } : {}),
 				...(typeof details?.wallTimeMs === "number" ? { durationMs: details.wallTimeMs } : {}),
 				...(output && output !== "Command aborted" ? { output } : {}),
 				...(text ? { text } : {}),

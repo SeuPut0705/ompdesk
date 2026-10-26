@@ -263,7 +263,7 @@ export function ExecutionGroup({
 	});
 	for (const check of checkLabels) say(check.label);
 	const otherCommands = outcome.commands.filter(
-		command => command.interrupted || command.unknown || !checkKind(command.command),
+		command => command.interrupted || command.unknown || command.noExit || !checkKind(command.command),
 	).length;
 	if (otherCommands) say(t("chat.work.commandsRun", { count: otherCommands }));
 	if (agents.length) say(t("chat.work.agentsDone", { count: agents.length }));

@@ -170,7 +170,7 @@ export function lastCheck(
 		const base = { kind, command, startedAt: entry.startTime, key };
 		if (entry.status === "pending" || entry.status === "running") return { ...base, state: "running" };
 		const [outcome] = workOutcomes([{ entry, toolCallId: key }], undefined, cwd, verdicts).commands;
-		if (!outcome || outcome.interrupted) continue;
+		if (!outcome || outcome.interrupted || outcome.noExit) continue;
 		if (outcome.unknown) return { ...base, state: "running" };
 		newest = checkOf(outcome, kind);
 		if (newest) break;

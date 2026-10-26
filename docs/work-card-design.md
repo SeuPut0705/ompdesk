@@ -211,6 +211,7 @@ The rule: a failed call stops counting once a **later successful call is the sam
 | Any other tool, an `xd://` write included | the same tool with the same arguments (the model's `i`/`intent` aside) |
 | A `command -v X`, `which X`, `type X`, `test …`, `[ … ]`, `grep …` or `rg …` that closes the command (the whole command, or the last `;`/newline segment of a list: its exit code is the list's) with exit 1 and no `&&`, `\|\|`, `\|`, background `&`, subshell or substitution | no failure: its exit 1 is the answer |
 | Read, search, `wait` | neither fails nor fixes |
+| A shell call stock answered with an error and no exit report (a ToolError it threw instead of running the command: its arguments, a blocked command, a missing folder; or a command that never reported an exit) | neither fails nor fixes, and is no check run: the command never reported (26 Oct 2026: a named build asked with `async` and `timeout` was refused, and the board said "build failed" for a build that never ran). A command that ran reports its exit in the details (a failed exit's code, a timeout) |
 
 The success must start after the failure ended. The main agent's success resolves anyone's failure (it runs in the
 real tree); a subagent's only its own (an isolated task runs in its own checkout). A failure the transcript reports

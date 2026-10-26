@@ -32,7 +32,7 @@ function error(endTime: number, status: ToolEntry["status"] = "error"): ToolEntr
 		args: { command: "bun test" },
 		status,
 		streamingArgs: "",
-		result: { content: [{ type: "text", text: "failed" }] },
+		result: { content: [{ type: "text", text: "failed" }], details: { exitCode: 1 } },
 		isError: true,
 		startTime: 1,
 		endTime,

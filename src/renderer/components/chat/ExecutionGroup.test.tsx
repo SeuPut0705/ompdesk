@@ -136,15 +136,15 @@ describe("ExecutionGroup", () => {
 
 	it("counts the command a user stop cut short as interrupted, keeping an earlier real failure", async () => {
 		Object.assign(window, { omp: { rpc: { command: async () => ({ success: true, data: { messages: [] } }) } } });
-		const failure = (command: string, endTime: number): ToolEntry => ({
+		const failure = (command: string, endTime: number, details: Record<string, unknown> = {}): ToolEntry => ({
 			...toolEntry("error", true),
 			args: { command },
-			result: { content: [{ type: "text", text: "failed" }], details: {} },
+			result: { content: [{ type: "text", text: "failed" }], details },
 			endTime,
 		});
 		useToolsStore.setState(
 			toolEntriesState([
-				["exit", failure("exit 3", 5_000)],
+				["exit", failure("exit 3", 5_000, { exitCode: 3 })],
 				["sleep", failure("sleep 40", 20_000)],
 			]),
 		);

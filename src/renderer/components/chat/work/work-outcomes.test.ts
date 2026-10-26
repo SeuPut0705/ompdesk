@@ -88,7 +88,11 @@ describe("work outcome evidence", () => {
 	});
 	it("marks child explicit aborts interrupted but never applies the parent stop to child errors", () => {
 		const aborted = { ...entry("bash", { command: "child abort" }), status: "aborted" as const };
-		const failed = { ...entry("bash", { command: "child fail" }), status: "error" as const, isError: true };
+		const failed = {
+			...entry("bash", { command: "child fail" }, { exitCode: 1 }),
+			status: "error" as const,
+			isError: true,
+		};
 		const outcome = workOutcomes(
 			[
 				{ entry: aborted, agentName: "child" },
