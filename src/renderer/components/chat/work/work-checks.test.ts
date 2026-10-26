@@ -439,6 +439,44 @@ describe("backgrounded checks", () => {
 	});
 });
 
+// 26 Oct 2026: stock's bash refused a named (service) build asked with `async` and `timeout` before running anything. A
+// call stock throws on answers with an error and no exit report; a command that ran reports its exit in the details.
+describe("a call the bash tool refused", () => {
+	const refused: ToolEntry = {
+		toolName: "bash",
+		args: { command: "pnpm build 2>&1 | tail -40", name: "build-3d", async: true, timeout: 900 },
+		status: "error",
+		streamingArgs: "",
+		result: {
+			content: [
+				{ type: "text", text: "Service mode does not accept async or timeout; use ready.timeout for readiness." },
+			],
+			details: {},
+		},
+		isError: true,
+		startTime: 1_000,
+		endTime: 1_000,
+	};
+	const commands = (entry: ToolEntry) => workOutcomes([{ entry }]).commands;
+	const ran = (details: Record<string, unknown>, text: string): ToolEntry => ({
+		...refused,
+		result: { content: [{ type: "text", text }], details },
+	});
+
+	it("is no check and no failure: the command never ran", () => {
+		expect(summarizeChecks(commands(refused))).toEqual([]);
+		expect(unresolvedFailures(commands(refused).map(commandOperation))).toEqual([]);
+	});
+
+	it("keeps a build that ran and exited non-zero, or ran out of time, failed", () => {
+		const exited = ran({ exitCode: 1, wallTimeMs: 6_000 }, "Type error\n\nCommand exited with code 1");
+		const timedOut = ran({ timedOut: true, wallTimeMs: 900_000 }, "Creating an optimized build…");
+		expect(summarizeChecks(commands(exited))).toMatchObject([{ kind: "build", passed: false }]);
+		expect(summarizeChecks(commands(timedOut))).toMatchObject([{ kind: "build", passed: false }]);
+		expect(unresolvedFailures(commands(exited).map(commandOperation))).toHaveLength(1);
+	});
+});
+
 describe("commandProgram", () => {
 	it.each([
 		["git push origin main", "git push"],

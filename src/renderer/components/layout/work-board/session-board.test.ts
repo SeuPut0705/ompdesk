@@ -94,4 +94,33 @@ describe("lastCheck", () => {
 			),
 		).toMatchObject({ key: "b", state: "running" });
 	});
+
+	// 26 Oct 2026: a subagent asked for a named (service) build with `async` and `timeout`; stock's bash refused the call
+	// before running anything, and the board said "Check · build failed · 0ms" for the rest of the turn.
+	it("never names a build the bash tool refused before running it, and names the build that did run", () => {
+		const refused: ToolEntry = {
+			...bash(
+				"pnpm build 2>&1 | tail -40",
+				"Service mode does not accept async or timeout; use ready.timeout for readiness.",
+				1,
+				5_000,
+			),
+			result: {
+				content: [
+					{
+						type: "text",
+						text: "Service mode does not accept async or timeout; use ready.timeout for readiness.",
+					},
+				],
+				details: {},
+			},
+			endTime: 5_000,
+		};
+		expect(check([], [{ entry: refused, agentName: "HP3D" }])).toBeNull();
+		const built = bash("pnpm build", "✓ Compiled successfully", 0, 0);
+		expect(check([["b", built]], [main("b", built), { entry: refused, agentName: "HP3D" }])).toMatchObject({
+			key: "b",
+			state: "passed",
+		});
+	});
 });
