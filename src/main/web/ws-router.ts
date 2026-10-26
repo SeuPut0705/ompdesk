@@ -160,6 +160,8 @@ export interface WsRouterDeps {
 	toModelImage: (image: InlineImage) => Promise<InlineImage>;
 	/** A device's connection count changed (the settings list shows who is connected). */
 	onConnectionsChanged?: (deviceId: string) => void;
+	/** The device's last connection ended: nothing reaches its page until it reconnects. */
+	onDeviceOffline?: (deviceId: string) => void;
 	/** The device's page got a hello it must resync from (`resumed: false`): it missed pushes. */
 	onResync?: (deviceId: string) => void;
 	now?: () => number;
@@ -428,6 +430,7 @@ export class WsRouter {
 			at: now,
 		});
 		this.#deps.onConnectionsChanged?.(connection.deviceId);
+		if (!this.#connections.has(connection.deviceId)) this.#deps.onDeviceOffline?.(connection.deviceId);
 	}
 
 	/** A push the pool or a handler made to the device's window. */

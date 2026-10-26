@@ -14,13 +14,29 @@ export class FileEditReports {
 	/** Window id → the tab whose Files editor holds unsaved edits (null = none); absent = no report yet. */
 	readonly #dirtyTab = new Map<number, string | null>();
 	readonly #listeners = new Set<() => void>();
+	/** Windows whose `closed` is already watched, so a report after `forget` adds no second listener. */
+	readonly #watched = new Set<number>();
 
 	/** The page of `win` reports the tab its Files editor holds unsaved edits in, or null. */
 	report(win: ClientWindow, dirtyTabId: string | null): void {
 		const id = win.webContents.id;
-		if (!this.#dirtyTab.has(id)) win.once("closed", () => this.#dirtyTab.delete(id));
+		if (!this.#watched.has(id)) {
+			this.#watched.add(id);
+			win.once("closed", () => {
+				this.#dirtyTab.delete(id);
+				this.#watched.delete(id);
+			});
+		}
 		this.#dirtyTab.set(id, dirtyTabId);
 		for (const listener of [...this.#listeners]) listener();
+	}
+
+	/**
+	 * The page's last connection dropped: its report stays only as long as the page can still change it, and an offline
+	 * page may edit a file main never hears about, so it is `unreported` until it reports again on its next connection.
+	 */
+	forget(windowId: number): void {
+		this.#dirtyTab.delete(windowId);
 	}
 
 	edits(windowId: number, tabId: string): FileEdits {

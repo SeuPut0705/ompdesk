@@ -224,6 +224,37 @@ test("a close asked while the phone page is away waits, and is carried out once 
 	await openChild(phone, phoneCall, "Child waits");
 	expect(await phoneTabs(phone)).toHaveLength(2);
 
+	// A plain socket drop, no restart: the page's last word (clean) no longer counts once its connection is gone, so
+	// a close asked by a session on the computer's own window waits for the page's next report.
+	const dropped = await openChild(phone, phoneCall, "Child dropped");
+	expect(await phoneTabs(phone)).toHaveLength(3);
+	const deskTab = (await desktop.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId ?? "";
+	const dropCall = await controlToolCaller(desktop, profile.record, deskTab);
+	await (context as BrowserContext).setOffline(true);
+	(proxy as ServeProxy).dropSockets();
+	await expect
+		.poll(async () => (await dropCall("ompdesk_sessions", { scope: "app" })).text)
+		.toContain("Child dropped");
+	const dropNotes = (await closeNotes()).length;
+	let waiting = await dropCall("ompdesk_session_stop", { session: "Child dropped", close: true });
+	// The drop reaches main a moment after the proxy cut the socket: ask again until it has.
+	for (let tries = 0; tries < 20 && !/has not reported its Files editor/.test(waiting.text); tries++) {
+		await desktop.waitForTimeout(250);
+		waiting = await dropCall("ompdesk_session_stop", { session: "Child dropped", close: true });
+	}
+	expect(waiting.isError, waiting.text).toBe(false);
+	expect(waiting.text).toContain("It will close when the phone page connects");
+	expect(await closeNotes()).toHaveLength(dropNotes);
+	expect((await dropCall("ompdesk_sessions", { scope: "app" })).text).toContain("Child dropped");
+	// It reconnects and reports clean: released then, and the note arrives.
+	await (context as BrowserContext).setOffline(false);
+	await expect
+		.poll(async () => (await dropCall("ompdesk_sessions", { scope: "app" })).text, { timeout: 60_000 })
+		.not.toContain("Child dropped");
+	await expect.poll(async () => (await closeNotes()).length, { timeout: 30_000 }).toBe(dropNotes + 1);
+	expect(dropped).toBeTruthy();
+	await expect.poll(async () => (await phoneTabs(phone)).length, { timeout: 30_000 }).toBe(2);
+
 	// The page goes away and the computer restarts: its tabs come back deferred in its window, and the page has
 	// said nothing since this launch.
 	await phone.close();

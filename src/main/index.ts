@@ -185,6 +185,7 @@ import {
 	setupUpdater,
 	updateStatus,
 } from "./updater";
+import { FileEditReports } from "./web/file-edit-reports";
 import { IpcRegistry } from "./web/ipc-registry";
 import { UploadStore } from "./web/uploads";
 import { WebClientWindow } from "./web/web-client-window";
@@ -1708,7 +1709,9 @@ app.whenReady().then(() => {
 	void care.start();
 
 	// Register all handlers and sidecar listeners before loading the renderer.
+	const fileEditReports = new FileEditReports();
 	registerIpcHandlers({
+		fileEditReports,
 		ipc,
 		sidecarPool,
 		sessionIndex,
@@ -1751,6 +1754,7 @@ app.whenReady().then(() => {
 	protocol.handle(MEDIA_SCHEME, request => mediaStreams.handle(request));
 	webHost = new WebHost({
 		ipc,
+		onPageOffline: win => fileEditReports.forget(win.webContents.id),
 		userData: app.getPath("userData"),
 		// The built renderer: `web.html` and its assets sit beside `index.html` (a dev run has none).
 		staticRoot: () => join(__dirname, "../renderer"),

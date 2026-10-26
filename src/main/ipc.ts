@@ -173,7 +173,7 @@ import { type RelaunchContinuation, TOUCH_COMMANDS } from "./turn-resume";
 import { dispatchedCommand, STOP_COMMANDS } from "./turn-stop-log";
 import { appVersion } from "./updater";
 import { type ClientWindow, isWebWindow } from "./web/client-window";
-import { FileEditReports } from "./web/file-edit-reports";
+import type { FileEditReports } from "./web/file-edit-reports";
 import type { IpcCaller, IpcRegistry } from "./web/ipc-registry";
 import { writeDialogPreload } from "./web/preview-dialog";
 import { attachHere, type UploadStore } from "./web/uploads";
@@ -201,6 +201,8 @@ function agentCaller(win: ClientWindow): IpcCaller {
 }
 
 export interface IpcDeps {
+	/** What paired web pages report about unsaved Files edits (WebHost forgets a page's report when it drops). */
+	fileEditReports: FileEditReports;
 	/** Where every handler here registers (index.ts's one table). */
 	ipc: IpcRegistry;
 	sidecarPool: SidecarPool;
@@ -1189,7 +1191,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		worktreeLifecycle: deps.worktreeLifecycle,
 		closeTabTerminals,
 	};
-	const fileEditReports = new FileEditReports();
+	const fileEditReports = deps.fileEditReports;
 	// OMPdesk control tools (src/main/agent-control): the same pool, dispatcher, spawn path and notifications the GUI uses.
 	const agentControl: AgentControlRuntime = new AgentControlRuntime({
 		fileEdits: fileEditReports,

@@ -53,6 +53,8 @@ import { CLOSE_REVOKED, type InlineImage, WsRouter } from "./ws-router";
 const UPLOAD_SWEEP_MS = 60 * 60_000;
 
 export interface WebHostDeps {
+	/** A paired page's last connection dropped (its window stays parked with its tabs). */
+	onPageOffline?: (win: ClientWindow) => void;
 	ipc: Pick<IpcRegistry, "handle" | "invoke" | "send">;
 	userData: string;
 	/** The built renderer's folder (`web.html` and assets), null when the app has none (a dev run). */
@@ -173,6 +175,7 @@ export class WebHost {
 			uploads: this.uploads,
 			toModelImage: image => stockHelperRequest<InlineImage>("image.toModel", image),
 			onConnectionsChanged: () => this.devices.notifyChanged(),
+			onDeviceOffline: deviceId => deps.onPageOffline?.(this.windows.windowFor(deviceId)),
 			onResync: deviceId => deps.tabs.resnapshot(this.windows.windowFor(deviceId)),
 			now,
 		});
