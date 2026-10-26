@@ -54,6 +54,8 @@ interface FakeTab extends ControlTab {
 	cost?: number;
 	/** What the fake omp answers `get_session_spend.providers` with (its own host's billing); absent = an older omp. */
 	spend?: Record<string, { billing: string; name?: string; cost: number; today: number }>;
+	/** Present only on a tab a paired web page owns: what that page last reported about unsaved Files edits in it. */
+	webEdits?: "clean" | "dirty" | "unreported";
 }
 
 class FakeHost implements AgentControlHost {
@@ -122,8 +124,29 @@ class FakeHost implements AgentControlHost {
 	};
 	view = (_caller: string, event: { tabId: string; how: string }) => {
 		this.views.push(event);
-		if (event.how === "close") this.tabsById.delete(event.tabId);
+		this.order.push(`view:${event.how}:${event.tabId}`);
+		if (event.how === "close" && !this.refuseClose.has(event.tabId)) this.tabsById.delete(event.tabId);
 	};
+	/** Tabs whose window keeps them when asked to close (a draft, the window's last tab, unsaved edits). */
+	refuseClose = new Set<string>();
+	/** Everything that happened to a closing tab, in order (a view event, a release, a mail). */
+	order: string[] = [];
+	/** Tabs main released itself (`release`): a paired web page's, never asked of its window. */
+	releases: string[] = [];
+	release = async (_caller: string, tabId: string): Promise<boolean> => {
+		this.order.push(`release:${tabId}`);
+		this.releases.push(tabId);
+		return this.tabsById.delete(tabId);
+	};
+	fileEditListeners = new Set<() => void>();
+	onFileEdits = (listener: () => void) => {
+		this.fileEditListeners.add(listener);
+		return () => this.fileEditListeners.delete(listener);
+	};
+	/** A paired web page reported its Files editor state. */
+	fileEdited(): void {
+		for (const listener of [...this.fileEditListeners]) listener();
+	}
 	/** Settles once the omp of a closed tab has exited; a test holds it to see what waits for it. */
 	exited = async (_tabId: string): Promise<void> => {};
 	notify = vi.fn();
@@ -261,6 +284,7 @@ class FakeHost implements AgentControlHost {
 	checkoutPeers = (tabId: string) => this.peers.get(tabId) ?? [];
 	mails: { to: string; content: string; details: Record<string, unknown>; delivery: MailDelivery }[] = [];
 	mail = async (to: string, content: string, details: Record<string, unknown>, delivery: MailDelivery) => {
+		this.order.push(`mail:${to}`);
 		this.mails.push({ to, content, details, delivery });
 	};
 	reviewChanged = vi.fn();
@@ -3599,6 +3623,156 @@ describe("closing and stopping: ownership after a relaunch, cards by risk", () =
 		expect(prompts(host, "kid00002")).toHaveLength(1);
 		expect([one.text, two.text].some(text => text.includes("nothing sent again"))).toBe(true);
 	});
+});
+
+/** Lets every promise a fake host already resolved run its continuations: what a report set off has finished. */
+async function flush(): Promise<void> {
+	for (let turn = 0; turn < 100; turn++) await Promise.resolve();
+}
+
+describe("a close is told only once the tab is gone", () => {
+	const closeArgs = { session: "kid00002", close: true };
+
+	it("sends no close note when the window kept the tab, and says it is still open", async () => {
+		const host = new FakeHost({ tabId: "boss0001", title: "Boss" }, { tabId: "kid00002", title: "Kid" });
+		host.parents.set("kid00002", "boss0001");
+		host.refuseClose.add("kid00002");
+		const result = await onFakeClock(() => control(host).run("boss0001", T.stop, closeArgs));
+		expect(result.isError).toBe(true);
+		expect(result.text).toMatch(/still open/);
+		expect(host.mails).toEqual([]);
+	});
+
+	it("mails the note after the window dropped the tab, and keeps asking a desktop window to close it", async () => {
+		const host = new FakeHost({ tabId: "boss0001", title: "Boss" }, { tabId: "kid00002", title: "Kid" });
+		host.parents.set("kid00002", "boss0001");
+		const result = await control(host).run("boss0001", T.stop, closeArgs);
+		expect(result.text).toContain("Closed");
+		expect(host.releases).toEqual([]);
+		expect(host.order).toEqual(["view:close:kid00002", "mail:boss0001", "mail:kid00002"]);
+	});
+});
+
+describe("closing a tab a paired web page owns", () => {
+	const closeArgs = { session: "web00002", close: true };
+	const phoneChild = (webEdits: "clean" | "dirty" | "unreported", patch: Partial<FakeTab> = {}) => {
+		const host = new FakeHost(
+			{ tabId: "boss0001", title: "Boss" },
+			{ tabId: "web00002", title: "Phone child", webEdits, ...patch },
+		);
+		host.parents.set("web00002", "boss0001");
+		return { host, service: control(host) };
+	};
+
+	it("releases it in main when its page reported no unsaved edits, then mails the close note", async () => {
+		const { host, service } = phoneChild("clean");
+		const result = await service.run("boss0001", T.stop, closeArgs);
+		expect(result.isError, result.text).toBe(false);
+		expect(result.text).toContain("Closed");
+		expect(host.views).toEqual([]);
+		expect(host.releases).toEqual(["web00002"]);
+		expect(host.order).toEqual(["release:web00002", "mail:boss0001", "mail:web00002"]);
+	});
+
+	it("keeps it, mails nothing and names the unsaved edits when the page reported them in that tab", async () => {
+		const { host, service } = phoneChild("dirty");
+		const result = await service.run("boss0001", T.stop, closeArgs);
+		expect(result.isError).toBe(true);
+		expect(result.text).toMatch(/unsaved edits in the Files editor/);
+		expect(host.releases).toEqual([]);
+		expect(host.views).toEqual([]);
+		expect(host.mails).toEqual([]);
+		expect(host.tabsById.has("web00002")).toBe(true);
+	});
+
+	it("queues the close while the page has not reported, and journals it only when it really closes", async () => {
+		const { host, service } = phoneChild("unreported");
+		const result = await service.run("boss0001", T.stop, closeArgs);
+		expect(result.isError, result.text).toBe(false);
+		expect(result.text).toMatch(/will close when the phone page/);
+		expect(result.text).not.toMatch(/^Closed/);
+		expect(host.releases).toEqual([]);
+		expect(host.views).toEqual([]);
+		expect(host.mails).toEqual([]);
+
+		// A report that says nothing about its tab yet changes nothing.
+		host.fileEdited();
+		await flush();
+		expect(host.releases).toEqual([]);
+
+		const tab = host.tabsById.get("web00002") as FakeTab;
+		tab.webEdits = "clean";
+		host.fileEdited();
+		await vi.waitFor(() => expect(host.order).toEqual(["release:web00002", "mail:boss0001", "mail:web00002"]));
+		// One carried-out close is done: a later report closes nothing twice.
+		host.fileEdited();
+		await flush();
+		expect(host.releases).toEqual(["web00002"]);
+	});
+
+	it("drops a queued close when the first report says the tab has unsaved edits, or the person came to it", async () => {
+		const dirty = phoneChild("unreported");
+		await dirty.service.run("boss0001", T.stop, closeArgs);
+		(dirty.host.tabsById.get("web00002") as FakeTab).webEdits = "dirty";
+		dirty.host.fileEdited();
+		await flush();
+		(dirty.host.tabsById.get("web00002") as FakeTab).webEdits = "clean";
+		dirty.host.fileEdited();
+		await flush();
+		expect(dirty.host.releases).toEqual([]);
+		expect(dirty.host.mails).toEqual([]);
+
+		const watched = phoneChild("unreported");
+		await watched.service.run("boss0001", T.stop, closeArgs);
+		Object.assign(watched.host.tabsById.get("web00002") as FakeTab, { webEdits: "clean", looked: true });
+		watched.host.fileEdited();
+		await flush();
+		expect(watched.host.releases).toEqual([]);
+		expect(watched.host.mails).toEqual([]);
+	});
+
+	it("never releases a tab the person looks at or typed into, even when its page reported it clean", async () => {
+		for (const patch of [{ looked: true }, { userTouched: true }]) {
+			const { host, service } = phoneChild("clean", patch);
+			const result = await service.run("boss0001", T.stop, closeArgs);
+			expect(result.isError).toBe(true);
+			expect(result.text).toMatch(/user's view or they typed/);
+			expect(host.releases).toEqual([]);
+		}
+	});
+
+	it("auto-closes a finished web child in main only once its page reported the tab clean", async () => {
+		for (const webEdits of ["unreported", "dirty"] as const) {
+			const { host, service, child } = await finishedWebChild(webEdits);
+			await service.autoClose("main0001");
+			expect(host.releases, webEdits).toEqual([]);
+			expect(host.views, webEdits).toEqual([]);
+			expect(host.closedRecords, webEdits).toEqual([]);
+			expect(host.tabsById.has(child.tabId)).toBe(true);
+		}
+		const { host, service, child } = await finishedWebChild("clean");
+		await service.autoClose("main0001");
+		expect(host.releases).toEqual([child.tabId]);
+		expect(host.views).toEqual([]);
+		expect(host.closedRecords).toHaveLength(1);
+	});
+
+	async function finishedWebChild(webEdits: "clean" | "dirty" | "unreported") {
+		const host = new FakeHost({ tabId: "main0001", title: "Boss", sessionPath: "/s/boss.jsonl" });
+		const service = control(host);
+		await service.run("main0001", T.open, { message: "do it" });
+		const child = [...host.tabsById.values()].find(tab => tab.tabId !== "main0001") as FakeTab;
+		Object.assign(child, {
+			busy: false,
+			title: "Fix the parser",
+			sessionPath: "/s/kid.jsonl",
+			autoClosable: true,
+			lastRun: { stopReason: "stop" },
+			last: "Done: parser fixed.\nResult: ok",
+			webEdits,
+		});
+		return { host, service, child };
+	}
 });
 
 describe("after a relaunch: ids, titles, and messages a busy child waits for", () => {

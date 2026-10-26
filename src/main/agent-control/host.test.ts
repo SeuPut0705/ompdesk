@@ -37,6 +37,35 @@ function window(id = 1): ClientWindow & { sent: [string, unknown][] } {
 	};
 }
 
+/** What a paired web page last reported about unsaved Files edits (`FileEditReports`), by window id. */
+interface FakeFileEdits {
+	report(windowId: number, dirtyTabId: string | null): void;
+	edits(windowId: number, tabId: string): "clean" | "dirty" | "unreported";
+	onReport(listener: () => void): () => void;
+}
+
+function fakeFileEdits(): FakeFileEdits {
+	const dirty = new Map<number, string | null>();
+	const listeners = new Set<() => void>();
+	return {
+		report(windowId, dirtyTabId) {
+			dirty.set(windowId, dirtyTabId);
+			for (const listener of [...listeners]) listener();
+		},
+		edits: (windowId, tabId) =>
+			!dirty.has(windowId) ? "unreported" : dirty.get(windowId) === tabId ? "dirty" : "clean",
+		onReport: listener => {
+			listeners.add(listener);
+			return () => listeners.delete(listener);
+		},
+	};
+}
+
+interface WebCloseDeps {
+	fileEdits: FakeFileEdits;
+	releaseTab: (win: ClientWindow, tabId: string) => Promise<boolean>;
+}
+
 function setup(
 	options: {
 		prefs?: Record<string, unknown>;
@@ -55,10 +84,17 @@ function setup(
 		app?: AgentControlHostDeps["app"];
 		/** Windows viewing a tab (a paired phone's page), by tab id. */
 		viewers?: Record<string, ClientWindow[]>;
+		/** Tabs a paired web page owns (its window id is negative). */
+		webTabs?: Partial<IpcTabInfo>[];
 	} = {},
 ) {
 	const win = window();
 	const win2 = window(2);
+	const webWin = window(-1);
+	const fileEdits = fakeFileEdits();
+	const released: { win: ClientWindow; tabId: string }[] = [];
+	/** Releases and close mails in the order they happened. */
+	const log: string[] = [];
 	const prefs: Record<string, unknown> = { ...options.prefs };
 	const info = (tab: Partial<IpcTabInfo>): IpcTabInfo => ({
 		tabId: "x",
@@ -69,14 +105,15 @@ function setup(
 	});
 	const tabs: IpcTabInfo[] = (options.tabs ?? [{ tabId: "main0001" }]).map(info);
 	const otherTabs: IpcTabInfo[] = (options.otherTabs ?? []).map(info);
+	const webTabs: IpcTabInfo[] = (options.webTabs ?? []).map(info);
 	const commands: { tabId: string; command: RpcCommand; win: ClientWindow }[] = [];
 	const openers = vi.fn();
 	const spawned: IpcSpawnTabPayload[] = [];
 	const activity: ((event: { type: string; tabId: string }) => void)[] = [];
 	const sidecars = new Map<string, { cwd: string; device?: string }>([["main0001", { cwd: "/repo" }]]);
-	const deps: AgentControlHostDeps = {
+	const deps: AgentControlHostDeps & WebCloseDeps = {
 		pool: {
-			tabsForWindow: target => (target === win2 ? otherTabs : tabs),
+			tabsForWindow: target => (target === win2 ? otherTabs : target === webWin ? webTabs : tabs),
 			tabFacts: tabId => ({ title: "", busy: tabId === "busy0002", awaitingConnection: false, retrying: false }),
 			pendingPlan: () => null,
 			observeTabs: observer => {
@@ -92,16 +129,24 @@ function setup(
 			setTabOpener: openers,
 			hasDraft: () => false,
 			windowOfTab: tabId =>
-				otherTabs.some(tab => tab.tabId === tabId) ? win2 : tabs.some(tab => tab.tabId === tabId) ? win : null,
+				otherTabs.some(tab => tab.tabId === tabId)
+					? win2
+					: webTabs.some(tab => tab.tabId === tabId)
+						? webWin
+						: tabs.some(tab => tab.tabId === tabId)
+							? win
+							: null,
 			windowsShowingTab: tabId => {
 				const owner = otherTabs.some(tab => tab.tabId === tabId)
 					? win2
-					: tabs.some(tab => tab.tabId === tabId)
-						? win
-						: null;
+					: webTabs.some(tab => tab.tabId === tabId)
+						? webWin
+						: tabs.some(tab => tab.tabId === tabId)
+							? win
+							: null;
 				return owner ? [owner, ...(options.viewers?.[tabId] ?? [])] : [];
 			},
-			tabWindows: () => (otherTabs.length ? [win, win2] : [win]),
+			tabWindows: () => [win, ...(otherTabs.length ? [win2] : []), ...(webTabs.length ? [webWin] : [])],
 			sessionOwner: () => null,
 			whenTabExited: async () => {},
 		},
@@ -110,6 +155,7 @@ function setup(
 		app: options.app,
 		dispatch: async (target, _sidecar, tabId, command) => {
 			commands.push({ tabId, command, win: target });
+			if (command.type === "agent_control_mail") log.push(`mail:${tabId}`);
 			if (command.type === "worktree_create")
 				return ok({ path: "/wt/agent-1", branch: "omp/agent/agent-1", baseCwd: "/repo" });
 			if (command.type === "agent_control_confirm") return ok({ approved: true });
@@ -128,9 +174,36 @@ function setup(
 		autopilot: options.autopilot,
 		sweepMs: options.sweepMs,
 		mailOutboxFile: options.mailOutboxFile,
+		fileEdits,
+		releaseTab: async (target, tabId) => {
+			const at = webTabs.findIndex(tab => tab.tabId === tabId);
+			if (at < 0) return false;
+			webTabs.splice(at, 1);
+			released.push({ win: target, tabId });
+			log.push(`release:${tabId}`);
+			return true;
+		},
 	};
 	const runtime = new AgentControlRuntime(deps);
-	return { runtime, win, win2, deps, commands, spawned, tabs, otherTabs, activity, prefs, openers, sidecars };
+	return {
+		runtime,
+		win,
+		win2,
+		webWin,
+		deps,
+		commands,
+		spawned,
+		tabs,
+		otherTabs,
+		webTabs,
+		fileEdits,
+		released,
+		log,
+		activity,
+		prefs,
+		openers,
+		sidecars,
+	};
 }
 
 describe("AgentControlRuntime", () => {
@@ -1056,5 +1129,92 @@ describe("AgentControlRuntime", () => {
 			vi.useRealTimers();
 			await fs.rm(dir, { recursive: true, force: true });
 		}
+	});
+});
+
+describe("closing a child a paired web page owns", () => {
+	const WEB = -1;
+	const stop = { session: "web00002", close: true };
+	const phone = () =>
+		setup({
+			tabs: [{ tabId: "main0001", sessionPath: "/s/boss.jsonl" }],
+			webTabs: [{ tabId: "web00002", title: "Phone child", sessionPath: "/s/kid.jsonl" }],
+			sweepMs: 0,
+		});
+
+	it("releases the tab in main once the page reported its Files editor clean, and mails the note after", async () => {
+		const { runtime, win, webWin, webTabs, fileEdits, released, log } = phone();
+		fileEdits.report(WEB, null);
+		const result = await runtime.run(win, "main0001", T.stop, stop);
+		expect(result.isError, result.text).toBe(false);
+		expect(result.text).toContain("Closed");
+		expect(released).toEqual([{ win: webWin, tabId: "web00002" }]);
+		expect(webTabs).toEqual([]);
+		expect(webWin.sent).toEqual([]);
+		expect(log[0]).toBe("release:web00002");
+		expect(log).toContain("mail:main0001");
+	});
+
+	it("keeps the tab and sends no note when the page reported unsaved edits in it", async () => {
+		const { runtime, win, webTabs, fileEdits, released, log } = phone();
+		fileEdits.report(WEB, "web00002");
+		const result = await runtime.run(win, "main0001", T.stop, stop);
+		expect(result.isError).toBe(true);
+		expect(result.text).toMatch(/unsaved edits in the Files editor/);
+		expect(released).toEqual([]);
+		expect(webTabs).toHaveLength(1);
+		expect(log).toEqual([]);
+	});
+
+	it("treats a dirty editor of another tab of that page as no reason to keep this one", async () => {
+		const { runtime, win, released, fileEdits } = phone();
+		fileEdits.report(WEB, "other003");
+		const result = await runtime.run(win, "main0001", T.stop, stop);
+		expect(result.isError, result.text).toBe(false);
+		expect(released.map(entry => entry.tabId)).toEqual(["web00002"]);
+	});
+
+	it("queues the close until the page's first report, then releases it and journals it", async () => {
+		const { runtime, win, webTabs, fileEdits, released, log } = phone();
+		const result = await runtime.run(win, "main0001", T.stop, stop);
+		expect(result.isError, result.text).toBe(false);
+		expect(result.text).toMatch(/will close when the phone page/);
+		expect(released).toEqual([]);
+		expect(log).toEqual([]);
+		expect(webTabs).toHaveLength(1);
+
+		fileEdits.report(WEB, null);
+		await vi.waitFor(() => expect(log).toContain("mail:main0001"));
+		expect(log[0]).toBe("release:web00002");
+		expect(released.map(entry => entry.tabId)).toEqual(["web00002"]);
+	});
+
+	it("holds a queued close back when the first report says that tab has unsaved edits", async () => {
+		const { runtime, win, webTabs, fileEdits, released, log } = phone();
+		await runtime.run(win, "main0001", T.stop, stop);
+		fileEdits.report(WEB, "web00002");
+		fileEdits.report(WEB, null);
+		await Promise.resolve();
+		expect(released).toEqual([]);
+		expect(log).toEqual([]);
+		expect(webTabs).toHaveLength(1);
+	});
+
+	it("still asks a desktop window to close its own tab, and tells the caller only once it is gone", async () => {
+		const { runtime, win, tabs, log } = setup({
+			tabs: [{ tabId: "main0001" }, { tabId: "desk0002", title: "Desktop child" }],
+			sweepMs: 0,
+		});
+		const closing = runtime.run(win, "main0001", T.stop, { session: "desk0002", close: true });
+		await vi.waitFor(() =>
+			expect(win.sent).toContainEqual([AGENT_CONTROL_VIEW, { tabId: "desk0002", how: "close" }]),
+		);
+		expect(log).toEqual([]);
+		tabs.splice(
+			tabs.findIndex(tab => tab.tabId === "desk0002"),
+			1,
+		);
+		expect((await closing).text).toContain("Closed");
+		expect(log).toContain("mail:main0001");
 	});
 });
