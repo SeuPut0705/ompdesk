@@ -288,6 +288,12 @@ export interface SidecarOptions {
 	 */
 	defaultBrowser?: () => Promise<AgentBrowser> | AgentBrowser;
 	/**
+	 * ego-browser's folder when it is installed (null when not): added to the session's PATH, since the browser
+	 * section has agents run a bare `ego-browser` and it is also found where the login shell's PATH may not look
+	 * (`~/.local/bin`). Added whatever the choice, so a live switch to ego-browser finds it too.
+	 */
+	egoBrowserDir?: () => Promise<string | null>;
+	/**
 	 * Settings › General › Profile (how the agent addresses the user, their
 	 * development experience), passed to omp as JSON in `OMP_GUI_USER_PROFILE`
 	 * and pushed by `syncUserProfile()` (same point-of-use pattern as
@@ -478,6 +484,7 @@ export class SidecarManager extends EventEmitter {
 	#proxyEnvVars: Record<string, string> = {};
 	#builtinMcp: { args: string[]; root?: string; env?: Record<string, string> } = { args: [] };
 	#defaultBrowser: AgentBrowser | undefined;
+	#egoBrowserDir: string | null = null;
 	#shellEnvVars: Record<string, string> = {};
 	#resumeSessionPath: string | null = null;
 	#freshLaunchPending: boolean;
@@ -570,7 +577,8 @@ export class SidecarManager extends EventEmitter {
 				? this.#options.sessionFree(this.#resumeSessionPath).catch(() => "free" as const)
 				: ("free" as const),
 			Promise.resolve(this.#options.defaultBrowser?.()).catch(() => undefined),
-		]).then(([resolution, proxyVars, shellVars, builtinMcp, session, defaultBrowser]) => {
+			this.#options.egoBrowserDir?.().catch(() => null) ?? Promise.resolve(null),
+		]).then(([resolution, proxyVars, shellVars, builtinMcp, session, defaultBrowser, egoBrowserDir]) => {
 			if (this.#disposed || seq !== this.#startSeq) return;
 			if (session === "owned") {
 				this.#setStatus(
@@ -594,6 +602,7 @@ export class SidecarManager extends EventEmitter {
 			this.#shellEnvVars = shellVars;
 			this.#builtinMcp = builtinMcp;
 			this.#defaultBrowser = defaultBrowser;
+			this.#egoBrowserDir = egoBrowserDir;
 			this.#spawn();
 		});
 	}
@@ -680,7 +689,11 @@ export class SidecarManager extends EventEmitter {
 					// (`SESSION_OWNED_ENV`).
 					...withoutSessionEnv({ ...process.env, ...this.#shellEnvVars }),
 					...this.#proxyEnvVars,
-					PATH: ompPathEnv(bin, this.#shellEnvVars.PATH ?? process.env.PATH ?? ""),
+					PATH: ompPathEnv(
+						bin,
+						this.#shellEnvVars.PATH ?? process.env.PATH ?? "",
+						this.#egoBrowserDir ? [this.#egoBrowserDir] : [],
+					),
 					...(bridgeAddress ? { OMP_GUI_BRIDGE: bridgeAddress } : {}),
 					...(replyLanguage ? { OMP_GUI_REPLY_LANGUAGE: replyLanguage } : {}),
 					...(userProfile && (userProfile.name || userProfile.experience)

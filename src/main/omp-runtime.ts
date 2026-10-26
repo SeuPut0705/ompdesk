@@ -70,10 +70,13 @@ export function parseUpdateCheck(output: string): OmpUpdateCheck | null {
 	return latest ? { currentVersion: current, latestVersion: latest } : null;
 }
 
-/** `basePath` plus the omp directory and `~/.bun/bin`, so the CLI's `env bun` shebang resolves. */
-export function ompPathEnv(bin: string, basePath: string): string {
+/**
+ * `basePath` plus the omp directory and `~/.bun/bin`, so the CLI's `env bun` shebang resolves, and any `extra` folder
+ * a session's tools need that the login shell's PATH may lack (ego-browser's).
+ */
+export function ompPathEnv(bin: string, basePath: string, extra: readonly string[] = []): string {
 	const entries = basePath.split(delimiter).filter(Boolean);
-	for (const dir of [dirname(bin), join(homedir(), ".bun", "bin")]) {
+	for (const dir of [dirname(bin), join(homedir(), ".bun", "bin"), ...extra]) {
 		if (!entries.includes(dir)) entries.push(dir);
 	}
 	return entries.join(delimiter);

@@ -3,7 +3,7 @@
  * remote host's tabs for paired devices (src/main/remote/host-services.ts)
  * both come from here, so a session runs the same way whoever opened it.
  */
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { app } from "electron";
 import type { AutoTitleSettings } from "../../resources/gui-bridge/modes/auto-title-contracts";
 import { AUTOPILOT_FRAME_TYPES } from "../../resources/gui-bridge/modes/autopilot-contracts";
@@ -22,7 +22,7 @@ import { deviceLanguageTag, replyLanguageName, resolveReplyLanguage } from "../s
 import { bootModelSelector } from "./boot-model";
 import type { BridgeConnectResult, BridgeHealth } from "./bridge-health";
 import { builtinReaState } from "./builtin-mcp";
-import { egoBrowserInstalled } from "./ego-browser";
+import { egoBrowserInstalled, resolveEgoBrowser } from "./ego-browser";
 import { mainT, ompFailureText } from "./i18n";
 import { ompAvailability } from "./omp-availability";
 import { systemOmp } from "./omp-runtime";
@@ -172,6 +172,10 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 				? {
 						defaultBrowser: async () =>
 							resolveAgentBrowser(parseDefaultBrowser(deps.defaultBrowserPref?.()), await egoBrowserInstalled()),
+						egoBrowserDir: async () => {
+							const bin = await resolveEgoBrowser();
+							return bin ? dirname(bin) : null;
+						},
 					}
 				: {}),
 			userProfile: () => normalizeUserProfile(deps.userProfilePref()),
