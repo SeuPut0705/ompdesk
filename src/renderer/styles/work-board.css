@@ -604,16 +604,3 @@ button.omp-work-board-row[data-board-opened][data-status="waiting"]:hover {
 	flex: none;
 	color: var(--sc-text-subtle);
 }
-
-/* The sidebar's usage block says the same accounts (both read `lastUsedAccounts`): while it is expanded and on screen
-   and shows every provider, the board does not repeat its gauges. Where the sidebar is not on screen (the phone's
-   strip, a window or tablet that folds it), its usage block is folded, or it stacks only its first
-   `USAGE_LINE_CAP` providers (`data-capped`), the board keeps them, and a metered provider's real charge (which the
-   sidebar does not show) always stays. */
-.omp-shell[data-sidebar="docked"]:has(.omp-sidebar-usage:not([data-collapsed], [data-capped])) .omp-work-board-account {
-	display: none;
-}
-
-.omp-shell[data-sidebar="docked"]:has(.omp-sidebar-usage:not([data-collapsed], [data-capped])) .omp-work-board-meters:not(:has(> :not(.omp-work-board-account))) {
-	display: none;
-}

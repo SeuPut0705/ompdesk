@@ -292,13 +292,3 @@ describe("workingSubagents", () => {
 		expect(isWaitingSubagent("running")).toBe(false);
 	});
 });
-
-describe("the board's quota gauges beside the sidebar's", () => {
-	const css = readFileSync(new URL("../../../styles/work-board.css", import.meta.url), "utf8");
-
-	it("hides only while the sidebar's usage block is expanded and shows every provider", () => {
-		expect(css).toContain(
-			'.omp-shell[data-sidebar="docked"]:has(.omp-sidebar-usage:not([data-collapsed], [data-capped])) .omp-work-board-account',
-		);
-	});
-});
