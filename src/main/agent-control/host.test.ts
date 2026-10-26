@@ -1169,30 +1169,15 @@ describe("closing a child a paired web page owns", () => {
 		expect(released.map(entry => entry.tabId)).toEqual(["web00002"]);
 	});
 
-	it("queues the close until the page's first report, then releases it and journals it", async () => {
-		const { runtime, win, webTabs, fileEdits, released, log } = phone();
+	it("releases the tab at once and journals it when its page has not reported (offline, or not seen since launch)", async () => {
+		const { runtime, win, webTabs, released, log } = phone();
 		const result = await runtime.run(win, "main0001", T.stop, stop);
 		expect(result.isError, result.text).toBe(false);
-		expect(result.text).toMatch(/will close when the phone page/);
-		expect(released).toEqual([]);
-		expect(log).toEqual([]);
-		expect(webTabs).toHaveLength(1);
-
-		fileEdits.report(WEB, null);
-		await vi.waitFor(() => expect(log).toContain("mail:main0001"));
-		expect(log[0]).toBe("release:web00002");
+		expect(result.text).toContain("Closed");
 		expect(released.map(entry => entry.tabId)).toEqual(["web00002"]);
-	});
-
-	it("holds a queued close back when the first report says that tab has unsaved edits", async () => {
-		const { runtime, win, webTabs, fileEdits, released, log } = phone();
-		await runtime.run(win, "main0001", T.stop, stop);
-		fileEdits.report(WEB, "web00002");
-		fileEdits.report(WEB, null);
-		await Promise.resolve();
-		expect(released).toEqual([]);
-		expect(log).toEqual([]);
-		expect(webTabs).toHaveLength(1);
+		expect(webTabs).toEqual([]);
+		expect(log[0]).toBe("release:web00002");
+		expect(log.filter(line => line.startsWith("mail:main0001"))).toHaveLength(1);
 	});
 
 	it("still asks a desktop window to close its own tab, and tells the caller only once it is gone", async () => {

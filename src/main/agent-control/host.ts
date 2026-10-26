@@ -313,8 +313,8 @@ export class AgentControlRuntime {
 				this.control.released(activity.tabId);
 			}
 		});
-		// A paired page's first (or changed) word about its Files editor lets a child it holds close at once, not at the
-		// next timer tick.
+		// A paired page's changed word about its Files editor (its unsaved edits saved or dropped) lets a child it held
+		// back close now, not at the next timer tick.
 		deps.fileEdits.onReport(() => {
 			for (const opener of this.#openers()) this.#sweepSoon(opener);
 		});
@@ -955,7 +955,6 @@ export class AgentControlRuntime {
 				const win = deps.pool.windowOfTab(tabId);
 				return win && isWebWindow(win.webContents.id) ? deps.releaseTab(win, tabId) : false;
 			},
-			onFileEdits: listener => deps.fileEdits.onReport(listener),
 			view: (callerTabId, event: AgentControlViewEvent) => {
 				// The window that holds the session (another window's tab closes or shows there), else the caller's.
 				const win = deps.pool.windowOfTab(event.tabId) ?? this.#win(callerTabId);

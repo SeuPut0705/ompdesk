@@ -136,15 +136,6 @@ class FakeHost implements AgentControlHost {
 		this.releases.push(tabId);
 		return this.tabsById.delete(tabId);
 	};
-	fileEditListeners = new Set<() => void>();
-	onFileEdits = (listener: () => void) => {
-		this.fileEditListeners.add(listener);
-		return () => this.fileEditListeners.delete(listener);
-	};
-	/** A paired web page reported its Files editor state. */
-	fileEdited(): void {
-		for (const listener of [...this.fileEditListeners]) listener();
-	}
 	/** Settles once the omp of a closed tab has exited; a test holds it to see what waits for it. */
 	exited = async (_tabId: string): Promise<void> => {};
 	notify = vi.fn();
@@ -3623,11 +3614,6 @@ describe("closing and stopping: ownership after a relaunch, cards by risk", () =
 	});
 });
 
-/** Lets every promise a fake host already resolved run its continuations: what a report set off has finished. */
-async function flush(): Promise<void> {
-	for (let turn = 0; turn < 100; turn++) await Promise.resolve();
-}
-
 describe("a close is told only once the tab is gone", () => {
 	const closeArgs = { session: "kid00002", close: true };
 
@@ -3683,50 +3669,15 @@ describe("closing a tab a paired web page owns", () => {
 		expect(host.tabsById.has("web00002")).toBe(true);
 	});
 
-	it("queues the close while the page has not reported, and journals it only when it really closes", async () => {
+	it("releases it at once, with one close note, when its page has not reported (offline, or not seen since launch)", async () => {
 		const { host, service } = phoneChild("unreported");
 		const result = await service.run("boss0001", T.stop, closeArgs);
 		expect(result.isError, result.text).toBe(false);
-		expect(result.text).toMatch(/will close when the phone page/);
-		expect(result.text).not.toMatch(/^Closed/);
-		expect(host.releases).toEqual([]);
-		expect(host.views).toEqual([]);
-		expect(host.mails).toEqual([]);
-
-		// A report that says nothing about its tab yet changes nothing.
-		host.fileEdited();
-		await flush();
-		expect(host.releases).toEqual([]);
-
-		const tab = host.tabsById.get("web00002") as FakeTab;
-		tab.webEdits = "clean";
-		host.fileEdited();
-		await vi.waitFor(() => expect(host.order).toEqual(["release:web00002", "mail:boss0001", "mail:web00002"]));
-		// One carried-out close is done: a later report closes nothing twice.
-		host.fileEdited();
-		await flush();
+		expect(result.text).toMatch(/^Closed/);
 		expect(host.releases).toEqual(["web00002"]);
-	});
-
-	it("drops a queued close when the first report says the tab has unsaved edits, or the person came to it", async () => {
-		const dirty = phoneChild("unreported");
-		await dirty.service.run("boss0001", T.stop, closeArgs);
-		(dirty.host.tabsById.get("web00002") as FakeTab).webEdits = "dirty";
-		dirty.host.fileEdited();
-		await flush();
-		(dirty.host.tabsById.get("web00002") as FakeTab).webEdits = "clean";
-		dirty.host.fileEdited();
-		await flush();
-		expect(dirty.host.releases).toEqual([]);
-		expect(dirty.host.mails).toEqual([]);
-
-		const watched = phoneChild("unreported");
-		await watched.service.run("boss0001", T.stop, closeArgs);
-		Object.assign(watched.host.tabsById.get("web00002") as FakeTab, { webEdits: "clean", looked: true });
-		watched.host.fileEdited();
-		await flush();
-		expect(watched.host.releases).toEqual([]);
-		expect(watched.host.mails).toEqual([]);
+		expect(host.views).toEqual([]);
+		expect(host.order).toEqual(["release:web00002", "mail:boss0001", "mail:web00002"]);
+		expect(host.tabsById.has("web00002")).toBe(false);
 	});
 
 	it("never releases a tab the person looks at or typed into, even when its page reported it clean", async () => {
@@ -3739,20 +3690,20 @@ describe("closing a tab a paired web page owns", () => {
 		}
 	});
 
-	it("auto-closes a finished web child in main only once its page reported the tab clean", async () => {
-		for (const webEdits of ["unreported", "dirty"] as const) {
+	it("auto-closes a finished web child in main unless its page reported unsaved edits in that tab", async () => {
+		const kept = await finishedWebChild("dirty");
+		await kept.service.autoClose("main0001");
+		expect(kept.host.releases).toEqual([]);
+		expect(kept.host.views).toEqual([]);
+		expect(kept.host.closedRecords).toEqual([]);
+		expect(kept.host.tabsById.has(kept.child.tabId)).toBe(true);
+		for (const webEdits of ["clean", "unreported"] as const) {
 			const { host, service, child } = await finishedWebChild(webEdits);
 			await service.autoClose("main0001");
-			expect(host.releases, webEdits).toEqual([]);
+			expect(host.releases, webEdits).toEqual([child.tabId]);
 			expect(host.views, webEdits).toEqual([]);
-			expect(host.closedRecords, webEdits).toEqual([]);
-			expect(host.tabsById.has(child.tabId)).toBe(true);
+			expect(host.closedRecords, webEdits).toHaveLength(1);
 		}
-		const { host, service, child } = await finishedWebChild("clean");
-		await service.autoClose("main0001");
-		expect(host.releases).toEqual([child.tabId]);
-		expect(host.views).toEqual([]);
-		expect(host.closedRecords).toHaveLength(1);
 	});
 
 	async function finishedWebChild(webEdits: "clean" | "dirty" | "unreported") {
