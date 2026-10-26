@@ -81,7 +81,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // R3-6's strip summary (the per-open zone state and fold snapshot in WorkBoardChip, SummaryBoard and the summary line
 // in board-parts.tsx, the sessions-opened chunk's preload) adds 3,155 bytes over its base (main 5c542e92b 3,324,759 →
 // 3,327,914); the session rows' chunk stays off the first screen.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_328_000;
+// The phone page's Files-edit report (web/FileEditReporter.tsx: which tab's editor holds unsaved edits, so the computer
+// never closes it for an agent) adds 720 bytes over its base (main ad86fb309 3,327,914 → 3,328,634).
+const WEB_FIRST_SCREEN_JS_BYTES = 3_329_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
@@ -196,8 +198,8 @@ const firstScreenBytes = [...firstScreen.values()].reduce((total, size) => total
 const panelChunk = [...firstScreen.keys()].find(name => name.startsWith("PanelViews-"));
 if (panelChunk || firstScreenBytes > WEB_FIRST_SCREEN_JS_BYTES) {
 	console.error(
-		`The paired phone's first screen loads ${(firstScreenBytes / 1e6).toFixed(2)} MB of JavaScript in ${firstScreen.size} files ` +
-			`(budget ${(WEB_FIRST_SCREEN_JS_BYTES / 1e6).toFixed(2)} MB)${panelChunk ? `, the side panel's views (${panelChunk}) among them` : ""}. ` +
+		`The paired phone's first screen loads ${firstScreenBytes.toLocaleString("en-US")} bytes of JavaScript in ${firstScreen.size} files ` +
+			`(budget ${WEB_FIRST_SCREEN_JS_BYTES.toLocaleString("en-US")})${panelChunk ? `, the side panel's views (${panelChunk}) among them` : ""}. ` +
 			"Load what the first screen does not show lazily (React.lazy / import()), or raise the budget in scripts/check-main-bundle.ts with numbers from e2e/web-perf.e2e.ts.",
 	);
 	process.exit(1);
