@@ -88,7 +88,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // screen) add 6,002 bytes over its base (3,328,634 → 3,334,636).
 // The recall line's per-item scope, its remembered Not helpful (`lib/recall-rated.ts`), and the page's own grants from
 // the hello frame (`pageMayUse`, so a page without host-admin hides the action) add 3,601 bytes (3,334,636 → 3,338,237).
-const WEB_FIRST_SCREEN_JS_BYTES = 3_339_000;
+// 26 Oct 2026: every window hears what this computer works on now (`sessions.live`, `onLiveSessionsChanged`, the
+// store's `live` list and the sidebar's read of it) so a row another window works on lights unopened: 620 bytes over
+// the old budget (measured 3,339,620).
+const WEB_FIRST_SCREEN_JS_BYTES = 3_340_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

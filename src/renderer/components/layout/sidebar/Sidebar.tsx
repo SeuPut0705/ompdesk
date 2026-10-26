@@ -564,6 +564,12 @@ export function Sidebar() {
 		}
 		return index;
 	}, [hostedSessions]);
+	// What this computer works on now: a row no tab of this window holds (another window's) by its file.
+	const workingNow = useHostedSessionsStore(s => s.live);
+	const liveByPath = useMemo(
+		() => new Map(workingNow.map(session => [session.sessionPath, session.state])),
+		[workingNow],
+	);
 	const hosts = usePairedHosts();
 	const pinnedGroups = useSidebarPrefs(s => s.pinnedGroups);
 	const groupOrder = useSidebarPrefs(s => s.groupOrder);
@@ -1278,7 +1284,7 @@ export function Sidebar() {
 		const signal = sessionTabSignal(session);
 		if (signal) return signal.active;
 		if (isCurrentSession(session) && (isStreaming || isCompacting)) return true;
-		return session.status === "pending";
+		return session.status === "pending" || liveByPath.has(session.path);
 	};
 
 	const openSession = (session: SidebarSession) => {
@@ -1630,22 +1636,24 @@ export function Sidebar() {
 		// Background tabs park their dialogs in their own runtime; the tab entry carries the flag. A paired device's
 		// tab here that no tab of this window shows says it through its hosted state.
 		const hosted = tab === undefined ? hostedFor(session) : undefined;
+		// Another window's tab (or, on a phone's page, the computer's): main's list of what this computer works on.
+		const live = tab === undefined && hosted === undefined ? liveByPath.get(session.path) : undefined;
 		// A session that is not up says that, never what it needs from the person (the title bar's order).
 		const down = tab ? isSessionDown(tab) : hosted ? isSessionDown(hosted) : false;
 		// What the session needs from the person: the attached one's from `sessionAttention`, another tab's own prompt
 		// from its tab entry, then a child of its waiting, a paired device's from its hosted state (which only knows a
-		// question waits).
+		// question waits), another window's from the live list.
 		const waiting: AttentionKind | undefined = down
 			? undefined
 			: ((isCurrent ? attention?.kind : undefined) ??
 				(tab?.awaitingInput ? (tab.awaitingInput === "approval" ? "approval" : "question") : undefined) ??
 				(tab && childrenWaitingOf.has(tab.id) ? "childWaiting" : undefined) ??
-				(hosted?.awaitingInput ? "question" : undefined));
+				(hosted?.awaitingInput || live === "waiting" ? "question" : undefined));
 		// Only its own prompt stops the session's run; a waiting child or a failed check leaves a running turn running.
 		const running =
 			!isAsk(waiting) && (tabSignal?.running === true || (tabSignal === null && isSessionBusy(session)));
 		// Of `running`: its turn ended and only stock's background work keeps it on (the light's `background`).
-		const settling = running && (tab?.settling === true || hosted?.settling === true);
+		const settling = running && (tab?.settling === true || hosted?.settling === true || live === "background");
 		const failed =
 			!waiting &&
 			!running &&

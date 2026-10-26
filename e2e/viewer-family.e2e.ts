@@ -95,11 +95,30 @@ test("a phone viewing a desktop's session lists the sessions its agent opened, r
 				.poll(async () => (await deskTabs()).find(tab => tab.tabId === child)?.status, { timeout: 30_000 })
 				.toBe("running");
 		}
+		// A plain session the desktop works on, which no tab of the phone holds (the user's phone, 26 Oct 2026: such
+		// rows showed only an age until each was tapped).
+		const plain = await desk.evaluate(
+			async cwd => (await window.omp.tabs.spawn({ cwd, kind: "agent" }))?.tabId,
+			project,
+		);
+		if (!plain) throw new Error("no plain tab");
+		await expect
+			.poll(async () => (await deskTabs()).find(tab => tab.tabId === plain)?.status, { timeout: 60_000 })
+			.toBe("ready");
+		await desk.evaluate(
+			id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "fixture steer work" }),
+			plain,
+		);
+		await expect
+			.poll(async () => (await deskTabs()).find(tab => tab.tabId === plain)?.status, { timeout: 30_000 })
+			.toBe("running");
 		const before = await deskTabs();
 		const openerSession = before.find(tab => tab.tabId === opener)?.sessionPath ?? "";
 		const childSessions = children.map(id => before.find(tab => tab.tabId === id)?.sessionPath ?? "");
+		const plainSession = before.find(tab => tab.tabId === plain)?.sessionPath ?? "";
 		expect(openerSession).not.toBe("");
 		expect(childSessions).not.toContain("");
+		expect(plainSession).not.toBe("");
 
 		// The phone views the opener, as a drawer row's tap does; the children stay tabs of the desktop window.
 		const context = await browser.newContext({ ...devices["Pixel 8"] });
@@ -135,6 +154,23 @@ test("a phone viewing a desktop's session lists the sessions its agent opened, r
 		});
 		const chip = openerRow.locator("[data-family-running]");
 		await expect(chip).toHaveAttribute("data-family-running", "2");
+		// The plain session the desktop runs wears the working cue on the phone, untapped: the page hears what the
+		// computer works on now (the row rule itself is pinned in Sidebar.test.tsx; the fake's index reads the session
+		// `pending`, which lit such a row before too, while a real long turn's file reads `interrupted`).
+		await expect
+			.poll(
+				async () =>
+					(await phone.evaluate(() => window.omp.sessions.live())).find(row => row.sessionPath === plainSession)
+						?.state,
+				{
+					timeout: 20_000,
+				},
+			)
+			.toBe("turn");
+		await expect(
+			sidebar.locator(`.omp-sidebar-session-row[data-session-path=${cssString(plainSession)}]`),
+		).toHaveAttribute("data-signal", "running", { timeout: 20_000 });
+		expect((await phoneTabs()).some(tab => tab.tabId === plain)).toBe(false);
 		await chip.click();
 		const family = sidebar.locator(`[data-sidebar-family=${cssString(openerSession)}]`);
 		for (const childSession of childSessions)

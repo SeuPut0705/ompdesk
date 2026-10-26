@@ -499,6 +499,7 @@ export class LocalHostServices implements HostServices {
 	readonly #closedWhileOpening = new Set<string>();
 	readonly #runningListeners = new Set<() => void>();
 	readonly #hostedListeners = new Set<() => void>();
+	readonly #liveListeners = new Set<() => void>();
 	/**
 	 * What the review list last said of each child of this computer it names: opener session file → that list's
 	 * failed or unmerged children (`sessions.list` tells a device, whose tabs hold neither opener nor child).
@@ -786,6 +787,14 @@ export class LocalHostServices implements HostServices {
 		};
 	}
 
+	/** Called whenever `liveSessions` changed, once a burst settles; returns the unsubscribe. */
+	onLiveSessionsChange(listener: () => void): () => void {
+		this.#liveListeners.add(listener);
+		return () => {
+			this.#liveListeners.delete(listener);
+		};
+	}
+
 	/**
 	 * The sessions this computer works on now, from its windows' tabs and the tabs it runs for every device: what a
 	 * device's section of this computer lights for rows no tab of the device holds. Waiting beats a turn, a turn beats
@@ -807,15 +816,16 @@ export class LocalHostServices implements HostServices {
 		return [...live].map(([sessionPath, state]) => ({ sessionPath, state }));
 	}
 
-	/**
-	 * Something a session's work hangs on changed (a turn, background work, an ask, here or in a window): every
-	 * connected device hears the new list once a burst settles (`LIVE_SESSIONS_DEBOUNCE_MS`), and only when it differs.
-	 */
 	/** This computer's Mobile web address changed: every connected device hears it (`host.mobileWeb.changed`). */
 	mobileWebLinkChanged(url: string | null): void {
 		for (const conn of this.#conns) emitSafely(conn, MOBILE_WEB_LINK_EVENT, { url });
 	}
 
+	/**
+	 * Something a session's work hangs on changed (a turn, background work, an ask, here or in a window): every
+	 * connected device and every window of this computer hears the new list once a burst settles
+	 * (`LIVE_SESSIONS_DEBOUNCE_MS`), and only when it differs.
+	 */
 	liveSessionsChanged(): void {
 		if (this.#liveTimer) return;
 		this.#liveTimer = setTimeout(() => {
@@ -825,6 +835,7 @@ export class LocalHostServices implements HostServices {
 			if (snapshot === this.#liveSnapshot) return;
 			this.#liveSnapshot = snapshot;
 			for (const conn of this.#conns) emitSafely(conn, LIVE_SESSIONS_EVENT, { sessions });
+			for (const listener of this.#liveListeners) listener();
 		}, LIVE_SESSIONS_DEBOUNCE_MS);
 		this.#liveTimer.unref?.();
 	}

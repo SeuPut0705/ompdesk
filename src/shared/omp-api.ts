@@ -42,6 +42,7 @@ import type {
 	CustomProvidersConfig,
 	DeepLinkPayload,
 	HostDesktopState,
+	HostLiveSession,
 	HostUpdateAction,
 	HostView,
 	IpcActiveTabEnvelope,
@@ -337,6 +338,8 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				subscribe<IpcSessionsChanged | undefined>(IPC_EVENTS.SESSIONS_CHANGED, change => callback(change ?? {})),
 			onHostedSessionsChanged: (callback: (sessions: IpcHostedSession[]) => void) =>
 				subscribe<IpcHostedSession[]>(IPC_EVENTS.HOSTED_SESSIONS_CHANGED, callback),
+			onLiveSessionsChanged: (callback: (sessions: HostLiveSession[]) => void) =>
+				subscribe<HostLiveSession[]>(IPC_EVENTS.LIVE_SESSIONS_CHANGED, callback),
 			onLogBatch: (callback: (batch: LogBatch) => void) => subscribe<LogBatch>(IPC_EVENTS.LOG_LINE, callback),
 			onTabBatch: (callback: (events: AgentSessionEvent[], tabId: string) => void) =>
 				subscribeTab<AgentSessionEvent[]>(IPC_EVENTS.EVENTS_BATCH, callback),
@@ -544,6 +547,7 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				transport.invoke(IPC_COMMANDS.SESSION_OPEN_NEW_WINDOW, payload) as Promise<boolean>,
 			consumePendingOpen: () => transport.invoke(IPC_COMMANDS.SESSION_CONSUME_PENDING) as Promise<string | null>,
 			hosted: () => transport.invoke(IPC_COMMANDS.HOSTED_SESSIONS) as Promise<IpcHostedSession[]>,
+			live: () => transport.invoke(IPC_COMMANDS.LIVE_SESSIONS) as Promise<HostLiveSession[]>,
 		},
 
 		tabs: {

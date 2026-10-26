@@ -122,6 +122,8 @@ export const IPC_EVENTS = {
 	SESSIONS_CHANGED: "sessions:changed",
 	/** The sessions paired devices' tabs run on this computer changed (`IpcHostedSession[]`) */
 	HOSTED_SESSIONS_CHANGED: "sessions:hosted-changed",
+	/** What this computer works on now changed (`HostLiveSession[]`, `LIVE_SESSIONS`) */
+	LIVE_SESSIONS_CHANGED: "sessions:live-changed",
 	/** Log line appended */
 	LOG_LINE: "log:line",
 	/** Native application menu action */
@@ -203,6 +205,12 @@ export const IPC_COMMANDS = {
 	SESSIONS_LIST: "sessions:list",
 	/** The sessions paired devices' tabs run on this computer, for its own sidebar (`IpcHostedSession[]`) */
 	HOSTED_SESSIONS: "sessions:hosted",
+	/**
+	 * The sessions this computer works on now, from any of its windows' tabs or the tabs it runs for devices
+	 * (`HostLiveSession[]`, what a paired device hears as `host.liveSessions`): a window's sidebar lights a row no tab of
+	 * its own holds.
+	 */
+	LIVE_SESSIONS: "sessions:live",
 	/** Delete a session file */
 	SESSIONS_DELETE: "sessions:delete",
 	/** Stop every turn on a session file and answer once they ended ("Stop and delete" of a refused delete) */
@@ -1992,6 +2000,8 @@ export interface OmpApi {
 		onSessionsChanged(callback: (change: IpcSessionsChanged) => void): () => void;
 		/** The sessions paired devices' tabs run on this computer changed (the whole list). */
 		onHostedSessionsChanged(callback: (sessions: IpcHostedSession[]) => void): () => void;
+		/** What this computer works on now changed (the whole list, `LIVE_SESSIONS`). */
+		onLiveSessionsChanged(callback: (sessions: HostLiveSession[]) => void): () => void;
 		onLogBatch(callback: (batch: LogBatch) => void): () => void;
 		onMenuAction(callback: (action: MenuAction, payload?: MenuActionPayload) => void): () => void;
 		onDeepLink(callback: (link: DeepLinkPayload) => void): () => void;
@@ -2179,6 +2189,8 @@ export interface OmpApi {
 		consumePendingOpen(): Promise<string | null>;
 		/** The sessions paired devices' tabs run on this computer, with their live state (`IpcHostedSession`). */
 		hosted(): Promise<IpcHostedSession[]>;
+		/** What this computer works on now, from any of its windows or the tabs it runs for devices (`LIVE_SESSIONS`). */
+		live(): Promise<HostLiveSession[]>;
 	};
 	tabs: {
 		/** The calling window's tabs in acquisition order (boot reconciliation). */

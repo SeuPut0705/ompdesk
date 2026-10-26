@@ -163,6 +163,7 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[C.GET_TABS]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.GET_SESSION_OWNER]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.HOSTED_SESSIONS]: { dir: "invoke", permission: "workspace", mode: "pass" },
+	[C.LIVE_SESSIONS]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.WORKTREE_PROMPTS_GET]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.WORKTREE_PROMPT_ANSWER]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.PROJECT_ORIGINS_GET]: { dir: "invoke", permission: "workspace", mode: "pass" },
@@ -503,6 +504,7 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[E.MODEL_CATALOG_UPDATE]: { dir: "push", mode: "pass" },
 	[E.SESSIONS_CHANGED]: { dir: "push", mode: "pass" },
 	[E.HOSTED_SESSIONS_CHANGED]: { dir: "push", mode: "pass" },
+	[E.LIVE_SESSIONS_CHANGED]: { dir: "push", mode: "pass" },
 	[E.LOG_LINE]: { dir: "push", mode: "pass" },
 	[E.MENU_ACTION]: {
 		dir: "push",

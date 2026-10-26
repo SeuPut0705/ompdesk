@@ -2162,7 +2162,7 @@ describe("LocalHostServices for this computer's own windows", () => {
 		expect(changed).toHaveBeenCalled();
 	});
 
-	it("tells every device which of its sessions work now, from its windows and the tabs it runs for devices", async () => {
+	it("tells every device and every window which of its sessions work now, from its windows and the tabs it runs for devices", async () => {
 		vi.useFakeTimers();
 		let windows: HostLiveSession[] = [{ sessionPath: "/s/window.jsonl", state: "background" }];
 		const { services, sidecars } = setup(60_000, { windowLiveSessions: () => windows });
@@ -2180,6 +2180,9 @@ describe("LocalHostServices for this computer's own windows", () => {
 		});
 		const pushed = (conn: FakeConnection) =>
 			conn.events.filter(entry => entry.event === LIVE_SESSIONS_EVENT).map(entry => entry.data);
+		// Every window hears the same list (another window's or a phone page's sidebar lights rows no tab of it holds).
+		const heard: HostLiveSession[][] = [];
+		services.onLiveSessionsChange(() => heard.push(services.liveSessions()));
 
 		// x's tab starts a turn, then an ask opens in it: one push per burst, to both devices.
 		sidecar.emit("events", [{ type: "agent_start" }]);
@@ -2193,6 +2196,7 @@ describe("LocalHostServices for this computer's own windows", () => {
 		};
 		expect(pushed(x)).toEqual([waiting]);
 		expect(pushed(y)).toEqual([waiting]);
+		expect(heard).toEqual([waiting.sessions]);
 
 		// A window's turn ends, and a window takes up the same session the device's tab waits on: waiting still wins.
 		windows = [{ sessionPath: SESSION, state: "turn" }];
@@ -2204,6 +2208,7 @@ describe("LocalHostServices for this computer's own windows", () => {
 		services.liveSessionsChanged();
 		vi.advanceTimersByTime(LIVE_SESSIONS_DEBOUNCE_MS);
 		expect(pushed(y)).toHaveLength(2);
+		expect(heard).toHaveLength(2);
 
 		windows = [];
 		await services.call(x.peer, "tab.close", { rtab: "t1" }, x);

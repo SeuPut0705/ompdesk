@@ -222,6 +222,8 @@ export interface IpcDeps {
 		| "viewSession"
 		| "hostedSessions"
 		| "onHostedSessionsChange"
+		| "liveSessions"
+		| "onLiveSessionsChange"
 		| "sidecarOf"
 		| "attachAutopilot"
 		| "attachAgentReview"
@@ -577,6 +579,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// The sessions this computer runs for paired devices are every window's sidebar rows too.
 	deps.hostedTabs.onHostedSessionsChange(() =>
 		broadcast(windowManager, IPC_EVENTS.HOSTED_SESSIONS_CHANGED, deps.hostedTabs.hostedSessions()),
+	);
+	// What this computer works on now lights the rows no tab of a window holds (another window's, a phone page's).
+	deps.hostedTabs.onLiveSessionsChange(() =>
+		broadcast(windowManager, IPC_EVENTS.LIVE_SESSIONS_CHANGED, deps.hostedTabs.liveSessions()),
 	);
 
 	// Host-level lookups on a paired host, shared by spawn/open/switch paths.
@@ -1567,6 +1573,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		return held ? ({ tabId: "", winId: 0, hosted: true } satisfies IpcSessionOwner) : null;
 	});
 	ipc.handle(IPC_COMMANDS.HOSTED_SESSIONS, () => deps.hostedTabs.hostedSessions());
+	ipc.handle(IPC_COMMANDS.LIVE_SESSIONS, () => deps.hostedTabs.liveSessions());
 
 	// Full-content search over session files (raw JSONL grep on the machine
 	// holding them, scoped to the same candidate set the list view would show).
