@@ -1030,6 +1030,25 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(rowFor("Brand new").getAttribute("data-signal")).toBe("running");
 	});
 
+	// 26 Oct 2026, the user's phone: three sessions worked in the computer's window and their rows showed only an age
+	// until each was tapped. A row no tab of this window holds wears the working cue from main's list of what this
+	// computer works on now, as a paired host's section does from `host.live`.
+	it("lights a row another window of this computer works on, with no tap to open it first", async () => {
+		installMockOmp(LIST);
+		seedStores();
+		const path = "/work/alpha/two.jsonl";
+		useHostedSessionsStore.setState({ live: [{ sessionPath: path, state: "turn" }] });
+		await mount(<Sidebar />);
+		const row = () => rowFor(`Session ${path}`);
+		expect(row().getAttribute("data-signal")).toBe("running");
+
+		act(() => useHostedSessionsStore.setState({ live: [{ sessionPath: path, state: "waiting" }] }));
+		expect(row().getAttribute("data-signal")).toBe("waiting");
+
+		act(() => useHostedSessionsStore.setState({ live: [] }));
+		expect(row().getAttribute("data-signal")).toBeNull();
+	});
+
 	it("leads no session row with a slot: a chat's glyph sits at the end, before the age", async () => {
 		installMockOmp(LIST);
 		seedStores();
