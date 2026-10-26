@@ -4,7 +4,7 @@
  *   names with its name, its type and size in the tooltip and no preview (the
  *   compact chips of 15a52353; a word that names no file gets none) and × takes
  *   the mention out; a reply's Excel, CSV and PowerPoint files get cards under
- *   it, a removed one reads "Deleted" (a reply's PDF page: chat-media.e2e.ts);
+ *   it, a removed one draws nothing (a reply's PDF page: chat-media.e2e.ts);
  * - the side panel's Subagent view (A81): a sidebar subagent row dragged onto
  *   the session opens its transcript in the side panel, and the row menu's
  *   "Open in side panel" does the same for another agent;
@@ -31,7 +31,6 @@ const TEXT = {
 	en: {
 		cards: "Attached files",
 		replyFiles: "Files in this reply",
-		deleted: "Deleted",
 		remove: "Remove notes.txt",
 		openInPanel: "Open in side panel",
 		subagentTitle: "Subagent",
@@ -47,7 +46,6 @@ const TEXT = {
 	ko: {
 		cards: "첨부한 파일",
 		replyFiles: "이 답변의 파일",
-		deleted: "삭제됨",
 		remove: "notes.txt 빼기",
 		openInPanel: "사이드 패널에서 열기",
 		subagentTitle: "서브에이전트",
@@ -161,7 +159,8 @@ for (const language of variants(["en", "ko"] as const))
 				// ── File cards under a reply ────────────────────────────────────
 				await send(page, "fixture documents");
 				const replyCards = page.getByRole("group", { name: text.replyFiles }).last();
-				await expect(replyCards.locator("[data-file-card]")).toHaveCount(4, { timeout: 30_000 });
+				// The fixture's fourth file is gone: a reply draws nothing for it, never a "Deleted" card (32a4f3dab).
+				await expect(replyCards.locator("[data-file-card]")).toHaveCount(3, { timeout: 30_000 });
 				await expect(replyCards.locator('[data-file-card="spreadsheet"][data-state="ready"]')).toContainText(
 					"Excel · ",
 				);
@@ -169,7 +168,7 @@ for (const language of variants(["en", "ko"] as const))
 				await expect(replyCards.locator('[data-file-card="presentation"][data-state="ready"]')).toContainText(
 					"Roadmap 2025",
 				);
-				await expect(replyCards.locator('[data-file-card][data-state="missing"]')).toContainText(text.deleted);
+				await expect(replyCards.locator('[data-file-card][data-state="missing"]')).toHaveCount(0);
 				await replyCards.scrollIntoViewIfNeeded();
 				await capture(page, `${language}-${theme}-reply-cards`);
 
