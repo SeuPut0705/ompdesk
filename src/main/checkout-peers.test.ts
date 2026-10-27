@@ -206,6 +206,51 @@ describe("checkout peers: a committed file is no longer a claim", () => {
 		expect(a.sent.at(-1)?.worktree[0]?.files).toEqual([path.join(top, "fresh.ts")]);
 	});
 
+	/** A member whose files carry the edit stamps its bridge's ledger gives them, and which retires what main says. */
+	function ledgerMember(key: string, cwd: string) {
+		const claims = new Map<string, number>();
+		let seq = 0;
+		const fake = member(key, cwd, [], {
+			request: async (method, params) => {
+				if (method === "checkout_status") return { files: [...claims.keys()], stamps: [...claims.values()] };
+				if (method === "checkout_retire") {
+					for (const { file, stamp } of (params as { files: { file: string; stamp: number }[] }).files)
+						if (claims.get(file) === stamp) claims.delete(file);
+					return { ok: true };
+				}
+				fake.sent.push(params as CheckoutPeers);
+				return { ok: true };
+			},
+		});
+		return { fake, edit: (file: string) => claims.set(file, ++seq) };
+	}
+
+	it("never brings back a committed claim when another session changes that file later", async () => {
+		const a = ledgerMember("a", main);
+		const b = ledgerMember("b", main);
+		let listed = porcelain(" M src/f.ts");
+		const peers = coordinator(
+			() => [a.fake, b.fake],
+			new Set(),
+			async () => listed,
+		);
+		a.edit(src("f.ts"));
+		await peers.refresh();
+		expect(b.fake.sent.at(-1)?.worktree[0]?.files).toEqual([src("f.ts")]);
+		// A commits f: clean. Then B changes f: dirty again, and it is B's, never A's.
+		listed = porcelain();
+		await peers.refresh();
+		b.edit(src("f.ts"));
+		listed = porcelain(" M src/f.ts");
+		await peers.refresh();
+		expect(b.fake.sent.at(-1)?.worktree[0]?.files).toEqual([]);
+		expect(a.fake.sent.at(-1)?.worktree[0]?.files).toEqual([src("f.ts")]);
+		// A changing it again claims it anew.
+		a.edit(src("f.ts"));
+		await peers.refresh();
+		expect(b.fake.sent.at(-1)?.worktree[0]).toMatchObject({ files: [src("f.ts")], shared: [src("f.ts")] });
+	});
+
 	it("keeps a member's last answer when its bridge fails or does not answer in time", async () => {
 		let files = [src("b.ts")];
 		let mode: "answer" | "fail" | "hang" = "answer";
