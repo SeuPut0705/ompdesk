@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.78.1] - 2026-10-27
+
+커밋한 파일을 다른 세션이 나중에 고쳐도, 그 파일이 이전 세션의 작업으로 되살아나 막히는 일이 없어졌어요.
+
+### 고친 것
+- 0.78.0에서는 세션 A가 파일을 커밋한 뒤 세션 B가 같은 파일을 고치면, 다음 확인 때 그 파일이 다시 A의 작업으로 잡혔어요. 그래서 B가 그 파일을 통째로 쓰려 하면 "A의 작업을 덮는다"며 거부됐어요. 이제 커밋된 파일은 A의 기록에서 완전히 빠지고, A가 다시 고치면 그때 새로 A의 작업이 돼요.
+
+<!-- en -->
+
+A file one session committed is no longer revived as that session's work when another session changes it later.
+
+### Fixes
+- In 0.78.0, after session A committed a file and session B then changed it, the next pass took the file as A's again, so B writing it whole was refused as overwriting A's work. A committed file now leaves A's record for good, and becomes A's again only if A changes it again.
+
 ## [0.78.0] - 2026-10-27
 
 같은 폴더에서 여러 세션이 일할 때 서로의 작업을 빈틈없이 지켜요. 작업 상자는 보호된 단계와 쓴 스킬을 보여 주고, 다시 돌려 통과한 검사나 서버가 뜨기 전 확인 같은 것으로는 더 이상 빨개지지 않아요. 작업 현황에서 "검사 실패"는 확인이 필요한 항목에서 빠졌어요.
