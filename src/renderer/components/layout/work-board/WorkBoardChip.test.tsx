@@ -74,6 +74,18 @@ describe("WorkBoardChip, the phone's work strip", () => {
 		expect(container.querySelector("[data-work-chip]")).toBeNull();
 	});
 
+	it("marks its pane while it shows, for the dock rows that give way (perf: no :has() on the pane)", async () => {
+		container.className = "omp-session-pane";
+		await mount();
+		expect(container.hasAttribute("data-work-board-strip")).toBe(false);
+		await act(async () => useTodoStore.setState({ turnActive: true }));
+		expect(container.querySelector("[data-work-chip]")).not.toBeNull();
+		expect(container.hasAttribute("data-work-board-strip")).toBe(true);
+		await act(async () => useTodoStore.setState({ turnActive: false }));
+		expect(container.querySelector("[data-work-chip]")).toBeNull();
+		expect(container.hasAttribute("data-work-board-strip")).toBe(false);
+	});
+
 	it("names a live Autopilot run and its cycle, never just its Goal, even with the run's plan open", async () => {
 		useSessionStore.setState({ goal: { objective: "Autopilot: keep developing" }, goalState: { status: "active" } });
 		useTodoStore.getState().setPhases([{ name: "Cycle", tasks: [{ content: "Reproduce", status: "in_progress" }] }]);

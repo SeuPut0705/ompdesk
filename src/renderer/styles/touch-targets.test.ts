@@ -326,7 +326,7 @@ describe("controls close enough to take each other's taps", () => {
 		const topbar = css.lastIndexOf('\nhtml[data-shell="phone"] .omp-panel-topbar {');
 		expect(css.slice(topbar, css.indexOf("}", topbar))).toMatch(/--hit-gap-y:\s*14px/);
 		// A phone's side-panel icons draw 24 px behind a 1 px border: 14 px apart, bounded at 14, they reach 36.
-		const phonePanel = css.indexOf('html[data-shell="phone"][data-input="touch"]\n\t:is([data-sheet-panel]');
+		const phonePanel = css.indexOf('html[data-shell="phone"][data-input="touch"]\n\t:is([data-sheet-kind="panel"]');
 		expect(css.slice(phonePanel, css.indexOf("}", phonePanel))).toMatch(
 			/column-gap:\s*14px;[^}]*--hit-gap-x:\s*14px;[^}]*--hit-gap-y:\s*14px/,
 		);

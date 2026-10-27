@@ -434,6 +434,8 @@ export async function measure(
 	}
 	// OMP_GUI_LIVE_SESSION_TRACE (a directory) writes the window's Chrome trace as
 	// `<name>.trace.json`: native work (IPC decode, GC, style, layout) by task.
+	// OMP_GUI_LIVE_SESSION_TRACE_CATEGORIES adds categories (comma list), e.g.
+	// `disabled-by-default-devtools.timeline.invalidationTracking` to see what restyled.
 	const traceDir = process.env.OMP_GUI_LIVE_SESSION_TRACE;
 	const tracer = traceDir ? await page.context().newCDPSession(page) : undefined;
 	const traceEvents: unknown[] = [];
@@ -455,6 +457,7 @@ export async function measure(
 					"v8.execute",
 					"disabled-by-default-v8.gc",
 					"disabled-by-default-v8.cpu_profiler",
+					...(process.env.OMP_GUI_LIVE_SESSION_TRACE_CATEGORIES?.split(",") ?? []),
 				],
 			},
 		});

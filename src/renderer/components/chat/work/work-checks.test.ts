@@ -6,6 +6,7 @@ import { transcriptToolEntries } from "../../../stores/tools";
 import { type BackgroundJobVerdict, backgroundJobVerdicts } from "../completion-events";
 import {
 	checkKind,
+	checkKinds,
 	commandOperation,
 	commandProgram,
 	firstErrorLine,
@@ -43,6 +44,17 @@ describe("checkKind", () => {
 		["node scripts/lint-surfaces.mjs", "lint"],
 		["rg build src", undefined],
 	])("%s → %s", (command, kind) => expect(checkKind(command)).toBe(kind));
+});
+
+describe("checkKinds reads each command once (perf: the board re-reads every bash call per streamed event)", () => {
+	it("answers a repeated command with the same list, plain and grouped kept apart", () => {
+		const command = "(bunx vitest run src/a.test.ts) && bun run build";
+		const grouped = checkKinds(command, true);
+		expect(grouped).toEqual(["test", "build"]);
+		expect(checkKinds(command, true)).toBe(grouped);
+		expect(checkKinds(command)).toEqual(["build"]);
+		expect(checkKinds(command)).toBe(checkKinds(command));
+	});
 });
 
 describe("testCounts", () => {

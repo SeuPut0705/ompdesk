@@ -94,6 +94,28 @@ test("long real session with a live work card: open, scroll, idle and streaming 
 				// switched off) so a window's cost can be attributed to it.
 				if (process.env.OMP_GUI_LIVE_SESSION_CSS)
 					await page.addStyleTag({ content: process.env.OMP_GUI_LIVE_SESSION_CSS });
+				// What-if knob: OMP_GUI_LIVE_SESSION_DROP_RULES (a regular expression) deletes every style
+				// rule whose selector matches it, at any depth (@layer, @media, @supports), so a rule's
+				// style-invalidation cost can be attributed to it.
+				if (process.env.OMP_GUI_LIVE_SESSION_DROP_RULES)
+					console.log(
+						"dropped rules:",
+						await page.evaluate(source => {
+							const pattern = new RegExp(source);
+							const dropped: string[] = [];
+							const prune = (rules: CSSRuleList, remove: (index: number) => void) => {
+								for (let index = rules.length - 1; index >= 0; index--) {
+									const rule = rules[index];
+									if (rule instanceof CSSStyleRule && pattern.test(rule.selectorText)) {
+										dropped.push(rule.selectorText);
+										remove(index);
+									} else if (rule instanceof CSSGroupingRule) prune(rule.cssRules, at => rule.deleteRule(at));
+								}
+							};
+							for (const sheet of document.styleSheets) prune(sheet.cssRules, at => sheet.deleteRule(at));
+							return dropped;
+						}, process.env.OMP_GUI_LIVE_SESSION_DROP_RULES),
+					);
 				const cdp = await page.context().newCDPSession(page);
 				await cdp.send("HeapProfiler.collectGarbage");
 				const openHeapMb = Math.round((await cdp.send("Runtime.getHeapUsage")).usedSize / 1048576);
@@ -169,15 +191,17 @@ test("long real session with a live work card: open, scroll, idle and streaming 
 							await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible({
 								timeout: 30_000,
 							});
-							await control("fixture:work-next");
+							// The fixture takes `work-next` once its turn has streamed the opening thinking.
 							const card = page.locator('.omp-execution-group > .omp-live-step[data-state="running"]');
+							await expect(card).toHaveAttribute("data-surface", "thinking", { timeout: 30_000 });
+							await control("fixture:work-next");
 							await expect(card).toHaveAttribute("data-surface", "bash", { timeout: 30_000 });
 							await control("fixture:work-stream");
 							const streamOutput = await measure(app, page, `${subject.name}-${run}-stream-output`, 10, () =>
 								appendJournal(10),
 							);
 							for (let step = 0; step < 3; step++) await control("fixture:work-next");
-							await expect(card.locator(".omp-execution-group-summary")).toHaveText("4 steps");
+							await expect(card).toHaveAttribute("data-surface", "task");
 							await control("fixture:work-output");
 							await page.waitForTimeout(1000);
 							const cardIdle = await measure(app, page, `${subject.name}-${run}-card-idle`, 10);
