@@ -820,6 +820,8 @@ export class CheckoutLedger {
 	#told = new Set<string>();
 	#stamps = new Map<string, number>();
 	#seq = 0;
+	/** The files each call that has not reported back yet claimed, by tool call id. */
+	#pending = new Map<string, string[]>();
 
 	/** The files this session changed, newest first. */
 	get files(): readonly string[] {
@@ -836,6 +838,7 @@ export class CheckoutLedger {
 		cwd: string,
 		peers: CheckoutPeers | undefined,
 		host: CheckoutHost,
+		toolCallId?: string,
 	): CallVerdict {
 		const args = typeof input === "object" && input !== null ? input : {};
 		let touched: string[] = [];
@@ -871,6 +874,8 @@ export class CheckoutLedger {
 			this.#files = rememberFiles(this.#files, paths, CHECKOUT_FILES_MAX);
 			for (const path of paths) this.#stamps.set(path, ++this.#seq);
 			for (const path of this.#stamps.keys()) if (!this.#files.includes(path)) this.#stamps.delete(path);
+			// The hook runs before the tool: until it reports back, git may not show the change yet.
+			if (toolCallId !== undefined) this.#pending.set(toolCallId, paths);
 		}
 		return { notice, gained };
 	}
@@ -881,12 +886,36 @@ export class CheckoutLedger {
 	}
 
 	/**
+	 * The call `toolCallId` reported back (stock's `tool_result`): its files are written now. Their stamps move on, so a
+	 * retirement main decided from a read taken while the call ran matches nothing. True when it had claimed files (the
+	 * caller tells main, which then reads the written change).
+	 */
+	settle(toolCallId: string): boolean {
+		const paths = this.#pending.get(toolCallId);
+		if (!paths) return false;
+		this.#pending.delete(toolCallId);
+		for (const path of paths) if (this.#stamps.has(path)) this.#stamps.set(path, ++this.#seq);
+		return true;
+	}
+
+	/** Settles every call still pending: a run ended, and a call stock refused before running it never reports back. */
+	settleAll(): boolean {
+		let any = false;
+		for (const id of [...this.#pending.keys()]) any = this.settle(id) || any;
+		return any;
+	}
+
+	/**
 	 * Main saw these claims committed (`git status` no longer lists them): they stop being this session's. A file
-	 * changed again since (its stamp moved on) stays: that later change is a fresh claim.
+	 * changed again since (its stamp moved on) stays: that later change is a fresh claim. A file a running call is
+	 * still writing stays too.
 	 */
 	retire(claims: ReadonlyArray<{ file: string; stamp: number }>): void {
+		const writing = new Set([...this.#pending.values()].flat());
 		const gone = new Set(
-			claims.filter(claim => this.#stamps.get(claim.file) === claim.stamp).map(claim => claim.file),
+			claims
+				.filter(claim => !writing.has(claim.file) && this.#stamps.get(claim.file) === claim.stamp)
+				.map(claim => claim.file),
 		);
 		if (gone.size === 0) return;
 		this.#files = this.#files.filter(file => !gone.has(file));

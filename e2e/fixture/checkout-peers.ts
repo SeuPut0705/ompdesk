@@ -45,6 +45,7 @@ export function createCheckoutFake(host: Host) {
 	const cwd = process.cwd();
 	/** Each answer names its turn, so a test waiting for this turn's answer never reads the one before. */
 	let turns = 0;
+	let calls = 0;
 
 	const bridgeMethods: Record<string, (params: Params) => unknown> = {
 		checkout_peers_set: params => {
@@ -105,10 +106,13 @@ export function createCheckoutFake(host: Host) {
 		notices: string[],
 		act: () => { text: string; isError: boolean },
 	): { text: string; isError: boolean } {
-		const verdict = ledger.call(toolName, input, cwd, state.peers, files);
+		const id = `call-${++calls}`;
+		const verdict = ledger.call(toolName, input, cwd, state.peers, files, id);
 		if ("block" in verdict) return { text: verdict.block, isError: true };
 		if (verdict.notice) notices.push(verdict.notice);
-		return act();
+		const outcome = act();
+		ledger.settle(id);
+		return outcome;
 	}
 
 	function bash(command: string): { text: string; isError: boolean } {

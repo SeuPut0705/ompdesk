@@ -48,11 +48,20 @@ const ledger = new CheckoutLedger();
 export function install(pi: ExtensionAPI): void {
 	registerPromptSection(pi, CHECKOUT_PEERS_SECTION_ID, () => checkoutSection(state.peers));
 	pi.on("tool_call", (event, ctx) => {
-		const verdict = ledger.call(event.toolName, event.input, ctx.cwd, state.peers, host);
+		const verdict = ledger.call(event.toolName, event.input, ctx.cwd, state.peers, host, event.toolCallId);
 		if ("block" in verdict) return { block: true, reason: verdict.block };
 		// Main learns of a new claim now, not at its next sweep, so the others' guards see the file within a pass.
 		if (verdict.gained) emit({ type: CHECKOUT_FILES_EVENT });
 		return verdict.notice ? { additionalContext: verdict.notice } : undefined;
+	});
+	// The write has landed: main reads it now. Until then the claim cannot be retired (git may not show it yet).
+	pi.on("tool_result", event => {
+		if (ledger.settle(event.toolCallId)) emit({ type: CHECKOUT_FILES_EVENT });
+		return undefined;
+	});
+	// A call stock refused after the hook (a denied approval) never reports back; the run's end settles it.
+	pi.on("agent_end", () => {
+		if (ledger.settleAll()) emit({ type: CHECKOUT_FILES_EVENT });
 	});
 }
 
