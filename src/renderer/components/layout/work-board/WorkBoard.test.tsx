@@ -6,7 +6,6 @@ import type { RpcAsyncJobItem, RpcGoalState, RpcJobRow, SubagentSnapshot } from 
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { EMPTY_TURN_METER } from "../../../lib/turn-meter";
 import { accountWindows, shortWindowLabel } from "../../../lib/usage-windows";
-import { useAttentionStore } from "../../../stores/attention";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useMessagesStore } from "../../../stores/messages";
 import { useModelStore } from "../../../stores/model";
@@ -306,16 +305,16 @@ describe("WorkBoard header", () => {
 		});
 		await mount();
 		await vi.waitFor(() =>
-			expect(pane.querySelector('[data-board-section="needs"] [data-board-session="check"]')).not.toBeNull(),
+			expect(pane.querySelector('[data-board-section="current"] [data-board-session="check"]')).not.toBeNull(),
 		);
 		const needs = section("needs");
-		// Two asks (a question, a plan up for review) and a failed check: one figure, in the head, the section's count and
-		// the strip's label; what runs is its own figure.
-		expect(needs?.querySelector(".omp-work-board-count")?.textContent).toBe("3");
-		expect(needs?.querySelectorAll("li")).toHaveLength(3);
-		expect(pane.querySelector("[data-board-status]")?.textContent).toBe("3 need you");
+		// Two asks (a question, a plan up for review): one figure, in the head, the section's count and the strip's
+		// label; what runs is its own figure. The failed check is a Current work row and counts for nothing here.
+		expect(needs?.querySelector(".omp-work-board-count")?.textContent).toBe("2");
+		expect(needs?.querySelectorAll("li")).toHaveLength(2);
+		expect(pane.querySelector("[data-board-status]")?.textContent).toBe("2 need you");
 		expect(pane.querySelector(".omp-work-board-figure")?.textContent).toBe("3 running");
-		expect(needs?.querySelector('[aria-live="polite"]')?.textContent).toBe("3 need you");
+		expect(needs?.querySelector('[aria-live="polite"]')?.textContent).toBe("2 need you");
 	});
 });
 
@@ -463,7 +462,7 @@ describe("WorkBoard sections", () => {
 		}
 	});
 
-	it("turns the pulse to failed for a failed check alone, and names the plan's section for what it holds", async () => {
+	it("shows a failed check as a Current work row, not a need, and names the plan's section for what it holds", async () => {
 		useToolsStore.setState({
 			finishedTools: new Map([
 				[
@@ -480,64 +479,20 @@ describe("WorkBoard sections", () => {
 		});
 		useTodoStore.getState().setPhases([{ name: "Work", tasks: [{ content: "a", status: "pending" }] }]);
 		await mount();
-		await vi.waitFor(() => expect(section("needs")).not.toBeNull());
-		expect(pane.querySelector(".omp-work-board-pulse")?.getAttribute("data-state")).toBe("failed");
-		expect(pane.querySelector("[data-board-status]")?.textContent).toBe(translate("attention.checkFailed"));
+		// A failed check is a fact of the turn for Current work, never an attention: no Needs you, no danger pulse, no head clause.
+		await vi.waitFor(() => expect(section("current")?.querySelector('[data-board-session="check"]')).not.toBeNull());
+		expect(section("current")?.querySelector('[data-board-session="check"]')?.getAttribute("data-state")).toBe(
+			"failed",
+		);
+		expect(section("needs")).toBeNull();
+		expect(pane.querySelector(".omp-work-board-pulse")?.getAttribute("data-state")).toBe("idle");
+		expect(pane.querySelector("[data-board-status]")?.textContent).not.toContain("Check failed");
 		// Todos alone: "Todos", not "Plan" (the plan-mode card's word, which Needs you's "plan ready for review" says).
 		expect(section("plan")?.querySelector(".omp-work-board-title")?.textContent).toContain("Todos");
 		useSessionStore.setState({ goal: { objective: "Ship it" }, goalState: { status: "active" } });
 		goal = { enabled: true, status: "active", objective: "Ship it" };
 		await act(async () => {});
 		expect(section("plan")?.querySelector(".omp-work-board-title")?.textContent).toContain("Goal & todos");
-	});
-
-	it("keeps saying a failed check after the strip's panel opens and closes", async () => {
-		useToolsStore.setState({
-			finishedTools: new Map([
-				[
-					"b1",
-					tool({
-						args: { command: "bun test" },
-						status: "error",
-						isError: true,
-						endTime: 9,
-						result: { content: [{ type: "text", text: "1 fail" }], details: { exitCode: 1 } },
-					}),
-				],
-			]),
-		});
-		useTodoStore.getState().setPhases([{ name: "Work", tasks: [{ content: "a", status: "pending" }] }]);
-		await mount(700);
-		const label = () => pane.querySelector('[data-work-chip] [role="status"]')?.textContent;
-		await vi.waitFor(() => expect(label()).toBe(translate("attention.checkFailed")));
-		await click("[data-work-chip]");
-		await vi.waitFor(() =>
-			expect(pane.querySelector("[data-work-strip-panel] [data-work-board-panel]")).not.toBeNull(),
-		);
-		await click("[data-work-chip]");
-		await vi.waitFor(() => expect(pane.querySelector("[data-work-strip-panel]")).toBeNull());
-		await act(async () => {});
-		expect(label()).toBe(translate("attention.checkFailed"));
-		expect(Object.hasOwn(useAttentionStore.getState().checkFailed, "t1")).toBe(true);
-	});
-
-	it("knows a failed check where the docked board has nothing else to show, as the strip does", async () => {
-		useToolsStore.setState({
-			finishedTools: new Map([
-				[
-					"b1",
-					tool({
-						args: { command: "bun test" },
-						status: "error",
-						isError: true,
-						endTime: 9,
-						result: { content: [{ type: "text", text: "1 fail" }], details: { exitCode: 1 } },
-					}),
-				],
-			]),
-		});
-		await mount(1600);
-		await vi.waitFor(() => expect(Object.hasOwn(useAttentionStore.getState().checkFailed, "t1")).toBe(true));
 	});
 
 	it("shows the goal with its status and a budget and a time meter", async () => {

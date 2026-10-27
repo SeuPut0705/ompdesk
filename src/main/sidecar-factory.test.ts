@@ -10,14 +10,18 @@ import { localSidecarFactory } from "./sidecar-factory";
 
 const created = vi.hoisted(() => [] as SidecarOptions[]);
 const reaProbes = vi.hoisted(() => ({ count: 0 }));
+const sidecars = vi.hoisted(() => [] as Array<{ listeners: Map<string, Array<(arg: unknown) => void>> }>);
 
 // The factory only builds options; what a SidecarManager does with them is sidecar.test.ts's.
 vi.mock("./sidecar", () => ({
 	SidecarManager: class {
+		readonly listeners = new Map<string, Array<(arg: unknown) => void>>();
 		constructor(options: SidecarOptions) {
 			created.push(options);
+			sidecars.push(this);
 		}
-		on(): this {
+		on(event: string, listener: (arg: unknown) => void): this {
+			this.listeners.set(event, [...(this.listeners.get(event) ?? []), listener]);
 			return this;
 		}
 	},
@@ -288,5 +292,37 @@ describe("localSidecarFactory", () => {
 		rea = true;
 		expect((await options?.builtinMcp?.())?.args).toEqual(["-e", path.join("/builtin", "rea")]);
 		expect(reaProbes.count).toBe(1);
+	});
+
+	it("wakes the shared-checkout pass on the bridge's checkout_files frame of any tab, and on no other frame", () => {
+		const wakes: string[] = [];
+		const create = localSidecarFactory({
+			bridgeDir: "/bridge",
+			builtinDir: "/builtin",
+			builtinReaPref: () => undefined,
+			proxyEnv: async () => ({}),
+			bridgeHealth: new BridgeHealth(() => {}),
+			sessionKinds: new SessionKindStore(path.join(os.tmpdir(), "omp-gui-factory-kinds.json")),
+			replyLanguagePref: () => undefined,
+			userProfilePref: () => undefined,
+			nextPromptPrefs: () => ({ suggestions: true, inline: true }),
+			autoTitlePrefs: () => ({ enabled: true, evolve: true, suppressed: false }),
+			judgeAssistPref: () => true,
+			delegationPref: () => undefined,
+			accountRotationPref: () => undefined,
+			accountRotationLedger: "/ledger.json",
+			launchProfilesPref: () => undefined,
+			checkoutFiles: () => wakes.push("pass"),
+		});
+		const emitFrame = (type: string) => {
+			for (const listener of sidecars.at(-1)?.listeners.get("frame") ?? []) listener({ type });
+		};
+		create("/w/alpha", "agent", false);
+		emitFrame("message_update");
+		expect(wakes).toEqual([]);
+		emitFrame("checkout_files");
+		create("/w/alpha", "agent", true, { deviceId: "peer-1", name: "Laptop", hostName: "Desk" });
+		emitFrame("checkout_files");
+		expect(wakes).toEqual(["pass", "pass"]);
 	});
 });

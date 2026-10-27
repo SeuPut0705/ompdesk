@@ -115,7 +115,7 @@ describe("one name per place", () => {
 				expect(thinkingLabel(language, level)).toBe(RENDERER[language][`input.thinking.name.${level}`]);
 			expect(statusLabel(language, "idle")).toBe(RENDERER[language]["titlebar.status.ready"]);
 			expect(statusLabel(language, "streaming")).toBe(RENDERER[language]["titlebar.status.working"]);
-			for (const kind of ["question", "approval", "childWaiting", "checkFailed"] as const)
+			for (const kind of ["question", "approval", "childWaiting"] as const)
 				expect(statusLabel(language, kind)).toBe(RENDERER[language][`attention.${kind}`]);
 			// The judge's "this reply waits for you" banner says the question word too.
 			expect(

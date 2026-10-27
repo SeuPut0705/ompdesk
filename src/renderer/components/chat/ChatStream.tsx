@@ -1288,6 +1288,7 @@ export const ProcessGroup = memo(function ProcessGroup({
 							onExpandedChange={changeExpanded}
 							output={output}
 							notes={row.notes}
+							leadingSkills={row.skills}
 							superseded={superseded}
 							stepCount={row.stepCount + liveCards.length + (hasThinking ? 1 : 0)}
 							thinkingLive={hasThinking && !hasText}

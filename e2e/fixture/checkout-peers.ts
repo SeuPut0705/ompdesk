@@ -1,28 +1,22 @@
 /**
  * The fake omp's side of sessions sharing a checkout (bridge resources/gui-bridge/modes/checkout-peers.ts): it keeps
  * what main pushes (`checkout_peers_set`), answers `checkout_status` (files and the task set by a `{task}` step), and plays an agent's turn from a
- * `fixture checkout:<json steps>` prompt through the bridge's own guard (`checkoutRefusal`) as stock's `tool_call`
- * hook would: a refused bash call gets the refusal as its result and runs nothing; a write records the file as this
- * session's. Steps: `{wait: "peers"}` (until main has told it of another session, ≤ 15 s), `{wait: "files"}` (until a same-worktree peer lists a changed file), `{write: path, content}`,
- * `{bash: command}`, `{task: text}` (the in-progress todo item peers hear of), `{edit: path, append}` (an edit-tool edit: it appends a line, and the bridge's `overlapNotice` text, when it says something, goes to the final answer).
+ * `fixture checkout:<json steps>` prompt through the bridge's own `CheckoutLedger` as stock's `tool_call` hook would:
+ * a refused call gets the refusal as its result and runs nothing; every notice the ledger returns goes to the final
+ * answer. Steps: `{wait: "peers"}` (until main has told it of another session, ≤ 15 s), `{wait: "files"}` (until a
+ * same-worktree peer lists a changed file), `{wait: "shared", task?}` (until one, the one doing `task` when given, lists a file this session changed too),
+ * `{write: path, content}`, `{bash: command}`, `{task: text}` (the in-progress todo item peers hear of),
+ * `{edit: path, append}` (an edit-tool edit: it appends a line).
  */
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as nodePath from "node:path";
-import { normalizePath } from "../../resources/gui-bridge/modes/autopilot-guard-core";
-import {
-	CheckoutPeersState,
-	checkoutRefusal,
-	overlapNotice,
-	rememberFiles,
-	shellWrites,
-	writeRefusal,
-} from "../../resources/gui-bridge/modes/checkout-peers-core";
+import { CheckoutLedger, CheckoutPeersState } from "../../resources/gui-bridge/modes/checkout-peers-core";
 import type { AgentMessage } from "../../src/shared/rpc-types";
 
 type Params = Record<string, unknown>;
 type Step =
-	| { wait: "peers" | "files" }
+	| { wait: "peers" | "files" | "shared"; task?: string }
 	| { write: string; content?: string }
 	| { bash: string }
 	| { task: string }
@@ -35,19 +29,25 @@ interface Host {
 	model: { provider: string; id: string };
 }
 
+const files = {
+	realpath: (path: string) => fs.realpathSync.native(path),
+	isDirectory: (path: string) => fs.statSync(path, { throwIfNoEntry: false })?.isDirectory() === true,
+};
+
 export function createCheckoutFake(host: Host) {
 	const state = new CheckoutPeersState();
-	let ownFiles: string[] = [];
+	const ledger = new CheckoutLedger();
 	let task: string | undefined;
-	let told = new Set<string>();
 	const cwd = process.cwd();
+	/** Each answer names its turn, so a test waiting for this turn's answer never reads the one before. */
+	let turns = 0;
 
 	const bridgeMethods: Record<string, (params: Params) => unknown> = {
 		checkout_peers_set: params => {
 			state.set(params);
 			return { ok: true };
 		},
-		checkout_status: () => ({ files: ownFiles, ...(task ? { task } : {}) }),
+		checkout_status: () => ({ files: [...ledger.files], ...(task ? { task } : {}) }),
 		"checkout_peers.get": () => ({ peers: state.peers ?? null }),
 	};
 
@@ -86,11 +86,20 @@ export function createCheckoutFake(host: Host) {
 		turn.push(message, result);
 	}
 
+	/** Stock's `tool_call` hook, then the tool: a refusal is the result; a notice joins the turn's answer. */
+	function guarded(
+		toolName: string,
+		input: Params,
+		notices: string[],
+		act: () => { text: string; isError: boolean },
+	): { text: string; isError: boolean } {
+		const verdict = ledger.call(toolName, input, cwd, state.peers, files);
+		if ("block" in verdict) return { text: verdict.block, isError: true };
+		if (verdict.notice) notices.push(verdict.notice);
+		return act();
+	}
+
 	function bash(command: string): { text: string; isError: boolean } {
-		const at = normalizePath(cwd, "/");
-		const refusal = state.peers ? checkoutRefusal(command, at, state.peers, ownFiles) : undefined;
-		if (refusal) return { text: refusal, isError: true };
-		ownFiles = rememberFiles(ownFiles, shellWrites(command, at), 40);
 		try {
 			const out = execFileSync("sh", ["-c", command], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 			return { text: out || "(no output)", isError: false };
@@ -102,23 +111,13 @@ export function createCheckoutFake(host: Host) {
 
 	function writeFile(path: string, content: string): { text: string; isError: boolean } {
 		const file = nodePath.resolve(cwd, path);
-		const refusal = state.peers ? writeRefusal([normalizePath(file, "/")], state.peers, ownFiles) : undefined;
-		if (refusal) return { text: refusal, isError: true };
 		fs.mkdirSync(nodePath.dirname(file), { recursive: true });
 		fs.writeFileSync(file, content);
-		ownFiles = rememberFiles(ownFiles, [normalizePath(file, "/")], 40);
 		return { text: `Wrote ${path}`, isError: false };
 	}
 
-	function editFile(path: string, append: string, notices: string[]): { text: string; isError: boolean } {
-		const file = normalizePath(nodePath.resolve(cwd, path), "/");
-		if (state.peers) {
-			const overlap = overlapNotice([file], state.peers, told);
-			told = overlap.told;
-			if (overlap.text) notices.push(overlap.text);
-		}
-		fs.appendFileSync(file, append);
-		ownFiles = rememberFiles(ownFiles, [file], 40);
+	function editFile(path: string, append: string): { text: string; isError: boolean } {
+		fs.appendFileSync(nodePath.resolve(cwd, path), append);
 		return { text: `Edited ${path}`, isError: false };
 	}
 
@@ -129,35 +128,44 @@ export function createCheckoutFake(host: Host) {
 		for (const [index, step] of steps.entries()) {
 			if ("wait" in step) {
 				const until = Date.now() + 15_000;
-				while (
-					!(step.wait === "files" ? state.peers?.worktree.some(peer => peer.files?.length) : state.peers) &&
-					Date.now() < until
-				) {
+				const ready = () =>
+					step.wait === "peers"
+						? state.peers
+						: state.peers?.worktree.some(
+								peer =>
+									(step.task === undefined || peer.task === step.task) &&
+									(step.wait === "files" ? peer.files : peer.shared)?.length,
+							);
+				while (!ready() && Date.now() < until) {
 					const { promise, resolve } = Promise.withResolvers<void>();
 					setTimeout(resolve, 100);
 					await promise;
 				}
 			} else if ("task" in step) {
 				task = step.task;
-			} else if ("edit" in step) {
-				call(turn, index, "edit", { path: step.edit }, () => editFile(step.edit, step.append, notices));
-			} else if ("write" in step) {
-				const content = step.content ?? "";
-				call(turn, index, "write", { path: step.write, content }, () => {
-					const outcome = writeFile(step.write, content);
+			} else {
+				const [toolName, input, act] =
+					"edit" in step
+						? (["edit", { path: step.edit }, () => editFile(step.edit, step.append)] as const)
+						: "write" in step
+							? ([
+									"write",
+									{ path: step.write, content: step.content ?? "" },
+									() => writeFile(step.write, step.content ?? ""),
+								] as const)
+							: (["bash", { command: step.bash }, () => bash(step.bash)] as const);
+				call(turn, index, toolName, input, () => {
+					const outcome = guarded(toolName, input, notices, act);
 					if (outcome.text.startsWith("Refused")) refused.push(outcome.text.split("\n", 1)[0] ?? "");
 					return outcome;
 				});
-			} else
-				call(turn, index, "bash", { command: step.bash }, () => {
-					const outcome = bash(step.bash);
-					if (outcome.text.startsWith("Refused")) refused.push(outcome.text.split("\n", 1)[0] ?? "");
-					return outcome;
-				});
+			}
 		}
 		const answer = {
 			role: "assistant",
-			content: [{ type: "text", text: ["Checkout steps finished", ...refused, ...notices].join("\n") }],
+			content: [
+				{ type: "text", text: [`Checkout steps finished (turn ${++turns})`, ...refused, ...notices].join("\n") },
+			],
 			timestamp: Date.now(),
 			provider: host.model.provider,
 			model: host.model.id,

@@ -31,7 +31,7 @@ import {
 import { deriveFindings, operationLabel, stepOperations, workSummaryText } from "./work/work-findings";
 import { finishedHeadline, parseTaskResults, runSpan, transcriptTodoSnapshot } from "./work/work-run";
 import { messageSourceTimestamp } from "./work/work-turn";
-import { isSkippedWork } from "./work/work-view";
+import { isSkippedWork, mergeSkills, skillPromptName } from "./work/work-view";
 
 interface ExecutionGroupProps {
 	children: ReactNode;
@@ -50,6 +50,8 @@ interface ExecutionGroupProps {
 	stoppedAt?: number;
 	todoSnapshots?: readonly TodoSnapshot[];
 	notes?: readonly AgentMessage[];
+	/** Skills the prompts that began this run named (`/skill:<name>`): used skills like the ones it read. */
+	leadingSkills?: readonly string[];
 	/** A later work card exists in this session; this one never shows a running head. */
 	superseded?: boolean;
 	/** A step asked for from outside the transcript (the work board): shown like a finding's, once opened. */
@@ -93,6 +95,7 @@ export function ExecutionGroup({
 	stoppedAt,
 	todoSnapshots,
 	notes,
+	leadingSkills,
 	superseded = false,
 	revealRequest = null,
 }: ExecutionGroupProps) {
@@ -317,6 +320,15 @@ export function ExecutionGroup({
 			: undefined);
 	const lanes = new Set(agents.map(agent => agent.id));
 	const shownNotes = notes?.filter(note => !settlesLanesOnly(note, lanes));
+	// Skills in the order the run met them: the prompt that began it, skills injected into it, then the ones it read.
+	const skills = mergeSkills(
+		(leadingSkills ?? []).map(name => ({ name })),
+		(notes ?? []).flatMap(note => {
+			const name = skillPromptName(note);
+			return name ? [{ name }] : [];
+		}),
+		outcome.skills,
+	);
 	const header = (
 		// controls-ok: the omp-execution-group-header class draws the whole control
 		<button
@@ -546,13 +558,29 @@ export function ExecutionGroup({
 				sentence: t("chat.work.chip.overlapSentence", { count, plural: count === 1 ? "" : "s" }),
 				title: shared
 					.map(
-						({ peer, files }) =>
-							`${peer.title}${peer.task ? ` · ${peer.task}` : ""}: ${files.map(file => file.slice(file.lastIndexOf("/") + 1)).join(", ")}`,
+						({ peer, scope, files }) =>
+							`${peer.title}${peer.task ? ` · ${peer.task}` : ""}${scope === "repo" ? ` (${t("workBoard.session.peers.otherWorktree")})` : ""}: ${files.map(file => file.slice(file.lastIndexOf("/") + 1)).join(", ")}`,
 					)
 					.join("\n"),
 				onSelect: () => {
 					if (target) void openPeer(target);
 				},
+			});
+		}
+		if (outcome.protections.length) {
+			const count = outcome.protections.length;
+			metrics.push({
+				key: "protected",
+				finding: "protected",
+				tone: "neutral",
+				icon: "protected",
+				label: t("chat.work.chip.protected"),
+				figure: count,
+				sentence: t("chat.work.chip.protectedSentence", { count, plural: count === 1 ? "" : "s" }),
+				title: outcome.protections
+					.map(({ what, agentName }) => (agentName ? `${what} (${agentName})` : what))
+					.join("\n"),
+				onSelect: () => show(outcome.protections.find(protection => protection.toolCallId)?.toolCallId),
 			});
 		}
 		metrics.push(...checkFacts.filter((_, index) => checks[index]?.passed));
@@ -568,10 +596,10 @@ export function ExecutionGroup({
 				onSelect: () => openPreview(previewUrl),
 			});
 		}
-		if (outcome.skills.length) {
-			const [first, ...rest] = outcome.skills;
-			const names = outcome.skills.map(skill => skill.name).join(", ");
-			const shownAt = outcome.skills.find(skill => skill.toolCallId);
+		if (skills.length) {
+			const [first, ...rest] = skills;
+			const names = skills.map(skill => skill.name).join(", ");
+			const shownAt = skills.find(skill => skill.toolCallId);
 			metrics.push({
 				key: "skills",
 				finding: "skills",
@@ -580,7 +608,7 @@ export function ExecutionGroup({
 				label: first?.name ?? "",
 				...(rest.length ? { figure: `+${rest.length}` } : {}),
 				sentence: t("chat.work.chip.skills", { names }),
-				title: outcome.skills
+				title: skills
 					.map(skill => (skill.agentName ? `${skill.name} (${skill.agentName})` : skill.name))
 					.join("\n"),
 				onSelect: () => show(shownAt?.toolCallId),

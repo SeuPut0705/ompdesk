@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
+import type { AgentMessage } from "../../../../shared/rpc-types";
 import type { ToolEntry } from "../../../stores/tools";
 import { type WorkEvidence, workOutcomes } from "../../chat/work/work-view";
 import { peerOverlap } from "./open-peer";
-import { lastCheck } from "./session-board";
+import { lastCheck, summarizePeers, turnSkills } from "./session-board";
 
 function bash(command: string, text: string, exitCode: number, at: number, cwd?: string): ToolEntry {
 	return {
@@ -136,21 +137,82 @@ describe("lastCheck", () => {
 });
 
 describe("peerOverlap", () => {
-	it("matches the run's files, relative or absolute, against same-worktree peers' recent changes only", () => {
-		const peers = {
-			toplevel: "/w",
-			commonDir: "/w/.git",
-			canMessage: true,
-			worktree: [
-				{ id: "a", title: "A", files: ["/w/src/a.ts", "/w/src/z.ts"] },
-				{ id: "b", title: "B", files: ["/w/docs/x.md"] },
-			],
-			repo: [{ id: "c", title: "C", worktree: "/wt/c", files: ["/w/src/a.ts"] }],
-		};
+	const peers = {
+		toplevel: "/w",
+		commonDir: "/w/.git",
+		canMessage: true,
+		worktree: [
+			{ id: "a", title: "A", files: ["/w/src/a.ts", "/w/src/z.ts"] },
+			{ id: "b", title: "B", files: ["/w/docs/x.md"] },
+		],
+		repo: [{ id: "c", title: "C", worktree: "/wt/c", files: ["/w/src/a.ts", "/w/src/q.ts"] }],
+	};
+
+	it("matches the run's files, relative or absolute, against the peers' recent changes, the other worktrees' marked", () => {
 		expect(peerOverlap(["src/a.ts", "/w/docs/y.md"], peers, "/w")).toEqual([
-			{ peer: peers.worktree[0], files: ["/w/src/a.ts"] },
+			{ peer: peers.worktree[0], scope: "worktree", files: ["/w/src/a.ts"] },
+			{ peer: peers.repo[0], scope: "repo", files: ["/w/src/a.ts"] },
+		]);
+		expect(peerOverlap(["src/q.ts"], peers, "/w")).toEqual([
+			{ peer: peers.repo[0], scope: "repo", files: ["/w/src/q.ts"] },
 		]);
 		expect(peerOverlap([], peers, "/w")).toEqual([]);
 		expect(peerOverlap(["src/a.ts"], null, "/w")).toEqual([]);
+	});
+});
+
+describe("summarizePeers", () => {
+	it("counts the files this session shares with a peer in another worktree as it does a same-worktree peer's", () => {
+		const summary = summarizePeers({
+			toplevel: "/w",
+			commonDir: "/w/.git",
+			canMessage: true,
+			worktree: [{ id: "a", title: "A", shared: ["/w/src/a.ts"] }],
+			repo: [
+				{ id: "c", title: "C", worktree: "/wt/c", shared: ["/w/src/a.ts", "/w/src/q.ts"] },
+				{ id: "d", title: "D", worktree: "/wt/d" },
+			],
+		});
+		expect(summary).toMatchObject({ worktree: 1, repo: 2, shared: 2 });
+	});
+
+	it("counts none for sessions that share nothing, and says nothing for a session alone", () => {
+		const alone = { toplevel: "/w", commonDir: "/w/.git", canMessage: true, worktree: [], repo: [] };
+		expect(summarizePeers(alone)).toBeNull();
+		expect(summarizePeers({ ...alone, repo: [{ id: "c", title: "C", worktree: "/wt/c" }] })?.shared).toBe(0);
+	});
+});
+
+describe("turnSkills", () => {
+	const prompt = (name: string, attribution: "user" | "agent"): AgentMessage => ({
+		role: "custom",
+		customType: "skill-prompt",
+		content: "Skill instructions",
+		attribution,
+		details: { name },
+	});
+	const user: AgentMessage = { role: "user", content: "go" };
+	const reply: AgentMessage = { role: "assistant", content: [{ type: "text", text: "ok" }] };
+
+	it("names the skills injected after the last user message, oldest first and once each", () => {
+		expect(
+			turnSkills([
+				prompt("old", "agent"),
+				user,
+				prompt("review", "agent"),
+				reply,
+				prompt("how", "agent"),
+				prompt("review", "agent"),
+			]),
+		).toEqual(["review", "how"]);
+	});
+
+	it("starts at the /skill: prompt that is itself the turn's prompt, so an earlier turn's skills stay out", () => {
+		expect(turnSkills([user, prompt("how", "user"), reply, prompt("release", "user"), reply])).toEqual(["release"]);
+	});
+
+	it("is empty when the turn named no skill, or the last message is a user prompt", () => {
+		expect(turnSkills([prompt("old", "agent"), user, reply])).toEqual([]);
+		expect(turnSkills([prompt("old", "agent"), user])).toEqual([]);
 	});
 });

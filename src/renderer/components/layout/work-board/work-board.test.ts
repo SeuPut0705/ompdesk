@@ -246,28 +246,22 @@ describe("boardCounts", () => {
 		asks: [] as AskKind[],
 		childrenWaiting: 0,
 		childrenRunning: 0,
-		checkFailed: false,
 		agents: 0,
 		agentsWorking: 0,
 		jobs: 0,
 		turnWorking: false,
 	};
 
-	it("counts what needs the person once: asks, waiting children and a failed check", () => {
-		const counts = boardCounts({ ...idle, asks: ["question", "approval"], childrenWaiting: 1, checkFailed: true });
-		expect(counts).toMatchObject({ asks: 2, children: 1, failed: 1, needs: 4, pulse: "waiting" });
-		expect(counts.attention).toEqual({ kind: "question", count: 4 });
+	it("counts what needs the person once: asks and waiting children", () => {
+		const counts = boardCounts({ ...idle, asks: ["question", "approval"], childrenWaiting: 1 });
+		expect(counts).toMatchObject({ asks: 2, children: 1, needs: 3, pulse: "waiting" });
+		expect(counts.attention).toEqual({ kind: "question", count: 3 });
 	});
 
-	it("turns the pulse to waiting for a question or a waiting child, and to failed for a failed check alone", () => {
-		expect(boardCounts({ ...idle, checkFailed: true })).toMatchObject({ needs: 1, pulse: "failed" });
+	it("turns the pulse to waiting for a question or a waiting child, and to working while work goes on", () => {
 		expect(boardCounts({ ...idle, childrenWaiting: 1, turnWorking: true })).toMatchObject({ pulse: "waiting" });
-		expect(boardCounts({ ...idle, asks: ["question"], checkFailed: true })).toMatchObject({ pulse: "waiting" });
-		// A failed check never overrides work going on: the agent may be fixing it.
-		expect(boardCounts({ ...idle, checkFailed: true, turnWorking: true })).toMatchObject({
-			needs: 1,
-			pulse: "working",
-		});
+		expect(boardCounts({ ...idle, turnWorking: true })).toMatchObject({ needs: 0, pulse: "working" });
+		expect(boardCounts(idle)).toMatchObject({ needs: 0, pulse: "idle" });
 	});
 
 	it("counts subagents and jobs as running and children at work apart, a parked subagent not as working", () => {

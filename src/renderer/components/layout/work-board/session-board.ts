@@ -18,7 +18,7 @@ import {
 	summarizeChecks,
 	unresolvedFailures,
 } from "../../chat/work/work-checks";
-import { type WorkCommandOutcome, workOutcomes } from "../../chat/work/work-view";
+import { skillPromptName, type WorkCommandOutcome, workOutcomes } from "../../chat/work/work-view";
 import { workFilePathKey } from "../../tools/edit-args";
 
 /** A count of changed files and their lines. */
@@ -190,7 +190,7 @@ export type ScopedPeer = CheckoutPeer & { scope: "worktree" | "repo" };
 export interface PeersSummary {
 	worktree: number;
 	repo: number;
-	/** Distinct files that this session and a same-worktree peer both changed. */
+	/** Distinct files that this session and a peer (same worktree or another one) both changed. */
 	shared: number;
 	peers: ScopedPeer[];
 }
@@ -201,7 +201,7 @@ export function summarizePeers(peers: CheckoutPeers | null): PeersSummary | null
 	return {
 		worktree: peers.worktree.length,
 		repo: peers.repo.length,
-		shared: new Set(peers.worktree.flatMap(peer => peer.shared ?? [])).size,
+		shared: new Set([...peers.worktree, ...peers.repo].flatMap(peer => peer.shared ?? [])).size,
 		peers: [
 			...peers.worktree.map(peer => ({ ...peer, scope: "worktree" as const })),
 			...peers.repo.map(peer => ({ ...peer, scope: "repo" as const })),
@@ -221,6 +221,23 @@ export function recallTitles(messages: readonly AgentMessage[]): string[] {
 		return memoryRecallDetails(resultDetails(message))?.items.map(item => item.title) ?? [];
 	}
 	return [];
+}
+
+/**
+ * The skills the newest turn was given by `skill-prompt` messages: those after the last user message, and, when a
+ * `/skill:` prompt (attribution user) is itself the turn's prompt, from that prompt on. Oldest first, one per name.
+ */
+export function turnSkills(messages: readonly AgentMessage[]): string[] {
+	const names: string[] = [];
+	for (let index = messages.length - 1; index >= 0; index--) {
+		const message = messages[index];
+		if (!message || message.role === "user") break;
+		const name = skillPromptName(message);
+		if (!name) continue;
+		names.unshift(name);
+		if (message.attribution === "user") break;
+	}
+	return [...new Set(names)];
 }
 
 /** A running background job that serves a loopback address. */

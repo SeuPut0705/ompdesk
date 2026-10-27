@@ -8,19 +8,26 @@ import { routeToSessionOwner } from "../../../hooks/use-session-switch";
 import { useTabsStore } from "../../../stores/tabs";
 import { workFilePathKey } from "../../tools/edit-args";
 
-/** A live session in the same worktree that also changed some of these files. */
+/** A live session that also changed some of these files: in this worktree, or in another worktree of the repository. */
 export interface PeerOverlap {
 	peer: CheckoutPeer;
+	scope: "worktree" | "repo";
 	files: string[];
 }
 
-/** The same-worktree peers whose recent changes (`CheckoutPeer.files`, absolute) meet `files` (as tools named them). */
+/**
+ * The peers' recent changes (`CheckoutPeer.files`, absolute, in this session's spelling) that meet `files` (as tools
+ * named them): the same worktree's first, then the other worktrees'.
+ */
 export function peerOverlap(files: readonly string[], peers: CheckoutPeers | null, cwd: string): PeerOverlap[] {
-	if (!peers?.worktree.length || files.length === 0) return [];
+	if (!peers || files.length === 0) return [];
 	const mine = new Set(files.map(file => workFilePathKey(file, cwd)));
-	return peers.worktree.flatMap(peer => {
+	return [
+		...peers.worktree.map(peer => ({ peer, scope: "worktree" as const })),
+		...peers.repo.map(peer => ({ peer, scope: "repo" as const })),
+	].flatMap(({ peer, scope }) => {
 		const shared = (peer.files ?? []).filter(file => mine.has(workFilePathKey(file, cwd)));
-		return shared.length > 0 ? [{ peer, files: shared }] : [];
+		return shared.length > 0 ? [{ peer, scope, files: shared }] : [];
 	});
 }
 

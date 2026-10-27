@@ -6,7 +6,6 @@ import type { RemoteState } from "../../../shared/ipc-types";
 import type { RpcResponse } from "../../../shared/rpc-types";
 import { formatTimeAgo } from "../../lib/format";
 import { I18nProvider, translate } from "../../lib/i18n";
-import { useAttentionStore } from "../../stores/attention";
 import type { ExtensionUiStore } from "../../stores/extension-ui";
 import { useMessagesStore } from "../../stores/messages";
 import { useRemoteStore } from "../../stores/remote";
@@ -575,35 +574,6 @@ describe("TitleBar", () => {
 			}));
 		});
 		expect(container.textContent).not.toContain(translate("attention.childWaiting"));
-		deleteSessionRuntime("t1");
-	});
-
-	it("says a failed check only once the session is idle: while it works, it says it works", async () => {
-		useTabsStore.setState({
-			tabs: [{ id: "t1", cwd: "/tmp/project", status: "ready", kind: "agent", unreadDone: false }],
-			activeTabId: "t1",
-		});
-		useAttentionStore.getState().setCheckFailed("t1", true);
-		await mount("t1");
-		const session = sessionRuntimeStore<SessionStore>("t1", "session");
-		await act(async () => session?.setState({ status: "ready", isStreaming: true }));
-		expect(container.textContent).toContain(translate("titlebar.status.working"));
-		expect(container.textContent).not.toContain(translate("attention.checkFailed"));
-		// Compacting or waiting to retry is work too, with no stream.
-		await act(async () => session?.setState({ isStreaming: false, isCompacting: true }));
-		expect(container.textContent).toContain(translate("titlebar.status.working"));
-		expect(container.textContent).not.toContain(translate("attention.checkFailed"));
-		await act(async () =>
-			session?.setState({
-				isCompacting: false,
-				retryInfo: { attempt: 1, maxAttempts: 3, delayMs: 1000, errorMessage: "overloaded", startedAt: 0 },
-			}),
-		);
-		expect(container.textContent).toContain(translate("titlebar.status.working"));
-		expect(container.textContent).not.toContain(translate("attention.checkFailed"));
-		await act(async () => session?.setState({ retryInfo: null }));
-		expect(container.textContent).toContain(translate("attention.checkFailed"));
-		useAttentionStore.setState({ checkFailed: {} });
 		deleteSessionRuntime("t1");
 	});
 

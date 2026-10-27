@@ -1,4 +1,6 @@
-/** `?card=pass|fail|cmd|one|live` on the harness appends a work card. pass/fail: finished, two skill reads, files, a type check (failing for `fail`), tests, a dev server, a screenshot, two agents. cmd: the checks pass but a push fails. one: a single command. live: the same run still going, its tests running. */
+import { CHECKOUT_REFUSAL_PREFIX } from "../../../resources/gui-bridge/modes/checkout-peers-contracts";
+
+/** `?card=pass|fail|cmd|one|live` on the harness appends a work card. pass/fail: finished, two skill reads, files, a type check (failing for `fail`), tests, a dev server, a screenshot, two agents; `pass` also reads one skill by its absolute SKILL.md path and has one write the shared-checkout guard refused. cmd: the checks pass but a push fails. one: a single command. live: the same run still going, its tests running. */
 const SVG =
 	'<svg xmlns="http://www.w3.org/2000/svg" width="720" height="320" viewBox="0 0 720 320"><rect width="720" height="320" fill="#faf9f6"/><rect width="720" height="38" fill="#eceae5"/><text x="48" y="94" font-family="sans-serif" font-size="28" fill="#35332e">Project overview</text><rect x="48" y="158" width="288" height="110" rx="8" fill="#efede7"/><rect x="358" y="158" width="314" height="110" rx="8" fill="#efede7"/></svg>';
 
@@ -73,6 +75,17 @@ export function cardTurnMessages(base: number, variant: CardVariant): Record<str
 			{ path: "skill://how/SKILL.md", intent: "Reading the how skill" },
 			{ content: [{ type: "text", text: "# How" }] },
 		),
+		...(variant === "pass"
+			? step(
+					"card-skill-3",
+					"read",
+					{
+						path: "/Users/dev/projects/ompdesk/.claude/skills/review/SKILL.md",
+						intent: "Reading the review skill",
+					},
+					{ content: [{ type: "text", text: "# Review" }] },
+				)
+			: []),
 		...step(
 			"card-types",
 			"bash",
@@ -102,6 +115,22 @@ export function cardTurnMessages(base: number, variant: CardVariant): Record<str
 			},
 			{ content: [{ type: "text", text: "Wrote src/workspace.ts" }] },
 		),
+		...(variant === "pass"
+			? step(
+					"card-refused",
+					"write",
+					{ path: "src/settings.test.ts", content: "export {};\n" },
+					{
+						content: [
+							{
+								type: "text",
+								text: `${CHECKOUT_REFUSAL_PREFIX}: writing src/settings.test.ts whole (write) would drop the other session's uncommitted changes to it.\nSettings test race has uncommitted changes there.\nChange it with the edit tool: it applies only your lines.`,
+							},
+						],
+						isError: true,
+					},
+				)
+			: []),
 		...step(
 			"card-edit",
 			"edit",

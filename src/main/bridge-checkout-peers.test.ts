@@ -7,14 +7,20 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { normalizePath } from "../../resources/gui-bridge/modes/autopilot-guard-core";
-import type { CheckoutPeer, CheckoutPeers } from "../../resources/gui-bridge/modes/checkout-peers-contracts";
 import {
+	CHECKOUT_REFUSAL_PREFIX,
+	type CheckoutPeer,
+	type CheckoutPeers,
+} from "../../resources/gui-bridge/modes/checkout-peers-contracts";
+import {
+	type CallVerdict,
+	CheckoutLedger,
 	canonicalPath,
 	checkoutRefusal,
 	checkoutSection,
 	currentTask,
 	overlapNotice,
-	shellWrites,
+	shellChanges,
 	writeRefusal,
 } from "../../resources/gui-bridge/modes/checkout-peers-core";
 
@@ -128,10 +134,9 @@ describe("checkout guard: one worktree's files and index", () => {
 	});
 
 	it("counts a file written from the shell as the session's own, so the other session's guard sees it", () => {
-		expect(shellWrites("cd src && cat > b.ts <<'EOF'\nx\nEOF\necho y >> ../README.md 2>/dev/null", REPO)).toEqual([
-			`${REPO}/src/b.ts`,
-			`${REPO}/README.md`,
-		]);
+		expect(
+			shellChanges("cd src && cat > b.ts <<'EOF'\nx\nEOF\necho y >> ../README.md 2>/dev/null", REPO).replaces,
+		).toEqual([`${REPO}/src/b.ts`, `${REPO}/README.md`]);
 	});
 
 	it("does not judge worktree steps for a session in another worktree, nor git runs in another repository", () => {
@@ -255,7 +260,7 @@ describe("overlap notice", () => {
 		expect(again.text).toBeUndefined();
 	});
 
-	it("is silent for a file only one session changed, and for another worktree's peer", () => {
+	it("is silent for a file only one session changed, and for another worktree's peer that changed nothing", () => {
 		expect(overlapNotice([`${REPO}/src/a.ts`], peers, new Set()).text).toBeUndefined();
 		expect(
 			overlapNotice([mine], { ...alone, repo: [peer({ worktree: OTHER_WORKTREE })] }, new Set()).text,
@@ -266,5 +271,364 @@ describe("overlap notice", () => {
 		const text = overlapNotice([mine], { ...peers, canMessage: false }, new Set()).text ?? "";
 		expect(text).toContain("tell the user");
 		expect(text).not.toContain("ompdesk_report");
+	});
+});
+
+describe("shell changes beyond redirects", () => {
+	const changes = (command: string) => shellChanges(command, REPO, undefined, path => path === `${REPO}/docs`);
+	const at = (...files: string[]) => files.map(file => `${REPO}/${file}`);
+
+	it("lists what a command changes in place", () => {
+		for (const command of [
+			"sed -i s/a/b/ src/b.ts",
+			"sed -i '' s/a/b/ src/b.ts",
+			"sed -i -e s/a/b/ -e s/c/d/ src/b.ts",
+			"perl -pi -e 's/a/b/' src/b.ts",
+			"patch src/b.ts fix.diff",
+		])
+			expect(changes(command), command).toEqual({ edits: at("src/b.ts"), replaces: [], deletes: [] });
+		for (const command of ["sed -n 1,5p src/b.ts", "patch -p1 -i fix.diff", "perl -e 'print 1' src/b.ts"])
+			expect(changes(command), command).toEqual({ edits: [], replaces: [], deletes: [] });
+	});
+
+	it("lists what a command replaces whole, a copy or move into a folder as the file it creates there", () => {
+		for (const command of [
+			"cp /tmp/x src/b.ts",
+			"install -m 644 /tmp/x src/b.ts",
+			"rsync -a /tmp/x src/b.ts",
+			"echo x | tee src/b.ts",
+			"dd if=/tmp/x of=src/b.ts bs=1",
+			"truncate -s 0 src/b.ts",
+			"cp /tmp/b.ts src/",
+			"cp -t src /tmp/b.ts",
+			"cp /tmp/b.ts docs/",
+			"cp /tmp/b.ts docs",
+		])
+			expect(changes(command).replaces, command).toHaveLength(1);
+		expect(changes("cp /tmp/b.ts src/").replaces).toEqual(at("src/b.ts"));
+		expect(changes("cp -t src /tmp/b.ts").replaces).toEqual(at("src/b.ts"));
+		expect(changes("cp /tmp/b.ts docs").replaces).toEqual(at("docs/b.ts"));
+		expect(changes("truncate -s 0 src/b.ts").replaces).toEqual(at("src/b.ts"));
+	});
+
+	it("lists a move's source as deleted and its destination as replaced", () => {
+		expect(changes("mv src/a.ts src/b.ts")).toEqual({ edits: [], replaces: at("src/b.ts"), deletes: at("src/a.ts") });
+		expect(changes("mv src/a.ts docs").replaces).toEqual(at("docs/a.ts"));
+	});
+
+	it("lists what a command deletes", () => {
+		expect(changes("rm -rf build && unlink src/b.ts && rmdir out").deletes).toEqual(at("build", "src/b.ts", "out"));
+	});
+
+	it("lists nothing for commands that change no content, and nothing a failed cd left unresolved", () => {
+		for (const command of [
+			"touch src/b.ts",
+			"mkdir -p src/x",
+			"chmod +x src/b.ts",
+			"chown me src/b.ts",
+			"cat src/b.ts",
+		])
+			expect(changes(command), command).toEqual({ edits: [], replaces: [], deletes: [] });
+		expect(changes("cd $SOMEWHERE && rm b.ts")).toEqual({ edits: [], replaces: [], deletes: [] });
+	});
+
+	it("refuses replacing or deleting a file the other session changed, and lets everything else through", () => {
+		for (const command of [
+			"cp /tmp/x src/b.ts",
+			"cp /tmp/b.ts src/",
+			"mv /tmp/x src/b.ts",
+			"echo x | tee src/b.ts",
+			"dd if=/tmp/x of=src/b.ts",
+			"truncate -s 0 src/b.ts",
+			"install /tmp/x src/b.ts",
+		])
+			expect(checkoutRefusal(command, REPO, sharing, own), command).toContain(
+				"writing src/b.ts whole from the shell",
+			);
+		for (const command of ["rm src/b.ts", "rm -rf src", "rm src/*.ts", "mv src/b.ts /tmp/b.ts", "unlink src/b.ts"])
+			expect(checkoutRefusal(command, REPO, sharing, own), command).toContain("deleting");
+		for (const command of [
+			"cp /tmp/x src/a.ts",
+			"cp src/b.ts /tmp/b.bak",
+			"rm src/a.ts",
+			"rm -rf build",
+			"rm src/c*.ts",
+			"touch src/b.ts",
+			"chmod +x src/b.ts",
+			"mkdir -p src/b",
+			"sed -i s/a/b/ src/b.ts",
+		])
+			expect(refused(sharing, command), command).toBe(false);
+	});
+});
+
+describe("git steps that rewrite the shared worktree", () => {
+	it("refuses each while another session works in the worktree, naming the danger and what to do instead", () => {
+		for (const command of [
+			"git merge feature",
+			"git pull",
+			"git pull --rebase origin main",
+			"git rebase main",
+			"git cherry-pick abc1234",
+			"git revert HEAD",
+			"git am fix.patch",
+			"git apply fix.diff",
+			"git apply --index fix.diff",
+			"git apply --check --apply fix.diff",
+			"cd src && git merge feature",
+		]) {
+			const reason = checkoutRefusal(command, REPO, sharing, own);
+			expect(reason, command).toContain(CHECKOUT_REFUSAL_PREFIX);
+			expect(reason, command).toContain("worktree of your own");
+		}
+	});
+
+	it("lets a session working alone, and a session whose peer is in another worktree, run them", () => {
+		for (const command of [
+			"git merge feature",
+			"git pull",
+			"git rebase main",
+			"git cherry-pick abc1234",
+			"git am x",
+		]) {
+			expect(refused(alone, command), command).toBe(false);
+			expect(refused(otherWorktree, command), command).toBe(false);
+		}
+	});
+
+	it("lets an operation already underway be finished or left", () => {
+		for (const command of [
+			"git merge --abort",
+			"git merge --continue",
+			"git rebase --abort",
+			"git rebase --continue",
+			"git rebase --skip",
+			"git rebase --quit",
+			"git cherry-pick --abort",
+			"git cherry-pick --continue",
+			"git revert --abort",
+			"git revert --skip",
+			"git am --abort",
+			"git am --continue",
+		])
+			expect(refused(sharing, command), command).toBe(false);
+	});
+
+	it("lets git apply only check or report, and judges other git commands that merely start with the same word", () => {
+		for (const command of [
+			"git apply --check fix.diff",
+			"git apply --stat fix.diff",
+			"git apply --numstat fix.diff",
+			"git apply --summary fix.diff",
+			"git merge-base HEAD main",
+			"git fetch origin",
+			"git log --merges",
+		])
+			expect(refused(sharing, command), command).toBe(false);
+	});
+
+	it("refuses removing or moving the worktree of a session in another worktree, from anywhere, and the shared one", () => {
+		for (const command of [
+			`git worktree remove ${OTHER_WORKTREE}`,
+			"git worktree remove --force ../wt/app-feature",
+			`git worktree move ${OTHER_WORKTREE} /work/wt/elsewhere`,
+			`cd ${OTHER_WORKTREE} && git worktree remove .`,
+		])
+			expect(checkoutRefusal(command, REPO, otherWorktree, own), command).toContain(OTHER_WORKTREE);
+		expect(checkoutRefusal("git worktree remove .", REPO, sharing, own)).toContain(CHECKOUT_REFUSAL_PREFIX);
+		for (const command of [
+			"git worktree remove /work/wt/mine",
+			"git worktree add ../wt/new",
+			"git worktree list",
+			"git worktree prune",
+			`git worktree move /work/wt/mine ${OTHER_WORKTREE}-x`,
+		])
+			expect(refused(otherWorktree, command), command).toBe(false);
+	});
+});
+
+describe("guard refusals", () => {
+	it("every refusal starts with the one prefix the work card reads", () => {
+		const reasons = [
+			checkoutRefusal("git add -A", REPO, sharing, own),
+			checkoutRefusal("git stash", REPO, otherWorktree, own),
+			checkoutRefusal("git merge x", REPO, sharing, own),
+			checkoutRefusal("echo x > src/b.ts", REPO, sharing, own),
+			checkoutRefusal("rm src/b.ts", REPO, sharing, own),
+			checkoutRefusal(`git worktree remove ${OTHER_WORKTREE}`, REPO, otherWorktree, own),
+			writeRefusal([`${REPO}/src/b.ts`], sharing, own),
+		];
+		for (const reason of reasons) expect(reason?.startsWith(`${CHECKOUT_REFUSAL_PREFIX}: `), reason).toBe(true);
+	});
+});
+
+describe("the checkout ledger", () => {
+	const host = { realpath: (file: string) => file, isDirectory: () => false };
+	const b = `${REPO}/src/b.ts`;
+	const run = (ledger: CheckoutLedger, peers: CheckoutPeers | undefined, toolName: string, input: unknown) =>
+		ledger.call(toolName, input, REPO, peers, host);
+	const bash = (ledger: CheckoutLedger, peers: CheckoutPeers | undefined, command: string) =>
+		run(ledger, peers, "bash", { command });
+	const block = (verdict: CallVerdict) => ("block" in verdict ? verdict.block : undefined);
+	const notice = (verdict: CallVerdict) => ("notice" in verdict ? verdict.notice : undefined);
+	const gained = (verdict: CallVerdict) => "gained" in verdict && verdict.gained;
+	/** The peer changed src/b.ts and src/c.ts; this session changed src/b.ts too. */
+	const overlapping = (extra: Partial<CheckoutPeer> = {}): CheckoutPeers => ({
+		...alone,
+		worktree: [peer({ files: [b, `${REPO}/src/c.ts`], shared: [b], ...extra })],
+	});
+
+	it("claims the file a shell edit changes in place and notices the overlap, like the edit tool", () => {
+		const ledger = new CheckoutLedger();
+		const verdict = bash(ledger, sharing, "sed -i s/a/b/ src/b.ts");
+		expect(block(verdict)).toBeUndefined();
+		expect(notice(verdict)).toContain("Another session changed a file you just edited");
+		expect(notice(verdict)).toContain("src/b.ts");
+		expect(ledger.files).toEqual([b]);
+	});
+
+	it("claims every file a command replaces or deletes, and no file one only touches", () => {
+		const ledger = new CheckoutLedger();
+		bash(ledger, undefined, "cp /tmp/x src/new.ts && rm src/old.ts && mv src/m.ts src/n.ts");
+		const expected = ["new.ts", "old.ts", "n.ts", "m.ts"].map(file => `${REPO}/src/${file}`).sort();
+		expect([...ledger.files].sort()).toEqual(expected);
+		const touching = new CheckoutLedger();
+		bash(touching, undefined, "touch src/t.ts && mkdir -p src/d && chmod +x src/t.ts && chown me src/t.ts");
+		expect(touching.files).toEqual([]);
+	});
+
+	it("refuses a shell replace or delete of the peer's file and claims nothing for it", () => {
+		for (const command of [
+			"cp /tmp/x src/b.ts",
+			"mv /tmp/x src/b.ts",
+			"echo x | tee src/b.ts",
+			"dd if=/tmp/x of=src/b.ts",
+			"rm src/b.ts",
+		]) {
+			const ledger = new CheckoutLedger();
+			expect(block(bash(ledger, sharing, command)), command).toContain("from the shell");
+			expect(ledger.files, command).toEqual([]);
+		}
+	});
+
+	it("says a new claim once per call, never for a path the session already holds", () => {
+		const ledger = new CheckoutLedger();
+		expect(gained(bash(ledger, undefined, "echo x > src/a.ts && echo y > src/new.ts"))).toBe(true);
+		expect(gained(bash(ledger, undefined, "echo z >> src/a.ts"))).toBe(false);
+		expect(gained(run(ledger, undefined, "edit", { path: "src/a.ts" }))).toBe(false);
+		expect(gained(run(ledger, undefined, "edit", { path: "src/c.ts" }))).toBe(true);
+		expect(gained(run(ledger, undefined, "read", { path: "src/c.ts" }))).toBe(false);
+		expect(gained(bash(ledger, undefined, "touch src/never.ts"))).toBe(false);
+	});
+
+	it("claims no file for a refused call, so it says nothing of it", () => {
+		const ledger = new CheckoutLedger();
+		const verdict = run(ledger, sharing, "write", { path: "src/b.ts", content: "x" });
+		expect(block(verdict)).toContain("writing src/b.ts whole with the write tool");
+		expect(gained(verdict)).toBe(false);
+		expect(ledger.files).toEqual([]);
+	});
+
+	it("claims the paths of the edit tool in every form, a patch's move and an lsp rename, not an lsp read", () => {
+		const claims = (toolName: string, input: unknown) => {
+			const ledger = new CheckoutLedger();
+			run(ledger, undefined, toolName, input);
+			return [...ledger.files].sort();
+		};
+		const files = (...names: string[]) => names.map(name => `${REPO}/${name}`).sort();
+		expect(
+			claims("edit", {
+				input: "*** Begin Patch\n*** Update File: src/a.ts\n*** Move to: src/z.ts\n@@\n-x\n+y\n*** Delete File: old.txt\n*** End Patch\n",
+			}),
+		).toEqual(files("src/a.ts", "src/z.ts", "old.txt"));
+		expect(claims("edit", { path: "src/a.ts", edits: [{ op: "update", rename: "src/y.ts", diff: "@@" }] })).toEqual(
+			files("src/a.ts", "src/y.ts"),
+		);
+		expect(claims("ast_edit", { paths: ["src/a.ts"], ops: [] })).toEqual(files("src/a.ts"));
+		expect(claims("lsp", { action: "rename", file: "src/a.ts", line: 1, symbol: "x", new_name: "y" })).toEqual(
+			files("src/a.ts"),
+		);
+		expect(claims("lsp", { action: "rename_file", file: "src/a.ts", new_name: "src/q.ts" })).toEqual(
+			files("src/a.ts", "src/q.ts"),
+		);
+		expect(claims("lsp", { action: "rename", file: "src/a.ts", symbol: "x", new_name: "y", apply: false })).toEqual(
+			[],
+		);
+		expect(claims("lsp", { action: "diagnostics", file: "src/a.ts" })).toEqual([]);
+		expect(claims("lsp", { action: "code_actions", file: "src/a.ts", query: "fix", apply: true })).toEqual(
+			files("src/a.ts"),
+		);
+		expect(claims("write", { path: "local://note.md", content: "x" })).toEqual([]);
+	});
+
+	it("tells a session at its next call of any kind that a peer started changing a file it changed, once per pair", () => {
+		const ledger = new CheckoutLedger();
+		const first = notice(run(ledger, overlapping(), "read", { path: "README.md" }));
+		expect(first).toContain("Another session also changed files you changed:");
+		expect(first).toContain("src/b.ts");
+		expect(first).not.toContain("src/c.ts");
+		expect(first).toContain('"to": "tab-b", "kind": "note"');
+		expect(notice(run(ledger, overlapping(), "read", { path: "README.md" }))).toBeUndefined();
+		expect(notice(bash(ledger, overlapping(), "git status"))).toBeUndefined();
+	});
+
+	it("says a pair again once the peer's file left its list (committed) and came back", () => {
+		const ledger = new CheckoutLedger();
+		expect(notice(run(ledger, overlapping(), "read", {}))).toContain("src/b.ts");
+		const committed = { ...alone, worktree: [peer({ files: [`${REPO}/src/c.ts`], shared: [] })] };
+		expect(notice(run(ledger, committed, "read", {}))).toBeUndefined();
+		expect(notice(run(ledger, overlapping(), "read", {}))).toContain("src/b.ts");
+		expect(notice(run(ledger, overlapping(), "read", {}))).toBeUndefined();
+	});
+
+	it("keeps the reverse notice for the next call when the call that would carry it is refused", () => {
+		const ledger = new CheckoutLedger();
+		expect(block(bash(ledger, overlapping(), "git add -A"))).toContain(CHECKOUT_REFUSAL_PREFIX);
+		expect(notice(run(ledger, overlapping(), "read", {}))).toContain("src/b.ts");
+	});
+
+	it("joins a forward and a reverse notice into one text, each pair said once", () => {
+		const ledger = new CheckoutLedger();
+		const peers = overlapping({ files: [b, `${REPO}/src/c.ts`], shared: [`${REPO}/src/c.ts`] });
+		const text = notice(run(ledger, peers, "edit", { path: "src/b.ts" })) ?? "";
+		expect(text).toContain("Another session changed a file you just edited:");
+		expect(text).toContain("Another session also changed files you changed:");
+		expect(text.match(/<shared-checkout-overlap>/g)).toHaveLength(2);
+		expect(notice(run(ledger, peers, "edit", { path: "src/b.ts" }))).toBeUndefined();
+	});
+
+	it("never refuses over a peer in another worktree, and warns of the merge ahead instead", () => {
+		const elsewhere: CheckoutPeers = { ...alone, repo: [peer({ worktree: OTHER_WORKTREE, files: [b], shared: [] })] };
+		const ledger = new CheckoutLedger();
+		for (const command of ["cp /tmp/x src/b.ts", "echo x > src/b.ts", "rm src/b.ts", "git merge x", "git pull"])
+			expect(block(bash(new CheckoutLedger(), elsewhere, command)), command).toBeUndefined();
+		const written = run(ledger, elsewhere, "write", { path: "src/b.ts", content: "x" });
+		expect(block(written)).toBeUndefined();
+		const text = notice(written) ?? "";
+		expect(text).toContain("another worktree of this repository, on its own branch");
+		expect(text).toContain("conflict when the branches merge");
+		expect(text).toContain(`in ${OTHER_WORKTREE}`);
+		expect(text).toContain('"to": "tab-b", "kind": "note"');
+		const told = notice(run(new CheckoutLedger(), { ...elsewhere, canMessage: false }, "edit", { path: "src/b.ts" }));
+		expect(told).toContain("Tell the user");
+	});
+
+	it("tells a repo peer's shared files at the next call, never naming a hidden session's place", () => {
+		const hidden: CheckoutPeers = {
+			...alone,
+			repo: [{ id: null, title: "Secret", files: [b], shared: [b] }],
+		};
+		const text = notice(run(new CheckoutLedger(), hidden, "read", {})) ?? "";
+		expect(text).toContain("a session hidden from agents");
+		expect(text).toContain("conflict when the branches merge");
+		expect(text).not.toContain("Secret");
+		expect(text).not.toMatch(/ in \//);
+	});
+
+	it("forgets what it was told when the session works alone again", () => {
+		const ledger = new CheckoutLedger();
+		expect(notice(run(ledger, overlapping(), "read", {}))).toBeDefined();
+		run(ledger, undefined, "read", {});
+		expect(notice(run(ledger, overlapping(), "read", {}))).toBeDefined();
 	});
 });

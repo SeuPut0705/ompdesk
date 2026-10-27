@@ -64,13 +64,20 @@ async function lastAnswer(tabId: string): Promise<string> {
 	return (response.data as { text?: string | null } | undefined)?.text ?? "";
 }
 
+/** Answers played so far per tab: the fixture numbers its answers, so `play` waits for this turn's own. */
+const played = new Map<string, number>();
+
 /** `tabId`'s agent plays `steps` (see e2e/fixture/checkout-peers.ts) and finishes; resolves with its final answer. */
 async function play(tabId: string, steps: object[]): Promise<string> {
+	const turn = (played.get(tabId) ?? 0) + 1;
+	played.set(tabId, turn);
 	await page.evaluate(([id, message]) => window.omp.rpc.commandForTab(id, { type: "prompt", message }), [
 		tabId,
 		`fixture checkout:${JSON.stringify(steps)}`,
 	] as const);
-	await expect.poll(() => lastAnswer(tabId), { timeout: 30_000 }).toMatch(/^Checkout steps finished/);
+	await expect
+		.poll(() => lastAnswer(tabId), { timeout: 30_000 })
+		.toMatch(new RegExp(`^Checkout steps finished \\(turn ${turn}\\)`));
 	return lastAnswer(tabId);
 }
 
@@ -87,7 +94,7 @@ test("one session's bulk stage is refused, it commits its own file, and the othe
 	// a.ts, then reaches for b.ts and for `git add -A`.
 	await play(second, [{ wait: "peers" }, { bash: "echo 'export const b = 2;' > src/b.ts" }]);
 	const answer = await play(first, [
-		{ wait: "peers" },
+		{ wait: "files" },
 		{ write: "src/a.ts", content: "export const a = 2;\n" },
 		{ write: "src/b.ts", content: "export const b = 'mine';\n" },
 		{ bash: "echo 'export const b = 3;' > src/b.ts" },
@@ -156,10 +163,16 @@ test("an edit of a file the other session changed carries the overlap notice onc
 	expect(answer).toContain("src/a.ts");
 	expect(answer).toContain(`"to": "${first}", "kind": "note"`);
 
-	// The first session edits the file the second changed: the same notice, naming the second and its task.
-	const reverse = await play(first, [{ wait: "files" }, { edit: "src/b.ts", append: "// first on b\n" }]);
-	expect(reverse.split("<shared-checkout-overlap>").length - 1).toBe(1);
+	// The first session edits the file the second changed: the same notice, naming the second and its task; and, once,
+	// that the second also changed src/a.ts, which the first changed earlier (the reverse notice).
+	const reverse = await play(first, [
+		{ wait: "shared", task: "Tune b" },
+		{ edit: "src/b.ts", append: "// first on b\n" },
+	]);
+	expect(reverse.split("<shared-checkout-overlap>").length - 1).toBe(2);
 	expect(reverse).toContain("working on: Tune b");
+	expect(reverse).toContain("Another session also changed files you changed");
+	expect(reverse).toMatch(/also changed: src\/a\.ts/);
 
 	await page.keyboard.press("ControlOrMeta+2");
 	// The board shows once the session has a todo list; it docks beside the transcript (`workBoardFits`) or sits in the status strip, opened.

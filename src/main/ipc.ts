@@ -133,6 +133,7 @@ import {
 	type CheckoutMember,
 	CheckoutPeerCoordinator,
 	readCheckoutPlace,
+	readGitStatus,
 } from "./checkout-peers";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import { DesktopSlotHost } from "./desktop-slot-host";
@@ -285,6 +286,8 @@ export interface IpcDeps {
 	webAutopilotNotice: { current: ((tabId: string, notice: AutopilotNotice) => void) | null };
 	/** The desktop slot's host, built in `registerIpcHandlers` (it needs the pool) and published here for the sidecar factory. */
 	desktopSlotRef: { current: DesktopSlotHost | null };
+	/** The shared-checkout pass, published here for the sidecar factory: a bridge reporting a new changed file (`checkout_files`) runs one. */
+	checkoutFilesRef: { current: (() => void) | null };
 	/** How a tab whose omp came up with an autopilot run `running` goes on (TurnResume's `relaunchContinuation`). */
 	relaunchContinuation: (tabId: string) => RelaunchContinuation;
 }
@@ -1191,8 +1194,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		},
 		place: cwd => readCheckoutPlace(cwd, readOriginFacts),
 		hiddenPaths: () => agentHiddenPaths(prefsStore.get(AGENT_HIDDEN_PREFS_KEY)),
+		gitStatus: readGitStatus,
 	});
 	const refreshCheckoutPeers = () => void checkoutPeers.refresh();
+	deps.checkoutFilesRef.current = refreshCheckoutPeers;
 	setInterval(
 		refreshCheckoutPeers,
 		Number(process.env.OMP_GUI_TEST_CHECKOUT_PEERS_MS) || CHECKOUT_PEERS_SWEEP_MS,

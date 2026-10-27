@@ -18,13 +18,17 @@ export interface CheckoutPeer {
 	device?: string;
 	/** Its session file on this computer, for the work board to open it (never for a session hidden from agents). */
 	sessionPath?: string;
-	/** Its worktree's top level, for a peer in another worktree of the repository. */
+	/** Its worktree's top level, for a peer in another worktree of the repository (never for a session hidden from agents). */
 	worktree?: string;
-	/** Files it changed lately (absolute paths, newest first), only for a peer in the same worktree. */
+	/**
+	 * Files it changed and has not committed yet (absolute, newest first). A peer in another worktree's files are
+	 * spelled in this session's worktree (the same path relative to the top level), so both scopes compare with this
+	 * session's own paths; only same-worktree files ever refuse anything.
+	 */
 	files?: string[];
 	/** What it is doing now: its in-progress todo item, one line (`CHECKOUT_TASK_MAX`). Absent: none, its title stands. Never in the prompt section. */
 	task?: string;
-	/** Only for a peer in the same worktree: the files both this session and that peer changed. */
+	/** The files both this session and that peer changed and have not committed, in this session's spelling. */
 	shared?: string[];
 }
 
@@ -57,3 +61,10 @@ export const CHECKOUT_PEERS_EVENT = "checkout_peers";
 export const CHECKOUT_PEERS_GET = "checkout_peers.get";
 /** How many changed files a session remembers and reports. */
 export const CHECKOUT_FILES_MAX = 40;
+/**
+ * Bridge → main frame `{type}`: this session's agents changed a file they had not changed before, so main runs a pass
+ * now instead of at its next sweep (the others' guards learn of it within a pass, not ten seconds).
+ */
+export const CHECKOUT_FILES_EVENT = "checkout_files";
+/** How every refusal of the shared-checkout guard begins: the work card shows such a call as protection, not a failure. */
+export const CHECKOUT_REFUSAL_PREFIX = "Refused while other sessions work here";

@@ -1,19 +1,30 @@
 /**
  * Rules for sessions that share a checkout (contracts: checkout-peers-contracts.ts): the prompt section that names the
- * other sessions and how to reach them, and the `tool_call` guard that refuses a git command which would take,
- * overwrite or hide another session's work. Pure; the bridge module (checkout-peers.ts) and the GUI's tests call it.
+ * other sessions and how to reach them, the `tool_call` guard that refuses a step which would take, overwrite or hide
+ * another session's work, and the notices that tell a session of an overlap. Pure; the bridge module
+ * (checkout-peers.ts) and the GUI's tests call it.
  *
  * The guard reads `bash` with Autopilot's own shell parser (`shellEffects`) and judges each git run by one table
  * (`GIT_RULES`): a repository-wide step (stash, deleting or moving a branch) is refused while any other session works
  * in any worktree of the repository; a worktree step (switching or resetting the checkout, cleaning, bulk staging,
- * `commit -a`, a commit without paths) while another session works in the same worktree; a step on named paths only
- * when a path is broad (`.`, a directory, a glob) or names a file another session changed. Writing a file another
- * session changed whole (a shell redirect, the `write` tool) is refused too. A session working alone is never judged.
+ * `commit -a`, a commit without paths, merge, pull, rebase, cherry-pick, revert, am, apply) while another session
+ * works in the same worktree; a step on named paths only when a path is broad (`.`, a directory, a glob) or names a
+ * file another session changed; removing or moving a worktree another session works in. Replacing or deleting a file
+ * another session changed (a shell redirect, `cp`/`mv`/`rm`/`tee`/`dd`, the `write` tool) is refused too. A session
+ * working alone is never judged; a session in another worktree is never refused over files, only warned of the merge.
  */
-import { type GitInvocation, isInside, normalizePath, shellEffects } from "./autopilot-guard-core";
+import {
+	fileToolPaths,
+	type GitInvocation,
+	isInside,
+	normalizePath,
+	type ShellEffects,
+	shellEffects,
+} from "./autopilot-guard-core";
 import {
 	CHECKOUT_FILES_MAX,
 	CHECKOUT_PEERS_SET,
+	CHECKOUT_REFUSAL_PREFIX,
 	CHECKOUT_TASK_MAX,
 	type CheckoutPeer,
 	type CheckoutPeers,
@@ -22,7 +33,12 @@ import {
 /** What one git run does to shared state, before knowing who else works here. */
 type Hazard =
 	| { scope: "repo" | "worktree"; what: string; instead: string }
-	| { scope: "paths"; paths: string[]; what: string; instead: string };
+	| { scope: "paths" | "worktrees"; paths: string[]; what: string; instead: string };
+
+const FINISHING = ["--abort", "--continue", "--skip", "--quit"];
+/** Finishing or leaving an operation already underway changes nothing new. */
+const finishing = (args: string[]) => args.some(arg => FINISHING.includes(arg));
+const WORKTREE_INSTEAD = "Do it in a worktree of your own, or ask the other session to commit first.";
 
 const REV = /^((HEAD|@|ORIG_HEAD|FETCH_HEAD|MERGE_HEAD)([~^]\d*)*|[0-9a-f]{7,40})$/;
 /** Flags whose value is the next word, per subcommand (so a message or a source is never read as a path). */
@@ -224,6 +240,74 @@ const GIT_RULES: Record<string, (args: string[]) => Hazard | undefined> = {
 			instead: "Move only files you made.",
 		};
 	},
+	merge: args =>
+		finishing(args)
+			? undefined
+			: {
+					scope: "worktree",
+					what: "git merge rewrites this checkout's files, index and HEAD under the other session, and a conflict leaves markers in files it may be editing",
+					instead: WORKTREE_INSTEAD,
+				},
+	pull: () => ({
+		scope: "worktree",
+		what: "git pull merges or rebases the remote's commits into this checkout, rewriting files under the other session too",
+		instead:
+			"git fetch is safe here; merge or rebase in a worktree of your own, or after the other session has committed.",
+	}),
+	rebase: args =>
+		finishing(args)
+			? undefined
+			: {
+					scope: "worktree",
+					what: "git rebase rewrites this branch and checks its commits out again under the other session, and stops on conflicts in files it may be editing",
+					instead: WORKTREE_INSTEAD,
+				},
+	"cherry-pick": args =>
+		finishing(args)
+			? undefined
+			: {
+					scope: "worktree",
+					what: "git cherry-pick applies a commit to this checkout's files and index under the other session, and stops on conflicts in files it may be editing",
+					instead: WORKTREE_INSTEAD,
+				},
+	revert: args =>
+		finishing(args)
+			? undefined
+			: {
+					scope: "worktree",
+					what: "git revert applies the inverse of a commit to this checkout's files and index under the other session, and stops on conflicts in files it may be editing",
+					instead: WORKTREE_INSTEAD,
+				},
+	am: args =>
+		finishing(args)
+			? undefined
+			: {
+					scope: "worktree",
+					what: "git am applies patches to this checkout's files and index and commits them under the other session, and stops on conflicts in files it may be editing",
+					instead: WORKTREE_INSTEAD,
+				},
+	apply: args => {
+		const { flags } = split("apply", args);
+		// A check or report flag turns applying off, unless `--apply` turns it back on.
+		return hasFlag(flags, "", ["--check", "--stat", "--numstat", "--summary"]) && !hasFlag(flags, "", ["--apply"])
+			? undefined
+			: {
+					scope: "worktree",
+					what: "git apply changes this checkout's files under the other session, files it may be editing too",
+					instead:
+						"Check it first with git apply --check, then apply it in a worktree of your own or after the other session has committed.",
+				};
+	},
+	worktree: args => {
+		const [verb, ...paths] = split("worktree", args).words;
+		if (verb !== "remove" && verb !== "move") return undefined;
+		return {
+			scope: "worktrees",
+			paths: verb === "move" ? paths.slice(0, 1) : paths,
+			what: `git worktree ${verb} takes a worktree's folder away from the session working in it`,
+			instead: "Leave other sessions' worktrees alone; ask the user, or that session, when its work should end.",
+		};
+	},
 };
 
 /** Whether a path a git command names (relative to `cwd`) reaches `peer`'s work: a glob or pathspec magic always, the top level or above always, else a file it changed at or under the path. */
@@ -271,28 +355,65 @@ export function checkoutRefusal(
 	peers: CheckoutPeers,
 	ownFiles: readonly string[],
 	realpath?: (path: string) => string,
+	isDirectory?: (path: string) => boolean,
+): string | undefined {
+	return refusalFor(shellEffects(command, cwd, isDirectory), peers, ownFiles, realpath);
+}
+
+function refusalFor(
+	effects: ShellEffects,
+	peers: CheckoutPeers,
+	ownFiles: readonly string[],
+	realpath?: (path: string) => string,
 ): string | undefined {
 	const repoPeers = [...peers.worktree, ...peers.repo];
 	if (repoPeers.length === 0) return undefined;
-	const effects = shellEffects(command, cwd);
 	for (const git of effects.git) {
 		// A `cd` or `-C` through a symlink lands in main's spelling of the checkout too.
 		const at = realpath && !git.cwd.startsWith("\u0000") ? { ...git, cwd: canonicalPath(git.cwd, realpath) } : git;
 		const refusal = judge(at, peers, repoPeers, ownFiles);
 		if (refusal) return refusal;
 	}
-	return overwriteRefusal(shellWrites(command, cwd, realpath), "from the shell", peers, ownFiles);
+	const changes = changesOf(effects, realpath);
+	return (
+		overwriteRefusal(changes.replaces, "from the shell", peers, ownFiles) ??
+		overwriteRefusal(changes.deletes, "from the shell", peers, ownFiles, true)
+	);
+}
+
+/** The files a command changes, in main's spelling: in place (`edits`), replaced whole or redirected into (`replaces`), removed (`deletes`). */
+export interface ShellChanges {
+	edits: string[];
+	replaces: string[];
+	deletes: string[];
+}
+
+/** `effects`' file changes in main's spelling, devices and paths a failed `cd` left unresolved dropped. */
+function changesOf(effects: ShellEffects, realpath?: (path: string) => string): ShellChanges {
+	const settle = (paths: string[]) =>
+		paths
+			.filter(path => !path.startsWith("/dev/") && !path.includes("\u0000"))
+			.map(path => (realpath ? canonicalPath(path, realpath) : path));
+	return {
+		edits: settle(effects.edits),
+		replaces: settle([...effects.writes, ...effects.replaces]),
+		deletes: settle(effects.deletes),
+	};
 }
 
 /**
- * The files `command` writes through output redirects (`>`, `>>`, `&>`), in main's spelling, devices left out. A
- * session records them as its own like a file tool's writes: measured, two sessions each wrote the shared file
- * with `echo >`, and only a recorded write lets the other's guard see it.
+ * The files `command` changes (redirects, `sed -i`, `cp`/`mv`/`rm`, `tee`, `dd of=`, `patch`, ...), read with
+ * Autopilot's own parser. A session records them as its own like a file tool's writes: measured, two sessions each
+ * wrote the shared file with `echo >`, and only a recorded write lets the other's guard see it. `touch`, `mkdir` and
+ * `chmod` change no content and are not listed.
  */
-export function shellWrites(command: string, cwd: string, realpath?: (path: string) => string): string[] {
-	return shellEffects(command, cwd)
-		.writes.filter(path => !path.startsWith("/dev/"))
-		.map(path => (realpath ? canonicalPath(path, realpath) : path));
+export function shellChanges(
+	command: string,
+	cwd: string,
+	realpath?: (path: string) => string,
+	isDirectory?: (path: string) => boolean,
+): ShellChanges {
+	return changesOf(shellEffects(command, cwd, isDirectory), realpath);
 }
 
 /**
@@ -326,45 +447,140 @@ export function currentTask(
 	return undefined;
 }
 
+const peerKey = (peer: CheckoutPeer) => peer.id ?? (peer.device ? `device:${peer.device}` : "hidden");
+
 /**
- * The passive notice for a file-tool call (not `write`, which is refused) that changes a file a same-worktree peer
- * changed too, or undefined text. `told` holds the (file, peer) pairs already noticed; the returned `told` adds this
- * notice's, so each pair is said once.
+ * `told` without the (file, peer) pairs whose file the peer no longer lists: once it committed the file, the pair
+ * can be said again when it changes the file anew.
+ */
+function stillTold(told: ReadonlySet<string>, peers: CheckoutPeers): Set<string> {
+	const present = new Set<string>();
+	for (const peer of [...peers.worktree, ...peers.repo])
+		for (const file of [...(peer.files ?? []), ...(peer.shared ?? [])]) present.add(`${file}\0${peerKey(peer)}`);
+	return new Set([...told].filter(pair => present.has(pair)));
+}
+
+/** The files of `files` not yet told for `peer`; they count as told from now on. */
+function untold(peer: CheckoutPeer, files: readonly string[], told: Set<string>): string[] {
+	const fresh = files.filter(file => !told.has(`${file}\0${peerKey(peer)}`));
+	for (const file of fresh) told.add(`${file}\0${peerKey(peer)}`);
+	return fresh;
+}
+
+/** What the notice says about one scope's peers. */
+const SCOPE_TEXT = {
+	worktree: {
+		edited: "Another session changed a file you just edited:",
+		shared: "Another session also changed files you changed:",
+	},
+	repo: {
+		edited:
+			"A session in another worktree of this repository, on its own branch, changed a file you just edited. The two edits will conflict when the branches merge:",
+		shared:
+			"A session in another worktree of this repository, on its own branch, also changed files you changed. The two changes will conflict when the branches merge:",
+	},
+} as const;
+
+function noticeAction(scope: "worktree" | "repo", reach: string[], noun: string): string {
+	const notes = reach.map(id => `{"to": "${id}", "kind": "note", "text": …}`).join(" / ");
+	const each = reach.length === 1 ? "that session" : "each of them";
+	if (scope === "repo")
+		return reach.length
+			? `Tell ${each} before the branches meet, with one ompdesk_report ${notes}; use "kind": "question" instead when one of you should change course.`
+			: "Tell the user, so one of you adapts before the branches meet.";
+	return reach.length
+		? `Keep your change to your own lines. Before you commit ${noun}, send ${each} one ompdesk_report ${notes}; use "kind": "question" instead when your change can break theirs.`
+		: `Keep your change to your own lines, and tell the user before you commit ${noun}.`;
+}
+
+/**
+ * The passive notice for a tool call, or undefined text. Forward: the call changes a file (`paths`, not a refused
+ * `write`) that a peer changed too. Reverse: a peer started changing a file this session changed (`shared`), told at
+ * the session's next call of any kind. A same-worktree peer's overlap asks for care; another worktree's only warns of
+ * the merge ahead and never refuses. `told` holds the (file, peer) pairs already said; the returned `told` adds this
+ * notice's and drops the pairs whose file the peer no longer lists, so each pair is said once per time it appears.
  */
 export function overlapNotice(
 	paths: readonly string[],
 	peers: CheckoutPeers,
 	told: ReadonlySet<string>,
 ): { text: string | undefined; told: Set<string> } {
-	const next = new Set(told);
-	const lines: string[] = [];
-	const reach: string[] = [];
-	for (const peer of peers.worktree) {
-		const key = peer.id ?? (peer.device ? `device:${peer.device}` : "hidden");
-		const files = paths.filter(
-			path => peer.files?.some(file => isInside(file, path) && isInside(path, file)) && !next.has(`${path}\0${key}`),
-		);
-		if (files.length === 0) continue;
-		for (const file of files) next.add(`${file}\0${key}`);
-		lines.push(
-			`- ${peerLine({ ...peer, files: undefined }, peers.toplevel, true).slice(2)} also changed: ${files.map(file => relative(file, peers.toplevel)).join(", ")}`,
-		);
-		if (peer.id && peers.canMessage) reach.push(peer.id);
+	const next = stillTold(told, peers);
+	const blocks: string[] = [];
+	for (const [scope, list] of [
+		["worktree", peers.worktree],
+		["repo", peers.repo],
+	] as const) {
+		const edited: string[] = [];
+		const shared: string[] = [];
+		const reach: string[] = [];
+		for (const peer of list) {
+			const touched = untold(
+				peer,
+				(peer.files ?? []).filter(file => paths.some(path => isInside(file, path) && isInside(path, file))),
+				next,
+			);
+			const also = untold(peer, peer.shared ?? [], next);
+			const line = (files: string[]) =>
+				`- ${peerLine({ ...peer, files: undefined }, peers.toplevel, true).slice(2)} also changed: ${files.map(file => relative(file, peers.toplevel)).join(", ")}`;
+			if (touched.length > 0) edited.push(line(touched));
+			if (also.length > 0) shared.push(line(also));
+			if (touched.length + also.length > 0 && peer.id && peers.canMessage) reach.push(peer.id);
+		}
+		const block = (kind: "edited" | "shared", lines: string[]) =>
+			lines.length === 0
+				? []
+				: [
+						[
+							"<shared-checkout-overlap>",
+							SCOPE_TEXT[scope][kind],
+							...lines,
+							noticeAction(scope, reach, kind === "edited" ? "this file" : "these files"),
+							"</shared-checkout-overlap>",
+						].join("\n"),
+					];
+		blocks.push(...block("edited", edited), ...block("shared", shared));
 	}
-	if (lines.length === 0) return { text: undefined, told: next };
-	const action = reach.length
-		? `Keep your change to your own lines. Before you commit this file, send ${reach.length === 1 ? "that session" : "each of them"} one ompdesk_report ${reach.map(id => `{"to": "${id}", "kind": "note", "text": …}`).join(" / ")}; use "kind": "question" instead when your change can break theirs.`
-		: "Keep your change to your own lines, and tell the user before you commit this file.";
-	return {
-		text: [
-			"<shared-checkout-overlap>",
-			"Another session changed a file you just edited:",
-			...lines,
-			action,
-			"</shared-checkout-overlap>",
-		].join("\n"),
-		told: next,
-	};
+	return { text: blocks.length > 0 ? blocks.join("\n\n") : undefined, told: next };
+}
+
+const GLOB = /[*?[]/;
+
+/** A shell glob as a case-insensitive pattern over whole absolute paths; `**` crosses folders, `*` and `?` do not. */
+function globPattern(glob: string): RegExp {
+	let source = "";
+	for (let index = 0; index < glob.length; index++) {
+		const char = glob[index];
+		const close = char === "[" ? glob.indexOf("]", index + 2) : -1;
+		if (char === "*" && glob[index + 1] === "*") {
+			source += ".*";
+			index++;
+		} else if (char === "*") source += "[^/]*";
+		else if (char === "?") source += "[^/]";
+		else if (close > index) {
+			source += glob.slice(index, close + 1).replace(/^\[!/, "[^");
+			index = close;
+		} else source += char.replace(/[.+^${}()|\\[\]]/g, "\\$&");
+	}
+	try {
+		return new RegExp(`^${source}$`, "i");
+	} catch {
+		// A bracket class the pattern language rejects: fall back to the literal start of the glob.
+		return new RegExp(`^${glob.slice(0, glob.search(GLOB)).replace(/[.+^${}()|\\[\]]/g, "\\$&")}`, "i");
+	}
+}
+
+/**
+ * Whether a shell command's `target` takes `file`: the very file or a glob matching it; a deletion (`rm -r`) also
+ * takes every file below a folder it names.
+ */
+function reaches(target: string, file: string, deleting: boolean): boolean {
+	if (!GLOB.test(target)) return isInside(file, target) && (deleting || isInside(target, file));
+	const pattern = globPattern(target);
+	const parts = file.split("/");
+	for (let length = deleting ? 2 : parts.length; length <= parts.length; length++)
+		if (pattern.test(parts.slice(0, length).join("/"))) return true;
+	return false;
 }
 
 function overwriteRefusal(
@@ -372,20 +588,29 @@ function overwriteRefusal(
 	how: string,
 	peers: CheckoutPeers,
 	ownFiles: readonly string[],
+	deleting = false,
 ): string | undefined {
 	for (const path of paths) {
-		const endangered = peers.worktree.filter(peer =>
-			peer.files?.some(file => isInside(file, path) && isInside(path, file)),
-		);
+		const endangered = peers.worktree.filter(peer => peer.files?.some(file => reaches(path, file, deleting)));
 		if (endangered.length === 0) continue;
-		return refusalText(
-			`writing ${relative(path, peers.toplevel)} whole ${how} would drop the other session's uncommitted changes to it`,
-			"Change it with the edit tool: it applies only your lines and refuses an edit whose lines moved under you.",
-			endangered,
-			true,
-			peers,
-			ownFiles,
-		);
+		const name = relative(path, peers.toplevel);
+		return deleting
+			? refusalText(
+					`deleting ${name} ${how} would drop the other session's uncommitted changes in it`,
+					"Delete only files you made; leave one the other session changed, or ask it to commit or remove it.",
+					endangered,
+					true,
+					peers,
+					ownFiles,
+				)
+			: refusalText(
+					`writing ${name} whole ${how} would drop the other session's uncommitted changes to it`,
+					"Change it with the edit tool: it applies only your lines and refuses an edit whose lines moved under you.",
+					endangered,
+					true,
+					peers,
+					ownFiles,
+				);
 	}
 	return undefined;
 }
@@ -405,7 +630,7 @@ function refusalText(
 				.join(", ")}.`
 		: "";
 	return [
-		`Refused while other sessions work here: ${what}.`,
+		`${CHECKOUT_REFUSAL_PREFIX}: ${what}.`,
 		...endangered.map(peer => peerLine(peer, peers.toplevel, files)),
 		`${instead}${own}`,
 		askLine(endangered, peers.canMessage),
@@ -419,14 +644,22 @@ function judge(
 	ownFiles: readonly string[],
 ): string | undefined {
 	const { toplevel } = peers;
-	// A git run in another repository (cd elsewhere, -C) is none of these sessions' business; an unresolvable cd counts as here.
-	if (!git.cwd.startsWith("\u0000") && !isInside(git.cwd, toplevel)) return undefined;
 	const hazard = GIT_RULES[git.sub]?.(git.args);
 	if (!hazard) return undefined;
+	// A git run in another repository (cd elsewhere, -C) is none of these sessions' business; an unresolvable cd counts as here. A worktree removal names its path, wherever git runs.
+	if (hazard.scope !== "worktrees" && !git.cwd.startsWith("\u0000") && !isInside(git.cwd, toplevel)) return undefined;
+	const cwd = git.cwd.startsWith("\u0000") ? toplevel : git.cwd;
 	let endangered: CheckoutPeer[];
-	if (hazard.scope === "paths") {
-		const cwd = git.cwd.startsWith("\u0000") ? toplevel : git.cwd;
+	if (hazard.scope === "paths")
 		endangered = peers.worktree.filter(peer => hazard.paths.some(path => endangers(path, cwd, toplevel, peer)));
+	else if (hazard.scope === "worktrees") {
+		const targets = hazard.paths.map(path => normalizePath(path, cwd));
+		endangered = [
+			...peers.repo.filter(peer =>
+				targets.some(target => peer.worktree !== undefined && isInside(peer.worktree, target)),
+			),
+			...(targets.some(target => isInside(toplevel, target)) ? peers.worktree : []),
+		];
 	} else endangered = hazard.scope === "repo" ? repoPeers : peers.worktree;
 	if (endangered.length === 0) return undefined;
 	const command = `git ${[git.sub, ...git.args].join(" ")}`.slice(0, 120);
@@ -434,7 +667,7 @@ function judge(
 		`\`${command}\`: ${hazard.what}`,
 		hazard.instead,
 		endangered,
-		hazard.scope !== "repo",
+		hazard.scope === "paths" || hazard.scope === "worktree",
 		peers,
 		ownFiles,
 	);
@@ -564,4 +797,75 @@ export function canonicalPath(path: string, realpath: (path: string) => string):
 		}
 	}
 	return normalizePath(path, "/");
+}
+
+/** What a tool call did: refused with the reason the model reads, or allowed with a notice for it and whether it added a file to the session's own. */
+export type CallVerdict = { block: string } | { notice?: string; gained: boolean };
+
+/** What the ledger needs from the file system: main's spelling of a path, and whether a path is a folder. */
+export interface CheckoutHost {
+	realpath(path: string): string;
+	isDirectory?(path: string): boolean;
+}
+
+const URL_PATH = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//;
+
+/**
+ * The files this session's agents changed (its claims, which main reads through `checkout_status`) and which
+ * (file, peer) pairs it was already told of. Every tool call goes through `call`: it judges the call against the
+ * peers, records what the call changes as the session's own, and returns the notice for the model.
+ */
+export class CheckoutLedger {
+	#files: string[] = [];
+	#told = new Set<string>();
+
+	/** The files this session changed, newest first. */
+	get files(): readonly string[] {
+		return this.#files;
+	}
+
+	/**
+	 * One tool call (`cwd` is the session's folder). A refused call claims nothing and leaves the notice it would have
+	 * carried for the next call; the refusal text reaches the model on its own.
+	 */
+	call(
+		toolName: string,
+		input: unknown,
+		cwd: string,
+		peers: CheckoutPeers | undefined,
+		host: CheckoutHost,
+	): CallVerdict {
+		const args = typeof input === "object" && input !== null ? input : {};
+		let touched: string[] = [];
+		if (toolName === "bash") {
+			const command = "command" in args ? args.command : undefined;
+			if (typeof command === "string") {
+				const folder = "cwd" in args && typeof args.cwd === "string" ? args.cwd : ".";
+				const at = canonicalPath(normalizePath(folder, cwd), host.realpath);
+				const effects = shellEffects(command, at, host.isDirectory);
+				const refusal = peers ? refusalFor(effects, peers, this.#files, host.realpath) : undefined;
+				if (refusal) return { block: refusal };
+				const changes = changesOf(effects, host.realpath);
+				touched = [...changes.edits, ...changes.replaces, ...changes.deletes];
+			}
+		} else {
+			touched = fileToolPaths(toolName, input)
+				.filter(file => !URL_PATH.test(file))
+				.map(file => canonicalPath(normalizePath(file, cwd), host.realpath));
+			const refusal = peers && toolName === "write" ? writeRefusal(touched, peers, this.#files) : undefined;
+			if (refusal) return { block: refusal };
+		}
+		// A glob names files only the shell knows; it can be refused above but never claimed.
+		const paths = touched.filter(path => !GLOB.test(path));
+		let notice: string | undefined;
+		if (peers) {
+			const said = overlapNotice(paths, peers, this.#told);
+			this.#told = said.told;
+			notice = said.text;
+		} else this.#told = new Set();
+		const had = new Set(this.#files);
+		const gained = paths.some(path => !had.has(path));
+		if (paths.length > 0) this.#files = rememberFiles(this.#files, paths, CHECKOUT_FILES_MAX);
+		return { notice, gained };
+	}
 }

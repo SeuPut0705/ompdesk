@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import { app } from "electron";
 import type { AutoTitleSettings } from "../../resources/gui-bridge/modes/auto-title-contracts";
 import { AUTOPILOT_FRAME_TYPES } from "../../resources/gui-bridge/modes/autopilot-contracts";
+import { CHECKOUT_FILES_EVENT } from "../../resources/gui-bridge/modes/checkout-peers-contracts";
 import { isDelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
 import { MEMORY_ENV } from "../../resources/gui-bridge/modes/memory-recall-contracts";
 import type { NextPromptSettings } from "../../resources/gui-bridge/modes/next-prompt-contracts";
@@ -93,6 +94,8 @@ export interface LocalSidecarDeps {
 	 * factory. Absent or null: the bridge's slot frames go unanswered.
 	 */
 	desktopSlot?: () => DesktopSlotFrameSink | null;
+	/** The bridge reported a changed file its session had not changed before (`checkout_files`): the shared-checkout pass runs now. Absent: the sweep finds it. */
+	checkoutFiles?: () => void;
 }
 
 /** The device language as a BCP 47 subtag (`ko`, `zh-Hant`): not the UI one, which ships only en/ko. */
@@ -260,6 +263,10 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 			if (typeof frame.type === "string" && frame.type.startsWith("desktop_slot_")) {
 				deps.desktopSlot?.()?.frame(sc, frame);
 			}
+		});
+		// The bridge's `checkout_files` frame (a new changed file) only wakes main's shared-checkout pass.
+		sc.on("frame", (frame: Record<string, unknown>) => {
+			if (frame.type === CHECKOUT_FILES_EVENT) deps.checkoutFiles?.();
 		});
 		// omp has no session kind; remember which sessions chat tabs created.
 		if (kind === "chat") sc.on("session", ({ sessionId }) => sessionId && sessionKinds.markChat(sessionId));

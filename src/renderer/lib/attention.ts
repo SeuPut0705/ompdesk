@@ -1,7 +1,8 @@
 /**
  * What a session needs from the person, decided once: the title bar badge, the sidebar row, the window title, the
  * tray and the work board's Needs you all read `sessionAttention`, so a session that needs the person says so in the
- * same words everywhere, and a waiting child or a failed check reaches the title bar and the sidebar as a question does.
+ * same words everywhere, and a waiting child reaches the title bar and the sidebar as a question does. A failed check
+ * is not here: the agent fixes it, and the work card's verdict carries it (the owner's call, 27 Oct 2026).
  */
 
 import { type ExtensionUiStore, isApprovalRequest, isUserBlockingRequest } from "../stores/extension-ui";
@@ -9,12 +10,12 @@ import { type ExtensionUiStore, isApprovalRequest, isUserBlockingRequest } from 
 /** A prompt of the session's own: a tool approval or a plan up for review, else a question. */
 export type AskKind = "question" | "approval";
 
-export type AttentionKind = AskKind | "childWaiting" | "checkFailed";
+export type AttentionKind = AskKind | "childWaiting";
 
 export interface Attention {
 	/** What the person is asked first. */
 	kind: AttentionKind;
-	/** Everything that needs the person: asks, waiting children and a failed check (the board's Needs you count). */
+	/** Everything that needs the person: asks and waiting children (the board's Needs you count). */
 	count: number;
 }
 
@@ -22,18 +23,12 @@ export interface AttentionState {
 	/** The session's own prompts in the order it raised them; the first is the card on screen. */
 	asks: readonly AskKind[];
 	childrenWaiting: number;
-	/** The newest check failed. Outside the work board only while the session is idle (`useSessionAttention`). */
-	checkFailed: boolean;
 }
 
-/**
- * The session's own prompt comes first (it is the card on this screen), then a child waiting on the person, then a
- * failed check, which waits for nobody: it is said last, and outside the board never over work that goes on.
- */
+/** The session's own prompt comes first (it is the card on this screen), then a child waiting on the person. */
 export function sessionAttention(state: AttentionState): Attention | null {
-	const count = state.asks.length + state.childrenWaiting + (state.checkFailed ? 1 : 0);
-	const kind: AttentionKind | undefined =
-		state.asks[0] ?? (state.childrenWaiting > 0 ? "childWaiting" : state.checkFailed ? "checkFailed" : undefined);
+	const count = state.asks.length + state.childrenWaiting;
+	const kind: AttentionKind | undefined = state.asks[0] ?? (state.childrenWaiting > 0 ? "childWaiting" : undefined);
 	return kind ? { kind, count } : null;
 }
 
@@ -43,8 +38,8 @@ export function isAsk(kind: AttentionKind | undefined): kind is AskKind {
 }
 
 /**
- * The session works: its turn streams, compacts or waits to retry. Work outranks a failed check on every surface
- * outside the board (the title bar, the sidebar row, the window title, the dock badge, the tray), so they share it.
+ * The session works: its turn streams, compacts or waits to retry. The title bar, the window title, the dock badge
+ * and the tray share it.
  */
 export function sessionWorking(session: {
 	isStreaming: boolean;
@@ -71,5 +66,4 @@ export const ATTENTION_LABEL_KEY: Record<AttentionKind, string> = {
 	question: "attention.question",
 	approval: "attention.approval",
 	childWaiting: "attention.childWaiting",
-	checkFailed: "attention.checkFailed",
 };

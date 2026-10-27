@@ -1,11 +1,14 @@
 import { parseHTML } from "linkedom";
-import { act, useState } from "react";
+import { act, type ComponentProps, useState } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { CHECKOUT_REFUSAL_PREFIX } from "../../../../resources/gui-bridge/modes/checkout-peers-contracts";
+import type { AgentMessage } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { type ToolEntry, toolEntriesState, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
+import { buildHistoryRows } from "./chat-stream-utils";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -61,12 +64,16 @@ const edit: ToolEntry = {
 	endTime: 500,
 };
 
+/** What a transcript row hands the card besides its calls. */
+type CardExtra = Pick<ComponentProps<typeof ExecutionGroup>, "notes" | "leadingSkills">;
+
 /** The card with its own open state, and a body holding one tool card per call id. */
-function Card({ ids, live = false }: { ids: string[]; live?: boolean }) {
+function Card({ ids, live = false, extra }: { ids: string[]; live?: boolean; extra?: CardExtra }) {
 	const [expanded, setExpanded] = useState(false);
 	return (
 		<I18nProvider>
 			<ExecutionGroup
+				{...extra}
 				expanded={expanded}
 				live={live}
 				onExpandedChange={setExpanded}
@@ -89,12 +96,12 @@ function Card({ ids, live = false }: { ids: string[]; live?: boolean }) {
 	);
 }
 
-async function mount(entries: [string, ToolEntry][], live = false) {
+async function mount(entries: [string, ToolEntry][], live = false, extra?: CardExtra) {
 	useToolsStore.setState(toolEntriesState(entries));
 	container = document.createElement("div") as unknown as HTMLElement;
 	document.body.appendChild(container as never);
 	root = createRoot(container as unknown as Element);
-	await act(async () => root?.render(<Card ids={entries.map(([id]) => id)} live={live} />));
+	await act(async () => root?.render(<Card extra={extra} ids={entries.map(([id]) => id)} live={live} />));
 }
 
 const chip = (name: string) =>
@@ -281,5 +288,150 @@ describe("what the run leaned on", () => {
 		await mount([["edit-1", edit]]);
 		expect(chip("overlap")).toBeNull();
 		expect(chip("skills")).toBeNull();
+	});
+
+	it("counts a skill read by its SKILL.md path, under any skills root, with the folder's name", async () => {
+		await mount([
+			["skill-1", read("/Users/me/.claude/skills/tdd/SKILL.md", 0)],
+			["skill-2", read(".omp/skills/review/SKILL.md", 100)],
+			["skill-3", read("skill://tdd", 200)],
+		]);
+		expect(chip("skills")?.textContent).toBe("tdd+1");
+		expect(chip("skills")?.getAttribute("aria-label")).toBe("Skills used: tdd, review");
+	});
+
+	it("counts the skills its notes carry, once each, before the ones it read", async () => {
+		const injected = (name: string): AgentMessage => ({
+			role: "custom",
+			customType: "skill-prompt",
+			content: "Skill instructions",
+			display: true,
+			details: { name },
+			timestamp: 50,
+		});
+		await mount(
+			[
+				["skill-1", read("skill://how", 0)],
+				["edit-1", edit],
+			],
+			false,
+			{
+				notes: [injected("review"), injected("how")],
+			},
+		);
+		expect(chip("skills")?.getAttribute("aria-label")).toBe("Skills used: review, how");
+	});
+
+	it("shows the skill a /skill: prompt started the run with, though the run read none", async () => {
+		const prompt: AgentMessage = {
+			role: "custom",
+			customType: "skill-prompt",
+			content: "Skill instructions",
+			display: true,
+			attribution: "user",
+			details: { name: "release" },
+			timestamp: 1,
+		};
+		const call: AgentMessage = {
+			role: "assistant",
+			content: [{ type: "toolCall", id: "edit-1", name: "edit", arguments: { path: "src/a.ts" } }],
+			stopReason: "toolUse",
+			timestamp: 2,
+		};
+		const answer: AgentMessage = { role: "assistant", content: [{ type: "text", text: "Done" }], timestamp: 3 };
+		const work = buildHistoryRows([prompt, call, answer], "compact").find(row => row.kind === "process");
+		if (work?.kind !== "process") throw new Error("expected a work row");
+		await mount(
+			work.toolCallIds.map(id => [id, edit] as [string, ToolEntry]),
+			false,
+			{ leadingSkills: work.skills },
+		);
+		expect(chip("skills")?.textContent).toBe("release");
+		expect(chip("skills")?.getAttribute("aria-label")).toBe("Skills used: release");
+	});
+
+	it("names a peer in another worktree whose files meet the run's, marked as such", async () => {
+		useSessionStore.setState({
+			cwd: "/w",
+			checkoutPeers: {
+				toplevel: "/w",
+				commonDir: "/w/.git",
+				canMessage: true,
+				worktree: [],
+				repo: [{ id: "t4", title: "Release notes", worktree: "/wt/x", files: ["/w/src/a.ts"] }],
+			},
+		});
+		await mount([["edit-1", edit]]);
+		expect(chip("overlap")?.textContent).toBe("Shared1");
+		expect(chip("overlap")?.getAttribute("title")).toBe("Release notes (other worktree): a.ts");
+	});
+});
+
+describe("calls the shared-checkout guard refused", () => {
+	const refused = (toolName: string, args: Record<string, unknown>, what: string, at: number): ToolEntry => ({
+		toolName,
+		args,
+		status: "error",
+		streamingArgs: "",
+		result: {
+			content: [{ type: "text", text: `${CHECKOUT_REFUSAL_PREFIX}: ${what}.\nSettings test race changed it.` }],
+		},
+		isError: true,
+		startTime: at,
+		endTime: at + 10,
+	});
+	const refusedWrite = refused(
+		"write",
+		{ path: "src/b.ts", content: "x" },
+		"writing src/b.ts whole would drop changes",
+		600,
+	);
+	const refusedPush = refused("bash", { command: "git stash" }, "`git stash`: stashing hides their work", 700);
+	const section = () => container.querySelector(".omp-execution-group") as unknown as HTMLElement;
+
+	it.each([
+		["write", refusedWrite, "writing src/b.ts whole would drop changes"],
+		["bash", refusedPush, "`git stash`: stashing hides their work"],
+	])("a refused %s is a Protected chip, never a failure, and a tap shows that step", async (_, entry, what) => {
+		Object.assign(HTMLElement.prototype, { scrollIntoView: vi.fn() });
+		await mount([
+			["edit-1", edit],
+			["refused-1", entry],
+		]);
+		expect(section().getAttribute("data-state")).toBe("complete");
+		expect(section().getAttribute("data-verdict")).toBeNull();
+		expect(container.querySelector('[data-work-finding="error"]')).toBeNull();
+		expect(chip("protected")?.textContent).toBe("Protected1");
+		expect(chip("protected")?.getAttribute("aria-label")).toBe("1 step held back to protect other sessions' work");
+		expect(chip("protected")?.getAttribute("title")).toBe(what);
+		await click(chip("protected"));
+		await wait(120);
+		const step = container.querySelector('[data-tool-call-id="refused-1"]') as unknown as HTMLElement;
+		expect(step.querySelector("button")?.getAttribute("aria-expanded")).toBe("true");
+	});
+
+	it("lists each refusal on its own line of the tooltip", async () => {
+		await mount([
+			["refused-1", refusedWrite],
+			["refused-2", refusedPush],
+		]);
+		expect(chip("protected")?.textContent).toBe("Protected2");
+		expect(chip("protected")?.getAttribute("title")).toBe(
+			"writing src/b.ts whole would drop changes\n`git stash`: stashing hides their work",
+		);
+	});
+
+	it("still marks a write that failed on its own red, and shows no Protected chip for it", async () => {
+		const broken: ToolEntry = {
+			...refusedWrite,
+			result: { content: [{ type: "text", text: "EACCES: permission denied, open 'src/b.ts'" }] },
+		};
+		await mount([
+			["edit-1", edit],
+			["broken-1", broken],
+		]);
+		expect(section().getAttribute("data-state")).toBe("failed");
+		expect(container.querySelector('[data-work-finding="error"]')).not.toBeNull();
+		expect(chip("protected")).toBeNull();
 	});
 });

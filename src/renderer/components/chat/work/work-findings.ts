@@ -11,6 +11,7 @@ import { getToolActivity } from "../../tools/index";
 import { isInterruptedError } from "./WorkStatus";
 import { type CheckInput, type CheckSummary, firstErrorLine, type OperationCall } from "./work-checks";
 import { projectPath } from "./work-run";
+import { guardRefusal } from "./work-view";
 
 export interface WorkFindings {
 	/** Something failed: the cause line when the output says one, and the call to show. */
@@ -59,10 +60,12 @@ export function stepOperations(
 		entry.status !== "pending" &&
 		entry.status !== "running" &&
 		!isInterruptedError(entry, stoppedAt);
+	// A call the shared-checkout guard refused is protection: neither a failure nor a fix.
 	const failure = (entry: ToolEntry) =>
 		entry.toolName !== "bash" &&
 		(entry.status === "error" || entry.isError) &&
 		settled(entry) &&
+		guardRefusal(entry) === null &&
 		entry.toolName !== "wait" &&
 		(TURN_EDIT_TOOLS.includes(entry.toolName) ||
 			!["read", "search"].includes(getToolActivity(entry.toolName, entry.args).activity));

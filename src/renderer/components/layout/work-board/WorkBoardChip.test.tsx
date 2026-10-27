@@ -2,8 +2,7 @@ import { parseHTML } from "linkedom";
 import { act, type ReactNode } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { I18nProvider, translate } from "../../../lib/i18n";
-import { useAttentionStore } from "../../../stores/attention";
+import { I18nProvider } from "../../../lib/i18n";
 import { useAutopilotStore } from "../../../stores/autopilot";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useSessionStore } from "../../../stores/session";
@@ -67,7 +66,6 @@ afterEach(async () => {
 	useSubagentsStore.getState().reset();
 	useExtensionUiStore.setState({ pendingRequests: [] });
 	useToolsStore.getState().reset();
-	useAttentionStore.setState({ checkFailed: {} });
 });
 
 describe("WorkBoardChip, the phone's work strip", () => {
@@ -136,16 +134,6 @@ describe("WorkBoardChip, the phone's work strip", () => {
 		expect(strip?.getAttribute("data-state")).toBe("waiting");
 		await act(async () => useExtensionUiStore.setState({ pendingRequests: [] }));
 		expect(strip?.querySelector('[role="status"] .sr-only')?.textContent).toBe("0 of 1 done");
-	});
-
-	it("says a failed check by its word, in the danger state, though nothing else waits", async () => {
-		// The pane's watcher (WorkBoardHost) wrote the tab's failure; WorkBoard.test.tsx covers that write.
-		useAttentionStore.getState().setCheckFailed("t1", true);
-		useTodoStore.getState().setPhases([{ name: "Fix", tasks: [{ content: "Reproduce", status: "in_progress" }] }]);
-		await mount();
-		const strip = container.querySelector("[data-work-chip]");
-		expect(strip?.querySelector('[role="status"]')?.textContent).toBe(translate("attention.checkFailed"));
-		expect(strip?.getAttribute("data-state")).toBe("failed");
 	});
 
 	it("works only while a subagent is at work: a parked one is live but leaves the strip's pulse idle", async () => {

@@ -1,4 +1,5 @@
-import type { AgentProgress } from "../../../../shared/rpc-types";
+import { CHECKOUT_REFUSAL_PREFIX } from "../../../../../resources/gui-bridge/modes/checkout-peers-contracts";
+import type { AgentMessage, AgentProgress } from "../../../../shared/rpc-types";
 import { TURN_EDIT_TOOLS } from "../../../../shared/turn-edits";
 import { extractResultImages, resultDetails, resultText } from "../../../lib/format";
 import { devServerUrl } from "../../../lib/panel-auto-open";
@@ -223,9 +224,17 @@ export interface WorkMediaOutcome {
 	kind: ChatMediaKind;
 }
 
-/** A skill the work read (`read skill://<name>…`), main agent or subagent; one per name, the first read. */
+/** A skill the work used: read (`skill://<name>…`, `…/skills/<name>/SKILL.md`) or named by a `skill-prompt` message; one per name. */
 export interface WorkSkillOutcome {
 	name: string;
+	agentName?: string;
+	toolCallId?: string;
+}
+
+/** A call the shared-checkout guard refused: protection of another session's work, never a failure. */
+export interface WorkProtection {
+	/** The refusal's first line after the guard's prefix (the git command or the file), one line. */
+	what: string;
 	agentName?: string;
 	toolCallId?: string;
 }
@@ -236,10 +245,54 @@ export interface WorkOutcomes {
 	images: WorkImageOutcome[];
 	media: WorkMediaOutcome[];
 	skills: WorkSkillOutcome[];
+	protections: WorkProtection[];
+}
+
+const PROTECTION_MAX = 160;
+
+/**
+ * What a guard refusal says it stopped (null for any other call): a call that failed with the shared-checkout guard's
+ * text. Every rule that counts failures reads this one, so protection never reads as a failed step or command.
+ */
+export function guardRefusal(entry: ToolEntry): string | null {
+	if (!(entry.status === "error" || entry.isError)) return null;
+	const text = resultText(entry.result).trimStart();
+	if (!text.startsWith(CHECKOUT_REFUSAL_PREFIX)) return null;
+	const what = (
+		text
+			.slice(CHECKOUT_REFUSAL_PREFIX.length)
+			.replace(/^[:\s]+/, "")
+			.split("\n", 1)[0] ?? ""
+	)
+		.trim()
+		.replace(/\.$/, "");
+	return what.length > PROTECTION_MAX ? `${what.slice(0, PROTECTION_MAX - 1)}…` : what;
 }
 
 /** `skill://tdd`, `skill://poteto-mode/playbooks/bug-fix.md`, `skill://how:1-40` → the skill's name. */
 const SKILL_URI = /^skill:\/\/([^/:?#\s]+)/;
+/** `/Users/me/.claude/skills/tdd/SKILL.md`, `skills/tdd/SKILL.md:1-40`, `C:\x\skills\tdd\SKILL.md` → the folder's name. */
+const SKILL_FILE = /(?:^|[\\/])skills[\\/]([^\\/:]+)[\\/]SKILL\.md(?::[\d,+-]*)?$/;
+
+/** The skill a read path names, whatever skills root it sits in; undefined for any other path. */
+export function skillOfPath(path: string): string | undefined {
+	const trimmed = path.trim();
+	return SKILL_URI.exec(trimmed)?.[1] ?? SKILL_FILE.exec(trimmed)?.[1];
+}
+
+/** The skill a stock `skill-prompt` custom message names (`details.name`): a `/skill:<name>` prompt or an injected one. */
+export function skillPromptName(message: AgentMessage): string | undefined {
+	if (message.role !== "custom" || message.customType !== "skill-prompt") return undefined;
+	const details = asRecord(message.details);
+	return typeof details?.name === "string" && details.name.trim() ? details.name.trim() : undefined;
+}
+
+/** Skills from several sources, one per name: the first source's entry stands. */
+export function mergeSkills(...sources: readonly (readonly WorkSkillOutcome[])[]): WorkSkillOutcome[] {
+	const merged = new Map<string, WorkSkillOutcome>();
+	for (const skill of sources.flat()) if (!merged.has(skill.name)) merged.set(skill.name, skill);
+	return [...merged.values()];
+}
 
 /**
  * `stoppedAt`: the actual user-stop timestamp, used only for interrupted top-level calls.
@@ -265,6 +318,7 @@ export function workOutcomes(
 	const seenImages = new Set<string>();
 	const media = new Map<string, WorkMediaOutcome>();
 	const skills = new Map<string, WorkSkillOutcome>();
+	const protections: WorkProtection[] = [];
 	for (const evidence of [...entries].sort((a, b) => {
 		const left = "entry" in a ? a.entry : a;
 		const right = "entry" in b ? b.entry : b;
@@ -284,10 +338,17 @@ export function workOutcomes(
 		if (details?.source === "interrupt_skipped") continue;
 		const skill =
 			entry.toolName === "read" && !entry.isError && typeof entry.args.path === "string"
-				? SKILL_URI.exec(entry.args.path.trim())?.[1]
+				? skillOfPath(entry.args.path)
 				: undefined;
 		if (skill && !skills.has(skill))
 			skills.set(skill, { name: skill, ...(agentName ? { agentName } : {}), ...(toolCallId ? { toolCallId } : {}) });
+		const refusal = guardRefusal(entry);
+		if (refusal !== null)
+			protections.push({
+				what: refusal,
+				...(agentName ? { agentName } : {}),
+				...(toolCallId ? { toolCallId } : {}),
+			});
 		if (!entry.isError) {
 			for (const image of extractResultImages(entry.result)) {
 				if (seenImages.has(image.key)) continue;
@@ -406,9 +467,10 @@ export function workOutcomes(
 				!verdict &&
 				errored &&
 				!cut &&
-				typeof details?.exitCode !== "number" &&
-				details?.timedOut !== true &&
-				!RAN_WITHOUT_EXIT.test(resultText(entry.result).trim());
+				(refusal !== null ||
+					(typeof details?.exitCode !== "number" &&
+						details?.timedOut !== true &&
+						!RAN_WITHOUT_EXIT.test(resultText(entry.result).trim())));
 			const failed = errored && !cut && !refused;
 			const text = verdict
 				? failed || exitCode || checkKind(entry.args.command)
@@ -444,5 +506,12 @@ export function workOutcomes(
 			});
 		}
 	}
-	return { files: [...files.values()], commands, images, media: [...media.values()], skills: [...skills.values()] };
+	return {
+		files: [...files.values()],
+		commands,
+		images,
+		media: [...media.values()],
+		skills: [...skills.values()],
+		protections,
+	};
 }

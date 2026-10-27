@@ -14,7 +14,7 @@ const ask: ExtensionUIRequest = { type: "extension_ui_request", id: "ask", metho
 const signIn: ExtensionUIRequest = { type: "extension_ui_request", id: "url", method: "open_url", url: "https://x" };
 const notice: ExtensionUIRequest = { type: "extension_ui_request", id: "n", method: "notify", message: "hi" };
 
-const none: AttentionState = { asks: [], childrenWaiting: 0, checkFailed: false };
+const none: AttentionState = { asks: [], childrenWaiting: 0 };
 
 describe("sessionAttention", () => {
 	it("is null when nothing needs the person", () => {
@@ -25,32 +25,25 @@ describe("sessionAttention", () => {
 		expect(sessionAttention({ ...none, asks: ["question"] })).toEqual({ kind: "question", count: 1 });
 		expect(sessionAttention({ ...none, asks: ["approval"] })).toEqual({ kind: "approval", count: 1 });
 		expect(sessionAttention({ ...none, childrenWaiting: 2 })).toEqual({ kind: "childWaiting", count: 2 });
-		expect(sessionAttention({ ...none, checkFailed: true })).toEqual({ kind: "checkFailed", count: 1 });
 	});
 
-	it("says the session's first prompt before a waiting child, and a waiting child before a failed check", () => {
-		expect(sessionAttention({ asks: ["approval", "question"], childrenWaiting: 1, checkFailed: true })?.kind).toBe(
-			"approval",
-		);
-		expect(sessionAttention({ asks: ["question", "approval"], childrenWaiting: 0, checkFailed: false })?.kind).toBe(
-			"question",
-		);
-		expect(sessionAttention({ asks: [], childrenWaiting: 1, checkFailed: true })?.kind).toBe("childWaiting");
+	it("says the session's first prompt before a waiting child", () => {
+		expect(sessionAttention({ asks: ["approval", "question"], childrenWaiting: 1 })?.kind).toBe("approval");
+		expect(sessionAttention({ asks: ["question", "approval"], childrenWaiting: 0 })?.kind).toBe("question");
+		expect(sessionAttention({ asks: [], childrenWaiting: 1 })?.kind).toBe("childWaiting");
 	});
 
 	it("counts what the board's Needs you counts", () => {
 		const cases: AttentionState[] = [
 			none,
-			{ asks: ["question"], childrenWaiting: 0, checkFailed: false },
-			{ asks: ["approval", "question"], childrenWaiting: 3, checkFailed: true },
-			{ asks: [], childrenWaiting: 0, checkFailed: true },
+			{ asks: ["question"], childrenWaiting: 0 },
+			{ asks: ["approval", "question"], childrenWaiting: 3 },
 		];
 		for (const state of cases) {
 			const counts = boardCounts({
 				asks: state.asks,
 				childrenWaiting: state.childrenWaiting,
 				childrenRunning: 2,
-				checkFailed: state.checkFailed,
 				agents: 1,
 				agentsWorking: 1,
 				jobs: 0,

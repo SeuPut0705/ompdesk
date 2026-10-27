@@ -389,10 +389,6 @@ html[data-shell] .omp-composer-region.pb-3 {
 	border-color: var(--sc-warning);
 }
 
-.omp-work-chip[data-state="failed"] {
-	border-color: var(--sc-danger);
-}
-
 .omp-work-chip > .omp-work-chip-label {
 	min-width: 0;
 	flex: 1 1 auto;

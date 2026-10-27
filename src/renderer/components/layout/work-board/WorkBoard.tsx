@@ -1,6 +1,6 @@
 /**
  * Work board: this session's live state docked in the right margin of a wide session pane, in four
- * zones — Needs you (a question or approval, a plan up for review, a failed check, a session the agent
+ * zones — Needs you (a question or approval, a plan up for review, a session the agent
  * opened that waits for an answer), Now (the turn's current step, subagents, jobs, sessions at work),
  * the plan (the goal, then the todos) and Current work (what the turn left). Everything is
  * read from the stores and bridge data the rest of the app already keeps; nothing here derives
@@ -33,7 +33,6 @@ import { useProjectNames, useWorktreeKindLabels } from "../../../lib/project-ori
 import { costKinds, costWords } from "../../../lib/spend";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
-import { useCheckFailed } from "../../../stores/attention";
 import { isAutopilotTab, isLiveAutopilot, useAutopilotStore } from "../../../stores/autopilot";
 import { isUserBlockingRequest, useExtensionUiStore } from "../../../stores/extension-ui";
 import { useMessagesStore } from "../../../stores/messages";
@@ -89,14 +88,9 @@ const AutopilotBoardSections = lazyChunk(() =>
 /** The opened-session rows load when a session has such children: most never do (the strip loads them ahead). */
 const NowChildren = lazy(() => import("./WorkBoardOpened").then(module => ({ default: module.NowChildren })));
 const WaitingChildren = lazy(() => import("./WorkBoardOpened").then(module => ({ default: module.WaitingChildren })));
-/** The session rows (changes, last check, dev servers, same checkout, memory) and a failed check: a lazy chunk, since
+/** The session rows (changes, last check, dev servers, same checkout, memory): a lazy chunk, since
  * the phone's first screen (the strip) never draws them. */
-const NeedsCheck = lazyChunk(() => import("./WorkBoardSession").then(module => ({ default: module.NeedsCheck })));
 const SessionSlot = lazyChunk(() => import("./WorkBoardSession").then(module => ({ default: module.SessionSlot })));
-/** Whether the newest check failed: a row of Needs you and the head's count. */
-const FailedCheckWatch = lazyChunk(() =>
-	import("./WorkBoardSession").then(module => ({ default: module.FailedCheckWatch })),
-);
 /** The metered-spend rows load when this session spent on a metered provider (most sessions run on subscriptions). */
 const SessionSpendLine = lazy(() =>
 	import("./SessionSpendLine").then(module => ({ default: module.SessionSpendLine })),
@@ -317,7 +311,6 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	useEffect(() => {
 		void hydrate();
 	}, [hydrate]);
-	const checkFailed = useCheckFailed(tabId);
 	// What the last turn left (the session rows' lazy chunk tells it), for a quiet board's head.
 	const [outcome, setOutcome] = useState<string | null>(null);
 
@@ -355,18 +348,16 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 		asks,
 		childrenWaiting: opened.counts.waiting,
 		childrenRunning: opened.counts.running,
-		checkFailed,
 		agents: agents.length,
 		agentsWorking: workingSubagents(agents).length,
 		jobs: jobs.length,
 		turnWorking: turnActive || autopilotRunning,
 	});
 	const needsText = counts.attention ? attentionClause(counts.attention, t) : "";
-	const needsTone = counts.attention?.kind === "checkFailed" ? "danger" : "warning";
 	// One clause, the most important: what needs the person, else what runs, else that the board works (a child at
 	// work alone is "Working…", never "Idle"), else what the last turn left.
 	const clause = counts.attention
-		? { tone: needsTone, text: needsText }
+		? { tone: "warning", text: needsText }
 		: counts.running > 0
 			? { tone: undefined, text: t("workBoard.head.running", { count: counts.running }) }
 			: counts.working > 0
@@ -493,7 +484,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 					live={needsText}
 					id="needs"
 					title={t("workBoard.needs")}
-					tone={needsTone}
+					tone="warning"
 				>
 					<CappedRows cap={SECTION_CAP.asks} items={askItems}>
 						{item => (
@@ -508,11 +499,6 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 							/>
 						)}
 					</CappedRows>
-					{checkFailed && (
-						<Suspense fallback={null}>
-							<NeedsCheck tag={{ word: t("workBoard.kind.check"), tone: "danger" }} />
-						</Suspense>
-					)}
 					{waitingChildren.length > 0 && (
 						<Suspense fallback={null}>
 							<WaitingChildren
@@ -794,11 +780,6 @@ export function WorkBoardHost() {
 	}, [pane, width]);
 	return (
 		<>
-			{/* The pane's one failed-check watcher, mounted whatever the board shows and wherever it sits (docked, the
-			   strip, the strip's open panel): two watchers on one tab entry let a closing one clear the failure. */}
-			<Suspense fallback={null}>
-				<FailedCheckWatch />
-			</Suspense>
 			<div className="omp-work-board-slot" ref={slot}>
 				{form === "docked" && pane ? <WorkBoard pane={pane} /> : null}
 			</div>

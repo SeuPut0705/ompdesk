@@ -3,10 +3,13 @@
  * which live sessions of this computer work in the same worktree or repository and pushes them here
  * (`checkout_peers_set`); this module then
  * - adds the `<shared-checkout>` section to every prompt (names and ids, so the agent can reach the others),
- * - refuses through stock's `tool_call` hook a git command that would take, overwrite or hide their work,
- * - remembers the files this session's agents wrote (file tools), which main reads (`checkout_status`) to tell the
- *   others which files are this session's, with the session's in-progress todo item,
- * - says once, through `tool_call`'s `additionalContext`, that an edit-tool edit touches a file a peer changed too.
+ * - judges every `tool_call` through the ledger: refuses a git command, shell write or delete that would take,
+ *   overwrite or hide their work,
+ * - remembers the files this session's agents changed (file tools, shell redirects, `sed -i`, `cp`/`mv`/`rm`, ...),
+ *   which main reads (`checkout_status`) to tell the others which files are this session's, with the session's
+ *   in-progress todo item, and tells main at once (`checkout_files`) when that set gains a file,
+ * - says once, through `tool_call`'s `additionalContext`, that a peer changed a file this session just changed, or
+ *   started changing one it changed earlier.
  * One module state per omp: the main agent and its subagents share the checkout, so they share the guard.
  */
 import * as fs from "node:fs";
@@ -14,64 +17,41 @@ import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import * as todo from "@oh-my-pi/pi-coding-agent/tools/todo";
 import { guard } from "../health";
 import { registerPromptSection } from "../prompt-sections";
-import { fileToolPaths, normalizePath } from "./autopilot-guard-core";
 import {
-	CHECKOUT_FILES_MAX,
+	CHECKOUT_FILES_EVENT,
 	CHECKOUT_PEERS_EVENT,
 	CHECKOUT_PEERS_GET,
 	CHECKOUT_PEERS_SECTION_ID,
 	CHECKOUT_PEERS_SET,
 	CHECKOUT_STATUS,
 } from "./checkout-peers-contracts";
-import {
-	CheckoutPeersState,
-	canonicalPath,
-	checkoutRefusal,
-	checkoutSection,
-	currentTask,
-	overlapNotice,
-	rememberFiles,
-	shellWrites,
-	writeRefusal,
-} from "./checkout-peers-core";
+import { CheckoutLedger, CheckoutPeersState, checkoutSection, currentTask } from "./checkout-peers-core";
+import { emit } from "./shared";
 
 /** Main's spelling of a path: it resolves top levels with realpath, and a session's cwd may go through a symlink. */
-const real = (path: string) => fs.realpathSync.native(path);
+const host = {
+	realpath: (path: string) => fs.realpathSync.native(path),
+	isDirectory: (path: string) => {
+		try {
+			return fs.statSync(path).isDirectory();
+		} catch {
+			return false;
+		}
+	},
+};
 
 const state = new CheckoutPeersState();
-let ownFiles: string[] = [];
-/** (file, peer) pairs the overlap notice already named. */
-let told = new Set<string>();
+const ledger = new CheckoutLedger();
 
 /** Called once per extension instance (main and every subagent rebinding) by index.ts. */
 export function install(pi: ExtensionAPI): void {
 	registerPromptSection(pi, CHECKOUT_PEERS_SECTION_ID, () => checkoutSection(state.peers));
 	pi.on("tool_call", (event, ctx) => {
-		const written = fileToolPaths(event.toolName, event.input).map(file =>
-			canonicalPath(normalizePath(file, ctx.cwd), real),
-		);
-		const peers = state.peers;
-		if (peers && event.toolName === "write") {
-			const reason = writeRefusal(written, peers, ownFiles);
-			if (reason) return { block: true, reason };
-		}
-		let notice: string | undefined;
-		if (peers && event.toolName !== "write" && event.toolName !== "bash" && written.length > 0) {
-			const overlap = overlapNotice(written, peers, told);
-			told = overlap.told;
-			notice = overlap.text;
-		}
-		if (written.length > 0) ownFiles = rememberFiles(ownFiles, written, CHECKOUT_FILES_MAX);
-		if (event.toolName !== "bash") return notice ? { additionalContext: notice } : undefined;
-		const input = event.input as { command?: unknown; cwd?: unknown };
-		if (typeof input.command !== "string") return undefined;
-		const cwd = canonicalPath(normalizePath(typeof input.cwd === "string" ? input.cwd : ".", ctx.cwd), real);
-		const reason = peers ? checkoutRefusal(input.command, cwd, peers, ownFiles, real) : undefined;
-		if (reason) return { block: true, reason };
-		// A file written from the shell is this session's too, alone or not, so a session that joins later sees it.
-		const shellWritten = shellWrites(input.command, cwd, real);
-		if (shellWritten.length > 0) ownFiles = rememberFiles(ownFiles, shellWritten, CHECKOUT_FILES_MAX);
-		return undefined;
+		const verdict = ledger.call(event.toolName, event.input, ctx.cwd, state.peers, host);
+		if ("block" in verdict) return { block: true, reason: verdict.block };
+		// Main learns of a new claim now, not at its next sweep, so the others' guards see the file within a pass.
+		if (verdict.gained) emit({ type: CHECKOUT_FILES_EVENT });
+		return verdict.notice ? { additionalContext: verdict.notice } : undefined;
 	});
 }
 
@@ -101,7 +81,7 @@ export const methods = guard("checkoutPeers", {
 	/** `{}` → `{files, task?}`: the files this session changed, its in-progress todo item. */
 	[CHECKOUT_STATUS]: async (_params: unknown, env) => {
 		const task = readTask(env.session() as unknown as TaskSession);
-		return { files: ownFiles, ...(task ? { task } : {}) };
+		return { files: [...ledger.files], ...(task ? { task } : {}) };
 	},
 	/** `{}` → `{peers}`: what the last `checkout_peers` frame carried. */
 	[CHECKOUT_PEERS_GET]: async () => ({ peers: state.peers ?? null }),

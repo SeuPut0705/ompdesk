@@ -17,6 +17,7 @@ import { isCustomMessageCardType } from "./CustomMessageCard";
 import { asyncResultJobs, completionFailureCount, isCompletionMessage } from "./completion-events";
 import { parseTodoReminder } from "./todo-reminder";
 import { isSilentAbort, isWorkReply, messageTimestampMs } from "./work/work-turn";
+import { skillPromptName } from "./work/work-view";
 
 interface ProcessMeta {
 	stepCount: number;
@@ -28,6 +29,8 @@ interface ProcessMeta {
 	/** Todo changes belong to this work run permanently, including after completion. */
 	todoSnapshots?: readonly TodoSnapshot[];
 	notes?: readonly AgentMessage[];
+	/** Skills the `/skill:` prompts (or injected skill prompts) that began this run named; the card lists them as used. */
+	skills?: readonly string[];
 	/** User turn boundary, including user messages hidden from the rendered transcript. */
 	turnStartedAt?: number;
 }
@@ -576,10 +579,19 @@ export function buildHistoryRows(
 	let processMessages: AgentMessage[] = [];
 	let reactionTargetIndex: number | undefined;
 	let turnStartedAt: number | undefined;
+	// Skill prompts seen since the last run or user prompt: the next work row's leading skills.
+	let leadingSkills: string[] = [];
 	const flushProcess = () => {
 		if (processMessages.length === 0) return;
-		rows.push({ kind: "process", messages: processMessages, ...summarizeProcess(processMessages), turnStartedAt });
+		rows.push({
+			kind: "process",
+			messages: processMessages,
+			...summarizeProcess(processMessages),
+			turnStartedAt,
+			...(leadingSkills.length ? { skills: leadingSkills } : {}),
+		});
 		processMessages = [];
+		leadingSkills = [];
 	};
 
 	for (let index = 0; index < messages.length; index++) {
@@ -592,6 +604,7 @@ export function buildHistoryRows(
 		if (incoming.role === "user" && !steersRun) {
 			flushProcess();
 			turnStartedAt = messageTimestampMs(incoming);
+			leadingSkills = [];
 		}
 		// Keep an explicitly opened live phase in place when it finalizes.
 		if (preservedProcessStarts?.has(`message-${messageKey(incoming)}`)) flushProcess();
@@ -644,6 +657,8 @@ export function buildHistoryRows(
 			!Array.isArray(message.content)
 		) {
 			flushProcess();
+			const skill = skillPromptName(message);
+			if (skill && !leadingSkills.includes(skill)) leadingSkills.push(skill);
 			rows.push({ kind: "message", message });
 			if (message.role === "user") reactionTargetIndex = rows.length - 1;
 			continue;

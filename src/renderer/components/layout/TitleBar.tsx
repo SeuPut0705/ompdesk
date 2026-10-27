@@ -333,10 +333,7 @@ export function TitleBar() {
 							: status === "error" || status === "exited"
 								? ["error", t(`titlebar.status.${status}`)]
 								: attention
-									? [
-											attention.kind === "checkFailed" ? "error" : "attention",
-											t(ATTENTION_LABEL_KEY[attention.kind]),
-										]
+									? ["attention", t(ATTENTION_LABEL_KEY[attention.kind])]
 									: working
 										? ["busy", t("titlebar.status.working")]
 										: ["ready", t(`titlebar.status.${status}`)];

@@ -2,13 +2,16 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CheckoutPeer, CheckoutPeers } from "../../../../../resources/gui-bridge/modes/checkout-peers-contracts";
+import {
+	CHECKOUT_REFUSAL_PREFIX,
+	type CheckoutPeer,
+	type CheckoutPeers,
+} from "../../../../../resources/gui-bridge/modes/checkout-peers-contracts";
 import type { AgentReviewItem } from "../../../../shared/agent-control";
 import type { AgentMessage, RpcAsyncJobItem, RpcJobRow } from "../../../../shared/rpc-types";
 import type { FamilyEdits, FamilyMemberEdits, RpcTurnEdits } from "../../../../shared/turn-edits";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { useAgentReviewStore } from "../../../stores/agent-review";
-import { useAttentionStore } from "../../../stores/attention";
 import { useClosedChildrenStore } from "../../../stores/closed-children";
 import { useMessagesStore } from "../../../stores/messages";
 import { useSessionStore } from "../../../stores/session";
@@ -56,23 +59,15 @@ Reflect.set(window, "omp", {
 
 // Loaded after the linkedom globals exist: react-dom reads `window`/`document` at import.
 const { createRoot } = await import("react-dom/client");
-const { FailedCheckWatch, NeedsCheck, SessionSlot, quietOutcome } = await import("./WorkBoardSession");
+const { SessionSlot, quietOutcome } = await import("./WorkBoardSession");
 const { peerOpen } = await import("./open-peer");
 const { REVEAL_STEP_EVENT } = await import("../../chat/work/reveal-step");
 /** What the quiet head would say (the slot tells the board). */
 const outcome = vi.fn();
 
-/** The board's own parts: a failed check is a row of Needs you, the rest is Current work. */
+/** The board's own part: Current work, a failed check included. */
 function Host() {
-	return (
-		<>
-			<ul data-needs="">
-				<NeedsCheck tag={{ word: "Check", tone: "danger" }} />
-			</ul>
-			<SessionSlot onOutcome={outcome} turn={turn} />
-			<FailedCheckWatch />
-		</>
-	);
+	return <SessionSlot onOutcome={outcome} turn={turn} />;
 }
 
 let container: HTMLElement;
@@ -527,7 +522,6 @@ describe("Last check row", () => {
 		expect(check?.textContent).toContain("2.0s");
 		expect(check?.closest("button")?.getAttribute("title") ?? check?.getAttribute("title")).toBe("bunx vitest run");
 		expect(section("current")).not.toBeNull();
-		expect(container.querySelector('[data-needs] [data-board-session="check"]')).toBeNull();
 	});
 
 	it("is absent when the session ran no check", async () => {
@@ -537,7 +531,7 @@ describe("Last check row", () => {
 		expect(section("current")).toBeNull();
 	});
 
-	it("a failed newest check is a row of Needs you, not of Current work, and its tap asks the transcript for the call", async () => {
+	it("a failed newest check is a plain Current work row, and its tap asks the transcript for the call", async () => {
 		finished(
 			["b1", bash("bun run build", { startTime: 100, endTime: 200 })],
 			[
@@ -552,14 +546,13 @@ describe("Last check row", () => {
 			],
 		);
 		await mount();
-		const failed = container.querySelector('[data-needs] [data-board-session="check"]');
+		const failed = container.querySelector('[data-board-section="current"] [data-board-session="check"]');
 		expect(failed?.getAttribute("data-state")).toBe("failed");
 		expect(failed?.textContent).toContain("2 tests failed");
-		// It says what kind it is, in the word Needs you gives its rows.
-		expect(failed?.textContent).toMatch(/^Check/);
-		expect(container.querySelectorAll('[data-board-section="current"] [data-board-session="check"]')).toHaveLength(0);
-		// The head, the strip, the title bar and the sidebar hear it too (FailedCheckWatch writes the attention store).
-		expect(Object.hasOwn(useAttentionStore.getState().checkFailed, "t1")).toBe(true);
+		// A failed check is a plain Current work row (a fact of the turn), never a row of Needs you.
+		expect(failed?.textContent).not.toMatch(/^Check/);
+		// The quiet head never leads with it.
+		expect(outcome).not.toHaveBeenCalledWith(expect.stringContaining("failed"));
 		// The tap asks the board's own tab's transcript to open the card holding the call (it may be collapsed or
 		// not mounted), not the document at large.
 		const asked: unknown[] = [];
@@ -576,9 +569,7 @@ describe("Last check row", () => {
 			["b2", bash("bun test", { startTime: 300, endTime: 400, result: result("4 pass", 0) })],
 		);
 		await mount();
-		expect(container.querySelector('[data-needs] [data-board-session="check"]')).toBeNull();
 		expect(row("check")?.getAttribute("data-state")).toBe("passed");
-		expect(Object.hasOwn(useAttentionStore.getState().checkFailed, "t1")).toBe(false);
 	});
 
 	it("reads running while the call runs", async () => {
@@ -851,6 +842,11 @@ describe("What a quiet board's head says", () => {
 			check: { kind: "test" as const, state: "running" as const, command: "bun test", key: "b1", startedAt: 0 },
 		};
 		expect(quietOutcome(t, [running])).toBeNull();
+		const failed = {
+			kind: "check" as const,
+			check: { kind: "test" as const, state: "failed" as const, command: "bun test", key: "b1", startedAt: 0 },
+		};
+		expect(quietOutcome(t, [failed])).toBeNull();
 	});
 });
 
@@ -886,5 +882,108 @@ describe("Skills used this turn row", () => {
 		finished(["r1", read("src/a.ts")]);
 		await mount();
 		expect(row("skills")).toBeNull();
+	});
+
+	it("merges the skills the newest turn read with those its skill prompts named, and leaves an earlier turn's out", async () => {
+		const skillPrompt = (name: string, attribution: "user" | "agent"): AgentMessage => ({
+			role: "custom",
+			customType: "skill-prompt",
+			content: "Skill instructions",
+			display: true,
+			attribution,
+			details: { name },
+		});
+		useMessagesStore.setState({
+			messages: [
+				user,
+				skillPrompt("earlier", "agent"),
+				user,
+				skillPrompt("release", "user"),
+				skillPrompt("review", "agent"),
+			],
+		});
+		finished(
+			["r1", read("skill://tdd", { startTime: 100 })],
+			["r2", read("/w/.claude/skills/release/SKILL.md", { startTime: 200 })],
+		);
+		await mount();
+		expect(row("skills")?.textContent).toContain("Skills · release · review · tdd");
+		expect(row("skills")?.textContent).not.toContain("earlier");
+	});
+
+	it("shows a skill only a skill prompt named, with nothing to reveal", async () => {
+		useMessagesStore.setState({
+			messages: [
+				{
+					role: "custom",
+					customType: "skill-prompt",
+					content: "x",
+					attribution: "user",
+					details: { name: "release" },
+				},
+			],
+		});
+		await mount();
+		expect(row("skills")?.textContent).toContain("Skills · release");
+		const asked: unknown[] = [];
+		const listen = (event: Event) => asked.push(event instanceof CustomEvent ? event.detail : null);
+		window.addEventListener(REVEAL_STEP_EVENT, listen);
+		await press(row("skills"));
+		window.removeEventListener(REVEAL_STEP_EVENT, listen);
+		expect(asked).toEqual([]);
+	});
+});
+
+describe("Held back for other sessions row", () => {
+	const refused = (toolName: string, args: Record<string, unknown>, what: string, startTime: number): ToolEntry => ({
+		...bash(""),
+		toolName,
+		args,
+		status: "error",
+		isError: true,
+		startTime,
+		result: {
+			content: [{ type: "text", text: `${CHECKOUT_REFUSAL_PREFIX}: ${what}.\nSettings test race changed it.` }],
+		},
+	});
+
+	it("counts the turn's refused steps, lists each in the tooltip, and a tap shows the first", async () => {
+		finished(
+			["w1", refused("write", { path: "a.ts", content: "x" }, "writing a.ts whole would drop changes", 100)],
+			["b1", refused("bash", { command: "git stash" }, "`git stash`: stashing hides their work", 200)],
+		);
+		await mount();
+		expect(row("protected")?.textContent).toContain("Held back 2 steps for other sessions");
+		expect(row("protected")?.getAttribute("title")).toBe(
+			"writing a.ts whole would drop changes\n`git stash`: stashing hides their work",
+		);
+		const asked: unknown[] = [];
+		const listen = (event: Event) => asked.push(event instanceof CustomEvent ? event.detail : null);
+		window.addEventListener(REVEAL_STEP_EVENT, listen);
+		await press(row("protected"));
+		window.removeEventListener(REVEAL_STEP_EVENT, listen);
+		expect(asked).toEqual([{ tabId: "t1", key: "w1" }]);
+	});
+
+	it("says one step in the singular", async () => {
+		finished(["w1", refused("write", { path: "a.ts" }, "writing a.ts whole would drop changes", 100)]);
+		await mount();
+		expect(row("protected")?.textContent).toContain("Held back 1 step for other sessions");
+	});
+
+	it("is absent for an error that was no refusal", async () => {
+		const broken = refused("write", { path: "a.ts" }, "x", 100);
+		finished(["w2", { ...broken, result: { content: [{ type: "text", text: "EACCES" }] } }]);
+		await mount();
+		expect(row("protected")).toBeNull();
+	});
+});
+
+describe("Same checkout row across worktrees", () => {
+	it("counts the files a peer in another worktree shares with the session", async () => {
+		const elsewhere = peer({ id: "t9", title: "Release notes", worktree: "/wt/notes", shared: ["/w/src/a.ts"] });
+		useSessionStore.setState({ checkoutPeers: checkout([peer()], [elsewhere]) });
+		await mount();
+		expect(row("peers")?.textContent).toContain("1 session in this checkout, 1 in this repository · 1 shared file");
 	});
 });

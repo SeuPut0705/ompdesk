@@ -193,11 +193,9 @@ export interface BoardCounts {
 	asks: number;
 	/** Sessions the agent opened that wait for an answer. */
 	children: number;
-	/** 1 when the newest check failed. */
-	failed: number;
 	/** What needs the person (`sessionAttention`, as the title bar and the sidebar say it); null when nothing does. */
 	attention: Attention | null;
-	/** What the Needs you section lists: asks, waiting children and a failed check. */
+	/** What the Needs you section lists: asks and waiting children. */
 	needs: number;
 	/** Subagents and background jobs (children at work are counted apart, as the board's "Now" lists them apart). */
 	running: number;
@@ -206,47 +204,33 @@ export interface BoardCounts {
 	/** Whatever is at work, a parked subagent excluded: the pulse and "Working…" read it. */
 	working: number;
 	/**
-	 * The pulse: a question, an approval or a waiting child (warning), else something works, else a failed check
-	 * (danger; it never overrides work, which may be fixing it), else nothing.
+	 * The pulse: a question, an approval or a waiting child (warning), else something works, else nothing.
 	 */
-	pulse: "waiting" | "working" | "failed" | "idle";
+	pulse: "waiting" | "working" | "idle";
 }
 
 export function boardCounts(input: {
 	asks: readonly AskKind[];
 	childrenWaiting: number;
 	childrenRunning: number;
-	checkFailed: boolean;
 	agents: number;
 	agentsWorking: number;
 	jobs: number;
 	/** The turn runs, or an Autopilot run does. */
 	turnWorking: boolean;
 }): BoardCounts {
-	const attention = sessionAttention({
-		asks: input.asks,
-		childrenWaiting: input.childrenWaiting,
-		checkFailed: input.checkFailed,
-	});
+	const attention = sessionAttention({ asks: input.asks, childrenWaiting: input.childrenWaiting });
 	const needs = attention?.count ?? 0;
 	const working = input.agentsWorking + input.jobs + input.childrenRunning + (input.turnWorking ? 1 : 0);
 	return {
 		asks: input.asks.length,
 		children: input.childrenWaiting,
-		failed: input.checkFailed ? 1 : 0,
 		attention,
 		needs,
 		running: input.agents + input.jobs,
 		childrenRunning: input.childrenRunning,
 		working,
-		pulse:
-			input.asks.length + input.childrenWaiting > 0
-				? "waiting"
-				: working > 0
-					? "working"
-					: input.checkFailed
-						? "failed"
-						: "idle",
+		pulse: input.asks.length + input.childrenWaiting > 0 ? "waiting" : working > 0 ? "working" : "idle",
 	};
 }
 

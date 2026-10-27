@@ -41,7 +41,6 @@ export const TRAY_LABELS = {
 	statusQuestion: { en: "Needs input", ko: "답변 필요" },
 	statusApproval: { en: "Needs approval", ko: "승인 필요" },
 	statusChildWaiting: { en: "Child waiting", ko: "하위 세션 대기" },
-	statusCheckFailed: { en: "Check failed", ko: "검사 실패" },
 	statusError: { en: "Error", ko: "오류" },
 	// Thinking levels by the names the composer's thinking control uses.
 	thinkingOff: { en: "Off", ko: "끔" },
@@ -66,7 +65,6 @@ const STATUS_KEYS: Record<TrayStatus, TrayLabelKey> = {
 	question: "statusQuestion",
 	approval: "statusApproval",
 	childWaiting: "statusChildWaiting",
-	checkFailed: "statusCheckFailed",
 	error: "statusError",
 };
 
@@ -77,17 +75,9 @@ export function statusLabel(lang: TrayLang, status: TrayStatus): string {
 
 /**
  * Loudest first: an error, what a window needs from the person (a question, an approval, a waiting child), work that
- * goes on, then a failed check (it never overrides work: the agent may be fixing it), then idle.
+ * goes on, then idle.
  */
-const STATUS_RANK: readonly TrayStatus[] = [
-	"error",
-	"question",
-	"approval",
-	"childWaiting",
-	"streaming",
-	"checkFailed",
-	"idle",
-];
+const STATUS_RANK: readonly TrayStatus[] = ["error", "question", "approval", "childWaiting", "streaming", "idle"];
 
 /**
  * Collapse per-window statuses to the loudest. Precedence is app-global, so the first window's state never hides a

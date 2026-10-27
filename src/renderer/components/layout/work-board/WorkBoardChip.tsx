@@ -17,7 +17,6 @@ import { useOpenedChildren } from "../../../hooks/use-opened-children";
 import { pendingAsks } from "../../../lib/attention";
 import { useT } from "../../../lib/i18n";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
-import { useCheckFailed } from "../../../stores/attention";
 import { isAutopilotTab, isLiveAutopilot, useAutopilotStore } from "../../../stores/autopilot";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { usePlanApprovalStore } from "../../../stores/plan-approval";
@@ -194,14 +193,10 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 	const autopilotState = runText ?? (ended ? t("autopilot.state.ended") : null);
 	const autopilotRunning = useAutopilotStore(state => isLiveAutopilot(state) && state.status.state === "running");
 
-	// A failed check is a row of Needs you, so it is said with what waits on the person: the board counts it in the same
-	// figure, read from the attention store the pane's one watcher (`WorkBoardHost`) writes.
-	const failed = useCheckFailed(runtimeTabId ?? activeTabId);
 	const counts = boardCounts({
 		asks: pendingAsks({ pendingRequests: pending, loginRequestIds }, planPending),
 		childrenWaiting: opened.counts.waiting,
 		childrenRunning: opened.counts.running,
-		checkFailed: failed,
 		agents: agents.length,
 		agentsWorking: workingSubagents(agents).length,
 		jobs: jobs.length,

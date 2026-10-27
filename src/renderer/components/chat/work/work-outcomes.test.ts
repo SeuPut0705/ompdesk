@@ -1,5 +1,6 @@
 import { posix, win32 } from "node:path";
 import { describe, expect, it } from "vitest";
+import { CHECKOUT_REFUSAL_PREFIX } from "../../../../../resources/gui-bridge/modes/checkout-peers-contracts";
 import type { ToolEntry } from "../../../stores/tools";
 import { workFilePathKey } from "../../tools/edit-args";
 import { workOutcomes } from "./work-view";
@@ -204,5 +205,81 @@ describe("skills the work read", () => {
 			{ name: "how", toolCallId: "k1" },
 			{ name: "poteto-mode", agentName: "Scout" },
 		]);
+	});
+
+	it.each([
+		["/Users/me/.claude/skills/tdd/SKILL.md", "tdd"],
+		["/Applications/ompdesk.app/Contents/Resources/omp-builtin/skills/ompdesk/SKILL.md", "ompdesk"],
+		[".omp/skills/review/SKILL.md", "review"],
+		["skills/how/SKILL.md:1-40", "how"],
+		["C:\\Users\\me\\.omp\\skills\\qa\\SKILL.md", "qa"],
+	])("counts a read of %s as the skill named by its folder", (path, name) => {
+		expect(workOutcomes([{ entry: entry("read", { path }), toolCallId: "k1" }]).skills).toEqual([
+			{ name, toolCallId: "k1" },
+		]);
+	});
+
+	it.each(["docs/skills/tdd/README.md", "/w/skills/SKILL.md", "/w/skills/tdd/notes/SKILL.md", "SKILL.md"])(
+		"does not take %s for a skill",
+		path => {
+			expect(workOutcomes([entry("read", { path })]).skills).toEqual([]);
+		},
+	);
+
+	it("names a skill once however it was read: its URI, then its file", () => {
+		expect(
+			workOutcomes([
+				entry("read", { path: "skill://tdd" }),
+				entry("read", { path: "/w/.claude/skills/tdd/SKILL.md" }),
+			]).skills,
+		).toEqual([{ name: "tdd" }]);
+	});
+});
+
+describe("calls the shared-checkout guard refused", () => {
+	const refusal = (toolName: string, args: Record<string, unknown>, what: string): ToolEntry => ({
+		...entry(toolName, args),
+		status: "error",
+		isError: true,
+		result: {
+			content: [
+				{ type: "text", text: `${CHECKOUT_REFUSAL_PREFIX}: ${what}.\nSettings test race changed it.\nUse edit.` },
+			],
+		},
+	});
+
+	it("lists each as protection by its first line, the main agent's with its call and a subagent's with its name", () => {
+		const protections = workOutcomes([
+			{ entry: refusal("write", { path: "a.ts" }, "writing a.ts whole would drop changes"), toolCallId: "w1" },
+			{
+				entry: refusal("bash", { command: "git stash" }, "`git stash`: stashing hides their work"),
+				toolCallId: "b1",
+			},
+			{ entry: refusal("write", { path: "b.ts" }, "writing b.ts whole would drop changes"), agentName: "Scout" },
+		]).protections;
+		expect(protections).toEqual([
+			{ what: "writing a.ts whole would drop changes", toolCallId: "w1" },
+			{ what: "`git stash`: stashing hides their work", toolCallId: "b1" },
+			{ what: "writing b.ts whole would drop changes", agentName: "Scout" },
+		]);
+	});
+
+	it("keeps a refused write out of the files and a refused command out of the failures", () => {
+		const outcome = workOutcomes([
+			refusal("write", { path: "a.ts", content: "x" }, "writing a.ts whole would drop changes"),
+			refusal("bash", { command: "git stash" }, "`git stash`: stashing hides their work"),
+		]);
+		expect(outcome.files).toEqual([]);
+		expect(outcome.commands).toMatchObject([{ command: "git stash", failed: false, refused: true }]);
+	});
+
+	it("takes only a refusal for protection: not another error, nor the same words in a call that succeeded", () => {
+		const failedWrite = {
+			...refusal("write", { path: "a.ts" }, "x"),
+			result: { content: [{ type: "text", text: "EACCES" }] },
+		};
+		const talked = entry("read", { path: "docs/guard.md" });
+		talked.result = { content: [{ type: "text", text: `${CHECKOUT_REFUSAL_PREFIX}: quoted in a doc` }] };
+		expect(workOutcomes([failedWrite, talked]).protections).toEqual([]);
 	});
 });

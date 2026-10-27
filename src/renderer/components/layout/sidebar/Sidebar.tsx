@@ -1735,13 +1735,9 @@ export function Sidebar() {
 		const elsewhere = row.tab === undefined && row.hosted === undefined ? reviewOfPath.get(child.path) : undefined;
 		const review = openTabId ? reviewOf.get(openTabId) : elsewhere;
 		const failed =
-			row.failed ||
-			row.waiting === "checkFailed" ||
-			review?.failed === true ||
-			lastRun?.stopReason === "error" ||
-			lastRun?.stopReason === "aborted";
+			row.failed || review?.failed === true || lastRun?.stopReason === "error" || lastRun?.stopReason === "aborted";
 		const status = openedChildStatus({
-			// Only the child's own question or approval waits; its failed check is a problem, its waiting child its own.
+			// Only the child's own question or approval waits; its waiting child is its own.
 			waiting: isAsk(row.waiting) || elsewhere?.waiting === true,
 			running: elsewhere ? elsewhere.state === "running" : row.running,
 			finished: elsewhere
@@ -1948,9 +1944,8 @@ export function Sidebar() {
 		// tooltip and screen-reader text. Nothing leads the row: its title starts at the group's content edge. One small
 		// mark sits at the end, before the age: an unseen finish (no light or bar says it) as a ✓, a shape, not a colour
 		// alone; else a chat, a pin, a worktree's kind or a fork.
-		// A failed check is the danger signal; anything else that needs the person, the warning one.
-		const signal =
-			waiting === "checkFailed" ? "error" : waiting ? "waiting" : running ? "running" : failed ? "error" : undefined;
+		// Anything that needs the person is the warning signal; a failed run is the danger one.
+		const signal = waiting ? "waiting" : running ? "running" : failed ? "error" : undefined;
 		const WorktreeMark = worktree?.kind === "autopilot" ? Rocket : GitBranch;
 		const marker: ReactNode = done ? (
 			<Check aria-hidden className="size-(--sc-icon-sm) text-(--sc-success)" data-sidebar-done />
@@ -1968,7 +1963,7 @@ export function Sidebar() {
 		// the time since it last did something.
 		const runningOpened = opened.filter(child => child.status === "running").length;
 		const age = waiting ? (
-			<Badge className="omp-sidebar-approval" variant={waiting === "checkFailed" ? "error" : "warning"}>
+			<Badge className="omp-sidebar-approval" variant="warning">
 				<span className="min-w-0 truncate" title={waitingLabel ?? undefined}>
 					{waitingLabel}
 				</span>

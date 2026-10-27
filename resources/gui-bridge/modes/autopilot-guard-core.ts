@@ -331,8 +331,13 @@ interface Scope {
 	defaultBranch: string;
 	/** Paths cannot be judged (an approver card has no worktree). */
 	paths: boolean;
-	/** Read-only walk (`shellEffects`): every git run and output redirect is handed here instead of judged, and nothing stops the walk. */
-	collect?: { git(git: GitInvocation): void; write(path: string): void };
+	/** Read-only walk (`shellEffects`): every git run, output redirect and file change is handed here instead of judged, and nothing stops the walk. */
+	collect?: {
+		git(git: GitInvocation): void;
+		write(path: string): void;
+		change(kind: "edit" | "replace" | "delete", path: string): void;
+		isDirectory?(path: string): boolean;
+	};
 }
 
 /** One `git` run a command line makes: where it runs (after `cd` and `-C`), its subcommand and the rest. */
@@ -342,11 +347,17 @@ export interface GitInvocation {
 	args: string[];
 }
 
-/** What a command line does that another session in the checkout could feel: its git runs and the files it redirects output into. */
+/** What a command line does that another session in the checkout could feel: its git runs, the files it redirects output into, and the files it changes. */
 export interface ShellEffects {
 	git: GitInvocation[];
 	/** Absolute targets of `>`, `>>`, `&>` (a target naming a variable or `~` is left out: it cannot be resolved here). */
 	writes: string[];
+	/** Files a command changes in place (`sed -i`, `perl -i`, `patch`), same spelling and limits as `writes`. */
+	edits: string[];
+	/** Files a command replaces whole (`cp`/`install`/`rsync` destination, `mv` destination, `tee`, `dd of=`, `truncate`, `curl -o`, `wget -O`). `touch`, `mkdir`, `chmod` change no content and are in no list. */
+	replaces: string[];
+	/** Files a command removes (`rm`, `unlink`, `rmdir`, `shred`, `trash`, a `mv` source). */
+	deletes: string[];
 }
 
 const RESERVED = new Set([
@@ -772,30 +783,179 @@ function omp(name: string, argv: string[]): string | undefined {
 	return undefined;
 }
 
-const PATH_ONLY_WRITERS = new Set([
-	"tee",
-	"touch",
-	"mkdir",
-	"chmod",
-	"chown",
-	"chgrp",
-	"truncate",
-	"mkfifo",
-	"mknod",
-	"sponge",
-	"patch",
-]);
+/** How a command changes a path it names: lines of it in place, the whole file replaced, removed, or not its content (touch, chmod, mkdir). */
+export type ShellEffectKind = "edit" | "replace" | "delete" | "none";
+
+const PATH_ONLY_WRITERS: Record<string, ShellEffectKind> = {
+	tee: "replace",
+	touch: "none",
+	mkdir: "none",
+	chmod: "none",
+	chown: "none",
+	chgrp: "none",
+	truncate: "replace",
+	mkfifo: "none",
+	mknod: "none",
+	sponge: "replace",
+};
 const DELETERS = new Set(["rm", "rmdir", "unlink", "shred", "trash", "mv", "srm"]);
 const COPIERS = new Set(["cp", "rsync", "install", "ln", "scp"]);
 
-function nonFlagArgs(args: string[]): string[] {
+/** Arguments that are no flag and no value of a flag `valued` names (a flag whose value is the next word); all after `--`. */
+function nonFlagArgs(args: string[], valued: (flag: string) => boolean = () => false): string[] {
 	const out: string[] = [];
 	let afterDashes = false;
-	for (const arg of args) {
+	for (let index = 0; index < args.length; index++) {
+		const arg = args[index];
 		if (!afterDashes && arg === "--") afterDashes = true;
-		else if (afterDashes || !arg.startsWith("-")) out.push(arg);
+		else if (!afterDashes && arg.startsWith("-")) {
+			if (valued(arg)) index++;
+		} else out.push(arg);
 	}
 	return out;
+}
+
+const PATCH_VALUED = ["-i", "--input", "-d", "--directory", "-p", "--strip", "-r", "--reject-file", "-o", "--output"];
+const TRUNCATE_VALUED = ["-s", "--size", "-r", "--reference"];
+/** `sed`/`perl` flags that take the script (or script file) as the next word. */
+const takesScript = (flag: string) =>
+	flag === "-f" || flag === "--file" || flag === "--expression" || /^-[a-hj-zA-Z]*e$/.test(flag);
+
+/** One path a writing command names: how it changes it, and for a copy or move, the sources that land in it when it is a directory. */
+interface WriterTarget {
+	word: string;
+	kind: ShellEffectKind;
+	from?: string[];
+	/** The flag `-t` named it: a directory whatever the file system says. */
+	directory?: boolean;
+}
+interface Writer {
+	targets: WriterTarget[];
+	/** Output into a scratch folder (`/tmp`, `/dev/null`) is harmless. */
+	scratch: boolean;
+}
+
+/** A copy or move's sources and destination: the last word, or the value of `-t`/`--target-directory`. */
+function destinationOf(args: string[]): { sources: string[]; dest?: string; directory: boolean } {
+	const rest = nonFlagArgs(args);
+	const flag = args.findIndex(arg => arg === "-t" || arg === "--target-directory");
+	const named = flag >= 0 ? args[flag + 1] : undefined;
+	if (named === undefined) return { sources: rest.slice(0, -1), dest: rest.at(-1), directory: false };
+	const own = rest.indexOf(named);
+	return { sources: rest.filter((_, index) => index !== own), dest: named, directory: true };
+}
+
+/**
+ * The one reading of a writing command (`cp`, `mv`, `rm`, `tee`, `dd of=`, `sed -i`, `patch`, `curl -o`, ...): every
+ * path it names and what it does to it. Autopilot's judge checks each path against the worktree; the shell-effect
+ * collector hands the changed ones to the shared-checkout guard. Undefined for a command that writes nothing.
+ */
+function writerTargets(name: string, argv: string[]): Writer | undefined {
+	const args = argv.slice(1);
+	const all = (kind: ShellEffectKind, words: string[]): WriterTarget[] => words.map(word => ({ word, kind }));
+	if (name === "mv") {
+		const { sources, dest, directory } = destinationOf(args);
+		return {
+			targets: [
+				...all("delete", sources),
+				...(dest === undefined ? [] : [{ word: dest, kind: "replace" as const, from: sources, directory }]),
+			],
+			scratch: false,
+		};
+	}
+	if (DELETERS.has(name)) return { targets: all("delete", nonFlagArgs(args)), scratch: false };
+	if (COPIERS.has(name)) {
+		const { sources, dest, directory } = destinationOf(args);
+		const kind = name === "ln" || name === "scp" ? "none" : "replace";
+		return {
+			targets: dest === undefined ? [] : [{ word: dest, kind, from: sources, directory }],
+			scratch: name !== "ln",
+		};
+	}
+	if (name === "patch") {
+		const output = args.findIndex(arg => arg === "-o" || arg === "--output");
+		return {
+			targets: [
+				...all("edit", nonFlagArgs(args, flag => PATCH_VALUED.includes(flag)).slice(0, 1)),
+				...all("replace", output >= 0 && args[output + 1] ? [args[output + 1]] : []),
+			],
+			scratch: false,
+		};
+	}
+	const kind = PATH_ONLY_WRITERS[name];
+	if (kind !== undefined) {
+		const valued = name === "truncate" ? (flag: string) => TRUNCATE_VALUED.includes(flag) : undefined;
+		return {
+			targets: all(kind, nonFlagArgs(args, valued)),
+			scratch: name === "tee" || name === "touch" || name === "mkdir",
+		};
+	}
+	if (name === "dd")
+		return {
+			targets: all(
+				"replace",
+				args.filter(arg => arg.startsWith("of=")).map(arg => arg.slice(3)),
+			),
+			scratch: false,
+		};
+	if (name === "sed" || name === "perl") {
+		if (!args.some(arg => /^-[a-zA-Z]*i/.test(arg) || arg.startsWith("--in-place"))) return undefined;
+		const scripted = args.some(arg => takesScript(arg) || /^--(expression|file)=/.test(arg));
+		const words = nonFlagArgs(args, takesScript).filter(word => word !== "");
+		return { targets: all("edit", scripted ? words : words.slice(1)), scratch: false };
+	}
+	if (name === "curl") {
+		const targets: string[] = [];
+		for (let k = 0; k < args.length; k++)
+			if (args[k] === "-o" || args[k] === "--output") targets.push(args[k + 1] ?? "");
+		return { targets: all("replace", targets), scratch: true };
+	}
+	if (name === "wget") {
+		const targets: WriterTarget[] = [];
+		for (let k = 0; k < args.length; k++) {
+			if (args[k] === "-O") targets.push({ word: args[k + 1] ?? "", kind: "replace" });
+			else if (args[k] === "-P") targets.push({ word: args[k + 1] ?? "", kind: "none" });
+		}
+		return { targets, scratch: true };
+	}
+	if (name === "find") {
+		if (
+			!args.some(
+				arg =>
+					arg === "-delete" || arg === "-exec" || arg === "-execdir" || arg === "-fprint" || arg === "-fdelete",
+			)
+		)
+			return undefined;
+		const roots: string[] = [];
+		for (const arg of args) {
+			if (arg.startsWith("-") || arg === "(" || arg === "!") break;
+			roots.push(arg);
+		}
+		return { targets: all("none", roots.length === 0 ? ["."] : roots), scratch: false };
+	}
+	return undefined;
+}
+
+/** Hands every content change of a writing command to the shell-effect collector, each path resolved from `cwd`. */
+function collectChanges(name: string, argv: string[], cwd: string, collect: NonNullable<Scope["collect"]>): void {
+	for (const target of writerTargets(name, argv)?.targets ?? []) {
+		if (target.kind === "none" || target.word === "") continue;
+		const resolved = resolveWord(target.word, cwd);
+		if (!resolved.path) continue;
+		const directory =
+			target.from !== undefined &&
+			(target.directory === true || target.word.endsWith("/") || collect.isDirectory?.(resolved.path) === true);
+		if (!directory) {
+			collect.change(target.kind, resolved.path);
+			continue;
+		}
+		// A copy or move into a directory lands each source under its own name.
+		for (const source of target.from ?? []) {
+			const base = source.replace(/\/+$/, "").split("/").pop();
+			if (base && base !== "." && base !== ".." && !/[$`]/.test(base))
+				collect.change(target.kind, normalizePath(base, resolved.path));
+		}
+	}
 }
 
 function writerCommand(name: string, argv: string[], scope: Scope, cwd: string): string | undefined {
@@ -807,45 +967,10 @@ function writerCommand(name: string, argv: string[], scope: Scope, cwd: string):
 			? "deleting outside the worktree is never allowed"
 			: undefined;
 	}
-	const args = argv.slice(1);
-	let targets: string[] = [];
-	let scratch = false;
-	if (DELETERS.has(name)) targets = nonFlagArgs(args);
-	else if (COPIERS.has(name)) {
-		const rest = nonFlagArgs(args);
-		const tIndex = args.findIndex(arg => arg === "-t" || arg === "--target-directory");
-		targets = tIndex >= 0 && args[tIndex + 1] ? [args[tIndex + 1]] : rest.slice(-1);
-		scratch = name !== "ln";
-	} else if (PATH_ONLY_WRITERS.has(name)) {
-		targets = nonFlagArgs(args);
-		scratch = name === "tee" || name === "touch" || name === "mkdir";
-	} else if (name === "dd") targets = args.filter(arg => arg.startsWith("of=")).map(arg => arg.slice(3));
-	else if (name === "sed" || name === "perl") {
-		if (!args.some(arg => /^-[a-zA-Z]*i/.test(arg) || arg.startsWith("--in-place"))) return undefined;
-		targets = nonFlagArgs(args).slice(1);
-	} else if (name === "curl") {
-		for (let k = 0; k < args.length; k++)
-			if (args[k] === "-o" || args[k] === "--output") targets.push(args[k + 1] ?? "");
-		scratch = true;
-	} else if (name === "wget") {
-		for (let k = 0; k < args.length; k++) if (args[k] === "-O" || args[k] === "-P") targets.push(args[k + 1] ?? "");
-		scratch = true;
-	} else if (name === "find") {
-		if (
-			!args.some(
-				arg =>
-					arg === "-delete" || arg === "-exec" || arg === "-execdir" || arg === "-fprint" || arg === "-fdelete",
-			)
-		)
-			return undefined;
-		for (const arg of args) {
-			if (arg.startsWith("-") || arg === "(" || arg === "!") break;
-			targets.push(arg);
-		}
-		if (targets.length === 0) targets = ["."];
-	} else return undefined;
-	for (const target of targets) {
-		const problem = writePathProblem(target, cwd, scope.root, scratch);
+	const writer = writerTargets(name, argv);
+	if (!writer) return undefined;
+	for (const target of writer.targets) {
+		const problem = writePathProblem(target.word, cwd, scope.root, writer.scratch);
 		if (problem) return problem;
 	}
 	return undefined;
@@ -998,6 +1123,7 @@ function analyzeSimple(cmd: Simple, scope: Scope, state: { cwd: string }, depth:
 			if (reason) return reason;
 		}
 	}
+	if (scope.collect) collectChanges(name, argv, state.cwd, scope.collect);
 	return writerCommand(name, argv, scope, state.cwd);
 }
 
@@ -1072,15 +1198,19 @@ export function bashViolation(command: string, options: BanScanOptions & { cwd?:
 }
 
 /**
- * Every `git` run and output redirect in a shell command line, read with the guard's own parser (quotes, `cd`,
- * `sh -c`, `eval`, wrappers such as `env`/`xargs`/`timeout`, `find -exec`). A `cd` it cannot resolve leaves a git
- * run's `cwd` as "\u0000unresolvable".
+ * Every `git` run, output redirect and file change in a shell command line, read with the guard's own parser (quotes,
+ * `cd`, `sh -c`, `eval`, wrappers such as `env`/`xargs`/`timeout`, `find -exec`). A `cd` it cannot resolve leaves a
+ * git run's `cwd` as "\u0000unresolvable". A path of a file change is listed as resolved from the command's
+ * directory, a glob left as written; `isDirectory` tells a copy or move whose destination is a directory from one
+ * onto a file (a trailing slash or `-t` already do).
  */
-export function shellEffects(command: string, cwd: string): ShellEffects {
-	const found: ShellEffects = { git: [], writes: [] };
-	const collect = {
+export function shellEffects(command: string, cwd: string, isDirectory?: (path: string) => boolean): ShellEffects {
+	const found: ShellEffects = { git: [], writes: [], edits: [], replaces: [], deletes: [] };
+	const collect: NonNullable<Scope["collect"]> = {
 		git: (git: GitInvocation) => found.git.push(git),
 		write: (path: string) => found.writes.push(path),
+		change: (kind, path) => found[`${kind}s`].push(path),
+		isDirectory,
 	};
 	analyzeScript(command, { ...scopeFrom({}), collect }, { cwd: normalizePath(cwd, "/") }, 0);
 	return found;
@@ -1149,9 +1279,36 @@ function collectPaths(input: unknown): string[] {
 	return found;
 }
 
-/** The paths a file-writing tool call (`write`, `edit`, `ast_edit`, `notebook`, `lsp`) names, as written; none for any other tool. */
+/**
+ * The paths a file-changing tool call (`write`, `edit` in any mode incl. its `apply_patch` form, `ast_edit`, `notebook`,
+ * `lsp`) names, as written, including the destination of a rename; none for any other tool and for an `lsp` action
+ * that only reads. Stock's `tool_call` hook always names the tool by its registered name (`edit`), never by the wire
+ * name `apply_patch` a provider may see, so no second name is listed.
+ */
 export function fileToolPaths(toolName: string, input: unknown): string[] {
-	return FILE_TOOLS.has(toolName) ? collectPaths(input) : [];
+	if (!FILE_TOOLS.has(toolName)) return [];
+	const record = typeof input === "object" && input !== null ? (input as Record<string, unknown>) : {};
+	if (toolName === "lsp") {
+		// `rename` and `rename_file` apply unless `apply` is false; `code_actions` only with `apply` true; the rest read.
+		const action = record.action;
+		const changes =
+			action === "rename" || action === "rename_file"
+				? record.apply !== false
+				: action === "code_actions" && record.apply === true;
+		if (!changes) return [];
+		const destination = action === "rename_file" && typeof record.new_name === "string" ? [record.new_name] : [];
+		return [...collectPaths(input), ...destination];
+	}
+	const renamed: string[] = [];
+	if (Array.isArray(record.edits))
+		for (const edit of record.edits) {
+			const rename = typeof edit === "object" && edit !== null && "rename" in edit ? edit.rename : undefined;
+			if (typeof rename === "string") renamed.push(rename);
+		}
+	for (const value of Object.values(record))
+		if (typeof value === "string")
+			for (const match of value.matchAll(/^\*\*\* Move to:\s*(.+)$/gm)) renamed.push(match[1].trim());
+	return [...collectPaths(input), ...renamed];
 }
 
 function globBase(pattern: string): string {

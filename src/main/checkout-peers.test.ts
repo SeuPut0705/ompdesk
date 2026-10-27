@@ -1,15 +1,15 @@
 /**
  * Which sessions share a checkout (src/main/checkout-peers.ts), on real temp repositories: a worktree's sessions hear
  * each other with their files, another worktree's sessions hear each other as the repository's, a session alone hears
- * nothing, and one that ends up alone is told so once.
+ * nothing, and one that ends up alone is told so once. A file is a claim only while git lists it as uncommitted.
  */
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { CheckoutPeers } from "../../resources/gui-bridge/modes/checkout-peers-contracts";
-import { type CheckoutMember, CheckoutPeerCoordinator, readCheckoutPlace } from "./checkout-peers";
+import { type CheckoutMember, CheckoutPeerCoordinator, readCheckoutPlace, readGitStatus } from "./checkout-peers";
 import { readOriginFacts } from "./local/git/origin";
 
 let dir: string;
@@ -65,11 +65,19 @@ function member(
 	};
 }
 
-function coordinator(members: () => CheckoutMember[], hidden = new Set<string>()) {
+/** `git status --porcelain=v1 -z` of the given entries (`"?? a.ts"`, `"R  new.ts\0old.ts"`). */
+const porcelain = (...entries: string[]) => entries.map(entry => `${entry}\0`).join("");
+
+function coordinator(
+	members: () => CheckoutMember[],
+	hidden = new Set<string>(),
+	gitStatus: (toplevel: string) => Promise<string> = () => Promise.reject(new Error("git is not available")),
+) {
 	return new CheckoutPeerCoordinator({
 		members,
 		place: cwd => readCheckoutPlace(cwd, readOriginFacts),
 		hiddenPaths: () => hidden,
+		gitStatus,
 	});
 }
 
@@ -135,5 +143,159 @@ describe("checkout peers", () => {
 			{ id: null, title: "Session h", device: "Galaxy", sessionPath: "/sessions/h.jsonl", files: [] },
 		]);
 		expect(hosted.sent.at(-1)?.canMessage).toBe(false);
+	});
+});
+
+describe("checkout peers: a committed file is no longer a claim", () => {
+	afterEach(() => vi.useRealTimers());
+
+	const src = (name: string, top = main) => path.join(top, "src", name);
+
+	it("drops a file git no longer lists, from the peer's files and from what both changed, and says it again once it is dirty again", async () => {
+		const a = member("a", main, [src("both.ts"), src("a.ts")]);
+		const b = member("b", main, [src("both.ts"), src("b.ts")]);
+		let listed = porcelain("?? src/a.ts", " M src/b.ts");
+		const peers = coordinator(
+			() => [a, b],
+			new Set(),
+			async () => listed,
+		);
+		await peers.refresh();
+		expect(a.sent.at(-1)?.worktree[0]).toMatchObject({ id: "b", files: [src("b.ts")] });
+		expect(a.sent.at(-1)?.worktree[0]?.shared).toBeUndefined();
+		expect(b.sent.at(-1)?.worktree[0]).toMatchObject({ id: "a", files: [src("a.ts")] });
+
+		listed = porcelain("?? src/a.ts", " M src/b.ts", " M src/both.ts");
+		await peers.refresh();
+		expect(a.sent.at(-1)?.worktree[0]).toMatchObject({
+			files: [src("both.ts"), src("b.ts")],
+			shared: [src("both.ts")],
+		});
+	});
+
+	it("keeps every file when git cannot say", async () => {
+		const a = member("a", main, [src("a.ts")]);
+		const b = member("b", main, [src("b.ts"), src("c.ts")]);
+		await coordinator(() => [a, b]).refresh();
+		expect(a.sent.at(-1)?.worktree[0]?.files).toEqual([src("b.ts"), src("c.ts")]);
+	});
+
+	it("keeps a deleted file and both names of a rename", async () => {
+		const a = member("a", main);
+		const b = member("b", main, [src("new.ts"), src("old.ts"), src("gone.ts"), src("committed.ts")]);
+		await coordinator(
+			() => [a, b],
+			new Set(),
+			async () => porcelain("R  src/new.ts\0src/old.ts", " D src/gone.ts"),
+		).refresh();
+		expect(a.sent.at(-1)?.worktree[0]?.files).toEqual([src("new.ts"), src("old.ts"), src("gone.ts")]);
+	});
+
+	it("reads the real git status of the worktree", async () => {
+		const repo = path.join(dir, "real");
+		fs.mkdirSync(repo);
+		git(repo, "init", "-q", "-b", "main");
+		fs.writeFileSync(path.join(repo, "committed.ts"), "x\n");
+		git(repo, "add", ".");
+		git(repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "one");
+		fs.writeFileSync(path.join(repo, "fresh.ts"), "y\n");
+		const top = fs.realpathSync.native(repo);
+		const a = member("a", top);
+		const b = member("b", top, [path.join(top, "committed.ts"), path.join(top, "fresh.ts")]);
+		await coordinator(() => [a, b], new Set(), readGitStatus).refresh();
+		expect(a.sent.at(-1)?.worktree[0]?.files).toEqual([path.join(top, "fresh.ts")]);
+	});
+
+	it("keeps a member's last answer when its bridge fails or does not answer in time", async () => {
+		let files = [src("b.ts")];
+		let mode: "answer" | "fail" | "hang" = "answer";
+		const a = member("a", main);
+		const b = member("b", main, [], {
+			request: async (method, params) => {
+				if (method !== "checkout_status") return { ok: true, params };
+				if (mode === "fail") throw new Error("busy");
+				if (mode === "hang") return new Promise<never>(() => undefined);
+				return { files, task: "Refactor" };
+			},
+		});
+		const peers = coordinator(() => [a, b]);
+		await peers.refresh();
+		expect(a.sent.at(-1)?.worktree[0]).toMatchObject({ files: [src("b.ts")], task: "Refactor" });
+
+		mode = "fail";
+		files = [];
+		await peers.refresh();
+		expect(a.sent).toHaveLength(1);
+
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		mode = "hang";
+		const pass = peers.refresh();
+		await vi.advanceTimersByTimeAsync(3_000);
+		await pass;
+		expect(a.sent).toHaveLength(1);
+
+		mode = "answer";
+		vi.useRealTimers();
+		await peers.refresh();
+		expect(a.sent.at(-1)?.worktree[0]).toMatchObject({ files: [] });
+	});
+
+	it("forgets a member that left: it starts over with no files when it comes back", async () => {
+		const a = member("a", main);
+		let failing = false;
+		const b = member("b", main, [src("b.ts")], {
+			request: async (method, params) => {
+				if (method !== "checkout_status") return { ok: true, params };
+				if (failing) throw new Error("busy");
+				return { files: [src("b.ts")] };
+			},
+		});
+		let members: CheckoutMember[] = [a, b];
+		const peers = coordinator(() => members);
+		await peers.refresh();
+		expect(a.sent.at(-1)?.worktree[0]?.files).toEqual([src("b.ts")]);
+		members = [a];
+		await peers.refresh();
+		members = [a, b];
+		failing = true;
+		await peers.refresh();
+		expect(a.sent.at(-1)?.worktree[0]?.files).toEqual([]);
+	});
+
+	it("tells another worktree's session the files of its peer in its own paths, and what both changed", async () => {
+		const a = member("a", main, [src("x.ts"), src("y.ts")]);
+		const c = member("c", linked, [src("x.ts", linked), src("z.ts", linked)]);
+		const lists: Record<string, string> = {
+			[main]: porcelain("?? src/x.ts", "?? src/y.ts"),
+			[linked]: porcelain("?? src/x.ts", "?? src/z.ts"),
+		};
+		await coordinator(
+			() => [a, c],
+			new Set(),
+			async top => lists[top] ?? "",
+		).refresh();
+		expect(a.sent.at(-1)?.repo).toEqual([
+			{
+				id: "c",
+				title: "Session c",
+				sessionPath: "/sessions/c.jsonl",
+				worktree: linked,
+				files: [src("x.ts"), src("z.ts")],
+				shared: [src("x.ts")],
+			},
+		]);
+		expect(c.sent.at(-1)?.repo[0]).toMatchObject({
+			id: "a",
+			worktree: main,
+			files: [src("x.ts", linked), src("y.ts", linked)],
+			shared: [src("x.ts", linked)],
+		});
+	});
+
+	it("never sends a hidden session's worktree, only the files translated into the receiver's paths", async () => {
+		const a = member("a", main, [src("x.ts")]);
+		const secret = member("s", linked, [src("x.ts", linked)]);
+		await coordinator(() => [a, secret], new Set(["/sessions/s.jsonl"])).refresh();
+		expect(a.sent.at(-1)?.repo).toEqual([{ id: null, title: "", files: [src("x.ts")], shared: [src("x.ts")] }]);
 	});
 });

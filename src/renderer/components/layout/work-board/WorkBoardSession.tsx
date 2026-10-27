@@ -4,7 +4,7 @@
  * check (a failed one is its own section at the top), the dev servers running, the other sessions in the checkout,
  * and the memory and skills the turn used. `useSessionBoard` reads them all once; the section draws what it found.
  */
-import { BookOpen, Brain, FileDiff, FlaskConical, GitBranch, Globe, Users } from "lucide-react";
+import { BookOpen, Brain, FileDiff, FlaskConical, GitBranch, Globe, Shield, Users } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { READ_ONLY_TOOLS } from "../../../../shared/agent-definition";
 import type { RpcGitUnlanded } from "../../../../shared/rpc-types";
@@ -15,7 +15,6 @@ import { formatDuration } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useNowTick } from "../../../lib/now-tick";
 import { useTabRpc } from "../../../lib/tab-rpc";
-import { useAttentionStore } from "../../../stores/attention";
 import { useMessagesStore } from "../../../stores/messages";
 import { useSessionStore } from "../../../stores/session";
 import { useRuntimeTabId, useTabCommand } from "../../../stores/session-runtime-context";
@@ -26,8 +25,14 @@ import { useUiStore } from "../../../stores/ui";
 import { backgroundJobVerdicts } from "../../chat/completion-events";
 import { requestRevealStep } from "../../chat/work/reveal-step";
 import { useRunOutcome, useRunStores } from "../../chat/work/use-work-run";
-import { type WorkOutcomes, type WorkSkillOutcome, workOutcomes } from "../../chat/work/work-view";
-import { BoardRow, BoardSection, elapsedLabel, KindMark, type RowTag } from "./board-parts";
+import {
+	mergeSkills,
+	type WorkOutcomes,
+	type WorkProtection,
+	type WorkSkillOutcome,
+	workOutcomes,
+} from "../../chat/work/work-view";
+import { BoardRow, BoardSection, elapsedLabel, KindMark } from "./board-parts";
 import { openPeer, peerOpen } from "./open-peer";
 import {
 	type ChangesSummary,
@@ -45,6 +50,7 @@ import {
 	type ScopedPeer,
 	summarizePeers,
 	summarizeUnlanded,
+	turnSkills,
 	type UnlandedSummary,
 } from "./session-board";
 
@@ -55,7 +61,8 @@ export type SessionRowModel =
 	| ({ kind: "dev-server" } & DevServer)
 	| ({ kind: "peers" } & PeersSummary)
 	| { kind: "recall"; titles: string[] }
-	| { kind: "skills"; skills: WorkSkillOutcome[] };
+	| { kind: "skills"; skills: WorkSkillOutcome[] }
+	| { kind: "protected"; protections: WorkProtection[] };
 
 export interface SessionBoard {
 	/** Changed, not in main yet, last check (passed or running; a failed one is a row of Needs you), dev servers, same
@@ -294,7 +301,7 @@ function useNewestOutcome(): WorkOutcomes {
 }
 
 /** The check the board names, as the newest work card reads it; the session's finished and live calls give the newest run. */
-export function useLastCheck(outcome: WorkOutcomes): LastCheck | null {
+function useLastCheck(outcome: WorkOutcomes): LastCheck | null {
 	const { tools } = useRunStores();
 	const cwd = useSessionStore(state => state.cwd);
 	const live = useToolsStore(state => state.liveTools);
@@ -325,20 +332,29 @@ export function useSessionBoard(turn: TurnWindow | null = null): SessionBoard {
 	const messages = useMessagesStore(state => state.messages);
 	const servers = useMemo(() => devServers(jobs), [jobs]);
 	const titles = useMemo(() => recallTitles(messages), [messages]);
-	const skills = outcome.skills;
+	const skills = useMemo(
+		() =>
+			mergeSkills(
+				turnSkills(messages).map(name => ({ name })),
+				outcome.skills,
+			),
+		[messages, outcome.skills],
+	);
+	const protections = outcome.protections;
 	return useMemo(() => {
 		const rows: SessionRowModel[] = [];
 		// Only what changed: a turn (or a family) that changed nothing draws no line.
 		if (changes.files > 0) rows.push({ kind: "changes", ...changes });
 		if (unlanded) rows.push({ kind: "unlanded", ...unlanded });
-		if (check && check.state !== "failed") rows.push({ kind: "check", check });
+		if (check) rows.push({ kind: "check", check });
 		for (const server of servers) rows.push({ kind: "dev-server", ...server });
 		const company = summarizePeers(peers);
 		if (company) rows.push({ kind: "peers", ...company });
+		if (protections.length > 0) rows.push({ kind: "protected", protections });
 		if (titles.length > 0) rows.push({ kind: "recall", titles });
 		if (skills.length > 0) rows.push({ kind: "skills", skills });
 		return { rows };
-	}, [changes, unlanded, check, servers, peers, titles, skills]);
+	}, [changes, unlanded, check, servers, peers, protections, titles, skills]);
 }
 
 const plural = (count: number) => (count === 1 ? "" : "s");
@@ -390,10 +406,15 @@ function rowWords(t: (key: string, params?: Record<string, string | number>) => 
 			return t("workBoard.session.recall.label", { title: row.titles[0] ?? "" });
 		case "skills":
 			return t("workBoard.session.skills.label", { names: row.skills.map(skill => skill.name).join(" · ") });
+		case "protected":
+			return t("workBoard.session.protected", {
+				count: row.protections.length,
+				plural: plural(row.protections.length),
+			});
 	}
 }
 
-function CheckRow({ check, tag }: { check: LastCheck; tag?: RowTag }) {
+function CheckRow({ check }: { check: LastCheck }) {
 	const t = useT();
 	// The transcript of the board's own tab opens the card holding the call (a collapsed or unmounted one too).
 	const runtimeTabId = useRuntimeTabId();
@@ -411,7 +432,6 @@ function CheckRow({ check, tag }: { check: LastCheck; tag?: RowTag }) {
 	return (
 		<BoardRow
 			data={{ "data-board-session": "check", "data-state": check.state }}
-			tag={tag}
 			label={label}
 			lead={
 				<KindMark icon={FlaskConical} tone={running ? "info" : check.state === "passed" ? "success" : "danger"} />
@@ -610,6 +630,24 @@ function SkillsRow({ skills }: { skills: WorkSkillOutcome[] }) {
 	);
 }
 
+/** "Held back N steps for other sessions": the turn's calls the shared-checkout guard refused; a tap shows the first. */
+function ProtectedRow({ protections }: { protections: WorkProtection[] }) {
+	const t = useT();
+	const runtimeTabId = useRuntimeTabId();
+	const activeTabId = useTabsStore(state => state.activeTabId);
+	const tabId = runtimeTabId ?? activeTabId;
+	const key = protections.find(protection => protection.toolCallId)?.toolCallId;
+	return (
+		<BoardRow
+			data={{ "data-board-session": "protected" }}
+			label={rowWords(t, { kind: "protected", protections })}
+			lead={<KindMark icon={Shield} tone="muted" />}
+			onClick={tabId && key ? () => requestRevealStep({ tabId, key }) : undefined}
+			title={protections.map(({ what, agentName }) => (agentName ? `${what} (${agentName})` : what)).join("\n")}
+		/>
+	);
+}
+
 function SessionRow({ row }: { row: SessionRowModel }) {
 	switch (row.kind) {
 		case "changes":
@@ -643,6 +681,8 @@ function SessionRow({ row }: { row: SessionRowModel }) {
 			return <RecallRow titles={row.titles} />;
 		case "skills":
 			return <SkillsRow skills={row.skills} />;
+		case "protected":
+			return <ProtectedRow protections={row.protections} />;
 	}
 }
 
@@ -675,15 +715,9 @@ export function quietOutcome(
 }
 
 /**
- * The board mounts these from a lazy chunk (the phone's first screen has no room for the rows' code): the failed
- * check as a row of Needs you, the "Current work" section near its foot (which also tells the head what the last
- * turn left), and a watcher that tells the head and the strip a check failed.
+ * The board mounts the session slot from a lazy chunk (the phone's first screen has no room for the rows' code): the
+ * "Current work" section near its foot, which also tells the head what the last turn left.
  */
-export function NeedsCheck({ tag }: { tag: RowTag }) {
-	const check = useLastCheck(useNewestOutcome());
-	return check?.state === "failed" ? <CheckRow check={check} tag={tag} /> : null;
-}
-
 export function SessionSlot({
 	turn,
 	aside,
@@ -701,16 +735,4 @@ export function SessionSlot({
 		return () => onOutcome(null);
 	}, [outcome, onOutcome]);
 	return <CurrentSection aside={aside} rows={rows} />;
-}
-
-/** Says in `useAttentionStore` whether this tab's newest check failed, while the board or its strip is mounted. */
-export function FailedCheckWatch() {
-	const tabId = useBoardTabId();
-	const failed = useLastCheck(useNewestOutcome())?.state === "failed";
-	useEffect(() => {
-		if (!tabId) return;
-		useAttentionStore.getState().setCheckFailed(tabId, failed);
-		return () => useAttentionStore.getState().setCheckFailed(tabId, false);
-	}, [tabId, failed]);
-	return null;
 }

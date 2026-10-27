@@ -114,7 +114,7 @@ export function boardJobs(): RpcJobRow[] {
 	];
 }
 
-/** What `get_checkout_peers` answers under `?board=busy`: two sessions in this worktree, one with a very long title; the first also changed the `?card=` run's file. */
+/** What `get_checkout_peers` answers under `?board=busy`: two sessions in this worktree, one with a very long title, and one in another worktree of the repository; the first also changed the `?card=` run's file, and so did the one elsewhere. */
 export function boardPeers(): { peers: CheckoutPeers } {
 	return {
 		peers: {
@@ -144,7 +144,17 @@ export function boardPeers(): { peers: CheckoutPeers } {
 					sessionPath: "-Users-dev-projects-ompdesk/sess-phone.jsonl",
 				},
 			],
-			repo: [],
+			repo: [
+				{
+					id: "tab-4",
+					title: text("Release notes draft", "릴리스 노트 초안"),
+					sessionPath: "-Users-dev-projects-ompdesk-notes/sess-4.jsonl",
+					worktree: "/Users/dev/projects/ompdesk-notes",
+					task: text("Write the 1.9 notes", "1.9 릴리스 노트 쓰기"),
+					files: ["/Users/dev/projects/ompdesk/src/workspace.ts"],
+					shared: ["/Users/dev/projects/ompdesk/src/workspace.ts"],
+				},
+			],
 		},
 	};
 }
