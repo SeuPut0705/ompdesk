@@ -350,14 +350,37 @@ function listedMissing(call: OperationCall): boolean {
 	return complaints.length > 0 && complaints.every(line => LS_MISSING.test(line));
 }
 
+// A pipeline that only reads (`ps aux | grep -c vite`, `git status --porcelain | grep -q x`) asks as its last `grep`
+// does; one whose first stage acts (`bun run release | rg -q published`) is judged by that action.
+const READS_ONLY =
+	/^(?:ps|ls|cat|head|tail|find|echo|printf|env|jq|sort|uniq|wc|lsof|pgrep|git\s+(?:status|log|diff|show|branch|ls-files|rev-parse))(?:\s|$)/;
+// curl's exit 7 is "could not connect": asked of this computer, the answer is that no server listens there yet (an agent
+// polls a dev server it is starting); asked of another host, it is a failure.
+const LOOPBACK_CURL = /^curl\s[^<>]*\bhttps?:\/\/(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(?:[:/]|\s|$)/;
+
 function isProbe(call: OperationCall): boolean {
 	if (call.toolName !== "bash" || typeof call.args.command !== "string") return false;
-	if (call.exitCode !== 1 && call.exitCode !== 2) return false;
+	if (call.exitCode !== 1 && call.exitCode !== 2 && call.exitCode !== 7) return false;
 	// The exit code is the last `;`/newline segment's: that one must be a whole lookup.
 	const last = listSegments(call.args.command)
 		.map(part => part.trim())
 		.findLast(Boolean);
-	if (!last || (last.match(/["']/g)?.length ?? 0) % 2 !== 0 || CONTROL.test(last)) return false;
+	if (!last || (last.match(/["']/g)?.length ?? 0) % 2 !== 0) return false;
+	// Quoted text is an argument: a `|` or `;` inside a pattern (`grep "a\|b"`) runs nothing.
+	const bare = last.replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, '""');
+	if (call.exitCode === 7) return LOOPBACK_CURL.test(last) && !CONTROL.test(bare);
+	if (call.exitCode === 1 && !bare.includes("||")) {
+		const stages = bare.split("|").map(stage => stage.trim());
+		const final = stages.pop() ?? "";
+		if (
+			stages.length > 0 &&
+			PROBE.test(final) &&
+			[...stages, final].every(stage => !CONTROL.test(stage)) &&
+			stages.every(stage => READS_ONLY.test(stage) && !/\s-(?:exec|execdir|delete|ok)\b/.test(stage))
+		)
+			return true;
+	}
+	if (CONTROL.test(bare)) return false;
 	if (LISTING.test(last)) return listedMissing(call);
 	return call.exitCode === 1 && PROBE.test(last);
 }
@@ -425,10 +448,125 @@ export function callKeys(call: OperationCall, cwd = ""): readonly string[] {
 
 const argumentKeys = new WeakMap<object, { cwd: string; toolName: string; keys: readonly string[] }>();
 
+/** One check a command runs: its runner (`vitest`, `script:check:types`), the paths it names, and every other word. */
+interface CheckPart {
+	runner: string;
+	targets: string[];
+	words: string[];
+}
+
+const REDIRECT = /^\d*(?:>>?|<|&>)/;
+const unquote = (word: string) => word.replace(/^(["'])(.*)\1$/, "$2");
+const pathWord = (word: string) => unquote(word).replace(/^\.\//, "").replace(/\/+$/, "");
+
+function checkPart(stage: string, kind: CheckKind): CheckPart | undefined {
+	const program = stage.replace(EXEC_WRAPPER, "");
+	const check = CHECKS.find(entry => entry.kind === kind);
+	const script = SCRIPT_RUNNER.exec(program);
+	const byScript = script?.[1] && check?.script.test(script[1]) ? script : null;
+	const byTool = byScript ? null : check?.tool.exec(program);
+	const head = byScript ? `script:${byScript[1]}` : byTool?.[0].replace(/\s+/g, " ");
+	if (!head) return undefined;
+	const rest = program.slice((byScript ?? byTool)?.[0].length ?? 0);
+	const tokens = rest.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
+	const targets: string[] = [];
+	const words: string[] = [];
+	for (let index = 0; index < tokens.length; index++) {
+		const token = tokens[index] ?? "";
+		if (REDIRECT.test(token)) {
+			if (/^\d*(?:>>?|<|&>)$/.test(token)) index++;
+			continue;
+		}
+		if (token.startsWith("-")) {
+			words.push(token);
+			const value = tokens[index + 1];
+			// A flag's value (`-t login`, `-p app`) narrows the run like the flag; a path after a flag is a target.
+			if (!token.includes("=") && value && !value.startsWith("-") && !/[/.]/.test(value)) {
+				words.push(unquote(value));
+				index++;
+			}
+		} else if (/[/.]/.test(token)) targets.push(pathWord(token));
+		else words.push(unquote(token));
+	}
+	return { runner: head, targets, words };
+}
+
+/**
+ * The checks of `kind` a command runs, or undefined when any step of it is something else than a check or a `cd` (a
+ * push after the tests, an `ls` deciding the exit): only a command made of checks can be judged by what it covered.
+ * `exitSays`: its exit code is the check's own (one step, or steps joined by `&&`, none piped).
+ */
+function checkParts(command: string, kind: CheckKind): { parts: CheckPart[]; exitSays: boolean } | undefined {
+	const steps = listSegments(command).flatMap(segment => segment.split(/&&|\|\|/));
+	const parts: CheckPart[] = [];
+	let piped = false;
+	for (const step of steps) {
+		const stage = (step.split("|")[0] ?? "")
+			.trim()
+			.replace(/^\(+|\)+$/g, "")
+			.trim()
+			.replace(/\s+/g, " ");
+		if (!stage || /^cd\s/.test(stage)) continue;
+		const stepKind = segmentKind(stage);
+		if (!stepKind) return undefined;
+		if (stepKind !== kind) continue;
+		const part = checkPart(stage, kind);
+		if (!part) return undefined;
+		parts.push(part);
+		if (step.includes("|")) piped = true;
+	}
+	if (parts.length === 0) return undefined;
+	const exitSays = !piped && listSegments(command).length === 1 && !command.includes("||");
+	return { parts, exitSays };
+}
+
+/** Whether a passing check's own output shows it passed, for a run whose exit code a pipe or a later step decided. */
+function outputSaysPassed(kind: CheckKind, text: string | undefined): boolean {
+	if (!text) return false;
+	if (kind === "test") {
+		const counts = testCounts(text);
+		return (counts.passed ?? 0) > 0 && counts.failed === undefined;
+	}
+	return kind === "typecheck" && !TS_ERROR.test(text);
+}
+
+/**
+ * Whether a later passing check covers a failed one: the same kind and runner in the same folder, no narrower (every
+ * flag, name or script word it has, the failed run had), over every path the failed run named (the same path, a
+ * folder holding it, or no path: the whole suite). An agent reruns a failing test file inside a wider run, or a piped
+ * type check as the plain one; another package's tests (`packages/b` after `packages/a`) or another test name never
+ * covers.
+ */
+function coveredBy(failed: OperationCall, fix: OperationCall, cwd: string): boolean {
+	const kind = typeof failed.args.command === "string" ? checkKind(failed.args.command) : undefined;
+	if (!kind || typeof fix.args.command !== "string" || checkKind(fix.args.command) !== kind) return false;
+	const [failedKey] = callKeys(failed, cwd);
+	const [fixKey] = callKeys(fix, cwd);
+	const [, failedDir = "", failedText = ""] = (failedKey ?? "").split("\0");
+	const [, fixDir = "", fixText = ""] = (fixKey ?? "").split("\0");
+	if (failedDir !== fixDir) return false;
+	const before = checkParts(failedText, kind);
+	const after = checkParts(fixText, kind);
+	if (!before || !after || !(after.exitSays || outputSaysPassed(kind, fix.text))) return false;
+	return before.parts.every(part =>
+		after.parts.some(
+			wider =>
+				wider.runner === part.runner &&
+				wider.words.every(word => part.words.includes(word)) &&
+				(wider.targets.length === 0 ||
+					(part.targets.length > 0 &&
+						part.targets.every(target =>
+							wider.targets.some(path => target === path || target.startsWith(path)),
+						))),
+		),
+	);
+}
+
 /**
  * The failed calls, in order, split by whether a successful call of the same call (`callKeys`; an edit, of every file
- * it touched) started after the failure ended: the main agent's success resolves anyone's failure, a subagent's only
- * its own. Probes and inert calls are neither failures nor fixes; a reported failure is never resolved.
+ * it touched), or for a check a later passing check that covers it (`coveredBy`), started after the failure ended: the
+ * main agent's success resolves anyone's failure, a subagent's only its own. Probes and inert calls are neither
+ * failures nor fixes; a reported failure is never resolved.
  */
 export function settleFailures<T extends OperationCall>(
 	calls: readonly T[],
@@ -444,18 +582,24 @@ export function settleFailures<T extends OperationCall>(
 		TURN_EDIT_TOOLS.includes(call.toolName) && !xdevWriteTarget(call.args) ? "edit" : call.toolName;
 	const failed = new Set(calls.slice(first).flatMap(call => (call.outcome === "failed" ? [family(call)] : [])));
 	const fixes = new Map<string, OperationCall[]>();
+	const passedChecks: OperationCall[] = [];
 	for (let index = calls.length - 1; index >= first; index--) {
 		const call = calls[index];
 		if (!counts(call) || (call.outcome === "passed" && !failed.has(family(call)))) continue;
 		const keys = callKeys(call, cwd);
 		if (call.outcome === "passed") {
 			for (const key of keys) fixes.set(key, [...(fixes.get(key) ?? []), call]);
+			if (call.toolName === "bash" && typeof call.args.command === "string" && checkKind(call.args.command))
+				passedChecks.push(call);
 			continue;
 		}
 		const fixedBy = (fix: OperationCall) =>
 			(fix.agentName === undefined || fix.agentName === call.agentName) &&
 			(fix.startTime === undefined || call.endTime === undefined || fix.startTime >= call.endTime);
-		const resolved = !call.reported && keys.length > 0 && keys.every(key => fixes.get(key)?.some(fixedBy));
+		const resolved =
+			!call.reported &&
+			((keys.length > 0 && keys.every(key => fixes.get(key)?.some(fixedBy))) ||
+				(call.toolName === "bash" && passedChecks.some(fix => fixedBy(fix) && coveredBy(call, fix, cwd))));
 		(resolved ? recovered : unresolved).unshift(call);
 	}
 	return { unresolved, recovered };

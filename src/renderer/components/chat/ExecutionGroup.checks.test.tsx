@@ -337,17 +337,17 @@ describe("work card recovery", () => {
 		expect(container.querySelector('[data-work-finding="error"]')).toBeNull();
 	});
 
-	it("says one thing for a check rerun inside a compound command: failed in the mark, the block and Copy summary", async () => {
+	it("says one thing for a check rerun inside a chain of checks: passed in the mark, no block, fixed in Copy summary", async () => {
 		await mount([
 			["lint-1", bash("node scripts/lint-surfaces.mjs", "✖ raw button in Foo.tsx", 1, 0)],
 			["lint-2", bash("node scripts/lint-surfaces.mjs && bunx biome check src", "Checked 9 files", 0, 2_000)],
 		]);
-		expect(mark()?.getAttribute("data-state")).toBe("failed");
-		expect(finding("error").querySelector(".omp-work-verdict-label")?.textContent).toBe("lint failed");
+		expect(mark()?.getAttribute("data-state")).toBe("complete");
+		expect(container.querySelector('[data-work-finding="error"]')).toBeNull();
 		await click(container.querySelector(".omp-work-copy") as unknown as HTMLElement);
 		const text = writeText.mock.calls[0]?.[0] ?? "";
-		expect(text).toContain("- ✕ lint failed");
-		expect(text).not.toContain("Failed, then fixed");
+		expect(text).not.toContain("- ✕ lint failed");
+		expect(text).toContain("Failed, then fixed");
 	});
 
 	it("stays green for a read that found nothing", async () => {

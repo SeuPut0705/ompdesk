@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { CHECKOUT_REFUSAL_PREFIX } from "../../../../../resources/gui-bridge/modes/checkout-peers-contracts";
 import type { AgentMessage } from "../../../../shared/rpc-types";
 import type { ToolEntry } from "../../../stores/tools";
 import { type BackgroundJobVerdict, backgroundJobVerdicts } from "../completion-events";
@@ -13,6 +14,7 @@ import {
 	testCounts,
 	unresolvedFailures,
 } from "./work-checks";
+import { stepOperations } from "./work-findings";
 import { workOutcomes } from "./work-view";
 
 describe("checkKind", () => {
@@ -126,12 +128,12 @@ describe("summarizeChecks", () => {
 		]);
 		expect(checks.map(check => [check.kind, check.passed, check.cause])).toEqual([["test", false, "FAIL a.test.ts"]]);
 	});
-	it("reads a check fixed by a compound command as the verdict does: still failed", () => {
+	it("reads a check rerun inside a chain of checks as the verdict does: passed", () => {
 		const checks = summarizeChecks([
 			{ command: "node scripts/lint-surfaces.mjs", failed: true, exitCode: 1, text: "✖ raw button" },
 			{ command: "node scripts/lint-surfaces.mjs && bunx biome check src", failed: false, exitCode: 0 },
 		]);
-		expect(checks.map(check => [check.kind, check.passed])).toEqual([["lint", false]]);
+		expect(checks.map(check => [check.kind, check.passed])).toEqual([["lint", true]]);
 	});
 });
 
@@ -205,6 +207,39 @@ describe("settleFailures", () => {
 				{ ...bash("bun test", 0), startTime: 1_000, endTime: 2_000 },
 			],
 		],
+		[
+			"a lint, then that lint and another after &&",
+			[bash("node scripts/lint-surfaces.mjs", 1), bash("node scripts/lint-surfaces.mjs && bunx biome check src", 0)],
+		],
+		[
+			"a type check piped through filters, then the plain type check",
+			[bash('bun run check:types 2>&1 | grep -v "attention" | tail -8', 2), bash("bun run check:types", 0)],
+		],
+		[
+			"a subagent's test files failing, then its run of the folders holding them",
+			[
+				{
+					...bash(
+						"cd /repo && (bun run check:types 2>&1 | tail -30) ; OMP_VITEST_WORKERS=3 bunx vitest run src/chat/ExecutionGroup.chips.test.tsx src/chat/work/work-checks.test.ts 2>&1 | tail -80",
+						0,
+					),
+					outcome: "failed",
+					agentName: "Worker",
+				},
+				{
+					...bash(
+						"cd /repo && OMP_VITEST_WORKERS=3 bunx vitest run src/chat/ExecutionGroup src/chat/work 2>&1 | tail -40",
+						0,
+					),
+					agentName: "Worker",
+					text: " Test Files  54 passed (54)\n      Tests  861 passed (861)\n",
+				},
+			],
+		],
+		[
+			"a test run of one file, then the whole suite",
+			[bash("bunx vitest run src/a.test.ts", 1), bash("bunx vitest run", 0)],
+		],
 	])("is fixed by a later success of the same call: %s", (_, calls) => {
 		expect(settleFailures(calls, "/repo")).toEqual({ unresolved: [], recovered: [calls[0]] });
 	});
@@ -240,12 +275,29 @@ describe("settleFailures", () => {
 		["one workspace filter, then another", [bash("pnpm --filter=a test", 1), bash("pnpm --filter=b test", 0)]],
 		["tsc -p a, then tsc -p b", [bash("tsc -p a", 2), bash("tsc -p b", 0)]],
 		[
-			"a check, then the same check piped into tail",
+			"a check, then the same check piped into tail with no output to read",
 			[bash("bun run check:types", 2), bash("bun run check:types 2>&1 | tail -20", 0)],
 		],
 		[
-			"a lint, then that lint and another after &&",
-			[bash("node scripts/lint-surfaces.mjs", 1), bash("node scripts/lint-surfaces.mjs && bunx biome check src", 0)],
+			"a lint, then that lint before something else that decides the exit",
+			[bash("node scripts/lint-surfaces.mjs", 1), bash("node scripts/lint-surfaces.mjs; ls", 0)],
+		],
+		[
+			"a test run of some files, then one of fewer",
+			[bash("bunx vitest run src/a.test.ts src/b.test.ts", 1), bash("bunx vitest run src/a.test.ts", 0)],
+		],
+		[
+			"a test run, then the same run narrowed by name",
+			[bash("bunx vitest run src/a.test.ts", 1), bash("bunx vitest run src/a.test.ts -t login", 0)],
+		],
+		["the whole suite, then one folder of it", [bash("bunx vitest run", 1), bash("bunx vitest run src/chat", 0)]],
+		[
+			"a test run beside a push, then the test run alone",
+			[bash("bunx vitest run src/a.test.ts && git push origin main", 1), bash("bunx vitest run src/a.test.ts", 0)],
+		],
+		[
+			"a test failure, then a passing type check",
+			[bash("bunx vitest run src/a.test.ts", 1), bash("bunx tsc --noEmit", 0)],
 		],
 		[
 			"one migration on stdin, then another",
@@ -341,8 +393,30 @@ describe("settleFailures", () => {
 		"[ -d out ]",
 		"grep -q TODO src/a.ts",
 		"rg needle src",
+		'ps aux | grep -c "[v]ite"',
+		"git status --porcelain | grep -q src/a.ts",
+		'sleep 8; cat /tmp/vite.log | tail -10; ps aux | grep -c "[v]ite"',
+		'bun run check:types; grep -rln "Check failed\\|checkFailed" e2e',
 	])("never counts a whole probe's exit 1 as a failure: %s", command => {
 		expect(settleFailures([bash(command, 1)])).toEqual({ unresolved: [], recovered: [] });
+	});
+
+	// 27 Oct 2026: a subagent started a dev server and asked it with curl before it listened; exit 7 turned the card red.
+	it.each([
+		'curl -s -o /dev/null -w "%{http_code}" http://localhost:5242/',
+		"(bunx vite --port 5242 > /tmp/v.log 2>&1 &) ; sleep 6; curl -sf http://127.0.0.1:5242/health",
+	])("never counts a server on this computer not listening yet as a failure: %s", command => {
+		expect(settleFailures([bash(command, 7)])).toEqual({ unresolved: [], recovered: [] });
+	});
+
+	it.each<[string, number]>([
+		["curl -sf https://api.example.com/health", 7],
+		["curl -sf http://localhost:5242/health", 22],
+		["curl -s http://localhost:5242/ && bun run deploy", 7],
+		["find . -name '*.tmp' -delete | grep -q x", 1],
+		["bun run release | grep -q published", 1],
+	])("keeps a curl elsewhere, a server's error answer and an acting pipeline failures: %s", (command, exit) => {
+		expect(unresolvedFailures([bash(command, exit)])).toHaveLength(1);
 	});
 
 	it.each([
@@ -528,6 +602,39 @@ describe("a call the bash tool refused", () => {
 	});
 });
 
+describe("a call the shared-checkout guard refused", () => {
+	const write = (text: string, at: number, failed = true): [string, ToolEntry] => [
+		`w${at}`,
+		{
+			toolName: "write",
+			args: { path: "src/a.ts", content: "x" },
+			status: failed ? "error" : "done",
+			streamingArgs: "",
+			result: { content: [{ type: "text", text }] },
+			isError: failed,
+			startTime: at,
+			endTime: at + 10,
+		},
+	];
+	const refusal = `${CHECKOUT_REFUSAL_PREFIX}: writing src/a.ts whole would drop the other session's uncommitted changes to it.`;
+
+	it("is protection: no failed step, and nothing to resolve", () => {
+		expect(stepOperations([write(refusal, 1)])).toEqual([]);
+		expect(settleFailures(stepOperations([write(refusal, 1)]))).toEqual({ unresolved: [], recovered: [] });
+	});
+
+	it("leaves a real failed write failed, beside it or after it, and never fixes it", () => {
+		const calls = stepOperations([write("EACCES: permission denied", 1), write(refusal, 20)]);
+		expect(calls.map(call => [call.toolCallId, call.outcome])).toEqual([["w1", "failed"]]);
+		expect(settleFailures(calls).unresolved.map(call => call.toolCallId)).toEqual(["w1"]);
+	});
+
+	it("does not hide a later success's fix of a real failure", () => {
+		const calls = stepOperations([write("EACCES", 1), write(refusal, 20), write("Wrote src/a.ts", 40, false)]);
+		expect(settleFailures(calls).recovered.map(call => call.toolCallId)).toEqual(["w1"]);
+	});
+});
+
 describe("commandProgram", () => {
 	it.each([
 		["git push origin main", "git push"],
@@ -622,11 +729,12 @@ describe("audit fixes", () => {
 	])("a lookup closing a list exiting 1 is no failure: %s", command => {
 		expect(settleFailures([bash(command, 1)], "/repo")).toEqual({ unresolved: [], recovered: [] });
 	});
-	it.each(["grep -q x a.txt; echo done && false", "grep x a | wc -l; ls | grep -q zz", "ls; grep a b || exit 1"])(
-		"a list whose last segment is more than a lookup stays a failure: %s",
-		command => {
-			const call = bash(command, 1);
-			expect(settleFailures([call], "/repo").unresolved).toEqual([call]);
-		},
-	);
+	it.each([
+		"grep -q x a.txt; echo done && false",
+		"grep x a | wc -l; bun run build | grep -q zz",
+		"ls; grep a b || exit 1",
+	])("a list whose last segment is more than a lookup stays a failure: %s", command => {
+		const call = bash(command, 1);
+		expect(settleFailures([call], "/repo").unresolved).toEqual([call]);
+	});
 });
