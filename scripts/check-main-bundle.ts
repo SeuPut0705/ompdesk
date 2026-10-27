@@ -100,7 +100,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // The work card names what the run leaned on (27 Oct 2026, the user's ask): the skills it read (`WorkOutcomes.skills`)
 // and the files a live peer in the same worktree also changed (`open-peer.ts`, kept out of the board's lazy rows), with
 // an `ls` of a missing path read as an answer: 2,965 bytes more (measured 3,344,721).
-const WEB_FIRST_SCREEN_JS_BYTES = 3_344_800;
+// A listing counts as a missing-path answer only when every `ls:` complaint it printed says so: 252 bytes more
+// (measured 3,344,973).
+const WEB_FIRST_SCREEN_JS_BYTES = 3_345_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

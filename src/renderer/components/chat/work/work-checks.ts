@@ -329,16 +329,26 @@ export function commandOperation<T extends CheckInput>(command: T): T & Operatio
 	};
 }
 
-// A whole command that only asks: exit 1 is its answer ("not installed", "no such file", "no match"); a listing's
-// "no such file" is 1 on macOS and 2 on GNU `ls`. Any control or grouping syntax (`;`, `|`, `&&`, a background `&`, a
-// newline, a subshell, a substitution) runs something else whose exit may be the one seen; a redirection's `&`
-// (`2>&1`, `>&2`, `&>`) does not.
+// A whole command that only asks: exit 1 is its answer ("not installed", "no such file", "no match"). Any control or
+// grouping syntax (`;`, `|`, `&&`, a background `&`, a newline, a subshell, a substitution) runs something else whose
+// exit may be the one seen; a redirection's `&` (`2>&1`, `>&2`, `&>`) does not.
 const PROBE = /^(?:command\s+-[vV]|which|type|test|\[|grep|rg)\s/;
-const LISTING = /^ls\s/;
 const CONTROL = /[;|\n()`]|(?<![<>])&(?!>)/;
+// A listing exits 1 (macOS) or 2 (GNU) for a missing path, but also for a path it may not read, an unknown option or a
+// failed redirection: only one whose every complaint is "No such file or directory" asked and heard "not there"
+// (27 Oct 2026: a subagent's closing `ls node_modules/@oh-my-pi` turned a card red). No redirection: its own failure
+// exits the same way, and a redirected stderr leaves nothing to read.
+const LISTING = /^ls\s[^<>]*$/;
+const LS_COMPLAINT = /^ls: .*$/gm;
+const LS_MISSING = /: No such file or directory\r?$/;
 // A command's key by its folder, the session's folder and its raw text: a card's commands are settled again on every
 // tool event.
 const commandKeys = new Map<string, string>();
+
+function listedMissing(call: OperationCall): boolean {
+	const complaints = call.text?.match(LS_COMPLAINT) ?? [];
+	return complaints.length > 0 && complaints.every(line => LS_MISSING.test(line));
+}
 
 function isProbe(call: OperationCall): boolean {
 	if (call.toolName !== "bash" || typeof call.args.command !== "string") return false;
@@ -348,7 +358,8 @@ function isProbe(call: OperationCall): boolean {
 		.map(part => part.trim())
 		.findLast(Boolean);
 	if (!last || (last.match(/["']/g)?.length ?? 0) % 2 !== 0 || CONTROL.test(last)) return false;
-	return call.exitCode === 1 ? PROBE.test(last) || LISTING.test(last) : LISTING.test(last);
+	if (LISTING.test(last)) return listedMissing(call);
+	return call.exitCode === 1 && PROBE.test(last);
 }
 
 // A hashline header's tag as the model wrote it: `#2C1F`, but also `#?`, `#ANY`, `#`, `#*`, `#2C FB`. Stock's preview
