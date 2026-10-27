@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.78.0] - 2026-10-27
+
+같은 폴더에서 여러 세션이 일할 때 서로의 작업을 빈틈없이 지켜요. 작업 상자는 보호된 단계와 쓴 스킬을 보여 주고, 다시 돌려 통과한 검사나 서버가 뜨기 전 확인 같은 것으로는 더 이상 빨개지지 않아요. 작업 현황에서 "검사 실패"는 확인이 필요한 항목에서 빠졌어요.
+
+### 새로 생긴 것
+- 셸로 바꾼 파일도 그 세션의 작업으로 셉니다. `sed -i`, `cp`, `mv`, `rm`, `tee`, `dd` 같은 명령이에요. 다른 세션이 고친 파일을 통째로 덮거나 지우려 하면 막고, 제자리에서 고치면 알려 줘요.
+- `git merge`, `pull`, `rebase`, `cherry-pick`, `revert`, `am`, `apply`, 그리고 다른 세션이 쓰는 worktree를 지우는 `git worktree remove`도 막아요. 진행 중인 작업을 끝내거나 그만두는 `--abort`, `--continue`는 그대로 돼요.
+- 커밋한 파일은 더 이상 "그 세션이 고치는 중"으로 남지 않아요. 파일을 고치면 다른 세션이 10초를 기다리지 않고 바로 알아요.
+- 다른 세션이 내가 고친 파일을 고치기 시작하면, 다음 단계에서 한 번 알려 줘요. 다른 worktree에서 같은 파일을 고치는 세션도 "브랜치를 합칠 때 충돌한다"고 알려 줘요(막지는 않아요).
+- 작업 상자에 `보호 N` 칩: 다른 세션 작업을 지키려고 멈춘 단계예요. 실패가 아니어서 빨갛게 표시하지 않아요. 작업 현황에도 "다른 세션 작업을 지키려고 멈춘 단계 N개" 줄이 생겼어요.
+- 쓴 스킬을 더 잘 보여 줘요. `/skill:이름`으로 시작한 작업, 실행 중 들어온 스킬, 경로로 읽은 `SKILL.md`까지 셉니다.
+
+### 고친 것
+- 작업 현황에서 "검사 실패"가 "확인이 필요해요"와 머리글을 차지하던 것을 없앴어요. 실패한 검사는 현재 작업의 한 줄로만 남고, 사이드바·제목 표시줄·트레이에도 더 이상 뜨지 않아요. 작업 상자의 빨간 판정은 그대로예요.
+- 실패한 검사를 더 넓게 다시 돌려 통과했으면(같은 테스트 파일을 담은 폴더로, 파이프 없이 같은 타입 검사로) 작업 상자가 빨갛지 않아요. 다른 패키지나 다른 테스트 이름으로 통과한 것은 여전히 해결로 치지 않아요.
+- 서버가 뜨기 전에 `curl localhost`로 확인한 것(종료 코드 7), `ps aux | grep -c vite`처럼 읽기만 하는 파이프의 "없음", 따옴표 안에 `|`가 든 `grep`은 실패가 아니에요.
+
+<!-- en -->
+
+Sessions working in one folder now protect each other's work without gaps. The work card shows the steps it held back and the skills it used, and no longer turns red for a check that passed when rerun wider or for a probe of a server that was still starting. On the work board, "Check failed" is no longer an item that needs you.
+
+### New
+- Files changed from the shell count as the session's work too: `sed -i`, `cp`, `mv`, `rm`, `tee`, `dd` and the like. Replacing or deleting a file another session changed is refused; changing it in place gets a notice.
+- `git merge`, `pull`, `rebase`, `cherry-pick`, `revert`, `am`, `apply`, and `git worktree remove` of a worktree another session uses are refused too. `--abort` and `--continue` of an operation underway still work.
+- A committed file is no longer held as "that session's work in progress", and a changed file reaches the other sessions at once instead of within 10 seconds.
+- When another session starts changing a file you changed, you hear it once at your next step. A session in another worktree changing the same file is told the branches will conflict when merged (never refused).
+- A `Protected N` chip on the work card: steps held back to protect another session's work. They are not failures and are never red. The work board says "Held back N steps for other sessions".
+- Skills show from every source: a run started with `/skill:name`, a skill injected while it ran, and a `SKILL.md` read by its path.
+
+### Fixes
+- "Check failed" no longer takes the board's "Needs you" section and head. A failed check is one Current work row, and the sidebar, title bar and tray no longer show it. The work card's red verdict stays.
+- A failed check that later passed in a wider rerun (the folder holding the test files, the same type check without a pipe) no longer leaves the card red. A pass in another package or under another test name still does not count.
+- A `curl localhost` asked before the server listened (exit 7), the "none" of a read-only pipeline such as `ps aux | grep -c vite`, and a `grep` with `|` inside quotes are not failures.
+
 ## [0.77.1] - 2026-10-27
 
 작업 상자가 실패한 `ls`를 다시 빨간색으로 보여 줘요. 없는 폴더를 확인한 경우만 실패에서 빠져요.
