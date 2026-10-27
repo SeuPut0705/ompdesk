@@ -38,7 +38,10 @@ async function startServer(env: Record<string, string> = {}) {
 	const setup = spawnSync(memory.bin, ["setup", "--yes", "--agent", "omp"], {
 		env: { ...process.env, ...memory.env, HOME: home, PI_CODING_AGENT_DIR: path.join(root, "agent"), ...env },
 		encoding: "utf8",
+		// Windows' launcher is `ai-memory.cmd`, which Node spawns only through a shell.
+		shell: process.platform === "win32",
 	});
+	expect(setup.error).toBeUndefined();
 	expect(setup.stdout).toContain("setup complete");
 	const pid = Number(await fs.readFile(path.join(home, ".fake-ai-memory", "server.pid"), "utf8"));
 	expect(alive(pid)).toBe(true);
