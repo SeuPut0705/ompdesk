@@ -282,7 +282,10 @@ html[data-platform="win32"] {
 	padding-left: max(var(--sc-space-2), var(--sc-traffic-lights));
 }
 
-.omp-shell:not(:has(> .omp-inspector)) .omp-topbar,
+/* `data-panel` (AppShell) names the side a docked panel takes, so no rule asks the shell `:has(> .omp-inspector)`: a
+   `:has()` on the root put the whole shell under Blink's `:has` invalidation, so each node streaming output inserted
+   restyled its matching descendants (live-session audit, 27 Oct 2026). */
+.omp-shell:not([data-panel]) .omp-topbar,
 .omp-panel-topbar {
 	padding-right: calc(var(--sc-space-2) + var(--sc-caption-buttons));
 }
@@ -314,11 +317,11 @@ html[data-platform="win32"] .omp-inspector:not([data-side="left"]) .omp-panel-to
 	padding-left: max(var(--sc-space-2), var(--sc-traffic-lights));
 }
 
-.omp-shell[data-sidebar="hidden"]:has(> .omp-inspector[data-side="left"]) .omp-topbar {
+.omp-shell[data-sidebar="hidden"][data-panel="left"] .omp-topbar {
 	padding-left: var(--sc-space-2);
 }
 
-.omp-shell:has(> .omp-inspector[data-side="left"]) .omp-topbar {
+.omp-shell[data-panel="left"] .omp-topbar {
 	padding-right: calc(var(--sc-space-2) + var(--sc-caption-buttons));
 }
 

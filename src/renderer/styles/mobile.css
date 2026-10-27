@@ -945,7 +945,7 @@ html[data-shell] .omp-work-strip {
 	order: -1;
 }
 
-html[data-shell] .omp-session-pane:has(.omp-work-strip) :is(
+html[data-shell] .omp-session-pane[data-work-board-strip] :is(
 		[data-autopilot-dock],
 		[data-run-settings-trigger][data-mode="autopilot"] .omp-composer-control-label
 	) {
@@ -1640,8 +1640,11 @@ html[data-shell="phone"] .omp-restored-queue [data-restored-note] > span {
 }
 
 /* The side panel's own toolbars, rows and the live work card hold neighbours 4 px apart; so do the session views that
-   open as sheets (`[data-view-sheet]`: jobs, plan, logs, tree, work), which were panel views until 21 Oct 2026. */
-html[data-shell] :is([data-sheet-panel]:has(.omp-panel-topbar), [data-view-sheet], .omp-inspector, .omp-live-step) {
+   open as sheets (`[data-view-sheet]`: jobs, plan, logs, tree, work), which were panel views until 21 Oct 2026. The
+   panel's sheet is found by its mark (`[data-sheet-kind="panel"]`, Sheet.tsx), never by a `:has(.omp-panel-topbar)`
+   on the sheet: a `:has()` left of a descendant joins Blink's one `:has` invalidation set, and `.flex` there restyled
+   ~100 elements on every node streaming output inserted (live-session audit, 27 Oct 2026). */
+html[data-shell] :is([data-sheet-kind="panel"], [data-view-sheet], .omp-inspector, .omp-live-step) {
 	--hit-gap-x: 4px;
 	--hit-gap-y: 4px;
 }
@@ -1651,7 +1654,7 @@ html[data-shell] :is([data-sheet-panel]:has(.omp-panel-topbar), [data-view-sheet
    way to the next, where the desktop's 0–4 px spacing let each icon take its neighbour's edge. The terminal's key bar
    keeps its own 4 px rhythm (below). */
 html[data-input="touch"]
-	:is([data-sheet-panel]:has(.omp-panel-topbar), [data-view-sheet], .omp-inspector)
+	:is([data-sheet-kind="panel"], [data-view-sheet], .omp-inspector)
 	:is(div, span, form).flex:not(.flex-col, [data-staged], [data-terminal-keybar], [data-terminal-keybar] *):has(
 		> button + button
 	) {
@@ -1663,7 +1666,7 @@ html[data-input="touch"]
 /* On a phone the same icons draw 24 px behind a 1 px border, their ::after starting from the 22 px inside: 14 px apart
    and bounded at 14 each reaches 36 (10 and 12 left the terminal's, the Files view's and the Preview's 32×34). */
 html[data-shell="phone"][data-input="touch"]
-	:is([data-sheet-panel]:has(.omp-panel-topbar), [data-view-sheet], .omp-inspector)
+	:is([data-sheet-kind="panel"], [data-view-sheet], .omp-inspector)
 	:is(div, span, form).flex:not(.flex-col, [data-staged], [data-terminal-keybar], [data-terminal-keybar] *):has(
 		> button + button
 	) {

@@ -231,6 +231,16 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 	}, [open, close]);
 	// Measured while collapsed too (the chevron points the way the panel will open), and again at each open.
 	const room = useStripRoom(root, open, label !== null);
+	// The pane says it shows the strip (`data-work-board-strip`), for the dock rows that give way (components.css,
+	// mobile.css): a `.omp-session-pane:has(.omp-work-strip)` there made every node streaming output inserted restyle
+	// the pane's matching descendants.
+	const shown = label !== null;
+	useLayoutEffect(() => {
+		const pane = shown ? root.current?.closest(".omp-session-pane") : null;
+		if (!pane) return;
+		pane.setAttribute("data-work-board-strip", "");
+		return () => pane.removeAttribute("data-work-board-strip");
+	}, [shown]);
 	if (label === null) return null;
 	const swipeStart = (event: TouchEvent<HTMLElement>) => {
 		swipe.current = event.touches[0]?.clientY ?? null;

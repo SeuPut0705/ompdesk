@@ -155,9 +155,15 @@ export interface SheetProps
 	/** Width of a right or left sheet. */
 	size?: SheetSize;
 	placement?: SheetPlacement;
+	/**
+	 * What the sheet holds, as `data-sheet-kind` on its panel (`panel`: the side panel's views), so a style keys on the
+	 * mark instead of `[data-sheet-panel]:has(…)`: a `:has()` ancestor in a selector restyles every element the rule
+	 * names on each node any streaming output inserts.
+	 */
+	kind?: string;
 }
 
-export function Sheet({ open, onClose, size = "md", placement = "right", ...surface }: SheetProps) {
+export function Sheet({ open, onClose, size = "md", placement = "right", kind, ...surface }: SheetProps) {
 	const titleId = useId();
 	const panelRef = useRef<HTMLDivElement>(null);
 	const { mounted, closing } = useOverlayPresence(open);
@@ -189,6 +195,7 @@ export function Sheet({ open, onClose, size = "md", placement = "right", ...surf
 					placement === "bottom" && "max-h-[calc(100dvh-var(--safe-t)-1rem)]",
 					closing ? placement !== "right" && "omp-sheet-out" : geometry.enter,
 				)}
+				data-sheet-kind={kind}
 				data-sheet-panel=""
 				ref={panelRef}
 				role={closing ? "presentation" : "dialog"}

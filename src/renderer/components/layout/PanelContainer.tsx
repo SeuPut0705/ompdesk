@@ -292,6 +292,7 @@ export function PanelContainer() {
 				<Sheet
 					bodyClassName="flex flex-col"
 					header={<PanelHeader bare />}
+					kind="panel"
 					onClose={togglePanel}
 					open
 					placement="full"
@@ -310,6 +311,7 @@ export function PanelContainer() {
 				size={shellMode === null ? "md" : "lg"}
 				title={t("panel.title")}
 				header={<PanelHeader />}
+				kind="panel"
 			>
 				{views}
 			</Sheet>

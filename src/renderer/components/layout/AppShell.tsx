@@ -353,6 +353,9 @@ export function AppShell() {
 	return (
 		<div
 			className="omp-shell flex min-w-0 flex-1"
+			// The docked panel's side for global.css, which never asks `:has(> .omp-inspector)`: a `:has()` on this root
+			// made every node streaming output inserted restyle the shell's matching descendants.
+			data-panel={panelDocked ? panelSide : undefined}
 			data-sidebar={sidebarVisible && !drawer ? "docked" : "hidden"}
 			onFocusCapture={event => preloadForIntent(event.target)}
 			onPointerOverCapture={event => preloadForIntent(event.target)}

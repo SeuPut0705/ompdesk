@@ -121,11 +121,22 @@ function segmentKind(segment: string): CheckKind | undefined {
 const KIND_ORDER: readonly CheckKind[] = ["test", "typecheck", "lint", "build"];
 
 /**
+ * `checkKinds` by command, plain and `grouped`: the work board re-reads every bash call of the session on each
+ * streamed event (`lastCheck`) and each work card re-reads its run on every mount, always for the same few commands.
+ * Cleared whole at `KINDS_MEMO_MAX` entries, so a long-lived window stays bounded.
+ */
+const kindsMemo = [new Map<string, readonly CheckKind[]>(), new Map<string, readonly CheckKind[]>()] as const;
+const KINDS_MEMO_MAX = 4096;
+
+/**
  * Every kind of check a shell command runs, in `KIND_ORDER`. `grouped`: a check inside a `( … )` or `{ …; }` group
  * counts too; a run that passed is read so (its group's exit is the list's), while a failed one keeps its kind only
- * when the group does not hide it from the kind a person would name it by.
+ * when the group does not hide it from the kind a person would name it by. Shared per command: never mutate it.
  */
-export function checkKinds(command: string, grouped = false): CheckKind[] {
+export function checkKinds(command: string, grouped = false): readonly CheckKind[] {
+	const memo = kindsMemo[grouped ? 1 : 0];
+	const known = memo.get(command);
+	if (known) return known;
 	const kinds = new Set<CheckKind>();
 	for (const part of splitOutside(stripHeredocs(command), /&&|\|\||;|\n/g)) {
 		// A pipeline's first stage is the program; `| tail` only trims its output.
@@ -133,7 +144,10 @@ export function checkKinds(command: string, grouped = false): CheckKind[] {
 		const kind = segmentKind((grouped ? stage.replace(/^[({\s]+/, "") : stage).replace(/\s+/g, " "));
 		if (kind) kinds.add(kind);
 	}
-	return KIND_ORDER.filter(kind => kinds.has(kind));
+	const found = KIND_ORDER.filter(kind => kinds.has(kind));
+	if (memo.size >= KINDS_MEMO_MAX) memo.clear();
+	memo.set(command, found);
+	return found;
 }
 
 /**
