@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.77.0] - 2026-10-27
+
+같은 프로젝트 폴더에서 여러 세션을 함께 돌려도 서로 무엇을 하는지 알고, 같은 파일을 건드리면 바로 알아차려요. 작업 상자와 작업 현황에서 에이전트가 쓴 스킬도 보여요.
+
+### 새로 생긴 것
+- 같은 체크아웃의 세션들이 서로 지금 하는 일(진행 중인 할 일)과 둘 다 고친 파일을 알아요. 다른 세션이 최근 고친 파일을 고치면 에이전트가 그 세션 이름과 하는 일을 한 번 듣고, 덮어쓰지 않게 조율해요. 다른 세션을 막는 예약이나 공용 할 일 목록은 일부러 두지 않았어요.
+- 작업 현황의 "같은 체크아웃" 줄에 세션마다 하는 일과, 함께 고친 파일 수가 보여요.
+- 작업 상자에 "겹침 N" 칩: 이번 작업의 파일을 같은 폴더의 다른 세션도 고쳤으면 보여 주고, 누르면 그 세션을 열어요.
+- 작업 상자에 쓴 스킬 칩(예: "tdd +1")과 작업 현황에 "스킬 · tdd · how" 줄: 에이전트와 하위 에이전트가 읽은 스킬을 보여 주고, 누르면 그 스킬을 읽은 단계로 가요.
+
+### 고친 것
+- 작업 상자가 빨간 "ls 실패"로 끝나던 문제: 하위 에이전트가 없는 폴더를 `ls`로 확인한 것(종료 코드 1이나 2)은 실패가 아니라 "없음"이라는 답으로 봐요. 중간에 보낸 추가 지시와는 상관없었어요.
+- 작업 현황의 사용량 줄이 좁을 때 퍼센트와 금액이 잘리지 않고 통째로 다음 줄로 넘어가요.
+- omp 18.13.1에 새로 생긴 설정(비용 경고 기준·비용 상한, 제한 폴더, 작업 결과로 출력 모드 깨우기)에 한국어 이름과 설명을 달았어요.
+
+<!-- en -->
+
+Several sessions in one project folder now know what each other is doing and notice at once when they touch the same file. The work card and the work board also show which skills the agent used.
+
+### New
+- Sessions in the same checkout know each other's current task (the in-progress todo item) and the files both have changed. When an edit touches a file another session changed lately, the agent hears that session's name and task once and coordinates instead of overwriting it. There is deliberately no reservation that blocks other sessions and no shared task list.
+- The work board's same-checkout row shows each session's task and how many files you both changed.
+- A "Shared N" chip on the work card when another session in the same folder also changed this run's files; it opens that session.
+- A skills chip on the work card ("tdd +1") and a "Skills · tdd · how" row on the work board: the skills the agent and its subagents read, each opening the step that read it.
+
+### Fixes
+- A work card no longer ends in a red "ls failed": a subagent's `ls` of a folder that does not exist (exit 1 or 2) reads as the answer "not there", not a failure. The follow-up instruction sent mid-run had nothing to do with it.
+- The work board's usage line wraps whole items on a narrow board instead of clipping their percent and amount.
+- Korean names and descriptions for the settings omp 18.13.1 added (cost warning and cost limit, restricted folders, waking print mode with job results).
+
 ## [0.76.1] - 2026-10-26
 
 휴대폰에서 긴 대화를 쓸어 올리거나 내릴 때 화면이 위아래로 휙휙 튀던 문제를 고쳤어요.
