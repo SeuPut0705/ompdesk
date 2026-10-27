@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.78.3] - 2026-10-27
+
+하위 에이전트 하나가 먼저 끝나도, 다른 에이전트가 아직 쓰고 있는 파일의 보호가 풀리지 않아요.
+
+### 고친 것
+- 0.78.2에서는 한 세션의 에이전트들(메인과 하위 에이전트)이 실행 중인 쓰기를 한 목록으로 관리했어요. 그래서 짧은 하위 에이전트가 끝나면, 다른 에이전트가 `sleep; echo > 파일`로 아직 쓰고 있던 파일까지 "끝났다"로 처리됐어요. 이제 각 에이전트는 자기가 시작한 쓰기만 끝낼 수 있어요.
+
+<!-- en -->
+
+A subagent finishing first no longer releases the protection of a file another agent is still writing.
+
+### Fixes
+- In 0.78.2 the agents of one session (the main one and its subagents) shared one list of running writes, so a short subagent ending marked another agent's still-running `sleep; echo > file` as finished. Each agent now settles only the writes it started.
+
 ## [0.78.2] - 2026-10-27
 
 아직 실행 중인 명령이 파일을 쓰기 전에 앱이 "변경 없음"으로 보고 그 세션의 작업 기록을 지워 버리는 틈을 막았어요.
