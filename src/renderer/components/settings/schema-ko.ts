@@ -454,8 +454,11 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	autoResume: { label: "자동 재개", description: "현재 폴더의 가장 최근 세션을 자동으로 재개해요" },
 	"power.sleepPrevention": {
 		label: "잠자기 방지",
-		description: "활성 세션 동안 macOS 잠자기를 막아요. 각 단계는 누적되어 하위 단계의 플래그를 모두 포함해요.",
+		description:
+			"에이전트가 턴을 실행하는 동안 시스템이 잠자기에 들지 않게 해요. 유휴 세션이나 백그라운드 작업을 기다리는 세션은 잠자기를 막지 않아요. 각 단계는 누적되어 하위 단계의 플래그를 모두 포함해요.",
 	},
+	"session.warnCost": { label: "비용 경고 기준(USD)" },
+	"session.maxCost": { label: "비용 상한(USD)" },
 	"git.enabled": {
 		label: "Git 연동 사용",
 		description: "TUI에 git 브랜치, 상태, PR 정보를 표시하고 저장소 메타데이터를 감시해요.",
@@ -560,6 +563,11 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		label: "도구 승인 정책",
 		description:
 			"도구별 승인 정책이에요. 'allow'는 자동 승인, 'prompt'는 확인 요청, 'deny'는 차단이에요. 이 설정은 어떤 승인 모드에서도 적용돼요.",
+	},
+	"tools.restrictedFolders": {
+		label: "제한 폴더",
+		description:
+			'승인 모드나 기억된 허용과 관계없이 읽기, 쓰기, 편집, 검색, 명령 실행마다 명시적 승인이 필요한 폴더예요. 해당 폴더와 그 아래 전체가 제한되고, 명령은 실행되는 디렉터리로 판단해요. 경로 JSON 목록으로 입력해요(예: ["~/secrets"]).',
 	},
 	"tools.approvalMode": {
 		label: "도구 승인",
@@ -952,6 +960,11 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	"tools.maxTimeout": {
 		label: "도구 타임아웃 상한",
 		description: "에이전트가 도구에 설정할 수 있는 최대 타임아웃(초, 0 = 무제한)",
+	},
+	"async.printWake": {
+		label: "작업 결과로 출력 모드 깨우기",
+		description:
+			"출력 모드(-p, --mode json)에서 마지막 프롬프트 뒤에도 이 실행의 백그라운드 작업이 남아 있으면 계속 실행하고, 작업 결과가 올 때마다 같은 세션에서 새 턴을 시작해요. 대기 중인 작업이나 결과가 없으면 종료해요. 끄면 프롬프트를 마친 뒤 종료하며 실행 중인 작업을 취소해요.",
 	},
 	"async.enabled": { label: "비동기 실행", description: "비동기 bash 명령과 백그라운드 실행을 활성화해요" },
 	"async.widgets": {

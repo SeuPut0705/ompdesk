@@ -11,7 +11,7 @@ import { GUI_DISPLAY_LEGACY_PATHS } from "../../lib/display-preferences";
  * values; settings-schema-utils.test.ts pins each one to stock. `parent` is
  * the setting that opens the gate (the inactive row's "Configure" link).
  * Host gates (macOS, hasImageProtocol, nativeRendering) and the provenance
- * gate contextFilesExtraNotProject are not value-evaluable: unknown gates
+ * gates contextFilesExtraNotProject and restrictedFoldersNotProject are not value-evaluable: unknown gates
  * keep the entry visible.
  */
 const SETTING_CONDITIONS: Record<string, { parent: string; visible: (values: Record<string, unknown>) => boolean }> = {

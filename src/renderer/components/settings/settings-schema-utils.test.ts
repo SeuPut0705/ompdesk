@@ -22,7 +22,13 @@ const gated = (condition: string): SettingEntry => ({
 });
 
 /** Stock gates that read the host or a config layer, never a setting value: the GUI keeps them visible. */
-const HOST_GATES = ["macOS", "hasImageProtocol", "nativeRendering", "contextFilesExtraNotProject"];
+const HOST_GATES = [
+	"macOS",
+	"hasImageProtocol",
+	"nativeRendering",
+	"contextFilesExtraNotProject",
+	"restrictedFoldersNotProject",
+];
 
 /** Gates of stock's own memory settings, which OMPdesk does not list (ai-memory replaced them), so it has no rule for them. */
 const UNLISTED_GATES = ["hindsightActive", "mnemopiActive", "autolearnActive"];

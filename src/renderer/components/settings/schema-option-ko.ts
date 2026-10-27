@@ -841,6 +841,8 @@ export const KO_SCHEMA_OPTION_TEXT: Readonly<Record<string, string>> = {
 	"Small on-device language model blended with N-gram (downloads weights on first use)":
 		"기기 내 소형 언어 모델을 N-gram과 섞어 써요 (처음 사용할 때 가중치를 내려받아요)",
 	"macOS dictionary completions": "macOS 사전 자동 완성",
+	"Keep the system awake while the agent is running a turn (macOS `caffeinate -i`)":
+		"에이전트가 턴을 실행하는 동안 시스템이 잠자기에 들지 않게 해요 (macOS `caffeinate -i`)",
 	"Keep the system awake while a session is open (macOS `caffeinate -i`)":
 		"세션이 열려 있는 동안 시스템이 잠자기에 들지 않게 해요 (macOS `caffeinate -i`)",
 	"Also keep the display from idle-sleeping (macOS `caffeinate -i -d`)":
