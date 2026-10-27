@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.77.1] - 2026-10-27
+
+작업 상자가 실패한 `ls`를 다시 빨간색으로 보여 줘요. 없는 폴더를 확인한 경우만 실패에서 빠져요.
+
+### 고친 것
+- 0.77.0은 1이나 2로 끝난 `ls`를 모두 실패에서 뺐어요. 그래서 권한이 없는 폴더, 잘못된 옵션, 실패한 출력 리디렉션까지 실패로 안 보였어요. 이제 `ls`가 출력한 오류가 전부 "No such file or directory"이고 리디렉션이 없을 때만 "없음"이라는 답으로 봐요. 나머지는 예전처럼 실패로 보여요.
+
+<!-- en -->
+
+The work card shows a failed `ls` in red again; only a check of a folder that does not exist is left out.
+
+### Fixes
+- 0.77.0 left every `ls` that exited 1 or 2 out of the failures, so a folder it could not read, an unknown option or a failed output redirection no longer showed as failed. Now an `ls` reads as the answer "not there" only when every error it printed is "No such file or directory" and it redirects nothing; anything else is a failure as before.
+
 ## [0.77.0] - 2026-10-27
 
 같은 프로젝트 폴더에서 여러 세션을 함께 돌려도 서로 무엇을 하는지 알고, 같은 파일을 건드리면 바로 알아차려요. 작업 상자와 작업 현황에서 에이전트가 쓴 스킬도 보여요.
