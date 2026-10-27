@@ -355,8 +355,8 @@ interface PoolEntry extends RunTracking {
 	full: FullWiring | null;
 	/** Each window's last draft report per draft command (`noteDraft`), by window id. */
 	drafts?: Map<DraftCommand, Map<number, boolean>>;
-	/** Each window's last `set_subagent_subscription` level (`noteSubagentLevel`), by window id. */
-	subagentLevels?: Map<number, SubagentSubscriptionLevel>;
+	/** Each viewer's last `set_subagent_subscription` level (`noteSubagentLevel`): a window by its id, a paired device by its view. */
+	subagentLevels?: Map<number | HostedTabView, SubagentSubscriptionLevel>;
 }
 
 type WindowSplitView = NonNullable<IpcSetTabViewPayload["split"]>;
@@ -749,8 +749,14 @@ export class SidecarPool {
 				...(entry.awaitingConnection ? { awaitingConnection: true } : {}),
 				run: runReading(entry.run),
 			}),
+			subagentLevel: level => {
+				entry.subagentLevels ??= new Map();
+				entry.subagentLevels.set(view, level);
+				return highestSubagentLevel(entry.subagentLevels.values());
+			},
 			leave: left => {
 				entry.deviceViews?.delete(left);
+				this.#forgetSubagentLevel(entry, left);
 				if (this.#entries.has(entry)) this.#sendTabLists(entry);
 			},
 		});
@@ -1487,9 +1493,9 @@ export class SidecarPool {
 	}
 
 	/** A viewer left: the level it asked for no longer counts, and the omp drops to what the rest need. */
-	#forgetSubagentLevel(entry: PoolEntry, winId: number): void {
+	#forgetSubagentLevel(entry: PoolEntry, viewer: number | HostedTabView): void {
 		const levels = entry.subagentLevels;
-		if (!levels?.delete(winId)) return;
+		if (!levels?.delete(viewer)) return;
 		void entry.sidecar.rpcClient
 			?.command({ type: "set_subagent_subscription", level: highestSubagentLevel(levels.values()) })
 			.catch(() => {});

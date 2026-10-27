@@ -871,6 +871,9 @@ export class LocalHostServices implements HostServices {
 				...(tab.awaitingConnection ? { awaitingConnection: true } : {}),
 				run: runReading(tab.run),
 			}),
+			// The device owns this tab and sets its omp's level itself; a window's view leaving sends nothing, so the
+			// device's stream never drops under it.
+			subagentLevel: level => level,
 			leave: left => {
 				tab.views.delete(left);
 			},

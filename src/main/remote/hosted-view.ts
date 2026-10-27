@@ -32,6 +32,7 @@ import type {
 	SessionInfoUpdateFrame,
 	SidecarStatus,
 	SidecarStatusPayload,
+	SubagentSubscriptionLevel,
 } from "../../shared/rpc-types";
 import type { RpcClient } from "../rpc-client";
 import type { RunReading } from "../sidecar-run-state";
@@ -81,6 +82,8 @@ export interface HostedTabPort {
 		awaitingConnection?: boolean;
 		run: RunReading;
 	};
+	/** The device asks for this subagent stream level; answers the level the tab's omp must hold for every viewer. */
+	subagentLevel(level: SubagentSubscriptionLevel): SubagentSubscriptionLevel;
 	/** The window left the tab. */
 	leave(view: HostedTabView): void;
 }
@@ -212,7 +215,12 @@ export class HostedTabView extends EventEmitter implements SidecarLike {
 			}
 		}
 		if (STOP_COMMANDS[command.type]) this.#port.stopped();
-		const response = await client.command(command, timeoutMs);
+		// The tab's omp holds one level for every viewer: the device's counts with the windows' (the highest wins).
+		const sent =
+			command.type === "set_subagent_subscription"
+				? { ...command, level: this.#port.subagentLevel(command.level) }
+				: command;
+		const response = await client.command(sent, timeoutMs);
 		if (command.type !== "get_transcript_page" || !response.success) return response;
 		return { ...response, data: this.#port.labelTranscript(response.data) };
 	}
