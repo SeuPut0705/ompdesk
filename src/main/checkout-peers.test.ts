@@ -276,7 +276,9 @@ describe("checkout peers: a committed file is no longer a claim", () => {
 		listed = porcelain(" M src/t.ts");
 		ledger.settle("c1");
 		await peers.refresh();
-		expect(other.sent.at(-1)?.worktree[0]?.files).toEqual([src("t.ts")]);
+		// The ledger spells paths as the bridge does (`/`, a lower-case drive), which is what main passes on.
+		expect(other.sent.at(-1)?.worktree[0]?.files).toEqual([...ledger.files]);
+		expect(ledger.files.map(file => path.normalize(file).toLowerCase())).toEqual([src("t.ts").toLowerCase()]);
 	});
 
 	it("keeps a member's last answer when its bridge fails or does not answer in time", async () => {
