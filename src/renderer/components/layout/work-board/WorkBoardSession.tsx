@@ -1,17 +1,16 @@
 /**
  * The work board's "Current work" rows, one line each: what the turn's own edit tools and the sessions it opened
  * changed (the last turn's while idle), what the session's branch has not landed in main yet, the session's newest
- * check (a failed one is its own section at the top), the dev servers running, the other sessions in the checkout
- * and the memory the turn used. `useSessionBoard` reads them all once; the section draws what it found.
+ * check (a failed one is its own section at the top), the dev servers running, the other sessions in the checkout,
+ * and the memory and skills the turn used. `useSessionBoard` reads them all once; the section draws what it found.
  */
-import { Brain, FileDiff, FlaskConical, GitBranch, Globe, Users } from "lucide-react";
+import { BookOpen, Brain, FileDiff, FlaskConical, GitBranch, Globe, Users } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { READ_ONLY_TOOLS } from "../../../../shared/agent-definition";
 import type { RpcGitUnlanded } from "../../../../shared/rpc-types";
 import type { FamilyEdits, FamilyMemberEdits } from "../../../../shared/turn-edits";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { useOpenedChildren } from "../../../hooks/use-opened-children";
-import { routeToSessionOwner } from "../../../hooks/use-session-switch";
 import { formatDuration } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useNowTick } from "../../../lib/now-tick";
@@ -27,8 +26,9 @@ import { useUiStore } from "../../../stores/ui";
 import { backgroundJobVerdicts } from "../../chat/completion-events";
 import { requestRevealStep } from "../../chat/work/reveal-step";
 import { useRunOutcome, useRunStores } from "../../chat/work/use-work-run";
-import { workOutcomes } from "../../chat/work/work-view";
+import { type WorkOutcomes, type WorkSkillOutcome, workOutcomes } from "../../chat/work/work-view";
 import { BoardRow, BoardSection, elapsedLabel, KindMark, type RowTag } from "./board-parts";
+import { openPeer, peerOpen } from "./open-peer";
 import {
 	type ChangesSummary,
 	type DevServer,
@@ -40,9 +40,7 @@ import {
 	keyedFiles,
 	type LastCheck,
 	lastCheck,
-	type PeerOpen,
 	type PeersSummary,
-	peerOpen,
 	recallTitles,
 	type ScopedPeer,
 	summarizePeers,
@@ -56,11 +54,12 @@ export type SessionRowModel =
 	| { kind: "check"; check: LastCheck }
 	| ({ kind: "dev-server" } & DevServer)
 	| ({ kind: "peers" } & PeersSummary)
-	| { kind: "recall"; titles: string[] };
+	| { kind: "recall"; titles: string[] }
+	| { kind: "skills"; skills: WorkSkillOutcome[] };
 
 export interface SessionBoard {
 	/** Changed, not in main yet, last check (passed or running; a failed one is a row of Needs you), dev servers, same
-	 * checkout, memory: only those with something to say. */
+	 * checkout, memory, skills read: only those with something to say. */
 	rows: SessionRowModel[];
 }
 
@@ -289,17 +288,18 @@ function useNewestTurnCalls(): readonly string[] {
 	}, [start, prompted, tools, finishedVersion]);
 }
 
-/**
- * The check the board names, as the newest work card reads it: that turn's ledger comes from the card's own builder
- * (`useRunOutcome`, subagents' calls included), the session's finished and live calls give the newest run.
- */
-export function useLastCheck(): LastCheck | null {
+/** The newest turn's outcome as its work card reads it (`useRunOutcome`, subagents' calls included). */
+function useNewestOutcome(): WorkOutcomes {
+	return useRunOutcome(useNewestTurnCalls()).outcome;
+}
+
+/** The check the board names, as the newest work card reads it; the session's finished and live calls give the newest run. */
+export function useLastCheck(outcome: WorkOutcomes): LastCheck | null {
 	const { tools } = useRunStores();
 	const cwd = useSessionStore(state => state.cwd);
 	const live = useToolsStore(state => state.liveTools);
 	const finishedVersion = useToolsStore(state => state.finishedVersion);
 	const messages = useMessagesStore(state => state.messages);
-	const { outcome } = useRunOutcome(useNewestTurnCalls());
 	// biome-ignore lint/correctness/useExhaustiveDependencies: finishedVersion marks the finished map changing in place.
 	return useMemo(
 		() =>
@@ -318,12 +318,14 @@ export function useSessionBoard(turn: TurnWindow | null = null): SessionBoard {
 	const family = useFamilyParts(turn);
 	const changes = useMemo(() => familyChanges([{ title: null, files: own }, ...family]), [own, family]);
 	const unlanded = useUnlanded();
-	const check = useLastCheck();
+	const outcome = useNewestOutcome();
+	const check = useLastCheck(outcome);
 	const jobs = useBackgroundJobs();
 	const peers = useSessionStore(state => state.checkoutPeers);
 	const messages = useMessagesStore(state => state.messages);
 	const servers = useMemo(() => devServers(jobs), [jobs]);
 	const titles = useMemo(() => recallTitles(messages), [messages]);
+	const skills = outcome.skills;
 	return useMemo(() => {
 		const rows: SessionRowModel[] = [];
 		// Only what changed: a turn (or a family) that changed nothing draws no line.
@@ -334,8 +336,9 @@ export function useSessionBoard(turn: TurnWindow | null = null): SessionBoard {
 		const company = summarizePeers(peers);
 		if (company) rows.push({ kind: "peers", ...company });
 		if (titles.length > 0) rows.push({ kind: "recall", titles });
+		if (skills.length > 0) rows.push({ kind: "skills", skills });
 		return { rows };
-	}, [changes, unlanded, check, servers, peers, titles]);
+	}, [changes, unlanded, check, servers, peers, titles, skills]);
 }
 
 const plural = (count: number) => (count === 1 ? "" : "s");
@@ -385,6 +388,8 @@ function rowWords(t: (key: string, params?: Record<string, string | number>) => 
 		}
 		case "recall":
 			return t("workBoard.session.recall.label", { title: row.titles[0] ?? "" });
+		case "skills":
+			return t("workBoard.session.skills.label", { names: row.skills.map(skill => skill.name).join(" · ") });
 	}
 }
 
@@ -482,25 +487,6 @@ function DevServerRow({ url, host, command }: DevServer) {
 			title={command}
 		/>
 	);
-}
-
-/** Open one peer: a tab this window holds is switched to; otherwise its file opens where it is held (`peerOpen`). */
-async function openPeer(target: PeerOpen): Promise<void> {
-	if (!target) return;
-	const tabs = useTabsStore.getState();
-	if (target.kind === "switch") {
-		await tabs.switchTab(target.tabId);
-		return;
-	}
-	// This computer's file: another window or a paired device's tab may hold it (F-OWN), so ask its owner first.
-	if (!target.device) {
-		const owner = await window.omp.tabs.getSessionOwner(target.sessionPath).catch(() => null);
-		if (owner) {
-			await routeToSessionOwner(owner, target.sessionPath);
-			return;
-		}
-	}
-	await tabs.openTab({ sessionPath: target.sessionPath, ...(target.device ? { device: target.device } : {}) });
 }
 
 /**
@@ -606,6 +592,24 @@ function RecallRow({ titles }: { titles: string[] }) {
 	);
 }
 
+/** "Skills · how · tdd": the skills the newest turn read, its subagents' too; a tap shows the first one's read. */
+function SkillsRow({ skills }: { skills: WorkSkillOutcome[] }) {
+	const t = useT();
+	const runtimeTabId = useRuntimeTabId();
+	const activeTabId = useTabsStore(state => state.activeTabId);
+	const tabId = runtimeTabId ?? activeTabId;
+	const key = skills.find(skill => skill.toolCallId)?.toolCallId;
+	return (
+		<BoardRow
+			data={{ "data-board-session": "skills" }}
+			label={rowWords(t, { kind: "skills", skills })}
+			lead={<KindMark icon={BookOpen} tone="muted" />}
+			onClick={tabId && key ? () => requestRevealStep({ tabId, key }) : undefined}
+			title={skills.map(skill => (skill.agentName ? `${skill.name} (${skill.agentName})` : skill.name)).join("\n")}
+		/>
+	);
+}
+
 function SessionRow({ row }: { row: SessionRowModel }) {
 	switch (row.kind) {
 		case "changes":
@@ -637,6 +641,8 @@ function SessionRow({ row }: { row: SessionRowModel }) {
 			return <PeersRow peers={row.peers} repo={row.repo} shared={row.shared} worktree={row.worktree} />;
 		case "recall":
 			return <RecallRow titles={row.titles} />;
+		case "skills":
+			return <SkillsRow skills={row.skills} />;
 	}
 }
 
@@ -674,7 +680,7 @@ export function quietOutcome(
  * turn left), and a watcher that tells the head and the strip a check failed.
  */
 export function NeedsCheck({ tag }: { tag: RowTag }) {
-	const check = useLastCheck();
+	const check = useLastCheck(useNewestOutcome());
 	return check?.state === "failed" ? <CheckRow check={check} tag={tag} /> : null;
 }
 
@@ -700,7 +706,7 @@ export function SessionSlot({
 /** Says in `useAttentionStore` whether this tab's newest check failed, while the board or its strip is mounted. */
 export function FailedCheckWatch() {
 	const tabId = useBoardTabId();
-	const failed = useLastCheck()?.state === "failed";
+	const failed = useLastCheck(useNewestOutcome())?.state === "failed";
 	useEffect(() => {
 		if (!tabId) return;
 		useAttentionStore.getState().setCheckFailed(tabId, failed);

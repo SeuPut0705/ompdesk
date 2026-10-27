@@ -3,6 +3,7 @@ import { act, useState } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
+import { useSessionStore } from "../../stores/session";
 import { type ToolEntry, toolEntriesState, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 
@@ -214,5 +215,71 @@ describe("work card chips", () => {
 		expect(text).toContain("Cause: src/a.ts(1,1): error TS2322: nope");
 		expect(text).toContain("Changed files (1)\n- src/a.ts +2 -1");
 		expect(text).toContain("Checks\n- ✕ type check failed");
+	});
+});
+
+describe("what the run leaned on", () => {
+	const read = (path: string, at: number): ToolEntry => ({
+		toolName: "read",
+		args: { path },
+		status: "done",
+		streamingArgs: "",
+		result: { content: [{ type: "text", text: "# skill" }] },
+		isError: false,
+		startTime: at,
+		endTime: at + 100,
+	});
+
+	afterEach(() => useSessionStore.setState({ cwd: "", checkoutPeers: null }));
+
+	it("names the skills it read, and the chip opens the steps at the first read", async () => {
+		Object.assign(HTMLElement.prototype, { scrollIntoView: vi.fn() });
+		await mount([
+			["skill-1", read("skill://how", 0)],
+			["skill-2", read("skill://tdd/SKILL.md", 100)],
+			["edit-1", edit],
+		]);
+		expect(chip("skills")?.textContent).toBe("how+1");
+		expect(chip("skills")?.getAttribute("aria-label")).toBe("Skills used: how, tdd");
+		await click(chip("skills"));
+		await wait(120);
+		const first = container.querySelector('[data-tool-call-id="skill-1"]') as unknown as HTMLElement;
+		expect(first.querySelector("button")?.getAttribute("aria-expanded")).toBe("true");
+	});
+
+	it("says which changed files a live session in the same worktree also changed", async () => {
+		useSessionStore.setState({
+			cwd: "/w",
+			checkoutPeers: {
+				toplevel: "/w",
+				commonDir: "/w/.git",
+				canMessage: true,
+				worktree: [
+					{ id: "t2", title: "Login rename", task: "Rename the login export", files: ["/w/src/a.ts", "/w/b.ts"] },
+					{ id: "t3", title: "Docs", files: ["/w/README.md"] },
+				],
+				repo: [{ id: "t4", title: "Elsewhere", worktree: "/wt/x" }],
+			},
+		});
+		await mount([["edit-1", edit]]);
+		expect(chip("overlap")?.textContent).toBe("Shared1");
+		expect(chip("overlap")?.getAttribute("aria-label")).toBe("1 file another session also changed");
+		expect(chip("overlap")?.getAttribute("title")).toBe("Login rename · Rename the login export: a.ts");
+	});
+
+	it("draws no overlap chip when no peer touched the run's files", async () => {
+		useSessionStore.setState({
+			cwd: "/w",
+			checkoutPeers: {
+				toplevel: "/w",
+				commonDir: "/w/.git",
+				canMessage: true,
+				worktree: [{ id: "t3", title: "Docs", files: ["/w/README.md"] }],
+				repo: [],
+			},
+		});
+		await mount([["edit-1", edit]]);
+		expect(chip("overlap")).toBeNull();
+		expect(chip("skills")).toBeNull();
 	});
 });

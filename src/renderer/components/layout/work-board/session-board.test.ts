@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ToolEntry } from "../../../stores/tools";
 import { type WorkEvidence, workOutcomes } from "../../chat/work/work-view";
+import { peerOverlap } from "./open-peer";
 import { lastCheck } from "./session-board";
 
 function bash(command: string, text: string, exitCode: number, at: number, cwd?: string): ToolEntry {
@@ -131,5 +132,25 @@ describe("lastCheck", () => {
 			result: { content: [{ type: "text", text }], details: {} },
 		};
 		expect(check([["b", lost]], [main("b", lost)])).toMatchObject({ key: "b", state: "failed" });
+	});
+});
+
+describe("peerOverlap", () => {
+	it("matches the run's files, relative or absolute, against same-worktree peers' recent changes only", () => {
+		const peers = {
+			toplevel: "/w",
+			commonDir: "/w/.git",
+			canMessage: true,
+			worktree: [
+				{ id: "a", title: "A", files: ["/w/src/a.ts", "/w/src/z.ts"] },
+				{ id: "b", title: "B", files: ["/w/docs/x.md"] },
+			],
+			repo: [{ id: "c", title: "C", worktree: "/wt/c", files: ["/w/src/a.ts"] }],
+		};
+		expect(peerOverlap(["src/a.ts", "/w/docs/y.md"], peers, "/w")).toEqual([
+			{ peer: peers.worktree[0], files: ["/w/src/a.ts"] },
+		]);
+		expect(peerOverlap([], peers, "/w")).toEqual([]);
+		expect(peerOverlap(["src/a.ts"], null, "/w")).toEqual([]);
 	});
 });

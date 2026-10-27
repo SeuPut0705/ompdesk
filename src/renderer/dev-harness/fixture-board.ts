@@ -114,7 +114,7 @@ export function boardJobs(): RpcJobRow[] {
 	];
 }
 
-/** What `get_checkout_peers` answers under `?board=busy`: two sessions in this worktree, one with a very long title. */
+/** What `get_checkout_peers` answers under `?board=busy`: two sessions in this worktree, one with a very long title; the first also changed the `?card=` run's file. */
 export function boardPeers(): { peers: CheckoutPeers } {
 	return {
 		peers: {
@@ -126,6 +126,12 @@ export function boardPeers(): { peers: CheckoutPeers } {
 					id: "tab-2",
 					title: text("Settings test race", "설정 화면 테스트가 가끔 실패하는 문제"),
 					sessionPath: "-Users-dev-projects-ompdesk/sess-2.jsonl",
+					task: text("Make the settings test wait for its save", "설정 저장을 기다리도록 테스트 고치기"),
+					files: [
+						"/Users/dev/projects/ompdesk/src/workspace.ts",
+						"/Users/dev/projects/ompdesk/src/settings.test.ts",
+					],
+					shared: ["/Users/dev/projects/ompdesk/src/workspace.ts"],
 				},
 				{
 					// A session this computer runs for a paired device: no id here, opened by its file.

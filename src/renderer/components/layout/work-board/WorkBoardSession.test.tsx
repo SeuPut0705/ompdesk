@@ -57,7 +57,7 @@ Reflect.set(window, "omp", {
 // Loaded after the linkedom globals exist: react-dom reads `window`/`document` at import.
 const { createRoot } = await import("react-dom/client");
 const { FailedCheckWatch, NeedsCheck, SessionSlot, quietOutcome } = await import("./WorkBoardSession");
-const { peerOpen } = await import("./session-board");
+const { peerOpen } = await import("./open-peer");
 const { REVEAL_STEP_EVENT } = await import("../../chat/work/reveal-step");
 /** What the quiet head would say (the slot tells the board). */
 const outcome = vi.fn();
@@ -851,5 +851,40 @@ describe("What a quiet board's head says", () => {
 			check: { kind: "test" as const, state: "running" as const, command: "bun test", key: "b1", startedAt: 0 },
 		};
 		expect(quietOutcome(t, [running])).toBeNull();
+	});
+});
+
+describe("Skills used this turn row", () => {
+	const read = (path: string, patch: Partial<ToolEntry> = {}): ToolEntry => ({
+		...bash(""),
+		toolName: "read",
+		args: { path },
+		result: { content: [{ type: "text", text: "# skill" }] },
+		...patch,
+	});
+
+	it("names each skill the turn read once, in order, and shows the first read", async () => {
+		finished(
+			["r1", read("skill://tdd", { startTime: 100 })],
+			["r2", read("skill://poteto-mode/playbooks/bug-fix.md", { startTime: 200 })],
+			["r3", read("skill://tdd:1-40", { startTime: 300 })],
+			["r4", read("src/a.ts", { startTime: 400 })],
+			["r5", read("skill://missing", { startTime: 500, status: "error", isError: true })],
+		);
+		await mount();
+		expect(row("skills")?.textContent).toContain("Skills · tdd · poteto-mode");
+		expect(row("skills")?.textContent).not.toContain("missing");
+		const asked: unknown[] = [];
+		const listen = (event: Event) => asked.push(event instanceof CustomEvent ? event.detail : null);
+		window.addEventListener(REVEAL_STEP_EVENT, listen);
+		await press(row("skills"));
+		window.removeEventListener(REVEAL_STEP_EVENT, listen);
+		expect(asked).toEqual([{ tabId: "t1", key: "r1" }]);
+	});
+
+	it("is absent when the turn read no skill", async () => {
+		finished(["r1", read("src/a.ts")]);
+		await mount();
+		expect(row("skills")).toBeNull();
 	});
 });

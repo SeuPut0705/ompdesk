@@ -188,3 +188,21 @@ describe("work outcome evidence", () => {
 		).toEqual([{ path: "notes.txt", added: 3, removed: 4 }]);
 	});
 });
+
+describe("skills the work read", () => {
+	it("lists each skill once, first read first, the agent's own and its subagents'", () => {
+		const failed = { ...entry("read", { path: "skill://absent" }), isError: true };
+		expect(
+			workOutcomes([
+				{ entry: entry("read", { path: "skill://how" }), toolCallId: "k1" },
+				{ entry: entry("read", { path: "skill://poteto-mode/playbooks/feature.md" }), agentName: "Scout" },
+				{ entry: entry("read", { path: "skill://how:10-40" }), toolCallId: "k3" },
+				entry("read", { path: "docs/skill.md" }),
+				failed,
+			]).skills,
+		).toEqual([
+			{ name: "how", toolCallId: "k1" },
+			{ name: "poteto-mode", agentName: "Scout" },
+		]);
+	});
+});

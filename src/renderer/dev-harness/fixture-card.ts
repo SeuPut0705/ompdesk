@@ -1,4 +1,4 @@
-/** `?card=pass|fail|cmd|one|live` on the harness appends a work card. pass/fail: finished, files, a type check (failing for `fail`), tests, a dev server, a screenshot, two agents. cmd: the checks pass but a push fails. one: a single command. live: the same run still going, its tests running. */
+/** `?card=pass|fail|cmd|one|live` on the harness appends a work card. pass/fail: finished, two skill reads, files, a type check (failing for `fail`), tests, a dev server, a screenshot, two agents. cmd: the checks pass but a push fails. one: a single command. live: the same run still going, its tests running. */
 const SVG =
 	'<svg xmlns="http://www.w3.org/2000/svg" width="720" height="320" viewBox="0 0 720 320"><rect width="720" height="320" fill="#faf9f6"/><rect width="720" height="38" fill="#eceae5"/><text x="48" y="94" font-family="sans-serif" font-size="28" fill="#35332e">Project overview</text><rect x="48" y="158" width="288" height="110" rx="8" fill="#efede7"/><rect x="358" y="158" width="314" height="110" rx="8" fill="#efede7"/></svg>';
 
@@ -61,6 +61,18 @@ export function cardTurnMessages(base: number, variant: CardVariant): Record<str
 	}
 	return [
 		{ role: "user", content: "Add the workspace state and check it.", timestamp: base },
+		...step(
+			"card-skill",
+			"read",
+			{ path: "skill://tdd", intent: "Reading the tdd skill" },
+			{ content: [{ type: "text", text: "# Test-driven development" }] },
+		),
+		...step(
+			"card-skill-2",
+			"read",
+			{ path: "skill://how/SKILL.md", intent: "Reading the how skill" },
+			{ content: [{ type: "text", text: "# How" }] },
+		),
 		...step(
 			"card-types",
 			"bash",

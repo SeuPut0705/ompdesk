@@ -106,6 +106,8 @@ card, the finished card, and the subagent side panel and sheet (which draw throu
   (`devServerUrl` in `lib/panel-auto-open.ts`, the rule the opt-in **Open dev servers in Preview** setting also uses);
   opens the Preview panel on that address.
 - **Open Changes**, as before.
+- **Shared N**: files of this run that a live session in the same worktree also changed lately; opens that session.
+- **Skills** (the first name, "+N"): the skills the run and its subagents read through `skill://`; opens the steps at the first read.
 - **Copy summary**: the head's facts and time, the cause, each changed file with its `+N -M`, each check as the head
   words it, and the preview address, as plain text through the clipboard helper.
 

@@ -6,10 +6,13 @@ import { cx, formatDuration, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { asRecord } from "../../lib/wire-value";
 import { useSessionStore } from "../../stores/session";
+import { useRuntimeTabId } from "../../stores/session-runtime-context";
+import { useTabsStore } from "../../stores/tabs";
 import type { TodoSnapshot } from "../../stores/todo";
 import { callIdOfEntryKey, selectToolEntry, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { CopyButton } from "../common/CopyButton";
+import { openPeer, peerOpen, peerOverlap } from "../layout/work-board/open-peer";
 import { getToolActivity } from "../tools/index";
 import { LiveStepPeek } from "./LiveStepPeek";
 import { LiveTurnMeter, OutputMeter } from "./TurnOutputMeter";
@@ -106,6 +109,11 @@ export function ExecutionGroup({
 	const setPanelTab = useUiStore(state => state.setPanelTab);
 	const goal = useSessionStore(state => (live ? state.goal?.objective : undefined));
 	const cwd = useSessionStore(state => state.cwd);
+	const checkoutPeers = useSessionStore(state => state.checkoutPeers);
+	const tabs = useTabsStore(state => state.tabs);
+	const runtimeTabId = useRuntimeTabId();
+	const activeTabId = useTabsStore(state => state.activeTabId);
+	const device = tabs.find(tab => tab.id === (runtimeTabId ?? activeTabId))?.device;
 	const { tools, messages } = useRunStores();
 	// Primitive selector: encode (running, failed, skipped, interrupted, span, reads, searches)
 	// so unrelated tool events — partial results on cards outside this group — never re-render it.
@@ -517,6 +525,36 @@ export function ExecutionGroup({
 				onSelect: () => setPanelTab("diff"),
 			});
 		}
+		const shared = changed
+			? peerOverlap(
+					outcome.files.map(file => file.path),
+					checkoutPeers,
+					cwd,
+				)
+			: [];
+		const firstShared = shared[0];
+		if (firstShared) {
+			const count = new Set(shared.flatMap(overlap => overlap.files)).size;
+			const target = peerOpen(firstShared.peer, { tabs, device });
+			metrics.push({
+				key: "overlap",
+				finding: "overlap",
+				tone: "neutral",
+				icon: "peers",
+				label: t("chat.work.chip.overlap"),
+				figure: count,
+				sentence: t("chat.work.chip.overlapSentence", { count, plural: count === 1 ? "" : "s" }),
+				title: shared
+					.map(
+						({ peer, files }) =>
+							`${peer.title}${peer.task ? ` · ${peer.task}` : ""}: ${files.map(file => file.slice(file.lastIndexOf("/") + 1)).join(", ")}`,
+					)
+					.join("\n"),
+				onSelect: () => {
+					if (target) void openPeer(target);
+				},
+			});
+		}
 		metrics.push(...checkFacts.filter((_, index) => checks[index]?.passed));
 		if (previewUrl) {
 			metrics.push({
@@ -528,6 +566,24 @@ export function ExecutionGroup({
 				sentence: t("chat.work.chip.previewOpen", { url: previewUrl }),
 				title: t("chat.work.chip.previewOpen", { url: previewUrl }),
 				onSelect: () => openPreview(previewUrl),
+			});
+		}
+		if (outcome.skills.length) {
+			const [first, ...rest] = outcome.skills;
+			const names = outcome.skills.map(skill => skill.name).join(", ");
+			const shownAt = outcome.skills.find(skill => skill.toolCallId);
+			metrics.push({
+				key: "skills",
+				finding: "skills",
+				tone: "neutral",
+				icon: "skill",
+				label: first?.name ?? "",
+				...(rest.length ? { figure: `+${rest.length}` } : {}),
+				sentence: t("chat.work.chip.skills", { names }),
+				title: outcome.skills
+					.map(skill => (skill.agentName ? `${skill.name} (${skill.agentName})` : skill.name))
+					.join("\n"),
+				onSelect: () => show(shownAt?.toolCallId),
 			});
 		}
 	}

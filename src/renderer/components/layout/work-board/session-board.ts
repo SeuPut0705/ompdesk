@@ -209,33 +209,6 @@ export function summarizePeers(peers: CheckoutPeers | null): PeersSummary | null
 	};
 }
 
-/** How a tap on one peer opens it, from where the board's own session runs. */
-export type PeerOpen =
-	| { kind: "switch"; tabId: string }
-	| { kind: "path"; sessionPath: string; device?: string }
-	| null;
-
-/**
- * A peer tab this window holds is switched to; any other with a session file opens by that file on the computer the
- * board's session runs on (`device`: a paired host's peers are that host's files; this computer's file goes through
- * its owner, another window or a paired device's tab). A session hidden from agents (no id, no file) does not open.
- */
-export function peerOpen(
-	peer: CheckoutPeer,
-	here: { tabs: readonly { id: string; sessionPath?: string; device?: string }[]; device?: string },
-): PeerOpen {
-	const held = here.tabs.find(
-		tab =>
-			tab.device === here.device &&
-			// A peer's id is a tab id on the computer that runs it: this window's only when that is this computer.
-			((peer.id !== null && !here.device && tab.id === peer.id) ||
-				(peer.sessionPath !== undefined && tab.sessionPath === peer.sessionPath)),
-	);
-	if (held) return { kind: "switch", tabId: held.id };
-	if (!peer.sessionPath) return null;
-	return { kind: "path", sessionPath: peer.sessionPath, ...(here.device ? { device: here.device } : {}) };
-}
-
 /**
  * The titles of the memory the bridge handed the model for the turn in progress (or the last one): the newest recall
  * message after the last prompt. Empty when that prompt recalled nothing.

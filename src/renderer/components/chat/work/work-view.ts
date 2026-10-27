@@ -223,12 +223,23 @@ export interface WorkMediaOutcome {
 	kind: ChatMediaKind;
 }
 
+/** A skill the work read (`read skill://<name>…`), main agent or subagent; one per name, the first read. */
+export interface WorkSkillOutcome {
+	name: string;
+	agentName?: string;
+	toolCallId?: string;
+}
+
 export interface WorkOutcomes {
 	files: WorkFileOutcome[];
 	commands: WorkCommandOutcome[];
 	images: WorkImageOutcome[];
 	media: WorkMediaOutcome[];
+	skills: WorkSkillOutcome[];
 }
+
+/** `skill://tdd`, `skill://poteto-mode/playbooks/bug-fix.md`, `skill://how:1-40` → the skill's name. */
+const SKILL_URI = /^skill:\/\/([^/:?#\s]+)/;
 
 /**
  * `stoppedAt`: the actual user-stop timestamp, used only for interrupted top-level calls.
@@ -253,6 +264,7 @@ export function workOutcomes(
 	const images: WorkImageOutcome[] = [];
 	const seenImages = new Set<string>();
 	const media = new Map<string, WorkMediaOutcome>();
+	const skills = new Map<string, WorkSkillOutcome>();
 	for (const evidence of [...entries].sort((a, b) => {
 		const left = "entry" in a ? a.entry : a;
 		const right = "entry" in b ? b.entry : b;
@@ -270,6 +282,12 @@ export function workOutcomes(
 			continue;
 		const details = resultDetails(entry.result);
 		if (details?.source === "interrupt_skipped") continue;
+		const skill =
+			entry.toolName === "read" && !entry.isError && typeof entry.args.path === "string"
+				? SKILL_URI.exec(entry.args.path.trim())?.[1]
+				: undefined;
+		if (skill && !skills.has(skill))
+			skills.set(skill, { name: skill, ...(agentName ? { agentName } : {}), ...(toolCallId ? { toolCallId } : {}) });
 		if (!entry.isError) {
 			for (const image of extractResultImages(entry.result)) {
 				if (seenImages.has(image.key)) continue;
@@ -426,5 +444,5 @@ export function workOutcomes(
 			});
 		}
 	}
-	return { files: [...files.values()], commands, images, media: [...media.values()] };
+	return { files: [...files.values()], commands, images, media: [...media.values()], skills: [...skills.values()] };
 }

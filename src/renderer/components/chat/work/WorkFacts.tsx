@@ -1,4 +1,4 @@
-import { Ban, Check, CircleX, FileDiff, Globe, type LucideIcon } from "lucide-react";
+import { Ban, BookOpen, Check, CircleX, FileDiff, Globe, type LucideIcon, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import { cx } from "../../../lib/format";
 
@@ -10,7 +10,7 @@ export interface WorkFact {
 	/** The `data-work-finding` value the tests and captures look for; `error` for every failed fact. */
 	finding: string;
 	tone: WorkFactTone;
-	icon: "files" | "check" | "error" | "preview" | "stopped";
+	icon: "files" | "check" | "error" | "preview" | "stopped" | "skill" | "peers";
 	label: string;
 	figure?: ReactNode;
 	/** A verdict block's cause: the first line of output that says what failed. */
@@ -31,6 +31,8 @@ const ICONS: Record<WorkFact["icon"], LucideIcon> = {
 	error: CircleX,
 	preview: Globe,
 	stopped: Ban,
+	skill: BookOpen,
+	peers: Users,
 };
 
 function FactIcon({ fact }: { fact: WorkFact }) {
@@ -51,7 +53,8 @@ function FactIcon({ fact }: { fact: WorkFact }) {
  * A finished card's facts, each its own action. A failed check or command is a verdict block: its verdict, exit
  * code and cause (two lines at most) in one button that shows the failing step, and, when more than one thing
  * failed, one quiet "+N more failed" line that opens the steps. Files open Changes, a passing check shows its run,
- * the dev server opens Preview.
+ * the dev server opens Preview, the skills read show the first read, files another live session also changed open
+ * that session.
  */
 export function WorkMetrics({ facts }: { facts: readonly WorkFact[] }) {
 	const blocks = facts.filter(fact => fact.tone === "fail");
