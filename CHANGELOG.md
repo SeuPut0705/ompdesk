@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.80.0] - 2026-10-28
+
+DNS가 끊겨 "연결할 수 없음"이 뜨던 작업이 이제 연결을 기다렸다가 스스로 이어가고, 앱 전체가 가벼워지고 빨라졌어요.
+
+### 고친 것
+- **"연결할 수 없음(getaddrinfo ENOTFOUND)"에 아무 대응이 없던 문제.** 인터넷 연결 표시는 살아 있는데 DNS만 죽으면 모든 탭이 빨간 카드로 멈췄어요. 이제 실패한 주소와 바깥 연결을 직접 확인해서, 둘 다 응답이 없으면 "인터넷 연결을 기다리는 중"으로 바뀌고 연결이 돌아오는 즉시 하던 작업을 이어가요. 확인하는 동안에도 빨간 카드나 오류 알림이 먼저 뜨지 않아요. 프록시만 쓰는 네트워크나 잘못 적은 주소는 연결 끊김으로 보지 않아요.
+- **휴대폰·다른 컴퓨터에서 이 Mac의 창 탭을 볼 때.** 연결 대기와 "N초 뒤 다시 시도"가 그대로 보이고, 그 기기에서 누른 취소도 실제로 적용돼요.
+- **휴대폰에서 하위 에이전트 진행이 끊기던 문제.** 이 Mac의 창 하나가 탭을 떠나도 연결된 기기의 하위 에이전트 스트림이 꺼지지 않아요.
+
+### 빨라진 것
+- **메모리.** REA는 처음 쓸 때 시작해요. 세션 하나(omp와 하위 프로세스)의 메모리가 774 MB에서 367 MB로 줄었어요. 대신 세션에서 REA를 처음 부를 때 2–3초 더 걸려요.
+- **세션 시작.** 앱을 켠 뒤 omp가 준비되기까지 2.8초에서 1.9초로 줄었어요(실제 omp, 7회 중앙값). 시작 직후 약 1초씩 멈추던 첫 요청도 없어졌어요.
+- **도구를 많이 쓰는 턴.** 요청마다 전체 대화를 복사하던 필터가 걸러낼 것이 없을 때는 빠져서, 도구 호출 200번짜리 턴이 3.8초에서 2.4초로 줄었어요.
+- **출력 스트리밍.** 명령 출력 한 줄마다 화면 전체의 스타일을 다시 계산하던 원인을 없앴어요. 창 4개가 동시에 출력할 때 화면 CPU가 99%에서 83%로 줄었어요.
+- **원격 연결.** 하위 에이전트 4개가 일할 때 오가는 데이터가 분당 931 KB에서 238 KB로, 약 4분의 1이 됐어요. 이전 버전 기기와도 그대로 연결돼요.
+- **휴대폰 첫 화면.** 사람이 직접 여는 대화상자 16개와 첫 실행 설정을 첫 화면에서 빼서 첫 화면 JavaScript가 165 KB 줄었어요. 대화상자는 첫 여유 시간이나 첫 터치에 미리 불러와서 열 때 기다림이 없어요.
+
+<!-- en -->
+
+Tasks that failed with "Couldn't reach" when DNS went down now wait for the connection and go on by themselves, and the whole app got lighter and faster.
+
+### Fixed
+- **No response to "Couldn't reach … (getaddrinfo ENOTFOUND)".** When DNS died while the computer still read online, every tab stopped on a red card. The app now probes the failed host and the way out; when neither answers the tab shows "Waiting for the internet connection" and continues as soon as it is back, with no red card or error notification first. A proxy-only network or a mistyped URL is not taken for a lost connection.
+- **A phone or another computer viewing this Mac's window tab** shows its connection wait and its "Retrying in …" countdown, and Cancel there takes effect here.
+- **Subagent progress dropping on a paired device.** A window here leaving a tab no longer turns off the device's subagent stream.
+
+### Faster
+- **Memory.** REA starts at first use: one session's omp with its children went from 774 MB to 367 MB. The first REA call in a session takes 2-3 s longer.
+- **Session start.** Launch to omp ready went from 2.8 s to 1.9 s (real omp, median of 7), and the ~1 s stall of a tab's first request right after it starts is gone.
+- **Tool-heavy turns.** The filters that made every request copy the whole conversation step aside when there is nothing to filter: a 200-tool-call turn went from 3.8 s to 2.4 s.
+- **Streaming output.** Each streamed output line no longer restyles the whole window: with four panes streaming, the window's CPU went from 99% to 83% of a core.
+- **Paired link.** Four working subagents now send 238 KB/min instead of 931 KB/min over the link, and older devices still connect.
+- **Phone first screen.** The 16 dialogs only the person opens and the first-run setup left the first screen: 165 KB less JavaScript. They load at the first idle moment or touch, so opening one never waits.
+
 ## [0.79.0] - 2026-10-27
 
 업데이트나 재시작 뒤 하위 에이전트와 세션 상태가 제대로 보이고 이어지며, 작업 상자의 잘못된 빨간 표시가 크게 줄었어요. 같은 폴더 세션들의 협업 보호도 검토에서 찾은 구멍을 한 번에 메웠고, 사이드바 세션 순서도 끌어서 바꿀 수 있어요.
