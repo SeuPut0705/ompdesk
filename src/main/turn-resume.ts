@@ -161,6 +161,19 @@ export function isNetworkError(message: string | undefined): boolean {
 	return message !== undefined && NETWORK_ERROR.test(message);
 }
 
+/** A failed name lookup: the one network failure a reachability probe can tell from a provider's own trouble. */
+const DNS_ERROR = /getaddrinfo|ENOTFOUND|EAI_AGAIN/i;
+/** The host it names: stock's "Couldn't reach <host> (getaddrinfo ENOTFOUND)" or Node's "getaddrinfo ENOTFOUND <host>". */
+const DNS_HOST = /couldn't reach ([a-z0-9.-]+)|(?:ENOTFOUND|EAI_AGAIN) ([a-z0-9.-]+)/i;
+
+/** The host a DNS failure could not resolve; `""` when it names none; `null` when the failure is not a lookup's. */
+export function dnsFailureHost(message: string | undefined): string | null {
+	if (message === undefined || !DNS_ERROR.test(message)) return null;
+	const named = DNS_HOST.exec(message);
+	const host = named?.[1] ?? named?.[2] ?? "";
+	return /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i.test(host) ? host.toLowerCase() : "";
+}
+
 /**
  * Stock's `RETRYABLE_PROVIDER_ERROR_PATTERN` (`extensibility/legacy-pi-ai-shim.ts`, ported from pi-ai
  * `utils/retry.ts`; not exported, and a stock function would need a live session) with its rate-limit
@@ -280,10 +293,10 @@ export interface ResumeDeps {
 	store: Pick<InterruptedTurnStore, "read" | "write">;
 	pool: ResumePool;
 	/**
-	 * Connectivity: `online` is the network, `shouldWait` adds the post-wake window, `verify` probes the way out after a
-	 * network failure the link did not explain (and goes offline when nothing answers).
+	 * Connectivity: `online` is the network, `shouldWait` adds the post-wake window, `verify` probes the way out and the
+	 * host a failed lookup named (and goes offline when neither answers).
 	 */
-	network: { readonly online: boolean; shouldWait(): boolean; verify(): Promise<boolean> };
+	network: { readonly online: boolean; shouldWait(): boolean; verify(host?: string): Promise<boolean> };
 	/** Settings › General › Continue interrupted work after relaunch. */
 	enabled(): boolean;
 	/** A quit is underway: the pool is being torn down and must not rewrite the markers. */
@@ -396,6 +409,8 @@ export class TurnResume {
 	readonly #deps: ResumeDeps;
 	/** Tabs holding a continuation until the connection is back, and what to run then. */
 	readonly #waiting = new Map<string, ResumeAction>();
+	/** Tabs whose DNS failure is being probed (`#verifyNetwork`): shown as waiting until the probe decides. */
+	readonly #probing = new Map<string, { outcome: IpcTabRunOutcome; sessionFile?: string; touched: number }>();
 	/** Launch markers whose turn has not started yet: kept in the file so a second crash still resumes them. */
 	#pending = new Map<string, ResumeMarker>();
 	/** Run outcomes already judged (a Cancel must not re-arm the wait). */
@@ -485,14 +500,16 @@ export class TurnResume {
 		// still ending started during the wait: the user sent a new prompt. It replaces the held
 		// continuation, so the waiting row goes and nothing retries into the live run once online.
 		if (
-			this.#waiting.has(fact.tabId) &&
 			fact.running &&
 			!fact.retry &&
 			!fact.lastRun &&
-			!this.#takenOverRuns.has(fact.tabId)
+			!this.#takenOverRuns.has(fact.tabId) &&
+			(this.#waiting.has(fact.tabId) || this.#probing.has(fact.tabId))
 		) {
 			this.#dropWait(fact.tabId);
 		}
+		// Stop while the probe runs: the row goes now, not when the probe answers.
+		if (fact.stopped && this.#probing.has(fact.tabId)) this.#dropWait(fact.tabId);
 		this.#takeOverRetry(fact);
 		// The outcome is the run's final one (main sets it at the last end event), even while
 		// background work keeps the session unsettled: judging it now puts the wait on screen
@@ -513,29 +530,53 @@ export class TurnResume {
 				this.#hold(fact.tabId, "retry");
 				return;
 			}
-			this.#verifyNetwork(fact.tabId, outcome);
-			return;
+			const host = dnsFailureHost(outcome.errorMessage);
+			if (host !== null) {
+				this.#verifyNetwork(fact, outcome, host);
+				return;
+			}
 		}
 		this.#planRetry(fact, outcome);
 	}
 
 	/**
-	 * A network failure while the link says it is up (a dead DNS or route): when the way out does not answer either,
-	 * the turn waits for the connection like an offline one and continues once the probe answers; otherwise the
-	 * failure was the provider's and the scheduled retry decides.
+	 * A failed name lookup while the link says it is up (a dead DNS or route `net.isOnline()` never sees): when neither
+	 * the failed host nor the default way out answers, the turn waits for the connection like an offline one and
+	 * continues once the probe answers; otherwise the failure is the provider's and the scheduled retry decides. The
+	 * tab shows the wait while the probe runs, so a failure the wait takes over never flashes red or notifies.
 	 */
-	#verifyNetwork(tabId: string, outcome: IpcTabRunOutcome): void {
-		void this.#deps.network.verify().then(reachable => {
+	#verifyNetwork(fact: ResumeFact, outcome: IpcTabRunOutcome, host: string): void {
+		const tabId = fact.tabId;
+		const probe = {
+			outcome,
+			...(fact.sessionFile === undefined ? {} : { sessionFile: fact.sessionFile }),
+			touched: fact.touched ?? 0,
+		};
+		this.#probing.set(tabId, probe);
+		this.#deps.pool.setAwaitingConnection(tabId, true);
+		void this.#deps.network.verify(host || undefined).then(reachable => {
+			// Cancel, a new run or another failure since: whoever ended this probe also cleared its row.
+			if (this.#probing.get(tabId) !== probe) return;
+			this.#probing.delete(tabId);
 			const current = this.#factFor(tabId);
-			// A new run (the user's prompt), Stop, or a closed tab since the failure: nothing to decide any more.
-			if (!current || current.lastRun !== outcome || current.stopped || current.awaitingConnection) return;
-			if (this.#deps.frozen()) return;
-			if (reachable) this.#planRetry(current, outcome);
-			else {
+			// Stop, a closed tab, or another session or branch on the tab since the failure: nothing to continue.
+			const holds =
+				current !== undefined &&
+				!this.#deps.frozen() &&
+				current.lastRun === outcome &&
+				!current.stopped &&
+				current.sessionFile === probe.sessionFile &&
+				(current.touched ?? 0) === probe.touched;
+			if (holds && !reachable) {
 				this.#hold(tabId, "retry");
 				// The marker says `network` now, so a crash during the wait still retries.
 				this.sync();
+				return;
 			}
+			this.#deps.pool.setAwaitingConnection(tabId, false);
+			const after = holds ? this.#factFor(tabId) : undefined;
+			if (after) this.#planRetry(after, outcome);
+			this.sync();
 		});
 	}
 
@@ -837,6 +878,7 @@ export class TurnResume {
 	#dropWait(tabId: string): void {
 		this.#cancels.set(tabId, (this.#cancels.get(tabId) ?? 0) + 1);
 		this.#waiting.delete(tabId);
+		this.#probing.delete(tabId);
 		this.#takenOverRuns.delete(tabId);
 		this.#pending.delete(tabId);
 		this.#ownRetries.delete(tabId);

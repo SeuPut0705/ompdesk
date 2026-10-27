@@ -96,7 +96,7 @@ import { installQuitGuard, quitApproved, quitRisk, requestQuit, setQuitResumes }
 import type { Autopilot } from "./autopilot";
 import { type BridgeConnectResult, BridgeHealth } from "./bridge-health";
 import { CliUpdater, psCommands, registerCliUpdateIpc } from "./cli-tools/updater";
-import { ConnectivityMonitor } from "./connectivity";
+import { answersWithin, ConnectivityMonitor, PROBE_TIMEOUT_MS } from "./connectivity";
 import { setupDeepLinks } from "./deep-link";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import { initDeletedSessions } from "./deleted-sessions";
@@ -1561,12 +1561,12 @@ app.whenReady().then(() => {
 	const connectivity = new ConnectivityMonitor({
 		isOnline: () => net.isOnline(),
 		// Right after a wake the OS can report a link before it carries traffic, and a dead DNS never shows in
-		// `net.isOnline()`: ask the resolver itself, never its cache.
-		probe: () =>
-			net.resolveHost("example.com", { cacheUsage: "disallowed" }).then(
-				() => true,
-				() => false,
-			),
+		// `net.isOnline()`: ask the resolver itself, never its cache, and give up after `PROBE_TIMEOUT_MS`.
+		// OMP_GUI_TEST_UNREACHABLE=1 (unpackaged e2e runs) makes every probe fail without touching the real resolver.
+		probe: host =>
+			!app.isPackaged && process.env.OMP_GUI_TEST_UNREACHABLE === "1"
+				? Promise.resolve(false)
+				: answersWithin(net.resolveHost(host ?? "example.com", { cacheUsage: "disallowed" }), PROBE_TIMEOUT_MS),
 		now: Date.now,
 		schedule: (run, ms) => {
 			const timer = setTimeout(run, ms);
@@ -1611,7 +1611,7 @@ app.whenReady().then(() => {
 				return connectivity.online;
 			},
 			shouldWait: () => connectivity.shouldWait(),
-			verify: () => connectivity.verify(),
+			verify: host => connectivity.verify(host),
 		},
 		enabled: () => prefs.get(RESUME_INTERRUPTED_PREF) !== false,
 		scheduledRetry: {

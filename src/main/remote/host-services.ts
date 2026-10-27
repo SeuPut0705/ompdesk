@@ -1359,7 +1359,9 @@ export class LocalHostServices implements HostServices {
 		tab.conn = null;
 		clearTimeout(tab.graceTimer);
 		tab.graceTimer = setTimeout(() => {
-			if (runBusy(tab.run) || tab.awaitingConnection || tab.views.size > 0) this.#startGrace(tab);
+			// A view's wait is its window tab's, which holds it there: the view has nothing to keep.
+			const waiting = tab.awaitingConnection === true && !tab.viewsWindow;
+			if (runBusy(tab.run) || waiting || tab.views.size > 0) this.#startGrace(tab);
 			else this.#closeTab(this.#key(tab.peerId, tab.rtab));
 		}, this.#graceMs);
 		tab.graceTimer.unref?.();

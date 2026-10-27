@@ -4436,8 +4436,9 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			appendMessage(answer);
 			write({ type: "message_end", message: answer });
 			endTurn([user, answer]);
-		} else if (message === "fixture network error") {
-			// The connection dropped mid-turn: stock auto-retry has given up.
+		} else if (message === "fixture network error" || message === "fixture dns error") {
+			// The connection dropped mid-turn: stock auto-retry has given up. `dns error` is stock's wording for a failed
+			// lookup (pi-ai network-cause.ts), which main probes before it decides (OMP_GUI_TEST_UNREACHABLE).
 			networkFailed = true;
 			const answer: AgentMessage = {
 				role: "assistant",
@@ -4446,7 +4447,10 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				provider: model.provider,
 				model: model.id,
 				stopReason: "error",
-				errorMessage: "fetch failed: getaddrinfo ENOTFOUND api.fixture.invalid",
+				errorMessage:
+					message === "fixture dns error"
+						? "Couldn't reach api.fixture.invalid (getaddrinfo ENOTFOUND). Check the URL, your network, or proxy."
+						: "fetch failed: other side closed",
 			};
 			appendMessage(answer);
 			write({ type: "message_end", message: answer });
