@@ -508,15 +508,15 @@ button.omp-work-board-row[data-board-opened][data-status="waiting"]:hover {
 }
 
 /* The head's meters line: the subscription accounts' gauges (AccountLimit.tsx) and a metered provider's charge
-   (SessionSpendLine.tsx) on one line; the provider's name gives way first, then the tail clips. Each item's details
+   (SessionSpendLine.tsx) side by side; what does not fit goes to the next line whole, never squeezed until its
+   percent and amount are cut ("5H 9", "$0.00" on a narrow board, the user's report 27 Oct 2026). Each item's details
    are its tooltip. */
 .omp-work-board-meters {
 	grid-column: 1 / -1;
 	display: flex;
-	flex-wrap: nowrap;
+	flex-wrap: wrap;
 	align-items: center;
-	gap: var(--sc-space-2);
-	overflow: hidden;
+	gap: var(--sc-space-1) var(--sc-space-2);
 	min-width: 0;
 }
 
@@ -525,7 +525,8 @@ button.omp-work-board-row[data-board-opened][data-status="waiting"]:hover {
 }
 
 .omp-work-board-meters > * {
-	flex: 0 1 auto;
+	flex: 0 0 auto;
+	max-width: 100%;
 }
 
 .omp-work-board-meters:has(.omp-work-board-account) [data-board-spend-name] {
