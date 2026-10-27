@@ -74,6 +74,20 @@ describe.skipIf(!stockRoot)("SessionIndex using real stock storage", () => {
 		expect(await index.kindFor(path.join(dir, "missing.jsonl"))).toBe("agent");
 	});
 
+	it("reads each listed session's header once for the legacy chat flag, again only for another session there", async () => {
+		const { index, dir } = await makeIndex();
+		const file = await writeSession(dir, "chat-one", "chat", false);
+		expect((await index.list("global"))[0]?.kind).toBe("chat");
+		// The same session's header is not read again: a list asked for after every append reads no file heads.
+		const header = { type: "session", version: 3, id: "chat-one", timestamp: new Date().toISOString(), cwd: dir };
+		await fs.writeFile(file, `${JSON.stringify(header)}\n`);
+		expect((await index.list("global"))[0]?.kind).toBe("chat");
+		// Another session at that path is.
+		await fs.writeFile(file, `${JSON.stringify({ ...header, id: "agent-two" })}\n`);
+		const infos = await index.list("global");
+		expect(infos.map(info => [info.id, info.kind])).toEqual([["agent-two", undefined]]);
+	});
+
 	it("classifies errors, cancellation, truncation and unanswered tools like stock", async () => {
 		const { index, dir } = await makeIndex();
 		const cases = [
