@@ -14,6 +14,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import {
 	CHECKOUT_PEERS_SET,
+	CHECKOUT_RETIRE,
 	CHECKOUT_STATUS,
 	type CheckoutPeer,
 	type CheckoutPeers,
@@ -116,28 +117,45 @@ export class CheckoutPeerCoordinator {
 		for (const group of byRepo.values()) {
 			// A claim is a file that is uncommitted, so files are read for every member of a repository with company (a
 			// session in another worktree hears them too, to know a merge will conflict), and git is asked once per worktree.
+			// Git is asked after the claims are read: a file changed after its claim was read carries a newer stamp, so the
+			// retirement below can never drop a change git did not see yet.
 			const company = group.length > 1 ? group : [];
 			const tops = [...new Set(company.map(({ place }) => place.toplevel))];
-			const [statuses, listings] = await Promise.all([
-				Promise.all(company.map(async ({ member }) => [member.key, await this.#statusOf(member)] as const)),
-				Promise.all(
+			const status = new Map(
+				await Promise.all(company.map(async ({ member }) => [member.key, await this.#statusOf(member)] as const)),
+			);
+			const listed = new Map(
+				await Promise.all(
 					tops.map(async top => [top, await this.#deps.gitStatus(top).then(listedPaths, () => null)] as const),
 				),
-			]);
-			const status = new Map(statuses);
-			const listed = new Map(listings);
+			);
 			const claims = new Map<string, Claim[]>();
 			await Promise.all(
-				company.map(async ({ member, place }) =>
+				company.map(async ({ member, place }) => {
+					const known = status.get(member.key) ?? { files: [] };
+					const all = await Promise.all(
+						known.files.map(async (file, index) => ({
+							file,
+							rel: await relativeTo(place.toplevel, file),
+							stamp: known.stamps?.[index],
+						})),
+					);
+					const gitSays = listed.get(place.toplevel) ?? null;
 					claims.set(
 						member.key,
-						await claimsOf(
-							status.get(member.key)?.files ?? [],
-							place.toplevel,
-							listed.get(place.toplevel) ?? null,
-						),
-					),
-				),
+						gitSays ? all.filter(claim => claim.rel !== null && gitSays.has(claim.rel)) : all,
+					);
+					// A claim git no longer lists was committed (or undone): the session stops holding it for good, so a
+					// later change by another session is never taken for this one's.
+					const committed = gitSays
+						? all.flatMap(claim =>
+								claim.rel !== null && !gitSays.has(claim.rel) && claim.stamp !== undefined
+									? [{ file: claim.file, stamp: claim.stamp }]
+									: [],
+							)
+						: [];
+					if (committed.length > 0) await this.#retire(member, committed);
+				}),
 			);
 			for (const { member, place } of group) {
 				live.add(member.key);
@@ -214,6 +232,22 @@ export class CheckoutPeerCoordinator {
 		return answer;
 	}
 
+	/** Tells a member's bridge these claims were committed; its remembered answer forgets them too. */
+	async #retire(member: CheckoutMember, committed: Array<{ file: string; stamp: number }>): Promise<void> {
+		await member.request(CHECKOUT_RETIRE, { files: committed }).catch(() => undefined);
+		const last = this.#statuses.get(member.key);
+		if (!last) return;
+		const gone = new Set(committed.map(claim => `${claim.file}\0${claim.stamp}`));
+		const kept = last.files.flatMap((file, index) =>
+			gone.has(`${file}\0${last.stamps?.[index]}`) ? [] : [{ file, stamp: last.stamps?.[index] }],
+		);
+		this.#statuses.set(member.key, {
+			...last,
+			files: kept.map(claim => claim.file),
+			...(last.stamps ? { stamps: kept.map(claim => claim.stamp ?? 0) } : {}),
+		});
+	}
+
 	/** The ids of the sessions sharing `key`'s checkout or repository, as the last pass found them. */
 	peersOf(key: string): readonly string[] {
 		return this.#peerIds.get(key) ?? [];
@@ -237,6 +271,8 @@ export class CheckoutPeerCoordinator {
 
 interface MemberStatus {
 	files: string[];
+	/** Each file's edit stamp (parallel to `files`); absent from a bridge that predates `checkout_retire`. */
+	stamps?: number[];
 	task?: string;
 }
 
@@ -253,11 +289,21 @@ async function askStatus(member: CheckoutMember): Promise<MemberStatus | null> {
 	const answer = await Promise.race([member.request(CHECKOUT_STATUS, {}).catch(() => null), timeout.promise]);
 	clearTimeout(timer);
 	if (!answer || typeof answer !== "object") return null;
-	const record = answer as { files?: unknown; task?: unknown };
-	const files = Array.isArray(record.files)
-		? record.files.filter((file): file is string => typeof file === "string")
-		: [];
-	return { files, ...(typeof record.task === "string" && record.task ? { task: record.task } : {}) };
+	const record = answer as { files?: unknown; stamps?: unknown; task?: unknown };
+	const raw = Array.isArray(record.files) ? record.files : [];
+	const stamps = Array.isArray(record.stamps) && record.stamps.length === raw.length ? record.stamps : undefined;
+	const kept = raw.flatMap((file, index) =>
+		typeof file === "string"
+			? [{ file, stamp: typeof stamps?.[index] === "number" ? stamps[index] : undefined }]
+			: [],
+	);
+	return {
+		files: kept.map(claim => claim.file),
+		...(stamps && kept.every(claim => claim.stamp !== undefined)
+			? { stamps: kept.map(claim => claim.stamp ?? 0) }
+			: {}),
+		...(typeof record.task === "string" && record.task ? { task: record.task } : {}),
+	};
 }
 
 /** `git status --porcelain=v1 -z --untracked-files=all` of a worktree top level. */
@@ -290,12 +336,6 @@ async function relativeTo(toplevel: string, file: string): Promise<string | null
 	if (direct) return direct;
 	const dir = await fs.realpath(path.dirname(file)).catch(() => null);
 	return dir ? within(path.join(dir, path.basename(file))) : null;
-}
-
-/** The member's changed files that are still uncommitted: all of them when git could not say (`listed` null). */
-async function claimsOf(files: string[], toplevel: string, listed: Set<string> | null): Promise<Claim[]> {
-	const claims = await Promise.all(files.map(async file => ({ file, rel: await relativeTo(toplevel, file) })));
-	return listed ? claims.filter(claim => claim.rel !== null && listed.has(claim.rel)) : claims;
 }
 
 /** The checkout `cwd` is in, both paths in one spelling (macOS /var vs /private/var). */

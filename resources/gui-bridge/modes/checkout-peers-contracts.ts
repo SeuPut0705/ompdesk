@@ -50,6 +50,12 @@ export const CHECKOUT_PEERS_SECTION_ID = "checkout-peers";
 export const CHECKOUT_PEERS_SET = "checkout_peers_set";
 /** Main → bridge: what this session is doing: `{files, task?}`, the files its agents changed lately (absolute, newest first) and its in-progress todo item. */
 export const CHECKOUT_STATUS = "checkout_status";
+/**
+ * Main → bridge: `{files: [{file, stamp}]}`, claims main saw committed (`git status` no longer lists them). The
+ * session drops each whose stamp (`checkout_status`'s `stamps`, parallel to `files`) is unchanged; a file changed
+ * again since keeps its newer claim.
+ */
+export const CHECKOUT_RETIRE = "checkout_retire";
 /** The longest task a peer carries. */
 export const CHECKOUT_TASK_MAX = 120;
 /**

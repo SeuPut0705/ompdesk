@@ -23,9 +23,10 @@ import {
 	CHECKOUT_PEERS_GET,
 	CHECKOUT_PEERS_SECTION_ID,
 	CHECKOUT_PEERS_SET,
+	CHECKOUT_RETIRE,
 	CHECKOUT_STATUS,
 } from "./checkout-peers-contracts";
-import { CheckoutLedger, CheckoutPeersState, checkoutSection, currentTask } from "./checkout-peers-core";
+import { CheckoutLedger, CheckoutPeersState, checkoutSection, currentTask, retiredClaims } from "./checkout-peers-core";
 import { emit } from "./shared";
 
 /** Main's spelling of a path: it resolves top levels with realpath, and a session's cwd may go through a symlink. */
@@ -78,10 +79,16 @@ export const methods = guard("checkoutPeers", {
 		if (state.set(params)) env.emit({ type: CHECKOUT_PEERS_EVENT, peers: state.peers ?? null });
 		return { ok: true };
 	},
-	/** `{}` → `{files, task?}`: the files this session changed, its in-progress todo item. */
+	/** `{}` → `{files, stamps, task?}`: the files this session changed, each one's edit stamp, its in-progress todo item. */
 	[CHECKOUT_STATUS]: async (_params: unknown, env) => {
 		const task = readTask(env.session() as unknown as TaskSession);
-		return { files: [...ledger.files], ...(task ? { task } : {}) };
+		const files = [...ledger.files];
+		return { files, stamps: files.map(file => ledger.stamp(file)), ...(task ? { task } : {}) };
+	},
+	/** `{files: [{file, stamp}]}` → `{ok}`: claims main saw committed; one changed again since stays. */
+	[CHECKOUT_RETIRE]: async (params: unknown) => {
+		ledger.retire(retiredClaims(params));
+		return { ok: true };
 	},
 	/** `{}` → `{peers}`: what the last `checkout_peers` frame carried. */
 	[CHECKOUT_PEERS_GET]: async () => ({ peers: state.peers ?? null }),

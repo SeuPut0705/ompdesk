@@ -11,7 +11,11 @@
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as nodePath from "node:path";
-import { CheckoutLedger, CheckoutPeersState } from "../../resources/gui-bridge/modes/checkout-peers-core";
+import {
+	CheckoutLedger,
+	CheckoutPeersState,
+	retiredClaims,
+} from "../../resources/gui-bridge/modes/checkout-peers-core";
 import type { AgentMessage } from "../../src/shared/rpc-types";
 
 type Params = Record<string, unknown>;
@@ -47,7 +51,15 @@ export function createCheckoutFake(host: Host) {
 			state.set(params);
 			return { ok: true };
 		},
-		checkout_status: () => ({ files: [...ledger.files], ...(task ? { task } : {}) }),
+		checkout_status: () => ({
+			files: [...ledger.files],
+			stamps: ledger.files.map(file => ledger.stamp(file)),
+			...(task ? { task } : {}),
+		}),
+		checkout_retire: params => {
+			ledger.retire(retiredClaims(params));
+			return { ok: true };
+		},
 		"checkout_peers.get": () => ({ peers: state.peers ?? null }),
 	};
 

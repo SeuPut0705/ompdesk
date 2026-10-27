@@ -818,6 +818,8 @@ const URL_PATH = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//;
 export class CheckoutLedger {
 	#files: string[] = [];
 	#told = new Set<string>();
+	#stamps = new Map<string, number>();
+	#seq = 0;
 
 	/** The files this session changed, newest first. */
 	get files(): readonly string[] {
@@ -865,7 +867,45 @@ export class CheckoutLedger {
 		} else this.#told = new Set();
 		const had = new Set(this.#files);
 		const gained = paths.some(path => !had.has(path));
-		if (paths.length > 0) this.#files = rememberFiles(this.#files, paths, CHECKOUT_FILES_MAX);
+		if (paths.length > 0) {
+			this.#files = rememberFiles(this.#files, paths, CHECKOUT_FILES_MAX);
+			for (const path of paths) this.#stamps.set(path, ++this.#seq);
+			for (const path of this.#stamps.keys()) if (!this.#files.includes(path)) this.#stamps.delete(path);
+		}
 		return { notice, gained };
 	}
+
+	/** Each file's stamp: the number of the latest call that changed it, so main can retire exactly what it saw. */
+	stamp(file: string): number {
+		return this.#stamps.get(file) ?? 0;
+	}
+
+	/**
+	 * Main saw these claims committed (`git status` no longer lists them): they stop being this session's. A file
+	 * changed again since (its stamp moved on) stays: that later change is a fresh claim.
+	 */
+	retire(claims: ReadonlyArray<{ file: string; stamp: number }>): void {
+		const gone = new Set(
+			claims.filter(claim => this.#stamps.get(claim.file) === claim.stamp).map(claim => claim.file),
+		);
+		if (gone.size === 0) return;
+		this.#files = this.#files.filter(file => !gone.has(file));
+		for (const file of gone) this.#stamps.delete(file);
+	}
+}
+
+/** `checkout_retire`'s claims; anything malformed is skipped. */
+export function retiredClaims(params: unknown): Array<{ file: string; stamp: number }> {
+	const files = typeof params === "object" && params !== null && "files" in params ? params.files : undefined;
+	if (!Array.isArray(files)) return [];
+	return files.flatMap(item =>
+		typeof item === "object" &&
+		item !== null &&
+		"file" in item &&
+		"stamp" in item &&
+		typeof item.file === "string" &&
+		typeof item.stamp === "number"
+			? [{ file: item.file, stamp: item.stamp }]
+			: [],
+	);
 }

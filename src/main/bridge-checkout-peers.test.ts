@@ -487,6 +487,19 @@ describe("the checkout ledger", () => {
 		expect(ledger.files).toEqual([b]);
 	});
 
+	it("drops a claim main saw committed, but keeps one changed again since", () => {
+		const ledger = new CheckoutLedger();
+		const a = `${REPO}/src/a.ts`;
+		run(ledger, undefined, "edit", { path: "src/a.ts" });
+		run(ledger, undefined, "edit", { path: "src/b.ts" });
+		const seen = [a, b].map(file => ({ file, stamp: ledger.stamp(file) }));
+		run(ledger, undefined, "edit", { path: "src/b.ts" });
+		ledger.retire(seen);
+		expect(ledger.files).toEqual([b]);
+		run(ledger, undefined, "edit", { path: "src/a.ts" });
+		expect(ledger.files).toEqual([a, b]);
+	});
+
 	it("claims every file a command replaces or deletes, and no file one only touches", () => {
 		const ledger = new CheckoutLedger();
 		bash(ledger, undefined, "cp /tmp/x src/new.ts && rm src/old.ts && mv src/m.ts src/n.ts");
