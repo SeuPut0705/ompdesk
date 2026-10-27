@@ -18,13 +18,17 @@
  * - an answer to an ask goes through LocalHostServices, where the first of the device and this
  *   computer's windows wins and the other's card closes as answered elsewhere (`answered:<id>`);
  * - a window that joins gets the asks open now and the session's identity (next microtask, once the
- *   pool's listeners are on);
+ *   pool's listeners are on), and the connection wait or scheduled retry that holds;
+ * - the pool emits the window's tab's connection wait (`awaitingConnection`) and scheduled retry
+ *   (`scheduledRetry`) on the view as they change, and the device's Cancel on either
+ *   (`cancelHostWait`) reaches this computer's resume rules for the window's tab;
  * - leaving (`dispose`) takes only the window's listeners; the device's close, delete or revoke ends
  *   the view (`VIEW_ENDED_EVENT`) before its omp goes.
  */
 import { EventEmitter } from "node:events";
 import type { PromptOrigin, PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origin-contracts";
 import { codedError } from "../../shared/ipc-error-codes";
+import type { IpcScheduledRetry } from "../../shared/ipc-types";
 import type {
 	ExtensionUIRequest,
 	RpcCommand,
@@ -72,14 +76,15 @@ export interface HostedTabPort {
 	answer(frame: object): void;
 	/** The user pressed Stop here: nothing continues this turn after a crash. */
 	stopped(): void;
-	/** The user's Cancel on the tab's "waiting for the connection" row. */
+	/** The user's Cancel on the tab's "waiting for the connection" row, or on its scheduled retry. */
 	cancelWait(): void;
-	/** The asks open now, the session's identity, the connection wait and its run, for a window that just joined. */
+	/** The asks open now, the session's identity, the connection wait, a scheduled retry and its run, for a party that just joined. */
 	snapshot(): {
 		asks: ExtensionUIRequest[];
 		sessionId?: string;
 		title?: string;
 		awaitingConnection?: boolean;
+		scheduledRetry?: IpcScheduledRetry;
 		run: RunReading;
 	};
 	/** The device asks for this subagent stream level; answers the level the tab's omp must hold for every viewer. */
@@ -111,7 +116,7 @@ export class HostedTabView extends EventEmitter implements SidecarLike {
 		this.#client = { command: (command, timeoutMs) => this.#command(command, timeoutMs) };
 		queueMicrotask(() => {
 			if (this.#left) return;
-			const { asks, sessionId, title, awaitingConnection } = port.snapshot();
+			const { asks, sessionId, title, awaitingConnection, scheduledRetry } = port.snapshot();
 			if (sessionId !== undefined || title !== undefined) {
 				const frame: SessionInfoUpdateFrame = { type: "session_info_update" };
 				if (sessionId !== undefined) frame.sessionId = sessionId;
@@ -120,6 +125,7 @@ export class HostedTabView extends EventEmitter implements SidecarLike {
 			}
 			this.emit("openAsks", asks);
 			if (awaitingConnection) this.emit("awaitingConnection", true);
+			if (scheduledRetry) this.emit("scheduledRetry", scheduledRetry);
 		});
 	}
 

@@ -44,7 +44,12 @@ import { PROMPT_ORIGIN_HOST_ID, type PromptOriginEnv } from "../../../resources/
 import { ACCOUNT_ROTATION_MODES } from "../../shared/account-rotation";
 import { type AgentReviewResult, reviewUnmerged } from "../../shared/agent-control";
 import { codedError } from "../../shared/ipc-error-codes";
-import { HOST_UPLOAD_MAX_BYTES, type HostLiveSession, type IpcHostedSession } from "../../shared/ipc-types";
+import {
+	HOST_UPLOAD_MAX_BYTES,
+	type HostLiveSession,
+	type IpcHostedSession,
+	type IpcScheduledRetry,
+} from "../../shared/ipc-types";
 import { ModelSetupRequestSchema } from "../../shared/model-setup";
 import type { OmpUpdateState } from "../../shared/omp-update";
 import { MAX_RPC_COMMAND_TIMEOUT_MS } from "../../shared/rpc-client";
@@ -156,6 +161,7 @@ import {
 	type TabEventMessage,
 	type TabEventName,
 	type TabOpenResult,
+	type TabScheduledRetryArg,
 	type TabSignInArg,
 	type TabStatusArg,
 } from "./app-protocol";
@@ -302,8 +308,10 @@ interface HostTab extends RunTracking {
 	 * re-sends the ones this connection never had, and every one to a relaunched device that adopts the tab.
 	 */
 	hostCalls: Map<string, PendingHostCall>;
-	/** The turn waits for this computer's internet connection (turn-resume.ts). */
+	/** The turn waits for this computer's internet connection (turn-resume.ts; a view's, its window tab's). */
 	awaitingConnection?: boolean;
+	/** A view of a window's tab: the retry this computer scheduled for that tab's failed turn (turn-resume.ts). */
+	scheduledRetry?: IpcScheduledRetry;
 	/** Provider ids of the `login` commands running on this tab (a device's sign-in, even if its link dropped). */
 	signIns?: string[];
 	/** `omp update` landed during a turn: the tab restarts on the new omp when it ends. */
@@ -968,9 +976,13 @@ export class LocalHostServices implements HostServices {
 				return { sessions: this.liveSessions() };
 			case MOBILE_WEB_LINK_METHOD:
 				return { url: this.#deps.mobileWebUrl?.() ?? null };
-			case "tab.cancelWait":
-				this.#resume?.cancelWait(this.#tab(peer, parse(RtabParams, method, params).rtab).resumeId);
+			case "tab.cancelWait": {
+				const tab = this.#tab(peer, parse(RtabParams, method, params).rtab);
+				// A view of a window's tab: the wait and the retry are that tab's, whose id only the pool knows.
+				if (tab.viewsWindow) await tab.sidecar.cancelHostWait?.();
+				else this.#resume?.cancelWait(tab.resumeId);
 				return null;
+			}
 			case "tab.syncImageGeneration":
 				this.#tab(peer, parse(RtabParams, method, params).rtab).sidecar.syncImageGeneration();
 				return null;
@@ -1374,8 +1386,9 @@ export class LocalHostServices implements HostServices {
 			// The asks the device still shows may be gone (the omp restarted or withdrew them meanwhile),
 			// and the omp may have raised others: the whole open list replaces the device's.
 			this.#emit(existing, "openAsks", [...existing.asks.values()]);
-			// The device's waiting row may date from before it lost this computer.
+			// The device's waiting row and retry countdown may date from before it lost this computer.
 			this.#emit(existing, "awaitingConnection", existing.awaitingConnection === true);
+			this.#emit(existing, "scheduledRetry", scheduledRetryArg(existing.scheduledRetry));
 			// The calls the omp still waits on: a relaunched device (it adopts the tab under a new rtab) lost every one
 			// its last process held; the same device back from a lost link lacks only those made while it was away.
 			for (const call of existing.hostCalls.values()) {
@@ -1404,7 +1417,9 @@ export class LocalHostServices implements HostServices {
 			this.#emit(tab, "run", runReading(tab.run));
 			this.#emit(tab, "status", this.#statusArg(tab, view.statusPayload));
 			this.#emit(tab, "signIn", { active: [] } satisfies TabSignInArg);
+			// The window's wait and scheduled retry, if any, follow from the view's snapshot (next microtask).
 			this.#emit(tab, "awaitingConnection", false);
+			this.#emit(tab, "scheduledRetry", null);
 			return { cwd: view.cwd, kind: view.kind, attached: true, viewing: true };
 		}
 		if (!params.cwd) throw codedError("no_workspace", "No workspace");
@@ -1448,6 +1463,7 @@ export class LocalHostServices implements HostServices {
 		// this computer restarted mid-login): a new omp runs none.
 		this.#emit(tab, "signIn", { active: [] } satisfies TabSignInArg);
 		this.#emit(tab, "awaitingConnection", false);
+		this.#emit(tab, "scheduledRetry", null);
 		return { cwd: tab.sidecar.cwd, kind, attached: false };
 	}
 
@@ -1570,6 +1586,15 @@ export class LocalHostServices implements HostServices {
 				for (const ask of asks) tab.asks.set(ask.id, ask);
 				this.#emit(tab, "openAsks", asks);
 			});
+			// The window's tab's connection wait and scheduled retry (the pool's `setAwaitingConnection`/`setScheduledRetry`).
+			sidecar.on("awaitingConnection", (awaiting: boolean) => {
+				tab.awaitingConnection = awaiting;
+				this.#emit(tab, "awaitingConnection", awaiting);
+			});
+			sidecar.on("scheduledRetry", (retry: IpcScheduledRetry | undefined) => {
+				tab.scheduledRetry = retry;
+				this.#emit(tab, "scheduledRetry", scheduledRetryArg(retry));
+			});
 			// The window closed its tab: the device heard `viewEnded` (#wire), and its tab here goes.
 			sidecar.on(VIEW_ENDED_EVENT, () => this.#closeTab(this.#key(tab.peerId, tab.rtab)));
 		}
@@ -1627,8 +1652,10 @@ export class LocalHostServices implements HostServices {
 					});
 					break;
 				case "awaitingConnection":
+				case "scheduledRetry":
 				case "openAsks":
-					// Not the sidecar's: this computer's resume coordinator sets the wait, and `tab.open` sends the asks.
+					// Not the sidecar's: this computer's resume coordinator sets the wait (a view forwards its window tab's,
+					// #createTab), only a view's window tab has a scheduled retry, and `tab.open` sends the asks.
 					break;
 				default:
 					sidecar.on(name, (arg: unknown) => this.#emit(tab, name, arg));
@@ -2210,6 +2237,12 @@ function terminalOwner(deviceId: string, rtab: string): string {
 /** A hosted tab's id for this computer's resume coordinator, beside the local tabs' ids (its first rtab). */
 function resumeId(deviceId: string, rtab: string): string {
 	return `peer:${deviceId}:${rtab}`;
+}
+
+/** A scheduled retry as the device gets it: what is left of the wait, since the two computers share no clock. */
+function scheduledRetryArg(retry: IpcScheduledRetry | undefined): TabScheduledRetryArg {
+	if (!retry) return null;
+	return { remainingMs: Math.max(0, retry.at - Date.now()), attempt: retry.attempt, max: retry.max };
 }
 
 /** Why a tab left in its grace period is worth bringing back to its device (`tabs.kept`); null when it is idle. */

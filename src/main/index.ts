@@ -1648,6 +1648,8 @@ app.whenReady().then(() => {
 		if (sidecar?.cancelHostWait) await sidecar.cancelHostWait();
 		else turnResume.cancelWait(tabId);
 	});
+	// A paired device's Cancel on the wait or scheduled retry of a window's tab it views: this computer's own tab.
+	sidecarPool.onCancelWait = tabId => turnResume.cancelWait(tabId);
 	ipc.handle(IPC_COMMANDS.RESUME_STOP, async (_caller, tabId: unknown) => {
 		if (typeof tabId === "string") await turnResume.stopResumed(tabId);
 	});

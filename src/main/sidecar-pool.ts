@@ -426,6 +426,11 @@ export class SidecarPool {
 	/** Some tab may have started or finished running a turn (keep-awake while working). */
 	onRunningChange: (() => void) | null = null;
 	/**
+	 * A paired device's Cancel on the connection wait or scheduled retry of a window's tab it views (`viewForDevice`):
+	 * this computer's resume rules hold both (index.ts hands it to `TurnResume.cancelWait`).
+	 */
+	onCancelWait: ((tabId: string) => void) | null = null;
+	/**
 	 * `worktree.onStart` (worktree-lifecycle.ts): the gate for a new tab, or null
 	 * when the tab is not a candidate. Installed at startup.
 	 */
@@ -738,7 +743,7 @@ export class SidecarPool {
 			start: () => this.#ensureStarted(entry),
 			answer: frame => this.#answerFromDevice(entry, frame, view),
 			stopped: () => this.noteStopped(entry.tabId),
-			cancelWait: () => {},
+			cancelWait: () => this.onCancelWait?.(entry.tabId),
 			snapshot: () => ({
 				asks: [...this.#requestOwners].flatMap(([id, owner]) => {
 					const body = owner === entry ? this.#requestBodies.get(id) : undefined;
@@ -747,6 +752,7 @@ export class SidecarPool {
 				...(entry.sessionId === undefined ? {} : { sessionId: entry.sessionId }),
 				...(entry.title ? { title: entry.title } : {}),
 				...(entry.awaitingConnection ? { awaitingConnection: true } : {}),
+				...(entry.scheduledRetry ? { scheduledRetry: entry.scheduledRetry } : {}),
 				run: runReading(entry.run),
 			}),
 			subagentLevel: level => {
@@ -1085,6 +1091,10 @@ export class SidecarPool {
 		sidecar.on("sessionSettled", () => settle(true, "session_settled"));
 		// A paired host holds this tab's connection wait (its own connectivity decides, turn-resume.ts): mirror it.
 		sidecar.on("awaitingConnection", (awaiting: boolean) => this.setAwaitingConnection(entry.tabId, awaiting));
+		// And the retry it scheduled for the failed turn of a window's tab this one views (never armed here: turn-resume.ts).
+		sidecar.on("scheduledRetry", (retry: IpcScheduledRetry | undefined) =>
+			this.setScheduledRetry(entry.tabId, retry),
+		);
 		// Agent-end means one run yielded; upstream prompt/session-settled frames
 		// keep background async work represented as running until it is quiet.
 		sidecar.on("events", (events: AgentSessionEvent[]) => {
@@ -2266,6 +2276,8 @@ export class SidecarPool {
 		if (!entry || (entry.awaitingConnection === true) === awaiting) return;
 		entry.awaitingConnection = awaiting;
 		this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+		// The devices viewing the tab show this computer's wait too, and their Cancel comes back (`onCancelWait`).
+		for (const view of entry.deviceViews ?? []) view.emit("awaitingConnection", awaiting);
 	}
 
 	/** Show or clear the tab's calm "continuing where it left off" row (a relaunch's resume). */
@@ -2296,6 +2308,7 @@ export class SidecarPool {
 			delete entry.scheduledRetry;
 		} else entry.scheduledRetry = retry;
 		this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+		for (const view of entry.deviceViews ?? []) view.emit("scheduledRetry", entry.scheduledRetry);
 	}
 
 	/** Spawn a deferred tab's process now (a background tab a relaunch must resume); the sidecar, or null for an unknown tab. */

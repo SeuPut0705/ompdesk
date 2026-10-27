@@ -104,11 +104,12 @@ import type { SidebarProjectsRequest, SidebarProjectsState } from "../../shared/
 
 /**
  * Events a host sends for a remote tab: the SidecarManager events it forwards (everything else
- * stays on the host), plus two the host derives, both re-sent on every `tab.open` of a tab it
+ * stays on the host), plus the ones the host derives, re-sent on every `tab.open` of a tab it
  * still holds: `awaitingConnection` (boolean): the host holds the tab's turn until its own
- * internet connection is back (turn-resume.ts); `openAsks` (TabOpenAsksArg): every ask and
- * approval the tab's omp still waits on, the whole list, so the device replaces its own;
- * `signIn` (TabSignInArg): the provider sign-ins the tab is running.
+ * internet connection is back (turn-resume.ts; for a tab that views a window, that window's tab's
+ * wait); `scheduledRetry` (below); `openAsks` (TabOpenAsksArg): every ask and approval the tab's
+ * omp still waits on, the whole list, so the device replaces its own; `signIn` (TabSignInArg): the
+ * provider sign-ins the tab is running.
  */
 export const TAB_EVENT_NAMES = [
 	"status",
@@ -143,6 +144,9 @@ export const TAB_EVENT_NAMES = [
 	// The review list of the window's session the tab views (AgentReviewResult): the sessions its agent opened are the
 	// host's tabs, which the device's work board lists from this. An older device drops the name.
 	"agentReview",
+	// The retry this computer scheduled for the turn of the window's tab the device views (TabScheduledRetryArg, null when
+	// none), sent as it changes and on every `tab.open`. An older device drops the name; an older host never sends it.
+	"scheduledRetry",
 ] as const;
 
 export type TabEventName = (typeof TAB_EVENT_NAMES)[number];
@@ -465,6 +469,20 @@ export const TabSignInArg = z.object({
 	ended: z.object({ providerId: z.string(), error: z.string().nullable() }).optional(),
 });
 export type TabSignInArg = z.infer<typeof TabSignInArg>;
+
+/**
+ * `scheduledRetry` event argument: the retry the host's TurnResume armed for a failed turn of the window's tab a device
+ * views, or null when none holds. Time left, not the host's clock (no clock between the two computers is shared): the
+ * device puts it on its own (`at` = its now + `remainingMs`).
+ */
+export const TabScheduledRetryArg = z
+	.object({
+		remainingMs: z.number().nonnegative(),
+		attempt: z.number().int().positive(),
+		max: z.number().int().positive(),
+	})
+	.nullable();
+export type TabScheduledRetryArg = z.infer<typeof TabScheduledRetryArg>;
 
 export const TabOpenResult = z.object({
 	/** Canonical cwd on the host. */

@@ -30,7 +30,7 @@
  */
 import { EventEmitter } from "node:events";
 import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
-import type { RemoteLinkState } from "../../shared/ipc-types";
+import type { IpcScheduledRetry, RemoteLinkState } from "../../shared/ipc-types";
 import type { RpcCommand, RpcResponse, SidecarStatus, SidecarStatusPayload } from "../../shared/rpc-types";
 import type { BridgeConnectResult } from "../bridge-health";
 import type { RpcClient } from "../rpc-client";
@@ -43,6 +43,7 @@ import {
 	TabOpenAsksArg,
 	TabOpenResult,
 	TabRunArg,
+	TabScheduledRetryArg,
 	TabSessionArg,
 	TabSignInArg,
 	TabStatusArg,
@@ -284,7 +285,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 		this.#queueReply(frame);
 	}
 
-	/** The host holds this tab's connection wait: the user's Cancel goes there. */
+	/** The host holds this tab's connection wait and its scheduled retry: the user's Cancel on either goes there. */
 	async cancelHostWait(): Promise<void> {
 		if (this.#link.state !== "online") throw codedError("remote_offline", OFFLINE_TEXT);
 		try {
@@ -369,6 +370,23 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 			case "awaitingConnection":
 				if (typeof message.arg === "boolean") this.emit("awaitingConnection", message.arg);
 				return;
+			// The host's retry of the failed turn of the window's tab this one views: put on this computer's clock.
+			case "scheduledRetry": {
+				const parsed = TabScheduledRetryArg.safeParse(message.arg);
+				if (!parsed.success) return;
+				const retry = parsed.data;
+				this.emit(
+					"scheduledRetry",
+					retry === null
+						? undefined
+						: ({
+								at: Date.now() + retry.remainingMs,
+								attempt: retry.attempt,
+								max: retry.max,
+							} satisfies IpcScheduledRetry),
+				);
+				return;
+			}
 			case "openAsks": {
 				const parsed = TabOpenAsksArg.safeParse(message.arg);
 				if (parsed.success) this.emit("openAsks", parsed.data);

@@ -20,7 +20,9 @@ export const VIEW_ENDED_EVENT = "viewEnded";
  * the local SidecarManager, a RemoteSidecar whose omp runs on a paired host, or a HostedTabView of the omp
  * this computer runs for a paired device.
  * Events are SidecarManager's (see FRAME_EVENTS in sidecar.ts), re-emitted verbatim by remote ones, which
- * add `openAsks` (ExtensionUIRequest[]): every ask the host's omp holds, sent on each re-attach.
+ * add `openAsks` (ExtensionUIRequest[]): every ask the host's omp holds, sent on each re-attach;
+ * `awaitingConnection` (boolean): the host holds the turn for its connection; and `scheduledRetry`
+ * (IpcScheduledRetry | undefined, on this computer's clock): the host's retry of a viewed window tab's failed turn.
  */
 export interface SidecarLike extends Pick<EventEmitter, "on" | "off" | "once" | "removeAllListeners"> {
 	readonly status: SidecarStatus;
@@ -74,8 +76,9 @@ export interface SidecarLike extends Pick<EventEmitter, "on" | "off" | "once" | 
 	/** Local sidecars: resolves once the omp process has exited. Call before dispose(). */
 	whenExited?(): Promise<void>;
 	/**
-	 * Remote sidecars: the user's Cancel on the waiting row. The host holds this tab's connection
-	 * wait (it emits `awaitingConnection`); rejects `remote_offline` while the host is unreachable.
+	 * Remote sidecars and hosted views: the user's Cancel on the waiting row or on a scheduled retry. The host (or, for a
+	 * device's view of a window's tab, this computer's resume rules) holds that wait; a remote sidecar rejects
+	 * `remote_offline` while the host is unreachable.
 	 */
 	cancelHostWait?(): Promise<void>;
 }
