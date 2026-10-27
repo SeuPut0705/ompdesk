@@ -19,7 +19,9 @@
  *   `auth-tokens/default`, and, unless `--no-service`, a DETACHED server (`__serve`) recorded in
  *   `<HOME>/.fake-ai-memory/server.pid` (the app's `OMP_GUI_AI_MEMORY_UNIT_PIDFILE` seam points at that file: it is the
  *   fake's "service unit"). Waits until `/healthz` answers, like ai-memory's own self-check. With
- *   `FAKE_AI_MEMORY_REFUSE_SERVICE=<file>` present, the service step fails once instead (launchd's error 5).
+ *   `FAKE_AI_MEMORY_REFUSE_SERVICE=<file>` present, the service step fails once instead (launchd's error 5). The
+ *   server ends itself within a second once its data dir is gone or the test worker that installed the fake
+ *   (`FAKE_AI_MEMORY_OWNER_PID`) no longer runs.
  * - `install-hooks --agent omp --apply --config-file F`, `install-mcp --client omp --apply --config-file F`,
  *   `install-skills --target-dir D`: the generated omp extension, the MCP entry file and the skills, each written ONLY
  *   at the path it was given.
@@ -505,6 +507,13 @@ function serve(): void {
 	const bind = /^\s*bind\s*=\s*"([^"]+)"/m.exec(readFileSync(join(dir, "config.toml"), "utf8"))?.[1] ?? "";
 	const token = readFileSync(join(dir, "auth-tokens", "default"), "utf8").trim();
 	const [hostname, port] = [bind.slice(0, bind.lastIndexOf(":")), Number(bind.slice(bind.lastIndexOf(":") + 1))];
+	// A real service outlives the app, so this one is detached. It must not outlive its test: the test deletes the data
+	// dir at teardown, and a worker killed before teardown leaves only its pid to go by. Without this, 49 servers
+	// outlived a week of e2e runs.
+	const owner = Number(process.env.FAKE_AI_MEMORY_OWNER_PID);
+	setInterval(() => {
+		if (!existsSync(dir) || (owner > 0 && !alive(owner))) process.exit(0);
+	}, 1000);
 	const json = (body: unknown, status = 200) => Response.json(body, { status });
 	const logRequest = (entry: Record<string, unknown>) => {
 		if (logFile) appendFileSync(`${logFile}.requests`, `${JSON.stringify(entry)}\n`);

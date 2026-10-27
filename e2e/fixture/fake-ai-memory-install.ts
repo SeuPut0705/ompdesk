@@ -73,6 +73,8 @@ export async function fixtureAiMemory(dir: string): Promise<FixtureAiMemory> {
 	const fixture = pathToFileURL(resolve("e2e/fixture/fake-ai-memory.ts")).href;
 	const source = [
 		`process.env.FAKE_AI_MEMORY_LOG ??= ${JSON.stringify(logPath)};`,
+		// The worker installing the fake: its detached server ends once this process is gone (fake-ai-memory.ts).
+		`process.env.FAKE_AI_MEMORY_OWNER_PID ??= ${JSON.stringify(String(process.pid))};`,
 		`await import(${JSON.stringify(fixture)});`,
 		"",
 	].join("\n");
