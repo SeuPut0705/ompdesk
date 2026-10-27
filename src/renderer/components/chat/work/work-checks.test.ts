@@ -364,6 +364,22 @@ describe("settleFailures", () => {
 		expect(unresolvedFailures([bash("grep -q x missing.txt", 2)])).toHaveLength(1);
 	});
 
+	// 27 Oct 2026: a subagent's lookups ended in `ls node_modules/@oh-my-pi` (no such folder in that checkout), GNU ls
+	// answered 2, and the card closed red with "ls failed" when the person's next instruction sealed it.
+	it.each([
+		["ls node_modules/@oh-my-pi", 2],
+		["ls node_modules/@oh-my-pi", 1],
+		["ls -la dist", 2],
+		['grep -n "x" a.ts | head -50; cd ../..; ls node_modules/@oh-my-pi', 2],
+	])("never counts a listing of a missing path as a failure: %s (exit %i)", (command, exit) => {
+		expect(settleFailures([bash(command, exit)])).toEqual({ unresolved: [], recovered: [] });
+	});
+
+	it("keeps a listing's exit past 2, and one piped on, a failure", () => {
+		expect(unresolvedFailures([bash("ls dist", 3)])).toHaveLength(1);
+		expect(unresolvedFailures([bash("ls dist | xargs rm", 2)])).toHaveLength(1);
+	});
+
 	it("skips inert calls and calls without an outcome", () => {
 		const read: OperationCall = { toolName: "read", args: { path: "a.ts" }, outcome: "failed", inert: true };
 		const cut: OperationCall = { toolName: "bash", args: { command: "bun run build" } };
