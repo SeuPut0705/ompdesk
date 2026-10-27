@@ -3366,4 +3366,26 @@ describe("SidecarPool device views (a paired device viewing a tab of a window he
 		expect(ended).toHaveBeenCalledTimes(1);
 		expect(sidecar.disposed).toBe(true);
 	});
+
+	// 27 Oct 2026, the owner: a main session's subagents must show at once on the paired device. A device asks the
+	// tab's omp for subagent progress through its view; a window here that leaves recomputed the level from the
+	// windows alone and could turn the stream off under the device, which then saw no new subagent until it reloaded.
+	it("keeps the device's subagent stream when a window here that viewed the tab leaves", async () => {
+		const { pool, sidecar, view } = viewed();
+		const phone = fakeWindow(2);
+		expect(pool.attachViewer(phone.win, "tab-a")).toBe(true);
+		await view.rpcClient?.command({ type: "set_subagent_subscription", level: "progress" });
+		expect(pool.noteSubagentLevel("tab-a", 2, "events")).toBe("events");
+		pool.detachViewer(phone.win, "tab-a");
+		expect(sidecar.rpcCommands.filter(command => command.type === "set_subagent_subscription").at(-1)).toEqual({
+			type: "set_subagent_subscription",
+			level: "progress",
+		});
+		// The device leaving lets the level fall to what the windows here still ask.
+		view.dispose();
+		expect(sidecar.rpcCommands.filter(command => command.type === "set_subagent_subscription").at(-1)).toEqual({
+			type: "set_subagent_subscription",
+			level: "off",
+		});
+	});
 });
