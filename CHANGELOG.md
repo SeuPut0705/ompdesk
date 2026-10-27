@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.78.2] - 2026-10-27
+
+아직 실행 중인 명령이 파일을 쓰기 전에 앱이 "변경 없음"으로 보고 그 세션의 작업 기록을 지워 버리는 틈을 막았어요.
+
+### 고친 것
+- `sleep 8; echo 변경 > 파일`처럼 시간이 걸리는 명령은 끝나기 전까지 git에 변경이 보이지 않아요. 0.78.1에서는 그 사이 확인이 돌면 이 파일을 "커밋돼서 깨끗하다"고 보고 기록에서 뺐고, 명령이 끝나 파일이 바뀐 뒤에도 다시 잡지 않았어요. 그러면 다른 세션이 그 파일을 덮어써도 막지 못했어요. 이제 명령이 끝날 때까지 그 파일은 기록에서 빠지지 않고, 끝나면 앱이 바로 다시 확인해요. 설치된 omp로 실제 명령을 돌리며 확인했어요.
+
+<!-- en -->
+
+A command still running can no longer have its file dropped from the session's claims before it writes it.
+
+### Fixes
+- A slow command such as `sleep 8; echo changed > file` shows no change in git until it ends. In 0.78.1 a pass taken meanwhile saw the file clean, took it as committed and dropped the claim, and never took it back after the write landed, so another session could overwrite it unrefused. A file a running call writes now stays claimed until the call reports back, and the app checks again at once when it does. Checked with a real command on the installed omp.
+
 ## [0.78.1] - 2026-10-27
 
 커밋한 파일을 다른 세션이 나중에 고쳐도, 그 파일이 이전 세션의 작업으로 되살아나 막히는 일이 없어졌어요.
