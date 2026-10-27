@@ -22,7 +22,7 @@ import { useActiveTabKind, useTabsStore } from "../../../stores/tabs";
 import { useUiStore } from "../../../stores/ui";
 import { Banner, Button } from "../../common";
 import { AskDockSlot, BelowEditorDockSlot } from "../../dialogs/ask-dock";
-import { useFirstRunActive } from "../../onboarding/FirstRunSetup";
+import { useFirstRunActive } from "../../onboarding/FirstRunSlot";
 import { CompletionList, CompletionStatus } from "./CompletionList";
 import { ComposerAttachments } from "./ComposerAttachments";
 import { ComposerExpandedHeader, useExternalEditor } from "./ComposerExpandedHeader";

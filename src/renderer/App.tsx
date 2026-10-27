@@ -1,31 +1,15 @@
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { type ComponentType, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { MenuAction, MenuActionPayload, RunProgressState } from "../shared/ipc-types";
 import { nextUiLanguage } from "../shared/ui-language";
 import { ToastStack } from "./components/common";
-import { ActiveToolsDialog } from "./components/dialogs/ActiveToolsDialog";
-import { BranchPickerDialog } from "./components/dialogs/BranchPickerDialog";
 import { BtwDialog } from "./components/dialogs/BtwDialog";
 import { ChangelogDialog, WhatsNewNotice } from "./components/dialogs/ChangelogDialog";
-import { CommandPalette } from "./components/dialogs/CommandPalette";
-import { CopySelectorDialog } from "./components/dialogs/CopySelectorDialog";
 import { ExtensionDialog } from "./components/dialogs/ExtensionDialog";
-import { ForceToolDialog } from "./components/dialogs/ForceToolDialog";
-import { HandoffDialog } from "./components/dialogs/HandoffDialog";
-import { LiveVoiceDialog } from "./components/dialogs/LiveVoiceDialog";
-import { ModelPicker } from "./components/dialogs/ModelPicker";
 import { ModelRestoreDialog } from "./components/dialogs/ModelRestoreDialog";
 import { PlanApprovalDialog } from "./components/dialogs/PlanApprovalDialog";
-import { QuickOpenDialog } from "./components/dialogs/QuickOpenDialog";
-import { RenameSessionDialog } from "./components/dialogs/RenameSessionDialog";
-import { SessionPickerDialog } from "./components/dialogs/SessionPickerDialog";
-import { SessionSwitchDialog } from "./components/dialogs/SessionSwitchDialog";
-import { ShareSessionDialog } from "./components/dialogs/ShareSessionDialog";
-import { TabOverviewDialog } from "./components/dialogs/TabOverviewDialog";
 import { TabSwitcher, useTabSwitcherStore } from "./components/dialogs/TabSwitcher";
 import { WebDeviceNotice } from "./components/dialogs/WebDeviceNotice";
 import { WebPairingDialog } from "./components/dialogs/WebPairingDialog";
-import { WorktreeCloseDialog } from "./components/dialogs/WorktreeCloseDialog";
-import { WorktreeDialog } from "./components/dialogs/WorktreeDialog";
 import { WorktreeLifecycleDialog } from "./components/dialogs/WorktreeLifecycleDialog";
 import { AppShell } from "./components/layout/AppShell";
 import { DesktopSlotIndicator } from "./components/layout/DesktopSlotIndicator";
@@ -49,8 +33,9 @@ import { useWorkspaceRecency } from "./hooks/use-workspace-recency";
 import { startAgentAppEvents } from "./lib/agent-app";
 import { sessionWorking } from "./lib/attention";
 import { subscribeBridgeHealth } from "./lib/bridge-health";
-import { lazyChunk } from "./lib/chunk-load";
+import { lazyChunk, loadChunk } from "./lib/chunk-load";
 import { restartSidecarFromGui, retryFailedTurn, runSessionCommand } from "./lib/command-registry";
+import { loadDeferredChunk } from "./lib/deferred-chunk";
 import { hydrateDisplayPreferences, readDisplayPreference, setDisplayPreference } from "./lib/display-preferences";
 import { exportSessionHtml } from "./lib/export-session";
 import { useLang, useT } from "./lib/i18n";
@@ -258,6 +243,34 @@ export function App() {
 	if (debugOpen && !debugMounted) setDebugMounted(true);
 	const modelSetupOpen = useUiStore(s => s.modelSetupOpen);
 	const importDialogOpen = useUiStore(s => s.importDialogOpen);
+	// The dialogs only the person opens (OnDemandDialogs.tsx), rendered from their loaded module, never through lazy()
+	// and its Suspense throttle: loaded at once on the desktop; on a paired web page in the first idle moment after its
+	// first render, or at the person's first touch or key if that comes sooner. A failed load closes what it would have
+	// shown and is tried again at the next touch or key (lib/deferred-chunk.ts).
+	const [OnDemandDialogs, setOnDemandDialogs] = useState<ComponentType | null>(null);
+	const onDemandLoaded = useRef(false);
+	useEffect(
+		() =>
+			loadDeferredChunk({
+				load: () => loadChunk(() => import("./components/dialogs/OnDemandDialogs")),
+				onLoaded: module => {
+					onDemandLoaded.current = true;
+					setOnDemandDialogs(() => module.OnDemandDialogs);
+				},
+				// What it would have shown closes, so nothing waits on a dialog that is not there (Esc, the chords).
+				onFailed: () =>
+					useUiStore.setState({
+						commandPaletteOpen: false,
+						modelPickerOpen: false,
+						sessionPickerOpen: false,
+						branchPickerOpen: false,
+						quickOpenOpen: false,
+						tabOverviewOpen: false,
+					}),
+				start: document.documentElement.dataset.platform === "web" ? "idle" : "now",
+			}),
+		[],
+	);
 	const activeTabId = useTabsStore(s => s.activeTabId);
 	const split = useTabsStore(s => s.split);
 	const activeTabStatus = useTabsStore(s => s.tabs.find(tab => tab.id === s.activeTabId)?.status);
@@ -637,17 +650,18 @@ export function App() {
 			// The setup screen takes every chord.
 			if (useMachineSetupStore.getState().takeover) return;
 			const ui = useUiStore.getState();
+			// The on-demand dialogs block nothing until their module loaded: one opened while it loads (or after it
+			// failed) shows nothing, and Esc-to-stop and the chords must not wait on it.
+			const onDemandOpen =
+				onDemandLoaded.current &&
+				(ui.commandPaletteOpen ||
+					ui.modelPickerOpen ||
+					ui.sessionPickerOpen ||
+					ui.branchPickerOpen ||
+					ui.quickOpenOpen ||
+					ui.tabOverviewOpen);
 			const overlayOpen =
-				ui.commandPaletteOpen ||
-				ui.modelPickerOpen ||
-				ui.destination !== "session" ||
-				ui.benchmarkOpen ||
-				ui.modelSetupOpen ||
-				ui.sessionPickerOpen ||
-				ui.branchPickerOpen ||
-				ui.quickOpenOpen ||
-				ui.tabSwitcherOpen ||
-				ui.tabOverviewOpen;
+				onDemandOpen || ui.destination !== "session" || ui.benchmarkOpen || ui.modelSetupOpen || ui.tabSwitcherOpen;
 			if (event.key === "Escape") {
 				// Don't abort when an overlay/dropdown already consumed this Escape to
 				// dismiss itself (its handler ran first + preventDefault). With a draft in the
@@ -902,7 +916,6 @@ export function App() {
 				<HostAppearanceEffects />
 				<AppShell />
 
-				<CommandPalette />
 				{visibleTabIds({ activeTabId, split }).map(tabId => (
 					<TabRuntimeProvider key={tabId} tabId={tabId}>
 						<ExtensionDialog />
@@ -910,33 +923,19 @@ export function App() {
 					</TabRuntimeProvider>
 				))}
 				<FirstRunGate />
-				<ModelPicker />
-				<RenameSessionDialog />
-				<WorktreeDialog />
-				<WorktreeCloseDialog />
+				{OnDemandDialogs ? <OnDemandDialogs /> : null}
 				<WorktreeLifecycleDialog />
-				<SessionPickerDialog />
-				<QuickOpenDialog />
 				<TabSwitcher />
-				<TabOverviewDialog />
-				<SessionSwitchDialog />
 				<ModelRestoreDialog />
-				<BranchPickerDialog />
 				<BtwDialog />
 				{debugMounted ? (
 					<Suspense fallback={null}>
 						<DebugConsoleDialog />
 					</Suspense>
 				) : null}
-				<LiveVoiceDialog />
-				<CopySelectorDialog />
-				<ActiveToolsDialog />
-				<ShareSessionDialog />
 				<ChangelogDialog />
 				<WhatsNewNotice />
 				<StarterTour />
-				<ForceToolDialog />
-				<HandoffDialog />
 				<RemoteFolderPickerHost />
 				<WebPairingDialog />
 				<WebDeviceNotice />

@@ -37,7 +37,7 @@ import { type TodoSnapshot, useTodoStore } from "../../stores/todo";
 import { type ToolEntry, toolEntryKey, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { BrandMark, Button, JumpToLatest, Kbd, Skeleton, Spinner } from "../common";
-import { FirstRunSetup, useFirstRunActive } from "../onboarding/FirstRunSetup";
+import { FirstRunSetupSlot, useFirstRunActive } from "../onboarding/FirstRunSlot";
 import { ReadGroupCard } from "../tools/renderers/ReadGroupCard";
 import { ToolCard } from "../tools/ToolCard";
 import { ConversationNavigator } from "./ConversationNavigator";
@@ -1029,7 +1029,7 @@ function SessionTranscript() {
 					rows.length === 0 &&
 					!isStreaming &&
 					!switchPending &&
-					firstRunActive && <FirstRunSetup />}
+					firstRunActive && <FirstRunSetupSlot />}
 				{(status !== "starting" || (!knownSession && !firstRunOpen)) &&
 					rows.length === 0 &&
 					!isStreaming &&

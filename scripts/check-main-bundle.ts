@@ -108,7 +108,17 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // The card's verdicts on real journals (background jobs keyed by the call that opened them, mixed and setup-led checks,
 // stops and restarts), revived subagents' resuming lane, a remote host's working rows under asleep tabs and session
 // drag reordering in the sidebar (27 Oct 2026, one batch): 11,595 bytes more (measured 3,360,884).
-const WEB_FIRST_SCREEN_JS_BYTES = 3_360_900;
+// The dialogs only the person opens (OnDemandDialogs.tsx: the command palette, model and session pickers, rename,
+// worktree, quick open, tab overview, branch picker, voice, copy, active tools, share, force tool, handoff) and the
+// first-run setup's provider steps (FirstRunSlot.tsx) left the first screen (28 Oct 2026): 165,380 bytes less
+// (measured 3,195,504 against 3,360,884 on the same main).
+// Streaming restyle (28 Oct 2026): the shell, the session pane and the side panel's sheet carry marks the stylesheet
+// reads instead of `:has()` (AppShell `data-panel`, WorkBoardChip `data-work-board-strip`, Sheet `data-sheet-kind`)
+// and `checkKinds` answers a command once: 554 bytes more (measured 3,361,438 against 3,360,884 on the same main).
+// The on-demand dialogs retry a failed load at the next touch or key and load at the first idle moment
+// (lib/deferred-chunk.ts), and the first-run slot draws a still skeleton while its setup loads (28 Oct 2026): 1,382
+// bytes more (measured 3,197,482).
+const WEB_FIRST_SCREEN_JS_BYTES = 3_197_500;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

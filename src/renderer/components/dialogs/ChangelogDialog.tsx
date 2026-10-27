@@ -27,7 +27,7 @@ import { useSessionStore } from "../../stores/session";
 import { useStarterGuideStore } from "../../stores/starter-guide";
 import { useUiStore } from "../../stores/ui";
 import { Button, Modal } from "../common";
-import { useFirstRunActive } from "../onboarding/FirstRunSetup";
+import { useFirstRunActive } from "../onboarding/FirstRunSlot";
 
 export function ChangelogDialog() {
 	const t = useT();

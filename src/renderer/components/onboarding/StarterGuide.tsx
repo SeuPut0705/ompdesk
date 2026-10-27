@@ -22,7 +22,7 @@ import { useUiStore } from "../../stores/ui";
 import { Button } from "../common";
 import { ProductStar } from "../settings/ProductStar";
 import { canServe, servingProviderIds } from "../settings/providers/provider-catalog";
-import { useFirstRunActive } from "./FirstRunSetup";
+import { useFirstRunActive } from "./FirstRunSlot";
 
 export function StarterGuide({ promptSent, projectOpened }: { promptSent: boolean; projectOpened: boolean }) {
 	const t = useT();

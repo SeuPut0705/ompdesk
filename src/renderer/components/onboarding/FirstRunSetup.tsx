@@ -47,18 +47,6 @@ import {
 	servingProviderIds,
 } from "../settings/providers/provider-catalog";
 import { applyDefaultModel } from "./default-model";
-import { useMachineSetupNeeded } from "./MachineSetupView";
-
-/**
- * True while the first-run setup replaces the empty-session hero: a provider
- * step is open, or this local tab's omp is not usable yet because machine
- * setup is still installing it.
- */
-export function useFirstRunActive(): boolean {
-	const phase = useFirstRunStore(state => state.phase);
-	const installing = useMachineSetupNeeded();
-	return phase !== "idle" || installing;
-}
 
 /** The step's primary action, which ⌘/Ctrl+Enter runs; null while it has none. */
 const PrimaryActionContext = createContext<{ current: (() => void) | null }>({ current: null });
