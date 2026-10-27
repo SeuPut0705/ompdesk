@@ -1276,7 +1276,7 @@ describe("TurnResume connection wait", () => {
 	});
 
 	it("a network failure while the provider's way out answers keeps the scheduled retry (the failure was not the connection)", async () => {
-		h = setup({ online: true });
+		h = setup({ online: true, answers: { get_settings: SETTINGS_ON } });
 		h.resume.launch();
 		h.facts.push(fact({ running: false, lastRun: { ...networkFailure } }));
 		h.resume.sync();

@@ -4,11 +4,12 @@
  * unit-tested: main wires `net.isOnline()`, the renderer's `online`/`offline`
  * events and `powerMonitor` `suspend`/`resume` into it.
  *
- * Two things make a turn wait instead of failing: the network is down, or the
- * computer just woke from sleep. Right after a wake `net.isOnline()` can say yes
- * while the Wi-Fi has not rejoined, so a `resume` holds the state at offline
- * until a probe confirms the way out, and a network-class error in the minutes
- * after it is still treated as the wake's doing.
+ * Three things make a turn wait instead of failing: the network is down, the
+ * computer just woke from sleep, or a turn failed on the network while the link
+ * looked up and a probe found nothing reachable (a dead DNS or route). Right after
+ * a wake `net.isOnline()` can say yes while the Wi-Fi has not rejoined, so a
+ * `resume` holds the state at offline until a probe confirms the way out, and a
+ * network-class error in the minutes after it is still treated as the wake's doing.
  */
 
 /** A network-class error within this long of a wake still counts as caused by it. */
@@ -36,6 +37,7 @@ export class ConnectivityMonitor {
 	#recovering = false;
 	#cancelProbe: (() => void) | null = null;
 	#probing = false;
+	#verifying: Promise<boolean> | null = null;
 
 	constructor(deps: ConnectivityDeps) {
 		this.#deps = deps;
@@ -85,6 +87,36 @@ export class ConnectivityMonitor {
 		this.#recovering = true;
 		this.#set(false);
 		void this.#attempt();
+	}
+
+	/**
+	 * A turn failed on the network while the link says it is up: a dead DNS or route that `net.isOnline()` never
+	 * sees. One probe answers every concurrent ask; unreachable takes the state offline and the probe loop (a wake's)
+	 * brings it back, so the turn waits for the connection and continues instead of failing.
+	 */
+	verify(): Promise<boolean> {
+		if (!this.#online) return Promise.resolve(false);
+		this.#verifying ??= this.#check().finally(() => {
+			this.#verifying = null;
+		});
+		return this.#verifying;
+	}
+
+	async #check(): Promise<boolean> {
+		let reachable = false;
+		try {
+			reachable = this.#deps.isOnline() && (await this.#deps.probe());
+		} catch {
+			reachable = false;
+		}
+		if (!this.#online) return false;
+		if (reachable) return true;
+		if (!this.#recovering) {
+			this.#recovering = true;
+			this.#set(false);
+			if (!this.#probing) this.#cancelProbe = this.#deps.schedule(() => void this.#attempt(), PROBE_INTERVAL_MS);
+		}
+		return false;
 	}
 
 	#set(online: boolean): void {

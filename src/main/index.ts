@@ -1560,9 +1560,10 @@ app.whenReady().then(() => {
 	// SIGKILL, which run no quit hook, still leaves it behind.
 	const connectivity = new ConnectivityMonitor({
 		isOnline: () => net.isOnline(),
-		// Right after a wake the OS can report a link before it carries traffic.
+		// Right after a wake the OS can report a link before it carries traffic, and a dead DNS never shows in
+		// `net.isOnline()`: ask the resolver itself, never its cache.
 		probe: () =>
-			net.resolveHost("example.com").then(
+			net.resolveHost("example.com", { cacheUsage: "disallowed" }).then(
 				() => true,
 				() => false,
 			),
@@ -1610,6 +1611,7 @@ app.whenReady().then(() => {
 				return connectivity.online;
 			},
 			shouldWait: () => connectivity.shouldWait(),
+			verify: () => connectivity.verify(),
 		},
 		enabled: () => prefs.get(RESUME_INTERRUPTED_PREF) !== false,
 		scheduledRetry: {

@@ -279,8 +279,11 @@ export interface ResumePool {
 export interface ResumeDeps {
 	store: Pick<InterruptedTurnStore, "read" | "write">;
 	pool: ResumePool;
-	/** Connectivity: `online` is the network, `shouldWait` adds the post-wake window. */
-	network: { readonly online: boolean; shouldWait(): boolean };
+	/**
+	 * Connectivity: `online` is the network, `shouldWait` adds the post-wake window, `verify` probes the way out after a
+	 * network failure the link did not explain (and goes offline when nothing answers).
+	 */
+	network: { readonly online: boolean; shouldWait(): boolean; verify(): Promise<boolean> };
 	/** Settings › General › Continue interrupted work after relaunch. */
 	enabled(): boolean;
 	/** A quit is underway: the pool is being torn down and must not rewrite the markers. */
@@ -504,12 +507,36 @@ export class TurnResume {
 			this.#attempts.delete(fact.tabId);
 			return;
 		}
-		// Offline (or just after a wake) the connection wait owns a network failure; no second schedule.
-		if (isNetworkError(outcome.errorMessage) && this.#deps.network.shouldWait()) {
-			this.#hold(fact.tabId, "retry");
+		if (isNetworkError(outcome.errorMessage)) {
+			// Offline (or just after a wake) the connection wait owns a network failure; no second schedule.
+			if (this.#deps.network.shouldWait()) {
+				this.#hold(fact.tabId, "retry");
+				return;
+			}
+			this.#verifyNetwork(fact.tabId, outcome);
 			return;
 		}
 		this.#planRetry(fact, outcome);
+	}
+
+	/**
+	 * A network failure while the link says it is up (a dead DNS or route): when the way out does not answer either,
+	 * the turn waits for the connection like an offline one and continues once the probe answers; otherwise the
+	 * failure was the provider's and the scheduled retry decides.
+	 */
+	#verifyNetwork(tabId: string, outcome: IpcTabRunOutcome): void {
+		void this.#deps.network.verify().then(reachable => {
+			const current = this.#factFor(tabId);
+			// A new run (the user's prompt), Stop, or a closed tab since the failure: nothing to decide any more.
+			if (!current || current.lastRun !== outcome || current.stopped || current.awaitingConnection) return;
+			if (this.#deps.frozen()) return;
+			if (reachable) this.#planRetry(current, outcome);
+			else {
+				this.#hold(tabId, "retry");
+				// The marker says `network` now, so a crash during the wait still retries.
+				this.sync();
+			}
+		});
 	}
 
 	/** Whether a scheduled retry may exist for this failure now: every condition but stock `retry.enabled`, which `#stockRetryOn` reads at arm and at fire. */
