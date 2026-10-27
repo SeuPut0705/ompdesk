@@ -263,7 +263,8 @@ interface Harness {
 	commands: RpcCommand[];
 	/** The timeout each command was sent with (`undefined` = the RPC client's 8 s default). */
 	timeouts: Array<[string, number | undefined]>;
-	net: { online: boolean; wake: boolean };
+	/** `reachable`: what a probe of the provider's way out answers while the link says it is up. */
+	net: { online: boolean; wake: boolean; reachable: boolean };
 	state: { enabled: boolean; frozen: boolean; opened: ResumeMarker[] };
 	resume: TurnResume;
 	pool: ResumePool;
@@ -290,6 +291,8 @@ function setup(
 		rank?: Record<string, number>;
 		online?: boolean;
 		waitAfterWake?: boolean;
+		/** The link is up but nothing answers (DNS down): a probe after a network failure takes the network offline. */
+		unreachable?: boolean;
 		answers?: Partial<Record<string, RpcResponse | Error>>;
 		/** The tab's sidecar status when the resume first looks (default ready). */
 		status?: string;
@@ -310,7 +313,11 @@ function setup(
 	const started: string[] = [];
 	const logs: Array<[string, ResumeLogDetails]> = [];
 	const { sidecar, commands, timeouts, setStatus, listeners } = fakeSidecar(options.answers, options.status);
-	const net = { online: options.online ?? true, wake: options.waitAfterWake ?? false };
+	const net = {
+		online: options.online ?? true,
+		wake: options.waitAfterWake ?? false,
+		reachable: !(options.unreachable ?? false),
+	};
 	const state = {
 		enabled: options.enabled ?? true,
 		frozen: false,
@@ -349,6 +356,11 @@ function setup(
 				return net.online;
 			},
 			shouldWait: () => !net.online || net.wake,
+			verify: async () => {
+				if (!net.online) return false;
+				if (!net.reachable) net.online = false;
+				return net.reachable;
+			},
 		},
 		enabled: () => state.enabled,
 		scheduledRetry: {
@@ -1243,6 +1255,45 @@ describe("TurnResume connection wait", () => {
 		h.facts.push(fact({ running: true, lastRun: { ...networkFailure } }));
 		h.resume.sync();
 		expect(h.awaiting).toEqual([["t1", true]]);
+	});
+
+	it("a network failure while the link is up but nothing answers (DNS down) waits for the connection, then continues by itself", async () => {
+		h = setup({ online: true, unreachable: true, answers: { retry: RETRIED } });
+		h.resume.launch();
+		h.facts.push(fact({ running: false, lastRun: { ...networkFailure } }));
+		h.resume.sync();
+		await settle();
+		expect(h.awaiting).toEqual([["t1", true]]);
+		expect(h.retries).toEqual([]);
+		expect(h.store.read().map(entry => entry.reason)).toEqual(["network"]);
+
+		h.net.reachable = true;
+		h.net.online = true;
+		h.resume.connectivityChanged();
+		await settle();
+		expect(h.commands.map(cmd => cmd.type)).toEqual(["retry"]);
+		expect(h.awaiting.at(-1)).toEqual(["t1", false]);
+	});
+
+	it("a network failure while the provider's way out answers keeps the scheduled retry (the failure was not the connection)", async () => {
+		h = setup({ online: true });
+		h.resume.launch();
+		h.facts.push(fact({ running: false, lastRun: { ...networkFailure } }));
+		h.resume.sync();
+		await settle();
+		expect(h.awaiting).toEqual([]);
+		expect(h.retries.map(retry => retry?.attempt)).toEqual([1]);
+	});
+
+	it("a prompt sent while the reachability probe is out wins: no wait is put over the new run", async () => {
+		h = setup({ online: true, unreachable: true });
+		h.resume.launch();
+		h.facts.push(fact({ running: false, lastRun: { ...networkFailure } }));
+		h.resume.sync();
+		h.facts[0] = fact({ running: true });
+		h.resume.sync();
+		await settle();
+		expect(h.awaiting).toEqual([]);
 	});
 });
 

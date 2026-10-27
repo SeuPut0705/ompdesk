@@ -150,4 +150,60 @@ describe("ConnectivityMonitor", () => {
 		expect(monitor.online).toBe(false);
 		expect(timers).toHaveLength(1);
 	});
+
+	it("asked after a network failure while the link is up, an unreachable network goes offline until the probe answers", async () => {
+		const { monitor, state, changes, settle, fireTimer, timers } = harness();
+		state.reachable = false;
+		expect(await monitor.verify()).toBe(false);
+		expect(monitor.online).toBe(false);
+		expect(monitor.shouldWait()).toBe(true);
+		expect(timers.at(-1)?.ms).toBe(PROBE_INTERVAL_MS);
+		// The link reporting itself up again does not end it; only the probe does.
+		monitor.report(true);
+		await settle();
+		await fireTimer();
+		expect(monitor.online).toBe(false);
+
+		state.reachable = true;
+		await fireTimer();
+		expect(monitor.online).toBe(true);
+		expect(monitor.shouldWait()).toBe(false);
+		expect(changes).toEqual([false, true]);
+	});
+
+	it("a reachable network after a network failure stays online with no probe loop, and one probe serves concurrent asks", async () => {
+		const calls = { probes: 0 };
+		const timers: Array<() => void> = [];
+		const changes: boolean[] = [];
+		const answer = Promise.withResolvers<boolean>();
+		const monitor = new ConnectivityMonitor({
+			isOnline: () => true,
+			probe: () => {
+				calls.probes++;
+				return answer.promise;
+			},
+			now: () => 0,
+			schedule: run => {
+				timers.push(run);
+				return () => undefined;
+			},
+			changed: online => changes.push(online),
+		});
+		const asks = [monitor.verify(), monitor.verify(), monitor.verify()];
+		answer.resolve(true);
+		expect(await Promise.all(asks)).toEqual([true, true, true]);
+		expect(calls.probes).toBe(1);
+		expect(monitor.online).toBe(true);
+		expect(timers).toEqual([]);
+		expect(changes).toEqual([]);
+	});
+
+	it("does not probe when it already knows the network is down", async () => {
+		const { monitor, state, timers } = harness();
+		monitor.report(false);
+		state.reachable = true;
+		expect(await monitor.verify()).toBe(false);
+		expect(timers).toEqual([]);
+		expect(monitor.online).toBe(false);
+	});
 });
