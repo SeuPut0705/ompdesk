@@ -301,6 +301,8 @@ export interface OperationCall {
 	endTime?: number;
 	/** A failure the transcript reports on its own (`failedEvents`): nothing resolves it. */
 	reported?: boolean;
+	/** A command's printed output (`CheckInput.text`, kept for failed commands): what says why it exited as it did. */
+	text?: string;
 }
 
 // What a check's own output says when its exit code does not (`vitest … | tail`, `tsc … | head`: the pipe's last

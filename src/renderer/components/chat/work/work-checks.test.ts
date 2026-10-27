@@ -366,18 +366,36 @@ describe("settleFailures", () => {
 
 	// 27 Oct 2026: a subagent's lookups ended in `ls node_modules/@oh-my-pi` (no such folder in that checkout), GNU ls
 	// answered 2, and the card closed red with "ls failed" when the person's next instruction sealed it.
+	const listing = (command: string, exitCode: number, text: string): OperationCall => ({
+		...bash(command, exitCode),
+		text,
+	});
+	const gnuMissing = "ls: cannot access 'node_modules/@oh-my-pi': No such file or directory\n";
 	it.each([
-		["ls node_modules/@oh-my-pi", 2],
-		["ls node_modules/@oh-my-pi", 1],
-		["ls -la dist", 2],
-		['grep -n "x" a.ts | head -50; cd ../..; ls node_modules/@oh-my-pi', 2],
-	])("never counts a listing of a missing path as a failure: %s (exit %i)", (command, exit) => {
-		expect(settleFailures([bash(command, exit)])).toEqual({ unresolved: [], recovered: [] });
+		["ls node_modules/@oh-my-pi", 2, gnuMissing],
+		["ls node_modules/@oh-my-pi", 1, "ls: node_modules/@oh-my-pi: No such file or directory\n"],
+		["ls -la dist src", 2, "ls: cannot access 'dist': No such file or directory\nsrc:\na.ts\n"],
+		['grep -n "x" a.ts | head -50; cd ../..; ls node_modules/@oh-my-pi', 2, `12: x\n${gnuMissing}`],
+	])("never counts a listing of a missing path as a failure: %s (exit %i)", (command, exit, text) => {
+		expect(settleFailures([listing(command, exit, text)])).toEqual({ unresolved: [], recovered: [] });
 	});
 
-	it("keeps a listing's exit past 2, and one piped on, a failure", () => {
-		expect(unresolvedFailures([bash("ls dist", 3)])).toHaveLength(1);
-		expect(unresolvedFailures([bash("ls dist | xargs rm", 2)])).toHaveLength(1);
+	it.each([
+		["a path it may not read", "ls /root", 2, "ls: cannot open directory '/root': Permission denied\n"],
+		["an unknown option", "ls -z", 2, "ls: invalid option -- 'z'\nTry 'ls --help' for more information.\n"],
+		[
+			"one missing path beside one it may not read",
+			"ls gone /root",
+			2,
+			"ls: cannot access 'gone': No such file or directory\nls: cannot open directory '/root': Permission denied\n",
+		],
+		["a redirection that failed", "ls dist > /unwritable/report", 1, "bash: /unwritable/report: Permission denied\n"],
+		["a redirection beside a missing path", "ls gone 2> /tmp/ls.err", 2, gnuMissing],
+		["no output to tell why", "ls dist", 2, ""],
+		["an exit past 2", "ls dist", 3, gnuMissing],
+		["one piped on", "ls dist | xargs rm", 2, gnuMissing],
+	])("keeps a listing that failed for another reason a failure: %s", (_, command, exit, text) => {
+		expect(unresolvedFailures([listing(command, exit, text)])).toHaveLength(1);
 	});
 
 	it("skips inert calls and calls without an outcome", () => {
