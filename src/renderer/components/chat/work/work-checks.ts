@@ -327,23 +327,26 @@ export function commandOperation<T extends CheckInput>(command: T): T & Operatio
 	};
 }
 
-// A whole command that only asks: exit 1 is its answer ("not installed", "no such file", "no match"). Any control or
-// grouping syntax (`;`, `|`, `&&`, a background `&`, a newline, a subshell, a substitution) runs something else whose
-// exit may be the one seen; a redirection's `&` (`2>&1`, `>&2`, `&>`) does not.
+// A whole command that only asks: exit 1 is its answer ("not installed", "no such file", "no match"); a listing's
+// "no such file" is 1 on macOS and 2 on GNU `ls`. Any control or grouping syntax (`;`, `|`, `&&`, a background `&`, a
+// newline, a subshell, a substitution) runs something else whose exit may be the one seen; a redirection's `&`
+// (`2>&1`, `>&2`, `&>`) does not.
 const PROBE = /^(?:command\s+-[vV]|which|type|test|\[|grep|rg)\s/;
+const LISTING = /^ls\s/;
 const CONTROL = /[;|\n()`]|(?<![<>])&(?!>)/;
 // A command's key by its folder, the session's folder and its raw text: a card's commands are settled again on every
 // tool event.
 const commandKeys = new Map<string, string>();
 
 function isProbe(call: OperationCall): boolean {
-	if (call.exitCode !== 1 || call.toolName !== "bash" || typeof call.args.command !== "string") return false;
+	if (call.toolName !== "bash" || typeof call.args.command !== "string") return false;
+	if (call.exitCode !== 1 && call.exitCode !== 2) return false;
 	// The exit code is the last `;`/newline segment's: that one must be a whole lookup.
 	const last = listSegments(call.args.command)
 		.map(part => part.trim())
 		.findLast(Boolean);
-	if (!last || (last.match(/["']/g)?.length ?? 0) % 2 !== 0) return false;
-	return PROBE.test(last) && !CONTROL.test(last);
+	if (!last || (last.match(/["']/g)?.length ?? 0) % 2 !== 0 || CONTROL.test(last)) return false;
+	return call.exitCode === 1 ? PROBE.test(last) || LISTING.test(last) : LISTING.test(last);
 }
 
 // A hashline header's tag as the model wrote it: `#2C1F`, but also `#?`, `#ANY`, `#`, `#*`, `#2C FB`. Stock's preview
