@@ -9,6 +9,7 @@ import { deletedSessions, initDeletedSessions } from "./deleted-sessions";
 import type { SidecarLike } from "./sidecar-types";
 import {
 	deriveMarkers,
+	dnsFailureHost,
 	type GoalSettlement,
 	InterruptedTurnStore,
 	isNetworkError,
@@ -263,8 +264,8 @@ interface Harness {
 	commands: RpcCommand[];
 	/** The timeout each command was sent with (`undefined` = the RPC client's 8 s default). */
 	timeouts: Array<[string, number | undefined]>;
-	/** `reachable`: what a probe of the provider's way out answers while the link says it is up. */
-	net: { online: boolean; wake: boolean; reachable: boolean };
+	/** `reachable`: what a probe of the way out answers while the link says it is up; `verified`: each host probed. */
+	net: { online: boolean; wake: boolean; reachable: boolean; verified: Array<string | undefined> };
 	state: { enabled: boolean; frozen: boolean; opened: ResumeMarker[] };
 	resume: TurnResume;
 	pool: ResumePool;
@@ -317,6 +318,7 @@ function setup(
 		online: options.online ?? true,
 		wake: options.waitAfterWake ?? false,
 		reachable: !(options.unreachable ?? false),
+		verified: [] as Array<string | undefined>,
 	};
 	const state = {
 		enabled: options.enabled ?? true,
@@ -356,7 +358,8 @@ function setup(
 				return net.online;
 			},
 			shouldWait: () => !net.online || net.wake,
-			verify: async () => {
+			verify: async host => {
+				net.verified.push(host);
 				if (!net.online) return false;
 				if (!net.reachable) net.online = false;
 				return net.reachable;
@@ -1151,7 +1154,8 @@ describe("TurnResume connection wait", () => {
 		h.facts.push(fact({ running: false, lastRun: { stopReason: "error", errorMessage: "fetch failed: ENOTFOUND" } }));
 		h.resume.sync();
 		await settle();
-		expect(h.awaiting).toEqual([]);
+		// A failed lookup is probed first (the row shows meanwhile); the way out answered, so it is a failure.
+		expect(h.awaiting.at(-1)).toEqual(["t1", false]);
 		expect(h.commands.map(cmd => cmd.type)).not.toContain("retry");
 	});
 
@@ -1263,7 +1267,9 @@ describe("TurnResume connection wait", () => {
 		h.facts.push(fact({ running: false, lastRun: { ...networkFailure } }));
 		h.resume.sync();
 		await settle();
-		expect(h.awaiting).toEqual([["t1", true]]);
+		expect(h.awaiting.length).toBeGreaterThan(0);
+		expect(h.awaiting.every(([, waiting]) => waiting)).toBe(true);
+		expect(h.net.verified).toEqual(["api.example.com"]);
 		expect(h.retries).toEqual([]);
 		expect(h.store.read().map(entry => entry.reason)).toEqual(["network"]);
 
@@ -1281,7 +1287,7 @@ describe("TurnResume connection wait", () => {
 		h.facts.push(fact({ running: false, lastRun: { ...networkFailure } }));
 		h.resume.sync();
 		await settle();
-		expect(h.awaiting).toEqual([]);
+		expect(h.awaiting.at(-1)).toEqual(["t1", false]);
 		expect(h.retries.map(retry => retry?.attempt)).toEqual([1]);
 	});
 
@@ -1293,7 +1299,72 @@ describe("TurnResume connection wait", () => {
 		h.facts[0] = fact({ running: true });
 		h.resume.sync();
 		await settle();
+		expect(h.awaiting.at(-1)).toEqual(["t1", false]);
+	});
+
+	it("only a failed lookup is probed: a dropped socket while online goes to the scheduled retry as before", async () => {
+		h = setup({ online: true, unreachable: true, answers: { get_settings: SETTINGS_ON } });
+		h.resume.launch();
+		h.facts.push(fact({ running: false, lastRun: { stopReason: "error", errorMessage: "socket hang up" } }));
+		h.resume.sync();
+		await settle();
+		expect(h.net.verified).toEqual([]);
 		expect(h.awaiting).toEqual([]);
+		expect(h.retries.map(retry => retry?.attempt)).toEqual([1]);
+	});
+
+	it.each([
+		["Cancel", (x: Harness) => x.resume.cancelWait("t1")],
+		[
+			"Stop",
+			(x: Harness) => {
+				x.pool.noteStopped("t1");
+				x.resume.sync();
+			},
+		],
+		[
+			"another session on the tab",
+			(x: Harness) => {
+				x.facts[0] = { ...(x.facts[0] as ResumeFact), sessionFile: "/s/other.jsonl" };
+				x.resume.sync();
+			},
+		],
+		[
+			"a branch switch",
+			(x: Harness) => {
+				x.facts[0] = { ...(x.facts[0] as ResumeFact), touched: 1 };
+				x.resume.sync();
+			},
+		],
+	])("%s while the lookup is probed ends it: no wait, nothing retried once online", async (_name, interrupt) => {
+		h = setup({ online: true, unreachable: true, answers: { retry: RETRIED, get_settings: SETTINGS_OFF } });
+		h.resume.launch();
+		h.facts.push(fact({ running: false, lastRun: { ...networkFailure } }));
+		h.resume.sync();
+		interrupt(h);
+		await settle();
+		expect(h.awaiting.at(-1)).toEqual(["t1", false]);
+		h.net.reachable = true;
+		h.net.online = true;
+		h.resume.connectivityChanged();
+		await settle();
+		expect(h.commands.map(cmd => cmd.type)).not.toContain("retry");
+	});
+});
+
+describe("dnsFailureHost", () => {
+	it.each([
+		[
+			"Couldn't reach api.anthropic.com (getaddrinfo ENOTFOUND). Check the URL, your network, or proxy.",
+			"api.anthropic.com",
+		],
+		["fetch failed: getaddrinfo ENOTFOUND api.example.com", "api.example.com"],
+		["getaddrinfo EAI_AGAIN API.OpenAI.com", "api.openai.com"],
+		["fetch failed: ENOTFOUND", ""],
+		["socket hang up", null],
+		["503 Service unavailable", null],
+	])("%s → %s", (message, host) => {
+		expect(dnsFailureHost(message)).toBe(host);
 	});
 });
 

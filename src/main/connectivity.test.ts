@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { ConnectivityMonitor, PROBE_INTERVAL_MS, RESUME_WINDOW_MS } from "./connectivity";
+import { describe, expect, it, vi } from "vitest";
+import { answersWithin, ConnectivityMonitor, PROBE_INTERVAL_MS, RESUME_WINDOW_MS } from "./connectivity";
 
 function harness(initialOnline = true) {
 	const state = { online: initialOnline, reachable: true, now: 1_000_000 };
@@ -205,5 +205,59 @@ describe("ConnectivityMonitor", () => {
 		expect(await monitor.verify()).toBe(false);
 		expect(timers).toEqual([]);
 		expect(monitor.online).toBe(false);
+	});
+
+	it("a host that alone does not resolve (a mistyped provider URL) is no lost connection; the way out decides", async () => {
+		const asked: Array<string | undefined> = [];
+		const monitor = new ConnectivityMonitor({
+			isOnline: () => true,
+			probe: async host => {
+				asked.push(host);
+				return host === undefined;
+			},
+			now: () => 0,
+			schedule: () => () => undefined,
+			changed: () => undefined,
+		});
+		expect(await monitor.verify("api.typo.example")).toBe(true);
+		expect(monitor.online).toBe(true);
+		expect(asked.sort()).toEqual(["api.typo.example", undefined].sort());
+	});
+
+	it("offline after a failed lookup comes back as soon as the failed host answers, even with the default way out still silent", async () => {
+		const answering = new Set<string | undefined>();
+		const timers: Array<() => void> = [];
+		const monitor = new ConnectivityMonitor({
+			isOnline: () => true,
+			probe: async host => answering.has(host),
+			now: () => 0,
+			schedule: run => {
+				timers.push(run);
+				return () => undefined;
+			},
+			changed: () => undefined,
+		});
+		// A proxy-only network: the default way out never resolves here, the provider's host does once DNS is back.
+		expect(await monitor.verify("api.provider.example")).toBe(false);
+		expect(monitor.online).toBe(false);
+		answering.add("api.provider.example");
+		timers.shift()?.();
+		for (let i = 0; i < 5; i++) await Promise.resolve();
+		expect(monitor.online).toBe(true);
+	});
+});
+
+describe("answersWithin", () => {
+	it("is yes for a lookup that answers, no for one that fails or outlives the deadline", async () => {
+		vi.useFakeTimers();
+		try {
+			expect(await answersWithin(Promise.resolve({}), 2_500)).toBe(true);
+			expect(await answersWithin(Promise.reject(new Error("ENOTFOUND")), 2_500)).toBe(false);
+			const hung = answersWithin(new Promise(() => undefined), 2_500);
+			vi.advanceTimersByTime(2_500);
+			expect(await hung).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });

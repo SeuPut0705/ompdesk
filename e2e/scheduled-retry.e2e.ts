@@ -119,3 +119,29 @@ test("a socket closed mid-reply that stock's own retries could not clear continu
 		await cleanup(profile);
 	}
 });
+
+// 27 Oct 2026: a dead DNS failed every tab with stock's "Couldn't reach … (getaddrinfo ENOTFOUND)" while the computer
+// read online, and each showed only the red card. The lookup is probed (here made to fail) and the turn waits.
+test("a failed lookup while the computer reads online waits for the connection instead of failing", async () => {
+	test.setTimeout(120_000);
+	const profile = await makeProfile("en", "4000,4000,4000");
+	profile.env.OMP_GUI_TEST_UNREACHABLE = "1";
+	let current: ElectronApplication | undefined;
+	try {
+		const { app, page } = await launch(profile);
+		current = app;
+		await stockRetry(page, true);
+		await send(page, "fixture dns error");
+		const wait = page.locator("[data-connection-wait]");
+		await expect(wait).toBeVisible({ timeout: 30_000 });
+		await expect(page.locator(".omp-message-error")).toHaveCount(0);
+		await expect(page.locator("[data-scheduled-retry]")).toHaveCount(0);
+		// Cancel gives the failure back, as the offline wait does.
+		await wait.getByRole("button", { name: "Cancel" }).click();
+		await expect(page.locator(".omp-message-error")).toBeVisible();
+		await expect(wait).toHaveCount(0);
+	} finally {
+		if (current) await exitApp(current);
+		await cleanup(profile);
+	}
+});
