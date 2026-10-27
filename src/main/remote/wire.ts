@@ -7,7 +7,12 @@
  * JSON failure destroys the socket. A sender whose peer reads them
  * (`deflateSent`) sends a message of `DEFLATE_MIN_BYTES` or more as
  * `0x00 || deflate-raw(JSON)` when that is smaller; a receiver always reads
- * both, since JSON never starts with 0x00.
+ * both, since JSON never starts with 0x00. A peer that also keeps the context
+ * (`deflateSent({context: true})`) gets a message of `CONTEXT_MIN_BYTES` or more
+ * as `0x01 || deflate-raw(JSON)` with the last `CONTEXT_BYTES` of every such
+ * message before it as the dictionary, when that is smaller; both ends append
+ * each such message's JSON to their copy of that context, so it stays the same
+ * on both ends of the ordered link.
  */
 import { createCipheriv, createDecipheriv } from "node:crypto";
 import type { Socket } from "node:net";
@@ -29,6 +34,23 @@ export const DEFLATE_MIN_BYTES = 1024;
 const DEFLATE_LEVEL = 3;
 /** The first byte of a deflated payload; a JSON one starts with `{`. */
 const DEFLATED = 0x00;
+/** The first byte of a payload deflated against the link's context. */
+const DEFLATED_IN_CONTEXT = 0x01;
+/**
+ * How much of the messages before it a message is deflated against: deflate's whole window. Most of a live stream's
+ * frame repeats the last ones (a subagent's progress snapshot, the same keys, its recent output lines), which a frame
+ * deflated on its own cannot use: four subagents' frames crossed in 3 to 4 times fewer bytes this way (28 Oct 2026,
+ * `link-traffic-subagents.test.ts`).
+ */
+export const CONTEXT_BYTES = 32 * 1024;
+/** Smaller than this crosses as JSON: a ping or a pong. */
+export const CONTEXT_MIN_BYTES = 64;
+/**
+ * Up to this size a message is deflated harder: a live frame takes about 0.05 ms either way, and level 6 made the
+ * stream 25 % smaller than level 3. A larger read (a transcript page) keeps level 3: 9 ms for 1.5 MB, 19 ms at 6.
+ */
+const CONTEXT_HARD_MAX_BYTES = 64 * 1024;
+const CONTEXT_HARD_LEVEL = 6;
 
 const HEADER_BYTES = 4;
 const NONCE_BYTES = 12;
@@ -45,6 +67,44 @@ export class FrameTooLargeError extends Error {
 function deflated(json: Buffer): Buffer {
 	const packed = deflateRawSync(json, { level: DEFLATE_LEVEL });
 	return packed.length + 1 < json.length ? Buffer.concat([Buffer.of(DEFLATED), packed]) : json;
+}
+
+/**
+ * The last {@link CONTEXT_BYTES} of the messages one end deflated against the context (or inflated from it), as one
+ * contiguous dictionary. The backing buffer holds twice the window, so it slides once a window, not on every message.
+ */
+class DeflateContext {
+	readonly #buffer = Buffer.allocUnsafe(2 * CONTEXT_BYTES);
+	#length = 0;
+
+	/** The dictionary for the next message; undefined before the first, which zlib takes with none. */
+	get dictionary(): Buffer | undefined {
+		return this.#length === 0
+			? undefined
+			: this.#buffer.subarray(Math.max(0, this.#length - CONTEXT_BYTES), this.#length);
+	}
+
+	append(json: Buffer): void {
+		if (json.length >= CONTEXT_BYTES) {
+			json.copy(this.#buffer, 0, json.length - CONTEXT_BYTES);
+			this.#length = CONTEXT_BYTES;
+			return;
+		}
+		if (this.#length + json.length > this.#buffer.length) {
+			this.#buffer.copyWithin(0, this.#length - CONTEXT_BYTES, this.#length);
+			this.#length = CONTEXT_BYTES;
+		}
+		json.copy(this.#buffer, this.#length);
+		this.#length += json.length;
+	}
+}
+
+/** `json` deflated against `context` behind its marker byte, or null when that does not make it smaller. */
+function deflatedInContext(json: Buffer, context: DeflateContext): Buffer | null {
+	const level = json.length <= CONTEXT_HARD_MAX_BYTES ? CONTEXT_HARD_LEVEL : DEFLATE_LEVEL;
+	const { dictionary } = context;
+	const packed = deflateRawSync(json, dictionary ? { level, dictionary } : { level });
+	return packed.length + 1 < json.length ? Buffer.concat([Buffer.of(DEFLATED_IN_CONTEXT), packed]) : null;
 }
 
 export function encodeFrame(payload: Buffer): Buffer {
@@ -184,6 +244,10 @@ export class Link {
 	#closeReason: LinkCloseReason | null = null;
 	#closing = false;
 	#deflate = false;
+	/** What this end deflates against (`deflateSent({context: true})`); null while it does not. */
+	#sentContext: DeflateContext | null = null;
+	/** What the peer deflated against, made at its first such message. */
+	#receivedContext: DeflateContext | null = null;
 
 	constructor(socket: Socket, liveness: Liveness = { pingMs: PING_INTERVAL_MS, deadMs: DEAD_AFTER_MS }) {
 		this.#socket = socket;
@@ -220,16 +284,30 @@ export class Link {
 		const json = Buffer.from(JSON.stringify(message));
 		// The cap is the receiver's after inflating: a message past it is refused whatever it would deflate to.
 		if (json.length > MAX_FRAME_BYTES) throw new FrameTooLargeError(json.length);
-		const body = this.#deflate && json.length >= DEFLATE_MIN_BYTES ? deflated(json) : json;
-		const payload = this.#sealer ? this.#sealer.seal(body) : body;
+		const body = this.#sentContext
+			? json.length >= CONTEXT_MIN_BYTES
+				? deflatedInContext(json, this.#sentContext)
+				: null
+			: this.#deflate && json.length >= DEFLATE_MIN_BYTES
+				? deflated(json)
+				: null;
+		const payload = this.#sealer ? this.#sealer.seal(body ?? json) : (body ?? json);
 		const frame = encodeFrame(payload);
 		this.#traffic?.("tx", message, frame.length);
 		this.#socket.write(frame);
+		// Only a message that crossed in the context joins it, on the peer's side too (its marker byte says so), and
+		// only once it was written: a send that threw before leaves both copies as they were.
+		if (body && this.#sentContext) this.#sentContext.append(json);
 	}
 
-	/** Deflate large messages from now on: the peer said it reads them (its hello's `deflate`). */
-	deflateSent(): void {
+	/**
+	 * Deflate large messages from now on: the peer said it reads them (its hello's `deflate`). With `context` (its
+	 * hello's `deflateContext`) every message of `CONTEXT_MIN_BYTES` or more goes deflated against the ones before it
+	 * when that makes it smaller.
+	 */
+	deflateSent(options: { context?: boolean } = {}): void {
 		this.#deflate = true;
+		if (options.context) this.#sentContext ??= new DeflateContext();
 	}
 
 	/** Count what crosses this link from now on; one handler. */
@@ -303,12 +381,32 @@ export class Link {
 	}
 
 	#decode(payload: Buffer): WireMessage {
+		// Nothing is deflated before `secure()` (the handshake is JSON): an unauthenticated peer never gets main to inflate.
+		if (!this.#opener && (payload[0] === DEFLATED || payload[0] === DEFLATED_IN_CONTEXT)) {
+			throw new Error("deflated frame before the link is secure");
+		}
 		const body = this.#opener ? this.#opener.open(payload) : payload;
-		const json = body[0] === DEFLATED ? inflateRawSync(body.subarray(1), { maxOutputLength: MAX_FRAME_BYTES }) : body;
+		const json =
+			body[0] === DEFLATED
+				? inflateRawSync(body.subarray(1), { maxOutputLength: MAX_FRAME_BYTES })
+				: body[0] === DEFLATED_IN_CONTEXT
+					? this.#inflateInContext(body.subarray(1))
+					: body;
 		const message: unknown = JSON.parse(json.toString("utf8"));
 		if (typeof message !== "object" || message === null || Array.isArray(message)) throw new Error("not an object");
 		if (!("t" in message) || typeof message.t !== "string") throw new Error("message without a type");
 		return message as WireMessage;
+	}
+
+	#inflateInContext(packed: Buffer): Buffer {
+		this.#receivedContext ??= new DeflateContext();
+		const { dictionary } = this.#receivedContext;
+		const json = inflateRawSync(
+			packed,
+			dictionary ? { dictionary, maxOutputLength: MAX_FRAME_BYTES } : { maxOutputLength: MAX_FRAME_BYTES },
+		);
+		this.#receivedContext.append(json);
+		return json;
 	}
 
 	#drain(): void {

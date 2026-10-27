@@ -35,10 +35,11 @@ interface Row {
 }
 
 /**
- * What the device's hello says: `noDeflate` was built before deflated frames (v0.61.9), `noListReads` before slim list
- * reads (v0.59.1), `slimEventsOnly` before slim progress, `older` before slim events.
+ * What the device's hello says: `noDeflateContext` was built before frames deflated against the link's context
+ * (v0.79.0), `noDeflate` before deflated frames (v0.61.9), `noListReads` before slim list reads (v0.59.1),
+ * `slimEventsOnly` before slim progress, `older` before slim events.
  */
-export type DeviceKind = "current" | "noDeflate" | "noListReads" | "slimEventsOnly" | "older";
+export type DeviceKind = "current" | "noDeflateContext" | "noDeflate" | "noListReads" | "slimEventsOnly" | "older";
 
 /** Counts every message a Link sends, split the way the report reads it. */
 export class LinkRecorder {
@@ -53,8 +54,13 @@ export class LinkRecorder {
 		const record = (message: object): void => this.#record(message as { t: string } & Record<string, unknown>);
 		this.#spy = vi.spyOn(Link.prototype, "send").mockImplementation(function (this: Link, sent: object) {
 			record(sent);
-			// Every build before the current one predates deflated frames.
+			// Every build before the current one predates frames deflated against the context, most also deflated ones.
 			let message = sent;
+			if (device !== "current" && "deflateContext" in message) {
+				const { deflateContext: _context, ...earlier } = message as { deflateContext?: unknown };
+				if (device === "noDeflateContext") return original.call(this, earlier);
+				message = earlier;
+			}
 			if (device !== "current" && "deflate" in message) {
 				const { deflate: _deflate, ...earlier } = message as { deflate?: unknown };
 				if (device === "noDeflate") return original.call(this, earlier);

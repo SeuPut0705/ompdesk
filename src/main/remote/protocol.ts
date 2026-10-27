@@ -135,6 +135,13 @@ export const HelloVersion = z.object({ t: z.literal("hello"), protocol: z.unknow
  * message of 1 KB or more it sends that connection: JSON shrinks about 3x, and a host sent a device 9.7 MB in 18
  * minutes on 23 Oct 2026, one Autopilot status read 322 KB. Independent of the slim flags. A device without it
  * (v0.61.9 and older) gets every frame as JSON.
+ *
+ * `deflateContext` (only ever sent with `deflate`): the device also reads a frame deflated against the last 32 KB of
+ * the frames deflated so before it (`Link.deflateSent({context: true})`), so the host sends every message of 64 bytes
+ * or more that way when that makes it smaller, and the rest (a ping, a pong, what deflate cannot shrink) as JSON: a
+ * live stream repeats most of its last frames (progress snapshots, keys, output lines), which a frame deflated on its
+ * own cannot use, and frames under 1 KB were not deflated at all. Four subagents streaming crossed in 3 to 4 times
+ * fewer bytes (28 Oct 2026). A device without it (v0.79.0 and older) gets each frame deflated on its own.
  */
 export const ClientHello = z.object({
 	t: z.literal("hello"),
@@ -157,6 +164,7 @@ export const ClientHello = z.object({
 	slimToolOutputs: z.boolean().optional(),
 	slimToolArgs: z.boolean().optional(),
 	deflate: z.boolean().optional(),
+	deflateContext: z.boolean().optional(),
 });
 
 /**
@@ -180,6 +188,7 @@ export interface LinkSlim {
 	toolOutputs: boolean;
 	toolArgs: boolean;
 	deflate: boolean;
+	deflateContext: boolean;
 }
 
 export function slimOf(hello: z.infer<typeof ClientHello>): LinkSlim {
@@ -204,6 +213,7 @@ export function slimOf(hello: z.infer<typeof ClientHello>): LinkSlim {
 		toolOutputs: events && hello.slimToolOutputs === true,
 		toolArgs: events && hello.slimToolArgs === true,
 		deflate: hello.deflate === true,
+		deflateContext: hello.deflate === true && hello.deflateContext === true,
 	};
 }
 
@@ -225,6 +235,7 @@ export const SLIM_LOG_NAMES: Readonly<Record<keyof LinkSlim, string>> = {
 	toolOutputs: "outputs",
 	toolArgs: "args",
 	deflate: "deflate",
+	deflateContext: "context",
 };
 
 export const HostHelloMessage = z.object({

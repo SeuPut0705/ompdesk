@@ -12,7 +12,7 @@ import { createInterface } from "node:readline";
 import { setTimeout as sleep } from "node:timers/promises";
 
 interface Scenario {
-	kind: "stream" | "tool-wait" | "subagent";
+	kind: "stream" | "tool-wait" | "subagent" | "subagents";
 	/** Tokens of the assistant's thinking block, then of its text block (`stream`), or of each subagent message. */
 	thinkingTokens?: number;
 	textTokens?: number;
@@ -21,6 +21,8 @@ interface Scenario {
 	seconds?: number;
 	/** `subagent`: stream exactly this many messages instead of working `seconds`. */
 	messages?: number;
+	/** `subagents`: how many subagents one task call runs side by side. */
+	count?: number;
 	/** `tool-wait`: the call streams this many output lines first, each update carrying the whole output so far. */
 	outputLines?: number;
 }
@@ -312,6 +314,120 @@ async function subagent(emit: (event: object) => void, scenario: Scenario): Prom
 	await streamMessage(emit, 0, 20, 0);
 }
 
+/**
+ * One task call fanning out to `count` subagents, as stock's sync fan-out reports it (`#executeSyncFanout` in
+ * task/index.ts, `emitProgressNow` in task/executor.ts): each subagent's snapshot at most every 150 ms, its
+ * `recentOutput` the last 8 lines of its streamed text, newest first, and every snapshot also as the parent's
+ * combined `tool_execution_update` carrying the latest snapshot of every subagent.
+ */
+async function parallelSubagents(emit: (event: object) => void, scenario: Scenario): Promise<void> {
+	const count = scenario.count ?? 4;
+	const deadline = Date.now() + (scenario.seconds ?? 10) * 1000;
+	await streamMessage(emit, 0, 12, 0, { id: "call-task", name: "task", command: "explore" });
+	const args = { agent: "explore", tasks: Array.from({ length: count }, (_, i) => ({ id: `Area${i}` })) };
+	emit({ type: "tool_execution_start", toolCallId: "call-task", toolName: "task", args });
+	const startMs = Date.now();
+	const latest = new Map<number, Record<string, unknown>>();
+	const combined = (): void =>
+		emit({
+			type: "tool_execution_update",
+			toolCallId: "call-task",
+			toolName: "task",
+			args,
+			partialResult: {
+				content: [{ type: "text", text: `Running ${count} agents...` }],
+				details: { results: [], totalDurationMs: Date.now() - startMs, progress: [...latest.values()] },
+			},
+		});
+	const one = async (index: number): Promise<void> => {
+		const id = `${index}-Area${index}`;
+		const lifecycle = { id, agent: "explore", agentSource: "bundled", description: `Map area ${index}`, index };
+		if (level !== "off") out({ type: "subagent_lifecycle", payload: { ...lifecycle, status: "started" } });
+		let tail = "";
+		const recentTools: Array<Record<string, unknown>> = [];
+		const progress: Record<string, unknown> = {
+			index,
+			id,
+			agent: "explore",
+			agentSource: "bundled",
+			status: "running",
+			task: `Map area ${index}: how the host forwards omp events to a paired device and every periodic sender.`,
+			assignment: `${"Find every place the host pushes state to a device and report the file, the line and how often it fires. ".repeat(12)}`,
+			description: `Map area ${index}`,
+			recentTools,
+			recentOutput: [],
+			toolCount: 0,
+			requests: 0,
+			tokens: 0,
+			cost: 0,
+			durationMs: 0,
+		};
+		const report = (): void => {
+			progress.recentOutput = tail
+				.split("\n")
+				.filter(line => line.trim())
+				.slice(-8)
+				.reverse();
+			progress.durationMs = Date.now() - startMs;
+			const snapshot: Record<string, unknown> = { ...progress, recentTools: [...recentTools] };
+			latest.set(index, snapshot);
+			if (level !== "off") {
+				const { task, assignment } = snapshot;
+				out({
+					type: "subagent_progress",
+					payload: { index, agent: "explore", agentSource: "bundled", task, assignment, progress: snapshot },
+				});
+			}
+			combined();
+		};
+		const timer = setInterval(report, 150);
+		const subEmit = (event: object): void => {
+			if (level === "events") out({ type: "subagent_event", payload: { id, event } });
+			const update = event as { type: string; assistantMessageEvent?: { type: string; delta?: string } };
+			const delta = update.assistantMessageEvent?.type === "text_delta" ? update.assistantMessageEvent.delta : "";
+			if (!delta) return;
+			tail = `${tail}${delta}${(progress.tokens as number) % 14 === 13 ? "\n" : ""}`.slice(-8192);
+			progress.tokens = (progress.tokens as number) + 1;
+		};
+		let tools = 0;
+		while (Date.now() < deadline) {
+			const call = `sub-${index}-call-${tools}`;
+			progress.requests = (progress.requests as number) + 1;
+			await streamMessage(subEmit, 0, scenario.textTokens ?? 120, scenario.tokenMs ?? 12, {
+				id: call,
+				name: "grep",
+				command: "emit(",
+			});
+			progress.currentTool = "grep";
+			progress.currentToolArgs = `pattern=emit( path=src/main/area${index}`;
+			progress.currentToolStartMs = Date.now();
+			subEmit({ type: "tool_execution_start", toolCallId: call, toolName: "grep", args: { pattern: "emit(" } });
+			await sleep(300);
+			const result = { content: [{ type: "text", text: `src/main/area${index}/host.ts:${100 + tools}: #emit` }] };
+			subEmit({ type: "tool_execution_end", toolCallId: call, toolName: "grep", result, isError: false });
+			recentTools.unshift({ tool: "grep", args: progress.currentToolArgs, endMs: Date.now() });
+			recentTools.splice(5);
+			progress.currentTool = undefined;
+			progress.currentToolArgs = undefined;
+			progress.toolCount = ++tools;
+			progress.cost = 0.01 * tools;
+		}
+		clearInterval(timer);
+		progress.status = "completed";
+		report();
+		if (level !== "off") out({ type: "subagent_lifecycle", payload: { ...lifecycle, status: "completed" } });
+	};
+	await Promise.all(Array.from({ length: count }, (_, index) => one(index)));
+	emit({
+		type: "tool_execution_end",
+		toolCallId: "call-task",
+		toolName: "task",
+		result: { content: [{ type: "text", text: "done" }] },
+		isError: false,
+	});
+	await streamMessage(emit, 0, 20, 0);
+}
+
 async function run(scenario: Scenario): Promise<void> {
 	const turn: object[] = [];
 	// Stock's events go straight to stdout; `agent_end` carries the turn's messages.
@@ -331,6 +447,8 @@ async function run(scenario: Scenario): Promise<void> {
 		await streamMessage(emit, scenario.thinkingTokens ?? 0, scenario.textTokens ?? 0, scenario.tokenMs ?? 12);
 	} else if (scenario.kind === "tool-wait") {
 		await toolWait(emit, scenario.seconds ?? 10, scenario.outputLines);
+	} else if (scenario.kind === "subagents") {
+		await parallelSubagents(emit, scenario);
 	} else {
 		await subagent(emit, scenario);
 	}

@@ -480,7 +480,7 @@ export class RemoteHost {
 		});
 		const current = peers.update(peer.deviceId, { name: hello.name, lastSeenAt: this.#now() }) ?? peer;
 		const conn = new PeerConnection(link, current, slimOf(hello), hello.appVersion);
-		if (conn.slim.deflate) link.deflateSent();
+		if (conn.slim.deflate) link.deflateSent({ context: conn.slim.deflateContext });
 		this.#connections.add(conn);
 		const openedAt = this.#now();
 		// The device's build and what it can read: a busy traffic line is read against them (whole frames to an older
