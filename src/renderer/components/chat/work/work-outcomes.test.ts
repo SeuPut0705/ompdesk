@@ -212,6 +212,9 @@ describe("skills the work read", () => {
 		["/Applications/ompdesk.app/Contents/Resources/omp-builtin/skills/ompdesk/SKILL.md", "ompdesk"],
 		[".omp/skills/review/SKILL.md", "review"],
 		["skills/how/SKILL.md:1-40", "how"],
+		["/Users/me/.claude/skills/tdd/SKILL.md:raw", "tdd"],
+		["/Users/me/.claude/skills/tdd/SKILL.md:1-40:raw", "tdd"],
+		["/Users/me/.claude/skills/tdd/SKILL.md:raw:1-40", "tdd"],
 		["C:\\Users\\me\\.omp\\skills\\qa\\SKILL.md", "qa"],
 	])("counts a read of %s as the skill named by its folder", (path, name) => {
 		expect(workOutcomes([{ entry: entry("read", { path }), toolCallId: "k1" }]).skills).toEqual([

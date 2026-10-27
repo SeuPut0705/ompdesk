@@ -91,9 +91,19 @@ interface Provider {
 	url: string;
 	/** Requests whose conversation carries the subagent's assignment. */
 	subagentRequests: number;
+	/** Each subagent request's system prompt and tool names, in arrival order. */
+	subagentCalls: Call[];
+	/** Each parent request's (one offering the `task` tool) system prompt and tool names, in arrival order. */
+	parentCalls: Call[];
 	/** Parent requests whose conversation carries the bridge's follow-up for revived subagents. */
 	noticeRequests: string[];
 	close(): Promise<void>;
+}
+
+/** What one model request sent besides its conversation. */
+interface Call {
+	system: string;
+	tools: string[];
 }
 
 /**
@@ -102,7 +112,14 @@ interface Provider {
  * `PARENT-NOTED`.
  */
 async function startProvider(script: readonly Step[], subagentScript: readonly Step[] = []): Promise<Provider> {
-	const provider: Provider = { url: "", subagentRequests: 0, noticeRequests: [], close: async () => undefined };
+	const provider: Provider = {
+		url: "",
+		subagentRequests: 0,
+		subagentCalls: [],
+		parentCalls: [],
+		noticeRequests: [],
+		close: async () => undefined,
+	};
 	const server = http.createServer((req, res) => {
 		let body = "";
 		req.on("data", chunk => {
@@ -118,6 +135,10 @@ async function startProvider(script: readonly Step[], subagentScript: readonly S
 				tools?: Array<{ function?: { name?: string } }>;
 			};
 			const tools = (parsed.tools ?? []).map(tool => tool.function?.name ?? "");
+			const system = parsed.messages
+				.filter(message => message.role === "system" || message.role === "developer")
+				.map(message => textOf(message.content))
+				.join("\n");
 			const user = parsed.messages
 				.filter(message => message.role === "user")
 				.map(message => textOf(message.content));
@@ -126,6 +147,7 @@ async function startProvider(script: readonly Step[], subagentScript: readonly S
 			const notice = user.find(text => text.includes(NOTICE_MARK));
 			if (!notice && user.some(text => text.includes(SUBTASK))) {
 				provider.subagentRequests++;
+				provider.subagentCalls.push({ system, tools });
 				const step = subagentScript[parsed.messages.filter(message => message.role === "tool").length];
 				if (step) {
 					res.end(completion(step, tools, `sub_${provider.subagentRequests}`));
@@ -138,6 +160,7 @@ async function startProvider(script: readonly Step[], subagentScript: readonly S
 				res.end(completion({ text: "side" }, tools, "side"));
 				return;
 			}
+			provider.parentCalls.push({ system, tools });
 			if (notice) {
 				provider.noticeRequests.push(notice);
 				res.end(completion({ text: "PARENT-NOTED" }, tools, "noted"));
@@ -333,9 +356,10 @@ async function cutOff(script: readonly Step[], signal: Signal, subagentScript: r
 	await first.kill(signal);
 	// Counted with no omp running: stock starts a revived subagent during the restore, before it answers.
 	const requestsAtCut = provider.subagentRequests;
+	const parentCallsAtCut = provider.parentCalls.length;
 	const second = await startOmp(provider, isolated, root, true);
 	const outcome = await second.bridge.request<Restored>("composer.restore_interrupted", {});
-	return { provider, isolated, second, outcome, id: spawned?.id, requestsAtCut };
+	return { provider, isolated, second, outcome, id: spawned?.id, requestsAtCut, parentCallsAtCut };
 }
 
 describe.skipIf(!existsSync(omp))("revived subagents on stock omp", () => {
@@ -362,23 +386,16 @@ describe.skipIf(!existsSync(omp))("revived subagents on stock omp", () => {
 
 	it("continues a parent cut off in `wait` in an eval journal: stock's restore (≥ 18.12.2) or the bridge's follow-up", async () => {
 		// v0.37.0: the parent waited on its background subagent; the update's quit (SIGTERM) cut the `wait`.
-		const { provider, isolated, second, outcome, id } = await cutOff([EVAL, SPAWN, WAIT], "SIGTERM");
+		const { provider, isolated, outcome, id } = await cutOff([EVAL, SPAWN, WAIT], "SIGTERM");
 		// The eval-state-context still follows the interrupted-turn record on every omp.
 		expect(mainJournal(isolated).some(entry => entry.customType === "eval-state-context")).toBe(true);
 		if (restoresEvalTurn) {
-			// Stock looks past it and reruns the cut-off `wait`, so the bridge sends nothing.
-			expect(outcome).toMatchObject({ turn: true, subagents: [id], followUp: false });
-			await expect
-				.poll(
-					() =>
-						second.frames.some(
-							frame => frame.type === "tool_execution_start" && JSON.stringify(frame).includes('"wait"'),
-						),
-					{ timeout: 30_000 },
-				)
-				.toBe(true);
-			expect(provider.noticeRequests).toHaveLength(0);
-			expect(mainJournal(isolated).some(entry => entry.customType === "ompdesk-restart-subagents")).toBe(false);
+			// Stock looks past it and continues the cut-off turn; the bridge's notice joins that turn once.
+			expect(outcome).toMatchObject({ turn: true, subagents: [id], followUp: true });
+			await expect.poll(() => provider.noticeRequests.length, { timeout: 60_000 }).toBe(1);
+			expect(mainJournal(isolated).filter(entry => entry.customType === "ompdesk-restart-subagents")).toHaveLength(
+				1,
+			);
 			return;
 		}
 		// Older stock leaves the parent's turn alone, so the bridge tells it once.
@@ -387,19 +404,24 @@ describe.skipIf(!existsSync(omp))("revived subagents on stock omp", () => {
 		expect(mainJournal(isolated).filter(entry => entry.customType === "ompdesk-restart-subagents")).toHaveLength(1);
 	}, 240_000);
 
-	it("sends nothing when stock's restore continues the parent's own turn: its cut-off `wait` reruns", async () => {
-		const { second, isolated, outcome, id } = await cutOff([SPAWN, WAIT], "SIGTERM");
-		expect(outcome).toMatchObject({ turn: true, subagents: [id], followUp: false });
-		await expect
-			.poll(
-				() =>
-					second.frames.some(
-						frame => frame.type === "tool_execution_start" && JSON.stringify(frame).includes('"wait"'),
-					),
-				{ timeout: 30_000 },
-			)
-			.toBe(true);
-		expect(mainJournal(isolated).some(entry => entry.customType === "ompdesk-restart-subagents")).toBe(false);
+	// 27 Oct 2026, an update restart: stock restored the parent's turn (its cut-off `wait` reran) and revived four
+	// subagents whose first requests took 1.5-5 minutes; the parent heard nothing of them and the work looked stalled.
+	// Its restored turn had also lost the prompt sections: they join through `before_agent_start`, which stock runs for
+	// a prompt, never for a turn its restore continues.
+	it("tells a turn stock's restore continues once, at once, which subagents work again, with its live prompt sections", async () => {
+		const { provider, isolated, outcome, id, parentCallsAtCut } = await cutOff([SPAWN, WAIT], "SIGTERM");
+		expect(outcome).toMatchObject({ turn: true, subagents: [id], followUp: true });
+		// At once: the subagent never answers here, so the rerun `wait` could only end on the notice (stock interrupts or
+		// skips an interruptible wait for a steer), never on the subagent's result.
+		await expect.poll(() => provider.noticeRequests.length, { timeout: 60_000 }).toBe(1);
+		expect(provider.noticeRequests[0]).toContain(`- ${id}: ${SUBTASK}`);
+		expect(mainJournal(isolated).filter(entry => entry.customType === "ompdesk-restart-subagents")).toEqual([
+			expect.objectContaining({ details: { jobs: [], subagents: [{ id, intent: SUBTASK }] } }),
+		]);
+		const live = provider.parentCalls[parentCallsAtCut - 1];
+		const restored = provider.parentCalls[parentCallsAtCut];
+		expect(live?.system).toContain("<background-checks>");
+		expect(restored?.system).toBe(live?.system);
 	}, 240_000);
 
 	// 24 Oct 2026, two subagents lost: a graceful stop (stdin closed, as SidecarManager stops omp) disposes the session,
@@ -417,28 +439,23 @@ describe.skipIf(!existsSync(omp))("revived subagents on stock omp", () => {
 		expect(mainJournal(isolated).filter(entry => entry.customType === "ompdesk-restart-subagents")).toHaveLength(1);
 	}, 240_000);
 
-	it("revives a background subagent a graceful stop cut off while the parent waited on it: its `wait` reruns", async () => {
-		const { second, isolated, outcome, id } = await cutOff([SPAWN, WAIT], "EOF");
-		expect(outcome).toMatchObject({ turn: true, subagents: [id], followUp: false });
+	it("revives a background subagent a graceful stop cut off while the parent waited on it, and tells that turn once", async () => {
+		const { provider, second, isolated, outcome, id } = await cutOff([SPAWN, WAIT], "EOF");
+		expect(outcome).toMatchObject({ turn: true, subagents: [id], followUp: true });
 		await expect
 			.poll(() => roster(second), { timeout: 30_000 })
 			.toEqual([expect.objectContaining({ id, status: "running" })]);
-		await expect
-			.poll(
-				() =>
-					second.frames.some(
-						frame => frame.type === "tool_execution_start" && JSON.stringify(frame).includes('"wait"'),
-					),
-				{ timeout: 30_000 },
-			)
-			.toBe(true);
-		expect(mainJournal(isolated).some(entry => entry.customType === "ompdesk-restart-subagents")).toBe(false);
+		await expect.poll(() => provider.noticeRequests.length, { timeout: 60_000 }).toBe(1);
+		expect(mainJournal(isolated).filter(entry => entry.customType === "ompdesk-restart-subagents")).toHaveLength(1);
 	}, 240_000);
 
 	// 26 Oct 2026 (v0.75.2 → v0.75.3 update restart), four subagents lost: each was waiting for its model's answer to a
 	// tool result. The graceful stop journaled their `session_exit` as normal with nothing pending and no aborted reply
 	// after it, so stock read their turns as finished and the parent's rerun `wait` found nothing to wait for.
-	it("revives a subagent a graceful stop cut off between a tool result and its model's answer", async () => {
+	// 27 Oct 2026, the next update restart revived four, and each one's first request lacked every OMPdesk prompt section
+	// (stock runs `before_agent_start` for a prompt, not for the turn its restore continues): the prompt prefix changed,
+	// the provider cache missed and the thinking was dropped, 1.5-5 minutes each before a word.
+	it("revives a subagent a graceful stop cut off between a tool result and its model's answer, with its live prompt sections", async () => {
 		const READ: Step = { tool: "read", args: { path: ".", i: "listing the folder" } };
 		const { provider, second, outcome, id, requestsAtCut } = await cutOff([SPAWN, WAIT], "GONE", [READ]);
 		expect(outcome).toMatchObject({ turn: true, subagents: [id] });
@@ -446,5 +463,9 @@ describe.skipIf(!existsSync(omp))("revived subagents on stock omp", () => {
 		await expect
 			.poll(() => roster(second), { timeout: 30_000 })
 			.toEqual([expect.objectContaining({ id, status: "running" })]);
+		const live = provider.subagentCalls[requestsAtCut - 1];
+		const revived = provider.subagentCalls[requestsAtCut];
+		expect(live?.system).toContain("<background-checks>");
+		expect(revived?.system).toBe(live?.system);
 	}, 240_000);
 });

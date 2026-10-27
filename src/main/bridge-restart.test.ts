@@ -216,15 +216,27 @@ describe("restartFollowUp", () => {
 	});
 
 	it("continues a turn the restart cut off, alone or with jobs and subagents, in one message", () => {
-		const turn = restartFollowUp([], [], true);
+		const turn = restartFollowUp([], [], "cut");
 		expect(turn?.customType).toBe(RESTART_TURN_MESSAGE);
 		expect(turn?.content).toMatch(/cut your turn off/);
 		expect(turn?.content).toMatch(/Say nothing about the restart/);
 		expect(turn?.details).toEqual({ jobs: [], turn: true });
-		const all = restartFollowUp([{ id: "bg_1", command: "make" }], [{ id: "Scout" }], true);
+		const all = restartFollowUp([{ id: "bg_1", command: "make" }], [{ id: "Scout" }], "cut");
 		expect(all?.customType).toBe(RESTART_JOBS_MESSAGE);
 		expect(all?.content).toMatch(/cut your turn off/);
 		expect(all?.details).toEqual({ jobs: [{ id: "bg_1" }], subagents: [{ id: "Scout" }], turn: true });
+	});
+
+	// 27 Oct 2026: stock restored the parent's turn (its `wait` reran) and revived four subagents whose first requests
+	// took 1.5-5 minutes; the parent heard nothing of them and the work looked stalled.
+	it("tells a turn stock restored which subagents work again and that their first answer can take minutes", () => {
+		const followUp = restartFollowUp([], [{ id: "Release", intent: "v0.38.0 배포" }], "restored");
+		expect(followUp?.customType).toBe(RESTART_SUBAGENTS_MESSAGE);
+		expect(followUp?.content).toContain("- Release: v0.38.0 배포");
+		expect(followUp?.content).toMatch(/several minutes/);
+		expect(followUp?.content).toMatch(/keep supervising/i);
+		expect(followUp?.content).not.toMatch(/cut your turn off|tell the user/);
+		expect(followUp?.details).toEqual({ jobs: [], subagents: [{ id: "Release", intent: "v0.38.0 배포" }] });
 	});
 });
 

@@ -10,6 +10,7 @@ import { install as installReplyLanguage, setReplyLanguage } from "../../resourc
 import { install as installUserProfile, setUserProfile } from "../../resources/gui-bridge/modes/user-profile";
 import {
 	appendIfMissing,
+	keepSectionsOnRestore,
 	type PromptSectionContext,
 	type PromptSectionHost,
 	withTurnSections,
@@ -78,5 +79,57 @@ describe("gui-bridge turn prompt sections", () => {
 		installAll();
 		setReplyLanguage({ language: "Korean" });
 		expect(withTurnSections(["base"], context)).toHaveLength(2);
+	});
+});
+
+/** A stock session as its restore drives it: the prompt the agent holds is what the continued turn sends. */
+class RestoredSession {
+	readonly baseSystemPrompt = ["base", "context"];
+	prompt: string[] = this.baseSystemPrompt;
+	sent: string[] | undefined;
+	get systemPrompt(): string[] {
+		return this.prompt;
+	}
+	readonly agent = { setSystemPrompt: (prompt: string[]) => (this.prompt = prompt) };
+	readonly extensionRunner: { createContext(): PromptSectionContext };
+	constructor(
+		readonly continues: boolean,
+		kind: "main" | "sub" = "main",
+	) {
+		this.extensionRunner = { createContext: () => ({ ...context, agent: { kind } }) };
+	}
+	async restoreInterruptedTurn(): Promise<boolean> {
+		if (this.continues) this.sent = this.prompt;
+		return this.continues;
+	}
+}
+
+describe("gui-bridge sections of a turn stock's restore continues", () => {
+	// 27 Oct 2026: revived subagents and the restored parent turn went on without the sections (stock runs the hook
+	// for a prompt, never for a continued turn), so their first requests missed the cache and the reply language.
+	it("continues a restored turn with the sections a prompt of that session would send", async () => {
+		installAll();
+		setReplyLanguage({ language: "Korean" });
+		keepSectionsOnRestore(RestoredSession.prototype);
+		const main = new RestoredSession(true);
+		expect(await main.restoreInterruptedTurn()).toBe(true);
+		expect(main.sent).toEqual([...withTurnSections(main.baseSystemPrompt, context)]);
+		expect(main.sent?.at(-1)).toContain("<reply-language>");
+		const sub = new RestoredSession(true, "sub");
+		await sub.restoreInterruptedTurn();
+		expect(sub.sent?.at(-1)).toContain("<reply-language>");
+	});
+
+	it("leaves the prompt alone when the restore continues nothing, and wraps the restore once", async () => {
+		installAll();
+		setReplyLanguage({ language: "Korean" });
+		keepSectionsOnRestore(RestoredSession.prototype);
+		keepSectionsOnRestore(RestoredSession.prototype);
+		const idle = new RestoredSession(false);
+		expect(await idle.restoreInterruptedTurn()).toBe(false);
+		expect(idle.prompt).toBe(idle.baseSystemPrompt);
+		const main = new RestoredSession(true);
+		await main.restoreInterruptedTurn();
+		expect(main.sent?.filter(part => part.includes("<reply-language>"))).toHaveLength(1);
 	});
 });

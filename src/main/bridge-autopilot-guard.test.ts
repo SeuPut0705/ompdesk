@@ -634,3 +634,24 @@ describe("findBanViolation (approval cards)", () => {
 		expect(bashViolation("git status", {})).toBeUndefined();
 	});
 });
+
+describe("heredoc text inside a command substitution", () => {
+	const message = "git commit -m \"$(cat <<'EOF'\nfix: don't crash\nEOF\n)\"";
+
+	it("does not swallow the rest of the line (an apostrophe in the text is no quote)", () => {
+		expect(bashViolation(`${message} -- a.ts && git -C /Users/me/other reset --hard`, { root: ROOT })).toBeDefined();
+		expect(bashViolation(`echo "$(cat <<'X'\ndon't\nX\n)" > /tmp/m; git reset --hard`, { root: ROOT })).toMatch(
+			/reset/,
+		);
+		expect(
+			bashViolation(`gh pr create --body "$(cat <<'X'\nIt's fixed\nX\n)"; git push --force`, { root: ROOT }),
+		).toBeDefined();
+	});
+
+	it("still lets the usual commit idiom through, and reads a bit shift as arithmetic", () => {
+		expect(bashViolation(`${message} -- a.ts`, { root: ROOT })).toBeUndefined();
+		expect(bashViolation(`git commit -m "$(cat <<-'EOF'\n\tit's done\n\tEOF\n)"`, { root: ROOT })).toBeUndefined();
+		expect(bashViolation("echo $((1 << 2)) && git reset --hard", { root: ROOT })).toBeDefined();
+		expect(bashViolation("echo $((1 << 2)) && git status", { root: ROOT })).toBeUndefined();
+	});
+});

@@ -124,19 +124,25 @@ describe("checkout guard: one worktree's files and index", () => {
 	});
 
 	it("refuses writing a file the other session changed whole, from the shell or the write tool, and points to the edit tool", () => {
-		for (const command of ["echo 'x' > src/b.ts", "cat > src/b.ts <<'EOF'\nx\nEOF", "cd src && printf x >> b.ts"])
+		for (const command of ["echo 'x' > src/b.ts", "cat > src/b.ts <<'EOF'\nx\nEOF", "cd src && printf x > b.ts"])
 			expect(checkoutRefusal(command, REPO, sharing, own), command).toContain("edit tool");
 		expect(writeRefusal([`${REPO}/src/b.ts`], sharing, own)).toContain("writing src/b.ts whole with the write tool");
 		// Its own files, new files and scratch output stay free.
-		for (const command of ["echo x > src/a.ts", "echo x > src/new.ts", "bun test > /tmp/out.txt 2>&1"])
+		for (const command of [
+			"echo x > src/a.ts",
+			"echo x > src/new.ts",
+			"bun test > /tmp/out.txt 2>&1",
+			"cd src && printf x >> b.ts",
+		])
 			expect(refused(sharing, command), command).toBe(false);
 		expect(writeRefusal([`${REPO}/src/a.ts`, `${REPO}/src/new.ts`], sharing, own)).toBeUndefined();
 	});
 
 	it("counts a file written from the shell as the session's own, so the other session's guard sees it", () => {
-		expect(
-			shellChanges("cd src && cat > b.ts <<'EOF'\nx\nEOF\necho y >> ../README.md 2>/dev/null", REPO).replaces,
-		).toEqual([`${REPO}/src/b.ts`, `${REPO}/README.md`]);
+		const changes = shellChanges("cd src && cat > b.ts <<'EOF'\nx\nEOF\necho y >> ../README.md 2>/dev/null", REPO);
+		expect(changes.replaces).toEqual([`${REPO}/src/b.ts`]);
+		// An append keeps what the file holds: it is a line edit, never a whole-file write.
+		expect(changes.edits).toEqual([`${REPO}/README.md`]);
 	});
 
 	it("does not judge worktree steps for a session in another worktree, nor git runs in another repository", () => {
@@ -533,12 +539,12 @@ describe("the checkout ledger", () => {
 		// The main agent's `sleep; echo >` runs on while a short subagent finishes.
 		ledger.call("bash", { command: "sleep 8; echo changed > tracked.ts" }, REPO, undefined, host, "a1", "main");
 		ledger.call("edit", { path: "src/b.ts" }, REPO, undefined, host, "b1", "Scout");
-		ledger.settle("b1");
+		ledger.settle("b1", "Scout");
 		expect(ledger.settleAll("Scout")).toBe(false);
 		ledger.retire([{ file: tracked, stamp: ledger.stamp(tracked) }]);
 		expect(ledger.files).toContain(tracked);
 		// Its result still settles and reannounces it.
-		expect(ledger.settle("a1")).toBe(true);
+		expect(ledger.settle("a1", "main")).toBe(true);
 	});
 
 	it("claims every file a command replaces or deletes, and no file one only touches", () => {
@@ -598,7 +604,8 @@ describe("the checkout ledger", () => {
 		expect(claims("edit", { path: "src/a.ts", edits: [{ op: "update", rename: "src/y.ts", diff: "@@" }] })).toEqual(
 			files("src/a.ts", "src/y.ts"),
 		);
-		expect(claims("ast_edit", { paths: ["src/a.ts"], ops: [] })).toEqual(files("src/a.ts"));
+		// A preview writes nothing: the call that applies it names the files (see "claims what a result reports").
+		expect(claims("ast_edit", { paths: ["src/a.ts"], ops: [] })).toEqual([]);
 		expect(claims("lsp", { action: "rename", file: "src/a.ts", line: 1, symbol: "x", new_name: "y" })).toEqual(
 			files("src/a.ts"),
 		);
@@ -679,10 +686,10 @@ describe("the checkout ledger", () => {
 		expect(text).not.toMatch(/ in \//);
 	});
 
-	it("forgets what it was told when the session works alone again", () => {
+	it("does not say a notice again because a call saw no peers for a moment", () => {
 		const ledger = new CheckoutLedger();
 		expect(notice(run(ledger, overlapping(), "read", {}))).toBeDefined();
 		run(ledger, undefined, "read", {});
-		expect(notice(run(ledger, overlapping(), "read", {}))).toBeDefined();
+		expect(notice(run(ledger, overlapping(), "read", {}))).toBeUndefined();
 	});
 });

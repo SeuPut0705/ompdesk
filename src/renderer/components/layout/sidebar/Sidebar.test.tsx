@@ -23,6 +23,7 @@ import { DEVICE_COLORS } from "../../../lib/device-color";
 import { formatTimeAgo } from "../../../lib/format";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { resetLastReadForTest } from "../../../lib/last-read";
+import { CHATS_ORDER_KEY } from "../../../lib/project-order";
 import { LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { useAgentReviewStore } from "../../../stores/agent-review";
 import { useClosedChildrenStore } from "../../../stores/closed-children";
@@ -253,6 +254,32 @@ async function fire(element: Element | TestElement | null, prop: "onClick" | "on
 		}),
 	);
 	await flush();
+}
+
+type DragProp = "onDragStart" | "onDragOver" | "onDragLeave" | "onDrop" | "onDragEnd";
+
+/** Drive a native drag handler of a row; resolves to whether the row accepted the drag (called preventDefault). */
+async function drag(element: Element | TestElement | null, prop: DragProp): Promise<boolean> {
+	if (!element) throw new Error("drag: element is null");
+	const record = element as unknown as Record<string, unknown>;
+	const propsKey = Object.getOwnPropertyNames(record).find(key => key.startsWith("__reactProps$"));
+	const props = propsKey ? (record[propsKey] as Record<string, (event: unknown) => void> | undefined) : undefined;
+	const handler = props?.[prop];
+	if (!handler) throw new Error(`drag: ${prop} not found on element`);
+	let accepted = false;
+	await act(async () =>
+		handler({
+			stopPropagation: () => {},
+			preventDefault: () => {
+				accepted = true;
+			},
+			dataTransfer: { effectAllowed: "", dropEffect: "", setDragImage() {}, setData() {} },
+			currentTarget: element,
+			relatedTarget: null,
+		}),
+	);
+	await flush();
+	return accepted;
 }
 
 function menuItemLabels(): string[] {
@@ -1143,6 +1170,206 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(alpha()).toEqual(["/work/alpha/one.jsonl", "/work/alpha/two.jsonl"]);
 		await fire(rowFor("Session /work/alpha/two"), "onContextMenu");
 		expect(menuItem("Move up").hasAttribute("disabled")).toBe(true);
+	});
+
+	it("dragging a session row onto another row of its list moves it there, and the order is kept", async () => {
+		const omp = installMockOmp(LIST);
+		seedStores();
+		useSidebarPrefs.setState({ hydrated: true });
+		await mount(<Sidebar />);
+		const alpha = () =>
+			[...container.querySelectorAll("[data-session-path]")]
+				.map(element => (element as unknown as Element).getAttribute("data-session-path"))
+				.filter(path => path?.startsWith("/work/alpha/"));
+		const one = rowFor("Session /work/alpha/one");
+		const two = rowFor("Session /work/alpha/two");
+		expect(alpha()).toEqual(["/work/alpha/one.jsonl", "/work/alpha/two.jsonl"]);
+		expect(two.getAttribute("draggable")).toBe("true");
+
+		await drag(two, "onDragStart");
+		// Over the row it would take the place of: a line marks the edge it lands on, and the row accepts the drop.
+		expect(await drag(one, "onDragOver")).toBe(true);
+		expect(one.getAttribute("data-session-drop")).toBe("before");
+		await drag(one, "onDrop");
+		await drag(two, "onDragEnd");
+		expect(alpha()).toEqual(["/work/alpha/two.jsonl", "/work/alpha/one.jsonl"]);
+		expect(one.getAttribute("data-session-drop")).toBeNull();
+		expect(useSidebarPrefs.getState().sessionOrder["/work/alpha"]).toEqual([
+			"/work/alpha/two.jsonl",
+			"/work/alpha/one.jsonl",
+		]);
+		expect(omp.prefs.set).toHaveBeenCalledWith(
+			"sidebar",
+			expect.objectContaining({
+				sessionOrder: { "/work/alpha": ["/work/alpha/two.jsonl", "/work/alpha/one.jsonl"] },
+			}),
+		);
+		expect(document.querySelector("[data-session-order-status]")?.textContent).toBe(
+			"Moved Session /work/alpha/two.jsonl to position 1 of 2.",
+		);
+
+		// Dragging back down lands after the row it is dropped on.
+		await drag(rowFor("Session /work/alpha/two"), "onDragStart");
+		await drag(rowFor("Session /work/alpha/one"), "onDragOver");
+		expect(rowFor("Session /work/alpha/one").getAttribute("data-session-drop")).toBe("after");
+		await drag(rowFor("Session /work/alpha/one"), "onDrop");
+		expect(alpha()).toEqual(["/work/alpha/one.jsonl", "/work/alpha/two.jsonl"]);
+	});
+
+	it("a session row takes no drop from another list's row, or across the pinned edge", async () => {
+		installMockOmp([
+			...LIST,
+			session("/work/chat-1.jsonl", "/work/chat-home", { kind: "chat", firstMessage: "chat one" }),
+		]);
+		seedStores();
+		useSidebarPrefs.setState({ hydrated: true, pinnedSessions: ["/work/alpha/one.jsonl"] });
+		await mount(<Sidebar />);
+		await drag(rowFor("Session /work/alpha/two"), "onDragStart");
+		expect(await drag(rowFor("Session /work/chat-1"), "onDragOver")).toBe(false);
+		expect(await drag(rowFor("Session /work/alpha/one"), "onDragOver")).toBe(false);
+		await drag(rowFor("Session /work/alpha/one"), "onDrop");
+		expect(useSidebarPrefs.getState().sessionOrder).toEqual({});
+	});
+
+	it("a saved session order comes back after a relaunch, and a session new since then lands on top", async () => {
+		const omp = installMockOmp([
+			...LIST,
+			session("/work/alpha/three.jsonl", "/work/alpha", {
+				created: "2026-01-05T00:00:00Z",
+				modified: "2026-01-05T00:00:00Z",
+			}),
+		]);
+		omp.prefs.get.mockImplementation(async key =>
+			key === "sidebar"
+				? { sessionOrder: { "/work/alpha": ["/work/alpha/two.jsonl", "/work/alpha/one.jsonl"] } }
+				: null,
+		);
+		seedStores();
+		await act(async () => {
+			await useSidebarPrefs.getState().hydrate();
+		});
+		await mount(<Sidebar />);
+		const alpha = [...container.querySelectorAll("[data-session-path]")]
+			.map(element => (element as unknown as Element).getAttribute("data-session-path"))
+			.filter(path => path?.startsWith("/work/alpha/"));
+		expect(alpha).toEqual(["/work/alpha/three.jsonl", "/work/alpha/two.jsonl", "/work/alpha/one.jsonl"]);
+	});
+
+	it("Chats reorder by dragging too, under their own list key", async () => {
+		installMockOmp([
+			session("/work/chat-1.jsonl", "/work/chat-home", { kind: "chat", created: "2026-01-02T00:00:00Z" }),
+			session("/work/chat-2.jsonl", "/work/chat-home", { kind: "chat", created: "2026-01-01T00:00:00Z" }),
+		]);
+		seedStores();
+		useSidebarPrefs.setState({ hydrated: true });
+		await mount(<Sidebar />);
+		const chats = () =>
+			[...container.querySelectorAll("[data-sidebar-chats] [data-session-path]")].map(element =>
+				(element as unknown as Element).getAttribute("data-session-path"),
+			);
+		expect(chats()).toEqual(["/work/chat-1.jsonl", "/work/chat-2.jsonl"]);
+		await drag(rowFor("Session /work/chat-2"), "onDragStart");
+		await drag(rowFor("Session /work/chat-1"), "onDragOver");
+		await drag(rowFor("Session /work/chat-1"), "onDrop");
+		expect(chats()).toEqual(["/work/chat-2.jsonl", "/work/chat-1.jsonl"]);
+		expect(useSidebarPrefs.getState().sessionOrder[CHATS_ORDER_KEY]).toEqual([
+			"/work/chat-2.jsonl",
+			"/work/chat-1.jsonl",
+		]);
+	});
+
+	it("a row dragged in a filtered list is not a reorder: nothing is draggable until the filter clears", async () => {
+		installMockOmp(LIST);
+		seedStores();
+		useSidebarPrefs.setState({ hydrated: true });
+		await mount(<Sidebar />);
+		const input = container.querySelector("[data-sidebar-filter]") as unknown as HTMLInputElement | null;
+		expect(input).not.toBeNull();
+		await act(async () => {
+			const props = (input as unknown as Record<string, Record<string, (event: unknown) => void>>)[
+				Object.getOwnPropertyNames(input).find(key => key.startsWith("__reactProps$")) ?? ""
+			];
+			props?.onChange?.({ target: { value: "Session" }, currentTarget: { value: "Session" } });
+		});
+		await flush();
+		expect(rowFor("Session /work/alpha/two").getAttribute("draggable")).toBe("false");
+	});
+
+	it("a session open in a tab still drags onto a pane to split, and dropped on a row of its list it moves instead", async () => {
+		installMockOmp(LIST);
+		seedStores();
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t0", cwd: "/work/alpha", status: "ready", kind: "agent", unreadDone: false },
+				{
+					id: "t2",
+					cwd: "/work/alpha",
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+					sessionPath: "/work/alpha/two.jsonl",
+				},
+			],
+			activeTabId: "t0",
+		});
+		useSidebarPrefs.setState({ hydrated: true });
+		await mount(<Sidebar />);
+		const dispatched: Event[] = [];
+		const target = window as unknown as { dispatchEvent: (event: Event) => boolean };
+		const original = target.dispatchEvent;
+		target.dispatchEvent = event => dispatched.push(event) > 0;
+		try {
+			const two = () => rowFor("Session /work/alpha/two");
+			expect(two().getAttribute("draggable")).toBe("true");
+			// Started and ended away from a list row (over a pane, or released nowhere): the split drag, untouched.
+			await drag(two(), "onDragStart");
+			await drag(two(), "onDragEnd");
+			// Started again and dropped on a row of its own list: it moves, and the split drag is told it is over.
+			await drag(two(), "onDragStart");
+			await drag(rowFor("Session /work/alpha/one"), "onDragOver");
+			await drag(rowFor("Session /work/alpha/one"), "onDrop");
+		} finally {
+			target.dispatchEvent = original;
+		}
+		expect(dispatched.map(event => [event.type, (event as CustomEvent).detail])).toEqual([
+			["omp:tab-drag", { tabId: "t2" }],
+			["omp:tab-drag", { tabId: null }],
+			["omp:tab-drag", { tabId: "t2" }],
+			["omp:tab-drag", { tabId: null }],
+		]);
+		expect(useSidebarPrefs.getState().sessionOrder["/work/alpha"]).toEqual([
+			"/work/alpha/two.jsonl",
+			"/work/alpha/one.jsonl",
+		]);
+	});
+
+	it("Alt+Down on a session row moves it one place down in its list", async () => {
+		installMockOmp(LIST);
+		seedStores();
+		useSidebarPrefs.setState({ hydrated: true });
+		await mount(<Sidebar />);
+		const button = rowFor("Session /work/alpha/one").querySelector("button[data-roving-item]");
+		const record = button as unknown as Record<string, unknown>;
+		const propsKey = Object.getOwnPropertyNames(record).find(key => key.startsWith("__reactProps$")) ?? "";
+		const props = record[propsKey] as Record<string, (event: unknown) => void>;
+		let prevented = false;
+		await act(async () =>
+			props.onKeyDown?.({
+				key: "ArrowDown",
+				altKey: true,
+				shiftKey: false,
+				preventDefault: () => {
+					prevented = true;
+				},
+				currentTarget: button,
+			}),
+		);
+		await flush();
+		expect(prevented).toBe(true);
+		expect(useSidebarPrefs.getState().sessionOrder["/work/alpha"]).toEqual([
+			"/work/alpha/two.jsonl",
+			"/work/alpha/one.jsonl",
+		]);
 	});
 
 	it("right-click on a session row opens the session menu", async () => {
@@ -3308,6 +3535,57 @@ describe("Sidebar device sections", () => {
 		expect(row().querySelector(".omp-live-text")?.getAttribute("data-working")).toBeNull();
 	});
 
+	// The user's report (27 Oct 2026): after either computer relaunched, a host's session at work showed nothing here
+	// until it was tapped. A relaunch restores this computer's tabs asleep (no omp attached until shown), and the row
+	// read that tab, which knows nothing of the host's run, instead of what the host says it works on.
+	it("lights a host's session at work whose tab here is asleep since this computer relaunched, before anyone opens it", async () => {
+		installWithRemote();
+		seedStores();
+		const remotePath = "/Users/kim/.omp/agent/sessions/app/one.jsonl";
+		const hostTab = (status: "asleep" | "running") => ({
+			id: "tr",
+			cwd: "/Users/kim/code/app",
+			status,
+			kind: "agent" as const,
+			unreadDone: false,
+			device: "dev-studio",
+			sessionPath: remotePath,
+		});
+		useTabsStore.setState({
+			tabs: [{ id: "t0", cwd: "/work/alpha", status: "ready", kind: "agent", unreadDone: false }, hostTab("asleep")],
+			activeTabId: "t0",
+		});
+		pairHost("online");
+		const live = (state: "turn" | "waiting" | null) =>
+			act(async () => {
+				const remote = useRemoteStore.getState().state;
+				if (!remote) throw new Error("no remote state");
+				useRemoteStore.getState().apply({
+					...remote,
+					hosts: [
+						{
+							deviceId: "dev-studio",
+							name: "studio",
+							state: "online",
+							live: state ? [{ sessionPath: remotePath, state }] : [],
+						},
+					],
+				});
+			});
+		await live("turn");
+		await mount(<Sidebar />);
+		const row = () => container.querySelector(`[data-device-session="${remotePath}"]`) as unknown as Element;
+		expect(slotOf(row())).toBe("turn");
+		expect(row().textContent).toContain(translate("sidebar.signal.running"));
+		await live("waiting");
+		expect(row().querySelector(".omp-live-text")?.getAttribute("data-working")).toBe("waiting");
+
+		// Shown, the tab attaches and its own state is the row's again.
+		await act(async () => useTabsStore.setState({ tabs: [useTabsStore.getState().tabs[0]!, hostTab("running")] }));
+		await live(null);
+		expect(slotOf(row())).toBe("turn");
+	});
+
 	describe("the sessions a host's own agents opened", () => {
 		const APP = "/Users/kim/code/app";
 		const BOSS = "/Users/kim/.omp/agent/sessions/app/boss.jsonl";
@@ -3435,6 +3713,33 @@ describe("Sidebar device sections", () => {
 			expect([status(AT_WORK), status(ASKING)]).toEqual(["problem", "problem"]);
 		});
 
+		it("says a child at work on the host is running when its tab here is asleep since this computer relaunched", async () => {
+			await mountHost(hostRows(path => ({ openedBySession: path === BOSS ? null : BOSS })));
+			await act(async () =>
+				useTabsStore.setState(state => ({
+					tabs: [
+						...state.tabs,
+						{
+							id: "t-child",
+							cwd: APP,
+							status: "asleep",
+							kind: "agent",
+							unreadDone: false,
+							device: "dev-studio",
+							sessionPath: AT_WORK,
+						},
+					],
+				})),
+			);
+			await fire(
+				device()?.querySelector(`[data-device-session="${BOSS}"] [data-sidebar-subagents-toggle]`) ?? null,
+				"onClick",
+			);
+			expect(device()?.querySelector(`[data-session-path="${AT_WORK}"]`)?.getAttribute("data-child-status")).toBe(
+				"running",
+			);
+		});
+
 		it("lists an older host's rows, which name no opener, as before", async () => {
 			await mountHost(hostRows(() => ({})));
 			expect(listed().toSorted()).toEqual([AT_WORK, ASKING, BOSS, LANDED].toSorted());
@@ -3504,6 +3809,53 @@ describe("Sidebar device sections", () => {
 			expect.arrayContaining(["dev-studio\n/code/web", "dev-studio\n/code/app"]),
 		);
 		expect(groups()).toEqual(["/code/web", "/code/app"]);
+	});
+
+	it("dragging a host's session row onto another row of its list moves it, kept under the host's id", async () => {
+		const omp = installWithRemote();
+		const host = [
+			session("/s/app/one.jsonl", "/code/app", {
+				title: "App one",
+				device: "dev-studio",
+				created: "2026-01-03T00:00:00Z",
+			}),
+			session("/s/app/two.jsonl", "/code/app", {
+				title: "App two",
+				device: "dev-studio",
+				created: "2026-01-02T00:00:00Z",
+			}),
+			session("/s/web/one.jsonl", "/code/web", {
+				title: "Web one",
+				device: "dev-studio",
+				created: "2026-01-01T00:00:00Z",
+			}),
+		];
+		omp.sessions.list.mockImplementation(async (_scope, device) => (device === "dev-studio" ? host : LIST));
+		seedStores();
+		useSidebarPrefs.setState({ hydrated: true });
+		pairHost("online");
+		await mount(<Sidebar />);
+		const section = () => container.querySelector('[data-sidebar-device="dev-studio"]');
+		const row = (path: string) => section()?.querySelector(`[data-device-session="${path}"]`) ?? null;
+		const rows = () =>
+			[...(section()?.querySelectorAll("[data-device-session]") ?? [])].map(item =>
+				item.getAttribute("data-device-session"),
+			);
+
+		await drag(row("/s/app/two.jsonl"), "onDragStart");
+		expect(await drag(row("/s/web/one.jsonl"), "onDragOver")).toBe(false);
+		expect(await drag(row("/s/app/one.jsonl"), "onDragOver")).toBe(true);
+		await drag(row("/s/app/one.jsonl"), "onDrop");
+		await drag(row("/s/app/two.jsonl"), "onDragEnd");
+		expect(rows()).toEqual(["/s/app/two.jsonl", "/s/app/one.jsonl", "/s/web/one.jsonl"]);
+		expect(useSidebarPrefs.getState().sessionOrder).toEqual({
+			"dev-studio\n/code/app": ["/s/app/two.jsonl", "/s/app/one.jsonl"],
+		});
+		expect(omp.prefs.set).toHaveBeenCalledWith(
+			"sidebar",
+			expect.objectContaining({ sessionOrder: expect.any(Object) }),
+		);
+		expect(section()?.querySelector("[data-session-order-status]")?.textContent).toContain("App two");
 	});
 
 	it("lists an online host's projects and sessions under its own header and opens them remotely", async () => {
@@ -3891,7 +4243,7 @@ describe("Sidebar device sections", () => {
 		const record = row() as unknown as Record<string, unknown>;
 		const propsKey = Object.getOwnPropertyNames(record).find(key => key.startsWith("__reactProps$"));
 		const props = propsKey ? (record[propsKey] as Record<string, (event: unknown) => void>) : {};
-		props.onDragStart?.({ dataTransfer: { effectAllowed: "", setDragImage() {} } });
+		props.onDragStart?.({ dataTransfer: { effectAllowed: "", setDragImage() {}, setData() {} } });
 		props.onDragEnd?.({});
 		const drags = dispatched.map(event => [event.type, (event as CustomEvent).detail]);
 		target.dispatchEvent = original;
@@ -3900,10 +4252,18 @@ describe("Sidebar device sections", () => {
 			["omp:tab-drag", { tabId: null }],
 		]);
 
-		// Focused, the pane gets the cue and is no longer draggable onto itself.
+		// Focused, the pane gets the cue and no longer splits onto itself: its drag only reorders its list.
 		await act(async () => useTabsStore.setState({ activeTabId: "tr" }));
 		expect(row()?.getAttribute("data-pane-focus")).toBe("true");
-		expect(row()?.getAttribute("draggable")).toBe("false");
+		const refocused: Event[] = [];
+		target.dispatchEvent = event => refocused.push(event) > 0;
+		try {
+			await drag(row(), "onDragStart");
+			await drag(row(), "onDragEnd");
+		} finally {
+			target.dispatchEvent = original;
+		}
+		expect(refocused.filter(event => event.type === "omp:tab-drag")).toEqual([]);
 	});
 
 	it("closes and deletes a host's session from its row, naming the host and deleting it there", async () => {

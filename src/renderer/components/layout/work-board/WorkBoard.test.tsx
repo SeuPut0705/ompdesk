@@ -30,6 +30,11 @@ Object.assign(globalThis as Record<string, unknown>, {
 	Node,
 	IS_REACT_ACT_ENVIRONMENT: true,
 });
+// The board's frame-batched store reads (`useFrameSelector`) schedule on the window's animation frame.
+Object.assign(window, {
+	requestAnimationFrame: (callback: () => void) => setTimeout(callback, 0),
+	cancelAnimationFrame: (handle: ReturnType<typeof setTimeout>) => clearTimeout(handle),
+});
 
 let rows: RpcJobRow[] = [];
 let goal: RpcGoalState = { enabled: false };
@@ -366,6 +371,38 @@ describe("WorkBoard sections", () => {
 		expect(useUiStore.getState().panelSubagent).toEqual({ tabId: "t1", agentId: "a1" });
 		// The side panel is open now: the board steps aside.
 		expect(board()).toBeNull();
+	});
+
+	// 27 Oct 2026: after an update restart the revived subagents' first requests took minutes; nothing said why.
+	it("says a subagent a restart revived resumes after the restart until it makes a call", async () => {
+		useMessagesStore.setState({
+			messages: [
+				{
+					role: "custom",
+					customType: "ompdesk-restart-subagents",
+					timestamp: 1,
+					display: true,
+					content: "These background agents you started are working again",
+					details: { jobs: [], subagents: [{ id: "a1" }] },
+				},
+			],
+		});
+		useSubagentsStore.getState().setSnapshots([agent("a1", "running", 0), agent("a2", "running", 1)]);
+		await mount();
+		expect(pane.querySelector('[data-board-agent="a1"]')?.getAttribute("title")).toContain(
+			"Resuming after the restart",
+		);
+		expect(pane.querySelector('[data-board-agent="a2"]')?.getAttribute("title")).not.toContain("restart");
+		await act(async () =>
+			useSubagentsStore
+				.getState()
+				.setSnapshots([
+					agent("a1", "running", 0, { progress: { currentToolIntent: "Reading" } as never }),
+					agent("a2", "running", 1),
+				]),
+		);
+		expect(pane.querySelector('[data-board-agent="a1"]')?.getAttribute("title")).toContain("Reading");
+		expect(pane.querySelector('[data-board-agent="a1"]')?.getAttribute("title")).not.toContain("restart");
 	});
 
 	it("opens Background tasks from a job row", async () => {

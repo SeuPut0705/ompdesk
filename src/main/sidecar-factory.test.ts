@@ -312,7 +312,7 @@ describe("localSidecarFactory", () => {
 			accountRotationPref: () => undefined,
 			accountRotationLedger: "/ledger.json",
 			launchProfilesPref: () => undefined,
-			checkoutFiles: () => wakes.push("pass"),
+			checkoutFiles: owner => wakes.push(owner === sidecars.at(-1) ? "pass" : "other"),
 		});
 		const emitFrame = (type: string) => {
 			for (const listener of sidecars.at(-1)?.listeners.get("frame") ?? []) listener({ type });

@@ -2446,6 +2446,22 @@ describe("SidecarPool background tabs", () => {
 			expect(pool.liveSessions()).toEqual([]);
 		});
 
+		it("lists a tab its relaunch restored asleep once the resume's continued turn runs, and announces it", () => {
+			const { pool, sidecars } = fakePool();
+			const fw = fakeWindow(1);
+			const announced = vi.fn();
+			pool.onRunningChange = announced;
+			pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl", "agent", undefined, false, false, true);
+			expect(pool.liveSessions()).toEqual([]);
+
+			// TurnResume starts the deferred tab and continues its turn (index.ts pushes the list on each announce).
+			pool.startTab("tab-a");
+			sidecars[0]?.emitStatus("ready");
+			sidecars[0]?.emitAgentEvents(["agent_start"]);
+			expect(pool.liveSessions()).toEqual([{ sessionPath: "/sessions/a.jsonl", state: "turn" }]);
+			expect(announced).toHaveBeenCalled();
+		});
+
 		it("keeps the running turn and its open ask when Windows ended the session under omp", async () => {
 			const { pool, sidecars } = fakePool();
 			const fw = fakeWindow(1);

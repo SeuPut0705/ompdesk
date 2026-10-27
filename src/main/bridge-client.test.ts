@@ -26,7 +26,9 @@ async function startFakeBridge(): Promise<string> {
 			while (newline !== -1) {
 				const request = JSON.parse(buffer.slice(0, newline)) as { id: number; method: string; params: unknown };
 				buffer = buffer.slice(newline + 1);
-				if (request.method === "split") {
+				if (request.method === "silent") {
+					// Never answered: a frozen omp.
+				} else if (request.method === "split") {
 					// One reply cut across three writes, then two replies in one write.
 					const big = `${JSON.stringify({ id: request.id, ok: true, result: "x".repeat(200_000) })}\n`;
 					socket.write(big.slice(0, 7));
@@ -67,6 +69,15 @@ function pauseSocketConnection(): () => net.Socket {
 }
 
 describe("GuiBridgeClient", () => {
+	it("rejects a request the bridge never answers once its timeout passes, and keeps serving the others", async () => {
+		const client = new GuiBridgeClient(await startFakeBridge());
+		await client.connect();
+		const silent = client.request("silent", undefined, undefined, { timeoutMs: 40 });
+		await expect(silent).rejects.toMatchObject({ code: "bridge_timeout" });
+		await expect(client.request("echo", 7)).resolves.toBe(7);
+		client.close();
+	});
+
 	it("hands a request's timing out when it is sent and, with the bridge's part, when it settles", async () => {
 		const client = new GuiBridgeClient(await startFakeBridge());
 		await client.connect();

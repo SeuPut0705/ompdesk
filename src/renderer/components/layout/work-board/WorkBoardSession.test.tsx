@@ -596,6 +596,12 @@ describe("Last check row", () => {
 				messages: [
 					{
 						role: "toolResult",
+						toolCallId: "b1",
+						toolName: "bash",
+						details: { async: { state: "running", jobId: "bg_9", type: "bash" } },
+					},
+					{
+						role: "toolResult",
 						toolName: "wait",
 						details: { jobs: [{ id: "bg_9", status: "completed", exitCode: 0, resultText: "12 passed" }] },
 					},

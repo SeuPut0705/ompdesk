@@ -2,8 +2,9 @@ import { parseHTML } from "linkedom";
 import { act, useState } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentProgress, RpcCommand } from "../../../../shared/rpc-types";
+import type { AgentMessage, AgentProgress, RpcCommand } from "../../../../shared/rpc-types";
 import { I18nProvider } from "../../../lib/i18n";
+import { useMessagesStore } from "../../../stores/messages";
 import type { SubagentNode } from "../../../stores/subagents";
 import { useSubagentsStore } from "../../../stores/subagents";
 import { toolEntriesState, useToolsStore } from "../../../stores/tools";
@@ -125,6 +126,7 @@ afterEach(async () => {
 	container.remove();
 	useSubagentsStore.getState().reset();
 	useToolsStore.getState().reset();
+	useMessagesStore.setState({ messages: [], liveMessages: [] });
 	Reflect.deleteProperty(window, "matchMedia");
 	vi.unstubAllGlobals();
 });
@@ -321,5 +323,88 @@ describe("concurrent worker lanes", () => {
 		await render();
 		expect(container.querySelector(".omp-work-card-count")?.textContent).toBe("10 tokens");
 		expect(container.textContent).not.toContain("0 tools");
+	});
+});
+
+// 27 Oct 2026, an update restart: stock revived four background subagents, each one's first request then took
+// 1.5-5 minutes, and their lanes said "Work interrupted": the revived registry rows carry no `parentToolCallId` (this
+// omp never saw the spawn), so the lane fell back to the transcript, whose task row never settled.
+describe("a subagent a restart revived", () => {
+	const details = {
+		async: { state: "running", jobId: "Probe", type: "task" },
+		progress: [{ id: "Probe", index: 0, agent: "task", status: "pending", description: "List the files" }],
+	};
+	const transcript: AgentMessage[] = [
+		{ role: "assistant", timestamp: 1, content: [{ type: "toolCall", id: "task", name: "task", arguments: {} }] },
+		{
+			role: "toolResult",
+			toolCallId: "task",
+			toolName: "task",
+			timestamp: 2,
+			content: [{ type: "text", text: "Started 1 agent" }],
+			details,
+		},
+		{
+			role: "assistant",
+			timestamp: 3,
+			content: [],
+			stopReason: "aborted",
+			errorMessage: "Previous OMP process exited before completing the turn.",
+		},
+		{
+			role: "custom",
+			customType: "ompdesk-restart-subagents",
+			timestamp: 4,
+			display: true,
+			content: "These background agents you started are working again; their results reach you as usual:",
+			details: { jobs: [], subagents: [{ id: "Probe", intent: "List the files" }] },
+		},
+	] as AgentMessage[];
+	const revived: SubagentNode = { id: "Probe", index: 0, agent: "task", status: "running", lastUpdate: 5 };
+
+	beforeEach(() => {
+		useToolsStore.setState(
+			toolEntriesState([
+				[
+					"task",
+					{
+						toolName: "task",
+						args: {},
+						streamingArgs: "",
+						result: { content: [{ type: "text", text: "Started 1 agent" }], details },
+						isError: false,
+						endTime: 2,
+						status: "done",
+						startTime: 1,
+					},
+				],
+			]),
+		);
+		useMessagesStore.setState({ messages: transcript, liveMessages: [] });
+	});
+
+	it.each([
+		["en", "Resuming after the restart"],
+		["ko", "재시작 뒤 이어서 진행 중"],
+	])(
+		"says in %s that it resumes after the restart while its first request runs, never interrupted",
+		async (language, text) => {
+			vi.stubGlobal("localStorage", { getItem: () => language, setItem: vi.fn() });
+			useSubagentsStore.getState().setSnapshots([revived]);
+			await render();
+			expect(buttons()).toHaveLength(1);
+			expect(buttons()[0]?.closest("li")?.getAttribute("data-status")).toBe("running");
+			expect(buttons()[0]?.querySelector(".omp-work-status")?.getAttribute("data-state")).toBe("running");
+			expect(buttons()[0]?.querySelector(".omp-work-card-activity")?.textContent).toBe(text);
+		},
+	);
+
+	it("shows its calls once it makes one, and keeps the lane its spawn named", async () => {
+		useSubagentsStore.getState().setSnapshots([{ ...revived, progress: progress("Probe") }]);
+		await render();
+		expect(buttons()).toHaveLength(1);
+		expect(buttons()[0]?.querySelector(".omp-work-card-name")?.textContent).toBe("Probe");
+		expect(buttons()[0]?.textContent).toContain("Inspecting the implementation");
+		expect(container.textContent).not.toContain("Resuming after the restart");
 	});
 });

@@ -134,6 +134,27 @@ describe("lastCheck", () => {
 		};
 		expect(check([["b", lost]], [main("b", lost)])).toMatchObject({ key: "b", state: "failed" });
 	});
+
+	// 27 Oct 2026: after a deliberate failing test the agent ran the lint, a filtered type check and the test files in
+	// one list; the card said so in green while the board kept naming the failed test for 36 minutes.
+	it("names the passing run of a list that mixes check kinds once it fixed the failed check, as its card does", () => {
+		const failed = bash("bunx vitest run src/a.test.ts", " Tests  1 failed | 4 passed (5)", 1, 0);
+		const mixed = bash(
+			'bunx biome check src; bun run check:types 2>&1 | grep -E "a.ts"; bunx vitest run src/a.test.ts 2>&1 | grep -E "Tests "',
+			" Tests  80 passed (80)",
+			0,
+			2_000,
+		);
+		expect(
+			check(
+				[
+					["a", failed],
+					["b", mixed],
+				],
+				[main("a", failed), main("b", mixed)],
+			),
+		).toMatchObject({ key: "b", kind: "test", state: "passed", count: 80 });
+	});
 });
 
 describe("peerOverlap", () => {

@@ -1109,3 +1109,102 @@ test("a suggestion a host's tab made while the link was down shows once the link
 		await fs.rm(parent, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 	}
 });
+
+test("a host's session at work lights the device's row with no tap, after the device and then the host relaunch", async () => {
+	// The user's report (27 Oct 2026): after an update or a restart of either computer, a host's session at work
+	// showed nothing on the device until it was tapped. The device's relaunch restores its tab on that session asleep,
+	// and the row read that tab, which knows nothing of the host's run, instead of the host's live list.
+	test.setTimeout(300_000);
+	const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-live-row-")));
+	let host: RemoteInstance | null = null;
+	let client: RemoteInstance | null = null;
+	try {
+		const hostProfile = await makeRemoteProfile(parent, "b", {
+			language: "en",
+			theme: "light",
+			port: await freePort(),
+		});
+		const clientProfile = await makeRemoteProfile(parent, "a", {
+			language: "en",
+			theme: "light",
+			port: hostProfile.port,
+		});
+		host = await launchRemote(hostProfile);
+		client = await launchRemote(clientProfile);
+		await send(host.page, "host hello");
+		await expect(host.page.locator("[data-transcript-kind]").filter({ hasText: "Local fixture reply" })).toHaveCount(
+			1,
+		);
+		let sessionPath = "";
+		await expect
+			.poll(async () => {
+				sessionPath = (await host?.page.evaluate(() => window.omp.tabs.list()))?.[0]?.sessionPath ?? "";
+				return sessionPath;
+			})
+			.toMatch(/\.jsonl$/);
+		const deviceId = await connectHost(host.page, client.page, "Host B");
+		await holdLocalWork(client.page);
+		const row = (page: Page) =>
+			page.locator(`[data-sidebar-device="${deviceId}"] [data-device-session=${cssString(sessionPath)}]`);
+		const working = (page: Page) => row(page).locator("[data-session-working]");
+
+		// B's own window works on it: A's row lights with no tab of A's on it.
+		await send(host.page, "fixture running");
+		await expect(working(client.page)).toHaveCount(1, { timeout: 30_000 });
+
+		// A opens it, then quits; its relaunch shows A's own tab, so the one on B's session comes back asleep.
+		await row(client.page).locator("button[data-roving-item]").click();
+		await expect
+			.poll(() => remoteStatus(client?.page as Page, deviceId), { timeout: 30_000 })
+			.toMatch(/^(ready|running)$/);
+		await quit(client.app);
+		client = null;
+		const prefsFile = path.join(clientProfile.desktop, "prefs.json");
+		const prefs = JSON.parse(await fs.readFile(prefsFile, "utf8")) as {
+			tabLayouts: Array<{ tabs: Array<{ device?: string }>; activeIndex: number }>;
+		};
+		const layout = prefs.tabLayouts[0];
+		expect(layout?.tabs.some(tab => tab.device === deviceId)).toBe(true);
+		if (layout) layout.activeIndex = layout.tabs.findIndex(tab => tab.device === undefined);
+		await fs.writeFile(prefsFile, JSON.stringify(prefs));
+		client = await launchRemote(clientProfile, { project: false });
+		const a = client.page;
+		await expect(a.locator(`[data-sidebar-device="${deviceId}"]`)).toHaveAttribute("data-device-state", "online", {
+			timeout: 30_000,
+		});
+		expect(await remoteStatus(a, deviceId)).toBe("asleep");
+		await expect(working(a)).toHaveCount(1, { timeout: 30_000 });
+		await capture(a, "device-relaunched-row-working");
+
+		// B is killed mid-turn (an update's restart is no gentler for the row): A's row goes quiet while B is away, and
+		// B's relaunch continues the turn. B's next run lights the row again, still with no tap on A.
+		await crash(host.app, hostProfile);
+		host = null;
+		await expect(working(a)).toHaveCount(0, { timeout: 30_000 });
+		host = await launchRemote(hostProfile, { ready: false });
+		const b = host.page;
+		await expect
+			.poll(() => fs.readFile(sessionPath, "utf8").catch(() => ""), {
+				timeout: 60_000,
+				message: "B continued the turn",
+			})
+			.toContain("Continued after the interruption.");
+		await expect(a.locator(`[data-sidebar-device="${deviceId}"]`)).toHaveAttribute("data-device-state", "online", {
+			timeout: 30_000,
+		});
+		const hostTab = (await b.evaluate(() => window.omp.tabs.list())).find(tab => tab.sessionPath === sessionPath);
+		expect(hostTab, "B's relaunch restored its tab on the session").toBeDefined();
+		await b.evaluate(
+			id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "fixture running" }),
+			hostTab?.tabId ?? "",
+		);
+		await expect(working(a)).toHaveCount(1, { timeout: 30_000 });
+		expect(await remoteStatus(a, deviceId)).toBe("asleep");
+		await capture(a, "host-relaunched-row-working");
+		expect(client.errors).toEqual([]);
+	} finally {
+		if (client) await exitApp(client.app);
+		if (host) await exitApp(host.app);
+		await fs.rm(parent, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+	}
+});

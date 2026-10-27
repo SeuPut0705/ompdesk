@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { AgentMessage } from "../../../../shared/rpc-types";
 import type { SubagentNode } from "../../../stores/subagents";
-import { agentConclusion, finishedHeadline, mergeRunAgents, projectPath, runSpan, runTranscript } from "./work-run";
+import {
+	agentConclusion,
+	finishedHeadline,
+	mergeRunAgents,
+	projectPath,
+	resumedAgents,
+	runSpan,
+	runTranscript,
+} from "./work-run";
 
 // Shapes recorded from real omp 18.10 (the real-work-map audit): a detached task
 // returns pending progress rows; the plain-text final message arrives in an async-result.
@@ -84,7 +92,14 @@ describe("run transcript", () => {
 	});
 
 	it("keeps live registry rows ahead of transcript rows", () => {
-		const live = { id: "Reader", index: 0, agent: "task", status: "running", lastUpdate: 2 } as SubagentNode;
+		const live = {
+			id: "Reader",
+			index: 0,
+			agent: "task",
+			status: "running",
+			lastUpdate: 2,
+			parentToolCallId: "task-1",
+		} as SubagentNode;
 		expect(mergeRunAgents([live], runTranscript([spawn, taskResult], owns))).toEqual([live]);
 	});
 
@@ -140,6 +155,44 @@ describe("run transcript", () => {
 		// The live result lands in the second list; calls the run does not own never count.
 		expect(runSpan([[spawn], [taskResult]], ["task-1"])).toEqual({ startedAt: 1_000, spanMs: 100 });
 		expect(runSpan([[spawn, taskResult]], ["task-2"])).toEqual({ spanMs: 0 });
+	});
+
+	// 27 Oct 2026: a restart's restore revived the run's agents; omp's registry lists them without the spawning call
+	// (this omp never saw it), and their lanes said "Work interrupted" for the minutes their first requests took.
+	it("puts a revived agent's live row in the lane its spawn named, and leaves other unowned rows out", () => {
+		const revived = { id: "Reader", index: 4, agent: "task", status: "running", lastUpdate: 2 } as SubagentNode;
+		const elsewhere = { id: "Other", index: 0, agent: "task", status: "running", lastUpdate: 2 } as SubagentNode;
+		const lanes = mergeRunAgents([revived, elsewhere], runTranscript([spawn, taskResult], owns));
+		expect(lanes).toEqual([
+			expect.objectContaining({
+				id: "Reader",
+				status: "running",
+				index: 0,
+				parentToolCallId: "task-1",
+				description: "Count alpha lines",
+			}),
+		]);
+		// A parked row (an earlier run's agent waiting for a message) leaves the lane to the transcript.
+		const parked = { ...revived, status: "parked" } as SubagentNode;
+		expect(mergeRunAgents([parked], runTranscript([spawn, taskResult], owns))[0]?.status).toBe("aborted");
+	});
+
+	it("names the agents the newest restart note says resumed, until each one reports back", () => {
+		const note = (ids: string[], timestamp: number): AgentMessage => ({
+			role: "custom",
+			customType: "ompdesk-restart-subagents",
+			timestamp,
+			display: true,
+			content: "These background agents you started are working again",
+			details: { jobs: [], subagents: ids.map(id => ({ id })) },
+		});
+		expect([...resumedAgents([spawn, taskResult, note(["Reader", "Scout"], 2_000)])]).toEqual(["Reader", "Scout"]);
+		expect([...resumedAgents([spawn, taskResult, note(["Reader", "Scout"], 2_000), completion("done")])]).toEqual([
+			"Scout",
+		]);
+		// A delivery before the restart settled the run that was cut; the note names the run that goes on.
+		expect([...resumedAgents([completion("done"), note(["Reader"], 10_000)])]).toEqual(["Reader"]);
+		expect([...resumedAgents([spawn, taskResult])]).toEqual([]);
 	});
 });
 
