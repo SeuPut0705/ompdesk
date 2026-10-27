@@ -20,6 +20,7 @@ let tools = [
 const send = message => process.stdout.write(`${JSON.stringify(message)}\n`);
 const lines = createInterface({ input: process.stdin });
 let descendant;
+let initialized = false;
 process.on("SIGTERM", () => {
 	if (descendant) descendant.once("exit", () => process.exit(0));
 	else process.exit(0);
@@ -33,18 +34,42 @@ lines.on("close", () => {
 lines.on("line", line => {
 	const message = JSON.parse(line);
 	if (message.id === undefined) {
-		if (message.method === "notifications/initialized")
+		if (message.method === "notifications/initialized") {
+			initialized = true;
 			send({ jsonrpc: "2.0", method: "notifications/message", params: { initialized: true } });
+		} else if (message.method !== "notifications/cancelled")
+			// Says which notification arrived and whether `initialized` came before it, as MCP requires.
+			send({
+				jsonrpc: "2.0",
+				method: "notifications/message",
+				params: { notification: message.method, initialized },
+			});
 		return;
 	}
 	const reply = result => send({ jsonrpc: "2.0", id: message.id, result });
-	if (message.method === "initialize")
+	if (message.method === "initialize" && process.env.REA_FIXTURE_FAIL_INITIALIZE)
+		send({ jsonrpc: "2.0", id: message.id, error: { code: -32603, message: "REA could not initialize" } });
+	else if (message.method === "initialize" && process.env.REA_FIXTURE_SLOW_INITIALIZE) {
+		// Started and holding its handshake answer: the window in which omp's notifications must wait for `initialized`.
+		process.stderr.write("fake-rea: initializing\n");
+		setTimeout(
+			() =>
+				reply({
+					protocolVersion: message.params.protocolVersion,
+					capabilities: { tools: {}, prompts: {} },
+					serverInfo: { name: "fake-rea", version: "test" },
+				}),
+			300,
+		);
+	} else if (message.method === "initialize")
 		reply({
 			protocolVersion: message.params.protocolVersion,
-			capabilities: { tools: {} },
+			capabilities: { tools: {}, prompts: {} },
 			serverInfo: { name: "fake-rea", version: "test" },
+			instructions: "Fake REA instructions, kept byte for byte.",
 		});
 	else if (message.method === "ping") reply({ pid: process.pid });
+	else if (message.method === "prompts/list") reply({ prompts: [{ name: "investigate_feature" }] });
 	else if (message.method === "tools/list")
 		reply(message.params?.cursor ? { tools: tools.slice(20) } : { tools: tools.slice(0, 20), nextCursor: "page-2" });
 	else if (message.method === "fixture/change") {

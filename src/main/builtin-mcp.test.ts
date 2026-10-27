@@ -1,8 +1,8 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { builtinReaState, resetReaRuntimeCache } from "./builtin-mcp";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { builtinReaState, resetReaRuntimeCache, spawnReaState } from "./builtin-mcp";
 import { resetLoginShellEnvCache } from "./shell-env";
 import { RM_TEMP } from "./test-fake-omp";
 
@@ -79,5 +79,100 @@ describe.skipIf(process.platform === "win32")("builtinReaState", () => {
 		await installTools("v26.0.0");
 		await expect(builtinReaState(true)).resolves.toMatchObject({ available: true, nodeVersion: "v26.0.0" });
 		expect(await probes()).toEqual(["node", "node", "npx"]);
+	});
+});
+
+describe.skipIf(process.platform === "win32")("spawnReaState", () => {
+	const stored = async (file: string) => JSON.parse(await fs.readFile(file, "utf8").catch(() => "null"));
+	const identity = async (name: string) => {
+		const bin = path.join(dir, name);
+		const target = await fs.realpath(bin);
+		const { size, mtimeMs } = await fs.stat(target);
+		return JSON.stringify([bin, target, size, mtimeMs]);
+	};
+	/** A version manager's shim: the same script on PATH, the Node it runs picked by a config file beside it. */
+	const installShim = async (nodeVersion: string) => {
+		await installTools("unused");
+		await fs.writeFile(path.join(dir, "node-version"), nodeVersion);
+		// PATH holds only the fakes: shell builtins, no `cat`.
+		await fs.writeFile(
+			path.join(dir, "node"),
+			`#!/bin/sh\necho node >> '${calls}'\nread v < '${dir}/node-version'\necho "$v"\n`,
+		);
+	};
+	/** A Homebrew-style install: `node` on PATH is a symlink into the version's keg. */
+	const installKeg = async (nodeVersion: string) => {
+		const keg = path.join(dir, "Cellar", nodeVersion);
+		await fs.mkdir(keg, { recursive: true });
+		await fs.writeFile(path.join(keg, "node"), `#!/bin/sh\necho node >> '${calls}'\necho ${nodeVersion}\n`);
+		await fs.chmod(path.join(keg, "node"), 0o755);
+		await fs.rm(path.join(dir, "node"), { force: true });
+		await fs.symlink(path.join(keg, "node"), path.join(dir, "node"));
+	};
+
+	it("serves a spawn the last launch's answer while this launch's probe replaces it", async () => {
+		const file = path.join(dir, "rea-runtime.json");
+		await installShim("v26.0.0");
+		await expect(spawnReaState(undefined, file)).resolves.toEqual({
+			enabled: true,
+			available: true,
+			nodeVersion: "v26.0.0",
+		});
+		await vi.waitFor(async () =>
+			expect(await stored(file)).toEqual({
+				node: await identity("node"),
+				npx: await identity("npx"),
+				nodeVersion: "v26.0.0",
+			}),
+		);
+		// The next launch: the shim's config picks a newer Node, the shim itself is unchanged (the documented case a
+		// stored answer cannot see): this spawn takes the stored answer, the probe behind it corrects later spawns.
+		resetReaRuntimeCache();
+		await fs.writeFile(path.join(dir, "node-version"), "v26.1.0");
+		await expect(spawnReaState(false, file)).resolves.toEqual({
+			enabled: false,
+			available: true,
+			nodeVersion: "v26.0.0",
+		});
+		await vi.waitFor(async () => expect((await stored(file))?.nodeVersion).toBe("v26.1.0"));
+		await expect(spawnReaState(undefined, file)).resolves.toMatchObject({ nodeVersion: "v26.1.0" });
+		expect(await probes()).toEqual(["node", "npx", "node", "npx"]);
+	});
+
+	it("never vouches for a Node upgraded behind the same PATH entry: a moved symlink or a binary replaced in place", async () => {
+		const file = path.join(dir, "rea-runtime.json");
+		await installTools("unused");
+		await installKeg("v26.0.0");
+		await expect(spawnReaState(true, file)).resolves.toMatchObject({ available: true, nodeVersion: "v26.0.0" });
+		await vi.waitFor(async () => expect((await stored(file))?.node).toBe(await identity("node")));
+
+		// `brew switch`/nvm: the same `node` on PATH now resolves to an unsupported keg; the spawn waits for the probe.
+		resetReaRuntimeCache();
+		await installKeg("v20.0.0");
+		await expect(spawnReaState(true, file)).resolves.toMatchObject({ available: false, reason: "node-version" });
+		await vi.waitFor(async () => expect(await stored(file)).toBeNull());
+
+		// Back on a supported keg, then that binary replaced in place (same path and target, new mtime).
+		resetReaRuntimeCache();
+		await installKeg("v26.0.0");
+		await expect(spawnReaState(true, file)).resolves.toMatchObject({ available: true, nodeVersion: "v26.0.0" });
+		await vi.waitFor(async () => expect((await stored(file))?.node).toBe(await identity("node")));
+		resetReaRuntimeCache();
+		const binary = path.join(dir, "Cellar", "v26.0.0", "node");
+		await fs.writeFile(binary, `#!/bin/sh\necho node >> '${calls}'\necho v20.0.0\n`);
+		const later = new Date(Date.now() + 60_000);
+		await fs.utimes(binary, later, later);
+		await expect(spawnReaState(true, file)).resolves.toMatchObject({ available: false, reason: "node-version" });
+	});
+
+	it("waits for the probe when Node is elsewhere now, and an unavailable answer removes the stored one", async () => {
+		const file = path.join(dir, "rea-runtime.json");
+		await installTools("v20.0.0");
+		await fs.writeFile(
+			file,
+			JSON.stringify({ node: "/gone/node", npx: await identity("npx"), nodeVersion: "v26.0.0" }),
+		);
+		await expect(spawnReaState(true, file)).resolves.toMatchObject({ available: false, reason: "node-version" });
+		await vi.waitFor(async () => expect(await stored(file)).toBeNull());
 	});
 });

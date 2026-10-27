@@ -233,6 +233,34 @@ describe("createDispatcher", () => {
 		]);
 	});
 
+	it("answers an unqueued probe at once while a scan holds the serial lane", async () => {
+		const out: string[] = [];
+		const { promise: gate, resolve: release } = Promise.withResolvers<void>();
+		const dispatch = createDispatcher(
+			{
+				"sessions.list": async () => {
+					await gate;
+					return [];
+				},
+				"sessions.owned": () => false,
+				"sessions.delete": () => true,
+			},
+			line => out.push(line),
+			{ "sessions.owned": true },
+		);
+		dispatch(JSON.stringify({ id: 1, method: "sessions.list" }));
+		dispatch(JSON.stringify({ id: 2, method: "sessions.delete" }));
+		dispatch(JSON.stringify({ id: 3, method: "sessions.owned" }));
+		await vi.waitFor(() => expect(out).toHaveLength(1));
+		expect(JSON.parse(out[0] as string)).toEqual({ id: 3, result: false });
+		release();
+		await vi.waitFor(() => expect(out).toHaveLength(3));
+		expect(out.slice(1).map(line => JSON.parse(line))).toEqual([
+			{ id: 1, result: [] },
+			{ id: 2, result: true },
+		]);
+	});
+
 	it("reports unknown methods and malformed requests without stopping", async () => {
 		const out: string[] = [];
 		const dispatch = createDispatcher({}, line => out.push(line), false);

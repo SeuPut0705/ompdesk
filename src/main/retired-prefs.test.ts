@@ -100,4 +100,33 @@ describe("migrateRetiredPrefs", () => {
 		migrateRetiredPrefs(kept);
 		expect(kept.data).toEqual({ defaultPanelTab: "files" });
 	});
+
+	it("writes nothing to prefs that hold no retired key and an already merged value", () => {
+		// electron-store rewrites the whole prefs.json on every set and delete, present key or not (~74 ms for 14
+		// deletes on a 324 KB file), and this runs on every launch before the first window.
+		const store = memoryStore({
+			language: "en",
+			mobileWeb: { confirmNewDevices: true },
+			toolsAutoUpdate: false,
+			keymapOverrides: { "panel.terminal": ["⌥3"] },
+		});
+		let writes = 0;
+		const counted = {
+			...store,
+			set: (key: string, value: unknown) => {
+				writes++;
+				store.set(key, value);
+			},
+			delete: (key: string) => {
+				writes++;
+				store.delete(key);
+			},
+		};
+		migrateRetiredPrefs(counted);
+		expect(writes).toBe(0);
+		store.set("workBoard", false);
+		migrateRetiredPrefs(counted);
+		expect(writes).toBe(1);
+		expect(store.has("workBoard")).toBe(false);
+	});
 });

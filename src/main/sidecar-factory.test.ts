@@ -270,6 +270,7 @@ describe("localSidecarFactory", () => {
 			bridgeDir: "/bridge",
 			builtinDir: "/builtin",
 			builtinReaPref: () => rea,
+			reaCacheDir: "/ud/rea",
 			proxyEnv: async () => ({}),
 			bridgeHealth: new BridgeHealth(() => {}),
 			sessionKinds: new SessionKindStore(path.join(os.tmpdir(), "omp-gui-factory-kinds.json")),
@@ -287,10 +288,14 @@ describe("localSidecarFactory", () => {
 		const [options] = created;
 		reaProbes.count = 0;
 
-		expect((await options?.builtinMcp?.())?.args).toEqual([]);
+		const off = await options?.builtinMcp?.();
+		expect(off?.args).toEqual([]);
+		expect(off?.env).not.toHaveProperty("OMP_GUI_REA_CACHE");
 		expect(reaProbes.count).toBe(0);
 		rea = true;
-		expect((await options?.builtinMcp?.())?.args).toEqual(["-e", path.join("/builtin", "rea")]);
+		const on = await options?.builtinMcp?.();
+		expect(on?.args).toEqual(["-e", path.join("/builtin", "rea")]);
+		expect(on?.env).toMatchObject({ OMP_GUI_REA_CACHE: "/ud/rea" });
 		expect(reaProbes.count).toBe(1);
 	});
 

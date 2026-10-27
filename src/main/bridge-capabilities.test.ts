@@ -6,9 +6,11 @@ import {
 	BUNDLED_SCHEME,
 	deriveUnavailable,
 	FEATURES,
+	HEAVY_COPIES,
 	hasPath,
 	mergeAreaFailures,
 	missingFor,
+	PRESENCE_ONLY,
 	type ProbeSources,
 	parseHidden,
 	REQUIREMENTS,
@@ -43,6 +45,7 @@ function sources(overrides: Partial<ProbeSources> = {}): ProbeSources {
 	return {
 		session: fakeSession(),
 		pkg: { VERSION: "1.0.0" },
+		api: { extension: { handlers: new Map() } },
 		modules: new Map<string, unknown>([["mod/btw", { BtwHistoryStore: FakeStore, getBtwTurns() {} }]]),
 		hasPrompt: relative => relative === "present.md",
 		...overrides,
@@ -108,6 +111,13 @@ describe("missingFor", () => {
 				sources({ hidden }),
 			),
 		).toEqual(["AgentSession.setPlanModeState", "mod/btw#getBtwTurns"]);
+	});
+
+	it("checks the bridge's own ExtensionAPI members (contextHookIdle: the handler table behind pi.on)", () => {
+		expect(missingFor(REQUIREMENTS.contextHookIdle, sources())).toEqual([]);
+		expect(missingFor(REQUIREMENTS.contextHookIdle, sources({ api: { extension: {} } }))).toEqual([
+			"ExtensionAPI.extension.handlers",
+		]);
 	});
 });
 
@@ -246,6 +256,23 @@ describe("health.ts loaders", () => {
 			}
 		}
 		expect(eager).toEqual([]);
+	});
+
+	it("evaluates a presence-only copy in no omp: no bridge module imports one, and each is a heavy copy", () => {
+		// guard never evaluates these (health.ts probe): `sdk` on `providers`' first call held omp's thread ~1.1 s
+		// right after a tab's ready. Only the stock helper, in its own process, may load them.
+		const presenceOnly = Object.keys(PRESENCE_ONLY);
+		for (const specifier of presenceOnly) expect(HEAVY_COPIES, specifier).toHaveProperty([specifier]);
+		const outside = new Set(["stock-helper", "health.ts", "capabilities.ts"]);
+		const imported: string[] = [];
+		for (const entry of fs.readdirSync(BRIDGE_DIR, { recursive: true, encoding: "utf8" })) {
+			if (!entry.endsWith(".ts") || entry.endsWith(".test.ts") || outside.has(entry.split(path.sep)[0] ?? ""))
+				continue;
+			const source = fs.readFileSync(path.join(BRIDGE_DIR, entry), "utf8");
+			for (const specifier of presenceOnly)
+				if (source.includes(`"${specifier}"`)) imported.push(`${entry}: ${specifier}`);
+		}
+		expect(imported).toEqual([]);
 	});
 });
 

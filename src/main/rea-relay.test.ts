@@ -1,5 +1,8 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { once } from "node:events";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
@@ -28,11 +31,14 @@ interface RelayFixture {
 	wait: (predicate: (message: Message) => boolean) => Promise<Message>;
 }
 const fixtures: RelayFixture[] = [];
-function relay() {
+function relay(cacheDir?: string, env: Record<string, string> = {}) {
 	const child = spawn(
 		process.execPath,
 		[fileURLToPath(new URL("./test-fixtures/rea-relay-entry.mjs", import.meta.url))],
-		{ stdio: ["pipe", "pipe", "pipe"] },
+		{
+			stdio: ["pipe", "pipe", "pipe"],
+			env: { ...process.env, OMP_GUI_REA_CACHE: cacheDir ?? "", ...env },
+		},
 	);
 	const closed = once(child, "close");
 	const lines = createInterface({ input: child.stdout });
@@ -75,12 +81,13 @@ async function initialize(fixture: RelayFixture) {
 	fixture.send({ jsonrpc: "2.0", method: "notifications/initialized" });
 	await fixture.wait(message => message.method === "notifications/message");
 }
-afterEach(async () => {
+async function closeRelays() {
 	for (const fixture of fixtures.splice(0)) {
 		fixture.child.stdin.end();
 		await fixture.closed;
 	}
-});
+}
+afterEach(closeRelays);
 
 describe("REA relay", () => {
 	it("exposes only the curated entry schemas plus two meta tools from a paginated 30-tool child", async () => {
@@ -171,5 +178,169 @@ describe("REA relay", () => {
 		expect((await fixture.closed)[0]).toBe(0);
 		expect(() => process.kill(childPid, 0)).toThrow();
 		expect(() => process.kill(descendantPid, 0)).toThrow();
+	});
+});
+
+describe("REA relay with a startup cache", () => {
+	const HANDSHAKE = { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "test", version: "1" } };
+	const dirs: string[] = [];
+	afterEach(async () => {
+		// Inner hooks run first: a relay still running would write its cache back into a removed dir.
+		await closeRelays();
+		for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+	});
+	const cacheFile = (dir: string) => path.join(dir, `rea-${config.version}.json`);
+	/** A first relay finds no cache, starts REA with omp as before, and records its startup answers. */
+	async function filledCache() {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rea-cache-"));
+		dirs.push(dir);
+		const first = relay(dir);
+		await initialize(first);
+		await first.request("tools/list");
+		await expect.poll(() => fs.existsSync(cacheFile(dir))).toBe(true);
+		first.child.stdin.end();
+		await first.closed;
+		return dir;
+	}
+	async function cachedStartup(fixture: RelayFixture) {
+		const response = await fixture.request("initialize", HANDSHAKE);
+		fixture.send({ jsonrpc: "2.0", method: "notifications/initialized" });
+		return response;
+	}
+	const catalogSize = async (fixture: RelayFixture) =>
+		Tools.parse(
+			JSON.parse(
+				Content.parse((await fixture.request("tools/call", { name: "rea_catalog", arguments: {} })).result)
+					.content[0].text,
+			),
+		).tools.length;
+
+	it("answers omp's startup from the cache and starts REA at the first call that needs it", async () => {
+		const fixture = relay(await filledCache());
+		expect((await cachedStartup(fixture)).result).toEqual({
+			protocolVersion: "2024-11-05",
+			capabilities: { tools: { listChanged: true }, prompts: {} },
+			serverInfo: { name: "fake-rea", version: "test" },
+			instructions: "Fake REA instructions, kept byte for byte.",
+		});
+		const listed = Tools.parse((await fixture.request("tools/list")).result).tools;
+		expect(listed.map(tool => tool.name)).toEqual([...config.curatedTools, "rea_catalog", "rea_call"]);
+		expect((await fixture.request("prompts/list")).result).toEqual({ prompts: [{ name: "investigate_feature" }] });
+		expect(await catalogSize(fixture)).toBe(30);
+		// The relay answers ping itself while REA is not running; REA's own ping names its pid.
+		expect((await fixture.request("ping")).result).toEqual({});
+		const call = await fixture.request("tools/call", {
+			name: "rea_call",
+			arguments: { name: "extra_3", arguments: { marker: "x" } },
+		});
+		expect(JSON.parse(Content.parse(call.result).content[0].text)).toEqual({
+			name: "extra_3",
+			arguments: { marker: "x" },
+		});
+		await fixture.wait(message => message.method === "notifications/message");
+		expect(Pid.parse((await fixture.request("ping")).result).pid).toBeGreaterThan(0);
+	});
+
+	it("announces a catalog that changed since the cache was written, and records the new one", async () => {
+		const dir = await filledCache();
+		const stale = JSON.parse(fs.readFileSync(cacheFile(dir), "utf8"));
+		stale.tools = stale.tools.slice(0, -1);
+		fs.writeFileSync(cacheFile(dir), JSON.stringify(stale));
+		const fixture = relay(dir);
+		await cachedStartup(fixture);
+		expect(await catalogSize(fixture)).toBe(29);
+		await fixture.request("tools/call", {
+			name: "rea_call",
+			arguments: { name: "extra_3", arguments: { marker: "x" } },
+		});
+		await fixture.wait(message => message.method === "notifications/tools/list_changed");
+		expect(await catalogSize(fixture)).toBe(30);
+		await expect.poll(() => JSON.parse(fs.readFileSync(cacheFile(dir), "utf8")).tools.length).toBe(30);
+	});
+
+	it("lets REA answer a handshake the cache was not written for", async () => {
+		const fixture = relay(await filledCache());
+		const response = await fixture.request("initialize", { ...HANDSHAKE, protocolVersion: "2025-06-18" });
+		expect(response.result).toMatchObject({ protocolVersion: "2025-06-18", serverInfo: { name: "fake-rea" } });
+		expect(Pid.parse((await fixture.request("ping")).result).pid).toBeGreaterThan(0);
+	});
+
+	it("exits cleanly on stdin EOF when REA never started", async () => {
+		const fixture = relay(await filledCache());
+		await cachedStartup(fixture);
+		await fixture.request("tools/list");
+		fixture.child.stdin.end();
+		expect((await fixture.closed)[0]).toBe(0);
+	});
+
+	it("answers the first call with an error and forgets the cache when REA cannot start", async () => {
+		const dir = await filledCache();
+		const fixture = relay(dir, { REA_TEST_COMMAND: path.join(dir, "no-such-rea") });
+		await cachedStartup(fixture);
+		const call = await fixture.request("tools/call", {
+			name: "rea_call",
+			arguments: { name: "extra_3", arguments: { marker: "x" } },
+		});
+		expect(call.error?.message).toBeTruthy();
+		expect((await fixture.closed)[0]).not.toBe(0);
+		// The next omp starts REA with its startup again and sees the failure there, not a healthy cached REA.
+		expect(fs.existsSync(cacheFile(dir))).toBe(false);
+	});
+
+	it("answers the first call with REA's error and exits when REA refuses the handshake", async () => {
+		const dir = await filledCache();
+		const fixture = relay(dir, { REA_FIXTURE_FAIL_INITIALIZE: "1" });
+		await cachedStartup(fixture);
+		const call = await fixture.request("tools/call", {
+			name: "rea_call",
+			arguments: { name: "extra_3", arguments: { marker: "x" } },
+		});
+		expect(call.error?.message).toBe("REA could not initialize");
+		expect((await fixture.closed)[0]).not.toBe(0);
+		expect(fs.existsSync(cacheFile(dir))).toBe(false);
+	});
+
+	it("does not run a call omp cancelled while REA was starting", async () => {
+		const fixture = relay(await filledCache());
+		await cachedStartup(fixture);
+		fixture.send({
+			jsonrpc: "2.0",
+			id: "cancelled-call",
+			method: "tools/call",
+			params: { name: "rea_call", arguments: { name: "extra_3", arguments: { marker: "x" } } },
+		});
+		fixture.send({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: "cancelled-call" } });
+		const answer = await fixture.wait(message => message.id === "cancelled-call");
+		expect(answer.result).toBeUndefined();
+		expect(answer.error?.code).toBe(-32800);
+		// REA did start: the next call runs.
+		const next = await fixture.request("tools/call", {
+			name: "rea_call",
+			arguments: { name: "extra_3", arguments: { marker: "y" } },
+		});
+		expect(JSON.parse(Content.parse(next.result).content[0].text)).toMatchObject({ arguments: { marker: "y" } });
+	});
+
+	it("hands REA the notifications sent while it started only after its handshake", async () => {
+		const fixture = relay(await filledCache(), { REA_FIXTURE_SLOW_INITIALIZE: "1" });
+		await cachedStartup(fixture);
+		const initializing = Promise.withResolvers<void>();
+		createInterface({ input: fixture.child.stderr }).on("line", line => {
+			if (line === "fake-rea: initializing") initializing.resolve();
+		});
+		const call = fixture.request("tools/call", {
+			name: "rea_call",
+			arguments: { name: "extra_3", arguments: { marker: "x" } },
+		});
+		// REA runs and has its handshake but has not answered it.
+		await initializing.promise;
+		fixture.send({ jsonrpc: "2.0", method: "notifications/roots/list_changed" });
+		await call;
+		const echo = await fixture.wait(
+			message =>
+				message.method === "notifications/message" &&
+				z.object({ notification: z.string() }).safeParse(message.params).success,
+		);
+		expect(echo.params).toEqual({ notification: "notifications/roots/list_changed", initialized: true });
 	});
 });
