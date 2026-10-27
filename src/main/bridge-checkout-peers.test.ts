@@ -500,6 +500,33 @@ describe("the checkout ledger", () => {
 		expect(ledger.files).toEqual([a, b]);
 	});
 
+	it("never retires the claim of a write still running, nor one main read while it ran", () => {
+		const ledger = new CheckoutLedger();
+		const tracked = `${REPO}/tracked.ts`;
+		// The hook runs before the command: `sleep 8` keeps the file clean while main takes a pass.
+		ledger.call("bash", { command: "sleep 8; echo changed > tracked.ts" }, REPO, undefined, host, "c1");
+		const seenWhileRunning = [{ file: tracked, stamp: ledger.stamp(tracked) }];
+		ledger.retire(seenWhileRunning);
+		expect(ledger.files).toEqual([tracked]);
+		// The write lands; a retirement main decided from its read during the run arrives late.
+		expect(ledger.settle("c1")).toBe(true);
+		ledger.retire(seenWhileRunning);
+		expect(ledger.files).toEqual([tracked]);
+		// A pass after the write that finds it committed retires it.
+		ledger.retire([{ file: tracked, stamp: ledger.stamp(tracked) }]);
+		expect(ledger.files).toEqual([]);
+		expect(ledger.settle("c1")).toBe(false);
+	});
+
+	it("lets a call that never reported back stop holding its claim at the end of the run", () => {
+		const ledger = new CheckoutLedger();
+		const tracked = `${REPO}/tracked.ts`;
+		ledger.call("write", { path: "tracked.ts", content: "x" }, REPO, undefined, host, "denied");
+		ledger.settleAll();
+		ledger.retire([{ file: tracked, stamp: ledger.stamp(tracked) }]);
+		expect(ledger.files).toEqual([]);
+	});
+
 	it("claims every file a command replaces or deletes, and no file one only touches", () => {
 		const ledger = new CheckoutLedger();
 		bash(ledger, undefined, "cp /tmp/x src/new.ts && rm src/old.ts && mv src/m.ts src/n.ts");

@@ -9,6 +9,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { CheckoutPeers } from "../../resources/gui-bridge/modes/checkout-peers-contracts";
+import { CheckoutLedger, retiredClaims } from "../../resources/gui-bridge/modes/checkout-peers-core";
 import { type CheckoutMember, CheckoutPeerCoordinator, readCheckoutPlace, readGitStatus } from "./checkout-peers";
 import { readOriginFacts } from "./local/git/origin";
 
@@ -249,6 +250,33 @@ describe("checkout peers: a committed file is no longer a claim", () => {
 		a.edit(src("f.ts"));
 		await peers.refresh();
 		expect(b.fake.sent.at(-1)?.worktree[0]).toMatchObject({ files: [src("f.ts")], shared: [src("f.ts")] });
+	});
+
+	it("keeps a claim whose write is still running when a pass finds the file clean", async () => {
+		const host = { realpath: (file: string) => file, isDirectory: () => false };
+		const ledger = new CheckoutLedger();
+		const writer = member("w", main, [], {
+			request: async (method, params) => {
+				if (method === "checkout_status")
+					return { files: [...ledger.files], stamps: ledger.files.map(f => ledger.stamp(f)) };
+				if (method === "checkout_retire") ledger.retire(retiredClaims(params));
+				return { ok: true };
+			},
+		});
+		const other = member("o", main);
+		let listed = porcelain();
+		const peers = coordinator(
+			() => [writer, other],
+			new Set(),
+			async () => listed,
+		);
+		// `sleep 8; echo changed > src/t.ts`: claimed at the hook, the file still clean while main takes a pass.
+		ledger.call("bash", { command: "sleep 8; echo changed > src/t.ts" }, main, undefined, host, "c1");
+		await peers.refresh();
+		listed = porcelain(" M src/t.ts");
+		ledger.settle("c1");
+		await peers.refresh();
+		expect(other.sent.at(-1)?.worktree[0]?.files).toEqual([src("t.ts")]);
 	});
 
 	it("keeps a member's last answer when its bridge fails or does not answer in time", async () => {
