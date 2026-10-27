@@ -802,6 +802,29 @@ describe("RemoteSidecar", () => {
 		expect(ipcErrorCode(refused)).toBe("remote_offline");
 	});
 
+	it("mirrors the host's scheduled retry by this computer's clock; an unreadable one is dropped", async () => {
+		const { sidecar } = setup();
+		const retries: unknown[] = [];
+		sidecar.on("scheduledRetry", (retry: unknown) => retries.push(retry));
+		sidecar.start();
+		await settle();
+		const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+		try {
+			// The host sends what is left, never its own clock: the two computers' clocks may differ.
+			sidecar.handleEvent({
+				rtab: "tab-1",
+				name: "scheduledRetry",
+				arg: { remainingMs: 30_000, attempt: 1, max: 3 },
+			});
+			sidecar.handleEvent({ rtab: "tab-1", name: "scheduledRetry", arg: { remainingMs: -5, attempt: 1, max: 3 } });
+			sidecar.handleEvent({ rtab: "tab-1", name: "scheduledRetry", arg: { at: 5, attempt: 1, max: 3 } });
+			sidecar.handleEvent({ rtab: "tab-1", name: "scheduledRetry", arg: null });
+		} finally {
+			now.mockRestore();
+		}
+		expect(retries).toEqual([{ at: 1_030_000, attempt: 1, max: 3 }, undefined]);
+	});
+
 	it("starts a restored tab on its session without restarting the omp a host still runs for it", async () => {
 		const { link, sidecar } = setup();
 		link.attached = true;

@@ -2688,6 +2688,20 @@ describe("SidecarPool background tabs", () => {
 			a?.emit("awaitingConnection", false);
 			expect(pool.resumeFacts()[0]?.awaitingConnection).toBe(false);
 		});
+
+		it("shows the retry a paired host scheduled for its tab (the host's `scheduledRetry` event)", () => {
+			const { pool, sidecars } = fakePool();
+			const fw = fakeWindow(1);
+			pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
+			const a = sidecars[0];
+			a?.emitStatus("ready");
+			const retry = { at: 40_000, attempt: 2, max: 3 };
+			a?.emit("scheduledRetry", retry);
+			expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({ tabId: "tab-a", scheduledRetry: retry });
+			expect(pool.tabsForWindow(fw.win)[0]?.scheduledRetry).toEqual(retry);
+			a?.emit("scheduledRetry", undefined);
+			expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).not.toHaveProperty("scheduledRetry");
+		});
 	});
 
 	it("tracks the session a get_state reports in one push, so a later session_info_update is no change", () => {
@@ -3387,5 +3401,48 @@ describe("SidecarPool device views (a paired device viewing a tab of a window he
 			type: "set_subagent_subscription",
 			level: "off",
 		});
+	});
+
+	// 27 Oct 2026, a DNS outage on this computer: a device viewing a window's tab showed only the red error card while
+	// this computer held the turn for its connection, and its Cancel did nothing.
+	it("tells the device the window's connection wait live, and a device that joins while it holds", async () => {
+		const { pool, view } = viewed();
+		const waits: boolean[] = [];
+		view.on("awaitingConnection", (awaiting: boolean) => waits.push(awaiting));
+		pool.setAwaitingConnection("tab-a", true);
+		pool.setAwaitingConnection("tab-a", false);
+		pool.setAwaitingConnection("tab-a", true);
+		expect(waits).toEqual([true, false, true]);
+
+		const late = pool.viewForDevice("/s/a.jsonl", { deviceId: "pc", name: "PC" }, "Host B");
+		const lateWaits: boolean[] = [];
+		late?.on("awaitingConnection", (awaiting: boolean) => lateWaits.push(awaiting));
+		await Promise.resolve();
+		expect(lateWaits).toEqual([true]);
+	});
+
+	it("sends the device's Cancel to this computer's resume rules for the window's tab", async () => {
+		const { pool, view } = viewed();
+		const cancelWait = vi.fn();
+		pool.onCancelWait = cancelWait;
+		await view.cancelHostWait();
+		expect(cancelWait).toHaveBeenCalledWith("tab-a");
+	});
+
+	it("tells the device the window's scheduled retry and its call-off, and a device that joins while it holds", async () => {
+		const { pool, view } = viewed();
+		const retries: unknown[] = [];
+		view.on("scheduledRetry", (retry: unknown) => retries.push(retry));
+		const retry = { at: 40_000, attempt: 1, max: 3 };
+		pool.setScheduledRetry("tab-a", retry);
+		pool.setScheduledRetry("tab-a", undefined);
+		expect(retries).toEqual([retry, undefined]);
+
+		pool.setScheduledRetry("tab-a", retry);
+		const late = pool.viewForDevice("/s/a.jsonl", { deviceId: "pc", name: "PC" }, "Host B");
+		const lateRetries: unknown[] = [];
+		late?.on("scheduledRetry", (each: unknown) => lateRetries.push(each));
+		await Promise.resolve();
+		expect(lateRetries).toEqual([retry]);
 	});
 });

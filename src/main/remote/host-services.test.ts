@@ -393,6 +393,7 @@ describe("LocalHostServices", () => {
 		expect(y.tabEvents()).toEqual([
 			{ rtab: "t1", name: "signIn", arg: { active: [] } },
 			{ rtab: "t1", name: "awaitingConnection", arg: false },
+			{ rtab: "t1", name: "scheduledRetry", arg: null },
 		]);
 	});
 
@@ -537,6 +538,7 @@ describe("LocalHostServices", () => {
 			// holds the tab's turn for its connection.
 			{ rtab: "t1", name: "signIn", arg: { active: [] } },
 			{ rtab: "t1", name: "awaitingConnection", arg: false },
+			{ rtab: "t1", name: "scheduledRetry", arg: null },
 			{
 				rtab: "t1",
 				name: "status",
@@ -1197,6 +1199,7 @@ describe("LocalHostServices", () => {
 			{ rtab: "t1", name: "signIn", arg: { active: [] } },
 			{ rtab: "t1", name: "openAsks", arg: [] },
 			{ rtab: "t1", name: "awaitingConnection", arg: false },
+			{ rtab: "t1", name: "scheduledRetry", arg: null },
 		]);
 		vi.advanceTimersByTime(5_000);
 		expect(sidecars[0]?.disposed).toBe(false);
@@ -1238,6 +1241,7 @@ describe("LocalHostServices", () => {
 			["new", "signIn"],
 			["new", "openAsks"],
 			["new", "awaitingConnection"],
+			["new", "scheduledRetry"],
 			["new", "events"],
 		]);
 		const old = await services
@@ -1423,6 +1427,7 @@ describe("LocalHostServices", () => {
 			"signIn",
 			"openAsks",
 			"awaitingConnection",
+			"scheduledRetry",
 		]);
 		expect(openAsks(fourth)).toEqual([]);
 	});
@@ -1525,6 +1530,7 @@ describe("LocalHostServices", () => {
 			"signIn",
 			"openAsks",
 			"awaitingConnection",
+			"scheduledRetry",
 		]);
 
 		finish.resolve({ type: "response", command: "login", success: false, error: "denied" });
@@ -2491,6 +2497,51 @@ describe("LocalHostServices: a device opening a session a window of this compute
 		told();
 		expect(x.tabEvents()).toContainEqual({ rtab: "t1", name: "sessionDeleted", arg: SESSION });
 		expect(view.disposed).toBe(true);
+	});
+
+	// 27 Oct 2026, a DNS outage on this computer: the device viewing a window's tab showed only the red error card while
+	// this computer held the turn for its connection or had a retry scheduled, and its Cancel did nothing.
+	it("tells the viewing device the window's connection wait and scheduled retry, live and on every re-open", async () => {
+		vi.useFakeTimers({ now: 100_000 });
+		const { services, view, x } = await viewing();
+		expect(x.tabEvents()).toContainEqual({ rtab: "t1", name: "scheduledRetry", arg: null });
+		view.emit("awaitingConnection", true);
+		expect(x.tabEvents().at(-1)).toEqual({ rtab: "t1", name: "awaitingConnection", arg: true });
+		view.emit("awaitingConnection", false);
+		expect(x.tabEvents().at(-1)).toEqual({ rtab: "t1", name: "awaitingConnection", arg: false });
+		// What is left, never this computer's clock: the device's may differ.
+		view.emit("scheduledRetry", { at: 130_000, attempt: 1, max: 3 });
+		expect(x.tabEvents().at(-1)).toEqual({
+			rtab: "t1",
+			name: "scheduledRetry",
+			arg: { remainingMs: 30_000, attempt: 1, max: 3 },
+		});
+		view.emit("awaitingConnection", true);
+
+		// The device lost this computer and came back: it is told both still hold, by what is left now.
+		vi.advanceTimersByTime(10_000);
+		services.disconnected(x.peer, x);
+		const back = new FakeConnection(peer("device-x"));
+		await services.call(back.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: SESSION }, back);
+		expect(back.tabEvents()).toContainEqual({ rtab: "t1", name: "awaitingConnection", arg: true });
+		expect(back.tabEvents()).toContainEqual({
+			rtab: "t1",
+			name: "scheduledRetry",
+			arg: { remainingMs: 20_000, attempt: 1, max: 3 },
+		});
+		view.emit("scheduledRetry", undefined);
+		expect(back.tabEvents().at(-1)).toEqual({ rtab: "t1", name: "scheduledRetry", arg: null });
+	});
+
+	it("sends the device's Cancel to the window's tab, never to a device tab's resume id", async () => {
+		const { services, view, x } = await viewing();
+		const resume = { sync: vi.fn(), cancelWait: vi.fn() };
+		services.attachResume(resume);
+		const cancelHostWait = vi.fn(async () => {});
+		Object.assign(view, { cancelHostWait });
+		await services.call(x.peer, "tab.cancelWait", { rtab: "t1" }, x);
+		expect(cancelHostWait).toHaveBeenCalledTimes(1);
+		expect(resume.cancelWait).not.toHaveBeenCalled();
 	});
 });
 
