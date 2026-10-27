@@ -820,8 +820,8 @@ export class CheckoutLedger {
 	#told = new Set<string>();
 	#stamps = new Map<string, number>();
 	#seq = 0;
-	/** The files each call that has not reported back yet claimed, by tool call id. */
-	#pending = new Map<string, string[]>();
+	/** The files each call that has not reported back yet claimed, by tool call id, with the agent that made it. */
+	#pending = new Map<string, { paths: string[]; owner: string }>();
 
 	/** The files this session changed, newest first. */
 	get files(): readonly string[] {
@@ -839,6 +839,7 @@ export class CheckoutLedger {
 		peers: CheckoutPeers | undefined,
 		host: CheckoutHost,
 		toolCallId?: string,
+		owner = "",
 	): CallVerdict {
 		const args = typeof input === "object" && input !== null ? input : {};
 		let touched: string[] = [];
@@ -875,7 +876,7 @@ export class CheckoutLedger {
 			for (const path of paths) this.#stamps.set(path, ++this.#seq);
 			for (const path of this.#stamps.keys()) if (!this.#files.includes(path)) this.#stamps.delete(path);
 			// The hook runs before the tool: until it reports back, git may not show the change yet.
-			if (toolCallId !== undefined) this.#pending.set(toolCallId, paths);
+			if (toolCallId !== undefined) this.#pending.set(toolCallId, { paths, owner });
 		}
 		return { notice, gained };
 	}
@@ -891,17 +892,21 @@ export class CheckoutLedger {
 	 * caller tells main, which then reads the written change).
 	 */
 	settle(toolCallId: string): boolean {
-		const paths = this.#pending.get(toolCallId);
-		if (!paths) return false;
+		const pending = this.#pending.get(toolCallId);
+		if (!pending) return false;
 		this.#pending.delete(toolCallId);
-		for (const path of paths) if (this.#stamps.has(path)) this.#stamps.set(path, ++this.#seq);
+		for (const path of pending.paths) if (this.#stamps.has(path)) this.#stamps.set(path, ++this.#seq);
 		return true;
 	}
 
-	/** Settles every call still pending: a run ended, and a call stock refused before running it never reports back. */
-	settleAll(): boolean {
+	/**
+	 * Settles every call `owner` (one agent: the session's main agent or one subagent; they share this ledger) left
+	 * pending: its run ended, and a call stock refused before running it never reports back. Another agent's calls
+	 * may still be running and stay pending.
+	 */
+	settleAll(owner: string): boolean {
 		let any = false;
-		for (const id of [...this.#pending.keys()]) any = this.settle(id) || any;
+		for (const [id, pending] of [...this.#pending]) if (pending.owner === owner) any = this.settle(id) || any;
 		return any;
 	}
 
@@ -911,7 +916,7 @@ export class CheckoutLedger {
 	 * still writing stays too.
 	 */
 	retire(claims: ReadonlyArray<{ file: string; stamp: number }>): void {
-		const writing = new Set([...this.#pending.values()].flat());
+		const writing = new Set([...this.#pending.values()].flatMap(pending => pending.paths));
 		const gone = new Set(
 			claims
 				.filter(claim => !writing.has(claim.file) && this.#stamps.get(claim.file) === claim.stamp)

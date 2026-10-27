@@ -44,11 +44,15 @@ const host = {
 const state = new CheckoutPeersState();
 const ledger = new CheckoutLedger();
 
+let installs = 0;
+
 /** Called once per extension instance (main and every subagent rebinding) by index.ts. */
 export function install(pi: ExtensionAPI): void {
+	// Each agent (the main one, each in-process subagent) gets its own `pi`: its run's end settles only its own calls.
+	const owner = `agent-${++installs}`;
 	registerPromptSection(pi, CHECKOUT_PEERS_SECTION_ID, () => checkoutSection(state.peers));
 	pi.on("tool_call", (event, ctx) => {
-		const verdict = ledger.call(event.toolName, event.input, ctx.cwd, state.peers, host, event.toolCallId);
+		const verdict = ledger.call(event.toolName, event.input, ctx.cwd, state.peers, host, event.toolCallId, owner);
 		if ("block" in verdict) return { block: true, reason: verdict.block };
 		// Main learns of a new claim now, not at its next sweep, so the others' guards see the file within a pass.
 		if (verdict.gained) emit({ type: CHECKOUT_FILES_EVENT });
@@ -59,9 +63,9 @@ export function install(pi: ExtensionAPI): void {
 		if (ledger.settle(event.toolCallId)) emit({ type: CHECKOUT_FILES_EVENT });
 		return undefined;
 	});
-	// A call stock refused after the hook (a denied approval) never reports back; the run's end settles it.
+	// A call stock refused after the hook (a denied approval) never reports back; this agent's run end settles it.
 	pi.on("agent_end", () => {
-		if (ledger.settleAll()) emit({ type: CHECKOUT_FILES_EVENT });
+		if (ledger.settleAll(owner)) emit({ type: CHECKOUT_FILES_EVENT });
 	});
 }
 
