@@ -1294,9 +1294,9 @@ export class SidecarManager extends EventEmitter {
 	 * A direct request to this omp's own bridge, not through the RPC client: main-side assists that must not meter a
 	 * paired device's quota or name it the tab's driver (notify-triage.ts). Rejects while no bridge is connected.
 	 */
-	bridgeRequest(method: string, params?: unknown): Promise<unknown> {
+	bridgeRequest(method: string, params?: unknown, timeoutMs?: number): Promise<unknown> {
 		return this.#bridge
-			? this.#bridge.request(method, params)
+			? this.#bridge.request(method, params, undefined, timeoutMs === undefined ? undefined : { timeoutMs })
 			: Promise.reject(new Error("gui-bridge not connected"));
 	}
 

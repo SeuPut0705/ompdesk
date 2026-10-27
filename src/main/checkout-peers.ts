@@ -35,7 +35,10 @@ export interface CheckoutMember {
 	device?: string;
 	/** It has the OMPdesk control tools, so it can message the others. */
 	canMessage: boolean;
-	request(method: string, params?: unknown): Promise<unknown>;
+	/** What its `checkout_files` frames name (the sidecar): `filesChanged` ignores those of a session that works alone. */
+	owner?: object;
+	/** `timeoutMs`: the request is dropped (and rejects) after it, so a frozen omp leaves nothing behind. */
+	request(method: string, params?: unknown, timeoutMs?: number): Promise<unknown>;
 }
 
 export interface CheckoutPlace {
@@ -49,15 +52,20 @@ export interface CheckoutPeersDeps {
 	place(cwd: string): Promise<CheckoutPlace | null>;
 	/** Session files the user hid from agents (Sidebar › hide from other agents). */
 	hiddenPaths(): Set<string>;
-	/** `git status --porcelain=v1 -z --untracked-files=all` of a worktree top level; rejects when git fails or is too slow. */
-	gitStatus(toplevel: string): Promise<string>;
+	/** `git status --porcelain=v1 -z --untracked-files=all` of a worktree top level, limited to `paths` (relative to it); rejects when git fails or is too slow. */
+	gitStatus(toplevel: string, paths: string[]): Promise<string>;
 	now?: () => number;
 }
 
 /** A folder's checkout is asked again after this (a `git worktree add` or a deleted checkout changes it). */
 const PLACE_TTL_MS = 30_000;
-const STATUS_TIMEOUT_MS = 2_000;
+/** Every request of a pass to a member's bridge: one omp that does not answer never holds the others back. */
+const REQUEST_TIMEOUT_MS = 2_000;
 const GIT_STATUS_TIMEOUT_MS = 5_000;
+/** The command line of one `git status` stays far below Windows' 32 767 characters. */
+const GIT_ARGS_BUDGET = 6_000;
+/** A burst of `checkout_files` frames (one per file a session writes) costs one pass. */
+const FILES_DEBOUNCE_MS = 250;
 /** Besides tab activity, a pass runs this often: a tab that became ready, a hidden session or a new worktree moves no tab. */
 export const CHECKOUT_PEERS_SWEEP_MS = 10_000;
 
@@ -70,6 +78,11 @@ export class CheckoutPeerCoordinator {
 	readonly #peerIds = new Map<string, string[]>();
 	/** The last status each member's bridge answered with. */
 	readonly #statuses = new Map<string, MemberStatus>();
+	/** Per worktree: the claims (`member\0file\0stamp`) the last successful git listing found committed, for a pass whose git fails. */
+	readonly #committed = new Map<string, Set<string>>();
+	/** Owners of the members that worked alone in the last pass. */
+	#lone = new Set<object>();
+	#timer: ReturnType<typeof setTimeout> | null = null;
 	#running: Promise<void> | null = null;
 	#again = false;
 
@@ -93,6 +106,20 @@ export class CheckoutPeerCoordinator {
 		return this.#running;
 	}
 
+	/**
+	 * A bridge reported a file it had not changed before: a pass runs soon (a burst of frames costs one). A session that
+	 * works alone has nobody to tell, so its frames are ignored: whoever joins it asks for a pass of its own.
+	 */
+	filesChanged(owner?: object): void {
+		if (owner && this.#lone.has(owner)) return;
+		if (this.#timer) return;
+		this.#timer = setTimeout(() => {
+			this.#timer = null;
+			void this.refresh();
+		}, FILES_DEBOUNCE_MS);
+		this.#timer.unref?.();
+	}
+
 	#place(cwd: string): Promise<CheckoutPlace | null> {
 		const now = (this.#deps.now ?? Date.now)();
 		const cached = this.#places.get(cwd);
@@ -114,54 +141,94 @@ export class CheckoutPeerCoordinator {
 		}
 		const hidden = this.#deps.hiddenPaths();
 		const live = new Set<string>();
+		const lone = new Set<object>();
+		for (const { member, place } of placed) {
+			const alone = !place || (byRepo.get(place.commonDir)?.length ?? 0) < 2;
+			if (alone && member.owner) lone.add(member.owner);
+		}
+		this.#lone = lone;
+		// Every member is told on its own: one omp that does not answer in time never holds the others back.
+		const sends: Array<Promise<void>> = [];
 		for (const group of byRepo.values()) {
 			// A claim is a file that is uncommitted, so files are read for every member of a repository with company (a
-			// session in another worktree hears them too, to know a merge will conflict), and git is asked once per worktree.
-			// Git is asked after the claims are read: a file changed after its claim was read carries a newer stamp, so the
-			// retirement below can never drop a change git did not see yet.
+			// session in another worktree hears them too, to know a merge will conflict), and git is asked once per worktree
+			// about the claimed paths only. Git is asked after the claims are read: a file changed after its claim was read
+			// carries a newer stamp, so the retirement below can never drop a change git did not see yet.
 			const company = group.length > 1 ? group : [];
 			const tops = [...new Set(company.map(({ place }) => place.toplevel))];
 			const status = new Map(
 				await Promise.all(company.map(async ({ member }) => [member.key, await this.#statusOf(member)] as const)),
 			);
-			const listed = new Map(
+			const held = new Map(
 				await Promise.all(
-					tops.map(async top => [top, await this.#deps.gitStatus(top).then(listedPaths, () => null)] as const),
+					company.map(
+						async ({ member, place }) =>
+							[member.key, await claimsOf(status.get(member.key) ?? EMPTY_STATUS, place.toplevel)] as const,
+					),
 				),
 			);
+			const listed = new Map(
+				await Promise.all(
+					tops.map(async top => {
+						const asked = new Set<string>();
+						for (const { member, place } of company)
+							if (place.toplevel === top)
+								for (const claim of held.get(member.key) ?? [])
+									if (claim.rel !== null) {
+										asked.add(claim.rel);
+										asked.add(claim.norm ?? claim.rel);
+									}
+						// No claim in this worktree: nothing to ask git, and nothing to retire.
+						if (asked.size === 0) return [top, new Set<string>()] as const;
+						return [top, await this.#deps.gitStatus(top, [...asked]).then(listedPaths, () => null)] as const;
+					}),
+				),
+			);
+			const judged = new Map<string, Set<string>>();
 			const claims = new Map<string, Claim[]>();
 			await Promise.all(
 				company.map(async ({ member, place }) => {
-					const known = status.get(member.key) ?? { files: [] };
-					const all = await Promise.all(
-						known.files.map(async (file, index) => ({
-							file,
-							rel: await relativeTo(place.toplevel, file),
-							stamp: known.stamps?.[index],
-						})),
-					);
+					const known = status.get(member.key) ?? EMPTY_STATUS;
 					const gitSays = listed.get(place.toplevel) ?? null;
-					claims.set(
-						member.key,
-						gitSays ? all.filter(claim => claim.rel !== null && gitSays.has(claim.rel)) : all,
-					);
+					const before = this.#committed.get(place.toplevel);
+					const now = judged.get(place.toplevel) ?? new Set<string>();
+					judged.set(place.toplevel, now);
+					const kept: Claim[] = [];
+					const committed: Array<{ file: string; stamp: number }> = [];
+					for (const claim of held.get(member.key) ?? []) {
+						if (claim.pending) {
+							// A call still writing it: git may not show it yet, and it is never retired.
+							if (claim.rel !== null) kept.push(claim);
+							continue;
+						}
+						const stamp = claim.stamp;
+						const key = `${member.key}\0${claim.file}\0${stamp}`;
+						// Outside the worktree nothing can list it: it stops being a claim at once.
+						if (claim.norm === null) {
+							if (stamp !== undefined) committed.push({ file: claim.file, stamp });
+						} else if (gitSays) {
+							if (holds(gitSays, claim.norm)) kept.push(claim);
+							else if (stamp !== undefined) {
+								committed.push({ file: claim.file, stamp });
+								now.add(key);
+							}
+						} else if (stamp !== undefined && before?.has(key)) {
+							// Git failed this pass: what the last good listing found committed stays committed.
+							committed.push({ file: claim.file, stamp });
+						} else kept.push(claim);
+					}
+					claims.set(member.key, kept);
 					// A claim git no longer lists was committed (or undone): the session stops holding it for good, so a
 					// later change by another session is never taken for this one's.
-					const committed = gitSays
-						? all.flatMap(claim =>
-								claim.rel !== null && !gitSays.has(claim.rel) && claim.stamp !== undefined
-									? [{ file: claim.file, stamp: claim.stamp }]
-									: [],
-							)
-						: [];
-					if (committed.length > 0) await this.#retire(member, committed);
+					if (committed.length > 0) await this.#retire(member, known, committed);
 				}),
 			);
+			for (const [top, set] of judged) if (listed.get(top)) this.#committed.set(top, set);
 			for (const { member, place } of group) {
 				live.add(member.key);
 				const mine = claims.get(member.key) ?? [];
 				const mineByRel = new Map(
-					mine.flatMap(claim => (claim.rel === null ? [] : [[claim.rel, claim.file] as const])),
+					mine.flatMap(claim => (claim.norm === null ? [] : [[claim.norm, claim.file] as const])),
 				);
 				const mineFiles = new Set(mine.map(claim => claim.file));
 				const peer = (
@@ -174,7 +241,7 @@ export class CheckoutPeerCoordinator {
 						: theirs.flatMap(claim => (claim.rel === null ? [] : [path.join(place.toplevel, claim.rel)]));
 					const shared = theirs.flatMap(claim => {
 						const own =
-							(claim.rel === null ? undefined : mineByRel.get(claim.rel)) ??
+							(claim.norm === null ? undefined : mineByRel.get(claim.norm)) ??
 							(sameWorktree && mineFiles.has(claim.file) ? claim.file : undefined);
 						return own ? [own] : [];
 					});
@@ -188,6 +255,14 @@ export class CheckoutPeerCoordinator {
 						...(!isHidden && task ? { task } : {}),
 						...(!sameWorktree && !isHidden ? { worktree: other.place.toplevel } : {}),
 						files,
+						// The same files at their real place, so a write or a git run aimed into that worktree is judged.
+						...(!sameWorktree && !isHidden
+							? {
+									worktreeFiles: theirs.flatMap(claim =>
+										claim.rel === null ? [] : [path.join(other.place.toplevel, claim.rel)],
+									),
+								}
+							: {}),
 						...(shared.length > 0 ? { shared } : {}),
 					};
 				};
@@ -205,36 +280,51 @@ export class CheckoutPeerCoordinator {
 					member.key,
 					[...payload.worktree, ...payload.repo].flatMap(other => (other.id ? [other.id] : [])),
 				);
-				await this.#send(member, payload);
+				sends.push(this.#send(member, payload));
 			}
 		}
 		// A member whose folder left every repository (or that is now alone in none) is told once it works alone.
 		for (const { member, place } of placed)
 			if (!live.has(member.key) && this.#sent.has(member.key))
-				await this.#send(member, {
-					toplevel: place?.toplevel ?? member.cwd,
-					commonDir: place?.commonDir ?? "",
-					worktree: [],
-					repo: [],
-					canMessage: member.canMessage,
-				});
+				sends.push(
+					this.#send(member, {
+						toplevel: place?.toplevel ?? member.cwd,
+						commonDir: place?.commonDir ?? "",
+						worktree: [],
+						repo: [],
+						canMessage: member.canMessage,
+					}),
+				);
+		await Promise.allSettled(sends);
 		const keys = new Set(members.map(member => member.key));
 		for (const key of [...this.#sent.keys()]) if (!keys.has(key)) this.#sent.delete(key);
 		for (const key of [...this.#statuses.keys()]) if (!keys.has(key)) this.#statuses.delete(key);
 		for (const key of [...this.#peerIds.keys()]) if (!keys.has(key) || !live.has(key)) this.#peerIds.delete(key);
+		const tops = new Set(placed.flatMap(({ place }) => (place ? [place.toplevel] : [])));
+		for (const top of [...this.#committed.keys()]) if (!tops.has(top)) this.#committed.delete(top);
 	}
 
-	/** A member's status now; its last answer when its bridge does not answer in time, so a busy omp keeps its claims. */
+	/**
+	 * A member's status now; its last answer when its bridge does not answer in time, so a busy omp keeps its claims.
+	 * A new `instance` is a new omp process (a restart keeps the tab): it starts with no peers, so it is told again.
+	 */
 	async #statusOf(member: CheckoutMember): Promise<MemberStatus> {
 		const answer = await askStatus(member);
-		if (!answer) return this.#statuses.get(member.key) ?? { files: [] };
+		if (!answer) return this.#statuses.get(member.key) ?? EMPTY_STATUS;
+		const before = this.#statuses.get(member.key);
+		if (before && before.instance !== answer.instance) this.#sent.delete(member.key);
 		this.#statuses.set(member.key, answer);
 		return answer;
 	}
 
 	/** Tells a member's bridge these claims were committed; its remembered answer forgets them too. */
-	async #retire(member: CheckoutMember, committed: Array<{ file: string; stamp: number }>): Promise<void> {
-		await member.request(CHECKOUT_RETIRE, { files: committed }).catch(() => undefined);
+	async #retire(
+		member: CheckoutMember,
+		status: MemberStatus,
+		committed: Array<{ file: string; stamp: number }>,
+	): Promise<void> {
+		const params = { ...(status.instance === undefined ? {} : { instance: status.instance }), files: committed };
+		await timed(member.request(CHECKOUT_RETIRE, params, REQUEST_TIMEOUT_MS)).catch(() => undefined);
 		const last = this.#statuses.get(member.key);
 		if (!last) return;
 		const gone = new Set(committed.map(claim => `${claim.file}\0${claim.stamp}`));
@@ -259,7 +349,8 @@ export class CheckoutPeerCoordinator {
 		const last = this.#sent.get(member.key);
 		// A session never told of company starts alone; one told is told again only of a change.
 		if (last === undefined ? alone : last === json) return;
-		const sent = await member.request(CHECKOUT_PEERS_SET, payload).then(
+		// A send that times out leaves `#sent` as it was, so the next pass tells it again.
+		const sent = await timed(member.request(CHECKOUT_PEERS_SET, payload, REQUEST_TIMEOUT_MS)).then(
 			() => true,
 			() => false,
 		);
@@ -273,23 +364,43 @@ interface MemberStatus {
 	files: string[];
 	/** Each file's edit stamp (parallel to `files`); absent from a bridge that predates `checkout_retire`. */
 	stamps?: number[];
+	/** Files a call still running is writing. */
+	pending: string[];
+	/** The omp process's load of the bridge; absent from a bridge that predates it. */
+	instance?: string;
 	task?: string;
 }
 
-/** A file a member changed: as its bridge spelled it, and relative to its worktree's top level (null: outside it). */
+const EMPTY_STATUS: MemberStatus = { files: [], pending: [] };
+
+/** A file a member changed: as its bridge spelled it, relative to its worktree's top level (null: outside it), and that relative path in NFC. */
 interface Claim {
 	file: string;
 	rel: string | null;
+	norm: string | null;
+	stamp: number | undefined;
+	/** A call still running writes it. */
+	pending: boolean;
+}
+
+/** `work`, or a rejection after `ms`; the timer never outlives it. */
+function timed<T>(work: Promise<T>, ms = REQUEST_TIMEOUT_MS): Promise<T> {
+	const expired = Promise.withResolvers<never>();
+	const timer = setTimeout(() => expired.reject(new Error("The bridge did not answer in time")), ms);
+	return Promise.race([work, expired.promise]).finally(() => clearTimeout(timer));
 }
 
 /** The files a member's agents changed lately and its in-progress task; null when its bridge does not answer in time (an older omp, a busy one). */
 async function askStatus(member: CheckoutMember): Promise<MemberStatus | null> {
-	const timeout = Promise.withResolvers<null>();
-	const timer = setTimeout(() => timeout.resolve(null), STATUS_TIMEOUT_MS);
-	const answer = await Promise.race([member.request(CHECKOUT_STATUS, {}).catch(() => null), timeout.promise]);
-	clearTimeout(timer);
+	const answer = await timed(member.request(CHECKOUT_STATUS, {}, REQUEST_TIMEOUT_MS)).catch(() => null);
 	if (!answer || typeof answer !== "object") return null;
-	const record = answer as { files?: unknown; stamps?: unknown; task?: unknown };
+	const record = answer as {
+		files?: unknown;
+		stamps?: unknown;
+		pending?: unknown;
+		instance?: unknown;
+		task?: unknown;
+	};
 	const raw = Array.isArray(record.files) ? record.files : [];
 	const stamps = Array.isArray(record.stamps) && record.stamps.length === raw.length ? record.stamps : undefined;
 	const kept = raw.flatMap((file, index) =>
@@ -302,28 +413,117 @@ async function askStatus(member: CheckoutMember): Promise<MemberStatus | null> {
 		...(stamps && kept.every(claim => claim.stamp !== undefined)
 			? { stamps: kept.map(claim => claim.stamp ?? 0) }
 			: {}),
+		pending: Array.isArray(record.pending)
+			? record.pending.filter((file): file is string => typeof file === "string")
+			: [],
+		...(typeof record.instance === "string" ? { instance: record.instance } : {}),
 		...(typeof record.task === "string" && record.task ? { task: record.task } : {}),
 	};
 }
 
-/** `git status --porcelain=v1 -z --untracked-files=all` of a worktree top level. */
-export async function readGitStatus(toplevel: string): Promise<string> {
-	const result = await gitRaw(toplevel, ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
-		timeoutMs: GIT_STATUS_TIMEOUT_MS,
-		maxBytes: 16 * 1024 * 1024,
-	});
-	if (result.code !== 0 || result.truncated) throw new Error(result.stderr.trim() || "git status failed");
-	return result.stdout.toString("utf8");
+/** A member's claims in a worktree: every file it holds plus the ones a running call is writing that it does not hold yet. */
+async function claimsOf(status: MemberStatus, toplevel: string): Promise<Claim[]> {
+	const pending = new Set(status.pending);
+	const entries = status.files.map((file, index) => ({
+		file,
+		stamp: status.stamps?.[index],
+		pending: pending.has(file),
+	}));
+	const held = new Set(status.files);
+	for (const file of pending) if (!held.has(file)) entries.push({ file, stamp: undefined, pending: true });
+	return Promise.all(
+		entries.map(async entry => {
+			const rel = await relativeTo(toplevel, entry.file);
+			return { ...entry, rel, norm: rel === null ? null : rel.normalize("NFC") };
+		}),
+	);
 }
 
-/** The paths git lists as changed in a worktree (both of a rename), relative to its top level. */
+/** `git status` of a worktree top level, limited to `paths` (relative to it, literal). */
+async function statusOf(toplevel: string, paths: string[]): Promise<string> {
+	const chunks: string[][] = [];
+	let size = 0;
+	for (const spec of paths) {
+		if (chunks.length === 0 || size + spec.length > GIT_ARGS_BUDGET) {
+			chunks.push([]);
+			size = 0;
+		}
+		chunks[chunks.length - 1]?.push(spec);
+		size += spec.length + 1;
+	}
+	const outputs = await Promise.all(
+		chunks.map(async chunk => {
+			const result = await gitRaw(
+				toplevel,
+				["--literal-pathspecs", "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", ...chunk],
+				{ timeoutMs: GIT_STATUS_TIMEOUT_MS, maxBytes: 16 * 1024 * 1024 },
+			);
+			if (result.code !== 0 || result.truncated) throw new Error(result.stderr.trim() || "git status failed");
+			return result.stdout.toString("utf8");
+		}),
+	);
+	return outputs.join("");
+}
+
+/** The submodule roots of a worktree (relative to it), from its `.gitmodules`. */
+async function submoduleRoots(toplevel: string): Promise<string[]> {
+	const result = await gitRaw(
+		toplevel,
+		["config", "-f", ".gitmodules", "-z", "--get-regexp", "^submodule\\..*\\.path$"],
+		{
+			timeoutMs: GIT_STATUS_TIMEOUT_MS,
+		},
+	);
+	if (result.code !== 0) return [];
+	return result.stdout
+		.toString("utf8")
+		.split("\0")
+		.flatMap(entry => {
+			const value = entry.slice(entry.indexOf("\n") + 1);
+			return entry.includes("\n") && value ? [path.normalize(value)] : [];
+		});
+}
+
+/**
+ * `git status --porcelain=v1 -z --untracked-files=all` of a worktree top level, asked only about `paths` (relative to
+ * it): a full-tree status of a large repository costs seconds of CPU, and only the claimed paths matter. Git does not
+ * look inside a submodule for a path in it, so a path nothing lists is asked again through the submodule that holds it.
+ */
+export async function readGitStatus(toplevel: string, paths: string[]): Promise<string> {
+	const specs = [...new Set(paths.map(spec => spec.split(path.sep).join("/")))];
+	let text = await statusOf(toplevel, specs);
+	const listed = listedPaths(text);
+	const unlisted = paths.filter(spec => !holds(listed, path.normalize(spec).normalize("NFC")));
+	if (unlisted.length === 0) return text;
+	const roots = (await submoduleRoots(toplevel)).filter(root =>
+		unlisted.some(spec => path.normalize(spec).startsWith(root + path.sep)),
+	);
+	if (roots.length > 0)
+		text += await statusOf(
+			toplevel,
+			roots.map(root => root.split(path.sep).join("/")),
+		);
+	return text;
+}
+
+/** The paths git lists as changed in a worktree (both of a rename), relative to its top level, in NFC. */
 function listedPaths(status: string): Set<string> {
 	const listed = new Set<string>();
 	for (const entry of parseGitStatus(status)) {
-		listed.add(path.normalize(entry.path));
-		if (entry.oldPath) listed.add(path.normalize(entry.oldPath));
+		listed.add(path.normalize(entry.path).normalize("NFC"));
+		if (entry.oldPath) listed.add(path.normalize(entry.oldPath).normalize("NFC"));
 	}
 	return listed;
+}
+
+/** `rel` is still uncommitted: git lists it, anything under it (a folder), or a path that contains it (a submodule, a folder). */
+function holds(listed: Set<string>, rel: string): boolean {
+	if (listed.has(rel)) return true;
+	for (let dir = path.dirname(rel); dir !== "." && dir !== path.dirname(dir); dir = path.dirname(dir))
+		if (listed.has(dir)) return true;
+	const prefix = rel + path.sep;
+	for (const entry of listed) if (entry.startsWith(prefix)) return true;
+	return false;
 }
 
 /** `file` relative to `toplevel`; null when it lies outside (a path spelled through a symlink is resolved before giving up). */

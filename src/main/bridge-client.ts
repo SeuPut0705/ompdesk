@@ -117,7 +117,16 @@ export class GuiBridgeClient implements BridgeClient {
 		return this.#connecting;
 	}
 
-	async request<T = unknown>(method: string, params?: unknown, onTiming?: (timing: BridgeTiming) => void): Promise<T> {
+	/**
+	 * `options.timeoutMs`: a request the bridge has not answered by then rejects (`bridge_timeout`) and is forgotten, so a
+	 * frozen omp leaves no entry behind. Without it a request waits as long as the bridge takes (a user prompt, a login).
+	 */
+	async request<T = unknown>(
+		method: string,
+		params?: unknown,
+		onTiming?: (timing: BridgeTiming) => void,
+		options?: { timeoutMs?: number },
+	): Promise<T> {
 		const asked = Date.now();
 		if (this.#connecting) await this.#connecting;
 		const socket = this.#socket;
@@ -126,7 +135,35 @@ export class GuiBridgeClient implements BridgeClient {
 		const { promise, resolve, reject } = Promise.withResolvers<unknown>();
 		const sentAt = Date.now();
 		const timing: BridgeTiming = { connectWaitMs: sentAt - asked, sentAt };
-		this.#pending.set(id, { resolve, reject, timing, onTiming });
+		const timeoutMs = options?.timeoutMs;
+		const timer =
+			timeoutMs === undefined
+				? undefined
+				: setTimeout(() => {
+						const pending = this.#pending.get(id);
+						if (!pending) return;
+						this.#pending.delete(id);
+						pending.onTiming?.({ ...timing, answeredAt: Date.now() });
+						pending.reject(
+							new LocalCommandError(
+								`GUI bridge did not answer ${method} within ${timeoutMs}ms`,
+								"bridge_timeout",
+							),
+						);
+					}, timeoutMs);
+		timer?.unref();
+		this.#pending.set(id, {
+			resolve: value => {
+				clearTimeout(timer);
+				resolve(value);
+			},
+			reject: error => {
+				clearTimeout(timer);
+				reject(error);
+			},
+			timing,
+			onTiming,
+		});
 		socket.write(`${JSON.stringify({ id, method, params })}\n`);
 		onTiming?.(timing);
 		return promise as Promise<T>;

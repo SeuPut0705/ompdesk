@@ -8,7 +8,7 @@ import { useSessionRuntime } from "../../../stores/session-runtime-context";
 import { type SubagentNode, type SubagentsStore, useSubagentsStore } from "../../../stores/subagents";
 import { selectToolEntry, type ToolsStore, useToolsStore } from "../../../stores/tools";
 import { backgroundJobVerdicts } from "../completion-events";
-import { type AgentCompletion, mergeRunAgents, runTranscript, type TaskCallResult } from "./work-run";
+import { type AgentCompletion, mergeRunAgents, resumedAgents, runTranscript, type TaskCallResult } from "./work-run";
 import { type WorkEvidence, workOutcomes } from "./work-view";
 
 const NO_MESSAGES: readonly AgentMessage[] = [];
@@ -27,12 +27,17 @@ export function useRunStores() {
  * Every agent this run spawned with how it settled: live registry rows merged
  * with what the transcript's task results and completion notices recorded, so
  * a reloaded session shows the lanes it showed live. `progress` re-renders on
- * every progress frame (lanes); otherwise only on status changes.
+ * every progress frame (lanes); otherwise only on status changes. `resumed`: the
+ * agents a restart's restore revived that have not reported back yet.
  */
 export function useRunAgents(
 	toolCallIds: readonly string[],
 	detail: "status" | "progress" = "status",
-): { agents: SubagentNode[]; completions: ReadonlyMap<string, AgentCompletion> } {
+): {
+	agents: SubagentNode[];
+	completions: ReadonlyMap<string, AgentCompletion>;
+	resumed: ReadonlySet<string>;
+} {
 	const { tools, subagents, messages } = useRunStores();
 	const ids = toolCallIds.join("\u0000");
 	// The run's task calls by how far they got: a settled call carries stock's spawn rows.
@@ -47,11 +52,12 @@ export function useRunAgents(
 	const spawns = taskKey !== "";
 	const committed = useFrameSelector(messages, state => (spawns ? state.messages : NO_MESSAGES));
 	const live = useFrameSelector(messages, state => (spawns ? state.liveMessages : NO_MESSAGES));
+	// A row without a spawning call may be an agent a restart revived (mergeRunAgents decides which lane it takes).
 	const liveKey = useFrameSelector(subagents, state =>
 		[...state.subagents.values()]
 			.filter(
 				node =>
-					!!node.parentToolCallId &&
+					!node.parentToolCallId ||
 					toolCallIds.includes(tools.getState().entryKeyForCallId(node.parentToolCallId)),
 			)
 			.map(node =>
@@ -93,11 +99,12 @@ export function useRunAgents(
 	const agents = useMemo(() => {
 		const owned = [...subagents.getState().subagents.values()].filter(
 			node =>
-				!!node.parentToolCallId && toolCallIds.includes(tools.getState().entryKeyForCallId(node.parentToolCallId)),
+				!node.parentToolCallId || toolCallIds.includes(tools.getState().entryKeyForCallId(node.parentToolCallId)),
 		);
 		return mergeRunAgents(owned, transcript);
 	}, [liveKey, ids, transcript, subagents, tools]);
-	return { agents, completions: transcript.completions };
+	const resumed = useMemo(() => resumedAgents(live.length ? [...committed, ...live] : committed), [committed, live]);
+	return { agents, completions: transcript.completions, resumed };
 }
 
 /**

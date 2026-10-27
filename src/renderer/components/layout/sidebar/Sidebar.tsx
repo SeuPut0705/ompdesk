@@ -158,6 +158,7 @@ import {
 import { SidebarUpdateCard } from "./SidebarUpdateCard";
 import { SidebarUsage } from "./SidebarUsage";
 import { SortableProject } from "./SortableProject";
+import { type SessionList, useSessionReorder } from "./session-reorder";
 import {
 	CHILD_TOKEN,
 	isShownOpened,
@@ -1209,20 +1210,33 @@ export function Sidebar() {
 	// A drag arms only after 6px of movement, so clicking a project still toggles it.
 	const projectSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 	/**
-	 * The list a stored session's row sits in (its project, or Chats) and that list's rows in order; null while a filter
-	 * shows only some rows (a move there would forget where the hidden ones were) or for a row of no such list.
+	 * Each stored session's list (its project, or Chats) and that list's rows in order; empty while a filter shows only
+	 * some rows (a move there would forget where the hidden ones were). A new session's live row (no file yet) has no
+	 * place to keep: it stays on top until it has one.
 	 */
-	const sessionListOf = (session: SidebarSession): { key: string; paths: string[] } | null => {
-		if (query || session.liveTabId !== undefined) return null;
-		// A new session's live row (no file yet) has no place to keep: it stays on top until it has one.
-		const stored = (rows: readonly SidebarSession[]) =>
-			rows.filter(row => row.liveTabId === undefined && !runParentOf.has(row.path)).map(row => row.path);
-		if (chatSessions.some(item => item.path === session.path))
-			return { key: CHATS_ORDER_KEY, paths: stored(chatSessions) };
-		const group = allGroups.find(item => item.sessions.some(row => row.path === session.path));
-		if (!group || runParentOf.has(session.path)) return null;
-		return { key: group.cwd, paths: stored(group.sessions) };
-	};
+	const sessionLists = useMemo(() => {
+		const lists = new Map<string, SessionList>();
+		if (query) return lists;
+		const add = (key: string, rows: readonly SidebarSession[]) => {
+			const paths = rows
+				.filter(row => row.liveTabId === undefined && !runParentOf.has(row.path))
+				.map(row => row.path);
+			const list: SessionList = { key, paths, pinned: pinnedSessions };
+			for (const path of paths) if (!lists.has(path)) lists.set(path, list);
+		};
+		add(CHATS_ORDER_KEY, chatSessions);
+		for (const group of allGroups) add(group.cwd, group.sessions);
+		return lists;
+	}, [query, chatSessions, allGroups, runParentOf, pinnedSessions]);
+	const sessionListOf = (session: SidebarSession): SessionList | null =>
+		session.liveTabId === undefined ? (sessionLists.get(session.path) ?? null) : null;
+	const reorder = useSessionReorder({
+		titleOf: path => {
+			const found = allSessions.find(session => session.path === path);
+			return found ? sessionDisplayTitle(found, "") : "";
+		},
+		save: (list, next) => void useSidebarPrefs.getState().setSessionOrder(list.key, [...next]),
+	});
 	/** A neighbour on the other side of the pinned rows' edge never trades places: pins stay on top. */
 	const canMoveSession = (session: SidebarSession, delta: number): boolean => {
 		const list = sessionListOf(session);
@@ -1233,7 +1247,7 @@ export function Sidebar() {
 		const list = sessionListOf(session);
 		const next = canMoveSession(session, delta) && list && moveInOrder(list.paths, session.path, delta);
 		if (!list || !next) return false;
-		void useSidebarPrefs.getState().setSessionOrder(list.key, next);
+		reorder.move(list, session.path, next, sessionDisplayTitle(session, ""));
 		return true;
 	};
 	const onProjectDragEnd = ({ active, over }: DragEndEvent) => {
@@ -2043,14 +2057,11 @@ export function Sidebar() {
 						openSession(session);
 					}}
 					rowProps={{
-						draggable: openTabId !== undefined && !isCurrent,
-						onDragStart: event => {
-							if (!openTabId) return;
-							event.dataTransfer.effectAllowed = "move";
-							hideNativeDragImage(event.dataTransfer);
-							window.dispatchEvent(new CustomEvent("omp:tab-drag", { detail: { tabId: openTabId } }));
-						},
-						onDragEnd: () => window.dispatchEvent(new CustomEvent("omp:tab-drag", { detail: { tabId: null } })),
+						...reorder.rowDrag(
+							session.path,
+							variant === undefined ? sessionListOf(session) : null,
+							openTabId ? { id: openTabId, shown: isCurrent } : undefined,
+						),
 						onContextMenu: event => setSessionMenu({ anchor: anchorFromEvent(event), session }),
 						"data-active": active,
 						"data-current": isCurrent || undefined,
@@ -2250,6 +2261,7 @@ export function Sidebar() {
 	// This device's own list; once a host is paired it is one of the device sections, under its own header.
 	const localList = (
 		<>
+			{reorder.status}
 			{!localFolded && (
 				<>
 					{listError &&

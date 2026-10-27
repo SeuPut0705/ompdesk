@@ -8,7 +8,8 @@
  * Every such mode registers its section here, which is how the context
  * inspector (context-inspect.ts) shows the sections the model really gets:
  * it applies the registered sections, in install order, with the same
- * "append if missing" rule the hook uses.
+ * "append if missing" rule the hook uses. A turn stock's restore continues
+ * gets them the same way (`keepSectionsOnRestore`), since no prompt runs the hook.
  *
  * No omp imports (not even types): the GUI's vitest installs it on a fake `pi`.
  */
@@ -61,4 +62,41 @@ export function withTurnSections(parts: readonly string[], ctx: PromptSectionCon
 	let next = parts;
 	for (const section of sections.values()) next = appendIfMissing(next, section(ctx));
 	return next;
+}
+
+/** The slice of a stock `AgentSession` a turn its restore continues gets the sections through. */
+interface RestoringSession {
+	readonly baseSystemPrompt: string[];
+	/** The prompt the agent holds now (stock's getter over `agent.state.systemPrompt`). */
+	readonly systemPrompt: string[];
+	readonly agent: { setSystemPrompt(prompt: string[]): void };
+	readonly extensionRunner?: { createContext(): PromptSectionContext };
+}
+
+const RESTORE_WRAPPED = Symbol.for("ompdesk.prompt-sections.restoreInterruptedTurn");
+
+/**
+ * Wraps `restoreInterruptedTurn` on stock's `AgentSession` prototype once (the session and every subagent stock's
+ * restore revives share the class), so the turn it continues sends the sections a prompt of that session would.
+ * Stock runs `before_agent_start` for a prompt only: its restore goes on with `agent.continue()` over the base prompt
+ * (a revived subagent's replay of the hook, `reason: "revive"`, is discarded), so on 27 Oct 2026 every revived
+ * subagent's first request lacked them and its prompt prefix changed. The prompt is set on the agent before the
+ * continue, from the session's own extension context; a restore that continues nothing keeps the prompt it had.
+ */
+export function keepSectionsOnRestore(proto: object): void {
+	const target = proto as Record<string | symbol, unknown>;
+	const restore = target.restoreInterruptedTurn;
+	if (target[RESTORE_WRAPPED] || typeof restore !== "function") return;
+	target[RESTORE_WRAPPED] = restore;
+	target.restoreInterruptedTurn = async function restoreInterruptedTurn(this: RestoringSession): Promise<boolean> {
+		const ctx = this.extensionRunner?.createContext();
+		const base = this.baseSystemPrompt;
+		const parts = ctx ? withTurnSections(base, ctx) : base;
+		if (parts === base) return restore.call(this);
+		const held = this.systemPrompt;
+		this.agent.setSystemPrompt([...parts]);
+		const continued: boolean = await restore.call(this);
+		if (!continued) this.agent.setSystemPrompt(held);
+		return continued;
+	};
 }

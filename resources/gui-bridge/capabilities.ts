@@ -175,9 +175,17 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"sessionManager.getArtifactsDir()",
 			"sessionManager.getSessionId()",
 			"restoreInterruptedTurn()",
+			// A turn stock's restore continues gets the prompt sections set on its agent (prompt-sections.ts
+			// `keepSectionsOnRestore`, wrapped on the AgentSession prototype).
+			"agent.setSystemPrompt()",
+			"baseSystemPrompt",
+			"systemPrompt",
+			"extensionRunner.createContext()",
 			"getToolByName()",
 			"sessionManager.getBranch()",
 			"promptCustomMessage()",
+			// The restart notice for a turn stock's restore continues is queued at that turn's `turn_start`.
+			"subscribe()",
 			"sessionManager.appendMessage()",
 			"isStreaming",
 			"getGoalModeState()",
@@ -389,12 +397,13 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	},
 	/** modes/output-style.ts: the same public hook as the reply language. */
 	outputStyle: {},
-	/** modes/checkout-peers.ts: public hooks (`before_agent_start`, `tool_call`) and stock's todo reader for the session's current task. */
+	/**
+	 * modes/checkout-peers.ts: public hooks (`before_agent_start`, `tool_call`, `tool_result`, `session_start`) and the
+	 * journal. Stock's todo reader (`tools/todo` `getLatestTodoPhasesFromEntries`, for the session's current task) is
+	 * feature-detected inside the module: a missing one only drops the task line, never the guard.
+	 */
 	checkoutPeers: {
 		session: ["sessionManager.getBranch()"],
-		modules: {
-			[`${AGENT}/tools/todo`]: ["getLatestTodoPhasesFromEntries()"],
-		},
 	},
 	/** xdev-notice.ts: the public `context` hook and the context's `getSystemPrompt()` (checked at run time). */
 	xdevNotice: {},

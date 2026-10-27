@@ -5,35 +5,53 @@
  * (checkout-peers.ts) and the GUI's tests call it.
  *
  * The guard reads `bash` with Autopilot's own shell parser (`shellEffects`) and judges each git run by one table
- * (`GIT_RULES`): a repository-wide step (stash, deleting or moving a branch) is refused while any other session works
- * in any worktree of the repository; a worktree step (switching or resetting the checkout, cleaning, bulk staging,
- * `commit -a`, a commit without paths, merge, pull, rebase, cherry-pick, revert, am, apply) while another session
- * works in the same worktree; a step on named paths only when a path is broad (`.`, a directory, a glob) or names a
- * file another session changed; removing or moving a worktree another session works in. Replacing or deleting a file
- * another session changed (a shell redirect, `cp`/`mv`/`rm`/`tee`/`dd`, the `write` tool) is refused too. A session
- * working alone is never judged; a session in another worktree is never refused over files, only warned of the merge.
+ * (`GIT_RULES`): a repository-wide step (stash, deleting or moving a branch another session may own) is refused while
+ * any other session works in any worktree of the repository; a worktree step (switching or resetting the checkout,
+ * cleaning, bulk staging, `commit -a`, a commit without paths, merge, pull, rebase, cherry-pick, revert, am, apply)
+ * while another session works in the same worktree; a step on named paths only when a path is broad (`.`, a directory,
+ * a glob, a command substitution) or names a file another session changed. Two kinds of path steps: a "take" (`git
+ * add`, `git commit -- paths`) is allowed for a file this session changed too (the overlap notice already asks for a
+ * note first), a "drop" (`checkout`/`restore`/`rm`/`reset` of paths, a whole-file write or a delete) is not. The same
+ * judgment applies to a git run or a write aimed into another session's worktree of the repository. A session working
+ * alone is never judged; a session in another worktree is never refused over its files in this worktree, only warned
+ * of the merge.
  */
 import {
-	fileToolPaths,
+	type FileToolEffect,
+	fileToolEffects,
+	foldsCase,
 	type GitInvocation,
+	hasGitSegment,
+	inlineCodeEffects,
 	isInside,
+	isScratch,
 	normalizePath,
 	type ShellEffects,
 	shellEffects,
 } from "./autopilot-guard-core";
 import {
-	CHECKOUT_FILES_MAX,
 	CHECKOUT_PEERS_SET,
 	CHECKOUT_REFUSAL_PREFIX,
 	CHECKOUT_TASK_MAX,
 	type CheckoutPeer,
 	type CheckoutPeers,
+	type CheckoutStatus,
 } from "./checkout-peers-contracts";
 
 /** What one git run does to shared state, before knowing who else works here. */
 type Hazard =
-	| { scope: "repo" | "worktree"; what: string; instead: string }
-	| { scope: "paths" | "worktrees"; paths: string[]; what: string; instead: string };
+	| { scope: "repo"; what: string; instead: string }
+	| { scope: "worktree"; what: string; instead: string }
+	| { scope: "paths"; paths: string[]; takes: boolean; what: string; instead: string }
+	| { scope: "worktrees"; paths: string[]; what: string; instead: string };
+
+/** What a git rule may ask of the file system and of this session's own work. */
+interface GitAt {
+	/** Whether a word names an existing file or folder (from the run's folder). */
+	exists(word: string): boolean;
+	/** The branches this session created. */
+	ownBranches: ReadonlySet<string>;
+}
 
 const FINISHING = ["--abort", "--continue", "--skip", "--quit"];
 /** Finishing or leaving an operation already underway changes nothing new. */
@@ -65,19 +83,32 @@ const VALUE_FLAGS: Record<string, readonly string[]> = {
 	add: ["--chmod", "--pathspec-from-file"],
 	rm: ["--pathspec-from-file"],
 	reset: ["--pathspec-from-file"],
+	clean: ["-e", "--exclude"],
 };
+/** The short flags whose value is the rest of the cluster or the next word (`-m msg`, `-vm msg`, `-mmsg`). */
+const VALUE_LETTERS: Record<string, string> = { commit: "mFCct", restore: "s", checkout: "bB", clean: "e" };
 
-/** `args` split into flags and the words that are not flags or flag values; everything after `--` is a word. */
+/**
+ * `args` split into flags and the words that are not flags or flag values; everything after `--` is a word. A short
+ * cluster is cut after its value letter (`-vmfix` is `-vm` with the value `fix`), and `-vm msg` takes the next word.
+ */
 function split(sub: string, args: string[]): { flags: string[]; words: string[]; afterDashes: string[] | null } {
 	const flags: string[] = [];
 	const words: string[] = [];
 	const valued = VALUE_FLAGS[sub];
+	const letters = VALUE_LETTERS[sub] ?? "";
 	for (let index = 0; index < args.length; index++) {
 		const arg = args[index];
 		if (arg === "--") return { flags, words, afterDashes: args.slice(index + 1) };
 		if (arg.startsWith("-") && arg !== "-") {
-			flags.push(arg);
-			if (valued?.includes(arg)) index++;
+			const at = /^-[a-zA-Z]+$/.test(arg) ? [...arg.slice(1)].findIndex(letter => letters.includes(letter)) : -1;
+			if (at >= 0) {
+				flags.push(arg.slice(0, at + 2));
+				if (at + 2 === arg.length) index++;
+			} else {
+				flags.push(arg);
+				if (valued?.includes(arg)) index++;
+			}
 		} else words.push(arg);
 	}
 	return { flags, words, afterDashes: null };
@@ -96,36 +127,44 @@ const STAGE_INSTEAD = "Stage only files you changed, by name: git add -- <file>â
 const RESTORE_INSTEAD = "To undo your own change to one file: git restore -- <that file>.";
 
 /** Each git subcommand that can take, overwrite or hide another session's work, and how. */
-const GIT_RULES: Record<string, (args: string[]) => Hazard | undefined> = {
+const GIT_RULES: Record<string, (args: string[], at: GitAt) => Hazard | undefined> = {
 	stash: args =>
-		args[0] === "list" || args[0] === "show"
+		args[0] === "list" || args[0] === "show" || args.includes("--help") || args.includes("-h")
 			? undefined
 			: {
 					scope: "repo",
 					what: "git stash is one stack for every worktree of this repository: another session's stash and yours mix, and a pop can apply theirs",
 					instead: "Commit your work in progress to your branch instead: git commit -- <your files>.",
 				},
-	branch: args =>
-		args.some(arg => /^(--delete|--move|--force|--copy)$/.test(arg) || /^-[a-zA-Z]*[dDmMfcC][a-zA-Z]*$/.test(arg))
-			? {
-					scope: "repo",
-					what: "deleting, moving or force-setting a branch changes refs every worktree of this repository shares",
-					instead: "Leave branches you did not create alone; ask whoever made one.",
-				}
-			: undefined,
+	branch: (args, at) => {
+		const changing = args.some(
+			arg => /^--(delete|move|force|copy)$/.test(arg) || /^-[a-zA-Z]*[dDmMfcC][a-zA-Z]*$/.test(arg),
+		);
+		if (!changing) return undefined;
+		// A branch this session made is its own to delete or move.
+		const named = split("branch", args).words;
+		if (named.length > 0 && named.every(name => at.ownBranches.has(name))) return undefined;
+		return {
+			scope: "repo",
+			what: "deleting, moving or force-setting a branch changes refs every worktree of this repository shares",
+			instead: "Leave branches you did not create alone; ask whoever made one.",
+		};
+	},
 	add: args => {
 		const { flags, words, afterDashes } = split("add", args);
 		const named = [...words, ...(afterDashes ?? [])];
-		if (hasFlag(flags, "Au", ["--all", "--update", "--pathspec-from-file"]))
+		// Without a path, -A/-u and the interactive modes (-p, -i, -e) take the whole tree (":/" is git's own "from the top").
+		if (hasFlag(flags, "Auipe", ["--all", "--update", "--pathspec-from-file", "--patch", "--interactive", "--edit"]))
 			return {
 				scope: "paths",
-				// Without a path, -A and -u take the whole tree whatever the folder (":/" is git's own "from the top").
+				takes: true,
 				paths: named.length > 0 ? named : [":/"],
 				what: "bulk staging would take the other session's changes too",
 				instead: STAGE_INSTEAD,
 			};
 		return {
 			scope: "paths",
+			takes: true,
 			paths: named,
 			what: "staging these paths would take the other session's changes",
 			instead: STAGE_INSTEAD,
@@ -140,34 +179,59 @@ const GIT_RULES: Record<string, (args: string[]) => Hazard | undefined> = {
 				what: "git commit -a commits every changed file in this checkout, the other session's too",
 				instead,
 			};
+		if (hasFlag(flags, "", ["--amend"]))
+			return {
+				scope: "worktree",
+				what: "git commit --amend rewrites the last commit, which may be the other session's, and takes what is staged",
+				instead,
+			};
+		if (hasFlag(flags, "i", ["--include"]))
+			return {
+				scope: "worktree",
+				what: "git commit --include also commits everything staged in this checkout's shared index, files the other session staged too",
+				instead,
+			};
 		const paths = [...words, ...(afterDashes ?? [])];
 		// Without paths a commit takes whatever the shared index holds: measured, another session's `git add` landed in
 		// this session's commit. With paths git commits only those (`--only`, its default).
 		return paths.length > 0
-			? { scope: "paths", paths, what: "committing these paths would take the other session's changes", instead }
+			? {
+					scope: "paths",
+					takes: true,
+					paths,
+					what: "committing these paths would take the other session's changes",
+					instead,
+				}
 			: {
 					scope: "worktree",
 					what: "a commit without paths takes everything staged in this checkout's shared index, files the other session staged too",
 					instead,
 				};
 	},
-	checkout: args => {
-		const { words, afterDashes } = split("checkout", args);
+	checkout: (args, at) => {
+		const { flags, words, afterDashes } = split("checkout", args);
+		const drops = (paths: string[], what: string): Hazard => ({
+			scope: "paths",
+			takes: false,
+			paths,
+			what,
+			instead: RESTORE_INSTEAD,
+		});
 		if (afterDashes)
-			return {
-				scope: "paths",
-				paths: afterDashes,
-				what: "checking out these paths would overwrite the other session's changes",
-				instead: RESTORE_INSTEAD,
-			};
+			return drops(afterDashes, "checking out these paths would overwrite the other session's changes");
 		const broad = words.filter(word => word === "." || /[*?[]/.test(word));
 		if (broad.length > 0)
-			return {
-				scope: "paths",
-				paths: broad,
-				what: "checking out the whole tree would overwrite the other session's changes",
-				instead: RESTORE_INSTEAD,
-			};
+			return drops(broad, "checking out the whole tree would overwrite the other session's changes");
+		if (hasFlag(flags, "p", ["--patch"])) {
+			const named = words.filter(word => at.exists(word));
+			return drops(
+				named.length > 0 ? named : [":/"],
+				"checking out hunks of the tree would overwrite the other session's changes",
+			);
+		}
+		// Words that are all existing files are paths, not a branch.
+		if (words.length > 0 && words.every(word => at.exists(word)))
+			return drops(words, "checking out these paths would overwrite the other session's changes");
 		return {
 			scope: "worktree",
 			what: "git checkout here switches the branch (or overwrites files) under the other session too",
@@ -183,12 +247,13 @@ const GIT_RULES: Record<string, (args: string[]) => Hazard | undefined> = {
 		const { words, afterDashes } = split("restore", args);
 		return {
 			scope: "paths",
+			takes: false,
 			paths: [...words, ...(afterDashes ?? [])],
 			what: "restoring these paths would overwrite the other session's changes",
 			instead: RESTORE_INSTEAD,
 		};
 	},
-	reset: args => {
+	reset: (args, at) => {
 		const { flags, words, afterDashes } = split("reset", args);
 		if (hasFlag(flags, "", ["--hard", "--merge", "--keep"]))
 			return {
@@ -196,10 +261,12 @@ const GIT_RULES: Record<string, (args: string[]) => Hazard | undefined> = {
 				what: "git reset --hard throws away every uncommitted change in this checkout, the other session's too",
 				instead: RESTORE_INSTEAD,
 			};
-		const paths = [...words.filter(word => !REV.test(word)), ...(afterDashes ?? [])];
+		// A word that is no revision and names an existing file is a path; any other word is a revision to move to.
+		const paths = [...words.filter(word => !REV.test(word) && at.exists(word)), ...(afterDashes ?? [])];
 		return paths.length > 0
 			? {
 					scope: "paths",
+					takes: false,
 					paths,
 					what: "unstaging these paths would undo the other session's staging",
 					instead: "Unstage only your own files: git restore --staged -- <file>.",
@@ -210,22 +277,29 @@ const GIT_RULES: Record<string, (args: string[]) => Hazard | undefined> = {
 					instead: "Unstage your own files with git restore --staged -- <file>; undo a commit with git revert.",
 				};
 	},
-	clean: args =>
-		hasFlag(
-			args.filter(arg => arg.startsWith("-")),
-			"f",
-			["--force"],
-		)
+	clean: args => {
+		const { flags, words, afterDashes } = split("clean", args);
+		if (!hasFlag(flags, "f", ["--force"]) || hasFlag(flags, "n", ["--dry-run"])) return undefined;
+		const paths = [...words, ...(afterDashes ?? [])];
+		return paths.length > 0
 			? {
+					scope: "paths",
+					takes: false,
+					paths,
+					what: "git clean deletes untracked files under these paths, the other session's new files too",
+					instead: "Delete the untracked files you made, by name.",
+				}
+			: {
 					scope: "worktree",
 					what: "git clean deletes untracked files in this checkout, the other session's new files too",
 					instead: "Delete the untracked files you made, by name.",
-				}
-			: undefined,
+				};
+	},
 	rm: args => {
 		const { words, afterDashes } = split("rm", args);
 		return {
 			scope: "paths",
+			takes: false,
 			paths: [...words, ...(afterDashes ?? [])],
 			what: "removing these paths would delete the other session's work",
 			instead: "Remove only files you made, by name.",
@@ -235,25 +309,29 @@ const GIT_RULES: Record<string, (args: string[]) => Hazard | undefined> = {
 		const { words } = split("mv", args);
 		return {
 			scope: "paths",
+			takes: false,
 			paths: words,
 			what: "moving these paths would move files the other session works on",
 			instead: "Move only files you made.",
 		};
 	},
 	merge: args =>
-		finishing(args)
+		finishing(args) || args.includes("--ff-only")
 			? undefined
 			: {
 					scope: "worktree",
 					what: "git merge rewrites this checkout's files, index and HEAD under the other session, and a conflict leaves markers in files it may be editing",
 					instead: WORKTREE_INSTEAD,
 				},
-	pull: () => ({
-		scope: "worktree",
-		what: "git pull merges or rebases the remote's commits into this checkout, rewriting files under the other session too",
-		instead:
-			"git fetch is safe here; merge or rebase in a worktree of your own, or after the other session has committed.",
-	}),
+	pull: args =>
+		args.includes("--ff-only")
+			? undefined
+			: {
+					scope: "worktree",
+					what: "git pull merges or rebases the remote's commits into this checkout, rewriting files under the other session too",
+					instead:
+						"git fetch is safe here; merge or rebase in a worktree of your own, or after the other session has committed.",
+				},
 	rebase: args =>
 		finishing(args)
 			? undefined
@@ -279,7 +357,7 @@ const GIT_RULES: Record<string, (args: string[]) => Hazard | undefined> = {
 					instead: WORKTREE_INSTEAD,
 				},
 	am: args =>
-		finishing(args)
+		finishing(args) || args.some(arg => arg.startsWith("--show-current-patch"))
 			? undefined
 			: {
 					scope: "worktree",
@@ -293,10 +371,47 @@ const GIT_RULES: Record<string, (args: string[]) => Hazard | undefined> = {
 			? undefined
 			: {
 					scope: "worktree",
-					what: "git apply changes this checkout's files under the other session, files it may be editing too",
+					what: "changes this checkout's files under the other session, files it may be editing too",
 					instead:
-						"Check it first with git apply --check, then apply it in a worktree of your own or after the other session has committed.",
+						"Check it first with --check, then apply it in a worktree of your own or after the other session has committed.",
 				};
+	},
+	bisect: args =>
+		["reset", "log", "view", "visualize", "replay", "help"].includes(args[0] ?? "")
+			? undefined
+			: {
+					scope: "worktree",
+					what: "git bisect checks other commits out in this checkout and detaches HEAD under the other session",
+					instead: WORKTREE_INSTEAD,
+				},
+	"checkout-index": args => {
+		const { flags, words, afterDashes } = split("checkout-index", args);
+		if (hasFlag(flags, "a", ["--all"]))
+			return {
+				scope: "worktree",
+				what: "git checkout-index --all overwrites this checkout's files from the index, the other session's changes too",
+				instead: RESTORE_INSTEAD,
+			};
+		const paths = [...words, ...(afterDashes ?? [])];
+		return paths.length > 0
+			? {
+					scope: "paths",
+					takes: false,
+					paths,
+					what: "checking out these paths from the index would overwrite the other session's changes",
+					instead: RESTORE_INSTEAD,
+				}
+			: undefined;
+	},
+	"symbolic-ref": args => {
+		const named = args.filter(arg => !arg.startsWith("-"));
+		return named[0] === "HEAD" && named.length >= 2
+			? {
+					scope: "worktree",
+					what: "git symbolic-ref HEAD <ref> switches this checkout's branch under the other session",
+					instead: "To work on another branch, use a worktree of your own.",
+				}
+			: undefined;
 	},
 	worktree: args => {
 		const [verb, ...paths] = split("worktree", args).words;
@@ -310,16 +425,29 @@ const GIT_RULES: Record<string, (args: string[]) => Hazard | undefined> = {
 	},
 };
 
-/** Whether a path a git command names (relative to `cwd`) reaches `peer`'s work: a glob or pathspec magic always, the top level or above always, else a file it changed at or under the path. */
-function endangers(path: string, cwd: string, toplevel: string, peer: CheckoutPeer): boolean {
-	if (path === "" || path.startsWith(":") || /[*?[]/.test(path)) return true;
+const same = (a: string, b: string) => isInside(a, b) && isInside(b, a);
+
+/**
+ * Whether a path a git command names (relative to `cwd`) reaches a peer's work (`files`): a glob, pathspec magic or a
+ * command substitution always, the top level or above always, else a file it changed at or under the path. A "take"
+ * leaves out the files `own` changed too: the overlap notice already asks for a note before it.
+ */
+function endangers(
+	path: string,
+	cwd: string,
+	toplevel: string,
+	files: readonly string[],
+	own: readonly string[],
+	takes: boolean,
+): boolean {
+	if (path === "" || path.startsWith(":") || /[*?[$`]/.test(path)) return true;
 	const target = normalizePath(path, cwd);
 	if (isInside(toplevel, target)) return true;
-	return peer.files?.some(file => isInside(file, target)) === true;
+	return files.some(file => isInside(file, target) && !(takes && own.some(mine => same(mine, file))));
 }
 
 function relative(file: string, toplevel: string): string {
-	return file.startsWith(`${toplevel}/`) ? file.slice(toplevel.length + 1) : file;
+	return file === toplevel ? "." : file.startsWith(`${toplevel}/`) ? file.slice(toplevel.length + 1) : file;
 }
 
 function peerLine(peer: CheckoutPeer, toplevel: string, files: boolean): string {
@@ -345,9 +473,23 @@ function askLine(peers: CheckoutPeer[], canMessage: boolean): string {
 		: "To agree who does what, ask the user which session goes first.";
 }
 
+/** What the guard may ask of the file system: main's spelling of a path, whether a path is a folder, whether it exists. */
+export interface CheckoutHost {
+	realpath(path: string): string;
+	isDirectory?(path: string): boolean;
+	exists?(path: string): boolean;
+	/** The files a shell glob (absolute) matches now; none when it cannot tell. */
+	expand?(glob: string): string[];
+}
+
+type FsView = Partial<CheckoutHost>;
+
+const NO_BRANCHES: ReadonlySet<string> = new Set();
+
 /**
  * Why `command` (run in `cwd`) must not run while `peers` share this checkout, or undefined. `ownFiles` are the files
- * this session changed (absolute), named in the refusal so the agent can stage exactly those.
+ * this session changed (absolute), named in the refusal so the agent can stage exactly those; `ownBranches` the
+ * branches it created (it may delete those).
  */
 export function checkoutRefusal(
 	command: string,
@@ -356,25 +498,35 @@ export function checkoutRefusal(
 	ownFiles: readonly string[],
 	realpath?: (path: string) => string,
 	isDirectory?: (path: string) => boolean,
+	exists?: (path: string) => boolean,
+	ownBranches: ReadonlySet<string> = NO_BRANCHES,
 ): string | undefined {
-	return refusalFor(shellEffects(command, cwd, isDirectory), peers, ownFiles, realpath);
+	return refusalFor(
+		shellEffects(command, cwd, isDirectory),
+		peers,
+		ownFiles,
+		{ realpath, isDirectory, exists },
+		ownBranches,
+	);
 }
 
 function refusalFor(
 	effects: ShellEffects,
 	peers: CheckoutPeers,
 	ownFiles: readonly string[],
-	realpath?: (path: string) => string,
+	fs: FsView,
+	ownBranches: ReadonlySet<string>,
 ): string | undefined {
 	const repoPeers = [...peers.worktree, ...peers.repo];
 	if (repoPeers.length === 0) return undefined;
 	for (const git of effects.git) {
 		// A `cd` or `-C` through a symlink lands in main's spelling of the checkout too.
-		const at = realpath && !git.cwd.startsWith("\u0000") ? { ...git, cwd: canonicalPath(git.cwd, realpath) } : git;
-		const refusal = judge(at, peers, repoPeers, ownFiles);
+		const at =
+			fs.realpath && !git.cwd.startsWith("\u0000") ? { ...git, cwd: canonicalPath(git.cwd, fs.realpath) } : git;
+		const refusal = judge(at, peers, repoPeers, ownFiles, fs, ownBranches);
 		if (refusal) return refusal;
 	}
-	const changes = changesOf(effects, realpath);
+	const changes = changesOf(effects, fs.realpath, peers.toplevel);
 	return (
 		overwriteRefusal(changes.replaces, "from the shell", peers, ownFiles) ??
 		overwriteRefusal(changes.deletes, "from the shell", peers, ownFiles, true)
@@ -388,12 +540,23 @@ export interface ShellChanges {
 	deletes: string[];
 }
 
-/** `effects`' file changes in main's spelling, devices and paths a failed `cd` left unresolved dropped. */
-function changesOf(effects: ShellEffects, realpath?: (path: string) => string): ShellChanges {
+/** What the parser leaves in front of a path after a `cd` it could not resolve. */
+const UNRESOLVED = "/\u0000unresolvable/";
+
+/**
+ * `effects`' file changes in main's spelling, devices dropped. A path after a `cd` the parser could not resolve is
+ * read from `base` (the checkout's top level: such a `cd` is most often `cd "$(git rev-parse --show-toplevel)"`); with
+ * no `base` it is dropped.
+ */
+function changesOf(effects: ShellEffects, realpath?: (path: string) => string, base?: string): ShellChanges {
 	const settle = (paths: string[]) =>
-		paths
-			.filter(path => !path.startsWith("/dev/") && !path.includes("\u0000"))
-			.map(path => (realpath ? canonicalPath(path, realpath) : path));
+		paths.flatMap(path => {
+			if (path.startsWith("/dev/")) return [];
+			const resolved =
+				path.startsWith(UNRESOLVED) && base ? normalizePath(path.slice(UNRESOLVED.length), base) : path;
+			if (resolved.includes("\u0000")) return [];
+			return [realpath ? canonicalPath(resolved, realpath) : resolved];
+		});
 	return {
 		edits: settle(effects.edits),
 		replaces: settle([...effects.writes, ...effects.replaces]),
@@ -427,6 +590,28 @@ export function writeRefusal(
 	ownFiles: readonly string[],
 ): string | undefined {
 	return overwriteRefusal(paths, "with the write tool", peers, ownFiles);
+}
+
+/** Why a file tool call must not run: it replaces a file another session changed whole (a write, a rename onto it) or deletes it. */
+function fileToolRefusal(
+	toolName: string,
+	effects: readonly FileToolEffect[],
+	peers: CheckoutPeers,
+	ownFiles: readonly string[],
+): string | undefined {
+	const how = `with the ${toolName} tool`;
+	const of = (kind: FileToolEffect["kind"]) =>
+		effects.filter(effect => effect.kind === kind).map(effect => effect.path);
+	return (
+		overwriteRefusal(
+			of("replace"),
+			how,
+			peers,
+			ownFiles,
+			false,
+			toolName === "write" ? undefined : "Change its lines in place instead of replacing it whole.",
+		) ?? overwriteRefusal(of("delete"), how, peers, ownFiles, true)
+	);
 }
 
 /** A todo item as a peer shows it: one line, at most `CHECKOUT_TASK_MAX` characters; undefined when blank. */
@@ -546,15 +731,21 @@ export function overlapNotice(
 
 const GLOB = /[*?[]/;
 
-/** A shell glob as a case-insensitive pattern over whole absolute paths; `**` crosses folders, `*` and `?` do not. */
+/** A shell glob as a pattern over whole absolute paths (case-insensitive where the file system is); `**` crosses folders, `*` and `?` do not, `**` plus `/` also matches no folder at all. */
 function globPattern(glob: string): RegExp {
+	const flags = foldsCase() ? "i" : "";
 	let source = "";
 	for (let index = 0; index < glob.length; index++) {
 		const char = glob[index];
 		const close = char === "[" ? glob.indexOf("]", index + 2) : -1;
 		if (char === "*" && glob[index + 1] === "*") {
-			source += ".*";
-			index++;
+			if (glob[index + 2] === "/") {
+				source += "(?:.*/)?";
+				index += 2;
+			} else {
+				source += ".*";
+				index++;
+			}
 		} else if (char === "*") source += "[^/]*";
 		else if (char === "?") source += "[^/]";
 		else if (close > index) {
@@ -563,10 +754,10 @@ function globPattern(glob: string): RegExp {
 		} else source += char.replace(/[.+^${}()|\\[\]]/g, "\\$&");
 	}
 	try {
-		return new RegExp(`^${source}$`, "i");
+		return new RegExp(`^${source}$`, flags);
 	} catch {
 		// A bracket class the pattern language rejects: fall back to the literal start of the glob.
-		return new RegExp(`^${glob.slice(0, glob.search(GLOB)).replace(/[.+^${}()|\\[\]]/g, "\\$&")}`, "i");
+		return new RegExp(`^${glob.slice(0, glob.search(GLOB)).replace(/[.+^${}()|\\[\]]/g, "\\$&")}`, flags);
 	}
 }
 
@@ -583,17 +774,38 @@ function reaches(target: string, file: string, deleting: boolean): boolean {
 	return false;
 }
 
+/** Files a build or a run writes again and again: two sessions' commands each writing `build.log` are no overwrite of work. */
+const OUTPUT_FILE = /\.(log|out|tmp|pid|err)$/i;
+const OUTPUT_FOLDERS = new Set([
+	"dist",
+	"coverage",
+	".cache",
+	"test-results",
+	"playwright-report",
+	"node_modules",
+	".turbo",
+	".next",
+	"__pycache__",
+]);
+const isOutput = (path: string) => OUTPUT_FILE.test(path) || path.split("/").some(part => OUTPUT_FOLDERS.has(part));
+
 function overwriteRefusal(
 	paths: readonly string[],
 	how: string,
 	peers: CheckoutPeers,
 	ownFiles: readonly string[],
 	deleting = false,
+	insteadWrite = "Change it with the edit tool: it applies only your lines and refuses an edit whose lines moved under you.",
 ): string | undefined {
 	for (const path of paths) {
-		const endangered = peers.worktree.filter(peer => peer.files?.some(file => reaches(path, file, deleting)));
-		if (endangered.length === 0) continue;
 		const name = relative(path, peers.toplevel);
+		if (isOutput(name)) continue;
+		// Another worktree's sessions count by their files at the real place (a write aimed into their folder).
+		const endangered = [
+			...peers.worktree.filter(peer => peer.files?.some(file => reaches(path, file, deleting))),
+			...peers.repo.filter(peer => peer.worktreeFiles?.some(file => reaches(path, file, deleting))),
+		];
+		if (endangered.length === 0) continue;
 		return deleting
 			? refusalText(
 					`deleting ${name} ${how} would drop the other session's uncommitted changes in it`,
@@ -605,7 +817,7 @@ function overwriteRefusal(
 				)
 			: refusalText(
 					`writing ${name} whole ${how} would drop the other session's uncommitted changes to it`,
-					"Change it with the edit tool: it applies only your lines and refuses an edit whose lines moved under you.",
+					insteadWrite,
 					endangered,
 					true,
 					peers,
@@ -642,17 +854,24 @@ function judge(
 	peers: CheckoutPeers,
 	repoPeers: CheckoutPeer[],
 	ownFiles: readonly string[],
+	fs: FsView,
+	ownBranches: ReadonlySet<string>,
 ): string | undefined {
 	const { toplevel } = peers;
-	const hazard = GIT_RULES[git.sub]?.(git.args);
+	// An unresolvable cd counts as here.
+	const unresolved = git.cwd.startsWith("\u0000");
+	const cwd = unresolved ? toplevel : git.cwd;
+	// A host that cannot tell reads every word as no file: a revision to move to, the conservative reading.
+	const exists = (word: string) => fs.exists?.(normalizePath(word, cwd)) ?? false;
+	const hazard = GIT_RULES[git.sub]?.(git.args, { exists, ownBranches });
 	if (!hazard) return undefined;
-	// A git run in another repository (cd elsewhere, -C) is none of these sessions' business; an unresolvable cd counts as here. A worktree removal names its path, wherever git runs.
-	if (hazard.scope !== "worktrees" && !git.cwd.startsWith("\u0000") && !isInside(git.cwd, toplevel)) return undefined;
-	const cwd = git.cwd.startsWith("\u0000") ? toplevel : git.cwd;
+	const here = unresolved || isInside(cwd, toplevel);
+	// A run inside another session's worktree of the repository touches that worktree's files and index.
+	const there = here ? [] : peers.repo.filter(peer => peer.worktree !== undefined && isInside(cwd, peer.worktree));
+	// A run in another repository is none of these sessions' business. A worktree removal names its path, wherever git runs.
+	if (hazard.scope !== "worktrees" && !here && there.length === 0) return undefined;
 	let endangered: CheckoutPeer[];
-	if (hazard.scope === "paths")
-		endangered = peers.worktree.filter(peer => hazard.paths.some(path => endangers(path, cwd, toplevel, peer)));
-	else if (hazard.scope === "worktrees") {
+	if (hazard.scope === "worktrees") {
 		const targets = hazard.paths.map(path => normalizePath(path, cwd));
 		endangered = [
 			...peers.repo.filter(peer =>
@@ -660,9 +879,20 @@ function judge(
 			),
 			...(targets.some(target => isInside(toplevel, target)) ? peers.worktree : []),
 		];
-	} else endangered = hazard.scope === "repo" ? repoPeers : peers.worktree;
+	} else if (hazard.scope === "repo") endangered = repoPeers;
+	else if (hazard.scope === "worktree") endangered = here ? peers.worktree : there;
+	else if (here)
+		endangered = peers.worktree.filter(peer =>
+			hazard.paths.some(path => endangers(path, cwd, toplevel, peer.files ?? [], ownFiles, hazard.takes)),
+		);
+	else
+		endangered = there.filter(peer =>
+			hazard.paths.some(path =>
+				endangers(path, cwd, peer.worktree ?? toplevel, peer.worktreeFiles ?? [], [], false),
+			),
+		);
 	if (endangered.length === 0) return undefined;
-	const command = `git ${[git.sub, ...git.args].join(" ")}`.slice(0, 120);
+	const command = (git.label ?? `git ${[git.sub, ...git.args].join(" ")}`).slice(0, 120);
 	return refusalText(
 		`\`${command}\`: ${hazard.what}`,
 		hazard.instead,
@@ -712,12 +942,20 @@ export function checkoutSection(peers: CheckoutPeers | undefined): string | unde
 	return lines.join("\n");
 }
 
+const fileList = (value: unknown, base: string): string[] | undefined =>
+	Array.isArray(value)
+		? value.filter((file): file is string => typeof file === "string").map(file => normalizePath(file, base))
+		: undefined;
+
 function peerList(value: unknown): CheckoutPeer[] {
 	if (!Array.isArray(value)) throw new Error(`${CHECKOUT_PEERS_SET} needs peer lists`);
 	return value.flatMap(item => {
 		if (typeof item !== "object" || item === null) return [];
 		const peer = item as Record<string, unknown>;
 		const task = typeof peer.task === "string" ? oneLineTask(peer.task) : undefined;
+		const shared = fileList(peer.shared, "/");
+		const files = fileList(peer.files, "/");
+		const worktreeFiles = fileList(peer.worktreeFiles, "/");
 		return [
 			{
 				id: typeof peer.id === "string" ? peer.id : null,
@@ -726,22 +964,9 @@ function peerList(value: unknown): CheckoutPeer[] {
 				...(typeof peer.sessionPath === "string" ? { sessionPath: peer.sessionPath } : {}),
 				...(typeof peer.worktree === "string" ? { worktree: normalizePath(peer.worktree, "/") } : {}),
 				...(task ? { task } : {}),
-				...(Array.isArray(peer.shared)
-					? {
-							shared: peer.shared
-								.filter((file): file is string => typeof file === "string")
-								.slice(0, CHECKOUT_FILES_MAX)
-								.map(file => normalizePath(file, "/")),
-						}
-					: {}),
-				...(Array.isArray(peer.files)
-					? {
-							files: peer.files
-								.filter((file): file is string => typeof file === "string")
-								.slice(0, CHECKOUT_FILES_MAX)
-								.map(file => normalizePath(file, "/")),
-						}
-					: {}),
+				...(shared ? { shared } : {}),
+				...(files ? { files } : {}),
+				...(worktreeFiles ? { worktreeFiles } : {}),
 			},
 		];
 	});
@@ -774,12 +999,6 @@ export class CheckoutPeersState {
 	}
 }
 
-/** `files` with `added` moved to the front, at most `max`. */
-export function rememberFiles(files: readonly string[], added: readonly string[], max: number): string[] {
-	const fresh = [...new Set(added)];
-	return [...fresh, ...files.filter(file => !fresh.includes(file))].slice(0, max);
-}
-
 /**
  * `path` (absolute) in the spelling main compares against: the real path of its nearest existing ancestor, the rest
  * as written (a file a write is about to create does not exist yet). Main resolves top levels with `realpath`, and a
@@ -802,13 +1021,137 @@ export function canonicalPath(path: string, realpath: (path: string) => string):
 /** What a tool call did: refused with the reason the model reads, or allowed with a notice for it and whether it added a file to the session's own. */
 export type CallVerdict = { block: string } | { notice?: string; gained: boolean };
 
-/** What the ledger needs from the file system: main's spelling of a path, and whether a path is a folder. */
-export interface CheckoutHost {
-	realpath(path: string): string;
-	isDirectory?(path: string): boolean;
+const URL_PATH = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//;
+
+/** The most claims a session holds (a long session with no company never has them retired). */
+const CLAIMS_MAX = 2000;
+/** The most files one shell glob adds to the claims (a glob over a whole tree is refused or noticed, never a thousand claims). */
+const GLOB_MATCHES_MAX = 500;
+
+/** What `git` runs in a call do to this session's claims: files they change, files they make clean (a commit, a restore), a reason for main to look now. */
+interface GitWork {
+	claims: string[];
+	drops: string[];
+	refresh: boolean;
 }
 
-const URL_PATH = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//;
+/** The git subcommands after which the files this session changed may be clean or different: main reads at once. */
+const GIT_REFRESHING = new Set([
+	"commit",
+	"restore",
+	"checkout",
+	"reset",
+	"stash",
+	"clean",
+	"switch",
+	"merge",
+	"pull",
+	"rebase",
+	"am",
+	"cherry-pick",
+	"revert",
+	"rm",
+	"mv",
+	"apply",
+]);
+
+/** What one git run does to files: the paths it names that it changes (`mv`, `rm`, `checkout <rev> -- p`, `restore --source`) or makes clean (`commit -- p`, `restore p`, `checkout -- p`, `stash push -- p`). */
+function gitWork(git: GitInvocation, base: string, fs: FsView): GitWork {
+	const cwd = git.cwd.startsWith("\u0000") ? base : git.cwd;
+	const absolute = (word: string) => normalizePath(word, cwd);
+	const { flags, words, afterDashes } = split(git.sub, git.args);
+	const named = [...words, ...(afterDashes ?? [])].filter(word => word !== "" && !word.startsWith(":"));
+	const work: GitWork = { claims: [], drops: [], refresh: GIT_REFRESHING.has(git.sub) };
+	if (git.sub === "mv" && words.length >= 2) {
+		const dest = absolute(words[words.length - 1]);
+		const into = fs.isDirectory?.(dest) === true;
+		for (const source of words.slice(0, -1)) {
+			work.claims.push(absolute(source));
+			work.claims.push(into ? normalizePath(source.split("/").pop() ?? source, dest) : dest);
+		}
+	} else if (git.sub === "rm" && !hasFlag(flags, "", ["--cached"])) work.claims.push(...named.map(absolute));
+	else if (git.sub === "checkout" && afterDashes)
+		(words.length > 0 ? work.claims : work.drops).push(...afterDashes.map(absolute));
+	else if (git.sub === "restore") {
+		if (hasFlag(flags, "s", ["--source"])) work.claims.push(...named.map(absolute));
+		else if (!hasFlag(flags, "S", ["--staged"]) || hasFlag(flags, "W", ["--worktree"]))
+			work.drops.push(...named.map(absolute));
+	} else if (git.sub === "commit" && !hasFlag(flags, "a", ["--all"])) work.drops.push(...named.map(absolute));
+	else if (git.sub === "stash" && afterDashes) work.drops.push(...afterDashes.map(absolute));
+	return work;
+}
+
+/** The branches a git run creates (`branch <name>`, `checkout -b`, `switch -c`, `worktree add -b`). */
+function createdBranches(git: GitInvocation): string[] {
+	const { args } = git;
+	const after = (flags: string[]) => {
+		const at = args.findIndex(arg => flags.includes(arg));
+		return at >= 0 && args[at + 1] !== undefined ? [args[at + 1]] : [];
+	};
+	if (git.sub === "checkout") return after(["-b", "-B"]);
+	if (git.sub === "switch") return after(["-c", "-C", "--create", "--force-create"]);
+	if (git.sub === "worktree" && args[0] === "add") return after(["-b", "-B"]);
+	if (git.sub === "branch") {
+		const changing = args.some(
+			arg =>
+				/^--(delete|move|force|copy|list|show-current)$/.test(arg) ||
+				/^-[a-zA-Z]*[dDmMfcClvar][a-zA-Z]*$/.test(arg),
+		);
+		const name = split("branch", args).words[0];
+		return !changing && name ? [name] : [];
+	}
+	return [];
+}
+
+/** The files a call itself reports it changed (`ast_edit` applied through `resolve`, an lsp rename), as written; the tool result is the only place that says. */
+export function reportedFiles(toolName: string, details: unknown, text: string): string[] {
+	const found: string[] = [];
+	const walk = (value: unknown, depth: number) => {
+		if (depth > 6 || typeof value !== "object" || value === null) return;
+		const record = value as Record<string, unknown>;
+		if (record.applied === true && Array.isArray(record.files))
+			found.push(...record.files.filter((file): file is string => typeof file === "string"));
+		for (const child of Object.values(record)) walk(child, depth + 1);
+	};
+	walk(details, 0);
+	if (toolName === "lsp")
+		for (const line of text.split("\n")) {
+			const edited = /^\s*(?:Applied \d+ edit\(s\) to|Created|Deleted) (.+)$/.exec(line);
+			const renamed = /^\s*Renamed (.+) â†’ (.+)$/.exec(line);
+			if (edited) found.push(edited[1].trim());
+			else if (renamed) found.push(renamed[1].trim(), renamed[2].trim());
+		}
+	return found;
+}
+
+/** What a tool call reported back (stock's `tool_result`). */
+export interface CallOutcome {
+	isError: boolean;
+	/** `details.async.jobId` of a bash call that went to the background: the command still runs, so its claims stay pending until the job ends. */
+	job?: string;
+	/** Files the result says it changed (`reportedFiles`), as written. */
+	reported?: readonly string[];
+}
+
+/** A call that has not reported back (or whose job still runs): what it claimed and how to undo or confirm that. */
+interface Pending {
+	owner: string;
+	cwd: string;
+	realpath: (path: string) => string;
+	/** The files the call claimed, each with the claim it took over (undefined: none). */
+	claimed: Array<{ path: string; stamp: number; earlier: number | undefined }>;
+	/** A script that failed may still have written: a failed shell call keeps its claims, a failed file tool's are given back. */
+	keepsOnError: boolean;
+	/** The (file, peer) pairs the call's notice said: given back to `told` when the call fails, so the next call says them again. */
+	told: string[];
+	/** Own claims a successful git run in the call made clean, and the ledger's stamp counter before the call. */
+	drops: string[];
+	seq: number;
+	/** Main should read now when the call succeeds. */
+	refresh: boolean;
+}
+
+const pendingKey = (owner: string, toolCallId: string) => `${owner}\0${toolCallId}`;
 
 /**
  * The files this session's agents changed (its claims, which main reads through `checkout_status`) and which
@@ -816,16 +1159,43 @@ const URL_PATH = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//;
  * peers, records what the call changes as the session's own, and returns the notice for the model.
  */
 export class CheckoutLedger {
+	/** This omp's load of the bridge: main tells a new one its peers again and never retires with another load's stamps. */
+	readonly instance = globalThis.crypto.randomUUID();
 	#files: string[] = [];
 	#told = new Set<string>();
 	#stamps = new Map<string, number>();
 	#seq = 0;
-	/** The files each call that has not reported back yet claimed, by tool call id, with the agent that made it. */
-	#pending = new Map<string, { paths: string[]; owner: string }>();
+	/** How many times the set of claimed files changed: the journal writes when it moves. */
+	#revision = 0;
+	/** The branches this session created: it may delete or move those. */
+	#branches = new Set<string>();
+	/** The calls that have not reported back yet, by owner and tool call id. */
+	#pending = new Map<string, Pending>();
+	/** The calls whose command went to the background, by job id: they claim until the job ends. */
+	#jobs = new Map<string, Pending>();
 
 	/** The files this session changed, newest first. */
 	get files(): readonly string[] {
 		return this.#files;
+	}
+
+	/** Moves whenever a file joins or leaves the claims. */
+	get revision(): number {
+		return this.#revision;
+	}
+
+	/** What `checkout_status` answers (without the task). */
+	status(): Omit<CheckoutStatus, "task"> {
+		const files = [...this.#files];
+		const pending = new Set<string>();
+		for (const call of [...this.#pending.values(), ...this.#jobs.values()])
+			for (const claim of call.claimed) pending.add(claim.path);
+		return {
+			files,
+			stamps: files.map(file => this.stamp(file)),
+			pending: [...pending],
+			instance: this.instance,
+		};
 	}
 
 	/**
@@ -843,41 +1213,74 @@ export class CheckoutLedger {
 	): CallVerdict {
 		const args = typeof input === "object" && input !== null ? input : {};
 		let touched: string[] = [];
-		if (toolName === "bash") {
-			const command = "command" in args ? args.command : undefined;
-			if (typeof command === "string") {
-				const folder = "cwd" in args && typeof args.cwd === "string" ? args.cwd : ".";
-				const at = canonicalPath(normalizePath(folder, cwd), host.realpath);
-				const effects = shellEffects(command, at, host.isDirectory);
-				const refusal = peers ? refusalFor(effects, peers, this.#files, host.realpath) : undefined;
+		let git: GitInvocation[] = [];
+		let at = cwd;
+		if (toolName === "bash" || toolName === "eval") {
+			const command = toolName === "bash" && "command" in args ? args.command : undefined;
+			const folder = "cwd" in args && typeof args.cwd === "string" ? args.cwd : ".";
+			at = canonicalPath(normalizePath(folder, cwd), host.realpath);
+			const effects =
+				typeof command === "string"
+					? shellEffects(command, at, host.isDirectory)
+					: toolName === "eval"
+						? evalEffects(input, at)
+						: undefined;
+			if (effects) {
+				const refusal = peers ? refusalFor(effects, peers, this.#files, host, this.#branches) : undefined;
 				if (refusal) return { block: refusal };
-				const changes = changesOf(effects, host.realpath);
+				const changes = changesOf(effects, host.realpath, peers?.toplevel ?? at);
 				touched = [...changes.edits, ...changes.replaces, ...changes.deletes];
+				git = effects.git;
 			}
 		} else {
-			touched = fileToolPaths(toolName, input)
-				.filter(file => !URL_PATH.test(file))
-				.map(file => canonicalPath(normalizePath(file, cwd), host.realpath));
-			const refusal = peers && toolName === "write" ? writeRefusal(touched, peers, this.#files) : undefined;
+			const effects = fileToolEffects(toolName, input)
+				.filter(effect => !URL_PATH.test(effect.path))
+				.map(effect => ({ ...effect, path: canonicalPath(normalizePath(effect.path, cwd), host.realpath) }));
+			const refusal = peers ? fileToolRefusal(toolName, effects, peers, this.#files) : undefined;
 			if (refusal) return { block: refusal };
+			touched = effects.map(effect => effect.path);
 		}
-		// A glob names files only the shell knows; it can be refused above but never claimed.
-		const paths = touched.filter(path => !GLOB.test(path));
+		const work = git.map(run => gitWork(run, peers?.toplevel ?? at, host));
+		for (const run of git) for (const name of createdBranches(run)) this.#branches.add(name);
+		// A glob names files only the shell knows: a notice never reads it, and a claim takes what it matches now (before the command runs).
+		const noticed = touched.filter(path => !GLOB.test(path));
+		const matched =
+			toolName === "bash" || toolName === "eval"
+				? touched
+						.filter(path => GLOB.test(path))
+						.flatMap(path => (host.expand?.(path) ?? []).slice(0, GLOB_MATCHES_MAX))
+				: [];
 		let notice: string | undefined;
+		let told: string[] = [];
+		// A call without peers (they dropped out for one call) leaves what was said alone: it is said once, not again.
 		if (peers) {
-			const said = overlapNotice(paths, peers, this.#told);
+			const said = overlapNotice(noticed, peers, this.#told);
+			told = [...said.told].filter(pair => !this.#told.has(pair));
 			this.#told = said.told;
 			notice = said.text;
-		} else this.#told = new Set();
-		const had = new Set(this.#files);
-		const gained = paths.some(path => !had.has(path));
-		if (paths.length > 0) {
-			this.#files = rememberFiles(this.#files, paths, CHECKOUT_FILES_MAX);
-			for (const path of paths) this.#stamps.set(path, ++this.#seq);
-			for (const path of this.#stamps.keys()) if (!this.#files.includes(path)) this.#stamps.delete(path);
-			// The hook runs before the tool: until it reports back, git may not show the change yet.
-			if (toolCallId !== undefined) this.#pending.set(toolCallId, { paths, owner });
 		}
+		// A preview (`ast_edit`) writes nothing; the result of the call that applies it names the files.
+		const claims = [
+			...(toolName === "ast_edit" ? [] : [...noticed, ...matched.map(path => canonicalPath(path, host.realpath))]),
+			...work.flatMap(item => item.claims).map(path => canonicalPath(path, host.realpath)),
+		].filter(path => claimable(path, peers, canonicalPath(cwd, host.realpath)));
+		const had = new Set(this.#files);
+		const gained = claims.some(path => !had.has(path));
+		const seq = this.#seq;
+		const claimed = this.#claim(claims);
+		// The hook runs before the tool: until it reports back, git may not show the change yet.
+		if (toolCallId !== undefined)
+			this.#pending.set(pendingKey(owner, toolCallId), {
+				owner,
+				cwd,
+				realpath: host.realpath,
+				claimed,
+				keepsOnError: toolName === "bash" || toolName === "eval",
+				told,
+				drops: work.flatMap(item => item.drops).map(path => canonicalPath(path, host.realpath)),
+				seq,
+				refresh: work.some(item => item.refresh),
+			});
 		return { notice, gained };
 	}
 
@@ -886,27 +1289,137 @@ export class CheckoutLedger {
 		return this.#stamps.get(file) ?? 0;
 	}
 
+	/** `paths` become the newest claims; each takes a stamp, and the ones before are remembered so a failed call can give the claim back. */
+	#claim(paths: readonly string[]): Pending["claimed"] {
+		const fresh = [...new Set(paths)];
+		if (fresh.length === 0) return [];
+		const taken = new Set(fresh);
+		const claimed = fresh.map(path => {
+			const earlier = this.#stamps.get(path);
+			const stamp = ++this.#seq;
+			this.#stamps.set(path, stamp);
+			return { path, stamp, earlier };
+		});
+		if (claimed.some(claim => claim.earlier === undefined)) this.#revision++;
+		this.#files = [...fresh, ...this.#files.filter(file => !taken.has(file))];
+		for (const gone of this.#files.splice(CLAIMS_MAX)) {
+			this.#stamps.delete(gone);
+			this.#revision++;
+		}
+		return claimed;
+	}
+
+	#drop(files: ReadonlySet<string>): void {
+		if (files.size === 0) return;
+		this.#files = this.#files.filter(file => !files.has(file));
+		for (const file of files) this.#stamps.delete(file);
+		this.#revision++;
+	}
+
+	/** The call wrote nothing: each file it claimed goes back to the claim it took over, unless a later call changed it. */
+	#revert(call: Pending): boolean {
+		const gone = new Set<string>();
+		let changed = false;
+		for (const { path, stamp, earlier } of call.claimed) {
+			if (this.#stamps.get(path) !== stamp) continue;
+			changed = true;
+			if (earlier === undefined) gone.add(path);
+			else this.#stamps.set(path, earlier);
+		}
+		this.#drop(gone);
+		return changed;
+	}
+
+	/** The call wrote: its files' stamps move on, so a retirement main decided from a read taken while it ran matches nothing. */
+	#confirm(call: Pending): void {
+		for (const { path } of call.claimed) if (this.#stamps.has(path)) this.#stamps.set(path, ++this.#seq);
+	}
+
+	/** The files a successful git run made clean leave the claims at once (main confirms), unless a later call changed them. */
+	#clean(call: Pending): boolean {
+		const drops = call.drops.filter(path => !GLOB.test(path));
+		if (drops.length === 0) return false;
+		const gone = new Set(
+			this.#files.filter(
+				file => drops.some(path => isInside(file, path)) && (this.#stamps.get(file) ?? 0) <= call.seq,
+			),
+		);
+		this.#drop(gone);
+		return gone.size > 0;
+	}
+
 	/**
-	 * The call `toolCallId` reported back (stock's `tool_result`): its files are written now. Their stamps move on, so a
-	 * retirement main decided from a read taken while the call ran matches nothing. True when it had claimed files (the
-	 * caller tells main, which then reads the written change).
+	 * The call `toolCallId` of `owner` reported back (stock's `tool_result`): its files are written now. Their stamps move
+	 * on, so a retirement main decided from a read taken while the call ran matches nothing. A file tool that failed
+	 * wrote nothing: its claims are given back (a failed script may still have written, its claims stay). A command that
+	 * went to the background keeps its claims until the job ends (`settleJob`). True when main should read now.
 	 */
-	settle(toolCallId: string): boolean {
-		const pending = this.#pending.get(toolCallId);
-		if (!pending) return false;
-		this.#pending.delete(toolCallId);
-		for (const path of pending.paths) if (this.#stamps.has(path)) this.#stamps.set(path, ++this.#seq);
+	settle(toolCallId: string, owner = "", outcome: CallOutcome = { isError: false }): boolean {
+		const key = pendingKey(owner, toolCallId);
+		const call = this.#pending.get(key);
+		if (!call) return false;
+		this.#pending.delete(key);
+		let changed = call.claimed.length > 0 || call.refresh;
+		if (outcome.reported && outcome.reported.length > 0 && !outcome.isError) {
+			const files = outcome.reported
+				.filter(file => !URL_PATH.test(file))
+				.map(file => canonicalPath(normalizePath(file, call.cwd), call.realpath))
+				.filter(file => claimable(file, undefined, canonicalPath(call.cwd, call.realpath)));
+			if (files.length > 0) {
+				call.claimed.push(...this.#claim(files));
+				changed = true;
+			}
+		}
+		if (outcome.job !== undefined && !outcome.isError) {
+			this.#jobs.set(outcome.job, call);
+			return changed;
+		}
+		if (outcome.isError) {
+			// A failed call's notice never reached the model (stock drops a hook's context with an error result).
+			for (const pair of call.told) this.#told.delete(pair);
+			if (!call.keepsOnError) return this.#revert(call) || changed;
+		} else changed = this.#clean(call) || changed;
+		this.#confirm(call);
+		return changed;
+	}
+
+	/** A background job ended: the files its command claimed are written now. True when it held any. */
+	settleJob(jobId: string): boolean {
+		const call = this.#jobs.get(jobId);
+		if (!call) return false;
+		this.#jobs.delete(jobId);
+		this.#confirm(call);
 		return true;
 	}
 
 	/**
+	 * Jobs not in `running` have ended (stock's job list is the only place that says): their claims are written now. A
+	 * list read from one agent (`owner`) says nothing of another agent's jobs. True when any held some.
+	 */
+	reconcileJobs(running: ReadonlySet<string>, owner?: string): boolean {
+		let any = false;
+		for (const [jobId, call] of [...this.#jobs])
+			if (!running.has(jobId) && (owner === undefined || call.owner === owner)) any = this.settleJob(jobId) || any;
+		return any;
+	}
+
+	/**
 	 * Settles every call `owner` (one agent: the session's main agent or one subagent; they share this ledger) left
-	 * pending: its run ended, and a call stock refused before running it never reports back. Another agent's calls
-	 * may still be running and stay pending.
+	 * pending: its run ended, and a call stock refused before running it (a denied approval, a later hook's block) never
+	 * reports back. Such a call did not write: a file tool's claims are given back, a shell call's stay (a script may
+	 * have written); its notice never reached the model. Another agent's calls may still be running and stay pending.
 	 */
 	settleAll(owner: string): boolean {
 		let any = false;
-		for (const [id, pending] of [...this.#pending]) if (pending.owner === owner) any = this.settle(id) || any;
+		for (const [key, call] of [...this.#pending]) {
+			if (call.owner !== owner) continue;
+			this.#pending.delete(key);
+			for (const pair of call.told) this.#told.delete(pair);
+			if (call.keepsOnError) {
+				this.#confirm(call);
+				any = call.claimed.length > 0 || any;
+			} else any = this.#revert(call) || any;
+		}
 		return any;
 	}
 
@@ -916,16 +1429,76 @@ export class CheckoutLedger {
 	 * still writing stays too.
 	 */
 	retire(claims: ReadonlyArray<{ file: string; stamp: number }>): void {
-		const writing = new Set([...this.#pending.values()].flatMap(pending => pending.paths));
-		const gone = new Set(
-			claims
-				.filter(claim => !writing.has(claim.file) && this.#stamps.get(claim.file) === claim.stamp)
-				.map(claim => claim.file),
+		const writing = new Set(
+			[...this.#pending.values(), ...this.#jobs.values()].flatMap(call => call.claimed.map(claim => claim.path)),
 		);
-		if (gone.size === 0) return;
-		this.#files = this.#files.filter(file => !gone.has(file));
-		for (const file of gone) this.#stamps.delete(file);
+		this.#drop(
+			new Set(
+				claims
+					.filter(claim => !writing.has(claim.file) && this.#stamps.get(claim.file) === claim.stamp)
+					.map(claim => claim.file),
+			),
+		);
 	}
+
+	/** `checkout_retire`'s params: ignored unless main read them from this very load of the bridge (a restarted omp numbers its stamps anew). True when applied. */
+	retireFrom(params: unknown): boolean {
+		const instance =
+			typeof params === "object" && params !== null && "instance" in params ? params.instance : undefined;
+		if (instance !== this.instance) return false;
+		this.retire(retiredClaims(params));
+		return true;
+	}
+
+	/** What the journal keeps: the files and their stamps (the stamps only say how fresh each claim was; a restore numbers them anew). */
+	snapshot(): { files: string[]; stamps: number[] } {
+		return { files: [...this.#files], stamps: this.#files.map(file => this.stamp(file)) };
+	}
+
+	/**
+	 * The claims a session had when the omp last ran it (its journal entry) become this ledger's: a restart or a relaunch
+	 * keeps protecting the work nobody committed, and main retires what git no longer lists. Undefined or malformed data
+	 * means none, which is also what a switch to a session with no entry means. Stamps start anew, above every earlier one.
+	 */
+	restore(data: unknown): void {
+		const list = typeof data === "object" && data !== null && "files" in data ? data.files : undefined;
+		const files = Array.isArray(list)
+			? list
+					.filter((file): file is string => typeof file === "string" && file !== "")
+					.map(file => normalizePath(file, "/"))
+			: [];
+		this.#pending.clear();
+		this.#jobs.clear();
+		this.#files = [];
+		this.#stamps.clear();
+		this.#revision++;
+		this.#claim([...new Set(files)].slice(0, CLAIMS_MAX));
+	}
+}
+
+/**
+ * Whether a path can be a claim: a file of the worktree (or of the session's own folder, which may itself sit under
+ * a scratch prefix such as macOS's `/var/folders`), never git's own folder, a glob, or scratch output elsewhere. With
+ * peers known, a path outside the worktree is none of this checkout's business.
+ */
+function claimable(path: string, peers: CheckoutPeers | undefined, cwd: string): boolean {
+	if (GLOB.test(path) || hasGitSegment(path)) return false;
+	if (isInside(path, cwd) || (peers !== undefined && isInside(path, peers.toplevel))) return true;
+	return peers === undefined && !isScratch(path);
+}
+
+/** What an `eval` cell's code visibly writes or removes (a literal path handed to a file function, or the `write()` helper). */
+function evalEffects(input: unknown, cwd: string): ShellEffects {
+	const found: ShellEffects = { git: [], writes: [], edits: [], replaces: [], deletes: [] };
+	const walk = (value: unknown, depth: number) => {
+		if (typeof value === "string") {
+			for (const change of inlineCodeEffects(value, true))
+				found[`${change.kind}s`].push(normalizePath(change.path, cwd));
+		} else if (depth < 4 && typeof value === "object" && value !== null)
+			for (const child of Object.values(value)) walk(child, depth + 1);
+	};
+	walk(input, 0);
+	return found;
 }
 
 /** `checkout_retire`'s claims; anything malformed is skipped. */

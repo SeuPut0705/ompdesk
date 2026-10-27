@@ -287,7 +287,7 @@ export interface IpcDeps {
 	/** The desktop slot's host, built in `registerIpcHandlers` (it needs the pool) and published here for the sidecar factory. */
 	desktopSlotRef: { current: DesktopSlotHost | null };
 	/** The shared-checkout pass, published here for the sidecar factory: a bridge reporting a new changed file (`checkout_files`) runs one. */
-	checkoutFilesRef: { current: (() => void) | null };
+	checkoutFilesRef: { current: ((sidecar: object) => void) | null };
 	/** How a tab whose omp came up with an autopilot run `running` goes on (TurnResume's `relaunchContinuation`). */
 	relaunchContinuation: (tabId: string) => RelaunchContinuation;
 }
@@ -1187,6 +1187,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 						cwd: sidecar.cwd,
 						...(info.sessionPath ? { sessionPath: info.sessionPath } : {}),
 						canMessage,
+						owner: sidecar,
 						request,
 					});
 				}
@@ -1197,7 +1198,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		gitStatus: readGitStatus,
 	});
 	const refreshCheckoutPeers = () => void checkoutPeers.refresh();
-	deps.checkoutFilesRef.current = refreshCheckoutPeers;
+	deps.checkoutFilesRef.current = sidecar => checkoutPeers.filesChanged(sidecar);
 	setInterval(
 		refreshCheckoutPeers,
 		Number(process.env.OMP_GUI_TEST_CHECKOUT_PEERS_MS) || CHECKOUT_PEERS_SWEEP_MS,

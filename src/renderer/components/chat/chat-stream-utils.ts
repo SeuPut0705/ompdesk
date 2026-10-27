@@ -6,7 +6,6 @@
 
 import { elementScroll, type VirtualItem, type Virtualizer } from "@tanstack/react-virtual";
 import type { AgentMessage, MessageContent } from "../../../shared/rpc-types";
-import { resultDetails } from "../../lib/format";
 import { messageIdentity } from "../../lib/message-identity";
 import { isRenderableMessageText, messageDisplayText, splitReaction } from "../../lib/messages";
 import type { ReadGroupEntry, ReadGroupUsage } from "../../lib/read-group";
@@ -14,7 +13,7 @@ import type { TodoSnapshot } from "../../stores/todo";
 import { type ToolEntry, toolEntryKey } from "../../stores/tools";
 import type { TranscriptDetail } from "../../stores/ui";
 import { isCustomMessageCardType } from "./CustomMessageCard";
-import { asyncResultJobs, completionFailureCount, isCompletionMessage } from "./completion-events";
+import { asyncResultJobs, completionFailureCount, deliveredJobCalls, isCompletionMessage } from "./completion-events";
 import { parseTodoReminder } from "./todo-reminder";
 import { isSilentAbort, isWorkReply, messageTimestampMs } from "./work/work-turn";
 import { skillPromptName } from "./work/work-view";
@@ -695,7 +694,8 @@ export function buildHistoryRows(
 		rows.push({ kind: "message", message });
 	}
 	flushProcess();
-	// Stock's empty aborted reply after a tool stop is the run's own end: the card states
+	// Stock's empty aborted reply after a tool stop is the run's own end (its content may hold
+	// blank text or thinking blocks: "Request was aborted" came with one): the card states
 	// it as interrupted, so it never stands outside the card as a second "Stopped" row.
 	// A silent abort (stock ending the turn itself, e.g. for a plan proposal) folds the same
 	// way but is no stop.
@@ -708,7 +708,11 @@ export function buildHistoryRows(
 			next?.kind === "message" &&
 			next.message.role === "assistant" &&
 			next.message.stopReason === "aborted" &&
-			messageContent(next.message).length === 0
+			messageContent(next.message).every(
+				block =>
+					(block.type === "text" && !isRenderableMessageText(block.text)) ||
+					(block.type === "thinking" && !isRenderableMessageText(block.thinking)),
+			)
 		) {
 			if (!isSilentAbort(next.message)) rows[index] = { ...row, stoppedAt: messageTimestampMs(next.message) };
 			stops.add(index + 1);
@@ -840,18 +844,6 @@ function foldTodoReminders(rows: readonly HistoryRow[], reminders: ReadonlySet<A
 	return folded.filter((_, index) => !removed.has(index));
 }
 
-/** Which call started each background job: its result's `details.async.jobId` (tools/bash.ts, task). */
-function jobStarters(messages: readonly AgentMessage[]): ReadonlyMap<string, string> {
-	const startedBy = new Map<string, string>();
-	for (const message of messages) {
-		if (message.role !== "toolResult" || !message.toolCallId) continue;
-		const async = resultDetails(message)?.async;
-		const jobId = typeof async === "object" && async !== null && "jobId" in async ? async.jobId : undefined;
-		if (typeof jobId === "string") startedBy.set(jobId, message.toolCallId);
-	}
-	return startedBy;
-}
-
 /** The process row whose calls include `callId`. */
 function runOfCall(rows: readonly HistoryRow[], callId: string | undefined): number {
 	return rows.findIndex(
@@ -873,14 +865,14 @@ function runOfCall(rows: readonly HistoryRow[], callId: string | undefined): num
 function foldJobDeliveries(rows: readonly HistoryRow[], messages: readonly AgentMessage[]): HistoryRow[] {
 	if (!rows.some(row => row.kind === "message" && asyncResultJobs(row.message).length > 0))
 		return rows as HistoryRow[];
-	const startedBy = jobStarters(messages);
 	const folded = rows.slice();
 	const removed = new Set<number>();
 	for (const [index, row] of rows.entries()) {
 		if (row.kind !== "message") continue;
 		const jobs = asyncResultJobs(row.message);
+		const opened = deliveredJobCalls(messages, row.message);
 		const owners = new Set(
-			jobs.map(job => runOfCall(folded, job.jobId === undefined ? undefined : startedBy.get(job.jobId))),
+			jobs.map(job => runOfCall(folded, job.jobId === undefined ? undefined : opened.get(job.jobId))),
 		);
 		const [owner = -1] = owners;
 		// The row right above, past deliveries already folded into the same card.
@@ -901,24 +893,29 @@ function foldJobDeliveries(rows: readonly HistoryRow[], messages: readonly Agent
 
 /**
  * A background job that fails after its run ended is that run's failure: stock's async-result
- * notice arrives later (usually waking a follow-up turn), so the run whose call started the job
+ * notice arrives later (usually waking a follow-up turn), so the run whose call opened the job
  * (its result's `details.async.jobId`, tools/bash.ts `#buildBackgroundStartResult`) counts it.
+ * Job ids come back after every omp restart: the call is the newest to have opened the id
+ * before the notice (`deliveredJobCalls`).
  */
 function chargeJobFailures(rows: readonly HistoryRow[], messages: readonly AgentMessage[]): HistoryRow[] {
-	const failedJobs = rows.flatMap(row =>
-		row.kind === "message"
-			? asyncResultJobs(row.message).filter(job => job.status === "failed" && job.type !== "task")
+	const failedDeliveries = rows.flatMap(row =>
+		row.kind === "message" && asyncResultJobs(row.message).some(job => job.status === "failed" && job.type !== "task")
+			? [row.message]
 			: [],
 	);
-	if (failedJobs.length === 0) return rows as HistoryRow[];
-	const startedBy = jobStarters(messages);
+	if (failedDeliveries.length === 0) return rows as HistoryRow[];
 	const charged = rows.slice();
-	for (const job of failedJobs) {
-		const callId = job.jobId === undefined ? undefined : startedBy.get(job.jobId);
-		const owner = runOfCall(charged, callId);
-		const work = charged[owner];
-		if (callId === undefined || work?.kind !== "process") continue;
-		charged[owner] = { ...work, failedEvents: work.failedEvents + 1 };
+	for (const delivery of failedDeliveries) {
+		const opened = deliveredJobCalls(messages, delivery);
+		for (const job of asyncResultJobs(delivery)) {
+			if (job.status !== "failed" || job.type === "task") continue;
+			const callId = job.jobId === undefined ? undefined : opened.get(job.jobId);
+			const owner = runOfCall(charged, callId);
+			const work = charged[owner];
+			if (callId === undefined || work?.kind !== "process") continue;
+			charged[owner] = { ...work, failedEvents: work.failedEvents + 1 };
+		}
 	}
 	return charged;
 }

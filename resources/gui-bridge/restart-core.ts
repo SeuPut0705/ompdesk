@@ -1,9 +1,9 @@
 /**
  * What a relaunch's restore (`composer.restore_interrupted`) reads from the session journal
  * beyond stock `restoreSession`: the background bash jobs the last process started and never
- * finished, the subagents the restore revived while the session's own turn stays idle, and
- * whether a goal was still active when it ended. Pure over journal entries, so the rules are
- * unit-tested without a session (src/main/bridge-restart.test.ts).
+ * finished, the subagents the restore revived (named to the session whether its own turn goes
+ * on or not), and whether a goal was still active when it ended. Pure over journal entries, so
+ * the rules are unit-tested without a session (src/main/bridge-restart.test.ts).
  */
 import { assignmentHeadline } from "./modes/subagent-title-contracts";
 
@@ -300,13 +300,24 @@ export function revivedSubagents(branch: readonly JournalEntry[], ids: readonly 
 }
 
 /**
+ * What the relaunch did with the session's own turn: nothing to go on with (`idle`), a cut-off turn stock's retry
+ * cannot see that the follow-up continues (`cut`, `turnCutBehindNotes`), or a turn stock's restore continues itself
+ * (`restored`), which the follow-up joins as a steer.
+ */
+export type RestartTurn = "idle" | "cut" | "restored";
+
+/**
  * The agent's text. Model-facing only: the transcript shows one muted line per kind from the details (the
  * renderer's RestartNote), never this text. `- <id>` starts each list line (`settles` reads a job's `- <id>:`); the
  * intent follows so the agent can judge whether a job's result is still needed, or what a subagent is doing.
  */
-function restartNotice(jobs: readonly InterruptedJob[], subagents: readonly RevivedSubagent[], turn: boolean): string {
+function restartNotice(
+	jobs: readonly InterruptedJob[],
+	subagents: readonly RevivedSubagent[],
+	turn: RestartTurn,
+): string {
 	const lines: string[] = [];
-	if (turn) {
+	if (turn === "cut") {
 		lines.push(
 			"OMPdesk restarted while you were working and cut your turn off before it finished; the call it stopped shows as aborted above.",
 			"Carry on with the task: run that call again if its result is still needed.",
@@ -323,7 +334,9 @@ function restartNotice(jobs: readonly InterruptedJob[], subagents: readonly Revi
 		lines.push(
 			"These background agents you started are working again; their results reach you as usual:",
 			...subagents.map(agent => `- ${agent.id}${agent.intent ? `: ${agent.intent}` : ""}`),
-			"Check on them, tell the user in a sentence or two what is still in progress, and keep supervising them as before.",
+			turn === "restored"
+				? "Each one's first answer after the restart can take several minutes; that is not a stall. Keep supervising them as before."
+				: "Check on them, tell the user in a sentence or two what is still in progress, and keep supervising them as before.",
 		);
 	}
 	lines.push(
@@ -353,16 +366,15 @@ const listed = (items: readonly { id: string; intent?: string }[]) =>
 	items.map(item => (item.intent ? { id: item.id, intent: item.intent } : { id: item.id }));
 
 /**
- * The relaunch's one follow-up, or undefined when it has nothing to say: the cut-off jobs, the revived subagents
- * of a session whose own turn did not go on (the caller passes none when it did), and `turn`, a cut-off turn stock's
- * retry cannot see (`turnCutBehindNotes`). One message, so one turn.
+ * The relaunch's one follow-up, or undefined when it has nothing to say: the cut-off jobs, the revived subagents and
+ * what happened to the session's own turn (`RestartTurn`). One message, so one turn.
  */
 export function restartFollowUp(
 	jobs: readonly InterruptedJob[],
 	subagents: readonly RevivedSubagent[],
-	turn = false,
+	turn: RestartTurn = "idle",
 ): RestartFollowUp | undefined {
-	if (jobs.length === 0 && subagents.length === 0 && !turn) return undefined;
+	if (jobs.length === 0 && subagents.length === 0 && turn !== "cut") return undefined;
 	return {
 		customType:
 			jobs.length > 0
@@ -374,7 +386,7 @@ export function restartFollowUp(
 		details: {
 			jobs: listed(jobs),
 			...(subagents.length > 0 ? { subagents: listed(subagents) } : {}),
-			...(turn ? { turn: true as const } : {}),
+			...(turn === "cut" ? { turn: true as const } : {}),
 		},
 	};
 }

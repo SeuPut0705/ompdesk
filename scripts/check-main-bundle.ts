@@ -105,7 +105,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // Round 2 of the card's facts (27 Oct 2026): skills from every source, the Protected chip and the held-back row, a
 // check rerun inside a wider run resolving it (`coveredBy`), probes through read-only pipes and loopback curl; the
 // failed-check attention it replaced is gone: 4,289 bytes more (measured 3,349,289).
-const WEB_FIRST_SCREEN_JS_BYTES = 3_349_300;
+// The card's verdicts on real journals (background jobs keyed by the call that opened them, mixed and setup-led checks,
+// stops and restarts), revived subagents' resuming lane, a remote host's working rows under asleep tabs and session
+// drag reordering in the sidebar (27 Oct 2026, one batch): 11,595 bytes more (measured 3,360,884).
+const WEB_FIRST_SCREEN_JS_BYTES = 3_360_900;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

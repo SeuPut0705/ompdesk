@@ -94,8 +94,8 @@ export interface LocalSidecarDeps {
 	 * factory. Absent or null: the bridge's slot frames go unanswered.
 	 */
 	desktopSlot?: () => DesktopSlotFrameSink | null;
-	/** The bridge reported a changed file its session had not changed before (`checkout_files`): the shared-checkout pass runs now. Absent: the sweep finds it. */
-	checkoutFiles?: () => void;
+	/** The bridge reported a changed file its session had not changed before (`checkout_files`; `sidecar` is that session's omp): the shared-checkout pass runs soon. Absent: the sweep finds it. */
+	checkoutFiles?: (sidecar: object) => void;
 }
 
 /** The device language as a BCP 47 subtag (`ko`, `zh-Hant`): not the UI one, which ships only en/ko. */
@@ -266,7 +266,7 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 		});
 		// The bridge's `checkout_files` frame (a new changed file) only wakes main's shared-checkout pass.
 		sc.on("frame", (frame: Record<string, unknown>) => {
-			if (frame.type === CHECKOUT_FILES_EVENT) deps.checkoutFiles?.();
+			if (frame.type === CHECKOUT_FILES_EVENT) deps.checkoutFiles?.(sc);
 		});
 		// omp has no session kind; remember which sessions chat tabs created.
 		if (kind === "chat") sc.on("session", ({ sessionId }) => sessionId && sessionKinds.markChat(sessionId));

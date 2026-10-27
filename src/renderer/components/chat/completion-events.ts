@@ -1,5 +1,6 @@
 import type { AgentMessage } from "../../../shared/rpc-types";
-import { resultText } from "../../lib/format";
+import { resultDetails, resultText } from "../../lib/format";
+import type { ToolEntry } from "../../stores/tools";
 
 export interface LaunchCompletionDaemon {
 	name: string;
@@ -129,43 +130,161 @@ export interface BackgroundJobVerdict {
 	text: string;
 	/** The exit code stock recorded, when the delivery carries one (a `wait` snapshot). */
 	exitCode?: number;
+	/** Its omp process ended before the job reported (an app restart): nothing says how the command went. */
+	lost?: true;
 }
 
-const verdictsByList = new WeakMap<readonly AgentMessage[], ReadonlyMap<string, BackgroundJobVerdict>>();
+const LOST: BackgroundJobVerdict = { failed: false, text: "", lost: true };
+const settled = (status: unknown) => status === "completed" || status === "failed";
 
 /**
- * Every settled background job of a session by id: stock delivers a job's outcome either as an `async-result`
- * message or, when the agent waited for it, in its `wait` call's result (tools/wait.ts, `details.jobs[]` job
- * snapshots with `status`, `exitCode`, `resultText`/`errorText`; a result `wait` consumed is not delivered again).
- * Memoized per message list, so every work card of a transcript reads one scan.
+ * Stock numbers background jobs per omp process (`bg_1` again after every restart), and a job's result names only that
+ * id. The call that opened a job is therefore the newest one to have opened its id before the result. `seesAll`: every
+ * delivery is in view (a transcript's messages), so a job whose id was opened again before it reported, or that an omp
+ * restart ended, never reports; a subagent's entries show only what it waited for, so its silent job may well have
+ * been delivered out of sight and is only unknown.
  */
-export function backgroundJobVerdicts(messages: readonly AgentMessage[]): ReadonlyMap<string, BackgroundJobVerdict> {
-	const cached = verdictsByList.get(messages);
-	if (cached) return cached;
-	const verdicts = new Map<string, BackgroundJobVerdict>();
-	const settled = (status: unknown) => status === "completed" || status === "failed";
-	for (const message of messages) {
-		if (message.role === "toolResult" && message.toolName === "wait") {
-			const jobs = (message.details as { jobs?: unknown } | undefined)?.jobs;
-			for (const job of Array.isArray(jobs) ? (jobs as Record<string, unknown>[]) : []) {
-				if (typeof job?.id !== "string" || !settled(job.status)) continue;
-				const text = typeof job.resultText === "string" ? job.resultText : job.errorText;
-				verdicts.set(job.id, {
+function jobBook<K>(verdicts: Map<K, BackgroundJobVerdict>, seesAll: boolean) {
+	const openedBy = new Map<string, K>();
+	const unreported = new Set<K>();
+	return {
+		open(jobId: string, opener: K) {
+			const previous = openedBy.get(jobId);
+			if (seesAll && previous !== undefined && unreported.delete(previous)) verdicts.set(previous, LOST);
+			openedBy.set(jobId, opener);
+			unreported.add(opener);
+		},
+		openerOf: (jobId: string): K | undefined => openedBy.get(jobId),
+		settle(jobId: string, verdict: BackgroundJobVerdict) {
+			const opener = openedBy.get(jobId);
+			if (opener === undefined) return;
+			verdicts.set(opener, verdict);
+			unreported.delete(opener);
+		},
+		restart() {
+			for (const opener of unreported) verdicts.set(opener, LOST);
+			unreported.clear();
+			openedBy.clear();
+		},
+	};
+}
+
+/** The job a call's result says it opened (stock tools/bash.ts `#buildBackgroundStartResult`, task). */
+function openedJobId(details: Record<string, unknown> | undefined): string | undefined {
+	const async = details?.async;
+	const jobId = typeof async === "object" && async !== null && "jobId" in async ? async.jobId : undefined;
+	return typeof jobId === "string" ? jobId : undefined;
+}
+
+/** The jobs a stock `wait` result settled: its `details.jobs[]` snapshots with their verdicts. */
+function waitedJobs(details: Record<string, unknown> | undefined): { id: string; verdict: BackgroundJobVerdict }[] {
+	const jobs = details?.jobs;
+	return (Array.isArray(jobs) ? (jobs as Record<string, unknown>[]) : []).flatMap(job => {
+		if (typeof job?.id !== "string" || !settled(job.status)) return [];
+		const text = typeof job.resultText === "string" ? job.resultText : job.errorText;
+		return [
+			{
+				id: job.id,
+				verdict: {
 					failed: job.status === "failed",
 					text: typeof text === "string" ? text : "",
 					...(typeof job.exitCode === "number" ? { exitCode: job.exitCode } : {}),
-				});
+				},
+			},
+		];
+	});
+}
+
+/** Stock's placeholder reply, journaled when it opens a session whose previous process ended mid-turn. */
+export function isRestartNotice(message: AgentMessage): boolean {
+	return (
+		message.role === "assistant" &&
+		typeof message.errorMessage === "string" &&
+		message.errorMessage.startsWith("Previous OMP process exited")
+	);
+}
+
+interface JobLedger {
+	verdicts: ReadonlyMap<string, BackgroundJobVerdict>;
+	/** Per delivery message: each job id it names, with the call that opened it. */
+	deliveries: WeakMap<AgentMessage, ReadonlyMap<string, string>>;
+}
+
+const ledgersByList = new WeakMap<readonly AgentMessage[], JobLedger>();
+const NO_CALLS: ReadonlyMap<string, string> = new Map();
+
+/**
+ * One pass over a transcript, in order: stock delivers a job's outcome either as an `async-result` message or, when
+ * the agent waited for it, in its `wait` call's result (tools/wait.ts, `details.jobs[]` job snapshots with `status`,
+ * `exitCode`, `resultText`/`errorText`; a result `wait` consumed is not delivered again). Memoized per message list, so
+ * every work card of a transcript reads one scan.
+ */
+function jobLedger(messages: readonly AgentMessage[]): JobLedger {
+	const cached = ledgersByList.get(messages);
+	if (cached) return cached;
+	const verdicts = new Map<string, BackgroundJobVerdict>();
+	const deliveries = new WeakMap<AgentMessage, ReadonlyMap<string, string>>();
+	const book = jobBook(verdicts, true);
+	for (const message of messages) {
+		if (isRestartNotice(message)) {
+			book.restart();
+			continue;
+		}
+		if (message.role === "toolResult") {
+			if (message.toolName === "wait") {
+				for (const job of waitedJobs(resultDetails(message))) book.settle(job.id, job.verdict);
+				continue;
 			}
+			const jobId = openedJobId(resultDetails(message));
+			if (jobId && message.toolCallId) book.open(jobId, message.toolCallId);
 			continue;
 		}
 		const jobs = asyncResultJobs(message);
 		if (jobs.length === 0) continue;
 		const texts = asyncJobResults(resultText(message.content), jobs);
+		const calls = new Map<string, string>();
 		for (const job of jobs) {
-			if (!job.jobId || !settled(job.status)) continue;
-			verdicts.set(job.jobId, { failed: job.status === "failed", text: texts.get(job.jobId) ?? "" });
+			if (!job.jobId) continue;
+			const opener = book.openerOf(job.jobId);
+			if (opener !== undefined) calls.set(job.jobId, opener);
+			if (settled(job.status))
+				book.settle(job.jobId, { failed: job.status === "failed", text: texts.get(job.jobId) ?? "" });
 		}
+		deliveries.set(message, calls);
 	}
-	verdictsByList.set(messages, verdicts);
+	const ledger = { verdicts, deliveries };
+	ledgersByList.set(messages, ledger);
+	return ledger;
+}
+
+/** Every settled background job of a session by the id of the call that opened it. */
+export function backgroundJobVerdicts(messages: readonly AgentMessage[]): ReadonlyMap<string, BackgroundJobVerdict> {
+	return jobLedger(messages).verdicts;
+}
+
+/** The call that opened each job a delivery message names, by job id (empty for a message that is no delivery). */
+export function deliveredJobCalls(
+	messages: readonly AgentMessage[],
+	delivery: AgentMessage,
+): ReadonlyMap<string, string> {
+	return jobLedger(messages).deliveries.get(delivery) ?? NO_CALLS;
+}
+
+/**
+ * The same ledger for the calls of one agent seen only as tool entries, in call order (a subagent's: its surface keeps
+ * no transcript messages): what its own `wait` calls settled, by the entry that opened the job.
+ */
+export function waitedJobVerdicts(entries: readonly ToolEntry[]): ReadonlyMap<ToolEntry, BackgroundJobVerdict> {
+	const verdicts = new Map<ToolEntry, BackgroundJobVerdict>();
+	const book = jobBook(verdicts, false);
+	for (const entry of entries) {
+		const details = resultDetails(entry.result);
+		if (entry.toolName === "wait") {
+			for (const job of waitedJobs(details)) book.settle(job.id, job.verdict);
+			continue;
+		}
+		const jobId = openedJobId(details);
+		if (jobId) book.open(jobId, entry);
+	}
 	return verdicts;
 }

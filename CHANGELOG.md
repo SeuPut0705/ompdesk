@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.79.0] - 2026-10-27
+
+업데이트나 재시작 뒤 하위 에이전트와 세션 상태가 제대로 보이고 이어지며, 작업 상자의 잘못된 빨간 표시가 크게 줄었어요. 같은 폴더 세션들의 협업 보호도 검토에서 찾은 구멍을 한 번에 메웠고, 사이드바 세션 순서도 끌어서 바꿀 수 있어요.
+
+### 새로 생긴 것
+- 사이드바의 세션도 프로젝트·기기처럼 끌어서 순서를 바꿀 수 있고, 다시 켜도 그 순서를 기억해요. 연결된 컴퓨터의 세션 목록도 같아요. 창 가장자리로 끌어서 화면을 나누는 기능은 그대로예요.
+
+### 고친 것
+- **업데이트 뒤 하위 에이전트가 멈춘 것처럼 보이던 문제.** 되살아난 하위 에이전트가 OMPdesk 설정(답변 언어, 호칭, 브라우저, 협업 규칙)을 잃고 모델 캐시가 깨져서, 첫 응답까지 몇 분 동안 아무 표시가 없었어요. 이제 설정을 그대로 갖고 이어가요. 작업 상자와 작업 현황에는 "재시작 뒤 이어서 진행 중"이 보이고, 메인 세션도 어느 에이전트가 다시 일하는지 바로 알아요.
+- **원격 컴퓨터에서 작업 중인 세션이 눌러야만 보이던 문제.** 업데이트나 재시작 뒤 연결된 컴퓨터의 사이드바가, 호스트에서 작업 중인 세션을 누르지 않아도 바로 작업 중으로 보여 줘요.
+- **작업 상자의 잘못된 빨간 표시.** 실제 기록 154개로 다시 확인해 빨간 카드 59개 중 15개의 잘못된 빨강을 없앴어요.
+  - 재시작할 때마다 다시 쓰이는 백그라운드 작업 번호 때문에, 다른 작업의 결과(예: "release not found")가 엉뚱한 카드에 붙던 문제를 고쳤어요.
+  - 테스트 파일을 쓰고 바로 돌리는 명령, 여러 검사를 한 번에 돌린 통과, 재시작으로 끊긴 명령, 빈 응답으로 멈춘 중단도 더 이상 실패로 보지 않아요.
+  - 반대로 `| grep`으로 걸러 낸 타입 검사는 통과의 증거로 보지 않아서, 숨은 실패가 초록으로 보이지 않아요.
+- **같은 폴더 세션 협업 보호 (검토 세 갈래에서 찾은 약 45가지).**
+  - 두 세션이 함께 고친 파일은 어느 쪽도 커밋할 수 없던 문제를 고쳤어요. 자기도 고친 파일은 스테이징·커밋할 수 있고, 남의 작업을 지우는 동작만 막아요.
+  - 앱이나 omp가 재시작해도 세션이 고치던 파일 기록과 다른 세션 정보가 그대로 유지돼요.
+  - 편집 도구로 남의 파일을 지우거나 덮는 것, `git reset <브랜치>`, `git commit -vm`, `git bisect`, `find -delete`, 포매터 등 빠져 있던 동작을 판단해요. 로그 파일이나 `>>` 덧붙이기처럼 막을 필요 없는 것은 막지 않아요.
+  - 백그라운드로 돌린 명령의 쓰기, 하위 폴더·서브모듈의 파일, 한글 파일 이름도 제대로 지켜요.
+  - 큰 저장소에서는 바뀐 파일만 git에 물어 CPU를 거의 쓰지 않고, 응답 없는 세션 하나 때문에 전체 협업이 멈추지 않아요.
+
+<!-- en -->
+
+After an update or restart, subagents and session states show and continue correctly, and the work card's false red verdicts drop sharply. Coordination between sessions in one folder closes every hole the reviews found, and sidebar sessions can be reordered by dragging.
+
+### New
+- Sidebar sessions can be dragged into a new order like projects and devices, and the order survives a relaunch, paired computers' session lists too. Dragging a session to a pane edge still splits the view.
+
+### Fixes
+- **Subagents looked stopped after an update.** A revived subagent lost OMPdesk's settings (reply language, name, browser, coordination rules) and the model cache, so nothing showed for minutes until its first answer. It now continues with them; the work card and board say "Resuming after the restart", and the main session is told which agents work again.
+- **A paired computer showed a host's working session only after a click.** After an update or restart, its sidebar shows the host's working sessions as working without a tap.
+- **False red work cards.** Replayed on 154 real cards, 15 of 59 red cards were wrongly red and no longer are.
+  - Background job numbers reused by every restart pinned another job's result (such as "release not found") on the wrong card.
+  - A command that writes a test and runs it, a pass that ran several kinds of checks, a command cut off by a restart and a stop whose reply was blank no longer read as failures.
+  - A type check filtered through `| grep` no longer counts as a pass, so hidden failures don't show green.
+- **Coordination of sessions in one folder (about 45 issues from three reviews).**
+  - A file both sessions changed could be committed by neither. A session may now stage and commit a file it also changed; only steps that would drop the other's work are refused.
+  - Claims and peers survive an app or omp restart.
+  - Edit-tool deletes and overwrites of another session's file, `git reset <branch>`, `git commit -vm`, `git bisect`, `find -delete`, formatters and more are judged; log files and `>>` appends are no longer refused.
+  - Backgrounded commands' writes, files in subfolders and submodules, and decomposed (NFD) file names are protected.
+  - On large repositories git is asked only about the claimed files, and one unresponsive session no longer stalls coordination for everyone.
+
 ## [0.78.3] - 2026-10-27
 
 하위 에이전트 하나가 먼저 끝나도, 다른 에이전트가 아직 쓰고 있는 파일의 보호가 풀리지 않아요.

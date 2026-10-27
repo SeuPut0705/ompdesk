@@ -1,4 +1,9 @@
 import { assignmentTitle } from "../../../../../resources/gui-bridge/modes/subagent-title-contracts";
+import {
+	RESTART_JOBS_MESSAGE,
+	RESTART_SUBAGENTS_MESSAGE,
+	RESTART_TURN_MESSAGE,
+} from "../../../../../resources/gui-bridge/restart-core";
 import type { AgentMessage } from "../../../../shared/rpc-types";
 import { resultDetails, resultText } from "../../../lib/format";
 import { asRecord } from "../../../lib/wire-value";
@@ -307,16 +312,66 @@ const TERMINAL: Record<string, true> = { completed: true, failed: true, aborted:
 /**
  * The run's lanes: stock registry rows (live status, progress) first, then the
  * agents only the transcript still remembers. A transcript agent that never
- * settled and is not live anymore was cut off with its run.
+ * settled and is not live anymore was cut off with its run. A registry row with
+ * no spawning call is an agent a restart's restore revived (the omp that spawned
+ * it is gone): while it works it takes the lane its spawn named, keeping that
+ * lane's place and title; any other row without a call belongs to no lane.
  */
 export function mergeRunAgents(live: readonly SubagentNode[], transcript: RunTranscript): SubagentNode[] {
-	const byId = new Map(live.map(node => [node.id, node]));
+	const spawned = new Map(transcript.agents.map(node => [node.id, node]));
+	const byId = new Map<string, SubagentNode>();
+	for (const node of live) {
+		if (node.parentToolCallId) {
+			byId.set(node.id, node);
+			continue;
+		}
+		const lane = spawned.get(node.id);
+		if (!lane || node.status !== "running") continue;
+		byId.set(node.id, {
+			...node,
+			index: lane.index,
+			parentToolCallId: lane.parentToolCallId,
+			description: node.description ?? lane.description,
+			assignment: node.assignment ?? lane.assignment,
+		});
+	}
 	for (const node of transcript.agents) {
 		if (byId.has(node.id)) continue;
 		const status = transcript.completions.get(node.id)?.status ?? (TERMINAL[node.status] ? node.status : "aborted");
 		byId.set(node.id, { ...node, status });
 	}
 	return [...byId.values()].sort((a, b) => a.index - b.index);
+}
+
+const RESTART_NOTES = new Set<unknown>([RESTART_JOBS_MESSAGE, RESTART_SUBAGENTS_MESSAGE, RESTART_TURN_MESSAGE]);
+const NONE: ReadonlySet<string> = new Set();
+
+/**
+ * The subagents the newest restart note names as working again (the bridge's follow-up, `details.subagents`) that
+ * have not reported back since (a later `async-result` naming the job). A revived agent's first request can take
+ * minutes; until it reports, its lane and board row say it resumes after the restart.
+ */
+export function resumedAgents(messages: readonly AgentMessage[]): ReadonlySet<string> {
+	const settled = new Set<string>();
+	for (let index = messages.length - 1; index >= 0; index--) {
+		const message = messages[index];
+		if (message?.role !== "custom") continue;
+		const details = asRecord(message.details);
+		if (RESTART_NOTES.has(message.customType)) {
+			const named = Array.isArray(details?.subagents) ? details.subagents : [];
+			const ids = named.flatMap(item => {
+				const id = asRecord(item)?.id;
+				return typeof id === "string" && !settled.has(id) ? [id] : [];
+			});
+			return ids.length > 0 ? new Set(ids) : NONE;
+		}
+		if (message.customType !== "async-result") continue;
+		for (const value of Array.isArray(details?.jobs) ? details.jobs : []) {
+			const job = asRecord(value);
+			for (const id of [job?.agentId, job?.jobId, job?.id]) if (typeof id === "string") settled.add(id);
+		}
+	}
+	return NONE;
 }
 
 /**

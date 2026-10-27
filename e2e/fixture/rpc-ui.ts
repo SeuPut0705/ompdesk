@@ -1772,8 +1772,8 @@ export function runRpcUi(): void {
 				return Array.isArray(background) ? background.filter(id => typeof id === "string") : [];
 			});
 			// The bridge's follow-up: a displayed custom message the transcript shows as muted lines; with no cut-off turn
-			// it starts the turn, as stock's idle follow-up does. Revived subagents are named only when the turn stays idle.
-			const followUp = restartFollowUp(stopped, cutOff ? [] : revivedSubagents(journal, subagents));
+			// it starts the turn, as stock's idle follow-up does. A restored turn names revived subagents too (composer.ts).
+			const followUp = restartFollowUp(stopped, revivedSubagents(journal, subagents), cutOff ? "restored" : "idle");
 			if (followUp) {
 				const notice: AgentMessage = {
 					role: "custom",

@@ -23,9 +23,11 @@ export interface CheckoutPeer {
 	/**
 	 * Files it changed and has not committed yet (absolute, newest first). A peer in another worktree's files are
 	 * spelled in this session's worktree (the same path relative to the top level), so both scopes compare with this
-	 * session's own paths; only same-worktree files ever refuse anything.
+	 * session's own paths; only same-worktree files ever refuse anything by this list.
 	 */
 	files?: string[];
+	/** Only for a peer in another worktree: the same files at their real place, inside `worktree`, so a write or a git run aimed into that worktree is judged. */
+	worktreeFiles?: string[];
 	/** What it is doing now: its in-progress todo item, one line (`CHECKOUT_TASK_MAX`). Absent: none, its title stands. Never in the prompt section. */
 	task?: string;
 	/** The files both this session and that peer changed and have not committed, in this session's spelling. */
@@ -48,12 +50,30 @@ export interface CheckoutPeers {
 export const CHECKOUT_PEERS_SECTION_ID = "checkout-peers";
 /** Main → bridge: the session's peers (`CheckoutPeers`). */
 export const CHECKOUT_PEERS_SET = "checkout_peers_set";
-/** Main → bridge: what this session is doing: `{files, task?}`, the files its agents changed lately (absolute, newest first) and its in-progress todo item. */
-export const CHECKOUT_STATUS = "checkout_status";
 /**
- * Main → bridge: `{files: [{file, stamp}]}`, claims main saw committed (`git status` no longer lists them). The
- * session drops each whose stamp (`checkout_status`'s `stamps`, parallel to `files`) is unchanged; a file changed
- * again since keeps its newer claim.
+ * Main → bridge: what this session is doing: `CheckoutStatus`. Claims survive the omp: the bridge journals them and
+ * reads them back when the session loads, so a restart or a relaunch keeps protecting uncommitted work.
+ */
+export const CHECKOUT_STATUS = "checkout_status";
+
+/** `checkout_status`'s answer. */
+export interface CheckoutStatus {
+	/** The files its agents changed (absolute, newest first), every one it still holds: no cap. */
+	files: string[];
+	/** Each file's edit stamp, parallel to `files`. */
+	stamps: number[];
+	/** Files a call still running is writing (a running command, a backgrounded job): claims git may not show yet, never retired. */
+	pending: string[];
+	/** This omp's load of the bridge: a new value means a new process (restart, relaunch); main tells it its peers again and never retires with another load's stamps. */
+	instance: string;
+	/** Its in-progress todo item, one line. */
+	task?: string;
+}
+
+/**
+ * Main → bridge: `{instance, files: [{file, stamp}]}`, claims main saw committed (`git status` lists neither the path nor
+ * anything under it). The session drops each whose stamp is unchanged and that no running call writes; a file changed
+ * again since keeps its newer claim. A retire carrying another `instance` is ignored.
  */
 export const CHECKOUT_RETIRE = "checkout_retire";
 /** The longest task a peer carries. */

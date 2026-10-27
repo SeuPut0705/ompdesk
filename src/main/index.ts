@@ -723,7 +723,7 @@ app.whenReady().then(() => {
 	// The desktop slot's host is built in ipc.ts next to the pool's wiring; the factory reads it from here.
 	const desktopSlotRef: { current: DesktopSlotHost | null } = { current: null };
 	// The shared-checkout pass is built in ipc.ts too; the factory runs it when a bridge reports a new changed file.
-	const checkoutFilesRef: { current: (() => void) | null } = { current: null };
+	const checkoutFilesRef: { current: ((sidecar: object) => void) | null } = { current: null };
 	// Memory's address for the bridge's recall in every omp this computer runs (src/main/ai-memory/recall-state.ts).
 	const memoryRecallState = new RecallStateFile(join(app.getPath("userData"), "ai-memory", "recall.json"));
 	const recallTermsFile = join(app.getPath("userData"), "ai-memory", RECALL_TERMS_FILE);
@@ -769,7 +769,7 @@ app.whenReady().then(() => {
 		memoryStateFile: memoryRecallState.path,
 		autopilot: () => autopilotRef.current,
 		desktopSlot: () => desktopSlotRef.current,
-		checkoutFiles: () => checkoutFilesRef.current?.(),
+		checkoutFiles: sidecar => checkoutFilesRef.current?.(sidecar),
 	});
 	initDeletedSessions(join(app.getPath("userData"), "deleted-sessions.json"));
 	sessionIndex = new SessionIndex(undefined, initialCwd, sessionId => sessionKinds.isChat(sessionId), bridgeDir);

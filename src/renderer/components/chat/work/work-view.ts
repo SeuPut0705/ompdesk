@@ -4,16 +4,16 @@ import { TURN_EDIT_TOOLS } from "../../../../shared/turn-edits";
 import { extractResultImages, resultDetails, resultText } from "../../../lib/format";
 import { devServerUrl } from "../../../lib/panel-auto-open";
 import { asRecord } from "../../../lib/wire-value";
-import type { ToolEntry } from "../../../stores/tools";
+import { callIdOfEntryKey, type ToolEntry } from "../../../stores/tools";
 import { toolDiffStats } from "../../tools/diff-stats";
 import { workFilePathKey } from "../../tools/edit-args";
 import { getToolHeader } from "../../tools/index";
 import { type ChatMediaKind, toolResultMedia } from "../../tools/media/chat-media";
 import { asPerFileResults } from "../../tools/renderers/EditRenderer";
 import { normalizeYieldData } from "../../tools/renderers/task-render-utils";
-import { type BackgroundJobVerdict, exitCodeOf } from "../completion-events";
+import { type BackgroundJobVerdict, exitCodeOf, waitedJobVerdicts } from "../completion-events";
 import { isInterruptedError } from "./WorkStatus";
-import { checkKind } from "./work-checks";
+import { checkKinds } from "./work-checks";
 
 /** Enough of a check's output for its runner summary and first error line. */
 const CHECK_TEXT_MAX = 8000;
@@ -271,8 +271,11 @@ export function guardRefusal(entry: ToolEntry): string | null {
 
 /** `skill://tdd`, `skill://poteto-mode/playbooks/bug-fix.md`, `skill://how:1-40` → the skill's name. */
 const SKILL_URI = /^skill:\/\/([^/:?#\s]+)/;
-/** `/Users/me/.claude/skills/tdd/SKILL.md`, `skills/tdd/SKILL.md:1-40`, `C:\x\skills\tdd\SKILL.md` → the folder's name. */
-const SKILL_FILE = /(?:^|[\\/])skills[\\/]([^\\/:]+)[\\/]SKILL\.md(?::[\d,+-]*)?$/;
+/**
+ * `/Users/me/.claude/skills/tdd/SKILL.md`, `skills/tdd/SKILL.md:1-40`, `…/SKILL.md:raw`, `…/SKILL.md:1-40:raw`,
+ * `C:\x\skills\tdd\SKILL.md` → the folder's name. A read's selector (lines, `raw`) follows the path in any order.
+ */
+const SKILL_FILE = /(?:^|[\\/])skills[\\/]([^\\/:]+)[\\/]SKILL\.md(?::(?:raw|[\d,+-]*))*$/;
 
 /** The skill a read path names, whatever skills root it sits in; undefined for any other path. */
 export function skillOfPath(path: string): string | undefined {
@@ -319,6 +322,16 @@ export function workOutcomes(
 	const media = new Map<string, WorkMediaOutcome>();
 	const skills = new Map<string, WorkSkillOutcome>();
 	const protections: WorkProtection[] = [];
+	// A subagent's calls reach the card as entries only: each agent's own `wait` entries settle its own jobs.
+	const agentVerdicts = new Map<ToolEntry, BackgroundJobVerdict>();
+	const byAgent = new Map<string, ToolEntry[]>();
+	for (const evidence of entries) {
+		if (!("entry" in evidence) || !evidence.agentName) continue;
+		byAgent.set(evidence.agentName, [...(byAgent.get(evidence.agentName) ?? []), evidence.entry]);
+	}
+	for (const agentEntries of byAgent.values())
+		for (const [entry, verdict] of waitedJobVerdicts(agentEntries.sort((a, b) => a.startTime - b.startTime)))
+			agentVerdicts.set(entry, verdict);
 	for (const evidence of [...entries].sort((a, b) => {
 		const left = "entry" in a ? a.entry : a;
 		const right = "entry" in b ? b.entry : b;
@@ -423,11 +436,21 @@ export function workOutcomes(
 			}
 		}
 		if (entry.toolName === "bash" && typeof entry.args.command === "string") {
-			// A backgrounded call's own result is only the notice; the delivered job is the outcome.
+			// A backgrounded call's own result is only the notice; the job's delivered result is the outcome, the one of
+			// the call that opened the job (an id is opened again after every omp restart).
 			const asyncJob = asRecord(details?.async);
 			const backgroundId = asyncJob?.state === "running" && typeof asyncJob.jobId === "string" ? asyncJob.jobId : "";
-			const verdict = backgroundId ? jobVerdicts?.get(backgroundId) : undefined;
-			const pending = !!backgroundId && !verdict;
+			const reported = !backgroundId
+				? undefined
+				: agentName
+					? agentVerdicts.get(entry)
+					: toolCallId
+						? jobVerdicts?.get(callIdOfEntryKey(toolCallId))
+						: undefined;
+			// An omp restart ended the job before it reported: how the command went is unknown, never a pass.
+			const lost = reported?.lost === true;
+			const verdict = lost ? undefined : reported;
+			const pending = !!backgroundId && !reported;
 			const delivered = verdict ? (verdict.text.match(/<output>([\s\S]*?)<\/output>/)?.[1] ?? verdict.text) : "";
 			const exitCode = verdict
 				? (verdict.exitCode ?? exitCodeOf(delivered) ?? (verdict.failed ? null : 0))
@@ -454,12 +477,13 @@ export function workOutcomes(
 					netLines.delete(key);
 				}
 			}
-			const cut = isInterruptedError(entry, agentName ? undefined : stoppedAt);
-			const output = cut
-				? resultText(entry.result)
-						.replace(/\n*\[Command (?:aborted|cancelled)\]\s*$/, "")
-						.trim()
-				: "";
+			const cut = lost || isInterruptedError(entry, agentName ? undefined : stoppedAt);
+			const output =
+				cut && !lost
+					? resultText(entry.result)
+							.replace(/\n*\[Command (?:aborted|cancelled)\]\s*$/, "")
+							.trim()
+					: "";
 			// A command that ran reports its exit in the details (stock tools/bash.ts `#buildCompletedResult`: a failed exit's
 			// code, a timeout) or, run without one, ends its error with stock's notice; an error with neither is a ToolError
 			// stock threw before running the command.
@@ -473,13 +497,13 @@ export function workOutcomes(
 						!RAN_WITHOUT_EXIT.test(resultText(entry.result).trim())));
 			const failed = errored && !cut && !refused;
 			const text = verdict
-				? failed || exitCode || checkKind(entry.args.command)
+				? failed || exitCode || checkKinds(entry.args.command, true).length > 0
 					? delivered.slice(-CHECK_TEXT_MAX)
 					: ""
 				: !cut &&
 						!pending &&
 						Array.isArray(asRecord(entry.result)?.content) &&
-						(failed || exitCode || checkKind(entry.args.command))
+						(failed || exitCode || checkKinds(entry.args.command, true).length > 0)
 					? resultText(entry.result).slice(-CHECK_TEXT_MAX)
 					: "";
 			const previewUrl =

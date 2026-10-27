@@ -11,11 +11,7 @@
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as nodePath from "node:path";
-import {
-	CheckoutLedger,
-	CheckoutPeersState,
-	retiredClaims,
-} from "../../resources/gui-bridge/modes/checkout-peers-core";
+import { CheckoutLedger, CheckoutPeersState } from "../../resources/gui-bridge/modes/checkout-peers-core";
 import type { AgentMessage } from "../../src/shared/rpc-types";
 
 type Params = Record<string, unknown>;
@@ -36,6 +32,7 @@ interface Host {
 const files = {
 	realpath: (path: string) => fs.realpathSync.native(path),
 	isDirectory: (path: string) => fs.statSync(path, { throwIfNoEntry: false })?.isDirectory() === true,
+	exists: (path: string) => fs.existsSync(path),
 };
 
 export function createCheckoutFake(host: Host) {
@@ -52,13 +49,9 @@ export function createCheckoutFake(host: Host) {
 			state.set(params);
 			return { ok: true };
 		},
-		checkout_status: () => ({
-			files: [...ledger.files],
-			stamps: ledger.files.map(file => ledger.stamp(file)),
-			...(task ? { task } : {}),
-		}),
+		checkout_status: () => ({ ...ledger.status(), ...(task ? { task } : {}) }),
 		checkout_retire: params => {
-			ledger.retire(retiredClaims(params));
+			ledger.retireFrom(params);
 			return { ok: true };
 		},
 		"checkout_peers.get": () => ({ peers: state.peers ?? null }),
@@ -111,7 +104,7 @@ export function createCheckoutFake(host: Host) {
 		if ("block" in verdict) return { text: verdict.block, isError: true };
 		if (verdict.notice) notices.push(verdict.notice);
 		const outcome = act();
-		ledger.settle(id);
+		ledger.settle(id, "", { isError: outcome.isError });
 		return outcome;
 	}
 

@@ -91,6 +91,20 @@
 	background-color: var(--sc-pressed);
 }
 
+/* A session row dragged to a new place in its list: the accent line marks where it lands (inside the row's box, which
+   paints contained), the dragged row steps back. Colour is never the only cue: the row itself moves on the drop. */
+.omp-session-sidebar .omp-sidebar-session-row[data-session-drop="before"] {
+	box-shadow: inset 0 2px 0 var(--sc-accent);
+}
+
+.omp-session-sidebar .omp-sidebar-session-row[data-session-drop="after"] {
+	box-shadow: inset 0 -2px 0 var(--sc-accent);
+}
+
+.omp-session-sidebar .omp-sidebar-session-row[data-session-dragging="true"] {
+	opacity: 0.5;
+}
+
 /* The attention word shares the row with the title: a translation longer than the English and Korean words (97 px
    at most) ends in an ellipsis, the word staying the tooltip and the row's accessible text. */
 .omp-session-sidebar .omp-sidebar-approval {

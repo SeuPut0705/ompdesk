@@ -65,8 +65,8 @@ export type SessionRowModel =
 	| { kind: "protected"; protections: WorkProtection[] };
 
 export interface SessionBoard {
-	/** Changed, not in main yet, last check (passed or running; a failed one is a row of Needs you), dev servers, same
-	 * checkout, memory, skills read: only those with something to say. */
+	/** Changed, not in main yet, last check (passed, failed or running), dev servers, same checkout, memory, skills
+	 * read: only those with something to say. */
 	rows: SessionRowModel[];
 }
 

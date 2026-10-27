@@ -20,7 +20,8 @@ const CHECKS: readonly { kind: CheckKind; tool: RegExp; script: RegExp }[] = [
 	{
 		kind: "test",
 		tool: /^(?:vitest|jest|mocha|pytest|rspec|phpunit|ava|playwright\s+test|(?:bun|deno|cargo|go|swift|dotnet|mix|gradle|mvn)\s+test|make\s+test)\b/,
-		script: /^test(?::[\w:-]+)?$/,
+		// `check:changed` is the repo's own gate: it runs the unit and e2e tests of what changed and prints their counts.
+		script: /^(?:test(?::[\w:-]+)?|check:changed)$/,
 	},
 	{
 		kind: "typecheck",
@@ -40,8 +41,75 @@ const CHECKS: readonly { kind: CheckKind; tool: RegExp; script: RegExp }[] = [
 ];
 
 const EXEC_WRAPPER =
-	/^(?:(?:\w+=\S*|npx|bunx|pnpm\s+(?:exec|dlx)|yarn\s+dlx|uv\s+run|poetry\s+run|python3?\s+-m|time|env)\s+)+/;
+	/^(?:(?:\w+=\S*|npx|bunx|pnpm\s+(?:exec|dlx)|yarn\s+dlx|uv\s+run|poetry\s+run|python3?\s+-m|time|env|timeout(?:\s+(?:-[ks]\s*\d+(?:\.\d+)?[smhd]?|-\S+))*\s+\d+(?:\.\d+)?[smhd]?)\s+)+/;
 const SCRIPT_RUNNER = /^(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(\S+)/;
+
+/**
+ * `text` with the inside of every quoted word blanked (same length, quotes kept) and an escaped character blanked: shell
+ * syntax is searched there, so a `;`, `|`, `(` or `&&` in a quoted pattern (`grep "run(user"`) is text, not syntax.
+ */
+function maskQuoted(text: string): string {
+	if (!/["'\\]/.test(text)) return text;
+	let masked = "";
+	let quote = "";
+	for (let index = 0; index < text.length; index++) {
+		const char = text[index] ?? "";
+		if (char === "\\" && quote !== "'" && index + 1 < text.length) {
+			masked += "__";
+			index++;
+		} else if (quote) {
+			if (char === quote) {
+				quote = "";
+				masked += char;
+			} else masked += "_";
+		} else {
+			if (char === '"' || char === "'") quote = char;
+			masked += char;
+		}
+	}
+	return masked;
+}
+
+/** `text` split at every `separator` (a global pattern) that is shell syntax, not part of a quoted word. */
+function splitOutside(text: string, separator: RegExp): string[] {
+	const parts: string[] = [];
+	let start = 0;
+	for (const match of maskQuoted(text).matchAll(separator)) {
+		parts.push(text.slice(start, match.index));
+		start = (match.index ?? 0) + match[0].length;
+	}
+	parts.push(text.slice(start));
+	return parts;
+}
+
+const PIPE = /(?<!\|)\|(?!\|)/g;
+const AND_OR = /&&|\|\|/g;
+const HEREDOC_OPERATOR = /(?<!<)<<(?!<)-?[ \t]*/;
+const HEREDOC_WORD = /^(?:'([^']+)'|"([^"]+)"|\\?([A-Za-z_]\w*))/;
+
+/**
+ * The command without its here-document bodies and their closing lines: a file written in place (`cat >> a.test.ts
+ * <<'EOF' … EOF`) is text, whose quotes, braces and semicolons name no step.
+ */
+function stripHeredocs(command: string): string {
+	if (!command.includes("<<")) return command;
+	const lines = command.split("\n");
+	const kept: string[] = [];
+	for (let index = 0; index < lines.length; index++) {
+		const line = lines[index] ?? "";
+		const operator = HEREDOC_OPERATOR.exec(maskQuoted(line));
+		const word = operator && HEREDOC_WORD.exec(line.slice(operator.index + operator[0].length));
+		const tag = word?.[1] ?? word?.[2] ?? word?.[3];
+		if (!operator || !word || !tag) {
+			kept.push(line);
+			continue;
+		}
+		// The operator goes with the body: the command reads the same once the body is gone, and stripping twice is a no-op.
+		kept.push(line.slice(0, operator.index) + line.slice(operator.index + operator[0].length + word[0].length));
+		while (index + 1 < lines.length && (lines[++index] ?? "").trim() !== tag) {}
+	}
+	return kept.join("\n");
+}
 
 function segmentKind(segment: string): CheckKind | undefined {
 	const program = segment.replace(EXEC_WRAPPER, "");
@@ -50,18 +118,31 @@ function segmentKind(segment: string): CheckKind | undefined {
 	return undefined;
 }
 
+const KIND_ORDER: readonly CheckKind[] = ["test", "typecheck", "lint", "build"];
+
+/**
+ * Every kind of check a shell command runs, in `KIND_ORDER`. `grouped`: a check inside a `( … )` or `{ …; }` group
+ * counts too; a run that passed is read so (its group's exit is the list's), while a failed one keeps its kind only
+ * when the group does not hide it from the kind a person would name it by.
+ */
+export function checkKinds(command: string, grouped = false): CheckKind[] {
+	const kinds = new Set<CheckKind>();
+	for (const part of splitOutside(stripHeredocs(command), /&&|\|\||;|\n/g)) {
+		// A pipeline's first stage is the program; `| tail` only trims its output.
+		const stage = (splitOutside(part, PIPE)[0] ?? "").trim();
+		const kind = segmentKind((grouped ? stage.replace(/^[({\s]+/, "") : stage).replace(/\s+/g, " "));
+		if (kind) kinds.add(kind);
+	}
+	return KIND_ORDER.filter(kind => kinds.has(kind));
+}
+
 /**
  * The check a shell command runs; `undefined` for anything else, and for a compound command that
  * runs checks of two kinds (`npm test && npm run build`): its one exit code cannot say which failed.
  */
 export function checkKind(command: string): CheckKind | undefined {
-	const kinds = new Set<CheckKind>();
-	for (const part of command.split(/&&|\|\||;|\n/)) {
-		// A pipeline's first stage is the program; `| tail` only trims its output.
-		const kind = segmentKind((part.split("|")[0] ?? "").trim().replace(/\s+/g, " "));
-		if (kind) kinds.add(kind);
-	}
-	return kinds.size === 1 ? [...kinds][0] : undefined;
+	const kinds = checkKinds(command);
+	return kinds.length === 1 ? kinds[0] : undefined;
 }
 
 const TEST_PASSED = /(\d+)[ \t]+(?:tests?[ \t]+)?pass(?:ed|ing)?\b/gi;
@@ -133,8 +214,6 @@ export interface CheckSummary {
 	toolCallId?: string;
 }
 
-const KIND_ORDER: readonly CheckKind[] = ["test", "typecheck", "lint", "build"];
-
 /**
  * Per check kind, the outcome of its last run, unless a failed run of that kind is still unresolved: then the last
  * such run, so the chips and the verdict read the same failures. `unresolved` is the caller's own settle of these very
@@ -145,22 +224,34 @@ export function summarizeChecks(
 	cwd = "",
 	unresolved?: ReadonlySet<CheckInput>,
 ): CheckSummary[] {
-	const calls = commands.flatMap(command => {
-		if (command.interrupted || command.unknown || command.refused) return [];
-		const kind = checkKind(command.command);
-		return kind ? [{ command, kind, failed: commandFailed(command) }] : [];
+	const live = commands.filter(
+		command =>
+			!(command.interrupted || command.unknown || command.refused) && checkKinds(command.command, true).length > 0,
+	);
+	const calls = live.flatMap(command => {
+		const failed = commandFailed(command);
+		// A failed run names the one kind it runs: which of several failed, only its output could say.
+		if (failed) {
+			const kind = checkKind(command.command);
+			return kind ? [{ command, kind, failed }] : [];
+		}
+		const kinds = checkKinds(command.command, true);
+		// A run that mixes kinds is a pass of each kind its exit or output proves; a type check cut by a filter proves none.
+		return (kinds.length === 1 ? kinds : passedKinds(command))
+			.filter(kind => !(kind === "typecheck" && filtersOutput(command.command, kind)))
+			.map(kind => ({ command, kind, failed: false }));
 	});
 	let standing = unresolved;
 	if (!standing && !calls.some(entry => entry.failed)) standing = new Set();
 	if (!standing) {
-		const ops = calls.map(({ command }) => commandOperation(command));
-		const left = new Set(unresolvedFailures(ops, cwd));
-		standing = new Set(
-			calls.flatMap(({ command }, index) => {
-				const op = ops[index];
-				return op && left.has(op) ? [command] : [];
-			}),
+		const ops = live.map(command => ({ command, op: commandOperation(command) }));
+		const left = new Set(
+			unresolvedFailures(
+				ops.map(({ op }) => op),
+				cwd,
+			),
 		);
+		standing = new Set(ops.flatMap(({ command, op }) => (left.has(op) ? [command] : [])));
 	}
 	const isStanding = (entry: (typeof calls)[number]) => standing.has(entry.command);
 	const byKind = new Map<CheckKind, { entry: (typeof calls)[number]; runs: number }>();
@@ -213,21 +304,23 @@ export function commandProgram(command: string): string | undefined {
 	return undefined;
 }
 
-// A command's `;`/newline-separated list, not splitting inside a `{ …; }` or `( … )` group.
+// A command's `;`/newline-separated list, not splitting inside a `{ …; }` or `( … )` group or a quoted word.
 function listSegments(command: string): string[] {
+	const source = stripHeredocs(command);
+	const masked = maskQuoted(source);
 	const parts: string[] = [];
 	let depth = 0;
 	let start = 0;
-	for (let index = 0; index < command.length; index++) {
-		const char = command[index];
+	for (let index = 0; index < masked.length; index++) {
+		const char = masked[index];
 		if (char === "{" || char === "(") depth++;
 		else if ((char === "}" || char === ")") && depth > 0) depth--;
 		else if ((char === ";" || char === "\n") && depth === 0) {
-			parts.push(command.slice(start, index));
+			parts.push(source.slice(start, index));
 			start = index + 1;
 		}
 	}
-	parts.push(command.slice(start));
+	parts.push(source.slice(start));
 	return parts;
 }
 // A segment that only sets up (`cd`, `export`, assignments): look at the one before it.
@@ -236,8 +329,8 @@ const SHELL_KEYWORD = /^(?:for|while|until|if|then|elif|else|fi|do|done|case|esa
 const DURATION = /^\d+(?:\.\d+)?[smhd]?$/;
 
 function segmentProgram(list: string): string | undefined | typeof NONE {
-	for (const segment of list.split(/&&|\|\|/)) {
-		const words = (segment.split("|")[0] ?? "")
+	for (const segment of splitOutside(list, AND_OR)) {
+		const words = (splitOutside(segment, PIPE)[0] ?? "")
 			.trim()
 			.split(/\s+/)
 			.map(word => word.replace(/^[({!]+/, ""))
@@ -306,16 +399,29 @@ export interface OperationCall {
 }
 
 // What a check's own output says when its exit code does not (`vitest … | tail`, `tsc … | head`: the pipe's last
-// stage sets the code).
+// stage sets the code). Stock's script runner ends a failed script with `error: script "…" exited with code N`, naming
+// the script: it shows the kind's check failed only when it is a script that runs that kind (`check:types`, `test`,
+// `check:changed`, `build`), never another step's (`locked`). A type check says `Found N errors` too, and the repo's gate
+// `[check:changed] FAILED: <steps>`; a filter that keeps only such a line (`| tail -1`) still shows the failure.
 const TS_ERROR = /\berror TS\d{4}\b/;
+const FOUND_ERRORS = /\bFound [1-9]\d* errors?\b/;
+const SCRIPT_FAILED = /^error: script "([^"]*)" exited with code [1-9]\d*/gm;
+const GATE_FAILED = /\[check:changed\] FAILED\b/;
+const GATE_PASSED = /\[check:changed\] PASSED\b/;
+
+function outputSaysFailed(kind: CheckKind, text: string | undefined): boolean {
+	if (!text) return false;
+	const scripts = CHECKS.find(entry => entry.kind === kind)?.script;
+	for (const match of text.matchAll(SCRIPT_FAILED)) if (scripts?.test(match[1] ?? "")) return true;
+	if (kind === "test") return (testCounts(text).failed ?? 0) > 0 || GATE_FAILED.test(text);
+	return kind === "typecheck" && (TS_ERROR.test(text) || FOUND_ERRORS.test(text));
+}
 
 function commandFailed(command: CheckInput): boolean {
 	if (command.failed || (command.exitCode !== null && command.exitCode !== 0)) return true;
 	if (command.interrupted || command.unknown || command.refused || !command.text) return false;
 	const kind = checkKind(command.command);
-	if (kind === "test") return (testCounts(command.text).failed ?? 0) > 0;
-	if (kind === "typecheck") return TS_ERROR.test(command.text);
-	return false;
+	return kind !== undefined && outputSaysFailed(kind, command.text);
 }
 
 export function commandOperation<T extends CheckInput>(command: T): T & OperationCall {
@@ -338,7 +444,7 @@ const CONTROL = /[;|\n()`]|(?<![<>])&(?!>)/;
 // failed redirection: only one whose every complaint is "No such file or directory" asked and heard "not there"
 // (27 Oct 2026: a subagent's closing `ls node_modules/@oh-my-pi` turned a card red). No redirection: its own failure
 // exits the same way, and a redirected stderr leaves nothing to read.
-const LISTING = /^ls\s[^<>]*$/;
+const LISTING = /^ls\s(?:2>&1|[^<>])*$/;
 const LS_COMPLAINT = /^ls: .*$/gm;
 const LS_MISSING = /: No such file or directory\r?$/;
 // A command's key by its folder, the session's folder and its raw text: a card's commands are settled again on every
@@ -353,7 +459,9 @@ function listedMissing(call: OperationCall): boolean {
 // A pipeline that only reads (`ps aux | grep -c vite`, `git status --porcelain | grep -q x`) asks as its last `grep`
 // does; one whose first stage acts (`bun run release | rg -q published`) is judged by that action.
 const READS_ONLY =
-	/^(?:ps|ls|cat|head|tail|find|echo|printf|env|jq|sort|uniq|wc|lsof|pgrep|git\s+(?:status|log|diff|show|branch|ls-files|rev-parse))(?:\s|$)/;
+	/^(?:ps|ls|cat|head|tail|find|echo|printf|env|jq|sort|uniq|wc|lsof|pgrep|grep|egrep|rg|awk|sed\s+-n[A-Za-z]*|git\s+(?:status|log|diff|show|branch|ls-files|ls-tree|rev-parse|worktree\s+list))(?:\s|$)/;
+// A stage that writes a file (`> out.txt`, not `2>&1` or `2>/dev/null`) acts, whatever its program.
+const WRITES = /(?<![2&])>(?!&)/;
 // curl's exit 7 is "could not connect": asked of this computer, the answer is that no server listens there yet (an agent
 // polls a dev server it is starting); asked of another host, it is a failure.
 const LOOPBACK_CURL = /^curl\s[^<>]*\bhttps?:\/\/(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(?:[:/]|\s|$)/;
@@ -361,8 +469,10 @@ const LOOPBACK_CURL = /^curl\s[^<>]*\bhttps?:\/\/(?:localhost|127\.0\.0\.1|\[::1
 function isProbe(call: OperationCall): boolean {
 	if (call.toolName !== "bash" || typeof call.args.command !== "string") return false;
 	if (call.exitCode !== 1 && call.exitCode !== 2 && call.exitCode !== 7) return false;
-	// The exit code is the last `;`/newline segment's: that one must be a whole lookup.
-	const last = listSegments(call.args.command)
+	// The exit code is the last `;`/newline segment's: that one must be a whole lookup. A leading `cd <dir> &&` is stock's
+	// cwd (`callKeys`), not a step that could have failed the list.
+	const command = call.args.command.trim();
+	const last = listSegments(LEADING_CD.exec(command)?.[2] ?? command)
 		.map(part => part.trim())
 		.findLast(Boolean);
 	if (!last || (last.match(/["']/g)?.length ?? 0) % 2 !== 0) return false;
@@ -376,7 +486,9 @@ function isProbe(call: OperationCall): boolean {
 			stages.length > 0 &&
 			PROBE.test(final) &&
 			[...stages, final].every(stage => !CONTROL.test(stage)) &&
-			stages.every(stage => READS_ONLY.test(stage) && !/\s-(?:exec|execdir|delete|ok)\b/.test(stage))
+			stages.every(
+				stage => READS_ONLY.test(stage) && !WRITES.test(stage) && !/\s-(?:exec|execdir|delete|ok)\b/.test(stage),
+			)
 		)
 			return true;
 	}
@@ -491,43 +603,89 @@ function checkPart(stage: string, kind: CheckKind): CheckPart | undefined {
 	return { runner: head, targets, words };
 }
 
+// A command with its here-documents and leading `cd <dir> &&` taken out, and the folder it runs in.
+function commandText(call: OperationCall, cwd: string): { dir: string; text: string } {
+	const [, dir = ""] = (callKeys(call, cwd)[0] ?? "").split("\0");
+	const text = stripHeredocs(String(call.args.command)).trim();
+	const cd = LEADING_CD.exec(text);
+	return { dir, text: cd?.[2] ?? text };
+}
+
 /**
  * The checks of `kind` a command runs, or undefined when any step of it is something else than a check or a `cd` (a
  * push after the tests, an `ls` deciding the exit): only a command made of checks can be judged by what it covered.
+ * `setupOk`: the output shows the check's own verdict, so steps before it that only prepare it (a test written first,
+ * a file put back) are passed over, provided the check is the command's last step.
  * `exitSays`: its exit code is the check's own (one step, or steps joined by `&&`, none piped).
  */
-function checkParts(command: string, kind: CheckKind): { parts: CheckPart[]; exitSays: boolean } | undefined {
-	const steps = listSegments(command).flatMap(segment => segment.split(/&&|\|\|/));
+function checkParts(
+	command: string,
+	kind: CheckKind,
+	setupOk = false,
+): { parts: CheckPart[]; exitSays: boolean } | undefined {
+	const steps = listSegments(command).flatMap(segment => splitOutside(segment, AND_OR));
 	const parts: CheckPart[] = [];
 	let piped = false;
+	let setup = false;
+	let closing: CheckKind | undefined;
 	for (const step of steps) {
-		const stage = (step.split("|")[0] ?? "")
+		const pipeline = splitOutside(step, PIPE);
+		const stage = (pipeline[0] ?? "")
 			.trim()
 			.replace(/^\(+|\)+$/g, "")
 			.trim()
 			.replace(/\s+/g, " ");
 		if (!stage || /^cd\s/.test(stage)) continue;
 		const stepKind = segmentKind(stage);
-		if (!stepKind) return undefined;
+		closing = stepKind;
+		if (!stepKind) {
+			if (!setupOk) return undefined;
+			setup = true;
+			continue;
+		}
 		if (stepKind !== kind) continue;
 		const part = checkPart(stage, kind);
 		if (!part) return undefined;
 		parts.push(part);
-		if (step.includes("|")) piped = true;
+		if (pipeline.length > 1) piped = true;
 	}
-	if (parts.length === 0) return undefined;
-	const exitSays = !piped && listSegments(command).length === 1 && !command.includes("||");
+	if (parts.length === 0 || (setup && closing !== kind)) return undefined;
+	const exitSays = !setup && !piped && listSegments(command).length === 1 && !command.includes("||");
 	return { parts, exitSays };
 }
 
+// A type check's output cut by a filter that keeps only some lines (`| grep a.ts`, `| tail -3`): what is left cannot
+// show that the check passed.
+const OUTPUT_FILTER = /^(?:grep|egrep|fgrep|rg|sed|awk|head|tail|cut)(?:\s|$)/;
+
+function filtersOutput(command: string, kind: CheckKind): boolean {
+	return listSegments(command).some(segment =>
+		splitOutside(segment, AND_OR).some(step => {
+			const [first = "", ...rest] = splitOutside(step, PIPE);
+			return (
+				rest.some(stage => OUTPUT_FILTER.test(stage.trim())) &&
+				segmentKind(first.trim().replace(/^\(+/, "").trim().replace(/\s+/g, " ")) === kind
+			);
+		}),
+	);
+}
+
 /** Whether a passing check's own output shows it passed, for a run whose exit code a pipe or a later step decided. */
-function outputSaysPassed(kind: CheckKind, text: string | undefined): boolean {
-	if (!text) return false;
-	if (kind === "test") {
-		const counts = testCounts(text);
-		return (counts.passed ?? 0) > 0 && counts.failed === undefined;
-	}
-	return kind === "typecheck" && !TS_ERROR.test(text);
+function outputSaysPassed(kind: CheckKind, text: string | undefined, command: string): boolean {
+	if (!text || outputSaysFailed(kind, text)) return false;
+	if (kind === "test") return (testCounts(text).passed ?? 0) > 0 || GATE_PASSED.test(text);
+	return kind === "typecheck" && !filtersOutput(command, kind);
+}
+
+/**
+ * The kinds a run that mixes kinds proved to have passed (a passing exit that is the check's own, or its output
+ * showing it): a list of `biome; tsc; vitest` passes the tests when the tests' own summary says so.
+ */
+function passedKinds(command: CheckInput): CheckKind[] {
+	return checkKinds(command.command, true).filter(kind => {
+		const run = checkParts(command.command, kind);
+		return !!run && (run.exitSays || outputSaysPassed(kind, command.text, command.command));
+	});
 }
 
 /**
@@ -539,15 +697,15 @@ function outputSaysPassed(kind: CheckKind, text: string | undefined): boolean {
  */
 function coveredBy(failed: OperationCall, fix: OperationCall, cwd: string): boolean {
 	const kind = typeof failed.args.command === "string" ? checkKind(failed.args.command) : undefined;
-	if (!kind || typeof fix.args.command !== "string" || checkKind(fix.args.command) !== kind) return false;
-	const [failedKey] = callKeys(failed, cwd);
-	const [fixKey] = callKeys(fix, cwd);
-	const [, failedDir = "", failedText = ""] = (failedKey ?? "").split("\0");
-	const [, fixDir = "", fixText = ""] = (fixKey ?? "").split("\0");
+	if (!kind || typeof fix.args.command !== "string" || !checkKinds(fix.args.command, true).includes(kind))
+		return false;
+	const { dir: failedDir, text: failedText } = commandText(failed, cwd);
+	const { dir: fixDir, text: fixText } = commandText(fix, cwd);
 	if (failedDir !== fixDir) return false;
-	const before = checkParts(failedText, kind);
-	const after = checkParts(fixText, kind);
-	if (!before || !after || !(after.exitSays || outputSaysPassed(kind, fix.text))) return false;
+	const passed = outputSaysPassed(kind, fix.text, fixText);
+	const before = checkParts(failedText, kind, outputSaysFailed(kind, failed.text));
+	const after = checkParts(fixText, kind, passed);
+	if (!before || !after || !(after.exitSays || passed)) return false;
 	return before.parts.every(part =>
 		after.parts.some(
 			wider =>
@@ -583,14 +741,17 @@ export function settleFailures<T extends OperationCall>(
 	const failed = new Set(calls.slice(first).flatMap(call => (call.outcome === "failed" ? [family(call)] : [])));
 	const fixes = new Map<string, OperationCall[]>();
 	const passedChecks: OperationCall[] = [];
+	const passedCommands: OperationCall[] = [];
 	for (let index = calls.length - 1; index >= first; index--) {
 		const call = calls[index];
 		if (!counts(call) || (call.outcome === "passed" && !failed.has(family(call)))) continue;
 		const keys = callKeys(call, cwd);
 		if (call.outcome === "passed") {
 			for (const key of keys) fixes.set(key, [...(fixes.get(key) ?? []), call]);
-			if (call.toolName === "bash" && typeof call.args.command === "string" && checkKind(call.args.command))
-				passedChecks.push(call);
+			if (call.toolName === "bash" && typeof call.args.command === "string") {
+				passedCommands.push(call);
+				if (checkKinds(call.args.command, true).length > 0) passedChecks.push(call);
+			}
 			continue;
 		}
 		const fixedBy = (fix: OperationCall) =>
@@ -599,10 +760,50 @@ export function settleFailures<T extends OperationCall>(
 		const resolved =
 			!call.reported &&
 			((keys.length > 0 && keys.every(key => fixes.get(key)?.some(fixedBy))) ||
-				(call.toolName === "bash" && passedChecks.some(fix => fixedBy(fix) && coveredBy(call, fix, cwd))));
+				(call.toolName === "bash" &&
+					(passedChecks.some(fix => fixedBy(fix) && coveredBy(call, fix, cwd)) ||
+						passedCommands.some(fix => fixedBy(fix) && retriesChain(call, fix, cwd)))));
 		(resolved ? recovered : unresolved).unshift(call);
 	}
 	return { unresolved, recovered };
+}
+
+// The `&&`-joined steps of a command that is only such a chain (no list, no `||`), and the folder it runs in.
+function chainSteps(call: OperationCall, cwd: string): { dir: string; steps: string[] } | undefined {
+	const { dir, text } = commandText(call, cwd);
+	if (listSegments(text).length !== 1 || maskQuoted(text).includes("||")) return undefined;
+	return { dir, steps: splitOutside(text, /&&/g).map(step => step.trim().replace(/\s+/g, " ")) };
+}
+
+// A script runner's program is its script (`bun run test` is no `bun run deploy`).
+const SCRIPT_PROGRAM = /^(?:bun|npm|pnpm|yarn)\b/;
+
+/**
+ * Whether a later passing chain is a failed one run again: it redoes the step that may have failed (a command with the
+ * same program, its arguments corrected: `git add` without the ignored path) and then runs every step the failed chain
+ * ran after it, as typed, ending where it ended. A failed `&&` chain stops at the failing step, so the steps after it
+ * never ran; the later chain ran them all. A check keeps `coveredBy`'s rules.
+ */
+function retriesChain(failed: OperationCall, fix: OperationCall, cwd: string): boolean {
+	const before = chainSteps(failed, cwd);
+	const after = chainSteps(fix, cwd);
+	if (!before || !after || before.dir !== after.dir) return false;
+	for (let at = 0; at < before.steps.length - 1; at++) {
+		const step = before.steps[at] ?? "";
+		if (segmentKind(step)) continue;
+		const tail = before.steps.slice(at + 1);
+		const redone = after.steps.length - tail.length - 1;
+		if (redone < 0 || !tail.every((later, index) => later === after.steps[redone + 1 + index])) continue;
+		const program = commandProgram(step);
+		const again = after.steps[redone] ?? "";
+		if (
+			program !== undefined &&
+			program === commandProgram(again) &&
+			(!SCRIPT_PROGRAM.test(program) || step.split(" ", 3).join(" ") === again.split(" ", 3).join(" "))
+		)
+			return true;
+	}
+	return false;
 }
 
 export function unresolvedFailures<T extends OperationCall>(calls: readonly T[], cwd = ""): T[] {

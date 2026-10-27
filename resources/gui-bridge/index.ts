@@ -167,19 +167,29 @@ function isRequest(value: unknown): value is BridgeRequest {
  * `pi`, and put the thinking default and the delegation strength back to their spawn-time values
  * over what the user picked since. A rebind only installs each area's hooks on the subagent's `pi`,
  * so its sessions get the prompt sections too.
+ *
+ * An isolated subagent's run loads the extension through a loader that evaluates the module graph afresh, so a
+ * module-level variable would be empty there: the bind lives on `globalThis`, under a shared symbol, and the
+ * rebind installs the first graph's hooks (and so shares its ledger).
  */
-let bound: Promise<LoadedMethods | undefined> | undefined;
+interface ProcessBind {
+	bound?: Promise<LoadedMethods | undefined>;
+}
+const PROCESS_BIND = Symbol.for("ompdesk.gui-bridge");
+const holder = globalThis as Record<symbol, unknown>;
+holder[PROCESS_BIND] ??= {};
+const processBind = holder[PROCESS_BIND] as ProcessBind;
 
 export default async function guiBridge(pi: ExtensionAPI): Promise<void> {
 	const address = process.env.OMP_GUI_BRIDGE;
 	if (!address) return;
-	if (bound) {
-		const loaded = await bound;
+	if (processBind.bound) {
+		const loaded = await processBind.bound;
 		for (const install of loaded?.installs ?? []) install(pi);
 		return;
 	}
 	const first = Promise.withResolvers<LoadedMethods | undefined>();
-	bound = first.promise;
+	processBind.bound = first.promise;
 
 	// Stock picks the first session's thinking level right after the extensions
 	// load, so the default must be in place before this factory returns. Dynamic

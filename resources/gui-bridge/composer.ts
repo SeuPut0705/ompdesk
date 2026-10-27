@@ -16,6 +16,7 @@ import { requireFn } from "./capabilities";
 import { buildCopyTargets } from "./copy-targets";
 import { guard } from "./health";
 import { jobRows } from "./jobs-core";
+import { keepSectionsOnRestore } from "./prompt-sections";
 import {
 	goalActiveAtExit,
 	interruptedJobs,
@@ -385,9 +386,11 @@ export const methods: BridgeMethods = {
 		 * what the restart did; one follow-up tells it (displayed, shown in the transcript as muted lines
 		 * and never as a message, so it carries on without narrating the restart; `followUp` says it went):
 		 * `jobs`, the background bash jobs that process started and never finished (stock restores no bash
-		 * job), and, when the session's own turn does not go on, the subagents the restore revived (their
-		 * results arrive only when they finish, maybe hours later, and until then the session would sit
-		 * silent). `goalPausedByExit` is a goal that was active until that process ended and that stock
+		 * job), and the subagents the restore revived (their results arrive only when they finish, maybe
+		 * hours later; each one's first request after the restart can take minutes). A turn stock's restore
+		 * continues gets it as a steer, which ends a rerun `wait` at once; an idle session gets it as a
+		 * turn. Every continued turn sends the prompt sections a prompt would (`keepSectionsOnRestore`).
+		 * `goalPausedByExit` is a goal that was active until that process ended and that stock
 		 * paused at startup (the host resumes it after the restore). `journal` names the journal's end the
 		 * restore judged, for the host's log when nothing went on.
 		 */
@@ -399,6 +402,9 @@ export const methods: BridgeMethods = {
 			requireFn(session, "promptCustomMessage", "composer");
 			requireFn(session, "getToolByName", "composer");
 			requireFn(session, "getGoalModeState", "composer");
+			requireFn(session, "agent.setSystemPrompt", "composer");
+			requireFn(session, "extensionRunner.createContext", "composer");
+			requireFn(session, "subscribe", "composer");
 			const restore = await import("@oh-my-pi/pi-coding-agent/task/restore");
 			requireFn(restore, "restoreSession", "composer", "task/restore");
 			const diagnostics = await import("@oh-my-pi/pi-coding-agent/session/exit-diagnostics");
@@ -436,30 +442,43 @@ export const methods: BridgeMethods = {
 			// subagent registry (`get_subagents`, the `subagent_*` frames) listens on `subagentEventBus` only.
 			// The cast: TaskTool keeps its ToolSession in a TypeScript-private `session` field.
 			const taskTool = session.getToolByName("task") as { session?: RestoreOptions } | undefined;
+			keepSectionsOnRestore(Object.getPrototypeOf(session));
 			const outcome = await restore.restoreSession(session, {
 				eventBus: taskTool?.session?.eventBus,
 				subagentEventBus: taskTool?.session?.subagentEventBus,
 			});
-			// A restored turn already goes on with its subagents (a cut-off `wait` reruns and finds them again). A turn
-			// stock neither restores nor can retry, because a custom message came after its aborted reply, goes on with
-			// the follow-up (`turnCutBehindNotes`; read before the restore, which may append to the journal).
+			// A turn stock neither restores nor can retry, because a custom message came after its aborted reply, goes on
+			// with the follow-up (`turnCutBehindNotes`; read before the restore, which may append to the journal).
 			const turnCut = !outcome.turn && turnCutBehindNotes(branch, startedAt);
 			const followUp = restartFollowUp(
 				cutOff,
-				outcome.turn ? [] : revivedSubagents(branch, outcome.subagents),
-				turnCut,
+				revivedSubagents(branch, outcome.subagents),
+				outcome.turn ? "restored" : turnCut ? "cut" : "idle",
 			);
-			// Not awaited: a dispatched prompt settles with its whole turn; the restore answers at once.
 			if (followUp) {
-				void session
-					.promptCustomMessage({ ...followUp, display: true }, { streamingBehavior: "followUp" })
-					.catch((error: unknown) =>
-						env.emit({
-							type: "notice",
-							level: "error",
-							message: `Telling the agent what the restart left running failed: ${error instanceof Error ? error.message : String(error)}`,
-						}),
-					);
+				const failed = (error: unknown) =>
+					env.emit({
+						type: "notice",
+						level: "error",
+						message: `Telling the agent what the restart left running failed: ${error instanceof Error ? error.message : String(error)}`,
+					});
+				const message = { ...followUp, display: true };
+				if (outcome.turn) {
+					// Stock schedules the restored turn's continue for later, and its loop takes any steer queued before the
+					// turn starts at its first poll and holds it behind the rerun calls, so a rerun `wait` would go on for
+					// minutes without it. Queued once the turn has started, it ends that `wait` at once (an interruptible
+					// wait yields to steering) and reaches the model at the batch boundary.
+					const unsubscribe = session.subscribe(event => {
+						if (event.type !== "turn_start") return;
+						unsubscribe();
+						void session
+							.promptCustomMessage(message, { streamingBehavior: "steer", queueOnly: true })
+							.catch(failed);
+					});
+				} else {
+					// Not awaited: a dispatched prompt settles with its whole turn; the restore answers at once.
+					void session.promptCustomMessage(message, { streamingBehavior: "followUp" }).catch(failed);
+				}
 			}
 			return {
 				...outcome,

@@ -773,6 +773,7 @@ export class LocalHostServices implements HostServices {
 					...(tab.sessionFile ? { sessionPath: tab.sessionFile } : {}),
 					device: tab.origin.name,
 					canMessage: false,
+					owner: sidecar,
 					request,
 				},
 			];

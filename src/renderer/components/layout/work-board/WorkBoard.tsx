@@ -47,6 +47,7 @@ import { useUiStore } from "../../../stores/ui";
 import { useWorkBoardStore } from "../../../stores/work-board";
 import { formatTokenRate } from "../../chat/TurnOutputMeter";
 import { useRunStores } from "../../chat/work/use-work-run";
+import { resumedAgents } from "../../chat/work/work-run";
 import { Kbd } from "../../common";
 import { statusMeta, subagentElapsedMs, subagentPrimaryLabel } from "../../panels/subagent-graph";
 import { getToolHeader } from "../../tools/index";
@@ -200,11 +201,14 @@ function AgentRow({
 	now,
 	onOpen,
 	exiting,
+	resuming,
 }: {
 	agent: SubagentSnapshot;
 	now: number;
 	onOpen: () => void;
 	exiting: boolean;
+	/** A restart's restore revived it and it has not reported back yet (its first request can take minutes). */
+	resuming: boolean;
 }) {
 	const t = useT();
 	const label = subagentPrimaryLabel(agent, 48);
@@ -212,7 +216,11 @@ function AgentRow({
 	const waiting = isWaitingSubagent(agent.status);
 	const elapsed = subagentElapsedMs(agent, now);
 	const progress = agent.progress;
-	const step = progress?.currentToolIntent ?? progress?.lastIntent ?? progress?.currentTool ?? status;
+	const step =
+		progress?.currentToolIntent ??
+		progress?.lastIntent ??
+		progress?.currentTool ??
+		(resuming ? t("chat.work.resuming") : status);
 	const tokens = progress?.tokens ?? 0;
 	const billing = useSessionSpend()?.billing;
 	const costLine = costWords(t, costKinds({ model: progress?.resolvedModel, cost: progress?.cost }, billing));
@@ -306,6 +314,8 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	const presentedJobs = usePresence(jobs, job => job.id);
 	const rate = useMessagesStore(state => state.turnMeter.rate);
 	const turnLive = useMessagesStore(state => state.turnMeter.startedAt != null && state.turnMeter.endedAt == null);
+	const committed = useMessagesStore(state => state.messages);
+	const resumed = useMemo(() => resumedAgents(committed), [committed]);
 
 	const hydrate = useWorkBoardStore(state => state.hydrate);
 	useEffect(() => {
@@ -576,6 +586,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 									onOpen={() =>
 										tabId && useUiStore.getState().openSubagentPanel({ tabId, agentId: entry.item.id })
 									}
+									resuming={resumed.has(entry.item.id)}
 								/>
 							) : (
 								<BoardRow

@@ -73,19 +73,25 @@ export function normalizePath(value: string, base: string): string {
 	return `${drive}/${out.join("/")}`;
 }
 
-export function isInside(target: string, root: string): boolean {
-	const t = target.toLowerCase();
-	const r = root.replace(/\/+$/, "").toLowerCase();
+/** Whether paths differ only by case on this platform's file systems (macOS and Windows fold case by default, Linux does not). */
+export function foldsCase(platform: string = typeof process === "undefined" ? "linux" : process.platform): boolean {
+	return platform === "win32" || platform === "darwin";
+}
+
+export function isInside(target: string, root: string, platform?: string): boolean {
+	const fold = foldsCase(platform);
+	const t = fold ? target.toLowerCase() : target;
+	const r = fold ? root.replace(/\/+$/, "").toLowerCase() : root.replace(/\/+$/, "");
 	return t === r || t.startsWith(`${r}/`);
 }
 
-function hasGitSegment(path: string): boolean {
+export function hasGitSegment(path: string): boolean {
 	return path.split("/").includes(".git");
 }
 
 const SCRATCH_PREFIXES = ["/dev/", "/tmp/", "/private/tmp/", "/var/folders/", "/private/var/folders/"];
 
-function isScratch(path: string): boolean {
+export function isScratch(path: string): boolean {
 	return SCRATCH_PREFIXES.some(prefix => path.startsWith(prefix)) || path === "/dev/null";
 }
 
@@ -119,6 +125,8 @@ function writePathProblem(word: string, cwd: string, root: string, allowScratch:
 interface Simple {
 	argv: string[];
 	redirects: string[];
+	/** The targets of `redirects` that append (`>>`): they keep the file's content. */
+	appends?: string[];
 	heredocs: string[];
 }
 
@@ -126,8 +134,27 @@ const MAX_DEPTH = 6;
 const TOO_DEEP = "\u0000too-deep";
 const OPERATOR_CHARS = new Set([" ", "\t", "\n", ";", "&", "|", "(", ")", "<", ">"]);
 
+/** The end of the heredoc bodies that start at `from` (just after a newline): past each one's delimiter line. */
+function skipHeredocBodies(src: string, from: number, docs: Array<{ delimiter: string; strip: boolean }>): number {
+	let pos = from;
+	for (const doc of docs) {
+		while (pos < src.length) {
+			let end = src.indexOf("\n", pos);
+			if (end === -1) end = src.length;
+			const line = src.slice(pos, end);
+			pos = Math.min(end + 1, src.length);
+			if ((doc.strip ? line.replace(/^\t+/, "") : line) === doc.delimiter) break;
+		}
+	}
+	return pos;
+}
+
+/** The index of the `)` closing the `(` at `open`; quotes and heredoc text (an apostrophe in a commit message) never count. */
 function matchParen(src: string, open: number): number {
 	let depth = 0;
+	const docs: Array<{ delimiter: string; strip: boolean }> = [];
+	// `$(( 1 << 2 ))` shifts bits; it starts no heredoc.
+	const arithmetic = src[open + 1] === "(";
 	for (let i = open; i < src.length; i++) {
 		const c = src[i];
 		if (c === "\\") i++;
@@ -137,7 +164,14 @@ function matchParen(src: string, open: number): number {
 			i = end;
 		} else if (c === '"') {
 			for (i++; i < src.length && src[i] !== '"'; i++) if (src[i] === "\\") i++;
-		} else if (c === "(") depth++;
+		} else if (!arithmetic && c === "<" && src[i + 1] === "<" && src[i + 2] !== "<") {
+			const here = /^<<(-?)[ \t]*(?:'([^']*)'|"([^"]*)"|\\?([^\s;&|()<>'"]+))/.exec(src.slice(i, i + 256));
+			if (here) {
+				docs.push({ delimiter: here[2] ?? here[3] ?? here[4] ?? "", strip: here[1] === "-" });
+				i += here[0].length - 1;
+			} else i++;
+		} else if (c === "\n" && docs.length > 0) i = skipHeredocBodies(src, i + 1, docs.splice(0)) - 1;
+		else if (c === "(") depth++;
 		else if (c === ")" && --depth === 0) return i;
 	}
 	return src.length;
@@ -306,7 +340,10 @@ function parseShell(src: string, depth: number): Simple[] {
 			if (op.endsWith("&") || op.includes(">&") || op.includes("<&")) {
 				if (/^(\d+|-)$/.test(target)) continue;
 			}
-			if (op.startsWith(">") || op.startsWith("&>") || op.startsWith("<>")) current.redirects.push(target);
+			if (op.startsWith(">") || op.startsWith("&>") || op.startsWith("<>")) {
+				current.redirects.push(target);
+				if (op.includes(">>")) current.appends = [...(current.appends ?? []), target];
+			}
 			continue;
 		}
 		const word = readWord();
@@ -345,18 +382,20 @@ export interface GitInvocation {
 	cwd: string;
 	sub: string;
 	args: string[];
+	/** What names the run in a refusal when it is not a `git` command (`patch -p1` is read like `git apply`). */
+	label?: string;
 }
 
 /** What a command line does that another session in the checkout could feel: its git runs, the files it redirects output into, and the files it changes. */
 export interface ShellEffects {
 	git: GitInvocation[];
-	/** Absolute targets of `>`, `>>`, `&>` (a target naming a variable or `~` is left out: it cannot be resolved here). */
+	/** Absolute targets of `>`, `>|`, `&>` (a target naming a variable or `~` is left out: it cannot be resolved here); `>>` appends are in `edits`. */
 	writes: string[];
-	/** Files a command changes in place (`sed -i`, `perl -i`, `patch`), same spelling and limits as `writes`. */
+	/** Files a command changes in place or appends to (`>>`, `tee -a`, `sed -i`, `perl -i`, `patch`, a formatter naming the file), same spelling and limits as `writes`. */
 	edits: string[];
-	/** Files a command replaces whole (`cp`/`install`/`rsync` destination, `mv` destination, `tee`, `dd of=`, `truncate`, `curl -o`, `wget -O`). `touch`, `mkdir`, `chmod` change no content and are in no list. */
+	/** Files a command replaces whole (`cp`/`install`/`rsync` destination, `mv` destination, `tee`, `dd of=`, `truncate`, `curl -o`, `wget -O`, `ln -f`). `touch`, `mkdir`, `chmod` change no content and are in no list. A glob (a formatter run on a folder) is listed as one. */
 	replaces: string[];
-	/** Files a command removes (`rm`, `unlink`, `rmdir`, `shred`, `trash`, a `mv` source). */
+	/** Files a command removes (`rm`, `unlink`, `rmdir`, `shred`, `trash`, a `mv` source, `find … -delete`, `rsync --delete`'s destination). A target the command line cannot name (xargs input, `$(…)`) is the folder it runs in, as a glob. */
 	deletes: string[];
 }
 
@@ -839,10 +878,32 @@ interface Writer {
 function destinationOf(args: string[]): { sources: string[]; dest?: string; directory: boolean } {
 	const rest = nonFlagArgs(args);
 	const flag = args.findIndex(arg => arg === "-t" || arg === "--target-directory");
-	const named = flag >= 0 ? args[flag + 1] : undefined;
+	const joined = args.find(arg => arg.startsWith("--target-directory="))?.slice("--target-directory=".length);
+	const named = joined ?? (flag >= 0 ? args[flag + 1] : undefined);
 	if (named === undefined) return { sources: rest.slice(0, -1), dest: rest.at(-1), directory: false };
-	const own = rest.indexOf(named);
+	const own = joined === undefined ? rest.indexOf(named) : -1;
 	return { sources: rest.filter((_, index) => index !== own), dest: named, directory: true };
+}
+
+const FIND_PREDICATE_VALUES = ["-name", "-iname"];
+
+/** What a `find` line walks: its start folders, the `-name` patterns it narrows to, and what it writes or removes. */
+function findScope(args: string[]): { roots: string[]; scoped: string[]; deleting: boolean; printed: string[] } {
+	const roots: string[] = [];
+	for (const arg of args) {
+		if (arg.startsWith("-") || arg === "(" || arg === "!") break;
+		roots.push(arg);
+	}
+	if (roots.length === 0) roots.push(".");
+	const names: string[] = [];
+	const printed: string[] = [];
+	for (let k = 0; k < args.length; k++) {
+		if (FIND_PREDICATE_VALUES.includes(args[k]) && args[k + 1] !== undefined) names.push(args[k + 1]);
+		if (/^-(fprint0?|fprintf|fls)$/.test(args[k]) && args[k + 1] !== undefined) printed.push(args[k + 1]);
+	}
+	const scoped =
+		names.length === 0 ? roots : roots.flatMap(root => names.map(name => `${root.replace(/\/+$/, "")}/**/${name}`));
+	return { roots, scoped, deleting: args.some(arg => arg === "-delete"), printed };
 }
 
 /**
@@ -866,9 +927,16 @@ function writerTargets(name: string, argv: string[]): Writer | undefined {
 	if (DELETERS.has(name)) return { targets: all("delete", nonFlagArgs(args)), scratch: false };
 	if (COPIERS.has(name)) {
 		const { sources, dest, directory } = destinationOf(args);
-		const kind = name === "ln" || name === "scp" ? "none" : "replace";
+		// `ln -f` replaces what is at the link's place; without `-f` it fails on an existing file.
+		const forced = args.some(arg => arg === "--force" || /^-[a-zA-Z]*f[a-zA-Z]*$/.test(arg));
+		const kind = name === "scp" || (name === "ln" && !forced) ? "none" : "replace";
+		// `rsync --delete` removes what the destination holds beyond the source.
+		const pruning = name === "rsync" && args.some(arg => /^--(delete|del)(-[a-z]+)?(=.*)?$/.test(arg));
 		return {
-			targets: dest === undefined ? [] : [{ word: dest, kind, from: sources, directory }],
+			targets:
+				dest === undefined
+					? []
+					: [{ word: dest, kind, from: sources, directory }, ...(pruning ? all("delete", [dest]) : [])],
 			scratch: name !== "ln",
 		};
 	}
@@ -885,8 +953,10 @@ function writerTargets(name: string, argv: string[]): Writer | undefined {
 	const kind = PATH_ONLY_WRITERS[name];
 	if (kind !== undefined) {
 		const valued = name === "truncate" ? (flag: string) => TRUNCATE_VALUED.includes(flag) : undefined;
+		// `tee -a` keeps what the file holds.
+		const appending = name === "tee" && args.some(arg => arg === "--append" || /^-[a-zA-Z]*a[a-zA-Z]*$/.test(arg));
 		return {
-			targets: all(kind, nonFlagArgs(args, valued)),
+			targets: all(appending ? "edit" : kind, nonFlagArgs(args, valued)),
 			scratch: name === "tee" || name === "touch" || name === "mkdir",
 		};
 	}
@@ -922,29 +992,46 @@ function writerTargets(name: string, argv: string[]): Writer | undefined {
 		if (
 			!args.some(
 				arg =>
-					arg === "-delete" || arg === "-exec" || arg === "-execdir" || arg === "-fprint" || arg === "-fdelete",
+					arg === "-delete" ||
+					arg === "-exec" ||
+					arg === "-execdir" ||
+					arg === "-ok" ||
+					arg === "-fdelete" ||
+					/^-(fprint0?|fprintf|fls)$/.test(arg),
 			)
 		)
 			return undefined;
-		const roots: string[] = [];
-		for (const arg of args) {
-			if (arg.startsWith("-") || arg === "(" || arg === "!") break;
-			roots.push(arg);
-		}
-		return { targets: all("none", roots.length === 0 ? ["."] : roots), scratch: false };
+		const scope = findScope(args);
+		return {
+			targets: [
+				...all("none", scope.roots),
+				...(scope.deleting ? all("delete", scope.scoped) : []),
+				...all("replace", scope.printed),
+			],
+			scratch: false,
+		};
 	}
 	return undefined;
+}
+
+/** A target word with its command substitutions read as unknown names: `*` inside a word, and for a delete a leading one is "anything below here". Undefined when nothing can be said of it. */
+function substituted(word: string, kind: ShellEffectKind): string | undefined {
+	if (!word.includes("$()")) return word;
+	if (word.startsWith("$()")) return kind === "delete" ? "**" : undefined;
+	return word.replaceAll("$()", "*");
 }
 
 /** Hands every content change of a writing command to the shell-effect collector, each path resolved from `cwd`. */
 function collectChanges(name: string, argv: string[], cwd: string, collect: NonNullable<Scope["collect"]>): void {
 	for (const target of writerTargets(name, argv)?.targets ?? []) {
 		if (target.kind === "none" || target.word === "") continue;
-		const resolved = resolveWord(target.word, cwd);
+		const word = substituted(target.word, target.kind);
+		if (word === undefined) continue;
+		const resolved = resolveWord(word, cwd);
 		if (!resolved.path) continue;
 		const directory =
 			target.from !== undefined &&
-			(target.directory === true || target.word.endsWith("/") || collect.isDirectory?.(resolved.path) === true);
+			(target.directory === true || word.endsWith("/") || collect.isDirectory?.(resolved.path) === true);
 		if (!directory) {
 			collect.change(target.kind, resolved.path);
 			continue;
@@ -956,6 +1043,248 @@ function collectChanges(name: string, argv: string[], cwd: string, collect: NonN
 				collect.change(target.kind, normalizePath(base, resolved.path));
 		}
 	}
+}
+
+// ---------------------------------------------------------------------------------------------
+// What formatters, package managers, `patch` and inline interpreter code change (collect mode only)
+// ---------------------------------------------------------------------------------------------
+
+const hasFlagNamed = (args: string[], flags: readonly string[]) =>
+	args.some(arg => flags.includes(arg.split("=", 1)[0]));
+
+interface Formatter {
+	/** Whether this run rewrites files (most formatters only report with `--check`). */
+	writes(args: string[]): boolean;
+	/** Flags that take the next word as their value. */
+	valued?: readonly string[];
+	/** Subcommand words before the targets (`biome format`, `ruff check`). */
+	skip?: number;
+}
+
+/** The formatters and fixers a session runs over files: measured, a shared formatter rewrote the other session's files every time. */
+const FORMATTERS: Record<string, Formatter> = {
+	prettier: {
+		writes: args => hasFlagNamed(args, ["--write", "-w"]),
+		valued: [
+			"--config",
+			"--ignore-path",
+			"--parser",
+			"--plugin",
+			"--log-level",
+			"--cache-location",
+			"--stdin-filepath",
+		],
+	},
+	biome: {
+		skip: 1,
+		writes: args =>
+			["format", "check", "lint"].includes(args[0] ?? "") &&
+			hasFlagNamed(args, ["--write", "--fix", "--apply", "--apply-unsafe", "--fix-unsafe"]),
+		valued: ["--config-path", "--log-level", "--files-max-size"],
+	},
+	eslint: {
+		writes: args => hasFlagNamed(args, ["--fix"]),
+		valued: [
+			"-c",
+			"--config",
+			"--ext",
+			"--rulesdir",
+			"--parser",
+			"--plugin",
+			"--ignore-path",
+			"-f",
+			"--format",
+			"-o",
+			"--output-file",
+		],
+	},
+	oxlint: { writes: args => hasFlagNamed(args, ["--fix", "--fix-suggestions"]) },
+	ruff: {
+		skip: 1,
+		writes: args =>
+			(args[0] === "format" && !hasFlagNamed(args, ["--check", "--diff"])) ||
+			(args[0] === "check" && hasFlagNamed(args, ["--fix", "--unsafe-fixes"])),
+		valued: [
+			"--config",
+			"--select",
+			"--ignore",
+			"--exclude",
+			"--extend-exclude",
+			"--target-version",
+			"--line-length",
+		],
+	},
+	black: {
+		writes: args => !hasFlagNamed(args, ["--check", "--diff"]),
+		valued: [
+			"-l",
+			"--line-length",
+			"-t",
+			"--target-version",
+			"--config",
+			"--include",
+			"--exclude",
+			"--extend-exclude",
+		],
+	},
+	isort: {
+		writes: args => !hasFlagNamed(args, ["--check", "--check-only", "-c", "--diff"]),
+		valued: ["--profile", "--settings-path", "-l", "--line-length"],
+	},
+	autopep8: { writes: args => hasFlagNamed(args, ["-i", "--in-place"]) },
+	gofmt: { writes: args => hasFlagNamed(args, ["-w"]) },
+	goimports: { writes: args => hasFlagNamed(args, ["-w"]) },
+	shfmt: { writes: args => hasFlagNamed(args, ["-w"]) },
+	rustfmt: { writes: args => !hasFlagNamed(args, ["--check"]), valued: ["--edition", "--config-path", "--config"] },
+	stylua: { writes: args => !hasFlagNamed(args, ["--check"]), valued: ["--config-path", "-f"] },
+	"clang-format": { writes: args => hasFlagNamed(args, ["-i"]), valued: ["-style", "--style"] },
+	swiftformat: { writes: args => !hasFlagNamed(args, ["--lint", "--dryrun"]) },
+	dprint: { skip: 1, writes: args => args[0] === "fmt" },
+	deno: { skip: 1, writes: args => args[0] === "fmt" && !hasFlagNamed(args, ["--check"]) },
+	cargo: {
+		skip: 1,
+		writes: args =>
+			(args[0] === "fmt" && !hasFlagNamed(args, ["--check"])) ||
+			(args[0] === "clippy" && hasFlagNamed(args, ["--fix"])),
+	},
+};
+
+/** The command a package runner (`npx`, `bunx`, `pnpm dlx`, `npm exec`, `bun x`) starts, or undefined for any other command. */
+function runnerCommand(name: string, argv: string[]): string[] | undefined {
+	const rest = argv.slice(1);
+	let words: string[];
+	if (name === "npx" || name === "bunx" || name === "pnpx") words = rest;
+	else if ((name === "pnpm" || name === "yarn") && (rest[0] === "dlx" || rest[0] === "exec")) words = rest.slice(1);
+	else if (name === "npm" && rest[0] === "exec") words = rest.slice(1);
+	else if (name === "bun" && rest[0] === "x") words = rest.slice(1);
+	else return undefined;
+	let at = 0;
+	while (at < words.length && words[at].startsWith("-")) at += words[at] === "-p" || words[at] === "--package" ? 2 : 1;
+	if (words[at] === "--") at++;
+	return words.slice(at);
+}
+
+const PM_LOCKFILES: Record<string, string> = {
+	bun: "bun.lock",
+	npm: "package-lock.json",
+	pnpm: "pnpm-lock.yaml",
+	yarn: "yarn.lock",
+};
+const PM_CHANGING = /^(add|remove|rm|uninstall|un|install|i|update|upgrade|up|link|unlink|version|dedupe|prune)$/;
+
+/** Files the shell-effect collector learns of from commands whose paths are not plain arguments. */
+function collectToolEffects(name: string, argv: string[], cwd: string, collect: NonNullable<Scope["collect"]>): void {
+	const args = argv.slice(1);
+	const runner = runnerCommand(name, argv);
+	if (runner && runner.length > 0) {
+		collectToolEffects(runner[0].split("/").pop() ?? runner[0], runner, cwd, collect);
+		return;
+	}
+	if (name === "patch") {
+		// Which files a patch changes is in the patch, which this reads no further than its name: read it like `git apply`.
+		const dry = hasFlagNamed(args, ["--dry-run", "-C", "--check"]);
+		if (!dry && nonFlagArgs(args, flag => PATCH_VALUED.includes(flag)).length === 0)
+			collect.git({ cwd, sub: "apply", args: [], label: "patch" });
+		return;
+	}
+	const formatter = FORMATTERS[name];
+	if (formatter?.writes(args)) {
+		const targets = nonFlagArgs(args.slice(formatter.skip ?? 0), flag => formatter.valued?.includes(flag) === true);
+		for (const word of targets.length > 0 ? targets : ["."]) {
+			const resolved = resolveWord(word, cwd);
+			if (!resolved.path) continue;
+			// A glob, a folder or `.` names more than one file: the whole run is a rewrite of what is below it.
+			const glob = /[*?[]/.test(word);
+			if (!glob && !word.endsWith("/") && word !== "." && collect.isDirectory?.(resolved.path) !== true)
+				collect.change("edit", resolved.path);
+			else collect.change("replace", glob ? resolved.path : `${resolved.path.replace(/\/$/, "")}/**`);
+		}
+		return;
+	}
+	const lockfile = PM_LOCKFILES[name];
+	if (lockfile) {
+		const verb = args.find(arg => !arg.startsWith("-")) ?? (name === "yarn" ? "install" : "");
+		if (PM_CHANGING.test(verb) && !hasFlagNamed(args, ["-g", "--global", "--frozen-lockfile", "--dry-run"]))
+			for (const file of ["package.json", lockfile]) collect.change("edit", normalizePath(file, cwd));
+	}
+}
+
+export interface InlineChange {
+	kind: "edit" | "replace" | "delete";
+	/** As written in the code (a literal), relative to wherever the code ran. */
+	path: string;
+}
+
+/** A string literal's text, in any of its three quote styles. */
+const LITERAL = "(?:'([^'\\n]+)'|\"([^\"\\n]+)\"|`([^`\\n]+)`)";
+const literalOf = (match: RegExpMatchArray, at = 1): string | undefined => match[at] ?? match[at + 1] ?? match[at + 2];
+
+/**
+ * The files inline interpreter code (`python3 -c`, `node -e`, a `bun -e` heredoc, the `eval` tool's cells) visibly
+ * writes or removes: a literal path handed to the usual file functions. Names built at run time are not seen (a known
+ * limit). `helpers` also reads the `eval` tool's own `write(path, content)`.
+ */
+export function inlineCodeEffects(code: string, helpers = false): InlineChange[] {
+	const found: InlineChange[] = [];
+	const add = (kind: InlineChange["kind"], path: string | undefined) => {
+		if (path && !path.includes("${") && !found.some(item => item.kind === kind && item.path === path))
+			found.push({ kind, path });
+	};
+	for (const match of code.matchAll(
+		new RegExp(`\\bopen\\(\\s*${LITERAL}\\s*,\\s*(?:mode\\s*=\\s*)?['"]([^'"]*)['"]`, "g"),
+	)) {
+		const mode = match[4] ?? "";
+		add(
+			/[wx]/.test(mode) ? "replace" : /[a+]/.test(mode) ? "edit" : "edit",
+			/[wxa+]/.test(mode) ? literalOf(match) : undefined,
+		);
+	}
+	for (const match of code.matchAll(
+		new RegExp(`\\bopen\\(\\s*${LITERAL}[^)\\n]*?mode\\s*=\\s*['"]([^'"]*)['"]`, "g"),
+	)) {
+		const mode = match[4] ?? "";
+		add(/[wx]/.test(mode) ? "replace" : "edit", /[wxa+]/.test(mode) ? literalOf(match) : undefined);
+	}
+	for (const match of code.matchAll(
+		new RegExp(`\\bPath\\(\\s*${LITERAL}\\s*\\)\\.(write_text|write_bytes|unlink)`, "g"),
+	))
+		add(match[4] === "unlink" ? "delete" : "replace", literalOf(match));
+	for (const match of code.matchAll(
+		new RegExp(`\\b(?:os\\.(?:remove|unlink|rmdir)|shutil\\.rmtree)\\(\\s*${LITERAL}`, "g"),
+	))
+		add("delete", literalOf(match));
+	for (const match of code.matchAll(new RegExp(`\\bshutil\\.move\\(\\s*${LITERAL}\\s*,\\s*${LITERAL}`, "g"))) {
+		add("delete", literalOf(match));
+		add("replace", literalOf(match, 4));
+	}
+	for (const match of code.matchAll(
+		new RegExp(`\\bshutil\\.(?:copy|copy2|copyfile|copytree)\\(\\s*[^,()\\n]+,\\s*${LITERAL}`, "g"),
+	))
+		add("replace", literalOf(match));
+	for (const match of code.matchAll(
+		new RegExp(`\\b(?:writeFileSync|writeFile|createWriteStream)\\(\\s*${LITERAL}`, "g"),
+	))
+		add("replace", literalOf(match));
+	for (const match of code.matchAll(new RegExp(`\\bBun\\.write\\(\\s*${LITERAL}`, "g")))
+		add("replace", literalOf(match));
+	for (const match of code.matchAll(new RegExp(`\\b(?:appendFileSync|appendFile)\\(\\s*${LITERAL}`, "g")))
+		add("edit", literalOf(match));
+	for (const match of code.matchAll(
+		new RegExp(`\\b(?:rmSync|unlinkSync|rmdirSync|(?:fs|fsp|promises)\\.(?:rm|unlink|rmdir))\\(\\s*${LITERAL}`, "g"),
+	))
+		add("delete", literalOf(match));
+	for (const match of code.matchAll(new RegExp(`\\brenameSync\\(\\s*${LITERAL}\\s*,\\s*${LITERAL}`, "g"))) {
+		add("delete", literalOf(match));
+		add("replace", literalOf(match, 4));
+	}
+	for (const match of code.matchAll(
+		new RegExp(`\\b(?:copyFileSync|copyFile|cpSync)\\(\\s*[^,()\\n]+,\\s*${LITERAL}`, "g"),
+	))
+		add("replace", literalOf(match));
+	if (helpers)
+		for (const match of code.matchAll(new RegExp(`(?:^|[^.\\w])write\\(\\s*${LITERAL}`, "gm")))
+			add("replace", literalOf(match));
+	return found;
 }
 
 function writerCommand(name: string, argv: string[], scope: Scope, cwd: string): string | undefined {
@@ -977,22 +1306,37 @@ function writerCommand(name: string, argv: string[], scope: Scope, cwd: string):
 }
 
 /** Strips env assignments and wrapper commands; returns the real command's argv or an immediate verdict. */
-function unwrap(argv: string[]): { argv: string[]; reason?: string } {
+function unwrap(argv: string[], lenient = false): { argv: string[]; reason?: string; xargs?: boolean } {
 	const words = [...argv];
+	let xargs = false;
 	for (let guard = 0; guard < 16; guard++) {
 		while (words.length > 0 && RESERVED.has(words[0])) words.shift();
 		while (words.length > 0 && ENV_ASSIGN.test(words[0])) {
-			if (GIT_ENV_DENY.test(words[0]))
+			if (GIT_ENV_DENY.test(words[0]) && !lenient)
 				return { argv: words, reason: `${words[0].split("=", 1)[0]} would redirect or reconfigure git` };
 			words.shift();
 		}
 		const head = words[0]?.split("/").pop() ?? "";
-		if (head === "sudo" || head === "doas" || head === "su")
-			return { argv: words, reason: "privilege escalation is not allowed" };
+		if (head === "sudo" || head === "doas" || head === "su") {
+			if (!lenient) return { argv: words, reason: "privilege escalation is not allowed" };
+			// A read of what a command changes goes on through the escalation.
+			if (head === "su") {
+				const at = words.findIndex(word => word === "-c" || word === "--command");
+				const script = at >= 0 ? words[at + 1] : undefined;
+				words.splice(0, words.length, ...(script === undefined ? [] : ["sh", "-c", script]));
+			} else {
+				words.shift();
+				while (words.length > 0 && words[0].startsWith("-")) {
+					const flag = words.shift() as string;
+					if (/^-[ughCprtTUD]$/.test(flag)) words.shift();
+				}
+			}
+			continue;
+		}
 		if (head === "env") {
 			words.shift();
 			while (words.length > 0 && (words[0].startsWith("-") || ENV_ASSIGN.test(words[0]))) {
-				if (GIT_ENV_DENY.test(words[0]))
+				if (GIT_ENV_DENY.test(words[0]) && !lenient)
 					return { argv: words, reason: `${words[0].split("=", 1)[0]} would redirect or reconfigure git` };
 				const flag = words.shift() as string;
 				if (flag === "-u" || flag === "-C" || flag === "-S") words.shift();
@@ -1035,6 +1379,7 @@ function unwrap(argv: string[]): { argv: string[]; reason?: string } {
 			continue;
 		}
 		if (head === "xargs") {
+			xargs = true;
 			words.shift();
 			while (words.length > 0 && words[0].startsWith("-")) {
 				const flag = words.shift() as string;
@@ -1052,7 +1397,7 @@ function unwrap(argv: string[]): { argv: string[]; reason?: string } {
 		}
 		break;
 	}
-	return { argv: words };
+	return { argv: words, ...(xargs ? { xargs } : {}) };
 }
 
 function analyzeSimple(cmd: Simple, scope: Scope, state: { cwd: string }, depth: number): string | undefined {
@@ -1060,7 +1405,10 @@ function analyzeSimple(cmd: Simple, scope: Scope, state: { cwd: string }, depth:
 	if (scope.collect)
 		for (const target of cmd.redirects) {
 			const resolved = resolveWord(target, state.cwd);
-			if (resolved.path) scope.collect.write(resolved.path);
+			if (!resolved.path) continue;
+			// `>>` keeps what the file holds.
+			if (cmd.appends?.includes(target)) scope.collect.change("edit", resolved.path);
+			else scope.collect.write(resolved.path);
 		}
 	if (scope.paths) {
 		for (const target of cmd.redirects) {
@@ -1068,9 +1416,10 @@ function analyzeSimple(cmd: Simple, scope: Scope, state: { cwd: string }, depth:
 			if (problem) return `redirecting output: ${problem}`;
 		}
 	}
-	const unwrapped = unwrap(cmd.argv);
+	const unwrapped = unwrap(cmd.argv, scope.collect !== undefined);
 	if (unwrapped.reason) return unwrapped.reason;
-	const argv = unwrapped.argv;
+	// What `xargs` appends is unknown: a collecting walk reads it as a command substitution.
+	const argv = unwrapped.xargs && scope.collect ? [...unwrapped.argv, "$()"] : unwrapped.argv;
 	if (argv.length === 0) return undefined;
 	const name = argv[0].split("/").pop() ?? argv[0];
 	const heredoc = cmd.heredocs.join("\n");
@@ -1092,10 +1441,15 @@ function analyzeSimple(cmd: Simple, scope: Scope, state: { cwd: string }, depth:
 	if (name === "eval") return analyzeScript(argv.slice(1).join(" "), scope, state, depth + 1);
 	if (name === "source" || name === ".") return "sourcing a file cannot be verified";
 	if (INTERPRETERS.has(name) || /^python[\d.]+$/.test(name)) {
-		// Inline code: the banned phrases are all we can see of it (known limit).
+		// Inline code: the banned phrases are all the judge sees of it (known limit); a collecting walk also reads the files it visibly writes.
 		const code = [heredoc, ...argv.slice(1).filter(arg => /\s/.test(arg))].filter(Boolean).join("\n");
 		const hit = code ? scanBannedPhrases(code, scope) : undefined;
 		if (hit) return hit;
+		if (scope.collect)
+			for (const change of inlineCodeEffects([heredoc, ...argv.slice(1)].filter(Boolean).join("\n"))) {
+				const resolved = resolveWord(change.path, state.cwd);
+				if (resolved.path) scope.collect.change(change.kind, resolved.path);
+			}
 	}
 	if (name === "ssh" || name === "scp" || name === "sftp") return `${name} reaches outside the worktree`;
 	if (name === "git") {
@@ -1114,16 +1468,25 @@ function analyzeSimple(cmd: Simple, scope: Scope, state: { cwd: string }, depth:
 		if (exec >= 0) {
 			const end = argv.findIndex((arg, k) => k > exec && (arg === ";" || arg === "+" || arg === "\\;"));
 			const inner = argv.slice(exec + 1, end === -1 ? undefined : end);
-			const reason = analyzeSimple(
-				{ argv: inner, redirects: [], heredocs: [] },
-				scope,
-				{ cwd: state.cwd },
-				depth + 1,
-			);
-			if (reason) return reason;
+			// A collecting walk reads `{}` as the files the find reaches (its folders, narrowed by `-name`).
+			const runs = scope.collect
+				? findScope(argv.slice(1)).scoped.map(target => inner.map(word => word.replaceAll("{}", target)))
+				: [inner];
+			for (const run of runs) {
+				const reason = analyzeSimple(
+					{ argv: run, redirects: [], heredocs: [] },
+					scope,
+					{ cwd: state.cwd },
+					depth + 1,
+				);
+				if (reason) return reason;
+			}
 		}
 	}
-	if (scope.collect) collectChanges(name, argv, state.cwd, scope.collect);
+	if (scope.collect) {
+		collectToolEffects(name, argv, state.cwd, scope.collect);
+		collectChanges(name, argv, state.cwd, scope.collect);
+	}
 	return writerCommand(name, argv, scope, state.cwd);
 }
 
@@ -1309,6 +1672,71 @@ export function fileToolPaths(toolName: string, input: unknown): string[] {
 		if (typeof value === "string")
 			for (const match of value.matchAll(/^\*\*\* Move to:\s*(.+)$/gm)) renamed.push(match[1].trim());
 	return [...collectPaths(input), ...renamed];
+}
+
+/** What a file tool does to a path: lines of it in place, the whole file replaced (a write, a create, a move's destination), or removed (a delete, a move's source). */
+export interface FileToolEffect {
+	path: string;
+	kind: "edit" | "replace" | "delete";
+}
+
+const EFFECT_RANK = { edit: 0, replace: 1, delete: 2 } as const;
+
+/**
+ * `fileToolPaths` with what the call does to each path, so the guard can tell the edit tool's `delete`, hashline `REM`,
+ * a patch's `*** Delete File:` and the source of a move (removals) and a rename or `*** Move to:` onto a file (a whole
+ * replacement) from a line edit. A path named twice keeps the strongest effect.
+ */
+export function fileToolEffects(toolName: string, input: unknown): FileToolEffect[] {
+	const named = fileToolPaths(toolName, input);
+	if (named.length === 0) return [];
+	const record = typeof input === "object" && input !== null ? (input as Record<string, unknown>) : {};
+	const kinds = new Map<string, FileToolEffect["kind"]>(
+		named.map(path => [path, toolName === "write" ? "replace" : "edit"]),
+	);
+	const mark = (path: string | undefined, kind: FileToolEffect["kind"]) => {
+		if (path !== undefined && EFFECT_RANK[kind] > EFFECT_RANK[kinds.get(path) ?? "edit"]) kinds.set(path, kind);
+	};
+	const target = typeof record.path === "string" ? record.path : undefined;
+	if (Array.isArray(record.edits))
+		for (const edit of record.edits) {
+			if (typeof edit !== "object" || edit === null) continue;
+			const { op, rename } = edit as { op?: unknown; rename?: unknown };
+			if (op === "delete") mark(target, "delete");
+			else if (op === "create") mark(target, "replace");
+			if (typeof rename === "string") {
+				mark(target, "delete");
+				mark(rename, "replace");
+			}
+		}
+	if (toolName === "lsp" && record.action === "rename_file") {
+		mark(typeof record.file === "string" ? record.file : undefined, "delete");
+		mark(typeof record.new_name === "string" ? record.new_name : undefined, "replace");
+	}
+	for (const value of Object.values(record)) {
+		if (typeof value !== "string") continue;
+		let current: string | undefined;
+		for (const line of value.split("\n")) {
+			const header = /^\[([^\]#\n]+)#[0-9A-Fa-f]{2,8}\]/.exec(line);
+			const patch = /^\*\*\* (Update|Add|Delete) File:\s*(.+)$/.exec(line);
+			const moved = /^\*\*\* Move to:\s*(.+)$/.exec(line);
+			const hashMove = /^MV\s+(\S+)\s*$/.exec(line);
+			if (header) current = header[1];
+			else if (patch) {
+				current = patch[2].trim();
+				if (patch[1] === "Delete") mark(current, "delete");
+				else if (patch[1] === "Add") mark(current, "replace");
+			} else if (moved) {
+				mark(current, "delete");
+				mark(moved[1].trim(), "replace");
+			} else if (/^REM\s*$/.test(line)) mark(current, "delete");
+			else if (hashMove) {
+				mark(current, "delete");
+				mark(hashMove[1].replace(/^["']|["']$/g, ""), "replace");
+			}
+		}
+	}
+	return [...kinds].map(([path, kind]) => ({ path, kind }));
 }
 
 function globBase(pattern: string): string {

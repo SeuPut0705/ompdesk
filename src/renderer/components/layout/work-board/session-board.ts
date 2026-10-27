@@ -14,6 +14,7 @@ import type { BackgroundJobVerdict } from "../../chat/completion-events";
 import {
 	type CheckKind,
 	checkKind,
+	checkKinds,
 	commandOperation,
 	summarizeChecks,
 	unresolvedFailures,
@@ -126,7 +127,7 @@ export interface LastCheck {
 	key?: string;
 }
 
-function checkOf(outcome: WorkCommandOutcome, kind: CheckKind): LastCheck | null {
+function checkOf(outcome: WorkCommandOutcome): LastCheck | null {
 	const [summary] = summarizeChecks([outcome]);
 	if (!summary) return null;
 	const { startTime, endTime } = outcome;
@@ -134,7 +135,7 @@ function checkOf(outcome: WorkCommandOutcome, kind: CheckKind): LastCheck | null
 		outcome.durationMs ?? (startTime !== undefined && endTime !== undefined ? endTime - startTime : undefined);
 	const count = summary.passed ? summary.tests?.passed : summary.tests?.failed;
 	return {
-		kind,
+		kind: summary.kind,
 		command: outcome.command,
 		startedAt: startTime ?? 0,
 		state: summary.passed ? "passed" : "failed",
@@ -149,7 +150,8 @@ function checkOf(outcome: WorkCommandOutcome, kind: CheckKind): LastCheck | null
  * has not arrived, a call still running: `running`, never passed); else the newest turn's last check failure no later
  * run of the same call fixed (`unresolvedFailures` over `turnCommands`, the ledger its work card reads, subagents'
  * calls included), as that card's verdict says; else the session's newest check run. A stopped one is skipped, as the
- * work card skips it.
+ * work card skips it. A run that mixes kinds (`biome; vitest`) is a check run of the kinds it proved passed, the
+ * first of them named, and fixes a failure as the card reads it.
  */
 export function lastCheck(
 	entries: Iterable<readonly [string, ToolEntry]>,
@@ -161,8 +163,8 @@ export function lastCheck(
 	for (const [key, entry] of entries) {
 		const command = entry.args.command;
 		if (entry.toolName !== "bash" || typeof command !== "string" || entry.status === "aborted") continue;
-		const kind = checkKind(command);
-		if (kind) candidates.push({ key, entry, command, kind });
+		const [kind] = checkKinds(command, true);
+		if (kind) candidates.push({ key, entry, command, kind: checkKind(command) ?? kind });
 	}
 	candidates.sort((a, b) => b.entry.startTime - a.entry.startTime);
 	let newest: LastCheck | null = null;
@@ -172,15 +174,12 @@ export function lastCheck(
 		const [outcome] = workOutcomes([{ entry, toolCallId: key }], undefined, cwd, verdicts).commands;
 		if (!outcome || outcome.interrupted || outcome.refused) continue;
 		if (outcome.unknown) return { ...base, state: "running" };
-		newest = checkOf(outcome, kind);
+		newest = checkOf(outcome);
 		if (newest) break;
 	}
-	const checks = turnCommands.flatMap(command => {
-		const kind = checkKind(command.command);
-		return kind ? [{ ...commandOperation(command), kind }] : [];
-	});
-	const standing = unresolvedFailures(checks, cwd).at(-1);
-	return (standing && checkOf(standing, standing.kind)) ?? newest;
+	const checks = turnCommands.filter(command => checkKinds(command.command, true).length > 0).map(commandOperation);
+	const standing = unresolvedFailures(checks, cwd).findLast(call => checkKind(call.command));
+	return (standing && checkOf(standing)) ?? newest;
 }
 
 /** One other session and where it works: this worktree, or another worktree of the repository. */

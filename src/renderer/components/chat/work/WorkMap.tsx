@@ -111,7 +111,7 @@ export function WorkMap({
 	const runtime = useSessionRuntime();
 	const { subagents: store } = useRunStores();
 	// Stock's spawn index, so lanes keep the order the task listed them in whichever reports first.
-	const { agents: nodes, completions } = useRunAgents(toolCallIds, "progress");
+	const { agents: nodes, completions, resumed } = useRunAgents(toolCallIds, "progress");
 	const observedKey = useFrameSelector(store, state =>
 		nodes
 			.map(node => {
@@ -175,6 +175,8 @@ export function WorkMap({
 						: running
 							? // Before the first call only: the raw assignment is a model prompt, not a status line.
 								((progress?.toolCount ? progress.lastIntent : undefined) ??
+								// A revived agent's first request after a restart can take minutes: it goes on, not starts.
+								(resumed.has(node.id) ? t("chat.work.resuming") : undefined) ??
 								node.description ??
 								t("chat.work.starting"))
 							: ((groupState === "complete" || groupState === "failed"

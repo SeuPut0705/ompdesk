@@ -39,7 +39,6 @@ import { useSessionList } from "../../../hooks/use-session-list";
 import { useShellInput } from "../../../hooks/use-shell-mode";
 import { DEVICE_COLORS, type DeviceColorChoice, deviceColorOf } from "../../../lib/device-color";
 import { saveDiagnosticBundle } from "../../../lib/diagnostic-bundle";
-import { hideNativeDragImage } from "../../../lib/drag-image";
 import { basename, cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { openExternal } from "../../../lib/open-external";
@@ -74,6 +73,7 @@ import { useDeviceHeaderHandle } from "./SidebarDeviceSections";
 import { SidebarFoldButton } from "./SidebarFoldButton";
 import { type FamilyOpened, SidebarSubagents, SidebarSubagentsToggle } from "./SidebarSubagents";
 import { SortableProject } from "./SortableProject";
+import { type SessionList, useSessionReorder } from "./session-reorder";
 import { CHILD_TOKEN, hostOpenerOfSessions, openedChildStatus } from "./sidebar-family";
 
 const NO_OPENED: readonly FamilyOpened[] = [];
@@ -551,7 +551,7 @@ function DeviceSessions({
 		);
 	};
 	/** The list a session row sits in (its project, or the Chats section) and that list's visible order. */
-	const listOf = (session: DeviceSession): { key: string; paths: string[] } | null => {
+	const listOf = (session: DeviceSession): SessionList | null => {
 		// A filtered list shows only some rows: a move there would forget where the hidden ones were.
 		if (query || session.liveTabId !== undefined) return null;
 		// A row the host has no file for yet (a new tab's) has no place to keep.
@@ -561,10 +561,21 @@ function DeviceSessions({
 		const group = groups.find(item => item.sessions.some(row => row.path === session.path));
 		return group ? { key: group.cwd, paths: stored(group.sessions) } : null;
 	};
-	const moveSession = (session: DeviceSession, delta: number) => {
+	// Kept in this computer's prefs under the host's id, so this computer's own lists never move with it.
+	const reorder = useSessionReorder({
+		titleOf: path => {
+			const found = rows.find(session => session.path === path);
+			return found ? sessionDisplayTitle(found, "") : "";
+		},
+		save: (list, next) =>
+			void useSidebarPrefs.getState().setSessionOrder(hostOrderKey(host.deviceId, list.key), [...next]),
+	});
+	const moveSession = (session: DeviceSession, delta: number): boolean => {
 		const list = listOf(session);
 		const next = list && moveInOrder(list.paths, session.path, delta);
-		if (list && next) void useSidebarPrefs.getState().setSessionOrder(hostOrderKey(host.deviceId, list.key), next);
+		if (!list || !next) return false;
+		reorder.move(list, session.path, next, sessionDisplayTitle(session, ""));
+		return true;
 	};
 
 	// What the host works on now (its windows' tabs, the tabs it runs for any device): a row no tab here holds still
@@ -610,8 +621,9 @@ function DeviceSessions({
 	 * this window views the opener, the indexed failure), by the local rows' status rule (Sidebar.tsx).
 	 */
 	const familyChildFor = (child: DeviceSession): FamilyOpened => {
+		// An asleep tab knows nothing of the host's run (renderRow): the host's list says it.
 		const tab = tabFor(child);
-		if (tab) return childForTab(tab);
+		if (tab && tab.status !== "asleep") return childForTab(tab);
 		const live = hostLive.get(child.path);
 		const review = reviewOfPath.get(child.path);
 		const failed = review?.failed === true || child.childProblem === "failed" || child.status === "error";
@@ -714,11 +726,14 @@ function DeviceSessions({
 
 	const renderRow = (session: DeviceSession) => {
 		const tab = tabFor(session);
-		const signal = tab ? tabSignalPresentation(tab) : null;
-		const live = tab ? undefined : hostLive.get(session.path);
-		const waiting = tab ? tab.awaitingInput !== undefined : live === "waiting";
-		const running = tab ? signal?.running === true && !waiting : live === "turn" || live === "background";
-		const settling = tab ? tab.settling === true : live === "background";
+		// A tab restored asleep when this computer launched (no omp attached until it is shown) has heard nothing of the
+		// host's run: the host's live list says it instead.
+		const known = tab?.status === "asleep" ? undefined : tab;
+		const signal = known ? tabSignalPresentation(known) : null;
+		const live = known ? undefined : hostLive.get(session.path);
+		const waiting = known ? known.awaitingInput !== undefined : live === "waiting";
+		const running = known ? signal?.running === true && !waiting : live === "turn" || live === "background";
+		const settling = known ? known.settling === true : live === "background";
 		const working = signal?.running === true || running;
 		const current = tab !== undefined && tab.id === activeTabId;
 		// Every pane of the split on screen reads as selected, like the local list (Sidebar.tsx); the focused one adds data-pane-focus.
@@ -819,7 +834,19 @@ function DeviceSessions({
 					actionCount={1}
 					actionsAtRest={touchInput}
 					actionsOnHover={!touchInput}
-					buttonProps={{ tabIndex: -1, "data-roving-item": `device-session:${host.deviceId}:${session.path}` }}
+					buttonProps={{
+						tabIndex: -1,
+						"data-roving-item": `device-session:${host.deviceId}:${session.path}`,
+						onKeyDown: event => {
+							// Alt+↑/↓ moves the row in its list, as on this computer's own rows.
+							if (
+								event.altKey &&
+								(event.key === "ArrowUp" || event.key === "ArrowDown") &&
+								moveSession(session, event.key === "ArrowUp" ? -1 : 1)
+							)
+								event.preventDefault();
+						},
+					}}
 					className="omp-sidebar-session-row"
 					key={session.path}
 					meta={
@@ -832,15 +859,9 @@ function DeviceSessions({
 					}
 					onClick={() => openSession(session)}
 					rowProps={{
-						// Dragged onto a session pane, the open tab joins the split there (SplitWorkspace takes `omp:tab-drag`).
-						draggable: tab !== undefined && !current,
-						onDragStart: event => {
-							if (!tab) return;
-							event.dataTransfer.effectAllowed = "move";
-							hideNativeDragImage(event.dataTransfer);
-							window.dispatchEvent(new CustomEvent("omp:tab-drag", { detail: { tabId: tab.id } }));
-						},
-						onDragEnd: () => window.dispatchEvent(new CustomEvent("omp:tab-drag", { detail: { tabId: null } })),
+						// Dragged onto a session pane, the open tab joins the split there (SplitWorkspace takes `omp:tab-drag`);
+						// dropped on a row of its own list it moves there.
+						...reorder.rowDrag(session.path, list, tab ? { id: tab.id, shown: current } : undefined),
 						"data-device-session": session.path,
 						onContextMenu: event => {
 							const anchor = anchorFromEvent(event);
@@ -945,6 +966,7 @@ function DeviceSessions({
 	);
 	return (
 		<div className="space-y-px">
+			{reorder.status}
 			{dialog}
 			<DndContext collisionDetection={closestCenter} onDragEnd={onGroupDragEnd} sensors={groupSensors}>
 				<SortableContext items={groups.map(group => group.cwd)} strategy={verticalListSortingStrategy}>
