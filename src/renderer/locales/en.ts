@@ -4404,6 +4404,7 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.backgroundChecks": "Long checks run in the background",
 	"bridgeHealth.feature.checkoutPeers": "Sessions sharing a checkout",
 	"bridgeHealth.feature.xdevNotice": "Tool list not repeated in the request",
+	"bridgeHealth.feature.contextHookIdle": "Requests not copied when no message needs filtering",
 
 	// Per-model compaction limits (compaction.modelThresholds, omp 18.8.5+)
 	"compactionLimits.title": "Compaction limits",

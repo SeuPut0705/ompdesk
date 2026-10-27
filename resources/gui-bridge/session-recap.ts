@@ -22,8 +22,9 @@
  * also reaches `recap_draft` here (src/main/local/settings.ts), which attaches the
  * timer once per live session.
  */
-import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
+import type { ContextEvent, ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import { armContextHook, installContextHook } from "./context-hook";
 import { guard } from "./health";
 import { ompPrompt } from "./modes/shared";
 import { type Recap, type RecapSettings, RecapTimer } from "./session-recap-core";
@@ -75,12 +76,19 @@ export async function generateRecap(session: AgentSession, signal: AbortSignal):
 /** What stock does once the recap is current: journal the reply, then show it (here: a `recap` custom message). */
 export async function deliverRecap(session: AgentSession, recap: Recap): Promise<void> {
 	session.sessionManager.recordRecap(recap.reply);
-	await session.sendCustomMessage({
-		customType: RECAP_MESSAGE_TYPE,
-		content: recap.preview,
-		display: true,
-		details: { recap: recap.reply },
-	});
+	// The hook may have left the request path of a session that held no recap: back before the recap lands, and held
+	// there until it is in the branch (a side request meanwhile, idle compaction or an ephemeral turn, cannot take it off).
+	const release = armContextHook(RECAP_MESSAGE_TYPE, session.sessionManager);
+	try {
+		await session.sendCustomMessage({
+			customType: RECAP_MESSAGE_TYPE,
+			content: recap.preview,
+			display: true,
+			details: { recap: recap.reply },
+		});
+	} finally {
+		release();
+	}
 }
 
 const timer = new RecapTimer<AgentSession>({ read: readRecapSettings, generate: generateRecap, deliver: deliverRecap });
@@ -95,7 +103,7 @@ export function recapSettingChanged(path: string): void {
 /** Called once per extension instance (main and every subagent rebinding) by index.ts. */
 export function install(pi: ExtensionAPI): void {
 	// A recap is for the person: drop it from what the model is sent (the journal keeps it).
-	pi.on("context", event => {
+	installContextHook(pi, RECAP_MESSAGE_TYPE, (event: ContextEvent) => {
 		const messages = event.messages.filter(
 			message => !(message.role === "custom" && message.customType === RECAP_MESSAGE_TYPE),
 		);

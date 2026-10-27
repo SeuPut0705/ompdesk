@@ -53,6 +53,11 @@ export class SessionIndex {
 	/** GUI-side chat labels for sessions whose header carries no kind (stock omp writes none). */
 	#isChat: (sessionId: string) => boolean;
 	#store: StockSessionStore;
+	/**
+	 * Each listed session file's legacy chat flag, with the session id its header named: a header never changes, so a
+	 * list (asked for after every settled append while an agent streams) reads each file's head once, not each time.
+	 */
+	#legacyChat = new Map<string, { id: string; chat: boolean }>();
 
 	/**
 	 * A session file, or a project or session directory, appeared, changed or vanished: called with its path once
@@ -127,6 +132,7 @@ export class SessionIndex {
 		this.#reported.clear();
 		this.#store.stop();
 		this.#textCache.clear();
+		this.#legacyChat.clear();
 	}
 
 	/**
@@ -154,7 +160,7 @@ export class SessionIndex {
 		});
 		await Promise.all(
 			infos.map(async info => {
-				if (this.#isChat(info.id) || (await this.#legacyChatKind(info.path))) info.kind = "chat";
+				if (this.#isChat(info.id) || (await this.#listedLegacyChat(info))) info.kind = "chat";
 			}),
 		);
 		// Sort by modified descending
@@ -179,7 +185,9 @@ export class SessionIndex {
 		try {
 			const infos = await this.#store.listDirectory(sessionPath);
 			const info = infos.find(row => resolve(row.path) === resolve(sessionPath));
-			return info && (this.#isChat(info.id) || (await this.#legacyChatKind(sessionPath))) ? "chat" : "agent";
+			return info && (this.#isChat(info.id) || (await this.#legacyChatKind(sessionPath)) === true)
+				? "chat"
+				: "agent";
 		} catch {
 			return "agent";
 		}
@@ -341,17 +349,29 @@ export class SessionIndex {
 			/* Gone: deleted, or renamed away with the sessions in it. */
 		}
 		if (this.#watcher === null) return;
-		if (signature === null) this.#reported.delete(path);
-		else if (this.#reported.get(path) === signature) return;
+		if (signature === null) {
+			this.#reported.delete(path);
+			this.#legacyChat.delete(path);
+		} else if (this.#reported.get(path) === signature) return;
 		else this.#reported.set(path, signature);
 		if (session) this.#textCache.delete(path);
 		this.#notifyChange(path);
 	}
 
-	/** Legacy GUI-only header flag; stock session-listing deliberately does not expose it.
+	/** `#legacyChatKind` of a listed session, read from its file only the first time this session is listed there. */
+	async #listedLegacyChat(info: SessionInfo): Promise<boolean> {
+		const known = this.#legacyChat.get(info.path);
+		if (known?.id === info.id) return known.chat;
+		const chat = await this.#legacyChatKind(info.path);
+		// No header read (unreadable, or not written yet): asked again next time.
+		if (chat !== undefined) this.#legacyChat.set(info.path, { id: info.id, chat });
+		return chat === true;
+	}
+
+	/** Legacy GUI-only header flag; stock session-listing deliberately does not expose it. Undefined: no header read.
 	 * Read only this presentation overlay, never derive stock metadata or lifecycle.
 	 */
-	async #legacyChatKind(filePath: string): Promise<boolean> {
+	async #legacyChatKind(filePath: string): Promise<boolean | undefined> {
 		try {
 			const fh = await open(filePath, "r");
 			try {
@@ -371,7 +391,7 @@ export class SessionIndex {
 		} catch {
 			/* Missing/unreadable files have no GUI label. */
 		}
-		return false;
+		return undefined;
 	}
 
 	#notifyChange(path?: string): void {
