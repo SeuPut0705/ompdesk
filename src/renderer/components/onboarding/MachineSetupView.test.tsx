@@ -24,7 +24,8 @@ import { useTabsStore } from "../../stores/tabs";
 import { useToastStore } from "../../stores/toast";
 import { fakeSetupApi, setupState } from "../../test-support/machine-setup";
 import { SidecarBanner } from "../layout/SidecarBanner";
-import { FirstRunSetup, useFirstRunActive } from "./FirstRunSetup";
+import { FirstRunSetup } from "./FirstRunSetup";
+import { useFirstRunActive } from "./FirstRunSlot";
 import { MachineSetupView } from "./MachineSetupView";
 import { SetupTakeoverHost } from "./SetupTakeover";
 
