@@ -567,7 +567,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	"tools.restrictedFolders": {
 		label: "제한 폴더",
 		description:
-			'승인 모드나 기억된 허용과 관계없이 읽기, 쓰기, 편집, 검색, 명령 실행마다 명시적 승인이 필요한 폴더예요. 해당 폴더와 그 아래 전체가 제한되고, 명령은 실행되는 디렉터리로 판단해요. 경로 JSON 목록으로 입력해요(예: ["~/secrets"]).',
+			'승인 모드나 기억된 허용과 관계없이 읽기, 쓰기, 편집, 검색, 명령 실행마다 명시적 승인이 필요한 폴더예요. 해당 폴더와 그 아래 전체가 제한되고, 명령은 실행되는 폴더로 판단해요. 경로 JSON 목록으로 입력해요(예: ["~/secrets"]).',
 	},
 	"tools.approvalMode": {
 		label: "도구 승인",
