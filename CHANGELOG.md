@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.76.1] - 2026-10-26
+
+휴대폰에서 긴 대화를 쓸어 올리거나 내릴 때 화면이 위아래로 휙휙 튀던 문제를 고쳤어요.
+
+### 고친 것
+- 손가락을 뗀 뒤에도 미끄러지는 동안, 대화의 스크롤 위치를 바로잡는 동작이 그 움직임을 거꾸로 되돌리거나 지난 대화 한 쪽만큼 위로 던졌어요. 이제 읽던 곳을 지키는 보정은 내가 스크롤하는 동안 끼어들지 않고, 위쪽 내용의 높이가 바뀌어도 보던 글이 움직이지 않아요. Android와 컴퓨터에서 실제 긴 대화로 확인했어요. iPhone·iPad는 스크롤이 멈춘 순간 한 번 맞춰지는 동작이 남아 있어요.
+
+<!-- en -->
+
+Flinging up or down through a long conversation on a phone no longer jumps the view around.
+
+### Fixes
+- While a fling went on after the finger lifted, the transcript's position correction pulled it back or threw the view up by a whole page of older history. Keeping your place no longer interrupts your own scrolling, and the text you read stays put when something above it changes height. Checked with a real long conversation on Android and the desktop; on iPhone and iPad one correction still lands when the scroll stops.
+
 ## [0.76.0] - 2026-10-26
 
 설정에서 에이전트가 쓸 브라우저를 고를 수 있어요. ego-browser나 이 컴퓨터에 설치된 브라우저를 고르면 에이전트가 알아서 그 브라우저를 써요.
