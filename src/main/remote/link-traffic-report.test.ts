@@ -91,6 +91,22 @@ describe("deflated frames by the device's build", () => {
 	}, 60_000);
 });
 
+describe("frames deflated against the link's context by the device's build", () => {
+	it("a device built before it gets each frame deflated on its own; the current one gets them in context", async () => {
+		const slimOf = async (device: DeviceKind): Promise<string[]> => {
+			const { hostLog } = await openSession({ device });
+			const open = hostLog.find(line => line.message === "open");
+			return String((open?.details as { slim?: string } | undefined)?.slim).split(",");
+		};
+		expect(await slimOf("current")).toEqual(expect.arrayContaining(["deflate", "context"]));
+		const earlier = await slimOf("noDeflateContext");
+		expect(earlier).toContain("deflate");
+		expect(earlier).not.toContain("context");
+		for (const device of ["noDeflate", "noListReads", "slimEventsOnly", "older"] as const)
+			expect(await slimOf(device)).not.toContain("context");
+	}, 60_000);
+});
+
 describe("link traffic harness", () => {
 	it("counts a request, its answer and a tab event by kind", async () => {
 		const { sidecar, recorder } = await openSession();
