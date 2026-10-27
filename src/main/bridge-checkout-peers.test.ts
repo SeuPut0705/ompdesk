@@ -518,13 +518,27 @@ describe("the checkout ledger", () => {
 		expect(ledger.settle("c1")).toBe(false);
 	});
 
-	it("lets a call that never reported back stop holding its claim at the end of the run", () => {
+	it("lets a call that never reported back stop holding its claim at the end of its agent's run", () => {
 		const ledger = new CheckoutLedger();
 		const tracked = `${REPO}/tracked.ts`;
-		ledger.call("write", { path: "tracked.ts", content: "x" }, REPO, undefined, host, "denied");
-		ledger.settleAll();
+		ledger.call("write", { path: "tracked.ts", content: "x" }, REPO, undefined, host, "denied", "main");
+		ledger.settleAll("main");
 		ledger.retire([{ file: tracked, stamp: ledger.stamp(tracked) }]);
 		expect(ledger.files).toEqual([]);
+	});
+
+	it("keeps an agent's running write claimed when another agent of the session ends its run", () => {
+		const ledger = new CheckoutLedger();
+		const tracked = `${REPO}/tracked.ts`;
+		// The main agent's `sleep; echo >` runs on while a short subagent finishes.
+		ledger.call("bash", { command: "sleep 8; echo changed > tracked.ts" }, REPO, undefined, host, "a1", "main");
+		ledger.call("edit", { path: "src/b.ts" }, REPO, undefined, host, "b1", "Scout");
+		ledger.settle("b1");
+		expect(ledger.settleAll("Scout")).toBe(false);
+		ledger.retire([{ file: tracked, stamp: ledger.stamp(tracked) }]);
+		expect(ledger.files).toContain(tracked);
+		// Its result still settles and reannounces it.
+		expect(ledger.settle("a1")).toBe(true);
 	});
 
 	it("claims every file a command replaces or deletes, and no file one only touches", () => {
