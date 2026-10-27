@@ -126,3 +126,52 @@ test("one session's bulk stage is refused, it commits its own file, and the othe
 	await expect(pane.locator("[data-agent-mail='note']")).toHaveCount(1, { timeout: 15_000 });
 	await expect(pane.locator("[data-agent-mail='question']")).toContainText("Shall I run the formatter");
 });
+
+test("an edit of a file the other session changed carries the overlap notice once, and the board shows the task and the shared count", async () => {
+	test.setTimeout(120_000);
+	const first = (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId ?? "";
+	const spawned = await page.evaluate(cwd => window.omp.tabs.spawn({ cwd, kind: "agent" }), project);
+	const second = spawned?.tabId ?? "";
+	await expect
+		.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === second)?.status)
+		.toBe("ready");
+
+	await play(first, [
+		{ wait: "peers" },
+		{ task: "Rename the a constant" },
+		{ edit: "src/a.ts", append: "// first\n" },
+	]);
+	await play(second, [{ wait: "peers" }, { task: "Tune b" }, { edit: "src/b.ts", append: "// second\n" }]);
+
+	const answer = await play(second, [
+		{ wait: "files" },
+		{ edit: "src/a.ts", append: "// second again\n" },
+		{ edit: "src/a.ts", append: "// and again\n" },
+		{ edit: "src/b.ts", append: "// own file only\n" },
+	]);
+	const notices = answer.split("<shared-checkout-overlap>").length - 1;
+	expect(notices).toBe(1);
+	expect(answer).toContain(`[${first}]`);
+	expect(answer).toContain("working on: Rename the a constant");
+	expect(answer).toContain("src/a.ts");
+	expect(answer).toContain(`"to": "${first}", "kind": "note"`);
+
+	// The first session edits the file the second changed: the same notice, naming the second and its task.
+	const reverse = await play(first, [{ wait: "files" }, { edit: "src/b.ts", append: "// first on b\n" }]);
+	expect(reverse.split("<shared-checkout-overlap>").length - 1).toBe(1);
+	expect(reverse).toContain("working on: Tune b");
+
+	await page.keyboard.press("ControlOrMeta+2");
+	// The board shows once the session has a todo list; it docks beside the transcript (`workBoardFits`) or sits in the status strip, opened.
+	await page.evaluate(id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:todo" }), second);
+	await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1600, 900));
+	const docked = page.locator(".omp-work-board-slot [data-work-board-panel]");
+	const strip = page.locator("[data-work-chip]");
+	await expect(docked.or(strip).first()).toBeVisible({ timeout: 15_000 });
+	if ((await docked.count()) === 0) await strip.click();
+	const board = (await docked.count()) > 0 ? docked : page.locator("[data-work-strip-panel]");
+	const peers = board.locator("[data-board-session='peers']");
+	await expect(peers).toContainText("1 session in this checkout · 2 shared files", { timeout: 15_000 });
+	await peers.click();
+	await expect(board.locator("[data-board-session='peer']")).toContainText("Rename the a constant");
+});

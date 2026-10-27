@@ -11,7 +11,7 @@
 import * as fs from "node:fs/promises";
 import {
 	CHECKOUT_PEERS_SET,
-	CHECKOUT_TOUCHED,
+	CHECKOUT_STATUS,
 	type CheckoutPeer,
 	type CheckoutPeers,
 } from "../../resources/gui-bridge/modes/checkout-peers-contracts";
@@ -48,7 +48,7 @@ export interface CheckoutPeersDeps {
 
 /** A folder's checkout is asked again after this (a `git worktree add` or a deleted checkout changes it). */
 const PLACE_TTL_MS = 30_000;
-const TOUCHED_TIMEOUT_MS = 2_000;
+const STATUS_TIMEOUT_MS = 2_000;
 /** Besides tab activity, a pass runs this often: a tab that became ready, a hidden session or a new worktree moves no tab. */
 export const CHECKOUT_PEERS_SWEEP_MS = 10_000;
 
@@ -105,24 +105,29 @@ export class CheckoutPeerCoordinator {
 		const live = new Set<string>();
 		for (const group of byRepo.values()) {
 			// Changed files matter only to a session in the same worktree, so only those members are asked.
-			const files = new Map<string, string[]>();
+			const status = new Map<string, MemberStatus>();
 			const sharing = group.filter(
 				({ place }) => group.filter(other => other.place.toplevel === place.toplevel).length > 1,
 			);
-			await Promise.all(sharing.map(async ({ member }) => files.set(member.key, await touched(member))));
+			await Promise.all(sharing.map(async ({ member }) => status.set(member.key, await statusOf(member))));
 			for (const { member, place } of group) {
 				live.add(member.key);
+				const mine = status.get(member.key)?.files ?? [];
 				const peer = (
 					other: { member: CheckoutMember; place: CheckoutPlace },
 					sameWorktree: boolean,
 				): CheckoutPeer => {
+					const theirs = status.get(other.member.key);
+					const shared = (theirs?.files ?? []).filter(file => mine.includes(file));
 					const isHidden = other.member.sessionPath !== undefined && hidden.has(other.member.sessionPath);
 					return {
 						id: isHidden ? null : other.member.id,
 						title: isHidden ? "" : other.member.title,
 						...(other.member.device ? { device: other.member.device } : {}),
 						...(!isHidden && other.member.sessionPath ? { sessionPath: other.member.sessionPath } : {}),
-						...(sameWorktree ? { files: files.get(other.member.key) ?? [] } : { worktree: other.place.toplevel }),
+						...(!isHidden && theirs?.task ? { task: theirs.task } : {}),
+						...(sameWorktree ? { files: theirs?.files ?? [] } : { worktree: other.place.toplevel }),
+						...(sameWorktree && shared.length > 0 ? { shared } : {}),
 					};
 				};
 				const others = group.filter(other => other.member.key !== member.key);
@@ -178,14 +183,22 @@ export class CheckoutPeerCoordinator {
 	}
 }
 
-/** The files a member's agents changed lately; none when its bridge does not answer in time (an older omp, a busy one). */
-async function touched(member: CheckoutMember): Promise<string[]> {
+interface MemberStatus {
+	files: string[];
+	task?: string;
+}
+
+/** The files a member's agents changed lately and its in-progress task; none when its bridge does not answer in time (an older omp, a busy one). */
+async function statusOf(member: CheckoutMember): Promise<MemberStatus> {
 	const timeout = Promise.withResolvers<null>();
-	const timer = setTimeout(() => timeout.resolve(null), TOUCHED_TIMEOUT_MS);
-	const answer = await Promise.race([member.request(CHECKOUT_TOUCHED, {}).catch(() => null), timeout.promise]);
+	const timer = setTimeout(() => timeout.resolve(null), STATUS_TIMEOUT_MS);
+	const answer = await Promise.race([member.request(CHECKOUT_STATUS, {}).catch(() => null), timeout.promise]);
 	clearTimeout(timer);
-	const files = answer && typeof answer === "object" && "files" in answer ? answer.files : undefined;
-	return Array.isArray(files) ? files.filter((file): file is string => typeof file === "string") : [];
+	const record = answer && typeof answer === "object" ? (answer as { files?: unknown; task?: unknown }) : {};
+	const files = Array.isArray(record.files)
+		? record.files.filter((file): file is string => typeof file === "string")
+		: [];
+	return { files, ...(typeof record.task === "string" && record.task ? { task: record.task } : {}) };
 }
 
 /** The checkout `cwd` is in, both paths in one spelling (macOS /var vs /private/var). */

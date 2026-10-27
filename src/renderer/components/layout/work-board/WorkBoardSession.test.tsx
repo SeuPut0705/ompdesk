@@ -650,6 +650,22 @@ describe("Same checkout row", () => {
 		expect(row("peers")?.getAttribute("title")).toBe("a hidden session");
 	});
 
+	it("adds the shared file count to the label, shows each peer's task and its shared file names in the tooltip", async () => {
+		useSessionStore.setState({
+			checkoutPeers: checkout([
+				peer({ task: "Rename helper", shared: ["/work/app/src/b.ts", "/work/app/src/c.ts"] }),
+				peer({ id: "t3", title: "Docs", shared: ["/work/app/src/b.ts"] }),
+			]),
+		});
+		await mount();
+		expect(row("peers")?.textContent).toContain("2 sessions in this checkout · 2 shared files");
+		await press(row("peers"));
+		const items = [...container.querySelectorAll('[data-board-session="peer"]')];
+		expect(items[0]?.textContent).toBe("Settings test race · Rename helper");
+		expect(items[0]?.getAttribute("title")).toBe("Settings test race\nRename helper\nb.ts\nc.ts");
+		expect(items[1]?.textContent).toBe("Docs");
+	});
+
 	it("is never shown on a session by itself", async () => {
 		useSessionStore.setState({ checkoutPeers: checkout([], []) });
 		await mount();

@@ -22,6 +22,10 @@ export interface CheckoutPeer {
 	worktree?: string;
 	/** Files it changed lately (absolute paths, newest first), only for a peer in the same worktree. */
 	files?: string[];
+	/** What it is doing now: its in-progress todo item, one line (`CHECKOUT_TASK_MAX`). Absent: none, its title stands. Never in the prompt section. */
+	task?: string;
+	/** Only for a peer in the same worktree: the files both this session and that peer changed. */
+	shared?: string[];
 }
 
 /** What main pushes to a session (`checkout_peers_set`). Empty lists: the session works alone. */
@@ -40,8 +44,10 @@ export interface CheckoutPeers {
 export const CHECKOUT_PEERS_SECTION_ID = "checkout-peers";
 /** Main → bridge: the session's peers (`CheckoutPeers`). */
 export const CHECKOUT_PEERS_SET = "checkout_peers_set";
-/** Main → bridge: the files this session's agents changed lately (`{files: string[]}`, absolute, newest first). */
-export const CHECKOUT_TOUCHED = "checkout_touched";
+/** Main → bridge: what this session is doing: `{files, task?}`, the files its agents changed lately (absolute, newest first) and its in-progress todo item. */
+export const CHECKOUT_STATUS = "checkout_status";
+/** The longest task a peer carries. */
+export const CHECKOUT_TASK_MAX = 120;
 /**
  * Bridge → GUI frame `{type, peers: CheckoutPeers | null}` (null: the session works alone), pushed whenever
  * `checkout_peers_set` changes what the session knows; bridge method `checkout_peers.get` answers the same value

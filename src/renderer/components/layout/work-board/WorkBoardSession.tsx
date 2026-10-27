@@ -367,13 +367,22 @@ function rowWords(t: (key: string, params?: Record<string, string | number>) => 
 			return checkWords(t, row.check);
 		case "dev-server":
 			return row.host;
-		case "peers":
-			return row.worktree > 0 && row.repo > 0
-				? t("workBoard.session.peers.both", { count: row.worktree, plural: plural(row.worktree), repo: row.repo })
-				: t(`workBoard.session.peers.${row.worktree > 0 ? "worktree" : "repo"}`, {
-						count: row.peers.length,
-						plural: plural(row.peers.length),
-					});
+		case "peers": {
+			const count =
+				row.worktree > 0 && row.repo > 0
+					? t("workBoard.session.peers.both", {
+							count: row.worktree,
+							plural: plural(row.worktree),
+							repo: row.repo,
+						})
+					: t(`workBoard.session.peers.${row.worktree > 0 ? "worktree" : "repo"}`, {
+							count: row.peers.length,
+							plural: plural(row.peers.length),
+						});
+			return row.shared > 0
+				? `${count} ${t("workBoard.session.peers.shared", { count: row.shared, plural: plural(row.shared) })}`
+				: count;
+		}
 		case "recall":
 			return t("workBoard.session.recall.label", { title: row.titles[0] ?? "" });
 	}
@@ -498,7 +507,7 @@ async function openPeer(target: PeerOpen): Promise<void> {
  * One line naming how many sessions share the checkout; a tap lists each on its own line (title, its device), and a
  * tap on one shows that session. The row expands in place (`data-board-expands`): the phone's strip stays open.
  */
-function PeersRow({ worktree, repo, peers }: PeersSummary) {
+function PeersRow({ worktree, repo, shared, peers }: PeersSummary) {
 	const t = useT();
 	const [open, setOpen] = useState(false);
 	const tabs = useTabsStore(state => state.tabs);
@@ -510,7 +519,7 @@ function PeersRow({ worktree, repo, peers }: PeersSummary) {
 		<>
 			<BoardRow
 				data={{ "data-board-session": "peers", "data-open": String(open), "data-board-expands": "" }}
-				label={rowWords(t, { kind: "peers", worktree, repo, peers })}
+				label={rowWords(t, { kind: "peers", worktree, repo, shared, peers })}
 				lead={<KindMark icon={Users} tone="muted" />}
 				onClick={() => setOpen(!open)}
 				title={peers.map(peer => (peer.device ? `${name(peer)} (${peer.device})` : name(peer))).join("\n")}
@@ -540,11 +549,19 @@ function PeersRow({ worktree, repo, peers }: PeersSummary) {
 													.join(" · ")}
 											</span>
 										) : null}
+										{peer.task ? <span className="text-(--sc-text-subtle)"> · {peer.task}</span> : null}
 									</span>
 								}
 								lead={null}
 								onClick={target ? () => void openPeer(target) : undefined}
-								title={[name(peer), peer.worktree].filter(Boolean).join("\n")}
+								title={[
+									name(peer),
+									peer.task,
+									peer.worktree,
+									...(peer.shared ?? []).map(file => file.slice(file.lastIndexOf("/") + 1)),
+								]
+									.filter(Boolean)
+									.join("\n")}
 							/>
 						);
 					})
@@ -617,7 +634,7 @@ function SessionRow({ row }: { row: SessionRowModel }) {
 		case "dev-server":
 			return <DevServerRow command={row.command} host={row.host} url={row.url} />;
 		case "peers":
-			return <PeersRow peers={row.peers} repo={row.repo} worktree={row.worktree} />;
+			return <PeersRow peers={row.peers} repo={row.repo} shared={row.shared} worktree={row.worktree} />;
 		case "recall":
 			return <RecallRow titles={row.titles} />;
 	}

@@ -190,6 +190,8 @@ export type ScopedPeer = CheckoutPeer & { scope: "worktree" | "repo" };
 export interface PeersSummary {
 	worktree: number;
 	repo: number;
+	/** Distinct files that this session and a same-worktree peer both changed. */
+	shared: number;
 	peers: ScopedPeer[];
 }
 
@@ -199,6 +201,7 @@ export function summarizePeers(peers: CheckoutPeers | null): PeersSummary | null
 	return {
 		worktree: peers.worktree.length,
 		repo: peers.repo.length,
+		shared: new Set(peers.worktree.flatMap(peer => peer.shared ?? [])).size,
 		peers: [
 			...peers.worktree.map(peer => ({ ...peer, scope: "worktree" as const })),
 			...peers.repo.map(peer => ({ ...peer, scope: "repo" as const })),

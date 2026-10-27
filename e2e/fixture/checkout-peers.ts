@@ -1,10 +1,10 @@
 /**
  * The fake omp's side of sessions sharing a checkout (bridge resources/gui-bridge/modes/checkout-peers.ts): it keeps
- * what main pushes (`checkout_peers_set`), answers `checkout_touched`, and plays an agent's turn from a
+ * what main pushes (`checkout_peers_set`), answers `checkout_status` (files and the task set by a `{task}` step), and plays an agent's turn from a
  * `fixture checkout:<json steps>` prompt through the bridge's own guard (`checkoutRefusal`) as stock's `tool_call`
  * hook would: a refused bash call gets the refusal as its result and runs nothing; a write records the file as this
- * session's. Steps: `{wait: "peers"}` (until main has told it of another session, ≤ 15 s), `{write: path, content}`,
- * `{bash: command}`.
+ * session's. Steps: `{wait: "peers"}` (until main has told it of another session, ≤ 15 s), `{wait: "files"}` (until a same-worktree peer lists a changed file), `{write: path, content}`,
+ * `{bash: command}`, `{task: text}` (the in-progress todo item peers hear of), `{edit: path, append}` (an edit-tool edit: it appends a line, and the bridge's `overlapNotice` text, when it says something, goes to the final answer).
  */
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
@@ -13,6 +13,7 @@ import { normalizePath } from "../../resources/gui-bridge/modes/autopilot-guard-
 import {
 	CheckoutPeersState,
 	checkoutRefusal,
+	overlapNotice,
 	rememberFiles,
 	shellWrites,
 	writeRefusal,
@@ -20,7 +21,12 @@ import {
 import type { AgentMessage } from "../../src/shared/rpc-types";
 
 type Params = Record<string, unknown>;
-type Step = { wait: "peers" } | { write: string; content?: string } | { bash: string };
+type Step =
+	| { wait: "peers" | "files" }
+	| { write: string; content?: string }
+	| { bash: string }
+	| { task: string }
+	| { edit: string; append: string };
 
 interface Host {
 	write(frame: object): void;
@@ -32,6 +38,8 @@ interface Host {
 export function createCheckoutFake(host: Host) {
 	const state = new CheckoutPeersState();
 	let ownFiles: string[] = [];
+	let task: string | undefined;
+	let told = new Set<string>();
 	const cwd = process.cwd();
 
 	const bridgeMethods: Record<string, (params: Params) => unknown> = {
@@ -39,7 +47,7 @@ export function createCheckoutFake(host: Host) {
 			state.set(params);
 			return { ok: true };
 		},
-		checkout_touched: () => ({ files: ownFiles }),
+		checkout_status: () => ({ files: ownFiles, ...(task ? { task } : {}) }),
 		"checkout_peers.get": () => ({ peers: state.peers ?? null }),
 	};
 
@@ -102,17 +110,37 @@ export function createCheckoutFake(host: Host) {
 		return { text: `Wrote ${path}`, isError: false };
 	}
 
+	function editFile(path: string, append: string, notices: string[]): { text: string; isError: boolean } {
+		const file = normalizePath(nodePath.resolve(cwd, path), "/");
+		if (state.peers) {
+			const overlap = overlapNotice([file], state.peers, told);
+			told = overlap.told;
+			if (overlap.text) notices.push(overlap.text);
+		}
+		fs.appendFileSync(file, append);
+		ownFiles = rememberFiles(ownFiles, [file], 40);
+		return { text: `Edited ${path}`, isError: false };
+	}
+
 	async function run(user: AgentMessage, steps: Step[]): Promise<void> {
 		const turn: AgentMessage[] = [user];
 		const refused: string[] = [];
+		const notices: string[] = [];
 		for (const [index, step] of steps.entries()) {
 			if ("wait" in step) {
 				const until = Date.now() + 15_000;
-				while (!state.peers && Date.now() < until) {
+				while (
+					!(step.wait === "files" ? state.peers?.worktree.some(peer => peer.files?.length) : state.peers) &&
+					Date.now() < until
+				) {
 					const { promise, resolve } = Promise.withResolvers<void>();
 					setTimeout(resolve, 100);
 					await promise;
 				}
+			} else if ("task" in step) {
+				task = step.task;
+			} else if ("edit" in step) {
+				call(turn, index, "edit", { path: step.edit }, () => editFile(step.edit, step.append, notices));
 			} else if ("write" in step) {
 				const content = step.content ?? "";
 				call(turn, index, "write", { path: step.write, content }, () => {
@@ -129,7 +157,7 @@ export function createCheckoutFake(host: Host) {
 		}
 		const answer = {
 			role: "assistant",
-			content: [{ type: "text", text: ["Checkout steps finished", ...refused].join("\n") }],
+			content: [{ type: "text", text: ["Checkout steps finished", ...refused, ...notices].join("\n") }],
 			timestamp: Date.now(),
 			provider: host.model.provider,
 			model: host.model.id,

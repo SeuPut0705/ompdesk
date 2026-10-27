@@ -14,6 +14,7 @@ import { type GitInvocation, isInside, normalizePath, shellEffects } from "./aut
 import {
 	CHECKOUT_FILES_MAX,
 	CHECKOUT_PEERS_SET,
+	CHECKOUT_TASK_MAX,
 	type CheckoutPeer,
 	type CheckoutPeers,
 } from "./checkout-peers-contracts";
@@ -248,8 +249,9 @@ function peerLine(peer: CheckoutPeer, toplevel: string, files: boolean): string 
 					.map(file => relative(file, toplevel))
 					.join(", ")})`
 			: "";
+	const doing = files && peer.task ? ` (working on: ${peer.task})` : "";
 	const elsewhere = peer.worktree && peer.worktree !== toplevel ? ` in ${peer.worktree}` : "";
-	return `- ${name}${id}${where}${elsewhere}${changed}`;
+	return `- ${name}${id}${where}${elsewhere}${doing}${changed}`;
 }
 
 function askLine(peers: CheckoutPeer[], canMessage: boolean): string {
@@ -304,6 +306,65 @@ export function writeRefusal(
 	ownFiles: readonly string[],
 ): string | undefined {
 	return overwriteRefusal(paths, "with the write tool", peers, ownFiles);
+}
+
+/** A todo item as a peer shows it: one line, at most `CHECKOUT_TASK_MAX` characters; undefined when blank. */
+export function oneLineTask(text: string): string | undefined {
+	const line = text.replace(/\s+/g, " ").trim();
+	if (!line) return undefined;
+	return line.length > CHECKOUT_TASK_MAX ? `${line.slice(0, CHECKOUT_TASK_MAX - 1)}…` : line;
+}
+
+/**
+ * The content of the first `in_progress` task of a todo list (stock's phases), one line; undefined when none.
+ */
+export function currentTask(
+	phases: ReadonlyArray<{ tasks: ReadonlyArray<{ content: string; status: string }> }>,
+): string | undefined {
+	for (const phase of phases)
+		for (const task of phase.tasks) if (task.status === "in_progress") return oneLineTask(task.content);
+	return undefined;
+}
+
+/**
+ * The passive notice for a file-tool call (not `write`, which is refused) that changes a file a same-worktree peer
+ * changed too, or undefined text. `told` holds the (file, peer) pairs already noticed; the returned `told` adds this
+ * notice's, so each pair is said once.
+ */
+export function overlapNotice(
+	paths: readonly string[],
+	peers: CheckoutPeers,
+	told: ReadonlySet<string>,
+): { text: string | undefined; told: Set<string> } {
+	const next = new Set(told);
+	const lines: string[] = [];
+	const reach: string[] = [];
+	for (const peer of peers.worktree) {
+		const key = peer.id ?? (peer.device ? `device:${peer.device}` : "hidden");
+		const files = paths.filter(
+			path => peer.files?.some(file => isInside(file, path) && isInside(path, file)) && !next.has(`${path}\0${key}`),
+		);
+		if (files.length === 0) continue;
+		for (const file of files) next.add(`${file}\0${key}`);
+		lines.push(
+			`- ${peerLine({ ...peer, files: undefined }, peers.toplevel, true).slice(2)} also changed: ${files.map(file => relative(file, peers.toplevel)).join(", ")}`,
+		);
+		if (peer.id && peers.canMessage) reach.push(peer.id);
+	}
+	if (lines.length === 0) return { text: undefined, told: next };
+	const action = reach.length
+		? `Keep your change to your own lines. Before you commit this file, send ${reach.length === 1 ? "that session" : "each of them"} one ompdesk_report ${reach.map(id => `{"to": "${id}", "kind": "note", "text": …}`).join(" / ")}; use "kind": "question" instead when your change can break theirs.`
+		: "Keep your change to your own lines, and tell the user before you commit this file.";
+	return {
+		text: [
+			"<shared-checkout-overlap>",
+			"Another session changed a file you just edited:",
+			...lines,
+			action,
+			"</shared-checkout-overlap>",
+		].join("\n"),
+		told: next,
+	};
 }
 
 function overwriteRefusal(
@@ -423,6 +484,7 @@ function peerList(value: unknown): CheckoutPeer[] {
 	return value.flatMap(item => {
 		if (typeof item !== "object" || item === null) return [];
 		const peer = item as Record<string, unknown>;
+		const task = typeof peer.task === "string" ? oneLineTask(peer.task) : undefined;
 		return [
 			{
 				id: typeof peer.id === "string" ? peer.id : null,
@@ -430,6 +492,15 @@ function peerList(value: unknown): CheckoutPeer[] {
 				...(typeof peer.device === "string" ? { device: peer.device } : {}),
 				...(typeof peer.sessionPath === "string" ? { sessionPath: peer.sessionPath } : {}),
 				...(typeof peer.worktree === "string" ? { worktree: normalizePath(peer.worktree, "/") } : {}),
+				...(task ? { task } : {}),
+				...(Array.isArray(peer.shared)
+					? {
+							shared: peer.shared
+								.filter((file): file is string => typeof file === "string")
+								.slice(0, CHECKOUT_FILES_MAX)
+								.map(file => normalizePath(file, "/")),
+						}
+					: {}),
 				...(Array.isArray(peer.files)
 					? {
 							files: peer.files

@@ -4878,6 +4878,7 @@ export const en: Record<string, string> = {
 	"workBoard.session.peers.worktree": "{count} session{plural} in this checkout",
 	"workBoard.session.peers.repo": "{count} session{plural} in this repository",
 	"workBoard.session.peers.hidden": "a hidden session",
+	"workBoard.session.peers.shared": "· {count} shared file{plural}",
 	"workBoard.session.peers.both": "{count} session{plural} in this checkout, {repo} in this repository",
 	"workBoard.session.peers.otherWorktree": "other worktree",
 	"workBoard.session.recall.label": "Memory · {title}",

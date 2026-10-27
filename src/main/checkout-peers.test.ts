@@ -40,7 +40,13 @@ interface Fake extends CheckoutMember {
 	sent: CheckoutPeers[];
 }
 
-function member(key: string, cwd: string, files: string[] = [], over: Partial<CheckoutMember> = {}): Fake {
+function member(
+	key: string,
+	cwd: string,
+	files: string[] = [],
+	over: Partial<CheckoutMember> = {},
+	task?: string,
+): Fake {
 	const sent: CheckoutPeers[] = [];
 	return {
 		key,
@@ -51,7 +57,7 @@ function member(key: string, cwd: string, files: string[] = [], over: Partial<Ch
 		sessionPath: `/sessions/${key}.jsonl`,
 		sent,
 		request: async (method, params) => {
-			if (method === "checkout_touched") return { files };
+			if (method === "checkout_status") return { files, ...(task ? { task } : {}) };
 			sent.push(params as CheckoutPeers);
 			return { ok: true };
 		},
@@ -85,6 +91,22 @@ describe("checkout peers", () => {
 		expect(d.sent).toEqual([]);
 		expect(peers.peersOf("a")).toEqual(["b", "c"]);
 		expect(peers.peersOf("d")).toEqual([]);
+	});
+
+	it("gives each peer its task and a same-worktree peer the files both changed; a hidden session has no task", async () => {
+		const both = path.join(main, "src/both.ts");
+		const a = member("a", main, [both, path.join(main, "src/a.ts")], {}, "Fix the parser");
+		const b = member("b", main, [both, path.join(main, "src/b.ts")], {}, "Rename helper");
+		const s = member("s", main, [], {}, "Secret work");
+		const c = member("c", linked, [], {}, "Release notes");
+		await coordinator(() => [a, b, s, c], new Set(["/sessions/s.jsonl"])).refresh();
+		const seenByA = a.sent.at(-1);
+		expect(seenByA?.worktree[0]).toMatchObject({ id: "b", task: "Rename helper", shared: [both] });
+		expect(seenByA?.worktree[1]).toEqual({ id: null, title: "", files: [] });
+		expect(seenByA?.repo[0]).toMatchObject({ id: "c" });
+		expect(seenByA?.repo[0]?.shared).toBeUndefined();
+		expect(b.sent.at(-1)?.worktree[0]).toMatchObject({ id: "a", task: "Fix the parser", shared: [both] });
+		expect(c.sent.at(-1)?.repo[0]).toMatchObject({ id: "a", task: "Fix the parser" });
 	});
 
 	it("sends only a change, and tells a session left alone once", async () => {

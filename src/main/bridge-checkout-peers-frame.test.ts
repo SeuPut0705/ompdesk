@@ -46,6 +46,14 @@ describe("checkout_peers frame", () => {
 		expect(state.peers).toBeUndefined();
 	});
 
+	it("carries a peer's task and shared files in the frame, and tells the GUI when they change", () => {
+		const state = new CheckoutPeersState();
+		const busy = { ...company, files: ["/work/app/a.ts"], shared: ["/work/app/a.ts"], task: "Fix\nthe parser" };
+		expect(push(state, payload([busy]))).toHaveLength(1);
+		expect(state.peers?.worktree[0]).toMatchObject({ task: "Fix the parser", shared: ["/work/app/a.ts"] });
+		expect(push(state, payload([{ ...busy, task: "Write tests" }]))).toHaveLength(1);
+	});
+
 	it("tells nothing to a session that starts alone", () => {
 		expect(push(new CheckoutPeersState(), payload([]))).toEqual([]);
 	});

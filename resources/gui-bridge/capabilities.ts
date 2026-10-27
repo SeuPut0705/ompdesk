@@ -389,8 +389,13 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	},
 	/** modes/output-style.ts: the same public hook as the reply language. */
 	outputStyle: {},
-	/** modes/checkout-peers.ts: public hooks only (`before_agent_start`, `tool_call`). */
-	checkoutPeers: {},
+	/** modes/checkout-peers.ts: public hooks (`before_agent_start`, `tool_call`) and stock's todo reader for the session's current task. */
+	checkoutPeers: {
+		session: ["sessionManager.getBranch()"],
+		modules: {
+			[`${AGENT}/tools/todo`]: ["getLatestTodoPhasesFromEntries()"],
+		},
+	},
 	/** xdev-notice.ts: the public `context` hook and the context's `getSystemPrompt()` (checked at run time). */
 	xdevNotice: {},
 	/** modes/pstack.ts: the always-on pstack section reads the main session's plan mode and tool set. */

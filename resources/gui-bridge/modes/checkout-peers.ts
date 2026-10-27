@@ -4,12 +4,14 @@
  * (`checkout_peers_set`); this module then
  * - adds the `<shared-checkout>` section to every prompt (names and ids, so the agent can reach the others),
  * - refuses through stock's `tool_call` hook a git command that would take, overwrite or hide their work,
- * - remembers the files this session's agents wrote (file tools), which main reads (`checkout_touched`) to tell the
- *   others which files are this session's.
+ * - remembers the files this session's agents wrote (file tools), which main reads (`checkout_status`) to tell the
+ *   others which files are this session's, with the session's in-progress todo item,
+ * - says once, through `tool_call`'s `additionalContext`, that an edit-tool edit touches a file a peer changed too.
  * One module state per omp: the main agent and its subagents share the checkout, so they share the guard.
  */
 import * as fs from "node:fs";
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
+import * as todo from "@oh-my-pi/pi-coding-agent/tools/todo";
 import { guard } from "../health";
 import { registerPromptSection } from "../prompt-sections";
 import { fileToolPaths, normalizePath } from "./autopilot-guard-core";
@@ -19,13 +21,15 @@ import {
 	CHECKOUT_PEERS_GET,
 	CHECKOUT_PEERS_SECTION_ID,
 	CHECKOUT_PEERS_SET,
-	CHECKOUT_TOUCHED,
+	CHECKOUT_STATUS,
 } from "./checkout-peers-contracts";
 import {
 	CheckoutPeersState,
 	canonicalPath,
 	checkoutRefusal,
 	checkoutSection,
+	currentTask,
+	overlapNotice,
 	rememberFiles,
 	shellWrites,
 	writeRefusal,
@@ -36,6 +40,8 @@ const real = (path: string) => fs.realpathSync.native(path);
 
 const state = new CheckoutPeersState();
 let ownFiles: string[] = [];
+/** (file, peer) pairs the overlap notice already named. */
+let told = new Set<string>();
 
 /** Called once per extension instance (main and every subagent rebinding) by index.ts. */
 export function install(pi: ExtensionAPI): void {
@@ -49,8 +55,14 @@ export function install(pi: ExtensionAPI): void {
 			const reason = writeRefusal(written, peers, ownFiles);
 			if (reason) return { block: true, reason };
 		}
+		let notice: string | undefined;
+		if (peers && event.toolName !== "write" && event.toolName !== "bash" && written.length > 0) {
+			const overlap = overlapNotice(written, peers, told);
+			told = overlap.told;
+			notice = overlap.text;
+		}
 		if (written.length > 0) ownFiles = rememberFiles(ownFiles, written, CHECKOUT_FILES_MAX);
-		if (event.toolName !== "bash") return undefined;
+		if (event.toolName !== "bash") return notice ? { additionalContext: notice } : undefined;
 		const input = event.input as { command?: unknown; cwd?: unknown };
 		if (typeof input.command !== "string") return undefined;
 		const cwd = canonicalPath(normalizePath(typeof input.cwd === "string" ? input.cwd : ".", ctx.cwd), real);
@@ -63,13 +75,34 @@ export function install(pi: ExtensionAPI): void {
 	});
 }
 
+interface TaskSession {
+	sessionManager: { getBranch(): unknown[] };
+}
+
+/** The in-progress todo item of the session's branch; none when stock's reader is missing or throws. */
+function readTask(session: TaskSession): string | undefined {
+	const read = (todo as { getLatestTodoPhasesFromEntries?: (branch: unknown[]) => unknown })
+		.getLatestTodoPhasesFromEntries;
+	if (typeof read !== "function") return undefined;
+	try {
+		const phases = read(session.sessionManager.getBranch());
+		return Array.isArray(phases) ? currentTask(phases) : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 export const methods = guard("checkoutPeers", {
 	/** `CheckoutPeers` from main; both lists empty when the session works alone. Emits `checkout_peers` when it changes. */
 	[CHECKOUT_PEERS_SET]: async (params: unknown, env) => {
 		if (state.set(params)) env.emit({ type: CHECKOUT_PEERS_EVENT, peers: state.peers ?? null });
 		return { ok: true };
 	},
-	[CHECKOUT_TOUCHED]: async () => ({ files: ownFiles }),
+	/** `{}` → `{files, task?}`: the files this session changed, its in-progress todo item. */
+	[CHECKOUT_STATUS]: async (_params: unknown, env) => {
+		const task = readTask(env.session() as unknown as TaskSession);
+		return { files: ownFiles, ...(task ? { task } : {}) };
+	},
 	/** `{}` → `{peers}`: what the last `checkout_peers` frame carried. */
 	[CHECKOUT_PEERS_GET]: async () => ({ peers: state.peers ?? null }),
 });

@@ -12,6 +12,8 @@ import {
 	canonicalPath,
 	checkoutRefusal,
 	checkoutSection,
+	currentTask,
+	overlapNotice,
 	shellWrites,
 	writeRefusal,
 } from "../../resources/gui-bridge/modes/checkout-peers-core";
@@ -199,5 +201,70 @@ describe("shared-checkout prompt section", () => {
 		const text = checkoutSection({ ...sharing, canMessage: false }) ?? "";
 		expect(text).not.toContain("ompdesk_report");
 		expect(text).toContain("ask the user");
+	});
+});
+
+describe("peers' tasks", () => {
+	const mine = `${REPO}/src/b.ts`;
+	const busy: CheckoutPeers = {
+		...alone,
+		worktree: [peer({ files: [mine], shared: [mine], task: "Rename helper everywhere" })],
+	};
+
+	it("keeps the prompt section identical for payloads differing only in task, shared and files", () => {
+		const bare: CheckoutPeers = { ...alone, worktree: [peer()] };
+		expect(checkoutSection(busy)).toBe(checkoutSection(bare));
+		expect(checkoutSection(busy)).not.toContain("Rename helper everywhere");
+	});
+
+	it("names the task in a guard refusal and a write refusal", () => {
+		expect(checkoutRefusal("git add -A", REPO, busy, own)).toContain("(working on: Rename helper everywhere)");
+		expect(writeRefusal([mine], busy, own)).toContain("(working on: Rename helper everywhere)");
+	});
+
+	it("reads the first in-progress task as one trimmed line", () => {
+		expect(
+			currentTask([
+				{ tasks: [{ content: "a", status: "completed" }] },
+				{
+					tasks: [
+						{ content: "  Fix\n  the   parser ", status: "in_progress" },
+						{ content: "x", status: "in_progress" },
+					],
+				},
+			]),
+		).toBe("Fix the parser");
+		expect(currentTask([{ tasks: [{ content: "a", status: "pending" }] }])).toBeUndefined();
+		expect(currentTask([{ tasks: [{ content: "y".repeat(300), status: "in_progress" }] }])?.length).toBe(120);
+	});
+});
+
+describe("overlap notice", () => {
+	const mine = `${REPO}/src/b.ts`;
+	const peers: CheckoutPeers = { ...alone, worktree: [peer({ files: [mine], task: "Rename helper" })] };
+
+	it("names the peer, its task, the file and the action, once per file and peer", () => {
+		const first = overlapNotice([mine], peers, new Set());
+		expect(first.text).toContain("<shared-checkout-overlap>");
+		expect(first.text).toContain('"Rename helper" [tab-b]');
+		expect(first.text).toContain("working on: Rename helper");
+		expect(first.text).toContain("src/b.ts");
+		expect(first.text).toContain('"to": "tab-b", "kind": "note"');
+		expect(first.text).toContain('"kind": "question"');
+		const again = overlapNotice([mine], peers, first.told);
+		expect(again.text).toBeUndefined();
+	});
+
+	it("is silent for a file only one session changed, and for another worktree's peer", () => {
+		expect(overlapNotice([`${REPO}/src/a.ts`], peers, new Set()).text).toBeUndefined();
+		expect(
+			overlapNotice([mine], { ...alone, repo: [peer({ worktree: OTHER_WORKTREE })] }, new Set()).text,
+		).toBeUndefined();
+	});
+
+	it("sends a session without the control tools to the user", () => {
+		const text = overlapNotice([mine], { ...peers, canMessage: false }, new Set()).text ?? "";
+		expect(text).toContain("tell the user");
+		expect(text).not.toContain("ompdesk_report");
 	});
 });
