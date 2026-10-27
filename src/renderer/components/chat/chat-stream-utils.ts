@@ -4,6 +4,7 @@
  * ChatStream.tsx so the renderer keeps only its UI and state wiring.
  */
 
+import { elementScroll, type VirtualItem, type Virtualizer } from "@tanstack/react-virtual";
 import type { AgentMessage, MessageContent } from "../../../shared/rpc-types";
 import { resultDetails } from "../../lib/format";
 import { messageIdentity } from "../../lib/message-identity";
@@ -92,6 +93,74 @@ export function scrollTranscriptToTail(
 	viewport: { scrollHeight: number; clientHeight: number },
 ): void {
 	virtualizer.scrollToOffset(viewport.scrollHeight - viewport.clientHeight);
+}
+
+/** The last offset a transcript write aimed the view at, and that write's place in the sequence of writes. */
+interface TranscriptWrite {
+	seq: number;
+	to: number;
+}
+
+let writeSeq = 0;
+const lastWrites = new WeakMap<object, TranscriptWrite>();
+
+/**
+ * The transcript virtualizer's scroll writer: stock's, then its offset set to where the view now is. The virtualizer
+ * learns a written offset only from the next scroll event, and a row measured before it (same frame: the page of
+ * older history moving the view down by its height, a hold, a tail follow) was compensated from the old offset: on a
+ * phone's fling that is still near the page's top, and the compensation wrote the view back up by the whole page.
+ * Its own adjustments (`adjustments` set) already move the offset themselves; a smooth scroll arrives over frames.
+ * Every write is remembered (`readerMoved` tells the reader's scrolling from them).
+ */
+export function transcriptScrollTo<T extends Element>(
+	offset: number,
+	options: { adjustments?: number; behavior?: ScrollBehavior },
+	instance: Virtualizer<T, Element>,
+): void {
+	elementScroll(offset, options, instance);
+	lastWrites.set(instance, { seq: ++writeSeq, to: Math.max(0, offset + (options.adjustments ?? 0)) });
+	if (!options.adjustments && options.behavior !== "smooth") instance.scrollOffset = Math.max(0, offset);
+}
+
+/** Where a hold left the view: its offset then and the last write it had seen. */
+export interface ViewMark {
+	seq: number;
+	offset: number;
+}
+
+export function viewMark<T extends Element>(instance: Virtualizer<T, Element>): ViewMark {
+	return { seq: lastWrites.get(instance)?.seq ?? 0, offset: instance.scrollOffset ?? 0 };
+}
+
+/**
+ * The reader scrolled since `mark`: the view is neither where the hold left it nor where a write since put it. A hold
+ * that keeps a row in place (a page of older history, a row that changed under the reader) aims at where that row sat
+ * when it began, so past this point it would undo the reader's own scrolling: a phone's fling, which goes on after
+ * the finger lifts and so after the gesture that lets go of a hold, was pulled back every frame (296 px a step).
+ */
+export function readerMoved<T extends Element>(instance: Virtualizer<T, Element>, mark: ViewMark): boolean {
+	const write = lastWrites.get(instance);
+	const expected = write && write.seq > mark.seq ? write.to : mark.offset;
+	return Math.abs((instance.scrollOffset ?? 0) - expected) > 1;
+}
+
+/**
+ * Which measured rows the transcript compensates (the virtualizer's `shouldAdjustScrollPositionOnItemSizeChange`):
+ * stock's rule, a first measurement of a row that starts above the view and a new measurement of a row wholly above
+ * it, without stock's exception for a view moving up. That exception left a row above the view that measured again
+ * (it mounted again at another height, its card or picture settled) moving the reader's text by its change while
+ * they scrolled up: 431 px in one frame of a fling from the tail of a streaming reply. A row the view's top cuts
+ * through still grows below the fold untouched, as a streaming reply does.
+ */
+export function compensateRowsAbove<T extends Element>(
+	item: VirtualItem,
+	_delta: number,
+	instance: Virtualizer<T, Element>,
+): boolean {
+	const top = (instance.scrollOffset ?? 0) + instance.scrollAdjustments;
+	// The size it measured last, as stock reads it: the item's own `size` can still be the estimate.
+	const size = instance.itemSizeCache.get(item.key);
+	return size === undefined ? item.start < top : item.start + size <= top;
 }
 
 /**

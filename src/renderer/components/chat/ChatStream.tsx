@@ -47,6 +47,7 @@ import {
 	buildHistoryRows,
 	buildTranscriptRowKeys,
 	claimRowEntrances,
+	compensateRowsAbove,
 	conversationReadingRowIndex,
 	createRowEntranceState,
 	findConversationAnchorIndex,
@@ -60,10 +61,13 @@ import {
 	nextTranscriptIdentity,
 	progressiveRange,
 	type Row,
+	readerMoved,
 	replyMarkdownTail,
 	reuseTranscriptRows,
 	scrollTranscriptToTail,
 	shouldRePinTranscript,
+	transcriptScrollTo,
+	viewMark,
 } from "./chat-stream-utils";
 import { type ContentAnchor, contentAnchor } from "./content-anchor";
 import { ExecutionGroup } from "./ExecutionGroup";
@@ -453,6 +457,7 @@ function SessionTranscript() {
 		// layers it produced on large transcripts.
 		useFlushSync: false,
 		getScrollElement: () => parentRef.current,
+		scrollToFn: transcriptScrollTo,
 		// TanStack rounds border-box heights down below .5px; that leaves the
 		// final absolute row outside its canvas and creates phantom scroll overflow.
 		// A row mounting in a commit keeps the size the virtualizer already has: its
@@ -481,6 +486,7 @@ function SessionTranscript() {
 		rangeExtractor,
 		onChange: handleVirtualizerChange,
 	});
+	virtualizer.shouldAdjustScrollPositionOnItemSizeChange = compensateRowsAbove;
 	// The render that prepends a history page moves the scroll offset with the page
 	// before the range is read, so it lays out the rows the reader is looking at:
 	// against the stale offset it mounted the new page's first screenful and dropped
@@ -573,8 +579,15 @@ function SessionTranscript() {
 		gestureAnchorRef.current = null;
 		let frame = 0;
 		let settledFrames = 0;
+		// From here the held row only follows the layout: once the reader scrolls on (a fling goes on after the finger
+		// lifts), it is theirs.
+		let mark = viewMark(virtualizer);
 		const restore = () => {
 			if (prependAnchorRef.current !== anchor) return;
+			if (readerMoved(virtualizer, mark)) {
+				prependAnchorRef.current = null;
+				return;
+			}
 			let delta: number | undefined;
 			for (const row of element.querySelectorAll<HTMLElement>("[data-row-key]")) {
 				if (row.dataset.rowKey === held.key) {
@@ -587,6 +600,7 @@ function SessionTranscript() {
 				settledFrames = 0;
 				if (delta !== undefined) virtualizer.scrollToOffset(element.scrollTop + delta);
 			}
+			mark = viewMark(virtualizer);
 			if (settledFrames >= 2) prependAnchorRef.current = null;
 			else frame = requestAnimationFrame(restore);
 		};
@@ -597,7 +611,8 @@ function SessionTranscript() {
 	}, [rowKeys, isLoadingPage, virtualizer, totalSize]);
 	// A commit that changed rows on screen while the reader is away from the live edge holds the row they read
 	// (content-anchor.ts) until its rows are measured: the measurement microtask above keeps it in place within the
-	// frame, and this loop lets go once two frames pass with it where it was. A gesture lets go at once.
+	// frame, and this loop lets go once two frames pass with it where it was. A gesture lets go at once, and so does
+	// any scrolling of the reader's the loop sees (a fling after the finger lifted, a wheel turned toward the tail).
 	useLayoutEffect(() => {
 		const shown = shownRowsRef.current;
 		shownRowsRef.current = { rows, keys: rowKeys };
@@ -619,11 +634,12 @@ function SessionTranscript() {
 		contentAnchorRef.current = anchor;
 		cancelAnimationFrame(contentHoldFrameRef.current);
 		let settled = 0;
+		let mark = viewMark(virtualizer);
 		const hold = () => {
 			if (contentAnchorRef.current !== anchor) return;
 			const held = virtualizer.measurementsCache[anchor.index];
 			const target = held?.key === anchor.key ? held.start - anchor.offset : undefined;
-			if (target === undefined) {
+			if (target === undefined || readerMoved(virtualizer, mark)) {
 				contentAnchorRef.current = null;
 				return;
 			}
@@ -632,6 +648,7 @@ function SessionTranscript() {
 				settled = 0;
 				virtualizer.scrollToOffset(target);
 			}
+			mark = viewMark(virtualizer);
 			if (settled >= 2) contentAnchorRef.current = null;
 			else contentHoldFrameRef.current = requestAnimationFrame(hold);
 		};

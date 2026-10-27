@@ -95,7 +95,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // more (measured 3,340,312).
 // The agents' default browser (`sessions`/`prefs` API members, the relay-extension install action and the bridge
 // feature label; the Settings row itself is lazy): 301 bytes more (measured 3,340,613).
-const WEB_FIRST_SCREEN_JS_BYTES = 3_340_700;
+// The transcript's scroll writer that tells the virtualizer the offset it wrote and remembers it (`transcriptScrollTo`,
+// `readerMoved`, `compensateRowsAbove`), so a fling is never pulled back: 1,056 bytes more (measured 3,341,756).
+const WEB_FIRST_SCREEN_JS_BYTES = 3_341_800;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
