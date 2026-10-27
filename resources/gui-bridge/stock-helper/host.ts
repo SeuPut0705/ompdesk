@@ -13,7 +13,7 @@ import { createDispatcher, type HelperMethods } from "./dispatch";
 import { methods as images } from "./images";
 import { methods as models } from "./models";
 import { methods as search } from "./search";
-import { methods as sessions } from "./sessions";
+import { methods as sessions, UNQUEUED_METHODS } from "./sessions";
 import { disposeTerminals, methods as terminals } from "./terminals";
 import { methods as worktrees } from "./worktrees";
 
@@ -32,5 +32,9 @@ input.on("close", () => {
 });
 input.on(
 	"line",
-	createDispatcher(methods, line => process.stdout.write(`${line}\n`), terminalWorker),
+	createDispatcher(
+		methods,
+		line => process.stdout.write(`${line}\n`),
+		terminalWorker ? true : worker === "extensions" ? false : UNQUEUED_METHODS,
+	),
 );

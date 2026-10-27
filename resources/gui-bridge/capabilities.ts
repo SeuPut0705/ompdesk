@@ -76,6 +76,7 @@ export const FEATURES = {
 	backgroundChecks: "Long checks run as background jobs (prompt section)",
 	checkoutPeers: "Sessions sharing a checkout (prompt section and git guard)",
 	xdevNotice: "No xd:// device listed twice in a request (mount notice)",
+	contextHookIdle: "Model requests not copied while the message filters have nothing to drop (recap, mount notice)",
 	sessionDump: "Session dump archive saved as a file (/dump all, /dump anon)",
 	advisorStats: "Advisor spend and advisories (Run popover, Insights)",
 	todoReminder: "A refused todo call's reminder reaches its own turn, and the turn then reads finished",
@@ -89,6 +90,8 @@ export interface FeatureRequirement {
 	session?: readonly string[];
 	/** Members of omp's package index (`env.pi.pi`). */
 	pkg?: readonly string[];
+	/** Members of the bridge's own ExtensionAPI instance (`env.pi`). */
+	api?: readonly string[];
 	/** Module specifier → export paths. */
 	modules?: Readonly<Record<string, readonly string[]>>;
 	/** omp prompt templates under `src/prompts` (see modes/shared.ts `ompPrompt`). */
@@ -407,6 +410,14 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	},
 	/** xdev-notice.ts: the public `context` hook and the context's `getSystemPrompt()` (checked at run time). */
 	xdevNotice: {},
+	/**
+	 * context-hook.ts (the recap and mount-notice filters): stock's per-extension handler table behind `pi.on`, which
+	 * a filter leaves while its session holds nothing to drop. Read at run time; without it the filters stay on every
+	 * request (stock then copies the whole context before each one), so nothing else is refused.
+	 */
+	contextHookIdle: {
+		api: ["extension.handlers"],
+	},
 	/** modes/pstack.ts: the always-on pstack section reads the main session's plan mode and tool set. */
 	pstack: {
 		pkg: ["AgentRegistry.global()", "MAIN_AGENT_ID"],
@@ -1365,7 +1376,7 @@ export const COPY_SAFE: Readonly<Record<string, string>> = {
  * measured on Windows (omp 18.12.3, bun 1.4.3, warm cache): `config` and `tts/*` ~540 ms of omp's only thread, `sdk` and
  * `skillshare/*` another ~600 ms; with a cold transpiler cache the same loads took 4 to 6 s before omp's `ready`. The
  * startup `capabilities` probe leaves them unevaluated (`ProbeSources.unloaded`); `guard` still evaluates a feature's
- * modules on its first call. Each is in COPY_SAFE.
+ * modules on its first call, except the `PRESENCE_ONLY` ones. Each is in COPY_SAFE.
  */
 export const HEAVY_COPIES: Readonly<Record<string, string>> = {
 	[`${AGENT}/config`]: "extensions/agents.ts loads it on use",
@@ -1376,6 +1387,21 @@ export const HEAVY_COPIES: Readonly<Record<string, string>> = {
 	[`${AGENT}/tts/models`]: "voice.ts loads it on use",
 	[`${AGENT}/tts/tts-client`]: "voice.ts loads it on use",
 	[`${AGENT}/tts/wav`]: "voice.ts loads it on use",
+};
+
+/**
+ * HEAVY_COPIES no bridge module imports: the stock helper loads each from omp's package in its own process, and the
+ * bridge only names it in REQUIREMENTS. Every probe, `guard` included, checks only that its file is there and never
+ * evaluates it in omp: `providers`' first guarded call evaluated `sdk`, ~1.1 s of omp's only thread right after a
+ * tab's `ready` (measured on macOS, omp 18.13.1), while the window asks it at once, so every request of the tab,
+ * prompts included, waited behind it. Their exports are checked where they run (the helper refuses an omp without
+ * them, `stock-helper/accounts.ts`).
+ */
+export const PRESENCE_ONLY: Readonly<Record<string, true>> = {
+	[`${AGENT}/sdk`]: true,
+	[`${AGENT}/skillshare/client`]: true,
+	[`${AGENT}/skillshare/installer`]: true,
+	[`${AGENT}/skillshare/manifest`]: true,
 };
 
 /**
@@ -1399,6 +1425,8 @@ export interface ProbeSources {
 	session: unknown;
 	/** omp's package index (`env.pi.pi`). */
 	pkg: unknown;
+	/** The bridge's own ExtensionAPI instance (`env.pi`). */
+	api: unknown;
 	/** Imported module namespaces by specifier; an absent key means the import failed. */
 	modules: ReadonlyMap<string, unknown>;
 	hasPrompt(relative: string): boolean;
@@ -1408,14 +1436,17 @@ export interface ProbeSources {
 	copies?: ReadonlySet<string>;
 	/**
 	 * Specifiers a probe left unevaluated because their file is there and loading it is costly (`HEAVY_COPIES`): present
-	 * for this check, verified by the first guarded call that needs them.
+	 * for this check, verified by the first guarded call that needs them (`PRESENCE_ONLY` ones never are).
 	 */
 	unloaded?: ReadonlySet<string>;
 }
 
 const label = (owner: string, path: string) => `${owner}${path.endsWith("()") ? path.slice(0, -2) : path}`;
 
-/** Missing labels for one requirement: `AgentSession.x`, `pi.x`, `<specifier>#x`, `<specifier>`, `prompts/<file>`. */
+/**
+ * Missing labels for one requirement: `AgentSession.x`, `pi.x`, `ExtensionAPI.x`, `<specifier>#x`, `<specifier>`,
+ * `prompts/<file>`.
+ */
 export function missingFor(requirement: FeatureRequirement, sources: ProbeSources): string[] {
 	const missing: string[] = [];
 	const check = (present: boolean, name: string) => {
@@ -1427,6 +1458,7 @@ export function missingFor(requirement: FeatureRequirement, sources: ProbeSource
 		}
 	}
 	for (const path of requirement.pkg ?? []) check(hasPath(sources.pkg, path), label("pi.", path));
+	for (const path of requirement.api ?? []) check(hasPath(sources.api, path), label("ExtensionAPI.", path));
 	for (const [specifier, paths] of Object.entries(requirement.modules ?? {})) {
 		if (sources.copies?.has(specifier)) {
 			missing.push(`${specifier} (separate copy, not this omp's module)`);

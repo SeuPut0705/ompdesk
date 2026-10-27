@@ -743,6 +743,8 @@ app.whenReady().then(() => {
 			return outcome;
 		},
 		builtinReaPref: () => prefsStore().get(REA_PREF),
+		reaCacheDir: join(app.getPath("userData"), "rea"),
+		reaRuntimeFile: join(app.getPath("userData"), "rea-runtime.json"),
 		agentControlPref: () => prefsStore().get(AGENT_CONTROL_PREF),
 		pstackPref: () => prefsStore().get(PSTACK_PREF),
 		eccPref: () => prefsStore().get(ECC_PREF),

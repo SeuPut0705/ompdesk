@@ -96,12 +96,17 @@ function retirePanelViews(store: PrefsLike): void {
 	if (Object.keys(kept).length !== Object.keys(overrides).length) store.set("keymapOverrides", kept);
 }
 
+/**
+ * Runs on every launch, before the first window: it writes only what it changes. electron-store rewrites the whole
+ * prefs.json (atomic, fsync) on every `set` and `delete`, present key or not: deleting all 14 retired keys took
+ * ~74 ms on the user's 324 KB prefs.json, 6 ms when only present ones are deleted.
+ */
 export function migrateRetiredPrefs(store: PrefsLike): void {
 	for (const merge of MERGES) {
 		if (store.has(merge.into) && !merge.from.includes(merge.into)) continue;
 		const value = merge.value(merge.from.map(key => store.get(key)));
-		if (value !== undefined) store.set(merge.into, value);
+		if (value !== undefined && store.get(merge.into) !== value) store.set(merge.into, value);
 	}
-	for (const { key } of RETIRED_PREFS) store.delete(key);
+	for (const { key } of RETIRED_PREFS) if (store.has(key)) store.delete(key);
 	retirePanelViews(store);
 }

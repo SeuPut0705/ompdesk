@@ -13,6 +13,7 @@ import {
 	deriveUnavailable,
 	type FeatureId,
 	HEAVY_COPIES,
+	PRESENCE_ONLY,
 	parseHidden,
 	REQUIREMENTS,
 	separateCopies,
@@ -256,7 +257,8 @@ function importOnce(specifier: string): Promise<unknown> {
 /**
  * Features of `features` whose omp internals are missing. `evaluateHeavy: false` (the startup `capabilities` probe)
  * leaves each costly source copy unevaluated and checks only that its file exists, so no omp thread spends a second
- * transpiling omp's source tree before the first tab can answer; `guard` evaluates them on a feature's first call.
+ * transpiling omp's source tree before the first tab can answer; `guard` evaluates them on a feature's first call,
+ * except the `PRESENCE_ONLY` ones, which no probe ever evaluates.
  */
 export async function probe(
 	env: BridgeEnv,
@@ -269,7 +271,8 @@ export async function probe(
 	await Promise.all(
 		[...specifiers].map(async specifier => {
 			const target = TARGETS[specifier] ?? "";
-			if (!evaluateHeavy && HEAVY.has(specifier) && !imports.has(specifier) && target.startsWith("file:")) {
+			const skip = !evaluateHeavy || Object.hasOwn(PRESENCE_ONLY, specifier);
+			if (skip && HEAVY.has(specifier) && !imports.has(specifier) && target.startsWith("file:")) {
 				if (fs.existsSync(fileURLToPath(target))) unloaded.add(specifier);
 				return;
 			}
@@ -288,6 +291,7 @@ export async function probe(
 	return deriveUnavailable(features, {
 		session,
 		pkg: env.pi.pi,
+		api: env.pi,
 		modules,
 		hasPrompt: relative => fs.existsSync(ompPromptPath(relative)),
 		hidden: HIDDEN,

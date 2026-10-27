@@ -5,6 +5,7 @@
  * - `window-created`: the first window exists (its renderer starts loading).
  * - `setup-detected`: machine setup's first detection finished.
  * - `omp-resolved`: the first tab knows its omp (`details.ok`; on Windows `omp --version` runs through cmd.exe).
+ * - `omp-spawned`: the first tab's omp process was started (its spawn inputs, env and probes, are resolved).
  * - `bridge-connected`: the first tab's omp booted and its GUI bridge answered.
  * - `sidecar-ready`: the first tab's session takes commands (protocol negotiated, start gate passed).
  * - `omp-ready`: machine setup installed omp in this launch.
@@ -17,6 +18,7 @@ export const STARTUP_MARKS = [
 	"window-created",
 	"setup-detected",
 	"omp-resolved",
+	"omp-spawned",
 	"bridge-connected",
 	"sidecar-ready",
 	"omp-ready",

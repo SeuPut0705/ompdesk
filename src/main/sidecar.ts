@@ -89,6 +89,7 @@ const SESSION_OWNED_ENV = [
 	"OMP_GUI_ACCOUNT_ROTATION_STATE",
 	OMPDESK_ROLES_ENV,
 	"OMP_GUI_REA_ROOT",
+	"OMP_GUI_REA_CACHE",
 	"OMP_GUI_PSTACK",
 	"OMP_GUI_ECC",
 	MEMORY_ENV,
@@ -733,6 +734,7 @@ export class SidecarManager extends EventEmitter {
 
 		this.#child = child;
 		this.#bridgeAddress = bridgeAddress;
+		this.emit("spawned");
 		const bridge = new GuiBridgeClient(bridgeAddress ?? "");
 		bridge.onEvent(event => this.#routeFrame(event));
 		this.#bridge = bridge;

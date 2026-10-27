@@ -275,6 +275,11 @@ async function withLastActivity(rows: StockSessionInfo[]): Promise<StockSessionI
 	return rows;
 }
 
+/** Read-only probes the stock worker answers at once, beside its serial queue (`createDispatcher`): a restored tab's
+ * omp spawns only after `sessions.owned` answers, and queued behind launch's session-list scan it waited ~0.3–0.5 s
+ * for the scan, not the lease. The probe takes the lease for an instant and touches no journal. */
+export const UNQUEUED_METHODS: Readonly<Record<string, true>> = { "sessions.owned": true };
+
 export const methods: Record<string, (params: unknown) => Promise<unknown>> = {
 	"sessions.list": async params => {
 		const { sessionsRoot } = paths(params);

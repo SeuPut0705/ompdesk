@@ -4,15 +4,17 @@
  * gave up on (a timeout). The stock worker runs its requests on one serial queue, because a session move or
  * delete must not interleave with a scan; a withdrawn request that has not started is skipped, so a mutation
  * never runs after its caller was told it failed, and answered `{id, error: "withdrawn"}` in its turn, so main
- * can tell a lane that moves from a hung one. The terminals worker is `concurrent`: a keystroke never waits
- * behind another terminal request, and a cancel there has nothing queued to withdraw.
+ * can tell a lane that moves from a hung one. The terminals worker is `concurrent` (`true`): a keystroke never waits
+ * behind another terminal request, and a cancel there has nothing queued to withdraw. A table of method names runs
+ * only those at once, beside the stock worker's queue: a read-only probe a tab's start waits on (`sessions.owned`)
+ * otherwise waited for a whole session-list scan queued before it at launch.
  */
 export type HelperMethods = Record<string, (params: unknown) => unknown | Promise<unknown>>;
 
 export function createDispatcher(
 	methods: HelperMethods,
 	write: (line: string) => void,
-	concurrent: boolean,
+	concurrent: boolean | Readonly<Record<string, true>>,
 ): (line: string) => void {
 	// Ids waiting on the serial queue; a cancel only marks one of these, so nothing outlives its turn.
 	const queued = new Set<number>();
@@ -47,7 +49,7 @@ export function createDispatcher(
 			const params = "params" in request ? request.params : undefined;
 			const method = request.method;
 			const requestId = id as number;
-			if (concurrent) {
+			if (concurrent === true || (concurrent !== false && Object.hasOwn(concurrent, method))) {
 				void run(requestId, method, params);
 				return;
 			}

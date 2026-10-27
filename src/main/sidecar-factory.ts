@@ -23,7 +23,7 @@ import { deviceLanguageTag, replyLanguageName, resolveReplyLanguage } from "../s
 import { agentBrowserStatus, resolveEgoBrowser } from "./agent-browsers";
 import { bootModelSelector } from "./boot-model";
 import type { BridgeConnectResult, BridgeHealth } from "./bridge-health";
-import { builtinReaState } from "./builtin-mcp";
+import { builtinReaState, spawnReaState } from "./builtin-mcp";
 import { mainT, ompFailureText } from "./i18n";
 import { ompAvailability } from "./omp-availability";
 import { systemOmp } from "./omp-runtime";
@@ -41,6 +41,10 @@ export interface LocalSidecarDeps {
 	/** OMPdesk's own extension root (`resources/omp-builtin`): the control tools' skill; REA is its `rea/` sub-root. */
 	builtinDir: string;
 	builtinReaPref: () => unknown;
+	/** Where REA's relay keeps the startup answers that let it start REA at first use (`OMP_GUI_REA_CACHE`). */
+	reaCacheDir?: string;
+	/** Where the last launch's REA runtime answer is kept (`spawnReaState`), so a spawn need not wait for `node --version` and `npx --version`; absent = every launch's first spawn waits (tests). */
+	reaRuntimeFile?: string;
 	/** Settings › Tools & extensions › OMPdesk control tools (`agentControl`, default on), read per use; absent = off (the caller that answers the tools supplies it). */
 	agentControlPref?: () => unknown;
 	/** Settings › Agent behavior › pstack engineering mode (`pstack`, default on), read per spawn; absent = off (tests only). */
@@ -141,7 +145,14 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 				const reaRoot = join(deps.builtinDir, "rea");
 				// Off asks nothing: the probe runs node and npx (seconds on Windows) and is not cached while Node is missing.
 				const reaPref = deps.builtinReaPref();
-				const rea = reaEnabled(reaPref) ? reaExtensionArgs(reaRoot, await builtinReaState(reaPref)) : [];
+				const rea = reaEnabled(reaPref)
+					? reaExtensionArgs(
+							reaRoot,
+							await (deps.reaRuntimeFile
+								? spawnReaState(reaPref, deps.reaRuntimeFile)
+								: builtinReaState(reaPref)),
+						)
+					: [];
 				// The control tools' skill loads with them; the tools themselves follow the switch live (hostTools).
 				const own =
 					deps.agentControlPref && agentControlEnabled(deps.agentControlPref()) ? ["-e", deps.builtinDir] : [];
@@ -157,6 +168,7 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 						OMP_GUI_PSTACK: pstack.length && kind === "agent" ? "1" : "0",
 						OMP_GUI_ECC: ecc.length && kind === "agent" ? "1" : "0",
 						...(deps.memoryStateFile ? { [MEMORY_ENV]: deps.memoryStateFile } : {}),
+						...(rea.length && deps.reaCacheDir ? { OMP_GUI_REA_CACHE: deps.reaCacheDir } : {}),
 					},
 				};
 			},
@@ -230,6 +242,7 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 					sc.markUnhealthy(`Health check timed out: ${err instanceof Error ? err.message : String(err)}`);
 				});
 		});
+		sc.on("spawned", () => markStartup("omp-spawned"));
 		sc.on("bridge", (result: BridgeConnectResult) => {
 			markStartup("bridge-connected");
 			void bridgeHealth.observe(result);
