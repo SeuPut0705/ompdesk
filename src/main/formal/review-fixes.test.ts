@@ -10,7 +10,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 
 const SKILL =
 	process.env.FORMAL_SKILL_DIR ??
@@ -443,26 +443,35 @@ describe("M6: the install lock knows a dead holder, keeps a live one, and the le
 		const { withLock } = await lib("toolchain");
 		const cache = fs.mkdtempSync(path.join(temp, "lock-beat-"));
 		const order: string[] = [];
-		const holder = withLock(
-			cache,
-			"x",
-			async () => {
-				order.push("a-start");
-				await new Promise(r => setTimeout(r, 700));
-				order.push("a-end");
-			},
-			{ heartbeatMs: 40, staleMs: 250, pollMs: 20, log: () => {} },
-		);
-		await new Promise(r => setTimeout(r, 60));
-		const waiter = withLock(cache, "x", async () => void order.push("b"), {
-			heartbeatMs: 40,
-			staleMs: 250,
-			pollMs: 20,
-			log: () => {},
-		});
-		await Promise.all([holder, waiter]);
+		const options = { heartbeatMs: 40, staleMs: 250, pollMs: 20, log: () => {} };
+		// Fake clock: the heartbeat stamps the owner file with the fake time and the waiter measures idleness
+		// against it, so the case cannot lose the lock to a runner that stalls this process.
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+		try {
+			const { promise: done, resolve: finish } = Promise.withResolvers<void>();
+			const holder = withLock(
+				cache,
+				"x",
+				async () => {
+					order.push("a-start");
+					await done;
+					order.push("a-end");
+				},
+				options,
+			);
+			await vi.advanceTimersByTimeAsync(0);
+			const waiter = withLock(cache, "x", async () => void order.push("b"), options);
+			await vi.advanceTimersByTimeAsync(4 * options.staleMs);
+			expect(order).toEqual(["a-start"]);
+			finish();
+			await holder;
+			await vi.advanceTimersByTimeAsync(options.pollMs);
+			await waiter;
+		} finally {
+			vi.useRealTimers();
+		}
 		expect(order).toEqual(["a-start", "a-end", "b"]);
-	}, 20_000);
+	});
 
 	it("removes the .part and .tmp leftovers of dead pids, and keeps those of a live one", async () => {
 		const { withLock, cleanLeftovers } = await lib("toolchain");
