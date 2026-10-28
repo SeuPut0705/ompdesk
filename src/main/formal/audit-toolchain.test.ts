@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { ompPathEnv } from "../omp-runtime";
 
 const SKILL =
@@ -26,7 +26,7 @@ afterAll(() => {
 			// not a folder
 		}
 	}
-	fs.rmSync(temp, { recursive: true, force: true });
+	fs.rmSync(temp, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
 // biome-ignore lint/suspicious/noExplicitAny: the library is loaded from a path chosen at run time.
@@ -75,37 +75,35 @@ describe("lock takeover (finding 1)", () => {
 			"}, { log() {}, pollMs: 5 });",
 		].join("\n");
 
-	// POSIX only: on Windows a just-deleted lock folder stays delete-pending while 8 processes poll it every 5 ms, so
-	// the round's own cleanup hits EBUSY and the stress harness, not the lock, times out. The Windows rule (a mkdir
-	// refused as EPERM/EACCES during that window waits) is in `withLock`.
-	it.skipIf(process.platform === "win32")(
-		"lets exactly one of several waiters take over a dead holder's lock, in every round",
-		async () => {
-			const script = path.join(temp, "lock-child.ts");
-			fs.writeFileSync(script, CHILD(path.join(SKILL, "scripts/lib/toolchain.ts")));
-			const dead = deadPid();
-			const rounds = 12;
-			const procs = 8;
-			let overlaps = 0;
-			let entered = 0;
-			for (let round = 0; round < rounds; round++) {
-				const dir = fs.mkdtempSync(path.join(temp, "race-"));
-				const cache = path.join(dir, "cache");
-				fs.mkdirSync(cache);
-				plantLock(cache, "x", { pid: dead, host: os.hostname(), started: 1 });
-				const barrier = path.join(dir, "go");
-				const marker = path.join(dir, "inside");
-				const log = path.join(dir, "log.txt");
-				fs.writeFileSync(log, "");
-				const errors: string[] = [];
-				const children = Array.from({ length: procs }, (_, id) =>
-					spawn("bun", [script, cache, barrier, marker, log, String(id)], {
+	/** Rounds of `procs` processes racing to take over a dead holder's lock; every child is killed and awaited before its folder goes. */
+	async function race(procs: number, rounds: number): Promise<void> {
+		const script = path.join(temp, `lock-child-${procs}.ts`);
+		fs.writeFileSync(script, CHILD(path.join(SKILL, "scripts/lib/toolchain.ts")));
+		const dead = deadPid();
+		let overlaps = 0;
+		let entered = 0;
+		for (let round = 0; round < rounds; round++) {
+			const dir = fs.mkdtempSync(path.join(temp, "race-"));
+			const cache = path.join(dir, "cache");
+			fs.mkdirSync(cache);
+			plantLock(cache, "x", { pid: dead, host: os.hostname(), started: 1 });
+			const barrier = path.join(dir, "go");
+			const marker = path.join(dir, "inside");
+			const log = path.join(dir, "log.txt");
+			fs.writeFileSync(log, "");
+			const errors: string[] = [];
+			const children: ChildProcess[] = [];
+			const done: Promise<number | null>[] = [];
+			try {
+				for (let id = 0; id < procs; id++) {
+					const child = spawn("bun", [script, cache, barrier, marker, log, String(id)], {
 						stdio: ["ignore", "ignore", "pipe"],
 						cwd: dir,
-					}),
-				);
-				for (const child of children) child.stderr?.on("data", chunk => errors.push(String(chunk)));
-				const done = children.map(finished);
+					});
+					child.stderr?.on("data", chunk => errors.push(String(chunk)));
+					children.push(child);
+					done.push(finished(child));
+				}
 				fs.writeFileSync(barrier, "");
 				const codes = await Promise.all(done);
 				expect(errors.join(""), "stderr of the waiters").toBe("");
@@ -114,12 +112,93 @@ describe("lock takeover (finding 1)", () => {
 				overlaps += lines.filter(line => line.startsWith("overlap")).length;
 				entered += lines.filter(line => line.startsWith("entered")).length;
 				expect(fs.existsSync(path.join(cache, ".lock-x"))).toBe(false);
+			} finally {
+				for (const child of children) child.kill("SIGKILL");
+				await Promise.all(done);
+				fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 			}
-			expect(entered).toBe(rounds * procs);
-			expect(overlaps).toBe(0);
-		},
+		}
+		expect(entered).toBe(rounds * procs);
+		expect(overlaps).toBe(0);
+	}
+
+	it("lets two waiters take over a dead holder's lock one at a time, on every OS", () => race(2, 3), 60_000);
+
+	// POSIX only: with 8 processes polling every 5 ms, Windows keeps the just-deleted lock folder delete-pending for so
+	// long that the stress run is too slow to be a useful check. The Windows rule is covered by the EPERM cases below.
+	it.skipIf(process.platform === "win32")(
+		"lets exactly one of several waiters take over a dead holder's lock, in every round",
+		() => race(8, 12),
 		120_000,
 	);
+
+	describe("a lock folder that is delete-pending on Windows", () => {
+		const withPlatform = async (value: NodeJS.Platform, body: () => Promise<void>): Promise<void> => {
+			const real = Object.getOwnPropertyDescriptor(process, "platform") as PropertyDescriptor;
+			Object.defineProperty(process, "platform", { ...real, value });
+			try {
+				await body();
+			} finally {
+				Object.defineProperty(process, "platform", real);
+				vi.restoreAllMocks();
+			}
+		};
+		const refuseMkdir = (lock: string, code: string, times: number): { calls: () => number } => {
+			const realMkdir = fs.mkdirSync;
+			let refused = 0;
+			vi.spyOn(fs, "mkdirSync").mockImplementation(((target: fs.PathLike, ...rest: unknown[]) => {
+				if (String(target) === lock && refused < times) {
+					refused++;
+					throw Object.assign(new Error(`${code}: operation not permitted, mkdir '${lock}'`), { code });
+				}
+				return (realMkdir as (...args: unknown[]) => unknown)(target, ...rest);
+			}) as typeof fs.mkdirSync);
+			return { calls: () => refused };
+		};
+
+		it("waits while mkdir is refused as EPERM or EACCES, then takes the lock", async () => {
+			const { withLock } = await lib("toolchain");
+			for (const code of ["EPERM", "EACCES"]) {
+				const cache = fs.mkdtempSync(path.join(temp, "pending-"));
+				const lock = path.join(cache, ".lock-x");
+				await withPlatform("win32", async () => {
+					const refused = refuseMkdir(lock, code, 3);
+					const result = await withLock(cache, "x", async () => "worked", { log: quiet, pollMs: 1 });
+					expect(result).toBe("worked");
+					expect(refused.calls()).toBe(3);
+				});
+				expect(fs.existsSync(lock)).toBe(false);
+			}
+		});
+
+		it("is Unavailable when EPERM never ends", async () => {
+			const { withLock } = await lib("toolchain");
+			const { Unavailable } = await lib("proc");
+			const cache = fs.mkdtempSync(path.join(temp, "pending-forever-"));
+			const lock = path.join(cache, ".lock-x");
+			await withPlatform("win32", async () => {
+				const refused = refuseMkdir(lock, "EPERM", Number.POSITIVE_INFINITY);
+				await expect(withLock(cache, "x", async () => 1, { log: quiet, pollMs: 0 })).rejects.toBeInstanceOf(
+					Unavailable,
+				);
+				expect(refused.calls()).toBeGreaterThan(200);
+			});
+		});
+
+		it("does not wait for EPERM off Windows", async () => {
+			const { withLock } = await lib("toolchain");
+			const { Unavailable } = await lib("proc");
+			const cache = fs.mkdtempSync(path.join(temp, "pending-posix-"));
+			const lock = path.join(cache, ".lock-x");
+			await withPlatform("linux", async () => {
+				const refused = refuseMkdir(lock, "EPERM", 1);
+				await expect(withLock(cache, "x", async () => 1, { log: quiet, pollMs: 1 })).rejects.toBeInstanceOf(
+					Unavailable,
+				);
+				expect(refused.calls()).toBe(1);
+			});
+		});
+	});
 
 	it.skipIf(!posix)(
 		"releases a lock its process holds when SIGTERM stops it",
