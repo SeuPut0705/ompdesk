@@ -923,4 +923,49 @@ describe("Windows: git's warnings and line endings are not drift, and CRLF text 
 				.replace(/\\\* statechart.mjs.*\n/, "");
 		expect(body("Crlf")).toBe(body("Lf"));
 	});
+
+	it("drift says git is missing when git cannot start, not that the sync commit is unknown", async () => {
+		const { checkDrift } = await lib("drift");
+		const repo = fs.mkdtempSync(path.join(temp, "nogit-"));
+		const saved = process.env.PATH;
+		process.env.PATH = fs.mkdtempSync(path.join(temp, "empty-path-"));
+		try {
+			const drift = await checkDrift(repo, ["src/a.ts"], "0123456789abcdef0123456789abcdef01234567");
+			expect(drift.status).toBe("no-git");
+			expect(drift.message).toContain("git");
+		} finally {
+			process.env.PATH = saved;
+		}
+	});
+
+	it("a statechart output folder is replaced although Windows refuses a rename onto it with EPERM", async () => {
+		const { moved } = (await import(/* @vite-ignore */ path.join(SKILL, "scripts/statechart/lib.mjs"))) as {
+			moved: (from: string, to: string, ...missed: string[]) => boolean;
+		};
+		const dir = fs.mkdtempSync(path.join(temp, "moved-"));
+		const from = path.join(dir, "next");
+		const to = path.join(dir, "out");
+		fs.mkdirSync(from);
+		fs.mkdirSync(to);
+		fs.writeFileSync(path.join(to, "old.txt"), "old");
+		const real = fs.renameSync;
+		const eperm = (a: fs.PathLike, b: fs.PathLike): void => {
+			if (fs.existsSync(b))
+				throw Object.assign(new Error("EPERM: operation not permitted, rename"), { code: "EPERM" });
+			real(a, b);
+		};
+		fs.renameSync = eperm;
+		try {
+			expect(moved(from, to, "ENOTEMPTY", "EEXIST")).toBe(false);
+			fs.rmSync(to, { recursive: true });
+			expect(moved(from, to, "ENOTEMPTY", "EEXIST")).toBe(true);
+			// A real permission error on a free target still throws instead of looping.
+			fs.renameSync = () => {
+				throw Object.assign(new Error("EPERM"), { code: "EPERM" });
+			};
+			expect(() => moved(to, path.join(dir, "elsewhere"), "ENOTEMPTY", "EEXIST")).toThrow("EPERM");
+		} finally {
+			fs.renameSync = real;
+		}
+	});
 });
