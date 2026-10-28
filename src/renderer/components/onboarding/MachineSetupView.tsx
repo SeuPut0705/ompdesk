@@ -87,7 +87,9 @@ export function setupPhaseText(t: Translate, item: SetupItemState): string {
 		const version = item.presence?.kind === "present" ? item.presence.version : null;
 		return version ? t("machineSetup.phase.presentVersion", { version }) : t("machineSetup.phase.present");
 	}
-	if (item.phase === "running" && item.method === "omp-update") return t("machineSetup.phase.updating");
+	if (item.phase === "running" && (item.method === "omp-update" || item.method === "bun-upgrade")) {
+		return t("machineSetup.phase.updating");
+	}
 	if (item.phase === "running" && item.progress?.download) return t("machineSetup.phase.downloading");
 	return t(`machineSetup.phase.${item.phase}`);
 }

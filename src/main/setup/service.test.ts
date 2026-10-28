@@ -64,6 +64,12 @@ function harness(
 		spawnEnv?: NodeJS.ProcessEnv;
 		/** The version a successful install leaves behind (default 1.0.0). */
 		installedVersion?: string;
+		/** Per item, the version a successful install leaves behind (over `installedVersion`). */
+		installed?: Partial<Record<SetupItemId, string>>;
+		/** What a successful `<item> <method>` install leaves instead of a present item (`"omp omp-update"`). */
+		leaves?: Record<string, SetupPresence>;
+		/** The registry's manifest of an omp release (`ompRelease`); default: one naming no requirement. */
+		ompRelease?: SetupServiceDeps["ompRelease"];
 		/** Where detection finds omp (default /home/u/.bun/bin/omp). */
 		ompBin?: string;
 		/** A vendor CLI update's exit code (default 0), output, and whether it runs until a cancel. */
@@ -102,8 +108,11 @@ function harness(
 			setImmediate(() => {
 				child.stdout.write(`${options.output?.[item] ?? `installing ${item}`}\n`);
 				const code = options.exits?.[item] ?? 0;
-				if (code === 0 && !options.stillMissing?.includes(item))
-					machine.presence[item] = present(options.installedVersion);
+				if (code === 0 && !options.stillMissing?.includes(item)) {
+					machine.presence[item] =
+						options.leaves?.[`${item} ${spec.args[1]}`] ??
+						present(options.installed?.[item] ?? options.installedVersion);
+				}
 				setImmediate(() => child.close(code));
 			});
 		}
@@ -111,7 +120,10 @@ function harness(
 	});
 	const detect = async (): Promise<Detection> => ({
 		presence: { ...machine.presence },
-		bun: machine.presence.bun.kind === "present" ? "/home/u/.bun/bin/bun" : null,
+		bun:
+			machine.presence.bun.kind === "present" || machine.presence.bun.kind === "outdated"
+				? "/home/u/.bun/bin/bun"
+				: null,
 		omp:
 			machine.presence.omp.kind === "outdated" || machine.presence.omp.kind === "present"
 				? (options.ompBin ?? "/home/u/.bun/bin/omp")
@@ -144,6 +156,7 @@ function harness(
 			(async url => {
 				throw new Error(`no network in tests: ${url}`);
 			}),
+		ompRelease: options.ompRelease ?? (async () => null),
 		...(options.testDownload ? { testDownload: options.testDownload } : {}),
 		...(options.now ? { now: options.now } : {}),
 		...(options.beforeOptional ? { beforeOptional: options.beforeOptional } : {}),
@@ -697,6 +710,123 @@ describe("SetupService", () => {
 			const env = h.spawned[0]?.env ?? {};
 			expect(Object.keys(env).filter(key => key.toUpperCase() === "PATH")).toEqual(["PATH"]);
 			expect(env.PATH?.split(delimiter).slice(0, 3)).toEqual([ownDir, "/usr/local/bin", "/usr/bin"]);
+		});
+
+		it("upgrades a Bun older than the release's engines.bun before `omp update`, so stock never swaps in its compiled omp", async () => {
+			// 28 Oct 2026: omp 18.13.3 needs Bun >=1.4.4; this Mac's 1.4.2 made stock's verify fail and its launcher
+			// repair replace `~/.bun/bin/omp` with the standalone build the bridge cannot load into.
+			const views: { bun: string; version: string; first?: string }[] = [];
+			const h = harness(machine({ bun: present("1.4.2"), omp: present("18.12.6") }), {
+				installed: { bun: "1.4.4", omp: "18.13.3" },
+				spawnEnv: { PATH: "/usr/bin" },
+				ompRelease: async (bun, version, env) => {
+					views.push({ bun, version, first: env.PATH?.split(delimiter)[0] });
+					return { name: "@oh-my-pi/pi-coding-agent", version, engines: { bun: ">=1.4.4" } };
+				},
+			});
+			const hook = vi.fn(async () => {});
+			expect(await h.service.updateOmp("18.13.3", hook)).toEqual({ kind: "updated", version: "18.13.3" });
+			expect(h.spawned.map(entry => entry.spec.args)).toEqual([
+				["bun", "bun-upgrade"],
+				["omp", "omp-update"],
+			]);
+			// Asked in the update's own environment (the detected omp's folder first), of the bun that upgrades.
+			expect(views).toEqual([{ bun: "/home/u/.bun/bin/bun", version: "18.13.3", first: "/home/u/.bun/bin" }]);
+			expect(hook).toHaveBeenCalledTimes(1);
+			expect(h.service.state().items.find(item => item.id === "bun")?.presence).toMatchObject({
+				kind: "present",
+				version: "1.4.4",
+			});
+		});
+
+		it("runs no Bun upgrade when Bun already meets the release's engines.bun", async () => {
+			const h = harness(machine({ bun: present("1.4.4"), omp: present("18.12.6") }), {
+				installed: { omp: "18.13.3" },
+				ompRelease: async () => ({ engines: { bun: ">=1.4.4" } }),
+			});
+			expect(await h.service.updateOmp("18.13.3")).toEqual({ kind: "updated", version: "18.13.3" });
+			expect(h.spawned.map(entry => entry.spec.args)).toEqual([["omp", "omp-update"]]);
+		});
+
+		it("leaves omp alone when Bun cannot be upgraded far enough, or the release's requirements cannot be read", async () => {
+			const stuck = harness(machine({ bun: present("1.4.2"), omp: present("18.12.6") }), {
+				exits: { bun: 1 },
+				output: { bun: "error: bun was installed with Homebrew" },
+				ompRelease: async () => ({ engines: { bun: ">=1.4.4" } }),
+			});
+			const hook = vi.fn(async () => {});
+			expect(await stuck.service.updateOmp("18.13.3", hook)).toEqual({
+				kind: "failed",
+				failure: {
+					reason: "install",
+					detail:
+						"omp 18.13.3 needs Bun 1.4.4 or newer; `bun upgrade` did not get there — error: bun was installed with Homebrew",
+				},
+			});
+			expect(stuck.spawned.map(entry => entry.spec.args)).toEqual([["bun", "bun-upgrade"]]);
+			expect(hook).not.toHaveBeenCalled();
+			expect(stuck.service.state().items.find(item => item.id === "omp")?.presence).toMatchObject({
+				kind: "present",
+				version: "18.12.6",
+			});
+
+			const offline = harness(machine({ omp: present("18.12.6") }), {
+				ompRelease: async () => {
+					throw new Error("ConnectionRefused");
+				},
+			});
+			expect(await offline.service.updateOmp("18.13.3")).toEqual({
+				kind: "failed",
+				failure: { reason: "check", detail: "omp 18.13.3's requirements: ConnectionRefused" },
+			});
+			expect(offline.spawned).toEqual([]);
+		});
+
+		it("never installs a release published only as a standalone build", async () => {
+			const h = harness(machine({ omp: present("18.12.6") }), {
+				ompRelease: async () => ({ omp: { dist: "binary" } }),
+			});
+			expect(await h.service.updateOmp("19.0.0")).toMatchObject({ kind: "failed", failure: { reason: "install" } });
+			expect(h.spawned).toEqual([]);
+		});
+
+		it("puts the package back right away when the update left a compiled omp, without announcing omp ready", async () => {
+			const compiled: SetupPresence = {
+				kind: "broken",
+				detail: "a compiled omp, not the package OMPdesk runs",
+				path: "/home/u/.bun/bin/omp",
+			};
+			const h = harness(machine({ omp: present("18.12.6") }), {
+				installed: { omp: "18.13.3" },
+				leaves: { "omp omp-update": compiled },
+			});
+			expect(await h.service.updateOmp("18.13.3")).toEqual({ kind: "updated", version: "18.13.3" });
+			expect(h.spawned.map(entry => entry.spec.args)).toEqual([
+				["omp", "omp-update"],
+				["omp", "bun-global"],
+			]);
+			expect(h.onOmpReady).not.toHaveBeenCalled();
+			expect(h.service.state()).toMatchObject({ ompReady: true, requiredRunning: false });
+		});
+
+		it("calls an omp the repair could not bring back unusable, with what is wrong with it", async () => {
+			const compiled: SetupPresence = {
+				kind: "broken",
+				detail: "a compiled omp, not the package OMPdesk runs",
+				path: "/home/u/.bun/bin/omp",
+			};
+			// The reinstall leaves the compiled omp too.
+			const h = harness(machine({ omp: present("18.12.6") }), {
+				leaves: { "omp omp-update": compiled, "omp bun-global": compiled },
+			});
+			expect(await h.service.updateOmp("18.13.3")).toEqual({
+				kind: "failed",
+				failure: { reason: "unusable", detail: "installing omp — a compiled omp, not the package OMPdesk runs" },
+			});
+			expect(h.spawned.map(entry => entry.spec.args)).toEqual([
+				["omp", "omp-update"],
+				["omp", "bun-global"],
+			]);
 		});
 	});
 

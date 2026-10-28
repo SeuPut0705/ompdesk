@@ -8,8 +8,9 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { REA_NODE_REQUIREMENT } from "../../shared/builtin-mcp";
 import type { GitShellProblem, SetupItemId, SetupPlatform, SetupPresence } from "../../shared/setup";
+import { isNewer } from "../../shared/version";
 import { builtinReaState, resetReaRuntimeCache } from "../builtin-mcp";
-import { parseOmpVersion, refreshSystemOmp, systemOmp } from "../omp-runtime";
+import { ompBunMinimum, ompPackageRoot, parseOmpVersion, refreshSystemOmp, systemOmp } from "../omp-runtime";
 import { writeRuntimeLog } from "../runtime-log";
 import { brewBinDirs, spawnPath } from "../shell-env";
 import { executableName, findOnPath, needsShell, spawnArgs, spawnCommand } from "../spawn";
@@ -58,13 +59,24 @@ async function versionOf(bin: string, env: NodeJS.ProcessEnv, platform: SetupPla
  */
 let launchResolutionUsed = false;
 
-async function detectOmp(): Promise<{ presence: SetupPresence; bin: string | null }> {
+/** omp as setup sees it, plus the Bun it needs: `bunMinimum` from the omp package on this machine, `bun` when omp's own resolution found the Bun it runs on too old. */
+interface OmpDetection {
+	presence: SetupPresence;
+	bin: string | null;
+	bunMinimum: string | null;
+	bun: { path: string; version: string } | null;
+}
+
+async function detectOmp(): Promise<OmpDetection> {
 	const resolution = await (launchResolutionUsed ? refreshSystemOmp() : systemOmp());
 	launchResolutionUsed = true;
 	if (resolution.ok) {
+		const bin = resolution.runtime.bin;
 		return {
-			presence: { kind: "present", version: resolution.runtime.version, path: resolution.runtime.bin },
-			bin: resolution.runtime.bin,
+			presence: { kind: "present", version: resolution.runtime.version, path: bin },
+			bin,
+			bunMinimum: ompBunMinimum(ompPackageRoot(bin)),
+			bun: null,
 		};
 	}
 	const reason = resolution.reason;
@@ -73,13 +85,50 @@ async function detectOmp(): Promise<{ presence: SetupPresence; bin: string | nul
 			return {
 				presence: { kind: "outdated", version: reason.version, minimum: reason.minimum, path: reason.bin },
 				bin: reason.bin,
+				bunMinimum: ompBunMinimum(ompPackageRoot(reason.bin)),
+				bun: null,
 			};
 		case "cannot-run":
-			return { presence: { kind: "broken", detail: reason.detail, path: reason.bin }, bin: null };
+			return {
+				presence: { kind: "broken", detail: reason.detail, path: reason.bin },
+				bin: null,
+				bunMinimum: ompBunMinimum(ompPackageRoot(reason.bin)),
+				bun: null,
+			};
+		// The package install replaces it (bun-global). The package stock left beside the launcher (its own launcher
+		// repair installs the package first) names the Bun the reinstall will need, so Bun is upgraded before it.
+		case "compiled":
+			return {
+				presence: { kind: "broken", detail: "a compiled omp, not the package OMPdesk runs", path: reason.bin },
+				bin: null,
+				bunMinimum: ompBunMinimum(ompPackageRoot(reason.bin)),
+				bun: null,
+			};
+		case "bun-too-old":
+			return {
+				presence: {
+					kind: "broken",
+					detail: `needs Bun ${reason.minimum} or newer, found ${reason.bunVersion}`,
+					path: reason.bin,
+				},
+				bin: null,
+				bunMinimum: reason.minimum,
+				bun: { path: reason.bun, version: reason.bunVersion },
+			};
 		default:
-			return { presence: { kind: "missing" }, bin: null };
+			return { presence: { kind: "missing" }, bin: null, bunMinimum: null, bun: null };
 	}
 }
+
+/**
+ * Bun as omp needs it: a Bun older than the `engines.bun` of the omp package here is `outdated`, so setup upgrades
+ * it (`bun upgrade`) before it reinstalls or runs omp. Without a minimum, or with no Bun found, `found` stands.
+ */
+export function bunForOmp(found: SetupPresence, minimum: string | null): SetupPresence {
+	if (!minimum || found.kind !== "present" || !found.version || !isNewer(minimum, found.version)) return found;
+	return { kind: "outdated", version: found.version, minimum, path: found.path };
+}
+
 /** The sh probe's outcome as a problem, or null when sh started its child. 0xC0000142 is Mandatory ASLR's signature. */
 export function gitShellProblem(result: { code: number | null; output: string }): GitShellProblem | null {
 	if (result.code === 0) return null;
@@ -205,7 +254,7 @@ export async function detectMachine(platform: SetupPlatform, bunInstall: string)
 		platform,
 		win ? [] : brewBinDirs().map(dir => join(dir, "gh")),
 	);
-	const [bunPresence, omp, git, ghPresence, node, tailscale] = await Promise.all([
+	const [foundBun, omp, git, ghPresence, node, tailscale] = await Promise.all([
 		bun ? versionOf(bun, env, platform) : Promise.resolve<SetupPresence>({ kind: "missing" }),
 		detectOmp(),
 		detectGit(platform, pathEnv, env),
@@ -213,9 +262,16 @@ export async function detectMachine(platform: SetupPlatform, bunInstall: string)
 		detectNode(),
 		detectTailscale(platform, pathEnv),
 	]);
+	// The Bun omp runs on, when omp's resolution found that one too old: the Bun `bun upgrade` must reach.
+	const bunPath = omp.bun?.path ?? bun;
+	const bunPresence = bunForOmp(
+		omp.bun ? { kind: "present", version: omp.bun.version, path: omp.bun.path } : foundBun,
+		omp.bunMinimum,
+	);
 	return {
 		presence: { bun: bunPresence, omp: omp.presence, git, gh: ghPresence, node, tailscale },
-		bun: bunPresence.kind === "present" ? bun : null,
+		// An outdated Bun still installs packages and upgrades itself.
+		bun: bunPresence.kind === "present" || bunPresence.kind === "outdated" ? bunPath : null,
 		omp: omp.bin,
 		brew,
 		winget,

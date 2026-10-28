@@ -63,8 +63,8 @@ const install = Bun.spawn([process.execPath, "install", "-g", "--no-cache", pkg.
 process.exit(await install.exited);
 `;
 
-const bunProbe = spawnSync("bun", ["-e", "console.log(process.execPath)"], { encoding: "utf8" });
-const bun = bunProbe.status === 0 ? bunProbe.stdout.trim() : null;
+const bunProbe = spawnSync("bun", ["-e", "console.log(process.execPath + '\\n' + Bun.version)"], { encoding: "utf8" });
+const [bun = null, bunVersion = "0.0.0"] = bunProbe.status === 0 ? bunProbe.stdout.trim().split(/\r?\n/) : [];
 
 /** Run to the end without blocking this process (the registry lives here). */
 function run(command: string, args: string[], env: NodeJS.ProcessEnv): Promise<{ code: number; output: string }> {
@@ -97,7 +97,9 @@ describe.skipIf(bun === null)("omp update with a real bun install -g", () => {
 	};
 	const [major = 0, minor = 0] = MIN_OMP_VERSION.split(".").map(Number);
 	const older = ompRelease(MIN_OMP_VERSION, CLI);
-	const newer = ompRelease(`${major}.${minor + 1}.0`, CLI);
+	// The release names the running Bun as its oldest (stock's `engines.bun`): OMPdesk reads it from the registry
+	// before `omp update` (real `bun pm view`) and finds nothing to upgrade.
+	const newer = ompRelease(`${major}.${minor + 1}.0`, CLI, {}, { bun: `>=${bunVersion}` });
 	let latest = older.version;
 	let registry: OmpRegistry | undefined;
 	let env: NodeJS.ProcessEnv;
@@ -147,7 +149,7 @@ describe.skipIf(bun === null)("omp update with a real bun install -g", () => {
 				? { kind: "present", version, path: ownOmp }
 				: { kind: "broken", detail: answer.output, path: ownOmp };
 		};
-		const present: SetupPresence = { kind: "present", version: "1.0.0", path: bun ?? "" };
+		const present: SetupPresence = { kind: "present", version: bunVersion, path: bun ?? "" };
 		const detect = async (): Promise<Detection> => ({
 			presence: {
 				bun: present,

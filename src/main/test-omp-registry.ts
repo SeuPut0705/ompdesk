@@ -13,6 +13,8 @@ import { OMP_PACKAGE } from "./setup/plans";
 
 export interface OmpRelease {
 	version: string;
+	/** `engines` of the release's manifest, in the tarball and the packument alike. */
+	engines?: Record<string, string>;
 	tarball: Buffer;
 	integrity: string;
 	shasum: string;
@@ -38,10 +40,22 @@ export function tarEntry(name: string, data: Buffer, mode: number): Buffer[] {
 
 /**
  * A release of the package with stock's bin layout (`bin: {omp: "dist/cli.js"}`): `cli` is the launcher's
- * source (a `#!/usr/bin/env bun` script), `files` any further package files (path → text).
+ * source (a `#!/usr/bin/env bun` script), `files` any further package files (path → text), `engines` its
+ * manifest's engines (stock names the oldest Bun it runs on there).
  */
-export function ompRelease(version: string, cli: string, files: Record<string, string> = {}): OmpRelease {
-	const manifest = JSON.stringify({ name: OMP_PACKAGE, version, bin: { omp: "dist/cli.js" }, files: ["dist", "src"] });
+export function ompRelease(
+	version: string,
+	cli: string,
+	files: Record<string, string> = {},
+	engines?: Record<string, string>,
+): OmpRelease {
+	const manifest = JSON.stringify({
+		name: OMP_PACKAGE,
+		version,
+		bin: { omp: "dist/cli.js" },
+		files: ["dist", "src"],
+		...(engines ? { engines } : {}),
+	});
 	const entries: [string, string, number][] = [
 		["package.json", manifest, 0o644],
 		["dist/cli.js", cli, 0o755],
@@ -51,6 +65,7 @@ export function ompRelease(version: string, cli: string, files: Record<string, s
 	const tarball = gzipSync(Buffer.concat([...blocks, Buffer.alloc(1024)]));
 	return {
 		version,
+		...(engines ? { engines } : {}),
 		tarball,
 		integrity: `sha512-${createHash("sha512").update(tarball).digest("base64")}`,
 		shasum: createHash("sha1").update(tarball).digest("hex"),
@@ -81,6 +96,7 @@ export async function ompRegistry(releases: OmpRelease[], latest: () => string):
 								name: OMP_PACKAGE,
 								version: entry.version,
 								bin: { omp: "dist/cli.js" },
+								...(entry.engines ? { engines: entry.engines } : {}),
 								dist: {
 									tarball: `${origin}/tarballs/${entry.version}.tgz`,
 									integrity: entry.integrity,

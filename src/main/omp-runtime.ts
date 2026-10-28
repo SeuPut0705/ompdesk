@@ -7,15 +7,31 @@
  * app inherits launchd's bare PATH — then the well-known install locations.
  * The npm/bun build of omp is a `#!/usr/bin/env bun` script, so every spawn
  * also gets the omp directory and `~/.bun/bin` on its PATH.
+ *
+ * Only an omp that runs from its package counts: the bridge (`omp -e`) imports
+ * `@oh-my-pi/*`, which a compiled omp (Bun's standalone build, what stock's
+ * installer, Homebrew, mise and stock's own launcher repair install) cannot
+ * resolve. A compiled omp earlier in the lookup is passed over; with none other
+ * the resolution fails `compiled` and machine setup reinstalls the package.
+ * The package's `engines.bun` gates the Bun that would run it the same way.
  */
-import { spawn } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { execFile, spawn } from "node:child_process";
+import { closeSync, existsSync, openSync, readFileSync, readSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { isNewer } from "../shared/version";
 import type { OmpRuntime } from "./local/types";
+import { bunInstallDir } from "./setup/paths";
 import { spawnPath } from "./shell-env";
-import { isExecutableFile, launcherNames, needsShell, spawnArgs, spawnCommand } from "./spawn";
+import {
+	executableName,
+	findOnPath,
+	isExecutableFile,
+	launcherNames,
+	needsShell,
+	spawnArgs,
+	spawnCommand,
+} from "./spawn";
 
 /**
  * Oldest omp whose RPC surface and bridge-extension internals this GUI is written
@@ -41,7 +57,11 @@ export type OmpFailure =
 	| { kind: "not-found" }
 	| { kind: "override-missing"; path: string }
 	| { kind: "cannot-run"; bin: string; detail: string }
-	| { kind: "too-old"; version: string; minimum: string; bin: string };
+	| { kind: "too-old"; version: string; minimum: string; bin: string }
+	/** Only a compiled omp (Bun's standalone build) was found; the bridge cannot load into it. */
+	| { kind: "compiled"; bin: string }
+	/** The package's `engines.bun` names a newer Bun than `bun` (the one that would run it), which omp refuses. */
+	| { kind: "bun-too-old"; bin: string; bun: string; bunVersion: string; minimum: string };
 
 export type OmpResolution = { ok: true; runtime: OmpRuntime } | { ok: false; error: string; reason?: OmpFailure };
 
@@ -71,12 +91,18 @@ export function parseUpdateCheck(output: string): OmpUpdateCheck | null {
 }
 
 /**
- * `basePath` plus the omp directory and `~/.bun/bin`, so the CLI's `env bun` shebang resolves, and any `extra` folder
- * a session's tools need that the login shell's PATH may lack (ego-browser's).
+ * `basePath` plus the omp directory and Bun's bin directory (`BUN_INSTALL` or `~/.bun`, the rule setup installs Bun
+ * by), so the CLI's `env bun` shebang resolves, and any `extra` folder a session's tools need that the login shell's
+ * PATH may lack (ego-browser's).
  */
-export function ompPathEnv(bin: string, basePath: string, extra: readonly string[] = []): string {
+export function ompPathEnv(
+	bin: string,
+	basePath: string,
+	extra: readonly string[] = [],
+	env: NodeJS.ProcessEnv = process.env,
+): string {
 	const entries = basePath.split(delimiter).filter(Boolean);
-	for (const dir of [dirname(bin), join(homedir(), ".bun", "bin"), ...extra]) {
+	for (const dir of [dirname(bin), join(bunInstallDir(env, homedir()), "bin"), ...extra]) {
 		if (!entries.includes(dir)) entries.push(dir);
 	}
 	return entries.join(delimiter);
@@ -135,6 +161,75 @@ export function ompCandidates(pathEnv: string, home: string, platform: NodeJS.Pl
 		candidates.push(join(home, ".bun", "bin", "omp"), "/opt/homebrew/bin/omp", "/usr/local/bin/omp");
 	}
 	return candidates;
+}
+
+/**
+ * Whether `file` is a compiled omp: Bun's standalone build (`bun build --compile`), which embeds omp's modules
+ * under `/$bunfs` where the bridge's `@oh-my-pi/*` imports cannot reach them. A bun or npm install launches omp
+ * through its `#!/usr/bin/env bun` script (a symlink to `dist/cli.js` on POSIX, an npm `.cmd`), so on POSIX any
+ * native executable is a compiled omp. On Windows bun's launcher is itself a PE (`bun_shim_impl.exe` beside
+ * `omp.bunx`), so there it is a PE carrying the `.bun` section a compiled Bun program keeps its module graph in.
+ */
+export function isCompiledOmp(file: string, platform: NodeJS.Platform = process.platform): boolean {
+	const head = Buffer.alloc(4096);
+	let read: number;
+	try {
+		const fd = openSync(file, "r");
+		try {
+			read = readSync(fd, head, 0, head.length, 0);
+		} finally {
+			closeSync(fd);
+		}
+	} catch {
+		return false;
+	}
+	if (read < 4) return false;
+	if (platform === "win32") {
+		if (head.toString("latin1", 0, 2) !== "MZ" || read < 0x40) return false;
+		const pe = head.readUInt32LE(0x3c);
+		if (pe + 24 > read || head.toString("latin1", pe, pe + 4) !== "PE\0\0") return false;
+		const sections = head.readUInt16LE(pe + 6);
+		const table = pe + 24 + head.readUInt16LE(pe + 20);
+		for (let index = 0; index < sections && table + (index + 1) * 40 <= read; index++) {
+			if (head.toString("latin1", table + index * 40, table + index * 40 + 8) === ".bun\0\0\0\0") return true;
+		}
+		return false;
+	}
+	if (head.toString("latin1", 0, 4) === "\x7fELF") return true;
+	return [0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe, 0xcafebabe].includes(head.readUInt32BE(0));
+}
+
+/** The first of `candidates` that runs from its package, and the first compiled one passed over on the way. */
+export function pickOmp(
+	candidates: readonly string[],
+	platform: NodeJS.Platform = process.platform,
+): { bin: string | null; compiled: string | null } {
+	let compiled: string | null = null;
+	for (const file of candidates) {
+		if (!isCompiledOmp(file, platform)) return { bin: file, compiled };
+		compiled ??= file;
+	}
+	return { bin: null, compiled };
+}
+
+/**
+ * The oldest Bun an omp package manifest names in `engines.bun` (stock publishes `>=X.Y.Z`, and its CLI exits
+ * on an older Bun: "Bun runtime must be >= X.Y.Z"); null without one or for another range form.
+ */
+export function manifestBunMinimum(manifest: unknown): string | null {
+	const engines = typeof manifest === "object" && manifest !== null ? Reflect.get(manifest, "engines") : null;
+	const range = typeof engines === "object" && engines !== null ? Reflect.get(engines, "bun") : null;
+	return typeof range === "string" ? (/^\s*>=\s*v?(\d+\.\d+\.\d+)\s*$/.exec(range)?.[1] ?? null) : null;
+}
+
+/** `manifestBunMinimum` of the omp package installed at `root`; null without one. */
+export function ompBunMinimum(root: string | null): string | null {
+	if (!root) return null;
+	try {
+		return manifestBunMinimum(JSON.parse(readFileSync(join(root, "package.json"), "utf8")));
+	} catch {
+		return null;
+	}
 }
 
 /**
@@ -230,12 +325,20 @@ function runOmp(
 export async function resolveOmp(): Promise<OmpResolution> {
 	const basePath = await spawnPath();
 	const override = process.env.OMP_GUI_OMP;
-	const bin = override
+	const candidates = override
 		? existsSync(override)
-			? override
-			: undefined
-		: ompCandidates(basePath, homedir(), process.platform).find(file => isExecutableFile(file, process.platform));
+			? [override]
+			: []
+		: ompCandidates(basePath, homedir(), process.platform).filter(file => isExecutableFile(file, process.platform));
+	const { bin, compiled } = pickOmp(candidates);
 	if (!bin) {
+		if (compiled) {
+			return {
+				ok: false,
+				error: `omp at ${compiled} is a compiled build, which OMPdesk cannot load its bridge into. ${INSTALL_HINT}`,
+				reason: { kind: "compiled", bin: compiled },
+			};
+		}
 		return override
 			? {
 					ok: false,
@@ -243,6 +346,25 @@ export async function resolveOmp(): Promise<OmpResolution> {
 					reason: { kind: "override-missing", path: override },
 				}
 			: { ok: false, error: `omp not found. ${INSTALL_HINT}`, reason: { kind: "not-found" } };
+	}
+	const bunMinimum = ompBunMinimum(ompPackageRoot(bin));
+	// The Bun omp's `env bun` shebang (or bun's Windows launcher) finds on the PATH omp is spawned with.
+	const bun = bunMinimum
+		? findOnPath([executableName("bun", process.platform)], ompPathEnv(bin, basePath), process.platform)
+		: null;
+	if (bunMinimum && bun) {
+		const { promise, resolve } = Promise.withResolvers<string | null>();
+		execFile(bun, ["--version"], { timeout: VERSION_TIMEOUT_MS, windowsHide: true }, (error, stdout) =>
+			resolve(error ? null : parseOmpVersion(stdout)),
+		);
+		const bunVersion = await promise;
+		if (bunVersion && isNewer(bunMinimum, bunVersion)) {
+			return {
+				ok: false,
+				error: `omp at ${bin} needs Bun ${bunMinimum} or newer, but ${bun} is ${bunVersion}. Run \`bun upgrade\`, then relaunch.`,
+				reason: { kind: "bun-too-old", bin, bun, bunVersion, minimum: bunMinimum },
+			};
+		}
 	}
 	let version = installedVersion(bin);
 	if (!version) {

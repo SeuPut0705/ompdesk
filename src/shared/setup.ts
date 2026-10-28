@@ -68,6 +68,8 @@ export type SetupPresence =
 /** How main installs an item on this machine. */
 export type SetupMethod =
 	| "bun-script"
+	/** `<bun> upgrade`: a Bun older than the omp package's `engines.bun` (bun renames its own running exe on Windows). */
+	| "bun-upgrade"
 	| "bun-global"
 	| "omp-update"
 	| "portable-git"

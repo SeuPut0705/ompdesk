@@ -65,6 +65,13 @@ describe("selectMethod", () => {
 		expect(selectMethod("omp", outdated, { ...mac, omp: "/home/u/.bun/bin/omp" })).toBe("omp-update");
 	});
 
+	it("upgrades a Bun older than omp's engines with `bun upgrade`, and installs it afresh without one", () => {
+		const tooOld: SetupPresence = { kind: "outdated", version: "1.4.2", minimum: "1.4.4", path: mac.bun };
+		expect(selectMethod("bun", tooOld, mac)).toBe("bun-upgrade");
+		expect(selectMethod("bun", tooOld, win)).toBe("bun-upgrade");
+		expect(selectMethod("bun", tooOld, { ...mac, bun: null })).toBe("bun-script");
+	});
+
 	it("installs Git through the Xcode tools on macOS and PortableGit on Windows, never winget", () => {
 		expect(selectMethod("git", missing, mac)).toBe("xcode-select");
 		expect(selectMethod("git", missing, win)).toBe("portable-git");
@@ -117,6 +124,15 @@ describe("buildPlan", () => {
 		});
 		expect(plan?.command).toBe(`"${win.bun}" install -g @oh-my-pi/pi-coding-agent`);
 		expect(buildPlan("omp", "bun-global", { ...mac, bun: null })).toBeNull();
+	});
+
+	it("upgrades Bun with the absolute bun path, which replaces itself even while it runs (Windows included)", () => {
+		expect(buildPlan("bun", "bun-upgrade", win)?.spawn).toEqual({ file: win.bun, args: ["upgrade"], shell: false });
+		expect(buildPlan("bun", "bun-upgrade", mac)?.command).toBe(`"${mac.bun}" upgrade`);
+		expect(buildPlan("bun", "bun-upgrade", { ...mac, bun: null })).toBeNull();
+		const tooOld: SetupPresence = { kind: "outdated", version: "1.4.2", minimum: "1.4.4", path: mac.bun };
+		expect(manualSteps("bun", tooOld, "darwin").commands).toEqual(["bun upgrade"]);
+		expect(manualSteps("bun", missing, "darwin").commands).toEqual(["curl -fsSL https://bun.sh/install | bash"]);
 	});
 
 	it("updates omp through its own bin, quoting a Windows .cmd shim for cmd.exe", () => {

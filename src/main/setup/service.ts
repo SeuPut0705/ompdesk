@@ -24,12 +24,13 @@ import {
 	type SetupItemId,
 	type SetupItemState,
 	type SetupPlatform,
+	type SetupPresence,
 	type SetupState,
 	setupItemAutomatic,
 	setupItemRequired,
 } from "../../shared/setup";
 import { isNewer } from "../../shared/version";
-import { ompUpdateEnv, parseUpdateCheck } from "../omp-runtime";
+import { manifestBunMinimum, ompUpdateEnv, parseUpdateCheck } from "../omp-runtime";
 import { writeRuntimeLog } from "../runtime-log";
 import { needsShell, spawnArgs, spawnCommand } from "../spawn";
 import { type FetchText, fetchText, resolveArchiveRelease, resolveTailscaleRelease } from "./archives";
@@ -52,6 +53,7 @@ import {
 	type ArchiveRelease,
 	buildPlan,
 	manualSteps,
+	OMP_PACKAGE,
 	type PlanContext,
 	type PlanDownload,
 	type SpawnSpec,
@@ -98,6 +100,12 @@ export interface SetupServiceDeps {
 	/** `OMP_GUI_TEST_DOWNLOAD(_SHA256)`: under the test installer, every plan first downloads this (e2e progress). */
 	testDownload?: { url: string; sha256: string } | null;
 	refreshPath?: (platform: SetupPlatform, toolsDir: string) => Promise<void>;
+	/**
+	 * The registry's manifest of omp `version` (default `bun pm view @oh-my-pi/pi-coding-agent@<version> --json` run
+	 * by `bun` in `env`, the update's own environment); rejects when the lookup fails. Under the test installer
+	 * without one, no release names a Bun requirement.
+	 */
+	ompRelease?: (bun: string, version: string, env: NodeJS.ProcessEnv) => Promise<unknown>;
 	now?: () => number;
 }
 
@@ -109,6 +117,11 @@ const UPDATE_DETAIL_LINES = 6;
 /** `omp update --check` asks the registry (or the build service) once; stock's own metadata timeout is shorter. */
 const UPDATE_CHECK_TIMEOUT_MS = 60_000;
 
+/** An item's presence as it is now, not as an earlier check narrowed it. */
+function presenceOf(item: SetupItemState): SetupPresence | null {
+	return item.presence;
+}
+
 const CSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;?]*[ -/]*[@-~]`, "g");
 
 /** The last lines of an installer's output without color codes: why `omp update` did not update. */
@@ -119,6 +132,28 @@ function updateDetail(output: string): string | undefined {
 		.map(line => line.trim())
 		.filter(Boolean);
 	return lines.slice(-UPDATE_DETAIL_LINES).join("\n") || undefined;
+}
+
+/** `bun pm view <omp>@<version> --json`: the published manifest (engines, stock's `omp.dist`) from the registry `bun install -g` uses. */
+function viewOmpRelease(bun: string, version: string, env: NodeJS.ProcessEnv): Promise<unknown> {
+	const { promise, resolve, reject } = Promise.withResolvers<unknown>();
+	execFile(
+		bun,
+		["pm", "view", `${OMP_PACKAGE}@${version}`, "--json"],
+		{ env, timeout: UPDATE_CHECK_TIMEOUT_MS, windowsHide: true, maxBuffer: 16 * 1024 * 1024 },
+		(error, stdout, stderr) => {
+			if (error) {
+				reject(new Error(updateDetail(stderr || stdout) ?? error.message));
+				return;
+			}
+			try {
+				resolve(JSON.parse(stdout));
+			} catch {
+				reject(new Error(`bun pm view printed no manifest for ${OMP_PACKAGE}@${version}`));
+			}
+		},
+	);
+	return promise;
 }
 
 /**
@@ -590,6 +625,8 @@ export class SetupService {
 		const plan = buildPlan("omp", "omp-update", this.#planContext(detection));
 		if (!plan || !detection.omp) return { kind: "skipped" };
 		const env = await this.#updateEnv(detection.omp);
+		const blocked = await this.#readyForRelease(target, env, detection.bun);
+		if (blocked) return { kind: "failed", failure: blocked };
 		await beforeInstall?.().catch(() => undefined);
 		item.method = "omp-update";
 		item.command = plan.command;
@@ -615,20 +652,79 @@ export class SetupService {
 		const reason = updateDetail(item.output);
 		const detail = (...parts: (string | undefined)[]) => parts.filter(Boolean).join(" — ") || undefined;
 		if (outcome.kind === "cancelled") return { kind: "failed", failure: { reason: "cancelled" } };
+		// Stock's update can leave an omp OMPdesk cannot run: its launcher repair puts the compiled omp in place of the
+		// package's launcher whenever the new launcher does not answer `--version` (a too-old Bun, a Windows file lock),
+		// or the package now needs a newer Bun. Setup puts the package back (Bun first when it is too old) before any tab
+		// restarts on it; `resume` then restarts them on the repaired omp.
+		if (item.presence?.kind !== "present") await this.#runRequired(true, false);
 		if (outcome.kind === "failed") {
 			const exit = outcome.exitCode === null ? undefined : `exit ${outcome.exitCode}`;
 			return { kind: "failed", failure: { reason: "install", detail: detail(exit, reason) } };
 		}
-		const presence = item.presence;
-		if (presence?.kind !== "present")
-			return { kind: "failed", failure: { reason: "unusable", detail: detail(reason) } };
+		// Read again after the repair above may have changed it (TypeScript keeps an older narrowing across the await).
+		const presence = presenceOf(item);
+		if (presence?.kind !== "present") {
+			const broken = presence?.kind === "broken" ? presence.detail : undefined;
+			return { kind: "failed", failure: { reason: "unusable", detail: detail(reason, broken) } };
+		}
 		if (presence.version && !isNewer(target, presence.version)) {
 			return { kind: "updated", version: presence.version };
 		}
 		return { kind: "failed", failure: { reason: "not-updated", detail: detail(reason) } };
 	}
 
-	async #runRequired(manual: boolean): Promise<void> {
+	/**
+	 * What must hold before stock `omp update` installs `target`, or why it must not run. Stock installs the
+	 * release and then runs its launcher to verify it; a launcher that does not answer is "repaired" with the
+	 * compiled omp, which the bridge cannot load into (28 Oct 2026: omp 18.13.3 names `engines.bun` >=1.4.4,
+	 * this Mac's Bun was 1.4.2, and `~/.bun/bin/omp` became a 217 MB binary; every bridge feature then read
+	 * "Unavailable"). So the release's manifest is read from the registry the update installs from, a Bun
+	 * below its `engines.bun` is upgraded first (the bun item's `bun upgrade`), and a release published as a
+	 * standalone build only (`omp.dist` "binary", which stock never installs as a package) is not installed.
+	 */
+	async #readyForRelease(
+		target: string,
+		env: NodeJS.ProcessEnv,
+		bun: string | null,
+	): Promise<OmpUpdateFailure | null> {
+		if (!bun) return null;
+		const view = this.#deps.ompRelease ?? (this.#deps.testInstaller ? async () => null : viewOmpRelease);
+		let manifest: unknown;
+		try {
+			manifest = await view(bun, target, env);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			return { reason: "check", detail: `omp ${target}'s requirements: ${message}` };
+		}
+		const omp = typeof manifest === "object" && manifest !== null ? Reflect.get(manifest, "omp") : null;
+		if (typeof omp === "object" && omp !== null && Reflect.get(omp, "dist") === "binary") {
+			return {
+				reason: "install",
+				detail: `omp ${target} ships only as a standalone build, which OMPdesk cannot run`,
+			};
+		}
+		const minimum = manifestBunMinimum(manifest);
+		if (!minimum) return null;
+		const bunItem = this.#items.bun;
+		// Read again after the upgrade: its detection replaces the presence.
+		const meets = () =>
+			bunItem.presence?.kind === "present" &&
+			bunItem.presence.version !== null &&
+			!isNewer(minimum, bunItem.presence.version);
+		if (meets()) return null;
+		const version = bunItem.presence?.kind === "present" ? bunItem.presence.version : null;
+		bunItem.presence = { kind: "outdated", version: version ?? "unknown", minimum, path: bun };
+		await this.#ensure("bun", true, { step: 1, steps: 1 });
+		if (meets()) return null;
+		const failure = updateDetail(bunItem.output) ?? bunItem.failure?.detail;
+		return {
+			reason: "install",
+			detail: `omp ${target} needs Bun ${minimum} or newer; \`bun upgrade\` did not get there${failure ? ` — ${failure}` : ""}`,
+		};
+	}
+
+	/** `announce`: report omp becoming usable (`onOmpReady`); an omp update's repair leaves that to the updater's resume. */
+	async #runRequired(manual: boolean, announce = true): Promise<void> {
 		const wasReady = this.#items.omp.presence?.kind === "present";
 		const items = this.#requiredItems();
 		try {
@@ -638,7 +734,9 @@ export class SetupService {
 			for (const id of items) if (this.#items[id].phase === "queued") this.#items[id].phase = "idle";
 			this.#emit();
 		}
-		if (!wasReady && this.#items.omp.presence?.kind === "present" && !this.#disposed) this.#deps.onOmpReady();
+		if (announce && !wasReady && this.#items.omp.presence?.kind === "present" && !this.#disposed) {
+			this.#deps.onOmpReady();
+		}
 	}
 
 	/**

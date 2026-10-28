@@ -131,7 +131,7 @@ export function selectMethod(item: SetupItemId, presence: SetupPresence, ctx: Pl
 	const mac = ctx.platform === "darwin";
 	switch (item) {
 		case "bun":
-			return "bun-script";
+			return presence.kind === "outdated" && ctx.bun ? "bun-upgrade" : "bun-script";
 		case "omp":
 			return presence.kind === "outdated" && ctx.omp ? "omp-update" : "bun-global";
 		case "git":
@@ -328,6 +328,17 @@ export function buildPlan(
 						prompt: null,
 						download: null,
 					};
+		case "bun-upgrade":
+			if (!ctx.bun) return null;
+			return {
+				item,
+				method,
+				spawn: { file: ctx.bun, args: ["upgrade"], shell: false },
+				command: `"${ctx.bun}" upgrade`,
+				location: ctx.bun,
+				prompt: null,
+				download: null,
+			};
 		case "bun-global":
 			if (!ctx.bun) return null;
 			return {
@@ -497,7 +508,11 @@ export function manualSteps(
 		case "bun":
 			return {
 				commands: [
-					win ? 'powershell -c "irm bun.sh/install.ps1 | iex"' : "curl -fsSL https://bun.sh/install | bash",
+					presence?.kind === "outdated"
+						? "bun upgrade"
+						: win
+							? 'powershell -c "irm bun.sh/install.ps1 | iex"'
+							: "curl -fsSL https://bun.sh/install | bash",
 				],
 				url,
 			};

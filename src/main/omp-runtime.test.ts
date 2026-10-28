@@ -3,14 +3,17 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	isCompiledOmp,
 	MIN_OMP_VERSION,
 	ompBunDefaults,
+	ompBunMinimum,
 	ompCandidates,
 	ompPackageRoot,
 	ompPathEnv,
 	ompUpdateEnv,
 	parseOmpVersion,
 	parseUpdateCheck,
+	pickOmp,
 	resolveOmp,
 } from "./omp-runtime";
 import { RM_TEMP, writeFakeOmp } from "./test-fake-omp";
@@ -27,6 +30,29 @@ async function fakeOmp(versionLine: string): Promise<{ bin: string; dir: string 
 	const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-runtime-"));
 	const bin = await writeFakeOmp(dir, `console.log(${JSON.stringify(versionLine)});\n`);
 	return { bin, dir };
+}
+
+/** The first bytes of a Mach-O 64-bit executable (`MH_MAGIC_64`, little-endian on disk). */
+const MACHO = Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0x00, 0x00, 0x01]);
+
+/** A minimal PE: DOS stub, `PE\0\0`, a COFF header with no optional header and one section named `section`. */
+function peWithSection(section: string): Buffer {
+	const file = Buffer.alloc(0x100);
+	file.write("MZ", 0, "latin1");
+	file.writeUInt32LE(0x40, 0x3c);
+	file.write("PE\0\0", 0x40, "latin1");
+	file.writeUInt16LE(0x8664, 0x44);
+	file.writeUInt16LE(1, 0x46);
+	file.writeUInt16LE(0, 0x54);
+	file.write(section, 0x58, "latin1");
+	return file;
+}
+
+/** A `bun build --compile` omp for this platform: a Mach-O on macOS (ELF elsewhere), a PE with Bun's `.bun` section on Windows. */
+function compiledOmpBytes(): Buffer {
+	if (process.platform === "win32") return peWithSection(".bun");
+	if (process.platform === "darwin") return MACHO;
+	return Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01]);
 }
 
 describe("omp version parsing", () => {
@@ -133,6 +159,74 @@ describe("omp lookup", () => {
 			}
 		},
 	);
+
+	it("tells a compiled omp (Bun's standalone build) from the package's launcher", async () => {
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-compiled-"));
+		try {
+			const file = (name: string, bytes: Buffer | string) => {
+				const target = path.join(dir, name);
+				return fs.writeFile(target, bytes).then(() => target);
+			};
+			const script = await file("cli.js", "#!/usr/bin/env bun\nconsole.log('omp');\n");
+			const macho = await file("omp-macho", MACHO);
+			const elf = await file("omp-elf", Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01]));
+			const standalone = await file("omp.exe", peWithSection(".bun"));
+			// Bun's Windows launcher (`bun_shim_impl.exe`, beside `omp.bunx`) is a PE without the `.bun` section.
+			const shim = await file("shim.exe", peWithSection(".text"));
+			const npmShim = await file(
+				"omp.cmd",
+				'@"%dp0%\\node_modules\\@oh-my-pi\\pi-coding-agent\\dist\\cli.js" %*\r\n',
+			);
+
+			expect(isCompiledOmp(script, "darwin")).toBe(false);
+			expect(isCompiledOmp(macho, "darwin")).toBe(true);
+			expect(isCompiledOmp(elf, "linux")).toBe(true);
+			expect(isCompiledOmp(standalone, "win32")).toBe(true);
+			expect(isCompiledOmp(shim, "win32")).toBe(false);
+			expect(isCompiledOmp(npmShim, "win32")).toBe(false);
+			expect(isCompiledOmp(path.join(dir, "missing"), "darwin")).toBe(false);
+		} finally {
+			await fs.rm(dir, RM_TEMP);
+		}
+	});
+
+	it("runs the first omp that runs from its package, past a compiled one earlier in the lookup", async () => {
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-pick-"));
+		try {
+			const compiled = path.join(dir, "compiled-omp");
+			await fs.writeFile(compiled, compiledOmpBytes());
+			const script = path.join(dir, "script-omp");
+			await fs.writeFile(script, "#!/usr/bin/env bun\n");
+			expect(pickOmp([compiled, script])).toEqual({ bin: script, compiled });
+			expect(pickOmp([compiled])).toEqual({ bin: null, compiled });
+			expect(pickOmp([])).toEqual({ bin: null, compiled: null });
+		} finally {
+			await fs.rm(dir, RM_TEMP);
+		}
+	});
+
+	it("reads the oldest Bun an omp package runs on from its `engines.bun`", async () => {
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-engines-"));
+		try {
+			const manifest = (engines: unknown) =>
+				fs.writeFile(
+					path.join(dir, "package.json"),
+					JSON.stringify({ name: "@oh-my-pi/pi-coding-agent", engines }),
+				);
+			await manifest({ bun: ">=1.4.4" });
+			expect(ompBunMinimum(dir)).toBe("1.4.4");
+			await manifest({ bun: ">= v1.3.14" });
+			expect(ompBunMinimum(dir)).toBe("1.3.14");
+			// Only the `>=` form stock publishes is read; anything else names no minimum.
+			await manifest({ bun: "^1.4.0" });
+			expect(ompBunMinimum(dir)).toBeNull();
+			await manifest(undefined);
+			expect(ompBunMinimum(dir)).toBeNull();
+			expect(ompBunMinimum(null)).toBeNull();
+		} finally {
+			await fs.rm(dir, RM_TEMP);
+		}
+	});
 });
 
 describe("resolveOmp", () => {
@@ -186,6 +280,57 @@ describe("resolveOmp", () => {
 			const resolution = await resolveOmp();
 			if (!resolution.ok) throw new Error(resolution.error);
 			expect(resolution.runtime).toMatchObject({ bin, version: MIN_OMP_VERSION });
+		} finally {
+			await fs.rm(dir, RM_TEMP);
+		}
+	});
+
+	it("refuses a compiled omp: the bridge loads only into omp run from its package", async () => {
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-runtime-"));
+		try {
+			const bin = path.join(dir, process.platform === "win32" ? "omp.exe" : "omp");
+			await fs.writeFile(bin, compiledOmpBytes(), { mode: 0o755 });
+			process.env.OMP_GUI_OMP = bin;
+			const resolution = await resolveOmp();
+			expect(resolution).toMatchObject({
+				ok: false,
+				error: expect.stringContaining("bun install -g @oh-my-pi/pi-coding-agent"),
+				reason: { kind: "compiled", bin },
+			});
+		} finally {
+			await fs.rm(dir, RM_TEMP);
+		}
+	});
+
+	itWithFileSymlinks("refuses a package omp whose `engines.bun` the Bun that would run it does not meet", async () => {
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-runtime-"));
+		try {
+			const pkg = path.join(dir, "node_modules", "@oh-my-pi", "pi-coding-agent");
+			await fs.mkdir(path.join(pkg, "dist"), { recursive: true });
+			const manifest = (bun: string) =>
+				fs.writeFile(
+					path.join(pkg, "package.json"),
+					JSON.stringify({ name: "@oh-my-pi/pi-coding-agent", version: MIN_OMP_VERSION, engines: { bun } }),
+				);
+			await fs.writeFile(path.join(pkg, "dist", "cli.js"), "#!/usr/bin/env bun\n", { mode: 0o755 });
+			const bin = path.join(dir, "omp");
+			await fs.symlink(path.join(pkg, "dist", "cli.js"), bin);
+			process.env.OMP_GUI_OMP = bin;
+
+			await manifest(">=99.0.0");
+			const refused = await resolveOmp();
+			expect(refused).toMatchObject({
+				ok: false,
+				error: expect.stringContaining("bun upgrade"),
+				reason: { kind: "bun-too-old", bin, minimum: "99.0.0", bun: expect.any(String) },
+			});
+			if (refused.ok || refused.reason?.kind !== "bun-too-old") throw new Error("expected bun-too-old");
+			expect(refused.reason.bunVersion).toMatch(/^\d+\.\d+\.\d+/);
+
+			await manifest(">=1.0.0");
+			const accepted = await resolveOmp();
+			if (!accepted.ok) throw new Error(accepted.error);
+			expect(accepted.runtime).toMatchObject({ bin, version: MIN_OMP_VERSION });
 		} finally {
 			await fs.rm(dir, RM_TEMP);
 		}
