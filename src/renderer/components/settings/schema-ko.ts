@@ -173,6 +173,21 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description: "이어하기 목록의 현재 폴더에 같은 저장소의 다른 워크트리 세션도 넣을지 정해요",
 	},
 	"gc.autoCompress": { label: "GC 자동 압축" },
+	"display.advisorCollapsedLines": {
+		label: "접힌 조언 카드 줄 수",
+		description:
+			"접힌 조언 카드가 머리글 아래에 보여 주는 메모 줄 수의 최대값이에요(0이면 미리보기를 전부 보여요. 도구 출력 토글로 펼쳐요)",
+	},
+	"retry.rateLimitWalksChain": {
+		label: "사용량 제한 시 대체 모델로 넘어가기",
+		description:
+			"사용량 제한에 걸리면, 실패한 모델이 서명한 생각이 있는 턴이어도 retry.fallbackChains 순서대로 다음 모델로 넘어가요. 끄면(기본값) 그런 턴은 retry.maxRetries를 다 쓸 때까지 같은 모델로 다시 시도한 뒤에야 다음 모델로 넘어가요.",
+	},
+	"tools.xdevNotices": {
+		label: "xd:// 연결 알림",
+		description:
+			"MCP나 확장 도구가 연결되거나 해제될 때 `xd://: mounted …` 알림을 보여 줘요. 끄더라도 모델은 다음 프롬프트에서 바뀐 사실을 알게 돼요.",
+	},
 	// ── appearance ──────────────────────────────────────────────────────────
 	"theme.dark": { label: "다크 테마", description: "TUI와 GUI가 다크 모드일 때 사용할 테마 색상" },
 	"theme.light": { label: "라이트 테마", description: "TUI와 GUI가 라이트 모드일 때 사용할 테마 색상" },
