@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.82.0] - 2026-10-29
+
+에이전트가 처음부터 모든 권한을 갖고 사이드바·업데이트까지 직접 다루며, omp 업데이트가 설정 화면을 깨뜨리던 문제와 형식 검증 스킬의 잘못된 통과 판정을 고쳤어요.
+
+### 바뀐 것
+- **에이전트 권한이 기본으로 모두 켜져요.** OMPdesk 제어, 전체 제어, 다른 세션 관리와 대신 승인, 컴퓨터 사용이 설정 없이 켜져 있어요. 예전에 꺼 둔 설치도 이번 업데이트에서 한 번 켜지고, 그 뒤에 끄면 꺼진 채로 남아요. macOS 손쉬운 사용·화면 기록 허용 창은 첫 실행 때 한 번 떠요.
+- **에이전트가 할 수 있는 일이 늘었어요.** 사이드바 프로젝트 목록 보기·추가·제거·고정·순서 바꾸기·이름 바꾸기, 세션 고정과 보관, 업데이트 내려받기, macOS 개인정보 설정 화면 열기.
+
+### 고친 것
+- omp 업데이트가 bun 패키지 대신 단일 실행 파일을 깔아, 설정·모델·계정·사용량·계정 순환이 전부 "사용할 수 없음"이 되던 문제를 고쳤어요. 업데이트 전에 필요한 Bun 버전으로 먼저 올리고, 이미 그렇게 깨진 설치는 설정 화면이 패키지로 되돌려요.
+- 형식 검증 스킬에서 실패해야 할 검사가 통과로 나오던 경로를 막았어요. TLC 경고 숨김, 의미 오류를 놓친 SANY 검사, 초기 상태 위반과 상태 0개, Lean의 `#exit`·커널 검사 우회·빌드되지 않은 파일, 함수 시그니처 때문에 놓친 코드 변경, 하위 폴더 저장소, 상태도 규칙이 조용히 빠지던 경우 등이에요. 같은 모델을 여러 번 돌릴 때 반례가 매번 달라지던 것도 가장 짧은 반례로 고정했고, 여러 검사를 동시에 돌려 빨라졌어요.
+- 형식 검증 도구 설치가 동시에 돌면 서로 지우던 문제, 디스크 부족이 "검사 실패"로 나오던 문제를 고쳤어요.
+- omp 18.13.3의 새 설정에 한국어 설명을 달았어요.
+
+<!-- en -->
+
+Agents now hold every power from the start and can manage the sidebar and updates themselves; an omp update no longer breaks Settings, and the formal verification skill no longer passes checks it should fail.
+
+### Changed
+- **Every agent power is on by default.** OMPdesk control, full control, managing and approving for other sessions and computer use need no setting. Installs that had them off get them on once with this update; one turned off afterwards stays off. The macOS Accessibility and Screen Recording prompts appear once on first launch.
+- **Agents can do more.** List, add, remove, pin, reorder and rename sidebar projects, pin and archive sessions, download updates, open the macOS privacy panes.
+
+### Fixed
+- An omp update could install the compiled omp instead of the bun package, so Settings, models, accounts, usage and account rotation all read "Unavailable". Bun is now upgraded to what the new omp needs first, and an install already broken this way is put back to the package by setup.
+- The formal verification skill no longer passes checks that should fail: hidden TLC warnings, SANY semantic errors, initial-state violations and empty state spaces, Lean `#exit`, kernel-check bypasses and unbuilt files, code changes missed because of a function signature, repositories in a subfolder, statechart rules that were silently dropped, and more. Counterexamples are the shortest and stable across runs, and independent checks run in parallel.
+- Two formal toolchain installs at once no longer delete each other's work, and a full disk reads as not checked instead of failed.
+- Korean text for omp 18.13.3's new settings.
+
 ## [0.81.1] - 2026-10-28
 
 형식 검증 스킬을 실제 Windows PC에서 끝까지 돌려 보고 찾은 문제 세 가지를 고쳤어요.
