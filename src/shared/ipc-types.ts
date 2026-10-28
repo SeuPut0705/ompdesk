@@ -64,7 +64,6 @@ import type { SplitLayout } from "./split-layout";
 import type { SshToolsApi } from "./ssh-tools";
 import type { StartupMark } from "./startup-timing";
 import type { TerminalApi } from "./terminal-types";
-import type { ApprovalMode } from "./tool-approval";
 import type { UiLanguage } from "./ui-language";
 
 // ============================================================================
@@ -708,21 +707,10 @@ export type MenuAction =
 	| "open-pr-center"
 	| "open-debug"
 	| "export-html"
-	| "handoff"
-	| "toggle-fast"
-	| "cycle-thinking"
-	| "set-approval"
-	| "toggle-language"
-	| "switch-project";
+	| "handoff";
 
 /** Action forwarded to the renderer for an omp:// deep link. */
 export type DeepLinkPayload = { action: "new-session" } | { action: "switch-session"; sessionId: string };
-
-/** Optional payload carried alongside a MenuAction (approval mode / project cwd). */
-export interface MenuActionPayload {
-	approvalMode?: ApprovalMode;
-	cwd?: string;
-}
 
 /** Run-progress state pushed by the renderer (terminal.showProgress): dock badge + window progress bar. */
 export type RunProgressState = "working" | "waiting" | "idle";
@@ -795,20 +783,12 @@ export type IpcModelSetupRunResult =
 			cancelled?: boolean;
 	  };
 
-/** Compact snapshot the renderer pushes to main to build the tray menu. */
+/** What the renderer pushes to main for the tray's hover text and the menu's language. */
 export interface TrayState {
 	/** What the focused session needs from the person (the renderer's `sessionAttention` kinds), else its run state. */
 	status: "idle" | "streaming" | "question" | "approval" | "childWaiting" | "error";
 	language: UiLanguage;
-	cwd: string | null;
 	projectName: string;
-	modelId: string | null;
-	thinkingLevel: string;
-	fastMode: boolean;
-	approvalMode: ApprovalMode;
-	contextPercent: number | null;
-	contextTokens: number | null;
-	workspaces: { cwd: string; name: string; current: boolean }[];
 }
 
 // ============================================================================
@@ -2030,7 +2010,7 @@ export interface OmpApi {
 		/** What this computer works on now changed (the whole list, `LIVE_SESSIONS`). */
 		onLiveSessionsChanged(callback: (sessions: HostLiveSession[]) => void): () => void;
 		onLogBatch(callback: (batch: LogBatch) => void): () => void;
-		onMenuAction(callback: (action: MenuAction, payload?: MenuActionPayload) => void): () => void;
+		onMenuAction(callback: (action: MenuAction) => void): () => void;
 		onDeepLink(callback: (link: DeepLinkPayload) => void): () => void;
 		onNotificationClick(callback: (payload: NotificationClickPayload) => void): () => void;
 		onUpdaterStatus(callback: (status: UpdateStatus) => void): () => void;

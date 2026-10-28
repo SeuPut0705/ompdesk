@@ -95,11 +95,6 @@ const MENU_ROWS: Record<MenuAction, string | null> = {
 	"open-debug": "debug",
 	"export-html": "export",
 	handoff: "handoff",
-	"toggle-fast": "fast",
-	"cycle-thinking": "thinking cycle",
-	"set-approval": null,
-	"toggle-language": null,
-	"switch-project": null,
 };
 
 /** Palette row for each remappable shortcut; null where a palette row makes no sense. */

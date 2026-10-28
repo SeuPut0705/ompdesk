@@ -592,13 +592,13 @@ describe("the web shim", () => {
 		it("serves menu actions, deep links and notification clicks from the page, not the socket", () => {
 			const { web, channels, pushed } = setup();
 			const seen: unknown[] = [];
-			web.api.events.onMenuAction((action, payload) => seen.push([action, payload?.cwd]));
+			web.api.events.onMenuAction(action => seen.push(action));
 			web.api.events.onDeepLink(link => seen.push(link));
 			web.api.events.onNotificationClick(click => seen.push(click));
-			web.emitMenuAction("new-session", { cwd: "/p" });
+			web.emitMenuAction("new-session");
 			channels.emit(E.DEEP_LINK, { action: "new-session" });
 			channels.emit(E.NOTIFICATION_CLICK, { tabId: "t3" });
-			expect(seen).toEqual([["new-session", "/p"], { action: "new-session" }, { tabId: "t3" }]);
+			expect(seen).toEqual(["new-session", { action: "new-session" }, { tabId: "t3" }]);
 			expect(pushed.has(E.MENU_ACTION)).toBe(false);
 			expect(pushed.has(E.DEEP_LINK)).toBe(false);
 			expect(pushed.has(E.NOTIFICATION_CLICK)).toBe(false);

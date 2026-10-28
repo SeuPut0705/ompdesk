@@ -17,7 +17,7 @@ export interface WebRuntime {
 	/** What the host's last `hello` said this device may call; null before the first one. */
 	grants(): readonly WebPermission[] | null;
 	/** Raise a native-menu action on the page (the More sheet and the command palette). */
-	emitMenuAction(action: string, payload?: Record<string, unknown>): void;
+	emitMenuAction(action: string): void;
 	/**
 	 * After a reconnect that missed events the page catches up in place (resync-page.ts); a view holding a snapshot
 	 * of its own (one the missed pushes would have replaced) reads it again here. Returns the unsubscribe.

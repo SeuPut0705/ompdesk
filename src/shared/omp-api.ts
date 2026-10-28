@@ -88,7 +88,6 @@ import type {
 	IpcWorktreePromptAnswer,
 	LogBatch,
 	MenuAction,
-	MenuActionPayload,
 	ModelOverrideInput,
 	NotificationClickPayload,
 	OmpApi,
@@ -364,10 +363,8 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				subscribeTab<SessionInfoUpdateFrame>(IPC_EVENTS.SESSION_INFO_UPDATE, callback),
 			onTabExtensionError: (callback: (frame: ExtensionErrorFrame, tabId: string) => void) =>
 				subscribeTab<ExtensionErrorFrame>(IPC_EVENTS.EXTENSION_ERROR, callback),
-			onMenuAction: (callback: (action: MenuAction, payload?: MenuActionPayload) => void) =>
-				subscribe<{ action: MenuAction } & MenuActionPayload>(IPC_EVENTS.MENU_ACTION, data =>
-					callback(data.action, data),
-				),
+			onMenuAction: (callback: (action: MenuAction) => void) =>
+				subscribe<{ action: MenuAction }>(IPC_EVENTS.MENU_ACTION, data => callback(data.action)),
 			onDeepLink: (callback: (link: DeepLinkPayload) => void) =>
 				subscribe<DeepLinkPayload>(IPC_EVENTS.DEEP_LINK, callback),
 			onNotificationClick: (callback: (payload: NotificationClickPayload) => void) =>

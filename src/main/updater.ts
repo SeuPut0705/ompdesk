@@ -577,6 +577,14 @@ function startMacDownload(
 	});
 }
 
+const statusListeners = new Set<(status: UpdateStatus) => void>();
+
+/** Main-process subscribers to every status change (the tray menu); returns the unsubscribe. */
+export function onUpdateStatus(listener: (status: UpdateStatus) => void): () => void {
+	statusListeners.add(listener);
+	return () => statusListeners.delete(listener);
+}
+
 function broadcast(status: UpdateStatus): void {
 	// A re-broadcast of the staged update (a manual re-check) keeps the countdown the notice shows.
 	const restartAt = autoInstall?.restartAt;
@@ -587,6 +595,31 @@ function broadcast(status: UpdateStatus): void {
 	for (const win of BrowserWindow.getAllWindows()) {
 		win.webContents.send(IPC_EVENTS.UPDATER_STATUS, current);
 	}
+	for (const listener of statusListeners) listener(current);
+}
+
+/** "Restart & install" (the app's button, `updates.apply`, the tray): the one install path. */
+export async function applyUpdate(): Promise<void> {
+	if (current.state !== "downloaded" || current.installing) return;
+	if (current.mode === "manual") {
+		if (!downloadedInstallerPath) {
+			broadcast({ state: "error", message: mainT("updates.installerMissing"), showInBanner: true });
+			return;
+		}
+		try {
+			await openManualInstaller(downloadedInstallerPath);
+		} catch (error) {
+			broadcast(failureStatus(error, "updates.openInstallerFailed", true));
+		}
+		return;
+	}
+	if (!restartableUpdate()) {
+		broadcast({ state: "error", message: mainT("updates.installerMissing"), showInBanner: true });
+		return;
+	}
+	// ⌘Q's rule: running work continues after the restart (turn-resume.ts), so this asks only with that setting off.
+	if (!(await confirmQuit())) return;
+	restartIntoUpdate("user click");
 }
 
 /** Failure copy this module already localized when it threw (installer download/verify/open). */
@@ -944,28 +977,7 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 
 	ipc.handle(IPC_COMMANDS.UPDATER_CHECK, () => checkForUpdate());
 	ipc.handle(IPC_COMMANDS.UPDATER_DOWNLOAD, () => downloadUpdate());
-	ipc.handle(IPC_COMMANDS.UPDATER_APPLY, async () => {
-		if (current.state !== "downloaded" || current.installing) return;
-		if (current.mode === "manual") {
-			if (!downloadedInstallerPath) {
-				broadcast({ state: "error", message: mainT("updates.installerMissing"), showInBanner: true });
-				return;
-			}
-			try {
-				await openManualInstaller(downloadedInstallerPath);
-			} catch (error) {
-				broadcast(failureStatus(error, "updates.openInstallerFailed", true));
-			}
-			return;
-		}
-		if (!restartableUpdate()) {
-			broadcast({ state: "error", message: mainT("updates.installerMissing"), showInBanner: true });
-			return;
-		}
-		// ⌘Q's rule: running work continues after the restart (turn-resume.ts), so this asks only with that setting off.
-		if (!(await confirmQuit())) return;
-		restartIntoUpdate("user click");
-	});
+	ipc.handle(IPC_COMMANDS.UPDATER_APPLY, () => applyUpdate());
 	ipc.handle(IPC_COMMANDS.UPDATER_POSTPONE, () => autoInstall?.postpone());
 	ipc.handle(IPC_COMMANDS.UPDATER_INSTALL_MODE, () => installMode);
 	// Dev/test seam (unpackaged only): pretend this staged bundle was downloaded and verified, so the

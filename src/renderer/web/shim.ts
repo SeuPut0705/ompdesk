@@ -100,7 +100,7 @@ export interface WebOmp {
 	api: OmpApi;
 	host: HostActions;
 	/** Raise a native-menu action on the page (the More sheet and the command palette call this). */
-	emitMenuAction(action: string, payload?: Record<string, unknown>): void;
+	emitMenuAction(action: string): void;
 }
 
 /** The wire form of `IpcFsReadBinaryResult`: bytes inline as base64 or behind a `/blob` URL. */
@@ -474,6 +474,6 @@ export function createWebOmp(env: ShimEnv): WebOmp {
 	return {
 		api,
 		host,
-		emitMenuAction: (action, payload) => env.channels.emit(E.MENU_ACTION, { action, ...payload }),
+		emitMenuAction: action => env.channels.emit(E.MENU_ACTION, { action }),
 	};
 }

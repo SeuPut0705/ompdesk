@@ -1,6 +1,5 @@
 import { type ComponentType, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import type { MenuAction, MenuActionPayload, RunProgressState } from "../shared/ipc-types";
-import { nextUiLanguage } from "../shared/ui-language";
+import type { MenuAction, RunProgressState } from "../shared/ipc-types";
 import { ToastStack } from "./components/common";
 import { BtwDialog } from "./components/dialogs/BtwDialog";
 import { ChangelogDialog, WhatsNewNotice } from "./components/dialogs/ChangelogDialog";
@@ -38,7 +37,7 @@ import { restartSidecarFromGui, retryFailedTurn, runSessionCommand } from "./lib
 import { loadDeferredChunk } from "./lib/deferred-chunk";
 import { hydrateDisplayPreferences, readDisplayPreference, setDisplayPreference } from "./lib/display-preferences";
 import { exportSessionHtml } from "./lib/export-session";
-import { useLang, useT } from "./lib/i18n";
+import { useT } from "./lib/i18n";
 import { isImeKeyEvent } from "./lib/ime";
 import { chordFromEvent, compileKeymap, KEYMAP_ACTION_BY_ID, KEYMAP_ACTIONS, type KeymapActionId } from "./lib/keymap";
 import { restoreQueuedMessages, stopFromEscape } from "./lib/messages";
@@ -79,11 +78,9 @@ import { useExtensionUiStore } from "./stores/extension-ui";
 import { openHandoffDialog } from "./stores/fork-handoff";
 import { useHostedSessionsSync } from "./stores/hosted-sessions";
 import { useMachineSetupStore } from "./stores/machine-setup";
-import { useModelStore } from "./stores/model";
 import { usePreviewVisualEvents } from "./stores/preview-visuals";
 import { useRemoteStateSync } from "./stores/remote";
 import { useSessionStore } from "./stores/session";
-import { useSettingsStore } from "./stores/settings";
 import { steppingFromTabId, useActiveTabKind, useSessionTabs, useTabsStore, visibleTabIds } from "./stores/tabs";
 import { toast, toastError } from "./stores/toast";
 import { isSidebarDrawerMode, migrateDefaultPanelTab, useUiStore } from "./stores/ui";
@@ -275,7 +272,6 @@ export function App() {
 	const split = useTabsStore(s => s.split);
 	const activeTabStatus = useTabsStore(s => s.tabs.find(tab => tab.id === s.activeTabId)?.status);
 	const themeSidecarReady = activeTabStatus === "ready" || activeTabStatus === "running";
-	const { lang, setLang } = useLang();
 	const t = useT();
 	// Required machine setup (Bun, Git Bash, omp) takes over the whole window:
 	// SetupTakeoverHost (inside the tab's runtime) publishes the flag; everything
@@ -717,21 +713,16 @@ export function App() {
 	useEffect(() => subscribeOmpUpdated(), []);
 
 	useEffect(() => {
-		const run = async (action: MenuAction, payload?: MenuActionPayload) => {
+		const run = async (action: MenuAction) => {
 			const ui = useUiStore.getState();
-			// The setup screen blocks every menu command (the tray's "new session"
-			// included) except the language switch.
-			if (useMachineSetupStore.getState().takeover && action !== "toggle-language") return;
+			// The setup screen blocks every menu command (the tray's update item is not one).
+			if (useMachineSetupStore.getState().takeover) return;
 			if (action === "toggle-sidebar") {
 				ui.toggleSidebar();
 				return;
 			}
 			if (action === "toggle-panel") {
 				ui.togglePanel();
-				return;
-			}
-			if (action === "toggle-language") {
-				setLang(nextUiLanguage(lang));
 				return;
 			}
 			// New tab actions never touch the live run — they must stay OUT of the
@@ -857,29 +848,14 @@ export function App() {
 			}
 			// Menu commands below read or mutate the selected sidecar: after a new tab main has not answered yet, and in
 			// the short selected-vs-routed gap, they wait instead of reaching the old tab or being dropped.
-			if (waitForActiveTab(() => void run(action, payload))) return;
+			if (waitForActiveTab(() => void run(action))) return;
 			if (action === "close-tab") {
 				closeActiveTab();
 				return;
 			}
-			if (action === "toggle-fast") {
-				void useModelStore.getState().toggleFastMode();
-				return;
-			}
-			if (action === "cycle-thinking") {
-				void runSessionCommand(focusedTabRpc().cycleThinkingLevel(), t("palette.failed"));
-				return;
-			}
-			if (action === "set-approval") {
-				if (payload?.approvalMode) useSettingsStore.getState().setApprovalMode(payload.approvalMode);
-				return;
-			}
 			if (
 				useSessionStore.getState().isStreaming &&
-				(action === "new-session" ||
-					action === "open-project" ||
-					action === "handoff" ||
-					action === "switch-project")
+				(action === "new-session" || action === "open-project" || action === "handoff")
 			) {
 				toast({ variant: "warning", message: t("sessionSwitch.busyBlocked") });
 				return;
@@ -888,8 +864,6 @@ export function App() {
 			try {
 				if (action === "open-project") {
 					await selectFocusedTabProject();
-				} else if (action === "switch-project") {
-					if (payload?.cwd) await window.omp.sidecar.setProject(payload.cwd);
 				} else if (action === "new-session") {
 					await newSessionNow();
 				} else if (action === "export-html") {
@@ -901,8 +875,8 @@ export function App() {
 				toastError({ title: t("app.actionFailed"), error });
 			}
 		};
-		return window.omp.events.onMenuAction((action, payload) => void run(action, payload));
-	}, [lang, setLang, t]);
+		return window.omp.events.onMenuAction(action => void run(action));
+	}, [t]);
 
 	const surface = (
 		<div className="omp-app-root flex h-screen w-screen overflow-hidden text-(--sc-text)">

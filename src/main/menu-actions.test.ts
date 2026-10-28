@@ -1,5 +1,5 @@
 /**
- * Native menu + tray wiring: every MENU_ACTION the main process sends must be a
+ * Native menu wiring: every MENU_ACTION the main process sends must be a
  * declared MenuAction with a branch in the renderer's dispatcher (App.tsx), so a
  * redesign that removes an opener cannot leave a menu item that does nothing.
  */
@@ -19,25 +19,23 @@ const union = /export type MenuAction =([^;]+);/.exec(
 )?.[1];
 const declared = captures("", /"([a-z-]+)"/g, union ?? "");
 const menuSent = captures("main/menu.ts", /sendMenuAction\(windowManager, spawnWindow, "([a-z-]+)"\)/g);
-const traySent = captures("main/tray.ts", /send\(windowManager, "([a-z-]+)"/g);
 const handled = captures("renderer/App.tsx", /action === "([a-z-]+)"/g);
 
-describe("menu and tray actions", () => {
+describe("menu actions", () => {
 	it("finds the declared actions and their senders", () => {
 		expect(declared.length).toBeGreaterThan(20);
 		expect(menuSent.length).toBeGreaterThan(20);
-		expect(traySent.length).toBeGreaterThan(5);
 	});
 
 	it("sends only declared actions", () => {
-		for (const action of [...menuSent, ...traySent]) expect(declared, action).toContain(action);
+		for (const action of menuSent) expect(declared, action).toContain(action);
 	});
 
 	it("handles every declared action in the renderer", () => {
 		for (const action of declared) expect(handled, action).toContain(action);
 	});
 
-	it("declares no action that neither the menu nor the tray sends", () => {
-		for (const action of declared) expect([...menuSent, ...traySent], action).toContain(action);
+	it("declares no action that the menu does not send", () => {
+		for (const action of declared) expect(menuSent, action).toContain(action);
 	});
 });

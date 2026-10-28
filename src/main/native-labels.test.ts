@@ -11,7 +11,7 @@ import { en } from "../renderer/locales/en";
 import { ko } from "../renderer/locales/ko";
 import { UI_LANGUAGES } from "../shared/ui-language";
 import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
-import { approvalLabel, statusLabel, type TrayLabelKey, thinkingLabel, t as trayT } from "./tray-labels";
+import { statusLabel } from "./tray-labels";
 
 const RENDERER = { en, ko };
 const source = (file: string) => fs.readFileSync(path.join(__dirname, file), "utf8");
@@ -84,18 +84,6 @@ describe("one name per place", () => {
 		["menu.debugConsole", "debug.title"],
 		["menu.reportIssue", "help.feedback"],
 	];
-	const trayPairs: [TrayLabelKey, string][] = [
-		["usageStats", "cmd.usage"],
-		["workspaces", "titlebar.switchProject"],
-		["addWorkspace", "sidebar.project.open"],
-		["openProject", "sidebar.project.open"],
-		["newSession", "cmd.new"],
-		["handoff", "cmd.handoff"],
-		["fastMode", "input.runSettings.fast"],
-		["thinking", "input.runSettings.thinking"],
-		["approval", "input.runSettings.approval"],
-	];
-
 	for (const language of UI_LANGUAGES) {
 		it(`names each menu item like the page it opens (${language})`, () => {
 			for (const [key, rendererKey] of menuPairs) {
@@ -104,15 +92,7 @@ describe("one name per place", () => {
 			}
 		});
 
-		it(`names the tray's settings and states like the composer (${language})`, () => {
-			for (const [key, rendererKey] of trayPairs) {
-				const native = trayT(language, key);
-				expect(sameName(native, RENDERER[language][rendererKey] ?? ""), `${key}: ${native}`).toBe(true);
-			}
-			for (const mode of ["yolo", "write", "always-ask"] as const)
-				expect(approvalLabel(language, mode)).toBe(RENDERER[language][`input.approval.${mode}`]);
-			for (const level of ["off", "auto", "minimal", "low", "medium", "high", "xhigh", "max"])
-				expect(thinkingLabel(language, level)).toBe(RENDERER[language][`input.thinking.name.${level}`]);
+		it(`names the tray's states like the composer (${language})`, () => {
 			expect(statusLabel(language, "idle")).toBe(RENDERER[language]["titlebar.status.ready"]);
 			expect(statusLabel(language, "streaming")).toBe(RENDERER[language]["titlebar.status.working"]);
 			for (const kind of ["question", "approval", "childWaiting"] as const)
@@ -133,8 +113,4 @@ describe("one name per place", () => {
 				expect(strings[a], `${a} / ${b}`).toBe(strings[b]);
 		});
 	}
-
-	it("passes a thinking level it does not know through unchanged", () => {
-		expect(thinkingLabel("ko", "turbo")).toBe("turbo");
-	});
 });
