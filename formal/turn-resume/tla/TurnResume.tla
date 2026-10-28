@@ -1,7 +1,8 @@
 ---------------------------- MODULE TurnResume ----------------------------
 (* Model of OMPdesk's connection wait: a turn that failed on the network is   *)
 (* probed (ConnectivityMonitor.verify), held, flushed when connectivity       *)
-(* returns, and retried by stock `retry`; plus the scheduled backoff retry.   *)
+(* returns, and retried by stock `retry`; plus the scheduled backoff retry    *)
+(* and the relaunch's own wait (launch() while offline).                      *)
 (* Code: src/main/turn-resume.ts (TurnResume) + src/main/connectivity.ts.     *)
 (*                                                                            *)
 (* Granularity. Every action below is one macrotask of the code (a pool event *)
@@ -11,8 +12,9 @@
 (* interleave with. Promise continuations that only wait on a microtask       *)
 (* (whenReady of a ready sidecar) are folded into the step that starts them.  *)
 (*                                                                            *)
-(* Out of scope (SCOPE.md): launch markers, stock's auto-retry takeover, wake *)
-(* window (shouldWait after resume), hosted tabs, quit freeze, tab close.     *)
+(* Out of scope (SCOPE.md): an online launch's continuation, stock's          *)
+(* auto-retry takeover, wake window (shouldWait after resume), hosted tabs,   *)
+(* quit freeze, tab close.                                                    *)
 EXTENDS Integers, FiniteSets
 
 CONSTANTS Tabs, MaxStarts, MaxAttempts, MaxFlaps, MaxSess, MaxCancels
@@ -20,26 +22,28 @@ CONSTANTS Tabs, MaxStarts, MaxAttempts, MaxFlaps, MaxSess, MaxCancels
 Kinds == {"dns", "net", "transient", "fatal"}
 Os == 1..MaxStarts
 Gens == 0..8                \* cancel generations (cancels[t]); TypeOK checks 8 is never exceeded
+LaunchO == 0                \* the outcome id of a relaunch's continuation (no run of this process failed for it)
 
 VARIABLES
     \* pool facts (what resumeFacts() reports) and the marker file
     run, last, kindOf, stopped, sg, awaiting, userRun, ready, nStarts, nO, retryIn, store,
-    \* TurnResume bookkeeping (wsg: the session/branch a held wait was taken for, HeldWait.since)
+    \* TurnResume bookkeeping (wsg: the session/branch the tab's held wait, or the continuation on its way, is for:
+    \* HeldWait.since / #run's `since`)
     waiting, waitFor, wsg, probing, psg, armO, armSg, armAtt, armId, planning, cancels,
     attempts, own, judged, runWait, runFor, fireId, nCancels, nUnready,
     \* ConnectivityMonitor and the world it probes
     online, recovering, probingM, timer, vN, vLink0, vW, vRes, link, defOK, hostOK, aLink, flaps,
     \* control: the synchronous region currently running
     pc, ct, rp,
-    \* history (ghost) variables the properties read
-    bad1, bad2, bad2h, bad6, sentFor, calledOff, calledOffH
+    \* history variables: the properties read the bad*/sentFor/calledOff* ghosts; `launched` bounds Launch to once
+    bad1, bad2, bad2h, bad6, sentFor, calledOff, calledOffH, launched
 
 poolV == <<run, last, kindOf, stopped, sg, userRun, ready, nStarts, nO, retryIn, store>>
 resV == <<awaiting, waiting, waitFor, wsg, probing, psg, armO, armSg, armAtt, armId, planning, cancels,
           attempts, own, judged, runWait, runFor, fireId, nCancels, nUnready>>
 monV == <<online, recovering, probingM, timer, vN, vLink0, vW, vRes, link, defOK, hostOK, aLink, flaps>>
 ctlV == <<pc, ct, rp>>
-histV == <<bad1, bad2, bad2h, bad6, sentFor, calledOff, calledOffH>>
+histV == <<bad1, bad2, bad2h, bad6, sentFor, calledOff, calledOffH, launched>>
 vars == <<poolV, resV, monV, ctlV, histV>>
 
 IsNet(o) == kindOf[o] \in {"dns", "net"}
@@ -47,12 +51,18 @@ IsNet(o) == kindOf[o] \in {"dns", "net"}
 MayRetry(t, o) == ~stopped[t] /\ ~awaiting[t] /\ last[t] = o
 HoldsArm(t) == MayRetry(t, armO[t]) /\ sg[t] = armSg[t]
 UserLive(t) == run[t] = "running" /\ last[t] = 0 /\ userRun[t]
+\* turn-resume.ts #movedSince: the tab went to another session or branch since `wsg` was recorded (sg only grows)
+Moved(t) == sg[t] > wsg[t]
 Pending(t) ==
     (IF waiting[t] THEN {waitFor[t]} ELSE {})
     \cup (IF probing[t] # 0 THEN {probing[t]} ELSE {})
     \cup (IF armO[t] # 0 THEN {armO[t]} ELSE {})
     \cup (IF runWait[t] >= 0 THEN {runFor[t]} ELSE {})
     \cup (IF fireId[t] >= 0 THEN {armO[t]} \ {0} ELSE {})
+\* What a session or branch change calls off (NoRetryAfterCallOff): a probe, an armed retry, a continuation waiting for its omp.
+MovedOff(t) ==
+    (IF probing[t] # 0 THEN {probing[t]} ELSE {}) \cup (IF armO[t] # 0 THEN {armO[t]} ELSE {})
+    \cup (IF runWait[t] >= 0 THEN {runFor[t]} ELSE {})
 
 TypeOK ==
     /\ run \in [Tabs -> {"idle", "running"}]
@@ -65,6 +75,7 @@ TypeOK ==
     /\ attempts \in [Tabs -> 0..MaxAttempts]
     /\ vN \in 0..3
     /\ pc \in {"idle", "s_watch", "s_newrun", "s_judge", "s_marker", "flush"}
+    /\ launched \in BOOLEAN
 
 Init ==
     /\ run = [t \in Tabs |-> "idle"] /\ last = [t \in Tabs |-> 0] /\ kindOf = [o \in Os |-> "none"]
@@ -83,13 +94,30 @@ Init ==
     /\ link = TRUE /\ defOK = TRUE /\ hostOK = TRUE /\ aLink = TRUE /\ flaps = 0
     /\ pc = "idle" /\ ct = (CHOOSE t \in Tabs : TRUE) /\ rp = "idle"
     /\ bad1 = FALSE /\ bad2 = FALSE /\ bad2h = FALSE /\ bad6 = FALSE
-    /\ sentFor = {} /\ calledOff = {} /\ calledOffH = {}
+    /\ sentFor = {} /\ calledOff = {} /\ calledOffH = {} /\ launched = FALSE
+
+----------------------------------------------------------------------------
+\* ===== the relaunch =====
+
+\* @code src/main/turn-resume.ts:971-986 launch(): the marker finds its tab (layout, unwritten, opened) and is kept as a launch marker (#pending)
+\* @code src/main/turn-resume.ts:992-1004 offline: #hold, recording the session and branch the tab shows now (HeldWait.since)
+Launch(t) ==
+    /\ pc = "idle" /\ ~launched /\ ~online /\ nStarts = 0 /\ run[t] = "idle" /\ ~awaiting[t]
+    /\ launched' = TRUE
+    /\ waiting' = [waiting EXCEPT ![t] = TRUE]
+    /\ waitFor' = [waitFor EXCEPT ![t] = LaunchO]
+    /\ wsg' = [wsg EXCEPT ![t] = sg[t]]                \* launch(): HeldWait.since
+    /\ awaiting' = [awaiting EXCEPT ![t] = TRUE]
+    /\ store' = [store EXCEPT ![t] = "network"]         \* the launch marker stays in the file (CORRESPONDENCE A9)
+    /\ UNCHANGED <<run, last, kindOf, stopped, sg, userRun, ready, nStarts, nO, retryIn,
+                   probing, psg, armO, armSg, armAtt, armId, planning, cancels, attempts, own, judged, runWait, runFor,
+                   fireId, nCancels, nUnready, monV, ctlV, bad1, bad2, bad2h, bad6, sentFor, calledOff, calledOffH>>
 
 ----------------------------------------------------------------------------
 \* ===== pool events: each is followed by the `sync()` the pool triggers =====
 
 \* @code src/main/sidecar-run-state.ts:156-160 agent_start: a new run clears lastRun, stopped, retry
-\* @code src/main/turn-resume.ts:460-463 sync() starts: judge every fact
+\* @code src/main/turn-resume.ts:469-472 sync() starts: judge every fact
 UserPrompt(t) ==
     /\ pc = "idle" /\ run[t] = "idle" /\ ready /\ nStarts < MaxStarts       \* a prompt reaches an omp that is up
     /\ run' = [run EXCEPT ![t] = "running"]
@@ -99,10 +127,10 @@ UserPrompt(t) ==
     /\ nStarts' = nStarts + 1
     /\ calledOff' = calledOff \cup Pending(t)
     /\ pc' = "s_watch" /\ ct' = t
-    /\ UNCHANGED <<kindOf, sg, awaiting, ready, nO, retryIn, store, resV, monV, rp, bad1, bad2, bad2h, bad6, sentFor, calledOffH>>
+    /\ UNCHANGED <<kindOf, sg, awaiting, ready, nO, retryIn, store, resV, monV, rp, bad1, bad2, bad2h, bad6, sentFor, calledOffH, launched>>
 
 \* @code src/main/sidecar-run-state.ts:165-166 agent_end sets lastRun to the run's outcome (the run may still be settling)
-\* @code src/main/turn-resume.ts:460-463 sync() starts
+\* @code src/main/turn-resume.ts:469-472 sync() starts
 EndRun(t, k) ==
     /\ pc = "idle" /\ run[t] = "running" /\ last[t] = 0
     /\ nO' = nO + 1
@@ -112,33 +140,45 @@ EndRun(t, k) ==
     /\ UNCHANGED <<run, stopped, sg, awaiting, userRun, ready, nStarts, retryIn, store, resV, monV, rp, histV>>
 
 \* @code src/main/sidecar-run-state.ts:156-172 the run settles (background work done)
-\* @code src/main/turn-resume.ts:460-463 sync() starts
+\* @code src/main/turn-resume.ts:469-472 sync() starts
 Settle(t) ==
     /\ pc = "idle" /\ run[t] = "running" /\ last[t] # 0
     /\ run' = [run EXCEPT ![t] = "idle"]
     /\ pc' = "s_watch" /\ ct' = t
     /\ UNCHANGED <<last, kindOf, stopped, sg, awaiting, userRun, ready, nStarts, nO, retryIn, store, resV, monV, rp, histV>>
 
-\* @code src/main/sidecar-pool.ts:2233-2238 noteStopped: Stop pressed (a run or the probe row)
-\* @code src/main/turn-resume.ts:460-463 sync() starts
+\* @code src/main/sidecar-pool.ts:2236-2241 noteStopped: Stop pressed (a run or the probe row)
+\* @code src/main/turn-resume.ts:469-472 sync() starts
 UserStop(t) ==
     /\ pc = "idle" /\ ~stopped[t] /\ (run[t] = "running" \/ probing[t] # 0)
     /\ stopped' = [stopped EXCEPT ![t] = TRUE]
     /\ calledOff' = calledOff \cup (IF probing[t] # 0 THEN {probing[t]} ELSE {})
     /\ pc' = "s_watch" /\ ct' = t
-    /\ UNCHANGED <<run, last, kindOf, sg, awaiting, userRun, ready, nStarts, nO, retryIn, store, resV, monV, rp, bad1, bad2, bad2h, bad6, sentFor, calledOffH>>
+    /\ UNCHANGED <<run, last, kindOf, sg, awaiting, userRun, ready, nStarts, nO, retryIn, store, resV, monV, rp, bad1, bad2, bad2h, bad6, sentFor, calledOffH, launched>>
 
-\* @code src/main/sidecar-pool.ts:2253-2258 noteTouched: new_session/switch_session/fork/branch/switch_leaf bumps `touched`
-\* @code src/main/turn-resume.ts:460-463 sync() starts
+\* @code src/main/sidecar-pool.ts:2256-2261 noteTouched: new_session/switch_session/fork/branch/switch_leaf that moved the tab bumps `touched`
+\* @code src/main/turn-resume.ts:469-472 sync() starts
 SessionChange(t) ==
     /\ pc = "idle" /\ sg[t] < MaxSess
     /\ sg' = [sg EXCEPT ![t] = sg[t] + 1]
-    /\ calledOff' = calledOff \cup (IF probing[t] # 0 THEN {probing[t]} ELSE {}) \cup (IF armO[t] # 0 THEN {armO[t]} ELSE {})
+    /\ calledOff' = calledOff \cup MovedOff(t)
     /\ calledOffH' = calledOffH \cup (IF waiting[t] THEN {waitFor[t]} ELSE {})
     /\ pc' = "s_watch" /\ ct' = t
-    /\ UNCHANGED <<run, last, kindOf, stopped, awaiting, userRun, ready, nStarts, nO, retryIn, store, resV, monV, rp, bad1, bad2, bad2h, bad6, sentFor>>
+    /\ UNCHANGED <<run, last, kindOf, stopped, awaiting, userRun, ready, nStarts, nO, retryIn, store, resV, monV, rp, bad1, bad2, bad2h, bad6, sentFor, launched>>
 
-\* @code src/main/turn-resume.ts:903-918 cancelWait: dropWait, then sync
+\* Environment: the tab's session moves and no sync() follows (a path that does not tell the resume rules: the model
+\* drops the sync() a held wait's file move now triggers, so the continuations' own re-check must hold without it).
+\* @code src/main/sidecar-pool.ts:2060-2068 #registerSessionFile: a window tab's file moves (a paired device's switch through a view)
+\* @code src/main/remote/host-services.ts:1678-1683 a device's own hosted tab reports another session file
+FileMoved(t) ==
+    /\ pc = "idle" /\ sg[t] < MaxSess
+    /\ sg' = [sg EXCEPT ![t] = sg[t] + 1]
+    /\ calledOff' = calledOff \cup MovedOff(t)
+    /\ calledOffH' = calledOffH \cup (IF waiting[t] THEN {waitFor[t]} ELSE {})
+    /\ UNCHANGED <<run, last, kindOf, stopped, awaiting, userRun, ready, nStarts, nO, retryIn, store, resV, monV, ctlV,
+                   bad1, bad2, bad2h, bad6, sentFor, launched>>
+
+\* @code src/main/turn-resume.ts:922-936 cancelWait: dropWait, then sync
 Cancel(t) ==
     /\ pc = "idle" /\ nCancels < MaxCancels
     /\ (waiting[t] \/ probing[t] # 0 \/ armO[t] # 0)
@@ -153,9 +193,9 @@ Cancel(t) ==
     /\ pc' = "s_watch" /\ ct' = t
     /\ UNCHANGED <<run, last, kindOf, stopped, sg, userRun, ready, nStarts, nO, retryIn, store,
                    waitFor, wsg, psg, armSg, armAtt, armId, planning, attempts, judged, runWait, runFor, fireId, nUnready,
-                   monV, rp, bad1, bad2, bad2h, bad6, sentFor, calledOffH>>
+                   monV, rp, bad1, bad2, bad2h, bad6, sentFor, calledOffH, launched>>
 
-\* @code src/main/turn-resume.ts:800-805 the `retry` command lands: stock starts the retried run (agent_start), or has nothing to retry
+\* @code src/main/turn-resume.ts:818-823 the `retry` command lands: stock starts the retried run (agent_start), or has nothing to retry
 RetryTaken(t) ==
     /\ pc = "idle" /\ retryIn[t]
     /\ retryIn' = [retryIn EXCEPT ![t] = FALSE]
@@ -166,7 +206,7 @@ RetryTaken(t) ==
           /\ userRun' = [userRun EXCEPT ![t] = FALSE]
           /\ nStarts' = nStarts + 1
           /\ UNCHANGED <<own, attempts>>
-       \/ /\ own' = [own EXCEPT ![t] = FALSE]      \* turn-resume.ts:711-714: nothing started, the chain is over
+       \/ /\ own' = [own EXCEPT ![t] = FALSE]      \* turn-resume.ts:721-724: nothing started, the chain is over
           /\ attempts' = [attempts EXCEPT ![t] = 0]
           /\ UNCHANGED <<run, last, stopped, userRun, nStarts>>
     /\ pc' = "s_watch" /\ ct' = t
@@ -182,13 +222,13 @@ Unready ==
                    judged, runWait, runFor, fireId, nCancels, monV, ctlV, histV>>
 
 \* @code src/main/turn-resume.ts:378-398 whenReady: the sidecar's status becomes ready; its resolution is a microtask, so every #run waiting on it continues in this same macrotask
-\* @code src/main/turn-resume.ts:791-797 #run after whenReady: a cancelled continuation sends nothing, else the `retry` goes out
-\* @code src/main/turn-resume.ts:800-805 send("retry")
+\* @code src/main/turn-resume.ts:806-815 #run after whenReady: the session and branch are checked again (#movedSince); a moved or cancelled continuation sends nothing
+\* @code src/main/turn-resume.ts:818-823 send("retry")
 Boot ==
     /\ pc = "idle" /\ ~ready
     /\ ready' = TRUE
-    /\ LET go == {t \in Tabs : runWait[t] >= 0 /\ cancels[t] = runWait[t]}
-           abort == {t \in Tabs : runWait[t] >= 0 /\ cancels[t] # runWait[t]}
+    /\ LET go == {t \in Tabs : runWait[t] >= 0 /\ cancels[t] = runWait[t] /\ ~Moved(t)}
+           abort == {t \in Tabs : runWait[t] >= 0 /\ t \notin go}
        IN /\ runWait' = [t \in Tabs |-> -1]
           /\ retryIn' = [t \in Tabs |-> IF t \in go THEN TRUE ELSE retryIn[t]]
           /\ sentFor' = sentFor \cup {runFor[t] : t \in go}
@@ -199,12 +239,12 @@ Boot ==
           /\ attempts' = [t \in Tabs |-> IF t \in abort THEN 0 ELSE attempts[t]]
     /\ UNCHANGED <<run, last, kindOf, stopped, sg, awaiting, userRun, nStarts, nO, store,
                    waiting, waitFor, wsg, probing, psg, armO, armSg, armAtt, armId, planning, cancels, judged, runFor, fireId,
-                   nCancels, nUnready, monV, ctlV, bad6, calledOff, calledOffH>>
+                   nCancels, nUnready, monV, ctlV, bad6, calledOff, calledOffH, launched>>
 
 ----------------------------------------------------------------------------
 \* ===== sync(): the synchronous judge chain for the tab `ct` =====
 
-\* @code src/main/turn-resume.ts:670-680 #watchScheduledRetry: a user run ends the chain; an armed retry that no longer holds is dropped
+\* @code src/main/turn-resume.ts:680-690 #watchScheduledRetry: a user run ends the chain; an armed retry that no longer holds is dropped
 S_Watch ==
     /\ pc = "s_watch"
     /\ LET t == ct
@@ -217,16 +257,16 @@ S_Watch ==
     /\ UNCHANGED <<poolV, awaiting, waiting, waitFor, wsg, probing, psg, armSg, armAtt, armId, planning, own, judged, runWait, runFor,
                    fireId, nCancels, nUnready, monV, ct, rp, histV>>
 
-\* @code src/main/turn-resume.ts:514-524 a run that is neither the held one nor still ending is the user's new prompt: dropWait; Stop ends the probe
-\* @code src/main/turn-resume.ts:525-528 another session or branch on a held tab ends its wait (#movedSince)
-\* @code src/main/turn-resume.ts:766-771 #movedSince: `touched` or the session file the wait was held on changed
-\* @code src/main/turn-resume.ts:909-918 #dropWait
+\* @code src/main/turn-resume.ts:523-533 a run that is neither the held one nor still ending is the user's new prompt: dropWait; Stop ends the probe
+\* @code src/main/turn-resume.ts:534-538 another session or branch on a held tab ends its wait (#movedSince)
+\* @code src/main/turn-resume.ts:776-779 #movedSince: `touched` or the session file the wait was held on changed
+\* @code src/main/turn-resume.ts:927-936 #dropWait
 S_NewRun ==
     /\ pc = "s_newrun"
     /\ LET t == ct
            userRunWhileHeld == run[t] = "running" /\ last[t] = 0 /\ (waiting[t] \/ probing[t] # 0)
            stopWhileProbing == stopped[t] /\ probing[t] # 0
-           movedWhileHeld == waiting[t] /\ sg[t] # wsg[t]
+           movedWhileHeld == waiting[t] /\ Moved(t)
            drop == userRunWhileHeld \/ stopWhileProbing \/ movedWhileHeld
        IN /\ cancels' = [cancels EXCEPT ![t] = IF drop THEN cancels[t] + 1 ELSE cancels[t]]
           /\ waiting' = [waiting EXCEPT ![t] = IF drop THEN FALSE ELSE waiting[t]]
@@ -238,10 +278,10 @@ S_NewRun ==
     /\ UNCHANGED <<run, last, kindOf, stopped, sg, userRun, ready, nStarts, nO, retryIn, store, waitFor, wsg, psg, armSg, armAtt,
                    armId, planning, attempts, judged, runWait, runFor, fireId, nCancels, nUnready, monV, ct, rp, histV>>
 
-\* @code src/main/turn-resume.ts:533-556 #judge: the run's final outcome decides: hold, probe the lookup, or plan a scheduled retry
-\* @code src/main/turn-resume.ts:564-573 #verifyNetwork: show the wait, ask ConnectivityMonitor.verify (one probe per host, shared)
-\* @code src/main/turn-resume.ts:633-648 #planRetry: transient failures await stock `retry.enabled` before arming
-\* @code src/main/turn-resume.ts:755-759 #hold: the wait records the session and branch it holds for
+\* @code src/main/turn-resume.ts:543-566 #judge: the run's final outcome decides: hold, probe the lookup, or plan a scheduled retry
+\* @code src/main/turn-resume.ts:574-583 #verifyNetwork: show the wait, ask ConnectivityMonitor.verify (one probe per host, shared)
+\* @code src/main/turn-resume.ts:643-658 #planRetry: transient failures await stock `retry.enabled` before arming
+\* @code src/main/turn-resume.ts:765-769 #hold: the wait records the session and branch it holds for
 S_Judge ==
     /\ pc = "s_judge"
     /\ LET t == ct
@@ -281,7 +321,7 @@ S_Judge ==
                                     /\ UNCHANGED attempts
     /\ UNCHANGED <<poolV, armO, armSg, armAtt, armId, cancels, runWait, runFor, fireId, nCancels, nUnready, ct, rp, histV>>
 
-\* @code src/main/turn-resume.ts:482-488 sync(): deriveMarkers writes the marker file (awaitingConnection wins, then Stop, then running)
+\* @code src/main/turn-resume.ts:491-497 sync(): deriveMarkers writes the marker file (awaitingConnection wins, then Stop, then running)
 S_Marker ==
     /\ pc = "s_marker"
     /\ store' = [store EXCEPT ![ct] =
@@ -293,7 +333,7 @@ S_Marker ==
 ----------------------------------------------------------------------------
 \* ===== TurnResume continuations =====
 
-\* @code src/main/turn-resume.ts:573-596 the probe answered: Stop/Cancel/new run/session change ended it, else hold (unreachable) or plan a retry
+\* @code src/main/turn-resume.ts:583-606 the probe answered: Stop/Cancel/new run/session change ended it, else hold (unreachable) or plan a retry
 VerifyThen(t, o, reachable) ==
     /\ pc = "idle" /\ <<t, o, reachable>> \in vRes
     /\ vRes' = vRes \ {<<t, o, reachable>>}
@@ -320,8 +360,8 @@ VerifyThen(t, o, reachable) ==
                                runWait, runFor, fireId, nCancels, nUnready, rp, histV>>
     /\ UNCHANGED <<poolV, vN, vLink0, vW, online, recovering, probingM, timer, link, defOK, hostOK, aLink, flaps>>
 
-\* @code src/main/turn-resume.ts:642-647 #planRetry's continuation after `await #stockRetryOn`; #arm shows the row and starts the timer
-\* @code src/main/turn-resume.ts:650-667 #arm
+\* @code src/main/turn-resume.ts:652-657 #planRetry's continuation after `await #stockRetryOn`; #arm shows the row and starts the timer
+\* @code src/main/turn-resume.ts:660-677 #arm
 PlanResume(t, o, gen, used) ==
     /\ pc = "idle" /\ <<t, o, gen, used>> \in planning
     /\ planning' = planning \ {<<t, o, gen, used>>}
@@ -334,7 +374,7 @@ PlanResume(t, o, gen, used) ==
     /\ UNCHANGED <<poolV, awaiting, waiting, waitFor, wsg, probing, psg, cancels, attempts, own, judged, runWait, runFor, fireId,
                    nCancels, nUnready, monV, ctlV, histV>>
 
-\* @code src/main/turn-resume.ts:691-698 #fire: the timer ran; re-check everything before asking stock's retry setting
+\* @code src/main/turn-resume.ts:701-708 #fire: the timer ran; re-check everything before asking stock's retry setting
 FireStart(t) ==
     /\ pc = "idle" /\ armO[t] # 0 /\ fireId[t] < 0
     /\ IF run[t] = "idle" /\ HoldsArm(t)
@@ -347,8 +387,8 @@ FireStart(t) ==
     /\ UNCHANGED <<poolV, awaiting, waiting, waitFor, wsg, probing, psg, armSg, armAtt, armId, planning, own, judged, runWait, runFor,
                    nCancels, nUnready, monV, ctlV, histV>>
 
-\* @code src/main/turn-resume.ts:697-715 #fire after `await #stockRetryOn`: re-check, release the row, then hold and sync() (offline) or run
-\* @code src/main/turn-resume.ts:755-759 #hold: the wait records the armed retry's session and branch
+\* @code src/main/turn-resume.ts:707-725 #fire after `await #stockRetryOn`: re-check, release the row, then hold and sync() (offline) or #run for the armed session (online)
+\* @code src/main/turn-resume.ts:765-769 #hold: the wait records the armed retry's session and branch
 FireResume(t) ==
     /\ pc = "idle" /\ fireId[t] >= 0
     /\ fireId' = [fireId EXCEPT ![t] = -1]
@@ -364,17 +404,18 @@ FireResume(t) ==
                           /\ awaiting' = [awaiting EXCEPT ![t] = TRUE]
                           /\ UNCHANGED <<runWait, runFor, retryIn, sentFor, bad1, bad2, bad2h>>
                           /\ pc' = "s_watch" /\ ct' = t /\ rp' = rp        \* the sync() after #hold in #fire
-                     ELSE /\ UNCHANGED <<waiting, waitFor, wsg, awaiting, ctlV>>
+                     ELSE /\ UNCHANGED <<waiting, waitFor, awaiting, ctlV>>
                           /\ \/ /\ ready                                  \* whenReady is a microtask: send in the same macrotask
                                    /\ retryIn' = [retryIn EXCEPT ![t] = TRUE]
                                    /\ sentFor' = sentFor \cup {armO[t]}
                                    /\ bad1' = (bad1 \/ UserLive(t))
                                    /\ bad2' = (bad2 \/ armO[t] \in calledOff)
                                    /\ bad2h' = (bad2h \/ armO[t] \in calledOffH)
-                                   /\ UNCHANGED <<runWait, runFor>>
+                                   /\ UNCHANGED <<runWait, runFor, wsg>>
                              \/ /\ ~ready
                                    /\ runWait' = [runWait EXCEPT ![t] = cancels[t]]
                                    /\ runFor' = [runFor EXCEPT ![t] = armO[t]]
+                                   /\ wsg' = [wsg EXCEPT ![t] = armSg[t]]  \* #run's `since`: the armed session
                                    /\ UNCHANGED <<retryIn, sentFor, bad1, bad2, bad2h>>
           ELSE /\ IF armO[t] # 0 /\ armId[t] = fireId[t]
                      THEN /\ cancels' = [cancels EXCEPT ![t] = cancels[t] + 1]    \* #dropScheduled
@@ -383,26 +424,29 @@ FireResume(t) ==
                      ELSE UNCHANGED <<cancels, armO, attempts>>
                /\ UNCHANGED <<own, waiting, waitFor, wsg, awaiting, runWait, runFor, retryIn, sentFor, bad1, bad2, bad2h, ctlV>>
     /\ UNCHANGED <<run, last, kindOf, stopped, sg, userRun, ready, nStarts, nO, store, probing, psg, armSg, armAtt, armId,
-                   planning, judged, nCancels, nUnready, monV, bad6, calledOff, calledOffH>>
+                   planning, judged, nCancels, nUnready, monV, bad6, calledOff, calledOffH, launched>>
 
-\* @code src/main/turn-resume.ts:774-785 flush(): every held tab leaves the wait and runs its continuation
-\* @code src/main/turn-resume.ts:787-805 #run: capture the cancel generation; with a ready sidecar the `retry` goes out in the same macrotask
+\* @code src/main/turn-resume.ts:782-793 flush(): every held tab leaves the wait and runs its continuation with the wait's `since`
+\* @code src/main/turn-resume.ts:795-805 #run: capture the cancel generation; a wait whose tab moved since is dropped (#movedSince), else with a ready sidecar the `retry` goes out in the same macrotask
 FlushStep ==
     /\ pc = "flush"
     /\ pc' = rp /\ rp' = "idle"
     /\ IF ~online
-          THEN UNCHANGED <<waiting, awaiting, runWait, runFor, retryIn, sentFor, bad1, bad2, bad2h>>
-          ELSE /\ waiting' = [t \in Tabs |-> FALSE]
-               /\ awaiting' = [t \in Tabs |-> IF waiting[t] THEN FALSE ELSE awaiting[t]]
-               /\ runWait' = [t \in Tabs |-> IF waiting[t] /\ ~ready THEN cancels[t] ELSE runWait[t]]
-               /\ runFor' = [t \in Tabs |-> IF waiting[t] /\ ~ready THEN waitFor[t] ELSE runFor[t]]
-               /\ retryIn' = [t \in Tabs |-> IF waiting[t] /\ ready THEN TRUE ELSE retryIn[t]]
-               /\ sentFor' = sentFor \cup {waitFor[t] : t \in {u \in Tabs : waiting[u] /\ ready}}
-               /\ bad1' = (bad1 \/ \E t \in Tabs : waiting[t] /\ ready /\ UserLive(t))
-               /\ bad2' = (bad2 \/ \E t \in Tabs : waiting[t] /\ ready /\ waitFor[t] \in calledOff)
-               /\ bad2h' = (bad2h \/ \E t \in Tabs : waiting[t] /\ ready /\ waitFor[t] \in calledOffH)
-    /\ UNCHANGED <<run, last, kindOf, stopped, sg, userRun, ready, nStarts, nO, store, waitFor, wsg, probing, psg, armO, armSg, armAtt, armId, planning, cancels, attempts, own, judged,
-                   fireId, nCancels, nUnready, monV, ct, bad6, calledOff, calledOffH>>
+          THEN UNCHANGED <<waiting, awaiting, cancels, runWait, runFor, retryIn, sentFor, bad1, bad2, bad2h>>
+          ELSE LET moved == {t \in Tabs : waiting[t] /\ Moved(t)}                \* the re-check when the wait lets go
+                   go == {t \in Tabs : waiting[t] /\ t \notin moved}
+               IN /\ waiting' = [t \in Tabs |-> FALSE]
+                  /\ awaiting' = [t \in Tabs |-> IF waiting[t] THEN FALSE ELSE awaiting[t]]
+                  /\ cancels' = [t \in Tabs |-> IF t \in moved THEN cancels[t] + 1 ELSE cancels[t]]
+                  /\ runWait' = [t \in Tabs |-> IF t \in go /\ ~ready THEN cancels[t] ELSE runWait[t]]
+                  /\ runFor' = [t \in Tabs |-> IF t \in go /\ ~ready THEN waitFor[t] ELSE runFor[t]]
+                  /\ retryIn' = [t \in Tabs |-> IF t \in go /\ ready THEN TRUE ELSE retryIn[t]]
+                  /\ sentFor' = sentFor \cup {waitFor[t] : t \in {u \in go : ready}}
+                  /\ bad1' = (bad1 \/ \E t \in go : ready /\ UserLive(t))
+                  /\ bad2' = (bad2 \/ \E t \in go : ready /\ waitFor[t] \in calledOff)
+                  /\ bad2h' = (bad2h \/ \E t \in go : ready /\ waitFor[t] \in calledOffH)
+    /\ UNCHANGED <<run, last, kindOf, stopped, sg, userRun, ready, nStarts, nO, store, waitFor, wsg, probing, psg, armO, armSg, armAtt, armId, planning, attempts, own, judged,
+                   fireId, nCancels, nUnready, monV, ct, bad6, calledOff, calledOffH, launched>>
 
 ----------------------------------------------------------------------------
 \* ===== ConnectivityMonitor =====
@@ -420,7 +464,7 @@ MProbeDone ==
           /\ timer' = (timer \/ (goOff /\ ~probingM))
           /\ bad6' = (bad6 \/ (goOff /\ vLink0 /\ (defOK \/ hostOK)))
     /\ vW' = {} /\ vN' = 0
-    /\ UNCHANGED <<poolV, resV, probingM, vLink0, link, defOK, hostOK, aLink, flaps, ctlV, bad1, bad2, bad2h, sentFor, calledOff, calledOffH>>
+    /\ UNCHANGED <<poolV, resV, probingM, vLink0, link, defOK, hostOK, aLink, flaps, ctlV, bad1, bad2, bad2h, sentFor, calledOff, calledOffH, launched>>
 
 \* @code src/main/connectivity.ts:159-165 #attempt starts: one recovery probe at a time
 TimerFire ==
@@ -481,11 +525,13 @@ Quiescent ==
     /\ \A t \in Tabs : ~awaiting[t] /\ ~waiting[t] /\ probing[t] = 0 /\ runWait[t] < 0 /\ fireId[t] < 0 /\ ~retryIn[t]
 Terminated == Quiescent /\ UNCHANGED vars
 
-Next == \/ \E t \in Tabs, k \in Kinds : EndRun(t, k)
+Next == \/ \E t \in Tabs : Launch(t)
+        \/ \E t \in Tabs, k \in Kinds : EndRun(t, k)
         \/ \E t \in Tabs : UserPrompt(t)
         \/ \E t \in Tabs : Settle(t)
         \/ \E t \in Tabs : UserStop(t)
         \/ \E t \in Tabs : SessionChange(t)
+        \/ \E t \in Tabs : FileMoved(t)
         \/ \E t \in Tabs : Cancel(t)
         \/ S_Watch \/ S_NewRun \/ S_Judge \/ S_Marker
         \/ FlushStep
@@ -543,4 +589,5 @@ NeverWaits == \A t \in Tabs : ~waiting[t]
 NeverRetries == sentFor = {}
 NeverArmed == \A t \in Tabs : armO[t] = 0
 NeverProbing == \A t \in Tabs : probing[t] = 0
+NeverLaunchWaits == ~(\E t \in Tabs : waiting[t] /\ waitFor[t] = LaunchO)
 =============================================================================

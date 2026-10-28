@@ -54,10 +54,37 @@
 		},
 		{
 			"name": "held-wait-ignores-session-change",
-			"why": "F4 as it was: #judge stops ending a held wait when `touched` or the session file moved (#movedSince), so flush retries the failed turn into the session the tab shows now.",
+			"why": "F4 as it was: #movedSince never sees a move, so neither #judge, flush nor the continuation after whenReady ends the wait, and flush retries the failed turn into the session the tab shows now.",
 			"file": "TurnResume.tla",
-			"search": "movedWhileHeld == waiting[t] /\\ sg[t] # wsg[t]",
-			"replace": "movedWhileHeld == FALSE",
+			"search": "Moved(t) == sg[t] > wsg[t]",
+			"replace": "Moved(t) == FALSE",
+			"breaks": "NoRetryAfterSessionChangeWhileHeld",
+			"config": "MC_held.cfg"
+		},
+		{
+			"name": "flush-skips-recheck",
+			"why": "Review M1: flush() runs a held wait without looking again; a move no sync() saw (a paired device's switch on an idle tab) retries into the new session.",
+			"file": "TurnResume.tla",
+			"search": "moved == {t \\in Tabs : waiting[t] /\\ Moved(t)}",
+			"replace": "moved == {}",
+			"breaks": "NoRetryAfterSessionChangeWhileHeld",
+			"config": "MC_held.cfg"
+		},
+		{
+			"name": "ready-skips-recheck",
+			"why": "Review minor 2: #run sends once the omp is up without looking again; a move while the omp started (after flush, or after a scheduled retry fired) retries into the new session.",
+			"file": "TurnResume.tla",
+			"search": "cancels[t] = runWait[t] /\\ ~Moved(t)}",
+			"replace": "cancels[t] = runWait[t]}",
+			"breaks": "NoRetryAfterCallOff",
+			"config": "MC_p2.cfg"
+		},
+		{
+			"name": "launch-hold-records-no-session",
+			"why": "launch() as it was: the relaunch's offline wait records no session or branch (wsg at the bound, so no later change counts), and flush continues the marker into the session the tab shows now.",
+			"file": "TurnResume.tla",
+			"search": "/\\ wsg' = [wsg EXCEPT ![t] = sg[t]]                \\* launch(): HeldWait.since",
+			"replace": "/\\ wsg' = [wsg EXCEPT ![t] = MaxSess]",
 			"breaks": "NoRetryAfterSessionChangeWhileHeld",
 			"config": "MC_held.cfg"
 		},

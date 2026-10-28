@@ -14,7 +14,9 @@
 				"src/main/turn-resume.ts",
 				"src/main/connectivity.ts",
 				"src/main/sidecar-run-state.ts",
-				"src/main/sidecar-pool.ts"
+				"src/main/sidecar-pool.ts",
+				"src/main/remote/host-services.ts",
+				"src/main/ipc.ts"
 			],
 			"syncCommit": "3ba7f88beee0f054e51726b32310a558b59a982c",
 			"verifySkill": ".omp/skills/turn-resume-verify/SKILL.md"

@@ -244,6 +244,7 @@ function hostServices(bin: string, workDir: string, raw: RawTap): LocalHostServi
 			allSidecars: () => [],
 			viewForDevice: () => null,
 			stopSession: async () => {},
+			noteTouched: () => {},
 		},
 		trashItem: async () => {},
 	});

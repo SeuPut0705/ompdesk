@@ -2061,7 +2061,8 @@ export class SidecarPool {
 		const changed = entry.sessionFile !== sessionFile;
 		if (changed) this.#dropSessionOwner(entry);
 		entry.sessionFile = sessionFile;
-		if (changed && entry.run.running) this.onRunningChange?.();
+		// A run's file, and a held wait's: its continuation must not go into another session (turn-resume.ts #movedSince).
+		if (changed && (entry.run.running || entry.awaitingConnection)) this.onRunningChange?.();
 		this.#sessionOwners.set(ownerKey(entry.device, sessionFile), { tabId: entry.tabId, winId: entry.winId });
 		if (changed) this.onSessionFilesChanged?.();
 	}
@@ -2071,6 +2072,8 @@ export class SidecarPool {
 		if (entry.sessionFile === undefined) return;
 		this.#dropSessionOwner(entry);
 		this.onSessionFilesChanged?.();
+		// A session-id change lets the held wait's file go (another session), as a switch does.
+		if (entry.awaitingConnection) this.onRunningChange?.();
 	}
 
 	/** Drop the entry's file→owner mapping when it still points at this entry. */

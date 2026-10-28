@@ -102,7 +102,7 @@ import { MAX_FORMER_TAB_IDS } from "../tab-layout";
 import { sessionFolderState } from "../tab-spawn";
 import { disposeTerminals, terminalRequest } from "../terminal/requests";
 import { detectShells } from "../terminal/shells";
-import type { ResumeFact, ResumeMarker, TurnResume } from "../turn-resume";
+import { movesTab, type ResumeFact, type ResumeMarker, type TurnResume } from "../turn-resume";
 import { dispatchedCommand, recordTurnStop, STOP_COMMANDS } from "../turn-stop-log";
 import { UploadError, type UploadStore } from "../web/uploads";
 import {
@@ -245,6 +245,7 @@ export interface HostServicesDeps {
 		| "viewForDevice"
 		| "stopSession"
 		| "windowSessionFiles"
+		| "noteTouched"
 	>;
 	/** Moves a path to this machine's trash (Electron `shell.trashItem`). */
 	trashItem: (abs: string) => Promise<void>;
@@ -311,6 +312,8 @@ interface HostTab extends RunTracking {
 	hostCalls: Map<string, PendingHostCall>;
 	/** The turn waits for this computer's internet connection (turn-resume.ts; a view's, its window tab's). */
 	awaitingConnection?: boolean;
+	/** Times the device moved this tab to another session or branch (`movesTab`): a held wait of the old one ends. */
+	touched?: number;
 	/** A view of a window's tab: the retry this computer scheduled for that tab's failed turn (turn-resume.ts). */
 	scheduledRetry?: IpcScheduledRetry;
 	/** Provider ids of the `login` commands running on this tab (a device's sign-in, even if its link dropped). */
@@ -712,6 +715,7 @@ export class LocalHostServices implements HostServices {
 				awaitingConnection: tab.awaitingConnection === true,
 			};
 			if (tab.sessionFile) fact.sessionFile = tab.sessionFile;
+			if (tab.touched) fact.touched = tab.touched;
 			if (tab.lastRun) fact.lastRun = tab.lastRun;
 			if (tab.retry) fact.retry = tab.retry;
 			return [fact];
@@ -1675,7 +1679,8 @@ export class LocalHostServices implements HostServices {
 					sidecar.on(name, (identity: SidecarSessionIdentity) => {
 						const changed = tab.sessionFile !== identity.sessionFile;
 						tab.sessionFile = identity.sessionFile;
-						if (changed && tab.run.running) this.#resume?.sync();
+						// A run's file, and a held wait's: the wait's continuation must not go into another session.
+						if (changed && (tab.run.running || tab.awaitingConnection)) this.#resume?.sync();
 						this.#emit(tab, name, identity);
 						if (changed) this.#dedupe(tab);
 						if (changed) this.listingChanged();
@@ -1926,6 +1931,9 @@ export class LocalHostServices implements HostServices {
 		});
 		// The user's Stop: nothing continues this turn after a crash (ipc.ts does the same for a local tab).
 		if (STOP_COMMANDS[command.type]) this.noteStopped(tab.resumeId);
+		// A view's moves are its window tab's (the pool counts them, ipc.ts as for a window's own); found by the file it
+		// shows before the command can change it.
+		const viewed = tab.viewsWindow && tab.sessionFile ? this.#deps.localTabs.sessionOwner(tab.sessionFile) : null;
 		// A provider sign-in runs here whether or not the device keeps its link: the device is told what is
 		// in flight (`signIn`), so its re-sent code paste is the login panel's while it runs.
 		const login = command.type === "login" ? command.providerId : null;
@@ -1943,6 +1951,14 @@ export class LocalHostServices implements HostServices {
 					)
 				: await this.#run(tab, client, command, params.timeoutMs);
 			if (!response.success) signInError = response.error ?? "";
+			// The device moved the tab to another session or branch: a connection wait of the old one ends (turn-resume.ts).
+			if (movesTab(command.type, response)) {
+				if (viewed) this.#deps.localTabs.noteTouched(viewed.tabId);
+				else if (!tab.viewsWindow) {
+					tab.touched = (tab.touched ?? 0) + 1;
+					this.#resume?.sync();
+				}
+			}
 			if (response.success) {
 				const read = encodedReadKey(command as { type: string });
 				if (read) return this.#encodedRead(tab, read, response, params.fresh);

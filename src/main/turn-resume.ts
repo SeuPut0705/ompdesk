@@ -75,8 +75,8 @@ export interface ResumeFact {
 	/** Stock's auto-retry saga waiting for its next attempt (one object per `auto_retry_start`), with the failure it retries. */
 	retry?: { errorMessage: string };
 	/**
-	 * How often the user edited the tab's session since it opened (`TOUCH_COMMANDS`, bumped by main's
-	 * command path); a scheduled retry that was armed at another count is called off. Absent on a hosted tab.
+	 * How often the tab moved to another session or branch since it opened (`movesTab`: main's command path for a window's
+	 * tab, the host's for a device's); a scheduled retry armed, or a connection wait held, at another count is called off.
 	 */
 	touched?: number;
 	/** The run's prompt while the new session has no file yet (see {@link ResumeMarker.prompt}). */
@@ -139,15 +139,24 @@ export function launchAction(marker: ResumeMarker): ResumeAction {
 /**
  * Commands that change which session, or which branch of it, a tab shows (RPC command types): a
  * scheduled retry belongs to the failed turn it was armed for, so after one of these it is called off.
+ * `fork_from` ("Branch from here") is none: it writes a new session for another window and leaves this tab on its own.
  */
 export const TOUCH_COMMANDS: Record<string, true> = {
 	new_session: true,
 	switch_session: true,
 	fork: true,
-	fork_from: true,
 	branch: true,
 	switch_leaf: true,
 };
+
+/** Whether a command's answer moved its tab to another session or branch: a `TOUCH_COMMANDS` one that worked and was not cancelled. */
+export function movesTab(type: string, response: RpcResponse): boolean {
+	return (
+		TOUCH_COMMANDS[type] === true &&
+		response.success &&
+		(response.data as { cancelled?: boolean } | undefined)?.cancelled !== true
+	);
+}
 
 /**
  * A provider/transport failure rather than the model's or the account's. A
@@ -405,16 +414,16 @@ interface ArmedRetry extends IpcScheduledRetry {
 	cancelTimer: () => void;
 }
 
-/** The session and branch a failed turn's connection wait holds for (`#movedSince`). */
+/** The session and branch a connection wait holds for (`#movedSince`). */
 interface HeldFor {
 	sessionFile?: string | undefined;
 	touched: number;
 }
 
-/** A tab's held continuation: what runs once online, and, for a failed turn of this process, what it was held for (a launch's wait records none). */
+/** A tab's held continuation: what runs once online, and what it was held for. */
 interface HeldWait {
 	action: ResumeAction;
-	since?: HeldFor | undefined;
+	since: HeldFor;
 }
 
 export class TurnResume {
@@ -522,10 +531,11 @@ export class TurnResume {
 		}
 		// Stop while the probe runs: the row goes now, not when the probe answers.
 		if (fact.stopped && this.#probing.has(fact.tabId)) this.#dropWait(fact.tabId);
-		// Another session or branch on a held tab: the wait belonged to the failed turn it left, so it ends as a probe
-		// or a scheduled retry does on the same change, and nothing retries into what the tab shows now.
+		// Another session or branch on a held tab: the wait belonged to the turn it left (a failed one, or the one a
+		// relaunch continues), so it ends as a probe or a scheduled retry does on the same change, and nothing
+		// continues into what the tab shows now.
 		const held = this.#waiting.get(fact.tabId);
-		if (held && this.#movedSince(fact, held)) this.#dropWait(fact.tabId);
+		if (held && this.#movedSince(fact, held.since)) this.#dropWait(fact.tabId);
 		this.#takeOverRetry(fact);
 		// The outcome is the run's final one (main sets it at the last end event), even while
 		// background work keeps the session unsettled: judging it now puts the wait on screen
@@ -707,8 +717,8 @@ export class TurnResume {
 			this.sync();
 			return;
 		}
-		// Stock has nothing to retry (or the call failed): the chain is over.
-		if (!(await this.#run(tabId, "retry"))) {
+		// Stock has nothing to retry (or the call failed): the chain is over. A move while its omp comes up calls it off.
+		if (!(await this.#run(tabId, "retry", { sessionFile: armed.sessionFile, touched: armed.touched }))) {
 			this.#ownRetries.delete(tabId);
 			this.#attempts.delete(tabId);
 		}
@@ -752,7 +762,7 @@ export class TurnResume {
 			.catch(() => undefined);
 	}
 
-	#hold(tabId: string, action: ResumeAction, since?: HeldFor): void {
+	#hold(tabId: string, action: ResumeAction, since: HeldFor): void {
 		this.#waiting.set(tabId, { action, since });
 		this.#deps.pool.setAwaitingConnection(tabId, true);
 		if (this.#deps.network.online) void this.flush();
@@ -763,9 +773,7 @@ export class TurnResume {
 	 * or the session file it was held on is no longer the tab's. A file written after the hold (a first turn stock had
 	 * not saved yet) is the same conversation, not a change.
 	 */
-	#movedSince(fact: ResumeFact, wait: HeldWait): boolean {
-		const since = wait.since;
-		if (!since) return false;
+	#movedSince(fact: ResumeFact, since: HeldFor): boolean {
 		if ((fact.touched ?? 0) !== since.touched) return true;
 		return since.sessionFile !== undefined && fact.sessionFile !== since.sessionFile;
 	}
@@ -776,20 +784,30 @@ export class TurnResume {
 		const held = [...this.#waiting];
 		this.#waiting.clear();
 		await Promise.all(
-			held.map(async ([tabId, { action }]) => {
+			held.map(async ([tabId, { action, since }]) => {
 				this.#takenOverRuns.delete(tabId);
 				this.#deps.pool.setAwaitingConnection(tabId, false);
-				await this.#run(tabId, action);
+				await this.#run(tabId, action, since);
 			}),
 		);
 	}
 
-	async #run(tabId: string, action: ResumeAction): Promise<boolean> {
+	async #run(tabId: string, action: ResumeAction, since?: HeldFor): Promise<boolean> {
 		const generation = this.#cancels.get(tabId) ?? 0;
 		const cancelled = () => (this.#cancels.get(tabId) ?? 0) !== generation;
-		const sidecar = this.#deps.pool.startTab(tabId);
-		if (!sidecar || !(await whenReady(sidecar)) || cancelled()) {
-			this.#deps.log?.("continue", { tab: tabId, action, ready: false, cancelled: cancelled() });
+		// A continuation held for one session and branch (a connection wait's, a fired scheduled retry's, a relaunch's)
+		// looks again when it starts and once the tab's omp is up: a change no sync() saw (a paired device's switch on an
+		// idle tab) or one made while the omp started ends it as #judge would.
+		const moved = (): boolean => {
+			const fact = since && this.#factFor(tabId);
+			return since !== undefined && fact !== undefined && this.#movedSince(fact, since);
+		};
+		if (moved()) this.#dropWait(tabId);
+		const sidecar = cancelled() ? null : this.#deps.pool.startTab(tabId);
+		const ready = sidecar ? await whenReady(sidecar) : false;
+		if (ready && moved()) this.#dropWait(tabId);
+		if (!sidecar || !ready || cancelled()) {
+			this.#deps.log?.("continue", { tab: tabId, action, ready, cancelled: cancelled() });
 			this.#pending.delete(tabId);
 			this.#deps.goalSettled?.(tabId, cancelled() ? "cancelled" : "none");
 			this.sync();
@@ -972,8 +990,17 @@ export class TurnResume {
 		const rank = (tabId: string) => this.#deps.pool.resumeRank?.(tabId) ?? 0;
 		resumable.sort((a, b) => rank(a.tabId) - rank(b.tabId));
 		for (const { tabId, action } of resumable) {
-			if (this.#deps.network.shouldWait()) this.#hold(tabId, action);
-			else void this.#run(tabId, action);
+			if (!this.#deps.network.shouldWait()) {
+				void this.#run(tabId, action);
+				continue;
+			}
+			// The wait holds for the session the tab shows now (the marker's file; none yet for a first turn stock never
+			// wrote), so a session or branch change before the connection is back ends it as it ends a failed turn's.
+			const fact = this.#factFor(tabId);
+			this.#hold(tabId, action, {
+				sessionFile: fact ? fact.sessionFile : this.#pending.get(tabId)?.sessionPath,
+				touched: fact?.touched ?? 0,
+			});
 		}
 	}
 

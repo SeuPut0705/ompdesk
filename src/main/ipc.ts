@@ -185,7 +185,7 @@ import { formatTerminalRead, TERMINAL_READ_TOOL } from "./terminal/agent-tool";
 import { closeTabTerminals, readTabTerminals, registerTerminalIpc } from "./terminal/ipc";
 import { setTrayState } from "./tray";
 import { aggregateProgress, aggregateTrayStatus } from "./tray-labels";
-import { type RelaunchContinuation, TOUCH_COMMANDS } from "./turn-resume";
+import { movesTab, type RelaunchContinuation } from "./turn-resume";
 import { dispatchedCommand, STOP_COMMANDS } from "./turn-stop-log";
 import { appVersion } from "./updater";
 import { type ClientWindow, isWebWindow } from "./web/client-window";
@@ -926,8 +926,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			// ■ on an autopilot run stops its running children too.
 			void autopilot.aborted(issuerTabId);
 		}
-		// The user is moving the tab to another session or branch: a scheduled retry of its old failure is off.
-		if (issuerTabId && TOUCH_COMMANDS[cmd.type]) sidecarPool.noteTouched(issuerTabId);
 		// What the person typed makes a new session one: it gets its sidebar row now, not at the run's start.
 		if (issuerTabId && TYPED_COMMANDS.has(cmd.type)) sidecarPool.noteUnstarted(issuerTabId, false);
 		// A provider sign-in's own requests belong to its login panel, also for a page that reloads before
@@ -1000,6 +998,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					}
 				}
 			}
+			// The tab moved to another session or branch (a cancelled or failed command moved nothing): a connection wait
+			// or a scheduled retry of its old failure is off.
+			if (issuerTabId && movesTab(cmd.type, response)) sidecarPool.noteTouched(issuerTabId);
 			if (issuerTabId && response.success && MODE_TOGGLE_COMMANDS[cmd.type]) {
 				sidecarPool.noteModeChanged(issuerTabId, win.webContents.id);
 			}

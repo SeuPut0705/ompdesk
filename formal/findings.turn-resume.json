@@ -2,8 +2,8 @@
 	"concern": "turn-resume",
 	"workflow": "W1",
 	"generated_at": "2026-10-28T09:45:00.000Z",
-	"repo_commit": "1cc0239708a810cbdc1683f5be194b968caaea87",
-	"summary": "4 findings for the connection wait of a failed turn: 2 confirmed by failing tests and now fixed (F1: a scheduled retry that fired offline left no `network` marker; F4: a session change while a wait held did not end it), 1 refuted model error (F2); on the fixed code all 8 properties plus both liveness properties hold for 1 tab, 2 runs, 2 attempts, 1 network flap (1.4M states, depth 76; 5.1M states with 2 flaps), and every property but the TypeOK shape check has a mutation that fails it (12 of 12 DETECTED, including the two bugs as mutations).",
+	"repo_commit": "32a3c4b1d8fd3a7d75c01bfea1827cb783cd007a",
+	"summary": "4 findings for the connection wait of a failed turn: 2 confirmed by failing tests and now fixed (F1: a scheduled retry that fired offline left no `network` marker; F4: a session change while a wait held did not end it, closed with a follow-up for the relaunch's wait, device paths and the continuation's own re-check), 1 refuted model error (F2); on the fixed code all 8 properties plus both liveness properties hold for 1 tab, 2 runs, 2 attempts, 1 network flap, 1 session move, one relaunch (2.8M states, depth 74; 14.5M states with 2 flaps), and every property but the TypeOK shape check has a mutation that fails it (15 of 15 DETECTED, including the bugs as mutations).",
 	"scope": {
 		"modeled": [
 			"TurnResume sync/#judge/#verifyNetwork/#hold/flush/#run/#planRetry/#arm/#fire/cancelWait/#dropWait and the marker file (deriveMarkers)",
@@ -17,7 +17,7 @@
 			"the retry RPC is one atomic send"
 		],
 		"out_of_scope": [
-			"launch markers and the relaunch continuation, stock auto-retry takeover, the wake window, hosted tabs, quit freeze, tab close, retry.enabled toggling",
+			"an online launch's continuation and the rest of the relaunch past its offline wait, stock auto-retry takeover, the wake window, hosted tabs, quit freeze, tab close, retry.enabled toggling",
 			"the duration of the retry RPC (a user prompt while it is in flight is stock's), two tabs at once, attempt counts above 2"
 		],
 		"assumptions": [
@@ -597,8 +597,8 @@
 				"result_after_fix": "passes"
 			},
 			"fix": {
-				"summary": "The user's call: the held wait follows the probe and the scheduled retry. #hold records what the wait holds for (HeldWait.since: session file and touched, from the failed fact, the probe or the armed retry) and #judge ends a wait whose tab moved (#movedSince: touched differs, or the recorded session file is not the tab's) with #dropWait (turn-resume.ts:525-528, 755-771). A launch's wait records none. Model: wsg and movedWhileHeld in S_NewRun; the bug is the mutation held-wait-ignores-session-change.",
-				"commit": "3ba7f88be",
+				"summary": "The user's call: the held wait follows the probe and the scheduled retry. #hold records what the wait holds for (HeldWait.since: session file and touched, from the failed fact, the probe, the armed retry or, since the follow-up, the relaunch's tab) and #judge ends a wait whose tab moved (#movedSince: touched differs, or the recorded session file is not the tab's) with #dropWait. Follow-up after the review of 3ba7f88be: the continuation re-checks too (flush hands `since` to #run, which looks before it starts the omp and once the omp is up; a fired scheduled retry's #run carries the armed session), a held tab's file move syncs the rules with no turn running (pool and host), a paired device's moves count (hosted tab's own touched; a view bumps its window tab's), `touched` counts only a move that worked (movesTab, after the response), and fork_from is no move. Model: wsg, Moved in S_NewRun/FlushStep/Boot, Launch and FileMoved; the bugs are the mutations held-wait-ignores-session-change, launch-hold-records-no-session, flush-skips-recheck and ready-skips-recheck.",
+				"commit": "3ba7f88be (follow-up: <commit>)",
 				"model_recheck": "passes",
 				"mutation_check": "fails-as-expected"
 			},
@@ -607,7 +607,9 @@
 				"formal/turn-resume/evidence/F4-trace.json",
 				"formal/turn-resume/evidence/repro-F1-F4-vitest-fail.log",
 				"formal/turn-resume/evidence/repro-after-fix-vitest-pass.log",
-				"formal/evidence/verify-all-after-fixes.log"
+				"formal/evidence/verify-all-after-fixes.log",
+				"formal/turn-resume/evidence/repro-followup-vitest.log",
+				"formal/evidence/verify-all-followup.log"
 			]
 		},
 		{
@@ -630,17 +632,17 @@
 	"trust_base": {
 		"tla": {
 			"tool_version": "TLC 1.8.0 (tla2tools 1.8.0), java 17",
-			"states_generated": 2047373,
-			"distinct_states": 1401515,
-			"depth": 76,
+			"states_generated": 4081552,
+			"distinct_states": 2829970,
+			"depth": 74,
 			"sanity_checks": [
 				"before the fixes: MC_marker.cfg (FireSyncs=FALSE) violated MarkerNetwork and MC_held.cfg violated NoRetryAfterSessionChangeWhileHeld (TurnResume-MC_marker.log, TurnResume-MC_held.log); after them MC.cfg holds every invariant including both",
-				"both bugs are kept as mutations and DETECTED on the fixed model: fire-hold-without-sync fails MarkerNetwork, held-wait-ignores-session-change fails NoRetryAfterSessionChangeWhileHeld",
-				"NeverWaits, NeverRetries, NeverArmed, NeverProbing are violated, so a wait, a retry, an armed retry and a probe row are reachable",
-				"mutate.ts: 12 of 12 mutations DETECTED, no property UNCOVERED, only TypeOK waived (shape check)",
+				"the bugs are kept as mutations and DETECTED on the fixed model: fire-hold-without-sync fails MarkerNetwork; held-wait-ignores-session-change, launch-hold-records-no-session and flush-skips-recheck fail NoRetryAfterSessionChangeWhileHeld; ready-skips-recheck fails NoRetryAfterCallOff",
+				"NeverWaits, NeverRetries, NeverArmed, NeverProbing, NeverLaunchWaits are violated, so a wait, a retry, an armed retry, a probe row and a relaunch's wait are reachable",
+				"mutate.ts: 15 of 15 mutations DETECTED, no property UNCOVERED, only TypeOK waived (shape check)",
 				"one equivalent mutant kept as evidence, not in the set: dropping the sync() after #hold in #verifyNetwork's continuation is MISSED because the marker already says `network` since the probe row (formal/turn-resume/evidence/equivalent-mutant-verify-hold-without-sync.log)",
 				"deadlock checking is ON in every safety run (an explicit Terminated action exists), so a state with a stuck wait that is not quiescent is reported",
-				"deep run (MaxFlaps=2): 5125942 distinct states, depth 78, all invariants hold",
+				"deep run (MaxFlaps=2): 14470188 distinct states, depth 81, all invariants hold",
 				"scratch break (persist step A.5, before the fixes): dropping the session and touched checks from #verifyNetwork's continuation in turn-resume.ts and from the model's `holds` made `verify-all.ts formal --only turn-resume` FAIL on NoRetryAfterCallOff with the last rows tagged turn-resume.ts:557-580 and the drift line naming src/main/turn-resume.ts (formal/turn-resume/evidence/scratch-break-run.log); after dropping both edits the run PASSES with --strict-drift (formal/turn-resume/evidence/scratch-dropped-rerun.log)"
 			]
 		}
@@ -654,6 +656,6 @@
 	"next_steps": [
 		"W4 candidates, not applied: the sync() after #hold in #verifyNetwork's continuation does not change the marker (equivalent mutant), kept for the other work sync() does",
 		"W5: add the fast tier (about 1 minute) to CI with verify-all.ts formal --strict-drift",
-		"Model two tabs at once (probe sharing across tabs) and the launch path (#pending markers; a launch's wait records no session, so a session change does not end it) as a second concern"
+		"Model two tabs at once (probe sharing across tabs) and the online launch's continuation (it records no session: the spawn may move the file) as a second concern"
 	]
 }

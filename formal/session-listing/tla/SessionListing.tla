@@ -75,16 +75,16 @@ Announce(f2, r2) ==
 ----------------------------------------------------------------------------
 \* ===== the host's tabs change: each handler ends by calling listingChanged() in the same synchronous block =====
 
-\* @code src/main/remote/host-services.ts:1589-1615 #createTab: the device's tab holds its session now; listingChanged()
+\* @code src/main/remote/host-services.ts:1593-1619 #createTab: the device's tab holds its session now; listingChanged()
 \* @code src/main/sidecar-pool.ts:657 a window tab acquired a session; #notifyWindowTabsChanged -> listingChanged
-\* @code src/main/sidecar-pool.ts:2058-2066 #registerSessionFile: a file taken calls onSessionFilesChanged -> listingChanged
+\* @code src/main/sidecar-pool.ts:2059-2068 #registerSessionFile: a file taken calls onSessionFilesChanged -> listingChanged
 Open(t, s) ==
     /\ file[t] = NoS /\ t \notin pendReg /\ nChanges < MaxChanges
     /\ LET f2 == [file EXCEPT ![t] = s] IN file' = f2 /\ Announce(f2, rec)
     /\ nChanges' = nChanges + 1
     /\ UNCHANGED <<pendReg, rec, req, ch, view, inFlight, queued, deb, nTicks>>
 
-\* @code src/main/remote/host-services.ts:2237-2265 #closeTab ... listingChanged()
+\* @code src/main/remote/host-services.ts:2253-2281 #closeTab ... listingChanged()
 \* @code src/main/sidecar-pool.ts:1799-1800 #releaseEntry; #notifyWindowTabsChanged -> listingChanged
 Close(t) ==
     /\ (file[t] # NoS \/ t \in pendReg) /\ nChanges < MaxChanges
@@ -93,7 +93,7 @@ Close(t) ==
     /\ nChanges' = nChanges + 1
     /\ UNCHANGED <<rec, req, ch, view, inFlight, queued, deb, nTicks>>
 
-\* @code src/main/remote/host-services.ts:1674-1681 'session' handler: tab.sessionFile = identity.sessionFile; listingChanged() when it changed
+\* @code src/main/remote/host-services.ts:1678-1686 'session' handler: tab.sessionFile = identity.sessionFile; listingChanged() when it changed
 \* @code src/main/sidecar-pool.ts:980-994 'session' handler of a window tab: register the file, notify when it changed
 Switch(t, s) ==
     /\ file[t] # NoS /\ file[t] # s /\ nChanges < MaxChanges
@@ -102,7 +102,7 @@ Switch(t, s) ==
     /\ UNCHANGED <<pendReg, rec, req, ch, view, inFlight, queued, deb, nTicks>>
 
 \* @code src/main/sidecar-pool.ts:958-970 sessionInfoUpdate with another sessionId unregisters the file (entry.sessionFile = undefined)
-\* @code src/main/sidecar-pool.ts:2068-2073 #unregisterSessionFile: the let-go calls onSessionFilesChanged
+\* @code src/main/sidecar-pool.ts:2070-2078 #unregisterSessionFile: the let-go calls onSessionFilesChanged
 \* @code src/main/index.ts:1014-1016 onSessionFilesChanged -> hostServices.listingChanged()
 IdChange(t) ==
     /\ t \in WinTabs /\ file[t] # NoS /\ nChanges < MaxChanges
@@ -120,7 +120,7 @@ Reregister(t, s) ==
     /\ UNCHANGED <<rec, req, ch, view, inFlight, queued, deb, nChanges, nTicks>>
 
 \* @code src/main/index.ts:900-909 sessionOpeners(): the closed-child record (AGENT_CLOSED_CHILDREN_PREF) appears or goes
-\* @code src/main/ipc.ts:1265 the pref changed: hostedTabs.listingChanged()
+\* @code src/main/ipc.ts:1266 the pref changed: hostedTabs.listingChanged()
 Record ==
     /\ nChanges < MaxChanges
     /\ rec' = ~rec
@@ -128,7 +128,7 @@ Record ==
     /\ nChanges' = nChanges + 1
     /\ UNCHANGED <<file, pendReg, req, ch, view, inFlight, queued, deb, nTicks>>
 
-\* @code src/main/remote/host-services.ts:1254-1261 sessionsChanged(): the session index moved (a journal write) or a child's review changed
+\* @code src/main/remote/host-services.ts:1258-1265 sessionsChanged(): the session index moved (a journal write) or a child's review changed
 Tick ==
     /\ nTicks < MaxTicks
     /\ evTimer' = TRUE /\ nTicks' = nTicks + 1
@@ -137,7 +137,7 @@ Tick ==
 ----------------------------------------------------------------------------
 \* ===== the host answers and announces =====
 
-\* @code src/main/remote/host-services.ts:996-1011 sessions.list: after `await sessionIndex.list`, read #listing(), record the snapshot and build the rows, in one block
+\* @code src/main/remote/host-services.ts:1000-1015 sessions.list: after `await sessionIndex.list`, read #listing(), record the snapshot and build the rows, in one block
 Compute(d) ==
     /\ req[d] /\ Len(ch[d]) < MaxCh
     /\ req' = [req EXCEPT ![d] = FALSE]
@@ -145,7 +145,7 @@ Compute(d) ==
     /\ snap' = Listing(file, rec)
     /\ UNCHANGED <<file, pendReg, rec, evTimer, view, inFlight, queued, deb, nChanges, nTicks>>
 
-\* @code src/main/remote/host-services.ts:1254-1261 the sessionsChanged() timer fires: every connected device hears SESSIONS_CHANGED
+\* @code src/main/remote/host-services.ts:1258-1265 the sessionsChanged() timer fires: every connected device hears SESSIONS_CHANGED
 Emit ==
     /\ evTimer /\ \A d \in Devices : Len(ch[d]) < MaxCh
     /\ evTimer' = FALSE
