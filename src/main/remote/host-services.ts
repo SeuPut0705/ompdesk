@@ -102,7 +102,14 @@ import { MAX_FORMER_TAB_IDS } from "../tab-layout";
 import { sessionFolderState } from "../tab-spawn";
 import { disposeTerminals, terminalRequest } from "../terminal/requests";
 import { detectShells } from "../terminal/shells";
-import { movesTab, type ResumeFact, type ResumeMarker, type TurnResume } from "../turn-resume";
+import {
+	MovesInFlight,
+	type MoveTracker,
+	type ResumeFact,
+	type ResumeMarker,
+	type TurnResume,
+	trackMove,
+} from "../turn-resume";
 import { dispatchedCommand, recordTurnStop, STOP_COMMANDS } from "../turn-stop-log";
 import { UploadError, type UploadStore } from "../web/uploads";
 import {
@@ -246,6 +253,7 @@ export interface HostServicesDeps {
 		| "stopSession"
 		| "windowSessionFiles"
 		| "noteTouched"
+		| "beginMove"
 	>;
 	/** Moves a path to this machine's trash (Electron `shell.trashItem`). */
 	trashItem: (abs: string) => Promise<void>;
@@ -491,6 +499,8 @@ export class LocalHostServices implements HostServices {
 	readonly #deps: HostServicesDeps;
 	readonly #graceMs: number;
 	readonly #tabs = new Map<string, HostTab>();
+	/** Moves a device's command has on its way, by `resumeId` (turn-resume.ts `trackMove`). */
+	readonly #moves = new MovesInFlight();
 	/** Files a device sends in parts (`host.files.uploadPart`), by device and upload id, until the last part lands. */
 	readonly #parts = new Map<string, { chunks: Buffer[]; bytes: number; next: number; timer?: NodeJS.Timeout }>();
 	/** Live connections that have talked to us; `sessions.changed` goes to each. */
@@ -744,6 +754,11 @@ export class LocalHostServices implements HostServices {
 		if (!tab) return;
 		tab.stopped = true;
 		this.#resume?.sync();
+	}
+
+	/** Resolves once no move of the hosted tab is on its way: its `touched` is final for the resume rules (`ResumePool.movesSettled`). */
+	movesSettled(id: string): Promise<void> {
+		return this.#moves.settled(id);
 	}
 
 	/** The tab this computer runs for `peerId` on `sessionPath`, if any. */
@@ -1941,24 +1956,34 @@ export class LocalHostServices implements HostServices {
 			throw codedError("login_in_progress", "A provider sign-in is already in progress in this tab");
 		if (login !== null) this.#noteSignIn(tab, login);
 		let signInError: string | null = null;
-		try {
-			const response = commandUsesModel(command)
-				? await this.#metered(
-						peer.deviceId,
-						1,
-						() => this.#run(tab, client, command, params.timeoutMs),
-						result => result.success,
-					)
-				: await this.#run(tab, client, command, params.timeoutMs);
-			if (!response.success) signInError = response.error ?? "";
-			// The device moved the tab to another session or branch: a connection wait of the old one ends (turn-resume.ts).
-			if (movesTab(command.type, response)) {
-				if (viewed) this.#deps.localTabs.noteTouched(viewed.tabId);
-				else if (!tab.viewsWindow) {
-					tab.touched = (tab.touched ?? 0) + 1;
-					this.#resume?.sync();
+		// A move is marked in flight until its answer was counted (a timeout too: omp may have moved), so a retry or
+		// connection wait of the old session never runs between its send and its answer (turn-resume.ts).
+		const tracker: MoveTracker | undefined = viewed
+			? {
+					begin: () => this.#deps.localTabs.beginMove(viewed.tabId),
+					moved: () => this.#deps.localTabs.noteTouched(viewed.tabId),
 				}
-			}
+			: tab.viewsWindow
+				? undefined
+				: {
+						begin: () => this.#moves.begin(tab.resumeId),
+						moved: () => {
+							tab.touched = (tab.touched ?? 0) + 1;
+							this.#resume?.sync();
+						},
+					};
+		try {
+			const response = await trackMove(command.type, tracker, () =>
+				commandUsesModel(command)
+					? this.#metered(
+							peer.deviceId,
+							1,
+							() => this.#run(tab, client, command, params.timeoutMs),
+							result => result.success,
+						)
+					: this.#run(tab, client, command, params.timeoutMs),
+			);
+			if (!response.success) signInError = response.error ?? "";
 			if (response.success) {
 				const read = encodedReadKey(command as { type: string });
 				if (read) return this.#encodedRead(tab, read, response, params.fresh);

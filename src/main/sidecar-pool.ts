@@ -132,7 +132,7 @@ import {
 	type PersistedTabLayout,
 	TAB_LAYOUT_VERSION,
 } from "./tab-layout";
-import type { ResumeFact } from "./turn-resume";
+import { MovesInFlight, type ResumeFact } from "./turn-resume";
 import { recordTurnStop } from "./turn-stop-log";
 import { type ClientWindow, isWebWindow } from "./web/client-window";
 import type { TabSpawnFacts } from "./worktree-lifecycle";
@@ -364,6 +364,8 @@ type WindowSplitView = NonNullable<IpcSetTabViewPayload["split"]>;
 export class SidecarPool {
 	#entries = new Set<PoolEntry>();
 	#byTabId = new Map<string, PoolEntry>();
+	/** Moves whose command is on its way, per tab (`beginMove`). */
+	readonly #moves = new MovesInFlight();
 	/** What each window's one "closed" listener runs (`#whenClosed`). */
 	readonly #onWindowClose = new Map<ClientWindow, Set<() => void>>();
 	/** Window (webContents.id) → active tab. The first acquired tab defaults active. */
@@ -2258,6 +2260,16 @@ export class SidecarPool {
 		if (!entry) return;
 		entry.touched = (entry.touched ?? 0) + 1;
 		this.onRunningChange?.();
+	}
+
+	/** A command that may move this tab (`TOUCH_COMMANDS`) goes out; call the result once its answer was counted (`trackMove`). */
+	beginMove(tabId: string): () => void {
+		return this.#moves.begin(tabId);
+	}
+
+	/** Resolves once no move of the tab is on its way (turn-resume.ts: a continuation judges `touched` only then). */
+	movesSettled(tabId: string): Promise<void> {
+		return this.#moves.settled(tabId);
 	}
 
 	/**

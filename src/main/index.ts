@@ -1639,6 +1639,10 @@ app.whenReady().then(() => {
 			startTab: tabId => sidecarPool.startTab(tabId) ?? hostServices.startTab(tabId),
 			tabForSession: (sessionPath, peer) =>
 				peer ? hostServices.tabForSession(sessionPath, peer) : sidecarPool.tabForSession(sessionPath),
+			// A move's command may be on its way in this computer's pool or in a hosted tab: the rules judge `touched` after.
+			movesSettled: async tabId => {
+				await Promise.all([sidecarPool.movesSettled(tabId), hostServices.movesSettled(tabId)]);
+			},
 			noteStopped: tabId => {
 				sidecarPool.noteStopped(tabId);
 				hostServices.noteStopped(tabId);

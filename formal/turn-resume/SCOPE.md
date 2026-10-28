@@ -16,6 +16,7 @@ Why tests miss it: each guard is tested alone (a prompt during the wait, Cancel 
 - `ConnectivityMonitor`: `verify(host)` with one shared probe per host, `#check`, `#reachable`, the recovery loop (`#attempt` and its 2 s timer), `report()`, `#set()` and the `changed` callback that calls `TurnResume.connectivityChanged()`.
 - The pool facts the rules read (`running`, `lastRun`, `stopped`, `touched`/session file, `awaitingConnection`), as environment actions that each end in a `sync()`.
 - The relaunch's own wait: `launch()` while offline holds each marker's continuation with the session and branch its tab shows (`Launch`, once, before any run of this process); the held launch marker counts as the `network` marker (CORRESPONDENCE A9).
+- The launch continuation's commands (review of v0.82.0, 29 Oct 2026): `restore_interrupted` in flight (`restoring`) and the second command that follows it (stock `retry`, the unwritten prompt, the goal resume; one step, `RestoreDone`), each looking at the session and branch again; Autopilot's wait for `goalSettled` (`apWait`); a move command in flight before `touched` counts it (`MoveSend`, `MoveReply`; `trackMove`, `MovesInFlight`, `movesSettled`).
 
 ## Abstracted
 
@@ -24,11 +25,12 @@ Why tests miss it: each guard is tested alone (a prompt during the wait, Cancel 
 - The link: `net.isOnline()` (`link`), the default way out (`defOK`) and the failed host (`hostOK`) are separate booleans that flip; a probe answers `link at its start AND (defOK OR hostOK at its end)`.
 - Time is order only: a timer may fire at any moment after it is armed; delays (30 s / 2 min / 10 min, 2 s, 2.5 s) are not modeled.
 - `sync()` and `flush()` are synchronous regions: they run as a chain of micro-steps under a global program counter that nothing interleaves with (the code runs them in one macrotask).
-- The `retry` RPC is one atomic send; stock then either starts a retried run or has nothing to retry.
+- The `retry` RPC is one atomic send; stock then either starts a retried run or has nothing to retry. A move command is two steps (send, answer); what it does in between is the omp's.
 
 ## Out of scope (not checked)
 
-- The rest of the launch path: an online launch's `#run` (`restore_interrupted`, the `retry` fallback), `#pending` bookkeeping past the wait, `resumeGoal`, `goalSettled`, `unsavedPrompt`, how a marker finds its tab.
+- The rest of the launch path: an online launch's own start (the model's `Launch` is offline-only; the online run is the same `#run` a flush starts), `#pending` bookkeeping outside the held wait and the restore, what `resumeGoal` does, `unsavedPrompt`, how a marker finds its tab.
+- A11, unchecked: a user prompt while the launch's restore runs or a continuation waits for a move's answer. `UserPrompt` is disabled then; the code does not tell such a run from the continuation's own (`#judge` drops a held wait or a probe only), so a stock `retry` could still go into it.
 - Stock's own auto-retry saga and its takeover (`fact.retry`, `#takeOverRetry`, `#takenOverRuns`).
 - The wake window (`ConnectivityMonitor.suspend()`/`resume()`, `shouldWait()` after a wake); `shouldWait()` is `!online` here.
 - Hosted tabs (`fact.device`, `fact.peer`), the quit freeze (`frozen()`), tab close (`#dropScheduled` on a missing tab), the `enabled()` setting.

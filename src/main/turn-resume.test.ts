@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { IpcScheduledRetry, IpcTabRunOutcome } from "../shared/ipc-types";
 import type { RpcCommand, RpcResponse } from "../shared/rpc-types";
 import { deletedSessions, initDeletedSessions } from "./deleted-sessions";
+import { RpcTimeoutError } from "./rpc-client";
 import type { SidecarLike } from "./sidecar-types";
 import {
 	deriveMarkers,
@@ -15,7 +16,9 @@ import {
 	isNetworkError,
 	isTransientError,
 	launchAction,
+	MovesInFlight,
 	movesTab,
+	movesTabUnknown,
 	RESUME_COMMAND_TIMEOUT_MS,
 	RESUME_READY_TIMEOUT_MS,
 	type ResumeFact,
@@ -26,6 +29,7 @@ import {
 	SCHEDULED_RETRY_DELAYS_MS,
 	TOUCH_COMMANDS,
 	TurnResume,
+	trackMove,
 } from "./turn-resume";
 
 function fact(patch: Partial<ResumeFact> = {}): ResumeFact {
@@ -213,11 +217,13 @@ describe("InterruptedTurnStore", () => {
 	});
 });
 
+type Answer = RpcResponse | Error | (() => Promise<RpcResponse>);
+
 /**
  * A tab's sidecar: records the commands main sends (and the timeout each was given) and answers them as scripted;
  * an `Error` answer rejects like the RPC client's timeout; `setStatus` moves it like a spawn.
  */
-function fakeSidecar(answers: Partial<Record<string, RpcResponse | Error>> = {}, status = "ready") {
+function fakeSidecar(answers: Partial<Record<string, Answer>> = {}, status = "ready") {
 	const commands: RpcCommand[] = [];
 	const timeouts: Array<[string, number | undefined]> = [];
 	const events = new EventEmitter();
@@ -230,6 +236,7 @@ function fakeSidecar(answers: Partial<Record<string, RpcResponse | Error>> = {},
 				timeouts.push([cmd.type, timeoutMs]);
 				const answer = answers[cmd.type];
 				if (answer instanceof Error) throw answer;
+				if (typeof answer === "function") return answer();
 				return answer ?? { type: "response", command: cmd.type, success: true, data: {} };
 			},
 		},
@@ -284,6 +291,10 @@ interface Harness {
 	started: string[];
 	/** What the coordinator wrote to the runtime log (gui-runtime.jsonl), in order. */
 	logs: Array<[string, ResumeLogDetails]>;
+	/** Moves whose command is on its way (`h.moves.begin(tab)` stands for one). */
+	moves: MovesInFlight;
+	/** How each launch continuation ended for its goal (`goalSettled`), in order. */
+	goals: Array<[string, GoalSettlement]>;
 }
 
 function setup(
@@ -295,7 +306,7 @@ function setup(
 		waitAfterWake?: boolean;
 		/** The link is up but nothing answers (DNS down): a probe after a network failure takes the network offline. */
 		unreachable?: boolean;
-		answers?: Partial<Record<string, RpcResponse | Error>>;
+		answers?: Partial<Record<string, Answer>>;
 		/** The tab's sidecar status when the resume first looks (default ready). */
 		status?: string;
 		/** An injected goal resume (autopilot's); default: the tab's `set_goal` resume. */
@@ -314,6 +325,8 @@ function setup(
 	const resuming: Array<[string, boolean]> = [];
 	const started: string[] = [];
 	const logs: Array<[string, ResumeLogDetails]> = [];
+	const moves = new MovesInFlight();
+	const goals: Array<[string, GoalSettlement]> = [];
 	const { sidecar, commands, timeouts, setStatus, listeners } = fakeSidecar(options.answers, options.status);
 	const net = {
 		online: options.online ?? true,
@@ -340,6 +353,7 @@ function setup(
 		...(options.rank ? { resumeRank: (tabId: string) => options.rank?.[tabId] ?? 2 } : {}),
 		tabForSession: (sessionPath, peer) =>
 			facts.find(entry => entry.sessionFile === sessionPath && entry.peer === peer)?.tabId ?? null,
+		movesSettled: tabId => moves.settled(tabId),
 		noteStopped: tabId => {
 			const entry = facts.find(candidate => candidate.tabId === tabId);
 			if (entry) entry.stopped = true;
@@ -385,7 +399,10 @@ function setup(
 			return "opened";
 		},
 		...(options.resumeGoal ? { resumeGoal: options.resumeGoal } : {}),
-		...(options.goalSettled ? { goalSettled: options.goalSettled } : {}),
+		goalSettled: (tabId, outcome) => {
+			goals.push([tabId, outcome]);
+			options.goalSettled?.(tabId, outcome);
+		},
 		log: (message, details) => {
 			logs.push([message, details]);
 		},
@@ -409,12 +426,14 @@ function setup(
 		resuming,
 		started,
 		logs,
+		moves,
+		goals,
 	};
 }
 
 /** Let the resume's async chain (ready → command → sync) finish. */
 const settle = async () => {
-	for (let i = 0; i < 10; i++) await Promise.resolve();
+	for (let i = 0; i < 40; i++) await Promise.resolve();
 };
 
 describe("TurnResume markers", () => {
@@ -1951,5 +1970,309 @@ describe("TurnResume connection wait (formal/turn-resume)", () => {
 		h.setStatus("ready");
 		await settleLong();
 		expect(h.commands.map(command => command.type)).not.toContain("retry");
+	});
+});
+
+/** Races a review found after v0.82.0 (a launch wait that ends unheard, a continuation that outlives a move). */
+describe("TurnResume races (review of v0.82.0)", () => {
+	let h: Harness;
+	afterEach(() => rmSync(h.dir, { recursive: true, force: true }));
+
+	const restoreAnswer = (data: Record<string, unknown>): RpcResponse => ({
+		type: "response",
+		command: "restore_interrupted",
+		success: true,
+		data,
+	});
+	/** A restore that answers when the test says so (the real one takes up to `RESUME_COMMAND_TIMEOUT_MS`). */
+	const slowRestore = () => {
+		const answer = Promise.withResolvers<RpcResponse>();
+		return {
+			answer: () => answer.promise,
+			release: (data: Record<string, unknown>) => answer.resolve(restoreAnswer(data)),
+		};
+	};
+	const sent = () => h.commands.map(command => command.type);
+	const move = (patch: Partial<ResumeFact> = { touched: 1 }) => {
+		h.facts[0] = { ...(h.facts[0] as ResumeFact), ...patch };
+		h.resume.sync();
+	};
+
+	// Finding 1: Autopilot's `#onReady` put the tab in `#awaitingResume` and waits for the launch continuation's end.
+	describe("a launch continuation held offline that is called off", () => {
+		it.each<[string, () => void | Promise<void>]>([
+			["the waiting row's Cancel", () => h.resume.cancelWait("restored")],
+			["the resuming row's Stop", () => h.resume.stopResumed("restored")],
+			["a new prompt on the held tab", () => move({ running: true })],
+			["another session file under the tab", () => move({ sessionFile: "/s/other.jsonl" })],
+			["a branch or session command (`touched`)", () => move({ touched: 1 })],
+		])("%s tells Autopilot `cancelled` once, and nothing continues once online", async (_name, callOff) => {
+			h = setup({ online: false, answers: { restore_interrupted: RESTORED, retry: RETRIED } });
+			new InterruptedTurnStore(h.file).write([marker()]);
+			h.facts.push(fact({ tabId: "restored", running: false }));
+			h.resume.launch();
+			await settle();
+			expect(h.goals).toEqual([]);
+
+			await callOff();
+			expect(h.goals).toEqual([["restored", "cancelled"]]);
+
+			h.net.online = true;
+			h.resume.connectivityChanged();
+			await settle();
+			expect(h.goals).toEqual([["restored", "cancelled"]]);
+			expect(sent()).not.toContain("restore_interrupted");
+			expect(sent()).not.toContain("retry");
+		});
+
+		it("says nothing for a failed turn's connection wait (no launch marker, no goal waits on it)", async () => {
+			h = setup({ online: false, answers: { retry: RETRIED } });
+			h.resume.launch();
+			h.facts.push(
+				fact({
+					running: false,
+					lastRun: { stopReason: "error", errorMessage: "fetch failed: getaddrinfo ENOTFOUND api.example.com" },
+				}),
+			);
+			h.resume.sync();
+			expect(h.awaiting.at(-1)).toEqual(["t1", true]);
+			h.resume.cancelWait("t1");
+			expect(h.goals).toEqual([]);
+		});
+	});
+
+	// Finding 2: `restore_interrupted` takes up to two minutes, and the tab can move meanwhile (the user, a paired device).
+	describe("a launch continuation whose tab moves while its commands run", () => {
+		it("does not send stock retry into the other session after a slow restore, and ends `cancelled`", async () => {
+			const restore = slowRestore();
+			h = setup({ answers: { restore_interrupted: restore.answer, retry: RETRIED } });
+			new InterruptedTurnStore(h.file).write([marker()]);
+			h.facts.push(fact({ tabId: "restored", running: false }));
+			h.resume.launch();
+			await settle();
+			expect(sent()).toEqual(["restore_interrupted"]);
+
+			move({ touched: 1 });
+			restore.release({});
+			await settle();
+
+			expect(sent()).toEqual(["restore_interrupted"]);
+			expect(h.goals).toEqual([["restored", "cancelled"]]);
+			expect(h.logs.at(-1)).toEqual([
+				"continue",
+				expect.objectContaining({ tab: "restored", started: false, cancelled: true }),
+			]);
+			expect(h.store.read()).toEqual([]);
+		});
+
+		it("does not send the unwritten first prompt into the other session", async () => {
+			const restore = slowRestore();
+			h = setup({ answers: { restore_interrupted: restore.answer } });
+			new InterruptedTurnStore(h.file).write([
+				marker({ sessionPath: join(h.dir, "never-written.jsonl"), prompt: "list the fruits" }),
+			]);
+			h.facts.push(fact({ tabId: "restored", sessionFile: undefined }));
+			h.resume.launch();
+			await settle();
+
+			move({ touched: 1 });
+			restore.release({});
+			await settle();
+
+			expect(sent()).not.toContain("prompt");
+			expect(h.goals).toEqual([["restored", "cancelled"]]);
+		});
+
+		it("does not resume the goal in the other session after the restore", async () => {
+			const restore = slowRestore();
+			const resumed: string[] = [];
+			h = setup({
+				answers: { restore_interrupted: restore.answer },
+				resumeGoal: async tabId => {
+					resumed.push(tabId);
+				},
+			});
+			new InterruptedTurnStore(h.file).write([marker()]);
+			h.facts.push(fact({ tabId: "restored", running: false }));
+			h.resume.launch();
+			await settle();
+
+			move({ sessionFile: "/s/other.jsonl" });
+			restore.release({ turn: true, goalPausedByExit: true });
+			await settle();
+
+			expect(resumed).toEqual([]);
+			expect(h.goals).toEqual([["restored", "cancelled"]]);
+		});
+
+		it("an online launch holds for the session it found: a move while the omp starts ends it before any command", async () => {
+			h = setup({ status: "starting", answers: { restore_interrupted: RESTORED } });
+			new InterruptedTurnStore(h.file).write([marker()]);
+			h.facts.push(fact({ tabId: "restored", running: false }));
+			h.resume.launch();
+			await settle();
+			move({ touched: 1 });
+			h.setStatus("ready");
+			await settle();
+			expect(h.commands).toEqual([]);
+			expect(h.goals).toEqual([["restored", "cancelled"]]);
+		});
+
+		it("still restores and retries when the tab stays where it was", async () => {
+			const restore = slowRestore();
+			h = setup({ answers: { restore_interrupted: restore.answer, retry: RETRIED } });
+			new InterruptedTurnStore(h.file).write([marker()]);
+			h.facts.push(fact({ tabId: "restored", running: false }));
+			h.resume.launch();
+			await settle();
+			restore.release({});
+			await settle();
+			expect(sent()).toEqual(["restore_interrupted", "retry"]);
+			expect(h.goals).toEqual([["restored", "none"]]);
+		});
+	});
+
+	// Finding 3: `touched` counts a move after its reply, so a retry could run between the move's send and its reply.
+	describe("a move whose command is still on its way", () => {
+		const armedRetry = async () => {
+			h = setup({ answers: { get_settings: SETTINGS_ON, retry: RETRIED } });
+			h.resume.launch();
+			h.facts.push(fact({ running: true }));
+			h.resume.sync();
+			h.facts[0] = fact({ lastRun: { ...SERVER_DOWN } });
+			h.resume.sync();
+			await settleLong();
+			expect(h.timers.map(timer => timer.ms)).toEqual([30_000]);
+		};
+
+		it("holds a scheduled retry that fires meanwhile until the answer says whether the tab moved: it moved, no retry", async () => {
+			await armedRetry();
+			const answered = h.moves.begin("t1");
+			h.timers[0]?.run();
+			await settleLong();
+			expect(sent()).not.toContain("retry");
+
+			// The pool counts the move, then marks its command done (`trackMove`).
+			move({ touched: 1 });
+			answered();
+			await settleLong();
+			expect(sent()).not.toContain("retry");
+			expect(h.retries.at(-1)).toBeUndefined();
+		});
+
+		it("holds it the same way, and retries once the answer shows the move was cancelled", async () => {
+			await armedRetry();
+			const answered = h.moves.begin("t1");
+			h.timers[0]?.run();
+			await settleLong();
+			expect(sent()).not.toContain("retry");
+
+			answered();
+			await settleLong();
+			expect(sent()).toContain("retry");
+		});
+
+		it("holds a connection wait's flush until the answer: the tab moved, nothing retries into the new session", async () => {
+			h = setup({ online: false, answers: { retry: RETRIED } });
+			h.resume.launch();
+			h.facts.push(
+				fact({
+					running: false,
+					lastRun: { stopReason: "error", errorMessage: "fetch failed: getaddrinfo ENOTFOUND api.example.com" },
+				}),
+			);
+			h.resume.sync();
+			const answered = h.moves.begin("t1");
+			h.net.online = true;
+			h.resume.connectivityChanged();
+			await settle();
+			expect(sent()).not.toContain("retry");
+
+			move({ touched: 1 });
+			answered();
+			await settle();
+			expect(sent()).not.toContain("retry");
+			expect(h.awaiting.at(-1)).toEqual(["t1", false]);
+		});
+	});
+
+	describe("trackMove", () => {
+		const ok = (command: string, data: unknown = {}): RpcResponse => ({
+			type: "response",
+			command,
+			success: true,
+			data,
+		});
+		const tracked = () => {
+			const moves = new MovesInFlight();
+			const order: string[] = [];
+			const tracker = {
+				begin: () => {
+					order.push("begin");
+					const end = moves.begin("t");
+					return () => {
+						order.push("end");
+						end();
+					};
+				},
+				moved: () => order.push("moved"),
+			};
+			return { moves, order, tracker };
+		};
+
+		it("marks a move in flight until it answered and `touched` counted it", async () => {
+			const { moves, order, tracker } = tracked();
+			const answer = Promise.withResolvers<RpcResponse>();
+			let quiet = false;
+			const run = trackMove("switch_leaf", tracker, () => answer.promise);
+			void moves.settled("t").then(() => {
+				quiet = true;
+			});
+			await settle();
+			expect(quiet).toBe(false);
+			answer.resolve(ok("switch_leaf"));
+			await run;
+			await settle();
+			expect(quiet).toBe(true);
+			expect(order).toEqual(["begin", "moved", "end"]);
+		});
+
+		it.each<[string, RpcResponse]>([
+			["a cancelled move", ok("new_session", { cancelled: true })],
+			["a failed move", { type: "response", command: "switch_session", success: false, error: "no such file" }],
+		])("releases %s without counting it", async (_name, response) => {
+			const { order, tracker } = tracked();
+			await trackMove(response.command, tracker, async () => response);
+			expect(order).toEqual(["begin", "end"]);
+		});
+
+		it("counts a move that timed out: omp may have run it (`switch_leaf` with a summary outlives 8 s)", async () => {
+			const { order, tracker } = tracked();
+			await expect(
+				trackMove("switch_leaf", tracker, async () => {
+					throw new RpcTimeoutError(8_000, "switch_leaf");
+				}),
+			).rejects.toThrow("RPC timeout (8000ms): switch_leaf");
+			expect(order).toEqual(["begin", "moved", "end"]);
+			expect(movesTabUnknown("switch_leaf", new RpcTimeoutError(8_000, "switch_leaf"))).toBe(true);
+		});
+
+		it("counts no other failure (an omp that died moved nothing) and no timeout of another command", async () => {
+			const { order, tracker } = tracked();
+			await expect(
+				trackMove("switch_leaf", tracker, async () => {
+					throw new Error("sidecar exited");
+				}),
+			).rejects.toThrow("sidecar exited");
+			expect(order).toEqual(["begin", "end"]);
+			expect(movesTabUnknown("get_state", new RpcTimeoutError(8_000, "get_state"))).toBe(false);
+			expect(movesTabUnknown("fork_from", new RpcTimeoutError(8_000, "fork_from"))).toBe(false);
+		});
+
+		it("leaves any other command untouched: nothing in flight", async () => {
+			const { order, tracker } = tracked();
+			await trackMove("get_state", tracker, async () => ok("get_state"));
+			expect(order).toEqual([]);
+		});
 	});
 });

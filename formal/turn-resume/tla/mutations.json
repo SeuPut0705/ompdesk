@@ -1,5 +1,10 @@
 {
-	"checker": { "kind": "tlc", "config": "MC.cfg", "workers": 4, "timeoutSec": 600 },
+	"checker": {
+		"kind": "tlc",
+		"config": "MC.cfg",
+		"workers": 4,
+		"timeoutSec": 600
+	},
 	"properties": [
 		"TypeOK",
 		"NoRetryIntoUserRun",
@@ -10,7 +15,9 @@
 		"OfflineOnlyOnNoAnswer",
 		"WaitEnds",
 		"ProbeEnds",
-		"NoRetryAfterSessionChangeWhileHeld"
+		"NoRetryAfterSessionChangeWhileHeld",
+		"NoSendWhileMoveInFlight",
+		"GoalHeard"
 	],
 	"waive": {
 		"TypeOK": "Shape check only: no behaviour change breaks it without also breaking a property above it."
@@ -74,8 +81,8 @@
 			"name": "ready-skips-recheck",
 			"why": "Review minor 2: #run sends once the omp is up without looking again; a move while the omp started (after flush, or after a scheduled retry fired) retries into the new session.",
 			"file": "TurnResume.tla",
-			"search": "cancels[t] = runWait[t] /\\ ~Moved(t)}",
-			"replace": "cancels[t] = runWait[t]}",
+			"search": "cancels[t] = runWait[t] /\\ sg[t] <= runSg[t]",
+			"replace": "cancels[t] = runWait[t]",
 			"breaks": "NoRetryAfterCallOff",
 			"config": "MC_p2.cfg"
 		},
@@ -150,6 +157,69 @@
 			"replace": "IN /\\ vRes' = vRes",
 			"breaks": "ProbeEnds",
 			"config": "MC_live_probe.cfg"
+		},
+		{
+			"name": "flush-ignores-move-in-flight",
+			"why": "Finding 3 (review of v0.82.0): `#run` does not wait for a move command that is on its way (`movesSettled`); flush() sends the first command while `touched` has not counted the move yet, so it runs in the session the tab is about to show.",
+			"file": "TurnResume.tla",
+			"search": "direct == {t \\in go : ready /\\ mv[t] = \"none\"}",
+			"replace": "direct == {t \\in go : ready}",
+			"breaks": "NoSendWhileMoveInFlight",
+			"config": "MC_mv.cfg"
+		},
+		{
+			"name": "fire-ignores-move-in-flight",
+			"why": "Finding 3: a scheduled retry that fires while a move command is on its way sends stock retry at once instead of waiting for the answer (`#fire`/`#run` skip movesSettled).",
+			"file": "TurnResume.tla",
+			"search": "/\\ \\/ /\\ ready /\\ ~Moving(t)",
+			"replace": "/\\ \\/ /\\ ready",
+			"breaks": "NoSendWhileMoveInFlight",
+			"config": "MC_mv.cfg"
+		},
+		{
+			"name": "restore-done-skips-recheck",
+			"why": "Finding 2: the launch continuation's second command (stock retry, the unwritten prompt, the goal resume) goes out after a slow `restore_interrupted` without looking at the session and branch again, so a tab that moved meanwhile gets it in the other session.",
+			"file": "TurnResume.tla",
+			"search": "cancels[t] = restGen[t] /\\ sg[t] <= rsg[t]",
+			"replace": "cancels[t] = restGen[t]",
+			"breaks": "NoRetryAfterSessionChangeWhileHeld",
+			"config": "MC_held.cfg"
+		},
+		{
+			"name": "cancel-forgets-launch-goal",
+			"why": "Finding 1: Cancel / the resuming row's Stop drops the held launch continuation without goalSettled `cancelled`, so Autopilot (`#awaitingResume`) waits for ever and the board shows running while nothing runs.",
+			"file": "TurnResume.tla",
+			"search": "/\\ apWait' = [apWait EXCEPT ![t] = IF waiting[t] /\\ waitFor[t] = LaunchO THEN FALSE ELSE apWait[t]]",
+			"replace": "/\\ apWait' = apWait",
+			"breaks": "GoalHeard",
+			"config": "MC_goal.cfg"
+		},
+		{
+			"name": "drop-forgets-launch-goal",
+			"why": "Finding 1: a new prompt or a session or branch move on a held tab drops the launch continuation in sync() without goalSettled `cancelled`.",
+			"file": "TurnResume.tla",
+			"search": "IF drop /\\ waiting[t] /\\ waitFor[t] = LaunchO THEN FALSE ELSE apWait[t]",
+			"replace": "IF FALSE THEN FALSE ELSE apWait[t]",
+			"breaks": "GoalHeard",
+			"config": "MC_goal.cfg"
+		},
+		{
+			"name": "flush-forgets-moved-launch-goal",
+			"why": "Finding 1: flush() lets a held launch wait go and its tab moved: the continuation ends without telling Autopilot.",
+			"file": "TurnResume.tla",
+			"search": "IF t \\in moved /\\ waitFor[t] = LaunchO THEN FALSE ELSE apWait[t]",
+			"replace": "IF FALSE THEN FALSE ELSE apWait[t]",
+			"breaks": "GoalHeard",
+			"config": "MC_goal.cfg"
+		},
+		{
+			"name": "continuation-abort-forgets-goal",
+			"why": "Finding 2: a continuation that looks again once the omp is up (or a move's answer is in) and finds its tab moved ends without goalSettled.",
+			"file": "TurnResume.tla",
+			"search": "apWait' = [apWait EXCEPT ![t] = IF o = LaunchO THEN FALSE ELSE apWait[t]]",
+			"replace": "apWait' = apWait",
+			"breaks": "GoalHeard",
+			"config": "MC_goal.cfg"
 		}
 	]
 }

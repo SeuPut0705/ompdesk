@@ -11,6 +11,14 @@ import type { RpcCommand, RpcResponse } from "../shared/rpc-types";
 /** How long a command may take before the caller gets `RPC timeout`. */
 export const DEFAULT_TIMEOUT_MS = 8_000;
 
+/** A command that got no answer in time: its outcome is unknown (omp may still have run it). */
+export class RpcTimeoutError extends Error {
+	constructor(timeoutMs: number, type: string) {
+		super(`RPC timeout (${timeoutMs}ms): ${type}`);
+		this.name = "RpcTimeoutError";
+	}
+}
+
 interface PendingRequest {
 	command: RpcCommand;
 	resolve: (response: RpcResponse) => void;
@@ -49,7 +57,7 @@ export class RpcClient {
 		if (!local) return this.#stock(cmd, id, timeoutMs);
 		const timeout = timeoutMs ?? this.#timeout;
 		const { promise, resolve, reject } = Promise.withResolvers<RpcResponse>();
-		const timer = setTimeout(() => reject(new Error(`RPC timeout (${timeout}ms): ${cmd.type}`)), timeout);
+		const timer = setTimeout(() => reject(new RpcTimeoutError(timeout, cmd.type)), timeout);
 		local.then(resolve, reject).finally(() => clearTimeout(timer));
 		return promise;
 	}
@@ -64,7 +72,7 @@ export class RpcClient {
 		const timeout = timeoutMs ?? this.#timeout;
 		const timer = setTimeout(() => {
 			this.#pending.delete(id);
-			reject(new Error(`RPC timeout (${timeout}ms): ${cmd.type}`));
+			reject(new RpcTimeoutError(timeout, cmd.type));
 		}, timeout);
 		this.#pending.set(id, { command: cmd, resolve, reject, timer });
 		this.#send({ ...cmd, id });

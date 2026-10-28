@@ -186,7 +186,7 @@ import { formatTerminalRead, TERMINAL_READ_TOOL } from "./terminal/agent-tool";
 import { closeTabTerminals, readTabTerminals, registerTerminalIpc } from "./terminal/ipc";
 import { setTrayState } from "./tray";
 import { aggregateProgress, aggregateTrayStatus } from "./tray-labels";
-import { movesTab, type RelaunchContinuation } from "./turn-resume";
+import { type RelaunchContinuation, trackMove } from "./turn-resume";
 import { dispatchedCommand, STOP_COMMANDS } from "./turn-stop-log";
 import { appVersion } from "./updater";
 import { type ClientWindow, isWebWindow } from "./web/client-window";
@@ -965,7 +965,18 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				host: sidecar.device,
 				channel,
 			});
-			let response = await client.command(outgoing, payload.timeoutMs);
+			// A session or branch move is marked in flight until its answer was counted (`touched`), a timeout included: a
+			// connection wait or a scheduled retry of the old session ends and never runs between its send and its answer.
+			let response = await trackMove(
+				cmd.type,
+				issuerTabId
+					? {
+							begin: () => sidecarPool.beginMove(issuerTabId),
+							moved: () => sidecarPool.noteTouched(issuerTabId),
+						}
+					: undefined,
+				() => client.command(outgoing, payload.timeoutMs),
+			);
 			if (cmd.type === "get_transcript_page" && response.success && !sidecar.device) {
 				response = { ...response, data: localizeTranscript(response.data, win) };
 			}
@@ -999,9 +1010,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					}
 				}
 			}
-			// The tab moved to another session or branch (a cancelled or failed command moved nothing): a connection wait
-			// or a scheduled retry of its old failure is off.
-			if (issuerTabId && movesTab(cmd.type, response)) sidecarPool.noteTouched(issuerTabId);
 			if (issuerTabId && response.success && MODE_TOGGLE_COMMANDS[cmd.type]) {
 				sidecarPool.noteModeChanged(issuerTabId, win.webContents.id);
 			}

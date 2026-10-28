@@ -2577,6 +2577,27 @@ describe("SidecarPool background tabs", () => {
 			expect(factA()?.touched).toBe(2);
 		});
 
+		// A move counts as `touched` only once its command answered: the resume rules wait for the ones on their way.
+		it("marks a tab's moves in flight until they answered, so the resume rules judge `touched` after", async () => {
+			const { pool } = fakePool();
+			const fw = fakeWindow(1);
+			pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
+			const order: string[] = [];
+			await pool.movesSettled("tab-a");
+
+			const first = pool.beginMove("tab-a");
+			const second = pool.beginMove("tab-a");
+			const settled = pool.movesSettled("tab-a").then(() => order.push("settled"));
+			first();
+			await Promise.resolve();
+			expect(order).toEqual([]);
+			pool.noteTouched("tab-a");
+			order.push("counted");
+			second();
+			await settled;
+			expect(order).toEqual(["counted", "settled"]);
+		});
+
 		it("reports stock's pending auto-retry with its failure, and tells the resume rules when one starts", () => {
 			const { pool, sidecars } = fakePool();
 			const fw = fakeWindow(1);

@@ -19,6 +19,7 @@ import type { RpcResponse } from "../shared/rpc-types";
 import { writeFileAtomicDeferred } from "./atomic-file";
 import { canonicalCwd } from "./canonical-cwd";
 import { deletedSessions } from "./deleted-sessions";
+import { RpcTimeoutError } from "./rpc-client";
 import type { SidecarLike } from "./sidecar-types";
 import { recordTurnStop } from "./turn-stop-log";
 
@@ -159,6 +160,73 @@ export function movesTab(type: string, response: RpcResponse): boolean {
 }
 
 /**
+ * Whether a failed command may still have moved its tab: a `TOUCH_COMMANDS` one that timed out. omp may have run it
+ * (the bridge moved though the caller heard nothing: `switch_leaf` with a summary outlives the renderer's 8 s), so its
+ * outcome is unknown and counts as a move: a wait or retry of the old session ends rather than runs into the new one.
+ */
+export function movesTabUnknown(type: string, error: unknown): boolean {
+	return TOUCH_COMMANDS[type] === true && error instanceof RpcTimeoutError;
+}
+
+/**
+ * Moves whose command is on its way, per tab. Their answer is what `touched` counts, so a continuation that looks at
+ * `touched` between a move's send and its answer would see the old session as current: it waits for them (`settled`).
+ */
+export class MovesInFlight {
+	readonly #pending = new Map<string, Set<Promise<void>>>();
+
+	/** A move's command goes out; call the result once it has answered (after `touched` counted it). */
+	begin(tabId: string): () => void {
+		const { promise, resolve } = Promise.withResolvers<void>();
+		const pending = this.#pending.get(tabId) ?? new Set<Promise<void>>();
+		this.#pending.set(tabId, pending);
+		pending.add(promise);
+		return () => {
+			pending.delete(promise);
+			if (pending.size === 0 && this.#pending.get(tabId) === pending) this.#pending.delete(tabId);
+			resolve();
+		};
+	}
+
+	/** Resolves once no move of the tab is on its way (also those that began while it waited). */
+	async settled(tabId: string): Promise<void> {
+		for (let pending = this.#pending.get(tabId); pending; pending = this.#pending.get(tabId))
+			await Promise.all(pending);
+	}
+}
+
+/** Where a tab's moves are counted (`touched`) and tracked while in flight. */
+export interface MoveTracker {
+	begin(): () => void;
+	/** The command moved the tab, or may have. */
+	moved(): void;
+}
+
+/**
+ * Runs a command that may move its tab. A `TOUCH_COMMANDS` one is marked in flight until it answered and `touched`
+ * counted it (`movesTab` for an answer that moved the tab, `movesTabUnknown` for a timeout), so nothing continues
+ * between its send and its answer into a tab that is about to show another session.
+ */
+export async function trackMove(
+	type: string,
+	tracker: MoveTracker | undefined,
+	run: () => Promise<RpcResponse>,
+): Promise<RpcResponse> {
+	if (!tracker || TOUCH_COMMANDS[type] !== true) return run();
+	const end = tracker.begin();
+	try {
+		const response = await run();
+		if (movesTab(type, response)) tracker.moved();
+		return response;
+	} catch (error) {
+		if (movesTabUnknown(type, error)) tracker.moved();
+		throw error;
+	} finally {
+		end();
+	}
+}
+
+/**
  * A provider/transport failure rather than the model's or the account's. A
  * subset of stock's retryable-error pattern (legacy-pi-ai-shim.ts) naming the
  * transport: server errors, rate limits and quotas are not "no connection".
@@ -293,6 +361,8 @@ export interface ResumePool {
 	startTab(tabId: string): SidecarLike | null;
 	/** The tab attached to `sessionPath`: this computer's own, or with `peer` the one it hosts for that device. */
 	tabForSession(sessionPath: string, peer?: string): string | null;
+	/** Resolves once no move of the tab is on its way (`MovesInFlight`): its `touched` is final for a continuation to judge. */
+	movesSettled(tabId: string): Promise<void>;
 	noteStopped(tabId: string): void;
 	/** Resume order: lower first (the focused tab, then its split's panes, then the rest); default every tab alike. */
 	resumeRank?(tabId: string): number;
@@ -704,6 +774,7 @@ export class TurnResume {
 			return this.#scheduled.get(tabId) === armed && fact !== undefined && !fact.running && this.#holds(fact, armed);
 		};
 		if (this.#scheduled.get(tabId) !== armed) return;
+		await this.#deps.pool.movesSettled(tabId);
 		if (!stillHolds() || !(await this.#stockRetryOn(tabId)) || !stillHolds()) {
 			if (this.#scheduled.get(tabId) === armed) this.#dropScheduled(tabId);
 			return;
@@ -796,16 +867,22 @@ export class TurnResume {
 		const generation = this.#cancels.get(tabId) ?? 0;
 		const cancelled = () => (this.#cancels.get(tabId) ?? 0) !== generation;
 		// A continuation held for one session and branch (a connection wait's, a fired scheduled retry's, a relaunch's)
-		// looks again when it starts and once the tab's omp is up: a change no sync() saw (a paired device's switch on an
-		// idle tab) or one made while the omp started ends it as #judge would.
+		// looks again when it starts and before every command it sends: a change no sync() saw (a paired device's switch on
+		// an idle tab) or one made while the omp started, or while a command took its minutes, ends it as #judge would.
 		const moved = (): boolean => {
 			const fact = since && this.#factFor(tabId);
 			return since !== undefined && fact !== undefined && this.#movedSince(fact, since);
 		};
-		if (moved()) this.#dropWait(tabId);
-		const sidecar = cancelled() ? null : this.#deps.pool.startTab(tabId);
+		// Also waits for a move whose command is on its way: its `touched` counts only once it answered. The call-off
+		// bumps the generation, so the end of this run reports `cancelled` (to Autopilot too); no second report here.
+		const stale = async (): Promise<boolean> => {
+			await this.#deps.pool.movesSettled(tabId);
+			if (moved()) this.#dropWait(tabId, false);
+			return cancelled();
+		};
+		const sidecar = (await stale()) ? null : this.#deps.pool.startTab(tabId);
 		const ready = sidecar ? await whenReady(sidecar) : false;
-		if (ready && moved()) this.#dropWait(tabId);
+		if (ready) await stale();
 		if (!sidecar || !ready || cancelled()) {
 			this.#deps.log?.("continue", { tab: tabId, action, ready, cancelled: cancelled() });
 			this.#pending.delete(tabId);
@@ -816,7 +893,7 @@ export class TurnResume {
 		// Why a command did not answer: kept for the `continue` log line, never swallowed.
 		const failures: ResumeLogDetails = {};
 		const send = async (type: "restore_interrupted" | "retry"): Promise<Record<string, unknown> | undefined> => {
-			if (cancelled()) return undefined;
+			if (await stale()) return undefined;
 			const key = type === "retry" ? "retry" : "restore";
 			let response: RpcResponse | undefined;
 			try {
@@ -855,7 +932,7 @@ export class TurnResume {
 		const pending = this.#pending.get(tabId);
 		const unsavedPrompt = pending?.prompt;
 		let promptSent = false;
-		if (pending && unsavedPrompt && !started && !cancelled()) {
+		if (pending && unsavedPrompt && !started && !(await stale())) {
 			delete pending.prompt;
 			const response = await sidecar.rpcClient
 				?.command({ type: "prompt", message: unsavedPrompt })
@@ -866,7 +943,7 @@ export class TurnResume {
 		// Stock pauses an active goal when its session loads; one the restart cut off goes on, after the
 		// restored turn (the goal's continuation waits for the session to be idle).
 		let goalResumed = false;
-		if (restored?.goalPausedByExit === true && !cancelled()) {
+		if (restored?.goalPausedByExit === true && !(await stale())) {
 			try {
 				await (this.#deps.resumeGoal ?? (id => this.#resumeGoal(id)))(tabId);
 				started = true;
@@ -924,7 +1001,14 @@ export class TurnResume {
 		this.sync();
 	}
 
-	#dropWait(tabId: string): void {
+	/**
+	 * Call a tab's wait off: its probe, its held continuation, its scheduled retry. A held launch continuation (a marker
+	 * in `#pending` with its wait) ends for Autopilot's goal too (`cancelled`): the run waited on this very continuation
+	 * (`relaunchContinuation` "after_restore") and nothing else would tell it. `reportGoal` false for a call-off inside the
+	 * continuation's own `#run`, which reports when it ends.
+	 */
+	#dropWait(tabId: string, reportGoal = true): void {
+		const heldLaunch = this.#waiting.has(tabId) && this.#pending.has(tabId);
 		this.#cancels.set(tabId, (this.#cancels.get(tabId) ?? 0) + 1);
 		this.#waiting.delete(tabId);
 		this.#probing.delete(tabId);
@@ -933,6 +1017,7 @@ export class TurnResume {
 		this.#ownRetries.delete(tabId);
 		this.#releaseScheduled(tabId);
 		this.#deps.pool.setAwaitingConnection(tabId, false);
+		if (heldLaunch && reportGoal) this.#deps.goalSettled?.(tabId, "cancelled");
 	}
 
 	/** The resuming row's Stop: abort what this launch resumed on the tab, drop what still waits. */
@@ -990,17 +1075,16 @@ export class TurnResume {
 		const rank = (tabId: string) => this.#deps.pool.resumeRank?.(tabId) ?? 0;
 		resumable.sort((a, b) => rank(a.tabId) - rank(b.tabId));
 		for (const { tabId, action } of resumable) {
-			if (!this.#deps.network.shouldWait()) {
-				void this.#run(tabId, action);
-				continue;
-			}
-			// The wait holds for the session the tab shows now (the marker's file; none yet for a first turn stock never
-			// wrote), so a session or branch change before the connection is back ends it as it ends a failed turn's.
+			// The continuation holds for the session the tab shows now (the marker's file; none yet for a first turn stock
+			// never wrote) and its `touched`, so a session or branch change before the connection is back, or while the
+			// omp comes up and the restore runs, ends it as it ends a failed turn's wait.
 			const fact = this.#factFor(tabId);
-			this.#hold(tabId, action, {
+			const since: HeldFor = {
 				sessionFile: fact ? fact.sessionFile : this.#pending.get(tabId)?.sessionPath,
 				touched: fact?.touched ?? 0,
-			});
+			};
+			if (this.#deps.network.shouldWait()) this.#hold(tabId, action, since);
+			else void this.#run(tabId, action, since);
 		}
 	}
 

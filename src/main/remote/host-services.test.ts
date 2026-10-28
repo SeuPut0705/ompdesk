@@ -43,6 +43,7 @@ import { deletedSessions, initDeletedSessions } from "../deleted-sessions";
 import { SavedWorktreeStore, setSavedWorktreeStore } from "../disk/saved-worktrees";
 import { gitSync, initRepo } from "../local/git/test-repos";
 import type { MachineServices } from "../machine-services";
+import { RpcTimeoutError } from "../rpc-client";
 import { SidebarProjects } from "../sidebar-projects";
 import { type SidecarLike, VIEW_ENDED_EVENT } from "../sidecar-types";
 import { setTurnStopLog } from "../turn-stop-log";
@@ -207,6 +208,8 @@ function fakeLocalTabs() {
 	const viewed: Array<{ origin: { deviceId: string; name: string }; hostName: string }> = [];
 	/** Window tabs whose session or branch a device moved through a view. */
 	const touched: string[] = [];
+	/** The window tabs' moves in order: a device's command goes out (`begin`), is counted (`touched`), is answered (`end`). */
+	const moveLog: string[] = [];
 	const localTabs: HostServicesDeps["localTabs"] = {
 		sessionOwner: path => owned.get(path) ?? null,
 		windowSessionFiles: () => new Set(owned.keys()),
@@ -231,9 +234,16 @@ function fakeLocalTabs() {
 		stopSession: async path => {
 			if (running.delete(path)) stopped.push(path);
 		},
-		noteTouched: tabId => void touched.push(tabId),
+		noteTouched: tabId => {
+			touched.push(tabId);
+			moveLog.push(`touched:${tabId}`);
+		},
+		beginMove: tabId => {
+			moveLog.push(`begin:${tabId}`);
+			return () => void moveLog.push(`end:${tabId}`);
+		},
 	};
-	return { tab, owned, closed, running, stopped, views, viewed, touched, localTabs };
+	return { tab, owned, closed, running, stopped, views, viewed, touched, moveLog, localTabs };
 }
 
 const DESKTOP: HostDesktopState = {
@@ -1722,6 +1732,62 @@ describe("LocalHostServices", () => {
 		expect(resume.sync).toHaveBeenCalled();
 	});
 
+	// Finding 3: `touched` counts a move after its answer, so the resume rules must not judge a tab while one is on its way,
+	// and a move that timed out (omp may have run it: `switch_leaf` with a summary outlives the renderer's 8 s) counts too.
+	it("holds the resume rules while a device's move is on its way, and counts one whose command timed out", async () => {
+		const { services, sidecars } = setup();
+		const resume = { sync: vi.fn(), cancelWait: vi.fn() };
+		services.attachResume(resume);
+		const x = new FakeConnection(peer("device-x"));
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: "/s/one.jsonl" }, x);
+		await services.call(x.peer, "tab.start", { rtab: "t1" }, x);
+		const sidecar = sidecars[0];
+		if (!sidecar) throw new Error("expected a sidecar");
+		sidecar.setStatus("ready");
+		const id = "peer:device-x:t1";
+		const ticks = async () => {
+			for (let i = 0; i < 30; i++) await Promise.resolve();
+		};
+
+		const answer = Promise.withResolvers<RpcResponse>();
+		sidecar.rpcClient.command = () => answer.promise;
+		const call = services.call(
+			x.peer,
+			"tab.command",
+			{ rtab: "t1", command: { type: "switch_leaf", entryId: "e1" } },
+			x,
+		);
+		const outcome = call.then(
+			() => "answered",
+			(error: unknown) => (error instanceof RpcTimeoutError ? "timeout" : "failed"),
+		);
+		let quiet = false;
+		void services.movesSettled(id).then(() => {
+			quiet = true;
+		});
+		await ticks();
+		expect(quiet).toBe(false);
+		expect(services.resumeFacts()[0]?.touched).toBeUndefined();
+
+		answer.reject(new RpcTimeoutError(8_000, "switch_leaf"));
+		expect(await outcome).toBe("timeout");
+		await ticks();
+		expect(services.resumeFacts()[0]?.touched).toBe(1);
+		expect(resume.sync).toHaveBeenCalled();
+		expect(quiet).toBe(true);
+
+		// A move that answered cancelled counts nothing, and nothing is left in flight.
+		sidecar.rpcClient.command = async command => ({
+			type: "response",
+			command: command.type,
+			success: true,
+			data: { cancelled: true },
+		});
+		await services.call(x.peer, "tab.command", { rtab: "t1", command: { type: "new_session" } }, x);
+		expect(services.resumeFacts()[0]?.touched).toBe(1);
+		await services.movesSettled(id);
+	});
+
 	it("revives a marked hosted tab after a relaunch: asleep until resumed, then the device's reopen attaches it", async () => {
 		vi.useFakeTimers();
 		const { services, sidecars } = setup(1_000);
@@ -2706,6 +2772,33 @@ describe("LocalHostServices: a device opening a session a window of this compute
 		await services.call(x.peer, "tab.command", { rtab: "t1", command: { type: "new_session" } }, x);
 		await services.call(x.peer, "tab.command", { rtab: "t1", command: { type: "fork_from", entryId: "e1" } }, x);
 		expect(local.touched).toEqual(["w1"]);
+	});
+
+	// Finding 3: the window tab's pool marks the device's move in flight until its answer was counted, a timeout included.
+	it("marks a device's move through a view in flight on the window's tab until counted, and counts a timed-out one", async () => {
+		const { services, local, view, x } = await viewing();
+		local.owned.set(SESSION, { tabId: "w1", winId: 1 });
+		await services.call(x.peer, "tab.command", { rtab: "t1", command: { type: "switch_leaf", entryId: "e1" } }, x);
+		expect(local.moveLog).toEqual(["begin:w1", "touched:w1", "end:w1"]);
+
+		local.moveLog.length = 0;
+		view.rpcClient.command = async command => {
+			throw new RpcTimeoutError(8_000, command.type);
+		};
+		await expect(
+			services.call(x.peer, "tab.command", { rtab: "t1", command: { type: "switch_leaf", entryId: "e2" } }, x),
+		).rejects.toThrow("RPC timeout");
+		expect(local.moveLog).toEqual(["begin:w1", "touched:w1", "end:w1"]);
+
+		// Any other failure moved nothing; a command that cannot move the tab is not tracked.
+		local.moveLog.length = 0;
+		view.rpcClient.command = async () => {
+			throw new Error("sidecar exited");
+		};
+		await expect(
+			services.call(x.peer, "tab.command", { rtab: "t1", command: { type: "branch", entryId: "e1" } }, x),
+		).rejects.toThrow("sidecar exited");
+		expect(local.moveLog).toEqual(["begin:w1", "end:w1"]);
 	});
 });
 
