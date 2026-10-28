@@ -63,6 +63,26 @@ describe("session list snapshot", () => {
 		release();
 	});
 
+	it("takes a host row whose listing changed though its file did not: a tab there closed, its opener or verdict came", async () => {
+		const held = { ...row("/child"), heldOnHost: true as const };
+		snapshots().write("sessions", "device:dev-1", "global", [held, row("/boss")]);
+		const read = Promise.withResolvers<SessionInfo[]>();
+		install(() => read.promise);
+		const feed = sessionListFeed("global", "dev-1");
+		const release = feed.retain();
+		// Same journal (modified, size, title): the host's tab let go of it, and it now knows the opener and the verdict.
+		read.resolve([
+			{ ...row("/child"), openedBySession: "/boss", childProblem: "unmerged" },
+			{ ...row("/boss"), openedBySession: null },
+		]);
+		await vi.waitFor(() => expect(feed.store.getState().sessions[0]?.heldOnHost).toBeUndefined());
+		expect(feed.store.getState().sessions.map(s => [s.openedBySession, s.childProblem])).toEqual([
+			["/boss", "unmerged"],
+			[null, undefined],
+		]);
+		release();
+	});
+
 	it("a host's last-known rows are replaced once a read answers, though the first reads failed", async () => {
 		vi.useFakeTimers();
 		try {

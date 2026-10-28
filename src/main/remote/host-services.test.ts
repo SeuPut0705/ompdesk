@@ -207,6 +207,7 @@ function fakeLocalTabs() {
 	const viewed: Array<{ origin: { deviceId: string; name: string }; hostName: string }> = [];
 	const localTabs: HostServicesDeps["localTabs"] = {
 		sessionOwner: path => owned.get(path) ?? null,
+		windowSessionFiles: () => new Set(owned.keys()),
 		sessionOwnerIsLive: path => owned.has(path) && tab.processAlive,
 		sessionRunning: path => running.has(path),
 		commandForSession: (_path, command) => tab.rpcClient.command(command),
@@ -1825,6 +1826,42 @@ describe("LocalHostServices", () => {
 			["/s/hosted.jsonl", true],
 			["/s/stored.jsonl", false],
 		]);
+	});
+
+	it("tells devices to read the list again when a tab here takes or lets go of a session, and only then", async () => {
+		vi.useFakeTimers();
+		const { services, local } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		const heard = () => x.events.filter(entry => entry.event === "sessions.changed").length;
+		const settle = () => vi.advanceTimersByTime(1_000);
+		// Nobody read the list yet: nothing to correct.
+		local.owned.set("/s/early.jsonl", { tabId: "w0", winId: 1 });
+		services.listingChanged();
+		settle();
+		expect(heard()).toBe(0);
+		await services.call(x.peer, "sessions.list", { scope: "global" }, x);
+
+		// A window here opens a stored session, closes it again; a nudge that changed nothing says nothing.
+		local.owned.set("/s/a.jsonl", { tabId: "w1", winId: 1 });
+		services.listingChanged();
+		settle();
+		expect(heard()).toBe(1);
+		services.listingChanged();
+		settle();
+		expect(heard()).toBe(1);
+		local.owned.delete("/s/a.jsonl");
+		services.listingChanged();
+		settle();
+		expect(heard()).toBe(2);
+
+		// A device's tab here on a stored session, and its close.
+		const y = new FakeConnection(peer("device-y"));
+		await services.call(y.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: "/s/b.jsonl" }, y);
+		settle();
+		expect(heard()).toBe(3);
+		services.dropPeer("device-y");
+		settle();
+		expect(heard()).toBe(4);
 	});
 
 	it("tells a device which listed children its review list holds failed or unlanded, and forgets what landed", async () => {
