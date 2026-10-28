@@ -75,8 +75,12 @@ describe("lock takeover (finding 1)", () => {
 			"}, { log() {}, pollMs: 5 });",
 		].join("\n");
 
-	/** Rounds of `procs` processes racing to take over a dead holder's lock; every child is killed and awaited before its folder goes. */
-	async function race(procs: number, rounds: number): Promise<void> {
+	/**
+	 * Rounds of `procs` processes racing to take over a dead holder's lock. Each round has its own deadline, so a hung
+	 * waiter fails the round inside `race` (not as a test timeout that skips `finally`), and every child is killed and
+	 * awaited before its folder goes.
+	 */
+	async function race(procs: number, rounds: number, roundMs: number): Promise<void> {
 		const script = path.join(temp, `lock-child-${procs}.ts`);
 		fs.writeFileSync(script, CHILD(path.join(SKILL, "scripts/lib/toolchain.ts")));
 		const dead = deadPid();
@@ -105,7 +109,11 @@ describe("lock takeover (finding 1)", () => {
 					done.push(finished(child));
 				}
 				fs.writeFileSync(barrier, "");
-				const codes = await Promise.all(done);
+				let timer: ReturnType<typeof setTimeout> | undefined;
+				const deadline = new Promise<never>((_, reject) => {
+					timer = setTimeout(() => reject(new Error(`round ${round} did not finish in ${roundMs} ms`)), roundMs);
+				});
+				const codes = await Promise.race([Promise.all(done), deadline]).finally(() => clearTimeout(timer));
 				expect(errors.join(""), "stderr of the waiters").toBe("");
 				expect(codes).toEqual(Array(procs).fill(0));
 				const lines = fs.readFileSync(log, "utf8").split("\n").filter(Boolean);
@@ -122,13 +130,13 @@ describe("lock takeover (finding 1)", () => {
 		expect(overlaps).toBe(0);
 	}
 
-	it("lets two waiters take over a dead holder's lock one at a time, on every OS", () => race(2, 3), 60_000);
+	it("lets two waiters take over a dead holder's lock one at a time, on every OS", () => race(2, 3, 15_000), 60_000);
 
 	// POSIX only: with 8 processes polling every 5 ms, Windows keeps the just-deleted lock folder delete-pending for so
 	// long that the stress run is too slow to be a useful check. The Windows rule is covered by the EPERM cases below.
 	it.skipIf(process.platform === "win32")(
 		"lets exactly one of several waiters take over a dead holder's lock, in every round",
-		() => race(8, 12),
+		() => race(8, 12, 9_000),
 		120_000,
 	);
 
