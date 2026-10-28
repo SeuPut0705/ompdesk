@@ -3710,6 +3710,19 @@ describe("Sidebar device sections", () => {
 			expect(loose?.getAttribute("data-child-status")).toBe("problem");
 		});
 
+		it("keeps the row of a child a tab on the host holds open, though the host knows no opener of it", async () => {
+			await mountHost(
+				hostRows(path =>
+					path === BOSS
+						? { openedBySession: null, title: "Renamed since" }
+						: path === LANDED
+							? { openedBySession: null, heldOnHost: true }
+							: { openedBySession: null },
+				),
+			);
+			expect(listed()).toContain(LANDED);
+		});
+
 		it("keeps a finished child that failed or left work unlanded in the family, as the host does", async () => {
 			// Neither is at work on the host and no tab here holds them: the indexed failure and the host's own
 			// review verdict are all that say they need a look.

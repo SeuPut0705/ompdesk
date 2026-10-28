@@ -1805,6 +1805,28 @@ describe("LocalHostServices", () => {
 		]);
 	});
 
+	it("tells a device which listed sessions a tab here holds, so it keeps their rows as this computer's sidebar does", async () => {
+		const row = (path: string) => ({ path, id: path, title: path, cwd: workDir, firstMessage: "" });
+		const { services, local } = setup(60_000, {
+			sessionIndex: {
+				list: async () => [row("/s/open.jsonl"), row("/s/hosted.jsonl"), row("/s/stored.jsonl")],
+				kindFor: async () => "agent",
+				recordedCwd: async () => workDir,
+			} as unknown as HostServicesDeps["sessionIndex"],
+		});
+		// A window here holds one; another device runs one here.
+		local.owned.set("/s/open.jsonl", { tabId: "w1", winId: 1 });
+		const y = new FakeConnection(peer("device-y"));
+		await services.call(y.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: "/s/hosted.jsonl" }, y);
+		const x = new FakeConnection(peer("device-x"));
+		const rows = (await services.call(x.peer, "sessions.list", { scope: "global" }, x)) as SessionInfo[];
+		expect(rows.map(entry => [entry.path, entry.heldOnHost === true])).toEqual([
+			["/s/open.jsonl", true],
+			["/s/hosted.jsonl", true],
+			["/s/stored.jsonl", false],
+		]);
+	});
+
 	it("tells a device which listed children its review list holds failed or unlanded, and forgets what landed", async () => {
 		const paths = ["/s/failed.jsonl", "/s/unmerged.jsonl", "/s/clean.jsonl", "/s/elsewhere.jsonl"];
 		const { services } = setup(60_000, {
