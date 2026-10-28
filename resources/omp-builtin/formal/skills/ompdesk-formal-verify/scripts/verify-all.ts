@@ -257,8 +257,9 @@ export async function main(argv: string[]): Promise<number> {
 	console.log("");
 	for (const result of results) {
 		const bad = result.checks.filter(check => check.verdict === "fail" || check.verdict === "unavailable");
+		const label = bad.length === 0 ? "PASS" : bad.some(check => check.verdict === "fail") ? "FAIL" : "NOT CHECKED";
 		console.log(
-			`${bad.length === 0 ? "PASS" : "FAIL"}  ${result.id}: ${result.checks.length - bad.length} of ${result.checks.length} checks ok${bad.length ? ` (${bad.map(check => check.name).join(", ")})` : ""}`,
+			`${label}  ${result.id}: ${result.checks.length - bad.length} of ${result.checks.length} checks ok${bad.length ? ` (${bad.map(check => check.name).join(", ")})` : ""}`,
 		);
 	}
 	if (failed) return EXIT.failed;
