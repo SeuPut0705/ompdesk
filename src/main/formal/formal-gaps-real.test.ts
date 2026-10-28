@@ -86,7 +86,13 @@ describe.skipIf(!REAL)("dogfood gaps on the real TLC", () => {
 		);
 		write("wrap/Wrap.cfg", "SPECIFICATION Spec\nINVARIANT Inv\n");
 		const json = path.join(temp, "wrap/out.json");
-		const run = await bunRun("tlc.ts", [path.join(temp, "wrap/Wrap.tla"), "--code-root", path.join(temp, "wrap"), "--json", json]);
+		const run = await bunRun("tlc.ts", [
+			path.join(temp, "wrap/Wrap.tla"),
+			"--code-root",
+			path.join(temp, "wrap"),
+			"--json",
+			json,
+		]);
 		expect(run.code).toBe(1);
 		expect(run.out).toMatch(/ResumeStep {3}\[a\.ts:1-2\]/);
 		const result = JSON.parse(fs.readFileSync(json, "utf8"));
@@ -101,7 +107,10 @@ describe.skipIf(!REAL)("dogfood gaps on the real TLC", () => {
 	}, 90_000);
 
 	it("a run past --timeout ends as timed out and says which limit stopped it", async () => {
-		write("slow/Slow.tla", "---- MODULE Slow ----\nEXTENDS Naturals\nVARIABLES x\nInit == x = 0\nNext == x' = x + 1\nSpec == Init /\\ [][Next]_x\n====\n");
+		write(
+			"slow/Slow.tla",
+			"---- MODULE Slow ----\nEXTENDS Naturals\nVARIABLES x\nInit == x = 0\nNext == x' = x + 1\nSpec == Init /\\ [][Next]_x\n====\n",
+		);
 		write("slow/Slow.cfg", "SPECIFICATION Spec\n");
 		const run = await bunRun("tlc.ts", [path.join(temp, "slow/Slow.tla"), "--timeout", "3"]);
 		expect(run.code).toBe(1);
@@ -134,7 +143,13 @@ describe.skipIf(!REAL)("dogfood gaps on the real TLC", () => {
 				waive: { Big: "weaker than Small, no mutation is useful for it" },
 				mutations: [
 					{ name: "stop-early", search: "Tick == x < 2", replace: "Tick == x < 1", breaks: "Done", ...extra },
-					{ name: "overshoot", search: "Tick == x < 2 /\\ x' = x + 1", replace: "Tick == x < 4 /\\ x' = x + 1", breaks: "Small", isolate: true },
+					{
+						name: "overshoot",
+						search: "Tick == x < 2 /\\ x' = x + 1",
+						replace: "Tick == x < 4 /\\ x' = x + 1",
+						breaks: "Small",
+						isolate: true,
+					},
 				],
 			});
 		const file = write("count/mutations.json", mutations({}));
@@ -162,7 +177,11 @@ describe.skipIf(!REAL)("dogfood gaps on the real TLC", () => {
 
 	it("the EventLoop pattern passes its matrix and detects every mutation", async () => {
 		const dir = path.join(SKILL, "assets/patterns/EventLoop");
-		const matrix = await bunRun("tlc.ts", [path.join(dir, "EventLoop.tla"), "--matrix", path.join(dir, "matrix.json")]);
+		const matrix = await bunRun("tlc.ts", [
+			path.join(dir, "EventLoop.tla"),
+			"--matrix",
+			path.join(dir, "matrix.json"),
+		]);
 		expect(matrix.out).toContain("PASS  matrix: all 3 runs ended as expected");
 		const mutated = await bunRun("mutate.ts", [path.join(dir, "EventLoop.tla"), path.join(dir, "mutations.json")]);
 		expect(mutated.out).toContain("4 of 4 mutations detected");
@@ -195,19 +214,30 @@ describe.skipIf(!REAL)("dogfood gaps on the real TLC", () => {
 		expect(JSON.parse(fs.readFileSync(manifestFile, "utf8")).models[0].syncCommit).toMatch(/^[0-9a-f]{40}$/);
 		// An edit of g (not covered) is no drift; an edit of f is, and is printed as DRIFT, never as ok.
 		write("stamp/src/code.ts", "export function f() {\n\treturn 1;\n}\n\nexport function g() {\n\treturn 3;\n}\n");
-		expect((await bunRun("verify-all.ts", [path.join(root, "formal"), "--skip-mutations"])).out).toMatch(/^ok +job-lease: drift/m);
+		expect((await bunRun("verify-all.ts", [path.join(root, "formal"), "--skip-mutations"])).out).toMatch(
+			/^ok +job-lease: drift/m,
+		);
 		write("stamp/src/code.ts", "export function f() {\n\treturn 9;\n}\n\nexport function g() {\n\treturn 2;\n}\n");
 		const drifted = await bunRun("verify-all.ts", [path.join(root, "formal"), "--skip-mutations"]);
 		expect(drifted.out).toMatch(/^DRIFT {2}job-lease: drift - DRIFT:/m);
 		expect(drifted.out).not.toMatch(/^ok {2}job-lease: drift - DRIFT/m);
 		expect(drifted.out).toContain("changed since sync: src/code.ts#f");
 		expect(drifted.code).toBe(0);
-		expect((await bunRun("verify-all.ts", [path.join(root, "formal"), "--skip-mutations", "--strict-drift"])).code).toBe(1);
+		expect(
+			(await bunRun("verify-all.ts", [path.join(root, "formal"), "--skip-mutations", "--strict-drift"])).code,
+		).toBe(1);
 		const refused = await bunRun("verify-all.ts", [path.join(root, "formal"), "--stamp", "--skip-mutations"]);
 		expect(refused.out).toContain("not stamped: the covered code has uncommitted changes");
-		const allowed = await bunRun("verify-all.ts", [path.join(root, "formal"), "--stamp", "--allow-dirty", "--skip-mutations"]);
+		const allowed = await bunRun("verify-all.ts", [
+			path.join(root, "formal"),
+			"--stamp",
+			"--allow-dirty",
+			"--skip-mutations",
+		]);
 		expect(allowed.out).toContain("uncommitted covered changes");
 		expect(JSON.parse(fs.readFileSync(manifestFile, "utf8")).models[0].syncDiff).toMatch(/^[0-9a-f]{64}$/);
-		expect((await bunRun("verify-all.ts", [path.join(root, "formal"), "--skip-mutations", "--strict-drift"])).code).toBe(0);
+		expect(
+			(await bunRun("verify-all.ts", [path.join(root, "formal"), "--skip-mutations", "--strict-drift"])).code,
+		).toBe(0);
 	}, 240_000);
 });

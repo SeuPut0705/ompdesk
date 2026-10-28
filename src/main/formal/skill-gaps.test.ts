@@ -8,21 +8,35 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { isolateProperties, parseCfg } from "../../../resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/cfg";
-import { formatTag, indexDefinitions, tagsFor } from "../../../resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/code-tags";
+import {
+	isolateProperties,
+	parseCfg,
+} from "../../../resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/cfg";
+import {
+	formatTag,
+	indexDefinitions,
+	tagsFor,
+} from "../../../resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/code-tags";
 import {
 	findSymbolSpans,
 	parseCover,
 	parseHunks,
 	rangeChanges,
 } from "../../../resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/covers";
-import { checkDrift, hasUncommitted, stampDigest } from "../../../resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/drift";
+import {
+	checkDrift,
+	hasUncommitted,
+	stampDigest,
+} from "../../../resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/drift";
 import {
 	concernDocuments,
 	normalizeFindings,
 	toFindingsTrace,
 } from "../../../resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/findings";
-import { parseManifest, tierOf } from "../../../resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/manifest";
+import {
+	parseManifest,
+	tierOf,
+} from "../../../resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/manifest";
 import {
 	type Checker,
 	mutationExitCode,
@@ -30,7 +44,10 @@ import {
 	runMutations,
 } from "../../../resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/mutate-core";
 import { validate } from "../../../resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/schema";
-import { parseTlcOutput, reduceTrace } from "../../../resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/tlc-parse";
+import {
+	parseTlcOutput,
+	reduceTrace,
+} from "../../../resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/tlc-parse";
 import {
 	DEFAULT_TIMEOUT_SEC,
 	timeoutMsFor,
@@ -124,7 +141,9 @@ describe("gap 2: tlc.ts trace rows are findings trace[] rows", () => {
 		for (const row of trace) expect(validate(row, rowSchema)).toEqual([]);
 		expect(trace[0]).toMatchObject({ step: 1, action: "Init" });
 		expect(trace.at(-1)?.violation).toBe(true);
-		const changed = trace.find(row => row.changed && Object.values(row.changed).some(value => value.includes(" -> ")));
+		const changed = trace.find(
+			row => row.changed && Object.values(row.changed).some(value => value.includes(" -> ")),
+		);
 		expect(changed).toBeDefined();
 	});
 
@@ -136,7 +155,9 @@ describe("gap 2: tlc.ts trace rows are findings trace[] rows", () => {
 
 	it("the rows tlc.ts --json writes are trace[] already (checked on the real run in formal-gaps-real)", () => {
 		const raw = JSON.stringify({ trace: toFindingsTrace(rows), rows });
-		expect(validate({ ...example, findings: [{ ...example.findings[0], trace: JSON.parse(raw).trace }] }, schema)).toEqual([]);
+		expect(
+			validate({ ...example, findings: [{ ...example.findings[0], trace: JSON.parse(raw).trace }] }, schema),
+		).toEqual([]);
 	});
 });
 
@@ -222,7 +243,12 @@ describe("gap 6: @code through a wrapper action", () => {
 
 describe("gap 8: mutations", () => {
 	const make = (spec: unknown[], extra: Record<string, unknown> = {}) =>
-		parseMutations({ checker: { kind: "command", command: ["x"] }, properties: ["PropA", "PropB"], mutations: spec, ...extra });
+		parseMutations({
+			checker: { kind: "command", command: ["x"] },
+			properties: ["PropA", "PropB"],
+			mutations: spec,
+			...extra,
+		});
 	const checker: Checker = async (_dir, model) => {
 		const text = fs.readFileSync(model, "utf8");
 		const missing = ["A", "B"].filter(name => !text.includes(`guard ${name}`));
@@ -269,7 +295,9 @@ describe("gap 8: mutations", () => {
 
 	it("an equivalent mutant does not cover a property", async () => {
 		const { root, model } = folder();
-		const spec = make([{ name: "reword", search: "a comment", replace: "b", equivalent: "comment", breaks: "PropA" }]);
+		const spec = make([
+			{ name: "reword", search: "a comment", replace: "b", equivalent: "comment", breaks: "PropA" },
+		]);
 		const report = await runMutations({ root, model, spec, properties: ["PropA"], check: checker });
 		expect(report.properties[0]?.status).toBe("UNCOVERED");
 	});
@@ -294,7 +322,10 @@ describe("gap 8: mutations", () => {
 		expect(spec.checker).toMatchObject({ kind: "tlc", deadlock: false });
 		expect(spec.mutations[0]).toMatchObject({ deadlock: false, isolate: true });
 		expect(() =>
-			parseMutations({ checker: { kind: "tlc" }, mutations: [{ name: "m", search: "a", replace: "b", breaks: "P", isolate: "yes" }] }),
+			parseMutations({
+				checker: { kind: "tlc" },
+				mutations: [{ name: "m", search: "a", replace: "b", breaks: "P", isolate: "yes" }],
+			}),
 		).toThrow(/isolate/);
 	});
 
@@ -361,7 +392,12 @@ describe("gap 12: covers by function and line range, and the drift line (gap 14)
 		expect(parseCover("src/a.ts:12-40")).toMatchObject({ kind: "range", start: 12, end: 40 });
 		expect(parseCover("src/a.ts:7")).toMatchObject({ kind: "range", start: 7, end: 7 });
 		expect(() => parseCover("src/a.ts:9-3")).toThrow(/range/);
-		expect(() => parseManifest({ version: 1, models: [{ id: "a", kind: "tla", dir: "d", spec: "A.tla", covers: ["../x.ts#f"] }] })).toThrow(/without \.\./);
+		expect(() =>
+			parseManifest({
+				version: 1,
+				models: [{ id: "a", kind: "tla", dir: "d", spec: "A.tla", covers: ["../x.ts#f"] }],
+			}),
+		).toThrow(/without \.\./);
 	});
 
 	it("finds a function, a method and a const by name, skipping braces in strings and comments", () => {

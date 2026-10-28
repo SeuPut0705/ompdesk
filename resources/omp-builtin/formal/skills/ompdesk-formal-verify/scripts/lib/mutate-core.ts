@@ -144,7 +144,10 @@ export function parseMutations(input: unknown): MutationSpec {
 			search: entry.search,
 			replace: entry.replace,
 			all: entry.all === true,
-			breaks: entry.equivalent !== undefined && entry.breaks === undefined ? [] : strings(entry.breaks, `${where}.breaks`),
+			breaks:
+				entry.equivalent !== undefined && entry.breaks === undefined
+					? []
+					: strings(entry.breaks, `${where}.breaks`),
 			...(typeof entry.equivalent === "string" ? { equivalent: entry.equivalent } : {}),
 			...(typeof entry.deadlock === "boolean" ? { deadlock: entry.deadlock } : {}),
 			...(entry.isolate === true ? { isolate: true } : {}),

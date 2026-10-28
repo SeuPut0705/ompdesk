@@ -91,7 +91,12 @@ export function indexDefinitions(source: string): DefinitionTags[] {
 			body.push((lines[at - 1] as string).replace(/\\\*.*$/, "").replace(/\(\*.*?\*\)/g, " "));
 		}
 		const names = new Set(defs.map(other => other.name));
-		const words = new Set(body.join("\n").replace(DEFINITION, " ").match(/[A-Za-z_]\w*/g) ?? []);
+		const words = new Set(
+			body
+				.join("\n")
+				.replace(DEFINITION, " ")
+				.match(/[A-Za-z_]\w*/g) ?? [],
+		);
 		def.calls = [...words].filter(word => word !== def.name && names.has(word));
 	});
 	return defs;

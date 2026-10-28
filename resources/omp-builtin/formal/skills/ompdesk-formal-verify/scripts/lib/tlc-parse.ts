@@ -253,7 +253,8 @@ export function parseTlcOutput(text: string, exitCode?: number | null): TlcResul
 				!/^The behavior up to this point is:?$|^The following behavior constitutes a counter-example:?$/.test(
 					error,
 				),
-		) ?? undefined;
+		) ??
+		undefined;
 	return {
 		outcome,
 		...(property ? { property } : {}),

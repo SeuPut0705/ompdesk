@@ -95,7 +95,9 @@ export function parseManifest(input: unknown): Manifest {
 							try {
 								cover = parseCover(raw);
 							} catch (error) {
-								throw new Error(`manifest: ${where}.covers[${i}]: ${error instanceof Error ? error.message : String(error)}`);
+								throw new Error(
+									`manifest: ${where}.covers[${i}]: ${error instanceof Error ? error.message : String(error)}`,
+								);
 							}
 							inside(cover.path, `${where}.covers[${i}]`);
 							return raw;
@@ -109,7 +111,10 @@ export function parseManifest(input: unknown): Manifest {
 		}
 		if (entry.tier !== undefined && entry.tier !== "fast" && entry.tier !== "deep")
 			throw new Error(`manifest: ${where}.tier must be "fast" or "deep"`);
-		if (entry.syncDiff !== undefined && (typeof entry.syncDiff !== "string" || !/^[0-9a-f]{64}$/.test(entry.syncDiff)))
+		if (
+			entry.syncDiff !== undefined &&
+			(typeof entry.syncDiff !== "string" || !/^[0-9a-f]{64}$/.test(entry.syncDiff))
+		)
 			throw new Error(`manifest: ${where}.syncDiff must be the 64-hex digest --stamp --allow-dirty wrote`);
 		const optionalPaths = ["dir", "spec", "model", "matrix", "mutations", "project", "verifySkill"] as const;
 		const model: ModelEntry = {
