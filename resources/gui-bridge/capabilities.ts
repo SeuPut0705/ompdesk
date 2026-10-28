@@ -72,6 +72,7 @@ export const FEATURES = {
 	sessionOwner: "Opening a session only once another omp let go of it",
 	pstack: "pstack engineering mode (always-on playbook section)",
 	eccHint: "ECC skills named for the project's languages (prompt section)",
+	formalHint: "Formal-verification skill named for race, retry and never-happens requests (prompt section)",
 	defaultBrowser: "Default browser for agents: ego-browser, the user's own browser or built-in (prompt section)",
 	backgroundChecks: "Long checks run as background jobs (prompt section)",
 	checkoutPeers: "Sessions sharing a checkout (prompt section and git guard)",
@@ -426,6 +427,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	},
 	/** modes/ecc-hint.ts: the public `before_agent_start` hook and the context's `cwd` only. */
 	eccHint: {},
+	/** modes/formal-hint.ts: the public `before_agent_start` hook and its `prompt` only. */
+	formalHint: {},
 	/**
 	 * modes/default-browser.ts: the public `before_agent_start` hook for the section, and `browser.relay` and
 	 * `browser.relayUrl` held as runtime overrides of the session's settings (handles via `lookup`) while the choice is

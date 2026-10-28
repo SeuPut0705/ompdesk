@@ -72,6 +72,7 @@ const AREAS: readonly Area[] = [
 	{ name: "modes/visuals", features: ["visuals"], load: () => import("./modes/visuals") },
 	{ name: "modes/pstack", features: ["pstack"], load: () => import("./modes/pstack") },
 	{ name: "modes/ecc-hint", features: ["eccHint"], load: () => import("./modes/ecc-hint") },
+	{ name: "modes/formal-hint", features: ["formalHint"], load: () => import("./modes/formal-hint") },
 	{ name: "modes/default-browser", features: ["defaultBrowser"], load: () => import("./modes/default-browser") },
 	{
 		name: "modes/background-checks",

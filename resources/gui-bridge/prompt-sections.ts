@@ -30,14 +30,17 @@ export interface PromptSectionContext {
 	cwd?: string;
 }
 
-/** The instruction to append for this session, or undefined for none. */
-export type PromptSection = (ctx: PromptSectionContext) => string | undefined;
+/** The instruction to append for this session, or undefined for none. `prompt` is the request this turn starts with (a person's text or a subagent's assignment); absent for the inspector and a restored turn. */
+export type PromptSection = (ctx: PromptSectionContext, prompt?: string) => string | undefined;
 
 /** The slice of omp's ExtensionAPI a section registers on. */
 export interface PromptSectionHost {
 	on(
 		event: "before_agent_start",
-		handler: (event: { systemPrompt: string[] }, ctx: PromptSectionContext) => { systemPrompt: string[] } | undefined,
+		handler: (
+			event: { systemPrompt: string[]; prompt?: string },
+			ctx: PromptSectionContext,
+		) => { systemPrompt: string[] } | undefined,
 	): void;
 }
 
@@ -55,7 +58,7 @@ export function registerPromptSection(host: PromptSectionHost, id: string, secti
 	sections.set(id, section);
 	host.on("before_agent_start", (event, ctx) => {
 		const started = performance.now();
-		const instruction = section(ctx);
+		const instruction = section(ctx, typeof event.prompt === "string" ? event.prompt : undefined);
 		if (ctx.agent.kind === "main") noteSlowSpot("sectionsMs", performance.now() - started);
 		const next = appendIfMissing(event.systemPrompt, instruction);
 		return next === event.systemPrompt ? undefined : { systemPrompt: [...next] };
