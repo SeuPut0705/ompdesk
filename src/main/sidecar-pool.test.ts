@@ -1738,6 +1738,27 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 		expect(heard).toBe(4);
 	});
 
+	// Review M1: a paired device's switch on an idle window tab whose connection wait holds moves its file with no run
+	// state change; the resume rules must hear it, or the wait's retry goes into the new session.
+	it("tells the resume rules when a held tab's session file moves, though no turn runs", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a", "/sessions/s.jsonl");
+		const [a] = sidecars;
+		a?.emitSessionInfo({ sessionId: "sess-1" });
+		let heard = 0;
+		pool.onRunningChange = () => heard++;
+		pool.noteSessionFile("tab-a", "/sessions/s2.jsonl");
+		expect(heard).toBe(0);
+		pool.setAwaitingConnection("tab-a", true);
+		heard = 0;
+		pool.noteSessionFile("tab-a", "/sessions/s3.jsonl");
+		expect(heard).toBe(1);
+		// A session-id change lets the file go until a get_state names the new one: that is a move too.
+		a?.emitSessionInfo({ sessionId: "sess-2" });
+		expect(heard).toBe(2);
+	});
+
 	it("only the current owner clears a mapping", () => {
 		const { pool } = fakePool();
 		const fw = fakeWindow(1);

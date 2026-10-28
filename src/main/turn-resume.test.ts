@@ -15,6 +15,7 @@ import {
 	isNetworkError,
 	isTransientError,
 	launchAction,
+	movesTab,
 	RESUME_COMMAND_TIMEOUT_MS,
 	RESUME_READY_TIMEOUT_MS,
 	type ResumeFact,
@@ -1452,7 +1453,6 @@ describe("retryDelays and TOUCH_COMMANDS", () => {
 		expect(Object.keys(TOUCH_COMMANDS).sort()).toEqual([
 			"branch",
 			"fork",
-			"fork_from",
 			"new_session",
 			"switch_leaf",
 			"switch_session",
@@ -1834,5 +1834,122 @@ describe("TurnResume connection wait (formal/turn-resume)", () => {
 		h.resume.connectivityChanged();
 		await settle();
 		expect(h.commands.map(command => command.type)).toContain("retry");
+	});
+
+	// The relaunch's wait (`launch()` while offline) follows the same rule as a failed turn's.
+	it.each<[string, Partial<ResumeMarker>, Partial<ResumeFact>]>([
+		[
+			"a `network` marker's retry, then a branch or session command (`touched`)",
+			{ reason: "network" },
+			{ touched: 1 },
+		],
+		["a cut-off turn's restore, then another session file under the tab", {}, { sessionFile: "/s/other.jsonl" }],
+	])(
+		"a relaunch held offline for %s ends the wait: nothing continues into the new session",
+		async (_name, saved, patch) => {
+			h = setup({ online: false, answers: { restore_interrupted: RESTORED, retry: RETRIED } });
+			new InterruptedTurnStore(h.file).write([marker(saved)]);
+			h.facts.push(fact({ tabId: "restored", running: false }));
+			h.resume.launch();
+			await settle();
+			expect(h.awaiting).toEqual([["restored", true]]);
+			h.facts[0] = { ...(h.facts[0] as ResumeFact), ...patch };
+			h.resume.sync();
+			h.net.online = true;
+			h.resume.connectivityChanged();
+			await settle();
+			expect(h.awaiting.at(-1)).toEqual(["restored", false]);
+			expect(h.store.read()).toEqual([]);
+			expect(h.commands).toEqual([]);
+		},
+	);
+
+	// Review M1: a paired device's switch_session or new_session on an idle held tab moves its file with no sync() at
+	// all (no `touched`, no run-state change), so the continuation itself has to look again before it sends.
+	it("a session change no sync() saw still ends the wait when the connection comes back: nothing retries into it", async () => {
+		h = setup({ online: false, answers: { retry: RETRIED } });
+		h.resume.launch();
+		h.facts.push(
+			fact({
+				running: false,
+				lastRun: { stopReason: "error", errorMessage: "fetch failed: getaddrinfo ENOTFOUND api.example.com" },
+			}),
+		);
+		h.resume.sync();
+		h.facts[0] = { ...(h.facts[0] as ResumeFact), sessionFile: "/s/other.jsonl" };
+		h.net.online = true;
+		h.resume.connectivityChanged();
+		await settle();
+		expect(h.commands.map(command => command.type)).not.toContain("retry");
+		expect(h.awaiting.at(-1)).toEqual(["t1", false]);
+	});
+
+	// Review minor 2: flush() already let the wait go and the tab's omp is still coming up when the session changes.
+	it("a session change while the flushed wait's omp still starts ends it once the omp is up: nothing retries into it", async () => {
+		h = setup({ online: false, status: "starting", answers: { retry: RETRIED } });
+		h.resume.launch();
+		h.facts.push(
+			fact({
+				running: false,
+				lastRun: { stopReason: "error", errorMessage: "fetch failed: getaddrinfo ENOTFOUND api.example.com" },
+			}),
+		);
+		h.resume.sync();
+		h.net.online = true;
+		h.resume.connectivityChanged();
+		await settle();
+		h.facts[0] = { ...(h.facts[0] as ResumeFact), touched: 1 };
+		h.resume.sync();
+		h.setStatus("ready");
+		await settle();
+		expect(h.commands.map(command => command.type)).not.toContain("retry");
+		expect(h.logs.at(-1)).toEqual(["continue", { tab: "t1", action: "retry", ready: true, cancelled: true }]);
+	});
+
+	// Review M2: "Branch from here" writes a new session for another window; the tab it was sent to stays on its own.
+	it("Branch from here (fork_from) leaves the tab where it is: it is no session change", () => {
+		expect(TOUCH_COMMANDS.fork_from).toBeUndefined();
+		const forked: RpcResponse = {
+			type: "response",
+			command: "fork_from",
+			success: true,
+			data: { sessionPath: "/s/b.jsonl" },
+		};
+		expect(movesTab("fork_from", forked)).toBe(false);
+	});
+
+	// Review minor 1: `touched` counts only a change that happened.
+	it.each<[string, RpcResponse, boolean]>([
+		["a switch that worked", { type: "response", command: "switch_session", success: true, data: {} }, true],
+		[
+			"a cancelled new session",
+			{ type: "response", command: "new_session", success: true, data: { cancelled: true } },
+			false,
+		],
+		[
+			"a failed switch",
+			{ type: "response", command: "switch_session", success: false, error: "no such file" },
+			false,
+		],
+	])("tells whether %s moved the tab", (_name, response, moved) => {
+		expect(movesTab(response.command, response)).toBe(moved);
+	});
+
+	// The same gap for a scheduled retry: its timer fired and its omp is still coming up when the tab moves.
+	it("a session change while a fired scheduled retry's omp still starts ends it once the omp is up: nothing retries into it", async () => {
+		h = setup({ status: "starting", answers: { get_settings: SETTINGS_ON, retry: RETRIED } });
+		h.resume.launch();
+		h.facts.push(fact({ running: true }));
+		h.resume.sync();
+		h.facts[0] = fact({ lastRun: { ...SERVER_DOWN } });
+		h.resume.sync();
+		await settleLong();
+		h.timers[0]?.run();
+		await settleLong();
+		h.facts[0] = { ...(h.facts[0] as ResumeFact), touched: 1 };
+		h.resume.sync();
+		h.setStatus("ready");
+		await settleLong();
+		expect(h.commands.map(command => command.type)).not.toContain("retry");
 	});
 });

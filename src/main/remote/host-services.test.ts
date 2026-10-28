@@ -205,6 +205,8 @@ function fakeLocalTabs() {
 	/** Views of a window's tab a device may get, by session file, and who asked. */
 	const views = new Map<string, FakeHostSidecar>();
 	const viewed: Array<{ origin: { deviceId: string; name: string }; hostName: string }> = [];
+	/** Window tabs whose session or branch a device moved through a view. */
+	const touched: string[] = [];
 	const localTabs: HostServicesDeps["localTabs"] = {
 		sessionOwner: path => owned.get(path) ?? null,
 		windowSessionFiles: () => new Set(owned.keys()),
@@ -229,8 +231,9 @@ function fakeLocalTabs() {
 		stopSession: async path => {
 			if (running.delete(path)) stopped.push(path);
 		},
+		noteTouched: tabId => void touched.push(tabId),
 	};
-	return { tab, owned, closed, running, stopped, views, viewed, localTabs };
+	return { tab, owned, closed, running, stopped, views, viewed, touched, localTabs };
 }
 
 const DESKTOP: HostDesktopState = {
@@ -1681,6 +1684,44 @@ describe("LocalHostServices", () => {
 		expect(fact()?.stopped).toBe(true);
 	});
 
+	// Review M1 and minor 5: a device's own hosted tab has no window to count its moves, and an idle held tab's new file
+	// ran no rules, so a wait held there outlived a switch (and a first turn's wait never saw one at all).
+	it("counts a device's session or branch move on its own hosted tab for the resume rules, and wakes them when a held tab's file moves", async () => {
+		const { services, sidecars } = setup();
+		const resume = { sync: vi.fn(), cancelWait: vi.fn() };
+		services.attachResume(resume);
+		const x = new FakeConnection(peer("device-x"));
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: "/s/one.jsonl" }, x);
+		await services.call(x.peer, "tab.start", { rtab: "t1" }, x);
+		const sidecar = sidecars[0];
+		if (!sidecar) throw new Error("expected a sidecar");
+		sidecar.setStatus("ready");
+		const fact = () => services.resumeFacts()[0];
+		expect(fact()?.touched).toBeUndefined();
+
+		resume.sync.mockClear();
+		await services.call(x.peer, "tab.command", { rtab: "t1", command: { type: "switch_leaf", entryId: "e1" } }, x);
+		expect(fact()?.touched).toBe(1);
+		expect(resume.sync).toHaveBeenCalled();
+		// A cancelled move, and Branch from here (another window's new session), move nothing.
+		sidecar.rpcClient.command = async command => ({
+			type: "response",
+			command: command.type,
+			success: true,
+			data: { cancelled: true },
+		});
+		await services.call(x.peer, "tab.command", { rtab: "t1", command: { type: "new_session" } }, x);
+		await services.call(x.peer, "tab.command", { rtab: "t1", command: { type: "fork_from", entryId: "e1" } }, x);
+		expect(fact()?.touched).toBe(1);
+
+		// The wait holds on the idle tab; its omp reports another session file: the rules look at once.
+		services.setAwaitingConnection("peer:device-x:t1", true);
+		resume.sync.mockClear();
+		sidecar.emit("session", { sessionId: "s2", sessionFile: "/s/two.jsonl" });
+		expect(fact()?.sessionFile).toBe("/s/two.jsonl");
+		expect(resume.sync).toHaveBeenCalled();
+	});
+
 	it("revives a marked hosted tab after a relaunch: asleep until resumed, then the device's reopen attaches it", async () => {
 		vi.useFakeTimers();
 		const { services, sidecars } = setup(1_000);
@@ -2647,6 +2688,24 @@ describe("LocalHostServices: a device opening a session a window of this compute
 		await services.call(x.peer, "tab.cancelWait", { rtab: "t1" }, x);
 		expect(cancelHostWait).toHaveBeenCalledTimes(1);
 		expect(resume.cancelWait).not.toHaveBeenCalled();
+	});
+
+	// Review M1: a device's switch through a view moves the window's tab, whose pool entry counts it (ipc.ts does the same
+	// for a window's own command), so a connection wait held there ends.
+	it("counts a device's session or branch move through a view on the window's tab, not a cancelled one", async () => {
+		const { services, local, view, x } = await viewing();
+		local.owned.set(SESSION, { tabId: "w1", winId: 1 });
+		await services.call(x.peer, "tab.command", { rtab: "t1", command: { type: "branch", entryId: "e1" } }, x);
+		expect(local.touched).toEqual(["w1"]);
+		view.rpcClient.command = async command => ({
+			type: "response",
+			command: command.type,
+			success: true,
+			data: { cancelled: true },
+		});
+		await services.call(x.peer, "tab.command", { rtab: "t1", command: { type: "new_session" } }, x);
+		await services.call(x.peer, "tab.command", { rtab: "t1", command: { type: "fork_from", entryId: "e1" } }, x);
+		expect(local.touched).toEqual(["w1"]);
 	});
 });
 
