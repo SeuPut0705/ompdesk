@@ -3679,6 +3679,37 @@ describe("Sidebar device sections", () => {
 			expect(listed()).toEqual([BOSS]);
 		});
 
+		// 28 Oct 2026, the user's desktop viewing the Mac: eleven sessions the Mac's opener had closed itself listed as
+		// plain rows, though the Mac's own sidebar showed none of them. The opener retitled itself after opening them,
+		// so their briefs name a title no row has, and it closed them itself (no closed record): the host knows no
+		// opener. The host folds such a closed agent-opened session into its project, listing it only while it needs a
+		// look; a session the host still works on keeps its row.
+		it("folds a closed child whose opener the host does not know, as the host's own sidebar does", async () => {
+			await mountHost(
+				hostRows(path =>
+					path === BOSS ? { openedBySession: null, title: "Renamed since" } : { openedBySession: null },
+				),
+			);
+			// The two the host works on keep their rows; the landed one is no row and no loose child.
+			expect(listed().toSorted()).toEqual([AT_WORK, ASKING, BOSS].toSorted());
+			expect(device()?.textContent ?? "").not.toContain("Child landed");
+		});
+
+		it("lists a folded child that left work unlanded under its project, as the host's loose children", async () => {
+			await mountHost(
+				hostRows(path =>
+					path === BOSS
+						? { openedBySession: null, title: "Renamed since" }
+						: path === LANDED
+							? { openedBySession: null, childProblem: "unmerged" }
+							: { openedBySession: null },
+				),
+			);
+			expect(listed()).not.toContain(LANDED);
+			const loose = device()?.querySelector(`[data-sidebar-loose-children] [data-session-path="${LANDED}"]`);
+			expect(loose?.getAttribute("data-child-status")).toBe("problem");
+		});
+
 		it("keeps a finished child that failed or left work unlanded in the family, as the host does", async () => {
 			// Neither is at work on the host and no tab here holds them: the indexed failure and the host's own
 			// review verdict are all that say they need a look.
