@@ -598,7 +598,7 @@
 			},
 			"fix": {
 				"summary": "The user's call: the held wait follows the probe and the scheduled retry. #hold records what the wait holds for (HeldWait.since: session file and touched, from the failed fact, the probe, the armed retry or, since the follow-up, the relaunch's tab) and #judge ends a wait whose tab moved (#movedSince: touched differs, or the recorded session file is not the tab's) with #dropWait. Follow-up after the review of 3ba7f88be: the continuation re-checks too (flush hands `since` to #run, which looks before it starts the omp and once the omp is up; a fired scheduled retry's #run carries the armed session), a held tab's file move syncs the rules with no turn running (pool and host), a paired device's moves count (hosted tab's own touched; a view bumps its window tab's), `touched` counts only a move that worked (movesTab, after the response), and fork_from is no move. Model: wsg, Moved in S_NewRun/FlushStep/Boot, Launch and FileMoved; the bugs are the mutations held-wait-ignores-session-change, launch-hold-records-no-session, flush-skips-recheck and ready-skips-recheck.",
-				"commit": "3ba7f88be (follow-up: <commit>)",
+				"commit": "3ba7f88be (follow-up: 0714c43ab)",
 				"model_recheck": "passes",
 				"mutation_check": "fails-as-expected"
 			},
