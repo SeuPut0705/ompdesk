@@ -227,16 +227,21 @@ async function startOmp(provider: Provider, isolated: string, extension: string)
 	};
 }
 
-/** `before_agent_start` handler that holds the turn while the flag file exists (a stand-in for any slow handler). */
+/**
+ * `before_agent_start` handler that holds the turn while the flag file exists (a stand-in for any slow handler); it
+ * writes `<flag>.entered` as it starts holding, so a test can Stop the setup while it is held.
+ */
 function slowHandlerExtension(dir: string, flag: string): string {
 	const file = join(dir, "slow-handler.mjs");
 	writeFileSync(
 		file,
 		[
-			'import { existsSync } from "node:fs";',
+			'import { existsSync, writeFileSync } from "node:fs";',
 			"export default function (pi) {",
 			'\tpi.on("before_agent_start", async () => {',
-			`\t\tif (existsSync(${JSON.stringify(flag)})) await new Promise(done => setTimeout(done, ${SLOW_HANDLER_MS}));`,
+			`\t\tif (!existsSync(${JSON.stringify(flag)})) return undefined;`,
+			`\t\twriteFileSync(${JSON.stringify(`${flag}.entered`)}, "");`,
+			`\t\tawait new Promise(done => setTimeout(done, ${SLOW_HANDLER_MS}));`,
 			"\t\treturn undefined;",
 			"\t});",
 			"}",
@@ -306,22 +311,41 @@ describe.skipIf(!existsSync(omp))("turn stages on stock omp", () => {
 		expect(String(slow.longestGap)).toMatch(/^handlers_start>handlers_end \d+ms$/);
 		expect(Number(slow["at.handlers_end"])).toBeGreaterThanOrEqual(SLOW_HANDLER_MS);
 		expect(Number(slow["at.first_output"])).toBeGreaterThanOrEqual(Number(slow["at.handlers_end"]));
+
+		// 3b. Stop while that handler holds the setup: stock ends the prompt with no agent event. One cancelled line, and
+		// the next normal turn writes nothing (before, the stale run's prompt time and handlers made it "late").
+		const agentEnds = run.frames.filter(frame => frame.type === "agent_end").length;
+		const entered = `${flag}.entered`;
+		rmSync(entered, { force: true });
+		await run.prompt("stopped during setup");
+		// RPC answers a prompt before the session takes it: a Stop sent at once can cancel it in RPC's own input queue.
+		await expect.poll(() => existsSync(entered), { timeout: 30_000 }).toBe(true);
+		expect((await run.send({ type: "abort" })).success).toBe(true);
+		await expect.poll(() => lines().length, { timeout: 30_000 }).toBe(3);
+		const stopped = details(2);
+		expect(stopped).toMatchObject({ outcome: "cancelled", providerRequestSent: false });
+		expect(String(stopped.longestGap)).toMatch(/^handlers_start>handlers_end \d+ms$/);
+		expect(Number(stopped["at.setup_end"])).toBeGreaterThanOrEqual(SLOW_HANDLER_MS);
+		expect(stopped).not.toHaveProperty("at.agent_start");
+		expect(run.frames.filter(frame => frame.type === "agent_end")).toHaveLength(agentEnds);
 		rmSync(flag);
+		await (await run.prompt("a normal turn after the Stop"))();
+		expect(lines()).toHaveLength(3);
 
 		// 4. Connection refused: stock retries the request (backoff 0.5 s doubling to 8 s, ten times), then the run ends
 		// errored with the provider's message; the request was sent, nothing answered.
 		await provider.stop();
 		await (await run.prompt("hello a fourth time"))();
-		await expect.poll(() => lines().length, { timeout: 30_000 }).toBe(3);
-		const refused = details(2);
+		await expect.poll(() => lines().length, { timeout: 30_000 }).toBe(4);
+		const refused = details(3);
 		expect(refused).toMatchObject({ outcome: "error", call: 0, providerRequestSent: true });
 		expect(String(refused.error)).toMatch(/connection refused/i);
 		expect(String(refused.longestGap)).toMatch(/^provider_request>stream_open \d+ms$/);
 		expect(refused).not.toHaveProperty("at.provider_response");
 		expect(refused).not.toHaveProperty("at.first_output");
 
-		// Each frame is one runtime-log line of the registered source, and the normal turn sent none.
-		expect(lines()).toHaveLength(3);
+		// Each frame is one runtime-log line of the registered source, and the normal turns sent none.
+		expect(lines()).toHaveLength(4);
 		for (const frame of lines()) expect(turnStagesReport(frame)?.source).toBe("turn-stages");
 	}, 240_000);
 });
