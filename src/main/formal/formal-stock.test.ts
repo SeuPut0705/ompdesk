@@ -74,4 +74,30 @@ describe.skipIf(!packageRoot)("the formal-verification skill on the installed om
 		expect(names.filter(name => name.includes("formal-verify"))).toHaveLength(2);
 		expect(both.skills.find(skill => skill.name === "ompdesk-formal-verify")?.path.startsWith(FORMAL)).toBe(true);
 	});
+
+	it("stays the one ompdesk-formal-verify beside every pack a bump rewrites, mounted as a spawn mounts them", () => {
+		// The roots `sidecar-factory.ts` mounts with every switch on (REA's skill root without its server), in its order.
+		const builtin = path.dirname(FORMAL);
+		const packs = ["skills", "rea", "pstack", "ecc"].map(name =>
+			name === "skills" ? builtin : path.join(builtin, name),
+		);
+		const all = probe([...packs, FORMAL]);
+		const ours = all.skills.filter(skill => skill.name.includes("ompdesk-formal-verify"));
+		expect(ours.map(skill => skill.name)).toEqual(["ompdesk-formal-verify"]);
+		expect(ours[0]?.path.startsWith(FORMAL)).toBe(true);
+		expect(ours[0]?.hidden).toBe(false);
+		// No pack brings back a skill for the same job under its own name (the user skill an earlier case left in this
+		// HOME is the user's, not a pack's).
+		const rivals = all.skills.filter(
+			skill =>
+				packs.some(root => skill.path.startsWith(`${root}${path.sep}`)) &&
+				!skill.path.startsWith(FORMAL) &&
+				skill.name
+					.toLowerCase()
+					.split(/[-_/\s]+/)
+					.some(word => ["formal", "statechart", "tla", "tlaplus", "tlc", "lean", "kani"].includes(word)),
+		);
+		expect(rivals.map(skill => `${skill.name} (${skill.path})`)).toEqual([]);
+		expect(all.read["skill://ompdesk-formal-verify"]).toContain("name: ompdesk-formal-verify");
+	});
 });
