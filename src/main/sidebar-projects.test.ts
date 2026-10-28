@@ -21,6 +21,12 @@ const FOLDERS: Record<string, string | null> = {
 	"/gone": null,
 };
 
+/** Where stock puts each project's worktrees and the repo hash it names them by (`gui-<name>-<hash7>`). */
+const LOCATIONS: Record<string, { root: string; hash: string }> = {
+	"/work/alpha": { root: "/home/me/.omp/wt", hash: "1234567" },
+	"/work/beta": { root: "/home/me/.omp/wt", hash: "7654321" },
+};
+
 function harness(stored: unknown = undefined) {
 	let sessions: SidebarProjectsSession[] = [];
 	let saved: unknown = stored;
@@ -34,8 +40,10 @@ function harness(stored: unknown = undefined) {
 			},
 			sessions: async () => sessions,
 			defaultWorkspace: () => WORKSPACE,
-			projectOf: async cwd => (cwd in FOLDERS ? (FOLDERS[cwd] as string | null) : cwd),
+			// Git sees nothing in a folder that is gone (`projectOfFolder`).
+			projectOf: async cwd => (gone.has(cwd) ? null : cwd in FOLDERS ? (FOLDERS[cwd] as string | null) : cwd),
 			exists: async path => !gone.has(path),
+			worktreeLocation: async project => LOCATIONS[project] ?? null,
 			onState: state => pushes.push(state),
 			now: () => 5_000,
 		});
@@ -145,6 +153,58 @@ describe("SidebarProjects", () => {
 		h.setSessions([session("/work/alpha", "2026-10-01T00:00:00Z")]);
 		await h.projects.sync();
 		expect(h.projects.state().gone).toBeUndefined();
+	});
+
+	// The user's report (29 Oct 2026, "remote-only session bug again"): a paired device's section for this Mac showed
+	// `gui-f-07-e-contracts-…` and `gui-f-05-work-time-…` groups this Mac's own sidebar hid. Their worktrees had been
+	// removed, and this list kept the folders as if still there (the first answer was kept for good), or, after a
+	// relaunch, named them gone with no project, so a session of one a tab held became a project of its own there.
+	it("names a worktree removed while the app runs gone, still naming its project, across a read and a relaunch", async () => {
+		const WT = "/home/me/.omp/wt/gui-alpha-1234567";
+		const h = harness();
+		h.setSessions([session("/work/alpha", "2026-10-01T00:00:00Z"), session(WT, "2026-10-03T00:00:00Z")]);
+		await h.projects.sync();
+		expect(h.projects.state().worktrees).toEqual({ [WT]: "/work/alpha" });
+		expect(h.projects.state().gone).toBeUndefined();
+		// Disk care removes the landed worktree; the session index does not change, a device's read comes in.
+		h.gone.add(WT);
+		const read = await h.projects.command({ action: "get" });
+		expect(read.gone).toEqual([WT]);
+		expect(read.worktrees).toEqual({ [WT]: "/work/alpha" });
+		expect(h.pushes.at(-1)?.gone).toEqual([WT]);
+		// A relaunch has no answer from the folder's life: the stored list still names its project.
+		const reopened = h.reopen();
+		await reopened.sync();
+		expect(reopened.state().gone).toEqual([WT]);
+		expect(reopened.state().worktrees).toEqual({ [WT]: "/work/alpha" });
+		// The folder is never a project of its own.
+		expect(paths(reopened)).toEqual(["/work/alpha"]);
+	});
+
+	it("reads a removed OMPdesk worktree's project off its folder name when no pass saw the folder", async () => {
+		const F07 = "/home/me/.omp/wt/gui-f-07-e-contracts-7654321";
+		const STRAY = "/home/me/.omp/wt/gui-other-abcdef0";
+		const h = harness({
+			projects: [
+				{ path: "/work/alpha", addedAt: 1 },
+				{ path: "/work/beta", addedAt: 2 },
+			],
+			removed: [],
+			worktrees: {},
+		});
+		h.gone.add(F07);
+		h.gone.add(STRAY);
+		h.gone.add("/gone");
+		h.setSessions([
+			session(F07, "2026-10-03T00:00:00Z"),
+			session(STRAY, "2026-10-03T00:00:00Z"),
+			session("/gone", "2026-10-03T00:00:00Z"),
+		]);
+		await h.projects.sync();
+		expect(h.projects.state().gone).toEqual(["/gone", F07, STRAY]);
+		// The hash names beta's worktree; a hash no project has and a folder of no worktree name nothing.
+		expect(h.projects.state().worktrees).toEqual({ [F07]: "/work/beta" });
+		expect(paths(h.projects)).toEqual(["/work/alpha", "/work/beta"]);
 	});
 
 	it("keeps a project whose last session was deleted", async () => {

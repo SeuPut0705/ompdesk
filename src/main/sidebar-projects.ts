@@ -38,6 +38,11 @@ export interface SidebarProjectsDeps {
 	projectOf?: (cwd: string) => Promise<string | null>;
 	/** Whether a listed project's folder is still there (a missing one stays listed, dimmed). */
 	exists?: (path: string) => Promise<boolean>;
+	/**
+	 * Where stock puts a project's worktrees and the repo hash it names them by (`gui-<name>-<hash7>`): a removed
+	 * worktree's project is read off its folder name when no pass saw the folder while it was there. Null when unknown.
+	 */
+	worktreeLocation?: (project: string) => Promise<{ root: string; hash: string } | null>;
 	onState: (state: SidebarProjectsState) => void;
 	now?: () => number;
 }
@@ -74,16 +79,21 @@ export async function projectOfFolder(cwd: string): Promise<string | null> {
 	return (await linkedWorktreeRoot(cwd)) ?? cwd;
 }
 
-/** The folder name of a checkout OMPdesk makes under the worktree root (`gui-<name>-<hash7>`). */
-const OMPDESK_WORKTREE_FOLDER = /^gui-.+-[0-9a-f]{7}$/;
+/** The folder name of a checkout OMPdesk makes under the worktree root (`gui-<name>-<hash7>`, the hash its repo's). */
+const OMPDESK_WORKTREE_FOLDER = /^gui-.+-([0-9a-f]{7})$/;
 
 export class SidebarProjects {
 	readonly #deps: SidebarProjectsDeps;
 	readonly #projectOf: (cwd: string) => Promise<string | null>;
 	readonly #now: () => number;
 	#state: SidebarProjectsState;
-	/** What each session folder resolved to: whether a folder is a linked worktree does not change. */
+	/**
+	 * What each session folder resolved to while it was there: whether a folder is a linked worktree does not change,
+	 * and a worktree removed since still names the project it was cut from.
+	 */
 	readonly #resolved = new Map<string, string | null>();
+	/** Each project's worktree root and repo hash, once known. */
+	readonly #locations = new Map<string, { root: string; hash: string }>();
 	#timer: NodeJS.Timeout | undefined;
 	#running: Promise<void> | null = null;
 	#again = false;
@@ -103,8 +113,8 @@ export class SidebarProjects {
 	async command(request: SidebarProjectsRequest): Promise<SidebarProjectsState> {
 		if (request.action === "add") await this.add(request.path);
 		else if (request.action === "remove") this.remove(request.path);
-		// A read also notices a folder that went (or came back) since the last pass.
-		else await this.#checkFolders([], this.#state.worktrees);
+		// A read also notices a session folder or a project folder that went (or came back) since the last pass.
+		else await this.sync();
 		return this.#state;
 	}
 
@@ -175,19 +185,29 @@ export class SidebarProjects {
 			newest.set(session.cwd, Math.max(newest.get(session.cwd) ?? 0, Number.isNaN(created) ? 0 : created));
 		}
 		const found = new Map<string, number>();
-		// A linked worktree's folder → its project: a paired device groups the host's sessions by it (git runs here).
+		// A linked worktree's folder → its project: a paired device groups the host's sessions by it (git runs here). A
+		// removed worktree keeps naming its project, so a session of it a tab still holds is a row of that project there.
 		const worktrees: Record<string, string> = {};
 		// Session folders that are gone: a paired device hides their sessions, as this computer's sidebar does.
 		const gone: string[] = [];
+		const exists = this.#deps.exists ?? folderExists;
 		for (const [cwd, created] of newest) {
-			let project = this.#resolved.get(cwd);
-			if (project === undefined) {
-				project = await this.#projectOf(cwd);
-				// A gone folder may come back (a restored worktree): asked again next pass.
-				if (project !== null) this.#resolved.set(cwd, project);
+			const known = this.#resolved.get(cwd);
+			// A folder seen before is asked again only once it is gone: a worktree removed while this app runs (disk care,
+			// a landed child) left a project here that the next pass must not keep listing as there.
+			const project = known != null && (await exists(cwd)) ? known : await this.#projectOf(cwd);
+			// A gone folder may come back (a restored worktree): asked again next pass.
+			if (project !== null) this.#resolved.set(cwd, project);
+			if (project === null) {
+				gone.push(cwd);
+				const was =
+					(known != null && known !== cwd ? known : undefined) ??
+					this.#state.worktrees[cwd] ??
+					(await this.#projectByRepoHash(cwd, [...found.keys()]));
+				if (was !== undefined && was !== workspace) worktrees[cwd] = was;
+				continue;
 			}
-			if (project === null) gone.push(cwd);
-			if (project === null || project === workspace) continue;
+			if (project === workspace) continue;
 			if (project !== cwd) worktrees[cwd] = project;
 			found.set(project, Math.max(found.get(project) ?? 0, created));
 		}
@@ -220,12 +240,40 @@ export class SidebarProjects {
 		await this.#checkFolders(added, worktrees, moved, gone.sort());
 	}
 
+	/**
+	 * The project a gone OMPdesk worktree folder was cut from, by its name: stock names each worktree
+	 * `<root>/gui-<name>-<hash7>` with its repository's hash, so the listed project (or one found this pass) whose
+	 * worktree root is the folder's parent and whose hash is the folder's own is it. Undefined when none is.
+	 */
+	async #projectByRepoHash(cwd: string, found: readonly string[]): Promise<string | undefined> {
+		const hash = OMPDESK_WORKTREE_FOLDER.exec(pathBaseName(cwd))?.[1];
+		const location = this.#deps.worktreeLocation;
+		if (!hash || !location) return undefined;
+		const parent = path.resolve(path.dirname(cwd));
+		const candidates = new Set([
+			...this.#state.projects.filter(entry => !entry.missing).map(entry => entry.path),
+			...found,
+		]);
+		for (const project of candidates) {
+			let known = this.#locations.get(project);
+			if (!known) {
+				const read = await location(project).catch(() => null);
+				// Unknown (omp not ready yet): asked again next pass.
+				if (!read) continue;
+				known = read;
+				this.#locations.set(project, read);
+			}
+			if (known.hash === hash && path.resolve(known.root) === parent) return project;
+		}
+		return undefined;
+	}
+
 	/** Marks each listed project whose folder is gone (and unmarks one that came back); commits with `added`. */
 	async #checkFolders(
 		added: readonly SidebarProject[],
 		worktrees: Record<string, string>,
-		moved: ReadonlyMap<string, string> = new Map(),
-		gone: readonly string[] | undefined = this.#state.gone,
+		moved: ReadonlyMap<string, string>,
+		gone: readonly string[],
 	): Promise<void> {
 		const exists = this.#deps.exists ?? folderExists;
 		const before = this.#state;
@@ -248,12 +296,12 @@ export class SidebarProjects {
 			checked.length !== kept.length + added.length ||
 			checked.some((entry, index) => entry.missing !== before.projects[index]?.missing) ||
 			JSON.stringify(worktrees) !== JSON.stringify(before.worktrees) ||
-			JSON.stringify(gone ?? []) !== JSON.stringify(before.gone ?? []);
+			JSON.stringify(gone) !== JSON.stringify(before.gone ?? []);
 		if (changed)
 			this.#commit({
 				projects: checked,
 				worktrees,
-				...(gone && gone.length > 0 ? { gone: [...gone] } : { gone: undefined }),
+				...(gone.length > 0 ? { gone: [...gone] } : { gone: undefined }),
 			});
 	}
 

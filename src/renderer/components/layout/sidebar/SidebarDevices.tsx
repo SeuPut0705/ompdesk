@@ -512,13 +512,15 @@ function DeviceSessions({
 		};
 		for (const session of rows) {
 			if (isChatSession(session, hostWorkspace)) continue;
-			// A linked worktree's session is a row of its project (the host's git says which), never a project of its own.
+			// A linked worktree's session is a row of its project (the host's git says which), never a project of its own;
+			// a removed one's too, as long as the host still names its project.
 			const project = projectList.worktrees[session.cwd] ?? session.cwd;
 			// A project removed from the sidebar takes its sessions with it, and a folder gone on the host (a removed
-			// worktree) its sessions, as this computer's own sidebar does: unless a tab holds one.
+			// worktree) its sessions, as the host's own sidebar does: unless a tab holds one, here or on the host.
 			if (
 				(removed.has(project) || gone.has(session.cwd)) &&
 				session.liveTabId === undefined &&
+				session.heldOnHost !== true &&
 				!held.has(session.path) &&
 				!held.has(session.id)
 			)

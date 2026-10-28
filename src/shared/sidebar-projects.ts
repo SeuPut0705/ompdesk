@@ -31,7 +31,8 @@ export interface SidebarProjectsState {
 	removed: string[];
 	/**
 	 * Each session folder that is a linked worktree → the project it was cut from, as git on that computer says (a
-	 * paired device cannot ask the host's git): its sessions are rows of that project, never a project of their own.
+	 * paired device cannot ask the host's git): its sessions are rows of that project, never a project of their own. A
+	 * worktree removed since (listed in `gone`) keeps naming its project, so a session of it a tab holds stays there.
 	 */
 	worktrees: Record<string, string>;
 	/**

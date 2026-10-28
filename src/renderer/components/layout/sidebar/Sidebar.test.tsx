@@ -13,6 +13,7 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
+import { SidebarProjects } from "../../../../main/sidebar-projects";
 import { wrapAgentMessage } from "../../../../shared/agent-control";
 import { codedError } from "../../../../shared/ipc-error-codes";
 import type { HostView, SessionInfo } from "../../../../shared/ipc-types";
@@ -4017,6 +4018,90 @@ describe("Sidebar device sections", () => {
 		expect(section?.textContent).toContain("Remote fix");
 	});
 
+	// The user's report (29 Oct 2026, "remote-only session bug again"): the desktop's section for the Mac showed
+	// `gui-f-07-e-contracts-…` and `gui-f-05-work-time-…` groups the Mac's own sidebar did not. Their worktrees had
+	// been removed: the Mac's list kept a folder removed while it ran as still there, and after a relaunch named it
+	// gone with no project, so a session of it a tab still held became a project of its own on the device. The host's
+	// real list feeds the device here, as `host.projects.command` does over the link.
+	it.each([
+		["went while it ran", true],
+		["were gone before its first pass (a relaunch)", false],
+	])(
+		"never shows a host's removed worktree as a project, whose worktrees %s: its sessions hide, or sit under its project while a tab holds one",
+		async (_history, seenAlive) => {
+			const omp = installWithRemote();
+			const APP = "/Users/kim/code/app";
+			const wt = (name: string) => `/Users/kim/.omp/wt/gui-${name}-3795397`;
+			const row = (name: string, title: string, extra: Partial<SessionInfo> = {}) =>
+				session(`/Users/kim/.omp/agent/sessions/${name}/one.jsonl`, wt(name), {
+					title,
+					device: "dev-studio",
+					...extra,
+				});
+			// A tab here holds f-07 (asleep since this computer relaunched: the host never saw it), a window there holds f-05,
+			// nothing holds f-06.
+			const hostSessions = [
+				...REMOTE,
+				row("f-07-e-contracts", "전자계약 테스트 수정"),
+				row("f-05-work-time", "F-05 출퇴근 기록", { heldOnHost: true }),
+				row("f-06-payslips", "급여명세서 잠김 수정"),
+			];
+			omp.sessions.list.mockImplementation(async (_scope, device) =>
+				device === "dev-studio" ? hostSessions : LIST,
+			);
+			const removed = new Set<string>();
+			const host = new SidebarProjects({
+				read: () => ({ projects: [{ path: APP, addedAt: 1 }], removed: [] }),
+				write: () => {},
+				sessions: async () => hostSessions,
+				defaultWorkspace: () => "/Users/kim/.omp/work",
+				projectOf: async cwd => (removed.has(cwd) ? null : cwd.startsWith("/Users/kim/.omp/wt/") ? APP : cwd),
+				exists: async path => !removed.has(path),
+				// Stock names the app's worktrees `/Users/kim/.omp/wt/gui-<name>-3795397`.
+				worktreeLocation: async project =>
+					project === APP ? { root: "/Users/kim/.omp/wt", hash: "3795397" } : null,
+				onState: () => {},
+			});
+			if (seenAlive) await host.sync();
+			for (const name of ["f-07-e-contracts", "f-05-work-time", "f-06-payslips"]) removed.add(wt(name));
+			// A relaunched host's first pass meets the folders gone; one that ran on has only the device's read since.
+			if (!seenAlive) await host.sync();
+			omp.sidebarProjects.lists["dev-studio"] = await host.command({ action: "get" });
+			seedStores();
+			useTabsStore.setState(state => ({
+				tabs: [
+					...state.tabs,
+					{
+						id: "tr",
+						cwd: wt("f-07-e-contracts"),
+						status: "asleep",
+						kind: "agent",
+						unreadDone: false,
+						device: "dev-studio",
+						sessionPath: "/Users/kim/.omp/agent/sessions/f-07-e-contracts/one.jsonl",
+					},
+				],
+			}));
+			pairHost("online");
+			await mount(<Sidebar />);
+
+			const section = container.querySelector('[data-sidebar-device="dev-studio"]');
+			// No removed worktree is a project there.
+			expect(
+				[...(section?.querySelectorAll("[data-device-group]") ?? [])].map(group =>
+					group.getAttribute("data-device-group"),
+				),
+			).toEqual([APP]);
+			const app = section?.querySelector(`[data-device-group="${APP}"]`);
+			// The sessions a tab holds, here or on the host, are rows of the project the worktree was cut from.
+			expect(app?.textContent).toContain("전자계약 테스트 수정");
+			expect(app?.textContent).toContain("F-05 출퇴근 기록");
+			// One no tab holds went with its worktree, as on the host.
+			expect(section?.textContent).not.toContain("급여명세서 잠김 수정");
+			expect(app?.textContent).toContain("Remote fix");
+		},
+	);
+
 	it("shows the host's own project list, empty projects too, and removes one there", async () => {
 		const omp = installWithRemote();
 		omp.sidebarProjects.lists["dev-studio"] = {
@@ -4785,6 +4870,36 @@ describe("Sidebar worktree sessions", () => {
 		const rows = [...container.querySelectorAll(".omp-sidebar-session-row")].map(row => row.textContent ?? "");
 		expect(rows.some(text => text.includes("Held by the device"))).toBe(true);
 		expect(rows.some(text => text.includes("Held here"))).toBe(true);
+	});
+
+	it("lists a held session of a removed worktree under the project main still names for it, as a paired device does", async () => {
+		const DISCARDED = "/home/me/.omp/wt/h1/gui-agent-c3d4e5-0a1b2c3";
+		const omp = installMockOmp([
+			session("/wt/local.jsonl", DISCARDED, { title: "Held here", created: "2026-02-01T00:00:00Z" }),
+			...LIST,
+		]);
+		(omp as unknown as Record<string, unknown>).projectOrigins = {
+			get: vi.fn(async (cwds: string[]) =>
+				Object.fromEntries(
+					cwds.map(cwd => [
+						cwd,
+						cwd === "/work/alpha" ? { project: "alpha", root: "/work/alpha", worktree: null } : null,
+					]),
+				),
+			),
+		};
+		omp.sidebarProjects.lists.local = {
+			projects: [{ path: "/work/alpha", addedAt: 1 }],
+			removed: [],
+			worktrees: { [DISCARDED]: "/work/alpha" },
+			gone: [DISCARDED],
+		};
+		seedStores();
+		openTab("tl", DISCARDED, "/wt/local.jsonl");
+		await mount(<Sidebar />);
+		expect(container.querySelector(`[data-workspace-group="${DISCARDED}"]`)).toBeNull();
+		expect(container.querySelector(`[data-session-group="${DISCARDED}"]`)).toBeNull();
+		expect(container.querySelector('[data-session-group="/work/alpha"]')?.textContent).toContain("Held here");
 	});
 
 	it("names the group after the project, not the worktree, when only worktree sessions exist", async () => {

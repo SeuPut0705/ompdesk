@@ -1013,8 +1013,12 @@ export function Sidebar() {
 			// One no opener holds folds into its project's group, below.
 			if (foldedRootOf.has(session.path)) continue;
 			// An Autopilot child goes where its run goes.
-			const shown = projectName(runParentOf.get(session.path) ?? session.cwd);
-			const key = shown.worktree ? keyOfRoot(shown.root) : session.cwd;
+			const at = runParentOf.get(session.path) ?? session.cwd;
+			const shown = projectName(at);
+			// A removed worktree a tab still holds stays a row of the project it was cut from (main keeps naming it, and
+			// a paired device groups it by the same name), never a group of its own.
+			const root = shown.worktree ? shown.root : shown.gone && projectList.worktrees[at];
+			const key = root ? keyOfRoot(root) : session.cwd;
 			if (removed.has(key) && !held(session)) continue;
 			const entry = groupFor(key);
 			if (!entry.members.includes(session.cwd)) entry.members.push(session.cwd);
