@@ -18,7 +18,7 @@
 				"src/main/remote/host-services.ts",
 				"src/main/ipc.ts"
 			],
-			"syncCommit": "0714c43ab01d03c55b6a765a2b08d760d3a11ddc",
+			"syncCommit": "d3b5eaf9162ca7e04fdc0e98ba7dac2cc5ac5faa",
 			"verifySkill": ".omp/skills/turn-resume-verify/SKILL.md"
 		},
 		{
@@ -36,7 +36,7 @@
 				"src/main/ipc.ts",
 				"src/renderer/stores/session-list.ts"
 			],
-			"syncCommit": "0714c43ab01d03c55b6a765a2b08d760d3a11ddc",
+			"syncCommit": "d3b5eaf9162ca7e04fdc0e98ba7dac2cc5ac5faa",
 			"verifySkill": ".omp/skills/session-listing-verify/SKILL.md"
 		}
 	]
