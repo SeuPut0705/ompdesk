@@ -121,7 +121,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // A paired host's section folds the closed sessions its agents opened that the host knows no opener of, as the host
 // does (`foldsIntoProject`, its loose children), and its list keeps no row whose listing changed while its journal
 // did not (`sameRow`; 28 Oct 2026): 1,446 bytes more (measured 3,198,928).
-const WEB_FIRST_SCREEN_JS_BYTES = 3_199_000;
+// Agent powers on by default and the new agent app actions (sidebar projects, pins, order, updates, privacy panes)
+// in the shared app-action client (`lib/agent-app.ts`; 29 Oct 2026): 983 bytes more (measured 3,199,911).
+const WEB_FIRST_SCREEN_JS_BYTES = 3_200_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

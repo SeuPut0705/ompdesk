@@ -38,7 +38,10 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), "formal-audit-drift-"));
 
 const savedEnv = { global: process.env.GIT_CONFIG_GLOBAL, system: process.env.GIT_CONFIG_NOSYSTEM };
 beforeAll(() => {
-	process.env.GIT_CONFIG_GLOBAL = os.devNull;
+	// An empty file, not os.devNull: git on Windows cannot open `\\.\nul` as a config file.
+	const emptyConfig = path.join(temp, "empty.gitconfig");
+	fs.writeFileSync(emptyConfig, "");
+	process.env.GIT_CONFIG_GLOBAL = emptyConfig;
 	process.env.GIT_CONFIG_NOSYSTEM = "1";
 });
 afterAll(() => {

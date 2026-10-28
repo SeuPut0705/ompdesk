@@ -130,7 +130,8 @@ describe("migrateAgentPowers", () => {
 		const report = migrateAgentPowers(store, agentDir);
 		expect(report?.stock).toEqual(["computer.enabled", "tools.approvalMode"]);
 		expect(readFileSync(file, "utf8")).toBe("theme: dark\ntools:\n  approval:\n    bash: prompt\n");
-		expect(statSync(file).mode & 0o777).toBe(0o600);
+		// POSIX modes only: Windows reports 0o666 for any writable file.
+		if (process.platform !== "win32") expect(statSync(file).mode & 0o777).toBe(0o600);
 
 		// Turned off again after the migration: not touched.
 		writeFileSync(file, "computer:\n  enabled: false\ntools:\n  approvalMode: always-ask\n");
