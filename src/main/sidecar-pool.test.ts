@@ -1718,6 +1718,26 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 		expect(pool.sessionOwner("/sessions/s.jsonl")).toEqual({ tabId: "tab-a", winId: 1 });
 	});
 
+	it("announces every take and let-go of a session file, a sessionId change's let-go too, and never a repeat", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		let heard = 0;
+		pool.onSessionFilesChanged = () => heard++;
+		pool.acquire("/a", fw.win, "tab-a", "/sessions/s.jsonl");
+		expect(heard).toBe(1);
+		const [a] = sidecars;
+		a?.emitSessionInfo({ sessionId: "sess-1" });
+		pool.noteSessionFile("tab-a", "/sessions/s.jsonl");
+		expect(heard).toBe(1);
+		// The session under the tab changed: the file is let go before any get_state re-registers one.
+		a?.emitSessionInfo({ sessionId: "sess-2" });
+		expect(heard).toBe(2);
+		pool.noteSessionFile("tab-a", "/sessions/s2.jsonl");
+		expect(heard).toBe(3);
+		expect(pool.releaseTab("tab-a")).toBe(true);
+		expect(heard).toBe(4);
+	});
+
 	it("only the current owner clears a mapping", () => {
 		const { pool } = fakePool();
 		const fw = fakeWindow(1);

@@ -1763,17 +1763,13 @@ describe("TurnResume scheduled retry", () => {
 	});
 });
 
-/**
- * REPRODUCTIONS of formal/turn-resume counterexamples (formal/turn-resume/evidence/*.log). Each is a failing test on
- * the unchanged code: it asserts the property the model violated. They fail until the code is changed (or the
- * property is waived on purpose); no product code was touched to make them fail.
- */
-describe("REPRODUCTION formal/turn-resume (fails on current code)", () => {
+/** The connection wait's rules formal/turn-resume checks (F1 MarkerNetwork, F4 NoRetryAfterSessionChangeWhileHeld). */
+describe("TurnResume connection wait (formal/turn-resume)", () => {
 	let h: Harness;
 	afterEach(() => rmSync(h.dir, { recursive: true, force: true }));
 
-	// MarkerNetwork, TLC trace formal/turn-resume/evidence/TurnResume-MC_marker.log (20 states, ends in FireResume).
-	it("F1: a scheduled retry that fires while offline hands over to the connection wait, and the marker file says `network` (a crash during the wait still retries)", async () => {
+	// F1, MarkerNetwork: the scheduled retry's own hold rewrites the marker file (it runs from a timer, not from sync()).
+	it("a scheduled retry that fires while offline hands over to the connection wait, and the marker file says `network` (a crash during the wait still retries)", async () => {
 		h = setup({ answers: { get_settings: SETTINGS_ON, retry: RETRIED } });
 		h.resume.launch();
 		h.facts.push(fact({ running: true }));
@@ -1792,25 +1788,51 @@ describe("REPRODUCTION formal/turn-resume (fails on current code)", () => {
 		expect(h.store.read().map(entry => entry.reason)).toEqual(["network"]);
 	});
 
-	// NoRetryAfterSessionChangeWhileHeld (a property the verifier added, not one of the stated ones), trace
-	// formal/turn-resume/evidence/TurnResume-MC_held.log (19 states, ends in FlushStep).
-	it("F4: a session or branch change while the connection wait holds does not send stock `retry` into the new session once online", async () => {
+	// F4: a session or branch change calls the held wait off, as it does a probe and a scheduled retry.
+	it.each<[string, Partial<ResumeFact>]>([
+		["a branch or session command (`touched`)", { touched: 1 }],
+		["another session file under the tab", { sessionFile: "/s/other.jsonl" }],
+	])(
+		"%s while the connection wait holds ends the wait, and nothing retries into the new session once online",
+		async (_name, patch) => {
+			h = setup({ online: false, answers: { retry: RETRIED } });
+			h.resume.launch();
+			h.facts.push(
+				fact({
+					running: false,
+					lastRun: { stopReason: "error", errorMessage: "fetch failed: getaddrinfo ENOTFOUND api.example.com" },
+				}),
+			);
+			h.resume.sync();
+			expect(h.awaiting.at(-1)).toEqual(["t1", true]);
+			h.facts[0] = { ...(h.facts[0] as ResumeFact), ...patch };
+			h.resume.sync();
+			h.net.online = true;
+			h.resume.connectivityChanged();
+			await settle();
+			expect(h.awaiting.at(-1)).toEqual(["t1", false]);
+			expect(h.store.read()).toEqual([]);
+			expect(h.commands.map(command => command.type)).not.toContain("retry");
+		},
+	);
+
+	it("keeps the wait when stock writes the session's first file after the hold: it is the same conversation", async () => {
 		h = setup({ online: false, answers: { retry: RETRIED } });
 		h.resume.launch();
 		h.facts.push(
 			fact({
 				running: false,
+				sessionFile: undefined,
 				lastRun: { stopReason: "error", errorMessage: "fetch failed: getaddrinfo ENOTFOUND api.example.com" },
 			}),
 		);
 		h.resume.sync();
-		expect(h.awaiting.at(-1)).toEqual(["t1", true]);
-		// The user switches the tab to another session / branch (`TOUCH_COMMANDS`): main bumps `touched`, then syncs.
-		h.facts[0] = { ...(h.facts[0] as ResumeFact), touched: 1 };
+		h.facts[0] = { ...(h.facts[0] as ResumeFact), sessionFile: "/s/a.jsonl" };
 		h.resume.sync();
+		expect(h.store.read().map(entry => entry.reason)).toEqual(["network"]);
 		h.net.online = true;
 		h.resume.connectivityChanged();
 		await settle();
-		expect(h.commands.map(command => command.type)).not.toContain("retry");
+		expect(h.commands.map(command => command.type)).toContain("retry");
 	});
 });

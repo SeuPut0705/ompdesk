@@ -1864,10 +1864,10 @@ describe("LocalHostServices", () => {
 		expect(heard()).toBe(4);
 	});
 
-	// REPRODUCTION of formal/session-listing (counterexample formal/session-listing/evidence/SessionListing-MC_code.log,
-	// property HeldConverges). Fails on the current code: listingChanged() compares with the snapshot ANY device's read
-	// last recorded, so a read taken while the listing was transiently wrong swallows the later announcement.
-	it("REPRODUCTION F3: a device that listed a session as held hears of its close even when another device read the list between the pool's silent unregister and the close", async () => {
+	// formal/session-listing F3 (HeldConverges): the host compares with the snapshot the latest read of ANY device
+	// recorded, so every change of what a tab holds has to be announced when it happens. The pool's let-go on a
+	// session-id change calls listingChanged too (`SidecarPool.onSessionFilesChanged`, sidecar-pool.test.ts).
+	it("a device that listed a session as held hears of it when a window's tab lets go of it, even when another device reads the list before the tab closes", async () => {
 		vi.useFakeTimers();
 		const row = (path: string) => ({ path, id: path, title: path, cwd: workDir, firstMessage: "" });
 		const { services, local } = setup(60_000, {
@@ -1881,20 +1881,19 @@ describe("LocalHostServices", () => {
 		local.owned.set("/s/w.jsonl", { tabId: "w1", winId: 1 });
 		const rowsA = (await services.call(a.peer, "sessions.list", { scope: "global" }, a)) as SessionInfo[];
 		expect(rowsA[0]?.heldOnHost).toBe(true);
-		// The window's omp reports another sessionId: the pool unregisters the file and notifies nobody (sidecar-pool.ts
-		// `sessionInfoUpdate`, pinned by sidecar-pool.test.ts "the session under the tab changed"); `owned.delete` is that step.
+		// The window's omp reports another sessionId: the pool lets the file go and says so.
 		local.owned.delete("/s/w.jsonl");
-		// Device B reads the list in that gap: the host records the listing without the session as its snapshot.
+		services.listingChanged();
+		// Device B reads the list before the tab closes: the host's snapshot is now B's listing.
 		const rowsB = (await services.call(b.peer, "sessions.list", { scope: "global" }, b)) as SessionInfo[];
 		expect(rowsB[0]?.heldOnHost).toBeUndefined();
-		// The tab closes (or is released): the pool calls listingChanged(); the listing equals B's snapshot.
+		// The tab closes: the listing equals B's snapshot, so nothing more is said, and A heard already.
 		services.listingChanged();
 		vi.advanceTimersByTime(1_000);
-		// Device A still lists the session as held on the host; the property says it must be told to read again.
-		expect(a.events.filter(entry => entry.event === "sessions.changed").length).toBeGreaterThan(0);
+		expect(a.events.filter(entry => entry.event === "sessions.changed").length).toBe(1);
 	});
 
-	// Control for the reproduction above: the same steps without device B's read in the gap tell device A.
+	// Control for the case above: the same steps without device B's read in the gap tell device A.
 	it("control for F3: without another device's read in the gap, the close is announced to the device that listed the session as held", async () => {
 		vi.useFakeTimers();
 		const { services, local } = setup(60_000, {
