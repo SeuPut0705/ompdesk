@@ -244,6 +244,7 @@ export interface HostServicesDeps {
 		| "allSidecars"
 		| "viewForDevice"
 		| "stopSession"
+		| "windowSessionFiles"
 	>;
 	/** Moves a path to this machine's trash (Electron `shell.trashItem`). */
 	trashItem: (abs: string) => Promise<void>;
@@ -517,6 +518,12 @@ export class LocalHostServices implements HostServices {
 	#hostedSnapshot = "[]";
 	/** `liveSessions` as last sent to the devices, and the timer that batches a burst of changes into one push. */
 	#liveSnapshot = "[]";
+	/**
+	 * What a device's last read of the list said of who holds and who opened each session (`#listing`): a tab here
+	 * taking or letting go of one, or an opener becoming known, writes no journal, so the index never says so.
+	 * Undefined until a device read the list.
+	 */
+	#listingSnapshot: string | undefined;
 	#liveTimer: NodeJS.Timeout | undefined;
 	#quota: PeerQuota | null = null;
 	#memory: HostMemory | null = null;
@@ -989,19 +996,17 @@ export class LocalHostServices implements HostServices {
 			case "sessions.list": {
 				const { scope, cwd } = parse(SessionsListParams, method, params);
 				const rows = await this.#deps.sessionIndex.list(scope, cwd);
-				const openers = this.#deps.sessionOpeners?.() ?? new Map<string, string>();
+				const { openers, held } = this.#listing();
+				this.#listingSnapshot = listingSignature(openers, held);
 				const problems = new Map([...this.#childProblems.values()].flatMap(children => [...children]));
-				// The sessions a tab here holds: a window's, or one this computer runs for a device.
-				const hosted = new Set([...this.#tabs.values()].flatMap(tab => (tab.sessionFile ? [tab.sessionFile] : [])));
 				// Every row says, even `null` for none: an older host's rows say nothing, and a device lists those as before.
 				return rows.map(row => {
 					const childProblem = problems.get(row.path);
-					const held = hosted.has(row.path) || this.#deps.localTabs.sessionOwner(row.path) !== null;
 					return {
 						...row,
 						openedBySession: openers.get(row.path) ?? null,
 						...(childProblem ? { childProblem } : {}),
-						...(held ? { heldOnHost: true as const } : {}),
+						...(held.has(row.path) ? { heldOnHost: true as const } : {}),
 					};
 				});
 			}
@@ -1253,6 +1258,27 @@ export class LocalHostServices implements HostServices {
 			for (const conn of this.#conns) emitSafely(conn, SESSIONS_CHANGED_EVENT, null);
 		}, SESSIONS_CHANGED_DEBOUNCE_MS);
 		this.#sessionsTimer.unref?.();
+	}
+
+	/**
+	 * A tab of this computer took or let go of a session, or who opened one became known (a window's tab layout
+	 * changed, a device's tab here, a closed-child record): the devices read the list again when that changed what
+	 * their last read said, since no journal moved.
+	 */
+	listingChanged(): void {
+		if (this.#listingSnapshot === undefined) return;
+		const { openers, held } = this.#listing();
+		const snapshot = listingSignature(openers, held);
+		if (snapshot === this.#listingSnapshot) return;
+		this.#listingSnapshot = snapshot;
+		this.sessionsChanged();
+	}
+
+	/** Who opened each session as far as this computer knows, and the sessions a tab here holds (a window's, a device's). */
+	#listing(): { openers: ReadonlyMap<string, string>; held: ReadonlySet<string> } {
+		const held = new Set(this.#deps.localTabs.windowSessionFiles());
+		for (const tab of this.#tabs.values()) if (tab.sessionFile) held.add(tab.sessionFile);
+		return { openers: this.#deps.sessionOpeners?.() ?? new Map<string, string>(), held };
 	}
 
 	/** This machine's own OmpUpdater changed state: every connected device shows it like the computer's own row. */
@@ -1585,6 +1611,8 @@ export class LocalHostServices implements HostServices {
 		this.#trackRun(tab);
 		this.#wire(tab);
 		this.#trackForWindows(tab);
+		// A tab opened on a stored session holds it now, though no journal moved.
+		this.listingChanged();
 		if (view) {
 			tab.viewsWindow = true;
 			// The window's omp may hold asks already: the device's tab gets them as its open set.
@@ -1650,6 +1678,7 @@ export class LocalHostServices implements HostServices {
 						if (changed && tab.run.running) this.#resume?.sync();
 						this.#emit(tab, name, identity);
 						if (changed) this.#dedupe(tab);
+						if (changed) this.listingChanged();
 					});
 					break;
 				case "bridge":
@@ -2232,6 +2261,7 @@ export class LocalHostServices implements HostServices {
 		if (runBusy(tab.run)) this.#runningChanged();
 		this.#resume?.sync();
 		this.#hostedChanged();
+		this.listingChanged();
 	}
 }
 
@@ -2243,6 +2273,11 @@ function terminalOwner(deviceId: string, rtab: string): string {
 /** A hosted tab's id for this computer's resume coordinator, beside the local tabs' ids (its first rtab). */
 function resumeId(deviceId: string, rtab: string): string {
 	return `peer:${deviceId}:${rtab}`;
+}
+
+/** Who opened what and which sessions a tab here holds, as one comparable string (`listingChanged`). */
+function listingSignature(openers: ReadonlyMap<string, string>, held: ReadonlySet<string>): string {
+	return JSON.stringify([[...openers].toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)), [...held].toSorted()]);
 }
 
 /** A scheduled retry as the device gets it: what is left of the wait, since the two computers share no clock. */

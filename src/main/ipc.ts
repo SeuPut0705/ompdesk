@@ -27,6 +27,7 @@ import {
 } from "../../resources/gui-bridge/prompt-origin-contracts";
 import { ACCOUNT_ROTATION_PREF, isAccountRotationMode } from "../shared/account-rotation";
 import {
+	AGENT_CLOSED_CHILDREN_PREF,
 	AGENT_CONTROL_PREF,
 	AGENT_HIDDEN_PREFS_KEY,
 	type AgentReviewResult,
@@ -251,6 +252,7 @@ export interface IpcDeps {
 		| "checkoutMembers"
 		| "closeSessionTabs"
 		| "stopSessionTurns"
+		| "listingChanged"
 	>;
 	/** Spawn a window with its own sidecar (index.ts's pool-backed helper). */
 	spawnWindow: SpawnWindow;
@@ -1257,7 +1259,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		prefs: {
 			get: key => prefsStore.get(key),
 			set: (key, value) => prefsStore.set(key, value),
-			changed: key => prefChanged(null, key),
+			changed: key => {
+				prefChanged(null, key);
+				// A child main closed is now known by its record: paired devices nest it under its opener.
+				if (key === AGENT_CLOSED_CHILDREN_PREF) deps.hostedTabs.listingChanged();
+			},
 		},
 		sweepMs: process.env.OMP_GUI_TEST_AGENT_SWEEP_MS ? Number(process.env.OMP_GUI_TEST_AGENT_SWEEP_MS) : undefined,
 		// A paired device viewing the parent's session hears its list too (host-services `agentReviewChanged`).

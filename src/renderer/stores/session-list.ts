@@ -53,19 +53,28 @@ function snapshotKey(scope: SessionListScope): string {
 	return scope;
 }
 
+/**
+ * The same row as before: its journal (modified, size, title, kind) and what a paired host says of it beside the
+ * journal (who opened it, whether a tab there holds it, its children's verdict), which change with no journal write.
+ */
+function sameRow(prev: SessionInfo, next: SessionInfo): boolean {
+	return (
+		prev.modified === next.modified &&
+		prev.size === next.size &&
+		prev.title === next.title &&
+		prev.kind === next.kind &&
+		prev.openedBySession === next.openedBySession &&
+		prev.heldOnHost === next.heldOnHost &&
+		prev.childProblem === next.childProblem
+	);
+}
+
 function reconcile(previous: SessionInfo[], fetched: SessionInfo[]): SessionInfo[] {
 	const byPath = new Map(previous.map(session => [session.path, session]));
 	let changed = previous.length !== fetched.length;
 	const next = fetched.map((session, index) => {
 		const prev = byPath.get(session.path);
-		const kept =
-			prev &&
-			prev.modified === session.modified &&
-			prev.size === session.size &&
-			prev.title === session.title &&
-			prev.kind === session.kind
-				? prev
-				: session;
+		const kept = prev && sameRow(prev, session) ? prev : session;
 		if (kept !== previous[index]) changed = true;
 		return kept;
 	});

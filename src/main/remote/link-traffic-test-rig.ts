@@ -236,6 +236,7 @@ function hostServices(bin: string, workDir: string, raw: RawTap): LocalHostServi
 		machine: { abortBenchmark: async () => true, abortModelSetup: async () => true } as unknown as MachineServices,
 		localTabs: {
 			sessionOwner: () => null,
+			windowSessionFiles: () => new Set<string>(),
 			sessionOwnerIsLive: () => false,
 			sessionRunning: () => false,
 			commandForSession: async () => ({ type: "response", command: "get_state", success: true }),

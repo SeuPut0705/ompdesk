@@ -1003,6 +1003,8 @@ app.whenReady().then(() => {
 	// A paired web device's window is filed under the device (its window id changes every launch); a quit tears
 	// the tabs down, which must not read as the device closing them.
 	sidecarPool.onWindowTabsChanged = (win, layout) => {
+		// A window's tab took or let go of a session, or learned who opened it: paired devices may list it otherwise.
+		hostServices.listingChanged();
 		if (win instanceof WebClientWindow) {
 			if (!quitApproved()) webTabLayouts.save(win.deviceId, layout);
 			return;

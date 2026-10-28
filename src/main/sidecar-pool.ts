@@ -2195,6 +2195,20 @@ export class SidecarPool {
 		return openers;
 	}
 
+	/**
+	 * The session files this computer's windows' tabs hold (a phone page's included), for the devices paired to it: such
+	 * a session stays a row of its own on their list of this computer, as in its own sidebar. Left out as in
+	 * `sessionOpeners`.
+	 */
+	windowSessionFiles(): Set<string> {
+		const files = new Set<string>();
+		for (const entry of this.#entries) {
+			if (entry.device || entry.hostedView || !entry.sessionFile) continue;
+			files.add(entry.sessionFile);
+		}
+		return files;
+	}
+
 	/** The session file a live tab shows, if it has one yet. */
 	sessionFileOf(tabId: string): string | undefined {
 		return this.#byTabId.get(tabId)?.sessionFile;
