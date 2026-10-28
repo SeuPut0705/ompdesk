@@ -154,7 +154,7 @@
 			},
 			"fix": {
 				"summary": "SidecarPool calls onSessionFilesChanged on every actual take and let-go of a session file (#registerSessionFile, #unregisterSessionFile: acquire, the `session` identity, noteSessionFile, the sessionInfoUpdate id change, release), and index.ts wires it to hostServices.listingChanged(). With every change announced when it happens, the one shared snapshot always equals the listing at the last announce or read, so no device's view stays stale (CORRESPONDENCE.md A7); a per-connection snapshot was not needed. listingChanged stays off the per-event path: a repeated get_state report changes nothing and calls nothing. Model: IdChangeAnnounces is gone, IdChange always announces; the bug is the mutation id-change-silent.",
-				"commit": "<commit>",
+				"commit": "3ba7f88be",
 				"model_recheck": "passes",
 				"mutation_check": "fails-as-expected"
 			},
