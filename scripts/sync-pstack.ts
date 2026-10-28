@@ -26,8 +26,18 @@ const TEXT_MODULE = path.join(ROOT, "resources/gui-bridge/modes/pstack-text.ts")
 const LICENSE_COPY = path.join(ROOT, "LICENSES/MIT-pstack.txt");
 const MANIFEST = path.join(PACK, "pstack-manifest.json");
 
-/** Upstream skills the pack does not carry (Cursor-only or replaced by OMPdesk's own settings). */
-const SKIPPED_SKILLS = new Set(["setup-pstack", "poteto-help", "make-bot-ui"]);
+/**
+ * Upstream skills the pack does not carry: Cursor-only, replaced by OMPdesk's own settings, or (the three
+ * formal-verification ones) folded into the built-in `ompdesk-formal-verify` skill.
+ */
+const SKIPPED_SKILLS = new Set([
+	"setup-pstack",
+	"poteto-help",
+	"make-bot-ui",
+	"create-formal-verification-skill",
+	"maintain-formal-verification-skill",
+	"statechart",
+]);
 /** Files under `skills/` the pack does not carry (paths relative to `skills/`). */
 const SKIPPED_PATHS: RegExp[] = [
 	/^poteto-mode\/scripts\/(watch-pr|orch)\//,
@@ -289,6 +299,12 @@ const RULES: Rule[] = [
 		/^poteto-mode\/playbooks\/bug-fix\.md$/,
 		"See the **tdd** skill",
 		"See the **pstack-tdd** skill",
+	),
+	rule(
+		"bugfix-formal",
+		/^poteto-mode\/playbooks\/bug-fix\.md$/,
+		"When program state is unclear, add instrumentation or logging and read it as the code runs. Don't guess.",
+		"When program state is unclear, add instrumentation or logging and read it as the code runs. Don't guess. A race, ordering, retry, lease or state-machine bug, or a claim that something can never happen, is a class tests reach poorly: read `skill://ompdesk-formal-verify` before you fix it.",
 	),
 	rule(
 		"multi-explore",
