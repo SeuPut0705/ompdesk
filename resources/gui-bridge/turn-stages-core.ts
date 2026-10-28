@@ -3,29 +3,36 @@
  *
  * Why (28 Oct 2026, this Mac, 14:42-14:54: a main session sat on "thinking" for six minutes twice with no error and
  * no retry): nothing recorded which stage the turn was in. This notes a timestamp per stage from stock's own events
- * (the `input` hook, `before_agent_start` handlers, session events, `before_provider_request`,
- * `after_provider_response`) and OMPdesk's own slow spots (memory recall, prompt sections). It changes nothing, arms
- * no timer and aborts nothing: a normal turn costs a few array writes and sends no frame.
+ * (the `input` hook, the session's `prompt` call, `before_agent_start` handlers, session events,
+ * `before_provider_request`, `after_provider_response`) and OMPdesk's own slow spots (memory recall, prompt sections).
+ * It changes nothing, arms no timer and aborts nothing: a normal turn costs a few array writes and sends no frame.
  *
  * One frame per model call, only when
  * - its first output (the first `message_update` of the assistant message) came more than `lateMs` after the wait
  *   began (the prompt for a run's first call, its `turn_start` for the calls after a tool batch), sent as that output
  *   arrives, or
- * - the run ended (`agent_end`) aborted or errored with the call having produced nothing.
+ * - the run ended (`agent_end`) aborted or errored with the call having produced nothing, or
+ * - a prompt's setup ended (its `prompt` call returned or threw) more than `lateMs` after the prompt without starting a
+ *   run: stock's Stop, a newer prompt or a refusal before `agent_start` emits no agent event at all.
  * A stall that never ends (the process killed first) writes nothing: no timer watches for it.
+ *
+ * A wait counts from its prompt only inside that prompt's own `prompt` call (`promptStarted` .. `promptSettled`); a run
+ * that starts outside one (a queued follow-up, a continue, a retry) counts from its own first event. Every state a
+ * prompt leaves behind is dropped when the next prompt comes, so nothing of one prompt reaches another.
  *
  * No omp imports (not even types): the GUI's vitest drives it with plain events.
  */
 import {
 	LATE_FIRST_OUTPUT_MS,
 	TURN_STAGES_EVENT,
+	TURN_STAGES_MAX_DETAILS,
 	type TurnSlowSpot,
 	type TurnStageName,
 	type TurnStagesDetails,
 	type TurnStagesFrame,
 } from "./turn-stages-contracts";
 
-/** A prompt that arrived this long ago and started no run is not this run's prompt (a slash command ran locally). */
+/** The `input` hook's time is taken for the `prompt` call with the same text only if it came this recently. */
 const PENDING_PROMPT_MAX_MS = 10 * 60_000;
 const ERROR_MAX = 300;
 /** Stages of the run as a whole (`Mark.call`); every other stage belongs to the model call it came in. */
@@ -51,6 +58,15 @@ export interface TurnStagesOptions {
 	model?(): TurnModel | undefined;
 }
 
+/** One `prompt` call of the session, from its start until it returns: the wait its first run counts from. */
+export interface PromptSetup {
+	t0: number;
+	/** A slash command: it may run locally and start nothing, so its end without a run is no stall. */
+	command: boolean;
+	/** A run started inside it; runs after that count from their own first event. */
+	ran: boolean;
+}
+
 /** One stage reached, in arrival order (which breaks ties between stages in the same millisecond). */
 interface Mark {
 	name: TurnStageName;
@@ -70,7 +86,7 @@ interface Call {
 
 interface Run {
 	t0: number;
-	/** The wait began at a typed prompt (`input`), not at the run's first event. */
+	/** The wait began at a prompt, not at the run's first event. */
 	viaPrompt: boolean;
 	/** `agent_start` came: provider hooks before it belong to side requests (compaction, memory judge), not this run's call. */
 	started: boolean;
@@ -79,12 +95,19 @@ interface Run {
 	call: Call;
 }
 
+type Outcome = "late" | "aborted" | "error" | "cancelled";
+type EndStage = "first_output" | "agent_end" | "setup_end";
+
 function record(value: unknown): Record<string, unknown> | undefined {
 	return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : undefined;
 }
 
 function isAssistant(message: unknown): boolean {
 	return record(message)?.role === "assistant";
+}
+
+function isCommand(text: string): boolean {
+	return text.trimStart().startsWith("/");
 }
 
 function newCall(index: number, waitStart: number): Call {
@@ -105,7 +128,8 @@ export class TurnStageRecorder {
 	readonly #now: () => number;
 	readonly #lateMs: number;
 	readonly #model: () => TurnModel | undefined;
-	#pendingPrompt: number | undefined;
+	#pendingPrompt: { at: number; text: string } | undefined;
+	#setup: PromptSetup | undefined;
 	#run: Run | undefined;
 
 	constructor(options: TurnStagesOptions) {
@@ -116,18 +140,61 @@ export class TurnStageRecorder {
 	}
 
 	/**
-	 * Stock's `input` hook: a prompt reached the session. A steer or follow-up (the session is streaming) and a slash
-	 * command (it may run locally and start nothing) never begin a wait; a run they start counts from its own first event.
+	 * Stock's `input` hook: a prompt reached the session (it runs before the session's `prompt` call, whose wait then
+	 * counts from here). A steer or follow-up (the session is streaming) and a slash command are no new prompt.
 	 */
 	promptReceived(text: string, streaming: boolean): void {
-		if (streaming || text.trimStart().startsWith("/")) return;
-		this.#pendingPrompt = this.#now();
+		if (streaming || isCommand(text)) return;
+		this.#dropUnstarted();
+		this.#pendingPrompt = { at: this.#now(), text };
 	}
 
-	/** Entering stock's `before_agent_start` handlers (every extension's). Only a run not yet started takes them. */
+	/**
+	 * The session's `prompt` call began. While the session streams it only queues (a steer or follow-up): undefined,
+	 * nothing tracked. Otherwise anything an earlier prompt left unstarted is dropped and this call's wait begins, at
+	 * the `input` hook of the same text if one came.
+	 */
+	promptStarted(text: string, streaming: boolean): PromptSetup | undefined {
+		if (streaming) return undefined;
+		const now = this.#now();
+		const pending = this.#pendingPrompt;
+		this.#pendingPrompt = undefined;
+		this.#dropUnstarted();
+		const claimed = pending && pending.text === text && now - pending.at <= PENDING_PROMPT_MAX_MS;
+		this.#setup = { t0: claimed ? pending.at : now, command: isCommand(text), ran: false };
+		return this.#setup;
+	}
+
+	/**
+	 * The `prompt` call `setup` returned (or threw `error`). Without a run started inside it, its setup ended before
+	 * `agent_start` (stock's Stop, a newer prompt, a refusal, a failure): a line when that took longer than `lateMs`.
+	 */
+	promptSettled(setup: PromptSetup | undefined, error?: unknown): void {
+		if (!setup || this.#setup !== setup) return;
+		this.#setup = undefined;
+		if (setup.ran) return;
+		const run = this.#run && !this.#run.started ? this.#run : undefined;
+		this.#run = undefined;
+		const now = this.#now();
+		if (setup.command || now - setup.t0 <= this.#lateMs) return;
+		const ended = run ?? this.#newRun(setup.t0, true);
+		const reason = error === undefined ? undefined : error instanceof Error ? error.message : String(error);
+		this.#emit(this.#frame(ended, ended.call, error === undefined ? "cancelled" : "error", "setup_end", now, reason));
+	}
+
+	/**
+	 * Entering stock's `before_agent_start` handlers (every extension's). Only a run not yet started takes them. A run
+	 * whose handlers already ended belongs to setup that went no further (a queued message's, cancelled), unless the
+	 * same `prompt` call runs them again (stock re-runs them when the tool set changed meanwhile).
+	 */
 	handlersStart(): void {
-		const run = this.#ensureRun();
-		if (!run.started) this.#mark(run, "handlers_start", RUN_LEVEL);
+		const run = this.#run;
+		const sameSetup = this.#setup !== undefined && !this.#setup.ran;
+		if (run && !run.started && !sameSetup && run.marks.some(mark => mark.name === "handlers_end")) {
+			this.#run = undefined;
+		}
+		const current = this.#ensureRun();
+		if (!current.started) this.#mark(current, "handlers_start", RUN_LEVEL);
 	}
 
 	handlersEnd(): void {
@@ -165,6 +232,7 @@ export class TurnStageRecorder {
 			case "agent_start": {
 				const run = this.#ensureRun();
 				run.started = true;
+				if (this.#setup) this.#setup.ran = true;
 				this.#mark(run, "agent_start", RUN_LEVEL);
 				return;
 			}
@@ -186,8 +254,8 @@ export class TurnStageRecorder {
 				return;
 			}
 			case "auto_compaction_start": {
-				// A pre-prompt compaction can run before any handler did: a prompt in flight opens the run for it.
-				const run = this.#run ?? (this.#freshPrompt() === undefined ? undefined : this.#ensureRun());
+				// A compaction of a prompt's setup (before its handlers or after them) opens that prompt's run.
+				const run = this.#run ?? (this.#setup && !this.#setup.ran ? this.#ensureRun() : undefined);
 				if (run) this.#mark(run, "compaction", RUN_LEVEL);
 				return;
 			}
@@ -200,28 +268,23 @@ export class TurnStageRecorder {
 		}
 	}
 
+	#dropUnstarted(): void {
+		if (this.#run && !this.#run.started) this.#run = undefined;
+	}
+
 	#mark(run: Run, name: TurnStageName, call: number): void {
 		run.marks.push({ name, at: this.#now(), call });
 	}
 
-	#freshPrompt(): number | undefined {
-		const at = this.#pendingPrompt;
-		return at !== undefined && this.#now() - at <= PENDING_PROMPT_MAX_MS ? at : undefined;
+	#newRun(t0: number, viaPrompt: boolean): Run {
+		return { t0, viaPrompt, started: false, marks: [], spots: new Map(), call: newCall(0, t0) };
 	}
 
+	/** The run in progress, or a new one: from its prompt inside that prompt's `prompt` call, else from now. */
 	#ensureRun(): Run {
 		if (this.#run) return this.#run;
-		const prompt = this.#freshPrompt();
-		this.#pendingPrompt = undefined;
-		const t0 = prompt ?? this.#now();
-		this.#run = {
-			t0,
-			viaPrompt: prompt !== undefined,
-			started: false,
-			marks: [],
-			spots: new Map(),
-			call: newCall(0, t0),
-		};
+		const setup = this.#setup && !this.#setup.ran ? this.#setup : undefined;
+		this.#run = this.#newRun(setup?.t0 ?? this.#now(), setup !== undefined);
 		return this.#run;
 	}
 
@@ -240,23 +303,24 @@ export class TurnStageRecorder {
 	#end(event: TurnSessionEvent): void {
 		const run = this.#run;
 		this.#run = undefined;
-		this.#pendingPrompt = undefined;
 		if (!run || run.call.reported || run.call.output) return;
 		const messages = record(event)?.messages;
 		const reply = record(Array.isArray(messages) ? messages.findLast(isAssistant) : undefined);
 		const stop = reply?.stopReason;
 		if (stop !== "aborted" && stop !== "error") return;
 		run.call.reported = true;
-		this.#emit(this.#frame(run, run.call, stop, "agent_end", this.#now(), reply));
+		const error = typeof reply?.errorMessage === "string" ? reply.errorMessage : undefined;
+		this.#emit(this.#frame(run, run.call, stop, "agent_end", this.#now(), error, reply));
 	}
 
 	#frame(
 		run: Run,
 		call: Call,
-		outcome: "late" | "aborted" | "error",
-		endStage: "first_output" | "agent_end",
+		outcome: Outcome,
+		endStage: EndStage,
 		endAt: number,
-		reply: Record<string, unknown> | undefined,
+		errorText: string | undefined,
+		reply?: Record<string, unknown>,
 	): TurnStagesFrame {
 		// This wait's stages: the run's and the call's own, from where the wait began, one time per stage.
 		const chosen = new Map<TurnStageName, { at: number; order: number }>();
@@ -283,8 +347,8 @@ export class TurnStageRecorder {
 		const model = this.#model();
 		const provider = typeof reply?.provider === "string" ? reply.provider : model?.provider;
 		const modelId = typeof reply?.model === "string" ? reply.model : model?.id;
-		const error = typeof reply?.errorMessage === "string" ? oneLine(reply.errorMessage, ERROR_MAX) : undefined;
 
+		// What says where the time went comes first and always fits; the rest fills the log's key limit in order.
 		const details: TurnStagesDetails = {
 			level: "warn",
 			outcome,
@@ -295,18 +359,26 @@ export class TurnStageRecorder {
 			providerRequestSent: call.requests > 0,
 			providerRequests: call.requests,
 		};
-		if (provider) details.provider = provider;
-		if (modelId) details.model = modelId;
-		if (error) details.error = error;
-		for (const [spot, ms] of run.spots) details[spot] = Math.round(ms);
 		for (const { name, at } of ordered) details[`at.${name}`] = at - run.t0;
+		const optional: Array<[string, string | number | undefined]> = [
+			["error", errorText === undefined ? undefined : oneLine(errorText, ERROR_MAX)],
+			["provider", provider],
+			["model", modelId],
+			...[...run.spots].map(([spot, ms]): [string, number] => [spot, Math.round(ms)]),
+		];
+		for (const [key, value] of optional) {
+			if (value === undefined || value === "" || Object.keys(details).length >= TURN_STAGES_MAX_DETAILS) continue;
+			details[key] = value;
+		}
 
 		const where = `last stage ${before}, longest wait ${longest.from} > ${longest.to} (${seconds(longest.ms)})`;
 		const start = run.viaPrompt || call.index > 0 ? "" : " (no prompt seen: counted from the run's first event)";
 		const message =
-			outcome === "late"
-				? `First model output came ${seconds(waited)} after ${origin === "prompt" ? "the prompt" : "the model call began"}: ${where}${start}`
-				: `Turn ${outcome} with no model output after ${seconds(waited)}: ${where}${start}`;
+			endStage === "setup_end"
+				? `Prompt setup ended after ${seconds(waited)} without starting the model run (Stop, a newer prompt, a refusal or a failure): ${where}`
+				: outcome === "late"
+					? `First model output came ${seconds(waited)} after ${origin === "prompt" ? "the prompt" : "the model call began"}: ${where}${start}`
+					: `Turn ${outcome} with no model output after ${seconds(waited)}: ${where}${start}`;
 		return { type: TURN_STAGES_EVENT, message, details };
 	}
 }

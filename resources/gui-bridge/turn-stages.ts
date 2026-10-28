@@ -16,8 +16,13 @@ import { setActiveRecorder, TurnStageRecorder } from "./turn-stages-core";
  * - Start and end of every extension's `before_agent_start` handlers: not an event of its own, so the main session's
  *   `ExtensionRunner.emitBeforeAgentStart` is wrapped once on that instance (an omp without it only loses those two
  *   stages). A subagent's runner is never wrapped.
+ * - The main session's `prompt` call, wrapped once on that instance: a prompt's wait counts from it (or its `input`
+ *   hook), and a setup that ends before `agent_start` (stock's Stop, a newer prompt, a refusal) emits no agent event,
+ *   so its return or throw is the only sign of it. The wrapper awaits the call and hands back its result or error
+ *   unchanged. An omp without the method counts every run from its first event.
  */
 const RUNNER_WRAPPED = Symbol.for("ompdesk.turn-stages.runner");
+const PROMPT_WRAPPED = Symbol.for("ompdesk.turn-stages.prompt");
 const subscribed = new WeakSet<object>();
 
 let shared: TurnStageRecorder | undefined;
@@ -27,7 +32,7 @@ function lateMs(): number {
 	return override > 0 ? override : LATE_FIRST_OUTPUT_MS;
 }
 
-type EmitBeforeAgentStart = (...args: unknown[]) => Promise<unknown>;
+type AsyncMethod = (...args: unknown[]) => Promise<unknown>;
 
 function wrapHandlers(runner: unknown, recorder: TurnStageRecorder): void {
 	const target = runner as Record<string | symbol, unknown> | undefined;
@@ -37,10 +42,30 @@ function wrapHandlers(runner: unknown, recorder: TurnStageRecorder): void {
 	target.emitBeforeAgentStart = async function emitBeforeAgentStart(this: unknown, ...args: unknown[]) {
 		recorder.handlersStart();
 		try {
-			return await (original as EmitBeforeAgentStart).apply(this, args);
+			return await (original as AsyncMethod).apply(this, args);
 		} finally {
 			recorder.handlersEnd();
 		}
+	};
+}
+
+function wrapPrompt(session: object, recorder: TurnStageRecorder): void {
+	const target = session as Record<string | symbol, unknown>;
+	const original = target.prompt;
+	if (target[PROMPT_WRAPPED] || typeof original !== "function") return;
+	target[PROMPT_WRAPPED] = true;
+	target.prompt = async function prompt(this: unknown, ...args: unknown[]) {
+		const text = typeof args[0] === "string" ? args[0] : "";
+		const setup = recorder.promptStarted(text, Reflect.get(session, "isStreaming") === true);
+		let result: unknown;
+		try {
+			result = await (original as AsyncMethod).apply(this, args);
+		} catch (error) {
+			recorder.promptSettled(setup, error);
+			throw error;
+		}
+		recorder.promptSettled(setup);
+		return result;
 	};
 }
 
@@ -48,11 +73,12 @@ function mainSession(pi: ExtensionAPI) {
 	return pi.pi.AgentRegistry.global().get(pi.pi.MAIN_AGENT_ID)?.session;
 }
 
-/** Subscribes to the main session and wraps its runner, each once; the session exists from `session_start` on. */
+/** Subscribes to the main session and wraps its runner and `prompt`, each once; the session exists from `session_start` on. */
 function attach(pi: ExtensionAPI, recorder: TurnStageRecorder): void {
 	const session = mainSession(pi);
 	if (!session) return;
 	wrapHandlers(session.extensionRunner, recorder);
+	wrapPrompt(session, recorder);
 	if (subscribed.has(session)) return;
 	subscribed.add(session);
 	session.subscribe(event => recorder.sessionEvent(event));

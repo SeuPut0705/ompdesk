@@ -1,9 +1,9 @@
 /**
  * Turn-stage tracing (turn-stages-core.ts): dependency-free contracts main imports.
  *
- * A model call whose first output came late, or that ended aborted or errored with none, is one bridge → main frame
- * `turn_stages`; main writes it as one `gui-runtime.jsonl` line (source `turn-stages`, src/main/turn-stages-log.ts).
- * A normal turn sends nothing.
+ * A model call whose first output came late, or that ended aborted or errored with none, and a prompt whose setup
+ * ended late without starting its run, is one bridge → main frame `turn_stages`; main writes it as one
+ * `gui-runtime.jsonl` line (source `turn-stages`, src/main/turn-stages-log.ts). A normal turn sends nothing.
  */
 
 /** Bridge → main frame type. It reaches no window. */
@@ -16,7 +16,8 @@ export const LATE_FIRST_OUTPUT_MS = 30_000;
 export const TURN_STAGES_LATE_ENV = "OMP_GUI_TURN_STAGES_LATE_MS";
 
 /**
- * The points a prompt passes, in the order they normally come. Each is `at.<name>` in the line: ms since the prompt.
+ * The points a prompt passes, in the order they normally come. Each is `at.<name>` in the line: ms since the prompt
+ * (the `input` hook of a typed prompt, else the session's `prompt` call; a run outside one: its own first event).
  * - `handlers_start` / `handlers_end`: stock's `before_agent_start` handlers of every extension (first start, last end).
  * - `agent_start`: the run began (stock's preparation, auto thinking and any pre-prompt compaction are over).
  * - `turn_start`: the model call began.
@@ -30,6 +31,8 @@ export const TURN_STAGES_LATE_ENV = "OMP_GUI_TURN_STAGES_LATE_MS";
  * - `first_output`: the first streamed event of the assistant message.
  * - `compaction` / `compaction_end`: a compaction pass ran inside the wait.
  * - `agent_end`: the run ended.
+ * - `setup_end`: the prompt's `prompt` call returned or threw before `agent_start` (Stop, a newer prompt, a refusal,
+ *   a failure): stock emits no agent event for it.
  */
 export const TURN_STAGE_NAMES = [
 	"handlers_start",
@@ -43,6 +46,7 @@ export const TURN_STAGE_NAMES = [
 	"compaction",
 	"compaction_end",
 	"agent_end",
+	"setup_end",
 ] as const;
 
 export type TurnStageName = (typeof TURN_STAGE_NAMES)[number];

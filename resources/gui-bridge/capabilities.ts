@@ -521,12 +521,12 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		},
 	},
 	/**
-	 * turn-stages.ts: the main session's `subscribe` and live `model`/`isStreaming`, and the instance method
-	 * `extensionRunner.emitBeforeAgentStart` wrapped once to time every extension's before_agent_start handlers.
-	 * Imports nothing from omp.
+	 * turn-stages.ts: the main session's `subscribe` and live `model`/`isStreaming`, and two instance methods wrapped
+	 * once: `prompt` (a prompt's wait, and its setup ending before `agent_start`) and `extensionRunner.emitBeforeAgentStart`
+	 * (every extension's before_agent_start handlers). Imports nothing from omp.
 	 */
 	turnStages: {
-		session: ["subscribe()", "model", "isStreaming", "extensionRunner.emitBeforeAgentStart()"],
+		session: ["subscribe()", "prompt()", "model", "isStreaming", "extensionRunner.emitBeforeAgentStart()"],
 	},
 	/**
 	 * desktop-slot.ts: patches stock's `ComputerSupervisor.prototype.run` (a read-only run passes, an acting run waits
