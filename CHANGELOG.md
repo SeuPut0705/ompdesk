@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.81.1] - 2026-10-28
+
+형식 검증 스킬을 실제 Windows PC에서 끝까지 돌려 보고 찾은 문제 세 가지를 고쳤어요.
+
+### 고친 것
+- Windows에서 상태도를 같은 폴더에 다시 그리면 두 번째부터 실패하고 임시 폴더가 남던 문제를 고쳤어요.
+- git이 없는 PC에서 모델과 코드의 차이 확인이 "커밋이 없다"는 틀린 실패로 나오던 문제를 고쳤어요. 이제 "확인 못 함"으로 나와요.
+- 도구를 준비하지 못해 검사를 못 한 모델이 요약에서 "실패"로 나오던 문제를 고쳤어요. 이제 "확인 못 함"으로 나와요.
+
+<!-- en -->
+
+Three fixes from running the formal verification skill end to end on a real Windows PC.
+
+### Fixed
+- On Windows, drawing a statechart again into the same folder failed from the second run on and left a temp folder behind.
+- On a PC without git, the check of model against code reported a wrong failure ("not a commit of this repository"). It now reports not checked.
+- A model whose checks could not run because a tool could not be prepared was summarized as FAIL. It now reads NOT CHECKED.
+
 ## [0.81.0] - 2026-10-28
 
 OMPdesk 전용 형식 검증 스킬이 생겼고, 이 스킬로 OMPdesk 자신의 코드를 검증해 찾은 버그 세 가지를 고쳤어요.
