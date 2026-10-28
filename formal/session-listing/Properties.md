@@ -10,4 +10,4 @@ Protocol-level: any correct implementation of "a device's list follows the host'
 
 Sanity (must FAIL, in `matrix.json`): `NeverHeld`, `NeverOpener`: a device can show a held row and an opener row, so the convergence properties are not vacuous.
 
-Bug toggles in the model (constants, not properties): `IdChangeAnnounces` (FALSE = the code as written; TRUE = `sidecar-pool.ts:962` also calls `listingChanged`, a proposed fix, not applied), `Ordered` (TRUE = the link delivers replies and events in send order; FALSE = any order, because the code does not enforce one).
+Model toggle (a constant, not a property): `Ordered` (TRUE = the link delivers replies and events in send order; FALSE = any order, because the code does not enforce one). The F3 toggle `IdChangeAnnounces` is gone since F3's fix (28 Oct 2026): the pool announces every take and let-go of a session file (`SidecarPool.onSessionFilesChanged` → `LocalHostServices.listingChanged`), so `IdChange` always announces; the bug stays as the mutation `id-change-silent` (breaks `HeldConverges`). No property changed.

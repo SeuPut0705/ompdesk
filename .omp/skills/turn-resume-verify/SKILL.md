@@ -1,13 +1,13 @@
 ---
 name: turn-resume-verify
-description: "Checks that a turn which failed on the network still waits, probes and retries correctly (no retry into the user's run, Cancel or Stop or a session change ends a probe, a wait always ends, the marker says network while a wait holds, one probe per host). Use when changing src/main/turn-resume.ts (sync, #judge, #verifyNetwork, #hold, flush, #run, #planRetry, #arm, #fire, cancelWait, #dropWait), src/main/connectivity.ts (verify, #check, #attempt, report), or when asked whether the connection wait or the scheduled retry can race."
+description: "Checks that a turn which failed on the network still waits, probes and retries correctly (no retry into the user's run, Cancel or Stop or a session change ends a probe and a held wait, a wait always ends, the marker says network while a wait holds, one probe per host). Use when changing src/main/turn-resume.ts (sync, #judge, #verifyNetwork, #hold, #movedSince, flush, #run, #planRetry, #arm, #fire, cancelWait, #dropWait), src/main/connectivity.ts (verify, #check, #attempt, report), or when asked whether the connection wait or the scheduled retry can race."
 ---
 
 # Connection wait verification
 
 ## The promise and the harm
 
-A turn that ended in a network failure continues by itself once connectivity is back, and never on top of what the user did meanwhile: no `retry` is sent into a run the user started, Cancel, Stop, a new prompt or a session or branch change during the probe never leads to a later retry, a held wait always ends, the marker file says `network` while a wait holds, a tab has at most one of wait, probe and scheduled retry, and one probe answers every concurrent ask for a host.
+A turn that ended in a network failure continues by itself once connectivity is back, and never on top of what the user did meanwhile: no `retry` is sent into a run the user started, Cancel, Stop, a new prompt or a session or branch change during the probe or while the wait holds never leads to a later retry, a held wait always ends, the marker file says `network` while a wait holds, a tab has at most one of wait, probe and scheduled retry, and one probe answers every concurrent ask for a host.
 
 If it breaks, a retry runs in the middle of a turn the user started or after they gave up on it, a "waiting for the connection" row stays on screen forever, or a crash during the wait loses the turn that was supposed to continue.
 
@@ -15,13 +15,13 @@ If it breaks, a retry runs in the middle of a turn the user started or after the
 
 | Check id | Tool | Covers (files and functions) | Model and tags |
 |---|---|---|---|
-| `turn-resume` | TLC 1.8.0 | `src/main/turn-resume.ts`: `TurnResume.sync`, `#judge`, `#watchScheduledRetry`, `#verifyNetwork`, `#hold`, `flush`, `#run`, `#planRetry`, `#arm`, `#fire`, `#dropScheduled`, `#releaseScheduled`, `cancelWait`, `#dropWait`, `deriveMarkers`; `src/main/connectivity.ts`: `ConnectivityMonitor.verify`, `#check`, `#reachable`, `#attempt`, `report`, `#set`; `src/main/sidecar-run-state.ts`: `trackRunEvent`; `src/main/sidecar-pool.ts`: `noteStopped`, `noteTouched`, `setAwaitingConnection` | `formal/turn-resume/tla/TurnResume.tla`; tags `@code` on `UserPrompt`, `EndRun`, `Settle`, `UserStop`, `SessionChange`, `Cancel`, `RetryTaken`, `Boot`, `S_Watch`, `S_NewRun`, `S_Judge`, `S_Marker`, `VerifyThen`, `PlanResume`, `FireStart`, `FireResume`, `FlushStep`, `MProbeDone`, `TimerFire`, `AttemptDone`, `ReportOnline`, `LinkDown` |
+| `turn-resume` | TLC 1.8.0 | `src/main/turn-resume.ts`: `TurnResume.sync`, `#judge`, `#watchScheduledRetry`, `#verifyNetwork`, `#hold`, `#movedSince`, `flush`, `#run`, `#planRetry`, `#arm`, `#fire`, `#dropScheduled`, `#releaseScheduled`, `cancelWait`, `#dropWait`, `deriveMarkers`; `src/main/connectivity.ts`: `ConnectivityMonitor.verify`, `#check`, `#reachable`, `#attempt`, `report`, `#set`; `src/main/sidecar-run-state.ts`: `trackRunEvent`; `src/main/sidecar-pool.ts`: `noteStopped`, `noteTouched`, `setAwaitingConnection` | `formal/turn-resume/tla/TurnResume.tla`; tags `@code` on `UserPrompt`, `EndRun`, `Settle`, `UserStop`, `SessionChange`, `Cancel`, `RetryTaken`, `Boot`, `S_Watch`, `S_NewRun`, `S_Judge`, `S_Marker`, `VerifyThen`, `PlanResume`, `FireStart`, `FireResume`, `FlushStep`, `MProbeDone`, `TimerFire`, `AttemptDone`, `ReportOnline`, `LinkDown` |
 
-Sync commit: `b7d45962525cd52ce08554f6fce5e75cd92c20be`. This is the commit at which the verification was last confirmed to describe the covered code. It mirrors `syncCommit` of `turn-resume` in `formal/manifest.json`; if they differ, the manifest wins and this line is stale.
+Sync commit: `1cc0239708a810cbdc1683f5be194b968caaea87` plus `syncDiff` `fdbdcf1c68…` (stamped with `--stamp --allow-dirty` while the F1/F4 fixes were uncommitted: the model is in sync while the covered code equals what was stamped; re-stamp after the commit to drop `syncDiff`). This is the commit at which the verification was last confirmed to describe the covered code. It mirrors `syncCommit` of `turn-resume` in `formal/manifest.json`; if they differ, the manifest wins and this line is stale.
 
 ## Bounds and assumptions
 
-- Bounds: 1 tab, 2 runs started, 2 scheduled attempts, 1 network flap, 1 session change, 1 Cancel; 1.4M states, depth 72 (fast tier, about 10 s). The deep run uses 2 flaps (5.3M states, depth 80). Liveness: 1 run started, 1 attempt, 1 flap, no session change, no Cancel (4155 states, strong fairness per component and the network eventually coming back as an assumption). A larger liveness run (2 runs, 158504 states, 308 s) is saved in `formal/turn-resume/evidence/TurnResume-MC_live_deep.log`.
+- Bounds: 1 tab, 2 runs started, 2 scheduled attempts, 1 network flap, 1 session change, 1 Cancel; 1.4M states, depth 76 (fast tier, about 40 s). The deep run uses 2 flaps (5.1M states, depth 78). Liveness: 1 run started, 1 attempt, 1 flap, no session change, no Cancel (4191 states, strong fairness per component and the network eventually coming back as an assumption). A larger liveness run (2 runs, 158504 states, 308 s, before the F1/F4 fixes) is saved in `formal/turn-resume/evidence/TurnResume-MC_live_deep.log`.
 - Assumptions (each is a place a bug could hide): every pool event that changes a fact is followed by `sync()`; `sync()` and `flush()` run in one macrotask; a ready sidecar resolves `whenReady` in a microtask; a run cannot be live on an omp that is not up; one tab; stock `retry.enabled` is on. The full table is `formal/turn-resume/CORRESPONDENCE.md`.
 - Not covered: launch markers and the relaunch continuation, stock's auto-retry takeover, the wake window, hosted tabs, the quit freeze, tab close, the duration of the `retry` RPC, two tabs at once. `formal/turn-resume/SCOPE.md` lists them.
 
@@ -33,7 +33,7 @@ Sync commit: `b7d45962525cd52ce08554f6fce5e75cd92c20be`. This is the commit at w
 bun <tools-dir>/scripts/verify-all.ts formal --only turn-resume
 ```
 
-It takes about 1 minute (matrix of 10 runs, 10 mutations, tag check, drift). Read the result like this:
+It takes about 2 minutes (matrix of 7 runs, 12 mutations, tag check, drift). Read the result like this:
 - `PASS`, exit 0: no counterexample within the bounds above. It does not mean the code is correct.
 - `FAIL`, exit 1: a property was violated, a mutation was MISSED, or an `@code` tag no longer resolves. A violation prints a trace with one row per step: the action, its `@code` location and the variables that changed.
 - `DRIFT:` note under the drift line: covered files differ from the sync commit, so the model needs another look (CI adds `--strict-drift` and fails on it). A sync commit that is not in this repository fails.
@@ -45,7 +45,7 @@ It does when it changes `TurnResume` (`src/main/turn-resume.ts`), `ConnectivityM
 
 ## A failure: real bug or modeling error?
 
-Replay the counterexample against the real code, step by step, using the `@code` location on each trace row. If a step cannot happen in the code, the verification is wrong: fix the verification and say what was wrong (F2 below is such a case). If every step can happen, it is a bug: tell the counterexample as steps in the code's own words, state the harm in one sentence, and report it; a failing test on the unchanged code is the proof (`src/main/turn-resume.test.ts`, block "REPRODUCTION formal/turn-resume"). Never weaken the property or the model, add a state constraint or add fairness to make the check pass. If a change to the property is intended, say so as a model change and cite the evidence.
+Replay the counterexample against the real code, step by step, using the `@code` location on each trace row. If a step cannot happen in the code, the verification is wrong: fix the verification and say what was wrong (F2 below is such a case). If every step can happen, it is a bug: tell the counterexample as steps in the code's own words, state the harm in one sentence, and report it; a failing test on the unchanged code is the proof (`src/main/turn-resume.test.ts`; F1 and F4 started as failing tests there and are now the block "TurnResume connection wait (formal/turn-resume)"). Never weaken the property or the model, add a state constraint or add fairness to make the check pass. If a change to the property is intended, say so as a model change and cite the evidence.
 
 ## Updating the verification for an intended change
 
@@ -60,6 +60,6 @@ Move the sync commit forward only after you confirmed that the verification desc
 
 ## Known findings
 
-- F1 (confirmed by reproduction): a scheduled retry that fires while offline hands over to the connection wait (`#fire` calls `#hold`) and never calls `sync()`, so the marker file does not say `network` until some later event syncs. A crash in that window drops the retry. Property `MarkerNetwork`; test `F1` in `turn-resume.test.ts`; model toggle `FireSyncs = TRUE` mirrors a fix. Introduced with the scheduled retry, commit 13d444d2d (16 Oct 2026).
-- F4 (confirmed by reproduction; design question): a session or branch change while a wait holds (after the probe) does not end the wait; once online, stock `retry` runs in the tab's new session. The probe (since 782d89f7c, 28 Oct 2026) and the scheduled retry both check this; the held wait (59ded67a7, 15 Oct 2026) never did. Property `NoRetryAfterSessionChangeWhileHeld` (added by the verifier); test `F4`.
+- F1 (fixed 28 Oct 2026): a scheduled retry that fired while offline handed over to the connection wait (`#fire` calls `#hold`) and never called `sync()`, so the marker file did not say `network` until some later event synced; a crash in that window dropped the retry. `#fire` now syncs after the hold. Property `MarkerNetwork`; test "a scheduled retry that fires while offline hands over to the connection wait, and the marker file says `network`"; the bug stays as the mutation `fire-hold-without-sync`. Introduced with the scheduled retry, commit 13d444d2d (16 Oct 2026).
+- F4 (fixed 28 Oct 2026, the user's call: the same rule as the probe and the scheduled retry): a session or branch change while a wait held did not end the wait; once online, stock `retry` ran in the tab's new session. A held wait now records the session file and `touched` it holds for (`HeldWait.since`) and `#judge` ends it through `#movedSince`. Property `NoRetryAfterSessionChangeWhileHeld` (added by the verifier, now the rule); tests "%s while the connection wait holds ends the wait"; the bug stays as the mutation `held-wait-ignores-session-change`. The held wait (59ded67a7, 15 Oct 2026) never checked it; a launch's wait (`launch()`, out of the model's scope) still records none.
 - F2 (refuted, a model error): the first run reached `retry` into a user's run through a prompt on an omp that was not ready; the model allowed a run on an omp that is not up. Fixed in the model; see `formal/turn-resume/Properties.md`.

@@ -426,6 +426,12 @@ export class SidecarPool {
 	/** Some tab may have started or finished running a turn (keep-awake while working). */
 	onRunningChange: (() => void) | null = null;
 	/**
+	 * A tab took or let go of a session file, on any path (acquire, the `session` identity, a session-id change, a
+	 * release): paired devices list which sessions a tab here holds, and no journal moves (index.ts hands it to
+	 * `LocalHostServices.listingChanged`). Only an actual change calls it, never a repeated report.
+	 */
+	onSessionFilesChanged: (() => void) | null = null;
+	/**
 	 * A paired device's Cancel on the connection wait or scheduled retry of a window's tab it views (`viewForDevice`):
 	 * this computer's resume rules hold both (index.ts hands it to `TurnResume.cancelWait`).
 	 */
@@ -958,7 +964,8 @@ export class SidecarPool {
 				// / crash-restart) — the cached file→owner mapping is stale. The
 				// first attach (previousId undefined) keeps the acquire-time
 				// registration; the renderer's hydrate (get_state) re-registers
-				// the current file after a real change.
+				// the current file after a real change. Paired devices hear of the
+				// let-go now (`onSessionFilesChanged`), not only at the next close.
 				if (previousId !== undefined && previousId !== frame.sessionId) this.#unregisterSessionFile(entry);
 			}
 			// Session meta changes ride the light channel too, so a background
@@ -2052,14 +2059,22 @@ export class SidecarPool {
 	/** Register sessionFile → owner, moving the entry off any previous file. */
 	#registerSessionFile(entry: PoolEntry, sessionFile: string): void {
 		const changed = entry.sessionFile !== sessionFile;
-		if (changed) this.#unregisterSessionFile(entry);
+		if (changed) this.#dropSessionOwner(entry);
 		entry.sessionFile = sessionFile;
 		if (changed && entry.run.running) this.onRunningChange?.();
 		this.#sessionOwners.set(ownerKey(entry.device, sessionFile), { tabId: entry.tabId, winId: entry.winId });
+		if (changed) this.onSessionFilesChanged?.();
+	}
+
+	/** The entry lets go of its file: the mapping goes and paired devices hear the listing may have changed. */
+	#unregisterSessionFile(entry: PoolEntry): void {
+		if (entry.sessionFile === undefined) return;
+		this.#dropSessionOwner(entry);
+		this.onSessionFilesChanged?.();
 	}
 
 	/** Drop the entry's file→owner mapping when it still points at this entry. */
-	#unregisterSessionFile(entry: PoolEntry): void {
+	#dropSessionOwner(entry: PoolEntry): void {
 		if (entry.sessionFile === undefined) return;
 		// Another tab may have re-registered the same file since — only the
 		// current owner may clear the mapping.

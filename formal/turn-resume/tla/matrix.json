@@ -1,9 +1,6 @@
 {
 	"runs": [
-		{ "name": "code-as-written-safety", "config": "MC.cfg", "expect": "pass" },
-		{ "name": "F1-marker-network-as-written", "config": "MC_marker.cfg", "expect": "invariant", "property": "MarkerNetwork" },
-		{ "name": "F1-fix-mirrored-all-invariants", "config": "MC_marker_fix.cfg", "expect": "pass" },
-		{ "name": "F4-session-change-while-held", "config": "MC_held.cfg", "expect": "invariant", "property": "NoRetryAfterSessionChangeWhileHeld" },
+		{ "name": "code-safety-all-invariants", "config": "MC.cfg", "expect": "pass" },
 		{ "name": "liveness-wait-and-probe-end", "config": "MC_live.cfg", "expect": "pass", "timeoutSec": 600 },
 		{ "name": "a-wait-is-reachable", "config": "MC_sanity_wait.cfg", "expect": "invariant", "property": "NeverWaits" },
 		{ "name": "a-retry-is-sent", "config": "MC_sanity_retry.cfg", "expect": "invariant", "property": "NeverRetries" },

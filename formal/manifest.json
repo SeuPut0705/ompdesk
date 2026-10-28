@@ -16,8 +16,9 @@
 				"src/main/sidecar-run-state.ts",
 				"src/main/sidecar-pool.ts"
 			],
-			"syncCommit": "b7d45962525cd52ce08554f6fce5e75cd92c20be",
-			"verifySkill": ".omp/skills/turn-resume-verify/SKILL.md"
+			"syncCommit": "1cc0239708a810cbdc1683f5be194b968caaea87",
+			"verifySkill": ".omp/skills/turn-resume-verify/SKILL.md",
+			"syncDiff": "fdbdcf1c6887cd495cdb23bf1309fdb518ef2b08bf7d8c48945c1c975f1b89db"
 		},
 		{
 			"id": "session-listing",
@@ -34,8 +35,9 @@
 				"src/main/ipc.ts",
 				"src/renderer/stores/session-list.ts"
 			],
-			"syncCommit": "b7d45962525cd52ce08554f6fce5e75cd92c20be",
-			"verifySkill": ".omp/skills/session-listing-verify/SKILL.md"
+			"syncCommit": "1cc0239708a810cbdc1683f5be194b968caaea87",
+			"verifySkill": ".omp/skills/session-listing-verify/SKILL.md",
+			"syncDiff": "1193c5e4f5cb522a76ef853e570589e280ac72fec28d5895ced73422e00de670"
 		}
 	]
 }

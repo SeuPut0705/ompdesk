@@ -1,9 +1,9 @@
 {
 	"concern": "session-listing",
 	"workflow": "W1",
-	"generated_at": "2026-10-28T09:09:57.124Z",
-	"repo_commit": "b7d45962525cd52ce08554f6fce5e75cd92c20be",
-	"summary": "1 confirmed finding: a paired device can keep listing a session as held by a host tab after that tab is gone (F3), because the host's re-announce compares with the snapshot any device's read last recorded and the window tab's session-id change unregisters the file silently; with that one step announced, heldOnHost and openedBySession converge for 2 devices, 1 window tab, 1 hosted tab, 2 sessions, 3 host changes, any message order (2.9M states, depth 32; 14.8M with a journal event), and each property has mutations that fail it (8 of 8 DETECTED).",
+	"generated_at": "2026-10-28T09:45:00.000Z",
+	"repo_commit": "1cc0239708a810cbdc1683f5be194b968caaea87",
+	"summary": "1 finding, fixed: a paired device could keep listing a session as held by a host tab after that tab was gone (F3), because the host's re-announce compares with the snapshot any device's read last recorded and the window tab's session-id change unregistered the file silently. The pool now announces every take and let-go of a session file; heldOnHost and openedBySession converge for 2 devices, 1 window tab, 1 hosted tab, 2 sessions, 3 host changes, any message order (2.9M states, depth 32; 14.8M with a journal event), and each property has mutations that fail it (9 of 9 DETECTED, the bug itself among them).",
 	"scope": {
 		"modeled": [
 			"LocalHostServices listingChanged/#listing/#listingSnapshot/sessionsChanged/sessions.list; the window tabs' register/unregister/notify; the closed-child record merged by sessionOpeners",
@@ -33,10 +33,10 @@
 			"meaning": "Once nothing is in flight, every device's rows say heldOnHost for exactly the sessions a host tab holds.",
 			"source": "src/shared/ipc-types.ts:1773-1778; host-services.ts:1263-1267; host-services.test.ts 'tells devices to read the list again when a tab here takes or lets go of a session'",
 			"frozen": true,
-			"result": "violated",
+			"result": "holds",
 			"tool": "TLC 1.8.0",
-			"bounds": "Devices={d1,d2}, Sessions={s1,s2}, WinTabs={w1}, HostTabs={h1}, MaxChanges=3, MaxCh=3, any delivery order, IdChangeAnnounces=FALSE (the code as written); holds with IdChangeAnnounces=TRUE (a mirrored fix, 2925449 states)",
-			"evidence": "formal/session-listing/evidence/SessionListing-MC_code.log"
+			"bounds": "Devices={d1,d2}, Sessions={s1,s2}, WinTabs={w1}, HostTabs={h1}, MaxChanges=3, MaxCh=3, any delivery order (violated before F3's fix, IdChangeAnnounces=FALSE, evidence SessionListing-MC_code.log)",
+			"evidence": "formal/evidence/verify-all-after-fixes.log"
 		},
 		{
 			"name": "OpenersConverge",
@@ -47,8 +47,8 @@
 			"frozen": true,
 			"result": "holds",
 			"tool": "TLC 1.8.0",
-			"bounds": "as HeldConverges with IdChangeAnnounces=TRUE (2925449 states); the unannounced id change is not shown to break it in the minimal counterexample",
-			"evidence": "formal/session-listing/evidence/SessionListing-MC.log"
+			"bounds": "as HeldConverges (2925449 states); the unannounced id change was not shown to break it in the minimal counterexample",
+			"evidence": "formal/evidence/verify-all-after-fixes.log"
 		}
 	],
 	"findings": [
@@ -56,7 +56,7 @@
 			"id": "F3",
 			"title": "A device keeps listing a session as held by a host tab after the tab is gone",
 			"severity": "medium",
-			"status": "confirmed",
+			"status": "fixed",
 			"property": "HeldConverges",
 			"story": "A window on the host holds session s1; the host re-announces a change only when #listing() differs from #listingSnapshot, which every sessions.list from any device overwrites. Device d2 lists the sessions (it sees s1 held). The window's omp reports another sessionId: sidecar-pool.ts's sessionInfoUpdate handler unregisters the file (entry.sessionFile = undefined) and calls no listingChanged(), so windowSessionFiles() no longer holds s1 but nothing was announced. Device d1 reads the list in that gap: the rows say s1 is not held and the host records that listing as its snapshot. The tab then closes: #releaseEntry notifies, listingChanged() finds the listing equal to d1's snapshot and sends nothing. Device d2 keeps the row as held on the host until something else makes it read again (a journal change, a reconnect). The same device with its two feeds (local and global scope) is enough: the snapshot is shared by every read.",
 			"trace": [
@@ -148,19 +148,22 @@
 				}
 			],
 			"reproduction": {
-				"test": "src/main/remote/host-services.test.ts::LocalHostServices > REPRODUCTION F3 (with a passing control 'control for F3')",
+				"test": "src/main/remote/host-services.test.ts::LocalHostServices > a device that listed a session as held hears of it when a window's tab lets go of it, even when another device reads the list before the tab closes (with 'control for F3'); src/main/sidecar-pool.test.ts::SidecarPool session ownership (F-OWN) > announces every take and let-go of a session file, a sessionId change's let-go too, and never a repeat",
 				"result_before_fix": "fails",
-				"result_after_fix": "not-run"
+				"result_after_fix": "passes"
 			},
 			"fix": {
-				"summary": "Proposed, not applied: call listingChanged() where sessionInfoUpdate unregisters the file (the model toggle IdChangeAnnounces=TRUE mirrors it; HeldConverges then holds); or snapshot per device/connection instead of one for all.",
+				"summary": "SidecarPool calls onSessionFilesChanged on every actual take and let-go of a session file (#registerSessionFile, #unregisterSessionFile: acquire, the `session` identity, noteSessionFile, the sessionInfoUpdate id change, release), and index.ts wires it to hostServices.listingChanged(). With every change announced when it happens, the one shared snapshot always equals the listing at the last announce or read, so no device's view stays stale (CORRESPONDENCE.md A7); a per-connection snapshot was not needed. listingChanged stays off the per-event path: a repeated get_state report changes nothing and calls nothing. Model: IdChangeAnnounces is gone, IdChange always announces; the bug is the mutation id-change-silent.",
+				"commit": "<commit>",
 				"model_recheck": "passes",
 				"mutation_check": "fails-as-expected"
 			},
 			"evidence": [
 				"formal/session-listing/evidence/SessionListing-MC_code.log",
 				"formal/session-listing/evidence/F3-trace.json",
-				"formal/session-listing/evidence/repro-F3-vitest.log"
+				"formal/session-listing/evidence/repro-F3-vitest.log",
+				"formal/session-listing/evidence/repro-after-fix-vitest-pass.log",
+				"formal/evidence/verify-all-after-fixes.log"
 			]
 		}
 	],
@@ -171,11 +174,11 @@
 			"distinct_states": 2925449,
 			"depth": 32,
 			"sanity_checks": [
-				"MC_code.cfg (IdChangeAnnounces=FALSE) violates HeldConverges; MC.cfg (IdChangeAnnounces=TRUE) holds",
+				"before the fix MC_code.cfg (IdChangeAnnounces=FALSE) violated HeldConverges (SessionListing-MC_code.log); the fixed model holds on MC.cfg and the old silent id change, the mutation id-change-silent, is DETECTED",
 				"NeverHeld and NeverOpener are violated, so a held row and an opener row are reachable",
-				"mutate.ts: 8 of 8 mutations DETECTED, no property UNCOVERED (TypeOK waived)",
+				"mutate.ts: 9 of 9 mutations DETECTED, no property UNCOVERED (TypeOK waived)",
 				"with an in-order channel (Ordered=TRUE) the mutation lost-queued-refresh is MISSED (formal/session-listing/evidence/mutation-queued-ordered.log): the queued re-read is redundant if replies never trail events; the code does not enforce that order, so the model allows any order",
-				"deep run (a journal event, queues of 4): 14791048 distinct states, depth 35, holds with IdChangeAnnounces=TRUE",
+				"deep run (a journal event, queues of 4): 14791048 distinct states, depth 35, holds",
 				"deadlock checking is ON (explicit Terminated action)",
 				"scratch break (persist step A.5): removing listingChanged() from #closeTab in host-services.ts and from the model's hosted-tab Close made `verify-all.ts formal --only session-listing` FAIL on HeldConverges with Close(\"h1\") tagged host-services.ts:2237-2265 and the drift line naming src/main/remote/host-services.ts (formal/session-listing/evidence/scratch-break-run.log); after dropping both edits the run PASSES with --strict-drift (formal/session-listing/evidence/scratch-dropped-rerun.log)"
 			]
@@ -185,10 +188,10 @@
 		"bun <tools-dir>/scripts/verify-all.ts formal --only session-listing",
 		"bun <tools-dir>/scripts/tlc.ts formal/session-listing/tla/SessionListing.tla --matrix formal/session-listing/tla/matrix.json",
 		"bun <tools-dir>/scripts/mutate.ts formal/session-listing/tla/SessionListing.tla formal/session-listing/tla/mutations.json",
-		"bunx vitest run src/main/remote/host-services.test.ts -t F3"
+		"bunx vitest run src/main/remote/host-services.test.ts src/main/sidecar-pool.test.ts -t \"lets go of it|control for F3|announces every take\""
 	],
 	"next_steps": [
-		"Fix F3 when the user asks (announce at the unregister, or snapshot per connection); flip matrix run F3-code-as-written to pass",
+		"W4 candidate, not applied: listingChanged() in onWindowTabsChanged now overlaps onSessionFilesChanged for session-file changes; it still covers openers learned through the layout, so keep it",
 		"W4 candidate, not applied: the device's `queued` re-read is dead if replies and events are delivered in order; the code does not guarantee that order, so keep it",
 		"W5: add the fast tier (about 40 s plus mutations) to CI; the deep tier (108 s) nightly",
 		"Model connection loss and reconnect, and the other row fields sameRow ignores, as further concerns"

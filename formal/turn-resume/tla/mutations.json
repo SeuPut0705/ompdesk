@@ -1,5 +1,5 @@
 {
-	"checker": { "kind": "tlc", "config": "MC_marker_fix.cfg", "workers": 4, "timeoutSec": 600 },
+	"checker": { "kind": "tlc", "config": "MC.cfg", "workers": 4, "timeoutSec": 600 },
 	"properties": [
 		"TypeOK",
 		"NoRetryIntoUserRun",
@@ -13,8 +13,7 @@
 		"NoRetryAfterSessionChangeWhileHeld"
 	],
 	"waive": {
-		"TypeOK": "Shape check only: no behaviour change breaks it without also breaking a property above it.",
-		"NoRetryAfterSessionChangeWhileHeld": "Added by the verifier and FAILS on the unmodified code (finding F4, matrix run F4-session-change-while-held): its ability to fail is shown by the code itself."
+		"TypeOK": "Shape check only: no behaviour change breaks it without also breaking a property above it."
 	},
 	"mutations": [
 		{
@@ -43,6 +42,24 @@
 			"replace": "IF FALSE THEN \"network\" ELSE IF stopped[ct] THEN \"none\"",
 			"breaks": "MarkerNetwork",
 			"config": "MC_p4.cfg"
+		},
+		{
+			"name": "fire-hold-without-sync",
+			"why": "F1 as it was: #fire hands the attempt to the connection wait offline and returns without sync(), so the marker file is not rewritten while the wait holds.",
+			"file": "TurnResume.tla",
+			"search": "/\\ pc' = \"s_watch\" /\\ ct' = t /\\ rp' = rp        \\* the sync() after #hold in #fire",
+			"replace": "/\\ UNCHANGED ctlV",
+			"breaks": "MarkerNetwork",
+			"config": "MC_p4.cfg"
+		},
+		{
+			"name": "held-wait-ignores-session-change",
+			"why": "F4 as it was: #judge stops ending a held wait when `touched` or the session file moved (#movedSince), so flush retries the failed turn into the session the tab shows now.",
+			"file": "TurnResume.tla",
+			"search": "movedWhileHeld == waiting[t] /\\ sg[t] # wsg[t]",
+			"replace": "movedWhileHeld == FALSE",
+			"breaks": "NoRetryAfterSessionChangeWhileHeld",
+			"config": "MC_held.cfg"
 		},
 		{
 			"name": "fire-keeps-armed-row-on-hold",

@@ -5,8 +5,9 @@
 (* closes or changes session, so the host re-announces by comparing a        *)
 (* snapshot (`#listingSnapshot`), and the device reads again (debounced).    *)
 (* Code: src/main/remote/host-services.ts (listingChanged, sessions.list,    *)
-(* sessionsChanged), src/main/sidecar-pool.ts (window tabs),                 *)
-(* src/main/index.ts (sessionOpeners), src/renderer/stores/session-list.ts   *)
+(* sessionsChanged), src/main/sidecar-pool.ts (window tabs, every take and   *)
+(* let-go of a session file: onSessionFilesChanged), src/main/index.ts       *)
+(* (sessionOpeners, the hooks), src/renderer/stores/session-list.ts          *)
 (* (refresh, reconcile/sameRow).                                             *)
 (*                                                                           *)
 (* Granularity: one action per synchronous block (one event handler or       *)
@@ -15,8 +16,7 @@
 EXTENDS Integers, Sequences, FiniteSets
 
 CONSTANTS Devices, Sessions, WinTabs, HostTabs, Opens, ClosedPair, MaxChanges, MaxTicks, MaxCh,
-          Ordered,            \* TRUE: a device gets the host's replies and events in the order the host sent them; FALSE: any order (the code does not enforce one)
-          IdChangeAnnounces   \* FALSE = the code as written (sidecar-pool.ts:962 unregisters silently); TRUE mirrors a fix that calls listingChanged there
+          Ordered             \* TRUE: a device gets the host's replies and events in the order the host sent them; FALSE: any order (the code does not enforce one)
 
 NoS == "none"
 Tabs == WinTabs \cup HostTabs
@@ -76,7 +76,8 @@ Announce(f2, r2) ==
 \* ===== the host's tabs change: each handler ends by calling listingChanged() in the same synchronous block =====
 
 \* @code src/main/remote/host-services.ts:1589-1615 #createTab: the device's tab holds its session now; listingChanged()
-\* @code src/main/sidecar-pool.ts:651 a window tab acquired a session; #notifyWindowTabsChanged -> listingChanged
+\* @code src/main/sidecar-pool.ts:657 a window tab acquired a session; #notifyWindowTabsChanged -> listingChanged
+\* @code src/main/sidecar-pool.ts:2058-2066 #registerSessionFile: a file taken calls onSessionFilesChanged -> listingChanged
 Open(t, s) ==
     /\ file[t] = NoS /\ t \notin pendReg /\ nChanges < MaxChanges
     /\ LET f2 == [file EXCEPT ![t] = s] IN file' = f2 /\ Announce(f2, rec)
@@ -84,7 +85,7 @@ Open(t, s) ==
     /\ UNCHANGED <<pendReg, rec, req, ch, view, inFlight, queued, deb, nTicks>>
 
 \* @code src/main/remote/host-services.ts:2237-2265 #closeTab ... listingChanged()
-\* @code src/main/sidecar-pool.ts:1792-1793 #releaseEntry; #notifyWindowTabsChanged -> listingChanged
+\* @code src/main/sidecar-pool.ts:1799-1800 #releaseEntry; #notifyWindowTabsChanged -> listingChanged
 Close(t) ==
     /\ (file[t] # NoS \/ t \in pendReg) /\ nChanges < MaxChanges
     /\ LET f2 == [file EXCEPT ![t] = NoS] IN file' = f2 /\ Announce(f2, rec)
@@ -93,23 +94,25 @@ Close(t) ==
     /\ UNCHANGED <<rec, req, ch, view, inFlight, queued, deb, nTicks>>
 
 \* @code src/main/remote/host-services.ts:1674-1681 'session' handler: tab.sessionFile = identity.sessionFile; listingChanged() when it changed
-\* @code src/main/sidecar-pool.ts:973-987 'session' handler of a window tab: register the file, notify when it changed
+\* @code src/main/sidecar-pool.ts:980-994 'session' handler of a window tab: register the file, notify when it changed
 Switch(t, s) ==
     /\ file[t] # NoS /\ file[t] # s /\ nChanges < MaxChanges
     /\ LET f2 == [file EXCEPT ![t] = s] IN file' = f2 /\ Announce(f2, rec)
     /\ nChanges' = nChanges + 1
     /\ UNCHANGED <<pendReg, rec, req, ch, view, inFlight, queued, deb, nTicks>>
 
-\* @code src/main/sidecar-pool.ts:952-963 sessionInfoUpdate with another sessionId unregisters the file (entry.sessionFile = undefined): NO listingChanged here
+\* @code src/main/sidecar-pool.ts:958-970 sessionInfoUpdate with another sessionId unregisters the file (entry.sessionFile = undefined)
+\* @code src/main/sidecar-pool.ts:2068-2073 #unregisterSessionFile: the let-go calls onSessionFilesChanged
+\* @code src/main/index.ts:1014-1016 onSessionFilesChanged -> hostServices.listingChanged()
 IdChange(t) ==
     /\ t \in WinTabs /\ file[t] # NoS /\ nChanges < MaxChanges
     /\ LET f2 == [file EXCEPT ![t] = NoS]
        IN /\ file' = f2 /\ pendReg' = pendReg \cup {t}
-          /\ IF IdChangeAnnounces THEN Announce(f2, rec) ELSE UNCHANGED <<snap, evTimer>>
+          /\ Announce(f2, rec)
     /\ nChanges' = nChanges + 1
     /\ UNCHANGED <<rec, req, ch, view, inFlight, queued, deb, nTicks>>
 
-\* @code src/main/sidecar-pool.ts:973-987 the `session` identity arrives (get_state, heartbeat): register the file and notify
+\* @code src/main/sidecar-pool.ts:980-994 the `session` identity arrives (get_state, heartbeat): register the file and notify
 Reregister(t, s) ==
     /\ t \in pendReg
     /\ LET f2 == [file EXCEPT ![t] = s] IN file' = f2 /\ Announce(f2, rec)

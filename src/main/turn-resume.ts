@@ -405,10 +405,22 @@ interface ArmedRetry extends IpcScheduledRetry {
 	cancelTimer: () => void;
 }
 
+/** The session and branch a failed turn's connection wait holds for (`#movedSince`). */
+interface HeldFor {
+	sessionFile?: string | undefined;
+	touched: number;
+}
+
+/** A tab's held continuation: what runs once online, and, for a failed turn of this process, what it was held for (a launch's wait records none). */
+interface HeldWait {
+	action: ResumeAction;
+	since?: HeldFor | undefined;
+}
+
 export class TurnResume {
 	readonly #deps: ResumeDeps;
 	/** Tabs holding a continuation until the connection is back, and what to run then. */
-	readonly #waiting = new Map<string, ResumeAction>();
+	readonly #waiting = new Map<string, HeldWait>();
 	/** Tabs whose DNS failure is being probed (`#verifyNetwork`): shown as waiting until the probe decides. */
 	readonly #probing = new Map<string, { outcome: IpcTabRunOutcome; sessionFile?: string; touched: number }>();
 	/** Launch markers whose turn has not started yet: kept in the file so a second crash still resumes them. */
@@ -510,6 +522,10 @@ export class TurnResume {
 		}
 		// Stop while the probe runs: the row goes now, not when the probe answers.
 		if (fact.stopped && this.#probing.has(fact.tabId)) this.#dropWait(fact.tabId);
+		// Another session or branch on a held tab: the wait belonged to the failed turn it left, so it ends as a probe
+		// or a scheduled retry does on the same change, and nothing retries into what the tab shows now.
+		const held = this.#waiting.get(fact.tabId);
+		if (held && this.#movedSince(fact, held)) this.#dropWait(fact.tabId);
 		this.#takeOverRetry(fact);
 		// The outcome is the run's final one (main sets it at the last end event), even while
 		// background work keeps the session unsettled: judging it now puts the wait on screen
@@ -527,7 +543,7 @@ export class TurnResume {
 		if (isNetworkError(outcome.errorMessage)) {
 			// Offline (or just after a wake) the connection wait owns a network failure; no second schedule.
 			if (this.#deps.network.shouldWait()) {
-				this.#hold(fact.tabId, "retry");
+				this.#hold(fact.tabId, "retry", { sessionFile: fact.sessionFile, touched: fact.touched ?? 0 });
 				return;
 			}
 			const host = dnsFailureHost(outcome.errorMessage);
@@ -568,7 +584,7 @@ export class TurnResume {
 				current.sessionFile === probe.sessionFile &&
 				(current.touched ?? 0) === probe.touched;
 			if (holds && !reachable) {
-				this.#hold(tabId, "retry");
+				this.#hold(tabId, "retry", probe);
 				// The marker says `network` now, so a crash during the wait still retries.
 				this.sync();
 				return;
@@ -686,7 +702,9 @@ export class TurnResume {
 		this.#attempts.set(tabId, armed.attempt);
 		this.#ownRetries.add(tabId);
 		if (!this.#deps.network.online) {
-			this.#hold(tabId, "retry");
+			this.#hold(tabId, "retry", { sessionFile: armed.sessionFile, touched: armed.touched });
+			// The marker says `network` now, so a crash during the wait still retries.
+			this.sync();
 			return;
 		}
 		// Stock has nothing to retry (or the call failed): the chain is over.
@@ -726,17 +744,30 @@ export class TurnResume {
 		if (!isNetworkError(retry.errorMessage)) return;
 		this.#takenOver.add(retry);
 		this.#takenOverRuns.add(fact.tabId);
-		if (!fact.awaitingConnection) this.#hold(fact.tabId, "retry");
+		if (!fact.awaitingConnection)
+			this.#hold(fact.tabId, "retry", { sessionFile: fact.sessionFile, touched: fact.touched ?? 0 });
 		void this.#deps.pool
 			.startTab(fact.tabId)
 			?.rpcClient?.command({ type: "abort_retry" })
 			.catch(() => undefined);
 	}
 
-	#hold(tabId: string, action: ResumeAction): void {
-		this.#waiting.set(tabId, action);
+	#hold(tabId: string, action: ResumeAction, since?: HeldFor): void {
+		this.#waiting.set(tabId, { action, since });
 		this.#deps.pool.setAwaitingConnection(tabId, true);
 		if (this.#deps.network.online) void this.flush();
+	}
+
+	/**
+	 * The tab went to another session or branch since its wait was taken: `touched` moved (the user's `TOUCH_COMMANDS`),
+	 * or the session file it was held on is no longer the tab's. A file written after the hold (a first turn stock had
+	 * not saved yet) is the same conversation, not a change.
+	 */
+	#movedSince(fact: ResumeFact, wait: HeldWait): boolean {
+		const since = wait.since;
+		if (!since) return false;
+		if ((fact.touched ?? 0) !== since.touched) return true;
+		return since.sessionFile !== undefined && fact.sessionFile !== since.sessionFile;
 	}
 
 	/** The network is back (or already was): run every held continuation. */
@@ -745,7 +776,7 @@ export class TurnResume {
 		const held = [...this.#waiting];
 		this.#waiting.clear();
 		await Promise.all(
-			held.map(async ([tabId, action]) => {
+			held.map(async ([tabId, { action }]) => {
 				this.#takenOverRuns.delete(tabId);
 				this.#deps.pool.setAwaitingConnection(tabId, false);
 				await this.#run(tabId, action);

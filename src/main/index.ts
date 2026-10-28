@@ -1011,6 +1011,9 @@ app.whenReady().then(() => {
 		}
 		persistTabLayouts();
 	};
+	// Every take or let-go of a session file, a session-id change too (it re-registers only at the next get_state):
+	// the devices' "held on this host" follows each one, so no device's read in the gap can hide a later close.
+	sidecarPool.onSessionFilesChanged = () => hostServices.listingChanged();
 	// A closed window's tabs have to leave the saved session with it, or the next
 	// launch resurrects a window the user deliberately shut.
 	windowManager.subscribeWindowClosed(record => {

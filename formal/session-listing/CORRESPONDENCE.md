@@ -1,6 +1,6 @@
 # Correspondence: session-listing
 
-Sync commit: `b7d45962525cd52ce08554f6fce5e75cd92c20be` (the commit at which this map was confirmed against the code; the same value as `syncCommit` of `session-listing` in `formal/manifest.json`).
+Sync commit: `1cc0239708a810cbdc1683f5be194b968caaea87` plus the `syncDiff` of the uncommitted F3 fix (the commit at which this map was confirmed against the code; the same value as `syncCommit` of `session-listing` in `formal/manifest.json`).
 
 The `@code path:lines` tags in `tla/SessionListing.tla` are the machine-checked half of this map. This table records what each tag abstracts and the assumptions the model relies on.
 
@@ -8,11 +8,11 @@ The `@code path:lines` tags in `tla/SessionListing.tla` are the machine-checked 
 
 | Model element | Code | Kind | Abstraction | Notes |
 |---|---|---|---|---|
-| `Open(t,s)` | `src/main/remote/host-services.ts:1589-1615` `#createTab` + `listingChanged()`; `src/main/sidecar-pool.ts:651` | action | a window tab or a device's tab holds a session; the notify is in the same synchronous block | |
-| `Close(t)` | `host-services.ts:2237-2265` `#closeTab`; `sidecar-pool.ts:1792-1793` `#releaseEntry` + `#notifyWindowTabsChanged` | action | | also releases a tab whose file was already unregistered |
-| `Switch(t,s)` | `host-services.ts:1674-1681`; `sidecar-pool.ts:973-987` | action | a tab holds another session | |
-| `IdChange(t)` | `sidecar-pool.ts:952-963` `sessionInfoUpdate` with another `sessionId` -> `#unregisterSessionFile` | action | the file leaves `windowSessionFiles()`, no notify | the one silent step; pinned by `sidecar-pool.test.ts` "the session under the tab changed" |
-| `Reregister(t,s)` | `sidecar-pool.ts:973-987` `session` identity -> `#registerSessionFile` + notify | action | any session, same or another | fair: heartbeat `get_state` |
+| `Open(t,s)` | `src/main/remote/host-services.ts:1589-1615` `#createTab` + `listingChanged()`; `src/main/sidecar-pool.ts:657`, `#registerSessionFile` `:2058-2066` (`onSessionFilesChanged`) | action | a window tab or a device's tab holds a session; the notify is in the same synchronous block | |
+| `Close(t)` | `host-services.ts:2237-2265` `#closeTab`; `sidecar-pool.ts:1799-1800` `#releaseEntry` + `#notifyWindowTabsChanged` | action | | also releases a tab whose file was already unregistered |
+| `Switch(t,s)` | `host-services.ts:1674-1681`; `sidecar-pool.ts:980-994` | action | a tab holds another session | |
+| `IdChange(t)` | `sidecar-pool.ts:958-970` `sessionInfoUpdate` with another `sessionId` -> `#unregisterSessionFile` `:2068-2073` -> `onSessionFilesChanged` (`src/main/index.ts:1014-1016`) -> `listingChanged()` | action | the file leaves `windowSessionFiles()` and the host compares at once | silent before F3's fix; pinned by `sidecar-pool.test.ts` "announces every take and let-go of a session file" |
+| `Reregister(t,s)` | `sidecar-pool.ts:980-994` `session` identity -> `#registerSessionFile` + notify | action | any session, same or another | fair: heartbeat `get_state` |
 | `Record` | `src/main/index.ts:900-909` `sessionOpeners` (`AGENT_CLOSED_CHILDREN_PREF`); `src/main/ipc.ts:1265` | action | one boolean: a closed-child record names the opener relation `ClosedPair` | announces via `listingChanged()` |
 | `Tick` | `host-services.ts:1254-1261` `sessionsChanged()` | action | a journal write or a child's review changed: an event with no listing change | off in the fast config |
 | `Announce(f2, r2)` | `host-services.ts:1268-1275` `listingChanged`; `2279-2281` `listingSignature` | operator | the signature is the whole `[held, openers]` value | mutation `signature-ignores-openers` |
@@ -33,7 +33,8 @@ The `@code path:lines` tags in `tla/SessionListing.tla` are the machine-checked 
 - A3: the host announces to every connected device at once (`#conns`); a device connected later reads fresh.
 - A4: each device stays connected and holds its feed open (`holders > 0`); reads do not fail.
 - A5: a closed or released window tab is a tab on the host; a tab opened by a window tab is a child of it (`Opens`).
-- A6: `sessionInfoUpdate` with a new id is eventually followed by the `session` identity (`Reregister` is fair): the code relies on "the renderer's hydrate (get_state) re-registers the current file" (`sidecar-pool.ts:957-961`).
+- A6: `sessionInfoUpdate` with a new id is eventually followed by the `session` identity (`Reregister` is fair): the code relies on "the renderer's hydrate (get_state) re-registers the current file" (`sidecar-pool.ts:963-968`).
+- A7: every change of what a host tab holds calls `listingChanged()` in the block that makes it (the pool's `onSessionFilesChanged` covers each window tab's take and let-go; `LocalHostServices` covers its own tabs). With that, the single shared snapshot always equals the listing at the last announce or read, so any change from what any device last read is announced; a per-device snapshot is not needed.
 
 ## Granularity
 

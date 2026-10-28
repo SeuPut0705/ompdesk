@@ -1,9 +1,9 @@
 {
 	"concern": "turn-resume",
 	"workflow": "W1",
-	"generated_at": "2026-10-28T09:09:57.124Z",
-	"repo_commit": "b7d45962525cd52ce08554f6fce5e75cd92c20be",
-	"summary": "4 findings for the connection wait of a failed turn: 2 confirmed by failing tests (F1: a scheduled retry that fires offline leaves no `network` marker; F4: a session change while a wait holds does not end it), 1 refuted model error (F2), and 7 of 8 stated properties plus both liveness properties hold for 1 tab, 2 runs, 2 attempts, 1 network flap (1.4M states, depth 72; 5.3M states with 2 flaps); every property has a mutation that fails it (10 of 10 DETECTED).",
+	"generated_at": "2026-10-28T09:45:00.000Z",
+	"repo_commit": "1cc0239708a810cbdc1683f5be194b968caaea87",
+	"summary": "4 findings for the connection wait of a failed turn: 2 confirmed by failing tests and now fixed (F1: a scheduled retry that fired offline left no `network` marker; F4: a session change while a wait held did not end it), 1 refuted model error (F2); on the fixed code all 8 properties plus both liveness properties hold for 1 tab, 2 runs, 2 attempts, 1 network flap (1.4M states, depth 76; 5.1M states with 2 flaps), and every property but the TypeOK shape check has a mutation that fails it (12 of 12 DETECTED, including the two bugs as mutations).",
 	"scope": {
 		"modeled": [
 			"TurnResume sync/#judge/#verifyNetwork/#hold/flush/#run/#planRetry/#arm/#fire/cancelWait/#dropWait and the marker file (deriveMarkers)",
@@ -33,7 +33,7 @@
 			"kind": "invariant",
 			"statement": "NoRetryIntoUserRun == ~bad1",
 			"meaning": "Stock retry is never sent while the tab's live run is one the user started.",
-			"source": "src/main/turn-resume.ts:499-509; turn-resume.test.ts 'a prompt sent during the wait replaces it'",
+			"source": "src/main/turn-resume.ts:511-521; turn-resume.test.ts 'a prompt sent during the wait replaces it'",
 			"frozen": true,
 			"result": "holds",
 			"tool": "TLC 1.8.0",
@@ -45,7 +45,7 @@
 			"kind": "invariant",
 			"statement": "NoRetryAfterCallOff == ~bad2",
 			"meaning": "Cancel, Stop, a new prompt or a session/branch change during a probe (or while a retry is armed) never leads to a later retry of that failure.",
-			"source": "src/main/turn-resume.ts:556-569; turn-resume.test.ts '%s while the lookup is probed ends it'",
+			"source": "src/main/turn-resume.ts:572-585; turn-resume.test.ts '%s while the lookup is probed ends it'",
 			"frozen": true,
 			"result": "holds",
 			"tool": "TLC 1.8.0",
@@ -69,7 +69,7 @@
 			"kind": "liveness",
 			"statement": "ProbeEnds == \\A t \\in Tabs : (probing[t] # 0) ~> (probing[t] = 0)",
 			"meaning": "A probe row always ends.",
-			"source": "src/main/turn-resume.ts:544-547",
+			"source": "src/main/turn-resume.ts:560-563",
 			"frozen": true,
 			"result": "holds",
 			"tool": "TLC 1.8.0",
@@ -81,12 +81,12 @@
 			"kind": "invariant",
 			"statement": "MarkerNetwork == pc = \"idle\" => \\A t \\in Tabs : awaiting[t] => store[t] = \"network\"",
 			"meaning": "While a wait holds, the marker file says `network`, so a crash during the wait still retries.",
-			"source": "src/main/turn-resume.ts:572; deriveMarkers doc",
+			"source": "src/main/turn-resume.ts:588-589 and :706-707; deriveMarkers doc",
 			"frozen": true,
-			"result": "violated",
+			"result": "holds",
 			"tool": "TLC 1.8.0",
-			"bounds": "as above, FireSyncs=FALSE (the code as written); holds with FireSyncs=TRUE (a mirrored fix, 1420269 states)",
-			"evidence": "formal/turn-resume/evidence/TurnResume-MC_marker.log"
+			"bounds": "same as NoRetryIntoUserRun (violated before F1's fix, FireSyncs=FALSE, evidence TurnResume-MC_marker.log)",
+			"evidence": "formal/evidence/verify-all-after-fixes.log"
 		},
 		{
 			"name": "OneOfWaitOrScheduled",
@@ -128,13 +128,13 @@
 			"name": "NoRetryAfterSessionChangeWhileHeld",
 			"kind": "invariant",
 			"statement": "NoRetryAfterSessionChangeWhileHeld == ~bad2h",
-			"meaning": "A session or branch change while a wait HOLDS never leads to a retry (added by the verifier, not one of the stated properties).",
-			"source": "the probe and the scheduled retry already check the session and touched count (turn-resume.ts:568-569, #holds)",
-			"frozen": false,
-			"result": "violated",
+			"meaning": "A session or branch change while a wait HOLDS ends the wait and never leads to a retry (found by the verifier as F4, adopted as the rule on 28 Oct 2026).",
+			"source": "the user's decision on F4; the probe and the scheduled retry already checked the session and touched count (turn-resume.ts:584-585, #holds); the held wait now does (#movedSince, turn-resume.ts:525-528, 766-771)",
+			"frozen": true,
+			"result": "holds",
 			"tool": "TLC 1.8.0",
-			"bounds": "as above, FireSyncs=FALSE",
-			"evidence": "formal/turn-resume/evidence/TurnResume-MC_held.log"
+			"bounds": "same as NoRetryIntoUserRun (violated before F4's fix, evidence TurnResume-MC_held.log)",
+			"evidence": "formal/evidence/verify-all-after-fixes.log"
 		}
 	],
 	"findings": [
@@ -142,7 +142,7 @@
 			"id": "F1",
 			"title": "A scheduled retry that fires while offline leaves no `network` marker",
 			"severity": "medium",
-			"status": "confirmed",
+			"status": "fixed",
 			"property": "MarkerNetwork",
 			"story": "A turn ends in a transient error (a 503) while the link is up: #judge plans a scheduled retry and #arm shows its row. Before the 30 s timer fires the connection drops (report(false)). The timer runs #fire: stillHolds passes, stock retry.enabled is read, then `!network.online`, so #fire releases the row, records the attempt and calls #hold(tab, \"retry\"): the wait row shows (setAwaitingConnection(true)). #fire returns there and never calls sync(), so deriveMarkers has not run and the marker file has no entry for the tab: a scheduled retry writes none, and awaitingConnection is only turned into the `network` reason by a sync. Nothing syncs until some later run-state change. If OMPdesk crashes or is killed while the tab waits, the relaunch finds no marker and the turn is never continued. #verifyNetwork's own hold calls sync() with the comment \"a crash during the wait still retries\"; #fire's does not.",
 			"trace": [
@@ -358,12 +358,13 @@
 				}
 			],
 			"reproduction": {
-				"test": "src/main/turn-resume.test.ts::REPRODUCTION formal/turn-resume (fails on current code) > F1",
+				"test": "src/main/turn-resume.test.ts::TurnResume connection wait (formal/turn-resume) > a scheduled retry that fires while offline hands over to the connection wait, and the marker file says `network` (a crash during the wait still retries)",
 				"result_before_fix": "fails",
-				"result_after_fix": "not-run"
+				"result_after_fix": "passes"
 			},
 			"fix": {
-				"summary": "Proposed, not applied: call this.sync() after #hold in #fire's offline branch (the model toggle FireSyncs=TRUE mirrors it and MarkerNetwork then holds in 1420269 states).",
+				"summary": "#fire calls this.sync() right after #hold in its offline branch (turn-resume.ts:704-708), so deriveMarkers writes the `network` marker while the wait holds. Every other #hold caller already ran inside sync() or synced after it. Model: FireSyncs is gone, FireResume always runs the sync chain; the bug is the mutation fire-hold-without-sync.",
+				"commit": "<commit>",
 				"model_recheck": "passes",
 				"mutation_check": "fails-as-expected"
 			},
@@ -371,14 +372,16 @@
 				"formal/turn-resume/evidence/TurnResume-MC_marker.log",
 				"formal/turn-resume/evidence/F1-trace.json",
 				"formal/turn-resume/evidence/repro-F1-F4-vitest-fail.log",
-				"formal/turn-resume/evidence/TurnResume-MC_marker_fix.log"
+				"formal/turn-resume/evidence/TurnResume-MC_marker_fix.log",
+				"formal/turn-resume/evidence/repro-after-fix-vitest-pass.log",
+				"formal/evidence/verify-all-after-fixes.log"
 			]
 		},
 		{
 			"id": "F4",
 			"title": "A session or branch change while the wait holds does not end it; stock retry runs in the new session",
 			"severity": "low",
-			"status": "confirmed",
+			"status": "fixed",
 			"property": "NoRetryAfterSessionChangeWhileHeld",
 			"story": "This is a property the verifier added, not one of the stated ones; whether the behavior is intended is a design question. While offline a turn fails on the network: #judge holds it, the wait row shows and the marker says `network`. The user switches the tab to another session or branch (noteTouched bumps `touched`, sync()). #watchScheduledRetry and #verifyNetwork's continuation compare sessionFile and `touched` and end the retry or the probe; the held wait is not looked at (#judge only ends it for a new run or Cancel). The connection returns, flush() runs #run(tab, \"retry\") and stock retry is sent to a tab that now shows another session or branch.",
 			"trace": [
@@ -589,14 +592,22 @@
 				}
 			],
 			"reproduction": {
-				"test": "src/main/turn-resume.test.ts::REPRODUCTION formal/turn-resume (fails on current code) > F4",
+				"test": "src/main/turn-resume.test.ts::TurnResume connection wait (formal/turn-resume) > %s while the connection wait holds ends the wait, and nothing retries into the new session once online",
 				"result_before_fix": "fails",
-				"result_after_fix": "not-run"
+				"result_after_fix": "passes"
+			},
+			"fix": {
+				"summary": "The user's call: the held wait follows the probe and the scheduled retry. #hold records what the wait holds for (HeldWait.since: session file and touched, from the failed fact, the probe or the armed retry) and #judge ends a wait whose tab moved (#movedSince: touched differs, or the recorded session file is not the tab's) with #dropWait (turn-resume.ts:525-528, 755-771). A launch's wait records none. Model: wsg and movedWhileHeld in S_NewRun; the bug is the mutation held-wait-ignores-session-change.",
+				"commit": "<commit>",
+				"model_recheck": "passes",
+				"mutation_check": "fails-as-expected"
 			},
 			"evidence": [
 				"formal/turn-resume/evidence/TurnResume-MC_held.log",
 				"formal/turn-resume/evidence/F4-trace.json",
-				"formal/turn-resume/evidence/repro-F1-F4-vitest-fail.log"
+				"formal/turn-resume/evidence/repro-F1-F4-vitest-fail.log",
+				"formal/turn-resume/evidence/repro-after-fix-vitest-pass.log",
+				"formal/evidence/verify-all-after-fixes.log"
 			]
 		},
 		{
@@ -619,18 +630,18 @@
 	"trust_base": {
 		"tla": {
 			"tool_version": "TLC 1.8.0 (tla2tools 1.8.0), java 17",
-			"states_generated": 2066716,
-			"distinct_states": 1416369,
-			"depth": 72,
+			"states_generated": 2047373,
+			"distinct_states": 1401515,
+			"depth": 76,
 			"sanity_checks": [
-				"MC_marker.cfg (FireSyncs=FALSE) violates MarkerNetwork; MC_marker_fix.cfg (FireSyncs=TRUE, the same property) holds",
-				"MC_held.cfg violates NoRetryAfterSessionChangeWhileHeld",
+				"before the fixes: MC_marker.cfg (FireSyncs=FALSE) violated MarkerNetwork and MC_held.cfg violated NoRetryAfterSessionChangeWhileHeld (TurnResume-MC_marker.log, TurnResume-MC_held.log); after them MC.cfg holds every invariant including both",
+				"both bugs are kept as mutations and DETECTED on the fixed model: fire-hold-without-sync fails MarkerNetwork, held-wait-ignores-session-change fails NoRetryAfterSessionChangeWhileHeld",
 				"NeverWaits, NeverRetries, NeverArmed, NeverProbing are violated, so a wait, a retry, an armed retry and a probe row are reachable",
-				"mutate.ts: 10 of 10 mutations DETECTED, no property UNCOVERED (TypeOK and the verifier-added property waived with reasons)",
+				"mutate.ts: 12 of 12 mutations DETECTED, no property UNCOVERED, only TypeOK waived (shape check)",
 				"one equivalent mutant kept as evidence, not in the set: dropping the sync() after #hold in #verifyNetwork's continuation is MISSED because the marker already says `network` since the probe row (formal/turn-resume/evidence/equivalent-mutant-verify-hold-without-sync.log)",
 				"deadlock checking is ON in every safety run (an explicit Terminated action exists), so a state with a stuck wait that is not quiescent is reported",
-				"deep run (MaxFlaps=2): 5273014 distinct states, depth 80, all invariants hold with FireSyncs=TRUE",
-				"scratch break (persist step A.5): dropping the session and touched checks from #verifyNetwork's continuation in turn-resume.ts and from the model's `holds` made `verify-all.ts formal --only turn-resume` FAIL on NoRetryAfterCallOff with the last rows tagged turn-resume.ts:557-580 and the drift line naming src/main/turn-resume.ts (formal/turn-resume/evidence/scratch-break-run.log); after dropping both edits the run PASSES with --strict-drift (formal/turn-resume/evidence/scratch-dropped-rerun.log)"
+				"deep run (MaxFlaps=2): 5125942 distinct states, depth 78, all invariants hold",
+				"scratch break (persist step A.5, before the fixes): dropping the session and touched checks from #verifyNetwork's continuation in turn-resume.ts and from the model's `holds` made `verify-all.ts formal --only turn-resume` FAIL on NoRetryAfterCallOff with the last rows tagged turn-resume.ts:557-580 and the drift line naming src/main/turn-resume.ts (formal/turn-resume/evidence/scratch-break-run.log); after dropping both edits the run PASSES with --strict-drift (formal/turn-resume/evidence/scratch-dropped-rerun.log)"
 			]
 		}
 	},
@@ -638,13 +649,11 @@
 		"bun <tools-dir>/scripts/verify-all.ts formal --only turn-resume",
 		"bun <tools-dir>/scripts/tlc.ts formal/turn-resume/tla/TurnResume.tla --matrix formal/turn-resume/tla/matrix.json",
 		"bun <tools-dir>/scripts/mutate.ts formal/turn-resume/tla/TurnResume.tla formal/turn-resume/tla/mutations.json",
-		"bunx vitest run src/main/turn-resume.test.ts -t REPRODUCTION"
+		"bunx vitest run src/main/turn-resume.test.ts -t \"formal/turn-resume\""
 	],
 	"next_steps": [
-		"Fix F1 (one call: this.sync() after #hold in #fire) when the user asks; flip matrix run F1-marker-network-as-written to pass and FireSyncs to the code",
-		"Decide F4 (should a session or branch change end a held wait like it ends a probe?); if yes, mirror it in the model and flip the F4 matrix run",
 		"W4 candidates, not applied: the sync() after #hold in #verifyNetwork's continuation does not change the marker (equivalent mutant), kept for the other work sync() does",
 		"W5: add the fast tier (about 1 minute) to CI with verify-all.ts formal --strict-drift",
-		"Model two tabs at once (probe sharing across tabs) and the launch path (#pending markers) as a second concern"
+		"Model two tabs at once (probe sharing across tabs) and the launch path (#pending markers; a launch's wait records no session, so a session change does not end it) as a second concern"
 	]
 }

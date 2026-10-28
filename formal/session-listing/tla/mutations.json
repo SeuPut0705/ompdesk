@@ -6,6 +6,15 @@
 	},
 	"mutations": [
 		{
+			"name": "id-change-silent",
+			"why": "F3 as it was: the pool lets a window tab's file go on a session-id change without onSessionFilesChanged; another device's read in the gap becomes the snapshot and the later close says nothing.",
+			"file": "SessionListing.tla",
+			"search": "          /\\ Announce(f2, rec)\n",
+			"replace": "          /\\ UNCHANGED <<snap, evTimer>>\n",
+			"breaks": "HeldConverges",
+			"config": "MC_held.cfg"
+		},
+		{
 			"name": "drop-announce-on-close",
 			"why": "A tab closing no longer calls listingChanged(): devices keep listing a released session as held.",
 			"file": "SessionListing.tla",
