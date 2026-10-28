@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.82.1] - 2026-10-29
+
+omp나 Bun이 깨져도 앱이 스스로 다시 깔아 고치고, 트레이 메뉴는 열기·업데이트·종료만 남겼어요.
+
+### 바뀐 것
+- **트레이 메뉴가 단순해졌어요.** OMPdesk 열기/숨기기, 업데이트, 종료만 있어요. 업데이트 항목은 상태에 따라 "업데이트 확인", "내려받는 중", "다시 시작해서 업데이트"로 바뀌어서 창을 열지 않고도 업데이트할 수 있어요.
+- **동시성·재시도 버그를 다룰 때 형식 검증 스킬을 먼저 읽어요.** 요청이 경쟁 조건, 중복 실행, 재시도, "절대 안 일어나나" 같은 내용이면 에이전트와 서브에이전트에게 스킬을 먼저 읽으라는 한 줄이 붙어요.
+
+### 고친 것
+- omp가 단일 실행 파일로 바뀌었거나 Bun 업그레이드가 실패해 "omp 설치 실패"로 멈추던 문제를 고쳤어요. 이제 앱이 그 파일을 치우고 Bun과 omp를 알아서 다시 깔아요. 명령을 직접 실행하라는 안내도 없앴어요.
+- 앱이 켜져 있는 동안 지워진 작업 폴더의 세션이 연결된 다른 기기에서만 따로 묶여 보이던 문제를 고쳤어요.
+- 중단된 작업 이어하기를 취소하거나 세션을 옮기면 오토파일럿이 "실행 중"인 채 멈추던 문제, 복원 중에 탭을 옮기면 재시도가 다른 세션으로 들어가던 문제를 고쳤어요.
+
+<!-- en -->
+
+OMPdesk now repairs a broken omp or Bun by itself, and the tray menu keeps only Open, Update and Quit.
+
+### Changed
+- **A simple tray menu.** Open/Hide OMPdesk, one update item, Quit. The update item follows the updater ("Check for updates", "Downloading…", "Restart to update"), so updating needs no window.
+- **Concurrency and retry bugs start with the formal verification skill.** When a request is about a race, a duplicate run, a retry or a never-happens claim, the agent and its subagents are told to read the skill first.
+
+### Fixed
+- "Installing omp failed" when omp had become a compiled binary or a Bun upgrade failed: the app moves that file aside and reinstalls Bun and omp by itself, and no longer asks you to run commands.
+- Sessions of a worktree removed while the app ran showed as their own groups on paired devices only.
+- Cancelling a held resume or moving its session left Autopilot showing "running"; moving a tab during a slow restore sent the retry into the other session.
+
 ## [0.82.0] - 2026-10-29
 
 에이전트가 처음부터 모든 권한을 갖고 사이드바·업데이트까지 직접 다루며, omp 업데이트가 설정 화면을 깨뜨리던 문제와 형식 검증 스킬의 잘못된 통과 판정을 고쳤어요.
