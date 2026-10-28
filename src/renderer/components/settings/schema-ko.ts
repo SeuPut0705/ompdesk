@@ -163,6 +163,16 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description:
 			"확장 tool_call 핸들러의 실제 경과 시간 제한이에요. omp 대화상자를 기다리는 동안은 계산하지 않으며, 잘못된 값은 30000ms로 대체돼요.",
 	},
+	"extensionHandlers.modeControl": {
+		label: "확장의 모드 전환 허용",
+		description:
+			"확장이 ctx.sessionModes.set()으로 계획·vibe·goal·loop 모드에 들어가고 나올 수 있게 해요. 모드 상태 읽기는 꺼도 그대로 돼요.",
+	},
+	"session.worktreeScope": {
+		label: "이어하기 워크트리 범위",
+		description: "이어하기 목록의 현재 폴더에 같은 저장소의 다른 워크트리 세션도 넣을지 정해요",
+	},
+	"gc.autoCompress": { label: "GC 자동 압축" },
 	// ── appearance ──────────────────────────────────────────────────────────
 	"theme.dark": { label: "다크 테마", description: "TUI와 GUI가 다크 모드일 때 사용할 테마 색상" },
 	"theme.light": { label: "라이트 테마", description: "TUI와 GUI가 라이트 모드일 때 사용할 테마 색상" },

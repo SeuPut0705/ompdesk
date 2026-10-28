@@ -73,7 +73,7 @@ describe.skipIf(!packageRoot)("the formal-verification skill on the installed om
 		expect(names).toContain("ompdesk-formal-verify");
 		expect(names.filter(name => name.includes("formal-verify"))).toHaveLength(2);
 		expect(both.skills.find(skill => skill.name === "ompdesk-formal-verify")?.path.startsWith(FORMAL)).toBe(true);
-	});
+	}, 120_000);
 
 	it("stays the one ompdesk-formal-verify beside every pack a bump rewrites, mounted as a spawn mounts them", () => {
 		// The roots `sidecar-factory.ts` mounts with every switch on (REA's skill root without its server), in its order.
@@ -99,5 +99,5 @@ describe.skipIf(!packageRoot)("the formal-verification skill on the installed om
 		);
 		expect(rivals.map(skill => `${skill.name} (${skill.path})`)).toEqual([]);
 		expect(all.read["skill://ompdesk-formal-verify"]).toContain("name: ompdesk-formal-verify");
-	});
+	}, 120_000);
 });

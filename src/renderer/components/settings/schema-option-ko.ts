@@ -1,5 +1,9 @@
 /** Korean text for backend-provided settings enum labels and descriptions. */
 export const KO_SCHEMA_OPTION_TEXT: Readonly<Record<string, string>> = {
+	"This Directory": "이 폴더만",
+	"Only sessions saved for this directory": "이 폴더에 저장된 세션만 보여요",
+	"Repository Worktrees": "저장소 워크트리 전체",
+	"Also include sessions from sibling worktrees": "같은 저장소의 다른 워크트리 세션도 함께 보여요",
 	Takeover: "전환해서 실행",
 	"Briefly bring the target forward for that one call, then return focus to your app (on macOS even if you kept typing)":
 		"그 호출 동안만 대상을 잠깐 앞으로 가져온 뒤 내 앱으로 포커스를 돌려줘요(macOS에서는 입력 중이어도 돌려줘요).",
