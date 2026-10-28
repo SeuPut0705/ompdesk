@@ -629,33 +629,75 @@ describe("M8: a Lean project in the app bundle or a read-only folder is checked 
 		}
 	});
 
-	it("hands the work a writable copy without .lake and removes it afterwards, leaving the original untouched", async () => {
-		const { withBuildableCopy } = await lib("lean-trust");
-		const original = fs.mkdtempSync(path.join(temp, "orig-"));
+	/**
+	 * A folder inside an install's resources, the way both platforms lay one out (`...\\resources\\omp-builtin\\...` on Windows,
+	 * `.app/Contents/Resources/omp-builtin/...` on macOS): it is judged by its path, not by permission bits, because
+	 * chmod does not make a Windows folder unwritable.
+	 */
+	function bundleLikeProject(): string {
+		const original = path.join(
+			fs.mkdtempSync(path.join(temp, "orig-")),
+			"OMPdesk",
+			"resources",
+			"omp-builtin",
+			"lean",
+		);
+		fs.mkdirSync(path.join(original, ".lake"), { recursive: true });
 		fs.writeFileSync(path.join(original, "lakefile.toml"), "name = 'p'\n");
-		fs.mkdirSync(path.join(original, ".lake"));
 		fs.writeFileSync(path.join(original, ".lake", "big"), "x");
-		if (process.platform !== "win32" && process.getuid?.() !== 0) fs.chmodSync(original, 0o555);
+		return original;
+	}
+
+	async function expectCopy(original: string): Promise<void> {
+		const { withBuildableCopy } = await lib("lean-trust");
 		const notes: string[] = [];
 		let seen = "";
-		try {
-			await withBuildableCopy(
-				original,
-				(line: string) => notes.push(line),
-				async (dir: string) => {
-					seen = dir;
-					expect(dir).not.toBe(original);
-					expect(fs.existsSync(path.join(dir, "lakefile.toml"))).toBe(true);
-					expect(fs.existsSync(path.join(dir, ".lake"))).toBe(false);
-					fs.writeFileSync(path.join(dir, ".ompdesk-audit.lean"), "");
-				},
-			);
-		} finally {
-			if (process.platform !== "win32") fs.chmodSync(original, 0o755);
-		}
+		await withBuildableCopy(
+			original,
+			(line: string) => notes.push(line),
+			async (dir: string) => {
+				seen = dir;
+				expect(dir).not.toBe(original);
+				expect(fs.existsSync(path.join(dir, "lakefile.toml"))).toBe(true);
+				expect(fs.existsSync(path.join(dir, ".lake"))).toBe(false);
+				fs.writeFileSync(path.join(dir, ".ompdesk-audit.lean"), "");
+			},
+		);
 		expect(fs.existsSync(seen)).toBe(false);
 		expect(fs.readdirSync(original).sort()).toEqual([".lake", "lakefile.toml"]);
 		expect(notes.join("\n")).toContain("temporary copy");
+	}
+
+	it("hands the work a writable copy without .lake of a project inside the install's resources, and removes it afterwards", async () => {
+		await expectCopy(bundleLikeProject());
+	});
+
+	it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+		"also copies a project whose folder is read-only by its permissions",
+		async () => {
+			const original = fs.mkdtempSync(path.join(temp, "ro-orig-"));
+			fs.writeFileSync(path.join(original, "lakefile.toml"), "name = 'p'\n");
+			fs.mkdirSync(path.join(original, ".lake"));
+			fs.writeFileSync(path.join(original, ".lake", "big"), "x");
+			fs.chmodSync(original, 0o555);
+			try {
+				await expectCopy(original);
+			} finally {
+				fs.chmodSync(original, 0o755);
+			}
+		},
+	);
+
+	it("tells a folder it cannot write into by trying to write, never by its mode bits", async () => {
+		const { needsCopy } = await lib("lean-trust");
+		const plain = fs.mkdtempSync(path.join(temp, "plain-write-"));
+		expect(needsCopy(plain)).toBe(false);
+		// Windows marks a directory read-only without blocking writes in it: that must not read as unwritable.
+		if (process.platform === "win32") spawnSync("attrib", ["+R", plain]);
+		expect(needsCopy(plain)).toBe(false);
+		// A path that does not exist cannot be written into either.
+		expect(needsCopy(path.join(plain, "missing", "deeper"))).toBe(true);
+		expect(fs.readdirSync(plain)).toEqual([]);
 	});
 
 	it.skipIf(!REAL || process.platform === "win32")(
@@ -754,5 +796,131 @@ describe("the minors", () => {
 		expect(files.filter(file => !/Adapted from/.test(fs.readFileSync(file, "utf8").slice(0, 300)))).toEqual([]);
 		const schema = JSON.parse(fs.readFileSync(path.join(SKILL, "assets/findings.schema.json"), "utf8"));
 		expect(schema.$comment).toContain("Adapted from opum-ai/proof-skills");
+	});
+});
+
+describe("Windows: git's warnings and line endings are not drift, and CRLF text parses like LF", () => {
+	function repoWithAutocrlf(): { repo: string; git: (...args: string[]) => string } {
+		const repo = fs.mkdtempSync(path.join(temp, "crlf-"));
+		const git = (...args: string[]): string =>
+			spawnSync("git", ["-c", "user.email=t@e.com", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...args], {
+				cwd: repo,
+				encoding: "utf8",
+			}).stdout.trim();
+		git("init", "-q");
+		// What a Windows checkout has: the working copy is CRLF, the repository LF, and git warns about it on stderr.
+		git("config", "core.autocrlf", "true");
+		fs.mkdirSync(path.join(repo, "src"));
+		return { repo, git };
+	}
+
+	const CODE = "export function a() {\n  return 1;\n}\n\nexport function b() {\n  return 2;\n}\n";
+
+	it("git() returns standard output only: a warning on stderr is never read as a file name", async () => {
+		const { git: gitCall } = await lib("drift");
+		const { repo, git } = repoWithAutocrlf();
+		fs.writeFileSync(path.join(repo, "src/a.ts"), CODE);
+		git("add", "-A");
+		git("commit", "-q", "-m", "x");
+		fs.writeFileSync(path.join(repo, "src/a.ts"), CODE.replace("return 1", "return 9"));
+		const result = await gitCall(repo, ["diff", "--name-only", "HEAD"]);
+		expect(result.out).toBe("src/a.ts");
+		const noisy = await gitCall(repo, ["-c", "core.safecrlf=warn", "diff", "--name-only", "HEAD"]);
+		expect(noisy.out).toBe("src/a.ts");
+		expect(noisy.out).not.toContain("warning");
+	});
+
+	it("reports exactly the changed covered file under autocrlf, not git's warning text", async () => {
+		const { checkDrift } = await lib("drift");
+		const { repo, git } = repoWithAutocrlf();
+		fs.writeFileSync(path.join(repo, "src/a.ts"), CODE);
+		fs.writeFileSync(path.join(repo, "src/b.ts"), CODE);
+		git("add", "-A");
+		git("commit", "-q", "-m", "x");
+		const head = git("rev-parse", "HEAD");
+		// LF text in an autocrlf working copy is what makes git warn "LF will be replaced by CRLF" on stderr.
+		fs.writeFileSync(path.join(repo, "src/a.ts"), CODE.replace("return 1", "return 9"));
+		const drift = await checkDrift(repo, ["src/a.ts", "src/b.ts"], head);
+		expect(drift.status).toBe("drift");
+		expect(drift.files).toEqual(["src/a.ts"]);
+	});
+
+	it("does not call an autocrlf checkout drift: a file, a function and a line range rewritten with CRLF are unchanged", async () => {
+		const { checkDrift, hasUncommitted } = await lib("drift");
+		const { repo, git } = repoWithAutocrlf();
+		fs.writeFileSync(path.join(repo, "src/a.ts"), CODE);
+		git("add", "-A");
+		git("commit", "-q", "-m", "x");
+		const head = git("rev-parse", "HEAD");
+		fs.writeFileSync(path.join(repo, "src/a.ts"), CODE.replaceAll("\n", "\r\n"));
+		for (const covers of [["src/a.ts"], ["src/a.ts#a"], ["src/a.ts#b"], ["src/a.ts:1-3"], ["src/a.ts:5-7"]]) {
+			const drift = await checkDrift(repo, covers, head);
+			expect(drift.status, `${covers} ${drift.message}`).toBe("ok");
+			expect(await hasUncommitted(repo, covers), `${covers}`).toBe(false);
+		}
+		// A real change to one function is still drift for that function only.
+		fs.writeFileSync(path.join(repo, "src/a.ts"), CODE.replace("return 2", "return 3").replaceAll("\n", "\r\n"));
+		expect((await checkDrift(repo, ["src/a.ts#a"], head)).status).toBe("ok");
+		expect((await checkDrift(repo, ["src/a.ts#b"], head)).status).toBe("drift");
+	});
+
+	it("reads a TLC trace, a graph and a chart written with CRLF line endings the way it reads LF", async () => {
+		const lib2 = (await import(/* @vite-ignore */ path.join(SKILL, "scripts/statechart/lib.mjs"))) as {
+			parseTraces: (t: string) => unknown;
+			parseDot: (t: string) => { nodes: Map<string, unknown> };
+			parseMermaid: (t: string) => unknown;
+			lf: (t: string) => string;
+		};
+		const trace = [
+			"Error: Invariant Safe is violated.",
+			"Error: The behavior up to this point is:",
+			"State 1: <Initial predicate>",
+			"/\\ x = 0",
+			'/\\ y = "a"',
+			"",
+			"State 2: <Inc line 1, col 1 to line 1, col 9 of module M>",
+			"/\\ x = 1",
+			'/\\ y = "a"',
+			"",
+		].join("\n");
+		expect(JSON.stringify(lib2.parseTraces(trace.replaceAll("\n", "\r\n")))).toBe(
+			JSON.stringify(lib2.parseTraces(trace)),
+		);
+		const dot = ['1 [label="/\\\\ x = 0",style = filled]', '2 [label="/\\\\ x = 1"]', '1 -> 2 [label="Inc"];'].join(
+			"\n",
+		);
+		expect(lib2.parseDot(dot.replaceAll("\n", "\r\n")).nodes.size).toBe(2);
+		const chart = "stateDiagram-v2\n  [*] --> Idle\n  Idle --> Paid : pay\n  %% never X: Idle & Paid -- no\n";
+		expect(JSON.stringify(lib2.parseMermaid(chart.replaceAll("\n", "\r\n")))).toBe(
+			JSON.stringify(lib2.parseMermaid(chart)),
+		);
+		expect(lib2.lf("a\r\nb\r\n")).toBe("a\nb\n");
+	});
+
+	it("chart-to-tla.mjs writes the same spec from a CRLF chart, into the current folder", () => {
+		const dir = fs.mkdtempSync(path.join(temp, "chart-"));
+		const chart =
+			"stateDiagram-v2\n  state Screen {\n    [*] --> Cart\n    Cart --> Paid : pay\n    --\n    [*] --> NotCharged\n    NotCharged --> Charged : charge\n  }\n  %% never PaidUncharged: Paid & NotCharged -- x\n";
+		const run = (name: string, text: string): { code: number | null; err: string } => {
+			fs.writeFileSync(path.join(dir, name), text);
+			const result = spawnSync(
+				"bun",
+				[path.join(SKILL, "scripts/statechart/chart-to-tla.mjs"), name, "--module", name.replace(".mmd", "")],
+				{ cwd: dir, encoding: "utf8" },
+			);
+			return { code: result.status, err: result.stderr };
+		};
+		// Region state names differ by module only in the header: compare the specs after renaming the module.
+		const lf = run("Lf.mmd", chart);
+		const crlf = run("Crlf.mmd", chart.replaceAll("\n", "\r\n"));
+		expect(lf.code, lf.err).toBe(0);
+		expect(crlf.code, crlf.err).toBe(0);
+		const body = (name: string): string =>
+			fs
+				.readFileSync(path.join(dir, `${name}.tla`), "utf8")
+				.replaceAll(name, "M")
+				.replace(/\\\* Generated.*\n/, "")
+				.replace(/\\\* statechart.mjs.*\n/, "");
+		expect(body("Crlf")).toBe(body("Lf"));
 	});
 });

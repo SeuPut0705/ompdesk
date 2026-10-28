@@ -86,7 +86,7 @@ afterEach(() => {
 describe("statechart scripts", () => {
 	it("prints help and exits 0", { timeout: 20_000 }, () => {
 		const result = bun("statechart.mjs", ["--help"]);
-		expect(result.code).toBe(0);
+		expect(result.code, `${result.err}${result.out}`).toBe(0);
 		expect(result.out).toContain("bun statechart.mjs from-spec SPEC.tla");
 		expect(result.out).toContain("3  UNAVAILABLE");
 	});
@@ -100,10 +100,10 @@ describe("statechart scripts", () => {
 			a.replace("Paying --> Paid : charge goes through", "Paying --> Idle : card declined"),
 		);
 		const same = bun("compare-charts.mjs", ["a.mmd", "a.mmd"]);
-		expect(same.code).toBe(0);
+		expect(same.code, `${same.err}${same.out}`).toBe(0);
 		expect(same.out.trim()).toBe("same");
 		const different = bun("compare-charts.mjs", ["a.mmd", "b.mmd"]);
-		expect(different.code).toBe(1);
+		expect(different.code, `${different.err}${different.out}`).toBe(1);
 		expect(different.out).toContain("Paying --> Paid : charge goes through");
 		expect(different.out).toContain("Paying --> Idle : card declined");
 		expect(different.out).toContain("3 difference(s)");
@@ -112,7 +112,7 @@ describe("statechart scripts", () => {
 	it("chart-to-tla writes a spec, a config and a mapping from a chart", { timeout: 20_000 }, () => {
 		writeFileSync(join(dir, "pay.mmd"), CHART);
 		const result = bun("chart-to-tla.mjs", ["pay.mmd", "--module", "Pay"]);
-		expect(result.code).toBe(0);
+		expect(result.code, `${result.err}${result.out}`).toBe(0);
 		const spec = readFileSync(join(dir, "Pay.tla"), "utf8");
 		expect(spec).toContain("---- MODULE Pay ----");
 		expect(spec).toContain('PaidUncharged == ~(region1 = "Paid" /\\ region2 = "NotCharged")');
@@ -125,7 +125,10 @@ describe("statechart scripts", () => {
 			join(dir, "bad.mmd"),
 			"stateDiagram-v2\n  [*] --> Idle\n  Idle --> Paid : pay\n  %% never X: Idle & Paid -- impossible\n",
 		);
-		expect(bun("chart-to-tla.mjs", ["bad.mmd", "--module", "Bad"]).code).toBe(1);
+		const result = bun("chart-to-tla.mjs", ["bad.mmd", "--module", "Bad"]);
+		expect(result.code, result.err).toBe(1);
+		// The exit code alone would also be 1 for any crash: pin the reason.
+		expect(result.err).toContain("names two states of one region");
 	});
 
 	it("exits 3 with UNAVAILABLE when TLC cannot be prepared offline", { timeout: 20_000 }, () => {
@@ -138,7 +141,7 @@ describe("statechart scripts", () => {
 			TLA2TOOLS: "",
 			JAVA: "",
 		});
-		expect(result.code).toBe(3);
+		expect(result.code, `${result.err}${result.out}`).toBe(3);
 		expect(result.err).toContain("UNAVAILABLE:");
 	});
 
@@ -153,12 +156,13 @@ describe("statechart scripts", () => {
 		};
 		const result = bun("statechart.mjs", ["from-spec", "Pay.tla", "--expect-broken", "ChargedOnce"], env);
 		expect(result.err).toBe("");
-		expect(result.code).toBe(0);
+		expect(result.code, `${result.err}${result.out}`).toBe(0);
 		expect(result.out).toContain("ChargedOnce is broken (expected)");
 		expect(result.out).toContain("4. The charge goes through. Now: Paid: charged twice");
 		expect(readFileSync(join(dir, "Pay-statechart", "chart.mmd"), "utf8")).toContain("stateDiagram-v2");
 		// The same spec without the expectation: the rule is broken, so exit 1.
-		expect(bun("statechart.mjs", ["from-spec", "Pay.tla", "--out", "second"], env).code).toBe(1);
+		const second = bun("statechart.mjs", ["from-spec", "Pay.tla", "--out", "second"], env);
+		expect(second.code, `${second.err}${second.out}`).toBe(1);
 	});
 
 	it.runIf(REAL)("from-chart draws the agreed chart back unchanged", { timeout: 120_000 }, () => {
@@ -169,7 +173,7 @@ describe("statechart scripts", () => {
 			JAVA: "",
 		};
 		const result = bun("statechart.mjs", ["from-chart", "pay.mmd", "--module", "Pay"], env);
-		expect(result.code).toBe(0);
+		expect(result.code, `${result.err}${result.out}`).toBe(0);
 		expect(result.out).toContain("The spec draws pay.mmd back unchanged.");
 	});
 });

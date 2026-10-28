@@ -10,8 +10,10 @@ import {
 	BROKEN_PROPERTY,
 	findTlc,
 	joinAnd,
+	lf,
 	PRIMES_OR_UNCHANGED,
 	parseDot,
+	readText,
 	tlaVariables,
 	tlcOutputWarning,
 	uncitedConditions,
@@ -351,17 +353,17 @@ function tlc(tools, spec, cfg, base, { dump, workers = "1" } = {}) {
 	);
 	fs.rmSync(metadir, { recursive: true, force: true });
 	if (r.error) throw new CannotFinish(`cannot run TLC: ${r.error.message}`);
-	fs.writeFileSync(`${base}.out`, r.stdout);
+	const stdout = lf(r.stdout);
+	fs.writeFileSync(`${base}.out`, stdout);
 	try {
-		return { stdout: r.stdout, warning: tlcOutputWarning(r.stdout, `${base}.out`) };
+		return { stdout, warning: tlcOutputWarning(stdout, `${base}.out`) };
 	} catch (e) {
 		throw new TlcStopped(e.message);
 	}
 }
 
 const withoutComments = spec =>
-	fs
-		.readFileSync(spec, "utf8")
+	readText(spec)
 		.replace(/\(\*[\s\S]*?\*\)/g, " ")
 		.replace(/\\\*.*/g, " ");
 
@@ -370,7 +372,7 @@ function warnUnnamedSteps(spec, cfg, dot) {
 	const specName = /^SPECIFICATION\s+(\w+)/m.exec(cfg)?.[1];
 	const specBody = specName && new RegExp(`^${specName}\\s*==(.*(\\n[ \\t]+.*)*)`, "m").exec(text);
 	const next = /^NEXT\s+(\w+)/m.exec(cfg)?.[1] ?? /\[\]\s*\[\s*(\w+)\s*\]_/.exec(specBody?.[1] ?? text)?.[1];
-	const graph = parseDot(fs.readFileSync(dot, "utf8"));
+	const graph = parseDot(readText(dot));
 	const unnamed = [...graph.edges, ...graph.loops].filter(e => e.action === next).length;
 	if (unnamed > 0)
 		console.error(
@@ -393,7 +395,7 @@ function readModel(spec, cfgFile, flag) {
 			}`,
 		);
 	}
-	return { spec, cfgFile, ...splitRules(fs.readFileSync(cfgFile, "utf8")) };
+	return { spec, cfgFile, ...splitRules(readText(cfgFile)) };
 }
 
 function readInput(spec, cfgFile, expected) {
@@ -756,7 +758,7 @@ function unchanged(inputs, out) {
 
 function publish(work, out, inputs) {
 	const parent = path.dirname(path.resolve(out));
-	fs.mkdirSync(parent, { recursive: true });
+	if (!fs.existsSync(parent)) fs.mkdirSync(parent, { recursive: true });
 	const next = fs.mkdtempSync(path.join(parent, `.${path.basename(out)}-`));
 	const old = `${next}-old`;
 	let aside = false;
@@ -836,7 +838,7 @@ function listedBreaks(spec) {
 	const breaks = {};
 	let headed = false;
 	for (const f of files.filter(f => f.endsWith(".cfg"))) {
-		const cfg = fs.readFileSync(path.join(dir, f), "utf8");
+		const cfg = readText(path.join(dir, f));
 		const module = /^\\\* module:[ \t]*(\w+)[ \t]*$/m.exec(cfg)?.[1] ?? only;
 		const expect = /^\\\* expect:[ \t]*(\w+)[ \t]*$/m.exec(cfg)?.[1];
 		if (module !== path.basename(spec, ".tla") || !expect) continue;
@@ -857,7 +859,7 @@ function warnUnlisted(now, other) {
 function warnUncited(models) {
 	return Object.fromEntries(
 		models.map(({ spec, traces, properties }) => {
-			const found = uncitedConditions(fs.readFileSync(spec, "utf8"));
+			const found = uncitedConditions(readText(spec));
 			const held = [...traces, ...properties].filter(t => !t.broken).map(t => t.rule);
 			const short = s => (s.length > 90 ? `${s.slice(0, 87)}...` : s);
 			if (found.length && held.length)

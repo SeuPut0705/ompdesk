@@ -20,6 +20,7 @@ import {
 	parseMermaid,
 	parseTraces,
 	productOf,
+	readText,
 	ruleSentences,
 	STATUS_CLASSES,
 	stateKey,
@@ -264,8 +265,7 @@ const edgeId = (from, to) => `${from}${SEP}${SEP}${to}`;
 
 const rules = new Map();
 for (const f of args.specs)
-	for (const [name, sentence] of ruleSentences(fs.readFileSync(f, "utf8")))
-		if (!rules.has(name)) rules.set(name, sentence);
+	for (const [name, sentence] of ruleSentences(readText(f))) if (!rules.has(name)) rules.set(name, sentence);
 
 const readerActions = new Set(mapping.readerActions ?? []);
 const factsFrom = enabled => ({
@@ -376,13 +376,13 @@ function quotient(m) {
 	return { nodes, initial, edges, keys, settled };
 }
 
-const graph = parseDot(fs.readFileSync(args.dot, "utf8"));
+const graph = parseDot(readText(args.dot));
 const main = modelOf(graph);
 const now = quotient(main);
 const mainInit = [...graph.nodes.values()].find(n => n.init).vars;
 
 const secondDot = args.fixedDot ?? args.againstDot;
-const secondGraph = secondDot ? parseDot(fs.readFileSync(secondDot, "utf8")) : null;
+const secondGraph = secondDot ? parseDot(readText(secondDot)) : null;
 const secondInit = secondGraph && [...secondGraph.nodes.values()].find(n => n.init).vars;
 const lacks = secondGraph ? lacking(mainInit, secondInit) : [];
 const extra = secondGraph ? lacking(secondInit, mainInit) : [];
@@ -486,7 +486,7 @@ function replaySecond(trace) {
 
 function readTraces(files, paths = []) {
 	return files.flatMap(f => {
-		const text = fs.readFileSync(f, "utf8");
+		const text = readText(f);
 		const warning = tlcOutputWarning(text, f);
 		if (warning) console.error(`${f}: ${warning}`);
 		return parseTraces(text).map(t => ({

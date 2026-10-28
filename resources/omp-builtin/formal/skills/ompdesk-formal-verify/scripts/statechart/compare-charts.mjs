@@ -1,8 +1,7 @@
 #!/usr/bin/env bun
 // Adapted from pstack (MIT, Lauren Tan). See LICENSES/MIT-pstack.txt in the OMPdesk app resources.
-import fs from "node:fs";
 import process from "node:process";
-import { compareCharts, FULL_LABELS, LEGEND_ID, parseMermaid } from "./lib.mjs";
+import { compareCharts, FULL_LABELS, LEGEND_ID, parseMermaid, readText } from "./lib.mjs";
 
 const USAGE = "Usage: bun compare-charts.mjs EXPECTED.mmd ACTUAL.mmd";
 const HELP = `${USAGE}
@@ -59,7 +58,7 @@ const orExit = (file, f) => {
 		process.exit(2);
 	}
 };
-const [expectedText, actualText] = files.map(f => orExit(f, () => fs.readFileSync(f, "utf8")));
+const [expectedText, actualText] = files.map(f => orExit(f, () => readText(f)));
 const has = re => re.test(actualText);
 const textRefusals = [
 	[has(/^\s*%% second model/m), "it has a second model; draw ACTUAL without --fixed-dot or --against-dot"],

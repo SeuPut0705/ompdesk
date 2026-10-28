@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { parseMermaid } from "./lib.mjs";
+import { parseMermaid, readText } from "./lib.mjs";
 
 const USAGE = "Usage: bun chart-to-tla.mjs CHART.mmd --module NAME [--dir OUT]";
 const HELP = `${USAGE}
@@ -52,7 +52,7 @@ if (!args.chart || !/^[A-Za-z][A-Za-z0-9_]*$/.test(args.module ?? "")) {
 	process.exit(2);
 }
 const dir = args.dir ?? path.dirname(args.chart);
-const { regions, nevers } = parseMermaid(fs.readFileSync(args.chart, "utf8"));
+const { regions, nevers } = parseMermaid(readText(args.chart));
 
 const RESERVED = new Set(["vars", "Init", "Next", "Spec", "TypeOK", "Settled"]);
 const taken = new Set(RESERVED);
@@ -214,7 +214,7 @@ const map = [
 	"",
 ];
 
-fs.mkdirSync(dir, { recursive: true });
+if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 fs.writeFileSync(path.join(dir, `${args.module}.tla`), out.join("\n"));
 fs.writeFileSync(path.join(dir, `${args.module}.cfg`), cfg.join("\n"));
 fs.writeFileSync(path.join(dir, `${args.module}.map.mjs`), map.join("\n"));

@@ -2,6 +2,12 @@
 import fs from "node:fs";
 import process from "node:process";
 
+/** The same text whatever the checkout's or TLC's line endings: Windows writes CRLF, the parsers below read LF. */
+export const lf = text => String(text).replace(/\r\n/g, "\n");
+
+/** A text file read with LF line endings. */
+export const readText = file => lf(fs.readFileSync(file, "utf8"));
+
 export function findTlc() {
 	const { TLA2TOOLS, JAVA } = process.env;
 	if (!TLA2TOOLS) throw new Error("TLA2TOOLS is not set. statechart.mjs sets it from the shared toolchain cache.");
@@ -105,6 +111,7 @@ export function parseValue(text) {
 
 // One state as TLC prints it: "/\ x = 1" lines, or "x = 1" for one variable.
 function parseState(text) {
+	text = lf(text);
 	const lines = text.split("\n").filter(l => l.trim() !== "");
 	const conjuncts = [];
 	for (const line of lines) {
@@ -134,6 +141,7 @@ const canon = v =>
 export const stateKey = vars => JSON.stringify(canon(vars));
 
 export function ruleSentences(tla) {
+	tla = lf(tla);
 	const out = new Map();
 	const lines = tla.split("\n");
 	lines.forEach((line, i) => {
@@ -152,6 +160,7 @@ export const tlaVariables = code =>
 	[...code.matchAll(/\bVARIABLES?\s+(\w+(?:\s*,\s*\w+)*)/g)].flatMap(m => m[1].split(/\s*,\s*/));
 
 function splitCommentsKeepingOffsets(text) {
+	text = lf(text);
 	let code = "";
 	let notes = "";
 	let block = 0;
@@ -244,6 +253,7 @@ function conjuncts(bare, from, to, lineStart) {
 }
 
 export function uncitedConditions(text) {
+	text = lf(text);
 	const { code, notes } = splitCommentsKeepingOffsets(text);
 	const bare = code.replace(/"(?:[^"\\\n]|\\.)*"/g, s => " ".repeat(s.length));
 	const variables = new Set(tlaVariables(bare));
@@ -333,6 +343,7 @@ function unescapeDot(s) {
 }
 
 export function parseDot(text) {
+	text = lf(text);
 	const nodes = new Map();
 	const edges = [];
 	const loops = [];
@@ -367,6 +378,7 @@ export function parseDot(text) {
 }
 
 export function parseTraces(text) {
+	text = lf(text);
 	const traces = [];
 	let invariant = null;
 	let current = null;
@@ -413,6 +425,7 @@ export const BROKEN_PROPERTY =
 // that breaks a rule, and stop early. An error in the rule's formula throws one of TLC's own
 // exceptions in place of java.*.
 export function tlcOutputWarning(text, file) {
+	text = lf(text);
 	const lines = text.split("\n");
 	const named = re => new Set(lines.map(l => re.exec(l)?.[1]).filter(Boolean));
 	const broken = named(/^Error: Invariant (\S+) is violated/);

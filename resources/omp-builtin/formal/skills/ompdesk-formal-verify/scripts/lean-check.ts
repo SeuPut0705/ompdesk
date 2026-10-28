@@ -57,7 +57,7 @@ export function render(check: LeanCheck, project: string): string[] {
 	out.push(
 		`${check.status === "pass" ? "PASS" : "FAIL"}  lake build ${check.buildOk ? "succeeded" : "failed"}  ${check.toolchain ?? ""}`.trimEnd(),
 	);
-	for (const line of check.detail.split("\n").filter(Boolean)) out.push(`  ${line}`);
+	for (const line of check.detail.split(/\r?\n/).filter(Boolean)) out.push(`  ${line}`);
 	for (const finding of advisories)
 		out.push(`  review: ${finding.kind} at ${finding.file}:${finding.line}: ${finding.text}`);
 	if (check.theorems.length > 0) {

@@ -11,10 +11,37 @@ export interface DriftResult {
 	message: string;
 }
 
-/** Runs git in the code root; `ok` is false when git is missing or exits non-zero. */
-export async function git(codeRoot: string, args: string[]): Promise<{ ok: boolean; out: string }> {
+export interface GitResult {
+	ok: boolean;
+	/** Standard output only, trimmed: git writes warnings (an autocrlf "LF will be replaced by CRLF") to stderr. */
+	out: string;
+	/** Standard error, or the reason git could not start. For messages, never for parsing. */
+	err: string;
+}
+
+/** Runs git in the code root; `ok` is false when git is missing or exits non-zero. Output is stdout only. */
+export async function git(codeRoot: string, args: string[]): Promise<GitResult> {
 	const result = await run("git", args, { cwd: codeRoot, timeoutMs: 60_000 });
-	return { ok: !result.spawnError && result.code === 0, out: `${result.stdout}${result.stderr}`.trim() };
+	return {
+		ok: !result.spawnError && result.code === 0,
+		out: result.stdout.trim(),
+		err: (result.spawnError?.message ?? result.stderr).trim(),
+	};
+}
+
+/** One line for a message about a failed git call. */
+function failure(result: GitResult): string {
+	return (result.err || result.out).split(/\r?\n/)[0] ?? "";
+}
+
+/** NUL-separated names (`-z`: no quoting of unusual names, no newline splitting). */
+function names(result: GitResult): string[] {
+	return result.out.split("\0").filter(Boolean);
+}
+
+/** The same text whatever the checkout's line endings: an autocrlf working copy is not a change. */
+function lf(text: string): string {
+	return text.replace(/\r\n/g, "\n");
 }
 
 interface Material {
@@ -28,7 +55,7 @@ interface Material {
 
 function read(file: string): string | null {
 	try {
-		return fs.readFileSync(file, "utf8");
+		return lf(fs.readFileSync(file, "utf8"));
 	} catch {
 		return null;
 	}
@@ -46,22 +73,28 @@ async function coverMaterial(codeRoot: string, covers: string[], base: string): 
 	// Whole files and folders: one diff for all of them, plus new files nobody added yet (`git diff` does not see them).
 	const wholes = parsed.filter(cover => cover.kind === "path");
 	if (wholes.length > 0) {
-		const names = await git(codeRoot, ["diff", "--name-only", base, "--", ...wholes.map(cover => cover.path)]);
-		if (!names.ok) return { ...material, error: `git diff failed: ${names.out.split(/\r?\n/)[0]}` };
+		const changed = await git(codeRoot, [
+			"diff",
+			"--name-only",
+			"-z",
+			base,
+			"--",
+			...wholes.map(cover => cover.path),
+		]);
+		if (!changed.ok) return { ...material, error: `git diff failed: ${failure(changed)}` };
 		const added = await git(codeRoot, [
 			"ls-files",
 			"--others",
 			"--exclude-standard",
+			"-z",
 			"--",
 			...wholes.map(cover => cover.path),
 		]);
-		const files = [
-			...new Set([...names.out.split(/\r?\n/), ...(added.ok ? added.out.split(/\r?\n/) : [])].filter(Boolean)),
-		].sort();
+		const files = [...new Set([...names(changed), ...(added.ok ? names(added) : [])])].sort();
 		for (const file of files) {
 			const body = await git(codeRoot, ["diff", base, "--", file]);
 			material.changed.push(file);
-			material.text += `file ${file}\n${body.out || read(path.join(codeRoot, file)) || ""}\n`;
+			material.text += `file ${file}\n${lf(body.out) || read(path.join(codeRoot, file)) || ""}\n`;
 		}
 	}
 	for (const cover of parsed) {
@@ -70,7 +103,8 @@ async function coverMaterial(codeRoot: string, covers: string[], base: string): 
 		if (cover.kind === "symbol") {
 			const was = await git(codeRoot, ["show", `${base}:${cover.path}`]);
 			const spansNow = now === null ? [] : findSymbolSpans(now, cover.symbol);
-			const spansWas = was.ok ? findSymbolSpans(was.out, cover.symbol) : [];
+			const wasText = was.ok ? lf(was.out) : "";
+			const spansWas = was.ok ? findSymbolSpans(wasText, cover.symbol) : [];
 			if (spansNow.length === 0 && spansWas.length === 0) {
 				return {
 					...material,
@@ -78,7 +112,7 @@ async function coverMaterial(codeRoot: string, covers: string[], base: string): 
 				};
 			}
 			const textNow = now === null ? "" : spanText(now, spansNow);
-			const textWas = was.ok ? spanText(was.out, spansWas) : "";
+			const textWas = was.ok ? spanText(wasText, spansWas) : "";
 			if (textNow !== textWas) {
 				material.changed.push(
 					spansNow.length === 0
@@ -91,7 +125,7 @@ async function coverMaterial(codeRoot: string, covers: string[], base: string): 
 			}
 		} else {
 			const diff = await git(codeRoot, ["diff", "-U0", "--no-color", base, "--", cover.path]);
-			if (!diff.ok) return { ...material, error: `git diff failed: ${diff.out.split(/\r?\n/)[0]}` };
+			if (!diff.ok) return { ...material, error: `git diff failed: ${failure(diff)}` };
 			const { touched, shifted } = rangeChanges(parseHunks(diff.out), cover.start, cover.end);
 			if (touched || shifted !== 0) {
 				material.changed.push(

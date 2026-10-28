@@ -171,7 +171,7 @@ export async function stampModels(
 ): Promise<void> {
 	const head = await git(codeRoot, ["rev-parse", "HEAD"]);
 	if (!head.ok) {
-		console.log(`\nstamp: cannot read HEAD of ${codeRoot}: ${head.out}`);
+		console.log(`\nstamp: cannot read HEAD of ${codeRoot}: ${head.err || head.out}`);
 		return;
 	}
 	let wrote = false;
