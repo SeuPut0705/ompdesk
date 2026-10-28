@@ -503,12 +503,21 @@ export async function withLock<T>(
 	const release = (): void => {
 		if (mine()) fs.rmSync(lock, { recursive: true, force: true });
 	};
+	// Windows refuses mkdir with EPERM/EACCES while a folder of that name is still being deleted (another process just
+	// released or took over the lock). That is a busy lock, not a permission problem, unless it never ends.
+	let pendingDelete = 0;
+	const deletePending = (error: unknown): boolean => {
+		const code = (error as NodeJS.ErrnoException).code;
+		if (process.platform !== "win32" || (code !== "EPERM" && code !== "EACCES")) return false;
+		return ++pendingDelete <= 200;
+	};
 	/** Makes the lock folder and writes the owner; false when somebody else's lock is there. */
 	const acquire = (): boolean => {
 		try {
 			fs.mkdirSync(lock);
+			pendingDelete = 0;
 		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+			if ((error as NodeJS.ErrnoException).code === "EEXIST" || deletePending(error)) return false;
 			throw environmental(error, label);
 		}
 		try {
@@ -530,6 +539,7 @@ export async function withLock<T>(
 		try {
 			fs.mkdirSync(guard);
 		} catch (error) {
+			if (deletePending(error)) return false;
 			if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw environmental(error, label);
 			// A guard that vanished is not stale: its holder just finished, and the next taker may already have made a new one.
 			const age = fs.statSync(guard, { throwIfNoEntry: false });

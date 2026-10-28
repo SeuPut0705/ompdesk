@@ -93,7 +93,9 @@ afterEach(async () => {
 });
 
 describe("ChangelogDialog", () => {
-	it("stays hidden until the ui store opens it", async () => {
+	// The first case pays for loading the Markdown renderer and the whole bundled CHANGELOG (about 1 s here, past 5 s
+	// on a loaded CI shard as the changelog grows).
+	it("stays hidden until the ui store opens it", { timeout: 30_000 }, async () => {
 		await mount(<ChangelogDialog />);
 		expect(firstRelease).not.toBe("");
 		expect(document.body.textContent ?? "").not.toContain(firstRelease);
