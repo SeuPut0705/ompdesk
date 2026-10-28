@@ -11,6 +11,7 @@ import {
 	findTlc,
 	joinAnd,
 	lf,
+	moved,
 	PRIMES_OR_UNCHANGED,
 	parseDot,
 	readText,
@@ -722,31 +723,6 @@ async function inWorkFolder(body) {
 		if (!keep) fs.rmSync(work, { recursive: true, force: true });
 	}
 }
-
-const moved = (from, to, ...missed) => {
-	try {
-		fs.renameSync(from, to);
-		return true;
-	} catch (e) {
-		if (missed.includes(e.code)) return false;
-		if (!["ENOSYS", "EXDEV", "EISDIR"].includes(e.code)) throw e;
-	}
-	// Some filesystems, such as FUSE mounts, cannot rename a folder that has files. They fail with
-	// ENOSYS, or with EISDIR when the target exists.
-	if (!fs.existsSync(from) && missed.includes("ENOENT")) return false;
-	if (fs.existsSync(to)) {
-		if (fs.readdirSync(to).length && missed.includes("ENOTEMPTY")) return false;
-		fs.rmdirSync(to);
-	}
-	try {
-		fs.cpSync(from, to, { recursive: true, errorOnExist: true, force: false });
-	} catch (e) {
-		fs.rmSync(to, { recursive: true, force: true });
-		throw e;
-	}
-	fs.rmSync(from, { recursive: true, force: true });
-	return true;
-};
 
 function unchanged(inputs, out) {
 	const changed = [...inputs].find(([f, was]) => fingerprint(f) !== was)?.[0];

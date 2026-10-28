@@ -5,7 +5,8 @@ import { type Cover, findSymbolSpans, parseCover, parseHunks, rangeChanges, span
 import { run } from "./proc";
 
 export interface DriftResult {
-	status: "ok" | "drift" | "unstamped" | "bad-commit" | "git-error" | "no-covers";
+	/** `no-git`: git could not start, so drift was not checked (never a FAIL). */
+	status: "ok" | "drift" | "unstamped" | "bad-commit" | "git-error" | "no-covers" | "no-git";
 	/** What differs from the sync commit: files, `file#symbol` and `file:start-end` entries. */
 	files: string[];
 	message: string;
@@ -13,6 +14,8 @@ export interface DriftResult {
 
 export interface GitResult {
 	ok: boolean;
+	/** git could not be started at all (not installed, not on PATH). */
+	missing: boolean;
 	/** Standard output only, trimmed: git writes warnings (an autocrlf "LF will be replaced by CRLF") to stderr. */
 	out: string;
 	/** Standard error, or the reason git could not start. For messages, never for parsing. */
@@ -24,6 +27,7 @@ export async function git(codeRoot: string, args: string[]): Promise<GitResult> 
 	const result = await run("git", args, { cwd: codeRoot, timeoutMs: 60_000 });
 	return {
 		ok: !result.spawnError && result.code === 0,
+		missing: Boolean(result.spawnError),
 		out: result.stdout.trim(),
 		err: (result.spawnError?.message ?? result.stderr).trim(),
 	};
@@ -166,6 +170,12 @@ export async function checkDrift(
 		};
 	}
 	const known = await git(codeRoot, ["cat-file", "-e", `${syncCommit}^{commit}`]);
+	if (known.missing)
+		return {
+			status: "no-git",
+			files: [],
+			message: `git could not start (${failure(known)}), so drift was not checked`,
+		};
 	if (!known.ok)
 		return {
 			status: "bad-commit",

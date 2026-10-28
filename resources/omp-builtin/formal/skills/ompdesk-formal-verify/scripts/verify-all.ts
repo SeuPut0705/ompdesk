@@ -153,6 +153,7 @@ async function verifyModel(model: ModelEntry, formalDir: string, codeRoot: strin
 	if (drift.status === "ok") add("drift", "pass", drift.message);
 	else if (drift.status === "no-covers" || drift.status === "unstamped")
 		add("drift", args.strictDrift && drift.status === "unstamped" ? "fail" : "skipped", drift.message);
+	else if (drift.status === "no-git") add("drift", "unavailable", drift.message);
 	else add("drift", drift.status === "drift" && !args.strictDrift ? "drift" : "fail", drift.message);
 	return result;
 }

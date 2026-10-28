@@ -8,6 +8,37 @@ export const lf = text => String(text).replace(/\r\n/g, "\n");
 /** A text file read with LF line endings. */
 export const readText = file => lf(fs.readFileSync(file, "utf8"));
 
+/**
+ * Renames `from` to `to`, and returns false instead of throwing for an error code in `missed`. Windows refuses a
+ * rename onto an existing folder with EPERM (Bun and Node alike), so EPERM counts as EEXIST while `to` exists;
+ * on a free target it is a real permission error and throws.
+ */
+export const moved = (from, to, ...missed) => {
+	try {
+		fs.renameSync(from, to);
+		return true;
+	} catch (e) {
+		if (missed.includes(e.code)) return false;
+		if (e.code === "EPERM" && missed.includes("EEXIST") && fs.existsSync(to)) return false;
+		if (!["ENOSYS", "EXDEV", "EISDIR"].includes(e.code)) throw e;
+	}
+	// Some filesystems, such as FUSE mounts, cannot rename a folder that has files. They fail with
+	// ENOSYS, or with EISDIR when the target exists.
+	if (!fs.existsSync(from) && missed.includes("ENOENT")) return false;
+	if (fs.existsSync(to)) {
+		if (fs.readdirSync(to).length && missed.includes("ENOTEMPTY")) return false;
+		fs.rmdirSync(to);
+	}
+	try {
+		fs.cpSync(from, to, { recursive: true, errorOnExist: true, force: false });
+	} catch (e) {
+		fs.rmSync(to, { recursive: true, force: true });
+		throw e;
+	}
+	fs.rmSync(from, { recursive: true, force: true });
+	return true;
+};
+
 export function findTlc() {
 	const { TLA2TOOLS, JAVA } = process.env;
 	if (!TLA2TOOLS) throw new Error("TLA2TOOLS is not set. statechart.mjs sets it from the shared toolchain cache.");
