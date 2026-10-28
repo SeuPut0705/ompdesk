@@ -1864,6 +1864,53 @@ describe("LocalHostServices", () => {
 		expect(heard()).toBe(4);
 	});
 
+	// REPRODUCTION of formal/session-listing (counterexample formal/session-listing/evidence/SessionListing-MC_code.log,
+	// property HeldConverges). Fails on the current code: listingChanged() compares with the snapshot ANY device's read
+	// last recorded, so a read taken while the listing was transiently wrong swallows the later announcement.
+	it("REPRODUCTION F3: a device that listed a session as held hears of its close even when another device read the list between the pool's silent unregister and the close", async () => {
+		vi.useFakeTimers();
+		const row = (path: string) => ({ path, id: path, title: path, cwd: workDir, firstMessage: "" });
+		const { services, local } = setup(60_000, {
+			sessionIndex: {
+				list: async () => [row("/s/w.jsonl")],
+			} as unknown as HostServicesDeps["sessionIndex"],
+		});
+		const a = new FakeConnection(peer("device-a"));
+		const b = new FakeConnection(peer("device-b"));
+		// A window here holds the session; device A lists it as held.
+		local.owned.set("/s/w.jsonl", { tabId: "w1", winId: 1 });
+		const rowsA = (await services.call(a.peer, "sessions.list", { scope: "global" }, a)) as SessionInfo[];
+		expect(rowsA[0]?.heldOnHost).toBe(true);
+		// The window's omp reports another sessionId: the pool unregisters the file and notifies nobody (sidecar-pool.ts
+		// `sessionInfoUpdate`, pinned by sidecar-pool.test.ts "the session under the tab changed"); `owned.delete` is that step.
+		local.owned.delete("/s/w.jsonl");
+		// Device B reads the list in that gap: the host records the listing without the session as its snapshot.
+		const rowsB = (await services.call(b.peer, "sessions.list", { scope: "global" }, b)) as SessionInfo[];
+		expect(rowsB[0]?.heldOnHost).toBeUndefined();
+		// The tab closes (or is released): the pool calls listingChanged(); the listing equals B's snapshot.
+		services.listingChanged();
+		vi.advanceTimersByTime(1_000);
+		// Device A still lists the session as held on the host; the property says it must be told to read again.
+		expect(a.events.filter(entry => entry.event === "sessions.changed").length).toBeGreaterThan(0);
+	});
+
+	// Control for the reproduction above: the same steps without device B's read in the gap tell device A.
+	it("control for F3: without another device's read in the gap, the close is announced to the device that listed the session as held", async () => {
+		vi.useFakeTimers();
+		const { services, local } = setup(60_000, {
+			sessionIndex: {
+				list: async () => [{ path: "/s/w.jsonl", id: "w", title: "w", cwd: workDir, firstMessage: "" }],
+			} as unknown as HostServicesDeps["sessionIndex"],
+		});
+		const a = new FakeConnection(peer("device-a"));
+		local.owned.set("/s/w.jsonl", { tabId: "w1", winId: 1 });
+		await services.call(a.peer, "sessions.list", { scope: "global" }, a);
+		local.owned.delete("/s/w.jsonl");
+		services.listingChanged();
+		vi.advanceTimersByTime(1_000);
+		expect(a.events.filter(entry => entry.event === "sessions.changed").length).toBeGreaterThan(0);
+	});
+
 	it("tells a device which listed children its review list holds failed or unlanded, and forgets what landed", async () => {
 		const paths = ["/s/failed.jsonl", "/s/unmerged.jsonl", "/s/clean.jsonl", "/s/elsewhere.jsonl"];
 		const { services } = setup(60_000, {

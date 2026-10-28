@@ -1762,3 +1762,55 @@ describe("TurnResume scheduled retry", () => {
 		expect(h.store.read()).toEqual([]);
 	});
 });
+
+/**
+ * REPRODUCTIONS of formal/turn-resume counterexamples (formal/turn-resume/evidence/*.log). Each is a failing test on
+ * the unchanged code: it asserts the property the model violated. They fail until the code is changed (or the
+ * property is waived on purpose); no product code was touched to make them fail.
+ */
+describe("REPRODUCTION formal/turn-resume (fails on current code)", () => {
+	let h: Harness;
+	afterEach(() => rmSync(h.dir, { recursive: true, force: true }));
+
+	// MarkerNetwork, TLC trace formal/turn-resume/evidence/TurnResume-MC_marker.log (20 states, ends in FireResume).
+	it("F1: a scheduled retry that fires while offline hands over to the connection wait, and the marker file says `network` (a crash during the wait still retries)", async () => {
+		h = setup({ answers: { get_settings: SETTINGS_ON, retry: RETRIED } });
+		h.resume.launch();
+		h.facts.push(fact({ running: true }));
+		h.resume.sync();
+		h.facts[0] = fact({ lastRun: { ...SERVER_DOWN } });
+		h.resume.sync();
+		await settleLong();
+		expect(h.timers.map(timer => timer.ms)).toEqual([30_000]);
+		// The connection drops before the 30 s timer fires.
+		h.net.online = false;
+		h.timers[0]?.run();
+		await settleLong();
+		// The wait row shows (the tab is held)...
+		expect(h.awaiting.at(-1)).toEqual(["t1", true]);
+		// ...so a relaunch now must still retry it: the marker file has to say `network` while the wait holds.
+		expect(h.store.read().map(entry => entry.reason)).toEqual(["network"]);
+	});
+
+	// NoRetryAfterSessionChangeWhileHeld (a property the verifier added, not one of the stated ones), trace
+	// formal/turn-resume/evidence/TurnResume-MC_held.log (19 states, ends in FlushStep).
+	it("F4: a session or branch change while the connection wait holds does not send stock `retry` into the new session once online", async () => {
+		h = setup({ online: false, answers: { retry: RETRIED } });
+		h.resume.launch();
+		h.facts.push(
+			fact({
+				running: false,
+				lastRun: { stopReason: "error", errorMessage: "fetch failed: getaddrinfo ENOTFOUND api.example.com" },
+			}),
+		);
+		h.resume.sync();
+		expect(h.awaiting.at(-1)).toEqual(["t1", true]);
+		// The user switches the tab to another session / branch (`TOUCH_COMMANDS`): main bumps `touched`, then syncs.
+		h.facts[0] = { ...(h.facts[0] as ResumeFact), touched: 1 };
+		h.resume.sync();
+		h.net.online = true;
+		h.resume.connectivityChanged();
+		await settle();
+		expect(h.commands.map(command => command.type)).not.toContain("retry");
+	});
+});
