@@ -1,0 +1,62 @@
+Computing initial states...
+Error: Temporal property ClaimedEventuallyDone was violated.
+
+Error: The following behavior constitutes a counter-example:
+
+State 1: <Initial predicate>
+/\ wtok = (w1 :> 0 @@ w2 :> 0)
+/\ expired = FALSE
+/\ jobDone = FALSE
+/\ owner = "none"
+/\ token = 0
+/\ wpc = (w1 :> "idle" @@ w2 :> "idle")
+/\ commits = {}
+
+State 2: <Claim(w1) line 31, col 5 to line 36, col 37 of module JobLive>
+/\ wtok = (w1 :> 1 @@ w2 :> 0)
+/\ expired = FALSE
+/\ jobDone = FALSE
+/\ owner = w1
+/\ token = 1
+/\ wpc = (w1 :> "working" @@ w2 :> "idle")
+/\ commits = {}
+
+State 3: <Expire line 40, col 5 to line 42, col 62 of module JobLive>
+/\ wtok = (w1 :> 1 @@ w2 :> 0)
+/\ expired = TRUE
+/\ jobDone = FALSE
+/\ owner = w1
+/\ token = 1
+/\ wpc = (w1 :> "working" @@ w2 :> "idle")
+/\ commits = {}
+
+State 4: <Claim(w2) line 31, col 5 to line 36, col 37 of module JobLive>
+/\ wtok = (w1 :> 1 @@ w2 :> 2)
+/\ expired = FALSE
+/\ jobDone = FALSE
+/\ owner = w2
+/\ token = 2
+/\ wpc = (w1 :> "working" @@ w2 :> "working")
+/\ commits = {}
+
+State 5: <Expire line 40, col 5 to line 42, col 62 of module JobLive>
+/\ wtok = (w1 :> 1 @@ w2 :> 2)
+/\ expired = TRUE
+/\ jobDone = FALSE
+/\ owner = w2
+/\ token = 2
+/\ wpc = (w1 :> "working" @@ w2 :> "working")
+/\ commits = {}
+
+State 6: <Abort(w1) line 54, col 5 to line 56, col 66 of module JobLive>
+/\ wtok = (w1 :> 1 @@ w2 :> 2)
+/\ expired = TRUE
+/\ jobDone = FALSE
+/\ owner = w2
+/\ token = 2
+/\ wpc = (w1 :> "aborted" @@ w2 :> "working")
+/\ commits = {}
+
+State 7: Stuttering
+43 states generated, 25 distinct states found, 0 states left on queue.
+The depth of the complete state graph search is 7.

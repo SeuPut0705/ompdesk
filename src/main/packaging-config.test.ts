@@ -185,6 +185,11 @@ describe("mac bundle configs", () => {
 				"ecc/commands/code-review.md",
 				"skills/ompdesk/SKILL.md",
 				"ai-memory/memory-relay.mjs",
+				"formal/skills/ompdesk-formal-verify/SKILL.md",
+				"formal/skills/ompdesk-formal-verify/assets/toolchain.json",
+				"formal/skills/ompdesk-formal-verify/scripts/tlc.ts",
+				"formal/skills/ompdesk-formal-verify/scripts/setup.ts",
+				"formal/skills/ompdesk-formal-verify/examples/job-lease/formal/manifest.json",
 			]) {
 				expect(fs.existsSync(path.join(PACKAGE_ROOT, "resources/omp-builtin", name)), `${file} omits ${name}`).toBe(
 					true,
@@ -194,6 +199,7 @@ describe("mac bundle configs", () => {
 		expect(fs.existsSync(path.join(PACKAGE_ROOT, "resources/omp-builtin/pstack/plugin.json"))).toBe(false);
 		expect(fs.existsSync(path.join(PACKAGE_ROOT, "resources/omp-builtin/ecc/plugin.json"))).toBe(false);
 		expect(fs.existsSync(path.join(PACKAGE_ROOT, "resources/omp-builtin/ecc/package.json"))).toBe(false);
+		expect(fs.existsSync(path.join(PACKAGE_ROOT, "resources/omp-builtin/formal/plugin.json"))).toBe(false);
 		const declaration: unknown = JSON.parse(
 			fs.readFileSync(path.join(PACKAGE_ROOT, "resources/omp-builtin/rea/.mcp.json"), "utf8"),
 		);
@@ -212,11 +218,34 @@ describe("mac bundle configs", () => {
 		// The control tools load `-e omp-builtin` on their own switch; REA is the separate `-e omp-builtin/rea`.
 		const root = path.join(PACKAGE_ROOT, "resources/omp-builtin");
 		// `ai-memory/` holds only memory-relay.mjs: no index.ts, `.mcp.json` or skills/, so it is no root.
-		expect(fs.readdirSync(root).sort()).toEqual(["ai-memory", "ecc", "pstack", "rea", "skills"]);
+		expect(fs.readdirSync(root).sort()).toEqual(["ai-memory", "ecc", "formal", "pstack", "rea", "skills"]);
 		expect(fs.readdirSync(path.join(root, "ai-memory"))).toEqual(["memory-relay.mjs"]);
 		expect(fs.readdirSync(path.join(root, "skills"))).toEqual(["ompdesk"]);
 		const skill = fs.readFileSync(path.join(root, "skills/ompdesk/SKILL.md"), "utf8");
 		expect(skill).toMatch(/^---\nname: ompdesk\ndescription: \S/);
+	});
+
+	it("ships the formal-verification skill as its own model-invocable root, under a name no installed skill shares", () => {
+		// `-e omp-builtin/formal` on every spawn (sidecar-factory.ts). Stock dedups skills by name, so a user's own
+		// `formal-verify` (proof-skills, agent-formal-verify) would shadow or rename ours: it is `ompdesk-formal-verify`.
+		const root = path.join(PACKAGE_ROOT, "resources/omp-builtin/formal");
+		expect(fs.readdirSync(path.join(root, "skills"))).toEqual(["ompdesk-formal-verify"]);
+		const skillDir = path.join(root, "skills/ompdesk-formal-verify");
+		const skill = fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf8");
+		const frontmatter = /^---\n([\s\S]*?)\n---\n/.exec(skill)?.[1] ?? "";
+		expect(frontmatter).toMatch(/^name: ompdesk-formal-verify$/m);
+		expect(frontmatter).toMatch(/^description: \S/m);
+		expect(frontmatter).not.toMatch(/disable-model-invocation|^hide:/m);
+		for (const name of ["setup", "tlc", "lean-check", "mutate", "report", "verify-all", "new-lean"]) {
+			expect(fs.existsSync(path.join(skillDir, "scripts", `${name}.ts`)), name).toBe(true);
+		}
+		const pins = JSON.parse(fs.readFileSync(path.join(skillDir, "assets/toolchain.json"), "utf8")) as {
+			tla: { tla2tools: { sha256: string } };
+		};
+		expect(pins.tla.tla2tools.sha256).toMatch(/^[0-9a-f]{64}$/);
+		expect(fs.existsSync(path.join(PACKAGE_ROOT, "LICENSES/proof-skills-MIT.txt"))).toBe(true);
+		const notices = fs.readFileSync(path.join(PACKAGE_ROOT, "THIRD_PARTY_NOTICES.txt"), "utf8");
+		expect(notices).toContain("proof-skills (https://github.com/opum-ai/proof-skills)");
 	});
 
 	it("vendors REA's skill from the pinned REA release (bun run sync:rea-skill after a bump)", () => {

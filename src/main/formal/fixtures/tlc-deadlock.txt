@@ -1,0 +1,32 @@
+Computing initial states...
+Error: Deadlock reached.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ wtok = (w1 :> 0 @@ w2 :> 0)
+/\ expired = FALSE
+/\ jobDone = FALSE
+/\ owner = "none"
+/\ token = 0
+/\ wpc = (w1 :> "idle" @@ w2 :> "idle")
+/\ commits = {}
+
+State 2: <Claim(w1) line 31, col 5 to line 36, col 37 of module JobDead>
+/\ wtok = (w1 :> 1 @@ w2 :> 0)
+/\ expired = FALSE
+/\ jobDone = FALSE
+/\ owner = w1
+/\ token = 1
+/\ wpc = (w1 :> "working" @@ w2 :> "idle")
+/\ commits = {}
+
+State 3: <Commit(w1) line 46, col 5 to line 50, col 48 of module JobDead>
+/\ wtok = (w1 :> 1 @@ w2 :> 0)
+/\ expired = FALSE
+/\ jobDone = TRUE
+/\ owner = w1
+/\ token = 1
+/\ wpc = (w1 :> "done" @@ w2 :> "idle")
+/\ commits = {w1}
+
+9 states generated, 9 distinct states found, 4 states left on queue.
+The depth of the complete state graph search is 4.

@@ -1,0 +1,59 @@
+Computing initial states...
+Error: Invariant SingleCommit is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ wtok = (w1 :> 0 @@ w2 :> 0)
+/\ expired = FALSE
+/\ jobDone = FALSE
+/\ owner = "none"
+/\ token = 0
+/\ wpc = (w1 :> "idle" @@ w2 :> "idle")
+/\ commits = {}
+
+State 2: <Claim(w1) line 31, col 5 to line 36, col 37 of module JobLease>
+/\ wtok = (w1 :> 1 @@ w2 :> 0)
+/\ expired = FALSE
+/\ jobDone = FALSE
+/\ owner = w1
+/\ token = 1
+/\ wpc = (w1 :> "working" @@ w2 :> "idle")
+/\ commits = {}
+
+State 3: <Expire line 40, col 5 to line 42, col 62 of module JobLease>
+/\ wtok = (w1 :> 1 @@ w2 :> 0)
+/\ expired = TRUE
+/\ jobDone = FALSE
+/\ owner = w1
+/\ token = 1
+/\ wpc = (w1 :> "working" @@ w2 :> "idle")
+/\ commits = {}
+
+State 4: <Claim(w2) line 31, col 5 to line 36, col 37 of module JobLease>
+/\ wtok = (w1 :> 1 @@ w2 :> 2)
+/\ expired = FALSE
+/\ jobDone = FALSE
+/\ owner = w2
+/\ token = 2
+/\ wpc = (w1 :> "working" @@ w2 :> "working")
+/\ commits = {}
+
+State 5: <Commit(w1) line 46, col 5 to line 50, col 48 of module JobLease>
+/\ wtok = (w1 :> 1 @@ w2 :> 2)
+/\ expired = FALSE
+/\ jobDone = TRUE
+/\ owner = w2
+/\ token = 2
+/\ wpc = (w1 :> "done" @@ w2 :> "working")
+/\ commits = {w1}
+
+State 6: <Commit(w2) line 46, col 5 to line 50, col 48 of module JobLease>
+/\ wtok = (w1 :> 1 @@ w2 :> 2)
+/\ expired = FALSE
+/\ jobDone = TRUE
+/\ owner = w2
+/\ token = 2
+/\ wpc = (w1 :> "done" @@ w2 :> "done")
+/\ commits = {w1, w2}
+
+24 states generated, 20 distinct states found, 6 states left on queue.
+The depth of the complete state graph search is 6.

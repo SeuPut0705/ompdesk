@@ -8,6 +8,8 @@ import { SessionKindStore } from "./session-kinds";
 import type { SidecarOptions } from "./sidecar";
 import { localSidecarFactory } from "./sidecar-factory";
 
+/** The formal-verification skill root rides on every spawn, after the switchable packs. */
+const FORMAL = ["-e", path.join("/builtin", "formal")];
 const created = vi.hoisted(() => [] as SidecarOptions[]);
 const reaProbes = vi.hoisted(() => ({ count: 0 }));
 const sidecars = vi.hoisted(() => [] as Array<{ listeners: Map<string, Array<(arg: unknown) => void>> }>);
@@ -193,7 +195,7 @@ describe("localSidecarFactory", () => {
 		});
 		create("/w/alpha", kind, false);
 		const mcp = await created[0]?.builtinMcp?.();
-		expect(mcp?.args).toEqual(on ? ["-e", path.join("/builtin", "pstack")] : []);
+		expect(mcp?.args).toEqual([...(on ? ["-e", path.join("/builtin", "pstack")] : []), ...FORMAL]);
 		expect(mcp?.env).toEqual({ OMP_GUI_PSTACK: flag, OMP_GUI_ECC: "0" });
 	});
 
@@ -226,7 +228,7 @@ describe("localSidecarFactory", () => {
 			});
 			create("/w/alpha", kind, false);
 			const mcp = await created[0]?.builtinMcp?.();
-			expect(mcp?.args).toEqual(on ? ["-e", path.join("/builtin", "ecc")] : []);
+			expect(mcp?.args).toEqual([...(on ? ["-e", path.join("/builtin", "ecc")] : []), ...FORMAL]);
 			expect(mcp?.env).toEqual({ OMP_GUI_PSTACK: "0", OMP_GUI_ECC: flag });
 		},
 	);
@@ -256,9 +258,9 @@ describe("localSidecarFactory", () => {
 		create("/w/alpha", "agent", false);
 		create("/w/alpha", "agent", true, { deviceId: "peer-1", name: "Laptop", hostName: "Desk" });
 		for (const options of created) {
-			expect((await options.builtinMcp?.())?.args).toEqual(["-e", "/ud/ai-memory/omp-ext"]);
+			expect((await options.builtinMcp?.())?.args).toEqual([...FORMAL, "-e", "/ud/ai-memory/omp-ext"]);
 			args = [];
-			expect((await options.builtinMcp?.())?.args).toEqual([]);
+			expect((await options.builtinMcp?.())?.args).toEqual(FORMAL);
 			args = ["-e", "/ud/ai-memory/omp-ext"];
 		}
 	});
@@ -289,12 +291,12 @@ describe("localSidecarFactory", () => {
 		reaProbes.count = 0;
 
 		const off = await options?.builtinMcp?.();
-		expect(off?.args).toEqual([]);
+		expect(off?.args).toEqual(FORMAL);
 		expect(off?.env).not.toHaveProperty("OMP_GUI_REA_CACHE");
 		expect(reaProbes.count).toBe(0);
 		rea = true;
 		const on = await options?.builtinMcp?.();
-		expect(on?.args).toEqual(["-e", path.join("/builtin", "rea")]);
+		expect(on?.args).toEqual(["-e", path.join("/builtin", "rea"), ...FORMAL]);
 		expect(on?.env).toMatchObject({ OMP_GUI_REA_CACHE: "/ud/rea" });
 		expect(reaProbes.count).toBe(1);
 	});

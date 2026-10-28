@@ -1,0 +1,18 @@
+Computing initial states...
+Error: Temporal property NeverDone was violated.
+
+Error: The following behavior constitutes a counter-example:
+
+State 1: <Initial predicate>
+x = 0
+
+State 2: <Inc line 5, col 8 to line 5, col 26 of module Cycle>
+x = 1
+
+State 3: <Inc line 5, col 8 to line 5, col 26 of module Cycle>
+x = 2
+
+Back to state 1: <Reset line 6, col 10 to line 6, col 24 of module Cycle>
+
+4 states generated, 3 distinct states found, 0 states left on queue.
+The depth of the complete state graph search is 3.

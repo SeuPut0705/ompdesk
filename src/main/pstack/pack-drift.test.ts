@@ -18,6 +18,9 @@ import { AGENT_CONTROL_DEFINITIONS } from "../agent-control/tools";
 const REPO = path.join(__dirname, "../../..");
 const PACK = path.join(REPO, "resources/omp-builtin/pstack");
 const SKILLS = path.join(PACK, "skills");
+/** The one skill the pack points at that lives in another built-in pack (`resources/omp-builtin/formal/`). */
+const FORMAL_SKILLS = path.join(REPO, "resources/omp-builtin/formal/skills");
+const skillRoot = (name: string): string => (name === "ompdesk-formal-verify" ? FORMAL_SKILLS : SKILLS);
 
 function walk(dir: string, base = dir): string[] {
 	const out: string[] = [];
@@ -76,7 +79,16 @@ describe("pack integrity", () => {
 	});
 
 	it("leaves out what is Cursor-only", () => {
-		for (const gone of ["setup-pstack", "poteto-help", "make-bot-ui", "tdd", "teach"]) {
+		for (const gone of [
+			"setup-pstack",
+			"poteto-help",
+			"make-bot-ui",
+			"tdd",
+			"teach",
+			"create-formal-verification-skill",
+			"maintain-formal-verification-skill",
+			"statechart",
+		]) {
 			expect(skillNames, gone).not.toContain(gone);
 		}
 		expect(skillNames).toEqual(
@@ -150,7 +162,7 @@ describe("skills", () => {
 			const text = readFileSync(path.join(PACK, file), "utf8");
 			for (const match of text.matchAll(/skill:\/\/([a-z0-9][a-z0-9-]*)(\/[^\s)`'"<>]*)?/g)) {
 				if (text[match.index + match[0].length] === "<") continue;
-				const target = path.join(SKILLS, match[1], (match[2] ?? "").replace(/[.,;:]+$/, ""));
+				const target = path.join(skillRoot(match[1]), match[1], (match[2] ?? "").replace(/[.,;:]+$/, ""));
 				if (!existsSync(target)) missing.push(`${file}: ${match[0]}`);
 			}
 			if (!file.startsWith("skills/")) continue;
@@ -233,7 +245,7 @@ describe("always-on section", () => {
 		for (const text of [sections.full, sections.solo, sections.autopilot]) {
 			for (const match of text.matchAll(/skill:\/\/([a-z0-9][a-z0-9-]*)(\/[^\s)`'"<>]*)?/g)) {
 				if (text[match.index + match[0].length] === "<") continue;
-				const target = path.join(SKILLS, match[1], (match[2] ?? "").replace(/[.,;:]+$/, ""));
+				const target = path.join(skillRoot(match[1]), match[1], (match[2] ?? "").replace(/[.,;:]+$/, ""));
 				expect(existsSync(target), match[0]).toBe(true);
 			}
 		}
