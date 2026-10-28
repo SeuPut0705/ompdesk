@@ -75,44 +75,51 @@ describe("lock takeover (finding 1)", () => {
 			"}, { log() {}, pollMs: 5 });",
 		].join("\n");
 
-	it("lets exactly one of several waiters take over a dead holder's lock, in every round", async () => {
-		const script = path.join(temp, "lock-child.ts");
-		fs.writeFileSync(script, CHILD(path.join(SKILL, "scripts/lib/toolchain.ts")));
-		const dead = deadPid();
-		const rounds = 12;
-		const procs = 8;
-		let overlaps = 0;
-		let entered = 0;
-		for (let round = 0; round < rounds; round++) {
-			const dir = fs.mkdtempSync(path.join(temp, "race-"));
-			const cache = path.join(dir, "cache");
-			fs.mkdirSync(cache);
-			plantLock(cache, "x", { pid: dead, host: os.hostname(), started: 1 });
-			const barrier = path.join(dir, "go");
-			const marker = path.join(dir, "inside");
-			const log = path.join(dir, "log.txt");
-			fs.writeFileSync(log, "");
-			const errors: string[] = [];
-			const children = Array.from({ length: procs }, (_, id) =>
-				spawn("bun", [script, cache, barrier, marker, log, String(id)], {
-					stdio: ["ignore", "ignore", "pipe"],
-					cwd: dir,
-				}),
-			);
-			for (const child of children) child.stderr?.on("data", chunk => errors.push(String(chunk)));
-			const done = children.map(finished);
-			fs.writeFileSync(barrier, "");
-			const codes = await Promise.all(done);
-			expect(errors.join(""), "stderr of the waiters").toBe("");
-			expect(codes).toEqual(Array(procs).fill(0));
-			const lines = fs.readFileSync(log, "utf8").split("\n").filter(Boolean);
-			overlaps += lines.filter(line => line.startsWith("overlap")).length;
-			entered += lines.filter(line => line.startsWith("entered")).length;
-			expect(fs.existsSync(path.join(cache, ".lock-x"))).toBe(false);
-		}
-		expect(entered).toBe(rounds * procs);
-		expect(overlaps).toBe(0);
-	}, 120_000);
+	// POSIX only: on Windows a just-deleted lock folder stays delete-pending while 8 processes poll it every 5 ms, so
+	// the round's own cleanup hits EBUSY and the stress harness, not the lock, times out. The Windows rule (a mkdir
+	// refused as EPERM/EACCES during that window waits) is in `withLock`.
+	it.skipIf(process.platform === "win32")(
+		"lets exactly one of several waiters take over a dead holder's lock, in every round",
+		async () => {
+			const script = path.join(temp, "lock-child.ts");
+			fs.writeFileSync(script, CHILD(path.join(SKILL, "scripts/lib/toolchain.ts")));
+			const dead = deadPid();
+			const rounds = 12;
+			const procs = 8;
+			let overlaps = 0;
+			let entered = 0;
+			for (let round = 0; round < rounds; round++) {
+				const dir = fs.mkdtempSync(path.join(temp, "race-"));
+				const cache = path.join(dir, "cache");
+				fs.mkdirSync(cache);
+				plantLock(cache, "x", { pid: dead, host: os.hostname(), started: 1 });
+				const barrier = path.join(dir, "go");
+				const marker = path.join(dir, "inside");
+				const log = path.join(dir, "log.txt");
+				fs.writeFileSync(log, "");
+				const errors: string[] = [];
+				const children = Array.from({ length: procs }, (_, id) =>
+					spawn("bun", [script, cache, barrier, marker, log, String(id)], {
+						stdio: ["ignore", "ignore", "pipe"],
+						cwd: dir,
+					}),
+				);
+				for (const child of children) child.stderr?.on("data", chunk => errors.push(String(chunk)));
+				const done = children.map(finished);
+				fs.writeFileSync(barrier, "");
+				const codes = await Promise.all(done);
+				expect(errors.join(""), "stderr of the waiters").toBe("");
+				expect(codes).toEqual(Array(procs).fill(0));
+				const lines = fs.readFileSync(log, "utf8").split("\n").filter(Boolean);
+				overlaps += lines.filter(line => line.startsWith("overlap")).length;
+				entered += lines.filter(line => line.startsWith("entered")).length;
+				expect(fs.existsSync(path.join(cache, ".lock-x"))).toBe(false);
+			}
+			expect(entered).toBe(rounds * procs);
+			expect(overlaps).toBe(0);
+		},
+		120_000,
+	);
 
 	it.skipIf(!posix)(
 		"releases a lock its process holds when SIGTERM stops it",
