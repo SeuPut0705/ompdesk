@@ -1,0 +1,40 @@
+{
+	"checker": {
+		"kind": "tlc",
+		"config": "MC.cfg"
+	},
+	"waive": {
+		"TypeOK": "Shape check only: no behaviour change breaks it without also breaking a property above it, and TLC already stops with an evaluation error when an action leaves a variable unspecified."
+	},
+	"mutations": [
+		{
+			"name": "microtask-await-treated-as-yield",
+			"why": "The await is modeled as able to yield although the code only waits on an already-resolved promise: the model grows an interleaving the event loop cannot produce, so the lost update it reports is a false counterexample. Here it shows that NoLostUpdate does notice a yield.",
+			"search": "    /\\ AwaitYields\n    /\\ pc' = [pc EXCEPT ![t] = \"parked\"]",
+			"replace": "    /\\ TRUE\n    /\\ pc' = [pc EXCEPT ![t] = \"parked\"]",
+			"breaks": "NoLostUpdate"
+		},
+		{
+			"name": "macrotask-runs-inside-a-turn",
+			"why": "Start no longer waits for an idle loop: a second handler begins while the first is between its two writes.",
+			"search": "    /\\ pc[t] = \"new\"\n    /\\ ~busy\n",
+			"replace": "    /\\ pc[t] = \"new\"\n",
+			"breaks": "AtRestConsistent",
+			"isolate": true
+		},
+		{
+			"name": "drop-ledger-write",
+			"why": "The synchronous tail forgets its second write: the pair stays torn after the turn ends.",
+			"search": "    /\\ ledger' = counter\n",
+			"replace": "    /\\ ledger' = ledger\n",
+			"breaks": "AtRestConsistent"
+		},
+		{
+			"name": "remove-fairness",
+			"why": "Without WF on Step a task may stop forever before it finishes, so AllFinish must fail by stuttering.",
+			"search": "Spec == Init /\\ [][Next]_vars /\\ WF_vars(Step)",
+			"replace": "Spec == Init /\\ [][Next]_vars",
+			"breaks": "AllFinish"
+		}
+	]
+}

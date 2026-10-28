@@ -10,13 +10,14 @@
 			"spec": "JobLease.tla",
 			"matrix": "matrix.json",
 			"mutations": "mutations.json",
-			"covers": ["src/worker.ts"],
+			"covers": ["src/worker.ts#claim", "src/worker.ts#Worker.commit", "src/worker.ts:120-168"],
 			"syncCommit": "0123456789abcdef0123456789abcdef01234567",
 			"verifySkill": ".omp/skills/lease-verify/SKILL.md"
 		},
 		{
 			"id": "job-lease-deep",
 			"title": "Job lease, deep tier (3 workers, nightly)",
+			"tier": "deep",
 			"kind": "tla",
 			"dir": "job-lease/tla",
 			"spec": "JobLease.tla",

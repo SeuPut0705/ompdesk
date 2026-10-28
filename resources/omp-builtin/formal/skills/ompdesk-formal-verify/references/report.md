@@ -1,23 +1,25 @@
-# Report: findings.json and the HTML page
+# Report: findings files and the HTML page
 
 > Adapted from opum-ai/proof-skills (MIT, Opum AI). See LICENSES/proof-skills-MIT.txt in the OMPdesk app resources.
 
-Every workflow ends in a report the user can read, share and come back to. The source of truth is `formal/findings.json`. `report.ts` renders it into one self-contained HTML page, and you show that page in OMPdesk's Preview panel. `<skill-dir>` is the folder of SKILL.md.
+Every workflow ends in a report the user can read, share and come back to. The source of truth is the findings file of each concern: `formal/findings.<concern>.json` (a repo with one concern may use `formal/findings.json`). `report.ts` renders each into one self-contained HTML page, and you show that page in OMPdesk's Preview panel. `<skill-dir>` is the folder of SKILL.md.
 
 This file defines what the report must say. `report.ts` decides how it looks.
 
-## Source of truth: `formal/findings.json`
+## Source of truth: `formal/findings.<concern>.json`
 
-Write the findings file first (schema [findings.schema.json](../assets/findings.schema.json), a valid example in [findings.example.json](../assets/templates/findings.example.json)), then render the page from it. This keeps the report reproducible, lets CI or a later session regenerate it, and lets the simplify workflow (W4) read prior results. Fill it from the saved evidence, not from memory: `tlc.ts --json FILE` writes the structured trace rows that map straight to a finding's `trace[]`.
+Write the findings file first (schema [findings.schema.json](../assets/findings.schema.json), a valid example in [findings.example.json](../assets/templates/findings.example.json)), then render the page from it. This keeps the report reproducible, lets CI or a later session regenerate it, and lets the simplify workflow (W4) read prior results. Fill it from the saved evidence, not from memory: `tlc.ts --json FILE` writes `trace` in exactly the shape of a finding's `trace[]` (`step`, `action`, `code`, `changed` as `"from -> to"`, `violation`): copy it into the finding. The raw rows it also writes (`rows`) are accepted too; `report.ts` converts them.
 
 ## Render and show
 
 ```bash
-bun <skill-dir>/scripts/report.ts formal/findings.json                    # writes formal/reports/<concern>.html, prints the path
-bun <skill-dir>/scripts/report.ts formal/findings.json --out some/page.html
+bun <skill-dir>/scripts/report.ts formal                                  # every findings.json / findings.<concern>.json in formal/ (and formal/<x>/findings.json)
+bun <skill-dir>/scripts/report.ts formal/findings.a.json formal/findings.b.json
+bun <skill-dir>/scripts/report.ts formal/findings.json --out some/page.html   # one concern only
+bun <skill-dir>/scripts/report.ts formal/findings.json --out-dir some/folder
 ```
 
-`report.ts` exits 2 if `findings.json` does not match the schema and names the bad field. The page has inline CSS, no scripts and no external fetches, and every string from the JSON is escaped, so it opens anywhere and cannot run anything. The default path is `<folder of findings.json>/reports/<concern>.html`. Reuse the same path on every re-run so the page keeps one stable location.
+`report.ts` exits 2 if a findings file does not match the schema and names the bad field (and, for a file `{"concerns": [...]}` that holds several concerns, the entry). The page has inline CSS, no scripts and no external fetches, and every string from the JSON is escaped, so it opens anywhere and cannot run anything. The default path is `reports/<concern>.html` beside the nearest `manifest.json` above the findings file, so every concern of a repo lands in `formal/reports/` whichever folder its findings file is in (without a manifest: beside the findings file). Two documents with the same `concern` would write the same page: that is an error. Reuse the same path on every re-run so the page keeps one stable location.
 
 Then show it:
 - When OMPdesk's `gui_visualize` tool exists in this session, open the HTML file with it. It shows a project `.html` file as a tab of the Preview panel and keeps a version per change, so a re-render of the same file updates the same visual.

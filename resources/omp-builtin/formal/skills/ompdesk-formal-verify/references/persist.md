@@ -22,7 +22,7 @@ Persist at the end of W1 (the persist step), W3 once code exists, W4, W6 and W7,
 1. A `formal/manifest.json` entry for each model (format below), so `verify-all.ts` can re-run it for CI and for the next agent.
 2. A project-local skill that tells an agent who has never seen your work how to check a change against the verification.
 
-Manifest entry (paths are relative to the manifest folder; `covers` is relative to the code root, which is `codeRoot`, default `..`):
+Manifest entry (paths are relative to the manifest folder; `covers` is relative to the code root, which is `codeRoot`, default `..`; `tier` is `fast` (default) or `deep`):
 
 ```json
 {
@@ -44,6 +44,8 @@ Manifest entry (paths are relative to the manifest folder; `covers` is relative 
   ]
 }
 ```
+
+`covers` entries are files or folders (`src/a.ts`), **functions** (`src/a.ts#sync`; a member as `src/a.ts#Pool.sync`; also Rust `fn`, Go `func`, Python `def`; several declarations of one name are all covered) or **line ranges** (`src/a.ts:120-180`, in the lines of the working tree). Prefer a function: the drift check compares its text at the sync commit with its text now, so a 2,500-line file with unrelated edits raises no drift, and the function can move. A range raises drift when a diff hunk touches it or when lines inserted above it moved it ("lines moved by +3: update the range"). A name that matches nothing, now and at the sync commit, is an error (the entry is wrong), not "no drift". A model's drift line lists the `file#name` and `file:a-b` entries that changed.
 
 A `tla` model without `matrix` uses `configs: ["MC.cfg"]`. A `lean` model has `project` (the Lake project folder, usually `.`) instead of `spec`, and `model` (the Lean file that mutations edit, relative to the project folder). A mutation's `file` is relative to the checker's root: the model folder for TLA+, the project folder for Lean. Full examples: [manifest.example.json](../assets/templates/manifest.example.json), [matrix.example.json](../assets/templates/matrix.example.json), [mutations.example.json](../assets/templates/mutations.example.json).
 
@@ -78,7 +80,7 @@ Prefer a tool the repo's developers can install and run, and tell the user why y
 
 ### A.4 Write the verify skill
 
-Location: `.omp/skills/<area>-verify/SKILL.md`, or the repo's own skill convention if it has one (check for `.claude/skills/`, `.agents/skills/`, `skills/` and record the path in the manifest's `verifySkill`). Start from [verify-skill.template.md](../assets/templates/verify-skill.template.md). The frontmatter is required: a skill without a `name` (matching its folder) and a `description` that says when to use it never registers, and the next agent will never see it. The description names the area and the trigger: "Use when changing `<files or functions>`, or when asked whether `<area>` still holds".
+Location: `.omp/skills/<area>-verify/SKILL.md`, or the repo's own skill convention if it has one (check for `.claude/skills/`, `.agents/skills/`, `skills/` and record the path in the manifest's `verifySkill`). **Check that git will keep it:** `git check-ignore -v <path>`. Some repositories ignore `.omp/` (in `.gitignore` or `.git/info/exclude`), and then the skill is never committed and the next agent never sees it. If the path is ignored, choose a tracked location (`.claude/skills/<area>-verify/`, `skills/<area>-verify/`), or keep the path and add it with `git add -f <path>` (the next `git add -A` skips it, so tell the user to commit it with `-f`; do not commit yourself when told not to). Start from [verify-skill.template.md](../assets/templates/verify-skill.template.md). The frontmatter is required: a skill without a `name` (matching its folder) and a `description` that says when to use it never registers, and the next agent will never see it. The description names the area and the trigger: "Use when changing `<files or functions>`, or when asked whether `<area>` still holds".
 
 From the skill alone, the next agent must be able to tell whether a change touches the verified code, run the check, tell a real bug from a modeling error, and update the verification when a change is intended. It contains, under these headings:
 
@@ -105,6 +107,10 @@ Concretely:
 2. Follow the skill as written. Its "Does my change touch this?" section must tell you that the change touches covered code, and its "Updating the verification for an intended change" section must take you to the model: change the model to describe the scratch code as the code now reads (the `@code` tags show which action to edit). Run the skill's command. It must fail on the property the break violates, with a trace whose `@code` rows land on the code you broke, and the drift line must name the changed covered file. For a verifier that runs directly on the code, the command fails without any model edit.
 3. If the model cannot see the break because the scratch change is below its abstraction, say so in the skill's Bounds and assumptions section and pick a break the model can see.
 4. Drop the scratch change and the model edit (`git switch -`, delete the branch) and rerun: the result must be the pre-break result.
+
+What the scratch break does to the files around it:
+- **Editing the model invalidates `mutations.json`.** A mutation's `search` text is matched against the model, so once you changed the lines it points at, the run reports those mutations `INVALID` (the search text does not occur) and the exit code is 2. That is expected during the scratch break; judge only the matrix and the trace, ignore the mutation run (`--skip-mutations`), and restore the model before the final rerun, where every mutation must be `DETECTED` again.
+- **The drift line names the changed covered code.** With the scratch change in the working tree the run prints `DRIFT  <id>: drift - DRIFT: 1 covered item(s) changed since <sha>...` (not `ok`), plus a `changed since sync: <file#name>` line. It is a prompt to look, so it does not fail the run unless `--strict-drift` is given.
 
 ### A.6 Hand off
 
@@ -148,7 +154,7 @@ Edit only the verification: models, harnesses, property files, `matrix.json`, `m
    ```bash
    bun <skill-dir>/scripts/verify-all.ts formal --only <id>
    ```
-   A pass here does not tell you the code is correct. It tells you the old description still holds. A failure here can be drift or a bug. Do not decide which until step 5. The same run prints the drift: each covered file that differs from `syncCommit` (a `changed since sync:` line and a `DRIFT:` note) and any `@code` tag that no longer resolves. It compares the working tree with the sync commit, so uncommitted edits to covered files show up too. A `syncCommit` that is not a commit of this repository is a failure.
+   A pass here does not tell you the code is correct. It tells you the old description still holds. A failure here can be drift or a bug. Do not decide which until step 5. The same run prints the drift: each covered file that differs from `syncCommit` (a `changed since sync:` line and a `DRIFT` line, never an `ok`) and any `@code` tag that no longer resolves. It compares the working tree with the sync commit, so uncommitted edits to covered files show up too. A `syncCommit` that is not a commit of this repository is a failure.
 
 3. **Read every change to covered code.** Diff the covered files from the sync commit to the current commit and read each commit message:
    ```bash
@@ -190,7 +196,9 @@ Say outright which failures were drift in the verification and which were bugs i
 
 The sync commit is the commit at which a person or agent last confirmed that the verification describes the covered code. It lives in two places: `syncCommit` of the model in `formal/manifest.json` (what `verify-all.ts` reads) and the line in the verify skill's Coverage section (what the next agent reads). Keep them equal; if they differ, the manifest wins and the skill is stale.
 
-- `verify-all.ts formal --only <id> --stamp` writes the current HEAD into `syncCommit` of every selected model whose checks all passed or were skipped (matrix, mutations, `@code` tags, drift). It refuses, and says so, when a check did not pass or when the covered files have uncommitted changes: commit them first. It cannot judge whether the model describes the code, only that nothing in it fails. So run `--stamp` only after you have done steps 3 and 4 of the pass (or W1.4 for a new model). The write reformats `formal/manifest.json` with tab indentation.
+- `verify-all.ts formal --only <id> --stamp` writes the current HEAD into `syncCommit` of every selected model whose checks all passed or were skipped (matrix, mutations, `@code` tags, drift). It refuses, and says so, when a check did not pass or when the **covered code** has uncommitted changes (the covered functions and ranges, not whole files: edits elsewhere in the same file do not count). It cannot judge whether the model describes the code, only that nothing in it fails. So run `--stamp` only after you have done steps 3 and 4 of the pass (or W1.4 for a new model). The write reformats `formal/manifest.json` with tab indentation.
+- **What the sha has to contain.** Only the covered code. The model files (`formal/`), the verify skill and the findings may be uncommitted, or not exist at that commit yet: drift compares covered code only, so stamping a sha that predates your model files is fine, and it is the normal state of a first stamp made before anything is committed.
+- **When you may not commit** (the task says no commits) **and the covered code is changed**, a HEAD stamp would not describe it, so plain `--stamp` refuses. Use `--stamp --allow-dirty`: it stamps HEAD and also writes `syncDiff`, a digest of the covered code as it is now. The model is then in sync while the covered code still equals what you stamped, whether or not someone has committed it since; any further change is drift. Prefer a real commit when the user allows one: `syncDiff` goes away at the next plain `--stamp`. Never use `--allow-dirty` to hide covered edits you did not check the model against.
 - A model that failed, was blocked, or was UNAVAILABLE keeps its old sync commit.
 - After `--stamp`, copy the new value into the verify skill's Coverage section in the same change.
 - The sync commit moves forward only with a verification change that you can point to; moving it with no model change is a claim that the model was already right, and the report must say that and why.

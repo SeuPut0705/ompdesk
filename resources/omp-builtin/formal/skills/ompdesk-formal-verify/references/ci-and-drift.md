@@ -6,11 +6,11 @@ A model that runs only once rots. Two mechanisms keep it alive:
 - **CI** re-checks the model on every change.
 - **Drift detection** re-checks that the model still describes the code.
 
-One script does both: `bun <skill-dir>/scripts/verify-all.ts formal --strict-drift`. `<skill-dir>` is the folder of SKILL.md. It reads `formal/manifest.json` ([persist.md](persist.md)) and, for every model, re-runs the TLC matrix or configs (`tlc.ts`), the Lean build and trust audit (`lean-check.ts`), the mutations (`mutate.ts`), resolves every `@code` tag in the model's folder, and compares the covered files with the model's `syncCommit`. It prints one `ok`, `FAIL`, `skip` or `NOT CHECKED` line per check and a `PASS` or `FAIL` line per model. Exit 0 means all of it passed; 1 means a check failed; 3 means a tool was UNAVAILABLE (not checked); 2 means a bad manifest or arguments. `--only <id>` selects one model, `--skip-mutations` leaves the mutation run out (for a quick PR tier; run the mutations nightly).
+One script does both: `bun <skill-dir>/scripts/verify-all.ts formal --strict-drift`. `<skill-dir>` is the folder of SKILL.md. It reads `formal/manifest.json` ([persist.md](persist.md)) and, for every model, re-runs the TLC matrix or configs (`tlc.ts`), the Lean build and trust audit (`lean-check.ts`), the mutations (`mutate.ts`), resolves every `@code` tag in the model's folder, and compares the covered files with the model's `syncCommit`. It prints one `ok`, `DRIFT`, `FAIL`, `skip` or `NOT CHECKED` line per check and a `PASS` or `FAIL` line per model. Exit 0 means all of it passed; 1 means a check failed; 3 means a tool was UNAVAILABLE (not checked); 2 means a bad manifest or arguments. `--only <id>` selects one model, `--skip-mutations` leaves the mutation run out (for a quick PR tier; run the mutations nightly).
 
 ## Getting the scripts into CI
 
-The scripts are self-contained TypeScript that need only Bun. They fetch the pinned TLC (tla2tools 1.8.0 and CommunityModules, SHA-256 checked) and a Java runtime only if no working Java exists, or the pinned Lean toolchain, into a cache on first use. A repo that wants CI has two options:
+The scripts are self-contained TypeScript that need only Bun. They fetch the pinned TLC (tla2tools release 1.8.0 and CommunityModules, SHA-256 checked) and a Java runtime only if no working Java exists, or the pinned Lean toolchain, into a cache on first use. A repo that wants CI has two options:
 
 1. **Vendor them (recommended).** Copy the skill's `scripts/` folder and `assets/toolchain.json` into the repo, for example:
    ```
@@ -32,11 +32,19 @@ Set `OMPDESK_FORMAL_CACHE` to a folder inside the workspace and cache it between
 | deep | nightly | under 60 min | larger bounds (`constants` overrides in a second matrix), liveness configs, simulation with `-- -simulate num=100000 -depth 100` in `args` |
 | proof | every PR touching `lean/` | `lake build` time | all theorems, zero `sorry`, axiom audit (`lean-check.ts`) |
 
-A tier is a model entry in the manifest. A model has one `matrix`, so the deep tier is a second entry with its own matrix file and an id ending in `-deep`, pointing at the same spec and `covers`. The PR job runs the fast ids with `--only`; the nightly job runs everything.
+A tier is a model entry in the manifest. A model has one `matrix`, so the deep tier is a second entry with its own matrix file, pointing at the same spec and `covers`, with `"tier": "deep"` (an id ending in `-deep` counts as deep when it says nothing). `verify-all.ts` selects by tier:
+
+```
+bun verify-all.ts formal                 # --tier fast, the default: the inner loop and every PR
+bun verify-all.ts formal --tier deep     # every model, fast and deep: scheduled (nightly) runs
+bun verify-all.ts formal --only <id>     # one model, whatever its tier
+```
+
+The first line of the output lists the models it ran and the ones it left for `--tier deep`, so a CI log shows what the PR job did not cover. `--stamp` stamps only the models that ran. A `matrix` run that needs more than ten minutes sets `timeoutSec` (the default stops a run at 600 s as "timed out (no verdict)"; `tlc.ts` prints TLC's progress meanwhile).
 
 ```json
 { "id": "job-lease", "kind": "tla", "dir": "job-lease/tla", "spec": "JobLease.tla", "matrix": "matrix.json", "mutations": "mutations.json", "covers": ["src/worker.ts"], "syncCommit": "<sha>" },
-{ "id": "job-lease-deep", "kind": "tla", "dir": "job-lease/tla", "spec": "JobLease.tla", "matrix": "matrix-deep.json", "covers": ["src/worker.ts"], "syncCommit": "<sha>" }
+{ "id": "job-lease-deep", "tier": "deep", "kind": "tla", "dir": "job-lease/tla", "spec": "JobLease.tla", "matrix": "matrix-deep.json", "covers": ["src/worker.ts"], "syncCommit": "<sha>" }
 ```
 
 See [matrix.example.json](../assets/templates/matrix.example.json) for a fast matrix with a bug-mode run, and [mutations.md](mutations.md) for the mutation set.
@@ -71,7 +79,7 @@ jobs:
         run: bun formal/tools/scripts/verify-all.ts formal --only ${{ matrix.model }} --strict-drift
 ```
 
-The pin file fixes the TLC version, so a nightly upstream release cannot turn CI red with no code change. Bump the pin on purpose, in its own PR.
+(`--tier fast` is the default, so `bun formal/tools/scripts/verify-all.ts formal --strict-drift` without `--only` runs every fast model in one job.) The pin file fixes the TLC version, so a nightly upstream release cannot turn CI red with no code change. Bump the pin on purpose, in its own PR.
 
 ## GitHub Actions: Lean (proof tier)
 
@@ -126,7 +134,7 @@ jobs:
         with:
           path: .formal-cache
           key: formal-all-${{ hashFiles('formal/tools/assets/toolchain.json') }}
-      - run: bun formal/tools/scripts/verify-all.ts formal --strict-drift
+      - run: bun formal/tools/scripts/verify-all.ts formal --tier deep --strict-drift
 ```
 
 ## Drift detection
@@ -135,7 +143,7 @@ Drift has two layers.
 
 **Mechanical (`verify-all.ts`, runs on every PR).**
 - Every `@code path:lines` tag of every model is resolved. The run fails if the file is missing or the line range runs past the end of the file. This catches moved and deleted code.
-- `git diff --name-only <syncCommit> -- <covers>` lists the covered files that differ from the model's `syncCommit`, committed or not. Without `--strict-drift` the run prints each file and a `DRIFT:` note but still passes: it is a prompt to look. With `--strict-drift` it fails: the PR author must update the model, confirm it describes the new code, and move the stamp (`verify-all.ts formal --only <id> --stamp`), or explicitly waive it ([persist.md](persist.md#the-sync-commit)). A model with covered files and no `syncCommit` yet fails under `--strict-drift` and is skipped otherwise.
+- The covered code is compared with the model's `syncCommit`, committed or not: whole files by `git diff --name-only`, a covered function (`file#name`) by its text then and now, a line range (`file:a-b`) by the diff hunks that touch it (`persist.md`). Without `--strict-drift` the run prints each changed entry and a `DRIFT  <id>: drift - DRIFT: ...` line (never `ok`) but still passes: it is a prompt to look. With `--strict-drift` it fails: the PR author must update the model, confirm it describes the new code, and move the stamp (`verify-all.ts formal --only <id> --stamp`), or explicitly waive it ([persist.md](persist.md#the-sync-commit)). A model with covered files and no `syncCommit` yet fails under `--strict-drift` and is skipped otherwise.
 - A `syncCommit` that is not a commit of the checked-out repository fails the drift check in both modes. Use a full clone (`fetch-depth: 0`). A squash or rebase merge removes the stamped commit from the main branch, so after such a merge re-stamp on the main branch in a follow-up commit (the `--stamp` rule: only after confirming the model describes the code at that commit), or merge with merge commits.
 
 **Semantic (needs more than a diff).** The code at the same lines can start doing something else while every tag still resolves. Use one of:

@@ -2,7 +2,7 @@
 
 # TLA+ pattern catalog
 
-Seven small, runnable specs live in `assets/patterns/<Name>/`. Each folder holds:
+Eight small, runnable specs live in `assets/patterns/<Name>/`. Each folder holds:
 
 | File | Role |
 |---|---|
@@ -44,6 +44,7 @@ It is what proves the final model can still fail. Real use goes through the work
 | streams, queues, batching, backpressure, end-of-stream | `BatchPipeline` |
 | DAG executors, build systems, workflow engines, graph invariants | `DagScheduler` |
 | persisted status fields, order/payment/ticket lifecycles | `OrderStateMachine` |
+| a single-threaded event loop (JS, asyncio): which `await`s yield, a synchronous region with torn intermediate state | `EventLoop` |
 
 What each pattern's configs check (the bug property is the one that must be reported violated in
 `MC_bug.cfg`; `kind` is what `matrix.json` expects):
@@ -57,6 +58,7 @@ What each pattern's configs check (the bug property is the one that must be repo
 | BatchPipeline | `AllDelivered` | temporal (liveness only) | `NeverCloses` |
 | DagScheduler | `DepsRespected` | invariant | `NeverRunsDependent` |
 | OrderStateMachine | `ValidTransitions` | action property | `NeverCancelled` |
+| EventLoop | `NoLostUpdate` (`AwaitYields = TRUE`) | invariant | `NeverAllDone` |
 
 ---
 
@@ -183,11 +185,29 @@ TLC reports a violation of an action property as a temporal-property violation, 
 and outbound side effects per transition (email, refund) with at-least-once delivery. For UI or session
 lifecycles, a statechart can generate the transition table (`statechart.md`).
 
+## EventLoop: microtask awaits, real yields, synchronous regions
+
+**Finds:** lost updates and torn reads in code that reads, awaits, then writes on one event loop; and models that
+report interleavings the loop cannot produce.
+**Shape:** a `busy` flag that is true while one loop turn runs. A macrotask (handler start, resume after real I/O)
+needs `~busy`; a synchronous region is several `pc` micro-steps of the one task that holds the turn; an `await` is
+either `AwaitMicro` (already-resolved promise: the turn goes on) or `AwaitYield` (I/O: `busy' = FALSE`, the task
+parks until `Resume`).
+**Properties:** `NoLostUpdate` (an invariant over the end state), `AtRestConsistent` (`~busy => ledger = counter`:
+the pair is torn in the middle of a turn and must be whole whenever the loop is idle), `AllFinish`.
+**Toggle:** the constant `AwaitYields`. `FALSE` models an `await` on an already-resolved promise (must pass),
+`TRUE` models a real yield (the lost update). Model it from what resolves the promise (`correspondence.md`,
+"Which awaits are steps?").
+**Mutations:** the await treated as a yield, a macrotask started inside a turn (`"isolate": true` names the right
+property), the second half of the synchronous tail dropped, fairness removed.
+**Extend:** several shared variables, a timer macrotask that fires between turns, an event handler that resolves
+the promise another task awaits.
+
 ---
 
 ## Measured state counts
 
-Measured with `tlc.ts` (TLC 1.8.0) on the shipped configs, one worker. The `MC.cfg` runs are exhaustive for
+Measured with `tlc.ts` (tla2tools release 1.8.0, TLC2 Version 2026.10.28) on the shipped configs, one worker. The `MC.cfg` runs are exhaustive for
 the stated bounds and the counts are stable. The bug and sanity runs stop at their first counterexample, so
 their counts are where TLC happened to stop and can differ by a few states from run to run (they are not listed).
 
@@ -200,6 +220,7 @@ their counts are where TLC happened to stop and can differ by a few states from 
 | BatchPipeline | `N = 5`, `Cap = 2`, `BatchSize = 2`, `FlushOnEos` | 25 | 35 | 15 | `Backpressure`, `NoLossDupReorder`, `AllDelivered` |
 | DagScheduler | 3 nodes (25 DAGs), 2 workers, `ReadyWhenDone` | 266 | 386 | 7 | `TypeOK`, `DepsRespected`, `RunsOnce`, `AllComplete` |
 | OrderStateMachine | `UseCAS` | 15 | 20 | 5 | `TypeOK`, `ValidTransitions` |
+| EventLoop | 2 tasks, `AwaitYields = FALSE` | 17 | 19 | 9 | `TypeOK`, `NoLostUpdate`, `AtRestConsistent`, `AllFinish` |
 
 `DagScheduler` with 4 nodes (543 DAGs, set `"constants": {"Nodes": "{1, 2, 3, 4}"}` in a matrix run) explores 8,414
 distinct states (12,734 generated, depth 9) in about a second. A passing run says only that no counterexample

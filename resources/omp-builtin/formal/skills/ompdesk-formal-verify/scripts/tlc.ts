@@ -8,10 +8,14 @@
 //              [--trace] [-- extra TLC args]
 //   bun tlc.ts --from-log <tlc-output.txt> [--spec Spec.tla] [--json FILE]    (explain a saved TLC output)
 //
+// A run without --timeout stops after DEFAULT_TIMEOUT_SEC (10 minutes) with "timed out (no verdict)"; --timeout 0 means
+// no limit. While TLC runs, its `Progress(...)` lines and a "still running" line are printed.
+//
 // Exit: 0 PASS (every matrix run ended as expected), 1 a check ran and failed, 2 usage, 3 UNAVAILABLE.
 import fs from "node:fs";
 import path from "node:path";
 import { checkTags, extractTags, findCodeRoot, type TagProblem } from "./lib/code-tags";
+import { type FindingsTraceRow, toFindingsTrace } from "./lib/findings";
 import { readJson } from "./lib/json";
 import { judge, type MatrixRun, matrixWarnings, parseMatrix } from "./lib/matrix";
 import { EXIT, Unavailable, UsageError } from "./lib/proc";
@@ -26,6 +30,11 @@ import {
 	type TraceRow,
 } from "./lib/tlc-parse";
 import { deadActions, definitionLoader, runSany, runTlc } from "./lib/tlc-run";
+
+/** A run with no `--timeout` ends after this long: an unbounded run looks like a hang and nobody can tell which. */
+export const DEFAULT_TIMEOUT_SEC = 600;
+/** Seconds of silence before "still running" is printed. */
+const HEARTBEAT_SEC = 30;
 
 export interface Args {
 	spec?: string;
@@ -74,8 +83,8 @@ export function parseArgs(argv: string[]): Args {
 		else if (arg === "--spec") args.spec = value(i++, arg);
 		else if (arg === "--timeout") {
 			const seconds = Number(value(i++, arg));
-			if (!Number.isFinite(seconds) || seconds <= 0)
-				throw new UsageError(`--timeout needs a positive number of seconds`);
+			if (!Number.isFinite(seconds) || seconds < 0)
+				throw new UsageError(`--timeout needs a number of seconds (0 means no limit)`);
 			args.timeoutSec = seconds;
 		} else if (arg === "--no-deadlock") args.noDeadlock = true;
 		else if (arg === "--coverage") args.coverage = true;
@@ -103,9 +112,13 @@ interface RunReport {
 	expect?: string;
 	stats: TlcResult["stats"];
 	durationMs?: number;
-	trace: TraceRow[];
+	/** The counterexample as `trace[]` of assets/findings.schema.json: paste it into a finding as it is. */
+	trace: FindingsTraceRow[];
+	/** The same states as `TraceRow`s (state number, step text, `code` list, `{from, to}` changes). */
+	rows: TraceRow[];
 	lasso?: TlcResult["lasso"];
 	message?: string;
+	tlcVersion?: string;
 	logPath?: string;
 	deadActions?: string[];
 }
@@ -116,7 +129,9 @@ function reportOf(result: TlcResult, rows: TraceRow[], extra: Partial<RunReport>
 		outcome: result.outcome,
 		...(result.property ? { property: result.property } : {}),
 		stats: result.stats,
-		trace: rows,
+		trace: toFindingsTrace(rows),
+		rows,
+		...(result.tlcVersion ? { tlcVersion: result.tlcVersion } : {}),
 		...(result.lasso ? { lasso: result.lasso } : {}),
 		...(result.message ? { message: result.message } : {}),
 	};
@@ -173,6 +188,67 @@ async function explainLog(args: Args): Promise<number> {
 	return result.outcome === "pass" ? EXIT.ok : EXIT.failed;
 }
 
+/**
+ * SANY alone accepts what TLC then rejects: an operator from a module the spec did not EXTEND (`-1` without
+ * `EXTENDS Integers`, `\\div`, `Len`) parses, and TLC fails while it loads the module ("Could not find declaration or
+ * definition of symbol '-.'"). So after SANY this also starts TLC for one simulated step of depth 1: it loads the
+ * module exactly as a real run does, and a rejection fails here too. A config is needed for that; without one the
+ * result says the TLC load check did not run.
+ */
+async function sanyOnly(tla: TlaEnv, spec: string, specDir: string, run: MatrixRun | undefined): Promise<number> {
+	const name = path.basename(spec);
+	const sany = await runSany(tla, spec);
+	if (sany.code !== 0) {
+		console.log(`FAIL  SANY found errors: ${name}`);
+		console.log(
+			sany.text
+				.split(/\r?\n/)
+				.filter(line => !/^(Parsing file|Semantic processing)/.test(line) && line.trim())
+				.slice(0, 40)
+				.join("\n"),
+		);
+		return EXIT.failed;
+	}
+	const config = path.resolve(specDir, run?.config ?? `${path.basename(spec, ".tla")}.cfg`);
+	if (!fs.existsSync(config)) {
+		console.log(`PASS  SANY parsed and level-checked: ${name}`);
+		console.log(
+			"WARN  no config, so TLC's own load check did not run: SANY does not catch an operator whose module is not EXTENDed (`-1` needs Integers). Add a config and rerun.",
+		);
+		return EXIT.ok;
+	}
+	const load = await runTlc({
+		tla,
+		spec,
+		config,
+		constants: run?.constants,
+		workers: "1",
+		deadlock: false,
+		extraArgs: ["-simulate", "num=1", "-depth", "1"],
+		timeoutMs: 60_000,
+	});
+	if (load.spawnError) {
+		console.log(`UNAVAILABLE  java could not be started: ${load.spawnError}`);
+		return EXIT.unavailable;
+	}
+	const { outcome } = load.result;
+	if (outcome === "parse-error" || outcome === "error") {
+		console.log(`FAIL  SANY passed but TLC rejects the spec: ${name}`);
+		console.log(`  ${load.result.message ?? load.result.errors[0] ?? "TLC could not load the model"}`);
+		console.log("  (a missing EXTENDS Integers/Sequences/FiniteSets is the usual cause: references/tla-pitfalls.md)");
+		return EXIT.failed;
+	}
+	console.log(`PASS  SANY parsed and level-checked, and TLC loads the model: ${name}`);
+	if (outcome === "timeout") console.log("WARN  the TLC load check timed out after 60 s: only SANY's verdict stands");
+	return EXIT.ok;
+}
+
+/** A run's time limit in ms: the given seconds, DEFAULT_TIMEOUT_SEC when none is given, no limit for 0. */
+export function timeoutMsFor(seconds: number | undefined): number | undefined {
+	const limit = seconds ?? DEFAULT_TIMEOUT_SEC;
+	return limit === 0 ? undefined : limit * 1000;
+}
+
 export async function main(argv: string[]): Promise<number> {
 	let args: Args;
 	try {
@@ -227,29 +303,24 @@ export async function main(argv: string[]): Promise<number> {
 		}
 		throw error;
 	}
-	if (args.sanyOnly) {
-		const sany = await runSany(tla, spec);
-		const ok = sany.code === 0;
-		console.log(
-			`${ok ? "PASS" : "FAIL"}  SANY ${ok ? "parsed and level-checked" : "found errors"}: ${path.basename(spec)}`,
-		);
-		if (!ok)
-			console.log(
-				sany.text
-					.split(/\r?\n/)
-					.filter(line => !/^(Parsing file|Semantic processing)/.test(line) && line.trim())
-					.slice(0, 40)
-					.join("\n"),
-			);
-		return ok ? EXIT.ok : EXIT.failed;
-	}
+	if (args.sanyOnly) return sanyOnly(tla, spec, specDir, runs[0]);
 	for (const warning of matrixWarnings(args.matrix ? runs : [])) console.log(`WARN  ${warning}`);
 	const definitions = definitionLoader(spec);
 	printTags(checkTags(extractTags(fs.readFileSync(spec, "utf8")), spec, codeRoot));
-	console.log(`TLC ${tla.tlaVersion}  java ${tla.javaMajor} (${tla.javaSource})  spec ${path.basename(spec)}`);
+	console.log(
+		`TLC (tla2tools release ${tla.tlaVersion})  java ${tla.javaMajor} (${tla.javaSource})  spec ${path.basename(spec)}`,
+	);
+	let bannerShown = false;
 	const reports: RunReport[] = [];
 	let bad = 0;
 	for (const run of runs) {
+		const runStarted = Date.now();
+		let lastOutput = runStarted;
+		const heartbeat = setInterval(() => {
+			if (Date.now() - lastOutput < HEARTBEAT_SEC * 1000) return;
+			lastOutput = Date.now();
+			console.log(`  ... ${run.name} still running (${Math.round((Date.now() - runStarted) / 1000)} s)`);
+		}, 5000);
 		const tlcRun = await runTlc({
 			tla,
 			spec,
@@ -259,15 +330,28 @@ export async function main(argv: string[]): Promise<number> {
 			deadlock: run.deadlock === false || args.noDeadlock ? false : undefined,
 			coverage: args.coverage,
 			extraArgs: [...(run.args ?? []), ...args.extra],
-			timeoutMs:
-				(run.timeoutSec ?? args.timeoutSec) ? ((run.timeoutSec ?? args.timeoutSec) as number) * 1000 : undefined,
+			timeoutMs: timeoutMsFor(run.timeoutSec ?? args.timeoutSec),
 			outDir: args.out ? path.resolve(args.out) : undefined,
-		});
+			onProgress: line => {
+				// TLC prints one last Progress line when a short run ends: noise unless the run took a while.
+				if (Date.now() - runStarted < 10_000) return;
+				lastOutput = Date.now();
+				console.log(`  ${line}`);
+			},
+		}).finally(() => clearInterval(heartbeat));
 		if (tlcRun.spawnError) {
 			console.log(`UNAVAILABLE  java could not be started: ${tlcRun.spawnError}`);
 			return EXIT.unavailable;
 		}
 		const { result } = tlcRun;
+		if (!bannerShown && result.tlcVersion) {
+			bannerShown = true;
+			console.log(`  TLC reports itself as version ${result.tlcVersion}`);
+		}
+		if (result.outcome === "timeout") {
+			const limit = run.timeoutSec ?? args.timeoutSec ?? DEFAULT_TIMEOUT_SEC;
+			result.message = `stopped after ${limit} s without a verdict${args.timeoutSec === undefined && run.timeoutSec === undefined ? " (the default limit)" : ""}: raise --timeout SEC, use --timeout 0 for no limit, or shrink the bounds`;
+		}
 		const rows = reduceTrace(result.trace, { definitions, outcome: result.outcome });
 		const seconds = (tlcRun.durationMs / 1000).toFixed(1);
 		const stats = formatStats(result.stats);

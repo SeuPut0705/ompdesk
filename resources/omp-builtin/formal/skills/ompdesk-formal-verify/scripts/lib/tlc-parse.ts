@@ -52,6 +52,8 @@ export interface TlcResult {
 	lasso?: { stuttering: boolean; backTo?: number };
 	errors: string[];
 	warnings: string[];
+	/** The version TLC printed in its banner (`2026.10.28.014557`), which is not the release tag the jar is pinned by. */
+	tlcVersion?: string;
 }
 
 const STATE_HEADER = /^(?:State (\d+)|Back to state (\d+)): (.*)$/;
@@ -173,6 +175,8 @@ const PARSE_MARKERS = [
 	/Was expecting/,
 	/Cannot find source file for module/,
 	/Unknown operator/,
+	/Could not find declaration or definition of symbol/,
+	/Couldn't resolve (?:prefix |infix |postfix )?operator/,
 	/Could not find definition|The configuration file .* does not exist/i,
 	/specified in the configuration file\s+is not defined/,
 ];
@@ -233,7 +237,17 @@ export function parseTlcOutput(text: string, exitCode?: number | null): TlcResul
 					? { stuttering: false, backTo: last.backTo as number }
 					: undefined
 			: undefined;
+	const resolveDetail =
+		outcome === "parse-error"
+			? lines.find(line =>
+					/^(?:Could not find declaration or definition|Couldn't resolve|Unknown operator|Was expecting|Cannot find source file)/.test(
+						line.trim(),
+					),
+				)
+			: undefined;
+	const tlcVersion = /^TLC2 Version (\S+)/m.exec(text)?.[1];
 	const message =
+		(resolveDetail ? resolveDetail.trim() : undefined) ??
 		errors.find(
 			error =>
 				!/^The behavior up to this point is:?$|^The following behavior constitutes a counter-example:?$/.test(
@@ -249,6 +263,7 @@ export function parseTlcOutput(text: string, exitCode?: number | null): TlcResul
 		...(lasso ? { lasso } : {}),
 		errors,
 		warnings,
+		...(tlcVersion ? { tlcVersion } : {}),
 	};
 }
 

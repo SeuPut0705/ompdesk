@@ -19,7 +19,7 @@ Each workflow lists when to use it, entry criteria, steps, exit criteria and han
 ## Conventions
 
 - Every script exits 0 on pass, 1 when a check ran and failed (violation, deadlock, MISSED mutation, drift), 2 on bad usage or input, 3 when the tool is UNAVAILABLE (missing and could not be prepared, for example offline). Exit 3 means "not checked". Never report it as a pass.
-- Files in the target repo follow the `formal/` layout in SKILL.md: `formal/manifest.json`, `formal/findings.json`, `formal/reports/<concern>.html`, and per concern `SCOPE.md`, `CORRESPONDENCE.md`, `tla/`, `lean/`, `repro/`, `evidence/`. If the repo already has a convention (`specs/`, `tla/`, `proofs/`), use it and record the paths in the manifest.
+- Files in the target repo follow the `formal/` layout in SKILL.md: `formal/manifest.json`, `formal/findings.<concern>.json` (one per concern; a single concern may use `formal/findings.json`), `formal/reports/<concern>.html`, and per concern `SCOPE.md`, `CORRESPONDENCE.md`, `tla/`, `lean/`, `repro/`, `evidence/`. If the repo already has a convention (`specs/`, `tla/`, `proofs/`), use it and record the paths in the manifest.
 - Save the output of every check you cite in `formal/<concern>/evidence/` (`tlc.ts --out DIR` keeps TLC's full log, one file per run; redirect the other scripts' output to a file). A claim with no saved log is "not recorded", never "passed".
 - A pass means no counterexample within the stated bounds. It never means "the code is correct".
 
@@ -35,11 +35,11 @@ Each workflow lists when to use it, entry criteria, steps, exit criteria and han
 
 ### W1.1 Scope one concern
 
-Pick one shared resource or protocol ("cache fill vs. invalidation", "job claim vs. lease expiry", "DAG executor dispatch"). Rank candidates by blast radius times concurrency. Write `formal/<concern>/SCOPE.md`: what is in scope, what is abstracted, what is out of scope. A whole-system model never converges. A 150-line spec of one concern finds the bug.
+Pick one shared resource or protocol ("cache fill vs. invalidation", "job claim vs. lease expiry", "DAG executor dispatch"). Rank candidates by blast radius times concurrency. Write `formal/<concern>/SCOPE.md` from `assets/templates/SCOPE.template.md`: the promise and the harm, what is in scope, what is abstracted, what is out of scope, the bounds. A whole-system model never converges. A 150-line spec of one concern finds the bug.
 
 ### W1.2 Harvest properties before modeling
 
-Pull invariants from docs, comments, issue trackers, past fix commits and API contracts. Cite a source for each (`README.md:40`, `#1234`). Split them into protocol-level properties (any correct implementation must satisfy them) and code-level ones. Freeze the protocol-level set in its own file (`Properties.tla` or `Properties.lean`) and do not weaken it later without the user's explicit OK. Agents that edit their own success criteria find no bugs.
+Pull invariants from docs, comments, issue trackers, past fix commits and API contracts. Cite a source for each (`README.md:40`, `#1234`). Split them into protocol-level properties (any correct implementation must satisfy them) and code-level ones. Freeze the protocol-level set and do not weaken it later without the user's explicit OK. Lean: a separate `Properties.lean` that imports the system. TLA+: a property is a formula over the model's variables, so it cannot sit in a module of its own that exists before the model (the spec would have to `INSTANCE` a module that needs the spec). Freeze it in two places instead: `formal/<concern>/Properties.md` (the template is `assets/templates/Properties.template.md`: statement, meaning, source, the sha it was frozen at) and named definitions in the spec between `\* FROZEN PROPERTIES` and `\* END FROZEN PROPERTIES` banners, listed by name in the configs. `git diff <frozen sha> -- Spec.tla` then shows every change to them. Agents that edit their own success criteria find no bugs.
 
 ### W1.3 Choose the tool
 
@@ -81,10 +81,10 @@ Keep a log of every check you cite in `formal/<concern>/evidence/`. Report other
 
 ```bash
 bun <skill-dir>/scripts/verify-all.ts formal --only <id> --stamp   # re-runs everything, records the commit if it all passed
-bun <skill-dir>/scripts/report.ts formal/findings.json             # writes formal/reports/<concern>.html and prints the path
+bun <skill-dir>/scripts/report.ts formal                           # one page per findings file, into formal/reports/<concern>.html
 ```
 
-Write `formal/findings.json` first (schema `assets/findings.schema.json`, example `assets/templates/findings.example.json`). [report.md](report.md) says what the report must contain and how to show it. Offer W4 (simplify) and W5 (CI guard) as follow-ups.
+Write `formal/findings.<concern>.json` first (schema `assets/findings.schema.json`, example `assets/templates/findings.example.json`). [report.md](report.md) says what the report must contain and how to show it. Offer W4 (simplify) and W5 (CI guard) as follow-ups.
 
 ### Persist step (after W1.8)
 
@@ -94,7 +94,7 @@ When the user will touch this code again, or asked for something that "stays ver
 
 **Match the depth to the question.** One scoped model, the sanity checks, one reproduction and the report is the floor. Add a second tool (for example Lean after TLA+) only when the user asks for an unbounded guarantee, or when the bounded result leaves a real doubt.
 
-**Budget guidance:** a first model should check in minutes. If TLC runs over about 10 minutes at the smallest meaningful bounds, the model is too detailed; abstract more before scaling up. Stop and report partial results if a concern is not converging after several modeling rounds, and say what blocked it. Keep the user informed at step boundaries.
+**Budget guidance:** a first model should check in minutes. If TLC runs over about 10 minutes at the smallest meaningful bounds, the model is too detailed; abstract more before scaling up. `tlc.ts` enforces that number: a run with no `--timeout` stops after 10 minutes as "timed out (no verdict)" (`--timeout SEC` or `timeoutSec` in a matrix run raises it, `0` lifts it), and prints TLC's progress while it runs. Stop and report partial results if a concern is not converging after several modeling rounds, and say what blocked it. Keep the user informed at step boundaries.
 
 ---
 
@@ -145,7 +145,7 @@ A proof says what is always true of the system. Code written without that knowle
 
 **Entry (all four are required; if one is missing, run W1 first, otherwise nothing justifies a deletion):**
 - a model that passes (TLA+ at stated bounds, or Lean with a clean `lean-check.ts` audit);
-- frozen properties (`Properties.tla` or `Properties.lean`);
+- frozen properties (`Properties.md` with the banner-delimited definitions in the spec; Lean: `Properties.lean`);
 - the sanity checks passed (must-fail invariants fail, bug-mode configs fail, `mutate.ts` reports no MISSED);
 - `CORRESPONDENCE.md`, including its Assumptions list.
 

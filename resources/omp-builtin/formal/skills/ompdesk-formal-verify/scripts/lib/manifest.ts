@@ -1,4 +1,5 @@
 import path from "node:path";
+import { parseCover } from "./covers";
 import { isRecord } from "./json";
 
 export interface ModelEntry {
@@ -17,11 +18,23 @@ export interface ModelEntry {
 	mutations?: string;
 	/** Lean: the lake project folder inside `dir`. */
 	project?: string;
-	/** Code files and folders the model describes, relative to the code root. */
+	/**
+	 * Code the model describes, relative to the code root: a file or folder (`src/a.ts`), one function, method or class
+	 * (`src/a.ts#sync`, `src/a.ts#Pool.sync`) or a line range (`src/a.ts:120-180`; working-tree lines).
+	 */
 	covers: string[];
 	/** The commit at which the model was last confirmed to describe `covers`. */
 	syncCommit: string | null;
+	/** Set by `--stamp --allow-dirty`: digest of the covered code stamped on top of `syncCommit` with uncommitted changes. */
+	syncDiff?: string;
+	/** `fast` (every PR and the inner loop) or `deep` (scheduled runs). Default: `deep` for an id ending in `-deep`, else `fast`. */
+	tier?: "fast" | "deep";
 	verifySkill?: string;
+}
+
+/** A model's tier: its `tier`, else `deep` for an id ending in `-deep` (the old convention), else `fast`. */
+export function tierOf(model: Pick<ModelEntry, "id" | "tier">): "fast" | "deep" {
+	return model.tier ?? (model.id.endsWith("-deep") ? "deep" : "fast");
 }
 
 export interface Manifest {
@@ -76,7 +89,17 @@ export function parseManifest(input: unknown): Manifest {
 			entry.covers === undefined
 				? []
 				: Array.isArray(entry.covers)
-					? entry.covers.map((item, i) => inside(text(item, `${where}.covers[${i}]`), `${where}.covers[${i}]`))
+					? entry.covers.map((item, i) => {
+							const raw = text(item, `${where}.covers[${i}]`);
+							let cover: ReturnType<typeof parseCover>;
+							try {
+								cover = parseCover(raw);
+							} catch (error) {
+								throw new Error(`manifest: ${where}.covers[${i}]: ${error instanceof Error ? error.message : String(error)}`);
+							}
+							inside(cover.path, `${where}.covers[${i}]`);
+							return raw;
+						})
 					: (() => {
 							throw new Error(`manifest: ${where}.covers must be an array`);
 						})();
@@ -84,6 +107,10 @@ export function parseManifest(input: unknown): Manifest {
 		if (sync !== undefined && sync !== null && (typeof sync !== "string" || !/^[0-9a-f]{7,64}$/i.test(sync))) {
 			throw new Error(`manifest: ${where}.syncCommit must be a git commit hash or null`);
 		}
+		if (entry.tier !== undefined && entry.tier !== "fast" && entry.tier !== "deep")
+			throw new Error(`manifest: ${where}.tier must be "fast" or "deep"`);
+		if (entry.syncDiff !== undefined && (typeof entry.syncDiff !== "string" || !/^[0-9a-f]{64}$/.test(entry.syncDiff)))
+			throw new Error(`manifest: ${where}.syncDiff must be the 64-hex digest --stamp --allow-dirty wrote`);
 		const optionalPaths = ["dir", "spec", "model", "matrix", "mutations", "project", "verifySkill"] as const;
 		const model: ModelEntry = {
 			id,
@@ -99,6 +126,8 @@ export function parseManifest(input: unknown): Manifest {
 					key === "verifySkill" ? value : inside(value, `${where}.${key}`);
 		}
 		if (typeof entry.title === "string") model.title = entry.title;
+		if (typeof entry.syncDiff === "string") model.syncDiff = entry.syncDiff;
+		if (entry.tier !== undefined) model.tier = entry.tier;
 		if (configs) model.configs = configs.map(config => inside(config, `${where}.configs`));
 		return model;
 	});

@@ -64,7 +64,10 @@ export function render(report: MutationReport): string[] {
 		else out.push(`UNCOVERED ${property.name}: no mutation makes it fail, so nothing shows it can`);
 	}
 	const detected = report.results.filter(result => result.status === "DETECTED").length;
-	out.push(`${detected} of ${report.results.length} mutations detected`);
+	const equivalent = report.results.filter(result => result.status === "EQUIVALENT").length;
+	out.push(
+		`${detected} of ${report.results.length - equivalent} mutations detected${equivalent ? ` (${equivalent} more declared equivalent, not counted)` : ""}`,
+	);
 	return out;
 }
 

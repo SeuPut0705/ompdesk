@@ -15,7 +15,7 @@ description: <One sentence naming what this verifies and when to use it. Example
 
 | Check id | Tool | Covers (files and functions) | Model and tags |
 |---|---|---|---|
-| `<manifest model id>` | <TLC 1.8.0 / Lean 4.35.0 / other> | `<path/file.ext>`: `<function>`, `<function>` | `<formal/.../Spec.tla>`, tags `@code <path:lines>` on `<Action>`, ... |
+| `<manifest model id>` | <TLC2 Version 2026.10.28.x (tla2tools release 1.8.0) / Lean 4.35.0 / other; quote the version `tlc.ts` prints> | `<path/file.ext>`: `<function>`, `<function>` | `<formal/.../Spec.tla>`, tags `@code <path:lines>` on `<Action>`, ... |
 
 Sync commit: `<git sha>`. This is the commit at which the verification was last confirmed to describe the covered code. It mirrors `syncCommit` of `<id>` in `formal/manifest.json`; if they differ, the manifest wins and this line is stale.
 
@@ -36,7 +36,7 @@ bun <tools-dir>/scripts/verify-all.ts formal --only <id>
 It takes about <duration>. Read the result like this:
 - `PASS`, exit 0: no counterexample within the bounds above. It does not mean the code is correct.
 - `FAIL`, exit 1: a property was violated, a mutation was MISSED, or an `@code` tag no longer resolves. A violation prints a trace with one row per step: the action, its `@code` location and the variables that changed.
-- `DRIFT:` note under the drift line: covered files differ from the sync commit, so the model needs another look (CI adds `--strict-drift` and fails on it). A sync commit that is not in this repository fails.
+- A `DRIFT` line (not `ok`): covered code differs from the sync commit, so the model needs another look (CI adds `--strict-drift` and fails on it). It names what changed: a file, `file#function` or `file:lines`. A sync commit that is not in this repository fails.
 - `NOT CHECKED`, exit 3: the tool could not be prepared (for example offline). Report "not checked". Never report it as a pass.
 
 ## Does my change touch this?
@@ -56,7 +56,7 @@ Replay the counterexample against the real code, step by step, using the `@code`
 
 ## Moving the sync commit
 
-Move the sync commit forward only after you confirmed that the verification describes the code at the new commit. Commit the code and the verification change first, then run `bun <tools-dir>/scripts/verify-all.ts formal --only <id> --stamp`, and copy the new sha into the Coverage section above in the same change. Do not move it for a check that failed, was blocked or was UNAVAILABLE.
+Move the sync commit forward only after you confirmed that the verification describes the code at the new commit. Commit the code first when you may, then run `bun <tools-dir>/scripts/verify-all.ts formal --only <id> --stamp`, and copy the new sha into the Coverage section above in the same change. The sha only has to contain the covered code: the model files may be uncommitted. When you may not commit and the covered code changed, `--stamp --allow-dirty` stamps HEAD plus those changes. Do not move it for a check that failed, was blocked or was UNAVAILABLE.
 
 ## Known findings
 

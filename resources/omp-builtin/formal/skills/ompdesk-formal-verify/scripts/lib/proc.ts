@@ -20,6 +20,8 @@ export interface RunOptions {
 	input?: string;
 	/** Output beyond this many characters per stream is dropped (the tail is kept). */
 	maxChars?: number;
+	/** Called with every chunk of stdout and stderr as it arrives (progress output of a long run). */
+	onData?: (chunk: string) => void;
 }
 
 export interface RunResult {
@@ -130,9 +132,11 @@ export function run(command: string, args: string[], options: RunOptions = {}): 
 	child.stderr?.setEncoding("utf8");
 	child.stdout?.on("data", (chunk: string) => {
 		stdout = keep(stdout, chunk);
+		options.onData?.(chunk);
 	});
 	child.stderr?.on("data", (chunk: string) => {
 		stderr = keep(stderr, chunk);
+		options.onData?.(chunk);
 	});
 	child.on("error", error => finish({ code: null, signal: null, stdout, stderr, timedOut, spawnError: error }));
 	child.on("close", (code, signal) => finish({ code, signal, stdout, stderr, timedOut }));

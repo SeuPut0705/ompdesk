@@ -2,7 +2,7 @@
 	"$schema": "https://json-schema.org/draft/2020-12/schema",
 	"$comment": "Adapted from opum-ai/proof-skills (MIT, Opum AI). See LICENSES/proof-skills-MIT.txt in the OMPdesk app resources.",
 	"title": "Formal verification findings",
-	"description": "Machine-readable results of an ompdesk-formal-verify workflow. report.ts renders it into one self-contained HTML page.",
+	"description": "Machine-readable results of an ompdesk-formal-verify workflow, one document per concern (formal/findings.<concern>.json; report.ts also takes a file {\"concerns\": [ ... ]} that holds several). report.ts renders each into one self-contained HTML page under formal/reports/.",
 	"type": "object",
 	"required": ["concern", "workflow", "generated_at", "summary", "properties", "findings"],
 	"properties": {
@@ -85,7 +85,7 @@
 					},
 					"tool": {
 						"type": "string",
-						"description": "e.g. TLC 1.8.0, Lean 4.35.0"
+						"description": "The version tlc.ts printed for the run (the TLC banner, e.g. TLC2 2026.10.28.014557), not the release tag of the pinned jar; or e.g. Lean 4.35.0"
 					},
 					"bounds": {
 						"type": "string",
@@ -142,7 +142,7 @@
 								},
 								"code": {
 									"type": "string",
-									"description": "file:line from CORRESPONDENCE.md"
+									"description": "file:line, from the step's @code tag (tlc.ts --json writes it)"
 								},
 								"changed": {
 									"type": "object",

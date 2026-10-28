@@ -21,7 +21,7 @@
 			"source": "src/worker.ts:1 (header comment)",
 			"frozen": true,
 			"result": "holds",
-			"tool": "TLC 1.8.0",
+			"tool": "TLC2 2026.10.28.014557",
 			"bounds": "Workers={w1,w2}, MaxClaims=3, UseFencing=TRUE",
 			"evidence": "formal/job-lease/evidence/tlc-fast.log"
 		},
@@ -32,7 +32,7 @@
 			"meaning": "Once someone holds a claim, the job gets done.",
 			"frozen": true,
 			"result": "holds",
-			"tool": "TLC 1.8.0",
+			"tool": "TLC2 2026.10.28.014557",
 			"bounds": "Workers={w1,w2}, MaxClaims=3, UseFencing=TRUE, weak fairness on Commit and Abort",
 			"evidence": "formal/job-lease/evidence/tlc-fast.log"
 		},
@@ -42,7 +42,7 @@
 			"statement": "SingleCommit == Cardinality(commits) <= 1",
 			"meaning": "The same invariant with UseFencing=FALSE: it must fail, which shows the check can fail.",
 			"result": "violated",
-			"tool": "TLC 1.8.0",
+			"tool": "TLC2 2026.10.28.014557",
 			"bounds": "Workers={w1,w2}, MaxClaims=3, UseFencing=FALSE",
 			"evidence": "formal/job-lease/evidence/tlc-bug.json"
 		}
@@ -160,7 +160,7 @@
 	],
 	"trust_base": {
 		"tla": {
-			"tool_version": "TLC 1.8.0 (tla2tools 1.8.0)",
+			"tool_version": "TLC2 Version 2026.10.28.014557 (tla2tools release 1.8.0)",
 			"states_generated": 43,
 			"distinct_states": 25,
 			"depth": 7,

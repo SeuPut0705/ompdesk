@@ -41,6 +41,9 @@ checker that can print `VIOLATED: <name>` lines. Use it after the matrix is gree
 | `mutations[].all` | `true` replaces every occurrence of `search` |
 | `mutations[].breaks` | The property, or list of properties, this mutation is meant to break (`deadlock` names a TLC deadlock). The mutation counts as caught if the checker fails on any of them |
 | `mutations[].file` | File to change, relative to the model's folder (default: the model file) |
+| `mutations[].deadlock` | TLC only: `false` runs this mutation with `CHECK_DEADLOCK FALSE` (same as `-deadlock`). **Liveness mutations need it** (rule 1 below): a mutant that stops the model early deadlocks, TLC reports the deadlock and never reaches the liveness check. `checker.deadlock: false` sets it for every mutation |
+| `mutations[].isolate` | TLC only: `true` runs the mutation under a config derived from the base config that keeps only the `INVARIANT`/`PROPERTY` entries named in `breaks`. TLC reports one violated property, the first it finds; with the others left out the report names the one you mean. This replaces a hand-written `MC_<property>.cfg` per property, and the unmutated model is not re-run under it, so a property that fails on the unmutated model shows up in the baseline instead |
+| `mutations[].equivalent` | A reason (text): this mutant means the same as the model, so no property can notice it (a redundant re-read, a duplicated `sync()`, a reordering of independent steps). The checker still passes, and the mutant is recorded as `EQUIVALENT` with the reason instead of `MISSED`, so the run does not exit 1. It covers no property. If the checker fails on it, the claim is wrong: the result is `INVALID` (exit 2), so a stale claim cannot hide a real hole. Use it for what you proved by reading the code, keep the reason specific, and list such mutants in the report |
 | `mutations[].config` | TLC only: run this config instead of the checker's. Use it to check one property in isolation (an extra config with a single `INVARIANT`). The unmutated model must pass under that config too (it is run first), or the mutations that use it are `INVALID`: a config that fails on its own proves nothing about a mutation |
 
 Every run works on a copy of the model's folder in a temporary directory; your files are never touched. `--keep`
@@ -51,12 +54,14 @@ instead of the lines shown below.
 ## What the output means
 
 The unmutated model runs first and must pass; if it does not, nothing else is judged and the exit code is 1.
+(When you scratch-break the model while proving a verify skill, `mutations.json` stops matching it: see `persist.md` A.5.)
 Then, per mutation:
 
 | Verdict | Meaning | What to do |
 |---|---|---|
 | `DETECTED` | The checker failed on a property the mutation says it breaks | Nothing: that property is shown to be able to fail |
 | `MISSED` | The checker still passed, or it failed on a property the mutation did **not** name | See "What MISSED means" |
+| `EQUIVALENT` | The mutation carries an `equivalent` reason and the checker passed, as declared | Nothing: it is recorded with its reason, counts toward no property, and does not fail the run |
 | `INVALID` | The `search` text does not match (or matches more than once), the file cannot be read, or the mutated model no longer parses (TLC) or no longer elaborates (Lean: an unknown identifier or constant, an unexpected token, an unknown tactic: the model is broken, not a property), hits an evaluation error (for example a variable left unspecified) or runs out of time | Fix the mutation: the file changed, or the replacement is not valid TLA+ |
 
 After the mutations, each property in `properties` is reported as covered (with the mutations that detected it),
@@ -104,8 +109,13 @@ Rules that keep the result honest:
    that the reported property is the one in `breaks`. TLC reports only the first violated property, and a
    mutation that opens a race usually trips the safety property that fails earliest. If `NoLostUpdate` and
    `MutEx` both fail, TLC names `MutEx`, the shallower one; a mutation meant for `NoLostUpdate` must keep `MutEx`
-   true (see `drop-read` in `assets/patterns/LostUpdate/mutations.json`) or run with a `config` that checks only
-   `NoLostUpdate`.
+   true (see `drop-read` in `assets/patterns/LostUpdate/mutations.json`), or set `"isolate": true` (the other
+   properties are left out of the config for that run; see `macrotask-runs-inside-a-turn` in
+   `assets/patterns/EventLoop/mutations.json`), or run with a `config` of your own that checks only that property.
+   **A liveness property** (`<>`, `~>`) is checked after the safety ones and only on a model that did not stop:
+   remove its fairness, or any change that lets the model get stuck, and TLC reports a deadlock first. Give
+   those mutations `"deadlock": false`. The output tells you: `failed on deadlock, not on <property>` ends with
+   the hint to set it.
 2. **List a property in `breaks` only if the counterexample shows it.** A long list of names makes every
    mutation look caught. Use more than one name only when the failing property can legitimately be either.
 3. **The mutation changes the model's behaviour, not its text.** Renaming a variable or reformatting is not a
@@ -129,10 +139,20 @@ Triage:
 2. If the mutation passes because the property is conditional (`P => Q`), check `~P` as an invariant; if `~P`
    holds, the property is vacuous.
 3. If it fails on a *different* property than the one named, the mutation is probably not isolated: fix the
-   mutation (rule 1) or add the single-property config. That is the only case where changing the mutation is
+   mutation (rule 1: `"isolate": true`, or `"deadlock": false` when the other name is `deadlock`). That is the only case where changing the mutation is
    right, and the verdict must still come from a run, not from the edit.
 4. If the model cannot reach the mutated behaviour within the bounds, raise the bounds, or say in the report that
    the property is untested at the stated size.
+
+## Equivalent mutants
+
+Some changes do not change the behavior the model can show: a second `sync()` where the marker is already set, two
+independent steps swapped, a re-read of a value nothing changed in between. No property can notice them, and they
+are not a hole in the properties. Do not delete them (the finding that the code does the same thing twice is worth
+keeping) and do not leave them `MISSED` (exit 1 forever). Write the reason in `equivalent`: the run records
+`EQUIVALENT name: no property notices it, as declared: <reason>` and moves on. The reason must say why the two
+models are the same, in terms a reviewer can check; "it passes" is not a reason. An `equivalent` mutant that the
+checker does catch turns `INVALID`, so a claim that stopped being true fails the run.
 
 ## Waivers
 
@@ -152,7 +172,7 @@ bun <skill-dir>/scripts/tlc.ts <skill-dir>/examples/job-lease/formal/job-lease/t
 bun <skill-dir>/scripts/mutate.ts <skill-dir>/examples/job-lease/formal/job-lease/tla/JobLease.tla <skill-dir>/examples/job-lease/formal/job-lease/tla/mutations.json
 ```
 
-Smaller files with the same format: `assets/patterns/<Name>/mutations.json` for each of the seven patterns
+Smaller files with the same format: `assets/patterns/<Name>/mutations.json` for each of the eight patterns
 (`tla-patterns.md`). Among them: a guard dropped, a read discarded, a dedup table pre-seeded, two items
 reordered, a lease check removed, fairness removed, and `TypeOK` waived with a reason. Running the one for
 LostUpdate prints:

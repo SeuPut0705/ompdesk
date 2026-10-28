@@ -54,7 +54,7 @@ The Code column matches the `@code` tags. If you change one, change the other in
 
 Also add a short **Assumptions** list: the facts about the environment that the model relies on ("single event loop", "the DB is linearizable", "no process crash between L88 and L90"). Every assumption is a place a real bug can hide. The simplify workflow (W4) must not delete code that only an assumption makes redundant, unless the assumption is enforced elsewhere.
 
-The first line of the file records the sync commit (`verify-all.ts --stamp` writes it to the manifest; copy it here when you stamp).
+The first line of the file records the sync commit (`verify-all.ts --stamp` writes it to the manifest; copy it here when you stamp). When a tuple or record is passed to an action through `\E x \in set : A(x)`, TLC may name the wrapper instead of `A`; the trace still resolves the `@code` of the tagged actions the wrapper calls, but it is exact only when the action takes one scalar argument (`A(id)`), or the wrapper carries the tag itself.
 
 ## Granularity rule
 
@@ -68,6 +68,29 @@ One model step is one atomic region in the code:
   - `SELECT ... FOR UPDATE` blocks only writers that also lock the row.
 
   Either model these semantics, or list them as an assumption and flag them in the report.
+
+### Which awaits are steps? Microtasks versus macrotasks
+
+In JavaScript, Python `asyncio` and every other single-threaded event loop, other work runs between two `await`s only when the `await` gives the loop back. Not every `await` does:
+
+| Code | Does another macrotask (event handler, timer, another task) run before the next line? | In the model |
+|---|---|---|
+| `await somePromise` whose promise is already resolved, `await undefined`, `await Promise.resolve(x)`, `await asyncFn()` whose body never waits on anything real | **No.** Only microtasks run: the continuation is queued behind the ones already queued, and nothing from the macrotask queue gets in | Not a step boundary. The code before and after is **one** loop turn |
+| `await p` where `p` is resolved by an event handler, timer, I/O callback or another process | **Yes**, at least once: that handler is a macrotask that must run first | A step boundary (the task parks, other macrotasks may run) |
+| `await new Promise(r => setTimeout(r, 0))`, `await fetch(...)`, `await fs.promises.readFile(...)`, `await sleep()` | **Yes** | A step boundary |
+| `queueMicrotask`, `.then` on a resolved promise, `process.nextTick` | No: still the same macrotask | Part of the same turn |
+
+So "the code between two `await`s" is the right region only when both `await`s yield. Reading an `await` as a yield when it only waits on a microtask invents interleavings the loop cannot produce: the checker reports a counterexample that the code cannot reach. (The dogfood run's first turn-resume counterexample was exactly this: a `whenReady` promise that resolves inside the same turn was modeled as a yield, letting a user prompt slip in.) The opposite mistake hides a race. Decide per `await`, from what resolves the promise, and write the reason in the `@code` note (`await whenReady(): already resolved, microtask only`).
+
+### A synchronous region as pc micro-steps
+
+A region that runs without yielding is atomic **for other tasks**, but the code inside it still has steps, and an invariant that holds between loop turns is often false in the middle (a counter is bumped, then the ledger copies it). Model such a region as several `pc` micro-steps of one task, and make everyone else wait for it:
+
+- a flag `busy` (or `running = task`) is set when a macrotask starts and cleared when the region ends or the task yields;
+- every action that starts or resumes a macrotask is guarded by `~busy`; the micro-steps of the running task are not;
+- state invariants that only hold between turns are written `~busy => ...` (`AtRestConsistent`); invariants about the end state stay unconditional.
+
+This keeps the checker honest in both directions: the micro-steps let it see a torn state, and the guard stops it from ever observing one from outside the turn. `assets/patterns/EventLoop/` is the runnable pattern (matrix: the microtask await passes, the real yield loses an update, the missing guard breaks the at-rest invariant), and `tla-patterns.md` lists it as the eighth pattern. Do not collapse the micro-steps into one action just because they do not interleave: the torn state is what you want the property to be able to see.
 
 If the code splits a region the model treats as atomic, the model hides the race. MongoDB's Raft conformance effort failed partly because the spec merged a step-down and a step-up that the code performs separately ([evidence.md](evidence.md)). When in doubt, split. More interleavings cost states, not correctness.
 

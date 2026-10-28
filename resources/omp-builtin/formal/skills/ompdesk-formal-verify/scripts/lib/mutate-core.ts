@@ -16,10 +16,16 @@ export interface Mutation {
 	breaks: string[];
 	/** TLC only: run this config instead of the checker's. */
 	config?: string;
+	/** TLC only: check this mutation with `CHECK_DEADLOCK FALSE` (a liveness property cannot fail on a model that deadlocks first). */
+	deadlock?: boolean;
+	/** TLC only: check this mutation under a config derived from the base one that keeps only the `breaks` properties. */
+	isolate?: boolean;
+	/** Why this mutation changes no behavior (the mutated model means the same): it is recorded as EQUIVALENT, not MISSED. */
+	equivalent?: string;
 }
 
 export type CheckerSpec =
-	| { kind: "tlc"; config?: string; workers?: string; timeoutSec?: number; root?: string }
+	| { kind: "tlc"; config?: string; workers?: string; timeoutSec?: number; deadlock?: boolean; root?: string }
 	| { kind: "lean"; project?: string; allowNative?: boolean; root?: string }
 	| { kind: "command"; command: string[]; root?: string };
 
@@ -42,7 +48,7 @@ export interface CheckOutcome {
 /** Runs the checker on a copy: `dir` is the copy of the model's root folder, `model` the model file inside it. */
 export type Checker = (dir: string, model: string, mutation?: Mutation) => Promise<CheckOutcome>;
 
-export type MutationStatus = "DETECTED" | "MISSED" | "INVALID";
+export type MutationStatus = "DETECTED" | "MISSED" | "EQUIVALENT" | "INVALID";
 
 export interface MutationResult {
 	name: string;
@@ -86,6 +92,7 @@ export function parseMutations(input: unknown): MutationSpec {
 			...(typeof checker.config === "string" ? { config: checker.config } : {}),
 			...(checker.workers === undefined ? {} : { workers: String(checker.workers) }),
 			...(typeof checker.timeoutSec === "number" ? { timeoutSec: checker.timeoutSec } : {}),
+			...(typeof checker.deadlock === "boolean" ? { deadlock: checker.deadlock } : {}),
 			...root,
 		};
 	} else if (checker.kind === "lean") {
@@ -126,12 +133,21 @@ export function parseMutations(input: unknown): MutationSpec {
 		if (typeof entry.replace !== "string")
 			throw new Error(`mutations: ${where}.replace must be text (empty to delete)`);
 		if (entry.search === entry.replace) throw new Error(`mutations: ${where} does not change anything`);
+		if (entry.equivalent !== undefined && (typeof entry.equivalent !== "string" || entry.equivalent.trim() === ""))
+			throw new Error(`mutations: ${where}.equivalent needs the reason the mutant means the same as the model`);
+		if (entry.deadlock !== undefined && typeof entry.deadlock !== "boolean")
+			throw new Error(`mutations: ${where}.deadlock must be true or false`);
+		if (entry.isolate !== undefined && typeof entry.isolate !== "boolean")
+			throw new Error(`mutations: ${where}.isolate must be true or false`);
 		return {
 			name: entry.name,
 			search: entry.search,
 			replace: entry.replace,
 			all: entry.all === true,
-			breaks: strings(entry.breaks, `${where}.breaks`),
+			breaks: entry.equivalent !== undefined && entry.breaks === undefined ? [] : strings(entry.breaks, `${where}.breaks`),
+			...(typeof entry.equivalent === "string" ? { equivalent: entry.equivalent } : {}),
+			...(typeof entry.deadlock === "boolean" ? { deadlock: entry.deadlock } : {}),
+			...(entry.isolate === true ? { isolate: true } : {}),
 			...(typeof entry.why === "string" ? { why: entry.why } : {}),
 			...(typeof entry.file === "string" ? { file: entry.file } : {}),
 			...(typeof entry.config === "string" ? { config: entry.config } : {}),
@@ -283,11 +299,27 @@ export async function runMutations(options: {
 					detail: `the mutated model is not checkable: ${detailOf(outcome)}`,
 				});
 			} else if (outcome.status === "pass") {
+				report.results.push(
+					mutation.equivalent
+						? {
+								name: mutation.name,
+								status: "EQUIVALENT",
+								violated: [],
+								detail: `no property notices it, as declared: ${mutation.equivalent}`,
+							}
+						: {
+								name: mutation.name,
+								status: "MISSED",
+								violated: [],
+								detail: "the checker still passes: the properties do not notice this change",
+							},
+				);
+			} else if (mutation.equivalent) {
 				report.results.push({
 					name: mutation.name,
-					status: "MISSED",
-					violated: [],
-					detail: "the checker still passes: the properties do not notice this change",
+					status: "INVALID",
+					violated: outcome.violated,
+					detail: `declared equivalent (${mutation.equivalent}) but the checker fails${outcome.violated.length ? ` on ${outcome.violated.join(", ")}` : ""}: the claim is wrong, drop "equivalent" and treat it as a detected mutation`,
 				});
 			} else {
 				const hit = outcome.violated.filter(name => mutation.breaks.includes(name));
@@ -301,11 +333,12 @@ export async function runMutations(options: {
 					for (const name of hit) credited.set(name, [...(credited.get(name) ?? []), mutation.name]);
 				} else {
 					const got = outcome.violated.length ? outcome.violated.join(", ") : "an unnamed property";
+					const deadlocked = outcome.violated.includes("deadlock") && !mutation.breaks.includes("deadlock");
 					report.results.push({
 						name: mutation.name,
 						status: "MISSED",
 						violated: outcome.violated,
-						detail: `failed on ${got}, not on ${mutation.breaks.join(" or ")}`,
+						detail: `failed on ${got}, not on ${mutation.breaks.join(" or ")}${deadlocked ? ' (the mutation deadlocks the model before the property can fail: set "deadlock": false on it, or CHECK_DEADLOCK FALSE in its config)' : ""}`,
 					});
 				}
 			}

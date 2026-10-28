@@ -91,3 +91,34 @@ export function overrideConstants(text: string, overrides: Record<string, string
 	const block = ["CONSTANTS", ...Object.entries(overrides).map(([name, value]) => `    ${name} = ${value}`)];
 	return `${[...out, ...block].join("\n")}\n`;
 }
+
+/**
+ * The config with only the named INVARIANT and PROPERTY entries kept (a section that ends up empty is dropped), so a
+ * mutation run fails on the property it targets and nothing else. Comments are dropped.
+ */
+export function isolateProperties(text: string, keep: string[]): string {
+	const out: string[] = [];
+	let section = "";
+	let opened = false;
+	for (const raw of stripComments(text).split(/\r?\n/)) {
+		const line = raw.trim();
+		if (!line) continue;
+		const tokens = line.split(/\s+/);
+		let names = tokens;
+		const isHeader = isKeyword(tokens[0]);
+		if (isHeader) {
+			section = tokens[0] as string;
+			opened = false;
+			names = tokens.slice(1);
+		}
+		if (section === "INVARIANT" || section === "INVARIANTS" || section === "PROPERTY" || section === "PROPERTIES") {
+			const kept = names.filter(name => keep.includes(name));
+			if (kept.length === 0) continue;
+			out.push(opened ? `    ${kept.join(" ")}` : `${section} ${kept.join(" ")}`);
+			opened = true;
+			continue;
+		}
+		out.push(isHeader ? line : `    ${line}`);
+	}
+	return `${out.join("\n")}\n`;
+}

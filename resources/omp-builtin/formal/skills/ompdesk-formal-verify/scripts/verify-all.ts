@@ -3,11 +3,20 @@
 // configs that must pass) or the Lean build and trust audit, then the mutation run, whether every `@code` tag still
 // points at a real file and line, and whether the covered files changed since the model's sync commit.
 //
-//   bun verify-all.ts <formal dir> [--only id] [--stamp] [--strict-drift] [--skip-mutations]
+//   bun verify-all.ts <formal dir> [--tier fast|deep] [--only id] [--stamp [--allow-dirty]] [--strict-drift]
+//                     [--skip-mutations]
 //
-//   --stamp         after a model passed everything, write the current HEAD into its `syncCommit`
-//                   (refused while the covered files have uncommitted changes)
-//   --strict-drift  covered files changed since the sync commit, or no sync commit yet, fail the run
+//   --tier fast     (default: the inner loop and every PR) the models whose tier is `fast`
+//   --tier deep     (scheduled runs) every model, `fast` and `deep`
+//                   A model's tier is its manifest `tier`; an id ending in `-deep` is `deep` unless it says otherwise.
+//                   `--only <id>` runs that model whatever its tier.
+//   --stamp         after a model passed everything, write the current HEAD into its `syncCommit`. The sha only has
+//                   to hold the covered code: the model files may be uncommitted or not exist at it. Refused while
+//                   the covered code (the covered functions and ranges, not whole files) has uncommitted changes
+//   --allow-dirty   with --stamp: stamp those uncommitted changes too (HEAD plus a `syncDiff` digest of the covered
+//                   code), for when the task forbids committing. The model is in sync while the covered code equals
+//                   what was stamped, committed or not
+//   --strict-drift  covered code changed since the sync commit, or no sync commit yet, fail the run
 //
 // Exit: 0 all passed, 1 a check ran and failed (or strict drift), 2 usage or bad manifest, 3 UNAVAILABLE (a tool
 // could not be prepared: not checked) when nothing failed.
@@ -15,32 +24,47 @@ import fs from "node:fs";
 import path from "node:path";
 import { main as leanMain } from "./lean-check";
 import { checkTags, extractTags } from "./lib/code-tags";
-import { checkDrift, git, hasUncommitted } from "./lib/drift";
+import { checkDrift, git, hasUncommitted, stampDigest } from "./lib/drift";
 import { readJson } from "./lib/json";
-import { type Manifest, type ModelEntry, parseManifest } from "./lib/manifest";
+import { type Manifest, type ModelEntry, parseManifest, tierOf } from "./lib/manifest";
 import { EXIT, UsageError } from "./lib/proc";
 import { main as mutateMain } from "./mutate";
 import { main as tlcMain } from "./tlc";
 
-const USAGE = "usage: bun verify-all.ts <formal dir> [--only id] [--stamp] [--strict-drift] [--skip-mutations]";
+const USAGE =
+	"usage: bun verify-all.ts <formal dir> [--tier fast|deep] [--only id] [--stamp [--allow-dirty]] [--strict-drift] [--skip-mutations]";
 
 export interface Args {
 	dir: string;
 	only?: string;
 	stamp: boolean;
+	allowDirty: boolean;
+	tier: "fast" | "deep";
 	strictDrift: boolean;
 	skipMutations: boolean;
 }
 
 export function parseArgs(argv: string[]): Args {
-	const args: Args = { dir: "", stamp: false, strictDrift: false, skipMutations: false };
+	const args: Args = {
+		dir: "",
+		stamp: false,
+		allowDirty: false,
+		tier: "fast",
+		strictDrift: false,
+		skipMutations: false,
+	};
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i] as string;
 		if (arg === "--only") {
 			const id = argv[++i];
 			if (!id) throw new UsageError(`--only needs a model id\n${USAGE}`);
 			args.only = id;
+		} else if (arg === "--tier") {
+			const tier = argv[++i];
+			if (tier !== "fast" && tier !== "deep") throw new UsageError(`--tier is fast or deep\n${USAGE}`);
+			args.tier = tier;
 		} else if (arg === "--stamp") args.stamp = true;
+		else if (arg === "--allow-dirty") args.allowDirty = true;
 		else if (arg === "--strict-drift") args.strictDrift = true;
 		else if (arg === "--skip-mutations") args.skipMutations = true;
 		else if (arg.startsWith("--")) throw new UsageError(`unknown option ${arg}\n${USAGE}`);
@@ -48,12 +72,14 @@ export function parseArgs(argv: string[]): Args {
 		else throw new UsageError(`unexpected argument ${arg}\n${USAGE}`);
 	}
 	if (!args.dir) throw new UsageError(USAGE);
+	if (args.allowDirty && !args.stamp) throw new UsageError(`--allow-dirty goes with --stamp\n${USAGE}`);
 	return args;
 }
 
-type Verdict = "pass" | "fail" | "unavailable" | "skipped";
+/** `drift` passes the run (a prompt to look, not a failure) but is never printed as `ok`. */
+export type Verdict = "pass" | "fail" | "unavailable" | "skipped" | "drift";
 
-interface ModelResult {
+export interface ModelResult {
 	id: string;
 	checks: { name: string; verdict: Verdict; note?: string }[];
 }
@@ -82,7 +108,7 @@ async function verifyModel(model: ModelEntry, formalDir: string, codeRoot: strin
 	const add = (name: string, verdict: Verdict, note?: string): void => {
 		result.checks.push({ name, verdict, ...(note ? { note } : {}) });
 		console.log(
-			`${verdict === "pass" ? "ok  " : verdict === "skipped" ? "skip" : verdict === "unavailable" ? "NOT CHECKED" : "FAIL"}  ${model.id}: ${name}${note ? ` - ${note}` : ""}`,
+			`${verdict === "pass" ? "ok  " : verdict === "skipped" ? "skip" : verdict === "unavailable" ? "NOT CHECKED" : verdict === "drift" ? "DRIFT" : "FAIL"}  ${model.id}: ${name}${note ? ` - ${note}` : ""}`,
 		);
 	};
 	console.log(`\n== ${model.id}${model.title ? `: ${model.title}` : ""} (${model.kind})`);
@@ -122,13 +148,69 @@ async function verifyModel(model: ModelEntry, formalDir: string, codeRoot: strin
 		problems.length === 0 ? "pass" : "fail",
 		problems.length ? `${problems.length} unresolved` : undefined,
 	);
-	const drift = await checkDrift(codeRoot, model.covers, model.syncCommit);
+	const drift = await checkDrift(codeRoot, model.covers, model.syncCommit, model.syncDiff);
 	for (const file of drift.files) console.log(`      changed since sync: ${file}`);
 	if (drift.status === "ok") add("drift", "pass", drift.message);
 	else if (drift.status === "no-covers" || drift.status === "unstamped")
 		add("drift", args.strictDrift && drift.status === "unstamped" ? "fail" : "skipped", drift.message);
-	else add("drift", drift.status === "drift" && !args.strictDrift ? "pass" : "fail", drift.message);
+	else add("drift", drift.status === "drift" && !args.strictDrift ? "drift" : "fail", drift.message);
 	return result;
+}
+
+/**
+ * Writes the current HEAD into the `syncCommit` of every model that passed everything. HEAD only has to hold the
+ * covered code: the model files may be uncommitted or not exist at it. A model whose covered code (its functions and
+ * ranges, not whole files) has uncommitted changes is stamped only with `allowDirty`, and then also gets `syncDiff`.
+ */
+export async function stampModels(
+	codeRoot: string,
+	manifestFile: string,
+	models: ModelEntry[],
+	results: ModelResult[],
+	allowDirty: boolean,
+): Promise<void> {
+	const head = await git(codeRoot, ["rev-parse", "HEAD"]);
+	if (!head.ok) {
+		console.log(`\nstamp: cannot read HEAD of ${codeRoot}: ${head.out}`);
+		return;
+	}
+	let wrote = false;
+	const raw = readJson(manifestFile) as {
+		models: { id: string; syncCommit?: string | null; syncDiff?: string }[];
+	};
+	for (const result of results) {
+		const model = models.find(candidate => candidate.id === result.id) as ModelEntry;
+		const clean = result.checks.every(
+			check => check.verdict === "pass" || check.verdict === "skipped" || check.verdict === "drift",
+		);
+		const dirty = await hasUncommitted(codeRoot, model.covers);
+		if (!clean) console.log(`\nstamp: ${result.id} not stamped (a check did not pass)`);
+		else if (dirty && !allowDirty)
+			console.log(
+				`\nstamp: ${result.id} not stamped: the covered code has uncommitted changes, so HEAD does not describe it. Commit them (when you may), or rerun with --stamp --allow-dirty to stamp HEAD plus those changes (references/persist.md, "The sync commit").`,
+			);
+		else {
+			const entry = raw.models.find(candidate => candidate.id === result.id);
+			if (!entry) continue;
+			if (result.checks.find(check => check.name === "drift")?.verdict === "drift") {
+				console.log(
+					`\nstamp: NOTE ${result.id}: covered code changed since its old syncCommit. Stamping says you checked the model against it: do that first (references/persist.md, steps 3 and 4).`,
+				);
+			}
+			entry.syncCommit = head.out;
+			if (dirty) {
+				entry.syncDiff = await stampDigest(codeRoot, model.covers, head.out);
+				console.log(
+					`\nstamp: ${result.id} syncCommit = ${head.out.slice(0, 10)} + uncommitted covered changes (syncDiff ${entry.syncDiff.slice(0, 10)}): in sync while the covered code stays as it is now`,
+				);
+			} else {
+				delete entry.syncDiff;
+				console.log(`\nstamp: ${result.id} syncCommit = ${head.out.slice(0, 10)}`);
+			}
+			wrote = true;
+		}
+	}
+	if (wrote) fs.writeFileSync(manifestFile, `${JSON.stringify(raw, null, "\t")}\n`);
 }
 
 export async function main(argv: string[]): Promise<number> {
@@ -148,49 +230,29 @@ export async function main(argv: string[]): Promise<number> {
 		console.error(error instanceof Error ? error.message : String(error));
 		return EXIT.usage;
 	}
-	const models = args.only ? manifest.models.filter(model => model.id === args.only) : manifest.models;
+	const models = args.only
+		? manifest.models.filter(model => model.id === args.only)
+		: manifest.models.filter(model => args.tier === "deep" || tierOf(model) === "fast");
 	if (models.length === 0) {
-		console.error(`no model ${args.only} in ${manifestFile} (${manifest.models.map(model => model.id).join(", ")})`);
+		console.error(
+			args.only
+				? `no model ${args.only} in ${manifestFile} (${manifest.models.map(model => model.id).join(", ")})`
+				: `no ${args.tier}-tier model in ${manifestFile} (${manifest.models.map(model => `${model.id}: ${tierOf(model)}`).join(", ")})`,
+		);
 		return EXIT.usage;
+	}
+	if (!args.only) {
+		const left = manifest.models.filter(model => !models.includes(model));
+		console.log(
+			`tier ${args.tier}: ${models.map(model => model.id).join(", ")}${left.length ? `  (not run: ${left.map(model => `${model.id} [${tierOf(model)}]`).join(", ")}; --tier deep runs them)` : ""}`,
+		);
 	}
 	const codeRoot = path.resolve(formalDir, manifest.codeRoot);
 	const results: ModelResult[] = [];
 	for (const model of models) results.push(await verifyModel(model, formalDir, codeRoot, args));
 	const failed = results.some(result => result.checks.some(check => check.verdict === "fail"));
 	const unavailable = results.some(result => result.checks.some(check => check.verdict === "unavailable"));
-	if (args.stamp) {
-		const head = await git(codeRoot, ["rev-parse", "HEAD"]);
-		if (!head.ok) console.log(`\nstamp: cannot read HEAD of ${codeRoot}: ${head.out}`);
-		else {
-			let wrote = false;
-			const raw = readJson(manifestFile) as { models: { id: string; syncCommit?: string | null }[] };
-			for (const result of results) {
-				const model = models.find(candidate => candidate.id === result.id) as ModelEntry;
-				const clean = result.checks.every(check => check.verdict === "pass" || check.verdict === "skipped");
-				const dirty = await hasUncommitted(codeRoot, model.covers);
-				if (!clean) console.log(`\nstamp: ${result.id} not stamped (a check did not pass)`);
-				else if (dirty)
-					console.log(
-						`\nstamp: ${result.id} not stamped (covered files have uncommitted changes: commit them first)`,
-					);
-				else {
-					const entry = raw.models.find(candidate => candidate.id === result.id);
-					if (entry) {
-						const drift = result.checks.find(check => check.name === "drift");
-						if (drift?.note?.startsWith("DRIFT")) {
-							console.log(
-								`\nstamp: NOTE ${result.id}: covered files changed since its old syncCommit. Stamping says you checked the model against them: do that first (references/persist.md, steps 3 and 4).`,
-							);
-						}
-						entry.syncCommit = head.out;
-						wrote = true;
-						console.log(`\nstamp: ${result.id} syncCommit = ${head.out.slice(0, 10)}`);
-					}
-				}
-			}
-			if (wrote) fs.writeFileSync(manifestFile, `${JSON.stringify(raw, null, "\t")}\n`);
-		}
-	}
+	if (args.stamp) await stampModels(codeRoot, manifestFile, models, results, args.allowDirty);
 	console.log("");
 	for (const result of results) {
 		const bad = result.checks.filter(check => check.verdict === "fail" || check.verdict === "unavailable");

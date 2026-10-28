@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { parseCfg } from "./cfg";
+import { isolateProperties, parseCfg } from "./cfg";
 import { checkLean } from "./lean-trust";
 import type { Checker, CheckerSpec, CheckOutcome } from "./mutate-core";
 import { run, Unavailable } from "./proc";
@@ -35,13 +35,21 @@ function tlcChecker(spec: Extract<CheckerSpec, { kind: "tlc" }>): Checker {
 			throw error;
 		}
 		const configName = mutation?.config ?? spec.config ?? `${path.basename(model, ".tla")}.cfg`;
-		const config = path.join(path.dirname(model), configName);
+		let config = path.join(path.dirname(model), configName);
 		if (!fs.existsSync(config)) return { status: "error", violated: [], detail: `config not found: ${configName}` };
+		if (mutation?.isolate) {
+			// The model's folder is this mutation's own scratch copy: the derived config can live beside the model.
+			const derived = path.join(path.dirname(model), `__isolated-${path.basename(configName)}`);
+			fs.writeFileSync(derived, isolateProperties(fs.readFileSync(config, "utf8"), mutation.breaks));
+			config = derived;
+		}
+		const deadlock = mutation?.deadlock ?? spec.deadlock;
 		const tlcRun = await runTlc({
 			tla,
 			spec: model,
 			config,
 			workers: spec.workers,
+			deadlock: deadlock === false ? false : undefined,
 			timeoutMs: (spec.timeoutSec ?? 180) * 1000,
 		});
 		if (tlcRun.spawnError)

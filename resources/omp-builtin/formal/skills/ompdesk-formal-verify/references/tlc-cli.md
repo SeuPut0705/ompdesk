@@ -13,7 +13,7 @@ Nothing is installed with OMPdesk. `tlc.ts` prepares what it needs on first use 
 
 | Piece | What it is |
 |---|---|
-| `tla2tools.jar` 1.8.0 | TLC, SANY, PlusCal translator, REPL. Pinned by SHA-256 in `assets/toolchain.json` |
+| `tla2tools.jar`, release 1.8.0 | TLC, SANY, PlusCal translator, REPL. Pinned by SHA-256 in `assets/toolchain.json`. The pin is the release tag; the jar's own banner reads `TLC2 Version 2026.10.28.<build>` (the release asset is rebuilt), and `tlc.ts` prints the banner version of the run it just made. Quote that version, not the tag, in a report |
 | `CommunityModules-deps.jar` | `Json`, `IOUtils` and friends (trace validation needs them); same pin file |
 | Java | The first working `java` of version 11 or newer on the machine (a macOS `/usr/bin/java` stub is probed with `java -version`). Only when none exists, a portable Temurin 21 JRE is downloaded into the cache |
 
@@ -54,11 +54,11 @@ It parses the spec with SANY, runs TLC with `-noTE -nowarning -XX:+UseParallelGC
 | `--workers N\|auto` | TLC worker threads (default 1). Use `auto` for big models; liveness checks gain less |
 | `--no-deadlock` | Do not check for deadlock (adds `-deadlock`, TLC's confusingly named flag). Prefer an explicit `Terminated` disjunct |
 | `--coverage` | Per-action coverage: actions that were never enabled are listed as a warning (a guard that is never true, dead code in the model) |
-| `--sany-only` | Parse and level-check only. The fast inner loop while writing a spec |
+| `--sany-only` | The fast inner loop while writing a spec: SANY (parse, level-check), then TLC loads the model for one simulated step of depth 1 with the config (`<Spec>.cfg`, or the first run of `--matrix`). SANY alone passes specs TLC rejects (`-1` without `EXTENDS Integers`); the load check fails those too. No config: only SANY runs, and the output says so |
 | `--out DIR` | Keep TLC's full output in `DIR` (one `<Spec>-<config>.log` per run) |
-| `--json FILE` | Write the structured result (outcome, violated property, statistics, the reduced trace rows) for `findings.json` and `report.ts` |
+| `--json FILE` | Write the structured result (outcome, violated property, statistics, `tlcVersion`). `trace` is already in the shape of a finding's `trace[]` (`step`, `action`, `code`, `changed` as `"from -> to"`, `violation`): paste it as it is. `rows` holds the same states as `tlc.ts` prints them (`n`, `code` list, `{from, to}`); `report.ts` accepts those too |
 | `--code-root DIR` | Root for `@code` paths. Default: the nearest ancestor folder with `.git`, else the spec's folder |
-| `--timeout SEC` | Stop TLC after this long. The run ends as "timed out (no verdict)": a failed check, never a pass |
+| `--timeout SEC` | Stop TLC after this long (default 600 s, 10 minutes; `0` = no limit; a matrix run may set `timeoutSec`). The run ends as "timed out (no verdict)" and says which limit stopped it: a failed check, never a pass. While TLC runs, `tlc.ts` prints each `Progress(...)` line TLC emits (a run shorter than 10 s prints none) and a "still running" line after 30 s of silence |
 | `--trace` | In a matrix, also print the trace of runs that were expected to fail and did (normally only mismatches print one) |
 | `--from-log FILE` | Explain a saved or pasted TLC output without running TLC (workflow "explain a trace"). Add `--spec Spec.tla` so the `@code` tags resolve; no other positional argument is needed |
 | `-- ...` | Everything after `--` goes to TLC unchanged, e.g. `-- -simulate num=200000 -depth 60` |
@@ -131,7 +131,7 @@ Run it: `bun <skill-dir>/scripts/tlc.ts Spec.tla --matrix matrix.json`.
 
 ## Raw TLC and SANY
 
-Checked against tla2tools 1.8.0. Everything below is what `tlc.ts` runs; use it directly only when you
+Checked against tla2tools release 1.8.0 (TLC2 Version 2026.10.28). Everything below is what `tlc.ts` runs; use it directly only when you
 need a flag the wrapper lacks (then prefer `-- extra args`) or when you read someone else's log.
 
 ```
@@ -176,7 +176,7 @@ safety only) · `CONSTRAINT` (state constraint that prunes exploration; report i
 
 ### Raw TLC exit codes
 
-The first five are the ones to rely on. The rest were observed with tla2tools 1.8.0 on small throwaway specs
+The first five are the ones to rely on. The rest were observed with tla2tools release 1.8.0 on small throwaway specs
 (an `Assert` that fails, an action that leaves a variable unspecified, a type error, a syntax error, a missing
 config, an unknown `SPECIFICATION` name).
 

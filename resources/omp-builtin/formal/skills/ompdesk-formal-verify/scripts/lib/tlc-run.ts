@@ -22,6 +22,8 @@ export interface TlcRunOptions {
 	timeoutMs?: number;
 	/** Keep `tlc.log` here. */
 	outDir?: string;
+	/** Called with each `Progress(...)` line TLC prints while it runs (about one a minute). */
+	onProgress?: (line: string) => void;
 }
 
 export interface TlcRun {
@@ -78,7 +80,16 @@ export async function runTlc(options: TlcRunOptions): Promise<TlcRun> {
 			...(options.extraArgs ?? []),
 			path.basename(specPath),
 		];
-		const result = await run(options.tla.java, args, { cwd: specDir, timeoutMs: options.timeoutMs });
+		let pending = "";
+		const onData = options.onProgress
+			? (chunk: string): void => {
+					pending += chunk;
+					const lines = pending.split(/\r?\n/);
+					pending = lines.pop() ?? "";
+					for (const line of lines) if (/^Progress\(/.test(line)) options.onProgress?.(line);
+				}
+			: undefined;
+		const result = await run(options.tla.java, args, { cwd: specDir, timeoutMs: options.timeoutMs, onData });
 		const text = `${result.stdout}${result.stderr}`;
 		let logPath: string | undefined;
 		if (options.outDir) {

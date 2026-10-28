@@ -8,7 +8,7 @@ A counterexample is a claim about the code. Reproduce it before believing it. Th
 
 - TLC's default breadth-first search returns a shortest trace. With simulation or depth-first search, re-run breadth-first at the depth where it failed, or shrink the constants (fewer workers or keys).
 - `tlc.ts` already drops the variables that did not change. Drop stuttering and irrelevant actors as well: which steps change variables the violated property reads?
-- Save the structured trace for the findings file: `bun <skill-dir>/scripts/tlc.ts <spec> --config <cfg> --json formal/<concern>/evidence/<name>.json` (`<skill-dir>` is the folder of SKILL.md). Its rows carry the action, the `@code` location and the changed variables, and map straight to `trace[]` in `findings.json`.
+- Save the structured trace for the findings file: `bun <skill-dir>/scripts/tlc.ts <spec> --config <cfg> --json formal/<concern>/evidence/<name>.json` (`<skill-dir>` is the folder of SKILL.md). Its `trace` is already in the shape of a finding's `trace[]` (`step`, `action`, `code`, `changed` as `"from -> to"`, `violation`), so paste it into the finding as it is. When the model's action takes a tuple through `\E x \in set : A(x)`, TLC may name the wrapper, and the `code` column then shows the tagged actions it calls: if a row's `code` is empty or looks wrong, pass a scalar to the action or tag the wrapper.
 - Write the story in domain terms, one line per step, with the `@code` location of each step.
 
 ## 2. Force the interleaving in real code
@@ -32,6 +32,8 @@ Put the gate at the exact boundary the model treats as the action boundary, whic
 The test asserts the property the model violated (for example "cache equals DB at rest"), not incidental details. Name it after the finding: `test_F1_stale_cache_after_concurrent_invalidate`. Run it against the unchanged code and save the failing log in `formal/<concern>/evidence/` before you fix anything. It must fail on the property assertion, not on a missing function or a changed signature.
 
 Honor the user's stated deliverable. If they said "no more unit tests", keep the reproduction in `formal/<concern>/repro/` as a script and do not touch their suite.
+
+**A reproduction that stays in the suite until the fix lands makes CI red.** When the finding is reported and not fixed yet (the usual end of a verification-only task), mark the reproduction as an expected failure instead of leaving it failing: `it.fails("REPRODUCTION F1: ...", ...)` in vitest and Jest (`test.failing` in Jest 29+), `@pytest.mark.xfail(strict=True, reason="F1")` in pytest, `#[should_panic]` in Rust, `t.Skip("F1: reproduced in formal/<concern>/repro, remove when fixed")` in Go, which has no expected-failure marker. A strict marker turns red again the moment the code is fixed (the test passes unexpectedly), and that is the signal to flip it: remove `it.fails`, so the test passes as a regression test, and move the finding to `fixed`. Name the test after the finding (`REPRODUCTION ... F1`), keep a `control` test that does everything but the interleaving and passes, and record the marker in the finding's `reproduction.test` text. Say in the hand-off that the suite is green only because the reproductions are marked.
 
 ## 3. Verdicts
 

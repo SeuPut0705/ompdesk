@@ -56,6 +56,8 @@ export interface DefinitionTags {
 	line: number;
 	/** Tags directly above the definition or inside its body. */
 	tags: CodeTag[];
+	/** Names of other top-level definitions the body mentions (comments stripped): the callees. */
+	calls?: string[];
 }
 
 const DEFINITION = /^([A-Za-z_]\w*)\s*(?:\([^)]*\))?\s*==/;
@@ -82,24 +84,50 @@ export function indexDefinitions(source: string): DefinitionTags[] {
 	});
 	defs.forEach((def, i) => {
 		const end = i + 1 < defs.length ? (blockStart[i + 1] as number) - 1 : lines.length;
+		const body: string[] = [];
 		for (let at = def.line; at <= end; at++) {
 			const tag = parseTagLine(lines[at - 1] as string, at);
 			if (tag && !def.tags.some(known => known.line === tag.line)) def.tags.push(tag);
+			body.push((lines[at - 1] as string).replace(/\\\*.*$/, "").replace(/\(\*.*?\*\)/g, " "));
 		}
+		const names = new Set(defs.map(other => other.name));
+		const words = new Set(body.join("\n").replace(DEFINITION, " ").match(/[A-Za-z_]\w*/g) ?? []);
+		def.calls = [...words].filter(word => word !== def.name && names.has(word));
 	});
 	return defs;
 }
 
-/** Tags for the definition named `name`, else for the one that starts at or encloses `line`. */
+/**
+ * Tags for the definition named `name`, else for the one that starts at or encloses `line`, else (the action is a
+ * wrapper such as `ResumeStep == \\E p \\in Pairs : Step(p)` that TLC names instead of `Step`) the tags of the tagged
+ * definitions it calls, nearest first, at most three calls deep. A wrapper that calls several tagged actions yields
+ * all of their tags: tag the wrapper itself to be exact.
+ */
 export function tagsFor(defs: DefinitionTags[], name: string | undefined, line: number | undefined): CodeTag[] {
-	if (name) {
-		const named = defs.find(def => def.name === name);
-		if (named?.tags.length) return named.tags;
-	}
+	const named = name ? defs.find(def => def.name === name) : undefined;
+	if (named?.tags.length) return named.tags;
+	let enclosing: DefinitionTags | undefined;
 	if (line !== undefined) {
-		let enclosing: DefinitionTags | undefined;
 		for (const def of defs) if (def.line <= line) enclosing = def;
 		if (enclosing?.tags.length) return enclosing.tags;
+	}
+	const start = named ?? enclosing;
+	if (!start) return [];
+	const seen = new Set<string>([start.name]);
+	let frontier = [start];
+	for (let depth = 0; depth < 3 && frontier.length > 0; depth++) {
+		const next: DefinitionTags[] = [];
+		for (const def of frontier) {
+			for (const callee of def.calls ?? []) {
+				if (seen.has(callee)) continue;
+				seen.add(callee);
+				const found = defs.find(candidate => candidate.name === callee);
+				if (found) next.push(found);
+			}
+		}
+		const tags = next.flatMap(def => def.tags);
+		if (tags.length > 0) return tags;
+		frontier = next;
 	}
 	return [];
 }
