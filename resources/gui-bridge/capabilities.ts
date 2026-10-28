@@ -81,6 +81,7 @@ export const FEATURES = {
 	advisorStats: "Advisor spend and advisories (Run popover, Insights)",
 	todoReminder: "A refused todo call's reminder reaches its own turn, and the turn then reads finished",
 	todoStale: "A todo list left from earlier work is named to the agent when a new request starts a turn",
+	turnStages: "Turn stages recorded when a turn waits long for the model or ends without output (gui-runtime.jsonl)",
 } as const;
 
 export type FeatureId = keyof typeof FEATURES;
@@ -518,6 +519,14 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		modules: {
 			[`${AGENT}/tools/todo`]: ["getLatestTodoPhasesFromEntries()", "getLatestTodoSnapshotIdentity()"],
 		},
+	},
+	/**
+	 * turn-stages.ts: the main session's `subscribe` and live `model`/`isStreaming`, and the instance method
+	 * `extensionRunner.emitBeforeAgentStart` wrapped once to time every extension's before_agent_start handlers.
+	 * Imports nothing from omp.
+	 */
+	turnStages: {
+		session: ["subscribe()", "model", "isStreaming", "extensionRunner.emitBeforeAgentStart()"],
 	},
 	/**
 	 * desktop-slot.ts: patches stock's `ComputerSupervisor.prototype.run` (a read-only run passes, an acting run waits

@@ -21,6 +21,7 @@
  */
 import { readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { noteSlowSpot } from "../turn-stages-core";
 import { type JournalEntry, lastStateEntry } from "./autopilot-core";
 import { type JudgeSession, recallRelevance } from "./judge-assist-engine";
 import {
@@ -219,6 +220,8 @@ export function install(pi: RecallHost): void {
 			const error = failure instanceof Error ? failure.message : String(failure);
 			pi.logger.debug("gui-bridge: memory recall failed", { ms: Date.now() - started, error });
 			return undefined;
+		} finally {
+			noteSlowSpot("memoryRecallMs", Date.now() - started);
 		}
 	});
 }

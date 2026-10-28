@@ -32,6 +32,7 @@ import type { SessionKindStore } from "./session-kinds";
 import { shellSpawnEnv } from "./shell-env";
 import { SidecarManager } from "./sidecar";
 import { markStartup } from "./startup-timing";
+import { turnStagesReport } from "./turn-stages-log";
 
 export interface LocalSidecarDeps {
 	/** Waits until no other live omp owns a stored session a start opens (session-free.ts). */
@@ -280,6 +281,11 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 		// The bridge's `checkout_files` frame (a new changed file) only wakes main's shared-checkout pass.
 		sc.on("frame", (frame: Record<string, unknown>) => {
 			if (frame.type === CHECKOUT_FILES_EVENT) deps.checkoutFiles?.(sc);
+		});
+		// The bridge's `turn_stages` frame (a model call that waited long or ended with no output) is one runtime-log line.
+		sc.on("frame", (frame: Record<string, unknown>) => {
+			const report = turnStagesReport(frame);
+			if (report) writeRuntimeLog(report, { cwd });
 		});
 		// omp has no session kind; remember which sessions chat tabs created.
 		if (kind === "chat") sc.on("session", ({ sessionId }) => sessionId && sessionKinds.markChat(sessionId));

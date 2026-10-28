@@ -580,6 +580,12 @@ export type RuntimeErrorSource =
 	| "goal-time-limit"
 	/** A bridge call that was slow or timed out (src/main/local/slow-bridge-call.ts): `details` is where the time went. */
 	| "slow-bridge-call"
+	/**
+	 * A model call that waited long for its first output, or ended aborted or errored with none (the bridge's
+	 * turn-stages.ts through src/main/turn-stages-log.ts): `message` says where the wait went, `details` is each stage's
+	 * ms since the prompt (`at.<stage>`), the last stage reached and whether a provider request was sent.
+	 */
+	| "turn-stages"
 	| "unknown";
 
 /** Bounded, serializable renderer/main failure payload written as JSONL. */

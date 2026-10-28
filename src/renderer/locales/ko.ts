@@ -4382,6 +4382,7 @@ export const ko: Record<string, string> = {
 	"bridgeHealth.feature.advisorStats": "어드바이저 비용과 조언(실행 팝오버, 인사이트)",
 	"bridgeHealth.feature.todoReminder": "거부된 할 일 호출의 알림을 같은 턴에 전달해 턴이 끝난 것으로 보이게",
 	"bridgeHealth.feature.todoStale": "새 요청이 오면 지난 작업의 할 일 목록을 에이전트에게 알려 주기",
+	"bridgeHealth.feature.turnStages": "모델 응답이 오래 걸리거나 출력 없이 끝난 턴의 단계 기록",
 	"bridgeHealth.feature.visuals": "다이어그램 지침(Mermaid, SVG)",
 	"bridgeHealth.feature.phoneImages": "휴대폰 사진(HEIC) 모델용 변환",
 	"bridgeHealth.feature.sessionOwner": "다른 omp가 놓은 뒤에만 세션 열기",

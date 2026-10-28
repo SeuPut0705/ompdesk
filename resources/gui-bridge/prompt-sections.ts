@@ -13,6 +13,8 @@
  *
  * No omp imports (not even types): the GUI's vitest installs it on a fake `pi`.
  */
+import { noteSlowSpot } from "./turn-stages-core";
+
 /** One journal entry as a section reads it. */
 export interface JournalEntry {
 	type?: unknown;
@@ -52,7 +54,10 @@ export function appendIfMissing(parts: readonly string[], instruction: string | 
 export function registerPromptSection(host: PromptSectionHost, id: string, section: PromptSection): void {
 	sections.set(id, section);
 	host.on("before_agent_start", (event, ctx) => {
-		const next = appendIfMissing(event.systemPrompt, section(ctx));
+		const started = performance.now();
+		const instruction = section(ctx);
+		if (ctx.agent.kind === "main") noteSlowSpot("sectionsMs", performance.now() - started);
+		const next = appendIfMissing(event.systemPrompt, instruction);
 		return next === event.systemPrompt ? undefined : { systemPrompt: [...next] };
 	});
 }
