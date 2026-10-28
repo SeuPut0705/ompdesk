@@ -11,7 +11,7 @@
 // `rows` is accepted and converted.
 //
 // Show a page with OMPdesk's `gui_visualize` tool (Preview panel) when that tool exists; otherwise name the path.
-// Exit: 0 written, 2 usage or a findings file invalid.
+// Exit: 0 written, 2 usage, a findings file invalid, or assets/findings.schema.json unreadable.
 import fs from "node:fs";
 import path from "node:path";
 import { concernDocuments, normalizeFindings } from "./lib/findings";
@@ -89,7 +89,14 @@ export function main(argv: string[]): number {
 			files.push(...inside);
 		} else files.push(resolved);
 	}
-	const schema = readJson(path.join(skillDir(), "assets", "findings.schema.json"));
+	const schemaFile = path.join(skillDir(), "assets", "findings.schema.json");
+	let schema: unknown;
+	try {
+		schema = readJson(schemaFile);
+	} catch (error) {
+		console.error(`cannot read ${schemaFile}: ${error instanceof Error ? error.message : String(error)}`);
+		return EXIT.usage;
+	}
 	const pages: { file: string; concern: string; data: Record<string, unknown>; source: string }[] = [];
 	for (const file of files) {
 		let raw: unknown;

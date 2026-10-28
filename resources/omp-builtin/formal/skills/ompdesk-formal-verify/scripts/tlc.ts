@@ -3,7 +3,7 @@
 // violation, deadlock or liveness failure the counterexample reduced to the variables that changed, with every
 // step tied to code through `\* @code path:line` comments next to the actions in the spec.
 //
-//   bun tlc.ts <spec.tla> [--config X.cfg] [--matrix matrix.json] [--workers N|auto] [--no-deadlock]
+//   bun tlc.ts <spec.tla> [--config X.cfg] [--matrix matrix.json] [--workers N|auto] [--jobs N] [--no-deadlock]
 //              [--coverage] [--sany-only] [--out DIR] [--json FILE] [--code-root DIR] [--timeout SEC]
 //              [--trace] [-- extra TLC args]
 //   bun tlc.ts --from-log <tlc-output.txt> [--spec Spec.tla] [--json FILE]    (explain a saved TLC output)
@@ -11,13 +11,19 @@
 // A run without --timeout stops after DEFAULT_TIMEOUT_SEC (10 minutes) with "timed out (no verdict)"; --timeout 0 means
 // no limit. While TLC runs, its `Progress(...)` lines and a "still running" line are printed.
 //
-// Exit: 0 PASS (every matrix run ended as expected), 1 a check ran and failed, 2 usage, 3 UNAVAILABLE.
+// Every TLC run is single-worker unless --workers says otherwise (so a counterexample is the shortest and the same each
+// time). The runs of a matrix are independent and run in parallel processes, `--jobs N` at a time (default: half the
+// cores, or OMPDESK_FORMAL_JOBS); their results are printed in matrix order.
+//
+// Exit: 0 PASS (every matrix run ended as expected), 1 a check ran and failed, 2 usage or a spec/config that does not
+// parse, 3 UNAVAILABLE.
 import fs from "node:fs";
 import path from "node:path";
 import { checkTags, extractTags, findCodeRoot, type TagProblem } from "./lib/code-tags";
 import { type FindingsTraceRow, toFindingsTrace } from "./lib/findings";
 import { readJson } from "./lib/json";
 import { judge, type MatrixRun, matrixWarnings, parseMatrix } from "./lib/matrix";
+import { defaultJobs, poolPromises } from "./lib/pool";
 import { EXIT, Unavailable, UsageError } from "./lib/proc";
 import { prepareTla, type TlaEnv } from "./lib/tla-env";
 import {
@@ -29,7 +35,7 @@ import {
 	type TlcResult,
 	type TraceRow,
 } from "./lib/tlc-parse";
-import { deadActions, definitionLoader, runSany, runTlc } from "./lib/tlc-run";
+import { deadActions, definitionLoader, runSany, runTlc, type TlcRun } from "./lib/tlc-run";
 
 /** A run with no `--timeout` ends after this long: an unbounded run looks like a hang and nobody can tell which. */
 export const DEFAULT_TIMEOUT_SEC = 600;
@@ -41,6 +47,7 @@ export interface Args {
 	config?: string;
 	matrix?: string;
 	workers?: string;
+	jobs?: number;
 	noDeadlock: boolean;
 	coverage: boolean;
 	sanyOnly: boolean;
@@ -54,7 +61,7 @@ export interface Args {
 }
 
 const USAGE = [
-	"usage: bun tlc.ts <spec.tla> [--config X.cfg] [--matrix file.json] [--workers N|auto] [--no-deadlock]",
+	"usage: bun tlc.ts <spec.tla> [--config X.cfg] [--matrix file.json] [--workers N|auto] [--jobs N] [--no-deadlock]",
 	"                   [--coverage] [--sany-only] [--out DIR] [--json FILE] [--code-root DIR] [--timeout SEC]",
 	"                   [--trace] [-- extra TLC args]",
 	"       bun tlc.ts --from-log <tlc-output.txt> [--spec Spec.tla] [--json FILE]",
@@ -76,7 +83,11 @@ export function parseArgs(argv: string[]): Args {
 		if (arg === "--config") args.config = value(i++, arg);
 		else if (arg === "--matrix") args.matrix = value(i++, arg);
 		else if (arg === "--workers") args.workers = value(i++, arg);
-		else if (arg === "--out") args.out = value(i++, arg);
+		else if (arg === "--jobs") {
+			const jobs = Number(value(i++, arg));
+			if (!Number.isInteger(jobs) || jobs < 1) throw new UsageError("--jobs takes a positive integer");
+			args.jobs = jobs;
+		} else if (arg === "--out") args.out = value(i++, arg);
 		else if (arg === "--json") args.json = value(i++, arg);
 		else if (arg === "--code-root") args.codeRoot = value(i++, arg);
 		else if (arg === "--from-log") args.fromLog = value(i++, arg);
@@ -118,6 +129,8 @@ interface RunReport {
 	rows: TraceRow[];
 	lasso?: TlcResult["lasso"];
 	message?: string;
+	/** TLC's `Warning:` lines. */
+	warnings: string[];
 	tlcVersion?: string;
 	logPath?: string;
 	deadActions?: string[];
@@ -134,6 +147,7 @@ function reportOf(result: TlcResult, rows: TraceRow[], extra: Partial<RunReport>
 		...(result.tlcVersion ? { tlcVersion: result.tlcVersion } : {}),
 		...(result.lasso ? { lasso: result.lasso } : {}),
 		...(result.message ? { message: result.message } : {}),
+		warnings: result.warnings,
 	};
 }
 
@@ -150,8 +164,20 @@ function printFailure(result: TlcResult, rows: TraceRow[], text: string): void {
 		result.outcome === "temporal" ||
 		result.outcome === "deadlock" ||
 		result.outcome === "assert";
+	if (result.outcome === "unsound") {
+		console.log("  TLC found no counterexample, but its own warning says that is not what the config asks for.");
+		console.log(
+			"  This is a failure, not a pass: fix the config (INVARIANT for a state predicate, no SYMMETRY with liveness).",
+		);
+		if (result.message) console.log(`  ${result.message}`);
+		return;
+	}
 	if (!verdict) {
-		console.log("  No verdict about the model: TLC did not finish checking it.");
+		console.log(
+			result.outcome === "parse-error"
+				? "  The spec or the config could not be loaded, so nothing was checked."
+				: "  No verdict about the model: TLC did not finish checking it.",
+		);
 		if (result.message) console.log(`  ${result.message}`);
 	}
 	if (rows.length > 0) {
@@ -189,31 +215,34 @@ async function explainLog(args: Args): Promise<number> {
 }
 
 /**
- * SANY alone accepts what TLC then rejects: an operator from a module the spec did not EXTEND (`-1` without
- * `EXTENDS Integers`, `\\div`, `Len`) parses, and TLC fails while it loads the module ("Could not find declaration or
- * definition of symbol '-.'"). So after SANY this also starts TLC for one simulated step of depth 1: it loads the
- * module exactly as a real run does, and a rejection fails here too. A config is needed for that; without one the
- * result says the TLC load check did not run.
+ * SANY with `-error-codes` (parse and level-check, a semantic error such as an unresolved `-1` without
+ * `EXTENDS Integers` included), then, when a config exists, TLC for one simulated step of depth 1: it loads the
+ * config as a real run does and rejects an INVARIANT, PROPERTY or CONSTANT the spec does not define. A spec SANY
+ * rejects or TLC cannot load exits 2 (bad input), like a parse error in a normal run.
  */
 async function sanyOnly(tla: TlaEnv, spec: string, specDir: string, run: MatrixRun | undefined): Promise<number> {
 	const name = path.basename(spec);
 	const sany = await runSany(tla, spec);
+	if (sany.spawnError) {
+		console.log(`UNAVAILABLE  java could not be started: ${sany.spawnError}`);
+		return EXIT.unavailable;
+	}
 	if (sany.code !== 0) {
 		console.log(`FAIL  SANY found errors: ${name}`);
 		console.log(
 			sany.text
 				.split(/\r?\n/)
-				.filter(line => !/^(Parsing file|Semantic processing)/.test(line) && line.trim())
+				.filter(line => !/^(Parsing file|Semantic processing|Linting of)/.test(line) && line.trim())
 				.slice(0, 40)
 				.join("\n"),
 		);
-		return EXIT.failed;
+		return EXIT.usage;
 	}
 	const config = path.resolve(specDir, run?.config ?? `${path.basename(spec, ".tla")}.cfg`);
 	if (!fs.existsSync(config)) {
 		console.log(`PASS  SANY parsed and level-checked: ${name}`);
 		console.log(
-			"WARN  no config, so TLC's own load check did not run: SANY does not catch an operator whose module is not EXTENDed (`-1` needs Integers). Add a config and rerun.",
+			"WARN  no config, so TLC's own load check did not run: the config's INVARIANT, PROPERTY and CONSTANT names were not checked against the spec. Add a config and rerun.",
 		);
 		return EXIT.ok;
 	}
@@ -233,10 +262,12 @@ async function sanyOnly(tla: TlaEnv, spec: string, specDir: string, run: MatrixR
 	}
 	const { outcome } = load.result;
 	if (outcome === "parse-error" || outcome === "error") {
-		console.log(`FAIL  SANY passed but TLC rejects the spec: ${name}`);
+		console.log(`FAIL  SANY passed but TLC rejects the spec or its config: ${name}`);
 		console.log(`  ${load.result.message ?? load.result.errors[0] ?? "TLC could not load the model"}`);
-		console.log("  (a missing EXTENDS Integers/Sequences/FiniteSets is the usual cause: references/tla-pitfalls.md)");
-		return EXIT.failed;
+		console.log(
+			"  (usually the config names an INVARIANT, PROPERTY or CONSTANT the spec does not define: references/tlc-cli.md)",
+		);
+		return outcome === "parse-error" ? EXIT.usage : EXIT.failed;
 	}
 	console.log(`PASS  SANY parsed and level-checked, and TLC loads the model: ${name}`);
 	if (outcome === "timeout") console.log("WARN  the TLC load check timed out after 60 s: only SANY's verdict stands");
@@ -313,15 +344,21 @@ export async function main(argv: string[]): Promise<number> {
 	let bannerShown = false;
 	const reports: RunReport[] = [];
 	let bad = 0;
-	for (const run of runs) {
+	let badInput = false;
+	// Independent runs go in parallel processes, each single-worker. A run that asks for several workers
+	// (`--workers auto`) already uses the cores, so those run one after another unless --jobs says otherwise.
+	const wide = runs.some(run => (run.workers ?? args.workers ?? "1") !== "1");
+	const jobs = Math.min(runs.length, args.jobs ?? (wide && !process.env.OMPDESK_FORMAL_JOBS ? 1 : defaultJobs()));
+	const started = poolPromises(runs, jobs, async run => {
 		const runStarted = Date.now();
 		let lastOutput = runStarted;
+		const tag = jobs > 1 ? `[${run.name}] ` : "";
 		const heartbeat = setInterval(() => {
 			if (Date.now() - lastOutput < HEARTBEAT_SEC * 1000) return;
 			lastOutput = Date.now();
 			console.log(`  ... ${run.name} still running (${Math.round((Date.now() - runStarted) / 1000)} s)`);
 		}, 5000);
-		const tlcRun = await runTlc({
+		return runTlc({
 			tla,
 			spec,
 			config: path.resolve(specDir, run.config ?? `${path.basename(spec, ".tla")}.cfg`),
@@ -336,9 +373,13 @@ export async function main(argv: string[]): Promise<number> {
 				// TLC prints one last Progress line when a short run ends: noise unless the run took a while.
 				if (Date.now() - runStarted < 10_000) return;
 				lastOutput = Date.now();
-				console.log(`  ${line}`);
+				console.log(`  ${tag}${line}`);
 			},
 		}).finally(() => clearInterval(heartbeat));
+	});
+	// Results are printed in matrix order, whichever run finishes first.
+	for (const [index, run] of runs.entries()) {
+		const tlcRun = await (started[index] as Promise<TlcRun>);
 		if (tlcRun.spawnError) {
 			console.log(`UNAVAILABLE  java could not be started: ${tlcRun.spawnError}`);
 			return EXIT.unavailable;
@@ -363,8 +404,6 @@ export async function main(argv: string[]): Promise<number> {
 				`${result.outcome === "pass" ? "PASS" : "FAIL"}  ${describeOutcome(result)}  (${stats || "no statistics"}, ${seconds}s)`,
 			);
 			if (result.outcome !== "pass") printFailure(result, rows, tlcRun.text);
-			if (result.outcome === "pass" && result.warnings.length)
-				for (const warning of result.warnings) console.log(`WARN  ${warning}`);
 		} else {
 			const label = judged.ok ? "ok  " : "FAIL";
 			console.log(`${label}  ${run.name}: ${judged.reason}  (${stats || "no statistics"}, ${seconds}s)`);
@@ -372,9 +411,15 @@ export async function main(argv: string[]): Promise<number> {
 				if (result.outcome !== "pass") printFailure(result, rows, tlcRun.text);
 			}
 		}
-		if (dead?.length) console.log(`WARN  actions never enabled (dead code in the model?): ${dead.join(", ")}`);
+		// An unsound verdict already printed the warning that made it unsound.
+		for (const warning of result.warnings) {
+			if (result.outcome !== "unsound" || !result.message?.includes(warning)) console.log(`WARN  ${warning}`);
+		}
+		if (dead?.length)
+			console.log(`WARN  actions never enabled (0 states generated; dead code in the model?): ${dead.join(", ")}`);
 		if (tlcRun.logPath) console.log(`log: ${tlcRun.logPath}`);
 		if (!judged.ok) bad++;
+		if (result.outcome === "parse-error") badInput = true;
 		reports.push(
 			reportOf(result, rows, {
 				name: run.name,
@@ -400,6 +445,8 @@ export async function main(argv: string[]): Promise<number> {
 			`${JSON.stringify(args.matrix ? { spec, runs: reports } : { spec, ...reports[0] }, null, 2)}\n`,
 		);
 	}
+	// A spec or config that does not load is bad input (exit 2), not a failed check.
+	if (badInput) return EXIT.usage;
 	return bad === 0 ? EXIT.ok : EXIT.failed;
 }
 

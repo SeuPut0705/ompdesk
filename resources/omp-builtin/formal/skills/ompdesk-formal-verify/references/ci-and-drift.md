@@ -12,12 +12,14 @@ One script does both: `bun <skill-dir>/scripts/verify-all.ts formal --strict-dri
 
 The scripts are self-contained TypeScript that need only Bun. They fetch the pinned TLC (tla2tools release 1.8.0 and CommunityModules, SHA-256 checked) and a Java runtime only if no working Java exists, or the pinned Lean toolchain, into a cache on first use. A repo that wants CI has two options:
 
-1. **Vendor them (recommended).** Copy the skill's `scripts/` folder and `assets/toolchain.json` into the repo, for example:
+1. **Vendor them (recommended).** Copy the skill's `scripts/` folder and the assets the scripts read (`assets/toolchain.json`, `assets/findings.schema.json` for `report.ts`, `assets/lean-template` for `new-lean.ts`) into the repo, for example:
    ```
    formal/tools/scripts/        (copy of <skill-dir>/scripts, without scripts/statechart unless you use it)
    formal/tools/assets/toolchain.json
+   formal/tools/assets/findings.schema.json
+   formal/tools/assets/lean-template/   (copy of <skill-dir>/assets/lean-template; only for new-lean.ts)
    ```
-   The scripts find the pin file at `../assets/toolchain.json` relative to `scripts/`, so keep that layout. `bun formal/tools/scripts/verify-all.ts formal ...` then runs on any machine with Bun. Re-copy when OMPdesk's skill changes the pins, and review the diff (the pin file holds the download URLs and SHA-256 sums).
+   The scripts find the assets at `../assets/` relative to `scripts/`, so keep that layout. `bun formal/tools/scripts/verify-all.ts formal ...` then runs on any machine with Bun. Re-copy when OMPdesk's skill changes the pins, and review the diff (the pin file holds the download URLs and SHA-256 sums).
 2. **Check the skill out.** Keep a pinned copy of the skill in another repo or a release asset and fetch it in the job. The commands are the same with another path.
 
 Without Bun, TLC can be called directly: the raw commands are in [tlc-cli.md](tlc-cli.md). That route gives up the matrix, the mutations and the drift check.
@@ -40,7 +42,7 @@ bun verify-all.ts formal --tier deep     # every model, fast and deep: scheduled
 bun verify-all.ts formal --only <id>     # one model, whatever its tier
 ```
 
-The first line of the output lists the models it ran and the ones it left for `--tier deep`, so a CI log shows what the PR job did not cover. `--stamp` stamps only the models that ran. A `matrix` run that needs more than ten minutes sets `timeoutSec` (the default stops a run at 600 s as "timed out (no verdict)"; `tlc.ts` prints TLC's progress meanwhile).
+The first line of the output lists the models it ran and the ones it left for `--tier deep`, so a CI log shows what the PR job did not cover. `--stamp` stamps only the models that ran. A `matrix` run that needs more than ten minutes sets `timeoutSec` (the default stops a run at 600 s as "timed out (no verdict)"; `tlc.ts` prints TLC's progress meanwhile). A matrix run marked `"tier": "deep"` is skipped by `--tier fast` inside a fast model, so a model keeps its quick runs in the inner loop and runs the long one in the scheduled job.
 
 ```json
 { "id": "job-lease", "kind": "tla", "dir": "job-lease/tla", "spec": "JobLease.tla", "matrix": "matrix.json", "mutations": "mutations.json", "covers": ["src/worker.ts"], "syncCommit": "<sha>" },
@@ -109,7 +111,7 @@ jobs:
         run: bun formal/tools/scripts/verify-all.ts formal --only ${{ matrix.model }} --strict-drift
 ```
 
-The Lean toolchain is a 0.9 GB download and about 3 GB on disk (about 4 GB at the peak while it unpacks), so cache it. The job fails on `sorry`, `admit`, user axioms, `native_decide`, or any theorem whose axioms go beyond `propext`, `Classical.choice` and `Quot.sound` (the audit of `lean-check.ts`).
+The Lean toolchain is a 0.9 GB download and about 3 GB on disk (about 4 GB at the peak while it unpacks), so cache it. The job fails on `sorry`, `admit`, user axioms, `#exit`, `debug.skipKernelTC`, `native_decide`, or any theorem whose axioms go beyond `propext`, `Classical.choice` and `Quot.sound` (the audit of `lean-check.ts`). The audit also re-checks the build with the toolchain's `leanchecker` (the kernel), covers every module of the project's libs (not only what the root imports), and fails when it audited zero declarations; `--allow-native` makes `implemented_by` and `extern` blocking.
 
 ## GitHub Actions: deep tier (nightly)
 
@@ -144,7 +146,7 @@ Drift has two layers.
 **Mechanical (`verify-all.ts`, runs on every PR).**
 - Every `@code path:lines` tag of every model is resolved. The run fails if the file is missing or the line range runs past the end of the file. This catches moved and deleted code.
 - The covered code is compared with the model's `syncCommit`, committed or not: whole files by `git diff --name-only`, a covered function (`file#name`) by its text then and now, a line range (`file:a-b`) by the diff hunks that touch it (`persist.md`). Without `--strict-drift` the run prints each changed entry and a `DRIFT  <id>: drift - DRIFT: ...` line (never `ok`) but still passes: it is a prompt to look. With `--strict-drift` it fails: the PR author must update the model, confirm it describes the new code, and move the stamp (`verify-all.ts formal --only <id> --stamp`), or explicitly waive it ([persist.md](persist.md#the-sync-commit)). A model with covered files and no `syncCommit` yet fails under `--strict-drift` and is skipped otherwise.
-- A `syncCommit` that is not a commit of the checked-out repository fails the drift check in both modes. Use a full clone (`fetch-depth: 0`). A squash or rebase merge removes the stamped commit from the main branch, so after such a merge re-stamp on the main branch in a follow-up commit (the `--stamp` rule: only after confirming the model describes the code at that commit), or merge with merge commits.
+- A `syncCommit` that is not a commit of the checked-out repository fails the drift check, and on a shallow clone it says "shallow clone: fetch with depth 0" (`fetch-depth: 0`). After a squash or rebase merge removed the stamped commit, re-stamp on the main branch: `verify-all.ts --stamp` stamps over such a `syncCommit` and prints a NOTE (stamping says you checked the model against the covered code as it is now).
 
 **Semantic (needs more than a diff).** The code at the same lines can start doing something else while every tag still resolves. Use one of:
 - **Review.** The drift loop in [persist.md](persist.md#b-maintain-the-verification-the-drift-loop): read every change to covered code against the model.

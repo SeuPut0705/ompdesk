@@ -10,17 +10,25 @@ export const readText = file => lf(fs.readFileSync(file, "utf8"));
 
 /**
  * Renames `from` to `to`, and returns false instead of throwing for an error code in `missed`. Windows refuses a
- * rename onto an existing folder with EPERM (Bun and Node alike), so EPERM counts as EEXIST while `to` exists;
- * on a free target it is a real permission error and throws.
+ * rename onto an existing folder with EPERM (Bun and Node alike), so EPERM counts as EEXIST while `to` exists.
+ * The existence check is a separate call: another run can move `to` away between the refusal and the check, and
+ * then the rename is tried once more, because a second run's folder is what refused it. EPERM on a target that is
+ * still free after that is a real permission error and throws.
  */
 export const moved = (from, to, ...missed) => {
-	try {
-		fs.renameSync(from, to);
-		return true;
-	} catch (e) {
-		if (missed.includes(e.code)) return false;
-		if (e.code === "EPERM" && missed.includes("EEXIST") && fs.existsSync(to)) return false;
-		if (!["ENOSYS", "EXDEV", "EISDIR"].includes(e.code)) throw e;
+	for (let retried = false; ; retried = true) {
+		try {
+			fs.renameSync(from, to);
+			return true;
+		} catch (e) {
+			if (missed.includes(e.code)) return false;
+			if (e.code === "EPERM" && missed.includes("EEXIST")) {
+				if (fs.existsSync(to)) return false;
+				if (!retried) continue;
+			}
+			if (!["ENOSYS", "EXDEV", "EISDIR"].includes(e.code)) throw e;
+			break;
+		}
 	}
 	// Some filesystems, such as FUSE mounts, cannot rename a folder that has files. They fail with
 	// ENOSYS, or with EISDIR when the target exists.
@@ -45,6 +53,17 @@ export function findTlc() {
 	if (!fs.existsSync(TLA2TOOLS)) throw new Error(`TLA2TOOLS is ${TLA2TOOLS}, which does not exist.`);
 	return { jar: TLA2TOOLS, java: JAVA || "java" };
 }
+
+/**
+ * java has no encoding flags of its own: under a non-UTF-8 Windows code page it writes Korean (or any non-ASCII
+ * text in a spec) to stdout as `?` and reads the spec with the wrong charset. Every java spawn passes these.
+ */
+export const JAVA_UTF8 = [
+	"-Dfile.encoding=UTF-8",
+	"-Dstdout.encoding=UTF-8",
+	"-Dsun.stdout.encoding=UTF-8",
+	"-Dsun.stderr.encoding=UTF-8",
+];
 
 export function parseValue(text) {
 	const src = text.trim();
@@ -533,10 +552,18 @@ export const escapeMermaidQuotes = s => String(s).replaceAll('"', "#quot;");
 export const LEGEND_ID = "legend";
 export const FULL_LABELS = "%% labels in full";
 
+/**
+ * The lines that carry no state or step. Each is matched whole, because a state id may start with one of these words
+ * (`notePending --> Sent` is a step, not a note).
+ */
+const NOT_A_STATE =
+	/^(?:stateDiagram(?:-v2)?|direction\s+(?:TB|BT|LR|RL)|classDef\s.*|class\s.*|note\s+(?:left|right)\s+of\s.*|acc(?:Title|Descr)\b.*)$/;
+
 export function parseMermaid(text) {
 	const names = new Map();
 	const nevers = [];
 	let last = null;
+	let block = null;
 	const newPart = () => ({ children: [], transitions: [] });
 	const root = { name: "", parts: [newPart()] };
 	const stack = [root];
@@ -560,6 +587,13 @@ export function parseMermaid(text) {
 	const body = text.replace(/^\s*---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(\r?\n|$)/, "");
 	for (const raw of body.split("\n")) {
 		const line = raw.trim().replace(/(\[\*\]|[A-Za-z_]\w*):::[\w-]+/g, "$1");
+		if (block) {
+			if (block === "note" ? /^end\s+note$/.test(line) : line === "}") block = null;
+			last = null;
+			continue;
+		}
+		if (/^note\s+(left|right)\s+of\s+[^:]*$/.test(line)) block = "note";
+		else if (/^accDescr\s*\{$/.test(line)) block = "accDescr";
 		const when = /^%%\s*when\s+(not\s+)?(.+)$/.exec(line);
 		if (when) {
 			if (!last) throw new Error(`a %% when line must come right after a transition: ${line}`);
@@ -579,7 +613,11 @@ export function parseMermaid(text) {
 			});
 			continue;
 		}
-		if (!line || line.startsWith("%%") || /^(stateDiagram|direction|classDef|class |note)/.test(line)) continue;
+		if (/^%%\s*never\b/i.test(line))
+			throw new Error(
+				`cannot read the never line "${line}"; write it as %% never RuleName: StateA & StateB -- sentence, with never in lowercase, a colon after RuleName, and RuleName made of English letters, digits and _ that starts with a letter (it becomes a TLA+ name, so no Korean or -)`,
+			);
+		if (!line || line.startsWith("%%") || NOT_A_STATE.test(line)) continue;
 		let m = /^state\s+"([^"]*)"\s+as\s+([A-Za-z_]\w*)\s*(\{)?\s*$/.exec(line);
 		if (!m) {
 			const plain = /^state\s+([A-Za-z_]\w*)\s*(\{)?\s*$/.exec(line);

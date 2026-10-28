@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import {
 	BROKEN_PROPERTY,
 	findTlc,
+	JAVA_UTF8,
 	joinAnd,
 	lf,
 	moved,
@@ -291,8 +292,23 @@ function script(name, scriptArgs, about, { okExits = [0] } = {}) {
 	});
 	if (r.error) throw new CannotFinish(`cannot run ${name}: ${r.error.message}`);
 	if (okExits.includes(r.status)) return r;
-	const thrown = r.stderr.match(/^Error: (.*)$/m)?.[1];
+	// Node prints `Error: message`; Bun prints a source excerpt and then `error: message`.
+	const thrown = r.stderr.match(/^error: (.*)$/im)?.[1];
 	throw new CannotFinish(thrown ? `${rel(about)}: ${thrown}` : r.stderr.trim());
+}
+
+/** SANY parses the spec that chart-to-tla wrote, and a spec that does not parse is an error. */
+function parses(tools, spec, chart) {
+	const r = spawnSync(tools.java, [...JAVA_UTF8, "-cp", tools.jar, "tla2sany.SANY", path.basename(spec)], {
+		cwd: path.dirname(spec),
+		encoding: "utf8",
+		maxBuffer: 1 << 26,
+	});
+	if (r.error) throw new CannotFinish(`cannot run SANY: ${r.error.message}`);
+	if (r.status === 0) return;
+	throw new CannotFinish(
+		`${path.basename(spec)}, written from ${rel(chart)}, does not parse, so nothing was kept:\n${lf(`${r.stdout}${r.stderr}`).trim()}`,
+	);
 }
 
 const KEYWORD =
@@ -335,6 +351,7 @@ function tlc(tools, spec, cfg, base, { dump, workers = "1" } = {}) {
 		tools.java,
 		[
 			"-XX:+UseParallelGC",
+			...JAVA_UTF8,
 			`-Djava.io.tmpdir=${javaTmp}`,
 			"-cp",
 			tools.jar,
@@ -542,9 +559,18 @@ export function step(action, before, after) {
 `;
 };
 
+/** Loads the reader's mapping. A mapping that does not load is a bad input (exit 2), not a broken rule. */
+async function loadMap(map) {
+	try {
+		return await import(pathToFileURL(path.resolve(map)).href);
+	} catch (e) {
+		throw new CannotFinish(`${rel(map)} cannot be loaded: ${e instanceof Error ? e.message : String(e)}`);
+	}
+}
+
 async function draw({ now, other, uncited, map, work, out, title, comparing }) {
 	const shown = published(work, out);
-	const mapping = await import(pathToFileURL(path.resolve(map)).href);
+	const mapping = await loadMap(map);
 	const from = ["--dot", now.dot, "--map", map, "--spec", now.spec];
 	from.push(...now.traces.flatMap(t => ["--traces", t.file]));
 	if (other) {
@@ -667,7 +693,8 @@ function finish({ work, out, inputs }, { files, charts }, ok, png) {
 
 const published = (work, out) => file => rel(path.join(out, path.relative(work, file)));
 
-const OWN = /^((chart|bug-\d+(-developer|-layered)?)\.(mmd|png)|stories\.md|summary\.json|tlc|\.DS_Store)$/;
+const OWN =
+	/^((chart|bug-\d+(-developer|-layered)?)\.(mmd|png)|stories\.md|summary\.json|tlc|\.DS_Store|[Tt]humbs\.db|[Dd]esktop\.ini)$/;
 
 function foreign(dir) {
 	try {
@@ -761,7 +788,16 @@ function publish(work, out, inputs) {
 			);
 		throw new NotPublished(e instanceof CannotFinish ? why : `${why} The run left ${rel(out)} as it was.`);
 	}
-	if (aside) fs.rmSync(old, { recursive: true, force: true });
+	if (aside) {
+		// The new folder is in place: a leftover that cannot be removed (a file held open on Windows) is no failure.
+		try {
+			fs.rmSync(old, { recursive: true, force: true });
+		} catch (e) {
+			console.error(
+				`${rel(out)} is written, but ${rel(old)} (the previous output) could not be removed: ${e.message}. Delete it yourself.`,
+			);
+		}
+	}
 }
 
 function putBack(old, out) {
@@ -860,6 +896,7 @@ async function fromSpec(input, { "expect-broken": expected, ...flags }) {
 		fs.writeFileSync(map, SCAFFOLD(name, input));
 		throw new CannotFinish(`Wrote ${rel(map)}. Fill in its labels, then run this command again.`);
 	}
+	await loadMap(map);
 	const tools = await findTools();
 	return inWorkFolder(async work => {
 		const now = check(tools, model, { work, out }, expected);
@@ -894,11 +931,22 @@ async function fromChart(input, { "expect-broken": expected, ...flags }) {
 	if (fs.existsSync(spec)) {
 		console.log(`Kept ${rel(spec)}. Delete it to write the spec again from ${rel(input)}.`);
 	} else {
-		script("chart-to-tla.mjs", [input, "--module", name], input);
+		// The files are made in a scratch folder and parsed there: a spec that SANY rejects is never left next to the
+		// chart, where the next run would keep it.
+		const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "statechart-spec-"));
+		try {
+			script("chart-to-tla.mjs", [input, "--module", name, "--dir", scratch], input);
+			parses(await findTools(), path.join(scratch, `${name}.tla`), input);
+			for (const ext of [".tla", ".cfg", ".map.mjs"])
+				fs.copyFileSync(path.join(scratch, `${name}${ext}`), path.join(path.dirname(spec), `${name}${ext}`));
+		} finally {
+			fs.rmSync(scratch, { recursive: true, force: true });
+		}
 		console.log(`Wrote ${name}.tla, ${name}.cfg, and ${name}.map.mjs from ${rel(input)}.`);
 	}
 	snapshot([spec, cfgOf(spec), map], inputs);
 	const tools = await findTools();
+	await loadMap(map);
 	const model = readInput(spec, cfgOf(spec), expected);
 	const out = outDir(flags.out, input, name);
 	return inWorkFolder(async work => {
@@ -930,7 +978,11 @@ try {
 		console.error(`UNAVAILABLE: ${e.message}`);
 		process.exit(3);
 	}
-	if (!(e instanceof CannotFinish)) throw e;
+	if (!(e instanceof CannotFinish)) {
+		// A crash is neither a broken rule (exit 1) nor a pass: say what it was, and exit 2.
+		console.error(`unexpected error: ${e instanceof Error ? (e.stack ?? e.message) : String(e)}`);
+		process.exit(2);
+	}
 	console.error(e.message);
 	process.exit(2);
 }

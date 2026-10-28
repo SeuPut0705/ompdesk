@@ -11,7 +11,7 @@ Flags and exit codes: `tlc-cli.md`. Proving that a property can fail, mechanical
 |---|---|
 | Invariant holds, but the interesting states are unreachable | Sanity invariant that must fail (`NeverAllDone`, `NoWriteHappens`), run as a matrix entry with `"expect": "violation"` |
 | `P => Q` holds because `P` never happens | Check `~P` as an invariant; it must fail |
-| An action never fires (a guard is contradictory) | `tlc.ts Spec.tla --coverage`: actions with 0 distinct states |
+| An action never fires (a guard is contradictory) | `tlc.ts Spec.tla --coverage`: actions that generated 0 states (`WARN actions never enabled`). 0 *distinct* states alone is no sign: an action that only returns to a seen state runs |
 | The fix "works" but the property never guarded the bug | Bug toggle: with the fix off, the property must fail (`MC_bug.cfg`, matrix entry with the property name) |
 | The property cannot fail for any change of the model | `mutate.ts`: a `MISSED` mutation means the property (or the model) is vacuous (`mutations.md`) |
 | Liveness holds trivially | TLC warns on trivially true liveness; also check the `<>` target is reachable |
@@ -51,13 +51,13 @@ checks all of them.
   far right as it can, so in `/\ r = CHOOSE x \in S : TRUE` followed by `/\ ok = (r # none)` the second bullet
   becomes part of the `CHOOSE` body and TLC says `identifier r undefined` (or evaluates the wrong predicate). Write
   `r = (CHOOSE x \in S : TRUE)`, or bind the value in a `LET`.
-- **SANY accepts what TLC rejects.** `-1` parses without `EXTENDS Integers` (the minus is looked up only when TLC
-  loads the module): `tlc.ts --sany-only` first runs SANY, then starts TLC for one simulated step of depth 1 to load
-  the module the way a real run does, so this fails there with `Could not find declaration or definition of symbol
-  '-.'`. The same holds for `\div` and `..` (Integers or Naturals), `Len` and `Append` (Sequences) and
-  `Cardinality` (FiniteSets). Without a config SANY alone decides, and `tlc.ts` says that the load check did not
-  run. Fix: add the module to `EXTENDS`, or avoid a negative literal (`None == 0 - 1` also needs Integers; a model
-  value or a string sentinel does not).
+- **`-1` without `EXTENDS Integers`.** The minus is a semantic error, not a syntax error. SANY prints it but exits 0
+  unless it runs with `-error-codes`, so a bare `java ... tla2sany.SANY Spec.tla` looks fine: `tlc.ts --sany-only`
+  (and every `tlc.ts` run) uses `-error-codes`, and fails with `Could not find declaration or definition of symbol
+  '-.'` (exit 2). The same holds for `\div` and `..` (Integers or Naturals), `Len` and `Append` (Sequences) and
+  `Cardinality` (FiniteSets). Fix: add the module to `EXTENDS`, or avoid a negative literal (`None == 0 - 1` also
+  needs Integers; a model value or a string sentinel does not). With a config, `--sany-only` then loads it in TLC
+  for one step, which catches an INVARIANT, PROPERTY or CONSTANT name the spec does not define.
 - **Too-strong properties.** Coherence and consistency often only hold at rest. Guard them
   with `Quiescent`, or state them as `[]<>` or `~>`.
 - **Unmarked code locations.** An action without an `@code` tag cannot be mapped back to the code, shows no

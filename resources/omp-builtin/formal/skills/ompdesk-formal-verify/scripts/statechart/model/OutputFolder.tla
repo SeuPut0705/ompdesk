@@ -2,7 +2,7 @@
 ---- MODULE OutputFolder ----
 EXTENDS Naturals
 
-Runs == {1, 2}
+Runs == {1, 2, 3}
 NoRun == 0
 NoFolder == [exists |-> FALSE, by |-> NoRun, read |-> {}, notes |-> FALSE]
 
@@ -27,10 +27,11 @@ Set(f, r, v) == [f EXCEPT ![r] = v]
 Going(r) == pc[r] \notin {"idle", "exited", "stopped", "orphanTlc"}
 Go(r, to) == pc' = Set(pc, r, to)
 Exit(r, code) == pc' = Set(pc, r, "exited") /\ exitCode' = Set(exitCode, r, code)
+Retry(r) == Go(r, "retry") /\ UNCHANGED exitCode
 
 Start(r) ==
   /\ pc[r] = "idle"
-  /\ r = 2 => pc[1] # "idle"
+  /\ IF r = 1 THEN TRUE ELSE pc[r - 1] # "idle"
   /\ \E ok \in BOOLEAN : inputOk' = Set(inputOk, r, ok)
   /\ snap' = Set(snap, r, spec)
   /\ Go(r, "check")
@@ -70,11 +71,39 @@ Swap(r) ==
   /\ UNCHANGED <<inputOk, snap, read, out, aside, spec, noted, wrote, broke, exitCode>>
 
 MoveIn(r) ==
-  /\ pc[r] = "swap" /\ ~out.exists
+  /\ pc[r] \in {"swap", "retry"} /\ ~out.exists
   /\ out' = [exists |-> TRUE, by |-> r, read |-> read[r], notes |-> FALSE]
   /\ wrote' = Set(wrote, r, TRUE)
   /\ Go(r, "clean")
   /\ UNCHANGED <<inputOk, snap, read, aside, spec, noted, broke, exitCode>>
+
+\* Windows refuses a rename onto an existing folder with EPERM, and the run then asks whether the folder is there
+\* (lib.mjs `moved`). That is a second step: another run can move the folder away in between. Then the run renames once
+\* more. EPERM again with the folder gone is reported as a real permission error.
+EpermRefuse(r) ==
+  /\ pc[r] = "swap" /\ out.exists
+  /\ Go(r, "epermCheck")
+  /\ UNCHANGED <<inputOk, snap, read, out, aside, spec, noted, wrote, broke, exitCode>>
+
+EpermStays(r) ==
+  /\ pc[r] \in {"epermCheck", "epermCheck2"} /\ out.exists
+  /\ Go(r, "swap")
+  /\ UNCHANGED <<inputOk, snap, read, out, aside, spec, noted, wrote, broke, exitCode>>
+
+EpermGone(r) ==
+  /\ pc[r] = "epermCheck" /\ ~out.exists
+  /\ Retry(r)
+  /\ UNCHANGED <<inputOk, snap, read, out, aside, spec, noted, wrote, broke>>
+
+RetryRefused(r) ==
+  /\ pc[r] = "retry" /\ out.exists
+  /\ Go(r, "epermCheck2")
+  /\ UNCHANGED <<inputOk, snap, read, out, aside, spec, noted, wrote, broke, exitCode>>
+
+EpermGoneAgain(r) ==
+  /\ pc[r] = "epermCheck2" /\ ~out.exists
+  /\ Exit(r, "2")
+  /\ UNCHANGED <<inputOk, snap, read, out, aside, spec, noted, wrote, broke>>
 
 MoveAside(r) ==
   /\ pc[r] = "swap" /\ out.exists /\ ~aside[r].exists
@@ -153,6 +182,7 @@ Next ==
   \/ \E r \in Runs :
        Start(r) \/ Refuse(r) \/ Tlc(r) \/ Draw(r) \/ Stale(r) \/ Foreign(r) \/ Swap(r)
          \/ MoveIn(r) \/ MoveAside(r) \/ Checked(r) \/ Supersede(r) \/ Restore(r)
+         \/ EpermRefuse(r) \/ EpermStays(r) \/ EpermGone(r) \/ RetryRefused(r) \/ EpermGoneAgain(r)
          \/ KeepAside(r) \/ RenameFails(r) \/ Clean(r) \/ Stop(r) \/ KillNode(r) \/ OrphanEnd(r)
 
 Spec == Init /\ [][Next]_vars
@@ -171,7 +201,8 @@ NeverLosesChart ==
 ExitTwoLeavesFolder == \A r \in Runs : exitCode[r] = "2" => ~wrote[r]
 
 \* A run exits 2 only for a wrong input, an edited spec, a file that it did not write, or a failed
-\* rename, never because another run overlaps it.
+\* rename, never because another run overlaps it. Three runs: with two, no run can move the folder away in the
+\* middle of a third run's EPERM check.
 OverlapNeverRefuses ==
   \A r \in Runs : exitCode[r] = "2" => ~inputOk[r] \/ spec # snap[r] \/ noted \/ broke[r]
 ====

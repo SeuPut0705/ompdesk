@@ -41,15 +41,15 @@ function write(name: string, text: string): string {
 }
 
 describe.skipIf(!REAL)("dogfood gaps on the real TLC", () => {
-	it("--sany-only fails a spec SANY accepts and TLC rejects, and passes it once it EXTENDS Integers", async () => {
+	it("--sany-only fails a semantic error (SANY -error-codes, exit 2), and passes it once the spec EXTENDS Integers", async () => {
 		const body = (extends_: string): string =>
 			`---- MODULE Neg ----\n${extends_}VARIABLES x\nInit == x = -1\nNext == x' = x\nSpec == Init /\\ [][Next]_x\n====\n`;
 		const cfg = "SPECIFICATION Spec\n";
 		write("neg/Neg.cfg", cfg);
 		const bad = write("neg/Neg.tla", body("EXTENDS Naturals\n"));
 		const failed = await bunRun("tlc.ts", [bad, "--sany-only"]);
-		expect(failed.code).toBe(1);
-		expect(failed.out).toContain("SANY passed but TLC rejects");
+		expect(failed.code).toBe(2);
+		expect(failed.out).toContain("SANY found errors");
 		expect(failed.out).toContain("'-.'");
 		fs.writeFileSync(bad, body("EXTENDS Integers\n"));
 		const fixed = await bunRun("tlc.ts", [bad, "--sany-only"]);

@@ -4,7 +4,10 @@
 // checker fails on the property the mutation says it breaks, MISSED when the model still passes, UNCOVERED for a
 // property no mutation targets, INVALID when the mutation does not apply or the mutated model is not checkable.
 //
-//   bun mutate.ts <model file> <mutations.json> [--keep] [--json]
+//   bun mutate.ts <model file> <mutations.json> [--keep] [--json] [--jobs N]
+//
+// The mutations of a TLC checker run in parallel processes (each TLC single-worker), `--jobs N` at a time (default:
+// half the cores, or OMPDESK_FORMAL_JOBS); Lean and command checkers run one at a time unless --jobs is given.
 //
 // Exit: 0 all detected and every property covered, 1 MISSED / UNCOVERED / baseline fails, 2 usage or INVALID,
 // 3 UNAVAILABLE (the checker could not be prepared: not checked).
@@ -19,29 +22,36 @@ import {
 	parseMutations,
 	runMutations,
 } from "./lib/mutate-core";
+import { defaultJobs } from "./lib/pool";
 import { EXIT, UsageError } from "./lib/proc";
 
-const USAGE = "usage: bun mutate.ts <model file> <mutations.json> [--keep] [--json]";
+const USAGE = "usage: bun mutate.ts <model file> <mutations.json> [--keep] [--json] [--jobs N]";
 
 export interface Args {
 	model: string;
 	mutations: string;
 	keep: boolean;
 	json: boolean;
+	jobs?: number;
 }
 
 export function parseArgs(argv: string[]): Args {
 	const rest: string[] = [];
 	let keep = false;
 	let json = false;
-	for (const arg of argv) {
+	let jobs: number | undefined;
+	for (let i = 0; i < argv.length; i++) {
+		const arg = argv[i] as string;
 		if (arg === "--keep") keep = true;
 		else if (arg === "--json") json = true;
-		else if (arg.startsWith("--")) throw new UsageError(`unknown option ${arg}\n${USAGE}`);
+		else if (arg === "--jobs") {
+			jobs = Number(argv[++i]);
+			if (!Number.isInteger(jobs) || jobs < 1) throw new UsageError(`--jobs takes a positive integer\n${USAGE}`);
+		} else if (arg.startsWith("--")) throw new UsageError(`unknown option ${arg}\n${USAGE}`);
 		else rest.push(arg);
 	}
 	if (rest.length !== 2) throw new UsageError(USAGE);
-	return { model: rest[0] as string, mutations: rest[1] as string, keep, json };
+	return { model: rest[0] as string, mutations: rest[1] as string, keep, json, ...(jobs ? { jobs } : {}) };
 }
 
 export function render(report: MutationReport): string[] {
@@ -117,6 +127,7 @@ export async function main(argv: string[]): Promise<number> {
 		properties,
 		check: makeChecker(spec.checker),
 		keep: args.keep,
+		jobs: args.jobs ?? (spec.checker.kind === "tlc" && (spec.checker.workers ?? "1") === "1" ? defaultJobs() : 1),
 	});
 	if (args.json) console.log(JSON.stringify({ ...report, exit: mutationExitCode(report) }, null, 2));
 	else for (const line of render(report)) console.log(line);

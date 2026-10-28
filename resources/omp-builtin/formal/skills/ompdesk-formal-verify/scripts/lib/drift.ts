@@ -18,6 +18,8 @@ export interface GitResult {
 	missing: boolean;
 	/** Standard output only, trimmed: git writes warnings (an autocrlf "LF will be replaced by CRLF") to stderr. */
 	out: string;
+	/** The same standard output as git wrote it: file contents (`git show`) must not lose their first or last lines' whitespace. */
+	raw: string;
 	/** Standard error, or the reason git could not start. For messages, never for parsing. */
 	err: string;
 }
@@ -29,6 +31,7 @@ export async function git(codeRoot: string, args: string[]): Promise<GitResult> 
 		ok: !result.spawnError && result.code === 0,
 		missing: Boolean(result.spawnError),
 		out: result.stdout.trim(),
+		raw: result.stdout,
 		err: (result.spawnError?.message ?? result.stderr).trim(),
 	};
 }
@@ -65,6 +68,56 @@ function read(file: string): string | null {
 	}
 }
 
+/**
+ * `git diff` as this script needs it, whatever the user's configuration says: no external diff tool (`diff.external`,
+ * difftastic prints no hunks), no textconv filter, no color, no rename pairing (a rename is a deletion and an
+ * addition), a CR before the line break is not a change.
+ */
+const PLAIN_DIFF = ["diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames", "--ignore-cr-at-eol"];
+
+/** The file as `base` had it, found from the code root (`./`: the code root can sit below the repository root); null when `base` has no such file. */
+async function atBase(codeRoot: string, base: string, file: string): Promise<string | null> {
+	const shown = await git(codeRoot, ["show", `${base}:./${file}`]);
+	return shown.ok ? lf(shown.raw) : null;
+}
+
+/** Number of lines of a text, a final line break not counted. */
+function lineCount(text: string): number {
+	const count = text.split("\n").length;
+	return text.endsWith("\n") ? count - 1 : count;
+}
+
+/** Every folder prefix of a path, and the path itself: `a/b/c.ts` gives `a`, `a/b`, `a/b/c.ts`. */
+function ancestors(file: string): string[] {
+	const parts = file.split("/");
+	return parts.map((_, index) => parts.slice(0, index + 1).join("/"));
+}
+
+/**
+ * An error text when a cover lies inside a git submodule (a gitlink, mode 160000, in the tree): the superproject
+ * knows only the submodule's commit, so `git show` and `git diff` cannot compare the code in it. `ls-tree` on the
+ * exact folder names shows the gitlink itself (`ls-files -s` on a folder lists everything below it).
+ */
+async function submoduleProblem(codeRoot: string, covers: Cover[], base: string): Promise<string | undefined> {
+	const folders = [...new Set(covers.flatMap(cover => ancestors(cover.path)))];
+	if (folders.length === 0) return undefined;
+	const links = new Set<string>();
+	for (const rev of new Set([base, "HEAD"])) {
+		const listed = await git(codeRoot, ["ls-tree", "-z", rev, "--", ...folders]);
+		if (!listed.ok) continue;
+		for (const entry of listed.out.split("\0")) {
+			const tab = entry.indexOf("\t");
+			if (tab > 0 && entry.startsWith("160000 ")) links.add(entry.slice(tab + 1));
+		}
+	}
+	for (const cover of covers) {
+		const link = [...links].find(candidate => cover.path.startsWith(`${candidate}/`));
+		if (link)
+			return `${cover.raw}: ${cover.path} is inside the git submodule ${link}, whose history is its own: use the submodule as the code root ("codeRoot" in manifest.json) instead of a path through this repository`;
+	}
+	return undefined;
+}
+
 /** The covered code that differs between `base` (a commit) and the working tree. */
 async function coverMaterial(codeRoot: string, covers: string[], base: string): Promise<Material> {
 	const material: Material = { changed: [], text: "" };
@@ -74,13 +127,26 @@ async function coverMaterial(codeRoot: string, covers: string[], base: string): 
 	} catch (error) {
 		return { ...material, error: error instanceof Error ? error.message : String(error) };
 	}
+	const short = base.slice(0, 10);
+	const inSubmodule = await submoduleProblem(codeRoot, parsed, base);
+	if (inSubmodule) return { ...material, error: inSubmodule };
+	// A cover that points at nothing, now or then, would read "unchanged" for ever.
+	for (const cover of parsed) {
+		if (fs.existsSync(path.join(codeRoot, cover.path))) continue;
+		if ((await git(codeRoot, ["cat-file", "-e", `${base}:./${cover.path}`])).ok) continue;
+		return {
+			...material,
+			error: `${cover.raw}: no file or folder ${cover.path} now or at ${short}: fix the covers entry`,
+		};
+	}
 	// Whole files and folders: one diff for all of them, plus new files nobody added yet (`git diff` does not see them).
 	const wholes = parsed.filter(cover => cover.kind === "path");
 	if (wholes.length > 0) {
 		const changed = await git(codeRoot, [
-			"diff",
+			...PLAIN_DIFF,
 			"--name-only",
 			"-z",
+			"--relative",
 			base,
 			"--",
 			...wholes.map(cover => cover.path),
@@ -96,50 +162,72 @@ async function coverMaterial(codeRoot: string, covers: string[], base: string): 
 		]);
 		const files = [...new Set([...names(changed), ...(added.ok ? names(added) : [])])].sort();
 		for (const file of files) {
-			const body = await git(codeRoot, ["diff", base, "--", file]);
+			// What the digest holds is the file's content, not `git diff` text (which varies with git's settings).
+			const nowText = read(path.join(codeRoot, file));
+			if (nowText !== null && nowText === (await atBase(codeRoot, base, file))) continue;
 			material.changed.push(file);
-			material.text += `file ${file}\n${lf(body.out) || read(path.join(codeRoot, file)) || ""}\n`;
+			material.text += `file ${file}\n${nowText ?? "<deleted>"}\n`;
 		}
 	}
 	for (const cover of parsed) {
 		if (cover.kind === "path") continue;
 		const now = read(path.join(codeRoot, cover.path));
+		const was = await atBase(codeRoot, base, cover.path);
+		if (now === null && was === null)
+			return { ...material, error: `${cover.raw}: ${cover.path} is not a file: fix the covers entry` };
 		if (cover.kind === "symbol") {
-			const was = await git(codeRoot, ["show", `${base}:${cover.path}`]);
 			const spansNow = now === null ? [] : findSymbolSpans(now, cover.symbol);
-			const wasText = was.ok ? lf(was.out) : "";
-			const spansWas = was.ok ? findSymbolSpans(wasText, cover.symbol) : [];
+			const spansWas = was === null ? [] : findSymbolSpans(was, cover.symbol);
 			if (spansNow.length === 0 && spansWas.length === 0) {
 				return {
 					...material,
-					error: `${cover.raw}: no declaration named ${cover.symbol} in ${cover.path}, now or at ${base.slice(0, 10)}: fix the covers entry`,
+					error: `${cover.raw}: no declaration named ${cover.symbol} in ${cover.path}, now or at ${short}: fix the covers entry`,
 				};
 			}
 			const textNow = now === null ? "" : spanText(now, spansNow);
-			const textWas = was.ok ? spanText(wasText, spansWas) : "";
+			const textWas = was === null ? "" : spanText(was, spansWas);
 			if (textNow !== textWas) {
 				material.changed.push(
-					spansNow.length === 0
-						? `${cover.raw} (gone or renamed)`
-						: spansWas.length === 0
-							? `${cover.raw} (new since the sync commit)`
-							: cover.raw,
+					now === null
+						? `${cover.raw} (file deleted)`
+						: spansNow.length === 0
+							? `${cover.raw} (gone or renamed)`
+							: spansWas.length === 0
+								? `${cover.raw} (new since the sync commit)`
+								: cover.raw,
 				);
 				material.text += `symbol ${cover.raw}\n${textNow}\n`;
 			}
-		} else {
-			const diff = await git(codeRoot, ["diff", "-U0", "--no-color", base, "--", cover.path]);
-			if (!diff.ok) return { ...material, error: `git diff failed: ${failure(diff)}` };
-			const { touched, shifted } = rangeChanges(parseHunks(diff.out), cover.start, cover.end);
-			if (touched || shifted !== 0) {
-				material.changed.push(
-					shifted !== 0 && !touched
-						? `${cover.raw} (lines moved by ${shifted > 0 ? "+" : ""}${shifted}: update the range)`
-						: cover.raw,
-				);
-				const lines = (now ?? "").split(/\r?\n/).slice(cover.start - 1, cover.end);
-				material.text += `range ${cover.raw} shifted ${shifted}\n${lines.join("\n")}\n`;
-			}
+			continue;
+		}
+		if (now === null) {
+			material.changed.push(`${cover.raw} (file deleted)`);
+			material.text += `range ${cover.raw} deleted\n`;
+			continue;
+		}
+		const total = lineCount(now);
+		if (cover.end > total) {
+			return {
+				...material,
+				error: `${cover.raw}: the range ends at line ${cover.end}, past the end of ${cover.path} (${total} lines): fix the covers entry`,
+			};
+		}
+		const lines = now.split("\n").slice(cover.start - 1, cover.end);
+		if (was === null) {
+			material.changed.push(`${cover.raw} (new since the sync commit)`);
+			material.text += `range ${cover.raw} new\n${lines.join("\n")}\n`;
+			continue;
+		}
+		const diff = await git(codeRoot, [...PLAIN_DIFF, "-U0", base, "--", cover.path]);
+		if (!diff.ok) return { ...material, error: `git diff failed: ${failure(diff)}` };
+		const { touched, shifted } = rangeChanges(parseHunks(diff.out), cover.start, cover.end);
+		if (touched || shifted !== 0) {
+			material.changed.push(
+				shifted !== 0 && !touched
+					? `${cover.raw} (lines moved by ${shifted > 0 ? "+" : ""}${shifted}: update the range)`
+					: cover.raw,
+			);
+			material.text += `range ${cover.raw} shifted ${shifted}\n${lines.join("\n")}\n`;
 		}
 	}
 	material.changed.sort();
@@ -176,12 +264,17 @@ export async function checkDrift(
 			files: [],
 			message: `git could not start (${failure(known)}), so drift was not checked`,
 		};
-	if (!known.ok)
+	if (!known.ok) {
+		const shallow = await git(codeRoot, ["rev-parse", "--is-shallow-repository"]);
 		return {
 			status: "bad-commit",
 			files: [],
-			message: `syncCommit ${syncCommit} is not a commit of this repository`,
+			message:
+				shallow.out === "true"
+					? `syncCommit ${syncCommit} is not in this clone: shallow clone: fetch with depth 0 (git fetch --unshallow; in GitHub Actions actions/checkout with fetch-depth: 0)`
+					: `syncCommit ${syncCommit} is not a commit of this repository (squashed or rewritten history? re-stamp the model on the current branch with verify-all.ts --stamp)`,
 		};
+	}
 	const material = await coverMaterial(codeRoot, covers, syncCommit);
 	if (material.error) return { status: "git-error", files: [], message: material.error };
 	const short = syncCommit.slice(0, 10);
@@ -195,7 +288,11 @@ export async function checkDrift(
 		return {
 			status: "drift",
 			files: material.changed,
-			message: `DRIFT: the covered code differs from what was stamped on top of ${short}; check the model still describes it, then re-stamp`,
+			message: `DRIFT: the covered code differs from what was stamped on top of ${short}; check the model still describes it, then re-stamp${
+				covers.some(cover => parseCover(cover).kind === "path")
+					? " (a stamp written before the digest was made from file contents lands here too: re-stamp it)"
+					: ""
+			}`,
 		};
 	}
 	if (material.changed.length === 0)
@@ -212,6 +309,20 @@ export async function hasUncommitted(codeRoot: string, covers: string[]): Promis
 	if (covers.length === 0) return false;
 	const material = await coverMaterial(codeRoot, covers, "HEAD");
 	return material.changed.length > 0 || Boolean(material.error);
+}
+
+/** What stamping `head` would write for a model: whether its covered code has uncommitted changes, their digest, or why the covers cannot be stamped at all. */
+export async function planStamp(
+	codeRoot: string,
+	covers: string[],
+	head: string,
+): Promise<{ dirty: boolean; digest: string; error?: string }> {
+	const material = await coverMaterial(codeRoot, covers, head);
+	return {
+		dirty: material.changed.length > 0,
+		digest: digest(material.text),
+		...(material.error ? { error: material.error } : {}),
+	};
 }
 
 /** The `syncDiff` of a model stamped on `head` while its covered code has uncommitted changes. */

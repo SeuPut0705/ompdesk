@@ -8,6 +8,7 @@ export type Outcome =
 	| "action"
 	| "assert"
 	| "parse-error"
+	| "unsound"
 	| "error"
 	| "timeout";
 
@@ -45,6 +46,8 @@ export interface TlcResult {
 	outcome: Outcome;
 	/** The violated invariant, action property or temporal property, when TLC names it. */
 	property?: string;
+	/** An action property TLC names only by its source location (`Action property line 45, col 17 to ... is violated`). */
+	propertyLocation?: Location;
 	message?: string;
 	stats: TlcStats;
 	trace: TlcState[];
@@ -148,8 +151,18 @@ function statsOf(text: string): TlcStats {
 	return stats;
 }
 
-const ERROR_KINDS: { pattern: RegExp; outcome: Outcome; named: boolean }[] = [
-	{ pattern: /^Error: Invariant (\S+) is violated\.?$/, outcome: "invariant", named: true },
+const ERROR_KINDS: { pattern: RegExp; outcome: Outcome; named: boolean; location?: boolean }[] = [
+	{
+		pattern: /^Error: Invariant (\S+) is violated(?: by the initial state)?[.:]?$/,
+		outcome: "invariant",
+		named: true,
+	},
+	{
+		pattern: /^Error: Action property line (\d+), col (\d+) to line (\d+), col (\d+) of module (\S+) is violated\.?$/,
+		outcome: "action",
+		named: false,
+		location: true,
+	},
 	{ pattern: /^Error: Action property (\S+) is violated\.?$/, outcome: "action", named: true },
 	{
 		pattern: /^Error: Temporal propert(?:y|ies) (\S+) (?:was|were|is) violated\.?$/,
@@ -165,6 +178,12 @@ const ERROR_KINDS: { pattern: RegExp; outcome: Outcome; named: boolean }[] = [
 	},
 	{ pattern: /^Error: Assumption .* is (?:false|violated)/, outcome: "assert", named: false },
 ];
+
+/**
+ * Warnings that mean TLC's "no error" does not cover what the config asks for: a state-level formula under PROPERTY
+ * is checked only in the initial state, and SYMMETRY can make TLC miss a liveness violation.
+ */
+const UNSOUND_WARNINGS = [/only checked in the initial state/i, /symmetry during liveness checking is dangerous/i];
 
 const PARSE_MARKERS = [
 	/\*\*\*\s*Parse Error\s*\*\*\*/,
@@ -202,24 +221,55 @@ export function parseTlcOutput(text: string, exitCode?: number | null): TlcResul
 	const stats = statsOf(text);
 	let outcome: Outcome | undefined;
 	let property: string | undefined;
-	for (const line of lines) {
+	let propertyLocation: Location | undefined;
+	/** Index of the line `Error: Invariant X is violated by the initial state:`, whose variables follow without a `State 1:` header. */
+	let initialAt = -1;
+	for (const [at, line] of lines.entries()) {
 		for (const kind of ERROR_KINDS) {
 			const match = kind.pattern.exec(line);
 			if (!match) continue;
 			outcome = kind.outcome;
 			if (kind.named) property = match[1];
+			if (kind.location) {
+				propertyLocation = {
+					module: match[5] as string,
+					line: Number(match[1]),
+					col: Number(match[2]),
+					endLine: Number(match[3]),
+					endCol: Number(match[4]),
+				};
+			}
+			if (/ by the initial state:$/.test(line)) initialAt = at;
 			break;
 		}
 		if (outcome) break;
 	}
 	const firstState = lines.findIndex(line => /^State 1: /.test(line));
-	const trace = firstState === -1 ? [] : parseTrace(lines.slice(firstState));
+	let trace: TlcState[] = [];
+	if (firstState !== -1) {
+		trace = parseTrace(lines.slice(firstState));
+	} else if (initialAt !== -1) {
+		const block: string[] = [];
+		for (let at = initialAt + 1; at < lines.length && (lines[at] as string).trim() !== ""; at++)
+			block.push(lines[at] as string);
+		trace = parseTrace(["State 1: <Initial predicate>", ...block]);
+	}
+	let unsound: string | undefined;
+	let emptyInit = false;
 	if (!outcome) {
 		// A pass needs TLC's own word: exit 0, or (no exit code known, as with a saved log) its completion line.
 		// A killed TLC (exit null), a truncated log and empty output give no verdict at all.
 		const known = exitCode !== undefined && exitCode !== null;
 		if (exitCode === 0 || (exitCode === undefined && COMPLETED.test(text))) {
 			outcome = "pass";
+			if (stats.distinct === 0) {
+				// TLC calls a model with no initial state a success; nothing was checked.
+				outcome = "error";
+				emptyInit = true;
+			} else {
+				unsound = warnings.find(warning => UNSOUND_WARNINGS.some(pattern => pattern.test(warning)));
+				if (unsound) outcome = "unsound";
+			}
 		} else if (PARSE_MARKERS.some(marker => marker.test(text))) {
 			outcome = "parse-error";
 		} else if (known && FALLBACK_BY_EXIT[exitCode]) {
@@ -237,6 +287,12 @@ export function parseTlcOutput(text: string, exitCode?: number | null): TlcResul
 					? { stuttering: false, backTo: last.backTo as number }
 					: undefined
 			: undefined;
+	const parseAt = outcome === "parse-error" ? lines.findIndex(line => /\*\*\*\s*Parse Error\s*\*\*\*/.test(line)) : -1;
+	const parseDetail: string[] = [];
+	if (parseAt !== -1) {
+		for (let at = parseAt + 1; at < lines.length && (lines[at] as string).trim() !== ""; at++)
+			parseDetail.push((lines[at] as string).trim());
+	}
 	const resolveDetail =
 		outcome === "parse-error"
 			? lines.find(line =>
@@ -247,6 +303,11 @@ export function parseTlcOutput(text: string, exitCode?: number | null): TlcResul
 			: undefined;
 	const tlcVersion = /^TLC2 Version (\S+)/m.exec(text)?.[1];
 	const message =
+		(emptyInit
+			? "TLC found no initial state: Init is unsatisfiable (or the SPECIFICATION's initial predicate is empty), so no state was checked"
+			: undefined) ??
+		(unsound ? `TLC reports no violation, but its own warning says the check is not sound: ${unsound}` : undefined) ??
+		(parseDetail.length ? `Parse error: ${parseDetail.join(" ")}` : undefined) ??
 		(resolveDetail ? resolveDetail.trim() : undefined) ??
 		errors.find(
 			error =>
@@ -258,6 +319,7 @@ export function parseTlcOutput(text: string, exitCode?: number | null): TlcResul
 	return {
 		outcome,
 		...(property ? { property } : {}),
+		...(propertyLocation ? { propertyLocation } : {}),
 		...(message ? { message } : {}),
 		stats,
 		trace,
@@ -341,6 +403,7 @@ const VIOLATION_LABEL: Record<Outcome, string> = {
 	action: "action property violated",
 	assert: "assertion or assumption failed",
 	"parse-error": "parse or configuration error",
+	unsound: "no violation found, but TLC warns the check is unsound",
 	error: "TLC error",
 	timeout: "timed out (no verdict)",
 };

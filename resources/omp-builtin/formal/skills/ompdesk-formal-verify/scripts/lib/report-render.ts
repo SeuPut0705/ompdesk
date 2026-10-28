@@ -27,7 +27,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,
 main{max-width:980px;margin:0 auto;padding:20px 16px 48px}
 h1{font-size:1.55rem;margin:.2rem 0 .6rem}h2{font-size:1.15rem;margin:2rem 0 .6rem;border-bottom:1px solid var(--line);padding-bottom:.3rem}h3{font-size:1rem;margin:.2rem 0}
 .verdict{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--good);border-radius:8px;padding:12px 14px}
-.verdict.bad{border-left-color:var(--bad)}.verdict p{margin:.2rem 0}
+.verdict.bad{border-left-color:var(--bad)}.verdict.warn{border-left-color:var(--warn)}.verdict p{margin:.2rem 0}
 .counts{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
 .pill{display:inline-block;border:1px solid var(--line);border-radius:99px;padding:1px 10px;font-size:.82rem;background:var(--bg)}
 .pill.bad{color:var(--bad);border-color:var(--bad)}.pill.good{color:var(--good);border-color:var(--good)}.pill.warn{color:var(--warn);border-color:var(--warn)}
@@ -116,6 +116,8 @@ export function renderReport(findings: Json, options: { generator?: string } = {
 	const anyConfirmed = count("confirmed") > 0;
 	const violated = properties.filter(property => str(property.result) === "violated").length;
 	const holds = properties.filter(property => ["holds", "proven"].includes(str(property.result))).length;
+	// timeout, not-run and sorry: nothing was established for these (a violated property is a result, and red).
+	const unchecked = properties.length - holds - violated;
 	const out: string[] = [];
 	out.push('<!doctype html><html lang="en"><head><meta charset="utf-8">');
 	out.push('<meta name="viewport" content="width=device-width, initial-scale=1">');
@@ -125,21 +127,26 @@ export function renderReport(findings: Json, options: { generator?: string } = {
 	out.push(`<title>${esc(concern)} verification</title><style>${CSS}</style></head><body><main>`);
 	out.push(`<h1>${esc(concern)} verification</h1>`);
 	out.push(
-		`<div class="verdict${anyConfirmed || violated > 0 ? " bad" : ""}"><p><strong>${esc(str(findings.summary))}</strong></p><div class="counts">`,
+		`<div class="verdict${anyConfirmed || violated > 0 ? " bad" : unchecked > 0 ? " warn" : ""}"><p><strong>${esc(str(findings.summary))}</strong></p><div class="counts">`,
 	);
 	out.push(
 		`${pill(`${count("confirmed")} confirmed`, count("confirmed") ? "bad" : "")}${pill(`${count("suspected")} suspected`, count("suspected") ? "warn" : "")}${pill(`${count("refuted")} refuted`)}${pill(`${count("fixed")} fixed`, count("fixed") ? "good" : "")}`,
 	);
-	out.push(
-		`${pill(`${holds} of ${properties.length} properties hold`, violated ? "bad" : "good")}${pill(`workflow ${str(findings.workflow)}`)}`,
-	);
+	if (holds > 0 || unchecked === 0)
+		out.push(
+			pill(`${holds} of ${properties.length} properties hold`, violated ? "bad" : unchecked > 0 ? "warn" : "good"),
+		);
+	if (unchecked > 0) out.push(pill(`${unchecked} of ${properties.length} properties not checked`, "warn"));
+	out.push(pill(`workflow ${str(findings.workflow)}`));
 	if (findings.repo_commit) out.push(pill(`commit ${str(findings.repo_commit).slice(0, 12)}`));
 	out.push(`${pill(str(findings.generated_at))}</div></div>`);
 	out.push("<h2>Findings</h2>");
 	out.push(
-		allFindings.length === 0
-			? "<p>No finding: no counterexample within the stated bounds.</p>"
-			: allFindings.map(findingHtml).join("\n"),
+		allFindings.length > 0
+			? allFindings.map(findingHtml).join("\n")
+			: unchecked > 0
+				? `<p>No finding recorded, but ${unchecked} of ${properties.length} properties were not checked (timeout, not run or sorry): this says nothing about them.</p>`
+				: "<p>No finding: no counterexample within the stated bounds.</p>",
 	);
 	const simplifications = list(findings.simplifications);
 	if (simplifications.length > 0) {

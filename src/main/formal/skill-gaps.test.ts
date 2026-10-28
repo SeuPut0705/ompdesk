@@ -415,7 +415,8 @@ describe("gap 12: covers by function and line range, and the drift line (gap 14)
 	it("counts hunks that touch a range, and notices lines that moved above it", () => {
 		const hunks = parseHunks("@@ -3,0 +4,2 @@\n+a\n+b\n@@ -20 +22 @@\n-x\n+y\n");
 		expect(rangeChanges(hunks, 30, 40)).toEqual({ touched: false, shifted: 2 });
-		expect(rangeChanges(hunks, 22, 22)).toEqual({ touched: true, shifted: 2 });
+		// Ranges are judged in the numbering of the file at the sync commit (hunk 2 changed old line 20, now line 22).
+		expect(rangeChanges(hunks, 20, 20)).toEqual({ touched: true, shifted: 2 });
 		expect(rangeChanges(parseHunks("@@ -10,2 +9,0 @@\n-a\n-b\n"), 5, 20)).toEqual({ touched: true, shifted: 0 });
 	});
 

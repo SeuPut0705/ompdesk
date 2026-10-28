@@ -77,6 +77,7 @@ export async function prepareLean(
 	options: { env?: NodeJS.ProcessEnv; log?: (line: string) => void } = {},
 ): Promise<LeanEnv> {
 	const env = options.env ?? process.env;
+	const log = options.log ?? ((line: string) => process.stderr.write(`${line}\n`));
 	const tc = loadToolchain(env);
 	const systemFirst = env.OMPDESK_FORMAL_SYSTEM_LEAN === "1";
 	const hasPin = `${process.platform}-${process.arch}` in tc.lean.archive.platforms;
@@ -96,8 +97,7 @@ export async function prepareLean(
 		if (systemFirst) throw new Unavailable("OMPDESK_FORMAL_SYSTEM_LEAN=1 but `lake --version` does not run");
 	}
 	const root = cacheRoot(env);
-	const lock = <T>(name: string, work: () => Promise<T>): Promise<T> =>
-		withLock(root, name, work, { log: options.log });
+	const lock = <T>(name: string, work: () => Promise<T>): Promise<T> => withLock(root, name, work, { log });
 	const paths = leanPaths(env);
 	const elanBinary = path.join(paths.bin, `elan${EXE}`);
 	if (!fs.existsSync(elanBinary)) {
@@ -108,7 +108,7 @@ export async function prepareLean(
 			await download(entry.url, archive, entry.sha256, {
 				label: `elan ${tc.lean.elan.version}`,
 				env,
-				log: options.log,
+				log,
 			});
 			const unpacked = path.join(root, "downloads", `elan-${tc.lean.elan.version}`);
 			await extractInto(archive, entry.format, unpacked);
@@ -133,10 +133,8 @@ export async function prepareLean(
 		await lock("lean", async () => {
 			if (fs.existsSync(lakeBinary)) return;
 			const archive = path.join(root, "downloads", path.basename(new URL(entry.url).pathname));
-			await download(entry.url, archive, entry.sha256, { label: `Lean ${tc.lean.version}`, env, log: options.log });
-			options.log?.(
-				`unpacking Lean ${tc.lean.version} (about 3 GB on disk, about 4 GB free needed while it unpacks)`,
-			);
+			await download(entry.url, archive, entry.sha256, { label: `Lean ${tc.lean.version}`, env, log });
+			log(`unpacking Lean ${tc.lean.version} (about 3 GB on disk, about 4 GB free needed while it unpacks)`);
 			await extractInto(archive, entry.format, paths.toolchainDir);
 			fs.rmSync(archive, { force: true });
 		});

@@ -6,7 +6,7 @@ A counterexample is a claim about the code. Reproduce it before believing it. Th
 
 ## 1. Minimize the trace
 
-- TLC's default breadth-first search returns a shortest trace. With simulation or depth-first search, re-run breadth-first at the depth where it failed, or shrink the constants (fewer workers or keys).
+- TLC's default breadth-first search returns a shortest trace, and `tlc.ts` runs one worker unless you pass `--workers` (with several workers the trace can be longer and differs between runs). With simulation or depth-first search, re-run breadth-first at the depth where it failed, or shrink the constants (fewer workers or keys).
 - `tlc.ts` already drops the variables that did not change. Drop stuttering and irrelevant actors as well: which steps change variables the violated property reads?
 - Save the structured trace for the findings file: `bun <skill-dir>/scripts/tlc.ts <spec> --config <cfg> --json formal/<concern>/evidence/<name>.json` (`<skill-dir>` is the folder of SKILL.md). Its `trace` is already in the shape of a finding's `trace[]` (`step`, `action`, `code`, `changed` as `"from -> to"`, `violation`), so paste it into the finding as it is. When the model's action takes a tuple through `\E x \in set : A(x)`, TLC may name the wrapper, and the `code` column then shows the tagged actions it calls: if a row's `code` is empty or looks wrong, pass a scalar to the action or tag the wrapper.
 - Write the story in domain terms, one line per step, with the `@code` location of each step.

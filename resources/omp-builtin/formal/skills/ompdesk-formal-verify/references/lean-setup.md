@@ -24,6 +24,14 @@ What it fetches (versions and SHA-256 hashes live in `assets/toolchain.json`):
 - **Lean `v4.35.0`**, a zip archive of about 0.9 GB, about 3.0 GB installed and about 4 GB of free disk needed at the peak while it unpacks, placed where elan keeps toolchains. No Mathlib.
 
 The first install needs the network and takes a few minutes. Later runs find the files and download nothing.
+**Run the first `setup.ts lean` on its own, with a bash timeout of 1800 s (or async), before any parallel work**: the omp
+bash tool's default timeout is 300 s, and the install is a 0.85 GB download plus a 3.4 GB unpack. Tell the user that it
+is downloading; do not ask permission (the install is automatic). A killed unpack resumes from the already verified
+archive in `downloads/`, and an unusable cache (full or read-only disk, permissions) is reported as UNAVAILABLE, exit 3.
+`setup.ts lean --json` prints `{"status":"UNAVAILABLE","target":"lean","reason":"..."}` on stdout on failure and exits 3;
+progress and download lines go to stderr. In-progress files in the cache are `*.part-<host>-<pid>` and
+`*.tmp-<host>-<pid>`, a takeover guard `.lock-<name>.takeover` may appear briefly, and another computer's leftovers in a
+shared cache are never deleted.
 `OMPDESK_FORMAL_OFFLINE=1` refuses every download this skill makes. If the tools are missing and cannot be fetched,
 `setup.ts` exits 3 (`UNAVAILABLE`). Report that as "not checked", never as a pass.
 
@@ -53,8 +61,8 @@ bun <skill-dir>/scripts/lean-check.ts formal/queue/lean         # lake build + t
 ```
 
 `new-lean.ts` copies `assets/lean-template/` (no dependencies, `lean-toolchain` = `leanprover/lean4:v4.35.0`) and
-refuses to overwrite an existing lakefile. `lean-check.ts` fails on `sorry`, `admit`, user `axiom`, `native_decide`
-(unless `--allow-native`), and any theorem whose axioms go beyond `propext`, `Classical.choice` and `Quot.sound`.
+refuses to overwrite an existing lakefile. `lean-check.ts` fails on `sorry`, `admit`, user `axiom`, `#exit`, `debug.skipKernelTC`,
+`native_decide` (unless `--allow-native`, which then makes `implemented_by` and `extern` blocking), and any theorem whose axioms go beyond `propext`, `Classical.choice` and `Quot.sound`. It re-checks the build with the toolchain's `leanchecker` (the kernel), builds and audits every module of the project's libs (not only what the root imports), and fails when it audited zero declarations.
 
 ## Project layout and commands
 

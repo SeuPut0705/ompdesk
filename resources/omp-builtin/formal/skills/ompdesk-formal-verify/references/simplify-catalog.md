@@ -29,7 +29,7 @@ The eight kinds of simplification candidate in workflow W4 ([workflows.md](workf
 ## 3. Dead branch or unreachable state
 
 **Signal:**
-- **TLC:** `bun <skill-dir>/scripts/tlc.ts <spec> --config <cfg> --coverage` shows an action or disjunct with 0 distinct states, or an invariant `pc # "state_x"` holds.
+- **TLC:** `bun <skill-dir>/scripts/tlc.ts <spec> --config <cfg> --coverage` lists an action or disjunct that generated 0 states (the "actions never enabled" warning), or an invariant `pc # "state_x"` holds.
 - **Lean:** a breadth-first search never reaches it, and `Reach -> not inStateX` proves it.
 
 **Justify:** show that the state or branch is unreachable, with the sanity check that it would be reached if the upstream guard were removed (a `mutations.json` entry that removes the guard and expects the branch to fire). That check shows the unreachability is structural, not vacuous.

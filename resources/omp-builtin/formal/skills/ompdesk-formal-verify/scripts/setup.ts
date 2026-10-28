@@ -42,13 +42,20 @@ async function main(): Promise<number> {
 		return EXIT.usage;
 	}
 	const say = (text: string): void => console.log(text);
+	const unavailable = (reason: string, hint: string[]): number => {
+		if (parsed.json) say(JSON.stringify({ status: "UNAVAILABLE", target: parsed.target, reason }));
+		else {
+			say(`UNAVAILABLE ${parsed.target}: ${reason}`);
+			for (const line of hint) say(line);
+		}
+		return EXIT.unavailable;
+	};
 	try {
 		if (parsed.target === "tla") {
 			if (parsed.check) {
 				const status = await tlaStatus();
 				if (!status.ready) {
-					say(`UNAVAILABLE tla: not installed (${status.missing.join(", ")}); run: bun setup.ts tla`);
-					return EXIT.unavailable;
+					return unavailable(`not installed (${status.missing.join(", ")}); run: bun setup.ts tla`, []);
 				}
 			}
 			const env = await prepareTla();
@@ -64,11 +71,10 @@ async function main(): Promise<number> {
 		if (parsed.check) {
 			const status = leanStatus();
 			if (!status.ready) {
-				say(`UNAVAILABLE lean: not installed (${status.missing.join(", ")}); run: bun setup.ts lean`);
-				return EXIT.unavailable;
+				return unavailable(`not installed (${status.missing.join(", ")}); run: bun setup.ts lean`, []);
 			}
 		}
-		const env = await prepareLean();
+		const env = await prepareLean({ log: line => console.error(line) });
 		if (parsed.json) {
 			say(
 				JSON.stringify({
@@ -91,9 +97,9 @@ async function main(): Promise<number> {
 		return EXIT.ok;
 	} catch (error) {
 		if (error instanceof Unavailable) {
-			say(`UNAVAILABLE ${parsed.target}: ${error.message}`);
-			say("  Report this check as not run. Install by hand (Java 11+ / elan) or retry with network access.");
-			return EXIT.unavailable;
+			return unavailable(error.message, [
+				"  Report this check as not run. Install by hand (Java 11+ / elan) or retry with network access.",
+			]);
 		}
 		throw error;
 	}

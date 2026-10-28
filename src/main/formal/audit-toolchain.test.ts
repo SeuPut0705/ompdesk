@@ -1,0 +1,476 @@
+/**
+ * The toolchain audit's findings (lock takeover race, environmental failures, archive reuse, shared-cache leftovers,
+ * setup.ts output, Windows unpacking, agents' bun on PATH). No test here touches the network or the real home: the
+ * cache is a temp folder and every source is a file:// URL.
+ */
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterAll, describe, expect, it } from "vitest";
+import { ompPathEnv } from "../omp-runtime";
+
+const SKILL =
+	process.env.FORMAL_SKILL_DIR ??
+	path.join(__dirname, "../../../resources/omp-builtin/formal/skills/ompdesk-formal-verify");
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), "formal-audit-toolchain-"));
+afterAll(() => {
+	for (const entry of fs.readdirSync(temp)) {
+		try {
+			fs.chmodSync(path.join(temp, entry), 0o755);
+			for (const inner of fs.readdirSync(path.join(temp, entry))) {
+				fs.chmodSync(path.join(temp, entry, inner), 0o755);
+			}
+		} catch {
+			// not a folder
+		}
+	}
+	fs.rmSync(temp, { recursive: true, force: true });
+});
+
+// biome-ignore lint/suspicious/noExplicitAny: the library is loaded from a path chosen at run time.
+async function lib(name: string): Promise<any> {
+	return import(/* @vite-ignore */ path.join(SKILL, "scripts/lib", `${name}.ts`));
+}
+
+const sha = (data: string | Buffer): string => createHash("sha256").update(data).digest("hex");
+const fileUrl = (file: string): string => `file://${file.startsWith("/") ? "" : "/"}${file.replaceAll("\\", "/")}`;
+const quiet = (): void => {};
+const posix = process.platform !== "win32";
+const isRoot = typeof process.getuid === "function" && process.getuid() === 0;
+
+function deadPid(): number {
+	const result = spawnSync("bun", ["-e", "process.stdout.write(String(process.pid))"], { encoding: "utf8" });
+	return Number(result.stdout);
+}
+
+function plantLock(cache: string, name: string, owner: Record<string, unknown>, ageMs = 0): string {
+	const lock = path.join(cache, `.lock-${name}`);
+	fs.mkdirSync(lock, { recursive: true });
+	const file = path.join(lock, "owner.json");
+	fs.writeFileSync(file, JSON.stringify(owner));
+	const then = new Date(Date.now() - ageMs);
+	fs.utimesSync(file, then, then);
+	return lock;
+}
+
+function finished(child: ChildProcess): Promise<number | null> {
+	return new Promise(resolve => child.on("close", code => resolve(code)));
+}
+
+describe("lock takeover (finding 1)", () => {
+	const CHILD = (toolchain: string): string =>
+		[
+			'import fs from "node:fs";',
+			`import { withLock } from ${JSON.stringify(toolchain)};`,
+			"const [cache, barrier, marker, log, id] = process.argv.slice(2);",
+			"const gate = new Int32Array(new SharedArrayBuffer(4));",
+			"while (!fs.existsSync(barrier)) Atomics.wait(gate, 0, 0, 1);",
+			"await withLock(cache, 'x', async () => {",
+			"  try { fs.mkdirSync(marker); } catch { fs.appendFileSync(log, 'overlap ' + id + '\\n'); }",
+			"  fs.appendFileSync(log, 'entered ' + id + '\\n');",
+			"  await new Promise(resolve => setTimeout(resolve, 20));",
+			"  fs.rmSync(marker, { recursive: true, force: true });",
+			"}, { log() {}, pollMs: 5 });",
+		].join("\n");
+
+	it("lets exactly one of several waiters take over a dead holder's lock, in every round", async () => {
+		const script = path.join(temp, "lock-child.ts");
+		fs.writeFileSync(script, CHILD(path.join(SKILL, "scripts/lib/toolchain.ts")));
+		const dead = deadPid();
+		const rounds = 12;
+		const procs = 8;
+		let overlaps = 0;
+		let entered = 0;
+		for (let round = 0; round < rounds; round++) {
+			const dir = fs.mkdtempSync(path.join(temp, "race-"));
+			const cache = path.join(dir, "cache");
+			fs.mkdirSync(cache);
+			plantLock(cache, "x", { pid: dead, host: os.hostname(), started: 1 });
+			const barrier = path.join(dir, "go");
+			const marker = path.join(dir, "inside");
+			const log = path.join(dir, "log.txt");
+			fs.writeFileSync(log, "");
+			const errors: string[] = [];
+			const children = Array.from({ length: procs }, (_, id) =>
+				spawn("bun", [script, cache, barrier, marker, log, String(id)], {
+					stdio: ["ignore", "ignore", "pipe"],
+					cwd: dir,
+				}),
+			);
+			for (const child of children) child.stderr?.on("data", chunk => errors.push(String(chunk)));
+			const done = children.map(finished);
+			fs.writeFileSync(barrier, "");
+			const codes = await Promise.all(done);
+			expect(errors.join(""), "stderr of the waiters").toBe("");
+			expect(codes).toEqual(Array(procs).fill(0));
+			const lines = fs.readFileSync(log, "utf8").split("\n").filter(Boolean);
+			overlaps += lines.filter(line => line.startsWith("overlap")).length;
+			entered += lines.filter(line => line.startsWith("entered")).length;
+			expect(fs.existsSync(path.join(cache, ".lock-x"))).toBe(false);
+		}
+		expect(entered).toBe(rounds * procs);
+		expect(overlaps).toBe(0);
+	}, 120_000);
+
+	it.skipIf(!posix)(
+		"releases a lock its process holds when SIGTERM stops it",
+		async () => {
+			const { toolchain } = { toolchain: path.join(SKILL, "scripts/lib/toolchain.ts") };
+			const script = path.join(temp, "lock-hold.ts");
+			fs.writeFileSync(
+				script,
+				[
+					`import { withLock } from ${JSON.stringify(toolchain)};`,
+					"await withLock(process.argv[2], 'x', async () => {",
+					"  console.log('held');",
+					"  await new Promise(() => {});",
+					"}, { log() {} });",
+				].join("\n"),
+			);
+			const cache = fs.mkdtempSync(path.join(temp, "term-"));
+			const child = spawn("bun", [script, cache], { stdio: ["ignore", "pipe", "ignore"] });
+			const held = Promise.withResolvers<void>();
+			child.stdout?.on("data", () => held.resolve());
+			const closed = finished(child);
+			await held.promise;
+			expect(fs.existsSync(path.join(cache, ".lock-x"))).toBe(true);
+			child.kill("SIGTERM");
+			expect(await closed).toBe(143);
+			expect(fs.existsSync(path.join(cache, ".lock-x"))).toBe(false);
+		},
+		30_000,
+	);
+
+	it("does not delete a lock that another process now owns", async () => {
+		const { withLock } = await lib("toolchain");
+		const cache = fs.mkdtempSync(path.join(temp, "foreign-"));
+		const lock = path.join(cache, ".lock-x");
+		await withLock(
+			cache,
+			"x",
+			async () => {
+				// A takeover replaced this process's lock while it worked.
+				fs.rmSync(lock, { recursive: true });
+				plantLock(cache, "x", { pid: process.pid, host: os.hostname(), started: 1, token: "someone-else" });
+			},
+			{ log: quiet },
+		);
+		expect(JSON.parse(fs.readFileSync(path.join(lock, "owner.json"), "utf8")).token).toBe("someone-else");
+	});
+});
+
+describe("environmental failures are UNAVAILABLE, not a stack (finding 2)", () => {
+	it.skipIf(!posix || isRoot)("a lock in an unwritable cache is Unavailable", async () => {
+		const { withLock } = await lib("toolchain");
+		const { Unavailable } = await lib("proc");
+		const cache = fs.mkdtempSync(path.join(temp, "ro-lock-"));
+		fs.chmodSync(cache, 0o555);
+		await expect(withLock(cache, "x", async () => 1, { log: quiet })).rejects.toBeInstanceOf(Unavailable);
+	});
+
+	it("work that fails with a full or read-only disk is Unavailable and says which tool", async () => {
+		const { withLock } = await lib("toolchain");
+		const { Unavailable } = await lib("proc");
+		const cache = fs.mkdtempSync(path.join(temp, "enospc-"));
+		for (const code of ["ENOSPC", "EACCES", "EROFS", "EPERM", "EBUSY"]) {
+			const error = Object.assign(new Error(`${code}: boom`), { code });
+			const failure = await withLock(
+				cache,
+				"jre",
+				async () => {
+					throw error;
+				},
+				{ log: quiet },
+			).catch((caught: unknown) => caught);
+			expect(failure).toBeInstanceOf(Unavailable);
+			expect((failure as Error).message).toContain("jre");
+			expect((failure as Error).message).toContain(code);
+		}
+		// A bug is still a bug.
+		await expect(
+			withLock(
+				cache,
+				"jre",
+				async () => {
+					throw new TypeError("not an environment problem");
+				},
+				{ log: quiet },
+			),
+		).rejects.toBeInstanceOf(TypeError);
+	});
+
+	/** A pin file whose portable JRE is `archive` (tar.gz) and whose jars are already in the cache. */
+	async function jrePins(archive: string): Promise<{ env: NodeJS.ProcessEnv; cache: string }> {
+		const { DEFAULT_TOOLCHAIN_FILE } = await lib("toolchain");
+		const cache = fs.mkdtempSync(path.join(temp, "jre-"));
+		const sources = path.join(cache, "src");
+		fs.mkdirSync(sources);
+		fs.writeFileSync(path.join(sources, "tla2tools.jar"), "tla jar");
+		fs.writeFileSync(path.join(sources, "community.jar"), "community jar");
+		const pins = JSON.parse(fs.readFileSync(DEFAULT_TOOLCHAIN_FILE, "utf8"));
+		pins.tla.tla2tools.url = fileUrl(path.join(sources, "tla2tools.jar"));
+		pins.tla.tla2tools.sha256 = sha("tla jar");
+		pins.tla.communityModules.url = fileUrl(path.join(sources, "community.jar"));
+		pins.tla.communityModules.sha256 = sha("community jar");
+		pins.tla.jre.platforms[`${process.platform}-${process.arch}`] = {
+			version: "17.0.1+1",
+			url: fileUrl(archive),
+			sha256: sha(fs.readFileSync(archive)),
+			format: "tar.gz",
+		};
+		const pinFile = path.join(cache, "toolchain.json");
+		fs.writeFileSync(pinFile, JSON.stringify(pins));
+		return {
+			cache,
+			env: {
+				...process.env,
+				OMPDESK_FORMAL_CACHE: cache,
+				OMPDESK_FORMAL_TOOLCHAIN: pinFile,
+				OMPDESK_FORMAL_NO_SYSTEM_JAVA: "1",
+			},
+		};
+	}
+
+	function jreArchive(name: string): string {
+		const root = fs.mkdtempSync(path.join(temp, "jre-src-"));
+		fs.mkdirSync(path.join(root, "jdk", "bin"), { recursive: true });
+		fs.writeFileSync(path.join(root, "jdk", "bin", "java"), "#!/bin/sh\necho 'openjdk version \"17.0.1\"' >&2\n", {
+			mode: 0o755,
+		});
+		const archive = path.join(root, name);
+		const packed = spawnSync("tar", ["-czf", archive, "-C", root, "jdk"]);
+		expect(packed.status).toBe(0);
+		return archive;
+	}
+
+	it.skipIf(!posix)(
+		"a portable JRE archive that does not unpack is Unavailable (exit 3 territory), not a stack",
+		async () => {
+			const { prepareTla } = await lib("tla-env");
+			const { Unavailable } = await lib("proc");
+			const bad = path.join(temp, "not-a-tarball.tar.gz");
+			fs.writeFileSync(bad, "this is not a gzip stream");
+			const { env } = await jrePins(bad);
+			const failure = await prepareTla({ env, log: quiet }).catch((caught: unknown) => caught);
+			expect(failure).toBeInstanceOf(Unavailable);
+			expect((failure as Error).message).toContain("unpacking");
+		},
+		30_000,
+	);
+
+	it.skipIf(!posix || isRoot)(
+		"a cache folder that cannot be written while unpacking is Unavailable",
+		async () => {
+			const { prepareTla } = await lib("tla-env");
+			const { Unavailable } = await lib("proc");
+			const { env, cache } = await jrePins(jreArchive("jre.tar.gz"));
+			fs.mkdirSync(path.join(cache, "jre"));
+			fs.chmodSync(path.join(cache, "jre"), 0o555);
+			const failure = await prepareTla({ env, log: quiet }).catch((caught: unknown) => caught);
+			expect(failure).toBeInstanceOf(Unavailable);
+		},
+		30_000,
+	);
+});
+
+describe("download reuses a verified archive (finding 3)", () => {
+	it("returns at once when the archive is already there and matches, even offline and without its source", async () => {
+		const { download } = await lib("toolchain");
+		const dest = path.join(temp, "dl-reuse", "lean.zip");
+		fs.mkdirSync(path.dirname(dest), { recursive: true });
+		fs.writeFileSync(dest, "archive bytes");
+		await download(fileUrl(path.join(temp, "gone.zip")), dest, sha("archive bytes"), {
+			label: "lean",
+			env: { OMPDESK_FORMAL_OFFLINE: "1" },
+			log: quiet,
+		});
+		expect(fs.readFileSync(dest, "utf8")).toBe("archive bytes");
+	});
+
+	it("still fetches when the file there is not the pinned one", async () => {
+		const { download } = await lib("toolchain");
+		const { Unavailable } = await lib("proc");
+		const dest = path.join(temp, "dl-reuse", "other.zip");
+		fs.writeFileSync(dest, "truncated");
+		await expect(
+			download(fileUrl(path.join(temp, "gone.zip")), dest, sha("archive bytes"), {
+				label: "lean",
+				env: { OMPDESK_FORMAL_OFFLINE: "1" },
+				log: quiet,
+			}),
+		).rejects.toBeInstanceOf(Unavailable);
+	});
+});
+
+describe("leftovers in a shared cache (finding 4)", () => {
+	it("names its part and unpack folders after this host, and cleans only those", async () => {
+		const { cleanLeftovers, hostTag } = await lib("toolchain");
+		const cache = fs.mkdtempSync(path.join(temp, "hosts-"));
+		fs.mkdirSync(path.join(cache, "downloads"));
+		const dead = deadPid();
+		const mine = path.join(cache, "downloads", `a.zip.part-${hostTag()}-${dead}`);
+		const theirs = path.join(cache, "downloads", `b.zip.part-otherhost-${dead}`);
+		const live = path.join(cache, "downloads", `c.zip.part-${hostTag()}-${process.pid}`);
+		for (const file of [mine, theirs, live]) fs.writeFileSync(file, "x");
+		expect(cleanLeftovers(cache)).toEqual([mine]);
+		expect(fs.existsSync(theirs)).toBe(true);
+		expect(fs.existsSync(live)).toBe(true);
+	});
+
+	it("leaves a hostless leftover alone while another computer's lock was touched recently", async () => {
+		const { withLock } = await lib("toolchain");
+		const cache = fs.mkdtempSync(path.join(temp, "foreign-active-"));
+		fs.mkdirSync(path.join(cache, "downloads"));
+		const legacy = path.join(cache, "downloads", `old.zip.part-${deadPid()}`);
+		fs.writeFileSync(legacy, "x");
+		const lock = plantLock(cache, "other", { pid: 1, host: "some-other-computer", started: 1, token: "t" });
+		await withLock(cache, "mine", async () => undefined, { log: quiet, staleMs: 60_000 });
+		expect(fs.existsSync(legacy)).toBe(true);
+		const old = new Date(Date.now() - 10 * 60_000);
+		fs.utimesSync(path.join(lock, "owner.json"), old, old);
+		await withLock(cache, "mine", async () => undefined, { log: quiet, staleMs: 60_000 });
+		expect(fs.existsSync(legacy)).toBe(false);
+	});
+});
+
+describe("setup.ts output (findings 5 and 6)", () => {
+	const offline = (cache: string): NodeJS.ProcessEnv => ({
+		...process.env,
+		OMPDESK_FORMAL_CACHE: cache,
+		OMPDESK_FORMAL_OFFLINE: "1",
+		OMPDESK_FORMAL_NO_SYSTEM_JAVA: "1",
+	});
+
+	it("--json prints a JSON object on failure too: status, target and reason", () => {
+		const cache = fs.mkdtempSync(path.join(temp, "json-"));
+		const run = spawnSync("bun", [path.join(SKILL, "scripts/setup.ts"), "tla", "--json"], {
+			encoding: "utf8",
+			env: offline(cache),
+		});
+		expect(run.status).toBe(3);
+		const parsed = JSON.parse(run.stdout);
+		expect(parsed.status).toBe("UNAVAILABLE");
+		expect(parsed.target).toBe("tla");
+		expect(typeof parsed.reason).toBe("string");
+		const check = spawnSync("bun", [path.join(SKILL, "scripts/setup.ts"), "lean", "--check", "--json"], {
+			encoding: "utf8",
+			env: offline(cache),
+		});
+		expect(check.status).toBe(3);
+		expect(JSON.parse(check.stdout)).toMatchObject({ status: "UNAVAILABLE", target: "lean" });
+	}, 30_000);
+
+	it.skipIf(process.platform !== "darwin")(
+		"prints the Lean download and unpack lines on stderr and keeps --json on stdout parseable",
+		async () => {
+			const { DEFAULT_TOOLCHAIN_FILE } = await lib("toolchain");
+			const dir = fs.mkdtempSync(path.join(temp, "lean-pins-"));
+			const cache = path.join(dir, "cache");
+			const key = `${process.platform}-${process.arch}`;
+			// elan: an archive whose elan-init plants `elan` and `lake` scripts in ELAN_HOME/bin.
+			const elanSrc = path.join(dir, "elan-src");
+			fs.mkdirSync(elanSrc);
+			fs.writeFileSync(
+				path.join(elanSrc, "elan-init"),
+				[
+					"#!/bin/sh",
+					'mkdir -p "$ELAN_HOME/bin"',
+					'printf "#!/bin/sh\\nexit 0\\n" > "$ELAN_HOME/bin/elan"',
+					'printf "#!/bin/sh\\necho \\"Lake version 5.0.0 (Lean version 4.35.0)\\"\\n" > "$ELAN_HOME/bin/lake"',
+					'chmod +x "$ELAN_HOME/bin/elan" "$ELAN_HOME/bin/lake"',
+					"",
+				].join("\n"),
+				{ mode: 0o755 },
+			);
+			const elanArchive = path.join(dir, "elan.tar.gz");
+			expect(spawnSync("tar", ["-czf", elanArchive, "-C", elanSrc, "elan-init"]).status).toBe(0);
+			const leanSrc = path.join(dir, "lean-src", "lean-4.35.0-fake", "bin");
+			fs.mkdirSync(leanSrc, { recursive: true });
+			fs.writeFileSync(path.join(leanSrc, "lake"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+			const leanArchive = path.join(dir, "lean.zip");
+			expect(
+				spawnSync("zip", ["-qr", leanArchive, "lean-4.35.0-fake"], { cwd: path.join(dir, "lean-src") }).status,
+			).toBe(0);
+			const pins = JSON.parse(fs.readFileSync(DEFAULT_TOOLCHAIN_FILE, "utf8"));
+			pins.lean.elan.platforms[key] = {
+				url: fileUrl(elanArchive),
+				sha256: sha(fs.readFileSync(elanArchive)),
+				format: "tar.gz",
+			};
+			pins.lean.archive.platforms[key] = {
+				url: fileUrl(leanArchive),
+				sha256: sha(fs.readFileSync(leanArchive)),
+				format: "zip",
+			};
+			const pinFile = path.join(dir, "toolchain.json");
+			fs.writeFileSync(pinFile, JSON.stringify(pins));
+			const run = spawnSync("bun", [path.join(SKILL, "scripts/setup.ts"), "lean", "--json"], {
+				encoding: "utf8",
+				env: { ...process.env, OMPDESK_FORMAL_CACHE: cache, OMPDESK_FORMAL_TOOLCHAIN: pinFile },
+			});
+			expect(run.stderr).toContain("downloading Lean");
+			expect(run.stderr).toContain("unpacking Lean");
+			expect(run.status).toBe(0);
+			expect(JSON.parse(run.stdout)).toMatchObject({ status: "READY", target: "lean" });
+		},
+		60_000,
+	);
+});
+
+describe("Windows unpacking (finding 7)", () => {
+	it("calls bsdtar by absolute path on Windows, plain tar elsewhere", async () => {
+		const { tarProgram } = await lib("toolchain");
+		expect(tarProgram("win32", { SystemRoot: "C:\\Windows" })).toBe("C:\\Windows\\System32\\tar.exe");
+		expect(tarProgram("darwin", { SystemRoot: "C:\\Windows" })).toBe("tar");
+	});
+
+	it("silences PowerShell's progress bar in the Expand-Archive fallback", async () => {
+		const { expandArchiveCommand } = await lib("toolchain");
+		const command: string = expandArchiveCommand("C:\\a b\\it's.zip", "C:\\out");
+		expect(command.startsWith("$ProgressPreference='SilentlyContinue';")).toBe(true);
+		expect(command).toContain("-LiteralPath 'C:\\a b\\it''s.zip'");
+	});
+
+	it("retries the final rename on EPERM, EACCES and EBUSY, and only on those", async () => {
+		const { renameRetrying } = await lib("toolchain");
+		const failing = (code: string, times: number): { rename: () => void; calls: () => number } => {
+			let calls = 0;
+			return {
+				calls: () => calls,
+				rename: () => {
+					calls++;
+					if (calls <= times) throw Object.assign(new Error(code), { code });
+				},
+			};
+		};
+		for (const code of ["EPERM", "EACCES", "EBUSY"]) {
+			const fake = failing(code, 2);
+			await renameRetrying("a", "b", [0, 0, 0], fake.rename);
+			expect(fake.calls()).toBe(3);
+		}
+		const stuck = failing("EPERM", 99);
+		await expect(renameRetrying("a", "b", [0, 0], stuck.rename)).rejects.toThrow("EPERM");
+		expect(stuck.calls()).toBe(3);
+		const missing = failing("ENOENT", 99);
+		await expect(renameRetrying("a", "b", [0, 0], missing.rename)).rejects.toThrow("ENOENT");
+		expect(missing.calls()).toBe(1);
+	});
+});
+
+describe("omp's PATH carries the bun of a custom BUN_INSTALL (finding 8)", () => {
+	it("adds <BUN_INSTALL>/bin, not ~/.bun/bin, when BUN_INSTALL is set", async () => {
+		const bunRoot = path.join(temp, "custom-bun");
+		const previous = process.env.BUN_INSTALL;
+		process.env.BUN_INSTALL = bunRoot;
+		try {
+			const entries = ompPathEnv(path.join(temp, "omp", "omp"), "/usr/bin").split(path.delimiter);
+			expect(entries).toContain(path.join(bunRoot, "bin"));
+			expect(entries).not.toContain(path.join(os.homedir(), ".bun", "bin"));
+		} finally {
+			if (previous === undefined) delete process.env.BUN_INSTALL;
+			else process.env.BUN_INSTALL = previous;
+		}
+	});
+});

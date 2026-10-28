@@ -2,6 +2,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { isRecord } from "./json";
+import { poolPromises } from "./pool";
+import { onInterrupt } from "./proc";
+import { removeTree } from "./scratch";
 
 export interface Mutation {
 	name: string;
@@ -159,28 +162,102 @@ export function parseMutations(input: unknown): MutationSpec {
 	return { checker: spec, ...(properties ? { properties } : {}), waive, mutations };
 }
 
-function occurrences(text: string, needle: string): number {
-	let count = 0;
-	for (let at = text.indexOf(needle); at !== -1; at = text.indexOf(needle, at + needle.length)) count++;
-	return count;
+/**
+ * `source` with every TLA+ comment (`\* to the end of the line`, `(* ... *)` with nesting) blanked to spaces, newlines
+ * and length kept. A string literal is code: `"\* x"` is not a comment.
+ */
+export function maskTlaComments(source: string): string {
+	let out = "";
+	let depth = 0;
+	let i = 0;
+	while (i < source.length) {
+		const ch = source[i] as string;
+		if (depth > 0) {
+			if (source.startsWith("(*", i)) {
+				depth++;
+				out += "  ";
+				i += 2;
+			} else if (source.startsWith("*)", i)) {
+				depth--;
+				out += "  ";
+				i += 2;
+			} else {
+				out += ch === "\n" || ch === "\r" ? ch : " ";
+				i++;
+			}
+		} else if (source.startsWith("(*", i)) {
+			depth = 1;
+			out += "  ";
+			i += 2;
+		} else if (source.startsWith("\\*", i)) {
+			while (i < source.length && source[i] !== "\n" && source[i] !== "\r") {
+				out += " ";
+				i++;
+			}
+		} else if (ch === '"') {
+			out += ch;
+			i++;
+			while (i < source.length && source[i] !== '"') {
+				const width = source[i] === "\\" && i + 1 < source.length ? 2 : 1;
+				out += source.slice(i, i + width);
+				i += width;
+			}
+			if (i < source.length) {
+				out += '"';
+				i++;
+			}
+		} else {
+			out += ch;
+			i++;
+		}
+	}
+	return out;
 }
 
-/** Applies one search/replace; fails (with the reason) unless the search text occurs once, or `all` is set. */
+function positions(text: string, needle: string): number[] {
+	const found: number[] = [];
+	for (let at = text.indexOf(needle); at !== -1; at = text.indexOf(needle, at + needle.length)) found.push(at);
+	return found;
+}
+
+/**
+ * Applies one search/replace; fails (with the reason) unless the search text occurs once, or `all` is set. In a
+ * `.tla` file (`file` names it) a match counts only when it contains something outside comments (a search may run
+ * from code into its trailing `\* comment`): a change to a comment alone cannot alter the model, so a search whose
+ * matches all lie inside comments is rejected instead of ending as a MISSED mutation.
+ */
 export function applyMutation(
 	source: string,
 	mutation: Pick<Mutation, "search" | "replace" | "all">,
+	file?: string,
 ): { ok: true; text: string } | { ok: false; reason: string } {
 	// A Windows checkout may hold CRLF files: write the search text with the file's own line endings.
 	const crlf = source.includes("\r\n");
 	const eol = (text: string): string => (crlf ? text.replace(/\r?\n/g, "\r\n") : text);
 	const search = eol(mutation.search);
 	const replace = eol(mutation.replace);
-	const found = occurrences(source, search);
-	if (found === 0) return { ok: false, reason: "the search text does not occur in the file" };
-	if (found > 1 && !mutation.all) {
-		return { ok: false, reason: `the search text occurs ${found} times; make it unique or set "all": true` };
+	const all = positions(source, search);
+	const masked = file?.endsWith(".tla") ? maskTlaComments(source) : undefined;
+	const found = masked ? all.filter(at => masked.slice(at, at + search.length).trim() !== "") : all;
+	if (found.length === 0) {
+		return {
+			ok: false,
+			reason:
+				all.length > 0
+					? "the search text matches only inside comments of the .tla file: a comment cannot change the model, search the code"
+					: "the search text does not occur in the file",
+		};
 	}
-	return { ok: true, text: source.split(search).join(replace) };
+	if (found.length > 1 && !mutation.all) {
+		return { ok: false, reason: `the search text occurs ${found.length} times; make it unique or set "all": true` };
+	}
+	let text = "";
+	let from = 0;
+	for (const at of found) {
+		text += source.slice(from, at) + replace;
+		from = at + search.length;
+	}
+	return { ok: true, text: text + source.slice(from) };
 }
 
 const SKIP = new Set([".git", "node_modules", ".tlc-out", "states"]);
@@ -200,10 +277,21 @@ function detailOf(outcome: CheckOutcome): string {
 	return outcome.detail.trim().split(/\r?\n/).slice(0, 3).join(" | ");
 }
 
+/** The baseline a mutation's own config needs: the unmutated model under that config, isolation and deadlock setting. */
+function baselineKey(mutation: Mutation): string | undefined {
+	if (mutation.config === undefined) return undefined;
+	return JSON.stringify([
+		mutation.config,
+		mutation.isolate ? [...mutation.breaks].sort() : null,
+		mutation.deadlock ?? null,
+	]);
+}
+
 /**
  * Runs every mutation against a copy of the model. The unmutated model must pass first. A mutation is DETECTED
  * when the checker fails on a property it says it breaks, MISSED when the model still passes (or fails on
  * something else), INVALID when the search text does not match or the mutated model is not a valid model.
+ * `jobs` checks run at once (default 1), each in its own copy; the results keep the order of the mutations file.
  */
 export async function runMutations(options: {
 	/** The model's root folder and the model file inside it. */
@@ -214,96 +302,98 @@ export async function runMutations(options: {
 	properties: string[];
 	check: Checker;
 	keep?: boolean;
+	/** Receives warnings, such as a scratch folder that could not be removed (default: stderr). */
 	log?: (line: string) => void;
+	jobs?: number;
 }): Promise<MutationReport & { workDir: string }> {
 	const { root, model, spec, check } = options;
+	const jobs = Math.max(1, options.jobs ?? 1);
+	const warn = options.log ?? ((line: string) => console.error(line));
 	const work = fs.mkdtempSync(path.join(os.tmpdir(), "ompdesk-mutate-"));
-	const baseDir = path.join(work, "baseline");
-	copyModel(root, baseDir);
-	const relModel = path.relative(root, model);
-	const baseModel = path.join(baseDir, relModel);
-	const baseline = await check(baseDir, baseModel);
+	const unregister = options.keep
+		? undefined
+		: onInterrupt(() => {
+				removeTree(work);
+			});
 	const report: MutationReport & { workDir: string } = {
-		baseline,
+		baseline: { status: "error", violated: [], detail: "not run" },
 		results: [],
 		properties: [],
-		unavailable: baseline.status === "unavailable",
+		unavailable: false,
 		workDir: work,
 	};
+	const discard = (dir: string): void => {
+		if (options.keep) return;
+		const failed = removeTree(dir);
+		if (failed) warn(`WARN  ${failed}`);
+	};
 	try {
-		if (baseline.status !== "pass") return report;
-		const credited = new Map<string, string[]>();
-		// A mutation may run under its own config. The unmutated model must pass under that config too, or a mutation
-		// that changes nothing would be "detected" by a config that fails on its own.
-		const configBaselines = new Map<string, CheckOutcome>();
+		const baseDir = path.join(work, "baseline");
+		copyModel(root, baseDir);
+		const relModel = path.relative(root, model);
+		const baseModel = path.join(baseDir, relModel);
+		report.baseline = await check(baseDir, baseModel);
+		report.unavailable = report.baseline.status === "unavailable";
+		if (report.baseline.status !== "pass") return report;
+		// A mutation may run under its own config. The unmutated model must pass under that config too (with the
+		// mutation's isolation and deadlock setting), or a mutation that changes nothing would be "detected" by a
+		// config that fails on its own.
+		const baselineOf = new Map<string, Mutation>();
 		for (const mutation of spec.mutations) {
-			if (mutation.config === undefined || configBaselines.has(mutation.config)) continue;
-			configBaselines.set(mutation.config, await check(baseDir, baseModel, mutation));
+			const key = baselineKey(mutation);
+			if (key !== undefined && !baselineOf.has(key)) baselineOf.set(key, mutation);
 		}
-		for (const outcome of configBaselines.values()) {
-			if (outcome.status === "unavailable") {
-				report.unavailable = true;
-				return report;
-			}
+		const keys = [...baselineOf.keys()];
+		const outcomes = await Promise.all(
+			poolPromises(keys, jobs, key => check(baseDir, baseModel, baselineOf.get(key) as Mutation)),
+		);
+		const baselines = new Map(keys.map((key, index) => [key, outcomes[index] as CheckOutcome]));
+		if (outcomes.some(outcome => outcome.status === "unavailable")) {
+			report.unavailable = true;
+			return report;
 		}
-		for (const mutation of spec.mutations) {
-			const configBaseline = mutation.config === undefined ? undefined : configBaselines.get(mutation.config);
+		let stopped = false;
+		const judgeOne = async (mutation: Mutation, index: number): Promise<MutationResult | undefined> => {
+			if (stopped) return undefined;
+			const invalid = (detail: string, violated: string[] = []): MutationResult => ({
+				name: mutation.name,
+				status: "INVALID",
+				violated,
+				detail,
+			});
+			const key = baselineKey(mutation);
+			const configBaseline = key === undefined ? undefined : baselines.get(key);
 			if (configBaseline && configBaseline.status !== "pass") {
-				report.results.push({
-					name: mutation.name,
-					status: "INVALID",
-					violated: [],
-					detail: `the unmutated model does not pass under ${mutation.config} (${configBaseline.status}: ${detailOf(configBaseline)}), so a failure there proves nothing about this mutation`,
-				});
-				continue;
+				return invalid(
+					`the unmutated model does not pass under ${mutation.config} (${configBaseline.status}: ${detailOf(configBaseline)}), so a failure there proves nothing about this mutation`,
+				);
 			}
-			const dir = path.join(work, `m-${mutation.name.replace(/[^\w.-]+/g, "_")}`);
-			copyModel(baseDir, dir);
-			const target = path.join(dir, mutation.file ?? relModel);
-			const outside = path.relative(dir, target);
-			if (outside.startsWith("..") || path.isAbsolute(outside)) {
-				report.results.push({
-					name: mutation.name,
-					status: "INVALID",
-					violated: [],
-					detail: `the file ${mutation.file} is outside the model's folder`,
-				});
-				continue;
-			}
-			let source: string;
+			const dir = path.join(work, `m${index}-${mutation.name.replace(/[^\w.-]+/g, "_")}`);
 			try {
-				source = fs.readFileSync(target, "utf8");
-			} catch {
-				report.results.push({
-					name: mutation.name,
-					status: "INVALID",
-					violated: [],
-					detail: `cannot read ${mutation.file ?? relModel}`,
-				});
-				continue;
-			}
-			const applied = applyMutation(source, mutation);
-			if (!applied.ok) {
-				report.results.push({ name: mutation.name, status: "INVALID", violated: [], detail: applied.reason });
-				continue;
-			}
-			fs.writeFileSync(target, applied.text);
-			const outcome = await check(dir, path.join(dir, relModel), mutation);
-			if (outcome.status === "unavailable") {
-				report.unavailable = true;
-				report.results.push({ name: mutation.name, status: "INVALID", violated: [], detail: detailOf(outcome) });
-				break;
-			}
-			if (outcome.status === "error") {
-				report.results.push({
-					name: mutation.name,
-					status: "INVALID",
-					violated: [],
-					detail: `the mutated model is not checkable: ${detailOf(outcome)}`,
-				});
-			} else if (outcome.status === "pass") {
-				report.results.push(
-					mutation.equivalent
+				copyModel(baseDir, dir);
+				const target = path.join(dir, mutation.file ?? relModel);
+				const outside = path.relative(dir, target);
+				if (outside.startsWith("..") || path.isAbsolute(outside)) {
+					return invalid(`the file ${mutation.file} is outside the model's folder`);
+				}
+				let source: string;
+				try {
+					source = fs.readFileSync(target, "utf8");
+				} catch {
+					return invalid(`cannot read ${mutation.file ?? relModel}`);
+				}
+				const applied = applyMutation(source, mutation, target);
+				if (!applied.ok) return invalid(applied.reason);
+				fs.writeFileSync(target, applied.text);
+				const outcome = await check(dir, path.join(dir, relModel), mutation);
+				if (outcome.status === "unavailable") {
+					report.unavailable = true;
+					stopped = true;
+					return invalid(detailOf(outcome));
+				}
+				if (outcome.status === "error") return invalid(`the mutated model is not checkable: ${detailOf(outcome)}`);
+				if (outcome.status === "pass") {
+					return mutation.equivalent
 						? {
 								name: mutation.name,
 								status: "EQUIVALENT",
@@ -315,37 +405,36 @@ export async function runMutations(options: {
 								status: "MISSED",
 								violated: [],
 								detail: "the checker still passes: the properties do not notice this change",
-							},
-				);
-			} else if (mutation.equivalent) {
-				report.results.push({
-					name: mutation.name,
-					status: "INVALID",
-					violated: outcome.violated,
-					detail: `declared equivalent (${mutation.equivalent}) but the checker fails${outcome.violated.length ? ` on ${outcome.violated.join(", ")}` : ""}: the claim is wrong, drop "equivalent" and treat it as a detected mutation`,
-				});
-			} else {
+							};
+				}
+				if (mutation.equivalent) {
+					return invalid(
+						`declared equivalent (${mutation.equivalent}) but the checker fails${outcome.violated.length ? ` on ${outcome.violated.join(", ")}` : ""}: the claim is wrong, drop "equivalent" and treat it as a detected mutation`,
+						outcome.violated,
+					);
+				}
 				const hit = outcome.violated.filter(name => mutation.breaks.includes(name));
 				if (hit.length > 0) {
-					report.results.push({
-						name: mutation.name,
-						status: "DETECTED",
-						violated: hit,
-						detail: `failed on ${hit.join(", ")}`,
-					});
-					for (const name of hit) credited.set(name, [...(credited.get(name) ?? []), mutation.name]);
-				} else {
-					const got = outcome.violated.length ? outcome.violated.join(", ") : "an unnamed property";
-					const deadlocked = outcome.violated.includes("deadlock") && !mutation.breaks.includes("deadlock");
-					report.results.push({
-						name: mutation.name,
-						status: "MISSED",
-						violated: outcome.violated,
-						detail: `failed on ${got}, not on ${mutation.breaks.join(" or ")}${deadlocked ? ' (the mutation deadlocks the model before the property can fail: set "deadlock": false on it, or CHECK_DEADLOCK FALSE in its config)' : ""}`,
-					});
+					return { name: mutation.name, status: "DETECTED", violated: hit, detail: `failed on ${hit.join(", ")}` };
 				}
+				const got = outcome.violated.length ? outcome.violated.join(", ") : "an unnamed property";
+				const deadlocked = outcome.violated.includes("deadlock") && !mutation.breaks.includes("deadlock");
+				return {
+					name: mutation.name,
+					status: "MISSED",
+					violated: outcome.violated,
+					detail: `failed on ${got}, not on ${mutation.breaks.join(" or ")}${deadlocked ? ' (the mutation deadlocks the model before the property can fail: set "deadlock": false on it, or CHECK_DEADLOCK FALSE in its config)' : ""}`,
+				};
+			} finally {
+				discard(dir);
 			}
-			if (!options.keep) fs.rmSync(dir, { recursive: true, force: true });
+		};
+		const judged = await Promise.all(poolPromises(spec.mutations, jobs, judgeOne));
+		report.results = judged.filter((result): result is MutationResult => result !== undefined);
+		const credited = new Map<string, string[]>();
+		for (const result of report.results) {
+			if (result.status !== "DETECTED") continue;
+			for (const name of result.violated) credited.set(name, [...(credited.get(name) ?? []), result.name]);
 		}
 		for (const name of options.properties) {
 			const by = credited.get(name) ?? [];
@@ -356,7 +445,8 @@ export async function runMutations(options: {
 		}
 		return report;
 	} finally {
-		if (!options.keep) fs.rmSync(work, { recursive: true, force: true });
+		unregister?.();
+		discard(work);
 	}
 }
 

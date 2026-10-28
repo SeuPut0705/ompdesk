@@ -36,7 +36,7 @@ checker that can print `VIOLATED: <name>` lines. Use it after the matrix is gree
 | `waive` | `{"Property": "reason"}`: a property accepted without a mutation, with the reason written down. A waiver without a reason is an error |
 | `mutations[].name` | Unique label, used in the output |
 | `mutations[].why` | One sentence: which real mistake this stands for |
-| `mutations[].search` | The exact text to replace. It must occur **once** in the file, or the mutation is `INVALID` unless `all` is true |
+| `mutations[].search` | The exact text to replace. It must occur **once** in the file, or the mutation is `INVALID` unless `all` is true. In a `.tla` file only text outside comments counts (`\* ...`, `(* ... *)`): a search that matches only inside a comment is `INVALID` ("matches only inside comments"), since changing a comment cannot change the model |
 | `mutations[].replace` | The new text (empty to delete the text) |
 | `mutations[].all` | `true` replaces every occurrence of `search` |
 | `mutations[].breaks` | The property, or list of properties, this mutation is meant to break (`deadlock` names a TLC deadlock). The mutation counts as caught if the checker fails on any of them |
@@ -44,12 +44,12 @@ checker that can print `VIOLATED: <name>` lines. Use it after the matrix is gree
 | `mutations[].deadlock` | TLC only: `false` runs this mutation with `CHECK_DEADLOCK FALSE` (same as `-deadlock`). **Liveness mutations need it** (rule 1 below): a mutant that stops the model early deadlocks, TLC reports the deadlock and never reaches the liveness check. `checker.deadlock: false` sets it for every mutation |
 | `mutations[].isolate` | TLC only: `true` runs the mutation under a config derived from the base config that keeps only the `INVARIANT`/`PROPERTY` entries named in `breaks`. TLC reports one violated property, the first it finds; with the others left out the report names the one you mean. This replaces a hand-written `MC_<property>.cfg` per property, and the unmutated model is not re-run under it, so a property that fails on the unmutated model shows up in the baseline instead |
 | `mutations[].equivalent` | A reason (text): this mutant means the same as the model, so no property can notice it (a redundant re-read, a duplicated `sync()`, a reordering of independent steps). The checker still passes, and the mutant is recorded as `EQUIVALENT` with the reason instead of `MISSED`, so the run does not exit 1. It covers no property. If the checker fails on it, the claim is wrong: the result is `INVALID` (exit 2), so a stale claim cannot hide a real hole. Use it for what you proved by reading the code, keep the reason specific, and list such mutants in the report |
-| `mutations[].config` | TLC only: run this config instead of the checker's. Use it to check one property in isolation (an extra config with a single `INVARIANT`). The unmutated model must pass under that config too (it is run first), or the mutations that use it are `INVALID`: a config that fails on its own proves nothing about a mutation |
+| `mutations[].config` | TLC only: run this config instead of the checker's. Use it to check one property in isolation (an extra config with a single `INVARIANT`). The unmutated model must pass under that config too (it is run first, once for each distinct combination of config, `isolate` properties and `deadlock`), or the mutations that use it are `INVALID`: a config that fails on its own proves nothing about a mutation |
 
 Every run works on a copy of the model's folder in a temporary directory; your files are never touched. `--keep`
 leaves the copies and prints their location on stderr so you can open a mutated model and read the counterexample.
 `--json` prints the whole report (baseline, per-mutation results, per-property coverage and the exit code) as JSON
-instead of the lines shown below.
+instead of the lines shown below. `--jobs N` checks N mutations at once (TLC checker: half the cores by default, or `OMPDESK_FORMAL_JOBS`, each TLC run single-worker; Lean and command checkers: one at a time unless you pass `--jobs`). The results are listed in the order of the file.
 
 ## What the output means
 
@@ -135,7 +135,7 @@ asked for.
 
 Triage:
 
-1. `--keep`, open the mutated model, run it with `tlc.ts ... --coverage`. An action with 0 distinct states is dead.
+1. `--keep`, open the mutated model, run it with `tlc.ts ... --coverage`. An action that generated 0 states (the "actions never enabled" warning) is dead.
 2. If the mutation passes because the property is conditional (`P => Q`), check `~P` as an invariant; if `~P`
    holds, the property is vacuous.
 3. If it fails on a *different* property than the one named, the mutation is probably not isolated: fix the

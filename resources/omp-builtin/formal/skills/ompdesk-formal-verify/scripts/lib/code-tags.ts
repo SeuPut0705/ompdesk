@@ -63,6 +63,28 @@ export interface DefinitionTags {
 const DEFINITION = /^([A-Za-z_]\w*)\s*(?:\([^)]*\))?\s*==/;
 const COMMENT_LINE = /^\s*(?:\\\*|\(\*)/;
 
+function count(text: string, needle: string): number {
+	return text.split(needle).length - 1;
+}
+
+/**
+ * The 0-based first line of the comment that ends on line `end`: a `\*` line or a one-line `(* ... *)` is itself, a
+ * line that closes a multi-line `(* ... *)` is that block's first line (nested blocks counted). `undefined` when
+ * the line is no comment, or the block never opens.
+ */
+function commentStart(lines: string[], end: number): number | undefined {
+	const text = lines[end] as string;
+	if (/^\s*\\\*/.test(text)) return end;
+	if (!/\*\)\s*$/.test(text)) return COMMENT_LINE.test(text) ? end : undefined;
+	let depth = count(text, "*)") - count(text, "(*");
+	if (depth <= 0) return COMMENT_LINE.test(text) ? end : undefined;
+	for (let at = end - 1; at >= 0; at--) {
+		depth += count(lines[at] as string, "*)") - count(lines[at] as string, "(*");
+		if (depth <= 0) return at;
+	}
+	return undefined;
+}
+
 /** Top-level TLA+ definitions with the `@code` tags above or inside each. */
 export function indexDefinitions(source: string): DefinitionTags[] {
 	const lines = source.split(/\r?\n/);
@@ -74,10 +96,15 @@ export function indexDefinitions(source: string): DefinitionTags[] {
 		if (!match) return;
 		const tags: CodeTag[] = [];
 		let first = index;
-		for (let above = index - 1; above >= 0 && COMMENT_LINE.test(lines[above] as string); above--) {
-			first = above;
-			const tag = parseTagLine(lines[above] as string, above + 1);
-			if (tag) tags.unshift(tag);
+		for (let above = index - 1; above >= 0; ) {
+			const top = commentStart(lines, above);
+			if (top === undefined) break;
+			for (let at = above; at >= top; at--) {
+				const tag = parseTagLine(lines[at] as string, at + 1);
+				if (tag) tags.unshift(tag);
+			}
+			first = top;
+			above = top - 1;
 		}
 		defs.push({ name: match[1] as string, line: index + 1, tags });
 		blockStart.push(first + 1);

@@ -67,6 +67,32 @@ function killLive(): void {
 	live.clear();
 }
 
+const interrupts = new Set<() => void>();
+
+/**
+ * Runs `cleanup` (synchronously) when this script is stopped by SIGINT, SIGTERM or SIGHUP: the handlers below end the
+ * process with `process.exit`, so a `finally` block never runs. Returns the unregister function; call it when the
+ * thing being protected is done. Errors from a cleanup are swallowed.
+ */
+export function onInterrupt(cleanup: () => void): () => void {
+	guardExit();
+	interrupts.add(cleanup);
+	return () => {
+		interrupts.delete(cleanup);
+	};
+}
+
+function runInterrupts(): void {
+	for (const cleanup of [...interrupts]) {
+		try {
+			cleanup();
+		} catch {
+			// the process is going down anyway
+		}
+	}
+	interrupts.clear();
+}
+
 function guardExit(): void {
 	if (guarded) return;
 	guarded = true;
@@ -79,6 +105,7 @@ function guardExit(): void {
 	for (const [signal, number] of signals) {
 		process.on(signal, () => {
 			killLive();
+			runInterrupts();
 			process.exit(128 + number);
 		});
 	}

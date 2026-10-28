@@ -1,7 +1,9 @@
 #!/usr/bin/env bun
-// Builds a Lean 4 (lake) project and audits its trust base: FAIL on `sorry`/`admit`, user `axiom`s,
-// `native_decide` (unless --allow-native) and any theorem that depends on an axiom beyond propext,
-// Classical.choice and Quot.sound. A build error is attributed to the theorem it sits in.
+// Builds every module of a Lean 4 (lake) project's libraries and audits its trust base: FAIL on `sorry`/`admit`,
+// `#exit`, `debug.skipKernelTC`, user `axiom`s, `native_decide` (unless --allow-native; with it, `@[implemented_by]`
+// and `@[extern]` also fail), any theorem that depends on an axiom beyond propext, Classical.choice and Quot.sound,
+// a module that nothing audits, and anything the toolchain's `leanchecker` rejects when it replays the proofs through
+// the kernel. A build error is attributed to the theorem it sits in.
 //
 //   bun lean-check.ts <lake project dir> [files.lean ...] [--allow-native] [--module Root ...] [--json]
 //
@@ -60,6 +62,7 @@ export function render(check: LeanCheck, project: string): string[] {
 	for (const line of check.detail.split(/\r?\n/).filter(Boolean)) out.push(`  ${line}`);
 	for (const finding of advisories)
 		out.push(`  review: ${finding.kind} at ${finding.file}:${finding.line}: ${finding.text}`);
+	for (const note of check.notes) out.push(`  note: ${note}`);
 	if (check.theorems.length > 0) {
 		const bad = check.theorems.filter(theorem => theorem.flag).length;
 		out.push(

@@ -54,7 +54,15 @@ if (!args.chart || !/^[A-Za-z][A-Za-z0-9_]*$/.test(args.module ?? "")) {
 const dir = args.dir ?? path.dirname(args.chart);
 const { regions, nevers } = parseMermaid(readText(args.chart));
 
-const RESERVED = new Set(["vars", "Init", "Next", "Spec", "TypeOK", "Settled"]);
+// The generated names, every word that TLA+ reserves (SANY's keywords, proof keywords included) and the words of a
+// TLC config file: an action called IN or TRUE, or a rule called INVARIANT, would not parse.
+const TLA_KEYWORDS = `ACTION ASSUME ASSUMPTION AXIOM BOOLEAN BY CASE CHOOSE CONSTANT CONSTANTS COROLLARY DEF DEFINE DEFS
+DOMAIN ELSE ENABLED EXCEPT EXTENDS FALSE HAVE HIDE IF IN INSTANCE LAMBDA LEMMA LET LOCAL MODULE NEW OBVIOUS OMITTED ON
+ONLY OTHER PICK PROOF PROPOSITION PROVE QED RECURSIVE SF WF STATE STRING SUBSET SUFFICES TAKE TEMPORAL THEN THEOREM
+TRUE UNCHANGED UNION USE VARIABLE VARIABLES WITH WITNESS
+SPECIFICATION INIT NEXT INVARIANT INVARIANTS PROPERTY PROPERTIES SYMMETRY VIEW CONSTRAINT CONSTRAINTS ALIAS
+POSTCONDITION CHECK_DEADLOCK`.split(/\s+/);
+const RESERVED = new Set(["vars", "Init", "Next", "Spec", "TypeOK", "Settled", ...TLA_KEYWORDS]);
 const taken = new Set(RESERVED);
 function ident(words, lower) {
 	const parts = words
@@ -182,7 +190,8 @@ function resolve(item) {
 }
 const invariants = [];
 for (const n of nevers) {
-	if (taken.has(n.name)) throw new Error(`never name ${n.name} is already used in the spec`);
+	if (taken.has(n.name))
+		throw new Error(`never name ${n.name} is already used in the spec, or is a word that TLA+ or TLC reserves`);
 	taken.add(n.name);
 	const parts = n.states.map(resolve);
 	const regionsUsed = new Set(parts.map(p => p.ri));

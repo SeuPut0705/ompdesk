@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -8,7 +8,7 @@ import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { fileURLToPath } from "node:url";
 import { platformKey } from "./cache";
 import { isRecord, readJson } from "./json";
-import { type RunResult, run, Unavailable } from "./proc";
+import { onInterrupt, type RunResult, run, Unavailable } from "./proc";
 
 export type ArchiveFormat = "zip" | "tar.gz";
 
@@ -181,11 +181,11 @@ export async function download(
 	sha256: string,
 	options: { label: string; env?: NodeJS.ProcessEnv; log?: (line: string) => void; idleTimeoutMs?: number },
 ): Promise<void> {
+	if (await fileMatches(dest, sha256)) return;
 	const log = options.log ?? ((line: string) => process.stderr.write(`${line}\n`));
 	const refused = downloadsRefused(options.env);
 	if (refused) throw new Unavailable(`${options.label}: ${refused}`);
-	fs.mkdirSync(path.dirname(dest), { recursive: true });
-	const part = `${dest}.part-${process.pid}`;
+	const part = `${dest}.part-${hostTag()}-${process.pid}`;
 	const hash = createHash("sha256");
 	const idleMs = options.idleTimeoutMs ?? DOWNLOAD_IDLE_MS;
 	const controller = new AbortController();
@@ -195,6 +195,7 @@ export async function download(
 		idle = setTimeout(() => controller.abort(new Error(`no data for ${Math.round(idleMs / 1000)} s`)), idleMs);
 	};
 	try {
+		fs.mkdirSync(path.dirname(dest), { recursive: true });
 		let source: Readable;
 		let total = 0;
 		touch();
@@ -237,32 +238,81 @@ export async function download(
 	}
 }
 
-/** Unpacks into a fresh folder, then moves the single top-level folder (if any) to `dest`. */
-export async function extractInto(archive: string, format: ArchiveFormat, dest: string): Promise<void> {
-	const staging = `${dest}.tmp-${process.pid}`;
-	fs.rmSync(staging, { recursive: true, force: true });
-	fs.mkdirSync(staging, { recursive: true });
+/** Removes a path, and keeps going when it cannot: a leftover is cleaned by the next setup, an error here would hide the real one. */
+function removeQuietly(target: string): void {
 	try {
+		fs.rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+	} catch {
+		// cleanLeftovers removes it once this process is gone
+	}
+}
+
+/**
+ * The program that unpacks archives. Windows: `tar` on PATH is Git Bash's GNU tar (Git's `usr\bin` comes first),
+ * which cannot read zip and takes `C:` for a host name, so the system's bsdtar is called by absolute path.
+ */
+export function tarProgram(platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env): string {
+	if (platform !== "win32") return "tar";
+	return path.win32.join(env.SystemRoot || env.SYSTEMROOT || "C:\\Windows", "System32", "tar.exe");
+}
+
+/** PowerShell's fallback for a zip: its progress bar alone makes `Expand-Archive` many times slower. */
+export function expandArchiveCommand(archive: string, staging: string): string {
+	const quote = (text: string): string => `'${text.replaceAll("'", "''")}'`;
+	return `$ProgressPreference='SilentlyContinue'; Expand-Archive -LiteralPath ${quote(archive)} -DestinationPath ${quote(staging)} -Force`;
+}
+
+const RENAME_RETRYABLE = ["EPERM", "EACCES", "EBUSY"];
+
+/** Windows holds a freshly written tree open while Defender scans it: a rename of it fails for a moment. */
+const RENAME_DELAYS_MS = process.platform === "win32" ? [100, 250, 500, 1000, 2000] : [];
+
+/** `rename`, tried again after each delay when it fails with EPERM, EACCES or EBUSY; any other error is thrown at once. */
+export async function renameRetrying(
+	from: string,
+	to: string,
+	delays: readonly number[] = RENAME_DELAYS_MS,
+	rename: (from: string, to: string) => void = fs.renameSync,
+): Promise<void> {
+	for (let attempt = 0; ; attempt++) {
+		try {
+			rename(from, to);
+			return;
+		} catch (error) {
+			const code = (error as NodeJS.ErrnoException).code ?? "";
+			if (attempt >= delays.length || !RENAME_RETRYABLE.includes(code)) throw error;
+			const { promise, resolve } = Promise.withResolvers<void>();
+			setTimeout(resolve, delays[attempt]);
+			await promise;
+		}
+	}
+}
+
+/** Unpacks into a fresh folder, then moves the single top-level folder (if any) to `dest`. A failed unpack is Unavailable. */
+export async function extractInto(archive: string, format: ArchiveFormat, dest: string): Promise<void> {
+	const staging = `${dest}.tmp-${hostTag()}-${process.pid}`;
+	try {
+		fs.rmSync(staging, { recursive: true, force: true });
+		fs.mkdirSync(staging, { recursive: true });
 		let result: RunResult;
 		if (format === "tar.gz") {
-			result = await run("tar", ["-xzf", archive, "-C", staging]);
+			result = await run(tarProgram(), ["-xzf", archive, "-C", staging]);
 		} else if (process.platform === "win32") {
-			// Windows' tar.exe (bsdtar) reads zip files; Expand-Archive is slower but always there.
-			result = await run("tar", ["-xf", archive, "-C", staging]);
+			// bsdtar reads zip files; Expand-Archive is slower but always there.
+			result = await run(tarProgram(), ["-xf", archive, "-C", staging]);
 			if (result.code !== 0) {
-				const quote = (text: string): string => `'${text.replaceAll("'", "''")}'`;
 				result = await run("powershell", [
 					"-NoProfile",
 					"-NonInteractive",
 					"-Command",
-					`Expand-Archive -LiteralPath ${quote(archive)} -DestinationPath ${quote(staging)} -Force`,
+					expandArchiveCommand(archive, staging),
 				]);
 			}
 		} else {
 			result = await run("unzip", ["-q", "-o", archive, "-d", staging]);
 		}
 		if (result.spawnError || result.code !== 0) {
-			throw new Error(
+			throw new Unavailable(
 				`unpacking ${path.basename(archive)} failed: ${result.spawnError?.message ?? (result.stderr.trim() || `exit ${result.code}`)}`,
 			);
 		}
@@ -271,9 +321,11 @@ export async function extractInto(archive: string, format: ArchiveFormat, dest: 
 		const root = only && fs.statSync(only).isDirectory() ? only : staging;
 		fs.rmSync(dest, { recursive: true, force: true });
 		fs.mkdirSync(path.dirname(dest), { recursive: true });
-		fs.renameSync(root, dest);
+		await renameRetrying(root, dest);
+	} catch (error) {
+		throw environmental(error, `unpacking ${path.basename(archive)}`);
 	} finally {
-		fs.rmSync(staging, { recursive: true, force: true });
+		removeQuietly(staging);
 	}
 }
 
@@ -293,6 +345,8 @@ interface LockOwner {
 	pid: number;
 	host: string;
 	started: number;
+	/** Random per withLock call: tells this holder's lock from one a later process took over. */
+	token: string;
 }
 
 /** Is a process with this pid running on this computer? EPERM means it exists but is not ours. */
@@ -310,7 +364,12 @@ function readOwner(file: string): LockOwner | null {
 	try {
 		const json: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
 		if (isRecord(json) && typeof json.pid === "number" && typeof json.host === "string") {
-			return { pid: json.pid, host: json.host, started: typeof json.started === "number" ? json.started : 0 };
+			return {
+				pid: json.pid,
+				host: json.host,
+				started: typeof json.started === "number" ? json.started : 0,
+				token: typeof json.token === "string" ? json.token : "",
+			};
 		}
 	} catch {
 		// being written, or not a lock of ours
@@ -329,14 +388,24 @@ function touched(lock: string, ownerFile: string): number {
 	return 0;
 }
 
-const LEFTOVER = /\.(?:part|tmp)-(\d+)$/;
+/** This computer's name as it appears in `.part-` and `.tmp-` names (letters, digits and `_`). */
+export function hostTag(host: string = os.hostname()): string {
+	return host.replace(/[^A-Za-z0-9_]/g, "_");
+}
+
+/** `<name>.part-<host>-<pid>`; the host is absent in names written before hosts were recorded. */
+const LEFTOVER = /\.(?:part|tmp)-(?:([A-Za-z0-9_]+)-)?(\d+)$/;
 
 /**
- * Removes `*.part-<pid>` downloads and `*.tmp-<pid>` unpack folders that a killed setup left behind (each can be
- * gigabytes). Only those of a pid that is no longer running; the scan stays three levels deep and never enters a
- * toolchain.
+ * Removes `*.part-<host>-<pid>` downloads and `*.tmp-<host>-<pid>` unpack folders that a killed setup of this
+ * computer left behind (each can be gigabytes). Only those of a pid that is no longer running: another computer's
+ * (a shared cache folder) are never touched, since its pids mean nothing here. `legacy` also removes names without a
+ * host (an older setup's), which the caller allows only while no other computer is working in the cache. The scan
+ * stays three levels deep and never enters a toolchain.
  */
-export function cleanLeftovers(root: string): string[] {
+export function cleanLeftovers(root: string, options: { host?: string; legacy?: boolean } = {}): string[] {
+	const host = options.host ?? hostTag();
+	const legacy = options.legacy ?? true;
 	const removed: string[] = [];
 	const scan = (dir: string, depth: number): void => {
 		let entries: fs.Dirent[];
@@ -349,7 +418,8 @@ export function cleanLeftovers(root: string): string[] {
 			const full = path.join(dir, entry.name);
 			const match = LEFTOVER.exec(entry.name);
 			if (match) {
-				if (!pidAlive(Number(match[1]))) {
+				const mine = match[1] === undefined ? legacy : match[1] === host;
+				if (mine && !pidAlive(Number(match[2]))) {
 					fs.rmSync(full, { recursive: true, force: true });
 					removed.push(full);
 				}
@@ -360,10 +430,54 @@ export function cleanLeftovers(root: string): string[] {
 	return removed;
 }
 
+/** Does a lock of another computer in this cache look alive (touched within `staleMs`)? */
+function otherHostWorking(cache: string, host: string, staleMs: number): boolean {
+	let entries: string[];
+	try {
+		entries = fs.readdirSync(cache);
+	} catch {
+		return false;
+	}
+	for (const entry of entries) {
+		if (!entry.startsWith(".lock-") || entry.endsWith(TAKEOVER_SUFFIX) || entry.includes(".stale-")) continue;
+		const lock = path.join(cache, entry);
+		const owner = readOwner(path.join(lock, "owner.json"));
+		if (owner && owner.host !== host && Date.now() - touched(lock, path.join(lock, "owner.json")) <= staleMs) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/** Errors of the machine, not of the code: a full, read-only or locked disk. */
+const ENVIRONMENTAL = ["ENOSPC", "EDQUOT", "EACCES", "EPERM", "EROFS", "EBUSY", "EIO", "EMFILE", "ENFILE", "ENOTEMPTY"];
+
+/**
+ * An fs error that says the disk or its permissions are the problem becomes Unavailable (exit 3, "not checked") naming
+ * what was being done; anything else, a bug included, is returned as it is.
+ */
+export function environmental(error: unknown, what: string): unknown {
+	if (error instanceof Unavailable) return error;
+	const code = (error as NodeJS.ErrnoException | undefined)?.code;
+	if (typeof code === "string" && ENVIRONMENTAL.includes(code)) {
+		return new Unavailable(`${what}: ${error instanceof Error ? error.message : String(error)}`);
+	}
+	return error;
+}
+
+/** A takeover of a dead lock is serialized by this second lock (`.lock-<name>.takeover`), itself abandoned after this long. */
+const TAKEOVER_SUFFIX = ".takeover";
+const TAKEOVER_STALE_MS = 30_000;
+
 /**
  * One installer at a time per name across processes (two agents may call setup together). The lock records the
- * holder's pid and host and is touched every minute: a waiter takes it over at once when that pid is gone, or when
- * nobody touched it for minutes; a live holder, however slow its download, keeps it. Waiting prints progress.
+ * holder's pid, host and a token, and is touched every minute: a waiter takes it over at once when that pid is gone,
+ * or when nobody touched it for minutes; a live holder, however slow its download, keeps it. Waiting prints progress.
+ *
+ * A takeover removes the old lock and makes a new one, which two waiters must not both do (the second would delete
+ * the first's new lock): it runs inside a short second mutex and judges the owner again there. A holder removes its
+ * lock only while it still holds its own token, also when a signal ends the process. A full or read-only disk is
+ * Unavailable, like a failed download.
  */
 export async function withLock<T>(
 	cache: string,
@@ -376,63 +490,114 @@ export async function withLock<T>(
 	const heartbeatMs = options.heartbeatMs ?? 60_000;
 	const staleMs = options.staleMs ?? 5 * 60_000;
 	const maxWaitMs = options.maxWaitMs ?? 2 * 60 * 60_000;
-	fs.mkdirSync(cache, { recursive: true });
 	const lock = path.join(cache, `.lock-${name}`);
+	const guard = `${lock}${TAKEOVER_SUFFIX}`;
 	const ownerFile = path.join(lock, "owner.json");
-	const me: LockOwner = { pid: process.pid, host: os.hostname(), started: Date.now() };
-	const startedWaiting = Date.now();
-	let nextNote = startedWaiting + 20_000;
-	for (;;) {
+	const me: LockOwner = { pid: process.pid, host: os.hostname(), started: Date.now(), token: randomUUID() };
+	const label = `${name} lock`;
+
+	const mine = (): boolean => {
+		const owner = readOwner(ownerFile);
+		return owner !== null && owner.pid === me.pid && owner.host === me.host && owner.token === me.token;
+	};
+	const release = (): void => {
+		if (mine()) fs.rmSync(lock, { recursive: true, force: true });
+	};
+	/** Makes the lock folder and writes the owner; false when somebody else's lock is there. */
+	const acquire = (): boolean => {
 		try {
 			fs.mkdirSync(lock);
-			fs.writeFileSync(ownerFile, JSON.stringify(me));
-			break;
 		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+			if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+			throw environmental(error, label);
 		}
+		try {
+			fs.writeFileSync(ownerFile, JSON.stringify(me));
+		} catch (error) {
+			fs.rmSync(lock, { recursive: true, force: true });
+			throw environmental(error, label);
+		}
+		return true;
+	};
+	/** What a waiter sees of the lock now: who holds it, and whether it is dead or abandoned. */
+	const judge = (): { owner: LockOwner | null; idle: number; abandoned: boolean; dead: boolean } => {
 		const owner = readOwner(ownerFile);
 		const idle = Date.now() - touched(lock, ownerFile);
 		const dead = owner !== null && owner.host === me.host && !pidAlive(owner.pid);
-		if (dead || idle > staleMs) {
-			log(
-				dead
-					? `taking over the ${name} lock: its holder (pid ${owner?.pid}) is no longer running`
-					: `taking over the ${name} lock: nobody touched it for ${Math.round(idle / 60_000)} min`,
-			);
-			const aside = `${lock}.stale-${process.pid}-${Date.now()}`;
-			try {
-				fs.renameSync(lock, aside);
-				fs.rmSync(aside, { recursive: true, force: true });
-			} catch {
-				// another waiter took it over first
-			}
-			continue;
+		return { owner, idle, dead, abandoned: dead || idle > staleMs };
+	};
+	const takeOver = (): boolean => {
+		try {
+			fs.mkdirSync(guard);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw environmental(error, label);
+			// A guard that vanished is not stale: its holder just finished, and the next taker may already have made a new one.
+			const age = fs.statSync(guard, { throwIfNoEntry: false });
+			if (age && Date.now() - age.mtimeMs > TAKEOVER_STALE_MS) fs.rmSync(guard, { recursive: true, force: true });
+			return false;
 		}
+		try {
+			const now = judge();
+			if (!fs.existsSync(lock)) return acquire();
+			if (!now.abandoned) return false;
+			log(
+				now.dead
+					? `taking over the ${name} lock: its holder (pid ${now.owner?.pid}) is no longer running`
+					: `taking over the ${name} lock: nobody touched it for ${Math.round(now.idle / 60_000)} min`,
+			);
+			fs.rmSync(lock, { recursive: true, force: true });
+			return acquire();
+		} catch (error) {
+			throw environmental(error, label);
+		} finally {
+			fs.rmSync(guard, { recursive: true, force: true });
+		}
+	};
+
+	try {
+		fs.mkdirSync(cache, { recursive: true });
+	} catch (error) {
+		throw environmental(error, label);
+	}
+	const startedWaiting = Date.now();
+	let nextNote = startedWaiting + 20_000;
+	while (!acquire()) {
+		const seen = judge();
+		if (seen.abandoned && takeOver()) break;
 		if (Date.now() - startedWaiting > maxWaitMs) {
-			throw new Unavailable(`another setup of ${name} (pid ${owner?.pid ?? "?"}) has held ${lock} for too long`);
+			throw new Unavailable(
+				`another setup of ${name} (pid ${seen.owner?.pid ?? "?"}) has held ${lock} for too long`,
+			);
 		}
 		if (Date.now() >= nextNote) {
-			log(`waiting for another setup of ${name} to finish (pid ${owner?.pid ?? "?"} on ${owner?.host ?? "?"})`);
+			log(
+				`waiting for another setup of ${name} to finish (pid ${seen.owner?.pid ?? "?"} on ${seen.owner?.host ?? "?"})`,
+			);
 			nextNote = Date.now() + 30_000;
 		}
 		await new Promise(resolve => setTimeout(resolve, pollMs));
 	}
+	const unregister = onInterrupt(release);
 	const beat = setInterval(() => {
+		if (!mine()) return;
 		const now = new Date();
 		try {
 			fs.utimesSync(ownerFile, now, now);
 		} catch {
-			// the lock was taken over; the work below will find out when it writes
+			// the lock was removed; the work below will find out when it writes
 		}
 	}, heartbeatMs);
 	beat.unref();
 	try {
-		const removed = cleanLeftovers(cache);
+		const removed = cleanLeftovers(cache, { legacy: !otherHostWorking(cache, me.host, staleMs) });
 		if (removed.length > 0)
 			log(`removed ${removed.length} unfinished download or unpack folder(s) of a stopped setup`);
 		return await work();
+	} catch (error) {
+		throw environmental(error, label);
 	} finally {
 		clearInterval(beat);
-		fs.rmSync(lock, { recursive: true, force: true });
+		unregister();
+		release();
 	}
 }

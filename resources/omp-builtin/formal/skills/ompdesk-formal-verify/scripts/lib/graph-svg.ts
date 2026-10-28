@@ -71,6 +71,13 @@ const NODE_H = 34;
 const GAP_X = 70;
 const GAP_Y = 26;
 const PAD = 16;
+/** Room beside an edge's source: the step badge (radius 10) sits on the node's corner, the label starts clear of it. */
+const LABEL_INSET = 14;
+
+/** Width of an edge label at 11px: a little more than a proportional font needs, so the estimate errs wide. */
+function labelWidth(label: string): number {
+	return label.length * 6.4;
+}
 
 function layers(graph: Graph): Map<string, number> {
 	const layer = new Map<string, number>(graph.nodes.map(node => [node.id, 0]));
@@ -115,6 +122,7 @@ export function renderGraphSvg(graph: Graph, caption?: string, idPrefix = "d"): 
 	const widthOf = (node: GraphNode): number => Math.max(64, node.label.length * 7.4 + 24);
 	const position = new Map<string, { x: number; y: number; w: number }>();
 	let x = PAD;
+	let lastGap = GAP_X;
 	let height = 0;
 	for (const at of [...columns.keys()].sort((a, b) => a - b)) {
 		const column = columns.get(at) as GraphNode[];
@@ -122,9 +130,17 @@ export function renderGraphSvg(graph: Graph, caption?: string, idPrefix = "d"): 
 		for (const [row, node] of column.entries())
 			position.set(node.id, { x, y: PAD + 14 + row * (NODE_H + GAP_Y), w: width });
 		height = Math.max(height, PAD + 14 + column.length * (NODE_H + GAP_Y));
-		x += width + GAP_X;
+		// The labels of the edges leaving this column sit in the gap after it, between the badge and the next node.
+		const gap = Math.max(
+			GAP_X,
+			...graph.edges
+				.filter(edge => edge.label && layer.get(edge.from) === at && (layer.get(edge.to) as number) > at)
+				.map(edge => labelWidth(edge.label as string) + 2 * LABEL_INSET),
+		);
+		x += width + gap;
+		lastGap = gap;
 	}
-	const width = x - GAP_X + PAD;
+	const width = x - lastGap + PAD;
 	const out: string[] = [];
 	out.push(
 		`<figure class="diagram"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${Math.ceil(width)} ${Math.ceil(height + PAD)}" role="img" aria-label="${esc(caption ?? "diagram")}">`,
@@ -146,6 +162,7 @@ export function renderGraphSvg(graph: Graph, caption?: string, idPrefix = "d"): 
 		let d: string;
 		let lx: number;
 		let ly: number;
+		let anchor: "start" | "middle";
 		if (back) {
 			const sx = a.x + a.w / 2;
 			const tx = b.x + b.w / 2;
@@ -153,20 +170,22 @@ export function renderGraphSvg(graph: Graph, caption?: string, idPrefix = "d"): 
 			d = `M${sx} ${a.y} C${sx} ${lift} ${tx} ${lift} ${tx} ${b.y}`;
 			lx = (sx + tx) / 2;
 			ly = lift + 6;
+			anchor = "middle";
 		} else {
 			const sx = a.x + a.w;
 			const tx = b.x;
 			const mid = (sx + tx) / 2;
 			d = `M${sx} ${sy} C${mid} ${sy} ${mid} ${ty} ${tx} ${ty}`;
-			lx = mid;
+			lx = sx + LABEL_INSET;
 			ly = (sy + ty) / 2 - 5;
+			anchor = "start";
 		}
 		out.push(
 			`<path d="${d}" fill="none" stroke="${bad ? "var(--bad)" : "currentColor"}" stroke-width="${bad ? 2.4 : 1.2}" ${bad ? "" : 'stroke-opacity="0.55"'} marker-end="url(#${prefix}-${bad ? "arrow-bad" : "arrow"})"/>`,
 		);
 		if (edge.label)
 			out.push(
-				`<text x="${lx}" y="${ly}" font-size="11" text-anchor="middle" fill="currentColor" fill-opacity="0.8">${esc(edge.label)}</text>`,
+				`<text x="${lx}" y="${ly}" font-size="11" text-anchor="${anchor}" fill="currentColor" fill-opacity="0.8" stroke="var(--bg)" stroke-width="3" stroke-linejoin="round" paint-order="stroke">${esc(edge.label)}</text>`,
 			);
 	}
 	for (const node of graph.nodes) {

@@ -24,13 +24,15 @@ export function cfgProperties(configPath: string): string[] {
 }
 
 function tlcChecker(spec: Extract<CheckerSpec, { kind: "tlc" }>): Checker {
-	let prepared: TlaEnv | undefined;
+	// One preparation shared by checks that run at the same time.
+	let preparing: Promise<TlaEnv> | undefined;
 	return async (_dir, model, mutation) => {
 		let tla: TlaEnv;
 		try {
-			prepared ??= await prepareTla();
-			tla = prepared;
+			preparing ??= prepareTla();
+			tla = await preparing;
 		} catch (error) {
+			preparing = undefined;
 			if (error instanceof Unavailable) return { status: "unavailable", violated: [], detail: error.message };
 			throw error;
 		}
@@ -57,13 +59,8 @@ function tlcChecker(spec: Extract<CheckerSpec, { kind: "tlc" }>): Checker {
 		const { result } = tlcRun;
 		if (result.outcome === "pass") return { status: "pass", violated: [], detail: "no violation" };
 		if (["invariant", "action", "temporal", "deadlock", "assert"].includes(result.outcome)) {
-			let named = result.outcome === "deadlock" ? "deadlock" : result.property;
-			if (!named && result.outcome !== "assert") {
-				// TLC names a violated refinement or old-style temporal property only as "Temporal properties were
-				// violated": with a single INVARIANT/PROPERTY in the config there is no doubt which one failed.
-				const listed = cfgProperties(config);
-				if (listed.length === 1) named = listed[0];
-			}
+			// runTlc names an action or temporal property TLC left unnamed (its location, or the config's single PROPERTY).
+			const named = result.outcome === "deadlock" ? "deadlock" : result.property;
 			return {
 				status: "fail",
 				violated: named ? [named] : [],

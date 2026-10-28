@@ -9,7 +9,7 @@
 | Invariant preserved by a step | `cases hs <;> grind [Inv, helper defs]`, or case-split actors first: `cases hs with \| a t \| b t => cases t <;> grind [...]` |
 | Linear arithmetic on Nat/Int | `omega` |
 | Decidable finite fact (small enum, small bounded search) | `decide`; for big terms `decide +kernel` (kernel-only, avoids elaborator limits) |
-| Boolean or bit-vector fact | `bv_decide` (SAT with a checked LRAT certificate; it adds the `ofReduceBool` axiom, so `lean-check.ts` flags it: say so in the report) |
+| Boolean or bit-vector fact | `bv_decide` (SAT with a checked LRAT certificate). A goal that needs the SAT solver adds a `<theorem>._native.bv_decide.ax_…` axiom (measured on 4.35.0; not `ofReduceBool` by name), so `lean-check.ts` flags the theorem `NATIVE` and fails unless `--allow-native`: say so in the report. A goal that Lean's preprocessing already closes adds no axiom and is not flagged. |
 | Rewriting with definitions | `simp [defs]`, `simp_all [defs]`, `simp only [...]` for control |
 | List lemmas | `simp` usually knows them; search with `exact?` or `apply?` |
 | `do`-notation programs with loops | `mvcgen` (`import Std.Tactic.Do`) with loop invariants. In 4.35 it prints a deprecation warning that points at the experimental `vcgen`; `set_option linter.deprecated.syntax false` silences it. `vcgen` itself failed on a loop example here, so keep `mvcgen`. |

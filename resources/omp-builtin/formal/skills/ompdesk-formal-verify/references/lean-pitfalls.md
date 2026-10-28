@@ -14,15 +14,23 @@
 
 ## Trust base
 - `bun <skill-dir>/scripts/lean-check.ts <project>` must exit 0 before any claim of "proven"
-  (`<skill-dir>` is the folder that holds `SKILL.md`). It runs `lake build`, then:
-  - a source scan for `sorry`, `admit`, and `axiom`;
+  (`<skill-dir>` is the folder that holds `SKILL.md`). It builds every module of every `lean_lib` (not only what the
+  root imports, not only the default targets), then:
+  - a source scan for `sorry`, `admit`, `axiom` (with attributes or modifiers in front), `#exit` (it hides every
+    theorem after it) and `debug.skipKernelTC`;
   - a per-theorem axiom audit over the compiled environment (only `propext`, `Classical.choice` and `Quot.sound`
-    are accepted);
-  - a `native_decide` gate (`--allow-native` to permit it, and then say so in the report).
+    are accepted). Zero audited declarations is a failure, and a `--module` that matches no module is a usage error;
+  - a `native_decide` gate (`--allow-native` to permit it, and then say so in the report; with it, `@[implemented_by]`
+    and `@[extern]` also fail, because a native proof runs the code that those attributes replace);
+  - the toolchain's `leanchecker` replays every module's declarations through the kernel, which catches a theorem
+    added with the kernel check skipped (no axiom shows). A toolchain without it gets a `note:` line, not a failure.
   Exit 3 means Lean could not be prepared: the result is "not checked", never "proven".
 - **`native_decide` adds an auxiliary axiom and trusts the compiler.** Prefer `decide +kernel`.
   Allow native only when the kernel cannot handle the size, and say so in the report.
-- **`bv_decide` also trusts the compiler** (it checks a SAT certificate by running it). Treat it like `native_decide`.
+- **`bv_decide` is native too, under another axiom name.** A goal that needs the SAT solver adds
+  `<theorem>._native.bv_decide.ax_…` (measured on Lean 4.35.0), which `lean-check.ts` reports as `NATIVE` like the
+  `native_decide` one: it fails without `--allow-native`. A goal that preprocessing closes adds no axiom. Prefer
+  `decide +kernel` when the goal is small enough, and say so in the report when you allow native.
 - **`@[implemented_by]`, `@[extern]`, and `unsafe`** mean the runtime behavior is not what the
   kernel checked. They are fine in the replay executable, but never in definitions that theorems mention.
 - **`partial def`** is opaque to proofs. Theorems about it are theorems about nothing.
