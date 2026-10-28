@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.80.1] - 2026-10-28
+
+다른 컴퓨터에서 이 컴퓨터의 세션 목록을 볼 때, 여기서는 이미 사라진 세션이 보이던 문제를 고쳤어요.
+
+### 고친 것
+- **원격 목록에 남던 끝난 하위 세션.** 에이전트가 열었다가 닫은 세션은 호스트에서는 숨겨지는데, 연 세션의 제목이 그 뒤 바뀌었으면 다른 컴퓨터에서는 일반 세션처럼 계속 보였어요. 이제 호스트와 같은 규칙으로 숨기고, 커밋 안 된 작업이나 실패가 남은 것만 보여요. 호스트 탭에 열려 있는 세션은 그대로 보여요.
+- **원격 목록이 늦게 바뀌던 문제.** 호스트에서 탭을 열거나 닫기만 해도 다른 컴퓨터의 목록이 바로 따라가고, 하위 세션의 실패·미병합 표시도 파일이 바뀌지 않아도 갱신돼요.
+
+<!-- en -->
+
+Viewed from another computer, this computer's session list no longer shows sessions that are already gone here.
+
+### Fixed
+- **Finished child sessions left on a remote list.** A session an agent opened and closed is hidden on its host, but when the opener had been retitled since, other computers kept listing it as a plain session. They now fold it by the host's own rule and show only one with unlanded work or a failure; a session a host tab holds keeps its row.
+- **A remote list that lagged.** Opening or closing a tab on the host updates other computers' lists at once, and a child's failed or unmerged mark updates though its file did not change.
+
 ## [0.80.0] - 2026-10-28
 
 DNS가 끊겨 "연결할 수 없음"이 뜨던 작업이 이제 연결을 기다렸다가 스스로 이어가고, 앱 전체가 가벼워지고 빨라졌어요.
