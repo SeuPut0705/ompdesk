@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.81.0] - 2026-10-28
+
+OMPdesk 전용 형식 검증 스킬이 생겼고, 이 스킬로 OMPdesk 자신의 코드를 검증해 찾은 버그 세 가지를 고쳤어요.
+
+### 새로 생긴 것
+- **형식 검증 스킬 `ompdesk-formal-verify`.** 경쟁 조건, 순서, 재시도, 상태 전이처럼 테스트로는 잘 안 잡히는 버그를 TLA+와 Lean 4 모델로 모든 경우를 따져 확인해요. 설정 없이 모든 세션에 들어 있고, 에이전트가 "이게 절대 안 일어나나?" 같은 질문이나 동시성 버그를 만나면 스스로 꺼내 써요. 필요한 도구(Java, TLC, Lean)는 처음 쓸 때 고정 버전으로 내려받아요(Lean은 약 3 GB).
+  - 검증이 실제로 버그를 잡을 수 있는지 일부러 코드를 망가뜨려 확인하고, 반례는 코드 줄로 보여 주고, 결과 보고서는 미리보기 패널에 열어요.
+  - 기획자용 상태도도 그릴 수 있어요. 기존에 따로 있던 형식 검증·상태도 스킬 셋은 이 하나로 합치고 지웠어요.
+  - 매일 돌아가는 스킬 팩 자동 업데이트가 이 스킬을 덮거나 중복 스킬을 다시 들여오지 못하게 막았어요.
+- **"사고 중"에서 오래 멈출 때 원인 기록.** 첫 응답이 30초 넘게 늦거나 응답 없이 끝난 턴은, 요청 준비·모델 요청·응답 등 어느 단계에서 기다렸는지 진단 기록에 한 줄로 남겨요.
+### 고친 것
+- **연결 대기 중 크래시하면 이어지지 않던 문제.** 인터넷이 없을 때 예약 재시도가 연결 대기로 바뀌면 재시작 표시가 남지 않아서, 그 사이 앱이 꺼지면 작업이 이어지지 않았어요.
+- **연결 대기 중 다른 세션으로 옮기면 그 세션에 재시도가 들어가던 문제.** 이제 세션이나 브랜치를 바꾸면(다른 기기에서 바꿔도) 대기가 끝나요. 분기만 만든 경우는 대기를 유지해요.
+- **원격 목록에 닫힌 호스트 탭이 계속 "열림"으로 남던 문제.**
+
+<!-- en -->
+
+OMPdesk has its own formal verification skill, and three bugs it found in OMPdesk's own code are fixed.
+
+### New
+- **Formal verification skill `ompdesk-formal-verify`.** It checks race, ordering, retry and state-machine bugs that tests rarely reach by exploring every case in TLA+ and Lean 4 models. It is in every session with no setting, and the agent picks it up for concurrency bugs or "can this ever happen" questions. Its tools (Java, TLC, Lean) are downloaded at pinned versions on first use (Lean takes about 3 GB).
+  - Every property is shown able to fail on a deliberately broken copy, counterexamples are mapped to code lines, and the report opens in the Preview panel.
+  - It also draws statecharts for non-technical readers. The three separate formal verification and statechart skills are merged into this one and removed.
+  - The daily skill-pack update can no longer overwrite it or bring a duplicate back.
+- **Why "Thinking…" sat still.** A turn whose first output came over 30 s late, or that ended with none, now logs the stage it waited in (request setup, model request, response) as one diagnostics line.
+### Fixed
+- **A connection wait that a crash lost.** When a scheduled retry turned into a connection wait while offline, no restart marker was written, so the work did not continue after a crash.
+- **A retry sent into another session.** Switching session or branch during a connection wait (from another device too) now ends the wait; making a branch keeps it.
+- **A closed host tab still marked open on a paired device's list.**
+
 ## [0.80.1] - 2026-10-28
 
 다른 컴퓨터에서 이 컴퓨터의 세션 목록을 볼 때, 여기서는 이미 사라진 세션이 보이던 문제를 고쳤어요.
