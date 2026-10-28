@@ -11,6 +11,7 @@ import {
 	app,
 	BrowserWindow,
 	clipboard,
+	desktopCapturer,
 	dialog,
 	globalShortcut,
 	ipcMain,
@@ -79,6 +80,7 @@ import { migrateThemeName } from "../shared/theme-names";
 import { WORKTREE_BRANCH_PREFIX_PREF, worktreeBranchPrefix } from "../shared/worktree-branch";
 import { accountRotationDeps } from "./account-rotation";
 import { agentDir } from "./agent-paths";
+import { migrateAgentPowers } from "./agent-power-migration";
 import { MemoryCare } from "./ai-memory/care";
 import { careUnits } from "./ai-memory/care-units";
 import { AiMemoryClient } from "./ai-memory/client";
@@ -127,6 +129,7 @@ import { migrateLegacyUserData } from "./legacy-user-data";
 import { tablessWorktreeBridge } from "./local/git/worktree";
 import { renameStoredSession } from "./local/session-files";
 import { LogWatcher } from "./log-watcher";
+import { askMacPermissionsOnce } from "./mac-permissions";
 import { LocalMachine } from "./machine-services";
 import { onMcpChange } from "./mcp-live";
 import { MEDIA_SCHEME, MediaStreams } from "./media-stream";
@@ -344,6 +347,14 @@ function prefsStore(): Store<MainPrefs> {
 	if (!mainPrefsStore) {
 		mainPrefsStore = new Store<MainPrefs>({ name: "prefs" });
 		migrateRetiredPrefs(mainPrefsStore as unknown as Store<Record<string, unknown>>);
+		const powers = migrateAgentPowers(mainPrefsStore as unknown as Store<Record<string, unknown>>, agentDir());
+		if (powers) {
+			writeRuntimeLog({
+				source: "background-task",
+				message: "agent-powers-migrated",
+				details: { prefs: powers.prefs.join(","), stock: powers.stock.join(","), error: powers.error ?? null },
+			});
+		}
 		// A theme the app no longer ships (the pre-curated set) is replaced by its nearest successor, so the
 		// stored pref never names a missing theme and the saved window opens in the right scheme.
 		const prefs = mainPrefsStore as unknown as Store<Record<string, unknown>>;
@@ -1051,6 +1062,26 @@ app.whenReady().then(() => {
 				statsLaunchSettled = true;
 			});
 	void launchStats();
+	// Accessibility and Screen Recording cannot be granted by an app: ask the OS once, after the first tab is up, so
+	// computer use (agents have every power by default) shows the system prompt instead of failing silently.
+	void afterFirstTab().then(() =>
+		askMacPermissionsOnce({
+			platform: process.platform,
+			automatic: app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1",
+			prefs: prefsStore(),
+			accessibilityTrusted: prompt => systemPreferences.isTrustedAccessibilityClient(prompt),
+			screenStatus: () => systemPreferences.getMediaAccessStatus("screen"),
+			requestScreenCapture: async () => {
+				await desktopCapturer.getSources({ types: ["screen"], thumbnailSize: { width: 0, height: 0 } });
+			},
+		}).catch(error =>
+			writeRuntimeLog({
+				source: "background-task",
+				message: "mac-permissions-failed",
+				details: { error: String(error) },
+			}),
+		),
+	);
 
 	// This machine's setup: detect Bun/omp/Git/gh/Node and, in a packaged app,
 	// install what is missing on its own (src/main/setup/). Tests opt in with a

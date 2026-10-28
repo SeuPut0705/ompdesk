@@ -49,5 +49,14 @@ export function ompFailureText(reason: OmpFailure, language = getMainLanguage())
 			return mainT("omp.cannotRun", language, { bin: reason.bin, detail: reason.detail });
 		case "too-old":
 			return mainT("omp.tooOld", language, { version: reason.version, minimum: reason.minimum });
+		case "compiled":
+			return mainT("omp.compiled", language, { bin: reason.bin });
+		case "bun-too-old":
+			return mainT("omp.bunTooOld", language, {
+				bin: reason.bin,
+				bun: reason.bun,
+				bunVersion: reason.bunVersion,
+				minimum: reason.minimum,
+			});
 	}
 }

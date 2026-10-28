@@ -16,8 +16,8 @@
  *           default branch): one card each.
  *   pref    `agentControlFull` ("Give agents full control of OMPdesk", default on; only a stored `false` is off)
  *           raises no card at all and lets an agent approve another session's tool approval. Off:
- *           `agentControlManage` (default on) lifts the cards marked off above; `agentControlApprove` (default off)
- *           lets an agent approve another session's tool approval (without it the answer is "사용자 승인이 필요해요").
+ *           `agentControlManage` (default on) lifts the cards marked off above; `agentControlApprove` (default on)
+ *           lets an agent approve another session's tool approval (turned off, the answer is "사용자 승인이 필요해요").
  *           A session the user hid from agents refuses all, whatever the switches.
  *   never   accounts, settings, permissions (those go through `ompdesk_app`).
  */

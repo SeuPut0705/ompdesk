@@ -35,6 +35,7 @@ import {
 	agentHiddenPaths,
 	isAgentControlTool,
 	parseAgentMessage,
+	privacyPaneUrl,
 	reviewFromDevice,
 } from "../shared/agent-control";
 import { REA_PREF } from "../shared/builtin-mcp";
@@ -1295,6 +1296,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			invoke: (win, channel, args) => ipc.invoke(channel, agentCaller(win), args),
 			fire: (win, channel, args) => ipc.send(channel, agentCaller(win), args),
 			localize: (en, ko) => (getMainLanguage() === "ko" ? ko : en),
+			openPrivacyPane: async pane => {
+				if (process.platform !== "darwin") throw new Error("Privacy & Security panes exist only on macOS.");
+				await shell.openExternal(privacyPaneUrl(pane));
+			},
 		},
 	});
 

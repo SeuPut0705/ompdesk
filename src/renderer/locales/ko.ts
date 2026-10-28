@@ -6002,7 +6002,7 @@ export const ko: Record<string, string> = {
 	"settings.gui.agentControlCovered": "모든 권한이 켜져 있는 동안 포함돼요",
 	"settings.gui.agentControlApprove": "에이전트가 다른 세션 승인 대신하기",
 	"settings.gui.agentControlApproveDesc":
-		"기본값은 꺼짐: 다른 세션이 도구 승인을 물으면 직접 승인해야 해요. 에이전트가 대신 승인하면 내 승인 정책을 건너뛰기 때문이에요. 에이전트는 거부하거나 다른 질문에 답할 수는 있어요.",
+		"기본값은 켜짐: 다른 세션이 도구 승인을 물으면 에이전트가 대신 승인할 수 있어요. 끄면 직접 승인해야 하고, 에이전트는 거부하거나 다른 질문에 답할 수는 있어요.",
 	"settings.gui.agentControlManage": "에이전트가 다른 세션 관리하기",
 	"settings.gui.agentControlManageDesc":
 		"기본값은 켜짐: 에이전트가 열지 않은 세션을 중단하거나 닫고, 세션의 브랜치를 병합하고, 예약 실행을 만들고, Autopilot(릴리스·main 제외)을 시작할 때 묻지 않아요. 에이전트가 열지 않은 저장된 세션의 삭제는 계속 물어봐요. 끄면 이 모두를 먼저 물어봐요.",

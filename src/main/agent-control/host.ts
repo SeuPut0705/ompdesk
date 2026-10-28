@@ -37,7 +37,9 @@ import {
 	agentHiddenPaths,
 	type ClosedChild,
 	MAX_CLOSED_CHILDREN,
+	type PrivacyPane,
 	parseClosedChildren,
+	sidebarViewOf,
 } from "../../shared/agent-control";
 import type {
 	HostView,
@@ -211,6 +213,8 @@ export interface AgentControlHostDeps {
 		invoke: (win: ClientWindow, channel: string, args: readonly unknown[]) => Promise<unknown>;
 		fire: (win: ClientWindow, channel: string, args: readonly unknown[]) => void;
 		localize: (en: string, ko: string) => string;
+		/** Open a macOS Privacy & Security pane in System Settings; rejects elsewhere. */
+		openPrivacyPane: (pane: PrivacyPane) => Promise<void>;
 	};
 }
 
@@ -1103,6 +1107,8 @@ export class AgentControlRuntime {
 			},
 			text: (key, params) => deps.text(key, params),
 			localize: app.localize,
+			sidebarView: () => sidebarViewOf(deps.prefs.get(AGENT_HIDDEN_PREFS_KEY)),
+			openPrivacyPane: pane => app.openPrivacyPane(pane),
 			callerTitle: tabId => {
 				const win = this.#win(tabId);
 				const title = win ? deps.pool.tabsForWindow(win).find(tab => tab.tabId === tabId)?.title : undefined;

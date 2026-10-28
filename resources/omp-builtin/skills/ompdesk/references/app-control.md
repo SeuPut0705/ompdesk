@@ -4,7 +4,7 @@
 
 ## Flow
 
-1. `ompdesk_app_list` with `area` (`settings`, `ui`, `usage`, `models`, `sessions`, `updates`, `accounts`, `mobile_web`, `extensions`, `memory`, `connections`, `autopilot`, `permissions`) or `query` (words from an id or description). It prints each matching action with its tier and argument schema; with many matches it prints names only, so narrow the filter.
+1. `ompdesk_app_list` with `area` (`settings`, `ui`, `usage`, `models`, `sessions`, `sidebar`, `updates`, `accounts`, `mobile_web`, `extensions`, `memory`, `connections`, `autopilot`, `permissions`) or `query` (words from an id or description). It prints each matching action with its tier and argument schema; with many matches it prints names only, so narrow the filter.
 2. `ompdesk_app` with `action` (an id from the list, e.g. `settings.theme`) and `args` as the schema says. Arguments are checked in the app; an unknown action or argument is refused.
 3. Read before you change: `settings.get` shows current values, `usage.read` the provider quota windows.
 
@@ -18,7 +18,15 @@
 
 ## Which computer
 
-A session that runs on a paired host acts on that host exactly as the Settings page does while that tab is focused. Stock settings, models, usage, plugins and MCP servers already go to the host's omp. `settings.rotation` and `settings.builtinRea` read and write the host's own value (`settings.get` shows it), and `sessions.saved`, `sessions.search`, `sessions.rename` and `sessions.delete` work on the host's saved sessions. `updates.status`, `updates.check` and `updates.apply` stay on this computer's OMPdesk unless you pass `host: true`, which asks the paired host's OMPdesk instead (`updates.apply` refuses while work runs there, yours included). Everything else is this device's own: its look, notifications, proxy, update switches, memory, Tailscale and phone-page sharing.
+A session that runs on a paired host acts on that host exactly as the Settings page does while that tab is focused. Stock settings, models, usage, plugins and MCP servers already go to the host's omp. `settings.rotation` and `settings.builtinRea` read and write the host's own value (`settings.get` shows it), and `sessions.saved`, `sessions.search`, `sessions.rename`, `sessions.delete`, `sidebar.projects`, `sidebar.add_project` and `sidebar.remove_project` work on the host's saved sessions and sidebar projects. `updates.status`, `updates.check` and `updates.apply` stay on this computer's OMPdesk unless you pass `host: true`, which asks the paired host's OMPdesk instead (`updates.apply` refuses while work runs there, yours included). Everything else is this device's own: its look, notifications, proxy, update switches, memory, Tailscale and phone-page sharing.
+
+## Sidebar
+
+`sidebar.projects` lists the projects in the sidebar (path, name, `folder missing`; on this computer also `pinned` and the project's own name). `sidebar.add_project` (`path`, absolute) lists a folder, as opening it does. `sidebar.remove_project` with `path` or `paths` (paths exactly as listed) is the project menu's "Remove from sidebar": no folder and no session is touched, every window updates at once, and the person brings a folder back by opening it again. A path the list does not hold is reported and left alone. Use it to clear leftover test folders instead of asking the user to click.
+
+Arranging is this computer's own sidebar (a session on a paired host is refused): `sidebar.pin_project` and `sidebar.pin_session` (`pinned` true or false), `sidebar.order_projects` (`paths`, top first), `sidebar.rename_project` (`name`, empty clears), `sidebar.archive_sessions` (`sessionPaths`, `archived`; no file is touched). Paths must be listed by `sidebar.projects` or `sessions.saved`. The window applies each as the menu would, so you see the result there, not in the answer.
+
+`ui.open_system_privacy` (`pane`: accessibility, screen_recording, input_monitoring, automation, full_disk_access, files_and_folders, microphone, camera) only opens that macOS Privacy & Security pane; the person flips the switch, which you cannot. `updates.download` fetches the update `updates.status` says is available; `updates.apply` still installs it.
 
 ## Sign-in
 

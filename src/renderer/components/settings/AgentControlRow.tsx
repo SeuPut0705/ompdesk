@@ -30,7 +30,7 @@ export function AgentControlRow({ query = "" }: { query?: string }) {
 	const t = useT();
 	const [full, setFull] = useMainPreference(AGENT_CONTROL_FULL_PREF, true);
 	const [on, setOn] = useMainPreference(AGENT_CONTROL_PREF, true);
-	const [approve, setApprove] = useMainPreference(AGENT_CONTROL_APPROVE_PREF, false);
+	const [approve, setApprove] = useMainPreference(AGENT_CONTROL_APPROVE_PREF, true);
 	const [manage, setManage] = useMainPreference(AGENT_CONTROL_MANAGE_PREF, true);
 	const label = t("settings.gui.agentControl");
 	if (query && !`${label} ${SEARCH}`.toLowerCase().includes(query.toLowerCase())) return null;

@@ -10,6 +10,8 @@ import {
 	agentTaskTitle,
 	parseAgentMessage,
 	parseWorkerResult,
+	privacyPaneUrl,
+	sidebarViewOf,
 	wrapAgentMessage,
 } from "./agent-control";
 
@@ -59,14 +61,14 @@ describe("control tool prefs", () => {
 		expect(agentControlEnabled(false)).toBe(false);
 	});
 
-	it("lets agents manage other sessions unless stored false, and approve for them only when stored true", () => {
-		// Unset is the shipped default: manage on, approve off. Only a stored boolean changes either.
+	it("lets agents manage other sessions and approve for them unless stored false", () => {
+		// Unset is the shipped default: every switch on. Only a stored false turns one off.
 		expect(agentControlManageEnabled(undefined)).toBe(true);
 		expect(agentControlManageEnabled(true)).toBe(true);
 		expect(agentControlManageEnabled(false)).toBe(false);
-		expect(agentControlApproveEnabled(undefined)).toBe(false);
-		expect(agentControlApproveEnabled(false)).toBe(false);
+		expect(agentControlApproveEnabled(undefined)).toBe(true);
 		expect(agentControlApproveEnabled(true)).toBe(true);
+		expect(agentControlApproveEnabled(false)).toBe(false);
 		// Full control ships on: only a stored false turns it off.
 		expect(agentControlFullEnabled(undefined)).toBe(true);
 		expect(agentControlFullEnabled(true)).toBe(true);
@@ -96,5 +98,37 @@ describe("worker result line", () => {
 		expect(parseWorkerResult("Result: ok\nand then some prose")).toBeNull();
 		expect(parseWorkerResult("The tests failed.")).toBeNull();
 		expect(parseWorkerResult(null)).toBeNull();
+	});
+});
+
+describe("sidebar view for agents", () => {
+	it("keeps pins, names and the project order, drops the agent-hidden list and the paired hosts' order entries", () => {
+		const view = sidebarViewOf({
+			pinnedGroups: ["/work/a", 3],
+			pinnedSessions: ["/s/one.jsonl"],
+			groupAliases: { "/work/a": "Alpha", "/work/b": 4 },
+			groupOrder: ["/work/b", "host\n/h/app", "/work/a"],
+			agentHidden: ["/s/secret.jsonl"],
+		});
+		expect(view).toEqual({
+			pinnedProjects: ["/work/a"],
+			pinnedSessions: ["/s/one.jsonl"],
+			aliases: { "/work/a": "Alpha" },
+			projectOrder: ["/work/b", "/work/a"],
+		});
+		expect(JSON.stringify(view)).not.toContain("secret");
+		expect(sidebarViewOf(undefined)).toEqual({
+			pinnedProjects: [],
+			pinnedSessions: [],
+			aliases: {},
+			projectOrder: [],
+		});
+	});
+
+	it("names each privacy pane's System Settings address", () => {
+		expect(privacyPaneUrl("accessibility")).toBe(
+			"x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+		);
+		expect(privacyPaneUrl("screen_recording")).toContain("Privacy_ScreenCapture");
 	});
 });

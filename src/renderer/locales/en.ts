@@ -6014,7 +6014,7 @@ export const en: Record<string, string> = {
 	"settings.gui.agentControlCovered": "Covered by full control while it is on",
 	"settings.gui.agentControlApprove": "Let agents approve for other sessions",
 	"settings.gui.agentControlApproveDesc":
-		"Off by default: only you approve a tool another session asks about, since an agent approving would bypass your approval policy. Agents may still deny or answer other questions.",
+		"On by default: agents may approve a tool another session asks about, as part of their full set of powers. Turn it off and only you approve those; agents may still deny or answer other questions.",
 	"settings.gui.agentControlManage": "Let agents manage other sessions",
 	"settings.gui.agentControlManageDesc":
 		"On by default: agents may stop or close sessions they did not open, merge a session's branch, schedule runs and start Autopilot (not a release or main) without asking. Deleting a saved session they did not open still asks. Off: all of these ask first.",

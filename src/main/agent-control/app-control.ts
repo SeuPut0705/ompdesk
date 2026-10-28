@@ -11,7 +11,7 @@
  *      command or channel needs (`app-guard.ts`, `app-channels.ts`), so a nested route is refused like a direct one;
  *   5. a change is journaled in the caller's session, shown as a quiet toast and, with a previous value, undoable.
  */
-import type { AgentAppEvent, AppUndo } from "../../shared/agent-control";
+import type { AgentAppEvent, AppUndo, PrivacyPane, SidebarView } from "../../shared/agent-control";
 import type { RpcCommand, RpcResponse } from "../../shared/rpc-types";
 import type { IpcChannel } from "../web/ipc-policy";
 import { ACTION_BY_ID, type ActionContext, type ActionResult, type AppAction, type AppChange } from "./app-catalog";
@@ -42,6 +42,10 @@ export interface AppPorts {
 	text(key: "appTitle" | "appMessage" | "appChanged", params: Record<string, string>): string;
 	/** The English or the Korean text, by the app's language. */
 	localize(en: string, ko: string): string;
+	/** What the person's sidebar holds of pins, aliases and project order (never the agent-hidden list). */
+	sidebarView(): SidebarView;
+	/** Open a macOS Privacy & Security pane (this computer's System Settings); rejects off macOS. */
+	openPrivacyPane(pane: PrivacyPane): Promise<void>;
 	callerTitle(callerTabId: string): string;
 	/** `ompdesk_autopilot` itself (its card and folder rules); the app actions go through it, never around it. */
 	autopilot(callerTabId: string, args: unknown): Promise<string>;
@@ -212,6 +216,8 @@ export class AppControl {
 			invoke: (channel, ...args) => ports.invoke(callerTabId, this.#channel(channel, actionId, granted), args),
 			fire: (channel, ...args) => ports.fire(callerTabId, this.#channel(channel, actionId, granted), args),
 			ui: event => ports.send(callerTabId, event),
+			sidebarView: () => ports.sidebarView(),
+			openPrivacyPane: pane => ports.openPrivacyPane(pane),
 			autopilot: args => ports.autopilot(callerTabId, args),
 			undoLast: () => this.#undo(callerTabId),
 		};

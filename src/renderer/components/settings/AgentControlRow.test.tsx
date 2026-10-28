@@ -93,21 +93,20 @@ describe("AgentControlRow", () => {
 		expect(prefs.set).toHaveBeenLastCalledWith(AGENT_CONTROL_FULL_PREF, false);
 	});
 
-	it("has two more switches for the human gates once full control is off: approving off and managing on while unset", async () => {
+	it("has two more switches for the human gates once full control is off: both on while unset", async () => {
 		stored = { [AGENT_CONTROL_FULL_PREF]: false };
 		await mount();
 		const approve = toggle("setting-gui-agentControlApprove");
 		const manage = toggle("setting-gui-agentControlManage");
 		expect(document.body.textContent).toContain("Let agents approve for other sessions");
 		expect(document.body.textContent).toContain("Let agents manage other sessions");
-		// The long descriptions sit behind info tooltips (the text stays in the DOM): approve says why it stays off,
-		// manage says deleting still asks.
-		expect(document.body.textContent).toContain("would bypass your approval policy");
+		// The long descriptions sit behind info tooltips (the text stays in the DOM).
 		expect(document.body.textContent).toContain("Deleting a saved session they did not open still asks");
-		expect(approve.getAttribute("aria-checked")).toBe("false");
+		expect(approve.getAttribute("aria-checked")).toBe("true");
 		expect(manage.getAttribute("aria-checked")).toBe("true");
 		await act(async () => approve.click());
-		expect(prefs.set).toHaveBeenLastCalledWith(AGENT_CONTROL_APPROVE_PREF, true);
+		expect(prefs.set).toHaveBeenLastCalledWith(AGENT_CONTROL_APPROVE_PREF, false);
+		expect(approve.getAttribute("aria-checked")).toBe("false");
 		await act(async () => manage.click());
 		expect(prefs.set).toHaveBeenLastCalledWith(AGENT_CONTROL_MANAGE_PREF, false);
 		expect(manage.getAttribute("aria-checked")).toBe("false");

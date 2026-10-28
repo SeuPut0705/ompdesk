@@ -242,7 +242,7 @@ describe("AgentControlRuntime", () => {
 		expect(outcome.text).toContain(`remo0004 "Remote"`);
 	});
 
-	it("resolves the Settings switches from the stored prefs: off refuses, manage is on and approve is off while unset", async () => {
+	it("resolves the Settings switches from the stored prefs: off refuses, manage and approve are on while unset", async () => {
 		const request: ExtensionUIRequest = {
 			type: "extension_ui_request",
 			id: "r1",
@@ -264,30 +264,35 @@ describe("AgentControlRuntime", () => {
 		expect((await runtime.run(win, "main0001", T.list, {})).text).toMatch(/turned off/);
 		delete prefs[AGENT_CONTROL_PREF];
 
-		// Full control off: the older gates decide. Nothing else stored: stopping another session needs no card;
-		// approving its tool request is refused.
+		// Full control off: the older gates decide. Nothing else stored: stopping another session needs no card and
+		// approving its tool request is allowed.
 		prefs[AGENT_CONTROL_FULL_PREF] = false;
 		expect(prefs[AGENT_CONTROL_MANAGE_PREF]).toBeUndefined();
 		expect(prefs[AGENT_CONTROL_APPROVE_PREF]).toBeUndefined();
 		expect((await runtime.run(win, "main0001", T.stop, { session: "busy0002" })).isError).toBe(false);
 		expect(cards()).toBe(0);
-		const refused = await runtime.run(win, "main0001", T.answer, { session: "busy0002", choice: "Approve" });
-		expect(refused.isError).toBe(true);
-		expect(refused.text).toContain("사용자 승인이 필요해요");
-		expect(answers()).toBe(0);
+		expect((await runtime.run(win, "main0001", T.answer, { session: "busy0002", choice: "Approve" })).isError).toBe(
+			false,
+		);
+		expect(answers()).toBe(1);
 
-		// Stored false turns manage off (one card); stored true turns approve on.
+		// Stored false turns manage off (one card) and approve off (refused); stored true is on again.
 		prefs[AGENT_CONTROL_MANAGE_PREF] = false;
 		await runtime.run(win, "main0001", T.stop, { session: "busy0002" });
 		expect(cards()).toBe(1);
 		prefs[AGENT_CONTROL_MANAGE_PREF] = true;
 		await runtime.run(win, "main0001", T.stop, { session: "busy0002" });
 		expect(cards()).toBe(1);
+		prefs[AGENT_CONTROL_APPROVE_PREF] = false;
+		const refused = await runtime.run(win, "main0001", T.answer, { session: "busy0002", choice: "Approve" });
+		expect(refused.isError).toBe(true);
+		expect(refused.text).toContain("사용자 승인이 필요해요");
+		expect(answers()).toBe(1);
 		prefs[AGENT_CONTROL_APPROVE_PREF] = true;
 		expect((await runtime.run(win, "main0001", T.answer, { session: "busy0002", choice: "Approve" })).isError).toBe(
 			false,
 		);
-		expect(answers()).toBe(1);
+		expect(answers()).toBe(2);
 
 		// Full control (unset is on) covers both gates: manage off and approve off still run with no card.
 		delete prefs[AGENT_CONTROL_FULL_PREF];
@@ -298,7 +303,7 @@ describe("AgentControlRuntime", () => {
 		expect((await runtime.run(win, "main0001", T.answer, { session: "busy0002", choice: "Approve" })).isError).toBe(
 			false,
 		);
-		expect(answers()).toBe(2);
+		expect(answers()).toBe(3);
 	});
 
 	it("opens a session in a worktree through worktree_create with the omp/agent/ prefix and binds the tab to it", async () => {
@@ -1015,7 +1020,7 @@ describe("AgentControlRuntime", () => {
 		}));
 		const { runtime, win, sidecars } = setup({
 			tabs: [{ tabId: "main0001" }, { tabId: "remo0004", device: "dev-1" }],
-			app: { invoke, fire: vi.fn(), localize: en => en },
+			app: { invoke, fire: vi.fn(), localize: en => en, openPrivacyPane: async () => {} },
 		});
 		sidecars.set("remo0004", { cwd: "/h/repo", device: "dev-1" });
 		await runtime.run(win, "remo0004", T.app, { action: "settings.rotation", args: { value: "even" } });

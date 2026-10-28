@@ -259,9 +259,17 @@ export const MAIN_TEXT = {
 	"menu.minimize": { en: "Minimize", ko: "최소화" },
 	"menu.zoom": { en: "Zoom", ko: "확대/축소" },
 	"menu.bringAllToFront": { en: "Bring All to Front", ko: "모두 앞으로 가져오기" },
+	"omp.bunTooOld": {
+		en: "omp at {bin} needs Bun {minimum} or newer, but {bun} is {bunVersion}. OMPdesk upgrades Bun on its own; to do it yourself, run `bun upgrade`, then press Restart.",
+		ko: "{bin}의 omp는 Bun {minimum} 이상이 필요한데 {bun}은 {bunVersion}이에요. OMPdesk가 알아서 Bun을 업그레이드해요. 직접 하려면 `bun upgrade`를 실행한 뒤 다시 시작을 눌러 주세요.",
+	},
 	"omp.cannotRun": {
 		en: "omp at {bin} could not run ({detail}). OMPdesk reinstalls it on its own; to do it yourself, run `bun install -g @oh-my-pi/pi-coding-agent`, then press Restart.",
 		ko: "{bin}의 omp를 실행할 수 없어요 ({detail}). OMPdesk가 알아서 다시 설치해요. 직접 하려면 `bun install -g @oh-my-pi/pi-coding-agent`를 실행한 뒤 다시 시작을 눌러 주세요.",
+	},
+	"omp.compiled": {
+		en: "omp at {bin} is a standalone build, which OMPdesk can't load its features into. OMPdesk reinstalls it as the package on its own; to do it yourself, run `bun upgrade`, then `bun install -g @oh-my-pi/pi-coding-agent`, then press Restart.",
+		ko: "{bin}의 omp는 단독 실행 파일 빌드라서 OMPdesk 기능을 불러올 수 없어요. OMPdesk가 알아서 패키지로 다시 설치해요. 직접 하려면 `bun upgrade`, 그다음 `bun install -g @oh-my-pi/pi-coding-agent`를 실행한 뒤 다시 시작을 눌러 주세요.",
 	},
 	"omp.notFound": {
 		en: "omp is not installed. OMPdesk installs it on its own; to do it yourself, run `bun install -g @oh-my-pi/pi-coding-agent`, then press Restart.",

@@ -26,8 +26,8 @@ export function agentHiddenPaths(sidebarBlob: unknown): Set<string> {
 }
 
 /**
- * Prefs key, default OFF: an orchestrating agent may approve another session's pending tool approval. Off because
- * it bypasses the user's own approval policy; it stays the user's explicit choice.
+ * Prefs key, default ON (unset counts as on; only a stored `false` is off; the user's decision, 29 Oct 2026: agents
+ * have every power by default): an orchestrating agent may approve another session's pending tool approval.
  */
 export const AGENT_CONTROL_APPROVE_PREF = "agentControlApprove";
 
@@ -65,9 +65,9 @@ export function agentControlManageEnabled(value: unknown): boolean {
 	return value !== false;
 }
 
-/** `agentControlApprove` as stored: unset is off. */
+/** `agentControlApprove` as stored: unset is on. */
 export function agentControlApproveEnabled(value: unknown): boolean {
-	return value === true;
+	return value !== false;
 }
 
 /** Tool names (stock mounts each as `xd://<name>`). */
@@ -102,11 +102,65 @@ export const AGENT_VIEW_SHEETS = ["jobs", "plan", "logs", "tree", "work"] as con
 /** What one step back restores: a stored preference or a stock setting, as the user's own Settings control writes it. */
 export type AppUndo = { kind: "pref"; key: string; value: unknown } | { kind: "setting"; path: string; value: unknown };
 
+/**
+ * A sidebar arrangement the person would make from a project's or a session's menu. The window applies it through the
+ * sidebar prefs store, the one writer of the `sidebar` blob (main never writes it: the window's cached copy would
+ * overwrite it with its next write).
+ */
+export type SidebarArrange =
+	| { op: "pin-project"; path: string; pinned: boolean }
+	| { op: "order-projects"; paths: string[] }
+	| { op: "rename-project"; path: string; name: string | null }
+	| { op: "pin-session"; sessionPath: string; pinned: boolean }
+	| { op: "archive-sessions"; sessionPaths: string[]; archived: boolean };
+
+/** What an agent may read of the `sidebar` blob: never `agentHidden`, which only the person sets. */
+export interface SidebarView {
+	pinnedProjects: string[];
+	pinnedSessions: string[];
+	aliases: Record<string, string>;
+	/** Project order the person (or an agent) set, top first; empty = by recency. */
+	projectOrder: string[];
+}
+
+export function sidebarViewOf(blob: unknown): SidebarView {
+	const record = blob && typeof blob === "object" ? (blob as Record<string, unknown>) : {};
+	const strings = (value: unknown): string[] =>
+		Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+	const aliases: Record<string, string> = {};
+	if (record.groupAliases && typeof record.groupAliases === "object")
+		for (const [path, name] of Object.entries(record.groupAliases))
+			if (typeof name === "string") aliases[path] = name;
+	return {
+		pinnedProjects: strings(record.pinnedGroups),
+		pinnedSessions: strings(record.pinnedSessions),
+		aliases,
+		projectOrder: strings(record.groupOrder).filter(entry => !entry.includes("\n")),
+	};
+}
+
+/** The macOS Privacy & Security panes an agent may open (it only opens the pane; the person toggles). */
+export const PRIVACY_PANES = {
+	accessibility: "Privacy_Accessibility",
+	screen_recording: "Privacy_ScreenCapture",
+	input_monitoring: "Privacy_ListenEvent",
+	automation: "Privacy_Automation",
+	full_disk_access: "Privacy_AllFiles",
+	files_and_folders: "Privacy_FilesAndFolders",
+	microphone: "Privacy_Microphone",
+	camera: "Privacy_Camera",
+} as const;
+export type PrivacyPane = keyof typeof PRIVACY_PANES;
+
+export const privacyPaneUrl = (pane: PrivacyPane): string =>
+	`x-apple.systempreferences:com.apple.preference.security?${PRIVACY_PANES[pane]}`;
+
 export type AgentAppEvent =
 	| { kind: "panel"; tab: (typeof AGENT_PANEL_TABS)[number] | (typeof AGENT_VIEW_SHEETS)[number] | null }
 	| { kind: "settings"; section: string; sub?: string }
 	| { kind: "provider-sign-in"; tabId: string; providerId: string }
 	| { kind: "pref"; key: string; value: unknown }
+	| { kind: "sidebar"; change: SidebarArrange }
 	| { kind: "toast"; message: string; undo?: AppUndo };
 
 export type AgentControlToolName = (typeof AGENT_CONTROL_TOOLS)[keyof typeof AGENT_CONTROL_TOOLS];

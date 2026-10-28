@@ -8,8 +8,8 @@
  */
 
 import type { McpOffReason } from "../../../resources/gui-bridge/extensions/mcp-contracts";
-import type { AgentAppEvent, AppUndo } from "../../shared/agent-control";
-import { AGENT_PANEL_TABS, AGENT_VIEW_SHEETS } from "../../shared/agent-control";
+import type { AgentAppEvent, AppUndo, PrivacyPane, SidebarView } from "../../shared/agent-control";
+import { AGENT_PANEL_TABS, AGENT_VIEW_SHEETS, PRIVACY_PANES } from "../../shared/agent-control";
 import type { DiagnosticBundleResult } from "../../shared/diagnostic-bundle";
 import type { DiskCareState } from "../../shared/disk-care";
 import { type HostView, IPC_COMMANDS, type RemoteState, type TailnetComputer } from "../../shared/ipc-types";
@@ -23,7 +23,13 @@ import {
 	type WebBlockedInfo,
 	type WebDeviceInfo,
 } from "../../shared/mobile-web";
+import { pathBaseName } from "../../shared/project-origin";
 import type { RpcCommand, RpcMcpServerInfo } from "../../shared/rpc-types";
+import {
+	SIDEBAR_PROJECTS_COMMAND,
+	type SidebarProjectsRequest,
+	type SidebarProjectsState,
+} from "../../shared/sidebar-projects";
 import { APPROVAL_MODES } from "../../shared/tool-approval";
 import { AppRefusal, type Tier } from "./app-guard";
 import { type ArgsSchema, NO_ARGS, objectSchema } from "./app-schema";
@@ -68,6 +74,10 @@ export interface ActionContext {
 	/** Call a fire-and-forget channel's handler. */
 	fire(channel: string, ...args: unknown[]): void;
 	ui(event: AgentAppEvent): void;
+	/** What the person's sidebar holds of pins, aliases and project order (this computer's). */
+	sidebarView(): SidebarView;
+	/** Open a macOS Privacy & Security pane; the person toggles the switch. */
+	openPrivacyPane(pane: PrivacyPane): Promise<void>;
 	/** Run `ompdesk_autopilot` with these arguments: its confirmation card and folder rules apply. */
 	autopilot(args: Record<string, unknown>): Promise<string>;
 	/** Restore the last change this session's agent made (asks again when that change needed a card). */
@@ -338,6 +348,64 @@ function updateHost(ctx: ActionContext, args: Record<string, unknown>): string |
 
 /** The caller's paired host goes into a `sessions:*` payload the way the sidebar's does; a session on this computer sends none. */
 const onCallerDevice = (ctx: ActionContext): { device?: string } => (ctx.device ? { device: ctx.device } : {});
+
+const SIDEBAR_LIST_MAX = 200;
+const SIDEBAR_BATCH_MAX = 50;
+const SIDEBAR_ORDER_MAX = 200;
+const ABSOLUTE_PATH = /^(\/|[A-Za-z]:[\\/]|\\\\)/;
+
+const SIDEBAR_PATH = {
+	type: "string",
+	minLength: 1,
+	maxLength: 4096,
+	description: "Project folder path, as sidebar.projects lists it.",
+} as const;
+
+/** The sidebar project list of the caller's computer: this one, or the paired host's own (`machineFor` routes by `device`). */
+async function sendSidebarProjects(ctx: ActionContext, request: SidebarProjectsRequest): Promise<SidebarProjectsState> {
+	return (await ctx.invoke(
+		SIDEBAR_PROJECTS_COMMAND,
+		request,
+		...(ctx.device ? [ctx.device] : []),
+	)) as SidebarProjectsState;
+}
+
+const readSidebarProjects = (ctx: ActionContext): Promise<SidebarProjectsState> =>
+	sendSidebarProjects(ctx, { action: "get" });
+
+async function listedProjectPaths(ctx: ActionContext): Promise<Set<string>> {
+	return new Set((await readSidebarProjects(ctx)).projects.map(project => project.path));
+}
+
+const notListedText = (paths: readonly string[]): string =>
+	`Not in the sidebar list, left alone: ${paths.join(", ")}. Read sidebar.projects for the exact paths.`;
+
+/** Pins, names, order and the archive are kept by the sidebar of the computer the window runs on, never a paired host's. */
+function thisComputerOnly(ctx: ActionContext): void {
+	if (ctx.device)
+		throw new AppRefusal(
+			"Pins, names, order and the archive belong to this computer's own sidebar; this session runs on a paired host, so the person arranges that there.",
+		);
+}
+
+/** A project of this computer's list, or a refusal naming the path. */
+async function ownSidebarProject(ctx: ActionContext, path: string): Promise<void> {
+	thisComputerOnly(ctx);
+	if (!(await listedProjectPaths(ctx)).has(path)) throw new AppRefusal(notListedText([path]));
+}
+
+/** Every path is a saved session of this computer (`sessions.saved`'s list). */
+async function requireSavedSessions(ctx: ActionContext, paths: readonly string[]): Promise<void> {
+	const saved = await ctx.invoke(C.SESSIONS_LIST, { scope: "global" });
+	const known = new Set<unknown>(
+		(Array.isArray(saved) ? saved : []).map(row => (row && typeof row === "object" && "path" in row ? row.path : "")),
+	);
+	const unknown = paths.filter(path => !known.has(path));
+	if (unknown.length > 0)
+		throw new AppRefusal(
+			`Not a saved session of this computer: ${unknown.join(", ")}. Read sessions.saved for the paths.`,
+		);
+}
 
 const SCOPE = {
 	type: "string",
@@ -651,6 +719,249 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		},
 	},
 	{
+		id: "ui.open_system_privacy",
+		area: "ui",
+		description:
+			"Open a macOS Privacy & Security pane in System Settings (Accessibility, Screen Recording, ...). It only opens the pane: the person toggles the switch, you cannot. macOS only.",
+		args: objectSchema({ pane: { type: "string", enum: Object.keys(PRIVACY_PANES) } }, ["pane"]),
+		tier: "change",
+		run: async (ctx, args) => {
+			const pane = String(args.pane) as PrivacyPane;
+			await ctx.openPrivacyPane(pane).catch(error => {
+				throw new AppRefusal(error instanceof Error ? error.message : String(error));
+			});
+			return {
+				text: `Opened System Settings › Privacy & Security › ${pane.replaceAll("_", " ")}. Tell the person to switch OMPdesk on there; you cannot.`,
+			};
+		},
+	},
+	{
+		id: "sidebar.projects",
+		area: "sidebar",
+		description:
+			"The projects listed in the sidebar of the computer this session runs on (a paired host's own when it runs there): folder path, name, and whether the folder is gone; for this computer also its pin and its own name. Use the paths with the other sidebar.* actions.",
+		args: NO_ARGS,
+		tier: "read",
+		run: async ctx => {
+			const state = await readSidebarProjects(ctx);
+			const view = ctx.device ? undefined : ctx.sidebarView();
+			const rows = state.projects.slice(0, SIDEBAR_LIST_MAX);
+			const more = state.projects.length - rows.length;
+			const listed =
+				rows.length === 0
+					? "No projects in the sidebar."
+					: rows
+							.map(project => {
+								const alias = view?.aliases[project.path];
+								return `- ${project.path} · ${pathBaseName(project.path)}${alias ? ` · named "${alias}"` : ""}${view?.pinnedProjects.includes(project.path) ? " · pinned" : ""}${project.missing ? " · folder missing" : ""}`;
+							})
+							.join("\n");
+			const removed =
+				state.removed.length > 0
+					? `\n${state.removed.length} removed folders stay out until the person opens them again.`
+					: "";
+			return { text: `${listed}${more > 0 ? `\n… and ${more} more.` : ""}${removed}` };
+		},
+	},
+	{
+		id: "sidebar.add_project",
+		area: "sidebar",
+		description:
+			"List a folder as a project in the sidebar of the computer this session runs on (the 'Add new project' / open-folder path; a folder removed before comes back). path is absolute. A linked worktree lists its main checkout.",
+		args: objectSchema(
+			{ path: { type: "string", minLength: 1, maxLength: 4096, description: "Absolute folder path." } },
+			["path"],
+		),
+		tier: "change",
+		run: async (ctx, args) => {
+			const path = String(args.path);
+			if (!ABSOLUTE_PATH.test(path)) throw new AppRefusal("path must be absolute.");
+			const before = new Set((await readSidebarProjects(ctx)).projects.map(project => project.path));
+			await sendSidebarProjects(ctx, { action: "add", path });
+			// A read also notices a folder that is not on disk.
+			const after = await readSidebarProjects(ctx);
+			const added = after.projects.filter(project => !before.has(project.path));
+			if (added.length === 0)
+				return {
+					text: before.has(path)
+						? `${path} is already in the sidebar.`
+						: `${path} was not added: it is the Work workspace, which is never a project.`,
+				};
+			const missing = added.some(project => project.missing);
+			return {
+				text: `Added to the sidebar: ${added.map(project => project.path).join(", ")}${missing ? " (the folder is not on disk, so it shows as missing)" : ""}.`,
+				change: {
+					en: "Added to the sidebar",
+					ko: "사이드바에 추가",
+					value: added.map(project => pathBaseName(project.path)).join(", "),
+				},
+			};
+		},
+	},
+	{
+		id: "sidebar.remove_project",
+		area: "sidebar",
+		description:
+			"Remove projects from the sidebar of the computer this session runs on, as the project's menu 'Remove from sidebar' does. No folder and no session is touched; opening the folder again in OMPdesk lists it again. path or paths must be listed by sidebar.projects: any other path is reported and left alone.",
+		args: objectSchema({
+			path: { type: "string", minLength: 1, maxLength: 4096, description: "One project folder path." },
+			paths: {
+				type: "array",
+				items: { type: "string", maxLength: 4096 },
+				maxItems: SIDEBAR_BATCH_MAX,
+				description: "Several project folder paths.",
+			},
+		}),
+		tier: "change",
+		run: async (ctx, args) => {
+			const asked = [
+				...new Set([...(typeof args.path === "string" ? [args.path] : []), ...((args.paths as string[]) ?? [])]),
+			].filter(path => path.length > 0);
+			if (asked.length === 0) throw new AppRefusal("Give path or paths.");
+			const listed = await listedProjectPaths(ctx);
+			const known = asked.filter(path => listed.has(path));
+			const unknown = asked.filter(path => !listed.has(path));
+			if (known.length === 0) throw new AppRefusal(notListedText(unknown));
+			for (const path of known) await sendSidebarProjects(ctx, { action: "remove", path });
+			return {
+				text: `Removed from the sidebar: ${known.join(", ")}. No folder or session was touched; opening a folder again lists it again.${unknown.length > 0 ? ` ${notListedText(unknown)}` : ""}`,
+				change: {
+					en: "Removed from the sidebar",
+					ko: "사이드바에서 제거",
+					value: known.map(path => pathBaseName(path)).join(", "),
+				},
+			};
+		},
+	},
+	{
+		id: "sidebar.pin_project",
+		area: "sidebar",
+		description:
+			"Pin or unpin a project in this computer's sidebar (the project menu's Pin / Unpin; pinned projects stay on top). path must be listed by sidebar.projects.",
+		args: objectSchema({ path: SIDEBAR_PATH, pinned: { type: "boolean" } }, ["path", "pinned"]),
+		tier: "change",
+		run: async (ctx, args) => {
+			const path = String(args.path);
+			const pinned = args.pinned === true;
+			await ownSidebarProject(ctx, path);
+			if (ctx.sidebarView().pinnedProjects.includes(path) === pinned)
+				return { text: `${path} is already ${pinned ? "pinned" : "not pinned"}.` };
+			ctx.ui({ kind: "sidebar", change: { op: "pin-project", path, pinned } });
+			return {
+				text: `${pinned ? "Pinned" : "Unpinned"} ${path}.`,
+				change: {
+					en: pinned ? "Pinned a project" : "Unpinned a project",
+					ko: pinned ? "프로젝트 고정" : "프로젝트 고정 해제",
+					value: pathBaseName(path),
+				},
+			};
+		},
+	},
+	{
+		id: "sidebar.order_projects",
+		area: "sidebar",
+		description:
+			"Set the order of projects in this computer's sidebar (what dragging a project does): paths top first, each listed by sidebar.projects. Pinned projects stay above the rest; projects not named keep their place after these.",
+		args: objectSchema(
+			{ paths: { type: "array", items: { type: "string", maxLength: 4096 }, maxItems: SIDEBAR_ORDER_MAX } },
+			["paths"],
+		),
+		tier: "change",
+		run: async (ctx, args) => {
+			const paths = [...new Set(args.paths as string[])];
+			if (paths.length === 0) throw new AppRefusal("Give at least one path.");
+			thisComputerOnly(ctx);
+			const listed = await listedProjectPaths(ctx);
+			const unknown = paths.filter(path => !listed.has(path));
+			if (unknown.length > 0) throw new AppRefusal(notListedText(unknown));
+			ctx.ui({ kind: "sidebar", change: { op: "order-projects", paths } });
+			return {
+				text: `Project order set: ${paths.join(", ")}.`,
+				change: {
+					en: "Project order",
+					ko: "프로젝트 순서",
+					value: paths.map(path => pathBaseName(path)).join(", "),
+				},
+			};
+		},
+	},
+	{
+		id: "sidebar.rename_project",
+		area: "sidebar",
+		description:
+			"Give a project its own name in this computer's sidebar (the project menu's Rename; the folder keeps its name). An empty name clears it. path must be listed by sidebar.projects.",
+		args: objectSchema({ path: SIDEBAR_PATH, name: { type: "string", minLength: 0, maxLength: 120 } }, [
+			"path",
+			"name",
+		]),
+		tier: "change",
+		run: async (ctx, args) => {
+			const path = String(args.path);
+			const name = String(args.name).trim();
+			await ownSidebarProject(ctx, path);
+			ctx.ui({ kind: "sidebar", change: { op: "rename-project", path, name: name || null } });
+			return {
+				text: name ? `${path} is now named "${name}".` : `${path} shows its folder name again.`,
+				change: { en: "Project name", ko: "프로젝트 이름", value: name || pathBaseName(path) },
+			};
+		},
+	},
+	{
+		id: "sidebar.pin_session",
+		area: "sidebar",
+		description:
+			"Pin or unpin a saved session in this computer's sidebar (the session menu's Pin / Unpin). sessionPath from sessions.saved.",
+		args: objectSchema({ sessionPath: SESSION_PATH, pinned: { type: "boolean" } }, ["sessionPath", "pinned"]),
+		tier: "change",
+		run: async (ctx, args) => {
+			const sessionPath = String(args.sessionPath);
+			const pinned = args.pinned === true;
+			thisComputerOnly(ctx);
+			if (pinned) await requireSavedSessions(ctx, [sessionPath]);
+			if (ctx.sidebarView().pinnedSessions.includes(sessionPath) === pinned)
+				return { text: `${sessionPath} is already ${pinned ? "pinned" : "not pinned"}.` };
+			ctx.ui({ kind: "sidebar", change: { op: "pin-session", sessionPath, pinned } });
+			return {
+				text: `${pinned ? "Pinned" : "Unpinned"} ${sessionPath}.`,
+				change: {
+					en: pinned ? "Pinned a session" : "Unpinned a session",
+					ko: pinned ? "세션 고정" : "세션 고정 해제",
+					value: pathBaseName(sessionPath),
+				},
+			};
+		},
+	},
+	{
+		id: "sidebar.archive_sessions",
+		area: "sidebar",
+		description:
+			"Archive or restore saved sessions in this computer's sidebar (the session menu's Archive / Restore: they leave the lists until restored; no file is touched). sessionPaths from sessions.saved.",
+		args: objectSchema(
+			{
+				sessionPaths: { type: "array", items: { type: "string", maxLength: 4096 }, maxItems: SIDEBAR_BATCH_MAX },
+				archived: { type: "boolean" },
+			},
+			["sessionPaths", "archived"],
+		),
+		tier: "change",
+		run: async (ctx, args) => {
+			const sessionPaths = [...new Set(args.sessionPaths as string[])];
+			const archived = args.archived === true;
+			if (sessionPaths.length === 0) throw new AppRefusal("Give at least one session path.");
+			thisComputerOnly(ctx);
+			await requireSavedSessions(ctx, sessionPaths);
+			ctx.ui({ kind: "sidebar", change: { op: "archive-sessions", sessionPaths, archived } });
+			return {
+				text: `${archived ? "Archived" : "Restored"} ${sessionPaths.length} session${sessionPaths.length === 1 ? "" : "s"} in the sidebar; no file was touched.`,
+				change: {
+					en: archived ? "Archived sessions" : "Restored sessions",
+					ko: archived ? "세션 보관" : "세션 복원",
+					value: String(sessionPaths.length),
+				},
+			};
+		},
+	},
+	{
 		id: "updates.status",
 		area: "updates",
 		description:
@@ -687,6 +998,21 @@ export const APP_ACTIONS: readonly AppAction[] = [
 			return {
 				text: `Update check ${device ? "ran on the paired host" : "started"}; read updates.status${device ? " with host: true" : ""} for the result.`,
 			};
+		},
+	},
+	{
+		id: "updates.download",
+		area: "updates",
+		description:
+			"Download the OMPdesk update that updates.status says is available, on this computer (what the Download button does). It installs nothing: updates.apply does, and always asks.",
+		args: NO_ARGS,
+		tier: "sensitive",
+		manage: {
+			lifts: "only fetches the release the check found; nothing is installed or restarted (updates.apply asks)",
+		},
+		run: async ctx => {
+			await ctx.invoke(C.UPDATER_DOWNLOAD);
+			return { text: "Download started; read updates.status for its progress. updates.apply installs it." };
 		},
 	},
 	{

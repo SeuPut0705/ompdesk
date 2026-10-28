@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
-import type { AgentAppEvent } from "../../shared/agent-control";
+import type { AgentAppEvent, PrivacyPane, SidebarView } from "../../shared/agent-control";
 import { IPC_COMMANDS } from "../../shared/ipc-types";
 import { WEB_BLOCKS_LIST } from "../../shared/mobile-web";
 import type { RpcCommand, RpcResponse } from "../../shared/rpc-types";
+import {
+	SIDEBAR_PROJECTS_COMMAND,
+	type SidebarProjectsRequest,
+	type SidebarProjectsState,
+} from "../../shared/sidebar-projects";
+import { SidebarProjects } from "../sidebar-projects";
 import { ACTION_BY_ID, type AppAction } from "./app-catalog";
 import { AppControl, type AppPorts, AppRefusal } from "./app-control";
 import { prefTier, rpcTier, settingTier } from "./app-guard";
@@ -77,12 +83,45 @@ class FakePorts implements AppPorts {
 	text = (key: string, params: Record<string, string>): string =>
 		key === "appChanged" ? `Agent changed: ${params.what} → ${params.value}` : `${key} ${JSON.stringify(params)}`;
 	localize = (en: string): string => en;
+	/** What the person's sidebar holds (a window's `useSidebarPrefs`, read by main). */
+	sidebar: SidebarView = { pinnedProjects: [], pinnedSessions: [], aliases: {}, projectOrder: [] };
+	sidebarView = (): SidebarView => this.sidebar;
+	privacyOpened: PrivacyPane[] = [];
+	privacyError: string | null = null;
+	openPrivacyPane = async (pane: PrivacyPane): Promise<void> => {
+		if (this.privacyError) throw new Error(this.privacyError);
+		this.privacyOpened.push(pane);
+	};
 	callerTitle = (): string => "Main";
 	autopilotCalls: unknown[] = [];
 	autopilot = async (_tab: string, args: unknown): Promise<string> => {
 		this.autopilotCalls.push(args);
 		return "autopilot reply";
 	};
+}
+
+/** A real `SidebarProjects` (in memory, no disk) behind the sidebar channel, as main answers a menu's command. */
+function sidebarProjectsOn(
+	ports: FakePorts,
+	projects: { path: string; addedAt: number; missing?: true }[],
+	missingFolders: string[] = [],
+) {
+	const pushes: SidebarProjectsState[] = [];
+	const list = new SidebarProjects({
+		read: () => ({ projects, removed: [] }),
+		write: () => {},
+		sessions: async () => [],
+		defaultWorkspace: () => "/work",
+		projectOf: async path => path,
+		exists: async path => !missingFolders.includes(path),
+		onState: state => pushes.push(state),
+		now: () => 9,
+	});
+	ports.invoke = async (_tab, channel, args) => {
+		ports.invoked.push({ channel, args });
+		return list.command(args[0] as SidebarProjectsRequest);
+	};
+	return { list, pushes };
 }
 
 const refusal = async (promise: Promise<unknown>): Promise<string> => {
@@ -806,6 +845,198 @@ describe("a caller tab on a paired host", () => {
 		const local = new FakePorts();
 		await new AppControl(local).run(CALLER, "sessions.saved", {});
 		expect(local.invoked).toEqual([{ channel: IPC_COMMANDS.SESSIONS_LIST, args: [{ scope: "global" }] }]);
+	});
+
+	it("lists the sidebar projects and removes listed ones through the menu's command, reporting an unknown path", async () => {
+		const ports = new FakePorts();
+		const { list, pushes } = sidebarProjectsOn(
+			ports,
+			[
+				{ path: "/tmp/r1", addedAt: 1 },
+				{ path: "/tmp/r2", addedAt: 2 },
+				{ path: "/tmp/gone", addedAt: 3, missing: true },
+			],
+			["/tmp/gone"],
+		);
+		const control = new AppControl(ports);
+
+		const listed = await control.run(CALLER, "sidebar.projects", {});
+		expect(listed).toContain("- /tmp/r1 · r1");
+		expect(listed).toContain("- /tmp/gone · gone · folder missing");
+
+		const done = await control.run(CALLER, "sidebar.remove_project", {
+			path: "/tmp/r1",
+			paths: ["/tmp/r2", "/tmp/nope"],
+		});
+		expect(done).toContain("Removed from the sidebar: /tmp/r1, /tmp/r2.");
+		expect(done).toContain("Not in the sidebar list, left alone: /tmp/nope.");
+		expect(list.state().projects.map(project => project.path)).toEqual(["/tmp/gone"]);
+		expect(list.state().removed).toEqual(["/tmp/r1", "/tmp/r2"]);
+		expect(pushes.at(-1)).toBe(list.state());
+		expect(ports.notes).toEqual(["Agent changed: Removed from the sidebar → r1, r2"]);
+		expect(ports.cards).toEqual([]);
+
+		const before = list.state();
+		const unknown = await refusal(control.run(CALLER, "sidebar.remove_project", { path: "/tmp/nope" }));
+		expect(unknown).toContain("Not in the sidebar list, left alone: /tmp/nope.");
+		expect(await refusal(control.run(CALLER, "sidebar.remove_project", {}))).toContain("Give path or paths.");
+		expect(list.state()).toBe(before);
+		expect(ports.invoked.every(call => call.channel === SIDEBAR_PROJECTS_COMMAND)).toBe(true);
+		expect(ports.invoked.every(call => call.args.length === 1)).toBe(true);
+	});
+
+	it("reads and removes a paired host's sidebar projects on that host", async () => {
+		const ports = onStudio();
+		const control = new AppControl(ports);
+		ports.invoke = async (_tab, channel, args) => {
+			ports.invoked.push({ channel, args });
+			return { projects: [{ path: "/h/app", addedAt: 1 }], removed: [], worktrees: {} };
+		};
+		await control.run(HOSTED, "sidebar.projects", {});
+		await control.run(HOSTED, "sidebar.remove_project", { path: "/h/app" });
+		expect(ports.invoked).toEqual([
+			{ channel: SIDEBAR_PROJECTS_COMMAND, args: [{ action: "get" }, STUDIO] },
+			{ channel: SIDEBAR_PROJECTS_COMMAND, args: [{ action: "get" }, STUDIO] },
+			{ channel: SIDEBAR_PROJECTS_COMMAND, args: [{ action: "remove", path: "/h/app" }, STUDIO] },
+		]);
+	});
+
+	it("adds a folder to the sidebar, reporting one already listed, a relative path and a missing folder", async () => {
+		const ports = new FakePorts();
+		const { list } = sidebarProjectsOn(ports, [{ path: "/tmp/r1", addedAt: 1 }], ["/tmp/nowhere"]);
+		const control = new AppControl(ports);
+
+		expect(await control.run(CALLER, "sidebar.add_project", { path: "/tmp/new" })).toContain(
+			"Added to the sidebar: /tmp/new.",
+		);
+		expect(await control.run(CALLER, "sidebar.add_project", { path: "/tmp/r1" })).toBe(
+			"/tmp/r1 is already in the sidebar.",
+		);
+		expect(await control.run(CALLER, "sidebar.add_project", { path: "/tmp/nowhere" })).toContain("shows as missing");
+		expect(await control.run(CALLER, "sidebar.add_project", { path: "/work" })).toContain("not added");
+		expect(await refusal(control.run(CALLER, "sidebar.add_project", { path: "tmp/rel" }))).toContain("absolute");
+		expect(list.state().projects.map(project => project.path)).toEqual(["/tmp/r1", "/tmp/new", "/tmp/nowhere"]);
+
+		await control.run(CALLER, "sidebar.remove_project", { path: "/tmp/new" });
+		expect(list.state().removed).toEqual(["/tmp/new"]);
+		expect(await control.run(CALLER, "sidebar.add_project", { path: "/tmp/new" })).toContain("Added to the sidebar");
+		expect(list.state().removed).toEqual([]);
+	});
+
+	it("pins, names and orders listed projects and pins and archives saved sessions through the window, and says what is already so", async () => {
+		const ports = new FakePorts();
+		sidebarProjectsOn(ports, [
+			{ path: "/tmp/a", addedAt: 1 },
+			{ path: "/tmp/b", addedAt: 2 },
+		]);
+		const projectChannel = ports.invoke;
+		ports.invoke = async (tab, channel, args) => {
+			if (channel !== IPC_COMMANDS.SESSIONS_LIST) return projectChannel(tab, channel, args);
+			ports.invoked.push({ channel, args });
+			return [{ path: "/s/one.jsonl" }, { path: "/s/two.jsonl" }];
+		};
+		const control = new AppControl(ports);
+		const arranged = () => ports.events.flatMap(event => (event.kind === "sidebar" ? [event.change] : []));
+
+		await control.run(CALLER, "sidebar.pin_project", { path: "/tmp/b", pinned: true });
+		await control.run(CALLER, "sidebar.rename_project", { path: "/tmp/a", name: "  Alpha " });
+		await control.run(CALLER, "sidebar.order_projects", { paths: ["/tmp/b", "/tmp/a", "/tmp/b"] });
+		await control.run(CALLER, "sidebar.pin_session", { sessionPath: "/s/one.jsonl", pinned: true });
+		await control.run(CALLER, "sidebar.archive_sessions", { sessionPaths: ["/s/two.jsonl"], archived: true });
+		expect(arranged()).toEqual([
+			{ op: "pin-project", path: "/tmp/b", pinned: true },
+			{ op: "rename-project", path: "/tmp/a", name: "Alpha" },
+			{ op: "order-projects", paths: ["/tmp/b", "/tmp/a"] },
+			{ op: "pin-session", sessionPath: "/s/one.jsonl", pinned: true },
+			{ op: "archive-sessions", sessionPaths: ["/s/two.jsonl"], archived: true },
+		]);
+		expect(ports.notes).toContain("Agent changed: Pinned a project → b");
+		expect(ports.cards).toEqual([]);
+
+		ports.events.length = 0;
+		ports.sidebar = {
+			pinnedProjects: ["/tmp/b"],
+			pinnedSessions: ["/s/one.jsonl"],
+			aliases: { "/tmp/a": "Alpha" },
+			projectOrder: ["/tmp/b", "/tmp/a"],
+		};
+		expect(await control.run(CALLER, "sidebar.pin_project", { path: "/tmp/b", pinned: true })).toContain(
+			"already pinned",
+		);
+		expect(await control.run(CALLER, "sidebar.pin_session", { sessionPath: "/s/one.jsonl", pinned: true })).toContain(
+			"already pinned",
+		);
+		expect(await control.run(CALLER, "sidebar.rename_project", { path: "/tmp/a", name: "" })).toContain(
+			"folder name",
+		);
+		expect(arranged()).toEqual([{ op: "rename-project", path: "/tmp/a", name: null }]);
+		const listed = await control.run(CALLER, "sidebar.projects", {});
+		expect(listed).toContain('- /tmp/a · a · named "Alpha"');
+		expect(listed).toContain("- /tmp/b · b · pinned");
+
+		ports.events.length = 0;
+		expect(await refusal(control.run(CALLER, "sidebar.pin_project", { path: "/tmp/zzz", pinned: true }))).toContain(
+			"Not in the sidebar list, left alone: /tmp/zzz.",
+		);
+		expect(await refusal(control.run(CALLER, "sidebar.order_projects", { paths: ["/tmp/a", "/tmp/zzz"] }))).toContain(
+			"/tmp/zzz",
+		);
+		expect(
+			await refusal(control.run(CALLER, "sidebar.pin_session", { sessionPath: "/s/no.jsonl", pinned: true })),
+		).toContain("Not a saved session of this computer: /s/no.jsonl");
+		expect(
+			await refusal(
+				control.run(CALLER, "sidebar.archive_sessions", { sessionPaths: ["/s/no.jsonl"], archived: true }),
+			),
+		).toContain("/s/no.jsonl");
+		expect(arranged()).toEqual([]);
+	});
+
+	it("leaves pins, names, order and the archive to this computer's own sidebar when the session runs on a paired host", async () => {
+		const ports = onStudio();
+		const control = new AppControl(ports);
+		for (const [action, args] of [
+			["sidebar.pin_project", { path: "/h/app", pinned: true }],
+			["sidebar.rename_project", { path: "/h/app", name: "App" }],
+			["sidebar.order_projects", { paths: ["/h/app"] }],
+			["sidebar.pin_session", { sessionPath: "/h/a.jsonl", pinned: false }],
+			["sidebar.archive_sessions", { sessionPaths: ["/h/a.jsonl"], archived: false }],
+		] as const)
+			expect(await refusal(control.run(HOSTED, action, args))).toContain("this computer's own sidebar");
+		expect(ports.events.filter(event => event.kind === "sidebar")).toEqual([]);
+		expect(ports.invoked).toEqual([]);
+	});
+
+	it("opens only a named macOS privacy pane, never to toggle it for the person", async () => {
+		const ports = new FakePorts();
+		const control = new AppControl(ports);
+		expect(await control.run(CALLER, "ui.open_system_privacy", { pane: "screen_recording" })).toContain(
+			"screen recording",
+		);
+		expect(await control.run(CALLER, "ui.open_system_privacy", { pane: "accessibility" })).toContain("you cannot");
+		expect(ports.privacyOpened).toEqual(["screen_recording", "accessibility"]);
+		expect(await refusal(control.run(CALLER, "ui.open_system_privacy", { pane: "keychain" }))).toContain("pane");
+		expect(ports.privacyOpened).toHaveLength(2);
+
+		ports.privacyError = "Privacy & Security panes exist only on macOS.";
+		expect(await refusal(control.run(CALLER, "ui.open_system_privacy", { pane: "camera" }))).toContain(
+			"only on macOS",
+		);
+		expect(ports.cards).toEqual([]);
+	});
+
+	it("downloads a found update, asking only while agentControlManage is off, and installs nothing", async () => {
+		const ports = new FakePorts();
+		ports.approve = false;
+		await refusal(new AppControl(ports).run(CALLER, "updates.download", {}));
+		expect(ports.cards).toHaveLength(1);
+		expect(ports.invoked).toEqual([]);
+
+		const open = new FakePorts();
+		open.manage = true;
+		expect(await new AppControl(open).run(CALLER, "updates.download", {})).toContain("updates.apply installs it");
+		expect(open.invoked).toEqual([{ channel: IPC_COMMANDS.UPDATER_DOWNLOAD, args: [] }]);
+		expect(open.cards).toEqual([]);
 	});
 
 	it("reads, checks and installs the host's OMPdesk update only when asked, and asks the card to install", async () => {
