@@ -50,6 +50,12 @@ interface NpmPack extends PackBase {
 type Pack = GitPack | NpmPack;
 
 const PACKAGING_TESTS = ["src/main/packaging-config.test.ts", "src/renderer/lib/command-registry-coverage.test.ts"];
+/**
+ * The built-in formal-verification skill (resources/omp-builtin/formal) is no pack's, so no bump rewrites it; these
+ * keep any pack's bump from undoing it: a rival skill, a link to the pstack skills it replaced, its routing dropped,
+ * or stock no longer listing it next to the bumped pack (the stock test needs omp, which the bump job installs).
+ */
+const FORMAL_TESTS = ["src/main/formal/pack-guard.test.ts", "src/main/formal/formal-stock.test.ts"];
 
 const PACKS: Pack[] = [
 	{
@@ -60,8 +66,13 @@ const PACKS: Pack[] = [
 		path: "pstack",
 		versionFile: "pstack/plugin.json",
 		sync: "sync:pstack",
-		tests: ["src/main/pstack/pack-drift.test.ts", "src/main/bridge-pstack.test.ts", ...PACKAGING_TESTS],
-		needsOmp: false,
+		tests: [
+			"src/main/pstack/pack-drift.test.ts",
+			"src/main/bridge-pstack.test.ts",
+			...PACKAGING_TESTS,
+			...FORMAL_TESTS,
+		],
+		needsOmp: true,
 	},
 	{
 		kind: "git",
@@ -71,7 +82,7 @@ const PACKS: Pack[] = [
 		path: "pi/core",
 		versionFile: "pi/core/package.json",
 		sync: "sync:ecc",
-		tests: ["src/main/ecc/pack-drift.test.ts", "src/main/ecc/ecc-stock.test.ts", ...PACKAGING_TESTS],
+		tests: ["src/main/ecc/pack-drift.test.ts", "src/main/ecc/ecc-stock.test.ts", ...PACKAGING_TESTS, ...FORMAL_TESTS],
 		needsOmp: true,
 	},
 	{
@@ -87,8 +98,9 @@ const PACKS: Pack[] = [
 			"src/shared/builtin-mcp.test.ts",
 			"src/renderer/components/settings/BuiltinReaRow.test.tsx",
 			...PACKAGING_TESTS,
+			...FORMAL_TESTS,
 		],
-		needsOmp: false,
+		needsOmp: true,
 	},
 ];
 
