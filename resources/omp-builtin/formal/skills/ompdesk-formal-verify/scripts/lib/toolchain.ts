@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -167,15 +168,18 @@ export function downloadsRefused(env: NodeJS.ProcessEnv = process.env): string |
 		: null;
 }
 
+/** A download that sends nothing for this long is given up (a stalled connection would hold the lock forever). */
+export const DOWNLOAD_IDLE_MS = 60_000;
+
 /**
  * Fetches `url` to `dest` and checks its SHA-256 before the file appears under its final name. A refused,
- * failed or mismatching download is Unavailable: the tool is missing, never silently replaced.
+ * failed, stalled or mismatching download is Unavailable: the tool is missing, never silently replaced.
  */
 export async function download(
 	url: string,
 	dest: string,
 	sha256: string,
-	options: { label: string; env?: NodeJS.ProcessEnv; log?: (line: string) => void },
+	options: { label: string; env?: NodeJS.ProcessEnv; log?: (line: string) => void; idleTimeoutMs?: number },
 ): Promise<void> {
 	const log = options.log ?? ((line: string) => process.stderr.write(`${line}\n`));
 	const refused = downloadsRefused(options.env);
@@ -183,15 +187,23 @@ export async function download(
 	fs.mkdirSync(path.dirname(dest), { recursive: true });
 	const part = `${dest}.part-${process.pid}`;
 	const hash = createHash("sha256");
+	const idleMs = options.idleTimeoutMs ?? DOWNLOAD_IDLE_MS;
+	const controller = new AbortController();
+	let idle: ReturnType<typeof setTimeout> | undefined;
+	const touch = (): void => {
+		clearTimeout(idle);
+		idle = setTimeout(() => controller.abort(new Error(`no data for ${Math.round(idleMs / 1000)} s`)), idleMs);
+	};
 	try {
 		let source: Readable;
 		let total = 0;
+		touch();
 		if (url.startsWith("file://")) {
 			const local = fileURLToPath(url);
 			total = fs.statSync(local).size;
 			source = fs.createReadStream(local);
 		} else {
-			const response = await fetch(url, { redirect: "follow" });
+			const response = await fetch(url, { redirect: "follow", signal: controller.signal });
 			if (!response.ok || !response.body) throw new Error(`HTTP ${response.status} ${response.statusText}`);
 			total = Number(response.headers.get("content-length") ?? 0);
 			source = Readable.fromWeb(response.body as unknown as WebReadableStream<Uint8Array>);
@@ -200,6 +212,7 @@ export async function download(
 		let seen = 0;
 		let nextMark = 0.25;
 		source.on("data", (chunk: Buffer) => {
+			touch();
 			hash.update(chunk);
 			seen += chunk.length;
 			if (total > 50 * 1048576 && seen / total >= nextMark) {
@@ -207,15 +220,20 @@ export async function download(
 				nextMark += 0.25;
 			}
 		});
-		await pipeline(source, fs.createWriteStream(part));
+		await pipeline(source, fs.createWriteStream(part), { signal: controller.signal });
 		const actual = hash.digest("hex");
 		if (actual !== sha256) throw new Error(`SHA-256 mismatch: expected ${sha256}, got ${actual}`);
 		fs.renameSync(part, dest);
 	} catch (error) {
 		fs.rmSync(part, { force: true });
-		throw new Unavailable(
-			`${options.label}: could not download ${url}: ${error instanceof Error ? error.message : String(error)}`,
-		);
+		const reason = controller.signal.aborted
+			? String(controller.signal.reason?.message ?? "aborted")
+			: error instanceof Error
+				? error.message
+				: String(error);
+		throw new Unavailable(`${options.label}: could not download ${url}: ${reason}`);
+	} finally {
+		clearTimeout(idle);
 	}
 }
 
@@ -259,29 +277,162 @@ export async function extractInto(archive: string, format: ArchiveFormat, dest: 
 	}
 }
 
-/** One installer at a time per name across processes (two agents may call setup together). */
-export async function withLock<T>(cache: string, name: string, work: () => Promise<T>): Promise<T> {
+export interface LockOptions {
+	log?: (line: string) => void;
+	/** How often a waiter looks again. */
+	pollMs?: number;
+	/** The holder rewrites its lock this often while it works. */
+	heartbeatMs?: number;
+	/** A lock nobody has touched for this long is abandoned, whatever its pid says (another computer, a frozen holder). */
+	staleMs?: number;
+	/** Give up waiting on a live holder after this long. */
+	maxWaitMs?: number;
+}
+
+interface LockOwner {
+	pid: number;
+	host: string;
+	started: number;
+}
+
+/** Is a process with this pid running on this computer? EPERM means it exists but is not ours. */
+export function pidAlive(pid: number): boolean {
+	if (!Number.isInteger(pid) || pid <= 0) return false;
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code === "EPERM";
+	}
+}
+
+function readOwner(file: string): LockOwner | null {
+	try {
+		const json: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
+		if (isRecord(json) && typeof json.pid === "number" && typeof json.host === "string") {
+			return { pid: json.pid, host: json.host, started: typeof json.started === "number" ? json.started : 0 };
+		}
+	} catch {
+		// being written, or not a lock of ours
+	}
+	return null;
+}
+
+function touched(lock: string, ownerFile: string): number {
+	for (const target of [ownerFile, lock]) {
+		try {
+			return fs.statSync(target).mtimeMs;
+		} catch {
+			// try the next
+		}
+	}
+	return 0;
+}
+
+const LEFTOVER = /\.(?:part|tmp)-(\d+)$/;
+
+/**
+ * Removes `*.part-<pid>` downloads and `*.tmp-<pid>` unpack folders that a killed setup left behind (each can be
+ * gigabytes). Only those of a pid that is no longer running; the scan stays three levels deep and never enters a
+ * toolchain.
+ */
+export function cleanLeftovers(root: string): string[] {
+	const removed: string[] = [];
+	const scan = (dir: string, depth: number): void => {
+		let entries: fs.Dirent[];
+		try {
+			entries = fs.readdirSync(dir, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const entry of entries) {
+			const full = path.join(dir, entry.name);
+			const match = LEFTOVER.exec(entry.name);
+			if (match) {
+				if (!pidAlive(Number(match[1]))) {
+					fs.rmSync(full, { recursive: true, force: true });
+					removed.push(full);
+				}
+			} else if (entry.isDirectory() && depth < 3 && !entry.name.startsWith(".lock-")) scan(full, depth + 1);
+		}
+	};
+	scan(root, 1);
+	return removed;
+}
+
+/**
+ * One installer at a time per name across processes (two agents may call setup together). The lock records the
+ * holder's pid and host and is touched every minute: a waiter takes it over at once when that pid is gone, or when
+ * nobody touched it for minutes; a live holder, however slow its download, keeps it. Waiting prints progress.
+ */
+export async function withLock<T>(
+	cache: string,
+	name: string,
+	work: () => Promise<T>,
+	options: LockOptions = {},
+): Promise<T> {
+	const log = options.log ?? ((line: string) => process.stderr.write(`${line}\n`));
+	const pollMs = options.pollMs ?? 500;
+	const heartbeatMs = options.heartbeatMs ?? 60_000;
+	const staleMs = options.staleMs ?? 5 * 60_000;
+	const maxWaitMs = options.maxWaitMs ?? 2 * 60 * 60_000;
 	fs.mkdirSync(cache, { recursive: true });
 	const lock = path.join(cache, `.lock-${name}`);
-	const deadline = Date.now() + 25 * 60_000;
+	const ownerFile = path.join(lock, "owner.json");
+	const me: LockOwner = { pid: process.pid, host: os.hostname(), started: Date.now() };
+	const startedWaiting = Date.now();
+	let nextNote = startedWaiting + 20_000;
 	for (;;) {
 		try {
 			fs.mkdirSync(lock);
+			fs.writeFileSync(ownerFile, JSON.stringify(me));
 			break;
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-			try {
-				if (Date.now() - fs.statSync(lock).mtimeMs > 30 * 60_000) fs.rmSync(lock, { recursive: true, force: true });
-			} catch {
-				// the holder just released it
-			}
-			if (Date.now() > deadline) throw new Unavailable(`another setup of ${name} holds ${lock}`);
-			await new Promise(resolve => setTimeout(resolve, 500));
 		}
+		const owner = readOwner(ownerFile);
+		const idle = Date.now() - touched(lock, ownerFile);
+		const dead = owner !== null && owner.host === me.host && !pidAlive(owner.pid);
+		if (dead || idle > staleMs) {
+			log(
+				dead
+					? `taking over the ${name} lock: its holder (pid ${owner?.pid}) is no longer running`
+					: `taking over the ${name} lock: nobody touched it for ${Math.round(idle / 60_000)} min`,
+			);
+			const aside = `${lock}.stale-${process.pid}-${Date.now()}`;
+			try {
+				fs.renameSync(lock, aside);
+				fs.rmSync(aside, { recursive: true, force: true });
+			} catch {
+				// another waiter took it over first
+			}
+			continue;
+		}
+		if (Date.now() - startedWaiting > maxWaitMs) {
+			throw new Unavailable(`another setup of ${name} (pid ${owner?.pid ?? "?"}) has held ${lock} for too long`);
+		}
+		if (Date.now() >= nextNote) {
+			log(`waiting for another setup of ${name} to finish (pid ${owner?.pid ?? "?"} on ${owner?.host ?? "?"})`);
+			nextNote = Date.now() + 30_000;
+		}
+		await new Promise(resolve => setTimeout(resolve, pollMs));
 	}
+	const beat = setInterval(() => {
+		const now = new Date();
+		try {
+			fs.utimesSync(ownerFile, now, now);
+		} catch {
+			// the lock was taken over; the work below will find out when it writes
+		}
+	}, heartbeatMs);
+	beat.unref();
 	try {
+		const removed = cleanLeftovers(cache);
+		if (removed.length > 0)
+			log(`removed ${removed.length} unfinished download or unpack folder(s) of a stopped setup`);
 		return await work();
 	} finally {
+		clearInterval(beat);
 		fs.rmSync(lock, { recursive: true, force: true });
 	}
 }

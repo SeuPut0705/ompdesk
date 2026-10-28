@@ -10,8 +10,10 @@ same way you audit your own models, run:
 bun <skill-dir>/scripts/lean-check.ts <skill-dir>/assets/lean-patterns
 ```
 
-`lake build` writes a `.lake/` folder next to the lakefile. Copy the project (or the one file you need) elsewhere
-before building, so the skill folder stays clean.
+`lake build` writes a `.lake/` folder next to the lakefile. In an installed OMPdesk the skill folder is inside the signed app
+bundle, so copy the project to a scratch folder first and check the copy. `lean-check.ts` (and so `verify-all.ts`) does that
+itself when the project sits inside an app bundle or is read-only, and says so; a copy you make yourself is still the
+safer habit.
 
 To reuse a pattern, copy the file into your project (created by `new-lean.ts`), rename the namespace, and replace the
 state and steps with your code's.

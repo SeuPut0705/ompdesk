@@ -19,7 +19,7 @@ stateDiagram-v2
 ```
 ````
 
-The inline Mermaid text is the primary output. When OMPdesk's `gui_visualize` tool exists, also open the PNGs (from `--png`) in the Preview panel. `--png` renders each chart with `npx -y @mermaid-js/mermaid-cli`, which needs Node with `npx` and a one-time Chromium download; when that fails the command exits 2 and keeps the `.mmd` files, so show those.
+The inline Mermaid text is the primary output. When OMPdesk's `gui_visualize` tool exists, also open the PNGs (from `--png`) in the Preview panel. `--png` renders each chart with `npx -y @mermaid-js/mermaid-cli@11.12.0`, which needs Node with `npx` and a one-time Chromium download; when that fails the command exits 3 (the PNGs are not made) and keeps the `.mmd` files, so show those.
 
 ## Pick the direction
 
@@ -32,7 +32,7 @@ bun <skill-dir>/scripts/statechart/statechart.mjs from-spec Pay.tla [--config FI
 bun <skill-dir>/scripts/statechart/statechart.mjs from-chart agreed.mmd [--module Name] [--expect-broken RULE]... [--out DIR] [--png]
 ```
 
-Exit codes: 0 every rule holds (or exactly the `--expect-broken` rules break), 1 another rule is broken or the spec does not draw the agreed chart, 2 the command cannot finish (bad input, a mapping to fill in, `--png` cannot render), 3 `UNAVAILABLE`: TLC could not be prepared, for example offline. Exit 3 means "not checked", never a pass. A user-set `TLA2TOOLS` (path to `tla2tools.jar`) and `JAVA` win over the shared cache.
+Exit codes: 0 every rule holds (or exactly the `--expect-broken` rules break), 1 another rule is broken or the spec does not draw the agreed chart, 2 the command cannot finish (bad input, a mapping to fill in), 3 `UNAVAILABLE`: TLC could not be prepared (for example offline), or `--png` could not render (no npx or Chromium; the `.mmd` files are written). Exit 3 means "not checked", never a pass. A user-set `TLA2TOOLS` (path to `tla2tools.jar`) and `JAVA` win over the shared cache.
 
 ## Spec to chart (from-spec)
 

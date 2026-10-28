@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+// Adapted from pstack (MIT, Lauren Tan). See LICENSES/MIT-pstack.txt in the OMPdesk app resources.
 import fs from "node:fs";
 import process from "node:process";
 import { compareCharts, FULL_LABELS, LEGEND_ID, parseMermaid } from "./lib.mjs";

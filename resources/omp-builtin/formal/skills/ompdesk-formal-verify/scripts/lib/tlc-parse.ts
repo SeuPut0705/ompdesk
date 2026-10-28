@@ -177,13 +177,18 @@ const PARSE_MARKERS = [
 	/specified in the configuration file\s+is not defined/,
 ];
 
+/** TLC's own exit codes (tlc2.output.EC): 150 and 151 are parse and configuration errors. */
 const FALLBACK_BY_EXIT: Record<number, Outcome> = {
 	10: "assert",
 	11: "deadlock",
 	12: "invariant",
 	13: "temporal",
-	14: "error",
+	14: "assert",
+	150: "parse-error",
+	151: "parse-error",
 };
+
+const COMPLETED = /Model checking completed\. No error has been found/;
 
 /** Reads TLC's text output (and its exit code, when known) into a structured result. Never throws. */
 export function parseTlcOutput(text: string, exitCode?: number | null): TlcResult {
@@ -206,22 +211,17 @@ export function parseTlcOutput(text: string, exitCode?: number | null): TlcResul
 	const firstState = lines.findIndex(line => /^State 1: /.test(line));
 	const trace = firstState === -1 ? [] : parseTrace(lines.slice(firstState));
 	if (!outcome) {
-		if (
-			exitCode === 0 ||
-			(exitCode === undefined && /Model checking completed\. No error has been found/.test(text))
-		) {
+		// A pass needs TLC's own word: exit 0, or (no exit code known, as with a saved log) its completion line.
+		// A killed TLC (exit null), a truncated log and empty output give no verdict at all.
+		const known = exitCode !== undefined && exitCode !== null;
+		if (exitCode === 0 || (exitCode === undefined && COMPLETED.test(text))) {
 			outcome = "pass";
-		} else if (
-			PARSE_MARKERS.some(marker => marker.test(text)) ||
-			(exitCode !== undefined && exitCode !== null && exitCode >= 150)
-		) {
+		} else if (PARSE_MARKERS.some(marker => marker.test(text))) {
 			outcome = "parse-error";
-		} else if (exitCode !== undefined && exitCode !== null && FALLBACK_BY_EXIT[exitCode]) {
+		} else if (known && FALLBACK_BY_EXIT[exitCode]) {
 			outcome = FALLBACK_BY_EXIT[exitCode];
-		} else if (errors.length > 0 || (exitCode !== undefined && exitCode !== null && exitCode !== 0)) {
-			outcome = "error";
 		} else {
-			outcome = "pass";
+			outcome = "error";
 		}
 	}
 	const last = trace[trace.length - 1];
@@ -300,7 +300,12 @@ export function reduceTrace(
 		});
 		if (state.kind !== "stuttering") previous = state;
 	}
-	const failing = options.outcome && options.outcome !== "pass" && options.outcome !== "temporal";
+	// Only a verdict about the model marks a step: an evaluation error or a killed run has no "violating" state.
+	const failing =
+		options.outcome === "invariant" ||
+		options.outcome === "action" ||
+		options.outcome === "deadlock" ||
+		options.outcome === "assert";
 	if (failing) {
 		const last = rows[rows.length - 1];
 		if (last) last.violation = true;

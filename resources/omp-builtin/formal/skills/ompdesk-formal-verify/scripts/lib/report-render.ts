@@ -78,7 +78,7 @@ function findingHtml(finding: Json): string {
 	const trace = list(finding.trace);
 	if (trace.length > 0) out.push(traceTable(trace));
 	const diagram = parseGraph(finding.diagram);
-	if (diagram) out.push(renderGraphSvg(diagram, `${id}: where the counterexample runs`));
+	if (diagram) out.push(renderGraphSvg(diagram, `${id}: where the counterexample runs`, `fv-${id}`));
 	if (isRecord(finding.reproduction)) {
 		const repro = finding.reproduction;
 		out.push(

@@ -1,3 +1,4 @@
+// Adapted from pstack (MIT, Lauren Tan). See LICENSES/MIT-pstack.txt in the OMPdesk app resources.
 import fs from "node:fs";
 import process from "node:process";
 

@@ -41,7 +41,7 @@ checker that can print `VIOLATED: <name>` lines. Use it after the matrix is gree
 | `mutations[].all` | `true` replaces every occurrence of `search` |
 | `mutations[].breaks` | The property, or list of properties, this mutation is meant to break (`deadlock` names a TLC deadlock). The mutation counts as caught if the checker fails on any of them |
 | `mutations[].file` | File to change, relative to the model's folder (default: the model file) |
-| `mutations[].config` | TLC only: run this config instead of the checker's. Use it to check one property in isolation (an extra config with a single `INVARIANT`) |
+| `mutations[].config` | TLC only: run this config instead of the checker's. Use it to check one property in isolation (an extra config with a single `INVARIANT`). The unmutated model must pass under that config too (it is run first), or the mutations that use it are `INVALID`: a config that fails on its own proves nothing about a mutation |
 
 Every run works on a copy of the model's folder in a temporary directory; your files are never touched. `--keep`
 leaves the copies and prints their location on stderr so you can open a mutated model and read the counterexample.
@@ -57,7 +57,7 @@ Then, per mutation:
 |---|---|---|
 | `DETECTED` | The checker failed on a property the mutation says it breaks | Nothing: that property is shown to be able to fail |
 | `MISSED` | The checker still passed, or it failed on a property the mutation did **not** name | See "What MISSED means" |
-| `INVALID` | The `search` text does not match (or matches more than once), the file cannot be read, or the mutated model no longer parses, hits an evaluation error (for example a variable left unspecified) or runs out of time | Fix the mutation: the file changed, or the replacement is not valid TLA+ |
+| `INVALID` | The `search` text does not match (or matches more than once), the file cannot be read, or the mutated model no longer parses (TLC) or no longer elaborates (Lean: an unknown identifier or constant, an unexpected token, an unknown tactic: the model is broken, not a property), hits an evaluation error (for example a variable left unspecified) or runs out of time | Fix the mutation: the file changed, or the replacement is not valid TLA+ |
 
 After the mutations, each property in `properties` is reported as covered (with the mutations that detected it),
 `WAIVED` (with the reason) or `UNCOVERED` (no mutation detected it, no waiver).

@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+// Adapted from pstack (MIT, Lauren Tan). See LICENSES/MIT-pstack.txt in the OMPdesk app resources.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -103,7 +104,7 @@ const COMMON = `Both commands
                      finished last. The command does not use an output folder that has files that
                      it did not write. On a filesystem that cannot rename, the command copies the
                      files into place, and overlapping runs can mix their files.
-  --png              Also render each chart to PNG with npx @mermaid-js/mermaid-cli. That needs Node with npx
+  --png              Also render each chart to PNG with npx @mermaid-js/mermaid-cli@11.12.0. That needs Node with npx
                      and a one-time Chromium download. The Mermaid text is the primary output.
   -h, --help         Print this help, and exit 0.
 
@@ -187,16 +188,16 @@ Exit codes
      CHART.mmd. The output says which.
   2  The command cannot finish: a bad argument, a missing file, a chart or TLC output that it
      cannot read, a TLA2TOOLS path that does not exist, a helper script that cannot start, an output folder with files that the
-     command did not write, an input file that changed during the run, a new mapping to fill in,
-     or a chart that --png cannot render. When a chart does not render, the command keeps the
-     files it wrote and exits 2, whatever the rules give. Otherwise, exit 2 does not change the
+     command did not write, an input file that changed during the run,
+     or a new mapping to fill in. Exit 2 does not change the
      output folder, unless the command moved it aside and cannot put it back. Then the message
      names the folder's new path. When TLC stops on an error, the message names TLC's output, in a
      temporary folder that the command keeps. When the command cannot put its files in the output
      folder, it keeps them in a temporary folder, and the message names it. The command checks
      its input files again before --png renders, so a changed input stops the run before that.
   3  UNAVAILABLE: TLC could not be prepared (offline and not yet cached). Report the run as not
-     checked, never as a pass.`;
+     checked, never as a pass. Also exit 3: --png could not render a chart (no npx, no Chromium).
+     The command keeps the files it wrote, whatever the rules give; the .mmd text is the result.`;
 
 const HELP = {
 	"": `${usage([...Object.values(USAGE), "bun statechart.mjs [from-spec|from-chart] --help"])}
@@ -626,19 +627,20 @@ const PNG_NEEDS =
 	"--png needs Node with npx and a one-time Chromium download for @mermaid-js/mermaid-cli. The Mermaid text in the .mmd files is the primary output; show that when PNGs cannot be made.";
 let pngExplained = false;
 
+const MERMAID_CLI = "@mermaid-js/mermaid-cli@11.12.0";
+
 function render(charts, shown) {
 	const pngs = [];
 	for (const chart of charts) {
 		const png = chart.replace(/\.mmd$/, ".png");
-		const args = ["-y", "@mermaid-js/mermaid-cli", "-i", chart, "-o", png, "-s", "2"];
-		// On Windows npx is npx.cmd, which only a shell can start. The paths are quoted for that shell.
+		// Run in the chart's own folder with the two file names alone: the arguments are then plain tokens, so the
+		// Windows shell (npx is npx.cmd, which only a shell can start) has nothing to misquote.
+		const args = ["-y", MERMAID_CLI, "-i", path.basename(chart), "-o", path.basename(png), "-s", "2"];
+		const cwd = path.dirname(chart);
 		const r =
 			process.platform === "win32"
-				? spawnSync(["npx", ...args.map(a => (/[\s"]/.test(a) ? `"${a}"` : a))].join(" "), {
-						shell: true,
-						encoding: "utf8",
-					})
-				: spawnSync("npx", args, { encoding: "utf8" });
+				? spawnSync(["npx", ...args].join(" "), { shell: true, encoding: "utf8", cwd })
+				: spawnSync("npx", args, { encoding: "utf8", cwd });
 		if (r.status === 0) pngs.push(png);
 		else {
 			console.error(`could not render ${shown(chart)}: ${(r.stderr || r.error?.message || "").trim()}`);
@@ -655,7 +657,8 @@ function finish({ work, out, inputs }, { files, charts }, ok, png) {
 	publish(work, out, inputs);
 	const written = [...charts, ...pngs, files.stories, files.summary].map(f => path.basename(f)).join(", ");
 	console.log(`\nWrote ${written} in ${rel(out)}.`);
-	if (png && pngs.length < charts.length) return 2;
+	// The tool for the PNGs (npx, Chromium) is missing or failed: the charts are written, the PNGs are "not made".
+	if (png && pngs.length < charts.length) return 3;
 	return ok ? 0 : 1;
 }
 

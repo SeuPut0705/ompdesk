@@ -1,6 +1,7 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { type LeanEnv, prepareLean } from "./lean-env";
+import { guardProjectToolchain, type LeanEnv, prepareLean } from "./lean-env";
 import { type RunResult, run, Unavailable } from "./proc";
 
 export interface SourceFinding {
@@ -21,6 +22,16 @@ export interface BuildError {
 	decl?: string;
 }
 
+/**
+ * An error about a name or the syntax (an unknown identifier, an unexpected token): the model no longer says anything,
+ * which is not the same as a property failing. A mutation that causes one is INVALID, never DETECTED.
+ */
+export function isNamingError(message: string): boolean {
+	return /^(?:unknown |unexpected |expected |invalid field|invalid dotted identifier|ambiguous, possible interpretations)/i.test(
+		message.trim(),
+	);
+}
+
 export interface TheoremAudit {
 	name: string;
 	axioms: string[];
@@ -33,11 +44,16 @@ export interface LeanCheck {
 	buildOk: boolean;
 	errors: BuildError[];
 	findings: SourceFinding[];
+	/** Every definition, theorem, instance and opaque constant of the audited modules, private ones included. */
 	theorems: TheoremAudit[];
+	/** Build errors that are about names or syntax: the model is broken, not a property. */
+	invalid: BuildError[];
 	/** Theorems and declarations that failed to build or carry a bad axiom, qualified and short names. */
 	violated: string[];
 	detail: string;
 	log: string;
+	/** The input was wrong (no lakefile, no such file): a usage problem, exit 2. */
+	usage?: boolean;
 }
 
 export const STANDARD_AXIOMS = ["propext", "Classical.choice", "Quot.sound"];
@@ -232,13 +248,17 @@ open Lean Elab Command in
   let roots : List Name := [${rootNames}].map String.toName
   let mut rows : Array String := #[]
   for (n, ci) in env.constants.toList do
-    if n.isInternal then continue
     let some idx := env.getModuleIdxFor? n | continue
     let modName := env.header.moduleNames[idx.toNat]!
-    if roots.any (·.isPrefixOf modName) then
-      if let .thmInfo _ := ci then
-        let axs ← liftCoreM <| Lean.collectAxioms n
-        rows := rows.push s!"{n}\\t{",".intercalate (axs.toList.map toString)}"
+    unless roots.any (·.isPrefixOf modName) do continue
+    -- A private name is \`_private.Mod.0.name\`: look at the name the author wrote, then skip compiler auxiliaries.
+    let user := (privateToUserName? n).getD n
+    if user.isInternalDetail then continue
+    match ci with
+    | .thmInfo _ | .defnInfo _ | .opaqueInfo _ | .axiomInfo _ =>
+      let axs ← liftCoreM <| Lean.collectAxioms n
+      rows := rows.push s!"{user}\\t{",".intercalate (axs.toList.map toString)}"
+    | _ => pure ()
   for r in rows.qsort (· < ·) do IO.println r
 `;
 }
@@ -250,7 +270,7 @@ export function flagAxioms(axioms: string[], allowNative: boolean): string | und
 	for (const axiom of axioms) {
 		if (STANDARD_AXIOMS.includes(axiom)) continue;
 		if (axiom === "sorryAx") return "SORRY";
-		if (/native_decide|ofReduceBool/.test(axiom)) {
+		if (/native_decide|ofReduceBool|\._native\./.test(axiom)) {
 			if (!allowNative) flag ??= "NATIVE";
 		} else flag ??= `AXIOM:${axiom}`;
 	}
@@ -267,26 +287,85 @@ export interface LeanCheckOptions {
 	log?: (line: string) => void;
 }
 
-/** `lake build`, then a trust audit: sorry/admit/axiom/native_decide in sources and axioms of every theorem. */
-export async function checkLean(projectDir: string, options: LeanCheckOptions = {}): Promise<LeanCheck> {
-	const project = path.resolve(projectDir);
-	const allowNative = options.allowNative === true;
-	const base: LeanCheck = {
-		status: "error",
-		buildOk: false,
-		errors: [],
-		findings: [],
-		theorems: [],
-		violated: [],
-		detail: "",
-		log: "",
-	};
-	if (!fs.existsSync(path.join(project, "lakefile.toml")) && !fs.existsSync(path.join(project, "lakefile.lean"))) {
-		return { ...base, detail: `${project} has no lakefile.toml or lakefile.lean` };
+/** Folders that a build must never write into: a signed app bundle, a read-only checkout. */
+const INSIDE_BUNDLE = /(?:\.app[\\/]Contents[\\/]|[\\/]app\.asar|[\\/]resources[\\/]omp-builtin[\\/])/;
+
+function writable(dir: string): boolean {
+	const probe = path.join(dir, `.ompdesk-write-${process.pid}`);
+	try {
+		fs.writeFileSync(probe, "");
+		fs.rmSync(probe, { force: true });
+		return true;
+	} catch {
+		return false;
 	}
+}
+
+/** True for a project that `lake build` would have to write `.lake/` into, but must not (the app bundle, read-only). */
+export function needsCopy(project: string): boolean {
+	return INSIDE_BUNDLE.test(project) || !writable(project);
+}
+
+/**
+ * Runs `work` on the project, or on a temporary copy of it (without `.lake`) when it sits in the app bundle or is
+ * read-only: a build writes `.lake/` and an audit file beside the sources, which would break the bundle's signature.
+ */
+export async function withBuildableCopy<T>(
+	project: string,
+	log: ((line: string) => void) | undefined,
+	work: (dir: string) => Promise<T>,
+): Promise<T> {
+	if (!needsCopy(project)) return work(project);
+	const copy = fs.mkdtempSync(path.join(os.tmpdir(), "ompdesk-lean-"));
+	try {
+		fs.cpSync(project, copy, { recursive: true, filter: source => path.basename(source) !== ".lake" });
+		// A copy of a bundle's files can come out read-only.
+		for (const entry of fs.readdirSync(copy, { recursive: true, withFileTypes: true })) {
+			try {
+				fs.chmodSync(path.join(entry.parentPath, entry.name), entry.isDirectory() ? 0o755 : 0o644);
+			} catch {
+				// best effort
+			}
+		}
+		log?.(
+			`checking a temporary copy of ${project}: it is inside the app bundle or read-only, and a Lean build writes .lake/ beside the sources`,
+		);
+		return await work(copy);
+	} finally {
+		fs.rmSync(copy, { recursive: true, force: true });
+	}
+}
+
+const SORRY_WARNING = /^warning: (.+?):(\d+):(\d+): declaration uses [`']sorry[`']/gm;
+
+/** `lake build`, then a trust audit of every constant of the library modules (private ones and defs included). */
+export async function checkLean(projectDir: string, options: LeanCheckOptions = {}): Promise<LeanCheck> {
+	const original = path.resolve(projectDir);
+	if (!fs.existsSync(path.join(original, "lakefile.toml")) && !fs.existsSync(path.join(original, "lakefile.lean"))) {
+		return { ...EMPTY, detail: `${original} has no lakefile.toml or lakefile.lean`, usage: true };
+	}
+	return withBuildableCopy(original, options.log, project => checkLeanIn(project, options));
+}
+
+const EMPTY: LeanCheck = {
+	status: "error",
+	buildOk: false,
+	errors: [],
+	invalid: [],
+	findings: [],
+	theorems: [],
+	violated: [],
+	detail: "",
+	log: "",
+};
+
+async function checkLeanIn(project: string, options: LeanCheckOptions): Promise<LeanCheck> {
+	const allowNative = options.allowNative === true;
+	const base: LeanCheck = { ...EMPTY };
 	let lean: LeanEnv;
 	try {
 		lean = await prepareLean({ env: options.env, log: options.log });
+		guardProjectToolchain(project, lean, options.env ?? process.env);
 	} catch (error) {
 		if (error instanceof Unavailable) return { ...base, status: "unavailable", detail: error.message };
 		throw error;
@@ -294,8 +373,13 @@ export async function checkLean(projectDir: string, options: LeanCheckOptions = 
 	base.toolchain = `${lean.leanVersion} (${lean.toolchain})`;
 	const files = options.files?.length ? options.files.map(file => path.resolve(project, file)) : sourceFiles(project);
 	const missing = files.filter(file => !fs.existsSync(file));
-	if (missing.length > 0)
-		return { ...base, detail: `no such file: ${missing.map(file => path.relative(project, file)).join(", ")}` };
+	if (missing.length > 0) {
+		return {
+			...base,
+			usage: true,
+			detail: `no such file: ${missing.map(file => path.relative(project, file)).join(", ")}`,
+		};
+	}
 	const findings = files.flatMap(file =>
 		scanSource(path.relative(project, file).replace(/\\/g, "/"), fs.readFileSync(file, "utf8"), allowNative),
 	);
@@ -309,7 +393,12 @@ export async function checkLean(projectDir: string, options: LeanCheckOptions = 
 			)
 		: leanLibraries(project);
 	if (modules.length === 0)
-		return { ...base, findings, detail: "no lean_lib found in the lakefile; pass the .lean files to check" };
+		return {
+			...base,
+			usage: true,
+			findings,
+			detail: "no lean_lib found in the lakefile; pass the .lean files to check",
+		};
 	const roots = options.roots?.length ? options.roots : options.files?.length ? modules : leanLibraries(project);
 	const built = await run(lean.lake, ["build", ...(options.files?.length ? modules : [])], {
 		cwd: project,
@@ -319,10 +408,11 @@ export async function checkLean(projectDir: string, options: LeanCheckOptions = 
 	const log = `${built.stdout}${built.stderr}`;
 	if (built.spawnError) return { ...base, findings, detail: `lake could not start: ${built.spawnError.message}` };
 	const errors = parseBuildErrors(log, project);
+	const invalid = errors.filter(error => isNamingError(error.message));
 	const buildOk = built.code === 0;
 	const violated = new Set<string>();
 	for (const error of errors) if (error.decl) for (const name of nameVariants(error.decl)) violated.add(name);
-	const result: LeanCheck = { ...base, toolchain: base.toolchain, findings, buildOk, errors, violated: [], log };
+	const result: LeanCheck = { ...base, findings, buildOk, errors, invalid, log };
 	if (!buildOk) {
 		const unnamed = errors.length === 0 ? log.trim().split(/\r?\n/).slice(-12).join("\n") : "";
 		return {
@@ -338,6 +428,17 @@ export async function checkLean(projectDir: string, options: LeanCheckOptions = 
 						.join("\n")
 				: `lake build failed:\n${unnamed}`,
 		};
+	}
+	// A proof that ends in `sorry` by a macro or an elaborator never spells it in the source: Lean says so itself.
+	for (const match of log.matchAll(SORRY_WARNING)) {
+		const file = (match[1] as string).replace(/\\/g, "/");
+		findings.push({
+			kind: "sorry",
+			file,
+			line: Number(match[2]),
+			text: "declaration uses 'sorry' (build warning)",
+			blocking: true,
+		});
 	}
 	const auditFile = path.join(project, ".ompdesk-audit.lean");
 	fs.writeFileSync(auditFile, auditProgram(modules, roots));
@@ -369,7 +470,12 @@ export async function checkLean(projectDir: string, options: LeanCheckOptions = 
 	}
 	for (const finding of findings) {
 		if (finding.blocking) {
-			const decl = enclosingDeclaration(fs.readFileSync(path.join(project, finding.file), "utf8"), finding.line);
+			let decl: string | undefined;
+			try {
+				decl = enclosingDeclaration(fs.readFileSync(path.join(project, finding.file), "utf8"), finding.line);
+			} catch {
+				// a warning in a file the scan did not read
+			}
 			if (decl) for (const variant of nameVariants(decl)) violated.add(variant);
 		}
 	}

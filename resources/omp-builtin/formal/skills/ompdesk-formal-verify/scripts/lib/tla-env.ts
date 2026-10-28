@@ -133,6 +133,8 @@ export async function prepareTla(
 	const env = options.env ?? process.env;
 	const tc = loadToolchain(env);
 	const root = cacheRoot(env);
+	const lock = <T>(name: string, work: () => Promise<T>): Promise<T> =>
+		withLock(root, name, work, { log: options.log });
 	const paths = tlaPaths(env);
 	const jars = [
 		{ art: tc.tla.tla2tools, dest: paths.tla2tools, label: `tla2tools.jar ${tc.tla.tla2tools.version}` },
@@ -144,7 +146,7 @@ export async function prepareTla(
 	];
 	for (const jar of jars) {
 		if (await fileMatches(jar.dest, jar.art.sha256)) continue;
-		await withLock(root, "tla", async () => {
+		await lock("tla", async () => {
 			if (await fileMatches(jar.dest, jar.art.sha256)) return;
 			await download(jar.art.url, jar.dest, jar.art.sha256, { label: jar.label, env, log: options.log });
 		});
@@ -152,7 +154,7 @@ export async function prepareTla(
 	let java = await findJava(env, tc.tla.minJava, paths.jreDir);
 	if (!java) {
 		const entry = forPlatform(tc.tla.jre.platforms, "portable Java runtime");
-		await withLock(root, "jre", async () => {
+		await lock("jre", async () => {
 			if (javaInside(paths.jreDir)) return;
 			const archive = path.join(root, "downloads", path.basename(new URL(entry.url).pathname));
 			await download(entry.url, archive, entry.sha256, {

@@ -104,7 +104,8 @@ function layers(graph: Graph): Map<string, number> {
 }
 
 /** A self-contained `<figure><svg>`: layered left to right, every text escaped, colors from CSS variables. */
-export function renderGraphSvg(graph: Graph, caption?: string): string {
+export function renderGraphSvg(graph: Graph, caption?: string, idPrefix = "d"): string {
+	const prefix = idPrefix.replace(/[^\w-]+/g, "_");
 	const layer = layers(graph);
 	const columns = new Map<number, GraphNode[]>();
 	for (const node of graph.nodes) {
@@ -129,10 +130,10 @@ export function renderGraphSvg(graph: Graph, caption?: string): string {
 		`<figure class="diagram"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${Math.ceil(width)} ${Math.ceil(height + PAD)}" role="img" aria-label="${esc(caption ?? "diagram")}">`,
 	);
 	out.push(
-		'<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker>',
+		`<defs><marker id="${prefix}-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker>`,
 	);
 	out.push(
-		'<marker id="arrow-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--bad)"/></marker></defs>',
+		`<marker id="${prefix}-arrow-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--bad)"/></marker></defs>`,
 	);
 	for (const edge of graph.edges) {
 		const a = position.get(edge.from);
@@ -161,7 +162,7 @@ export function renderGraphSvg(graph: Graph, caption?: string): string {
 			ly = (sy + ty) / 2 - 5;
 		}
 		out.push(
-			`<path d="${d}" fill="none" stroke="${bad ? "var(--bad)" : "currentColor"}" stroke-width="${bad ? 2.4 : 1.2}" ${bad ? "" : 'stroke-opacity="0.55"'} marker-end="url(#${bad ? "arrow-bad" : "arrow"})"/>`,
+			`<path d="${d}" fill="none" stroke="${bad ? "var(--bad)" : "currentColor"}" stroke-width="${bad ? 2.4 : 1.2}" ${bad ? "" : 'stroke-opacity="0.55"'} marker-end="url(#${prefix}-${bad ? "arrow-bad" : "arrow"})"/>`,
 		);
 		if (edge.label)
 			out.push(

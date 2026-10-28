@@ -1,3 +1,4 @@
+// Adapted from pstack (MIT, Lauren Tan). See LICENSES/MIT-pstack.txt in the OMPdesk app resources.
 const QUIET = ["idle", "exited", "stopped", "orphanTlc"];
 const going = v => v.pc.filter(p => !QUIET.includes(p)).length;
 const changed = (before, after) =>

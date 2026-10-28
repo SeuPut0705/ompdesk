@@ -28,7 +28,7 @@ bun <skill-dir>/scripts/statechart/statechart.mjs --help
 
 Exit codes, the same in every script: `0` pass, `1` a check ran and failed, `2` usage error or a bad input file, `3` UNAVAILABLE. Exit 3 means a tool is missing and could not be prepared (offline, no disk, unsupported platform). Report that check as **not checked**. Never report it as a pass, and never replace it with reasoning about what TLC would say.
 
-The tools live in `~/.cache/ompdesk/formal` on macOS and `%LOCALAPPDATA%\ompdesk\formal` on Windows (`OMPDESK_FORMAL_CACHE` overrides). Nothing is installed system-wide and nothing needs sudo. The first TLA+ run downloads two pinned jars (about 10 MB, SHA-256 checked) and, only when no working `java` 11+ exists, a portable Java runtime (about 50 MB). The first Lean run downloads elan and the pinned Lean toolchain (about 0.9 GB, no Mathlib), so tell the user before starting it. `OMPDESK_FORMAL_OFFLINE=1` refuses every download. Versions and hashes: `assets/toolchain.json`.
+The tools live in `~/.cache/ompdesk/formal` on macOS and `%LOCALAPPDATA%\ompdesk\formal` on Windows (`OMPDESK_FORMAL_CACHE` overrides). Nothing is installed system-wide and nothing needs sudo. The first TLA+ run downloads two pinned jars (about 10 MB, SHA-256 checked) and, only when no working `java` 11+ exists, a portable Java runtime (about 50 MB). The first Lean run downloads elan and the pinned Lean toolchain (a 0.9 GB zip; about 3 GB installed and about 4 GB of free disk at the peak while it unpacks; no Mathlib), so tell the user before starting it. `OMPDESK_FORMAL_OFFLINE=1` refuses every download that this skill makes. A Lean project whose `lean-toolchain` names another version is UNAVAILABLE unless that toolchain is already installed, because elan would download it unchecked; install it yourself or change the file to the pinned version. Versions and hashes: `assets/toolchain.json`.
 
 ## Pick the workflow
 
@@ -66,7 +66,7 @@ Each step exists because skipping it is how formal-methods efforts fail in pract
 9. **Re-verify.** The matrix, the mutations, the Lean audit, and the new failing test, now passing.
 10. **Persist.** Leave the next agent a working check, not a transcript.
     - `formal/<concern>/` with the spec or project, `SCOPE.md`, `CORRESPONDENCE.md` (abstractions and assumptions), `matrix.json`, `mutations.json`, `evidence/` with the logs you cite.
-    - `formal/manifest.json`: for each model its files, the code files it covers, and `syncCommit`, the commit at which you confirmed the model describes that code. `bun <skill-dir>/scripts/verify-all.ts formal --stamp` reruns everything and stamps passing models.
+    - `formal/manifest.json`: for each model its files, the code files it covers, and `syncCommit`, the commit at which you confirmed the model describes that code. `bun <skill-dir>/scripts/verify-all.ts formal --stamp` reruns everything and stamps passing models. A stamp says you checked the model against the covered code: `--stamp` stamps even when covered files changed since the old commit (it prints a note), and refuses only when a check failed or the covered files have uncommitted changes.
     - A **project-local verify skill** (`.omp/skills/<area>-verify/SKILL.md`, or the repo's own convention) that says what the model covers, how to run it, how to tell a real bug from a modeling error, and when the sync commit may move. This works with or without pstack. `references/persist.md` has the template (`assets/templates/verify-skill.template.md`), the "prove it before you hand off" run, and the drift loop with its four outcomes: in sync, updated, bug, blocked.
 11. **Report.** Write `formal/findings.json` (schema `assets/findings.schema.json`, example `assets/templates/findings.example.json`) and run `bun <skill-dir>/scripts/report.ts formal/findings.json`. It writes one self-contained HTML page to `formal/reports/<concern>.html`. Show it in the Preview panel with the `gui_visualize` tool when that tool exists; otherwise give the user the path. In chat, lead with the verdict, then the bounds, then each finding. `references/report.md` has the required content. A subagent that may not write files puts the same content in its final message.
 
@@ -76,10 +76,10 @@ Each step exists because skipping it is how formal-methods efforts fail in pract
 
 ```
 bun <skill-dir>/scripts/verify-all.ts <skill-dir>/examples/job-lease/formal       # TLA+: lease and fencing token, 4 mutations
-bun <skill-dir>/scripts/verify-all.ts <skill-dir>/examples/bounded-queue/formal   # Lean: capacity and conservation for every size, 3 mutations
+bun <skill-dir>/scripts/verify-all.ts <skill-dir>/examples/bounded-queue/formal   # Lean: capacity and conservation for every size, 3 mutations (downloads Lean, about 3 GB)
 ```
 
-`examples/job-lease/` is a complete small target repo: the toy code in `src/worker.ts`, the spec with `@code` tags, the cfgs, `matrix.json`, `mutations.json` and `manifest.json`. Copy its shape.
+The Lean example is checked on a temporary copy, because a Lean build writes `.lake/` beside the sources and the skill folder is inside the signed app bundle; copy a project there yourself before building it by hand. `examples/job-lease/` is a complete small target repo: the toy code in `src/worker.ts`, the spec with `@code` tags, the cfgs, `matrix.json`, `mutations.json` and `manifest.json`. Copy its shape.
 
 ## Honesty rules
 

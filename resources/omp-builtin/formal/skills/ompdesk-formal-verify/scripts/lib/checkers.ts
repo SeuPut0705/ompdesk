@@ -76,6 +76,15 @@ function leanChecker(spec: Extract<CheckerSpec, { kind: "lean" }>): Checker {
 		if (check.status === "unavailable") return { status: "unavailable", violated: [], detail: check.detail };
 		if (check.status === "pass") return { status: "pass", violated: [], detail: "build and trust audit are clean" };
 		if (check.status === "error") return { status: "error", violated: [], detail: check.detail };
+		// An unknown identifier or an unexpected token is a broken model, not a property that failed.
+		if (check.invalid.length > 0) {
+			const first = check.invalid[0] as (typeof check.invalid)[number];
+			return {
+				status: "error",
+				violated: [],
+				detail: `the mutated model no longer elaborates: ${first.file}:${first.line}: ${first.message.split("\n")[0]}`,
+			};
+		}
 		return { status: "fail", violated: check.violated, detail: check.detail };
 	};
 }

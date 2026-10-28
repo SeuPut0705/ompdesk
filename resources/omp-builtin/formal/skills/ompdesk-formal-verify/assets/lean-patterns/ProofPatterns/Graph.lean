@@ -1,3 +1,4 @@
+-- Adapted from opum-ai/proof-skills (MIT, Opum AI). See LICENSES/proof-skills-MIT.txt in the OMPdesk app resources.
 /-!
 # Graph: reachability, acyclicity, and topological order by certificate checking
 

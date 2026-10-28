@@ -176,6 +176,12 @@ export async function main(argv: string[]): Promise<number> {
 				else {
 					const entry = raw.models.find(candidate => candidate.id === result.id);
 					if (entry) {
+						const drift = result.checks.find(check => check.name === "drift");
+						if (drift?.note?.startsWith("DRIFT")) {
+							console.log(
+								`\nstamp: NOTE ${result.id}: covered files changed since its old syncCommit. Stamping says you checked the model against them: do that first (references/persist.md, steps 3 and 4).`,
+							);
+						}
 						entry.syncCommit = head.out;
 						wrote = true;
 						console.log(`\nstamp: ${result.id} syncCommit = ${head.out.slice(0, 10)}`);

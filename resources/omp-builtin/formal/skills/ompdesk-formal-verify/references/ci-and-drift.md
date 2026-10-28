@@ -101,7 +101,7 @@ jobs:
         run: bun formal/tools/scripts/verify-all.ts formal --only ${{ matrix.model }} --strict-drift
 ```
 
-The Lean toolchain is about 0.9 GB, so cache it. The job fails on `sorry`, `admit`, user axioms, `native_decide`, or any theorem whose axioms go beyond `propext`, `Classical.choice` and `Quot.sound` (the audit of `lean-check.ts`).
+The Lean toolchain is a 0.9 GB download and about 3 GB on disk (about 4 GB at the peak while it unpacks), so cache it. The job fails on `sorry`, `admit`, user axioms, `native_decide`, or any theorem whose axioms go beyond `propext`, `Classical.choice` and `Quot.sound` (the audit of `lean-check.ts`).
 
 ## GitHub Actions: deep tier (nightly)
 

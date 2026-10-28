@@ -94,3 +94,13 @@ export function judge(run: Pick<MatrixRun, "expect" | "property">, result: TlcRe
 	}
 	return { ok: true, reason: `${got} (as expected)` };
 }
+
+/**
+ * A bug-mode run that expects any `violation` passes on any failure at all, including the wrong property or a
+ * deadlock the bug did not cause: name the property. Returns one warning per such run.
+ */
+export function matrixWarnings(runs: MatrixRun[]): string[] {
+	return runs
+		.filter(run => run.expect === "violation" && !run.property)
+		.map(run => `run ${run.name} expects a violation without naming "property": any violation will pass it`);
+}

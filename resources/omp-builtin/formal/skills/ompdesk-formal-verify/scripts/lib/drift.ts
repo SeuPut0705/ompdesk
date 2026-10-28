@@ -36,7 +36,11 @@ export async function checkDrift(codeRoot: string, covers: string[], syncCommit:
 	const changed = await git(codeRoot, ["diff", "--name-only", syncCommit, "--", ...covers]);
 	if (!changed.ok)
 		return { status: "git-error", files: [], message: `git diff failed: ${changed.out.split(/\r?\n/)[0]}` };
-	const files = changed.out.split(/\r?\n/).filter(Boolean);
+	// `git diff` does not see a new file nobody added yet: a covered folder can gain code without any diff.
+	const added = await git(codeRoot, ["ls-files", "--others", "--exclude-standard", "--", ...covers]);
+	const files = [
+		...new Set([...changed.out.split(/\r?\n/), ...(added.ok ? added.out.split(/\r?\n/) : [])].filter(Boolean)),
+	].sort();
 	if (files.length === 0)
 		return { status: "ok", files, message: `covered files unchanged since ${syncCommit.slice(0, 10)}` };
 	return {

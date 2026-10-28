@@ -21,11 +21,18 @@ bun <skill-dir>/scripts/setup.ts lean --check    # report only, never downloads
 
 What it fetches (versions and SHA-256 hashes live in `assets/toolchain.json`):
 - **elan** 4.2.4, placed in `<cache>/elan` (`ELAN_HOME`).
-- **Lean `v4.35.0`**, a zip archive of about 0.9 GB (about 2 GB unpacked), placed where elan keeps toolchains. No Mathlib.
+- **Lean `v4.35.0`**, a zip archive of about 0.9 GB, about 3.0 GB installed and about 4 GB of free disk needed at the peak while it unpacks, placed where elan keeps toolchains. No Mathlib.
 
 The first install needs the network and takes a few minutes. Later runs find the files and download nothing.
-`OMPDESK_FORMAL_OFFLINE=1` refuses every download. If the tools are missing and cannot be fetched, `setup.ts` exits 3
-(`UNAVAILABLE`). Report that as "not checked", never as a pass.
+`OMPDESK_FORMAL_OFFLINE=1` refuses every download this skill makes. If the tools are missing and cannot be fetched,
+`setup.ts` exits 3 (`UNAVAILABLE`). Report that as "not checked", never as a pass.
+
+elan itself downloads whatever toolchain a `lean-toolchain` file names, with no hash and whatever the switch says. So
+`lean-check.ts` reads the toolchain elan would use for the project (`ELAN_TOOLCHAIN`, else the nearest `lean-toolchain`
+up the tree). When it is not the pinned one and is not already installed, the check is UNAVAILABLE (exit 3) with a
+message to install it yourself (`ELAN_HOME=<cache>/elan elan toolchain install <name>`) or to change the file to the pinned
+version. While downloads are refused, a project that `require`s git packages is UNAVAILABLE too, unless `.lake/packages`
+is already there.
 
 Other environment switches: `OMPDESK_FORMAL_SYSTEM_LEAN=1` uses a `lake` already on `PATH` instead of the cache (the
 only route on Linux, which has no pin), and `OMPDESK_FORMAL_TOOLCHAIN=<file>` selects an alternate pin file.

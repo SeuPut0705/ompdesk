@@ -1,3 +1,4 @@
+-- Adapted from opum-ai/proof-skills (MIT, Opum AI). See LICENSES/proof-skills-MIT.txt in the OMPdesk app resources.
 /-!
 # Pipeline: a batching stage in a dataflow
 

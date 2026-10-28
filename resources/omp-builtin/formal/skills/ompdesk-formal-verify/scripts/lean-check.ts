@@ -50,6 +50,10 @@ export function render(check: LeanCheck, project: string): string[] {
 		return out;
 	}
 	const advisories = check.findings.filter(finding => !finding.blocking);
+	if (check.usage) {
+		out.push(`ERROR  ${check.detail}`);
+		return out;
+	}
 	out.push(
 		`${check.status === "pass" ? "PASS" : "FAIL"}  lake build ${check.buildOk ? "succeeded" : "failed"}  ${check.toolchain ?? ""}`.trimEnd(),
 	);
@@ -58,7 +62,9 @@ export function render(check: LeanCheck, project: string): string[] {
 		out.push(`  review: ${finding.kind} at ${finding.file}:${finding.line}: ${finding.text}`);
 	if (check.theorems.length > 0) {
 		const bad = check.theorems.filter(theorem => theorem.flag).length;
-		out.push(`${check.theorems.length} theorems audited under ${path.basename(project)}, ${bad} with trust problems`);
+		out.push(
+			`${check.theorems.length} declarations audited under ${path.basename(project)}, ${bad} with trust problems`,
+		);
 		for (const theorem of check.theorems) {
 			out.push(`  ${(theorem.flag ?? "ok").padEnd(6)} ${theorem.name}  [${theorem.axioms.join(", ")}]`);
 		}
@@ -75,6 +81,7 @@ export async function main(argv: string[]): Promise<number> {
 		return EXIT.usage;
 	}
 	const check = await checkLean(path.resolve(args.project), {
+		log: line => console.error(line),
 		files: args.files,
 		allowNative: args.allowNative,
 		roots: args.roots,
@@ -82,6 +89,7 @@ export async function main(argv: string[]): Promise<number> {
 	if (args.json) console.log(JSON.stringify({ ...check, log: undefined }, null, 2));
 	else for (const line of render(check, args.project)) console.log(line);
 	if (check.status === "unavailable") return EXIT.unavailable;
+	if (check.usage) return EXIT.usage;
 	return check.status === "pass" ? EXIT.ok : EXIT.failed;
 }
 

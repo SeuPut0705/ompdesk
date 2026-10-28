@@ -1,5 +1,6 @@
 {
 	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$comment": "Adapted from opum-ai/proof-skills (MIT, Opum AI). See LICENSES/proof-skills-MIT.txt in the OMPdesk app resources.",
 	"title": "Formal verification findings",
 	"description": "Machine-readable results of an ompdesk-formal-verify workflow. report.ts renders it into one self-contained HTML page.",
 	"type": "object",

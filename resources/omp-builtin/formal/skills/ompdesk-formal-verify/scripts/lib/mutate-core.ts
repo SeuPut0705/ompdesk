@@ -214,10 +214,43 @@ export async function runMutations(options: {
 	try {
 		if (baseline.status !== "pass") return report;
 		const credited = new Map<string, string[]>();
+		// A mutation may run under its own config. The unmutated model must pass under that config too, or a mutation
+		// that changes nothing would be "detected" by a config that fails on its own.
+		const configBaselines = new Map<string, CheckOutcome>();
 		for (const mutation of spec.mutations) {
+			if (mutation.config === undefined || configBaselines.has(mutation.config)) continue;
+			configBaselines.set(mutation.config, await check(baseDir, baseModel, mutation));
+		}
+		for (const outcome of configBaselines.values()) {
+			if (outcome.status === "unavailable") {
+				report.unavailable = true;
+				return report;
+			}
+		}
+		for (const mutation of spec.mutations) {
+			const configBaseline = mutation.config === undefined ? undefined : configBaselines.get(mutation.config);
+			if (configBaseline && configBaseline.status !== "pass") {
+				report.results.push({
+					name: mutation.name,
+					status: "INVALID",
+					violated: [],
+					detail: `the unmutated model does not pass under ${mutation.config} (${configBaseline.status}: ${detailOf(configBaseline)}), so a failure there proves nothing about this mutation`,
+				});
+				continue;
+			}
 			const dir = path.join(work, `m-${mutation.name.replace(/[^\w.-]+/g, "_")}`);
 			copyModel(baseDir, dir);
 			const target = path.join(dir, mutation.file ?? relModel);
+			const outside = path.relative(dir, target);
+			if (outside.startsWith("..") || path.isAbsolute(outside)) {
+				report.results.push({
+					name: mutation.name,
+					status: "INVALID",
+					violated: [],
+					detail: `the file ${mutation.file} is outside the model's folder`,
+				});
+				continue;
+			}
 			let source: string;
 			try {
 				source = fs.readFileSync(target, "utf8");

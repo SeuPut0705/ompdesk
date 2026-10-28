@@ -13,7 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { checkTags, extractTags, findCodeRoot, type TagProblem } from "./lib/code-tags";
 import { readJson } from "./lib/json";
-import { judge, type MatrixRun, parseMatrix } from "./lib/matrix";
+import { judge, type MatrixRun, matrixWarnings, parseMatrix } from "./lib/matrix";
 import { EXIT, Unavailable, UsageError } from "./lib/proc";
 import { prepareTla, type TlaEnv } from "./lib/tla-env";
 import {
@@ -129,6 +129,16 @@ function printTags(problems: TagProblem[]): void {
 }
 
 function printFailure(result: TlcResult, rows: TraceRow[], text: string): void {
+	const verdict =
+		result.outcome === "invariant" ||
+		result.outcome === "action" ||
+		result.outcome === "temporal" ||
+		result.outcome === "deadlock" ||
+		result.outcome === "assert";
+	if (!verdict) {
+		console.log("  No verdict about the model: TLC did not finish checking it.");
+		if (result.message) console.log(`  ${result.message}`);
+	}
 	if (rows.length > 0) {
 		console.log(`Trace (${rows.length} states, shortest first):`);
 		console.log(formatTrace(rows, result));
@@ -233,6 +243,7 @@ export async function main(argv: string[]): Promise<number> {
 			);
 		return ok ? EXIT.ok : EXIT.failed;
 	}
+	for (const warning of matrixWarnings(args.matrix ? runs : [])) console.log(`WARN  ${warning}`);
 	const definitions = definitionLoader(spec);
 	printTags(checkTags(extractTags(fs.readFileSync(spec, "utf8")), spec, codeRoot));
 	console.log(`TLC ${tla.tlaVersion}  java ${tla.javaMajor} (${tla.javaSource})  spec ${path.basename(spec)}`);
