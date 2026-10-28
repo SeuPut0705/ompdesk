@@ -1,0 +1,9 @@
+{
+	"runs": [
+		{ "name": "fixed-variant-2-devices", "config": "MC.cfg", "expect": "pass" },
+		{ "name": "F3-code-as-written", "config": "MC_code.cfg", "expect": "invariant", "property": "HeldConverges" },
+		{ "name": "a-device-can-show-a-held-row", "config": "MC_sanity.cfg", "expect": "invariant", "property": "NeverHeld" },
+		{ "name": "an-opener-row-is-reachable", "config": "MC_sanity_op.cfg", "expect": "invariant", "property": "NeverOpener" },
+		{ "name": "deep-fixed-variant-with-journal-tick", "config": "MC_deep.cfg", "expect": "pass", "timeoutSec": 900 }
+	]
+}

@@ -1,0 +1,41 @@
+{
+	"version": 1,
+	"codeRoot": "..",
+	"models": [
+		{
+			"id": "turn-resume",
+			"title": "Connection wait of a failed turn: probe, hold, flush, scheduled retry",
+			"kind": "tla",
+			"dir": "turn-resume/tla",
+			"spec": "TurnResume.tla",
+			"matrix": "matrix.json",
+			"mutations": "mutations.json",
+			"covers": [
+				"src/main/turn-resume.ts",
+				"src/main/connectivity.ts",
+				"src/main/sidecar-run-state.ts",
+				"src/main/sidecar-pool.ts"
+			],
+			"syncCommit": "b7d45962525cd52ce08554f6fce5e75cd92c20be",
+			"verifySkill": ".omp/skills/turn-resume-verify/SKILL.md"
+		},
+		{
+			"id": "session-listing",
+			"title": "Session listing: a device's list follows the host's tabs",
+			"kind": "tla",
+			"dir": "session-listing/tla",
+			"spec": "SessionListing.tla",
+			"matrix": "matrix.json",
+			"mutations": "mutations.json",
+			"covers": [
+				"src/main/remote/host-services.ts",
+				"src/main/sidecar-pool.ts",
+				"src/main/index.ts",
+				"src/main/ipc.ts",
+				"src/renderer/stores/session-list.ts"
+			],
+			"syncCommit": "b7d45962525cd52ce08554f6fce5e75cd92c20be",
+			"verifySkill": ".omp/skills/session-listing-verify/SKILL.md"
+		}
+	]
+}

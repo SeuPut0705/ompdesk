@@ -1,0 +1,15 @@
+{
+	"checker": { "kind": "tlc", "config": "MC_ordered.cfg", "workers": 4, "timeoutSec": 600 },
+	"properties": ["HeldConverges"],
+	"mutations": [
+		{
+			"name": "lost-queued-refresh-under-ordered-channel",
+			"why": "Same mutation as mutations.json lost-queued-refresh, but the link delivers a read's reply before the event that follows it (Ordered = TRUE): the queued re-read is then redundant, so the mutation is expected MISSED. Evidence for the W4 candidate 'queued flag is dead under in-order delivery'; the code does not enforce that order, so it stays.",
+			"file": "SessionListing.tla",
+			"search": "               /\\ inFlight' = [inFlight EXCEPT ![d] = TRUE]       \\* refresh() right after\n               /\\ req' = [req EXCEPT ![d] = TRUE]",
+			"replace": "               /\\ inFlight' = [inFlight EXCEPT ![d] = FALSE]\n               /\\ req' = req",
+			"breaks": "HeldConverges",
+			"config": "MC_ordered_held.cfg"
+		}
+	]
+}

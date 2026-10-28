@@ -1,0 +1,81 @@
+{
+	"checker": { "kind": "tlc", "config": "MC.cfg", "workers": 4, "timeoutSec": 600 },
+	"properties": ["TypeOK", "HeldConverges", "OpenersConverge"],
+	"waive": {
+		"TypeOK": "Shape check only: no behaviour change breaks it without also breaking a property above it."
+	},
+	"mutations": [
+		{
+			"name": "drop-announce-on-close",
+			"why": "A tab closing no longer calls listingChanged(): devices keep listing a released session as held.",
+			"file": "SessionListing.tla",
+			"search": "    /\\ LET f2 == [file EXCEPT ![t] = NoS] IN file' = f2 /\\ Announce(f2, rec)",
+			"replace": "    /\\ LET f2 == [file EXCEPT ![t] = NoS] IN file' = f2 /\\ UNCHANGED <<snap, evTimer>>",
+			"breaks": "HeldConverges",
+			"config": "MC_held.cfg"
+		},
+		{
+			"name": "drop-announce-on-open",
+			"why": "A tab opening a stored session no longer calls listingChanged(): devices miss that a tab holds it now.",
+			"file": "SessionListing.tla",
+			"search": "    /\\ file[t] = NoS /\\ t \\notin pendReg /\\ nChanges < MaxChanges\n    /\\ LET f2 == [file EXCEPT ![t] = s] IN file' = f2 /\\ Announce(f2, rec)",
+			"replace": "    /\\ file[t] = NoS /\\ t \\notin pendReg /\\ nChanges < MaxChanges\n    /\\ LET f2 == [file EXCEPT ![t] = s] IN file' = f2 /\\ UNCHANGED <<snap, evTimer>>",
+			"breaks": "HeldConverges",
+			"config": "MC_held.cfg"
+		},
+		{
+			"name": "signature-ignores-openers",
+			"why": "listingSignature compares only the held sessions: a closed-child record appearing or going changes no signature, so no device reads again.",
+			"file": "SessionListing.tla",
+			"search": "    IF snap # Unk /\\ Listing(f2, r2) # snap",
+			"replace": "    IF snap # Unk /\\ Held(f2) # snap.held",
+			"breaks": "OpenersConverge",
+			"config": "MC_openers.cfg"
+		},
+		{
+			"name": "sameRow-ignores-heldOnHost",
+			"why": "reconcile() keeps the old row when only heldOnHost differs (sameRow forgot the field): the device keeps its stale held set.",
+			"file": "SessionListing.tla",
+			"search": "    /\\ view' = [view EXCEPT ![d] = ch[d][i].l]",
+			"replace": "    /\\ view' = [view EXCEPT ![d] = [held |-> (IF view[d] = Unk THEN ch[d][i].l.held ELSE view[d].held), op |-> ch[d][i].l.op]]",
+			"breaks": "HeldConverges",
+			"config": "MC_held.cfg"
+		},
+		{
+			"name": "sameRow-ignores-openedBySession",
+			"why": "reconcile() keeps the old row when only openedBySession differs: the device keeps nesting a child under the wrong opener.",
+			"file": "SessionListing.tla",
+			"search": "    /\\ view' = [view EXCEPT ![d] = ch[d][i].l]",
+			"replace": "    /\\ view' = [view EXCEPT ![d] = [held |-> ch[d][i].l.held, op |-> (IF view[d] = Unk THEN ch[d][i].l.op ELSE view[d].op)]]",
+			"breaks": "OpenersConverge",
+			"config": "MC_openers.cfg"
+		},
+		{
+			"name": "lost-queued-refresh",
+			"why": "A refresh asked for while a read was in flight is forgotten when the read lands: the last change never reaches the device.",
+			"file": "SessionListing.tla",
+			"search": "               /\\ inFlight' = [inFlight EXCEPT ![d] = TRUE]       \\* refresh() right after\n               /\\ req' = [req EXCEPT ![d] = TRUE]",
+			"replace": "               /\\ inFlight' = [inFlight EXCEPT ![d] = FALSE]\n               /\\ req' = req",
+			"breaks": "HeldConverges",
+			"config": "MC_held.cfg"
+		},
+		{
+			"name": "snapshot-not-recorded-by-a-read",
+			"why": "sessions.list stops recording #listingSnapshot: listingChanged() keeps returning early and never re-announces.",
+			"file": "SessionListing.tla",
+			"search": "    /\\ snap' = Listing(file, rec)\n",
+			"replace": "    /\\ UNCHANGED snap\n",
+			"breaks": "HeldConverges",
+			"config": "MC_held.cfg"
+		},
+		{
+			"name": "event-never-sent",
+			"why": "The debounced SESSIONS_CHANGED push is dropped: a device never reads again after the first read.",
+			"file": "SessionListing.tla",
+			"search": "    /\\ ch' = [d \\in Devices |-> Append(ch[d], [kind |-> \"event\"])]",
+			"replace": "    /\\ ch' = ch",
+			"breaks": "HeldConverges",
+			"config": "MC_held.cfg"
+		}
+	]
+}

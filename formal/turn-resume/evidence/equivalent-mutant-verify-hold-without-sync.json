@@ -1,0 +1,15 @@
+{
+	"checker": { "kind": "tlc", "config": "MC_marker_fix.cfg", "workers": 4, "timeoutSec": 600 },
+	"properties": ["MarkerNetwork"],
+	"mutations": [
+		{
+			"name": "verify-hold-without-sync",
+			"why": "#verifyNetwork's continuation holds the tab but forgets the sync() that follows #hold. EXPECTED MISSED (an equivalent mutant): the marker already says `network` since the probe row went up (the sync that ended #judge wrote it), so the later sync() adds nothing for MarkerNetwork. Kept as evidence that this sync() is redundant for the marker; it stays in the code for the other things sync() does.",
+			"file": "TurnResume.tla",
+			"search": "/\\ pc' = (IF online THEN \"flush\" ELSE \"s_watch\")      \\* #hold flushes at once when online; then sync()",
+			"replace": "/\\ pc' = (IF online THEN \"flush\" ELSE \"idle\")",
+			"breaks": "MarkerNetwork",
+			"config": "MC_p4.cfg"
+		}
+	]
+}

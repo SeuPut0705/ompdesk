@@ -1,0 +1,266 @@
+{
+  "spec": "/Users/seuput/Desktop/GitHub/omgdesk/formal/session-listing/tla/SessionListing.tla",
+  "name": "MC_code.cfg",
+  "config": "MC_code.cfg",
+  "ok": false,
+  "expect": "pass",
+  "durationMs": 641,
+  "logPath": "/Users/seuput/Desktop/GitHub/omgdesk/formal/session-listing/evidence/SessionListing-MC_code.log",
+  "outcome": "invariant",
+  "property": "HeldConverges",
+  "stats": {
+    "generated": 22205,
+    "distinct": 10808,
+    "queue": 6488,
+    "depth": 9
+  },
+  "trace": [
+    {
+      "n": 1,
+      "step": "Init",
+      "code": [],
+      "changed": {
+        "pendReg": {
+          "to": "{}"
+        },
+        "nChanges": {
+          "to": "0"
+        },
+        "snap": {
+          "to": "[held |-> {\"?\"}, op |-> {}]"
+        },
+        "ch": {
+          "to": "(d1 :> <<>> @@ d2 :> <<>>)"
+        },
+        "deb": {
+          "to": "(d1 :> FALSE @@ d2 :> FALSE)"
+        },
+        "file": {
+          "to": "[w1 |-> \"none\", h1 |-> \"none\"]"
+        },
+        "view": {
+          "to": "(d1 :> [held |-> {\"?\"}, op |-> {}] @@ d2 :> [held |-> {\"?\"}, op |-> {}])"
+        },
+        "rec": {
+          "to": "FALSE"
+        },
+        "req": {
+          "to": "(d1 :> TRUE @@ d2 :> TRUE)"
+        },
+        "inFlight": {
+          "to": "(d1 :> TRUE @@ d2 :> TRUE)"
+        },
+        "evTimer": {
+          "to": "FALSE"
+        },
+        "nTicks": {
+          "to": "0"
+        },
+        "queued": {
+          "to": "(d1 :> FALSE @@ d2 :> FALSE)"
+        }
+      }
+    },
+    {
+      "n": 2,
+      "step": "Open(\"w1\",\"s1\")",
+      "action": "Open",
+      "location": {
+        "module": "SessionListing",
+        "line": 81,
+        "col": 5,
+        "endLine": 84,
+        "endCol": 79
+      },
+      "code": [
+        "src/main/remote/host-services.ts:1589-1615",
+        "src/main/sidecar-pool.ts:651"
+      ],
+      "changed": {
+        "nChanges": {
+          "from": "0",
+          "to": "1"
+        },
+        "file": {
+          "from": "[w1 |-> \"none\", h1 |-> \"none\"]",
+          "to": "[w1 |-> \"s1\", h1 |-> \"none\"]"
+        }
+      }
+    },
+    {
+      "n": 3,
+      "step": "Compute(d1)",
+      "action": "Compute",
+      "location": {
+        "module": "SessionListing",
+        "line": 139,
+        "col": 5,
+        "endLine": 143,
+        "endCol": 95
+      },
+      "code": [
+        "src/main/remote/host-services.ts:996-1011"
+      ],
+      "changed": {
+        "snap": {
+          "from": "[held |-> {\"?\"}, op |-> {}]",
+          "to": "[held |-> {\"s1\"}, op |-> {}]"
+        },
+        "ch": {
+          "from": "(d1 :> <<>> @@ d2 :> <<>>)",
+          "to": "(d1 :> <<[kind |-> \"reply\", l |-> [held |-> {\"s1\"}, op |-> {}]]>> @@ d2 :> <<>>)"
+        },
+        "req": {
+          "from": "(d1 :> TRUE @@ d2 :> TRUE)",
+          "to": "(d1 :> FALSE @@ d2 :> TRUE)"
+        }
+      }
+    },
+    {
+      "n": 4,
+      "step": "IdChange(\"w1\")",
+      "action": "IdChange",
+      "location": {
+        "module": "SessionListing",
+        "line": 105,
+        "col": 5,
+        "endLine": 110,
+        "endCol": 70
+      },
+      "code": [
+        "src/main/sidecar-pool.ts:952-963"
+      ],
+      "changed": {
+        "pendReg": {
+          "from": "{}",
+          "to": "{\"w1\"}"
+        },
+        "nChanges": {
+          "from": "1",
+          "to": "2"
+        },
+        "file": {
+          "from": "[w1 |-> \"s1\", h1 |-> \"none\"]",
+          "to": "[w1 |-> \"none\", h1 |-> \"none\"]"
+        }
+      }
+    },
+    {
+      "n": 5,
+      "step": "Compute(d2)",
+      "action": "Compute",
+      "location": {
+        "module": "SessionListing",
+        "line": 139,
+        "col": 5,
+        "endLine": 143,
+        "endCol": 95
+      },
+      "code": [
+        "src/main/remote/host-services.ts:996-1011"
+      ],
+      "changed": {
+        "snap": {
+          "from": "[held |-> {\"s1\"}, op |-> {}]",
+          "to": "[held |-> {}, op |-> {}]"
+        },
+        "ch": {
+          "from": "(d1 :> <<[kind |-> \"reply\", l |-> [held |-> {\"s1\"}, op |-> {}]]>> @@ d2 :> <<>>)",
+          "to": "( d1 :> <<[kind |-> \"reply\", l |-> [held |-> {\"s1\"}, op |-> {}]]>> @@ d2 :> <<[kind |-> \"reply\", l |-> [held |-> {}, op |-> {}]]>> )"
+        },
+        "req": {
+          "from": "(d1 :> FALSE @@ d2 :> TRUE)",
+          "to": "(d1 :> FALSE @@ d2 :> FALSE)"
+        }
+      }
+    },
+    {
+      "n": 6,
+      "step": "Close(\"w1\")",
+      "action": "Close",
+      "location": {
+        "module": "SessionListing",
+        "line": 89,
+        "col": 5,
+        "endLine": 93,
+        "endCol": 70
+      },
+      "code": [
+        "src/main/remote/host-services.ts:2237-2265",
+        "src/main/sidecar-pool.ts:1792-1793"
+      ],
+      "changed": {
+        "pendReg": {
+          "from": "{\"w1\"}",
+          "to": "{}"
+        },
+        "nChanges": {
+          "from": "2",
+          "to": "3"
+        }
+      }
+    },
+    {
+      "n": 7,
+      "step": "DeliverReply(d1,1)",
+      "action": "DeliverReply",
+      "location": {
+        "module": "SessionListing",
+        "line": 167,
+        "col": 5,
+        "endLine": 176,
+        "endCol": 77
+      },
+      "code": [
+        "src/renderer/stores/session-list.ts:129-137",
+        "src/renderer/stores/session-list.ts:168-174"
+      ],
+      "changed": {
+        "ch": {
+          "from": "( d1 :> <<[kind |-> \"reply\", l |-> [held |-> {\"s1\"}, op |-> {}]]>> @@ d2 :> <<[kind |-> \"reply\", l |-> [held |-> {}, op |-> {}]]>> )",
+          "to": "(d1 :> <<>> @@ d2 :> <<[kind |-> \"reply\", l |-> [held |-> {}, op |-> {}]]>>)"
+        },
+        "view": {
+          "from": "(d1 :> [held |-> {\"?\"}, op |-> {}] @@ d2 :> [held |-> {\"?\"}, op |-> {}])",
+          "to": "(d1 :> [held |-> {\"s1\"}, op |-> {}] @@ d2 :> [held |-> {\"?\"}, op |-> {}])"
+        },
+        "inFlight": {
+          "from": "(d1 :> TRUE @@ d2 :> TRUE)",
+          "to": "(d1 :> FALSE @@ d2 :> TRUE)"
+        }
+      }
+    },
+    {
+      "n": 8,
+      "step": "DeliverReply(d2,1)",
+      "action": "DeliverReply",
+      "location": {
+        "module": "SessionListing",
+        "line": 167,
+        "col": 5,
+        "endLine": 176,
+        "endCol": 77
+      },
+      "code": [
+        "src/renderer/stores/session-list.ts:129-137",
+        "src/renderer/stores/session-list.ts:168-174"
+      ],
+      "changed": {
+        "ch": {
+          "from": "(d1 :> <<>> @@ d2 :> <<[kind |-> \"reply\", l |-> [held |-> {}, op |-> {}]]>>)",
+          "to": "(d1 :> <<>> @@ d2 :> <<>>)"
+        },
+        "view": {
+          "from": "(d1 :> [held |-> {\"s1\"}, op |-> {}] @@ d2 :> [held |-> {\"?\"}, op |-> {}])",
+          "to": "(d1 :> [held |-> {\"s1\"}, op |-> {}] @@ d2 :> [held |-> {}, op |-> {}])"
+        },
+        "inFlight": {
+          "from": "(d1 :> FALSE @@ d2 :> TRUE)",
+          "to": "(d1 :> FALSE @@ d2 :> FALSE)"
+        }
+      },
+      "violation": true
+    }
+  ],
+  "message": "Invariant HeldConverges is violated."
+}

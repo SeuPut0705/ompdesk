@@ -1,0 +1,650 @@
+{
+	"concern": "turn-resume",
+	"workflow": "W1",
+	"generated_at": "2026-10-28T09:09:57.124Z",
+	"repo_commit": "b7d45962525cd52ce08554f6fce5e75cd92c20be",
+	"summary": "4 findings for the connection wait of a failed turn: 2 confirmed by failing tests (F1: a scheduled retry that fires offline leaves no `network` marker; F4: a session change while a wait holds does not end it), 1 refuted model error (F2), and 7 of 8 stated properties plus both liveness properties hold for 1 tab, 2 runs, 2 attempts, 1 network flap (1.4M states, depth 72; 5.3M states with 2 flaps); every property has a mutation that fails it (10 of 10 DETECTED).",
+	"scope": {
+		"modeled": [
+			"TurnResume sync/#judge/#verifyNetwork/#hold/flush/#run/#planRetry/#arm/#fire/cancelWait/#dropWait and the marker file (deriveMarkers)",
+			"ConnectivityMonitor verify (one shared probe per host), #check, #reachable, the #attempt recovery loop, report, #set -> connectivityChanged -> flush",
+			"the pool facts the rules read: running, lastRun, stopped, session/touched, awaitingConnection, as pool events that each end in sync()"
+		],
+		"abstracted": [
+			"one tab, one host name, one session counter; four outcome kinds (dns, net, transient, fatal)",
+			"time is order only: any armed timer may fire at any moment",
+			"sync() and flush() are synchronous regions run as ordered micro-steps under one program counter",
+			"the retry RPC is one atomic send"
+		],
+		"out_of_scope": [
+			"launch markers and the relaunch continuation, stock auto-retry takeover, the wake window, hosted tabs, quit freeze, tab close, retry.enabled toggling",
+			"the duration of the retry RPC (a user prompt while it is in flight is stock's), two tabs at once, attempt counts above 2"
+		],
+		"assumptions": [
+			"A1: every pool event that changes a fact is followed by TurnResume.sync() before the next macrotask; setAwaitingConnection does not call sync()",
+			"A2/A3/A4: sync() and flush() run in one macrotask; a ready sidecar resolves whenReady in a microtask and Boot continues every waiting #run in that macrotask",
+			"A5: a run cannot be live on an omp that is not up (the F2 model fix)",
+			"A7: strong fairness per component, and the network eventually comes back (an assumption, not code)"
+		]
+	},
+	"properties": [
+		{
+			"name": "NoRetryIntoUserRun",
+			"kind": "invariant",
+			"statement": "NoRetryIntoUserRun == ~bad1",
+			"meaning": "Stock retry is never sent while the tab's live run is one the user started.",
+			"source": "src/main/turn-resume.ts:499-509; turn-resume.test.ts 'a prompt sent during the wait replaces it'",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC 1.8.0",
+			"bounds": "Tabs={t1}, MaxStarts=2, MaxAttempts=2, MaxFlaps=1 (2 in the deep run), MaxSess=1, MaxCancels=1",
+			"evidence": "formal/turn-resume/evidence/TurnResume-MC.log"
+		},
+		{
+			"name": "NoRetryAfterCallOff",
+			"kind": "invariant",
+			"statement": "NoRetryAfterCallOff == ~bad2",
+			"meaning": "Cancel, Stop, a new prompt or a session/branch change during a probe (or while a retry is armed) never leads to a later retry of that failure.",
+			"source": "src/main/turn-resume.ts:556-569; turn-resume.test.ts '%s while the lookup is probed ends it'",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC 1.8.0",
+			"bounds": "same",
+			"evidence": "formal/turn-resume/evidence/TurnResume-MC.log"
+		},
+		{
+			"name": "WaitEnds",
+			"kind": "liveness",
+			"statement": "WaitEnds == \\A t \\in Tabs : awaiting[t] ~> ~awaiting[t]",
+			"meaning": "A wait row always ends once the network is back.",
+			"source": "src/main/connectivity.ts:1-13; turn-resume.ts:1-4",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC 1.8.0",
+			"bounds": "Tabs={t1}, MaxStarts=1, MaxAttempts=1, MaxFlaps=1, MaxSess=0, MaxCancels=0; strong fairness per component, network heals (assumption). A larger run (MaxStarts=2, 158504 states, 308 s) also holds.",
+			"evidence": "formal/turn-resume/evidence/TurnResume-MC_live.log"
+		},
+		{
+			"name": "ProbeEnds",
+			"kind": "liveness",
+			"statement": "ProbeEnds == \\A t \\in Tabs : (probing[t] # 0) ~> (probing[t] = 0)",
+			"meaning": "A probe row always ends.",
+			"source": "src/main/turn-resume.ts:544-547",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC 1.8.0",
+			"bounds": "same as WaitEnds",
+			"evidence": "formal/turn-resume/evidence/TurnResume-MC_live.log"
+		},
+		{
+			"name": "MarkerNetwork",
+			"kind": "invariant",
+			"statement": "MarkerNetwork == pc = \"idle\" => \\A t \\in Tabs : awaiting[t] => store[t] = \"network\"",
+			"meaning": "While a wait holds, the marker file says `network`, so a crash during the wait still retries.",
+			"source": "src/main/turn-resume.ts:572; deriveMarkers doc",
+			"frozen": true,
+			"result": "violated",
+			"tool": "TLC 1.8.0",
+			"bounds": "as above, FireSyncs=FALSE (the code as written); holds with FireSyncs=TRUE (a mirrored fix, 1420269 states)",
+			"evidence": "formal/turn-resume/evidence/TurnResume-MC_marker.log"
+		},
+		{
+			"name": "OneOfWaitOrScheduled",
+			"kind": "invariant",
+			"statement": "OneOfWaitOrScheduled == \\A t \\in Tabs : ~(armO[t] # 0 /\\ (waiting[t] \\/ probing[t] # 0))",
+			"meaning": "A tab has at most one of: a held wait, a probe, a scheduled retry.",
+			"source": "src/main/turn-resume.ts:400-406, #mayRetry; test 'no second schedule'",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC 1.8.0",
+			"bounds": "same as NoRetryIntoUserRun",
+			"evidence": "formal/turn-resume/evidence/TurnResume-MC.log"
+		},
+		{
+			"name": "OneProbePerHost",
+			"kind": "invariant",
+			"statement": "OneProbePerHost == vN <= 1",
+			"meaning": "One probe is in flight for the host; concurrent asks share it.",
+			"source": "src/main/connectivity.ts:109-115",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC 1.8.0",
+			"bounds": "same as NoRetryIntoUserRun (one tab: consecutive asks of the same tab, not two tabs)",
+			"evidence": "formal/turn-resume/evidence/TurnResume-MC.log"
+		},
+		{
+			"name": "OfflineOnlyOnNoAnswer",
+			"kind": "invariant",
+			"statement": "OfflineOnlyOnNoAnswer == ~bad6",
+			"meaning": "The monitor goes offline through a probe only when neither the failed host nor the default way out answered.",
+			"source": "src/main/connectivity.ts:109-112",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC 1.8.0",
+			"bounds": "same as NoRetryIntoUserRun",
+			"evidence": "formal/turn-resume/evidence/TurnResume-MC.log"
+		},
+		{
+			"name": "NoRetryAfterSessionChangeWhileHeld",
+			"kind": "invariant",
+			"statement": "NoRetryAfterSessionChangeWhileHeld == ~bad2h",
+			"meaning": "A session or branch change while a wait HOLDS never leads to a retry (added by the verifier, not one of the stated properties).",
+			"source": "the probe and the scheduled retry already check the session and touched count (turn-resume.ts:568-569, #holds)",
+			"frozen": false,
+			"result": "violated",
+			"tool": "TLC 1.8.0",
+			"bounds": "as above, FireSyncs=FALSE",
+			"evidence": "formal/turn-resume/evidence/TurnResume-MC_held.log"
+		}
+	],
+	"findings": [
+		{
+			"id": "F1",
+			"title": "A scheduled retry that fires while offline leaves no `network` marker",
+			"severity": "medium",
+			"status": "confirmed",
+			"property": "MarkerNetwork",
+			"story": "A turn ends in a transient error (a 503) while the link is up: #judge plans a scheduled retry and #arm shows its row. Before the 30 s timer fires the connection drops (report(false)). The timer runs #fire: stillHolds passes, stock retry.enabled is read, then `!network.online`, so #fire releases the row, records the attempt and calls #hold(tab, \"retry\"): the wait row shows (setAwaitingConnection(true)). #fire returns there and never calls sync(), so deriveMarkers has not run and the marker file has no entry for the tab: a scheduled retry writes none, and awaitingConnection is only turned into the `network` reason by a sync. Nothing syncs until some later run-state change. If OMPdesk crashes or is killed while the tab waits, the relaunch finds no marker and the turn is never continued. #verifyNetwork's own hold calls sync() with the comment \"a crash during the wait still retries\"; #fire's does not.",
+			"trace": [
+				{
+					"step": 1,
+					"action": "Init",
+					"changed": {
+						"armO": "(t1 :> 0)",
+						"ready": "TRUE",
+						"fireId": "(t1 :> -1)",
+						"stopped": "(t1 :> FALSE)",
+						"link": "TRUE",
+						"store": "(t1 :> \"none\")",
+						"pc": "\"idle\"",
+						"sentFor": "{}",
+						"recovering": "FALSE",
+						"planning": "{}",
+						"sg": "(t1 :> 0)",
+						"last": "(t1 :> 0)",
+						"awaiting": "(t1 :> FALSE)",
+						"online": "TRUE",
+						"kindOf": "<<\"none\", \"none\">>",
+						"waiting": "(t1 :> FALSE)",
+						"run": "(t1 :> \"idle\")",
+						"probing": "(t1 :> 0)",
+						"bad2h": "FALSE",
+						"calledOffH": "{}"
+					}
+				},
+				{
+					"step": 2,
+					"action": "UserPrompt(t1)",
+					"actor": "user",
+					"code": "src/main/sidecar-run-state.ts:156-160; src/main/turn-resume.ts:448-451",
+					"changed": {
+						"pc": "\"idle\" -> \"s_watch\"",
+						"run": "(t1 :> \"idle\") -> (t1 :> \"running\")"
+					}
+				},
+				{
+					"step": 3,
+					"action": "S_Watch",
+					"actor": "TurnResume",
+					"code": "src/main/turn-resume.ts:654-664",
+					"changed": {
+						"pc": "\"s_watch\" -> \"s_newrun\""
+					}
+				},
+				{
+					"step": 4,
+					"action": "S_NewRun",
+					"actor": "TurnResume",
+					"code": "src/main/turn-resume.ts:502-512; src/main/turn-resume.ts:878-887",
+					"changed": {
+						"pc": "\"s_newrun\" -> \"s_judge\""
+					}
+				},
+				{
+					"step": 5,
+					"action": "S_Judge",
+					"actor": "TurnResume",
+					"code": "src/main/turn-resume.ts:517-540; src/main/turn-resume.ts:548-557; src/main/turn-resume.ts:617-632; src/main/turn-resume.ts:736-740",
+					"changed": {
+						"pc": "\"s_judge\" -> \"s_marker\""
+					}
+				},
+				{
+					"step": 6,
+					"action": "S_Marker",
+					"actor": "TurnResume",
+					"code": "src/main/turn-resume.ts:470-476",
+					"changed": {
+						"store": "(t1 :> \"none\") -> (t1 :> \"running\")",
+						"pc": "\"s_marker\" -> \"idle\""
+					}
+				},
+				{
+					"step": 7,
+					"action": "EndRun(t1,\"transient\")",
+					"actor": "pool",
+					"code": "src/main/sidecar-run-state.ts:165-166; src/main/turn-resume.ts:448-451",
+					"changed": {
+						"pc": "\"idle\" -> \"s_watch\"",
+						"last": "(t1 :> 0) -> (t1 :> 1)",
+						"kindOf": "<<\"none\", \"none\">> -> <<\"transient\", \"none\">>"
+					}
+				},
+				{
+					"step": 8,
+					"action": "S_Watch",
+					"actor": "TurnResume",
+					"code": "src/main/turn-resume.ts:654-664",
+					"changed": {
+						"pc": "\"s_watch\" -> \"s_newrun\""
+					}
+				},
+				{
+					"step": 9,
+					"action": "S_NewRun",
+					"actor": "TurnResume",
+					"code": "src/main/turn-resume.ts:502-512; src/main/turn-resume.ts:878-887",
+					"changed": {
+						"pc": "\"s_newrun\" -> \"s_judge\""
+					}
+				},
+				{
+					"step": 10,
+					"action": "S_Judge",
+					"actor": "TurnResume",
+					"code": "src/main/turn-resume.ts:517-540; src/main/turn-resume.ts:548-557; src/main/turn-resume.ts:617-632; src/main/turn-resume.ts:736-740",
+					"changed": {
+						"pc": "\"s_judge\" -> \"s_marker\"",
+						"planning": "{} -> {<<t1, 1, 0, 0>>}"
+					}
+				},
+				{
+					"step": 11,
+					"action": "S_Marker",
+					"actor": "TurnResume",
+					"code": "src/main/turn-resume.ts:470-476",
+					"changed": {
+						"pc": "\"s_marker\" -> \"idle\""
+					}
+				},
+				{
+					"step": 12,
+					"action": "Settle(t1)",
+					"actor": "pool",
+					"code": "src/main/sidecar-run-state.ts:156-172; src/main/turn-resume.ts:448-451",
+					"changed": {
+						"pc": "\"idle\" -> \"s_watch\"",
+						"run": "(t1 :> \"running\") -> (t1 :> \"idle\")"
+					}
+				},
+				{
+					"step": 13,
+					"action": "S_Watch",
+					"actor": "TurnResume",
+					"code": "src/main/turn-resume.ts:654-664",
+					"changed": {
+						"pc": "\"s_watch\" -> \"s_newrun\""
+					}
+				},
+				{
+					"step": 14,
+					"action": "S_NewRun",
+					"actor": "TurnResume",
+					"code": "src/main/turn-resume.ts:502-512; src/main/turn-resume.ts:878-887",
+					"changed": {
+						"pc": "\"s_newrun\" -> \"s_judge\""
+					}
+				},
+				{
+					"step": 15,
+					"action": "S_Judge",
+					"actor": "TurnResume",
+					"code": "src/main/turn-resume.ts:517-540; src/main/turn-resume.ts:548-557; src/main/turn-resume.ts:617-632; src/main/turn-resume.ts:736-740",
+					"changed": {
+						"pc": "\"s_judge\" -> \"s_marker\""
+					}
+				},
+				{
+					"step": 16,
+					"action": "S_Marker",
+					"actor": "TurnResume",
+					"code": "src/main/turn-resume.ts:470-476",
+					"changed": {
+						"store": "(t1 :> \"running\") -> (t1 :> \"none\")",
+						"pc": "\"s_marker\" -> \"idle\""
+					}
+				},
+				{
+					"step": 17,
+					"action": "PlanResume(t1,1,0,0)",
+					"actor": "TurnResume",
+					"code": "src/main/turn-resume.ts:626-631",
+					"changed": {
+						"armO": "(t1 :> 0) -> (t1 :> 1)",
+						"planning": "{<<t1, 1, 0, 0>>} -> {}"
+					}
+				},
+				{
+					"step": 18,
+					"action": "LinkDown",
+					"actor": "environment",
+					"code": "src/main/connectivity.ts:74-77",
+					"changed": {
+						"link": "TRUE -> FALSE",
+						"online": "TRUE -> FALSE"
+					}
+				},
+				{
+					"step": 19,
+					"action": "FireStart(t1)",
+					"actor": "TurnResume",
+					"code": "src/main/turn-resume.ts:675-682",
+					"changed": {
+						"fireId": "(t1 :> -1) -> (t1 :> 1)"
+					}
+				},
+				{
+					"step": 20,
+					"action": "FireResume(t1)",
+					"actor": "TurnResume",
+					"code": "src/main/turn-resume.ts:681-697; src/main/turn-resume.ts:736-740",
+					"changed": {
+						"armO": "(t1 :> 1) -> (t1 :> 0)",
+						"fireId": "(t1 :> 1) -> (t1 :> -1)",
+						"awaiting": "(t1 :> FALSE) -> (t1 :> TRUE)",
+						"waiting": "(t1 :> FALSE) -> (t1 :> TRUE)"
+					},
+					"violation": true
+				}
+			],
+			"reproduction": {
+				"test": "src/main/turn-resume.test.ts::REPRODUCTION formal/turn-resume (fails on current code) > F1",
+				"result_before_fix": "fails",
+				"result_after_fix": "not-run"
+			},
+			"fix": {
+				"summary": "Proposed, not applied: call this.sync() after #hold in #fire's offline branch (the model toggle FireSyncs=TRUE mirrors it and MarkerNetwork then holds in 1420269 states).",
+				"model_recheck": "passes",
+				"mutation_check": "fails-as-expected"
+			},
+			"evidence": [
+				"formal/turn-resume/evidence/TurnResume-MC_marker.log",
+				"formal/turn-resume/evidence/F1-trace.json",
+				"formal/turn-resume/evidence/repro-F1-F4-vitest-fail.log",
+				"formal/turn-resume/evidence/TurnResume-MC_marker_fix.log"
+			]
+		},
+		{
+			"id": "F4",
+			"title": "A session or branch change while the wait holds does not end it; stock retry runs in the new session",
+			"severity": "low",
+			"status": "confirmed",
+			"property": "NoRetryAfterSessionChangeWhileHeld",
+			"story": "This is a property the verifier added, not one of the stated ones; whether the behavior is intended is a design question. While offline a turn fails on the network: #judge holds it, the wait row shows and the marker says `network`. The user switches the tab to another session or branch (noteTouched bumps `touched`, sync()). #watchScheduledRetry and #verifyNetwork's continuation compare sessionFile and `touched` and end the retry or the probe; the held wait is not looked at (#judge only ends it for a new run or Cancel). The connection returns, flush() runs #run(tab, \"retry\") and stock retry is sent to a tab that now shows another session or branch.",
+			"trace": [
+				{
+					"step": 1,
+					"action": "Init",
+					"changed": {
+						"armO": "(t1 :> 0)",
+						"ready": "TRUE",
+						"fireId": "(t1 :> -1)",
+						"stopped": "(t1 :> FALSE)",
+						"link": "TRUE",
+						"store": "(t1 :> \"none\")",
+						"pc": "\"idle\"",
+						"sentFor": "{}",
+						"recovering": "FALSE",
+						"planning": "{}",
+						"sg": "(t1 :> 0)",
+						"last": "(t1 :> 0)",
+						"awaiting": "(t1 :> FALSE)",
+						"online": "TRUE",
+						"kindOf": "<<\"none\", \"none\">>",
+						"waiting": "(t1 :> FALSE)",
+						"run": "(t1 :> \"idle\")",
+						"probing": "(t1 :> 0)",
+						"bad2h": "FALSE",
+						"calledOffH": "{}"
+					}
+				},
+				{
+					"step": 2,
+					"action": "UserPrompt(t1)",
+					"actor": "user",
+					"code": "src/main/sidecar-run-state.ts:156-160; src/main/turn-resume.ts:448-451",
+					"changed": {
+						"pc": "\"idle\" -> \"s_watch\"",
+						"run": "(t1 :> \"idle\") -> (t1 :> \"running\")"
+					}
+				},
+				{
+					"step": 3,
+					"action": "S_Watch",
+					"actor": "TurnResume",
+					"code": "src/main/turn-resume.ts:654-664",
+					"changed": {
+						"pc": "\"s_watch\" -> \"s_newrun\""
+					}
+				},
+				{
+					"step": 4,
+					"action": "S_NewRun",
+					"actor": "TurnResume",
+					"code": "src/main/turn-resume.ts:502-512; src/main/turn-resume.ts:878-887",
+					"changed": {
+						"pc": "\"s_newrun\" -> \"s_judge\""
+					}
+				},
+				{
+					"step": 5,
+					"action": "S_Judge",
+					"actor": "TurnResume",
+					"code": "src/main/turn-resume.ts:517-540; src/main/turn-resume.ts:548-557; src/main/turn-resume.ts:617-632; src/main/turn-resume.ts:736-740",
+					"changed": {
+						"pc": "\"s_judge\" -> \"s_marker\""
+					}
+				},
+				{
+					"step": 6,
+					"action": "S_Marker",
+					"actor": "TurnResume",
+					"code": "src/main/turn-resume.ts:470-476",
+					"changed": {
+						"store": "(t1 :> \"none\") -> (t1 :> \"running\")",
+						"pc": "\"s_marker\" -> \"idle\""
+					}
+				},
+				{
+					"step": 7,
+					"action": "LinkDown",
+					"actor": "environment",
+					"code": "src/main/connectivity.ts:74-77",
+					"changed": {
+						"link": "TRUE -> FALSE",
+						"online": "TRUE -> FALSE"
+					}
+				},
+				{
+					"step": 8,
+					"action": "EndRun(t1,\"dns\")",
+					"actor": "pool",
+					"code": "src/main/sidecar-run-state.ts:165-166; src/main/turn-resume.ts:448-451",
+					"changed": {
+						"pc": "\"idle\" -> \"s_watch\"",
+						"last": "(t1 :> 0) -> (t1 :> 1)",
+						"kindOf": "<<\"none\", \"none\">> -> <<\"dns\", \"none\">>"
+					}
+				},
+				{
+					"step": 9,
+					"action": "S_Watch",
+					"actor": "TurnResume",
+					"code": "src/main/turn-resume.ts:654-664",
+					"changed": {
+						"pc": "\"s_watch\" -> \"s_newrun\""
+					}
+				},
+				{
+					"step": 10,
+					"action": "S_NewRun",
+					"actor": "TurnResume",
+					"code": "src/main/turn-resume.ts:502-512; src/main/turn-resume.ts:878-887",
+					"changed": {
+						"pc": "\"s_newrun\" -> \"s_judge\""
+					}
+				},
+				{
+					"step": 11,
+					"action": "S_Judge",
+					"actor": "TurnResume",
+					"code": "src/main/turn-resume.ts:517-540; src/main/turn-resume.ts:548-557; src/main/turn-resume.ts:617-632; src/main/turn-resume.ts:736-740",
+					"changed": {
+						"pc": "\"s_judge\" -> \"s_marker\"",
+						"awaiting": "(t1 :> FALSE) -> (t1 :> TRUE)",
+						"waiting": "(t1 :> FALSE) -> (t1 :> TRUE)"
+					}
+				},
+				{
+					"step": 12,
+					"action": "S_Marker",
+					"actor": "TurnResume",
+					"code": "src/main/turn-resume.ts:470-476",
+					"changed": {
+						"store": "(t1 :> \"running\") -> (t1 :> \"network\")",
+						"pc": "\"s_marker\" -> \"idle\""
+					}
+				},
+				{
+					"step": 13,
+					"action": "SessionChange(t1)",
+					"actor": "user",
+					"code": "src/main/sidecar-pool.ts:2238-2243; src/main/turn-resume.ts:448-451",
+					"changed": {
+						"pc": "\"idle\" -> \"s_watch\"",
+						"sg": "(t1 :> 0) -> (t1 :> 1)",
+						"calledOffH": "{} -> {1}"
+					}
+				},
+				{
+					"step": 14,
+					"action": "S_Watch",
+					"actor": "TurnResume",
+					"code": "src/main/turn-resume.ts:654-664",
+					"changed": {
+						"pc": "\"s_watch\" -> \"s_newrun\""
+					}
+				},
+				{
+					"step": 15,
+					"action": "S_NewRun",
+					"actor": "TurnResume",
+					"code": "src/main/turn-resume.ts:502-512; src/main/turn-resume.ts:878-887",
+					"changed": {
+						"pc": "\"s_newrun\" -> \"s_judge\""
+					}
+				},
+				{
+					"step": 16,
+					"action": "S_Judge",
+					"actor": "TurnResume",
+					"code": "src/main/turn-resume.ts:517-540; src/main/turn-resume.ts:548-557; src/main/turn-resume.ts:617-632; src/main/turn-resume.ts:736-740",
+					"changed": {
+						"pc": "\"s_judge\" -> \"s_marker\""
+					}
+				},
+				{
+					"step": 17,
+					"action": "S_Marker",
+					"actor": "TurnResume",
+					"code": "src/main/turn-resume.ts:470-476",
+					"changed": {
+						"pc": "\"s_marker\" -> \"idle\""
+					}
+				},
+				{
+					"step": 18,
+					"action": "ReportOnline",
+					"actor": "connectivity",
+					"code": "src/main/connectivity.ts:74-82",
+					"changed": {
+						"link": "FALSE -> TRUE",
+						"pc": "\"idle\" -> \"flush\"",
+						"online": "FALSE -> TRUE"
+					}
+				},
+				{
+					"step": 19,
+					"action": "FlushStep",
+					"actor": "TurnResume",
+					"code": "src/main/turn-resume.ts:743-754; src/main/turn-resume.ts:756-774",
+					"changed": {
+						"pc": "\"flush\" -> \"idle\"",
+						"sentFor": "{} -> {1}",
+						"awaiting": "(t1 :> TRUE) -> (t1 :> FALSE)",
+						"waiting": "(t1 :> TRUE) -> (t1 :> FALSE)",
+						"bad2h": "FALSE -> TRUE"
+					},
+					"violation": true
+				}
+			],
+			"reproduction": {
+				"test": "src/main/turn-resume.test.ts::REPRODUCTION formal/turn-resume (fails on current code) > F4",
+				"result_before_fix": "fails",
+				"result_after_fix": "not-run"
+			},
+			"evidence": [
+				"formal/turn-resume/evidence/TurnResume-MC_held.log",
+				"formal/turn-resume/evidence/F4-trace.json",
+				"formal/turn-resume/evidence/repro-F1-F4-vitest-fail.log"
+			]
+		},
+		{
+			"id": "F2",
+			"title": "(Refuted, model error) a retry sent into a user's run through a prompt on an omp that is not ready",
+			"severity": "low",
+			"status": "refuted",
+			"property": "NoRetryIntoUserRun",
+			"story": "The first model run ended a scheduled retry's #run waiting in whenReady (the tab's omp not ready), the omp became ready, the user's prompt started a run, and only then did the #run continue and send retry into it. Two steps cannot happen in the code: a run cannot be live on an omp that is not up, and whenReady's resolution is a microtask, so the continuation runs in the same macrotask as the status event, before any prompt. The model was wrong (it allowed a prompt on an omp that is not ready and ran the continuation as a separate step). Fixed in the model: a prompt needs a ready omp, Unready needs every tab idle, Boot continues every waiting #run. The property was not changed.",
+			"trace": [],
+			"reproduction": {
+				"result_before_fix": "not-reproduced",
+				"result_after_fix": "not-run"
+			},
+			"evidence": [
+				"formal/turn-resume/evidence/F2-refuted-retry-into-user-run.log"
+			]
+		}
+	],
+	"trust_base": {
+		"tla": {
+			"tool_version": "TLC 1.8.0 (tla2tools 1.8.0), java 17",
+			"states_generated": 2066716,
+			"distinct_states": 1416369,
+			"depth": 72,
+			"sanity_checks": [
+				"MC_marker.cfg (FireSyncs=FALSE) violates MarkerNetwork; MC_marker_fix.cfg (FireSyncs=TRUE, the same property) holds",
+				"MC_held.cfg violates NoRetryAfterSessionChangeWhileHeld",
+				"NeverWaits, NeverRetries, NeverArmed, NeverProbing are violated, so a wait, a retry, an armed retry and a probe row are reachable",
+				"mutate.ts: 10 of 10 mutations DETECTED, no property UNCOVERED (TypeOK and the verifier-added property waived with reasons)",
+				"one equivalent mutant kept as evidence, not in the set: dropping the sync() after #hold in #verifyNetwork's continuation is MISSED because the marker already says `network` since the probe row (formal/turn-resume/evidence/equivalent-mutant-verify-hold-without-sync.log)",
+				"deadlock checking is ON in every safety run (an explicit Terminated action exists), so a state with a stuck wait that is not quiescent is reported",
+				"deep run (MaxFlaps=2): 5273014 distinct states, depth 80, all invariants hold with FireSyncs=TRUE",
+				"scratch break (persist step A.5): dropping the session and touched checks from #verifyNetwork's continuation in turn-resume.ts and from the model's `holds` made `verify-all.ts formal --only turn-resume` FAIL on NoRetryAfterCallOff with the last rows tagged turn-resume.ts:557-580 and the drift line naming src/main/turn-resume.ts (formal/turn-resume/evidence/scratch-break-run.log); after dropping both edits the run PASSES with --strict-drift (formal/turn-resume/evidence/scratch-dropped-rerun.log)"
+			]
+		}
+	},
+	"rerun": [
+		"bun <tools-dir>/scripts/verify-all.ts formal --only turn-resume",
+		"bun <tools-dir>/scripts/tlc.ts formal/turn-resume/tla/TurnResume.tla --matrix formal/turn-resume/tla/matrix.json",
+		"bun <tools-dir>/scripts/mutate.ts formal/turn-resume/tla/TurnResume.tla formal/turn-resume/tla/mutations.json",
+		"bunx vitest run src/main/turn-resume.test.ts -t REPRODUCTION"
+	],
+	"next_steps": [
+		"Fix F1 (one call: this.sync() after #hold in #fire) when the user asks; flip matrix run F1-marker-network-as-written to pass and FireSyncs to the code",
+		"Decide F4 (should a session or branch change end a held wait like it ends a probe?); if yes, mirror it in the model and flip the F4 matrix run",
+		"W4 candidates, not applied: the sync() after #hold in #verifyNetwork's continuation does not change the marker (equivalent mutant), kept for the other work sync() does",
+		"W5: add the fast tier (about 1 minute) to CI with verify-all.ts formal --strict-drift",
+		"Model two tabs at once (probe sharing across tabs) and the launch path (#pending markers) as a second concern"
+	]
+}

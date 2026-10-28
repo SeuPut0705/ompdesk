@@ -1,0 +1,690 @@
+{
+  "spec": "/Users/seuput/Desktop/GitHub/omgdesk/formal/turn-resume/tla/TurnResume.tla",
+  "name": "MC_marker.cfg",
+  "config": "MC_marker.cfg",
+  "ok": false,
+  "expect": "pass",
+  "durationMs": 615,
+  "logPath": "/Users/seuput/Desktop/GitHub/omgdesk/formal/turn-resume/evidence/TurnResume-MC_marker.log",
+  "outcome": "invariant",
+  "property": "MarkerNetwork",
+  "stats": {
+    "generated": 5811,
+    "distinct": 4654,
+    "queue": 1194,
+    "depth": 22
+  },
+  "trace": [
+    {
+      "n": 1,
+      "step": "Init",
+      "code": [],
+      "changed": {
+        "armO": {
+          "to": "(t1 :> 0)"
+        },
+        "vLink0": {
+          "to": "TRUE"
+        },
+        "ready": {
+          "to": "TRUE"
+        },
+        "waitFor": {
+          "to": "(t1 :> 0)"
+        },
+        "nO": {
+          "to": "0"
+        },
+        "flaps": {
+          "to": "0"
+        },
+        "armSg": {
+          "to": "(t1 :> 0)"
+        },
+        "attempts": {
+          "to": "(t1 :> 0)"
+        },
+        "fireId": {
+          "to": "(t1 :> -1)"
+        },
+        "stopped": {
+          "to": "(t1 :> FALSE)"
+        },
+        "hostOK": {
+          "to": "TRUE"
+        },
+        "link": {
+          "to": "TRUE"
+        },
+        "userRun": {
+          "to": "(t1 :> FALSE)"
+        },
+        "cancels": {
+          "to": "(t1 :> 0)"
+        },
+        "store": {
+          "to": "(t1 :> \"none\")"
+        },
+        "armId": {
+          "to": "(t1 :> 0)"
+        },
+        "ct": {
+          "to": "t1"
+        },
+        "armAtt": {
+          "to": "(t1 :> 0)"
+        },
+        "pc": {
+          "to": "\"idle\""
+        },
+        "sentFor": {
+          "to": "{}"
+        },
+        "retryIn": {
+          "to": "(t1 :> FALSE)"
+        },
+        "bad1": {
+          "to": "FALSE"
+        },
+        "bad2": {
+          "to": "FALSE"
+        },
+        "bad6": {
+          "to": "FALSE"
+        },
+        "own": {
+          "to": "(t1 :> FALSE)"
+        },
+        "nCancels": {
+          "to": "0"
+        },
+        "nStarts": {
+          "to": "0"
+        },
+        "nUnready": {
+          "to": "0"
+        },
+        "recovering": {
+          "to": "FALSE"
+        },
+        "rp": {
+          "to": "\"idle\""
+        },
+        "planning": {
+          "to": "{}"
+        },
+        "aLink": {
+          "to": "TRUE"
+        },
+        "sg": {
+          "to": "(t1 :> 0)"
+        },
+        "last": {
+          "to": "(t1 :> 0)"
+        },
+        "psg": {
+          "to": "(t1 :> 0)"
+        },
+        "awaiting": {
+          "to": "(t1 :> FALSE)"
+        },
+        "online": {
+          "to": "TRUE"
+        },
+        "vRes": {
+          "to": "{}"
+        },
+        "runFor": {
+          "to": "(t1 :> 0)"
+        },
+        "probingM": {
+          "to": "FALSE"
+        },
+        "calledOff": {
+          "to": "{}"
+        },
+        "vN": {
+          "to": "0"
+        },
+        "runWait": {
+          "to": "(t1 :> -1)"
+        },
+        "kindOf": {
+          "to": "<<\"none\", \"none\">>"
+        },
+        "vW": {
+          "to": "{}"
+        },
+        "waiting": {
+          "to": "(t1 :> FALSE)"
+        },
+        "run": {
+          "to": "(t1 :> \"idle\")"
+        },
+        "probing": {
+          "to": "(t1 :> 0)"
+        },
+        "defOK": {
+          "to": "TRUE"
+        },
+        "bad2h": {
+          "to": "FALSE"
+        },
+        "judged": {
+          "to": "{}"
+        },
+        "calledOffH": {
+          "to": "{}"
+        },
+        "timer": {
+          "to": "FALSE"
+        }
+      }
+    },
+    {
+      "n": 2,
+      "step": "UserPrompt(t1)",
+      "action": "UserPrompt",
+      "location": {
+        "module": "TurnResume",
+        "line": 95,
+        "col": 5,
+        "endLine": 103,
+        "endCol": 130
+      },
+      "code": [
+        "src/main/sidecar-run-state.ts:156-160",
+        "src/main/turn-resume.ts:448-451"
+      ],
+      "changed": {
+        "userRun": {
+          "from": "(t1 :> FALSE)",
+          "to": "(t1 :> TRUE)"
+        },
+        "pc": {
+          "from": "\"idle\"",
+          "to": "\"s_watch\""
+        },
+        "nStarts": {
+          "from": "0",
+          "to": "1"
+        },
+        "run": {
+          "from": "(t1 :> \"idle\")",
+          "to": "(t1 :> \"running\")"
+        }
+      }
+    },
+    {
+      "n": 3,
+      "step": "S_Watch",
+      "action": "S_Watch",
+      "location": {
+        "module": "TurnResume",
+        "line": 210,
+        "col": 5,
+        "endLine": 219,
+        "endCol": 68
+      },
+      "code": [
+        "src/main/turn-resume.ts:654-664"
+      ],
+      "changed": {
+        "pc": {
+          "from": "\"s_watch\"",
+          "to": "\"s_newrun\""
+        }
+      }
+    },
+    {
+      "n": 4,
+      "step": "S_NewRun",
+      "action": "S_NewRun",
+      "location": {
+        "module": "TurnResume",
+        "line": 224,
+        "col": 5,
+        "endLine": 237,
+        "endCol": 120
+      },
+      "code": [
+        "src/main/turn-resume.ts:502-512",
+        "src/main/turn-resume.ts:878-887"
+      ],
+      "changed": {
+        "pc": {
+          "from": "\"s_newrun\"",
+          "to": "\"s_judge\""
+        }
+      }
+    },
+    {
+      "n": 5,
+      "step": "S_Judge",
+      "action": "S_Judge",
+      "location": {
+        "module": "TurnResume",
+        "line": 244,
+        "col": 5,
+        "endLine": 279,
+        "endCol": 123
+      },
+      "code": [
+        "src/main/turn-resume.ts:517-540",
+        "src/main/turn-resume.ts:548-557",
+        "src/main/turn-resume.ts:617-632",
+        "src/main/turn-resume.ts:736-740"
+      ],
+      "changed": {
+        "pc": {
+          "from": "\"s_judge\"",
+          "to": "\"s_marker\""
+        }
+      }
+    },
+    {
+      "n": 6,
+      "step": "S_Marker",
+      "action": "S_Marker",
+      "location": {
+        "module": "TurnResume",
+        "line": 283,
+        "col": 5,
+        "endLine": 288,
+        "endCol": 126
+      },
+      "code": [
+        "src/main/turn-resume.ts:470-476"
+      ],
+      "changed": {
+        "store": {
+          "from": "(t1 :> \"none\")",
+          "to": "(t1 :> \"running\")"
+        },
+        "pc": {
+          "from": "\"s_marker\"",
+          "to": "\"idle\""
+        }
+      }
+    },
+    {
+      "n": 7,
+      "step": "EndRun(t1,\"transient\")",
+      "action": "EndRun",
+      "location": {
+        "module": "TurnResume",
+        "line": 108,
+        "col": 5,
+        "endLine": 113,
+        "endCol": 111
+      },
+      "code": [
+        "src/main/sidecar-run-state.ts:165-166",
+        "src/main/turn-resume.ts:448-451"
+      ],
+      "changed": {
+        "nO": {
+          "from": "0",
+          "to": "1"
+        },
+        "pc": {
+          "from": "\"idle\"",
+          "to": "\"s_watch\""
+        },
+        "last": {
+          "from": "(t1 :> 0)",
+          "to": "(t1 :> 1)"
+        },
+        "kindOf": {
+          "from": "<<\"none\", \"none\">>",
+          "to": "<<\"transient\", \"none\">>"
+        }
+      }
+    },
+    {
+      "n": 8,
+      "step": "S_Watch",
+      "action": "S_Watch",
+      "location": {
+        "module": "TurnResume",
+        "line": 210,
+        "col": 5,
+        "endLine": 219,
+        "endCol": 68
+      },
+      "code": [
+        "src/main/turn-resume.ts:654-664"
+      ],
+      "changed": {
+        "pc": {
+          "from": "\"s_watch\"",
+          "to": "\"s_newrun\""
+        }
+      }
+    },
+    {
+      "n": 9,
+      "step": "S_NewRun",
+      "action": "S_NewRun",
+      "location": {
+        "module": "TurnResume",
+        "line": 224,
+        "col": 5,
+        "endLine": 237,
+        "endCol": 120
+      },
+      "code": [
+        "src/main/turn-resume.ts:502-512",
+        "src/main/turn-resume.ts:878-887"
+      ],
+      "changed": {
+        "pc": {
+          "from": "\"s_newrun\"",
+          "to": "\"s_judge\""
+        }
+      }
+    },
+    {
+      "n": 10,
+      "step": "S_Judge",
+      "action": "S_Judge",
+      "location": {
+        "module": "TurnResume",
+        "line": 244,
+        "col": 5,
+        "endLine": 279,
+        "endCol": 123
+      },
+      "code": [
+        "src/main/turn-resume.ts:517-540",
+        "src/main/turn-resume.ts:548-557",
+        "src/main/turn-resume.ts:617-632",
+        "src/main/turn-resume.ts:736-740"
+      ],
+      "changed": {
+        "pc": {
+          "from": "\"s_judge\"",
+          "to": "\"s_marker\""
+        },
+        "planning": {
+          "from": "{}",
+          "to": "{<<t1, 1, 0, 0>>}"
+        },
+        "judged": {
+          "from": "{}",
+          "to": "{1}"
+        }
+      }
+    },
+    {
+      "n": 11,
+      "step": "S_Marker",
+      "action": "S_Marker",
+      "location": {
+        "module": "TurnResume",
+        "line": 283,
+        "col": 5,
+        "endLine": 288,
+        "endCol": 126
+      },
+      "code": [
+        "src/main/turn-resume.ts:470-476"
+      ],
+      "changed": {
+        "pc": {
+          "from": "\"s_marker\"",
+          "to": "\"idle\""
+        }
+      }
+    },
+    {
+      "n": 12,
+      "step": "Settle(t1)",
+      "action": "Settle",
+      "location": {
+        "module": "TurnResume",
+        "line": 118,
+        "col": 5,
+        "endLine": 121,
+        "endCol": 124
+      },
+      "code": [
+        "src/main/sidecar-run-state.ts:156-172",
+        "src/main/turn-resume.ts:448-451"
+      ],
+      "changed": {
+        "pc": {
+          "from": "\"idle\"",
+          "to": "\"s_watch\""
+        },
+        "run": {
+          "from": "(t1 :> \"running\")",
+          "to": "(t1 :> \"idle\")"
+        }
+      }
+    },
+    {
+      "n": 13,
+      "step": "S_Watch",
+      "action": "S_Watch",
+      "location": {
+        "module": "TurnResume",
+        "line": 210,
+        "col": 5,
+        "endLine": 219,
+        "endCol": 68
+      },
+      "code": [
+        "src/main/turn-resume.ts:654-664"
+      ],
+      "changed": {
+        "pc": {
+          "from": "\"s_watch\"",
+          "to": "\"s_newrun\""
+        }
+      }
+    },
+    {
+      "n": 14,
+      "step": "S_NewRun",
+      "action": "S_NewRun",
+      "location": {
+        "module": "TurnResume",
+        "line": 224,
+        "col": 5,
+        "endLine": 237,
+        "endCol": 120
+      },
+      "code": [
+        "src/main/turn-resume.ts:502-512",
+        "src/main/turn-resume.ts:878-887"
+      ],
+      "changed": {
+        "pc": {
+          "from": "\"s_newrun\"",
+          "to": "\"s_judge\""
+        }
+      }
+    },
+    {
+      "n": 15,
+      "step": "S_Judge",
+      "action": "S_Judge",
+      "location": {
+        "module": "TurnResume",
+        "line": 244,
+        "col": 5,
+        "endLine": 279,
+        "endCol": 123
+      },
+      "code": [
+        "src/main/turn-resume.ts:517-540",
+        "src/main/turn-resume.ts:548-557",
+        "src/main/turn-resume.ts:617-632",
+        "src/main/turn-resume.ts:736-740"
+      ],
+      "changed": {
+        "pc": {
+          "from": "\"s_judge\"",
+          "to": "\"s_marker\""
+        }
+      }
+    },
+    {
+      "n": 16,
+      "step": "S_Marker",
+      "action": "S_Marker",
+      "location": {
+        "module": "TurnResume",
+        "line": 283,
+        "col": 5,
+        "endLine": 288,
+        "endCol": 126
+      },
+      "code": [
+        "src/main/turn-resume.ts:470-476"
+      ],
+      "changed": {
+        "store": {
+          "from": "(t1 :> \"running\")",
+          "to": "(t1 :> \"none\")"
+        },
+        "pc": {
+          "from": "\"s_marker\"",
+          "to": "\"idle\""
+        }
+      }
+    },
+    {
+      "n": 17,
+      "step": "PlanResume(t1,1,0,0)",
+      "action": "PlanResume",
+      "location": {
+        "module": "TurnResume",
+        "line": 321,
+        "col": 5,
+        "endLine": 330,
+        "endCol": 58
+      },
+      "code": [
+        "src/main/turn-resume.ts:626-631"
+      ],
+      "changed": {
+        "armO": {
+          "from": "(t1 :> 0)",
+          "to": "(t1 :> 1)"
+        },
+        "armId": {
+          "from": "(t1 :> 0)",
+          "to": "(t1 :> 1)"
+        },
+        "armAtt": {
+          "from": "(t1 :> 0)",
+          "to": "(t1 :> 1)"
+        },
+        "planning": {
+          "from": "{<<t1, 1, 0, 0>>}",
+          "to": "{}"
+        }
+      }
+    },
+    {
+      "n": 18,
+      "step": "LinkDown",
+      "action": "LinkDown",
+      "location": {
+        "module": "TurnResume",
+        "line": 454,
+        "col": 5,
+        "endLine": 456,
+        "endCol": 118
+      },
+      "code": [
+        "src/main/connectivity.ts:74-77"
+      ],
+      "changed": {
+        "flaps": {
+          "from": "0",
+          "to": "1"
+        },
+        "link": {
+          "from": "TRUE",
+          "to": "FALSE"
+        },
+        "online": {
+          "from": "TRUE",
+          "to": "FALSE"
+        }
+      }
+    },
+    {
+      "n": 19,
+      "step": "FireStart(t1)",
+      "action": "FireStart",
+      "location": {
+        "module": "TurnResume",
+        "line": 334,
+        "col": 5,
+        "endLine": 343,
+        "endCol": 58
+      },
+      "code": [
+        "src/main/turn-resume.ts:675-682"
+      ],
+      "changed": {
+        "fireId": {
+          "from": "(t1 :> -1)",
+          "to": "(t1 :> 1)"
+        }
+      }
+    },
+    {
+      "n": 20,
+      "step": "FireResume(t1)",
+      "action": "FireResume",
+      "location": {
+        "module": "TurnResume",
+        "line": 348,
+        "col": 5,
+        "endLine": 380,
+        "endCol": 92
+      },
+      "code": [
+        "src/main/turn-resume.ts:681-697",
+        "src/main/turn-resume.ts:736-740"
+      ],
+      "changed": {
+        "armO": {
+          "from": "(t1 :> 1)",
+          "to": "(t1 :> 0)"
+        },
+        "waitFor": {
+          "from": "(t1 :> 0)",
+          "to": "(t1 :> 1)"
+        },
+        "attempts": {
+          "from": "(t1 :> 0)",
+          "to": "(t1 :> 1)"
+        },
+        "fireId": {
+          "from": "(t1 :> 1)",
+          "to": "(t1 :> -1)"
+        },
+        "own": {
+          "from": "(t1 :> FALSE)",
+          "to": "(t1 :> TRUE)"
+        },
+        "awaiting": {
+          "from": "(t1 :> FALSE)",
+          "to": "(t1 :> TRUE)"
+        },
+        "waiting": {
+          "from": "(t1 :> FALSE)",
+          "to": "(t1 :> TRUE)"
+        }
+      },
+      "violation": true
+    }
+  ],
+  "message": "Invariant MarkerNetwork is violated."
+}

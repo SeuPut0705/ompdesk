@@ -1,0 +1,196 @@
+{
+	"concern": "session-listing",
+	"workflow": "W1",
+	"generated_at": "2026-10-28T09:09:57.124Z",
+	"repo_commit": "b7d45962525cd52ce08554f6fce5e75cd92c20be",
+	"summary": "1 confirmed finding: a paired device can keep listing a session as held by a host tab after that tab is gone (F3), because the host's re-announce compares with the snapshot any device's read last recorded and the window tab's session-id change unregisters the file silently; with that one step announced, heldOnHost and openedBySession converge for 2 devices, 1 window tab, 1 hosted tab, 2 sessions, 3 host changes, any message order (2.9M states, depth 32; 14.8M with a journal event), and each property has mutations that fail it (8 of 8 DETECTED).",
+	"scope": {
+		"modeled": [
+			"LocalHostServices listingChanged/#listing/#listingSnapshot/sessionsChanged/sessions.list; the window tabs' register/unregister/notify; the closed-child record merged by sessionOpeners",
+			"the device feed: refresh (one read in flight, one queued), the 350 ms debounce, reconcile/sameRow"
+		],
+		"abstracted": [
+			"two devices, one window tab, one hosted tab opened by the window tab, two sessions, at most 3 host changes; a device's two feeds are two devices",
+			"only the overlay the property is about (heldOnHost, openedBySession): the index rows are not modeled",
+			"timers are order only"
+		],
+		"out_of_scope": [
+			"connection loss and reconnect, retain/release of the feed, read errors and backoff",
+			"other row fields (status, messageCount, firstMessage, parentSessionPath are not compared by sameRow; not examined)",
+			"deleting and renaming sessions, the snapshot cache, several windows of one device"
+		],
+		"assumptions": [
+			"A1: replies and events reach a device in any order (the code enforces none)",
+			"A2: a handler's mutation and its listingChanged() call run in one synchronous block; a sessions.list reads rows and snapshot in one block",
+			"A6: sessionInfoUpdate with a new id is eventually followed by the `session` identity (the code's own comment relies on a hydrate)"
+		]
+	},
+	"properties": [
+		{
+			"name": "HeldConverges",
+			"kind": "invariant",
+			"statement": "HeldConverges == Quiescent => \\A d \\in Devices : view[d] # Unk /\\ view[d].held = Held(file)",
+			"meaning": "Once nothing is in flight, every device's rows say heldOnHost for exactly the sessions a host tab holds.",
+			"source": "src/shared/ipc-types.ts:1773-1778; host-services.ts:1263-1267; host-services.test.ts 'tells devices to read the list again when a tab here takes or lets go of a session'",
+			"frozen": true,
+			"result": "violated",
+			"tool": "TLC 1.8.0",
+			"bounds": "Devices={d1,d2}, Sessions={s1,s2}, WinTabs={w1}, HostTabs={h1}, MaxChanges=3, MaxCh=3, any delivery order, IdChangeAnnounces=FALSE (the code as written); holds with IdChangeAnnounces=TRUE (a mirrored fix, 2925449 states)",
+			"evidence": "formal/session-listing/evidence/SessionListing-MC_code.log"
+		},
+		{
+			"name": "OpenersConverge",
+			"kind": "invariant",
+			"statement": "OpenersConverge == Quiescent => \\A d \\in Devices : view[d] # Unk /\\ view[d].op = Openers(file, rec)",
+			"meaning": "Under the same condition every device's openedBySession equals the host's opener map.",
+			"source": "src/shared/ipc-types.ts:1760-1766; host-services.test.ts 'names who opened each session it lists to a device'",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC 1.8.0",
+			"bounds": "as HeldConverges with IdChangeAnnounces=TRUE (2925449 states); the unannounced id change is not shown to break it in the minimal counterexample",
+			"evidence": "formal/session-listing/evidence/SessionListing-MC.log"
+		}
+	],
+	"findings": [
+		{
+			"id": "F3",
+			"title": "A device keeps listing a session as held by a host tab after the tab is gone",
+			"severity": "medium",
+			"status": "confirmed",
+			"property": "HeldConverges",
+			"story": "A window on the host holds session s1; the host re-announces a change only when #listing() differs from #listingSnapshot, which every sessions.list from any device overwrites. Device d2 lists the sessions (it sees s1 held). The window's omp reports another sessionId: sidecar-pool.ts's sessionInfoUpdate handler unregisters the file (entry.sessionFile = undefined) and calls no listingChanged(), so windowSessionFiles() no longer holds s1 but nothing was announced. Device d1 reads the list in that gap: the rows say s1 is not held and the host records that listing as its snapshot. The tab then closes: #releaseEntry notifies, listingChanged() finds the listing equal to d1's snapshot and sends nothing. Device d2 keeps the row as held on the host until something else makes it read again (a journal change, a reconnect). The same device with its two feeds (local and global scope) is enough: the snapshot is shared by every read.",
+			"trace": [
+				{
+					"step": 1,
+					"action": "Init",
+					"changed": {
+						"pendReg": "{}",
+						"snap": "[held |-> {\"?\"}, op |-> {}]",
+						"ch": "(d1 :> <<>> @@ d2 :> <<>>)",
+						"deb": "(d1 :> FALSE @@ d2 :> FALSE)",
+						"file": "[w1 |-> \"none\", h1 |-> \"none\"]",
+						"view": "(d1 :> [held |-> {\"?\"}, op |-> {}] @@ d2 :> [held |-> {\"?\"}, op |-> {}])",
+						"inFlight": "(d1 :> TRUE @@ d2 :> TRUE)",
+						"evTimer": "FALSE",
+						"queued": "(d1 :> FALSE @@ d2 :> FALSE)"
+					}
+				},
+				{
+					"step": 2,
+					"action": "Open(\"w1\",\"s1\")",
+					"actor": "host tabs",
+					"code": "src/main/remote/host-services.ts:1589-1615; src/main/sidecar-pool.ts:651",
+					"changed": {
+						"file": "[w1 |-> \"none\", h1 |-> \"none\"] -> [w1 |-> \"s1\", h1 |-> \"none\"]"
+					}
+				},
+				{
+					"step": 3,
+					"action": "Compute(d1)",
+					"actor": "host",
+					"code": "src/main/remote/host-services.ts:996-1011",
+					"changed": {
+						"snap": "[held |-> {\"?\"}, op |-> {}] -> [held |-> {\"s1\"}, op |-> {}]",
+						"ch": "(d1 :> <<>> @@ d2 :> <<>>) -> (d1 :> <<[kind |-> \"reply\", l |-> [held |-> {\"s1\"}, op |-> {}]]>> @@ d2 :> <<>>)"
+					}
+				},
+				{
+					"step": 4,
+					"action": "IdChange(\"w1\")",
+					"actor": "window tab",
+					"code": "src/main/sidecar-pool.ts:952-963",
+					"changed": {
+						"pendReg": "{} -> {\"w1\"}",
+						"file": "[w1 |-> \"s1\", h1 |-> \"none\"] -> [w1 |-> \"none\", h1 |-> \"none\"]"
+					}
+				},
+				{
+					"step": 5,
+					"action": "Compute(d2)",
+					"actor": "host",
+					"code": "src/main/remote/host-services.ts:996-1011",
+					"changed": {
+						"snap": "[held |-> {\"s1\"}, op |-> {}] -> [held |-> {}, op |-> {}]",
+						"ch": "(d1 :> <<[kind |-> \"reply\", l |-> [held |-> {\"s1\"}, op |-> {}]]>> @@ d2 :> <<>>) -> ( d1 :> <<[kind |-> \"reply\", l |-> [held |-> {\"s1\"}, op |-> {}]]>> @@ d2 :> <<[kind |-> \"reply\", l |-> [held |-> {}, op |-> {}]]>> )"
+					}
+				},
+				{
+					"step": 6,
+					"action": "Close(\"w1\")",
+					"actor": "host tabs",
+					"code": "src/main/remote/host-services.ts:2237-2265; src/main/sidecar-pool.ts:1792-1793",
+					"changed": {
+						"pendReg": "{\"w1\"} -> {}"
+					}
+				},
+				{
+					"step": 7,
+					"action": "DeliverReply(d1,1)",
+					"actor": "device",
+					"code": "src/renderer/stores/session-list.ts:129-137; src/renderer/stores/session-list.ts:168-174",
+					"changed": {
+						"ch": "( d1 :> <<[kind |-> \"reply\", l |-> [held |-> {\"s1\"}, op |-> {}]]>> @@ d2 :> <<[kind |-> \"reply\", l |-> [held |-> {}, op |-> {}]]>> ) -> (d1 :> <<>> @@ d2 :> <<[kind |-> \"reply\", l |-> [held |-> {}, op |-> {}]]>>)",
+						"view": "(d1 :> [held |-> {\"?\"}, op |-> {}] @@ d2 :> [held |-> {\"?\"}, op |-> {}]) -> (d1 :> [held |-> {\"s1\"}, op |-> {}] @@ d2 :> [held |-> {\"?\"}, op |-> {}])",
+						"inFlight": "(d1 :> TRUE @@ d2 :> TRUE) -> (d1 :> FALSE @@ d2 :> TRUE)"
+					}
+				},
+				{
+					"step": 8,
+					"action": "DeliverReply(d2,1)",
+					"actor": "device",
+					"code": "src/renderer/stores/session-list.ts:129-137; src/renderer/stores/session-list.ts:168-174",
+					"changed": {
+						"ch": "(d1 :> <<>> @@ d2 :> <<[kind |-> \"reply\", l |-> [held |-> {}, op |-> {}]]>>) -> (d1 :> <<>> @@ d2 :> <<>>)",
+						"view": "(d1 :> [held |-> {\"s1\"}, op |-> {}] @@ d2 :> [held |-> {\"?\"}, op |-> {}]) -> (d1 :> [held |-> {\"s1\"}, op |-> {}] @@ d2 :> [held |-> {}, op |-> {}])",
+						"inFlight": "(d1 :> FALSE @@ d2 :> TRUE) -> (d1 :> FALSE @@ d2 :> FALSE)"
+					},
+					"violation": true
+				}
+			],
+			"reproduction": {
+				"test": "src/main/remote/host-services.test.ts::LocalHostServices > REPRODUCTION F3 (with a passing control 'control for F3')",
+				"result_before_fix": "fails",
+				"result_after_fix": "not-run"
+			},
+			"fix": {
+				"summary": "Proposed, not applied: call listingChanged() where sessionInfoUpdate unregisters the file (the model toggle IdChangeAnnounces=TRUE mirrors it; HeldConverges then holds); or snapshot per device/connection instead of one for all.",
+				"model_recheck": "passes",
+				"mutation_check": "fails-as-expected"
+			},
+			"evidence": [
+				"formal/session-listing/evidence/SessionListing-MC_code.log",
+				"formal/session-listing/evidence/F3-trace.json",
+				"formal/session-listing/evidence/repro-F3-vitest.log"
+			]
+		}
+	],
+	"trust_base": {
+		"tla": {
+			"tool_version": "TLC 1.8.0 (tla2tools 1.8.0), java 17",
+			"states_generated": 15073864,
+			"distinct_states": 2925449,
+			"depth": 32,
+			"sanity_checks": [
+				"MC_code.cfg (IdChangeAnnounces=FALSE) violates HeldConverges; MC.cfg (IdChangeAnnounces=TRUE) holds",
+				"NeverHeld and NeverOpener are violated, so a held row and an opener row are reachable",
+				"mutate.ts: 8 of 8 mutations DETECTED, no property UNCOVERED (TypeOK waived)",
+				"with an in-order channel (Ordered=TRUE) the mutation lost-queued-refresh is MISSED (formal/session-listing/evidence/mutation-queued-ordered.log): the queued re-read is redundant if replies never trail events; the code does not enforce that order, so the model allows any order",
+				"deep run (a journal event, queues of 4): 14791048 distinct states, depth 35, holds with IdChangeAnnounces=TRUE",
+				"deadlock checking is ON (explicit Terminated action)",
+				"scratch break (persist step A.5): removing listingChanged() from #closeTab in host-services.ts and from the model's hosted-tab Close made `verify-all.ts formal --only session-listing` FAIL on HeldConverges with Close(\"h1\") tagged host-services.ts:2237-2265 and the drift line naming src/main/remote/host-services.ts (formal/session-listing/evidence/scratch-break-run.log); after dropping both edits the run PASSES with --strict-drift (formal/session-listing/evidence/scratch-dropped-rerun.log)"
+			]
+		}
+	},
+	"rerun": [
+		"bun <tools-dir>/scripts/verify-all.ts formal --only session-listing",
+		"bun <tools-dir>/scripts/tlc.ts formal/session-listing/tla/SessionListing.tla --matrix formal/session-listing/tla/matrix.json",
+		"bun <tools-dir>/scripts/mutate.ts formal/session-listing/tla/SessionListing.tla formal/session-listing/tla/mutations.json",
+		"bunx vitest run src/main/remote/host-services.test.ts -t F3"
+	],
+	"next_steps": [
+		"Fix F3 when the user asks (announce at the unregister, or snapshot per connection); flip matrix run F3-code-as-written to pass",
+		"W4 candidate, not applied: the device's `queued` re-read is dead if replies and events are delivered in order; the code does not guarantee that order, so keep it",
+		"W5: add the fast tier (about 40 s plus mutations) to CI; the deep tier (108 s) nightly",
+		"Model connection loss and reconnect, and the other row fields sameRow ignores, as further concerns"
+	]
+}

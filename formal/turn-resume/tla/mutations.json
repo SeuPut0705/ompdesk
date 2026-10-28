@@ -1,0 +1,111 @@
+{
+	"checker": { "kind": "tlc", "config": "MC_marker_fix.cfg", "workers": 4, "timeoutSec": 600 },
+	"properties": [
+		"TypeOK",
+		"NoRetryIntoUserRun",
+		"NoRetryAfterCallOff",
+		"MarkerNetwork",
+		"OneOfWaitOrScheduled",
+		"OneProbePerHost",
+		"OfflineOnlyOnNoAnswer",
+		"WaitEnds",
+		"ProbeEnds",
+		"NoRetryAfterSessionChangeWhileHeld"
+	],
+	"waive": {
+		"TypeOK": "Shape check only: no behaviour change breaks it without also breaking a property above it.",
+		"NoRetryAfterSessionChangeWhileHeld": "Added by the verifier and FAILS on the unmodified code (finding F4, matrix run F4-session-change-while-held): its ability to fail is shown by the code itself."
+	},
+	"mutations": [
+		{
+			"name": "keep-held-wait-on-new-user-run",
+			"why": "sync() no longer ends a held wait when the user starts a new run (#judge's `fact.running && !fact.lastRun` clause covers only the probe): flush later sends retry into the user's live run.",
+			"file": "TurnResume.tla",
+			"search": "userRunWhileHeld == run[t] = \"running\" /\\ last[t] = 0 /\\ (waiting[t] \\/ probing[t] # 0)",
+			"replace": "userRunWhileHeld == run[t] = \"running\" /\\ last[t] = 0 /\\ (probing[t] # 0)",
+			"breaks": "NoRetryIntoUserRun",
+			"config": "MC_p1.cfg"
+		},
+		{
+			"name": "probe-ignores-session-change",
+			"why": "#verifyNetwork's continuation stops comparing the session file and `touched` count: a session or branch change during the probe still ends in a held wait and a retry.",
+			"file": "TurnResume.tla",
+			"search": "holds == last[t] = o /\\ ~stopped[t] /\\ sg[t] = psg[t]",
+			"replace": "holds == last[t] = o /\\ ~stopped[t]",
+			"breaks": "NoRetryAfterCallOff",
+			"config": "MC_p2.cfg"
+		},
+		{
+			"name": "marker-ignores-wait",
+			"why": "deriveMarkers stops giving awaitingConnection the `network` reason: a crash during the wait no longer retries.",
+			"file": "TurnResume.tla",
+			"search": "IF awaiting[ct] THEN \"network\" ELSE IF stopped[ct] THEN \"none\"",
+			"replace": "IF FALSE THEN \"network\" ELSE IF stopped[ct] THEN \"none\"",
+			"breaks": "MarkerNetwork",
+			"config": "MC_p4.cfg"
+		},
+		{
+			"name": "fire-keeps-armed-row-on-hold",
+			"why": "#fire stops releasing the scheduled retry before it hands the attempt to the connection wait: the tab shows a wait and a scheduled retry at once.",
+			"file": "TurnResume.tla",
+			"search": "/\\ armO' = [armO EXCEPT ![t] = 0]                         \\* #releaseScheduled",
+			"replace": "/\\ UNCHANGED armO",
+			"breaks": "OneOfWaitOrScheduled",
+			"config": "MC_p5.cfg"
+		},
+		{
+			"name": "unshared-probe",
+			"why": "verify() starts a probe for every ask instead of sharing the one in flight for the host.",
+			"file": "TurnResume.tla",
+			"search": "/\\ vN' = (IF vN = 0 THEN 1 ELSE vN)",
+			"replace": "/\\ vN' = vN + 1",
+			"breaks": "OneProbePerHost",
+			"config": "MC_p6.cfg"
+		},
+		{
+			"name": "offline-when-either-fails",
+			"why": "#reachable needs both asks to answer (`every` instead of `includes(true)`): a mistyped provider URL alone takes the state offline.",
+			"file": "TurnResume.tla",
+			"search": "LET reach == vLink0 /\\ (defOK \\/ hostOK)",
+			"replace": "LET reach == vLink0 /\\ (defOK /\\ hostOK)",
+			"breaks": "OfflineOnlyOnNoAnswer",
+			"config": "MC_p7.cfg"
+		},
+		{
+			"name": "remove-fairness-wait",
+			"why": "Nothing forces the runtime to run what is queued: a held wait may stay forever.",
+			"file": "TurnResume.tla",
+			"search": "Spec == Init /\\ [][Next]_vars /\\ Fairness",
+			"replace": "Spec == Init /\\ [][Next]_vars",
+			"breaks": "WaitEnds",
+			"config": "MC_live_wait.cfg"
+		},
+		{
+			"name": "remove-fairness-probe",
+			"why": "Nothing forces the probe to answer: a probe row may stay forever.",
+			"file": "TurnResume.tla",
+			"search": "Spec == Init /\\ [][Next]_vars /\\ Fairness",
+			"replace": "Spec == Init /\\ [][Next]_vars",
+			"breaks": "ProbeEnds",
+			"config": "MC_live_probe.cfg"
+		},
+		{
+			"name": "flush-leaves-wait-row",
+			"why": "flush() runs the continuation but forgets setAwaitingConnection(false): the wait row never goes.",
+			"file": "TurnResume.tla",
+			"search": "/\\ awaiting' = [t \\in Tabs |-> IF waiting[t] THEN FALSE ELSE awaiting[t]]",
+			"replace": "/\\ awaiting' = awaiting",
+			"breaks": "WaitEnds",
+			"config": "MC_live_wait.cfg"
+		},
+		{
+			"name": "probe-answer-lost",
+			"why": "The probe's answer never reaches the waiting tab (the .then is never called): the probe row stays.",
+			"file": "TurnResume.tla",
+			"search": "IN /\\ vRes' = vRes \\cup {<<w[1], w[2], result>> : w \\in vW}",
+			"replace": "IN /\\ vRes' = vRes",
+			"breaks": "ProbeEnds",
+			"config": "MC_live_probe.cfg"
+		}
+	]
+}
