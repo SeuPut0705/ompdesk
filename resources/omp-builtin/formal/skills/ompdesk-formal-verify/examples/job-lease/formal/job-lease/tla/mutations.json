@@ -1,0 +1,36 @@
+{
+	"checker": {
+		"kind": "tlc",
+		"config": "MC.cfg"
+	},
+	"mutations": [
+		{
+			"name": "drop-fencing",
+			"why": "commit no longer compares the claim token: a stale holder can commit after another worker did",
+			"search": "    /\\ UseFencing => wtok[w] = token",
+			"replace": "    /\\ TRUE",
+			"breaks": "SingleCommit"
+		},
+		{
+			"name": "drop-fairness",
+			"why": "nothing forces a worker holding a claim to ever commit or abort",
+			"search": " /\\ \\A w \\in Workers : WF_vars(Commit(w)) /\\ WF_vars(Abort(w))",
+			"replace": "",
+			"breaks": "ClaimedEventuallyDone"
+		},
+		{
+			"name": "token-bumped-twice",
+			"why": "a claim bumps the fencing token by two (the code and a trigger both increment it), leaving the range TypeOK states",
+			"search": "token' = token + 1 /\\ expired' = FALSE",
+			"replace": "token' = token + 2 /\\ expired' = FALSE",
+			"breaks": "TypeOK"
+		},
+		{
+			"name": "no-terminal-stutter",
+			"why": "a finished system has no step left: TLC reports the end state as a deadlock",
+			"search": "Next == Step \\/ (jobDone /\\ UNCHANGED vars)",
+			"replace": "Next == Step",
+			"breaks": "deadlock"
+		}
+	]
+}

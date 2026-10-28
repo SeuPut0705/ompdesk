@@ -1,0 +1,181 @@
+{
+	"concern": "job-lease",
+	"workflow": "W1",
+	"generated_at": "2026-10-28T09:30:00Z",
+	"summary": "Example: SingleCommit and ClaimedEventuallyDone hold for 2 workers and 1 job with at most 3 claims (25 distinct states); the same model without the fencing check reaches a double commit in 6 steps.",
+	"scope": {
+		"modeled": ["runJob: claim, work, commit with a fencing token", "lease expiry as an environment action"],
+		"abstracted": ["the work itself is one step", "one job row; more rows are symmetric"],
+		"out_of_scope": ["worker crashes between claim and commit", "clock skew between workers and the database"],
+		"assumptions": [
+			"A1: db.claim and db.commit are each one atomic statement",
+			"A2: the lease can expire at any moment while a worker is working"
+		]
+	},
+	"properties": [
+		{
+			"name": "SingleCommit",
+			"kind": "invariant",
+			"statement": "SingleCommit == Cardinality(commits) <= 1",
+			"meaning": "At most one worker commits the job.",
+			"source": "src/worker.ts:1 (header comment)",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC 1.8.0",
+			"bounds": "Workers={w1,w2}, MaxClaims=3, UseFencing=TRUE",
+			"evidence": "formal/job-lease/evidence/tlc-fast.log"
+		},
+		{
+			"name": "ClaimedEventuallyDone",
+			"kind": "liveness",
+			"statement": "ClaimedEventuallyDone == (owner # None) ~> jobDone",
+			"meaning": "Once someone holds a claim, the job gets done.",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC 1.8.0",
+			"bounds": "Workers={w1,w2}, MaxClaims=3, UseFencing=TRUE, weak fairness on Commit and Abort",
+			"evidence": "formal/job-lease/evidence/tlc-fast.log"
+		},
+		{
+			"name": "SingleCommit (bug mode)",
+			"kind": "invariant",
+			"statement": "SingleCommit == Cardinality(commits) <= 1",
+			"meaning": "The same invariant with UseFencing=FALSE: it must fail, which shows the check can fail.",
+			"result": "violated",
+			"tool": "TLC 1.8.0",
+			"bounds": "Workers={w1,w2}, MaxClaims=3, UseFencing=FALSE",
+			"evidence": "formal/job-lease/evidence/tlc-bug.json"
+		}
+	],
+	"findings": [
+		{
+			"id": "F1",
+			"title": "A worker whose lease expired can still commit the job",
+			"severity": "high",
+			"status": "suspected",
+			"property": "SingleCommit",
+			"story": "Worker w2 claims the job and stalls past its lease. The lease expires, worker w1 claims the job and commits it. When w2 wakes up, its commit is not checked against the row's token, so it commits as well and the job is committed twice. This trace is from the model without the fencing check; the shipped code has the check, so the example shows the shape of a finding, not a bug in the code.",
+			"trace": [
+				{
+					"step": 1,
+					"action": "Init",
+					"changed": {
+						"owner": "none",
+						"token": "0",
+						"jobDone": "FALSE"
+					}
+				},
+				{
+					"step": 2,
+					"actor": "w2",
+					"action": "Claim(w2)",
+					"code": "src/worker.ts:12-13",
+					"changed": {
+						"owner": "none -> w2",
+						"token": "0 -> 1",
+						"wtok[w2]": "0 -> 1"
+					}
+				},
+				{
+					"step": 3,
+					"actor": "environment",
+					"action": "Expire",
+					"changed": {
+						"expired": "FALSE -> TRUE"
+					}
+				},
+				{
+					"step": 4,
+					"actor": "w1",
+					"action": "Claim(w1)",
+					"code": "src/worker.ts:12-13",
+					"changed": {
+						"owner": "w2 -> w1",
+						"token": "1 -> 2",
+						"wtok[w1]": "0 -> 2",
+						"expired": "TRUE -> FALSE"
+					}
+				},
+				{
+					"step": 5,
+					"actor": "w1",
+					"action": "Commit(w1)",
+					"code": "src/worker.ts:17-19",
+					"changed": {
+						"jobDone": "FALSE -> TRUE",
+						"commits": "{} -> {w1}"
+					}
+				},
+				{
+					"step": 6,
+					"actor": "w2",
+					"action": "Commit(w2)",
+					"code": "src/worker.ts:17-19",
+					"changed": {
+						"commits": "{w1} -> {w1, w2}"
+					},
+					"violation": true
+				}
+			],
+			"reproduction": {
+				"result_before_fix": "not-reproduced",
+				"result_after_fix": "not-run"
+			},
+			"diagram": {
+				"nodes": [
+					{
+						"id": "w1",
+						"label": "worker w1 (claim #2)"
+					},
+					{
+						"id": "w2",
+						"label": "worker w2 (claim #1, stalled)"
+					},
+					{
+						"id": "row",
+						"label": "job row (committed twice)"
+					}
+				],
+				"edges": [
+					{
+						"from": "w1",
+						"to": "row",
+						"label": "claim, commit"
+					},
+					{
+						"from": "w2",
+						"to": "row",
+						"label": "stale commit"
+					}
+				],
+				"highlight": ["row", "w2->row"],
+				"steps": {
+					"w2": 2,
+					"w1": 4,
+					"row": 6
+				}
+			},
+			"evidence": ["formal/job-lease/evidence/tlc-bug.json"]
+		}
+	],
+	"trust_base": {
+		"tla": {
+			"tool_version": "TLC 1.8.0 (tla2tools 1.8.0)",
+			"states_generated": 43,
+			"distinct_states": 25,
+			"depth": 7,
+			"sanity_checks": [
+				"MC_bug.cfg (UseFencing=FALSE) violates SingleCommit, as expected",
+				"MC_sanity.cfg violates NoReclaim, so a reclaim after expiry is reachable"
+			]
+		}
+	},
+	"rerun": [
+		"bun formal/tools/scripts/tlc.ts formal/job-lease/tla/JobLease.tla --matrix formal/job-lease/tla/matrix.json",
+		"bun formal/tools/scripts/verify-all.ts formal --only job-lease"
+	],
+	"next_steps": [
+		"W5: add the matrix to CI with verify-all.ts formal --strict-drift",
+		"Persist the verify skill so the next change to src/worker.ts is checked against SingleCommit"
+	]
+}

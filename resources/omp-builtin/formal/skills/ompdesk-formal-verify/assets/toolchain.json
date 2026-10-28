@@ -1,0 +1,83 @@
+{
+	"version": 1,
+	"tla": {
+		"minJava": 11,
+		"tla2tools": {
+			"version": "1.8.0",
+			"file": "tla2tools.jar",
+			"url": "https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar",
+			"sha256": "fc6878c603f0fdc18b9fe3e5bf51860cb90ab5b1154e3c371660c036d6bdd63e"
+		},
+		"communityModules": {
+			"version": "202610131629",
+			"file": "CommunityModules-deps.jar",
+			"url": "https://github.com/tlaplus/CommunityModules/releases/download/202610131629/CommunityModules-deps.jar",
+			"sha256": "36f1431d58b24a9e98614d2e56eed9b4cfd3a089c3f2b986f78572632ed2831d"
+		},
+		"jre": {
+			"platforms": {
+				"darwin-arm64": {
+					"version": "21.0.13+9",
+					"url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.13%2B9/OpenJDK21U-jre_aarch64_mac_hotspot_21.0.13_9.tar.gz",
+					"sha256": "225bab0a09491ef06835488cd942f5d2befa9a0410a2484f0c8bbcf7506ec09a",
+					"format": "tar.gz"
+				},
+				"darwin-x64": {
+					"version": "21.0.13+9",
+					"url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.13%2B9/OpenJDK21U-jre_x64_mac_hotspot_21.0.13_9.tar.gz",
+					"sha256": "c909674b1c10c261b9a3fb7e9c0efebd303e33f88a4fe84be7135b5e2d711f89",
+					"format": "tar.gz"
+				},
+				"win32-x64": {
+					"version": "21.0.12.1+1",
+					"url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jre_x64_windows_hotspot_21.0.12.1_1.zip",
+					"sha256": "d35f31e712f0fcf6ac5a093edc90204fbff22f720ba3950bd09d331d5e621636",
+					"format": "zip"
+				}
+			}
+		}
+	},
+	"lean": {
+		"version": "4.35.0",
+		"toolchain": "leanprover/lean4:v4.35.0",
+		"elan": {
+			"version": "4.2.4",
+			"platforms": {
+				"darwin-arm64": {
+					"url": "https://github.com/leanprover/elan/releases/download/v4.2.4/elan-aarch64-apple-darwin.tar.gz",
+					"sha256": "7ad829861392c718dfebde3a83b5c8508df47be02af68894b094b0b3952616e5",
+					"format": "tar.gz"
+				},
+				"darwin-x64": {
+					"url": "https://github.com/leanprover/elan/releases/download/v4.2.4/elan-x86_64-apple-darwin.tar.gz",
+					"sha256": "8a340b309d8ed2e96f930761fa223b3af57a38f5d253b53ac90293c9516f8cd4",
+					"format": "tar.gz"
+				},
+				"win32-x64": {
+					"url": "https://github.com/leanprover/elan/releases/download/v4.2.4/elan-x86_64-pc-windows-msvc.zip",
+					"sha256": "fad2e980a191c15884cc1d80d170ffc5fa84f3774541020145b66d1a644c6111",
+					"format": "zip"
+				}
+			}
+		},
+		"archive": {
+			"platforms": {
+				"darwin-arm64": {
+					"url": "https://github.com/leanprover/lean4/releases/download/v4.35.0/lean-4.35.0-darwin_aarch64.zip",
+					"sha256": "55132a570e3dfc6203626944b262793c0f0f6a8230c0d09344a06ac992fac4a9",
+					"format": "zip"
+				},
+				"darwin-x64": {
+					"url": "https://github.com/leanprover/lean4/releases/download/v4.35.0/lean-4.35.0-darwin.zip",
+					"sha256": "67002270b63c6cb12d6024fd00a38aa1e5fc9dc9b6c91cd3bd6f5aa34ed333ef",
+					"format": "zip"
+				},
+				"win32-x64": {
+					"url": "https://github.com/leanprover/lean4/releases/download/v4.35.0/lean-4.35.0-windows.zip",
+					"sha256": "5fc033e93e1a7bc59c5ebf311103d2c9cd18d4b3eddda4ffa3414e8adb0ef79e",
+					"format": "zip"
+				}
+			}
+		}
+	}
+}

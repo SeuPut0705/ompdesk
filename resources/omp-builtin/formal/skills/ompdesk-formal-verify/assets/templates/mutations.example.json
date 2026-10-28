@@ -1,0 +1,23 @@
+{
+	"checker": { "kind": "tlc", "config": "MC.cfg" },
+	"properties": ["SingleCommit", "ClaimedEventuallyDone", "TypeOK"],
+	"waive": { "TypeOK": "a type invariant guards the model's shape, not a code behavior" },
+	"mutations": [
+		{
+			"name": "drop-fencing",
+			"why": "Commit no longer compares the worker's token with the row's: a stale worker commits after its lease was reclaimed",
+			"file": "JobLease.tla",
+			"search": "/\\ UseFencing => wtok[w] = token",
+			"replace": "/\\ TRUE",
+			"breaks": "SingleCommit"
+		},
+		{
+			"name": "drop-fairness",
+			"why": "Nothing forces a worker with a valid claim to finish, so the job may never be done",
+			"file": "JobLease.tla",
+			"search": " /\\ \\A w \\in Workers : WF_vars(Commit(w)) /\\ WF_vars(Abort(w))",
+			"replace": "",
+			"breaks": "ClaimedEventuallyDone"
+		}
+	]
+}

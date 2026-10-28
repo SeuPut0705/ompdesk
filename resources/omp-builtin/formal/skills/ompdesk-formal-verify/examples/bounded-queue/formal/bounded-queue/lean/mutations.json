@@ -1,0 +1,33 @@
+{
+	"checker": {
+		"kind": "lean",
+		"project": "."
+	},
+	"properties": ["never_overflows", "nothing_lost"],
+	"mutations": [
+		{
+			"name": "push-ignores-capacity",
+			"why": "push accepts one item too many: the queue can hold cap + 1 items",
+			"file": "BoundedQueue/System.lean",
+			"search": "(h : s.size < s.cap) :",
+			"replace": "(h : s.size < s.cap + 1) :",
+			"breaks": "never_overflows"
+		},
+		{
+			"name": "pop-ignores-empty",
+			"why": "shift on an empty queue counts as a receive: an item is invented",
+			"file": "BoundedQueue/System.lean",
+			"search": "(h : 0 < s.size)",
+			"replace": "(h : True)",
+			"breaks": "nothing_lost"
+		},
+		{
+			"name": "proof-replaced-by-sorry",
+			"why": "the trust audit must reject a theorem that is not proved",
+			"file": "BoundedQueue/Properties.lean",
+			"search": "    (fun s s' hi hs => by cases hs <;> simp_all <;> omega) h\n\n/-- Plain English: every item",
+			"replace": "    (fun s s' hi hs => by sorry) h\n\n/-- Plain English: every item",
+			"breaks": "never_overflows"
+		}
+	]
+}

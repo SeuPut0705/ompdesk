@@ -1,0 +1,18 @@
+{
+	"checker": {
+		"kind": "tlc",
+		"config": "MC.cfg"
+	},
+	"waive": {
+		"TypeOK": "Shape check only: no behaviour change breaks it without also breaking a property above it, and TLC already stops with an evaluation error when an action leaves a variable unspecified."
+	},
+	"mutations": [
+		{
+			"name": "drop-cas",
+			"why": "CancelWrite no longer re-checks the status at write time (the WHERE status = 'pending' removed): a payment that landed after the read is overwritten by a cancellation.",
+			"search": "/\\ UseCAS => status = \"pending\"",
+			"replace": "/\\ TRUE",
+			"breaks": "ValidTransitions"
+		}
+	]
+}

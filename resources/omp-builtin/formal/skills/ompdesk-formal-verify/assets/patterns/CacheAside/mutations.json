@@ -1,0 +1,18 @@
+{
+	"checker": {
+		"kind": "tlc",
+		"config": "MC.cfg"
+	},
+	"waive": {
+		"TypeOK": "Shape check only: no behaviour change breaks it without also breaking a property above it, and TLC already stops with an evaluation error when an action leaves a variable unspecified."
+	},
+	"mutations": [
+		{
+			"name": "drop-lease-check",
+			"why": "RFill writes the value it read even when an invalidation happened since (the lease-token compare removed): a stale fill overwrites the invalidated cache.",
+			"search": "/\\ cache' = (IF UseLease /\\ rtok[r] # gen THEN cache ELSE rval[r])",
+			"replace": "/\\ cache' = rval[r]",
+			"breaks": "NoStaleAtRest"
+		}
+	]
+}

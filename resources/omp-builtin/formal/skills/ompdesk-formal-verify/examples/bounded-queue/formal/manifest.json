@@ -1,0 +1,17 @@
+{
+	"version": 1,
+	"codeRoot": "..",
+	"models": [
+		{
+			"id": "bounded-queue",
+			"title": "Bounded queue: never overflows, nothing lost",
+			"kind": "lean",
+			"dir": "bounded-queue/lean",
+			"project": ".",
+			"mutations": "mutations.json",
+			"model": "BoundedQueue/Properties.lean",
+			"covers": ["src/queue.ts"],
+			"syncCommit": null
+		}
+	]
+}

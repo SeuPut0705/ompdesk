@@ -1,0 +1,32 @@
+{
+	"checker": {
+		"kind": "tlc",
+		"config": "MC.cfg"
+	},
+	"waive": {
+		"TypeOK": "Shape check only: no behaviour change breaks it without also breaking a property above it, and TLC already stops with an evaluation error when an action leaves a variable unspecified."
+	},
+	"mutations": [
+		{
+			"name": "drop-lock-guard",
+			"why": "Acquire no longer waits for a free lock (the UseLock guard removed): two threads can sit inside the critical section at once.",
+			"search": "/\\ UseLock => lock = NoOwner",
+			"replace": "/\\ TRUE",
+			"breaks": "MutEx"
+		},
+		{
+			"name": "drop-read",
+			"why": "Read no longer copies the counter, so every thread writes 1 even though exclusion still holds: the final count is wrong without any overlap, which only NoLostUpdate can notice.",
+			"search": "/\\ tmp' = [tmp EXCEPT ![t] = counter]",
+			"replace": "/\\ tmp' = tmp",
+			"breaks": "NoLostUpdate"
+		},
+		{
+			"name": "remove-fairness",
+			"why": "Without WF on Step a thread may stop forever before it finishes, so AllFinish must fail by stuttering.",
+			"search": "Spec == Init /\\ [][Next]_vars /\\ WF_vars(Step)",
+			"replace": "Spec == Init /\\ [][Next]_vars",
+			"breaks": "AllFinish"
+		}
+	]
+}

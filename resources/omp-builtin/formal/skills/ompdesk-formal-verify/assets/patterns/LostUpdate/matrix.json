@@ -1,0 +1,21 @@
+{
+	"runs": [
+		{
+			"name": "fixed",
+			"config": "MC.cfg",
+			"expect": "pass"
+		},
+		{
+			"name": "bug",
+			"config": "MC_bug.cfg",
+			"expect": "violation",
+			"property": "NoLostUpdate"
+		},
+		{
+			"name": "sanity",
+			"config": "MC_sanity.cfg",
+			"expect": "violation",
+			"property": "NeverAllDone"
+		}
+	]
+}

@@ -160,9 +160,11 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 				const pstackRoot = join(deps.builtinDir, "pstack");
 				const pstack = deps.pstackPref && pstackEnabled(deps.pstackPref()) ? ["-e", pstackRoot] : [];
 				const ecc = deps.eccPref && eccEnabled(deps.eccPref()) ? ["-e", join(deps.builtinDir, "ecc")] : [];
+				// The formal-verification skill (resources/omp-builtin/formal): no switch, every spawn, skill only.
+				const formal = ["-e", join(deps.builtinDir, "formal")];
 				const memory = (await deps.aiMemoryExtensionArgs?.()) ?? [];
 				return {
-					args: [...own, ...rea, ...pstack, ...ecc, ...memory],
+					args: [...own, ...rea, ...pstack, ...ecc, ...formal, ...memory],
 					...(rea.length ? { root: reaRoot } : {}),
 					// A chat (no project) keeps the packs' roots but not their section texts.
 					env: {

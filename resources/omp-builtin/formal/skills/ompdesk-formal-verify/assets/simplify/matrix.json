@@ -1,0 +1,7 @@
+{
+	"runs": [
+		{ "name": "current", "config": "MC_current.cfg", "expect": "pass" },
+		{ "name": "cas-only", "config": "MC_cas_only.cfg", "expect": "pass" },
+		{ "name": "lock-only", "config": "MC_lock_only.cfg", "expect": "action", "property": "ValidTransitions" }
+	]
+}

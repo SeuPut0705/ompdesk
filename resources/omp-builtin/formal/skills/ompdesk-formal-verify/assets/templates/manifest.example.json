@@ -1,0 +1,40 @@
+{
+	"version": 1,
+	"codeRoot": "..",
+	"models": [
+		{
+			"id": "job-lease",
+			"title": "Job lease: one commit per job",
+			"kind": "tla",
+			"dir": "job-lease/tla",
+			"spec": "JobLease.tla",
+			"matrix": "matrix.json",
+			"mutations": "mutations.json",
+			"covers": ["src/worker.ts"],
+			"syncCommit": "0123456789abcdef0123456789abcdef01234567",
+			"verifySkill": ".omp/skills/lease-verify/SKILL.md"
+		},
+		{
+			"id": "job-lease-deep",
+			"title": "Job lease, deep tier (3 workers, nightly)",
+			"kind": "tla",
+			"dir": "job-lease/tla",
+			"spec": "JobLease.tla",
+			"matrix": "matrix-deep.json",
+			"covers": ["src/worker.ts"],
+			"syncCommit": "0123456789abcdef0123456789abcdef01234567",
+			"verifySkill": ".omp/skills/lease-verify/SKILL.md"
+		},
+		{
+			"id": "queue",
+			"title": "Bounded queue: order and capacity for every input",
+			"kind": "lean",
+			"dir": "queue/lean",
+			"project": ".",
+			"model": "Queue/Model.lean",
+			"mutations": "mutations.json",
+			"covers": ["src/queue.ts"],
+			"syncCommit": null
+		}
+	]
+}

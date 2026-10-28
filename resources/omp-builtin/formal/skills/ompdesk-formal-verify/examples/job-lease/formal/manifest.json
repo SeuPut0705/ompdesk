@@ -1,0 +1,17 @@
+{
+	"version": 1,
+	"codeRoot": "..",
+	"models": [
+		{
+			"id": "job-lease",
+			"title": "Job lease: one commit per job",
+			"kind": "tla",
+			"dir": "job-lease/tla",
+			"spec": "JobLease.tla",
+			"matrix": "matrix.json",
+			"mutations": "mutations.json",
+			"covers": ["src/worker.ts"],
+			"syncCommit": null
+		}
+	]
+}

@@ -1,0 +1,216 @@
+> Adapted from opum-ai/proof-skills (MIT, Opum AI). See LICENSES/proof-skills-MIT.txt in the OMPdesk app resources.
+
+# TLC, SANY, PlusCal: command-line reference
+
+Two layers: `scripts/tlc.ts`, the wrapper this skill ships (run it with `bun`; it is the normal way to check a
+model), and the raw TLC/SANY flags, config keywords and exit codes that stay useful for `-- extra TLC args`,
+for reading logs and for CI without OMPdesk. `<skill-dir>` is the folder that holds `SKILL.md`.
+
+## Where the tools live, and lazy setup
+
+Nothing is installed with OMPdesk. `tlc.ts` prepares what it needs on first use by running the same code as
+`bun <skill-dir>/scripts/setup.ts tla`:
+
+| Piece | What it is |
+|---|---|
+| `tla2tools.jar` 1.8.0 | TLC, SANY, PlusCal translator, REPL. Pinned by SHA-256 in `assets/toolchain.json` |
+| `CommunityModules-deps.jar` | `Json`, `IOUtils` and friends (trace validation needs them); same pin file |
+| Java | The first working `java` of version 11 or newer on the machine (a macOS `/usr/bin/java` stub is probed with `java -version`). Only when none exists, a portable Temurin 21 JRE is downloaded into the cache |
+
+Cache folder: `~/.cache/ompdesk/formal` on macOS, `%LOCALAPPDATA%\ompdesk\formal` on Windows. Set
+`OMPDESK_FORMAL_CACHE=<dir>` to put it somewhere else (tests and CI should: a temp or shared directory, never
+the real home). `setup.ts` prints the exact paths it uses.
+
+```
+bun <skill-dir>/scripts/setup.ts tla            # prepare (idempotent); prints READY ... or UNAVAILABLE ...
+bun <skill-dir>/scripts/setup.ts tla --check    # report only; downloads nothing
+bun <skill-dir>/scripts/setup.ts tla --json     # the same, structured
+```
+
+Environment: `OMPDESK_FORMAL_OFFLINE=1` refuses downloads (the scripts then report UNAVAILABLE),
+`OMPDESK_FORMAL_JAVA=<java>` picks a Java, `OMPDESK_FORMAL_NO_SYSTEM_JAVA=1` ignores the system Java and uses
+the portable one, `OMPDESK_FORMAL_TOOLCHAIN=<pin file>` uses another pin file.
+
+## `tlc.ts`
+
+```
+bun <skill-dir>/scripts/tlc.ts <spec.tla> [--config X.cfg | --matrix matrix.json] [--workers N|auto]
+    [--no-deadlock] [--coverage] [--sany-only] [--out DIR] [--json FILE] [--code-root DIR]
+    [--timeout SEC] [--trace] [-- extra TLC args]
+bun <skill-dir>/scripts/tlc.ts --from-log <tlc-output.txt> [--spec Spec.tla] [--json FILE]
+```
+
+It parses the spec with SANY, runs TLC with `-noTE -nowarning -XX:+UseParallelGC` and a temporary metadir (no
+`states/` folder is left beside the spec), reads TLC's text output and prints:
+
+- `PASS` or `FAIL`, the number of distinct states and the search depth;
+- on a violation, deadlock or liveness failure, a reduced trace: one row per step with the action name, its
+  `@code` location and only the variables that changed in that step.
+
+| Flag | Effect |
+|---|---|
+| `--config X.cfg` | Config file; default is `<Spec>.cfg` next to the spec. `MC.cfg` is the convention, so pass it. Exclusive with `--matrix` |
+| `--matrix matrix.json` | Run every entry of a matrix file (below); each entry names its own config. Exit 0 only if every run matched its expectation |
+| `--workers N\|auto` | TLC worker threads (default 1). Use `auto` for big models; liveness checks gain less |
+| `--no-deadlock` | Do not check for deadlock (adds `-deadlock`, TLC's confusingly named flag). Prefer an explicit `Terminated` disjunct |
+| `--coverage` | Per-action coverage: actions that were never enabled are listed as a warning (a guard that is never true, dead code in the model) |
+| `--sany-only` | Parse and level-check only. The fast inner loop while writing a spec |
+| `--out DIR` | Keep TLC's full output in `DIR` (one `<Spec>-<config>.log` per run) |
+| `--json FILE` | Write the structured result (outcome, violated property, statistics, the reduced trace rows) for `findings.json` and `report.ts` |
+| `--code-root DIR` | Root for `@code` paths. Default: the nearest ancestor folder with `.git`, else the spec's folder |
+| `--timeout SEC` | Stop TLC after this long. The run ends as "timed out (no verdict)": a failed check, never a pass |
+| `--trace` | In a matrix, also print the trace of runs that were expected to fail and did (normally only mismatches print one) |
+| `--from-log FILE` | Explain a saved or pasted TLC output without running TLC (workflow "explain a trace"). Add `--spec Spec.tla` so the `@code` tags resolve; no other positional argument is needed |
+| `-- ...` | Everything after `--` goes to TLC unchanged, e.g. `-- -simulate num=200000 -depth 60` |
+
+TLC runs with the spec's folder as its working directory, so relative file names read by a spec (the `TRACE`
+log of `trace-validation.md`) resolve there, not in your shell's folder. A `@code` whose file or line range
+does not exist prints a `WARN` line and does not fail the run (the sample patterns use made-up paths, so they
+warn).
+
+### Exit codes (every script of this skill)
+
+| Code | Meaning |
+|---|---|
+| 0 | Pass: no counterexample within the stated bounds (for `--matrix`: every run met its expectation). Also READY for `setup.ts` |
+| 1 | A check ran and failed: invariant, action or temporal property violated, deadlock, a matrix entry that did not match, a stuck or timed-out run |
+| 2 | Usage error or a bad input file (spec, config, matrix, log not found or not parseable; a SANY parse error) |
+| 3 | UNAVAILABLE: TLC or Java could not be prepared (offline, download refused, unsupported platform). Report it as **not checked**, never as a pass |
+
+`tlc.ts` does not return TLC's own exit codes (those are in "Raw TLC exit codes" below); it prints which kind of
+failure happened.
+
+### `@code` tags: tying steps to code
+
+A comment line directly above an action definition, or inside its body, links the action to the code it stands
+for:
+
+```tla
+\* @code src/worker.ts:40-58 UPDATE jobs SET owner=$1 ... (optional note)
+Claim(w) == ...
+```
+
+The path is relative to the code root (the nearest ancestor with `.git`, else `--code-root`); lines are
+optional. Several tags above one action are allowed. One TLA+ atomic step must be one atomic step in the code.
+Traces from `tlc.ts` show the location next to each action; `verify-all.ts` checks that every tag still
+points into an existing file and line range (`ci-and-drift.md`). Leave environment actions (`Expire`, `Crash`,
+`Drop`) untagged: they are not code.
+
+### Matrix file
+
+A matrix lists several runs of one spec: the passing model, the bug toggle that must fail, the sanity check that
+must fail, larger bounds. It is the unit a manifest points at (`persist.md`).
+
+```json
+{
+	"runs": [
+		{ "name": "fast", "config": "MC.cfg", "expect": "pass" },
+		{ "name": "3w", "config": "MC.cfg", "constants": { "Workers": "{w1, w2, w3}" }, "workers": 4 },
+		{ "name": "bug", "config": "MC_bug.cfg", "expect": "violation", "property": "SingleCommit" }
+	]
+}
+```
+
+| Key | Meaning |
+|---|---|
+| `name` | Label in the output |
+| `config` | Config file, relative to the spec's folder |
+| `expect` | `pass` (default), `violation` (any), `invariant`, `deadlock`, `temporal`, `action` |
+| `property` | Optional name of the property that must be the one reported as violated |
+| `constants` | Optional overrides of cfg `CONSTANT` lines, written to a temporary cfg (the original is untouched) |
+| `deadlock` | `false` adds `-deadlock` (no deadlock check) for this run |
+| `workers`, `args`, `timeoutSec` | Worker count, extra TLC arguments (array of strings) and a time limit for this run |
+
+Why bug and sanity configs belong in the matrix: the run is "green" only when the buggy model **does** fail on
+the right property. A spec whose bug config stops failing has lost its power, and the matrix exit code says so.
+Use `temporal` for liveness violations and `action` for action-property violations (`[][...]_vars`); `tlc.ts`
+reports the two separately, so the wrong one does not match. `violation` accepts any of invariant, deadlock,
+temporal, action or `Assert`.
+
+Run it: `bun <skill-dir>/scripts/tlc.ts Spec.tla --matrix matrix.json`.
+
+## Raw TLC and SANY
+
+Checked against tla2tools 1.8.0. Everything below is what `tlc.ts` runs; use it directly only when you
+need a flag the wrapper lacks (then prefer `-- extra args`) or when you read someone else's log.
+
+```
+CP=tla2tools.jar:CommunityModules-deps.jar          # on Windows use ; as the separator
+java -cp $CP tla2sany.SANY Spec.tla                  # parse + level-check (exit 0 ok, 255 error)
+java -cp $CP pcal.trans -nocfg Spec.tla              # PlusCal -> TLA+ (in place, between BEGIN/END TRANSLATION)
+java -XX:+UseParallelGC -cp $CP tlc2.TLC -workers auto -config MC.cfg Spec.tla
+java -cp $CP tlc2.REPL                               # evaluate expressions interactively
+```
+
+### TLC flags that matter
+
+| Flag | Effect |
+|---|---|
+| `-workers N\|auto` | worker threads (default 1) |
+| `-config F` | config file (default `<Spec>.cfg`) |
+| `-deadlock` | **disable** the deadlock check (prefer an explicit `Terminated` action) |
+| `-dumpTrace json F` | write the counterexample as JSON: `counterexample.action[i] = [[n, state], {name, location, context, parameters}, [n+1, state]]`. Other formats: `tla`, `tlc`, `tlcplain`, `tlcTESpec`, `tlcaction`, `dot` |
+| `-difftrace` | print only the changed variables per state |
+| `-simulate [num=N,file=F,stats=full]` | random behaviors instead of BFS; pair with `-depth N` (default 100) and `-seed` |
+| `-coverage M` | per-action coverage every M minutes; look for actions with 0 distinct states |
+| `-continue` | keep going after a violation (collect several) |
+| `-dfid N` | depth-first iterative deepening |
+| `-fpmem F`, `-metadir D`, `-checkpoint M`, `-recover D` | memory, state dir, checkpointing |
+| `-lncheck final` | check liveness once at the end (faster on big graphs) |
+| `-maxSetSize N` | enlarge the enumerable set limit (default 1e6) |
+| `-postCondition Mod!Op` | same as the `POSTCONDITION` keyword |
+| `-inv expr` | ad-hoc invariant without editing the config |
+| `-noGenerateSpecTE`, `-teSpecOutDir D` | control the generated trace-explorer spec (`tlc.ts` turns it off and uses its own metadir) |
+
+TLC writes a `states/` folder next to the spec unless `-metadir` points elsewhere, and a `*_TTrace_*` spec after a
+violation. `tlc.ts` avoids both. If you run TLC by hand, add them to `.gitignore`.
+
+### Config (`.cfg`) keywords
+
+`SPECIFICATION Spec` or `INIT Init` + `NEXT Next` · `CONSTANT(S) X = {a, b}` (bare identifiers
+are model values; `"s"` strings and numbers are allowed) · `INVARIANT(S)` · `PROPERTY/PROPERTIES`
+(temporal and action properties) · `SYMMETRY Perms` (with `Perms == Permutations(S)`, `EXTENDS TLC`;
+safety only) · `CONSTRAINT` (state constraint that prunes exploration; report it) · `ACTION_CONSTRAINT` ·
+`VIEW` (fingerprint projection) · `ALIAS` (a record of derived values shown in traces) · `POSTCONDITION` ·
+`CHECK_DEADLOCK FALSE`.
+
+### Raw TLC exit codes
+
+The first five are the ones to rely on. The rest were observed with tla2tools 1.8.0 on small throwaway specs
+(an `Assert` that fails, an action that leaves a variable unspecified, a type error, a syntax error, a missing
+config, an unknown `SPECIFICATION` name).
+
+| Code | Meaning |
+|---|---|
+| 0 | no violation within bounds |
+| 10 | ASSUME false, or POSTCONDITION false (for example, a trace rejected in trace validation) |
+| 11 | deadlock |
+| 12 | invariant violated |
+| 13 | temporal property **or action property** violated |
+| 14 | failed `Assert` |
+| 75 | evaluation error, including "Successor state is not completely specified" (a missing `UNCHANGED`) and operand type errors |
+| 150 | the spec does not parse |
+| 151 | config error (file not found, unknown name) |
+| 255 | SANY (not TLC): parse error |
+
+Treat any other nonzero code as "the check did not run to a verdict", never as a pass.
+
+### Performance checklist
+
+1. Use the smallest constants that still show the behavior (2 actors).
+2. Replace large sets with small symbolic ones; avoid `SUBSET` of anything bigger than about 6 elements.
+3. Use `SYMMETRY` over interchangeable model values (safety configs only).
+4. Use a `VIEW` that drops history or auxiliary variables from fingerprints.
+5. Merge steps that cannot interleave meaningfully. Only merge after arguing why, and record it in CORRESPONDENCE.md.
+6. Split into several scenario configs (several matrix entries) rather than one giant one.
+7. Switch to `-- -simulate num=200000 -depth 60` for deep bugs in big models; a simulation that finds nothing is
+   not a proof. For bounded symbolic checks see "Optional external tools" in `choosing-tools.md`.
+8. Give the JVM memory (`-Xmx8g`) and use `-XX:+UseParallelGC` (`tlc.ts` already sets the latter).
+
+### ALIAS for readable traces
+
+```tla
+Alias == [ db |-> db, cache |-> cache, stale |-> (cache # None /\ cache # db),
+           inFlight |-> {r \in Readers : rpc[r] = "fill"} ]
+```
+Add `ALIAS Alias` to the config; each trace state then shows these fields instead of the raw variables.

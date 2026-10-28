@@ -1,0 +1,29 @@
+{
+	"checker": {
+		"kind": "tlc",
+		"config": "MC.cfg"
+	},
+	"mutations": [
+		{
+			"name": "drop-backpressure",
+			"why": "Produce no longer waits for room in the queue (the capacity guard removed): the queue outgrows Cap.",
+			"search": "/\\ next <= N /\\ Len(queue) < Cap",
+			"replace": "/\\ next <= N",
+			"breaks": "Backpressure"
+		},
+		{
+			"name": "batch-reordered",
+			"why": "The batcher prepends instead of appending, so items leave a batch in reverse order.",
+			"search": "/\\ batch' = Append(batch, Head(queue)) /\\ queue' = Tail(queue)",
+			"replace": "/\\ batch' = <<Head(queue)>> \\o batch /\\ queue' = Tail(queue)",
+			"breaks": "NoLossDupReorder"
+		},
+		{
+			"name": "remove-fairness",
+			"why": "Without WF on Next the pipeline may stop before everything is delivered, so AllDelivered must fail by stuttering.",
+			"search": "Spec == Init /\\ [][Next]_vars /\\ WF_vars(Next)",
+			"replace": "Spec == Init /\\ [][Next]_vars",
+			"breaks": "AllDelivered"
+		}
+	]
+}

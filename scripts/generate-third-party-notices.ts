@@ -191,6 +191,7 @@ function vendoredSections(): string {
 	const reaLicense = read("resources/omp-builtin/rea/skills/reverse-engineer-anything/LICENSE");
 	const pstackLicense = read("LICENSES/MIT-pstack.txt");
 	const eccLicense = read("LICENSES/MIT-ecc.txt");
+	const proofLicense = read("LICENSES/proof-skills-MIT.txt");
 	const eccPin = JSON.parse(read("resources/omp-builtin/ecc/ecc-config.json")) as {
 		commit: string;
 		version: string;
@@ -241,10 +242,29 @@ function vendoredSections(): string {
 			`pstack ${pstackPin.version} (cursor/plugins commit ${pstackPin.commit}) into resources/omp-builtin/pstack/ by`,
 			"scripts/sync-pstack.ts. Changes: Cursor and Claude tool, agent and model names are replaced by omp and",
 			"OMPdesk ones, tdd and teach are renamed pstack-tdd and pstack-teach, and the Cursor-only parts (setup-pstack,",
-			"poteto-help, make-bot-ui, Bugbot triage, the orchestrate playbook, the watch-pr and orch tools) are left out.",
+			"poteto-help, make-bot-ui, Bugbot triage, the orchestrate playbook, the watch-pr and orch tools) are left out;",
+			"the three formal-verification skills (create-/maintain-formal-verification-skill, statechart) are folded into",
+			"the ompdesk-formal-verify skill.",
 			"The license text is also in resources/omp-builtin/pstack/UPSTREAM-LICENSE.",
 			"",
 			pstackLicense,
+		].join("\n"),
+		[
+			"proof-skills (https://github.com/opum-ai/proof-skills)",
+			"Copyright (c) 2026 Opum AI, licensed under the MIT License. Its formal-verification skills (formal-verify,",
+			"tlaplus-model, lean-model, proof-simplify: workflows, references, TLA+ patterns, Lean patterns and template,",
+			"the findings schema, the correspondence template) are adapted into the built-in ompdesk-formal-verify skill",
+			"under resources/omp-builtin/formal/. Changes: Claude Code paths, the Artifact tool and the bash and python",
+			"scripts are replaced by OMPdesk and omp equivalents and by Bun TypeScript scripts written for OMPdesk (the",
+			"TLC runner and trace reducer, the Lean trust audit, the mutation runner, the report renderer and the",
+			"verify-all runner are new code); the `src:` tags became `@code` tags; the Lean patterns build without",
+			"plausible on the pinned Lean toolchain. The pstack create-/maintain-formal-verification-skill and statechart",
+			"skills (MIT, Lauren Tan, license text above) are folded into the same skill; the statechart scripts under",
+			"resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/statechart/ are copied from pstack with",
+			"changes (bun, the shared TLC cache). The tools it downloads on first use (TLA+ tools, CommunityModules,",
+			"Temurin JRE, elan, Lean) are fetched from their own releases at pinned versions and are not redistributed.",
+			"",
+			proofLicense,
 		].join("\n"),
 		[
 			"ECC skills (https://github.com/affaan-m/ECC)",

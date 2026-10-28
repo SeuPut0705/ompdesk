@@ -1,0 +1,32 @@
+{
+	"checker": {
+		"kind": "tlc",
+		"config": "MC.cfg"
+	},
+	"waive": {
+		"TypeOK": "Shape check only: no behaviour change breaks it without also breaking a property above it, and TLC already stops with an evaluation error when an action leaves a variable unspecified."
+	},
+	"mutations": [
+		{
+			"name": "drop-claim-first",
+			"why": "Check no longer claims the key before the side effect (the ClaimFirst branch removed): both deliveries can charge.",
+			"search": "/\\ seen' = (IF ClaimFirst THEN TRUE ELSE seen)",
+			"replace": "/\\ seen' = seen",
+			"breaks": "AtMostOnce"
+		},
+		{
+			"name": "dedup-preseeded",
+			"why": "The dedup table already holds the key at the start, so every delivery skips and the request is lost: only the liveness property EventuallyApplied can notice.",
+			"search": "Init == seen = FALSE",
+			"replace": "Init == seen = TRUE",
+			"breaks": "EventuallyApplied"
+		},
+		{
+			"name": "remove-fairness",
+			"why": "Without WF on Step the deliveries may stop before anyone applies the request.",
+			"search": "Spec == Init /\\ [][Next]_vars /\\ WF_vars(Step)",
+			"replace": "Spec == Init /\\ [][Next]_vars",
+			"breaks": "EventuallyApplied"
+		}
+	]
+}

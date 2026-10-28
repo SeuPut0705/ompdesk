@@ -1,0 +1,23 @@
+{
+	"checker": { "kind": "tlc", "config": "MC_refines.cfg" },
+	"properties": ["ValidTransitions", "RefinesCurrent"],
+	"mutations": [
+		{
+			"name": "drop-cas-guard",
+			"why": "Without the conditional UPDATE the cancel can overwrite a paid order",
+			"file": "CancelOrderSimple.tla",
+			"search": "cread = \"pending\" /\\ status = \"pending\"",
+			"replace": "cread = \"pending\"",
+			"breaks": "ValidTransitions"
+		},
+		{
+			"name": "wrong-lock-mapping",
+			"why": "A refinement mapping that never reconstructs the lock must be rejected, or RefinesCurrent proves nothing",
+			"file": "CancelOrderSimple.tla",
+			"search": "lock <- (IF cpc = \"decide\" THEN \"cancel\" ELSE \"free\")",
+			"replace": "lock <- \"free\"",
+			"breaks": "RefinesCurrent",
+			"config": "MC_refines_only.cfg"
+		}
+	]
+}

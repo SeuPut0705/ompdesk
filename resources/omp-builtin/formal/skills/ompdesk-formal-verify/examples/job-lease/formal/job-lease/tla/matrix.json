@@ -1,0 +1,8 @@
+{
+	"runs": [
+		{ "name": "fenced-2-workers", "config": "MC.cfg", "expect": "pass" },
+		{ "name": "fenced-3-workers", "config": "MC.cfg", "constants": { "Workers": "{w1, w2, w3}" }, "expect": "pass" },
+		{ "name": "unfenced-commit", "config": "MC_bug.cfg", "expect": "invariant", "property": "SingleCommit" },
+		{ "name": "reclaim-is-reachable", "config": "MC_sanity.cfg", "expect": "invariant", "property": "NoReclaim" }
+	]
+}

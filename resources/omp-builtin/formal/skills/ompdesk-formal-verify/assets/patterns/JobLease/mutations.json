@@ -1,0 +1,25 @@
+{
+	"checker": {
+		"kind": "tlc",
+		"config": "MC.cfg"
+	},
+	"waive": {
+		"TypeOK": "Shape check only: no behaviour change breaks it without also breaking a property above it, and TLC already stops with an evaluation error when an action leaves a variable unspecified."
+	},
+	"mutations": [
+		{
+			"name": "drop-fencing",
+			"why": "Commit no longer compares the claim token: a stale holder can commit after another worker did.",
+			"search": "/\\ UseFencing => wtok[w] = token",
+			"replace": "/\\ TRUE",
+			"breaks": "SingleCommit"
+		},
+		{
+			"name": "remove-fairness",
+			"why": "Without WF on Commit and Abort a worker holding a claim may never finish, so ClaimedEventuallyDone must fail by stuttering.",
+			"search": "Spec == Init /\\ [][Next]_vars /\\ \\A w \\in Workers : WF_vars(Commit(w)) /\\ WF_vars(Abort(w))",
+			"replace": "Spec == Init /\\ [][Next]_vars",
+			"breaks": "ClaimedEventuallyDone"
+		}
+	]
+}

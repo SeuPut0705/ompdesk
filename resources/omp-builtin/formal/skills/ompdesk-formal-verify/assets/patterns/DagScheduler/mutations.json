@@ -1,0 +1,32 @@
+{
+	"checker": {
+		"kind": "tlc",
+		"config": "MC.cfg"
+	},
+	"waive": {
+		"TypeOK": "Shape check only: no behaviour change breaks it without also breaking a property above it, and TLC already stops with an evaluation error when an action leaves a variable unspecified."
+	},
+	"mutations": [
+		{
+			"name": "ready-when-started",
+			"why": "A task becomes ready once its predecessors have started rather than finished (the ReadyWhenDone guard hard-wired to the buggy side).",
+			"search": "Preds(t) \\subseteq (IF ReadyWhenDone THEN done ELSE done \\cup running)",
+			"replace": "Preds(t) \\subseteq (done \\cup running)",
+			"breaks": "DepsRespected"
+		},
+		{
+			"name": "redispatch-done",
+			"why": "Dispatch no longer skips tasks that already finished, so a finished task can run again.",
+			"search": "/\\ t \\notin running \\cup done",
+			"replace": "/\\ t \\notin running",
+			"breaks": "RunsOnce"
+		},
+		{
+			"name": "remove-fairness",
+			"why": "Without WF on Dispatch and Finish the scheduler may stop with tasks left, so AllComplete must fail by stuttering.",
+			"search": "Spec == Init /\\ [][Next]_vars /\\ WF_vars(\\E t \\in Nodes : Dispatch(t) \\/ Finish(t))",
+			"replace": "Spec == Init /\\ [][Next]_vars",
+			"breaks": "AllComplete"
+		}
+	]
+}
