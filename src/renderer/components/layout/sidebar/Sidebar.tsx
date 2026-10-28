@@ -63,7 +63,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { agentMessageSender, reviewUnmerged } from "../../../../shared/agent-control";
+import { reviewUnmerged } from "../../../../shared/agent-control";
 import { SIDEBAR_WIDTH } from "../../../../shared/boot-shell-geometry";
 import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
 import type { HostView, IpcHostedSession, SessionInfo } from "../../../../shared/ipc-types";
@@ -161,6 +161,7 @@ import { SortableProject } from "./SortableProject";
 import { type SessionList, useSessionReorder } from "./session-reorder";
 import {
 	CHILD_TOKEN,
+	foldsIntoProject,
 	isShownOpened,
 	openedChildStatus,
 	openerOfSessions,
@@ -909,11 +910,10 @@ export function Sidebar() {
 			if (gone && recorded === undefined) continue;
 			const origin = projectName(gone && recorded !== undefined ? recorded : session.cwd);
 			if (
-				closedOpeners.has(session.path) ||
-				// The opener of a session a paired device's agent opened here is on that device: on this computer the
-				// session is the person's only way in, so it stays a row of its own.
-				(!session.promptOriginDevice && agentMessageSender(session.firstMessage) !== null) ||
-				origin.worktree?.worktree?.kind === "agent"
+				foldsIntoProject(session, {
+					recorded: closedOpeners.has(session.path),
+					agentWorktree: origin.worktree?.worktree?.kind === "agent",
+				})
 			)
 				roots.set(session.path, origin.root);
 		}

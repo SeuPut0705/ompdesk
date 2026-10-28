@@ -29,7 +29,7 @@ import {
 	Trash2,
 	X,
 } from "lucide-react";
-import { Fragment, type ReactNode, useMemo, useState } from "react";
+import { Fragment, type ReactNode, useCallback, useMemo, useState } from "react";
 import { useStore } from "zustand";
 import { reviewUnmerged } from "../../../../shared/agent-control";
 import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
@@ -71,10 +71,10 @@ import { useHostWorkspace } from "./host-workspace";
 import { SidebarChats } from "./SidebarChats";
 import { useDeviceHeaderHandle } from "./SidebarDeviceSections";
 import { SidebarFoldButton } from "./SidebarFoldButton";
-import { type FamilyOpened, SidebarSubagents, SidebarSubagentsToggle } from "./SidebarSubagents";
+import { type FamilyOpened, SidebarLooseChildren, SidebarSubagents, SidebarSubagentsToggle } from "./SidebarSubagents";
 import { SortableProject } from "./SortableProject";
 import { type SessionList, useSessionReorder } from "./session-reorder";
-import { CHILD_TOKEN, hostOpenerOfSessions, openedChildStatus } from "./sidebar-family";
+import { CHILD_TOKEN, foldsIntoProject, hostOpenerOfSessions, openedChildStatus } from "./sidebar-family";
 
 const NO_OPENED: readonly FamilyOpened[] = [];
 
@@ -438,18 +438,49 @@ function DeviceSessions({
 		}
 		return byRoot;
 	}, [hostRows, familyRootOf]);
-	const rows = useMemo<DeviceSession[]>(() => {
-		const needle = query.toLocaleLowerCase();
-		return hostRows
-			.filter(
-				session =>
-					!familyRootOf.has(session.path) &&
-					(!needle ||
-						sessionDisplayTitle(session, "").toLocaleLowerCase().includes(needle) ||
-						session.cwd.toLocaleLowerCase().includes(needle)),
-			)
-			.toSorted((a, b) => createdAt(b) - createdAt(a));
-	}, [hostRows, familyRootOf, query]);
+	// A closed session the host's own agent opened whose opener the host knows of no row for (it says `null`: no tab,
+	// no closed record; its brief names a title no row has since the opener retitled itself) is no row of its own on
+	// the host: it folds into its project's group, listed there only while it needs a look (Sidebar.tsx
+	// `foldedRootOf`). One a tab here or on the host holds (`heldOnHost`), or that the host works on, keeps its row. An
+	// older host names no opener of any row (`openedBySession` absent), so its rows list as before.
+	const folded = useMemo(() => {
+		const live = new Set(host.live?.map(session => session.sessionPath));
+		const held = new Set(deviceTabs.flatMap(tab => [tab.sessionPath, tab.sessionId].filter(Boolean)));
+		return new Set(
+			hostRows.flatMap(row =>
+				row.openedBySession === null &&
+				!familyRootOf.has(row.path) &&
+				// A chat is the host's chat list's, which folds nothing (Sidebar.tsx folds code sessions only).
+				!isChatSession(row, hostWorkspace) &&
+				row.liveTabId === undefined &&
+				!held.has(row.path) &&
+				!held.has(row.id) &&
+				row.heldOnHost !== true &&
+				!live.has(row.path) &&
+				foldsIntoProject(row)
+					? [row.path]
+					: [],
+			),
+		);
+	}, [hostRows, familyRootOf, hostWorkspace, deviceTabs, host.live]);
+	const matches = useCallback(
+		(session: DeviceSession) => {
+			const needle = query.toLocaleLowerCase();
+			return (
+				!needle ||
+				sessionDisplayTitle(session, "").toLocaleLowerCase().includes(needle) ||
+				session.cwd.toLocaleLowerCase().includes(needle)
+			);
+		},
+		[query],
+	);
+	const rows = useMemo<DeviceSession[]>(
+		() =>
+			hostRows
+				.filter(session => !familyRootOf.has(session.path) && !folded.has(session.path) && matches(session))
+				.toSorted((a, b) => createdAt(b) - createdAt(a)),
+		[hostRows, familyRootOf, folded, matches],
+	);
 	/** A list's sessions in the order the person set, newest first for the ones never placed (as before any move). */
 	const ordered = useMemo(() => {
 		const key = (session: DeviceSession) => session.path;
@@ -473,7 +504,12 @@ function DeviceSessions({
 		const removed = new Set(projectList.removed);
 		const gone = new Set(projectList.gone ?? []);
 		const held = new Set(hostTabs.flatMap(tab => [tab.sessionPath, tab.sessionId].filter(Boolean)));
-		const byCwd = new Map<string, DeviceSession[]>();
+		const byCwd = new Map<string, { sessions: DeviceSession[]; folded: DeviceSession[] }>();
+		const groupFor = (project: string) => {
+			const entry = byCwd.get(project) ?? { sessions: [], folded: [] };
+			byCwd.set(project, entry);
+			return entry;
+		};
 		for (const session of rows) {
 			if (isChatSession(session, hostWorkspace)) continue;
 			// A linked worktree's session is a row of its project (the host's git says which), never a project of its own.
@@ -487,19 +523,24 @@ function DeviceSessions({
 				!held.has(session.id)
 			)
 				continue;
-			const list = byCwd.get(project) ?? [];
-			list.push(session);
-			byCwd.set(project, list);
+			groupFor(project).sessions.push(session);
+		}
+		for (const session of hostRows.toSorted((a, b) => createdAt(a) - createdAt(b))) {
+			if (!folded.has(session.path) || !matches(session)) continue;
+			const project = projectList.worktrees[session.cwd] ?? session.cwd;
+			if (removed.has(project) || gone.has(session.cwd)) continue;
+			groupFor(project).folded.push(session);
 		}
 		// A new, still empty tab has no row (see Sidebar), but its folder keeps its group.
 		for (const tab of hostTabs) {
 			if (tab.unstarted !== true || isChatSession(tab, hostWorkspace)) continue;
 			const project = projectList.worktrees[tab.cwd] ?? tab.cwd;
-			if (!removed.has(project) && !byCwd.has(project)) byCwd.set(project, []);
+			if (!removed.has(project)) groupFor(project);
 		}
-		const result = [...byCwd.entries()].map(([cwd, groupSessions]) => ({
+		const result = [...byCwd.entries()].map(([cwd, entry]) => ({
 			cwd,
-			sessions: ordered(groupSessions, cwd),
+			sessions: ordered(entry.sessions, cwd),
+			folded: entry.folded,
 			missing: false,
 		}));
 		const needle = query.toLocaleLowerCase();
@@ -509,7 +550,7 @@ function DeviceSessions({
 			const shown = result.find(group => group.cwd === project.path);
 			if (shown) shown.missing = project.missing === true;
 			else if (!needle || project.path.toLocaleLowerCase().includes(needle))
-				result.push({ cwd: project.path, sessions: [], missing: project.missing === true });
+				result.push({ cwd: project.path, sessions: [], folded: [], missing: project.missing === true });
 		}
 		// The order the person set (by its host-scoped key); a project never placed keeps today's place, on top.
 		const at = new Map(result.map((group, index) => [group.cwd, index]));
@@ -520,7 +561,19 @@ function DeviceSessions({
 			manual,
 			recency: group => -(at.get(group.cwd) ?? 0),
 		});
-	}, [rows, projectList, query, hostTabs, hostWorkspace, ordered, groupOrder, host.deviceId]);
+	}, [
+		rows,
+		hostRows,
+		folded,
+		matches,
+		projectList,
+		query,
+		hostTabs,
+		hostWorkspace,
+		ordered,
+		groupOrder,
+		host.deviceId,
+	]);
 
 	/** Moves a project of this host up or down; the other projects of every device keep their order. */
 	const saveGroupOrder = (next: readonly string[]) => {
@@ -1052,7 +1105,13 @@ function DeviceSessions({
 											/>
 										</div>
 										{!groupCollapsed && (
-											<div className="space-y-px">{group.sessions.map(session => renderRow(session))}</div>
+											<div className="space-y-px">
+												{group.sessions.map(session => renderRow(session))}
+												<SidebarLooseChildren
+													foldKey={`device-group:${host.deviceId}:${group.cwd}`}
+													opened={group.folded.map(familyChildFor)}
+												/>
+											</div>
 										)}
 									</div>
 								)}

@@ -991,13 +991,17 @@ export class LocalHostServices implements HostServices {
 				const rows = await this.#deps.sessionIndex.list(scope, cwd);
 				const openers = this.#deps.sessionOpeners?.() ?? new Map<string, string>();
 				const problems = new Map([...this.#childProblems.values()].flatMap(children => [...children]));
+				// The sessions a tab here holds: a window's, or one this computer runs for a device.
+				const hosted = new Set([...this.#tabs.values()].flatMap(tab => (tab.sessionFile ? [tab.sessionFile] : [])));
 				// Every row says, even `null` for none: an older host's rows say nothing, and a device lists those as before.
 				return rows.map(row => {
 					const childProblem = problems.get(row.path);
+					const held = hosted.has(row.path) || this.#deps.localTabs.sessionOwner(row.path) !== null;
 					return {
 						...row,
 						openedBySession: openers.get(row.path) ?? null,
 						...(childProblem ? { childProblem } : {}),
+						...(held ? { heldOnHost: true as const } : {}),
 					};
 				});
 			}

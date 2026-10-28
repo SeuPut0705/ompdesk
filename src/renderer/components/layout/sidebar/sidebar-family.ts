@@ -363,3 +363,20 @@ export function hostOpenerOfSessions(
 		recorded,
 	);
 }
+
+/**
+ * Whether a stored session no opener row and no tab holds folds into its project's group instead of being a row of its
+ * own, there listed only while it needs a look: main recorded closing it, an agent's brief opened it (not a paired
+ * device's agent's, whose opener is on that device: here the session is the person's only way in), or it sits in an
+ * agent's worktree. This computer's own rows (Sidebar.tsx) and a paired host's (SidebarDevices.tsx) fold alike.
+ */
+export function foldsIntoProject(
+	session: { firstMessage?: string; promptOriginDevice?: string },
+	known: { recorded?: boolean; agentWorktree?: boolean } = {},
+): boolean {
+	return (
+		known.recorded === true ||
+		(!session.promptOriginDevice && agentMessageSender(session.firstMessage ?? "") !== null) ||
+		known.agentWorktree === true
+	);
+}

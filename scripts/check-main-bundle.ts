@@ -118,7 +118,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // The on-demand dialogs retry a failed load at the next touch or key and load at the first idle moment
 // (lib/deferred-chunk.ts), and the first-run slot draws a still skeleton while its setup loads (28 Oct 2026): 1,382
 // bytes more (measured 3,197,482).
-const WEB_FIRST_SCREEN_JS_BYTES = 3_197_500;
+// A paired host's section folds the closed sessions its agents opened that the host knows no opener of, as the host
+// does (`foldsIntoProject`, its loose children; 28 Oct 2026): 1,282 bytes more (measured 3,198,764).
+const WEB_FIRST_SCREEN_JS_BYTES = 3_198_800;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

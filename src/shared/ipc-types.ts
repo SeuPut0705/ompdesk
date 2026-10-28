@@ -1764,6 +1764,12 @@ export interface SessionInfo {
 	 * though no tab of the device holds its opener. Absent when neither, and from an older host.
 	 */
 	childProblem?: "failed" | "unmerged";
+	/**
+	 * A paired host's row that a tab on that host holds (one of its windows', or one it runs for a device): the host's
+	 * own sidebar keeps such a session a row whatever its family says, so a viewing device does too. Absent otherwise,
+	 * and from an older host.
+	 */
+	heldOnHost?: true;
 }
 
 // ============================================================================
