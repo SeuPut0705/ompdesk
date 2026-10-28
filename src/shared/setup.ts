@@ -67,9 +67,11 @@ export type SetupPresence =
 
 /** How main installs an item on this machine. */
 export type SetupMethod =
+	/** Bun's official installer: a missing or broken Bun, and what follows a `bun-upgrade` that failed. */
 	| "bun-script"
 	/** `<bun> upgrade`: a Bun older than the omp package's `engines.bun` (bun renames its own running exe on Windows). */
 	| "bun-upgrade"
+	/** `<bun> install -g @oh-my-pi/pi-coding-agent`, with a compiled omp in the launcher's place moved aside first. */
 	| "bun-global"
 	| "omp-update"
 	| "portable-git"

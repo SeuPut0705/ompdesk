@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync, writeFileSync } from "node:fs";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -54,6 +54,13 @@ function harness(
 		automatic?: boolean;
 		testInstaller?: string | null;
 		exits?: Partial<Record<SetupItemId, number>>;
+		/** An exit code per `<item> <method>` (`"bun bun-upgrade"`), over `exits`. */
+		methodExits?: Record<string, number>;
+		/** Runs as an `<item> <method>` installer starts (what it does to the disk). */
+		onInstall?: (item: SetupItemId, method: string) => void;
+		/** Where Bun lives (default /home/u/.bun). */
+		bunInstall?: string;
+		appVersion?: string;
 		stillMissing?: SetupItemId[];
 		/** What an item's installer prints (default `installing <item>`). */
 		output?: Partial<Record<SetupItemId, string>>;
@@ -105,9 +112,10 @@ function harness(
 			return child;
 		}
 		if (item !== options.hold) {
+			options.onInstall?.(item, spec.args[1] ?? "");
 			setImmediate(() => {
 				child.stdout.write(`${options.output?.[item] ?? `installing ${item}`}\n`);
-				const code = options.exits?.[item] ?? 0;
+				const code = options.methodExits?.[`${item} ${spec.args[1]}`] ?? options.exits?.[item] ?? 0;
 				if (code === 0 && !options.stillMissing?.includes(item)) {
 					machine.presence[item] =
 						options.leaves?.[`${item} ${spec.args[1]}`] ??
@@ -136,8 +144,9 @@ function harness(
 		arch: "arm64",
 		systemRoot: "C:\\Windows",
 		toolsDir: join(dir, "tools"),
-		bunInstall: "/home/u/.bun",
+		bunInstall: options.bunInstall ?? "/home/u/.bun",
 		statePath: join(dir, "setup-state.json"),
+		...(options.appVersion ? { appVersion: options.appVersion } : {}),
 		automatic: options.automatic ?? true,
 		testInstaller: options.testInstaller === undefined ? "/fake/installer" : options.testInstaller,
 		spawnEnv: async () => options.spawnEnv ?? { PATH: "/usr/bin" },
@@ -199,6 +208,120 @@ describe("SetupService", () => {
 		expect(running?.requiredRunning).toBe(true);
 		expect(running?.items.find(item => item.id === "bun")?.command).toBe("curl -fsSL https://bun.sh/install | bash");
 		expect(h.states.at(-1)?.items.find(item => item.id === "bun")?.output).toContain("installing bun");
+	});
+
+	describe("repairs a broken toolchain on its own (29 Oct 2026: a Windows PC's Bun gone or too old, omp compiled)", () => {
+		const compiled: SetupPresence = {
+			kind: "broken",
+			detail: "a compiled omp, not the package OMPdesk runs",
+			path: null,
+		};
+		/** Stock's compiled build where `bun install -g` links omp: a Mach-O, or a PE with Bun's `.bun` section. */
+		const compiledBytes = (platform: SetupPlatform) => {
+			if (platform !== "win32") return Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0x00, 0x00, 0x01]);
+			const file = Buffer.alloc(0xc0);
+			file.write("MZ", 0, "latin1");
+			file.writeUInt32LE(0x40, 0x3c);
+			file.write("PE\0\0", 0x40, "latin1");
+			file.writeUInt16LE(1, 0x46);
+			file.write(".bun", 0x58, "latin1");
+			return file;
+		};
+		const LAUNCHER_SCRIPT = "#!/usr/bin/env bun\n";
+
+		for (const platform of ["darwin", "win32"] as const) {
+			const name = platform === "win32" ? "omp.exe" : "omp";
+
+			it(`${platform}: moves a compiled omp out of the launcher's place so \`bun install -g\` links the package`, async () => {
+				// Bun 1.4.4 fails `failed to link …: EEXIST` over a file there (POSIX) and keeps an `omp.exe` that runs (Windows).
+				const bunRoot = join(dir, "bun");
+				const launcher = join(bunRoot, "bin", name);
+				await mkdir(dirname(launcher), { recursive: true });
+				await writeFile(launcher, compiledBytes(platform));
+				await writeFile(`${launcher}.ompdesk-compiled-1`, "left by an earlier repair");
+				let seen: boolean | undefined;
+				const h = harness(machine({ omp: compiled }), {
+					platform,
+					bunInstall: bunRoot,
+					onInstall: (item, method) => {
+						if (item !== "omp" || method !== "bun-global") return;
+						seen = existsSync(launcher);
+						writeFileSync(launcher, LAUNCHER_SCRIPT);
+					},
+				});
+				await h.service.start();
+				expect(h.spawned.map(entry => entry.spec.args)).toEqual([["omp", "bun-global"]]);
+				expect(seen).toBe(false);
+				expect(await readFile(launcher, "utf8")).toBe(LAUNCHER_SCRIPT);
+				expect((await readdir(dirname(launcher))).sort()).toEqual([name]);
+				expect(h.phase("omp")).toBe("present");
+			});
+
+			it(`${platform}: puts the compiled omp back when the package install fails`, async () => {
+				const bunRoot = join(dir, "bun");
+				const launcher = join(bunRoot, "bin", name);
+				await mkdir(dirname(launcher), { recursive: true });
+				await writeFile(launcher, compiledBytes(platform));
+				const h = harness(machine({ omp: compiled }), { platform, bunInstall: bunRoot, exits: { omp: 1 } });
+				await h.service.start();
+				expect(h.phase("omp")).toBe("failed");
+				expect(await readFile(launcher)).toEqual(compiledBytes(platform));
+				expect(await readdir(dirname(launcher))).toEqual([name]);
+			});
+
+			it(`${platform}: installs Bun with its official installer when \`bun upgrade\` fails, then omp`, async () => {
+				const h = harness(
+					machine({ bun: { kind: "outdated", version: "1.4.2", minimum: "1.4.4", path: "/x" }, omp: compiled }),
+					{ platform, methodExits: { "bun bun-upgrade": 1 }, installed: { bun: "1.4.4" } },
+				);
+				await h.service.start();
+				expect(h.spawned.map(entry => entry.spec.args)).toEqual([
+					["bun", "bun-upgrade"],
+					["bun", "bun-script"],
+					["omp", "bun-global"],
+				]);
+				expect(h.phase("bun")).toBe("present");
+				expect(h.phase("omp")).toBe("present");
+				expect(h.onOmpReady).toHaveBeenCalledTimes(1);
+				// One attempt, though two installers ran; omp's landed and left no miss.
+				expect(JSON.parse(await readFile(join(dir, "setup-state.json"), "utf8"))).toEqual({});
+			});
+
+			it(`${platform}: reinstalls a missing Bun (a \`bun upgrade\` that left no bun.exe), then omp`, async () => {
+				const h = harness(machine({ bun: missing, omp: { kind: "broken", detail: "bun not found", path: null } }), {
+					platform,
+				});
+				await h.service.start();
+				expect(h.spawned.map(entry => entry.spec.args)).toEqual([
+					["bun", "bun-script"],
+					["omp", "bun-global"],
+				]);
+				expect(h.service.state()).toMatchObject({ ompReady: true });
+			});
+		}
+
+		it("tries again at once after an OMPdesk update, whatever misses the previous version counted", async () => {
+			const now = 1_000_000;
+			// Three misses of OMPdesk 0.82.0 (no version recorded then), an hour ago: that version waits a day.
+			const ledger = { bun: { failures: 3, lastAttempt: now - 3_600_000 }, omp: { failures: 4, lastAttempt: now } };
+			await writeFile(join(dir, "setup-state.json"), JSON.stringify(ledger));
+			const old = harness(machine({ bun: missing, omp: missing }), { now: () => now });
+			await old.service.start();
+			expect(old.spawned).toEqual([]);
+			expect(old.phase("bun")).toBe("backoff");
+
+			const updated = harness(machine({ bun: missing, omp: missing }), {
+				now: () => now,
+				appVersion: "0.83.0",
+				exits: { omp: 1 },
+			});
+			await updated.service.start();
+			expect(updated.items()).toEqual(["bun", "omp"]);
+			// Its own misses carry its version, so the next update starts fresh too.
+			expect(JSON.parse(await readFile(join(dir, "setup-state.json"), "utf8"))).toEqual({
+				omp: { failures: 1, lastAttempt: now, app: "0.83.0" },
+			});
+		});
 	});
 
 	it("runs the real plan's process when no test installer is set", async () => {
@@ -760,10 +883,14 @@ describe("SetupService", () => {
 				failure: {
 					reason: "install",
 					detail:
-						"omp 18.13.3 needs Bun 1.4.4 or newer; `bun upgrade` did not get there — error: bun was installed with Homebrew",
+						"omp 18.13.3 needs Bun 1.4.4 or newer; Bun could not be upgraded to it — error: bun was installed with Homebrew",
 				},
 			});
-			expect(stuck.spawned.map(entry => entry.spec.args)).toEqual([["bun", "bun-upgrade"]]);
+			// `bun upgrade` failed, then Bun's own installer did too.
+			expect(stuck.spawned.map(entry => entry.spec.args)).toEqual([
+				["bun", "bun-upgrade"],
+				["bun", "bun-script"],
+			]);
 			expect(hook).not.toHaveBeenCalled();
 			expect(stuck.service.state().items.find(item => item.id === "omp")?.presence).toMatchObject({
 				kind: "present",
@@ -826,6 +953,20 @@ describe("SetupService", () => {
 			expect(h.spawned.map(entry => entry.spec.args)).toEqual([
 				["omp", "omp-update"],
 				["omp", "bun-global"],
+			]);
+		});
+
+		it("puts Bun's installer behind a `bun upgrade` that fails, in the same attempt, then updates omp", async () => {
+			const h = harness(machine({ bun: present("1.4.2"), omp: present("18.12.6") }), {
+				methodExits: { "bun bun-upgrade": 1 },
+				installed: { bun: "1.4.4", omp: "18.13.3" },
+				ompRelease: async () => ({ engines: { bun: ">=1.4.4" } }),
+			});
+			expect(await h.service.updateOmp("18.13.3")).toEqual({ kind: "updated", version: "18.13.3" });
+			expect(h.spawned.map(entry => entry.spec.args)).toEqual([
+				["bun", "bun-upgrade"],
+				["bun", "bun-script"],
+				["omp", "omp-update"],
 			]);
 		});
 	});

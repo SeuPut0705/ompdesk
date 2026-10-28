@@ -255,7 +255,8 @@ async function flow(launched: Launched, name: string, text: { retry: RegExp }): 
 	await release(launched, 1);
 	await expect(omp).toHaveAttribute("data-phase", "failed");
 	await expect(setup).toContainText("503");
-	await expect(setup).toContainText("bun install -g @oh-my-pi/pi-coding-agent");
+	// OMPdesk repairs omp itself: no command for the person to run, no download page (the user's rule, 29 Oct 2026).
+	await expect(setup).not.toContainText(/To install it yourself|직접 설치하려면/);
 	const retry = setup.getByTestId("setup-retry");
 	await expect(retry).toHaveText(text.retry);
 	// A failed install no longer promises "nothing for you to do": the heading names what is missing.

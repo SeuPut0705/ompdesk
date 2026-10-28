@@ -126,7 +126,7 @@ import { type IpcDeps, registerIpcHandlers } from "./ipc";
 import { markLaunchStable, startLaunchGuard } from "./launch-guard";
 import { CRASH_LOOP_LAUNCHES, STABLE_AFTER_MS } from "./launch-guard-core";
 import { migrateLegacyUserData } from "./legacy-user-data";
-import { tablessWorktreeBridge } from "./local/git/worktree";
+import { stockWorktreeLocation, tablessWorktreeBridge } from "./local/git/worktree";
 import { renameStoredSession } from "./local/session-files";
 import { LogWatcher } from "./log-watcher";
 import { askMacPermissionsOnce } from "./mac-permissions";
@@ -792,6 +792,8 @@ app.whenReady().then(() => {
 		write: state => prefsStore().set(SIDEBAR_PROJECTS_PREF, state),
 		sessions: () => sessionIndex.list("global"),
 		defaultWorkspace: ensureDefaultWorkspace,
+		// A removed worktree's project, read off its `gui-<name>-<hash7>` folder name (stock's root and repo hash).
+		worktreeLocation: project => stockWorktreeLocation(tablessWorktreeBridge, project),
 		onState: state => {
 			const update: IpcSidebarProjects = { state };
 			for (const win of BrowserWindow.getAllWindows()) {
@@ -1094,6 +1096,7 @@ app.whenReady().then(() => {
 		toolsDir,
 		bunInstall: bunInstallDir(process.env, homedir()),
 		statePath: join(app.getPath("userData"), "setup-state.json"),
+		appVersion: app.getVersion(),
 		// Safe mode pauses automatic installs; Retry still runs one.
 		automatic: !safeMode && (testInstaller !== null || (app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1")),
 		testInstaller,

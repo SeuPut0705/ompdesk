@@ -10,7 +10,7 @@
  * (`<userData>/setup-state.json`). A retry from the user always runs.
  */
 import { execFile } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { OmpUpdateFailure } from "../../shared/omp-update";
@@ -23,6 +23,7 @@ import {
 	type SetupFailure,
 	type SetupItemId,
 	type SetupItemState,
+	type SetupMethod,
 	type SetupPlatform,
 	type SetupPresence,
 	type SetupState,
@@ -34,6 +35,7 @@ import { manifestBunMinimum, ompUpdateEnv, parseUpdateCheck } from "../omp-runti
 import { writeRuntimeLog } from "../runtime-log";
 import { needsShell, spawnArgs, spawnCommand } from "../spawn";
 import { type FetchText, fetchText, resolveArchiveRelease, resolveTailscaleRelease } from "./archives";
+import { setAsideCompiledOmp, settleSetAside } from "./compiled-launcher";
 import { type Detection, detectMachine } from "./detect";
 import { DownloadError, type DownloadFetch, downloadVerified } from "./download";
 import {
@@ -71,6 +73,8 @@ const OUTPUT_EMIT_MS = 100;
 interface AttemptRecord {
 	failures: number;
 	lastAttempt: number;
+	/** The OMPdesk version that made these attempts (`SetupServiceDeps.appVersion`). */
+	app?: string;
 }
 
 export interface SetupServiceDeps {
@@ -81,6 +85,8 @@ export interface SetupServiceDeps {
 	bunInstall: string;
 	/** Back-off ledger (JSON). */
 	statePath: string;
+	/** This OMPdesk's version: the ledger's misses count only for the version that made them. */
+	appVersion?: string;
 	/** Install on its own at launch; false in tests and dev builds (detection still runs). */
 	automatic: boolean;
 	/** `OMP_GUI_TEST_INSTALLER`: every plan runs `<installer> <item> <method>` instead (e2e). */
@@ -120,6 +126,11 @@ const UPDATE_CHECK_TIMEOUT_MS = 60_000;
 /** An item's presence as it is now, not as an earlier check narrowed it. */
 function presenceOf(item: SetupItemState): SetupPresence | null {
 	return item.presence;
+}
+
+/** An item's phase as it is now, after the awaits since it was last set. */
+function phaseOf(item: SetupItemState): SetupItemState["phase"] {
+	return item.phase;
 }
 
 const CSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;?]*[ -/]*[@-~]`, "g");
@@ -236,7 +247,7 @@ export class SetupService {
 		this.#runner = deps.runner ?? new SetupRunner();
 		this.#items = Object.fromEntries(
 			SETUP_ITEMS.map(id => {
-				const manual = manualSteps(id, null, deps.platform);
+				const manual = manualSteps(id, deps.platform);
 				const item: SetupItemState = {
 					id,
 					required: setupItemRequired(id, deps.platform),
@@ -591,9 +602,6 @@ export class SetupService {
 			const item = this.#items[id];
 			const presence = detection.presence[id];
 			item.presence = presence;
-			const manual = manualSteps(id, presence, this.#deps.platform);
-			item.manualCommands = manual.commands;
-			item.manualUrl = manual.url;
 			if (presence.kind === "present") {
 				// An Xcode-tools request (or a Settings retry) that finished meanwhile.
 				if (item.phase !== "running") {
@@ -719,7 +727,7 @@ export class SetupService {
 		const failure = updateDetail(bunItem.output) ?? bunItem.failure?.detail;
 		return {
 			reason: "install",
-			detail: `omp ${target} needs Bun ${minimum} or newer; \`bun upgrade\` did not get there${failure ? ` — ${failure}` : ""}`,
+			detail: `omp ${target} needs Bun ${minimum} or newer; Bun could not be upgraded to it${failure ? ` — ${failure}` : ""}`,
 		};
 	}
 
@@ -768,18 +776,26 @@ export class SetupService {
 		}
 	}
 
-	/** Install `id` if it is missing and allowed to run now. */
-	async #ensure(id: SetupItemId, manual: boolean, place: { step: number; steps: number }): Promise<void> {
+	/**
+	 * Install `id` if it is missing and allowed to run now. `fallback` runs that method instead, as part of the same
+	 * attempt (no new back-off count): Bun's official installer after a `bun upgrade` that failed.
+	 */
+	async #ensure(
+		id: SetupItemId,
+		manual: boolean,
+		place: { step: number; steps: number },
+		fallback?: SetupMethod,
+	): Promise<void> {
 		const item = this.#items[id];
 		const detection = this.#detection;
 		if (!detection || !item.presence || item.presence.kind === "present") return;
-		if (!manual && !this.#mayAttempt(id)) {
+		if (!manual && !fallback && !this.#mayAttempt(id)) {
 			item.phase = "backoff";
 			this.#emit();
 			return;
 		}
 		const ctx = this.#planContext(detection);
-		const method = selectMethod(id, item.presence, ctx);
+		const method = fallback ?? selectMethod(id, item.presence, ctx);
 		if (!method) {
 			item.phase = "unavailable";
 			item.method = null;
@@ -836,12 +852,22 @@ export class SetupService {
 			download: download ? { received: 0, total: null } : null,
 		};
 		// Tailscale is only ever installed on the user's click: no once-per-launch rule, no back-off ledger.
-		if (setupItemAutomatic(id)) {
+		if (setupItemAutomatic(id) && !fallback) {
 			this.#attemptedThisLaunch.add(id);
 			this.#recordAttempt(id);
 		}
 		this.#installing = id;
 		this.#emit();
+		// Stock's compiled omp in the launcher's place keeps `bun install -g` from linking the package (compiled-launcher.ts).
+		let moved =
+			method === "bun-global"
+				? await setAsideCompiledOmp(this.#deps.bunInstall, this.#deps.platform, (this.#deps.now ?? Date.now)())
+				: null;
+		const putBack = async () => {
+			if (!moved) return;
+			await settleSetAside(moved, existsSync(moved.launcher));
+			moved = null;
+		};
 		try {
 			if (download && !(await this.#fetch(id, download))) return;
 			const outcome = await this.#runner.run(this.#spec(plan.spawn, id, method), await this.#installEnv(), chunk => {
@@ -849,11 +875,18 @@ export class SetupService {
 				this.#emitSoon();
 			});
 			item.progress = null;
+			await putBack();
 			await this.#settle(id, outcome);
 		} finally {
+			await putBack();
 			this.#installing = null;
 			item.progress = null;
 			if (download) await rm(download.file, { force: true });
+		}
+		// A `bun upgrade` that could not finish (GitHub's release API refused, Windows refused the swap, a Bun it cannot
+		// replace): Bun's official installer puts a whole Bun in place, also over a missing or half-replaced bun.exe.
+		if (method === "bun-upgrade" && phaseOf(item) === "failed" && !this.#disposed) {
+			await this.#ensure(id, manual, place, "bun-script");
 		}
 	}
 
@@ -996,8 +1029,11 @@ export class SetupService {
 				if (!isSetupItemId(key) || typeof value !== "object" || value === null) continue;
 				const failures = "failures" in value ? value.failures : undefined;
 				const lastAttempt = "lastAttempt" in value ? value.lastAttempt : undefined;
+				const app = "app" in value && typeof value.app === "string" ? value.app : undefined;
+				// Misses of another OMPdesk say nothing about this one, which may repair what that one could not.
+				if (this.#deps.appVersion !== undefined && app !== this.#deps.appVersion) continue;
 				if (typeof failures === "number" && typeof lastAttempt === "number")
-					ledger[key] = { failures, lastAttempt };
+					ledger[key] = { failures, lastAttempt, ...(app === undefined ? {} : { app }) };
 			}
 			return ledger;
 		} catch {
@@ -1024,7 +1060,11 @@ export class SetupService {
 	/** Counted when it starts: an attempt that leaves the item missing (or the app, by a crash) is a miss until detection says otherwise. */
 	#recordAttempt(id: SetupItemId): void {
 		const ledger = this.#readLedger();
-		ledger[id] = { failures: (ledger[id]?.failures ?? 0) + 1, lastAttempt: (this.#deps.now ?? Date.now)() };
+		ledger[id] = {
+			failures: (ledger[id]?.failures ?? 0) + 1,
+			lastAttempt: (this.#deps.now ?? Date.now)(),
+			...(this.#deps.appVersion === undefined ? {} : { app: this.#deps.appVersion }),
+		};
 		this.#writeLedger(ledger);
 	}
 
@@ -1042,7 +1082,7 @@ export class SetupService {
 		const record = ledger[id];
 		if (!record) return;
 		if (record.failures <= 1) delete ledger[id];
-		else ledger[id] = { failures: record.failures - 1, lastAttempt: record.lastAttempt };
+		else ledger[id] = { ...record, failures: record.failures - 1 };
 		this.#writeLedger(ledger);
 	}
 

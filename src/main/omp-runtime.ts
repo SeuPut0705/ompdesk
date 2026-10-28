@@ -50,7 +50,7 @@ export const MIN_OMP_VERSION = "18.12.6";
 
 const VERSION_TIMEOUT_MS = 15_000;
 const DEFAULT_RUN_TIMEOUT_MS = 60_000;
-const INSTALL_HINT = "Install it with `bun install -g @oh-my-pi/pi-coding-agent` (see https://omp.sh), then relaunch.";
+const INSTALL_HINT = "OMPdesk's machine setup installs the omp package on its own.";
 
 /** Why omp is unusable; the GUI localizes this (src/main/i18n.ts `ompFailureText`). `error` stays the English text. */
 export type OmpFailure =
@@ -361,7 +361,7 @@ export async function resolveOmp(): Promise<OmpResolution> {
 		if (bunVersion && isNewer(bunMinimum, bunVersion)) {
 			return {
 				ok: false,
-				error: `omp at ${bin} needs Bun ${bunMinimum} or newer, but ${bun} is ${bunVersion}. Run \`bun upgrade\`, then relaunch.`,
+				error: `omp at ${bin} needs Bun ${bunMinimum} or newer, but ${bun} is ${bunVersion}. OMPdesk's machine setup upgrades Bun on its own.`,
 				reason: { kind: "bun-too-old", bin, bun, bunVersion, minimum: bunMinimum },
 			};
 		}
@@ -392,7 +392,7 @@ export async function resolveOmp(): Promise<OmpResolution> {
 	if (isNewer(MIN_OMP_VERSION, version)) {
 		return {
 			ok: false,
-			error: `omp ${version} is too old; this GUI needs omp ${MIN_OMP_VERSION} or newer. Run \`omp update\`, then relaunch.`,
+			error: `omp ${version} is too old; this GUI needs omp ${MIN_OMP_VERSION} or newer. OMPdesk updates it on its own.`,
 			reason: { kind: "too-old", version, minimum: MIN_OMP_VERSION, bin },
 		};
 	}

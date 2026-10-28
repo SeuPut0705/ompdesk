@@ -4388,6 +4388,7 @@ export const ko: Record<string, string> = {
 	"bridgeHealth.feature.sessionOwner": "다른 omp가 놓은 뒤에만 세션 열기",
 	"bridgeHealth.feature.pstack": "pstack 엔지니어링 모드",
 	"bridgeHealth.feature.eccHint": "프로젝트 언어에 맞는 ECC 스킬 안내",
+	"bridgeHealth.feature.formalHint": "경쟁 조건·재시도 요청에 형식 검증 스킬 안내",
 	"bridgeHealth.feature.defaultBrowser": "에이전트 기본 브라우저",
 	"bridgeHealth.feature.backgroundChecks": "긴 검사 백그라운드 실행",
 	"bridgeHealth.feature.checkoutPeers": "같은 체크아웃을 쓰는 세션",
@@ -6375,7 +6376,7 @@ export const ko: Record<string, string> = {
 	"machineSetup.stopped.title": "{name} 설치가 아직 끝나지 않았어요",
 	"machineSetup.stopped.outdatedTitle": "{name} 업데이트가 필요해요",
 	"machineSetup.stopped.description":
-		"설정이 아직 끝나지 않아서 omp를 시작할 수 없어요. 아래에서 다시 시도하거나, 안내된 방법으로 직접 설치해 주세요.",
+		"설정이 아직 끝나지 않아서 omp를 시작할 수 없어요. OMPdesk가 알아서 고치고, 다음 실행 때 다시 시도해요. 다시 시도를 누르면 지금 바로 해요.",
 	"machineSetup.requiredList": "필수 도구",
 	"machineSetup.checking": "이 컴퓨터를 확인하고 있어요…",
 	"machineSetup.loadFailed": "이 컴퓨터의 설정 상태를 읽지 못했어요",

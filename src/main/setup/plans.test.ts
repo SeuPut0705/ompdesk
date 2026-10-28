@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { SetupPresence } from "../../shared/setup";
@@ -104,15 +105,52 @@ describe("buildPlan", () => {
 		expect(posix?.location).toBe("/home/u/.bun");
 		const windows = buildPlan("bun", "bun-script", win);
 		expect(windows?.spawn.file).toBe("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
-		expect(windows?.spawn.args).toEqual([
+		expect(windows?.spawn.args.slice(0, -1)).toEqual([
 			"-NoProfile",
+			"-NonInteractive",
 			"-ExecutionPolicy",
 			"Bypass",
-			"-Command",
-			"irm bun.sh/install.ps1 | iex",
+			"-EncodedCommand",
 		]);
+		expect(decodePowerShell(windows?.spawn.args ?? [])).toBe(windows?.command);
 		expect(windows?.spawn.shell).toBe(false);
 		expect(windows?.prompt).toBeNull();
+		expect(windows?.location).toBe(win.bunInstall);
+	});
+
+	it("installs Bun on Windows over a running or missing bun.exe, and fails when no Bun answers", () => {
+		const script = buildPlan("bun", "bun-script", win)?.command ?? "";
+		const step = (text: string) => {
+			const at = script.indexOf(text);
+			expect(at, text).toBeGreaterThanOrEqual(0);
+			return at;
+		};
+		expect(script).toContain("$exe = Join-Path 'C:\\Users\\First Last\\.bun' 'bin\\bun.exe'");
+		// install.ps1 deletes bun.exe first, which fails while any process runs it; renaming a running exe works.
+		const aside = step("Move-Item -LiteralPath $exe -Destination $aside");
+		const install = step("Invoke-RestMethod -Uri 'https://bun.sh/install.ps1' | Invoke-Expression");
+		const verify = step("& $exe --version");
+		const restore = step("Move-Item -LiteralPath $aside -Destination $exe");
+		const fail = step("throw 'Bun was not installed");
+		expect(aside).toBeLessThan(install);
+		expect(install).toBeLessThan(verify);
+		expect(verify).toBeLessThan(restore);
+		expect(restore).toBeLessThan(fail);
+		// A missing bun.exe (a `bun upgrade` that could not put its new one in place) moves nothing.
+		expect(script).toContain("if (Test-Path -LiteralPath $exe) {");
+	});
+
+	it.runIf(process.platform === "win32")("is a script Windows PowerShell parses", () => {
+		const script = buildPlan("bun", "bun-script", win)?.command ?? "";
+		const check =
+			"$errors = $null; [void][System.Management.Automation.Language.Parser]::ParseInput($env:OMPDESK_SCRIPT, [ref]$null, [ref]$errors); $errors | ForEach-Object { $_.Message }; exit $errors.Count";
+		const parsed = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", check], {
+			env: { ...process.env, OMPDESK_SCRIPT: script },
+			encoding: "utf8",
+			windowsHide: true,
+		});
+		expect(`${parsed.stdout}${parsed.stderr}`.trim()).toBe("");
+		expect(parsed.status).toBe(0);
 	});
 
 	it("installs omp with the absolute bun path, and refuses without Bun", () => {
@@ -130,9 +168,6 @@ describe("buildPlan", () => {
 		expect(buildPlan("bun", "bun-upgrade", win)?.spawn).toEqual({ file: win.bun, args: ["upgrade"], shell: false });
 		expect(buildPlan("bun", "bun-upgrade", mac)?.command).toBe(`"${mac.bun}" upgrade`);
 		expect(buildPlan("bun", "bun-upgrade", { ...mac, bun: null })).toBeNull();
-		const tooOld: SetupPresence = { kind: "outdated", version: "1.4.2", minimum: "1.4.4", path: mac.bun };
-		expect(manualSteps("bun", tooOld, "darwin").commands).toEqual(["bun upgrade"]);
-		expect(manualSteps("bun", missing, "darwin").commands).toEqual(["curl -fsSL https://bun.sh/install | bash"]);
 	});
 
 	it("updates omp through its own bin, quoting a Windows .cmd shim for cmd.exe", () => {
@@ -250,14 +285,18 @@ describe("buildPlan", () => {
 
 describe("manualSteps", () => {
 	it("gives the per-platform command and the official page", () => {
-		expect(manualSteps("bun", null, "win32").commands[0]).toContain("install.ps1");
-		expect(manualSteps("omp", outdated, "darwin").commands).toEqual(["omp update"]);
-		expect(manualSteps("omp", missing, "darwin").commands).toEqual(["bun install -g @oh-my-pi/pi-coding-agent"]);
-		expect(manualSteps("git", null, "darwin").commands).toEqual(["xcode-select --install"]);
-		expect(manualSteps("node", null, "win32")).toEqual({
+		expect(manualSteps("git", "darwin").commands).toEqual(["xcode-select --install"]);
+		expect(manualSteps("node", "win32")).toEqual({
 			commands: ["winget install --id OpenJS.NodeJS.LTS -e"],
 			url: "https://nodejs.org/en/download",
 		});
+	});
+
+	it("asks nobody to run a command for Bun or omp: OMPdesk repairs those itself", () => {
+		for (const platform of ["darwin", "win32"] as const) {
+			expect(manualSteps("bun", platform)).toEqual({ commands: [], url: "" });
+			expect(manualSteps("omp", platform)).toEqual({ commands: [], url: "" });
+		}
 	});
 });
 
@@ -371,12 +410,10 @@ describe("Tailscale plans", () => {
 	});
 
 	it("points at tailscale.com/download when it has to be done by hand", () => {
-		expect(manualSteps("tailscale", missing, "darwin")).toEqual({
+		expect(manualSteps("tailscale", "darwin")).toEqual({
 			commands: ["brew install --cask tailscale-app"],
 			url: "https://tailscale.com/download",
 		});
-		expect(manualSteps("tailscale", missing, "win32").commands).toEqual([
-			"winget install --id Tailscale.Tailscale -e",
-		]);
+		expect(manualSteps("tailscale", "win32").commands).toEqual(["winget install --id Tailscale.Tailscale -e"]);
 	});
 });

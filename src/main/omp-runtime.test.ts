@@ -35,18 +35,40 @@ async function fakeOmp(versionLine: string): Promise<{ bin: string; dir: string 
 /** The first bytes of a Mach-O 64-bit executable (`MH_MAGIC_64`, little-endian on disk). */
 const MACHO = Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0x00, 0x00, 0x01]);
 
-/** A minimal PE: DOS stub, `PE\0\0`, a COFF header with no optional header and one section named `section`. */
-function peWithSection(section: string): Buffer {
-	const file = Buffer.alloc(0x100);
+/** A minimal PE: DOS stub, `PE\0\0`, a COFF header with no optional header and the named sections, in order. */
+function peWithSection(...sections: string[]): Buffer {
+	const file = Buffer.alloc(0x58 + sections.length * 40 + 0x40);
 	file.write("MZ", 0, "latin1");
 	file.writeUInt32LE(0x40, 0x3c);
 	file.write("PE\0\0", 0x40, "latin1");
 	file.writeUInt16LE(0x8664, 0x44);
-	file.writeUInt16LE(1, 0x46);
+	file.writeUInt16LE(sections.length, 0x46);
 	file.writeUInt16LE(0, 0x54);
-	file.write(section, 0x58, "latin1");
+	for (const [index, section] of sections.entries()) file.write(section, 0x58 + index * 40, "latin1");
 	return file;
 }
+
+/**
+ * Section tables read from the real files (29 Oct 2026): `omp-windows-x64.exe` of omp v18.13.3 (stock's release asset,
+ * what its launcher repair writes over `omp.exe`) ends in `.bun`; the `bun_shim_impl.exe` that bun 1.4.3 and 1.4.4
+ * embed and write as every global `omp.exe` has none, and neither has `bun.exe` itself.
+ */
+const REAL_COMPILED_OMP = [
+	".text",
+	".rdata",
+	".data",
+	".pdata",
+	".bunblt",
+	".fptable",
+	".tls",
+	"_RDATA",
+	"__DATA,_",
+	"__DATA,_",
+	".rsrc",
+	".reloc",
+	".bun",
+];
+const REAL_BUN_SHIM = [".text", ".rdata", ".data", ".pdata", ".reloc"];
 
 /** A `bun build --compile` omp for this platform: a Mach-O on macOS (ELF elsewhere), a PE with Bun's `.bun` section on Windows. */
 function compiledOmpBytes(): Buffer {
@@ -185,6 +207,13 @@ describe("omp lookup", () => {
 			expect(isCompiledOmp(shim, "win32")).toBe(false);
 			expect(isCompiledOmp(npmShim, "win32")).toBe(false);
 			expect(isCompiledOmp(path.join(dir, "missing"), "darwin")).toBe(false);
+			expect(isCompiledOmp(await file("compiled-real.exe", peWithSection(...REAL_COMPILED_OMP)), "win32")).toBe(
+				true,
+			);
+			expect(isCompiledOmp(await file("shim-real.exe", peWithSection(...REAL_BUN_SHIM)), "win32")).toBe(false);
+			expect(
+				isCompiledOmp(await file("bun-real.exe", peWithSection(...REAL_COMPILED_OMP.slice(0, -1))), "win32"),
+			).toBe(false);
 		} finally {
 			await fs.rm(dir, RM_TEMP);
 		}
@@ -254,7 +283,7 @@ describe("resolveOmp", () => {
 			const resolution = await resolveOmp();
 			expect(resolution).toMatchObject({
 				ok: false,
-				error: expect.stringContaining("omp update"),
+				error: expect.stringContaining("updates it on its own"),
 				reason: { kind: "too-old", version: "18.6.3", minimum: MIN_OMP_VERSION, bin },
 			});
 		} finally {
@@ -294,7 +323,7 @@ describe("resolveOmp", () => {
 			const resolution = await resolveOmp();
 			expect(resolution).toMatchObject({
 				ok: false,
-				error: expect.stringContaining("bun install -g @oh-my-pi/pi-coding-agent"),
+				error: expect.stringContaining("is a compiled build"),
 				reason: { kind: "compiled", bin },
 			});
 		} finally {
@@ -321,7 +350,7 @@ describe("resolveOmp", () => {
 			const refused = await resolveOmp();
 			expect(refused).toMatchObject({
 				ok: false,
-				error: expect.stringContaining("bun upgrade"),
+				error: expect.stringContaining("upgrades Bun on its own"),
 				reason: { kind: "bun-too-old", bin, minimum: "99.0.0", bun: expect.any(String) },
 			});
 			if (refused.ok || refused.reason?.kind !== "bun-too-old") throw new Error("expected bun-too-old");

@@ -4401,6 +4401,7 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.sessionOwner": "Opening a session only once another omp let go of it",
 	"bridgeHealth.feature.pstack": "pstack engineering mode",
 	"bridgeHealth.feature.eccHint": "ECC skills named for the project's languages",
+	"bridgeHealth.feature.formalHint": "Formal-verification skill named for race and retry requests",
 	"bridgeHealth.feature.defaultBrowser": "Default browser for agents",
 	"bridgeHealth.feature.backgroundChecks": "Long checks run in the background",
 	"bridgeHealth.feature.checkoutPeers": "Sessions sharing a checkout",
@@ -6395,7 +6396,7 @@ export const en: Record<string, string> = {
 	"machineSetup.stopped.title": "{name} isn't installed yet",
 	"machineSetup.stopped.outdatedTitle": "{name} needs an update",
 	"machineSetup.stopped.description":
-		"Setup isn't finished, so OMPdesk can't start omp yet. Try again below, or follow the steps to do it yourself.",
+		"Setup isn't finished, so OMPdesk can't start omp yet. OMPdesk repairs it on its own and tries again at the next launch; Try again runs it now.",
 	"machineSetup.requiredList": "Required tools",
 	"machineSetup.checking": "Checking this computer…",
 	"machineSetup.loadFailed": "Couldn't read this computer's setup",

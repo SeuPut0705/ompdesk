@@ -288,6 +288,38 @@ export function tailscaleMsiScript(download: PlanDownload): string {
 }
 
 /**
+ * Bun's official Windows installer (`irm bun.sh/install.ps1 | iex`), made to work over any bun.exe and to say when it
+ * did not. install.ps1 first deletes `<root>\bin\bun.exe`, which fails while any process runs it ("An older installation
+ * exists and is open"), and every failure of it still exits 0 under `iex`. So a bun.exe there is renamed aside first
+ * (Windows lets a running executable be renamed, as `bun upgrade` does), the result must answer `--version`, and
+ * otherwise the old bun.exe comes back and the script fails. Copies earlier runs left are dropped when no process
+ * holds them any more. Also what repairs a bun.exe a failed `bun upgrade` left missing.
+ */
+export function bunInstallScript(bunInstall: string): string {
+	return [
+		"$ErrorActionPreference = 'Stop'",
+		`$exe = Join-Path ${psQuote(bunInstall)} 'bin\\bun.exe'`,
+		"Get-ChildItem -Path ($exe + '.ompdesk-*') -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue",
+		"$aside = $null",
+		"if (Test-Path -LiteralPath $exe) {",
+		"\t$aside = $exe + '.ompdesk-' + [DateTime]::UtcNow.Ticks",
+		"\ttry { Move-Item -LiteralPath $exe -Destination $aside } catch { $aside = $null; Write-Output ('Could not move the old bun.exe aside: ' + $_) }",
+		"}",
+		"$failure = $null",
+		"try { Invoke-RestMethod -Uri 'https://bun.sh/install.ps1' | Invoke-Expression } catch { $failure = $_ }",
+		"$version = $null",
+		"if (Test-Path -LiteralPath $exe) { $version = & $exe --version; if ($LASTEXITCODE -ne 0) { $version = $null } }",
+		"if (-not $version) {",
+		"\tif ($aside -and -not (Test-Path -LiteralPath $exe)) { Move-Item -LiteralPath $aside -Destination $exe }",
+		"\tif ($failure) { Write-Output $failure }",
+		"\tthrow 'Bun was not installed: bun.exe does not answer --version'",
+		"}",
+		"if ($aside) { Remove-Item -LiteralPath $aside -Force -ErrorAction SilentlyContinue }",
+		"Write-Output ('Bun ' + $version + ' is in ' + $exe)",
+	].join("\n");
+}
+
+/**
  * The plan for `method`. `release` is required for `archive`. Null when the
  * plan cannot run: omp without Bun, a method this context lacks the tool for.
  */
@@ -301,33 +333,31 @@ export function buildPlan(
 	const win = ctx.platform === "win32";
 	switch (method) {
 		case "bun-script":
-			return win
-				? {
-						item,
-						method,
-						spawn: {
-							file: powershell(ctx),
-							args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "irm bun.sh/install.ps1 | iex"],
-							shell: false,
-						},
-						command: 'powershell -NoProfile -ExecutionPolicy Bypass -Command "irm bun.sh/install.ps1 | iex"',
-						location: ctx.bunInstall,
-						prompt: null,
-						download: null,
-					}
-				: {
-						item,
-						method,
-						spawn: {
-							file: "/bin/bash",
-							args: ["-c", "set -o pipefail; curl -fsSL https://bun.sh/install | bash"],
-							shell: false,
-						},
-						command: "curl -fsSL https://bun.sh/install | bash",
-						location: ctx.bunInstall,
-						prompt: null,
-						download: null,
-					};
+			if (win) {
+				const script = bunInstallScript(ctx.bunInstall);
+				return {
+					item,
+					method,
+					spawn: powershellScript(ctx, script),
+					command: script,
+					location: ctx.bunInstall,
+					prompt: null,
+					download: null,
+				};
+			}
+			return {
+				item,
+				method,
+				spawn: {
+					file: "/bin/bash",
+					args: ["-c", "set -o pipefail; curl -fsSL https://bun.sh/install | bash"],
+					shell: false,
+				},
+				command: "curl -fsSL https://bun.sh/install | bash",
+				location: ctx.bunInstall,
+				prompt: null,
+				download: null,
+			};
 		case "bun-upgrade":
 			if (!ctx.bun) return null;
 			return {
@@ -487,37 +517,22 @@ export function buildPlan(
 	}
 }
 
-const MANUAL_URLS: Record<SetupItemId, string> = {
-	bun: "https://bun.sh/docs/installation",
-	omp: "https://github.com/can1357/oh-my-pi",
+const MANUAL_URLS: Record<Exclude<SetupItemId, "bun" | "omp">, string> = {
 	git: "https://git-scm.com/downloads",
 	gh: "https://cli.github.com/",
 	node: "https://nodejs.org/en/download",
 	tailscale: "https://tailscale.com/download",
 };
 
-/** What to run by hand, and the official page, when the automatic install keeps failing. */
-export function manualSteps(
-	item: SetupItemId,
-	presence: SetupPresence | null,
-	platform: SetupPlatform,
-): { commands: string[]; url: string } {
+/**
+ * What to run by hand, and the official page, when the automatic install keeps failing. None for Bun and omp: OMPdesk
+ * repairs those itself and never asks the person to run a command for them (the user's rule, 29 Oct 2026).
+ */
+export function manualSteps(item: SetupItemId, platform: SetupPlatform): { commands: string[]; url: string } {
+	if (item === "bun" || item === "omp") return { commands: [], url: "" };
 	const win = platform === "win32";
 	const url = MANUAL_URLS[item];
 	switch (item) {
-		case "bun":
-			return {
-				commands: [
-					presence?.kind === "outdated"
-						? "bun upgrade"
-						: win
-							? 'powershell -c "irm bun.sh/install.ps1 | iex"'
-							: "curl -fsSL https://bun.sh/install | bash",
-				],
-				url,
-			};
-		case "omp":
-			return { commands: [presence?.kind === "outdated" ? "omp update" : `bun install -g ${OMP_PACKAGE}`], url };
 		case "git":
 			return { commands: [win ? `winget install --id ${WINGET_IDS.git} -e` : "xcode-select --install"], url };
 		case "gh":

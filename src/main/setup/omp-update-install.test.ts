@@ -12,12 +12,12 @@
  * written: HOME, BUN_INSTALL and Bun's cache all point into it.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { SetupPresence } from "../../shared/setup";
-import { MIN_OMP_VERSION, parseOmpVersion } from "../omp-runtime";
+import { isCompiledOmp, MIN_OMP_VERSION, parseOmpVersion } from "../omp-runtime";
 import { type OmpRegistry, ompRegistry, ompRelease } from "../test-omp-registry";
 import type { Detection } from "./detect";
 import { OMP_PACKAGE } from "./plans";
@@ -190,6 +190,61 @@ describe.skipIf(bun === null)("omp update with a real bun install -g", () => {
 		expect((await run(shellOmp, ["--version"], env)).output.trim()).toBe(`omp/${older.version}`);
 		// Up to date now: the next check says so.
 		await expect(service.latestOmp()).resolves.toBe(newer.version);
+		service.dispose();
+	}, 120_000);
+
+	it("puts the package's launcher back over stock's compiled omp, which `bun install -g` alone cannot replace", async () => {
+		// 29 Oct 2026: stock's launcher repair left its standalone build in `bin/omp`; Bun 1.4.4's own reinstall then
+		// failed `failed to link @oh-my-pi/pi-coding-agent: EEXIST` on POSIX and kept a running `omp.exe` on Windows.
+		const compiled = windows
+			? (() => {
+					const file = Buffer.alloc(0xc0);
+					file.write("MZ", 0, "latin1");
+					file.writeUInt32LE(0x40, 0x3c);
+					file.write("PE\0\0", 0x40, "latin1");
+					file.writeUInt16LE(1, 0x46);
+					file.write(".bun", 0x58, "latin1");
+					return file;
+				})()
+			: Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0x00, 0x00, 0x01]);
+		rmSync(shellOmp, { force: true });
+		writeFileSync(shellOmp, compiled, { mode: 0o755 });
+		expect(isCompiledOmp(shellOmp)).toBe(true);
+		const present: SetupPresence = { kind: "present", version: bunVersion, path: bun ?? "" };
+		const ompPresence = async (): Promise<SetupPresence> => {
+			if (isCompiledOmp(shellOmp)) return { kind: "broken", detail: "a compiled omp", path: shellOmp };
+			const version = parseOmpVersion((await run(shellOmp, ["--version"], env)).output);
+			return version ? { kind: "present", version, path: shellOmp } : { kind: "missing" };
+		};
+		const service = new SetupService({
+			platform: windows ? "win32" : "darwin",
+			arch: process.arch,
+			systemRoot: process.env.SystemRoot ?? "C:\\Windows",
+			toolsDir: join(root, "tools"),
+			bunInstall: shellBun,
+			statePath: join(root, "setup-state-repair.json"),
+			automatic: false,
+			testInstaller: null,
+			spawnEnv: async () => ({ ...env }),
+			onState: () => undefined,
+			onOmpReady: () => undefined,
+			detect: async () => {
+				const omp = await ompPresence();
+				return {
+					presence: { bun: present, git: present, gh: present, node: present, tailscale: present, omp },
+					bun,
+					omp: omp.kind === "present" ? shellOmp : null,
+					brew: null,
+					winget: null,
+				};
+			},
+			refreshPath: async () => undefined,
+		});
+		await service.start();
+		await service.retry("omp");
+		const item = service.state().items.find(entry => entry.id === "omp");
+		expect(item?.presence, item?.output).toEqual({ kind: "present", version: newer.version, path: shellOmp });
+		expect(readdirSync(dirname(shellOmp)).filter(name => name.includes(".ompdesk-compiled-"))).toEqual([]);
 		service.dispose();
 	}, 120_000);
 });
