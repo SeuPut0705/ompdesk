@@ -11,9 +11,11 @@
  * (resources/gui-bridge/extensions/*), with the same result shapes the fork
  * returned. `abort_subagent` maps onto stock `cancel_subagent`. Subagent
  * transcripts (stock `get_subagent_messages`, the bridge's
- * `get_subagent_transcript`) come back with their image bytes restored.
+ * `get_subagent_transcript`) come back as a transcript page's messages, with
+ * their image bytes restored.
  */
 
+import { transcriptPageMessages } from "../../../resources/gui-bridge/transcript-page";
 import type { RpcMcpServersResult } from "../../shared/rpc-types";
 import { noteMcpChange } from "../mcp-live";
 import { resolveImageBlobs } from "./image-blobs";
@@ -78,14 +80,22 @@ async function firstOnly<T extends { messages?: unknown }>(read: Promise<T>, fir
 	return { messages: first ? [first] : [] } as T;
 }
 
-/** A transcript read whose `messages` carry their image bytes rather than stock's blob references. */
-async function withImageBytes<T extends { messages?: unknown }>(
+/**
+ * A transcript read as the renderer reads it: its `messages` as a transcript page's (no request bookkeeping, no
+ * thinking signature) with their image bytes rather than stock's blob references, and without stock's `entries`, the
+ * same messages again in their journal entries. Nothing reads either, and a subagent's journal is mostly them: 12.5 MB
+ * of JSON a read for a 6 MB journal on 28 Oct 2026, 1.2 MB without (2.0 → 0.33 MB deflated), and a paired device
+ * read one on every replay.
+ */
+async function transcriptRead<T extends { messages?: unknown; entries?: unknown }>(
 	read: Promise<T>,
 	ctx: LocalCommandContext,
-): Promise<T> {
-	const transcript = await read;
-	await resolveImageBlobs(transcript.messages, ctx.bridge);
-	return transcript;
+): Promise<Omit<T, "entries">> {
+	const { entries: _entries, ...transcript } = await read;
+	if (!Array.isArray(transcript.messages)) return transcript;
+	const messages = transcriptPageMessages(transcript.messages);
+	await resolveImageBlobs(messages, ctx.bridge);
+	return { ...transcript, messages };
 }
 
 /** A second reauth while one is in flight fails with the fork's `oauth_busy` code. */
@@ -134,7 +144,7 @@ export const handlers: Record<string, LocalHandler> = {
 	mcp_add: mcpAdd,
 	mcp_reload: mcpReload,
 	get_subagent_messages: ({ id: _id, firstPrompt, ...command }, ctx) =>
-		withImageBytes(firstOnly(ctx.send<{ messages?: unknown }>(command), firstPrompt), ctx),
+		transcriptRead(firstOnly(ctx.send<{ messages?: unknown }>(command), firstPrompt), ctx),
 	get_subagent_transcript: ({ type, id: _id, firstPrompt, ...params }, ctx) =>
-		withImageBytes(firstOnly(ctx.bridge.request<{ messages?: unknown }>(type, params), firstPrompt), ctx),
+		transcriptRead(firstOnly(ctx.bridge.request<{ messages?: unknown }>(type, params), firstPrompt), ctx),
 };
