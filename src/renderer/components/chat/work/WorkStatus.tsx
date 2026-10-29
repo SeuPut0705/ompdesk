@@ -1,5 +1,5 @@
 import { Check, Minus, X } from "lucide-react";
-import { endsCutOff } from "../../../../../resources/gui-bridge/command-verdict-core";
+import { cutByStop, endsCutOff } from "../../../../../resources/gui-bridge/command-verdict-core";
 import { cx, resultText } from "../../../lib/format";
 import type { ToolEntry } from "../../../stores/tools";
 import { statusMeta } from "../../panels/subagent-graph";
@@ -92,11 +92,14 @@ export function isInterruptedError(
 	entry: Pick<ToolEntry, "status" | "isError" | "endTime"> & Partial<Pick<ToolEntry, "result">>,
 	stoppedAt?: number,
 ): boolean {
-	if (entry.status === "aborted") return true;
-	if (!(entry.status === "error" || entry.isError) || stoppedAt === undefined) return false;
-	return (
-		(entry.endTime !== null && entry.endTime >= stoppedAt - 1000) ||
-		(entry.result != null && endsCutOff(resultText(entry.result)))
+	return cutByStop(
+		{
+			aborted: entry.status === "aborted",
+			errored: entry.status === "error" || entry.isError,
+			endedAt: entry.endTime,
+			cutOff: () => entry.result != null && endsCutOff(resultText(entry.result)),
+		},
+		stoppedAt,
 	);
 }
 

@@ -316,6 +316,27 @@ export function endsCutOff(resultText: string): boolean {
 	return CUT_OFF.test(resultText.trim());
 }
 
+/** How a call ended, as far as a stop needs it. `cutOff`: its result is stock's cut-off notice (`endsCutOff`). */
+export interface CallEnd {
+	/** Stock never answered it: the stop or the process's end aborted it. */
+	aborted: boolean;
+	errored: boolean;
+	endedAt: number | null;
+	cutOff: () => boolean;
+}
+
+/**
+ * Whether the user's stop (stock's empty aborted reply, at `stoppedAt`) cut a call off: an aborted call always; with a
+ * stop, an error that ended within a second before it (stock kills the call, then stamps the reply), or one whose result
+ * is stock's cut-off notice whenever it ended (an app restart aborts it at the process's exit and journals the reply
+ * later). A call it cut is interrupted, never a failure.
+ */
+export function cutByStop(call: CallEnd, stoppedAt: number | undefined): boolean {
+	if (call.aborted) return true;
+	if (!call.errored || stoppedAt === undefined) return false;
+	return (call.endedAt !== null && call.endedAt >= stoppedAt - 1000) || call.cutOff();
+}
+
 /** What stock answered a command's call with, and what this transcript knows about how it ended. */
 export interface CommandFacts {
 	command: string;

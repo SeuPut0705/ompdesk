@@ -5,7 +5,12 @@
  */
 import { describe, expect, it } from "vitest";
 import { commandStatus } from "../../../../../resources/gui-bridge/command-verdict-core";
-import { isCheckCommand, judgeVerify, ledgerCall } from "../../../../../resources/gui-bridge/modes/autopilot-verify";
+import {
+	isCheckCommand,
+	judgeVerify,
+	ledgerCall,
+	statusAfterStop,
+} from "../../../../../resources/gui-bridge/modes/autopilot-verify";
 import { CHECKOUT_REFUSAL_PREFIX } from "../../../../../resources/gui-bridge/modes/checkout-peers-contracts";
 import type { ToolEntry } from "../../../stores/tools";
 import { lastCheck } from "../../layout/work-board/session-board";
@@ -260,9 +265,10 @@ describe("work verdict invariants over generated runs", () => {
 			for (const { key, entry } of calls) {
 				if (entry.toolName !== "bash") continue;
 				const card = outcome.commands.find(command => command.toolCallId === key)?.status;
-				expect(ledgerCall("bash", entry.args, entry.result, entry.isError)?.status, `seed ${seed} ${key}`).toBe(
-					card,
-				);
+				expect(
+					ledgerCall("bash", entry.args, entry.result, entry.isError, entry.endTime ?? 0)?.status,
+					`seed ${seed} ${key}`,
+				).toBe(card);
 			}
 			const board = lastCheck(
 				calls.map(({ key, entry }) => [key, entry] as const),
@@ -281,7 +287,7 @@ describe("work verdict invariants over generated runs", () => {
 			// Autopilot's green needs the last check that ran to have passed after the last edit: never green over a last
 			// check the card reads as failed, and a refused one is no check run.
 			const ledger = calls.flatMap(({ entry }) => {
-				const call = ledgerCall(entry.toolName, entry.args, entry.result, entry.isError);
+				const call = ledgerCall(entry.toolName, entry.args, entry.result, entry.isError, entry.endTime ?? 0);
 				return call ? [call] : [];
 			});
 			const ran = ledger.filter(
@@ -296,7 +302,7 @@ describe("work verdict invariants over generated runs", () => {
 		}
 	});
 
-	it("says the same of a run a stop ended on the card and on the board", () => {
+	it("says the same of a run a stop ended on the card, on the board and in Autopilot's ledger", () => {
 		for (const { seed, calls } of RUNS) {
 			// Stock's empty aborted reply lands after the last call, within a second and a half of its end.
 			const last = calls.at(-1)?.entry.endTime ?? 0;
@@ -318,6 +324,13 @@ describe("work verdict invariants over generated runs", () => {
 				turn.commands.map(command => command.status),
 				`seed ${seed}`,
 			).toEqual(card.commands.map(command => command.status));
+			for (const { key, entry } of calls) {
+				if (entry.toolName !== "bash") continue;
+				const ledger = ledgerCall("bash", entry.args, entry.result, entry.isError, entry.endTime ?? 0);
+				expect(ledger && statusAfterStop(ledger, stoppedAt), `seed ${seed} ${key}`).toBe(
+					card.commands.find(command => command.toolCallId === key)?.status,
+				);
+			}
 			const board = lastCheck(entries, turn.commands, "/repo", new Map(), stops);
 			if (board?.state !== "running")
 				expect(board?.state === "failed", `seed ${seed}: board ${board?.state} ${board?.command}`).toBe(

@@ -7,7 +7,7 @@
  * - a repeated `end` of the same cycle (the first report stands; a report that was refused may be amended),
  * - the commit and the change size the repository itself shows (the agent often leaves the hash out).
  */
-import { type CommandStatus, commandStatus } from "../command-verdict-core";
+import { type CommandStatus, commandStatus, cutByStop, endsCutOff } from "../command-verdict-core";
 import type { AutopilotChangeStat, AutopilotToolInput, AutopilotVerifyNote, CycleVerify } from "./autopilot-contracts";
 import { CHECKOUT_REFUSAL_PREFIX } from "./checkout-peers-contracts";
 
@@ -26,6 +26,8 @@ export interface LedgerCall {
 	 * became a background job is `unknown`: its result never reaches this ledger, and it is taken as no failure.
 	 */
 	status: CommandStatus;
+	/** When it ended and whether as an error or with stock's cut-off notice: what a later stop reads (`statusAfterStop`). */
+	ended: { at: number; errored: boolean; cutOff: boolean };
 }
 
 const RUNNER_PREFIX = String.raw`(?:bun|npm|pnpm|yarn|deno)(?:\s+run)?`;
@@ -81,8 +83,11 @@ export function ledgerCall(
 	args: unknown,
 	result: unknown,
 	isError: boolean | undefined,
+	endedAt: number,
 ): LedgerCall | null {
-	if (EDIT_TOOLS[tool] === true) return { tool, status: isError === true ? "failed" : "passed" };
+	const errored = isError === true;
+	if (EDIT_TOOLS[tool] === true)
+		return { tool, status: errored ? "failed" : "passed", ended: { at: endedAt, errored, cutOff: false } };
 	if (tool !== "bash") return null;
 	const command =
 		typeof (args as { command?: unknown } | null)?.command === "string" ? (args as { command: string }).command : "";
@@ -108,7 +113,15 @@ export function ledgerCall(
 		resultText: text,
 		output: text.slice(-CHECK_OUTPUT_MAX),
 	});
-	return { tool, command, status };
+	return { tool, command, status, ended: { at: endedAt, errored, cutOff: endsCutOff(text) } };
+}
+
+/** A call's status once the turn was stopped at `stoppedAt`: a call the stop cut off is interrupted, as on the work card. */
+export function statusAfterStop(call: LedgerCall, stoppedAt: number | undefined): CommandStatus {
+	const { at, errored, cutOff } = call.ended;
+	return cutByStop({ aborted: false, errored, endedAt: at, cutOff: () => cutOff }, stoppedAt)
+		? "interrupted"
+		: call.status;
 }
 
 /** As much of a command's output as the work card reads for a check's own verdict (work-view.ts `CHECK_TEXT_MAX`). */
@@ -121,6 +134,8 @@ export interface VerifyFacts {
 	changed: boolean;
 	/** The check command the agent said it ran, if it said. */
 	declared?: string;
+	/** When the user stopped the turn, if they did while `end` waited: a call the stop cut off is no check run. */
+	stoppedAt?: number;
 }
 
 export interface VerifyVerdict {
@@ -146,8 +161,9 @@ function shorten(command: string): string {
  */
 export function judgeVerify(facts: VerifyFacts): VerifyVerdict {
 	if (facts.claimed !== "green" || !facts.changed) return { verify: facts.claimed, amendable: false };
+	const calls = facts.calls.map(call => ({ ...call, status: statusAfterStop(call, facts.stoppedAt) }));
 	// A check stock refused or a stop cut off never ran to an end: it is no check run.
-	const checks = facts.calls
+	const checks = calls
 		.map((call, index) => ({ call, index }))
 		.filter(
 			({ call }) =>
@@ -175,7 +191,7 @@ export function judgeVerify(facts: VerifyFacts): VerifyVerdict {
 			amendable: true,
 		};
 	}
-	const lastEdit = facts.calls.findLastIndex(call => EDIT_TOOLS[call.tool] === true && call.status === "passed");
+	const lastEdit = calls.findLastIndex(call => EDIT_TOOLS[call.tool] === true && call.status === "passed");
 	if (lastEdit > last.index) {
 		return {
 			verify: "skipped",

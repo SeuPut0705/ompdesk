@@ -140,6 +140,8 @@ interface LiveState extends LiveCycle {
 	pending: Map<string, { tool: string; args: unknown }>;
 	/** Tool calls of the turn that have ended, by id (`settledBeside`). */
 	ended: Set<string>;
+	/** When the user stopped the turn (its abort signal fired): a call the stop cut off is no check run. */
+	stoppedAt?: number;
 	/** HEAD when the turn began (what the cycle's change is measured from). */
 	headStart?: Promise<string | undefined>;
 	/** What the bridge measured of the report (see `autopilot-verify.ts`). */
@@ -583,7 +585,7 @@ function noteToolEvent(event: unknown): void {
 	const started = live.pending.get(id);
 	live.pending.delete(id);
 	live.ended.add(id);
-	const call = ledgerCall(tool, started?.args, fields.result, fields.isError === true);
+	const call = ledgerCall(tool, started?.args, fields.result, fields.isError === true, now());
 	if (call) live.calls.push(call);
 	for (const check of [...toolEvents]) check();
 }
@@ -662,7 +664,13 @@ async function observeReport(
 	const verdict =
 		report.area === "release"
 			? { verify: report.verify, amendable: false }
-			: judgeVerify({ claimed: report.verify, calls: current.calls, changed, declared: report.check });
+			: judgeVerify({
+					claimed: report.verify,
+					calls: current.calls,
+					changed,
+					declared: report.check,
+					stoppedAt: current.stoppedAt,
+				});
 	const commit = reconcileCommit({
 		claimed,
 		// Without a repository there is nothing to check the hash against: the claim stands.
@@ -954,12 +962,22 @@ function registerTool(pi: ExtensionAPI): void {
 		async execute(
 			toolCallId: string,
 			params: Record<string, unknown>,
-			_signal: unknown,
+			signal: AbortSignal | undefined,
 			_onUpdate: unknown,
 			ctx: ExtensionContext,
 		) {
 			const session = mainSession();
 			if (!session) throw new Error("No live omp session");
+			// The turn's stop aborts this call's signal while `end` waits for the calls beside it: a check that stop
+			// cut off is no check run, as on the work card.
+			const stopped = live;
+			signal?.addEventListener(
+				"abort",
+				() => {
+					if (stopped) stopped.stoppedAt ??= now();
+				},
+				{ once: true },
+			);
 			return runTool(session, params, ctx.agent.kind, toolCallId);
 		},
 	});
