@@ -34,6 +34,7 @@ import {
 	removeEndpoint,
 	writeEndpoint,
 } from "./endpoint";
+import { controlEnvFor } from "./env";
 import { EventHub } from "./events";
 import { startControlSocket } from "./index";
 import { ControlRouter } from "./router";
@@ -463,19 +464,20 @@ describe("control socket", () => {
 	});
 
 	describe("lifecycle", () => {
-		it("sets the environment before the socket is up and clears it on close", async () => {
+		it("tells this computer's own spawns where it listens, never through process.env, and stops once closed", async () => {
 			const starting = startControlSocket({ userData, backend: new FakeBackend() });
-			const socket = process.env[CONTROL_SOCKET_ENV];
-			const dir = process.env[CONTROL_DIR_ENV];
-			expect(socket).toBeTruthy();
-			expect(dir).toBeTruthy();
+			const own = controlEnvFor(false);
+			expect(own[CONTROL_SOCKET_ENV]).toBeTruthy();
+			expect(own[CONTROL_DIR_ENV]).toBeTruthy();
+			expect(process.env[CONTROL_SOCKET_ENV]).toBeUndefined();
+			// A session or terminal run for a paired device or the phone page learns nothing of it.
+			expect(controlEnvFor(true)).toEqual({ OMPDESK_CONTROL_OFF: "1" });
 			const handle = await starting;
 			if (handle === null) throw new Error("did not start");
-			expect(handle.socket).toBe(socket);
-			expect(handle.dir).toBe(dir);
+			expect(handle.socket).toBe(own[CONTROL_SOCKET_ENV]);
+			expect(handle.dir).toBe(own[CONTROL_DIR_ENV]);
 			await handle.close();
-			expect(process.env[CONTROL_SOCKET_ENV]).toBeUndefined();
-			expect(process.env[CONTROL_DIR_ENV]).toBeUndefined();
+			expect(controlEnvFor(false)).toEqual({});
 		});
 
 		it("publishes endpoint.json and removes it, and the socket, on close", async () => {
@@ -503,8 +505,7 @@ describe("control socket", () => {
 			});
 			expect(handle).toBeNull();
 			expect(lines).toHaveLength(1);
-			expect(process.env[CONTROL_SOCKET_ENV]).toBeUndefined();
-			expect(process.env[CONTROL_DIR_ENV]).toBeUndefined();
+			expect(controlEnvFor(false)).toEqual({});
 		});
 	});
 

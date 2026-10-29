@@ -228,7 +228,13 @@ async function settle(): Promise<void> {
 type Open = { session: string } | "new" | "default";
 
 /** How a launch opens its session, and the rest of it with what may differ per process taken out. */
-function launchOf(omp: FakeOmp): { open: Open; args: string[]; env: Record<string, string>; origin?: string } {
+function launchOf(omp: FakeOmp): {
+	open: Open;
+	args: string[];
+	env: Record<string, string>;
+	origin?: string;
+	controlOff?: string;
+} {
 	const args = [...omp.args];
 	let open: Open = "default";
 	const session = args.indexOf("--session");
@@ -238,8 +244,8 @@ function launchOf(omp: FakeOmp): { open: Open; args: string[]; env: Record<strin
 		args.splice(config, 2);
 		open = "new";
 	}
-	const { OMP_GUI_BRIDGE: _bridge, OMP_GUI_PROMPT_ORIGIN: origin, ...env } = omp.env;
-	return { open, args, env, ...(origin ? { origin } : {}) };
+	const { OMP_GUI_BRIDGE: _bridge, OMP_GUI_PROMPT_ORIGIN: origin, OMPDESK_CONTROL_OFF: controlOff, ...env } = omp.env;
+	return { open, args, env, ...(origin ? { origin } : {}), ...(controlOff ? { controlOff } : {}) };
 }
 
 function peer(deviceId: string): PeerInfo {
@@ -400,9 +406,12 @@ describe("a session's omp launches the same way on every start path", () => {
 
 		const [own, ...hosted] = omps.map(launchOf);
 		expect([own, ...hosted].map(launch => launch?.open)).toEqual(expected);
+		// The one difference beside the origin: a device's tab is told this computer's control socket is off to it.
+		expect(own?.controlOff).toBeUndefined();
 		for (const launch of hosted) {
 			expect(launch.args).toEqual(own?.args);
 			expect(launch.env).toEqual(own?.env);
+			expect(launch.controlOff).toBe("1");
 			expect(JSON.parse(launch.origin ?? "null")).toEqual({
 				deviceId: "phone",
 				name: "Phone phone",

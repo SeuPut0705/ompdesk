@@ -2,6 +2,7 @@ import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { once } from "node:events";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
+import { withoutControlEnv } from "./control-socket/env";
 import { ompAvailability, refuseWithoutOmp } from "./omp-availability";
 import { ompPackageRoot, ompPathEnv, systemOmp } from "./omp-runtime";
 import { spawnPath } from "./shell-env";
@@ -79,8 +80,9 @@ export class StockHelper {
 		return spawn("bun", [join(this.#bridgeDir, "stock-helper", "host.ts"), this.#worker], {
 			stdio: ["pipe", "pipe", "pipe"],
 			windowsHide: true,
+			// The control socket's variables reach a terminal only per request (`terminalRequest`), never from here.
 			env: {
-				...process.env,
+				...withoutControlEnv(process.env),
 				PATH: ompPathEnv(omp.runtime.bin, basePath),
 				OMP_PACKAGE_ROOT: root,
 				PI_NOTIFICATIONS: "off",

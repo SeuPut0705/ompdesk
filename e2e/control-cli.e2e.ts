@@ -48,6 +48,7 @@ function ompdesk(...args: string[]): Promise<Run> {
 	// A test run from inside an OMPdesk session must never reach that app.
 	delete env.OMPDESK_SOCKET;
 	delete env.OMPDESK_CALLER;
+	delete env.OMPDESK_CONTROL_OFF;
 	const { promise, resolve } = Promise.withResolvers<Run>();
 	execFile(
 		"/bin/sh",

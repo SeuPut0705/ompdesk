@@ -841,8 +841,8 @@ app.whenReady().then(() => {
 			closeFinishedTabs(undefined, state);
 		},
 	});
-	sidecarPool = new SidecarPool((cwd, kind, fresh, device, tabId) => {
-		if (!device) return createLocalSidecar(cwd, kind, fresh);
+	sidecarPool = new SidecarPool((cwd, kind, fresh, device, tabId, web) => {
+		if (!device) return createLocalSidecar(cwd, kind, fresh, undefined, web);
 		// The host runs its own health check, session-kind record and bridge
 		// probe; only the probe's verdict comes back, for this machine's toast.
 		const sc = devices.createSidecar(device, tabId, cwd, kind, fresh);

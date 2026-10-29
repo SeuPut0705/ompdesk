@@ -4,9 +4,10 @@
  * failed start is one log line and a null handle.
  */
 
-import { CONTROL_DIR_ENV, CONTROL_PROTOCOL_VERSION, CONTROL_SOCKET_ENV } from "../../../resources/cli/protocol";
+import { CONTROL_PROTOCOL_VERSION } from "../../../resources/cli/protocol";
 import type { ControlBackend } from "./backend";
 import { controlEndpoint, prepareControlDir, readOrCreateToken, removeEndpoint, writeEndpoint } from "./endpoint";
+import { setControlEndpoint } from "./env";
 import { EventHub } from "./events";
 import { ControlRouter } from "./router";
 import { ControlServer } from "./server";
@@ -24,11 +25,6 @@ export interface ControlSocketHandle {
 	close(): Promise<void>;
 }
 
-function clearEnv(): void {
-	delete process.env[CONTROL_SOCKET_ENV];
-	delete process.env[CONTROL_DIR_ENV];
-}
-
 export async function startControlSocket({
 	userData,
 	backend,
@@ -36,9 +32,8 @@ export async function startControlSocket({
 	log = () => undefined,
 }: ControlSocketOptions): Promise<ControlSocketHandle | null> {
 	const { dir, socket, socketDir } = controlEndpoint(userData, platform);
-	// Set before the first await: a worker spawned while the socket comes up still inherits where to find it.
-	process.env[CONTROL_SOCKET_ENV] = socket;
-	process.env[CONTROL_DIR_ENV] = dir;
+	// Known before the first await: a session spawned while the socket comes up is still told where to find it.
+	setControlEndpoint({ socket, dir });
 	let server: ControlServer | undefined;
 	try {
 		const exposed = prepareControlDir(dir);
@@ -49,7 +44,7 @@ export async function startControlSocket({
 		writeEndpoint(dir, { version: CONTROL_PROTOCOL_VERSION, socket, pid: process.pid });
 	} catch (error) {
 		await server?.close();
-		clearEnv();
+		setControlEndpoint(null);
 		log(`Control socket not started: ${error instanceof Error ? error.message : String(error)}`);
 		return null;
 	}
@@ -60,7 +55,7 @@ export async function startControlSocket({
 		async close() {
 			await running.close();
 			removeEndpoint(dir, socket);
-			clearEnv();
+			setControlEndpoint(null);
 		},
 	};
 }

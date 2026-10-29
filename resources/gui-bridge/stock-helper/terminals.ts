@@ -27,15 +27,24 @@ export function disposeTerminals(): void {
 }
 export const methods: Record<string, (params: unknown) => Promise<unknown>> = {
 	"terminal.request": async params => {
-		const { owner, cwd, operation, shell } = params as {
+		const {
+			owner,
+			cwd,
+			operation,
+			shell,
+			env: extra,
+		} = params as {
 			owner: string;
 			cwd: string;
 			operation: TerminalOperation;
+			/** Main's per-terminal variables over this worker's own (the control socket's, or that it is off). */
+			env?: Record<string, string>;
 			/** A shell main detected (main/terminal/shells.ts); absent = the login shell. */
 			shell?: { path: string; args: string[] };
 		};
 		const env: Record<string, string> = {};
 		for (const [key, value] of Object.entries(process.env)) if (value !== undefined) env[key] = value;
+		Object.assign(env, extra);
 		env.TERM = "xterm-256color";
 		env.TERM_PROGRAM = "OMPdesk";
 		const windows = process.platform === "win32";

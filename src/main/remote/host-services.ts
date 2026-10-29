@@ -71,6 +71,7 @@ import { branchEvidence, branchFacts, landingFacts, mergeBranch, removeSafeWorkt
 import type { BridgeConnectResult } from "../bridge-health";
 import { canonicalCwd } from "../canonical-cwd";
 import type { CheckoutMember } from "../checkout-peers";
+import { controlEnvFor } from "../control-socket/env";
 import { deletedSessions } from "../deleted-sessions";
 import { discardOpenedWorktree, savedWorktreesForSpawn } from "../disk/saved-worktrees";
 import { type ExtensionApplyPlan, extensionApplyDecision, mergeApplyPlans } from "../extension-reload";
@@ -1089,7 +1090,13 @@ export class LocalHostServices implements HostServices {
 			case "terminal.request": {
 				const { rtab, operation } = parse(TerminalParams, method, params);
 				const tab = this.#tab(peer, rtab);
-				return terminalRequest(terminalOwner(peer.deviceId, rtab), tab.sidecar.cwd, operation as TerminalOperation);
+				// A paired device's terminal here is never told where this computer's control socket is.
+				return terminalRequest(
+					terminalOwner(peer.deviceId, rtab),
+					tab.sidecar.cwd,
+					operation as TerminalOperation,
+					controlEnvFor(true),
+				);
 			}
 			case "fs.list": {
 				const { rtab, cwd, ...payload } = parse(FsListParams, method, params);
