@@ -827,10 +827,12 @@ export function FilesPanel() {
 					</span>
 				) : isDir && git.dirs.has(entry.path) ? (
 					<span
-						className="ms-1 size-1.5 shrink-0 rounded-full bg-(--sc-text-subtle)"
+						className="ms-1 inline-flex size-1.5 shrink-0 rounded-full bg-(--sc-text-muted)"
 						data-git-mark="dir"
 						title={t("filesPanel.git.inside")}
-					/>
+					>
+						<span className="sr-only">{t("filesPanel.git.inside")}</span>
+					</span>
 				) : undefined,
 				onClick: renaming ? undefined : () => onNodeClick(id),
 				onMenu: anchor =>
