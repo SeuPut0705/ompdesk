@@ -1260,6 +1260,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		session: [
 			"getContextBreakdown()",
 			"systemPrompt",
+			// OMPdesk's sections read the session as a prompt's hook does (prompt-sections.ts `sectionContext`).
+			"extensionRunner.createContext()",
 			"renderedSkills",
 			"hasBuiltInTool()",
 			"getXdevToolEntries()",
