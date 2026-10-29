@@ -464,8 +464,8 @@ async function readStored(file: string): Promise<StoredSchedules> {
 export function ompRunLauncher(options: {
 	omp: () => Promise<OmpResolution>;
 	env: () => Promise<NodeJS.ProcessEnv>;
-	/** Extension flags every run gets (ai-memory's root while memory is on). */
-	extensionArgs?: () => Promise<string[]>;
+	/** Extension flags every run gets in its folder (ai-memory's root while memory is on). */
+	extensionArgs?: (cwd: string) => Promise<string[]>;
 }): RunLauncher {
 	return async (schedule, files) => {
 		const resolution = await options.omp();
@@ -474,7 +474,7 @@ export function ompRunLauncher(options: {
 		const env = await options.env();
 		const args = [
 			"-p",
-			...((await options.extensionArgs?.()) ?? []),
+			...((await options.extensionArgs?.(schedule.cwd)) ?? []),
 			...(schedule.model ? ["--model", schedule.model] : []),
 			...(schedule.autoApprove ? ["--yolo"] : []),
 		];

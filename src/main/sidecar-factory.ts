@@ -82,8 +82,11 @@ export interface LocalSidecarDeps {
 	launchProfilesPref: () => unknown;
 	/** Grace period a closed tab's omp gets to shut down by itself (ai-memory's session-end rides it); absent: none. */
 	gracefulStopMs?: () => number;
-	/** `-e <root>` of ai-memory (OMPdesk's own extension root) while memory is on, read at every spawn; absent: none. */
-	aiMemoryExtensionArgs?: () => Promise<string[]>;
+	/**
+	 * `-e <root>` of ai-memory (OMPdesk's own extension root) while memory is on, read at every spawn in the tab's
+	 * folder (plus the `--config` that keeps a copy of ai-memory's extension in omp's agent dir out of it); absent: none.
+	 */
+	aiMemoryExtensionArgs?: (cwd: string) => Promise<string[]>;
 	/**
 	 * The file memory's address is kept in (src/main/ai-memory/recall-state.ts), passed as `OMP_GUI_MEMORY` at every spawn
 	 * for the bridge's memory recall; absent: no recall (tests).
@@ -162,7 +165,7 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 				const ecc = deps.eccPref && eccEnabled(deps.eccPref()) ? ["-e", join(deps.builtinDir, "ecc")] : [];
 				// The formal-verification skill (resources/omp-builtin/formal): no switch, every spawn, skill only.
 				const formal = ["-e", join(deps.builtinDir, "formal")];
-				const memory = (await deps.aiMemoryExtensionArgs?.()) ?? [];
+				const memory = (await deps.aiMemoryExtensionArgs?.(cwd)) ?? [];
 				return {
 					args: [...own, ...rea, ...pstack, ...ecc, ...formal, ...memory],
 					...(rea.length ? { root: reaRoot } : {}),

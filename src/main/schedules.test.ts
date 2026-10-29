@@ -311,7 +311,13 @@ if (prompt.includes("hang")) {
 }
 `;
 
-	async function launch(dir: string, prompt: string, log = join(dir, "run.log"), extensionArgs?: string[]) {
+	async function launch(
+		dir: string,
+		prompt: string,
+		log = join(dir, "run.log"),
+		extensionArgs?: string[],
+		asked: string[] = [],
+	) {
 		const bin = await writeFakeOmp(dir, FAKE);
 		const omp: OmpResolution = {
 			ok: true,
@@ -322,7 +328,14 @@ if (prompt.includes("hang")) {
 		const run = await ompRunLauncher({
 			omp: async () => omp,
 			env: async () => ({ ...process.env, FAKE_PID_FILE: join(dir, "pid") }),
-			...(extensionArgs ? { extensionArgs: async () => extensionArgs } : {}),
+			...(extensionArgs
+				? {
+						extensionArgs: async (cwd: string) => {
+							asked.push(cwd);
+							return extensionArgs;
+						},
+					}
+				: {}),
 		})(
 			{
 				...draft(dir, { prompt, model: "anthropic/claude-x", autoApprove: true }),
@@ -347,8 +360,10 @@ if (prompt.includes("hang")) {
 
 	it("a run loads ai-memory's extension root while memory is on (the extension flags come from the service)", async () => {
 		const dir = await tempDir();
-		const { run, files } = await launch(dir, "x", join(dir, "run.log"), ["-e", "/app/ai-memory/omp-ext"]);
+		const asked: string[] = [];
+		const { run, files } = await launch(dir, "x", join(dir, "run.log"), ["-e", "/app/ai-memory/omp-ext"], asked);
 		await run.done;
+		expect(asked).toEqual([dir]);
 		expect(await readFile(files.log, "utf8")).toContain(
 			'args:["-p","-e","/app/ai-memory/omp-ext","--model","anthropic/claude-x","--yolo"]',
 		);

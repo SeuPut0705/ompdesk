@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RM_TEMP } from "../test-fake-omp";
-import { generateRoot, ROOT_RELAY, type RunAiMemory, rootComplete } from "./root";
+import { generateRoot, ROOT_RELAY, ROOT_SERVER, type RunAiMemory, rootComplete } from "./root";
 
 let base: string;
 let root: string;
@@ -92,6 +92,18 @@ describe("generateRoot", () => {
 		expect(existsSync(`${root}.next`)).toBe(false);
 	});
 
+	it("names the MCP server ompdesk-memory, so an ai-memory entry in omp's agent dir cannot take the name", async () => {
+		await generateRoot(
+			root,
+			generators({ entry: { command: "/bin/ai-memory", args: ["mcp-bridge"] } }).run,
+			text => text,
+		);
+		const servers = JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers;
+		expect(Object.keys(servers)).toEqual([ROOT_SERVER]);
+		expect(ROOT_SERVER).toBe("ompdesk-memory");
+		expect(servers[ROOT_SERVER]).toEqual({ command: "/bin/ai-memory", args: ["mcp-bridge"] });
+	});
+
 	describe("with the relay", () => {
 		const entry = {
 			type: "stdio",
@@ -104,7 +116,7 @@ describe("generateRoot", () => {
 			relay = { source: join(base, "memory-relay.mjs"), command: "bun" };
 			await writeFile(relay.source, "// relay 1\n");
 		});
-		const mcp = async () => JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers["ai-memory"];
+		const mcp = async () => JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers[ROOT_SERVER];
 
 		it("is complete only while the relay file is there", async () => {
 			await generateRoot(root, generators({ entry }).run, text => text, relay);

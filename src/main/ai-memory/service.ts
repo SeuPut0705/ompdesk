@@ -24,7 +24,7 @@
  * embedding model, see `config.ts`), the single-user cross-project profile.
  */
 import { readFile, rm, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { MemoryEnv } from "../../../resources/gui-bridge/modes/memory-recall-contracts";
 import {
@@ -65,6 +65,7 @@ import {
 import { AiMemoryClient, DEFAULT_SERVER_URL, serverUrlFromConfig } from "./client";
 import { withoutLocalEmbeddings } from "./config";
 import { generateRoot, rootComplete } from "./root";
+import { suppressionOverlay, TERMINAL_EXTENSION_ID, TERMINAL_MCP_ID } from "./suppress";
 import {
 	legacyOwned,
 	listSharedSkills,
@@ -518,15 +519,41 @@ export class AiMemoryService {
 	}
 
 	/**
-	 * What the omp sessions OMPdesk spawns load for memory: `-e <root>` while memory is on and the root is complete.
-	 * A terminal omp wired by ai-memory already loads the same extension from omp's agent dir, so the root is left out
-	 * then: a session never captures twice.
+	 * What the omp sessions OMPdesk spawns (in `cwd`) load for memory: `-e <root>` while memory is on and the root is
+	 * complete, so a session captures exactly once and has one memory MCP server, both OMPdesk's own build, whatever
+	 * omp's agent dir holds. omp loads the agent dir's ai-memory extension and `ai-memory` MCP entry into every process
+	 * it starts, so:
+	 * - the terminal omp the user connected (pref `true`) already loads ours from there (`setup` refreshes it at every
+	 *   launch): no `-e`, the root is left out;
+	 * - wiring there the user made with their own ai-memory is not ours and not adopted: the root loads and a `--config`
+	 *   overlay holds that extension and that MCP entry disabled for this spawn (`suppress.ts`); the agent dir is
+	 *   untouched. The root's own MCP server is named `ompdesk-memory` (root.ts), so the entry's name cannot take it over.
 	 */
-	async extensionArgs(): Promise<string[]> {
+	async extensionArgs(cwd?: string): Promise<string[]> {
 		if (!this.#deps.automatic || !this.#platformOk) return [];
 		if (!(await rootComplete(this.#deps.rootDir))) return [];
-		if (this.#deps.terminalPref() === true && (await readTerminalWiring(this.#deps.agentDir())).extension) return [];
-		return ["-e", this.#deps.rootDir];
+		const agentDir = this.#deps.agentDir();
+		const wiring = await readTerminalWiring(agentDir);
+		if (this.#deps.terminalPref() === true && wiring.extension) return [];
+		const ids = [...(wiring.extension ? [TERMINAL_EXTENSION_ID] : []), ...(wiring.mcp ? [TERMINAL_MCP_ID] : [])];
+		if (ids.length === 0) return ["-e", this.#deps.rootDir];
+		try {
+			const overlay = await suppressionOverlay({
+				agentDir,
+				cwd,
+				dir: join(dirname(this.#deps.rootDir), "omp-overlays"),
+				ids,
+			});
+			return ["-e", this.#deps.rootDir, "--config", overlay];
+		} catch (error) {
+			// Without the overlay both copies would run; the agent dir's alone is one capture and one server.
+			this.#deps.log?.("failed", {
+				step: "suppress-terminal-wiring",
+				detail: error instanceof Error ? error.message : String(error),
+				stack: null,
+			});
+			return [];
+		}
 	}
 
 	/**

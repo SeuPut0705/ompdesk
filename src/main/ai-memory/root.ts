@@ -10,10 +10,14 @@
  *
  * Every byte is ai-memory's own generator output, produced next to the root and swapped in only when it differs, so
  * a launch that changed nothing touches nothing (a running omp keeps its files open on Windows) and ai-memory's
- * `.bak-<timestamp>` backups never pile up inside the root. The one thing OMPdesk adds: the generated MCP entry
- * (`ai-memory mcp-bridge …`) is started through `memory-relay.mjs` (`resources/omp-builtin/ai-memory/`, copied into
- * the root), which adds route summaries without changing tool names, schemas or metadata. The upstream scope and
- * trust instructions stay intact. The entry's own command and arguments follow the relay's, unchanged.
+ * `.bak-<timestamp>` backups never pile up inside the root. OMPdesk adds two things to the generated MCP entry
+ * (`ai-memory mcp-bridge …`). It is named `ompdesk-memory`, not the generator's `ai-memory`: omp dedupes MCP servers
+ * by name and ranks the agent dir over a package root, so an `ai-memory` entry the person wired there would take
+ * the name and OMPdesk's own would never mount (the tools are `mcp__ompdesk_memory_*` as a result; every tool's own
+ * name and schema stay the server's). And it is started through `memory-relay.mjs`
+ * (`resources/omp-builtin/ai-memory/`, copied into the root), which adds route summaries without changing tool names,
+ * schemas or metadata. The upstream scope and trust instructions stay intact. The entry's own command and arguments
+ * follow the relay's, unchanged.
  */
 import { createHash } from "node:crypto";
 import { copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
@@ -25,6 +29,9 @@ export const ROOT_ENTRY = "index.ts";
 export const ROOT_MCP = ".mcp.json";
 export const ROOT_SKILLS = "skills";
 export const ROOT_RELAY = "memory-relay.mjs";
+/** The root's MCP server name (see the header); the generator's own is `ai-memory`. */
+export const ROOT_SERVER = "ompdesk-memory";
+const GENERATED_SERVER = "ai-memory";
 /** omp substitutes this in a package root's `.mcp.json` (as `resources/omp-builtin/rea/.mcp.json` relies on). */
 const RELAY_ARG = `\${OMP_PLUGIN_ROOT}/${ROOT_RELAY}`;
 
@@ -65,8 +72,8 @@ export async function rootComplete(root: string): Promise<boolean> {
 			() => false,
 		),
 		readMcp(join(root, ROOT_MCP)).then(async config => {
-			if (config?.mcpServers === undefined || !("ai-memory" in config.mcpServers)) return false;
-			const args = (config.mcpServers["ai-memory"] as { args?: unknown } | null)?.args;
+			if (config?.mcpServers === undefined || !(ROOT_SERVER in config.mcpServers)) return false;
+			const args = (config.mcpServers[ROOT_SERVER] as { args?: unknown } | null)?.args;
 			if (!Array.isArray(args) || args[0] !== RELAY_ARG) return true;
 			return stat(join(root, ROOT_RELAY)).then(
 				info => info.isFile(),
@@ -81,17 +88,27 @@ export async function rootComplete(root: string): Promise<boolean> {
 	return present.every(Boolean);
 }
 
+/** Give the generated MCP entry OMPdesk's own server name. */
+async function nameServer(next: string): Promise<void> {
+	const file = join(next, ROOT_MCP);
+	const config = await readMcp(file);
+	if (!config?.mcpServers || !(GENERATED_SERVER in config.mcpServers)) return;
+	const { [GENERATED_SERVER]: entry, ...others } = config.mcpServers;
+	config.mcpServers = { [ROOT_SERVER]: entry, ...others };
+	await writeFile(file, `${JSON.stringify(config, null, 2)}\n`);
+}
+
 /**
- * Start the generated `ai-memory` MCP entry through the relay: `<runtime> <root>/memory-relay.mjs <command> <args…>`.
- * An entry that is not a stdio command (a future generator writing a URL) is left as it is, with no relay file.
+ * Start the MCP entry through the relay: `<runtime> <root>/memory-relay.mjs <command> <args…>`. An entry that is not a
+ * stdio command (a future generator writing a URL) is left as it is, with no relay file.
  */
 async function mountRelay(next: string, relay: MemoryRelay): Promise<void> {
 	const file = join(next, ROOT_MCP);
 	const config = await readMcp(file);
-	const entry = config?.mcpServers?.["ai-memory"] as { command?: unknown; args?: unknown } | undefined;
+	const entry = config?.mcpServers?.[ROOT_SERVER] as { command?: unknown; args?: unknown } | undefined;
 	if (!config?.mcpServers || typeof entry?.command !== "string") return;
 	const args = Array.isArray(entry.args) ? entry.args : [];
-	config.mcpServers["ai-memory"] = { ...entry, command: relay.command, args: [RELAY_ARG, entry.command, ...args] };
+	config.mcpServers[ROOT_SERVER] = { ...entry, command: relay.command, args: [RELAY_ARG, entry.command, ...args] };
 	await writeFile(file, `${JSON.stringify(config, null, 2)}\n`);
 	await copyFile(relay.source, join(next, ROOT_RELAY));
 }
@@ -140,6 +157,7 @@ export async function generateRoot(
 				await rm(join(next, entry), { recursive: true, force: true });
 			}
 		}
+		await nameServer(next);
 		if (relay) await mountRelay(next, relay);
 		if (!(await rootComplete(next))) throw new Error("ai-memory's generators left the extension root incomplete");
 		const [fresh, current] = await Promise.all([digest(next), digest(root)]);

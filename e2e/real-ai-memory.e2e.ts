@@ -213,10 +213,10 @@ test("real ai-memory: a session's capture becomes the next session's handoff in 
 		await win().evaluate(id => window.omp.tabs.close(id), first);
 		const second = await openTab();
 		const secondId = await sessionIdOf(win(), second);
-		// The real omp read the root's `.mcp.json`: its MCP server list names ai-memory.
+		// The real omp read the root's `.mcp.json`: its MCP server list names ompdesk-memory (the root's server name, so no ai-memory entry of the agent dir takes it).
 		const servers = await win().evaluate(id => window.omp.rpc.commandForTab(id, { type: "get_mcp_servers" }), second);
 		report.mcpServers = JSON.stringify(servers.data).slice(0, 300);
-		expect(JSON.stringify(servers.data)).toContain('"ai-memory"');
+		expect(JSON.stringify(servers.data)).toContain('"ompdesk-memory"');
 		try {
 			await expect
 				.poll(

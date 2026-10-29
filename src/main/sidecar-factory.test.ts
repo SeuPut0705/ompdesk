@@ -235,6 +235,7 @@ describe("localSidecarFactory", () => {
 
 	it("hands every spawn ai-memory's extension root while memory is on, read at each spawn (tabs and hosted tabs alike)", async () => {
 		let args: string[] = ["-e", "/ud/ai-memory/omp-ext"];
+		const asked: string[] = [];
 		created.length = 0;
 		const create = localSidecarFactory({
 			bridgeDir: "/bridge",
@@ -252,7 +253,10 @@ describe("localSidecarFactory", () => {
 			accountRotationPref: () => undefined,
 			accountRotationLedger: "/ledger.json",
 			launchProfilesPref: () => undefined,
-			aiMemoryExtensionArgs: async () => args,
+			aiMemoryExtensionArgs: async cwd => {
+				asked.push(cwd);
+				return args;
+			},
 		});
 
 		create("/w/alpha", "agent", false);
@@ -263,6 +267,9 @@ describe("localSidecarFactory", () => {
 			expect((await options.builtinMcp?.())?.args).toEqual(FORMAL);
 			args = ["-e", "/ud/ai-memory/omp-ext"];
 		}
+		// The extension flags depend on the folder (a project's own disabled list), so each spawn names its own.
+		expect(asked).toEqual(Array(asked.length).fill("/w/alpha"));
+		expect(asked.length).toBeGreaterThan(0);
 	});
 
 	it("asks for Node only while the built-in REA is on", async () => {

@@ -12,8 +12,9 @@ import { SUPERVISOR_STOPPED_CODE } from "../setup/supervisor";
 import { RM_TEMP } from "../test-fake-omp";
 import { MAC_STAGE_KEY } from "./binary";
 import { AiMemoryClient } from "./client";
-import { rootComplete } from "./root";
+import { ROOT_SERVER, rootComplete } from "./root";
 import { AiMemoryService, type AiMemoryServiceDeps, parsePlan, parseProblems } from "./service";
+import { TERMINAL_EXTENSION_ID, TERMINAL_MCP_ID } from "./suppress";
 import { EXTENSION_FILE, GENERATED_HEADER, MCP_FILE } from "./terminal";
 import type { ServiceControl } from "./unit";
 
@@ -358,7 +359,7 @@ describe("AiMemoryService", () => {
 			});
 			// The root holds ai-memory's own output: the extension, the MCP entry and the skills.
 			expect(existsSync(join(rootDir, "index.ts"))).toBe(true);
-			expect(JSON.parse(await readFile(join(rootDir, ".mcp.json"), "utf8")).mcpServers["ai-memory"].command).toBe(
+			expect(JSON.parse(await readFile(join(rootDir, ".mcp.json"), "utf8")).mcpServers[ROOT_SERVER].command).toBe(
 				BIN,
 			);
 			expect(await readdir(join(rootDir, "skills"))).toEqual(["ai-memory-handoff"]);
@@ -373,7 +374,7 @@ describe("AiMemoryService", () => {
 			await writeFile(relaySource, "// relay\n");
 			const { service, rootDir } = await make({ relaySource });
 			await service.start();
-			const entry = JSON.parse(await readFile(join(rootDir, ".mcp.json"), "utf8")).mcpServers["ai-memory"];
+			const entry = JSON.parse(await readFile(join(rootDir, ".mcp.json"), "utf8")).mcpServers[ROOT_SERVER];
 			expect(entry).toEqual({ command: BIN, args: ["mcp-bridge"] });
 			expect(existsSync(join(rootDir, "memory-relay.mjs"))).toBe(false);
 			expect(service.state().wiring.app).toBe(true);
@@ -573,7 +574,7 @@ describe("AiMemoryService", () => {
 			);
 			await writeFile(
 				join(rootDir, ".mcp.json"),
-				JSON.stringify({ mcpServers: { "ai-memory": { command: "/old" } } }),
+				JSON.stringify({ mcpServers: { [ROOT_SERVER]: { command: "/old" } } }),
 			);
 			await writeFile(join(rootDir, "skills", "ai-memory-handoff", "SKILL.md"), SKILL_TEXT);
 			behavior.setup = () => BOOTSTRAP_REFUSED;
@@ -583,7 +584,7 @@ describe("AiMemoryService", () => {
 				`${GENERATED_HEADER} --apply\`.\nexport default 1;\n`,
 			);
 			expect(JSON.parse(await readFile(join(rootDir, ".mcp.json"), "utf8"))).toMatchObject({
-				mcpServers: { "ai-memory": { command: BIN } },
+				mcpServers: { [ROOT_SERVER]: { command: BIN } },
 			});
 		});
 	});
@@ -597,20 +598,75 @@ describe("AiMemoryService", () => {
 		});
 
 		it("a terminal omp the user connected that already loads ai-memory's extension gets no second copy", async () => {
-			const { service, agentDir, prefs } = await make();
+			const { service, agentDir, prefs, rootDir } = await make();
 			prefs.terminal = true;
 			await service.start();
 			await plantTerminalWiring(agentDir, "/users/own/ai-memory");
 			expect(await service.extensionArgs()).toEqual([]);
+			// Without the extension there the root loads, and the MCP entry that stays is held off for the spawn.
 			await rm(join(agentDir, EXTENSION_FILE));
-			expect(await service.extensionArgs()).toEqual(["-e", w?.rootDir]);
+			const args = await service.extensionArgs();
+			expect(args.slice(0, 3)).toEqual(["-e", rootDir, "--config"]);
+			expect(JSON.parse(await readFile(args[3] ?? "", "utf8"))).toEqual({ disabledExtensions: [TERMINAL_MCP_ID] });
 		});
 
-		it("wiring the user made with their own ai-memory is not the terminal's: the root still loads", async () => {
+		it("wiring the user made with their own ai-memory is not the terminal's: the root loads and that extension is held disabled for the spawn only", async () => {
 			const { service, agentDir, rootDir } = await make();
 			await service.start();
 			await plantTerminalWiring(agentDir, "/users/own/ai-memory");
-			expect(await service.extensionArgs()).toEqual(["-e", rootDir]);
+			const before = await readFile(join(agentDir, EXTENSION_FILE), "utf8");
+			const args = await service.extensionArgs();
+			expect(args).toEqual([
+				"-e",
+				rootDir,
+				"--config",
+				expect.stringContaining(join(dirname(rootDir), "omp-overlays")),
+			]);
+			expect(JSON.parse(await readFile(args[3] ?? "", "utf8"))).toEqual({
+				disabledExtensions: [TERMINAL_EXTENSION_ID, TERMINAL_MCP_ID],
+			});
+			// The agent dir and the person's config stay exactly as they were.
+			expect(await readFile(join(agentDir, EXTENSION_FILE), "utf8")).toBe(before);
+			expect(await readFile(join(agentDir, "config.yml"), "utf8")).toBe("theme: dark\n");
+		});
+
+		it("an ai-memory MCP entry alone in the agent dir is held disabled too; the terminal pref decides nothing about it", async () => {
+			for (const pref of [undefined, false, true]) {
+				const { service, agentDir, rootDir, prefs } = await make();
+				prefs.terminal = pref;
+				await service.start();
+				await plantTerminalWiring(agentDir, "/users/own/ai-memory", false);
+				const args = await service.extensionArgs();
+				expect(args.slice(0, 3)).toEqual(["-e", rootDir, "--config"]);
+				expect(JSON.parse(await readFile(args[3] ?? "", "utf8"))).toEqual({
+					disabledExtensions: [TERMINAL_MCP_ID],
+				});
+			}
+		});
+
+		it("the overlay keeps what the person already disabled: the folder's own list replaces the agent dir's, as in stock", async () => {
+			const { service, agentDir, root } = await make();
+			await service.start();
+			await plantTerminalWiring(agentDir, "/users/own/ai-memory");
+			await writeFile(join(agentDir, "config.yml"), "disabledExtensions:\n  - skill:noisy\n  - hook:pre:bash:x\n");
+			const overlayIn = async (cwd?: string) => {
+				const args = await service.extensionArgs(cwd);
+				return (JSON.parse(await readFile(args[3] ?? "", "utf8")) as { disabledExtensions: string[] })
+					.disabledExtensions;
+			};
+			expect(await overlayIn()).toEqual(["skill:noisy", "hook:pre:bash:x", TERMINAL_EXTENSION_ID, TERMINAL_MCP_ID]);
+			const project = join(root, "project");
+			await mkdir(join(project, ".omp"), { recursive: true });
+			await writeFile(join(project, ".omp", "config.yml"), "disabledExtensions: [skill:other]\n");
+			expect(await overlayIn(project)).toEqual(["skill:other", TERMINAL_EXTENSION_ID, TERMINAL_MCP_ID]);
+		});
+
+		it("an overlay that cannot be written leaves the root out: the agent dir's copy is then the one capture", async () => {
+			const { service, agentDir, rootDir } = await make();
+			await service.start();
+			await plantTerminalWiring(agentDir, "/users/own/ai-memory");
+			await writeFile(join(dirname(rootDir), "omp-overlays"), "a file where the folder should be");
+			expect(await service.extensionArgs()).toEqual([]);
 		});
 
 		it("a build that does not manage ai-memory loads nothing", async () => {
@@ -802,7 +858,12 @@ describe("AiMemoryService", () => {
 			expect(existsSync(join(agentDir, EXTENSION_FILE))).toBe(true);
 			expect(prefs.terminal).toBe(false);
 			expect(service.state().wiring).toEqual({ app: true, terminal: false });
-			expect(await service.extensionArgs()).toEqual(["-e", rootDir]);
+			expect(await service.extensionArgs()).toEqual([
+				"-e",
+				rootDir,
+				"--config",
+				expect.stringContaining(join(dirname(rootDir), "omp-overlays")),
+			]);
 		});
 
 		it("a user who connected the terminal (stored true) is never migrated away", async () => {

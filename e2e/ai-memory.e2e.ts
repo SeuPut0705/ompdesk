@@ -107,7 +107,7 @@ test("ai-memory loads through an app-owned root and shows one memory section wit
 			expect((await rig.memory.invocations()).join(" ")).not.toContain("--purge-data");
 			expect(existsSync(path.join(rig.extRoot, "index.ts"))).toBe(true);
 			const rootMcp = JSON.parse(await fs.readFile(path.join(rig.extRoot, ".mcp.json"), "utf8"));
-			expect(Object.keys(rootMcp.mcpServers)).toEqual(["ai-memory"]);
+			expect(Object.keys(rootMcp.mcpServers)).toEqual(["ompdesk-memory"]);
 			expect((await fs.readdir(path.join(rig.extRoot, "skills"))).length).toBeGreaterThan(0);
 			// Nothing is written to omp's own agent dir, and the shared skills setup made are taken back.
 			expect(existsSync(path.join(rig.agent, EXTENSION))).toBe(false);
