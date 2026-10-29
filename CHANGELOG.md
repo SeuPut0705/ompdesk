@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.83.0] - 2026-10-29
+
+메모리는 항상 켜진 채 OMPdesk가 만든 것만 쓰고, 모델이 답을 늦게 줄 때 "사고 중" 대신 기다리는 중이라고 알려 줘요.
+
+### 바뀐 것
+- **메모리는 끌 수 없어요.** 메모리와 대화에서 배우기가 항상 켜져 있고, OMPdesk에 들어 있는 ai-memory만 써요. 다른 곳에 깔린 ai-memory나 그 서버는 쓰지 않고 OMPdesk 것으로 바꿔요. 메모리 업데이트는 OMPdesk 업데이트로만 받아요.
+- **모델이 30초 넘게 답하지 않으면 "모델 응답 기다리는 중 · n분"이 떠요.** 작업 카드, 작업 현황, 휴대폰 화면에 함께 나와요. 지난밤 멈춤은 대부분 이 Mac의 Wi-Fi·DNS가 끊긴 동안 응답을 기다린 것이었어요.
+- **명령을 직접 실행하라는 안내를 모두 없앴어요.** omp가 맞지 않으면 앱이 직접 고치고, SSH 키는 버튼으로 만들어요.
+
+### 고친 것
+- 작업이 합쳐져 지워진 작업 폴더의 세션이, 다시 켤 때 복원된 탭 때문에 연결된 기기에서 다시 보이던 문제를 고쳤어요. 이 Mac과 연결된 기기가 같은 규칙으로 목록을 만들고, 그런 복원 탭은 저절로 닫혀요.
+- 이어하기가 복원하거나 탭을 옮기는 동안 직접 입력하면, 이어하기의 재시도가 그 입력에 섞이던 경우를 막았어요.
+- 연결된 기기가 하위 에이전트 기록을 매번 통째로 다시 받던 것을 바뀐 부분만 받게 해서 전송량을 약 16분의 1로 줄였어요.
+
+<!-- en -->
+
+Memory stays on and runs only OMPdesk's own build, and a slow model reads "waiting for the model" instead of "thinking".
+
+### Changed
+- **Memory cannot be turned off.** Memory and learning are always on and use only the ai-memory OMPdesk ships; another install or a server it started is replaced by OMPdesk's. Memory updates arrive only with OMPdesk updates.
+- **After 30 s without an answer the cue reads "Waiting for the model's response · n m"** on the work card, the work board and the phone. Last night's stalls were mostly waits while this Mac's Wi-Fi and DNS dropped.
+- **No more "run this command" instructions.** An incompatible omp is repaired by the app, and SSH keys are created with a button.
+
+### Fixed
+- Sessions of a merged and removed worktree came back on paired devices through tabs a relaunch restored. Host and devices now build the list by one rule, and such restored tabs close by themselves.
+- Typing while a resume restored or a tab moved could mix the resume's retry into your turn.
+- Paired devices re-read whole subagent transcripts; they now read only what changed (about 16× less traffic).
+
 ## [0.82.1] - 2026-10-29
 
 omp나 Bun이 깨져도 앱이 스스로 다시 깔아 고치고, 트레이 메뉴는 열기·업데이트·종료만 남겼어요.
