@@ -3,8 +3,27 @@
  * (formal/turn-resume): one world per hold, every end condition applied to it, and random event orders against the
  * model's properties. Seven fixes in two weeks moved these rules one path at a time; this file holds all paths at once.
  */
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { HOLD_CHECKS, HOLD_ENDS } from "./turn-resume-ends";
 import { seeded, TurnResumeWorld, type WorldEvent, type WorldStart } from "./turn-resume-test-rig";
+
+/**
+ * The table and the model change together: every action a row or a check names is one the model checks. A new end
+ * condition that names no action, or one the model lost, fails here instead of drifting unchecked.
+ */
+describe("the end table names formal/turn-resume's actions", () => {
+	const spec = readFileSync(new URL("../../formal/turn-resume/tla/TurnResume.tla", import.meta.url), "utf8");
+	const actions = new Set([...spec.matchAll(/^(\w+)(?:\([^)]*\))? ==/gm)].map(match => match[1]));
+
+	it("every row's actions and every check's action are defined in TurnResume.tla", () => {
+		const named = [
+			...Object.entries(HOLD_ENDS).flatMap(([row, { model }]) => model.map(action => [row, action])),
+			...Object.entries(HOLD_CHECKS).map(([check, action]) => [check, action]),
+		];
+		expect(named.filter(([, action]) => !actions.has(action))).toEqual([]);
+	});
+});
 
 interface Hold {
 	start: WorldStart;
@@ -151,6 +170,18 @@ describe("what ends a held wait, a probe, a scheduled retry and a continuation",
 			}
 		});
 	}
+
+	it("a scheduled retry whose timer fires while the failed run still settles (background work) is called off", async () => {
+		const world = new TurnResumeWorld();
+		await world.launch();
+		await world.apply(prompt);
+		await world.apply({ type: "end", kind: "transient" });
+		expect(world.scheduled).toBe(true);
+		await world.apply({ type: "fire" });
+		await world.apply(settle);
+		expect(world.sent).toEqual([]);
+		expect(world.scheduled).toBe(false);
+	});
 });
 
 /** The model's actions as random orders of world events: every order keeps the model's properties. */
