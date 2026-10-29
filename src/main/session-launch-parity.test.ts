@@ -74,7 +74,7 @@ class FakeOmp extends EventEmitter {
 	readonly stdin = new PassThrough();
 	readonly stdout = new PassThrough();
 	readonly stderr = new PassThrough();
-	readonly pid = 4242;
+	readonly pid = nextPid++;
 	exitCode: number | null = null;
 	signalCode: NodeJS.Signals | null = null;
 	session: string;
@@ -133,6 +133,7 @@ class FakeOmp extends EventEmitter {
 	}
 }
 
+let nextPid = 4242;
 let dir: string;
 let omps: FakeOmp[];
 
@@ -144,7 +145,10 @@ beforeEach(() => {
 	spawned.writesNewSession = true;
 	spawned.answersState = true;
 	spawned.spawn.mockReset();
-	spawned.spawn.mockImplementation((_bin: string, args: string[], options: { env: Record<string, string> }) => {
+	spawned.spawn.mockImplementation((bin: string, args: string[], options: { env: Record<string, string> }) => {
+		// Windows stops an omp with `taskkill /pid <pid> /T /F` (sidecar.ts `terminate`), which ends it with exit code 1.
+		if (bin === "taskkill") return taskkill(Number(args[args.indexOf("/pid") + 1]));
+		if (bin !== "omp") throw new Error(`unexpected spawn: ${bin}`);
 		// A new session's file: stock writes it at the first answer, which a tab that worked has had.
 		const name = `new-${omps.length}.jsonl`;
 		const omp = new FakeOmp(args, options.env, spawned.writesNewSession ? storedSession(name) : join(dir, name));
@@ -152,6 +156,16 @@ beforeEach(() => {
 		return omp;
 	});
 });
+
+function taskkill(pid: number): EventEmitter {
+	const killer = new EventEmitter();
+	queueMicrotask(() => {
+		const omp = omps.find(candidate => candidate.pid === pid);
+		omp?.exit(1);
+		killer.emit("exit", omp ? 0 : 128, null);
+	});
+	return killer;
+}
 
 afterEach(() => {
 	vi.useRealTimers();

@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 
 // OMPdesk updates its ai-memory build only with the app. Upstream's `upgrade` command and anything
@@ -32,11 +32,12 @@ describe("ai-memory build has no self-update", () => {
 
 	it("fetches no upstream release in Rust code", () => {
 		const forbidden = /api\.github\.com\/repos|\/releases\/(latest|download|tag)|release_base_url/;
+		// Paths relative to native/memory with `/` separators, so the build-script and test exclusions match on Windows.
 		const hits = rustFiles(join(ROOT, "crates"))
+			.map(file => relative(ROOT, file).split(sep).join("/"))
 			.filter(file => !file.endsWith("/build.rs"))
 			.filter(file => !file.includes("/tests/"))
-			.filter(file => forbidden.test(readFileSync(file, "utf8")))
-			.map(file => file.slice(ROOT.length + 1));
+			.filter(file => forbidden.test(readFileSync(join(ROOT, file), "utf8")));
 		expect(hits).toEqual([]);
 	});
 });
