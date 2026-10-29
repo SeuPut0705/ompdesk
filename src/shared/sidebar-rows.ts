@@ -69,8 +69,6 @@ export interface SidebarFacts {
 	usedThere: ReadonlySet<string>;
 	/** Sessions main recorded closing (`agentClosedChildren`): one no opener row holds folds into its project. */
 	closed: ReadonlySet<string>;
-	/** The checkout a closed record names for a session: where a removed worktree's one folds. */
-	recordedCwd: ReadonlyMap<string, string>;
 	projects: readonly SidebarProject[];
 	removed: readonly string[];
 	folder: (cwd: string) => FolderFacts;
@@ -423,19 +421,16 @@ export function sidebarRows(facts: SidebarFacts): SidebarRows {
 
 	const foldedRoot = new Map<string, string>();
 	for (const session of code) {
-		if (rootOf.has(session.path) || runParent.has(session.path) || held(session)) continue;
-		const recordedCwd = facts.recordedCwd.get(session.path);
-		const gone = facts.folder(session.cwd).gone && isOmpdeskWorktreeFolder(session.cwd);
-		// A discarded worktree's stored sessions go with it, unless a record names the checkout its work went to.
-		if (gone && recordedCwd === undefined) continue;
-		const at = gone && recordedCwd !== undefined ? recordedCwd : session.cwd;
-		const folder = facts.folder(at);
+		// Held or finished: never a loose child. A finished worktree's session is no row anywhere unless a tab the person
+		// uses holds it, whatever a record says of the checkout its work went to.
+		if (rootOf.has(session.path) || runParent.has(session.path) || held(session) || finished(session)) continue;
+		const folder = facts.folder(session.cwd);
 		if (
 			facts.closed.has(session.path) ||
 			(briefed.has(session.path) && agentMessageSender(session.firstMessage) !== null) ||
 			folder.kind === "agent"
 		)
-			foldedRoot.set(session.path, keyOf(folder.project ?? folder.root ?? at));
+			foldedRoot.set(session.path, keyOf(folder.project ?? folder.root ?? session.cwd));
 	}
 
 	const children = new Map<string, RowSession[]>();

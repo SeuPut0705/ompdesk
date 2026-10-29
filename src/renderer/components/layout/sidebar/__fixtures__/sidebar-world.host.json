@@ -1,42 +1,6 @@
 {
 	"groups": [
 		{
-			"group": "/Users/kim/code/loose",
-			"missing": false,
-			"rows": [
-				"loose.wrk.rv",
-				"loose.wrk.pl",
-				"loose.hsl.rv",
-				"loose.hsl.rg",
-				"loose.hsl.bx",
-				"loose.hsl.pl",
-				"loose.els.rv",
-				"loose.els.rg",
-				"loose.els.bx",
-				"loose.els.pl",
-				"loose.gho.rv",
-				"loose.gho.rg",
-				"loose.gho.bx",
-				"loose.gho.pl",
-				"loose.slp.rv",
-				"loose.slp.rg",
-				"loose.slp.bx",
-				"loose.slp.pl",
-				"loose.rdy.rv",
-				"loose.rdy.rg",
-				"loose.rdy.bx",
-				"loose.rdy.pl",
-				"loose.no.rv",
-				"loose.no.pl",
-				"~loose.no.bx",
-				"~loose.no.rg",
-				"~loose.wrk.bx",
-				"~loose.wrk.rg",
-				"~wtg.no.rg",
-				"~wtg.wrk.rg"
-			]
-		},
-		{
 			"group": "/Users/kim/code/app",
 			"missing": false,
 			"rows": [
@@ -212,6 +176,40 @@
 				"~wta.wrk.pl",
 				"~wta.wrk.bx",
 				"~wta.wrk.rg"
+			]
+		},
+		{
+			"group": "/Users/kim/code/loose",
+			"missing": false,
+			"rows": [
+				"loose.wrk.rv",
+				"loose.wrk.pl",
+				"loose.hsl.rv",
+				"loose.hsl.rg",
+				"loose.hsl.bx",
+				"loose.hsl.pl",
+				"loose.els.rv",
+				"loose.els.rg",
+				"loose.els.bx",
+				"loose.els.pl",
+				"loose.gho.rv",
+				"loose.gho.rg",
+				"loose.gho.bx",
+				"loose.gho.pl",
+				"loose.slp.rv",
+				"loose.slp.rg",
+				"loose.slp.bx",
+				"loose.slp.pl",
+				"loose.rdy.rv",
+				"loose.rdy.rg",
+				"loose.rdy.bx",
+				"loose.rdy.pl",
+				"loose.no.rv",
+				"loose.no.pl",
+				"~loose.no.bx",
+				"~loose.no.rg",
+				"~loose.wrk.bx",
+				"~loose.wrk.rg"
 			]
 		},
 		{

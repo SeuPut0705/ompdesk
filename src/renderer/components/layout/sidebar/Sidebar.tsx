@@ -739,7 +739,6 @@ export function Sidebar() {
 				// A paired device's tab here runs an omp for it: held and in use, whatever its state.
 				usedThere: new Set(hostedByKey.keys()),
 				closed: new Set(closedChildren.map(row => row.path)),
-				recordedCwd: closedCwdOf,
 				projects: projectList.projects,
 				removed: projectList.removed,
 				folder: at => {
@@ -792,7 +791,6 @@ export function Sidebar() {
 			rowTabs,
 			hostedByKey,
 			closedChildren,
-			closedCwdOf,
 			projectList,
 			projectName,
 			defaultWorkspace,
