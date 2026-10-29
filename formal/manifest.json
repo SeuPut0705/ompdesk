@@ -12,13 +12,14 @@
 			"mutations": "mutations.json",
 			"covers": [
 				"src/main/turn-resume.ts",
+				"src/main/turn-resume-ends.ts",
 				"src/main/connectivity.ts",
 				"src/main/sidecar-run-state.ts",
 				"src/main/sidecar-pool.ts",
 				"src/main/remote/host-services.ts",
 				"src/main/ipc.ts"
 			],
-			"syncCommit": "05ca852827e81fb495ca59c1cde27d0d3ab0b92c",
+			"syncCommit": "0fe993fc83aa4c55fb690909811829ad3760c513",
 			"verifySkill": ".omp/skills/turn-resume-verify/SKILL.md"
 		},
 		{
