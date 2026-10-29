@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.84.0] - 2026-10-29
+
+같은 버그가 다시 생기던 여섯 곳의 규칙을 한 곳으로 모으고, 끝난 작업 세션을 실패처럼 보여 주던 빨간 ✕를 고쳤어요.
+
+### 바뀐 것
+- **합칠 준비가 된 세션은 빨간 ✕가 아니에요.** 깨끗하게 끝났지만 아직 합치지 않은 작업 세션은 병합 아이콘과 "합칠 준비가 됐어요"로 보여요. 오류로 끝난 세션만 빨간 ✕예요.
+- **자주 다시 깨지던 규칙을 한 곳으로 모았어요.** 사이드바 세션 목록(이 Mac·연결된 기기·휴대폰), 작업 카드 성공·실패 판정, 공유 체크아웃의 파일 소유권, 연결 대기가 끝나는 조건, 재시작 후 세션 복원, 연결된 페이지의 탭 닫기가 이제 각각 하나의 규칙만 따라요. 모든 경로가 같은 결과를 내는지 확인하는 테스트와 형식 검증 모델을 함께 넣었어요.
+- 메모리 프로그램에서 원래 저장소로 스스로 업데이트하던 명령을 없앴어요. 메모리는 OMPdesk 업데이트로만 바뀌어요.
+
+### 고친 것
+- 탭에서 세션을 바꾸거나 새 세션을 연 직후 omp가 멈추면, 방금 떠난 세션이 다시 열리던 문제를 고쳤어요.
+- 공유 체크아웃에서 다른 에이전트가 아직 쓰고 있는 파일의 소유권이 먼저 풀리거나, 커밋된 파일이 다시 소유권에 잡히던 경우를 고쳤어요.
+- 연결된 페이지의 파일 편집기 보고가 연결이 끊긴 뒤 늦게 도착하거나 탭을 닫는 순간에 들어오면 편집 중인 탭이 닫힐 수 있던 경우를 막았어요.
+- 중단된 검사를 작업 카드는 "중단", 오토파일럿 기록은 "실패"로 다르게 읽던 것을 맞췄어요.
+
+<!-- en -->
+
+The rules six recurring regressions came from now each live in one place, and finished worker sessions no longer show a red ✕.
+
+### Changed
+- **A session ready to merge is not a failure.** A worker that finished cleanly with unmerged work shows a merge icon and "Ready to merge"; only one that ended in an error shows the red ✕.
+- **Rules that kept breaking again now have one owner each:** the sidebar session list (this Mac, paired devices, the phone), the work card's pass/fail verdict, shared-checkout file claims, when a held connection wait ends, a session's restore after a relaunch, and closing a tab from a paired page. Each comes with tests that every path gives the same result and a formal verification model.
+- OMPdesk's memory build no longer has a command that updated itself from its upstream; memory changes only with OMPdesk updates.
+
+### Fixed
+- An omp that stopped right after switching or starting a session in a tab reopened the session it had just left.
+- Shared checkouts could release a file another agent was still writing, or claim a file that was already committed.
+- A paired page's Files edit report arriving after its link dropped, or while a tab was closing, could close a tab with unsaved edits.
+- A stopped check read "interrupted" on the work card but "failed" in Autopilot's ledger.
+
 ## [0.83.0] - 2026-10-29
 
 메모리는 항상 켜진 채 OMPdesk가 만든 것만 쓰고, 모델이 답을 늦게 줄 때 "사고 중" 대신 기다리는 중이라고 알려 줘요.
