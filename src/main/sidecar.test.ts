@@ -148,7 +148,9 @@ describe("SidecarManager", () => {
 		}
 	});
 
-	it("pins autoResume off for a freshly created tab, and only for its first boot", async () => {
+	// formal/tab-session F1: this case once expected the restart to drop the pin as soon as the tab booted, which left
+	// an omp that crashed before naming its session to stock's autoResume (another conversation in a new tab).
+	it("pins autoResume off for a freshly created tab until its omp names a session", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-fresh-"));
 		const logPath = path.join(tempDir, "argv.json");
 		const binaryPath = await writeFakeOmp(
@@ -173,11 +175,12 @@ describe("SidecarManager", () => {
 				bridgeEntry,
 			]);
 
+			// This omp never answers get_state: the tab still has no session, so the restart starts a new one again.
 			const restarted = waitForReady(sidecar);
 			sidecar.restart();
 			await restarted;
 			const restartLaunch: unknown = JSON.parse(await fs.readFile(logPath, "utf8"));
-			expect(restartLaunch).toEqual(["--mode", "rpc-ui", "-e", bridgeEntry]);
+			expect(restartLaunch).toEqual(launch);
 		} finally {
 			sidecar.dispose();
 			await fs.rm(tempDir, RM_TEMP);

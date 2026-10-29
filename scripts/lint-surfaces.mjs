@@ -34,6 +34,10 @@
  * Controls (renderer .tsx outside components/common, tests excluded): no new raw `<button>`, raw checkbox or radio, or
  * hand-made `role="dialog"`; the shared components are catalogued in components/common/README.md (see
  * scripts/lint-controls.mjs and its per-file baseline); an exception carries `controls-ok: <reason>`.
+ *
+ * The same run checks the gui-bridge (resources/gui-bridge): a `before_agent_start` handler that returns its own
+ * `systemPrompt` instead of registering a section (see scripts/lint-prompt-sections.mjs); an exception carries
+ * `prompt-section-ok: <reason>`.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -41,11 +45,13 @@ import { fileURLToPath } from "node:url";
 import { compareToBaseline, readBaseline, scanRenderer } from "./lint-controls.mjs";
 import { findImeViolations } from "./lint-ime.mjs";
 import { findLocaleViolations } from "./lint-locale.mjs";
+import { findPromptHookViolations } from "./lint-prompt-sections.mjs";
 import { findUnhandledCalls } from "./lint-unhandled.mjs";
 
 // fileURLToPath, not URL.pathname: the latter is "/D:/…" on Windows runners.
 const ROOT = fileURLToPath(new URL("../src/renderer", import.meta.url));
 const STYLES = join(ROOT, "styles");
+const BRIDGE = fileURLToPath(new URL("../resources/gui-bridge", import.meta.url));
 const EXTENSIONS = new Set([".ts", ".tsx"]);
 const BARE_MS = /(?<!var\(--omp-motion-(?:fast|med)\))(?<![-\w])(\d+(?:\.\d+)?)ms\b/g;
 
@@ -119,6 +125,16 @@ for (const name of readdirSync(STYLES)) {
 	});
 }
 
+// prompt-sections.ts itself is the one hook that may add to the prompt.
+for (const file of collect(BRIDGE)) {
+	const rel = relative(BRIDGE, file);
+	if (rel === "prompt-sections.ts" || /\.test\.ts$/.test(rel)) continue;
+	for (const hit of findPromptHookViolations(readFileSync(file, "utf8"), file)) {
+		violations.push(
+			`gui-bridge/${rel}:${hit.line}  prompt text outside a section  ${hit.text}  (registerPromptSection, or prompt-section-ok: <reason>)`,
+		);
+	}
+}
 violations.push(...compareToBaseline(scanRenderer(), readBaseline()));
 
 if (violations.length > 0) {

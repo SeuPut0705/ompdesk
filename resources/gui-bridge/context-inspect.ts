@@ -27,7 +27,7 @@ import {
 	type ToolSource,
 } from "./context-inspect-core";
 import { guard } from "./health";
-import { withTurnSections } from "./prompt-sections";
+import { sectionContext, withTurnSections } from "./prompt-sections";
 import type { BridgeMethods } from "./types";
 
 interface Entry {
@@ -51,14 +51,13 @@ function messageTimestamp(message: object): number {
 }
 
 /**
- * The system prompt of the next turn. Stock keeps only what it built in
- * `session.systemPrompt` between turns; OMPdesk's own sections (reply language,
- * profile, reply style, visuals) join through `before_agent_start`
- * as a turn starts, so they are applied here the way the hook does.
+ * The system prompt of the next turn. Stock keeps only what it built in `session.systemPrompt` between turns;
+ * OMPdesk's own sections join as a turn starts, so they are applied here as a prompt's hook applies them, with the
+ * session's own extension context (its folder: the ECC section reads it).
  */
 function turnPrompt(session: AgentSession): { parts: readonly string[]; added: readonly string[] } {
 	const stock = session.systemPrompt;
-	const parts = withTurnSections(stock, { sessionManager: session.sessionManager, agent: { kind: "main" } });
+	const parts = withTurnSections(stock, sectionContext(session));
 	return { parts, added: parts.slice(stock.length) };
 }
 

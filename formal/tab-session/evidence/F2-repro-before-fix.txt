@@ -1,0 +1,336 @@
+
+ RUN  v3.2.7 /Users/seuput/.omp/wt/gui-subagent-restore-540bd7d
+
+
+
+
+
+
+
+
+
+ ❯ |node| src/main/session-launch-parity.test.ts (261 tests | 2 failed | 259 skipped) 17ms
+   ↓ a session's omp launches the same way on every start path > this computer's tabs: new, stored, relaunch restore, interrupted turn, omp update
+   ↓ a session's omp launches the same way on every start path > a paired device's tabs here launch as this computer's own, journaling the device's prompts
+   ↓ a restart that names no session continues the tab's own > an omp that crashed comes back on the session it was on
+   ↓ a restart that names no session continues the tab's own > a crashed new tab whose session stock never wrote starts a new one, never another session
+   ↓ a restart that names no session continues the tab's own > a new tab whose omp crashed before it named its session starts a new one, never another session
+   ↓ a restart that names no session continues the tab's own > a relaunch's saved tab that waited for omp opens its session once machine setup installed omp
+   ↓ a restart that names no session continues the tab's own > the desktop slot's stop of a session's omp starts it again on that session
+   ↓ a restart that names no session continues the tab's own > a move to another folder starts a new session there
+   ↓ a restart that names no session continues the tab's own > a new tab whose omp named its session, moved to another folder, leaves the session there to omp
+   × a restart that names no session continues the tab's own > an omp that crashed after a switch_session comes back on the session switched to 13ms
+     → expected [ …(2) ] to deeply equal [ …(2) ]
+   × a restart that names no session continues the tab's own > an omp that crashed after a new_session comes back on a new session, never the one before it 4ms
+     → expected [ …(2) ] to deeply equal [ …(2) ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'crash', 'crash', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'restart', 'crash', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'turn', 'crash', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'move', 'crash', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'open', 'crash', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'crash', 'restart', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'restart', 'restart', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'turn', 'restart', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'move', 'restart', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'open', 'restart', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'crash', 'turn', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'restart', 'turn', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'turn', 'turn', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'move', 'turn', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'open', 'turn', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'crash', 'move', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'restart', 'move', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'turn', 'move', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'move', 'move', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'open', 'move', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'crash', 'open', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'restart', 'open', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'turn', 'open', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'move', 'open', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'open', 'open', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'crash', 'crash', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'restart', 'crash', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'turn', 'crash', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'move', 'crash', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'open', 'crash', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'crash', 'restart', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'restart', 'restart', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'turn', 'restart', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'move', 'restart', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'open', 'restart', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'crash', 'turn', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'restart', 'turn', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'turn', 'turn', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'move', 'turn', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'open', 'turn', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'crash', 'move', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'restart', 'move', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'turn', 'move', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'move', 'move', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'open', 'move', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'crash', 'open', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'restart', 'open', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'turn', 'open', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'move', 'open', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'open', 'open', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'crash', 'crash', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'restart', 'crash', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'turn', 'crash', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'move', 'crash', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'open', 'crash', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'crash', 'restart', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'restart', 'restart', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'turn', 'restart', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'move', 'restart', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'open', 'restart', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'crash', 'turn', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'restart', 'turn', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'turn', 'turn', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'move', 'turn', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'open', 'turn', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'crash', 'move', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'restart', 'move', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'turn', 'move', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'move', 'move', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'open', 'move', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'crash', 'open', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'restart', 'open', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'turn', 'open', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'move', 'open', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'open', 'open', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'crash', 'crash', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'restart', 'crash', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'turn', 'crash', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'move', 'crash', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'open', 'crash', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'crash', 'restart', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'restart', 'restart', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'turn', 'restart', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'move', 'restart', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'open', 'restart', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'crash', 'turn', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'restart', 'turn', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'turn', 'turn', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'move', 'turn', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'open', 'turn', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'crash', 'move', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'restart', 'move', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'turn', 'move', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'move', 'move', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'open', 'move', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'crash', 'open', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'restart', 'open', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'turn', 'open', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'move', 'open', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'open', 'open', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'crash', 'crash', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'restart', 'crash', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'turn', 'crash', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'move', 'crash', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'open', 'crash', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'crash', 'restart', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'restart', 'restart', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'turn', 'restart', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'move', 'restart', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'open', 'restart', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'crash', 'turn', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'restart', 'turn', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'turn', 'turn', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'move', 'turn', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'open', 'turn', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'crash', 'move', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'restart', 'move', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'turn', 'move', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'move', 'move', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'open', 'move', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'crash', 'open', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'restart', 'open', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'turn', 'open', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'move', 'open', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'new tab', then [ 'open', 'open', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'crash', 'crash', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'restart', 'crash', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'turn', 'crash', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'move', 'crash', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'open', 'crash', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'crash', 'restart', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'restart', 'restart', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'turn', 'restart', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'move', 'restart', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'open', 'restart', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'crash', 'turn', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'restart', 'turn', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'turn', 'turn', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'move', 'turn', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'open', 'turn', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'crash', 'move', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'restart', 'move', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'turn', 'move', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'move', 'move', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'open', 'move', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'crash', 'open', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'restart', 'open', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'turn', 'open', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'move', 'open', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'open', 'open', 'crash' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'crash', 'crash', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'restart', 'crash', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'turn', 'crash', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'move', 'crash', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'open', 'crash', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'crash', 'restart', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'restart', 'restart', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'turn', 'restart', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'move', 'restart', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'open', 'restart', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'crash', 'turn', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'restart', 'turn', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'turn', 'turn', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'move', 'turn', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'open', 'turn', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'crash', 'move', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'restart', 'move', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'turn', 'move', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'move', 'move', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'open', 'move', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'crash', 'open', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'restart', 'open', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'turn', 'open', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'move', 'open', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'open', 'open', 'restart' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'crash', 'crash', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'restart', 'crash', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'turn', 'crash', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'move', 'crash', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'open', 'crash', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'crash', 'restart', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'restart', 'restart', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'turn', 'restart', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'move', 'restart', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'open', 'restart', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'crash', 'turn', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'restart', 'turn', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'turn', 'turn', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'move', 'turn', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'open', 'turn', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'crash', 'move', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'restart', 'move', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'turn', 'move', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'move', 'move', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'open', 'move', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'crash', 'open', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'restart', 'open', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'turn', 'open', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'move', 'open', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'open', 'open', 'turn' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'crash', 'crash', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'restart', 'crash', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'turn', 'crash', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'move', 'crash', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'open', 'crash', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'crash', 'restart', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'restart', 'restart', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'turn', 'restart', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'move', 'restart', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'open', 'restart', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'crash', 'turn', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'restart', 'turn', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'turn', 'turn', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'move', 'turn', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'open', 'turn', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'crash', 'move', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'restart', 'move', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'turn', 'move', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'move', 'move', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'open', 'move', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'crash', 'open', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'restart', 'open', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'turn', 'open', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'move', 'open', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'open', 'open', 'move' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'crash', 'crash', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'restart', 'crash', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'turn', 'crash', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'move', 'crash', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'open', 'crash', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'crash', 'restart', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'restart', 'restart', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'turn', 'restart', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'move', 'restart', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'open', 'restart', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'crash', 'turn', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'restart', 'turn', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'turn', 'turn', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'move', 'turn', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'open', 'turn', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'crash', 'move', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'restart', 'move', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'turn', 'move', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'move', 'move', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'open', 'move', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'crash', 'open', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'restart', 'open', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'turn', 'open', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'move', 'open', 'open' ]
+   ↓ every spawn of a tab opens the session the tab is on > 'stored session', then [ 'open', 'open', 'open' ]
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |node| src/main/session-launch-parity.test.ts > a restart that names no session continues the tab's own > an omp that crashed after a switch_session comes back on the session switched to
+AssertionError: expected [ …(2) ] to deeply equal [ …(2) ]
+
+- Expected
++ Received
+
+  [
+    {
+      "session": "/var/folders/0m/4j2lsbfs0xg1gnc95z_6g_sc0000gn/T/launch-parity-q3r2m2/stored.jsonl",
+    },
+    {
+-     "session": "/var/folders/0m/4j2lsbfs0xg1gnc95z_6g_sc0000gn/T/launch-parity-q3r2m2/other.jsonl",
++     "session": "/var/folders/0m/4j2lsbfs0xg1gnc95z_6g_sc0000gn/T/launch-parity-q3r2m2/stored.jsonl",
+    },
+  ]
+
+ ❯ src/main/session-launch-parity.test.ts:538:57
+    536|   await settle();
+    537| 
+    538|   expect(omps.map(launchOf).map(launch => launch.open)).toEqual([{ ses…
+       |                                                         ^
+    539|  });
+    540| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |node| src/main/session-launch-parity.test.ts > a restart that names no session continues the tab's own > an omp that crashed after a new_session comes back on a new session, never the one before it
+AssertionError: expected [ …(2) ] to deeply equal [ …(2) ]
+
+- Expected
++ Received
+
+  [
+    {
+      "session": "/var/folders/0m/4j2lsbfs0xg1gnc95z_6g_sc0000gn/T/launch-parity-84urQR/stored.jsonl",
+    },
+-   "new",
++   {
++     "session": "/var/folders/0m/4j2lsbfs0xg1gnc95z_6g_sc0000gn/T/launch-parity-84urQR/stored.jsonl",
++   },
+  ]
+
+ ❯ src/main/session-launch-parity.test.ts:555:57
+    553|   await settle();
+    554| 
+    555|   expect(omps.map(launchOf).map(launch => launch.open)).toEqual([{ ses…
+       |                                                         ^
+    556|  });
+    557| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 259 skipped (261)
+   Start at  16:31:08
+   Duration  1.00s (transform 622ms, setup 177ms, collect 637ms, tests 17ms, environment 0ms, prepare 35ms)
+

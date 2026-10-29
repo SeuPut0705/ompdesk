@@ -1,0 +1,44 @@
+{
+	"runs": [
+		{
+			"name": "code-now",
+			"config": "MC.cfg",
+			"expect": "pass"
+		},
+		{
+			"name": "code-now-6-spawns-2-stored",
+			"config": "MC_large.cfg",
+			"expect": "pass"
+		},
+		{
+			"name": "a10eb6877-new-tab-crash-before-get-state",
+			"config": "MC_shipped.cfg",
+			"expect": "invariant",
+			"property": "NeverAnother"
+		},
+		{
+			"name": "before-F2-crash-after-in-omp-session-change",
+			"config": "MC_change.cfg",
+			"expect": "invariant",
+			"property": "NeverAnother"
+		},
+		{
+			"name": "before-a10eb6877-restart-loses-session",
+			"config": "MC_old.cfg",
+			"expect": "invariant",
+			"property": "KeepsSession"
+		},
+		{
+			"name": "a-stored-session-is-reopened",
+			"config": "MC_sanity.cfg",
+			"expect": "invariant",
+			"property": "NeverReopens"
+		},
+		{
+			"name": "a-crash-after-a-turn-is-reachable",
+			"config": "MC_sanity_turn.cfg",
+			"expect": "invariant",
+			"property": "NeverCrashAfterTurn"
+		}
+	]
+}

@@ -5,6 +5,7 @@
  * mode registered. The inspector shows what the hook sends, once, in install order.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ECC_ENV, install as installEcc } from "../../resources/gui-bridge/modes/ecc-hint-core";
 import { install as installOutputStyle, setOutputStyle } from "../../resources/gui-bridge/modes/output-style";
 import { install as installReplyLanguage, setReplyLanguage } from "../../resources/gui-bridge/modes/reply-language";
 import { install as installUserProfile, setUserProfile } from "../../resources/gui-bridge/modes/user-profile";
@@ -13,6 +14,8 @@ import {
 	keepSectionsOnRestore,
 	type PromptSectionContext,
 	type PromptSectionHost,
+	registerPromptSection,
+	sectionContext,
 	withTurnSections,
 } from "../../resources/gui-bridge/prompt-sections";
 
@@ -26,6 +29,8 @@ function installAll(): Handler[] {
 	installReplyLanguage(host);
 	installOutputStyle(host);
 	installUserProfile(host);
+	// Reads the session's folder (`ctx.cwd`), which only stock's extension context names.
+	installEcc(host);
 	return handlers;
 }
 
@@ -92,11 +97,13 @@ class RestoredSession {
 	}
 	readonly agent = { setSystemPrompt: (prompt: string[]) => (this.prompt = prompt) };
 	readonly extensionRunner: { createContext(): PromptSectionContext };
+	readonly sessionManager = context.sessionManager;
 	constructor(
 		readonly continues: boolean,
 		kind: "main" | "sub" = "main",
+		cwd?: string,
 	) {
-		this.extensionRunner = { createContext: () => ({ ...context, agent: { kind } }) };
+		this.extensionRunner = { createContext: () => ({ ...context, agent: { kind }, ...(cwd ? { cwd } : {}) }) };
 	}
 	async restoreInterruptedTurn(): Promise<boolean> {
 		if (this.continues) this.sent = this.prompt;
@@ -131,5 +138,64 @@ describe("gui-bridge sections of a turn stock's restore continues", () => {
 		const main = new RestoredSession(true);
 		await main.restoreInterruptedTurn();
 		expect(main.sent?.filter(part => part.includes("<reply-language>"))).toHaveLength(1);
+	});
+});
+
+describe("gui-bridge turn prompt: a prompt, a restored turn and the inspector build the same prompt", () => {
+	const languages = [null, "Korean"] as const;
+	const styles = ["default", "concise"] as const;
+	const profiles = [
+		{ name: "", experience: null },
+		{ name: "Seu", experience: "expert" },
+	] as const;
+	const cases = languages.flatMap(language =>
+		styles.flatMap(style =>
+			profiles.flatMap(profile =>
+				(["main", "sub"] as const).flatMap(kind =>
+					[false, true].map(ecc => ({ language, style, profile, kind, ecc })),
+				),
+			),
+		),
+	);
+	const eccBefore = process.env[ECC_ENV];
+	afterEach(() => {
+		if (eccBefore === undefined) delete process.env[ECC_ENV];
+		else process.env[ECC_ENV] = eccBefore;
+	});
+	it.each(cases)(
+		"language $language, style $style, profile $profile.name, $kind agent, ECC $ecc",
+		async ({ language, style, profile, kind, ecc }) => {
+			const handlers = installAll();
+			process.env[ECC_ENV] = ecc ? "1" : "0";
+			setReplyLanguage({ language });
+			setOutputStyle({ style });
+			setUserProfile(profile);
+			keepSectionsOnRestore(RestoredSession.prototype);
+			// This checkout: package.json and bun.lock name ECC skills.
+			const cwd = process.cwd();
+			const ctx: PromptSectionContext = { ...context, agent: { kind }, cwd };
+			// A prompt: stock runs every `before_agent_start` handler in turn over the base prompt.
+			let live: string[] = ["base", "context"];
+			for (const handler of handlers)
+				live = handler({ systemPrompt: live, prompt: "go on" }, ctx)?.systemPrompt ?? live;
+			// A turn stock's restore continues gets them without a prompt.
+			const restored = new RestoredSession(true, kind, cwd);
+			await restored.restoreInterruptedTurn();
+			expect(restored.sent).toEqual(live);
+			// The context inspector shows that prompt (context-inspect.ts `turnPrompt`).
+			expect(withTurnSections(restored.baseSystemPrompt, sectionContext(restored))).toEqual(live);
+			if (ecc) expect(live.some(part => part.includes("<ecc-skills>"))).toBe(true);
+		},
+	);
+
+	it("keeps the other sections when one throws, as stock keeps the other handlers' results", () => {
+		const handlers = installAll();
+		registerPromptSection({ on: (_event, handler) => handlers.push(handler) }, "broken", () => {
+			throw new Error("broken section");
+		});
+		setReplyLanguage({ language: "Korean" });
+		const [hook] = handlers;
+		expect(hook?.({ systemPrompt: ["base"] }, context)?.systemPrompt.at(-1)).toContain("<reply-language>");
+		expect(withTurnSections(["base"], context).at(-1)).toContain("<reply-language>");
 	});
 });

@@ -1,0 +1,276 @@
+{
+  "spec": "/Users/seuput/.omp/wt/gui-subagent-restore-540bd7d/formal/tab-session/tla/TabSession.tla",
+  "name": "MC_change.cfg",
+  "config": "MC_change.cfg",
+  "ok": false,
+  "expect": "pass",
+  "durationMs": 800,
+  "outcome": "invariant",
+  "property": "NeverAnother",
+  "stats": {
+    "generated": 692,
+    "distinct": 351,
+    "queue": 249,
+    "depth": 6
+  },
+  "trace": [
+    {
+      "step": 1,
+      "action": "Init",
+      "changed": {
+        "proc": "\"none\"",
+        "isNew": "FALSE",
+        "moved": "FALSE",
+        "lastOpen": "[k |-> \"none\"]",
+        "shown": "\"s1\"",
+        "gated": "FALSE",
+        "used": "{}",
+        "path": "\"s1\"",
+        "named": "TRUE",
+        "written": "{\"s1\", \"s2\"}",
+        "onOmp": "\"none\"",
+        "spawns": "0"
+      }
+    },
+    {
+      "step": 2,
+      "action": "Spawn",
+      "code": "src/main/sidecar.ts:636-650",
+      "changed": {
+        "proc": "\"none\" -> \"booting\"",
+        "lastOpen": "[k |-> \"none\"] -> [k |-> \"session\", f |-> \"s1\"]",
+        "onOmp": "\"none\" -> \"s1\"",
+        "spawns": "0 -> 1"
+      }
+    },
+    {
+      "step": 3,
+      "action": "Ready",
+      "code": "src/main/sidecar.ts:945-950",
+      "changed": {
+        "proc": "\"booting\" -> \"ready\""
+      }
+    },
+    {
+      "step": 4,
+      "action": "NewSession",
+      "code": "src/main/sidecar.ts:826-842",
+      "changed": {
+        "shown": "\"s1\" -> \"none\"",
+        "used": "{} -> {\"n1\"}",
+        "named": "TRUE -> FALSE",
+        "onOmp": "\"s1\" -> \"n1\""
+      }
+    },
+    {
+      "step": 5,
+      "action": "Crash",
+      "code": "src/main/sidecar.ts:755-779",
+      "changed": {
+        "proc": "\"ready\" -> \"none\"",
+        "onOmp": "\"n1\" -> \"none\""
+      }
+    },
+    {
+      "step": 6,
+      "action": "Spawn",
+      "code": "src/main/sidecar.ts:636-650",
+      "changed": {
+        "proc": "\"none\" -> \"booting\"",
+        "onOmp": "\"none\" -> \"s1\"",
+        "spawns": "1 -> 2"
+      },
+      "violation": true
+    }
+  ],
+  "rows": [
+    {
+      "n": 1,
+      "step": "Init",
+      "code": [],
+      "changed": {
+        "proc": {
+          "to": "\"none\""
+        },
+        "isNew": {
+          "to": "FALSE"
+        },
+        "moved": {
+          "to": "FALSE"
+        },
+        "lastOpen": {
+          "to": "[k |-> \"none\"]"
+        },
+        "shown": {
+          "to": "\"s1\""
+        },
+        "gated": {
+          "to": "FALSE"
+        },
+        "used": {
+          "to": "{}"
+        },
+        "path": {
+          "to": "\"s1\""
+        },
+        "named": {
+          "to": "TRUE"
+        },
+        "written": {
+          "to": "{\"s1\", \"s2\"}"
+        },
+        "onOmp": {
+          "to": "\"none\""
+        },
+        "spawns": {
+          "to": "0"
+        }
+      }
+    },
+    {
+      "n": 2,
+      "step": "Spawn",
+      "action": "Spawn",
+      "location": {
+        "module": "TabSession",
+        "line": 88,
+        "col": 5,
+        "endLine": 100,
+        "endCol": 69
+      },
+      "code": [
+        "src/main/sidecar.ts:636-650"
+      ],
+      "changed": {
+        "proc": {
+          "from": "\"none\"",
+          "to": "\"booting\""
+        },
+        "lastOpen": {
+          "from": "[k |-> \"none\"]",
+          "to": "[k |-> \"session\", f |-> \"s1\"]"
+        },
+        "onOmp": {
+          "from": "\"none\"",
+          "to": "\"s1\""
+        },
+        "spawns": {
+          "from": "0",
+          "to": "1"
+        }
+      }
+    },
+    {
+      "n": 3,
+      "step": "Ready",
+      "action": "Ready",
+      "location": {
+        "module": "TabSession",
+        "line": 104,
+        "col": 5,
+        "endLine": 108,
+        "endCol": 87
+      },
+      "code": [
+        "src/main/sidecar.ts:945-950"
+      ],
+      "changed": {
+        "proc": {
+          "from": "\"booting\"",
+          "to": "\"ready\""
+        }
+      }
+    },
+    {
+      "n": 4,
+      "step": "NewSession",
+      "action": "NewSession",
+      "location": {
+        "module": "TabSession",
+        "line": 167,
+        "col": 5,
+        "endLine": 172,
+        "endCol": 59
+      },
+      "code": [
+        "src/main/sidecar.ts:826-842"
+      ],
+      "changed": {
+        "shown": {
+          "from": "\"s1\"",
+          "to": "\"none\""
+        },
+        "used": {
+          "from": "{}",
+          "to": "{\"n1\"}"
+        },
+        "named": {
+          "from": "TRUE",
+          "to": "FALSE"
+        },
+        "onOmp": {
+          "from": "\"s1\"",
+          "to": "\"n1\""
+        }
+      }
+    },
+    {
+      "n": 5,
+      "step": "Crash",
+      "action": "Crash",
+      "location": {
+        "module": "TabSession",
+        "line": 128,
+        "col": 5,
+        "endLine": 130,
+        "endCol": 93
+      },
+      "code": [
+        "src/main/sidecar.ts:755-779"
+      ],
+      "changed": {
+        "proc": {
+          "from": "\"ready\"",
+          "to": "\"none\""
+        },
+        "onOmp": {
+          "from": "\"n1\"",
+          "to": "\"none\""
+        }
+      }
+    },
+    {
+      "n": 6,
+      "step": "Spawn",
+      "action": "Spawn",
+      "location": {
+        "module": "TabSession",
+        "line": 88,
+        "col": 5,
+        "endLine": 100,
+        "endCol": 69
+      },
+      "code": [
+        "src/main/sidecar.ts:636-650"
+      ],
+      "changed": {
+        "proc": {
+          "from": "\"none\"",
+          "to": "\"booting\""
+        },
+        "onOmp": {
+          "from": "\"none\"",
+          "to": "\"s1\""
+        },
+        "spawns": {
+          "from": "1",
+          "to": "2"
+        }
+      },
+      "violation": true
+    }
+  ],
+  "tlcVersion": "2026.10.28.014557",
+  "message": "Invariant NeverAnother is violated.",
+  "warnings": []
+}
