@@ -52,7 +52,7 @@ export function createCheckoutFake(host: Host) {
 		checkout_status: () => ({ ...ledger.claims.status(), ...(task ? { task } : {}) }),
 		checkout_retire: params => {
 			ledger.claims.retireFrom(params);
-			return { ok: true };
+			return { ok: true, ...ledger.claims.status() };
 		},
 		"checkout_peers.get": () => ({ peers: state.peers ?? null }),
 	};

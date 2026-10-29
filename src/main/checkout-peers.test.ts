@@ -285,6 +285,89 @@ describe("checkout peers: a committed file is no longer a claim", () => {
 		expect(ledger.claims.files).toEqual([`${top}/src/t.ts`]);
 	});
 
+	it("never releases a claim on an answer older than a write its session started since", async () => {
+		// formal/checkout-claims F1: a pass judged the remembered answer of a bridge that did not answer in time.
+		const top = "/work/app";
+		const host = { realpath: (file: string) => file, isDirectory: () => false };
+		const ledger = new CheckoutLedger();
+		let answering = true;
+		const writer = member("w", top, [], {
+			request: async (method, params) => {
+				if (method === "checkout_status") {
+					if (!answering) throw new Error("busy");
+					return ledger.claims.status();
+				}
+				if (method === "checkout_retire") ledger.claims.retireFrom(params);
+				return { ok: true };
+			},
+		});
+		const other = member("o", top);
+		let listed = porcelain(" M src/f.ts");
+		let onGit = () => {};
+		const peers = new CheckoutPeerCoordinator({
+			members: () => [writer, other],
+			place: async () => ({ toplevel: top, commonDir: `${top}/.git` }),
+			hiddenPaths: () => new Set(),
+			gitStatus: async () => {
+				onGit();
+				return listed;
+			},
+		});
+		ledger.call("edit", { path: "src/f.ts" }, top, undefined, host, "e1");
+		ledger.settle("e1");
+		// Main has read the status; then the session starts a long write of the same file.
+		onGit = () => {
+			onGit = () => {};
+			ledger.call("bash", { command: "sleep 8; echo x > src/f.ts" }, top, undefined, host, "c1");
+		};
+		await peers.refresh();
+		expect(other.sent.at(-1)?.worktree[0]?.files).toEqual([`${top}/src/f.ts`]);
+		// The person commits the earlier edit while the write still runs, and the busy omp does not answer.
+		listed = porcelain();
+		answering = false;
+		await peers.refresh();
+		expect(other.sent.at(-1)?.worktree[0]?.files).toEqual([`${top}/src/f.ts`]);
+	});
+
+	it("never retires a restarted omp's claim on what git said of the claim its earlier load had", async () => {
+		// formal/checkout-claims F3: a restore numbers stamps from 1, so an earlier load's committed stamp can recur.
+		const top = "/work/app";
+		const host = { realpath: (file: string) => file, isDirectory: () => false };
+		let ledger = new CheckoutLedger();
+		const writer = member("w", top, [], {
+			request: async (method, params) => {
+				if (method === "checkout_status") return ledger.claims.status();
+				if (method === "checkout_retire") ledger.claims.retireFrom(params);
+				return { ok: true };
+			},
+		});
+		const other = member("o", top);
+		let failing = false;
+		const peers = new CheckoutPeerCoordinator({
+			members: () => [writer, other],
+			place: async () => ({ toplevel: top, commonDir: `${top}/.git` }),
+			hiddenPaths: () => new Set(),
+			gitStatus: async () => {
+				if (failing) throw new Error("git timed out");
+				return porcelain();
+			},
+		});
+		// A claim restored by an earlier restart (stamp 1) is committed: main retires it.
+		ledger.claims.restore({ files: [`${top}/src/f.ts`] });
+		await peers.refresh();
+		expect(ledger.claims.files).toEqual([]);
+		// The session changes f again, journals it, and the omp restarts: the restore numbers f's claim 1 again.
+		ledger.call("edit", { path: "src/f.ts" }, top, undefined, host, "e1");
+		ledger.settle("e1");
+		const journal = ledger.claims.snapshot();
+		ledger = new CheckoutLedger();
+		ledger.claims.restore(journal);
+		failing = true;
+		await peers.refresh();
+		expect(ledger.claims.files).toEqual([`${top}/src/f.ts`]);
+		expect(other.sent.at(-1)?.worktree[0]?.files).toEqual([`${top}/src/f.ts`]);
+	});
+
 	it("never gives back a committed claim when the call that took it over fails", async () => {
 		// formal/checkout-claims F2: the retire found f being written; the failed call then reverted to the committed stamp.
 		const top = "/work/app";

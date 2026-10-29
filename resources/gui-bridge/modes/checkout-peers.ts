@@ -231,11 +231,11 @@ export const methods = guard("checkoutPeers", {
 		const task = session ? await readTask(session) : undefined;
 		return { ...ledger.claims.status(), ...(task ? { task } : {}) };
 	},
-	/** `{instance, files: [{file, stamp}]}` → `{ok}`: claims main saw committed; one changed again since stays; another load's stamps mean nothing. */
+	/** `{instance, files: [{file, stamp}]}` → `{ok, ...CheckoutStatus}`: claims main saw committed; one changed again since stays; another load's stamps mean nothing. */
 	[CHECKOUT_RETIRE]: async (params: unknown) => {
 		ledger.claims.retireFrom(params);
 		journalSoon();
-		return { ok: true };
+		return { ok: true, ...ledger.claims.status() };
 	},
 	/** `{}` → `{peers}`: what the last `checkout_peers` frame carried. */
 	[CHECKOUT_PEERS_GET]: async () => ({ peers: state.peers ?? null }),

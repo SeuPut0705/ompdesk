@@ -3,8 +3,8 @@
  * contracts resources/gui-bridge/modes/checkout-peers-contracts.ts). Two scopes, as git has them: the worktree
  * (`--show-toplevel`: files, index, HEAD) and the repository (`--git-common-dir`: stash, branches, refs, shared by every
  * worktree of it). Each session hears the others of both, with the uncommitted files they changed lately (read from
- * their own bridges, `checkout_status`, and kept only while `git status` still lists them: a committed file is no
- * longer a claim), and whether it can message them.
+ * their own bridges, `checkout_status`, and judged per claim by `judgeClaim`, checkout-claims.ts: a committed file is
+ * no longer a claim), and whether it can message them.
  *
  * Members are this computer's own omps: the tabs of its windows and the tabs it runs for paired devices. A paired
  * host's tab is that host's to coordinate. A pass runs after tab activity, when a bridge reports a file it had not
@@ -12,6 +12,7 @@
  */
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { judgeClaim } from "../../resources/gui-bridge/modes/checkout-claims";
 import {
 	CHECKOUT_PEERS_SET,
 	CHECKOUT_RETIRE,
@@ -163,7 +164,10 @@ export class CheckoutPeerCoordinator {
 				await Promise.all(
 					company.map(
 						async ({ member, place }) =>
-							[member.key, await claimsOf(status.get(member.key) ?? EMPTY_STATUS, place.toplevel)] as const,
+							[
+								member.key,
+								await claimsOf(status.get(member.key)?.status ?? EMPTY_STATUS, place.toplevel),
+							] as const,
 					),
 				),
 			);
@@ -188,7 +192,7 @@ export class CheckoutPeerCoordinator {
 			const claims = new Map<string, Claim[]>();
 			await Promise.all(
 				company.map(async ({ member, place }) => {
-					const known = status.get(member.key) ?? EMPTY_STATUS;
+					const { status: known, fresh } = status.get(member.key) ?? { status: EMPTY_STATUS, fresh: false };
 					const gitSays = listed.get(place.toplevel) ?? null;
 					const before = this.#committed.get(place.toplevel);
 					const now = judged.get(place.toplevel) ?? new Set<string>();
@@ -196,34 +200,34 @@ export class CheckoutPeerCoordinator {
 					const kept: Claim[] = [];
 					const committed: Array<{ file: string; stamp: number }> = [];
 					for (const claim of held.get(member.key) ?? []) {
-						if (claim.pending) {
-							// A call still writing it: git may not show it yet, and it is never retired.
-							if (claim.rel !== null) kept.push(claim);
-							continue;
-						}
-						const stamp = claim.stamp;
-						const key = `${member.key}\0${claim.file}\0${stamp}`;
-						// Outside the worktree nothing can list it: it stops being a claim at once.
-						if (claim.norm === null) {
-							if (stamp !== undefined) committed.push({ file: claim.file, stamp });
-						} else if (gitSays) {
-							if (holds(gitSays, claim.norm)) kept.push(claim);
-							else if (stamp !== undefined) {
-								committed.push({ file: claim.file, stamp });
-								now.add(key);
-							}
-						} else if (stamp !== undefined && before?.has(key)) {
-							// Git failed this pass: what the last good listing found committed stays committed.
+						const { stamp } = claim;
+						// One claim of one omp load: a restored omp numbers its stamps from 1 again.
+						const key = `${member.key}\0${known.instance ?? ""}\0${claim.file}\0${stamp}`;
+						const verdict = judgeClaim({
+							pending: claim.pending,
+							fresh,
+							inside: claim.norm !== null,
+							stamped: stamp !== undefined,
+							git: !gitSays
+								? "unknown"
+								: claim.norm !== null && holds(gitSays, claim.norm)
+									? "listed"
+									: "unlisted",
+							committedBefore: stamp !== undefined && before?.has(key) === true,
+						});
+						if (verdict.kind === "shown") kept.push(claim);
+						else if (verdict.kind === "committed" && stamp !== undefined) {
 							committed.push({ file: claim.file, stamp });
-						} else kept.push(claim);
+							if (claim.norm !== null) now.add(key);
+						}
 					}
 					claims.set(member.key, kept);
-					// A claim git no longer lists was committed (or undone): the session stops holding it for good, so a
-					// later change by another session is never taken for this one's.
+					// The session stops holding a committed claim for good, so a later change by another session is never
+					// taken for this one's.
 					if (committed.length > 0) await this.#retire(member, known, committed);
 				}),
 			);
-			for (const [top, set] of judged) if (listed.get(top)) this.#committed.set(top, set);
+			for (const [top, set] of judged) this.#committed.set(top, set);
 			for (const { member, place } of group) {
 				live.add(member.key);
 				const mine = claims.get(member.key) ?? [];
@@ -246,7 +250,7 @@ export class CheckoutPeerCoordinator {
 						return own ? [own] : [];
 					});
 					const isHidden = other.member.sessionPath !== undefined && hidden.has(other.member.sessionPath);
-					const task = status.get(other.member.key)?.task;
+					const task = status.get(other.member.key)?.status.task;
 					return {
 						id: isHidden ? null : other.member.id,
 						title: isHidden ? "" : other.member.title,
@@ -305,37 +309,32 @@ export class CheckoutPeerCoordinator {
 	}
 
 	/**
-	 * A member's status now; its last answer when its bridge does not answer in time, so a busy omp keeps its claims.
-	 * A new `instance` is a new omp process (a restart keeps the tab): it starts with no peers, so it is told again.
+	 * A member's status now; its last answer when its bridge does not answer in time (`fresh` false), so a busy omp
+	 * keeps its claims. A new `instance` is a new omp process (a restart keeps the tab): it starts with no peers, so it
+	 * is told again.
 	 */
-	async #statusOf(member: CheckoutMember): Promise<MemberStatus> {
+	async #statusOf(member: CheckoutMember): Promise<{ status: MemberStatus; fresh: boolean }> {
 		const answer = await askStatus(member);
-		if (!answer) return this.#statuses.get(member.key) ?? EMPTY_STATUS;
+		if (!answer) return { status: this.#statuses.get(member.key) ?? EMPTY_STATUS, fresh: false };
 		const before = this.#statuses.get(member.key);
 		if (before && before.instance !== answer.instance) this.#sent.delete(member.key);
 		this.#statuses.set(member.key, answer);
-		return answer;
+		return { status: answer, fresh: true };
 	}
 
-	/** Tells a member's bridge these claims were committed; its remembered answer forgets them too. */
+	/** Tells a member's bridge these claims were committed; its answer, the claims it holds now, is what main remembers of it. */
 	async #retire(
 		member: CheckoutMember,
 		status: MemberStatus,
 		committed: Array<{ file: string; stamp: number }>,
 	): Promise<void> {
 		const params = { ...(status.instance === undefined ? {} : { instance: status.instance }), files: committed };
-		await timed(member.request(CHECKOUT_RETIRE, params, REQUEST_TIMEOUT_MS)).catch(() => undefined);
-		const last = this.#statuses.get(member.key);
-		if (!last) return;
-		const gone = new Set(committed.map(claim => `${claim.file}\0${claim.stamp}`));
-		const kept = last.files.flatMap((file, index) =>
-			gone.has(`${file}\0${last.stamps?.[index]}`) ? [] : [{ file, stamp: last.stamps?.[index] }],
+		const answer = parseStatus(
+			await timed(member.request(CHECKOUT_RETIRE, params, REQUEST_TIMEOUT_MS)).catch(() => null),
 		);
-		this.#statuses.set(member.key, {
-			...last,
-			files: kept.map(claim => claim.file),
-			...(last.stamps ? { stamps: kept.map(claim => claim.stamp ?? 0) } : {}),
-		});
+		const last = this.#statuses.get(member.key);
+		if (answer && last && answer.instance === last.instance)
+			this.#statuses.set(member.key, { ...answer, ...(last.task ? { task: last.task } : {}) });
 	}
 
 	/** The ids of the sessions sharing `key`'s checkout or repository, as the last pass found them. */
@@ -393,6 +392,11 @@ function timed<T>(work: Promise<T>, ms = REQUEST_TIMEOUT_MS): Promise<T> {
 /** The files a member's agents changed lately and its in-progress task; null when its bridge does not answer in time (an older omp, a busy one). */
 async function askStatus(member: CheckoutMember): Promise<MemberStatus | null> {
 	const answer = await timed(member.request(CHECKOUT_STATUS, {}, REQUEST_TIMEOUT_MS)).catch(() => null);
+	return answer && typeof answer === "object" ? parseStatus(answer) : null;
+}
+
+/** A bridge's `CheckoutStatus` (`checkout_status`, and `checkout_retire`'s answer); null when it carries no file list. */
+function parseStatus(answer: unknown): MemberStatus | null {
 	if (!answer || typeof answer !== "object") return null;
 	const record = answer as {
 		files?: unknown;
@@ -401,7 +405,8 @@ async function askStatus(member: CheckoutMember): Promise<MemberStatus | null> {
 		instance?: unknown;
 		task?: unknown;
 	};
-	const raw = Array.isArray(record.files) ? record.files : [];
+	if (!Array.isArray(record.files)) return null;
+	const raw = record.files;
 	const stamps = Array.isArray(record.stamps) && record.stamps.length === raw.length ? record.stamps : undefined;
 	const kept = raw.flatMap((file, index) =>
 		typeof file === "string"
