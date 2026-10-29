@@ -12,7 +12,7 @@
  */
 import type * as ChildProcess from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -473,5 +473,77 @@ describe("a restart that names no session continues the tab's own", () => {
 		await settle();
 
 		expect(omps.map(launchOf).map(launch => launch.open)).toEqual([{ session: stored }, "default"]);
+	});
+});
+
+/** What can happen to a tab between two spawns of its omp. */
+const EVENTS = ["crash", "restart", "turn", "move", "open"] as const;
+type TabEvent = (typeof EVENTS)[number];
+
+function sequences(length: number): TabEvent[][] {
+	if (length === 0) return [[]];
+	return sequences(length - 1).flatMap(rest => EVENTS.map(event => [event, ...rest]));
+}
+
+describe("every spawn of a tab opens the session the tab is on", () => {
+	// Each sequence of three events, from a new tab and from a stored session: a crash, a restart that names no
+	// session (machine setup, the desktop slot), stock writing the session at a turn's answer, a move to another folder,
+	// the person opening another stored session in the tab.
+	const cases = (["new tab", "stored session"] as const).flatMap(start =>
+		sequences(3).map(events => ({ start, events })),
+	);
+	it.each(cases)("$start, then $events", async ({ start, events }) => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		spawned.writesNewSession = false;
+		const create = factory();
+		const other = mkdtempSync(join(tmpdir(), "launch-parity-other-"));
+		const first = start === "stored session" ? storedSession("stored.jsonl") : undefined;
+		const sidecar = create(dir, "agent", first === undefined);
+		if (first) sidecar.restart(undefined, first);
+		else sidecar.start();
+		await settle();
+		/** The session the tab is on as its user sees it, and whether it moved since that session was written. */
+		let on: string | null = first ?? omps[0]?.session ?? null;
+		let booted = false;
+		const checked: string[] = [];
+		const check = (): void => {
+			for (const omp of omps.slice(checked.length)) {
+				const { open } = launchOf(omp);
+				const sessionWritten = on !== null && existsSync(on);
+				// `--session` never names a file stock never wrote.
+				if (typeof open === "object") expect(existsSync(open.session)).toBe(true);
+				// The tab's written session is what every spawn reopens.
+				if (sessionWritten) expect(open).toEqual({ session: on });
+				// A tab with a session stock has not written yet, or a new tab before its first boot, never lets
+				// stock's autoResume reopen another session in the folder.
+				else if (on !== null || !booted) expect(open).toBe("new");
+				checked.push(omp.session);
+				on = omp.session;
+				booted = true;
+			}
+		};
+		try {
+			check();
+			for (const event of events) {
+				const current = omps.at(-1);
+				if (event === "crash") current?.exit(1);
+				else if (event === "restart") sidecar.restart();
+				else if (event === "turn" && current) writeFileSync(current.session, "{}\n");
+				else if (event === "move") {
+					sidecar.restart(other);
+					on = null;
+				} else {
+					const opened = storedSession(`opened-${omps.length}.jsonl`);
+					sidecar.restart(undefined, opened);
+					on = opened;
+				}
+				await vi.advanceTimersByTimeAsync(4_000);
+				await settle();
+				check();
+			}
+		} finally {
+			sidecar.dispose();
+			rmSync(other, { recursive: true, force: true });
+		}
 	});
 });
