@@ -6,24 +6,10 @@
 
 /// Shipped binary basename (`[[bin]] name`, `/proc/*/comm`).
 ///
-/// Release archives use [`shipped_binary_name`] instead — Windows zips ship
+/// Windows ships
 /// `ai-memory.exe`.
 pub const BINARY_NAME: &str = "ai-memory";
 
 /// Sibling hooks bundle dir in release archives and install prefixes.
 pub const HOOKS_DIR_NAME: &str = "hooks";
 
-/// On-disk / archive basename for the release binary on this host.
-///
-/// Matches `release.yml`: Unix tarballs ship `ai-memory`; the Windows zip
-/// ships `ai-memory.exe`.
-pub fn shipped_binary_name() -> &'static str {
-    #[cfg(windows)]
-    {
-        "ai-memory.exe"
-    }
-    #[cfg(not(windows))]
-    {
-        BINARY_NAME
-    }
-}

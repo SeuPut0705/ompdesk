@@ -917,8 +917,8 @@ fn render_plugins(plugins: &[PluginReport]) -> String {
         }
         if let Some(version) = plugin.version_skew() {
             out.push_str(&format!(
-                "⚠ The {agent} plugin is {version} but this binary is {}. Run `ai-memory \
-                 upgrade` (it updates the Claude Code plugin too) or update the plugin in {agent}.\n",
+                "⚠ The {agent} plugin is {version} but this binary is {}. Update the plugin in \
+                 {agent} with OMPdesk's ai-memory build.\n",
                 report.binary_version
             ));
         }

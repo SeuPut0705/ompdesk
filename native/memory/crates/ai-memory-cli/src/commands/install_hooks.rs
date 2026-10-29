@@ -247,22 +247,6 @@ fn matcher_catches_all(entry: &serde_json::Value) -> bool {
     }
 }
 
-/// Re-copy the Claude Code hook scripts into the stable staging dir the
-/// installed hook commands point at, without touching any settings file.
-/// `upgrade` uses it when the only Claude Code install is `--scope project`,
-/// so a platform whose hook commands run these scripts gets the new ones.
-/// Native-hook commands call the absolute `ai-memory` binary instead, which
-/// the upgrade replaces in place. Either way the project files themselves are
-/// not rewritten: a change to the hook commands reaches a checkout only when
-/// `install-hooks --scope project --apply` is re-run there.
-pub(crate) fn restage_claude_code_scripts(
-    data_dir: &Path,
-    hooks_dir: Option<&Path>,
-) -> Result<PathBuf> {
-    let hooks_dir = resolve_hooks_dir(hooks_dir, AgentChoice::ClaudeCode, data_dir)?;
-    stage_hook_scripts(&hooks_dir, "claude-code", data_dir)
-}
-
 /// Codex's hooks file — `$CODEX_HOME/hooks.json` when the var is set, else
 /// `~/.codex/hooks.json`.
 ///

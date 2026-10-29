@@ -2,8 +2,7 @@
 //! them on this machine: whether one is installed and enabled, and at which
 //! version. `setup` and `ai-memory run` use it to stop writing the parallel
 //! settings-file wiring, `doctor` to report the plugin and any double
-//! install, `upgrade` to update the Claude Code plugin with the binary, and
-//! `uninstall` to remove the plugins.
+//! install, `uninstall` to remove the plugins.
 //!
 //! Only the user-level install is read: Claude Code's
 //! `<config dir>/plugins/installed_plugins.json` plus `enabledPlugins` in the
@@ -14,8 +13,6 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
-
-use super::user_service::CommandRunner;
 
 /// The id both harnesses record the plugin under: plugin `ai-memory` from
 /// marketplace `ai-memory`.
@@ -169,38 +166,6 @@ pub(crate) fn codex_at(codex_home: &Path) -> Option<InstalledPlugin> {
     })
 }
 
-/// Bring the Claude Code plugin up to the newest release the marketplace
-/// lists. Third-party marketplaces do not auto-update by default, so
-/// `upgrade` runs this after replacing the binary to keep the two in step.
-/// Returns what to tell the operator; a failure is reported, never fatal.
-pub(crate) fn update_claude_code(runner: &dyn CommandRunner) -> Vec<String> {
-    let steps: [&[&str]; 2] = [
-        &["plugin", "marketplace", "update", MARKETPLACE],
-        &["plugin", "update", PLUGIN_ID],
-    ];
-    let mut lines = Vec::new();
-    for args in steps {
-        let shown = format!("claude {}", args.join(" "));
-        match runner.run("claude", args) {
-            Ok(outcome) if outcome.success => lines.push(format!("✓ {shown}")),
-            Ok(outcome) => {
-                lines.push(format!(
-                    "⚠ {shown} failed: {}; run it yourself",
-                    outcome.stderr.trim()
-                ));
-                break;
-            }
-            Err(error) => {
-                lines.push(format!(
-                    "⚠ {shown} could not start ({error:#}); run it yourself"
-                ));
-                break;
-            }
-        }
-    }
-    lines
-}
-
 /// Fixtures shared by the plugin-aware commands' tests.
 #[cfg(test)]
 pub(crate) mod test_support {
@@ -271,7 +236,6 @@ pub(crate) mod test_support {
 
 #[cfg(test)]
 mod tests {
-    use super::test_support::RecordingRunner;
     use super::*;
 
     fn no_env(_: &str) -> Option<OsString> {
@@ -362,24 +326,5 @@ mod tests {
         assert_eq!(plugin.version_skew(), Some("0.0.1"));
         plugin.version = None;
         assert_eq!(plugin.version_skew(), None);
-    }
-
-    #[test]
-    fn update_refreshes_the_marketplace_then_the_plugin() {
-        let runner = RecordingRunner::new(None);
-        let lines = update_claude_code(&runner);
-        assert_eq!(
-            *runner.calls.borrow(),
-            vec![
-                "claude plugin marketplace update ai-memory",
-                "claude plugin update ai-memory@ai-memory"
-            ]
-        );
-        assert!(lines.iter().all(|line| line.starts_with('✓')), "{lines:?}");
-
-        let runner = RecordingRunner::new(Some(1));
-        let lines = update_claude_code(&runner);
-        assert_eq!(runner.calls.borrow().len(), 1, "stops after a failure");
-        assert!(lines[0].contains("failed: boom"), "{lines:?}");
     }
 }

@@ -112,7 +112,6 @@ pub mod show;
 pub mod status;
 pub mod transcript_capture;
 pub mod uninstall;
-pub mod upgrade;
 pub mod user;
 pub mod user_service;
 pub mod workstream_search;
@@ -467,9 +466,7 @@ pub(crate) fn resolve_project_name(config: &Config, explicit: Option<&str>) -> R
              (it didn't pass AI_MEMORY_HOST_CWD into the container). Without \
              this, every project would land in `default/work` regardless of \
              which host dir you ran from. Reinstall the checksum-verified \
-             wrapper from the latest GitHub Release as documented in README.md,\n  \
-             (or run `ai-memory upgrade` if your existing wrapper is recent enough \
-             to know that command)"
+             wrapper as documented in README.md"
         );
     }
 

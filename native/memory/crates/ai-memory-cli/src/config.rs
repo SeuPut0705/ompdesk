@@ -310,13 +310,6 @@ pub struct Config {
     /// make installers overwrite an intentional default URL (#1269 follow-up).
     #[serde(skip)]
     pub server_url_explicit: bool,
-    /// Optional override for the GitHub Releases base URL used by
-    /// `ai-memory upgrade` (archive + `.sha256` download). Empty/unset
-    /// means `https://github.com/akitaonrails/ai-memory/releases`. Set via
-    /// `AI_MEMORY_RELEASE_BASE_URL` or `release_base_url` in config.toml —
-    /// intended for hermetic tests and mirrors, not day-to-day installs.
-    #[serde(default)]
-    pub release_base_url: Option<String>,
     /// URL subpath the server is mounted under (e.g. `/wiki`). Thin-client
     /// CLI commands prepend it to every `/admin/*` request so deployments
     /// hosted behind a reverse proxy under a subpath don't 404. Settable via
@@ -1355,7 +1348,6 @@ impl Default for Config {
             server_url: DEFAULT_SERVER_URL.into(),
             server_url_derived_from_bind: false,
             server_url_explicit: false,
-            release_base_url: None,
             base_path: String::new(),
             home_dir: None,
             log_level: "info".into(),

@@ -416,11 +416,7 @@ you open in this project will see a handoff with where you left off.
 On macOS the native binary is the recommended path when you do not need
 Docker, either through the [menu bar app](#macos-menu-bar-app) above or a
 [release tarball / launchd agent](docs/macos.md). Later updates for that
-path use `ai-memory upgrade` (checksum-verified GitHub release replace + hook
-refresh); see
-[`docs/install.md#keeping-ai-memory-up-to-date`](docs/install.md#keeping-ai-memory-up-to-date).
-The same native upgrade path covers Windows x86_64 zip installs under a
-writable prefix (see [`docs/windows.md`](docs/windows.md) Scenario C).
+path are delivered only with OMPdesk releases (this build has no `upgrade` command).
 Upgrading a 2.x install of any kind to 3.0? Read
 [`docs/upgrading-to-3.0.md`](docs/upgrading-to-3.0.md) first.
 
