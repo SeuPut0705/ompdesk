@@ -4,9 +4,8 @@
  * Pure rules here; the rows and the disclosure are `SidebarSubagents.tsx`, the look `styles/sidebar.css`.
  */
 
-import { agentMessageSender, type CostSplit } from "../../../../shared/agent-control";
+import type { CostSplit } from "../../../../shared/agent-control";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
-import { type FamilySession, type FamilyTab, openerOfSessions } from "../../../../shared/sidebar-rows";
 import { isLiveSubagentStatus } from "../../panels/subagent-graph";
 
 /** What a child is: a subagent of the session, a session opened in a worktree, or a plain opened session. */
@@ -206,50 +205,4 @@ export function countLiveSubagents(subagents: ReadonlyMap<string, SubagentSnapsh
 	let count = 0;
 	for (const agent of subagents.values()) if (isLiveSubagentStatus(agent.status)) count++;
 	return count;
-}
-
-/** A paired host's row as the opener rule reads it (`SessionInfo`): what the host says of who opened it. */
-export interface HostFamilySession extends FamilySession {
-	openedBySession?: string | null;
-	promptOriginDevice?: string;
-}
-
-/**
- * Which of a paired host's sessions nest under which in that host's section: child row key → the row key (session
- * file, else `tab:<id>` before stock wrote one) of the session that started its chain. The same rule as this
- * computer's own rows (`openerOfSessions`) over the host's rows and this computer's tabs on that host: what the host
- * says of a row (`openedBySession`: its windows' tabs, its records of children it closed) is the record, and the
- * agent brief is read only for a row the host says it knows no opener of (`null`) and a paired device did not open, as
- * the host's own sidebar reads it. An older host says nothing, so its rows nest only by the tabs here, as before.
- */
-export function hostOpenerOfSessions(
-	tabs: readonly FamilyTab[],
-	rows: readonly HostFamilySession[],
-): Map<string, string> {
-	const recorded = new Map<string, string>();
-	for (const row of rows) if (row.openedBySession) recorded.set(row.path, row.openedBySession);
-	return openerOfSessions(
-		tabs,
-		rows.map(row =>
-			row.openedBySession === null && !row.promptOriginDevice ? row : { ...row, firstMessage: undefined },
-		),
-		recorded,
-	);
-}
-
-/**
- * Whether a stored session no opener row and no tab holds folds into its project's group instead of being a row of its
- * own, there listed only while it needs a look: main recorded closing it, an agent's brief opened it (not a paired
- * device's agent's, whose opener is on that device: here the session is the person's only way in), or it sits in an
- * agent's worktree. A paired host's section (SidebarDevices.tsx) folds by it; this computer's own rows by `sidebarRows`.
- */
-export function foldsIntoProject(
-	session: { firstMessage?: string; promptOriginDevice?: string },
-	known: { recorded?: boolean; agentWorktree?: boolean } = {},
-): boolean {
-	return (
-		known.recorded === true ||
-		(!session.promptOriginDevice && agentMessageSender(session.firstMessage ?? "") !== null) ||
-		known.agentWorktree === true
-	);
 }

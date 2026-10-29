@@ -4124,7 +4124,7 @@ describe("Sidebar device sections", () => {
 
 	// The user's report (29 Oct 2026): the host's own sidebar hid only the sessions of a gone OMPdesk worktree, while a
 	// device hid the host's sessions of every folder in its `gone` list (a deleted /tmp folder), so one host showed
-	// different rows on itself and on a device. Both now read the same rule (`sessionProjectKey`, shared).
+	// different rows on itself and on a device. Both now draw the same rule (`sidebarRows`, shared).
 	it("shows the same rows for the same host data on the host's own sidebar and on a device's section", async () => {
 		const APP = "/Users/kim/code/app";
 		const SCRATCH = "/tmp/scratch-3";
@@ -4713,21 +4713,124 @@ describe("Sidebar device sections", () => {
 			);
 		}
 
-		// The fixture holds each path's rows today, one row a line, so a commit that changes what a path lists shows each
-		// row it moves. `OMP_GUI_UPDATE_SIDEBAR_WORLD=1` rewrites it; only for a change the commit names.
-		const pinned = async (name: string, drawn: { groups: unknown; chats: unknown }) => {
-			const file = new URL(`./__fixtures__/sidebar-world.${name}.json`, import.meta.url);
+		// The fixture holds the rows today, one row a line, so a commit that changes what the sidebar lists shows each row
+		// it moves. `OMP_GUI_UPDATE_SIDEBAR_WORLD=1` rewrites it; only for a change the commit names.
+		const pinned = (drawn: { groups: unknown; chats: unknown }) => {
+			const file = new URL("./__fixtures__/sidebar-world.json", import.meta.url);
 			const text = `${JSON.stringify(drawn, null, "\t")}\n`;
 			if (process.env.OMP_GUI_UPDATE_SIDEBAR_WORLD === "1") writeFileSync(file, text);
 			expect(text).toBe(readFileSync(file, "utf8"));
 		};
 
-		it("draws it on the host's own sidebar", async () => {
-			await pinned("host", await drawnByHost());
+		// One rule draws both (`sidebarRows`); each path only gathers what it knows. The user's reports (23 and 29 Oct
+		// 2026) were each a row one path listed and the other did not.
+		it("draws the same rows on the host's own sidebar and on a device's section", async () => {
+			const host = await drawnByHost();
+			pinned(host);
+			act(() => root.unmount());
+			container.remove();
+			useClosedChildrenStore.getState().reset();
+			useAgentReviewStore.getState().reset();
+			useHostedSessionsStore.setState({ sessions: [], live: [] });
+			expect(await drawnByDevice()).toEqual(host);
 		});
 
-		it("draws it on a device's section", async () => {
-			await pinned("device", await drawnByDevice());
+		// A filter keeps a project whose name matches with all its rows, and an empty project only by its name, on the
+		// host and on a device alike (a device matched an empty project by its whole path, and kept only the matching rows
+		// of a project whose name matched).
+		it.each(["app", "kim/code", "Beta"])("filters by %j the same on both paths", async query => {
+			const BETA = "/Users/kim/code/empty-beta";
+			const list: SidebarProjectsState = {
+				projects: [
+					{ path: APP, addedAt: 3 },
+					{ path: BETA, addedAt: 1 },
+				],
+				removed: [],
+				worktrees: { [FOLDERS.wtl]: APP },
+			};
+			const rowsFor = (device?: string) => [
+				session("/h/alpha.jsonl", APP, { title: "Alpha", device, ...(device ? { openedBySession: null } : {}) }),
+				session("/h/live.jsonl", FOLDERS.wtl, {
+					title: "Live",
+					device,
+					...(device ? { openedBySession: null } : {}),
+				}),
+			];
+			const typed = async () => {
+				const input = container.querySelector("[data-sidebar-filter]") as unknown as Record<string, unknown>;
+				const props = input[
+					Object.getOwnPropertyNames(input).find(key => key.startsWith("__reactProps$")) ?? ""
+				] as {
+					onChange: (event: unknown) => void;
+				};
+				await act(async () => props.onChange({ target: { value: query }, currentTarget: { value: query } }));
+				await flush();
+			};
+			const titlesOf = (groups: Element[], body: (group: Element) => Element | null, key: string) =>
+				Object.fromEntries(
+					groups.map(group => [
+						group.getAttribute(key),
+						[...(body(group)?.querySelectorAll("[data-session-path], [data-device-session]") ?? [])].map(
+							row => row.getAttribute("data-session-path") ?? row.getAttribute("data-device-session"),
+						),
+					]),
+				);
+
+			const local = install();
+			local.sessions.list.mockImplementation(async () => rowsFor());
+			local.sidebarProjects.lists.local = list;
+			useTabsStore.setState({ tabs: [], activeTabId: null, bundles: new Map() });
+			await mount(<Sidebar />);
+			await typed();
+			const host = titlesOf(
+				[...container.querySelectorAll("[data-workspace-group]")] as unknown as Element[],
+				header =>
+					container.querySelector(
+						`[data-session-group="${header.getAttribute("data-workspace-group")}"]`,
+					) as unknown as Element | null,
+				"data-workspace-group",
+			);
+			act(() => root.unmount());
+			container.remove();
+
+			const remote = install("dev-studio");
+			remote.sessions.list.mockImplementation(async (_scope, asked) =>
+				asked === "dev-studio" ? rowsFor("dev-studio") : [],
+			);
+			remote.sidebarProjects.lists["dev-studio"] = list;
+			useRemoteStore.getState().apply({
+				tailnet: "ready",
+				host: {
+					enabled: false,
+					name: "laptop",
+					port: null,
+					addresses: [],
+					listenError: null,
+					peers: [],
+					keepAwake: true,
+					keepingAwake: false,
+					usedBy: [],
+				},
+				hosts: [{ deviceId: "dev-studio", name: "studio", state: "online" }],
+				forgotten: [],
+			});
+			await mount(<Sidebar />);
+			await typed();
+			const section = container.querySelector('[data-sidebar-device="dev-studio"]') as unknown as Element | null;
+			const device = titlesOf(
+				[...(section?.querySelectorAll("[data-device-group]") ?? [])],
+				group => group,
+				"data-device-group",
+			);
+
+			expect(host).toEqual(
+				{
+					app: { [APP]: ["/h/alpha.jsonl", "/h/live.jsonl"] },
+					"kim/code": { [APP]: ["/h/alpha.jsonl"] },
+					Beta: { [BETA]: [] },
+				}[query],
+			);
+			expect(device).toEqual(host);
 		});
 	});
 
