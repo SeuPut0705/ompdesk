@@ -8,13 +8,13 @@
  * untouched empty tab is replaced instead of left behind).
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import { SidebarProjects } from "../../../../main/sidebar-projects";
-import { wrapAgentMessage } from "../../../../shared/agent-control";
+import { type AgentReviewItem, wrapAgentMessage } from "../../../../shared/agent-control";
 import { codedError } from "../../../../shared/ipc-error-codes";
 import type { HostView, SessionInfo } from "../../../../shared/ipc-types";
 import type { SidebarProjectsRequest, SidebarProjectsState } from "../../../../shared/sidebar-projects";
@@ -354,7 +354,7 @@ afterEach(async () => {
 	useClosedChildrenStore.getState().reset();
 	useProjectOrigins.getState().reset();
 	useRemoteStore.getState().reset();
-	useHostedSessionsStore.setState({ sessions: [], revision: 0 });
+	useHostedSessionsStore.setState({ sessions: [], live: [], revision: 0 });
 	useUiStore.setState({
 		panelVisible: false,
 		sessionPickerOpen: false,
@@ -4430,6 +4430,305 @@ describe("Sidebar device sections", () => {
 		expect(container.querySelector('[data-sidebar-device="dev-studio"] [data-device-group]')?.textContent).toContain(
 			"Remote fix",
 		);
+	});
+
+	// Which sessions and groups a sidebar lists, drawn by both paths that list a computer's sessions: the host's own
+	// sidebar (a phone page of the host draws the same component) and a paired device's section for that host. One world
+	// holds every combination of folder, holder and opener, each fed to a path as that path learns it. Nearly every
+	// session's last run failed, so a child the rules list shows (a family row or a loose child) whatever its status rule.
+	describe("one world drawn by the host's own sidebar and by a device's section", () => {
+		const APP = "/Users/kim/code/app";
+		const LOOSE = "/Users/kim/code/loose";
+		const FOLDERS = {
+			app: APP,
+			old: "/Users/kim/code/old",
+			scr: "/tmp/scratch-3",
+			loose: LOOSE,
+			wtl: "/Users/kim/.omp/wt/gui-live-1111111",
+			wta: "/Users/kim/.omp/wt/gui-agent-3333333",
+			wtg: "/Users/kim/.omp/wt/gui-gone-2222222",
+			chat: "/default/work",
+		} as const;
+		// no: nothing holds it; rdy: a tab here in use; slp: a tab here restored asleep; gho: last run's ghost tab; els: a
+		// paired device's tab the host runs; hsl: one the host runs that stayed asleep since a relaunch; wrk: another window
+		// of the host works on it.
+		const HOLDERS = ["no", "rdy", "slp", "gho", "els", "hsl", "wrk"] as const;
+		// pl: the person's prompt; br: Boss's agent brief; bx: a brief from a sender nobody is titled as; rc: a closed record
+		// naming Boss; rg: a closed record naming a deleted opener (brief from nobody listed); rv: the review list of a chat's
+		// tab names it (no brief).
+		const ORIGINS = ["pl", "br", "bx", "rc", "rg", "rv"] as const;
+		const BOSS = "/h/boss.jsonl";
+		const CHAT_BOSS = "/h/chat-boss.jsonl";
+		const DELETED_OPENER = "/h/deleted.jsonl";
+		const placed = Object.entries(FOLDERS)
+			.flatMap(([code, cwd]) =>
+				HOLDERS.flatMap(holder =>
+					ORIGINS.map(origin => ({ token: `${code}.${holder}.${origin}`, cwd, holder, origin })),
+				),
+			)
+			.map((cell, index) => ({
+				...cell,
+				path: `/h/${cell.token}.jsonl`,
+				created: new Date(Date.UTC(2026, 9, 1) + index * 60_000).toISOString(),
+			}));
+		const hostList: SidebarProjectsState = {
+			projects: [
+				{ path: APP, addedAt: 3 },
+				{ path: FOLDERS.scr, addedAt: 2, missing: true },
+			],
+			removed: [FOLDERS.old],
+			worktrees: { [FOLDERS.wtl]: APP, [FOLDERS.wta]: APP, [FOLDERS.wtg]: APP },
+			worktreeKinds: { [FOLDERS.wtl]: "other", [FOLDERS.wta]: "agent" },
+			gone: [FOLDERS.scr, FOLDERS.wtg],
+		};
+		const recordOf = (origin: string) => (origin === "rc" ? BOSS : origin === "rg" ? DELETED_OPENER : null);
+		const briefOf = (origin: string) =>
+			origin === "br" || origin === "rc"
+				? wrapAgentMessage("Fix it", "Boss")
+				: origin === "bx" || origin === "rg"
+					? wrapAgentMessage("Fix it", "Nobody listed")
+					: "hello";
+		const heldThere = (holder: string) => holder === "els" || holder === "hsl" || holder === "wrk";
+		// The rows as the index lists them; a device's also carry what the host says beside each: who a record of its own
+		// names as the opener, and that a tab there holds it.
+		const rows = (device?: string): SessionInfo[] => [
+			session(BOSS, APP, {
+				title: "Boss",
+				created: "2026-09-01T00:00:00Z",
+				device,
+				...(device ? { openedBySession: null } : {}),
+			}),
+			session(CHAT_BOSS, FOLDERS.chat, {
+				title: "Chat boss",
+				created: "2026-09-01T00:00:01Z",
+				device,
+				...(device ? { openedBySession: null, heldOnHost: true as const } : {}),
+			}),
+			...placed.map(cell =>
+				session(cell.path, cell.cwd, {
+					title: cell.token,
+					created: cell.created,
+					modified: cell.created,
+					// Not `hsl`: the host reads an asleep hosted tab's state over the index's, a device reads the index; how
+					// a child's status is read is not the listing rule, so those children finish clean on both.
+					status: cell.holder === "hsl" ? "complete" : "error",
+					firstMessage: briefOf(cell.origin),
+					device,
+					...(device ? { openedBySession: recordOf(cell.origin) } : {}),
+					...(device && heldThere(cell.holder) ? { heldOnHost: true as const } : {}),
+				}),
+			),
+		];
+		const tabs = (device?: string) =>
+			placed
+				.filter(cell => cell.holder === "rdy" || cell.holder === "slp" || cell.holder === "gho")
+				.map(cell => ({
+					id: `t-${cell.token}`,
+					cwd: cell.cwd,
+					status:
+						cell.holder === "slp"
+							? ("asleep" as const)
+							: cell.holder === "gho"
+								? ("starting" as const)
+								: ("ready" as const),
+					...(cell.holder === "gho" ? { ghost: true as const } : {}),
+					kind: "agent" as const,
+					unreadDone: false,
+					sessionPath: cell.path,
+					sessionId: cell.path,
+					lastRun: { stopReason: "error" as const, text: "" },
+					...(device ? { device } : {}),
+				}));
+		const working = placed
+			.filter(cell => cell.holder === "wrk")
+			.map(cell => ({ sessionPath: cell.path, state: "turn" as const }));
+		const tokenOf = new Map<string, string>([
+			[BOSS, "Boss"],
+			[CHAT_BOSS, "ChatBoss"],
+			...placed.map(cell => [cell.path, cell.token] as const),
+		]);
+
+		function install(device?: string): MockOmp {
+			const omp = installMockOmp(rows());
+			omp.sessions.list.mockImplementation(async (_scope, asked) => (asked === device ? rows(device) : []));
+			omp.sidebarProjects.lists[device ?? "local"] = hostList;
+			(omp as unknown as Record<string, unknown>).projectOrigins = {
+				get: vi.fn(async (cwds: string[]) =>
+					Object.fromEntries(
+						cwds.map(cwd => [
+							cwd,
+							cwd === APP
+								? { project: "app", root: APP, worktree: null }
+								: cwd === FOLDERS.wta
+									? {
+											project: "app",
+											root: APP,
+											worktree: { kind: "agent", branch: "agent/work", slug: "agent" },
+										}
+									: cwd === FOLDERS.wtl
+										? {
+												project: "app",
+												root: APP,
+												worktree: { kind: "other", branch: "feature/live", slug: "live" },
+											}
+										: null,
+						]),
+					),
+				),
+			};
+			return omp;
+		}
+
+		/** Each group in order with its rows: `>` a family row under its opener, `~` a loose child; then Chats. */
+		function read(groups: Element[], body: (group: Element) => Element | null, key: string, chats: Element | null) {
+			const titles = (scope: Element | null) =>
+				[...(scope?.querySelectorAll("[data-session-path], [data-device-session]") ?? [])].map(row => {
+					const path = row.getAttribute("data-session-path") ?? row.getAttribute("data-device-session") ?? "";
+					const token = tokenOf.get(path) ?? `?${path}`;
+					if (!row.hasAttribute("data-sidebar-opened-session")) return token;
+					return `${row.closest("[data-sidebar-loose-children]") ? "~" : ">"}${token}`;
+				});
+			return {
+				groups: groups.map(group => ({
+					group: group.getAttribute(key),
+					missing: group.hasAttribute("data-project-missing") || group.closest("[data-project-missing]") !== null,
+					rows: titles(body(group)),
+				})),
+				chats: titles(chats),
+			};
+		}
+
+		async function drawnByHost() {
+			install();
+			useTabsStore.setState({
+				tabs: [
+					...tabs(),
+					// The chat whose agent opened the `rv` sessions, by its tab here.
+					{
+						id: "t-chat-boss",
+						cwd: FOLDERS.chat,
+						status: "ready",
+						kind: "chat",
+						unreadDone: false,
+						sessionPath: CHAT_BOSS,
+					},
+				],
+				activeTabId: null,
+				bundles: new Map(),
+			});
+			const review = (path: string): AgentReviewItem => ({
+				tabId: `r:${path}`,
+				sessionPath: path,
+				title: path,
+				state: "needs-review",
+				commitsAhead: 0,
+				files: 0,
+				added: 0,
+				removed: 0,
+				uncommitted: 0,
+				answer: "",
+			});
+			useHostedSessionsStore.setState({
+				sessions: placed
+					.filter(cell => cell.holder === "els" || cell.holder === "hsl")
+					.map(cell => ({
+						sessionPath: cell.path,
+						sessionId: cell.path,
+						title: cell.token,
+						cwd: cell.cwd,
+						kind: "agent" as const,
+						status: cell.holder === "hsl" ? ("asleep" as const) : ("error" as const),
+						device: "phone",
+					})),
+				live: working,
+			});
+			await mount(<Sidebar />);
+			// Main's records, set after the sidebar's own first read of them (an empty pref here).
+			act(() => {
+				useClosedChildrenStore.setState({
+					rows: placed.flatMap(cell => {
+						const opener = recordOf(cell.origin);
+						// A removed worktree's record names the checkout to open it in, which need not be its project.
+						return opener
+							? [
+									{
+										path: cell.path,
+										openedBySession: opener,
+										title: cell.token,
+										cwd: cell.cwd === FOLDERS.wtg ? LOOSE : cell.cwd,
+										closedAt: 0,
+									},
+								]
+							: [];
+					}),
+				});
+				useAgentReviewStore.setState({
+					byTab: { "t-chat-boss": placed.filter(cell => cell.origin === "rv").map(cell => review(cell.path)) },
+				});
+			});
+			await flush();
+			for (const header of container.querySelectorAll('[data-workspace-group] button[aria-expanded="false"]'))
+				await act(async () => (header as unknown as HTMLButtonElement).click());
+			act(() => useSidebarSubagentsStore.setState({ expanded: new Set([BOSS]) }));
+			await flush();
+			return read(
+				[...container.querySelectorAll("[data-workspace-group]")] as unknown as Element[],
+				header =>
+					container.querySelector(
+						`[data-session-group="${header.getAttribute("data-workspace-group")}"]`,
+					) as unknown as Element | null,
+				"data-workspace-group",
+				container.querySelector(`[data-sidebar-chats="${LOCAL_DEVICE}"]`) as unknown as Element | null,
+			);
+		}
+
+		async function drawnByDevice() {
+			install("dev-studio");
+			useTabsStore.setState({ tabs: tabs("dev-studio"), activeTabId: null, bundles: new Map() });
+			useRemoteStore.getState().apply({
+				tailnet: "ready",
+				host: {
+					enabled: false,
+					name: "laptop",
+					port: null,
+					addresses: [],
+					listenError: null,
+					peers: [],
+					keepAwake: true,
+					keepingAwake: false,
+					usedBy: [],
+				},
+				hosts: [{ deviceId: "dev-studio", name: "studio", state: "online", live: working }],
+				forgotten: [],
+			});
+			await mount(<Sidebar />);
+			act(() => useSidebarSubagentsStore.setState({ expanded: new Set([`device:dev-studio:${BOSS}`]) }));
+			await flush();
+			const section = container.querySelector('[data-sidebar-device="dev-studio"]') as unknown as Element | null;
+			return read(
+				[...(section?.querySelectorAll("[data-device-group]") ?? [])],
+				group => group,
+				"data-device-group",
+				section?.querySelector('[data-sidebar-chats="dev-studio"]') ?? null,
+			);
+		}
+
+		// The fixture holds each path's rows today, one row a line, so a commit that changes what a path lists shows each
+		// row it moves. `OMP_GUI_UPDATE_SIDEBAR_WORLD=1` rewrites it; only for a change the commit names.
+		const pinned = async (name: string, drawn: { groups: unknown; chats: unknown }) => {
+			const file = new URL(`./__fixtures__/sidebar-world.${name}.json`, import.meta.url);
+			const text = `${JSON.stringify(drawn, null, "\t")}\n`;
+			if (process.env.OMP_GUI_UPDATE_SIDEBAR_WORLD === "1") writeFileSync(file, text);
+			expect(text).toBe(readFileSync(file, "utf8"));
+		};
+
+		it("draws it on the host's own sidebar", async () => {
+			await pinned("host", await drawnByHost());
+		});
+
+		it("draws it on a device's section", async () => {
+			await pinned("device", await drawnByDevice());
+		});
 	});
 
 	describe("order", () => {
