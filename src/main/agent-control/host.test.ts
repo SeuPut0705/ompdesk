@@ -17,6 +17,7 @@ import {
 import type { IpcOpenExtensionRequest, IpcSpawnTabPayload, IpcTabInfo } from "../../shared/ipc-types";
 import type { ExtensionUIRequest, RpcCommand, RpcResponse } from "../../shared/rpc-types";
 import type { ScheduleCreated, ScheduleDraft, SchedulesRequest, SchedulesState } from "../../shared/schedules";
+import { createControlBackend } from "../control-socket/backend";
 import { gitSync, initRepo } from "../local/git/test-repos";
 import { WORKTREE_COMMAND_BUDGETS_MS } from "../local/git/worktree";
 import { SchedulesCommandParams, SchedulesCreateParams } from "../remote/app-protocol";
@@ -1194,5 +1195,123 @@ describe("closing a child a paired web page owns", () => {
 		);
 		expect((await closing).text).toContain("Closed");
 		expect(log).toContain("mail:main0001");
+	});
+});
+
+describe("a caller outside OMPdesk (the control socket)", () => {
+	const outside = { id: "outside:cli", title: 'outside agent "cli"', cwd: "/home/me/project" };
+	const app: AgentControlHostDeps["app"] = {
+		invoke: async () => undefined,
+		fire: () => undefined,
+		localize: en => en,
+		openPrivacyPane: async () => undefined,
+	};
+
+	function outsideSetup(options: Parameters<typeof setup>[0] = {}) {
+		const env = setup({
+			tabs: [{ tabId: "main0001" }, { tabId: "work0002", title: "Upload fix", sessionPath: "/s/work.jsonl" }],
+			app,
+			...options,
+		});
+		env.deps.outsideWindow = () => env.win;
+		const cards: string[] = [];
+		env.deps.confirmOutside = async (_win, title) => {
+			cards.push(title);
+			return false;
+		};
+		return { ...env, cards, backend: createControlBackend(env.runtime, env.deps.pool) };
+	}
+
+	it("gets the same answer through the socket as an agent in a session gets from the host tool", async () => {
+		const { runtime, win, backend } = outsideSetup();
+		const calls: [string, unknown][] = [
+			[T.result, { session: "work0002" }],
+			[T.result, { session: "Upload fix" }],
+			[T.read, { session: "work0002" }],
+			[T.appList, { area: "sessions" }],
+			[T.app, { action: "credentials.read", args: {} }],
+			[T.app, { action: "cards.answer", args: {} }],
+			[T.send, { session: "nobody", message: "hi" }],
+			[T.send, {}],
+		];
+		for (const [tool, args] of calls) {
+			const fromTab = await runtime.run(win, "main0001", tool as never, args);
+			expect(await backend.run(outside, tool, args), `${tool} ${JSON.stringify(args)}`).toEqual(fromTab);
+		}
+	});
+
+	it("keeps the never tier refused", async () => {
+		const { backend } = outsideSetup();
+		for (const action of ["credentials.read", "cards.answer"]) {
+			const outcome = await backend.run(outside, T.app, { action, args: {} });
+			expect(outcome.isError, action).toBe(true);
+			expect(outcome.text, action).toContain("never available");
+		}
+	});
+
+	it("raises the same card a session's agent gets, over its window, and does nothing when it is refused", async () => {
+		const prefs = { [AGENT_CONTROL_FULL_PREF]: false, [AGENT_CONTROL_MANAGE_PREF]: false };
+		const { backend, cards, commands, runtime, win } = outsideSetup({ prefs });
+		const outcome = await backend.run(outside, T.stop, { session: "work0002" });
+		expect(cards).toHaveLength(1);
+		expect(cards[0]).toMatch(/^\[OMPdesk\] /);
+		expect(outcome.text).toContain("The user declined");
+		expect(commands.some(entry => entry.command.type === "abort")).toBe(false);
+		// The same stop from a session's agent asks too (in that session, approved by the fake).
+		await runtime.run(win, "main0001", T.stop, { session: "work0002" });
+		expect(commands.filter(entry => entry.command.type === "agent_control_confirm")).toHaveLength(1);
+	});
+
+	it("refuses with no window open and names an unknown tool", async () => {
+		const { backend, deps } = outsideSetup();
+		expect((await backend.run(outside, "ompdesk_nothing", {})).text).toContain(
+			'no OMPdesk control tool "ompdesk_nothing"',
+		);
+		deps.outsideWindow = () => null;
+		const outcome = await backend.run(outside, T.list, {});
+		expect(outcome).toMatchObject({ isError: true, text: expect.stringContaining("no window open") });
+		await expect(backend.resolve(outside, "work0002")).rejects.toThrow("no window open");
+	});
+
+	it("opens a session in its own folder on this computer and owns it without nesting it under a tab", async () => {
+		const { backend, spawned, openers, runtime, commands } = outsideSetup();
+		await backend.run(outside, T.open, { message: "Title: Check the build\nRun it." });
+		expect(spawned[0]).toMatchObject({ cwd: "/home/me/project", task: "Check the build" });
+		expect(runtime.parentOf("new00003")).toEqual({ callerTabId: "outside:cli" });
+		expect(openers).not.toHaveBeenCalled();
+		// A worktree is made on this computer without going through anyone's tab.
+		await backend.run(outside, T.open, { worktree: true });
+		expect(commands.some(entry => entry.command.type === "worktree_create")).toBe(false);
+	});
+
+	it("hears a report from a session it opened on its event stream, never as mail into a tab", async () => {
+		const { backend, runtime, tabs, commands, win } = outsideSetup();
+		const heard: { to: string; text: string }[] = [];
+		backend.onOutsideMail((to, text) => heard.push({ to, text }));
+		await backend.run(outside, T.open, { message: "Fix it" });
+		tabs.push({ tabId: "new00003", cwd: "/home/me/project", status: "ready", kind: "agent" });
+		const outcome = await runtime.run(win, "new00003", T.report, { kind: "done", text: "All green" });
+		expect(outcome.isError).toBe(false);
+		expect(heard).toEqual([{ to: "outside:cli", text: expect.stringContaining("All green") }]);
+		expect(commands.filter(entry => entry.command.type === "agent_control_mail")).toEqual([]);
+	});
+
+	it("resolves sessions by the tools' own names, and never sees one hidden from agents", async () => {
+		const { backend } = outsideSetup({
+			prefs: { sidebar: { agentHidden: ["/s/hidden.jsonl"] } },
+			tabs: [
+				{ tabId: "main0001" },
+				{ tabId: "work0002", title: "Upload fix", sessionPath: "/s/work.jsonl" },
+				{ tabId: "hide0003", title: "Secret", sessionPath: "/s/hidden.jsonl" },
+			],
+		});
+		expect(await backend.resolve(outside, "Upload")).toEqual({
+			session: "work0002",
+			title: "Upload fix",
+			state: "idle",
+		});
+		await expect(backend.resolve(outside, "hide0003")).rejects.toThrow("hid this session");
+		expect(backend.views().map(view => view.session)).toEqual(["main0001", "work0002"]);
+		expect(backend.view("hide0003")).toBeNull();
 	});
 });

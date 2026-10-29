@@ -36,6 +36,7 @@ import {
 	agentControlManageEnabled,
 	agentHiddenPaths,
 	type ClosedChild,
+	isAgentControlTool,
 	MAX_CLOSED_CHILDREN,
 	type PrivacyPane,
 	parseClosedChildren,
@@ -117,7 +118,7 @@ import {
 import { tabCloseStep } from "./tab-close";
 
 /** A confirmation card waits for the person this long. */
-const CARD_TIMEOUT_MS = 10 * 60_000;
+export const CARD_TIMEOUT_MS = 10 * 60_000;
 const WORKTREE_PREFIX = "omp/agent/";
 /** A child's activity comes in bursts; its review item is rebuilt (git runs) once it settles. */
 const REVIEW_SETTLE_MS = 400;
@@ -218,6 +219,13 @@ export interface AgentControlHostDeps {
 		/** Open a macOS Privacy & Security pane in System Settings; rejects elsewhere. */
 		openPrivacyPane: (pane: PrivacyPane) => Promise<void>;
 	};
+	/**
+	 * The window a caller outside OMPdesk (the control socket, src/main/control-socket) acts through: the sessions it
+	 * opens are tabs of it. Null while the app has no window.
+	 */
+	outsideWindow?: () => ClientWindow | null;
+	/** A confirmation card for a caller outside OMPdesk, which has no session of its own to show one in. */
+	confirmOutside?: (win: ClientWindow, title: string, message: string) => Promise<boolean>;
 }
 
 function askOf(request: ControlAsk["request"]): boolean {
@@ -239,6 +247,19 @@ export function splitBranch(branch: string | undefined, slug: string): { branchP
 	return at < 0
 		? { branchPrefix: "", name: branch }
 		: { branchPrefix: branch.slice(0, at + 1), name: branch.slice(at + 1) };
+}
+
+/**
+ * A process outside OMPdesk driving it over the control socket (a terminal omp, a script, another agent CLI). It acts
+ * as an agent with no tab: the same tools, rules and cards as an agent in a session, never fewer checks.
+ */
+export interface OutsideCaller {
+	/** `outside:<name>`: the sessions it opens are its own under this id until the app quits. */
+	id: string;
+	/** What cards and messages call it. */
+	title: string;
+	/** Where a session it opens without a folder starts. */
+	cwd: string;
 }
 
 export class AgentControlRuntime {
@@ -278,6 +299,10 @@ export class AgentControlRuntime {
 	/** Control-tool calls by their identity, so one a paired host re-sends after a relaunch runs once. */
 	readonly #calls: CallJournal;
 	#redelivering = false;
+	/** Callers outside OMPdesk by id (`runOutside`), kept while the app runs: their sessions' provenance. */
+	readonly #outside = new Map<string, OutsideCaller>();
+	/** Whoever hears the reports addressed to an outside caller (the control socket's event stream). */
+	readonly #outsideMail = new Set<(callerId: string, text: string) => void>();
 
 	constructor(deps: AgentControlHostDeps) {
 		this.#deps = deps;
@@ -414,7 +439,8 @@ export class AgentControlRuntime {
 			if (win.isDestroyed()) continue;
 			for (const info of pool.tabsForWindow(win)) {
 				const opener = this.#autoClosable(info) ? this.#openerOf(info.tabId) : undefined;
-				if (opener) openers.add(opener);
+				// An outside caller has no session to collect into: its sessions stay until it closes them.
+				if (opener && !this.#outside.has(opener)) openers.add(opener);
 			}
 		}
 		return openers;
@@ -490,6 +516,44 @@ export class AgentControlRuntime {
 		this.#calls.acknowledge(callId);
 	}
 
+	/**
+	 * One control tool call by a process outside OMPdesk (the control socket): the same service, rules and cards as
+	 * `run`, with the caller standing in for a tab (`outsideCaller`). It acts through the app's front window.
+	 */
+	async runOutside(caller: OutsideCaller, tool: string, args: unknown): Promise<ToolOutcome> {
+		if (!isAgentControlTool(tool)) return { text: `There is no OMPdesk control tool "${tool}".`, isError: true };
+		const entered = this.#enterOutside(caller);
+		if (entered) return { text: entered, isError: true };
+		return this.control.run(caller.id, tool, args);
+	}
+
+	/** The open session `name` names for an outside caller, by the tools' own name rules (hidden refused). */
+	async resolveOutside(caller: OutsideCaller, name: string): Promise<ControlTab> {
+		const entered = this.#enterOutside(caller);
+		if (entered) throw new Error(entered);
+		return this.control.openTarget(caller.id, name);
+	}
+
+	/** Every open tab of the app as the tools see it, from no session's window (the control socket's waits). */
+	controlTabs(): ControlTab[] {
+		return this.#allTabs(undefined);
+	}
+
+	onOutsideMail(listener: (callerId: string, text: string) => void): () => void {
+		this.#outsideMail.add(listener);
+		return () => this.#outsideMail.delete(listener);
+	}
+
+	/** Bind an outside caller to the front window; the refusal's text when there is none. */
+	#enterOutside(caller: OutsideCaller): string | null {
+		const win = this.#deps.outsideWindow?.();
+		if (!win || win.isDestroyed())
+			return "OMPdesk has no window open. Open one (click its Dock or tray icon) and try again.";
+		this.#outside.set(caller.id, caller);
+		this.#windows.set(caller.id, win);
+		return null;
+	}
+
 	/** The work board's opened-session rows: the list of sessions this one opened (read-only; the agent lands them with tools). */
 	async review(win: ClientWindow, callerTabId: string): Promise<AgentReviewResult> {
 		// A window viewing the tab (a phone) asks too; the owner stays the one its tools answer through.
@@ -517,6 +581,8 @@ export class AgentControlRuntime {
 	 * them its work strip said nothing while the children worked.
 	 */
 	#sendReview(callerTabId: string, review: AgentReviewResult): void {
+		// No board shows an outside caller's sessions: it lists them with ompdesk_sessions.
+		if (this.#outside.has(callerTabId)) return;
 		this.#reviewSent.set(callerTabId, JSON.stringify(review));
 		this.#noteListed(callerTabId, review.items);
 		const showing = this.#deps.pool.windowsShowingTab(callerTabId);
@@ -546,6 +612,7 @@ export class AgentControlRuntime {
 
 	/** The parent's review list changed (a child started, finished or closed): push it after a short settle. */
 	#pushReview(callerTabId: string): void {
+		if (this.#outside.has(callerTabId)) return;
 		clearTimeout(this.#reviewTimers.get(callerTabId));
 		const timer = setTimeout(() => {
 			this.#reviewTimers.delete(callerTabId);
@@ -571,6 +638,27 @@ export class AgentControlRuntime {
 
 	#hiddenPaths(): Set<string> {
 		return agentHiddenPaths(this.#deps.prefs.get(AGENT_HIDDEN_PREFS_KEY));
+	}
+
+	/** Every open tab of the app, `own`'s first (the caller's window: `here`), then every other window's. */
+	#allTabs(own: ClientWindow | undefined): ControlTab[] {
+		const { pool } = this.#deps;
+		const hidden = this.#hiddenPaths();
+		const seen = new Set<string>();
+		const tabs: ControlTab[] = [];
+		for (const win of own ? [own, ...pool.tabWindows().filter(other => other !== own)] : pool.tabWindows()) {
+			if (win.isDestroyed()) continue;
+			const open = pool.openRequests(win);
+			for (const info of pool.tabsForWindow(win)) {
+				if (seen.has(info.tabId)) continue;
+				seen.add(info.tabId);
+				const asks = open
+					.filter(entry => entry.tabId === info.tabId && !entry.signIn && askOf(entry.request))
+					.map(entry => ({ id: entry.request.id, request: entry.request }));
+				tabs.push(this.#controlTab(info, asks, hidden, win === own));
+			}
+		}
+		return tabs;
 	}
 
 	#controlTab(info: IpcTabInfo, asks: ControlAsk[], hidden: Set<string>, here: boolean): ControlTab {
@@ -614,7 +702,7 @@ export class AgentControlRuntime {
 	}
 
 	/** A paired host's folder as typed, or this computer's resolved against the caller's. */
-	async #folder(caller: SidecarLike, folder: string | undefined): Promise<string> {
+	async #folder(caller: { cwd: string; device?: string }, folder: string | undefined): Promise<string> {
 		if (!folder) return caller.cwd;
 		if (caller.device) return /^([a-zA-Z]:[\\/]|\/)/.test(folder) ? folder : posix.join(caller.cwd, folder);
 		const target = isAbsolute(folder) ? folder : resolve(caller.cwd, folder);
@@ -629,7 +717,9 @@ export class AgentControlRuntime {
 	): Promise<{ tabId: string; worktree?: IpcTabWorktree; prepared?: string }> {
 		const win = this.#win(callerTabId);
 		if (!win) throw new Error("This session's window is gone.");
-		const caller = this.#sidecar(callerTabId);
+		// A caller outside OMPdesk runs on this computer and has no tab: its folder is where it was started.
+		const outside = this.#outside.get(callerTabId);
+		const caller = outside ? { cwd: outside.cwd, device: undefined } : this.#sidecar(callerTabId);
 		// `device` absent: the caller's own machine; null: this computer; an id: that paired host.
 		const device = request.device === undefined ? caller.device : (request.device ?? undefined);
 		const elsewhere = device !== caller.device;
@@ -660,13 +750,14 @@ export class AgentControlRuntime {
 			const input = { name, baseCwd: cwd, baseRef: base === "default" ? "default" : "HEAD", branchPrefix } as const;
 			// The worktree is made on the computer the new session runs on: the caller's own through its tab,
 			// another one without a tab of the caller there.
-			const made = elsewhere
-				? await this.#worktreeOn(device, input).catch((error: unknown) => {
-						throw new Error(
-							`Creating the worktree failed: ${error instanceof Error ? error.message : String(error)}`,
-						);
-					})
-				: await this.#worktreeThroughCaller(win, caller, callerTabId, input);
+			const made =
+				elsewhere || outside
+					? await this.#worktreeOn(device, input).catch((error: unknown) => {
+							throw new Error(
+								`Creating the worktree failed: ${error instanceof Error ? error.message : String(error)}`,
+							);
+						})
+					: await this.#worktreeThroughCaller(win, this.#sidecar(callerTabId), callerTabId, input);
 			worktree = { name, branch: made.branch, baseCwd: made.baseCwd, path: made.path };
 			prepared = describePreparation(made);
 		}
@@ -693,8 +784,9 @@ export class AgentControlRuntime {
 		}
 		this.#windows.set(result.tabId, win);
 		this.#parents.set(result.tabId, { callerTabId, ...(request.tag ? { tag: request.tag } : {}) });
-		// An Autopilot child already sits under its run (`tag`); a session the tool opens nests under its opener.
-		if (!request.tag) this.#deps.pool.setTabOpener(result.tabId, callerTabId);
+		// An Autopilot child already sits under its run (`tag`); a session the tool opens nests under its opener. An
+		// outside caller has no tab to nest under: its sessions sit in the sidebar like the person's own.
+		if (!request.tag && !outside) this.#deps.pool.setTabOpener(result.tabId, callerTabId);
 		return { tabId: result.tabId, ...(worktree ? { worktree } : {}), ...(prepared ? { prepared } : {}) };
 	}
 
@@ -809,7 +901,7 @@ export class AgentControlRuntime {
 				this.#windows.set(tabId, win);
 				this.#parents.set(tabId, { callerTabId });
 				this.#autopilotRuns.add(tabId);
-				deps.pool.setTabOpener(tabId, callerTabId);
+				if (!this.#outside.has(callerTabId)) deps.pool.setTabOpener(tabId, callerTabId);
 				return { ...started, tabId };
 			},
 			status: tabId => this.#autopilotCommand(winFor(tabId), tabId, { type: "get_autopilot" }),
@@ -835,6 +927,11 @@ export class AgentControlRuntime {
 			// after a relaunch) the tab now holding the opener's session file.
 			parentOf: tabId => this.#openerOf(tabId),
 			mail: async (tabId, content, details, delivery) => {
+				// A report to a caller outside OMPdesk goes to its event stream (the control socket), not into a session.
+				if (this.#outside.has(tabId)) {
+					for (const listener of this.#outsideMail) listener(tabId, content);
+					return;
+				}
 				const answer = await this.#sendMail(tabId, content, details, delivery);
 				const id = details.id;
 				if (typeof id !== "string" || (answer?.duplicate && answer.journaled)) return;
@@ -857,24 +954,27 @@ export class AgentControlRuntime {
 			tabs: callerTabId => {
 				const own = this.#win(callerTabId);
 				if (!own || own.isDestroyed()) return null;
-				if (!deps.pool.tabsForWindow(own).some(info => info.tabId === callerTabId)) return null;
-				const hidden = this.#hiddenPaths();
-				const seen = new Set<string>();
-				const tabs: ControlTab[] = [];
-				// The caller's window first (its order is the list's), then every other window of this app.
-				for (const win of [own, ...deps.pool.tabWindows().filter(other => other !== own)]) {
-					if (win.isDestroyed()) continue;
-					const open = deps.pool.openRequests(win);
-					for (const info of deps.pool.tabsForWindow(win)) {
-						if (seen.has(info.tabId)) continue;
-						seen.add(info.tabId);
-						const asks = open
-							.filter(entry => entry.tabId === info.tabId && !entry.signIn && askOf(entry.request))
-							.map(entry => ({ id: entry.request.id, request: entry.request }));
-						tabs.push(this.#controlTab(info, asks, hidden, win === own));
-					}
-				}
-				return tabs;
+				if (
+					!this.#outside.has(callerTabId) &&
+					!deps.pool.tabsForWindow(own).some(info => info.tabId === callerTabId)
+				)
+					return null;
+				return this.#allTabs(own);
+			},
+			outsideCaller: callerTabId => {
+				const caller = this.#outside.get(callerTabId);
+				return caller
+					? {
+							tabId: caller.id,
+							title: caller.title,
+							cwd: caller.cwd,
+							status: "ready",
+							busy: false,
+							asks: [],
+							hidden: false,
+							here: true,
+						}
+					: undefined;
 			},
 			devices: () =>
 				(deps.remote?.hosts() ?? []).map(host => ({ id: host.deviceId, name: host.name, state: host.state })),
@@ -1080,6 +1180,14 @@ export class AgentControlRuntime {
 	}
 
 	async #confirm(callerTabId: string, title: string, message: string): Promise<boolean> {
+		// An outside caller has no session to raise the card in: the same card shows over its window (no answer = no).
+		if (this.#outside.has(callerTabId)) {
+			const win = this.#win(callerTabId);
+			const confirm = this.#deps.confirmOutside;
+			return win && !win.isDestroyed() && confirm
+				? confirm(win, `${AGENT_CARD_PREFIX}${title}`, message).catch(() => false)
+				: false;
+		}
 		const response = await this.#hostCommand(callerTabId, {
 			type: "agent_control_confirm",
 			title: `${AGENT_CARD_PREFIX}${title}`,
@@ -1119,6 +1227,8 @@ export class AgentControlRuntime {
 			sidebarView: () => sidebarViewOf(deps.prefs.get(AGENT_HIDDEN_PREFS_KEY)),
 			openPrivacyPane: pane => app.openPrivacyPane(pane),
 			callerTitle: tabId => {
+				const outside = this.#outside.get(tabId);
+				if (outside) return outside.title;
 				const win = this.#win(tabId);
 				const title = win ? deps.pool.tabsForWindow(win).find(tab => tab.tabId === tabId)?.title : undefined;
 				return title || "this session";
@@ -1159,6 +1269,12 @@ export class AgentControlRuntime {
 	}
 
 	async #hostCommand(tabId: string, command: RpcCommand): Promise<RpcResponse> {
+		if (this.#outside.has(tabId))
+			return {
+				type: "response",
+				success: false,
+				error: "This goes through the calling session's omp, and a caller outside OMPdesk has none. Ask an agent in an OMPdesk session, or the person, to do it.",
+			} as RpcResponse;
 		const win = this.#win(tabId);
 		const sidecar = this.#deps.pool.sidecarOf(tabId);
 		if (!win || !sidecar) return { type: "response", success: false, error: "That session is gone." } as RpcResponse;
