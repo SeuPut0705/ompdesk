@@ -1,0 +1,608 @@
+{
+  "spec": "/Users/seuput/.omp/wt/gui-checkout-claims-540bd7d/formal/checkout-claims/tla/CheckoutClaims.tla",
+  "name": "MC.cfg",
+  "config": "MC.cfg",
+  "ok": false,
+  "expect": "pass",
+  "durationMs": 23387,
+  "outcome": "invariant",
+  "property": "NoEarlyRelease",
+  "stats": {
+    "generated": 5627527,
+    "distinct": 1321790,
+    "queue": 614040,
+    "depth": 13
+  },
+  "trace": [
+    {
+      "step": 1,
+      "action": "Init",
+      "changed": {
+        "phase": "\"idle\"",
+        "bview": "FALSE",
+        "aWrote": "FALSE",
+        "seq": "0",
+        "dirty": "FALSE",
+        "shown": "{}",
+        "listing": "\"fail\"",
+        "nextId": "1",
+        "view": "FALSE",
+        "proposal": "[st |-> 0, inst |-> 0]",
+        "inflight": "{}",
+        "world": "0",
+        "released": "{}",
+        "committed": "{}",
+        "bkey": "<<0, 0>>",
+        "restarts": "0",
+        "known": "[st |-> 0, inst |-> 0, held |-> FALSE, pending |-> FALSE]",
+        "stamp": "0",
+        "inst": "1",
+        "calls": "{}",
+        "cache": "[st |-> 0, inst |-> 0, held |-> FALSE, pending |-> FALSE]",
+        "viewKey": "<<0, 0>>"
+      }
+    },
+    {
+      "step": 2,
+      "action": "Start(m,\"file\")",
+      "code": "resources/gui-bridge/modes/checkout-claims.ts",
+      "changed": {
+        "seq": "0 -> 1",
+        "nextId": "1 -> 2",
+        "stamp": "0 -> 1",
+        "calls": "{} -> { [ id |-> 1, owner |-> m, kind |-> \"file\", st |-> 1, earlier |-> 0, landed |-> FALSE ] }"
+      }
+    },
+    {
+      "step": 3,
+      "action": "Next",
+      "code": "resources/gui-bridge/modes/checkout-claims.ts, resources/gui-bridge/modes/checkout-claims.ts, resources/gui-bridge/modes/checkout-claims.ts, resources/gui-bridge/modes/checkout-claims.ts, resources/gui-bridge/modes/checkout-peers.ts, src/main/checkout-peers.ts#CheckoutPeerCoordinator.#statusOf:, src/main/checkout-peers.ts#CheckoutPeerCoordinator.#pass:, src/main/checkout-peers.ts#CheckoutPeerCoordinator.#pass:, src/main/checkout-peers.ts#CheckoutPeerCoordinator.#retire:, src/main/checkout-peers.ts#CheckoutPeerCoordinator.#send:",
+      "changed": {
+        "seq": "1 -> 2",
+        "stamp": "1 -> 2",
+        "calls": "{ [ id |-> 1, owner |-> m, kind |-> \"file\", st |-> 1, earlier |-> 0, landed |-> FALSE ] } -> {}"
+      }
+    },
+    {
+      "step": 4,
+      "action": "PassStatus",
+      "code": "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#statusOf:",
+      "changed": {
+        "phase": "\"idle\" -> \"git\"",
+        "known": "[st |-> 0, inst |-> 0, held |-> FALSE, pending |-> FALSE] -> [st |-> 2, inst |-> 1, held |-> TRUE, pending |-> FALSE]",
+        "cache": "[st |-> 0, inst |-> 0, held |-> FALSE, pending |-> FALSE] -> [st |-> 2, inst |-> 1, held |-> TRUE, pending |-> FALSE]"
+      }
+    },
+    {
+      "step": 5,
+      "action": "Start(m,\"file\")",
+      "code": "resources/gui-bridge/modes/checkout-claims.ts",
+      "changed": {
+        "seq": "2 -> 3",
+        "nextId": "2 -> 3",
+        "stamp": "2 -> 3",
+        "calls": "{} -> { [ id |-> 2, owner |-> m, kind |-> \"file\", st |-> 3, earlier |-> 2, landed |-> FALSE ] }"
+      }
+    },
+    {
+      "step": 6,
+      "action": "PassGit",
+      "code": "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#pass:",
+      "changed": {
+        "phase": "\"git\" -> \"judge\""
+      }
+    },
+    {
+      "step": 7,
+      "action": "PassJudge",
+      "code": "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#pass:",
+      "changed": {
+        "phase": "\"judge\" -> \"send\"",
+        "view": "FALSE -> TRUE",
+        "viewKey": "<<0, 0>> -> <<1, 2>>"
+      }
+    },
+    {
+      "step": 8,
+      "action": "PassSend",
+      "code": "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#send:",
+      "changed": {
+        "phase": "\"send\" -> \"idle\"",
+        "bview": "FALSE -> TRUE",
+        "shown": "{} -> {2}",
+        "bkey": "<<0, 0>> -> <<1, 2>>"
+      }
+    },
+    {
+      "step": 9,
+      "action": "PassStatus",
+      "code": "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#statusOf:",
+      "changed": {
+        "phase": "\"idle\" -> \"git\""
+      }
+    },
+    {
+      "step": 10,
+      "action": "PassGit",
+      "code": "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#pass:",
+      "changed": {
+        "phase": "\"git\" -> \"judge\"",
+        "listing": "\"fail\" -> \"clean\""
+      }
+    },
+    {
+      "step": 11,
+      "action": "PassJudge",
+      "code": "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#pass:",
+      "changed": {
+        "phase": "\"judge\" -> \"retire\"",
+        "view": "TRUE -> FALSE",
+        "proposal": "[st |-> 0, inst |-> 0] -> [st |-> 2, inst |-> 1]",
+        "inflight": "{} -> {[st |-> 2, inst |-> 1]}",
+        "released": "{} -> {<<1, 2>>}",
+        "committed": "{} -> {2}",
+        "viewKey": "<<1, 2>> -> <<0, 0>>"
+      }
+    },
+    {
+      "step": 12,
+      "action": "PassRetired",
+      "code": "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#retire:",
+      "changed": {
+        "phase": "\"retire\" -> \"send\"",
+        "cache": "[st |-> 2, inst |-> 1, held |-> TRUE, pending |-> FALSE] -> [st |-> 0, inst |-> 1, held |-> FALSE, pending |-> FALSE]"
+      }
+    },
+    {
+      "step": 13,
+      "action": "PassSend",
+      "code": "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#send:",
+      "changed": {
+        "phase": "\"send\" -> \"idle\"",
+        "bview": "TRUE -> FALSE",
+        "bkey": "<<1, 2>> -> <<0, 0>>"
+      },
+      "violation": true
+    }
+  ],
+  "rows": [
+    {
+      "n": 1,
+      "step": "Init",
+      "code": [],
+      "changed": {
+        "phase": {
+          "to": "\"idle\""
+        },
+        "bview": {
+          "to": "FALSE"
+        },
+        "aWrote": {
+          "to": "FALSE"
+        },
+        "seq": {
+          "to": "0"
+        },
+        "dirty": {
+          "to": "FALSE"
+        },
+        "shown": {
+          "to": "{}"
+        },
+        "listing": {
+          "to": "\"fail\""
+        },
+        "nextId": {
+          "to": "1"
+        },
+        "view": {
+          "to": "FALSE"
+        },
+        "proposal": {
+          "to": "[st |-> 0, inst |-> 0]"
+        },
+        "inflight": {
+          "to": "{}"
+        },
+        "world": {
+          "to": "0"
+        },
+        "released": {
+          "to": "{}"
+        },
+        "committed": {
+          "to": "{}"
+        },
+        "bkey": {
+          "to": "<<0, 0>>"
+        },
+        "restarts": {
+          "to": "0"
+        },
+        "known": {
+          "to": "[st |-> 0, inst |-> 0, held |-> FALSE, pending |-> FALSE]"
+        },
+        "stamp": {
+          "to": "0"
+        },
+        "inst": {
+          "to": "1"
+        },
+        "calls": {
+          "to": "{}"
+        },
+        "cache": {
+          "to": "[st |-> 0, inst |-> 0, held |-> FALSE, pending |-> FALSE]"
+        },
+        "viewKey": {
+          "to": "<<0, 0>>"
+        }
+      }
+    },
+    {
+      "n": 2,
+      "step": "Start(m,\"file\")",
+      "action": "Start",
+      "location": {
+        "module": "CheckoutClaims",
+        "line": 79,
+        "col": 5,
+        "endLine": 84,
+        "endCol": 48
+      },
+      "code": [
+        "resources/gui-bridge/modes/checkout-claims.ts"
+      ],
+      "changed": {
+        "seq": {
+          "from": "0",
+          "to": "1"
+        },
+        "nextId": {
+          "from": "1",
+          "to": "2"
+        },
+        "stamp": {
+          "from": "0",
+          "to": "1"
+        },
+        "calls": {
+          "from": "{}",
+          "to": "{ [ id |-> 1, owner |-> m, kind |-> \"file\", st |-> 1, earlier |-> 0, landed |-> FALSE ] }"
+        }
+      }
+    },
+    {
+      "n": 3,
+      "step": "Next",
+      "action": "Next",
+      "location": {
+        "module": "CheckoutClaims",
+        "line": 235,
+        "col": 8,
+        "endLine": 235,
+        "endCol": 50
+      },
+      "code": [
+        "resources/gui-bridge/modes/checkout-claims.ts",
+        "resources/gui-bridge/modes/checkout-claims.ts",
+        "resources/gui-bridge/modes/checkout-claims.ts",
+        "resources/gui-bridge/modes/checkout-claims.ts",
+        "resources/gui-bridge/modes/checkout-peers.ts",
+        "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#statusOf:",
+        "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#pass:",
+        "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#pass:",
+        "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#retire:",
+        "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#send:"
+      ],
+      "changed": {
+        "seq": {
+          "from": "1",
+          "to": "2"
+        },
+        "stamp": {
+          "from": "1",
+          "to": "2"
+        },
+        "calls": {
+          "from": "{ [ id |-> 1, owner |-> m, kind |-> \"file\", st |-> 1, earlier |-> 0, landed |-> FALSE ] }",
+          "to": "{}"
+        }
+      }
+    },
+    {
+      "n": 4,
+      "step": "PassStatus",
+      "action": "PassStatus",
+      "location": {
+        "module": "CheckoutClaims",
+        "line": 166,
+        "col": 5,
+        "endLine": 172,
+        "endCol": 104
+      },
+      "code": [
+        "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#statusOf:"
+      ],
+      "changed": {
+        "phase": {
+          "from": "\"idle\"",
+          "to": "\"git\""
+        },
+        "known": {
+          "from": "[st |-> 0, inst |-> 0, held |-> FALSE, pending |-> FALSE]",
+          "to": "[st |-> 2, inst |-> 1, held |-> TRUE, pending |-> FALSE]"
+        },
+        "cache": {
+          "from": "[st |-> 0, inst |-> 0, held |-> FALSE, pending |-> FALSE]",
+          "to": "[st |-> 2, inst |-> 1, held |-> TRUE, pending |-> FALSE]"
+        }
+      }
+    },
+    {
+      "n": 5,
+      "step": "Start(m,\"file\")",
+      "action": "Start",
+      "location": {
+        "module": "CheckoutClaims",
+        "line": 79,
+        "col": 5,
+        "endLine": 84,
+        "endCol": 48
+      },
+      "code": [
+        "resources/gui-bridge/modes/checkout-claims.ts"
+      ],
+      "changed": {
+        "seq": {
+          "from": "2",
+          "to": "3"
+        },
+        "nextId": {
+          "from": "2",
+          "to": "3"
+        },
+        "stamp": {
+          "from": "2",
+          "to": "3"
+        },
+        "calls": {
+          "from": "{}",
+          "to": "{ [ id |-> 2, owner |-> m, kind |-> \"file\", st |-> 3, earlier |-> 2, landed |-> FALSE ] }"
+        }
+      }
+    },
+    {
+      "n": 6,
+      "step": "PassGit",
+      "action": "PassGit",
+      "location": {
+        "module": "CheckoutClaims",
+        "line": 176,
+        "col": 5,
+        "endLine": 181,
+        "endCol": 104
+      },
+      "code": [
+        "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#pass:"
+      ],
+      "changed": {
+        "phase": {
+          "from": "\"git\"",
+          "to": "\"judge\""
+        }
+      }
+    },
+    {
+      "n": 7,
+      "step": "PassJudge",
+      "action": "PassJudge",
+      "location": {
+        "module": "CheckoutClaims",
+        "line": 194,
+        "col": 5,
+        "endLine": 210,
+        "endCol": 39
+      },
+      "code": [
+        "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#pass:"
+      ],
+      "changed": {
+        "phase": {
+          "from": "\"judge\"",
+          "to": "\"send\""
+        },
+        "view": {
+          "from": "FALSE",
+          "to": "TRUE"
+        },
+        "viewKey": {
+          "from": "<<0, 0>>",
+          "to": "<<1, 2>>"
+        }
+      }
+    },
+    {
+      "n": 8,
+      "step": "PassSend",
+      "action": "PassSend",
+      "location": {
+        "module": "CheckoutClaims",
+        "line": 224,
+        "col": 5,
+        "endLine": 230,
+        "endCol": 85
+      },
+      "code": [
+        "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#send:"
+      ],
+      "changed": {
+        "phase": {
+          "from": "\"send\"",
+          "to": "\"idle\""
+        },
+        "bview": {
+          "from": "FALSE",
+          "to": "TRUE"
+        },
+        "shown": {
+          "from": "{}",
+          "to": "{2}"
+        },
+        "bkey": {
+          "from": "<<0, 0>>",
+          "to": "<<1, 2>>"
+        }
+      }
+    },
+    {
+      "n": 9,
+      "step": "PassStatus",
+      "action": "PassStatus",
+      "location": {
+        "module": "CheckoutClaims",
+        "line": 166,
+        "col": 5,
+        "endLine": 172,
+        "endCol": 104
+      },
+      "code": [
+        "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#statusOf:"
+      ],
+      "changed": {
+        "phase": {
+          "from": "\"idle\"",
+          "to": "\"git\""
+        }
+      }
+    },
+    {
+      "n": 10,
+      "step": "PassGit",
+      "action": "PassGit",
+      "location": {
+        "module": "CheckoutClaims",
+        "line": 176,
+        "col": 5,
+        "endLine": 181,
+        "endCol": 104
+      },
+      "code": [
+        "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#pass:"
+      ],
+      "changed": {
+        "phase": {
+          "from": "\"git\"",
+          "to": "\"judge\""
+        },
+        "listing": {
+          "from": "\"fail\"",
+          "to": "\"clean\""
+        }
+      }
+    },
+    {
+      "n": 11,
+      "step": "PassJudge",
+      "action": "PassJudge",
+      "location": {
+        "module": "CheckoutClaims",
+        "line": 194,
+        "col": 5,
+        "endLine": 210,
+        "endCol": 39
+      },
+      "code": [
+        "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#pass:"
+      ],
+      "changed": {
+        "phase": {
+          "from": "\"judge\"",
+          "to": "\"retire\""
+        },
+        "view": {
+          "from": "TRUE",
+          "to": "FALSE"
+        },
+        "proposal": {
+          "from": "[st |-> 0, inst |-> 0]",
+          "to": "[st |-> 2, inst |-> 1]"
+        },
+        "inflight": {
+          "from": "{}",
+          "to": "{[st |-> 2, inst |-> 1]}"
+        },
+        "released": {
+          "from": "{}",
+          "to": "{<<1, 2>>}"
+        },
+        "committed": {
+          "from": "{}",
+          "to": "{2}"
+        },
+        "viewKey": {
+          "from": "<<1, 2>>",
+          "to": "<<0, 0>>"
+        }
+      }
+    },
+    {
+      "n": 12,
+      "step": "PassRetired",
+      "action": "PassRetired",
+      "location": {
+        "module": "CheckoutClaims",
+        "line": 214,
+        "col": 5,
+        "endLine": 220,
+        "endCol": 104
+      },
+      "code": [
+        "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#retire:"
+      ],
+      "changed": {
+        "phase": {
+          "from": "\"retire\"",
+          "to": "\"send\""
+        },
+        "cache": {
+          "from": "[st |-> 2, inst |-> 1, held |-> TRUE, pending |-> FALSE]",
+          "to": "[st |-> 0, inst |-> 1, held |-> FALSE, pending |-> FALSE]"
+        }
+      }
+    },
+    {
+      "n": 13,
+      "step": "PassSend",
+      "action": "PassSend",
+      "location": {
+        "module": "CheckoutClaims",
+        "line": 224,
+        "col": 5,
+        "endLine": 230,
+        "endCol": 85
+      },
+      "code": [
+        "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#send:"
+      ],
+      "changed": {
+        "phase": {
+          "from": "\"send\"",
+          "to": "\"idle\""
+        },
+        "bview": {
+          "from": "TRUE",
+          "to": "FALSE"
+        },
+        "bkey": {
+          "from": "<<1, 2>>",
+          "to": "<<0, 0>>"
+        }
+      },
+      "violation": true
+    }
+  ],
+  "tlcVersion": "2026.10.28.014557",
+  "message": "Invariant NoEarlyRelease is violated.",
+  "warnings": []
+}

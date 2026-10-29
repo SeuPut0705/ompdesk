@@ -1,0 +1,99 @@
+{
+	"checker": {
+		"kind": "tlc",
+		"config": "MC.cfg",
+		"workers": 2,
+		"timeoutSec": 600
+	},
+	"properties": [
+		"TypeOK",
+		"NoEarlyRelease",
+		"NoLostClaim",
+		"NoStaleReturn",
+		"CommittedIsNobodys",
+		"RunningIsPending"
+	],
+	"waive": {
+		"TypeOK": "Shape check only: no behaviour change breaks it without also breaking a property above it."
+	},
+	"mutations": [
+		{
+			"name": "f1-stale-answer-releases",
+			"why": "F1 as it was: main judged the remembered answer of a bridge that did not answer in time, so a write the session started since was released to the peer while it ran.",
+			"search": "    ELSE IF ~k.fresh THEN \"keep\"\n",
+			"replace": "",
+			"breaks": "NoEarlyRelease",
+			"isolate": true
+		},
+		{
+			"name": "f2-revert-to-committed-claim",
+			"why": "F2 as it was: a retire that found the file being written left the running call's taken-over claim alone, so the call failing gave the committed claim back.",
+			"search": "THEN {[c EXCEPT !.earlier = IF c.earlier = m.st THEN 0 ELSE c.earlier] : c \\in calls}",
+			"replace": "THEN calls",
+			"breaks": "CommittedIsNobodys",
+			"isolate": true
+		},
+		{
+			"name": "f3-committed-key-without-load",
+			"why": "F3 as it was: main's memory of committed claims ignored the omp load, so a restarted omp's restored claim (stamps numbered from 1 again) was retired for an earlier load's commit.",
+			"search": "ELSE IF <<k.inst, k.st>> \\in before THEN \"committed\"",
+			"replace": "ELSE IF \\E e \\in before : e[2] = k.st THEN \"committed\"",
+			"breaks": "NoLostClaim",
+			"isolate": true
+		},
+		{
+			"name": "release-a-pending-claim",
+			"why": "323c8ed's class: main judges a claim git shows clean while a call is still writing it.",
+			"search": "    IF k.pending THEN \"keep\"\n    ELSE IF ~k.held",
+			"replace": "    IF ~k.held",
+			"breaks": "NoEarlyRelease",
+			"isolate": true
+		},
+		{
+			"name": "forget-committed-when-git-dirty",
+			"why": "12ef99a's class: a claim main judged committed is judged by git alone on the next pass, so a peer's later change of the file reads as this session's while the retire has not landed.",
+			"search": "    ELSE IF <<k.inst, k.st>> \\in before THEN \"committed\"\n",
+			"replace": "",
+			"breaks": "NoStaleReturn",
+			"isolate": true
+		},
+		{
+			"name": "retire-ignores-stamp",
+			"why": "ca16de6's class: the bridge drops a claim main saw committed although the session changed the file again since.",
+			"search": "IF m.inst = inst /\\ stamp = m.st /\\ ~Writing",
+			"replace": "IF m.inst = inst /\\ ~Writing",
+			"breaks": "NoLostClaim",
+			"isolate": true
+		},
+		{
+			"name": "retire-ignores-load",
+			"why": "A retire computed from an earlier omp load's stamps applies to the restored claims, whose stamps start at 1 again.",
+			"search": "IF m.inst = inst /\\ stamp = m.st /\\ ~Writing",
+			"replace": "IF stamp = m.st /\\ ~Writing",
+			"breaks": "NoLostClaim",
+			"isolate": true
+		},
+		{
+			"name": "run-end-settles-every-agent",
+			"why": "089d329 as it was: a subagent's run end settled the main agent's running calls too.",
+			"search": "LET mine == {c \\in calls : c.owner = o}",
+			"replace": "LET mine == calls",
+			"breaks": "RunningIsPending",
+			"isolate": true
+		},
+		{
+			"name": "confirm-keeps-stamp",
+			"why": "A call that reports back no longer moves the stamp on, so a retire main decided from a read taken while it ran drops the landed write.",
+			"search": "Confirmed(s, q) == IF s # 0 THEN <<q + 1, q + 1>> ELSE <<s, q>>",
+			"replace": "Confirmed(s, q) == <<s, q>>",
+			"equivalent": "Main never proposes a retire for a claim its own read of this pass showed pending, and a call that starts after that read takes a newer stamp, so no retire can carry the stamp a running call holds; the move is a second line for a retire whose read predates the pending list."
+		},
+		{
+			"name": "retire-while-writing",
+			"why": "The bridge drops a claim a running call is writing.",
+			"search": "IF m.inst = inst /\\ stamp = m.st /\\ ~Writing",
+			"replace": "IF m.inst = inst /\\ stamp = m.st",
+			"equivalent": "Every running call holds the newest stamp of F, taken at its hook; a retire carries a stamp main read with no call pending, so a running call's stamp never equals it. The ledger's own check is a second line behind main's pending rule."
+		}
+	]
+}

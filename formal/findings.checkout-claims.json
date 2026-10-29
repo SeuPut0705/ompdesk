@@ -1,0 +1,317 @@
+{
+	"concern": "checkout-claims",
+	"workflow": "W1",
+	"generated_at": "2026-10-29T05:30:00.000Z",
+	"repo_commit": "ec26c956a",
+	"summary": "3 findings, all fixed and each reproduced first as a failing test on the unchanged code. F1: main released a claim on the remembered answer of a busy bridge, so a peer was told it may take a file the session had started writing since. F2: a retire that found the file being written left the running call's taken-over claim in place, so the call failing gave the committed claim back. F3: main remembered committed claims without the omp load, so a restarted omp's restored claim (stamps from 1 again) was retired for an earlier load's commit while git failed, and the session's uncommitted write lost its claim. With the fixes the five frozen properties hold for one file, two agents, one restart, 2 calls and 2 world events (2.0M states, depth 46) and for 3 calls and 3 world events (103M states, depth 60); 8 of 8 mutations are detected (each 27 Oct regression among them), 2 declared equivalent.",
+	"scope": {
+		"modeled": [
+			"ClaimBook (begin, end, agentEnded, retire/retireFrom, restore/snapshot, confirm, revert)",
+			"the journal across an omp restart",
+			"main's pass: #statusOf, git, judgeClaim, #committed, #retire, #send"
+		],
+		"abstracted": [
+			"one file, a main agent and one subagent, one peer; one call per agent at a time; a background job is a long call",
+			"request timeouts as nondeterministic answers; a retire answered, late or lost with a restart"
+		],
+		"out_of_scope": [
+			"several files, folders, renames, submodules, NFD names",
+			"repo peers in other worktrees, hidden sessions, the guard's shell and git rules",
+			"main's own restart (it ends every omp)"
+		]
+	},
+	"properties": [
+		{
+			"name": "NoEarlyRelease",
+			"kind": "invariant",
+			"meaning": "Once B was told F is A's while A's call wrote it, B keeps being told so until that call reports back.",
+			"source": "the unit's brief; control-tools.md 'A write still running is never retired'; 323c8ed",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC 1.8.0",
+			"bounds": "Owners={m,s}, MaxCalls=2, MaxSeq=5, MaxRestarts=1, MaxWorld=2 (deep: MaxCalls=3, MaxSeq=7, MaxWorld=3)"
+		},
+		{
+			"name": "NoLostClaim",
+			"kind": "invariant",
+			"meaning": "A write of A's that nobody committed is A's claim.",
+			"source": "control-tools.md 'Claims survive the omp'; ca16de6",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC 1.8.0",
+			"bounds": "Owners={m,s}, MaxCalls=2, MaxSeq=5, MaxRestarts=1, MaxWorld=2 (deep: MaxCalls=3, MaxSeq=7, MaxWorld=3)"
+		},
+		{
+			"name": "NoStaleReturn",
+			"kind": "invariant",
+			"meaning": "No verdict of main's rests on a claim it judged committed.",
+			"source": "the unit's brief; control-tools.md 'A committed file is no longer a claim, for good'; 12ef99a",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC 1.8.0",
+			"bounds": "Owners={m,s}, MaxCalls=2, MaxSeq=5, MaxRestarts=1, MaxWorld=2 (deep: MaxCalls=3, MaxSeq=7, MaxWorld=3)"
+		},
+		{
+			"name": "CommittedIsNobodys",
+			"kind": "invariant",
+			"meaning": "A's book holds no claim main judged committed once no call writes F and the retire was handled.",
+			"source": "as NoStaleReturn",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC 1.8.0",
+			"bounds": "Owners={m,s}, MaxCalls=2, MaxSeq=5, MaxRestarts=1, MaxWorld=2 (deep: MaxCalls=3, MaxSeq=7, MaxWorld=3)"
+		},
+		{
+			"name": "RunningIsPending",
+			"kind": "invariant",
+			"meaning": "Every call still running is pending in A's book, whichever agent's run ended.",
+			"source": "the unit's brief; 089d329",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC 1.8.0",
+			"bounds": "Owners={m,s}, MaxCalls=2, MaxSeq=5, MaxRestarts=1, MaxWorld=2 (deep: MaxCalls=3, MaxSeq=7, MaxWorld=3)"
+		}
+	],
+	"findings": [
+		{
+			"id": "F1",
+			"title": "A busy bridge's remembered answer released a file the session had started writing",
+			"severity": "high",
+			"status": "fixed",
+			"property": "NoEarlyRelease",
+			"story": "Main reads A's claims (F, edited earlier). While main waits for git, A starts `sleep 8; echo x > f`: its hook claims F with a new stamp. Main tells B that F is A's. The person commits the earlier edit. On the next pass A's bridge is busy and main judges its remembered answer, which shows F not pending; git lists F clean, so main tells B that F is nobody's while A's command is still about to write it, and B's guard lets B drop or overwrite F.",
+			"reproduction": {
+				"test": "src/main/checkout-peers.test.ts 'never releases a claim on an answer older than a write its session started since'",
+				"result_before_fix": "fails",
+				"result_after_fix": "passes"
+			},
+			"fix": {
+				"summary": "judgeClaim releases a claim only on the bridge's own answer of this pass (`fresh`); a remembered answer only keeps claims.",
+				"commit": "ec26c956a",
+				"model_recheck": "passes",
+				"mutation_check": "fails-as-expected"
+			},
+			"evidence": [
+				"formal/checkout-claims/evidence/F1-stale-answer-release.json"
+			],
+			"trace": [
+				{
+					"step": 1,
+					"action": "Init",
+					"changed": {
+						"phase": "\"idle\"",
+						"bview": "FALSE",
+						"aWrote": "FALSE",
+						"seq": "0",
+						"dirty": "FALSE",
+						"shown": "{}",
+						"listing": "\"fail\"",
+						"nextId": "1",
+						"view": "FALSE",
+						"proposal": "[st |-> 0, inst |-> 0]",
+						"inflight": "{}",
+						"world": "0",
+						"released": "{}",
+						"committed": "{}",
+						"bkey": "<<0, 0>>",
+						"restarts": "0",
+						"known": "[st |-> 0, inst |-> 0, held |-> FALSE, pending |-> FALSE]",
+						"stamp": "0",
+						"inst": "1",
+						"calls": "{}",
+						"cache": "[st |-> 0, inst |-> 0, held |-> FALSE, pending |-> FALSE]",
+						"viewKey": "<<0, 0>>"
+					}
+				},
+				{
+					"step": 2,
+					"action": "Start(m,\"file\")",
+					"code": "resources/gui-bridge/modes/checkout-claims.ts",
+					"changed": {
+						"seq": "0 -> 1",
+						"nextId": "1 -> 2",
+						"stamp": "0 -> 1",
+						"calls": "{} -> { [ id |-> 1, owner |-> m, kind |-> \"file\", st |-> 1, earlier |-> 0, landed |-> FALSE ] }"
+					}
+				},
+				{
+					"step": 3,
+					"action": "Next",
+					"code": "resources/gui-bridge/modes/checkout-claims.ts, resources/gui-bridge/modes/checkout-claims.ts, resources/gui-bridge/modes/checkout-claims.ts, resources/gui-bridge/modes/checkout-claims.ts, resources/gui-bridge/modes/checkout-peers.ts, src/main/checkout-peers.ts#CheckoutPeerCoordinator.#statusOf:, src/main/checkout-peers.ts#CheckoutPeerCoordinator.#pass:, src/main/checkout-peers.ts#CheckoutPeerCoordinator.#pass:, src/main/checkout-peers.ts#CheckoutPeerCoordinator.#retire:, src/main/checkout-peers.ts#CheckoutPeerCoordinator.#send:",
+					"changed": {
+						"seq": "1 -> 2",
+						"stamp": "1 -> 2",
+						"calls": "{ [ id |-> 1, owner |-> m, kind |-> \"file\", st |-> 1, earlier |-> 0, landed |-> FALSE ] } -> {}"
+					}
+				},
+				{
+					"step": 4,
+					"action": "PassStatus",
+					"code": "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#statusOf:",
+					"changed": {
+						"phase": "\"idle\" -> \"git\"",
+						"known": "[st |-> 0, inst |-> 0, held |-> FALSE, pending |-> FALSE] -> [st |-> 2, inst |-> 1, held |-> TRUE, pending |-> FALSE]",
+						"cache": "[st |-> 0, inst |-> 0, held |-> FALSE, pending |-> FALSE] -> [st |-> 2, inst |-> 1, held |-> TRUE, pending |-> FALSE]"
+					}
+				},
+				{
+					"step": 5,
+					"action": "Start(m,\"file\")",
+					"code": "resources/gui-bridge/modes/checkout-claims.ts",
+					"changed": {
+						"seq": "2 -> 3",
+						"nextId": "2 -> 3",
+						"stamp": "2 -> 3",
+						"calls": "{} -> { [ id |-> 2, owner |-> m, kind |-> \"file\", st |-> 3, earlier |-> 2, landed |-> FALSE ] }"
+					}
+				},
+				{
+					"step": 6,
+					"action": "PassGit",
+					"code": "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#pass:",
+					"changed": {
+						"phase": "\"git\" -> \"judge\""
+					}
+				},
+				{
+					"step": 7,
+					"action": "PassJudge",
+					"code": "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#pass:",
+					"changed": {
+						"phase": "\"judge\" -> \"send\"",
+						"view": "FALSE -> TRUE",
+						"viewKey": "<<0, 0>> -> <<1, 2>>"
+					}
+				},
+				{
+					"step": 8,
+					"action": "PassSend",
+					"code": "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#send:",
+					"changed": {
+						"phase": "\"send\" -> \"idle\"",
+						"bview": "FALSE -> TRUE",
+						"shown": "{} -> {2}",
+						"bkey": "<<0, 0>> -> <<1, 2>>"
+					}
+				},
+				{
+					"step": 9,
+					"action": "PassStatus",
+					"code": "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#statusOf:",
+					"changed": {
+						"phase": "\"idle\" -> \"git\""
+					}
+				},
+				{
+					"step": 10,
+					"action": "PassGit",
+					"code": "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#pass:",
+					"changed": {
+						"phase": "\"git\" -> \"judge\"",
+						"listing": "\"fail\" -> \"clean\""
+					}
+				},
+				{
+					"step": 11,
+					"action": "PassJudge",
+					"code": "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#pass:",
+					"changed": {
+						"phase": "\"judge\" -> \"retire\"",
+						"view": "TRUE -> FALSE",
+						"proposal": "[st |-> 0, inst |-> 0] -> [st |-> 2, inst |-> 1]",
+						"inflight": "{} -> {[st |-> 2, inst |-> 1]}",
+						"released": "{} -> {<<1, 2>>}",
+						"committed": "{} -> {2}",
+						"viewKey": "<<1, 2>> -> <<0, 0>>"
+					}
+				},
+				{
+					"step": 12,
+					"action": "PassRetired",
+					"code": "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#retire:",
+					"changed": {
+						"phase": "\"retire\" -> \"send\"",
+						"cache": "[st |-> 2, inst |-> 1, held |-> TRUE, pending |-> FALSE] -> [st |-> 0, inst |-> 1, held |-> FALSE, pending |-> FALSE]"
+					}
+				},
+				{
+					"step": 13,
+					"action": "PassSend",
+					"code": "src/main/checkout-peers.ts#CheckoutPeerCoordinator.#send:",
+					"changed": {
+						"phase": "\"send\" -> \"idle\"",
+						"bview": "TRUE -> FALSE",
+						"bkey": "<<1, 2>> -> <<0, 0>>"
+					},
+					"violation": true
+				}
+			]
+		},
+		{
+			"id": "F2",
+			"title": "A failed call gave back a claim main had judged committed",
+			"severity": "medium",
+			"status": "fixed",
+			"property": "CommittedIsNobodys",
+			"story": "A edited F; the person committed it. While main waits for git, A starts an edit of F that will fail: the hook claims F with a new stamp and remembers the committed claim as the one it took over. Main retires the committed stamp; the ledger keeps F (a call writes it). The edit fails and reverts F to the claim it took over, the committed one. When B then changes F, A's book holds a claim on B's change; only main's memory of the commit hides it, and a restart of main loses that.",
+			"reproduction": {
+				"test": "src/main/checkout-peers.test.ts 'never gives back a committed claim when the call that took it over fails'",
+				"result_before_fix": "fails",
+				"result_after_fix": "passes"
+			},
+			"fix": {
+				"summary": "ClaimBook.retire voids the taken-over claim of a running call when that claim is the one retired.",
+				"commit": "b46778a8c",
+				"model_recheck": "passes",
+				"mutation_check": "fails-as-expected"
+			},
+			"evidence": []
+		},
+		{
+			"id": "F3",
+			"title": "A restarted omp's restored claim was retired for an earlier load's commit",
+			"severity": "high",
+			"status": "fixed",
+			"property": "NoLostClaim",
+			"story": "A restored claim (stamp 1) is committed and main remembers member, file and stamp 1 as committed. A changes F again and the omp restarts: the journal restores F as stamp 1 under a new instance. Git times out; main finds member, file and stamp 1 in its memory, judges the claim committed and retires it with the new instance, which the bridge accepts. A's uncommitted change is no longer A's, and B may overwrite it.",
+			"reproduction": {
+				"test": "src/main/checkout-peers.test.ts 'never retires a restarted omp's claim on what git said of the claim its earlier load had'",
+				"result_before_fix": "fails",
+				"result_after_fix": "passes"
+			},
+			"fix": {
+				"summary": "#committed keys carry the instance; a claim judged committed stays committed while its load and stamp stand.",
+				"commit": "ec26c956a",
+				"model_recheck": "passes",
+				"mutation_check": "fails-as-expected"
+			},
+			"evidence": []
+		}
+	],
+	"trust_base": {
+		"tla": {
+			"tool_version": "TLC 1.8.0 (tla2tools 1.8.0), java 17",
+			"runs": [
+				"MC.cfg: 2,044,945 distinct states, depth 46, 24.6 s",
+				"MC_deep.cfg: 103,076,566 distinct states, depth 60, 1631 s"
+			],
+			"sanity_checks": [
+				"NeverShownWhileWriting and NeverReleased are violated, so the properties are not vacuous",
+				"mutate.ts: 8 of 8 DETECTED, 2 EQUIVALENT (confirm-keeps-stamp, retire-while-writing; reasons in mutations.json and CORRESPONDENCE.md), every property covered"
+			]
+		},
+		"tests": [
+			"src/main/checkout-claims.test.ts: 3000 seeded sequences of 60 events on the real ClaimBook and coordinator; it fails on each of the 8 code mutations matching the model's"
+		]
+	},
+	"rerun": [
+		"bun <tools-dir>/scripts/verify-all.ts formal --only checkout-claims",
+		"bun <tools-dir>/scripts/tlc.ts formal/checkout-claims/tla/CheckoutClaims.tla --matrix formal/checkout-claims/tla/matrix.json",
+		"bun <tools-dir>/scripts/mutate.ts formal/checkout-claims/tla/CheckoutClaims.tla formal/checkout-claims/tla/mutations.json",
+		"bunx vitest run src/main/checkout-claims.test.ts src/main/checkout-peers.test.ts"
+	],
+	"next_steps": [
+		"W5: no workflow runs verify-all for any model yet; the generated-sequence vitest runs in CI's check job",
+		"Model several files and a folder claim (holds) if a regression shows there"
+	]
+}

@@ -80,6 +80,25 @@
 			],
 			"syncCommit": "b9f1a17e431963c09b93256044b8c9d9fa50cf9d",
 			"verifySkill": ".omp/skills/tab-session-verify/SKILL.md"
+		},
+		{
+			"id": "checkout-claims",
+			"title": "Shared-checkout claims: who owns an uncommitted file, across calls, agents, restarts and main's pass",
+			"kind": "tla",
+			"dir": "checkout-claims/tla",
+			"spec": "CheckoutClaims.tla",
+			"matrix": "matrix.json",
+			"mutations": "mutations.json",
+			"covers": [
+				"resources/gui-bridge/modes/checkout-claims.ts",
+				"resources/gui-bridge/modes/checkout-peers.ts#install",
+				"src/main/checkout-peers.ts#CheckoutPeerCoordinator.#pass",
+				"src/main/checkout-peers.ts#CheckoutPeerCoordinator.#statusOf",
+				"src/main/checkout-peers.ts#CheckoutPeerCoordinator.#retire",
+				"src/main/checkout-peers.ts#CheckoutPeerCoordinator.#send"
+			],
+			"syncCommit": null,
+			"verifySkill": ".omp/skills/checkout-claims-verify/SKILL.md"
 		}
 	]
 }
