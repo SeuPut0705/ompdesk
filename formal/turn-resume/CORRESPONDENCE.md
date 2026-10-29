@@ -1,6 +1,6 @@
 # Correspondence: turn-resume
 
-Sync commit: `1cc0239708a810cbdc1683f5be194b968caaea87` plus the `syncDiff` of the uncommitted F1/F4 fixes (the commit at which this map was confirmed against the code; the same value as `syncCommit` of `turn-resume` in `formal/manifest.json`).
+Sync commit: `e219f6c41a` (the commit at which this map was confirmed against the code; the same value as `syncCommit` of `turn-resume` in `formal/manifest.json`).
 
 The `@code path:lines` tags in `tla/TurnResume.tla` are the machine-checked half of this map (`verify-all.ts` fails on a tag that does not resolve). This table records what each tag abstracts and the assumptions the model relies on.
 
