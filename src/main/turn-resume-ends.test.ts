@@ -5,23 +5,52 @@
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { HOLD_CHECKS, HOLD_ENDS } from "./turn-resume-ends";
+import { HOLD_CHECKS, HOLD_ENDS, type HoldCheck, type HoldEnd } from "./turn-resume-ends";
 import { seeded, TurnResumeWorld, type WorldEvent, type WorldStart } from "./turn-resume-test-rig";
 
-/**
- * The table and the model change together: every action a row or a check names is one the model checks. A new end
- * condition that names no action, or one the model lost, fails here instead of drifting unchecked.
- */
-describe("the end table names formal/turn-resume's actions", () => {
-	const spec = readFileSync(new URL("../../formal/turn-resume/tla/TurnResume.tla", import.meta.url), "utf8");
-	const actions = new Set([...spec.matchAll(/^(\w+)(?:\([^)]*\))? ==/gm)].map(match => match[1]));
+/** Rows the model keeps constant (formal/turn-resume/SCOPE.md): a closed tab, the quit freeze, a first file written later. */
+const OUT_OF_MODEL: readonly HoldEnd[] = ["gone", "frozen", "fileWritten"];
 
-	it("every row's actions and every check's action are defined in TurnResume.tla", () => {
-		const named = [
-			...Object.entries(HOLD_ENDS).flatMap(([row, { model }]) => model.map(action => [row, action])),
-			...Object.entries(HOLD_CHECKS).map(([check, action]) => [check, action]),
-		];
-		expect(named.filter(([, action]) => !actions.has(action))).toEqual([]);
+/**
+ * The table and the model change together: row `x` is the model's `End_x`, check `y` its `Ends_y` built from exactly
+ * the in-model rows listed for `y`, and the action that looks at `y` uses `Ends_y`. A row, or a row at a check, that
+ * one side has and the other lacks fails here instead of drifting unchecked.
+ */
+describe("the end table and formal/turn-resume name the same rows and checks", () => {
+	const spec = readFileSync(new URL("../../formal/turn-resume/tla/TurnResume.tla", import.meta.url), "utf8");
+	// One block per top-level definition: its first line at column 0, its body indented.
+	const definitions = new Map(
+		spec.split(/\n(?=\S)/).flatMap(block => {
+			const name = /^(\w+)(?:\([^)]*\))? ==/.exec(block)?.[1];
+			return name ? [[name, block] as const] : [];
+		}),
+	);
+	const modeled = (rows: string[]) => rows.filter(row => !OUT_OF_MODEL.includes(row as HoldEnd)).sort();
+	const named = (prefix: string, text: string) =>
+		[...new Set([...text.matchAll(new RegExp(`\\b${prefix}(\\w+)\\(`, "g"))].map(match => match[1] ?? ""))].sort();
+
+	it("has one End_ operator per row the model has, and none for the rows it keeps constant", () => {
+		expect(named("End_", [...definitions.keys()].map(name => `${name}(`).join(" "))).toEqual(
+			modeled(Object.keys(HOLD_ENDS)),
+		);
+	});
+
+	it.each(Object.keys(HOLD_CHECKS) as HoldCheck[])(
+		"Ends_%s is built from exactly the table's rows at that check",
+		check => {
+			const body = definitions.get(`Ends_${check}`) ?? "";
+			const rows = Object.entries(HOLD_ENDS)
+				.filter(([, row]) => (row.checks as readonly HoldCheck[]).includes(check))
+				.map(([end]) => end);
+			expect(named("End_", body.slice(body.indexOf("=="))), `Ends_${check}`).toEqual(modeled(rows));
+			expect(definitions.get(HOLD_CHECKS[check]) ?? "", HOLD_CHECKS[check]).toContain(`Ends_${check}(`);
+		},
+	);
+
+	it("has one Ends_ operator per check", () => {
+		expect(named("Ends_", [...definitions.keys()].map(name => `${name}(`).join(" "))).toEqual(
+			Object.keys(HOLD_CHECKS).sort(),
+		);
 	});
 });
 

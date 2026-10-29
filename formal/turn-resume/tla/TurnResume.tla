@@ -62,12 +62,38 @@ Idle == pc = "idle" /\ rg = {}
 Moving(t) == mv[t] # "none"
 
 IsNet(o) == kindOf[o] \in {"dns", "net"}
-\* turn-resume.ts #mayRetry (peer, device, frozen and sessionFile are constants of this model)
-MayRetry(t, o) == ~stopped[t] /\ ~awaiting[t] /\ last[t] = o
-HoldsArm(t) == MayRetry(t, armO[t]) /\ sg[t] = armSg[t]
 UserLive(t) == run[t] = "running" /\ last[t] = 0 /\ userRun[t]
-\* turn-resume.ts #movedSince: the tab went to another session or branch since `wsg` was recorded (sg only grows)
-Moved(t) == sg[t] > wsg[t]
+
+\* ===== End conditions: src/main/turn-resume-ends.ts HOLD_ENDS (one End_<row> per row the model has) and HOLD_CHECKS
+\* (one Ends_<check> per place the code looks). turn-resume-ends.test.ts compares both sets with the table exactly:
+\* a row in one and not the other fails. Rows the model keeps constant: gone, frozen, fileWritten (SCOPE.md). =====
+
+\* @code src/main/turn-resume-ends.ts:88-92 a run none of the hold's own (`ownRun`) and not the failed one still ending
+End_personsRun(t, ownRun) == run[t] = "running" /\ last[t] = 0 /\ ~ownRun
+\* @code src/main/turn-resume-ends.ts:93-97
+End_stopped(t) == stopped[t]
+\* @code src/main/turn-resume-ends.ts:55-63 movedSince: another session or branch since `since` was recorded (sg only grows)
+End_moved(t, since) == sg[t] > since
+\* @code src/main/turn-resume-ends.ts:103-107 the person prompted since the continuation started (pk, rk)
+End_personsPrompt(seen) == seen
+\* @code src/main/turn-resume-ends.ts:116-120 the tab's last run is no longer the failure the hold is for
+End_otherOutcome(t, o) == last[t] # o
+\* @code src/main/turn-resume-ends.ts:121-130 the connection wait holds the tab (peer, device, no file: constants here)
+End_notRetryable(t) == awaiting[t]
+\* @code src/main/turn-resume-ends.ts:131-135 the tab runs
+End_busy(t) == run[t] = "running"
+
+Ends_wait(t) == End_personsRun(t, FALSE) \/ End_moved(t, wsg[t])
+Ends_probe(t) == End_personsRun(t, FALSE) \/ End_stopped(t)
+Ends_probeAnswer(t, o) == End_stopped(t) \/ End_moved(t, psg[t]) \/ End_otherOutcome(t, o)
+Ends_armed(t, o, since) ==
+    End_personsRun(t, own[t]) \/ End_stopped(t) \/ End_moved(t, since) \/ End_otherOutcome(t, o) \/ End_notRetryable(t)
+Ends_firing(t) ==
+    End_stopped(t) \/ End_moved(t, armSg[t]) \/ End_otherOutcome(t, armO[t]) \/ End_notRetryable(t) \/ End_busy(t)
+Ends_continuing(t, since, seen) == End_moved(t, since) \/ End_personsPrompt(seen)
+
+\* turn-resume.ts #mayRetry: may a scheduled retry for `o` exist now (`armed`, held for the tab as it is)
+MayRetry(t, o) == ~Ends_armed(t, o, sg[t])
 Pending(t) ==
     (IF waiting[t] THEN {waitFor[t]} ELSE {})
     \cup (IF probing[t] # 0 THEN {probing[t]} ELSE {})
@@ -276,7 +302,7 @@ Boot ==
                    apWait, runSg, pk, rk, monV, ctlV, histV>>
 
 \* @code src/main/turn-resume.ts:830-861 #run after whenReady and movesSettled: the session, branch and the person's prompts are checked again (holdEnd "continuing") and the cancel generation; a moved or cancelled continuation sends nothing
-\* @code src/main/turn-resume-ends.ts:79-162 holdEnd("continuing"): moved ends every hold of the tab (dropWait), personsPrompt ends this continuation
+\* @code src/main/turn-resume-ends.ts:73-151 holdEnd("continuing"): moved ends every hold of the tab (dropWait), personsPrompt ends this continuation
 \* @code src/main/turn-resume.ts:864-895 send(): the launch's `restore_interrupted`, or stock `retry` for a failed turn
 \* @code src/main/turn-resume.ts:855-861 a call-off ends the run: goalSettled `cancelled` reaches Autopilot (apWait)
 RunGo(t) ==
@@ -284,7 +310,7 @@ RunGo(t) ==
     /\ rg' = rg \ {t}
     /\ runWait' = [runWait EXCEPT ![t] = -1]
     /\ LET o == runFor[t]
-           go == runWait[t] >= 0 /\ cancels[t] = runWait[t] /\ sg[t] <= runSg[t] /\ ~pk[t]
+           go == runWait[t] >= 0 /\ cancels[t] = runWait[t] /\ ~Ends_continuing(t, runSg[t], pk[t])
        IN IF go
              THEN /\ sentFor' = sentFor \cup {o}
                   /\ bad1' = (bad1 \/ UserLive(t))
@@ -317,7 +343,7 @@ RestoreDone(t, c) ==
     /\ apWait' = [apWait EXCEPT ![t] = FALSE]
     /\ IF c
           THEN UNCHANGED <<retryIn, sentFor, bad1, bad2, bad2h, bad7, bad8, own, attempts>>
-          ELSE IF cancels[t] = restGen[t] /\ sg[t] <= rsg[t] /\ ~rk[t]
+          ELSE IF cancels[t] = restGen[t] /\ ~Ends_continuing(t, rsg[t], rk[t])
                   THEN /\ retryIn' = [retryIn EXCEPT ![t] = TRUE]
                        /\ sentFor' = sentFor \cup {LaunchO}
                        /\ bad1' = (bad1 \/ UserLive(t))
@@ -337,12 +363,12 @@ RestoreDone(t, c) ==
 \* ===== sync(): the synchronous judge chain for the tab `ct` =====
 
 \* @code src/main/turn-resume.ts:738-744 #watchScheduledRetry: a user run ends the chain; an armed retry that no longer holds is dropped
-\* @code src/main/turn-resume-ends.ts:79-162 holdEnd("armed"): personsRun, stopped, moved, otherOutcome, notRetryable (S_Watch's `newUser \/ ~HoldsArm`)
+\* @code src/main/turn-resume-ends.ts:73-151 holdEnd("armed"): personsRun, stopped, moved, otherOutcome, notRetryable (S_Watch's `newUser \/ ~HoldsArm`)
 S_Watch ==
     /\ pc = "s_watch"
     /\ LET t == ct
-           newUser == run[t] = "running" /\ last[t] = 0 /\ ~own[t]
-           dropA == armO[t] # 0 /\ (newUser \/ ~HoldsArm(t))
+           newUser == End_personsRun(t, own[t])
+           dropA == armO[t] # 0 /\ Ends_armed(t, armO[t], armSg[t])
        IN /\ cancels' = [cancels EXCEPT ![t] = IF dropA THEN cancels[t] + 1 ELSE cancels[t]]
           /\ armO' = [armO EXCEPT ![t] = IF dropA THEN 0 ELSE armO[t]]
           /\ attempts' = [attempts EXCEPT ![t] = IF dropA \/ newUser THEN 0 ELSE attempts[t]]
@@ -351,17 +377,14 @@ S_Watch ==
                    fireId, nCancels, nUnready, monV, ct, rp, histV, mvV, runSg, pk, rk>>
 
 \* @code src/main/turn-resume.ts:601-606 #judge: the person's new run or Stop on a probe, a move on a held wait: #ends("wait" | "probe") ends it (dropWait)
-\* @code src/main/turn-resume-ends.ts:93-103 HOLD_ENDS personsRun (wait, probe), stopped (probe)
-\* @code src/main/turn-resume-ends.ts:105-109 HOLD_ENDS moved (wait)
-\* @code src/main/turn-resume-ends.ts:56-65 movedSince: `touched` or the session file the hold was taken on changed
+\* @code src/main/turn-resume-ends.ts:88-97 HOLD_ENDS personsRun (wait, probe), stopped (probe)
+\* @code src/main/turn-resume-ends.ts:98-102 HOLD_ENDS moved (wait)
+\* @code src/main/turn-resume-ends.ts:55-63 movedSince: `touched` or the session file the hold was taken on changed
 \* @code src/main/turn-resume.ts:973-990 #dropWait
 S_NewRun ==
     /\ pc = "s_newrun"
     /\ LET t == ct
-           userRunWhileHeld == run[t] = "running" /\ last[t] = 0 /\ (waiting[t] \/ probing[t] # 0)
-           stopWhileProbing == stopped[t] /\ probing[t] # 0
-           movedWhileHeld == waiting[t] /\ Moved(t)
-           drop == userRunWhileHeld \/ stopWhileProbing \/ movedWhileHeld
+           drop == (waiting[t] /\ Ends_wait(t)) \/ (probing[t] # 0 /\ Ends_probe(t))
        IN /\ cancels' = [cancels EXCEPT ![t] = IF drop THEN cancels[t] + 1 ELSE cancels[t]]
           /\ waiting' = [waiting EXCEPT ![t] = IF drop THEN FALSE ELSE waiting[t]]
           /\ probing' = [probing EXCEPT ![t] = IF drop THEN 0 ELSE probing[t]]
@@ -429,11 +452,11 @@ S_Marker ==
 \* ===== TurnResume continuations =====
 
 \* @code src/main/turn-resume.ts:647-663 the probe answered: Stop/Cancel/new run/session change ended it, else hold (unreachable) or plan a retry
-\* @code src/main/turn-resume-ends.ts:79-162 holdEnd("probeAnswer"): gone, frozen, stopped, moved, fileWritten, otherOutcome
+\* @code src/main/turn-resume-ends.ts:73-151 holdEnd("probeAnswer"): gone, frozen, stopped, moved, fileWritten, otherOutcome
 VerifyThen(t, o, reachable) ==
     /\ Idle /\ <<t, o, reachable>> \in vRes
     /\ vRes' = vRes \ {<<t, o, reachable>>}
-    /\ LET holds == last[t] = o /\ ~stopped[t] /\ sg[t] = psg[t]
+    /\ LET holds == ~Ends_probeAnswer(t, o)
        IN \/ /\ probing[t] # o                                  \* whoever ended this probe also cleared its row
                 /\ UNCHANGED <<resV, awaiting, ctlV, histV, planning, mvV, runSg, pk, rk>>
           \/ /\ probing[t] = o /\ holds /\ ~reachable
@@ -471,10 +494,10 @@ PlanResume(t, o, gen, used) ==
                    nCancels, nUnready, monV, ctlV, histV, mvV, runSg, pk, rk>>
 
 \* @code src/main/turn-resume.ts:747-755 #fire: the timer ran; re-check everything before asking stock's retry setting
-\* @code src/main/turn-resume-ends.ts:79-162 holdEnd("firing"): the armed rows and busy (`run[t] = "idle" /\ HoldsArm(t)`)
+\* @code src/main/turn-resume-ends.ts:73-151 holdEnd("firing"): the armed rows and busy (`run[t] = "idle" /\ HoldsArm(t)`)
 FireStart(t) ==
     /\ Idle /\ armO[t] # 0 /\ fireId[t] < 0 /\ ~Moving(t)     \* #fire: `await movesSettled` before it looks
-    /\ IF run[t] = "idle" /\ HoldsArm(t)
+    /\ IF ~Ends_firing(t)
           THEN /\ fireId' = [fireId EXCEPT ![t] = armId[t]]
                /\ UNCHANGED <<cancels, armO, attempts, mvV, runSg, pk, rk, bad7, bad8>>
           ELSE /\ cancels' = [cancels EXCEPT ![t] = cancels[t] + 1]       \* #dropScheduled
@@ -489,7 +512,7 @@ FireStart(t) ==
 FireResume(t) ==
     /\ Idle /\ fireId[t] >= 0
     /\ fireId' = [fireId EXCEPT ![t] = -1]
-    /\ IF armO[t] # 0 /\ armId[t] = fireId[t] /\ run[t] = "idle" /\ HoldsArm(t)
+    /\ IF armO[t] # 0 /\ armId[t] = fireId[t] /\ ~Ends_firing(t)
           THEN /\ attempts' = [attempts EXCEPT ![t] = armAtt[t]]
                /\ own' = [own EXCEPT ![t] = TRUE]
                /\ armO' = [armO EXCEPT ![t] = 0]                         \* #releaseScheduled
@@ -533,7 +556,7 @@ FlushStep ==
     /\ IF ~online
           THEN UNCHANGED <<waiting, awaiting, cancels, runWait, runFor, retryIn, sentFor, bad1, bad2, bad2h, bad7, bad8,
                            restoring, restGen, rsg, apWait, runSg, pk, rk>>
-          ELSE LET moved == {t \in Tabs : waiting[t] /\ Moved(t)}                \* the re-check when the wait lets go
+          ELSE LET moved == {t \in Tabs : waiting[t] /\ Ends_continuing(t, wsg[t], FALSE)}                \* the re-check when the wait lets go
                    go == {t \in Tabs : waiting[t] /\ t \notin moved}
                    direct == {t \in go : ready /\ mv[t] = "none"}               \* the omp is up and no move is on its way
                    launch == {t \in direct : waitFor[t] = LaunchO}

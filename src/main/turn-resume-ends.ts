@@ -1,10 +1,10 @@
 /**
  * When a tab's held work ends: its connection wait, its reachability probe, its scheduled retry, and a continuation on
- * its way. One table: each row is something that ends a hold, named by the formal/turn-resume action that brings it
- * about; each column is a place the resume looks at a hold, named by the action that looks. `TurnResume` asks
- * {@link holdEnd} at every one of those places and decides there only what the end does (which rows and timers go).
- * A new end condition is one row here and one action in `formal/turn-resume/tla/TurnResume.tla`
- * (`turn-resume-ends.test.ts` holds the two in step).
+ * its way. One table: each row is something that ends a hold, each column a place the resume looks at a hold.
+ * `TurnResume` asks {@link holdEnd} at every one of those places and decides there only what the end does (which rows
+ * and timers go). The model mirrors it name for name (`formal/turn-resume/tla/TurnResume.tla`): row `x` is `End_x`,
+ * check `y` is `Ends_y`, built from exactly the rows listed for it; `turn-resume-ends.test.ts` fails on any difference.
+ * A row the model keeps constant (a closed tab, the quit, a first file) is on that test's fixed list.
  */
 import type { IpcTabRunOutcome } from "../shared/ipc-types";
 import type { ResumeFact } from "./turn-resume";
@@ -47,8 +47,6 @@ export interface HoldContext {
 }
 
 interface HoldEndRow {
-	/** The formal/turn-resume actions that bring it about; `[]` for what the model keeps constant (SCOPE.md). */
-	model: readonly string[];
 	/** The places it ends a hold. */
 	checks: readonly HoldCheck[];
 	ends(fact: ResumeFact | undefined, since: HeldFor, context: HoldContext): boolean;
@@ -79,37 +77,31 @@ export function personsRun(fact: ResumeFact, ownRun: boolean): boolean {
 export const HOLD_ENDS = {
 	/** The tab is closed. */
 	gone: {
-		model: [],
 		checks: ["probeAnswer", "armed", "firing"],
 		ends: fact => fact === undefined,
 	},
 	/** A quit tears the tabs down. */
 	frozen: {
-		model: [],
 		checks: ["probeAnswer", "armed", "firing"],
 		ends: (_fact, _since, context) => context.frozen,
 	},
 	/** A run that is none of the hold's own and not the failed one still ending: the person sent a new prompt. */
 	personsRun: {
-		model: ["UserPrompt"],
 		checks: ["wait", "probe", "armed"],
 		ends: (fact, _since, context) => fact !== undefined && personsRun(fact, context.ownRun),
 	},
 	/** The person pressed Stop. */
 	stopped: {
-		model: ["UserStop"],
 		checks: ["probe", "probeAnswer", "armed", "firing"],
 		ends: fact => fact?.stopped === true,
 	},
 	/** Another session or branch (`movedSince`). */
 	moved: {
-		model: ["MoveReply", "FileMoved"],
 		checks: ["wait", "probeAnswer", "armed", "firing", "continuing"],
 		ends: (fact, since) => fact !== undefined && movedSince(fact, since),
 	},
 	/** The person prompted since the continuation started: the run that began is theirs (A11). */
 	personsPrompt: {
-		model: ["UserPrompt"],
 		checks: ["continuing"],
 		ends: (fact, since) => (fact?.prompted ?? 0) !== (since.prompted ?? 0),
 	},
@@ -118,19 +110,16 @@ export const HOLD_ENDS = {
 	 * (`movedSince`), and a retry is never armed without a file. The model has one file per session.
 	 */
 	fileWritten: {
-		model: [],
 		checks: ["probeAnswer"],
 		ends: (fact, since) => since.sessionFile === undefined && fact?.sessionFile !== undefined,
 	},
 	/** The tab's last run is no longer the failure the hold is for: a run started or ended since. */
 	otherOutcome: {
-		model: ["UserPrompt", "EndRun", "RetryTaken"],
 		checks: ["probeAnswer", "armed", "firing"],
 		ends: (fact, since) => fact?.lastRun !== since.outcome,
 	},
 	/** The tab's retry is not this computer's to make, or the connection wait holds it. */
 	notRetryable: {
-		model: ["Launch", "S_Judge", "VerifyThen"],
 		checks: ["armed", "firing"],
 		ends: fact =>
 			fact !== undefined &&
@@ -141,7 +130,6 @@ export const HOLD_ENDS = {
 	},
 	/** The tab runs (the failed turn's background work, or any run): the timer leaves it alone. */
 	busy: {
-		model: ["UserPrompt", "EndRun", "RetryTaken"],
 		checks: ["firing"],
 		ends: fact => fact?.running === true,
 	},

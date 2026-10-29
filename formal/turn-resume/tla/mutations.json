@@ -28,8 +28,8 @@
 			"name": "keep-held-wait-on-new-user-run",
 			"why": "sync() no longer ends a held wait when the user starts a new run (#judge's `fact.running && !fact.lastRun` clause covers only the probe): flush later sends retry into the user's live run.",
 			"file": "TurnResume.tla",
-			"search": "userRunWhileHeld == run[t] = \"running\" /\\ last[t] = 0 /\\ (waiting[t] \\/ probing[t] # 0)",
-			"replace": "userRunWhileHeld == run[t] = \"running\" /\\ last[t] = 0 /\\ (probing[t] # 0)",
+			"search": "Ends_wait(t) == End_personsRun(t, FALSE) \\/ End_moved(t, wsg[t])",
+			"replace": "Ends_wait(t) == End_moved(t, wsg[t])",
 			"breaks": "NoRetryIntoUserRun",
 			"config": "MC_p1.cfg"
 		},
@@ -37,8 +37,8 @@
 			"name": "probe-ignores-session-change",
 			"why": "#verifyNetwork's continuation stops comparing the session file and `touched` count: a session or branch change during the probe still ends in a held wait and a retry.",
 			"file": "TurnResume.tla",
-			"search": "holds == last[t] = o /\\ ~stopped[t] /\\ sg[t] = psg[t]",
-			"replace": "holds == last[t] = o /\\ ~stopped[t]",
+			"search": "Ends_probeAnswer(t, o) == End_stopped(t) \\/ End_moved(t, psg[t]) \\/ End_otherOutcome(t, o)",
+			"replace": "Ends_probeAnswer(t, o) == End_stopped(t) \\/ End_otherOutcome(t, o)",
 			"breaks": "NoRetryAfterCallOff",
 			"config": "MC_p2.cfg"
 		},
@@ -62,10 +62,10 @@
 		},
 		{
 			"name": "held-wait-ignores-session-change",
-			"why": "F4 as it was: #movedSince never sees a move, so neither #judge, flush nor the continuation after whenReady ends the wait, and flush retries the failed turn into the session the tab shows now.",
+			"why": "F4 as it was: movedSince never sees a move, so no check ends a hold on a session or branch change, and flush retries the failed turn into the session the tab shows now.",
 			"file": "TurnResume.tla",
-			"search": "Moved(t) == sg[t] > wsg[t]",
-			"replace": "Moved(t) == FALSE",
+			"search": "End_moved(t, since) == sg[t] > since",
+			"replace": "End_moved(t, since) == FALSE",
 			"breaks": "NoRetryAfterSessionChangeWhileHeld",
 			"config": "MC_held.cfg"
 		},
@@ -73,7 +73,7 @@
 			"name": "flush-skips-recheck",
 			"why": "Review M1: flush() runs a held wait without looking again; a move no sync() saw (a paired device's switch on an idle tab) retries into the new session.",
 			"file": "TurnResume.tla",
-			"search": "moved == {t \\in Tabs : waiting[t] /\\ Moved(t)}",
+			"search": "moved == {t \\in Tabs : waiting[t] /\\ Ends_continuing(t, wsg[t], FALSE)}",
 			"replace": "moved == {}",
 			"breaks": "NoRetryAfterSessionChangeWhileHeld",
 			"config": "MC_held.cfg"
@@ -82,8 +82,8 @@
 			"name": "ready-skips-recheck",
 			"why": "Review minor 2: #run sends once the omp is up without looking again; a move while the omp started (after flush, or after a scheduled retry fired) retries into the new session.",
 			"file": "TurnResume.tla",
-			"search": "cancels[t] = runWait[t] /\\ sg[t] <= runSg[t]",
-			"replace": "cancels[t] = runWait[t]",
+			"search": "cancels[t] = runWait[t] /\\ ~Ends_continuing(t, runSg[t], pk[t])",
+			"replace": "cancels[t] = runWait[t] /\\ ~End_personsPrompt(pk[t])",
 			"breaks": "NoRetryAfterCallOff",
 			"config": "MC_p2.cfg"
 		},
@@ -181,8 +181,8 @@
 			"name": "restore-done-skips-recheck",
 			"why": "Finding 2: the launch continuation's second command (stock retry, the unwritten prompt, the goal resume) goes out after a slow `restore_interrupted` without looking at the session and branch again, so a tab that moved meanwhile gets it in the other session.",
 			"file": "TurnResume.tla",
-			"search": "cancels[t] = restGen[t] /\\ sg[t] <= rsg[t]",
-			"replace": "cancels[t] = restGen[t]",
+			"search": "cancels[t] = restGen[t] /\\ ~Ends_continuing(t, rsg[t], rk[t])",
+			"replace": "cancels[t] = restGen[t] /\\ ~End_personsPrompt(rk[t])",
 			"breaks": "NoRetryAfterSessionChangeWhileHeld",
 			"config": "MC_held.cfg"
 		},
@@ -226,8 +226,8 @@
 			"name": "run-ignores-persons-prompt",
 			"why": "A11 before its fix: `#run` does not compare `ResumeFact.prompted`; a person's prompt while the continuation waits for a move's answer or its omp is not told from the continuation's own run, and stock retry (or the launch's restore) goes out after it.",
 			"file": "TurnResume.tla",
-			"search": "/\\ sg[t] <= runSg[t] /\\ ~pk[t]",
-			"replace": "/\\ sg[t] <= runSg[t]",
+			"search": "cancels[t] = runWait[t] /\\ ~Ends_continuing(t, runSg[t], pk[t])",
+			"replace": "cancels[t] = runWait[t] /\\ ~End_moved(t, runSg[t])",
 			"breaks": "NoSendAfterPersonsPrompt",
 			"config": "MC_p8.cfg"
 		},
@@ -235,8 +235,8 @@
 			"name": "restore-ignores-persons-prompt",
 			"why": "A11 before its fix: after a slow `restore_interrupted` the launch's second command (stock retry, the unwritten prompt, the goal resume) goes out although the person sent a prompt meanwhile.",
 			"file": "TurnResume.tla",
-			"search": "/\\ sg[t] <= rsg[t] /\\ ~rk[t]",
-			"replace": "/\\ sg[t] <= rsg[t]",
+			"search": "cancels[t] = restGen[t] /\\ ~Ends_continuing(t, rsg[t], rk[t])",
+			"replace": "cancels[t] = restGen[t] /\\ ~End_moved(t, rsg[t])",
 			"breaks": "NoSendAfterPersonsPrompt",
 			"config": "MC_p8.cfg"
 		}

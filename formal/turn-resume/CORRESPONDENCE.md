@@ -21,8 +21,8 @@ The `@code path:lines` tags in `tla/TurnResume.tla` are the machine-checked half
 | `Cancel(t)` | `turn-resume.ts:1023-1045` cancelWait / `#dropWait` | action | whole `#dropWait` in one step, then `sync()`; a held launch continuation (`waiting`, `waitFor = LaunchO`) tells Autopilot `cancelled` (`apWait`); a restore in flight is called off by the generation (`cancels`) | `pending`, `takenOverRuns` not modeled; `#run`'s own call-off reports at its end, never twice |
 | `RetryTaken(t)` | `turn-resume.ts:919-924` the `retry` reply; `:792-795` | action | stock either starts a retried run (agent_start) or has nothing to retry | |
 | `Unready`, `Boot` | `turn-resume.ts:469-493` `whenReady` | environment + continuation | `Boot` hands every waiting `#run` that is not blocked by a move in flight to `rg`; `RunGo` runs it in the same macrotask, re-checking it (`:878-885`) | A4 |
-| `S_Watch` | `turn-resume.ts:738-744` `#watchScheduledRetry` = `holdEnd("armed")` | micro-step of `sync()` | `~HoldsArm` = the rows `stopped`, `moved`, `otherOutcome`, `notRetryable`; `newUser` = `personsRun` | `ownRetries` = `own[t]` |
-| `S_NewRun` | `turn-resume.ts:601-606` = `holdEnd("wait")`, `holdEnd("probe")`; `turn-resume-ends.ts` `movedSince` | micro-step of `sync()` | `fact.retry` and `#takenOverRuns` absent; `Moved(t)` = `sg[t] > wsg[t]` (touched or the held session file changed; `sg` only grows) | `#dropWait` = `turn-resume.ts:979-990` |
+| `S_Watch` | `turn-resume.ts:738-744` `#watchScheduledRetry` = `holdEnd("armed")` | micro-step of `sync()` | `Ends_armed(t, armO[t], armSg[t])`; `newUser` = `End_personsRun` (the chain's own reset) | `ownRetries` = `own[t]` |
+| `S_NewRun` | `turn-resume.ts:601-606` = `holdEnd("wait")`, `holdEnd("probe")`; `turn-resume-ends.ts` `movedSince` | micro-step of `sync()` | `fact.retry` and `#takenOverRuns` absent; `End_moved(t, wsg[t])` = `sg[t] > wsg[t]` (touched or the held session file changed; `sg` only grows) | `#dropWait` = `turn-resume.ts:979-990` |
 | `S_Judge` | `turn-resume.ts:629-652`, `574-583`, `643-658`, `765-769` | micro-step of `sync()` | one of: wait already holds / not retryable / hold (offline) / probe (dns, online) / plan retry | `shouldWait()` = `!online`; the hold records `wsg` |
 | `S_Marker` | `turn-resume.ts:577-583` `deriveMarkers` | micro-step of `sync()` | marker per tab: `network`, `running` or `none` | a held launch marker counts as `network` (A9) |
 | `VerifyThen(t,o,r)` | `turn-resume.ts:647-663`; `holds` = `holdEnd("probeAnswer") === null` | action (promise continuation) | one pending continuation per `(tab, outcome)` | probe identity = outcome id; the hold records the probe's `psg` |
@@ -43,16 +43,16 @@ The `@code path:lines` tags in `tla/TurnResume.tla` are the machine-checked half
 
 ## End conditions
 
-`src/main/turn-resume-ends.ts` holds every rule that ends a hold: `HOLD_ENDS` has one row per end condition, each naming the model actions that bring it about (`model`), and the places it is checked (`checks`). `HOLD_CHECKS` names, for each place the code looks, the model action that looks. `TurnResume` calls `holdEnd(check, since, fact)` at each of them and decides there only what the end does. `turn-resume-ends.test.ts` fails when a named action is not in `TurnResume.tla`.
+`src/main/turn-resume-ends.ts` holds every rule that ends a hold: `HOLD_ENDS` has one row per end condition and the places it is checked (`checks`); `HOLD_CHECKS` names, for each place the code looks, the model action that looks. `TurnResume` calls `holdEnd(check, since, fact)` at each of them and decides there only what the end does. The model mirrors it by name: row `x` is the operator `End_x`, check `y` is `Ends_y`, a disjunction of exactly the `End_` rows the table lists for `y`, and the action that looks at `y` uses `Ends_y` (`S_NewRun` uses `Ends_wait` and `Ends_probe`; `MayRetry` = `~Ends_armed` at the tab's own session). `turn-resume-ends.test.ts` compares the two sets exactly; the rows the model keeps constant are its fixed list `OUT_OF_MODEL` (`gone`, `frozen`, `fileWritten`), which may have no `End_` operator.
 
 | Check (`HOLD_CHECKS`) | Code | Model action | Rows |
 |---|---|---|---|
-| `wait` | `#judge`, a held wait | `S_NewRun` (`waiting[t]`) | `personsRun`, `moved` |
-| `probe` | `#judge`, a probe still out | `S_NewRun` (`probing[t] # 0`) | `personsRun`, `stopped` |
-| `probeAnswer` | `#verifyNetwork`'s answer | `VerifyThen` (`holds`) | `gone`, `frozen`, `stopped`, `moved`, `fileWritten`, `otherOutcome` |
-| `armed` | `#watchScheduledRetry`; may one be armed (`#mayRetry`: `S_Judge`, `PlanResume`) | `S_Watch` (`newUser \/ ~HoldsArm`) | `gone`, `frozen`, `personsRun`, `stopped`, `moved`, `otherOutcome`, `notRetryable` |
-| `firing` | `#fire`'s `stillHolds` | `FireStart`, `FireResume` (`run = idle /\ HoldsArm`) | the `armed` rows but `personsRun`, plus `busy` |
-| `continuing` | `#run`'s `stale()` | `RunGo`, `RestoreDone` (`go`) | `moved` (ends every hold: `#dropWait`), `personsPrompt` (ends this continuation: `pk`, `rk`) |
+| `wait` | `#judge`, a held wait | `S_NewRun` (`Ends_wait`) | `personsRun`, `moved` |
+| `probe` | `#judge`, a probe still out | `S_NewRun` (`Ends_probe`) | `personsRun`, `stopped` |
+| `probeAnswer` | `#verifyNetwork`'s answer | `VerifyThen` (`Ends_probeAnswer`) | `gone`, `frozen`, `stopped`, `moved`, `fileWritten`, `otherOutcome` |
+| `armed` | `#watchScheduledRetry`; may one be armed (`#mayRetry`: `S_Judge`, `PlanResume`) | `S_Watch` (`Ends_armed`; `MayRetry`) | `gone`, `frozen`, `personsRun`, `stopped`, `moved`, `otherOutcome`, `notRetryable` |
+| `firing` | `#fire`'s `stillHolds` | `FireStart`, `FireResume` (`Ends_firing`) | the `armed` rows but `personsRun`, plus `busy` |
+| `continuing` | `#run`'s `stale()` | `RunGo`, `RestoreDone`, `FlushStep` (`Ends_continuing`) | `moved` (ends every hold: `#dropWait`), `personsPrompt` (ends this continuation: `pk`, `rk`) |
 
 Rows the model keeps constant, each a place a bug could hide: `gone` (tab close, SCOPE.md), `frozen` (the quit freeze, SCOPE.md), `fileWritten` (one file per session in the model; only the probe's answer counts a first file written after it), and the `peer`/`device`/no-file parts of `notRetryable`.
 
