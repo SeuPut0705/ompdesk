@@ -1,0 +1,76 @@
+[
+	{
+		"rule": "/\\[[a-z_]+\\] /",
+		"files": [
+			"src/main/remote/devices.ts",
+			"src/shared/ipc-error-codes.ts"
+		],
+		"reason": "Known duplicate: remote/devices.ts tests for the `[code] ` marker src/shared/ipc-error-codes.ts owns (CODED_MESSAGE); merge by exporting a predicate from ipc-error-codes."
+	},
+	{
+		"rule": "/^ {0,3}(`{3,}|~{3,})/",
+		"files": [
+			"src/renderer/components/tools/media/chat-media.ts",
+			"src/renderer/lib/list-continue.ts",
+			"src/shared/file-mentions.ts"
+		],
+		"reason": "Known duplicate: CommonMark's fence opener in chat-media.ts, list-continue.ts and src/shared/file-mentions.ts; merge into one shared export."
+	},
+	{
+		"rule": "/^([01]\\d|2[0-3]):[0-5]\\d$/",
+		"files": [
+			"src/main/agent-control/tools.ts",
+			"src/shared/schedules.ts"
+		],
+		"reason": "Known duplicate: ompdesk_schedule's daily_at check in agent-control/tools.ts restates src/shared/schedules.ts TIME; merge by importing it."
+	},
+	{
+		"rule": "/^(\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)/",
+		"files": [
+			"src/main/agent-control/app-catalog.ts",
+			"src/renderer/components/agents/github/GithubRepos.tsx",
+			"src/renderer/components/chat/dock/PlanDockCard.tsx"
+		],
+		"reason": "Known duplicate: the absolute-path test (POSIX, drive, UNC) in agent-control/app-catalog.ts, GithubRepos.tsx and PlanDockCard.tsx; merge into one src/shared export."
+	},
+	{
+		"rule": "/^(Autopilot|오토파일럿) · /",
+		"files": [
+			"src/main/autopilot.ts",
+			"src/renderer/lib/session-title.ts"
+		],
+		"reason": "Known duplicate: the title prefix earlier builds gave an Autopilot run, stripped in main/autopilot.ts and renderer/lib/session-title.ts; merge into one src/shared export."
+	},
+	{
+		"rule": "/^[a-z0-9][a-z0-9-]{0,40}$/",
+		"files": [
+			"src/main/local/git/parse.ts",
+			"src/renderer/components/dialogs/WorktreeDialog.tsx"
+		],
+		"reason": "Known duplicate: the worktree slug rule main/local/git/parse.ts WORKTREE_NAME_PATTERN enforces, restated by WorktreeDialog.tsx (the renderer cannot import main); merge into src/shared/worktree-branch.ts."
+	},
+	{
+		"rule": "/^v?\\d+\\.\\d+\\.\\d+$/",
+		"files": [
+			"src/main/setup/archives.ts",
+			"src/shared/builtin-mcp.ts"
+		],
+		"reason": "Not one rule: a plain `X.Y.Z` shape that setup/archives.ts checks on a download index and builtin-mcp.ts parses from a pinned MCP version; neither is a release-version rule of the other."
+	},
+	{
+		"rule": "/key|token|secret|password/i",
+		"files": [
+			"src/renderer/components/panels/inventory/plugin-settings.ts",
+			"resources/gui-bridge/extensions/plugins.ts"
+		],
+		"reason": "Known duplicate: which plugin setting is a secret, redacted by the bridge (extensions/plugins.ts) and masked by the renderer (plugin-settings.ts); the renderer should import the bridge's export."
+	},
+	{
+		"rule": "AUTOPILOT_BRANCH_PREFIX = \"autopilot/\"",
+		"files": [
+			"src/shared/project-origin.ts",
+			"resources/gui-bridge/modes/autopilot-contracts.ts"
+		],
+		"reason": "Known duplicate: src/shared/project-origin.ts restates the bridge's autopilot-contracts.ts prefix; project-origin should import it."
+	}
+]
