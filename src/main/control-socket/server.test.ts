@@ -374,22 +374,44 @@ describe("control socket", () => {
 			}
 		});
 
-		it("repairs a folder and a token that are open to others", async () => {
-			const dir = join(userData, "control");
-			mkdirSync(dir);
-			chmodSync(dir, 0o755);
-			const token = randomBytes(32).toString("hex");
-			writeFileSync(join(dir, TOKEN_FILE), token, { mode: 0o644 });
-			chmodSync(join(dir, TOKEN_FILE), 0o644);
-			const { handle, token: used } = await start();
-			try {
-				expect(handle.dir).toBe(dir);
-				expect(used).toBe(token);
-				expect(statSync(dir).mode & 0o777).toBe(0o700);
-				expect(statSync(join(dir, TOKEN_FILE)).mode & 0o777).toBe(0o600);
-			} finally {
-				await handle.close();
+		it("repairs a folder and a token that were open to others, and replaces the token they may have read", async () => {
+			for (const [dirMode, tokenMode] of [
+				[0o755, 0o644],
+				[0o755, 0o600],
+				[0o700, 0o644],
+			] as const) {
+				const dir = join(userData, "control");
+				mkdirSync(dir, { recursive: true });
+				chmodSync(dir, dirMode);
+				const token = randomBytes(32).toString("hex");
+				writeFileSync(join(dir, TOKEN_FILE), token);
+				chmodSync(join(dir, TOKEN_FILE), tokenMode);
+				const { handle, token: used } = await start();
+				try {
+					expect(handle.dir).toBe(dir);
+					expect(used, `${dirMode.toString(8)} ${tokenMode.toString(8)}`).not.toBe(token);
+					expect(used).toMatch(/^[0-9a-f]{64}$/);
+					expect(statSync(dir).mode & 0o777).toBe(0o700);
+					expect(statSync(join(dir, TOKEN_FILE)).mode & 0o777).toBe(0o600);
+				} finally {
+					await handle.close();
+				}
 			}
+			// Tight already: the next start keeps the token.
+			const first = await start();
+			await first.handle.close();
+			const second = await start();
+			await second.handle.close();
+			expect(second.token).toBe(first.token);
+		});
+
+		it("replaces a token file another user owns", () => {
+			const dir = join(userData, "control");
+			prepareControlDir(dir);
+			const token = randomBytes(32).toString("hex");
+			writeFileSync(join(dir, TOKEN_FILE), token, { mode: 0o600 });
+			const other = (process.getuid?.() ?? 0) + 1;
+			expect(readOrCreateToken(dir, { getuid: () => other })).not.toBe(token);
 		});
 
 		it("replaces a damaged token with a fresh one", () => {

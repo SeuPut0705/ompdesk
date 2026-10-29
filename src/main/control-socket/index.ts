@@ -41,9 +41,9 @@ export async function startControlSocket({
 	process.env[CONTROL_DIR_ENV] = dir;
 	let server: ControlServer | undefined;
 	try {
-		prepareControlDir(dir);
+		const exposed = prepareControlDir(dir);
 		if (socketDir) prepareControlDir(socketDir);
-		const token = readOrCreateToken(dir);
+		const token = readOrCreateToken(dir, { exposed });
 		server = new ControlServer({ token, router: new ControlRouter(backend, new EventHub(backend)) });
 		await server.listen(socket);
 		writeEndpoint(dir, { version: CONTROL_PROTOCOL_VERSION, socket, pid: process.pid });

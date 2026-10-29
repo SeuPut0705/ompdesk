@@ -49,17 +49,22 @@ export interface PrepareControlDirOptions {
 	getuid?: () => number;
 }
 
-/** Makes the folder (owner only) and refuses one that is a link or another user's; repairs loose mode bits on ours. */
+/**
+ * Makes the folder (owner only) and refuses one that is a link or another user's; repairs loose mode bits on ours.
+ * Returns true when it had to repair them: whatever the folder held may have been read meanwhile.
+ */
 export function prepareControlDir(
 	dir: string,
 	{ getuid = process.getuid?.bind(process) }: PrepareControlDirOptions = {},
-): void {
+): boolean {
 	mkdirSync(dir, { recursive: true, mode: OWNER_ONLY_DIR });
-	if (getuid === undefined) return;
+	if (getuid === undefined) return false;
 	const stat = lstatSync(dir);
 	if (stat.isSymbolicLink() || !stat.isDirectory()) throw new ControlDirRefused(dir, "not a real folder");
 	if (stat.uid !== getuid()) throw new ControlDirRefused(dir, "owned by another user");
-	if ((stat.mode & GROUP_OR_OTHER) !== 0) chmodSync(dir, OWNER_ONLY_DIR);
+	if ((stat.mode & GROUP_OR_OTHER) === 0) return false;
+	chmodSync(dir, OWNER_ONLY_DIR);
+	return true;
 }
 
 function readText(file: string): string | undefined {
@@ -70,17 +75,29 @@ function readText(file: string): string | undefined {
 	}
 }
 
-/** The install's token: 64 hex characters, made on first use and whenever the file is damaged. */
-export function readOrCreateToken(dir: string): string {
+export interface TokenOptions extends PrepareControlDirOptions {
+	/** The folder was open to others before `prepareControlDir` repaired it: the token is replaced. */
+	exposed?: boolean;
+}
+
+/**
+ * The install's token: 64 hex characters, made on first use, whenever the file is damaged, and whenever someone
+ * else could have read it (the folder or the file was open to others, or the file is another user's).
+ */
+export function readOrCreateToken(
+	dir: string,
+	{ getuid = process.getuid?.bind(process), exposed = false }: TokenOptions = {},
+): string {
 	const file = join(dir, TOKEN_FILE);
 	const existing = readText(file)?.trim();
-	if (existing !== undefined && TOKEN_SHAPE.test(existing)) {
-		if (process.platform !== "win32") {
-			const mode = lstatSync(file).mode;
-			if ((mode & GROUP_OR_OTHER) !== 0) chmodSync(file, OWNER_ONLY_FILE);
-		}
-		return existing;
+	let trusted = !exposed && existing !== undefined && TOKEN_SHAPE.test(existing);
+	if (trusted && getuid !== undefined) {
+		const stat = lstatSync(file);
+		trusted = stat.isFile() && stat.uid === getuid() && (stat.mode & GROUP_OR_OTHER) === 0;
 	}
+	if (trusted && existing !== undefined) return existing;
+	// A file another user owns cannot be chmodded or replaced in place: it goes (the folder is ours).
+	rmSync(file, { force: true });
 	const token = randomBytes(32).toString("hex");
 	writeFileAtomicSync(file, `${token}\n`, { mode: OWNER_ONLY_FILE });
 	return token;
