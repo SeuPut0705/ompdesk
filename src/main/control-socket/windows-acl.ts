@@ -112,12 +112,12 @@ function folderScript(dir: string, file: string): string {
 		"if ($trusted -notcontains (Get-Acl -LiteralPath $dir).GetOwner($sid).Value) { 'foreign'; return }",
 		"$loose = (Loose $dir) -or ((Test-Path -LiteralPath $file) -and (Loose $file))",
 		"if (-not $loose) { 'ok'; return }",
-		"$private = New-Object System.Security.AccessControl.DirectorySecurity",
-		"$private.SetAccessRuleProtection($true, $false)",
+		"$closed = New-Object System.Security.AccessControl.DirectorySecurity",
+		"$closed.SetAccessRuleProtection($true, $false)",
 		`foreach ($who in @($me, '${SYSTEM}')) {`,
-		"  $private.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule((New-Object System.Security.Principal.SecurityIdentifier($who)), 'FullControl', 'ContainerInherit, ObjectInherit', 'None', 'Allow')))",
+		"  $closed.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule((New-Object System.Security.Principal.SecurityIdentifier($who)), 'FullControl', 'ContainerInherit, ObjectInherit', 'None', 'Allow')))",
 		"}",
-		"(Get-Item -LiteralPath $dir).SetAccessControl($private)",
+		"(Get-Item -LiteralPath $dir).SetAccessControl($closed)",
 		"'repaired'",
 	].join("\n");
 }

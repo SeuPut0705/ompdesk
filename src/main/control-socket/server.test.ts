@@ -152,8 +152,9 @@ describe("control socket", () => {
 	});
 
 	async function start(backend = new FakeBackend()) {
-		const handle = await startControlSocket({ userData, backend });
-		if (handle === null) throw new Error("control socket did not start");
+		const lines: string[] = [];
+		const handle = await startControlSocket({ userData, backend, log: line => lines.push(line) });
+		if (handle === null) throw new Error(`control socket did not start: ${lines.join(" | ")}`);
 		const token = readFileSync(join(handle.dir, TOKEN_FILE), "utf8").trim();
 		return { handle, token, backend };
 	}
