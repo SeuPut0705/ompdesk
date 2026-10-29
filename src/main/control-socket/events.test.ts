@@ -197,7 +197,11 @@ describe("EventHub", () => {
 		expect(slow.frames).toHaveLength(2);
 		expect(slow.frames[1]).toEqual({
 			sub: 3,
-			error: { code: "events_lost", message: expect.stringContaining("5 events"), lost: 5 },
+			error: {
+				code: "events_lost",
+				message: expect.stringMatching(/5 events.*Subscribe again and resync/),
+				lost: 5,
+			},
 		});
 
 		backend.mail("outside:cli", "after");

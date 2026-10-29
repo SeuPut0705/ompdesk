@@ -154,7 +154,7 @@ export class EventHub {
 					sub: subscription.sub,
 					error: {
 						code: "events_lost",
-						message: `${lost} event${lost === 1 ? "" : "s"} dropped: the reader fell behind`,
+						message: `${lost} event${lost === 1 ? "" : "s"} dropped: the reader fell behind. Subscribe again and resync with \`ompdesk sessions\` (or \`state\` per session).`,
 						lost,
 					},
 				};

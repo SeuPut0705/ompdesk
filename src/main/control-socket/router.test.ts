@@ -235,6 +235,56 @@ describe("ControlRouter", () => {
 			await vi.advanceTimersByTimeAsync(1_000);
 			expect(errorOf(await pending).code).toBe("timeout");
 		});
+
+		it("counts only steps after the send: a turn that ran before it neither opens the gate nor ends the wait", async () => {
+			vi.useFakeTimers();
+			backend.add("t1", "idle");
+			const resolve = backend.resolve.bind(backend);
+			backend.resolve = async (who, name) => {
+				backend.fire({ type: "busy", tabId: "t1" });
+				backend.fire({ type: "idle", tabId: "t1", outcome: { stopReason: "stop" } });
+				return resolve(who, name);
+			};
+			const pending = router.handle(
+				request({ method: "send", session: "t1", message: "hi", wait: { until: "done" } }),
+				connection(),
+			);
+			await vi.advanceTimersByTimeAsync(5_000);
+			const error = errorOf(await pending);
+			expect(error.code).toBe("agent_prompt_stalled");
+			expect(error.message).toContain("no observed working or blocked state");
+		});
+
+		it("replays a turn end the gate consumed, even after another turn started", async () => {
+			backend.add("t1", "idle");
+			backend.onRun = async () => {
+				backend.fire({ type: "busy", tabId: "t1" });
+				backend.fire({ type: "idle", tabId: "t1", outcome: { stopReason: "stop" } });
+				backend.setState("t1", "working");
+				backend.fire({ type: "busy", tabId: "t1" });
+				return { text: "sent", isError: false };
+			};
+			for (const until of [undefined, "idle", "done"] as const)
+				expect(
+					resultOf(
+						await router.handle(
+							request({ method: "send", session: "t1", message: "hi", wait: until ? { until } : {} }),
+							connection(),
+						),
+					),
+				).toMatchObject({ waited: { state: "idle", matched: until ?? "settled", stopReason: "stop" } });
+		});
+
+		it("runs the gate under the one total timeout: a nearer timeout answers timeout, not stalled", async () => {
+			vi.useFakeTimers();
+			backend.add("t1", "idle");
+			const pending = router.handle(
+				request({ method: "send", session: "t1", message: "hi", wait: { timeoutMs: 2_000 } }),
+				connection(),
+			);
+			await vi.advanceTimersByTimeAsync(2_000);
+			expect(errorOf(await pending).code).toBe("timeout");
+		});
 	});
 
 	describe("wait", () => {

@@ -117,46 +117,54 @@ function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
 	return guarded;
 }
 
+/** One lifecycle step of a tab, numbered in the order this request heard it. */
+interface Lifecycle {
+	seq: number;
+	tabId: string;
+	kind: "working" | "blocked" | "ended" | "released";
+	stopReason?: string;
+}
+
 /**
- * What one request saw of one tab's activity since it subscribed. It subscribes before the tab is known (resolving
- * a name is asynchronous), so it keeps every tab's lifecycle activity until `bind`, then only the bound tab's.
+ * The tab's lifecycle steps since this request subscribed, each with a sequence number, so a wait can ask "what
+ * happened after mark N" and replay it (Herdr's `last_event_sequence`). It subscribes before the tab is known
+ * (resolving a name is asynchronous) and keeps every tab's steps until `bind`, then only the bound tab's.
  */
 class TabWatch {
-	/** A turn started or a question was raised: the session was seen working or blocked. */
-	started = false;
-	/** The stop reason of the last turn that ended. */
-	ended: string | undefined;
-	released = false;
+	#seq = 0;
 	#tab: string | undefined;
-	readonly #backlog: { tabId: string; kind: "start" | "end" | "released"; stopReason?: string }[] = [];
+	#log: Lifecycle[] = [];
 	readonly #unobserve: () => void;
 	#wake: (() => void) | undefined;
 
 	constructor(backend: ControlBackend) {
 		this.#unobserve = backend.observe(activity => {
-			if (activity.type === "busy" || activity.type === "ask") this.#note(activity.tabId, "start");
-			else if (activity.type === "idle") this.#note(activity.tabId, "end", activity.outcome?.stopReason ?? "stop");
+			if (activity.type === "busy") this.#note(activity.tabId, "working");
+			else if (activity.type === "ask") this.#note(activity.tabId, "blocked");
+			else if (activity.type === "idle") this.#note(activity.tabId, "ended", activity.outcome?.stopReason ?? "stop");
 			else if (activity.type === "released") this.#note(activity.tabId, "released");
 		});
 	}
 
 	bind(tab: string): void {
 		this.#tab = tab;
-		for (const entry of this.#backlog.splice(0)) this.#apply(entry);
+		this.#log = this.#log.filter(entry => entry.tabId === tab);
 	}
 
-	#note(tabId: string, kind: "start" | "end" | "released", stopReason?: string): void {
-		const entry = { tabId, kind, stopReason };
-		if (this.#tab === undefined) this.#backlog.push(entry);
-		else this.#apply(entry);
+	/** The sequence heard so far: `since(mark())` later holds only what happens from now on. */
+	mark(): number {
+		return this.#seq;
 	}
 
-	#apply(entry: { tabId: string; kind: "start" | "end" | "released"; stopReason?: string }): void {
-		if (entry.tabId !== this.#tab) return;
-		if (entry.kind === "start") this.started = true;
-		else if (entry.kind === "end") this.ended = entry.stopReason;
-		else this.released = true;
-		this.#wake?.();
+	/** The bound tab's steps after `mark`, oldest first. */
+	since(mark: number): Lifecycle[] {
+		return this.#log.filter(entry => entry.seq > mark && entry.tabId === this.#tab);
+	}
+
+	#note(tabId: string, kind: Lifecycle["kind"], stopReason?: string): void {
+		if (this.#tab !== undefined && tabId !== this.#tab) return;
+		this.#log.push({ seq: ++this.#seq, tabId, kind, ...(stopReason ? { stopReason } : {}) });
+		if (tabId === this.#tab) this.#wake?.();
 	}
 
 	/** Resolves with the first non-undefined `check()`, tried now, on every activity and on every poll beat. */
@@ -190,6 +198,21 @@ class TabWatch {
 		this.#wake = undefined;
 	}
 }
+
+/** What each `until` accepts from a replayed lifecycle step; `any` takes the first step of all. */
+const STEP_MATCHES: Record<WaitUntil | "settled", ReadonlySet<Lifecycle["kind"]>> = {
+	settled: new Set(["ended", "blocked"]),
+	idle: new Set(["ended"]),
+	blocked: new Set(["blocked"]),
+	done: new Set(["ended"]),
+	any: new Set(["working", "blocked", "ended"]),
+};
+
+const STEP_STATE: Record<Exclude<Lifecycle["kind"], "released">, SessionState> = {
+	working: "working",
+	blocked: "blocked",
+	ended: "idle",
+};
 
 function positiveMs(value: unknown, what: string): number | undefined {
 	if (value === undefined) return undefined;
@@ -275,36 +298,42 @@ export class ControlRouter {
 		return { text: outcome.text, isError: outcome.isError };
 	}
 
-	/** The check a wait settles on, over the facts one watch gathered. `startState` is what `any` compares against. */
+	/**
+	 * The check a wait settles on. It first replays the tab's lifecycle steps after `mark` (so a turn that ended while
+	 * the send's activity gate ran still ends the wait), then reads the session as it is now. `done` needs a turn end
+	 * after `mark`; `any` compares the state now with `startState`.
+	 */
 	#evaluate(
 		tab: string,
 		watch: TabWatch,
 		until: WaitUntil | undefined,
+		mark: number,
 		startState: SessionState,
-		last: SessionView,
 	): () => WaitResult | undefined {
-		const result = (matched: WaitResult["matched"], view: SessionView | null): WaitResult => ({
-			...status(view ?? { ...last, state: "idle" }),
-			matched,
-			...(watch.ended === undefined ? {} : { stopReason: watch.ended }),
-		});
+		const matched = until ?? "settled";
 		return () => {
-			if (until === "done" || until === "any") {
-				if (watch.ended !== undefined) return result(until, this.#backend.view(tab));
-			}
+			const steps = watch.since(mark);
 			const view = this.#backend.view(tab);
-			if (view === null || watch.released) throw failure("session_gone", `Session ${tab} is gone`);
+			if (view === null || steps.some(step => step.kind === "released"))
+				throw failure("session_gone", `Session ${tab} is gone`);
+			const step = steps.find(entry => STEP_MATCHES[matched].has(entry.kind));
+			if (step && step.kind !== "released")
+				return {
+					...status(view),
+					state: STEP_STATE[step.kind],
+					matched,
+					...(step.stopReason ? { stopReason: step.stopReason } : {}),
+				};
+			const now = (): WaitResult => ({ ...status(view), matched });
 			switch (until) {
 				case undefined:
 					// A stopped omp moves on only when someone restarts it: a settled wait reports it rather than hang.
-					return view.state === "idle" || view.state === "blocked" || view.state === "stopped"
-						? result("settled", view)
-						: undefined;
+					return view.state === "idle" || view.state === "blocked" || view.state === "stopped" ? now() : undefined;
 				case "idle":
 				case "blocked":
-					return view.state === until ? result(until, view) : undefined;
+					return view.state === until ? now() : undefined;
 				case "any":
-					return view.state !== startState ? result("any", view) : undefined;
+					return view.state !== startState ? now() : undefined;
 				default:
 					return undefined;
 			}
@@ -320,8 +349,9 @@ export class ControlRouter {
 		try {
 			const view = await abortable(this.#resolve(context.caller, name), bounds.signal);
 			watch.bind(view.session);
+			// From the subscription on: a turn that ended while the name was resolved counts for `done`.
 			return await watch.until(
-				this.#evaluate(view.session, watch, until, view.state, view),
+				this.#evaluate(view.session, watch, until, 0, view.state),
 				bounds.signal,
 				this.#pollMs,
 			);
@@ -360,6 +390,9 @@ export class ControlRouter {
 				);
 			}
 			const wasWorking = view.state === "working";
+			// Herdr's prompt --wait: the gate and the final wait both read what happened after this point, and one
+			// timeout (`bounds`) covers the send, the gate and the wait.
+			const preSend = watch.mark();
 			const outcome = await abortable(
 				this.#backend.run(context.caller, "ompdesk_session_send", {
 					session: view.session,
@@ -372,27 +405,25 @@ export class ControlRouter {
 			if (outcome.isError) throw failure("tool_failed", outcome.text);
 			if (wait === undefined) return { receipt: outcome.text };
 			const tab = view.session;
+			// The activity gate: the session was working already, or after the send it was seen working, blocked or
+			// ending a turn (a step, or the state now: a plan proposal raises no step). Within START_WAIT_MS or less
+			// when the total timeout is nearer; else agent_prompt_stalled.
 			const startBounds = guard(bounds.signal, this.#startWaitMs, () =>
 				failure(
 					"agent_prompt_stalled",
-					`Session ${tab} did not start working within ${this.#startWaitMs} ms of the message`,
+					`Session ${tab} produced no observed working or blocked state within ${this.#startWaitMs} ms of the message`,
 				),
 			);
-			let current: SessionView = view;
 			try {
 				await watch.until(
 					() => {
+						const steps = watch.since(preSend);
 						const now = this.#backend.view(tab);
-						if (watch.ended !== undefined || watch.started || wasWorking) {
-							if (now !== null) current = now;
-							return true;
-						}
-						if (now === null || watch.released) throw failure("session_gone", `Session ${tab} is gone`);
-						if (now.state === "working" || now.state === "blocked") {
-							current = now;
-							return true;
-						}
-						return undefined;
+						if (now === null || steps.some(step => step.kind === "released"))
+							throw failure("session_gone", `Session ${tab} is gone`);
+						return wasWorking || steps.length > 0 || now.state === "working" || now.state === "blocked"
+							? true
+							: undefined;
 					},
 					startBounds.signal,
 					this.#pollMs,
@@ -401,7 +432,7 @@ export class ControlRouter {
 				startBounds.dispose();
 			}
 			const waited = await watch.until(
-				this.#evaluate(tab, watch, until, current.state, current),
+				this.#evaluate(tab, watch, until, preSend, view.state),
 				bounds.signal,
 				this.#pollMs,
 			);
