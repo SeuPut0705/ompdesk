@@ -12,16 +12,16 @@ Why tests miss it: the claim lives in two processes (A's bridge and main), main'
 
 ## In scope
 
-- A's claim state machine: `ClaimBook` (`resources/gui-bridge/modes/checkout-claims.ts`): `begin`, `end`, `agentEnded`, `retire`/`retireFrom`, `restore`/`snapshot`, `#confirm`, `#revert`, `status`.
+- A's claim state machine: `ClaimBook` (`resources/gui-bridge/modes/checkout-claims.ts`): `begin`, `end`, `agentEnded`, `retire`/`retireFrom`, `restore`/`snapshot`, `#confirm`, `#revert`, `#clean` (a commit, restore or checkout of paths by A's own call that succeeded), `status`.
 - The bridge's journal round trip across an omp restart (`modes/checkout-peers.ts` `install`: `session_shutdown`, `session_start`).
 - Main's pass for one member with company: `CheckoutPeerCoordinator.#statusOf`, the git listing, `judgeClaim`, `#retire`, `#committed`, `#send` (`src/main/checkout-peers.ts`).
 
 ## Abstracted
 
-- One file F, A's main agent and one subagent, one peer B that only receives what main tells it. At most 2 calls (3 in the deep run), stamp counter ≤ 5 (7), one omp restart, 2 world events (3): commits of F or B's own writes of F.
+- One file F, A's main agent and one subagent, one peer B that only receives what main tells it. Calls are file tools, shell writes, or A's own `git commit -- F`. Fast run: at most 2 calls, stamp counter ≤ 5, one omp restart, 2 world events (commits of F, by anyone, or B's own writes). Own-commit run: 3 calls, stamps ≤ 7, no restart. Deep run: 3 calls, stamps ≤ 7, one restart, 3 world events.
 - One call per agent at a time (stock runs a batch's calls; a batch of several calls on F is several claims of one file in one step).
 - A background job is a call that stays pending until its job ends: `end` with a job id plus `settleJob` is the same as one longer call.
-- The guard's refusals, notices and git-run drops (`#clean`) are not modeled: they decide which calls start, not what a claim means once taken.
+- The guard's refusals and notices are not modeled: they decide which calls start, not what a claim means once taken. Of the git runs that make files clean only the commit is modeled; a restore or checkout of paths takes the same `#clean` path.
 - Main's request timeouts are nondeterminism: A's bridge answers or main uses its last answer; a retire is answered, or arrives later, or is lost with a restarting omp.
 
 ## Out of scope (not checked)

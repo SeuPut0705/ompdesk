@@ -20,7 +20,7 @@ Sync commit: the `syncCommit` of `checkout-claims` in `formal/manifest.json`.
 
 ## Bounds and assumptions
 
-- Bounds: one file, a main agent and a subagent, one peer, 2 calls, stamps ≤ 5, one restart, 2 commits or peer writes (fast, about 10 s); the deep run has 3 calls, stamps ≤ 7, 3 world events.
+- Bounds: one file, a main agent and a subagent, one peer; calls are file tools, shell writes or the session's own `git commit -- F`. Fast: 2 calls, stamps ≤ 5, one restart, 2 commits or peer writes; own-commit: 3 calls, stamps ≤ 7, no restart; deep: 3 calls, stamps ≤ 7, one restart, 3 world events.
 - Assumptions: the bridge answers requests in order; every call takes a stamp above every earlier one of its load; files are independent; stock's `agent_end` follows that agent's results. Full list: `formal/checkout-claims/CORRESPONDENCE.md`. Not covered: several files, folders, renames, repo peers, the guard's shell and git rules (`formal/checkout-claims/SCOPE.md`).
 
 ## Run it

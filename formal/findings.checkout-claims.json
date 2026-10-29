@@ -2,11 +2,11 @@
 	"concern": "checkout-claims",
 	"workflow": "W1",
 	"generated_at": "2026-10-29T05:30:00.000Z",
-	"repo_commit": "ec26c956a",
-	"summary": "3 findings, all fixed and each reproduced first as a failing test on the unchanged code. F1: main released a claim on the remembered answer of a busy bridge, so a peer was told it may take a file the session had started writing since. F2: a retire that found the file being written left the running call's taken-over claim in place, so the call failing gave the committed claim back. F3: main remembered committed claims without the omp load, so a restarted omp's restored claim (stamps from 1 again) was retired for an earlier load's commit while git failed, and the session's uncommitted write lost its claim. With the fixes the five frozen properties hold for one file, two agents, one restart, 2 calls and 2 world events (2.0M states, depth 46) and for 3 calls and 3 world events (103M states, depth 60); 8 of 8 mutations are detected (each 27 Oct regression among them), 2 declared equivalent.",
+	"repo_commit": "f4c1b3adc",
+	"summary": "4 findings, all fixed and each reproduced first as a failing test on the unchanged code. F1: main released a claim on the remembered answer of a busy bridge, so a peer was told it may take a file the session had started writing since. F2: a retire that found the file being written left the running call's taken-over claim in place, so the call failing gave the committed claim back. F3: main remembered committed claims without the omp load, so a restarted omp's restored claim (stamps from 1 again) was retired for an earlier load's commit while git failed, and the session's uncommitted write lost its claim. With the fixes the five frozen properties hold for one file, two agents, one restart, 2 calls and 2 world events (2.0M states, depth 46) and for 3 calls and 3 world events (103M states, depth 60); 11 of 11 mutations are detected (each 27 Oct regression and F1 to F4 among them), 1 declared equivalent. F4 (found in review of the first model, which left the session's own git runs out): a commit of the session's own that succeeded dropped a file a call begun before it was still writing, so that call's landed write was nobody's claim; the model now has the session's own commit calls (3 calls, 23.3M states, depth 53).",
 	"scope": {
 		"modeled": [
-			"ClaimBook (begin, end, agentEnded, retire/retireFrom, restore/snapshot, confirm, revert)",
+			"ClaimBook (begin, end, agentEnded, retire/retireFrom, restore/snapshot, confirm, revert), #clean (the session's own commit)",
 			"the journal across an omp restart",
 			"main's pass: #statusOf, git, judgeClaim, #committed, #retire, #send"
 		],
@@ -54,7 +54,7 @@
 		{
 			"name": "CommittedIsNobodys",
 			"kind": "invariant",
-			"meaning": "A's book holds no claim main judged committed once no call writes F and the retire was handled.",
+			"meaning": "A's book holds no claim that main, or a commit of A's own, made committed once no call writes F and a retire of it was handled.",
 			"source": "as NoStaleReturn",
 			"frozen": true,
 			"result": "holds",
@@ -286,6 +286,26 @@
 				"mutation_check": "fails-as-expected"
 			},
 			"evidence": []
+		},
+		{
+			"id": "F4",
+			"title": "The session's own commit dropped a file a call begun before it was still writing",
+			"severity": "high",
+			"status": "fixed",
+			"property": "NoLostClaim",
+			"story": "A starts `sleep 8; echo x > f` (W): its hook claims f. A commit of f in another call of A's succeeds before W's bytes land; #clean drops f because f's stamp is not newer than the commit's start, although W still writes it. W's bytes land and W reports back; its confirm moves only stamps that exist, so f, now uncommitted again, is nobody's claim and a peer may overwrite it.",
+			"reproduction": {
+				"test": "src/main/bridge-checkout-peers-claims.test.ts 'keeps a file a call started earlier is still writing' and 'goes back to no claim when an edit that began before the session's commit writes nothing'",
+				"result_before_fix": "fails",
+				"result_after_fix": "passes"
+			},
+			"fix": {
+				"summary": "#clean leaves a file a running call writes and voids the claim that call took over.",
+				"commit": "f4c1b3adc",
+				"model_recheck": "passes",
+				"mutation_check": "fails-as-expected"
+			},
+			"evidence": []
 		}
 	],
 	"trust_base": {
@@ -293,15 +313,16 @@
 			"tool_version": "TLC 1.8.0 (tla2tools 1.8.0), java 17",
 			"runs": [
 				"MC.cfg: 2,044,945 distinct states, depth 46, 24.6 s",
+				"MC_clean.cfg (3 calls with the session's own commits): 23,323,771 distinct states, depth 53, 91 s",
 				"MC_deep.cfg: 103,076,566 distinct states, depth 60, 1631 s"
 			],
 			"sanity_checks": [
 				"NeverShownWhileWriting and NeverReleased are violated, so the properties are not vacuous",
-				"mutate.ts: 8 of 8 DETECTED, 2 EQUIVALENT (confirm-keeps-stamp, retire-while-writing; reasons in mutations.json and CORRESPONDENCE.md), every property covered"
+				"mutate.ts: 11 of 11 DETECTED, 1 EQUIVALENT (retire-while-writing; reason in mutations.json and CORRESPONDENCE.md), every property covered"
 			]
 		},
 		"tests": [
-			"src/main/checkout-claims.test.ts: 3000 seeded sequences of 60 events on the real ClaimBook and coordinator; it fails on each of the 8 code mutations matching the model's"
+			"src/main/checkout-claims.test.ts: 3000 seeded sequences of 60 events (writes and commits of A's own) on the real ClaimBook and coordinator; it fails on each code mutation matching the model's, both halves of the F4 fix included"
 		]
 	},
 	"rerun": [

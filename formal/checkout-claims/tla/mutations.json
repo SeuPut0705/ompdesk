@@ -83,10 +83,11 @@
 		},
 		{
 			"name": "confirm-keeps-stamp",
-			"why": "A call that reports back no longer moves the stamp on, so a retire main decided from a read taken while it ran drops the landed write.",
+			"why": "A call that reports back no longer moves the stamp on, so a commit of the session's own that began before the call ended takes the call's landed write for committed.",
 			"search": "Confirmed(s, q) == IF s # 0 THEN <<q + 1, q + 1>> ELSE <<s, q>>",
 			"replace": "Confirmed(s, q) == <<s, q>>",
-			"equivalent": "Main never proposes a retire for a claim its own read of this pass showed pending, and a call that starts after that read takes a newer stamp, so no retire can carry the stamp a running call holds; the move is a second line for a retire whose read predates the pending list."
+			"breaks": "NoLostClaim",
+			"isolate": true
 		},
 		{
 			"name": "retire-while-writing",
@@ -94,6 +95,23 @@
 			"search": "IF m.inst = inst /\\ stamp = m.st /\\ ~Writing",
 			"replace": "IF m.inst = inst /\\ stamp = m.st",
 			"equivalent": "Every running call holds the newest stamp of F, taken at its hook; a retire carries a stamp main read with no call pending, so a running call's stamp never equals it. The ledger's own check is a second line behind main's pending rule."
+		},
+		{
+			"name": "clean-drops-a-running-write",
+			"why": "The advisory's path as it was: a commit by the session that succeeds drops F although a call that began earlier still writes it, and that call's confirm cannot bring the claim back, so its landed write is nobody's.",
+			"search": "/\\ stamp' = IF clean /\\ ~writes THEN 0 ELSE stamp",
+			"replace": "/\\ stamp' = IF clean THEN 0 ELSE stamp",
+			"breaks": "NoLostClaim",
+			"isolate": true
+		},
+		{
+			"name": "clean-keeps-taken-over-claim",
+			"why": "A commit that made F clean leaves a running call's taken-over claim in place, so the call writing nothing gives the committed claim back.",
+			"search": "/\\ calls' = IF clean THEN {[x EXCEPT !.earlier = 0] : x \\in others} ELSE others",
+			"replace": "/\\ calls' = others",
+			"breaks": "CommittedIsNobodys",
+			"isolate": true,
+			"config": "MC_clean.cfg"
 		}
 	]
 }

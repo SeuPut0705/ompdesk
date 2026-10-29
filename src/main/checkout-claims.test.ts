@@ -2,9 +2,10 @@
  * Shared-checkout claims under generated event sequences: the claim state machine (`ClaimBook`,
  * resources/gui-bridge/modes/checkout-claims.ts) of session A and main's real `CheckoutPeerCoordinator`, against the
  * invariants the TLA+ model checks (formal/checkout-claims/Properties.md). One file F, A's main agent and a subagent,
- * a peer B that only hears what main tells it. Events: a call starts (a file tool or a shell call; one stock refuses
- * never runs), its bytes land, it reports back (ok or failed), an agent's run ends, the omp restarts from its journal,
- * someone commits F, B changes F, a late retire reaches A, and main's pass (A's bridge answers or is busy, git answers
+ * a peer B that only hears what main tells it. Events: a call starts (a file tool, a shell write, or A's own
+ * `git commit -- F`; one stock refuses never runs), its bytes land (a commit: it commits), it reports back (ok or
+ * failed), an agent's run ends, the omp restarts from its journal, someone else commits F, B changes F, a late retire
+ * reaches A, and main's pass (A's bridge answers or is busy, git answers
  * or fails, the retire is answered or arrives late, and any of these events may happen while main waits for git).
  */
 import { describe, expect, it } from "vitest";
@@ -37,9 +38,14 @@ function random(seed: number): () => number {
 interface Call {
 	id: string;
 	owner: string;
-	kind: "file" | "shell";
+	/** A file tool or a shell write claims F; a commit (`git commit -- F`, a shell call) makes F clean when it succeeds. */
+	kind: "file" | "shell" | "commit";
 	runs: boolean;
 	landed: boolean;
+	/** A writer: the claim on F it took over (`instance\0stamp`), if A held one. */
+	takenOver?: string;
+	/** A commit: a writer of F started after it, so its clean leaves F alone. */
+	writerSince?: boolean;
 }
 
 class World {
@@ -50,6 +56,8 @@ class World {
 	late: unknown[] = [];
 	/** Every claim of F main judged committed: `instance\0stamp`. */
 	readonly committed = new Set<string>();
+	/** Every claim of F a commit of A's own made committed: the ones the writers still pending took over. */
+	readonly cleaned = new Set<string>();
 	nextId = 1;
 	dirty = false;
 	/** A write of A's landed since F was last committed. */
@@ -99,7 +107,7 @@ class World {
 			if (method === "checkout_peers_set") {
 				const peers = params as CheckoutPeers;
 				this.bview = peers.worktree.some(peer => peer.id === "a" && peer.files?.includes(F) === true);
-				if (this.bview) for (const call of this.running()) this.shown.add(call.id);
+				if (this.bview) for (const call of this.writing()) this.shown.add(call.id);
 			}
 			return { ok: true };
 		},
@@ -121,6 +129,11 @@ class World {
 		return [...this.calls.values()].filter(call => call.runs);
 	}
 
+	/** The running calls that write F. */
+	writing(): Call[] {
+		return this.running().filter(call => call.kind !== "commit");
+	}
+
 	/** A's bridge handles a retire main sent (`checkout_retire`). */
 	retire(params: unknown): void {
 		const held = this.book.files.includes(F);
@@ -138,22 +151,27 @@ function events(world: World, pick: () => number): Array<[string, () => void]> {
 			found.push([
 				`start ${owner}`,
 				() => {
+					const roll = pick();
 					const call: Call = {
 						id: `c${world.nextId++}`,
 						owner,
-						kind: pick() < 0.5 ? "file" : "shell",
+						kind: roll < 0.4 ? "file" : roll < 0.8 ? "shell" : "commit",
 						runs: pick() < 0.85,
 						landed: false,
 					};
+					if (call.kind !== "commit") {
+						if (world.book.files.includes(F)) call.takenOver = `${world.book.instance}\0${world.book.stamp(F)}`;
+						for (const other of world.calls.values()) if (other.kind === "commit") other.writerSince = true;
+					}
 					world.calls.set(call.id, call);
 					world.released = false;
 					world.book.begin({
 						owner,
 						id: call.id,
-						paths: [F],
-						keepsOnError: call.kind === "shell",
-						drops: [],
-						refresh: false,
+						paths: call.kind === "commit" ? [] : [F],
+						keepsOnError: call.kind !== "file",
+						drops: call.kind === "commit" ? [F] : [],
+						refresh: call.kind === "commit",
 						extra: call.id,
 					});
 					world.log.push(`start ${call.id} ${owner} ${call.kind}${call.runs ? "" : " (refused)"}`);
@@ -170,20 +188,35 @@ function events(world: World, pick: () => number): Array<[string, () => void]> {
 			]);
 	}
 	for (const call of world.running()) {
-		found.push([
-			`land ${call.id}`,
-			() => {
-				call.landed = true;
-				world.dirty = true;
-				world.aWrote = true;
-			},
-		]);
-		const failed = !call.landed || call.kind === "shell" ? pick() < 0.4 : false;
+		if (call.kind === "commit") {
+			if (!call.landed && world.dirty)
+				found.push([
+					`${call.id} commits`,
+					() => {
+						call.landed = true;
+						world.dirty = false;
+						world.aWrote = false;
+					},
+				]);
+		} else
+			found.push([
+				`land ${call.id}`,
+				() => {
+					call.landed = true;
+					world.dirty = true;
+					world.aWrote = true;
+				},
+			]);
+		// A failed file tool wrote nothing; a commit succeeds only when it committed.
+		const failed =
+			call.kind === "commit" ? !call.landed : !call.landed || call.kind === "shell" ? pick() < 0.4 : false;
 		found.push([
 			`end ${call.id}${failed ? " failed" : ""}`,
 			() => {
 				world.book.end(call.owner, call.id, { isError: failed });
 				world.calls.delete(call.id);
+				if (call.kind === "commit" && !failed && !call.writerSince)
+					for (const writer of world.calls.values()) if (writer.takenOver) world.cleaned.add(writer.takenOver);
 			},
 		]);
 	}
@@ -227,14 +260,15 @@ function events(world: World, pick: () => number): Array<[string, () => void]> {
 function check(world: World, seed: number): void {
 	const where = () => `seed ${seed}:\n  ${world.log.join("\n  ")}`;
 	// I1: a write B was told is A's stays A's to B until that call reports back.
-	for (const call of world.running()) if (world.shown.has(call.id)) expect(world.bview, where()).toBe(true);
+	for (const call of world.writing()) if (world.shown.has(call.id)) expect(world.bview, where()).toBe(true);
 	// I2a: a write of A's that nobody committed is A's claim.
 	if (world.aWrote) expect(world.book.files, where()).toContain(F);
 	// I2b: a claim main released, with no call of A's since, is never shown as A's again.
 	if (world.released) expect(world.bview, where()).toBe(false);
-	// I2c: A's book holds no claim main judged committed, once no call writes F and that retire was handled.
+	// I2c: A's book holds no claim main or A's own commit judged committed, once no call writes F and a retire of it
+	// was handled.
 	const key = `${world.book.instance}\0${world.book.stamp(F)}`;
-	if (world.book.files.includes(F) && world.committed.has(key) && world.calls.size === 0)
+	if (world.book.files.includes(F) && (world.committed.has(key) || world.cleaned.has(key)) && world.calls.size === 0)
 		expect(
 			world.late.some(retire => retireKeys(retire).includes(key)),
 			where(),
@@ -271,7 +305,8 @@ async function run(seed: number, steps: number): Promise<void> {
 }
 
 describe("shared-checkout claims under generated sequences", () => {
-	it("hold the claim invariants in every sequence", async () => {
+	// 3000 sequences take about 3 s alone; the ceiling is for a loaded runner, nothing waits on it.
+	it("hold the claim invariants in every sequence", { timeout: 60_000 }, async () => {
 		for (let seed = 1; seed <= 3000; seed++) await run(seed, 60);
 	});
 });
