@@ -792,7 +792,7 @@ export const en: Record<string, string> = {
 	"input.sendModeLabel": "While running, send as: {mode}. Click to switch",
 	"input.sendModeHint": "Steer reaches the running turn right away; a follow-up is sent after the turn ends.",
 	"input.live.background": "Background agents running: {count}. Sending now starts right away.",
-	"input.more.autoCompact": "Auto-compact",
+	"input.more.autoCompact": "Compaction",
 	"input.more.autoCompactDesc": "Auto-compact context: summarize older turns when the window fills up.",
 	"input.more.autoRetry": "Auto-retry",
 	"input.more.autoRetryDesc": "Auto-retry on failure: try a failed request again by itself.",
