@@ -180,14 +180,12 @@ afterEach(async () => {
 function upkeep(
 	client: UpkeepClient,
 	options: {
-		learn?: () => boolean;
 		model?: (message: DistillMessage) => Promise<ModelResult>;
 		rules?: (cwd: string) => Promise<string>;
 	} = {},
 ) {
 	return new MemoryUpkeep({
 		client,
-		learn: options.learn ?? (() => true),
 		model:
 			options.model ??
 			(async message => {
@@ -497,14 +495,13 @@ describe("MemoryUpkeep.tick", () => {
 		expect(await worker.tick()).toMatchObject({ ran: true, session: "live" });
 	});
 
-	it("is bounded: one run per hour, six per day, nothing while switched off, nothing at the same time", async () => {
+	it("is bounded: one run per hour, six per day, nothing at the same time", async () => {
 		const sessions = Array.from({ length: 9 }, (_, index) => ({
 			id: `s${index}`,
 			prompts: typed(7, UPKEEP_IDLE_MS * 10),
 		}));
 		const { client } = fakeClient(sessions);
-		let learn = true;
-		const worker = upkeep(client, { learn: () => learn });
+		const worker = upkeep(client);
 		expect(await worker.tick()).toMatchObject({ ran: true });
 		expect(await worker.tick()).toEqual({ ran: false, reason: "gap" });
 		for (let run = 1; run < UPKEEP_DAILY_MAX; run++) {
@@ -517,9 +514,6 @@ describe("MemoryUpkeep.tick", () => {
 		// A day later the allowance is back.
 		now += 24 * 60 * 60_000;
 		expect(await worker.tick()).toMatchObject({ ran: true });
-		learn = false;
-		now += UPKEEP_MIN_GAP_MS + 1;
-		expect(await worker.tick()).toEqual({ ran: false, reason: "off" });
 	});
 
 	it("a failing model counts against the schedule and is read again later; an answer it cannot parse is too", async () => {

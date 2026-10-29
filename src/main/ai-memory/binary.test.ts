@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { chmod, copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import macSigning from "../../../scripts/mac-signing.json" with { type: "json" };
 import { AI_MEMORY_BINARIES, AI_MEMORY_BUILD_MANIFEST, AI_MEMORY_VERSION } from "../../shared/ai-memory";
@@ -12,9 +12,7 @@ import {
 	AI_MEMORY_REQUIREMENT,
 	type BuiltAsset,
 	codeRequirementProblem,
-	externalCandidates,
 	MAC_STAGE_KEY,
-	newerExternal,
 	parseAiMemoryVersion,
 	pruneStaged,
 	readBuiltAsset,
@@ -328,107 +326,5 @@ describe("parseAiMemoryVersion", () => {
 		expect(parseAiMemoryVersion("")).toBeNull();
 		expect(parseAiMemoryVersion("omp/18.11.1")).toBeNull();
 		expect(parseAiMemoryVersion("ai-memory unknown")).toBeNull();
-	});
-});
-
-describe("externalCandidates", () => {
-	it("lists the install script's folders per platform", () => {
-		expect(externalCandidates("darwin", "/Users/a", {})).toEqual([
-			join("/Users/a", ".local", "bin", "ai-memory"),
-			"/opt/homebrew/bin/ai-memory",
-			"/usr/local/bin/ai-memory",
-		]);
-		const windows = externalCandidates("win32", "C:\\Users\\a", { LOCALAPPDATA: "D:\\Local" });
-		expect(windows).toEqual([
-			join("D:\\Local", "Programs", "ai-memory", "ai-memory.exe"),
-			join("D:\\Local", "ai-memory", "ai-memory.exe"),
-		]);
-	});
-});
-
-describe("newerExternal", () => {
-	// The test home and PATH are temp folders, so the developer's own ai-memory is never probed; a fake `probe`
-	// answers per path.
-	async function install(dir: string): Promise<string> {
-		await mkdir(dir, { recursive: true });
-		const bin = join(dir, "ai-memory");
-		await writeFile(bin, "#!/bin/sh\n");
-		await chmod(bin, 0o755);
-		return bin;
-	}
-	const run = (options: {
-		home: string;
-		path?: string;
-		exclude?: string[];
-		versions: Record<string, string | null>;
-	}) =>
-		newerExternal({
-			platform: "darwin",
-			home: options.home,
-			env: { PATH: options.path ?? "" },
-			exclude: options.exclude ?? [],
-			probe: async bin => options.versions[bin] ?? null,
-		});
-
-	const [major = 0, minor = 0, patch = 0] = AI_MEMORY_VERSION.split(".").map(Number);
-	const NEWER = `${major}.${minor}.${patch + 1}`;
-
-	it.skipIf(process.platform === "win32")("takes a NEWER install on PATH", async () => {
-		const bin = await install(join(root, "pathdir"));
-		const found = await run({ home: join(root, "home"), path: join(root, "pathdir"), versions: { [bin]: NEWER } });
-		expect(found).toEqual({ bin, version: NEWER });
-	});
-
-	it.skipIf(process.platform === "win32")("takes a NEWER install in ~/.local/bin", async () => {
-		const home = join(root, "home");
-		const bin = await install(join(home, ".local", "bin"));
-		const found = await run({ home, versions: { [bin]: NEWER } });
-		expect(found).toEqual({ bin, version: NEWER });
-	});
-
-	it.skipIf(process.platform === "win32")(
-		"ignores an equal, an older, an unparsable and a missing install",
-		async () => {
-			const home = join(root, "home");
-			const equal = await install(join(root, "equal"));
-			const older = await install(join(root, "older"));
-			const garbled = await install(join(root, "garbled"));
-			const path = [join(root, "equal"), join(root, "older"), join(root, "garbled"), join(root, "absent")].join(
-				delimiter,
-			);
-			const found = await run({
-				home,
-				path,
-				versions: { [equal]: AI_MEMORY_VERSION, [older]: "0.0.1", [garbled]: null },
-			});
-			expect(found).toBeNull();
-		},
-	);
-
-	it("is null when no ai-memory exists anywhere", async () => {
-		expect(await run({ home: join(root, "home"), versions: {} })).toBeNull();
-	});
-
-	it.skipIf(process.platform === "win32")("never counts the staged copy as the user's", async () => {
-		const staged = await install(join(root, "staged"));
-		const found = await run({
-			home: join(root, "home"),
-			path: join(root, "staged"),
-			exclude: [staged],
-			versions: { [staged]: NEWER },
-		});
-		expect(found).toBeNull();
-	});
-
-	it.skipIf(process.platform === "win32")("picks the newest of several newer installs", async () => {
-		const home = join(root, "home");
-		const onPath = await install(join(root, "a"));
-		const local = await install(join(home, ".local", "bin"));
-		const found = await run({
-			home,
-			path: join(root, "a"),
-			versions: { [onPath]: "99.0.1", [local]: "99.1.0" },
-		});
-		expect(found).toEqual({ bin: local, version: "99.1.0" });
 	});
 });

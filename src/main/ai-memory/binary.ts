@@ -10,19 +10,17 @@
  * grants then survive updates, and a folder per build on Windows. Either way the unit `setup` renders changes with the
  * new bytes, so ai-memory's own `setup` restarts the service on them; other folders are removed afterwards.
  *
- * A user's own newer ai-memory (on PATH, `~/.local/bin`, the Windows script's folders) wins over the shipped copy:
- * the data directory's schema only migrates forward, so an older binary must never open data a newer one wrote. An
- * equal or older one of theirs is left alone and the shipped copy is used.
+ * Only this build ever runs: no other ai-memory (PATH, `~/.local/bin`, Homebrew, the Windows script's folders) is
+ * looked for or used, however new it is (the user's decision of 29 Oct 2026).
  */
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { chmod, copyFile, mkdir, readdir, readFile, rename, rm, stat } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readdir, readFile, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import macSigning from "../../../scripts/mac-signing.json" with { type: "json" };
 import { AI_MEMORY_BINARIES, AI_MEMORY_BUILD_MANIFEST, AI_MEMORY_VERSION } from "../../shared/ai-memory";
-import { compareVersions } from "../../shared/version";
-import { executableName, findOnPath, needsShell, spawnArgs, spawnCommand } from "../spawn";
+import { needsShell, spawnArgs, spawnCommand } from "../spawn";
 
 export type AiMemoryPlatform = "darwin" | "win32";
 
@@ -207,56 +205,4 @@ export function probeVersion(bin: string, env: NodeJS.ProcessEnv = process.env):
 		},
 	);
 	return promise;
-}
-
-/** Where a user's own install usually lives: ai-memory's install scripts and its docs' manual paths. */
-export function externalCandidates(platform: AiMemoryPlatform, home: string, env: NodeJS.ProcessEnv): string[] {
-	if (platform === "win32") {
-		const local = env.LOCALAPPDATA || join(home, "AppData", "Local");
-		return [join(local, "Programs", "ai-memory", "ai-memory.exe"), join(local, "ai-memory", "ai-memory.exe")];
-	}
-	return [join(home, ".local", "bin", "ai-memory"), "/opt/homebrew/bin/ai-memory", "/usr/local/bin/ai-memory"];
-}
-
-export interface ExternalInstall {
-	bin: string;
-	version: string;
-}
-
-/**
- * The user's own ai-memory when it is NEWER than the shipped one (never equal or older), else null. `exclude` keeps
- * the staged copy (which may sit on PATH) from counting as the user's.
- */
-export async function newerExternal(options: {
-	platform: AiMemoryPlatform;
-	home: string;
-	env: NodeJS.ProcessEnv;
-	exclude: string[];
-	probe?: (bin: string) => Promise<string | null>;
-}): Promise<ExternalInstall | null> {
-	const { platform, home, env, exclude } = options;
-	const probe = options.probe ?? ((bin: string) => probeVersion(bin, env));
-	const pathEnv = env.PATH ?? env.Path ?? "";
-	const found = new Set<string>();
-	const onPath = findOnPath([executableName("ai-memory", platform)], pathEnv, platform, [], exclude);
-	if (onPath) found.add(onPath);
-	for (const candidate of externalCandidates(platform, home, env)) {
-		if (
-			!exclude.includes(candidate) &&
-			(await stat(candidate).then(
-				info => info.isFile(),
-				() => false,
-			))
-		) {
-			found.add(candidate);
-		}
-	}
-	let best: ExternalInstall | null = null;
-	for (const bin of found) {
-		const version = await probe(bin);
-		if (!version) continue;
-		if (compareVersions(version, AI_MEMORY_VERSION) !== 1) continue;
-		if (!best || compareVersions(version, best.version) === 1) best = { bin, version };
-	}
-	return best;
 }

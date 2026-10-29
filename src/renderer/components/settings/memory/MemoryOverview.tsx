@@ -1,9 +1,9 @@
 /**
- * Memory › Overview: the switch, the server's status, the project the page shows, its counts, the last capture, the
- * disk size, the console, the terminal omp and the privacy line. One line a row; every explanation is a tooltip.
- * The switch is not a prefs write: main installs or removes the wiring and the service and pushes the state back.
+ * Memory › Overview: the server's status, the project the page shows, its counts, the last capture, the disk size, the
+ * console, the terminal omp and the privacy line. One line a row; every explanation is a tooltip. Memory and learning
+ * are always on (29 Oct 2026): there is no switch.
  */
-import { Activity, Brain, FolderOpen, GraduationCap, KeyRound, Lock, RefreshCw, SquareTerminal } from "lucide-react";
+import { Activity, FolderOpen, KeyRound, Lock, RefreshCw, SquareTerminal } from "lucide-react";
 import { useState } from "react";
 import type {
 	AiMemoryOverview,
@@ -12,12 +12,10 @@ import type {
 	AiMemoryProjectRef,
 	AiMemoryState,
 } from "../../../../shared/ai-memory";
-import { AI_MEMORY_LEARN_PREF } from "../../../../shared/ai-memory";
 import { formatBytes, formatTimeAgo } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
-import { Badge, Button, CopyButton, InlineNotice, SettingInfo, Spinner } from "../../common";
-import { useMainPreference } from "../GeneralSection";
-import { SettingsRow, SettingsSwitchRow } from "../SettingsLayout";
+import { Badge, Button, CopyButton, InlineNotice, SettingInfo } from "../../common";
+import { SettingsRow } from "../SettingsLayout";
 import { projectLabel } from "./MemorySection";
 import { useMemoryAction } from "./memory-ui";
 import { projectKey, useMemoryRead } from "./use-memory-read";
@@ -36,9 +34,8 @@ export function MemoryOverview({
 	const { run } = useMemoryAction();
 	const starting = state.phase === "starting";
 	const unsupported = state.phase === "unsupported";
-	const [learn, setLearn] = useMainPreference(AI_MEMORY_LEARN_PREF, true);
 	const problem = state.phase === "failed" || state.phase === "unreachable";
-	const usable = state.enabled && !unsupported;
+	const usable = !unsupported;
 	const ready = state.phase === "ready";
 	const stats = state.stats;
 	const overview = useMemoryRead<AiMemoryOverview>(ready && project ? `overview/${projectKey(project)}` : null, () =>
@@ -72,35 +69,6 @@ export function MemoryOverview({
 
 	return (
 		<>
-			<SettingsSwitchRow
-				checked={state.enabled}
-				description={t("memory.overview.switch.info")}
-				disabled={starting || unsupported}
-				extra={
-					starting ? (
-						<Spinner
-							label={t("memory.phase.startingStep", {
-								step: state.step ? t(`memory.step.${state.step}`) : t("memory.step.stage"),
-							})}
-							size="sm"
-						/>
-					) : undefined
-				}
-				icon={<Brain />}
-				id="setting-aiMemory"
-				label={t("memory.overview.switch")}
-				onCheckedChange={checked => void act("toggle", () => window.omp.aiMemory.setEnabled(checked))}
-			/>
-			{state.enabled && !unsupported && (
-				<SettingsSwitchRow
-					checked={learn}
-					description={t("memory.overview.learn.info")}
-					icon={<GraduationCap />}
-					id="setting-aiMemory-learn"
-					label={t("memory.overview.learn")}
-					onCheckedChange={setLearn}
-				/>
-			)}
 			<SettingsRow
 				tipOnly
 				compactControl
@@ -270,7 +238,7 @@ export function MemoryOverview({
 					/>
 				</>
 			)}
-			{!unsupported && (state.enabled || state.wiring.terminal) && (
+			{!unsupported && (
 				<SettingsRow
 					compactControl
 					control={
@@ -335,13 +303,9 @@ function statusVariant(phase: AiMemoryPhase) {
 	return "muted";
 }
 
-/** What follows the badge: the step while starting, else version and where the program comes from. */
+/** What follows the badge: the step while starting, else the version. */
 function statusDetail(t: ReturnType<typeof useT>, state: AiMemoryState): string {
 	if (state.phase === "starting" && state.step)
 		return t("memory.phase.startingStep", { step: t(`memory.step.${state.step}`) });
-	const parts: string[] = [];
-	if (state.version) parts.push(`v${state.version}`);
-	if (state.version && state.phase !== "off" && state.phase !== "unsupported")
-		parts.push(t(`memory.source.${state.source}`));
-	return parts.join(" · ");
+	return state.version ? `v${state.version}` : "";
 }

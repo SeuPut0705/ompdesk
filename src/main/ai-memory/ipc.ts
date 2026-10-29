@@ -60,7 +60,6 @@ export function registerAiMemoryIpc(
 		AiMemoryService,
 		| "state"
 		| "refresh"
-		| "setEnabled"
 		| "retry"
 		| "purge"
 		| "setTerminal"
@@ -88,11 +87,6 @@ export function registerAiMemoryIpc(
 	ipc.handle(IPC_COMMANDS.AI_MEMORY_GET_STATE, () => {
 		void service.refresh().catch(() => undefined);
 		return service.state();
-	});
-	ipc.handle(IPC_COMMANDS.AI_MEMORY_SET_ENABLED, (_caller, enabled: unknown) => {
-		if (typeof enabled !== "boolean") throw new Error("Invalid argument: enabled");
-		// Runs in the background; progress arrives as AI_MEMORY_STATE pushes.
-		void service.setEnabled(enabled).catch(() => undefined);
 	});
 	ipc.handle(IPC_COMMANDS.AI_MEMORY_RETRY, () => {
 		void service.retry().catch(() => undefined);

@@ -63,8 +63,6 @@ export type UpkeepLogDetails = Record<string, string | number | boolean | null>;
 
 export interface UpkeepDeps {
 	client: UpkeepClient;
-	/** Settings › Memory › Learn from conversations (default on: only a stored `false` is off), read per tick. */
-	learn: () => boolean;
 	/** The one model call (`distill-model.ts runSmol` on the user's omp); rejects when omp or the provider fails. */
 	model: (message: DistillMessage) => Promise<ModelResult>;
 	/** `<userData>/ai-memory/upkeep.json`: which conversations were read up to which message, and when the runs were. */
@@ -85,7 +83,7 @@ interface UpkeepState {
 }
 
 export type TickOutcome =
-	| { ran: false; reason: "off" | "busy" | "gap" | "daily" | "nothing" }
+	| { ran: false; reason: "busy" | "gap" | "daily" | "nothing" }
 	| {
 			ran: true;
 			session: string;
@@ -241,7 +239,6 @@ export class MemoryUpkeep {
 	/** One look at the conversations: at most one model call. Public for the tests. */
 	async tick(): Promise<TickOutcome> {
 		if (this.#namesAt === null || this.#now - this.#namesAt >= NAME_REPAIR_GAP_MS) await this.#repairNames();
-		if (!this.#deps.learn()) return { ran: false, reason: "off" };
 		if (this.#running) return { ran: false, reason: "busy" };
 		this.#running = true;
 		try {

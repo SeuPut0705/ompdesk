@@ -19,7 +19,6 @@ import {
 	q,
 	qa,
 	settle,
-	text,
 } from "./memory-test-harness";
 
 let api = fakeMemoryApi();
@@ -62,7 +61,7 @@ describe("Memory page", () => {
 		await show(undefined);
 		const tabs = qa("[role=tab]").map(tab => tab.textContent?.replace(/\d+$/, "").trim());
 		expect(tabs).toEqual(["Overview", "Search", "Pages", "Handoffs", "Sessions", "Profile", "Maintenance"]);
-		expect(text("[data-memory-tab]")).toContain("Remember across sessions");
+		expect(qa("[role=switch]")).toHaveLength(0);
 	});
 
 	it("a tab is the settings sub-target", async () => {
@@ -80,8 +79,8 @@ describe("Memory page", () => {
 		expect(navigated).toContain("memory:pages");
 	});
 
-	it("off shows the overview only, with no tabs", async () => {
-		await show("pages", memoryState({ enabled: false, phase: "off", stats: null }));
+	it("a memory that is unavailable shows the overview only, with no tabs", async () => {
+		await show("pages", memoryState({ phase: "unsupported", unsupported: "platform", stats: null }));
 		expect(qa("[role=tab]")).toHaveLength(0);
 		expect(q("[data-memory-status]")).not.toBeNull();
 		expect(api.projects).not.toHaveBeenCalled();

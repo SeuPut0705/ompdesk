@@ -42,6 +42,18 @@ describe("migrateRetiredPrefs", () => {
 		expect(store.get("language")).toBe("en");
 	});
 
+	it("retires the stored memory and learning switches of an older version: a stored off no longer matters", () => {
+		const store = memoryStore({
+			aiMemory: false,
+			aiMemoryLearn: false,
+			aiMemoryServiceOwned: false,
+			aiMemoryTerminal: true,
+			language: "ko",
+		});
+		migrateRetiredPrefs(store);
+		expect(store.data).toEqual({ aiMemoryTerminal: true, language: "ko" });
+	});
+
 	it("keeps tools up to date unless all three update switches were off", () => {
 		const allOff = memoryStore({ ompAutoUpdate: false, cliAutoUpdate: false, extensionAutoUpdate: false });
 		migrateRetiredPrefs(allOff);

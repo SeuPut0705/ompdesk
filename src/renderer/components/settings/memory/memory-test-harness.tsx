@@ -43,10 +43,8 @@ export const OTHER = { workspace: "work", project: "api" };
 
 export function memoryState(extra: Partial<AiMemoryState> = {}): AiMemoryState {
 	return {
-		enabled: true,
 		phase: "ready",
 		step: null,
-		source: "bundled",
 		version: "3.1.1",
 		binary: "/app/memory",
 		dataDir: "/data",
@@ -105,7 +103,6 @@ export function fakeMemoryApi() {
 	return {
 		getState: vi.fn(async () => memoryState()),
 		onState: vi.fn(() => () => {}),
-		setEnabled: vi.fn(async (_enabled: boolean) => {}),
 		retry: vi.fn(async () => {}),
 		purge: vi.fn(async () => {}),
 		setTerminal: vi.fn(async (_enabled: boolean) => {}),

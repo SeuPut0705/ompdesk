@@ -1,11 +1,11 @@
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
-import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
-import { AI_MEMORY_VERSION, type AiMemoryState } from "../../shared/ai-memory";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AiMemoryState } from "../../shared/ai-memory";
 import type { SpawnSpec } from "../setup/plans";
 import { SetupRunner, type SupervisedChild } from "../setup/runner";
 import { SUPERVISOR_STOPPED_CODE } from "../setup/supervisor";
@@ -57,10 +57,6 @@ interface Behavior {
 	setup: () => Result;
 	init: () => Result;
 	plan: () => Result;
-	/** The lines `uninstall` (dry run) prints: other agents' wiring it would remove. */
-	others: string[];
-	/** The dry run itself fails. */
-	listingFails: boolean;
 	/** A command's own hook, run before it answers (a hang, a spawn error). */
 	gate: ((args: string[]) => Promise<GateResult | undefined>) | undefined;
 }
@@ -79,9 +75,8 @@ interface World {
 	health: { up: boolean; healthCalls: number; gate: Promise<void>; inFlight: number; maxInFlight: number };
 	/** The OS service: what `setup` installs and `remove` takes away. */
 	unit: { installed: boolean; ours: boolean; removed: number };
-	prefs: { enabled: boolean; terminal: boolean | undefined; owned: boolean | undefined };
+	prefs: { terminal: boolean | undefined };
 	states: AiMemoryState[];
-	persistEnabled: Mock<(enabled: boolean) => void>;
 	clock: { now: number };
 	service: AiMemoryService;
 }
@@ -103,8 +98,6 @@ async function world(overrides: Partial<AiMemoryServiceDeps> = {}): Promise<Worl
 		generate: true,
 		setup: (): Result => ({ code: 0, output: "setup done\n" }),
 		init: (): Result => ({ code: 0, output: "initialized\n" }),
-		others: [],
-		listingFails: false,
 		plan: (): Result => ({
 			code: 0,
 			output: `INFO ai_memory: plan\n${JSON.stringify({
@@ -120,7 +113,7 @@ async function world(overrides: Partial<AiMemoryServiceDeps> = {}): Promise<Worl
 	};
 	const health: World["health"] = { up: true, healthCalls: 0, gate: Promise.resolve(), inFlight: 0, maxInFlight: 0 };
 	const unit = { installed: false, ours: false, removed: 0 };
-	const prefs: World["prefs"] = { enabled: true, terminal: undefined, owned: undefined };
+	const prefs: World["prefs"] = { terminal: undefined };
 
 	const argAfter = (args: string[], flag: string): string => args[args.indexOf(flag) + 1] ?? "";
 	const writeFileDeep = async (file: string, text: string) => {
@@ -196,13 +189,6 @@ async function world(overrides: Partial<AiMemoryServiceDeps> = {}): Promise<Worl
 						);
 					}
 				}
-			} else if (verb === "uninstall") {
-				result = behavior.listingFails
-					? { code: 1, output: "cannot read\n" }
-					: {
-							code: 0,
-							output: `${behavior.others.join("\n")}\nnote: other checkouts\n(dry-run; pass --apply to remove)\n`,
-						};
 			}
 			child.finish(result.code, result.output ?? "");
 		};
@@ -241,9 +227,6 @@ async function world(overrides: Partial<AiMemoryServiceDeps> = {}): Promise<Worl
 		},
 	};
 	const states: AiMemoryState[] = [];
-	const persistEnabled = vi.fn((enabled: boolean) => {
-		prefs.enabled = enabled;
-	});
 	const clock = { now: 1_800_000_000_000 };
 	const service = new AiMemoryService({
 		platform: "darwin",
@@ -255,15 +238,9 @@ async function world(overrides: Partial<AiMemoryServiceDeps> = {}): Promise<Worl
 		home,
 		agentDir: () => agentDir,
 		rootDir,
-		enabled: () => prefs.enabled,
-		persistEnabled,
 		terminalPref: () => prefs.terminal,
 		persistTerminal: value => {
 			prefs.terminal = value;
-		},
-		serviceOwnedPref: () => prefs.owned,
-		persistServiceOwned: value => {
-			prefs.owned = value;
 		},
 		unit: control,
 		spawnEnv: async () => ({ PATH: "" }),
@@ -290,7 +267,6 @@ async function world(overrides: Partial<AiMemoryServiceDeps> = {}): Promise<Worl
 		unit,
 		prefs,
 		states,
-		persistEnabled,
 		clock,
 		service,
 	};
@@ -301,7 +277,6 @@ type GateResult = Result | typeof HANG | "spawn-error";
 const SETUP = "setup --yes --agent omp";
 const PLAN = "setup --plan --json --agent omp";
 const INIT = "init";
-const LISTING = "uninstall";
 /** The three generator commands, in order, for a root at `rootDir` (they write into `<root>.next`, swapped in after). */
 const generators = (rootDir: string) => [
 	`install-hooks --agent omp --apply --config-file ${join(`${rootDir}.next`, "index.ts")}`,
@@ -370,10 +345,8 @@ describe("AiMemoryService", () => {
 				.filter((step, index, all) => step !== all[index - 1]);
 			expect(steps).toEqual(["starting:stage", "starting:wire", "starting:check", "ready:null"]);
 			expect(service.state()).toMatchObject({
-				enabled: true,
 				phase: "ready",
 				step: null,
-				source: "bundled",
 				binary: BIN,
 				dataDir,
 				serverUrl: SERVER,
@@ -615,34 +588,29 @@ describe("AiMemoryService", () => {
 		});
 	});
 
-	describe("the root is loaded only while memory is on", () => {
-		it("-e <root> while on, nothing while off, and again after on", async () => {
+	describe("the root is loaded", () => {
+		it("-e <root> once memory is set up, nothing before", async () => {
 			const { service, rootDir } = await make();
 			expect(await service.extensionArgs()).toEqual([]);
 			await service.start();
 			expect(await service.extensionArgs()).toEqual(["-e", rootDir]);
-			await service.setEnabled(false);
-			expect(await service.extensionArgs()).toEqual([]);
-			await service.setEnabled(true);
-			expect(await service.extensionArgs()).toEqual(["-e", rootDir]);
 		});
 
-		it("the switch stops the loading at once: the stored value alone decides, before any command ends", async () => {
-			const { service, behavior, prefs } = await make();
-			await service.start();
-			behavior.gate = async () => HANG;
-			void service.setEnabled(false);
-			expect(prefs.enabled).toBe(false);
-			expect(await service.extensionArgs()).toEqual([]);
-		});
-
-		it("a terminal omp that already loads ai-memory's extension from its agent dir gets no second copy", async () => {
-			const { service, agentDir } = await make();
+		it("a terminal omp the user connected that already loads ai-memory's extension gets no second copy", async () => {
+			const { service, agentDir, prefs } = await make();
+			prefs.terminal = true;
 			await service.start();
 			await plantTerminalWiring(agentDir, "/users/own/ai-memory");
 			expect(await service.extensionArgs()).toEqual([]);
 			await rm(join(agentDir, EXTENSION_FILE));
 			expect(await service.extensionArgs()).toEqual(["-e", w?.rootDir]);
+		});
+
+		it("wiring the user made with their own ai-memory is not the terminal's: the root still loads", async () => {
+			const { service, agentDir, rootDir } = await make();
+			await service.start();
+			await plantTerminalWiring(agentDir, "/users/own/ai-memory");
+			expect(await service.extensionArgs()).toEqual(["-e", rootDir]);
 		});
 
 		it("a build that does not manage ai-memory loads nothing", async () => {
@@ -652,137 +620,33 @@ describe("AiMemoryService", () => {
 		});
 	});
 
-	describe("off, on and purge", () => {
-		it("off never runs `uninstall --apply`: it deletes the root, stops its own server and leaves everything else", async () => {
-			const { service, commands, persistEnabled, agentDir, dataDir, prefs, unit, health, rootDir, home } =
-				await make();
-			// Another agent's ai-memory wiring and omp's own config, planted before.
-			const claude = join(home, ".claude", "settings.json");
-			await mkdir(dirname(claude), { recursive: true });
-			await writeFile(claude, '{"hooks":{"ai-memory":1}}');
-			await service.start();
-			await service.setEnabled(false);
-			expect(persistEnabled).toHaveBeenCalledWith(false);
-			expect(prefs.enabled).toBe(false);
-			// A dry run lists other clients; nothing ever applies an uninstall.
-			expect(commands().at(-1)).toBe(LISTING);
-			for (const command of commands()) expect(command).not.toContain("--apply --yes");
-			expect(commands().some(command => command.startsWith("uninstall") && command.includes("--apply"))).toBe(false);
-			expect(service.state()).toMatchObject({
-				enabled: false,
-				phase: "off",
-				step: null,
-				stats: null,
-				wiring: { app: false, terminal: false },
-			});
-			expect(existsSync(rootDir)).toBe(false);
-			expect(unit.removed).toBe(1);
-			expect(health.up).toBe(false);
-			// Not OMPdesk's to touch: other agents' configs, omp's own config and ai-memory's data.
-			expect(await readFile(claude, "utf8")).toBe('{"hooks":{"ai-memory":1}}');
-			expect(await readFile(join(agentDir, "config.yml"), "utf8")).toBe("theme: dark\n");
-			expect(existsSync(join(dataDir, "auth-tokens", "default"))).toBe(true);
-		});
-
-		it("the server keeps running while another agent is wired to it", async () => {
-			const { service, behavior, unit, health } = await make();
-			behavior.others = ["would delete /home/u/.claude/settings.json (Claude Code hooks)"];
-			await service.start();
-			await service.setEnabled(false);
-			expect(service.state().phase).toBe("off");
-			expect(unit.removed).toBe(0);
-			expect(health.up).toBe(true);
-		});
-
-		it("other agents' managed skills alone are not a client: the server still stops", async () => {
-			const { service, behavior, unit } = await make();
-			behavior.others = ["would delete /home/u/.agents/skills/ai-memory-handoff/SKILL.md (managed Agent Skill)"];
-			await service.start();
-			await service.setEnabled(false);
-			expect(unit.removed).toBe(1);
-		});
-
-		it("ai-memory's own service in the dry run (a Windows logon entry, a launchd unit) is not another client", async () => {
-			const { service, behavior, unit } = await make();
-			behavior.others = [
-				"would delete the Windows logon entry HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\ai-memory",
-				"would remove the launchd service com.github.akitaonrails.ai-memory",
-			];
-			await service.start();
-			await service.setEnabled(false);
-			expect(unit.removed).toBe(1);
-		});
-
-		it("the server keeps running when the list of other clients cannot be read", async () => {
-			const { service, behavior, unit } = await make();
-			await service.start();
-			behavior.listingFails = true;
-			await service.setEnabled(false);
-			expect(unit.removed).toBe(0);
-		});
-
-		it("a terminal omp connected to ai-memory keeps its wiring and the server", async () => {
-			const { service, unit, agentDir } = await make();
-			await service.start();
-			await service.setTerminal(true);
-			await service.setEnabled(false);
-			expect(unit.removed).toBe(0);
-			expect(existsSync(join(agentDir, EXTENSION_FILE))).toBe(true);
-			expect(service.state().wiring).toEqual({ app: false, terminal: true });
-		});
-
-		it("a service OMPdesk did not start is never stopped, and setup is told not to install one", async () => {
-			const { service, commands, unit, prefs, rootDir } = await make();
+	describe("only OMPdesk's own service runs", () => {
+		it("a unit that runs someone else's binary is replaced by ours: the foreign server stops, ours starts and answers", async () => {
+			const { service, commands, calls, unit, health, rootDir, dataDir } = await make();
+			await mkdir(dataDir, { recursive: true });
+			await writeFile(join(dataDir, "config.toml"), 'bind = "127.0.0.1:50123"\n');
 			Object.assign(unit, { installed: true, ours: false });
+			expect(health.up).toBe(true);
 			await service.start();
-			expect(commands()).toEqual([PLAN, INIT, `${SETUP} --no-service`, ...generators(rootDir)]);
-			expect(prefs.owned).toBe(false);
-			await service.setEnabled(false);
-			expect(unit.removed).toBe(0);
-			// Still not ours after our own unit name shows up later: the stored answer stays false.
-			Object.assign(unit, { installed: true, ours: true });
-			await service.setEnabled(true);
-			expect(commands().at(-4)).toBe(`${SETUP} --no-service`);
+			expect(unit.removed).toBe(1);
+			expect(commands()).toEqual([PLAN, SETUP, ...generators(rootDir)]);
+			expect(commands().some(command => command.includes("--no-service"))).toBe(false);
+			for (const call of calls) expect(call.file).toBe(BIN);
+			expect(unit).toMatchObject({ installed: true, ours: true });
+			expect(health.up).toBe(true);
+			expect(service.state()).toMatchObject({ phase: "ready", binary: BIN });
 		});
 
-		it("a server that answered before OMPdesk set anything up (no unit of ours) is someone else's", async () => {
-			const { service, commands, dataDir, prefs, unit } = await make();
+		it("a server that answers with no unit at all (Docker, a foreground serve) fails the pass and says so; setup never runs", async () => {
+			const { service, commands, dataDir, unit } = await make({ retryDelaysMs: [] });
 			await mkdir(dataDir, { recursive: true });
 			await writeFile(join(dataDir, "config.toml"), 'bind = "127.0.0.1:50123"\n');
 			await service.start();
-			expect(commands()[1]).toBe(`${SETUP} --no-service`);
-			expect(prefs.owned).toBe(false);
-			await service.setEnabled(false);
+			expect(commands()).toEqual([PLAN]);
 			expect(unit.removed).toBe(0);
+			expect(service.state()).toMatchObject({ phase: "failed" });
+			expect(service.state().detail).toContain("did not start");
 		});
-
-		it("on again sets up the root again", async () => {
-			const { service, commands, rootDir } = await make();
-			await service.start();
-			await service.setEnabled(false);
-			await service.setEnabled(true);
-			expect(commands().slice(-5)).toEqual([PLAN, SETUP, ...generators(rootDir)]);
-			expect(service.state()).toMatchObject({
-				enabled: true,
-				phase: "ready",
-				wiring: { app: true, terminal: false },
-			});
-		});
-
-		it("a stored `false` at launch starts off and runs no command", async () => {
-			const { service, commands, prefs } = await make();
-			prefs.enabled = false;
-			await service.start();
-			expect(commands()).toEqual([]);
-			expect(service.state()).toMatchObject({ enabled: false, phase: "off" });
-		});
-
-		async function seedData(dataDir: string): Promise<void> {
-			for (const folder of ["wiki", "db", "raw"]) {
-				await mkdir(join(dataDir, folder), { recursive: true });
-				await writeFile(join(dataDir, folder, "x"), "data");
-			}
-		}
 
 		it("purge stops its own server, deletes wiki/db/raw itself once it is gone, then sets up again", async () => {
 			const { service, commands, dataDir, unit } = await make();
@@ -797,27 +661,32 @@ describe("AiMemoryService", () => {
 			// The config and the token are not memory.
 			expect(existsSync(join(dataDir, "config.toml"))).toBe(true);
 			expect(existsSync(join(dataDir, "auth-tokens", "default"))).toBe(true);
-			expect(service.state()).toMatchObject({ enabled: true, phase: "ready" });
+			expect(service.state()).toMatchObject({ phase: "ready" });
 			expect(unit.installed).toBe(true);
 		});
 
-		it("a server that still answers (not ours to stop) deletes nothing and fails the purge; memory stays on", async () => {
-			const { service, dataDir, unit } = await make();
+		it("a server that still answers (no unit to stop) deletes nothing and fails the purge", async () => {
+			const { service, dataDir, unit } = await make({ retryDelaysMs: [] });
 			await service.start();
 			await seedData(dataDir);
-			Object.assign(unit, { installed: true, ours: false });
+			Object.assign(unit, { installed: false, ours: false });
 			await expect(service.purge()).rejects.toThrow("An ai-memory server still answers");
 			for (const folder of ["wiki", "db", "raw"]) expect(existsSync(join(dataDir, folder))).toBe(true);
-			expect(service.state()).toMatchObject({ enabled: true, phase: "ready", detail: null });
 		});
 
 		it("a purge before the data directory is known deletes nothing", async () => {
-			const { service, commands, prefs } = await make();
-			prefs.enabled = false;
-			await service.start();
+			const { service, dataDir } = await make({ retryDelaysMs: [] });
+			await seedData(dataDir);
 			await expect(service.purge()).rejects.toThrow("data folder is not known");
-			expect(commands()).toEqual([]);
+			for (const folder of ["wiki", "db", "raw"]) expect(existsSync(join(dataDir, folder))).toBe(true);
 		});
+
+		async function seedData(dataDir: string): Promise<void> {
+			for (const folder of ["wiki", "db", "raw"]) {
+				await mkdir(join(dataDir, folder), { recursive: true });
+				await writeFile(join(dataDir, folder, "x"), "data");
+			}
+		}
 	});
 
 	describe("the terminal omp", () => {
@@ -877,14 +746,6 @@ describe("AiMemoryService", () => {
 			);
 		});
 
-		it("connecting needs memory on", async () => {
-			const { service, commands, prefs } = await make();
-			prefs.enabled = false;
-			await service.start();
-			await expect(service.setTerminal(true)).rejects.toThrow("Turn memory on first.");
-			expect(commands()).toEqual([]);
-		});
-
 		it("a failed connect throws, restores the phase and stores nothing", async () => {
 			const { service, behavior, prefs } = await make();
 			await service.start();
@@ -927,21 +788,21 @@ describe("AiMemoryService", () => {
 			expect(existsSync(join(agentDir, EXTENSION_FILE))).toBe(true);
 		});
 
-		it("wiring that runs the binary in use (an override, a newer user install) counts as OMPdesk's too", async () => {
+		it("wiring that runs the binary in use (an override) counts as OMPdesk's too", async () => {
 			const { service, agentDir } = await make();
 			await plantTerminalWiring(agentDir, BIN);
 			await service.start();
 			expect(existsSync(join(agentDir, EXTENSION_FILE))).toBe(false);
 		});
 
-		it("wiring the user made with their own ai-memory is left alone, and is then the terminal's", async () => {
-			const { service, agentDir, prefs } = await make();
+		it("wiring the user made with their own ai-memory is left alone and never adopted as the terminal's", async () => {
+			const { service, agentDir, prefs, rootDir } = await make();
 			await plantTerminalWiring(agentDir, join("/users", "own", "bin", "ai-memory"));
 			await service.start();
 			expect(existsSync(join(agentDir, EXTENSION_FILE))).toBe(true);
 			expect(prefs.terminal).toBe(false);
-			expect(service.state().wiring).toEqual({ app: true, terminal: true });
-			expect(await service.extensionArgs()).toEqual([]);
+			expect(service.state().wiring).toEqual({ app: true, terminal: false });
+			expect(await service.extensionArgs()).toEqual(["-e", rootDir]);
 		});
 
 		it("a user who connected the terminal (stored true) is never migrated away", async () => {
@@ -955,22 +816,16 @@ describe("AiMemoryService", () => {
 	});
 
 	describe("builds without a managed binary", () => {
-		it("a dev build never runs a command: unsupported while on, off while off", async () => {
-			const { service, commands, prefs, persistEnabled } = await make({ automatic: false });
+		it("a dev build never runs a command: unsupported, and every action refuses", async () => {
+			const { service, commands } = await make({ automatic: false });
 			await service.start();
 			// Safe mode and a development build alike: paused, not a platform without a build.
-			expect(service.state()).toMatchObject({ phase: "unsupported", unsupported: "paused", enabled: true });
+			expect(service.state()).toMatchObject({ phase: "unsupported", unsupported: "paused" });
 			expect(service.state().detail).toContain("OMP_GUI_AI_MEMORY_BIN");
-			await service.setEnabled(false);
 			await service.retry();
 			await expect(service.purge()).rejects.toThrow("not managed by this build");
 			await expect(service.setTerminal(true)).rejects.toThrow("not managed by this build");
-			expect(persistEnabled).toHaveBeenCalledWith(false);
-			expect(prefs.enabled).toBe(false);
 			expect(commands()).toEqual([]);
-			prefs.enabled = false;
-			await service.start();
-			expect(service.state()).toMatchObject({ phase: "off", detail: null, unsupported: null });
 		});
 
 		it("an unsupported platform reports it and runs nothing", async () => {
@@ -999,34 +854,57 @@ describe("AiMemoryService", () => {
 	});
 
 	describe("which binary", () => {
-		async function externalWorld(version: string) {
-			const w2 = await make({
-				binaryOverride: null,
-				bundledDir: join(tmpdir(), "ai-memory-no-such-shipped-dir"),
-				externalProbe: async () => version,
-			});
-			const bin = join(w2.home, ".local", "bin", "ai-memory");
-			await mkdir(join(w2.home, ".local", "bin"), { recursive: true });
-			await writeFile(bin, "#!/bin/sh\n");
-			return { w2, bin };
+		/** A shipped build as a packaged macOS app carries it: its signature, not its bytes, is what stages it. */
+		async function shippedBuild(): Promise<string> {
+			const shipped = await mkdtemp(join(tmpdir(), "ai-memory-shipped-"));
+			await writeFile(join(shipped, "ai-memory"), "the release, re-signed by the packager");
+			await writeFile(
+				join(shipped, "ai-memory.build.json"),
+				JSON.stringify({ binary: "ai-memory", binarySha256: "0".repeat(64) }),
+			);
+			return shipped;
 		}
 
-		it("a NEWER user install wins and is the binary every command runs", async () => {
-			const { w2, bin } = await externalWorld("99.0.0");
-			await w2.service.start();
-			expect(w2.calls.length).toBeGreaterThan(3);
-			for (const call of w2.calls) expect(call.file).toBe(bin);
-			expect(w2.service.state()).toMatchObject({ source: "external", binary: bin, phase: "ready" });
-		});
+		it.skipIf(process.platform === "win32")(
+			"a NEWER ai-memory on PATH, in ~/.local/bin or Homebrew is never used: every command runs the staged shipped build",
+			async () => {
+				const shipped = await shippedBuild();
+				const pathDir = await mkdtemp(join(tmpdir(), "ai-memory-path-"));
+				try {
+					const newer = "#!/bin/sh\necho 'ai-memory 99.0.0'\n";
+					await writeFile(join(pathDir, "ai-memory"), newer);
+					await chmod(join(pathDir, "ai-memory"), 0o755);
+					const { service, calls, toolsDir, home } = await make({
+						binaryOverride: null,
+						bundledDir: shipped,
+						spawnEnv: async () => ({ PATH: pathDir }),
+						codeRequirement: async () => null,
+					});
+					await mkdir(join(home, ".local", "bin"), { recursive: true });
+					await writeFile(join(home, ".local", "bin", "ai-memory"), newer);
+					await chmod(join(home, ".local", "bin", "ai-memory"), 0o755);
+					await service.start();
+					const staged = join(toolsDir, "ai-memory", MAC_STAGE_KEY, "ai-memory");
+					expect(calls.length).toBeGreaterThan(3);
+					for (const call of calls) expect(call.file).toBe(staged);
+					expect(service.state()).toMatchObject({ phase: "ready", binary: staged });
+				} finally {
+					await rm(shipped, RM_TEMP);
+					await rm(pathDir, RM_TEMP);
+				}
+			},
+		);
 
-		it("an equal user install is left alone: the app's own copy is staged, and its absence fails clearly", async () => {
-			const { w2 } = await externalWorld(AI_MEMORY_VERSION);
-			await w2.service.start();
-			expect(w2.calls).toEqual([]);
-			expect(w2.service.state()).toMatchObject({ phase: "failed" });
-			expect(w2.service.state().detail).toMatch(/Memory is not built/);
+		it("an app whose build was never made fails clearly and runs nothing", async () => {
+			const { service, calls } = await make({
+				binaryOverride: null,
+				bundledDir: join(tmpdir(), "ai-memory-no-such-shipped-dir"),
+			});
+			await service.start();
+			expect(calls).toEqual([]);
+			expect(service.state()).toMatchObject({ phase: "failed" });
+			expect(service.state().detail).toMatch(/Memory is not built/);
 		});
-
 		it("an app that carries no ai-memory folder fails before running anything", async () => {
 			const { service, calls } = await make({ binaryOverride: null, bundledDir: null });
 			await service.start();
@@ -1050,7 +928,6 @@ describe("AiMemoryService", () => {
 					arch: "x64",
 					binaryOverride: null,
 					bundledDir: shipped,
-					externalProbe: async () => "0.0.1",
 				});
 				await service.start();
 				expect(service.state().phase).toBe("failed");
@@ -1075,7 +952,6 @@ describe("AiMemoryService", () => {
 				const { service, calls, toolsDir, rootDir } = await make({
 					binaryOverride: null,
 					bundledDir: shipped,
-					externalProbe: async () => "0.0.1",
 					codeRequirement: async file => {
 						checked.push(file);
 						return null;
@@ -1084,7 +960,7 @@ describe("AiMemoryService", () => {
 				await service.start();
 				const staged = join(toolsDir, "ai-memory", MAC_STAGE_KEY, "ai-memory");
 				expect(checked).toEqual([join(shipped, "ai-memory")]);
-				expect(service.state()).toMatchObject({ phase: "ready", source: "bundled", binary: staged });
+				expect(service.state()).toMatchObject({ phase: "ready", binary: staged });
 				expect(calls.every(call => call.file === staged)).toBe(true);
 				expect(await rootComplete(rootDir)).toBe(true);
 			} finally {
@@ -1103,7 +979,6 @@ describe("AiMemoryService", () => {
 				const { service, calls } = await make({
 					binaryOverride: null,
 					bundledDir: shipped,
-					externalProbe: async () => "0.0.1",
 					codeRequirement: async () => "test-requirement: code failed to satisfy specified code requirement(s)",
 				});
 				await service.start();
@@ -1130,7 +1005,6 @@ describe("AiMemoryService", () => {
 					const { service, calls } = await make({
 						binaryOverride: null,
 						bundledDir: shipped,
-						externalProbe: async () => "0.0.1",
 					});
 					await service.start();
 					expect(service.state().phase).toBe("failed");
@@ -1152,7 +1026,6 @@ describe("AiMemoryService", () => {
 			expect(lines[0]).toEqual({
 				message: "launch",
 				details: {
-					enabled: true,
 					automatic: true,
 					platform: "darwin",
 					arch: "arm64",
@@ -1160,9 +1033,8 @@ describe("AiMemoryService", () => {
 					override: BIN,
 				},
 			});
-			expect(lines.find(line => line.message === "binary")?.details).toMatchObject({ source: "bundled", bin: BIN });
+			expect(lines.find(line => line.message === "binary")?.details).toMatchObject({ bin: BIN });
 			expect(lines.filter(line => line.message === "phase").map(line => line.details.phase)).toEqual([
-				"starting",
 				"starting",
 				"failed",
 			]);
@@ -1186,7 +1058,7 @@ describe("AiMemoryService", () => {
 				},
 			});
 			await expect(service.start()).resolves.toBeUndefined();
-			expect(service.state()).toMatchObject({ enabled: true, phase: "failed", detail: "agent dir unreadable" });
+			expect(service.state()).toMatchObject({ phase: "failed", detail: "agent dir unreadable" });
 			const failed = lines.find(line => line.message === "failed");
 			expect(failed?.details.detail).toBe("agent dir unreadable");
 			expect(String(failed?.details.stack)).toContain("agent dir unreadable");
@@ -1274,29 +1146,13 @@ describe("AiMemoryService", () => {
 				vi.useRealTimers();
 			}
 		});
-
-		it("polling stops while memory is off", async () => {
-			vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
-			try {
-				const { service, health } = await make();
-				await service.start();
-				expect(vi.getTimerCount()).toBe(1);
-				await service.setEnabled(false);
-				expect(vi.getTimerCount()).toBe(0);
-				const seen = health.healthCalls;
-				vi.advanceTimersByTime(60_000);
-				expect(health.healthCalls).toBe(seen);
-			} finally {
-				vi.useRealTimers();
-			}
-		});
 	});
 
 	describe("state pushes", () => {
 		it("every push is a whole, independent snapshot", async () => {
 			const { service, states } = await make();
 			await service.start();
-			await service.setEnabled(false);
+			await service.retry();
 			const keys = Object.keys(service.state()).sort();
 			expect(states.length).toBeGreaterThan(4);
 			for (const snapshot of states) expect(Object.keys(snapshot).sort()).toEqual(keys);
@@ -1323,11 +1179,11 @@ describe("AiMemoryService", () => {
 			expect(service.state().phase).toBe("starting");
 		});
 
-		it("a switch after dispose runs nothing", async () => {
+		it("a retry after dispose runs nothing", async () => {
 			const { service, commands, rootDir } = await make();
 			await service.start();
 			service.dispose();
-			await service.setEnabled(false);
+			await service.retry();
 			expect(commands()).toEqual([PLAN, INIT, SETUP, ...generators(rootDir)]);
 		});
 	});

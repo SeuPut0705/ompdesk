@@ -69,26 +69,14 @@ describe("Memory › Overview", () => {
 		expect(api.copyWebPassword).toHaveBeenCalledOnce();
 	});
 
-	it("the switch calls setEnabled", async () => {
+	it("renders no on/off or learning switch: memory is always on", async () => {
 		await mount(<MemoryOverview project={PROJECT} projects={[APP]} state={memoryState()} />);
-		const toggle = q("[role=switch]");
-		await click(toggle);
-		expect(api.setEnabled).toHaveBeenCalledWith(false);
-	});
-
-	it("off shows only the switch, status and privacy", async () => {
-		await mount(
-			<MemoryOverview
-				project={null}
-				projects={[]}
-				state={memoryState({ enabled: false, phase: "off", stats: null })}
-			/>,
-		);
-		expect(text("[data-memory-status]")).toContain("Off");
-		expect(q("[data-memory-scope]")).toBeNull();
-		expect(q("[data-memory-counts]")).toBeNull();
-		expect(q("[data-memory-privacy]")).not.toBeNull();
-		expect(api.overview).not.toHaveBeenCalled();
+		expect(qa("[role=switch]")).toHaveLength(0);
+		expect(q("#setting-aiMemory")).toBeNull();
+		expect(q("#setting-aiMemory-learn")).toBeNull();
+		expect(api).not.toHaveProperty("setEnabled");
+		expect(q("#setting-aiMemory-status")).not.toBeNull();
+		expect(q("#setting-aiMemory-terminal")).not.toBeNull();
 	});
 
 	it("an unsupported system says why in the UI language, never main's English cause", async () => {
@@ -155,18 +143,5 @@ describe("Memory › Overview", () => {
 		await mount(<MemoryOverview project={PROJECT} projects={[APP]} state={memoryState()} />);
 		await click(button("Also use in the terminal omp"));
 		expect(api.setTerminal).toHaveBeenCalledWith(true);
-	});
-});
-
-describe("Memory › Overview › Learn from conversations", () => {
-	it("is a switch under Remember, on by default, and only while Memory is on", async () => {
-		await mount(<MemoryOverview project={PROJECT} projects={[APP]} state={memoryState()} />);
-		expect(text("#setting-aiMemory-learn")).toContain("Learn from conversations");
-		expect(q("#setting-aiMemory-learn [role=switch]")?.getAttribute("aria-checked")).toBe("true");
-		await cleanup();
-		await mount(
-			<MemoryOverview project={PROJECT} projects={[APP]} state={memoryState({ enabled: false, phase: "off" })} />,
-		);
-		expect(q("#setting-aiMemory-learn")).toBeNull();
 	});
 });

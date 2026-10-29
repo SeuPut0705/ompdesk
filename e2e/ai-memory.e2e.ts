@@ -28,7 +28,6 @@ import { exitApp, pressShortcutUntilVisible, readRecords } from "./harness";
 
 const PLAN = "setup --plan --json --agent omp";
 const SETUP = "setup --yes --agent omp";
-const LISTING = "uninstall";
 const INIT = "init";
 const EXTENSION = path.join("extensions", "ai-memory-omp.ts");
 /** The generator commands, by verb (their path arguments are the rig's temp dirs). */
@@ -89,7 +88,7 @@ async function openSettings(page: Page) {
 	return settings;
 }
 
-test("ai-memory loads through an app-owned root, shows one memory section, and its switch touches only OMPdesk's part", async () => {
+test("ai-memory loads through an app-owned root and shows one memory section with no on/off switch", async () => {
 	test.setTimeout(240_000);
 	const rig = await makeRig();
 	const dataDir = path.join(rig.home, "ai-memory-data");
@@ -118,10 +117,8 @@ test("ai-memory loads through an app-owned root, shows one memory section, and i
 			const config = await fs.readFile(path.join(dataDir, "config.toml"), "utf8");
 			const bind = /bind\s*=\s*"([^"]+)"/.exec(config)?.[1];
 			expect(await state(page)).toMatchObject({
-				enabled: true,
 				phase: "ready",
 				step: null,
-				source: "bundled",
 				binary: rig.memory.bin,
 				dataDir,
 				serverUrl: `http://${bind}`,
@@ -172,7 +169,8 @@ test("ai-memory loads through an app-owned root, shows one memory section, and i
 			await expect(settings.locator("#settings-memory")).toHaveCount(1);
 			await expect(settings.locator("#settings-memory")).toContainText("Memory");
 			const section = settings.locator("#settings-memory");
-			await expect(section.locator("#setting-aiMemory [role='switch']")).toHaveAttribute("aria-checked", "true");
+			await expect(section.locator("[role='switch']")).toHaveCount(0);
+			await expect(section.locator("#setting-aiMemory")).toHaveCount(0);
 			await expect(section.locator("[data-memory-status]")).toContainText("Running");
 			await expect(section.locator("[data-memory-dir]")).toHaveText(dataDir);
 			await expect(section.getByRole("button", { name: "Open web console", exact: true })).toBeEnabled();
@@ -189,13 +187,13 @@ test("ai-memory loads through an app-owned root, shows one memory section, and i
 				.evaluateAll(nodes => nodes.map(node => node.getAttribute("data-settings-section") ?? ""));
 			for (const name of sectionNames) {
 				await settings.locator(`[data-settings-section="${name}"]`).click();
-				if (name === "memory") await expect(settings.locator("#setting-aiMemory")).toBeVisible();
+				if (name === "memory") await expect(settings.locator("#setting-aiMemory-status")).toBeVisible();
 				ids.push(...(await settings.locator("[id^='setting-']").evaluateAll(nodes => nodes.map(node => node.id))));
 				text += `\n${await settings.innerText()}`;
 			}
 			expect(ids.filter(id => /^setting-(memory\.|mnemopi|hindsight)/i.test(id))).toEqual([]);
 			expect(text).not.toMatch(/mnemopi|hindsight|memory\.backend/i);
-			expect(ids).toContain("setting-aiMemory");
+			expect(ids).toContain("setting-aiMemory-status");
 			await settings.locator('[data-settings-section="memory"]').click();
 		});
 
@@ -271,74 +269,24 @@ test("ai-memory loads through an app-owned root, shows one memory section, and i
 			expect(await fs.readFile(rig.claude, "utf8")).toBe(CLAUDE_SETTINGS);
 		});
 
-		await test.step("the switch off stops loading the root and touches no other agent: no uninstall, Claude Code's wiring and its server stay", async () => {
-			const settings = page.locator("[data-settings-page]");
-			const pidBefore = await serverPid(rig);
-			if (!pidBefore) throw new Error("no server pid");
-			const callsBefore = (await commands(rig)).length;
-			await settings.locator("#setting-aiMemory [role='switch']").click();
-			await expect(settings.locator("#setting-aiMemory [role='switch']")).toHaveAttribute("aria-checked", "false");
-			await phaseIs(page, "off");
-			// Only a read-only listing of other clients ran; nothing applies an uninstall.
-			expect((await commands(rig)).slice(callsBefore)).toEqual([LISTING]);
-			// (The generators' own `--apply` writes into OMPdesk's root; an `uninstall` never carries it.)
-			expect(
-				(await rig.memory.invocations()).filter(call => call.startsWith("uninstall") && call.includes("--apply")),
-			).toEqual([]);
-			expect(await state(page)).toMatchObject({
-				enabled: false,
-				wiring: { app: false, terminal: false },
-				stats: null,
-			});
-			expect(existsSync(rig.extRoot)).toBe(false);
-			expect(existsSync(path.join(rig.agent, EXTENSION))).toBe(false);
-			expect((await newSessionArgv(page, rig)).join(" ")).not.toContain("omp-ext");
-			// Claude Code still uses ai-memory: its wiring and the server it talks to are untouched.
-			expect(await fs.readFile(rig.claude, "utf8")).toBe(CLAUDE_SETTINGS);
-			expect(isAlive(pidBefore)).toBe(true);
-			expect(existsSync(path.join(dataDir, "config.toml"))).toBe(true);
-			await expect(settings.locator("[data-memory-status]")).toContainText("Off");
-			await expect
-				.poll(async () => JSON.parse(await fs.readFile(path.join(rig.desktop, "prefs.json"), "utf8")).aiMemory)
-				.toBe(false);
-		});
-
-		await test.step("a relaunch stays off and runs no ai-memory command", async () => {
-			const callsBefore = await rig.memory.invocations();
+		await test.step("a stored `aiMemory: false` from an older version is ignored and retired: a relaunch runs memory and drops the key", async () => {
 			await exitApp(current!.app);
+			const prefsFile = path.join(rig.desktop, "prefs.json");
+			const prefs = JSON.parse(await fs.readFile(prefsFile, "utf8"));
+			await fs.writeFile(prefsFile, JSON.stringify({ ...prefs, aiMemory: false, aiMemoryLearn: false }));
 			current = await launch(rig);
 			page = current.page;
-			// The state settles to off without any command.
-			await phaseIs(page, "off");
-			expect(await state(page)).toMatchObject({ enabled: false, wiring: { app: false, terminal: false } });
-			const settings = await openSettings(page);
-			await expect(settings.locator("#setting-aiMemory [role='switch']")).toHaveAttribute("aria-checked", "false");
-			expect(await rig.memory.invocations()).toEqual(callsBefore);
-		});
-
-		await test.step("the switch on sets it up again; off with no other agent left stops the server", async () => {
-			const settings = page.locator("[data-settings-page]");
-			await settings.locator("#setting-aiMemory [role='switch']").click();
 			await phaseIs(page, "ready");
-			expect((await commands(rig)).slice(-5)).toEqual([PLAN, SETUP, ...GENERATORS]);
 			expect(existsSync(path.join(rig.extRoot, "index.ts"))).toBe(true);
 			expect((await newSessionArgv(page, rig)).join(" ")).toContain(`-e ${rig.extRoot}`);
-			await expect(settings.locator("#setting-aiMemory [role='switch']")).toHaveAttribute("aria-checked", "true");
-			await expect(settings.locator("[data-memory-status]")).toContainText("Running");
 			await expect
-				.poll(async () => JSON.parse(await fs.readFile(path.join(rig.desktop, "prefs.json"), "utf8")).aiMemory)
-				.toBe(true);
-
-			// With no other agent wired, off stops the server OMPdesk started.
-			await fs.rm(path.dirname(rig.claude), { recursive: true, force: true });
-			const pid = await serverPid(rig);
-			if (!pid) throw new Error("no server pid");
-			await settings.locator("#setting-aiMemory [role='switch']").click();
-			await phaseIs(page, "off");
-			await expect.poll(() => isAlive(pid)).toBe(false);
-			expect(await serverPid(rig)).toBeNull();
-			expect(existsSync(rig.extRoot)).toBe(false);
-			expect(existsSync(path.join(dataDir, "config.toml"))).toBe(true);
+				.poll(async () => {
+					const stored = JSON.parse(await fs.readFile(prefsFile, "utf8"));
+					return ["aiMemory", "aiMemoryLearn"].filter(key => key in stored);
+				})
+				.toEqual([]);
+			const settings = await openSettings(page);
+			await expect(settings.locator("#settings-memory [role='switch']")).toHaveCount(0);
 		});
 
 		expect(current.errors).toEqual([]);

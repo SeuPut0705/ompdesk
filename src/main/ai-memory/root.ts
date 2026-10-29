@@ -151,7 +151,3 @@ export async function generateRoot(
 		await rm(next, { recursive: true, force: true }).catch(() => undefined);
 	}
 }
-
-export async function removeRoot(root: string): Promise<void> {
-	await rm(root, { recursive: true, force: true });
-}

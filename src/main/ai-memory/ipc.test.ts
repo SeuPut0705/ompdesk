@@ -13,7 +13,6 @@ function setup(webUrl: string | null = "http://127.0.0.1:49374/web") {
 	const service = {
 		state: vi.fn(() => ({ webUrl, dataDir: "/data/ai-memory" }) as AiMemoryState),
 		refresh: vi.fn(async () => {}),
-		setEnabled: vi.fn(async (_enabled: boolean) => {}),
 		retry: vi.fn(async () => {}),
 		purge: vi.fn(async () => {}),
 		setTerminal: vi.fn(async (_enabled: boolean) => {}),
@@ -69,22 +68,9 @@ describe("ai-memory IPC", () => {
 		await expect(call(IPC_COMMANDS.AI_MEMORY_GET_STATE)).resolves.toBeDefined();
 	});
 
-	it("set-enabled takes only a boolean", async () => {
+	it("retry returns before the work ends and swallows its failure", async () => {
 		const { service, call } = setup();
-		for (const bad of ["true", 1, null, undefined, {}]) {
-			await expect(call(IPC_COMMANDS.AI_MEMORY_SET_ENABLED, bad)).rejects.toThrow("Invalid argument: enabled");
-		}
-		expect(service.setEnabled).not.toHaveBeenCalled();
-		await call(IPC_COMMANDS.AI_MEMORY_SET_ENABLED, false);
-		await call(IPC_COMMANDS.AI_MEMORY_SET_ENABLED, true);
-		expect(service.setEnabled.mock.calls).toEqual([[false], [true]]);
-	});
-
-	it("set-enabled and retry return before the work ends and swallow its failure", async () => {
-		const { service, call } = setup();
-		service.setEnabled.mockRejectedValueOnce(new Error("boom"));
 		service.retry.mockRejectedValueOnce(new Error("boom"));
-		await expect(call(IPC_COMMANDS.AI_MEMORY_SET_ENABLED, true)).resolves.toBeUndefined();
 		await expect(call(IPC_COMMANDS.AI_MEMORY_RETRY)).resolves.toBeUndefined();
 	});
 
@@ -97,8 +83,8 @@ describe("ai-memory IPC", () => {
 		await call(IPC_COMMANDS.AI_MEMORY_SET_TERMINAL, true);
 		await call(IPC_COMMANDS.AI_MEMORY_SET_TERMINAL, false);
 		expect(service.setTerminal.mock.calls).toEqual([[true], [false]]);
-		service.setTerminal.mockRejectedValueOnce(new Error("Turn memory on first."));
-		await expect(call(IPC_COMMANDS.AI_MEMORY_SET_TERMINAL, true)).rejects.toThrow("Turn memory on first.");
+		service.setTerminal.mockRejectedValueOnce(new Error("ai-memory is not managed by this build."));
+		await expect(call(IPC_COMMANDS.AI_MEMORY_SET_TERMINAL, true)).rejects.toThrow("not managed by this build");
 	});
 
 	it("purge passes the service's refusal through to the caller", async () => {

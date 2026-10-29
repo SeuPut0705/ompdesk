@@ -114,7 +114,7 @@ test("@smoke macOS: the packaged app's first launch stages the shipped ai-memory
 		expect(settled.phase, `state: ${JSON.stringify(settled)}\nlog: ${JSON.stringify(await memoryLines())}`).toBe(
 			"ready",
 		);
-		expect(settled).toMatchObject({ enabled: true, source: "bundled", binary: staged, version: AI_MEMORY_VERSION });
+		expect(settled).toMatchObject({ binary: staged, version: AI_MEMORY_VERSION });
 		// The staged copy is the shipped file, byte for byte (re-signed by the packager, so not the pin's bytes).
 		expect(Buffer.compare(await fs.readFile(staged), await fs.readFile(shipped))).toBe(0);
 		// The app-owned extension root every spawned omp loads with `-e`.
@@ -122,7 +122,7 @@ test("@smoke macOS: the packaged app's first launch stages the shipped ai-memory
 		expect(labelLoaded()).toBe(true);
 		// Every phase change reached the runtime log: the launch, the binary in use, and ready.
 		const lines = await memoryLines();
-		expect(lines[0]).toMatchObject({ message: "launch", details: { enabled: true, automatic: true } });
+		expect(lines[0]).toMatchObject({ message: "launch", details: { automatic: true } });
 		expect(lines).toContainEqual(
 			expect.objectContaining({ message: "binary", details: expect.objectContaining({ bin: staged }) }),
 		);

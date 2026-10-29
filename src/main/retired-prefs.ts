@@ -73,6 +73,18 @@ export const RETIRED_PREFS: readonly { key: string; why: string }[] = [
 		why: "Run progress on the Dock or taskbar icon is always shown.",
 	},
 	{
+		key: "aiMemory",
+		why: "Memory is always on (the user's decision of 29 Oct 2026): ai-memory is OMPdesk's own build, and the switch that turned it off is gone. A stored `false` from an older version is ignored.",
+	},
+	{
+		key: "aiMemoryLearn",
+		why: "Learning from conversations is always on (29 Oct 2026); the switch is gone.",
+	},
+	{
+		key: "aiMemoryServiceOwned",
+		why: "OMPdesk always runs its own memory service (29 Oct 2026); it no longer tells its own service from someone else's by a stored flag.",
+	},
+	{
 		key: "workBoard",
 		why: "The work board docks whenever the pane has room (`workBoardFits`); its ✕ hides it for that window only.",
 	},

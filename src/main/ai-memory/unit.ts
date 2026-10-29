@@ -1,9 +1,9 @@
 /**
  * ai-memory's per-user service as the operating system sees it: the launchd LaunchAgent (macOS) or the HKCU `Run` logon
  * entry (Windows) that `ai-memory setup` installs. ai-memory has no command that stops or removes only its service
- * (`uninstall` also removes every agent's wiring), so turning memory off asks the OS, and only about a unit that runs
- * the binary OMPdesk staged (`<tools>/ai-memory/…`): that is the ownership check. A unit that runs someone else's
- * ai-memory (their own install, Homebrew) is never touched.
+ * (`uninstall` also removes every agent's wiring), so OMPdesk asks the OS. `ours` (the unit runs the binary OMPdesk
+ * staged, `<tools>/ai-memory/…`) tells a unit `setup` may repoint from one that runs someone else's ai-memory, which
+ * OMPdesk removes before installing its own: only OMPdesk's own build serves.
  */
 import { execFile } from "node:child_process";
 import { readFile, rm } from "node:fs/promises";

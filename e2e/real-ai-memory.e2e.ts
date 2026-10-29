@@ -20,9 +20,8 @@ import { field, realOmpProfile, spentIn } from "./real-omp";
 // pages/observations verbatim.
 //
 // The real binary installs a per-user launchd service whose label is global to the logged-in user, so the test runs
-// only when that label and port 49374 are free. Turning memory off must take that service away again (OMPdesk started
-// it and nothing else uses it); as a safety net the test also runs `uninstall --apply --yes` with the private HOME
-// afterwards and checks the label is gone.
+// only when that label and port 49374 are free. Memory has no off switch, so the test ends by running
+// `uninstall --apply --yes` with the private HOME and checks the label is gone.
 const LABEL = "com.github.akitaonrails.ai-memory";
 const PORT = 49374;
 const HANDOFF_TYPE = "ai-memory-handoff";
@@ -165,7 +164,7 @@ test("real ai-memory: a session's capture becomes the next session's handoff in 
 	try {
 		await launchReady();
 		const ready = await win().evaluate(() => window.omp.aiMemory.getState());
-		expect(ready).toMatchObject({ enabled: true, wiring: { app: true, terminal: false } });
+		expect(ready).toMatchObject({ wiring: { app: true, terminal: false } });
 		expect(ready.dataDir).toBe(dataDir);
 		expect(labelLoaded()).toBe(true);
 		// OMPdesk's own root holds the extension, the MCP entry and the skills; omp's agent dir stays untouched.
@@ -294,34 +293,13 @@ test("real ai-memory: a session's capture becomes the next session's handoff in 
 		expect(passwordLeaks, "the password= value is stored verbatim").toEqual([]);
 		expect(searchPassword).toBe(false);
 		report.spent = await spentIn(real.agent);
-
-		// Off: OMPdesk started the service and nothing else uses it, so it goes; the root goes with it, the data stays.
-		await win().evaluate(() => window.omp.aiMemory.setEnabled(false));
-		await expect
-			.poll(async () => (await win().evaluate(() => window.omp.aiMemory.getState())).phase, { timeout: 120_000 })
-			.toBe("off");
-		report.offStoppedService = !labelLoaded();
-		expect(labelLoaded(), "off left ai-memory's launchd service loaded").toBe(false);
-		expect(existsSync(extRoot)).toBe(false);
-		expect(existsSync(path.join(dataDir, "config.toml"))).toBe(true);
-		expect(existsSync(path.join(real.agent, "extensions", "ai-memory-omp.ts"))).toBe(false);
 	} catch (error) {
 		keep = true;
 		throw error;
 	} finally {
 		try {
 			const running = current as Running | null;
-			if (running) {
-				// Memory off through the app (a no-op when the run already turned it off).
-				await running.page.evaluate(() => window.omp.aiMemory.setEnabled(false)).catch(() => undefined);
-				await expect
-					.poll(async () => (await running.page.evaluate(() => window.omp.aiMemory.getState())).phase, {
-						timeout: 120_000,
-					})
-					.toBe("off")
-					.catch(() => undefined);
-				await exitApp(running.app);
-			}
+			if (running) await exitApp(running.app);
 		} finally {
 			// Whatever happened above: ai-memory's own uninstall with the private HOME, then the label must be gone.
 			const result = uninstall();

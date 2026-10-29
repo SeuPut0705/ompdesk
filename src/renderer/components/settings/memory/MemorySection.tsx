@@ -72,7 +72,7 @@ export function MemorySection({ sub }: { sub?: string }) {
 		if (openRequest > 0) navigate("memory:pages");
 	}, [openRequest, navigate]);
 
-	const ready = state?.enabled === true && state.phase === "ready";
+	const ready = state?.phase === "ready";
 	const projects = useMemoryRead<AiMemoryProject[]>(ready ? "projects" : null, () => window.omp.aiMemory.projects());
 	const project = useMemo(() => resolveProject(projects.data ?? [], picked, cwd), [projects.data, picked, cwd]);
 
@@ -86,7 +86,7 @@ export function MemorySection({ sub }: { sub?: string }) {
 		);
 	}
 
-	const usable = state.enabled && state.phase !== "unsupported";
+	const usable = state.phase !== "unsupported";
 	const open = (id: string) => navigate(`memory:${id}`);
 	const tabs = MEMORY_PAGE_TABS.map(id => ({
 		id,

@@ -57,7 +57,7 @@ function alive(pid: number): boolean {
 	return result.stdout.includes(String(pid));
 }
 
-test("real ai-memory.exe on Windows: the logon entry follows the switch, only OMPdesk's part is touched, the .exe is not left locked", async () => {
+test("real ai-memory.exe on Windows: the logon entry and server are OMPdesk's own, and only OMPdesk's part is touched", async () => {
 	test.skip(process.platform !== "win32", "Windows-only: it drives the HKCU Run logon entry");
 	test.skip(
 		process.env.OMP_GUI_REAL_AI_MEMORY_SERVICE !== "1",
@@ -114,7 +114,7 @@ test("real ai-memory.exe on Windows: the logon entry follows the switch, only OM
 
 		await phase("ready");
 		const extRoot = path.join(desktop, "ai-memory", "omp-ext");
-		expect(await state()).toMatchObject({ enabled: true, binary: bin, wiring: { app: true, terminal: false } });
+		expect(await state()).toMatchObject({ binary: bin, wiring: { app: true, terminal: false } });
 		// ai-memory's own generators filled OMPdesk's root; omp's agent dir and the shared skills folder stay empty.
 		expect(existsSync(path.join(extRoot, "index.ts"))).toBe(true);
 		expect(existsSync(path.join(extRoot, ".mcp.json"))).toBe(true);
@@ -147,33 +147,7 @@ test("real ai-memory.exe on Windows: the logon entry follows the switch, only OM
 		expect(existsSync(path.join(agent, "extensions", "ai-memory-omp.ts"))).toBe(false);
 		expect(existsSync(path.join(agent, "mcp.json"))).toBe(false);
 		expect(await state()).toMatchObject({ wiring: { app: true, terminal: false } });
-
-		// Off: OMPdesk started the service and nothing else uses it, so the entry, the supervisor and the server go.
-		await page.evaluate(() => window.omp.aiMemory.setEnabled(false));
-		await phase("off");
-		const listing = spawnSync(bin, ["uninstall"], {
-			env: { ...process.env, ...isolation, PI_CODING_AGENT_DIR: agent },
-			encoding: "utf8",
-		});
-		expect(
-			logonEntry(),
-			`the logon entry survived "off"; ai-memory's uninstall dry run says:\n${listing.stdout}${listing.stderr}\nstate: ${JSON.stringify(await state())}`,
-		).toBeNull();
-		await expect.poll(healthy, { timeout: 30_000 }).toBe(false);
-		for (const pid of pids) await expect.poll(() => alive(pid), { timeout: 30_000 }).toBe(false);
-		expect(existsSync(extRoot)).toBe(false);
 		expect(existsSync(path.join(dataDir, "config.toml"))).toBe(true);
-		// Nothing holds the binary open any more.
-		await expect
-			.poll(
-				async () =>
-					fs.rename(bin, `${bin}.moved`).then(
-						() => true,
-						() => false,
-					),
-				{ timeout: 30_000 },
-			)
-			.toBe(true);
 	} finally {
 		if (app) await exitApp(app);
 		await fs.rename(`${bin}.moved`, bin).catch(() => undefined);
