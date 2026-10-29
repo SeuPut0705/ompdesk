@@ -55,10 +55,14 @@ class ControlFailure extends Error {
 	}
 }
 
-export function outsideCaller(hello: { caller?: unknown; cwd?: unknown }): OutsideCaller {
+/**
+ * The caller one connection's hello describes. The name is the process's own claim, so the id is per connection: a
+ * second process that claims the same name owns nothing of the first's.
+ */
+export function outsideCaller(hello: { caller?: unknown; cwd?: unknown }, connection: number): OutsideCaller {
 	const name = typeof hello.caller === "string" && CALLER_NAME.test(hello.caller) ? hello.caller : DEFAULT_CALLER;
 	const cwd = typeof hello.cwd === "string" && isAbsolute(hello.cwd) && isFolder(hello.cwd) ? hello.cwd : homedir();
-	return { id: `outside:${name}`, title: `outside agent "${name}"`, cwd };
+	return { id: `outside:${name}#${connection}`, name, title: `outside process "${name}" (self-declared)`, cwd };
 }
 
 function isFolder(path: string): boolean {
@@ -250,6 +254,11 @@ export class ControlRouter {
 		this.#hub = hub;
 		this.#pollMs = pollMs;
 		this.#startWaitMs = startWaitMs;
+	}
+
+	/** The connection of `caller` closed. */
+	release(caller: OutsideCaller): void {
+		this.#backend.release(caller);
 	}
 
 	async handle(request: RoutedRequest, context: ConnectionContext): Promise<ControlResponse> {

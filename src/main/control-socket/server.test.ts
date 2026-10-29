@@ -14,7 +14,7 @@ import {
 import { connect, type Socket } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	CONTROL_DIR_ENV,
 	CONTROL_PROTOCOL_VERSION,
@@ -67,6 +67,11 @@ class FakeBackend implements ControlBackend {
 
 	onOutsideMail(): () => void {
 		return () => undefined;
+	}
+
+	readonly released: string[] = [];
+	release(caller: OutsideCaller): void {
+		this.released.push(caller.id);
 	}
 }
 
@@ -164,11 +169,8 @@ describe("control socket", () => {
 					caller: "my-script",
 					cwd: userData,
 				});
-				expect(await client.next()).toEqual({
-					id: 1,
-					ok: true,
-					result: { protocol: CONTROL_PROTOCOL_VERSION, caller: "outside:my-script" },
-				});
+				const hello = await client.next();
+				expect(hello).toMatchObject({ id: 1, ok: true, result: { protocol: CONTROL_PROTOCOL_VERSION } });
 				client.send({ id: 2, method: "tool", tool: "ompdesk_sessions", args: { scope: "app" } });
 				expect(await client.next()).toEqual({
 					id: 2,
@@ -177,11 +179,17 @@ describe("control socket", () => {
 				});
 				expect(backend.calls).toEqual([
 					{
-						caller: { id: "outside:my-script", title: 'outside agent "my-script"', cwd: userData },
+						caller: {
+							id: expect.stringMatching(/^outside:my-script#\d+$/),
+							name: "my-script",
+							title: 'outside process "my-script" (self-declared)',
+							cwd: userData,
+						},
 						tool: "ompdesk_sessions",
 						args: { scope: "app" },
 					},
 				]);
+				expect((hello as { result: { caller: string } }).result.caller).toBe(backend.calls[0]?.caller.id);
 			} finally {
 				await handle.close();
 			}
@@ -202,8 +210,28 @@ describe("control socket", () => {
 				await client.next();
 				client.send({ id: 2, method: "tool", tool: "ompdesk_sessions" });
 				await client.next();
-				expect(backend.calls[0]?.caller.id).toBe("outside:cli");
+				expect(backend.calls[0]?.caller.id).toMatch(/^outside:cli#\d+$/);
 				expect(backend.calls[0]?.caller.cwd).toBe(homedir());
+			} finally {
+				await handle.close();
+			}
+		});
+
+		it("gives every connection its own caller, whatever name it claims, and lets it go when it closes", async () => {
+			const { handle, token, backend } = await start();
+			try {
+				const ids: string[] = [];
+				for (const id of [1, 2]) {
+					const client = await open(handle.socket);
+					client.send({ id, method: "hello", token, protocol: CONTROL_PROTOCOL_VERSION, caller: "ci" });
+					await client.next();
+					client.send({ id: 10 + id, method: "tool", tool: "ompdesk_sessions" });
+					await client.next();
+					ids.push(backend.calls.at(-1)?.caller.id ?? "");
+				}
+				expect(ids[0]).not.toBe(ids[1]);
+				clients[0]?.close();
+				await vi.waitFor(() => expect(backend.released).toEqual([ids[0]]));
 			} finally {
 				await handle.close();
 			}

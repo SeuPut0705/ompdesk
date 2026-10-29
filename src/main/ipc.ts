@@ -1316,17 +1316,21 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		// A caller outside OMPdesk (the control socket) acts through the front window; its cards are native dialogs
 		// over it, since it has no session of its own to raise one in.
 		outsideWindow: () => windowManager.getTargetWindow(),
-		confirmOutside: async (win, title, message) => {
+		confirmOutside: async (win, caller, title, message) => {
 			const native = BrowserWindow.getAllWindows().find(
 				candidate => candidate.webContents.id === win.webContents.id,
 			);
 			if (!native) return false;
 			const ko = getMainLanguage() === "ko";
+			// The name is whatever the process called itself: the card says so instead of vouching for it.
+			const who = ko
+				? `외부 프로세스: ${caller.name} (자체 표기)`
+				: `Outside process: ${caller.name} (self-declared)`;
 			const { response } = await dialog.showMessageBox(native, {
 				type: "question",
 				title,
 				message: title,
-				detail: message,
+				detail: `${who}\n\n${message}`,
 				buttons: ko ? ["허용", "허용 안 함"] : ["Allow", "Don't allow"],
 				defaultId: 1,
 				cancelId: 1,

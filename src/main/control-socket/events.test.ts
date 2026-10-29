@@ -47,6 +47,8 @@ class FakeBackend implements ControlBackend {
 		return () => this.listeners.delete(listener);
 	}
 
+	release(): void {}
+
 	onOutsideMail(listener: (callerId: string, text: string) => void): () => void {
 		this.mailListeners.add(listener);
 		return () => this.mailListeners.delete(listener);

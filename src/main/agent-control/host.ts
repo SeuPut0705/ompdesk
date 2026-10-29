@@ -225,7 +225,7 @@ export interface AgentControlHostDeps {
 	 */
 	outsideWindow?: () => ClientWindow | null;
 	/** A confirmation card for a caller outside OMPdesk, which has no session of its own to show one in. */
-	confirmOutside?: (win: ClientWindow, title: string, message: string) => Promise<boolean>;
+	confirmOutside?: (win: ClientWindow, caller: OutsideCaller, title: string, message: string) => Promise<boolean>;
 }
 
 function askOf(request: ControlAsk["request"]): boolean {
@@ -249,13 +249,25 @@ export function splitBranch(branch: string | undefined, slug: string): { branchP
 		: { branchPrefix: branch.slice(0, at + 1), name: branch.slice(at + 1) };
 }
 
+/** Every outside caller's id starts with this; no tab id does. */
+const OUTSIDE_PREFIX = "outside:";
+
+function isOutside(id: string): boolean {
+	return id.startsWith(OUTSIDE_PREFIX);
+}
+
 /**
  * A process outside OMPdesk driving it over the control socket (a terminal omp, a script, another agent CLI). It acts
  * as an agent with no tab: the same tools, rules and cards as an agent in a session, never fewer checks.
  */
 export interface OutsideCaller {
-	/** `outside:<name>`: the sessions it opens are its own under this id until the app quits. */
+	/**
+	 * `outside:<name>#<connection>`: one per socket connection, so another process that claims the same name never
+	 * shares the sessions it opened or the reports addressed to it.
+	 */
 	id: string;
+	/** The name the process gave itself (`OMPDESK_CALLER`): self-declared, never an identity. */
+	name: string;
 	/** What cards and messages call it. */
 	title: string;
 	/** Where a session it opens without a folder starts. */
@@ -303,6 +315,8 @@ export class AgentControlRuntime {
 	readonly #outside = new Map<string, OutsideCaller>();
 	/** Whoever hears the reports addressed to an outside caller (the control socket's event stream). */
 	readonly #outsideMail = new Set<(callerId: string, text: string) => void>();
+	/** The card each outside caller shows now, if any: the next one waits for it. */
+	readonly #outsideCards = new Map<string, Promise<void>>();
 
 	constructor(deps: AgentControlHostDeps) {
 		this.#deps = deps;
@@ -440,7 +454,7 @@ export class AgentControlRuntime {
 			for (const info of pool.tabsForWindow(win)) {
 				const opener = this.#autoClosable(info) ? this.#openerOf(info.tabId) : undefined;
 				// An outside caller has no session to collect into: its sessions stay until it closes them.
-				if (opener && !this.#outside.has(opener)) openers.add(opener);
+				if (opener && !isOutside(opener)) openers.add(opener);
 			}
 		}
 		return openers;
@@ -544,6 +558,13 @@ export class AgentControlRuntime {
 		return () => this.#outsideMail.delete(listener);
 	}
 
+	/** The caller's connection closed: it no longer acts or hears; the sessions it opened stay open. */
+	releaseOutside(caller: OutsideCaller): void {
+		this.#outside.delete(caller.id);
+		this.#windows.delete(caller.id);
+		this.#outsideCards.delete(caller.id);
+	}
+
 	/** Bind an outside caller to the front window; the refusal's text when there is none. */
 	#enterOutside(caller: OutsideCaller): string | null {
 		const win = this.#deps.outsideWindow?.();
@@ -582,7 +603,7 @@ export class AgentControlRuntime {
 	 */
 	#sendReview(callerTabId: string, review: AgentReviewResult): void {
 		// No board shows an outside caller's sessions: it lists them with ompdesk_sessions.
-		if (this.#outside.has(callerTabId)) return;
+		if (isOutside(callerTabId)) return;
 		this.#reviewSent.set(callerTabId, JSON.stringify(review));
 		this.#noteListed(callerTabId, review.items);
 		const showing = this.#deps.pool.windowsShowingTab(callerTabId);
@@ -612,7 +633,7 @@ export class AgentControlRuntime {
 
 	/** The parent's review list changed (a child started, finished or closed): push it after a short settle. */
 	#pushReview(callerTabId: string): void {
-		if (this.#outside.has(callerTabId)) return;
+		if (isOutside(callerTabId)) return;
 		clearTimeout(this.#reviewTimers.get(callerTabId));
 		const timer = setTimeout(() => {
 			this.#reviewTimers.delete(callerTabId);
@@ -901,7 +922,7 @@ export class AgentControlRuntime {
 				this.#windows.set(tabId, win);
 				this.#parents.set(tabId, { callerTabId });
 				this.#autopilotRuns.add(tabId);
-				if (!this.#outside.has(callerTabId)) deps.pool.setTabOpener(tabId, callerTabId);
+				if (!isOutside(callerTabId)) deps.pool.setTabOpener(tabId, callerTabId);
 				return { ...started, tabId };
 			},
 			status: tabId => this.#autopilotCommand(winFor(tabId), tabId, { type: "get_autopilot" }),
@@ -928,7 +949,7 @@ export class AgentControlRuntime {
 			parentOf: tabId => this.#openerOf(tabId),
 			mail: async (tabId, content, details, delivery) => {
 				// A report to a caller outside OMPdesk goes to its event stream (the control socket), not into a session.
-				if (this.#outside.has(tabId)) {
+				if (isOutside(tabId)) {
 					for (const listener of this.#outsideMail) listener(tabId, content);
 					return;
 				}
@@ -954,10 +975,7 @@ export class AgentControlRuntime {
 			tabs: callerTabId => {
 				const own = this.#win(callerTabId);
 				if (!own || own.isDestroyed()) return null;
-				if (
-					!this.#outside.has(callerTabId) &&
-					!deps.pool.tabsForWindow(own).some(info => info.tabId === callerTabId)
-				)
+				if (!isOutside(callerTabId) && !deps.pool.tabsForWindow(own).some(info => info.tabId === callerTabId))
 					return null;
 				return this.#allTabs(own);
 			},
@@ -1180,13 +1198,24 @@ export class AgentControlRuntime {
 	}
 
 	async #confirm(callerTabId: string, title: string, message: string): Promise<boolean> {
-		// An outside caller has no session to raise the card in: the same card shows over its window (no answer = no).
-		if (this.#outside.has(callerTabId)) {
-			const win = this.#win(callerTabId);
-			const confirm = this.#deps.confirmOutside;
-			return win && !win.isDestroyed() && confirm
-				? confirm(win, `${AGENT_CARD_PREFIX}${title}`, message).catch(() => false)
-				: false;
+		// An outside caller has no session to raise the card in: the same card shows over its window (no answer = no),
+		// one at a time per caller, so a process cannot stack dialogs on the person.
+		if (isOutside(callerTabId)) {
+			const previous = this.#outsideCards.get(callerTabId) ?? Promise.resolve();
+			const card = previous.then(() => {
+				const win = this.#win(callerTabId);
+				const caller = this.#outside.get(callerTabId);
+				const confirm = this.#deps.confirmOutside;
+				return win && !win.isDestroyed() && caller && confirm
+					? confirm(win, caller, `${AGENT_CARD_PREFIX}${title}`, message).catch(() => false)
+					: false;
+			});
+			const settled = card.then(() => undefined);
+			this.#outsideCards.set(callerTabId, settled);
+			void settled.then(() => {
+				if (this.#outsideCards.get(callerTabId) === settled) this.#outsideCards.delete(callerTabId);
+			});
+			return card;
 		}
 		const response = await this.#hostCommand(callerTabId, {
 			type: "agent_control_confirm",
@@ -1269,7 +1298,7 @@ export class AgentControlRuntime {
 	}
 
 	async #hostCommand(tabId: string, command: RpcCommand): Promise<RpcResponse> {
-		if (this.#outside.has(tabId))
+		if (isOutside(tabId))
 			return {
 				type: "response",
 				success: false,

@@ -34,6 +34,8 @@ export interface ControlBackend {
 	observe(listener: (activity: TabActivity) => void): () => void;
 	/** Reports addressed to an outside caller (a session it opened called `ompdesk_report`). */
 	onOutsideMail(listener: (callerId: string, text: string) => void): () => void;
+	/** The caller's connection closed: it no longer acts or hears reports. */
+	release(caller: OutsideCaller): void;
 }
 
 /** The one state rule: waiting on the person (the work board's and the tools' `waits`) wins over a running turn. */
@@ -57,7 +59,10 @@ export function sessionView(tab: ControlTab): SessionView {
 
 /** The backend over the app's control runtime and pool. A session hidden from agents is never seen. */
 export function createControlBackend(
-	runtime: Pick<AgentControlRuntime, "runOutside" | "resolveOutside" | "controlTabs" | "onOutsideMail">,
+	runtime: Pick<
+		AgentControlRuntime,
+		"runOutside" | "resolveOutside" | "controlTabs" | "onOutsideMail" | "releaseOutside"
+	>,
 	pool: Pick<SidecarPool, "observeTabs">,
 ): ControlBackend {
 	const visible = () => runtime.controlTabs().filter(tab => !tab.hidden);
@@ -71,5 +76,6 @@ export function createControlBackend(
 		views: () => visible().map(sessionView),
 		observe: listener => pool.observeTabs(listener),
 		onOutsideMail: listener => runtime.onOutsideMail(listener),
+		release: caller => runtime.releaseOutside(caller),
 	};
 }

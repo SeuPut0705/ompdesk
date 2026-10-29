@@ -47,6 +47,8 @@ export class ControlServer {
 	readonly #helloTimeoutMs: number;
 	readonly #server: Server;
 	readonly #connections = new Set<Socket>();
+	/** Numbers the connections: each one is its own caller (`outsideCaller`). */
+	#accepted = 0;
 	#path: string | undefined;
 
 	constructor({ token, router, helloTimeoutMs = HELLO_TIMEOUT_MS }: ControlServerOptions) {
@@ -90,6 +92,7 @@ export class ControlServer {
 	#accept(socket: Socket): void {
 		this.#connections.add(socket);
 		const abort = new AbortController();
+		const connection = ++this.#accepted;
 		let authenticated: ConnectionContext | undefined;
 		let closing = false;
 		let lingerTimer: NodeJS.Timeout | undefined;
@@ -143,7 +146,7 @@ export class ControlServer {
 					return;
 				}
 				clearTimeout(helloTimer);
-				const caller = outsideCaller(frame);
+				const caller = outsideCaller(frame, connection);
 				authenticated = { caller, sink, signal: abort.signal };
 				send({ id, ok: true, result: { protocol: CONTROL_PROTOCOL_VERSION, caller: caller.id } });
 				return;
@@ -191,6 +194,7 @@ export class ControlServer {
 			clearTimeout(helloTimer);
 			clearTimeout(lingerTimer);
 			abort.abort(new Error("The control connection closed"));
+			if (authenticated) this.#router.release(authenticated.caller);
 			this.#connections.delete(socket);
 		});
 	}

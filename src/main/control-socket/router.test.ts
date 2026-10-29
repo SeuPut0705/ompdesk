@@ -49,12 +49,19 @@ class FakeBackend implements ControlBackend {
 		return () => this.listeners.delete(listener);
 	}
 
+	release(): void {}
+
 	onOutsideMail(): () => void {
 		return () => undefined;
 	}
 }
 
-const caller: OutsideCaller = { id: "outside:cli", title: 'outside agent "cli"', cwd: "/tmp" };
+const caller: OutsideCaller = {
+	id: "outside:cli#1",
+	name: "cli",
+	title: 'outside process "cli" (self-declared)',
+	cwd: "/tmp",
+};
 
 function connection(signal: AbortSignal = new AbortController().signal): ConnectionContext {
 	return { caller, signal, sink: { write: () => true, onDrain: () => undefined } };

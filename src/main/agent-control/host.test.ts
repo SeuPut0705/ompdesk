@@ -1199,7 +1199,12 @@ describe("closing a child a paired web page owns", () => {
 });
 
 describe("a caller outside OMPdesk (the control socket)", () => {
-	const outside = { id: "outside:cli", title: 'outside agent "cli"', cwd: "/home/me/project" };
+	const outside = {
+		id: "outside:cli#1",
+		name: "cli",
+		title: 'outside process "cli" (self-declared)',
+		cwd: "/home/me/project",
+	};
 	const app: AgentControlHostDeps["app"] = {
 		invoke: async () => undefined,
 		fire: () => undefined,
@@ -1215,11 +1220,13 @@ describe("a caller outside OMPdesk (the control socket)", () => {
 		});
 		env.deps.outsideWindow = () => env.win;
 		const cards: string[] = [];
-		env.deps.confirmOutside = async (_win, title) => {
+		const callers: { name: string; title: string }[] = [];
+		env.deps.confirmOutside = async (_win, caller, title) => {
 			cards.push(title);
+			callers.push({ name: caller.name, title: caller.title });
 			return false;
 		};
-		return { ...env, cards, backend: createControlBackend(env.runtime, env.deps.pool) };
+		return { ...env, cards, callers, backend: createControlBackend(env.runtime, env.deps.pool) };
 	}
 
 	it("gets the same answer through the socket as an agent in a session gets from the host tool", async () => {
@@ -1262,6 +1269,48 @@ describe("a caller outside OMPdesk (the control socket)", () => {
 		expect(commands.filter(entry => entry.command.type === "agent_control_confirm")).toHaveLength(1);
 	});
 
+	it("names the caller in its card as it named itself, and owns only what its own connection opened", async () => {
+		const prefs = { [AGENT_CONTROL_FULL_PREF]: false, [AGENT_CONTROL_MANAGE_PREF]: false };
+		const { backend, cards, callers, tabs } = outsideSetup({ prefs });
+		await backend.run(outside, T.open, { message: "Fix it" });
+		tabs.push({ tabId: "new00003", cwd: "/home/me/project", status: "ready", kind: "agent" });
+		// Another connection that claims the same name is another caller: the session is not its own.
+		const sameName = { ...outside, id: "outside:cli#2" };
+		expect((await backend.run(sameName, T.stop, { session: "new00003" })).text).toContain("The user declined");
+		expect(callers).toEqual([{ name: "cli", title: 'outside process "cli" (self-declared)' }]);
+		expect(cards).toHaveLength(1);
+		await backend.run(outside, T.stop, { session: "new00003" });
+		expect(cards).toHaveLength(1);
+	});
+
+	it("shows one card at a time for a caller: the next waits until the first is answered", async () => {
+		const prefs = { [AGENT_CONTROL_FULL_PREF]: false, [AGENT_CONTROL_MANAGE_PREF]: false };
+		const env = outsideSetup({
+			prefs,
+			tabs: [
+				{ tabId: "main0001" },
+				{ tabId: "work0002", title: "A", sessionPath: "/s/a.jsonl" },
+				{ tabId: "work0003", title: "B", sessionPath: "/s/b.jsonl" },
+			],
+		});
+		const answers: ((approved: boolean) => void)[] = [];
+		env.deps.confirmOutside = () => {
+			const { promise, resolve } = Promise.withResolvers<boolean>();
+			answers.push(resolve);
+			return promise;
+		};
+		const first = env.backend.run(outside, T.stop, { session: "work0002" });
+		const second = env.backend.run(outside, T.stop, { session: "work0003" });
+		await vi.waitFor(() => expect(answers).toHaveLength(1));
+		await new Promise(resolve => setImmediate(resolve));
+		expect(answers).toHaveLength(1);
+		answers[0]?.(false);
+		await first;
+		await vi.waitFor(() => expect(answers).toHaveLength(2));
+		answers[1]?.(false);
+		await second;
+	});
+
 	it("refuses with no window open and names an unknown tool", async () => {
 		const { backend, deps } = outsideSetup();
 		expect((await backend.run(outside, "ompdesk_nothing", {})).text).toContain(
@@ -1277,7 +1326,7 @@ describe("a caller outside OMPdesk (the control socket)", () => {
 		const { backend, spawned, openers, runtime, commands } = outsideSetup();
 		await backend.run(outside, T.open, { message: "Title: Check the build\nRun it." });
 		expect(spawned[0]).toMatchObject({ cwd: "/home/me/project", task: "Check the build" });
-		expect(runtime.parentOf("new00003")).toEqual({ callerTabId: "outside:cli" });
+		expect(runtime.parentOf("new00003")).toEqual({ callerTabId: "outside:cli#1" });
 		expect(openers).not.toHaveBeenCalled();
 		// A worktree is made on this computer without going through anyone's tab.
 		await backend.run(outside, T.open, { worktree: true });
@@ -1292,7 +1341,7 @@ describe("a caller outside OMPdesk (the control socket)", () => {
 		tabs.push({ tabId: "new00003", cwd: "/home/me/project", status: "ready", kind: "agent" });
 		const outcome = await runtime.run(win, "new00003", T.report, { kind: "done", text: "All green" });
 		expect(outcome.isError).toBe(false);
-		expect(heard).toEqual([{ to: "outside:cli", text: expect.stringContaining("All green") }]);
+		expect(heard).toEqual([{ to: "outside:cli#1", text: expect.stringContaining("All green") }]);
 		expect(commands.filter(entry => entry.command.type === "agent_control_mail")).toEqual([]);
 	});
 
