@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -172,8 +172,10 @@ describe("main", () => {
 			});
 		});
 		await new Promise<void>(resolve => server?.listen(path, resolve));
+		// OMPdesk makes its socket owner-only; the CLI checks that before it hands over the token.
+		if (process.platform !== "win32") chmodSync(path, 0o600);
 		writeFileSync(join(dir, "endpoint.json"), JSON.stringify({ version: 1, socket: path, pid: process.pid }));
-		writeFileSync(join(dir, "token"), "tok\n");
+		writeFileSync(join(dir, "token"), "tok\n", { mode: 0o600 });
 		return path;
 	}
 
@@ -201,6 +203,42 @@ describe("main", () => {
 		expect(sink.out.join("")).toBe("two sessions\n");
 		expect(seen[0]).toMatchObject({ method: "hello", caller: "ci", cwd: dir, token: "tok" });
 		expect(seen[1]).toMatchObject({ method: "tool", tool: "ompdesk_sessions" });
+	});
+
+	it.skipIf(process.platform === "win32")(
+		"never sends the token to a socket that is not this user's alone",
+		async () => {
+			const reply = (request: ControlRequest): ControlResponse => ({
+				id: request.id,
+				ok: true,
+				result: { text: "ok", isError: false },
+			});
+			const path = await serve(reply);
+			const uid = process.getuid?.() ?? 0;
+			const cases: [string, () => void, Partial<Io>][] = [
+				["socket open to others", () => chmodSync(path, 0o666), {}],
+				["folder open to others", () => chmodSync(dir, 0o755), {}],
+				["owned by another user", () => undefined, { getuid: () => uid + 1 }],
+			];
+			for (const [what, loosen, extra] of cases) {
+				chmodSync(path, 0o600);
+				chmodSync(dir, 0o700);
+				loosen();
+				const sink = io(extra);
+				expect(await main(["sessions"], sink), what).toBe(3);
+				expect(sink.err.join(""), what).toContain("refused");
+				expect(seen, what).toEqual([]);
+			}
+			chmodSync(dir, 0o700);
+		},
+	);
+
+	it("refuses to run in a session OMPdesk hosts for another device", async () => {
+		await serve(request => ({ id: request.id, ok: true, result: { text: "ok", isError: false } }));
+		const sink = io({ env: { OMPDESK_CONTROL_DIR: dir, OMPDESK_CONTROL_OFF: "1" } });
+		expect(await main(["sessions"], sink)).toBe(3);
+		expect(sink.err.join("")).toContain("another device");
+		expect(seen).toEqual([]);
 	});
 
 	it("reads a message from stdin for `-`", async () => {

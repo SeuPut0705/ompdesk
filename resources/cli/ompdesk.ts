@@ -3,15 +3,16 @@
  * use the `ompdesk_*` host tools. Run by bun (`bun ompdesk.ts <command>`); only `node:` modules and `./protocol`.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import {
 	CALLER_NAME,
 	CONTROL_CALLER_ENV,
 	CONTROL_DIR_ENV,
+	CONTROL_OFF_ENV,
 	CONTROL_PROTOCOL_VERSION,
 	CONTROL_SOCKET_ENV,
 	type ControlError,
@@ -505,6 +506,8 @@ export interface Io {
 	cwd: string;
 	/** Ends `events` (the process's SIGINT). */
 	signal?: AbortSignal;
+	/** This user's uid (tests); absent: `process.getuid`. */
+	getuid?: () => number;
 }
 
 class Refused extends Error {}
@@ -601,7 +604,24 @@ function setPath(target: Record<string, unknown>, path: string[], value: unknown
 	at[path[path.length - 1] as string] = value;
 }
 
+/**
+ * POSIX: the socket, its folder and the token must be this user's alone before the token goes anywhere, so a socket
+ * another user planted (or one whose folder others can write) never receives it. Windows has no such check from Node
+ * (a pipe's server cannot be identified); there the pipe's name is unguessable and published only in this user's files.
+ */
+function ownerOnly(path: string, what: string, io: Io): void {
+	if (io.platform === "win32") return;
+	const uid = (io.getuid ?? process.getuid)?.();
+	const stat = lstatSync(path);
+	if (uid !== undefined && stat.uid !== uid) throw new Refused(`refused: ${what} ${path} belongs to another user`);
+	if ((stat.mode & 0o077) !== 0) throw new Refused(`refused: ${what} ${path} is open to other users`);
+}
+
 function readEndpoint(command: RunCommand, io: Io): { path: string; token: string } {
+	if (io.env[CONTROL_OFF_ENV] === "1")
+		throw new Refused(
+			"OMPdesk control is off in a session OMPdesk runs for another device (a paired computer or the phone page)",
+		);
 	const dir = controlDir(io.env, io.platform, io.home);
 	const tokenFile = join(dir, TOKEN_FILE);
 	let path = command.socket ?? io.env[CONTROL_SOCKET_ENV];
@@ -624,6 +644,10 @@ function readEndpoint(command: RunCommand, io: Io): { path: string; token: strin
 		if (!path) throw new Refused(`${file} names no socket`);
 	}
 	if (!existsSync(tokenFile)) throw new Refused(`OMPdesk is not running or its token is missing (${tokenFile})`);
+	if (io.platform !== "win32" && !existsSync(path)) throw new Refused(`OMPdesk is not running (no ${path})`);
+	ownerOnly(dirname(path), "socket folder", io);
+	ownerOnly(path, "socket", io);
+	ownerOnly(tokenFile, "token", io);
 	return { path, token: readFileSync(tokenFile, "utf8").trim() };
 }
 

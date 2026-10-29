@@ -18,7 +18,12 @@ export const CONTROL_PROTOCOL_VERSION = 1;
 export const CONTROL_SOCKET_ENV = "OMPDESK_SOCKET";
 /** The folder holding `endpoint.json` and `token`, set for every process OMPdesk spawns (a test or custom profile). */
 export const CONTROL_DIR_ENV = "OMPDESK_CONTROL_DIR";
-/** Names the outside caller (its sessions' provenance and its card title); `[a-z0-9_-]`, at most 32. */
+/**
+ * Set to "1" for a session OMPdesk runs for another device (a paired computer, the phone page): the CLI refuses
+ * there, so such a session never acts with this computer's front window instead of its device's permissions.
+ */
+export const CONTROL_OFF_ENV = "OMPDESK_CONTROL_OFF";
+/** Names the outside caller (its card title); `[a-z0-9_-]`, at most 32. Self-declared: never an identity. */
 export const CONTROL_CALLER_ENV = "OMPDESK_CALLER";
 
 export const ENDPOINT_FILE = "endpoint.json";
