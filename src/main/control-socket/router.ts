@@ -199,11 +199,11 @@ class TabWatch {
 	}
 }
 
-/** What each `until` accepts from a replayed lifecycle step; `any` takes the first step of all. */
-const STEP_MATCHES: Record<WaitUntil | "settled", ReadonlySet<Lifecycle["kind"]>> = {
-	settled: new Set(["ended", "blocked"]),
-	idle: new Set(["ended"]),
-	blocked: new Set(["blocked"]),
+/**
+ * The `until`s a replayed step itself satisfies: edges, not states. `idle`, `blocked` and settled never match a past
+ * step (Herdr's final wait runs with `accept_transient_status: false`): a step only makes them look at the session now.
+ */
+const EDGE_MATCHES: Partial<Record<WaitUntil, ReadonlySet<Lifecycle["kind"]>>> = {
 	done: new Set(["ended"]),
 	any: new Set(["working", "blocked", "ended"]),
 };
@@ -299,9 +299,10 @@ export class ControlRouter {
 	}
 
 	/**
-	 * The check a wait settles on. It first replays the tab's lifecycle steps after `mark` (so a turn that ended while
-	 * the send's activity gate ran still ends the wait), then reads the session as it is now. `done` needs a turn end
-	 * after `mark`; `any` compares the state now with `startState`.
+	 * The check a wait settles on, run now, on every step of the tab and on every poll beat. `done` and `any` are
+	 * edges: a turn end (or for `any`, any step) after `mark` satisfies them even when it was heard during the send's
+	 * activity gate. `idle`, `blocked` and settled are states: only the session as it is now satisfies them, so a turn
+	 * that ended before another one started does not end the wait.
 	 */
 	#evaluate(
 		tab: string,
@@ -316,7 +317,8 @@ export class ControlRouter {
 			const view = this.#backend.view(tab);
 			if (view === null || steps.some(step => step.kind === "released"))
 				throw failure("session_gone", `Session ${tab} is gone`);
-			const step = steps.find(entry => STEP_MATCHES[matched].has(entry.kind));
+			const edges = until ? EDGE_MATCHES[until] : undefined;
+			const step = edges ? steps.find(entry => edges.has(entry.kind)) : undefined;
 			if (step && step.kind !== "released")
 				return {
 					...status(view),
@@ -324,7 +326,12 @@ export class ControlRouter {
 					matched,
 					...(step.stopReason ? { stopReason: step.stopReason } : {}),
 				};
-			const now = (): WaitResult => ({ ...status(view), matched });
+			const lastEnd = steps.findLast(entry => entry.kind === "ended");
+			const now = (): WaitResult => ({
+				...status(view),
+				matched,
+				...(lastEnd?.stopReason ? { stopReason: lastEnd.stopReason } : {}),
+			});
 			switch (until) {
 				case undefined:
 					// A stopped omp moves on only when someone restarts it: a settled wait reports it rather than hang.

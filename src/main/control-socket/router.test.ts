@@ -255,24 +255,47 @@ describe("ControlRouter", () => {
 			expect(error.message).toContain("no observed working or blocked state");
 		});
 
-		it("replays a turn end the gate consumed, even after another turn started", async () => {
-			backend.add("t1", "idle");
-			backend.onRun = async () => {
+		it("ends done on a turn end the gate consumed, but settles idle only once the session is idle now", async () => {
+			const busyAgain = async (): Promise<ToolOutcome> => {
+				backend.setState("t1", "idle");
 				backend.fire({ type: "busy", tabId: "t1" });
 				backend.fire({ type: "idle", tabId: "t1", outcome: { stopReason: "stop" } });
 				backend.setState("t1", "working");
 				backend.fire({ type: "busy", tabId: "t1" });
 				return { text: "sent", isError: false };
 			};
-			for (const until of [undefined, "idle", "done"] as const)
-				expect(
-					resultOf(
-						await router.handle(
-							request({ method: "send", session: "t1", message: "hi", wait: until ? { until } : {} }),
-							connection(),
-						),
+			backend.add("t1", "idle");
+			backend.onRun = busyAgain;
+			expect(
+				resultOf(
+					await router.handle(
+						request({ method: "send", session: "t1", message: "hi", wait: { until: "done" } }),
+						connection(),
 					),
-				).toMatchObject({ waited: { state: "idle", matched: until ?? "settled", stopReason: "stop" } });
+				),
+			).toMatchObject({ waited: { state: "idle", matched: "done", stopReason: "stop" } });
+
+			for (const until of [undefined, "idle"] as const) {
+				backend.onRun = busyAgain;
+				let answered = false;
+				const pending = router
+					.handle(
+						request({ method: "send", session: "t1", message: "hi", wait: until ? { until } : {} }),
+						connection(),
+					)
+					.then(response => {
+						answered = true;
+						return response;
+					});
+				await vi.waitFor(() => expect(backend.runs.at(-1)?.tool).toBe("ompdesk_session_send"));
+				await new Promise(resolve => setImmediate(resolve));
+				expect(answered, `${until} answered while the second turn runs`).toBe(false);
+				backend.setState("t1", "idle");
+				backend.fire({ type: "idle", tabId: "t1", outcome: { stopReason: "aborted" } });
+				expect(resultOf(await pending)).toMatchObject({
+					waited: { state: "idle", matched: until ?? "settled", stopReason: "aborted" },
+				});
+			}
 		});
 
 		it("runs the gate under the one total timeout: a nearer timeout answers timeout, not stalled", async () => {
