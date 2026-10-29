@@ -78,7 +78,7 @@
 				"src/main/sidecar.ts#SidecarManager.#attemptRestart",
 				"src/main/sidecar.ts#SidecarManager.#spawn"
 			],
-			"syncCommit": "1412af73ff6abd601f9a64573266309d03c26465",
+			"syncCommit": "b9f1a17e431963c09b93256044b8c9d9fa50cf9d",
 			"verifySkill": ".omp/skills/tab-session-verify/SKILL.md"
 		}
 	]
