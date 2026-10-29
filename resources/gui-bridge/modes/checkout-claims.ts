@@ -293,14 +293,20 @@ export class ClaimBook<T = undefined> {
 		for (const { path } of call.claimed) if (this.#stamps.has(path)) this.#stamps.set(path, ++this.#seq);
 	}
 
-	/** The files a successful git run made clean leave the claims at once (main confirms), unless a later call changed them. */
+	/**
+	 * The files a successful git run made clean leave the claims at once (main confirms), unless a later call changed
+	 * them or a call still running writes them (its bytes may land after the commit). Such a running call took over a
+	 * claim the git run made clean: should it write nothing, F goes back to no claim.
+	 */
 	#clean(call: Pending<T>): boolean {
 		if (call.drops.length === 0) return false;
-		const gone = new Set(
-			this.#files.filter(
-				file => call.drops.some(path => isInside(file, path)) && (this.#stamps.get(file) ?? 0) <= call.seq,
-			),
+		const clean = this.#files.filter(
+			file => call.drops.some(path => isInside(file, path)) && (this.#stamps.get(file) ?? 0) <= call.seq,
 		);
+		const writing = this.#writing();
+		for (const running of [...this.#pending.values(), ...this.#jobs.values()])
+			for (const claim of running.claimed) if (clean.includes(claim.path)) claim.earlier = undefined;
+		const gone = new Set(clean.filter(file => !writing.has(file)));
 		this.#drop(gone);
 		return gone.size > 0;
 	}

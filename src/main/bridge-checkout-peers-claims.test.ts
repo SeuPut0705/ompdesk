@@ -59,6 +59,30 @@ describe("LedgerLifecycle 2: a commit, restore or checkout makes the files it na
 		expect(ledger.claims.files).toEqual([file("src/a.ts")]);
 	});
 
+	it("keeps a file a call started earlier is still writing", () => {
+		const ledger = new CheckoutLedger();
+		// W claims f and runs on; a commit naming f succeeds before W's bytes land.
+		bash(ledger, "sleep 8; echo x > src/f.ts", undefined, "w");
+		bash(ledger, "git commit -m x -- src/f.ts", undefined, "c");
+		ledger.settle("c");
+		expect(ledger.claims.files).toEqual([file("src/f.ts")]);
+		// W lands and reports back: its uncommitted write is the session's.
+		ledger.settle("w");
+		expect(ledger.claims.files).toEqual([file("src/f.ts")]);
+	});
+
+	it("goes back to no claim when an edit that began before the session's commit writes nothing", () => {
+		const ledger = new CheckoutLedger();
+		ledger.call("edit", { path: "src/f.ts" }, REPO, undefined, host, "e1");
+		ledger.settle("e1");
+		// An edit of f starts, the session commits f, then the edit fails: f is as committed, nobody's claim.
+		ledger.call("edit", { path: "src/f.ts" }, REPO, undefined, host, "e2");
+		bash(ledger, "git commit -m x -- src/f.ts", undefined, "c");
+		ledger.settle("c");
+		ledger.settle("e2", "", { isError: true });
+		expect(ledger.claims.files).toEqual([]);
+	});
+
 	it("drops the files of a restore, a checkout of paths and a stash of paths, and asks main to read", () => {
 		for (const command of ["git restore src/a.ts", "git checkout -- src/a.ts", "git commit -qm x src/a.ts"]) {
 			const ledger = new CheckoutLedger();
