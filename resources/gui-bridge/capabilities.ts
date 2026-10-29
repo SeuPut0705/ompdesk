@@ -524,12 +524,20 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		},
 	},
 	/**
-	 * turn-stages.ts: the main session's `subscribe` and live `model`/`isStreaming`, and two instance methods wrapped
-	 * once: `prompt` (a prompt's wait, and its setup ending before `agent_start`) and `extensionRunner.emitBeforeAgentStart`
-	 * (every extension's before_agent_start handlers). Imports nothing from omp.
+	 * turn-stages.ts: the main session's `subscribe` and live `model`/`isStreaming`, and three instance methods wrapped
+	 * once: `prompt` (a prompt's wait, and its setup ending before `agent_start`), `extensionRunner.emitBeforeAgentStart`
+	 * (every extension's before_agent_start handlers) and `agent.streamFn` (the main loop's own provider requests).
+	 * Imports nothing from omp.
 	 */
 	turnStages: {
-		session: ["subscribe()", "prompt()", "model", "isStreaming", "extensionRunner.emitBeforeAgentStart()"],
+		session: [
+			"subscribe()",
+			"prompt()",
+			"model",
+			"isStreaming",
+			"extensionRunner.emitBeforeAgentStart()",
+			"agent.streamFn()",
+		],
 	},
 	/**
 	 * desktop-slot.ts: patches stock's `ComputerSupervisor.prototype.run` (a read-only run passes, an acting run waits
@@ -1547,7 +1555,7 @@ export class UnsupportedOmpError extends Error {
 		const parts = unavailable.map(entry => `${FEATURES[entry.feature]} (missing ${entry.missing.join(", ")})`);
 		super(
 			`Unavailable with ${ompVersion ? `omp ${ompVersion}` : "this omp"}: ${parts.join("; ")}. ` +
-				"Update omp (`omp update`) or the GUI, or report an issue if it persists.",
+				"OMPdesk updates omp by itself; report an issue if it persists.",
 		);
 		this.name = "UnsupportedOmpError";
 		this.unavailable = unavailable;

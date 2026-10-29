@@ -16,6 +16,7 @@ import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { useOpenedChildren } from "../../../hooks/use-opened-children";
 import { pendingAsks } from "../../../lib/attention";
 import { useT } from "../../../lib/i18n";
+import { useModelWait } from "../../../lib/model-wait";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
 import { isAutopilotTab, isLiveAutopilot, useAutopilotStore } from "../../../stores/autopilot";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
@@ -160,6 +161,7 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 	useEffect(() => () => window.clearTimeout(leaveTimer.current), []);
 	useBackLayer(open, close);
 	const turnActive = useTodoStore(state => state.turnActive);
+	const modelWait = useModelWait();
 	const phases = useTodoStore(state => state.phases);
 	const planVisible = useTodoStore(selectTodoCardVisible);
 	const plan = useMemo(() => (planVisible ? todoBoard(phases) : null), [phases, planVisible]);
@@ -210,7 +212,8 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 			: plan
 				? t("workBoard.planProgress", { done: plan.done, total: plan.total })
 				: turnActive
-					? t("workBoard.step.working")
+					? // A request the model has not answered for a while is said as that wait, not "Working…".
+						(modelWait ?? t("workBoard.step.working"))
 					: running > 0
 						? `${t("workBoard.running")} · ${running}`
 						: goal

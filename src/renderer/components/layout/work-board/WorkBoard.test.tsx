@@ -459,6 +459,22 @@ describe("WorkBoard sections", () => {
 		expect(section("now")?.textContent ?? "").not.toContain("tok/s");
 	});
 
+	it("names the model's wait in the turn's row once a request has gone unanswered for a while", async () => {
+		await mount();
+		try {
+			await act(async () => {
+				useTodoStore.getState().setTurnActive(true, Date.now() - 200_000);
+				useMessagesStore.setState({ turnMeter: { ...EMPTY_TURN_METER, modelWaitSince: Date.now() - 190_000 } });
+			});
+			expect(section("now")?.textContent).toContain("Waiting for the model's response · 3m");
+			await act(async () => useMessagesStore.setState({ turnMeter: EMPTY_TURN_METER }));
+			expect(section("now")?.textContent ?? "").not.toContain("Waiting for the model's response");
+			expect(section("now")?.textContent).toContain("Working…");
+		} finally {
+			useMessagesStore.setState({ turnMeter: EMPTY_TURN_METER });
+		}
+	});
+
 	it("exits a finished agent's row with an animation flag, then removes it", async () => {
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 		try {

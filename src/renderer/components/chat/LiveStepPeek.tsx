@@ -19,6 +19,7 @@ import { useFrameSelector } from "../../hooks/use-frame-selector";
 import { useMediaQuery } from "../../hooks/use-media-query";
 import { cx, formatDuration, formatElapsed, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { useModelWait } from "../../lib/model-wait";
 import { useNowTick } from "../../lib/now-tick";
 import { type MessagesStore, useMessagesStore } from "../../stores/messages";
 import { useSessionRuntime } from "../../stores/session-runtime-context";
@@ -128,17 +129,21 @@ export function useStageCall(): string | null {
 
 /**
  * The card's frame before the model's first event: the same head the run then fills,
- * instead of a bare spinner that the card later replaces.
+ * instead of a bare spinner that the card later replaces. A request the model has not
+ * answered for a while is said as that wait, not as thinking (`useModelWait`).
  */
 export function WorkCardPending() {
 	const t = useT();
 	const motion = !useMediaQuery("(prefers-reduced-motion: reduce)");
+	const modelWait = useModelWait();
 	return (
 		<div className={cx("omp-live-step", motion && "omp-work-motion")} data-state="running" data-pending>
 			<div className="omp-work-head">
 				<WorkStatus state="running" label={t("subagent.status.started")} motion={motion} />
 				<div className="omp-work-head-text">
-					<div className="omp-work-narrative">{t("chat.thinking.live")}</div>
+					<div className="omp-work-narrative" data-model-wait={modelWait ? "" : undefined}>
+						{modelWait ?? t("chat.thinking.live")}
+					</div>
 					<div className="omp-work-sub-shell" data-open="true">
 						<div className="omp-work-sub" aria-hidden>
 							{"\u00a0"}
@@ -195,6 +200,8 @@ export function LiveStepPeek({
 }) {
 	const turnIsLive = state === "running";
 	const t = useT();
+	// The main card's thinking head says a long unanswered request as that wait; an agent lane keeps its own words.
+	const modelWait = useModelWait();
 	const runtime = useSessionRuntime();
 	const tools = toolsOverride ?? (runtime?.stores.get("tools") as StoreApi<ToolsStore> | undefined) ?? useToolsStore;
 	const messages = (runtime?.stores.get("messages") as StoreApi<MessagesStore> | undefined) ?? useMessagesStore;
@@ -517,7 +524,8 @@ export function LiveStepPeek({
 			? completion
 			: entry && surfaceKey !== "thinking"
 				? workNarrative(entry.toolName, settledArgs(entry), t, undefined, entry.intent)
-				: t("chat.thinking.live");
+				: (!nested && modelWait) || t("chat.thinking.live");
+	const waitsOnModel = !nested && !!modelWait && narrative === modelWait;
 	const waitingNames = waitingFor ? waitingFor.split(", ") : [];
 	// A running session-control call is said in words by the head's own line (CoordinationSub names the children).
 	const coordinating = !nested && running && (following || pinnedLive) && isCoordination(entry);
@@ -536,7 +544,9 @@ export function LiveStepPeek({
 							})
 						: t("chat.work.waitingFor", { names: waitingFor })
 					: selected === "thinking" && turnIsLive
-						? lastReasoningSentence(reasoning) || (thinkingBetween ? t("chat.thinking.live") : "")
+						? waitsOnModel
+							? ""
+							: lastReasoningSentence(reasoning) || (thinkingBetween ? t("chat.thinking.live") : "")
 						: picks.length > 1 && overlapping
 							? t("chat.work.parallel", { count: concurrent.length })
 							: calmWait && live

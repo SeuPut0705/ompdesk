@@ -28,6 +28,7 @@ import { lazyChunk } from "../../../lib/chunk-load";
 import { cx, formatDuration, formatTokens } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { actionShortcut } from "../../../lib/keymap";
+import { useModelWait } from "../../../lib/model-wait";
 import { useNowTick } from "../../../lib/now-tick";
 import { useProjectNames, useWorktreeKindLabels } from "../../../lib/project-origin";
 import { costKinds, costWords } from "../../../lib/spend";
@@ -280,6 +281,8 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	const retryInfo = useSessionStore(state => state.retryInfo);
 	const compacting = useSessionStore(state => state.compactionInfo !== null);
 	const awaitingModel = useSessionStore(state => state.awaitingModelSince !== null);
+	// The main loop's request unanswered for a while: the row says that wait, not "Working…" or the last step.
+	const modelWait = useModelWait();
 	const steps = useTurnSteps(turnActive, turnStartedAt);
 
 	const subagents = useSubagentsStore(state => state.subagents);
@@ -383,11 +386,12 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 		? t("chat.retry.inflight", { attempt: retryInfo.attempt, maxAttempts: retryInfo.maxAttempts })
 		: compacting
 			? t("workBoard.step.compacting")
-			: awaitingModel && steps.length === 0
-				? t("workBoard.step.waiting")
-				: steps.length === 0
-					? t("workBoard.step.working")
-					: null;
+			: (modelWait ??
+				(awaitingModel && steps.length === 0
+					? t("workBoard.step.waiting")
+					: steps.length === 0
+						? t("workBoard.step.working")
+						: null));
 	const startedAt = turnStartedAt;
 	const clock = (from: number | null) => (from === null ? "" : elapsedLabel(Math.max(0, now - from)));
 	// The turn's paced token rate, the one the per-message meter shows; not shown between turns.

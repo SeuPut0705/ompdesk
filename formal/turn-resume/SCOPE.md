@@ -17,6 +17,7 @@ Why tests miss it: each guard is tested alone (a prompt during the wait, Cancel 
 - The pool facts the rules read (`running`, `lastRun`, `stopped`, `touched`/session file, `awaitingConnection`), as environment actions that each end in a `sync()`.
 - The relaunch's own wait: `launch()` while offline holds each marker's continuation with the session and branch its tab shows (`Launch`, once, before any run of this process); the held launch marker counts as the `network` marker (CORRESPONDENCE A9).
 - The launch continuation's commands (review of v0.82.0, 29 Oct 2026): `restore_interrupted` in flight (`restoring`) and the second command that follows it (stock `retry`, the unwritten prompt, the goal resume; one step, `RestoreDone`), each looking at the session and branch again; Autopilot's wait for `goalSettled` (`apWait`); a move command in flight before `touched` counts it (`MoveSend`, `MoveReply`; `trackMove`, `MovesInFlight`, `movesSettled`).
+- The person's prompt while a continuation is on its way (A11, closed 29 Oct 2026): `UserPrompt` is enabled while a launch restore runs and while a continuation waits for a move's answer or its omp. `SidecarPool.notePrompted` counts every prompt of the person's own (`personsPrompt`: window tab, a device's hosted tab, a device's view of a window tab); `#run` takes the count when it starts and ends `cancelled` (nothing more sent, `goalSettled` `cancelled`) once it moved (`pk` for the continuation waiting, `rk` for the restore in flight). Property `NoSendAfterPersonsPrompt`.
 
 ## Abstracted
 
@@ -30,7 +31,7 @@ Why tests miss it: each guard is tested alone (a prompt during the wait, Cancel 
 ## Out of scope (not checked)
 
 - The rest of the launch path: an online launch's own start (the model's `Launch` is offline-only; the online run is the same `#run` a flush starts), `#pending` bookkeeping outside the held wait and the restore, what `resumeGoal` does, `unsavedPrompt`, how a marker finds its tab.
-- A11, unchecked: a user prompt while the launch's restore runs or a continuation waits for a move's answer. `UserPrompt` is disabled then; the code does not tell such a run from the continuation's own (`#judge` drops a held wait or a probe only), so a stock `retry` could still go into it.
+- A13, unchecked: two `#run`s of one tab at once. The person's prompt in the window above can fail, and its scheduled retry (30 s) can fire while the launch's restore (up to 2 min) or a continuation waiting for a move is still on its way; the code runs both (each takes its own prompt count and session when it starts; a call-off by generation, Cancel, Stop or a move, is per tab and ends both), the model delays the run's end (`EndRun` needs no continuation on its way: `runWait`, `restoring`) so it never has two. What the second `retry` does to a restore still running in the omp is stock's.
 - Stock's own auto-retry saga and its takeover (`fact.retry`, `#takeOverRetry`, `#takenOverRuns`).
 - The wake window (`ConnectivityMonitor.suspend()`/`resume()`, `shouldWait()` after a wake); `shouldWait()` is `!online` here.
 - Hosted tabs (`fact.device`, `fact.peer`), the quit freeze (`frozen()`), tab close (`#dropScheduled` on a missing tab), the `enabled()` setting.

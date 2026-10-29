@@ -1,16 +1,16 @@
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
 import { guard } from "./health";
 import { emit } from "./modes/shared";
-import { LATE_FIRST_OUTPUT_MS, TURN_STAGES_LATE_ENV } from "./turn-stages-contracts";
-import { setActiveRecorder, TurnStageRecorder } from "./turn-stages-core";
+import { LATE_FIRST_OUTPUT_MS, MODEL_REQUEST_EVENT, TURN_STAGES_LATE_ENV } from "./turn-stages-contracts";
+import { setActiveRecorder, TurnStageRecorder, wrapStreamFn } from "./turn-stages-core";
 
 /**
  * Turn-stage tracing (rules and why in turn-stages-core.ts): feeds the recorder from stock's events and sends its
  * frames to main, which writes them to gui-runtime.jsonl (src/main/turn-stages-log.ts). It only observes.
  *
- * - `input`, `before_provider_request`, `after_provider_response`: extension hooks that return nothing.
- *   `before_provider_request` does not touch the payload, and no `context` or `message_update` handler is registered
- *   (stock copies the whole context per request for the former, and calls the latter per token).
+ * - `input`: an extension hook that returns nothing. No `context`, `message_update` or provider hook is registered
+ *   (stock copies the whole context per request for the first and calls the second per token; the provider hooks
+ *   also run for side requests, as the main agent: see `wrapStreamFn` in turn-stages-core.ts).
  * - The main session's own `subscribe`: `agent_start`, `turn_start`, `message_start`, the first `message_update`,
  *   compaction and `agent_end`, plain function calls with an early return.
  * - Start and end of every extension's `before_agent_start` handlers: not an event of its own, so the main session's
@@ -20,6 +20,9 @@ import { setActiveRecorder, TurnStageRecorder } from "./turn-stages-core";
  *   hook), and a setup that ends before `agent_start` (stock's Stop, a newer prompt, a refusal) emits no agent event,
  *   so its return or throw is the only sign of it. The wrapper awaits the call and hands back its result or error
  *   unchanged. An omp without the method counts every run from its first event.
+ * - The main agent's `streamFn`, wrapped once on that instance: the payload and response callbacks of each request
+ *   the main loop itself makes (an omp without it only loses `provider_request` and `provider_response`). Each also
+ *   goes to the windows as `model_request` (`sent`, `answered`) for the working cue: two frames per model call.
  */
 const RUNNER_WRAPPED = Symbol.for("ompdesk.turn-stages.runner");
 const PROMPT_WRAPPED = Symbol.for("ompdesk.turn-stages.prompt");
@@ -73,12 +76,13 @@ function mainSession(pi: ExtensionAPI) {
 	return pi.pi.AgentRegistry.global().get(pi.pi.MAIN_AGENT_ID)?.session;
 }
 
-/** Subscribes to the main session and wraps its runner and `prompt`, each once; the session exists from `session_start` on. */
+/** Subscribes to the main session and wraps its runner, `prompt` and agent `streamFn`, each once; the session exists from `session_start` on. */
 function attach(pi: ExtensionAPI, recorder: TurnStageRecorder): void {
 	const session = mainSession(pi);
 	if (!session) return;
 	wrapHandlers(session.extensionRunner, recorder);
 	wrapPrompt(session, recorder);
+	wrapStreamFn(session.agent, recorder, phase => emit({ type: MODEL_REQUEST_EVENT, phase }));
 	if (subscribed.has(session)) return;
 	subscribed.add(session);
 	session.subscribe(event => recorder.sessionEvent(event));
@@ -98,13 +102,6 @@ export function install(pi: ExtensionAPI): void {
 		attach(pi, recorder);
 		recorder.promptReceived(event.text, mainSession(pi)?.isStreaming === true);
 		return undefined;
-	});
-	pi.on("before_provider_request", (_event, ctx) => {
-		if (ctx.agent.kind === "main") recorder.providerRequest();
-		return undefined;
-	});
-	pi.on("after_provider_response", (_event, ctx) => {
-		if (ctx.agent.kind === "main") recorder.providerResponse();
 	});
 	pi.on("session_start", () => attach(pi, recorder));
 	pi.on("session_switch", () => attach(pi, recorder));

@@ -21,13 +21,14 @@ export const TURN_STAGES_LATE_ENV = "OMP_GUI_TURN_STAGES_LATE_MS";
  * - `handlers_start` / `handlers_end`: stock's `before_agent_start` handlers of every extension (first start, last end).
  * - `agent_start`: the run began (stock's preparation, auto thinking and any pre-prompt compaction are over).
  * - `turn_start`: the model call began.
- * - `provider_request`: the last `before_provider_request` hook (the request is built; stock sends it next). Stock's
- *   Anthropic provider sends it up to 11 times by itself (a first-event timeout or a refused connection is retried
- *   with a 0.5 s doubling backoff, 8 s at most) without another hook, so this is the start of the whole request phase.
+ * - `provider_request`: the model call's first request (the payload callback of the main loop's own provider call:
+ *   `wrapStreamFn` in turn-stages-core.ts; side requests are not counted). Stock's Anthropic provider sends it up to 11
+ *   times by itself (a first-event timeout or a refused connection is retried with a 0.5 s doubling backoff, 8 s at
+ *   most) without another callback, so this is the start of the whole request phase.
  * - `stream_open`: the assistant message opened (the provider stream's first event reached the agent loop). Measured
  *   on omp 18.13.2 with a silent, refusing or aborted request it is the failure's own message, a moment before the
  *   run's end, so the gap before it is the request phase, not the stream's opening.
- * - `provider_response`: the last `after_provider_response` hook (response headers arrived).
+ * - `provider_response`: the call's last response headers (the response callback of that provider call).
  * - `first_output`: the first streamed event of the assistant message.
  * - `compaction` / `compaction_end`: a compaction pass ran inside the wait.
  * - `agent_end`: the run ended.
@@ -64,3 +65,15 @@ export type TurnStagesFrame = {
 	message: string;
 	details: TurnStagesDetails;
 };
+
+/**
+ * Bridge → window event, sent for the main loop's own provider requests only (never an advisor's or another side
+ * request): `sent` as a request goes out, `answered` when its response headers arrive with a status below 400. An
+ * error status is no answer: stock's provider retries it without a new request, or the run ends. Two small frames
+ * per model call, no timer; the working cue names the wait from them (`lib/model-wait.ts`).
+ */
+export const MODEL_REQUEST_EVENT = "model_request";
+
+export type ModelRequestPhase = "sent" | "answered";
+
+export type ModelRequestFrame = { type: typeof MODEL_REQUEST_EVENT; phase: ModelRequestPhase };

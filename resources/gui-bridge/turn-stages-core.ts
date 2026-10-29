@@ -3,8 +3,9 @@
  *
  * Why (28 Oct 2026, this Mac, 14:42-14:54: a main session sat on "thinking" for six minutes twice with no error and
  * no retry): nothing recorded which stage the turn was in. This notes a timestamp per stage from stock's own events
- * (the `input` hook, the session's `prompt` call, `before_agent_start` handlers, session events,
- * `before_provider_request`, `after_provider_response`) and OMPdesk's own slow spots (memory recall, prompt sections).
+ * (the `input` hook, the session's `prompt` call, `before_agent_start` handlers, session events, the payload and
+ * response callbacks of the main loop's own provider requests) and OMPdesk's own slow spots (memory recall, prompt
+ * sections).
  * It changes nothing, arms no timer and aborts nothing: a normal turn costs a few array writes and sends no frame.
  *
  * One frame per model call, only when
@@ -24,6 +25,7 @@
  */
 import {
 	LATE_FIRST_OUTPUT_MS,
+	type ModelRequestPhase,
 	TURN_STAGES_EVENT,
 	TURN_STAGES_MAX_DETAILS,
 	type TurnSlowSpot,
@@ -37,8 +39,17 @@ const PENDING_PROMPT_MAX_MS = 10 * 60_000;
 const ERROR_MAX = 300;
 /** Stages of the run as a whole (`Mark.call`); every other stage belongs to the model call it came in. */
 const RUN_LEVEL = -1;
-/** A stage that comes more than once keeps its first time; the rest keep their last. */
-const FIRST_TIME: Partial<Record<TurnStageName, true>> = { handlers_start: true, agent_start: true, compaction: true };
+/**
+ * A stage that comes more than once keeps its first time; the rest keep their last. `provider_request`: stock's
+ * Anthropic provider sends a rebuilt body again inside the same call after some 400s, and the wait for the first
+ * answer is the provider's, not a stall before the request.
+ */
+const FIRST_TIME: Partial<Record<TurnStageName, true>> = {
+	handlers_start: true,
+	agent_start: true,
+	compaction: true,
+	provider_request: true,
+};
 
 /** The slice of a stock session event read here; every stock event has a `type`. */
 export interface TurnSessionEvent {
@@ -202,7 +213,7 @@ export class TurnStageRecorder {
 		if (run && !run.started) this.#mark(run, "handlers_end", RUN_LEVEL);
 	}
 
-	/** Stock's `before_provider_request` hook. */
+	/** A provider request of the main loop's own model call went out (its payload callback). */
 	providerRequest(): void {
 		const run = this.#run;
 		if (!run?.started) return;
@@ -210,7 +221,7 @@ export class TurnStageRecorder {
 		this.#mark(run, "provider_request", run.call.index);
 	}
 
-	/** Stock's `after_provider_response` hook. */
+	/** That request's response headers arrived (its response callback). */
 	providerResponse(): void {
 		const run = this.#run;
 		if (run?.started) this.#mark(run, "provider_response", run.call.index);
@@ -393,4 +404,57 @@ export function setActiveRecorder(recorder: TurnStageRecorder | undefined): void
 /** OMPdesk's own handler time inside the current wait (a no-op outside one, and while the feature is not installed). */
 export function noteSlowSpot(spot: TurnSlowSpot, ms: number): void {
 	active?.note(spot, ms);
+}
+
+const STREAM_WRAPPED = Symbol.for("ompdesk.turn-stages.stream");
+type Callback = (...args: unknown[]) => unknown;
+interface StreamOptions {
+	onPayload?: Callback;
+	onResponse?: Callback;
+}
+
+/** A response the provider can stream from: an error status (429, 5xx, a 400 stock rebuilds for) is no answer. */
+function answers(response: unknown): boolean {
+	const status = record(response)?.status;
+	return typeof status !== "number" || status < 400;
+}
+
+/**
+ * Feeds `recorder` the main loop's own provider requests, and `signal` the working cue's two moments of each:
+ * wraps `agent.streamFn` once on that instance (turn-stages.ts passes the main session's agent). Stock's agent loop
+ * calls it for its model calls only (stock's comment in `sdk.ts`: advisors and the session's side calls use their
+ * own), so the payload callback of its options is a request of this call (`sent`) and the response callback its
+ * headers (`answered` unless the status is an error); both are handed on unchanged. The shared
+ * `before_provider_request` and `after_provider_response` hooks are not: stock runs them for those side requests
+ * too, as the main agent. Why (28-29 Oct 2026, this Mac): 21 lines named a gap from `turn_start` with 2-12 requests
+ * in one call, three of them a response before the request; a side request had replaced the main request's time while
+ * that request waited minutes for Anthropic's answer. An agent without `streamFn` is left alone (those two stages
+ * and the cue's signals are then missing).
+ */
+export function wrapStreamFn(
+	agent: unknown,
+	recorder: TurnStageRecorder,
+	signal: (phase: ModelRequestPhase) => void,
+): void {
+	const target = agent as Record<string | symbol, unknown> | undefined;
+	const original = target?.streamFn;
+	if (!target || target[STREAM_WRAPPED] || typeof original !== "function") return;
+	target[STREAM_WRAPPED] = true;
+	target.streamFn = function streamFn(this: unknown, model: unknown, context: unknown, options?: StreamOptions) {
+		const onPayload = options?.onPayload;
+		const onResponse = options?.onResponse;
+		return (original as Callback).call(this, model, context, {
+			...options,
+			onPayload: (...args: unknown[]) => {
+				recorder.providerRequest();
+				signal("sent");
+				return onPayload?.(...args);
+			},
+			onResponse: (...args: unknown[]) => {
+				recorder.providerResponse();
+				if (answers(args[0])) signal("answered");
+				return onResponse?.(...args);
+			},
+		});
+	};
 }

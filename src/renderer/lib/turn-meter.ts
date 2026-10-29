@@ -1,4 +1,7 @@
-/** Provider-reported run totals plus the paced stock AgentSession.tokenRate.rate() reading. */
+/**
+ * Provider-reported run totals plus the paced stock AgentSession.tokenRate.rate() reading, and the model's wait: since
+ * when the main loop's provider request has gone unanswered (`model_request`, bridge turn-stages.ts).
+ */
 import type { AgentMessage, AgentSessionEvent } from "../../shared/rpc-types";
 
 export interface TurnMeter {
@@ -9,6 +12,8 @@ export interface TurnMeter {
 	messageStartedAt: number | null;
 	generationMs: number;
 	rate: number | null;
+	/** The first unanswered request of the model call in flight (this window's clock); null once answered. */
+	modelWaitSince: number | null;
 }
 export const EMPTY_TURN_METER: TurnMeter = {
 	startedAt: null,
@@ -18,6 +23,7 @@ export const EMPTY_TURN_METER: TurnMeter = {
 	messageStartedAt: null,
 	generationMs: 0,
 	rate: null,
+	modelWaitSince: null,
 };
 export function reportedOutputTokens(message: AgentMessage | undefined): number {
 	const usage = message?.usage;
@@ -35,6 +41,10 @@ export function applyTurnMeterEvent(meter: TurnMeter, event: AgentSessionEvent, 
 	switch (event.type) {
 		case "token_rate":
 			return { ...meter, rate: event.rate };
+		case "model_request":
+			// A body stock's provider sends again inside the call keeps the first request's time.
+			if (event.phase === "sent") return meter.modelWaitSince === null ? { ...meter, modelWaitSince: now } : meter;
+			return meter.modelWaitSince === null ? meter : { ...meter, modelWaitSince: null };
 		case "agent_start":
 			return { ...EMPTY_TURN_METER, startedAt: now, rate: meter.rate };
 		case "message_start":
@@ -48,7 +58,8 @@ export function applyTurnMeterEvent(meter: TurnMeter, event: AgentSessionEvent, 
 			};
 		case "message_update": {
 			const reported = reportedOutputTokens(event.message);
-			return reported > meter.liveReportedTokens ? { ...meter, liveReportedTokens: reported } : meter;
+			const answered = meter.modelWaitSince === null ? meter : { ...meter, modelWaitSince: null };
+			return reported > answered.liveReportedTokens ? { ...answered, liveReportedTokens: reported } : answered;
 		}
 		case "message_end":
 			if (event.message.role !== "assistant" || meter.messageStartedAt == null) return meter;
@@ -60,9 +71,12 @@ export function applyTurnMeterEvent(meter: TurnMeter, event: AgentSessionEvent, 
 				messageStartedAt: null,
 			};
 		case "agent_end":
+			// An attempt stock retries ends its run unanswered; the retry's own status says what follows.
 			return event.isTerminal === false
-				? meter
-				: { ...meter, endedAt: now, liveReportedTokens: 0, messageStartedAt: null };
+				? meter.modelWaitSince === null
+					? meter
+					: { ...meter, modelWaitSince: null }
+				: { ...meter, endedAt: now, liveReportedTokens: 0, messageStartedAt: null, modelWaitSince: null };
 		default:
 			return meter;
 	}

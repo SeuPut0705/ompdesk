@@ -3,8 +3,10 @@ import { act, type ReactNode } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../../lib/i18n";
+import { EMPTY_TURN_METER } from "../../../lib/turn-meter";
 import { useAutopilotStore } from "../../../stores/autopilot";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
+import { useMessagesStore } from "../../../stores/messages";
 import { useSessionStore } from "../../../stores/session";
 import { useSubagentsStore } from "../../../stores/subagents";
 import { useTabsStore } from "../../../stores/tabs";
@@ -84,6 +86,22 @@ describe("WorkBoardChip, the phone's work strip", () => {
 		await act(async () => useTodoStore.setState({ turnActive: false }));
 		expect(container.querySelector("[data-work-chip]")).toBeNull();
 		expect(container.hasAttribute("data-work-board-strip")).toBe(false);
+	});
+
+	it("says a request the model has not answered for a while instead of Working…", async () => {
+		await mount();
+		const label = () => container.querySelector("[data-work-chip] [role=status]")?.textContent ?? "";
+		try {
+			await act(async () => useTodoStore.setState({ turnActive: true }));
+			expect(label()).toContain("Working…");
+			await act(async () =>
+				useMessagesStore.setState({ turnMeter: { ...EMPTY_TURN_METER, modelWaitSince: Date.now() - 75_000 } }),
+			);
+			expect(label()).toContain("Waiting for the model's response · 1m");
+			expect(label()).not.toContain("Working…");
+		} finally {
+			await act(async () => useMessagesStore.setState({ turnMeter: EMPTY_TURN_METER }));
+		}
 	});
 
 	it("names a live Autopilot run and its cycle, never just its Goal, even with the run's plan open", async () => {

@@ -17,7 +17,8 @@
 		"ProbeEnds",
 		"NoRetryAfterSessionChangeWhileHeld",
 		"NoSendWhileMoveInFlight",
-		"GoalHeard"
+		"GoalHeard",
+		"NoSendAfterPersonsPrompt"
 	],
 	"waive": {
 		"TypeOK": "Shape check only: no behaviour change breaks it without also breaking a property above it."
@@ -220,6 +221,24 @@
 			"replace": "apWait' = apWait",
 			"breaks": "GoalHeard",
 			"config": "MC_goal.cfg"
+		},
+		{
+			"name": "run-ignores-persons-prompt",
+			"why": "A11 before its fix: `#run` does not compare `ResumeFact.prompted`; a person's prompt while the continuation waits for a move's answer or its omp is not told from the continuation's own run, and stock retry (or the launch's restore) goes out after it.",
+			"file": "TurnResume.tla",
+			"search": "/\\ sg[t] <= runSg[t] /\\ ~pk[t]",
+			"replace": "/\\ sg[t] <= runSg[t]",
+			"breaks": "NoSendAfterPersonsPrompt",
+			"config": "MC_p8.cfg"
+		},
+		{
+			"name": "restore-ignores-persons-prompt",
+			"why": "A11 before its fix: after a slow `restore_interrupted` the launch's second command (stock retry, the unwritten prompt, the goal resume) goes out although the person sent a prompt meanwhile.",
+			"file": "TurnResume.tla",
+			"search": "/\\ sg[t] <= rsg[t] /\\ ~rk[t]",
+			"replace": "/\\ sg[t] <= rsg[t]",
+			"breaks": "NoSendAfterPersonsPrompt",
+			"config": "MC_p8.cfg"
 		}
 	]
 }

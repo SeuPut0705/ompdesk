@@ -5,6 +5,8 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
+import { EMPTY_TURN_METER } from "../../lib/turn-meter";
+import { useMessagesStore } from "../../stores/messages";
 import { type SubagentNode, useSubagentsStore } from "../../stores/subagents";
 import { type ToolEntry, toolEntriesState, useToolsStore } from "../../stores/tools";
 
@@ -474,4 +476,33 @@ it("#38 the pending frame is the card's own head, not a bare spinner", async () 
 	expect(card?.querySelector(".omp-work-head .omp-work-narrative")?.textContent).toBe("Thinking…");
 	expect(card?.querySelector(".omp-work-sub-shell")).not.toBeNull();
 	expect(container.querySelector(".animate-spin")).toBeNull();
+});
+
+it("says a request the model has not answered for a while as that wait, and thinking otherwise", async () => {
+	const wait = async (since: number | null) => {
+		await act(async () => useMessagesStore.setState({ turnMeter: { ...EMPTY_TURN_METER, modelWaitSince: since } }));
+		await flush();
+	};
+	const head = () => container.querySelector(".omp-work-head .omp-work-narrative")?.textContent;
+	try {
+		// Sent, not answered for 2 min 30 s: the pending frame (before the model's first event) says the wait.
+		await wait(Date.now() - 150_000);
+		await show(<WorkCardPending />);
+		expect(head()).toBe("Waiting for the model's response · 2m");
+		// A request out for a few seconds is the normal case: no words flash, the head stays "Thinking…".
+		await wait(Date.now() - 5_000);
+		expect(head()).toBe("Thinking…");
+		// Answered (or never sent): thinking.
+		await wait(null);
+		expect(head()).toBe("Thinking…");
+		// The running card between steps (the next call's request out for 40 s) says the same wait, with no thinking line.
+		await wait(Date.now() - 40_000);
+		await show(<LiveStepPeek thinkingLive toolCallIds={[]} />);
+		expect(head()).toBe("Waiting for the model's response · 40s");
+		expect(container.querySelector(".omp-work-sub")?.textContent ?? "").not.toContain("Thinking");
+		await wait(null);
+		expect(head()).toBe("Thinking…");
+	} finally {
+		useMessagesStore.setState({ turnMeter: EMPTY_TURN_METER });
+	}
 });

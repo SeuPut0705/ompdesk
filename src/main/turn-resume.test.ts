@@ -3,6 +3,7 @@ import { closeSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync }
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { wrapAgentMessage } from "../shared/agent-control";
 import type { IpcScheduledRetry, IpcTabRunOutcome } from "../shared/ipc-types";
 import type { RpcCommand, RpcResponse } from "../shared/rpc-types";
 import { deletedSessions, initDeletedSessions } from "./deleted-sessions";
@@ -19,6 +20,7 @@ import {
 	MovesInFlight,
 	movesTab,
 	movesTabUnknown,
+	personsPrompt,
 	RESUME_COMMAND_TIMEOUT_MS,
 	RESUME_READY_TIMEOUT_MS,
 	type ResumeFact,
@@ -2193,6 +2195,159 @@ describe("TurnResume races (review of v0.82.0)", () => {
 			await settle();
 			expect(sent()).not.toContain("retry");
 			expect(h.awaiting.at(-1)).toEqual(["t1", false]);
+		});
+	});
+
+	// A11 (left unchecked in v0.82.1): the person's prompt while a continuation waits for a move's answer or its restore
+	// runs looks, to `#judge`, like the continuation's own run; stock `retry` could land in the person's run.
+	describe("a person's prompt while a continuation is on its way", () => {
+		const prompt = () => move({ prompted: 1, running: true });
+
+		it("drops a launch continuation whose restore is running: no stock retry into the person's run, goal `cancelled`", async () => {
+			const restore = slowRestore();
+			h = setup({ answers: { restore_interrupted: restore.answer, retry: RETRIED } });
+			new InterruptedTurnStore(h.file).write([marker()]);
+			h.facts.push(fact({ tabId: "restored", running: false }));
+			h.resume.launch();
+			await settle();
+			expect(sent()).toEqual(["restore_interrupted"]);
+
+			prompt();
+			restore.release({});
+			await settle();
+
+			expect(sent()).toEqual(["restore_interrupted"]);
+			expect(h.goals).toEqual([["restored", "cancelled"]]);
+			expect(h.logs.at(-1)).toEqual([
+				"continue",
+				expect.objectContaining({ tab: "restored", started: false, cancelled: true }),
+			]);
+			// The marker is the person's own run's now, not the continuation's.
+			expect(h.store.read()).toEqual([expect.objectContaining({ tab: "restored", reason: "running" })]);
+		});
+
+		it("does not send the unwritten first prompt or resume the goal after the person's prompt", async () => {
+			const restore = slowRestore();
+			const resumed: string[] = [];
+			h = setup({
+				answers: { restore_interrupted: restore.answer },
+				resumeGoal: async tabId => {
+					resumed.push(tabId);
+				},
+			});
+			new InterruptedTurnStore(h.file).write([
+				marker({ sessionPath: join(h.dir, "never-written.jsonl"), prompt: "list the fruits" }),
+			]);
+			h.facts.push(fact({ tabId: "restored", sessionFile: undefined }));
+			h.resume.launch();
+			await settle();
+
+			prompt();
+			restore.release({ goalPausedByExit: true });
+			await settle();
+
+			expect(sent()).toEqual(["restore_interrupted"]);
+			expect(resumed).toEqual([]);
+			expect(h.goals).toEqual([["restored", "cancelled"]]);
+		});
+
+		it("drops a connection wait's flush that waits for a move's answer: nothing retries into the person's run", async () => {
+			h = setup({ online: false, answers: { retry: RETRIED } });
+			h.resume.launch();
+			h.facts.push(
+				fact({
+					running: false,
+					lastRun: { stopReason: "error", errorMessage: "fetch failed: getaddrinfo ENOTFOUND api.example.com" },
+				}),
+			);
+			h.resume.sync();
+			const answered = h.moves.begin("t1");
+			h.net.online = true;
+			h.resume.connectivityChanged();
+			await settle();
+
+			// The move was cancelled (no `touched`), but the person typed meanwhile.
+			prompt();
+			answered();
+			await settle();
+
+			expect(sent()).not.toContain("retry");
+			expect(h.awaiting.at(-1)).toEqual(["t1", false]);
+		});
+
+		it("calls off a scheduled retry that fires while a move is on its way and the person prompted", async () => {
+			h = setup({ answers: { get_settings: SETTINGS_ON, retry: RETRIED } });
+			h.resume.launch();
+			h.facts.push(fact({ running: true }));
+			h.resume.sync();
+			h.facts[0] = fact({ lastRun: { ...SERVER_DOWN } });
+			h.resume.sync();
+			await settleLong();
+			const answered = h.moves.begin("t1");
+			h.timers[0]?.run();
+			await settleLong();
+
+			prompt();
+			answered();
+			await settleLong();
+
+			expect(sent()).not.toContain("retry");
+		});
+
+		it("ends only the continuation: the person's own run that failed offline keeps its connection wait and is retried once online", async () => {
+			const restore = slowRestore();
+			h = setup({ answers: { restore_interrupted: restore.answer, retry: RETRIED } });
+			new InterruptedTurnStore(h.file).write([marker()]);
+			h.facts.push(fact({ tabId: "restored", running: false }));
+			h.resume.launch();
+			await settle();
+			expect(sent()).toEqual(["restore_interrupted"]);
+
+			// The person prompts while the restore runs; their turn fails on the network, which is down.
+			h.net.online = false;
+			prompt();
+			move({
+				running: false,
+				lastRun: { stopReason: "error", errorMessage: "fetch failed: getaddrinfo ENOTFOUND api.example.com" },
+			});
+			expect(h.awaiting.at(-1)).toEqual(["restored", true]);
+
+			restore.release({});
+			await settle();
+			expect(sent()).toEqual(["restore_interrupted"]);
+			expect(h.goals).toEqual([["restored", "cancelled"]]);
+			expect(h.awaiting.at(-1)).toEqual(["restored", true]);
+
+			h.net.online = true;
+			h.resume.connectivityChanged();
+			await settle();
+			expect(sent()).toEqual(["restore_interrupted", "retry"]);
+			// Autopilot heard the launch continuation once; the retry of the person's run is its own continuation.
+			expect(h.goals).toEqual([
+				["restored", "cancelled"],
+				["restored", "none"],
+			]);
+		});
+
+		it("still continues when the person prompted before the continuation started", async () => {
+			h = setup({ answers: { restore_interrupted: RESTORED, retry: RETRIED } });
+			new InterruptedTurnStore(h.file).write([marker()]);
+			h.facts.push(fact({ tabId: "restored", running: false, prompted: 3 }));
+			h.resume.launch();
+			await settle();
+			expect(sent()).toEqual(["restore_interrupted"]);
+			expect(h.goals).toEqual([["restored", "none"]]);
+		});
+	});
+
+	describe("personsPrompt", () => {
+		it("is the person's own prompt, steer or follow-up, never an agent's wrapped message or another command", () => {
+			expect(personsPrompt({ type: "prompt", message: "hello" })).toBe(true);
+			expect(personsPrompt({ type: "steer", message: "hello" })).toBe(true);
+			expect(personsPrompt({ type: "follow_up", message: "hello" })).toBe(true);
+			expect(personsPrompt({ type: "prompt", message: wrapAgentMessage("do it", "an agent") })).toBe(false);
+			expect(personsPrompt({ type: "get_state" })).toBe(false);
+			expect(personsPrompt({ type: "bash", message: "ls" })).toBe(false);
 		});
 	});
 

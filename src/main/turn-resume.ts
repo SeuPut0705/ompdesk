@@ -14,6 +14,7 @@
  * what was running. Electron-free (the pool and the clock are injected).
  */
 import { existsSync, readFileSync } from "node:fs";
+import { parseAgentMessage } from "../shared/agent-control";
 import type { IpcScheduledRetry, IpcTabRunOutcome } from "../shared/ipc-types";
 import type { RpcResponse } from "../shared/rpc-types";
 import { writeFileAtomicDeferred } from "./atomic-file";
@@ -80,6 +81,12 @@ export interface ResumeFact {
 	 * tab, the host's for a device's); a scheduled retry armed, or a connection wait held, at another count is called off.
 	 */
 	touched?: number;
+	/**
+	 * How often the person sent the tab a prompt of their own (`personsPrompt`: main's command path for a window's tab,
+	 * the host's for a device's, a view's through its window tab); a continuation that started at another count is
+	 * called off, since a run that began meanwhile is not its own.
+	 */
+	prompted?: number;
 	/** The run's prompt while the new session has no file yet (see {@link ResumeMarker.prompt}). */
 	unsavedPrompt?: string;
 	/** The tab whose agent opened this one (`ompdesk_session_open`), and that opener's session file. */
@@ -156,6 +163,15 @@ export function movesTab(type: string, response: RpcResponse): boolean {
 		TOUCH_COMMANDS[type] === true &&
 		response.success &&
 		(response.data as { cancelled?: boolean } | undefined)?.cancelled !== true
+	);
+}
+
+/** Whether a command sends the tab a prompt of the person's own (an agent's message is wrapped, and is none): their run is theirs. */
+export function personsPrompt(command: { type: string; message?: unknown }): boolean {
+	return (
+		(command.type === "prompt" || command.type === "steer" || command.type === "follow_up") &&
+		typeof command.message === "string" &&
+		parseAgentMessage(command.message) === null
 	);
 }
 
@@ -873,20 +889,28 @@ export class TurnResume {
 			const fact = since && this.#factFor(tabId);
 			return since !== undefined && fact !== undefined && this.#movedSince(fact, since);
 		};
-		// Also waits for a move whose command is on its way: its `touched` counts only once it answered. The call-off
+		// The person's prompt since this continuation started starts a run that is not its own (`#judge` cannot tell it
+		// from the continuation's once the wait is gone): it sends nothing more and ends `cancelled`, so stock `retry` never
+		// lands in that run. Unlike a move this ends only this continuation: the person's run keeps its own wait, scheduled
+		// retry and marker, which `#dropWait` would take.
+		const prompted = this.#factFor(tabId)?.prompted ?? 0;
+		let personTookOver = false;
+		const calledOff = (): boolean => cancelled() || personTookOver;
+		// Also waits for a move whose command is on its way: its `touched` counts only once it answered. A move's call-off
 		// bumps the generation, so the end of this run reports `cancelled` (to Autopilot too); no second report here.
 		const stale = async (): Promise<boolean> => {
 			await this.#deps.pool.movesSettled(tabId);
 			if (moved()) this.#dropWait(tabId, false);
-			return cancelled();
+			if ((this.#factFor(tabId)?.prompted ?? 0) !== prompted) personTookOver = true;
+			return calledOff();
 		};
 		const sidecar = (await stale()) ? null : this.#deps.pool.startTab(tabId);
 		const ready = sidecar ? await whenReady(sidecar) : false;
 		if (ready) await stale();
-		if (!sidecar || !ready || cancelled()) {
-			this.#deps.log?.("continue", { tab: tabId, action, ready, cancelled: cancelled() });
+		if (!sidecar || !ready || calledOff()) {
+			this.#deps.log?.("continue", { tab: tabId, action, ready, cancelled: calledOff() });
 			this.#pending.delete(tabId);
-			this.#deps.goalSettled?.(tabId, cancelled() ? "cancelled" : "none");
+			this.#deps.goalSettled?.(tabId, calledOff() ? "cancelled" : "none");
 			this.sync();
 			return false;
 		}
@@ -968,9 +992,9 @@ export class TurnResume {
 			...(!started && typeof restored?.journal === "string" ? { journal: restored.journal } : {}),
 			...(opened > 0 ? { opened } : {}),
 			...failures,
-			...(cancelled() ? { cancelled: true } : {}),
+			...(calledOff() ? { cancelled: true } : {}),
 		});
-		this.#deps.goalSettled?.(tabId, goalResumed ? "resumed" : cancelled() ? "cancelled" : "none");
+		this.#deps.goalSettled?.(tabId, goalResumed ? "resumed" : calledOff() ? "cancelled" : "none");
 		// Nothing left to continue (or the call failed): the marker has nothing more to say.
 		if (!started) this.#pending.delete(tabId);
 		this.sync();

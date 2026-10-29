@@ -2,7 +2,7 @@
 	"runs": [
 		{ "name": "code-safety-all-invariants", "config": "MC.cfg", "expect": "pass" },
 		{ "name": "liveness-wait-and-probe-end", "config": "MC_live.cfg", "expect": "pass", "timeoutSec": 600 },
-		{ "name": "liveness-wait-and-probe-end-with-moves", "config": "MC_live_move.cfg", "expect": "pass", "tier": "deep", "timeoutSec": 1200 },
+		{ "name": "liveness-wait-and-probe-end-with-moves", "config": "MC_live_move.cfg", "expect": "pass", "tier": "deep", "timeoutSec": 2400 },
 		{ "name": "a-wait-is-reachable", "config": "MC_sanity_wait.cfg", "expect": "invariant", "property": "NeverWaits" },
 		{ "name": "a-retry-is-sent", "config": "MC_sanity_retry.cfg", "expect": "invariant", "property": "NeverRetries" },
 		{ "name": "a-retry-is-armed", "config": "MC_sanity_armed.cfg", "expect": "invariant", "property": "NeverArmed" },
@@ -11,6 +11,8 @@
 		{ "name": "a-launch-restore-is-in-flight", "config": "MC_sanity_restore.cfg", "expect": "invariant", "property": "NeverRestores" },
 		{ "name": "a-move-is-in-flight", "config": "MC_sanity_move.cfg", "expect": "invariant", "property": "NeverMoveInFlight" },
 		{ "name": "a-continuation-waits-for-a-move", "config": "MC_sanity_defer.cfg", "expect": "invariant", "property": "NeverDeferredByMove" },
-		{ "name": "deep-all-invariants-2-flaps", "config": "MC_deep.cfg", "expect": "pass", "tier": "deep", "timeoutSec": 900 }
+		{ "name": "a-person-prompts-while-a-continuation-waits", "config": "MC_sanity_pk.cfg", "expect": "invariant", "property": "NeverPromptedDeferred" },
+		{ "name": "a-person-prompts-while-the-restore-runs", "config": "MC_sanity_rk.cfg", "expect": "invariant", "property": "NeverPromptedRestore" },
+		{ "name": "deep-all-invariants-2-flaps", "config": "MC_deep.cfg", "expect": "pass", "tier": "deep", "timeoutSec": 3600 }
 	]
 }
