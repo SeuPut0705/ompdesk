@@ -1840,7 +1840,7 @@ app.whenReady().then(() => {
 	protocol.handle(MEDIA_SCHEME, request => mediaStreams.handle(request));
 	webHost = new WebHost({
 		ipc,
-		onPageConnectionEnded: (win, connId) => fileEditReports.forget(win.webContents.id, connId),
+		onPageConnectionEnded: connId => fileEditReports.forget(connId),
 		userData: app.getPath("userData"),
 		// The built renderer: `web.html` and its assets sit beside `index.html` (a dev run has none).
 		staticRoot: () => join(__dirname, "../renderer"),

@@ -1537,11 +1537,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		return closeWindowTab(tabRelease, win, payload.tabId, caller.sender.id);
 	});
 
-	// A paired web page's Files editor state, which decides whether main may close one of its tabs for an agent.
+	// A paired web page's Files editor state, which decides whether main may close one of its tabs for an agent. Only a
+	// web page's connection reports (an Electron window closes its own tabs and guards its own edits).
 	ipc.handle(IPC_COMMANDS.FILE_EDIT_REPORT, (caller, payload: IpcFileEditReportPayload) => {
 		const win = caller.win;
-		if (!win || (payload?.dirtyTabId !== null && typeof payload?.dirtyTabId !== "string")) return;
-		fileEditReports.report(win, payload.dirtyTabId, caller.connId);
+		if (!win || !caller.connId || (payload?.dirtyTabId !== null && typeof payload?.dirtyTabId !== "string")) return;
+		fileEditReports.report(win.webContents.id, caller.connId, payload.dirtyTabId);
 	});
 
 	// The calling window's open `worktree.onStart` / `worktree.onExit` questions.

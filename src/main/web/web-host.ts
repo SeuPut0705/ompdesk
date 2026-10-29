@@ -54,7 +54,7 @@ const UPLOAD_SWEEP_MS = 60 * 60_000;
 
 export interface WebHostDeps {
 	/** One socket of a paired page ended (the page's other sockets may remain; its window stays parked with its tabs). */
-	onPageConnectionEnded?: (win: ClientWindow, connId: string) => void;
+	onPageConnectionEnded?: (connId: string) => void;
 	ipc: Pick<IpcRegistry, "handle" | "invoke" | "send">;
 	userData: string;
 	/** The built renderer's folder (`web.html` and assets), null when the app has none (a dev run). */
@@ -175,8 +175,7 @@ export class WebHost {
 			uploads: this.uploads,
 			toModelImage: image => stockHelperRequest<InlineImage>("image.toModel", image),
 			onConnectionsChanged: () => this.devices.notifyChanged(),
-			onConnectionEnded: (deviceId, connId) =>
-				deps.onPageConnectionEnded?.(this.windows.windowFor(deviceId), connId),
+			onConnectionEnded: (_deviceId, connId) => deps.onPageConnectionEnded?.(connId),
 			onResync: deviceId => deps.tabs.resnapshot(this.windows.windowFor(deviceId)),
 			now,
 		});
