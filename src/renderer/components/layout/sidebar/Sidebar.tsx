@@ -68,7 +68,15 @@ import { SIDEBAR_WIDTH } from "../../../../shared/boot-shell-geometry";
 import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
 import type { HostView, IpcHostedSession, SessionInfo } from "../../../../shared/ipc-types";
 import { autopilotRunOf, worktreeKindOf, worktreeLabel } from "../../../../shared/project-origin";
-import { sessionFinished, sessionProjectKey, tabInUse } from "../../../../shared/sidebar-projects";
+import {
+	CHATS_ORDER_KEY,
+	isChatSession,
+	type RowGroup,
+	type RowSession,
+	type RowTab,
+	remoteOpenedChildren,
+	sidebarRows,
+} from "../../../../shared/sidebar-rows";
 import { splitTabIds } from "../../../../shared/split-layout";
 import { useSessionAttention } from "../../../hooks/use-session-attention";
 import { useSessionList } from "../../../hooks/use-session-list";
@@ -82,17 +90,10 @@ import { copyText, cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
 import { actionKbd, onEscape } from "../../../lib/keymap";
-import {
-	CHATS_ORDER_KEY,
-	moveInOrder,
-	orderByManual,
-	orderProjects,
-	reorderProjects,
-	withLocalProjectOrder,
-} from "../../../lib/project-order";
+import { moveInOrder, reorderProjects, withLocalProjectOrder } from "../../../lib/project-order";
 import { useProjectNames, useWorktreeKindLabels } from "../../../lib/project-origin";
 import { sessionForkOrigin } from "../../../lib/session-fork";
-import { isChatSession, sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
+import { sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
 import { isRememberedSession, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { clampSidebarWidth, readSidebarWidth, writeSidebarWidth } from "../../../lib/sidebar-width";
 import { snapshotNs, snapshots } from "../../../lib/snapshot-cache";
@@ -160,14 +161,7 @@ import { SidebarUpdateCard } from "./SidebarUpdateCard";
 import { SidebarUsage } from "./SidebarUsage";
 import { SortableProject } from "./SortableProject";
 import { type SessionList, useSessionReorder } from "./session-reorder";
-import {
-	CHILD_TOKEN,
-	foldsIntoProject,
-	isShownOpened,
-	openedChildStatus,
-	openerOfSessions,
-	remoteOpenedChildren,
-} from "./sidebar-family";
+import { CHILD_TOKEN, isShownOpened, openedChildStatus } from "./sidebar-family";
 import "../../../styles/sidebar.css";
 
 /**
@@ -177,26 +171,15 @@ import "../../../styles/sidebar.css";
  * Live-only rows (`liveTabId` set) have no transcript file yet: nothing to
  * rename, pin, or delete.
  */
-type SidebarSession = SessionInfo & { liveTabId?: string };
+type SidebarSession = RowSession;
 
-interface WorkspaceGroup {
-	/** The group's id and where "new session here" starts: the folder, or a linked worktree's main checkout. */
-	cwd: string;
-	/** Every folder whose sessions the group holds (the project's worktrees among them). */
-	members: string[];
+interface WorkspaceGroup extends RowGroup {
 	name: string;
 	/** The full path: the group header's tooltip. */
 	tooltip: string;
-	sessions: SidebarSession[];
-	/** Sessions an agent opened that no opener row holds (closed, from before provenance, opener gone): listed only while they need a look. */
-	folded: SidebarSession[];
-	/** The project's folder is gone from disk: still listed, dimmed, until the person removes it. */
-	missing?: boolean;
-	/** In this computer's project list: shown with no session too. */
-	listed?: boolean;
-	/** A new, still empty tab works in it: shown with no session too. */
-	open?: boolean;
 }
+
+const NO_PATHS: ReadonlySet<string> = new Set();
 
 /** A delete the row or context menu queued, awaiting the confirmation dialog. */
 type PendingDelete =
@@ -205,12 +188,6 @@ type PendingDelete =
 	| { kind: "archived"; sessions: SidebarSession[] };
 
 /** Floor for the docked column: the sidebar never folds on its own, so this is what a narrow window keeps. */
-
-/** Stock's own `created` (the session header's timestamp): fixed for a session's life, unlike `modified`. */
-function createdAt(session: SessionInfo): number {
-	const timestamp = Date.parse(session.created);
-	return Number.isFinite(timestamp) ? timestamp : 0;
-}
 
 /**
  * The focused tab is still the untouched landing surface: no transcript, no
@@ -624,232 +601,9 @@ export function Sidebar() {
 	}, []);
 
 	const query = filter.trim().toLocaleLowerCase();
-	const matchesFilter = useCallback(
-		(session: SessionInfo) =>
-			!query ||
-			sessionDisplayTitle(session, "").toLocaleLowerCase().includes(query) ||
-			session.cwd.toLocaleLowerCase().includes(query),
-		[query],
-	);
-	// Sessions sort by when they were created, newest first (stock's `created`), never by activity: a streaming
-	// turn rewrites the transcript, so its mtime would move rows while the user watches. Pinned ones come first;
-	// equal times break by path so the order never flickers.
-	const byPinThenRecency = useCallback(
-		(a: SessionInfo, b: SessionInfo) => {
-			const aPinned = pinnedSessions.includes(a.path) ? 0 : 1;
-			const bPinned = pinnedSessions.includes(b.path) ? 0 : 1;
-			if (aPinned !== bPinned) return aPinned - bPinned;
-			return createdAt(b) - createdAt(a) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
-		},
-		[pinnedSessions],
-	);
-	/** A list's sessions in the order the person set (Move up/down), pinned ones first; the ones never placed on top. */
-	const inListOrder = useCallback(
-		<T extends SessionInfo>(sessions: readonly T[], list: string): T[] => {
-			const sorted = sessions.toSorted(byPinThenRecency);
-			const manual = sessionOrder[list];
-			if (!manual) return sorted;
-			const at = new Map(sorted.map((session, index) => [session.path, index]));
-			return orderByManual(sorted, session => session.path, {
-				pinned: pinnedSessions,
-				manual,
-				recency: session => -(at.get(session.path) ?? 0),
-			});
-		},
-		[byPinThenRecency, sessionOrder, pinnedSessions],
-	);
-	// Stock can write a session file before its first message (a header and
-	// settings entries, e.g. the one stock `new_session` writes at once). Such a file
-	// is not a conversation yet: an open tab that owns it keeps its live "new
-	// session" row (not deletable), and an orphaned one is not listed at all —
-	// otherwise deleting the last chat leaves an "Untitled" row whose deletion
-	// starts the next one.
-	// Archived sessions leave the lists for the Archived section, except one an
-	// open tab holds: every open tab keeps its row.
-	const heldByTab = useMemo(() => {
-		const held = new Set<string>();
-		for (const tab of localTabs) {
-			if (tab.sessionPath) held.add(tab.sessionPath);
-			if (tab.sessionId) held.add(tab.sessionId);
-		}
-		// A paired device's tab here holds its session as an open tab does: never folded away or archived out.
-		for (const key of hostedByKey.keys()) held.add(key);
-		if (!activeTabRemote) {
-			if (sessionFile) held.add(sessionFile);
-			if (sessionId) held.add(sessionId);
-		}
-		return held;
-	}, [localTabs, hostedByKey, activeTabRemote, sessionFile, sessionId]);
-	// The sessions a tab the person uses holds (`tabInUse`): what keeps a finished worktree's session listed. A tab a
-	// relaunch restored asleep, or a ghost, holds it (heldByTab) without bringing the row back.
-	const inUseByTab = useMemo(() => {
-		const held = new Set<string>();
-		for (const tab of localTabs) {
-			if (!tabInUse(tab)) continue;
-			held.add(tab.id);
-			if (tab.sessionPath) held.add(tab.sessionPath);
-			if (tab.sessionId) held.add(tab.sessionId);
-		}
-		// A paired device's tab here runs an omp for it: in use.
-		for (const key of hostedByKey.keys()) {
-			held.add(key);
-			held.add(`hosted:${key}`);
-		}
-		// The session the window shows is attached (a tab on screen is started), before its tab names it.
-		if (activeTab && !activeTabRemote && tabInUse(activeTab)) {
-			if (sessionFile) held.add(sessionFile);
-			if (sessionId) held.add(sessionId);
-		}
-		return held;
-	}, [localTabs, hostedByKey, activeTab, activeTabRemote, sessionFile, sessionId]);
-	const sessionInUse = useCallback(
-		(session: SidebarSession) =>
-			inUseByTab.has(session.path) ||
-			inUseByTab.has(session.id) ||
-			(session.liveTabId !== undefined && inUseByTab.has(session.liveTabId)),
-		[inUseByTab],
-	);
-	const archivedIds = useMemo(() => new Set(archivedSessions), [archivedSessions]);
-	const listedSessions = useMemo(
-		() =>
-			sessions.filter(
-				session =>
-					sessionHasContent(session) &&
-					(!archivedIds.has(session.id) || heldByTab.has(session.path) || heldByTab.has(session.id)),
-			),
-		[sessions, archivedIds, heldByTab],
-	);
-	// Every open tab keeps a row even before the index lists its session (a
-	// brand-new session has no file yet): synthesize it from the tab and, for
-	// the focused tab, the attached session's live identity. The empty start
-	// tab (`placeholder`: startup, or what a deleted session's last tab gives
-	// way to) and every new session nobody has written to yet (`unstarted`: a
-	// fresh tab, or one ⌘N reset) are no session until their first run, so they
-	// have no row until then.
-	// Such a row's `created` is when this sidebar first saw the tab, kept per tab
-	// (later tabs of one render a millisecond apart): one shared "now" tied every
-	// live row, so they sorted by path, oldest first, and flipped to newest first
-	// once the index listed them.
-	const liveSince = useRef(new Map<string, string>());
-	const liveSessions = useMemo<SidebarSession[]>(() => {
-		const listedIds = new Set(listedSessions.map(session => session.id));
-		const listedPaths = new Set(listedSessions.map(session => session.path));
-		const since = liveSince.current;
-		const open = new Set([
-			...localTabs.map(tab => tab.id),
-			...hostedSessions.map(hosted => `hosted:${hosted.sessionPath}`),
-		]);
-		for (const id of since.keys()) if (!open.has(id)) since.delete(id);
-		let stamp = Date.now();
-		const rows: SidebarSession[] = [];
-		for (const tab of localTabs) {
-			if (tab.placeholder === true || tab.unstarted === true) continue;
-			const focused = tab.id === activeTabId;
-			const id = (focused ? sessionId : "") || tab.sessionId || "";
-			const path = (focused ? sessionFile : null) ?? tab.sessionPath ?? "";
-			if ((id && listedIds.has(id)) || (path && listedPaths.has(path))) continue;
-			let created = since.get(tab.id);
-			if (!created) {
-				created = new Date(stamp++).toISOString();
-				since.set(tab.id, created);
-			}
-			rows.push({
-				path: path || `tab:${tab.id}`,
-				id: id || `tab:${tab.id}`,
-				// An agent-opened session reads as its task until stock names it.
-				title: tab.title || tab.task || (focused ? sessionName : null) || null,
-				cwd: tab.cwd || (focused ? cwd : ""),
-				created,
-				modified: created,
-				messageCount: 0,
-				size: 0,
-				status: "unknown",
-				...(tab.kind === "chat" ? { kind: "chat" as const } : {}),
-				firstMessage: "",
-				liveTabId: tab.id,
-			});
-		}
-		// A paired device's tab here keeps its row too, before the index lists its session.
-		for (const hosted of hostedSessions) {
-			if (listedPaths.has(hosted.sessionPath) || (hosted.sessionId && listedIds.has(hosted.sessionId))) continue;
-			if (localTabs.some(tab => tab.sessionPath === hosted.sessionPath)) continue;
-			const key = `hosted:${hosted.sessionPath}`;
-			let created = since.get(key);
-			if (!created) {
-				created = new Date(stamp++).toISOString();
-				since.set(key, created);
-			}
-			rows.push({
-				path: hosted.sessionPath,
-				id: hosted.sessionId || key,
-				title: hosted.title || null,
-				cwd: hosted.cwd,
-				created,
-				modified: created,
-				messageCount: 0,
-				size: 0,
-				status: "unknown",
-				...(hosted.kind === "chat" ? { kind: "chat" as const } : {}),
-				firstMessage: "",
-				liveTabId: key,
-			});
-		}
-		return rows;
-	}, [listedSessions, localTabs, hostedSessions, activeTabId, sessionId, sessionFile, sessionName, cwd]);
-	const allSessions = useMemo<SidebarSession[]>(
-		() => (liveSessions.length === 0 ? listedSessions : [...listedSessions, ...liveSessions]),
-		[listedSessions, liveSessions],
-	);
-	const agentSessions = useMemo(() => allSessions.filter(session => session.kind !== "chat"), [allSessions]);
-	const codeSessions = useMemo(
-		() => agentSessions.filter(session => !isChatSession(session, defaultWorkspace)),
-		[agentSessions, defaultWorkspace],
-	);
-	const projectName = useProjectNames(
-		useMemo(() => codeSessions.map(session => session.cwd), [codeSessions]),
-		sessions,
-	);
-	const kindLabels = useWorktreeKindLabels();
-	// An Autopilot run opens a child session per item of a cycle (`autopilot/<run>-c<N>-<area>`, each in a worktree
-	// of its own): its row goes under the run's own row, never a group per child (a list of folders each holding one
-	// "New session"). Session path → the run's worktree folder. Run and child meet by the main checkout and the run's
-	// name: git's answer for the folder, or, while git cannot place a worktree being made, the tab's own binding
-	// (`worktree_create` reports the main checkout as `baseCwd`).
-	const runParentOf = useMemo(() => {
-		const runOf = (session: SidebarSession) => {
-			const origin = projectName(session.cwd).worktree;
-			const fromGit = autopilotRunOf(origin?.worktree?.branch ?? null);
-			if (origin && fromGit) return { ...fromGit, key: `${origin.root}\n${fromGit.run}` };
-			const tab = localTabs.find(
-				entry =>
-					entry.id === session.liveTabId ||
-					(entry.sessionPath !== undefined && entry.sessionPath === session.path),
-			);
-			const fromTab = autopilotRunOf(tab?.worktree?.branch ?? null);
-			return tab?.worktree && fromTab ? { ...fromTab, key: `${tab.worktree.baseCwd}\n${fromTab.run}` } : null;
-		};
-		const runs = new Map<string, string>();
-		const children: Array<{ path: string; key: string }> = [];
-		for (const session of codeSessions) {
-			const run = runOf(session);
-			if (!run) continue;
-			if (run.child) children.push({ path: session.path, key: run.key });
-			else runs.set(run.key, session.cwd);
-		}
-		const parents = new Map<string, string>();
-		for (const child of children) {
-			const parent = runs.get(child.key);
-			if (parent) parents.set(child.path, parent);
-		}
-		return parents;
-	}, [codeSessions, localTabs, projectName]);
 	// A session another session's agent opened (`ompdesk_session_open`, a worktree or not) nests under its opener, one
-	// level in like a subagent, whatever its folder: opened-session path → the session that started the chain.
+	// level in like a subagent, whatever its folder: what main recorded names the opener.
 	const closedChildren = useClosedChildrenStore(s => s.rows);
-	const closedOpeners = useMemo(
-		() => new Map(closedChildren.map(row => [row.path, row.openedBySession])),
-		[closedChildren],
-	);
 	const closedTitleOf = useMemo(() => new Map(closedChildren.map(row => [row.path, row.title])), [closedChildren]);
 	const childUsage = useAgentReviewStore(s => s.usage);
 	const closedCwdOf = useMemo(
@@ -886,14 +640,14 @@ export function Sidebar() {
 		[reviewByTab],
 	);
 	const recordedOpeners = useMemo(() => {
-		const openers = new Map(closedOpeners);
+		const openers = new Map(closedChildren.map(row => [row.path, row.openedBySession]));
 		for (const [openerTabId, items] of Object.entries(reviewByTab)) {
 			const opener = localTabs.find(tab => tab.id === openerTabId)?.sessionPath;
 			if (!opener) continue;
 			for (const item of items) if (item.sessionPath) openers.set(item.sessionPath, opener);
 		}
 		return openers;
-	}, [closedOpeners, reviewByTab, localTabs]);
+	}, [closedChildren, reviewByTab, localTabs]);
 	useEffect(() => {
 		ensureClosedChildren();
 		ensureAgentReviewSubscription();
@@ -908,62 +662,161 @@ export function Sidebar() {
 		for (const tabId of viewedTabIds ? viewedTabIds.split("\n") : [])
 			void useAgentReviewStore.getState().refresh(tabId);
 	}, [viewedTabIds]);
-	const familyRootOf = useMemo(() => {
-		const roots = openerOfSessions(
-			localTabs,
-			codeSessions.map(session => ({
-				path: session.path,
-				id: session.id,
-				liveTabId: session.liveTabId,
-				title: sessionDisplayTitle(session, ""),
-				// A paired device's agent opened it here: the session its brief names is on that device, never a row here.
-				firstMessage: session.promptOriginDevice ? undefined : session.firstMessage,
-				created: session.created,
+	const projectName = useProjectNames(
+		useMemo(
+			() => [
+				...new Set([
+					...sessions.filter(session => !isChatSession(session, defaultWorkspace)).map(session => session.cwd),
+					...localTabs.map(tab => tab.cwd),
+					...hostedSessions.map(hosted => hosted.cwd),
+				]),
+			],
+			[sessions, localTabs, hostedSessions, defaultWorkspace],
+		),
+		sessions,
+	);
+	const kindLabels = useWorktreeKindLabels();
+	// The tabs that hold this computer's sessions as this window knows them: its own (the one on screen named by the
+	// session it shows, before its tab does), and a stand-in for each a paired device runs here. A row made from one
+	// before the index lists its session keeps the time this sidebar first saw it (one shared "now" tied every live
+	// row, so they sorted by path, oldest first, and flipped once the index listed them).
+	const liveSince = useRef(new Map<string, string>());
+	const rowTabs = useMemo<RowTab[]>(() => {
+		const since = liveSince.current;
+		const ids = [...localTabs.map(tab => tab.id), ...hostedSessions.map(hosted => `hosted:${hosted.sessionPath}`)];
+		for (const id of since.keys()) if (!ids.includes(id)) since.delete(id);
+		let stamp = Date.now();
+		const seenAt = (id: string) => {
+			let seen = since.get(id);
+			if (!seen) {
+				seen = new Date(stamp++).toISOString();
+				since.set(id, seen);
+			}
+			return seen;
+		};
+		return [
+			...localTabs.map(tab => {
+				const focused = tab.id === activeTabId;
+				return {
+					id: tab.id,
+					sessionPath: (focused ? sessionFile : null) ?? tab.sessionPath,
+					sessionId: (focused ? sessionId : "") || tab.sessionId,
+					cwd: tab.cwd || (focused ? cwd : ""),
+					kind: tab.kind,
+					// An agent-opened session reads as its task until stock names it.
+					title: tab.title || tab.task || (focused ? sessionName : null) || null,
+					status: tab.status,
+					ghost: tab.ghost,
+					unstarted: tab.unstarted,
+					placeholder: tab.placeholder,
+					openedBy: tab.openedBy,
+					openedBySession: tab.openedBySession,
+					seenAt: seenAt(tab.id),
+				};
+			}),
+			...hostedSessions.map(hosted => ({
+				id: `hosted:${hosted.sessionPath}`,
+				sessionPath: hosted.sessionPath,
+				sessionId: hosted.sessionId,
+				cwd: hosted.cwd,
+				kind: hosted.kind,
+				title: hosted.title || null,
+				status: hosted.status,
+				seenAt: seenAt(`hosted:${hosted.sessionPath}`),
 			})),
+		];
+	}, [localTabs, hostedSessions, activeTabId, sessionId, sessionFile, sessionName, cwd]);
+	const archivedIds = useMemo(() => new Set(archivedSessions), [archivedSessions]);
+	const rows = useMemo(
+		() =>
+			sidebarRows({
+				// What main recorded of who opened each, as a host says it of its rows to a device.
+				sessions: sessions.map(session => ({
+					...session,
+					openedBySession: recordedOpeners.get(session.path) ?? null,
+				})),
+				tabs: rowTabs,
+				// A paired device's tab here runs an omp for it: held and in use, whatever its state.
+				usedThere: new Set(hostedByKey.keys()),
+				closed: new Set(closedChildren.map(row => row.path)),
+				recordedCwd: closedCwdOf,
+				projects: projectList.projects,
+				removed: projectList.removed,
+				folder: at => {
+					const shown = projectName(at);
+					const project = shown.worktree ? shown.root : projectList.worktrees[at];
+					// Git's answer, else what main's list says of the folder (the device's only source).
+					const kind = shown.worktree?.worktree?.kind ?? projectList.worktreeKinds?.[at];
+					return {
+						...(project === undefined ? {} : { project }),
+						root: shown.root,
+						...(kind === undefined ? {} : { kind }),
+						gone: shown.gone,
+					};
+				},
+				workspace: defaultWorkspace,
+				titleOf: session => sessionDisplayTitle(session, ""),
+				hasContent: sessionHasContent,
+				// An Autopilot run opens a child session per item of a cycle (`autopilot/<run>-c<N>-<area>`, each in a
+				// worktree of its own): its row goes under the run's own row, never a group per child. Run and child meet by
+				// the main checkout and the run's name: git's answer for the folder, or, while git cannot place a worktree
+				// being made, the tab's own binding (`worktree_create` reports the main checkout as `baseCwd`).
+				runOf: session => {
+					const origin = projectName(session.cwd).worktree;
+					const fromGit = autopilotRunOf(origin?.worktree?.branch ?? null);
+					if (origin && fromGit) return { child: fromGit.child, key: `${origin.root}\n${fromGit.run}` };
+					const tab = localTabs.find(
+						entry =>
+							entry.id === session.liveTabId ||
+							(entry.sessionPath !== undefined && entry.sessionPath === session.path),
+					);
+					const fromTab = autopilotRunOf(tab?.worktree?.branch ?? null);
+					return tab?.worktree && fromTab
+						? { child: fromTab.child, key: `${tab.worktree.baseCwd}\n${fromTab.run}` }
+						: null;
+				},
+				archived: archivedIds,
+				nested: NO_PATHS,
+				order: {
+					pinnedSessions,
+					pinnedGroups,
+					groupOrder,
+					sessionOrder: list => sessionOrder[list],
+				},
+				query: filter,
+				nameOf: key => groupAliases[key] ?? projectName(key).name,
+			}),
+		[
+			sessions,
 			recordedOpeners,
-		);
-		// An Autopilot child keeps its run's row, whoever its brief names.
-		for (const path of runParentOf.keys()) roots.delete(path);
-		return roots;
-	}, [localTabs, codeSessions, recordedOpeners, runParentOf]);
-	// A closed session an agent opened, whose opener row is not in the list, still is no row of its own and no
-	// "parallel work" group: it folds into its project's group. Session path → that project's main checkout. The agent
-	// brief and the record are what tell; an `omp/agent/…` worktree is the last resort for a file with neither.
-	const foldedRootOf = useMemo(() => {
-		const roots = new Map<string, string>();
-		for (const session of codeSessions) {
-			if (familyRootOf.has(session.path) || runParentOf.has(session.path)) continue;
-			if (session.liveTabId !== undefined || heldByTab.has(session.path) || heldByTab.has(session.id)) continue;
-			const recorded = closedCwdOf.get(session.path);
-			const gone = projectName(session.cwd).gone;
-			// A discarded worktree's stored sessions go with it, unless main recorded the work as landed.
-			if (gone && recorded === undefined) continue;
-			const at = gone && recorded !== undefined ? recorded : session.cwd;
-			const origin = projectName(at);
-			// Git's answer, else what main's list says of the folder (the device's only source): same rule either side.
-			const kind = origin.worktree?.worktree?.kind ?? projectList.worktreeKinds?.[at];
-			if (foldsIntoProject(session, { recorded: closedOpeners.has(session.path), agentWorktree: kind === "agent" }))
-				roots.set(session.path, origin.worktree ? origin.root : (projectList.worktrees[at] ?? origin.root));
-		}
-		return roots;
-	}, [codeSessions, familyRootOf, runParentOf, heldByTab, closedCwdOf, closedOpeners, projectName, projectList]);
-	// The opener's path → what it opened, in the order it opened them. A child that ran in a finished worktree is no
-	// row under its opener either, unless a tab the person uses holds it (`sessionFinished`, the rule projects follow).
-	const familyChildrenOf = useMemo(() => {
-		const byRoot = new Map<string, SidebarSession[]>();
-		for (const session of codeSessions) {
-			const root = familyRootOf.get(session.path);
-			if (root === undefined) continue;
-			if (sessionFinished({ cwd: session.cwd, gone: projectName(session.cwd).gone, inUse: sessionInUse(session) }))
-				continue;
-			const siblings = byRoot.get(root);
-			if (siblings) siblings.push(session);
-			else byRoot.set(root, [session]);
-		}
-		for (const siblings of byRoot.values())
-			siblings.sort((a, b) => createdAt(a) - createdAt(b) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-		return byRoot;
-	}, [codeSessions, familyRootOf, projectName, sessionInUse]);
+			rowTabs,
+			hostedByKey,
+			closedChildren,
+			closedCwdOf,
+			projectList,
+			projectName,
+			defaultWorkspace,
+			localTabs,
+			archivedIds,
+			pinnedSessions,
+			pinnedGroups,
+			groupOrder,
+			sessionOrder,
+			filter,
+			groupAliases,
+		],
+	);
+	const { listed: listedSessions, sessions: allSessions, code: codeSessions, chats: chatSessions } = rows;
+	const { runParent: runParentOf, children: familyChildrenOf, archived: archivedRows } = rows;
+	const named = useCallback(
+		(group: RowGroup): WorkspaceGroup => {
+			const shown = projectName(group.cwd);
+			return { ...group, name: groupAliases[group.cwd] ?? shown.name, tooltip: shown.tooltip };
+		},
+		[projectName, groupAliases],
+	);
+	const allGroups = useMemo(() => rows.allGroups.map(named), [rows, named]);
+	const groups = useMemo(() => rows.groups.map(named), [rows, named]);
 	// A session an agent here opened on a paired device is that opener's child too (one family, whatever the
 	// computer): its tab nests under the opener's row, named by its device, and leaves the device's own list.
 	const remoteChildTabs = useMemo(
@@ -975,13 +828,13 @@ export function Sidebar() {
 		for (const tab of tabs) {
 			const opener = remoteChildTabs.get(tab.id);
 			if (opener === undefined) continue;
-			const root = familyRootOf.get(opener) ?? opener;
+			const root = rows.rootOf.get(opener) ?? opener;
 			const siblings = byRoot.get(root);
 			if (siblings) siblings.push(tab);
 			else byRoot.set(root, [tab]);
 		}
 		return byRoot;
-	}, [tabs, remoteChildTabs, familyRootOf]);
+	}, [tabs, remoteChildTabs, rows]);
 	// What each device's section leaves out: those children's tabs and session files, per device (two hosts can keep
 	// a session at the same path). A session a device's own agent opened there nests in that device's section.
 	const nestedRemote = useMemo(() => {
@@ -995,190 +848,6 @@ export function Sidebar() {
 		}
 		return byDevice;
 	}, [tabs, remoteChildTabs]);
-	// The Chats section: chats and other no-project sessions, one recency-ordered list.
-	const chatSessions = useMemo(
-		() =>
-			inListOrder(
-				allSessions.filter(session => isChatSession(session, defaultWorkspace)).filter(matchesFilter),
-				CHATS_ORDER_KEY,
-			),
-		[allSessions, defaultWorkspace, matchesFilter, inListOrder],
-	);
-
-	// Code sessions stay grouped by project: pinned first, then the order the user
-	// dragged, with projects they never placed on top by recency. A linked worktree's
-	// sessions (an Autopilot run, parallel work, a branch of the user's) are rows of
-	// their project's own group, never a group of their own; a project whose own folder
-	// has no session gets its group from them, named after the project. Every project
-	// of the list has a group, sessions or none; a project the person removed has none
-	// (its sessions stay on disk), unless a tab holds one of them.
-	const allGroups = useMemo<WorkspaceGroup[]>(() => {
-		const byKey = new Map<string, Omit<WorkspaceGroup, "name" | "tooltip">>();
-		const groupFor = (key: string) => {
-			let entry = byKey.get(key);
-			if (!entry) {
-				entry = { cwd: key, members: [], sessions: [], folded: [] };
-				byKey.set(key, entry);
-			}
-			return entry;
-		};
-		// git realpaths a main checkout (macOS /var → /private/var), the sessions keep the folder as typed: a worktree's
-		// session goes to the group of the folder that IS its main checkout under another spelling (the same path, or the
-		// root ending in it), never to a subfolder's group.
-		const groupOfRoot = new Map<string, string>();
-		for (const session of codeSessions) {
-			const shown = projectName(session.cwd);
-			if (!shown.worktree && (shown.root === session.cwd || shown.root.endsWith(session.cwd)))
-				groupOfRoot.set(shown.root, session.cwd);
-		}
-		const keyOfRoot = (root: string) => groupOfRoot.get(root) ?? root;
-		const removed = new Set(projectList.removed);
-		const held = (session: SidebarSession) =>
-			session.liveTabId !== undefined || heldByTab.has(session.path) || heldByTab.has(session.id);
-		for (const session of codeSessions) {
-			// A session another session's agent opened lives in that session's family, whatever its folder.
-			if (familyRootOf.has(session.path)) continue;
-			// One no opener holds folds into its project's group, below.
-			if (foldedRootOf.has(session.path)) continue;
-			// An Autopilot child goes where its run goes.
-			const at = runParentOf.get(session.path) ?? session.cwd;
-			const shown = projectName(at);
-			// A session of a removed worktree is a row of the project it was cut from (main keeps naming it, and a paired
-			// device groups it by the same name), never a group of its own; the rule (`sessionProjectKey`) is the device
-			// section's too: a gone worktree's sessions are finished and leave unless a tab the person uses holds one
-			// (this window's, not one restored asleep; or a paired device's here), a removed project's leave unless any
-			// tab holds one, a gone folder that is a project stays with its sessions.
-			const root = shown.worktree ? shown.root : projectList.worktrees[at];
-			const key = sessionProjectKey(
-				{
-					cwd: session.cwd,
-					gone: projectName(session.cwd).gone,
-					project: root === undefined ? undefined : keyOfRoot(root),
-					held: held(session),
-					inUse: sessionInUse(session),
-				},
-				removed,
-			);
-			if (key === null) continue;
-			const entry = groupFor(key);
-			if (!entry.members.includes(session.cwd)) entry.members.push(session.cwd);
-			entry.sessions.push(session);
-		}
-		for (const session of codeSessions) {
-			const root = foldedRootOf.get(session.path);
-			if (root === undefined) continue;
-			const key = keyOfRoot(root);
-			if (removed.has(key) && !held(session)) continue;
-			const entry = groupFor(key);
-			if (!entry.members.includes(key)) entry.members.push(key);
-			entry.folded.push(session);
-		}
-		// A folder a new, still empty tab works in keeps its project's group (with its + and ⋯) though the tab has no
-		// row yet: a window opened on a folder with no session shows that folder.
-		const open = new Set<string>();
-		for (const tab of localTabs) {
-			if (tab.unstarted !== true || tab.placeholder === true || isChatSession(tab, defaultWorkspace)) continue;
-			const shown = projectName(tab.cwd);
-			const key = shown.worktree ? keyOfRoot(shown.root) : tab.cwd;
-			if (removed.has(key)) continue;
-			open.add(key);
-			const entry = groupFor(key);
-			if (!entry.members.includes(key)) entry.members.push(key);
-		}
-		const addedAt = new Map<string, number>();
-		const missing = new Set<string>();
-		for (const project of projectList.projects) {
-			const key = keyOfRoot(project.path);
-			addedAt.set(key, project.addedAt);
-			if (project.missing) missing.add(key);
-			const entry = groupFor(key);
-			if (!entry.members.includes(key)) entry.members.push(key);
-		}
-		const result: WorkspaceGroup[] = [...byKey.values()].map(entry => {
-			const shown = projectName(entry.cwd);
-			// The project's own order; an Autopilot run's children follow its row, newest first.
-			const sorted = inListOrder(entry.sessions, entry.cwd);
-			const sessions = sorted.filter(session => !runParentOf.has(session.path));
-			const children = sorted.filter(session => runParentOf.has(session.path));
-			const placed = new Set<string>();
-			for (let index = sessions.length - 1; index >= 0; index--) {
-				const run = sessions[index] as SidebarSession;
-				const own = children.filter(child => runParentOf.get(child.path) === run.cwd);
-				if (own.length === 0 || sessions.slice(0, index).some(earlier => earlier.cwd === run.cwd)) continue;
-				placed.add(run.cwd);
-				sessions.splice(index + 1, 0, ...own);
-			}
-			// A child whose run has no row here still lists, at the end.
-			sessions.push(...children.filter(child => !placed.has(runParentOf.get(child.path) ?? "")));
-			return {
-				...entry,
-				name: groupAliases[entry.cwd] ?? shown.name,
-				tooltip: shown.tooltip,
-				sessions,
-				folded: entry.folded.toSorted((a, b) => createdAt(a) - createdAt(b) || (a.path < b.path ? -1 : 1)),
-				...(addedAt.has(entry.cwd) ? { listed: true } : {}),
-				...(open.has(entry.cwd) ? { open: true } : {}),
-				...(missing.has(entry.cwd) ? { missing: true } : {}),
-			};
-		});
-		return orderProjects(result, {
-			pinned: pinnedGroups,
-			manual: groupOrder,
-			// An empty project sorts by when it entered the list.
-			recency: group =>
-				Math.max(addedAt.get(group.cwd) ?? 0, ...[...group.sessions, ...group.folded].map(createdAt)),
-		});
-	}, [
-		codeSessions,
-		groupAliases,
-		pinnedGroups,
-		groupOrder,
-		inListOrder,
-		projectName,
-		runParentOf,
-		familyRootOf,
-		foldedRootOf,
-		heldByTab,
-		sessionInUse,
-		projectList,
-		localTabs,
-		defaultWorkspace,
-	]);
-	// A session matches when it does or when something it opened does: its family shows with it.
-	const matchesFamilyFilter = useCallback(
-		(session: SidebarSession) =>
-			matchesFilter(session) || (familyChildrenOf.get(session.path) ?? []).some(child => matchesFilter(child)),
-		[matchesFilter, familyChildrenOf],
-	);
-	const groups = useMemo(
-		() =>
-			query
-				? allGroups
-						.map(group => {
-							const named = group.name.toLocaleLowerCase().includes(query);
-							return {
-								...group,
-								named,
-								sessions: named ? group.sessions : group.sessions.filter(matchesFamilyFilter),
-								folded: named ? group.folded : group.folded.filter(matchesFilter),
-							};
-						})
-						// A project whose own name matches stays, empty or not.
-						.filter(group => group.named || group.sessions.length + group.folded.length > 0)
-				: allGroups,
-		[allGroups, matchesFamilyFilter, matchesFilter, query],
-	);
-	// Archived sessions no tab holds, newest first.
-	const archivedRows = sessions
-		.filter(
-			session =>
-				archivedIds.has(session.id) &&
-				sessionHasContent(session) &&
-				!heldByTab.has(session.path) &&
-				!heldByTab.has(session.id),
-		)
-		.filter(matchesFilter)
-		.toSorted((a, b) => createdAt(b) - createdAt(a));
 	const totalCount = groups.length + chatSessions.length;
 	// Projects with an open tab, or one a paired device's tab here works in, start expanded so every open session is
 	// in view.
@@ -1215,12 +884,15 @@ export function Sidebar() {
 		for (const session of sessions) if (!projectName(session.cwd).gone) folders.add(session.cwd);
 		useSidebarFolds.getState().pruneGroups(key => folders.has(key));
 		// A session an open tab holds stays known even before the index lists its file.
-		const known = new Set([...sessions.map(session => session.path), ...heldByTab]);
+		const known = new Set([
+			...sessions.map(session => session.path),
+			...rowTabs.flatMap(tab => (tab.sessionPath ? [tab.sessionPath] : [])),
+		]);
 		// A paired host's rows (`device:<id>:<path>`) are not this computer's sessions: FOLD_LIMIT bounds them.
 		useSidebarSubagentsStore
 			.getState()
 			.pruneFamilies(key => !isRememberedSession(key) || key.startsWith("device:") || known.has(key));
-	}, [listLive, allGroups, sessions, heldByTab, projectName]);
+	}, [listLive, allGroups, sessions, rowTabs, projectName]);
 	const hostsLoaded = useRemoteStore(s => s.state !== null);
 	useEffect(() => {
 		if (!hostsLoaded) return;

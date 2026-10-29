@@ -18,13 +18,13 @@ import { type AgentReviewItem, wrapAgentMessage } from "../../../../shared/agent
 import { codedError } from "../../../../shared/ipc-error-codes";
 import type { HostView, SessionInfo } from "../../../../shared/ipc-types";
 import type { SidebarProjectsRequest, SidebarProjectsState } from "../../../../shared/sidebar-projects";
+import { CHATS_ORDER_KEY } from "../../../../shared/sidebar-rows";
 import { resetShellModeForTests, TOUCH_QUERY } from "../../../hooks/use-shell-mode";
 import { useWorkspaceRecency } from "../../../hooks/use-workspace-recency";
 import { DEVICE_COLORS } from "../../../lib/device-color";
 import { formatTimeAgo } from "../../../lib/format";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { resetLastReadForTest } from "../../../lib/last-read";
-import { CHATS_ORDER_KEY } from "../../../lib/project-order";
 import { LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { useAgentReviewStore } from "../../../stores/agent-review";
 import { useClosedChildrenStore } from "../../../stores/closed-children";

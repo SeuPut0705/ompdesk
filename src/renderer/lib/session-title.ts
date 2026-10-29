@@ -1,7 +1,7 @@
 import { assignmentHeadline, stripTitlePrefix } from "../../../resources/gui-bridge/modes/subagent-title-contracts";
 import { NO_TEXT_PROMPT } from "../../../resources/gui-bridge/session-list-contracts";
 import { agentTaskTitle } from "../../shared/agent-control";
-import type { SessionInfo, SessionKind } from "../../shared/ipc-types";
+import type { SessionInfo } from "../../shared/ipc-types";
 import { translate } from "./i18n";
 import { promptDisplayText } from "./prompt-text";
 
@@ -42,12 +42,4 @@ export function sessionDisplayTitle(session: Pick<SessionInfo, "title" | "firstM
 /** True once a session has user-visible conversation content (the no-text sentinel counts). */
 export function sessionHasContent(session: Pick<SessionInfo, "title" | "firstMessage" | "messageCount">): boolean {
 	return session.messageCount > 0 || Boolean(session.title?.trim() || firstPrompt(session));
-}
-
-/**
- * The sidebar's rule, one for this computer's list and a paired host's: a chat, or a session in that machine's
- * no-project workspace (`~/.omp/work`), is one of its chats (the Chats section); everything else sits under its project.
- */
-export function isChatSession(session: { kind?: SessionKind; cwd: string }, workspace: string | null): boolean {
-	return session.kind === "chat" || (workspace !== null && session.cwd === workspace);
 }
