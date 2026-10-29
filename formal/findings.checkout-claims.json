@@ -3,7 +3,7 @@
 	"workflow": "W1",
 	"generated_at": "2026-10-29T05:30:00.000Z",
 	"repo_commit": "f4c1b3adc",
-	"summary": "4 findings, all fixed and each reproduced first as a failing test on the unchanged code. F1: main released a claim on the remembered answer of a busy bridge, so a peer was told it may take a file the session had started writing since. F2: a retire that found the file being written left the running call's taken-over claim in place, so the call failing gave the committed claim back. F3: main remembered committed claims without the omp load, so a restarted omp's restored claim (stamps from 1 again) was retired for an earlier load's commit while git failed, and the session's uncommitted write lost its claim. With the fixes the five frozen properties hold for one file, two agents, one restart, 2 calls and 2 world events (2.0M states, depth 46) and for 3 calls and 3 world events (103M states, depth 60); 11 of 11 mutations are detected (each 27 Oct regression and F1 to F4 among them), 1 declared equivalent. F4 (found in review of the first model, which left the session's own git runs out): a commit of the session's own that succeeded dropped a file a call begun before it was still writing, so that call's landed write was nobody's claim; the model now has the session's own commit calls (3 calls, 23.3M states, depth 53).",
+	"summary": "4 findings, all fixed and each reproduced first as a failing test on the unchanged code. F1: main released a claim on the remembered answer of a busy bridge, so a peer was told it may take a file the session had started writing since. F2: a retire that found the file being written left the running call's taken-over claim in place, so the call failing gave the committed claim back. F3: main remembered committed claims without the omp load, so a restarted omp's restored claim (stamps from 1 again) was retired for an earlier load's commit while git failed, and the session's uncommitted write lost its claim. With the fixes the five frozen properties hold for one file, two agents, one restart, 2 calls and 2 world events (2.0M states, depth 46) and for 3 calls, own commits, one restart and 3 world events (157M states, depth 60); 11 of 11 mutations are detected (each 27 Oct regression and F1 to F4 among them), 1 declared equivalent. F4 (found in review of the first model, which left the session's own git runs out): a commit of the session's own that succeeded dropped a file a call begun before it was still writing, so that call's landed write was nobody's claim; the model now has the session's own commit calls (3 calls, 23.3M states, depth 53).",
 	"scope": {
 		"modeled": [
 			"ClaimBook (begin, end, agentEnded, retire/retireFrom, restore/snapshot, confirm, revert), #clean (the session's own commit)",
@@ -314,7 +314,7 @@
 			"runs": [
 				"MC.cfg: 2,044,945 distinct states, depth 46, 24.6 s",
 				"MC_clean.cfg (3 calls with the session's own commits): 23,323,771 distinct states, depth 53, 91 s",
-				"MC_deep.cfg: 103,076,566 distinct states, depth 60, 1631 s"
+				"MC_deep.cfg (3 calls with own commits, one restart, 3 world events): 157,260,171 distinct states, depth 60, 1431 s"
 			],
 			"sanity_checks": [
 				"NeverShownWhileWriting and NeverReleased are violated, so the properties are not vacuous",
