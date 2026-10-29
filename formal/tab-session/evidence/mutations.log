@@ -1,0 +1,11 @@
+baseline: pass
+DETECTED observe-forgets-session: failed on KeepsSession
+DETECTED restart-forgets-session: failed on KeepsSession
+DETECTED unwritten-session-left-to-autoresume: failed on NeverAnother
+DETECTED session-without-written-check: failed on NoMissingSession
+DETECTED new-cleared-at-ready: failed on NeverAnother
+WAIVED   TypeOK: Shape check only: no behaviour change breaks it without also breaking a property above it.
+covered  NoMissingSession (by session-without-written-check)
+covered  KeepsSession (by observe-forgets-session, restart-forgets-session)
+covered  NeverAnother (by unwritten-session-left-to-autoresume, new-cleared-at-ready)
+5 of 5 mutations detected

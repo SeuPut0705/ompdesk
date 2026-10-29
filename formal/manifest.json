@@ -61,6 +61,25 @@
 			],
 			"syncCommit": "9e917db0cf4441ac1ba8a36af654e0748a618e92",
 			"verifySkill": ".omp/skills/web-close-reports-verify/SKILL.md"
+		},
+		{
+			"id": "tab-session",
+			"title": "Tab session: every spawn of a tab opens the session it shows",
+			"kind": "tla",
+			"dir": "tab-session/tla",
+			"spec": "TabSession.tla",
+			"matrix": "matrix.json",
+			"mutations": "mutations.json",
+			"covers": [
+				"src/main/omp-launch.ts#sessionOpen",
+				"src/main/sidecar.ts#SidecarManager.restart",
+				"src/main/sidecar.ts#SidecarManager.#observeResponse",
+				"src/main/sidecar.ts#SidecarManager.#handleReady",
+				"src/main/sidecar.ts#SidecarManager.#attemptRestart",
+				"src/main/sidecar.ts#SidecarManager.#spawn"
+			],
+			"syncCommit": null,
+			"verifySkill": ".omp/skills/tab-session-verify/SKILL.md"
 		}
 	]
 }

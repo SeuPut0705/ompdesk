@@ -1,0 +1,64 @@
+{
+	"checker": {
+		"kind": "tlc",
+		"config": "MC.cfg",
+		"workers": 2,
+		"timeoutSec": 300
+	},
+	"properties": [
+		"TypeOK",
+		"NoMissingSession",
+		"KeepsSession",
+		"NeverAnother"
+	],
+	"waive": {
+		"TypeOK": "Shape check only: no behaviour change breaks it without also breaking a property above it."
+	},
+	"mutations": [
+		{
+			"name": "observe-forgets-session",
+			"why": "#observeResponse no longer takes the session get_state names: a crash or a restart after the first answer comes back on a new session (the bug a10eb6877 fixed).",
+			"file": "TabSession.tla",
+			"search": "    /\\ path' = IF OldCode THEN path ELSE onOmp\n",
+			"replace": "    /\\ path' = path\n",
+			"breaks": "KeepsSession",
+			"config": "MC_keeps.cfg"
+		},
+		{
+			"name": "restart-forgets-session",
+			"why": "restart() with no session drops the tab's session again (machine setup, the desktop slot).",
+			"file": "TabSession.tla",
+			"search": "    /\\ path' = IF OldCode THEN NoS ELSE path\n    /\\ UNCHANGED <<isNew, written, lastOpen, used, spawns, shown, moved>>",
+			"replace": "    /\\ path' = NoS\n    /\\ UNCHANGED <<isNew, written, lastOpen, used, spawns, shown, moved>>",
+			"breaks": "KeepsSession",
+			"config": "MC_keeps.cfg"
+		},
+		{
+			"name": "unwritten-session-left-to-autoresume",
+			"why": "sessionOpen leaves a tab whose session stock has not written to omp's default: autoResume may put it on another conversation.",
+			"file": "TabSession.tla",
+			"search": "    ELSE IF n \\/ p # NoS THEN [k |-> \"new\"]",
+			"replace": "    ELSE IF n THEN [k |-> \"new\"]",
+			"breaks": "NeverAnother",
+			"config": "MC_another.cfg"
+		},
+		{
+			"name": "session-without-written-check",
+			"why": "sessionOpen passes --session on a file stock never wrote (\"Session not found\").",
+			"file": "TabSession.tla",
+			"search": "    IF p # NoS /\\ p \\in w THEN [k |-> \"session\", f |-> p]",
+			"replace": "    IF p # NoS THEN [k |-> \"session\", f |-> p]",
+			"breaks": "NoMissingSession",
+			"config": "MC_missing.cfg"
+		},
+		{
+			"name": "new-cleared-at-ready",
+			"why": "F1 as shipped in a10eb6877: #isNew cleared at ready, so an omp that crashes before its get_state answer leaves the next spawn to autoResume.",
+			"file": "TabSession.tla",
+			"search": "    /\\ isNew' = IF ClearNewAt = \"ready\" THEN FALSE ELSE isNew\n",
+			"replace": "    /\\ isNew' = FALSE\n",
+			"breaks": "NeverAnother",
+			"config": "MC_another.cfg"
+		}
+	]
+}
