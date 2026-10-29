@@ -4,6 +4,10 @@
 			"group": "/Users/kim/code/app",
 			"missing": false,
 			"rows": [
+				"wtg.wrk.rv",
+				"wtg.wrk.rg",
+				"wtg.wrk.bx",
+				"wtg.wrk.pl",
 				"wtg.hsl.rv",
 				"wtg.hsl.rg",
 				"wtg.hsl.bx",
@@ -16,6 +20,10 @@
 				"wtg.rdy.rg",
 				"wtg.rdy.bx",
 				"wtg.rdy.pl",
+				"wta.wrk.rv",
+				"wta.wrk.rg",
+				"wta.wrk.bx",
+				"wta.wrk.pl",
 				"wta.hsl.rv",
 				"wta.hsl.rg",
 				"wta.hsl.bx",
@@ -37,6 +45,8 @@
 				"wta.rdy.bx",
 				"wta.rdy.pl",
 				"wtl.wrk.rv",
+				"wtl.wrk.rg",
+				"wtl.wrk.bx",
 				"wtl.wrk.pl",
 				"wtl.hsl.rv",
 				"wtl.hsl.rg",
@@ -61,6 +71,8 @@
 				"wtl.no.rv",
 				"wtl.no.pl",
 				"app.wrk.rv",
+				"app.wrk.rg",
+				"app.wrk.bx",
 				"app.wrk.pl",
 				"app.hsl.rv",
 				"app.hsl.rg",
@@ -161,21 +173,16 @@
 				">wtg.rdy.rc",
 				">wtg.els.br",
 				">wtg.els.rc",
+				">wtg.wrk.br",
+				">wtg.wrk.rc",
 				"~app.no.bx",
 				"~app.no.rg",
-				"~app.wrk.bx",
-				"~app.wrk.rg",
 				"~wtl.no.bx",
 				"~wtl.no.rg",
-				"~wtl.wrk.bx",
-				"~wtl.wrk.rg",
 				"~wta.no.pl",
 				"~wta.no.bx",
 				"~wta.no.rg",
-				"~wta.no.rv",
-				"~wta.wrk.pl",
-				"~wta.wrk.bx",
-				"~wta.wrk.rg"
+				"~wta.no.rv"
 			]
 		},
 		{
@@ -183,6 +190,8 @@
 			"missing": false,
 			"rows": [
 				"loose.wrk.rv",
+				"loose.wrk.rg",
+				"loose.wrk.bx",
 				"loose.wrk.pl",
 				"loose.hsl.rv",
 				"loose.hsl.rg",
@@ -207,9 +216,7 @@
 				"loose.no.rv",
 				"loose.no.pl",
 				"~loose.no.bx",
-				"~loose.no.rg",
-				"~loose.wrk.bx",
-				"~loose.wrk.rg"
+				"~loose.no.rg"
 			]
 		},
 		{
@@ -217,6 +224,8 @@
 			"missing": true,
 			"rows": [
 				"scr.wrk.rv",
+				"scr.wrk.rg",
+				"scr.wrk.bx",
 				"scr.wrk.pl",
 				"scr.hsl.rv",
 				"scr.hsl.rg",
@@ -241,15 +250,17 @@
 				"scr.no.rv",
 				"scr.no.pl",
 				"~scr.no.bx",
-				"~scr.no.rg",
-				"~scr.wrk.bx",
-				"~scr.wrk.rg"
+				"~scr.no.rg"
 			]
 		},
 		{
 			"group": "/Users/kim/code/old",
 			"missing": false,
 			"rows": [
+				"old.wrk.rv",
+				"old.wrk.rg",
+				"old.wrk.bx",
+				"old.wrk.pl",
 				"old.hsl.rv",
 				"old.hsl.rg",
 				"old.hsl.bx",

@@ -736,8 +736,9 @@ export function Sidebar() {
 					openedBySession: recordedOpeners.get(session.path) ?? null,
 				})),
 				tabs: rowTabs,
-				// A paired device's tab here runs an omp for it: held and in use, whatever its state.
-				usedThere: new Set(hostedByKey.keys()),
+				// A paired device's tab here runs an omp for it: held and in use, whatever its state. Another window's tab at
+				// work is too: this window sees no tab of it, so what this computer works on now says it.
+				usedThere: new Set([...hostedByKey.keys(), ...liveByPath.keys()]),
 				closed: new Set(closedChildren.map(row => row.path)),
 				projects: projectList.projects,
 				removed: projectList.removed,
@@ -790,6 +791,7 @@ export function Sidebar() {
 			recordedOpeners,
 			rowTabs,
 			hostedByKey,
+			liveByPath,
 			closedChildren,
 			projectList,
 			projectName,
