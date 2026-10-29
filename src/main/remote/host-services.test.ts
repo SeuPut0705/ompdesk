@@ -1999,6 +1999,23 @@ describe("LocalHostServices", () => {
 		expect(heard()).toBe(4);
 	});
 
+	it("tells this computer's windows which sessions any window's tab holds, idle ones too, and only when that changed", () => {
+		const { services, local } = setup();
+		const heard: string[][] = [];
+		services.onWindowHeldSessionsChange(() => heard.push([...services.windowHeldSessions()]));
+
+		// Nothing held, nothing to say; an idle tab of a window takes a session; a nudge that changed nothing says nothing.
+		services.listingChanged();
+		expect(heard).toEqual([]);
+		local.owned.set("/s/idle.jsonl", { tabId: "w1", winId: 2 });
+		services.listingChanged();
+		services.listingChanged();
+		expect(heard).toEqual([["/s/idle.jsonl"]]);
+		local.owned.delete("/s/idle.jsonl");
+		services.listingChanged();
+		expect(heard).toEqual([["/s/idle.jsonl"], []]);
+	});
+
 	// formal/session-listing F3 (HeldConverges): the host compares with the snapshot the latest read of ANY device
 	// recorded, so every change of what a tab holds has to be announced when it happens. The pool's let-go on a
 	// session-id change calls listingChanged too (`SidecarPool.onSessionFilesChanged`, sidecar-pool.test.ts).

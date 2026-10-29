@@ -726,6 +726,13 @@ export function Sidebar() {
 			})),
 		];
 	}, [localTabs, hostedSessions, activeTabId, sessionId, sessionFile, sessionName, cwd]);
+	// What a tab of another window holds, idle or not: this window sees none of those tabs, as a paired device's list of
+	// this computer (`heldOnHost`) sees none, and the host's own rule keeps such a session a row there too.
+	const heldByWindows = useHostedSessionsStore(s => s.held);
+	const heldByOtherWindows = useMemo(() => {
+		const own = new Set(rowTabs.flatMap(tab => [tab.sessionPath, tab.sessionId]));
+		return heldByWindows.filter(file => !own.has(file));
+	}, [heldByWindows, rowTabs]);
 	const archivedIds = useMemo(() => new Set(archivedSessions), [archivedSessions]);
 	const rows = useMemo(
 		() =>
@@ -738,7 +745,7 @@ export function Sidebar() {
 				tabs: rowTabs,
 				// A paired device's tab here runs an omp for it: held and in use, whatever its state. Another window's tab at
 				// work is too: this window sees no tab of it, so what this computer works on now says it.
-				usedThere: new Set([...hostedByKey.keys(), ...liveByPath.keys()]),
+				usedThere: new Set([...hostedByKey.keys(), ...liveByPath.keys(), ...heldByOtherWindows]),
 				closed: new Set(closedChildren.map(row => row.path)),
 				projects: projectList.projects,
 				removed: projectList.removed,
@@ -765,11 +772,13 @@ export function Sidebar() {
 					const origin = projectName(session.cwd).worktree;
 					const fromGit = autopilotRunOf(origin?.worktree?.branch ?? null);
 					if (origin && fromGit) return { child: fromGit.child, key: `${origin.root}\n${fromGit.run}` };
-					const tab = localTabs.find(
-						entry =>
-							entry.id === session.liveTabId ||
-							(entry.sessionPath !== undefined && entry.sessionPath === session.path),
-					);
+					// The tab of this session, else any tab bound to its folder: the binding names the folder's run.
+					const tab =
+						localTabs.find(
+							entry =>
+								entry.id === session.liveTabId ||
+								(entry.sessionPath !== undefined && entry.sessionPath === session.path),
+						) ?? localTabs.find(entry => entry.worktree?.path === session.cwd);
 					const fromTab = autopilotRunOf(tab?.worktree?.branch ?? null);
 					return tab?.worktree && fromTab
 						? { child: fromTab.child, key: `${tab.worktree.baseCwd}\n${fromTab.run}` }
@@ -801,6 +810,7 @@ export function Sidebar() {
 			pinnedSessions,
 			pinnedGroups,
 			groupOrder,
+			heldByOtherWindows,
 			sessionOrder,
 			filter,
 			groupAliases,

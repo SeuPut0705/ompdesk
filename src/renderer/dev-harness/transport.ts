@@ -142,6 +142,7 @@ const EMPTY_LISTS = [
 	IPC_COMMANDS.EXTENSION_UI_STATE,
 	IPC_COMMANDS.HOSTED_SESSIONS,
 	IPC_COMMANDS.LIVE_SESSIONS,
+	IPC_COMMANDS.SESSIONS_HELD,
 	"worktree-lifecycle:prompts-get",
 	"ssh-tools:prompts",
 ];

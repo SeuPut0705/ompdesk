@@ -2235,6 +2235,18 @@ export class SidecarPool {
 		return files;
 	}
 
+	/**
+	 * The worktree each of this computer's own tabs is bound to, for the sidebar project list: where git cannot yet
+	 * read a folder's branch (a worktree being made), the tab's binding names it.
+	 */
+	worktreeBindings(): Array<{ path: string; branch: string; baseCwd: string }> {
+		return [...this.#entries].flatMap(entry =>
+			entry.device || entry.hostedView || !entry.worktree
+				? []
+				: [{ path: entry.worktree.path, branch: entry.worktree.branch, baseCwd: entry.worktree.baseCwd }],
+		);
+	}
+
 	/** The session file a live tab shows, if it has one yet. */
 	sessionFileOf(tabId: string): string | undefined {
 		return this.#byTabId.get(tabId)?.sessionFile;

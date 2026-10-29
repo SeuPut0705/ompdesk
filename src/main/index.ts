@@ -804,7 +804,7 @@ app.whenReady().then(() => {
 		launchProfilesPref: () => prefsStore().get("launchProfiles"),
 		// ai-memory's `session-end` (the handoff) needs omp's own shutdown, which only a closed stdin triggers.
 		gracefulStopMs: () => (aiMemoryService?.state().phase === "ready" ? 4_000 : 0),
-		aiMemoryExtensionArgs: () => aiMemoryService?.extensionArgs() ?? Promise.resolve([]),
+		aiMemoryExtensionArgs: cwd => aiMemoryService?.extensionArgs(cwd) ?? Promise.resolve([]),
 		memoryStateFile: memoryRecallState.path,
 		autopilot: () => autopilotRef.current,
 		desktopSlot: () => desktopSlotRef.current,
@@ -820,6 +820,7 @@ app.whenReady().then(() => {
 		defaultWorkspace: ensureDefaultWorkspace,
 		// A removed worktree's project, read off its `gui-<name>-<hash7>` folder name (stock's root and repo hash).
 		worktreeLocation: project => stockWorktreeLocation(tablessWorktreeBridge, project),
+		worktreeBindings: () => sidecarPool.worktreeBindings(),
 		onState: state => {
 			const update: IpcSidebarProjects = { state };
 			for (const win of BrowserWindow.getAllWindows()) {
@@ -854,7 +855,13 @@ app.whenReady().then(() => {
 	};
 	const prompts = new WorktreePrompts(worktreeWindows);
 	const lifecycle = new WorktreeLifecycle(
-		{ bind: (tabId, worktree) => sidecarPool.bindWorktree(tabId, worktree) },
+		{
+			bind: (tabId, worktree) => {
+				const bound = sidecarPool.bindWorktree(tabId, worktree);
+				sidebarProjects.schedule();
+				return bound;
+			},
+		},
 		prompts,
 		worktreeWindows,
 		{ branchPrefix: () => worktreeBranchPrefix(prefsStore().get(WORKTREE_BRANCH_PREFIX_PREF)) },
@@ -1578,7 +1585,7 @@ app.whenReady().then(() => {
 		launch: ompRunLauncher({
 			omp: systemOmp,
 			env: async () => ({ ...process.env, ...(await shellSpawnEnv()), ...(await resolveProxyEnvForSpawn()) }),
-			extensionArgs: () => aiMemoryService?.extensionArgs() ?? Promise.resolve([]),
+			extensionArgs: cwd => aiMemoryService?.extensionArgs(cwd) ?? Promise.resolve([]),
 		}),
 		onState: state => {
 			for (const win of BrowserWindow.getAllWindows()) {

@@ -11,6 +11,8 @@ import * as path from "node:path";
 import { promises as fs } from "original-fs";
 import type { SessionInfo } from "../shared/ipc-types";
 import {
+	type AutopilotRun,
+	autopilotRunOf,
 	isOmpdeskWorktreeFolder,
 	OMPDESK_WORKTREE_FOLDER,
 	pathBaseName,
@@ -50,6 +52,10 @@ export interface SidebarProjectsDeps {
 	worktreeLocation?: (project: string) => Promise<{ root: string; hash: string } | null>;
 	/** What a linked worktree folder is, by its branch (an agent's, an Autopilot run's, any other); null when unknown. */
 	worktreeKindOf?: (cwd: string) => Promise<WorktreeKind | null>;
+	/** The Autopilot run a linked worktree's branch names, null for any other folder. */
+	autopilotRunOf?: (cwd: string) => Promise<AutopilotRun | null>;
+	/** The worktrees this computer's own tabs are bound to (folder, branch, main checkout): a run git cannot read yet. */
+	worktreeBindings?: () => ReadonlyArray<{ path: string; branch: string; baseCwd: string }>;
 	onState: (state: SidebarProjectsState) => void;
 	now?: () => number;
 }
@@ -91,10 +97,16 @@ async function worktreeKindOfFolder(cwd: string): Promise<WorktreeKind | null> {
 	return (await readProjectOrigin(cwd))?.worktree?.kind ?? null;
 }
 
+/** The Autopilot run a linked worktree's branch names (its own, or one of its children's); null for any other folder. */
+async function autopilotRunOfFolder(cwd: string): Promise<AutopilotRun | null> {
+	return autopilotRunOf((await readProjectOrigin(cwd))?.worktree?.branch ?? null);
+}
+
 export class SidebarProjects {
 	readonly #deps: SidebarProjectsDeps;
 	readonly #projectOf: (cwd: string) => Promise<string | null>;
 	readonly #kindOf: (cwd: string) => Promise<WorktreeKind | null>;
+	readonly #runOf: (cwd: string) => Promise<AutopilotRun | null>;
 	readonly #now: () => number;
 	#state: SidebarProjectsState;
 	/**
@@ -113,6 +125,7 @@ export class SidebarProjects {
 		this.#deps = deps;
 		this.#projectOf = deps.projectOf ?? projectOfFolder;
 		this.#kindOf = deps.worktreeKindOf ?? worktreeKindOfFolder;
+		this.#runOf = deps.autopilotRunOf ?? autopilotRunOfFolder;
 		this.#now = deps.now ?? Date.now;
 		this.#state = parseSidebarProjects(deps.read());
 	}
@@ -201,6 +214,8 @@ export class SidebarProjects {
 		const worktrees: Record<string, string> = {};
 		// What each live one is: a paired device folds an agent worktree's sessions into their project as this computer does.
 		const worktreeKinds: Record<string, WorktreeKind> = {};
+		// Which Autopilot run each live autopilot worktree belongs to: a device groups a run's children under its row.
+		const autopilotRuns: Record<string, AutopilotRun> = {};
 		// Session folders that are gone: a paired device places their sessions by `sidebarRows`, as this computer's does.
 		const gone: string[] = [];
 		const exists = this.#deps.exists ?? folderExists;
@@ -225,6 +240,11 @@ export class SidebarProjects {
 				worktrees[cwd] = project;
 				const kind = await this.#kindOf(cwd);
 				if (kind) worktreeKinds[cwd] = kind;
+				// Git's reading of the branch, else the branch of the tab bound to this folder: a worktree being made is not
+				// readable yet, and the host's own sidebar falls back to that binding the same way.
+				const bound = this.#deps.worktreeBindings?.().find(binding => binding.path === cwd);
+				const run = (await this.#runOf(cwd)) ?? autopilotRunOf(bound?.branch ?? null);
+				if (run) autopilotRuns[cwd] = run;
 			}
 			found.set(project, Math.max(found.get(project) ?? 0, created));
 		}
@@ -254,7 +274,7 @@ export class SidebarProjects {
 			if (listed.has(path) || this.#state.removed.includes(path)) continue;
 			added.push({ path, addedAt: addedAt || this.#now() });
 		}
-		await this.#checkFolders(added, worktrees, worktreeKinds, moved, gone.sort());
+		await this.#checkFolders(added, worktrees, worktreeKinds, autopilotRuns, moved, gone.sort());
 	}
 
 	/**
@@ -290,6 +310,7 @@ export class SidebarProjects {
 		added: readonly SidebarProject[],
 		worktrees: Record<string, string>,
 		worktreeKinds: Record<string, WorktreeKind>,
+		autopilotRuns: Record<string, AutopilotRun>,
 		moved: ReadonlyMap<string, string>,
 		gone: readonly string[],
 	): Promise<void> {
@@ -315,12 +336,14 @@ export class SidebarProjects {
 			checked.some((entry, index) => entry.missing !== before.projects[index]?.missing) ||
 			JSON.stringify(worktrees) !== JSON.stringify(before.worktrees) ||
 			JSON.stringify(worktreeKinds) !== JSON.stringify(before.worktreeKinds ?? {}) ||
+			JSON.stringify(autopilotRuns) !== JSON.stringify(before.autopilotRuns ?? {}) ||
 			JSON.stringify(gone) !== JSON.stringify(before.gone ?? []);
 		if (changed)
 			this.#commit({
 				projects: checked,
 				worktrees,
 				worktreeKinds: Object.keys(worktreeKinds).length > 0 ? worktreeKinds : undefined,
+				autopilotRuns: Object.keys(autopilotRuns).length > 0 ? autopilotRuns : undefined,
 				...(gone.length > 0 ? { gone: [...gone] } : { gone: undefined }),
 			});
 	}

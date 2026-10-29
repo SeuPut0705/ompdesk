@@ -8,7 +8,7 @@
  * names the project it was cut from (main resolves it before a path is stored).
  */
 
-import { isOmpdeskWorktreeFolder, type WorktreeKind } from "./project-origin";
+import { type AutopilotRun, isOmpdeskWorktreeFolder, type WorktreeKind } from "./project-origin";
 
 export const SIDEBAR_PROJECTS_COMMAND = "sidebar-projects:command";
 /** Pushed on every change: an `IpcSidebarProjects` (`device` unset for this computer's own list). */
@@ -44,6 +44,12 @@ export interface SidebarProjectsState {
 	 * host.
 	 */
 	worktreeKinds?: Record<string, WorktreeKind>;
+	/**
+	 * Which Autopilot run each live worktree folder in `worktrees` belongs to (the run's own folder or one of its
+	 * children's, by the branch git on that computer reads): a paired device groups a run's children under the run's
+	 * row as this computer's sidebar does (`sidebarRows`' `runOf`). Absent from an older host.
+	 */
+	autopilotRuns?: Record<string, AutopilotRun>;
 	/**
 	 * Session folders that are gone from disk (a removed worktree, a deleted folder), as that computer sees it: a paired
 	 * device places their sessions by `sidebarRows`, as this computer's own sidebar does (a gone worktree's
@@ -111,11 +117,20 @@ export function parseSidebarProjects(value: unknown): SidebarProjectsState {
 	if (rawKinds && typeof rawKinds === "object" && !Array.isArray(rawKinds))
 		for (const [cwd, kind] of Object.entries(rawKinds))
 			if (cwd && (kind === "autopilot" || kind === "agent" || kind === "other")) worktreeKinds[cwd] = kind;
+	const autopilotRuns: Record<string, AutopilotRun> = {};
+	const rawRuns = record.autopilotRuns;
+	if (rawRuns && typeof rawRuns === "object" && !Array.isArray(rawRuns))
+		for (const [cwd, value] of Object.entries(rawRuns)) {
+			const run = value as Partial<AutopilotRun> | null;
+			if (cwd && typeof run?.run === "string" && run.run && typeof run.child === "boolean")
+				autopilotRuns[cwd] = { run: run.run, child: run.child };
+		}
 	return {
 		projects,
 		removed,
 		worktrees,
 		...(Object.keys(worktreeKinds).length > 0 ? { worktreeKinds } : {}),
+		...(Object.keys(autopilotRuns).length > 0 ? { autopilotRuns } : {}),
 		...(gone.length > 0 ? { gone } : {}),
 	};
 }

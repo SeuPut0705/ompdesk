@@ -526,6 +526,9 @@ export class LocalHostServices implements HostServices {
 	readonly #runningListeners = new Set<() => void>();
 	readonly #hostedListeners = new Set<() => void>();
 	readonly #liveListeners = new Set<() => void>();
+	readonly #windowHeldListeners = new Set<() => void>();
+	/** `windowHeldSessions` as last announced to the windows. */
+	#windowHeldSnapshot = "[]";
 	/**
 	 * What the review list last said of each child of this computer it names: opener session file → that list's
 	 * failed or unmerged children (`sessions.list` tells a device, whose tabs hold neither opener nor child).
@@ -1290,12 +1293,34 @@ export class LocalHostServices implements HostServices {
 	 * their last read said, since no journal moved.
 	 */
 	listingChanged(): void {
+		this.#windowHeldChanged();
 		if (this.#listingSnapshot === undefined) return;
 		const { openers, held } = this.#listing();
 		const snapshot = listingSignature(openers, held);
 		if (snapshot === this.#listingSnapshot) return;
 		this.#listingSnapshot = snapshot;
 		this.sessionsChanged();
+	}
+
+	/** The session files this computer's windows' tabs hold, idle ones too (a phone page's included). */
+	windowHeldSessions(): Set<string> {
+		return this.#deps.localTabs.windowSessionFiles();
+	}
+
+	/** Called whenever `windowHeldSessions` changed; returns the unsubscribe. */
+	onWindowHeldSessionsChange(listener: () => void): () => void {
+		this.#windowHeldListeners.add(listener);
+		return () => {
+			this.#windowHeldListeners.delete(listener);
+		};
+	}
+
+	#windowHeldChanged(): void {
+		if (this.#windowHeldListeners.size === 0) return;
+		const snapshot = JSON.stringify([...this.windowHeldSessions()].sort());
+		if (snapshot === this.#windowHeldSnapshot) return;
+		this.#windowHeldSnapshot = snapshot;
+		for (const listener of this.#windowHeldListeners) listener();
 	}
 
 	/** Who opened each session as far as this computer knows, and the sessions a tab here holds (a window's, a device's). */

@@ -354,7 +354,7 @@ afterEach(async () => {
 	useClosedChildrenStore.getState().reset();
 	useProjectOrigins.getState().reset();
 	useRemoteStore.getState().reset();
-	useHostedSessionsStore.setState({ sessions: [], live: [], revision: 0 });
+	useHostedSessionsStore.setState({ sessions: [], live: [], held: [], revision: 0 });
 	useUiStore.setState({
 		panelVisible: false,
 		sessionPickerOpen: false,
@@ -4447,12 +4447,15 @@ describe("Sidebar device sections", () => {
 			wtl: "/Users/kim/.omp/wt/gui-live-1111111",
 			wta: "/Users/kim/.omp/wt/gui-agent-3333333",
 			wtg: "/Users/kim/.omp/wt/gui-gone-2222222",
+			wtr: "/Users/kim/.omp/wt/gui-2026-10-17-4444444",
+			wtc: "/Users/kim/.omp/wt/gui-2026-10-17-c2-docs-5555555",
+			wtb: "/Users/kim/.omp/wt/gui-2026-10-17-c3-api-6666666",
 			chat: "/default/work",
 		} as const;
 		// no: nothing holds it; rdy: a tab here in use; slp: a tab here restored asleep; gho: last run's ghost tab; els: a
 		// paired device's tab the host runs; hsl: one the host runs that stayed asleep since a relaunch; wrk: another window
-		// of the host works on it.
-		const HOLDERS = ["no", "rdy", "slp", "gho", "els", "hsl", "wrk"] as const;
+		// of the host works on it; idl: another window of the host holds it idle (no work to light).
+		const HOLDERS = ["no", "rdy", "slp", "gho", "els", "hsl", "wrk", "idl"] as const;
 		// pl: the person's prompt; br: Boss's agent brief; bx: a brief from a sender nobody is titled as; rc: a closed record
 		// naming Boss; rg: a closed record naming a deleted opener (brief from nobody listed); rv: the review list of a chat's
 		// tab names it (no brief).
@@ -4477,8 +4480,27 @@ describe("Sidebar device sections", () => {
 				{ path: FOLDERS.scr, addedAt: 2, missing: true },
 			],
 			removed: [FOLDERS.old],
-			worktrees: { [FOLDERS.wtl]: APP, [FOLDERS.wta]: APP, [FOLDERS.wtg]: APP },
-			worktreeKinds: { [FOLDERS.wtl]: "other", [FOLDERS.wta]: "agent" },
+			worktrees: {
+				[FOLDERS.wtl]: APP,
+				[FOLDERS.wta]: APP,
+				[FOLDERS.wtg]: APP,
+				[FOLDERS.wtr]: APP,
+				[FOLDERS.wtc]: APP,
+				[FOLDERS.wtb]: APP,
+			},
+			worktreeKinds: {
+				[FOLDERS.wtl]: "other",
+				[FOLDERS.wta]: "agent",
+				[FOLDERS.wtr]: "autopilot",
+				[FOLDERS.wtc]: "autopilot",
+			},
+			// What the host's git reads off each autopilot worktree's branch.
+			autopilotRuns: {
+				[FOLDERS.wtr]: { run: "2026-10-17", child: false },
+				[FOLDERS.wtc]: { run: "2026-10-17", child: true },
+				// The host filled this one from its tab's binding: git could not read the worktree yet.
+				[FOLDERS.wtb]: { run: "2026-10-17", child: true },
+			},
 			gone: [FOLDERS.scr, FOLDERS.wtg],
 		};
 		const recordOf = (origin: string) => (origin === "rc" ? BOSS : origin === "rg" ? DELETED_OPENER : null);
@@ -4488,7 +4510,8 @@ describe("Sidebar device sections", () => {
 				: origin === "bx" || origin === "rg"
 					? wrapAgentMessage("Fix it", "Nobody listed")
 					: "hello";
-		const heldThere = (holder: string) => holder === "els" || holder === "hsl" || holder === "wrk";
+		const heldThere = (holder: string) =>
+			holder === "els" || holder === "hsl" || holder === "wrk" || holder === "idl";
 		// The rows as the index lists them; a device's also carry what the host says beside each: who a record of its own
 		// names as the opener, and that a tab there holds it.
 		const rows = (device?: string): SessionInfo[] => [
@@ -4537,6 +4560,17 @@ describe("Sidebar device sections", () => {
 					sessionPath: cell.path,
 					sessionId: cell.path,
 					lastRun: { stopReason: "error" as const, text: "" },
+					// A worktree git cannot read yet (`projectOrigins` says nothing of it): its tab's own binding names the run.
+					...(!device && cell.cwd === FOLDERS.wtb
+						? {
+								worktree: {
+									name: "api",
+									branch: "autopilot/2026-10-17-c3-api",
+									baseCwd: APP,
+									path: FOLDERS.wtb,
+								},
+							}
+						: {}),
 					...(device ? { device } : {}),
 				}));
 		const working = placed
@@ -4571,7 +4605,23 @@ describe("Sidebar device sections", () => {
 												root: APP,
 												worktree: { kind: "other", branch: "feature/live", slug: "live" },
 											}
-										: null,
+										: cwd === FOLDERS.wtb
+											? // The folder is there but git cannot say it is a worktree yet.
+												{ project: "gui", root: FOLDERS.wtb, worktree: null }
+											: cwd === FOLDERS.wtr || cwd === FOLDERS.wtc
+												? {
+														project: "app",
+														root: APP,
+														worktree: {
+															kind: "autopilot",
+															branch:
+																cwd === FOLDERS.wtr
+																	? "autopilot/2026-10-17"
+																	: "autopilot/2026-10-17-c2-docs",
+															slug: "run",
+														},
+													}
+												: null,
 						]),
 					),
 				),
@@ -4641,6 +4691,7 @@ describe("Sidebar device sections", () => {
 						device: "phone",
 					})),
 				live: working,
+				held: placed.filter(cell => cell.holder === "idl").map(cell => cell.path),
 			});
 			await mount(<Sidebar />);
 			// Main's records, set after the sidebar's own first read of them (an empty pref here).
@@ -4844,10 +4895,9 @@ describe("Sidebar device sections", () => {
 			expect(device).toEqual(host);
 		});
 
-		// Known gap: an Autopilot run's children follow the run's row only on the host, whose git names each worktree's
-		// branch (`autopilotRunOf`); a device has only the worktree's project and kind, so there they are rows of the same
-		// project in recency order. Both list the same rows in the same group.
-		it("keeps an Autopilot run's children in its project on a device, following the run's row only on the host", async () => {
+		// The host sends each worktree's run (`autopilotRuns`, read off its branch), so a device groups a run's children
+		// under the run's row as the host's own sidebar does.
+		it("keeps an Autopilot run's children under the run's row on a device as on the host", async () => {
 			const RUN = "/Users/kim/.omp/wt/gui-2026-10-17-1111111";
 			const DOCS = "/Users/kim/.omp/wt/gui-2026-10-17-c2-docs-2222222";
 			const list: SidebarProjectsState = {
@@ -4855,6 +4905,7 @@ describe("Sidebar device sections", () => {
 				removed: [],
 				worktrees: { [RUN]: APP, [DOCS]: APP },
 				worktreeKinds: { [RUN]: "autopilot", [DOCS]: "autopilot" },
+				autopilotRuns: { [RUN]: { run: "2026-10-17", child: false }, [DOCS]: { run: "2026-10-17", child: true } },
 			};
 			const rowsFor = (device?: string) =>
 				[
@@ -4933,7 +4984,7 @@ describe("Sidebar device sections", () => {
 			);
 
 			expect(host).toEqual(["/h/plain.jsonl", "/h/run.jsonl", "/h/docs.jsonl"]);
-			expect(device).toEqual(["/h/docs.jsonl", "/h/plain.jsonl", "/h/run.jsonl"]);
+			expect(device).toEqual(host);
 		});
 
 		// One rule draws both (`sidebarRows`); each path only gathers what it knows. The user's reports (23 and 29 Oct
@@ -4945,7 +4996,7 @@ describe("Sidebar device sections", () => {
 			container.remove();
 			useClosedChildrenStore.getState().reset();
 			useAgentReviewStore.getState().reset();
-			useHostedSessionsStore.setState({ sessions: [], live: [] });
+			useHostedSessionsStore.setState({ sessions: [], live: [], held: [] });
 			expect(await drawnByDevice()).toEqual(host);
 		});
 

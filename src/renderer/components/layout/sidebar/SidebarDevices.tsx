@@ -387,7 +387,7 @@ function DeviceSessions({
 
 	// The host's rows by the host's own rule (`sidebarRows`): what the host says beside each row (`openedBySession`,
 	// `heldOnHost`), what it works on now, its project list and what its git said of each folder (`worktrees`,
-	// `worktreeKinds`, `gone`), and this computer's tabs on it. A device cannot ask the host's git or records. A row made
+	// `worktreeKinds`, `autopilotRuns`, `gone`), and this computer's tabs on it. A device cannot ask the host's git or records. A row made
 	// from a tab before the host lists its session keeps the time this section first saw the tab, as on the host.
 	const liveSince = useRef(new Map<string, string>());
 	const tree = useMemo(() => {
@@ -426,7 +426,13 @@ function DeviceSessions({
 			workspace: hostWorkspace,
 			titleOf: session => sessionDisplayTitle(session, ""),
 			hasContent: sessionHasContent,
-			runOf: () => null,
+			// The host's own reading of each worktree's branch: a run's children follow the run's row, keyed by the
+			// main checkout and the run's name as on the host.
+			runOf: session => {
+				const run = projectList.autopilotRuns?.[session.cwd];
+				const project = projectList.worktrees[session.cwd];
+				return run && project ? { child: run.child, key: `${project}\n${run.run}` } : null;
+			},
 			archived: NO_PATHS,
 			nested: nested ?? NO_PATHS,
 			// Kept in this computer's prefs under the host's id, so this computer's own lists never move with it.

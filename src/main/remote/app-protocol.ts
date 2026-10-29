@@ -743,6 +743,7 @@ export const SidebarProjectsStateSchema: z.ZodType<SidebarProjectsState, z.ZodTy
 	// An older host sends none: its sessions then group by their own folder, as before.
 	worktrees: z.record(ProjectPath, ProjectPath).default({}),
 	worktreeKinds: z.record(ProjectPath, z.enum(["autopilot", "agent", "other"])).optional(),
+	autopilotRuns: z.record(ProjectPath, z.object({ run: z.string().min(1), child: z.boolean() })).optional(),
 	gone: z.array(ProjectPath).optional(),
 });
 

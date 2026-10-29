@@ -124,6 +124,8 @@ export const IPC_EVENTS = {
 	HOSTED_SESSIONS_CHANGED: "sessions:hosted-changed",
 	/** What this computer works on now changed (`HostLiveSession[]`, `LIVE_SESSIONS`) */
 	LIVE_SESSIONS_CHANGED: "sessions:live-changed",
+	/** The session files this computer's windows' tabs hold changed (`string[]`, `SESSIONS_HELD`) */
+	SESSIONS_HELD_CHANGED: "sessions:held-changed",
 	/** Log line appended */
 	LOG_LINE: "log:line",
 	/** Native application menu action */
@@ -211,6 +213,12 @@ export const IPC_COMMANDS = {
 	 * its own holds.
 	 */
 	LIVE_SESSIONS: "sessions:live",
+	/**
+	 * The session files held by a tab of any of this computer's windows (a phone page's included), idle ones too
+	 * (`string[]`, what a paired device's list says as `heldOnHost`): a window's sidebar keeps a row another window's
+	 * tab holds, as a device's section of this computer does.
+	 */
+	SESSIONS_HELD: "sessions:held",
 	/** Delete a session file */
 	SESSIONS_DELETE: "sessions:delete",
 	/** Stop every turn on a session file and answer once they ended ("Stop and delete" of a refused delete) */
@@ -2008,6 +2016,8 @@ export interface OmpApi {
 		onHostedSessionsChanged(callback: (sessions: IpcHostedSession[]) => void): () => void;
 		/** What this computer works on now changed (the whole list, `LIVE_SESSIONS`). */
 		onLiveSessionsChanged(callback: (sessions: HostLiveSession[]) => void): () => void;
+		/** The session files this computer's windows' tabs hold changed (the whole list, `SESSIONS_HELD`). */
+		onHeldSessionsChanged(callback: (files: string[]) => void): () => void;
 		onLogBatch(callback: (batch: LogBatch) => void): () => void;
 		onMenuAction(callback: (action: MenuAction) => void): () => void;
 		onDeepLink(callback: (link: DeepLinkPayload) => void): () => void;
@@ -2192,6 +2202,8 @@ export interface OmpApi {
 		hosted(): Promise<IpcHostedSession[]>;
 		/** What this computer works on now, from any of its windows or the tabs it runs for devices (`LIVE_SESSIONS`). */
 		live(): Promise<HostLiveSession[]>;
+		/** The session files this computer's windows' tabs hold, idle or not (`SESSIONS_HELD`): the rows another window keeps. */
+		held(): Promise<string[]>;
 	};
 	tabs: {
 		/** The calling window's tabs in acquisition order (boot reconciliation). */

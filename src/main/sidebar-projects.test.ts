@@ -115,6 +115,65 @@ describe("SidebarProjects", () => {
 		expect(make().state().worktreeKinds).toEqual({ [WT]: "agent" });
 	});
 
+	it("sends which Autopilot run each live worktree belongs to, across the wire to a device and a relaunch", async () => {
+		const RUN = "/home/me/.omp/wt/gui-2026-10-17-1111111";
+		const CHILD = "/home/me/.omp/wt/gui-2026-10-17-c2-docs-2222222";
+		let saved: unknown;
+		const make = () =>
+			new SidebarProjects({
+				read: () => saved,
+				write: state => {
+					saved = JSON.parse(JSON.stringify(state));
+				},
+				sessions: async () => [
+					session("/work/alpha", "2026-10-01T00:00:00Z"),
+					session(RUN, "2026-10-02T00:00:00Z"),
+					session(CHILD, "2026-10-03T00:00:00Z"),
+				],
+				defaultWorkspace: () => WORKSPACE,
+				projectOf: async cwd => (cwd === RUN || cwd === CHILD ? "/work/alpha" : cwd),
+				worktreeKindOf: async cwd => (cwd === RUN || cwd === CHILD ? "autopilot" : null),
+				autopilotRunOf: async cwd =>
+					cwd === RUN
+						? { run: "2026-10-17", child: false }
+						: cwd === CHILD
+							? { run: "2026-10-17", child: true }
+							: null,
+				exists: async () => true,
+				onState: () => {},
+				now: () => 5_000,
+			});
+		const host = make();
+		await host.sync();
+		const runs = {
+			[RUN]: { run: "2026-10-17", child: false },
+			[CHILD]: { run: "2026-10-17", child: true },
+		};
+		expect(host.state().autopilotRuns).toEqual(runs);
+		// The device's schema keeps it (an unknown key would be dropped on the link).
+		expect(SidebarProjectsStateSchema.parse(JSON.parse(JSON.stringify(host.state()))).autopilotRuns).toEqual(runs);
+		expect(make().state().autopilotRuns).toEqual(runs);
+	});
+
+	it("fills a run git cannot read yet from the branch of the tab bound to the worktree", async () => {
+		const CHILD = "/home/me/.omp/wt/gui-2026-10-17-c2-docs-2222222";
+		const host = new SidebarProjects({
+			read: () => undefined,
+			write: () => {},
+			sessions: async () => [session("/work/alpha", "2026-10-01T00:00:00Z"), session(CHILD, "2026-10-03T00:00:00Z")],
+			defaultWorkspace: () => WORKSPACE,
+			projectOf: async cwd => (cwd === CHILD ? "/work/alpha" : cwd),
+			worktreeKindOf: async () => null,
+			autopilotRunOf: async () => null,
+			worktreeBindings: () => [{ path: CHILD, branch: "autopilot/2026-10-17-c2-docs", baseCwd: "/work/alpha" }],
+			exists: async () => true,
+			onState: () => {},
+			now: () => 5_000,
+		});
+		await host.sync();
+		expect(host.state().autopilotRuns).toEqual({ [CHILD]: { run: "2026-10-17", child: true } });
+	});
+
 	it("moves a worktree folder an earlier pass listed as its own project under its project", async () => {
 		// A pass whose git could not tell (not installed yet, slow at a Windows startup) listed agent worktrees as projects.
 		const h = harness({

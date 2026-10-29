@@ -32,11 +32,16 @@ export function worktreeKindOf(branch: string | null): WorktreeKind {
 	return "other";
 }
 
+export interface AutopilotRun {
+	run: string;
+	child: boolean;
+}
+
 /**
  * The Autopilot run a branch belongs to: `autopilot/<run>` is the run's own checkout, `autopilot/<run>-c<N>-<area>`
  * one of the children it opened for cycle N (the bridge's `autopilotChildBranch`). Null for any other branch.
  */
-export function autopilotRunOf(branch: string | null): { run: string; child: boolean } | null {
+export function autopilotRunOf(branch: string | null): AutopilotRun | null {
 	if (!branch?.startsWith(AUTOPILOT_BRANCH_PREFIX)) return null;
 	const name = branch.slice(AUTOPILOT_BRANCH_PREFIX.length);
 	const run = /^(.+?)-c\d+-[a-z0-9]+(?:-[a-z0-9]+)*$/.exec(name)?.[1];

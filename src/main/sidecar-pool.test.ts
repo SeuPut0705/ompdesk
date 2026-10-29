@@ -1780,6 +1780,34 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 		expect(heard).toBe(4);
 	});
 
+	it("announces exactly once each kind of change to the session files the windows' tabs hold, and nothing for an unchanged set", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		const sets: string[][] = [];
+		pool.onSessionFilesChanged = () => sets.push([...pool.windowSessionFiles()].sort());
+
+		// A tab opens a session; a tab with no session yet changes nothing.
+		pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
+		pool.acquire("/b", fw.win, "tab-b");
+		expect(sets).toEqual([["/sessions/a.jsonl"]]);
+		// The tab shows its file again: no change.
+		pool.noteSessionFile("tab-a", "/sessions/a.jsonl");
+		expect(sets).toHaveLength(1);
+		// A switch to another session, then the second tab attaching one.
+		pool.noteSessionFile("tab-a", "/sessions/a2.jsonl");
+		pool.noteSessionFile("tab-b", "/sessions/b.jsonl");
+		expect(sets.slice(1)).toEqual([["/sessions/a2.jsonl"], ["/sessions/a2.jsonl", "/sessions/b.jsonl"]]);
+		// The session under a tab changes (its file is let go), a tab closes, a window closes.
+		sidecars[0]?.emitSessionInfo({ sessionId: "s-1" });
+		sidecars[0]?.emitSessionInfo({ sessionId: "s-2" });
+		expect(sets.slice(3)).toEqual([["/sessions/b.jsonl"]]);
+		expect(pool.releaseTab("tab-b")).toBe(true);
+		expect(sets.slice(4)).toEqual([[]]);
+		pool.noteSessionFile("tab-a", "/sessions/c.jsonl");
+		fw.close();
+		expect(sets.slice(5)).toEqual([["/sessions/c.jsonl"], []]);
+	});
+
 	// Review M1: a paired device's switch on an idle window tab whose connection wait holds moves its file with no run
 	// state change; the resume rules must hear it, or the wait's retry goes into the new session.
 	it("tells the resume rules when a held tab's session file moves, though no turn runs", () => {
