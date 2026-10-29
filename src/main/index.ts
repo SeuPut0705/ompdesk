@@ -350,7 +350,8 @@ function prefsStore(): Store<MainPrefs> {
 		const powers = migrateAgentPowers(mainPrefsStore as unknown as Store<Record<string, unknown>>, agentDir());
 		if (powers) {
 			writeRuntimeLog({
-				source: "background-task",
+				// A clean migration is no failure: only one that could not edit config.yml is a background-task error.
+				source: powers.error ? "background-task" : "user-data-migration",
 				message: "agent-powers-migrated",
 				details: { prefs: powers.prefs.join(","), stock: powers.stock.join(","), error: powers.error ?? null },
 			});
