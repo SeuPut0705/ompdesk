@@ -8,6 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { inBun } from "./in-bun";
 
 const SKILL = path.join(__dirname, "../../../resources/omp-builtin/formal/skills/ompdesk-formal-verify");
 const STATECHART = path.join(SKILL, "scripts/statechart");
@@ -271,10 +272,18 @@ describe("S3: a rename that Windows refuses with EPERM is retried once when the 
 		const MODEL = path.join(STATECHART, "model");
 
 		async function tlc(tla: string, cfg: string) {
-			const { prepareTla } = (await import(/* @vite-ignore */ path.join(SKILL, "scripts/lib/tla-env.ts"))) as {
-				prepareTla: (o: { env: NodeJS.ProcessEnv }) => Promise<{ java: string; tla2tools: string }>;
-			};
-			const tools = await prepareTla({ env: { ...process.env, OMPDESK_FORMAL_CACHE: CACHE } });
+			// prepareTla takes the install lock, which needs bun:ffi: it runs in Bun, and only its answer comes back.
+			const tools = JSON.parse(
+				inBun(
+					dir,
+					[
+						'const { prepareTla } = await lib("tla-env");',
+						"const { java, tla2tools } = await prepareTla({ log() {} });",
+						"console.log(JSON.stringify({ java, tla2tools }));",
+					].join("\n"),
+					{ ...process.env, OMPDESK_FORMAL_CACHE: CACHE },
+				).stdout,
+			) as { java: string; tla2tools: string };
 			const work = fs.mkdtempSync(path.join(dir, "tlc-"));
 			fs.writeFileSync(path.join(work, "OutputFolder.tla"), tla);
 			fs.writeFileSync(path.join(work, "OutputFolder.cfg"), cfg);

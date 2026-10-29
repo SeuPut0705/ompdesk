@@ -1,7 +1,8 @@
 /**
- * The toolchain audit's findings (lock takeover race, environmental failures, archive reuse, shared-cache leftovers,
+ * The toolchain audit's findings (the install lock, environmental failures, archive reuse, leftovers in the cache,
  * setup.ts output, Windows unpacking, agents' bun on PATH). No test here touches the network or the real home: the
- * cache is a temp folder and every source is a file:// URL.
+ * cache is a temp folder and every source is a file:// URL. Whatever takes the install lock runs in a Bun child
+ * (`inBun`), since the lock needs bun:ffi.
  */
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -10,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { ompPathEnv } from "../omp-runtime";
+import { inBun } from "./in-bun";
 
 const SKILL =
 	process.env.FORMAL_SKILL_DIR ??
@@ -59,7 +61,14 @@ function finished(child: ChildProcess): Promise<number | null> {
 	return new Promise(resolve => child.on("close", code => resolve(code)));
 }
 
-describe("lock takeover (finding 1)", () => {
+/**
+ * The install lock is an OS lock (flock on macOS and Linux, a sharing mode on Windows): held while the process lives,
+ * dropped by the kernel when it dies. Every case runs real child processes under Bun (the lock needs bun:ffi, which
+ * vitest's Node does not have) and waits on events they cause: a file they write, their stdin, their exit. The only
+ * clock is the lock's own `maxWaitMs`.
+ */
+describe("the install lock", () => {
+	const TOOLCHAIN = path.join(SKILL, "scripts/lib/toolchain.ts");
 	const CHILD = (toolchain: string): string =>
 		[
 			'import fs from "node:fs";',
@@ -70,27 +79,26 @@ describe("lock takeover (finding 1)", () => {
 			"await withLock(cache, 'x', async () => {",
 			"  try { fs.mkdirSync(marker); } catch { fs.appendFileSync(log, 'overlap ' + id + '\\n'); }",
 			"  fs.appendFileSync(log, 'entered ' + id + '\\n');",
-			"  await new Promise(resolve => setTimeout(resolve, 20));",
+			// A critical section that takes real time: a lock that let two in would show them inside together.
+			"  Atomics.wait(gate, 0, 0, 20);",
 			"  fs.rmSync(marker, { recursive: true, force: true });",
 			"}, { log() {}, pollMs: 5 });",
 		].join("\n");
 
 	/**
-	 * Rounds of `procs` processes racing to take over a dead holder's lock. Each round has its own deadline, so a hung
-	 * waiter fails the round inside `race` (not as a test timeout that skips `finally`), and every child is killed and
+	 * Rounds of `procs` processes released together onto one lock. Each round has its own deadline, so a hung waiter
+	 * fails the round inside `race` (not as a test timeout that skips `finally`), and every child is killed and
 	 * awaited before its folder goes.
 	 */
 	async function race(procs: number, rounds: number, roundMs: number): Promise<void> {
 		const script = path.join(temp, `lock-child-${procs}.ts`);
-		fs.writeFileSync(script, CHILD(path.join(SKILL, "scripts/lib/toolchain.ts")));
-		const dead = deadPid();
+		fs.writeFileSync(script, CHILD(TOOLCHAIN));
 		let overlaps = 0;
 		let entered = 0;
 		for (let round = 0; round < rounds; round++) {
 			const dir = fs.mkdtempSync(path.join(temp, "race-"));
 			const cache = path.join(dir, "cache");
 			fs.mkdirSync(cache);
-			plantLock(cache, "x", { pid: dead, host: os.hostname(), started: 1 });
 			const barrier = path.join(dir, "go");
 			const marker = path.join(dir, "inside");
 			const log = path.join(dir, "log.txt");
@@ -119,7 +127,6 @@ describe("lock takeover (finding 1)", () => {
 				const lines = fs.readFileSync(log, "utf8").split("\n").filter(Boolean);
 				overlaps += lines.filter(line => line.startsWith("overlap")).length;
 				entered += lines.filter(line => line.startsWith("entered")).length;
-				expect(fs.existsSync(path.join(cache, ".lock-x"))).toBe(false);
 			} finally {
 				for (const child of children) child.kill("SIGKILL");
 				await Promise.all(done);
@@ -130,1142 +137,305 @@ describe("lock takeover (finding 1)", () => {
 		expect(overlaps).toBe(0);
 	}
 
-	it("lets two waiters take over a dead holder's lock one at a time, on every OS", () => race(2, 3, 15_000), 60_000);
+	it("lets two processes in one at a time, on every OS", () => race(2, 3, 15_000), 60_000);
 
-	// POSIX only: with 8 processes polling every 5 ms, Windows keeps the just-deleted lock folder delete-pending for so
-	// long that the stress run is too slow to be a useful check. The Windows rule is covered by the EPERM cases below.
-	it.skipIf(process.platform === "win32")(
-		"lets exactly one of several waiters take over a dead holder's lock, in every round",
-		() => race(8, 12, 9_000),
-		120_000,
-	);
+	it("lets several processes in one at a time, in every round", () => race(8, 12, 15_000), 120_000);
 
-	describe("a lock folder that is delete-pending on Windows", () => {
-		const withPlatform = async (value: NodeJS.Platform, body: () => Promise<void>): Promise<void> => {
-			const real = Object.getOwnPropertyDescriptor(process, "platform") as PropertyDescriptor;
-			Object.defineProperty(process, "platform", { ...real, value });
-			try {
-				await body();
-			} finally {
-				Object.defineProperty(process, "platform", real);
-				vi.restoreAllMocks();
-			}
-		};
-		const refuseMkdir = (lock: string, code: string, times: number): { calls: () => number } => {
-			const realMkdir = fs.mkdirSync;
-			let refused = 0;
-			vi.spyOn(fs, "mkdirSync").mockImplementation(((target: fs.PathLike, ...rest: unknown[]) => {
-				if (String(target) === lock && refused < times) {
-					refused++;
-					throw Object.assign(new Error(`${code}: operation not permitted, mkdir '${lock}'`), { code });
-				}
-				return (realMkdir as (...args: unknown[]) => unknown)(target, ...rest);
-			}) as typeof fs.mkdirSync);
-			return { calls: () => refused };
-		};
-
-		it("waits while mkdir is refused as EPERM or EACCES, then takes the lock", async () => {
-			const { withLock } = await lib("toolchain");
-			for (const code of ["EPERM", "EACCES"]) {
-				const cache = fs.mkdtempSync(path.join(temp, "pending-"));
-				const lock = path.join(cache, ".lock-x");
-				await withPlatform("win32", async () => {
-					const refused = refuseMkdir(lock, code, 3);
-					const result = await withLock(cache, "x", async () => "worked", { log: quiet, pollMs: 1 });
-					expect(result).toBe("worked");
-					expect(refused.calls()).toBe(3);
-				});
-				expect(fs.existsSync(lock)).toBe(false);
-			}
-		});
-
-		it("is Unavailable when EPERM never ends", async () => {
-			const { withLock } = await lib("toolchain");
-			const { Unavailable } = await lib("proc");
-			const cache = fs.mkdtempSync(path.join(temp, "pending-forever-"));
-			const lock = path.join(cache, ".lock-x");
-			await withPlatform("win32", async () => {
-				const refused = refuseMkdir(lock, "EPERM", Number.POSITIVE_INFINITY);
-				await expect(withLock(cache, "x", async () => 1, { log: quiet, pollMs: 0 })).rejects.toBeInstanceOf(
-					Unavailable,
-				);
-				expect(refused.calls()).toBeGreaterThan(200);
-			});
-		});
-
-		it("does not wait for EPERM off Windows", async () => {
-			const { withLock } = await lib("toolchain");
-			const { Unavailable } = await lib("proc");
-			const cache = fs.mkdtempSync(path.join(temp, "pending-posix-"));
-			const lock = path.join(cache, ".lock-x");
-			await withPlatform("linux", async () => {
-				const refused = refuseMkdir(lock, "EPERM", 1);
-				await expect(withLock(cache, "x", async () => 1, { log: quiet, pollMs: 1 })).rejects.toBeInstanceOf(
-					Unavailable,
-				);
-				expect(refused.calls()).toBe(1);
-			});
-		});
-	});
-
-	it.skipIf(!posix)(
-		"releases a lock its process holds when SIGTERM stops it",
-		async () => {
-			const { toolchain } = { toolchain: path.join(SKILL, "scripts/lib/toolchain.ts") };
-			const script = path.join(temp, "lock-hold.ts");
-			fs.writeFileSync(
-				script,
-				[
-					`import { withLock } from ${JSON.stringify(toolchain)};`,
-					"await withLock(process.argv[2], 'x', async () => {",
-					"  console.log('held');",
-					"  await new Promise(() => {});",
-					"}, { log() {} });",
-				].join("\n"),
-			);
-			const cache = fs.mkdtempSync(path.join(temp, "term-"));
-			const child = spawn("bun", [script, cache], { stdio: ["ignore", "pipe", "ignore"] });
-			const held = Promise.withResolvers<void>();
-			child.stdout?.on("data", () => held.resolve());
-			const closed = finished(child);
-			await held.promise;
-			expect(fs.existsSync(path.join(cache, ".lock-x"))).toBe(true);
-			child.kill("SIGTERM");
-			expect(await closed).toBe(143);
-			expect(fs.existsSync(path.join(cache, ".lock-x"))).toBe(false);
-		},
-		30_000,
-	);
-
-	it("does not delete a lock that another process now owns, and the holder fails as Unavailable", async () => {
-		const { withLock } = await lib("toolchain");
-		const { Unavailable } = await lib("proc");
-		const cache = fs.mkdtempSync(path.join(temp, "foreign-"));
-		const lock = path.join(cache, ".lock-x");
-		await expect(
-			withLock(
-				cache,
-				"x",
-				async () => {
-					// A takeover replaced this process's lock while it worked.
-					fs.rmSync(lock, { recursive: true });
-					plantLock(cache, "x", { pid: process.pid, host: os.hostname(), started: 1, token: "someone-else" });
-				},
-				{ log: quiet },
-			),
-		).rejects.toBeInstanceOf(Unavailable);
-		expect(JSON.parse(fs.readFileSync(path.join(lock, "owner.json"), "utf8")).token).toBe("someone-else");
-	});
-
-	/**
-	 * The two interleavings TLC found in formal/toolchain-lock (both made two holders at once, the CI overlap of
-	 * release run 40891943183). The test plays every other process through spies, so each step lands exactly where
-	 * the trace puts it. `rival` is a waiter that made a fresh lock (mkdir, then its owner file, as acquire does) and
-	 * holds it until this waiter's mkdir has been refused by it once; then it finishes and releases.
-	 */
-	describe("a takeover never removes a lock another waiter just made", () => {
-		const realMkdir = fs.mkdirSync as (...args: unknown[]) => unknown;
-		const realStat = fs.statSync as (...args: unknown[]) => unknown;
-		const realKill = process.kill;
-		const enoent = (target: string): Error =>
-			Object.assign(new Error(`ENOENT: no such file or directory, stat '${target}'`), { code: "ENOENT" });
-		const realExists = fs.existsSync as (...args: unknown[]) => boolean;
-		const rival = (
-			lock: string,
-		): { take: () => void; holding: () => boolean; mkdir: typeof realMkdir; exists: typeof realExists } => {
-			let holding = false;
-			return {
-				take() {
-					realMkdir(lock);
-					fs.writeFileSync(
-						path.join(lock, "owner.json"),
-						JSON.stringify({ pid: process.pid, host: os.hostname(), started: 2, token: "rival" }),
-					);
-					holding = true;
-				},
-				holding: () => holding,
-				/** mkdir as the waiter sees it: refused by the rival's lock once, after which the rival lets go. */
-				mkdir(target, ...rest) {
-					if (String(target) !== lock || !holding) return realMkdir(target, ...rest);
-					try {
-						return realMkdir(target, ...rest);
-					} catch (error) {
-						if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-							fs.rmSync(lock, { recursive: true, force: true });
-							holding = false;
-						}
-						throw error;
-					}
-				},
-				/** existsSync as the waiter sees it (acquire looks before it makes): turned away by the rival's lock once, then it lets go. */
-				exists(target, ...rest) {
-					const there = realExists(target, ...rest);
-					if (String(target) === lock && holding && there) {
-						fs.rmSync(lock, { recursive: true, force: true });
-						holding = false;
-					}
-					return there;
-				},
-			};
-		};
-
-		it("treats a lock that was gone when judged as not abandoned", async () => {
-			const { withLock } = await lib("toolchain");
-			const cache = fs.mkdtempSync(path.join(temp, "gone-"));
-			const lock = path.join(cache, ".lock-x");
-			const guard = `${lock}.takeover`;
-			const other = rival(lock);
-			let refused = false;
-			let rivalMade = false;
-			// A holder had the lock at this waiter's mkdir and released it at once: the lock is gone when judged.
-			vi.spyOn(fs, "mkdirSync").mockImplementation(((target: fs.PathLike, ...rest: unknown[]) => {
-				if (String(target) === lock && !refused) {
-					refused = true;
-					throw Object.assign(new Error(`EEXIST: file already exists, mkdir '${lock}'`), { code: "EEXIST" });
-				}
-				return other.mkdir(target, ...rest);
-			}) as typeof fs.mkdirSync);
-			vi.spyOn(fs, "existsSync").mockImplementation(other.exists as typeof fs.existsSync);
-			// Inside the guard, right after this waiter's stat found no lock, the rival's mkdir lands.
-			vi.spyOn(fs, "statSync").mockImplementation(((target: fs.PathLike, ...rest: unknown[]) => {
-				if (String(target) === lock && !realExists(lock) && realExists(guard) && !rivalMade) {
-					rivalMade = true;
-					other.take();
-					throw enoent(lock);
-				}
-				return realStat(target, ...rest);
-			}) as typeof fs.statSync);
-			let overlapped = false;
-			try {
-				await withLock(
-					cache,
-					"x",
-					async () => {
-						overlapped = other.holding();
-					},
-					{ log: quiet, pollMs: 5 },
-				);
-			} finally {
-				vi.restoreAllMocks();
-			}
-			expect(overlapped, "held the lock while the rival held its fresh one").toBe(false);
-		});
-
-		it.skipIf(!posix)("counts a dead pid only while the owner file still names that holder", async () => {
-			const { withLock } = await lib("toolchain");
-			const cache = fs.mkdtempSync(path.join(temp, "dead-after-release-"));
-			const lock = path.join(cache, ".lock-x");
-			const guard = `${lock}.takeover`;
-			const other = rival(lock);
-			const planted = 999_999_001;
-			const taker = 999_999_002;
-			let takerAlive = true;
-			plantLock(cache, "x", { pid: planted, host: os.hostname(), started: 1 });
-			vi.spyOn(process, "kill").mockImplementation(((pid: number, signal?: string | number) => {
-				if (pid === planted) throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
-				if (pid !== taker) return realKill.call(process, pid, signal);
-				if (takerAlive) {
-					// Between this waiter's read of the owner and its kill(0): the taker finishes and releases, the
-					// rival makes a fresh lock, and the taker's process exits.
-					fs.rmSync(lock, { recursive: true, force: true });
-					other.take();
-					takerAlive = false;
-				}
-				throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
-			}) as typeof process.kill);
-			// Before this waiter gets the guard, another waiter has taken the planted lock over and let the guard go.
-			let tookOver = false;
-			vi.spyOn(fs, "mkdirSync").mockImplementation(((target: fs.PathLike, ...rest: unknown[]) => {
-				if (String(target) === guard && !tookOver) {
-					tookOver = true;
-					fs.rmSync(lock, { recursive: true, force: true });
-					realMkdir(lock);
-					fs.writeFileSync(
-						path.join(lock, "owner.json"),
-						JSON.stringify({ pid: taker, host: os.hostname(), started: 3, token: "taker" }),
-					);
-				}
-				return other.mkdir(target, ...rest);
-			}) as typeof fs.mkdirSync);
-			vi.spyOn(fs, "existsSync").mockImplementation(other.exists as typeof fs.existsSync);
-			let overlapped = false;
-			try {
-				await withLock(
-					cache,
-					"x",
-					async () => {
-						overlapped = other.holding();
-					},
-					{ log: quiet, pollMs: 5 },
-				);
-			} finally {
-				vi.restoreAllMocks();
-			}
-			expect(tookOver && !takerAlive, "the trace ran").toBe(true);
-			expect(overlapped, "held the lock while the rival held its fresh one").toBe(false);
-		});
-
-		it.skipIf(!posix)("takes the lock from a holder only while the holder's owner is the one it judged", async () => {
-			// An old dead holder H (untouched for 10 min) is judged by W. Between W's stat and its kill(0) another waiter
-			// B took the lock over and installed a fresh one. The old mtime must not condemn B's lock.
-			const { withLock } = await lib("toolchain");
-			const cache = fs.mkdtempSync(path.join(temp, "owner-changed-"));
-			const lock = path.join(cache, ".lock-x");
-			const planted = 999_999_003;
-			plantLock(cache, "x", { pid: planted, host: os.hostname(), started: 1, token: "H" }, 10 * 60_000);
-			let swapped = false;
-			let holdingB = false;
-			const removedOwners: string[] = [];
-			vi.spyOn(process, "kill").mockImplementation(((pid: number, signal?: string | number) => {
-				if (pid !== planted) return realKill.call(process, pid, signal);
-				// Only the judgment inside the takeover (guard held) is the one that deletes.
-				if (!swapped && fs.existsSync(`${lock}.takeover`)) {
-					swapped = true;
-					fs.rmSync(lock, { recursive: true, force: true });
-					realMkdir(lock);
-					fs.writeFileSync(
-						path.join(lock, "owner.json"),
-						JSON.stringify({ pid: process.pid, host: os.hostname(), started: 5, token: "B" }),
-					);
-					holdingB = true;
-				}
-				throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
-			}) as typeof process.kill);
-			const realRm = fs.rmSync as (...args: unknown[]) => unknown;
-			vi.spyOn(fs, "rmSync").mockImplementation(((target: fs.PathLike, ...rest: unknown[]) => {
-				if (String(target) === lock && holdingB) {
-					try {
-						removedOwners.push(JSON.parse(fs.readFileSync(path.join(lock, "owner.json"), "utf8")).token);
-					} catch {
-						removedOwners.push("?");
-					}
-				}
-				return realRm(target, ...rest);
-			}) as typeof fs.rmSync);
-			vi.spyOn(fs, "mkdirSync").mockImplementation(((target: fs.PathLike, ...rest: unknown[]) => {
-				try {
-					return realMkdir(target, ...rest);
-				} catch (error) {
-					// B finishes once this waiter has been turned away by its lock.
-					if (String(target) === lock && holdingB && (error as NodeJS.ErrnoException).code === "EEXIST") {
-						holdingB = false;
-						realRm(lock, { recursive: true, force: true });
-					}
-					throw error;
-				}
-			}) as typeof fs.mkdirSync);
-			vi.spyOn(fs, "existsSync").mockImplementation(((target: fs.PathLike, ...rest: unknown[]) => {
-				const there = realExists(target, ...rest);
-				// B finishes once this waiter has been turned away by its lock (acquire looks before it makes).
-				if (String(target) === lock && holdingB && there) {
-					holdingB = false;
-					realRm(lock, { recursive: true, force: true });
-				}
-				return there;
-			}) as typeof fs.existsSync);
-			try {
-				await withLock(cache, "x", async () => undefined, { log: quiet, pollMs: 5 });
-			} finally {
-				vi.restoreAllMocks();
-			}
-			expect(swapped, "the trace ran").toBe(true);
-			expect(removedOwners, "owners of the locks removed while B held its own").not.toContain("B");
-		});
-
-		/**
-		 * A holder on another computer that slept past staleMs (its pid cannot be asked, so only the old mtime condemns
-		 * its lock): W judges the lock stale and holds the guard; the holder wakes and releases, B makes a fresh lock,
-		 * and only then does W delete. Real processes play A (told it is on another computer) and B (each runs
-		 * withLock itself), so whatever order the code lets them in is the order they take; the test only waits at W's
-		 * rmSync(lock) for them to have done what they can.
-		 */
-		const peerScript = (flags: string): string => {
-			const toolchain = path.join(SKILL, "scripts/lib/toolchain.ts");
-			const script = path.join(flags, "peer.ts");
-			fs.writeFileSync(
-				script,
-				[
-					'import fs from "node:fs";',
-					'import os from "node:os";',
-					'import path from "node:path";',
-					`import { withLock } from ${JSON.stringify(toolchain)};`,
-					"const [cache, role, flags] = process.argv.slice(2);",
-					"if (role === 'A') os.hostname = () => 'far-computer';",
-					"await withLock(cache, 'x', async () => {",
-					"  fs.writeFileSync(path.join(flags, role + '-held'), '');",
-					"  while (!fs.existsSync(path.join(flags, role + '-go'))) await new Promise(r => setTimeout(r, 5));",
-					"}, { log() {}, pollMs: 5, heartbeatMs: 600000 }).catch(() => process.exit(3));",
-				].join("\n"),
-			);
-			return script;
-		};
-		const syncWait = (ok: () => boolean, ms: number): boolean => {
-			const gate = new Int32Array(new SharedArrayBuffer(4));
-			const until = Date.now() + ms;
-			while (!ok()) {
-				if (Date.now() > until) return false;
-				Atomics.wait(gate, 0, 0, 5);
-			}
-			return true;
-		};
-
-		it.skipIf(!posix)(
-			"does not remove a lock another waiter made after a stale judgment, whatever the holder does meanwhile",
-			async () => {
-				const { withLock } = await lib("toolchain");
-				const cache = fs.mkdtempSync(path.join(temp, "stale-gap-"));
-				const flags = fs.mkdtempSync(path.join(temp, "stale-gap-flags-"));
-				const lock = path.join(cache, ".lock-x");
-				const script = peerScript(flags);
-				const peers: ChildProcess[] = [];
-				const closed: Promise<number | null>[] = [];
-				const start = (role: string): void => {
-					const child = spawn("bun", [script, cache, role, flags], { stdio: "ignore" });
-					peers.push(child);
-					closed.push(finished(child));
-				};
-				const held = (role: string): string => path.join(flags, `${role}-held`);
-				try {
-					start("A");
-					expect(
-						syncWait(() => fs.existsSync(held("A")), 15_000),
-						"A holds the lock",
-					).toBe(true);
-					const old = new Date(Date.now() - 10 * 60_000);
-					fs.utimesSync(path.join(lock, "owner.json"), old, old); // A's heartbeat stopped: its computer slept
-					let injected = false;
-					const realRm = fs.rmSync as (...args: unknown[]) => unknown;
-					vi.spyOn(fs, "rmSync").mockImplementation(((target: fs.PathLike, ...rest: unknown[]) => {
-						if (String(target) === lock && !injected) {
-							injected = true;
-							fs.writeFileSync(path.join(flags, "A-go"), ""); // A wakes and releases
-							if (syncWait(() => !fs.existsSync(lock), 1_500)) {
-								start("B"); // the lock is free: B takes it
-								syncWait(() => fs.existsSync(held("B")), 5_000);
-							}
-						}
-						return realRm(target, ...rest);
-					}) as typeof fs.rmSync);
-					let overlapped = false;
-					try {
-						await withLock(
-							cache,
-							"x",
-							async () => {
-								overlapped = fs.existsSync(held("B")) && !fs.existsSync(path.join(flags, "B-go"));
-							},
-							{ log: quiet, pollMs: 5, staleMs: 5 * 60_000 },
-						);
-					} finally {
-						vi.restoreAllMocks();
-					}
-					expect(injected, "the trace ran").toBe(true);
-					expect(overlapped, "W worked while B held its lock").toBe(false);
-				} finally {
-					fs.writeFileSync(path.join(flags, "A-go"), "");
-					fs.writeFileSync(path.join(flags, "B-go"), "");
-					const timer = setTimeout(() => {
-						for (const child of peers) child.kill("SIGKILL");
-					}, 20_000);
-					await Promise.all(closed);
-					clearTimeout(timer);
-				}
-			},
-			60_000,
-		);
-
-		it.skipIf(!posix)(
-			"never takes over a live holder on this computer, however long its heartbeat has been silent",
-			async () => {
-				const { withLock } = await lib("toolchain");
-				const { Unavailable } = await lib("proc");
-				const cache = fs.mkdtempSync(path.join(temp, "live-local-"));
-				const flags = fs.mkdtempSync(path.join(temp, "live-local-flags-"));
-				const script = path.join(flags, "peer.ts");
-				peerScript(flags);
-				const holder = spawn("bun", [script, cache, "L", flags], { stdio: "ignore" });
-				const holderClosed = finished(holder);
-				try {
-					expect(
-						syncWait(() => fs.existsSync(path.join(flags, "L-held")), 15_000),
-						"the holder holds the lock",
-					).toBe(true);
-					const old = new Date(Date.now() - 10 * 60_000);
-					fs.utimesSync(path.join(cache, ".lock-x", "owner.json"), old, old); // its computer slept for 10 min
-					let ran = false;
-					await expect(
-						withLock(
-							cache,
-							"x",
-							async () => {
-								ran = true;
-							},
-							{ log: quiet, pollMs: 5, staleMs: 60_000, maxWaitMs: 600 },
-						),
-					).rejects.toBeInstanceOf(Unavailable);
-					expect(ran, "ran its work inside a lock whose holder is alive").toBe(false);
-					expect(holder.exitCode, "the holder is untouched").toBeNull();
-				} finally {
-					fs.writeFileSync(path.join(flags, "L-go"), "");
-					const timer = setTimeout(() => holder.kill("SIGKILL"), 20_000);
-					await holderClosed;
-					clearTimeout(timer);
-				}
-			},
-			60_000,
-		);
-
-		it("a holder of another computer that slept past staleMs and wakes writes nothing more once its lock is taken", async () => {
-			const { withLock } = await lib("toolchain");
-			const { Unavailable } = await lib("proc");
-			const cache = fs.mkdtempSync(path.join(temp, "resumed-"));
-			const ownerFile = path.join(cache, ".lock-x", "owner.json");
-			const written = path.join(cache, "written.log");
-			const events: string[] = [];
-			const note = (who: string): void => fs.appendFileSync(written, `${who}\n`);
-			// While A sleeps nothing touches its lock; the waiter's takeover is what wakes it.
-			const realUtimes = fs.utimesSync as (...args: unknown[]) => unknown;
-			vi.spyOn(fs, "utimesSync").mockImplementation(((target: fs.PathLike, ...rest: unknown[]) => {
-				if (String(target) === ownerFile) return undefined;
-				return realUtimes(target, ...rest);
-			}) as typeof fs.utimesSync);
-			const realHost = os.hostname();
-			const hostname = vi.spyOn(os, "hostname").mockReturnValue("far-computer");
-			let holderRejection: unknown;
-			const holder = withLock(
-				cache,
-				"x",
-				async (signal: AbortSignal) => {
-					hostname.mockReturnValue(realHost); // from here on every other call is this computer's
-					note("A:start");
-					while (!signal.aborted) {
-						note("A:write");
-						await new Promise(resolve => setTimeout(resolve, 5));
-					}
-					events.push("A:work-returned");
-				},
-				{ log: quiet, heartbeatMs: 30, pollMs: 5 },
-			).catch((error: unknown) => {
-				holderRejection = error;
-				events.push("A:rejected");
-			});
-			try {
-				await vi.waitFor(() => expect(fs.existsSync(written)).toBe(true));
-				await new Promise(resolve => setTimeout(resolve, 60)); // A's lock is now older than the waiter's staleMs
-				await withLock(
-					cache,
-					"x",
-					async () => {
-						events.push("W:start");
-						await vi.waitFor(() => expect(events).toContain("A:rejected"));
-						const before = fs.readFileSync(written, "utf8");
-						await new Promise(resolve => setTimeout(resolve, 80));
-						expect(fs.readFileSync(written, "utf8"), "A wrote after it was told to stop").toBe(before);
-						note("W:done");
-					},
-					{ log: quiet, pollMs: 5, staleMs: 40 },
-				);
-			} finally {
-				vi.restoreAllMocks();
-				await holder;
-			}
-			expect(holderRejection).toBeInstanceOf(Unavailable);
-			// A's rejection came after its work had stopped (the work is awaited, not raced).
-			expect(events.indexOf("A:work-returned")).toBeGreaterThanOrEqual(0);
-			expect(events.indexOf("A:work-returned")).toBeLessThan(events.indexOf("A:rejected"));
-		});
-
-		it("a holder whose lock was taken over is told to stop, and fails as Unavailable once its work has stopped", async () => {
-			const { withLock } = await lib("toolchain");
-			const { Unavailable } = await lib("proc");
-			const cache = fs.mkdtempSync(path.join(temp, "lost-"));
-			const lock = path.join(cache, ".lock-x");
-			const started = Date.now();
-			let stoppedAfter = Number.POSITIVE_INFINITY;
-			await expect(
-				withLock(
-					cache,
-					"x",
-					async (signal: AbortSignal) => {
-						// Another computer's takeover replaced this holder's lock while it worked.
-						fs.rmSync(lock, { recursive: true, force: true });
-						plantLock(cache, "x", { pid: process.pid, host: os.hostname(), started: 1, token: "someone-else" });
-						await new Promise<void>(resolve => {
-							signal.addEventListener("abort", () => resolve(), { once: true });
-							setTimeout(resolve, 1_500);
-						});
-						stoppedAfter = Date.now() - started;
-					},
-					{ log: quiet, heartbeatMs: 10 },
-				),
-			).rejects.toBeInstanceOf(Unavailable);
-			expect(stoppedAfter, "the work was told to stop (it ran its full 1.5 s)").toBeLessThan(1_000);
-			fs.rmSync(lock, { recursive: true, force: true });
-		});
-	});
-});
-
-/**
- * The guard (`.lock-<name>.takeover`) that every change of the install lock runs under, checked from outside: each of
- * the two plain steps (making the lock, releasing it) must take it, a guard stale for 30 s is reclaimed only as the very
- * guard that was judged, a guard holder that stalled never deletes what another process made meanwhile, and a failed
- * or slow release never fails the work. Each case stops the other processes exactly where the interleaving needs them:
- * real peer processes that run the library, with a pause in their own fs calls, and spies on this process's.
- */
-describe("the guard of the install lock", () => {
-	const realMkdir = fs.mkdirSync as (...args: unknown[]) => unknown;
-	const realStat = fs.statSync as (...args: unknown[]) => unknown;
-	const realRead = fs.readFileSync as (...args: unknown[]) => unknown;
-	const realWriteFile = fs.writeFileSync as (...args: unknown[]) => unknown;
-	const realRemove = fs.rmSync as (...args: unknown[]) => unknown;
-	const realRename = fs.renameSync as (...args: unknown[]) => unknown;
-	const realNow = Date.now.bind(Date);
-	/** The file inside a guard folder that names its holder (`GUARD_TOKEN_FILE` in toolchain.ts). */
-	const TOKEN = "token";
-	const foreign = (token: string): Record<string, unknown> => ({
-		pid: process.pid,
-		host: os.hostname(),
-		started: 5,
-		token,
-	});
-	/** A guard another process holds right now. */
-	const plantGuard = (guard: string, token: string, ageMs = 0): void => {
-		realMkdir(guard);
-		realWriteFile(path.join(guard, TOKEN), token);
-		const then = new Date(Date.now() - ageMs);
-		fs.utimesSync(guard, then, then);
-	};
-	/** Another process takes the lock and the guard from this one: the lock is replaced, the guard is its own. */
-	const replaceLockAndGuard = (lock: string, guard: string, token: string): void => {
-		realRemove(guard, { recursive: true, force: true });
-		plantGuard(guard, "reclaimer");
-		realRemove(lock, { recursive: true, force: true });
-		realMkdir(lock);
-		realWriteFile(path.join(lock, "owner.json"), JSON.stringify(foreign(token)));
-	};
-
-	/**
-	 * Peers: real processes running `withLock`. `A` is told it is on another computer and pauses its release at its
-	 * `rmSync(lock)` (after it checked that the lock is its own) until `W-held` appears; `B` pauses its acquire at the
-	 * owner write (after its mkdir) until `B-resume`. Each holds the lock until its `<role>-go` flag.
-	 */
-	const stallingPeer = (flags: string): string => {
-		const script = path.join(flags, "stalling-peer.ts");
+	/** A peer takes the lock, holds it until its stdin ends, then leaves. */
+	interface Peer {
+		child: ChildProcess;
+		closed: Promise<number | null>;
+		errors: string[];
+		/** Tells the peer to leave the lock. */
+		release: () => void;
+	}
+	async function scenario(
+		body: (s: {
+			lock: string;
+			start: (id: string, options?: { pollMs?: number; maxWaitMs?: number; marker?: boolean }) => Peer;
+			has: (name: string) => boolean;
+			until: (ok: () => boolean, what: string) => Promise<void>;
+			log: () => string[];
+		}) => Promise<void>,
+	): Promise<void> {
+		const dir = fs.mkdtempSync(path.join(temp, "lock-scenario-"));
+		const cache = path.join(dir, "cache");
+		const flags = path.join(dir, "flags");
+		fs.mkdirSync(cache);
+		fs.mkdirSync(flags);
+		const script = path.join(dir, "peer.ts");
 		fs.writeFileSync(
 			script,
 			[
 				'import fs from "node:fs";',
-				'import os from "node:os";',
 				'import path from "node:path";',
-				`import { withLock } from ${JSON.stringify(path.join(SKILL, "scripts/lib/toolchain.ts"))};`,
-				"const [cache, role, flags] = process.argv.slice(2);",
-				"const lock = path.join(cache, '.lock-x');",
+				`import { withLock } from ${JSON.stringify(TOOLCHAIN)};`,
+				"const [cache, id, flags, marker, log, pollMs, maxWaitMs] = process.argv.slice(2);",
 				"const flag = name => path.join(flags, name);",
-				"const realWrite = fs.writeFileSync;",
-				"const pause = (ready, until, ms) => {",
-				"  realWrite(flag(ready), '');",
-				"  const gate = new Int32Array(new SharedArrayBuffer(4));",
-				"  const end = Date.now() + ms;",
-				"  while (!fs.existsSync(flag(until)) && Date.now() < end) Atomics.wait(gate, 0, 0, 5);",
+				"// A waiter with pollMs 7 says so after its third failed try (each one ends in a 7 ms sleep).",
+				"const realSet = globalThis.setTimeout;",
+				"let tries = 0;",
+				"globalThis.setTimeout = (fn, ms, ...rest) => {",
+				"  if (ms === 7 && ++tries === 3) fs.writeFileSync(flag(id + '-polled'), '');",
+				"  return realSet(fn, ms, ...rest);",
 				"};",
-				"if (role === 'A') os.hostname = () => 'far-computer';",
-				"if (role === 'A') {",
-				"  const realRm = fs.rmSync;",
-				"  fs.rmSync = (target, ...rest) => {",
-				"    if (String(target) === lock) pause('A-at-rm', 'W-held', 1500);",
-				"    return realRm(target, ...rest);",
-				"  };",
-				"}",
-				"if (role === 'B') {",
-				"  fs.writeFileSync = (target, ...rest) => {",
-				"    if (String(target) === path.join(lock, 'owner.json')) pause('B-at-write', 'B-resume', 6000);",
-				"    return realWrite(target, ...rest);",
-				"  };",
-				"}",
 				"await withLock(cache, 'x', async () => {",
-				"  realWrite(flag(role + '-held'), '');",
-				"  while (!fs.existsSync(flag(role + '-go'))) await new Promise(r => setTimeout(r, 5));",
-				"}, { log() {}, pollMs: 5, heartbeatMs: 600000 }).catch(() => process.exit(3));",
+				"  if (marker !== '-') try { fs.mkdirSync(marker); } catch { fs.appendFileSync(log, 'overlap ' + id + '\\n'); }",
+				"  fs.appendFileSync(log, 'entered ' + id + '\\n');",
+				"  fs.writeFileSync(flag(id + '-held'), '');",
+				"  for await (const _ of process.stdin) break;",
+				"  if (marker !== '-') fs.rmSync(marker, { recursive: true, force: true });",
+				"  fs.appendFileSync(log, 'left ' + id + '\\n');",
+				"}, { log() {}, pollMs: Number(pollMs), maxWaitMs: Number(maxWaitMs) })",
+				"  .catch(error => { console.error(error.name + ': ' + error.message); process.exit(3); });",
 			].join("\n"),
 		);
-		return script;
-	};
-
-	/** Runs `body` with a peer process per `start(role)`, and lets every peer go and exit afterwards. */
-	async function withPeers(
-		body: (peer: {
-			start: (role: string) => Promise<number | null>;
-			flag: (name: string) => string;
-			has: (name: string) => boolean;
-			cache: string;
-			lock: string;
-		}) => Promise<void>,
-	): Promise<void> {
-		const cache = fs.mkdtempSync(path.join(temp, "guard-"));
-		const flags = fs.mkdtempSync(path.join(temp, "guard-flags-"));
-		const script = stallingPeer(flags);
-		const children: ChildProcess[] = [];
-		const closed: Promise<number | null>[] = [];
-		const flag = (name: string): string => path.join(flags, name);
+		const marker = path.join(dir, "inside");
+		const log = path.join(dir, "log.txt");
+		fs.writeFileSync(log, "");
+		const peers: Peer[] = [];
 		try {
 			await body({
-				start: role => {
-					const child = spawn("bun", [script, cache, role, flags], { stdio: "ignore" });
-					children.push(child);
-					const done = finished(child);
-					closed.push(done);
-					return done;
-				},
-				flag,
-				has: name => fs.existsSync(flag(name)),
-				cache,
 				lock: path.join(cache, ".lock-x"),
+				start: (id, options = {}) => {
+					const child = spawn(
+						"bun",
+						[
+							script,
+							cache,
+							id,
+							flags,
+							options.marker === false ? "-" : marker,
+							log,
+							String(options.pollMs ?? 7),
+							String(options.maxWaitMs ?? 600_000),
+						],
+						{ stdio: ["pipe", "ignore", "pipe"], cwd: dir },
+					);
+					const errors: string[] = [];
+					child.stderr?.on("data", chunk => errors.push(String(chunk)));
+					child.stdin?.on("error", () => {});
+					const peer: Peer = {
+						child,
+						closed: finished(child),
+						errors,
+						release: () => child.stdin?.end("release\n"),
+					};
+					peers.push(peer);
+					return peer;
+				},
+				has: name => fs.existsSync(path.join(flags, name)),
+				until: (ok, what) =>
+					vi.waitFor(
+						() => {
+							if (!ok()) throw new Error(`waiting for ${what}`);
+						},
+						{ timeout: 30_000, interval: 5 },
+					),
+				log: () => fs.readFileSync(log, "utf8").split("\n").filter(Boolean),
 			});
 		} finally {
-			for (const role of ["A", "B"]) {
-				fs.writeFileSync(flag(`${role}-go`), "");
-				fs.writeFileSync(flag(`${role}-resume`), "");
+			for (const peer of peers) {
+				if (posix) peer.child.kill("SIGCONT");
+				peer.release();
 			}
-			fs.writeFileSync(flag("W-held"), "");
 			const timer = setTimeout(() => {
-				for (const child of children) child.kill("SIGKILL");
+				for (const peer of peers) peer.child.kill("SIGKILL");
 			}, 20_000);
-			await Promise.all(closed);
+			await Promise.all(peers.map(peer => peer.closed));
 			clearTimeout(timer);
+			fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 		}
 	}
 
-	it.skipIf(!posix)(
-		"takes the guard to release: a takeover cannot land between the release's ownership check and its delete",
-		async () => {
-			// A is on another computer and slept past staleMs; it wakes and releases. Between its check that the lock is
-			// its own and its delete, a waiter W judges the lock stale and takes it over. Without the guard on the
-			// release, A then deletes the lock W just made.
-			const { withLock } = await lib("toolchain");
-			await withPeers(async peer => {
-				const aClosed = peer.start("A");
-				await vi.waitFor(() => expect(peer.has("A-held")).toBe(true), { timeout: 15_000, interval: 5 });
-				const old = new Date(Date.now() - 10 * 60_000);
-				fs.utimesSync(path.join(peer.lock, "owner.json"), old, old); // A's heartbeat stopped: its computer slept
-				fs.writeFileSync(peer.flag("A-go"), ""); // A's work ends; its release stops at the delete
-				await vi.waitFor(() => expect(peer.has("A-at-rm")).toBe(true), { timeout: 15_000, interval: 5 });
-				let survived = false;
-				const outcome = await withLock(
-					peer.cache,
-					"x",
-					async () => {
-						fs.writeFileSync(peer.flag("W-held"), ""); // A's delete may go now
-						await Promise.race([aClosed, new Promise(resolve => setTimeout(resolve, 10_000))]);
-						try {
-							survived =
-								JSON.parse(fs.readFileSync(path.join(peer.lock, "owner.json"), "utf8")).pid === process.pid;
-						} catch {
-							survived = false;
-						}
-					},
-					{ log: quiet, pollMs: 5, maxWaitMs: 15_000 },
-				).catch((error: unknown) => error);
-				expect(survived, "the lock W made was still W's after A released").toBe(true);
-				expect(outcome).not.toBeInstanceOf(Error);
-			});
-		},
+	it(
+		"frees the lock at once for a waiter when its holder is killed",
+		() =>
+			scenario(async s => {
+				const holder = s.start("H", { marker: false }); // killed inside: its marker would stay
+				await s.until(() => s.has("H-held"), "H to hold the lock");
+				expect(JSON.parse(fs.readFileSync(s.lock, "utf8")).pid, "the note names the holder").toBe(holder.child.pid);
+				const waiter = s.start("W");
+				await s.until(() => s.has("W-polled"), "W to have been turned away three times");
+				expect(s.has("W-held"), "W got in beside a live holder").toBe(false);
+				holder.child.kill("SIGKILL");
+				await s.until(() => s.has("W-held"), "W to take the lock of the killed holder");
+				waiter.release();
+				expect(await waiter.closed).toBe(0);
+				expect(waiter.errors.join("")).toBe("");
+				expect(s.log()).toEqual(["entered H", "entered W", "left W"]);
+			}),
 		60_000,
 	);
 
 	it.skipIf(!posix)(
-		"takes the guard to make the lock: a takeover cannot remove a folder whose owner is still being written",
-		async () => {
-			// B made the lock folder and fell asleep before it wrote its owner (no owner file, an old folder mtime: it
-			// looks abandoned). Without the guard on the acquire, W takes the folder over while B sleeps, and B's owner
-			// write then lands in W's lock: two holders.
-			const { withLock } = await lib("toolchain");
-			await withPeers(async peer => {
-				peer.start("B");
-				await vi.waitFor(() => expect(peer.has("B-at-write")).toBe(true), { timeout: 15_000, interval: 5 });
-				const old = new Date(Date.now() - 10 * 60_000);
-				fs.utimesSync(peer.lock, old, old);
-				let overlapped = false;
-				const waiter = withLock(
-					peer.cache,
-					"x",
-					async () => {
-						fs.writeFileSync(peer.flag("W-held"), "");
-						await new Promise(resolve => setTimeout(resolve, 1_500)); // B wakes and writes its owner meanwhile
-						overlapped = peer.has("B-held");
-					},
-					{ log: quiet, pollMs: 5, maxWaitMs: 3_000 },
-				).catch((error: unknown) => error);
-				// W either took the folder over by now (no guard) or is waiting for B's guard (guarded).
-				await vi
-					.waitFor(() => expect(peer.has("W-held")).toBe(true), { timeout: 1_500, interval: 5 })
-					.catch(() => undefined);
-				fs.writeFileSync(peer.flag("B-resume"), "");
-				await waiter;
-				expect(overlapped, "W worked while B held the lock").toBe(false);
-			});
-		},
+		"does not take a stopped holder's lock: the waiter keeps waiting while it is stopped and gets in after it goes on and leaves",
+		() =>
+			scenario(async s => {
+				const holder = s.start("H");
+				await s.until(() => s.has("H-held"), "H to hold the lock");
+				holder.child.kill("SIGSTOP");
+				const waiter = s.start("W");
+				await s.until(() => s.has("W-polled"), "W to have been turned away three times by the stopped holder");
+				expect(s.has("W-held"), "W took a lock whose holder is only stopped").toBe(false);
+				expect(waiter.child.exitCode, "W gave up").toBeNull();
+				holder.child.kill("SIGCONT");
+				holder.release();
+				await s.until(() => s.has("W-held"), "W to take the lock once H left");
+				waiter.release();
+				expect(await holder.closed).toBe(0);
+				expect(await waiter.closed).toBe(0);
+				expect(s.log()).toEqual(["entered H", "left H", "entered W", "left W"]);
+			}),
 		60_000,
 	);
 
-	describe("a guard nobody released for 30 s", () => {
-		it.each([
-			["with its holder's token", true],
-			["made but never given a token", false],
-		])("is removed by the next taker (%s)", async (_label, withToken) => {
-			const { withLock } = await lib("toolchain");
-			const cache = fs.mkdtempSync(path.join(temp, "stale-guard-"));
-			const guard = path.join(cache, ".lock-x.takeover");
-			if (withToken) plantGuard(guard, "dead-holder", 10 * 60_000);
-			else {
-				realMkdir(guard);
-				const then = new Date(Date.now() - 10 * 60_000);
-				fs.utimesSync(guard, then, then);
-			}
-			let ran = false;
-			await withLock(
-				cache,
-				"x",
-				async () => {
-					ran = true;
-				},
-				{ log: quiet, pollMs: 5 },
-			);
-			expect(ran).toBe(true);
-			expect(fs.readdirSync(cache), "no lock, guard or leftover of the reclaim").toEqual([]);
-		});
+	it(
+		"is Unavailable for a waiter once maxWaitMs is over, naming the holder, and leaves the holder alone",
+		() =>
+			scenario(async s => {
+				const holder = s.start("H");
+				await s.until(() => s.has("H-held"), "H to hold the lock");
+				const waiter = s.start("W", { pollMs: 5, maxWaitMs: 50 });
+				expect(await waiter.closed).toBe(3);
+				expect(waiter.errors.join("")).toContain("Unavailable");
+				expect(waiter.errors.join("")).toContain(`pid ${holder.child.pid}`);
+				expect(s.has("W-held")).toBe(false);
+				expect(holder.child.exitCode).toBeNull();
+			}),
+		60_000,
+	);
 
-		it("is reclaimed only as the very guard that was judged: one made in between survives", async () => {
-			// W judged a stale guard (stat). Before it removes it, the holder's successor released and a new holder made
-			// a fresh guard under the same name. Removing "the guard" by its name would remove that live guard.
-			const { withLock } = await lib("toolchain");
-			const { Unavailable } = await lib("proc");
-			const cache = fs.mkdtempSync(path.join(temp, "reclaim-"));
-			const guard = path.join(cache, ".lock-x.takeover");
-			plantGuard(guard, "dead-holder", 10 * 60_000);
-			let judged = false;
-			let swapped = false;
-			const swap = (): void => {
-				if (!judged || swapped) return;
-				swapped = true;
-				realRemove(guard, { recursive: true, force: true });
-				plantGuard(guard, "live-holder");
-			};
-			vi.spyOn(fs, "statSync").mockImplementation(((target: fs.PathLike, ...rest: unknown[]) => {
-				const stat = realStat(target, ...rest);
-				if (String(target) === guard) judged = true;
-				return stat;
-			}) as typeof fs.statSync);
-			vi.spyOn(fs, "rmSync").mockImplementation(((target: fs.PathLike, ...rest: unknown[]) => {
-				if (String(target) === guard) swap();
-				return realRemove(target, ...rest);
-			}) as typeof fs.rmSync);
-			vi.spyOn(fs, "renameSync").mockImplementation(((from: fs.PathLike, to: fs.PathLike) => {
-				if (String(from) === guard) swap();
-				return realRename(from, to);
-			}) as typeof fs.renameSync);
-			let ran = false;
-			let outcome: unknown;
-			try {
-				outcome = await withLock(
-					cache,
-					"x",
-					async () => {
-						ran = true;
-					},
-					{ log: quiet, pollMs: 5, maxWaitMs: 300 },
-				).catch((error: unknown) => error);
-			} finally {
-				vi.restoreAllMocks();
-			}
-			expect(swapped, "the trace ran").toBe(true);
-			expect(ran, "worked inside a guard another process holds").toBe(false);
-			expect(outcome).toBeInstanceOf(Unavailable);
-			expect(fs.readFileSync(path.join(guard, TOKEN), "utf8"), "the live guard is still there").toBe("live-holder");
-		});
-	});
-
-	describe("a guard holder that stalled past its guard's 30 s", () => {
-		// Its computer slept, or the process was stopped, between taking the guard and its next fs call: another process
-		// has reclaimed the guard, replaced the lock with its own and still holds the guard. The stalled one wakes and
-		// must not delete that lock.
-		it("does not release a lock another holder has made since", async () => {
-			const { withLock } = await lib("toolchain");
-			const cache = fs.mkdtempSync(path.join(temp, "stalled-release-"));
-			const lock = path.join(cache, ".lock-x");
-			const guard = `${lock}.takeover`;
-			const ownerFile = path.join(lock, "owner.json");
-			let workDone = false;
-			let stalled = false;
-			let reclaimerDone = false;
-			vi.spyOn(fs, "readFileSync").mockImplementation(((target: fs.PathLike, ...rest: unknown[]) => {
-				const data = realRead(target, ...rest);
-				// The release's ownership check, with the guard held: then the stall.
-				if (String(target) === ownerFile && workDone && !stalled && fs.existsSync(guard)) {
-					stalled = true;
-					replaceLockAndGuard(lock, guard, "B");
-				}
-				return data;
-			}) as typeof fs.readFileSync);
-			vi.spyOn(fs, "statSync").mockImplementation(((target: fs.PathLike, ...rest: unknown[]) => {
-				const stat = realStat(target, ...rest);
-				// The other holder is done with the guard when the stalled one looks for it again.
-				if (String(target) === guard && stalled && !reclaimerDone) {
-					reclaimerDone = true;
-					realRemove(guard, { recursive: true, force: true });
-				}
-				return stat;
-			}) as typeof fs.statSync);
-			let result: unknown;
-			try {
-				result = await withLock(
-					cache,
-					"x",
-					async () => {
-						workDone = true;
-						return 42;
-					},
-					{ log: quiet, pollMs: 5 },
-				);
-			} finally {
-				vi.restoreAllMocks();
-			}
-			expect(stalled, "the trace ran").toBe(true);
-			expect(result).toBe(42);
-			expect(JSON.parse(fs.readFileSync(ownerFile, "utf8")).token, "the lock B made").toBe("B");
-		});
-
-		it("does not take over a lock another holder has made since", async () => {
-			const { withLock } = await lib("toolchain");
-			const { Unavailable } = await lib("proc");
-			const cache = fs.mkdtempSync(path.join(temp, "stalled-takeover-"));
-			const lock = path.join(cache, ".lock-x");
-			const guard = `${lock}.takeover`;
-			const ownerFile = path.join(lock, "owner.json");
-			plantLock(cache, "x", { pid: 4242, host: "far-computer", started: 1, token: "A" }, 10 * 60_000);
-			let reads = 0;
-			let stalled = false;
-			vi.spyOn(fs, "readFileSync").mockImplementation(((target: fs.PathLike, ...rest: unknown[]) => {
-				const data = realRead(target, ...rest);
-				// The takeover's judgment reads the owner twice, with the guard held; the stall comes after the second.
-				if (String(target) === ownerFile && !stalled && fs.existsSync(guard) && ++reads === 2) {
-					stalled = true;
-					replaceLockAndGuard(lock, guard, "B");
-				}
-				return data;
-			}) as typeof fs.readFileSync);
-			let ran = false;
-			let outcome: unknown;
-			try {
-				outcome = await withLock(
-					cache,
-					"x",
-					async () => {
-						ran = true;
-					},
-					{ log: quiet, pollMs: 5, maxWaitMs: 300 },
-				).catch((error: unknown) => error);
-			} finally {
-				vi.restoreAllMocks();
-			}
-			expect(stalled, "the trace ran").toBe(true);
-			expect(ran, "took over a lock that is not the one it judged").toBe(false);
-			expect(outcome).toBeInstanceOf(Unavailable);
-			expect(JSON.parse(fs.readFileSync(ownerFile, "utf8")).token, "the lock B made").toBe("B");
-		});
-
-		it("gives up a guarded step it started too long ago, and does it again under a fresh guard", async () => {
-			// The stall here ends before anybody reclaimed the guard, so nothing shows in the guard folder: the step may
-			// only trust a guard it took a moment ago.
-			const { withLock } = await lib("toolchain");
-			const cache = fs.mkdtempSync(path.join(temp, "slow-takeover-"));
-			const lock = path.join(cache, ".lock-x");
-			const guard = `${lock}.takeover`;
-			const ownerFile = path.join(lock, "owner.json");
-			plantLock(cache, "x", { pid: 4242, host: "far-computer", started: 1, token: "A" }, 10 * 60_000);
-			let skew = 0;
-			let reads = 0;
-			let guards = 0;
-			vi.spyOn(Date, "now").mockImplementation(() => realNow() + skew);
-			vi.spyOn(fs, "mkdirSync").mockImplementation(((target: fs.PathLike, ...rest: unknown[]) => {
-				if (String(target) === guard) guards++;
-				return realMkdir(target, ...rest);
-			}) as typeof fs.mkdirSync);
-			vi.spyOn(fs, "readFileSync").mockImplementation(((target: fs.PathLike, ...rest: unknown[]) => {
-				const data = realRead(target, ...rest);
-				if (String(target) === ownerFile && skew === 0 && fs.existsSync(guard) && ++reads === 2) skew = 15_000;
-				return data;
-			}) as typeof fs.readFileSync);
-			let guardsBeforeWork = 0;
-			try {
-				await withLock(
-					cache,
-					"x",
-					async () => {
-						guardsBeforeWork = guards;
-					},
-					{ log: quiet, pollMs: 5 },
-				);
-			} finally {
-				vi.restoreAllMocks();
-			}
-			expect(guardsBeforeWork, "the first guard was given up, a second one taken, then the lock").toBe(2);
-		});
-	});
-
-	describe("unpacking an archive that every holder of the lock shares", () => {
-		// The archive sits at one path (`downloads/<file of its url>`); the next holder reuses a verified one. A holder
-		// whose lock was taken over must therefore never delete it.
-		const tarball = (): string => {
-			const root = fs.mkdtempSync(path.join(temp, "unpack-src-"));
-			fs.mkdirSync(path.join(root, "tool"));
-			fs.writeFileSync(path.join(root, "tool", "file.txt"), "content");
-			const archive = path.join(root, "tool.tar.gz");
-			expect(spawnSync("tar", ["-czf", archive, "-C", root, "tool"]).status).toBe(0);
-			return archive;
-		};
-
-		it.skipIf(!posix)("removes the archive once it is unpacked", async () => {
-			const { unpackArchive } = await lib("toolchain");
-			const archive = tarball();
-			const dest = path.join(fs.mkdtempSync(path.join(temp, "unpack-")), "tool");
-			await unpackArchive(archive, "tar.gz", dest, new AbortController().signal);
-			expect(fs.readFileSync(path.join(dest, "file.txt"), "utf8")).toBe("content");
-			expect(fs.existsSync(archive)).toBe(false);
-		});
-
-		it.skipIf(!posix)("keeps the archive when the holder is told to stop while the unpack ends", async () => {
-			const { unpackArchive } = await lib("toolchain");
-			const archive = tarball();
-			const dest = path.join(fs.mkdtempSync(path.join(temp, "unpack-")), "tool");
-			const stop = new AbortController();
-			const reason = new Error("the lock was taken over");
-			vi.spyOn(fs, "renameSync").mockImplementation(((from: fs.PathLike, to: fs.PathLike) => {
-				if (String(to) === dest) stop.abort(reason); // the holder learns it lost its lock as the unpack lands
-				return realRename(from, to);
-			}) as typeof fs.renameSync);
-			try {
-				await expect(unpackArchive(archive, "tar.gz", dest, stop.signal)).rejects.toBe(reason);
-			} finally {
-				vi.restoreAllMocks();
-			}
-			expect(fs.existsSync(archive), "the archive the next holder reuses").toBe(true);
-		});
-	});
-
-	describe("releasing after the work", () => {
-		it("a release that fails does not fail the work: it is logged, and the lock is left to be reclaimed", async () => {
-			const { withLock } = await lib("toolchain");
-			const cache = fs.mkdtempSync(path.join(temp, "release-fails-"));
-			const lock = path.join(cache, ".lock-x");
-			const lines: string[] = [];
-			vi.spyOn(fs, "rmSync").mockImplementation(((target: fs.PathLike, ...rest: unknown[]) => {
-				if (String(target) === lock) throw Object.assign(new Error("EIO: i/o error"), { code: "EIO" });
-				return realRemove(target, ...rest);
-			}) as typeof fs.rmSync);
-			let result: unknown;
-			try {
-				result = await withLock(cache, "x", async () => "installed", {
-					log: (line: string) => lines.push(line),
-				}).catch((error: unknown) => error);
-			} finally {
-				vi.restoreAllMocks();
-			}
-			expect(result).toBe("installed");
-			expect(lines.join("\n"), "the failed release is logged").toMatch(/releas/i);
-		});
-
-		it("a guard that stays busy for the release does not fail the work either, and the wait is bounded", async () => {
-			const { withLock } = await lib("toolchain");
-			const cache = fs.mkdtempSync(path.join(temp, "release-busy-"));
-			const guard = path.join(cache, ".lock-x.takeover");
-			const lines: string[] = [];
-			const started = Date.now();
-			const result = await withLock(
-				cache,
-				"x",
-				async () => {
-					plantGuard(guard, "somebody-else"); // taken for good (fresh, so nobody reclaims it)
-					return "installed";
-				},
-				{ log: (line: string) => lines.push(line), guardWaitMs: 150 },
-			).catch((error: unknown) => error);
-			expect(result).toBe("installed");
-			expect(Date.now() - started, "the wait for the guard is bounded").toBeLessThan(5_000);
-			expect(lines.join("\n")).toMatch(/releas/i);
-		});
-
-		it.skipIf(!posix)(
-			"a signal's release gives up on a busy guard within moments instead of blocking the exit",
-			async () => {
-				const script = path.join(temp, "lock-hold-busy.ts");
-				fs.writeFileSync(
-					script,
-					[
-						`import { withLock } from ${JSON.stringify(path.join(SKILL, "scripts/lib/toolchain.ts"))};`,
-						"await withLock(process.argv[2], 'x', async () => {",
-						"  console.log('held');",
-						"  await new Promise(() => {});",
-						"}, { log() {} });",
-					].join("\n"),
-				);
-				const cache = fs.mkdtempSync(path.join(temp, "term-busy-"));
-				const child = spawn("bun", [script, cache], { stdio: ["ignore", "pipe", "ignore"] });
-				const held = Promise.withResolvers<void>();
-				child.stdout?.on("data", () => held.resolve());
-				const closed = finished(child);
-				await held.promise;
-				plantGuard(path.join(cache, ".lock-x.takeover"), "somebody-else"); // busy, and not stale for 30 s
-				const started = Date.now();
-				child.kill("SIGTERM");
-				const killer = setTimeout(() => child.kill("SIGKILL"), 8_000);
-				const code = await closed;
-				clearTimeout(killer);
-				expect(code, "ended by SIGTERM, not killed after a long block").toBe(143);
-				expect(Date.now() - started).toBeLessThan(5_000);
-			},
-			30_000,
+	it("keeps calls in one process apart too", () => {
+		const cache = fs.mkdtempSync(path.join(temp, "same-process-"));
+		const out = inBun(
+			temp,
+			[
+				'const { withLock } = await lib("toolchain");',
+				`const cache = ${JSON.stringify(cache)};`,
+				"let inside = 0;",
+				"let overlaps = 0;",
+				"const order = [];",
+				"const call = id => withLock(cache, 'x', async () => {",
+				"  if (++inside > 1) overlaps++;",
+				"  order.push(id + ' in');",
+				"  await new Promise(resolve => setImmediate(resolve));",
+				"  order.push(id + ' out');",
+				"  inside--;",
+				"}, { log() {}, pollMs: 3 });",
+				"await Promise.all([call('a'), call('b'), call('c')]);",
+				"console.log(JSON.stringify({ overlaps, order }));",
+			].join("\n"),
 		);
+		expect(out.stderr).toBe("");
+		const { overlaps, order } = JSON.parse(out.stdout);
+		expect(overlaps).toBe(0);
+		expect(order).toHaveLength(6);
+		for (let at = 0; at < order.length; at += 2) {
+			expect(order[at + 1], "each call leaves before the next one enters").toBe(order[at].replace(" in", " out"));
+		}
+	});
+
+	it("decides by the OS lock alone: a note left in the lock file by a holder that is gone is no obstacle", () => {
+		const cache = fs.mkdtempSync(path.join(temp, "stale-note-"));
+		const lock = path.join(cache, ".lock-x");
+		fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, host: os.hostname(), started: 1 })); // a live pid, long ago
+		const out = inBun(
+			temp,
+			[
+				'const { withLock } = await lib("toolchain");',
+				`console.log(await withLock(${JSON.stringify(cache)}, "x", async () => "worked", { log() {}, maxWaitMs: 0 }));`,
+			].join("\n"),
+		);
+		expect(out.stdout.trim()).toBe("worked");
+		expect(JSON.parse(fs.readFileSync(lock, "utf8")).pid, "the note is the new holder's").not.toBe(process.pid);
+	});
+
+	it("replaces the folder that the hand-made protocol left as its lock", () => {
+		const cache = fs.mkdtempSync(path.join(temp, "old-folder-"));
+		plantLock(cache, "x", { pid: deadPid(), host: os.hostname(), started: 1, token: "gone" });
+		const out = inBun(
+			temp,
+			[
+				'const { withLock } = await lib("toolchain");',
+				`console.log(await withLock(${JSON.stringify(cache)}, "x", async () => "worked", { log() {}, maxWaitMs: 0 }));`,
+			].join("\n"),
+		);
+		expect(out.stdout.trim()).toBe("worked");
+		expect(fs.statSync(path.join(cache, ".lock-x")).isFile()).toBe(true);
 	});
 });
 
 describe("environmental failures are UNAVAILABLE, not a stack (finding 2)", () => {
-	it.skipIf(!posix || isRoot)("a lock in an unwritable cache is Unavailable", async () => {
-		const { withLock } = await lib("toolchain");
-		const { Unavailable } = await lib("proc");
+	it.skipIf(!posix || isRoot)("a lock in an unwritable cache is Unavailable", () => {
 		const cache = fs.mkdtempSync(path.join(temp, "ro-lock-"));
 		fs.chmodSync(cache, 0o555);
-		await expect(withLock(cache, "x", async () => 1, { log: quiet })).rejects.toBeInstanceOf(Unavailable);
+		const out = inBun(
+			temp,
+			[
+				'const { withLock } = await lib("toolchain");',
+				`console.log(await withLock(${JSON.stringify(cache)}, "x", async () => 1, { log() {} }).then(() => "ran", (error) => error.name));`,
+			].join("\n"),
+		);
+		expect(out.stdout.trim()).toBe("Unavailable");
 	});
 
-	it("work that fails with a full or read-only disk is Unavailable and says which tool", async () => {
-		const { withLock } = await lib("toolchain");
-		const { Unavailable } = await lib("proc");
-		const cache = fs.mkdtempSync(path.join(temp, "enospc-"));
-		for (const code of ["ENOSPC", "EACCES", "EROFS", "EPERM", "EBUSY"]) {
-			const error = Object.assign(new Error(`${code}: boom`), { code });
-			const failure = await withLock(
-				cache,
-				"jre",
-				async () => {
-					throw error;
-				},
-				{ log: quiet },
-			).catch((caught: unknown) => caught);
+	it.skipIf(!posix || isRoot)("a lock file that cannot be opened is Unavailable and names the file", () => {
+		const cache = fs.mkdtempSync(path.join(temp, "closed-lock-"));
+		const lock = path.join(cache, ".lock-x");
+		fs.writeFileSync(lock, "");
+		fs.chmodSync(lock, 0o000);
+		const out = inBun(
+			temp,
+			[
+				'const { withLock } = await lib("toolchain");',
+				`const caught = await withLock(${JSON.stringify(cache)}, "x", async () => 1, { log() {} }).then(() => null, (error) => error);`,
+				"console.log(JSON.stringify({ name: caught?.name, message: caught?.message }));",
+			].join("\n"),
+		);
+		const failure = JSON.parse(out.stdout);
+		expect(failure.name).toBe("Unavailable");
+		expect(failure.message).toContain(lock);
+	});
+
+	it.skipIf(!!process.versions.bun)(
+		"without bun:ffi (a runtime that is not Bun) the lock is Unavailable, not a pass",
+		async () => {
+			const { withLock } = await lib("toolchain");
+			const { Unavailable } = await lib("proc");
+			const cache = fs.mkdtempSync(path.join(temp, "no-ffi-"));
+			const failure = await withLock(cache, "x", async () => 1, { log: quiet }).catch((caught: unknown) => caught);
 			expect(failure).toBeInstanceOf(Unavailable);
-			expect((failure as Error).message).toContain("jre");
-			expect((failure as Error).message).toContain(code);
-		}
-		// A bug is still a bug.
-		await expect(
-			withLock(
-				cache,
-				"jre",
-				async () => {
-					throw new TypeError("not an environment problem");
-				},
-				{ log: quiet },
-			),
-		).rejects.toBeInstanceOf(TypeError);
+			expect((failure as Error).message).toContain("bun:ffi");
+		},
+	);
+
+	it("work that fails with a full or read-only disk is Unavailable and says which tool", () => {
+		const cache = fs.mkdtempSync(path.join(temp, "enospc-"));
+		const out = inBun(
+			temp,
+			[
+				'const { withLock } = await lib("toolchain");',
+				`const cache = ${JSON.stringify(cache)};`,
+				"const failures = [];",
+				'for (const code of ["ENOSPC", "EACCES", "EROFS", "EPERM", "EBUSY"]) {',
+				'  const error = Object.assign(new Error(code + ": boom"), { code });',
+				'  const caught = await withLock(cache, "jre", async () => { throw error; }, { log() {} }).catch((e) => e);',
+				"  failures.push({ name: caught.name, message: caught.message });",
+				"}",
+				"// A bug is still a bug.",
+				'const bug = await withLock(cache, "jre", async () => { throw new TypeError("not an environment problem"); }, { log() {} }).catch((e) => e);',
+				"console.log(JSON.stringify({ failures, bug: bug.name }));",
+			].join("\n"),
+		);
+		const { failures, bug } = JSON.parse(out.stdout);
+		const codes = ["ENOSPC", "EACCES", "EROFS", "EPERM", "EBUSY"];
+		failures.forEach((failure: { name: string; message: string }, index: number) => {
+			expect(failure.name).toBe("Unavailable");
+			expect(failure.message).toContain("jre");
+			expect(failure.message).toContain(codes[index]);
+		});
+		expect(bug).toBe("TypeError");
 	});
 
 	/** A pin file whose portable JRE is `archive` (tar.gz) and whose jars are already in the cache. */
@@ -1312,17 +482,29 @@ describe("environmental failures are UNAVAILABLE, not a stack (finding 2)", () =
 		return archive;
 	}
 
+	/** The failure `prepareTla` ends in under `env` (it takes the install lock, which needs Bun), as {name, message}. */
+	const prepareFailure = (env: NodeJS.ProcessEnv): { name?: string; message?: string } =>
+		JSON.parse(
+			inBun(
+				temp,
+				[
+					'const { prepareTla } = await lib("tla-env");',
+					"const caught = await prepareTla({ log() {} }).then(() => null, (error) => error);",
+					"console.log(JSON.stringify({ name: caught?.name, message: caught?.message }));",
+				].join("\n"),
+				env,
+			).stdout,
+		);
+
 	it.skipIf(!posix)(
 		"a portable JRE archive that does not unpack is Unavailable (exit 3 territory), not a stack",
 		async () => {
-			const { prepareTla } = await lib("tla-env");
-			const { Unavailable } = await lib("proc");
 			const bad = path.join(temp, "not-a-tarball.tar.gz");
 			fs.writeFileSync(bad, "this is not a gzip stream");
 			const { env } = await jrePins(bad);
-			const failure = await prepareTla({ env, log: quiet }).catch((caught: unknown) => caught);
-			expect(failure).toBeInstanceOf(Unavailable);
-			expect((failure as Error).message).toContain("unpacking");
+			const failure = prepareFailure(env);
+			expect(failure.name).toBe("Unavailable");
+			expect(failure.message).toContain("unpacking");
 		},
 		30_000,
 	);
@@ -1330,13 +512,10 @@ describe("environmental failures are UNAVAILABLE, not a stack (finding 2)", () =
 	it.skipIf(!posix || isRoot)(
 		"a cache folder that cannot be written while unpacking is Unavailable",
 		async () => {
-			const { prepareTla } = await lib("tla-env");
-			const { Unavailable } = await lib("proc");
 			const { env, cache } = await jrePins(jreArchive("jre.tar.gz"));
 			fs.mkdirSync(path.join(cache, "jre"));
 			fs.chmodSync(path.join(cache, "jre"), 0o555);
-			const failure = await prepareTla({ env, log: quiet }).catch((caught: unknown) => caught);
-			expect(failure).toBeInstanceOf(Unavailable);
+			expect(prepareFailure(env).name).toBe("Unavailable");
 		},
 		30_000,
 	);
@@ -1371,7 +550,7 @@ describe("download reuses a verified archive (finding 3)", () => {
 	});
 });
 
-describe("leftovers in a shared cache (finding 4)", () => {
+describe("leftovers in the cache (finding 4)", () => {
 	it("names its part and unpack folders after this host, and cleans only those", async () => {
 		const { cleanLeftovers, hostTag } = await lib("toolchain");
 		const cache = fs.mkdtempSync(path.join(temp, "hosts-"));
@@ -1384,21 +563,6 @@ describe("leftovers in a shared cache (finding 4)", () => {
 		expect(cleanLeftovers(cache)).toEqual([mine]);
 		expect(fs.existsSync(theirs)).toBe(true);
 		expect(fs.existsSync(live)).toBe(true);
-	});
-
-	it("leaves a hostless leftover alone while another computer's lock was touched recently", async () => {
-		const { withLock } = await lib("toolchain");
-		const cache = fs.mkdtempSync(path.join(temp, "foreign-active-"));
-		fs.mkdirSync(path.join(cache, "downloads"));
-		const legacy = path.join(cache, "downloads", `old.zip.part-${deadPid()}`);
-		fs.writeFileSync(legacy, "x");
-		const lock = plantLock(cache, "other", { pid: 1, host: "some-other-computer", started: 1, token: "t" });
-		await withLock(cache, "mine", async () => undefined, { log: quiet, staleMs: 60_000 });
-		expect(fs.existsSync(legacy)).toBe(true);
-		const old = new Date(Date.now() - 10 * 60_000);
-		fs.utimesSync(path.join(lock, "owner.json"), old, old);
-		await withLock(cache, "mine", async () => undefined, { log: quiet, staleMs: 60_000 });
-		expect(fs.existsSync(legacy)).toBe(false);
 	});
 });
 

@@ -10,7 +10,8 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, describe, expect, it, vi } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
+import { inBun } from "./in-bun";
 
 const SKILL =
 	process.env.FORMAL_SKILL_DIR ??
@@ -384,97 +385,13 @@ describe("M5: an interrupted script leaves no java or lake child behind", () => 
 	);
 });
 
-describe("M6: the install lock knows a dead holder, keeps a live one, and the leftovers of a killed setup go", () => {
+describe("M6: the leftovers of a killed setup go", () => {
 	function deadPid(): number {
 		const probe = spawnSync(process.execPath, ["-e", ""]);
 		return probe.pid ?? 999_999_999;
 	}
 
-	function plant(cache: string, name: string, pid: number, ageMs = 0): string {
-		const lock = path.join(cache, `.lock-${name}`);
-		fs.mkdirSync(lock, { recursive: true });
-		const owner = path.join(lock, "owner.json");
-		fs.writeFileSync(owner, JSON.stringify({ pid, host: os.hostname(), started: Date.now() - ageMs }));
-		const then = new Date(Date.now() - ageMs);
-		fs.utimesSync(owner, then, then);
-		return lock;
-	}
-
-	it("takes over at once a lock whose holder pid is no longer running", async () => {
-		const { withLock } = await lib("toolchain");
-		const cache = fs.mkdtempSync(path.join(temp, "lock-dead-"));
-		plant(cache, "lean", deadPid());
-		const notes: string[] = [];
-		const started = Date.now();
-		const value = await withLock(cache, "lean", async () => 7, {
-			log: (line: string) => notes.push(line),
-			pollMs: 20,
-		});
-		expect(value).toBe(7);
-		expect(Date.now() - started).toBeLessThan(3000);
-		expect(notes.join("\n")).toContain("no longer running");
-		expect(fs.existsSync(path.join(cache, ".lock-lean"))).toBe(false);
-	});
-
-	it("does not take a live holder's lock however old it looks, and says that it waits", async () => {
-		const { withLock } = await lib("toolchain");
-		const cache = fs.mkdtempSync(path.join(temp, "lock-live-"));
-		const lock = plant(cache, "tla", process.pid, 60 * 60_000);
-		const notes: string[] = [];
-		let got = false;
-		// The holder here is this process, whose heartbeat is not running: a lock this old with a live pid is stale by
-		// the clock, so use a long threshold to say "somebody is working" and release it from outside.
-		const waiting = withLock(
-			cache,
-			"tla",
-			async () => {
-				got = true;
-			},
-			{ log: (line: string) => notes.push(line), pollMs: 20, staleMs: 24 * 60 * 60_000 },
-		);
-		await new Promise(r => setTimeout(r, 300));
-		expect(got).toBe(false);
-		fs.rmSync(lock, { recursive: true, force: true });
-		await waiting;
-		expect(got).toBe(true);
-	});
-
-	it("a holder that heartbeats keeps its lock past the stale threshold", async () => {
-		const { withLock } = await lib("toolchain");
-		const cache = fs.mkdtempSync(path.join(temp, "lock-beat-"));
-		const order: string[] = [];
-		const options = { heartbeatMs: 40, staleMs: 250, pollMs: 20, log: () => {} };
-		// Fake clock: the heartbeat stamps the owner file with the fake time and the waiter measures idleness
-		// against it, so the case cannot lose the lock to a runner that stalls this process.
-		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
-		try {
-			const { promise: done, resolve: finish } = Promise.withResolvers<void>();
-			const holder = withLock(
-				cache,
-				"x",
-				async () => {
-					order.push("a-start");
-					await done;
-					order.push("a-end");
-				},
-				options,
-			);
-			await vi.advanceTimersByTimeAsync(0);
-			const waiter = withLock(cache, "x", async () => void order.push("b"), options);
-			await vi.advanceTimersByTimeAsync(4 * options.staleMs);
-			expect(order).toEqual(["a-start"]);
-			finish();
-			await holder;
-			await vi.advanceTimersByTimeAsync(options.pollMs);
-			await waiter;
-		} finally {
-			vi.useRealTimers();
-		}
-		expect(order).toEqual(["a-start", "a-end", "b"]);
-	});
-
-	it("removes the .part and .tmp leftovers of dead pids, and keeps those of a live one", async () => {
-		const { withLock, cleanLeftovers } = await lib("toolchain");
+	it("removes the .part and .tmp leftovers of dead pids, and keeps those of a live one", () => {
 		const cache = fs.mkdtempSync(path.join(temp, "lock-clean-"));
 		const dead = deadPid();
 		fs.mkdirSync(path.join(cache, "downloads"), { recursive: true });
@@ -488,12 +405,20 @@ describe("M6: the install lock knows a dead holder, keeps a live one, and the le
 		fs.writeFileSync(path.join(gone[1] as string, "big"), "x");
 		const kept = path.join(cache, "downloads", `other.zip.part-${process.pid}`);
 		fs.writeFileSync(kept, "x");
-		const notes: string[] = [];
-		await withLock(cache, "lean", async () => undefined, { log: (line: string) => notes.push(line) });
+		const ran = inBun(
+			temp,
+			[
+				'const { withLock, cleanLeftovers } = await lib("toolchain");',
+				"const notes = [];",
+				`await withLock(${JSON.stringify(cache)}, "lean", async () => undefined, { log: (line) => notes.push(line) });`,
+				`console.log(JSON.stringify({ notes, again: cleanLeftovers(${JSON.stringify(cache)}) }));`,
+			].join("\n"),
+		);
+		const { notes, again } = JSON.parse(ran.stdout);
 		expect(gone.map(file => fs.existsSync(file))).toEqual([false, false]);
 		expect(fs.existsSync(kept)).toBe(true);
 		expect(notes.join("\n")).toContain("unfinished");
-		expect(cleanLeftovers(cache)).toEqual([]);
+		expect(again).toEqual([]);
 	});
 
 	it("gives up on a download that sends nothing, leaving no .part file", async () => {

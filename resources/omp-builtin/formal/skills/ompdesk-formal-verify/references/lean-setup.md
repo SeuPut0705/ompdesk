@@ -30,8 +30,9 @@ is downloading; do not ask permission (the install is automatic). A killed unpac
 archive in `downloads/`, and an unusable cache (full or read-only disk, permissions) is reported as UNAVAILABLE, exit 3.
 `setup.ts lean --json` prints `{"status":"UNAVAILABLE","target":"lean","reason":"..."}` on stdout on failure and exits 3;
 progress and download lines go to stderr. In-progress files in the cache are `*.part-<host>-<pid>` and
-`*.tmp-<host>-<pid>`, a takeover guard `.lock-<name>.takeover` may appear briefly, and another computer's leftovers in a
-shared cache are never deleted.
+`*.tmp-<host>-<pid>`, and a killed setup's leftovers are removed by the next one. One installer runs per tool at a time
+(an OS lock on `.lock-<name>`, freed by the system when its holder dies); the cache must be on this computer, not a
+network drive shared by several.
 `OMPDESK_FORMAL_OFFLINE=1` refuses every download this skill makes. If the tools are missing and cannot be fetched,
 `setup.ts` exits 3 (`UNAVAILABLE`). Report that as "not checked", never as a pass.
 

@@ -17,7 +17,6 @@ import {
 import { Unavailable } from "../../../resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/proc";
 import {
 	parseJavaMajor,
-	prepareTla,
 	tlaStatus,
 } from "../../../resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/tla-env";
 import {
@@ -26,6 +25,7 @@ import {
 	loadToolchain,
 	parseToolchain,
 } from "../../../resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain";
+import { inBun } from "./in-bun";
 
 const SKILL = path.join(__dirname, "../../../resources/omp-builtin/formal/skills/ompdesk-formal-verify");
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "formal-toolchain-"));
@@ -137,7 +137,7 @@ describe("setup when nothing can be downloaded", () => {
 
 	it("is UNAVAILABLE, never a pass: prepareTla throws, status lists what is missing", async () => {
 		const cache = fs.mkdtempSync(path.join(temp, "offline-"));
-		await expect(prepareTla({ env: env(cache) })).rejects.toBeInstanceOf(Unavailable);
+		expect(prepare(env(cache)).error).toBe("Unavailable");
 		const status = await tlaStatus(env(cache));
 		expect(status.ready).toBe(false);
 		expect(status.missing.join(" ")).toContain("tla2tools");
@@ -178,8 +178,24 @@ describe("setup when nothing can be downloaded", () => {
 	}, 30_000);
 });
 
+/** `prepareTla` under `env` in a Bun child (it takes the install lock, which needs bun:ffi): its result, or `{ error: <name> }`. */
+const prepare = (
+	env: NodeJS.ProcessEnv,
+): { error?: string; java?: string; javaMajor?: number; tla2tools?: string; community?: string; classpath?: string } =>
+	JSON.parse(
+		inBun(
+			temp,
+			[
+				'const { prepareTla } = await lib("tla-env");',
+				"const got = await prepareTla({ log() {} }).then((value) => value, (error) => ({ error: error.name }));",
+				"console.log(JSON.stringify(got));",
+			].join("\n"),
+			env,
+		).stdout,
+	);
+
 describe.skipIf(process.platform === "win32")("prepareTla from local pins", () => {
-	it("fetches each jar once, checks its hash, and reuses it without a network", async () => {
+	it("fetches each jar once, checks its hash, and reuses it without a network", () => {
 		const cache = fs.mkdtempSync(path.join(temp, "pins-"));
 		const sources = path.join(cache, "src");
 		fs.mkdirSync(sources);
@@ -200,20 +216,16 @@ describe.skipIf(process.platform === "win32")("prepareTla from local pins", () =
 			OMPDESK_FORMAL_TOOLCHAIN: pinFile,
 			OMPDESK_FORMAL_JAVA: java,
 		};
-		const quiet = (): void => {};
-		const first = await prepareTla({ env, log: quiet });
+		const first = prepare(env);
 		expect(first.java).toBe(java);
 		expect(first.javaMajor).toBe(17);
-		expect(fs.readFileSync(first.tla2tools, "utf8")).toBe("tla jar");
+		expect(fs.readFileSync(first.tla2tools as string, "utf8")).toBe("tla jar");
 		expect(first.classpath).toBe([first.tla2tools, first.community].join(path.delimiter));
 		// Idempotent: with the sources gone and downloads refused, the verified files are used as they are.
 		fs.rmSync(sources, { recursive: true });
-		const second = await prepareTla({ env: { ...env, OMPDESK_FORMAL_OFFLINE: "1" }, log: quiet });
-		expect(second.tla2tools).toBe(first.tla2tools);
+		expect(prepare({ ...env, OMPDESK_FORMAL_OFFLINE: "1" }).tla2tools).toBe(first.tla2tools);
 		// A file that no longer matches its pin is not trusted: it is fetched again, and offline that is UNAVAILABLE.
-		fs.writeFileSync(first.tla2tools, "tampered");
-		await expect(prepareTla({ env: { ...env, OMPDESK_FORMAL_OFFLINE: "1" }, log: quiet })).rejects.toBeInstanceOf(
-			Unavailable,
-		);
+		fs.writeFileSync(first.tla2tools as string, "tampered");
+		expect(prepare({ ...env, OMPDESK_FORMAL_OFFLINE: "1" }).error).toBe("Unavailable");
 	}, 30_000);
 });

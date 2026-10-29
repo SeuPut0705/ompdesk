@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -8,7 +8,7 @@ import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { fileURLToPath } from "node:url";
 import { platformKey } from "./cache";
 import { isRecord, readJson } from "./json";
-import { onInterrupt, type RunResult, run, Unavailable } from "./proc";
+import { type RunResult, run, Unavailable } from "./proc";
 
 export type ArchiveFormat = "zip" | "tar.gz";
 
@@ -184,8 +184,6 @@ export async function download(
 		env?: NodeJS.ProcessEnv;
 		log?: (line: string) => void;
 		idleTimeoutMs?: number;
-		/** Stops the download (nothing more is written) when this aborts. */
-		signal?: AbortSignal;
 	},
 ): Promise<void> {
 	if (await fileMatches(dest, sha256)) return;
@@ -196,9 +194,6 @@ export async function download(
 	const hash = createHash("sha256");
 	const idleMs = options.idleTimeoutMs ?? DOWNLOAD_IDLE_MS;
 	const controller = new AbortController();
-	const onAbort = (): void => controller.abort(options.signal?.reason ?? new Error("aborted"));
-	if (options.signal?.aborted) onAbort();
-	else options.signal?.addEventListener("abort", onAbort, { once: true });
 	let idle: ReturnType<typeof setTimeout> | undefined;
 	const touch = (): void => {
 		clearTimeout(idle);
@@ -246,7 +241,6 @@ export async function download(
 		throw new Unavailable(`${options.label}: could not download ${url}: ${reason}`);
 	} finally {
 		clearTimeout(idle);
-		options.signal?.removeEventListener("abort", onAbort);
 	}
 }
 
@@ -301,39 +295,33 @@ export async function renameRetrying(
 }
 
 /** Unpacks into a fresh folder, then moves the single top-level folder (if any) to `dest`. A failed unpack is Unavailable. */
-export async function extractInto(
-	archive: string,
-	format: ArchiveFormat,
-	dest: string,
-	signal?: AbortSignal,
-): Promise<void> {
+export async function extractInto(archive: string, format: ArchiveFormat, dest: string): Promise<void> {
 	const staging = `${dest}.tmp-${hostTag()}-${process.pid}`;
 	try {
 		fs.rmSync(staging, { recursive: true, force: true });
 		fs.mkdirSync(staging, { recursive: true });
 		let result: RunResult;
 		if (format === "tar.gz") {
-			result = await run(tarProgram(), ["-xzf", archive, "-C", staging], { signal });
+			result = await run(tarProgram(), ["-xzf", archive, "-C", staging]);
 		} else if (process.platform === "win32") {
 			// bsdtar reads zip files; Expand-Archive is slower but always there.
-			result = await run(tarProgram(), ["-xf", archive, "-C", staging], { signal });
+			result = await run(tarProgram(), ["-xf", archive, "-C", staging]);
 			if (result.code !== 0) {
-				result = await run(
-					"powershell",
-					["-NoProfile", "-NonInteractive", "-Command", expandArchiveCommand(archive, staging)],
-					{ signal },
-				);
+				result = await run("powershell", [
+					"-NoProfile",
+					"-NonInteractive",
+					"-Command",
+					expandArchiveCommand(archive, staging),
+				]);
 			}
 		} else {
-			result = await run("unzip", ["-q", "-o", archive, "-d", staging], { signal });
+			result = await run("unzip", ["-q", "-o", archive, "-d", staging]);
 		}
 		if (result.spawnError || result.code !== 0) {
 			throw new Unavailable(
 				`unpacking ${path.basename(archive)} failed: ${result.spawnError?.message ?? (result.stderr.trim() || `exit ${result.code}`)}`,
 			);
 		}
-		// An aborted setup (its lock was taken over) writes nothing more into `dest`.
-		signal?.throwIfAborted();
 		const children = fs.readdirSync(staging);
 		const only = children.length === 1 ? path.join(staging, children[0] as string) : null;
 		const root = only && fs.statSync(only).isDirectory() ? only : staging;
@@ -347,44 +335,19 @@ export async function extractInto(
 	}
 }
 
-/**
- * Unpacks a downloaded archive into `dest`, then removes it. The archive sits at one path for every holder of the lock
- * (the next holder reuses a verified one): a holder told to stop (its lock was taken over) never removes it.
- */
-export async function unpackArchive(
-	archive: string,
-	format: ArchiveFormat,
-	dest: string,
-	signal: AbortSignal,
-): Promise<void> {
-	await extractInto(archive, format, dest, signal);
-	signal.throwIfAborted();
-	fs.rmSync(archive, { force: true });
-}
-
 export interface LockOptions {
 	log?: (line: string) => void;
-	/** How often a waiter looks again. */
+	/** How often a waiter tries the lock again. */
 	pollMs?: number;
-	/** The holder rewrites its lock this often while it works. */
-	heartbeatMs?: number;
-	/**
-	 * A lock of another computer (whose holder's pid cannot be asked) that nobody has touched for this long is abandoned.
-	 * A holder on this computer is never taken over while its pid lives, however long its computer slept.
-	 */
-	staleMs?: number;
-	/** Give up waiting on a live holder after this long. */
+	/** Give up waiting on a holder after this long. */
 	maxWaitMs?: number;
-	/** The release after the work waits this long (blocking) for the guard, then leaves the lock to be reclaimed. */
-	guardWaitMs?: number;
 }
 
+/** The note a holder writes into its lock file (for a waiter's log line only; the OS lock is what decides). */
 interface LockOwner {
 	pid: number;
 	host: string;
 	started: number;
-	/** Random per withLock call: tells this holder's lock from one a later process took over. */
-	token: string;
 }
 
 /** Is a process with this pid running on this computer? EPERM means it exists but is not ours. */
@@ -398,31 +361,15 @@ export function pidAlive(pid: number): boolean {
 	}
 }
 
+/** The note in a lock file; null when it has none (yet) or is not ours. */
 function readOwner(file: string): LockOwner | null {
 	try {
 		const json: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
 		if (isRecord(json) && typeof json.pid === "number" && typeof json.host === "string") {
-			return {
-				pid: json.pid,
-				host: json.host,
-				started: typeof json.started === "number" ? json.started : 0,
-				token: typeof json.token === "string" ? json.token : "",
-			};
+			return { pid: json.pid, host: json.host, started: typeof json.started === "number" ? json.started : 0 };
 		}
 	} catch {
-		// being written, or not a lock of ours
-	}
-	return null;
-}
-
-/** When the lock was last touched (its owner file, else its folder); null when there is no lock any more. */
-function touched(lock: string, ownerFile: string): number | null {
-	for (const target of [ownerFile, lock]) {
-		try {
-			return fs.statSync(target).mtimeMs;
-		} catch {
-			// try the next
-		}
+		// being written, or not a note of ours
 	}
 	return null;
 }
@@ -437,14 +384,12 @@ const LEFTOVER = /\.(?:part|tmp)-(?:([A-Za-z0-9_]+)-)?(\d+)$/;
 
 /**
  * Removes `*.part-<host>-<pid>` downloads and `*.tmp-<host>-<pid>` unpack folders that a killed setup of this
- * computer left behind (each can be gigabytes). Only those of a pid that is no longer running: another computer's
- * (a shared cache folder) are never touched, since its pids mean nothing here. `legacy` also removes names without a
- * host (an older setup's), which the caller allows only while no other computer is working in the cache. The scan
- * stays three levels deep and never enters a toolchain.
+ * computer left behind (each can be gigabytes). Only those of a pid that is no longer running; a name that carries
+ * another host is left alone (the cache is per computer, so that is a copied folder, and its pids mean nothing
+ * here). Names without a host are an older setup's. The scan stays three levels deep and never enters a toolchain.
  */
-export function cleanLeftovers(root: string, options: { host?: string; legacy?: boolean } = {}): string[] {
+export function cleanLeftovers(root: string, options: { host?: string } = {}): string[] {
 	const host = options.host ?? hostTag();
-	const legacy = options.legacy ?? true;
 	const removed: string[] = [];
 	const scan = (dir: string, depth: number): void => {
 		let entries: fs.Dirent[];
@@ -457,36 +402,16 @@ export function cleanLeftovers(root: string, options: { host?: string; legacy?: 
 			const full = path.join(dir, entry.name);
 			const match = LEFTOVER.exec(entry.name);
 			if (match) {
-				const mine = match[1] === undefined ? legacy : match[1] === host;
+				const mine = match[1] === undefined || match[1] === host;
 				if (mine && !pidAlive(Number(match[2]))) {
 					fs.rmSync(full, { recursive: true, force: true });
 					removed.push(full);
 				}
-			} else if (entry.isDirectory() && depth < 3 && !entry.name.startsWith(".lock-")) scan(full, depth + 1);
+			} else if (entry.isDirectory() && depth < 3) scan(full, depth + 1);
 		}
 	};
 	scan(root, 1);
 	return removed;
-}
-
-/** Does a lock of another computer in this cache look alive (touched within `staleMs`)? */
-function otherHostWorking(cache: string, host: string, staleMs: number): boolean {
-	let entries: string[];
-	try {
-		entries = fs.readdirSync(cache);
-	} catch {
-		return false;
-	}
-	for (const entry of entries) {
-		if (!entry.startsWith(".lock-") || entry.endsWith(TAKEOVER_SUFFIX) || entry.includes(".stale-")) continue;
-		const lock = path.join(cache, entry);
-		const owner = readOwner(path.join(lock, "owner.json"));
-		const at = touched(lock, path.join(lock, "owner.json"));
-		if (owner && owner.host !== host && at !== null && Date.now() - at <= staleMs) {
-			return true;
-		}
-	}
-	return false;
 }
 
 /** Errors of the machine, not of the code: a full, read-only or locked disk. */
@@ -505,338 +430,249 @@ export function environmental(error: unknown, what: string): unknown {
 	return error;
 }
 
-/** A takeover of a dead lock is serialized by this second lock (`.lock-<name>.takeover`), itself abandoned after this long. */
-const TAKEOVER_SUFFIX = ".takeover";
-const TAKEOVER_STALE_MS = 30_000;
-/** The file inside the guard folder that names its holder (a new token each time the guard is taken). */
-const GUARD_TOKEN_FILE = "token";
-/**
- * What a holder does under the guard takes microseconds. One that took the guard longer ago than this may have stalled
- * (its computer slept, the process was stopped) for long enough to have it reclaimed, and gives the step up.
- */
-const GUARD_BUDGET_MS = TAKEOVER_STALE_MS / 3;
-/** A release that a signal runs gives the guard this long: the process is going down and must not block. */
-const INTERRUPT_GUARD_WAIT_MS = 250;
-/** A release that lost its guard to a stall tries again this many times. */
-const RELEASE_ATTEMPTS = 3;
+/** The OS calls behind the install lock, loaded once. Which ones depends on the platform; see `openLock`. */
+interface OsCalls {
+	/** The platform's "somebody else holds it" error numbers (what a failed try reads back). */
+	busy: readonly number[];
+	flock?: (fd: number, operation: number) => number;
+	errno?: () => number;
+	createFile?: (file: string) => bigint;
+	closeHandle?: (handle: bigint) => void;
+	writeFile?: (handle: bigint, text: string) => void;
+	lastError?: () => number;
+}
+
+let osCalls: Promise<OsCalls> | undefined;
 
 /**
- * One installer at a time per name across processes (two agents may call setup together). The lock records the
- * holder's pid, host and a token, and is touched every minute: a waiter takes it over at once when that pid is gone
- * on this computer; a holder that is alive on this computer keeps it however long it takes or sleeps. A lock of
- * another computer is taken over only after nobody touched it for minutes. Waiting prints progress.
+ * Loads `bun:ffi` and the library the lock needs. macOS and Linux: libc's `flock`, whose lock belongs to the open file
+ * description. Windows: kernel32's `CreateFileW`, whose sharing mode is the lock. A runtime without `bun:ffi` (the
+ * scripts of this skill always run under Bun) or a platform with neither is Unavailable.
+ */
+function loadOsCalls(): Promise<OsCalls> {
+	osCalls ??= (async (): Promise<OsCalls> => {
+		let ffi: typeof import("bun:ffi");
+		try {
+			ffi = await import("bun:ffi");
+		} catch (error) {
+			throw new Unavailable(
+				`the install lock needs bun:ffi, so these scripts run under Bun (${error instanceof Error ? error.message : String(error)})`,
+			);
+		}
+		const { dlopen, FFIType, read } = ffi;
+		try {
+			if (process.platform === "darwin" || process.platform === "linux") {
+				const darwin = process.platform === "darwin";
+				const { symbols } = dlopen(darwin ? "/usr/lib/libSystem.B.dylib" : "libc.so.6", {
+					flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 },
+					[darwin ? "__error" : "__errno_location"]: { args: [], returns: FFIType.ptr },
+				});
+				const where = darwin ? symbols.__error : symbols.__errno_location;
+				return {
+					busy: [darwin ? 35 : 11], // EWOULDBLOCK
+					flock: (fd, operation) => symbols.flock(fd, operation),
+					// Read right after the failed call, before anything else can set it.
+					errno: () => read.i32(where() as never),
+				};
+			}
+			if (process.platform === "win32") {
+				const { symbols } = dlopen("kernel32.dll", {
+					CreateFileW: {
+						args: [FFIType.ptr, FFIType.u32, FFIType.u32, FFIType.ptr, FFIType.u32, FFIType.u32, FFIType.ptr],
+						returns: FFIType.i64,
+					},
+					GetLastError: { args: [], returns: FFIType.u32 },
+					CloseHandle: { args: [FFIType.i64], returns: FFIType.i32 },
+					WriteFile: {
+						args: [FFIType.i64, FFIType.ptr, FFIType.u32, FFIType.ptr, FFIType.ptr],
+						returns: FFIType.i32,
+					},
+					SetEndOfFile: { args: [FFIType.i64], returns: FFIType.i32 },
+				});
+				const GENERIC_READ_WRITE = 0xc0000000;
+				const FILE_SHARE_READ = 1;
+				const OPEN_ALWAYS = 4;
+				const FILE_ATTRIBUTE_NORMAL = 0x80;
+				return {
+					busy: [32, 33], // ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION
+					createFile: file =>
+						BigInt(
+							symbols.CreateFileW(
+								Buffer.from(`${file}\0`, "utf16le"),
+								GENERIC_READ_WRITE,
+								FILE_SHARE_READ,
+								null,
+								OPEN_ALWAYS,
+								FILE_ATTRIBUTE_NORMAL,
+								null,
+							),
+						),
+					closeHandle: handle => void symbols.CloseHandle(handle),
+					writeFile: (handle, text) => {
+						const data = Buffer.from(text);
+						const written = new Uint32Array(1);
+						if (symbols.WriteFile(handle, data, data.length, written, null) === 0) {
+							throw new Error(`WriteFile failed (error ${symbols.GetLastError()})`);
+						}
+						symbols.SetEndOfFile(handle);
+					},
+					lastError: () => symbols.GetLastError(),
+				};
+			}
+		} catch (error) {
+			throw new Unavailable(
+				`the install lock could not load its system library (${error instanceof Error ? error.message : String(error)})`,
+			);
+		}
+		throw new Unavailable(`the install lock has no system call for ${process.platform}`);
+	})();
+	return osCalls;
+}
+
+/** The lock file of one name: held from a successful `tryLock` until `release`, or until the process ends. */
+interface LockFile {
+	/** Takes the lock without waiting: false while another holder has it; anything else that fails is Unavailable. */
+	tryLock(): boolean;
+	/** Writes the holder's note into the lock file (only a holder may). */
+	note(text: string): void;
+	/** Lets go. The OS does the same when the process dies, killed or not, so a holder never leaves a lock behind. */
+	release(): void;
+}
+
+/**
+ * The lock is an OS lock on `file` that the kernel drops when its holder's process ends, so nothing here judges a
+ * holder alive or dead and nothing needs a timeout to recover. The file is never deleted: its content is only the
+ * holder's note for a waiter's log line.
  *
- * Every change of the lock folder (making it, a release, a takeover, the heartbeat) runs inside a short second mutex
- * (`.lock-<name>.takeover`): a takeover that judged a lock and then deletes it cannot have it replaced in between
- * (the holder released and another waiter made a fresh one). The guard names its holder (a token) and is reclaimed
- * after 30 s only as the very guard that was judged. A holder that stalled under the guard (a computer asleep) checks
- * that it still holds it, and how long it has, right before each delete or make of the lock. A holder removes its lock
- * only while it still holds its own token, also when a signal ends the process (which waits a moment, not a minute, for
- * the guard). A release that fails after the work did not fail never fails it: it is logged. A holder whose lock was
- * taken over (another computer's holder that slept) aborts `work`'s signal and fails as Unavailable once `work` has
- * stopped; `work` must stop writing then. A full or read-only disk is Unavailable, like a failed download.
+ * macOS/Linux: `flock(LOCK_EX | LOCK_NB)` on an fd opened by this call and kept open for the hold. BSD flock belongs to
+ * the open file description, so two calls in one process exclude each other too (as two processes do).
+ *
+ * Windows: `CreateFileW` with read/write access and a sharing mode that allows only readers, OPEN_ALWAYS: a second
+ * opener asks for write access and gets ERROR_SHARING_VIOLATION (busy), `CloseHandle` releases, and a waiter can still
+ * read the note. Chosen over `LockFileEx` because that needs a HANDLE and Bun gives fs.openSync only a CRT fd (no
+ * supported conversion), while CreateFileW needs no fd at all.
+ *
+ * Not supported: a cache folder on a network drive shared by several computers. flock and sharing modes are not
+ * promised to hold across the network (NFS and SMB differ, some silently grant), so there the lock may let two
+ * computers in; the cache is per computer.
+ */
+async function openLock(file: string, label: string): Promise<LockFile> {
+	const calls = await loadOsCalls();
+	const unavailable = (what: string, error?: unknown): Unavailable =>
+		new Unavailable(`${label}: ${what}${error instanceof Error ? `: ${error.message}` : ""}`);
+	if (calls.flock && calls.errno) {
+		const { flock, errno } = calls;
+		let fd: number;
+		try {
+			fd = fs.openSync(file, "a");
+		} catch (error) {
+			throw unavailable(`cannot open ${file}`, error);
+		}
+		let open = true;
+		return {
+			tryLock() {
+				const LOCK_EX = 2;
+				const LOCK_NB = 4;
+				if (flock(fd, LOCK_EX | LOCK_NB) === 0) return true;
+				const code = errno();
+				if (calls.busy.includes(code)) return false;
+				throw unavailable(`flock(${file}) failed with errno ${code}`);
+			},
+			note(text) {
+				// Appending file: after the truncate the write lands at the start.
+				fs.ftruncateSync(fd, 0);
+				fs.writeSync(fd, text);
+			},
+			release() {
+				if (!open) return;
+				open = false;
+				fs.closeSync(fd);
+			},
+		};
+	}
+	const { createFile, closeHandle, writeFile, lastError } = calls as Required<OsCalls>;
+	let handle: bigint | null = null;
+	return {
+		tryLock() {
+			if (handle !== null) return true;
+			const opened = createFile(file);
+			if (opened !== -1n) {
+				handle = opened;
+				return true;
+			}
+			const code = lastError();
+			if (calls.busy.includes(code)) return false;
+			throw unavailable(`CreateFileW(${file}) failed with error ${code}`);
+		},
+		note(text) {
+			if (handle !== null) writeFile(handle, text);
+		},
+		release() {
+			if (handle === null) return;
+			closeHandle(handle);
+			handle = null;
+		},
+	};
+}
+
+/**
+ * One installer at a time per name across processes (two agents may call setup together), and across calls in one
+ * process: `<cache>/.lock-<name>` is held with an OS lock (`openLock`) until `work` ends. A waiter polls every `pollMs`
+ * up to `maxWaitMs`, then is Unavailable, and prints progress; a holder that is merely slow, stopped or asleep keeps
+ * the lock, and one that dies (killed, crashed) frees it at once. The holder's pid, host and start are written into
+ * the lock file only so the waiting line can name them. A full or read-only disk, a lock file that cannot be opened and
+ * a runtime without `bun:ffi` are Unavailable (exit 3, "not checked"), like a failed download.
  */
 export async function withLock<T>(
 	cache: string,
 	name: string,
-	work: (signal: AbortSignal) => Promise<T>,
+	work: () => Promise<T>,
 	options: LockOptions = {},
 ): Promise<T> {
 	const log = options.log ?? ((line: string) => process.stderr.write(`${line}\n`));
 	const pollMs = options.pollMs ?? 500;
-	const heartbeatMs = options.heartbeatMs ?? 60_000;
-	const staleMs = options.staleMs ?? 5 * 60_000;
 	const maxWaitMs = options.maxWaitMs ?? 2 * 60 * 60_000;
-	const guardWaitMs = options.guardWaitMs ?? 2 * TAKEOVER_STALE_MS;
 	const lock = path.join(cache, `.lock-${name}`);
-	const guard = `${lock}${TAKEOVER_SUFFIX}`;
-	const ownerFile = path.join(lock, "owner.json");
-	const me: LockOwner = { pid: process.pid, host: os.hostname(), started: Date.now(), token: randomUUID() };
 	const label = `${name} lock`;
-
-	const mine = (): boolean => {
-		const owner = readOwner(ownerFile);
-		return owner !== null && owner.pid === me.pid && owner.host === me.host && owner.token === me.token;
-	};
-	// Windows refuses mkdir with EPERM/EACCES while a folder of that name is still being deleted (another process just
-	// released or took over the lock). That is a busy lock, not a permission problem, unless it never ends.
-	let pendingDelete = 0;
-	const deletePending = (error: unknown): boolean => {
-		const code = (error as NodeJS.ErrnoException).code;
-		if (process.platform !== "win32" || (code !== "EPERM" && code !== "EACCES")) return false;
-		return ++pendingDelete <= 200;
-	};
-	/** The token written in a guard folder; null when it has none (just made, or its holder ended before writing it). */
-	const guardTokenOf = (dir: string): string | null => {
-		try {
-			return fs.readFileSync(path.join(dir, GUARD_TOKEN_FILE), "utf8");
-		} catch {
-			return null;
-		}
-	};
-	/** The guard this call holds: whose token is in the folder, and when it was taken. */
-	let held: { token: string; since: number } | null = null;
-	/**
-	 * Removes the guard folder if `wanted` accepts what it holds (its token, and its inode for one without a token),
-	 * else leaves it as it was. The folder is moved to a name only this process uses, looked at there, then deleted or
-	 * put back: removing "the guard" by its name after looking at it could remove another process's guard, made under
-	 * that name in between. False when it was not removed (gone, busy, or not the one wanted: that one is put back, and
-	 * dropped only when the name was taken again meanwhile, its holder is then past telling).
-	 */
-	const takeGuardAside = (wanted: (token: string | null, ino: number) => boolean): boolean => {
-		const aside = `${guard}.tmp-${hostTag()}-${process.pid}`;
-		try {
-			fs.rmSync(aside, { recursive: true, force: true });
-			fs.renameSync(guard, aside);
-		} catch {
-			return false;
-		}
-		let ino = 0;
-		try {
-			ino = fs.statSync(aside).ino;
-		} catch {
-			// looked at below as "not the one wanted"
-		}
-		if (wanted(guardTokenOf(aside), ino)) {
-			fs.rmSync(aside, { recursive: true, force: true });
-			return true;
-		}
-		try {
-			if (fs.existsSync(guard)) throw new Error("the guard name was taken again");
-			fs.renameSync(aside, guard);
-		} catch {
-			fs.rmSync(aside, { recursive: true, force: true });
-		}
-		return false;
-	};
-	/** A guard nobody released for TAKEOVER_STALE_MS (its holder ended or stalled for good) is removed, as the one judged. */
-	const reclaimStaleGuard = (): void => {
-		// The token first, then the age: a guard replaced in between shows a token and a fresh age that do not belong to
-		// a stale guard. A guard that vanished is not stale either: its holder just finished.
-		const judged = guardTokenOf(guard);
-		const seen = fs.statSync(guard, { throwIfNoEntry: false });
-		if (!seen || Date.now() - seen.mtimeMs <= TAKEOVER_STALE_MS) return;
-		takeGuardAside((token, ino) => token === judged && (judged !== null || ino === seen.ino));
-	};
-	/**
-	 * The short mutex (`.lock-<name>.takeover`) that every change of the lock folder runs under: making it, removing it
-	 * on release, taking it over, and the heartbeat. A takeover judges the lock and then deletes it; with this held
-	 * nobody can make, remove or touch the lock in between, so it removes the very lock it judged. The folder holds a
-	 * token of its holder. Returns false when somebody else holds it.
-	 */
-	const tryGuard = (): boolean => {
-		try {
-			fs.mkdirSync(guard);
-		} catch (error) {
-			if (deletePending(error)) return false;
-			if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw environmental(error, label);
-			reclaimStaleGuard();
-			return false;
-		}
-		const token = randomUUID();
-		try {
-			fs.writeFileSync(path.join(guard, GUARD_TOKEN_FILE), token);
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code === "ENOENT") return false; // a reclaimer moved the folder away
-			fs.rmSync(guard, { recursive: true, force: true });
-			throw environmental(error, label);
-		}
-		held = { token, since: Date.now() };
-		return true;
-	};
-	/**
-	 * Does this call still hold the guard, right now? Called right before each destructive step (delete or make the
-	 * lock, write its owner): a holder that stalled (its computer slept, the process was stopped) for TAKEOVER_STALE_MS
-	 * may have had the guard reclaimed and another process working under it. One that took the guard longer ago than
-	 * GUARD_BUDGET_MS, or whose folder holds another token, gives the step up. Left: a stall between this check and the
-	 * call that follows it.
-	 */
-	const guardStillMine = (): boolean =>
-		held !== null && Date.now() - held.since < GUARD_BUDGET_MS && guardTokenOf(guard) === held.token;
-	const unguard = (): void => {
-		const taken = held;
-		held = null;
-		if (taken === null) return;
-		// The folder could not be moved (Windows holds it): remove it by name, only while it still holds this token.
-		if (!takeGuardAside(token => token === taken.token) && guardTokenOf(guard) === taken.token) {
-			fs.rmSync(guard, { recursive: true, force: true });
-		}
-	};
-	/** Runs `body` under the guard, waiting (blocking) up to `waitMs` for it: the guard is held for a few fs calls at a time. */
-	const underGuardSync = <R>(body: () => R, waitMs: number): R => {
-		const gate = new Int32Array(new SharedArrayBuffer(4));
-		const until = Date.now() + waitMs;
-		while (!tryGuard()) {
-			if (Date.now() > until) throw new Unavailable(`${label}: ${guard} stayed busy`);
-			Atomics.wait(gate, 0, 0, 2);
-		}
-		try {
-			return body();
-		} finally {
-			unguard();
-		}
-	};
-	/** Removes the lock if it is still this call's. A guard lost to a stall is taken again, a few times. */
-	const releaseLock = (waitMs: number): void => {
-		for (let attempt = 0; attempt < RELEASE_ATTEMPTS; attempt++) {
-			const finished = underGuardSync(() => {
-				if (!mine()) return true; // taken over, or already gone: nothing of this call's to remove
-				if (!guardStillMine()) return false;
-				fs.rmSync(lock, { recursive: true, force: true });
-				return true;
-			}, waitMs);
-			if (finished) return;
-		}
-		throw new Unavailable(`${label}: the guard ${guard} was lost every time while releasing ${lock}`);
-	};
-	/** Makes the lock folder and writes the owner, under the guard; false when somebody else's lock is there. */
-	const makeLock = (): boolean => {
-		if (!guardStillMine()) return false;
-		try {
-			fs.mkdirSync(lock);
-			pendingDelete = 0;
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code === "EEXIST" || deletePending(error)) return false;
-			throw environmental(error, label);
-		}
-		// Stalled since the mkdir, the guard reclaimed: the folder may be somebody's lock by now. Leave it: with no
-		// owner it is abandoned after staleMs.
-		if (!guardStillMine()) return false;
-		try {
-			fs.writeFileSync(ownerFile, JSON.stringify(me));
-		} catch (error) {
-			if (guardStillMine()) fs.rmSync(lock, { recursive: true, force: true });
-			throw environmental(error, label);
-		}
-		return true;
-	};
-	const acquire = (): boolean => {
-		// A lock that is there needs no guard: this look only spares the guard (a waiter polling every few ms would
-		// keep it taken); the mkdir below, under the guard, is what decides.
-		if (fs.existsSync(lock)) return false;
-		if (!tryGuard()) return false;
-		try {
-			return makeLock();
-		} finally {
-			unguard();
-		}
-	};
-	const sameOwner = (a: LockOwner | null, b: LockOwner | null): boolean =>
-		a === null || b === null ? a === b : a.pid === b.pid && a.started === b.started && a.token === b.token;
-	/**
-	 * What a waiter sees of the lock now: who holds it, and whether it is dead or abandoned. Only a takeover under the
-	 * guard may act on it (outside, it is a hint: the lock can change right after). A lock that is gone is never
-	 * abandoned. A lock whose owner changed between the first read and the last is not abandoned for any reason (the
-	 * mtime and the pid verdict belong to the old one). A holder on this computer is abandoned only when its pid is
-	 * gone; staleness alone (idle > staleMs) condemns only a lock whose holder cannot be asked: another computer's, or
-	 * one with no readable owner.
-	 */
-	const judge = (): { owner: LockOwner | null; idle: number; gone: boolean; abandoned: boolean; dead: boolean } => {
-		const owner = readOwner(ownerFile);
-		const at = touched(lock, ownerFile);
-		if (at === null) return { owner, idle: 0, gone: true, dead: false, abandoned: false };
-		const idle = Date.now() - at;
-		const local = owner !== null && owner.host === me.host;
-		const dead = owner !== null && local && !pidAlive(owner.pid);
-		const again = readOwner(ownerFile);
-		if (!sameOwner(owner, again)) return { owner: again, idle: 0, gone: false, dead: false, abandoned: false };
-		return { owner, idle, gone: false, dead, abandoned: dead || (!local && idle > staleMs) };
-	};
-	const takeOver = (): boolean => {
-		if (!tryGuard()) return false;
-		let note: string | null = null;
-		try {
-			const now = judge();
-			if (now.gone) return makeLock();
-			if (!now.abandoned) return false;
-			// The judgment above may have outlived the guard (a stalled process): delete only while it is still ours.
-			if (!guardStillMine()) return false;
-			note = now.dead
-				? `taking over the ${name} lock: its holder (pid ${now.owner?.pid}) is no longer running`
-				: `taking over the ${name} lock: nobody touched it for ${Math.round(now.idle / 60_000)} min (holder on ${now.owner?.host ?? "an unknown computer"})`;
-			fs.rmSync(lock, { recursive: true, force: true });
-			return makeLock();
-		} catch (error) {
-			throw environmental(error, label);
-		} finally {
-			unguard();
-			// Outside the guard: a log line may block (a full pipe) for as long as its reader likes.
-			if (note !== null) log(note);
-		}
-	};
-
+	let file: LockFile;
 	try {
 		fs.mkdirSync(cache, { recursive: true });
+		// A folder of this name is the lock of the hand-made protocol this one replaced (its holder was killed): the
+		// file takes its place.
+		if (fs.statSync(lock, { throwIfNoEntry: false })?.isDirectory())
+			fs.rmSync(lock, { recursive: true, force: true });
+		file = await openLock(lock, label);
 	} catch (error) {
-		throw environmental(error, label);
+		throw error instanceof Unavailable
+			? error
+			: new Unavailable(`${label}: ${error instanceof Error ? error.message : String(error)}`);
 	}
-	const startedWaiting = Date.now();
-	let nextNote = startedWaiting + 20_000;
-	while (!acquire()) {
-		const seen = judge();
-		if (seen.abandoned && takeOver()) break;
-		if (Date.now() - startedWaiting > maxWaitMs) {
-			throw new Unavailable(
-				`another setup of ${name} (pid ${seen.owner?.pid ?? "?"}) has held ${lock} for too long`,
-			);
-		}
-		if (Date.now() >= nextNote) {
-			log(
-				`waiting for another setup of ${name} to finish (pid ${seen.owner?.pid ?? "?"} on ${seen.owner?.host ?? "?"})`,
-			);
-			nextNote = Date.now() + 30_000;
-		}
-		await new Promise(resolve => setTimeout(resolve, pollMs));
-	}
-	// A signal ends the process at once: its release waits a moment for the guard, never the 60 s of a normal one.
-	const unregister = onInterrupt(() => releaseLock(INTERRUPT_GUARD_WAIT_MS));
-	// A takeover of this lock (its holder is on another computer that slept past staleMs, or the folder was removed)
-	// ends this holder's work: it is no longer protected, and whoever holds the lock now may be installing into the same
-	// folder. `work` is told through the signal and awaited: it must have stopped writing before this setup fails.
-	const lostError = (): Unavailable =>
-		new Unavailable(`${label}: ${lock} was taken over while this setup was running; its work is not protected`);
-	const stopWork = new AbortController();
-	const beat = setInterval(() => {
-		let got = false;
-		try {
-			got = tryGuard();
-			if (!got) return; // somebody is changing the lock: the next beat
-			if (!mine()) {
-				clearInterval(beat);
-				stopWork.abort(lostError());
-				return;
-			}
-			if (!guardStillMine()) return; // stalled under the guard: the next beat
-			const now = new Date();
-			fs.utimesSync(ownerFile, now, now);
-		} catch {
-			// the lock was removed; the work below will find out when it ends
-		} finally {
-			if (got) unguard();
-		}
-	}, heartbeatMs);
-	beat.unref();
 	try {
-		const removed = cleanLeftovers(cache, { legacy: !otherHostWorking(cache, me.host, staleMs) });
+		const startedWaiting = Date.now();
+		let nextNote = startedWaiting + 20_000;
+		while (!file.tryLock()) {
+			const owner = readOwner(lock);
+			if (Date.now() - startedWaiting > maxWaitMs) {
+				throw new Unavailable(`another setup of ${name} (pid ${owner?.pid ?? "?"}) has held ${lock} for too long`);
+			}
+			if (Date.now() >= nextNote) {
+				log(`waiting for another setup of ${name} to finish (pid ${owner?.pid ?? "?"} on ${owner?.host ?? "?"})`);
+				nextNote = Date.now() + 30_000;
+			}
+			await new Promise(resolve => setTimeout(resolve, pollMs));
+		}
+		try {
+			file.note(JSON.stringify({ pid: process.pid, host: os.hostname(), started: Date.now() } satisfies LockOwner));
+		} catch {
+			// only a hint for another waiter's log line
+		}
+		const removed = cleanLeftovers(cache);
 		if (removed.length > 0)
 			log(`removed ${removed.length} unfinished download or unpack folder(s) of a stopped setup`);
-		const result = await work(stopWork.signal);
-		if (stopWork.signal.aborted || !mine()) throw lostError();
-		return result;
+		return await work();
 	} catch (error) {
-		if (stopWork.signal.aborted) throw stopWork.signal.reason;
 		throw environmental(error, label);
 	} finally {
-		clearInterval(beat);
-		unregister();
-		// The work is done (or has failed for its own reason): a lock that cannot be released now never turns that into a
-		// failure. It stays until this process is gone, then the next waiter reclaims it as a dead holder's.
-		try {
-			releaseLock(guardWaitMs);
-		} catch (error) {
-			log(
-				`could not release the ${name} lock (${error instanceof Error ? error.message : String(error)}); it is reclaimed once this process has ended`,
-			);
-		}
+		file.release();
 	}
 }
