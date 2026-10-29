@@ -351,9 +351,12 @@ describe("the install lock", () => {
 		expect(JSON.parse(fs.readFileSync(lock, "utf8")).pid, "the note is the new holder's").not.toBe(process.pid);
 	});
 
-	it("replaces the folder that the hand-made protocol left as its lock", () => {
+	it("never deletes the folder the hand-made protocol left as its lock: it locks another path", () => {
+		// Removing that folder by name raced: two new installers could both see it, one remove it and lock its file in
+		// its place, and the other's late recursive remove then unlink that locked file, so both held the lock.
 		const cache = fs.mkdtempSync(path.join(temp, "old-folder-"));
-		plantLock(cache, "x", { pid: deadPid(), host: os.hostname(), started: 1, token: "gone" });
+		const old = plantLock(cache, "x", { pid: deadPid(), host: os.hostname(), started: 1, token: "gone" });
+		const before = fs.readFileSync(path.join(old, "owner.json"), "utf8");
 		const out = inBun(
 			temp,
 			[
@@ -362,7 +365,7 @@ describe("the install lock", () => {
 			].join("\n"),
 		);
 		expect(out.stdout.trim()).toBe("worked");
-		expect(fs.statSync(path.join(cache, ".lock-x")).isFile()).toBe(true);
+		expect(fs.readFileSync(path.join(old, "owner.json"), "utf8"), "the old folder is left as it was").toBe(before);
 	});
 });
 
