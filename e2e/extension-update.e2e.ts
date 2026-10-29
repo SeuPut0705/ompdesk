@@ -24,7 +24,7 @@ import { type ElectronApplication, _electron as electron } from "playwright";
 import { writeFakeOmp } from "../src/main/test-fake-omp";
 import { en } from "../src/renderer/locales/en";
 import { ko } from "../src/renderer/locales/ko";
-import { exitApp, fixtureOmp, pressShortcutUntilVisible, variants } from "./harness";
+import { exitApp, fixtureOmp, pressShortcutUntilVisible, seedSetupBackoff, variants } from "./harness";
 
 /**
  * `cli-mcp-<server> <method> check` prints the newest version; `update` of `mcp-thing` waits while the `hold`
@@ -178,8 +178,7 @@ async function launch(name: string, prefs: Record<string, unknown>, held: boolea
 		JSON.stringify({ firstRunComplete: true, themeName: "light", ...prefs }),
 	);
 	// Machine setup's optional gh and Node have nothing to install here: keep the launch quiet.
-	const missed = { failures: 3, lastAttempt: Date.now() };
-	await fs.writeFile(path.join(desktop, "setup-state.json"), JSON.stringify({ gh: missed, node: missed }));
+	await seedSetupBackoff(desktop, ["gh", "node"]);
 
 	// `mcp-thing`: a script in a global npm package, with the command npm links or shims for it.
 	const pkgDir = path.join(npmPrefix, ...NPM_PACKAGE);

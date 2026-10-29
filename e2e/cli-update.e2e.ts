@@ -16,7 +16,7 @@ import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
 import { writeFakeOmp } from "../src/main/test-fake-omp";
-import { exitApp, fixtureOmp, launchApp, pressShortcutUntilVisible, variants } from "./harness";
+import { exitApp, fixtureOmp, launchApp, pressShortcutUntilVisible, seedSetupBackoff, variants } from "./harness";
 
 /**
  * `cli-<tool> <method> check` prints the newest version; `update` waits while the `hold` file exists, then
@@ -83,8 +83,7 @@ async function launch(name: string, prefs: Record<string, unknown>): Promise<Lau
 		JSON.stringify({ firstRunComplete: true, themeName: "light", ...prefs }),
 	);
 	// Machine setup's optional gh and Node have nothing to install here: keep the launch quiet.
-	const missed = { failures: 3, lastAttempt: Date.now() };
-	await fs.writeFile(path.join(desktop, "setup-state.json"), JSON.stringify({ gh: missed, node: missed }));
+	await seedSetupBackoff(desktop, ["gh", "node"]);
 
 	// Claude Code 2.0.1, installed with its own updater and found on PATH: on POSIX under …/share/claude/versions/…,
 	// linked from a bin dir; on Windows a `.cmd` shim in the bin dir. The Codex inside the ChatGPT app, which updates

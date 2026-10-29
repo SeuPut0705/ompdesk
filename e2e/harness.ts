@@ -8,6 +8,7 @@ import { type ElectronApplication, _electron as electron } from "playwright";
 import { assertAppBuilt } from "../scripts/e2e-app-entry";
 import { writeFakeOmp } from "../src/main/test-fake-omp";
 import { withoutGitSelectors } from "../src/shared/git-env";
+import type { SetupItemId } from "../src/shared/setup";
 import { processesBelow, waitForProcessesToExit } from "./process-tree";
 
 /**
@@ -137,6 +138,22 @@ export async function appLaunchOptions(
 /** Launch the built app as {@link appLaunchOptions} describes. */
 export async function launchApp(options: LaunchOptions): Promise<ElectronApplication> {
 	return electron.launch(await appLaunchOptions(options));
+}
+
+/**
+ * Machine setup's back-off ledger (`<userData>/setup-state.json`, `SetupService`) with three automatic misses
+ * today for each of `items`, so the launch leaves them alone ("Paused after failed attempts"). Each miss names
+ * the version that made it: the ledger ignores another version's misses (a fixed release repairs at its first
+ * launch), and the built app launched as a script runs as Electron's default app, whose `app.getVersion()` is
+ * Electron's own. A ledger without it read as an older version's and the launch installed the items at once.
+ */
+export async function seedSetupBackoff(desktop: string, items: readonly SetupItemId[]): Promise<void> {
+	const electronPackage = JSON.parse(await readFile(path.resolve("node_modules/electron/package.json"), "utf8"));
+	const missed = { failures: 3, lastAttempt: Date.now(), app: String(electronPackage.version) };
+	await writeFile(
+		path.join(desktop, "setup-state.json"),
+		JSON.stringify(Object.fromEntries(items.map(item => [item, missed]))),
+	);
 }
 
 /**

@@ -21,7 +21,7 @@ import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 import { seedFakeGh, writeFakeGh } from "../src/main/github-auth/test-fake-gh";
 import { writeFakeOmp } from "../src/main/test-fake-omp";
-import { exitApp, fixtureOmp, pressShortcutUntilVisible, variants } from "./harness";
+import { exitApp, fixtureOmp, pressShortcutUntilVisible, seedSetupBackoff, variants } from "./harness";
 
 /** gh attempt 1 fails offline; attempt 2 copies the fake gh into the managed tools dir. Other items never run here. */
 const INSTALLER = `
@@ -95,8 +95,7 @@ for (const language of variants(["en", "ko"] as const)) {
 			JSON.stringify({ language, themeName: "light", firstRunComplete: true }),
 		);
 		// Three automatic misses today: the launch leaves gh alone ("Paused after failed attempts").
-		const missed = { failures: 3, lastAttempt: Date.now() };
-		await fs.writeFile(path.join(desktop, "setup-state.json"), JSON.stringify({ gh: missed, node: missed }));
+		await seedSetupBackoff(desktop, ["gh", "node"]);
 		const fakeGh = await writeFakeGh(root);
 		const ghState = path.join(root, "gh-state.json");
 		await seedFakeGh(ghState, []);
