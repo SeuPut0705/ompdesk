@@ -1,0 +1,56 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:">
+<title>tab-session verification</title><style>
+:root{--bg:#fff;--fg:#1c1f24;--muted:#6a7280;--line:#d8dce3;--bad:#c62828;--good:#1b7f3b;--warn:#b26a00;--card:#f6f7f9;--code:#eef0f3}
+@media (prefers-color-scheme:dark){:root{--bg:#14161a;--fg:#e6e8ec;--muted:#9aa3b2;--line:#2c313a;--bad:#ff6b6b;--good:#55c27a;--warn:#e0a040;--card:#1b1e24;--code:#222731}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+main{max-width:980px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:1.55rem;margin:.2rem 0 .6rem}h2{font-size:1.15rem;margin:2rem 0 .6rem;border-bottom:1px solid var(--line);padding-bottom:.3rem}h3{font-size:1rem;margin:.2rem 0}
+.verdict{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--good);border-radius:8px;padding:12px 14px}
+.verdict.bad{border-left-color:var(--bad)}.verdict.warn{border-left-color:var(--warn)}.verdict p{margin:.2rem 0}
+.counts{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.pill{display:inline-block;border:1px solid var(--line);border-radius:99px;padding:1px 10px;font-size:.82rem;background:var(--bg)}
+.pill.bad{color:var(--bad);border-color:var(--bad)}.pill.good{color:var(--good);border-color:var(--good)}.pill.warn{color:var(--warn);border-color:var(--warn)}
+section.finding{border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin:14px 0;background:var(--card)}
+.meta{color:var(--muted);font-size:.86rem}
+table{border-collapse:collapse;width:100%;font-size:.86rem;margin:.5rem 0;display:block;overflow-x:auto}
+th,td{border:1px solid var(--line);padding:4px 8px;text-align:left;vertical-align:top}th{background:var(--code)}
+tr.violation td{background:color-mix(in srgb,var(--bad) 14%,transparent)}
+code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.84rem}
+code{background:var(--code);padding:0 4px;border-radius:4px}pre{background:var(--code);padding:10px 12px;border-radius:6px;overflow-x:auto}pre code{background:none;padding:0}
+figure.diagram{margin:10px 0;color:var(--fg)}figure.diagram svg{max-width:100%;height:auto}figcaption{color:var(--muted);font-size:.82rem}
+ul{padding-left:1.2rem}footer{margin-top:2.5rem;color:var(--muted);font-size:.8rem}
+</style></head><body><main>
+<h1>tab-session verification</h1>
+<div class="verdict bad"><p><strong>NoMissingSession, KeepsSession and NeverAnother hold for the current SidecarManager within 1-2 stored sessions, 3-5 new ids and 4-6 spawns (2,925 and 61,683 states). The code before a10eb6877 breaks KeepsSession in 3 steps (a restart that names no session drops a written session); a10eb6877 as committed breaks NeverAnother in 5 steps (F1: a crash between ready and the get_state answer leaves the next spawn to autoResume). F1 was reproduced as a failing test and fixed.</strong></p><div class="counts">
+<span class="pill ">0 confirmed</span><span class="pill ">0 suspected</span><span class="pill ">0 refuted</span><span class="pill good">1 fixed</span>
+<span class="pill bad">3 of 4 properties hold</span>
+<span class="pill ">workflow W1</span>
+<span class="pill ">2026-10-29T05:10:00Z</span></div></div>
+<h2>Findings</h2>
+<section class="finding" id="F1"><h3>F1 &middot; A new tab whose omp crashed before naming its session could come back on another conversation</h3>
+<p class="meta"><span class="pill warn">low</span> <span class="pill good">fixed</span> violated property: <code>NeverAnother</code></p>
+<p>A new tab starts: its omp boots on a new session (n1). The ready frame clears #isNew (a10eb6877 did it in #handleReady). The omp crashes before the ready status&#39;s get_state answer reaches #observeResponse, so #sessionPath is still empty. The crash restart&#39;s sessionOpen then sees no session and a tab that is not new, and passes neither --session nor --config fresh-launch.yml: with the person&#39;s autoResume on, stock reopens the folder&#39;s most recent session (s1) in the tab that showed a new one. Fix: #isNew is cleared where get_state names the session, not at ready.</p>
+<table><thead><tr><th>#</th><th>Actor</th><th>Action</th><th>Code</th><th>Changed</th></tr></thead><tbody><tr><td>1</td><td></td><td>Init</td><td></td><td><code>proc</code> = &quot;none&quot;<br><code>isNew</code> = TRUE<br><code>moved</code> = FALSE<br><code>lastOpen</code> = [k |-&gt; &quot;none&quot;]<br><code>shown</code> = &quot;none&quot;<br><code>used</code> = {}<br><code>path</code> = &quot;none&quot;<br><code>written</code> = {&quot;s1&quot;, &quot;s2&quot;}<br><code>onOmp</code> = &quot;none&quot;<br><code>spawns</code> = 0</td></tr><tr><td>2</td><td></td><td>Spawn</td><td><code>src/main/sidecar.ts:636-650</code></td><td><code>proc</code> = &quot;none&quot; -&gt; &quot;booting&quot;<br><code>lastOpen</code> = [k |-&gt; &quot;none&quot;] -&gt; [k |-&gt; &quot;new&quot;]<br><code>used</code> = {} -&gt; {&quot;n1&quot;}<br><code>onOmp</code> = &quot;none&quot; -&gt; &quot;n1&quot;<br><code>spawns</code> = 0 -&gt; 1</td></tr><tr><td>3</td><td></td><td>Ready</td><td><code>src/main/sidecar.ts:932-937</code></td><td><code>proc</code> = &quot;booting&quot; -&gt; &quot;ready&quot;<br><code>isNew</code> = TRUE -&gt; FALSE</td></tr><tr><td>4</td><td></td><td>Crash</td><td><code>src/main/sidecar.ts:755-779</code></td><td><code>proc</code> = &quot;ready&quot; -&gt; &quot;none&quot;<br><code>onOmp</code> = &quot;n1&quot; -&gt; &quot;none&quot;</td></tr><tr class="violation"><td>5</td><td></td><td>Spawn &larr; property breaks</td><td><code>src/main/sidecar.ts:636-650</code></td><td><code>proc</code> = &quot;none&quot; -&gt; &quot;booting&quot;<br><code>lastOpen</code> = [k |-&gt; &quot;new&quot;] -&gt; [k |-&gt; &quot;default&quot;]<br><code>onOmp</code> = &quot;none&quot; -&gt; &quot;s1&quot;<br><code>spawns</code> = 1 -&gt; 2</td></tr></tbody></table>
+<p><strong>Reproduction</strong>: <code>src/main/session-launch-parity.test.ts::a new tab whose omp crashed before it named its session starts a new one, never another session</code> before the fix: fails; after: passes</p>
+</section>
+<h2>What was verified</h2><table><thead><tr><th>Property</th><th>Kind</th><th>Result</th><th>Tool</th><th>Bounds</th><th>Evidence</th></tr></thead><tbody>
+<tr><td><code>NoMissingSession</code> (frozen)<br>--session never names a file stock has not written.<br><span class="meta">source: formal/tab-session/Properties.md</span></td><td>invariant</td><td><span class="pill good">holds</span></td><td>TLC2 2026.10.28.014557</td><td>Stored={s1}, Others={s2}, NewIds={n1,n2,n3}, MaxSpawns=4; larger: Stored={s1,s3}, NewIds={n1..n5}, MaxSpawns=6</td><td><code>formal/tab-session/evidence/tlc-matrix.log</code></td></tr>
+<tr><td><code>KeepsSession</code> (frozen)<br>Every spawn of a tab whose session stock has written opens that session.<br><span class="meta">source: formal/tab-session/Properties.md</span></td><td>invariant</td><td><span class="pill good">holds</span></td><td>TLC2 2026.10.28.014557</td><td>Stored={s1}, Others={s2}, NewIds={n1,n2,n3}, MaxSpawns=4; larger: Stored={s1,s3}, NewIds={n1..n5}, MaxSpawns=6</td><td><code>formal/tab-session/evidence/tlc-matrix.log</code></td></tr>
+<tr><td><code>NeverAnother</code> (frozen)<br>No spawn puts the tab on another written session than the one it shows, unless the person moved it.<br><span class="meta">source: formal/tab-session/Properties.md</span></td><td>invariant</td><td><span class="pill good">holds</span></td><td>TLC2 2026.10.28.014557</td><td>Stored={s1}, Others={s2}, NewIds={n1,n2,n3}, MaxSpawns=4; larger: Stored={s1,s3}, NewIds={n1..n5}, MaxSpawns=6</td><td><code>formal/tab-session/evidence/tlc-matrix.log</code></td></tr>
+<tr><td><code>KeepsSession (code before a10eb6877)</code><br>OldCode=TRUE: the session path was cleared at ready and by a restart naming none; must fail.</td><td>invariant</td><td><span class="pill warn">violated</span></td><td>TLC2 2026.10.28.014557</td><td>MC_old.cfg</td><td><code>formal/tab-session/evidence/tlc-matrix.log</code></td></tr>
+</tbody></table>
+<h2>Model scope and assumptions</h2>
+<h3>Modeled</h3><ul><li>sessionOpen and #spawn</li><li>ready</li><li>the ready status&#39;s get_state answer</li><li>crash restart</li><li>restart with no session, a stored session, another folder</li><li>stock writing a session and its autoResume (environment)</li></ul>
+<h3>Abstracted</h3><ul><li>one tab, one folder</li><li>the pool&#39;s view of the session is the ghost `shown`</li><li>an omp update&#39;s restart is Restart</li></ul>
+<h3>Out of scope</h3><ul><li>session ownership wait</li><li>start gate</li><li>new_session/switch_session inside a running omp</li><li>remote tabs</li><li>extensions and settings of a spawn</li></ul>
+<h3>Assumptions</h3><ul><li>A1: start()&#39;s awaits do not change #sessionPath or #isNew</li><li>A2: get_state names the session the running omp is on</li><li>A3: autoResume picks only a written session of the folder</li><li>A4: the pool&#39;s sessionFile equals #sessionPath after the same get_state</li></ul>
+<h2>Trust base</h2>
+<p class="meta">not recorded</p>
+<h2>Re-run</h2>
+<p class="meta">not recorded</p>
+<h2>Next steps</h2><p class="meta">none recorded</p>
+<footer>Generated by ompdesk-formal-verify report.ts from findings.json. A pass means no counterexample within the stated bounds, not that the code is correct.</footer>
+</main></body></html>
