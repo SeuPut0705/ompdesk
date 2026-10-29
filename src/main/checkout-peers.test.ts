@@ -260,8 +260,8 @@ describe("checkout peers: a committed file is no longer a claim", () => {
 		const ledger = new CheckoutLedger();
 		const writer = member("w", top, [], {
 			request: async (method, params) => {
-				if (method === "checkout_status") return ledger.status();
-				if (method === "checkout_retire") ledger.retireFrom(params);
+				if (method === "checkout_status") return ledger.claims.status();
+				if (method === "checkout_retire") ledger.claims.retireFrom(params);
 				return { ok: true };
 			},
 		});
@@ -277,12 +277,12 @@ describe("checkout peers: a committed file is no longer a claim", () => {
 		ledger.call("bash", { command: "sleep 8; echo changed > src/t.ts" }, top, undefined, host, "c1");
 		await peers.refresh();
 		expect(other.sent.at(-1)?.worktree[0]?.files).toEqual([`${top}/src/t.ts`]);
-		expect(ledger.files).toEqual([`${top}/src/t.ts`]);
+		expect(ledger.claims.files).toEqual([`${top}/src/t.ts`]);
 		listed = porcelain(" M src/t.ts");
 		ledger.settle("c1");
 		await peers.refresh();
 		expect(other.sent.at(-1)?.worktree[0]?.files).toEqual([`${top}/src/t.ts`]);
-		expect(ledger.files).toEqual([`${top}/src/t.ts`]);
+		expect(ledger.claims.files).toEqual([`${top}/src/t.ts`]);
 	});
 
 	it("keeps a member's last answer when its bridge fails or does not answer in time", async () => {

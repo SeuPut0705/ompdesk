@@ -29,13 +29,13 @@ import {
 	type ShellEffects,
 	shellEffects,
 } from "./autopilot-guard-core";
+import { ClaimBook } from "./checkout-claims";
 import {
 	CHECKOUT_PEERS_SET,
 	CHECKOUT_REFUSAL_PREFIX,
 	CHECKOUT_TASK_MAX,
 	type CheckoutPeer,
 	type CheckoutPeers,
-	type CheckoutStatus,
 } from "./checkout-peers-contracts";
 
 /** What one git run does to shared state, before knowing who else works here. */
@@ -1023,8 +1023,6 @@ export type CallVerdict = { block: string } | { notice?: string; gained: boolean
 
 const URL_PATH = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//;
 
-/** The most claims a session holds (a long session with no company never has them retired). */
-const CLAIMS_MAX = 2000;
 /** The most files one shell glob adds to the claims (a glob over a whole tree is refused or noticed, never a thousand claims). */
 const GLOB_MATCHES_MAX = 500;
 
@@ -1133,70 +1131,24 @@ export interface CallOutcome {
 	reported?: readonly string[];
 }
 
-/** A call that has not reported back (or whose job still runs): what it claimed and how to undo or confirm that. */
-interface Pending {
-	owner: string;
+/** What the guard keeps of a pending call beside its claims: where it ran, and the overlap pairs its notice said. */
+interface CallNotes {
 	cwd: string;
 	realpath: (path: string) => string;
-	/** The files the call claimed, each with the claim it took over (undefined: none). */
-	claimed: Array<{ path: string; stamp: number; earlier: number | undefined }>;
-	/** A script that failed may still have written: a failed shell call keeps its claims, a failed file tool's are given back. */
-	keepsOnError: boolean;
-	/** The (file, peer) pairs the call's notice said: given back to `told` when the call fails, so the next call says them again. */
+	/** Given back to `told` when the call fails, so the next call says them again (stock drops a hook's context with an error result). */
 	told: string[];
-	/** Own claims a successful git run in the call made clean, and the ledger's stamp counter before the call. */
-	drops: string[];
-	seq: number;
-	/** Main should read now when the call succeeds. */
-	refresh: boolean;
 }
 
-const pendingKey = (owner: string, toolCallId: string) => `${owner}\0${toolCallId}`;
-
 /**
- * The files this session's agents changed (its claims, which main reads through `checkout_status`) and which
- * (file, peer) pairs it was already told of. Every tool call goes through `call`: it judges the call against the
- * peers, records what the call changes as the session's own, and returns the notice for the model.
+ * The guard of one omp: every tool call goes through `call`, which judges it against the peers, records what it
+ * changes as the session's claims (`claims`, the claim state machine of checkout-claims.ts) and returns the notice for
+ * the model; it remembers which (file, peer) pairs it already told and which branches the session created.
  */
 export class CheckoutLedger {
-	/** This omp's load of the bridge: main tells a new one its peers again and never retires with another load's stamps. */
-	readonly instance = globalThis.crypto.randomUUID();
-	#files: string[] = [];
+	readonly claims = new ClaimBook<CallNotes>();
 	#told = new Set<string>();
-	#stamps = new Map<string, number>();
-	#seq = 0;
-	/** How many times the set of claimed files changed: the journal writes when it moves. */
-	#revision = 0;
 	/** The branches this session created: it may delete or move those. */
 	#branches = new Set<string>();
-	/** The calls that have not reported back yet, by owner and tool call id. */
-	#pending = new Map<string, Pending>();
-	/** The calls whose command went to the background, by job id: they claim until the job ends. */
-	#jobs = new Map<string, Pending>();
-
-	/** The files this session changed, newest first. */
-	get files(): readonly string[] {
-		return this.#files;
-	}
-
-	/** Moves whenever a file joins or leaves the claims. */
-	get revision(): number {
-		return this.#revision;
-	}
-
-	/** What `checkout_status` answers (without the task). */
-	status(): Omit<CheckoutStatus, "task"> {
-		const files = [...this.#files];
-		const pending = new Set<string>();
-		for (const call of [...this.#pending.values(), ...this.#jobs.values()])
-			for (const claim of call.claimed) pending.add(claim.path);
-		return {
-			files,
-			stamps: files.map(file => this.stamp(file)),
-			pending: [...pending],
-			instance: this.instance,
-		};
-	}
 
 	/**
 	 * One tool call (`cwd` is the session's folder). A refused call claims nothing and leaves the notice it would have
@@ -1226,7 +1178,7 @@ export class CheckoutLedger {
 						? evalEffects(input, at)
 						: undefined;
 			if (effects) {
-				const refusal = peers ? refusalFor(effects, peers, this.#files, host, this.#branches) : undefined;
+				const refusal = peers ? refusalFor(effects, peers, this.claims.files, host, this.#branches) : undefined;
 				if (refusal) return { block: refusal };
 				const changes = changesOf(effects, host.realpath, peers?.toplevel ?? at);
 				touched = [...changes.edits, ...changes.replaces, ...changes.deletes];
@@ -1236,7 +1188,7 @@ export class CheckoutLedger {
 			const effects = fileToolEffects(toolName, input)
 				.filter(effect => !URL_PATH.test(effect.path))
 				.map(effect => ({ ...effect, path: canonicalPath(normalizePath(effect.path, cwd), host.realpath) }));
-			const refusal = peers ? fileToolRefusal(toolName, effects, peers, this.#files) : undefined;
+			const refusal = peers ? fileToolRefusal(toolName, effects, peers, this.claims.files) : undefined;
 			if (refusal) return { block: refusal };
 			touched = effects.map(effect => effect.path);
 		}
@@ -1264,215 +1216,47 @@ export class CheckoutLedger {
 			...(toolName === "ast_edit" ? [] : [...noticed, ...matched.map(path => canonicalPath(path, host.realpath))]),
 			...work.flatMap(item => item.claims).map(path => canonicalPath(path, host.realpath)),
 		].filter(path => claimable(path, peers, canonicalPath(cwd, host.realpath)));
-		const had = new Set(this.#files);
-		const gained = claims.some(path => !had.has(path));
-		const seq = this.#seq;
-		const claimed = this.#claim(claims);
 		// The hook runs before the tool: until it reports back, git may not show the change yet.
-		if (toolCallId !== undefined)
-			this.#pending.set(pendingKey(owner, toolCallId), {
-				owner,
-				cwd,
-				realpath: host.realpath,
-				claimed,
-				keepsOnError: toolName === "bash" || toolName === "eval",
-				told,
-				drops: work.flatMap(item => item.drops).map(path => canonicalPath(path, host.realpath)),
-				seq,
-				refresh: work.some(item => item.refresh),
-			});
+		const gained = this.claims.begin({
+			owner,
+			...(toolCallId === undefined ? {} : { id: toolCallId }),
+			paths: claims,
+			keepsOnError: toolName === "bash" || toolName === "eval",
+			drops: work
+				.flatMap(item => item.drops)
+				.filter(path => !GLOB.test(path))
+				.map(path => canonicalPath(path, host.realpath)),
+			refresh: work.some(item => item.refresh),
+			extra: { cwd, realpath: host.realpath, told },
+		});
 		return { notice, gained };
 	}
 
-	/** Each file's stamp: the number of the latest call that changed it, so main can retire exactly what it saw. */
-	stamp(file: string): number {
-		return this.#stamps.get(file) ?? 0;
-	}
-
-	/** `paths` become the newest claims; each takes a stamp, and the ones before are remembered so a failed call can give the claim back. */
-	#claim(paths: readonly string[]): Pending["claimed"] {
-		const fresh = [...new Set(paths)];
-		if (fresh.length === 0) return [];
-		const taken = new Set(fresh);
-		const claimed = fresh.map(path => {
-			const earlier = this.#stamps.get(path);
-			const stamp = ++this.#seq;
-			this.#stamps.set(path, stamp);
-			return { path, stamp, earlier };
-		});
-		if (claimed.some(claim => claim.earlier === undefined)) this.#revision++;
-		this.#files = [...fresh, ...this.#files.filter(file => !taken.has(file))];
-		for (const gone of this.#files.splice(CLAIMS_MAX)) {
-			this.#stamps.delete(gone);
-			this.#revision++;
-		}
-		return claimed;
-	}
-
-	#drop(files: ReadonlySet<string>): void {
-		if (files.size === 0) return;
-		this.#files = this.#files.filter(file => !files.has(file));
-		for (const file of files) this.#stamps.delete(file);
-		this.#revision++;
-	}
-
-	/** The call wrote nothing: each file it claimed goes back to the claim it took over, unless a later call changed it. */
-	#revert(call: Pending): boolean {
-		const gone = new Set<string>();
-		let changed = false;
-		for (const { path, stamp, earlier } of call.claimed) {
-			if (this.#stamps.get(path) !== stamp) continue;
-			changed = true;
-			if (earlier === undefined) gone.add(path);
-			else this.#stamps.set(path, earlier);
-		}
-		this.#drop(gone);
-		return changed;
-	}
-
-	/** The call wrote: its files' stamps move on, so a retirement main decided from a read taken while it ran matches nothing. */
-	#confirm(call: Pending): void {
-		for (const { path } of call.claimed) if (this.#stamps.has(path)) this.#stamps.set(path, ++this.#seq);
-	}
-
-	/** The files a successful git run made clean leave the claims at once (main confirms), unless a later call changed them. */
-	#clean(call: Pending): boolean {
-		const drops = call.drops.filter(path => !GLOB.test(path));
-		if (drops.length === 0) return false;
-		const gone = new Set(
-			this.#files.filter(
-				file => drops.some(path => isInside(file, path)) && (this.#stamps.get(file) ?? 0) <= call.seq,
-			),
-		);
-		this.#drop(gone);
-		return gone.size > 0;
-	}
-
 	/**
-	 * The call `toolCallId` of `owner` reported back (stock's `tool_result`): its files are written now. Their stamps move
-	 * on, so a retirement main decided from a read taken while the call ran matches nothing. A file tool that failed
-	 * wrote nothing: its claims are given back (a failed script may still have written, its claims stay). A command that
-	 * went to the background keeps its claims until the job ends (`settleJob`). True when main should read now.
+	 * The call `toolCallId` of `owner` reported back (stock's `tool_result`); the files its result names join its
+	 * claims (`ClaimBook.end`). True when main should read now.
 	 */
 	settle(toolCallId: string, owner = "", outcome: CallOutcome = { isError: false }): boolean {
-		const key = pendingKey(owner, toolCallId);
-		const call = this.#pending.get(key);
-		if (!call) return false;
-		this.#pending.delete(key);
-		let changed = call.claimed.length > 0 || call.refresh;
-		if (outcome.reported && outcome.reported.length > 0 && !outcome.isError) {
-			const files = outcome.reported
-				.filter(file => !URL_PATH.test(file))
-				.map(file => canonicalPath(normalizePath(file, call.cwd), call.realpath))
-				.filter(file => claimable(file, undefined, canonicalPath(call.cwd, call.realpath)));
-			if (files.length > 0) {
-				call.claimed.push(...this.#claim(files));
-				changed = true;
-			}
-		}
-		if (outcome.job !== undefined && !outcome.isError) {
-			this.#jobs.set(outcome.job, call);
-			return changed;
-		}
-		if (outcome.isError) {
-			// A failed call's notice never reached the model (stock drops a hook's context with an error result).
-			for (const pair of call.told) this.#told.delete(pair);
-			if (!call.keepsOnError) return this.#revert(call) || changed;
-		} else changed = this.#clean(call) || changed;
-		this.#confirm(call);
+		const notes = this.claims.extra(owner, toolCallId);
+		if (!notes) return false;
+		const reported = (outcome.reported ?? [])
+			.filter(file => !URL_PATH.test(file))
+			.map(file => canonicalPath(normalizePath(file, notes.cwd), notes.realpath))
+			.filter(file => claimable(file, undefined, canonicalPath(notes.cwd, notes.realpath)));
+		const { changed } = this.claims.end(owner, toolCallId, { ...outcome, reported });
+		if (outcome.isError) this.#forget(notes);
 		return changed;
 	}
 
-	/** A background job ended: the files its command claimed are written now. True when it held any. */
-	settleJob(jobId: string): boolean {
-		const call = this.#jobs.get(jobId);
-		if (!call) return false;
-		this.#jobs.delete(jobId);
-		this.#confirm(call);
-		return true;
-	}
-
-	/**
-	 * Jobs not in `running` have ended (stock's job list is the only place that says): their claims are written now. A
-	 * list read from one agent (`owner`) says nothing of another agent's jobs. True when any held some.
-	 */
-	reconcileJobs(running: ReadonlySet<string>, owner?: string): boolean {
-		let any = false;
-		for (const [jobId, call] of [...this.#jobs])
-			if (!running.has(jobId) && (owner === undefined || call.owner === owner)) any = this.settleJob(jobId) || any;
-		return any;
-	}
-
-	/**
-	 * Settles every call `owner` (one agent: the session's main agent or one subagent; they share this ledger) left
-	 * pending: its run ended, and a call stock refused before running it (a denied approval, a later hook's block) never
-	 * reports back. Such a call did not write: a file tool's claims are given back, a shell call's stay (a script may
-	 * have written); its notice never reached the model. Another agent's calls may still be running and stay pending.
-	 */
+	/** `owner`'s run ended (`ClaimBook.agentEnded`): the notices of the calls it settles never reached the model. */
 	settleAll(owner: string): boolean {
-		let any = false;
-		for (const [key, call] of [...this.#pending]) {
-			if (call.owner !== owner) continue;
-			this.#pending.delete(key);
-			for (const pair of call.told) this.#told.delete(pair);
-			if (call.keepsOnError) {
-				this.#confirm(call);
-				any = call.claimed.length > 0 || any;
-			} else any = this.#revert(call) || any;
-		}
-		return any;
+		const { changed, ended } = this.claims.agentEnded(owner);
+		for (const notes of ended) this.#forget(notes);
+		return changed;
 	}
 
-	/**
-	 * Main saw these claims committed (`git status` no longer lists them): they stop being this session's. A file
-	 * changed again since (its stamp moved on) stays: that later change is a fresh claim. A file a running call is
-	 * still writing stays too.
-	 */
-	retire(claims: ReadonlyArray<{ file: string; stamp: number }>): void {
-		const writing = new Set(
-			[...this.#pending.values(), ...this.#jobs.values()].flatMap(call => call.claimed.map(claim => claim.path)),
-		);
-		this.#drop(
-			new Set(
-				claims
-					.filter(claim => !writing.has(claim.file) && this.#stamps.get(claim.file) === claim.stamp)
-					.map(claim => claim.file),
-			),
-		);
-	}
-
-	/** `checkout_retire`'s params: ignored unless main read them from this very load of the bridge (a restarted omp numbers its stamps anew). True when applied. */
-	retireFrom(params: unknown): boolean {
-		const instance =
-			typeof params === "object" && params !== null && "instance" in params ? params.instance : undefined;
-		if (instance !== this.instance) return false;
-		this.retire(retiredClaims(params));
-		return true;
-	}
-
-	/** What the journal keeps: the files and their stamps (the stamps only say how fresh each claim was; a restore numbers them anew). */
-	snapshot(): { files: string[]; stamps: number[] } {
-		return { files: [...this.#files], stamps: this.#files.map(file => this.stamp(file)) };
-	}
-
-	/**
-	 * The claims a session had when the omp last ran it (its journal entry) become this ledger's: a restart or a relaunch
-	 * keeps protecting the work nobody committed, and main retires what git no longer lists. Undefined or malformed data
-	 * means none, which is also what a switch to a session with no entry means. Stamps start anew, above every earlier one.
-	 */
-	restore(data: unknown): void {
-		const list = typeof data === "object" && data !== null && "files" in data ? data.files : undefined;
-		const files = Array.isArray(list)
-			? list
-					.filter((file): file is string => typeof file === "string" && file !== "")
-					.map(file => normalizePath(file, "/"))
-			: [];
-		this.#pending.clear();
-		this.#jobs.clear();
-		this.#files = [];
-		this.#stamps.clear();
-		this.#revision++;
-		this.#claim([...new Set(files)].slice(0, CLAIMS_MAX));
+	#forget(notes: CallNotes): void {
+		for (const pair of notes.told) this.#told.delete(pair);
 	}
 }
 
@@ -1499,20 +1283,4 @@ function evalEffects(input: unknown, cwd: string): ShellEffects {
 	};
 	walk(input, 0);
 	return found;
-}
-
-/** `checkout_retire`'s claims; anything malformed is skipped. */
-export function retiredClaims(params: unknown): Array<{ file: string; stamp: number }> {
-	const files = typeof params === "object" && params !== null && "files" in params ? params.files : undefined;
-	if (!Array.isArray(files)) return [];
-	return files.flatMap(item =>
-		typeof item === "object" &&
-		item !== null &&
-		"file" in item &&
-		"stamp" in item &&
-		typeof item.file === "string" &&
-		typeof item.stamp === "number"
-			? [{ file: item.file, stamp: item.stamp }]
-			: [],
-	);
 }

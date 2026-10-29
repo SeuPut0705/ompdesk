@@ -73,18 +73,18 @@ const REPORTING = new Set(["ast_edit", "write", "resolve", "lsp"]);
 let installs = 0;
 /** The main agent's `pi`: the journal entry belongs to the session, not to a subagent's. */
 let mainPi: ExtensionAPI | undefined;
-let journaled = ledger.revision;
+let journaled = ledger.claims.revision;
 let journaledAt = 0;
 let journalTimer: ReturnType<typeof setTimeout> | undefined;
 
 function writeJournal(): void {
 	clearTimeout(journalTimer);
 	journalTimer = undefined;
-	if (!mainPi || ledger.revision === journaled) return;
-	journaled = ledger.revision;
+	if (!mainPi || ledger.claims.revision === journaled) return;
+	journaled = ledger.claims.revision;
 	journaledAt = Date.now();
 	try {
-		mainPi.appendEntry(CLAIMS_ENTRY, { ...ledger.snapshot(), at: journaledAt });
+		mainPi.appendEntry(CLAIMS_ENTRY, { ...ledger.claims.snapshot(), at: journaledAt });
 	} catch {
 		// A journal that cannot be written costs only the restart protection; the claims in memory still guard.
 		journaled = -1;
@@ -93,7 +93,7 @@ function writeJournal(): void {
 
 /** The claims changed: write the journal now, or once the interval since the last write has passed. */
 function journalSoon(): void {
-	if (!mainPi || ledger.revision === journaled || journalTimer) return;
+	if (!mainPi || ledger.claims.revision === journaled || journalTimer) return;
 	const wait = journaledAt + JOURNAL_INTERVAL_MS - Date.now();
 	if (wait <= 0) writeJournal();
 	else {
@@ -115,10 +115,10 @@ function restoreClaims(ctx: ExtensionContext): void {
 	} catch {
 		// An unreadable journal restores nothing.
 	}
-	ledger.restore(data);
-	journaled = ledger.revision;
+	ledger.claims.restore(data);
+	journaled = ledger.claims.revision;
 	// Main reads the claims it can no longer see in git (committed while the omp was away) at once.
-	if (ledger.files.length > 0) emit({ type: CHECKOUT_FILES_EVENT });
+	if (ledger.claims.files.length > 0) emit({ type: CHECKOUT_FILES_EVENT });
 }
 
 /** `details.async` of a stock bash result or update: `{state, jobId}`. */
@@ -140,7 +140,7 @@ function reconcileJobs(ctx: ExtensionContext, owner: string): void {
 	} catch {
 		// A job list that cannot be read settles nothing.
 	}
-	if (running && ledger.reconcileJobs(running, owner)) emit({ type: CHECKOUT_FILES_EVENT });
+	if (running && ledger.claims.reconcileJobs(running, owner)) emit({ type: CHECKOUT_FILES_EVENT });
 }
 
 /** Called once per extension instance (main and every subagent rebinding) by index.ts. */
@@ -184,7 +184,8 @@ export function install(pi: ExtensionAPI): void {
 		const async = asyncOf(
 			typeof result === "object" && result !== null && "details" in result ? result.details : undefined,
 		);
-		if (async && async.state !== "running" && ledger.settleJob(async.jobId)) emit({ type: CHECKOUT_FILES_EVENT });
+		if (async && async.state !== "running" && ledger.claims.settleJob(async.jobId))
+			emit({ type: CHECKOUT_FILES_EVENT });
 	});
 	// A call stock refused after the hook (a denied approval) never reports back; this agent's run end settles it.
 	pi.on("agent_end", (_event, ctx) => {
@@ -225,14 +226,14 @@ export const methods = guard("checkoutPeers", {
 		}
 		// A job that ended while no hook ran (a command finishing in an idle session) is settled by what main asks.
 		const jobs = session?.getAsyncJobTree?.();
-		if (jobs && ledger.reconcileJobs(new Set(jobs.running.map(job => job.id))))
+		if (jobs && ledger.claims.reconcileJobs(new Set(jobs.running.map(job => job.id))))
 			env.emit({ type: CHECKOUT_FILES_EVENT });
 		const task = session ? await readTask(session) : undefined;
-		return { ...ledger.status(), ...(task ? { task } : {}) };
+		return { ...ledger.claims.status(), ...(task ? { task } : {}) };
 	},
 	/** `{instance, files: [{file, stamp}]}` → `{ok}`: claims main saw committed; one changed again since stays; another load's stamps mean nothing. */
 	[CHECKOUT_RETIRE]: async (params: unknown) => {
-		ledger.retireFrom(params);
+		ledger.claims.retireFrom(params);
 		journalSoon();
 		return { ok: true };
 	},
