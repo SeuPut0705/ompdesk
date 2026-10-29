@@ -85,7 +85,8 @@ jobs:
   # again before packaging, so the push run would only repeat them. A failed
   # job writes its first error lines to its job summary (scripts/ci-failure.sh).
   #
-  # Types, biome and the surface policy.
+  # Types, biome, the surface policy, and a test in every fix commit of the push
+  # or pull request (scripts/lint-fix-tests.mjs; the full history without blobs).
   static:
     if: "github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'release: v')"
     runs-on: ubuntu-latest
@@ -95,6 +96,9 @@ jobs:
       actions: read # the failure report reads this run's jobs
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          filter: blob:none
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.4
@@ -104,6 +108,14 @@ jobs:
       - run: bun run check:types
       - run: bunx biome check src e2e resources scripts
       - run: node scripts/lint-surfaces.mjs
+      # A pushed range whose base git cannot find (a new branch, a dispatch) checks the head commit alone.
+      - name: Fix commits carry a test
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then BASE="$HEAD_SHA~1"; fi
+          bun scripts/lint-fix-tests.mjs "$BASE..$HEAD_SHA"
       - if: failure()
         run: bash scripts/ci-failure.sh
         env:

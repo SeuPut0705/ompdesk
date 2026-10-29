@@ -38,11 +38,16 @@
  * The same run checks the gui-bridge (resources/gui-bridge): a `before_agent_start` handler that returns its own
  * `systemPrompt` instead of registering a section (see scripts/lint-prompt-sections.mjs); an exception carries
  * `prompt-section-ok: <reason>`.
+ *
+ * Duplicate rules (src/main, src/renderer, src/shared, resources/gui-bridge; tests excluded): a regex bound to a
+ * top-level const, or an exported constant, that another side spells again (see scripts/lint-duplicate-rules.mjs);
+ * known ones are listed with their reason in scripts/lint-duplicate-rules-allow.json, which only shrinks.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { compareToBaseline, readBaseline, scanRenderer } from "./lint-controls.mjs";
+import { compareToAllowList, findDuplicateRules, readAllowList, readSides } from "./lint-duplicate-rules.mjs";
 import { findImeViolations } from "./lint-ime.mjs";
 import { findLocaleViolations } from "./lint-locale.mjs";
 import { findPromptHookViolations } from "./lint-prompt-sections.mjs";
@@ -136,6 +141,7 @@ for (const file of collect(BRIDGE)) {
 	}
 }
 violations.push(...compareToBaseline(scanRenderer(), readBaseline()));
+violations.push(...compareToAllowList(findDuplicateRules(readSides()), readAllowList()));
 
 if (violations.length > 0) {
 	console.error(`surface policy: ${violations.length} violation(s)`);

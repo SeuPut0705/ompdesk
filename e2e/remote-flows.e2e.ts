@@ -249,7 +249,9 @@ for (const language of variants(["en", "ko"] as const))
 					await input.fill("fixture documents");
 					await input.press("Enter");
 					const cards = a.getByRole("group", { name: t("chat.media.referenced") }).last();
-					await expect(cards.locator("[data-file-card]")).toHaveCount(4, { timeout: 30_000 });
+					// The reply's fourth file (docs/gone.docx) is gone on the host: it draws nothing, as on this computer
+					// (32a4f3dab, ReplyFiles `hideMissing`), never a "Deleted" card.
+					await expect(cards.locator("[data-file-card]")).toHaveCount(3, { timeout: 30_000 });
 					await expect(cards.locator('[data-file-card="spreadsheet"][data-state="ready"]')).toContainText(
 						"Excel · ",
 					);
@@ -257,9 +259,7 @@ for (const language of variants(["en", "ko"] as const))
 					await expect(cards.locator('[data-file-card="presentation"][data-state="ready"]')).toContainText(
 						"Roadmap 2025",
 					);
-					await expect(cards.locator('[data-file-card][data-state="missing"]')).toContainText(
-						t("fileCard.deleted"),
-					);
+					await expect(cards.locator('[data-file-card][data-state="missing"]')).toHaveCount(0);
 					await cards.scrollIntoViewIfNeeded();
 					await capture(a, `${language}-${theme}-file-cards`);
 				});

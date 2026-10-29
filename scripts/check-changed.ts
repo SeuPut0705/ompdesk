@@ -12,7 +12,8 @@
  *
  * 1. Side by side: typecheck (always whole: a type error shows up far from the
  *    edit), biome on the changed files, the surface policy, and `vitest related`
- *    (every test file that imports a changed file, directly or transitively).
+ *    (every test file that imports a changed file, directly or transitively), and
+ *    `scripts/lint-fix-tests.mjs` over this branch's unpublished commits.
  * 2. Then, unless `--no-e2e` or nothing matches: `bun run build` (reused when
  *    out/ matches) and the Playwright specs that touch what changed: a changed
  *    spec, a spec whose file name or text mentions a changed source file's
@@ -113,6 +114,8 @@ const CHECKS: Array<readonly [string, string[]]> = [["types", ["bun", "run", "ch
 if (biomeFiles.length > 0)
 	CHECKS.push(["biome", ["bunx", "biome", "check", "--no-errors-on-unmatched", ...biomeFiles]]);
 CHECKS.push(["surfaces", ["node", "scripts/lint-surfaces.mjs"]]);
+// This branch's fix commits each change a test (or say `no-test: <reason>`), before CI refuses the push.
+CHECKS.push(["fix-tests", ["bun", "scripts/lint-fix-tests.mjs"]]);
 if (scope.allTests) CHECKS.push(["vitest", ["bunx", "vitest", "run"]]);
 else if (relatedFiles.length > 0) {
 	CHECKS.push(["vitest", ["bunx", "vitest", "related", "--run", "--passWithNoTests", ...relatedFiles]]);
