@@ -261,7 +261,9 @@ async function seedTranscript(file: string): Promise<void> {
 		],
 	});
 	add("a4", reply("Shipped **v0.27.0**. Both installers are signed with the rotated certificate."));
-	await fs.writeFile(file, `${lines.map(line => JSON.stringify(line)).join("\n")}\n`);
+	// A titled session, so the title bar and the sidebar row read the same name (the fake omp's fallback is this one).
+	const title = { type: "title", v: 1, title: "Audit session", updatedAt: new Date(start).toISOString() };
+	await fs.writeFile(file, `${[title, ...lines].map(line => JSON.stringify(line)).join("\n")}\n`);
 }
 
 async function launch(
@@ -375,7 +377,7 @@ const COPY = {
 		send: "Send",
 		copyMessage: "Copy message text",
 		branch: "Branch to a new tab from here",
-		details: "Context details",
+		details: "Details",
 		splitRight: "Split right",
 		splitBelow: "Split below",
 		openFailed: "Couldn't open session",
@@ -550,7 +552,7 @@ for (const language of ["en", "ko"] as const)
 
 				// Context cards opened.
 				await toTop();
-				const details = page.getByRole("button", { name: copy.details });
+				const details = page.locator(".omp-context-turn").getByRole("button", { name: copy.details, exact: true });
 				for (let index = 0; index < (await details.count()); index++) await details.nth(index).click();
 				await details.first().scrollIntoViewIfNeeded();
 				await page.waitForTimeout(300);
