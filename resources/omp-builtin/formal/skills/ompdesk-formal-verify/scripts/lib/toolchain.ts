@@ -377,7 +377,8 @@ function readOwner(file: string): LockOwner | null {
 	return null;
 }
 
-function touched(lock: string, ownerFile: string): number {
+/** When the lock was last touched (its owner file, else its folder); null when there is no lock any more. */
+function touched(lock: string, ownerFile: string): number | null {
 	for (const target of [ownerFile, lock]) {
 		try {
 			return fs.statSync(target).mtimeMs;
@@ -385,7 +386,7 @@ function touched(lock: string, ownerFile: string): number {
 			// try the next
 		}
 	}
-	return 0;
+	return null;
 }
 
 /** This computer's name as it appears in `.part-` and `.tmp-` names (letters, digits and `_`). */
@@ -442,7 +443,8 @@ function otherHostWorking(cache: string, host: string, staleMs: number): boolean
 		if (!entry.startsWith(".lock-") || entry.endsWith(TAKEOVER_SUFFIX) || entry.includes(".stale-")) continue;
 		const lock = path.join(cache, entry);
 		const owner = readOwner(path.join(lock, "owner.json"));
-		if (owner && owner.host !== host && Date.now() - touched(lock, path.join(lock, "owner.json")) <= staleMs) {
+		const at = touched(lock, path.join(lock, "owner.json"));
+		if (owner && owner.host !== host && at !== null && Date.now() - at <= staleMs) {
 			return true;
 		}
 	}
@@ -528,12 +530,25 @@ export async function withLock<T>(
 		}
 		return true;
 	};
-	/** What a waiter sees of the lock now: who holds it, and whether it is dead or abandoned. */
-	const judge = (): { owner: LockOwner | null; idle: number; abandoned: boolean; dead: boolean } => {
+	/**
+	 * What a waiter sees of the lock now: who holds it, and whether it is dead or abandoned. Nothing here may judge a
+	 * lock other than the one a takeover then removes: the folder can go and come back between two reads (its holder
+	 * releases, another waiter's mkdir lands), and removing that new lock lets two holders in. So a lock that is gone
+	 * is never abandoned, and a dead pid counts only when the owner file still names that same holder after the pid
+	 * was found dead (its folder can then go only through a takeover, which the guard serializes).
+	 */
+	const judge = (): { owner: LockOwner | null; idle: number; gone: boolean; abandoned: boolean; dead: boolean } => {
 		const owner = readOwner(ownerFile);
-		const idle = Date.now() - touched(lock, ownerFile);
-		const dead = owner !== null && owner.host === me.host && !pidAlive(owner.pid);
-		return { owner, idle, dead, abandoned: dead || idle > staleMs };
+		const at = touched(lock, ownerFile);
+		if (at === null) return { owner, idle: 0, gone: true, dead: false, abandoned: false };
+		const idle = Date.now() - at;
+		let dead = owner !== null && owner.host === me.host && !pidAlive(owner.pid);
+		if (dead && owner) {
+			// A new holder always has another token (and pid or start time, for a lock written without one).
+			const again = readOwner(ownerFile);
+			dead = again?.pid === owner.pid && again.started === owner.started && again.token === owner.token;
+		}
+		return { owner, idle, gone: false, dead, abandoned: dead || idle > staleMs };
 	};
 	const takeOver = (): boolean => {
 		try {
@@ -548,7 +563,7 @@ export async function withLock<T>(
 		}
 		try {
 			const now = judge();
-			if (!fs.existsSync(lock)) return acquire();
+			if (now.gone) return acquire();
 			if (!now.abandoned) return false;
 			log(
 				now.dead

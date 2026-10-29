@@ -99,6 +99,23 @@
 			],
 			"syncCommit": "65377d09421b55e9a89cf22f8b6d73aa084361f8",
 			"verifySkill": ".omp/skills/checkout-claims-verify/SKILL.md"
+		},
+		{
+			"id": "toolchain-lock",
+			"title": "The formal skill's install lock: one installer at a time, takeover of a dead holder only",
+			"kind": "tla",
+			"dir": "toolchain-lock/tla",
+			"spec": "ToolchainLock.tla",
+			"matrix": "matrix.json",
+			"mutations": "mutations.json",
+			"covers": [
+				"resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts#withLock",
+				"resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts#touched",
+				"resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts#readOwner"
+			],
+			"verifySkill": ".omp/skills/toolchain-lock-verify/SKILL.md",
+			"syncCommit": "15fb86babb59ee1c88cdba905c8edeec8e60e7b4",
+			"syncDiff": "16f6d2850d2d0772f7f32a8173ed65f13b507401a1d38338962ae855ccd92e63"
 		}
 	]
 }

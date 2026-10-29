@@ -1,0 +1,26 @@
+{
+	"runs": [
+		{ "name": "three-waiters-fixed", "config": "MC.cfg", "expect": "pass" },
+		{ "name": "two-waiters-fixed", "config": "MC_two.cfg", "expect": "pass" },
+		{ "name": "four-waiters-fixed-safety", "config": "MC_four.cfg", "expect": "pass", "timeoutSec": 1800, "tier": "deep" },
+		{
+			"name": "code-before-the-fix",
+			"config": "MC_original.cfg",
+			"expect": "invariant",
+			"property": "MutualExclusion"
+		},
+		{
+			"name": "race-1-gone-lock-judged-abandoned",
+			"config": "MC_gone.cfg",
+			"expect": "invariant",
+			"property": "MutualExclusion"
+		},
+		{
+			"name": "race-2-dead-pid-condemns-the-next-lock",
+			"config": "MC_firstread.cfg",
+			"expect": "invariant",
+			"property": "MutualExclusion"
+		},
+		{ "name": "somebody-gets-the-lock", "config": "MC_sanity.cfg", "expect": "invariant", "property": "NeverHeld" }
+	]
+}

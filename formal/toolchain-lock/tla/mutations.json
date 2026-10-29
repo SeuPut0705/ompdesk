@@ -1,0 +1,62 @@
+{
+	"checker": {
+		"kind": "tlc",
+		"config": "MC_safety.cfg",
+		"timeoutSec": 600
+	},
+	"properties": ["TypeOK", "MutualExclusion", "NoFailure", "Termination"],
+	"waive": {
+		"TypeOK": "Shape check only: no behaviour change breaks it without also breaking a property above it."
+	},
+	"mutations": [
+		{
+			"name": "race-1-gone-lock-abandoned",
+			"why": "The code before the fix: touched() gave 0 for a lock that was gone, so judge called it abandoned, and takeOver then asked existsSync, saw another waiter's fresh mkdir and removed it.",
+			"search": "    ELSE seenTouched[p] /\\ seenDead[p] /\\ confirmed[p]\n\n\\* What takeOver checks for \"no lock\": the code before the fix asked existsSync now, the fix uses judge's own stat.\nTakeoverSeesNoLock(p) == IF GoneIsAbandoned THEN ~lockExists ELSE ~seenTouched[p]",
+			"replace": "    ELSE (seenDead[p] /\\ confirmed[p]) \\/ ~seenTouched[p]\n\nTakeoverSeesNoLock(p) == ~lockExists",
+			"breaks": "MutualExclusion",
+			"isolate": true
+		},
+		{
+			"name": "race-2-first-read-trusted",
+			"why": "The other half of the old code: a pid found dead condemned whatever lock was there by then, though its owner had released and a new waiter held the folder.",
+			"search": "TrustFirstRead \\/ OwnerNow = seenOwner[p]",
+			"replace": "TRUE",
+			"breaks": "MutualExclusion",
+			"isolate": true
+		},
+		{
+			"name": "no-takeover-guard",
+			"why": "Two waiters that both judged the planted lock dead both remove and remake it: the second removes the first's new lock.",
+			"search": "    /\\ IF ~guard\n",
+			"replace": "    /\\ IF TRUE\n",
+			"breaks": "MutualExclusion",
+			"isolate": true
+		},
+		{
+			"name": "no-rejudge-inside-guard",
+			"why": "takeOver acting on the main loop's judgement: a waiter that saw the dead lock gets the guard after another has already taken over, and removes that holder's lock.",
+			"search": "guard' = TRUE /\\ ctx' = [ctx EXCEPT ![p] = \"tk\"] /\\ Goto(p, \"j_owner\")",
+			"replace": "guard' = TRUE /\\ ctx' = [ctx EXCEPT ![p] = \"tk\"] /\\ Goto(p, \"j_decide\")",
+			"breaks": "MutualExclusion",
+			"isolate": true
+		},
+		{
+			"name": "takeover-without-judging",
+			"why": "A takeover that removes any lock it finds removes one a waiter has just made and not yet written its owner into: that waiter's writeFileSync fails with ENOENT.",
+			"search": "ELSE IF ~Abandoned(p) THEN \"tk_unguard_fail\"",
+			"replace": "ELSE IF FALSE THEN \"tk_unguard_fail\"",
+			"breaks": "NoFailure",
+			"isolate": true
+		},
+		{
+			"name": "no-fairness",
+			"why": "Without fairness a waiter may stop forever; Termination must catch that.",
+			"search": "Spec == Init /\\ [][Next]_vars /\\ \\A p \\in Procs : WF_vars(Step(p))",
+			"replace": "Spec == Init /\\ [][Next]_vars",
+			"breaks": "Termination",
+			"config": "MC_two.cfg",
+			"isolate": true
+		}
+	]
+}
