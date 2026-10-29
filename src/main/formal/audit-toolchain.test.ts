@@ -857,7 +857,8 @@ describe("the guard of the install lock", () => {
 						fs.writeFileSync(peer.flag("W-held"), ""); // A's delete may go now
 						await Promise.race([aClosed, new Promise(resolve => setTimeout(resolve, 10_000))]);
 						try {
-							survived = JSON.parse(fs.readFileSync(path.join(peer.lock, "owner.json"), "utf8")).pid === process.pid;
+							survived =
+								JSON.parse(fs.readFileSync(path.join(peer.lock, "owner.json"), "utf8")).pid === process.pid;
 						} catch {
 							survived = false;
 						}
@@ -895,9 +896,9 @@ describe("the guard of the install lock", () => {
 					{ log: quiet, pollMs: 5, maxWaitMs: 3_000 },
 				).catch((error: unknown) => error);
 				// W either took the folder over by now (no guard) or is waiting for B's guard (guarded).
-				await vi.waitFor(() => expect(peer.has("W-held")).toBe(true), { timeout: 1_500, interval: 5 }).catch(
-					() => undefined,
-				);
+				await vi
+					.waitFor(() => expect(peer.has("W-held")).toBe(true), { timeout: 1_500, interval: 5 })
+					.catch(() => undefined);
 				fs.writeFileSync(peer.flag("B-resume"), "");
 				await waiter;
 				expect(overlapped, "W worked while B held the lock").toBe(false);
@@ -1163,9 +1164,9 @@ describe("the guard of the install lock", () => {
 			}) as typeof fs.rmSync);
 			let result: unknown;
 			try {
-				result = await withLock(cache, "x", async () => "installed", { log: line => lines.push(line) }).catch(
-					(error: unknown) => error,
-				);
+				result = await withLock(cache, "x", async () => "installed", {
+					log: (line: string) => lines.push(line),
+				}).catch((error: unknown) => error);
 			} finally {
 				vi.restoreAllMocks();
 			}
@@ -1186,7 +1187,7 @@ describe("the guard of the install lock", () => {
 					plantGuard(guard, "somebody-else"); // taken for good (fresh, so nobody reclaims it)
 					return "installed";
 				},
-				{ log: line => lines.push(line), guardWaitMs: 150 },
+				{ log: (line: string) => lines.push(line), guardWaitMs: 150 },
 			).catch((error: unknown) => error);
 			expect(result).toBe("installed");
 			expect(Date.now() - started, "the wait for the guard is bounded").toBeLessThan(5_000);
