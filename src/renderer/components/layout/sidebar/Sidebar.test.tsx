@@ -4722,6 +4722,220 @@ describe("Sidebar device sections", () => {
 			expect(text).toBe(readFileSync(file, "utf8"));
 		};
 
+		// The user's report (29 Oct 2026, "잘 완료된건데"): a child that finished cleanly with work nothing merged read as
+		// failed. On every path it reads ready to merge (never the red ✕ or the error signal); a failed one is red; one
+		// that landed clean is no row. Each path learns it its own way: this computer from its closed records and review
+		// list, a device from what the host says beside each row (`childProblem`). A failed child whose OMPdesk worktree
+		// is gone and whose opener was deleted is no row either, not even a loose child of the checkout its record names.
+		it("reads a finished child's status the same on both paths: unmerged is never red, failed is", async () => {
+			const ORPHAN = "/h/orphan.jsonl";
+			const kids = {
+				"/h/merge.jsonl": "unmerged",
+				"/h/broke.jsonl": "failed",
+				"/h/clean.jsonl": undefined,
+				[ORPHAN]: "failed",
+			} as const;
+			const openerOfKid = (path: string) => (path === ORPHAN ? DELETED_OPENER : BOSS);
+			const sessionsFor = (device?: string) => [
+				session(BOSS, APP, { title: "Boss", created: "2026-09-01T00:00:00Z", device, openedBySession: null }),
+				...Object.entries(kids).map(([path, problem], index) =>
+					session(path, path === ORPHAN ? FOLDERS.wtg : APP, {
+						title: path,
+						created: `2026-09-02T00:00:0${index}Z`,
+						firstMessage: wrapAgentMessage("Fix it", path === ORPHAN ? "Deleted opener" : "Boss"),
+						device,
+						openedBySession: openerOfKid(path),
+						...(device && problem ? { childProblem: problem } : {}),
+					}),
+				),
+			];
+			const familyOf = (scope: Element | null) =>
+				Object.fromEntries(
+					[...(scope?.querySelectorAll("[data-sidebar-opened-session]") ?? [])].map(row => [
+						row.getAttribute("data-session-path"),
+						{
+							status: row.getAttribute("data-child-status"),
+							token: row.querySelector("[data-family-status]")?.getAttribute("data-family-status") ?? null,
+							signal: row.getAttribute("data-signal"),
+						},
+					]),
+				);
+			const review = (path: string, extra: Partial<AgentReviewItem>): AgentReviewItem => ({
+				tabId: `r:${path}`,
+				sessionPath: path,
+				title: path,
+				state: "needs-review",
+				commitsAhead: 0,
+				files: 0,
+				added: 0,
+				removed: 0,
+				uncommitted: 0,
+				answer: "",
+				...extra,
+			});
+
+			const local = install();
+			local.sessions.list.mockImplementation(async () => sessionsFor());
+			useTabsStore.setState({ tabs: [], activeTabId: null, bundles: new Map() });
+			await mount(<Sidebar />);
+			// Main's records, set after the sidebar's own first read of them (an empty pref here).
+			act(() => {
+				useClosedChildrenStore.setState({
+					rows: Object.keys(kids).map(path => ({
+						path,
+						openedBySession: openerOfKid(path),
+						title: path,
+						cwd: APP,
+						closedAt: 0,
+					})),
+				});
+				useAgentReviewStore.setState({
+					byTab: {
+						gone: [
+							review("/h/merge.jsonl", { branch: "omp/agent/merge", baseBranch: "main", commitsAhead: 2 }),
+							review("/h/broke.jsonl", { failed: true }),
+							review(ORPHAN, { failed: true }),
+						],
+					},
+				});
+			});
+			await flush();
+			for (const header of container.querySelectorAll('[data-workspace-group] button[aria-expanded="false"]'))
+				await act(async () => (header as unknown as HTMLButtonElement).click());
+			act(() => useSidebarSubagentsStore.setState({ expanded: new Set([BOSS]) }));
+			await flush();
+			const host = familyOf(container as unknown as Element);
+			act(() => root.unmount());
+			container.remove();
+			useAgentReviewStore.getState().reset();
+			useClosedChildrenStore.getState().reset();
+
+			const remote = install("dev-studio");
+			remote.sessions.list.mockImplementation(async (_scope, asked) =>
+				asked === "dev-studio" ? sessionsFor("dev-studio") : [],
+			);
+			useRemoteStore.getState().apply({
+				tailnet: "ready",
+				host: {
+					enabled: false,
+					name: "laptop",
+					port: null,
+					addresses: [],
+					listenError: null,
+					peers: [],
+					keepAwake: true,
+					keepingAwake: false,
+					usedBy: [],
+				},
+				hosts: [{ deviceId: "dev-studio", name: "studio", state: "online" }],
+				forgotten: [],
+			});
+			await mount(<Sidebar />);
+			act(() => useSidebarSubagentsStore.setState({ expanded: new Set([`device:dev-studio:${BOSS}`]) }));
+			await flush();
+			const device = familyOf(
+				container.querySelector('[data-sidebar-device="dev-studio"]') as unknown as Element | null,
+			);
+
+			expect(host).toEqual({
+				"/h/merge.jsonl": { status: "unmerged", token: "unmerged", signal: null },
+				"/h/broke.jsonl": { status: "failed", token: "failed", signal: "error" },
+			});
+			expect(device).toEqual(host);
+		});
+
+		// Known gap: an Autopilot run's children follow the run's row only on the host, whose git names each worktree's
+		// branch (`autopilotRunOf`); a device has only the worktree's project and kind, so there they are rows of the same
+		// project in recency order. Both list the same rows in the same group.
+		it("keeps an Autopilot run's children in its project on a device, following the run's row only on the host", async () => {
+			const RUN = "/Users/kim/.omp/wt/gui-2026-10-17-1111111";
+			const DOCS = "/Users/kim/.omp/wt/gui-2026-10-17-c2-docs-2222222";
+			const list: SidebarProjectsState = {
+				projects: [{ path: APP, addedAt: 1 }],
+				removed: [],
+				worktrees: { [RUN]: APP, [DOCS]: APP },
+				worktreeKinds: { [RUN]: "autopilot", [DOCS]: "autopilot" },
+			};
+			const rowsFor = (device?: string) =>
+				[
+					["/h/run.jsonl", RUN, "2026-02-01T00:00:00Z"],
+					["/h/plain.jsonl", APP, "2026-02-02T00:00:00Z"],
+					["/h/docs.jsonl", DOCS, "2026-02-03T00:00:00Z"],
+				].map(([path, cwd, created]) =>
+					session(path as string, cwd as string, {
+						created: created as string,
+						device,
+						...(device ? { openedBySession: null } : {}),
+					}),
+				);
+			const paths = (scope: Element | null | undefined) =>
+				[...(scope?.querySelectorAll("[data-session-path], [data-device-session]") ?? [])].map(
+					row => row.getAttribute("data-session-path") ?? row.getAttribute("data-device-session"),
+				);
+
+			const local = install();
+			local.sessions.list.mockImplementation(async () => rowsFor());
+			local.sidebarProjects.lists.local = list;
+			(local as unknown as Record<string, unknown>).projectOrigins = {
+				get: vi.fn(async (cwds: string[]) =>
+					Object.fromEntries(
+						cwds.map(cwd => [
+							cwd,
+							cwd === APP
+								? { project: "app", root: APP, worktree: null }
+								: {
+										project: "app",
+										root: APP,
+										worktree: {
+											kind: "autopilot",
+											branch: cwd === RUN ? "autopilot/2026-10-17" : "autopilot/2026-10-17-c2-docs",
+											slug: "x",
+										},
+									},
+						]),
+					),
+				),
+			};
+			useTabsStore.setState({ tabs: [], activeTabId: null, bundles: new Map() });
+			await mount(<Sidebar />);
+			for (const header of container.querySelectorAll('[data-workspace-group] button[aria-expanded="false"]'))
+				await act(async () => (header as unknown as HTMLButtonElement).click());
+			const host = paths(container.querySelector(`[data-session-group="${APP}"]`) as unknown as Element | null);
+			act(() => root.unmount());
+			container.remove();
+
+			const remote = install("dev-studio");
+			remote.sessions.list.mockImplementation(async (_scope, asked) =>
+				asked === "dev-studio" ? rowsFor("dev-studio") : [],
+			);
+			remote.sidebarProjects.lists["dev-studio"] = list;
+			useRemoteStore.getState().apply({
+				tailnet: "ready",
+				host: {
+					enabled: false,
+					name: "laptop",
+					port: null,
+					addresses: [],
+					listenError: null,
+					peers: [],
+					keepAwake: true,
+					keepingAwake: false,
+					usedBy: [],
+				},
+				hosts: [{ deviceId: "dev-studio", name: "studio", state: "online" }],
+				forgotten: [],
+			});
+			await mount(<Sidebar />);
+			const device = paths(
+				container.querySelector(
+					`[data-sidebar-device="dev-studio"] [data-device-group="${APP}"]`,
+				) as unknown as Element | null,
+			);
+
+			expect(host).toEqual(["/h/plain.jsonl", "/h/run.jsonl", "/h/docs.jsonl"]);
+			expect(device).toEqual(["/h/docs.jsonl", "/h/plain.jsonl", "/h/run.jsonl"]);
+		});
+
 		// One rule draws both (`sidebarRows`); each path only gathers what it knows. The user's reports (23 and 29 Oct
 		// 2026) were each a row one path listed and the other did not.
 		it("draws the same rows on the host's own sidebar and on a device's section", async () => {
