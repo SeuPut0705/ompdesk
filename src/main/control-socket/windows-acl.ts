@@ -18,10 +18,29 @@ const run = promisify(execFile);
 /** Runs a PowerShell script and resolves with its standard output. */
 export type PowerShell = (script: string) => Promise<string>;
 
+/**
+ * Windows PowerShell 5.1 with no cmdlet module in play (the scripts use .NET alone): a `PSModulePath` inherited from
+ * PowerShell 7 makes 5.1 fail to load its own modules ("Get-Acl … could not be loaded", seen on the CI runner), so it
+ * is dropped. A failure rejects with what PowerShell wrote to stderr, never the encoded script.
+ */
 export const runPowerShell: PowerShell = async script => {
 	const spec = powershellScript({ systemRoot: process.env.SystemRoot ?? "C:\\Windows" }, script);
-	const { stdout } = await run(spec.file, spec.args, { encoding: "utf8", windowsHide: true, timeout: 30_000 });
-	return stdout;
+	const { PSModulePath: _modules, ...env } = process.env;
+	try {
+		const { stdout } = await run(spec.file, spec.args, { encoding: "utf8", windowsHide: true, timeout: 30_000, env });
+		return stdout;
+	} catch (error) {
+		const stderr = typeof error === "object" && error !== null && "stderr" in error ? String(error.stderr) : "";
+		const text = stderr
+			.replace(/^#< CLIXML\s*/, "")
+			.replace(/<[^>]+>/g, " ")
+			.replace(/_x000D__x000A_/g, " ")
+			.replace(/\s+/g, " ")
+			.trim();
+		throw new Error(
+			`PowerShell failed: ${text || (error instanceof Error ? error.message.split("\n")[0] : String(error))}`,
+		);
+	}
 };
 
 const SYSTEM = "S-1-5-18";
@@ -41,12 +60,12 @@ function pipeScript(path: string, apply: boolean): string {
 		"$ErrorActionPreference = 'Stop'",
 		"$me = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value",
 		"$rights = [System.IO.Pipes.PipeAccessRights]'ReadData, ReadPermissions, ChangePermissions'",
-		`$client = New-Object System.IO.Pipes.NamedPipeClientStream('.', ${psQuote(pipeName(path))}, $rights, [System.IO.Pipes.PipeOptions]::None, [System.Security.Principal.TokenImpersonationLevel]::None, [System.IO.HandleInheritability]::None)`,
+		`$client = [System.IO.Pipes.NamedPipeClientStream]::new('.', ${psQuote(pipeName(path))}, $rights, [System.IO.Pipes.PipeOptions]::None, [System.Security.Principal.TokenImpersonationLevel]::None, [System.IO.HandleInheritability]::None)`,
 		"$client.Connect(10000)",
 		"try {",
 		...(apply
 			? [
-					"  $security = New-Object System.IO.Pipes.PipeSecurity",
+					"  $security = [System.IO.Pipes.PipeSecurity]::new()",
 					`  $security.SetSecurityDescriptorSddlForm("D:P(D;;GA;;;${NETWORK})(A;;GA;;;$me)", 'Access')`,
 					"  $client.SetAccessControl($security)",
 				]
@@ -103,21 +122,22 @@ function folderScript(dir: string, file: string): string {
 		"$sid = [System.Security.Principal.SecurityIdentifier]",
 		"$me = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value",
 		`$trusted = @($me, '${SYSTEM}', '${ADMINISTRATORS}')`,
-		"function Loose($path) {",
-		"  foreach ($rule in (Get-Acl -LiteralPath $path).GetAccessRules($true, $true, $sid)) {",
+		"function Loose($acl) {",
+		"  foreach ($rule in $acl.GetAccessRules($true, $true, $sid)) {",
 		"    if ($rule.AccessControlType -eq 'Allow' -and $trusted -notcontains $rule.IdentityReference.Value) { return $true }",
 		"  }",
 		"  return $false",
 		"}",
-		"if ($trusted -notcontains (Get-Acl -LiteralPath $dir).GetOwner($sid).Value) { 'foreign'; return }",
-		"$loose = (Loose $dir) -or ((Test-Path -LiteralPath $file) -and (Loose $file))",
+		"$folder = [System.IO.DirectoryInfo]::new($dir)",
+		"if ($trusted -notcontains $folder.GetAccessControl().GetOwner($sid).Value) { 'foreign'; return }",
+		"$loose = (Loose $folder.GetAccessControl()) -or ([System.IO.File]::Exists($file) -and (Loose ([System.IO.FileInfo]::new($file).GetAccessControl())))",
 		"if (-not $loose) { 'ok'; return }",
-		"$closed = New-Object System.Security.AccessControl.DirectorySecurity",
+		"$closed = [System.Security.AccessControl.DirectorySecurity]::new()",
 		"$closed.SetAccessRuleProtection($true, $false)",
 		`foreach ($who in @($me, '${SYSTEM}')) {`,
-		"  $closed.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule((New-Object System.Security.Principal.SecurityIdentifier($who)), 'FullControl', 'ContainerInherit, ObjectInherit', 'None', 'Allow')))",
+		"  $closed.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new([System.Security.Principal.SecurityIdentifier]::new($who), 'FullControl', 'ContainerInherit, ObjectInherit', 'None', 'Allow'))",
 		"}",
-		"(Get-Item -LiteralPath $dir).SetAccessControl($closed)",
+		"$folder.SetAccessControl($closed)",
 		"'repaired'",
 	].join("\n");
 }
