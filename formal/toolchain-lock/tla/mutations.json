@@ -9,6 +9,7 @@
 		"MutualExclusion",
 		"NoFailure",
 		"LiveHolderKept",
+		"GuardKept",
 		"Termination"
 	],
 	"waive": {
@@ -18,34 +19,43 @@
 		{
 			"name": "no-takeover-guard",
 			"why": "Two waiters that both judged the planted lock dead both remove and remake it: the second removes the first's new lock.",
-			"search": "/\\ pc[p] = \"tk_guard\" /\\ ~guard",
+			"search": "/\\ pc[p] = \"tk_guard\" /\\ gown = None",
 			"replace": "/\\ pc[p] = \"tk_guard\"",
 			"breaks": "MutualExclusion",
-			"isolate": true
+			"isolate": true,
+			"config": "MC_two_norecheck.cfg"
 		},
 		{
 			"name": "no-rejudge-inside-guard",
 			"why": "takeOver acting on the main loop's judgement: a waiter that saw the dead lock gets the guard after another has already taken over, and removes that holder's lock.",
-			"search": "/\\ guard' = TRUE /\\ ctx' = [ctx EXCEPT ![p] = \"tk\"] /\\ Goto(p, \"j_owner\")",
-			"replace": "/\\ guard' = TRUE /\\ ctx' = [ctx EXCEPT ![p] = \"tk\"] /\\ Goto(p, \"j_decide\")",
+			"search": "/\\ gown' = p /\\ UNCHANGED gstalled /\\ ctx' = [ctx EXCEPT ![p] = \"tk\"] /\\ Goto(p, \"j_owner\")",
+			"replace": "/\\ gown' = p /\\ UNCHANGED gstalled /\\ ctx' = [ctx EXCEPT ![p] = \"tk\"] /\\ Goto(p, \"j_decide\")",
 			"breaks": "MutualExclusion",
 			"isolate": true
 		},
 		{
 			"name": "plain-acquire-skips-guard",
 			"why": "Plain acquire without the guard: a process between mkdir and its owner write (asleep) leaves a half-made folder that looks abandoned; a takeover removes and remakes it, and the waking process writes its owner into the new lock: two holders.",
-			"search": "/\\ guard' = TRUE /\\ ctx' = [ctx EXCEPT ![p] = \"ac\"] /\\ Goto(p, \"acq_mkdir\")",
-			"replace": "/\\ UNCHANGED <<guard, ctx>> /\\ Goto(p, \"acq_mkdir\")",
+			"search": "/\\ gown' = p /\\ UNCHANGED gstalled /\\ ctx' = [ctx EXCEPT ![p] = \"ac\"] /\\ Goto(p, \"acq_mkdir\")",
+			"replace": "/\\ UNCHANGED <<GVars, ctx>> /\\ Goto(p, \"acq_mkdir\")",
 			"breaks": "MutualExclusion",
 			"isolate": true
 		},
 		{
 			"name": "remote-release-skips-guard",
 			"why": "The release of a holder on another computer without the guard: a takeover that judged its lock stale deletes after that holder woke and released and another waiter made a fresh lock, removing that waiter's lock.",
-			"search": "rpc' = (IF GuardedAcq THEN \"r_guard\" ELSE \"r_mine\")",
+			"search": "rpc' = (IF GuardedRel THEN \"r_guard\" ELSE \"r_mine\")",
 			"replace": "rpc' = \"r_mine\"",
 			"breaks": "MutualExclusion",
 			"isolate": true
+		},
+		{
+			"name": "local-release-skips-guard",
+			"why": "The release of a holder on this computer without the guard.",
+			"equivalent": "A live holder on this computer is never judged abandoned (only its dead pid condemns it, and a dead process does not release), so no takeover can land between its ownership check and its delete: the model finds the guard on a release necessary only through the remote holder R's release (remote-release-skips-guard). The local release takes the guard so that no change of the lock bypasses it; the real-code test 'takes the guard to release' (audit-toolchain.test.ts) pins it with a peer that is told it is on another computer.",
+			"search": "/\\ pc[p] = \"cs\" /\\ Goto(p, IF GuardedRel THEN \"rl_guard\" ELSE \"rel_mine\")",
+			"replace": "/\\ pc[p] = \"cs\" /\\ Goto(p, \"rel_mine\")",
+			"config": "MC_two.cfg"
 		},
 		{
 			"name": "acquire-without-peek",
@@ -68,16 +78,51 @@
 		{
 			"name": "plain-acquire-skips-guard-nofailure",
 			"why": "The same mutation seen through NoFailure: a process asleep between mkdir and its owner write has its half-made folder removed by a takeover, and its owner write then fails with ENOENT.",
-			"search": "/\\ guard' = TRUE /\\ ctx' = [ctx EXCEPT ![p] = \"ac\"] /\\ Goto(p, \"acq_mkdir\")",
-			"replace": "/\\ UNCHANGED <<guard, ctx>> /\\ Goto(p, \"acq_mkdir\")",
+			"search": "/\\ gown' = p /\\ UNCHANGED gstalled /\\ ctx' = [ctx EXCEPT ![p] = \"ac\"] /\\ Goto(p, \"acq_mkdir\")",
+			"replace": "/\\ UNCHANGED <<GVars, ctx>> /\\ Goto(p, \"acq_mkdir\")",
 			"breaks": "NoFailure",
 			"config": "MC_nofailure.cfg",
 			"isolate": true
 		},
 		{
+			"name": "no-guard-recheck",
+			"why": "A holder that stalled past the guard's 30 s (its guard reclaimed, another holder working under it, the lock replaced) acts on the lock it judged before the stall: it deletes the lock the other holder made.",
+			"search": "(IF Recheck = \"gap\" THEN chk[p] ELSE Holds(p))",
+			"replace": "TRUE",
+			"breaks": "MutualExclusion",
+			"config": "MC_stall.cfg",
+			"isolate": true
+		},
+		{
+			"name": "recheck-ignores-the-token",
+			"why": "A check that only asks 'was the guard taken a moment ago' passes for a holder whose guard was reclaimed and taken again by another process: its fresh guard looks like the holder's own.",
+			"search": "Holds(p) == gown = p /\\ ~gstalled",
+			"replace": "Holds(p) == ~gstalled",
+			"breaks": "MutualExclusion",
+			"config": "MC_stall.cfg",
+			"isolate": true
+		},
+		{
+			"name": "recheck-ignores-the-stall",
+			"why": "A check that only compares the token passes for a holder that stalled but whose guard nobody reclaimed yet.",
+			"equivalent": "A stalled holder whose guard is still its own is the only process under the guard: nothing else can change the lock before it acts. The time bound (GUARD_BUDGET_MS) narrows the window in which a reclaim can land between the check and the call; the model has no clock for that window and keeps it as the assumption stated in SCOPE.md (MC_stall_gap.cfg shows what the window costs).",
+			"search": "Holds(p) == gown = p /\\ ~gstalled",
+			"replace": "Holds(p) == gown = p",
+			"config": "MC_stall.cfg"
+		},
+		{
+			"name": "stale-guard-reclaimed-by-name",
+			"why": "A stale guard removed by its name after it was judged: the holder finished and another process made a new guard under that name in between, and the reclaimer removes that live guard (two processes inside the guard).",
+			"search": "IF Reclaim = \"name\"",
+			"replace": "IF TRUE",
+			"breaks": "GuardKept",
+			"config": "MC_stall.cfg",
+			"isolate": true
+		},
+		{
 			"name": "no-fairness",
 			"why": "Without fairness a waiter may stop forever; Termination must catch that.",
-			"search": "Spec == Init /\\ [][Next]_vars /\\ \\A p \\in Procs : WF_vars(Step(p)) /\\ SF_vars(RlGuard(p))\n        /\\ WF_vars(RStep) /\\ SF_vars(RGuard)",
+			"search": "Spec == Init /\\ [][Next]_vars /\\ \\A p \\in Procs : WF_vars(Step(p)) /\\ SF_vars(RlGuard(p))\n        /\\ WF_vars(RStep) /\\ SF_vars(RGuard) /\\ WF_vars(AgeUp)",
 			"replace": "Spec == Init /\\ [][Next]_vars",
 			"breaks": "Termination",
 			"config": "MC_two.cfg",

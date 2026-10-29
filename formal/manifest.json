@@ -114,7 +114,7 @@
 				"resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts#readOwner"
 			],
 			"verifySkill": ".omp/skills/toolchain-lock-verify/SKILL.md",
-			"syncCommit": "af2f6ec4bc74dcb13be3b27bdc97f8a03d93d8ab"
+			"syncCommit": "b0d2e6249ff37f0ded989ce3036cebcac7e2954f"
 		}
 	]
 }

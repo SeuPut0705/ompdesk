@@ -54,6 +54,54 @@
 			"property": "MutualExclusion"
 		},
 		{
+			"name": "two-waiters-guard-holder-stalls-fixed",
+			"config": "MC_stall.cfg",
+			"expect": "pass"
+		},
+		{
+			"name": "two-waiters-guard-holder-stalls-liveness",
+			"config": "MC_stall_live.cfg",
+			"expect": "pass",
+			"timeoutSec": 1800
+		},
+		{
+			"name": "three-waiters-guard-holder-stalls-safety",
+			"config": "MC_stall_three.cfg",
+			"expect": "pass",
+			"timeoutSec": 3600,
+			"tier": "deep"
+		},
+		{
+			"name": "race-5-no-guard-on-acquire",
+			"config": "MC_noacqguard.cfg",
+			"expect": "invariant",
+			"property": "MutualExclusion"
+		},
+		{
+			"name": "race-6-no-guard-on-release",
+			"config": "MC_norelguard.cfg",
+			"expect": "invariant",
+			"property": "MutualExclusion"
+		},
+		{
+			"name": "race-7-guard-holder-stalls-without-a-recheck",
+			"config": "MC_stall_norecheck.cfg",
+			"expect": "invariant",
+			"property": "MutualExclusion"
+		},
+		{
+			"name": "race-8-stall-between-the-recheck-and-the-call",
+			"config": "MC_stall_gap.cfg",
+			"expect": "invariant",
+			"property": "MutualExclusion"
+		},
+		{
+			"name": "race-9-stale-guard-reclaimed-by-name",
+			"config": "MC_stall_byname.cfg",
+			"expect": "invariant",
+			"property": "GuardKept"
+		},
+		{
 			"name": "somebody-gets-the-lock",
 			"config": "MC_sanity.cfg",
 			"expect": "invariant",

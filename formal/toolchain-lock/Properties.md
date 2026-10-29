@@ -8,8 +8,11 @@ Protocol-level: any correct lock with takeover of an abandoned holder must hold 
 | `NoFailure` | No waiter fails because another removed the folder it was making its lock in. | The same test (`stderr of the waiters` is empty, every exit code 0); `withLock` doc ("which two waiters must not both do"). |
 | `Termination` | Every waiter gets the lock once and finishes (under weak fairness of each process, and strong fairness of the release's wait for the guard). | The same test (`entered` is `rounds * procs`, each round inside its deadline). |
 | `LiveHolderKept` | A live holder on this computer never loses its lock to a takeover, however long its computer slept. | `audit-toolchain.test.ts` "never takes over a live holder on this computer"; the install lock's doc ("a holder that is alive on this computer keeps it"). Added 30 Oct 2026 (the stale branch had condemned live holders). |
+| `GuardKept` | A guard folder is removed by someone else only after its holder stalled for 30 s; a guard taken since the one judged stale is never removed. | `reclaimStaleGuard` / `takeGuardAside` doc; `audit-toolchain.test.ts` "is reclaimed only as the very guard that was judged: one made in between survives". Added 30 Oct 2026. |
 | `TypeOK` | Shape of the variables. Waived in the mutation set. | model |
 
 Sanity (must FAIL, in `matrix.json`): `NeverHeld` (somebody does get the lock).
 
 Changed 30 Oct 2026, on purpose: `MutualExclusion` lost its exemption for holders that slept (there are none left: a live local holder is never taken over, so two processes in the work is always a violation); `LiveHolderKept` was added; `TakenOverFails` was drafted and dropped (a holder of another computer is outside `Procs`; its stop is a unit test, see `SCOPE.md`).
+
+Added 30 Oct 2026 (review of the guard): `GuardKept` (nobody removes a guard whose holder has not stalled for 30 s). A new property for a new mechanism (the guard's own stale reclaim, by identity); no existing property was weakened. `MutualExclusion` now also holds with a guard holder that stalls and has its guard reclaimed (`MC_stall.cfg`), because every destructive step re-checks the guard first.

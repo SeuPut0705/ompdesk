@@ -12,3 +12,6 @@ The fix:
 
 After the stale-gap fix (every change of the lock under the guard, a live local holder never taken over, acquire looks before it takes the guard), same driver, same machine:
   K=16 R=1000 entered=16000/16000 overlaps=0 badRounds=0     (618 s, beside TLC runs)
+
+After the review fixes (the guard names its holder, is re-checked before each destructive call and is reclaimed by identity; a failing release never fails the work), 30 Oct 2026, same child, same machine, nothing else running. The driver also fails a round that leaves anything in the cache (a lock, a guard, a `.takeover.tmp-<host>-<pid>` folder of the identity reclaim):
+  K=16 R=1000 entered=16000/16000 overlaps=0 badRounds=0     (448 s)
