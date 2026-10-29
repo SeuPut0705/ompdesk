@@ -11,11 +11,15 @@ import { isLiveSubagentStatus } from "../../panels/subagent-graph";
 /** What a child is: a subagent of the session, a session opened in a worktree, or a plain opened session. */
 export type FamilyKind = "subagent" | "worktree" | "session";
 
-/** One status token for every kind of child: running pulse, waiting ⚠, done ✓, failed ✕, or paused/nothing. */
-export type FamilyState = "running" | "waiting" | "done" | "failed" | "idle";
+/** One status token for every kind of child: running pulse, waiting ⚠, done ✓, failed ✕, ready to merge, or paused/nothing. */
+export type FamilyState = "running" | "waiting" | "done" | "failed" | "unmerged" | "idle";
 
-/** What an opened session is, as ONE status: the row's token, the fold rule and the chip's counts all read it. */
-export type ChildStatus = "running" | "waiting" | "done" | "problem";
+/**
+ * What an opened session is, as ONE status: the row's token, the fold rule and the chip's counts all read it. `failed`
+ * is an error or stopped ending; `unmerged` is a clean finish whose branch still holds work nothing merged (ready to
+ * merge, never a failure).
+ */
+export type ChildStatus = "running" | "waiting" | "done" | "failed" | "unmerged";
 
 /** The facts a status is derived from (the sidebar reads them off the tab, the session list and the review queue). */
 export interface ChildFacts {
@@ -35,7 +39,8 @@ export interface ChildFacts {
 const CHILD_STATUS_RULES: ReadonlyArray<readonly [when: (facts: ChildFacts) => boolean, status: ChildStatus]> = [
 	[facts => facts.waiting, "waiting"],
 	[facts => facts.running, "running"],
-	[facts => facts.finished && (facts.failed || facts.unmerged), "problem"],
+	[facts => facts.finished && facts.failed, "failed"],
+	[facts => facts.finished && facts.unmerged, "unmerged"],
 	[facts => facts.finished, "done"],
 ];
 
@@ -43,12 +48,13 @@ export function openedChildStatus(facts: ChildFacts): ChildStatus | null {
 	return CHILD_STATUS_RULES.find(([when]) => when(facts))?.[1] ?? null;
 }
 
-/** The token each status shows: a problem is the failed ✕ (an error ending, or work that has not landed). */
+/** The token each status shows: failed is the red ✕; unmerged work is the neutral ready-to-merge mark. */
 export const CHILD_TOKEN: Readonly<Record<ChildStatus, FamilyState>> = {
 	running: "running",
 	waiting: "waiting",
 	done: "done",
-	problem: "failed",
+	failed: "failed",
+	unmerged: "unmerged",
 };
 
 /** A subagent's status as the one token a row shows. `stale` (registered, no turn) needs a look like a wait does. */
@@ -80,7 +86,7 @@ export function isFoldedSubagent(status: string): boolean {
 
 /**
  * Whether an opened session shows in its opener's family: everything but a finished one that landed clean. Running,
- * waiting, failed and unmerged/dirty ones (status `problem`) show, and so does one that has not run yet (no status).
+ * waiting, failed and unmerged/dirty ones show, and so does one that has not run yet (no status).
  */
 export function isShownOpened(child: { status: ChildStatus | null }): boolean {
 	return child.status !== "done";

@@ -1809,15 +1809,17 @@ export function Sidebar() {
 			unmerged: reviewUnmerged(review),
 		});
 		const statusLabel =
-			status === "problem"
-				? t(failed ? "sidebar.row.failed" : "sidebar.family.unmerged")
-				: status === "done"
-					? t("tabs.done")
-					: status === "waiting" && !isAsk(row.waiting)
-						? t(ATTENTION_LABEL_KEY.question)
-						: status === "running" && !row.running
-							? t("sidebar.signal.running")
-							: (row.statusLabel ?? "");
+			status === "failed"
+				? t("sidebar.row.failed")
+				: status === "unmerged"
+					? t("sidebar.family.readyToMerge")
+					: status === "done"
+						? t("tabs.done")
+						: status === "waiting" && !isAsk(row.waiting)
+							? t(ATTENTION_LABEL_KEY.question)
+							: status === "running" && !row.running
+								? t("sidebar.signal.running")
+								: (row.statusLabel ?? "");
 		// What it runs on: main's push for an open one, else what main recorded when it closed it.
 		const model = (childUsage[child.path] ?? closedChildren.find(row => row.path === child.path))?.model;
 		return {
@@ -1875,7 +1877,7 @@ export function Sidebar() {
 						? "waiting"
 						: status === "running"
 							? "running"
-							: status === "problem"
+							: status === "failed"
 								? "error"
 								: undefined,
 				"data-child-status": status ?? undefined,
@@ -1909,15 +1911,17 @@ export function Sidebar() {
 		const device = hosts.find(host => host.deviceId === tab.device)?.name ?? tab.device ?? "";
 		const title = tab.title || tab.task || t("sidebar.newSession");
 		const statusLabel =
-			status === "problem"
-				? t(failed ? "sidebar.row.failed" : "sidebar.family.unmerged")
-				: status === "waiting"
-					? t(ATTENTION_LABEL_KEY[tab.awaitingInput === "approval" ? "approval" : "question"])
-					: status === "running"
-						? t("sidebar.signal.running")
-						: status === "done"
-							? t("tabs.done")
-							: t("sidebar.row.open");
+			status === "failed"
+				? t("sidebar.row.failed")
+				: status === "unmerged"
+					? t("sidebar.family.readyToMerge")
+					: status === "waiting"
+						? t(ATTENTION_LABEL_KEY[tab.awaitingInput === "approval" ? "approval" : "question"])
+						: status === "running"
+							? t("sidebar.signal.running")
+							: status === "done"
+								? t("tabs.done")
+								: t("sidebar.row.open");
 		const model = childUsage[tab.sessionPath ?? tab.id]?.model;
 		return {
 			key: id,
@@ -1936,7 +1940,7 @@ export function Sidebar() {
 				"data-session-path": tab.sessionPath ?? `tab:${tab.id}`,
 				"data-sidebar-opened-session": true,
 				"data-device": tab.device,
-				"data-signal": waiting ? "waiting" : running ? "running" : status === "problem" ? "error" : undefined,
+				"data-signal": waiting ? "waiting" : running ? "running" : status === "failed" ? "error" : undefined,
 				"data-child-status": status ?? undefined,
 			},
 		};

@@ -49,7 +49,14 @@ export interface OpenedChildCounts {
 	done: number;
 }
 
-const ORDER: Record<ChildStatus | "none", number> = { waiting: 0, problem: 1, running: 2, none: 3, done: 4 };
+const ORDER: Record<ChildStatus | "none", number> = {
+	waiting: 0,
+	failed: 1,
+	unmerged: 2,
+	running: 3,
+	none: 4,
+	done: 5,
+};
 
 /**
  * The children of `parent`: tabs naming it as their opener (by tab id, or by session file after a relaunch gave every

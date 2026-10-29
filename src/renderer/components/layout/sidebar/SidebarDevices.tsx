@@ -725,15 +725,17 @@ function DeviceSessions({
 		});
 		const title = sessionDisplayTitle(child, t("sidebar.untitled"));
 		const statusLabel =
-			status === "problem"
-				? t(failed ? "sidebar.row.failed" : "sidebar.family.unmerged")
-				: status === "waiting"
-					? t("sidebar.row.needsInput")
-					: status === "running"
-						? t("sidebar.signal.running")
-						: status === "done"
-							? t("tabs.done")
-							: "";
+			status === "failed"
+				? t("sidebar.row.failed")
+				: status === "unmerged"
+					? t("sidebar.family.readyToMerge")
+					: status === "waiting"
+						? t("sidebar.row.needsInput")
+						: status === "running"
+							? t("sidebar.signal.running")
+							: status === "done"
+								? t("tabs.done")
+								: "";
 		const id = `device:${host.deviceId}:${child.path}`;
 		const key = `session:${id}`;
 		return {
@@ -758,7 +760,7 @@ function DeviceSessions({
 						? "waiting"
 						: status === "running"
 							? "running"
-							: status === "problem"
+							: status === "failed"
 								? "error"
 								: undefined,
 				"data-child-status": status ?? undefined,

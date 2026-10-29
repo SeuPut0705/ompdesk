@@ -47,7 +47,7 @@ describe("openedChildRows: the sessions an agent opened as children of its sessi
 		});
 		expect(rows.map(row => [row.key, row.status])).toEqual([
 			["ask", "waiting"],
-			["bad", "problem"],
+			["bad", "failed"],
 			["run", "running"],
 			["done", "done"],
 		]);
@@ -173,7 +173,7 @@ describe("openedChildRows: the sessions an agent opened as children of its sessi
 		expect(rows[0]).toMatchObject({ key: "asks", status: "waiting", report: { kind: "question", text: "Keep it?" } });
 	});
 
-	it("reads a branch's merge state: unmerged commits are a problem, a settled review is merged", () => {
+	it("reads a branch's merge state: a clean finish with unmerged commits is ready to merge, a settled review is merged", () => {
 		const worktree = { name: "w", branch: "omp/agent/w", baseCwd: "/w", path: "/wt/w" };
 		const rows = openedChildRows({
 			parent,
@@ -185,13 +185,33 @@ describe("openedChildRows: the sessions an agent opened as children of its sessi
 			closed: [],
 		});
 		expect(rows.find(row => row.key === "a")).toMatchObject({
-			status: "problem",
+			status: "unmerged",
 			merge: "unmerged",
 			branch: "omp/agent/w",
 			base: "main",
 		});
 		// No review item left: it was approved or accepted.
 		expect(rows.find(row => row.key === "b")).toMatchObject({ status: "done", merge: "merged" });
+	});
+
+	it("keeps a failed ending failed when its branch holds unmerged commits too, and lists failed before ready to merge", () => {
+		const worktree = { name: "w", branch: "omp/agent/w", baseCwd: "/w", path: "/wt/w" };
+		const rows = openedChildRows({
+			parent,
+			tabs: [
+				tab("ready", { openedBy: "boss", lastRun: stop, worktree }),
+				tab("bad", { openedBy: "boss", lastRun: { stopReason: "error" }, worktree }),
+			],
+			review: new Map([
+				["ready", review("ready", { branch: "omp/agent/w", commitsAhead: 1 })],
+				["bad", review("bad", { branch: "omp/agent/w", commitsAhead: 1 })],
+			]),
+			closed: [],
+		});
+		expect(rows.map(row => [row.key, row.status])).toEqual([
+			["bad", "failed"],
+			["ready", "unmerged"],
+		]);
 	});
 
 	it("finds a child by the opener's session file after a relaunch, and adds the stored ones main closed", () => {

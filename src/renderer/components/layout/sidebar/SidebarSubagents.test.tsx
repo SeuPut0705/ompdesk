@@ -76,7 +76,13 @@ function seed(agents: SubagentSnapshot[], owners: Record<string, string> = {}): 
 	});
 }
 
-const STATUS_OF_STATE = { running: "running", waiting: "waiting", done: "done", failed: "problem" } as const;
+const STATUS_OF_STATE = {
+	running: "running",
+	waiting: "waiting",
+	done: "done",
+	failed: "failed",
+	unmerged: "unmerged",
+} as const;
 
 function opened(overrides: Partial<FamilyOpened> & { key: string }): FamilyOpened {
 	const state = overrides.state ?? null;
@@ -593,6 +599,13 @@ describe("a session's family: one-line rows", () => {
 				tooltip: "Check the build\nRunning\n/wt/a",
 			}),
 			opened({ key: "/wt/b.jsonl", kind: "session", title: "Review", state: "failed", stateLabel: "Failed" }),
+			opened({
+				key: "/wt/d.jsonl",
+				kind: "worktree",
+				title: "Merge me",
+				state: "unmerged",
+				stateLabel: "Ready to merge",
+			}),
 			opened({ key: "/wt/c.jsonl", kind: "session", title: "Idle one", state: null }),
 		];
 		await mount(<Session kids={children} />);
@@ -611,6 +624,11 @@ describe("a session's family: one-line rows", () => {
 		expect(openedRow("/wt/b.jsonl").querySelector('[data-family-status="failed"]')).not.toBeNull();
 		// Merely open: no token at all.
 		expect(openedRow("/wt/c.jsonl").querySelector("[data-family-status]")).toBeNull();
+		// Finished clean with commits nobody merged: its own neutral mark, shown, never the red ✕.
+		const merge = openedRow("/wt/d.jsonl");
+		expect(merge.querySelector('[data-family-status="unmerged"]')).not.toBeNull();
+		expect(merge.querySelector('[data-family-status="failed"]')).toBeNull();
+		expect(merge.querySelector('[data-family-status="unmerged"] svg')?.getAttribute("class")).not.toContain("danger");
 	});
 
 	it("an opened session's row opens it, and the selected one reads as current", async () => {

@@ -157,11 +157,12 @@ test("finished opened sessions are not listed and their tabs close; unmerged wor
 	expect(git(project, "branch", "--list", c.branch)).toContain(c.branch);
 
 	// The family: the two closed sessions (done, landed) are not listed at all; the unmerged one is a visible row with
-	// the failed mark.
+	// the ready-to-merge mark, never the failed one (29 Oct 2026: it finished cleanly).
 	await page.locator("[data-sidebar-subagents-toggle]").first().click();
-	const row = page.locator('[data-sidebar-opened-session][data-child-status="problem"]');
+	const row = page.locator('[data-sidebar-opened-session][data-child-status="unmerged"]');
 	await expect(row).toHaveCount(1, { timeout: 30_000 });
-	await expect(row.locator('[data-family-status="failed"]')).toHaveCount(1);
+	await expect(row.locator('[data-family-status="unmerged"]')).toHaveCount(1);
+	await expect(row.locator('[data-family-status="failed"]')).toHaveCount(0);
 	await expect(page.locator("[data-sidebar-opened-session]")).toHaveCount(1);
 	await expect.poll(async () => page.locator("body").innerText()).not.toContain("(untitled)");
 	expect(git(project, "status", "--porcelain")).toBe("");

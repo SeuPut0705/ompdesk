@@ -4,7 +4,7 @@
  * wait for an answer are rows of Needs you, the others of Now, where the finished ones fold into one "n done" row like
  * the plan's. Loaded on demand by `WorkBoard.tsx` (the phone's first screen never needs them).
  */
-import { Check, GitFork } from "lucide-react";
+import { Check, GitFork, GitMerge } from "lucide-react";
 import { useState } from "react";
 import { useLiveReview } from "../../../hooks/use-live-review";
 import { useSessionSpend } from "../../../hooks/use-session-spend";
@@ -32,7 +32,7 @@ function OpenedRow({ row, now, tag }: { row: OpenedChildRow; now: number; tag?: 
 	const status = row.status;
 	const statusLabel = status ? t(`workBoard.opened.status.${status}`) : t("workBoard.opened.status.open");
 	const branch = row.branch ? t("workBoard.review.branch", { branch: row.branch, base: row.base ?? "—" }) : null;
-	const mergeNote = row.merge ? t(`workBoard.opened.merge.${row.merge}`) : null;
+	const mergeNote = row.merge && status !== "unmerged" ? t(`workBoard.opened.merge.${row.merge}`) : null;
 	const report = row.report
 		? t("workBoard.opened.report", { kind: t(`chat.custom.mail.kind.${row.report.kind}`), text: row.report.text })
 		: null;
@@ -85,11 +85,13 @@ function OpenedRow({ row, now, tag }: { row: OpenedChildRow; now: number; tag?: 
 			lead={
 				status === "done" ? (
 					<Check aria-hidden className="size-3 text-(--sc-success)" />
+				) : status === "unmerged" ? (
+					<KindMark icon={GitMerge} tone="info" />
 				) : (
 					<KindMark
 						icon={GitFork}
 						tone={
-							status === "problem"
+							status === "failed"
 								? "danger"
 								: status === "waiting"
 									? "warning"

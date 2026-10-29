@@ -182,7 +182,8 @@ describe("isShownOpened", () => {
 		expect(isShownOpened({ status: "done" })).toBe(false);
 		expect(isShownOpened({ status: "running" })).toBe(true);
 		expect(isShownOpened({ status: "waiting" })).toBe(true);
-		expect(isShownOpened({ status: "problem" })).toBe(true);
+		expect(isShownOpened({ status: "failed" })).toBe(true);
+		expect(isShownOpened({ status: "unmerged" })).toBe(true);
 		expect(isShownOpened({ status: null })).toBe(true);
 	});
 });
@@ -205,23 +206,32 @@ describe("openedChildStatus: one status per opened session", () => {
 	const idle: ChildFacts = { waiting: false, running: false, finished: false, failed: false, unmerged: false };
 	const status = (patch: Partial<ChildFacts>) => openedChildStatus({ ...idle, ...patch });
 
-	it("reads running, waiting, done and problem, and nothing for a session that has not run", () => {
+	it("reads running, waiting, done, failed and unmerged, and nothing for a session that has not run", () => {
 		expect(status({})).toBeNull();
 		expect(status({ running: true })).toBe("running");
 		expect(status({ waiting: true, running: true })).toBe("waiting");
 		expect(status({ finished: true })).toBe("done");
+		expect(status({ finished: true, failed: true })).toBe("failed");
+		expect(status({ finished: true, unmerged: true })).toBe("unmerged");
 	});
 
-	it("keeps a finished session that failed or left unmerged work a problem, never folded as done", () => {
-		expect(status({ finished: true, failed: true })).toBe("problem");
-		expect(status({ finished: true, unmerged: true })).toBe("problem");
+	it("tells a clean finish with unmerged work from a failed ending, and never folds either as done", () => {
+		// 29 Oct 2026: a session that finished well with commits nobody merged yet read as a failure (red ✕).
+		expect(status({ finished: true, unmerged: true, failed: false })).toBe("unmerged");
+		expect(status({ finished: true, failed: true, unmerged: true })).toBe("failed");
 		// Unmerged work of a session still at work is not a verdict yet.
 		expect(status({ running: true, unmerged: true })).toBe("running");
 		expect(status({ unmerged: true })).toBeNull();
 	});
 
-	it("shows each status as its token: a problem is the failed mark", () => {
-		expect(CHILD_TOKEN).toEqual({ running: "running", waiting: "waiting", done: "done", problem: "failed" });
+	it("shows each status as its own token: failed is the ✕, unmerged is the ready-to-merge mark", () => {
+		expect(CHILD_TOKEN).toEqual({
+			running: "running",
+			waiting: "waiting",
+			done: "done",
+			failed: "failed",
+			unmerged: "unmerged",
+		});
 	});
 });
 

@@ -5,7 +5,7 @@
  * the tooltip; the row never grows a second line.
  */
 
-import { Bot, Check, GitBranch, MessageSquare, Pause, TriangleAlert, X } from "lucide-react";
+import { Bot, Check, GitBranch, GitMerge, MessageSquare, Pause, TriangleAlert, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { cx } from "../../../lib/format";
 import type { ListRowProps } from "../../common/ListRow";
@@ -31,6 +31,8 @@ export function FamilyStatus({ state }: { state: FamilyState }) {
 				<Check className="size-(--sc-icon-sm) text-(--sc-success)" />
 			) : state === "failed" ? (
 				<X className="size-(--sc-icon-sm) text-(--sc-danger)" />
+			) : state === "unmerged" ? (
+				<GitMerge className="size-(--sc-icon-sm) text-(--sc-info)" />
 			) : (
 				<Pause className="size-(--sc-icon-sm) text-(--sc-text-subtle)" />
 			)}

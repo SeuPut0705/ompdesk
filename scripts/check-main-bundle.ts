@@ -133,7 +133,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // A finished worktree's session listed only for a tab the person uses (`tabInUse`, `inUseByTab` in the host's sidebar
 // and the device section; 29 Oct 2026: a device's restored asleep tabs listed two landed worktrees' sessions):
 // measured 3,203,418 with the other changes of 29 Oct in the tree, 970 bytes over the measure above.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_204_000;
+// A finished child with unmerged work is its own status, ready to merge, apart from a failed ending (`unmerged` in
+// `sidebar-family.ts`, the `GitMerge` token and its words in the sidebar family row and the work board's child row; 29
+// Oct 2026: it read as a failure): 1,155 bytes more (measured 3,204,573).
+const WEB_FIRST_SCREEN_JS_BYTES = 3_205_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

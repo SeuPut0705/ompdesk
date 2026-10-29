@@ -220,7 +220,7 @@ describe("work board opened sessions", () => {
 		const listedRows = () => [...(opened()?.querySelectorAll("[data-board-opened]") ?? [])];
 		const rows = listedRows();
 		expect(rows.map(row => [row.getAttribute("data-board-opened"), row.getAttribute("data-status")])).toEqual([
-			["c-merge", "problem"],
+			["c-merge", "unmerged"],
 			["c-run", "running"],
 		]);
 		expect(opened()?.querySelector("[data-board-more]")).toBeNull();
@@ -235,7 +235,7 @@ describe("work board opened sessions", () => {
 		expect(fold?.getAttribute("data-open")).toBe("true");
 		expect(listedRows().map(row => [row.getAttribute("data-board-opened"), row.getAttribute("data-status")])).toEqual(
 			[
-				["c-merge", "problem"],
+				["c-merge", "unmerged"],
 				["c-run", "running"],
 				["c-done", "done"],
 				["/s/closed.jsonl", "done"],
@@ -248,7 +248,10 @@ describe("work board opened sessions", () => {
 		expect(rows[1]?.textContent).toContain("Run the suite");
 		expect(rows[1]?.getAttribute("title")).toContain("running bash (vitest)");
 		expect(rows[0]?.getAttribute("title")).toContain("omp/agent/m → main");
-		expect(rows[0]?.getAttribute("title")).toContain("Not merged");
+		expect(rows[0]?.getAttribute("title")).toContain("Ready to merge");
+		// Clean finish with commits nobody merged is never red: the info mark, not the danger one.
+		expect(rows[0]?.querySelector(".omp-work-board-kind")?.getAttribute("data-tone")).toBe("info");
+		expect(pane.querySelector('[data-board-opened] [data-tone="danger"]')).toBeNull();
 	});
 
 	it("shows only the fold when every child finished", async () => {

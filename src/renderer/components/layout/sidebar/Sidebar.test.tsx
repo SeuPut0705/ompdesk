@@ -2924,11 +2924,12 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		await flush();
 		const failed = familyRows().find(row => row.getAttribute("data-session-path") === "/wt/a.jsonl");
 		expect(failed?.querySelector('[data-family-status="failed"]')).not.toBeNull();
-		expect(failed?.getAttribute("data-child-status")).toBe("problem");
+		expect(failed?.getAttribute("data-child-status")).toBe("failed");
+		expect(failed?.getAttribute("data-signal")).toBe("error");
 		expect(failed?.querySelector("button")?.getAttribute("title")).toContain(translate("sidebar.row.failed"));
 	});
 
-	it("keeps a finished worktree session with unmerged commits as a row until it is merged", async () => {
+	it("lists a finished worktree session with unmerged commits as ready to merge, not failed, until it is merged", async () => {
 		mountFamily();
 		await mount(<Sidebar />);
 		act(() => {
@@ -2959,8 +2960,12 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		});
 		await flush();
 		const row = familyRows().find(entry => entry.getAttribute("data-session-path") === "/wt/a.jsonl");
-		expect(row?.getAttribute("data-child-status")).toBe("problem");
-		expect(row?.querySelector("button")?.getAttribute("title")).toContain(translate("sidebar.family.unmerged"));
+		expect(row?.getAttribute("data-child-status")).toBe("unmerged");
+		expect(row?.querySelector('[data-family-status="unmerged"]')).not.toBeNull();
+		expect(row?.querySelector('[data-family-status="failed"]')).toBeNull();
+		expect(row?.getAttribute("data-signal")).toBeNull();
+		expect(row?.querySelector("button")?.getAttribute("title")).toContain(translate("sidebar.family.readyToMerge"));
+		expect(row?.querySelector("button")?.getAttribute("title")).not.toContain(translate("sidebar.row.failed"));
 		// Merged (the review item is gone): it folds like any finished session.
 		act(() => useAgentReviewStore.setState({ byTab: { t1: [] } }));
 		await flush();
@@ -3708,7 +3713,8 @@ describe("Sidebar device sections", () => {
 			);
 			expect(listed()).not.toContain(LANDED);
 			const loose = device()?.querySelector(`[data-sidebar-loose-children] [data-session-path="${LANDED}"]`);
-			expect(loose?.getAttribute("data-child-status")).toBe("problem");
+			expect(loose?.getAttribute("data-child-status")).toBe("unmerged");
+			expect(loose?.querySelector('[data-family-status="unmerged"]')).not.toBeNull();
 		});
 
 		it("keeps the row of a child a tab on the host holds open, though the host knows no opener of it", async () => {
@@ -3755,7 +3761,7 @@ describe("Sidebar device sections", () => {
 			expect(familyPaths()).toEqual([AT_WORK, ASKING]);
 			const status = (path: string) =>
 				device()?.querySelector(`[data-session-path="${path}"]`)?.getAttribute("data-child-status");
-			expect([status(AT_WORK), status(ASKING)]).toEqual(["problem", "problem"]);
+			expect([status(AT_WORK), status(ASKING)]).toEqual(["failed", "unmerged"]);
 		});
 
 		it("says a child at work on the host is running when its tab here is asleep since this computer relaunched", async () => {
