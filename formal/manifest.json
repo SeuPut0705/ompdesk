@@ -39,6 +39,28 @@
 			],
 			"syncCommit": "05ca852827e81fb495ca59c1cde27d0d3ab0b92c",
 			"verifySkill": ".omp/skills/session-listing-verify/SKILL.md"
+		},
+		{
+			"id": "web-close-reports",
+			"title": "Paired page Files-edit reports and an agent's close of its tabs",
+			"kind": "tla",
+			"dir": "web-close-reports/tla",
+			"spec": "WebCloseReports.tla",
+			"matrix": "matrix.json",
+			"mutations": "mutations.json",
+			"covers": [
+				"src/main/web/file-edit-reports.ts",
+				"src/main/agent-control/tab-close.ts",
+				"src/renderer/web/FileEditReporter.tsx",
+				"src/main/web/ws-router.ts#WsRouter.detach",
+				"src/main/web/ws-router.ts#WsConnection.receive",
+				"src/main/web/ws-router.ts:712-758",
+				"src/main/agent-control/service.ts:3327-3339",
+				"src/main/tab-release.ts#closeWindowTab",
+				"src/main/agent-control/host.ts:960-969"
+			],
+			"syncCommit": "9e917db0cf4441ac1ba8a36af654e0748a618e92",
+			"verifySkill": ".omp/skills/web-close-reports-verify/SKILL.md"
 		}
 	]
 }

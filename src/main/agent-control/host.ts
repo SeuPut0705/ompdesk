@@ -114,6 +114,7 @@ import {
 	type SpawnRequest,
 	type ToolOutcome,
 } from "./service";
+import { tabCloseStep } from "./tab-close";
 
 /** A confirmation card waits for the person this long. */
 const CARD_TIMEOUT_MS = 10 * 60_000;
@@ -204,8 +205,9 @@ export interface AgentControlHostDeps {
 	/**
 	 * Close a tab of `win` the way the window's own close does (ipc.ts `closeWindowTab`) and tell that window it is
 	 * gone. Only for a paired web page's window: a desktop window closes its own tab when asked (`AGENT_CONTROL_VIEW`).
+	 * `stillReleasable` is asked again after the release's awaits, right before it lets the tab go.
 	 */
-	releaseTab: (win: ClientWindow, tabId: string) => Promise<boolean>;
+	releaseTab: (win: ClientWindow, tabId: string, stillReleasable: () => boolean) => Promise<boolean>;
 	/** Settings › Schedules (`ScheduleService`); absent or null where there is none. */
 	schedules?: () => Pick<ScheduleService, "command" | "create"> | null;
 	/** The app's own handlers `ompdesk_app` goes through (src/main/ipc.ts): the `IpcRegistry` for the window, `PREFS_SET`, the language. */
@@ -957,7 +959,14 @@ export class AgentControlRuntime {
 			setTask: (tabId, task) => deps.pool.setTabTask(tabId, task),
 			release: async (_callerTabId, tabId) => {
 				const win = deps.pool.windowOfTab(tabId);
-				return win && isWebWindow(win.webContents.id) ? deps.releaseTab(win, tabId) : false;
+				if (!win || !isWebWindow(win.webContents.id)) return false;
+				// The page's word may change while the release awaits: the one rule decides again on what it says then.
+				const id = win.webContents.id;
+				return deps.releaseTab(
+					win,
+					tabId,
+					() => tabCloseStep({ webEdits: deps.fileEdits.edits(id, tabId) }).action === "release",
+				);
 			},
 			view: (callerTabId, event: AgentControlViewEvent) => {
 				// The window that holds the session (another window's tab closes or shows there), else the caller's.

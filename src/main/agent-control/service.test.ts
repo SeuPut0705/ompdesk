@@ -14,6 +14,7 @@ import type {
 } from "../../shared/rpc-types";
 import type { ScheduleDraft } from "../../shared/schedules";
 import type { RpcTurnEdits } from "../../shared/turn-edits";
+import type { FileEdits } from "../web/file-edit-reports";
 import type { BranchEvidence, BranchFacts, LandingFacts, MergeOutcome, WorktreeRef, WorktreeRemoval } from "./branches";
 import { CallJournal } from "./call-journal";
 import type { MailDelivery } from "./mail";
@@ -36,6 +37,7 @@ import {
 	type SpawnRequest,
 	type StoredSession,
 } from "./service";
+import { tabCloseStep } from "./tab-close";
 
 const ok = (data: unknown = {}): RpcResponse => ({ type: "response", success: true, data }) as RpcResponse;
 const bad = (error: string): RpcResponse => ({ type: "response", success: false, error }) as RpcResponse;
@@ -3818,6 +3820,72 @@ describe("closing a tab a paired web page owns", () => {
 			webEdits,
 		});
 		return { host, service, child };
+	}
+});
+
+/**
+ * Every path that closes a tab for an agent applies the one rule (`tabCloseStep`), with nothing of its own on top: an
+ * explicit `ompdesk_session_stop {close}`, the auto-close pass and a failed open's cleanup (Autopilot's source tab:
+ * "releases the tab it opened to start from…" under `ompdesk_autopilot`). A path may stop earlier (stop refuses a tab
+ * the person is at, auto-close keeps it), never release or ask the window against the rule.
+ */
+describe("every close path follows tabCloseStep", () => {
+	const EDITS: (FileEdits | undefined)[] = [undefined, "clean", "unreported", "dirty"];
+	const PEOPLE: Partial<FakeTab>[] = [{}, { looked: true }, { userTouched: true }];
+
+	const paths: Record<string, (patch: Partial<FakeTab>) => Promise<{ host: FakeHost; child: string }>> = {
+		stop: async patch => {
+			const host = new FakeHost({ tabId: "boss0001", title: "Boss" }, { tabId: "kid00002", title: "Kid", ...patch });
+			host.parents.set("kid00002", "boss0001");
+			await control(host).run("boss0001", T.stop, { session: "kid00002", close: true });
+			return { host, child: "kid00002" };
+		},
+		autoClose: async patch => {
+			const host = new FakeHost({ tabId: "main0001", title: "Boss", sessionPath: "/s/boss.jsonl" });
+			const service = control(host);
+			await service.run("main0001", T.open, { message: "do it" });
+			const child = [...host.tabsById.values()].find(tab => tab.tabId !== "main0001") as FakeTab;
+			Object.assign(child, {
+				busy: false,
+				title: "Fix the parser",
+				sessionPath: "/s/kid.jsonl",
+				autoClosable: true,
+				lastRun: { stopReason: "stop" },
+				last: "Done: parser fixed.\nResult: ok",
+				...patch,
+			});
+			await service.autoClose("main0001");
+			return { host, child: child.tabId };
+		},
+		failedOpen: async patch => {
+			const host = new FakeHost({ tabId: "main0001" });
+			host.beforeFirstPromptError = new Error("guard failed");
+			host.spawnPatch = patch;
+			await onFakeClock(() => control(host).run("main0001", T.open, { message: "go" }));
+			return { host, child: host.first[0]?.tabId ?? "" };
+		},
+	};
+
+	for (const [name, path] of Object.entries(paths)) {
+		it(`${name}: releases only what the rule releases, asks the window only what it asks`, async () => {
+			for (const webEdits of EDITS)
+				for (const person of PEOPLE) {
+					const patch: Partial<FakeTab> = { ...(webEdits ? { webEdits } : {}), ...person };
+					const step = tabCloseStep(patch);
+					const { host, child } = await path(patch);
+					const label = JSON.stringify(patch);
+					expect(child, label).not.toBe("");
+					const released = host.releases.includes(child);
+					const asked = host.views.some(view => view.tabId === child && view.how === "close");
+					if (released) expect(step.action, label).toBe("release");
+					if (asked) expect(step.action, label).toBe("ask-window");
+					// Nobody at the tab: nothing upstream stops the close, so the rule alone decides.
+					if (Object.keys(person).length === 0) {
+						expect(released, label).toBe(step.action === "release");
+						expect(asked, label).toBe(step.action === "ask-window");
+					}
+				}
+		});
 	}
 });
 

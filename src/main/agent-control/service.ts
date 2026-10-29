@@ -90,6 +90,7 @@ import type { CallIntent, CallJournal, CallRecord } from "./call-journal";
 import { custodyOf } from "./custody";
 import { deliveryFor, type Mail, Mailbox, type MailboxDeps, type MailDelivery, mailDetails, mailText } from "./mail";
 import { pickupOf } from "./pickup";
+import { tabCloseStep } from "./tab-close";
 import {
 	type AnswerArgs,
 	ARGS,
@@ -164,8 +165,8 @@ export interface ControlTab {
 	/** The ids this session's tab had before relaunches, newest first (the saved tab layout): they still name it. */
 	formerIds?: readonly string[];
 	/**
-	 * Only on a tab a paired web page owns: what that page last said about unsaved Files edits in it. `dirty` keeps the
-	 * tab; `clean` and `unreported` (offline, or not seen since launch) release it.
+	 * Only on a tab a paired web page owns: what that page's live connections say about unsaved Files edits in it
+	 * (`tabCloseStep` decides what a close does with it).
 	 */
 	webEdits?: FileEdits;
 }
@@ -3320,24 +3321,19 @@ export class AgentControl {
 	}
 
 	/**
-	 * Close one open tab and wait for it to be gone. A desktop window closes its own tab (its renderer refuses one in
-	 * use, with unsaved Files edits or the window's last); a tab a paired web page owns is released here, because its
-	 * page may be offline or may not know the tab, unless that page's latest report names this tab as holding unsaved
-	 * Files edits. `kept`: the tab is still open; `dirty`: not touched, those edits are the person's.
+	 * Close one open tab and wait for it to be gone, as `tabCloseStep` decides from the tab now. `kept`: the tab is
+	 * still open; `dirty`: not touched, its paired page's unsaved Files edits in it are the person's.
 	 */
 	async #closeTab(callerTabId: string, tabId: string, how: { auto?: boolean; waitMs: number }): Promise<TabClose> {
 		const tabs = this.#host.tabs(callerTabId);
 		if (!tabs) return "kept";
 		const tab = tabs.find(entry => entry.tabId === tabId);
 		if (!tab) return "closed";
-		if (tab.webEdits === undefined) {
+		const step = tabCloseStep(tab);
+		if (step.action === "keep") return step.reason === "dirty" ? "dirty" : "kept";
+		if (step.action === "ask-window")
 			this.#host.view(callerTabId, { tabId, how: "close", ...(how.auto ? { auto: true } : {}) });
-		} else {
-			if (tab.webEdits === "dirty") return "dirty";
-			// The last look before the release: the person may have come to it, or typed into it, meanwhile.
-			if (tab.looked || tab.userTouched) return "kept";
-			if (!(await this.#host.release(callerTabId, tabId))) return "kept";
-		}
+		else if (!(await this.#host.release(callerTabId, tabId))) return "kept";
 		await this.#whenGone(callerTabId, tabId, how.waitMs);
 		return this.#host.tabs(callerTabId)?.some(entry => entry.tabId === tabId) ? "kept" : "closed";
 	}
@@ -3538,8 +3534,8 @@ export class AgentControl {
 	}
 
 	async #autoCloseTab(caller: ControlTab, tab: ControlTab, removeWorktree: boolean): Promise<void> {
-		// A paired page's tab with unsaved Files edits is the person's to save: not worth reading the child.
-		if (tab.webEdits === "dirty") return;
+		// A tab the close would keep (its paired page's unsaved Files edits): not worth reading the child.
+		if (tabCloseStep(tab).action === "keep") return;
 		this.#closing.add(tab.tabId);
 		try {
 			// Read before the close: the closed record keeps them for the opener's family cost.

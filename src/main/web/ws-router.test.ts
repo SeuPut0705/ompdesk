@@ -9,7 +9,7 @@ import type { AgentSessionEvent } from "../../shared/rpc-types";
 import { WEB_PERMISSIONS, type WebPermission, type WebServerFrame } from "../../shared/web-protocol";
 import { BlobStore } from "./blobs";
 import type { WebDevice } from "./devices-store";
-import { FileEditReports } from "./file-edit-reports";
+import { FileEditReports, parseFileEditReport } from "./file-edit-reports";
 import { IPC_POLICY, type IpcChannel } from "./ipc-policy";
 import type { IpcCaller } from "./ipc-registry";
 import { WebClientWindow, WebWindows } from "./web-client-window";
@@ -851,21 +851,59 @@ describe("a connection ending", () => {
 		expect(r.connection.connId).not.toBe(second.connId);
 	});
 
+	// The Files-edit report store (`file-edit-reports.ts`) forgets a connection when it ends and never hears from it
+	// again only because its report reaches main inside `receive`, which an ended connection refuses. An `await` in front
+	// of the handler would let a frame read before the drop land after it, and its report would count until the window
+	// closes (formal/web-close-reports: the `SplitDispatch` mutation).
+	it("hands a Files-edit report to main within the frame, and nothing an ended connection sent after", () => {
+		const r = rig();
+		const report = (dirtyTabId: string | null) =>
+			r.frame({ t: "inv", id: 1, ch: IPC_COMMANDS.FILE_EDIT_REPORT, a: [{ dirtyTabId }] });
+		report("t1");
+		expect(r.callers.map(call => call.args)).toEqual([[{ dirtyTabId: "t1" }]]);
+		r.connection.dispose();
+		report(null);
+		expect(r.callers).toHaveLength(1);
+	});
+
+	it("never lets a report outlive its connection, even one whose arguments carry a picture that has to land first", async () => {
+		// A picture block anywhere in a call's arguments makes `#dispatch` await its upload before the handler runs; a
+		// connection that ends meanwhile was already forgotten, so such a report must never reach the store.
+		const reports = new FileEditReports();
+		const r = rig();
+		const id = r.windows.windowFor("dev1").webContents.id;
+		r.invoke.mockImplementation(async (channel, caller, args) => {
+			const report = parseFileEditReport(args);
+			if (channel === IPC_COMMANDS.FILE_EDIT_REPORT && report && caller.connId)
+				reports.report(id, caller.connId, report.dirtyTabId);
+			return undefined;
+		});
+		r.uploaded.set("/up/dev1/a/image.png", Buffer.from("PNG"));
+		r.uploaded.set("/up/dev1/b/image.png", Buffer.from("PNG"));
+		const extra = (dir: string) => ({ type: "image", mimeType: "image/png", upload: `/up/dev1/${dir}/image.png` });
+		r.frame({ t: "inv", id: 1, ch: IPC_COMMANDS.FILE_EDIT_REPORT, a: [{ dirtyTabId: "t1", extra: extra("a") }] });
+		r.frame({ t: "inv", id: 2, ch: IPC_COMMANDS.FILE_EDIT_REPORT, a: [{ dirtyTabId: "t1" }, extra("b")] });
+		r.connection.dispose();
+		for (const end of r.ended) reports.forget(end.connId);
+		// Both frames reach the handler once their pictures landed (the nested one takes more turns), after the drop.
+		await vi.waitFor(() => expect(r.invoke).toHaveBeenCalledTimes(2));
+		expect(reports.edits(id, "t1")).toBe("unreported");
+	});
+
 	it("lets main drop only that connection's Files-edit report: the other page's stands, none left is unreported", () => {
 		const reports = new FileEditReports();
 		const r = rig();
 		const second = r.router.attach("dev1", new FakeSocket());
 		if (!second) throw new Error("attach failed");
-		const win = r.windows.windowFor("dev1");
-		const id = win.webContents.id;
-		reports.report(win, "t1", r.connection.connId);
-		reports.report(win, null, second.connId);
+		const id = r.windows.windowFor("dev1").webContents.id;
+		reports.report(id, r.connection.connId, "t1");
+		reports.report(id, second.connId, null);
 		expect(reports.edits(id, "t1")).toBe("dirty");
 		r.connection.dispose();
-		for (const end of r.ended) reports.forget(r.windows.windowFor(end.deviceId).webContents.id, end.connId);
+		for (const end of r.ended) reports.forget(end.connId);
 		expect(reports.edits(id, "t1")).toBe("clean");
 		second.dispose();
-		for (const end of r.ended) reports.forget(r.windows.windowFor(end.deviceId).webContents.id, end.connId);
+		for (const end of r.ended) reports.forget(end.connId);
 		expect(reports.edits(id, "t1")).toBe("unreported");
 	});
 });

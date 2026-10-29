@@ -9,7 +9,7 @@ const win = (id: number): ClientWindow => ({
 	removeListener: () => undefined,
 });
 
-function rig(options: { owns?: boolean; viewer?: boolean; hosted?: boolean } = {}) {
+function rig(options: { owns?: boolean; viewer?: boolean; hosted?: boolean; duringExitPolicy?: () => void } = {}) {
 	const steps: string[] = [];
 	const deps: TabReleaseDeps = {
 		sidecarPool: {
@@ -27,6 +27,8 @@ function rig(options: { owns?: boolean; viewer?: boolean; hosted?: boolean } = {
 		worktreeLifecycle: {
 			refreshExitPolicy: async tabId => {
 				steps.push(`exit-policy:${tabId}`);
+				await Promise.resolve();
+				options.duringExitPolicy?.();
 			},
 		},
 		closeTabTerminals: (windowId, tabId) => void steps.push(`terminals:${windowId}:${tabId}`),
@@ -57,5 +59,15 @@ describe("closeWindowTab", () => {
 		const { deps, steps } = rig({ hosted: true });
 		expect(await closeWindowTab(deps, win(-1), "t1", -1)).toBe(true);
 		expect(steps).toEqual(["terminals:-1:t1", "release:t1"]);
+	});
+
+	it("asks stillClosable again after the exit-policy read and keeps the tab when the answer changed meanwhile", async () => {
+		let closable = true;
+		const kept = rig({ duringExitPolicy: () => (closable = false) });
+		expect(await closeWindowTab(kept.deps, win(-1), "t1", -1, () => closable)).toBe(false);
+		expect(kept.steps).toEqual(["exit-policy:t1"]);
+		const gone = rig();
+		expect(await closeWindowTab(gone.deps, win(-1), "t1", -1, () => true)).toBe(true);
+		expect(gone.steps).toEqual(["exit-policy:t1", "terminals:-1:t1", "release:t1"]);
 	});
 });

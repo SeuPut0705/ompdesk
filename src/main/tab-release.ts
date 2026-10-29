@@ -17,13 +17,16 @@ export interface TabReleaseDeps {
  * Close `tabId` of `win`. A window viewing another window's tab only leaves it (the owner's close releases it for
  * all); a view of a paired device's tab only leaves it (the omp and its worktree are the device's); anything else
  * hands its worktree exit to `worktree-lifecycle`, closes the window's terminals of the tab and releases its sidecar.
- * `senderId` is the id the tab's terminals were opened under. False when the window has no such tab.
+ * `senderId` is the id the tab's terminals were opened under. False when the window has no such tab, or when
+ * `stillClosable` (main closing a paired page's tab for an agent) says no after the exit-policy read: a report of
+ * unsaved Files edits may land during that await, and nothing awaits between the re-check and the release.
  */
 export async function closeWindowTab(
 	deps: TabReleaseDeps,
 	win: ClientWindow,
 	tabId: string,
 	senderId: number,
+	stillClosable: () => boolean = () => true,
 ): Promise<boolean> {
 	const sidecar = deps.sidecarPool.sidecarForTab(win, tabId);
 	if (!sidecar) return false;
@@ -33,6 +36,7 @@ export async function closeWindowTab(
 		return deps.sidecarPool.releaseTab(tabId);
 	}
 	await deps.worktreeLifecycle.refreshExitPolicy(tabId, () => readLiveLifecycleSettings(sidecar));
+	if (!stillClosable()) return false;
 	deps.closeTabTerminals(senderId, tabId);
 	return deps.sidecarPool.releaseTab(tabId);
 }

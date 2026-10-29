@@ -22,6 +22,7 @@ import { WORKTREE_COMMAND_BUDGETS_MS } from "../local/git/worktree";
 import { SchedulesCommandParams, SchedulesCreateParams } from "../remote/app-protocol";
 import type { ScheduleService } from "../schedules";
 import type { ClientWindow } from "../web/client-window";
+import { FileEditReports } from "../web/file-edit-reports";
 import { type AgentControlHostDeps, AgentControlRuntime, splitBranch } from "./host";
 
 const ok = (data: unknown = {}): RpcResponse => ({ type: "response", success: true, data }) as RpcResponse;
@@ -34,30 +35,6 @@ function window(id = 1): ClientWindow & { sent: [string, unknown][] } {
 		isDestroyed: () => false,
 		once: () => undefined,
 		removeListener: () => undefined,
-	};
-}
-
-/** What a paired web page last reported about unsaved Files edits (`FileEditReports`), by window id. */
-interface FakeFileEdits {
-	report(windowId: number, dirtyTabId: string | null): void;
-	edits(windowId: number, tabId: string): "clean" | "dirty" | "unreported";
-	onReport(listener: () => void): () => void;
-}
-
-function fakeFileEdits(): FakeFileEdits {
-	const dirty = new Map<number, string | null>();
-	const listeners = new Set<() => void>();
-	return {
-		report(windowId, dirtyTabId) {
-			dirty.set(windowId, dirtyTabId);
-			for (const listener of [...listeners]) listener();
-		},
-		edits: (windowId, tabId) =>
-			!dirty.has(windowId) ? "unreported" : dirty.get(windowId) === tabId ? "dirty" : "clean",
-		onReport: listener => {
-			listeners.add(listener);
-			return () => listeners.delete(listener);
-		},
 	};
 }
 
@@ -81,12 +58,14 @@ function setup(
 		viewers?: Record<string, ClientWindow[]>;
 		/** Tabs a paired web page owns (its window id is negative). */
 		webTabs?: Partial<IpcTabInfo>[];
+		/** What happens while a release awaits (`closeWindowTab`'s exit-policy read), before it asks again. */
+		duringRelease?: (fileEdits: FileEditReports) => void;
 	} = {},
 ) {
 	const win = window();
 	const win2 = window(2);
 	const webWin = window(-1);
-	const fileEdits = fakeFileEdits();
+	const fileEdits = new FileEditReports();
 	const released: { win: ClientWindow; tabId: string }[] = [];
 	/** Releases and close mails in the order they happened. */
 	const log: string[] = [];
@@ -170,9 +149,12 @@ function setup(
 		sweepMs: options.sweepMs,
 		mailOutboxFile: options.mailOutboxFile,
 		fileEdits,
-		releaseTab: async (target, tabId) => {
+		releaseTab: async (target, tabId, stillReleasable) => {
 			const at = webTabs.findIndex(tab => tab.tabId === tabId);
 			if (at < 0) return false;
+			await Promise.resolve();
+			options.duringRelease?.(fileEdits);
+			if (!stillReleasable()) return false;
 			webTabs.splice(at, 1);
 			released.push({ win: target, tabId });
 			log.push(`release:${tabId}`);
@@ -1135,16 +1117,17 @@ describe("AgentControlRuntime", () => {
 describe("closing a child a paired web page owns", () => {
 	const WEB = -1;
 	const stop = { session: "web00002", close: true };
-	const phone = () =>
+	const phone = (duringRelease?: (fileEdits: FileEditReports) => void) =>
 		setup({
 			tabs: [{ tabId: "main0001", sessionPath: "/s/boss.jsonl" }],
 			webTabs: [{ tabId: "web00002", title: "Phone child", sessionPath: "/s/kid.jsonl" }],
 			sweepMs: 0,
+			...(duringRelease ? { duringRelease } : {}),
 		});
 
 	it("releases the tab in main once the page reported its Files editor clean, and mails the note after", async () => {
 		const { runtime, win, webWin, webTabs, fileEdits, released, log } = phone();
-		fileEdits.report(WEB, null);
+		fileEdits.report(WEB, "page", null);
 		const result = await runtime.run(win, "main0001", T.stop, stop);
 		expect(result.isError, result.text).toBe(false);
 		expect(result.text).toContain("Closed");
@@ -1157,7 +1140,7 @@ describe("closing a child a paired web page owns", () => {
 
 	it("keeps the tab and sends no note when the page reported unsaved edits in it", async () => {
 		const { runtime, win, webTabs, fileEdits, released, log } = phone();
-		fileEdits.report(WEB, "web00002");
+		fileEdits.report(WEB, "page", "web00002");
 		const result = await runtime.run(win, "main0001", T.stop, stop);
 		expect(result.isError).toBe(true);
 		expect(result.text).toMatch(/unsaved edits in the Files editor/);
@@ -1168,7 +1151,7 @@ describe("closing a child a paired web page owns", () => {
 
 	it("treats a dirty editor of another tab of that page as no reason to keep this one", async () => {
 		const { runtime, win, released, fileEdits } = phone();
-		fileEdits.report(WEB, "other003");
+		fileEdits.report(WEB, "page", "other003");
 		const result = await runtime.run(win, "main0001", T.stop, stop);
 		expect(result.isError, result.text).toBe(false);
 		expect(released.map(entry => entry.tabId)).toEqual(["web00002"]);
@@ -1183,6 +1166,16 @@ describe("closing a child a paired web page owns", () => {
 		expect(webTabs).toEqual([]);
 		expect(log[0]).toBe("release:web00002");
 		expect(log.filter(line => line.startsWith("mail:main0001"))).toHaveLength(1);
+	});
+
+	it("keeps the tab when the page reports unsaved edits in it while the release awaits, and sends no note", async () => {
+		const { runtime, win, webTabs, fileEdits, released, log } = phone(edits => edits.report(WEB, "page", "web00002"));
+		fileEdits.report(WEB, "page", null);
+		const result = await runtime.run(win, "main0001", T.stop, stop);
+		expect(result.isError).toBe(true);
+		expect(released).toEqual([]);
+		expect(webTabs).toHaveLength(1);
+		expect(log).toEqual([]);
 	});
 
 	it("still asks a desktop window to close its own tab, and tells the caller only once it is gone", async () => {

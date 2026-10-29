@@ -1,0 +1,93 @@
+{
+	"checker": {
+		"kind": "tlc",
+		"config": "MC.cfg",
+		"workers": 4,
+		"timeoutSec": 600,
+		"deadlock": false
+	},
+	"properties": [
+		"TypeOK",
+		"StoreOnlyLive",
+		"QuiescentAgreement",
+		"NoReleaseOfKnownDirty",
+		"NoLateDirtyRelease"
+	],
+	"waive": {
+		"TypeOK": "Shape check only: no behaviour change breaks it without also breaking a property above it."
+	},
+	"mutations": [
+		{
+			"name": "split-dispatch",
+			"why": "An `await` in front of the FILE_EDIT_REPORT handler (ws-router #dispatch): a frame read before its connection ended is handled after the drop, and that dead connection's report counts until the next launch.",
+			"file": "WebCloseReports.tla",
+			"search": "SplitDispatch == FALSE",
+			"replace": "SplitDispatch == TRUE",
+			"breaks": "StoreOnlyLive",
+			"config": "MC_p1.cfg"
+		},
+		{
+			"name": "no-forget-on-drop",
+			"why": "fb2f902's bug as it was before: a dropped page's last report (clean) stays, so an offline page that edits later is read as clean forever.",
+			"file": "WebCloseReports.tla",
+			"search": "Forget(s, c) == [s EXCEPT ![c] = Absent]",
+			"replace": "Forget(s, c) == s",
+			"breaks": "StoreOnlyLive",
+			"config": "MC_p1.cfg"
+		},
+		{
+			"name": "forget-whole-window",
+			"why": "A drop forgets every report of the window (the per-window store fb2f902 shipped): one page's drop erases the other live page's dirty tab.",
+			"file": "WebCloseReports.tla",
+			"search": "Forget(s, c) == [s EXCEPT ![c] = Absent]",
+			"replace": "Forget(s, c) == [x \\in ConnIds |-> Absent]",
+			"breaks": "QuiescentAgreement",
+			"config": "MC_p2.cfg"
+		},
+		{
+			"name": "report-per-window",
+			"why": "09f8b6af's bug: one report per window, so a second page's fresh `null` overwrites the first page's unsaved tab.",
+			"file": "WebCloseReports.tla",
+			"search": "Write(s, c, v) == [s EXCEPT ![c] = v]",
+			"replace": "Write(s, c, v) == [x \\in ConnIds |-> IF x = c \\/ s[x] # Absent THEN v ELSE s[x]]",
+			"breaks": "QuiescentAgreement",
+			"config": "MC_p2.cfg"
+		},
+		{
+			"name": "no-report-on-open",
+			"why": "FileEditReporter stops resending on `open`: a reconnected page with unsaved edits stays unreported, and its tab is released.",
+			"file": "WebCloseReports.tla",
+			"search": "    /\\ q' = [q EXCEPT ![Current(p)] = Append(@, edit[p])]",
+			"replace": "    /\\ q' = q",
+			"breaks": "QuiescentAgreement",
+			"config": "MC_p2.cfg"
+		},
+		{
+			"name": "close-ignores-dirty",
+			"why": "A close path releases without asking the store (a caller-side re-decision that drops the dirty check).",
+			"file": "WebCloseReports.tla",
+			"search": "CloseStep(t) == IF Edits(t) = \"dirty\" THEN \"keep\" ELSE \"release\"",
+			"replace": "CloseStep(t) == \"release\"",
+			"breaks": "NoReleaseOfKnownDirty",
+			"config": "MC_p3.cfg"
+		},
+		{
+			"name": "dirty-needs-every-connection",
+			"why": "`edits` says dirty only when every connection names the tab: one page's `null` hides another's unsaved tab from the close.",
+			"file": "WebCloseReports.tla",
+			"search": "IN IF \\E c \\in reported : store[c] = t THEN \"dirty\"",
+			"replace": "IN IF reported # {} /\\ \\A c \\in reported : store[c] = t THEN \"dirty\"",
+			"breaks": "NoReleaseOfKnownDirty",
+			"config": "MC_p3.cfg"
+		},
+		{
+			"name": "no-recheck-before-release",
+			"why": "closeWindowTab drops its stillClosable re-check after refreshExitPolicy (the decide-to-release window as it was before): a dirty report that lands during the await does not stop the release.",
+			"file": "WebCloseReports.tla",
+			"search": "    /\\ IF CloseStep(t) = \"release\"\n          THEN /\\ released' = released \\cup {t}",
+			"replace": "    /\\ IF TRUE\n          THEN /\\ released' = released \\cup {t}",
+			"breaks": "NoLateDirtyRelease",
+			"config": "MC_p4.cfg"
+		}
+	]
+}

@@ -1,0 +1,433 @@
+{
+  "spec": "/Users/seuput/.omp/wt/gui-web-close-reports-540bd7d/formal/web-close-reports/tla/WebCloseReports.tla",
+  "runs": [
+    {
+      "name": "code-safety-all-invariants",
+      "config": "MC.cfg",
+      "ok": true,
+      "expect": "pass",
+      "durationMs": 30625,
+      "logPath": "/Users/seuput/.omp/wt/gui-web-close-reports-540bd7d/formal/web-close-reports/evidence/WebCloseReports-MC.log",
+      "outcome": "pass",
+      "stats": {
+        "generated": 6596601,
+        "distinct": 1192923,
+        "queue": 0,
+        "depth": 25
+      },
+      "trace": [],
+      "rows": [],
+      "tlcVersion": "2026.10.28.014557",
+      "warnings": []
+    },
+    {
+      "name": "a-release-is-reachable",
+      "config": "MC_sanity_release.cfg",
+      "ok": true,
+      "expect": "invariant",
+      "durationMs": 315,
+      "logPath": "/Users/seuput/.omp/wt/gui-web-close-reports-540bd7d/formal/web-close-reports/evidence/WebCloseReports-MC_sanity_release.log",
+      "outcome": "invariant",
+      "property": "NeverReleases",
+      "stats": {
+        "generated": 80,
+        "distinct": 44,
+        "queue": 35,
+        "depth": 3
+      },
+      "trace": [
+        {
+          "step": 1,
+          "action": "Init",
+          "changed": {
+            "handoff": "( <<p1, 1>> :> <<>> @@ <<p1, 2>> :> <<>> @@ <<p2, 1>> :> <<>> @@ <<p2, 2>> :> <<>> )",
+            "edit": "(p1 :> \"none\" @@ p2 :> \"none\")",
+            "edits": "0",
+            "live": "{}",
+            "store": "( <<p1, 1>> :> \"absent\" @@ <<p1, 2>> :> \"absent\" @@ <<p2, 1>> :> \"absent\" @@ <<p2, 2>> :> \"absent\" )",
+            "refused": "FALSE",
+            "conn": "(p1 :> 0 @@ p2 :> 0)",
+            "bad": "FALSE",
+            "late": "FALSE",
+            "q": "( <<p1, 1>> :> <<>> @@ <<p1, 2>> :> <<>> @@ <<p2, 1>> :> <<>> @@ <<p2, 2>> :> <<>> )",
+            "greeted": "{}",
+            "deciding": "{}",
+            "released": "{}"
+          }
+        },
+        {
+          "step": 2,
+          "action": "CloseDecide(\"t1\")",
+          "code": "src/main/agent-control/service.ts:3327-3336",
+          "changed": {
+            "deciding": "{} -> {\"t1\"}"
+          }
+        },
+        {
+          "step": 3,
+          "action": "CloseRelease(\"t1\")",
+          "code": "src/main/tab-release.ts:38-41, src/main/agent-control/host.ts:960-969",
+          "changed": {
+            "deciding": "{\"t1\"} -> {}",
+            "released": "{} -> {\"t1\"}"
+          },
+          "violation": true
+        }
+      ],
+      "rows": [
+        {
+          "n": 1,
+          "step": "Init",
+          "code": [],
+          "changed": {
+            "handoff": {
+              "to": "( <<p1, 1>> :> <<>> @@ <<p1, 2>> :> <<>> @@ <<p2, 1>> :> <<>> @@ <<p2, 2>> :> <<>> )"
+            },
+            "edit": {
+              "to": "(p1 :> \"none\" @@ p2 :> \"none\")"
+            },
+            "edits": {
+              "to": "0"
+            },
+            "live": {
+              "to": "{}"
+            },
+            "store": {
+              "to": "( <<p1, 1>> :> \"absent\" @@ <<p1, 2>> :> \"absent\" @@ <<p2, 1>> :> \"absent\" @@ <<p2, 2>> :> \"absent\" )"
+            },
+            "refused": {
+              "to": "FALSE"
+            },
+            "conn": {
+              "to": "(p1 :> 0 @@ p2 :> 0)"
+            },
+            "bad": {
+              "to": "FALSE"
+            },
+            "late": {
+              "to": "FALSE"
+            },
+            "q": {
+              "to": "( <<p1, 1>> :> <<>> @@ <<p1, 2>> :> <<>> @@ <<p2, 1>> :> <<>> @@ <<p2, 2>> :> <<>> )"
+            },
+            "greeted": {
+              "to": "{}"
+            },
+            "deciding": {
+              "to": "{}"
+            },
+            "released": {
+              "to": "{}"
+            }
+          }
+        },
+        {
+          "n": 2,
+          "step": "CloseDecide(\"t1\")",
+          "action": "CloseDecide",
+          "location": {
+            "module": "WebCloseReports",
+            "line": 159,
+            "col": 5,
+            "endLine": 166,
+            "endCol": 88
+          },
+          "code": [
+            "src/main/agent-control/service.ts:3327-3336"
+          ],
+          "changed": {
+            "deciding": {
+              "from": "{}",
+              "to": "{\"t1\"}"
+            }
+          }
+        },
+        {
+          "n": 3,
+          "step": "CloseRelease(\"t1\")",
+          "action": "CloseRelease",
+          "location": {
+            "module": "WebCloseReports",
+            "line": 173,
+            "col": 5,
+            "endLine": 181,
+            "endCol": 77
+          },
+          "code": [
+            "src/main/tab-release.ts:38-41",
+            "src/main/agent-control/host.ts:960-969"
+          ],
+          "changed": {
+            "deciding": {
+              "from": "{\"t1\"}",
+              "to": "{}"
+            },
+            "released": {
+              "from": "{}",
+              "to": "{\"t1\"}"
+            }
+          },
+          "violation": true
+        }
+      ],
+      "tlcVersion": "2026.10.28.014557",
+      "message": "Invariant NeverReleases is violated.",
+      "warnings": []
+    },
+    {
+      "name": "a-dirty-refusal-is-reachable",
+      "config": "MC_sanity_refuse.cfg",
+      "ok": true,
+      "expect": "invariant",
+      "durationMs": 353,
+      "logPath": "/Users/seuput/.omp/wt/gui-web-close-reports-540bd7d/formal/web-close-reports/evidence/WebCloseReports-MC_sanity_refuse.log",
+      "outcome": "invariant",
+      "property": "NeverRefuses",
+      "stats": {
+        "generated": 2318,
+        "distinct": 778,
+        "queue": 517,
+        "depth": 6
+      },
+      "trace": [
+        {
+          "step": 1,
+          "action": "Init",
+          "changed": {
+            "handoff": "( <<p1, 1>> :> <<>> @@ <<p1, 2>> :> <<>> @@ <<p2, 1>> :> <<>> @@ <<p2, 2>> :> <<>> )",
+            "edit": "(p1 :> \"none\" @@ p2 :> \"none\")",
+            "edits": "0",
+            "live": "{}",
+            "store": "( <<p1, 1>> :> \"absent\" @@ <<p1, 2>> :> \"absent\" @@ <<p2, 1>> :> \"absent\" @@ <<p2, 2>> :> \"absent\" )",
+            "refused": "FALSE",
+            "conn": "(p1 :> 0 @@ p2 :> 0)",
+            "bad": "FALSE",
+            "late": "FALSE",
+            "q": "( <<p1, 1>> :> <<>> @@ <<p1, 2>> :> <<>> @@ <<p2, 1>> :> <<>> @@ <<p2, 2>> :> <<>> )",
+            "greeted": "{}",
+            "deciding": "{}",
+            "released": "{}"
+          }
+        },
+        {
+          "step": 2,
+          "action": "Edit(p1,\"t1\")",
+          "code": "src/renderer/web/FileEditReporter.tsx:20-25",
+          "changed": {
+            "edit": "(p1 :> \"none\" @@ p2 :> \"none\") -> (p1 :> \"t1\" @@ p2 :> \"none\")",
+            "edits": "0 -> 1"
+          }
+        },
+        {
+          "step": 3,
+          "action": "Connect(p1)",
+          "code": "src/main/web/ws-router.ts:391-403",
+          "changed": {
+            "live": "{} -> {<<p1, 1>>}",
+            "conn": "(p1 :> 0 @@ p2 :> 0) -> (p1 :> 1 @@ p2 :> 0)"
+          }
+        },
+        {
+          "step": 4,
+          "action": "Greet(p1)",
+          "code": "src/renderer/web/FileEditReporter.tsx:26-28",
+          "changed": {
+            "q": "( <<p1, 1>> :> <<>> @@ <<p1, 2>> :> <<>> @@ <<p2, 1>> :> <<>> @@ <<p2, 2>> :> <<>> ) -> ( <<p1, 1>> :> <<\"t1\">> @@ <<p1, 2>> :> <<>> @@ <<p2, 1>> :> <<>> @@ <<p2, 2>> :> <<>> )",
+            "greeted": "{} -> {<<p1, 1>>}"
+          }
+        },
+        {
+          "step": 5,
+          "action": "Deliver(<<p1, 1>>)",
+          "code": "src/main/web/ws-router.ts:507-508",
+          "changed": {
+            "store": "( <<p1, 1>> :> \"absent\" @@ <<p1, 2>> :> \"absent\" @@ <<p2, 1>> :> \"absent\" @@ <<p2, 2>> :> \"absent\" ) -> ( <<p1, 1>> :> \"t1\" @@ <<p1, 2>> :> \"absent\" @@ <<p2, 1>> :> \"absent\" @@ <<p2, 2>> :> \"absent\" )",
+            "q": "( <<p1, 1>> :> <<\"t1\">> @@ <<p1, 2>> :> <<>> @@ <<p2, 1>> :> <<>> @@ <<p2, 2>> :> <<>> ) -> ( <<p1, 1>> :> <<>> @@ <<p1, 2>> :> <<>> @@ <<p2, 1>> :> <<>> @@ <<p2, 2>> :> <<>> )"
+          }
+        },
+        {
+          "step": 6,
+          "action": "CloseDecide(\"t1\")",
+          "code": "src/main/agent-control/service.ts:3327-3336",
+          "changed": {
+            "refused": "FALSE -> TRUE"
+          },
+          "violation": true
+        }
+      ],
+      "rows": [
+        {
+          "n": 1,
+          "step": "Init",
+          "code": [],
+          "changed": {
+            "handoff": {
+              "to": "( <<p1, 1>> :> <<>> @@ <<p1, 2>> :> <<>> @@ <<p2, 1>> :> <<>> @@ <<p2, 2>> :> <<>> )"
+            },
+            "edit": {
+              "to": "(p1 :> \"none\" @@ p2 :> \"none\")"
+            },
+            "edits": {
+              "to": "0"
+            },
+            "live": {
+              "to": "{}"
+            },
+            "store": {
+              "to": "( <<p1, 1>> :> \"absent\" @@ <<p1, 2>> :> \"absent\" @@ <<p2, 1>> :> \"absent\" @@ <<p2, 2>> :> \"absent\" )"
+            },
+            "refused": {
+              "to": "FALSE"
+            },
+            "conn": {
+              "to": "(p1 :> 0 @@ p2 :> 0)"
+            },
+            "bad": {
+              "to": "FALSE"
+            },
+            "late": {
+              "to": "FALSE"
+            },
+            "q": {
+              "to": "( <<p1, 1>> :> <<>> @@ <<p1, 2>> :> <<>> @@ <<p2, 1>> :> <<>> @@ <<p2, 2>> :> <<>> )"
+            },
+            "greeted": {
+              "to": "{}"
+            },
+            "deciding": {
+              "to": "{}"
+            },
+            "released": {
+              "to": "{}"
+            }
+          }
+        },
+        {
+          "n": 2,
+          "step": "Edit(p1,\"t1\")",
+          "action": "Edit",
+          "location": {
+            "module": "WebCloseReports",
+            "line": 98,
+            "col": 5,
+            "endLine": 107,
+            "endCol": 96
+          },
+          "code": [
+            "src/renderer/web/FileEditReporter.tsx:20-25"
+          ],
+          "changed": {
+            "edit": {
+              "from": "(p1 :> \"none\" @@ p2 :> \"none\")",
+              "to": "(p1 :> \"t1\" @@ p2 :> \"none\")"
+            },
+            "edits": {
+              "from": "0",
+              "to": "1"
+            }
+          }
+        },
+        {
+          "n": 3,
+          "step": "Connect(p1)",
+          "action": "Connect",
+          "location": {
+            "module": "WebCloseReports",
+            "line": 112,
+            "col": 5,
+            "endLine": 116,
+            "endCol": 100
+          },
+          "code": [
+            "src/main/web/ws-router.ts:391-403"
+          ],
+          "changed": {
+            "live": {
+              "from": "{}",
+              "to": "{<<p1, 1>>}"
+            },
+            "conn": {
+              "from": "(p1 :> 0 @@ p2 :> 0)",
+              "to": "(p1 :> 1 @@ p2 :> 0)"
+            }
+          }
+        },
+        {
+          "n": 4,
+          "step": "Greet(p1)",
+          "action": "Greet",
+          "location": {
+            "module": "WebCloseReports",
+            "line": 121,
+            "col": 5,
+            "endLine": 126,
+            "endCol": 100
+          },
+          "code": [
+            "src/renderer/web/FileEditReporter.tsx:26-28"
+          ],
+          "changed": {
+            "q": {
+              "from": "( <<p1, 1>> :> <<>> @@ <<p1, 2>> :> <<>> @@ <<p2, 1>> :> <<>> @@ <<p2, 2>> :> <<>> )",
+              "to": "( <<p1, 1>> :> <<\"t1\">> @@ <<p1, 2>> :> <<>> @@ <<p2, 1>> :> <<>> @@ <<p2, 2>> :> <<>> )"
+            },
+            "greeted": {
+              "from": "{}",
+              "to": "{<<p1, 1>>}"
+            }
+          }
+        },
+        {
+          "n": 5,
+          "step": "Deliver(<<p1, 1>>)",
+          "action": "Deliver",
+          "location": {
+            "module": "WebCloseReports",
+            "line": 139,
+            "col": 5,
+            "endLine": 146,
+            "endCol": 93
+          },
+          "code": [
+            "src/main/web/ws-router.ts:507-508"
+          ],
+          "changed": {
+            "store": {
+              "from": "( <<p1, 1>> :> \"absent\" @@ <<p1, 2>> :> \"absent\" @@ <<p2, 1>> :> \"absent\" @@ <<p2, 2>> :> \"absent\" )",
+              "to": "( <<p1, 1>> :> \"t1\" @@ <<p1, 2>> :> \"absent\" @@ <<p2, 1>> :> \"absent\" @@ <<p2, 2>> :> \"absent\" )"
+            },
+            "q": {
+              "from": "( <<p1, 1>> :> <<\"t1\">> @@ <<p1, 2>> :> <<>> @@ <<p2, 1>> :> <<>> @@ <<p2, 2>> :> <<>> )",
+              "to": "( <<p1, 1>> :> <<>> @@ <<p1, 2>> :> <<>> @@ <<p2, 1>> :> <<>> @@ <<p2, 2>> :> <<>> )"
+            }
+          }
+        },
+        {
+          "n": 6,
+          "step": "CloseDecide(\"t1\")",
+          "action": "CloseDecide",
+          "location": {
+            "module": "WebCloseReports",
+            "line": 159,
+            "col": 5,
+            "endLine": 166,
+            "endCol": 88
+          },
+          "code": [
+            "src/main/agent-control/service.ts:3327-3336"
+          ],
+          "changed": {
+            "refused": {
+              "from": "FALSE",
+              "to": "TRUE"
+            }
+          },
+          "violation": true
+        }
+      ],
+      "tlcVersion": "2026.10.28.014557",
+      "message": "Invariant NeverRefuses is violated.",
+      "warnings": []
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+	"runs": [
+		{
+			"name": "code-safety-all-invariants",
+			"config": "MC.cfg",
+			"expect": "pass",
+			"deadlock": false
+		},
+		{
+			"name": "a-release-is-reachable",
+			"config": "MC_sanity_release.cfg",
+			"expect": "invariant",
+			"property": "NeverReleases",
+			"deadlock": false
+		},
+		{
+			"name": "a-dirty-refusal-is-reachable",
+			"config": "MC_sanity_refuse.cfg",
+			"expect": "invariant",
+			"property": "NeverRefuses",
+			"deadlock": false
+		}
+	]
+}
