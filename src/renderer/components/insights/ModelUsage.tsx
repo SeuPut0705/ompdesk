@@ -33,7 +33,8 @@ export function ModelUsage({ stats }: { stats: SessionStats }) {
 	if (!rows.some(row => !row.main)) return null;
 
 	return (
-		<section aria-labelledby="insights-model-usage">
+		// SectionTitle drops its top margin as a first child, so the section carries it (as AdvisorInsights does).
+		<section aria-labelledby="insights-model-usage" className="mt-8">
 			<SectionTitle>
 				<span id="insights-model-usage">{t("modelUsage.title")}</span>
 			</SectionTitle>
@@ -42,22 +43,24 @@ export function ModelUsage({ stats }: { stats: SessionStats }) {
 				data-model-usage
 			>
 				{rows.map(row => {
-					const detail = [
-						row.main ? t("modelUsage.main") : t("modelUsage.agents", { count: row.agents }),
-						t("modelUsage.requests", { count: row.requests }),
-					].join(" · ");
+					// The role leads: one model often serves the main agent and its subagents, and two rows
+					// that read alike differ only in who ran on it.
+					const role = row.main ? t("modelUsage.main") : t("modelUsage.agents", { count: row.agents });
 					return (
 						<li className="flex flex-col gap-1.5 px-4 py-2.5" key={`${row.main ? "main" : "sub"}:${row.model}`}>
 							<div className="flex min-w-0 items-baseline gap-3 text-sc-sm">
-								<span className="min-w-0 flex-1 truncate text-(--sc-text)" title={row.model}>
-									{row.model}
+								<span className="min-w-0 flex-1 truncate" title={row.model}>
+									<span className="text-(--sc-text)">{role}</span>
+									<span className="text-(--sc-text-muted)"> · {row.model}</span>
 								</span>
 								<span className="shrink-0 tabular-nums text-(--sc-text)">{formatTokens(row.tokens)}</span>
 								<span className="w-16 shrink-0 text-right tabular-nums text-(--sc-text-muted)">
 									{formatUsd(row.cost)}
 								</span>
 							</div>
-							<span className="truncate text-sc-xs text-(--sc-text-muted)">{detail}</span>
+							<span className="truncate text-sc-xs text-(--sc-text-muted)">
+								{t("modelUsage.requests", { count: row.requests })}
+							</span>
 							<ProgressBar color="var(--sc-info)" value={row.share} />
 						</li>
 					);
