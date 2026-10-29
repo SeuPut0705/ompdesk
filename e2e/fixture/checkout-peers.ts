@@ -49,10 +49,10 @@ export function createCheckoutFake(host: Host) {
 			state.set(params);
 			return { ok: true };
 		},
-		checkout_status: () => ({ ...ledger.status(), ...(task ? { task } : {}) }),
+		checkout_status: () => ({ ...ledger.claims.status(), ...(task ? { task } : {}) }),
 		checkout_retire: params => {
-			ledger.retireFrom(params);
-			return { ok: true };
+			ledger.claims.retireFrom(params);
+			return { ok: true, ...ledger.claims.status() };
 		},
 		"checkout_peers.get": () => ({ peers: state.peers ?? null }),
 	};

@@ -73,7 +73,8 @@ export interface CheckoutStatus {
 /**
  * Main → bridge: `{instance, files: [{file, stamp}]}`, claims main saw committed (`git status` lists neither the path nor
  * anything under it). The session drops each whose stamp is unchanged and that no running call writes; a file changed
- * again since keeps its newer claim. A retire carrying another `instance` is ignored.
+ * again since keeps its newer claim. A retire carrying another `instance` is ignored. Answers `{ok: true}` and the
+ * `CheckoutStatus` (without the task) after it: main remembers that, never its own guess of what the bridge dropped.
  */
 export const CHECKOUT_RETIRE = "checkout_retire";
 /** The longest task a peer carries. */

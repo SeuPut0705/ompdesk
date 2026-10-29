@@ -44,10 +44,10 @@ describe("LedgerLifecycle 2: a commit, restore or checkout makes the files it na
 		for (const name of ["a", "c"]) ledger.call("edit", { path: `src/${name}.ts` }, REPO, undefined, host);
 		bash(ledger, "git commit -m x -- src/a.ts", undefined, "k1");
 		expect(ledger.settle("k1", "", { isError: false })).toBe(true);
-		expect(ledger.files).toEqual([file("src/c.ts")]);
+		expect(ledger.claims.files).toEqual([file("src/c.ts")]);
 		bash(ledger, "git commit -m x -- src/c.ts", undefined, "k2");
 		ledger.settle("k2", "", { isError: true });
-		expect(ledger.files).toEqual([file("src/c.ts")]);
+		expect(ledger.claims.files).toEqual([file("src/c.ts")]);
 	});
 
 	it("keeps a file changed by a later call", () => {
@@ -56,7 +56,31 @@ describe("LedgerLifecycle 2: a commit, restore or checkout makes the files it na
 		bash(ledger, "git commit -m x -- src/a.ts", undefined, "k1");
 		ledger.call("edit", { path: "src/a.ts" }, REPO, undefined, host, "e1");
 		ledger.settle("k1", "", { isError: false });
-		expect(ledger.files).toEqual([file("src/a.ts")]);
+		expect(ledger.claims.files).toEqual([file("src/a.ts")]);
+	});
+
+	it("keeps a file a call started earlier is still writing", () => {
+		const ledger = new CheckoutLedger();
+		// W claims f and runs on; a commit naming f succeeds before W's bytes land.
+		bash(ledger, "sleep 8; echo x > src/f.ts", undefined, "w");
+		bash(ledger, "git commit -m x -- src/f.ts", undefined, "c");
+		ledger.settle("c");
+		expect(ledger.claims.files).toEqual([file("src/f.ts")]);
+		// W lands and reports back: its uncommitted write is the session's.
+		ledger.settle("w");
+		expect(ledger.claims.files).toEqual([file("src/f.ts")]);
+	});
+
+	it("goes back to no claim when an edit that began before the session's commit writes nothing", () => {
+		const ledger = new CheckoutLedger();
+		ledger.call("edit", { path: "src/f.ts" }, REPO, undefined, host, "e1");
+		ledger.settle("e1");
+		// An edit of f starts, the session commits f, then the edit fails: f is as committed, nobody's claim.
+		ledger.call("edit", { path: "src/f.ts" }, REPO, undefined, host, "e2");
+		bash(ledger, "git commit -m x -- src/f.ts", undefined, "c");
+		ledger.settle("c");
+		ledger.settle("e2", "", { isError: true });
+		expect(ledger.claims.files).toEqual([]);
 	});
 
 	it("drops the files of a restore, a checkout of paths and a stash of paths, and asks main to read", () => {
@@ -65,7 +89,7 @@ describe("LedgerLifecycle 2: a commit, restore or checkout makes the files it na
 			ledger.call("edit", { path: "src/a.ts" }, REPO, undefined, host);
 			bash(ledger, command, undefined, "k");
 			expect(ledger.settle("k"), command).toBe(true);
-			expect(ledger.files, command).toEqual([]);
+			expect(ledger.claims.files, command).toEqual([]);
 		}
 	});
 });
@@ -76,58 +100,58 @@ describe("LedgerLifecycle 4, MainAndWire 3 and 9: the claims survive the omp, an
 		first.call("edit", { path: "src/a.ts" }, REPO, undefined, host);
 		first.call("edit", { path: "src/c.ts" }, REPO, undefined, host);
 		const second = new CheckoutLedger();
-		second.restore({ ...first.snapshot(), at: 1 });
-		expect(second.files).toEqual(first.files);
-		expect(second.status().files).toEqual(first.files);
-		expect(second.instance).not.toBe(first.instance);
+		second.claims.restore({ ...first.claims.snapshot(), at: 1 });
+		expect(second.claims.files).toEqual(first.claims.files);
+		expect(second.claims.status().files).toEqual(first.claims.files);
+		expect(second.claims.instance).not.toBe(first.claims.instance);
 		// Later edits get stamps above every restored one.
 		second.call("edit", { path: "src/a.ts" }, REPO, undefined, host);
-		expect(second.stamp(file("src/a.ts"))).toBeGreaterThan(second.stamp(file("src/c.ts")));
+		expect(second.claims.stamp(file("src/a.ts"))).toBeGreaterThan(second.claims.stamp(file("src/c.ts")));
 	});
 
 	it("replaces the claims on a session switch, and takes none from malformed data", () => {
 		const ledger = new CheckoutLedger();
 		ledger.call("edit", { path: "src/a.ts" }, REPO, undefined, host);
-		ledger.restore({ files: [file("src/x.ts")] });
-		expect(ledger.files).toEqual([file("src/x.ts")]);
-		ledger.restore(undefined);
-		expect(ledger.files).toEqual([]);
-		ledger.restore({ files: [1, null, "", file("src/y.ts")] });
-		expect(ledger.files).toEqual([file("src/y.ts")]);
+		ledger.claims.restore({ files: [file("src/x.ts")] });
+		expect(ledger.claims.files).toEqual([file("src/x.ts")]);
+		ledger.claims.restore(undefined);
+		expect(ledger.claims.files).toEqual([]);
+		ledger.claims.restore({ files: [1, null, "", file("src/y.ts")] });
+		expect(ledger.claims.files).toEqual([file("src/y.ts")]);
 	});
 
 	it("ignores a retire read from another load, and drops a pending path from none", () => {
 		const ledger = new CheckoutLedger();
 		ledger.call("edit", { path: "src/a.ts" }, REPO, undefined, host);
-		const seen = [{ file: file("src/a.ts"), stamp: ledger.stamp(file("src/a.ts")) }];
-		expect(ledger.retireFrom({ instance: "another omp", files: seen })).toBe(false);
-		expect(ledger.files).toEqual([file("src/a.ts")]);
-		expect(ledger.retireFrom({ files: seen })).toBe(false);
-		expect(ledger.retireFrom({ instance: ledger.instance, files: seen })).toBe(true);
-		expect(ledger.files).toEqual([]);
+		const seen = [{ file: file("src/a.ts"), stamp: ledger.claims.stamp(file("src/a.ts")) }];
+		expect(ledger.claims.retireFrom({ instance: "another omp", files: seen })).toBe(false);
+		expect(ledger.claims.files).toEqual([file("src/a.ts")]);
+		expect(ledger.claims.retireFrom({ files: seen })).toBe(false);
+		expect(ledger.claims.retireFrom({ instance: ledger.claims.instance, files: seen })).toBe(true);
+		expect(ledger.claims.files).toEqual([]);
 	});
 
 	it("reports every claim without a cap, and the paths a running call still writes", () => {
 		const ledger = new CheckoutLedger();
 		for (let n = 0; n < 75; n++) ledger.call("edit", { path: `src/f${n}.ts` }, REPO, undefined, host);
 		bash(ledger, "sleep 9; echo x > gen.ts", undefined, "running");
-		const status = ledger.status();
+		const status = ledger.claims.status();
 		expect(status.files).toHaveLength(76);
 		expect(status.stamps).toHaveLength(76);
 		expect(status.pending).toEqual([file("gen.ts")]);
-		expect(status.instance).toBe(ledger.instance);
-		ledger.retire([{ file: file("gen.ts"), stamp: ledger.stamp(file("gen.ts")) }]);
-		expect(ledger.files).toContain(file("gen.ts"));
+		expect(status.instance).toBe(ledger.claims.instance);
+		ledger.claims.retire([{ file: file("gen.ts"), stamp: ledger.claims.stamp(file("gen.ts")) }]);
+		expect(ledger.claims.files).toContain(file("gen.ts"));
 	});
 
 	it("moves its revision only when the set of claimed files changes", () => {
 		const ledger = new CheckoutLedger();
-		const start = ledger.revision;
+		const start = ledger.claims.revision;
 		ledger.call("edit", { path: "src/a.ts" }, REPO, undefined, host);
-		const added = ledger.revision;
+		const added = ledger.claims.revision;
 		expect(added).toBeGreaterThan(start);
 		ledger.call("edit", { path: "src/a.ts" }, REPO, undefined, host);
-		expect(ledger.revision).toBe(added);
+		expect(ledger.claims.revision).toBe(added);
 	});
 });
 
@@ -136,14 +160,14 @@ describe("LedgerLifecycle 5: a call that wrote nothing gives its claim back", ()
 		const ledger = new CheckoutLedger();
 		ledger.call("edit", { path: "src/a.ts" }, REPO, undefined, host, "ok");
 		ledger.settle("ok");
-		const before = ledger.stamp(file("src/a.ts"));
+		const before = ledger.claims.stamp(file("src/a.ts"));
 		ledger.call("edit", { path: "src/a.ts" }, REPO, undefined, host, "fails");
 		ledger.call("edit", { path: "src/new.ts" }, REPO, undefined, host, "fails-too");
-		expect(ledger.stamp(file("src/a.ts"))).toBeGreaterThan(before);
+		expect(ledger.claims.stamp(file("src/a.ts"))).toBeGreaterThan(before);
 		expect(ledger.settle("fails", "", { isError: true })).toBe(true);
-		expect(ledger.stamp(file("src/a.ts"))).toBe(before);
+		expect(ledger.claims.stamp(file("src/a.ts"))).toBe(before);
 		ledger.settle("fails-too", "", { isError: true });
-		expect(ledger.files).toEqual([file("src/a.ts")]);
+		expect(ledger.claims.files).toEqual([file("src/a.ts")]);
 	});
 
 	it("drops the claim of a file tool that never reported (denied, blocked after the hook) at the end of the run, and keeps a script's", () => {
@@ -151,14 +175,14 @@ describe("LedgerLifecycle 5: a call that wrote nothing gives its claim back", ()
 		ledger.call("write", { path: "src/denied.ts", content: "x" }, REPO, undefined, host, "w", "main");
 		bash(ledger, "sed -i s/a/b/ src/script.ts", undefined, "s", "main");
 		expect(ledger.settleAll("main")).toBe(true);
-		expect(ledger.files).toEqual([file("src/script.ts")]);
+		expect(ledger.claims.files).toEqual([file("src/script.ts")]);
 	});
 
 	it("keeps the claims of a script that failed, because it may have written", () => {
 		const ledger = new CheckoutLedger();
 		bash(ledger, "echo x > src/gen.ts && false", undefined, "s");
 		ledger.settle("s", "", { isError: true });
-		expect(ledger.files).toEqual([file("src/gen.ts")]);
+		expect(ledger.claims.files).toEqual([file("src/gen.ts")]);
 	});
 
 	it("does not let a later call's claim vanish with an earlier one's failure", () => {
@@ -166,7 +190,7 @@ describe("LedgerLifecycle 5: a call that wrote nothing gives its claim back", ()
 		ledger.call("edit", { path: "src/a.ts" }, REPO, undefined, host, "first");
 		ledger.call("edit", { path: "src/a.ts" }, REPO, undefined, host, "second");
 		ledger.settle("first", "", { isError: true });
-		expect(ledger.files).toEqual([file("src/a.ts")]);
+		expect(ledger.claims.files).toEqual([file("src/a.ts")]);
 	});
 });
 
@@ -175,13 +199,13 @@ describe("LedgerLifecycle 9 and MainAndWire (D6): a backgrounded command keeps i
 		const ledger = new CheckoutLedger();
 		bash(ledger, "bun run gen > src/gen.ts", undefined, "c1");
 		expect(ledger.settle("c1", "", { isError: false, job: "bg_1" })).toBe(true);
-		ledger.retire([{ file: file("src/gen.ts"), stamp: ledger.stamp(file("src/gen.ts")) }]);
-		expect(ledger.files).toEqual([file("src/gen.ts")]);
-		expect(ledger.status().pending).toEqual([file("src/gen.ts")]);
-		expect(ledger.settleJob("bg_1")).toBe(true);
-		expect(ledger.status().pending).toEqual([]);
-		ledger.retire([{ file: file("src/gen.ts"), stamp: ledger.stamp(file("src/gen.ts")) }]);
-		expect(ledger.files).toEqual([]);
+		ledger.claims.retire([{ file: file("src/gen.ts"), stamp: ledger.claims.stamp(file("src/gen.ts")) }]);
+		expect(ledger.claims.files).toEqual([file("src/gen.ts")]);
+		expect(ledger.claims.status().pending).toEqual([file("src/gen.ts")]);
+		expect(ledger.claims.settleJob("bg_1")).toBe(true);
+		expect(ledger.claims.status().pending).toEqual([]);
+		ledger.claims.retire([{ file: file("src/gen.ts"), stamp: ledger.claims.stamp(file("src/gen.ts")) }]);
+		expect(ledger.claims.files).toEqual([]);
 	});
 
 	it("settles the jobs of an agent that are no longer running, and no other agent's", () => {
@@ -190,10 +214,10 @@ describe("LedgerLifecycle 9 and MainAndWire (D6): a backgrounded command keeps i
 		bash(ledger, "echo 2 > two.ts", undefined, "b", "Scout");
 		ledger.settle("a", "main", { isError: false, job: "j1" });
 		ledger.settle("b", "Scout", { isError: false, job: "j2" });
-		expect(ledger.reconcileJobs(new Set(), "main")).toBe(true);
-		expect(ledger.status().pending).toEqual([file("two.ts")]);
-		expect(ledger.reconcileJobs(new Set(["j2"]))).toBe(false);
-		expect(ledger.reconcileJobs(new Set())).toBe(true);
+		expect(ledger.claims.reconcileJobs(new Set(), "main")).toBe(true);
+		expect(ledger.claims.status().pending).toEqual([file("two.ts")]);
+		expect(ledger.claims.reconcileJobs(new Set(["j2"]))).toBe(false);
+		expect(ledger.claims.reconcileJobs(new Set())).toBe(true);
 	});
 });
 
@@ -201,12 +225,12 @@ describe("LedgerLifecycle 10 and GuardRules 8: what a result reports, folders an
 	it("claims nothing for an ast_edit preview, and the files its applied result names", () => {
 		const ledger = new CheckoutLedger();
 		ledger.call("ast_edit", { paths: ["src/c.ts"], ops: [] }, REPO, undefined, host, "p");
-		expect(ledger.files).toEqual([]);
+		expect(ledger.claims.files).toEqual([]);
 		ledger.settle("p", "", { isError: false });
 		ledger.call("write", { path: "xd://resolve", content: "apply" }, REPO, undefined, host, "r");
 		const details = { xdev: { inner: { sourceResultDetails: { applied: true, files: ["src/c.ts", "src/d.ts"] } } } };
 		expect(ledger.settle("r", "", { isError: false, reported: reportedFiles("write", details, "") })).toBe(true);
-		expect([...ledger.files].sort()).toEqual([file("src/c.ts"), file("src/d.ts")]);
+		expect([...ledger.claims.files].sort()).toEqual([file("src/c.ts"), file("src/d.ts")]);
 	});
 
 	it("reads the files an lsp rename applied from its result text", () => {
@@ -223,25 +247,25 @@ describe("LedgerLifecycle 10 and GuardRules 8: what a result reports, folders an
 			"l",
 		);
 		ledger.settle("l", "", { isError: false, reported: reportedFiles("lsp", undefined, text) });
-		expect(ledger.files).toHaveLength(4);
-		expect(ledger.files).toContain(file("src/lib/x.ts"));
+		expect(ledger.claims.files).toHaveLength(4);
+		expect(ledger.claims.files).toContain(file("src/lib/x.ts"));
 	});
 
 	it("reads nothing from a failed result", () => {
 		const ledger = new CheckoutLedger();
 		ledger.call("write", { path: "xd://resolve" }, REPO, undefined, host, "r");
 		ledger.settle("r", "", { isError: true, reported: ["src/c.ts"] });
-		expect(ledger.files).toEqual([]);
+		expect(ledger.claims.files).toEqual([]);
 	});
 
 	it("claims a folder a command removes (main keeps it while git lists anything below) and never a glob", () => {
 		const ledger = new CheckoutLedger();
 		bash(ledger, "rm -rf src/old && cp -r /tmp/x/ src/ && echo y > 'src/*.ts'", undefined);
-		expect(ledger.files).toContain(file("src/old"));
-		expect(ledger.files.some(path => path.includes("*"))).toBe(false);
+		expect(ledger.claims.files).toContain(file("src/old"));
+		expect(ledger.claims.files.some(path => path.includes("*"))).toBe(false);
 		const globbed = new CheckoutLedger();
 		bash(globbed, "rm src/*.ts", undefined);
-		expect(globbed.files).toEqual([]);
+		expect(globbed.claims.files).toEqual([]);
 	});
 });
 
@@ -250,7 +274,7 @@ describe("LedgerLifecycle 11: files git itself changes", () => {
 		const claims = (command: string) => {
 			const ledger = new CheckoutLedger();
 			bash(ledger, command, undefined);
-			return [...ledger.files].sort();
+			return [...ledger.claims.files].sort();
 		};
 		expect(claims("git mv src/a.ts src/z.ts")).toEqual([file("src/a.ts"), file("src/z.ts")]);
 		expect(claims("git mv lib/a.ts src")).toEqual([file("lib/a.ts"), file("src/a.ts")]);
@@ -296,7 +320,7 @@ describe("GuardRules 9: the notice a failed call carried is said again", () => {
 			"Another session changed a file you just edited",
 		);
 		ledger.settle("e2", "", { isError: true });
-		expect(ledger.files).toEqual([]);
+		expect(ledger.claims.files).toEqual([]);
 	});
 
 	it("keeps what it said when a call saw no peers for a moment (GuardRules 17)", () => {
@@ -316,7 +340,7 @@ describe("GuardRules 10 and LedgerLifecycle 16: what is no claim, and how many a
 		for (let n = 0; n < 60; n++)
 			bash(ledger, `bun test > /tmp/run-${n}.log 2>&1; echo x > /private/tmp/x${n}`, sharing);
 		bash(ledger, `echo x > ${OTHER}/src/y.ts; echo x > ~/notes.md`, sharing);
-		expect(ledger.files).toEqual([file("src/a.ts")]);
+		expect(ledger.claims.files).toEqual([file("src/a.ts")]);
 	});
 
 	it("claims files of a checkout that itself sits under a scratch prefix (macOS temp folders)", () => {
@@ -325,7 +349,7 @@ describe("GuardRules 10 and LedgerLifecycle 16: what is no claim, and how many a
 		const ledger = new CheckoutLedger();
 		ledger.call("bash", { command: "echo x > src/a.ts; echo y > /tmp/out.log" }, root, there, host);
 		ledger.call("edit", { path: "src/c.ts" }, root, undefined, host);
-		expect(ledger.files).toEqual([`${root}/src/c.ts`, `${root}/src/a.ts`]);
+		expect(ledger.claims.files).toEqual([`${root}/src/c.ts`, `${root}/src/a.ts`]);
 	});
 
 	it("claims the files a shell glob matches when the command runs, never the glob itself", () => {
@@ -335,13 +359,13 @@ describe("GuardRules 10 and LedgerLifecycle 16: what is no claim, and how many a
 		};
 		const ledger = new CheckoutLedger();
 		ledger.call("bash", { command: "rm src/*.ts && rm lib/*.js" }, REPO, undefined, matching);
-		expect(ledger.files).toEqual([file("src/a.ts"), file("src/b.ts")]);
+		expect(ledger.claims.files).toEqual([file("src/a.ts"), file("src/b.ts")]);
 	});
 
 	it("holds more than forty real claims", () => {
 		const ledger = new CheckoutLedger();
 		bash(ledger, Array.from({ length: 60 }, (_, n) => `echo x > src/f${n}.ts`).join(" && "), sharing);
-		expect(ledger.files).toHaveLength(60);
+		expect(ledger.claims.files).toHaveLength(60);
 	});
 
 	it("folds case only where the file system does", () => {
@@ -356,8 +380,8 @@ describe("GuardRules 10 and LedgerLifecycle 16: what is no claim, and how many a
 		bash(ledger, "sleep 8; echo x > gen.ts", undefined, "call_1", "main");
 		bash(ledger, "echo y > other.ts", undefined, "call_1", "Scout");
 		expect(ledger.settle("call_1", "Scout", { isError: false })).toBe(true);
-		ledger.retire([{ file: file("gen.ts"), stamp: ledger.stamp(file("gen.ts")) }]);
-		expect(ledger.files).toContain(file("gen.ts"));
+		ledger.claims.retire([{ file: file("gen.ts"), stamp: ledger.claims.stamp(file("gen.ts")) }]);
+		expect(ledger.claims.files).toContain(file("gen.ts"));
 		expect(ledger.settle("call_1", "main", { isError: false })).toBe(true);
 	});
 });

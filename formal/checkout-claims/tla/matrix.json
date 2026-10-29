@@ -1,0 +1,35 @@
+{
+	"runs": [
+		{
+			"name": "two-agents-one-restart",
+			"config": "MC.cfg",
+			"expect": "pass"
+		},
+		{
+			"name": "three-calls-own-commit",
+			"config": "MC_clean.cfg",
+			"expect": "pass",
+			"timeoutSec": 3600,
+			"tier": "deep"
+		},
+		{
+			"name": "b-is-told-while-a-writes",
+			"config": "MC_sanity_NeverShownWhileWriting.cfg",
+			"expect": "invariant",
+			"property": "NeverShownWhileWriting"
+		},
+		{
+			"name": "a-claim-is-released",
+			"config": "MC_sanity_NeverReleased.cfg",
+			"expect": "invariant",
+			"property": "NeverReleased"
+		},
+		{
+			"name": "three-calls-three-world-events",
+			"config": "MC_deep.cfg",
+			"expect": "pass",
+			"tier": "deep",
+			"timeoutSec": 7200
+		}
+	]
+}

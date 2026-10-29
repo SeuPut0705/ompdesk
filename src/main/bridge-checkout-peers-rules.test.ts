@@ -72,7 +72,7 @@ describe("1: a file both sessions changed can be taken by name, never dropped", 
 		const host = { realpath: (p: string) => p, isDirectory: () => false };
 		const block = (verdict: CallVerdict) => "block" in verdict;
 		expect(block(ledger.call("edit", { path: "src/b.ts" }, REPO, sharing, host))).toBe(false);
-		expect(ledger.files).toEqual([b]);
+		expect(ledger.claims.files).toEqual([b]);
 		expect(block(ledger.call("bash", { command: "git commit -m x -- src/b.ts" }, REPO, sharing, host))).toBe(false);
 		expect(block(ledger.call("write", { path: "src/b.ts", content: "x" }, REPO, sharing, host))).toBe(true);
 	});
@@ -241,7 +241,7 @@ describe("7: a cd the parser cannot resolve", () => {
 	it("claims what such a command changes at that place", () => {
 		const ledger = new CheckoutLedger();
 		ledger.call("bash", { command: "cd $PWD && echo x > src/new.ts" }, REPO, sharing, { realpath: p => p });
-		expect(ledger.files).toEqual([`${REPO}/src/new.ts`]);
+		expect(ledger.claims.files).toEqual([`${REPO}/src/new.ts`]);
 	});
 });
 
@@ -290,7 +290,7 @@ describe("11: shell writers the parser misread", () => {
 		expect("block" in verdict && verdict.block).toContain("writing src/b.ts whole");
 		const fine = new CheckoutLedger();
 		fine.call("eval", { input: "Bun.write('src/a.ts', 'x')" }, REPO, sharing, { realpath: p => p });
-		expect(fine.files).toEqual([a]);
+		expect(fine.claims.files).toEqual([a]);
 	});
 });
 
@@ -342,7 +342,7 @@ describe("13: an append keeps the other session's lines", () => {
 	it("claims the appended file, with the overlap notice", () => {
 		const ledger = new CheckoutLedger();
 		const verdict = ledger.call("bash", { command: "echo x >> src/b.ts" }, REPO, sharing, { realpath: p => p });
-		expect(ledger.files).toEqual([b]);
+		expect(ledger.claims.files).toEqual([b]);
 		expect("notice" in verdict && verdict.notice).toContain("Another session changed a file you just edited");
 	});
 });
@@ -365,7 +365,7 @@ describe("15: formatters and package managers", () => {
 			realpath: p => p,
 			isDirectory: p => p === `${REPO}/src`,
 		});
-		return { files: [...ledger.files].sort(), verdict };
+		return { files: [...ledger.claims.files].sort(), verdict };
 	};
 
 	it("refuses a formatter run over a folder, a glob or the tree when the other session changed a file in it", () => {

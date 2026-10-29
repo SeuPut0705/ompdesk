@@ -490,7 +490,7 @@ describe("the checkout ledger", () => {
 		expect(block(verdict)).toBeUndefined();
 		expect(notice(verdict)).toContain("Another session changed a file you just edited");
 		expect(notice(verdict)).toContain("src/b.ts");
-		expect(ledger.files).toEqual([b]);
+		expect(ledger.claims.files).toEqual([b]);
 	});
 
 	it("drops a claim main saw committed, but keeps one changed again since", () => {
@@ -498,12 +498,12 @@ describe("the checkout ledger", () => {
 		const a = `${REPO}/src/a.ts`;
 		run(ledger, undefined, "edit", { path: "src/a.ts" });
 		run(ledger, undefined, "edit", { path: "src/b.ts" });
-		const seen = [a, b].map(file => ({ file, stamp: ledger.stamp(file) }));
+		const seen = [a, b].map(file => ({ file, stamp: ledger.claims.stamp(file) }));
 		run(ledger, undefined, "edit", { path: "src/b.ts" });
-		ledger.retire(seen);
-		expect(ledger.files).toEqual([b]);
+		ledger.claims.retire(seen);
+		expect(ledger.claims.files).toEqual([b]);
 		run(ledger, undefined, "edit", { path: "src/a.ts" });
-		expect(ledger.files).toEqual([a, b]);
+		expect(ledger.claims.files).toEqual([a, b]);
 	});
 
 	it("never retires the claim of a write still running, nor one main read while it ran", () => {
@@ -511,16 +511,16 @@ describe("the checkout ledger", () => {
 		const tracked = `${REPO}/tracked.ts`;
 		// The hook runs before the command: `sleep 8` keeps the file clean while main takes a pass.
 		ledger.call("bash", { command: "sleep 8; echo changed > tracked.ts" }, REPO, undefined, host, "c1");
-		const seenWhileRunning = [{ file: tracked, stamp: ledger.stamp(tracked) }];
-		ledger.retire(seenWhileRunning);
-		expect(ledger.files).toEqual([tracked]);
+		const seenWhileRunning = [{ file: tracked, stamp: ledger.claims.stamp(tracked) }];
+		ledger.claims.retire(seenWhileRunning);
+		expect(ledger.claims.files).toEqual([tracked]);
 		// The write lands; a retirement main decided from its read during the run arrives late.
 		expect(ledger.settle("c1")).toBe(true);
-		ledger.retire(seenWhileRunning);
-		expect(ledger.files).toEqual([tracked]);
+		ledger.claims.retire(seenWhileRunning);
+		expect(ledger.claims.files).toEqual([tracked]);
 		// A pass after the write that finds it committed retires it.
-		ledger.retire([{ file: tracked, stamp: ledger.stamp(tracked) }]);
-		expect(ledger.files).toEqual([]);
+		ledger.claims.retire([{ file: tracked, stamp: ledger.claims.stamp(tracked) }]);
+		expect(ledger.claims.files).toEqual([]);
 		expect(ledger.settle("c1")).toBe(false);
 	});
 
@@ -529,8 +529,8 @@ describe("the checkout ledger", () => {
 		const tracked = `${REPO}/tracked.ts`;
 		ledger.call("write", { path: "tracked.ts", content: "x" }, REPO, undefined, host, "denied", "main");
 		ledger.settleAll("main");
-		ledger.retire([{ file: tracked, stamp: ledger.stamp(tracked) }]);
-		expect(ledger.files).toEqual([]);
+		ledger.claims.retire([{ file: tracked, stamp: ledger.claims.stamp(tracked) }]);
+		expect(ledger.claims.files).toEqual([]);
 	});
 
 	it("keeps an agent's running write claimed when another agent of the session ends its run", () => {
@@ -541,8 +541,8 @@ describe("the checkout ledger", () => {
 		ledger.call("edit", { path: "src/b.ts" }, REPO, undefined, host, "b1", "Scout");
 		ledger.settle("b1", "Scout");
 		expect(ledger.settleAll("Scout")).toBe(false);
-		ledger.retire([{ file: tracked, stamp: ledger.stamp(tracked) }]);
-		expect(ledger.files).toContain(tracked);
+		ledger.claims.retire([{ file: tracked, stamp: ledger.claims.stamp(tracked) }]);
+		expect(ledger.claims.files).toContain(tracked);
 		// Its result still settles and reannounces it.
 		expect(ledger.settle("a1", "main")).toBe(true);
 	});
@@ -551,10 +551,10 @@ describe("the checkout ledger", () => {
 		const ledger = new CheckoutLedger();
 		bash(ledger, undefined, "cp /tmp/x src/new.ts && rm src/old.ts && mv src/m.ts src/n.ts");
 		const expected = ["new.ts", "old.ts", "n.ts", "m.ts"].map(file => `${REPO}/src/${file}`).sort();
-		expect([...ledger.files].sort()).toEqual(expected);
+		expect([...ledger.claims.files].sort()).toEqual(expected);
 		const touching = new CheckoutLedger();
 		bash(touching, undefined, "touch src/t.ts && mkdir -p src/d && chmod +x src/t.ts && chown me src/t.ts");
-		expect(touching.files).toEqual([]);
+		expect(touching.claims.files).toEqual([]);
 	});
 
 	it("refuses a shell replace or delete of the peer's file and claims nothing for it", () => {
@@ -567,7 +567,7 @@ describe("the checkout ledger", () => {
 		]) {
 			const ledger = new CheckoutLedger();
 			expect(block(bash(ledger, sharing, command)), command).toContain("from the shell");
-			expect(ledger.files, command).toEqual([]);
+			expect(ledger.claims.files, command).toEqual([]);
 		}
 	});
 
@@ -586,14 +586,14 @@ describe("the checkout ledger", () => {
 		const verdict = run(ledger, sharing, "write", { path: "src/b.ts", content: "x" });
 		expect(block(verdict)).toContain("writing src/b.ts whole with the write tool");
 		expect(gained(verdict)).toBe(false);
-		expect(ledger.files).toEqual([]);
+		expect(ledger.claims.files).toEqual([]);
 	});
 
 	it("claims the paths of the edit tool in every form, a patch's move and an lsp rename, not an lsp read", () => {
 		const claims = (toolName: string, input: unknown) => {
 			const ledger = new CheckoutLedger();
 			run(ledger, undefined, toolName, input);
-			return [...ledger.files].sort();
+			return [...ledger.claims.files].sort();
 		};
 		const files = (...names: string[]) => names.map(name => `${REPO}/${name}`).sort();
 		expect(
