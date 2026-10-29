@@ -139,6 +139,12 @@ jobs:
       - name: Ensure the Electron binary
         run: bun node_modules/electron/install.js && test -f node_modules/electron/path.txt
       - run: bunx vitest run ${{ matrix.args }}
+      # The work card's verdict over 254 real cards and its generated invariants, by name, even when the run above
+      # failed elsewhere: a red here is a card that changed colour or a check that changed its word
+      # (src/renderer/components/chat/work/work-verdict-replay.test.tsx; `-u` only after reviewing each moved card).
+      - name: Work card verdict over real journals
+        if: ${{ !cancelled() && matrix.name == 'node' }}
+        run: bunx vitest run src/renderer/components/chat/work/work-verdict-replay.test.tsx src/renderer/components/chat/work/work-verdict.property.test.ts scripts/work-verdict-corpus.test.ts
       - if: failure()
         run: bash scripts/ci-failure.sh
         env:
