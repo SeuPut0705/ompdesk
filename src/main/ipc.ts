@@ -123,7 +123,7 @@ import {
 	openExtensionsPage,
 	reprobeAgentBrowserStatus,
 } from "./agent-browsers";
-import { AgentControlRuntime } from "./agent-control/host";
+import { AgentControlRuntime, CARD_TIMEOUT_MS } from "./agent-control/host";
 import { appNotification } from "./app-icon";
 import { requestQuit } from "./app-quit";
 import { Autopilot, type AutopilotCommand, type AutopilotNotice } from "./autopilot";
@@ -135,6 +135,8 @@ import {
 	readCheckoutPlace,
 	readGitStatus,
 } from "./checkout-peers";
+import { createControlBackend } from "./control-socket/backend";
+import { startControlSocket } from "./control-socket/index";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import { DesktopSlotHost } from "./desktop-slot-host";
 import { savedWorktreesForSpawn } from "./disk/saved-worktrees";
@@ -1311,6 +1313,35 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				await shell.openExternal(privacyPaneUrl(pane));
 			},
 		},
+		// A caller outside OMPdesk (the control socket) acts through the front window; its cards are native dialogs
+		// over it, since it has no session of its own to raise one in.
+		outsideWindow: () => windowManager.getTargetWindow(),
+		confirmOutside: async (win, title, message) => {
+			const native = BrowserWindow.getAllWindows().find(
+				candidate => candidate.webContents.id === win.webContents.id,
+			);
+			if (!native) return false;
+			const ko = getMainLanguage() === "ko";
+			const { response } = await dialog.showMessageBox(native, {
+				type: "question",
+				title,
+				message: title,
+				detail: message,
+				buttons: ko ? ["허용", "허용 안 함"] : ["Allow", "Don't allow"],
+				defaultId: 1,
+				cancelId: 1,
+				signal: AbortSignal.timeout(CARD_TIMEOUT_MS),
+			});
+			return response === 0;
+		},
+	});
+	// The control socket (src/main/control-socket): anything on this computer drives the same service as the tools.
+	void startControlSocket({
+		userData: app.getPath("userData"),
+		backend: createControlBackend(agentControl, sidecarPool),
+		log: line => console.warn(`[control-socket] ${line}`),
+	}).then(handle => {
+		if (handle) app.once("will-quit", () => void handle.close());
 	});
 
 	// Autopilot's coordinator (src/main/autopilot.ts): the tab hooks DeskTools calls and the frames the sidecar

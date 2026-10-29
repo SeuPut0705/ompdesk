@@ -32,6 +32,7 @@ import { BTW_FRAME_TYPES, LIVE_FRAME_TYPES } from "../shared/rpc-types";
 import { AGENT_CONTROL_DEFINITIONS } from "./agent-control/tools";
 import { isNoModelBootFailure } from "./boot-model";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
+import { withControlEnv } from "./control-socket/env";
 import { EventBatcher } from "./event-batcher";
 import { withoutFrameBookkeeping } from "./frame-bookkeeping";
 import { localHandlerFor, runLocalCommand } from "./local";
@@ -660,8 +661,8 @@ export class SidecarManager extends EventEmitter {
 					...ompBunDefaults(),
 					// Login-shell env over the app's own, then the GUI proxy pref (and inherited proxy env) over
 					// rc-file proxy exports. What another OMPdesk session left in either is never this tab's
-					// (`SESSION_OWNED_ENV`).
-					...withoutSessionEnv({ ...process.env, ...this.#shellEnvVars }),
+					// (`SESSION_OWNED_ENV`), nor another OMPdesk's control socket (`withControlEnv`).
+					...withControlEnv(withoutSessionEnv({ ...process.env, ...this.#shellEnvVars })),
 					...this.#proxyEnvVars,
 					PATH: ompPathEnv(
 						bin,
