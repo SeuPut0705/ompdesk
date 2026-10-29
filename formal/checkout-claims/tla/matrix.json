@@ -9,7 +9,8 @@
 			"name": "three-calls-own-commit",
 			"config": "MC_clean.cfg",
 			"expect": "pass",
-			"timeoutSec": 3600
+			"timeoutSec": 3600,
+			"tier": "deep"
 		},
 		{
 			"name": "b-is-told-while-a-writes",

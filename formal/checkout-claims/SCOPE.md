@@ -33,8 +33,9 @@ Why tests miss it: the claim lives in two processes (A's bridge and main), main'
 
 ## Status of the runs (29 Oct 2026)
 
-- Fast tier: passed at the stamp (`MC.cfg`, the sanity runs, the own-commit run `MC_clean.cfg`), and all 11 mutations detected (1 declared equivalent).
-- Deep tier (`MC_deep.cfg`, 3 calls with own commits, one restart, 3 world events): **pending at the stamp**. It passed once on the same model and code (157,260,171 distinct states, depth 60, 1431 s with every core; 3665 s on one worker), and the reviewer stopped the re-run on purpose. Run it later with:
+- Fast tier: `MC.cfg` and the two sanity runs, plus the mutations (11 detected, 1 declared equivalent; `clean-keeps-taken-over-claim` runs under `MC_clean.cfg`, so that config's baseline is checked there too).
+- The own-commit run `MC_clean.cfg` (23,323,771 states, depth 53) is tagged `deep`: 547 s on one worker. It passed on 29 Oct 2026 (run on the branch before the rebase; the rebase changed no covered code).
+- Deep run `MC_deep.cfg` (3 calls with own commits, one restart, 3 world events): **pending at the stamp**. It passed once on the same model and code (157,260,171 distinct states, depth 60, 1431 s with every core; 3665 s on one worker), and the reviewer stopped the re-run on purpose. Run it later with:
 
 ```bash
 bun <tools-dir>/scripts/verify-all.ts formal --only checkout-claims --tier deep
