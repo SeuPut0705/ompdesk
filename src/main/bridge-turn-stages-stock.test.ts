@@ -5,7 +5,11 @@ import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { afterAll, describe, expect, it } from "vitest";
-import { TURN_STAGES_EVENT, TURN_STAGES_LATE_ENV } from "../../resources/gui-bridge/turn-stages-contracts";
+import {
+	MODEL_REQUEST_EVENT,
+	TURN_STAGES_EVENT,
+	TURN_STAGES_LATE_ENV,
+} from "../../resources/gui-bridge/turn-stages-contracts";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
 import { turnStagesReport } from "./turn-stages-log";
 
@@ -269,10 +273,14 @@ describe.skipIf(!existsSync(omp))("turn stages on stock omp", () => {
 			const found = lines()[index]?.details;
 			return typeof found === "object" && found !== null ? Object.fromEntries(Object.entries(found)) : {};
 		};
+		// The working cue's signals (`model_request`): one `sent` per request the main loop makes, `answered` at its headers.
+		const phases = () =>
+			run.bridgeEvents.filter(event => event.type === MODEL_REQUEST_EVENT).map(event => String(event.phase));
 
-		// 1. A normal turn: no frame.
+		// 1. A normal turn: no frame, and its one request went out and was answered.
 		await (await run.prompt("hello"))();
 		expect(provider.arrivals).toHaveLength(1);
+		expect(phases()).toEqual(["sent", "answered"]);
 
 		// 2. Accepted and never answered. Stock's first-event timer aborts each attempt at its timeout and the provider
 		// sends the request again; the user's Stop ends the run (as after the 28 Oct stalls).
@@ -287,6 +295,8 @@ describe.skipIf(!existsSync(omp))("turn stages on stock omp", () => {
 		expect((await run.send({ type: "abort" })).success).toBe(true);
 		await stalled();
 		await expect.poll(() => lines().length, { timeout: 30_000 }).toBe(1);
+		// Stock's provider sent it again by itself: still the one request the cue waits on, never answered.
+		expect(phases()).toEqual(["sent", "answered", "sent"]);
 		const silent = details(0);
 		expect(silent).toMatchObject({
 			outcome: "aborted",

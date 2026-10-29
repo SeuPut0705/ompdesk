@@ -18,20 +18,9 @@ import { useT } from "../../lib/i18n";
 import { PLATFORM } from "../../lib/keymap";
 import { toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import {
-	Badge,
-	type BadgeVariant,
-	Banner,
-	Button,
-	CopyButton,
-	IconButton,
-	Input,
-	Select,
-	SwitchField,
-} from "../common";
+import { Badge, type BadgeVariant, Banner, Button, IconButton, Input, Select, SwitchField } from "../common";
 import { useNow } from "./SshPromptDialog";
 
-const KEYGEN_COMMAND = 'ssh-keygen -t ed25519 -C "ompdesk"';
 const GRACE_OPTIONS = [60_000, 10 * 60_000, SSH_GRACE_DEFAULT_MS, 24 * 60 * 60_000, 7 * 24 * 60 * 60_000] as const;
 const GRACE_LABELS: Record<number, string> = {
 	60000: "ssh.tools.grace.minute",
@@ -52,18 +41,35 @@ const STATUS_BADGE: Record<SshForward["status"]["kind"], BadgeVariant> = {
 export function SshAgentRow() {
 	const t = useT();
 	const [status, setStatus] = useState<SshAgentStatus | null>(null);
+	const [busy, setBusy] = useState(false);
+	const load = useCallback(async () => {
+		try {
+			return await window.omp.sshTools.agent();
+		} catch {
+			return null;
+		}
+	}, []);
 	useEffect(() => {
 		let live = true;
-		void window.omp.sshTools.agent().then(
-			result => {
-				if (live) setStatus(result);
-			},
-			() => {},
-		);
+		void load().then(result => {
+			if (live && result) setStatus(result);
+		});
 		return () => {
 			live = false;
 		};
-	}, []);
+	}, [load]);
+	const act = async (action: "createKey" | "loadKeys") => {
+		setBusy(true);
+		try {
+			await window.omp.sshTools.command({ action });
+		} catch (error) {
+			toastError({ title: t("ssh.tools.failed"), error });
+		} finally {
+			setBusy(false);
+			const result = await load();
+			if (result) setStatus(result);
+		}
+	};
 	if (!status) return null;
 	const variant: BadgeVariant = status.agent === "available" ? "success" : "warning";
 	const windows = PLATFORM === "windows";
@@ -79,19 +85,18 @@ export function SshAgentRow() {
 			</div>
 			{status.keyFiles.length === 0 && status.keygen && (
 				<Banner title={t("ssh.tools.agent.noKey")}>
-					<span className="flex flex-wrap items-center gap-2">
-						<code className="font-mono text-sc-xs">{KEYGEN_COMMAND}</code>
-						<CopyButton label={t("ssh.tools.agent.copyCommand")} size="sm" text={KEYGEN_COMMAND} />
-					</span>
+					<Button disabled={busy} onClick={() => void act("createKey")} size="sm">
+						{t("ssh.tools.agent.createKey")}
+					</Button>
 				</Banner>
 			)}
-			{status.agent !== "available" && status.keyFiles.length > 0 && (
-				<p className="text-sc-xs text-(--sc-text-muted)">
-					{t(windows ? "ssh.tools.agent.startWindows" : "ssh.tools.agent.startMac")}
-				</p>
+			{status.agent !== "available" && status.keyFiles.length > 0 && windows && (
+				<p className="text-sc-xs text-(--sc-text-muted)">{t("ssh.tools.agent.startWindows")}</p>
 			)}
-			{status.agent === "available" && status.agentKeys.length === 0 && status.keyFiles.length > 0 && (
-				<p className="text-sc-xs text-(--sc-text-muted)">{t("ssh.tools.agent.addKey")}</p>
+			{status.agent !== "none" && status.agentKeys.length === 0 && status.keyFiles.length > 0 && (
+				<Button disabled={busy} onClick={() => void act("loadKeys")} size="sm" variant="secondary">
+					{t("ssh.tools.agent.loadKeys")}
+				</Button>
 			)}
 		</div>
 	);

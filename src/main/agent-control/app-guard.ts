@@ -51,7 +51,6 @@ export const FULL_CONTROL_PREFS: Readonly<Record<string, true>> = {
 	agentControlApprove: true,
 	pstack: true,
 	ecc: true,
-	aiMemoryLearn: true,
 };
 export const FULL_CONTROL_SETTINGS: Readonly<Record<string, true>> = {
 	"tools.approvalMode": true,

@@ -100,6 +100,11 @@ if (local) {
 `;
 
 const SSH_ADD = String.raw`
+const args = process.argv.slice(2);
+if (args[0] !== "-l") {
+	require("node:fs").appendFileSync(require("node:path").join(__dirname, "added"), args.join(" ") + "\n");
+	process.exit(0);
+}
 process.stdout.write("256 SHA256:agentKeyFingerprint fake@laptop (ED25519)\n");
 process.exit(0);
 `;
@@ -107,6 +112,12 @@ process.exit(0);
 const SSH_KEYGEN = String.raw`
 const fs = require("node:fs");
 const args = process.argv.slice(2);
+const out = args.indexOf("-f");
+if (out !== -1 && args[0] !== "-R") {
+	fs.writeFileSync(args[out + 1], "PRIVATE\n", { mode: 0o600 });
+	fs.writeFileSync(args[out + 1] + ".pub", "ssh-ed25519 AAAA ompdesk\n");
+	process.exit(0);
+}
 if (args[0] !== "-R") process.exit(1);
 const name = args[1], file = args[3];
 const kept = (fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "").split("\n").filter(line => line && !line.startsWith(name + " "));

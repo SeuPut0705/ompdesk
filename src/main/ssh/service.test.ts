@@ -415,3 +415,43 @@ describe.skipIf(process.platform === "win32")("askpass", () => {
 		}
 	});
 });
+
+describe.skipIf(process.platform === "win32")("SshTools key actions", () => {
+	let root: string;
+	let tools: SshTools;
+	beforeEach(async () => {
+		root = await fs.mkdtemp(path.join(os.tmpdir(), "omp-ssh-keys-"));
+		// A temp home (HOME on POSIX, USERPROFILE on Windows): never the real ~/.ssh.
+		vi.stubEnv("HOME", root);
+		vi.stubEnv("USERPROFILE", root);
+		vi.stubEnv("OMP_GUI_SSH", await writeFakeSsh(path.join(root, "bin")));
+		tools = new SshTools({ userData: path.join(root, "user"), broadcast: () => {} });
+	});
+	afterEach(async () => {
+		tools.dispose();
+		vi.unstubAllEnvs();
+		await fs.rm(root, { recursive: true, force: true });
+	});
+
+	it("createKey makes ~/.ssh/id_ed25519 once and never overwrites an existing key", async () => {
+		await tools.command({ action: "createKey" });
+		const key = path.join(root, ".ssh", "id_ed25519");
+		expect(await fs.readFile(key, "utf8")).toBe("PRIVATE\n");
+		expect((await tools.agent()).keyFiles).toEqual(["id_ed25519.pub"]);
+		await fs.writeFile(key, "MINE\n");
+		await tools.command({ action: "createKey" });
+		expect(await fs.readFile(key, "utf8")).toBe("MINE\n");
+	});
+
+	it("loadKeys hands each private key that has a .pub to ssh-add, and skips a lone .pub", async () => {
+		const dir = path.join(root, ".ssh");
+		await fs.mkdir(dir, { recursive: true });
+		await fs.writeFile(path.join(dir, "id_ed25519"), "k");
+		await fs.writeFile(path.join(dir, "id_ed25519.pub"), "p");
+		await fs.writeFile(path.join(dir, "orphan.pub"), "p");
+		await tools.command({ action: "loadKeys" });
+		const added = (await fs.readFile(path.join(root, "bin", "added"), "utf8")).trim().split("\n");
+		expect(added).toHaveLength(1);
+		expect(added[0]).toContain(path.join(dir, "id_ed25519"));
+	});
+});

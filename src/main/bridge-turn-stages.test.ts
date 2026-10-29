@@ -4,7 +4,12 @@ import {
 	TURN_STAGES_MAX_DETAILS,
 	type TurnStagesFrame,
 } from "../../resources/gui-bridge/turn-stages-contracts";
-import { noteSlowSpot, setActiveRecorder, TurnStageRecorder } from "../../resources/gui-bridge/turn-stages-core";
+import {
+	noteSlowSpot,
+	setActiveRecorder,
+	TurnStageRecorder,
+	wrapStreamFn,
+} from "../../resources/gui-bridge/turn-stages-core";
 import { turnStagesReport } from "./turn-stages-log";
 
 /** The recorder on a hand-set clock, so a six-minute stall takes no time. */
@@ -197,6 +202,30 @@ describe("TurnStageRecorder", () => {
 		expect(details).toMatchObject({ outcome: "late", call: 1, waitedMs: 45_000, lastStage: "stream_open" });
 		expect(details.longestGap).toBe("stream_open>first_output 45000ms");
 		expect(w.frames[0].message).toContain("after the model call began");
+	});
+
+	it("keeps the first request's time when stock rebuilds the request inside the same call", () => {
+		// Stock's Anthropic provider sends a rebuilt body again after some 400s (a changed thinking prefix, strict
+		// tools refused) without a new turn: the second request must not hide how long the first one waited.
+		// The order the 28-29 Oct lines show: the stream opens after the answering response.
+		const w = world();
+		w.prompt("fix it");
+		w.event("agent_start");
+		w.event("turn_start");
+		w.at(20);
+		w.recorder.providerRequest();
+		w.at(300_000);
+		w.recorder.providerResponse();
+		w.at(1_000);
+		w.recorder.providerRequest();
+		w.at(1_000);
+		w.recorder.providerResponse();
+		w.at(500);
+		w.event("message_start", { message: w.assistant() });
+		w.event("message_update", { message: w.assistant() });
+		const details = only(w.frames);
+		expect(details).toMatchObject({ providerRequests: 2, "at.provider_request": 20 });
+		expect(details.longestGap).toBe("provider_request>provider_response 302000ms");
 	});
 
 	it("a compaction inside the wait is named, with its end", () => {
@@ -573,5 +602,75 @@ describe("turnStagesReport", () => {
 	it("ignores every other frame", () => {
 		expect(turnStagesReport({ type: "agent_end" })).toBeUndefined();
 		expect(turnStagesReport({ type: TURN_STAGES_EVENT })).toBeUndefined();
+	});
+});
+
+describe("wrapStreamFn", () => {
+	it("counts only the main loop's own requests, not a side request made with the same session callbacks", async () => {
+		// 28-29 Oct 2026: 21 lines named a gap from `turn_start` (a stall before the request) with 2-12 requests per
+		// call, three with a response logged before the request. Stock hands its session's payload and response
+		// callbacks (the provider hooks) to the main loop and to each advisor's own Agent alike.
+		const w = world();
+		const session = {
+			onPayload: async (payload: unknown) => payload,
+			onResponse: async (_response: { status: number }) => undefined,
+		};
+		type Options = typeof session;
+		let sent: Options | undefined;
+		/** A provider call: the payload callback as the request goes out; the response callback comes at its headers. */
+		const call = async (_model: unknown, _context: unknown, options: Options) => {
+			sent = options;
+			await options.onPayload({});
+			return "stream";
+		};
+		const main = { streamFn: call };
+		const advisor = { streamFn: call };
+		const signals: string[] = [];
+		wrapStreamFn(main, w.recorder, phase => signals.push(phase));
+		wrapStreamFn(main, w.recorder, phase => signals.push(phase));
+
+		w.event("agent_start");
+		w.event("turn_start");
+		w.at(20);
+		expect(await main.streamFn({}, {}, session)).toBe("stream");
+		const mainCall = sent;
+		w.at(200_000);
+		await advisor.streamFn({}, {}, session);
+		w.at(2_000);
+		await sent?.onResponse({ status: 200 });
+		w.at(98_000);
+		await mainCall?.onResponse({ status: 200 });
+		w.at(1_000);
+		w.event("message_start", { message: w.assistant() });
+		w.event("message_update", { message: w.assistant() });
+
+		const details = only(w.frames);
+		expect(details).toMatchObject({ outcome: "late", providerRequests: 1, "at.provider_request": 20 });
+		expect(details.longestGap).toBe("provider_request>provider_response 300000ms");
+		// The working cue's two signals of the call, once each: the advisor's request and response send none.
+		expect(signals).toEqual(["sent", "answered"]);
+	});
+
+	it("answers the wait only with a usable response: an error status leaves it waiting", async () => {
+		const w = world();
+		const signals: string[] = [];
+		let options: { onPayload?: () => unknown; onResponse?: (response: unknown) => unknown } | undefined;
+		const main = {
+			streamFn: async (_model: unknown, _context: unknown, given: typeof options) => {
+				options = given;
+				await given?.onPayload?.();
+			},
+		};
+		wrapStreamFn(main, w.recorder, phase => signals.push(phase));
+		w.event("agent_start");
+		w.event("turn_start");
+		// No callbacks of stock's own: the wrapper still reports, and hands back nothing.
+		await main.streamFn({}, {}, undefined);
+		expect(await options?.onResponse?.({ status: 529 })).toBeUndefined();
+		expect(signals).toEqual(["sent"]);
+		// Stock's provider sends a rebuilt body after a 400 and that one is answered.
+		await options?.onPayload?.();
+		await options?.onResponse?.({ status: 200 });
+		expect(signals).toEqual(["sent", "sent", "answered"]);
 	});
 });

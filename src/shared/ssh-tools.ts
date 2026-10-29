@@ -100,7 +100,11 @@ export type SshToolsRequest =
 	/** Drop the saved host key of `target` and its hops, so the next connection asks again. */
 	| { action: "forgetHostKey"; target: SshTarget }
 	/** `value` null = cancel. */
-	| { action: "answer"; id: string; value: string | null };
+	| { action: "answer"; id: string; value: string | null }
+	/** Create ~/.ssh/id_ed25519 (no passphrase) when no key file exists. */
+	| { action: "createKey" }
+	/** Hand every private key in ~/.ssh to the running ssh-agent. */
+	| { action: "loadKeys" };
 
 export interface SshToolsApi {
 	command(request: SshToolsRequest): Promise<SshToolsState>;

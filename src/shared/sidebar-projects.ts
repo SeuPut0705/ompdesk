@@ -8,6 +8,8 @@
  * names the project it was cut from (main resolves it before a path is stored).
  */
 
+import { isOmpdeskWorktreeFolder, type WorktreeKind } from "./project-origin";
+
 export const SIDEBAR_PROJECTS_COMMAND = "sidebar-projects:command";
 /** Pushed on every change: an `IpcSidebarProjects` (`device` unset for this computer's own list). */
 export const SIDEBAR_PROJECTS_STATE = "sidebar-projects:state";
@@ -36,9 +38,16 @@ export interface SidebarProjectsState {
 	 */
 	worktrees: Record<string, string>;
 	/**
-	 * Session folders that are gone from disk (a removed worktree, a deleted folder), as that computer sees it: a paired
-	 * device hides their sessions the way this computer's own sidebar does, unless a tab holds one. Absent from an older
+	 * What each linked worktree folder in `worktrees` is (an agent's, an Autopilot run's, any other), as git on that
+	 * computer says while the folder is there: a paired device cannot ask the host's git, and an agent worktree's
+	 * sessions fold into their project as they do in the host's own sidebar (`foldsIntoProject`). Absent from an older
 	 * host.
+	 */
+	worktreeKinds?: Record<string, WorktreeKind>;
+	/**
+	 * Session folders that are gone from disk (a removed worktree, a deleted folder), as that computer sees it: a paired
+	 * device places their sessions with `sessionProjectKey`, as this computer's own sidebar does (a gone worktree's
+	 * sessions leave, a gone project's stay under it, dimmed). Absent from an older host.
 	 */
 	gone?: string[];
 }
@@ -97,5 +106,76 @@ export function parseSidebarProjects(value: unknown): SidebarProjectsState {
 	const gone = Array.isArray(record.gone)
 		? [...new Set(record.gone.filter((path): path is string => typeof path === "string" && path.length > 0))]
 		: [];
-	return { projects, removed, worktrees, ...(gone.length > 0 ? { gone } : {}) };
+	const worktreeKinds: Record<string, WorktreeKind> = {};
+	const rawKinds = record.worktreeKinds;
+	if (rawKinds && typeof rawKinds === "object" && !Array.isArray(rawKinds))
+		for (const [cwd, kind] of Object.entries(rawKinds))
+			if (cwd && (kind === "autopilot" || kind === "agent" || kind === "other")) worktreeKinds[cwd] = kind;
+	return {
+		projects,
+		removed,
+		worktrees,
+		...(Object.keys(worktreeKinds).length > 0 ? { worktreeKinds } : {}),
+		...(gone.length > 0 ? { gone } : {}),
+	};
+}
+
+export interface SessionFolderFacts {
+	/** The folder the session ran in. */
+	cwd: string;
+	/** That computer says the folder is gone from disk (`SidebarProjectsState.gone`, or git's answer on the computer itself). */
+	gone: boolean;
+	/** The project the folder was cut from when it is a worktree, live or removed (`SidebarProjectsState.worktrees`). */
+	project?: string | undefined;
+	/** A tab holds the session, here or on its computer, whatever state that tab is in. */
+	held: boolean;
+	/**
+	 * A tab the person uses holds it (`tabInUse`: here, or on its computer, `heldOnHost`): never only a tab a relaunch
+	 * restored asleep, nor the ghost of last run's strip.
+	 */
+	inUse: boolean;
+}
+
+/**
+ * Whether a tab counts as the person using its session: the ghost of last run's strip (`ghost`, painted before main
+ * answers) and a tab a relaunch restored that nobody has shown since (`asleep`: no omp, here or on a paired host)
+ * do not. A finished worktree's session stays listed only for a tab in use (`sessionProjectKey`).
+ */
+export function tabInUse(tab: { status: string; ghost?: boolean }): boolean {
+	return tab.ghost !== true && tab.status !== "asleep";
+}
+
+/**
+ * The folders of a computer's list that were OMPdesk worktrees and are gone (disk care removed them once their work
+ * landed, or they were discarded): their sessions are finished. Main closes a restored tab on one that nobody has
+ * shown since (`SidecarPool.closeAsleepTabsIn`), on that computer and on every device with a tab on it.
+ */
+export function finishedWorktreeFolders(state: Pick<SidebarProjectsState, "gone">): Set<string> {
+	return new Set((state.gone ?? []).filter(isOmpdeskWorktreeFolder));
+}
+
+/**
+ * A session whose OMPdesk worktree is gone is finished (its work landed, or it was discarded): it is no row anywhere,
+ * neither a project's nor a child under the session whose agent opened it, unless a tab the person uses holds it
+ * (`inUse`). A tab a relaunch restored asleep, or a ghost, never brings one back (the user's report, 29 Oct 2026: a
+ * device's restored tabs listed two landed worktrees' sessions the host itself hid).
+ */
+export function sessionFinished(folder: Pick<SessionFolderFacts, "cwd" | "gone" | "inUse">): boolean {
+	return folder.gone && isOmpdeskWorktreeFolder(folder.cwd) && !folder.inUse;
+}
+
+/**
+ * The one rule for where a stored session sits in a sidebar, this computer's own and a paired host's section alike:
+ * the key of the project group it is a row of, or null when it is not listed.
+ *
+ * - A removed OMPdesk worktree is never a project, and its sessions are finished (`sessionFinished`): they group under
+ *   the project it was cut from (when that is known) only while a tab the person uses holds one, else they leave.
+ * - Any other folder that is gone is still a project (listed, dimmed) until the person removes it, and its sessions
+ *   follow the project: they stay.
+ * - A project the person removed takes its sessions with it, unless a tab holds one.
+ */
+export function sessionProjectKey(folder: SessionFolderFacts, removed: ReadonlySet<string>): string | null {
+	if (sessionFinished(folder)) return null;
+	const key = folder.project ?? folder.cwd;
+	return removed.has(key) && !folder.held ? null : key;
 }

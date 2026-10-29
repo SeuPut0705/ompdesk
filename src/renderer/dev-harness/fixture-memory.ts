@@ -7,10 +7,8 @@ const NOW = Date.now();
 const ago = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
 
 const STATE: AiMemoryState = {
-	enabled: true,
 	phase: "ready",
 	step: null,
-	source: "bundled",
 	version: "3.1.1",
 	binary: "/app/memory",
 	dataDir: "/Users/me/Library/Application Support/memory",

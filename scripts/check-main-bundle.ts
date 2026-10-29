@@ -123,7 +123,17 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // did not (`sameRow`; 28 Oct 2026): 1,446 bytes more (measured 3,198,928).
 // Agent powers on by default and the new agent app actions (sidebar projects, pins, order, updates, privacy panes)
 // in the shared app-action client (`lib/agent-app.ts`; 29 Oct 2026): 983 bytes more (measured 3,199,911).
-const WEB_FIRST_SCREEN_JS_BYTES = 3_200_000;
+// A tab's subagent transcripts held and read on by byte cursor, shared by the lanes', work cards' and Subagent view's
+// reads, and no read while the window is hidden (`stores/subagent-transcripts.ts`, `whenVisible`; 29 Oct 2026: a
+// paired device re-read whole journals, 11.5 MB in a minute): 1,513 bytes more (measured 3,201,424).
+// The working cue says a request the model has not answered for 30 s as that wait (`lib/model-wait.ts`, the turn
+// meter's `modelWaitSince` from the bridge's `model_request`; the work card's head, the board row and the strip; 29 Oct
+// 2026, turns sat on "Thinking…" for minutes on a broken connection): measured 3,202,448 with the other changes of
+// 29 Oct in the tree, 1,024 bytes over the measure above.
+// A finished worktree's session listed only for a tab the person uses (`tabInUse`, `inUseByTab` in the host's sidebar
+// and the device section; 29 Oct 2026: a device's restored asleep tabs listed two landed worktrees' sessions):
+// measured 3,203,418 with the other changes of 29 Oct in the tree, 970 bytes over the measure above.
+const WEB_FIRST_SCREEN_JS_BYTES = 3_204_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

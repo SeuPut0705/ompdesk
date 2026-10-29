@@ -23,6 +23,8 @@ function methodCall(command: RpcCommand): [method: string, args: unknown[]] | nu
 			return ["getTranscriptPage", [command.cursor, command.limit, command.fromEnd]];
 		case "get_subagents":
 			return ["getSubagents", []];
+		case "get_subagent_messages":
+			return ["getSubagentMessages", [command.subagentId, command.sessionFile, command.fromByte]];
 		case "get_queue":
 			return ["getQueue", []];
 		case "get_goal":

@@ -137,4 +137,52 @@ describe("subagent transcript images", () => {
 		});
 		expect(imageData(result.messages[0])).toBe(PNG);
 	});
+
+	it("answers without stock's entries, request bookkeeping or thinking signatures, from either read", async () => {
+		const reply = {
+			sessionFile: "/tmp/ReloadTruth.jsonl",
+			fromByte: 0,
+			nextByte: 42,
+			reset: false,
+			messages: [
+				{
+					role: "assistant",
+					content: [
+						{ type: "thinking", thinking: "read the host first", thinkingSignature: "c2lnbmVk" },
+						{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "a.ts" } },
+					],
+					requestControls: { messageIndex: 3, tools: { declared: ["read", "grep"] } },
+					inputTransformations: [{ kind: "dropped-thinking" }],
+					contextSnapshot: { tokens: 41_000 },
+					stopReason: "toolUse",
+					timestamp: 3,
+				},
+			],
+			// Stock's reader answers every message twice: alone and inside its journal entry.
+			entries: [{ type: "message", id: "e1", message: { role: "assistant", content: [] } }],
+		};
+		for (const type of ["get_subagent_messages", "get_subagent_transcript"]) {
+			const handler = localHandlerFor(type);
+			if (!handler) throw new Error(`${type} is not handled locally`);
+			const { ctx } = context(() => structuredClone(reply));
+			const result = await handler({ type, id: "gui-10", subagentId: "ReloadTruth", fromByte: 0 }, ctx);
+			expect(result, type).toEqual({
+				sessionFile: "/tmp/ReloadTruth.jsonl",
+				fromByte: 0,
+				nextByte: 42,
+				reset: false,
+				messages: [
+					{
+						role: "assistant",
+						content: [
+							{ type: "thinking", thinking: "read the host first" },
+							{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "a.ts" } },
+						],
+						stopReason: "toolUse",
+						timestamp: 3,
+					},
+				],
+			});
+		}
+	});
 });

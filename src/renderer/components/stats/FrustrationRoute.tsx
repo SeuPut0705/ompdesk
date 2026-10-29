@@ -4,7 +4,7 @@
  * stays in the `omp stats` web dashboard.
  */
 
-import { Fragment, useMemo } from "react";
+import { useMemo } from "react";
 import type { FrustrationData, FrustrationModelRow } from "../../../shared/stats-types";
 import { useStats } from "../../hooks/use-stats";
 import { formatPercent, formatTokens } from "../../lib/format";
@@ -112,24 +112,10 @@ export function FrustrationRoute({ range }: { range: StatsRange }) {
 						/>
 					</MetricGrid>
 					<p className="mt-2 text-sc-2xs text-(--sc-text-subtle)">
-						{/* The copy marks the command in backticks; odd parts are that inline code. */}
 						{t("stats.frustration.judgedNote", {
 							judged: formatTokens(overall.judged),
 							messages: formatTokens(overall.messages),
-						})
-							.split("`")
-							.map((part, index) =>
-								index % 2 === 1 ? (
-									<code
-										className="rounded-(--sc-radius-xs) bg-(--sc-surface-3) px-1 font-mono text-(--sc-text-secondary)"
-										key={index}
-									>
-										{part}
-									</code>
-								) : (
-									<Fragment key={index}>{part}</Fragment>
-								),
-							)}
+						})}
 					</p>
 					<SectionTitle>{t("stats.frustration.byModel")}</SectionTitle>
 					<StatTable columns={columns} keyFor={row => row.key} rows={rows} />

@@ -19,6 +19,7 @@ import type {
 	NextPromptState,
 	NextPromptUpdate,
 } from "../../resources/gui-bridge/modes/next-prompt-contracts";
+import type { ModelRequestFrame } from "../../resources/gui-bridge/turn-stages-contracts";
 import type { GithubRequest } from "./github";
 
 export type { DesktopSlotState };
@@ -2688,6 +2689,7 @@ export interface ReadGroupTarget {
 
 export type AgentSessionEvent =
 	| { type: "token_rate"; rate: number | null }
+	| ModelRequestFrame
 	| { type: "read_group_metadata"; toolCallId: string; target: ReadGroupTarget | null }
 	| { type: "agent_start"; sessionId?: string }
 	| { type: "agent_end"; messages?: AgentMessage[]; isTerminal?: boolean; telemetry?: unknown; coverage?: unknown }

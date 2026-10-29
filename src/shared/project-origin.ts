@@ -49,14 +49,21 @@ export function pathBaseName(file: string): string {
 	return parts.at(-1) ?? file;
 }
 
+/** The folder name OMPdesk's checkouts get from stock: `gui-<name>-<hash7>`, the name then the repository's hash. */
+export const OMPDESK_WORKTREE_FOLDER = /^gui-(.+)-([0-9a-f]{7})$/;
+
+/** Whether a folder is named like a checkout OMPdesk made: such a folder that is gone was a worktree, never a project. */
+export function isOmpdeskWorktreeFolder(folder: string): boolean {
+	return OMPDESK_WORKTREE_FOLDER.test(pathBaseName(folder));
+}
+
 /**
  * A worktree folder name without the decoration OMPdesk adds (`gui-<name>-<hash7>`), for a folder git can no
  * longer tell about (a removed worktree).
  */
 export function worktreeFolderSlug(folder: string): string {
 	const name = pathBaseName(folder);
-	const match = /^gui-(.+)-[0-9a-f]{7}$/.exec(name);
-	return match?.[1] ?? name;
+	return OMPDESK_WORKTREE_FOLDER.exec(name)?.[1] ?? name;
 }
 
 export interface OriginFacts {

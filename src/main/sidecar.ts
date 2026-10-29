@@ -192,6 +192,8 @@ const AGENT_EVENT_TYPES: Record<string, true> = {
 	checkout_peers: true,
 	queue_update: true,
 	token_rate: true,
+	// The main loop's provider request went out / was answered (bridge turn-stages.ts): the working cue's model wait.
+	model_request: true,
 	read_group_metadata: true,
 };
 

@@ -14,3 +14,23 @@ export function pollWhileVisible(tick: () => void, ms: number): () => void {
 		document.removeEventListener("visibilitychange", run);
 	};
 }
+
+function hidden(): boolean {
+	return typeof document !== "undefined" && document.visibilityState === "hidden";
+}
+
+/**
+ * Resolves when the window shows again, so a read a hidden window would make waits until someone can see what it
+ * brings; `null` while it is shown, so a caller skips the wait without a microtask.
+ */
+export function whenVisible(): Promise<void> | null {
+	if (!hidden()) return null;
+	const { promise, resolve } = Promise.withResolvers<void>();
+	const shown = () => {
+		if (hidden()) return;
+		document.removeEventListener("visibilitychange", shown);
+		resolve();
+	};
+	document.addEventListener("visibilitychange", shown);
+	return promise;
+}

@@ -333,6 +333,8 @@ interface PoolEntry extends RunTracking {
 	scheduledRetry?: IpcScheduledRetry;
 	/** Times the user changed the tab's session or branch (`TOUCH_COMMANDS`); a scheduled retry armed at another count is called off. */
 	touched?: number;
+	/** Times the person sent the tab a prompt of their own (`notePrompted`); a continuation that started at another count is called off. */
+	prompted?: number;
 	/** The window "closed" listener registered at acquire, removed on release. */
 	onWindowClosed: () => void;
 	/** `omp update` landed while this tab ran a turn: it restarts on the new omp when the turn ends. */
@@ -936,6 +938,9 @@ export class SidecarPool {
 			this.#notifyWindowTabsChanged(entry.win);
 			this.#sendTabList(entry.win, [entry.tabId]);
 		});
+		// The host refused the tab because its session's folder is a finished OMPdesk worktree (RemoteSidecar
+		// `folderGone`): it closes as a deleted session's tab does, with no tombstone.
+		sidecar.on("folderGone", () => this.#closeFinished([entry]));
 		// A paired host told this tab it views a window of that host (RemoteSidecar `shared`): the lists say so.
 		sidecar.on("shared", () => this.#sendTabLists(entry));
 		// The review list of the host's session this tab views: the sessions its agent opened are tabs of that host's
@@ -2172,6 +2177,7 @@ export class SidecarPool {
 			if (entry.lastRun) fact.lastRun = entry.lastRun;
 			if (entry.retry) fact.retry = entry.retry;
 			if (entry.touched) fact.touched = entry.touched;
+			if (entry.prompted) fact.prompted = entry.prompted;
 			if (entry.unsavedPrompt !== undefined) fact.unsavedPrompt = entry.unsavedPrompt;
 			if (entry.openedBy) fact.openedBy = entry.openedBy;
 			if (entry.openedBySession) fact.openedBySession = entry.openedBySession;
@@ -2259,6 +2265,14 @@ export class SidecarPool {
 		const entry = this.#byTabId.get(tabId);
 		if (!entry) return;
 		entry.touched = (entry.touched ?? 0) + 1;
+		this.onRunningChange?.();
+	}
+
+	/** The person sent this tab a prompt of their own (`personsPrompt`): a run it starts is theirs, never a continuation's. */
+	notePrompted(tabId: string): void {
+		const entry = this.#byTabId.get(tabId);
+		if (!entry) return;
+		entry.prompted = (entry.prompted ?? 0) + 1;
 		this.onRunningChange?.();
 	}
 
@@ -2361,6 +2375,38 @@ export class SidecarPool {
 		if (!entry) return null;
 		this.#ensureStarted(entry);
 		return entry.sidecar;
+	}
+
+	/**
+	 * Close the tabs on `device` (undefined: this computer's own) that a relaunch restored and nobody has shown since
+	 * (`asleep`: no omp, here or on the host) whose folder is in `folders`, as a deleted session's tab closes; the ids
+	 * closed. Fed the finished worktrees of that computer's project list (`finishedWorktreeFolders`): such a session
+	 * never comes back through a tab nobody uses (the user's report, 29 Oct 2026).
+	 */
+	closeAsleepTabsIn(device: string | undefined, folders: ReadonlySet<string>): string[] {
+		const asleep = [...this.#entries].filter(
+			entry =>
+				entry.device === device &&
+				!entry.hostedView &&
+				entry.sidecar.status === "asleep" &&
+				folders.has(entry.sidecar.cwd),
+		);
+		this.#closeFinished(asleep);
+		return asleep.map(entry => entry.tabId);
+	}
+
+	/** Tabs of a finished session leave their windows as a deleted session's do: released, the strip told they closed. */
+	#closeFinished(entries: PoolEntry[]): void {
+		const closedByWindow = new Map<ClientWindow, string[]>();
+		for (const entry of entries) {
+			if (!this.#byTabId.has(entry.tabId)) continue;
+			this.#releaseEntry(entry);
+			closedByWindow.set(entry.win, [...(closedByWindow.get(entry.win) ?? []), entry.tabId]);
+		}
+		for (const [win, closed] of closedByWindow) {
+			this.#notifyWindowTabsChanged(win);
+			this.#sendTabList(win, closed);
+		}
 	}
 
 	/** Name a tab after it exists (a relaunched one, from its saved session); a new tab gets its task in `acquire`. */

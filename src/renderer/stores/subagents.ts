@@ -5,6 +5,7 @@ import type { AgentMessage, SubagentFrame, SubagentSnapshot } from "../../shared
 import { messageText } from "../lib/messages";
 import { reportedOutputTokens } from "../lib/turn-meter";
 import { activeTabCommand, createScopedStoreHook, type TabCommand } from "./session-runtime-context";
+import { createSubagentTranscripts, type SubagentTranscripts } from "./subagent-transcripts";
 import { createToolsStore, type ToolsStore } from "./tools";
 
 export type SubagentNode = SubagentSnapshot;
@@ -14,6 +15,8 @@ export interface SubagentsStore {
 	surfaces: Map<string, StoreApi<ToolsStore>>;
 	surface: (id: string) => StoreApi<ToolsStore>;
 	hydrateSurface: (id: string) => Promise<void>;
+	/** The transcripts this tab read, held and read on by cursor: the replays above and the Subagent view share them. */
+	transcripts: SubagentTranscripts;
 	surfaceVersion: number;
 	/** Provider-reported output seen before the next stock progress snapshot. */
 	observedTokens: Map<string, number>;
@@ -73,6 +76,14 @@ function normalizeSnapshot(snapshot: SubagentNode): SubagentNode {
 }
 
 /**
+ * What a transcript read after an agent settled is filed under: its status and the time of its last frame, which
+ * change when it runs again. None while it is live, so every read of it asks for what was written since.
+ */
+export function settledMark(node: Pick<SubagentNode, "status" | "lastUpdate"> | undefined): string | undefined {
+	return !node || LIVE_STATUSES[node.status] ? undefined : `${node.status}:${node.lastUpdate}`;
+}
+
+/**
  * Merge one fetched row over the local one: the fetch wins EXCEPT it may never
  * blank a populated label/progress field. Server rows discovered late (bare
  * AgentRegistry refs) can lack task/assignment/description/progress/sessionFile
@@ -111,6 +122,7 @@ function sameValue(a: unknown, b: unknown): boolean {
 }
 
 export const createSubagentsStore = (command: TabCommand = activeTabCommand) => {
+	const transcripts = createSubagentTranscripts(command);
 	let refreshVersion = 0;
 	// Ids whose original assignment was already looked up in the transcript: once each, found or not.
 	const recovered = new Set<string>();
@@ -135,6 +147,7 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 	};
 	return createStore<SubagentsStore>()((set, get) => ({
 		subagents: new Map(),
+		transcripts,
 		surfaces: new Map(),
 		eventConsumers: 0,
 		surfaceVersion: 0,
@@ -159,30 +172,20 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 			// A newer snapshot may arrive while replay is loading. Share that load;
 			// after it settles, inspect the latest gap and replay it once if needed.
 			if (existing?.pending) return existing.load;
-			// Snapshot once on first expansion; replay a gap only at a new mount or completion.
-			// No timer, no progress-frame polling, and no repeated completion fetch.
+			// Snapshot once on first expansion; replay a gap only at a new mount or completion, reading only what the
+			// journal gained since (subagent-transcripts.ts). No timer, no progress-frame polling, no repeated completion fetch.
 			if (existing && (!missing || existing.completed || (!completed && existing.toolCount >= toolCount)))
 				return existing.load;
 			const load = Promise.resolve()
-				.then(async () => {
-					const response = await command({ type: "get_subagent_messages", subagentId: id });
-					if (response.success) return response;
-					// Stock's RPC registry forgets settled agents across a relaunch; their
-					// transcripts stay in the session's artifacts dir.
-					const stored = await command({ type: "get_subagent_transcript", subagentId: id });
-					if (!stored.success) throw new Error(response.error);
-					return stored;
-				})
-				.then(response => {
-					const data = response.data as { messages?: AgentMessage[] } | undefined;
-					if (!data?.messages) return;
+				.then(() => transcripts.read(id, { settled: settledMark(get().subagents.get(id)) }))
+				.then(read => {
 					const status = get().subagents.get(id)?.status;
-					tools.getState().hydrateMessages(data.messages, {
+					tools.getState().hydrateMessages(read.messages, {
 						// Persisted messages can lag events already observed before this one-time fetch.
 						keepChangedSince: 0,
 						turnIsLive: status === "running" || status === "pending",
 					});
-					const tokens = data.messages.reduce((total, message) => total + captureOutput(id, message), 0);
+					const tokens = read.messages.reduce((total, message) => total + captureOutput(id, message), 0);
 					set(state => ({
 						surfaceVersion: state.surfaceVersion + 1,
 						observedTokens: tokens
@@ -301,11 +304,14 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 			if (!node || node.assignment || node.description || recovered.has(id)) return;
 			recovered.add(id);
 			try {
-				let response = await command({ type: "get_subagent_messages", subagentId: id, firstPrompt: true });
-				if (!response.success)
-					response = await command({ type: "get_subagent_transcript", subagentId: id, firstPrompt: true });
-				if (!response.success) return;
-				const messages = (response.data as { messages?: AgentMessage[] } | undefined)?.messages;
+				let messages = transcripts.held(id)?.messages;
+				if (!messages?.length) {
+					let response = await command({ type: "get_subagent_messages", subagentId: id, firstPrompt: true });
+					if (!response.success)
+						response = await command({ type: "get_subagent_transcript", subagentId: id, firstPrompt: true });
+					if (!response.success) return;
+					messages = (response.data as { messages?: AgentMessage[] } | undefined)?.messages;
+				}
 				const first = messages?.find(message => message.role === "user");
 				const text = first ? messageText(first) : "";
 				const assignment = unwrapStockPrompt(text) ?? (text || undefined);
@@ -388,6 +394,7 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 		reset: () => {
 			refreshVersion++;
 			hydrations.clear();
+			transcripts.clear();
 			recovered.clear();
 			observedUsage.clear();
 			set({

@@ -213,6 +213,7 @@ export class RemoteDevices {
 	#tailnetName: string | null = null;
 	readonly #hostOnline = new Set<(deviceId: string) => void>();
 	readonly #autopilotNotices = new Set<(hostId: string, notice: AutopilotNoticeEvent) => void>();
+	readonly #hostProjects = new Set<(hostId: string, state: SidebarProjectsState) => void>();
 
 	constructor(deps: RemoteDevicesDeps) {
 		this.#deps = deps;
@@ -318,6 +319,12 @@ export class RemoteDevices {
 	onHostOnline(listener: (deviceId: string) => void): () => void {
 		this.#hostOnline.add(listener);
 		return () => this.#hostOnline.delete(listener);
+	}
+
+	/** A paired host's sidebar project list changed (`host.projects.changed`), after the windows were told. */
+	onHostProjects(listener: (hostId: string, state: SidebarProjectsState) => void): () => void {
+		this.#hostProjects.add(listener);
+		return () => this.#hostProjects.delete(listener);
 	}
 
 	async setHostEnabled(enabled: boolean): Promise<RemoteState> {
@@ -944,6 +951,7 @@ export class RemoteDevices {
 				if (state.success) {
 					const update: IpcSidebarProjects = { device: deviceId, state: state.data };
 					this.#deps.broadcast(SIDEBAR_PROJECTS_STATE, update);
+					for (const listener of this.#hostProjects) listener(deviceId, state.data);
 				}
 				return;
 			}

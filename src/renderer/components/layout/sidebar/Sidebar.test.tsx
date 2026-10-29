@@ -4027,7 +4027,7 @@ describe("Sidebar device sections", () => {
 		["went while it ran", true],
 		["were gone before its first pass (a relaunch)", false],
 	])(
-		"never shows a host's removed worktree as a project, whose worktrees %s: its sessions hide, or sit under its project while a tab holds one",
+		"never shows a host's removed worktree as a project, whose worktrees %s: its sessions hide, or sit under its project while a tab in use holds one",
 		async (_history, seenAlive) => {
 			const omp = installWithRemote();
 			const APP = "/Users/kim/code/app";
@@ -4038,13 +4038,14 @@ describe("Sidebar device sections", () => {
 					device: "dev-studio",
 					...extra,
 				});
-			// A tab here holds f-07 (asleep since this computer relaunched: the host never saw it), a window there holds f-05,
-			// nothing holds f-06.
+			// A tab here the person uses holds f-04, a window there holds f-05 (`heldOnHost`); f-07's tab here was restored
+			// by this computer's relaunch and never shown (asleep: the host never saw it), nothing holds f-06.
 			const hostSessions = [
 				...REMOTE,
 				row("f-07-e-contracts", "전자계약 테스트 수정"),
 				row("f-05-work-time", "F-05 출퇴근 기록", { heldOnHost: true }),
 				row("f-06-payslips", "급여명세서 잠김 수정"),
+				row("f-04-feedback", "피드백 화면"),
 			];
 			omp.sessions.list.mockImplementation(async (_scope, device) =>
 				device === "dev-studio" ? hostSessions : LIST,
@@ -4063,7 +4064,8 @@ describe("Sidebar device sections", () => {
 				onState: () => {},
 			});
 			if (seenAlive) await host.sync();
-			for (const name of ["f-07-e-contracts", "f-05-work-time", "f-06-payslips"]) removed.add(wt(name));
+			for (const name of ["f-07-e-contracts", "f-05-work-time", "f-06-payslips", "f-04-feedback"])
+				removed.add(wt(name));
 			// A relaunched host's first pass meets the folders gone; one that ran on has only the device's read since.
 			if (!seenAlive) await host.sync();
 			omp.sidebarProjects.lists["dev-studio"] = await host.command({ action: "get" });
@@ -4080,6 +4082,15 @@ describe("Sidebar device sections", () => {
 						device: "dev-studio",
 						sessionPath: "/Users/kim/.omp/agent/sessions/f-07-e-contracts/one.jsonl",
 					},
+					{
+						id: "tu",
+						cwd: wt("f-04-feedback"),
+						status: "ready",
+						kind: "agent",
+						unreadDone: false,
+						device: "dev-studio",
+						sessionPath: "/Users/kim/.omp/agent/sessions/f-04-feedback/one.jsonl",
+					},
 				],
 			}));
 			pairHost("online");
@@ -4093,12 +4104,250 @@ describe("Sidebar device sections", () => {
 				),
 			).toEqual([APP]);
 			const app = section?.querySelector(`[data-device-group="${APP}"]`);
-			// The sessions a tab holds, here or on the host, are rows of the project the worktree was cut from.
-			expect(app?.textContent).toContain("전자계약 테스트 수정");
+			// The sessions a tab the person uses holds, here or on the host, are rows of the project the worktree was cut
+			// from.
+			expect(app?.textContent).toContain("피드백 화면");
 			expect(app?.textContent).toContain("F-05 출퇴근 기록");
-			// One no tab holds went with its worktree, as on the host.
+			// A finished worktree's session no tab in use holds went with its worktree, as on the host: a tab restored
+			// asleep here does not bring it back.
+			expect(section?.textContent).not.toContain("전자계약 테스트 수정");
 			expect(section?.textContent).not.toContain("급여명세서 잠김 수정");
 			expect(app?.textContent).toContain("Remote fix");
+		},
+	);
+
+	// The user's report (29 Oct 2026): the host's own sidebar hid only the sessions of a gone OMPdesk worktree, while a
+	// device hid the host's sessions of every folder in its `gone` list (a deleted /tmp folder), so one host showed
+	// different rows on itself and on a device. Both now read the same rule (`sessionProjectKey`, shared).
+	it("shows the same rows for the same host data on the host's own sidebar and on a device's section", async () => {
+		const APP = "/Users/kim/code/app";
+		const SCRATCH = "/tmp/scratch-3";
+		const OLD = "/Users/kim/code/old";
+		const WT_LIVE = "/Users/kim/.omp/wt/gui-live-1111111";
+		const WT_GONE = "/Users/kim/.omp/wt/gui-gone-2222222";
+		const WT_AGENT = "/Users/kim/.omp/wt/gui-agent-3333333";
+		const rows = (device?: string) => [
+			session("/s/app.jsonl", APP, { title: "App work", device }),
+			session("/s/scratch.jsonl", SCRATCH, { title: "Scratch work", device }),
+			session("/s/old.jsonl", OLD, { title: "Old project work", device }),
+			session("/s/live.jsonl", WT_LIVE, { title: "Live worktree work", device }),
+			session("/s/gone.jsonl", WT_GONE, { title: "Gone worktree work", device }),
+			session("/s/agent.jsonl", WT_AGENT, { title: "Agent worktree work", device, openedBySession: null }),
+		];
+		const titles = [
+			"App work",
+			"Scratch work",
+			"Old project work",
+			"Live worktree work",
+			"Gone worktree work",
+			"Agent worktree work",
+		];
+		const omp = installMockOmp(rows());
+		omp.sessions.list.mockImplementation(async (_scope, device) => rows(device));
+		(omp as unknown as Record<string, unknown>).projectOrigins = {
+			get: vi.fn(async (cwds: string[]) =>
+				Object.fromEntries(
+					cwds.map(cwd => [
+						cwd,
+						cwd === APP
+							? { project: "app", root: APP, worktree: null }
+							: cwd === WT_AGENT
+								? {
+										project: "app",
+										root: APP,
+										worktree: { kind: "agent", branch: "agent/work", slug: "agent" },
+									}
+								: cwd === WT_LIVE
+									? {
+											project: "app",
+											root: APP,
+											worktree: { kind: "other", branch: "feature/live", slug: "live" },
+										}
+									: null,
+					]),
+				),
+			),
+		};
+		const hostList: SidebarProjectsState = {
+			projects: [
+				{ path: APP, addedAt: 3 },
+				{ path: SCRATCH, addedAt: 2, missing: true },
+			],
+			removed: [OLD],
+			worktrees: { [WT_LIVE]: APP, [WT_GONE]: APP, [WT_AGENT]: APP },
+			worktreeKinds: { [WT_LIVE]: "other", [WT_AGENT]: "agent" },
+			gone: [SCRATCH, WT_GONE],
+		};
+		omp.sidebarProjects.lists.local = hostList;
+		omp.sidebarProjects.lists["dev-studio"] = hostList;
+		useSessionStore.setState({ sessionId: "attached-id", cwd: APP, isStreaming: false });
+		useTabsStore.setState({
+			tabs: [{ id: "t0", cwd: APP, status: "ready", kind: "agent", unreadDone: false }],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		pairHost("online");
+		await mount(<Sidebar />);
+
+		// A group the host's sidebar draws folded renders no rows: open them all before reading.
+		for (const header of container.querySelectorAll('[data-workspace-group] button[aria-expanded="false"]'))
+			await act(async () => (header as unknown as HTMLButtonElement).click());
+		type Placed = Record<string, { missing: boolean; titles: string[] }>;
+		const place = (groups: Element[], key: string, text: (group: Element) => string): Placed =>
+			Object.fromEntries(
+				groups.map(group => {
+					const body = text(group);
+					return [
+						group.getAttribute(key) ?? "",
+						{
+							missing:
+								group.hasAttribute("data-project-missing") || group.closest("[data-project-missing]") !== null,
+							titles: titles.filter(title => body.includes(title)),
+						},
+					];
+				}),
+			);
+		const host = place(
+			[...container.querySelectorAll("[data-workspace-group]")] as unknown as Element[],
+			"data-workspace-group",
+			header =>
+				container.querySelector(`[data-session-group="${header.getAttribute("data-workspace-group")}"]`)
+					?.textContent ?? "",
+		);
+		const device = place(
+			[
+				...container.querySelectorAll('[data-sidebar-device="dev-studio"] [data-device-group]'),
+			] as unknown as Element[],
+			"data-device-group",
+			group => group.textContent ?? "",
+		);
+		expect(device).toEqual(host);
+		expect(host[APP]?.titles).toEqual(["App work", "Live worktree work"]);
+		expect(host[SCRATCH]).toEqual({ missing: true, titles: ["Scratch work"] });
+		expect(Object.keys(host).sort()).toEqual([APP, SCRATCH]);
+	});
+
+	// The user's report (29 Oct 2026, "the section that doesn't exist came back"): 데스크탑's section for the Mac listed
+	// "전자계약 테스트 수정" and "F-05 출퇴근 기록" under yuyu-mos above "알림 권한 정정", while the Mac itself showed only
+	// the last. Disk care had removed their worktrees once their work landed (the Mac's list names both folders gone and
+	// maps them to yuyu-mos); the desktop's relaunch had restored its tabs on them asleep, and an asleep tab counted as
+	// holding the session. A finished worktree's session stays listed only while a tab the person uses holds it, on the
+	// host's own sidebar and on a device's section alike, as a project's row and as a child under the session whose
+	// agent opened it (the family path skipped the project rule).
+	it.each([
+		["restored asleep by a relaunch", { status: "asleep" as const }, false],
+		["the ghost of last run's strip", { status: "starting" as const, ghost: true as const }, false],
+		// In use and at work: a finished child that landed clean and is idle is no family row anyway (`isShownOpened`).
+		["in use", { status: "running" as const }, true],
+	])(
+		"lists a landed worktree's sessions held by a tab %s exactly as the host does",
+		async (_how, tabState, listed) => {
+			const YUYU = "/Users/seuput/Desktop/GitHub/yuyu-mos";
+			const F07 = "/Users/seuput/.omp/wt/gui-f-07-e-contracts-3795397";
+			const F05 = "/Users/seuput/.omp/wt/gui-f-05-work-time-3795397";
+			const F03 = "/Users/seuput/.omp/wt/gui-f-03-notices-3795397";
+			// The host's files as this computer's own list names them (`/s`) and as the device's section does (`/h`): one
+			// computer plays both here, and a device's tab must not name a session of this computer's own list.
+			const at = (device: string | undefined, name: string) => `${device ? "/h" : "/s"}/${name}.jsonl`;
+			const rows = (device?: string) => [
+				session(at(device, "f07"), F07, { title: "전자계약 테스트 수정", device, created: "2026-10-28T01:58:19Z" }),
+				session(at(device, "f05"), F05, { title: "F-05 출퇴근 기록", device, created: "2026-10-28T01:58:20Z" }),
+				session(at(device, "alert"), YUYU, { title: "알림 권한 정정", device, created: "2026-10-29T03:00:00Z" }),
+				session(at(device, "boss"), YUYU, { title: "Orchestrator", device, created: "2026-10-28T01:50:00Z" }),
+				// Its last turn failed, so its opener's family lists it as one to look at, landed or not.
+				session(at(device, "f03"), F03, {
+					title: "F-03 공지사항",
+					device,
+					created: "2026-10-28T01:58:21Z",
+					status: "error",
+				}),
+			];
+			// The project's own rows; F-03's place is its opener's family, read below.
+			const titles = ["전자계약 테스트 수정", "F-05 출퇴근 기록", "알림 권한 정정", "Orchestrator"];
+			const omp = installMockOmp(rows());
+			omp.sessions.list.mockImplementation(async (_scope, device) => rows(device));
+			(omp as unknown as Record<string, unknown>).projectOrigins = {
+				get: vi.fn(async (cwds: string[]) =>
+					Object.fromEntries(
+						cwds.map(cwd => [cwd, cwd === YUYU ? { project: "yuyu-mos", root: YUYU, worktree: null } : null]),
+					),
+				),
+			};
+			// The Mac's list as its sidebar-projects pass wrote it after disk care removed the worktrees.
+			const hostList: SidebarProjectsState = {
+				projects: [{ path: YUYU, addedAt: 1 }],
+				removed: [],
+				worktrees: { [F07]: YUYU, [F05]: YUYU, [F03]: YUYU },
+				gone: [F07, F05, F03],
+			};
+			omp.sidebarProjects.lists.local = hostList;
+			omp.sidebarProjects.lists["dev-studio"] = hostList;
+			const tab = (id: string, cwd: string, name: string, device?: string, opener?: string) => ({
+				id,
+				cwd,
+				kind: "agent" as const,
+				unreadDone: false,
+				sessionPath: at(device, name),
+				...(device ? { device } : {}),
+				// The orchestrator's agent opened F-03: its tab names the opener's file, as a relaunch restores it.
+				...(opener ? { openedBySession: at(device, opener) } : {}),
+				...tabState,
+			});
+			useSessionStore.setState({ sessionId: "attached-id", cwd: YUYU, isStreaming: false });
+			useTabsStore.setState({
+				tabs: [
+					{
+						id: "t0",
+						cwd: YUYU,
+						status: "ready",
+						kind: "agent",
+						unreadDone: false,
+						sessionPath: "/s/alert.jsonl",
+					},
+					// This computer's own tabs on the host's sessions (its own sidebar) and the device's tabs on them.
+					tab("h07", F07, "f07"),
+					tab("h05", F05, "f05"),
+					tab("h03", F03, "f03", undefined, "boss"),
+					tab("d07", F07, "f07", "dev-studio"),
+					tab("d05", F05, "f05", "dev-studio"),
+					tab("d03", F03, "f03", "dev-studio", "boss"),
+				],
+				activeTabId: "t0",
+				bundles: new Map(),
+			});
+			const DEVICE_BOSS = `device:dev-studio:${at("dev-studio", "boss")}`;
+			// The orchestrator's family is open on both sides, so every child it lists is a row to read.
+			useSidebarSubagentsStore.setState({ expanded: new Set([at(undefined, "boss"), DEVICE_BOSS]) });
+			pairHost("online");
+			await mount(<Sidebar />);
+			for (const header of container.querySelectorAll('[data-workspace-group] button[aria-expanded="false"]'))
+				await act(async () => (header as unknown as HTMLButtonElement).click());
+
+			const shown = (text: string | null | undefined) => titles.filter(title => (text ?? "").includes(title));
+			const host = shown(container.querySelector(`[data-session-group="${YUYU}"]`)?.textContent);
+			const device = shown(
+				container.querySelector(`[data-sidebar-device="dev-studio"] [data-device-group="${YUYU}"]`)?.textContent,
+			);
+			expect(device).toEqual(host);
+			expect(host).toEqual(listed ? titles : ["알림 권한 정정", "Orchestrator"]);
+			// F-03 is a child under its opener on both sides while a tab in use holds it, and no row at all otherwise.
+			const children = (key: string) =>
+				[...container.querySelectorAll(`[data-sidebar-family="${key}"] [data-sidebar-opened-session]`)].map(row =>
+					row.getAttribute("data-session-path"),
+				);
+			expect(children(at(undefined, "boss"))).toEqual(listed ? [at(undefined, "f03")] : []);
+			expect(children(DEVICE_BOSS)).toEqual(listed ? [at("dev-studio", "f03")] : []);
+			expect(container.querySelectorAll(`[data-session-path="${at(undefined, "f03")}"]`).length).toBe(
+				listed ? 1 : 0,
+			);
+			expect(container.querySelectorAll(`[data-session-path="${at("dev-studio", "f03")}"]`).length).toBe(
+				listed ? 1 : 0,
+			);
+			// Never a project of their own, on either side.
+			for (const gone of [F07, F05, F03]) {
+				expect(container.querySelector(`[data-workspace-group="${gone}"]`)).toBeNull();
+				expect(container.querySelector(`[data-device-group="${gone}"]`)).toBeNull();
+			}
 		},
 	);
 

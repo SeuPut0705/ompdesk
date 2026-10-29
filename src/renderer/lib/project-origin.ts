@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo } from "react";
 import {
+	isOmpdeskWorktreeFolder,
 	type ProjectOrigin,
-	pathBaseName,
 	projectDisplayName,
 	type WorktreeKindLabels,
 	worktreeFolderSlug,
@@ -59,7 +59,7 @@ export function useProjectNames(
 				tooltip: linked ? t("project.worktree.tooltip", { project: linked.project, path: cwd }) : cwd,
 				worktree: linked,
 				root: origin?.root ?? cwd,
-				gone: origin === null && worktreeFolderSlug(cwd) !== pathBaseName(cwd),
+				gone: origin === null && isOmpdeskWorktreeFolder(cwd),
 			};
 		},
 		[origins, labels, t],

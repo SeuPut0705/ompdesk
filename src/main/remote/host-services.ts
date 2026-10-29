@@ -105,6 +105,7 @@ import { detectShells } from "../terminal/shells";
 import {
 	MovesInFlight,
 	type MoveTracker,
+	personsPrompt,
 	type ResumeFact,
 	type ResumeMarker,
 	type TurnResume,
@@ -253,6 +254,7 @@ export interface HostServicesDeps {
 		| "stopSession"
 		| "windowSessionFiles"
 		| "noteTouched"
+		| "notePrompted"
 		| "beginMove"
 	>;
 	/** Moves a path to this machine's trash (Electron `shell.trashItem`). */
@@ -322,6 +324,8 @@ interface HostTab extends RunTracking {
 	awaitingConnection?: boolean;
 	/** Times the device moved this tab to another session or branch (`movesTab`): a held wait of the old one ends. */
 	touched?: number;
+	/** Times the device sent this tab a prompt of its person's own (`personsPrompt`): a continuation started before is called off. */
+	prompted?: number;
 	/** A view of a window's tab: the retry this computer scheduled for that tab's failed turn (turn-resume.ts). */
 	scheduledRetry?: IpcScheduledRetry;
 	/** Provider ids of the `login` commands running on this tab (a device's sign-in, even if its link dropped). */
@@ -726,6 +730,7 @@ export class LocalHostServices implements HostServices {
 			};
 			if (tab.sessionFile) fact.sessionFile = tab.sessionFile;
 			if (tab.touched) fact.touched = tab.touched;
+			if (tab.prompted) fact.prompted = tab.prompted;
 			if (tab.lastRun) fact.lastRun = tab.lastRun;
 			if (tab.retry) fact.retry = tab.retry;
 			return [fact];
@@ -1949,6 +1954,14 @@ export class LocalHostServices implements HostServices {
 		// A view's moves are its window tab's (the pool counts them, ipc.ts as for a window's own); found by the file it
 		// shows before the command can change it.
 		const viewed = tab.viewsWindow && tab.sessionFile ? this.#deps.localTabs.sessionOwner(tab.sessionFile) : null;
+		// The person's own prompt makes the run it starts theirs: no continuation goes on into it (turn-resume.ts).
+		if (personsPrompt(command)) {
+			if (viewed) this.#deps.localTabs.notePrompted(viewed.tabId);
+			else if (!tab.viewsWindow) {
+				tab.prompted = (tab.prompted ?? 0) + 1;
+				this.#resume?.sync();
+			}
+		}
 		// A provider sign-in runs here whether or not the device keeps its link: the device is told what is
 		// in flight (`signIn`), so its re-sent code paste is the login panel's while it runs.
 		const login = command.type === "login" ? command.providerId : null;

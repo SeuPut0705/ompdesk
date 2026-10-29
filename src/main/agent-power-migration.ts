@@ -7,7 +7,6 @@ import {
 	AGENT_CONTROL_MANAGE_PREF,
 	AGENT_CONTROL_PREF,
 } from "../shared/agent-control";
-import { AI_MEMORY_LEARN_PREF, AI_MEMORY_PREF } from "../shared/ai-memory";
 import { ECC_PREF } from "../shared/ecc";
 import { PSTACK_PREF } from "../shared/pstack";
 
@@ -30,8 +29,6 @@ const POWER_PREFS: readonly string[] = [
 	AGENT_CONTROL_APPROVE_PREF,
 	PSTACK_PREF,
 	ECC_PREF,
-	AI_MEMORY_PREF,
-	AI_MEMORY_LEARN_PREF,
 ];
 
 /**

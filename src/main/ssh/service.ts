@@ -75,6 +75,8 @@ const requestSchema: z.ZodType<SshToolsRequest> = z.discriminatedUnion("action",
 	z.object({ action: z.literal("setGrace"), ms: z.number().int().min(SSH_GRACE_MIN_MS).max(SSH_GRACE_MAX_MS) }),
 	z.object({ action: z.literal("forgetHostKey"), target: targetSchema }),
 	z.object({ action: z.literal("answer"), id: z.string(), value: z.string().max(4000).nullable() }),
+	z.object({ action: z.literal("createKey") }),
+	z.object({ action: z.literal("loadKeys") }),
 ]);
 const storeSchema = z.object({
 	graceMs: z.number().int().min(SSH_GRACE_MIN_MS).max(SSH_GRACE_MAX_MS),
@@ -266,8 +268,43 @@ export class SshTools {
 			await this.#save();
 		} else if (request.action === "forgetHostKey") await this.#forgetHostKey(request.target);
 		else if (request.action === "answer") this.#askpass.answer(request.id, request.value);
+		else if (request.action === "createKey") await this.#createKey();
+		else if (request.action === "loadKeys") await this.#loadKeys();
 		this.#changed();
 		return this.state();
+	}
+
+	/** The Settings button "Create a key": the app runs ssh-keygen; the person never types it. */
+	async #createKey(): Promise<void> {
+		const dir = path.join(os.homedir(), ".ssh");
+		const key = path.join(dir, "id_ed25519");
+		await fs.mkdir(dir, { recursive: true, mode: 0o700 });
+		if (
+			await fs.stat(key).then(
+				() => true,
+				() => false,
+			)
+		)
+			return;
+		const made = await run(sshTool("ssh-keygen"), ["-q", "-t", "ed25519", "-N", "", "-C", "ompdesk", "-f", key]);
+		if (made.code !== 0) throw new Error("ssh-keygen failed");
+	}
+
+	/** The Settings button "Add keys to the agent": the app runs ssh-add for each key file. */
+	async #loadKeys(): Promise<void> {
+		const dir = path.join(os.homedir(), ".ssh");
+		const names = await fs.readdir(dir).catch(() => [] as string[]);
+		for (const name of names.filter(entry => entry.endsWith(".pub")).sort()) {
+			const key = path.join(dir, name.slice(0, -".pub".length));
+			if (
+				!(await fs.stat(key).then(
+					() => true,
+					() => false,
+				))
+			)
+				continue;
+			await run(sshTool("ssh-add"), process.platform === "darwin" ? ["--apple-use-keychain", key] : [key]);
+		}
 	}
 
 	/** C149: does an ssh-agent answer, which keys it holds, which key files exist. */

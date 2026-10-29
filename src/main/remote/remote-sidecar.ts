@@ -31,6 +31,7 @@
 import { EventEmitter } from "node:events";
 import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
 import type { IpcScheduledRetry, RemoteLinkState } from "../../shared/ipc-types";
+import { isOmpdeskWorktreeFolder } from "../../shared/project-origin";
 import type { RpcCommand, RpcResponse, SidecarStatus, SidecarStatusPayload } from "../../shared/rpc-types";
 import type { BridgeConnectResult } from "../bridge-health";
 import type { RpcClient } from "../rpc-client";
@@ -548,6 +549,15 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 			if (ipcErrorCode(error) === "session_deleted") {
 				this.#settle(null);
 				this.emit("sessionDeleted", this.#resume);
+				return;
+			}
+			// The session's folder on the host is an OMPdesk worktree that is gone (disk care removed it once its work
+			// landed): the session is finished, and a tab that comes back for it (a relaunch restored it, shown) closes
+			// as a deleted session's does, never an error tab that keeps its row listed. No tombstone: a saved worktree
+			// can still be restored on the host and the session opened again.
+			if (ipcErrorCode(error) === "session_folder_missing" && isOmpdeskWorktreeFolder(this.#cwd)) {
+				this.#settle(null);
+				this.emit("folderGone");
 				return;
 			}
 			this.#processAlive = false;

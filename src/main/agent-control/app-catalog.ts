@@ -252,8 +252,8 @@ const SESSION_PATH = {
 
 /**
  * What `agent_power.set` can switch under full control: the switches that bound an agent's own power. A pref goes
- * through `PREFS_SET`, a stock setting through `set_setting`, and the two memory switches through ai-memory's own
- * channel (they start or stop its service, which a bare pref write would not).
+ * through `PREFS_SET`, a stock setting through `set_setting`, and the terminal-omp wiring through ai-memory's own
+ * channel (it writes the person's own omp config, which a bare pref write would not).
  */
 const POWER_SWITCHES: Record<
 	string,
@@ -284,14 +284,6 @@ const POWER_SWITCHES: Record<
 	},
 	pstack: { en: "Engineering mode (pstack)", ko: "엔지니어링 모드 (pstack)", kind: "pref", key: "pstack" },
 	ecc: { en: "ECC skills", ko: "ECC 스킬", kind: "pref", key: "ecc" },
-	aiMemoryLearn: { en: "Learn from conversations", ko: "대화에서 배우기", kind: "pref", key: "aiMemoryLearn" },
-	aiMemory: {
-		en: "Memory",
-		ko: "메모리",
-		kind: "channel",
-		channel: IPC_COMMANDS.AI_MEMORY_SET_ENABLED,
-		key: "aiMemory",
-	},
 	aiMemoryTerminal: {
 		en: "Memory in the terminal omp",
 		ko: "터미널 omp에서도 메모리 쓰기",

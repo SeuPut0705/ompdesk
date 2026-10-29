@@ -406,6 +406,68 @@ describe("Subagent view transcript", () => {
 		expect(view().textContent).toContain("Snapshot unavailable");
 		expect(view().textContent).toContain(translate("common.retry"));
 	});
+
+	/** Stock's reader over `pages`: the messages past `fromByte`, each counted as 10 bytes. */
+	function readsByCursor(): void {
+		commandForTab.mockImplementation(async (_tabId, command) => {
+			if (command.type !== "get_subagent_messages")
+				return { type: "response", command: command.type, success: true, data: { ok: true } };
+			const from = command.fromByte ?? 0;
+			return {
+				type: "response",
+				command: command.type,
+				success: true,
+				data: { messages: pages.slice(from / 10), nextByte: pages.length * 10 },
+			};
+		});
+	}
+	const cursors = () =>
+		commandForTab.mock.calls.flatMap(([, command]) =>
+			command.type === "get_subagent_messages" ? [command.fromByte] : [],
+		);
+
+	it("shows what the tab already read and asks only for what the journal gained since", async () => {
+		readsByCursor();
+		seed([snap()]);
+		// The run's lane replayed the agent before the view opened.
+		await act(async () => {
+			await sessionRuntimeStore<SubagentsStore>(TAB, "subagents")!.getState().transcripts.read("r1");
+		});
+		const read = pages.length * 10;
+		pages = [
+			...pages,
+			{ role: "assistant", timestamp: NOW * 1000 + 99, content: [{ type: "text", text: "Tests passed." }] },
+		];
+		await mount(<SubagentPanel subagent={{ tabId: TAB, agentId: "r1" }} />);
+		expect(view().textContent).toContain("Settings map");
+		expect(view().textContent).toContain("Tests passed.");
+		expect(cursors()).toEqual([0, read]);
+	});
+
+	it("asks nothing while the window is hidden, and once when it shows again", async () => {
+		readsByCursor();
+		seed([snap()]);
+		await mount(<SubagentPanel subagent={{ tabId: TAB, agentId: "r1" }} />);
+		const before = fetched();
+		const visibility = (state: "visible" | "hidden") =>
+			act(() => {
+				Object.defineProperty(document, "visibilityState", { value: state, configurable: true });
+				document.dispatchEvent(new Event("visibilitychange"));
+			});
+		try {
+			await visibility("hidden");
+			for (let frame = 1; frame <= 5; frame++) {
+				seed([snap({ lastUpdate: NOW + frame * 1000 })]);
+				await flush();
+			}
+			expect(fetched()).toBe(before);
+			await visibility("visible");
+			await flush();
+			expect(fetched()).toBe(before + 1);
+		} finally {
+			Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+		}
+	});
 });
 
 describe("Subagent view steer box", () => {

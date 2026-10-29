@@ -10,7 +10,12 @@
 import * as path from "node:path";
 import { promises as fs } from "original-fs";
 import type { SessionInfo } from "../shared/ipc-types";
-import { pathBaseName } from "../shared/project-origin";
+import {
+	isOmpdeskWorktreeFolder,
+	OMPDESK_WORKTREE_FOLDER,
+	pathBaseName,
+	type WorktreeKind,
+} from "../shared/project-origin";
 import {
 	parseSidebarProjects,
 	type SidebarProject,
@@ -43,6 +48,8 @@ export interface SidebarProjectsDeps {
 	 * worktree's project is read off its folder name when no pass saw the folder while it was there. Null when unknown.
 	 */
 	worktreeLocation?: (project: string) => Promise<{ root: string; hash: string } | null>;
+	/** What a linked worktree folder is, by its branch (an agent's, an Autopilot run's, any other); null when unknown. */
+	worktreeKindOf?: (cwd: string) => Promise<WorktreeKind | null>;
 	onState: (state: SidebarProjectsState) => void;
 	now?: () => number;
 }
@@ -79,12 +86,15 @@ export async function projectOfFolder(cwd: string): Promise<string | null> {
 	return (await linkedWorktreeRoot(cwd)) ?? cwd;
 }
 
-/** The folder name of a checkout OMPdesk makes under the worktree root (`gui-<name>-<hash7>`, the hash its repo's). */
-const OMPDESK_WORKTREE_FOLDER = /^gui-.+-([0-9a-f]{7})$/;
+/** A linked worktree's kind by its branch (git's answer, cached by `readProjectOrigin`); null for any other folder. */
+async function worktreeKindOfFolder(cwd: string): Promise<WorktreeKind | null> {
+	return (await readProjectOrigin(cwd))?.worktree?.kind ?? null;
+}
 
 export class SidebarProjects {
 	readonly #deps: SidebarProjectsDeps;
 	readonly #projectOf: (cwd: string) => Promise<string | null>;
+	readonly #kindOf: (cwd: string) => Promise<WorktreeKind | null>;
 	readonly #now: () => number;
 	#state: SidebarProjectsState;
 	/**
@@ -102,6 +112,7 @@ export class SidebarProjects {
 	constructor(deps: SidebarProjectsDeps) {
 		this.#deps = deps;
 		this.#projectOf = deps.projectOf ?? projectOfFolder;
+		this.#kindOf = deps.worktreeKindOf ?? worktreeKindOfFolder;
 		this.#now = deps.now ?? Date.now;
 		this.#state = parseSidebarProjects(deps.read());
 	}
@@ -188,7 +199,9 @@ export class SidebarProjects {
 		// A linked worktree's folder → its project: a paired device groups the host's sessions by it (git runs here). A
 		// removed worktree keeps naming its project, so a session of it a tab still holds is a row of that project there.
 		const worktrees: Record<string, string> = {};
-		// Session folders that are gone: a paired device hides their sessions, as this computer's sidebar does.
+		// What each live one is: a paired device folds an agent worktree's sessions into their project as this computer does.
+		const worktreeKinds: Record<string, WorktreeKind> = {};
+		// Session folders that are gone: a paired device places their sessions by `sessionProjectKey`, as this computer's does.
 		const gone: string[] = [];
 		const exists = this.#deps.exists ?? folderExists;
 		for (const [cwd, created] of newest) {
@@ -208,7 +221,11 @@ export class SidebarProjects {
 				continue;
 			}
 			if (project === workspace) continue;
-			if (project !== cwd) worktrees[cwd] = project;
+			if (project !== cwd) {
+				worktrees[cwd] = project;
+				const kind = await this.#kindOf(cwd);
+				if (kind) worktreeKinds[cwd] = kind;
+			}
 			found.set(project, Math.max(found.get(project) ?? 0, created));
 		}
 		if (this.#disposed) return;
@@ -237,7 +254,7 @@ export class SidebarProjects {
 			if (listed.has(path) || this.#state.removed.includes(path)) continue;
 			added.push({ path, addedAt: addedAt || this.#now() });
 		}
-		await this.#checkFolders(added, worktrees, moved, gone.sort());
+		await this.#checkFolders(added, worktrees, worktreeKinds, moved, gone.sort());
 	}
 
 	/**
@@ -246,7 +263,7 @@ export class SidebarProjects {
 	 * worktree root is the folder's parent and whose hash is the folder's own is it. Undefined when none is.
 	 */
 	async #projectByRepoHash(cwd: string, found: readonly string[]): Promise<string | undefined> {
-		const hash = OMPDESK_WORKTREE_FOLDER.exec(pathBaseName(cwd))?.[1];
+		const hash = OMPDESK_WORKTREE_FOLDER.exec(pathBaseName(cwd))?.[2];
 		const location = this.#deps.worktreeLocation;
 		if (!hash || !location) return undefined;
 		const parent = path.resolve(path.dirname(cwd));
@@ -272,6 +289,7 @@ export class SidebarProjects {
 	async #checkFolders(
 		added: readonly SidebarProject[],
 		worktrees: Record<string, string>,
+		worktreeKinds: Record<string, WorktreeKind>,
 		moved: ReadonlyMap<string, string>,
 		gone: readonly string[],
 	): Promise<void> {
@@ -287,7 +305,7 @@ export class SidebarProjects {
 			)
 		)
 			// A checkout OMPdesk made (`gui-<name>-<hash7>`) that is gone was a worktree, never a project: it leaves.
-			.filter(entry => !(entry.missing && OMPDESK_WORKTREE_FOLDER.test(pathBaseName(entry.path))));
+			.filter(entry => !(entry.missing && isOmpdeskWorktreeFolder(entry.path)));
 		// Something else changed the list meanwhile: the next pass checks again.
 		if (this.#disposed || this.#state !== before) return;
 		const changed =
@@ -296,11 +314,13 @@ export class SidebarProjects {
 			checked.length !== kept.length + added.length ||
 			checked.some((entry, index) => entry.missing !== before.projects[index]?.missing) ||
 			JSON.stringify(worktrees) !== JSON.stringify(before.worktrees) ||
+			JSON.stringify(worktreeKinds) !== JSON.stringify(before.worktreeKinds ?? {}) ||
 			JSON.stringify(gone) !== JSON.stringify(before.gone ?? []);
 		if (changed)
 			this.#commit({
 				projects: checked,
 				worktrees,
+				worktreeKinds: Object.keys(worktreeKinds).length > 0 ? worktreeKinds : undefined,
 				...(gone.length > 0 ? { gone: [...gone] } : { gone: undefined }),
 			});
 	}

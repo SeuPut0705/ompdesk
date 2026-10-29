@@ -12,7 +12,6 @@ import {
 	agentControlFullEnabled,
 	agentControlManageEnabled,
 } from "../shared/agent-control";
-import { AI_MEMORY_LEARN_PREF, AI_MEMORY_PREF, aiMemoryEnabled } from "../shared/ai-memory";
 import { ECC_PREF, eccEnabled } from "../shared/ecc";
 import { PSTACK_PREF, pstackEnabled } from "../shared/pstack";
 import {
@@ -44,8 +43,6 @@ function resolved(data: Record<string, unknown>) {
 		approve: agentControlApproveEnabled(data[AGENT_CONTROL_APPROVE_PREF]),
 		pstack: pstackEnabled(data[PSTACK_PREF]),
 		ecc: eccEnabled(data[ECC_PREF]),
-		memory: aiMemoryEnabled(data[AI_MEMORY_PREF]),
-		learn: data[AI_MEMORY_LEARN_PREF] !== false,
 	};
 }
 
@@ -56,8 +53,6 @@ const ALL_ON = {
 	approve: true,
 	pstack: true,
 	ecc: true,
-	memory: true,
-	learn: true,
 };
 
 let agentDir: string;
@@ -85,8 +80,6 @@ describe("migrateAgentPowers", () => {
 			[AGENT_CONTROL_APPROVE_PREF]: false,
 			[PSTACK_PREF]: false,
 			[ECC_PREF]: false,
-			[AI_MEMORY_PREF]: false,
-			[AI_MEMORY_LEARN_PREF]: false,
 			language: "ko",
 		});
 		expect(resolved(store.data)).toEqual({
@@ -96,12 +89,10 @@ describe("migrateAgentPowers", () => {
 			approve: false,
 			pstack: false,
 			ecc: false,
-			memory: false,
-			learn: false,
 		});
 
 		const report = migrateAgentPowers(store, agentDir);
-		expect(report?.prefs).toHaveLength(8);
+		expect(report?.prefs).toHaveLength(6);
 		expect(resolved(store.data)).toEqual(ALL_ON);
 		expect(store.data.language).toBe("ko");
 

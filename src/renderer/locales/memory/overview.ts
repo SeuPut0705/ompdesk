@@ -1,6 +1,5 @@
 /** Memory › Overview and the status words every Memory surface shares. `en` and `ko` carry exactly the same keys (locales.test.ts). */
 export const en: Record<string, string> = {
-	"memory.phase.off": "Off",
 	"memory.phase.starting": "Starting",
 	"memory.phase.startingStep": "Starting: {step}",
 	"memory.phase.ready": "Running",
@@ -13,18 +12,9 @@ export const en: Record<string, string> = {
 	"memory.overview.unreachableReason": "The memory server is not answering; OMPdesk keeps trying.",
 	"memory.step.stage": "preparing the program",
 	"memory.step.wire": "setting up the server and OMPdesk's extension",
-	"memory.step.unwire": "turning it off",
 	"memory.step.terminal": "changing the terminal omp",
 	"memory.step.purge": "deleting the data",
 	"memory.step.check": "checking the server",
-	"memory.source.bundled": "built in",
-	"memory.source.external": "your own install",
-	"memory.overview.learn": "Learn from conversations",
-	"memory.overview.learn.info":
-		"When you pause a conversation after typing 6 or more messages, your cheap model (the smol role) reads those messages once and saves the decisions, rules and gotchas in them as pages. At most one run an hour and six a day, about $0.02 each. Only your own words are read.",
-	"memory.overview.switch": "Remember across sessions",
-	"memory.overview.switch.info":
-		"On: every omp session OMPdesk runs records to Memory and starts with what the project already knows. Off: OMPdesk stops loading it, and its server stops if nothing else uses it. What is stored stays.",
 	"memory.overview.status": "Status",
 	"memory.overview.retry": "Try again",
 	"memory.overview.scope": "Project",
@@ -66,7 +56,6 @@ export const en: Record<string, string> = {
 		"Everything stays on your own computers: a local server, no telemetry, no model or embedding provider. For each omp session OMPdesk runs it records your prompts, tool calls with arguments and results, the start and end, and the last reply of each turn (at most 2 KB, secrets removed). With computers paired under Devices & connections, decisions, rules and preferences, and each turn's last reply (secrets removed again before it leaves and when it arrives) are copied to those computers' memory; prompts, tool activity and session pages never leave this one. When you type a prompt, earlier decisions and conclusions that match it are handed to the model, and one quiet line in the conversation names them. Keys, tokens, private keys and passwords in URLs are stripped before saving, best effort: free text like “my password is …” is not detected. To keep files out, add a .ai-memory.toml with [capture] ignore_paths to the project; that covers file and shell tools only, not prompts.",
 };
 export const ko: Record<string, string> = {
-	"memory.phase.off": "꺼짐",
 	"memory.phase.starting": "시작하는 중",
 	"memory.phase.startingStep": "시작하는 중: {step}",
 	"memory.phase.ready": "실행 중",
@@ -79,18 +68,9 @@ export const ko: Record<string, string> = {
 	"memory.overview.unreachableReason": "메모리 서버가 응답하지 않아요. OMPdesk가 계속 다시 시도해요.",
 	"memory.step.stage": "프로그램을 준비하는 중",
 	"memory.step.wire": "서버와 OMPdesk 확장을 준비하는 중",
-	"memory.step.unwire": "끄는 중",
 	"memory.step.terminal": "터미널 omp를 바꾸는 중",
 	"memory.step.purge": "데이터를 지우는 중",
 	"memory.step.check": "서버를 확인하는 중",
-	"memory.source.bundled": "내장",
-	"memory.source.external": "직접 설치한 것",
-	"memory.overview.learn": "대화에서 배우기",
-	"memory.overview.learn.info":
-		"메시지를 6개 이상 입력한 대화를 잠시 멈추면, 가벼운 모델(smol 역할)이 그 메시지를 한 번 읽고 결정·규칙·함정을 페이지로 남겨요. 한 시간에 한 번, 하루 여섯 번까지, 한 번에 약 0.02달러예요. 직접 입력한 말만 읽어요.",
-	"memory.overview.switch": "세션 사이에 기억하기",
-	"memory.overview.switch.info":
-		"켜면 OMPdesk가 실행하는 모든 omp 세션이 메모리에 기록하고, 프로젝트가 이미 아는 내용으로 시작해요. 끄면 OMPdesk가 더 이상 불러오지 않고, 다른 곳에서 쓰지 않으면 서버도 멈춰요. 저장된 내용은 그대로 남아요.",
 	"memory.overview.status": "상태",
 	"memory.overview.retry": "다시 시도",
 	"memory.overview.scope": "프로젝트",

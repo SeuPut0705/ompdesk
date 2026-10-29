@@ -34,6 +34,9 @@ export function unavailableFeatures(result: unknown): string[] {
 
 export class BridgeHealth {
 	readonly #notify: () => void;
+	readonly #onIncompatible: (ompVersion: string) => void;
+	/** omp versions whose repair already ran this launch: one attempt per version, never a loop. */
+	readonly #repaired = new Set<string>();
 	/** `<kind>@<version>` already checked (or in flight) this launch. */
 	readonly #seen = new Set<string>();
 	/** Unavailable feature ids per omp version whose probe answered. */
@@ -41,8 +44,13 @@ export class BridgeHealth {
 	#pending: BridgeHealthWarning[] = [];
 
 	/** `notify` tells every window that warnings are waiting. */
-	constructor(notify: () => void) {
+	constructor(
+		notify: () => void,
+		/** An omp that lacks what the bridge needs (or that the bridge never reached): the app updates omp itself. */
+		onIncompatible: (ompVersion: string) => void = () => {},
+	) {
 		this.#notify = notify;
+		this.#onIncompatible = onIncompatible;
 	}
 
 	/** Settles once the probe (if any) is done; never rejects. */
@@ -101,5 +109,8 @@ export class BridgeHealth {
 	#push(warning: BridgeHealthWarning): void {
 		this.#pending.push(warning);
 		this.#notify();
+		if (this.#repaired.has(warning.ompVersion)) return;
+		this.#repaired.add(warning.ompVersion);
+		this.#onIncompatible(warning.ompVersion);
 	}
 }

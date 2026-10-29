@@ -68,6 +68,7 @@ import { SIDEBAR_WIDTH } from "../../../../shared/boot-shell-geometry";
 import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
 import type { HostView, IpcHostedSession, SessionInfo } from "../../../../shared/ipc-types";
 import { autopilotRunOf, worktreeKindOf, worktreeLabel } from "../../../../shared/project-origin";
+import { sessionFinished, sessionProjectKey, tabInUse } from "../../../../shared/sidebar-projects";
 import { splitTabIds } from "../../../../shared/split-layout";
 import { useSessionAttention } from "../../../hooks/use-session-attention";
 import { useSessionList } from "../../../hooks/use-session-list";
@@ -679,6 +680,35 @@ export function Sidebar() {
 		}
 		return held;
 	}, [localTabs, hostedByKey, activeTabRemote, sessionFile, sessionId]);
+	// The sessions a tab the person uses holds (`tabInUse`): what keeps a finished worktree's session listed. A tab a
+	// relaunch restored asleep, or a ghost, holds it (heldByTab) without bringing the row back.
+	const inUseByTab = useMemo(() => {
+		const held = new Set<string>();
+		for (const tab of localTabs) {
+			if (!tabInUse(tab)) continue;
+			held.add(tab.id);
+			if (tab.sessionPath) held.add(tab.sessionPath);
+			if (tab.sessionId) held.add(tab.sessionId);
+		}
+		// A paired device's tab here runs an omp for it: in use.
+		for (const key of hostedByKey.keys()) {
+			held.add(key);
+			held.add(`hosted:${key}`);
+		}
+		// The session the window shows is attached (a tab on screen is started), before its tab names it.
+		if (activeTab && !activeTabRemote && tabInUse(activeTab)) {
+			if (sessionFile) held.add(sessionFile);
+			if (sessionId) held.add(sessionId);
+		}
+		return held;
+	}, [localTabs, hostedByKey, activeTab, activeTabRemote, sessionFile, sessionId]);
+	const sessionInUse = useCallback(
+		(session: SidebarSession) =>
+			inUseByTab.has(session.path) ||
+			inUseByTab.has(session.id) ||
+			(session.liveTabId !== undefined && inUseByTab.has(session.liveTabId)),
+		[inUseByTab],
+	);
 	const archivedIds = useMemo(() => new Set(archivedSessions), [archivedSessions]);
 	const listedSessions = useMemo(
 		() =>
@@ -908,23 +938,24 @@ export function Sidebar() {
 			const gone = projectName(session.cwd).gone;
 			// A discarded worktree's stored sessions go with it, unless main recorded the work as landed.
 			if (gone && recorded === undefined) continue;
-			const origin = projectName(gone && recorded !== undefined ? recorded : session.cwd);
-			if (
-				foldsIntoProject(session, {
-					recorded: closedOpeners.has(session.path),
-					agentWorktree: origin.worktree?.worktree?.kind === "agent",
-				})
-			)
-				roots.set(session.path, origin.root);
+			const at = gone && recorded !== undefined ? recorded : session.cwd;
+			const origin = projectName(at);
+			// Git's answer, else what main's list says of the folder (the device's only source): same rule either side.
+			const kind = origin.worktree?.worktree?.kind ?? projectList.worktreeKinds?.[at];
+			if (foldsIntoProject(session, { recorded: closedOpeners.has(session.path), agentWorktree: kind === "agent" }))
+				roots.set(session.path, origin.worktree ? origin.root : (projectList.worktrees[at] ?? origin.root));
 		}
 		return roots;
-	}, [codeSessions, familyRootOf, runParentOf, heldByTab, closedCwdOf, closedOpeners, projectName]);
-	// The opener's path → what it opened, in the order it opened them.
+	}, [codeSessions, familyRootOf, runParentOf, heldByTab, closedCwdOf, closedOpeners, projectName, projectList]);
+	// The opener's path → what it opened, in the order it opened them. A child that ran in a finished worktree is no
+	// row under its opener either, unless a tab the person uses holds it (`sessionFinished`, the rule projects follow).
 	const familyChildrenOf = useMemo(() => {
 		const byRoot = new Map<string, SidebarSession[]>();
 		for (const session of codeSessions) {
 			const root = familyRootOf.get(session.path);
 			if (root === undefined) continue;
+			if (sessionFinished({ cwd: session.cwd, gone: projectName(session.cwd).gone, inUse: sessionInUse(session) }))
+				continue;
 			const siblings = byRoot.get(root);
 			if (siblings) siblings.push(session);
 			else byRoot.set(root, [session]);
@@ -932,7 +963,7 @@ export function Sidebar() {
 		for (const siblings of byRoot.values())
 			siblings.sort((a, b) => createdAt(a) - createdAt(b) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 		return byRoot;
-	}, [codeSessions, familyRootOf]);
+	}, [codeSessions, familyRootOf, projectName, sessionInUse]);
 	// A session an agent here opened on a paired device is that opener's child too (one family, whatever the
 	// computer): its tab nests under the opener's row, named by its device, and leaves the device's own list.
 	const remoteChildTabs = useMemo(
@@ -1005,9 +1036,6 @@ export function Sidebar() {
 		const held = (session: SidebarSession) =>
 			session.liveTabId !== undefined || heldByTab.has(session.path) || heldByTab.has(session.id);
 		for (const session of codeSessions) {
-			// A discarded worktree's stored sessions go with it (the folder is gone; the session picker still finds them),
-			// unless a tab still holds the session: one of this window's or a paired device's tab here.
-			if (projectName(session.cwd).gone && !held(session)) continue;
 			// A session another session's agent opened lives in that session's family, whatever its folder.
 			if (familyRootOf.has(session.path)) continue;
 			// One no opener holds folds into its project's group, below.
@@ -1015,11 +1043,23 @@ export function Sidebar() {
 			// An Autopilot child goes where its run goes.
 			const at = runParentOf.get(session.path) ?? session.cwd;
 			const shown = projectName(at);
-			// A removed worktree a tab still holds stays a row of the project it was cut from (main keeps naming it, and
-			// a paired device groups it by the same name), never a group of its own.
-			const root = shown.worktree ? shown.root : shown.gone && projectList.worktrees[at];
-			const key = root ? keyOfRoot(root) : session.cwd;
-			if (removed.has(key) && !held(session)) continue;
+			// A session of a removed worktree is a row of the project it was cut from (main keeps naming it, and a paired
+			// device groups it by the same name), never a group of its own; the rule (`sessionProjectKey`) is the device
+			// section's too: a gone worktree's sessions are finished and leave unless a tab the person uses holds one
+			// (this window's, not one restored asleep; or a paired device's here), a removed project's leave unless any
+			// tab holds one, a gone folder that is a project stays with its sessions.
+			const root = shown.worktree ? shown.root : projectList.worktrees[at];
+			const key = sessionProjectKey(
+				{
+					cwd: session.cwd,
+					gone: projectName(session.cwd).gone,
+					project: root === undefined ? undefined : keyOfRoot(root),
+					held: held(session),
+					inUse: sessionInUse(session),
+				},
+				removed,
+			);
+			if (key === null) continue;
 			const entry = groupFor(key);
 			if (!entry.members.includes(session.cwd)) entry.members.push(session.cwd);
 			entry.sessions.push(session);
@@ -1099,6 +1139,7 @@ export function Sidebar() {
 		familyRootOf,
 		foldedRootOf,
 		heldByTab,
+		sessionInUse,
 		projectList,
 		localTabs,
 		defaultWorkspace,

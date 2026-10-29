@@ -34,6 +34,7 @@ import { useStore } from "zustand";
 import { reviewUnmerged } from "../../../../shared/agent-control";
 import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
 import type { HostView, SessionInfo, SessionKind } from "../../../../shared/ipc-types";
+import { sessionFinished, sessionProjectKey, tabInUse } from "../../../../shared/sidebar-projects";
 import { splitTabIds } from "../../../../shared/split-layout";
 import { useSessionList } from "../../../hooks/use-session-list";
 import { useShellInput } from "../../../hooks/use-shell-mode";
@@ -430,14 +431,31 @@ function DeviceSessions({
 			),
 		[deviceTabs, hostRows],
 	);
+	const gone = useMemo(() => new Set(projectList.gone ?? []), [projectList.gone]);
+	// A tab here the person uses (`tabInUse`: not one a relaunch restored asleep, nor a ghost); the host's own holders
+	// are in use there (`heldOnHost`: it closes a tab it restored asleep on a finished worktree).
+	const sessionInUse = useMemo(() => {
+		const inUse = new Set(
+			deviceTabs.filter(tabInUse).flatMap(tab => [tab.id, tab.sessionPath, tab.sessionId].filter(Boolean)),
+		);
+		return (session: DeviceSession) =>
+			session.heldOnHost === true ||
+			inUse.has(session.path) ||
+			inUse.has(session.id) ||
+			(session.liveTabId !== undefined && inUse.has(session.liveTabId));
+	}, [deviceTabs]);
+	// A child that ran in a finished worktree is no row under its opener either, unless a tab the person uses holds it
+	// (`sessionFinished`, the rule the host's own sidebar and the project groups follow).
 	const familyChildrenOf = useMemo(() => {
 		const byRoot = new Map<string, DeviceSession[]>();
 		for (const row of hostRows.toSorted((a, b) => createdAt(a) - createdAt(b))) {
 			const root = familyRootOf.get(row.path);
-			if (root !== undefined) byRoot.set(root, [...(byRoot.get(root) ?? []), row]);
+			if (root === undefined) continue;
+			if (sessionFinished({ cwd: row.cwd, gone: gone.has(row.cwd), inUse: sessionInUse(row) })) continue;
+			byRoot.set(root, [...(byRoot.get(root) ?? []), row]);
 		}
 		return byRoot;
-	}, [hostRows, familyRootOf]);
+	}, [hostRows, familyRootOf, gone, sessionInUse]);
 	// A closed session the host's own agent opened whose opener the host knows of no row for (it says `null`: no tab,
 	// no closed record; its brief names a title no row has since the opener retitled itself) is no row of its own on
 	// the host: it folds into its project's group, listed there only while it needs a look (Sidebar.tsx
@@ -457,12 +475,12 @@ function DeviceSessions({
 				!held.has(row.id) &&
 				row.heldOnHost !== true &&
 				!live.has(row.path) &&
-				foldsIntoProject(row)
+				foldsIntoProject(row, { agentWorktree: projectList.worktreeKinds?.[row.cwd] === "agent" })
 					? [row.path]
 					: [],
 			),
 		);
-	}, [hostRows, familyRootOf, hostWorkspace, deviceTabs, host.live]);
+	}, [hostRows, familyRootOf, hostWorkspace, deviceTabs, host.live, projectList.worktreeKinds]);
 	const matches = useCallback(
 		(session: DeviceSession) => {
 			const needle = query.toLocaleLowerCase();
@@ -502,7 +520,6 @@ function DeviceSessions({
 
 	const groups = useMemo(() => {
 		const removed = new Set(projectList.removed);
-		const gone = new Set(projectList.gone ?? []);
 		const held = new Set(hostTabs.flatMap(tab => [tab.sessionPath, tab.sessionId].filter(Boolean)));
 		const byCwd = new Map<string, { sessions: DeviceSession[]; folded: DeviceSession[] }>();
 		const groupFor = (project: string) => {
@@ -512,26 +529,40 @@ function DeviceSessions({
 		};
 		for (const session of rows) {
 			if (isChatSession(session, hostWorkspace)) continue;
-			// A linked worktree's session is a row of its project (the host's git says which), never a project of its own;
-			// a removed one's too, as long as the host still names its project.
-			const project = projectList.worktrees[session.cwd] ?? session.cwd;
-			// A project removed from the sidebar takes its sessions with it, and a folder gone on the host (a removed
-			// worktree) its sessions, as the host's own sidebar does: unless a tab holds one, here or on the host.
-			if (
-				(removed.has(project) || gone.has(session.cwd)) &&
-				session.liveTabId === undefined &&
-				session.heldOnHost !== true &&
-				!held.has(session.path) &&
-				!held.has(session.id)
-			)
-				continue;
-			groupFor(project).sessions.push(session);
+			// The host's own rule (`sessionProjectKey`): a linked worktree's session is a row of its project (the host's git
+			// says which, a removed one's too while the host still names it), never a project of its own; a removed
+			// worktree's sessions are finished and leave unless a tab the person uses holds one, here or on the host (a
+			// tab restored asleep here never brings one back); a removed project's leave unless any tab holds one; a
+			// gone folder that is a project stays with its sessions.
+			const key = sessionProjectKey(
+				{
+					cwd: session.cwd,
+					gone: gone.has(session.cwd),
+					project: projectList.worktrees[session.cwd],
+					held:
+						session.liveTabId !== undefined ||
+						session.heldOnHost === true ||
+						held.has(session.path) ||
+						held.has(session.id),
+					inUse: sessionInUse(session),
+				},
+				removed,
+			);
+			if (key !== null) groupFor(key).sessions.push(session);
 		}
 		for (const session of hostRows.toSorted((a, b) => createdAt(a) - createdAt(b))) {
 			if (!folded.has(session.path) || !matches(session)) continue;
-			const project = projectList.worktrees[session.cwd] ?? session.cwd;
-			if (removed.has(project) || gone.has(session.cwd)) continue;
-			groupFor(project).folded.push(session);
+			const key = sessionProjectKey(
+				{
+					cwd: session.cwd,
+					gone: gone.has(session.cwd),
+					project: projectList.worktrees[session.cwd],
+					held: false,
+					inUse: false,
+				},
+				removed,
+			);
+			if (key !== null) groupFor(key).folded.push(session);
 		}
 		// A new, still empty tab has no row (see Sidebar), but its folder keeps its group.
 		for (const tab of hostTabs) {
@@ -569,6 +600,8 @@ function DeviceSessions({
 		folded,
 		matches,
 		projectList,
+		gone,
+		sessionInUse,
 		query,
 		hostTabs,
 		hostWorkspace,

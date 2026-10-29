@@ -420,8 +420,6 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 
 		aiMemory: {
 			getState: () => transport.invoke(IPC_COMMANDS.AI_MEMORY_GET_STATE) as Promise<AiMemoryState>,
-			setEnabled: (enabled: boolean) =>
-				transport.invoke(IPC_COMMANDS.AI_MEMORY_SET_ENABLED, enabled) as Promise<void>,
 			retry: () => transport.invoke(IPC_COMMANDS.AI_MEMORY_RETRY) as Promise<void>,
 			purge: () => transport.invoke(IPC_COMMANDS.AI_MEMORY_PURGE) as Promise<void>,
 			setTerminal: (enabled: boolean) =>

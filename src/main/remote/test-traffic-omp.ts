@@ -6,8 +6,13 @@
  * runs, and a `task` tool whose subagent reports `AgentProgress` snapshots at most every 150 ms
  * (`PROGRESS_COALESCE_MS` in omp's task/executor.ts), as `tool_execution_update` details and, while the GUI asked
  * (`set_subagent_subscription`), as `subagent_progress` frames, plus its own stream as `subagent_event` at `events`.
+ * `get_subagent_messages` reads `subagents/<id>.jsonl` under its working folder as stock's
+ * `readRpcSubagentTranscript` reads a subagent's journal: what follows `fromByte` up to the last whole line, as both
+ * `entries` and `messages`, with the offset to read from next.
  * Standalone: the test writes this file's text out as the omp script, so it imports nothing local.
  */
+import { readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { setTimeout as sleep } from "node:timers/promises";
 
@@ -465,9 +470,52 @@ out({
 	maxReassembledFrameBytes: 67108864,
 });
 
+/** Stock's `readRpcSubagentTranscript` (modes/rpc/rpc-subagents.ts), over this folder's `subagents/<id>.jsonl`. */
+function subagentTranscript(subagentId: string, fromByte = 0): Record<string, unknown> {
+	const sessionFile = join(process.cwd(), "subagents", `${subagentId}.jsonl`);
+	let start = Math.max(0, Math.trunc(fromByte));
+	const size = statSync(sessionFile).size;
+	let reset = false;
+	if (start > size) {
+		start = 0;
+		reset = true;
+	}
+	const text = start >= size ? "" : readFileSync(sessionFile).subarray(start).toString("utf8");
+	const complete = text.slice(0, text.lastIndexOf("\n") + 1);
+	const entries = complete
+		.split("\n")
+		.filter(Boolean)
+		.map(line => JSON.parse(line) as { type?: string; message?: unknown });
+	return {
+		sessionFile,
+		fromByte: start,
+		nextByte: start + Buffer.byteLength(complete, "utf8"),
+		reset,
+		entries,
+		messages: entries.filter(entry => entry.type === "message").map(entry => entry.message),
+	};
+}
+
 createInterface({ input: process.stdin }).on("line", line => {
-	const command = JSON.parse(line) as { id?: string; type: string; level?: string; message?: string };
+	const command = JSON.parse(line) as {
+		id?: string;
+		type: string;
+		level?: string;
+		message?: string;
+		subagentId?: string;
+		fromByte?: number;
+	};
 	if (command.type === "set_subagent_subscription" && command.level) level = command.level;
+	if (command.type === "get_subagent_messages" && command.subagentId) {
+		out({
+			type: "response",
+			id: command.id,
+			command: command.type,
+			success: true,
+			data: subagentTranscript(command.subagentId, command.fromByte),
+		});
+		return;
+	}
 	// Stock's slash command list as the built-in skill packs make it: about 300 commands, most a long description.
 	const data =
 		command.type === "get_available_commands"

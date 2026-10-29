@@ -3036,7 +3036,7 @@ export const ko: Record<string, string> = {
 	"stats.frustration.angry": "분노",
 	"stats.frustration.judged": "판정됨",
 	"stats.frustration.judgedNote":
-		"메시지 {messages}개 중 {judged}개에 모델 판정이 있고, 나머지는 키워드 규칙으로 분류돼요. `omp stats` 웹 화면에서 판정을 실행하세요.",
+		"메시지 {messages}개 중 {judged}개에 모델 판정이 있고, 나머지는 키워드 규칙으로 분류돼요. 모델 판정은 omp 통계 화면에서 추가돼요.",
 	"stats.frustration.byModel": "모델 버전별",
 
 	// Stats gain route
@@ -3240,6 +3240,7 @@ export const ko: Record<string, string> = {
 	"chat.thinking.show": "사고 과정 보기",
 	"chat.thinking.hide": "사고 과정 숨기기",
 	"chat.awaitingModel.announcement": "모델 응답을 기다리는 중…",
+	"chat.awaitingModel.wait": "모델 응답 기다리는 중 · {time}",
 	"chat.turnEnd.complete": "응답을 마쳤어요",
 	"chat.turnEnd.stopped": "응답을 중단했어요",
 	"chat.turnEnd.failed": "응답 실패: {reason}",
@@ -4314,17 +4315,18 @@ export const ko: Record<string, string> = {
 		"새 세션마다 계정을 번갈아 써서 사용량을 고르게 나눠요. 세션은 한도에 닿을 때까지 쓰던 계정을 계속 쓰고, 한도에 닿은 계정은 건너뛰어요.",
 	"providers.rotation.hint": "로그인한 계정이 두 개 이상인 프로바이더에 적용돼요.",
 	"providers.rotation.host": "{name}에서 실행되는 세션이 이 설정을 따라요.",
-	"providers.rotation.evenUnavailable": "이 omp 버전에서는 균등 순환을 쓸 수 없어요. `omp update`를 실행해 보세요.",
+	"providers.rotation.evenUnavailable":
+		"이 omp 버전에서는 균등 순환을 쓸 수 없어요. OMPdesk가 omp를 직접 최신으로 유지해요.",
 	"providers.rotation.loadFailed": "계정 순환 설정을 읽지 못했어요",
 	"providers.rotation.saveFailed": "계정 순환 방식을 바꾸지 못했어요",
 
 	// gui-bridge compatibility self-check (startup warning toast)
 	"bridgeHealth.unsupportedTitle": "일부 OMPdesk 기능이 이 omp와 맞지 않아요",
 	"bridgeHealth.unsupported":
-		"omp {version}에 OMPdesk가 쓰는 내부 기능이 없어요: {features}. `omp update`를 실행하거나 OMPdesk를 업데이트하세요. 계속되면 이슈로 제보해 주세요.",
+		"omp {version}에 OMPdesk가 쓰는 내부 기능이 없어요: {features}. OMPdesk가 새 omp를 확인하고 설치를 직접 복구해요. 계속되면 이슈로 제보해 주세요.",
 	"bridgeHealth.unavailableTitle": "OMPdesk 기능을 쓸 수 없어요",
 	"bridgeHealth.unavailable":
-		"OMPdesk가 omp 확장에 연결하지 못했어요(omp {version}): {reason}. 계획 모드, MCP, 설정 등 OMPdesk 기능이 동작하지 않아요. `omp update`를 실행하거나 OMPdesk를 업데이트하세요. 계속되면 이슈로 제보해 주세요.",
+		"OMPdesk가 omp 확장에 연결하지 못했어요(omp {version}): {reason}. 계획 모드, MCP, 설정 등 OMPdesk 기능이 동작하지 않아요. OMPdesk가 새 omp를 확인하고 설치를 직접 복구해요. 계속되면 이슈로 제보해 주세요.",
 	"bridgeHealth.separator": ", ",
 	"bridgeHealth.feature.core": "핵심 기능",
 	"bridgeHealth.feature.composer": "입력창 확장 기능",
@@ -5191,12 +5193,11 @@ export const ko: Record<string, string> = {
 	"ssh.tools.agent.none": "실행 중인 ssh-agent가 없어요",
 	"ssh.tools.agent.error": "ssh-agent가 응답하지 않아요",
 	"ssh.tools.agent.files": "~/.ssh의 키 파일 {count}개",
-	"ssh.tools.agent.noKey": "아직 SSH 키가 없어요. 터미널에서 만든 뒤 .pub 파일을 서버에 등록하세요:",
-	"ssh.tools.agent.copyCommand": "명령 복사하기",
-	"ssh.tools.agent.startMac":
-		"다음 명령으로 키를 에이전트에 불러오세요: ssh-add --apple-use-keychain ~/.ssh/id_ed25519",
-	"ssh.tools.agent.startWindows": '"OpenSSH Authentication Agent" 서비스를 시작한 뒤 ssh-add를 실행하세요',
-	"ssh.tools.agent.addKey": "에이전트에 키가 없어요. ssh-add로 추가하세요",
+	"ssh.tools.agent.noKey":
+		"아직 SSH 키가 없어요. OMPdesk가 만들어 드릴 수 있어요. 만든 뒤 .pub 파일을 서버에 등록하세요.",
+	"ssh.tools.agent.createKey": "SSH 키 만들기",
+	"ssh.tools.agent.startWindows": 'Windows 서비스에서 "OpenSSH Authentication Agent"를 켜 주세요(시작 유형: 자동).',
+	"ssh.tools.agent.loadKeys": "에이전트에 키 추가",
 	"ssh.tools.forwards": "포트 포워딩",
 	"ssh.tools.forwardLine": "localhost:{local} → 서버:{remote}",
 	"ssh.tools.status.connecting": "연결 중",
@@ -5358,7 +5359,7 @@ export const ko: Record<string, string> = {
 	"updates.auth.denied":
 		"이 GitHub 계정으로는 SeuPut0705/ompdesk를 볼 수 없어요. 저장소 초대를 수락하거나 접근 권한이 있는 계정의 토큰을 사용하세요.",
 	"updates.auth.invalid":
-		"GitHub가 토큰을 거부했어요(만료 또는 취소됨). `gh auth login`을 다시 실행하거나 새 토큰을 붙여 넣으세요.",
+		"GitHub가 토큰을 거부했어요(만료 또는 취소됨). 설정 › 일반에서 GitHub를 다시 연결하거나 새 토큰을 붙여 넣으세요.",
 	"updates.auth.network":
 		"GitHub에 연결하지 못했거나 시간당 요청 한도에 도달했어요. 잠시 뒤 다시 시도하세요. 토큰을 쓰면 한도가 늘어나요.",
 	"updates.auth.ok": "SeuPut0705/ompdesk 접근을 확인했어요.",
@@ -5369,7 +5370,7 @@ export const ko: Record<string, string> = {
 	"updates.auth.clear": "저장한 토큰 삭제",
 	"updates.auth.failed": "GitHub 접근 설정을 바꾸지 못했어요",
 	"updates.auth.cannotStore":
-		"이 시스템에서는 비밀 정보를 암호화할 수 없어 토큰을 저장할 수 없어요. `gh auth login`이나 GH_TOKEN을 사용하세요.",
+		"이 시스템에서는 비밀 정보를 암호화할 수 없어 토큰을 저장할 수 없어요. 설정 › 일반에서 GitHub를 연결하세요.",
 	"updates.host.name": "호스트 컴퓨터의 OMPdesk",
 	"updates.host.description":
 		"이 탭이 실행되는 컴퓨터의 OMPdesk 앱이에요. 확인, 다운로드, 설치가 그 컴퓨터에서 실행되고, 설치하면 다시 시작되어 돌아올 때까지 이 탭의 연결이 끊겨요.",

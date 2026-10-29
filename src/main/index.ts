@@ -4,7 +4,7 @@
  */
 
 import { existsSync, mkdirSync } from "node:fs";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { homedir, release } from "node:os";
 import { basename, join, resolve, sep } from "node:path";
 import {
@@ -49,13 +49,7 @@ import {
 	agentHiddenPaths,
 	parseClosedChildren,
 } from "../shared/agent-control";
-import {
-	AI_MEMORY_LEARN_PREF,
-	AI_MEMORY_PREF,
-	AI_MEMORY_SERVICE_OWNED_PREF,
-	AI_MEMORY_TERMINAL_PREF,
-	aiMemoryEnabled,
-} from "../shared/ai-memory";
+import { AI_MEMORY_TERMINAL_PREF } from "../shared/ai-memory";
 import { REA_PREF, reaEnabled } from "../shared/builtin-mcp";
 import { DEFAULT_BROWSER_PREF } from "../shared/default-browser";
 import {
@@ -75,7 +69,13 @@ import { VISUAL_SCHEME } from "../shared/preview";
 import { PSTACK_PREF } from "../shared/pstack";
 import { REPLY_LANGUAGE_PREF } from "../shared/reply-language";
 import { SCHEDULES_STATE } from "../shared/schedules";
-import { type IpcSidebarProjects, SIDEBAR_PROJECTS_PREF, SIDEBAR_PROJECTS_STATE } from "../shared/sidebar-projects";
+import {
+	finishedWorktreeFolders,
+	type IpcSidebarProjects,
+	SIDEBAR_PROJECTS_PREF,
+	SIDEBAR_PROJECTS_STATE,
+	type SidebarProjectsState,
+} from "../shared/sidebar-projects";
 import { migrateThemeName } from "../shared/theme-names";
 import { WORKTREE_BRANCH_PREFIX_PREF, worktreeBranchPrefix } from "../shared/worktree-branch";
 import { accountRotationDeps } from "./account-rotation";
@@ -141,7 +141,7 @@ import { openLocalPath } from "./open-path";
 import type { LidAwake } from "./power/lid-awake";
 import { createLidAwake } from "./power/lid-awake-runtime";
 import { activateAction, lastWindowCloseAction } from "./quit-guard";
-import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS } from "./remote/app-protocol";
+import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS, SidebarProjectsStateSchema } from "./remote/app-protocol";
 import { RemoteDevices } from "./remote/devices";
 import { LocalHostServices } from "./remote/host-services";
 import { KeepAwakePolicy } from "./remote/keep-awake";
@@ -578,6 +578,22 @@ function logLayoutRestore(layouts: readonly PersistedTabLayout[], drops: readonl
 }
 
 /**
+ * A finished worktree's session (its OMPdesk worktree is gone: disk care removed it once its work landed) never comes
+ * back through a tab nobody uses (the user's report, 29 Oct 2026: a device's restored tabs listed two such sessions the
+ * host itself hid). Given that computer's project list, the tabs a relaunch restored on one, asleep since, close on
+ * `device` (undefined: this computer) as a deleted session's do.
+ */
+function closeFinishedTabs(device: string | undefined, state: Pick<SidebarProjectsState, "gone">): void {
+	const closed = sidecarPool.closeAsleepTabsIn(device, finishedWorktreeFolders(state));
+	if (closed.length === 0) return;
+	writeRuntimeLog({
+		source: "tab-layout",
+		message: "closed restored tabs of finished worktrees",
+		details: { level: "info", device: device ?? "local", tabs: closed.length },
+	});
+}
+
+/**
  * Rewrite the saved session from the live windows. Runs on every tab change and
  * every window close, so a window the user closed for good never comes back and
  * a secondary window's tabs are no longer dropped on the floor.
@@ -712,9 +728,18 @@ app.whenReady().then(() => {
 		: join(devResourcesDir, "omp-builtin");
 	const sessionKinds = new SessionKindStore(join(app.getPath("userData"), "session-kinds.json"));
 	// gui-bridge compatibility warnings: once per omp version per launch, taken by whichever window asks first.
-	const bridgeHealth = new BridgeHealth(() => {
-		for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IPC_EVENTS.BRIDGE_HEALTH);
-	});
+	const bridgeHealth = new BridgeHealth(
+		() => {
+			for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IPC_EVENTS.BRIDGE_HEALTH);
+		},
+		() => {
+			// One attempt per omp version (BridgeHealth). An omp setup calls missing or broken (a compiled omp, a Bun
+			// below its engines.bun) is repaired by setup; a usable one by the omp updater, a no-op when it is newest.
+			const presence = setupService?.state().items.find(item => item.id === "omp")?.presence;
+			if (presence && presence.kind !== "present") void setupService?.retry("omp").catch(() => undefined);
+			else void ompUpdater?.updateNow().catch(() => undefined);
+		},
+	);
 	// Every IPC handler registers once, here and in what this hands it to: on ipcMain for the app's windows,
 	// and in the table a paired web device's calls are dispatched from (web/ipc-registry.ts).
 	const ipc = new IpcRegistry(ipcMain);
@@ -801,6 +826,8 @@ app.whenReady().then(() => {
 			}
 			// Devices whose sidebar shows this computer's section follow.
 			devices.hostSidebarProjectsChanged(state);
+			// The same rule as on a device: a tab restored asleep on a finished worktree here closes.
+			closeFinishedTabs(undefined, state);
 		},
 	});
 	sidecarPool = new SidecarPool((cwd, kind, fresh, device, tabId) => {
@@ -1307,7 +1334,7 @@ app.whenReady().then(() => {
 		sidecarPool.applyExtensionUpdate(plan);
 		hostServices.applyExtensionUpdate(plan);
 	});
-	// ai-memory is OMPdesk's memory (src/main/ai-memory/, pref `aiMemory`, default on): the shipped binary is staged
+	// ai-memory is OMPdesk's memory (src/main/ai-memory/, always on, no switch): the shipped binary is staged
 	// into the tools dir, its per-user service serves it, and the omp sessions OMPdesk spawns load an app-owned
 	// extension root with `-e` (nothing is written to ~/.omp/agent). A dev build reports only; OMP_GUI_AI_MEMORY_BIN
 	// (tests, a developer's own build) runs exactly that binary; OMP_GUI_AI_MEMORY_UNIT_PIDFILE (the e2e fake's
@@ -1334,18 +1361,11 @@ app.whenReady().then(() => {
 		agentDir,
 		rootDir: join(app.getPath("userData"), "ai-memory", "omp-ext"),
 		relaySource: join(builtinDir, "ai-memory", "memory-relay.mjs"),
-		enabled: () => aiMemoryEnabled(prefs.get(AI_MEMORY_PREF)),
-		persistEnabled: enabled => prefs.set(AI_MEMORY_PREF, enabled),
 		terminalPref: () => {
 			const stored = prefs.get(AI_MEMORY_TERMINAL_PREF);
 			return typeof stored === "boolean" ? stored : undefined;
 		},
 		persistTerminal: enabled => prefs.set(AI_MEMORY_TERMINAL_PREF, enabled),
-		serviceOwnedPref: () => {
-			const stored = prefs.get(AI_MEMORY_SERVICE_OWNED_PREF);
-			return typeof stored === "boolean" ? stored : undefined;
-		},
-		persistServiceOwned: owned => prefs.set(AI_MEMORY_SERVICE_OWNED_PREF, owned),
 		...(aiMemoryUnitPidFile ? { unit: pidFileControl(aiMemoryUnitPidFile) } : {}),
 		spawnEnv: async () => ({ ...process.env, ...(await shellSpawnEnv()) }),
 		beforeStart: afterFirstTab,
@@ -1366,27 +1386,25 @@ app.whenReady().then(() => {
 				aiMemoryUpkeep?.pause();
 				aiMemoryCare?.pause();
 			}
-			void memoryRecallState.update(aiMemoryService?.recallEnv() ?? null, state.enabled);
+			void memoryRecallState.update(aiMemoryService?.recallEnv() ?? null);
 			// Memory just came up: catch up with the computers this one is connected to.
 			if (state.phase === "ready" && aiMemoryPhase !== "ready") {
 				aiMemorySync?.syncAll();
 				void recallTerms?.refresh();
 			}
-			if (!state.enabled) void rm(recallTermsFile, { force: true });
 			aiMemoryPhase = state.phase;
 		},
 		log: (message, details) => writeRuntimeLog({ source: "ai-memory", message, details }),
 	});
 	aiMemoryService = aiMemory;
 	// Memory's own quality upkeep (src/main/ai-memory/upkeep.ts): repairs old titles and child handoffs once per launch,
-	// and learns decisions/rules/gotchas from a person's paused conversations on the user's cheap model (`aiMemoryLearn`).
+	// and learns decisions/rules/gotchas from a person's paused conversations on the user's cheap model.
 	const memoryClient = new AiMemoryClient({
 		url: () => aiMemory.state().serverUrl,
 		dataDir: () => aiMemory.state().dataDir,
 	});
 	aiMemoryUpkeep = new MemoryUpkeep({
 		client: memoryClient,
-		learn: () => prefs.get(AI_MEMORY_LEARN_PREF) !== false,
 		model: async message => {
 			const omp = await systemOmp();
 			if (!omp.ok) throw new Error(omp.error);
@@ -1411,10 +1429,8 @@ app.whenReady().then(() => {
 				cwd: upkeepCwd,
 			}),
 		];
-		// The cheap model reads stored pages to the provider, as learning reads conversations: only while learning is on.
-		if (prefs.get(AI_MEMORY_LEARN_PREF) !== false) {
-			judges.push(smolJudge({ model: message => runSmol(omp.runtime, message, upkeepCwd) }));
-		}
+		// The cheap model reads stored pages to the provider, as learning reads conversations.
+		judges.push(smolJudge({ model: message => runSmol(omp.runtime, message, upkeepCwd) }));
 		return chainJudges(...judges)(pairs, rules);
 	};
 	aiMemoryCare = new MemoryCare({
@@ -1434,7 +1450,7 @@ app.whenReady().then(() => {
 	// Memory shared between the person's paired computers (src/main/ai-memory/sync.ts): durable pages and session
 	// conclusions, over the remote link. This computer serves `host.memory.*` to the devices allowed to use it, and
 	// syncs with every host it is connected to when the link comes up, when memory comes up, and every few minutes.
-	const memoryReady = (): boolean => aiMemoryEnabled(prefs.get(AI_MEMORY_PREF)) && aiMemory.state().phase === "ready";
+	const memoryReady = (): boolean => aiMemory.state().phase === "ready";
 	const memoryHost = { store: memoryClient, ready: memoryReady, selfId: () => devices.deviceId };
 	hostServices.attachMemory({
 		pull: (peer, params) => servePull(memoryHost, peer, params),
@@ -1491,6 +1507,21 @@ app.whenReady().then(() => {
 			log: (step, details) => writeRuntimeLog({ source: "remote-tab", message: step, details }),
 		});
 	});
+	// A tab restored asleep on a host's finished worktree closes, as one here does: the host's list is read as its link
+	// comes up (the push follows only changes), then each change it pushes (`host.projects.changed`).
+	devices.onHostOnline(host => {
+		void devices
+			.request<unknown>(host, "host.projects.command", { request: { action: "get" } })
+			.then(data => closeFinishedTabs(host, SidebarProjectsStateSchema.parse(data)))
+			.catch((error: unknown) =>
+				writeRuntimeLog({
+					source: "tab-layout",
+					message: "finished worktree read failed",
+					details: { level: "warn", device: host, error: error instanceof Error ? error.message : String(error) },
+				}),
+			);
+	});
+	devices.onHostProjects(closeFinishedTabs);
 	aiMemorySync.start();
 	// The term corpus of memory recall's coverage gate: read at memory-ready (onState above) and every ten minutes.
 	recallTerms = new RecallTermsIndex({

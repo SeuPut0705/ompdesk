@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { SidebarProjectsState } from "../shared/sidebar-projects";
+import { SidebarProjectsStateSchema } from "./remote/app-protocol";
 import { linkedWorktreeRoot, SidebarProjects, type SidebarProjectsSession } from "./sidebar-projects";
 
 const WORKSPACE = "/home/me/.omp/work";
@@ -85,6 +86,33 @@ describe("SidebarProjects", () => {
 		expect(h.projects.state().worktrees).toEqual({ "/home/me/.omp/wt/gui-alpha-1234567": "/work/alpha" });
 		// Kept across a relaunch.
 		expect(paths(h.reopen())).toEqual(["/work/alpha", "/work/beta"]);
+	});
+
+	it("sends what each live worktree is beside its project, across the wire to a device and a relaunch", async () => {
+		const WT = "/home/me/.omp/wt/gui-alpha-1234567";
+		let saved: unknown;
+		const make = () =>
+			new SidebarProjects({
+				read: () => saved,
+				write: state => {
+					saved = JSON.parse(JSON.stringify(state));
+				},
+				sessions: async () => [session("/work/alpha", "2026-10-01T00:00:00Z"), session(WT, "2026-10-03T00:00:00Z")],
+				defaultWorkspace: () => WORKSPACE,
+				projectOf: async cwd => (cwd === WT ? "/work/alpha" : cwd),
+				worktreeKindOf: async cwd => (cwd === WT ? "agent" : null),
+				exists: async () => true,
+				onState: () => {},
+				now: () => 5_000,
+			});
+		const host = make();
+		await host.sync();
+		expect(host.state().worktreeKinds).toEqual({ [WT]: "agent" });
+		// The device's schema keeps it (an unknown key would be dropped on the link).
+		expect(SidebarProjectsStateSchema.parse(JSON.parse(JSON.stringify(host.state()))).worktreeKinds).toEqual({
+			[WT]: "agent",
+		});
+		expect(make().state().worktreeKinds).toEqual({ [WT]: "agent" });
 	});
 
 	it("moves a worktree folder an earlier pass listed as its own project under its project", async () => {

@@ -391,7 +391,6 @@ export const IPC_COMMANDS = {
 	CLI_UPDATE_NOW: "cli-update:now",
 	/** ai-memory (src/main/ai-memory/): whole AiMemoryState snapshot */
 	AI_MEMORY_GET_STATE: "ai-memory:get-state",
-	AI_MEMORY_SET_ENABLED: "ai-memory:set-enabled",
 	AI_MEMORY_RETRY: "ai-memory:retry",
 	AI_MEMORY_PURGE: "ai-memory:purge",
 	AI_MEMORY_SET_TERMINAL: "ai-memory:set-terminal",
@@ -2093,17 +2092,12 @@ export interface OmpApi {
 		now(tool?: CliToolId): Promise<void>;
 		onState(callback: (state: CliUpdateState) => void): () => void;
 	};
-	/** ai-memory, OMPdesk's memory (src/main/ai-memory/): state, the on/off switch and read-only browsing of what it holds. */
+	/** ai-memory, OMPdesk's memory (src/main/ai-memory/): state and read-only browsing of what it holds. Always on: no switch. */
 	aiMemory: {
 		getState(): Promise<AiMemoryState>;
-		/**
-		 * Turn memory on or off: OMPdesk's sessions load (or stop loading) ai-memory's extension root, and its own server
-		 * starts or stops (only when OMPdesk started it and nothing else uses it); progress arrives through `onState`.
-		 */
-		setEnabled(enabled: boolean): Promise<void>;
 		/** Stage and set up again after a failure. */
 		retry(): Promise<void>;
-		/** Delete everything it remembers (wiki, database, raw events, token) and set it up again when it is on. */
+		/** Delete everything it remembers (wiki, database, raw events, token) and set it up again. */
 		purge(): Promise<void>;
 		/** "Also use in the terminal omp": ai-memory's own `setup --agent omp` (true), or remove just that omp wiring (false). */
 		setTerminal(enabled: boolean): Promise<void>;

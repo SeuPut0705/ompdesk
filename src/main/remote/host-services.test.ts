@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fixtureProviderOptions } from "../../../e2e/models-config-fixture";
 import type { PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origin-contracts";
 import type { AccountRotationMode, AccountRotationState } from "../../shared/account-rotation";
-import type { AgentReviewItem, AgentReviewResult } from "../../shared/agent-control";
+import { type AgentReviewItem, type AgentReviewResult, wrapAgentMessage } from "../../shared/agent-control";
 import { ipcErrorCode } from "../../shared/ipc-error-codes";
 import type {
 	CustomProviderInput,
@@ -208,6 +208,8 @@ function fakeLocalTabs() {
 	const viewed: Array<{ origin: { deviceId: string; name: string }; hostName: string }> = [];
 	/** Window tabs whose session or branch a device moved through a view. */
 	const touched: string[] = [];
+	/** Window tabs a device's own prompt reached through a view. */
+	const prompted: string[] = [];
 	/** The window tabs' moves in order: a device's command goes out (`begin`), is counted (`touched`), is answered (`end`). */
 	const moveLog: string[] = [];
 	const localTabs: HostServicesDeps["localTabs"] = {
@@ -238,12 +240,13 @@ function fakeLocalTabs() {
 			touched.push(tabId);
 			moveLog.push(`touched:${tabId}`);
 		},
+		notePrompted: tabId => void prompted.push(tabId),
 		beginMove: tabId => {
 			moveLog.push(`begin:${tabId}`);
 			return () => void moveLog.push(`end:${tabId}`);
 		},
 	};
-	return { tab, owned, closed, running, stopped, views, viewed, touched, moveLog, localTabs };
+	return { tab, owned, closed, running, stopped, views, viewed, touched, prompted, moveLog, localTabs };
 }
 
 const DESKTOP: HostDesktopState = {
@@ -1732,6 +1735,31 @@ describe("LocalHostServices", () => {
 		expect(resume.sync).toHaveBeenCalled();
 	});
 
+	// A11: a prompt the person types on the device while this computer's continuation of the tab is on its way.
+	it("counts a device's own prompt on its hosted tab for the resume rules, never an agent's wrapped message or another command", async () => {
+		const { services, sidecars } = setup();
+		const resume = { sync: vi.fn(), cancelWait: vi.fn() };
+		services.attachResume(resume);
+		const x = new FakeConnection(peer("device-x"));
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: "/s/one.jsonl" }, x);
+		await services.call(x.peer, "tab.start", { rtab: "t1" }, x);
+		sidecars[0]?.setStatus("ready");
+		const fact = () => services.resumeFacts()[0];
+		expect(fact()?.prompted).toBeUndefined();
+
+		resume.sync.mockClear();
+		await services.call(x.peer, "tab.command", { rtab: "t1", command: { type: "prompt", message: "hello" } }, x);
+		expect(fact()?.prompted).toBe(1);
+		expect(resume.sync).toHaveBeenCalled();
+		await services.call(x.peer, "tab.command", { rtab: "t1", command: { type: "follow_up", message: "more" } }, x);
+		expect(fact()?.prompted).toBe(2);
+
+		const wrapped = wrapAgentMessage("do it", "an agent");
+		await services.call(x.peer, "tab.command", { rtab: "t1", command: { type: "prompt", message: wrapped } }, x);
+		await services.call(x.peer, "tab.command", { rtab: "t1", command: { type: "get_state" } }, x);
+		expect(fact()?.prompted).toBe(2);
+	});
+
 	// Finding 3: `touched` counts a move after its answer, so the resume rules must not judge a tab while one is on its way,
 	// and a move that timed out (omp may have run it: `switch_leaf` with a summary outlives the renderer's 8 s) counts too.
 	it("holds the resume rules while a device's move is on its way, and counts one whose command timed out", async () => {
@@ -2772,6 +2800,15 @@ describe("LocalHostServices: a device opening a session a window of this compute
 		await services.call(x.peer, "tab.command", { rtab: "t1", command: { type: "new_session" } }, x);
 		await services.call(x.peer, "tab.command", { rtab: "t1", command: { type: "fork_from", entryId: "e1" } }, x);
 		expect(local.touched).toEqual(["w1"]);
+	});
+
+	it("counts a device's own prompt through a view on the window's tab", async () => {
+		const { services, local, x } = await viewing();
+		local.owned.set(SESSION, { tabId: "w1", winId: 1 });
+		await services.call(x.peer, "tab.command", { rtab: "t1", command: { type: "prompt", message: "hi" } }, x);
+		expect(local.prompted).toEqual(["w1"]);
+		await services.call(x.peer, "tab.command", { rtab: "t1", command: { type: "get_state" } }, x);
+		expect(local.prompted).toEqual(["w1"]);
 	});
 
 	// Finding 3: the window tab's pool marks the device's move in flight until its answer was counted, a timeout included.

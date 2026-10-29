@@ -34,7 +34,6 @@ import {
 	agentControlEnabled,
 	agentHiddenPaths,
 	isAgentControlTool,
-	parseAgentMessage,
 	privacyPaneUrl,
 	reviewFromDevice,
 } from "../shared/agent-control";
@@ -186,7 +185,7 @@ import { formatTerminalRead, TERMINAL_READ_TOOL } from "./terminal/agent-tool";
 import { closeTabTerminals, readTabTerminals, registerTerminalIpc } from "./terminal/ipc";
 import { setTrayState } from "./tray";
 import { aggregateProgress, aggregateTrayStatus } from "./tray-labels";
-import { type RelaunchContinuation, trackMove } from "./turn-resume";
+import { personsPrompt, type RelaunchContinuation, trackMove } from "./turn-resume";
 import { dispatchedCommand, STOP_COMMANDS } from "./turn-stop-log";
 import { appVersion } from "./updater";
 import { type ClientWindow, isWebWindow } from "./web/client-window";
@@ -776,13 +775,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			};
 		}
 		const { id: _id, ...cmd } = payload.command;
-		// A person's own prompt (an agent's is wrapped) means the session is theirs now: it never closes by itself.
-		if (
-			issuerTabId &&
-			(cmd.type === "prompt" || cmd.type === "steer" || cmd.type === "follow_up") &&
-			parseAgentMessage(cmd.message) === null
-		)
+		// A person's own prompt (an agent's is wrapped) means the session is theirs now: it never closes by itself, and no
+		// continuation of an interrupted turn goes on into the run it starts (turn-resume.ts).
+		if (issuerTabId && personsPrompt(cmd)) {
 			agentControl.noteUserPrompt(issuerTabId);
+			sidecarPool.notePrompted(issuerTabId);
+		}
 		// A tab viewing a paired host's window session: the sessions its agent opened are that host's tabs, which only
 		// the host's control tools know. It answers (host-services `attachAgentReview`), and each item opens there.
 		if (

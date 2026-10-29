@@ -1364,6 +1364,48 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 		initDeletedSessions(null);
 	});
 
+	// The user's report (29 Oct 2026): a device's relaunch restored tabs on two sessions whose worktrees the host's disk
+	// care had removed once their work landed, and those tabs brought the finished sessions back into its sidebar.
+	it("closes the tabs a relaunch restored asleep on a finished worktree, on that computer only, never one in use", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		const F07 = "/Users/kim/.omp/wt/gui-f-07-e-contracts-3795397";
+		const F05 = "/Users/kim/.omp/wt/gui-f-05-work-time-3795397";
+		const open = (tabId: string, cwd: string, sessionPath: string, device: string | undefined, deferStart: boolean) =>
+			pool.acquire(cwd, fw.win, tabId, sessionPath, "agent", undefined, false, false, deferStart, undefined, device);
+		open("in-use", F07, "/s/f07-in-use.jsonl", "host-b", false);
+		open("asleep-07", F07, "/s/f07.jsonl", "host-b", true);
+		open("asleep-05", F05, "/s/f05.jsonl", "host-b", true);
+		open("other-host", F05, "/s/f05.jsonl", "host-c", true);
+		open("elsewhere", "/Users/kim/code/app", "/s/app.jsonl", "host-b", true);
+		const asleep07 = sidecars[1];
+		expect(asleep07?.status).toBe("asleep");
+
+		expect(pool.closeAsleepTabsIn("host-b", new Set([F07, F05])).sort()).toEqual(["asleep-05", "asleep-07"]);
+		expect(pool.tabsForWindow(fw.win).map(tab => tab.tabId)).toEqual(["in-use", "other-host", "elsewhere"]);
+		expect(asleep07?.disposed).toBe(true);
+		// The window drops them as a deleted session's tabs; the saved layout no longer names them.
+		expect(fw.sentTo(IPC_EVENTS.TAB_LIST_CHANGED).at(-1)?.data).toEqual({
+			tabs: pool.tabsForWindow(fw.win),
+			closed: ["asleep-07", "asleep-05"],
+		});
+		expect(pool.tabLayoutForWindow(fw.win)?.tabs.map(tab => tab.sessionPath)).toEqual([
+			"/s/f07-in-use.jsonl",
+			"/s/f05.jsonl",
+			"/s/app.jsonl",
+		]);
+		// No tombstone: a saved worktree restored on the host can open the session again.
+		expect(deletedSessions().has("/s/f07.jsonl", "host-b")).toBe(false);
+		// This computer's own tabs follow the same rule, apart from a host's.
+		open("local-asleep", F07, "/s/local.jsonl", undefined, true);
+		expect(pool.closeAsleepTabsIn(undefined, new Set([F07]))).toEqual(["local-asleep"]);
+		expect(pool.closeAsleepTabsIn("host-b", new Set([F07]))).toEqual([]);
+
+		// A tab on screen the host refused for that reason (RemoteSidecar `folderGone`) closes the same way.
+		sidecars[0]?.emit("folderGone");
+		expect(pool.tabsForWindow(fw.win).map(tab => tab.tabId)).toEqual(["other-host", "elsewhere"]);
+	});
+
 	it("passes a paired host's review list of the session a tab views to its windows, each item opening on that host", () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);
@@ -2575,6 +2617,24 @@ describe("SidecarPool background tabs", () => {
 			expect(changes).toHaveBeenCalled();
 			pool.noteTouched("tab-a");
 			expect(factA()?.touched).toBe(2);
+		});
+
+		it("counts the person's prompts as `prompted` and tells the resume rules", () => {
+			const { pool, sidecars } = fakePool();
+			const fw = fakeWindow(1);
+			pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
+			sidecars[0]?.emitStatus("ready");
+			const changes = vi.fn();
+			pool.onRunningChange = changes;
+			const factA = () => pool.resumeFacts().find(fact => fact.tabId === "tab-a");
+
+			expect(factA()).not.toHaveProperty("prompted");
+			pool.notePrompted("tab-a");
+			expect(factA()?.prompted).toBe(1);
+			expect(changes).toHaveBeenCalled();
+			pool.notePrompted("tab-a");
+			expect(factA()?.prompted).toBe(2);
+			expect(() => pool.notePrompted("nope")).not.toThrow();
 		});
 
 		// A move counts as `touched` only once its command answered: the resume rules wait for the ones on their way.

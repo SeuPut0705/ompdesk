@@ -3053,7 +3053,7 @@ export const en: Record<string, string> = {
 	"stats.frustration.angry": "Angry",
 	"stats.frustration.judged": "Judged",
 	"stats.frustration.judgedNote":
-		"{judged} of {messages} messages have a model verdict; the rest are classified by keyword rules. Run the judge from the `omp stats` web view.",
+		"{judged} of {messages} messages have a model verdict; the rest are classified by keyword rules. The model verdict is added by omp's stats dashboard.",
 	"stats.frustration.byModel": "By model version",
 
 	// Stats gain route
@@ -3336,6 +3336,7 @@ export const en: Record<string, string> = {
 	"chat.thinking.show": "Show reasoning",
 	"chat.thinking.hide": "Hide reasoning",
 	"chat.awaitingModel.announcement": "Waiting for model response…",
+	"chat.awaitingModel.wait": "Waiting for the model's response · {time}",
 	"chat.turnEnd.complete": "Response complete",
 	"chat.turnEnd.stopped": "Response stopped",
 	"chat.turnEnd.failed": "Response failed: {reason}",
@@ -4327,17 +4328,18 @@ export const en: Record<string, string> = {
 		"Alternates accounts for each new session to spread usage evenly. A session keeps its account until it hits its limit; accounts at their limit are skipped.",
 	"providers.rotation.hint": "Applies to providers with two or more signed-in accounts.",
 	"providers.rotation.host": "Sessions on {name} follow this setting.",
-	"providers.rotation.evenUnavailable": "Even rotation isn't available with this omp version. Run `omp update`.",
+	"providers.rotation.evenUnavailable":
+		"Even rotation isn't available with this omp version. OMPdesk keeps omp up to date on its own.",
 	"providers.rotation.loadFailed": "Couldn't read the account rotation setting",
 	"providers.rotation.saveFailed": "Couldn't change the account rotation",
 
 	// gui-bridge compatibility self-check (startup warning toast)
 	"bridgeHealth.unsupportedTitle": "Some OMPdesk features don't work with this omp",
 	"bridgeHealth.unsupported":
-		"omp {version} is missing internals OMPdesk needs for: {features}. Run `omp update` or update OMPdesk. If it persists, report an issue.",
+		"omp {version} is missing internals OMPdesk needs for: {features}. OMPdesk checks for a newer omp and repairs the install by itself. If this stays, report an issue.",
 	"bridgeHealth.unavailableTitle": "OMPdesk features unavailable",
 	"bridgeHealth.unavailable":
-		"OMPdesk couldn't connect to its omp extension (omp {version}): {reason}. Plan mode, MCP, settings and other OMPdesk features won't work. Run `omp update` or update OMPdesk. If it persists, report an issue.",
+		"OMPdesk couldn't connect to its omp extension (omp {version}): {reason}. Plan mode, MCP, settings and other OMPdesk features won't work. OMPdesk checks for a newer omp and repairs the install by itself. If it persists, report an issue.",
 	"bridgeHealth.separator": ", ",
 	"bridgeHealth.feature.core": "Core features",
 	"bridgeHealth.feature.composer": "Composer extras",
@@ -5203,11 +5205,11 @@ export const en: Record<string, string> = {
 	"ssh.tools.agent.none": "No ssh-agent running",
 	"ssh.tools.agent.error": "ssh-agent didn't answer",
 	"ssh.tools.agent.files": "Key files in ~/.ssh: {count}",
-	"ssh.tools.agent.noKey": "No SSH key yet. Create one in a terminal, then add its .pub file on the server:",
-	"ssh.tools.agent.copyCommand": "Copy the command",
-	"ssh.tools.agent.startMac": "Load your key into the agent with: ssh-add --apple-use-keychain ~/.ssh/id_ed25519",
-	"ssh.tools.agent.startWindows": 'Start the "OpenSSH Authentication Agent" service, then run: ssh-add',
-	"ssh.tools.agent.addKey": "The agent holds no keys. Add one with: ssh-add",
+	"ssh.tools.agent.noKey": "No SSH key yet. OMPdesk can create one; then add its .pub file on the server.",
+	"ssh.tools.agent.createKey": "Create an SSH key",
+	"ssh.tools.agent.startWindows":
+		'Turn on the "OpenSSH Authentication Agent" service in Windows Services (Startup type: Automatic).',
+	"ssh.tools.agent.loadKeys": "Add keys to the agent",
 	"ssh.tools.forwards": "Port forwarding",
 	"ssh.tools.forwardLine": "localhost:{local} → server:{remote}",
 	"ssh.tools.status.connecting": "Connecting",
@@ -5370,7 +5372,7 @@ export const en: Record<string, string> = {
 	"updates.auth.denied":
 		"This GitHub account can't see SeuPut0705/ompdesk. Accept the repository invite, or use a token from an account that has access.",
 	"updates.auth.invalid":
-		"GitHub rejected the token (expired or revoked). Run `gh auth login` again or paste a new token.",
+		"GitHub rejected the token (expired or revoked). Connect GitHub again in Settings › General, or paste a new token.",
 	"updates.auth.network":
 		"Couldn't reach GitHub, or its hourly request limit was reached. Try again later; a token raises the limit.",
 	"updates.auth.ok": "Access to SeuPut0705/ompdesk confirmed.",
@@ -5381,7 +5383,7 @@ export const en: Record<string, string> = {
 	"updates.auth.clear": "Remove saved token",
 	"updates.auth.failed": "Couldn't change GitHub access",
 	"updates.auth.cannotStore":
-		"This system can't encrypt secrets, so a token can't be saved here. Use `gh auth login` or GH_TOKEN instead.",
+		"This system can't encrypt secrets, so a token can't be saved here. Connect GitHub in Settings › General instead.",
 	"updates.host.name": "OMPdesk on the host computer",
 	"updates.host.description":
 		"The OMPdesk app on the computer this tab runs on. Check, download and install run there; installing restarts it, which ends this tab's connection until it's back.",

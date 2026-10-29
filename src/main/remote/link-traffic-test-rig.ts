@@ -245,6 +245,7 @@ function hostServices(bin: string, workDir: string, raw: RawTap): LocalHostServi
 			viewForDevice: () => null,
 			stopSession: async () => {},
 			noteTouched: () => {},
+			notePrompted: () => {},
 			beginMove: () => () => {},
 		},
 		trashItem: async () => {},
@@ -262,6 +263,8 @@ export interface Session {
 	raw: RawTap;
 	/** What the host wrote to its `remote-link` runtime log. */
 	hostLog: Array<{ message: string; details: Record<string, unknown> }>;
+	/** The host omp's working folder (the scripted omp reads subagent journals from its `subagents/`). */
+	workDir: string;
 	/** Runs one scripted turn and resolves when the host's omp settled it. */
 	turn(scenario: object): Promise<void>;
 	setLevel(level: "off" | "progress" | "events"): Promise<void>;
@@ -310,6 +313,7 @@ export async function openSession(options: { device?: DeviceKind } = {}): Promis
 		recorder,
 		rig,
 		hostLog,
+		workDir,
 		async turn(scenario) {
 			const settled = Promise.withResolvers<void>();
 			const ended = Promise.withResolvers<void>();

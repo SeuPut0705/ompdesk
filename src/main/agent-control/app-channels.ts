@@ -306,7 +306,6 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[WEB_DEVICE_CONNECTED]: never(PUSH),
 	[WEB_PAIRING_REQUEST]: never(PUSH),
 	[C.AI_MEMORY_GET_STATE]: never(DENY),
-	[C.AI_MEMORY_SET_ENABLED]: sensitive("agent_power.set"),
 	[C.AI_MEMORY_RETRY]: never(DENY),
 	[C.AI_MEMORY_PURGE]: sensitive("memory.purge"),
 	[C.AI_MEMORY_SET_TERMINAL]: sensitive("agent_power.set"),

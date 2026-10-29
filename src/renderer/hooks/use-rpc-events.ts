@@ -86,6 +86,8 @@ import { useUiStore } from "../stores/ui";
  */
 const SNAPSHOT_NEUTRAL_EVENTS: Partial<Record<AgentSessionEvent["type"], true>> = {
 	token_rate: true,
+	// The main loop's request went out / was answered: the working cue's wait, nothing a snapshot reports.
+	model_request: true,
 	read_group_metadata: true,
 	// Suggestion frames change nothing get_state reports.
 	next_prompt_config: true,

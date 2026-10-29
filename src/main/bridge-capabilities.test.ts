@@ -184,7 +184,7 @@ describe("UnsupportedOmpError / requireFn", () => {
 		);
 		expect(error.code).toBe("unsupported_omp");
 		expect(error.message).toContain(`omp 19.0.0: ${FEATURES.planMode} (missing AgentSession.setPlanModeState)`);
-		expect(error.message).toContain("omp update");
+		expect(error.message).toContain("OMPdesk updates omp by itself");
 	});
 
 	it("throws only when the method is absent", () => {

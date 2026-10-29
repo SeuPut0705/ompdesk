@@ -45,4 +45,25 @@ describe("stock live meter", () => {
 			]),
 		).toEqual({ tokens: 60, rate: 30 });
 	});
+	it("holds the model's wait from the request until a usable answer, output or the run's end", () => {
+		const sent = { type: "model_request", phase: "sent" } as const;
+		let meter = applyTurnMeterEvent(EMPTY_TURN_METER, { type: "agent_start" }, 0);
+		expect(meter.modelWaitSince).toBeNull();
+		meter = applyTurnMeterEvent(meter, sent, 100);
+		expect(meter.modelWaitSince).toBe(100);
+		// A rebuilt body sent again inside the call keeps the first request's time.
+		meter = applyTurnMeterEvent(meter, sent, 400);
+		expect(meter.modelWaitSince).toBe(100);
+		expect(applyTurnMeterEvent(meter, { type: "model_request", phase: "answered" }, 500).modelWaitSince).toBeNull();
+		const update = {
+			type: "message_update",
+			message: assistant,
+			assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "a", partial: assistant },
+		} as const;
+		expect(applyTurnMeterEvent(meter, update, 500).modelWaitSince).toBeNull();
+		// A failed attempt stock retries ends its run unanswered: the retry's own status takes over.
+		expect(applyTurnMeterEvent(meter, { type: "agent_end", isTerminal: false }, 500).modelWaitSince).toBeNull();
+		expect(applyTurnMeterEvent(meter, { type: "agent_end" }, 500).modelWaitSince).toBeNull();
+		expect(applyTurnMeterEvent(meter, { type: "agent_start" }, 500).modelWaitSince).toBeNull();
+	});
 });

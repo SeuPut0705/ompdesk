@@ -285,11 +285,17 @@ describe("ompdesk_app tiers", () => {
 		ports.stock["tools.approvalMode"] = "yolo";
 		const control = new AppControl(ports);
 		await control.run(CALLER, "agent_power.set", { switch: "agentControlManage", on: false });
-		await control.run(CALLER, "agent_power.set", { switch: "aiMemory", on: false });
+		await control.run(CALLER, "agent_power.set", { switch: "aiMemoryTerminal", on: false });
+		for (const retired of ["aiMemory", "aiMemoryLearn"]) {
+			expect(
+				await refusal(control.run(CALLER, "agent_power.set", { switch: retired, on: false })),
+				retired,
+			).toContain("switch must be one of");
+		}
 		await control.run(CALLER, "agent_power.set", { switch: "tools.approvalMode", mode: "always-ask" });
 		expect(ports.prefs.agentControlManage).toBe(false);
 		expect(ports.stock["tools.approvalMode"]).toBe("always-ask");
-		expect(ports.invoked).toEqual([{ channel: IPC_COMMANDS.AI_MEMORY_SET_ENABLED, args: [false] }]);
+		expect(ports.invoked).toEqual([{ channel: IPC_COMMANDS.AI_MEMORY_SET_TERMINAL, args: [false] }]);
 		await control.run(CALLER, "app.undo", {});
 		expect(ports.stock["tools.approvalMode"]).toBe("yolo");
 		expect(ports.cards).toEqual([]);

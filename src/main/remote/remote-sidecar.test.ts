@@ -51,7 +51,7 @@ function hostStatus(status: TabStatusArg["status"], extra: Partial<TabStatusArg>
 	};
 }
 
-function setup(options: { startTimeoutMs?: number; keepOnHost?: () => boolean } = {}): {
+function setup(options: { startTimeoutMs?: number; keepOnHost?: () => boolean; cwd?: string } = {}): {
 	link: FakeLink;
 	sidecar: RemoteSidecar;
 	statuses: SidecarStatusPayload[];
@@ -423,6 +423,33 @@ describe("RemoteSidecar", () => {
 		await settle();
 		expect(deleted).toEqual(["/s/gone.jsonl"]);
 		expect(statuses.map(entry => entry.status)).not.toContain("error");
+	});
+
+	// The user's report (29 Oct 2026): a device's relaunch restored its tabs on two sessions whose worktrees the host's
+	// disk care had removed once their work landed; the one on screen opened, was refused, and stayed an error tab that
+	// kept the finished session listed.
+	it("hands a host's missing-folder refusal of a finished OMPdesk worktree to the pool to close; any other folder stays an error", async () => {
+		const finished = setup({ cwd: "/Users/kim/.omp/wt/gui-f-07-e-contracts-3795397" });
+		const missing = () => {
+			throw codedError("session_folder_missing", "The folder this session belongs in no longer exists");
+		};
+		let gone = 0;
+		finished.sidecar.on("folderGone", () => gone++);
+		finished.link.handlers["tab.open"] = missing;
+		finished.sidecar.restart(undefined, "/s/f07.jsonl");
+		await settle();
+		expect(gone).toBe(1);
+		expect(finished.statuses.map(entry => entry.status)).not.toContain("error");
+
+		// A project folder that is gone is not finished work: the tab says so and stays.
+		const plain = setup({ cwd: "/tmp/scratch-3" });
+		let plainGone = 0;
+		plain.sidecar.on("folderGone", () => plainGone++);
+		plain.link.handlers["tab.open"] = missing;
+		plain.sidecar.restart(undefined, "/s/scratch.jsonl");
+		await settle();
+		expect(plainGone).toBe(0);
+		expect(plain.statuses.at(-1)?.status).toBe("error");
 	});
 
 	it("hands on the open asks the host re-sends with each re-attach, and ignores a malformed list", async () => {
