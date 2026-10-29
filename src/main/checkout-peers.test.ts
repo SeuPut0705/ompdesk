@@ -285,6 +285,46 @@ describe("checkout peers: a committed file is no longer a claim", () => {
 		expect(ledger.claims.files).toEqual([`${top}/src/t.ts`]);
 	});
 
+	it("never gives back a committed claim when the call that took it over fails", async () => {
+		// formal/checkout-claims F2: the retire found f being written; the failed call then reverted to the committed stamp.
+		const top = "/work/app";
+		const host = { realpath: (file: string) => file, isDirectory: () => false };
+		const ledger = new CheckoutLedger();
+		const writer = member("w", top, [], {
+			request: async (method, params) => {
+				if (method === "checkout_status") return ledger.claims.status();
+				if (method === "checkout_retire") ledger.claims.retireFrom(params);
+				return { ok: true };
+			},
+		});
+		const other = member("o", top);
+		let listed = porcelain();
+		let onGit = () => {};
+		const peers = new CheckoutPeerCoordinator({
+			members: () => [writer, other],
+			place: async () => ({ toplevel: top, commonDir: `${top}/.git` }),
+			hiddenPaths: () => new Set(),
+			gitStatus: async () => {
+				onGit();
+				return listed;
+			},
+		});
+		ledger.call("edit", { path: "src/f.ts" }, top, undefined, host, "e1");
+		ledger.settle("e1");
+		// The person committed f; while main asks git, the session starts an edit of f that will fail.
+		onGit = () => {
+			onGit = () => {};
+			ledger.call("edit", { path: "src/f.ts" }, top, undefined, host, "e2");
+		};
+		await peers.refresh();
+		ledger.settle("e2", "", { isError: true });
+		// The other session then changes f: that change is its own, never this session's.
+		listed = porcelain(" M src/f.ts");
+		await peers.refresh();
+		expect(ledger.claims.files).toEqual([]);
+		expect(other.sent.at(-1)?.worktree[0]?.files ?? []).toEqual([]);
+	});
+
 	it("keeps a member's last answer when its bridge fails or does not answer in time", async () => {
 		let files = [src("b.ts")];
 		let mode: "answer" | "fail" | "hang" = "answer";

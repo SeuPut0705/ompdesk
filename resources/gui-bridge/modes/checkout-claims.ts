@@ -195,10 +195,15 @@ export class ClaimBook<T = undefined> {
 	/**
 	 * Main saw these claims committed (`git status` no longer lists them): they stop being this session's. A file changed
 	 * again since (its stamp moved on) stays: that later change is a fresh claim. A file a running call is still writing
-	 * stays too.
+	 * stays too, but the claim that call took over was the committed one: should the call write nothing, F goes back to
+	 * no claim, never to the committed one.
 	 */
 	retire(claims: ReadonlyArray<{ file: string; stamp: number }>): void {
 		const writing = this.#writing();
+		const committed = new Map(claims.map(claim => [claim.file, claim.stamp]));
+		for (const call of [...this.#pending.values(), ...this.#jobs.values()])
+			for (const claim of call.claimed)
+				if (claim.earlier !== undefined && committed.get(claim.path) === claim.earlier) claim.earlier = undefined;
 		this.#drop(
 			new Set(
 				claims
