@@ -8,6 +8,7 @@ import { Bot, CornerDownLeft, ExternalLink, GitBranch, Info, Play, User } from "
 import { memo } from "react";
 import { cx, formatClock, formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { markdownPlainText } from "../../lib/markdown-plain";
 import { Badge, MenuButton, Spinner } from "../common";
 import type { SessionTreeEntry } from "./session-tree-layout";
 import { TREE_NODE_HEIGHT, TREE_NODE_WIDTH, TREE_ROOT_HEIGHT } from "./session-tree-layout";
@@ -94,12 +95,10 @@ const SessionTreeNodeCard = memo(function SessionTreeNodeCard({
 				)}
 			</div>
 			{entry.textPreview ? (
-				<p className="mt-1 line-clamp-2 min-h-0 flex-1 text-sc-sm whitespace-pre-wrap text-(--sc-text)">
-					{entry.textPreview}
-				</p>
+				<p className="mt-1 line-clamp-2 text-sc-sm text-(--sc-text)">{markdownPlainText(entry.textPreview)}</p>
 			) : (
 				// A tool-call or thinking-only turn has no text: say so instead of an empty card.
-				<p className="mt-1 line-clamp-2 min-h-0 flex-1 text-sc-sm text-(--sc-text-subtle)" data-tree-node-empty>
+				<p className="mt-1 line-clamp-2 text-sc-sm text-(--sc-text-subtle)" data-tree-node-empty>
 					{t("sessionTree.noText")}
 				</p>
 			)}

@@ -12,7 +12,8 @@
 export const SESSION_ROOT_ID = "__session_root__";
 
 export const TREE_NODE_WIDTH = 232;
-export const TREE_NODE_HEIGHT = 72;
+/** Fits the head row and two preview lines up to an 18 px reading size, so a clamped preview ends on a whole line. */
+export const TREE_NODE_HEIGHT = 88;
 export const TREE_ROOT_HEIGHT = 30;
 const TREE_GAP_X = 28;
 const TREE_GAP_Y = 48;
