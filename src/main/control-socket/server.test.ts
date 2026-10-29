@@ -342,6 +342,126 @@ describe("control socket", () => {
 		});
 	});
 
+	describe("limits", () => {
+		const pipe = () =>
+			posix ? join(userData, "s.sock") : `\\\\.\\pipe\\ompdesk-test-${randomBytes(8).toString("hex")}`;
+		const token = randomBytes(32).toString("hex");
+		async function serve(backend: FakeBackend, limits: { maxConnections?: number; maxInFlight?: number }) {
+			const server = new ControlServer({
+				token,
+				router: new ControlRouter(backend, new EventHub(backend)),
+				...limits,
+			});
+			const path = pipe();
+			await server.listen(path);
+			return { server, path };
+		}
+
+		it("turns away a connection past the cap and keeps the others", async () => {
+			const { server, path } = await serve(new FakeBackend(), { maxConnections: 2 });
+			try {
+				const kept = [await open(path), await open(path)];
+				const third = await open(path);
+				expect(await third.next()).toMatchObject({ ok: false, error: { code: "unavailable" } });
+				await third.closed;
+				kept[0]?.send({ id: 1, method: "hello", token, protocol: CONTROL_PROTOCOL_VERSION });
+				expect(await kept[0]?.next()).toMatchObject({ id: 1, ok: true });
+			} finally {
+				await server.close();
+			}
+		});
+
+		it("never runs more than its cap of a connection's requests at once, and answers them all", async () => {
+			const backend = new FakeBackend();
+			let running = 0;
+			let most = 0;
+			const held: (() => void)[] = [];
+			backend.run = async (caller, tool, args) => {
+				backend.calls.push({ caller, tool, args });
+				most = Math.max(most, ++running);
+				await new Promise<void>(resolve => held.push(resolve));
+				running--;
+				return { text: "done", isError: false };
+			};
+			const { server, path } = await serve(backend, { maxInFlight: 2 });
+			try {
+				const client = await open(path);
+				client.send({ id: 1, method: "hello", token, protocol: CONTROL_PROTOCOL_VERSION });
+				await client.next();
+				for (const id of [2, 3, 4, 5, 6]) client.send({ id, method: "tool", tool: "ompdesk_sessions" });
+				const answered: unknown[] = [];
+				while (answered.length < 5) {
+					await vi.waitFor(() => expect(held.length).toBeGreaterThan(answered.length));
+					held[answered.length]?.();
+					answered.push(await client.next());
+				}
+				expect(most).toBe(2);
+				expect(backend.calls).toHaveLength(5);
+			} finally {
+				await server.close();
+			}
+		});
+
+		it("refuses an unauthenticated line past a small limit", async () => {
+			const { server, path } = await serve(new FakeBackend(), {});
+			try {
+				const client = await open(path);
+				client.socket.write("x".repeat(70 * 1024));
+				expect(await client.next()).toMatchObject({ ok: false, error: { code: "bad_request" } });
+				await client.closed;
+			} finally {
+				await server.close();
+			}
+		});
+	});
+
+	describe.skipIf(!posix)("the socket file", () => {
+		async function listener(path: string) {
+			const child = spawn(
+				process.execPath,
+				[
+					"-e",
+					"require('node:net').createServer(s=>s.end()).listen(process.argv[1], () => process.stdout.write('up'))",
+					path,
+				],
+				{ stdio: ["ignore", "pipe", "inherit"] },
+			);
+			await new Promise<void>(resolve => child.stdout.once("data", () => resolve()));
+			return child;
+		}
+
+		it("does not start over a socket another live process listens on, and leaves it", async () => {
+			const { dir, socket } = controlEndpoint(userData);
+			prepareControlDir(dir);
+			const other = await listener(socket);
+			try {
+				const lines: string[] = [];
+				expect(
+					await startControlSocket({ userData, backend: new FakeBackend(), log: line => lines.push(line) }),
+				).toBeNull();
+				expect(lines.join("")).toContain("in use");
+				expect(existsSync(socket)).toBe(true);
+				await new Promise<void>((resolve, reject) =>
+					connect(socket).once("connect", resolve).once("error", reject),
+				);
+			} finally {
+				other.kill();
+			}
+		});
+
+		it("removes on close only the socket file it made", async () => {
+			const { handle } = await start();
+			rmSync(handle.socket);
+			const other = await listener(handle.socket);
+			try {
+				await handle.close();
+				expect(existsSync(handle.socket)).toBe(true);
+			} finally {
+				other.kill();
+			}
+		});
+	});
+
 	describe("lifecycle", () => {
 		it("sets the environment before the socket is up and clears it on close", async () => {
 			const starting = startControlSocket({ userData, backend: new FakeBackend() });
