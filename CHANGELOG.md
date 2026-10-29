@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.85.0] - 2026-10-29
+
+터미널, 스크립트, 다른 에이전트가 `ompdesk` 명령으로 OMPdesk 세션을 열고, 보내고, 끝날 때까지 기다릴 수 있어요.
+
+### 새로 생긴 것
+- **`ompdesk` 명령.** OMPdesk 안의 에이전트가 쓰는 세션 제어(열기, 보내기, 결과 기다리기, 읽기, 답하기, 멈추기, 비교, 합치기, 앱 동작)를 이 컴퓨터의 다른 프로그램도 쓸 수 있어요. 터미널 omp, 셸 스크립트, Claude Code·Codex 같은 다른 에이전트에서 바로 써요. `ompdesk help`로 사용법을 볼 수 있어요.
+- **기다리기.** "쉴 때까지", "사람 답을 기다릴 때까지", "끝날 때까지"를 골라 기다려요. 보내고 기다릴 때는 세션이 실제로 일을 시작한 걸 확인한 뒤에야 끝나서, 아주 빨리 끝난 작업을 놓치지 않아요. 사람 답을 기다리는 세션에는 그냥 보내지 않고 알려 줘요.
+- **이벤트 구독.** 세션 상태가 바뀌면 바로 받아요. 따라가지 못해 놓친 것이 있으면 조용히 넘기지 않고 놓쳤다고 알려 줘요.
+
+이 기능은 Herdr(herdr.dev)의 외부 제어 방식을 참고했어요. 코드는 가져오지 않았어요.
+
+### 안전
+- 이 컴퓨터 안에서만 동작해요. 같은 사용자만 열 수 있는 통로와 설치마다 다른 토큰을 쓰고, 네트워크로는 아무것도 열지 않아요.
+- 외부 프로그램도 OMPdesk 안의 에이전트와 같은 확인 규칙을 따라요. 확인 카드에는 프로그램 이름이 "자체 표기"로 나와요. 비밀값 읽기와 확인 카드에 대신 답하기는 막혀 있어요.
+- 연결된 기기나 휴대폰이 이 컴퓨터에서 돌리는 탭은 이 통로를 물려받지 않아요.
+
+<!-- en -->
+
+Terminals, scripts and other agents can open, prompt and wait on OMPdesk sessions with the `ompdesk` command.
+
+### New
+- **The `ompdesk` command.** The session controls OMPdesk's own agents use (open, send, wait for a result, read, answer, stop, compare, merge, app actions) are open to other programs on this computer: a terminal omp, a shell script, Claude Code, Codex. Run `ompdesk help`.
+- **Waits.** Wait until a session is idle, blocked on you, or done. A send-and-wait ends only after it saw the session start working, so a fast finish is never missed, and a session waiting on you is not sent to without saying so.
+- **Event stream.** Session state changes arrive live; a subscriber that falls behind is told what it lost instead of skipping silently.
+
+Inspired by Herdr's (herdr.dev) external control; no code was copied.
+
+### Safety
+- Local only: a channel only this user can open and a per-install token; nothing listens on the network.
+- Outside programs follow the same confirmation rules as OMPdesk's agents; their cards show the program's self-declared name. Reading secrets and answering confirmation cards stay refused.
+- Tabs this computer runs for a paired device or the phone do not inherit the channel.
+
 ## [0.84.1] - 2026-10-29
 
 연결된 기기의 사이드바가 오토파일럿 하위 세션과 다른 창의 세션까지 이 Mac과 똑같이 보여 주고, 메모리가 한 세션에 두 번 기록되던 경우를 막았어요.
