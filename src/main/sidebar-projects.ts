@@ -201,7 +201,7 @@ export class SidebarProjects {
 		const worktrees: Record<string, string> = {};
 		// What each live one is: a paired device folds an agent worktree's sessions into their project as this computer does.
 		const worktreeKinds: Record<string, WorktreeKind> = {};
-		// Session folders that are gone: a paired device places their sessions by `sessionProjectKey`, as this computer's does.
+		// Session folders that are gone: a paired device places their sessions by `sidebarRows`, as this computer's does.
 		const gone: string[] = [];
 		const exists = this.#deps.exists ?? folderExists;
 		for (const [cwd, created] of newest) {

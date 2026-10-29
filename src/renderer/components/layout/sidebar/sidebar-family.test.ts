@@ -6,18 +6,16 @@ import {
 } from "../../../../../resources/gui-bridge/modes/subagent-title-contracts";
 import { wrapAgentMessage } from "../../../../shared/agent-control";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
+import { type FamilySession, type FamilyTab, openerOfSessions } from "../../../../shared/sidebar-rows";
 import {
 	buildSubagentFamilyRows,
 	CHILD_TOKEN,
 	type ChildFacts,
 	childUsageText,
-	type FamilySession,
-	type FamilyTab,
 	familyCounts,
 	isFoldedSubagent,
 	isShownOpened,
 	openedChildStatus,
-	openerOfSessions,
 	subagentFamilyState,
 } from "./sidebar-family";
 
