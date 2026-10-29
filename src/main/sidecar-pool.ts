@@ -145,6 +145,8 @@ export type SidecarFactory = (
 	fresh: boolean,
 	device: string | undefined,
 	tabId: string,
+	/** The tab is the phone page's (a paired web window owns it), not a desktop window's. */
+	web: boolean,
 ) => SidecarLike;
 
 /** F-OWN key: the same path on another device is another file. */
@@ -607,7 +609,14 @@ export class SidecarPool {
 		if (!device && removalHolds(cwd)) return null;
 		try {
 			// One spelling per directory: the sidecar reports its realpath'd cwd.
-			const sidecar = this.#factory(device ? cwd : canonicalCwd(cwd), kind, fresh, device, tabId);
+			const sidecar = this.#factory(
+				device ? cwd : canonicalCwd(cwd),
+				kind,
+				fresh,
+				device,
+				tabId,
+				isWebWindow(win.webContents.id),
+			);
 			const entry: PoolEntry = {
 				sidecar,
 				tabId,

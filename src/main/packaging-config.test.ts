@@ -144,6 +144,7 @@ describe("mac bundle configs", () => {
 	it("ships the gui-bridge extension outside the asar", () => {
 		const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, "electron-builder.yml"), "utf8")) as BuilderConfig;
 		expect(config.extraResources).toContainEqual({ from: "resources/gui-bridge", to: "gui-bridge" });
+		expect(config.extraResources).toContainEqual({ from: "resources/cli", to: "cli" });
 	});
 
 	it("wears the generated mark on the DMG, the installer and the Windows icon file", () => {
@@ -566,6 +567,7 @@ describe("Windows package config", () => {
 			`${file} ships no URL scheme`,
 		).toContain("omp");
 		expect(config.extraResources).toContainEqual({ from: "resources/gui-bridge", to: "gui-bridge" });
+		expect(config.extraResources).toContainEqual({ from: "resources/cli", to: "cli" });
 		expect(config.win?.target).toEqual([{ target: "nsis", arch: ["x64"] }]);
 	});
 

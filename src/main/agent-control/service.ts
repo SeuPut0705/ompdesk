@@ -289,6 +289,11 @@ export interface AgentControlHost {
 	reviewChanged?(parentTabId: string): void;
 	/** Every open tab of this app, the caller's window first (`here`); null when the calling tab is gone. */
 	tabs(callerTabId: string): ControlTab[] | null;
+	/**
+	 * A process outside OMPdesk calling over the control socket (src/main/control-socket): it has no tab, so it is
+	 * this stand-in, never listed among `tabs`. Undefined for any id that is no outside caller.
+	 */
+	outsideCaller?(callerTabId: string): ControlTab | undefined;
 	/** The paired hosts (Settings › Devices). */
 	devices(): ControlDevice[];
 	/** Saved sessions on this computer (device undefined) or a paired host; `query` searches titles and conversations. */
@@ -524,8 +529,8 @@ function todoProgress(phases: readonly TodoPhase[] | undefined): string | null {
 	return `todos ${done}/${tasks.length} done${current ? ` (now: ${oneLine(current.content, 80)})` : ""}`;
 }
 
-/** The session waits on someone: an open ask or approval, or a plan proposal awaiting approval. */
-function waits(tab: ControlTab): boolean {
+/** The session waits on someone: an open ask or approval, or a plan proposal awaiting approval (the control socket's `blocked`). */
+export function waits(tab: ControlTab): boolean {
 	return tab.asks.length > 0 || tab.plan !== undefined;
 }
 
@@ -1288,7 +1293,7 @@ export class AgentControl {
 	async #dispatch(callerTabId: string, tabs: ControlTab[], tool: AgentControlToolName, raw: unknown): Promise<string> {
 		const parsed = ARGS[tool].safeParse(raw ?? {});
 		if (!parsed.success) fail(`Invalid arguments for ${tool}: ${parsed.error.issues.map(i => i.message).join("; ")}`);
-		const caller = tabs.find(tab => tab.tabId === callerTabId);
+		const caller = this.#callerOf(callerTabId, tabs);
 		if (!caller) fail("This session's tab is gone.");
 		switch (tool) {
 			case T.list:
@@ -1367,10 +1372,29 @@ export class AgentControl {
 		}
 	}
 
+	/** The calling tab, or the process outside OMPdesk that calls over the control socket (`host.outsideCaller`). */
+	#callerOf(callerTabId: string, tabs: readonly ControlTab[]): ControlTab | undefined {
+		return tabs.find(tab => tab.tabId === callerTabId) ?? this.#host.outsideCaller?.(callerTabId);
+	}
+
+	/**
+	 * The open session `session` names for `callerTabId`, by the tools' own name rules, refused when hidden from
+	 * agents (the control socket's waits). Rejects with the tools' own message.
+	 */
+	async openTarget(callerTabId: string, session: string): Promise<ControlTab> {
+		if (!this.#host.enabled())
+			fail("OMPdesk control tools are turned off (Settings › Tools & extensions). Ask the user to turn them on.");
+		const tabs = this.#host.tabs(callerTabId) ?? fail("This session's tab is gone.");
+		const caller = this.#callerOf(callerTabId, tabs) ?? fail("This session's tab is gone.");
+		const target = await this.#open(tabs, session, caller, "wait for");
+		this.#refuseHidden(target, caller);
+		return target;
+	}
+
 	/** The app action's way into `ompdesk_autopilot`: same parse, same card. */
 	async #appAutopilot(callerTabId: string, raw: unknown): Promise<string> {
 		const tabs = this.#host.tabs(callerTabId);
-		const caller = tabs?.find(tab => tab.tabId === callerTabId);
+		const caller = tabs && this.#callerOf(callerTabId, tabs);
 		if (!tabs || !caller) fail("This session's tab is gone.");
 		const parsed = ARGS[T.autopilot].safeParse(raw);
 		if (!parsed.success) fail(`Invalid arguments: ${parsed.error.issues.map(issue => issue.message).join("; ")}`);

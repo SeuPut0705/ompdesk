@@ -43,13 +43,22 @@ export function validTerminalOperation(value: TerminalOperation): boolean {
 	);
 }
 
-/** One operation on `owner`'s terminals, a new one started in `cwd`. */
-export function terminalRequest(owner: string, cwd: string, operation: TerminalOperation): Promise<TerminalSnapshot[]> {
+/**
+ * One operation on `owner`'s terminals, a new one started in `cwd` with `env` over the worker's own (the control
+ * socket's variables, `controlEnvFor`: a terminal of a tab run for another device is told control is off).
+ */
+export function terminalRequest(
+	owner: string,
+	cwd: string,
+	operation: TerminalOperation,
+	env: Record<string, string>,
+): Promise<TerminalSnapshot[]> {
 	if (!validTerminalOperation(operation)) return Promise.reject(new Error("Invalid terminal operation"));
 	return stockHelperRequest<TerminalSnapshot[]>("terminal.request", {
 		owner,
 		cwd,
 		operation,
+		env,
 		// Only a shell this computer lists starts; an unknown or missing one falls back to the default.
 		shell:
 			operation.action === "create" && operation.shell

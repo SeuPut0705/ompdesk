@@ -24,6 +24,7 @@ import { agentBrowserStatus, resolveEgoBrowser } from "./agent-browsers";
 import { bootModelSelector } from "./boot-model";
 import type { BridgeConnectResult, BridgeHealth } from "./bridge-health";
 import { builtinReaState, spawnReaState } from "./builtin-mcp";
+import { controlEnvFor } from "./control-socket/env";
 import { mainT, ompFailureText } from "./i18n";
 import { ompAvailability } from "./omp-availability";
 import { systemOmp } from "./omp-runtime";
@@ -111,12 +112,16 @@ export function deviceLanguage(): string | undefined {
 	return deviceLanguageTag(app.getPreferredSystemLanguages(), app.getLocale());
 }
 
-/** `origin`: the paired device a host tab serves (absent for this machine's own tabs). */
+/**
+ * `origin`: the paired device a host tab serves (absent for this machine's own tabs). `web`: a tab the phone page
+ * owns. Neither is told where this computer's control socket is (`controlEnvFor`).
+ */
 export type LocalSidecarFactory = (
 	cwd: string,
 	kind: "agent" | "chat",
 	fresh: boolean,
 	origin?: PromptOriginEnv,
+	web?: boolean,
 ) => SidecarManager;
 
 /** What the factory hands the coordinator: the status to overlay, and the bridge's autopilot frames. */
@@ -132,7 +137,7 @@ export interface DesktopSlotFrameSink {
 
 export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory {
 	const { bridgeDir, bridgeHealth, sessionKinds } = deps;
-	return (cwd, kind, fresh, origin) => {
+	return (cwd, kind, fresh, origin, web) => {
 		const sc: SidecarManager = new SidecarManager({
 			// The status keeps this reason (Settings, the status snapshot); localize it in the UI language.
 			// While machine setup has omp missing or installing, a half-installed omp is not even resolved.
@@ -183,6 +188,7 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 			kind,
 			fresh,
 			promptOrigin: origin,
+			controlEnv: () => controlEnvFor(origin !== undefined || web === true),
 			proxyEnv: deps.proxyEnv,
 			shellEnv: shellSpawnEnv,
 			...(deps.sessionFree

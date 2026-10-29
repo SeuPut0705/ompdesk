@@ -18,6 +18,8 @@ files:
 extraResources:
   - from: resources/gui-bridge
     to: gui-bridge
+  - from: resources/cli
+    to: cli
   - from: resources/omp-builtin
     to: omp-builtin
   # The memory binary built from native/memory and its build record, nothing else: the binary embeds its

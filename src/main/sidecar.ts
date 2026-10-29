@@ -32,6 +32,7 @@ import { BTW_FRAME_TYPES, LIVE_FRAME_TYPES } from "../shared/rpc-types";
 import { AGENT_CONTROL_DEFINITIONS } from "./agent-control/tools";
 import { isNoModelBootFailure } from "./boot-model";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
+import { withoutControlEnv } from "./control-socket/env";
 import { EventBatcher } from "./event-batcher";
 import { withoutFrameBookkeeping } from "./frame-bookkeeping";
 import { localHandlerFor, runLocalCommand } from "./local";
@@ -297,6 +298,12 @@ export interface SidecarOptions {
 	 * (prompt-origin.ts). Absent for this machine's own tabs.
 	 */
 	promptOrigin?: PromptOriginEnv;
+	/**
+	 * What this tab's omp is told about the control socket (`controlEnvFor`, src/main/control-socket/env.ts): this
+	 * computer's own tabs get its address, a tab run for a paired device or the phone page only `OMPDESK_CONTROL_OFF`.
+	 * Read on every spawn. Absent: nothing.
+	 */
+	controlEnv?: () => Record<string, string>;
 	/**
 	 * The delegation strength this tab starts with (prefs `delegationMode`, the
 	 * composer chip's last choice), passed as `OMP_GUI_DELEGATION` on every
@@ -660,8 +667,8 @@ export class SidecarManager extends EventEmitter {
 					...ompBunDefaults(),
 					// Login-shell env over the app's own, then the GUI proxy pref (and inherited proxy env) over
 					// rc-file proxy exports. What another OMPdesk session left in either is never this tab's
-					// (`SESSION_OWNED_ENV`).
-					...withoutSessionEnv({ ...process.env, ...this.#shellEnvVars }),
+					// (`SESSION_OWNED_ENV`), nor another OMPdesk's control socket (`withoutControlEnv`).
+					...withoutControlEnv(withoutSessionEnv({ ...process.env, ...this.#shellEnvVars })),
 					...this.#proxyEnvVars,
 					PATH: ompPathEnv(
 						bin,
@@ -669,6 +676,7 @@ export class SidecarManager extends EventEmitter {
 						this.#egoBrowserDir ? [this.#egoBrowserDir] : [],
 					),
 					...sessionEnv(launch),
+					...this.#options.controlEnv?.(),
 					PI_RPC_EMIT_TITLE: "1",
 					PI_NO_PTY: "1",
 					PI_NOTIFICATIONS: "off",

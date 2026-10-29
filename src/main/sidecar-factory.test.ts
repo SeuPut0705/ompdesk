@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AutoTitleSettings } from "../../resources/gui-bridge/modes/auto-title-contracts";
 import type { NextPromptSettings } from "../../resources/gui-bridge/modes/next-prompt-contracts";
 import { BridgeHealth } from "./bridge-health";
+import { setControlEndpoint } from "./control-socket/env";
 import { SessionKindStore } from "./session-kinds";
 import type { SidecarOptions } from "./sidecar";
 import { localSidecarFactory } from "./sidecar-factory";
@@ -165,6 +166,39 @@ describe("localSidecarFactory", () => {
 			expect(options.judgeAssist?.()).toBe(true);
 			stored = false;
 			expect(options.judgeAssist?.()).toBe(false);
+		}
+	});
+
+	it("tells only this computer's own tabs where the control socket is; a paired device's or the phone page's tab is told it is off", () => {
+		created.length = 0;
+		const create = localSidecarFactory({
+			bridgeDir: "/bridge",
+			builtinDir: "/builtin",
+			builtinReaPref: () => undefined,
+			proxyEnv: async () => ({}),
+			bridgeHealth: new BridgeHealth(() => {}),
+			sessionKinds: new SessionKindStore(path.join(os.tmpdir(), "omp-gui-factory-kinds.json")),
+			replyLanguagePref: () => undefined,
+			userProfilePref: () => undefined,
+			nextPromptPrefs: () => ({ suggestions: true, inline: true }),
+			autoTitlePrefs: () => ({ enabled: true, evolve: true, suppressed: false }),
+			judgeAssistPref: () => true,
+			delegationPref: () => undefined,
+			accountRotationPref: () => undefined,
+			accountRotationLedger: "/ledger.json",
+			launchProfilesPref: () => undefined,
+		});
+		setControlEndpoint({ socket: "/s/control.sock", dir: "/s" });
+		try {
+			create("/w/alpha", "agent", false);
+			create("/w/alpha", "agent", false, { deviceId: "peer-1", name: "Laptop", hostName: "Desk" });
+			create("/w/alpha", "agent", false, undefined, true);
+			const [own, device, phone] = created.map(options => options.controlEnv?.());
+			expect(own).toEqual({ OMPDESK_SOCKET: "/s/control.sock", OMPDESK_CONTROL_DIR: "/s" });
+			expect(device).toEqual({ OMPDESK_CONTROL_OFF: "1" });
+			expect(phone).toEqual({ OMPDESK_CONTROL_OFF: "1" });
+		} finally {
+			setControlEndpoint(null);
 		}
 	});
 

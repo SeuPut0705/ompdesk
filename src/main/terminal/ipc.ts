@@ -5,6 +5,7 @@ import {
 	type TerminalShell,
 	type TerminalSnapshot,
 } from "../../shared/terminal-types";
+import { controlEnvFor } from "../control-socket/env";
 import type { RemoteDevices } from "../remote/devices";
 import type { SidecarPool } from "../sidecar-pool";
 import { isWebWindow } from "../web/client-window";
@@ -33,7 +34,9 @@ export async function readTabTerminals(
 	if (tab.device)
 		return remoteDevices.request<TerminalSnapshot[]>(tab.device, "terminal.request", { rtab: tab.tabId, operation });
 	const owner = `${tab.webContentsId}:${tab.tabId}`;
-	return owners.has(owner) ? terminalRequest(owner, tab.cwd, operation) : [];
+	return owners.has(owner)
+		? terminalRequest(owner, tab.cwd, operation, controlEnvFor(isWebWindow(tab.webContentsId)))
+		: [];
 }
 export function registerTerminalIpc(
 	ipc: IpcRegistry,
@@ -98,7 +101,13 @@ export function registerTerminalIpc(
 		} else if (operation.action === "close") {
 			lease.forget(session(operation.id));
 		}
-		const result = await terminalRequest(owner, target.sidecar.cwd, forwarded);
+		// A terminal of a tab the phone page owns is told control is off, as that tab's omp is.
+		const result = await terminalRequest(
+			owner,
+			target.sidecar.cwd,
+			forwarded,
+			controlEnvFor(isWebWindow(target.winId)),
+		);
 		// A tab can close while the lazy Bun worker is starting.
 		if (!owners.has(owner)) {
 			disposeTerminals(owner);
