@@ -432,8 +432,8 @@ export function environmental(error: unknown, what: string): unknown {
 
 /** The OS calls behind the install lock, loaded once. Which ones depends on the platform; see `openLock`. */
 interface OsCalls {
-	/** The platform's "somebody else holds it" error numbers (what a failed try reads back). */
-	busy: readonly number[];
+	/** POSIX: the errno values of a failed `flock` that mean "try again" (held by somebody else, or interrupted). */
+	busy?: readonly number[];
 	flock?: (fd: number, operation: number) => number;
 	errno?: () => number;
 	createFile?: (file: string) => bigint;
@@ -469,7 +469,7 @@ function loadOsCalls(): Promise<OsCalls> {
 				});
 				const where = darwin ? symbols.__error : symbols.__errno_location;
 				return {
-					busy: [darwin ? 35 : 11], // EWOULDBLOCK
+					busy: [darwin ? 35 : 11, 4], // EWOULDBLOCK, EINTR
 					flock: (fd, operation) => symbols.flock(fd, operation),
 					// Read right after the failed call, before anything else can set it.
 					errno: () => read.i32(where() as never),
@@ -494,7 +494,6 @@ function loadOsCalls(): Promise<OsCalls> {
 				const OPEN_ALWAYS = 4;
 				const FILE_ATTRIBUTE_NORMAL = 0x80;
 				return {
-					busy: [32, 33], // ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION
 					createFile: file =>
 						BigInt(
 							symbols.CreateFileW(
@@ -548,9 +547,10 @@ interface LockFile {
  * the open file description, so two calls in one process exclude each other too (as two processes do).
  *
  * Windows: `CreateFileW` with read/write access and a sharing mode that allows only readers, OPEN_ALWAYS: a second
- * opener asks for write access and gets ERROR_SHARING_VIOLATION (busy), `CloseHandle` releases, and a waiter can still
- * read the note. Chosen over `LockFileEx` because that needs a HANDLE and Bun gives fs.openSync only a CRT fd (no
- * supported conversion), while CreateFileW needs no fd at all.
+ * opener asks for write access and is refused on the sharing mode (busy), `CloseHandle` releases, and a waiter can
+ * still read the note. A refused open is told busy from an environmental failure by a plain read open (see
+ * `tryLock`), not by GetLastError, which the runtime may reset before it is read. Chosen over `LockFileEx` because that
+ * needs a HANDLE and Bun gives fs.openSync only a CRT fd (no supported conversion), while CreateFileW needs no fd.
  *
  * Not supported: a cache folder on a network drive shared by several computers. flock and sharing modes are not
  * promised to hold across the network (NFS and SMB differ, some silently grant), so there the lock may let two
@@ -575,7 +575,7 @@ async function openLock(file: string, label: string): Promise<LockFile> {
 				const LOCK_NB = 4;
 				if (flock(fd, LOCK_EX | LOCK_NB) === 0) return true;
 				const code = errno();
-				if (calls.busy.includes(code)) return false;
+				if (calls.busy?.includes(code)) return false;
 				throw unavailable(`flock(${file}) failed with errno ${code}`);
 			},
 			note(text) {
@@ -600,9 +600,18 @@ async function openLock(file: string, label: string): Promise<LockFile> {
 				handle = opened;
 				return true;
 			}
-			const code = lastError();
-			if (calls.busy.includes(code)) return false;
-			throw unavailable(`CreateFileW(${file}) failed with error ${code}`);
+			// Not GetLastError for the decision: the runtime can run Win32 calls between CreateFileW and the read of
+			// the last error and reset it, so a busy lock could read as 0. Instead, a plain read open (libuv shares
+			// read, write and delete) answers whether the file is there and readable: if it is, CreateFileW failed
+			// on the holder's sharing mode, so the lock is busy; if it is not, the disk or the folder is the problem.
+			let probe: number;
+			try {
+				probe = fs.openSync(file, "r");
+			} catch (error) {
+				throw unavailable(`CreateFileW(${file}) failed (error ${lastError()}) and the file cannot be read`, error);
+			}
+			fs.closeSync(probe);
+			return false;
 		},
 		note(text) {
 			if (handle !== null) writeFile(handle, text);
@@ -638,7 +647,9 @@ export async function withLock<T>(
 	try {
 		fs.mkdirSync(cache, { recursive: true });
 		// A folder of this name is the lock of the hand-made protocol this one replaced (its holder was killed): the
-		// file takes its place.
+		// file takes its place. Running a skill of the old protocol at the same time as this one is not supported:
+		// each ignores the other's lock (the old one makes a folder where this one's file is, this one removes the
+		// old folder), so two installers could work at once.
 		if (fs.statSync(lock, { throwIfNoEntry: false })?.isDirectory())
 			fs.rmSync(lock, { recursive: true, force: true });
 		file = await openLock(lock, label);
