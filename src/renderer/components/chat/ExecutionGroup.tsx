@@ -178,10 +178,8 @@ export function ExecutionGroup({
 	});
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `encoded` holds every status of the entries read here.
 	const { checks, failedCommands, failedSteps, clearedFailures, recovered } = useMemo(() => {
-		// Commands are keyed only on a card where one failed: most cards have none.
-		const commands = outcome.commands.some(command => command.failed || (command.exitCode ?? 0) !== 0)
-			? outcome.commands.map(commandOperation)
-			: [];
+		// Every command is settled, a check whose output showed failures under exit 0 too: the board settles them so.
+		const commands = outcome.commands.map(commandOperation);
 		const steps = stepOperations(groupEntries, stoppedAt);
 		const fromCommands = settleFailures(commands, cwd);
 		const fromSteps = settleFailures(steps, cwd);
@@ -205,7 +203,7 @@ export function ExecutionGroup({
 			),
 		];
 		return {
-			checks: summarizeChecks(commands.length ? commands : outcome.commands, cwd, new Set(fromCommands.unresolved)),
+			checks: summarizeChecks(commands, cwd, new Set(fromCommands.unresolved)),
 			failedCommands: fromCommands.unresolved,
 			failedSteps: fromSteps.unresolved,
 			clearedFailures,

@@ -337,6 +337,17 @@ describe("work card recovery", () => {
 		expect(container.querySelector('[data-work-finding="error"]')).toBeNull();
 	});
 
+	// 2026-10-19: a piped test run that printed failures under exit 0, then the gate passed; the board said the tests
+	// failed while the card read green (seven cards of the real-journal replay).
+	it("stays red for tests whose output showed failures under exit 0 when only a run that does not cover them passed", async () => {
+		await mount([
+			["test-1", bash("bunx vitest run src/a.test.ts | tail -5", " × adds\n Tests  3 failed | 1 passed (4)", 0, 0)],
+			["gate-1", bash("bun run check:changed", "[check:changed] PASSED in 12s", 0, 2_000)],
+		]);
+		expect(container.querySelector(".omp-execution-group")?.getAttribute("data-verdict")).toBe("failed");
+		expect(finding("error").querySelector(".omp-work-verdict-label")?.textContent).toBe("3 tests failed");
+	});
+
 	it("says one thing for a check rerun inside a chain of checks: passed in the mark, no block, fixed in Copy summary", async () => {
 		await mount([
 			["lint-1", bash("node scripts/lint-surfaces.mjs", "✖ raw button in Foo.tsx", 1, 0)],

@@ -5,7 +5,7 @@
 2026-10-18-bbe29016985a#0/0 complete ok | 1 file changed · 4 commands · 1m 52s | changes=1 file changed | board: -
 2026-10-18-bbe29016985a#1/0 failed ok | 1 failed · 3 files changed +51 −7 · 5 commands · 1m 14s | error=Error ; changes=3 files changed | board: -
 2026-10-18-bbe29016985a#2/0 failed ok | 3 failed · 3 files changed +47 −7 · 4 commands · 1m 6s | error=Error ; changes=3 files changed | board: -
-2026-10-18-bbe29016985a#3/0 complete ok | 5 files changed +25 −10 · 9 tests passed · 3 commands · 1m 35s | changes=5 files changed ; tests=9 tests passed | board: failed test 4 toolu_01Y8rmbHqWBprVy2dibYLfJt
+2026-10-18-bbe29016985a#3/0 complete RED | 5 files changed +25 −10 · 4 tests failed · 3 commands · 1m 35s | error=4 tests failed: FAIL |node| src/main/local/git/worktree-seed.test.ts > worktree setup hook > runs .ompdesk/worktree-setup in the new worktree through crea… ; changes=5 files changed | board: failed test 4 toolu_01Y8rmbHqWBprVy2dibYLfJt
 2026-10-18-bbe29016985a#4/0 complete RED | 1 file changed +1 −0 · tests failed · lint clean · 2 commands · 10m 55s | error=tests failed: error: interrupted ; changes=1 file changed ; check-lint=lint clean | board: failed test toolu_01QYHZRpsMBFfSpL7PLar1SM
 2026-10-18-bbe29016985a#4/1 complete ok | 2 files changed +85 −15 · tests passed · 1 command · 1m 1s | changes=2 files changed ; tests=tests passed | board: passed test toolu_01NojDwoZq1UR8bATuN4WaRE
 2026-10-18-bbe29016985a#5/0 complete ok | 1 file changed +7 −5 · 184 tests passed · 7 commands · 1m 28s | changes=1 file changed ; tests=184 tests passed | board: passed test 184 toolu_01QVRvAnjo13MrGptwGhi3Nn
@@ -112,12 +112,12 @@
 2026-10-19-d740cf9c21fa#11/1 complete ok | 1 command · 28.3s |  | board: passed test toolu_013keXFE2pYXsHdXauaViaZu
 2026-10-19-d740cf9c21fa#12/0 complete ok | Read 1 file · 2.2s |  | board: -
 2026-10-19-d740cf9c21fa#12/1 complete ok | 2 files changed +51 −7 · 3 commands · 59.8s | changes=2 files changed | board: -
-2026-10-19-d740cf9c21fa#13/0 failed ok | 1 failed · 3 files changed +60 −25 · 52 tests passed · 4 commands · 1m 15s | error=Error ; changes=3 files changed ; tests=52 tests passed | board: failed test 1 toolu_013ss1xi79tGf3sXVHhim6JA
+2026-10-19-d740cf9c21fa#13/0 failed ok | 1 failed · 3 files changed +60 −25 · 1 test failed · 4 commands · 1m 15s | error=1 test failed: × begin hints > puts an open follow-up that names a defect ahead of docs and polish 3ms ; changes=3 files changed | board: failed test 1 toolu_013ss1xi79tGf3sXVHhim6JA
 2026-10-19-d740cf9c21fa#14/0 failed ok | 1 failed · 3 files changed +30 −2 · 7 tests failed · 4 commands · 1m 13s | error=7 tests failed: × restart > a run on a branch the user picked goes on on that branch: the journal's branch is what is armed and pushed to 124ms ; changes=3 files changed | board: failed test 7 toolu_01PbBJpc5caBYsExE9kPZACL
 2026-10-19-d740cf9c21fa#15/0 complete RED | 4 files changed +29 −15 · type check failed · 89 tests passed · 4 commands · 1m 25s | error=type check failed: src/renderer/components/panels/autopilot/AreaMix.tsx(95,7): error TS2304: Cannot find name 'SettingInfo'. ; changes=4 files changed ; tests=89 tests passed | board: failed typecheck toolu_01PwZET7Jouv5iJ6qjFqhMer
 2026-10-19-d740cf9c21fa#16/0 complete RED | 4 files changed +15 −9 · 1 test failed · 4 commands · 2m 7s | error=1 test failed: ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯ ; changes=4 files changed | board: failed test 1 toolu_01MoEP8qZUe6jo5QAZUXNYBs
 2026-10-19-d740cf9c21fa#17/0 complete ok | 1 file changed · 9 commands · 5m 10s | changes=1 file changed | board: -
-2026-10-19-d740cf9c21fa#18/0 complete ok | 2 files changed +11 −6 · tests passed · 6 commands · 3m 17s | changes=2 files changed ; tests=tests passed | board: failed test 22 toolu_01FzcFHBooiyriuRVnjB1VVY
+2026-10-19-d740cf9c21fa#18/0 complete RED | 2 files changed +11 −6 · 22 tests failed · 6 commands · 3m 17s | error=22 tests failed: × start > titles the run's session from the start, then by its first cycle's item, never over the user's own name 90ms ; changes=2 files changed | board: failed test 22 toolu_01FzcFHBooiyriuRVnjB1VVY
 2026-10-19-d740cf9c21fa#19/0 complete ok | 10 commands · 1m 4s |  | board: -
 2026-10-19-d740cf9c21fa#2/0 complete ok | 2 files changed +10 −10 · build OK · 7 commands · 1m 11s | unknown=Status unknown ; changes=2 files changed ; check-build=build OK | board: passed build toolu_01L9fx9WFkV8zxpZxksDu4vC
 2026-10-19-d740cf9c21fa#20/0 failed ok | 1 failed · 2 files changed +20 −0 · type check failed · 6 commands · 1m 21s | error=type check failed: src/main/autopilot.test.ts(193,8): error TS2741: Property 'noteSessionName' is missing in type '{ sidecarOf: (tab: string) => SidecarLike |… ; changes=2 files changed | board: failed typecheck toolu_01Caaxpn9Mt23cdNon92LRJn
@@ -134,7 +134,7 @@
 2026-10-19-dacd4ae11162#0/1 complete ok | 1 command · 38.2s |  | board: -
 2026-10-19-dacd4ae11162#1/0 complete RED | 2 files changed +105 −22 · 1 test failed · 2 commands · 1m 22s | error=1 test failed: ✓ LocalHostServices > daily limits beyond the first ten commands > counts a benchmark by its model runs and a model setup as one request, r… ; changes=2 files changed | board: failed test 1 toolu_01SfTd6Se6xYfRjHiVZoZCcy
 2026-10-19-dacd4ae11162#10/0 complete RED | 1 file changed +19 −0 · 1 test failed · 1 command · 50.3s | error=1 test failed: × LocalHostServices > deletes only after every one of the device's duplicate omps on the file has exited, in any order 6ms ; changes=1 file changed | board: failed test 1 toolu_01VbRjHCXgTft7W2mSBFRLMD
-2026-10-19-dacd4ae11162#2/0 complete ok | tests passed · 3 commands · 1m 4s | tests=tests passed | board: failed test 3 toolu_01PHVhFkaXKm3MwLSoWN8bhK
+2026-10-19-dacd4ae11162#2/0 complete RED | 3 tests failed · 3 commands · 1m 4s | error=3 tests failed: × LocalHostServices > a relaunched device's reopen under a new rtab takes over the tab its last connection left on that session 4ms | board: failed test 3 toolu_01PHVhFkaXKm3MwLSoWN8bhK
 2026-10-19-dacd4ae11162#3/0 complete RED | 5 commands · 10m 52s | error=git add failed: git add src/main/remote/host-services.test.ts && git commit -qm "test(remote): one host tab and one omp per session file: a second rtab, a concurrent or reconnect-racing open, and a tab moving onto a held file (fail first)" && git add src/main/remote/host-services.ts AGENTS.md && git commit -qm "fix(remote): a host never runs two omps on one session file: refuse an open of a file another tab holds (same connection or another device), re-check after the open's awaits, and stop the duplicate when a tab moves onto a held file" && git fetch -q origin && git rebase -q origin/main && git push -q origin HEAD:main && git log --oneline -2: error: could not apply a45a556c... fix(remote): a host never runs two omps on one session file: refuse an open of a file another tab holds … | board: -
 2026-10-19-dacd4ae11162#3/1 failed ok | 1 failed · 2 commands · 33.1s |  | board: -
 2026-10-19-dacd4ae11162#4/0 complete ok | 2 steps · 6.9s |  | board: -
@@ -164,7 +164,7 @@
 2026-10-19-e5c844e92d37#5/0 complete ok | 1 command · 18.6s |  | board: -
 2026-10-19-e5c844e92d37#5/1 complete ok | 1 file changed +3 −4 · 8 tests passed · 1 command · 6m 24s | changes=1 file changed ; tests=8 tests passed | board: passed test 8 toolu_01QmxUkHuvnd1BiHWKm327rT
 2026-10-19-edcbaeef8d9c#0/0 complete ok | 1 file changed +1 −4 · 10 commands · 45.3s | unknown=Status unknown ; changes=1 file changed | board: -
-2026-10-19-edcbaeef8d9c#1/0 complete ok | 4 files changed +1 −4 · tests passed · lint clean · 3 commands · 3m 9s | changes=4 files changed ; tests=tests passed ; check-lint=lint clean | board: failed test toolu_01WsnxKzhSzDdT2Zgm1mCmd4
+2026-10-19-edcbaeef8d9c#1/0 complete RED | 4 files changed +1 −4 · tests failed · lint clean · 3 commands · 3m 9s | error=tests failed: × Formatter would have printed the following content: ; changes=4 files changed ; check-lint=lint clean | board: failed test toolu_01WsnxKzhSzDdT2Zgm1mCmd4
 2026-10-19-edcbaeef8d9c#1/1 complete ok | 2 commands · 9.4s |  | board: passed test toolu_01TExm1LhKHD4BeMwc5FskjD
 2026-10-19-edcbaeef8d9c#2/0 failed ok | 1 failed · 3 files changed +4 −0 · 8 commands · 2m 23s | changes=3 files changed | board: -
 2026-10-19-edcbaeef8d9c#3/0 complete RED | 1 test failed · 5 commands · 3m 29s | error=1 test failed: [check:changed] FAILED: playwright in 65.5s | board: failed test 1 toolu_017DWtPWy1y7kxink3svQx3x
@@ -173,7 +173,7 @@
 2026-10-19-edcbaeef8d9c#4/2 complete ok | 1 file changed · 4 commands · 1m 3s | changes=1 file changed | board: passed test toolu_01SuEUqRbvzXzatNmH7buCXn
 2026-10-19-edcbaeef8d9c#5/0 complete ok | 1 command · 1m 33s |  | board: -
 2026-10-19-f27502fc685f#0/0 failed ok | 1 failed · 2 files changed +10 −22 · 7 commands · 48.6s | error=Error ; changes=2 files changed | board: -
-2026-10-19-f27502fc685f#1/0 complete ok | 6 files changed +7 −22 · tests passed · 1 command · 2m 21s | changes=6 files changed ; tests=tests passed | board: failed test toolu_01UAKow1XqrCuDBodRRh1P4V
+2026-10-19-f27502fc685f#1/0 complete RED | 6 files changed +7 −22 · tests failed · 1 command · 2m 21s | error=tests failed: Found 1 error. ; changes=6 files changed | board: failed test toolu_01UAKow1XqrCuDBodRRh1P4V
 2026-10-19-f27502fc685f#2/0 complete ok | 2 files changed +10 −11 · tests passed · 1 command · 40.4s | changes=2 files changed ; tests=tests passed | board: passed test toolu_01RdPKwSETcjeKLYJDdshm6c
 2026-10-19-f27502fc685f#2/1 failed ok | 1 failed · lint failed · 3 commands · 49.6s | error=lint failed: 24 | if (!re.test(s)) throw new Error(`${file} ${k}`); | board: failed lint toolu_014ur3Dmk9GWaCheatgHyFFR
 2026-10-19-f27502fc685f#3/0 complete ok | tests passed · lint clean · 9 commands · 4m 0s | unknown=Status unknown ; tests=tests passed ; check-lint=lint clean | board: running test toolu_01Mz9SGtTTZivdvJSBr4Y2c4
@@ -198,7 +198,7 @@
 2026-10-25-7193f2b793c0#16/0 complete ok | 1 file changed +6 −0 · 6 commands · 3m 42s | changes=1 file changed | board: -
 2026-10-25-7193f2b793c0#17/0 complete ok | 2 files changed +31 −1 · 15 tests passed · 4 commands · 9m 59s | changes=2 files changed ; tests=15 tests passed | board: passed test 15 toolu_01Pwn37FfT6NH6dhM2NPifLu
 2026-10-25-7193f2b793c0#18/0 complete ok | 1 command · 4.5s |  | board: -
-2026-10-25-7193f2b793c0#18/1 complete ok | 4 files changed +23 −2 · 121 tests passed · 4 commands · 2m 17s | unknown=Status unknown ; changes=4 files changed ; tests=121 tests passed | board: failed test 1 toolu_01UJBNW9dQGvYjBk3XSnbbKS
+2026-10-25-7193f2b793c0#18/1 complete RED | 4 files changed +23 −2 · 1 test failed · 4 commands · 2m 17s | error=1 test failed: × work board opened sessions > says Working, never Idle, while a child it opened runs and nothing else does 32ms ; unknown=Status unknown ; changes=4 files changed | board: failed test 1 toolu_01UJBNW9dQGvYjBk3XSnbbKS
 2026-10-25-7193f2b793c0#19/0 failed ok | 1 failed · 2 commands · 5m 14s | error=gh release failed: git log --oneline -2 origin/main; gh run list --workflow release.yml --limit 2 --json databaseId,headSha,status,conclusion --jq '.[] | "\(.databaseId) \(.headSha[0:9]) \(.status) \(.conclusion)"'; gh release view v0.73.1 --json tagName,assets --jq '.tagName, [.assets[].name]' 2>&1: release not found | board: -
 2026-10-25-7193f2b793c0#19/2 complete ok | 2 commands · 55.5s | preview=Open http://127.0.0.1:5199/ in Preview | board: -
 2026-10-25-7193f2b793c0#2/0 complete ok | 1 file changed +6 −1 · 4 commands · 49.5s | changes=1 file changed | board: -
