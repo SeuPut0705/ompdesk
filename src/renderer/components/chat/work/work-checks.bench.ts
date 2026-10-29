@@ -1,14 +1,13 @@
 /**
- * The finished card's verdict over 226 synthetic turns: the ledger (`workOutcomes`), the checks (`summarizeChecks`)
- * and whatever decides the verdict (`settleFailures` where it exists, else trunk's `firstFailure` and failed-step scan),
+ * The finished card's verdict over 226 synthetic turns: the ledger (`workOutcomes`) and the verdict (`workVerdict`),
  * as `ExecutionGroup` runs them. Entries are hydrated through the tools store with unique command and output text;
- * building them is outside the timed body. Runs unchanged on trunk and head, so the two can be compared.
+ * building them is outside the timed body.
  */
 import { bench, describe } from "vitest";
 import type { AgentMessage } from "../../../../shared/rpc-types";
 import { createToolsStore, type ToolEntry } from "../../../stores/tools";
-import * as checks from "./work-checks";
-import * as findings from "./work-findings";
+import { workVerdict } from "./work-checks";
+import { stepOperations } from "./work-findings";
 import { workOutcomes } from "./work-view";
 
 type Call = { name: string; args: Record<string, unknown>; text: string; isError: boolean; exitCode?: number };
@@ -109,31 +108,15 @@ function hydrate(turn: number): [string, ToolEntry][] {
 }
 
 const turns = Array.from({ length: 226 }, (_, turn) => hydrate(turn));
-const exported = { ...checks, ...findings } as Record<string, unknown>;
-type Fn = (...args: unknown[]) => unknown;
-const settle = exported.settleFailures as Fn | undefined;
-const commandOperation = exported.commandOperation as Fn | undefined;
-const stepOperations = exported.stepOperations as Fn | undefined;
-const firstFailure = exported.firstFailure as Fn | undefined;
-
 describe("the finished card's verdict over 226 turns", () => {
-	bench("workOutcomes + summarizeChecks + verdict", () => {
+	bench("workOutcomes + workVerdict", () => {
 		for (const entries of turns) {
 			const outcome = workOutcomes(
 				entries.map(([toolCallId, entry]) => ({ entry, toolCallId })),
 				undefined,
 				"/repo",
 			);
-			if (settle && commandOperation && stepOperations) {
-				const calls = outcome.commands.map(command => commandOperation(command) as checks.CheckInput);
-				const settled = settle(calls, "/repo") as { unresolved: checks.CheckInput[] };
-				checks.summarizeChecks(calls, "/repo", new Set(settled.unresolved));
-				settle(stepOperations(entries), "/repo");
-			} else {
-				checks.summarizeChecks(outcome.commands);
-				firstFailure?.(outcome.commands);
-				entries.find(([, entry]) => entry.status === "error" || entry.isError);
-			}
+			workVerdict(outcome.commands, "/repo", stepOperations(entries));
 		}
 	});
 });

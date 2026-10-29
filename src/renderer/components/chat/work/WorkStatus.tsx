@@ -1,4 +1,5 @@
 import { Check, Minus, X } from "lucide-react";
+import { endsCutOff } from "../../../../../resources/gui-bridge/command-verdict-core";
 import { cx, resultText } from "../../../lib/format";
 import type { ToolEntry } from "../../../stores/tools";
 import { statusMeta } from "../../panels/subagent-graph";
@@ -77,11 +78,6 @@ export function resolveWorkGroup(tally: WorkGroupTally): WorkGroupResolution {
 	return { state, failed, interrupted, runningAgents };
 }
 
-// What stock's bash ends a command with when its stop or the omp process's end cut it off, with no exit to report
-// (tools/bash.ts `execute`'s cancelled branch): a leading "[Command cancelled]", a trailing "[Command aborted]", or
-// "Command aborted" alone, a capture notice optionally after.
-const COMMAND_CUT_OFF = /^\[Command cancelled\]|(?:^|\n\n)(?:\[Command aborted\]|Command aborted)(?:\n\n\[[^\n]*\])?$/;
-
 /**
  * Stock agent-loop.ts emits an empty aborted reply with Date.now() after a
  * tool stop, but preserves partial content and its timestamp for a model stop.
@@ -100,7 +96,7 @@ export function isInterruptedError(
 	if (!(entry.status === "error" || entry.isError) || stoppedAt === undefined) return false;
 	return (
 		(entry.endTime !== null && entry.endTime >= stoppedAt - 1000) ||
-		(entry.result != null && COMMAND_CUT_OFF.test(resultText(entry.result).trim()))
+		(entry.result != null && endsCutOff(resultText(entry.result)))
 	);
 }
 

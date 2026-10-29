@@ -1,23 +1,61 @@
 import { describe, expect, it } from "vitest";
+import {
+	type CommandStatus,
+	checkKind,
+	checkKinds,
+	commandProgram,
+	commandStatus,
+	testCounts,
+} from "../../../../../resources/gui-bridge/command-verdict-core";
 import { CHECKOUT_REFUSAL_PREFIX } from "../../../../../resources/gui-bridge/modes/checkout-peers-contracts";
 import type { AgentMessage } from "../../../../shared/rpc-types";
 import type { ToolEntry } from "../../../stores/tools";
 import { transcriptToolEntries } from "../../../stores/tools";
 import { type BackgroundJobVerdict, backgroundJobVerdicts } from "../completion-events";
 import {
-	checkKind,
-	checkKinds,
+	type CheckSummary,
+	type CommandCall,
 	commandOperation,
-	commandProgram,
 	firstErrorLine,
 	type OperationCall,
 	settleFailures,
-	summarizeChecks,
-	testCounts,
-	unresolvedFailures,
+	workVerdict,
 } from "./work-checks";
 import { stepOperations } from "./work-findings";
 import { workOutcomes } from "./work-view";
+
+/** A command as a test writes it: `status` when it is the point, else the facts `commandStatus` reads. */
+interface RanLiteral {
+	command: string;
+	exitCode: number | null;
+	text?: string;
+	cwd?: string;
+	/** Stock flagged the call as an error. */
+	failed?: boolean;
+	status?: CommandStatus;
+}
+
+function ran({ failed, status, ...call }: RanLiteral): CommandCall {
+	return {
+		...call,
+		status:
+			status ??
+			commandStatus({
+				command: call.command,
+				cut: false,
+				pending: false,
+				errored: failed === true,
+				exitCode: call.exitCode,
+				resultText: call.text ?? "",
+				output: call.text ?? "",
+			}),
+	};
+}
+
+const summarizeChecks = (commands: readonly RanLiteral[], cwd?: string): CheckSummary[] =>
+	workVerdict(commands.map(ran), cwd).checks;
+const unresolvedFailures = <T extends OperationCall>(calls: readonly T[], cwd?: string): T[] =>
+	settleFailures(calls, cwd).unresolved;
 
 describe("checkKind", () => {
 	it.each([
@@ -125,8 +163,8 @@ describe("summarizeChecks", () => {
 	it("ignores interrupted and unknown runs", () =>
 		expect(
 			summarizeChecks([
-				{ command: "bun run build", failed: false, exitCode: null, interrupted: true },
-				{ command: "bunx vitest", failed: false, exitCode: null, unknown: true },
+				{ command: "bun run build", exitCode: null, status: "interrupted" },
+				{ command: "bunx vitest", exitCode: null, status: "unknown" },
 			]),
 		).toEqual([]));
 	it("treats a non-zero exit as failed even when stock did not flag it", () =>
@@ -555,8 +593,8 @@ describe("backgrounded checks", () => {
 				delivered("bg_2", "failed", "(fail) b > x\n 1 fail\nCommand exited with code 1", 6),
 			];
 			const [first, second] = commandsOf(messages);
-			expect(first).toMatchObject({ failed: false, exitCode: 0, text: expect.stringContaining("4 pass") });
-			expect(second).toMatchObject({ failed: true, exitCode: 1, text: expect.stringContaining("(fail) b > x") });
+			expect(first).toMatchObject({ status: "passed", exitCode: 0, text: expect.stringContaining("4 pass") });
+			expect(second).toMatchObject({ status: "failed", exitCode: 1, text: expect.stringContaining("(fail) b > x") });
 			expect(summarizeChecks(commandsOf(messages))).toMatchObject([{ kind: "test", passed: false, runs: 2 }]);
 			expect(summarizeChecks([first])).toMatchObject([{ kind: "test", passed: true }]);
 		});
@@ -569,8 +607,8 @@ describe("backgrounded checks", () => {
 				delivered("bg_2", "completed", " 2 pass\n 0 fail", 6),
 			];
 			const [first, second] = commandsOf(messages);
-			expect(first).toMatchObject({ failed: true });
-			expect(second).toMatchObject({ failed: false, exitCode: 0 });
+			expect(first).toMatchObject({ status: "failed" });
+			expect(second).toMatchObject({ status: "passed", exitCode: 0 });
 		});
 
 		it("reads a job a restart killed as cut off, never as the passing result of the job that reused its id", () => {
@@ -588,10 +626,9 @@ describe("backgrounded checks", () => {
 				delivered("bg_1", "completed", " 3 pass\n 0 fail", 6),
 			];
 			const [killed, ran] = commandsOf(messages);
-			expect(killed).toMatchObject({ interrupted: true, failed: false });
-			expect(killed?.unknown).toBeUndefined();
+			expect(killed).toMatchObject({ status: "interrupted" });
 			expect(summarizeChecks(killed ? [killed] : [])).toEqual([]);
-			expect(ran).toMatchObject({ failed: false, exitCode: 0 });
+			expect(ran).toMatchObject({ status: "passed", exitCode: 0 });
 		});
 
 		it("reads a job whose id was opened again before it reported as cut off, with no restart notice between", () => {
@@ -601,7 +638,7 @@ describe("backgrounded checks", () => {
 				delivered("bg_1", "completed", " 3 pass\n 0 fail", 6),
 			];
 			const [killed, ran] = commandsOf(messages);
-			expect(killed).toMatchObject({ interrupted: true });
+			expect(killed).toMatchObject({ status: "interrupted" });
 			expect(ran).toMatchObject({ exitCode: 0 });
 		});
 
@@ -612,7 +649,7 @@ describe("backgrounded checks", () => {
 				...opening("c2", "bg_3", "bun test src/b", 4),
 			];
 			const [, running] = commandsOf(messages);
-			expect(running).toMatchObject({ unknown: true });
+			expect(running).toMatchObject({ status: "unknown" });
 		});
 
 		// A subagent's calls reach the card as tool entries only: its `wait` entries carry what it waited for.
@@ -625,7 +662,10 @@ describe("backgrounded checks", () => {
 				streamingArgs: "",
 				result: {
 					content: [{ type: "text", text: `bg_1 ${status}` }],
-					details: { op: "wait", jobs: [{ id: "bg_1", type: "bash", status, exitCode: 1, errorText }] },
+					details: {
+						op: "wait",
+						jobs: [{ id: "bg_1", type: "bash", status, exitCode: status === "failed" ? 1 : 0, errorText }],
+					},
 				},
 				isError: false,
 				startTime: at,
@@ -639,11 +679,9 @@ describe("backgrounded checks", () => {
 				{ entry: passedRun, agentName: "B" },
 				{ entry: waited("completed", " 2 pass\n 0 fail", 25), agentName: "B" },
 			]);
-			expect(
-				commands.map(entryCommand => [entryCommand.agentName, entryCommand.failed, entryCommand.unknown]),
-			).toEqual([
-				["A", true, undefined],
-				["B", false, undefined],
+			expect(commands.map(entryCommand => [entryCommand.agentName, entryCommand.status])).toEqual([
+				["A", "failed"],
+				["B", "passed"],
 			]);
 		});
 	});
@@ -856,7 +894,7 @@ describe("audit fixes", () => {
 			text: " Tests  1 failed | 20 passed (21)",
 		};
 		expect(summarizeChecks([run])[0]).toMatchObject({ kind: "test", passed: false });
-		expect(commandOperation(run).outcome).toBe("failed");
+		expect(commandOperation(ran(run)).outcome).toBe("failed");
 	});
 	it("fails a type check whose output has a TS error though a pipe hid the exit code", () => {
 		const run = {
@@ -911,7 +949,7 @@ describe("audit fixes", () => {
 // The red-card audit of 27 Oct 2026: 153 real cards replayed, 33 of 58 red ones false. Each case below is the shape of a
 // real command and its output from those journals; `op` builds the call the card settles from its command's result.
 const op = (command: string, exitCode: number, text = ""): OperationCall & { command: string; text: string } => ({
-	...commandOperation({ command, failed: exitCode !== 0, exitCode, text }),
+	...commandOperation(ran({ command, failed: exitCode !== 0, exitCode, text })),
 	text,
 });
 
@@ -1024,7 +1062,7 @@ describe("a type check cut by a filter", () => {
 		["Found 1 error in src/a.ts:1"],
 	])("reads stock's own failure notice as a failure though the pipe hid the exit code: %s", text => {
 		const run = { command: "bun run check:types 2>&1 | tail -1", failed: false, exitCode: 0, text };
-		expect(commandOperation(run).outcome).toBe("failed");
+		expect(commandOperation(ran(run)).outcome).toBe("failed");
 		expect(summarizeChecks([run])).toMatchObject([{ kind: "typecheck", passed: false }]);
 	});
 
@@ -1174,7 +1212,7 @@ describe("a failed script's notice names the check it fails", () => {
 			exitCode: 0,
 			text: 'The first screen loads 3,340,445 bytes (budget 3,340,400).\nerror: script "build" exited with code 1\nerror: script "check:changed" exited with code 1',
 		};
-		expect(commandOperation(run).outcome).toBe("failed");
+		expect(commandOperation(ran(run)).outcome).toBe("failed");
 	});
 
 	it("never reads another script's failure as the lint's: only a script that runs the kind's check counts", () => {

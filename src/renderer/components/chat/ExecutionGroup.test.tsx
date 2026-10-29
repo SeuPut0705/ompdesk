@@ -47,10 +47,10 @@ let root: Root;
 function toolEntry(status: "running" | "error", isError = false): ToolEntry {
 	return {
 		toolName: "bash",
-		args: {},
+		args: status === "error" ? { command: "false" } : {},
 		status,
 		streamingArgs: "",
-		result: null,
+		result: status === "error" ? { content: [{ type: "text", text: "failed" }], details: { exitCode: 1 } } : null,
 		isError,
 		startTime: 1,
 		endTime: status === "running" ? null : 2,
@@ -233,7 +233,7 @@ describe("ExecutionGroup", () => {
 		useToolsStore.setState(toolEntriesState([["tool-1", toolEntry("error", true)]]));
 		await mount(["tool-1"]);
 
-		expect(headLabel()).toContain("1 failed · 2 steps");
+		expect(headLabel()).toContain("1 failed · 1 command");
 		expect(container.querySelector('[data-testid="details"]')).toBeNull();
 
 		await act(async () => {
@@ -262,7 +262,7 @@ describe("ExecutionGroup", () => {
 			useToolsStore.setState(toolEntriesState([["tool-1", toolEntry("error", true)]]));
 		});
 
-		expect(headLabel()).toContain("1 failed · 2 steps");
+		expect(headLabel()).toContain("1 failed · 1 command");
 		expect(container.querySelector('[data-testid="details"]')).not.toBeNull();
 
 		await act(async () => {

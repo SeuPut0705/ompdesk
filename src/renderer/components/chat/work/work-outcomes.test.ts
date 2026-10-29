@@ -101,9 +101,8 @@ describe("work outcome evidence", () => {
 			],
 			2,
 		);
-		expect(outcome.commands[0]).toMatchObject({ unknown: true, interrupted: true });
-		expect(outcome.commands[1]).toMatchObject({ failed: true });
-		expect(outcome.commands[1].interrupted).toBeUndefined();
+		expect(outcome.commands[0]).toMatchObject({ status: "interrupted" });
+		expect(outcome.commands[1]).toMatchObject({ status: "failed" });
 	});
 	it("marks a plain write deleted but drops proven creates for stock single-file and multi-file deletes", () => {
 		for (const details of [
@@ -273,7 +272,7 @@ describe("calls the shared-checkout guard refused", () => {
 			refusal("bash", { command: "git stash" }, "`git stash`: stashing hides their work"),
 		]);
 		expect(outcome.files).toEqual([]);
-		expect(outcome.commands).toMatchObject([{ command: "git stash", failed: false, refused: true }]);
+		expect(outcome.commands).toMatchObject([{ command: "git stash", status: "refused" }]);
 	});
 
 	it("takes only a refusal for protection: not another error, nor the same words in a call that succeeded", () => {

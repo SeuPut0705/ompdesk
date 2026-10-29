@@ -4,6 +4,7 @@
  * landed yet, the session's newest check, the other sessions in the checkout, the memory the turn used and the dev
  * servers running. Everything here is a pure function of store snapshots and what the opened sessions answered.
  */
+import { type CheckKind, checkKind, checkKinds } from "../../../../../resources/gui-bridge/command-verdict-core";
 import type { CheckoutPeer, CheckoutPeers } from "../../../../../resources/gui-bridge/modes/checkout-peers-contracts";
 import { memoryRecallDetails } from "../../../../../resources/gui-bridge/modes/memory-recall-contracts";
 import type { AgentMessage, RpcAsyncJobItem, RpcGitUnlanded } from "../../../../shared/rpc-types";
@@ -11,14 +12,7 @@ import { resultDetails } from "../../../lib/format";
 import { devServerUrl } from "../../../lib/panel-auto-open";
 import type { ToolEntry } from "../../../stores/tools";
 import type { BackgroundJobVerdict } from "../../chat/completion-events";
-import {
-	type CheckKind,
-	checkKind,
-	checkKinds,
-	commandOperation,
-	summarizeChecks,
-	unresolvedFailures,
-} from "../../chat/work/work-checks";
+import { workVerdict } from "../../chat/work/work-checks";
 import { skillPromptName, type WorkCommandOutcome, workOutcomes } from "../../chat/work/work-view";
 import { workFilePathKey } from "../../tools/edit-args";
 
@@ -128,7 +122,7 @@ export interface LastCheck {
 }
 
 function checkOf(outcome: WorkCommandOutcome): LastCheck | null {
-	const [summary] = summarizeChecks([outcome]);
+	const [summary] = workVerdict([outcome]).checks;
 	if (!summary) return null;
 	const { startTime, endTime } = outcome;
 	const durationMs =
@@ -147,9 +141,9 @@ function checkOf(outcome: WorkCommandOutcome): LastCheck | null {
 
 /**
  * The check the board names: the session's newest one while it has not reported (a backgrounded job whose verdict
- * has not arrived, a call still running: `running`, never passed); else the newest turn's last check failure no later
- * run of the same call fixed (`unresolvedFailures` over `turnCommands`, the ledger its work card reads, subagents'
- * calls included), as that card's verdict says; else the session's newest check run. A stopped one is skipped, as the
+ * has not arrived, a call still running: `running`, never passed); else the newest turn's last check failure that
+ * still stands in that turn's verdict (`workVerdict` over `turnCommands`, the ledger its work card reads, subagents'
+ * calls included), as that card says; else the session's newest check run. A stopped one is skipped, as the
  * work card skips it. A run that mixes kinds (`biome; vitest`) is a check run of the kinds it proved passed, the
  * first of them named, and fixes a failure as the card reads it.
  */
@@ -172,13 +166,12 @@ export function lastCheck(
 		const base = { kind, command, startedAt: entry.startTime, key };
 		if (entry.status === "pending" || entry.status === "running") return { ...base, state: "running" };
 		const [outcome] = workOutcomes([{ entry, toolCallId: key }], undefined, cwd, verdicts).commands;
-		if (!outcome || outcome.interrupted || outcome.refused) continue;
-		if (outcome.unknown) return { ...base, state: "running" };
+		if (!outcome || outcome.status === "interrupted" || outcome.status === "refused") continue;
+		if (outcome.status === "unknown") return { ...base, state: "running" };
 		newest = checkOf(outcome);
 		if (newest) break;
 	}
-	const checks = turnCommands.filter(command => checkKinds(command.command, true).length > 0).map(commandOperation);
-	const standing = unresolvedFailures(checks, cwd).findLast(call => checkKind(call.command));
+	const standing = workVerdict(turnCommands, cwd).failedCommands.findLast(call => checkKind(call.command));
 	return (standing && checkOf(standing)) ?? newest;
 }
 

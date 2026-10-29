@@ -225,7 +225,7 @@ failures in every direction (a dry run fixing a publish, `test:platform` fixing 
 of the exact command is the common fix and the only one trusted. The chips, the verdict block and the board's check
 row read the same unresolved list, so a card never says a check both failed and was fixed.
 
-A check also fails when its own output says so though its exit code is 0 (`commandFailed`; the pipe's last stage sets
+A check also fails when its own output says so though its exit code is 0 (`commandStatus` in `command-verdict-core.ts`; the pipe's last stage sets
 the code: `vitest … | tail` printing "Tests 1 failed | 20 passed", `tsc … | head` printing `error TS2551`): a test run
 with a printed failure count, a type check with an `error TS<n>` line. The card, the chips and the board read it from
 that one function. A failure's name (`commandProgram`) is the last unconditional command of a `;`/newline list (its
