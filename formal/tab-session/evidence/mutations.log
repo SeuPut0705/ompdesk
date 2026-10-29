@@ -4,8 +4,13 @@ DETECTED restart-forgets-session: failed on KeepsSession
 DETECTED unwritten-session-left-to-autoresume: failed on NeverAnother
 DETECTED session-without-written-check: failed on NoMissingSession
 DETECTED new-cleared-at-ready: failed on NeverAnother
+DETECTED never-cleared: failed on MoveLeavesChoice
+DETECTED gate-keeps-not-new: failed on NeverAnother
+DETECTED switch-ignored: failed on KeepsSession
+DETECTED new-session-ignored: failed on NeverAnother
 WAIVED   TypeOK: Shape check only: no behaviour change breaks it without also breaking a property above it.
 covered  NoMissingSession (by session-without-written-check)
-covered  KeepsSession (by observe-forgets-session, restart-forgets-session)
-covered  NeverAnother (by unwritten-session-left-to-autoresume, new-cleared-at-ready)
-5 of 5 mutations detected
+covered  KeepsSession (by observe-forgets-session, restart-forgets-session, switch-ignored)
+covered  NeverAnother (by unwritten-session-left-to-autoresume, new-cleared-at-ready, gate-keeps-not-new, new-session-ignored)
+covered  MoveLeavesChoice (by never-cleared)
+9 of 9 mutations detected

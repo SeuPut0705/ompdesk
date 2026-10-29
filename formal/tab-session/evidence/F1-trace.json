@@ -4,13 +4,13 @@
   "config": "MC_shipped.cfg",
   "ok": false,
   "expect": "pass",
-  "durationMs": 247,
+  "durationMs": 668,
   "outcome": "invariant",
   "property": "NeverAnother",
   "stats": {
-    "generated": 287,
-    "distinct": 132,
-    "queue": 76,
+    "generated": 375,
+    "distinct": 209,
+    "queue": 149,
     "depth": 5
   },
   "trace": [
@@ -23,8 +23,10 @@
         "moved": "FALSE",
         "lastOpen": "[k |-> \"none\"]",
         "shown": "\"none\"",
+        "gated": "FALSE",
         "used": "{}",
         "path": "\"none\"",
+        "named": "FALSE",
         "written": "{\"s1\", \"s2\"}",
         "onOmp": "\"none\"",
         "spawns": "0"
@@ -45,7 +47,7 @@
     {
       "step": 3,
       "action": "Ready",
-      "code": "src/main/sidecar.ts:932-937",
+      "code": "src/main/sidecar.ts:945-950",
       "changed": {
         "proc": "\"booting\" -> \"ready\"",
         "isNew": "TRUE -> FALSE"
@@ -94,11 +96,17 @@
         "shown": {
           "to": "\"none\""
         },
+        "gated": {
+          "to": "FALSE"
+        },
         "used": {
           "to": "{}"
         },
         "path": {
           "to": "\"none\""
+        },
+        "named": {
+          "to": "FALSE"
         },
         "written": {
           "to": "{\"s1\", \"s2\"}"
@@ -117,10 +125,10 @@
       "action": "Spawn",
       "location": {
         "module": "TabSession",
-        "line": 78,
+        "line": 88,
         "col": 5,
-        "endLine": 90,
-        "endCol": 55
+        "endLine": 100,
+        "endCol": 69
       },
       "code": [
         "src/main/sidecar.ts:636-650"
@@ -154,13 +162,13 @@
       "action": "Ready",
       "location": {
         "module": "TabSession",
-        "line": 94,
+        "line": 104,
         "col": 5,
-        "endLine": 98,
-        "endCol": 73
+        "endLine": 108,
+        "endCol": 87
       },
       "code": [
-        "src/main/sidecar.ts:932-937"
+        "src/main/sidecar.ts:945-950"
       ],
       "changed": {
         "proc": {
@@ -179,10 +187,10 @@
       "action": "Crash",
       "location": {
         "module": "TabSession",
-        "line": 117,
+        "line": 128,
         "col": 5,
-        "endLine": 119,
-        "endCol": 79
+        "endLine": 130,
+        "endCol": 93
       },
       "code": [
         "src/main/sidecar.ts:755-779"
@@ -204,10 +212,10 @@
       "action": "Spawn",
       "location": {
         "module": "TabSession",
-        "line": 78,
+        "line": 88,
         "col": 5,
-        "endLine": 90,
-        "endCol": 55
+        "endLine": 100,
+        "endCol": 69
       },
       "code": [
         "src/main/sidecar.ts:636-650"

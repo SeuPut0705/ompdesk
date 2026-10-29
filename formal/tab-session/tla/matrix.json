@@ -17,6 +17,12 @@
 			"property": "NeverAnother"
 		},
 		{
+			"name": "before-F2-crash-after-in-omp-session-change",
+			"config": "MC_change.cfg",
+			"expect": "invariant",
+			"property": "NeverAnother"
+		},
+		{
 			"name": "before-a10eb6877-restart-loses-session",
 			"config": "MC_old.cfg",
 			"expect": "invariant",

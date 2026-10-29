@@ -21,9 +21,10 @@ Sync commit: see `syncCommit` of `tab-session` in `formal/manifest.json` (the ma
 
 ## Bounds and assumptions
 
-- Bounds: one tab; 1 stored session and 1 other written session in the folder, 3 new session ids, 4 spawns (2,925 states, depth 18); a larger run with 2 stored sessions, 5 ids, 6 spawns (61,683 states, depth 26). Each run under 2 s.
+- Bounds: one tab; 1 stored session and 1 other written session in the folder, 3 new session ids, 4 spawns (13,255 states, depth 20); a larger run with 2 stored sessions, 5 ids, 6 spawns (417,625 states, depth 26). About 40 s in all.
 - Assumptions: `start()`'s awaits change neither `#sessionPath` nor `#isNew`; `get_state` names the running omp's session; `autoResume` picks only a written session of the folder; the pool's `sessionFile` equals `#sessionPath` after the same `get_state`. Full table: `formal/tab-session/CORRESPONDENCE.md`.
-- Not covered: the ownership wait (`sessionFree`), the start gate, `new_session`/`switch_session` inside a running omp, remote tabs, what else a spawn carries (`src/main/session-launch-parity.test.ts` compares extensions and settings across start paths). `formal/tab-session/SCOPE.md`.
+- Modeled besides spawns and restarts: the start gate's move into a worktree, `switch_session` and `new_session` inside the running omp.
+- Not covered: the ownership wait (`sessionFree`), `fork`/`branch`/`handoff` inside a running omp (assumption A5), remote tabs, what else a spawn carries (`src/main/session-launch-parity.test.ts` compares extensions and settings across start paths). `formal/tab-session/SCOPE.md`.
 
 ## Run it
 
@@ -33,7 +34,7 @@ Sync commit: see `syncCommit` of `tab-session` in `formal/manifest.json` (the ma
 bun <tools-dir>/scripts/verify-all.ts formal --only tab-session
 ```
 
-Matrix of 6 runs (two that must pass, two code variants that must fail, two sanity runs) and 5 mutations, about 10 s.
+Matrix of 7 runs (two that must pass, three code variants that must fail, two sanity runs) and 9 mutations, about 40 s.
 - `PASS`, exit 0: no counterexample within the bounds. Not a proof the code is correct.
 - `FAIL`, exit 1: a property broke, a mutation was MISSED, or an `@code` tag no longer resolves. The trace names each step's `@code` location.
 - `DRIFT:`: covered code changed since the sync commit; look at the model again.
@@ -41,7 +42,7 @@ Matrix of 6 runs (two that must pass, two code variants that must fail, two sani
 
 ## Does my change touch this?
 
-Yes when it changes which session a spawn opens (`sessionOpen`, the `--session` / `--config` choice), when `#sessionPath` or `#isNew` are written (`grep -n "#sessionPath\|#isNew" src/main/sidecar.ts`), what `restart(cwd?, resumeSessionPath?)` does with its arguments, or adds a path that spawns omp without `#spawn`.
+Yes when it changes which session a spawn opens, how a `switch_session` / `new_session` response or the start gate updates the tab's session (`sessionOpen`, the `--session` / `--config` choice), when `#sessionPath` or `#isNew` are written (`grep -n "#sessionPath\|#isNew" src/main/sidecar.ts`), what `restart(cwd?, resumeSessionPath?)` does with its arguments, or adds a path that spawns omp without `#spawn`.
 
 ## A failure: real bug or modeling error?
 

@@ -10,6 +10,7 @@ When it breaks, a crash, machine setup, the desktop slot or an omp update puts t
 
 - The session a spawn opens, `sessionOpen` (`src/main/omp-launch.ts#sessionOpen`), as `#spawn` builds it (`src/main/sidecar.ts#SidecarManager.#spawn`).
 - `ready` (`#handleReady`), the ready status's `get_state` answer (`#observeResponse`; sent by `src/main/sidecar-factory.ts`), the child's exit and the crash restart (`#attemptRestart`), `restart(cwd?, resumeSessionPath?)` in its three uses: no argument, a stored session, another folder.
+- The start gate's restart into a worktree (`#isNew = true; restart(cwd)`), `switch_session` and `new_session` inside the running omp (`#observeResponse`).
 - Stock writing a session's file at its first answer (environment), stock's `autoResume` when the spawn names no session (environment: any written session of the folder, or a new one).
 
 ## Abstracted
@@ -21,7 +22,7 @@ When it breaks, a crash, machine setup, the desktop slot or an omp update puts t
 
 ## Out of scope
 
-- The session ownership wait (`sessionFree`, `#whenSessionLetGo`), the start gate's restart into a worktree, `new_session` / `switch_session` inside a running omp (the next `get_state` names it), remote tabs (`RemoteSidecar`), the extensions and settings a spawn carries (`session-launch-parity.test.ts` compares those across start paths).
+- The session ownership wait (`sessionFree`, `#whenSessionLetGo`), `fork` / `branch` / `handoff` inside a running omp (assumption A5), remote tabs (`RemoteSidecar`), the extensions and settings a spawn carries (`session-launch-parity.test.ts` compares those across start paths).
 
 ## Properties
 
@@ -29,14 +30,15 @@ When it breaks, a crash, machine setup, the desktop slot or an omp update puts t
 |---|---|---|
 | `NoMissingSession` | invariant | `sidecar.ts` comment at `#spawn` ("`--session` on it only fails"), sidecar.test.ts "starts a fresh session in its folder when the session's file was never written" |
 | `KeepsSession` | invariant | `.omp/rules/interrupted-work.md` "One conversation stays one session across a relaunch"; a10eb6877 |
+| `MoveLeavesChoice` | invariant (added after freezing) | the comment once at `#handleReady` ("Freshness is a creation contract, not a restart policy"); review of 29 Oct 2026 |
 | `NeverAnother` | invariant | `resources/gui-bridge/fresh-launch.yml` ("a new tab must open a new session even when the user enabled autoResume") |
 
 ## Bounds
 
 | Run | Bounds | States, depth, time |
 |---|---|---|
-| fast | 1 stored session + 1 other written, 3 new ids, 4 spawns | 2,925, 18, 0.4 s |
-| larger | 2 stored + 1 other, 5 new ids, 6 spawns | 61,683, 26, 1.0 s |
+| fast | 1 stored session + 1 other written, 3 new ids, 4 spawns | 13,255, 20, 2 s |
+| larger | 2 stored + 1 other, 5 new ids, 6 spawns | 417,625, 26, 12-27 s |
 
 ## Tools and files
 

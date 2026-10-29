@@ -15,13 +15,17 @@
 (*                  restart that names no session).                         *)
 (*   ClearNewAt     "ready": `#isNew` cleared at ready (a10eb6877, finding  *)
 (*                  F1); "session": cleared once get_state names it (now).  *)
+(*   LearnsChange   FALSE: up to this model's second revision (an in-omp    *)
+(*                  switch_session / new_session left #sessionPath on the   *)
+(*                  old session until the next get_state, finding F2);      *)
+(*                  TRUE: #observeResponse takes them from their response.  *)
 EXTENDS Naturals, FiniteSets
 
 CONSTANTS Stored,     \* stored sessions the tab may open (written)
           Others,     \* another written session in the folder: what stock's autoResume may reopen
           NewIds,     \* ids stock gives the new sessions it starts
           MaxSpawns,
-          OldCode, ClearNewAt
+          OldCode, ClearNewAt, LearnsChange
 
 NoS == "none"
 Sessions == Stored \cup Others \cup NewIds
@@ -37,9 +41,11 @@ VARIABLES
     used,      \* new-session ids stock handed out
     spawns,
     shown,     \* ghost: the session the person sees the tab on (the pool's tab, from the same get_state; their own open)
-    moved      \* ghost: the person moved the tab to another folder and its omp has not named a session since
+    moved,     \* ghost: the person moved the tab to another folder and its omp has not named a session since
+    named,     \* ghost: the tab's session is established: it started on a stored one, or an omp of the tab named it, or the person switched to one
+    gated      \* ghost: the start gate (worktree-lifecycle.ts) already moved the new tab
 
-vars == <<path, isNew, written, proc, onOmp, lastOpen, used, spawns, shown, moved>>
+vars == <<path, isNew, written, proc, onOmp, lastOpen, used, spawns, shown, moved, named, gated>>
 
 \* @code src/main/omp-launch.ts:77-80 sessionOpen: a written session is reopened; a tab with a session stock never wrote, or a new tab, starts a new one; else omp's own choice
 OpenOf(p, n, w) ==
@@ -58,6 +64,8 @@ TypeOK ==
     /\ spawns \in 0..MaxSpawns
     /\ shown \in Sessions \cup {NoS}
     /\ moved \in BOOLEAN
+    /\ named \in BOOLEAN
+    /\ gated \in BOOLEAN
 
 \* A new tab (`fresh`: tab-spawn.ts, a new window) or a stored session opened in a tab (pool acquire, layout restore, a resume marker).
 Init ==
@@ -65,6 +73,7 @@ Init ==
          /\ path = start
          /\ isNew = (start = NoS)
          /\ shown = start
+         /\ named = (start # NoS)
     /\ written = Stored \cup Others
     /\ proc = "none"
     /\ onOmp = NoS
@@ -72,6 +81,7 @@ Init ==
     /\ used = {}
     /\ spawns = 0
     /\ moved = FALSE
+    /\ gated = FALSE
 
 \* @code src/main/sidecar.ts:636-650 #spawn builds the launch from sessionOpen({ path: #sessionPath, isNew: #isNew }); stock opens it
 Spawn ==
@@ -87,15 +97,15 @@ Spawn ==
                   \/ \E id \in NewIds \ used : onOmp' = id /\ used' = used \cup {id}
     /\ proc' = "booting"
     /\ spawns' = spawns + 1
-    /\ UNCHANGED <<path, isNew, written, shown, moved>>
+    /\ UNCHANGED <<path, isNew, written, shown, moved, named, gated>>
 
-\* @code src/main/sidecar.ts:932-937 #handleReady (the old code also cleared #resumeSessionPath here, a10eb6877 cleared #isNew)
+\* @code src/main/sidecar.ts:945-950 #handleReady (the old code also cleared #resumeSessionPath here, a10eb6877 cleared #isNew)
 Ready ==
     /\ proc = "booting"
     /\ proc' = "ready"
     /\ path' = IF OldCode THEN NoS ELSE path
     /\ isNew' = IF ClearNewAt = "ready" THEN FALSE ELSE isNew
-    /\ UNCHANGED <<written, onOmp, lastOpen, used, spawns, shown, moved>>
+    /\ UNCHANGED <<written, onOmp, lastOpen, used, spawns, shown, moved, named, gated>>
 
 \* @code src/main/sidecar.ts:804-825 #observeResponse: the get_state the ready status sends (sidecar-factory.ts:233-246) names the session; the pool's tab learns it from the same answer
 Observe ==
@@ -104,41 +114,67 @@ Observe ==
     /\ isNew' = IF ClearNewAt = "session" THEN FALSE ELSE isNew
     /\ shown' = onOmp
     /\ moved' = FALSE
-    /\ UNCHANGED <<written, proc, onOmp, lastOpen, used, spawns>>
+    /\ named' = TRUE
+    /\ UNCHANGED <<written, proc, onOmp, lastOpen, used, spawns, gated>>
 
 \* Environment: a turn's first answer; stock writes the session's file.
 Write ==
     /\ proc = "ready" /\ onOmp \notin written
     /\ written' = written \cup {onOmp}
-    /\ UNCHANGED <<path, isNew, proc, onOmp, lastOpen, used, spawns, shown, moved>>
+    /\ UNCHANGED <<path, isNew, proc, onOmp, lastOpen, used, spawns, shown, moved, named, gated>>
 
-\* @code src/main/sidecar.ts:755-779 the child's exit, then #attemptRestart (1026-1054) spawns again on the same state
+\* @code src/main/sidecar.ts:755-779 the child's exit, then #attemptRestart (1039-1067) spawns again on the same state
 Crash ==
     /\ proc \in {"booting", "ready"}
     /\ proc' = "none" /\ onOmp' = NoS
-    /\ UNCHANGED <<path, isNew, written, lastOpen, used, spawns, shown, moved>>
+    /\ UNCHANGED <<path, isNew, written, lastOpen, used, spawns, shown, moved, named, gated>>
 
-\* @code src/main/sidecar.ts:1351-1359 restart() with no session: machine setup's start, the desktop slot, an omp update (pool passes its tab's file), a manual Restart
+\* @code src/main/sidecar.ts:1364-1372 restart() with no session: machine setup's start, the desktop slot, an omp update (pool passes its tab's file), a manual Restart
 Restart ==
     /\ proc' = "none" /\ onOmp' = NoS
     /\ path' = IF OldCode THEN NoS ELSE path
-    /\ UNCHANGED <<isNew, written, lastOpen, used, spawns, shown, moved>>
+    /\ UNCHANGED <<isNew, written, lastOpen, used, spawns, shown, moved, named, gated>>
 
-\* @code src/main/sidecar.ts:1351-1359 restart(undefined, f): the person opens a stored session in the tab
+\* @code src/main/sidecar.ts:1364-1372 restart(undefined, f): the person opens a stored session in the tab
 Open(f) ==
     /\ proc' = "none" /\ onOmp' = NoS
     /\ path' = f /\ shown' = f /\ moved' = FALSE
-    /\ UNCHANGED <<isNew, written, lastOpen, used, spawns>>
+    /\ UNCHANGED <<isNew, written, lastOpen, used, spawns, named, gated>>
 
-\* @code src/main/sidecar.ts:1351-1359 restart(cwd): the tab moves to another folder (ipc SIDECAR_SET_PROJECT)
+\* @code src/main/sidecar.ts:1364-1372 restart(cwd): the tab moves to another folder (ipc SIDECAR_SET_PROJECT)
 Move ==
     /\ proc' = "none" /\ onOmp' = NoS
     /\ path' = NoS /\ shown' = NoS /\ moved' = TRUE
-    /\ UNCHANGED <<isNew, written, lastOpen, used, spawns>>
+    /\ UNCHANGED <<isNew, written, lastOpen, used, spawns, named, gated>>
+
+\* @code src/main/sidecar.ts:994-1004 the start gate (worktree-lifecycle.ts) between a new tab's first `ready` and its ready status: the tab's session begins in the worktree, a new one, so `#isNew = true; restart(cwd)`
+GateMove ==
+    /\ proc = "ready" /\ spawns = 1 /\ lastOpen.k = "new" /\ ~gated
+    /\ proc' = "none" /\ onOmp' = NoS
+    /\ path' = NoS /\ isNew' = TRUE /\ shown' = NoS /\ named' = FALSE /\ gated' = TRUE
+    /\ UNCHANGED <<written, lastOpen, used, spawns, moved>>
+
+\* @code src/main/sidecar.ts:826-842 switch_session inside the running omp (sidebar open in the same tab, `sessions.ts` local handler); its response names no file, the pool takes the requested one (ipc.ts:991-993)
+Switch(f) ==
+    /\ proc = "ready" /\ f # onOmp
+    /\ onOmp' = f /\ shown' = f /\ named' = TRUE /\ moved' = FALSE
+    /\ path' = IF LearnsChange THEN f ELSE path
+    /\ isNew' = IF LearnsChange THEN FALSE ELSE isNew
+    /\ UNCHANGED <<written, proc, lastOpen, used, spawns, gated>>
+
+\* @code src/main/sidecar.ts:826-842 new_session inside the running omp (the composer's new session, /new); its file is unknown until the next get_state
+NewSession ==
+    /\ proc = "ready"
+    /\ \E id \in NewIds \ used : onOmp' = id /\ used' = used \cup {id}
+    /\ shown' = NoS /\ named' = FALSE /\ moved' = FALSE
+    /\ path' = IF LearnsChange THEN NoS ELSE path
+    /\ isNew' = IF LearnsChange THEN TRUE ELSE isNew
+    /\ UNCHANGED <<written, proc, lastOpen, spawns, gated>>
 
 Next ==
-    \/ Spawn \/ Ready \/ Observe \/ Write \/ Crash \/ Restart \/ Move
+    \/ Spawn \/ Ready \/ Observe \/ Write \/ Crash \/ Restart \/ Move \/ GateMove \/ NewSession
     \/ \E f \in Stored : Open(f)
+    \/ \E f \in Stored \cup Others : Switch(f)
 
 Spec == Init /\ [][Next]_vars
 
@@ -151,6 +187,11 @@ KeepsSession == (proc = "booting" /\ shown # NoS /\ shown \in written) => onOmp 
 
 \* No spawn puts the tab on another written session than the one it shows, unless the person moved it to another folder.
 NeverAnother == (proc = "booting" /\ ~moved) => onOmp \in {shown} \cup NewIds
+
+\* Added after freezing (review of 29 Oct 2026): a tab whose session was established and that the person moved to
+\* another folder leaves the session there to omp (stock's autoResume), as the code did before this model: being new
+\* is a creation contract (the comment once at #handleReady), not something a moved tab regains.
+MoveLeavesChoice == (proc = "booting" /\ moved /\ named) => lastOpen.k = "default"
 \* END FROZEN PROPERTIES
 
 \* Sanity (must fail): a spawn can reopen a stored session.

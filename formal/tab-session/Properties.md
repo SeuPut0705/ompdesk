@@ -33,3 +33,13 @@ The definitions are the lines between the `\* FROZEN PROPERTIES` and `\* END FRO
 - Level: protocol
 - Config: `MC.cfg`, `MC_another.cfg`, `MC_shipped.cfg` (must fail: a10eb6877, finding F1)
 - Result: holds (violated by a10eb6877: F1)
+
+## MoveLeavesChoice (added after freezing)
+
+- Kind: invariant
+- Statement: `MoveLeavesChoice == (proc = "booting" /\ moved /\ named) => lastOpen.k = "default"`
+- Meaning: a tab whose session was established, moved by the person to another folder, leaves the session there to omp (stock's `autoResume`).
+- Why added: review of 29 Oct 2026: deleting `#isNew = false` from `#observeResponse` kept every check green. The promise is the code's own from before this model ("Freshness is a creation contract, not a restart policy. Once the new tab has booted successfully, later crash/manual restarts may auto-resume", once at `#handleReady`). No existing definition changed.
+- Level: code
+- Config: `MC.cfg`, `MC_move.cfg`
+- Result: holds

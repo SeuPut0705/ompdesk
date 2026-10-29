@@ -1,9 +1,10 @@
 TLC (tla2tools release 1.8.0)  java 17 (system)  spec TabSession.tla
   TLC reports itself as version 2026.10.28.014557
-ok    code-now: no violation  (2925 distinct states, 13711 generated, depth 18, 0.5s)
-ok    code-now-6-spawns-2-stored: no violation  (61683 distinct states, 360042 generated, depth 26, 1.1s)
-ok    a10eb6877-new-tab-crash-before-get-state: invariant NeverAnother (as expected)  (132 distinct states, 287 generated, depth 5, 0.5s)
-ok    before-a10eb6877-restart-loses-session: invariant KeepsSession (as expected)  (16 distinct states, 19 generated, depth 3, 0.4s)
-ok    a-stored-session-is-reopened: invariant NeverReopens (as expected)  (3 distinct states, 3 generated, depth 2, 0.4s)
-ok    a-crash-after-a-turn-is-reachable: invariant NeverCrashAfterTurn (as expected)  (246 distinct states, 626 generated, depth 6, 0.4s)
-PASS  matrix: all 6 runs ended as expected
+ok    code-now: no violation  (13255 distinct states, 74564 generated, depth 20, 1.5s)
+ok    code-now-6-spawns-2-stored: no violation  (417625 distinct states, 3212501 generated, depth 26, 7.1s)
+ok    a10eb6877-new-tab-crash-before-get-state: invariant NeverAnother (as expected)  (209 distinct states, 375 generated, depth 5, 1.0s)
+ok    before-F2-crash-after-in-omp-session-change: invariant NeverAnother (as expected)  (351 distinct states, 692 generated, depth 6, 1.1s)
+ok    before-a10eb6877-restart-loses-session: invariant KeepsSession (as expected)  (16 distinct states, 19 generated, depth 3, 0.8s)
+ok    a-stored-session-is-reopened: invariant NeverReopens (as expected)  (3 distinct states, 3 generated, depth 2, 0.9s)
+ok    a-crash-after-a-turn-is-reachable: invariant NeverCrashAfterTurn (as expected)  (514 distinct states, 1275 generated, depth 6, 1.0s)
+PASS  matrix: all 7 runs ended as expected
