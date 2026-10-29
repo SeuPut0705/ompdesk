@@ -133,7 +133,7 @@ export async function prepareTla(
 	const env = options.env ?? process.env;
 	const tc = loadToolchain(env);
 	const root = cacheRoot(env);
-	const lock = <T>(name: string, work: () => Promise<T>): Promise<T> =>
+	const lock = <T>(name: string, work: (signal: AbortSignal) => Promise<T>): Promise<T> =>
 		withLock(root, name, work, { log: options.log });
 	const paths = tlaPaths(env);
 	const jars = [
@@ -146,23 +146,24 @@ export async function prepareTla(
 	];
 	for (const jar of jars) {
 		if (await fileMatches(jar.dest, jar.art.sha256)) continue;
-		await lock("tla", async () => {
+		await lock("tla", async signal => {
 			if (await fileMatches(jar.dest, jar.art.sha256)) return;
-			await download(jar.art.url, jar.dest, jar.art.sha256, { label: jar.label, env, log: options.log });
+			await download(jar.art.url, jar.dest, jar.art.sha256, { label: jar.label, env, log: options.log, signal });
 		});
 	}
 	let java = await findJava(env, tc.tla.minJava, paths.jreDir);
 	if (!java) {
 		const entry = forPlatform(tc.tla.jre.platforms, "portable Java runtime");
-		await lock("jre", async () => {
+		await lock("jre", async signal => {
 			if (javaInside(paths.jreDir)) return;
 			const archive = path.join(root, "downloads", path.basename(new URL(entry.url).pathname));
 			await download(entry.url, archive, entry.sha256, {
 				label: `Temurin JRE ${entry.version}`,
 				env,
 				log: options.log,
+				signal,
 			});
-			await extractInto(archive, entry.format, paths.jreDir);
+			await extractInto(archive, entry.format, paths.jreDir, signal);
 			fs.rmSync(archive, { force: true });
 		});
 		java = await findJava(env, tc.tla.minJava, paths.jreDir);

@@ -97,32 +97,35 @@ export async function prepareLean(
 		if (systemFirst) throw new Unavailable("OMPDESK_FORMAL_SYSTEM_LEAN=1 but `lake --version` does not run");
 	}
 	const root = cacheRoot(env);
-	const lock = <T>(name: string, work: () => Promise<T>): Promise<T> => withLock(root, name, work, { log });
+	const lock = <T>(name: string, work: (signal: AbortSignal) => Promise<T>): Promise<T> =>
+		withLock(root, name, work, { log });
 	const paths = leanPaths(env);
 	const elanBinary = path.join(paths.bin, `elan${EXE}`);
 	if (!fs.existsSync(elanBinary)) {
 		const entry = forPlatform(tc.lean.elan.platforms, "elan");
-		await lock("elan", async () => {
+		await lock("elan", async signal => {
 			if (fs.existsSync(elanBinary)) return;
 			const archive = path.join(root, "downloads", path.basename(new URL(entry.url).pathname));
 			await download(entry.url, archive, entry.sha256, {
 				label: `elan ${tc.lean.elan.version}`,
 				env,
 				log,
+				signal,
 			});
 			const unpacked = path.join(root, "downloads", `elan-${tc.lean.elan.version}`);
-			await extractInto(archive, entry.format, unpacked);
+			await extractInto(archive, entry.format, unpacked, signal);
 			const init = fs.readdirSync(unpacked).find(name => name.startsWith("elan-init"));
 			if (!init)
 				throw new Unavailable(`the elan archive holds no elan-init (${fs.readdirSync(unpacked).join(", ")})`);
 			const installed = await run(
 				path.join(unpacked, init),
 				["-y", "--no-modify-path", "--default-toolchain", "none"],
-				{ env: { ...env, ELAN_HOME: paths.elanHome }, timeoutMs: 5 * 60_000 },
+				{ env: { ...env, ELAN_HOME: paths.elanHome }, timeoutMs: 5 * 60_000, signal },
 			);
 			if (installed.spawnError || installed.code !== 0) {
 				throw new Unavailable(`elan-init failed: ${installed.spawnError?.message ?? installed.stderr.trim()}`);
 			}
+			signal.throwIfAborted();
 			fs.rmSync(unpacked, { recursive: true, force: true });
 			fs.rmSync(archive, { force: true });
 		});
@@ -130,12 +133,12 @@ export async function prepareLean(
 	const lakeBinary = path.join(paths.toolchainDir, "bin", `lake${EXE}`);
 	if (!fs.existsSync(lakeBinary)) {
 		const entry = forPlatform(tc.lean.archive.platforms, "Lean toolchain");
-		await lock("lean", async () => {
+		await lock("lean", async signal => {
 			if (fs.existsSync(lakeBinary)) return;
 			const archive = path.join(root, "downloads", path.basename(new URL(entry.url).pathname));
-			await download(entry.url, archive, entry.sha256, { label: `Lean ${tc.lean.version}`, env, log });
+			await download(entry.url, archive, entry.sha256, { label: `Lean ${tc.lean.version}`, env, log, signal });
 			log(`unpacking Lean ${tc.lean.version} (about 3 GB on disk, about 4 GB free needed while it unpacks)`);
-			await extractInto(archive, entry.format, paths.toolchainDir);
+			await extractInto(archive, entry.format, paths.toolchainDir, signal);
 			fs.rmSync(archive, { force: true });
 		});
 	}

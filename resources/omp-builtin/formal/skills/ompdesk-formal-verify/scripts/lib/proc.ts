@@ -22,6 +22,8 @@ export interface RunOptions {
 	maxChars?: number;
 	/** Called with every chunk of stdout and stderr as it arrives (progress output of a long run). */
 	onData?: (chunk: string) => void;
+	/** Kills the program (and what it started) when this aborts; the result is then that of a killed program. */
+	signal?: AbortSignal;
 }
 
 export interface RunResult {
@@ -121,13 +123,26 @@ export function run(command: string, args: string[], options: RunOptions = {}): 
 	let settled = false;
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let started: ChildProcess | undefined;
+	let onAbort: (() => void) | undefined;
 	const finish = (result: RunResult): void => {
 		if (settled) return;
 		settled = true;
 		if (started) live.delete(started);
+		if (onAbort) options.signal?.removeEventListener("abort", onAbort);
 		clearTimeout(timer);
 		resolve(result);
 	};
+	if (options.signal?.aborted) {
+		finish({
+			code: null,
+			signal: null,
+			stdout,
+			stderr,
+			timedOut,
+			spawnError: new Error("aborted before it started"),
+		});
+		return promise;
+	}
 	let child: ChildProcess;
 	try {
 		child = spawn(command, args, {
@@ -170,6 +185,10 @@ export function run(command: string, args: string[], options: RunOptions = {}): 
 	if (options.input !== undefined && child.stdin) {
 		child.stdin.on("error", () => {});
 		child.stdin.end(options.input);
+	}
+	if (options.signal) {
+		onAbort = () => killTree(child);
+		options.signal.addEventListener("abort", onAbort, { once: true });
 	}
 	if (options.timeoutMs && options.timeoutMs > 0) {
 		timer = setTimeout(() => {
