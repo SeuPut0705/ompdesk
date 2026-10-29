@@ -1144,12 +1144,24 @@ describe("AiMemoryService", () => {
 		});
 
 		it("a poll that finds the server back makes it ready again without a setup", async () => {
-			const { service, health, commands } = await make();
+			// The states the service reports, not vi.waitFor's 1 s clock (a loaded Windows runner took longer).
+			const unreachable = Promise.withResolvers<void>();
+			const back = Promise.withResolvers<void>();
+			let down = false;
+			const { service, health, commands } = await make({
+				onState: snapshot => {
+					if (!down) return;
+					if (snapshot.phase === "unreachable") unreachable.resolve();
+					else if (snapshot.phase === "ready" && health.up) back.resolve();
+				},
+			});
 			await service.start();
+			down = true;
 			health.up = false;
-			await vi.waitFor(() => expect(service.state().phase).toBe("unreachable"));
+			await unreachable.promise;
 			health.up = true;
-			await vi.waitFor(() => expect(service.state().phase).toBe("ready"));
+			await back.promise;
+			expect(service.state().phase).toBe("ready");
 			expect(commands().filter(command => command === SETUP).length).toBeLessThanOrEqual(2);
 		});
 
