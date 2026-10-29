@@ -1,0 +1,1271 @@
+{
+  "spec": "/Users/seuput/Desktop/GitHub/omgdesk/formal/toolchain-lock/tla/ToolchainLock.tla",
+  "name": "MC_gone.cfg",
+  "config": "MC_gone.cfg",
+  "ok": false,
+  "expect": "pass",
+  "durationMs": 8828,
+  "outcome": "invariant",
+  "property": "MutualExclusion",
+  "stats": {
+    "generated": 1070342,
+    "distinct": 468879,
+    "queue": 72073,
+    "depth": 38
+  },
+  "trace": [
+    {
+      "step": 1,
+      "action": "Init",
+      "changed": {
+        "seenOwner": "(p1 :> \"none\" @@ p2 :> \"none\" @@ p3 :> \"none\")",
+        "guard": "FALSE",
+        "ctx": "(p1 :> \"main\" @@ p2 :> \"main\" @@ p3 :> \"main\")",
+        "confirmed": "(p1 :> FALSE @@ p2 :> FALSE @@ p3 :> FALSE)",
+        "pc": "(p1 :> \"acq_mkdir\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")",
+        "lockOwner": "\"D\"",
+        "seenTouched": "(p1 :> FALSE @@ p2 :> FALSE @@ p3 :> FALSE)",
+        "lockExists": "TRUE",
+        "seenDead": "(p1 :> FALSE @@ p2 :> FALSE @@ p3 :> FALSE)"
+      }
+    },
+    {
+      "step": 2,
+      "action": "AcqMkdir(p1)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:517-524",
+      "changed": {
+        "pc": "(p1 :> \"acq_mkdir\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"j_owner\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+      }
+    },
+    {
+      "step": 3,
+      "action": "JOwner(p1)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:541",
+      "changed": {
+        "seenOwner": "(p1 :> \"none\" @@ p2 :> \"none\" @@ p3 :> \"none\") -> (p1 :> \"D\" @@ p2 :> \"none\" @@ p3 :> \"none\")",
+        "pc": "(p1 :> \"j_owner\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"j_touch\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+      }
+    },
+    {
+      "step": 4,
+      "action": "JTouch(p1)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:542-543",
+      "changed": {
+        "pc": "(p1 :> \"j_touch\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"j_alive\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")",
+        "seenTouched": "(p1 :> FALSE @@ p2 :> FALSE @@ p3 :> FALSE) -> (p1 :> TRUE @@ p2 :> FALSE @@ p3 :> FALSE)"
+      }
+    },
+    {
+      "step": 5,
+      "action": "JAlive(p1)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:545",
+      "changed": {
+        "pc": "(p1 :> \"j_alive\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"j_confirm\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")",
+        "seenDead": "(p1 :> FALSE @@ p2 :> FALSE @@ p3 :> FALSE) -> (p1 :> TRUE @@ p2 :> FALSE @@ p3 :> FALSE)"
+      }
+    },
+    {
+      "step": 6,
+      "action": "JConfirm(p1)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:546-550",
+      "changed": {
+        "confirmed": "(p1 :> FALSE @@ p2 :> FALSE @@ p3 :> FALSE) -> (p1 :> TRUE @@ p2 :> FALSE @@ p3 :> FALSE)",
+        "pc": "(p1 :> \"j_confirm\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"j_decide\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+      }
+    },
+    {
+      "step": 7,
+      "action": "JDecide(p1)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:589-591, resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:565-567",
+      "changed": {
+        "pc": "(p1 :> \"j_decide\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"tk_guard\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+      }
+    },
+    {
+      "step": 8,
+      "action": "TkGuard(p1)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:554-563",
+      "changed": {
+        "guard": "FALSE -> TRUE",
+        "ctx": "(p1 :> \"main\" @@ p2 :> \"main\" @@ p3 :> \"main\") -> (p1 :> \"tk\" @@ p2 :> \"main\" @@ p3 :> \"main\")",
+        "pc": "(p1 :> \"tk_guard\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"j_owner\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+      }
+    },
+    {
+      "step": 9,
+      "action": "JOwner(p1)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:541",
+      "changed": {
+        "pc": "(p1 :> \"j_owner\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"j_touch\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+      }
+    },
+    {
+      "step": 10,
+      "action": "JTouch(p1)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:542-543",
+      "changed": {
+        "pc": "(p1 :> \"j_touch\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"j_alive\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+      }
+    },
+    {
+      "step": 11,
+      "action": "JAlive(p1)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:545",
+      "changed": {
+        "pc": "(p1 :> \"j_alive\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"j_confirm\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+      }
+    },
+    {
+      "step": 12,
+      "action": "JConfirm(p1)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:546-550",
+      "changed": {
+        "pc": "(p1 :> \"j_confirm\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"j_decide\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+      }
+    },
+    {
+      "step": 13,
+      "action": "JDecide(p1)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:589-591, resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:565-567",
+      "changed": {
+        "pc": "(p1 :> \"j_decide\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"tk_rm\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+      }
+    },
+    {
+      "step": 14,
+      "action": "TkRm(p1)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:573",
+      "changed": {
+        "pc": "(p1 :> \"tk_rm\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"acq_mkdir\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")",
+        "lockOwner": "\"D\" -> \"none\"",
+        "lockExists": "TRUE -> FALSE"
+      }
+    },
+    {
+      "step": 15,
+      "action": "AcqMkdir(p1)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:517-524",
+      "changed": {
+        "pc": "(p1 :> \"acq_mkdir\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"acq_write\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")",
+        "lockExists": "FALSE -> TRUE"
+      }
+    },
+    {
+      "step": 16,
+      "action": "AcqWrite(p1)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:525-531",
+      "changed": {
+        "pc": "(p1 :> \"acq_write\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"tk_unguard_ok\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")",
+        "lockOwner": "\"none\" -> p1"
+      }
+    },
+    {
+      "step": 17,
+      "action": "TkUnguardOk(p1)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:574-579",
+      "changed": {
+        "guard": "TRUE -> FALSE",
+        "ctx": "(p1 :> \"tk\" @@ p2 :> \"main\" @@ p3 :> \"main\") -> (p1 :> \"main\" @@ p2 :> \"main\" @@ p3 :> \"main\")",
+        "pc": "(p1 :> \"tk_unguard_ok\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"cs\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+      }
+    },
+    {
+      "step": 18,
+      "action": "Work(p1)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:616-620",
+      "changed": {
+        "pc": "(p1 :> \"cs\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"rel_mine\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+      }
+    },
+    {
+      "step": 19,
+      "action": "RelMine(p1)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:501-506",
+      "changed": {
+        "pc": "(p1 :> \"rel_mine\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"rel_rm\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+      }
+    },
+    {
+      "step": 20,
+      "action": "AcqMkdir(p2)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:517-524",
+      "changed": {
+        "pc": "(p1 :> \"rel_rm\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"rel_rm\" @@ p2 :> \"j_owner\" @@ p3 :> \"acq_mkdir\")"
+      }
+    },
+    {
+      "step": 21,
+      "action": "RelRm(p1)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:506",
+      "changed": {
+        "pc": "(p1 :> \"rel_rm\" @@ p2 :> \"j_owner\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"done\" @@ p2 :> \"j_owner\" @@ p3 :> \"acq_mkdir\")",
+        "lockOwner": "p1 -> \"none\"",
+        "lockExists": "TRUE -> FALSE"
+      }
+    },
+    {
+      "step": 22,
+      "action": "JOwner(p2)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:541",
+      "changed": {
+        "pc": "(p1 :> \"done\" @@ p2 :> \"j_owner\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"done\" @@ p2 :> \"j_touch\" @@ p3 :> \"acq_mkdir\")"
+      }
+    },
+    {
+      "step": 23,
+      "action": "JTouch(p2)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:542-543",
+      "changed": {
+        "pc": "(p1 :> \"done\" @@ p2 :> \"j_touch\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"done\" @@ p2 :> \"j_alive\" @@ p3 :> \"acq_mkdir\")"
+      }
+    },
+    {
+      "step": 24,
+      "action": "JAlive(p2)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:545",
+      "changed": {
+        "pc": "(p1 :> \"done\" @@ p2 :> \"j_alive\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"done\" @@ p2 :> \"j_confirm\" @@ p3 :> \"acq_mkdir\")"
+      }
+    },
+    {
+      "step": 25,
+      "action": "JConfirm(p2)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:546-550",
+      "changed": {
+        "confirmed": "(p1 :> TRUE @@ p2 :> FALSE @@ p3 :> FALSE) -> (p1 :> TRUE @@ p2 :> TRUE @@ p3 :> FALSE)",
+        "pc": "(p1 :> \"done\" @@ p2 :> \"j_confirm\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"done\" @@ p2 :> \"j_decide\" @@ p3 :> \"acq_mkdir\")"
+      }
+    },
+    {
+      "step": 26,
+      "action": "JDecide(p2)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:589-591, resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:565-567",
+      "changed": {
+        "pc": "(p1 :> \"done\" @@ p2 :> \"j_decide\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"done\" @@ p2 :> \"tk_guard\" @@ p3 :> \"acq_mkdir\")"
+      }
+    },
+    {
+      "step": 27,
+      "action": "TkGuard(p2)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:554-563",
+      "changed": {
+        "guard": "FALSE -> TRUE",
+        "ctx": "(p1 :> \"main\" @@ p2 :> \"main\" @@ p3 :> \"main\") -> (p1 :> \"main\" @@ p2 :> \"tk\" @@ p3 :> \"main\")",
+        "pc": "(p1 :> \"done\" @@ p2 :> \"tk_guard\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"done\" @@ p2 :> \"j_owner\" @@ p3 :> \"acq_mkdir\")"
+      }
+    },
+    {
+      "step": 28,
+      "action": "JOwner(p2)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:541",
+      "changed": {
+        "pc": "(p1 :> \"done\" @@ p2 :> \"j_owner\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"done\" @@ p2 :> \"j_touch\" @@ p3 :> \"acq_mkdir\")"
+      }
+    },
+    {
+      "step": 29,
+      "action": "JTouch(p2)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:542-543",
+      "changed": {
+        "pc": "(p1 :> \"done\" @@ p2 :> \"j_touch\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"done\" @@ p2 :> \"j_alive\" @@ p3 :> \"acq_mkdir\")"
+      }
+    },
+    {
+      "step": 30,
+      "action": "JAlive(p2)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:545",
+      "changed": {
+        "pc": "(p1 :> \"done\" @@ p2 :> \"j_alive\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"done\" @@ p2 :> \"j_confirm\" @@ p3 :> \"acq_mkdir\")"
+      }
+    },
+    {
+      "step": 31,
+      "action": "JConfirm(p2)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:546-550",
+      "changed": {
+        "pc": "(p1 :> \"done\" @@ p2 :> \"j_confirm\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"done\" @@ p2 :> \"j_decide\" @@ p3 :> \"acq_mkdir\")"
+      }
+    },
+    {
+      "step": 32,
+      "action": "AcqMkdir(p3)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:517-524",
+      "changed": {
+        "pc": "(p1 :> \"done\" @@ p2 :> \"j_decide\" @@ p3 :> \"acq_mkdir\") -> (p1 :> \"done\" @@ p2 :> \"j_decide\" @@ p3 :> \"acq_write\")",
+        "lockExists": "FALSE -> TRUE"
+      }
+    },
+    {
+      "step": 33,
+      "action": "JDecide(p2)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:589-591, resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:565-567",
+      "changed": {
+        "pc": "(p1 :> \"done\" @@ p2 :> \"j_decide\" @@ p3 :> \"acq_write\") -> (p1 :> \"done\" @@ p2 :> \"tk_rm\" @@ p3 :> \"acq_write\")"
+      }
+    },
+    {
+      "step": 34,
+      "action": "TkRm(p2)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:573",
+      "changed": {
+        "pc": "(p1 :> \"done\" @@ p2 :> \"tk_rm\" @@ p3 :> \"acq_write\") -> (p1 :> \"done\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_write\")",
+        "lockExists": "TRUE -> FALSE"
+      }
+    },
+    {
+      "step": 35,
+      "action": "AcqMkdir(p2)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:517-524",
+      "changed": {
+        "pc": "(p1 :> \"done\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_write\") -> (p1 :> \"done\" @@ p2 :> \"acq_write\" @@ p3 :> \"acq_write\")",
+        "lockExists": "FALSE -> TRUE"
+      }
+    },
+    {
+      "step": 36,
+      "action": "AcqWrite(p2)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:525-531",
+      "changed": {
+        "pc": "(p1 :> \"done\" @@ p2 :> \"acq_write\" @@ p3 :> \"acq_write\") -> (p1 :> \"done\" @@ p2 :> \"tk_unguard_ok\" @@ p3 :> \"acq_write\")",
+        "lockOwner": "\"none\" -> p2"
+      }
+    },
+    {
+      "step": 37,
+      "action": "TkUnguardOk(p2)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:574-579",
+      "changed": {
+        "guard": "TRUE -> FALSE",
+        "ctx": "(p1 :> \"main\" @@ p2 :> \"tk\" @@ p3 :> \"main\") -> (p1 :> \"main\" @@ p2 :> \"main\" @@ p3 :> \"main\")",
+        "pc": "(p1 :> \"done\" @@ p2 :> \"tk_unguard_ok\" @@ p3 :> \"acq_write\") -> (p1 :> \"done\" @@ p2 :> \"cs\" @@ p3 :> \"acq_write\")"
+      }
+    },
+    {
+      "step": 38,
+      "action": "AcqWrite(p3)",
+      "code": "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:525-531",
+      "changed": {
+        "pc": "(p1 :> \"done\" @@ p2 :> \"cs\" @@ p3 :> \"acq_write\") -> (p1 :> \"done\" @@ p2 :> \"cs\" @@ p3 :> \"cs\")",
+        "lockOwner": "p2 -> p3"
+      },
+      "violation": true
+    }
+  ],
+  "rows": [
+    {
+      "n": 1,
+      "step": "Init",
+      "code": [],
+      "changed": {
+        "seenOwner": {
+          "to": "(p1 :> \"none\" @@ p2 :> \"none\" @@ p3 :> \"none\")"
+        },
+        "guard": {
+          "to": "FALSE"
+        },
+        "ctx": {
+          "to": "(p1 :> \"main\" @@ p2 :> \"main\" @@ p3 :> \"main\")"
+        },
+        "confirmed": {
+          "to": "(p1 :> FALSE @@ p2 :> FALSE @@ p3 :> FALSE)"
+        },
+        "pc": {
+          "to": "(p1 :> \"acq_mkdir\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+        },
+        "lockOwner": {
+          "to": "\"D\""
+        },
+        "seenTouched": {
+          "to": "(p1 :> FALSE @@ p2 :> FALSE @@ p3 :> FALSE)"
+        },
+        "lockExists": {
+          "to": "TRUE"
+        },
+        "seenDead": {
+          "to": "(p1 :> FALSE @@ p2 :> FALSE @@ p3 :> FALSE)"
+        }
+      }
+    },
+    {
+      "n": 2,
+      "step": "AcqMkdir(p1)",
+      "action": "AcqMkdir",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 73,
+        "col": 5,
+        "endLine": 78,
+        "endCol": 51
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:517-524"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"acq_mkdir\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"j_owner\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+        }
+      }
+    },
+    {
+      "n": 3,
+      "step": "JOwner(p1)",
+      "action": "JOwner",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 106,
+        "col": 5,
+        "endLine": 109,
+        "endCol": 88
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:541"
+      ],
+      "changed": {
+        "seenOwner": {
+          "from": "(p1 :> \"none\" @@ p2 :> \"none\" @@ p3 :> \"none\")",
+          "to": "(p1 :> \"D\" @@ p2 :> \"none\" @@ p3 :> \"none\")"
+        },
+        "pc": {
+          "from": "(p1 :> \"j_owner\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"j_touch\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+        }
+      }
+    },
+    {
+      "n": 4,
+      "step": "JTouch(p1)",
+      "action": "JTouch",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 113,
+        "col": 5,
+        "endLine": 116,
+        "endCol": 86
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:542-543"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"j_touch\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"j_alive\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+        },
+        "seenTouched": {
+          "from": "(p1 :> FALSE @@ p2 :> FALSE @@ p3 :> FALSE)",
+          "to": "(p1 :> TRUE @@ p2 :> FALSE @@ p3 :> FALSE)"
+        }
+      }
+    },
+    {
+      "n": 5,
+      "step": "JAlive(p1)",
+      "action": "JAlive",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 120,
+        "col": 5,
+        "endLine": 123,
+        "endCol": 89
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:545"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"j_alive\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"j_confirm\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+        },
+        "seenDead": {
+          "from": "(p1 :> FALSE @@ p2 :> FALSE @@ p3 :> FALSE)",
+          "to": "(p1 :> TRUE @@ p2 :> FALSE @@ p3 :> FALSE)"
+        }
+      }
+    },
+    {
+      "n": 6,
+      "step": "JConfirm(p1)",
+      "action": "JConfirm",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 127,
+        "col": 5,
+        "endLine": 130,
+        "endCol": 88
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:546-550"
+      ],
+      "changed": {
+        "confirmed": {
+          "from": "(p1 :> FALSE @@ p2 :> FALSE @@ p3 :> FALSE)",
+          "to": "(p1 :> TRUE @@ p2 :> FALSE @@ p3 :> FALSE)"
+        },
+        "pc": {
+          "from": "(p1 :> \"j_confirm\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"j_decide\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+        }
+      }
+    },
+    {
+      "n": 7,
+      "step": "JDecide(p1)",
+      "action": "JDecide",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 143,
+        "col": 5,
+        "endLine": 149,
+        "endCol": 74
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:589-591",
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:565-567"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"j_decide\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"tk_guard\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+        }
+      }
+    },
+    {
+      "n": 8,
+      "step": "TkGuard(p1)",
+      "action": "TkGuard",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 155,
+        "col": 5,
+        "endLine": 159,
+        "endCol": 62
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:554-563"
+      ],
+      "changed": {
+        "guard": {
+          "from": "FALSE",
+          "to": "TRUE"
+        },
+        "ctx": {
+          "from": "(p1 :> \"main\" @@ p2 :> \"main\" @@ p3 :> \"main\")",
+          "to": "(p1 :> \"tk\" @@ p2 :> \"main\" @@ p3 :> \"main\")"
+        },
+        "pc": {
+          "from": "(p1 :> \"tk_guard\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"j_owner\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+        }
+      }
+    },
+    {
+      "n": 9,
+      "step": "JOwner(p1)",
+      "action": "JOwner",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 106,
+        "col": 5,
+        "endLine": 109,
+        "endCol": 88
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:541"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"j_owner\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"j_touch\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+        }
+      }
+    },
+    {
+      "n": 10,
+      "step": "JTouch(p1)",
+      "action": "JTouch",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 113,
+        "col": 5,
+        "endLine": 116,
+        "endCol": 86
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:542-543"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"j_touch\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"j_alive\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+        }
+      }
+    },
+    {
+      "n": 11,
+      "step": "JAlive(p1)",
+      "action": "JAlive",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 120,
+        "col": 5,
+        "endLine": 123,
+        "endCol": 89
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:545"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"j_alive\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"j_confirm\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+        }
+      }
+    },
+    {
+      "n": 12,
+      "step": "JConfirm(p1)",
+      "action": "JConfirm",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 127,
+        "col": 5,
+        "endLine": 130,
+        "endCol": 88
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:546-550"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"j_confirm\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"j_decide\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+        }
+      }
+    },
+    {
+      "n": 13,
+      "step": "JDecide(p1)",
+      "action": "JDecide",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 143,
+        "col": 5,
+        "endLine": 149,
+        "endCol": 74
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:589-591",
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:565-567"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"j_decide\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"tk_rm\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+        }
+      }
+    },
+    {
+      "n": 14,
+      "step": "TkRm(p1)",
+      "action": "TkRm",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 163,
+        "col": 5,
+        "endLine": 166,
+        "endCol": 51
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:573"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"tk_rm\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"acq_mkdir\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+        },
+        "lockOwner": {
+          "from": "\"D\"",
+          "to": "\"none\""
+        },
+        "lockExists": {
+          "from": "TRUE",
+          "to": "FALSE"
+        }
+      }
+    },
+    {
+      "n": 15,
+      "step": "AcqMkdir(p1)",
+      "action": "AcqMkdir",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 73,
+        "col": 5,
+        "endLine": 78,
+        "endCol": 51
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:517-524"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"acq_mkdir\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"acq_write\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+        },
+        "lockExists": {
+          "from": "FALSE",
+          "to": "TRUE"
+        }
+      }
+    },
+    {
+      "n": 16,
+      "step": "AcqWrite(p1)",
+      "action": "AcqWrite",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 82,
+        "col": 5,
+        "endLine": 87,
+        "endCol": 63
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:525-531"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"acq_write\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"tk_unguard_ok\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+        },
+        "lockOwner": {
+          "from": "\"none\"",
+          "to": "p1"
+        }
+      }
+    },
+    {
+      "n": 17,
+      "step": "TkUnguardOk(p1)",
+      "action": "TkUnguardOk",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 170,
+        "col": 5,
+        "endLine": 172,
+        "endCol": 62
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:574-579"
+      ],
+      "changed": {
+        "guard": {
+          "from": "TRUE",
+          "to": "FALSE"
+        },
+        "ctx": {
+          "from": "(p1 :> \"tk\" @@ p2 :> \"main\" @@ p3 :> \"main\")",
+          "to": "(p1 :> \"main\" @@ p2 :> \"main\" @@ p3 :> \"main\")"
+        },
+        "pc": {
+          "from": "(p1 :> \"tk_unguard_ok\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"cs\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+        }
+      }
+    },
+    {
+      "n": 18,
+      "step": "Work(p1)",
+      "action": "Work",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 184,
+        "col": 5,
+        "endLine": 185,
+        "endCol": 74
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:616-620"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"cs\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"rel_mine\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+        }
+      }
+    },
+    {
+      "n": 19,
+      "step": "RelMine(p1)",
+      "action": "RelMine",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 189,
+        "col": 5,
+        "endLine": 191,
+        "endCol": 74
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:501-506"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"rel_mine\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"rel_rm\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")"
+        }
+      }
+    },
+    {
+      "n": 20,
+      "step": "AcqMkdir(p2)",
+      "action": "AcqMkdir",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 73,
+        "col": 5,
+        "endLine": 78,
+        "endCol": 51
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:517-524"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"rel_rm\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"rel_rm\" @@ p2 :> \"j_owner\" @@ p3 :> \"acq_mkdir\")"
+        }
+      }
+    },
+    {
+      "n": 21,
+      "step": "RelRm(p1)",
+      "action": "RelRm",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 195,
+        "col": 5,
+        "endLine": 197,
+        "endCol": 51
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:506"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"rel_rm\" @@ p2 :> \"j_owner\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"done\" @@ p2 :> \"j_owner\" @@ p3 :> \"acq_mkdir\")"
+        },
+        "lockOwner": {
+          "from": "p1",
+          "to": "\"none\""
+        },
+        "lockExists": {
+          "from": "TRUE",
+          "to": "FALSE"
+        }
+      }
+    },
+    {
+      "n": 22,
+      "step": "JOwner(p2)",
+      "action": "JOwner",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 106,
+        "col": 5,
+        "endLine": 109,
+        "endCol": 88
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:541"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"done\" @@ p2 :> \"j_owner\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"done\" @@ p2 :> \"j_touch\" @@ p3 :> \"acq_mkdir\")"
+        }
+      }
+    },
+    {
+      "n": 23,
+      "step": "JTouch(p2)",
+      "action": "JTouch",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 113,
+        "col": 5,
+        "endLine": 116,
+        "endCol": 86
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:542-543"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"done\" @@ p2 :> \"j_touch\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"done\" @@ p2 :> \"j_alive\" @@ p3 :> \"acq_mkdir\")"
+        }
+      }
+    },
+    {
+      "n": 24,
+      "step": "JAlive(p2)",
+      "action": "JAlive",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 120,
+        "col": 5,
+        "endLine": 123,
+        "endCol": 89
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:545"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"done\" @@ p2 :> \"j_alive\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"done\" @@ p2 :> \"j_confirm\" @@ p3 :> \"acq_mkdir\")"
+        }
+      }
+    },
+    {
+      "n": 25,
+      "step": "JConfirm(p2)",
+      "action": "JConfirm",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 127,
+        "col": 5,
+        "endLine": 130,
+        "endCol": 88
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:546-550"
+      ],
+      "changed": {
+        "confirmed": {
+          "from": "(p1 :> TRUE @@ p2 :> FALSE @@ p3 :> FALSE)",
+          "to": "(p1 :> TRUE @@ p2 :> TRUE @@ p3 :> FALSE)"
+        },
+        "pc": {
+          "from": "(p1 :> \"done\" @@ p2 :> \"j_confirm\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"done\" @@ p2 :> \"j_decide\" @@ p3 :> \"acq_mkdir\")"
+        }
+      }
+    },
+    {
+      "n": 26,
+      "step": "JDecide(p2)",
+      "action": "JDecide",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 143,
+        "col": 5,
+        "endLine": 149,
+        "endCol": 74
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:589-591",
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:565-567"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"done\" @@ p2 :> \"j_decide\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"done\" @@ p2 :> \"tk_guard\" @@ p3 :> \"acq_mkdir\")"
+        }
+      }
+    },
+    {
+      "n": 27,
+      "step": "TkGuard(p2)",
+      "action": "TkGuard",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 155,
+        "col": 5,
+        "endLine": 159,
+        "endCol": 62
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:554-563"
+      ],
+      "changed": {
+        "guard": {
+          "from": "FALSE",
+          "to": "TRUE"
+        },
+        "ctx": {
+          "from": "(p1 :> \"main\" @@ p2 :> \"main\" @@ p3 :> \"main\")",
+          "to": "(p1 :> \"main\" @@ p2 :> \"tk\" @@ p3 :> \"main\")"
+        },
+        "pc": {
+          "from": "(p1 :> \"done\" @@ p2 :> \"tk_guard\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"done\" @@ p2 :> \"j_owner\" @@ p3 :> \"acq_mkdir\")"
+        }
+      }
+    },
+    {
+      "n": 28,
+      "step": "JOwner(p2)",
+      "action": "JOwner",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 106,
+        "col": 5,
+        "endLine": 109,
+        "endCol": 88
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:541"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"done\" @@ p2 :> \"j_owner\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"done\" @@ p2 :> \"j_touch\" @@ p3 :> \"acq_mkdir\")"
+        }
+      }
+    },
+    {
+      "n": 29,
+      "step": "JTouch(p2)",
+      "action": "JTouch",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 113,
+        "col": 5,
+        "endLine": 116,
+        "endCol": 86
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:542-543"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"done\" @@ p2 :> \"j_touch\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"done\" @@ p2 :> \"j_alive\" @@ p3 :> \"acq_mkdir\")"
+        }
+      }
+    },
+    {
+      "n": 30,
+      "step": "JAlive(p2)",
+      "action": "JAlive",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 120,
+        "col": 5,
+        "endLine": 123,
+        "endCol": 89
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:545"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"done\" @@ p2 :> \"j_alive\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"done\" @@ p2 :> \"j_confirm\" @@ p3 :> \"acq_mkdir\")"
+        }
+      }
+    },
+    {
+      "n": 31,
+      "step": "JConfirm(p2)",
+      "action": "JConfirm",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 127,
+        "col": 5,
+        "endLine": 130,
+        "endCol": 88
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:546-550"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"done\" @@ p2 :> \"j_confirm\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"done\" @@ p2 :> \"j_decide\" @@ p3 :> \"acq_mkdir\")"
+        }
+      }
+    },
+    {
+      "n": 32,
+      "step": "AcqMkdir(p3)",
+      "action": "AcqMkdir",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 73,
+        "col": 5,
+        "endLine": 78,
+        "endCol": 51
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:517-524"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"done\" @@ p2 :> \"j_decide\" @@ p3 :> \"acq_mkdir\")",
+          "to": "(p1 :> \"done\" @@ p2 :> \"j_decide\" @@ p3 :> \"acq_write\")"
+        },
+        "lockExists": {
+          "from": "FALSE",
+          "to": "TRUE"
+        }
+      }
+    },
+    {
+      "n": 33,
+      "step": "JDecide(p2)",
+      "action": "JDecide",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 143,
+        "col": 5,
+        "endLine": 149,
+        "endCol": 74
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:589-591",
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:565-567"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"done\" @@ p2 :> \"j_decide\" @@ p3 :> \"acq_write\")",
+          "to": "(p1 :> \"done\" @@ p2 :> \"tk_rm\" @@ p3 :> \"acq_write\")"
+        }
+      }
+    },
+    {
+      "n": 34,
+      "step": "TkRm(p2)",
+      "action": "TkRm",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 163,
+        "col": 5,
+        "endLine": 166,
+        "endCol": 51
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:573"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"done\" @@ p2 :> \"tk_rm\" @@ p3 :> \"acq_write\")",
+          "to": "(p1 :> \"done\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_write\")"
+        },
+        "lockExists": {
+          "from": "TRUE",
+          "to": "FALSE"
+        }
+      }
+    },
+    {
+      "n": 35,
+      "step": "AcqMkdir(p2)",
+      "action": "AcqMkdir",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 73,
+        "col": 5,
+        "endLine": 78,
+        "endCol": 51
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:517-524"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"done\" @@ p2 :> \"acq_mkdir\" @@ p3 :> \"acq_write\")",
+          "to": "(p1 :> \"done\" @@ p2 :> \"acq_write\" @@ p3 :> \"acq_write\")"
+        },
+        "lockExists": {
+          "from": "FALSE",
+          "to": "TRUE"
+        }
+      }
+    },
+    {
+      "n": 36,
+      "step": "AcqWrite(p2)",
+      "action": "AcqWrite",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 82,
+        "col": 5,
+        "endLine": 87,
+        "endCol": 63
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:525-531"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"done\" @@ p2 :> \"acq_write\" @@ p3 :> \"acq_write\")",
+          "to": "(p1 :> \"done\" @@ p2 :> \"tk_unguard_ok\" @@ p3 :> \"acq_write\")"
+        },
+        "lockOwner": {
+          "from": "\"none\"",
+          "to": "p2"
+        }
+      }
+    },
+    {
+      "n": 37,
+      "step": "TkUnguardOk(p2)",
+      "action": "TkUnguardOk",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 170,
+        "col": 5,
+        "endLine": 172,
+        "endCol": 62
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:574-579"
+      ],
+      "changed": {
+        "guard": {
+          "from": "TRUE",
+          "to": "FALSE"
+        },
+        "ctx": {
+          "from": "(p1 :> \"main\" @@ p2 :> \"tk\" @@ p3 :> \"main\")",
+          "to": "(p1 :> \"main\" @@ p2 :> \"main\" @@ p3 :> \"main\")"
+        },
+        "pc": {
+          "from": "(p1 :> \"done\" @@ p2 :> \"tk_unguard_ok\" @@ p3 :> \"acq_write\")",
+          "to": "(p1 :> \"done\" @@ p2 :> \"cs\" @@ p3 :> \"acq_write\")"
+        }
+      }
+    },
+    {
+      "n": 38,
+      "step": "AcqWrite(p3)",
+      "action": "AcqWrite",
+      "location": {
+        "module": "ToolchainLock",
+        "line": 82,
+        "col": 5,
+        "endLine": 87,
+        "endCol": 63
+      },
+      "code": [
+        "resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts:525-531"
+      ],
+      "changed": {
+        "pc": {
+          "from": "(p1 :> \"done\" @@ p2 :> \"cs\" @@ p3 :> \"acq_write\")",
+          "to": "(p1 :> \"done\" @@ p2 :> \"cs\" @@ p3 :> \"cs\")"
+        },
+        "lockOwner": {
+          "from": "p2",
+          "to": "p3"
+        }
+      },
+      "violation": true
+    }
+  ],
+  "tlcVersion": "2026.10.28.014557",
+  "message": "Invariant MutualExclusion is violated.",
+  "warnings": []
+}

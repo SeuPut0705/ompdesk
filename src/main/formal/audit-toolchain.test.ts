@@ -253,6 +253,141 @@ describe("lock takeover (finding 1)", () => {
 		);
 		expect(JSON.parse(fs.readFileSync(path.join(lock, "owner.json"), "utf8")).token).toBe("someone-else");
 	});
+
+	/**
+	 * The two interleavings TLC found in formal/toolchain-lock (both made two holders at once, the CI overlap of
+	 * release run 40891943183). The test plays every other process through spies, so each step lands exactly where
+	 * the trace puts it. `rival` is a waiter that made a fresh lock (mkdir, then its owner file, as acquire does) and
+	 * holds it until this waiter's mkdir has been refused by it once; then it finishes and releases.
+	 */
+	describe("a takeover never removes a lock another waiter just made", () => {
+		const realMkdir = fs.mkdirSync as (...args: unknown[]) => unknown;
+		const realStat = fs.statSync as (...args: unknown[]) => unknown;
+		const realKill = process.kill;
+		const enoent = (target: string): Error =>
+			Object.assign(new Error(`ENOENT: no such file or directory, stat '${target}'`), { code: "ENOENT" });
+		const rival = (lock: string): { take: () => void; holding: () => boolean; mkdir: typeof realMkdir } => {
+			let holding = false;
+			return {
+				take() {
+					realMkdir(lock);
+					fs.writeFileSync(
+						path.join(lock, "owner.json"),
+						JSON.stringify({ pid: process.pid, host: os.hostname(), started: 2, token: "rival" }),
+					);
+					holding = true;
+				},
+				holding: () => holding,
+				/** mkdir as the waiter sees it: refused by the rival's lock once, after which the rival lets go. */
+				mkdir(target, ...rest) {
+					if (String(target) !== lock || !holding) return realMkdir(target, ...rest);
+					try {
+						return realMkdir(target, ...rest);
+					} catch (error) {
+						if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+							fs.rmSync(lock, { recursive: true, force: true });
+							holding = false;
+						}
+						throw error;
+					}
+				},
+			};
+		};
+
+		it("treats a lock that was gone when judged as not abandoned", async () => {
+			const { withLock } = await lib("toolchain");
+			const cache = fs.mkdtempSync(path.join(temp, "gone-"));
+			const lock = path.join(cache, ".lock-x");
+			const guard = `${lock}.takeover`;
+			const other = rival(lock);
+			let refused = false;
+			let rivalMade = false;
+			// A holder had the lock at this waiter's mkdir and released it at once: the lock is gone when judged.
+			vi.spyOn(fs, "mkdirSync").mockImplementation(((target: fs.PathLike, ...rest: unknown[]) => {
+				if (String(target) === lock && !refused) {
+					refused = true;
+					throw Object.assign(new Error(`EEXIST: file already exists, mkdir '${lock}'`), { code: "EEXIST" });
+				}
+				return other.mkdir(target, ...rest);
+			}) as typeof fs.mkdirSync);
+			// Inside the guard, right after this waiter's stat found no lock, the rival's mkdir lands.
+			vi.spyOn(fs, "statSync").mockImplementation(((target: fs.PathLike, ...rest: unknown[]) => {
+				if (String(target) === lock && !fs.existsSync(lock) && fs.existsSync(guard) && !rivalMade) {
+					rivalMade = true;
+					other.take();
+					throw enoent(lock);
+				}
+				return realStat(target, ...rest);
+			}) as typeof fs.statSync);
+			let overlapped = false;
+			try {
+				await withLock(
+					cache,
+					"x",
+					async () => {
+						overlapped = other.holding();
+					},
+					{ log: quiet, pollMs: 5 },
+				);
+			} finally {
+				vi.restoreAllMocks();
+			}
+			expect(overlapped, "held the lock while the rival held its fresh one").toBe(false);
+		});
+
+		it.skipIf(!posix)("counts a dead pid only while the owner file still names that holder", async () => {
+			const { withLock } = await lib("toolchain");
+			const cache = fs.mkdtempSync(path.join(temp, "dead-after-release-"));
+			const lock = path.join(cache, ".lock-x");
+			const guard = `${lock}.takeover`;
+			const other = rival(lock);
+			const planted = 999_999_001;
+			const taker = 999_999_002;
+			let takerAlive = true;
+			plantLock(cache, "x", { pid: planted, host: os.hostname(), started: 1 });
+			vi.spyOn(process, "kill").mockImplementation(((pid: number, signal?: string | number) => {
+				if (pid === planted) throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
+				if (pid !== taker) return realKill.call(process, pid, signal);
+				if (takerAlive) {
+					// Between this waiter's read of the owner and its kill(0): the taker finishes and releases, the
+					// rival makes a fresh lock, and the taker's process exits.
+					fs.rmSync(lock, { recursive: true, force: true });
+					other.take();
+					takerAlive = false;
+				}
+				throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
+			}) as typeof process.kill);
+			// Before this waiter gets the guard, another waiter has taken the planted lock over and let the guard go.
+			let tookOver = false;
+			vi.spyOn(fs, "mkdirSync").mockImplementation(((target: fs.PathLike, ...rest: unknown[]) => {
+				if (String(target) === guard && !tookOver) {
+					tookOver = true;
+					fs.rmSync(lock, { recursive: true, force: true });
+					realMkdir(lock);
+					fs.writeFileSync(
+						path.join(lock, "owner.json"),
+						JSON.stringify({ pid: taker, host: os.hostname(), started: 3, token: "taker" }),
+					);
+				}
+				return other.mkdir(target, ...rest);
+			}) as typeof fs.mkdirSync);
+			let overlapped = false;
+			try {
+				await withLock(
+					cache,
+					"x",
+					async () => {
+						overlapped = other.holding();
+					},
+					{ log: quiet, pollMs: 5 },
+				);
+			} finally {
+				vi.restoreAllMocks();
+			}
+			expect(tookOver && !takerAlive, "the trace ran").toBe(true);
+			expect(overlapped, "held the lock while the rival held its fresh one").toBe(false);
+		});
+	});
 });
 
 describe("environmental failures are UNAVAILABLE, not a stack (finding 2)", () => {
