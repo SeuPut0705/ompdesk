@@ -7,6 +7,7 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetShellModeForTests, TOUCH_QUERY } from "../../hooks/use-shell-mode";
 import { Tooltip, type TooltipProps } from "./Tooltip";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -115,5 +116,26 @@ describe("Tooltip", () => {
 		await fire(trigger, "focusin");
 		expect(bubble()).toBeNull();
 		expect(trigger.getAttribute("aria-describedby")).toBeNull();
+	});
+	it("does not open on a script's focus where the main pointer is a finger", async () => {
+		document.documentElement.dataset.platform = "web";
+		Object.assign(window, {
+			matchMedia: (query: string) => ({
+				matches: query === TOUCH_QUERY,
+				addEventListener: () => {},
+				removeEventListener: () => {},
+			}),
+		});
+		resetShellModeForTests();
+		try {
+			// A sheet focuses its close button as it slides in; the chord in the bubble cannot be pressed on touch.
+			const trigger = await mount({ shortcut: "⌘J" });
+			await fire(trigger, "focusin");
+			expect(bubble()).toBeNull();
+		} finally {
+			delete document.documentElement.dataset.platform;
+			Reflect.deleteProperty(window, "matchMedia");
+			resetShellModeForTests();
+		}
 	});
 });

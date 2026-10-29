@@ -210,7 +210,10 @@ export function Tooltip({ content, shortcut, side = "top", describe = true, hidd
 			: {}),
 		onFocus: (event: FocusEvent<HTMLElement>) => {
 			props.onFocus?.(event);
-			if (event.currentTarget.matches(":focus-visible")) setAnchor(event.currentTarget);
+			// Where the main pointer is a finger a control gets focus from a script (a sheet focusing its close
+			// button as it slides in), not from a keyboard, and the bubble would hang over whatever lies there
+			// with a shortcut nobody can press: only a press opens it.
+			if (!touch && event.currentTarget.matches(":focus-visible")) setAnchor(event.currentTarget);
 		},
 		onBlur: (event: FocusEvent<HTMLElement>) => {
 			props.onBlur?.(event);
