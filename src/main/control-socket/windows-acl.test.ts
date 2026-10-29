@@ -7,6 +7,8 @@ describe("pipeDaclProblem", () => {
 	it("accepts a protected DACL that allows this user alone and denies network logons", () => {
 		expect(pipeDaclProblem(`D:P(D;;GA;;;NU)(A;;GA;;;${ME})`, ME)).toBeNull();
 		expect(pipeDaclProblem(`D:P(D;;FA;;;S-1-5-2)(A;;FA;;;${ME})`, ME)).toBeNull();
+		// The script's own read-back shape: SIDs, no rights.
+		expect(pipeDaclProblem(`D:P(D;;;;;S-1-5-2)(A;;;;;${ME})`, ME)).toBeNull();
 	});
 
 	it("refuses libuv's default DACL and every way short of it", () => {
@@ -30,6 +32,8 @@ describe("securePipe", () => {
 			return `D:P(D;;GA;;;NU)(A;;GA;;;${ME})|${ME}\r\n`;
 		};
 		await securePipe("\\\\.\\pipe\\ompdesk-abc", ok);
+		// The script reads the DACL back as SIDs, so the check never meets an alias such as `LA` for this user.
+		expect(scripts[0]).toContain("GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])");
 		expect(scripts[0]).toContain("'ompdesk-abc'");
 		expect(scripts[0]).toContain("SetAccessControl");
 		await expect(

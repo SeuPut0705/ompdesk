@@ -54,7 +54,10 @@ function pipeName(path: string): string {
 	return match[1];
 }
 
-/** The pipe's access section as SDDL, then `|<this user's SID>`; `apply` first replaces it. */
+/**
+ * The pipe's DACL in SDDL's shape with SIDs only (`D:P(D;;;;;S-1-5-2)(A;;;;;<sid>)`), then `|<this user's SID>`;
+ * `apply` first replaces it.
+ */
 function pipeScript(path: string, apply: boolean): string {
 	return [
 		"$ErrorActionPreference = 'Stop'",
@@ -70,12 +73,16 @@ function pipeScript(path: string, apply: boolean): string {
 					"  $client.SetAccessControl($security)",
 				]
 			: []),
-		"  [Console]::Out.WriteLine($client.GetAccessControl().GetSecurityDescriptorSddlForm('Access') + '|' + $me)",
+		// SIDs, never SDDL's aliases: the runner's account reads back as `LA`, not as the SID `$me` holds.
+		"  $read = $client.GetAccessControl()",
+		"  $head = if ($read.AreAccessRulesProtected) { 'D:P' } else { 'D:' }",
+		"  $list = foreach ($rule in $read.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])) { '(' + $(if ($rule.AccessControlType -eq 'Allow') { 'A' } else { 'D' }) + ';;;;;' + $rule.IdentityReference.Value + ')' }",
+		"  [Console]::Out.WriteLine($head + ($list -join '') + '|' + $me)",
 		"} finally { $client.Dispose() }",
 	].join("\n");
 }
 
-/** The ACEs of an SDDL access section: allow (`A`) or deny (`D`) and the SID or SDDL alias they name. */
+/** The ACEs of an SDDL access section: allow (`A`) or deny (`D`) and the SID they name. */
 function aces(sddl: string): { type: string; sid: string }[] {
 	return [...sddl.matchAll(/\((A|D);[^;]*;[^;]*;[^;]*;[^;]*;([^);]+)\)/g)].map(match => ({
 		type: match[1] ?? "",
