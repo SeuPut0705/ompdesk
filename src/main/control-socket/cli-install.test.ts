@@ -73,12 +73,15 @@ describe("installCliLaunchers", () => {
 		expect(existsSync(headless.bunBin)).toBe(false);
 	});
 
-	it("writes a .cmd next to it on Windows", () => {
-		const { options, appBin } = setup(false, "win32");
+	it("writes a .cmd next to it on Windows that runs bun by its absolute path, never a bare `bun`", () => {
+		const { options, appBin, bunBin } = setup(false, "win32");
 		installCliLaunchers(options);
 		const cmd = readFileSync(join(appBin, "ompdesk.cmd"), "utf8");
 		expect(cmd.startsWith("@echo off\r\nrem ")).toBe(true);
-		expect(cmd).toContain(`"bun" "${join(root, "res", "cli", "ompdesk.ts")}" %*`);
+		expect(cmd).toContain(`"${join(bunBin, "bun.exe")}" "${join(root, "res", "cli", "ompdesk.ts")}" %*`);
+		expect(cmd).not.toMatch(/^"bun" /m);
+		const sh = readFileSync(join(appBin, "ompdesk"), "utf8");
+		expect(sh).toContain(`exec '${join(bunBin, "bun.exe")}' `);
 	});
 
 	it("leaves the command out, and the app starting, when its folder cannot be written", () => {

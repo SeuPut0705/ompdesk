@@ -25,15 +25,15 @@ export interface CliInstallOptions {
 const shQuote = (text: string): string => `'${text.replace(/'/g, "'\\''")}'`;
 
 function posixLauncher(script: string, bunBin: string, platform: SetupPlatform): string {
-	// Git Bash on Windows: a `C:\…` entry would split at its colon, and Bun's installer already put its bin on PATH.
-	const path = platform === "win32" ? "" : `PATH=${shQuote(bunBin)}":$PATH" `;
-	return `#!/bin/sh\n# ${LAUNCHER_MARKER}\n${path}exec bun ${shQuote(script)} "$@"\n`;
+	// Git Bash on Windows: Bun's own executable by its absolute path (a `C:\…` PATH entry would split at its colon).
+	const run =
+		platform === "win32" ? `exec ${shQuote(join(bunBin, "bun.exe"))}` : `PATH=${shQuote(bunBin)}":$PATH" exec bun`;
+	return `#!/bin/sh\n# ${LAUNCHER_MARKER}\n${run} ${shQuote(script)} "$@"\n`;
 }
 
+/** cmd.exe looks in the current folder before PATH: a bare `bun` would run a `bun.exe` the folder holds. */
 function cmdLauncher(script: string, bunBin: string): string {
-	return ["@echo off", `rem ${LAUNCHER_MARKER}`, `set "PATH=${bunBin};%PATH%"`, `"bun" "${script}" %*`, ""].join(
-		"\r\n",
-	);
+	return ["@echo off", `rem ${LAUNCHER_MARKER}`, `"${join(bunBin, "bun.exe")}" "${script}" %*`, ""].join("\r\n");
 }
 
 /**
