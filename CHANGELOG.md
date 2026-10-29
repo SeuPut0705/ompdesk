@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.85.1] - 2026-10-30
+
+형식 검증 도구를 여러 에이전트가 동시에 처음 설치할 때 서로의 설치를 덮어쓸 수 있던 틈을 막았어요.
+
+### 고친 것
+- 설치 잠금을 바꾸는 모든 동작(잡기, 놓기, 살아 있음 표시, 넘겨받기)이 같은 보호 장치 아래에서만 일어나요. 같은 컴퓨터에서 아직 살아 있는 설치는 노트북이 잠들었다 깨어나도 넘겨받지 않고, 잠금을 잃은 설치는 실제로 쓰기를 멈춰요.
+- 설치가 성공했는데 잠금을 놓는 단계가 늦어 실패로 바뀌던 경우, 중단된 설치가 함께 쓰는 압축 파일을 지우던 경우를 고쳤어요.
+- 형식 검증 모델로 이 동작을 검증했어요(1,300만여 상태). 16개 프로세스가 1만 6천 번 겹쳐 들어가는 시험에서도 동시 설치는 한 번도 없었어요.
+
+<!-- en -->
+
+Several agents installing the formal verification tools for the first time at once can no longer overwrite each other's install.
+
+### Fixed
+- Every change of the install lock (take, release, heartbeat, takeover) happens under one guard. A live install on the same computer is never taken over, even after the laptop slept, and an install that lost its lock really stops writing.
+- A successful install no longer turns into a failure when releasing the lock is slow, and an aborted install no longer deletes the archive others share.
+- Verified with the formal model (over 13 million states) and a stress run of 16 processes entering 16,000 times with no overlap.
+
 ## [0.85.0] - 2026-10-29
 
 터미널, 스크립트, 다른 에이전트가 `ompdesk` 명령으로 OMPdesk 세션을 열고, 보내고, 끝날 때까지 기다릴 수 있어요.
