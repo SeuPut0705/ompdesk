@@ -826,6 +826,19 @@ export class SidecarManager extends EventEmitter {
 		} else if (SESSION_CHANGING_COMMANDS[command.type] === true) {
 			this.#session = null;
 			this.#runMessages = [];
+			// Stock's answer names no file, and the next get_state may come after a crash: the tab is on the session it
+			// asked for, or on a new one stock has not named yet (formal/tab-session F2). A fork, branch or handoff keeps
+			// the session it came from until get_state names the copy (formal/tab-session CORRESPONDENCE A5).
+			const data = response.data;
+			const cancelled = typeof data === "object" && data !== null && "cancelled" in data && data.cancelled === true;
+			if (cancelled) return;
+			if (command.type === "switch_session" && typeof command.sessionPath === "string") {
+				this.#sessionPath = command.sessionPath;
+				this.#isNew = false;
+			} else if (command.type === "new_session") {
+				this.#sessionPath = null;
+				this.#isNew = true;
+			}
 		}
 	}
 

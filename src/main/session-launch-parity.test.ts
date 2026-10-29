@@ -66,7 +66,10 @@ import { SidecarPool } from "./sidecar-pool";
 import { TAB_LAYOUT_VERSION } from "./tab-layout";
 import type { ClientWindow } from "./web/client-window";
 
-/** A spawned omp: answers `ready`, then `get_state` with the session it is on (its `--session`, else a new one). */
+/**
+ * A spawned omp: answers `ready`, then `get_state` with the session it is on (its `--session`, else a new one), and
+ * moves to another session on `switch_session` / `new_session` (stock's responses name no file).
+ */
 class FakeOmp extends EventEmitter {
 	readonly stdin = new PassThrough();
 	readonly stdout = new PassThrough();
@@ -74,7 +77,7 @@ class FakeOmp extends EventEmitter {
 	readonly pid = 4242;
 	exitCode: number | null = null;
 	signalCode: NodeJS.Signals | null = null;
-	readonly session: string;
+	session: string;
 	constructor(
 		readonly args: string[],
 		readonly env: Record<string, string>,
@@ -87,8 +90,19 @@ class FakeOmp extends EventEmitter {
 		this.stdin.on("data", (chunk: Buffer) => {
 			buffer += chunk.toString();
 			for (let nl = buffer.indexOf("\n"); nl >= 0; nl = buffer.indexOf("\n")) {
-				const frame = JSON.parse(buffer.slice(0, nl)) as { id?: string; type?: string };
+				const frame = JSON.parse(buffer.slice(0, nl)) as { id?: string; type?: string; sessionPath?: string };
 				buffer = buffer.slice(nl + 1);
+				if (frame.type === "switch_session" || frame.type === "new_session") {
+					this.session = frame.sessionPath ?? storedSession(`in-omp-${omps.length}-${Date.now()}.jsonl`);
+					this.#write({
+						type: "response",
+						id: frame.id,
+						command: frame.type,
+						success: true,
+						data: { cancelled: false },
+					});
+					continue;
+				}
 				if (frame.type !== "get_state" || !spawned.answersState) continue;
 				this.#write({
 					type: "response",
@@ -491,6 +505,55 @@ describe("a restart that names no session continues the tab's own", () => {
 
 		expect(omps.map(launchOf).map(launch => launch.open)).toEqual([{ session: stored }, "default"]);
 	});
+
+	it("a new tab whose omp named its session, moved to another folder, leaves the session there to omp", async () => {
+		const create = factory();
+		const pool = new SidecarPool((cwd, kind, fresh) => create(cwd, kind, fresh));
+		const sidecar = pool.acquire(dir, fakeWindow(1), "new-tab", undefined, "agent", undefined, true);
+		await settle();
+
+		// ipc.ts SIDECAR_SELECT_PROJECT / SIDECAR_SET_PROJECT: being new is a creation contract, not a moved tab's.
+		sidecar?.restart(tmpdir());
+		await settle();
+
+		expect(omps.map(launchOf).map(launch => launch.open)).toEqual(["new", "default"]);
+	});
+
+	// formal/tab-session F2: the omp moved to another session in the tab, then crashed before a get_state named it.
+	it("an omp that crashed after a switch_session comes back on the session switched to", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		const create = factory();
+		const pool = new SidecarPool((cwd, kind, fresh) => create(cwd, kind, fresh));
+		const stored = storedSession("stored.jsonl");
+		const other = storedSession("other.jsonl");
+		const sidecar = pool.acquire(dir, fakeWindow(1), "stored-tab", stored);
+		await settle();
+
+		spawned.answersState = false;
+		await sidecar?.rpcClient?.command({ type: "switch_session", sessionPath: other });
+		omps[0]?.exit(1);
+		await vi.advanceTimersByTimeAsync(1_000);
+		await settle();
+
+		expect(omps.map(launchOf).map(launch => launch.open)).toEqual([{ session: stored }, { session: other }]);
+	});
+
+	it("an omp that crashed after a new_session comes back on a new session, never the one before it", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		const create = factory();
+		const pool = new SidecarPool((cwd, kind, fresh) => create(cwd, kind, fresh));
+		const stored = storedSession("stored.jsonl");
+		const sidecar = pool.acquire(dir, fakeWindow(1), "stored-tab", stored);
+		await settle();
+
+		spawned.answersState = false;
+		await sidecar?.rpcClient?.command({ type: "new_session" });
+		omps[0]?.exit(1);
+		await vi.advanceTimersByTimeAsync(1_000);
+		await settle();
+
+		expect(omps.map(launchOf).map(launch => launch.open)).toEqual([{ session: stored }, "new"]);
+	});
 });
 
 /** What can happen to a tab between two spawns of its omp. */
@@ -534,6 +597,9 @@ describe("every spawn of a tab opens the session the tab is on", () => {
 				// A tab with a session stock has not written yet, or a new tab before its first boot, never lets
 				// stock's autoResume reopen another session in the folder.
 				else if (on !== null || !booted) expect(open).toBe("new");
+				// A tab whose omp named its session (each one here answers get_state), moved by the person to another
+				// folder, leaves the session there to omp.
+				else expect(open).toBe("default");
 				checked.push(omp.session);
 				on = omp.session;
 				booted = true;
