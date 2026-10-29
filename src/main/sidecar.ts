@@ -813,7 +813,13 @@ export class SidecarManager extends EventEmitter {
 			};
 			const previous = this.#session;
 			this.#session = next;
-			if (next.sessionFile) this.#sessionPath = next.sessionFile;
+			// The tab is on that session now: every later spawn reopens it, or starts a new one while stock has not
+			// written it (`sessionOpen`). Only then is the tab no longer new: an omp that crashes after `ready` but
+			// before this answer must not leave the next spawn to stock's autoResume (formal/tab-session F1).
+			if (next.sessionFile) {
+				this.#sessionPath = next.sessionFile;
+				this.#isNew = false;
+			}
 			if (previous?.sessionId !== next.sessionId || previous?.sessionFile !== next.sessionFile) {
 				this.emit("session", next);
 			}
@@ -928,9 +934,6 @@ export class SidecarManager extends EventEmitter {
 		const modelFallback = this.#bootModelFallback ?? undefined;
 		this.#bootModelFallback = null;
 		this.#noModelBoot = null;
-		// Being new is a creation contract, not a restart policy: once the tab has booted, every later spawn opens the
-		// session it has since created or opened (`sessionOpen`).
-		this.#isNew = false;
 		// Negotiation settles after this frame — and when the sidecar dies on boot,
 		// `#cleanup()` rejects the pending command on a generation that is already
 		// gone. Unguarded, that rejection announced "ready" and zeroed the restart

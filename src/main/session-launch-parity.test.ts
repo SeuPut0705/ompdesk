@@ -20,7 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as OmpRuntimeModule from "./omp-runtime";
 import type * as ShellEnvModule from "./shell-env";
 
-const spawned = vi.hoisted(() => ({ spawn: vi.fn(), ompInstalled: true, writesNewSession: true }));
+const spawned = vi.hoisted(() => ({ spawn: vi.fn(), ompInstalled: true, writesNewSession: true, answersState: true }));
 vi.mock("node:child_process", async importOriginal => ({
 	...(await importOriginal<typeof ChildProcess>()),
 	spawn: spawned.spawn,
@@ -89,7 +89,7 @@ class FakeOmp extends EventEmitter {
 			for (let nl = buffer.indexOf("\n"); nl >= 0; nl = buffer.indexOf("\n")) {
 				const frame = JSON.parse(buffer.slice(0, nl)) as { id?: string; type?: string };
 				buffer = buffer.slice(nl + 1);
-				if (frame.type !== "get_state") continue;
+				if (frame.type !== "get_state" || !spawned.answersState) continue;
 				this.#write({
 					type: "response",
 					id: frame.id,
@@ -128,6 +128,7 @@ beforeEach(() => {
 	initDeletedSessions(null);
 	spawned.ompInstalled = true;
 	spawned.writesNewSession = true;
+	spawned.answersState = true;
 	spawned.spawn.mockReset();
 	spawned.spawn.mockImplementation((_bin: string, args: string[], options: { env: Record<string, string> }) => {
 		// A new session's file: stock writes it at the first answer, which a tab that worked has had.
@@ -412,6 +413,22 @@ describe("a restart that names no session continues the tab's own", () => {
 	it("a crashed new tab whose session stock never wrote starts a new one, never another session", async () => {
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 		spawned.writesNewSession = false;
+		const create = factory();
+		const pool = new SidecarPool((cwd, kind, fresh) => create(cwd, kind, fresh));
+		pool.acquire(dir, fakeWindow(1), "new-tab", undefined, "agent", undefined, true);
+		await settle();
+
+		omps[0]?.exit(1);
+		await vi.advanceTimersByTimeAsync(1_000);
+		await settle();
+
+		expect(omps.map(launchOf).map(launch => launch.open)).toEqual(["new", "new"]);
+	});
+
+	// formal/tab-session F1: the omp crashed after `ready`, before its get_state answer named the session.
+	it("a new tab whose omp crashed before it named its session starts a new one, never another session", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		spawned.answersState = false;
 		const create = factory();
 		const pool = new SidecarPool((cwd, kind, fresh) => create(cwd, kind, fresh));
 		pool.acquire(dir, fakeWindow(1), "new-tab", undefined, "agent", undefined, true);
