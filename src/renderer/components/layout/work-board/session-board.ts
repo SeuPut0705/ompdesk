@@ -143,7 +143,8 @@ function checkOf(outcome: WorkCommandOutcome): LastCheck | null {
  * The check the board names: the session's newest one while it has not reported (a backgrounded job whose verdict
  * has not arrived, a call still running: `running`, never passed); else the newest turn's last check failure that
  * still stands in that turn's verdict (`workVerdict` over `turnCommands`, the ledger its work card reads, subagents'
- * calls included), as that card says; else the session's newest check run. A stopped one is skipped, as the
+ * calls included), as that card says; else the session's newest check run. `stops`: each call's stop (`callStops`),
+ * so a check a stop cut off reads as its card reads it. A stopped one is skipped, as the
  * work card skips it. A run that mixes kinds (`biome; vitest`) is a check run of the kinds it proved passed, the
  * first of them named, and fixes a failure as the card reads it.
  */
@@ -152,6 +153,7 @@ export function lastCheck(
 	turnCommands: readonly WorkCommandOutcome[],
 	cwd: string,
 	verdicts: ReadonlyMap<string, BackgroundJobVerdict>,
+	stops: ReadonlyMap<string, number>,
 ): LastCheck | null {
 	const candidates: { key: string; entry: ToolEntry; command: string; kind: CheckKind }[] = [];
 	for (const [key, entry] of entries) {
@@ -165,7 +167,12 @@ export function lastCheck(
 	for (const { key, entry, command, kind } of candidates) {
 		const base = { kind, command, startedAt: entry.startTime, key };
 		if (entry.status === "pending" || entry.status === "running") return { ...base, state: "running" };
-		const [outcome] = workOutcomes([{ entry, toolCallId: key }], undefined, cwd, verdicts).commands;
+		const [outcome] = workOutcomes(
+			[{ entry, toolCallId: key, stoppedAt: stops.get(key) }],
+			undefined,
+			cwd,
+			verdicts,
+		).commands;
 		if (!outcome || outcome.status === "interrupted" || outcome.status === "refused") continue;
 		if (outcome.status === "unknown") return { ...base, state: "running" };
 		newest = checkOf(outcome);

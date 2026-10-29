@@ -115,8 +115,13 @@ export function agentResultSummary(row: Record<string, unknown>): string | null 
 	return typeof summary === "string" ? summary.trim().split("\n")[0] || null : null;
 }
 
-/** `toolCallId`: the card's own entry key for a main-agent call, so a finding can point at its step. */
-export type WorkEvidence = ToolEntry | { entry: ToolEntry; agentName?: string; toolCallId?: string };
+/**
+ * `toolCallId`: the card's own entry key for a main-agent call, so a finding can point at its step. `stoppedAt`: the
+ * stop of the run that holds the call, when it differs by call (the work board's turn spans several cards).
+ */
+export type WorkEvidence =
+	| ToolEntry
+	| { entry: ToolEntry; agentName?: string; toolCallId?: string; stoppedAt?: number };
 
 /** Renderer-only, narrower counterpart of stock pi-coding-agent/src/tools/shell-tokenize.ts
  * tokenizeShellSegments / extractLiteralAndChainSegments: the renderer cannot
@@ -449,7 +454,8 @@ export function workOutcomes(
 					netLines.delete(key);
 				}
 			}
-			const cut = lost || isInterruptedError(entry, agentName ? undefined : stoppedAt);
+			const stop = "entry" in evidence ? (evidence.stoppedAt ?? stoppedAt) : stoppedAt;
+			const cut = lost || isInterruptedError(entry, agentName ? undefined : stop);
 			const output =
 				cut && !lost
 					? resultText(entry.result)

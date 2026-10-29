@@ -20,7 +20,7 @@ function bash(command: string, text: string, exitCode: number, at: number, cwd?:
 
 /** The board's inputs: the session's main-agent calls, and the newest turn's ledger as its card builds it. */
 function check(session: [string, ToolEntry][], turn: WorkEvidence[]) {
-	return lastCheck(session, workOutcomes(turn, undefined, "/repo").commands, "/repo", new Map());
+	return lastCheck(session, workOutcomes(turn, undefined, "/repo").commands, "/repo", new Map(), new Map());
 }
 const main = (key: string, entry: ToolEntry): WorkEvidence => ({ entry, toolCallId: key });
 

@@ -730,6 +730,24 @@ export function buildHistoryRows(
 	);
 }
 
+const callStopsMemo = new WeakMap<readonly AgentMessage[], ReadonlyMap<string, number>>();
+
+/**
+ * Each call's stop, by entry key: the `stoppedAt` of the work row that holds it (`buildHistoryRows`), so a reader of
+ * calls outside the transcript (the work board) judges a call the stop cut off as its card does. Memoized per message
+ * list.
+ */
+export function callStops(messages: readonly AgentMessage[]): ReadonlyMap<string, number> {
+	const known = callStopsMemo.get(messages);
+	if (known) return known;
+	const stops = new Map<string, number>();
+	for (const row of buildHistoryRows([...messages], "compact"))
+		if (row.kind === "process" && row.stoppedAt !== undefined)
+			for (const key of row.toolCallIds) stops.set(key, row.stoppedAt);
+	callStopsMemo.set(messages, stops);
+	return stops;
+}
+
 /** One interval model for archived todos and custom notices. */
 interface ProcessRun {
 	index: number;

@@ -269,6 +269,7 @@ describe("work verdict invariants over generated runs", () => {
 				outcome.commands,
 				"/repo",
 				new Map(),
+				new Map(),
 			);
 			// The board names a newest check still without its result first (`running`); otherwise it fails exactly when
 			// the card's verdict holds a failed check.
@@ -292,6 +293,36 @@ describe("work verdict invariants over generated runs", () => {
 			);
 			if (judgeVerify({ claimed: "green", changed: true, calls: ledger }).verify === "green")
 				expect(ran.at(-1)?.status, `seed ${seed}`).not.toBe("failed");
+		}
+	});
+
+	it("says the same of a run a stop ended on the card and on the board", () => {
+		for (const { seed, calls } of RUNS) {
+			// Stock's empty aborted reply lands after the last call, within a second and a half of its end.
+			const last = calls.at(-1)?.entry.endTime ?? 0;
+			const stoppedAt = last + Math.floor(random(seed)() * 1_500);
+			const entries = calls.map(({ key, entry }) => [key, entry] as const);
+			const card = workOutcomes(
+				calls.map(({ key, entry }) => ({ entry, toolCallId: key })),
+				stoppedAt,
+				"/repo",
+			);
+			const cardVerdict = workVerdict(card.commands, "/repo", stepOperations(entries, stoppedAt));
+			const stops = new Map(calls.map(({ key }) => [key, stoppedAt]));
+			const turn = workOutcomes(
+				calls.map(({ key, entry }) => ({ entry, toolCallId: key, stoppedAt: stops.get(key) })),
+				undefined,
+				"/repo",
+			);
+			expect(
+				turn.commands.map(command => command.status),
+				`seed ${seed}`,
+			).toEqual(card.commands.map(command => command.status));
+			const board = lastCheck(entries, turn.commands, "/repo", new Map(), stops);
+			if (board?.state !== "running")
+				expect(board?.state === "failed", `seed ${seed}: board ${board?.state} ${board?.command}`).toBe(
+					cardVerdict.checks.some(check => !check.passed),
+				);
 		}
 	});
 

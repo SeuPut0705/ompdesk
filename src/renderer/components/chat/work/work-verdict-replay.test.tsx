@@ -19,7 +19,7 @@ import { useSessionStore } from "../../../stores/session";
 import { useSubagentsStore } from "../../../stores/subagents";
 import { selectToolEntry, useToolsStore } from "../../../stores/tools";
 import { lastCheck } from "../../layout/work-board/session-board";
-import { buildHistoryRows } from "../chat-stream-utils";
+import { buildHistoryRows, callStops } from "../chat-stream-utils";
 import { backgroundJobVerdicts } from "../completion-events";
 import { workOutcomes } from "./work-view";
 
@@ -74,6 +74,7 @@ describe("work card verdict over real journals", () => {
 			useToolsStore.getState().reset();
 			useToolsStore.getState().hydrateMessages(slice.messages);
 			const verdicts = backgroundJobVerdicts(slice.messages);
+			const stops = callStops(slice.messages);
 			const rows = buildHistoryRows(slice.messages, "compact").flatMap(row => (row.kind === "process" ? [row] : []));
 			for (const [index, row] of rows.entries()) {
 				if (row.toolCallIds.length === 0) continue;
@@ -105,12 +106,12 @@ describe("work card verdict over real journals", () => {
 				const until = Math.max(...cardEntries.map(([, entry]) => entry.startTime));
 				const sessionSoFar = [...tools.finishedTools].filter(([, entry]) => entry.startTime <= until);
 				const turn = workOutcomes(
-					cardEntries.map(([toolCallId, entry]) => ({ entry, toolCallId })),
+					cardEntries.map(([toolCallId, entry]) => ({ entry, toolCallId, stoppedAt: stops.get(toolCallId) })),
 					undefined,
 					slice.cwd,
 					verdicts,
 				);
-				const board = lastCheck(sessionSoFar, turn.commands, slice.cwd, verdicts);
+				const board = lastCheck(sessionSoFar, turn.commands, slice.cwd, verdicts, stops);
 				const boardLine = board
 					? `${board.state} ${board.kind}${board.count !== undefined ? ` ${board.count}` : ""} ${board.key ?? "-"}`
 					: "-";
