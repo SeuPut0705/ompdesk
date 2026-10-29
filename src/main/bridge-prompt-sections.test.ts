@@ -133,3 +133,36 @@ describe("gui-bridge sections of a turn stock's restore continues", () => {
 		expect(main.sent?.filter(part => part.includes("<reply-language>"))).toHaveLength(1);
 	});
 });
+
+describe("gui-bridge turn prompt: a prompt and a restored turn send the same sections", () => {
+	const languages = [null, "Korean"] as const;
+	const styles = ["default", "concise"] as const;
+	const profiles = [
+		{ name: "", experience: null },
+		{ name: "Seu", experience: "expert" },
+	] as const;
+	const cases = languages.flatMap(language =>
+		styles.flatMap(style =>
+			profiles.flatMap(profile => (["main", "sub"] as const).map(kind => ({ language, style, profile, kind }))),
+		),
+	);
+	it.each(cases)(
+		"language $language, style $style, profile $profile.name, $kind agent",
+		async ({ language, style, profile, kind }) => {
+			const handlers = installAll();
+			setReplyLanguage({ language });
+			setOutputStyle({ style });
+			setUserProfile(profile);
+			keepSectionsOnRestore(RestoredSession.prototype);
+			const ctx: PromptSectionContext = { ...context, agent: { kind } };
+			// A prompt: stock runs every `before_agent_start` handler in turn over the base prompt.
+			let live: string[] = ["base", "context"];
+			for (const handler of handlers)
+				live = handler({ systemPrompt: live, prompt: "go on" }, ctx)?.systemPrompt ?? live;
+			// A turn stock's restore continues gets them without a prompt.
+			const restored = new RestoredSession(true, kind);
+			await restored.restoreInterruptedTurn();
+			expect(restored.sent).toEqual(live);
+		},
+	);
+});
