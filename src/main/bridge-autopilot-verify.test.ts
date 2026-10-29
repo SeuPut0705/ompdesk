@@ -32,10 +32,9 @@ type EndReport = Extract<AutopilotToolInput, { op: "end" }>;
 const bash = (command: string, ok = true, background = false): LedgerCall => ({
 	tool: "bash",
 	command,
-	ok,
-	background,
+	status: background ? "unknown" : ok ? "passed" : "failed",
 });
-const edit: LedgerCall = { tool: "edit", ok: true, background: false };
+const edit: LedgerCall = { tool: "edit", status: "passed" };
 
 function cycle(n: number, extra: Partial<AutopilotCycleRecord> = {}): AutopilotCycleRecord {
 	return {
@@ -89,18 +88,58 @@ describe("isCheckCommand", () => {
 
 describe("ledgerCall", () => {
 	it("keeps edits and bash, nothing else", () => {
-		expect(ledgerCall("edit", {}, {}, false)).toEqual({ tool: "edit", ok: true, background: false });
+		expect(ledgerCall("edit", {}, {}, false)).toEqual({ tool: "edit", status: "passed" });
 		expect(ledgerCall("read", {}, {}, false)).toBeNull();
-		expect(ledgerCall("bash", { command: "bun test" }, { content: [] }, true)).toEqual({
+		expect(ledgerCall("bash", { command: "bun test" }, { content: [], details: { exitCode: 1 } }, true)).toEqual({
 			tool: "bash",
 			command: "bun test",
-			ok: false,
-			background: false,
+			status: "failed",
 		});
 	});
 	it("a bash call that became a background job has no verdict yet", () => {
 		const call = ledgerCall("bash", { command: "bun test" }, { details: { async: { state: "running" } } }, false);
-		expect(call).toMatchObject({ ok: true, background: true });
+		expect(call).toMatchObject({ status: "unknown" });
+	});
+});
+
+describe("ledgerCall reads a command's end as the work card does (command-verdict-core)", () => {
+	const result = (text: string, details: Record<string, unknown> = {}) => ({
+		content: [{ type: "text", text }],
+		details,
+	});
+	it("fails a check whose own output shows failures though its pipe exited 0", () => {
+		const call = ledgerCall(
+			"bash",
+			{ command: "bunx vitest run | tail -3" },
+			result(" Tests  2 failed | 5 passed (7)"),
+			false,
+		);
+		expect(call).toMatchObject({ status: "failed" });
+		expect(judgeVerify({ claimed: "green", changed: true, calls: [edit, call as LedgerCall] }).verify).toBe("red");
+	});
+	it("takes a check stock or the shared-checkout guard refused as no check run", () => {
+		const held = ledgerCall(
+			"bash",
+			{ command: "bun test" },
+			result("Refused while other sessions work here: git stash"),
+			true,
+		);
+		const thrown = ledgerCall("bash", { command: "bun test" }, result("cwd does not exist: /nope"), true);
+		for (const call of [held, thrown]) {
+			expect(call).toMatchObject({ status: "refused" });
+			expect(judgeVerify({ claimed: "green", changed: true, calls: [edit, call as LedgerCall] }).why).toEqual({
+				kind: "no_check",
+			});
+		}
+	});
+	it("fails a check that ran and lost its exit status", () => {
+		const call = ledgerCall(
+			"bash",
+			{ command: "bun test" },
+			result("ran\n\nCommand failed: missing exit status"),
+			true,
+		);
+		expect(call).toMatchObject({ status: "failed" });
 	});
 });
 

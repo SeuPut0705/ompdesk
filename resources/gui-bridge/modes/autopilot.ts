@@ -657,7 +657,8 @@ async function observeReport(
 		moved ? gitOut(root, ["diff", "--numstat", start, head]) : undefined,
 		moved ? gitOut(root, ["rev-list", "--count", `${start}..${head}`]) : undefined,
 	]);
-	const changed = moved || dirty.out !== "" || current.calls.some(call => call.tool !== "bash" && call.ok);
+	const changed =
+		moved || dirty.out !== "" || current.calls.some(call => call.tool !== "bash" && call.status === "passed");
 	const verdict =
 		report.area === "release"
 			? { verify: report.verify, amendable: false }

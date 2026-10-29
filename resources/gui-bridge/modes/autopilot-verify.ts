@@ -7,7 +7,9 @@
  * - a repeated `end` of the same cycle (the first report stands; a report that was refused may be amended),
  * - the commit and the change size the repository itself shows (the agent often leaves the hash out).
  */
+import { type CommandStatus, commandStatus } from "../command-verdict-core";
 import type { AutopilotChangeStat, AutopilotToolInput, AutopilotVerifyNote, CycleVerify } from "./autopilot-contracts";
+import { CHECKOUT_REFUSAL_PREFIX } from "./checkout-peers-contracts";
 
 type EndReport = Extract<AutopilotToolInput, { op: "end" }>;
 
@@ -19,9 +21,11 @@ export interface LedgerCall {
 	tool: string;
 	/** `bash`: the command line. */
 	command?: string;
-	/** Not an error result. A call that is still a background job has no verdict yet: `ok` with `background`. */
-	ok: boolean;
-	background: boolean;
+	/**
+	 * How it ended: a command by the work card's own rule (`commandStatus`), an edit `passed` or `failed`. A command that
+	 * became a background job is `unknown`: its result never reaches this ledger, and it is taken as no failure.
+	 */
+	status: CommandStatus;
 }
 
 const RUNNER_PREFIX = String.raw`(?:bun|npm|pnpm|yarn|deno)(?:\s+run)?`;
@@ -78,13 +82,37 @@ export function ledgerCall(
 	result: unknown,
 	isError: boolean | undefined,
 ): LedgerCall | null {
-	if (EDIT_TOOLS[tool] === true) return { tool, ok: isError !== true, background: false };
+	if (EDIT_TOOLS[tool] === true) return { tool, status: isError === true ? "failed" : "passed" };
 	if (tool !== "bash") return null;
 	const command =
 		typeof (args as { command?: unknown } | null)?.command === "string" ? (args as { command: string }).command : "";
-	const details = (result as { details?: { async?: { state?: unknown } } } | null)?.details;
-	return { tool, command, ok: isError !== true, background: details?.async?.state === "running" };
+	const { content, details } = (result ?? {}) as {
+		content?: unknown;
+		details?: { async?: { state?: unknown }; exitCode?: unknown; timedOut?: unknown };
+	};
+	const text = Array.isArray(content)
+		? content
+				.flatMap(block =>
+					typeof (block as { text?: unknown })?.text === "string" ? [(block as { text: string }).text] : [],
+				)
+				.join("\n")
+		: "";
+	const status = commandStatus({
+		command,
+		cut: false,
+		pending: details?.async?.state === "running",
+		errored: isError === true,
+		exitCode: typeof details?.exitCode === "number" ? details.exitCode : null,
+		timedOut: details?.timedOut === true,
+		held: isError === true && text.trimStart().startsWith(CHECKOUT_REFUSAL_PREFIX),
+		resultText: text,
+		output: text.slice(-CHECK_OUTPUT_MAX),
+	});
+	return { tool, command, status };
 }
+
+/** As much of a command's output as the work card reads for a check's own verdict (work-view.ts `CHECK_TEXT_MAX`). */
+const CHECK_OUTPUT_MAX = 8000;
 
 export interface VerifyFacts {
 	claimed: CycleVerify;
@@ -118,11 +146,16 @@ function shorten(command: string): string {
  */
 export function judgeVerify(facts: VerifyFacts): VerifyVerdict {
 	if (facts.claimed !== "green" || !facts.changed) return { verify: facts.claimed, amendable: false };
+	// A check stock refused or a stop cut off never ran to an end: it is no check run.
 	const checks = facts.calls
 		.map((call, index) => ({ call, index }))
 		.filter(
 			({ call }) =>
-				call.tool === "bash" && call.command !== undefined && isCheckCommand(call.command, facts.declared),
+				call.tool === "bash" &&
+				call.command !== undefined &&
+				call.status !== "refused" &&
+				call.status !== "interrupted" &&
+				isCheckCommand(call.command, facts.declared),
 		);
 	const last = checks.at(-1);
 	if (!last) {
@@ -133,7 +166,7 @@ export function judgeVerify(facts: VerifyFacts): VerifyVerdict {
 			amendable: true,
 		};
 	}
-	if (!last.call.ok && !last.call.background) {
+	if (last.call.status === "failed") {
 		const command = shorten(last.call.command ?? "");
 		return {
 			verify: "red",
@@ -142,7 +175,7 @@ export function judgeVerify(facts: VerifyFacts): VerifyVerdict {
 			amendable: true,
 		};
 	}
-	const lastEdit = facts.calls.findLastIndex(call => EDIT_TOOLS[call.tool] === true && call.ok);
+	const lastEdit = facts.calls.findLastIndex(call => EDIT_TOOLS[call.tool] === true && call.status === "passed");
 	if (lastEdit > last.index) {
 		return {
 			verify: "skipped",
@@ -155,7 +188,10 @@ export function judgeVerify(facts: VerifyFacts): VerifyVerdict {
 	// edit, not a narrower run that came after it (a few e2e specs).
 	const named = facts.declared ? squash(facts.declared) : "";
 	const declaredRun = named
-		? checks.findLast(({ call, index }) => index > lastEdit && call.ok && squash(call.command ?? "").includes(named))
+		? checks.findLast(
+				({ call, index }) =>
+					index > lastEdit && call.status !== "failed" && squash(call.command ?? "").includes(named),
+			)
 		: undefined;
 	const check = (declaredRun ?? last).call.command;
 	return { verify: "green", amendable: false, ...(check ? { check } : {}) };
