@@ -12,6 +12,7 @@
 			"mutations": "mutations.json",
 			"covers": [
 				"src/main/turn-resume.ts",
+				"src/main/turn-resume-ends.ts",
 				"src/main/connectivity.ts",
 				"src/main/sidecar-run-state.ts",
 				"src/main/sidecar-pool.ts",

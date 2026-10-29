@@ -22,6 +22,7 @@ import { canonicalCwd } from "./canonical-cwd";
 import { deletedSessions } from "./deleted-sessions";
 import { RpcTimeoutError } from "./rpc-client";
 import type { SidecarLike } from "./sidecar-types";
+import { type HeldFor, type HoldCheck, type HoldEnd, holdEnd, personsRun } from "./turn-resume-ends";
 import { recordTurnStop } from "./turn-stop-log";
 
 export type ResumeReason =
@@ -500,12 +501,6 @@ interface ArmedRetry extends IpcScheduledRetry {
 	cancelTimer: () => void;
 }
 
-/** The session and branch a connection wait holds for (`#movedSince`). */
-interface HeldFor {
-	sessionFile?: string | undefined;
-	touched: number;
-}
-
 /** A tab's held continuation: what runs once online, and what it was held for. */
 interface HeldWait {
 	action: ResumeAction;
@@ -517,7 +512,7 @@ export class TurnResume {
 	/** Tabs holding a continuation until the connection is back, and what to run then. */
 	readonly #waiting = new Map<string, HeldWait>();
 	/** Tabs whose DNS failure is being probed (`#verifyNetwork`): shown as waiting until the probe decides. */
-	readonly #probing = new Map<string, { outcome: IpcTabRunOutcome; sessionFile?: string; touched: number }>();
+	readonly #probing = new Map<string, HeldFor>();
 	/** Launch markers whose turn has not started yet: kept in the file so a second crash still resumes them. */
 	#pending = new Map<string, ResumeMarker>();
 	/** Run outcomes already judged (a Cancel must not re-arm the wait). */
@@ -603,25 +598,12 @@ export class TurnResume {
 	#judge(fact: ResumeFact): void {
 		if (fact.lastRun) this.#takenOverRuns.delete(fact.tabId);
 		this.#watchScheduledRetry(fact);
-		// A run that is neither the held one (stock's retry saga, or the failed run with its outcome) nor
-		// still ending started during the wait: the user sent a new prompt. It replaces the held
-		// continuation, so the waiting row goes and nothing retries into the live run once online.
-		if (
-			fact.running &&
-			!fact.retry &&
-			!fact.lastRun &&
-			!this.#takenOverRuns.has(fact.tabId) &&
-			(this.#waiting.has(fact.tabId) || this.#probing.has(fact.tabId))
-		) {
-			this.#dropWait(fact.tabId);
-		}
-		// Stop while the probe runs: the row goes now, not when the probe answers.
-		if (fact.stopped && this.#probing.has(fact.tabId)) this.#dropWait(fact.tabId);
-		// Another session or branch on a held tab: the wait belonged to the turn it left (a failed one, or the one a
-		// relaunch continues), so it ends as a probe or a scheduled retry does on the same change, and nothing
-		// continues into what the tab shows now.
+		// The person's new run, Stop on a probe, another session or branch on a held tab (turn-resume-ends.ts): the wait
+		// belonged to the turn it left, so the waiting row goes and nothing continues into what the tab shows now.
 		const held = this.#waiting.get(fact.tabId);
-		if (held && this.#movedSince(fact, held.since)) this.#dropWait(fact.tabId);
+		const probe = this.#probing.get(fact.tabId);
+		if ((held && this.#ends("wait", held.since, fact)) || (probe && this.#ends("probe", probe, fact)))
+			this.#dropWait(fact.tabId);
 		this.#takeOverRetry(fact);
 		// The outcome is the run's final one (main sets it at the last end event), even while
 		// background work keeps the session unsettled: judging it now puts the wait on screen
@@ -659,26 +641,15 @@ export class TurnResume {
 	 */
 	#verifyNetwork(fact: ResumeFact, outcome: IpcTabRunOutcome, host: string): void {
 		const tabId = fact.tabId;
-		const probe = {
-			outcome,
-			...(fact.sessionFile === undefined ? {} : { sessionFile: fact.sessionFile }),
-			touched: fact.touched ?? 0,
-		};
+		const probe: HeldFor = { outcome, sessionFile: fact.sessionFile, touched: fact.touched ?? 0 };
 		this.#probing.set(tabId, probe);
 		this.#deps.pool.setAwaitingConnection(tabId, true);
 		void this.#deps.network.verify(host || undefined).then(reachable => {
 			// Cancel, a new run or another failure since: whoever ended this probe also cleared its row.
 			if (this.#probing.get(tabId) !== probe) return;
 			this.#probing.delete(tabId);
-			const current = this.#factFor(tabId);
 			// Stop, a closed tab, or another session or branch on the tab since the failure: nothing to continue.
-			const holds =
-				current !== undefined &&
-				!this.#deps.frozen() &&
-				current.lastRun === outcome &&
-				!current.stopped &&
-				current.sessionFile === probe.sessionFile &&
-				(current.touched ?? 0) === probe.touched;
+			const holds = this.#ends("probeAnswer", probe, this.#factFor(tabId)) === null;
 			if (holds && !reachable) {
 				this.#hold(tabId, "retry", probe);
 				// The marker says `network` now, so a crash during the wait still retries.
@@ -692,18 +663,20 @@ export class TurnResume {
 		});
 	}
 
-	/** Whether a scheduled retry may exist for this failure now: every condition but stock `retry.enabled`, which `#stockRetryOn` reads at arm and at fire. */
+	/** What ends the hold `check` looks at on `tabId` (turn-resume-ends.ts), or null while it holds. */
+	#ends(check: HoldCheck, since: HeldFor, fact: ResumeFact | undefined): HoldEnd | null {
+		const tabId = fact?.tabId;
+		// Whose run is the hold's own: a scheduled retry's own retry, or stock's retry saga a wait took over.
+		const own = check === "armed" ? this.#ownRetries : this.#takenOverRuns;
+		return holdEnd(check, since, fact, {
+			frozen: this.#deps.frozen(),
+			ownRun: tabId !== undefined && own.has(tabId),
+		});
+	}
+
+	/** The scheduled retry this failure would arm now, held for the tab as it is: may it exist (`armed`)? */
 	#mayRetry(fact: ResumeFact, outcome: IpcTabRunOutcome): boolean {
-		return (
-			!this.#deps.frozen() &&
-			// A hosted tab is a paired device's invisible spend; a host's tab is its host's.
-			!fact.peer &&
-			!fact.device &&
-			fact.sessionFile !== undefined &&
-			!fact.stopped &&
-			!fact.awaitingConnection &&
-			fact.lastRun === outcome
-		);
+		return this.#ends("armed", { outcome, sessionFile: fact.sessionFile, touched: fact.touched ?? 0 }, fact) === null;
 	}
 
 	#factFor(tabId: string): ResumeFact | undefined {
@@ -762,33 +735,18 @@ export class TurnResume {
 		this.#deps.pool.setScheduledRetry(fact.tabId, { at, attempt: armed.attempt, max });
 	}
 
-	/** Every call-off of an armed retry: a new run of the user's, Stop, a session change, the setting off, a closed tab. */
+	/** Every call-off of an armed retry (turn-resume-ends.ts `armed`); the person's new run also starts its chain over. */
 	#watchScheduledRetry(fact: ResumeFact): void {
 		const tabId = fact.tabId;
-		// A new run that is neither the failed run still ending (its outcome is set; background work can
-		// keep it running), stock's retry saga, nor our own retry is the user's: it ends the chain.
-		if (fact.running && !fact.lastRun && !fact.retry && !this.#ownRetries.has(tabId)) {
-			this.#dropScheduled(tabId);
-			this.#attempts.delete(tabId);
-		}
 		const armed = this.#scheduled.get(tabId);
-		if (armed && !this.#holds(fact, armed)) this.#dropScheduled(tabId);
-	}
-
-	#holds(fact: ResumeFact, armed: ArmedRetry): boolean {
-		return (
-			this.#mayRetry(fact, armed.outcome) &&
-			fact.sessionFile === armed.sessionFile &&
-			(fact.touched ?? 0) === armed.touched
-		);
+		if (armed && this.#ends("armed", armed, fact)) this.#dropScheduled(tabId);
+		if (personsRun(fact, this.#ownRetries.has(tabId))) this.#attempts.delete(tabId);
 	}
 
 	/** The armed retry's timer: re-check everything, then send stock `retry` (or hand it to the connection wait when offline). */
 	async #fire(tabId: string, armed: ArmedRetry): Promise<void> {
-		const stillHolds = (): boolean => {
-			const fact = this.#factFor(tabId);
-			return this.#scheduled.get(tabId) === armed && fact !== undefined && !fact.running && this.#holds(fact, armed);
-		};
+		const stillHolds = (): boolean =>
+			this.#scheduled.get(tabId) === armed && this.#ends("firing", armed, this.#factFor(tabId)) === null;
 		if (this.#scheduled.get(tabId) !== armed) return;
 		await this.#deps.pool.movesSettled(tabId);
 		if (!stillHolds() || !(await this.#stockRetryOn(tabId)) || !stillHolds()) {
@@ -855,16 +813,6 @@ export class TurnResume {
 		if (this.#deps.network.online) void this.flush();
 	}
 
-	/**
-	 * The tab went to another session or branch since its wait was taken: `touched` moved (the user's `TOUCH_COMMANDS`),
-	 * or the session file it was held on is no longer the tab's. A file written after the hold (a first turn stock had
-	 * not saved yet) is the same conversation, not a change.
-	 */
-	#movedSince(fact: ResumeFact, since: HeldFor): boolean {
-		if ((fact.touched ?? 0) !== since.touched) return true;
-		return since.sessionFile !== undefined && fact.sessionFile !== since.sessionFile;
-	}
-
 	/** The network is back (or already was): run every held continuation. */
 	async flush(): Promise<void> {
 		if (!this.#deps.network.online) return;
@@ -879,29 +827,26 @@ export class TurnResume {
 		);
 	}
 
-	async #run(tabId: string, action: ResumeAction, since?: HeldFor): Promise<boolean> {
+	async #run(tabId: string, action: ResumeAction, held: HeldFor): Promise<boolean> {
 		const generation = this.#cancels.get(tabId) ?? 0;
 		const cancelled = () => (this.#cancels.get(tabId) ?? 0) !== generation;
 		// A continuation held for one session and branch (a connection wait's, a fired scheduled retry's, a relaunch's)
-		// looks again when it starts and before every command it sends: a change no sync() saw (a paired device's switch on
-		// an idle tab) or one made while the omp started, or while a command took its minutes, ends it as #judge would.
-		const moved = (): boolean => {
-			const fact = since && this.#factFor(tabId);
-			return since !== undefined && fact !== undefined && this.#movedSince(fact, since);
-		};
-		// The person's prompt since this continuation started starts a run that is not its own (`#judge` cannot tell it
+		// looks again when it starts and before every command it sends (turn-resume-ends.ts `continuing`): a change no
+		// sync() saw (a paired device's switch on an idle tab), one made while the omp started, or while a command took its
+		// minutes, ends it. The person's prompt since it started begins a run that is not its own (`#judge` cannot tell it
 		// from the continuation's once the wait is gone): it sends nothing more and ends `cancelled`, so stock `retry` never
 		// lands in that run. Unlike a move this ends only this continuation: the person's run keeps its own wait, scheduled
 		// retry and marker, which `#dropWait` would take.
-		const prompted = this.#factFor(tabId)?.prompted ?? 0;
+		const since: HeldFor = { ...held, prompted: this.#factFor(tabId)?.prompted ?? 0 };
 		let personTookOver = false;
 		const calledOff = (): boolean => cancelled() || personTookOver;
 		// Also waits for a move whose command is on its way: its `touched` counts only once it answered. A move's call-off
 		// bumps the generation, so the end of this run reports `cancelled` (to Autopilot too); no second report here.
 		const stale = async (): Promise<boolean> => {
 			await this.#deps.pool.movesSettled(tabId);
-			if (moved()) this.#dropWait(tabId, false);
-			if ((this.#factFor(tabId)?.prompted ?? 0) !== prompted) personTookOver = true;
+			const end = this.#ends("continuing", since, this.#factFor(tabId));
+			if (end === "moved") this.#dropWait(tabId, false);
+			else if (end === "personsPrompt") personTookOver = true;
 			return calledOff();
 		};
 		const sidecar = (await stale()) ? null : this.#deps.pool.startTab(tabId);
