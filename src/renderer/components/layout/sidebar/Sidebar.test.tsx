@@ -4988,8 +4988,11 @@ describe("Sidebar device sections", () => {
 		});
 
 		// One rule draws both (`sidebarRows`); each path only gathers what it knows. The user's reports (23 and 29 Oct
-		// 2026) were each a row one path listed and the other did not.
-		it("draws the same rows on the host's own sidebar and on a device's section", async () => {
+		// 2026) were each a row one path listed and the other did not. It renders the whole placement matrix twice: 0.56 s
+		// alone here, 1.5 s in a shard, 2.6 s and over 5 s on ubuntu-latest (runs 40867361817 and 40878652555, the same
+		// files on a runner 1.5x slower throughout). Past the default 5 s its continuation kept rendering into the next
+		// tests' container and failed 30 more of them.
+		it("draws the same rows on the host's own sidebar and on a device's section", { timeout: 30_000 }, async () => {
 			const host = await drawnByHost();
 			pinned(host);
 			act(() => root.unmount());
