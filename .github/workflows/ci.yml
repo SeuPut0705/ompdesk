@@ -115,7 +115,7 @@ jobs:
           HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         run: |
           if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then BASE="$HEAD_SHA~1"; fi
-          node scripts/lint-fix-tests.mjs "$BASE..$HEAD_SHA"
+          bun scripts/lint-fix-tests.mjs "$BASE..$HEAD_SHA"
       - if: failure()
         run: bash scripts/ci-failure.sh
         env:
