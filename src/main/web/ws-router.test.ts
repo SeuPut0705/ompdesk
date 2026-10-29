@@ -851,6 +851,21 @@ describe("a connection ending", () => {
 		expect(r.connection.connId).not.toBe(second.connId);
 	});
 
+	// The Files-edit report store (`file-edit-reports.ts`) forgets a connection when it ends and never hears from it
+	// again only because its report reaches main inside `receive`, which an ended connection refuses. An `await` in front
+	// of the handler would let a frame read before the drop land after it, and its report would count until the window
+	// closes (formal/web-close-reports: the `SplitDispatch` mutation).
+	it("hands a Files-edit report to main within the frame, and nothing an ended connection sent after", () => {
+		const r = rig();
+		const report = (dirtyTabId: string | null) =>
+			r.frame({ t: "inv", id: 1, ch: IPC_COMMANDS.FILE_EDIT_REPORT, a: [{ dirtyTabId }] });
+		report("t1");
+		expect(r.callers.map(call => call.args)).toEqual([[{ dirtyTabId: "t1" }]]);
+		r.connection.dispose();
+		report(null);
+		expect(r.callers).toHaveLength(1);
+	});
+
 	it("lets main drop only that connection's Files-edit report: the other page's stands, none left is unreported", () => {
 		const reports = new FileEditReports();
 		const r = rig();
