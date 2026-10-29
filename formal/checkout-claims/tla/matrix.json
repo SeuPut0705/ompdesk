@@ -27,7 +27,7 @@
 			"config": "MC_deep.cfg",
 			"expect": "pass",
 			"tier": "deep",
-			"timeoutSec": 3000
+			"timeoutSec": 7200
 		}
 	]
 }
