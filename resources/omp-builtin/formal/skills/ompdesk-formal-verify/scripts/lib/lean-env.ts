@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { cacheRoot } from "./cache";
 import { run, Unavailable } from "./proc";
-import { download, extractInto, forPlatform, loadToolchain, withLock } from "./toolchain";
+import { download, extractInto, forPlatform, loadToolchain, unpackArchive, withLock } from "./toolchain";
 
 export interface LeanEnv {
 	elanHome: string;
@@ -138,8 +138,7 @@ export async function prepareLean(
 			const archive = path.join(root, "downloads", path.basename(new URL(entry.url).pathname));
 			await download(entry.url, archive, entry.sha256, { label: `Lean ${tc.lean.version}`, env, log, signal });
 			log(`unpacking Lean ${tc.lean.version} (about 3 GB on disk, about 4 GB free needed while it unpacks)`);
-			await extractInto(archive, entry.format, paths.toolchainDir, signal);
-			fs.rmSync(archive, { force: true });
+			await unpackArchive(archive, entry.format, paths.toolchainDir, signal);
 		});
 	}
 	const runEnv = leanEnv(paths.elanHome, env);

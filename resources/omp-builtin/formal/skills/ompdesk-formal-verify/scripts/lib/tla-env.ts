@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { cacheRoot } from "./cache";
 import { type RunResult, run, Unavailable } from "./proc";
-import { download, extractInto, fileMatches, forPlatform, loadToolchain, withLock } from "./toolchain";
+import { download, fileMatches, forPlatform, loadToolchain, unpackArchive, withLock } from "./toolchain";
 
 export interface JavaProbe {
 	ok: boolean;
@@ -163,8 +163,7 @@ export async function prepareTla(
 				log: options.log,
 				signal,
 			});
-			await extractInto(archive, entry.format, paths.jreDir, signal);
-			fs.rmSync(archive, { force: true });
+			await unpackArchive(archive, entry.format, paths.jreDir, signal);
 		});
 		java = await findJava(env, tc.tla.minJava, paths.jreDir);
 		if (!java) {
