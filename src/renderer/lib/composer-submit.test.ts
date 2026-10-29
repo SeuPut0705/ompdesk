@@ -429,6 +429,17 @@ describe("planComposerSubmit GUI-only routing", () => {
 		expect(omp.rpc.prompt).not.toHaveBeenCalled();
 	});
 
+	it("describes a stock command that omp advertises with its own name as the description", () => {
+		installMockOmp();
+		const merged = withGuiCommands([
+			{ name: "jobs", source: "builtin", description: "jobs" },
+			{ name: "compact", source: "builtin", description: "Compact the conversation" },
+		]);
+
+		expect(merged.find(command => command.name === "jobs")?.description).not.toBe("jobs");
+		expect(merged.find(command => command.name === "compact")?.description).toBe("Compact the conversation");
+	});
+
 	it("still sends an unknown slash command to the agent", () => {
 		const omp = installMockOmp();
 		const submit = planComposerSubmit({

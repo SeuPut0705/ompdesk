@@ -2185,7 +2185,15 @@ export function buildCurrentCommandMenu(availableCommands: AvailableCommand[]): 
 export function withGuiCommands(stock: AvailableCommand[]): AvailableCommand[] {
 	const advertised = new Set(stock.flatMap(command => [command.name, ...(command.aliases ?? [])]));
 	const gui: AvailableCommand[] = [];
-	for (const item of buildCurrentCommandMenu(stock)) {
+	const menu = buildCurrentCommandMenu(stock);
+	const described = new Map(menu.flatMap(item => (item.description ? [[item.name, item.description] as const] : [])));
+	// omp advertises some commands with their own name as the description ("/jobs jobs"); ours says what they do.
+	const named = stock.map(command =>
+		command.description === command.name
+			? { ...command, description: described.get(command.name) ?? command.description }
+			: command,
+	);
+	for (const item of menu) {
 		const kind = item.affordance.kind;
 		if (kind !== "action" && kind !== "toggle" && kind !== "picker" && kind !== "window" && kind !== "unavailable")
 			continue;
@@ -2198,7 +2206,7 @@ export function withGuiCommands(stock: AvailableCommand[]): AvailableCommand[] {
 			textModeExecutable: false,
 		});
 	}
-	return [...stock, ...gui];
+	return [...named, ...gui];
 }
 
 /** Group items into palette sections, in `COMMAND_CATEGORIES` order (empty sections omitted). */
