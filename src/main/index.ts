@@ -99,6 +99,7 @@ import type { Autopilot } from "./autopilot";
 import { type BridgeConnectResult, BridgeHealth } from "./bridge-health";
 import { CliUpdater, psCommands, registerCliUpdateIpc } from "./cli-tools/updater";
 import { answersWithin, ConnectivityMonitor, PROBE_TIMEOUT_MS } from "./connectivity";
+import { installCliLaunchers } from "./control-socket/cli-install";
 import { setupDeepLinks } from "./deep-link";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import { initDeletedSessions } from "./deleted-sessions";
@@ -724,6 +725,14 @@ app.whenReady().then(() => {
 	const initialCwd = resolveInitialCwd();
 	const explicitStartupCwd = resolveExplicitStartupCwd();
 	const bridgeDir = app.isPackaged ? join(process.resourcesPath, "gui-bridge") : join(devResourcesDir, "gui-bridge");
+	installCliLaunchers({
+		cliDir: app.isPackaged ? join(process.resourcesPath, "cli") : join(devResourcesDir, "cli"),
+		userData: app.getPath("userData"),
+		platform,
+		packaged: app.isPackaged,
+		env: process.env,
+		home: homedir(),
+	});
 	const builtinDir = app.isPackaged
 		? join(process.resourcesPath, "omp-builtin")
 		: join(devResourcesDir, "omp-builtin");
