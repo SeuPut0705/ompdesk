@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
 	chmodSync,
@@ -39,6 +39,7 @@ import { EventHub } from "./events";
 import { startControlSocket } from "./index";
 import { ControlRouter } from "./router";
 import { ControlServer } from "./server";
+import { pipeDaclProblem, readPipeDacl, secureFolder } from "./windows-acl";
 
 const posix = process.platform !== "win32";
 
@@ -620,6 +621,62 @@ describe("control socket", () => {
 			expect(dir.startsWith(tmpdir())).toBe(true);
 			expect(controlEndpoint(long).dir).toBe(dir);
 			expect(controlEndpoint(join(userData, "q".repeat(100))).dir).not.toBe(dir);
+		});
+	});
+
+	// Real Windows access control, run by `test:platform` on the Windows runner (windows-acl.ts).
+	describe.skipIf(posix)("Windows access control", () => {
+		const icacls = (...args: string[]) =>
+			execFileSync(join(process.env.SystemRoot ?? "C:\\Windows", "System32", "icacls.exe"), args, {
+				encoding: "utf8",
+				windowsHide: true,
+			});
+
+		it("makes the pipe this user's alone and closed to network logons before it publishes the name", async () => {
+			const { handle, token } = await start();
+			try {
+				const { sddl, me } = await readPipeDacl(handle.socket);
+				expect(me).toMatch(/^S-1-5-21-/);
+				expect(pipeDaclProblem(sddl, me), sddl).toBeNull();
+				// This user still connects and authenticates through the new DACL.
+				const client = await open(handle.socket);
+				client.send({ id: 1, method: "hello", token, protocol: CONTROL_PROTOCOL_VERSION });
+				expect(await client.next()).toMatchObject({ id: 1, ok: true });
+			} finally {
+				await handle.close();
+			}
+		});
+
+		it("makes a control folder open to everyone private again and replaces the token it held", async () => {
+			const dir = join(userData, "control");
+			mkdirSync(dir);
+			const token = randomBytes(32).toString("hex");
+			writeFileSync(join(dir, TOKEN_FILE), token);
+			icacls(dir, "/grant", "*S-1-1-0:(OI)(CI)R");
+			const { handle, token: used } = await start();
+			try {
+				expect(used).not.toBe(token);
+				expect(icacls(dir)).not.toMatch(/Everyone|S-1-1-0/);
+				expect(await secureFolder(dir, join(dir, TOKEN_FILE))).toBe("ok");
+			} finally {
+				await handle.close();
+			}
+			// Private already: the next start keeps the token.
+			const again = await start();
+			await again.handle.close();
+			expect(again.token).toBe(used);
+		});
+
+		it("does not start in a control folder another user owns", async () => {
+			const lines: string[] = [];
+			const handle = await startControlSocket({
+				userData,
+				backend: new FakeBackend(),
+				log: line => lines.push(line),
+				powershell: async () => "foreign",
+			});
+			expect(handle).toBeNull();
+			expect(lines.join("")).toContain("owned by another user");
 		});
 	});
 
