@@ -1,0 +1,254 @@
+2026-10-18-bb6a5b225c55#0/0 complete ok | 3 commands · 30m 7s |  | board: -
+2026-10-18-bb6a5b225c55#0/1 complete ok | 1 file changed +12 −15 · 18.7s | changes=1 file changed | board: -
+2026-10-18-bb6a5b225c55#1/0 failed ok | 1 failed · 1 file changed +14 −11 · tests passed · lint clean · 2 commands · 1m 49s | error=Error ; changes=1 file changed ; tests=tests passed ; check-lint=lint clean | board: passed lint toolu_01SLNqvwa8BD6ipT7zUeXe9K
+2026-10-18-bb6a5b225c55#2/0 complete ok | 1 file changed +1 −1 · 1 command · 6.5s | changes=1 file changed | board: -
+2026-10-18-bbe29016985a#0/0 complete ok | 1 file changed · 4 commands · 1m 52s | changes=1 file changed | board: -
+2026-10-18-bbe29016985a#1/0 failed ok | 1 failed · 3 files changed +51 −7 · 5 commands · 1m 14s | error=Error ; changes=3 files changed | board: -
+2026-10-18-bbe29016985a#2/0 failed ok | 3 failed · 3 files changed +47 −7 · 4 commands · 1m 6s | error=Error ; changes=3 files changed | board: -
+2026-10-18-bbe29016985a#3/0 complete ok | 5 files changed +25 −10 · 9 tests passed · 3 commands · 1m 35s | changes=5 files changed ; tests=9 tests passed | board: failed test 4 toolu_01Y8rmbHqWBprVy2dibYLfJt
+2026-10-18-bbe29016985a#4/0 complete RED | 1 file changed +1 −0 · tests failed · lint clean · 2 commands · 10m 55s | error=tests failed: error: interrupted ; changes=1 file changed ; check-lint=lint clean | board: failed test toolu_01QYHZRpsMBFfSpL7PLar1SM
+2026-10-18-bbe29016985a#4/1 complete ok | 2 files changed +85 −15 · tests passed · 1 command · 1m 1s | changes=2 files changed ; tests=tests passed | board: passed test toolu_01NojDwoZq1UR8bATuN4WaRE
+2026-10-18-bbe29016985a#5/0 complete ok | 1 file changed +7 −5 · 184 tests passed · 7 commands · 1m 28s | changes=1 file changed ; tests=184 tests passed | board: passed test 184 toolu_01QVRvAnjo13MrGptwGhi3Nn
+2026-10-18-f55a6766f7fd#0/0 complete ok | 6 commands · 55.2s | skills=Skills used: ompdesk | board: -
+2026-10-18-f55a6766f7fd#1/0 complete ok | 6 files changed +25 −1 · 1 command · 1m 3s | changes=6 files changed | board: -
+2026-10-18-f55a6766f7fd#2/0 complete RED | 8 files changed +1 −0 · 1 test failed · 2 commands · 1m 40s | error=1 test failed: ❯ |node| src/main/agent-control/skill-drift.test.ts (4 tests | 1 failed) 5ms ; changes=8 files changed | board: failed test 1 toolu_01Grc9dYQQrBZqMUxPh2wR4z
+2026-10-18-f55a6766f7fd#3/0 complete RED | 2 files changed +3 −1 · 2 tests failed · 6 commands · 2m 49s | error=2 tests failed: × ompdesk skill matches the host tools > names only defined tools, and the kernel names every one 3ms ; unknown=Status unknown ; changes=2 files changed | board: failed test 2 toolu_016VWuZuKQYKjShY7DQdhP3w
+2026-10-18-f55a6766f7fd#4/0 failed ok | 1 failed · 8 commands · 24m 1s | error=cat failed: cd /tmp/orca-skill-results && grep -h -A4 "# Error details" */error-context.md | head -12; ls ~/.omp/wt/gui-orca-skill-540bd7d/node_modules/electron/dist; cat ~/.omp/wt/gui-orca-skill-540bd7d/node_modules/electron/path.txt: # Error details | board: -
+2026-10-19-1852d6c5e4a9#0/0 complete ok | 1 file changed · 1 command · 1m 58s | changes=1 file changed ; skills=Skills used: poteto-mode | board: -
+2026-10-19-1852d6c5e4a9#1/0 complete ok | 14 steps · 3m 20s |  | board: -
+2026-10-19-1852d6c5e4a9#2/0 complete ok | 1 file changed +1 −0 · 13 tests passed · 3 commands · 7m 59s | unknown=Status unknown ; changes=1 file changed ; tests=13 tests passed | board: running test toolu_01GyF7mnDczoz53CBFoKa8x6
+2026-10-19-1852d6c5e4a9#3/0 complete ok | tests passed · 4 commands · 3m 24s | tests=tests passed | board: passed test toolu_01A6YJG9E2gMnGJBMSbT5g5y
+2026-10-19-1852d6c5e4a9#4/0 failed ok | 2 failed · 1 test failed · 5 commands · 4m 42s | error=1 test failed: ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯ ; more-failed=+1 more failed | board: failed test 1 toolu_01HXVEj2cFqtoWsDNk2wEnm1
+2026-10-19-1852d6c5e4a9#5/0 complete ok | 3 steps · 13.4s |  | board: -
+2026-10-19-1852d6c5e4a9#5/1 complete ok | 27 tests passed · lint clean · 3 commands · 31.6s | tests=27 tests passed ; check-lint=lint clean | board: passed lint toolu_01GD5FU2u6bhNFNQfRz2BZaK
+2026-10-19-4639a7a1ccae#0/0 failed ok | 2 failed · 1 file changed +13 −3 · 4 commands · 1m 8s | error=git status failed: git status -sb && git log --oneline -3 && ls scripts .ompdesk 2>&1: ls: cannot access '.ompdesk': No such file or directory ; changes=1 file changed ; skills=Skills used: figure-it-out | board: -
+2026-10-19-4639a7a1ccae#1/0 complete ok | 3 files changed +13 −1 · 12 tests passed · lint clean · 6 commands · 4m 53s | changes=3 files changed ; tests=12 tests passed ; check-lint=lint clean | board: passed lint toolu_01Qu7sfYixyQkfjwuJdKCcSg
+2026-10-19-4639a7a1ccae#2/0 complete ok | 2 files changed +10 −0 · 8 commands · 3m 44s | changes=2 files changed | board: -
+2026-10-19-4639a7a1ccae#3/0 failed ok | 2 failed · 7 commands · 6m 54s | error=python3 failed: grep -rn "^<<<<<<<\|^>>>>>>>" .github AGENTS.md scripts docs; bun -e 'require("yaml")' 2>/dev/null; python3 -c "import yaml;yaml.safe_load(open('.github/workflows/release.yml'));print('yaml ok')" && git commit -qam "ci: drop the merge markers the Playwright-browsers commit left in release.yml" && git fetch -q && git rebase -q origin/main && git push origin HEAD:main 2>&1 | tail -1: ModuleNotFoundError: No module named 'yaml' ; unknown=Status unknown | board: -
+2026-10-19-4639a7a1ccae#4/0 complete ok | 4 steps · 1m 45s |  | board: -
+2026-10-19-4639a7a1ccae#4/1 complete ok | 2 files changed +8 −1 · 6 commands · 6m 8s | unknown=Status unknown ; changes=2 files changed | board: running lint toolu_01MfZJFqRNbfpKw8NYe7MaJj
+2026-10-19-4639a7a1ccae#5/0 complete ok | 1 step · 1m 50s |  | board: -
+2026-10-19-4639a7a1ccae#5/1 failed ok | 1 failed · 1 file changed +2 −1 · 3 commands · 34.8s | error=git commit failed: sed -n 4,13p docs/windows-dev.md; git commit -qam "docs(windows-dev): put the Developer Mode step in the setup list" && git fetch -q && git rebase -q origin/main && git push -q origin HEAD:main && git log --oneline -1: nothing to commit, working tree clean ; changes=1 file changed | board: -
+2026-10-19-4639a7a1ccae#5/2 complete ok | 3 steps · 6.8s |  | board: -
+2026-10-19-4639a7a1ccae#5/3 complete ok | 1 search · 3.8s |  | board: -
+2026-10-19-4639a7a1ccae#6/0 complete ok | 2 files changed +23 −19 · 12 tests passed · 5 commands · 4m 38s | changes=2 files changed ; tests=12 tests passed | board: passed test 12 toolu_013tGMWg7xZY6TivTx4XFHkD
+2026-10-19-5a29ab28ef38#0/0 complete ok | 6 commands · 38.6s |  | board: -
+2026-10-19-5a29ab28ef38#1/0 complete ok | 3 files changed +0 −5 · tests passed · 1 command · 52.1s | changes=3 files changed ; tests=tests passed | board: passed test toolu_01ExhcPnH7L57d57JxD98Ekx
+2026-10-19-5a29ab28ef38#1/1 complete ok | 4 commands · 23.7s |  | board: passed test toolu_01ExhcPnH7L57d57JxD98Ekx
+2026-10-19-5a29ab28ef38#2/0 complete ok | 1 file changed · 6 commands · 4m 14s | changes=1 file changed | board: -
+2026-10-19-5a29ab28ef38#3/0 complete ok | 7 files changed +3 −20 · 3 commands · 52.5s | unknown=Status unknown ; changes=7 files changed | board: -
+2026-10-19-5a29ab28ef38#4/0 failed ok | 1 failed · 2 files changed +1 −2 · tests passed · 4 commands · 3m 7s | error=sed failed: sed -i '' 's/, message: t("command.compactedMessage") });/ });/' src/renderer/components/chat/TurnErrorNotice.tsx src/renderer/lib/command-registry.ts && grep -rn 'compactedMessage\|approval\.waiting"' src e2e | grep -v locales: (no output) ; changes=2 files changed ; tests=tests passed | board: passed test toolu_01AhXkK3a3EduwBuywZZzXBR
+2026-10-19-5a29ab28ef38#5/0 complete RED | type check failed · tests passed · 7 commands · 3m 56s | error=type check failed: src/renderer/components/chat/TurnErrorNotice.tsx(130,10): error TS2345: Argument of type '{ variant: "success"; title: string; }' is not as… ; tests=tests passed | board: failed typecheck toolu_01XL9RXmEMh1xd8PKpatkG97
+2026-10-19-5a29ab28ef38#6/0 complete ok | 1 step · 10.8s |  | board: -
+2026-10-19-5a29ab28ef38#6/2 complete ok | 3 files changed +19 −17 · 3 commands · 1m 27s | unknown=Status unknown ; changes=3 files changed | board: running test toolu_01GStW7MvPeP8Hh8fDjEKjTz
+2026-10-19-5a29ab28ef38#7/0 complete ok | 1 command · 1m 57s |  | board: -
+2026-10-19-67c3e8c90895#0/0 complete ok | 3 commands · 44.9s | skills=Skills used: figure-it-out | board: -
+2026-10-19-67c3e8c90895#1/0 complete ok | 3 files changed +14 −4 · 1m 1s | changes=3 files changed | board: -
+2026-10-19-67c3e8c90895#10/0 complete RED | 1 file changed +213 −50 · type check failed · 2m 3s | error=type check failed: src/main/agent-control/host.test.ts(52,3): error TS2739: Type '{ tabsForWindow: () => IpcTabInfo[]; tabFacts: (tabId: string) => { title: s… ; changes=1 file changed | board: failed typecheck toolu_01VC11rM9xqvNmgNYXSS3hVK
+2026-10-19-67c3e8c90895#11/0 complete ok | 5 files changed +143 −10 · 76 tests passed · 1 command · 1m 56s | changes=5 files changed ; tests=76 tests passed | board: passed test 76 toolu_019PN32zUPaDBtkh7DyG8vPM
+2026-10-19-67c3e8c90895#12/0 complete RED | 4 files changed +21 −17 · 6 tests failed · 3 commands · 1m 15s | error=6 tests failed: × ompdesk skill matches the host tools > documents every parameter 5ms ; changes=4 files changed ; skills=Skills used: ompdesk | board: failed test 6 toolu_01LhfM5391zo8iTDMcDvT3Kx
+2026-10-19-67c3e8c90895#13/0 complete ok | 4 files changed +19 −6 · 47 tests passed · lint clean · 2 commands · 2m 27s | changes=4 files changed ; tests=47 tests passed ; check-lint=lint clean | board: passed lint toolu_01QMaZwrR8Eucq3Txw7hEjNv
+2026-10-19-67c3e8c90895#14/0 complete RED | 1 test failed · 6 commands · 2m 3s | error=1 test failed: ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯ | board: failed test 1 toolu_012gxPi9eJsCaFtUtvegp9YZ
+2026-10-19-67c3e8c90895#15/0 complete ok | 2 files changed +18 −0 · 7 commands · 1m 16s | changes=2 files changed | board: -
+2026-10-19-67c3e8c90895#16/0 complete ok | 3 files changed +62 −7 · lint clean · 3 commands · 2m 7s | changes=3 files changed ; check-lint=lint clean | board: passed lint toolu_015fZUGwem8mDM6H1kfAbqQw
+2026-10-19-67c3e8c90895#17/0 failed ok | 1 failed · 3 files changed +16 −1 · 76 tests passed · 5 commands · 1m 18s | error=git add failed: bunx biome check src e2e resources scripts 2>&1 | tail -3; git add -A && git commit -q -m "fix(agent-control): saved sessions an agent opened read as their task, not the agent-message wrapper; docs: AGENTS.md maps the control tools across windows, devices and saved sessions; test: opt-in real-omp judge, saved read and reopen" && git fetch -q origin && git rebase -q origin/main && bun run check:types 2>&1 | tail -2 && git push -q origin HEAD:main && git log --oneline -4: error: could not apply eb4cd2e6... feat(agent-control): sessions across windows, paired devices and saved sessions; reopen; judged compare;… ; changes=3 files changed ; tests=76 tests passed ; skills=Skills used: resolving-merge-conflicts | board: passed test 76 toolu_01FzYPR4gb2co1KzUVD6PL7m
+2026-10-19-67c3e8c90895#18/0 complete ok | 2 files changed +4 −0 · 2 commands · 55.4s | changes=2 files changed | board: -
+2026-10-19-67c3e8c90895#19/0 complete ok | 2 files changed +0 −3 · 393 tests passed · lint clean · 3 commands · 1m 15s | unknown=Status unknown ; changes=2 files changed ; tests=393 tests passed ; check-lint=lint clean | board: running test toolu_01VUWJLATuhiY8QNmTjznjNx
+2026-10-19-67c3e8c90895#19/1 complete ok | Read 1 file · 1 search · 10.4s |  | board: running test toolu_01VUWJLATuhiY8QNmTjznjNx
+2026-10-19-67c3e8c90895#19/2 complete ok | 1 search · 9.8s |  | board: running test toolu_01VUWJLATuhiY8QNmTjznjNx
+2026-10-19-67c3e8c90895#2/0 complete ok | 1 command · 36.4s |  | board: -
+2026-10-19-67c3e8c90895#20/0 failed ok | 1 failed · 1 file changed +6 −65 · 2 commands · 1m 5s | error=git stash failed: git stash -q && git fetch -q && git rebase -q origin/main && git push -q origin HEAD:main && git log --oneline -1 && git stash pop -q && git status --short | head: No stash entries found. ; changes=1 file changed | board: -
+2026-10-19-67c3e8c90895#21/0 complete ok | 6 files changed +16 −57 · 56.5s | changes=6 files changed | board: -
+2026-10-19-67c3e8c90895#22/0 failed ok | 2 failed · 2 files changed +17 −67 · type check failed · 2 commands · 1m 27s | error=type check failed: src/main/agent-control/service.test.ts(5,2): error TS2305: Module '"../../shared/agent-control"' has no exported member 'MAX_AGENT_AUTOPILO… ; changes=2 files changed | board: failed typecheck toolu_01PSxLz4nrbjwxF7ohHq9Pn3
+2026-10-19-67c3e8c90895#23/0 complete ok | 7 files changed +10 −15 · 254 tests passed · 4 commands · 1m 4s | changes=7 files changed ; tests=254 tests passed ; skills=Skills used: ompdesk | board: passed test 254 toolu_019uU8mQaG5jd1G3tv8jThXg
+2026-10-19-67c3e8c90895#24/0 complete ok | 1 file changed +1 −1 · 4 commands · 1m 19s | changes=1 file changed | board: -
+2026-10-19-67c3e8c90895#24/1 complete ok | 4 commands · 51.0s |  | board: -
+2026-10-19-67c3e8c90895#25/0 complete ok | 3 files changed +59 −0 · 1 command · 1m 21s | changes=3 files changed | board: -
+2026-10-19-67c3e8c90895#26/0 complete RED | 4 files changed +157 −6 · type check failed · 1m 31s | error=type check failed: src/main/agent-control/host.ts(484,3): error TS2739: Type '{ enabled: () => boolean; approveEnabled: () => boolean; manageEnabled: () => bo… ; changes=4 files changed | board: failed typecheck toolu_012i9nPUvqNa8357dbfGD8Db
+2026-10-19-67c3e8c90895#3/0 complete ok | 3 commands · 1m 3s |  | board: -
+2026-10-19-67c3e8c90895#4/0 complete ok | 3 files changed +29 −0 · 1m 3s | changes=3 files changed | board: -
+2026-10-19-67c3e8c90895#5/0 complete ok | 4 files changed +27 −14 · 44.3s | changes=4 files changed | board: -
+2026-10-19-67c3e8c90895#6/0 complete ok | 5 files changed +47 −3 · 2 commands · 41.8s | changes=5 files changed | board: -
+2026-10-19-67c3e8c90895#7/0 complete ok | 2 files changed +143 −25 · 1m 15s | changes=2 files changed | board: -
+2026-10-19-67c3e8c90895#8/0 failed ok | 1 failed · 3 files changed +156 −37 · 1m 43s | error=Error ; changes=3 files changed | board: -
+2026-10-19-67c3e8c90895#9/0 complete ok | 2 files changed +232 −26 · 1m 24s | changes=2 files changed | board: -
+2026-10-19-69975e3c02b8#0/0 failed ok | 1 failed · 3 commands · 30.9s | error=ls node_modules failed: git log --oneline -3 && git status --short | head; ls node_modules >/dev/null 2>&1 && echo deps-ok: b33e1c61 perf(i18n): each UI language is its own lazy chunk; the entries (main.tsx, the pair screen) render once the current one has loaded… ; skills=Skills used: poteto-mode | board: -
+2026-10-19-69975e3c02b8#0/1 complete ok | Read 1 file · 1 search · 4.0s |  | board: -
+2026-10-19-69975e3c02b8#1/0 complete ok | 3 commands · 2m 48s |  | board: -
+2026-10-19-69975e3c02b8#10/0 complete ok | 3 files changed +27 −2 · 20 tests passed · 6 commands · 1m 4s | changes=3 files changed ; tests=20 tests passed | board: passed test 20 toolu_01DP5y4DyBftrB1ijLYxTJ8n
+2026-10-19-69975e3c02b8#11/0 complete ok | 2 files changed +3 −3 · 6 tests passed · 2 commands · 1m 35s | changes=2 files changed ; tests=6 tests passed | board: passed test 6 toolu_0119rn7JSAdJfP3L8pvgpgaN
+2026-10-19-69975e3c02b8#2/0 complete ok | 3 files changed +5 −0 · 3 commands · 1m 24s | changes=3 files changed | board: -
+2026-10-19-69975e3c02b8#3/0 complete ok | 6 files changed +19 −0 · 2 commands · 46.7s | changes=6 files changed | board: -
+2026-10-19-69975e3c02b8#4/0 complete ok | 6 files changed +42 −7 · 2 commands · 49.3s | changes=6 files changed | board: -
+2026-10-19-69975e3c02b8#5/0 complete ok | 4 files changed +70 −13 · tests passed · 3 commands · 50.3s | changes=4 files changed ; tests=tests passed | board: passed test toolu_014Peefw1CXNkN6PTKMzbXKf
+2026-10-19-69975e3c02b8#6/0 complete ok | 3 files changed +41 −0 · 6 commands · 50.6s | changes=3 files changed | board: -
+2026-10-19-69975e3c02b8#7/0 complete ok | 2 files changed +27 −4 · 5 tests passed · 7 commands · 1m 47s | changes=2 files changed ; tests=5 tests passed | board: passed test 5 toolu_01NY7kv5eZj9pBRGBHEuWqhN
+2026-10-19-69975e3c02b8#8/0 complete ok | 2 files changed +6 −0 · 3608 tests passed · 3 commands · 1m 30s | changes=2 files changed ; tests=3608 tests passed | board: passed test 3608 toolu_01BpZjvwmQAr6PrXe6NehUcq
+2026-10-19-69975e3c02b8#9/0 complete ok | 4 files changed +30 −1 · tests passed · 4 commands · 46.5s | changes=4 files changed ; tests=tests passed | board: passed test toolu_01EkT6SDSRzasZX9pVt5yoT5
+2026-10-19-6e66725509ba#0/0 failed ok | 1 failed · 6 commands · 3m 0s | error=ls node_modules failed: git log --oneline -5 && git status --short | head -20; ls node_modules >/dev/null 2>&1 && echo deps-ok: 5b509c23 build(lock): one semaphore per kind of heavy work instead of one machine-wide lock ; skills=Skills used: poteto-mode | board: -
+2026-10-19-6e66725509ba#0/1 complete ok | 2 steps · 2m 4s |  | board: -
+2026-10-19-6e66725509ba#1/0 complete ok | 3 steps · 24m 26s |  | board: -
+2026-10-19-6e66725509ba#1/1 complete RED | 1 test failed · 1 command · 12m 1s | error=1 test failed: × Korean coverage of installed stock settings > has an explicit Korean entry for every UI setting, group and option text 190ms | board: failed test 1 toolu_0179GMcpgtd1gRqFYnV4ejvW
+2026-10-19-6e66725509ba#1/2 complete ok | 3 steps · 40.9s |  | board: failed test 1 toolu_0179GMcpgtd1gRqFYnV4ejvW
+2026-10-19-6e66725509ba#1/3 complete ok | 4 steps · 4m 9s |  | board: failed test 1 toolu_0179GMcpgtd1gRqFYnV4ejvW
+2026-10-19-6e66725509ba#2/0 complete ok | 2 steps · 12m 22s |  | board: -
+2026-10-19-6e66725509ba#2/1 complete ok | 2 steps · 2m 19s |  | board: -
+2026-10-19-6e66725509ba#2/2 complete ok | 1 command · 16.3s |  | board: -
+2026-10-19-a96c123092ad#0/0 complete ok | 2 files changed +6 −9 · tests passed · 7 commands · 1m 37s | changes=2 files changed ; tests=tests passed | board: passed test toolu_016bGP25yWBfwkhzx6aNfGvs
+2026-10-19-a96c123092ad#1/0 complete ok | 1 command · 14.2s |  | board: -
+2026-10-19-a96c123092ad#1/1 complete ok | 6 commands · 26.5s |  | board: -
+2026-10-19-a96c123092ad#2/0 complete ok | 10 commands · 2m 40s |  | board: -
+2026-10-19-a96c123092ad#3/0 complete RED | 3 files changed +15 −7 · tests failed · 4 commands · 2m 5s | error=tests failed: [check:changed] ✗ vitest (exit 1) ; changes=3 files changed | board: failed test toolu_01RWdKqcRfsobGNUd22BDrbE
+2026-10-19-a96c123092ad#4/0 complete ok | tests passed · 3 commands · 4m 22s | tests=tests passed | board: passed test toolu_01GxmhkFxHmqB92CLubBRHtp
+2026-10-19-a96c123092ad#4/1 complete ok | 1 file changed +8 −2 · 1 command · 16.8s | changes=1 file changed | board: passed test toolu_01GxmhkFxHmqB92CLubBRHtp
+2026-10-19-a96c123092ad#5/0 complete ok | 1 file changed +3 −2 · 5 commands · 6m 6s | changes=1 file changed | board: -
+2026-10-19-a96c123092ad#6/0 complete ok | 1 file changed +9 −9 · 3 commands · 4m 38s | changes=1 file changed | board: -
+2026-10-19-a96c123092ad#7/0 complete ok | 4 commands · 9m 7s |  | board: -
+2026-10-19-a96c123092ad#8/1 interrupted ok | 1 file changed +9 −0 · lint clean · 5 commands · 46.9s | changes=1 file changed ; check-lint=lint clean | board: passed lint toolu_018ZD2ko87eiqnaAN8EuY4N9
+2026-10-19-d740cf9c21fa#0/0 complete ok | 7 commands · 1m 5s | unknown=Status unknown ; skills=Skills used: poteto-mode | board: -
+2026-10-19-d740cf9c21fa#1/0 complete ok | 2 files changed +3 −7 · 6 commands · 1m 4s | unknown=Status unknown ; changes=2 files changed | board: -
+2026-10-19-d740cf9c21fa#10/0 failed ok | 1 failed · 1 file changed +4 −1 · 8 commands · 3m 9s | error=ls failed: cd /tmp/autopilot-audit/pw-e2e; for d in */; do [ -f "$d/error-context.md" ] && echo "== $d" && grep -m3 -iE "error|expect|locator" "$d/error-context.md" | head -3; done; ls */test-failed* 2>/dev/null: # Error details ; unknown=Status unknown ; changes=1 file changed | board: -
+2026-10-19-d740cf9c21fa#11/0 complete ok | tests passed · 2 commands · 3m 37s | tests=tests passed | board: passed test toolu_013keXFE2pYXsHdXauaViaZu
+2026-10-19-d740cf9c21fa#11/1 complete ok | 1 command · 28.3s |  | board: passed test toolu_013keXFE2pYXsHdXauaViaZu
+2026-10-19-d740cf9c21fa#12/0 complete ok | Read 1 file · 2.2s |  | board: -
+2026-10-19-d740cf9c21fa#12/1 complete ok | 2 files changed +51 −7 · 3 commands · 59.8s | changes=2 files changed | board: -
+2026-10-19-d740cf9c21fa#13/0 failed ok | 1 failed · 3 files changed +60 −25 · 52 tests passed · 4 commands · 1m 15s | error=Error ; changes=3 files changed ; tests=52 tests passed | board: failed test 1 toolu_013ss1xi79tGf3sXVHhim6JA
+2026-10-19-d740cf9c21fa#14/0 failed ok | 1 failed · 3 files changed +30 −2 · 7 tests failed · 4 commands · 1m 13s | error=7 tests failed: × restart > a run on a branch the user picked goes on on that branch: the journal's branch is what is armed and pushed to 124ms ; changes=3 files changed | board: failed test 7 toolu_01PbBJpc5caBYsExE9kPZACL
+2026-10-19-d740cf9c21fa#15/0 complete RED | 4 files changed +29 −15 · type check failed · 89 tests passed · 4 commands · 1m 25s | error=type check failed: src/renderer/components/panels/autopilot/AreaMix.tsx(95,7): error TS2304: Cannot find name 'SettingInfo'. ; changes=4 files changed ; tests=89 tests passed | board: failed typecheck toolu_01PwZET7Jouv5iJ6qjFqhMer
+2026-10-19-d740cf9c21fa#16/0 complete RED | 4 files changed +15 −9 · 1 test failed · 4 commands · 2m 7s | error=1 test failed: ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯ ; changes=4 files changed | board: failed test 1 toolu_01MoEP8qZUe6jo5QAZUXNYBs
+2026-10-19-d740cf9c21fa#17/0 complete ok | 1 file changed · 9 commands · 5m 10s | changes=1 file changed | board: -
+2026-10-19-d740cf9c21fa#18/0 complete ok | 2 files changed +11 −6 · tests passed · 6 commands · 3m 17s | changes=2 files changed ; tests=tests passed | board: failed test 22 toolu_01FzcFHBooiyriuRVnjB1VVY
+2026-10-19-d740cf9c21fa#19/0 complete ok | 10 commands · 1m 4s |  | board: -
+2026-10-19-d740cf9c21fa#2/0 complete ok | 2 files changed +10 −10 · build OK · 7 commands · 1m 11s | unknown=Status unknown ; changes=2 files changed ; check-build=build OK | board: passed build toolu_01L9fx9WFkV8zxpZxksDu4vC
+2026-10-19-d740cf9c21fa#20/0 failed ok | 1 failed · 2 files changed +20 −0 · type check failed · 6 commands · 1m 21s | error=type check failed: src/main/autopilot.test.ts(193,8): error TS2741: Property 'noteSessionName' is missing in type '{ sidecarOf: (tab: string) => SidecarLike |… ; changes=2 files changed | board: failed typecheck toolu_01Caaxpn9Mt23cdNon92LRJn
+2026-10-19-d740cf9c21fa#21/0 complete ok | 2 files changed +10 −0 · 193 tests passed · 8 commands · 4m 7s | changes=2 files changed ; tests=193 tests passed | board: passed test 193 toolu_01QyUoPLuF4gV8QsFrtDfEya
+2026-10-19-d740cf9c21fa#22/0 interrupted ok | tests passed · 2 commands · 57.1s | tests=tests passed | board: passed test toolu_01JdRdkGjzzWzVtx2H3ByVR6
+2026-10-19-d740cf9c21fa#3/0 complete ok | 3 files changed +19 −16 · 3 commands · 1m 2s | changes=3 files changed | board: -
+2026-10-19-d740cf9c21fa#4/0 complete RED | 3 files changed +51 −15 · 2 tests failed · 2 commands · 1m 47s | error=2 tests failed: ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯ ; changes=3 files changed | board: failed test 2 toolu_01PAaBTFhQYahD47gZ4yZAEq
+2026-10-19-d740cf9c21fa#5/0 complete ok | 1 file changed +3 −2 · 6 commands · 49.0s | changes=1 file changed | board: -
+2026-10-19-d740cf9c21fa#6/0 complete ok | 12 files changed +19 −127 · 2 commands · 1m 36s | changes=12 files changed | board: -
+2026-10-19-d740cf9c21fa#7/0 complete RED | 3 files changed +25 −156 · 9 tests failed · type check failed · 2 commands · 1m 12s | error=9 tests failed: × Autopilot settings rows > shipping starts at local only and writes a whole policy for the chosen preset 15ms ; more-failed=+1 more failed ; changes=3 files changed | board: failed test 9 toolu_01GFbU95De6QjFKJS57kTNB5
+2026-10-19-d740cf9c21fa#8/0 complete RED | 2 files changed +52 −77 · tests failed · lint clean · 2 commands · 1m 39s | error=tests failed: × Some errors were emitted while running checks. ; changes=2 files changed ; check-lint=lint clean | board: failed test toolu_013DT3zNN5iseuAE7JoERHiV
+2026-10-19-d740cf9c21fa#9/0 failed ok | 1 failed · 2 files changed +3 −3 · lint clean · 4 commands · 2m 33s | error=Error ; unknown=Status unknown ; changes=2 files changed ; check-lint=lint clean | board: running test toolu_01Lgxu4pyXm5qBpbh81bPQ81
+2026-10-19-dacd4ae11162#0/0 complete ok | 3 commands · 31.4s | skills=Skills used: poteto-mode | board: -
+2026-10-19-dacd4ae11162#0/1 complete ok | 1 command · 38.2s |  | board: -
+2026-10-19-dacd4ae11162#1/0 complete RED | 2 files changed +105 −22 · 1 test failed · 2 commands · 1m 22s | error=1 test failed: ✓ LocalHostServices > daily limits beyond the first ten commands > counts a benchmark by its model runs and a model setup as one request, r… ; changes=2 files changed | board: failed test 1 toolu_01SfTd6Se6xYfRjHiVZoZCcy
+2026-10-19-dacd4ae11162#10/0 complete RED | 1 file changed +19 −0 · 1 test failed · 1 command · 50.3s | error=1 test failed: × LocalHostServices > deletes only after every one of the device's duplicate omps on the file has exited, in any order 6ms ; changes=1 file changed | board: failed test 1 toolu_01VbRjHCXgTft7W2mSBFRLMD
+2026-10-19-dacd4ae11162#2/0 complete ok | tests passed · 3 commands · 1m 4s | tests=tests passed | board: failed test 3 toolu_01PHVhFkaXKm3MwLSoWN8bhK
+2026-10-19-dacd4ae11162#3/0 complete RED | 5 commands · 10m 52s | error=git add failed: git add src/main/remote/host-services.test.ts && git commit -qm "test(remote): one host tab and one omp per session file: a second rtab, a concurrent or reconnect-racing open, and a tab moving onto a held file (fail first)" && git add src/main/remote/host-services.ts AGENTS.md && git commit -qm "fix(remote): a host never runs two omps on one session file: refuse an open of a file another tab holds (same connection or another device), re-check after the open's awaits, and stop the duplicate when a tab moves onto a held file" && git fetch -q origin && git rebase -q origin/main && git push -q origin HEAD:main && git log --oneline -2: error: could not apply a45a556c... fix(remote): a host never runs two omps on one session file: refuse an open of a file another tab holds … | board: -
+2026-10-19-dacd4ae11162#3/1 failed ok | 1 failed · 2 commands · 33.1s |  | board: -
+2026-10-19-dacd4ae11162#4/0 complete ok | 2 steps · 6.9s |  | board: -
+2026-10-19-dacd4ae11162#4/1 complete RED | 2 files changed +51 −11 · 1 test failed · 2 commands · 58.5s | error=1 test failed: × LocalHostServices > deletes a session the device's own tabs still hold from an earlier connection or as a duplicate, never one running a … ; changes=2 files changed | board: failed test 1 toolu_01JZUxHcGWbsMy65FCzYdnzj
+2026-10-19-dacd4ae11162#5/0 complete ok | 7 commands · 50.3s |  | board: -
+2026-10-19-dacd4ae11162#6/0 complete ok | 1 file changed +36 −0 · 5 tests passed · 6 commands · 1m 1s | changes=1 file changed ; tests=5 tests passed | board: passed test 5 toolu_01BdHMyNyNRqUMsFoL6cdDZm
+2026-10-19-dacd4ae11162#7/0 complete ok | 1 file changed +35 −5 · 5 commands · 2m 30s | changes=1 file changed | board: -
+2026-10-19-dacd4ae11162#8/0 complete ok | 1 file changed +2 −5 · lint clean · 5 commands · 2m 24s | changes=1 file changed ; check-lint=lint clean | board: passed lint toolu_01BqQJehR4EyCDdJfVQXaknC
+2026-10-19-dacd4ae11162#9/0 complete ok | tests passed · 4 commands · 1m 37s | tests=tests passed | board: passed test toolu_013NohM1yP2Djvb1rXoe3oTm
+2026-10-19-dacd4ae11162#9/1 complete ok | 1 file changed +9 −6 · 1 command · 13.7s | changes=1 file changed | board: passed test toolu_013NohM1yP2Djvb1rXoe3oTm
+2026-10-19-e4fd490cdc25#0/0 complete ok | 12 commands · 1m 22s | unknown=Status unknown | board: -
+2026-10-19-e4fd490cdc25#1/0 complete ok | 1 step · 2m 32s |  | board: -
+2026-10-19-e4fd490cdc25#1/1 complete ok | 8 commands · 8m 30s |  | board: -
+2026-10-19-e4fd490cdc25#2/0 complete ok | 548 tests passed · lint clean · 10 commands · 3m 22s | tests=548 tests passed ; check-lint=lint clean | board: passed test 548 toolu_01VEFAgcahH74uvG9gaEEQLC
+2026-10-19-e4fd490cdc25#3/0 complete ok | 548 tests passed · 8 commands · 3m 22s | tests=548 tests passed | board: passed test 548 toolu_01DgvV4fHTd58JkokcM3FTtb
+2026-10-19-e4fd490cdc25#4/0 complete ok | 11 commands · 10m 5s |  | board: -
+2026-10-19-e4fd490cdc25#5/0 complete ok | 549 tests passed · lint clean · 6 commands · 3m 2s | tests=549 tests passed ; check-lint=lint clean | board: passed test 549 toolu_01FwLKm1Vb372neByAj615J3
+2026-10-19-e4fd490cdc25#6/0 complete ok | 9 commands · 7m 19s | unknown=Status unknown | board: -
+2026-10-19-e4fd490cdc25#7/0 failed ok | 1 failed · 1 command · 1m 36s | error=Error | board: -
+2026-10-19-e5c844e92d37#0/0 complete ok | 3 files changed +1 −14 · 7 commands · 47.1s | changes=3 files changed | board: -
+2026-10-19-e5c844e92d37#1/0 complete ok | 2 files changed +24 −59 · tests passed · 1 command · 2m 32s | changes=2 files changed ; tests=tests passed | board: passed test toolu_01Sjh8mmXMzHX8pXgos8S8fR
+2026-10-19-e5c844e92d37#1/1 complete ok | 1 command · 6.8s |  | board: passed test toolu_01Sjh8mmXMzHX8pXgos8S8fR
+2026-10-19-e5c844e92d37#1/2 complete ok | 1 command · 9.3s |  | board: passed test toolu_01Sjh8mmXMzHX8pXgos8S8fR
+2026-10-19-e5c844e92d37#2/0 complete ok | 2 files changed +40 −18 · 5 commands · 1m 4s | changes=2 files changed | board: -
+2026-10-19-e5c844e92d37#3/0 complete ok | 4 files changed +20 −12 · lint clean · 1 command · 46.6s | changes=4 files changed ; check-lint=lint clean | board: passed lint toolu_015P42aGvVzNa9bmSfJix8h7
+2026-10-19-e5c844e92d37#4/0 complete RED | 2 files changed +19 −2 · tests failed · 6 commands · 13m 20s | error=tests failed: [check:changed] ✗ vitest (exit 1) ; changes=2 files changed | board: failed test toolu_01SLLvM9Z9rE7dviq8VJVsMG
+2026-10-19-e5c844e92d37#5/0 complete ok | 1 command · 18.6s |  | board: -
+2026-10-19-e5c844e92d37#5/1 complete ok | 1 file changed +3 −4 · 8 tests passed · 1 command · 6m 24s | changes=1 file changed ; tests=8 tests passed | board: passed test 8 toolu_01QmxUkHuvnd1BiHWKm327rT
+2026-10-19-edcbaeef8d9c#0/0 complete ok | 1 file changed +1 −4 · 10 commands · 45.3s | unknown=Status unknown ; changes=1 file changed | board: -
+2026-10-19-edcbaeef8d9c#1/0 complete ok | 4 files changed +1 −4 · tests passed · lint clean · 3 commands · 3m 9s | changes=4 files changed ; tests=tests passed ; check-lint=lint clean | board: failed test toolu_01WsnxKzhSzDdT2Zgm1mCmd4
+2026-10-19-edcbaeef8d9c#1/1 complete ok | 2 commands · 9.4s |  | board: passed test toolu_01TExm1LhKHD4BeMwc5FskjD
+2026-10-19-edcbaeef8d9c#2/0 failed ok | 1 failed · 3 files changed +4 −0 · 8 commands · 2m 23s | changes=3 files changed | board: -
+2026-10-19-edcbaeef8d9c#3/0 complete RED | 1 test failed · 5 commands · 3m 29s | error=1 test failed: [check:changed] FAILED: playwright in 65.5s | board: failed test 1 toolu_017DWtPWy1y7kxink3svQx3x
+2026-10-19-edcbaeef8d9c#4/0 interrupted ok | 1 interrupted · 3 commands · 11.9s | stopped=1 interrupted | board: -
+2026-10-19-edcbaeef8d9c#4/1 complete ok | tests passed · 5.0s | tests=tests passed | board: passed test toolu_01SuEUqRbvzXzatNmH7buCXn
+2026-10-19-edcbaeef8d9c#4/2 complete ok | 1 file changed · 4 commands · 1m 3s | changes=1 file changed | board: passed test toolu_01SuEUqRbvzXzatNmH7buCXn
+2026-10-19-edcbaeef8d9c#5/0 complete ok | 1 command · 1m 33s |  | board: -
+2026-10-19-f27502fc685f#0/0 failed ok | 1 failed · 2 files changed +10 −22 · 7 commands · 48.6s | error=Error ; changes=2 files changed | board: -
+2026-10-19-f27502fc685f#1/0 complete ok | 6 files changed +7 −22 · tests passed · 1 command · 2m 21s | changes=6 files changed ; tests=tests passed | board: failed test toolu_01UAKow1XqrCuDBodRRh1P4V
+2026-10-19-f27502fc685f#2/0 complete ok | 2 files changed +10 −11 · tests passed · 1 command · 40.4s | changes=2 files changed ; tests=tests passed | board: passed test toolu_01RdPKwSETcjeKLYJDdshm6c
+2026-10-19-f27502fc685f#2/1 failed ok | 1 failed · lint failed · 3 commands · 49.6s | error=lint failed: 24 | if (!re.test(s)) throw new Error(`${file} ${k}`); | board: failed lint toolu_014ur3Dmk9GWaCheatgHyFFR
+2026-10-19-f27502fc685f#3/0 complete ok | tests passed · lint clean · 9 commands · 4m 0s | unknown=Status unknown ; tests=tests passed ; check-lint=lint clean | board: running test toolu_01Mz9SGtTTZivdvJSBr4Y2c4
+2026-10-19-f27502fc685f#4/0 complete RED | 4 tests failed · 6 commands · 10m 7s | error=4 tests failed: e2e/machine-setup.e2e.ts:282:1 › @smoke missing omp installs on its own; a failed attempt shows why and retries into a ready session | board: failed test 4 toolu_01XYEnwjvxnWddUgo6gzfjHU
+2026-10-19-f27502fc685f#5/0 complete ok | lint clean · build OK · 9 commands · 2m 27s | unknown=Status unknown ; check-lint=lint clean ; check-build=build OK | board: passed lint toolu_01BkzrcxL3L4hijsFxmimUin
+2026-10-19-f27502fc685f#6/0 complete RED | 1 test failed · 3 commands · 6m 4s | error=1 test failed: [check:changed] FAILED: playwright in 175.3s | board: failed test 1 toolu_016wCX44oxKkR1wahPDcHTr1
+2026-10-19-f27502fc685f#6/1 complete ok | 1 file changed +13 −10 · 2 commands · 14.0s | changes=1 file changed | board: failed test 1 toolu_016wCX44oxKkR1wahPDcHTr1
+2026-10-19-f27502fc685f#7/0 interrupted ok | 2 tests passed · lint clean · 1 command · 52.3s | tests=2 tests passed ; check-lint=lint clean | board: passed test 2 toolu_016dYYoNAo6u5B8YCGS6UyfS
+2026-10-21-6fa7cfc4dd6f#0/0 complete ok | 3 commands · 37.6s | skills=Skills used: poteto-mode | board: -
+2026-10-21-6fa7cfc4dd6f#1/0 complete RED | 2 files changed +79 −19 · 1 test failed · 1 command · 1m 6s | error=1 test failed: × Sidebar device sections > ends every device row in New chat in the Chat lane, starting the chat on that device 71ms ; changes=2 files changed | board: failed test 1 toolu_01VZ1nJkD2WGxWDiC3cUqCeK
+2026-10-21-6fa7cfc4dd6f#2/0 complete ok | 5 files changed +19 −8 · 113 tests passed · 3 commands · 39.9s | changes=5 files changed ; tests=113 tests passed | board: passed test 113 toolu_01V2QpvSU7TujnDk7g85Q3RH
+2026-10-21-6fa7cfc4dd6f#3/0 complete ok | 3 files changed +8 −4 · 290 tests passed · 5 commands · 1m 2s | changes=3 files changed ; tests=290 tests passed | board: passed test 290 toolu_018KowaDvPcpBUHx5uA6ktBs
+2026-10-21-6fa7cfc4dd6f#4/0 complete ok | 115 tests passed · 3 commands · 4m 15s | tests=115 tests passed | board: passed test 115 toolu_011K49754D2tsFFSL26PSXaw
+2026-10-25-7193f2b793c0#0/0 complete ok | 9 commands · 1m 26s | unknown=Status unknown ; skills=Skills used: figure-it-out | board: -
+2026-10-25-7193f2b793c0#1/0 complete ok | 9 commands · 14m 29s |  | board: -
+2026-10-25-7193f2b793c0#10/0 complete ok | 7 commands · 1m 24s | preview=Open http://127.0.0.1:5199/ in Preview ; skills=Skills used: architect | board: -
+2026-10-25-7193f2b793c0#11/0 complete ok | 1 file changed +2 −0 · 4 commands · 16m 45s | changes=1 file changed | board: -
+2026-10-25-7193f2b793c0#12/0 failed ok | 1 failed · 1 command · 2m 23s | error=magick failed: cd /tmp/seuput-redesign/board && (command -v magick || command -v montage) && magick before-busy-full-ko-dark.png a-busy-full-ko-dark.png b-busy-full-ko-dark.png +append -resize 1500x /tmp/seuput-redesign/board-cmp-ko.png && magick before-busy-full-en-light.png a-busy-full-en-light.png b-busy-full-en-light.png +append -resize 1500x /tmp/seuput-redesign/board-cmp-en.png && echo ok: (no output) | board: -
+2026-10-25-7193f2b793c0#13/0 complete ok | 1 file changed +7 −2 · 5 commands · 10m 32s | changes=1 file changed | board: -
+2026-10-25-7193f2b793c0#14/0 complete ok | 6 files changed +8 −5 · 2 commands · 48.8s | changes=6 files changed | board: -
+2026-10-25-7193f2b793c0#15/0 complete RED | 1 file changed +5 −4 · 3 tests failed · 5 commands · 5m 46s | error=3 tests failed: 1000×360 desktop with a draft: the expanded work strip stays in its pane, clear of the composer (3.5s) ; changes=1 file changed | board: failed test 3 toolu_01QeHfkzPXhRtkEH4D5ei53j
+2026-10-25-7193f2b793c0#16/0 complete ok | 1 file changed +6 −0 · 6 commands · 3m 42s | changes=1 file changed | board: -
+2026-10-25-7193f2b793c0#17/0 complete ok | 2 files changed +31 −1 · 15 tests passed · 4 commands · 9m 59s | changes=2 files changed ; tests=15 tests passed | board: passed test 15 toolu_01Pwn37FfT6NH6dhM2NPifLu
+2026-10-25-7193f2b793c0#18/0 complete ok | 1 command · 4.5s |  | board: -
+2026-10-25-7193f2b793c0#18/1 complete ok | 4 files changed +23 −2 · 121 tests passed · 4 commands · 2m 17s | unknown=Status unknown ; changes=4 files changed ; tests=121 tests passed | board: failed test 1 toolu_01UJBNW9dQGvYjBk3XSnbbKS
+2026-10-25-7193f2b793c0#19/0 failed ok | 1 failed · 2 commands · 5m 14s | error=gh release failed: git log --oneline -2 origin/main; gh run list --workflow release.yml --limit 2 --json databaseId,headSha,status,conclusion --jq '.[] | "\(.databaseId) \(.headSha[0:9]) \(.status) \(.conclusion)"'; gh release view v0.73.1 --json tagName,assets --jq '.tagName, [.assets[].name]' 2>&1: release not found | board: -
+2026-10-25-7193f2b793c0#19/2 complete ok | 2 commands · 55.5s | preview=Open http://127.0.0.1:5199/ in Preview | board: -
+2026-10-25-7193f2b793c0#2/0 complete ok | 1 file changed +6 −1 · 4 commands · 49.5s | changes=1 file changed | board: -
+2026-10-25-7193f2b793c0#20/0 complete ok | Read 9 files · 40m 7s |  | board: -
+2026-10-25-7193f2b793c0#21/0 complete ok | tests passed · 1 command · 70m 39s | tests=tests passed | board: passed test toolu_0199HasKVSmZ15F5ekmYEpSm
+2026-10-25-7193f2b793c0#22/0 complete RED | 1 test failed · 8 commands · 6m 37s | error=1 test failed: ✘ 36 e2e/daily-flows.e2e.ts:467:1 › daily flow c: a host's question survives a cut link, is answered on the device, and the device delete… | board: failed test 1 toolu_01Siwe6aKMkjAEk5duJ3vCP3
+2026-10-25-7193f2b793c0#23/0 complete ok | 4 commands · 21m 25s | unknown=Status unknown | board: running test toolu_01T84LAiaRLfetCPDdyG6vUr
+2026-10-25-7193f2b793c0#24/0 complete ok | 2 files changed +41 −1 · 3 commands · 13m 55s | changes=2 files changed | board: -
+2026-10-25-7193f2b793c0#249/0 complete ok | 1 command · 14.9s |  | board: -
+2026-10-25-7193f2b793c0#25/1 interrupted ok | 3 commands · 1m 4s | preview=Open http://127.0.0.1:5199/ in Preview ; skills=Skills used: poteto-mode | board: -
+2026-10-25-7193f2b793c0#25/2 complete ok | Read 2 files · 21.9s |  | board: -
+2026-10-25-7193f2b793c0#3/0 complete ok | 8 commands · 1m 59s | unknown=Status unknown | board: -
+2026-10-25-7193f2b793c0#4/0 complete ok | 7 commands · 56.9s | skills=Skills used: principle-fix-root-causes | board: -
+2026-10-25-7193f2b793c0#5/0 complete ok | 2 files changed +20 −9 · 35 tests passed · 6 commands · 1m 0s | changes=2 files changed ; tests=35 tests passed | board: passed test 35 toolu_01AkmfAapMcZttXheb2qwZAd
+2026-10-25-7193f2b793c0#6/0 complete ok | 10 commands · 1m 40s |  | board: -
+2026-10-25-7193f2b793c0#7/0 complete RED | 1 file changed +34 −0 · 1 test failed · 5 commands · 59.6s | error=1 test failed: × tabs store close races and failures > a close whose answer the dropped link lost stays closed without an error once main no longer lists … ; changes=1 file changed | board: failed test 1 toolu_01KghushpFd4iS7tterQ7CtV
+2026-10-25-7193f2b793c0#8/0 complete ok | 1 file changed +4 −3 · 44 tests passed · 5 commands · 5m 22s | changes=1 file changed ; tests=44 tests passed | board: passed test 44 toolu_01XMFrsCHVJ7zcF9KbzUXmyK
+2026-10-25-7193f2b793c0#9/0 complete ok | 2 commands · 6m 49s |  | board: -
+2026-10-25-7193f2b793c0#9/2 complete ok | Read 5 files · 1 search · 18.5s | skills=Skills used: poteto-mode, how | board: -
+2026-10-29-32f92168423c#0/0 complete ok | 1 command · 25.6s | skills=Skills used: poteto-mode | board: -
+2026-10-29-32f92168423c#0/1 complete ok | 3 commands · 21.5s |  | board: -
+2026-10-29-32f92168423c#1/0 complete ok | 2 commands · 1m 10s |  | board: -
+2026-10-29-32f92168423c#2/0 complete ok | 2 commands · 2m 22s |  | board: -
+2026-10-29-32f92168423c#3/0 complete ok | 8 commands · 1m 33s |  | board: -
+2026-10-29-32f92168423c#4/0 complete ok | 4 files changed +42 −37 · 6 commands · 2m 26s | changes=4 files changed | board: -
+2026-10-29-32f92168423c#5/0 failed ok | 2 failed · 1 file changed +24 −3 · 1 test failed · 4 commands · 59.0s | error=1 test failed: ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯ ; changes=1 file changed | board: failed test 1 toolu_01Xf4YJA3gvvcizz9abZpekq
+2026-10-29-32f92168423c#6/0 failed ok | 1 failed · 2 files changed +33 −16 · 1 test failed · 4 commands · 1m 24s | error=1 test failed: ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯ ; changes=2 files changed | board: failed test 1 toolu_011ZL23kMKz8XdqQ3LBu8Ejn
+2026-10-29-32f92168423c#7/0 interrupted ok | 1 interrupted · 1 test failed · 2 commands · 14.8s | error=1 test failed: × work verdict corpus > holds nothing the redactor would still take out 100ms ; stopped=1 interrupted | board: failed test 1 toolu_01PxG5azDtiVBbsztDyZ2hh7
+2026-10-29-375deab9dac7#0/0 complete ok | 2 commands · 50.1s | skills=Skills used: poteto-mode | board: -
+2026-10-29-375deab9dac7#1/0 interrupted ok | 1 command · 4.5s |  | board: -
+2026-10-29-5aea272834fd#0/0 complete ok | 2 commands · 26.1s | skills=Skills used: ompdesk-formal-verify | board: -
+2026-10-29-5aea272834fd#0/1 complete ok | Read 6 files · 13.5s | skills=Skills used: poteto-mode | board: -
+2026-10-29-5aea272834fd#1/0 failed ok | 1 failed · 1 file changed · 4 commands · 8m 34s | error=head failed: ls -R formal/turn-resume | head -40; cat formal/manifest.json; cat formal/turn-resume/matrix.json; head -c 1500 formal/turn-resume/mutations.json: "title": "Connection wait of a failed turn: probe, hold, flush, scheduled retry", ; changes=1 file changed | board: -
+2026-10-29-5aea272834fd#2/0 interrupted ok | 1 interrupted · 1 file changed +28 −28 · 5 commands · 1m 34s | stopped=1 interrupted ; changes=1 file changed | board: -
+2026-10-29-5e4f7249a066#0/0 interrupted ok | 3 commands · 51.0s | skills=Skills used: ompdesk-formal-verify, poteto-mode | board: -
+2026-10-29-5e4f7249a066#1/0 complete ok | 2 commands · 2m 36s |  | board: -
+2026-10-29-754325f1aca6#0/0 complete ok | 1 command · 1m 2s | skills=Skills used: poteto-mode, ompdesk-formal-verify, turn-resume-verify | board: -
+2026-10-29-754325f1aca6#1/0 complete RED | 4 files changed +14 −11 · 1 test failed · 1 command · 6m 47s | error=1 test failed: ⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯ ; changes=4 files changed | board: failed test 1 toolu_01FYsUMXMHKkJeuvcQvkTyAv
+2026-10-29-754325f1aca6#2/0 complete RED | 2 files changed +16 −18 · 1 test failed · 59.9s | error=1 test failed: × random event orders keep formal/turn-resume's properties > holds P1, P2, P4, P5, P8, P9 and P11 at every step, and P3 and P10 once the wo… ; changes=2 files changed | board: failed test 1 toolu_01UQkYwMth9w7YghZ15yPLsy
+2026-10-29-754325f1aca6#3/0 complete ok | 1 file changed +6 −2 · 50 tests passed · 2 commands · 55.1s | unknown=Status unknown ; changes=1 file changed ; tests=50 tests passed | board: running test toolu_019jDfF1BrzPX5mRByuLGWYT
+2026-10-29-a1cbf53fcf55#0/0 complete ok | 1 command · 24.1s |  | board: -
+2026-10-29-a1cbf53fcf55#0/1 complete ok | 1 command · 17.1s | skills=Skills used: poteto-mode | board: -
+2026-10-29-a1cbf53fcf55#1/0 complete ok | Read 10 files · 3 searches · 2m 29s | skills=Skills used: how | board: -
+2026-10-29-a1cbf53fcf55#2/0 complete ok | 220 tests passed · 7 commands · 3m 41s | tests=220 tests passed ; skills=Skills used: session-listing-verify | board: passed test 220 toolu_0175w7vGihSQ7mhKq4FsjoEU
+2026-10-29-a1cbf53fcf55#3/0 complete ok | 1 file changed +186 −0 · 2 tests passed · 8 commands · 3m 50s | changes=1 file changed ; tests=2 tests passed | board: passed test 2 toolu_018WyNLHWwBRHBhUjauKamWB
+2026-10-29-a1cbf53fcf55#4/0 complete ok | 1 file changed +4 −3 · tests passed · 1 command · 23.0s | changes=1 file changed ; tests=tests passed | board: passed test toolu_01GtXcbm5bfvbgT9ypSU6g5r
+2026-10-29-c9924658e953#0/0 complete ok | 1 command · 47.5s | skills=Skills used: poteto-mode, ompdesk-formal-verify | board: -
+2026-10-29-c9924658e953#0/1 complete ok | Read 4 files · 30.5s |  | board: -
+2026-10-29-c9924658e953#1/0 complete ok | 3 commands · 4m 3s |  | board: -
+2026-10-29-c9924658e953#2/0 complete ok | 2 commands · 2m 0s |  | board: -
+2026-10-29-c9924658e953#3/0 complete ok | 5 commands · 1m 20s |  | board: -
+2026-10-29-c9924658e953#4/0 complete ok | 5 commands · 2m 18s |  | board: -
+2026-10-29-c9924658e953#5/0 complete ok | Read 1 file · 2.5s |  | board: -
