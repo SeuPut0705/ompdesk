@@ -66,4 +66,23 @@ describe("a check a stop cut off", () => {
 		expect(turn.commands.map(command => command.status)).toEqual(["interrupted"]);
 		expect(lastCheck(entries, turn.commands, "/repo", new Map(), stops)?.state).not.toBe("failed");
 	});
+
+	it("builds each call's stops again only when a stop arrives, and hands back the same map meanwhile", () => {
+		const stopped = callStops(messages);
+		expect([...stopped.values()]).toEqual([9_200]);
+		const grown = [
+			...messages,
+			{ role: "user", content: [{ type: "text", text: "again" }], timestamp: 10_000 } as AgentMessage,
+			call("lint", "bunx biome check src", 11_000),
+		];
+		expect(callStops(grown)).toBe(stopped);
+		expect(callStops([...grown])).toBe(stopped);
+		const again = [...grown, answer("lint", "x\n\n[Command aborted]", 12_000), stop(12_100)];
+		const next = callStops(again);
+		expect(next).not.toBe(stopped);
+		expect([...next.entries()]).toEqual([
+			["build", 9_200],
+			["lint", 12_100],
+		]);
+	});
 });
