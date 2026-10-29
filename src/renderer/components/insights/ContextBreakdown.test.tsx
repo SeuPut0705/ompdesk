@@ -124,7 +124,7 @@ describe("ContextBreakdown", () => {
 		expect(text).toContain("16.0k / 32.0k tokens (50% used)");
 		expect(text).toContain("Built-in tools");
 		expect(text).toContain("MCP tools");
-		expect(text).toContain("Context files");
+		expect(text).toContain("Instruction files");
 		// An empty category stays out of the legend.
 		expect(text).not.toContain("Extension tools");
 		expect(text).toContain("Free");

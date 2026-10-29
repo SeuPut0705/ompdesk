@@ -383,7 +383,7 @@ describe("PluginDetailBody", () => {
 		await flush();
 
 		const text = document.body.textContent ?? "";
-		expect(text).toContain("Showing the details from the last successful load.");
+		expect(text).toContain("Showing the last details that loaded.");
 		expect(text).toContain("sidecar went away");
 		expect(queryAll('input[type="number"]')).toHaveLength(1);
 		// The banner is not decoration: Retry re-runs the same read.

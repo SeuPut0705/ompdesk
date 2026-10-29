@@ -260,7 +260,7 @@ describe("ModelRolesSection", () => {
 		await act(async () => {});
 
 		expect(bodyText()).toContain("Default");
-		expect(bodyText()).toContain("Showing the last roles that loaded successfully.");
+		expect(bodyText()).toContain("Showing the last roles that loaded.");
 		expect(bodyText()).toContain("timeout");
 	});
 

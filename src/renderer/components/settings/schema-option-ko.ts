@@ -6,12 +6,12 @@ export const KO_SCHEMA_OPTION_TEXT: Readonly<Record<string, string>> = {
 	"Also include sessions from sibling worktrees": "같은 저장소의 다른 워크트리 세션도 함께 보여요",
 	Takeover: "전환해서 실행",
 	"Briefly bring the target forward for that one call, then return focus to your app (on macOS even if you kept typing)":
-		"그 호출 동안만 대상을 잠깐 앞으로 가져온 뒤 내 앱으로 포커스를 돌려줘요(macOS에서는 입력 중이어도 돌려줘요).",
+		"그 호출 동안만 대상을 잠깐 앞으로 가져온 뒤 내 앱으로 포커스를 돌려 줘요(macOS에서는 입력 중이어도 돌려 줘요).",
 	Refuse: "거부",
 	"Fail the call; nothing takes over, and the agent's own takeover, raise, activating open, desktop input and macOS menus (context menus, popup and menu buttons; they take your keyboard while open) are refused too":
 		"호출을 실패로 끝내요. 아무것도 전환하지 않고, 에이전트가 직접 하는 전환, 창 올리기, 활성화하며 열기, 데스크톱 입력, macOS 메뉴(컨텍스트 메뉴, 팝업·메뉴 버튼은 열려 있는 동안 키보드를 가져가요)도 거부해요.",
 	"The judge model refines each chart: kind, columns, row names and grouping, scales, which way is better, and its title":
-		"평가 모델이 각 차트의 종류, 열, 행 이름과 그룹, 척도, 좋은 값의 방향, 제목을 다듬어요.",
+		"판정 모델이 각 차트의 종류, 열, 행 이름과 그룹, 척도, 좋은 값의 방향, 제목을 다듬어요.",
 	"Full mode name — NORMAL, INSERT, VISUAL, V-LINE, REPLACE":
 		"전체 모드 이름 — NORMAL, INSERT, VISUAL, V-LINE, REPLACE",
 	rewind: "되감기",
@@ -543,11 +543,11 @@ export const KO_SCHEMA_OPTION_TEXT: Readonly<Record<string, string>> = {
 		"온라인 tiny 모델을 사용해요 (/models의 TINY 역할, 없으면 @smol)",
 	Remote: "원격",
 	"Use the Mnemopi remote LLM settings below": "아래 Mnemopi 원격 LLM 설정을 사용해요",
-	"One shared bank — every project sees the same memories": "하나의 공유 뱅크 — 모든 프로젝트가 같은 기억을 봐요",
+	"One shared bank — every project sees the same memories": "하나의 공유 뱅크 — 모든 프로젝트가 같은 메모리를 봐요",
 	"Isolated bank per cwd basename — projects cannot see each other's memories":
-		"cwd 기본 이름별 격리 뱅크 — 프로젝트끼리 서로의 기억을 볼 수 없어요",
+		"cwd 기본 이름별 격리 뱅크 — 프로젝트끼리 서로의 메모리를 볼 수 없어요",
 	"Shared bank, retains tagged with project:<cwd>. Recall surfaces project + untagged global memories together":
-		"공유 뱅크이며 보존 항목에 project:<cwd> 태그를 붙여요. 회상 시 프로젝트 기억과 태그 없는 전역 기억을 함께 보여줘요",
+		"공유 뱅크이며 보존 항목에 project:<cwd> 태그를 붙여요. 회상 시 프로젝트 메모리와 태그 없는 전역 메모리를 함께 보여 줘요",
 	"Full session": "전체 세션",
 	"Upsert one document per session (recommended)": "세션당 문서 하나를 upsert해요 (권장)",
 	"Last turn": "마지막 턴",
@@ -799,7 +799,7 @@ export const KO_SCHEMA_OPTION_TEXT: Readonly<Record<string, string>> = {
 	Line: "선",
 	Collapsed: "접힘",
 	"Hide the pinned jump list": "고정된 점프 목록 숨기기",
-	"Show a few rows with an expander": "몇 줄만 보여주고 펼치기 버튼 제공",
+	"Show a few rows with an expander": "몇 줄만 보여 주고 펼치기 버튼 제공",
 	Percentage: "백분율",
 	"Solid accent line, no context feedback": "단색 강조선, 컨텍스트 표시 없음",
 	"Used portion in accent color, remainder dimmed": "사용한 부분은 강조색, 나머지는 흐리게",
@@ -908,13 +908,13 @@ export const KO_SCHEMA_OPTION_TEXT: Readonly<Record<string, string>> = {
 	"Every 3rd": "3번마다",
 	"Every 5th": "5번마다",
 	"Every 10th": "10번마다",
-	"1 note": "메모 1개",
+	"1 note": "노트 1개",
 	"Anti-flood (strict).": "과다 방지 (엄격).",
-	"2 notes": "메모 2개",
-	"3 notes": "메모 3개",
-	"4 notes": "메모 4개",
+	"2 notes": "노트 2개",
+	"3 notes": "노트 3개",
+	"4 notes": "노트 4개",
 	"Frontier reasoning models. Default.": "최상위 추론 모델용. 기본값.",
-	"5 notes": "메모 5개",
+	"5 notes": "노트 5개",
 	"Server compaction": "서버 압축",
 	"Use provider-native server compaction (OpenAI Responses compact, Anthropic compaction beta) when the active route supports it":
 		"현재 경로가 지원하면 프로바이더 자체 서버 압축(OpenAI Responses compact, Anthropic compaction beta)을 써요",

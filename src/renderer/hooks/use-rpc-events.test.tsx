@@ -1609,7 +1609,7 @@ describe("TurnStatusRow", () => {
 	it("renders the compaction loader with TUI reason/action text", async () => {
 		useSessionStore.setState({ compactionInfo: { reason: "overflow", action: "handoff" } });
 		await mount(<TurnStatusRow />);
-		expect(document.body.textContent).toContain("Context overflow detected, Auto-handoff…");
+		expect(document.body.textContent).toContain("Context overflow: Auto-handoff…");
 	});
 });
 

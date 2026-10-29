@@ -384,7 +384,7 @@ const COPY = {
 		send: "보내기",
 		copyMessage: "메시지 텍스트 복사",
 		branch: "여기서 새 탭으로 분기",
-		details: "컨텍스트 상세 보기",
+		details: "상세 보기",
 		splitRight: "오른쪽으로 분할",
 		splitBelow: "아래로 분할",
 		openFailed: /세션을 열 수 없어요|세션을 열지 못했어요/,

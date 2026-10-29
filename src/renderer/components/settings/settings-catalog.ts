@@ -199,7 +199,7 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		section: "agent",
 		labelKey: "settings.gui.judgeAssist",
 		aliases:
-			"judge model jev decision small question notification needs you title fits preview error blank smart automation 판단 모델 작은 판단 질문 알림 제목 미리보기 오류 빈 페이지 스마트 자동화",
+			"judge model jev decision small question notification needs you title fits preview error blank smart automation 판정 모델 판단 모델 작은 판단 질문 알림 제목 미리보기 오류 빈 페이지 스마트 자동화",
 	},
 	{
 		id: "autoMode",

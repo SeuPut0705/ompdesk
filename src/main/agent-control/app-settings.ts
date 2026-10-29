@@ -146,7 +146,7 @@ export const SETTINGS: readonly Setting[] = [
 		JUDGE_ASSIST_PREF,
 		"agent",
 		"Use the judge model for small decisions",
-		"작은 판단에 판단 모델 쓰기",
+		"작은 판단에 판정 모델 쓰기",
 	),
 	pref("theme", "themeName", "appearance", "Theme", "테마", options("system", ...THEME_NAMES), "change", {
 		mirror: { theme: value => (value === "system" ? "system" : DARK_THEMES.has(String(value)) ? "dark" : "light") },

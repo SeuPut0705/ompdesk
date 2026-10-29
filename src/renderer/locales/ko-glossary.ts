@@ -29,6 +29,12 @@ export const KO_GLOSSARY: readonly GlossaryTerm[] = [
 	{ term: "풀 리퀘스트", concept: "pull request in prose; PR #12 names one", avoid: /풀리퀘스트/ },
 	{ term: "단축키", concept: "keyboard shortcut", avoid: /핫키|키보드 단축(?!키)/ },
 	{ term: "로그인", concept: "sign in / sign-in state", avoid: /로그 인|사인 ?인/ },
+	{ term: "핸드오프", concept: "a note that carries a session on to a new one", avoid: /인계|넘기기/ },
+	{ term: "컨텍스트 창", concept: "a model's context window", avoid: /컨텍스트 윈도우/ },
+	{ term: "판정 모델", concept: "the judge model/role", avoid: /판단 모델|평가 모델/ },
+	{ term: "계획 모드", concept: "plan mode", avoid: /플랜 모드/ },
+	{ term: "확장", concept: "an extension", avoid: /확장 프로그램/ },
+	{ term: "메모리", concept: "the Memory feature (page, tools, settings)", avoid: /기억 (?:저장|찾기|정리|편집)/ },
 	{ term: "사이드 패널", concept: "the right panel", avoid: /측면 패널|옆 패널|사이드패널/ },
 ];
 

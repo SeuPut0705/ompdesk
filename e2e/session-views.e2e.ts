@@ -37,7 +37,7 @@ const TEXT = {
 		inspect: "Inspect",
 		inspector: "Context inspector",
 		mcp: "MCP tools",
-		files: "Context files",
+		files: "Instruction files",
 		all: "All",
 		deferred: "Deferred",
 		truncated: /Showing the first 32,000 of 44,000 characters/,
@@ -56,7 +56,7 @@ const TEXT = {
 		all: "전체",
 		deferred: "지연 로드",
 		truncated: /44,000자 중 처음 32,000자를 보여 줘요/,
-		over: "컨텍스트가 모델 윈도우보다 커요",
+		over: "컨텍스트가 모델의 컨텍스트 창보다 커요",
 	},
 } as const;
 

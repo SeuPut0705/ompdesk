@@ -169,8 +169,8 @@ describe("work card verdict", () => {
 			expanded = next;
 		});
 		expect(mark()?.getAttribute("data-state")).toBe("failed");
-		expect(mark()?.getAttribute("aria-label")).toBe("Done, but a check failed");
-		expect(container.querySelector(".omp-work-narrative")?.textContent).toBe("Done, but a check failed");
+		expect(mark()?.getAttribute("aria-label")).toBe("Done, a check failed");
+		expect(container.querySelector(".omp-work-narrative")?.textContent).toBe("Done, a check failed");
 		expect(container.querySelector(".omp-execution-group")?.getAttribute("data-verdict")).toBe("failed");
 		expect(container.querySelector('[data-work-finding^="check-"]')).toBeNull();
 		const block = finding("error");
@@ -258,7 +258,7 @@ describe("work card recovery", () => {
 		expect(container.querySelector(".omp-execution-group")?.getAttribute("data-verdict")).toBeNull();
 		expect(container.querySelector('[data-work-finding="error"]')).toBeNull();
 		await click(container.querySelector(".omp-work-copy") as unknown as HTMLElement);
-		expect(writeText.mock.calls[0]?.[0]).toContain("Failed, then fixed by a later run\n- ✕ → ✓ edit src/a.ts");
+		expect(writeText.mock.calls[0]?.[0]).toContain("Failed, then fixed by a rerun\n- ✕ → ✓ edit src/a.ts");
 	});
 
 	it("keeps the rejected edit marked failed in the opened steps of the green card", async () => {

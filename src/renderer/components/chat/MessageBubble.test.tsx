@@ -395,7 +395,7 @@ describe("MessageBubble compaction summaries", () => {
 			),
 		);
 		const toggle = container.querySelector("button[aria-expanded]");
-		expect(toggle?.textContent).toBe("View context details");
+		expect(toggle?.textContent).toBe("Details");
 		expect(toggle?.querySelector(".omp-disclosure-chevron")).not.toBeNull();
 		expect(container.querySelector("details")).toBeNull();
 		await act(async () => toggle?.dispatchEvent(new Event("click", { bubbles: true })));
@@ -419,7 +419,7 @@ describe("MessageBubble compaction summaries", () => {
 		);
 		expect(html).toContain("Branch summary");
 		expect(html).toContain("Tried the thumbprint cache; dropped it.");
-		expect(html).not.toContain("View context details");
+		expect(html).not.toContain("Details");
 	});
 });
 
@@ -519,13 +519,13 @@ describe("MessageBubble restart notice", () => {
 		});
 		expect(subagents).toContain("data-restart-subagents");
 		expect(subagents).not.toContain("data-restart-jobs");
-		expect(subagents).toContain("Continuing 2 background tasks after the restart");
+		expect(subagents).toContain("Continuing 2 subagents after the restart");
 		expect(subagents).toContain('title="v0.38.0 배포"');
 		expect(subagents).not.toContain("working again");
 		expect(subagents).not.toContain("omp-user-bubble");
 		const both = render(notice({ jobs: [{ id: "bg_1" }], subagents: [{ id: "Scout" }] }));
 		expect(both).toContain("Re-running 1 background task the restart stopped");
-		expect(both).toContain("Continuing 1 background task after the restart");
+		expect(both).toContain("Continuing 1 subagent after the restart");
 	});
 
 	it("shows a continued turn as its own muted line, never the notice text", () => {

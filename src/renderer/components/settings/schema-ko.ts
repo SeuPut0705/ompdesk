@@ -83,7 +83,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	"composer.predictions": {
 		label: "다음 메시지 예측",
 		description:
-			"턴이 끝나면 현재 모델이 다음 메시지를 예측해 빈 입력창에 흐린 텍스트로 보여줘요. Tab이나 오른쪽 화살표로 전송 없이 입력할 수 있어요. 추가 사용량: 완료된 턴마다 전체 대화를 포함한 유료 요청이 한 번 더 발생해요 (/stats에 집계돼요).",
+			"턴이 끝나면 현재 모델이 다음 메시지를 예측해 빈 입력창에 흐린 텍스트로 보여 줘요. Tab이나 오른쪽 화살표로 전송 없이 입력할 수 있어요. 추가 사용량: 완료된 턴마다 전체 대화를 포함한 유료 요청이 한 번 더 발생해요 (/stats에 집계돼요).",
 	},
 	"retry.fallbackOn": {
 		label: "폴백 전환 조건",
@@ -189,18 +189,18 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 			"MCP나 확장 도구가 연결되거나 해제될 때 `xd://: mounted …` 알림을 보여 줘요. 끄더라도 모델은 다음 프롬프트에서 바뀐 사실을 알게 돼요.",
 	},
 	// ── appearance ──────────────────────────────────────────────────────────
-	"theme.dark": { label: "다크 테마", description: "TUI와 GUI가 다크 모드일 때 사용할 테마 색상" },
-	"theme.light": { label: "라이트 테마", description: "TUI와 GUI가 라이트 모드일 때 사용할 테마 색상" },
-	symbolPreset: { label: "기호 프리셋", description: "아이콘과 기호에 쓸 글리프 세트(Unicode, Nerd Font, ASCII)" },
-	colorBlindMode: { label: "색맹 모드", description: "diff 추가 줄을 초록색 대신 파란색으로 표시" },
+	"theme.dark": { label: "다크 테마", description: "TUI와 GUI가 다크 모드일 때 사용할 테마 색상이에요" },
+	"theme.light": { label: "라이트 테마", description: "TUI와 GUI가 라이트 모드일 때 사용할 테마 색상이에요" },
+	symbolPreset: { label: "기호 프리셋", description: "아이콘과 기호에 쓸 글리프 세트예요(Unicode, Nerd Font, ASCII)" },
+	colorBlindMode: { label: "색맹 모드", description: "diff 추가 줄을 초록색 대신 파란색으로 표시해요" },
 	"statusLine.preset": {
 		label: "상태 프리셋",
-		description: "TUI 상태 표시줄과 GUI 하단 상태 표시줄이 공유하는 레이아웃 프리셋",
+		description: "TUI 상태 표시줄과 GUI 하단 상태 표시줄이 공유하는 레이아웃 프리셋이에요",
 	},
-	"statusLine.separator": { label: "상태 표시줄 구분자", description: "세그먼트 사이 구분자 스타일" },
+	"statusLine.separator": { label: "상태 표시줄 구분자", description: "세그먼트 사이 구분자 스타일이에요" },
 	"statusLine.sessionAccent": {
 		label: "세션 강조색",
-		description: "세션 이름 색상을 에디터 테두리와 상태 표시줄 간격에 적용",
+		description: "세션 이름 색상을 에디터 테두리와 상태 표시줄 간격에 적용해요",
 	},
 	"statusLine.transparent": {
 		label: "투명 상태 표시줄",
@@ -211,16 +211,16 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		label: "간결한 사고 수준 표시",
 		description: "별도의 ` · <수준>` 접미사를 붙이는 대신 모델 이름에 아이콘 하나로 사고 수준을 표시해요.",
 	},
-	"statusLine.showHookStatus": { label: "훅 상태 표시", description: "상태 표시줄 아래에 훅 상태 메시지를 표시" },
-	"terminal.showImages": { label: "인라인 이미지 표시", description: "터미널에서 이미지를 인라인으로 렌더링" },
+	"statusLine.showHookStatus": { label: "훅 상태 표시", description: "상태 표시줄 아래에 훅 상태 메시지를 표시해요" },
+	"terminal.showImages": { label: "인라인 이미지 표시", description: "터미널에서 이미지를 인라인으로 렌더링해요" },
 	"images.autoResize": {
 		label: "이미지 자동 크기 조정",
-		description: "모델 호환성을 위해 큰 이미지를 최대 2000x2000으로 축소",
+		description: "모델 호환성을 위해 큰 이미지를 최대 2000x2000으로 줄여요",
 	},
-	"images.blockImages": { label: "이미지 차단", description: "이미지가 LLM 프로바이더로 전송되지 않도록 차단" },
+	"images.blockImages": { label: "이미지 차단", description: "이미지가 LLM 프로바이더로 전송되지 않도록 차단해요" },
 	"terminal.showProgress": {
 		label: "네이티브 실행 진행률",
-		description: "네이티브 실행 진행률 표시: 터미널은 OSC 9;4, GUI는 Dock 배지와 창 진행 막대 사용",
+		description: "네이티브 실행 진행률을 표시해요: 터미널은 OSC 9;4, GUI는 Dock 배지와 창 진행 막대를 써요",
 	},
 	"tui.textSizing": {
 		label: "큰 제목(Kitty)",
@@ -250,29 +250,32 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 			"경로와 URL을 OSC 8 하이퍼링크로 감싸 터미널에서 바로 클릭해 열 수 있게 해요(auto: 지원 감지, off: 사용 안 함, always: 항상)",
 	},
 	"tui.tight": { label: "촘촘한 UI 밀도", description: "TUI 출력과 GUI 인터페이스 간격을 줄여요" },
-	"display.shimmer": { label: "쉬머 애니메이션", description: "작업 중/로딩 메시지의 애니메이션 스타일" },
+	"display.shimmer": { label: "쉬머 애니메이션", description: "작업 중/로딩 메시지의 애니메이션 스타일이에요" },
 	"display.smoothStreaming": {
 		label: "부드러운 스트리밍",
-		description: "청크가 도착할 때 어시스턴트 텍스트와 스트리밍 도구 입력을 부드럽게 표시",
+		description: "청크가 도착할 때 어시스턴트 텍스트와 스트리밍 도구 입력을 부드럽게 표시해요",
 	},
-	"display.showTokenUsage": { label: "토큰 사용량 표시", description: "어시스턴트 메시지에 턴별 토큰 사용량 표시" },
+	"display.showTokenUsage": {
+		label: "토큰 사용량 표시",
+		description: "어시스턴트 메시지에 턴별 토큰 사용량을 표시해요",
+	},
 	"display.cacheMissMarker": {
 		label: "캐시 미스 표시",
-		description: "어시스턴트 요청이 프롬프트 캐시를 놓친(미스) 턴 위에 구분선을 표시",
+		description: "어시스턴트 요청이 프롬프트 캐시를 놓친(미스) 턴 위에 구분선을 표시해요",
 	},
 	"display.collapseCompacted": {
 		label: "압축된 기록 접기",
 		description:
 			"실시간 세션 기록에서 압축 이전 기록을 요약 구분선 뒤로 접어요. 끄면 전체 기록을 유지하고 압축 지점마다 구분선을 표시해요",
 	},
-	showHardwareCursor: { label: "하드웨어 커서 표시", description: "입력기(IME) 지원을 위해 터미널 커서 표시" },
+	showHardwareCursor: { label: "하드웨어 커서 표시", description: "입력기(IME) 지원을 위해 터미널 커서를 표시해요" },
 	"tui.imeSafeCursor": {
 		label: "IME 안전 프롬프트 레이아웃",
 		description: "macOS 입력기의 조합 중 텍스트가 프롬프트를 밀어내지 않도록 프롬프트 하단 테두리를 별도 줄로 옮겨요",
 	},
 	"task.showResolvedModelBadge": {
 		label: "확정된 모델 배지 표시",
-		description: "태스크 위젯 상태 줄에 각 서브에이전트가 실제로 사용한 모델 ID를 표시",
+		description: "태스크 위젯 상태 줄에 각 서브에이전트가 실제로 사용한 모델 ID를 표시해요",
 	},
 
 	// ── model ───────────────────────────────────────────────────────────────
@@ -310,7 +313,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description:
 			"어드바이저의 우려나 차단으로 한 번 중단된 뒤, 이 수만큼의 메인 턴 동안은 이후 우려/차단을 중단 없이 전달해요.",
 	},
-	modelRoleStorage: { label: "모델 역할 저장 위치", description: "모델 선택기의 역할 할당을 저장할 위치" },
+	modelRoleStorage: { label: "모델 역할 저장 위치", description: "모델 선택기의 역할 할당을 저장할 위치예요" },
 	"images.describeForTextModels": {
 		label: "텍스트 전용 모델용 이미지 설명",
 		description:
@@ -321,16 +324,16 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description:
 			"설정된 백엔드로 이미지를 게시하고, URL을 가져올 수 있는 프로바이더에는 짧은 링크를 보내요. 모든 백엔드가 실패하면 인라인 이미지로 자동 폴백해요",
 	},
-	"images.urls.backends": { label: "이미지 URL 백엔드", description: "이미지 게시 시 순서대로 시도할 대상" },
-	"images.urls.options": { label: "이미지 URL 백엔드 옵션", description: "각 게시 백엔드에서 사용할 JSON 옵션" },
+	"images.urls.backends": { label: "이미지 URL 백엔드", description: "이미지 게시 시 순서대로 시도할 대상이에요" },
+	"images.urls.options": { label: "이미지 URL 백엔드 옵션", description: "각 게시 백엔드에서 사용할 JSON 옵션이에요" },
 	"images.urls.credentials": {
 		label: "이미지 URL 백엔드 자격 증명",
 		description: "각 게시 백엔드에서 사용할 자격 증명. UI에서 값은 숨겨져요",
 	},
-	"images.urls.command": { label: "이미지 업로드 명령", description: "command 백엔드가 사용할 argv 템플릿" },
+	"images.urls.command": { label: "이미지 업로드 명령", description: "command 백엔드가 사용할 argv 템플릿이에요" },
 	"images.urls.publicBaseUrl": {
 		label: "이미지 공개 URL",
-		description: "이미지 프록시 서비스의 외부 접근 가능한 기본 URL",
+		description: "이미지 프록시 서비스의 외부 접근 가능한 기본 URL예요",
 	},
 	"images.urls.ttlHours": {
 		label: "이미지 URL 유효 기간",
@@ -338,27 +341,30 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"images.urls.bindHost": {
 		label: "이미지 서비스 바인드 주소",
-		description: "이미지 blob 서비스가 수신할 호스트 주소",
+		description: "이미지 blob 서비스가 수신할 호스트 주소예요",
 	},
-	"images.urls.sshTarget": { label: "이미지 SSH 대상", description: "SSH 리버스 포워딩을 설정할 user@host 대상" },
+	"images.urls.sshTarget": {
+		label: "이미지 SSH 대상",
+		description: "SSH 리버스 포워딩을 설정할 user@host 대상이에요",
+	},
 	"images.urls.sshRemotePort": {
 		label: "이미지 SSH 원격 포트",
-		description: "SSH 리버스 포워딩에 사용할 원격 수신 포트",
+		description: "SSH 리버스 포워딩에 사용할 원격 수신 포트예요",
 	},
-	defaultThinkingLevel: { label: "사고 수준", description: "사고를 지원하는 모델의 사고 깊이" },
-	hideThinkingBlock: { label: "사고 블록 숨기기", description: "어시스턴트 응답에서 사고 블록 숨기기" },
-	proseOnlyThinking: { label: "산문 전용 사고", description: "사고 요약에서 코드 블록을 생략하고 줄임표로 대체" },
+	defaultThinkingLevel: { label: "사고 수준", description: "사고를 지원하는 모델의 사고 깊이예요" },
+	hideThinkingBlock: { label: "사고 블록 숨기기", description: "어시스턴트 응답에서 사고 블록을 숨겨요" },
+	proseOnlyThinking: { label: "산문 전용 사고", description: "사고 요약에서 코드 블록을 생략하고 줄임표로 대체해요" },
 	omitThinking: {
 		label: "사고 요약 생략",
-		description: "상위 프로바이더에 응답에서 사고 요약을 완전히 생략하도록 지시(지원되는 경우)",
+		description: "상위 프로바이더에 응답에서 사고 요약을 완전히 생략하도록 지시해요(지원되는 경우)",
 	},
 	"model.loopGuard.enabled": {
 		label: "루프 가드",
-		description: "모델 사고 과정과 산문 출력에 자동 스트리밍 루프 감지 사용",
+		description: "모델 사고 과정과 산문 출력에서 스트리밍 루프를 자동으로 감지해요",
 	},
 	"model.loopGuard.checkAssistantContent": {
 		label: "루프 가드 산문 검사",
-		description: "사고 로그뿐 아니라 어시스턴트 산문 메시지에도 루프 가드 적용",
+		description: "사고 로그뿐 아니라 어시스턴트 산문 메시지에도 루프 가드를 적용해요",
 	},
 	"model.loopGuard.toolCallReminder": {
 		label: "루프 가드 도구 호출 알림",
@@ -367,15 +373,15 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"model.toolCallLoopGuard.enabled": {
 		label: "도구 호출 루프 가드",
-		description: "여러 턴에 걸친 연속된 동일 도구 호출을 감지하고 교정 안내를 주입",
+		description: "여러 턴에 걸친 연속된 동일 도구 호출을 감지하고 교정 안내를 주입해요",
 	},
 	"model.toolCallLoopGuard.threshold": {
 		label: "도구 호출 루프 임계값",
-		description: "교정 안내를 주입하기 위한 연속 동일 도구 호출 횟수",
+		description: "교정 안내를 주입하기 위한 연속 동일 도구 호출 횟수예요",
 	},
 	"model.toolCallLoopGuard.exemptTools": {
 		label: "루프 가드 예외 도구",
-		description: "여러 턴 루프 가드를 발동하지 않고 연속 반복이 허용되는 도구 이름",
+		description: "여러 턴 루프 가드를 발동하지 않고 연속 반복이 허용되는 도구 이름이에요",
 	},
 	inlineToolDescriptors: {
 		label: "인라인 도구 설명자",
@@ -396,17 +402,20 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description:
 			"시스템 프롬프트에 사용 가능한 스킬을 나열해요. 끄면 컨텍스트를 절약할 수 있고 /skillful로 세션별 전환이 가능해요",
 	},
-	personality: { label: "성격", description: "시스템 프롬프트의 성격 블록에 렌더링되는 소통 스타일" },
-	temperature: { label: "온도", description: "샘플링 온도(0 = 결정적, 1 = 창의적, -1 = 프로바이더 기본값)" },
-	topP: { label: "Top P", description: "누클리어스 샘플링 컷오프(0-1, -1 = 프로바이더 기본값)" },
-	topK: { label: "Top K", description: "확률 상위 K개 토큰에서 샘플링(-1 = 프로바이더 기본값)" },
-	minP: { label: "Min P", description: "최소 확률 임계값(0-1, -1 = 프로바이더 기본값)" },
+	personality: { label: "성격", description: "시스템 프롬프트의 성격 블록에 렌더링되는 소통 스타일이에요" },
+	temperature: { label: "온도", description: "샘플링 온도예요(0 = 결정적, 1 = 창의적, -1 = 프로바이더 기본값)" },
+	topP: { label: "Top P", description: "누클리어스 샘플링 컷오프예요(0-1, -1 = 프로바이더 기본값)" },
+	topK: { label: "Top K", description: "확률 상위 K개 토큰에서 샘플링이에요(-1 = 프로바이더 기본값)" },
+	minP: { label: "Min P", description: "최소 확률 임계값이에요(0-1, -1 = 프로바이더 기본값)" },
 	presencePenalty: {
 		label: "존재 페널티",
-		description: "이미 등장한 토큰 도입에 대한 페널티(-1 = 프로바이더 기본값)",
+		description: "이미 등장한 토큰 도입에 대한 페널티예요(-1 = 프로바이더 기본값)",
 	},
-	repetitionPenalty: { label: "반복 페널티", description: "반복 토큰에 대한 페널티(-1 = 프로바이더 기본값)" },
-	textVerbosity: { label: "텍스트 상세도", description: "OpenAI Responses와 Codex의 응답 상세도(low, medium, high)" },
+	repetitionPenalty: { label: "반복 페널티", description: "반복 토큰에 대한 페널티예요(-1 = 프로바이더 기본값)" },
+	textVerbosity: {
+		label: "텍스트 상세도",
+		description: "OpenAI Responses와 Codex의 응답 상세도예요(low, medium, high)",
+	},
 	"tier.openai": {
 		label: "서비스 티어 — OpenAI",
 		description:
@@ -432,17 +441,20 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description:
 			"어드바이저 모델의 서비스 티어예요. None = 표준 처리, Inherit = 메인 에이전트의 현재 벤더별 티어를 따름. 특정 값을 고르면 어드바이저 모델의 벤더에 적용돼요.",
 	},
-	"retry.maxRetries": { label: "재시도 횟수", description: "API 오류 시 최대 재시도 횟수" },
+	"retry.maxRetries": { label: "재시도 횟수", description: "API 오류 시 최대 재시도 횟수예요" },
 	"retry.maxDelayMs": {
 		label: "최대 재시도 지연",
 		description:
 			"재시도 사이 최대 대기 시간(ms)이에요. 프로바이더가 이보다 긴 대기를 요구하고 자격 증명이나 모델 폴백도 성공하지 못하면 대기하지 않고 바로 실패해요(예: Anthropic의 최대 3시간 속도 제한 창).",
 	},
-	"retry.modelFallback": { label: "재시도 모델 폴백", description: "재시도 복구 시 설정된 폴백 모델로 전환 허용" },
+	"retry.modelFallback": {
+		label: "재시도 모델 폴백",
+		description: "재시도 복구 시 설정된 폴백 모델로 전환할 수 있게 해요",
+	},
 	"retry.waitForUsageReset": {
 		label: "사용량 리셋 대기",
 		description:
-			"프로바이더가 명확한 사용량 리셋 시각을 알려주면 최대 재시도 지연을 넘더라도 리셋 후 재시도해요. 대기는 언제든 중단할 수 있고, 하위 태스크도 함께 대기해요.",
+			"프로바이더가 명확한 사용량 리셋 시각을 알려 주면 최대 재시도 지연을 넘더라도 리셋 후 재시도해요. 대기는 언제든 중단할 수 있고, 서브에이전트도 함께 대기해요.",
 	},
 	"retry.usageAwareFallback": {
 		label: "사용량 인식 폴백",
@@ -463,7 +475,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description:
 			'모델 역할, 모델 선택자("provider/model-id") 또는 프로바이더 와일드카드("provider/*")를 순서가 있는 폴백 선택자 목록에 매핑하는 JSON 객체예요. 예: {"default":["openai/gpt-4o-mini"],"google-antigravity/*":["google/*","google-vertex/*"]}. 모델 대상 키는 역할과 무관하게 해당 모델/프로바이더가 활성일 때 적용되고, "provider/*" 항목은 실패한 모델의 id를 유지한 채 프로바이더만 바꿔요. id 접두사가 붙은 와일드카드("openrouter/google/*")는 실패한 모델의 순수 id에 접두사를 다시 붙이며(google-antigravity/gemini-x -> openrouter/google/gemini-x), 키로 쓰면 해당 프로바이더의 그 접두사 아래 id에만 일치해요.',
 	},
-	"retry.fallbackRevertPolicy": { label: "폴백 복귀 정책", description: "폴백 후 언제 기본 모델로 돌아갈지" },
+	"retry.fallbackRevertPolicy": { label: "폴백 복귀 정책", description: "폴백 후 언제 기본 모델로 돌아갈지예요" },
 	"providers.anthropic.serverSideFallback": {
 		label: "Anthropic 서버 측 폴백(Fable 5)",
 		description:
@@ -488,18 +500,18 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		label: "Git 연동 사용",
 		description: "TUI에 git 브랜치, 상태, PR 정보를 표시하고 저장소 메타데이터를 감시해요.",
 	},
-	steeringMode: { label: "추가 지시 모드", description: "에이전트 실행 중 대기열 메시지 처리 방식" },
-	followUpMode: { label: "후속 모드", description: "턴이 끝난 뒤 후속 메시지를 내보내는 방식" },
-	interruptMode: { label: "중단 모드", description: "추가 지시 메시지가 도구 실행을 중단하는 시점" },
-	"loop.mode": { label: "루프 모드", description: "/loop 반복 사이, 프롬프트를 다시 제출하기 전에 수행할 동작" },
+	steeringMode: { label: "추가 지시 모드", description: "에이전트 실행 중 대기열 메시지 처리 방식이에요" },
+	followUpMode: { label: "후속 모드", description: "턴이 끝난 뒤 후속 메시지를 내보내는 방식이에요" },
+	interruptMode: { label: "중단 모드", description: "추가 지시 메시지가 도구 실행을 중단하는 시점이에요" },
+	"loop.mode": { label: "루프 모드", description: "/loop 반복 사이, 프롬프트를 다시 제출하기 전에 수행할 동작이에요" },
 	doubleEscapeAction: {
 		label: "Escape 두 번 동작",
-		description: "에디터가 비어 있을 때 Escape를 두 번 누르면 실행할 동작",
+		description: "에디터가 비어 있을 때 Escape를 두 번 누르면 실행할 동작이에요",
 	},
-	treeFilterMode: { label: "세션 트리 필터", description: "세션 트리를 열 때의 기본 필터 모드" },
+	treeFilterMode: { label: "세션 트리 필터", description: "세션 트리를 열 때의 기본 필터 모드예요" },
 	autocompleteMaxVisible: {
 		label: "자동 완성 항목 수",
-		description: "자동 완성 드롭다운에 보이는 최대 항목 수(3-20)",
+		description: "자동 완성 드롭다운에 보이는 최대 항목 수예요(3-20)",
 	},
 	emojiAutocomplete: {
 		label: "이모지 자동 완성",
@@ -510,25 +522,28 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description:
 			"붙여넣기가 이 줄 수에 도달하면 코드 블록으로 감싸기, XML 태그로 감싸기, 파일로 저장하기 메뉴를 제공해요. 0이면 메뉴를 끄며, 큰 붙여넣기는 여전히 [Paste] 표시로 접혀요.",
 	},
-	"startup.quiet": { label: "조용한 시작", description: "환영 화면과 시작 상태 메시지 건너뛰기" },
+	"startup.quiet": { label: "조용한 시작", description: "환영 화면과 시작 상태 메시지를 건너뛰어요" },
 	"startup.showSplash": {
 		label: "스플래시 화면 표시",
 		description:
-			"일반 대화형 시작 시 설정을 다시 실행하지 않고 전체 애니메이션 설정 화면을 보여줘요. 조용한 시작에서는 계속 숨겨져요.",
+			"일반 대화형 시작 시 설정을 다시 실행하지 않고 전체 애니메이션 설정 화면을 보여 줘요. 조용한 시작에서는 계속 숨겨져요.",
 	},
-	"startup.setupWizard": { label: "설정 마법사", description: "설정 버전마다 새로 추가된 온보딩 단계를 한 번씩 표시" },
-	"startup.checkUpdate": { label: "업데이트 확인", description: "시작 시 omp 업데이트 확인" },
+	"startup.setupWizard": {
+		label: "설정 마법사",
+		description: "설정 버전마다 새로 추가된 온보딩 단계를 한 번씩 표시해요",
+	},
+	"startup.checkUpdate": { label: "업데이트 확인", description: "시작할 때 omp 업데이트를 확인해요" },
 	"marketplace.autoUpdate": {
 		label: "플러그인 마켓플레이스 자동 업데이트",
-		description: "시작 시 플러그인 업데이트 확인",
+		description: "시작할 때 플러그인 업데이트를 확인해요",
 	},
 	"startup.changelogMode": {
 		label: "시작 시 변경 로그",
-		description: "업데이트 노트를 요약, 전체 내용으로 시작하거나 숨길지 선택",
+		description: "업데이트 노트를 요약, 전체 내용으로 시작하거나 숨길지 선택해요",
 	},
 	"magicKeywords.enabled": {
 		label: "매직 키워드",
-		description: "단독으로 쓴 ultrathink, orchestrate, workflowz 키워드에 숨은 프롬프트 사용",
+		description: "단독으로 쓴 ultrathink, orchestrate, workflowz 키워드에 숨은 프롬프트를 붙여요",
 	},
 	"magicKeywords.ultrathink": {
 		label: "Ultrathink 키워드",
@@ -546,19 +561,19 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		label: "Jevify 키워드",
 		description: "단독으로 쓴 jevify가 숨겨진 일괄 판정 분류 안내를 덧붙이도록 해요.",
 	},
-	"completion.notify": { label: "완료 알림", description: "에이전트가 턴을 마치면 알림" },
-	"error.notify": { label: "오류 알림", description: "에이전트가 오류로 멈추면 알림" },
+	"completion.notify": { label: "완료 알림", description: "에이전트가 턴을 마치면 알려요" },
+	"error.notify": { label: "오류 알림", description: "에이전트가 오류로 멈추면 알려요" },
 	"ask.timeout": {
 		label: "질문 타임아웃",
-		description: "이 초가 지나면 추천 질문 옵션을 자동 선택(0이면 사용 안 함)",
+		description: "이 초가 지나면 추천 질문 옵션을 자동 선택해요(0이면 사용 안 함)",
 	},
-	"ask.notify": { label: "질문 알림", description: "ask 도구가 입력을 기다릴 때 알림" },
+	"ask.notify": { label: "질문 알림", description: "ask 도구가 입력을 기다릴 때 알려요" },
 	"recap.enabled": {
 		label: "유휴 요약",
-		description: "터미널이 한동안 유휴 상태면 현재 진행 상황을 짧게 정리한 LLM 요약을 생성",
+		description: "터미널이 한동안 유휴 상태면 현재 진행 상황을 짧게 정리한 LLM 요약을 생성해요",
 	},
-	"recap.idleSeconds": { label: "유휴 요약 지연", description: "요약을 표시하기 전 유휴 대기 시간(초)" },
-	"collab.relayUrl": { label: "릴레이 URL", description: "/collab이 사용할 릴레이(wss://host[:port])" },
+	"recap.idleSeconds": { label: "유휴 요약 지연", description: "요약을 표시하기 전 유휴 대기 시간이에요(초)" },
+	"collab.relayUrl": { label: "릴레이 URL", description: "/collab이 사용할 릴레이예요(wss://host[:port])" },
 	"collab.webUrl": {
 		label: "웹 UI URL",
 		description:
@@ -566,19 +581,19 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"collab.displayName": {
 		label: "표시 이름",
-		description: "다른 협업 참여자에게 보이는 이름(기본값: OS 사용자 이름)",
+		description: "다른 협업 참여자에게 보이는 이름이에요(기본값: OS 사용자 이름)",
 	},
 	"share.serverUrl": {
 		label: "공유 서버",
 		description:
-			"/share가 사용할 공유 보기/업로드 기본 주소(암호화된 blob 업로드 + 뷰어, 링크 형식 <base>/<id>#<key>)",
+			"/share가 사용할 공유 보기/업로드 기본 주소예요(암호화된 blob 업로드 + 뷰어, 링크 형식 <base>/<id>#<key>)",
 	},
-	"share.store": { label: "공유 저장소", description: "/share가 암호화된 세션 blob을 업로드할 위치" },
+	"share.store": { label: "공유 저장소", description: "/share가 암호화된 세션 blob을 업로드할 위치예요" },
 	"share.redactSecrets": {
 		label: "공유 시 비밀 정보 가리기",
-		description: "업로드 전에 /share 스냅샷에 비밀 정보 난독화기를 실행(secrets.* 설정 사용)",
+		description: "업로드 전에 /share 스냅샷에 비밀 정보 난독화기를 실행해요(secrets.* 설정 사용)",
 	},
-	"stt.enabled": { label: "음성 인식", description: "마이크를 통한 음성 텍스트 변환 입력 사용" },
+	"stt.enabled": { label: "음성 인식", description: "마이크 음성을 텍스트로 변환해 입력해요" },
 	"stt.submitTrigger": {
 		label: "음성 받아쓰기 제출 트리거",
 		description:
@@ -597,7 +612,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	"tools.approvalMode": {
 		label: "도구 승인",
 		description:
-			"도구 호출의 기본 승인 동작이에요. '항상 묻기'는 읽기 전용 도구만 자동 승인하고, '묻고 기억하기'는 파일을 읽기 전에도 묻고 파일이나 폴더를 기억할 수 있으며, '쓰기'는 읽기와 프로젝트 쓰기 도구를 자동 승인하고, 'Yolo'는 모든 단계를 자동 승인하지만 사용자 정책으로 여전히 확인하거나 차단할 수 있어요.",
+			"도구 호출의 기본 승인 방식이에요. '항상 묻기'는 읽기 전용 도구만 자동 승인해요. '묻고 기억하기'는 파일을 읽기 전에도 묻고, 허용한 파일이나 폴더를 기억해요. '쓰기'는 읽기와 프로젝트 쓰기 도구를 자동 승인해요. 'Yolo'는 모든 단계를 자동 승인하지만, 사용자 정책이 있으면 확인하거나 차단해요.",
 	},
 	"features.unexpectedStopDetection": {
 		label: "예기치 않은 중단 감지",
@@ -613,17 +628,17 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"contextPromotion.enabled": {
 		label: "컨텍스트 자동 승격",
-		description: "컨텍스트가 넘치면 압축하는 대신 더 큰 컨텍스트 모델로 승격",
+		description: "컨텍스트가 넘치면 압축하는 대신 더 큰 컨텍스트 모델로 승격해요",
 	},
 	extendedContext: {
 		label: "확장 컨텍스트",
 		description:
 			"지원하는 모델에서 더 큰 컨텍스트 창을 사용해요. 비용이 늘 수 있으며, 끄면 기본 또는 표준 과금 창을 사용해요.",
 	},
-	"compaction.enabled": { label: "자동 압축", description: "컨텍스트가 너무 커지면 자동으로 압축" },
+	"compaction.enabled": { label: "자동 압축", description: "컨텍스트가 너무 커지면 자동으로 압축해요" },
 	"compaction.midTurnEnabled": {
 		label: "턴 중 압축",
-		description: "다음 프로바이더 요청 전에 안전한 턴 중 도구 루프 경계에서 임계값 확인",
+		description: "다음 프로바이더 요청 전에 안전한 턴 중 도구 루프 경계에서 임계값을 확인해요",
 	},
 	"compaction.methodOrder": {
 		label: "압축 방법 순서",
@@ -640,28 +655,34 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"compaction.handoffSaveToDisk": {
 		label: "핸드오프 문서 저장",
-		description: "자동 핸드오프 과정에서 생성된 핸드오프 문서를 markdown 파일로 저장",
+		description: "자동 핸드오프 과정에서 생성된 핸드오프 문서를 markdown 파일로 저장해요",
 	},
 	"compaction.remoteStreamingV2Enabled": {
 		label: "원격 압축 V2",
-		description: "호환되는 원격 압축 모델에 Responses 스트리밍 압축 사용",
+		description: "호환되는 원격 압축 모델에 Responses 스트리밍 압축을 사용해요",
 	},
 	"compaction.asyncEnabled": {
 		label: "비동기 압축",
 		description:
 			"임계값에 가까워지면 백그라운드에서 압축 결과를 미리 만들고, 임계값에 도달하면 바로 현재 세션에 적용해요.",
 	},
-	"compaction.idleEnabled": { label: "유휴 압축", description: "토큰 수가 임계값을 넘으면 유휴 시간에 컨텍스트 압축" },
-	"compaction.idleThresholdTokens": { label: "유휴 압축 임계값", description: "유휴 압축을 발동하는 토큰 수" },
-	"compaction.idleTimeoutSeconds": { label: "유휴 압축 지연", description: "압축을 시작하기 전 유휴 대기 시간(초)" },
+	"compaction.idleEnabled": {
+		label: "유휴 압축",
+		description: "토큰 수가 임계값을 넘으면 유휴 시간에 컨텍스트를 압축해요",
+	},
+	"compaction.idleThresholdTokens": { label: "유휴 압축 임계값", description: "유휴 압축을 발동하는 토큰 수예요" },
+	"compaction.idleTimeoutSeconds": {
+		label: "유휴 압축 지연",
+		description: "압축을 시작하기 전 유휴 대기 시간이에요(초)",
+	},
 	"compaction.supersedeReads": {
 		label: "오래된 읽기 대체",
-		description: "같은 파일을 다시 읽으면 이전 읽기 결과를 정리(캐시 인식, 매 턴 실행)",
+		description: "같은 파일을 다시 읽으면 이전 읽기 결과를 정리해요(캐시 인식, 매 턴 실행)",
 	},
 	"compaction.dropUseless": {
 		label: "쓸모없는 결과 생략",
 		description:
-			"도구 결과가 소비된 뒤 컨텍스트에 쓸모없다고 표시된 결과(일치 없음, 대기 타임아웃)를 정리(캐시 인식)",
+			"도구 결과가 소비된 뒤 컨텍스트에 쓸모없다고 표시된 결과(일치 없음, 대기 타임아웃)를 정리해요(캐시 인식)",
 	},
 	"snapcompact.systemPrompt": {
 		label: "Snapcompact 시스템 프롬프트",
@@ -683,25 +704,28 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description:
 			"snapcompact가 텍스트를 찍을 프레임 형태(압축 아카이브와 인라인 이미지화). Auto는 현재 모델에 맞춰진 형태를 골라요.",
 	},
-	"branchSummary.enabled": { label: "브랜치 요약", description: "브랜치를 떠날 때 요약 생성을 제안" },
+	"branchSummary.enabled": { label: "브랜치 요약", description: "브랜치를 떠날 때 요약 생성을 제안해요" },
 	"ttsr.enabled": {
 		label: "TTSR",
-		description: "출력이 규칙 패턴과 일치하면 에이전트 스트리밍을 중단(Time-Traveling Stream Rules)",
+		description: "출력이 규칙 패턴과 일치하면 에이전트 스트리밍을 중단해요(Time-Traveling Stream Rules)",
 	},
-	"ttsr.contextMode": { label: "TTSR 컨텍스트 모드", description: "TTSR이 발동했을 때 부분 출력 처리 방식" },
-	"ttsr.interruptMode": { label: "TTSR 중단 모드", description: "스트림 중 바로 중단할지, 완료 후 경고를 주입할지" },
+	"ttsr.contextMode": { label: "TTSR 컨텍스트 모드", description: "TTSR이 발동했을 때 부분 출력 처리 방식이에요" },
+	"ttsr.interruptMode": {
+		label: "TTSR 중단 모드",
+		description: "스트림 중 바로 중단할지, 완료 후 경고를 주입할지예요",
+	},
 	"ttsr.repeatMode": {
 		label: "TTSR 반복 모드",
-		description: "규칙 재발동 방식: 세션당 한 번 또는 일정 메시지 간격 후",
+		description: "규칙을 다시 발동하는 방식이에요(세션당 한 번 또는 일정 메시지 간격 후)",
 	},
-	"ttsr.repeatGap": { label: "TTSR 반복 간격", description: "규칙이 다시 발동하기 전에 필요한 메시지 수" },
+	"ttsr.repeatGap": { label: "TTSR 반복 간격", description: "규칙이 다시 발동하기 전에 필요한 메시지 수예요" },
 	"ttsr.builtinRules": {
 		label: "내장 규칙",
-		description: "에이전트에 포함된 기본 규칙 불러오기(ttsr.disabledRules로 개별 재정의 가능)",
+		description: "에이전트에 포함된 기본 규칙을 불러와요(ttsr.disabledRules로 개별 재정의 가능)",
 	},
 	"ttsr.disabledRules": {
 		label: "비활성 규칙",
-		description: "완전히 무시할 규칙 이름(내장 기본 규칙과 직접 만든 규칙 모두 적용)",
+		description: "완전히 무시할 규칙 이름이에요(내장 기본 규칙과 직접 만든 규칙 모두 적용)",
 	},
 	"ttsr.judge": {
 		label: "판정 규칙",
@@ -710,43 +734,46 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 
 	// ── files ───────────────────────────────────────────────────────────────
-	"edit.mode": { label: "편집 모드", description: "편집 도구 변형 선택(replace, patch, hashline, apply_patch)" },
-	"edit.fuzzyMatch": { label: "퍼지 매칭", description: "공백 차이에 대해 신뢰도 높은 퍼지 매칭 허용" },
-	"edit.fuzzyThreshold": { label: "퍼지 매칭 임계값", description: "퍼지 매칭을 허용할 유사도 임계값(0-1)" },
+	"edit.mode": { label: "편집 모드", description: "편집 도구 변형을 선택해요(replace, patch, hashline, apply_patch)" },
+	"edit.fuzzyMatch": { label: "퍼지 매칭", description: "공백 차이에 대해 신뢰도 높은 퍼지 매칭을 허용해요" },
+	"edit.fuzzyThreshold": { label: "퍼지 매칭 임계값", description: "퍼지 매칭을 허용할 유사도 임계값이에요(0-1)" },
 	"edit.streamingAbort": {
 		label: "미리보기 실패 시 중단",
-		description: "패치 미리보기가 실패하면 스트리밍 편집 도구 호출 중단",
+		description: "패치 미리보기가 실패하면 스트리밍 편집 도구 호출을 중단해요",
 	},
 	"edit.recoverInlineEdits": {
 		label: "인라인 편집 내용 복구",
-		description: "모델이 일반 텍스트로 출력한 편집 내용을 edit 도구 호출로 변환해 실행",
+		description: "모델이 일반 텍스트로 출력한 편집 내용을 edit 도구 호출로 변환해 실행해요",
 	},
 	"edit.blockAutoGenerated": {
 		label: "자동 생성 파일 차단",
-		description: "자동 생성된 것으로 보이는 파일(protoc, sqlc, swagger 등) 편집 차단",
+		description: "자동 생성된 것으로 보이는 파일(protoc, sqlc, swagger 등)의 편집을 차단해요",
 	},
 	"edit.enforceSeenLines": {
 		label: "본 줄 가드 강제",
-		description: "이전 읽기/검색에서 전체가 표시된 적 없는 줄에 고정된 편집을 거부",
+		description: "이전 읽기/검색에서 전체가 표시된 적 없는 줄에 고정된 편집을 거부해요",
 	},
 	"edit.blackbox.enabled": {
 		label: "편집 파싱 회귀 기록",
-		description: "편집으로 AST 파싱이 실패하면 수정 전후 소스와 호출 정보를 로컬 진단 로그에 추가",
+		description: "편집으로 AST 파싱이 실패하면 수정 전후 소스와 호출 정보를 로컬 진단 로그에 추가해요",
 	},
-	readLineNumbers: { label: "줄 번호", description: "기본적으로 읽기 도구 출력 앞에 줄 번호 추가" },
+	readLineNumbers: { label: "줄 번호", description: "기본적으로 읽기 도구 출력 앞에 줄 번호를 추가해요" },
 	"read.defaultLimit": {
 		label: "기본 읽기 줄 수",
-		description: "에이전트가 줄 수 제한 없이 read를 호출할 때 기본으로 반환하는 줄 수",
+		description: "에이전트가 줄 수 제한 없이 read를 호출할 때 기본으로 반환하는 줄 수예요",
 	},
 	"read.renderMarkdown": {
 		label: "Markdown 미리보기",
-		description: "Markdown 읽기 결과를 원본 소스 대신 서식 있는 터미널 Markdown 미리보기로 렌더링",
+		description: "Markdown 읽기 결과를 원본 소스 대신 서식 있는 터미널 Markdown 미리보기로 렌더링해요",
 	},
 	"read.summarize.enabled": {
 		label: "읽기 요약",
-		description: "명시적 선택자 없이 read를 호출하면 구조화된 코드 요약 반환",
+		description: "명시적 선택자 없이 read를 호출하면 구조화된 코드 요약을 반환해요",
 	},
-	"read.summarize.prose": { label: "산문 요약", description: "Markdown과 일반 텍스트 읽기에 구조화된 요약 반환" },
+	"read.summarize.prose": {
+		label: "산문 요약",
+		description: "Markdown과 일반 텍스트 읽기에 구조화된 요약을 반환해요",
+	},
 	"read.summarize.minBodyLines": {
 		label: "요약 접기 본문 줄 수",
 		description: "여러 줄 함수 본문이나 리터럴이 이 줄 수를 넘어야 읽기 요약에서 접어요",
@@ -771,16 +798,19 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"read.toolResultPreview": {
 		label: "인라인 읽기 미리보기",
-		description: "세션 기록에서 읽기 도구 결과를 요약 줄 대신 인라인으로 렌더링",
+		description: "세션 기록에서 읽기 도구 결과를 요약 줄 대신 인라인으로 렌더링해요",
 	},
-	"lsp.enabled": { label: "LSP", description: "코드 인텔리전스(정의, 참조, 진단, 이름 변경)를 위한 lsp 도구 사용" },
+	"lsp.enabled": {
+		label: "LSP",
+		description: "코드 인텔리전스(정의, 참조, 진단, 이름 변경)를 위해 lsp 도구를 사용해요",
+	},
 	"lsp.lazy": {
 		label: "LSP 지연 시작",
-		description: "세션 시작 시가 아니라 처음 사용할 때(lsp 도구 또는 일치하는 파일 형식 편집) 언어 서버 시작",
+		description: "세션 시작 시가 아니라 처음 사용할 때(lsp 도구 또는 일치하는 파일 형식 편집) 언어 서버를 시작해요",
 	},
-	"lsp.formatOnWrite": { label: "쓰기 후 포맷", description: "코드 파일을 쓴 뒤 LSP로 자동 포맷" },
-	"lsp.diagnosticsOnWrite": { label: "쓰기 후 진단", description: "코드 파일을 쓴 뒤 LSP 진단 반환" },
-	"lsp.diagnosticsOnEdit": { label: "편집 후 진단", description: "코드 파일을 편집한 뒤 LSP 진단 반환" },
+	"lsp.formatOnWrite": { label: "쓰기 후 포맷", description: "코드 파일을 쓴 뒤 LSP로 자동 포맷해요" },
+	"lsp.diagnosticsOnWrite": { label: "쓰기 후 진단", description: "코드 파일을 쓴 뒤 LSP 진단을 반환해요" },
+	"lsp.diagnosticsOnEdit": { label: "편집 후 진단", description: "코드 파일을 편집한 뒤 LSP 진단을 반환해요" },
 	"lsp.requestTimeout": {
 		label: "요청 제한 시간",
 		description:
@@ -788,11 +818,11 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"lsp.diagnosticsDeduplicate": {
 		label: "진단 중복 제거",
-		description: "파일에서 이미 표시된 편집 후 LSP 진단은 숨기고 새로 생기거나 바뀐 것만 표시",
+		description: "파일에서 이미 표시된 편집 후 LSP 진단은 숨기고 새로 생기거나 바뀐 것만 표시해요",
 	},
 
 	// ── shell ───────────────────────────────────────────────────────────────
-	"bash.enabled": { label: "Bash", description: "shell 명령 실행을 위한 bash 도구 사용" },
+	"bash.enabled": { label: "Bash", description: "shell 명령 실행을 위해 bash 도구를 사용해요" },
 	"bash.allowCompoundCommands": {
 		label: "복합 명령 개별 승인",
 		description:
@@ -800,14 +830,14 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"bash.autoBackground.enabled": {
 		label: "Bash 자동 백그라운드",
-		description: "오래 실행되는 bash 명령을 자동으로 백그라운드로 보내고 나중에 결과 전달",
+		description: "오래 실행되는 bash 명령을 자동으로 백그라운드로 보내고 나중에 결과를 전달해요",
 	},
 	"bash.patterns": {
 		label: "Bash 승인 패턴",
 		description:
 			"순서가 있는 bash 명령 승인 규칙이에요. 각 항목에 match와 approval 필드가 있고 '*' 와일드카드만 지원해요.",
 	},
-	"bashInterceptor.enabled": { label: "Bash 인터셉터", description: "전용 도구가 있는 shell 명령 차단" },
+	"bashInterceptor.enabled": { label: "Bash 인터셉터", description: "전용 도구가 있는 shell 명령을 차단해요" },
 	"bash.direnv": {
 		label: "direnv 자동 로드",
 		description:
@@ -820,20 +850,20 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"shellMinimizer.enabled": {
 		label: "셸 출력 압축",
-		description: "에이전트에 반환하기 전에 장황한 shell 출력(git, npm, cargo 등)을 압축",
+		description: "에이전트에 반환하기 전에 장황한 shell 출력(git, npm, cargo 등)을 압축해요",
 	},
 	"shellMinimizer.sourceOutlineLevel": {
 		label: "셸 압축 소스 개요",
-		description: "소스 파일을 cat/read할 때의 소스 개요 모드: default 또는 aggressive",
+		description: "소스 파일을 cat/read할 때 쓰는 소스 개요 모드예요(default 또는 aggressive)",
 	},
-	"eval.py": { label: "Python Eval 백엔드", description: "eval 도구가 Python 셀을 IPython 커널로 보내도록 허용" },
+	"eval.py": { label: "Python Eval 백엔드", description: "eval 도구가 Python 셀을 IPython 커널로 보내도록 허용해요" },
 	"eval.js": {
 		label: "JavaScript Eval 백엔드",
-		description: "eval 도구가 JavaScript 셀을 프로세스 내 런타임으로 보내도록 허용",
+		description: "eval 도구가 JavaScript 셀을 프로세스 내 런타임으로 보내도록 허용해요",
 	},
 	"eval.tools.enabled": {
 		label: "Eval 정의 도구",
-		description: "eval 셀이 task, agent(), workpool() 서브에이전트가 호출할 수 있는 도구를 정의하도록 허용",
+		description: "eval 셀이 task, agent(), workpool() 서브에이전트가 호출할 수 있는 도구를 정의하도록 허용해요",
 	},
 	"eval.workpool.freshAgents": {
 		label: "Workpool에 새 에이전트 사용",
@@ -841,7 +871,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"python.kernelMode": {
 		label: "Python 커널 모드",
-		description: "eval 호출 사이에 IPython 커널을 유지하거나 매번 새로 시작",
+		description: "eval 호출 사이에 IPython 커널을 유지하거나 매번 새로 시작해요",
 	},
 	"python.interpreter": {
 		label: "Python 인터프리터",
@@ -851,11 +881,11 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	// ── tools ───────────────────────────────────────────────────────────────
 	"tools.artifactSpillThreshold": {
 		label: "아티팩트 분리 임계값(KB)",
-		description: "이 크기를 넘는 도구 출력은 artifact로 저장하고 끝부분만 인라인으로 유지",
+		description: "이 크기를 넘는 도구 출력은 artifact로 저장하고 끝부분만 인라인으로 유지해요",
 	},
 	"tools.artifactTailBytes": {
 		label: "아티팩트 끝부분 크기(KB)",
-		description: "출력이 artifact로 분리될 때 인라인으로 유지할 끝부분 분량",
+		description: "출력이 artifact로 분리될 때 인라인으로 유지할 끝부분 분량이에요",
 	},
 	"tools.artifactHeadBytes": {
 		label: "아티팩트 앞부분 크기(KB)",
@@ -869,26 +899,26 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"tools.artifactTailLines": {
 		label: "아티팩트 끝부분 줄 수",
-		description: "출력이 artifact로 분리될 때 인라인으로 유지할 최대 끝부분 줄 수",
+		description: "출력이 artifact로 분리될 때 인라인으로 유지할 최대 끝부분 줄 수예요",
 	},
-	"todo.enabled": { label: "할 일", description: "할 일을 추적하는 todo 도구 사용" },
-	"todo.reminders": { label: "할 일 알림", description: "에이전트가 멈추기 전에 할 일을 끝내도록 알림" },
-	"todo.remindersMax": { label: "할 일 알림 상한", description: "포기하기 전 최대 할 일 알림 횟수" },
-	"todo.eager": { label: "할 일 자동 생성", description: "첫 메시지 후 할 일 목록 자동 생성을 유도하는 강도" },
-	"glob.enabled": { label: "Glob", description: "glob 패턴 파일 찾기를 위한 glob 도구 사용" },
-	"grep.enabled": { label: "Grep", description: "정규식 내용 검색을 위한 grep 도구 사용" },
-	"grep.contextBefore": { label: "Grep 앞 컨텍스트", description: "각 grep 일치 앞에 표시할 컨텍스트 줄 수" },
-	"grep.contextAfter": { label: "Grep 뒤 컨텍스트", description: "각 grep 일치 뒤에 표시할 컨텍스트 줄 수" },
-	"astGrep.enabled": { label: "AST Grep", description: "구조적 AST 검색을 위한 ast_grep 도구 사용" },
-	"astEdit.enabled": { label: "AST 편집", description: "구조적 AST 재작성을 위한 ast_edit 도구 사용" },
-	"debug.enabled": { label: "디버그", description: "DAP 기반 디버깅을 위한 debug 도구 사용" },
+	"todo.enabled": { label: "할 일", description: "할 일을 추적하는 todo 도구를 사용해요" },
+	"todo.reminders": { label: "할 일 알림", description: "에이전트가 멈추기 전에 할 일을 끝내도록 알려요" },
+	"todo.remindersMax": { label: "할 일 알림 상한", description: "포기하기 전 최대 할 일 알림 횟수예요" },
+	"todo.eager": { label: "할 일 자동 생성", description: "첫 메시지 후 할 일 목록 자동 생성을 유도하는 강도예요" },
+	"glob.enabled": { label: "Glob", description: "glob 패턴으로 파일을 찾는 glob 도구를 사용해요" },
+	"grep.enabled": { label: "Grep", description: "정규식으로 내용을 검색하는 grep 도구를 사용해요" },
+	"grep.contextBefore": { label: "Grep 앞 컨텍스트", description: "각 grep 일치 앞에 표시할 컨텍스트 줄 수예요" },
+	"grep.contextAfter": { label: "Grep 뒤 컨텍스트", description: "각 grep 일치 뒤에 표시할 컨텍스트 줄 수예요" },
+	"astGrep.enabled": { label: "AST Grep", description: "구조적 AST 검색을 위해 ast_grep 도구를 사용해요" },
+	"astEdit.enabled": { label: "AST 편집", description: "구조적 AST 재작성을 위해 ast_edit 도구를 사용해요" },
+	"debug.enabled": { label: "디버그", description: "DAP 기반 디버깅을 위해 debug 도구를 사용해요" },
 	"launch.enabled": {
 		label: "프로세스 실행",
-		description: "공유되는 장기 실행 프로젝트 프로세스를 관리하는 launch 도구 사용",
+		description: "공유되는 장기 실행 프로젝트 프로세스를 관리하는 launch 도구를 사용해요",
 	},
 	"speechgen.enabled": {
 		label: "음성 생성",
-		description: "온디바이스(Kokoro) 또는 xAI Grok Voice 음성 파일 합성을 위한 tts 도구 사용",
+		description: "온디바이스(Kokoro) 또는 xAI Grok Voice로 음성 파일을 합성하는 tts 도구를 사용해요",
 	},
 	"generate_image.enabled": {
 		label: "이미지 생성",
@@ -897,18 +927,18 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"computer.enabled": {
 		label: "데스크톱 제어",
-		description: "스크립트로 호스트 데스크톱을 다루는 eval 프렐류드(스크린샷, 입력, 접근성) 사용",
+		description: "스크립트로 호스트 데스크톱을 다루는 eval 프렐류드(스크린샷, 입력, 접근성)를 사용해요",
 	},
 	"computer.display": {
 		label: "데스크톱 제어 디스플레이",
-		description: "활성 창의 디스플레이(active), 모든 디스플레이(all), 또는 네이티브 디스플레이 id 하나",
+		description: "활성 창의 디스플레이(active), 모든 디스플레이(all), 또는 네이티브 디스플레이 id 하나예요",
 	},
-	"computer.maxWidth": { label: "스크린샷 최대 너비", description: "스크린샷의 최대 너비(픽셀)" },
-	"computer.maxHeight": { label: "스크린샷 최대 높이", description: "스크린샷의 최대 높이(픽셀)" },
+	"computer.maxWidth": { label: "스크린샷 최대 너비", description: "스크린샷의 최대 너비예요(픽셀)" },
+	"computer.maxHeight": { label: "스크린샷 최대 높이", description: "스크린샷의 최대 높이예요(픽셀)" },
 	"computer.backgroundFallback": {
 		label: "백그라운드 입력 불가 시 동작",
 		description:
-			"창 입력의 백그라운드 경로를 쓸 수 없을 때의 동작이에요. takeover는 그 호출만 앞으로 가져와 실행한 뒤 내 앱으로 포커스를 돌려주고(macOS, 다른 OS는 단순 전환), refuse는 거부하며 에이전트가 직접 앞으로 가져오거나 macOS 메뉴를 여는 것도 막아요",
+			"창 입력의 백그라운드 경로를 쓸 수 없을 때의 동작이에요. takeover는 그 호출만 앞으로 가져와 실행한 뒤 내 앱으로 포커스를 돌려 주고(macOS, 다른 OS는 단순 전환), refuse는 거부하며 에이전트가 직접 앞으로 가져오거나 macOS 메뉴를 여는 것도 막아요",
 	},
 	"images.questionTimeoutMs": {
 		label: "이미지 질문 타임아웃",
@@ -917,7 +947,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"checkpoint.enabled": {
 		label: "체크포인트/되감기",
-		description: "컨텍스트 체크포인트 관리를 위한 checkpoint와 rewind 도구 사용",
+		description: "컨텍스트 체크포인트 관리를 위해 checkpoint와 rewind 도구를 사용해요",
 	},
 
 	"fetch.enabled": { label: "URL 읽기", description: "read 도구가 URL을 가져와 처리하도록 허용해요" },
@@ -984,7 +1014,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"tools.maxTimeout": {
 		label: "도구 타임아웃 상한",
-		description: "에이전트가 도구에 설정할 수 있는 최대 타임아웃(초, 0 = 무제한)",
+		description: "에이전트가 도구에 설정할 수 있는 최대 타임아웃이에요(초, 0 = 무제한)",
 	},
 	"async.printWake": {
 		label: "작업 결과로 출력 모드 깨우기",
@@ -1023,7 +1053,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	"mcp.notifications": { label: "MCP 업데이트 주입", description: "MCP 리소스 업데이트를 에이전트 세션에 주입해요" },
 	"mcp.notificationDebounceMs": {
 		label: "MCP 알림 디바운스",
-		description: "MCP 리소스 업데이트를 세션에 주입하기 전 디바운스 시간(밀리초)",
+		description: "MCP 리소스 업데이트를 세션에 주입하기 전 디바운스 시간이에요(밀리초)",
 	},
 	"mcp.startupTimeoutMs": {
 		label: "MCP 시작 대기 시간",
@@ -1031,7 +1061,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"tasks.todoClearDelay": {
 		label: "할 일 자동 삭제 지연",
-		description: "완료되거나 포기한 할 일을 할 일 위젯에서 제거하기 전 지연 시간",
+		description: "완료되거나 포기한 할 일을 할 일 위젯에서 제거하기 전 지연 시간이에요",
 	},
 	"dev.autoqa": {
 		label: "자동 QA",
@@ -1040,7 +1070,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"dev.autoqaPush.endpoint": {
 		label: "자동 QA 푸시 엔드포인트",
-		description: "자동 QA JSON 보고를 받을 전체 URL(기본 https://qa.omp.sh/v1/grievances)",
+		description: "자동 QA JSON 보고를 받을 전체 URL예요(기본 https://qa.omp.sh/v1/grievances)",
 	},
 
 	// ── tasks ───────────────────────────────────────────────────────────────
@@ -1052,11 +1082,11 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	"goal.enabled": { label: "목표 모드", description: "세션별 목표 모드와 숨겨진 goal 도구를 활성화해요" },
 	"goal.statusInFooter": {
 		label: "하단 바에 목표 상태 표시",
-		description: "상태 표시줄의 목표 표시 옆에 토큰 예산을 보여줘요",
+		description: "상태 표시줄의 목표 표시 옆에 토큰 예산을 보여 줘요",
 	},
 	"goal.continuationModes": {
 		label: "목표 이어가기 모드",
-		description: "활성 목표가 턴 사이에 자동으로 이어갈 수 있는 실행 모드",
+		description: "활성 목표가 턴 사이에 자동으로 이어갈 수 있는 실행 모드예요",
 	},
 	"title.refreshOnReplan": {
 		label: "재계획 시 제목 갱신",
@@ -1068,7 +1098,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"isolation.backend": {
 		label: "격리 백엔드",
-		description: "서브에이전트 격리와 워크트리 클론에 쓰는 백엔드",
+		description: "서브에이전트 격리와 워크트리 클론에 쓰는 백엔드예요",
 	},
 	"worktree.clone": {
 		label: "현재 체크아웃을 워크트리로 클론",
@@ -1087,29 +1117,32 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"task.isolation.merge": {
 		label: "격리 병합 전략",
-		description: "격리 서브에이전트 변경 사항을 통합하는 방식(patch 적용 또는 브랜치 병합)",
+		description: "격리 서브에이전트 변경 사항을 통합하는 방식이에요(patch 적용 또는 브랜치 병합)",
 	},
 	"task.isolation.commits": {
 		label: "격리 커밋 스타일",
-		description: "중첩 저장소 변경의 커밋 메시지 스타일(일반 또는 AI 생성)",
+		description: "중첩 저장소 변경의 커밋 메시지 스타일이에요(일반 또는 AI 생성)",
 	},
 	"worktree.base": {
 		label: "워크트리 기본 폴더",
 		description:
 			"에이전트가 관리하는 워크트리의 기본 폴더로, 서브에이전트 격리 사본, `github` PR 체크아웃, `omp worktree` 정리가 모두 여기에 있어요. 설정하지 않으면 ~/.omp/wt를 써요. 절대 경로나 ~ 기준 경로여야 하며 상대 경로는 무시돼요. OMP_WORKTREE_DIR 환경 변수로 덮어쓸 수 있어요.",
 	},
-	"task.eager": { label: "서브에이전트 위임 우선", description: "일을 서브에이전트에 위임하도록 유도하는 강도" },
+	"task.eager": { label: "서브에이전트 위임 우선", description: "일을 서브에이전트에 위임하도록 유도하는 강도예요" },
 	"task.batch": {
 		label: "일괄 서브에이전트 호출",
 		description:
-			"task 도구를 일괄 형태로 바꿔요: 한 번의 호출에 { context, tasks[] }를 담아 항목마다 서브에이전트 하나를 띄우며, 항목별 agent(기본은 세션 생성 정책 agent)와 항목별 격리를 지정할 수 있고, 모든 항목 앞에 붙는 공유 컨텍스트를 가져요. async.enabled=true이면 각 생성이 독립 백그라운드 에이전트로 실행되어 일반 idle/parked 수명 주기를 따르고, 아니면 호출이 병합된 결과를 기다리며 블록돼요. 비활성화하면 단일 생성 스키마로 돌아가요.",
+			"task 도구를 일괄 형태로 바꿔요. 한 번의 호출에 { context, tasks[] }를 담아 항목마다 서브에이전트 하나를 띄우고, 항목별로 agent(기본은 세션 생성 정책 agent)와 격리를 지정할 수 있어요. 모든 항목 앞에는 공유 컨텍스트가 붙어요. async.enabled=true이면 각 생성이 독립 백그라운드 에이전트로 실행되어 일반 idle/parked 수명 주기를 따르고, 아니면 호출이 병합된 결과를 기다리며 블록돼요. 끄면 단일 생성 스키마로 돌아가요.",
 	},
 	"task.enableEffort": {
 		label: "서브에이전트별 강도 지정",
 		description:
 			"서브에이전트 생성에 선택적 effort 파라미터를 노출해 호출자가 서브에이전트별 사고 수준을 덮어쓸 수 있게 해요",
 	},
-	"task.maxConcurrency": { label: "최대 동시 서브에이전트 수", description: "동시에 실행되는 서브에이전트의 최대 수" },
+	"task.maxConcurrency": {
+		label: "최대 동시 서브에이전트 수",
+		description: "동시에 실행되는 서브에이전트의 최대 수예요",
+	},
 	"task.enableLsp": {
 		label: "서브에이전트 LSP 사용",
 		description:
@@ -1117,12 +1150,12 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"task.maxRecursionDepth": {
 		label: "서브에이전트 재귀 깊이 상한",
-		description: "서브에이전트가 자기 서브에이전트를 생성할 수 있는 깊이",
+		description: "서브에이전트가 자기 서브에이전트를 생성할 수 있는 깊이예요",
 	},
 	"task.maxRuntimeMs": {
 		label: "서브에이전트 실행 시간 상한",
 		description:
-			'서브에이전트별 실제 경과 시간 하드 제한(밀리초)이에요. 0이면 비활성화해요. 추론 계층 감시를 벗어난 프로바이더 측 스트리밍 멈춤을 막아주며, 걸리면 "타임아웃" 사유로 서브에이전트를 정상 중단해요.',
+			'서브에이전트별 실제 경과 시간 하드 제한(밀리초)이에요. 0이면 비활성화해요. 추론 계층 감시를 벗어난 프로바이더 측 스트리밍 멈춤을 막아 주며, 걸리면 "타임아웃" 사유로 서브에이전트를 정상 중단해요.',
 	},
 	"task.agentIdleTtlMs": {
 		label: "에이전트 유휴 TTL",
@@ -1181,15 +1214,15 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"providers.antigravityEndpoint": {
 		label: "Antigravity 엔드포인트 모드",
-		description: "google-antigravity 프로바이더의 엔드포인트 라우팅 전략(chat, search, image, discovery)",
+		description: "google-antigravity 프로바이더의 엔드포인트 라우팅 전략이에요(chat, search, image, discovery)",
 	},
-	"providers.fireworksTier": { label: "Fireworks 등급", description: "기본 서비스 경로(service_tier 없음)" },
-	"live.voice": { label: "실시간 음성 목소리", description: "Codex 기반 실시간 음성 세션에서 쓸 목소리" },
+	"providers.fireworksTier": { label: "Fireworks 등급", description: "기본 서비스 경로예요(service_tier 없음)" },
+	"live.voice": { label: "실시간 음성 목소리", description: "Codex 기반 실시간 음성 세션에서 쓸 목소리예요" },
 	"tts.localVoice": {
 		label: "로컬 TTS 목소리",
-		description: "로컬 TTS 백엔드가 쓰는 Kokoro 목소리(미국/영국식, 여성/남성)",
+		description: "로컬 TTS 백엔드가 쓰는 Kokoro 목소리예요(미국/영국식, 여성/남성)",
 	},
-	"speech.enabled": { label: "음성 읽기", description: "어시스턴트 출력이 스트리밍되는 대로 스피커로 읽어줘요" },
+	"speech.enabled": { label: "음성 읽기", description: "어시스턴트 출력이 스트리밍되는 대로 스피커로 읽어 줘요" },
 	"speech.mode": {
 		label: "음성 읽기 모드",
 		description: "읽을 내용: all = 어시스턴트 메시지 + 사고, assistant = 메시지만, yield = 턴 종료 시 최종 메시지만",
@@ -1199,7 +1232,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description:
 			"합성 전에 tiny/smol 모델로 어시스턴트 출력을 자연스러운 구어체로 바꿔요(코드를 설명하고 링크와 markdown을 제거). 실패하면 기계적 정리로 대체해요",
 	},
-	"speech.voice": { label: "음성 읽기 목소리", description: "어시스턴트 출력을 읽을 때 쓸 Kokoro 목소리" },
+	"speech.voice": { label: "음성 읽기 목소리", description: "어시스턴트 출력을 읽을 때 쓸 Kokoro 목소리예요" },
 	"providers.tinyModelDevice": {
 		label: "Tiny 모델 디바이스",
 		description:
@@ -1212,11 +1245,11 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"providers.kimiApiFormat": {
 		label: "Kimi API 형식",
-		description: "Kimi Code 프로바이더의 API 형식(auto는 실시간 모델 메타데이터를 따라요)",
+		description: "Kimi Code 프로바이더의 API 형식이에요(auto는 실시간 모델 메타데이터를 따라요)",
 	},
 	"providers.openaiWebsockets": {
 		label: "OpenAI WebSockets",
-		description: "OpenAI Codex 모델의 websocket 정책(auto는 모델 기본값, on은 강제 사용, off는 비활성화)",
+		description: "OpenAI Codex 모델의 websocket 정책이에요(auto는 모델 기본값, on은 강제 사용, off는 비활성화)",
 	},
 	"providers.streamFirstEventTimeoutSeconds": {
 		label: "스트림 첫 이벤트 타임아웃",
@@ -1229,9 +1262,9 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"providers.openrouterVariant": {
 		label: "OpenRouter 라우팅",
-		description: "OpenRouter 모델 ID에 붙일 기본 라우팅 변형 접미사(선택자에 변형이 지정되면 무시돼요)",
+		description: "OpenRouter 모델 ID에 붙일 기본 라우팅 변형 접미사예요(선택자에 변형이 지정되면 무시돼요)",
 	},
-	"providers.fetch": { label: "가져오기 프로바이더", description: "fetch/read URL 도구의 리더 백엔드 우선순위" },
+	"providers.fetch": { label: "가져오기 프로바이더", description: "fetch/read URL 도구의 리더 백엔드 우선순위예요" },
 	"codexResets.autoRedeem": {
 		label: "Codex 저장된 리셋 자동 사용",
 		description:
@@ -1245,7 +1278,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	"codexResets.keepCredits": {
 		label: "Codex 자동 사용 보유량",
 		description:
-			"저장된 리셋이 이 수보다 적으면 자동으로 쓰지 않아요(0 = 마지막 크레딧까지 자동 사용). 곧 만료될 크레딧은 예외예요. 남겨둔 크레딧이 만료되면 아무것도 남지 않으니까요.",
+			"저장된 리셋이 이 수보다 적으면 자동으로 쓰지 않아요(0 = 마지막 크레딧까지 자동 사용). 곧 만료될 크레딧은 예외예요. 남겨 둔 크레딧이 만료되면 아무것도 남지 않으니까요.",
 	},
 	"codexResets.salvageHorizonHours": {
 		label: "Codex 리셋 살리기 기간",
@@ -1257,21 +1290,21 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description:
 			"시스템 프롬프트와 도구 스펙을 캐시하고 메시지 로그를 추가 전용으로 유지해 프로바이더 프리픽스 캐시(DeepSeek, Xiaomi/SGLang, Anthropic) 적중률을 최대화해요. Auto는 프리픽스 캐시를 지원하는 것으로 알려진 프로바이더에서 활성화해요.",
 	},
-	"exa.enabled": { label: "Exa", description: "모든 Exa 검색 도구의 전체 스위치" },
+	"exa.enabled": { label: "Exa", description: "모든 Exa 검색 도구의 전체 스위치예요" },
 	"exa.searchDelayMs": {
 		label: "Exa 검색 지연",
 		description: "Exa 웹 검색 요청 사이의 최소 지연(밀리초). 0이면 제한을 비활성화해요",
 	},
 	"searxng.endpoint": {
 		label: "SearXNG 엔드포인트",
-		description: "웹 검색에 쓸 자체 호스팅 SearXNG 인스턴스 기본 URL",
+		description: "웹 검색에 쓸 자체 호스팅 SearXNG 인스턴스 기본 URL예요",
 	},
 
 	// ── advanced（ui 메타데이터 없음, Advanced 탭으로 분류）─────────────────────────
 	// 일반
 	setupVersion: {
 		label: "설정 마법사 버전",
-		description: "마지막으로 실행한 설정 마법사 버전을 기록해 버전별로 새 안내 단계만 보여줘요",
+		description: "마지막으로 실행한 설정 마법사 버전을 기록해 버전별로 새 안내 단계만 보여 줘요",
 	},
 	"auth.broker.url": {
 		label: "인증 브로커 URL",
@@ -1282,12 +1315,12 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		label: "인증 브로커 토큰",
 		description: "인증 브로커에 접근하는 토큰이에요. 보통 OMP_AUTH_BROKER_TOKEN 환경 변수로 설정해요",
 	},
-	shellPath: { label: "셸 경로", description: "자동 감지 결과를 덮어쓰는 사용자 지정 shell 실행 파일 경로" },
+	shellPath: { label: "셸 경로", description: "자동 감지 결과를 덮어쓰는 사용자 지정 shell 실행 파일 경로예요" },
 	shellCommandPrefix: {
 		label: "셸 명령 접두사",
 		description: "레거시 확장에 전달하는 Pi 셸 명령 접두사예요. OMP 자체 셸에는 적용되지 않아요",
 	},
-	extensions: { label: "확장 경로", description: "시작 시 추가로 불러올 확장 경로 목록" },
+	extensions: { label: "확장 경로", description: "시작 시 추가로 불러올 확장 경로 목록이에요" },
 	enabledModels: {
 		label: "모델 허용 목록",
 		description:
@@ -1295,29 +1328,35 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	enabledProviders: {
 		label: "활성화된 기능 프로바이더",
-		description: "추가로 활성화할 기능 검색 프로바이더 id 목록(경로 범위별 설정 지원)",
+		description: "추가로 활성화할 기능 검색 프로바이더 id 목록이에요(경로 범위별 설정 지원)",
 	},
 	disabledProviders: {
 		label: "비활성화된 프로바이더",
 		description: "비활성화할 프로바이더 id 목록으로, 기능 검색 소스와 모델 선택기의 프로바이더에 공통으로 적용돼요",
 	},
-	disabledExtensions: { label: "비활성화된 확장", description: "id로 비활성화한 확장 목록(확장 패널에서 관리)" },
-	modelRoles: { label: "모델 역할 할당", description: "역할(default, smol, slow, advisor 등)과 모델 선택자의 매핑" },
-	modelTags: { label: "모델 태그", description: "사용자 지정 모델 태그의 이름, 색상, 표시 여부 설정" },
-	modelProviderOrder: { label: "프로바이더 순서", description: "모델 선택기에 표시되는 프로바이더 순서" },
-	cycleOrder: { label: "빠른 전환 순환", description: "모델 빠른 전환 순환의 역할 순서(기본 smol → default → slow)" },
+	disabledExtensions: { label: "비활성화된 확장", description: "id로 비활성화한 확장 목록이에요(확장 패널에서 관리)" },
+	modelRoles: {
+		label: "모델 역할 할당",
+		description: "역할(default, smol, slow, advisor 등)과 모델 선택자의 매핑이에요",
+	},
+	modelTags: { label: "모델 태그", description: "사용자 지정 모델 태그의 이름, 색상, 표시 여부를 설정해요" },
+	modelProviderOrder: { label: "프로바이더 순서", description: "모델 선택기에 표시되는 프로바이더 순서예요" },
+	cycleOrder: {
+		label: "빠른 전환 순환",
+		description: "모델 빠른 전환 순환의 역할 순서예요(기본 smol → default → slow)",
+	},
 	// 상태 표시줄과 인라인 이미지
 	"statusLine.leftSegments": {
 		label: "상태 표시줄 왼쪽 세그먼트",
-		description: "상태 표시줄 왼쪽에 순서대로 표시할 세그먼트 id 목록",
+		description: "상태 표시줄 왼쪽에 순서대로 표시할 세그먼트 id 목록이에요",
 	},
 	"statusLine.rightSegments": {
 		label: "상태 표시줄 오른쪽 세그먼트",
-		description: "상태 표시줄 오른쪽에 순서대로 표시할 세그먼트 id 목록",
+		description: "상태 표시줄 오른쪽에 순서대로 표시할 세그먼트 id 목록이에요",
 	},
 	"statusLine.segmentOptions": {
 		label: "상태 표시줄 세그먼트 옵션",
-		description: "세그먼트 id별 렌더링 옵션 덮어쓰기(키는 세그먼트 id)",
+		description: "세그먼트 id별 렌더링 옵션을 덮어써요(키는 세그먼트 id)",
 	},
 	"tui.maxInlineImageColumns": {
 		label: "인라인 이미지 너비 상한",
@@ -1335,22 +1374,22 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 			"실시간 터미널 그래픽으로 유지할 인라인 이미지 최대 개수(기본 8)예요. 넘으면 오래된 이미지는 전체 다시 그리기로 텍스트 자리 표시자로 바뀌어요. 0이면 모든 이미지를 유지해요(무제한).",
 	},
 	// 재시도
-	"retry.enabled": { label: "재시도 활성화", description: "API 요청 실패 시 자동 재시도의 전체 스위치" },
+	"retry.enabled": { label: "재시도 활성화", description: "API 요청 실패 시 자동 재시도의 전체 스위치예요" },
 	"retry.baseDelayMs": {
 		label: "재시도 기본 지연",
-		description: "재시도 사이 지수 백오프의 기본 대기 시간(밀리초, 기본 500)",
+		description: "재시도 사이 지수 백오프의 기본 대기 시간이에요(밀리초, 기본 500)",
 	},
 	// 음성
-	"stt.language": { label: "음성 인식 언어", description: "음성-텍스트 변환의 인식 언어 코드(기본 en)" },
+	"stt.language": { label: "음성 인식 언어", description: "음성-텍스트 변환의 인식 언어 코드예요(기본 en)" },
 	// 압축
 	"compaction.reserveTokens": {
 		label: "압축 예약 토큰",
 		description:
-			"압축 후 모델 응답용으로 남겨둘 토큰 수예요. 설정하지 않으면 명시적 선택이 없는 것으로 보고, 작은 창 복구 시 비율 기반 예약을 쓸 수 있어요.",
+			"압축 후 모델 응답용으로 남겨 둘 토큰 수예요. 설정하지 않으면 명시적 선택이 없는 것으로 보고, 작은 창 복구 시 비율 기반 예약을 쓸 수 있어요.",
 	},
 	"compaction.keepRecentTokens": {
 		label: "압축 시 최근 토큰 유지",
-		description: "압축 시 그대로 유지할 최근 메시지 토큰 수(기본 20000)",
+		description: "압축 시 그대로 유지할 최근 메시지 토큰 수예요(기본 20000)",
 	},
 	"compaction.autoContinue": {
 		label: "압축 후 자동 계속",
@@ -1362,11 +1401,11 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"compaction.v2RetainedMessageBudget": {
 		label: "원격 압축 V2 유지 예산",
-		description: "원격 압축 V2에서 그대로 유지할 메시지 토큰 예산(기본 64000)",
+		description: "원격 압축 V2에서 그대로 유지할 메시지 토큰 예산이에요(기본 64000)",
 	},
 	"branchSummary.reserveTokens": {
 		label: "브랜치 요약 예약 토큰",
-		description: "브랜치 요약 생성용으로 남겨둘 컨텍스트 토큰 수(기본 16384)",
+		description: "브랜치 요약 생성용으로 남겨 둘 컨텍스트 토큰 수예요(기본 16384)",
 	},
 	// Shell과 도구
 	"bashInterceptor.patterns": {
@@ -1375,13 +1414,13 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"shellMinimizer.settingsPath": {
 		label: "셸 압축 설정 파일",
-		description: "압축기 필드 기본값을 덮어쓰는 선택적 TOML 설정 파일 경로(~ 지원)",
+		description: "압축기 필드 기본값을 덮어쓰는 선택적 TOML 설정 파일 경로예요(~ 지원)",
 	},
 	"shellMinimizer.only": {
 		label: "셸 압축 허용 목록",
 		description: "이 프로그램 이름(예: git)에만 출력 압축을 적용해요. 비어 있으면 모든 내장 필터를 써요",
 	},
-	"shellMinimizer.except": { label: "셸 압축 제외 목록", description: "출력 압축을 하지 않을 프로그램 이름" },
+	"shellMinimizer.except": { label: "셸 압축 제외 목록", description: "출력 압축을 하지 않을 프로그램 이름이에요" },
 	"shellMinimizer.maxCaptureBytes": {
 		label: "셸 압축 캡처 상한",
 		description: "명령마다 캡처할 최대 바이트 수로, 넘으면 압축하지 않은 원본 출력으로 대체해요(기본 4 MiB)",
@@ -1393,7 +1432,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"async.maxJobs": {
 		label: "백그라운드 실행 수 상한",
-		description: "동시에 실행되는 백그라운드 실행 최대 수(기본 100)",
+		description: "동시에 실행되는 백그라운드 실행 최대 수예요(기본 100)",
 	},
 	"bash.autoBackground.thresholdMs": {
 		label: "자동 백그라운드 임계값",
@@ -1414,7 +1453,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	// 작업
 	"task.disabledAgents": {
 		label: "비활성화된 서브에이전트",
-		description: "task 도구에서 더 이상 제공하지 않을 비활성화된 서브에이전트 이름 목록(/agents 패널에서 관리)",
+		description: "task 도구에서 더 이상 제공하지 않을 비활성화된 서브에이전트 이름 목록이에요(/agents 패널에서 관리)",
 	},
 	"task.agentModelOverrides": {
 		label: "서브에이전트별 모델 덮어쓰기",
@@ -1423,10 +1462,10 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"task.agentPrewalk": {
 		label: "서브에이전트별 사전 탐색 덮어쓰기",
-		description: "서브에이전트 이름과 prewalk 켜짐 상태의 매핑(/agents 패널에서 P로 전환)",
+		description: "서브에이전트 이름과 prewalk 켜짐 상태의 매핑이에요(/agents 패널에서 P로 전환)",
 	},
 	// 스킬
-	"skills.enabled": { label: "스킬 활성화", description: "스킬 검색과 로딩의 전체 스위치" },
+	"skills.enabled": { label: "스킬 활성화", description: "스킬 검색과 로딩의 전체 스위치예요" },
 	"skills.enableCodexUser": { label: "Codex 사용자 스킬", description: "~/.codex/skills에서 스킬을 불러와요" },
 	"skills.enableClaudeUser": { label: "Claude 사용자 스킬", description: "~/.claude/skills에서 스킬을 불러와요" },
 	"skills.enableClaudeProject": { label: "Claude 프로젝트 스킬", description: ".claude/skills에서 스킬을 불러와요" },
@@ -1444,7 +1483,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		label: "사용자 지정 스킬 폴더",
 		description: "스킬을 추가로 스캔할 사용자 지정 폴더 목록이에요",
 	},
-	"skills.ignoredSkills": { label: "무시할 스킬", description: "이름 glob 패턴으로 무시할 스킬 목록" },
+	"skills.ignoredSkills": { label: "무시할 스킬", description: "이름 glob 패턴으로 무시할 스킬 목록이에요" },
 	"skills.includeSkills": {
 		label: "포함할 스킬만",
 		description: "비어 있지 않으면 이름이 이 glob 패턴과 일치하는 스킬만 불러와요",
@@ -1454,21 +1493,21 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description: "`omp skill`이 스킬 설치, 검색, 게시에 쓰는 Skillshare 레지스트리예요(https://host[:port]).",
 	},
 	// SearXNG
-	"searxng.token": { label: "SearXNG 액세스 토큰", description: "SearXNG 인스턴스의 액세스 토큰(토큰 인증)" },
+	"searxng.token": { label: "SearXNG 액세스 토큰", description: "SearXNG 인스턴스의 액세스 토큰이에요(토큰 인증)" },
 	"searxng.basicUsername": {
 		label: "SearXNG Basic 사용자 이름",
-		description: "SearXNG 인스턴스 HTTP Basic 인증 사용자 이름",
+		description: "SearXNG 인스턴스 HTTP Basic 인증 사용자 이름이에요",
 	},
 	"searxng.basicPassword": {
 		label: "SearXNG Basic 비밀번호",
-		description: "SearXNG 인스턴스 HTTP Basic 인증 비밀번호",
+		description: "SearXNG 인스턴스 HTTP Basic 인증 비밀번호예요",
 	},
 	"searxng.categories": {
 		label: "SearXNG 카테고리",
-		description: "검색을 제한할 카테고리(쉼표 구분, 예: general,news)",
+		description: "검색을 제한할 카테고리예요(쉼표 구분, 예: general,news)",
 	},
-	"searxng.engines": { label: "SearXNG 엔진", description: "사용할 검색 엔진 제한(쉼표 구분)" },
-	"searxng.language": { label: "SearXNG 언어", description: "검색 결과 선호 언어 코드" },
+	"searxng.engines": { label: "SearXNG 엔진", description: "사용할 검색 엔진을 제한해요(쉼표 구분)" },
+	"searxng.language": { label: "SearXNG 언어", description: "검색 결과 선호 언어 코드예요" },
 	// 커밋
 	"commit.mapReduceEnabled": {
 		label: "커밋 분석 Map-Reduce",
@@ -1476,10 +1515,10 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"commit.changelogMaxDiffChars": {
 		label: "변경 로그 Diff 문자 상한",
-		description: "변경 로그 생성 시 모델에 제공할 diff 최대 문자 수(기본 120000)",
+		description: "변경 로그 생성 시 모델에 제공할 diff 최대 문자 수예요(기본 120000)",
 	},
 	// 개발자
-	"dev.autoqaPush.token": { label: "자동 QA 푸시 토큰", description: "자동 QA 보고를 푸시할 때 쓰는 인증 토큰" },
+	"dev.autoqaPush.token": { label: "자동 QA 푸시 토큰", description: "자동 QA 보고를 푸시할 때 쓰는 인증 토큰이에요" },
 	"dev.autoqaConsent": {
 		label: "자동 QA 동의 상태",
 		description:
@@ -1498,7 +1537,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"gc.retainNewestGlobal": {
 		label: "전역 최신 세션 유지 수",
-		description: "오래되어도 항상 유지할 최신 비활성 세션 수(전역, 기본 20)",
+		description: "오래되어도 항상 유지할 최신 비활성 세션 수예요(전역, 기본 20)",
 	},
 	"gc.retainNewestPerCwd": {
 		label: "폴더별 최신 세션 유지 수",
@@ -1515,19 +1554,22 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	// 사고 예산
 	"thinkingBudgets.minimal": {
 		label: "사고 예산(minimal)",
-		description: "minimal 사고 수준의 사고 토큰 예산(기본 1024)",
+		description: "minimal 사고 수준의 사고 토큰 예산이에요(기본 1024)",
 	},
-	"thinkingBudgets.low": { label: "사고 예산(low)", description: "low 사고 수준의 사고 토큰 예산(기본 2048)" },
+	"thinkingBudgets.low": { label: "사고 예산(low)", description: "low 사고 수준의 사고 토큰 예산이에요(기본 2048)" },
 	"thinkingBudgets.medium": {
 		label: "사고 예산(medium)",
-		description: "medium 사고 수준의 사고 토큰 예산(기본 8192)",
+		description: "medium 사고 수준의 사고 토큰 예산이에요(기본 8192)",
 	},
-	"thinkingBudgets.high": { label: "사고 예산(high)", description: "high 사고 수준의 사고 토큰 예산(기본 16384)" },
+	"thinkingBudgets.high": {
+		label: "사고 예산(high)",
+		description: "high 사고 수준의 사고 토큰 예산이에요(기본 16384)",
+	},
 	"thinkingBudgets.xhigh": {
 		label: "사고 예산(xhigh)",
-		description: "xhigh 사고 수준의 사고 토큰 예산(기본 32768)",
+		description: "xhigh 사고 수준의 사고 토큰 예산이에요(기본 32768)",
 	},
-	"thinkingBudgets.max": { label: "사고 예산(max)", description: "max 사고 수준의 사고 토큰 예산(기본 32768)" },
+	"thinkingBudgets.max": { label: "사고 예산(max)", description: "max 사고 수준의 사고 토큰 예산이에요(기본 32768)" },
 	"display.hideToolActivity": {
 		label: "도구 활동 숨기기",
 		description: "트랜스크립트에서 모델이 시작한 도구 호출과 결과를 숨겨요",
@@ -1548,12 +1590,12 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"browser.relayUrl": {
 		label: "브라우저 릴레이 URL",
-		description: "omp 브라우저 릴레이 엔드포인트(기본 http://127.0.0.1:9224)",
+		description: "omp 브라우저 릴레이 엔드포인트예요(기본 http://127.0.0.1:9224)",
 	},
 	"providers.webSearchTimeoutSeconds": {
 		label: "웹 검색 타임아웃",
 		description:
-			"프로바이더별 검색 전송 하드 타임아웃이에요. 시간이 지나면 web_search가 다음 대체 항목을 시도해요. 단위는 초(최대 300)",
+			"프로바이더별 검색 전송 하드 타임아웃이에요. 시간이 지나면 web_search가 다음 대체 항목을 시도해요. 단위는 초예요(최대 300)",
 	},
 	"providers.openaiLiveSteering": {
 		label: "OpenAI 실시간 추가 지시",
@@ -1573,7 +1615,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	// ── omp 18.2.x 업스트림 신규 설정 ─────────────────────────────────────────────
 	"advisor.maxNotesPerUpdate": {
 		label: "어드바이저 업데이트당 최대 노트 수",
-		description: "Advisor가 한 번 업데이트할 때 쓸 수 있는 노트 상한이에요. 낮을수록 엄격하고 도배를 막아요.",
+		description: "어드바이저가 한 번 업데이트할 때 쓸 수 있는 노트 상한이에요. 낮을수록 엄격하고 도배를 막아요.",
 	},
 	"advisor.reviewMode": {
 		label: "어드바이저 검토 모드",
@@ -1626,11 +1668,11 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"composer.tokenRate": {
 		label: "생성 속도 표시",
-		description: "입력창에 부드럽게 보정한 초당 토큰 생성 속도를 표시하고 턴 사이에도 계속 보여줘요.",
+		description: "입력창에 부드럽게 보정한 초당 토큰 생성 속도를 표시하고 턴 사이에도 계속 보여 줘요.",
 	},
 	"display.pinnedAgents": {
 		label: "고정 에이전트 목록",
-		description: "off는 고정 이동 목록을 숨겨요. collapsed는 몇 줄만 접어서 보여주고 펼치기를 제공해요.",
+		description: "off는 고정 이동 목록을 숨겨요. collapsed는 몇 줄만 접어서 보여 주고 펼치기를 제공해요.",
 	},
 	"display.showTurnTime": {
 		label: "턴 소요 시간 표시",
@@ -1659,7 +1701,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	},
 	"spelling.autocomplete": {
 		label: "단어 자동 완성(macOS)",
-		description: "macOS 사전 완성을 인라인 힌트로 보여주고 Tab으로 수락해요.",
+		description: "macOS 사전 완성을 인라인 힌트로 보여 주고 Tab으로 수락해요.",
 	},
 	"spelling.autocorrect": {
 		label: "자동 수정(macOS)",
@@ -1807,7 +1849,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	"tui.renderSvg": {
 		label: "SVG 그림 렌더링",
 		description:
-			"에이전트가 다이어그램과 차트를 SVG로 그리게 하고, 그래픽을 표시하는 터미널에서는 이미지로 바로 보여줘요",
+			"에이전트가 다이어그램과 차트를 SVG로 그리게 하고, 그래픽을 표시하는 터미널에서는 이미지로 바로 보여 줘요",
 	},
 	"tui.autoGraph": {
 		label: "표 자동 차트",

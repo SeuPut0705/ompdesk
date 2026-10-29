@@ -189,7 +189,7 @@ describe("McpServerCard sign-in", () => {
 	it("hides Sign in while a sign-in is already running", async () => {
 		await mount(server({ authState: "required" }), { reauth: "running" });
 		expect(note()).toBeNull();
-		expect(document.body.textContent).toContain("Authorization in progress");
+		expect(document.body.textContent).toContain("Waiting for sign-in");
 	});
 
 	it("keeps the ⋯ menu beside the inline button", async () => {

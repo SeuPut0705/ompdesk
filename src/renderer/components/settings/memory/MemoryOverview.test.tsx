@@ -111,7 +111,7 @@ describe("Memory › Overview", () => {
 			/>,
 		);
 		expect(document.body.textContent).not.toContain("has no build");
-		expect(document.body.textContent).toContain("Memory does not set itself up in this launch");
+		expect(document.body.textContent).toContain("Memory isn't set up in safe mode");
 	});
 
 	it("a server that does not answer says so in the UI language, not main's English", async () => {

@@ -68,7 +68,7 @@ describe("BashRenderer", () => {
 				})}
 			/>,
 		);
-		expect(container.textContent).toContain("[전체 500줄 중 381-500줄을 보여줘요]");
+		expect(container.textContent).toContain("[전체 500줄 중 381-500줄을 보여 줘요]");
 	});
 
 	it("renders SGR-colored output as styled spans instead of raw escapes", async () => {

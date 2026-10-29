@@ -293,7 +293,7 @@ describe("McpServerCard SSR", () => {
 
 	it("shows the reauth-in-flight strip with a cancel action", () => {
 		const html = renderCard(server({}), "running");
-		expect(html).toContain("Authorization in progress");
+		expect(html).toContain("Waiting for sign-in");
 		expect(html).toContain("Cancel");
 	});
 });

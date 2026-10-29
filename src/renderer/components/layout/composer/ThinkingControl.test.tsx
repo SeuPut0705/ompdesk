@@ -269,6 +269,6 @@ describe("ThinkingLevelField", () => {
 		await mount(<ThinkingLevelField />);
 
 		expect(field()).toBeNull();
-		expect(container.textContent).toContain("does not support reasoning");
+		expect(container.textContent).toContain("doesn't support reasoning");
 	});
 });

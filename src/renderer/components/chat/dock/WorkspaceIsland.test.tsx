@@ -127,7 +127,7 @@ describe("WorkspaceIsland", () => {
 		];
 		await mount();
 		const shells = segment("shells");
-		expect(shells?.textContent).toBe("Shells 3 running");
+		expect(shells?.textContent).toBe("Shells: 3 running");
 		expect(segment("agents")).toBeNull();
 		await act(async () => shells?.click());
 		expect(useUiStore.getState().viewSheet?.view).toBe("jobs");

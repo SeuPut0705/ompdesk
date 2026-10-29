@@ -277,7 +277,7 @@ describe("cfg:// settings (stock tools/cfg-render.ts)", () => {
 		expect(card?.textContent).toContain("advisor.enabled");
 		expect(card?.textContent).toContain("saved");
 		expect(card?.textContent).toContain("false → true");
-		expect(card?.textContent).toContain("a higher-precedence layer overrides the saved value");
+		expect(card?.textContent).toContain("a higher layer overrides the saved value");
 	});
 
 	it("says when the user declined", async () => {
@@ -411,7 +411,7 @@ describe("ast_grep (stock tools/ast-grep.ts, gallery fixture)", () => {
 				}}
 			/>,
 		);
-		expect(container.textContent).toContain("may be mis-scoped");
+		expect(container.textContent).toContain("search scope may be wrong");
 		expect(container.textContent).toContain("1 parse issue");
 	});
 });

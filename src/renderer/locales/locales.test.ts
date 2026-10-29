@@ -87,6 +87,8 @@ const ALLOW_IDENTICAL: Record<string, true> = {
 	"tools.label.github": true, // GitHub — brand name
 	"tools.label.vibe": true, // Vibe — feature name
 	"themePicker.theme.nord.label": true, // Nord — theme name
+	"themePicker.theme.tokyo-night.label": true, // Tokyo Night — theme name
+	"sessionTree.head": true, // HEAD — git term
 	"themePicker.theme.solarized.label": true, // Solarized — theme name
 	"themePicker.theme.latte.label": true, // Latte — theme name
 	"mcp.wizard.urlPlaceholder": true, // example URL — not prose

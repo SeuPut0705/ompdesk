@@ -270,7 +270,7 @@ describe("SessionTreeSheet", () => {
 		expect(document.body.textContent).toContain("session start");
 		expect(nodeCards().map(card => card.getAttribute("data-tree-node"))).toEqual(["m1", "m2", "m3"]);
 		expect(edgePaths()).toHaveLength(3);
-		expect(document.body.textContent).toContain("head");
+		expect(document.body.textContent).toContain("HEAD");
 	});
 
 	it("names a textless turn instead of drawing an empty card", async () => {
@@ -343,7 +343,7 @@ describe("SessionTreeSheet", () => {
 		expect(document.body.textContent).toContain("experiment");
 		// Exactly one HEAD badge, and every alternate branch remains available.
 		expect(
-			queryAll("span").filter(el => el.textContent === "head" && el.className.includes("rounded-full")),
+			queryAll("span").filter(el => el.textContent === "HEAD" && el.className.includes("rounded-full")),
 		).toHaveLength(1);
 		const offBranch = nodeCards().find(card => card.getAttribute("data-tree-node") === "d");
 		expect(offBranch?.textContent).toContain("alternate path");

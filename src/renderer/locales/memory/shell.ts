@@ -32,7 +32,7 @@ export const ko: Record<string, string> = {
 	"memory.tab.overview": "개요",
 	"memory.tab.search": "검색",
 	"memory.tab.pages": "페이지",
-	"memory.tab.handoffs": "인계",
+	"memory.tab.handoffs": "핸드오프",
 	"memory.tab.sessions": "세션",
 	"memory.tab.profile": "프로필",
 	"memory.tab.maintenance": "관리",

@@ -7,8 +7,7 @@ export const en: Record<string, string> = {
 	"memory.phase.failed": "Failed",
 	"memory.phase.unsupported": "Not available on this system",
 	"memory.overview.unsupported.platform": "Memory has no build for this computer.",
-	"memory.overview.unsupported.paused":
-		"Memory does not set itself up in this launch (safe mode after repeated crashes, or a development build).",
+	"memory.overview.unsupported.paused": "Memory isn't set up in safe mode or development builds.",
 	"memory.overview.unreachableReason": "The memory server is not answering; OMPdesk keeps trying.",
 	"memory.step.stage": "preparing the program",
 	"memory.step.wire": "setting up the server and OMPdesk's extension",
@@ -84,7 +83,7 @@ export const ko: Record<string, string> = {
 	"memory.overview.last.never": "아직 기록이 없어요",
 	"memory.overview.last.none": "최근 7일: 아직 읽지 못했어요.",
 	"memory.overview.last.info":
-		"최근 7일: 세션 {sessions}개, 관찰 {observations}개, 페이지 {pages}개 갱신. 열린 인계 {handoffs}개. 살펴볼 페이지: 오래됨 {stale}, 중복 {duplicates}, 고립 {orphans}.",
+		"최근 7일: 세션 {sessions}개, 관찰 {observations}개, 페이지 {pages}개 갱신. 열린 핸드오프 {handoffs}개. 살펴볼 페이지: 오래됨 {stale}, 중복 {duplicates}, 고립 {orphans}.",
 	"memory.overview.disk": "디스크 크기",
 	"memory.overview.unknown": "아직 알 수 없어요",
 	"memory.overview.data": "데이터 폴더",
@@ -104,7 +103,7 @@ export const ko: Record<string, string> = {
 	"memory.overview.terminal.remove": "터미널 omp에서 제거",
 	"memory.overview.terminal.connected": "연결됨",
 	"memory.overview.terminal.done": "터미널 omp를 연결했어요",
-	"memory.overview.terminal.removed": "터미널 omp 연결을 걷어냈어요",
+	"memory.overview.terminal.removed": "터미널 omp 연결을 해제했어요",
 	"memory.overview.privacy": "개인정보",
 	"memory.overview.privacy.line":
 		"내 컴퓨터에만 저장해요. 프롬프트, 도구 활동, 턴마다 마지막 답변을 비밀을 지우고 기록하고, 결론과 결정은 페어링한 컴퓨터와 나눠요.",

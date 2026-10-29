@@ -633,7 +633,7 @@ describe("tabs store switch", () => {
 
 		expect(await useTabsStore.getState().openTab({ sessionPath: "/sessions/gone.jsonl" })).toBeNull();
 		const told = useToastStore.getState().toasts.find(toast => toast.message.includes("/wt/gui-agent-y"));
-		expect(told?.message).toContain("nothing of it was saved");
+		expect(told?.message).toContain("wasn't saved");
 		expect(told?.action?.label).not.toBe("Restore");
 	});
 

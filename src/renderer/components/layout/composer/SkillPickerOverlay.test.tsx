@@ -105,7 +105,7 @@ describe("SkillPickerOverlay", () => {
 		expect(names()).toEqual(["caveman-commit"]);
 		await search("zzz");
 		expect(names()).toEqual([]);
-		expect(document.querySelector("[data-skill-picker]")?.textContent).toContain("No skill matches.");
+		expect(document.querySelector("[data-skill-picker]")?.textContent).toContain("No matching skills.");
 	});
 
 	it("moves with the arrow keys and Enter inserts the highlighted skill", async () => {

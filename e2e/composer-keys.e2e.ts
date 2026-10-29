@@ -29,7 +29,7 @@ const TEXT = {
 		escHint: "Esc를 한 번 더 누르면 초안을 지워요. ↑로 다시 불러올 수 있어요.",
 		rewind: "메시지 검색",
 		compact: "지금 압축",
-		handoff: "새 세션으로 넘기기",
+		handoff: "새 세션으로 핸드오프",
 		compacted: "압축 완료",
 	},
 } as const;
