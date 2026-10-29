@@ -310,6 +310,7 @@ export class ControlRouter {
 		until: WaitUntil | undefined,
 		mark: number,
 		startState: SessionState,
+		hold: () => boolean = () => false,
 	): () => WaitResult | undefined {
 		const matched = until ?? "settled";
 		return () => {
@@ -332,6 +333,7 @@ export class ControlRouter {
 				matched,
 				...(lastEnd?.stopReason ? { stopReason: lastEnd.stopReason } : {}),
 			});
+			if (hold()) return undefined;
 			switch (until) {
 				case undefined:
 					// A stopped omp moves on only when someone restarts it: a settled wait reports it rather than hang.
@@ -438,12 +440,35 @@ export class ControlRouter {
 			} finally {
 				startBounds.dispose();
 			}
-			const waited = await watch.until(
-				this.#evaluate(tab, watch, until, preSend, view.state),
-				bounds.signal,
-				this.#pollMs,
-			);
-			return { receipt: outcome.text, waited };
+			// A session that was working when the message went may have ended that turn while the send was in flight
+			// (a follow-up queued after omp looked at its queue starts a turn of its own next): that end is not the
+			// message's, so the wait counts from the receipt, and an idle seen right after such an end is held for
+			// START_WAIT_MS unless a new step comes (the follow-up folded into the ended turn starts none).
+			const receipt = watch.mark();
+			const endedInFlight = wasWorking && watch.since(preSend).some(step => step.kind === "ended");
+			let graceOver = !endedInFlight;
+			const grace = endedInFlight
+				? setTimeout(() => {
+						graceOver = true;
+					}, this.#startWaitMs)
+				: undefined;
+			try {
+				const waited = await watch.until(
+					this.#evaluate(
+						tab,
+						watch,
+						until,
+						wasWorking ? receipt : preSend,
+						view.state,
+						() => !graceOver && watch.since(receipt).length === 0,
+					),
+					bounds.signal,
+					this.#pollMs,
+				);
+				return { receipt: outcome.text, waited };
+			} finally {
+				clearTimeout(grace);
+			}
 		} finally {
 			watch.dispose();
 			bounds.dispose();

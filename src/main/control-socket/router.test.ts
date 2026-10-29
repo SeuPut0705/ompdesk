@@ -298,6 +298,72 @@ describe("ControlRouter", () => {
 			}
 		});
 
+		it("never ends done on the turn that was running before the send, even when it ends while the send is in flight", async () => {
+			backend.add("t1", "working");
+			backend.onRun = async () => {
+				backend.setState("t1", "idle");
+				backend.fire({ type: "idle", tabId: "t1", outcome: { stopReason: "old" } });
+				return { text: "sent", isError: false };
+			};
+			let answered = false;
+			const pending = router
+				.handle(request({ method: "send", session: "t1", message: "hi", wait: { until: "done" } }), connection())
+				.then(response => {
+					answered = true;
+					return response;
+				});
+			await vi.waitFor(() => expect(backend.runs).toHaveLength(1));
+			await new Promise(resolve => setImmediate(resolve));
+			expect(answered).toBe(false);
+			backend.setState("t1", "working");
+			backend.fire({ type: "busy", tabId: "t1" });
+			backend.setState("t1", "idle");
+			backend.fire({ type: "idle", tabId: "t1", outcome: { stopReason: "new" } });
+			expect(resultOf(await pending)).toMatchObject({ waited: { matched: "done", stopReason: "new" } });
+		});
+
+		it("does not settle on the idle gap between the old turn and the queued follow-up's turn", async () => {
+			backend.add("t1", "working");
+			backend.onRun = async () => {
+				backend.setState("t1", "idle");
+				backend.fire({ type: "idle", tabId: "t1", outcome: { stopReason: "old" } });
+				return { text: "sent", isError: false };
+			};
+			let answered = false;
+			const pending = router
+				.handle(request({ method: "send", session: "t1", message: "hi", wait: {} }), connection())
+				.then(response => {
+					answered = true;
+					return response;
+				});
+			await vi.waitFor(() => expect(backend.runs).toHaveLength(1));
+			await new Promise(resolve => setImmediate(resolve));
+			expect(answered).toBe(false);
+			backend.setState("t1", "working");
+			backend.fire({ type: "busy", tabId: "t1" });
+			await new Promise(resolve => setImmediate(resolve));
+			expect(answered).toBe(false);
+			backend.setState("t1", "idle");
+			backend.fire({ type: "idle", tabId: "t1", outcome: { stopReason: "new" } });
+			expect(resultOf(await pending)).toMatchObject({ waited: { matched: "settled", stopReason: "new" } });
+		});
+
+		it("settles on the idle state after the grace when the follow-up was folded into the turn that ended", async () => {
+			vi.useFakeTimers();
+			backend.add("t1", "working");
+			backend.onRun = async () => {
+				backend.setState("t1", "idle");
+				backend.fire({ type: "idle", tabId: "t1", outcome: { stopReason: "stop" } });
+				return { text: "sent", isError: false };
+			};
+			const pending = router.handle(
+				request({ method: "send", session: "t1", message: "hi", wait: {} }),
+				connection(),
+			);
+			await vi.advanceTimersByTimeAsync(5_500);
+			expect(resultOf(await pending)).toMatchObject({ waited: { matched: "settled", state: "idle" } });
+		});
+
 		it("runs the gate under the one total timeout: a nearer timeout answers timeout, not stalled", async () => {
 			vi.useFakeTimers();
 			backend.add("t1", "idle");
