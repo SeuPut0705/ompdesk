@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { fixCommitsWithoutTests, readCommits } from "./lint-fix-tests.mjs";
 
 const commit = (subject, files, body = "") => ({ sha: subject, subject, body, files });
@@ -50,24 +50,31 @@ describe("fixCommitsWithoutTests", () => {
 });
 
 describe("readCommits", () => {
-	let repo;
+	const dirs = [];
 	afterEach(() => {
-		if (repo) rmSync(repo, { recursive: true, force: true });
+		vi.unstubAllEnvs();
+		for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 	});
-
-	it("reads subject, body and files of each non-merge commit in a range", () => {
-		repo = mkdtempSync(path.join(tmpdir(), "lint-fix-tests-"));
-		const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
+	const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
+	/** A fresh repository on `main` with one commit, and a git runner in it. */
+	const newRepo = () => {
+		const dir = mkdtempSync(path.join(tmpdir(), "lint-fix-tests-"));
+		dirs.push(dir);
 		const git = (...args) =>
 			execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", ...args], {
-				cwd: repo,
+				cwd: dir,
 				env,
 				encoding: "utf8",
 			});
 		git("init", "-q", "-b", "main");
-		writeFileSync(path.join(repo, "base.txt"), "base");
+		writeFileSync(path.join(dir, "base.txt"), "base");
 		git("add", ".");
 		git("commit", "-q", "-m", "chore: base");
+		return { dir, git };
+	};
+
+	it("reads subject, body and files of each non-merge commit in a range, in its own checkout whatever git selectors are set", () => {
+		const { dir: repo, git } = newRepo();
 		git("checkout", "-q", "-b", "work");
 		mkdirSync(path.join(repo, "src"));
 		writeFileSync(path.join(repo, "src", "a.ts"), "a");
@@ -79,6 +86,10 @@ describe("readCommits", () => {
 		git("commit", "-q", "-m", "fix(b): b breaks");
 		git("checkout", "-q", "main");
 		git("merge", "-q", "--no-ff", "work", "-m", "fix: a merge is skipped");
+		// A hook or `git bisect run` exports selectors for another repository (one commit, no HEAD~1).
+		const other = newRepo();
+		vi.stubEnv("GIT_DIR", path.join(other.dir, ".git"));
+		vi.stubEnv("GIT_WORK_TREE", other.dir);
 
 		const commits = readCommits("HEAD~1..HEAD", repo);
 		expect(commits.map(({ subject, body, files }) => ({ subject, body: body.trim(), files }))).toEqual([

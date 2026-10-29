@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * Fix-commit lint — a commit whose subject is a fix (`fix:`, `fix(scope):`, `fix!:`) changes at least one test file,
  * or says why it cannot in its body: a line `no-test: <reason>`.
@@ -7,13 +7,16 @@
  * Oct 2026 found fixes fixed again within minutes and a test that pinned the bug as correct. A test file is a
  * `*.test.*`, `*.e2e.*` or `*.spec.*` file, or anything under `e2e/` (fixtures and harness are test code).
  *
- *   node scripts/lint-fix-tests.mjs [<rev-range>]
+ *   bun scripts/lint-fix-tests.mjs [<rev-range>]
  *
  * Without a range it checks this branch's commits not yet published: `origin/main..HEAD` on `main`, `main..HEAD`
  * on any other branch (another session's commits on local `main` are theirs to fix). Merge commits are skipped.
+ * Git runs without the repository selectors an enclosing hook or bisect exports (`withoutGitSelectors`), so it
+ * reads the checkout it is run in (or `cwd`), never another one. Bun, not node: that helper is TypeScript.
  */
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { withoutGitSelectors } from "../src/shared/git-env.ts";
 
 const FIX_SUBJECT = /^fix(?:\([^)]*\))?!?:/;
 const TEST_FILE = /(?:^|\/)[^/]+\.(?:test|e2e|spec)\.[cm]?[jt]sx?$|^e2e\//;
@@ -37,7 +40,8 @@ export function fixCommitsWithoutTests(commits) {
  * @param {string[]} args
  * @param {string} [cwd]
  */
-const git = (args, cwd) => execFileSync("git", args, { cwd, encoding: "utf8", maxBuffer: 64 << 20 });
+const git = (args, cwd) =>
+	execFileSync("git", args, { cwd, env: withoutGitSelectors(process.env), encoding: "utf8", maxBuffer: 64 << 20 });
 
 /** The default range: this branch's unpublished commits. */
 function defaultRange() {

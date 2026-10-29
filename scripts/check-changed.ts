@@ -115,7 +115,7 @@ if (biomeFiles.length > 0)
 	CHECKS.push(["biome", ["bunx", "biome", "check", "--no-errors-on-unmatched", ...biomeFiles]]);
 CHECKS.push(["surfaces", ["node", "scripts/lint-surfaces.mjs"]]);
 // This branch's fix commits each change a test (or say `no-test: <reason>`), before CI refuses the push.
-CHECKS.push(["fix-tests", ["node", "scripts/lint-fix-tests.mjs"]]);
+CHECKS.push(["fix-tests", ["bun", "scripts/lint-fix-tests.mjs"]]);
 if (scope.allTests) CHECKS.push(["vitest", ["bunx", "vitest", "run"]]);
 else if (relatedFiles.length > 0) {
 	CHECKS.push(["vitest", ["bunx", "vitest", "related", "--run", "--passWithNoTests", ...relatedFiles]]);
