@@ -20,7 +20,7 @@ Sync commit: see `syncCommit` of `web-close-reports` in `formal/manifest.json` (
 ## Bounds and assumptions
 
 - 2 pages in one window, 2 tabs, 2 connections per page, 3 editor changes, 2 frames in flight per connection: 1.48M states, depth 26, about 25 s.
-- Assumptions: no `await` between a frame's `receive` and the `FILE_EDIT_REPORT` handler (pinned by `ws-router.test.ts` "hands a Files-edit report to main within the frame…"); detach → `forget` is one synchronous chain; frames are FIFO per connection. Full table: `formal/web-close-reports/CORRESPONDENCE.md`.
+- Assumptions: no `await` between a frame's `receive` and an accepted `FILE_EDIT_REPORT` (the handler's `parseFileEditReport` takes only one exact `{dirtyTabId}`, so a frame whose picture upload `#dispatch` awaits is refused; pinned by `ws-router.test.ts` "hands a Files-edit report to main within the frame…" and "never lets a report outlive its connection…"); detach → `forget` is one synchronous chain; frames are FIFO per connection. Full table: `formal/web-close-reports/CORRESPONDENCE.md`.
 - Not covered: several windows (unit-tested in `file-edit-reports.test.ts`), the person at the tab, the desktop window path, liveness. `formal/web-close-reports/SCOPE.md`.
 - `NoLateDirtyRelease` fails by design (`MC_late.cfg`): a report landing between the decision and the release does not stop it.
 

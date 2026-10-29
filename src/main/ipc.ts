@@ -51,7 +51,6 @@ import type {
 	IpcBenchmarkRunResult,
 	IpcCloseTabPayload,
 	IpcExtensionUiRespondPayload,
-	IpcFileEditReportPayload,
 	IpcFsListPayload,
 	IpcFsListResult,
 	IpcFsMediaStreamPayload,
@@ -189,7 +188,7 @@ import { personsPrompt, type RelaunchContinuation, trackMove } from "./turn-resu
 import { dispatchedCommand, STOP_COMMANDS } from "./turn-stop-log";
 import { appVersion } from "./updater";
 import { type ClientWindow, isWebWindow } from "./web/client-window";
-import type { FileEditReports } from "./web/file-edit-reports";
+import { type FileEditReports, parseFileEditReport } from "./web/file-edit-reports";
 import type { IpcCaller, IpcRegistry } from "./web/ipc-registry";
 import { writeDialogPreload } from "./web/preview-dialog";
 import { attachHere, type UploadStore } from "./web/uploads";
@@ -1539,10 +1538,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
 	// A paired web page's Files editor state, which decides whether main may close one of its tabs for an agent. Only a
 	// web page's connection reports (an Electron window closes its own tabs and guards its own edits).
-	ipc.handle(IPC_COMMANDS.FILE_EDIT_REPORT, (caller, payload: IpcFileEditReportPayload) => {
-		const win = caller.win;
-		if (!win || !caller.connId || (payload?.dirtyTabId !== null && typeof payload?.dirtyTabId !== "string")) return;
-		fileEditReports.report(win.webContents.id, caller.connId, payload.dirtyTabId);
+	ipc.handle(IPC_COMMANDS.FILE_EDIT_REPORT, (caller, ...args: unknown[]) => {
+		const report = parseFileEditReport(args);
+		if (!caller.win || !caller.connId || !report) return;
+		fileEditReports.report(caller.win.webContents.id, caller.connId, report.dirtyTabId);
 	});
 
 	// The calling window's open `worktree.onStart` / `worktree.onExit` questions.

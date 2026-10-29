@@ -15,6 +15,22 @@
 /** What a window's live reports say about one of its tabs. */
 export type FileEdits = "clean" | "dirty" | "unreported";
 
+/**
+ * A `FILE_EDIT_REPORT` call's arguments exactly as the page sends them (one `{dirtyTabId}`), or null for anything
+ * else. Exact on purpose: a picture block anywhere in a call's arguments makes `WsConnection.#dispatch` await its
+ * upload before the handler runs, and a connection that ended meanwhile was already forgotten. An accepted report
+ * holds nothing but a string or null, so it reaches the store in the frame's own synchronous run.
+ */
+export function parseFileEditReport(args: readonly unknown[]): { dirtyTabId: string | null } | null {
+	if (args.length !== 1) return null;
+	const payload = args[0];
+	if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return null;
+	const keys = Object.keys(payload);
+	if (keys.length !== 1 || keys[0] !== "dirtyTabId") return null;
+	const { dirtyTabId } = payload as { dirtyTabId: unknown };
+	return dirtyTabId === null || typeof dirtyTabId === "string" ? { dirtyTabId } : null;
+}
+
 interface Report {
 	windowId: number;
 	/** The tab whose Files editor holds unsaved edits, null for none (a page has at most one). */

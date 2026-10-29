@@ -6,7 +6,7 @@
 | `Connect(p)` | `WsRouter.attach` (a new `WsConnection`, `connId = randomUUID()`) | synchronous attach |
 | `Greet(p)` | `FileEditReporter`'s `onConnectionState("open")` → send | the page's own effect, after the hello |
 | `Drop(c)` | `WsConnection.#finish` → `WsRouter.detach` → `onConnectionEnded` → `web-host.ts` → `index.ts` `fileEditReports.forget(connId)` | one synchronous call chain, no `await` |
-| `Deliver(c)` | `WsConnection.receive` (refuses after `#closed`) → `#invoke` → `#dispatch` → `registry.invoke` → `ipc.ts` `FILE_EDIT_REPORT` → `FileEditReports.report` | no `await` before the handler for a plain frame (pinned: `ws-router.test.ts` "hands a Files-edit report to main within the frame…") |
+| `Deliver(c)` | `WsConnection.receive` (refuses after `#closed`) → `#invoke` → `#dispatch` → `registry.invoke` → `ipc.ts` `FILE_EDIT_REPORT` → `FileEditReports.report` | no `await` before the handler for a frame without picture blocks; the handler accepts only that shape (`parseFileEditReport`: exactly one `{dirtyTabId}`), so a frame whose upload `#dispatch` awaits is refused (pinned: `ws-router.test.ts` "hands a Files-edit report to main within the frame…" and "never lets a report outlive its connection, even one whose arguments carry a picture…") |
 | `Write` / `Forget` | `FileEditReports.report` / `forget`: one connection's entry | Map set/delete |
 | `Edits(t)` | `FileEditReports.edits` | pure read |
 | `CloseStep(t)` | `tabCloseStep` (`src/main/agent-control/tab-close.ts`) minus `looked`/`userTouched` | pure |
@@ -18,7 +18,7 @@
 - One window: the store's window filter is not exercised here (unit-tested instead).
 - Frames are FIFO per connection and never duplicated (a WebSocket).
 - `Greet` sends from the page's current editor state; the real page sends `fileEditTabId ?? activeTabId` when dirty, which the model folds into `edit[p]`.
-- The `SplitDispatch` switch is how the model says "no `await` before the handler"; the code keeps that only as long as `#dispatch` has no `await` before `registry.invoke` for a plain frame (uploads do await, `FILE_EDIT_REPORT` carries none).
+- The `SplitDispatch` switch is how the model says "no `await` before the handler"; the code keeps it because `#dispatch` awaits only a frame with picture blocks (or `FS_UPLOAD_TO_HOST`), and `parseFileEditReport` refuses any report but exactly one `{dirtyTabId: string | null}`, which holds none.
 
 ## Suspected gap (accepted, not reproduced)
 

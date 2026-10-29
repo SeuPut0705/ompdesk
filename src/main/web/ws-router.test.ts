@@ -9,7 +9,7 @@ import type { AgentSessionEvent } from "../../shared/rpc-types";
 import { WEB_PERMISSIONS, type WebPermission, type WebServerFrame } from "../../shared/web-protocol";
 import { BlobStore } from "./blobs";
 import type { WebDevice } from "./devices-store";
-import { FileEditReports } from "./file-edit-reports";
+import { FileEditReports, parseFileEditReport } from "./file-edit-reports";
 import { IPC_POLICY, type IpcChannel } from "./ipc-policy";
 import type { IpcCaller } from "./ipc-registry";
 import { WebClientWindow, WebWindows } from "./web-client-window";
@@ -864,6 +864,30 @@ describe("a connection ending", () => {
 		r.connection.dispose();
 		report(null);
 		expect(r.callers).toHaveLength(1);
+	});
+
+	it("never lets a report outlive its connection, even one whose arguments carry a picture that has to land first", async () => {
+		// A picture block anywhere in a call's arguments makes `#dispatch` await its upload before the handler runs; a
+		// connection that ends meanwhile was already forgotten, so such a report must never reach the store.
+		const reports = new FileEditReports();
+		const r = rig();
+		const id = r.windows.windowFor("dev1").webContents.id;
+		r.invoke.mockImplementation(async (channel, caller, args) => {
+			const report = parseFileEditReport(args);
+			if (channel === IPC_COMMANDS.FILE_EDIT_REPORT && report && caller.connId)
+				reports.report(id, caller.connId, report.dirtyTabId);
+			return undefined;
+		});
+		r.uploaded.set("/up/dev1/a/image.png", Buffer.from("PNG"));
+		r.uploaded.set("/up/dev1/b/image.png", Buffer.from("PNG"));
+		const extra = (dir: string) => ({ type: "image", mimeType: "image/png", upload: `/up/dev1/${dir}/image.png` });
+		r.frame({ t: "inv", id: 1, ch: IPC_COMMANDS.FILE_EDIT_REPORT, a: [{ dirtyTabId: "t1", extra: extra("a") }] });
+		r.frame({ t: "inv", id: 2, ch: IPC_COMMANDS.FILE_EDIT_REPORT, a: [{ dirtyTabId: "t1" }, extra("b")] });
+		r.connection.dispose();
+		for (const end of r.ended) reports.forget(end.connId);
+		await vi.waitFor(() => expect(r.uploads.take).toHaveBeenCalledTimes(2));
+		await r.settle();
+		expect(reports.edits(id, "t1")).toBe("unreported");
 	});
 
 	it("lets main drop only that connection's Files-edit report: the other page's stands, none left is unreported", () => {
