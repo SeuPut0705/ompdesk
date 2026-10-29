@@ -277,7 +277,7 @@ RetryTaken(t) ==
           /\ userRun' = [userRun EXCEPT ![t] = FALSE]
           /\ nStarts' = nStarts + 1
           /\ UNCHANGED <<own, attempts, mvV, runSg, pk, rk, bad7, bad8>>
-       \/ /\ own' = [own EXCEPT ![t] = FALSE]      \* turn-resume.ts:792-795: nothing started, the chain is over
+       \/ /\ own' = [own EXCEPT ![t] = FALSE]      \* turn-resume.ts:766-769: nothing started, the chain is over
           /\ attempts' = [attempts EXCEPT ![t] = 0]
           /\ UNCHANGED <<run, last, stopped, userRun, nStarts, mvV, runSg, pk, rk, bad7, bad8>>
     /\ pc' = "s_watch" /\ ct' = t
@@ -335,7 +335,7 @@ RunGo(t) ==
                    awaiting, waiting, waitFor, wsg, probing, psg, armO, armSg, armAtt, armId, planning, cancels, judged, runFor,
                    fireId, nCancels, nUnready, mv, runSg, monV, ctlV, bad6, calledOff, calledOffH, launched>>
 
-\* @code src/main/turn-resume.ts:896 send("retry") after the restore answered (also :935 the unwritten prompt, :946 the goal resume): `await stale()` waits for a move in flight, then a moved or called-off tab sends nothing
+\* @code src/main/turn-resume.ts:896 send("retry") after the restore answered (also :904 the unwritten prompt, :915 the goal resume): `await stale()` waits for a move in flight, then a moved or called-off tab sends nothing
 \* @code src/main/turn-resume.ts:942-946 the run ends (continues = the restore went on with the turn, no retry is sent): goalSettled
 RestoreDone(t, c) ==
     /\ Idle /\ restoring[t] /\ ~Moving(t)
