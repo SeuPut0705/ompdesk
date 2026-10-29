@@ -7,7 +7,7 @@ description: "Checks that the formal skill's install lock lets one setup in at a
 
 ## The promise and the harm
 
-`withLock` lets one installer at a time into the shared formal cache; a waiter takes over a lock only when its holder's pid is dead (or nobody touched it for minutes). Broken, two setups download and unpack into the same folder at once, and a half-written toolchain passes as installed.
+`withLock` lets one installer at a time into the shared formal cache; a waiter takes over a lock only when its holder's pid is dead on this computer, or (another computer's lock) nobody touched it for minutes. A live holder on this computer is never taken over. Broken, two setups download and unpack into the same folder at once, and a half-written toolchain passes as installed.
 
 ## Coverage
 
@@ -19,9 +19,9 @@ Sync commit: see `syncCommit` of `toolchain-lock` in `formal/manifest.json` (the
 
 ## Bounds and assumptions
 
-- 2 and 3 waiters plus a planted dead holder, liveness included (3 waiters: 1.06M states, depth 54, about 95 s); 4 waiters, safety only with symmetry, is the deep run in the matrix (11.7M states, depth 66, about 8 min on one worker). `--only toolchain-lock` runs the deep run too: about 9 minutes in all.
-- One action per fs call (sync fs calls of one process never interleave; another process can run between any two). A live holder's lock is never stale; the 30 s stale guard, a frozen holder, pid reuse, other computers and Windows EPERM are out of scope (`formal/toolchain-lock/SCOPE.md`, `CORRESPONDENCE.md`).
-- `MutualExclusion` holds because judge never calls a gone lock abandoned and counts a dead pid only while owner.json still names that same record after kill(0); the guard serializes every removal.
+- 2 and 3 waiters plus a planted holder that is either dead (`D`) or on another computer and silent (`R`), liveness included; 4 waiters, safety only with symmetry, is the deep run in the matrix. Numbers: `formal/toolchain-lock/evidence/matrix-after.txt`.
+- One action per fs call (sync fs calls of one process never interleave; another process can run between any two). Every change of the lock folder (make, release, takeover, heartbeat) runs under the `.takeover` guard; `acquire` looks first. A live holder on this computer is never taken over (`LiveHolderKept`); staleness condemns only another computer's lock or an ownerless one. Out of scope: the 30 s stale guard, pid reuse (waiters wait up to 2 h), Windows EPERM, and the abort of a taken-over holder of another computer (unit tests: `work(signal)` stops download, unpack and the child, then `withLock` fails Unavailable) (`formal/toolchain-lock/SCOPE.md`, `CORRESPONDENCE.md`).
+- `MutualExclusion` holds because judge never calls a gone lock abandoned, a changed owner cancels abandonment, and the guard serializes every removal, make and release.
 
 ## Run it
 
@@ -35,7 +35,7 @@ bun <tools-dir>/scripts/verify-all.ts formal --only toolchain-lock
 
 ## A failure: real bug or modeling error?
 
-Replay the trace against the code with each row's `@code` location. A step the code cannot take is a model error: fix the model and say so. Every step possible is a bug: pin it first as a failing test in `src/main/formal/audit-toolchain.test.ts` › "a takeover never removes a lock another waiter just made" (spies on `fs.mkdirSync`, `fs.statSync` and `process.kill` place the other processes' steps exactly). Never weaken a property, add a constraint or fairness to make it pass.
+Replay the trace against the code with each row's `@code` location. A step the code cannot take is a model error: fix the model and say so. Every step possible is a bug: pin it first as a failing test in `src/main/formal/audit-toolchain.test.ts` › "a takeover never removes a lock another waiter just made" (spies on `fs.mkdirSync`, `fs.existsSync`, `fs.statSync`, `fs.rmSync` and `process.kill`, and real peer processes, place the other processes' steps exactly). Never weaken a property, add a constraint or fairness to make it pass.
 
 ## Updating it for an intended change
 

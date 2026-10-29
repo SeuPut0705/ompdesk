@@ -1,10 +1,24 @@
 {
 	"runs": [
-		{ "name": "three-waiters-fixed", "config": "MC.cfg", "expect": "pass" },
-		{ "name": "two-waiters-fixed", "config": "MC_two.cfg", "expect": "pass" },
-		{ "name": "four-waiters-fixed-safety", "config": "MC_four.cfg", "expect": "pass", "timeoutSec": 1800, "tier": "deep" },
 		{
-			"name": "code-before-the-fix",
+			"name": "three-waiters-fixed",
+			"config": "MC.cfg",
+			"expect": "pass"
+		},
+		{
+			"name": "two-waiters-fixed",
+			"config": "MC_two.cfg",
+			"expect": "pass"
+		},
+		{
+			"name": "four-waiters-fixed-safety",
+			"config": "MC_four.cfg",
+			"expect": "pass",
+			"timeoutSec": 3600,
+			"tier": "deep"
+		},
+		{
+			"name": "code-before-all-fixes",
 			"config": "MC_original.cfg",
 			"expect": "invariant",
 			"property": "MutualExclusion"
@@ -21,6 +35,29 @@
 			"expect": "invariant",
 			"property": "MutualExclusion"
 		},
-		{ "name": "somebody-gets-the-lock", "config": "MC_sanity.cfg", "expect": "invariant", "property": "NeverHeld" }
+		{
+			"name": "race-3-stale-judgment-gap",
+			"config": "MC_gap.cfg",
+			"expect": "invariant",
+			"property": "MutualExclusion"
+		},
+		{
+			"name": "race-3-identity-check-alone-is-not-enough",
+			"config": "MC_gap_identity.cfg",
+			"expect": "invariant",
+			"property": "MutualExclusion"
+		},
+		{
+			"name": "race-4-stale-takeover-of-a-live-local-holder",
+			"config": "MC_localstale.cfg",
+			"expect": "invariant",
+			"property": "MutualExclusion"
+		},
+		{
+			"name": "somebody-gets-the-lock",
+			"config": "MC_sanity.cfg",
+			"expect": "invariant",
+			"property": "NeverHeld"
+		}
 	]
 }

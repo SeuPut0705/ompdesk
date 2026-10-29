@@ -9,3 +9,6 @@ Code before the fix (a copy of scripts/ at the parent of the fix):
 The fix:
   K=16 R=400 entered=6400/6400 overlaps=0 badRounds=0        (173 s)
   K=16 R=1000 entered=16000/16000 overlaps=0 badRounds=0     (463 s, beside a TLC run on one core)
+
+After the stale-gap fix (every change of the lock under the guard, a live local holder never taken over, acquire looks before it takes the guard), same driver, same machine:
+  K=16 R=1000 entered=16000/16000 overlaps=0 badRounds=0     (618 s, beside TLC runs)

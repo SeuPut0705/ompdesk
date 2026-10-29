@@ -1,0 +1,91 @@
+audit-toolchain.test.ts on the sources of commit ff886024e (before the stale-gap fix), 30 Oct 2026: 6 of 28 fail
+
+ RUN  v3.2.7 /Users/seuput/Desktop/GitHub/omgdesk
+
+ ❯ |node| src/main/formal/audit-toolchain.test.ts (28 tests | 6 failed) 5813ms
+   × lock takeover (finding 1) > does not delete a lock that another process now owns, and the holder fails as Unavailable 9ms
+     → promise resolved "undefined" instead of rejecting
+   × lock takeover (finding 1) > a takeover never removes a lock another waiter just made > takes the lock from a holder only while the holder's owner is the one it judged 4ms
+     → owners of the locks removed while B held its own: expected [ 'B', …(1) ] to not include 'B'
+   × lock takeover (finding 1) > a takeover never removes a lock another waiter just made > does not remove a lock another waiter made after a stale judgment, whatever the holder does meanwhile 72ms
+     → W worked while B held its lock: expected true to be false // Object.is equality
+   × lock takeover (finding 1) > a takeover never removes a lock another waiter just made > never takes over a live holder on this computer, however long its heartbeat has been silent 32ms
+     → promise resolved "undefined" instead of rejecting
+   × lock takeover (finding 1) > a takeover never removes a lock another waiter just made > a holder of another computer that slept past staleMs and wakes writes nothing more once its lock is taken 148ms
+     → expected TypeError: Cannot read properties of unde… to be an instance of Unavailable
+   × lock takeover (finding 1) > a takeover never removes a lock another waiter just made > a holder whose lock was taken over is told to stop, and fails as Unavailable once its work has stopped 2ms
+     → expected TypeError: Cannot read properties of unde… to be an instance of Unavailable
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |node| src/main/formal/audit-toolchain.test.ts > lock takeover (finding 1) > does not delete a lock that another process now owns, and the holder fails as Unavailable
+AssertionError: promise resolved "undefined" instead of rejecting
+
+- Expected: 
+Error {
+  "message": "rejected promise",
+}
+
++ Received: 
+undefined
+
+ ❯ src/main/formal/audit-toolchain.test.ts:256:3
+    254|     { log: quiet },
+    255|    ),
+    256|   ).rejects.toBeInstanceOf(Unavailable);
+       |   ^
+    257|   expect(JSON.parse(fs.readFileSync(path.join(lock, "owner.json"), "ut…
+    258|  });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  |node| src/main/formal/audit-toolchain.test.ts > lock takeover (finding 1) > a takeover never removes a lock another waiter just made > takes the lock from a holder only while the holder's owner is the one it judged
+AssertionError: owners of the locks removed while B held its own: expected [ 'B', …(1) ] to not include 'B'
+ ❯ src/main/formal/audit-toolchain.test.ts:472:82
+    470|    }
+    471|    expect(swapped, "the trace ran").toBe(true);
+    472|    expect(removedOwners, "owners of the locks removed while B held its…
+       |                                                                                  ^
+    473|   });
+    474| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  |node| src/main/formal/audit-toolchain.test.ts > lock takeover (finding 1) > a takeover never removes a lock another waiter just made > does not remove a lock another waiter made after a stale judgment, whatever the holder does meanwhile
+AssertionError: W worked while B held its lock: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ src/main/formal/audit-toolchain.test.ts:563:59
+    561|      }
+    562|      expect(injected, "the trace ran").toBe(true);
+    563|      expect(overlapped, "W worked while B held its lock").toBe(false);
+       |                                                           ^
+    564|     } finally {
+    565|      fs.writeFileSync(path.join(flags, "A-go"), "");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  |node| src/main/formal/audit-toolchain.test.ts > lock takeover (finding 1) > a takeover never removes a lock another waiter just made > never takes over a live holder on this computer, however long its heartbeat has been silent
+AssertionError: promise resolved "undefined" instead of rejecting
+
+- Expected: 
+Error {
+  "message": "rejected promise",
+}
+
++ Received: 
+undefined
+
+ ❯ src/main/formal/audit-toolchain.test.ts:605:6
+    603|        { log: quiet, pollMs: 5, staleMs: 60_000, maxWaitMs: 600 },
+    604|       ),
+    605|      ).rejects.toBeInstanceOf(Unavailable);
+       |      ^
+    606|      expect(ran, "ran its work inside a lock whose holder is alive").t…
+    607|      expect(holder.exitCode, "the holder is untouched").toBeNull();
+

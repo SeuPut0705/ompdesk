@@ -1,0 +1,46 @@
+
+== toolchain-lock: The formal skill's install lock: one installer at a time, takeover of a dead holder only (tla)
+TLC (tla2tools release 1.8.0)  java 17 (system)  spec ToolchainLock.tla
+  TLC reports itself as version 2026.10.28.014557
+ok    three-waiters-fixed: no violation  (377373 distinct states, 943049 generated, depth 59, 247.6s)
+ok    two-waiters-fixed: no violation  (42473 distinct states, 93296 generated, depth 46, 10.1s)
+ok    four-waiters-fixed-safety: no violation  (31947324 distinct states, 109465881 generated, depth 80, 738.3s)
+ok    code-before-all-fixes: invariant MutualExclusion (as expected)  (125720 distinct states, 335334 generated, depth 21, 3.1s)
+ok    race-1-gone-lock-judged-abandoned: invariant MutualExclusion (as expected)  (188231 distinct states, 483026 generated, depth 21, 3.8s)
+ok    race-2-dead-pid-condemns-the-next-lock: invariant MutualExclusion (as expected)  (124016 distinct states, 319187 generated, depth 21, 2.9s)
+ok    race-3-stale-judgment-gap: invariant MutualExclusion (as expected)  (162523 distinct states, 410902 generated, depth 21, 3.5s)
+ok    race-3-identity-check-alone-is-not-enough: invariant MutualExclusion (as expected)  (165508 distinct states, 416494 generated, depth 21, 2.7s)
+ok    race-4-stale-takeover-of-a-live-local-holder: invariant MutualExclusion (as expected)  (614136 distinct states, 1563608 generated, depth 28, 7.6s)
+ok    somebody-gets-the-lock: invariant NeverHeld (as expected)  (2045 distinct states, 4781 generated, depth 11, 0.7s)
+PASS  matrix: all 10 runs ended as expected
+ok    toolchain-lock: TLC matrix
+baseline: pass
+DETECTED no-takeover-guard: failed on MutualExclusion
+DETECTED no-rejudge-inside-guard: failed on MutualExclusion
+DETECTED plain-acquire-skips-guard: failed on MutualExclusion
+DETECTED remote-release-skips-guard: failed on MutualExclusion
+DETECTED acquire-without-peek: failed on Termination
+DETECTED stale-condemns-a-live-local-holder: failed on LiveHolderKept
+DETECTED plain-acquire-skips-guard-nofailure: failed on NoFailure
+DETECTED no-fairness: failed on Termination
+WAIVED   TypeOK: Shape check only: no behaviour change breaks it without also breaking a property above it.
+covered  MutualExclusion (by no-takeover-guard, no-rejudge-inside-guard, plain-acquire-skips-guard, remote-release-skips-guard)
+covered  NoFailure (by plain-acquire-skips-guard-nofailure)
+covered  LiveHolderKept (by stale-condemns-a-live-local-holder)
+covered  Termination (by acquire-without-peek, no-fairness)
+8 of 8 mutations detected
+ok    toolchain-lock: mutations
+ok    toolchain-lock: @code tags resolve
+      changed since sync: resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts#touched
+      changed since sync: resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/lib/toolchain.ts#withLock
+DRIFT  toolchain-lock: drift - DRIFT: the covered code differs from what was stamped on top of 15fb86babb; check the model still describes it, then re-stamp
+
+stamp: NOTE toolchain-lock: covered code changed since its old syncCommit. Stamping says you checked the model against it: do that first (references/persist.md, steps 3 and 4).
+
+stamp: toolchain-lock syncCommit = af2f6ec4bc
+
+DRIFT  toolchain-lock: 3 of 4 ok, 1 drift
+
+real	15m1.728s
+user	21m43.967s
+sys	2m24.059s
