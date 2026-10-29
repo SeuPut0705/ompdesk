@@ -1,3 +1,4 @@
+import { checkKinds, commandStatus } from "../../../../../resources/gui-bridge/command-verdict-core";
 import { CHECKOUT_REFUSAL_PREFIX } from "../../../../../resources/gui-bridge/modes/checkout-peers-contracts";
 import type { AgentMessage, AgentProgress } from "../../../../shared/rpc-types";
 import { TURN_EDIT_TOOLS } from "../../../../shared/turn-edits";
@@ -13,16 +14,10 @@ import { asPerFileResults } from "../../tools/renderers/EditRenderer";
 import { normalizeYieldData } from "../../tools/renderers/task-render-utils";
 import { type BackgroundJobVerdict, exitCodeOf, waitedJobVerdicts } from "../completion-events";
 import { isInterruptedError } from "./WorkStatus";
-import { checkKinds } from "./work-checks";
+import type { CommandCall } from "./work-checks";
 
 /** Enough of a check's output for its runner summary and first error line. */
 const CHECK_TEXT_MAX = 8000;
-
-// The error stock's bash throws for a command that ran and reported no exit, its details as empty as a refusal's
-// (tools/bash.ts `#throwIfUnfinished`: "…Command failed: missing exit status"; `execute`'s cancelled branch: a leading
-// "[Command cancelled]", a trailing "[Command aborted]", or "Command aborted" alone), a capture notice optionally after.
-const RAN_WITHOUT_EXIT =
-	/^\[Command cancelled\]|(?:^|\n\n)(?:Command failed: missing exit status|\[Command aborted\]|Command aborted)(?:\n\n\[[^\n]*\])?$/;
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -120,8 +115,13 @@ export function agentResultSummary(row: Record<string, unknown>): string | null 
 	return typeof summary === "string" ? summary.trim().split("\n")[0] || null : null;
 }
 
-/** `toolCallId`: the card's own entry key for a main-agent call, so a finding can point at its step. */
-export type WorkEvidence = ToolEntry | { entry: ToolEntry; agentName?: string; toolCallId?: string };
+/**
+ * `toolCallId`: the card's own entry key for a main-agent call, so a finding can point at its step. `stoppedAt`: the
+ * stop of the run that holds the call, when it differs by call (the work board's turn spans several cards).
+ */
+export type WorkEvidence =
+	| ToolEntry
+	| { entry: ToolEntry; agentName?: string; toolCallId?: string; stoppedAt?: number };
 
 /** Renderer-only, narrower counterpart of stock pi-coding-agent/src/tools/shell-tokenize.ts
  * tokenizeShellSegments / extractLiteralAndChainSegments: the renderer cannot
@@ -152,34 +152,11 @@ function removedPaths(command: string): string[] {
 	return paths;
 }
 
-/** One command a run ran, main agent or subagent. */
-export interface WorkCommandOutcome {
-	command: string;
-	exitCode: number | null;
-	failed: boolean;
-	agentName?: string;
-	unknown?: boolean;
-	interrupted?: boolean;
-	/**
-	 * An error stock answered with no run to report: it refused the call before running the command (its arguments, a
-	 * blocked command, a missing folder), or omp ended before the call returned (its card reads that one as interrupted,
-	 * by the aborted reply after it). No exit report and none of the notices a command that ran without one ends with
-	 * (`RAN_WITHOUT_EXIT`): it says nothing about the command, so it neither fails nor passes a check, and fixes nothing.
-	 */
-	refused?: true;
+/** One command a run ran, main agent or subagent: its verdict facts (`CommandCall`) and what the card shows of it. */
+export interface WorkCommandOutcome extends CommandCall {
 	durationMs?: number;
 	/** What a stopped command printed before the stop, without stock's abort annotation. */
 	output?: string;
-	/** The tail of what a check (tests, build, lint) or a failed command printed, for `summarizeChecks`. */
-	text?: string;
-	/** The call's entry key (a main-agent call only). */
-	toolCallId?: string;
-	cwd?: string;
-	/** When the call started and, once it answered, ended (the tool entry's clock). */
-	startTime?: number;
-	endTime?: number;
-	/** Backgrounded: its outcome is the job's, whose failure the transcript also reports (`failedEvents`). */
-	background?: true;
 	/** The address a dev server printed, when this command started one. */
 	previewUrl?: string;
 }
@@ -477,47 +454,42 @@ export function workOutcomes(
 					netLines.delete(key);
 				}
 			}
-			const cut = lost || isInterruptedError(entry, agentName ? undefined : stoppedAt);
+			const stop = "entry" in evidence ? (evidence.stoppedAt ?? stoppedAt) : stoppedAt;
+			const cut = lost || isInterruptedError(entry, agentName ? undefined : stop);
 			const output =
 				cut && !lost
 					? resultText(entry.result)
 							.replace(/\n*\[Command (?:aborted|cancelled)\]\s*$/, "")
 							.trim()
 					: "";
-			// A command that ran reports its exit in the details (stock tools/bash.ts `#buildCompletedResult`: a failed exit's
-			// code, a timeout) or, run without one, ends its error with stock's notice; an error with neither is a ToolError
-			// stock threw before running the command.
-			const refused =
-				!verdict &&
-				errored &&
-				!cut &&
-				(refusal !== null ||
-					(typeof details?.exitCode !== "number" &&
-						details?.timedOut !== true &&
-						!RAN_WITHOUT_EXIT.test(resultText(entry.result).trim())));
-			const failed = errored && !cut && !refused;
-			const text = verdict
-				? failed || exitCode || checkKinds(entry.args.command, true).length > 0
-					? delivered.slice(-CHECK_TEXT_MAX)
-					: ""
-				: !cut &&
-						!pending &&
-						Array.isArray(asRecord(entry.result)?.content) &&
-						(failed || exitCode || checkKinds(entry.args.command, true).length > 0)
-					? resultText(entry.result).slice(-CHECK_TEXT_MAX)
+			const ownText = resultText(entry.result);
+			const printed = verdict ? delivered : Array.isArray(asRecord(entry.result)?.content) ? ownText : "";
+			const status = commandStatus({
+				command: entry.args.command,
+				delivered: !!verdict,
+				cut,
+				pending: pending || entry.status === "aborted" || entry.result == null,
+				errored,
+				exitCode,
+				timedOut: details?.timedOut === true,
+				held: refusal !== null,
+				resultText: ownText,
+				output: printed.slice(-CHECK_TEXT_MAX),
+			});
+			const text =
+				!cut && !pending && (status === "failed" || exitCode || checkKinds(entry.args.command, true).length > 0)
+					? printed.slice(-CHECK_TEXT_MAX)
 					: "";
 			const previewUrl =
-				failed || pending || entry.status === "aborted" || entry.result == null
-					? null
-					: devServerUrl({ toolName: "bash", command: entry.args.command, text: resultText(entry.result) });
+				status === "passed"
+					? devServerUrl({ toolName: "bash", command: entry.args.command, text: resultText(entry.result) })
+					: null;
 			commands.push({
 				command: entry.args.command,
+				status,
 				exitCode,
-				failed,
 				...(agentName ? { agentName } : {}),
-				...(pending || entry.status === "aborted" || entry.result == null ? { unknown: true } : {}),
-				...(cut ? { interrupted: true } : {}),
-				...(refused ? { refused: true as const } : {}),
+				...(!verdict && errored ? { toolError: true as const } : {}),
 				...(typeof details?.wallTimeMs === "number" ? { durationMs: details.wallTimeMs } : {}),
 				...(output && output !== "Command aborted" ? { output } : {}),
 				...(text ? { text } : {}),

@@ -22,6 +22,7 @@ import { useTabsStore } from "../../../stores/tabs";
 import { useTodoStore } from "../../../stores/todo";
 import { transcriptToolEntries, useToolsStore } from "../../../stores/tools";
 import { useUiStore } from "../../../stores/ui";
+import { callStops } from "../../chat/chat-stream-utils";
 import { backgroundJobVerdicts } from "../../chat/completion-events";
 import { requestRevealStep } from "../../chat/work/reveal-step";
 import { useRunOutcome, useRunStores } from "../../chat/work/use-work-run";
@@ -297,7 +298,8 @@ function useNewestTurnCalls(): readonly string[] {
 
 /** The newest turn's outcome as its work card reads it (`useRunOutcome`, subagents' calls included). */
 function useNewestOutcome(): WorkOutcomes {
-	return useRunOutcome(useNewestTurnCalls()).outcome;
+	const messages = useMessagesStore(state => state.messages);
+	return useRunOutcome(useNewestTurnCalls(), undefined, callStops(messages)).outcome;
 }
 
 /** The check the board names, as the newest work card reads it; the session's finished and live calls give the newest run. */
@@ -315,6 +317,7 @@ function useLastCheck(outcome: WorkOutcomes): LastCheck | null {
 				outcome.commands,
 				cwd,
 				backgroundJobVerdicts(messages),
+				callStops(messages),
 			),
 		[tools, live, finishedVersion, cwd, messages, outcome],
 	);

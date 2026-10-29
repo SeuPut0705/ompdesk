@@ -1,7 +1,6 @@
 /**
- * What a finished card's findings offer, derived from the run's ledger alone (no model call): the
- * failing step, the dev server a command started, and the plain-text summary Copy puts on the
- * clipboard. Pure; `ExecutionGroup.tsx` draws it.
+ * What a finished card's verdict reads of the main agent's other calls (`stepOperations`) and the plain-text summary
+ * Copy puts on the clipboard, derived from the run's ledger alone (no model call). Pure; `ExecutionGroup.tsx` draws it.
  */
 import { TURN_EDIT_TOOLS } from "../../../../shared/turn-edits";
 import { xdevWriteTarget } from "../../../lib/xdev";
@@ -9,52 +8,16 @@ import type { ToolEntry } from "../../../stores/tools";
 import { editArgumentPaths } from "../../tools/edit-args";
 import { getToolActivity } from "../../tools/index";
 import { isInterruptedError } from "./WorkStatus";
-import { type CheckInput, type CheckSummary, firstErrorLine, type OperationCall } from "./work-checks";
+import type { OperationCall, StepCall } from "./work-checks";
 import { projectPath } from "./work-run";
 import { guardRefusal } from "./work-view";
-
-export interface WorkFindings {
-	/** Something failed: the cause line when the output says one, and the call to show. */
-	error?: { cause?: string; toolCallId?: string };
-	/** The address a dev server printed (the last one). */
-	previewUrl?: string;
-}
-
-export interface FindingsInput {
-	/** The card is still running: nothing is concluded yet. */
-	running: boolean;
-	checks: readonly CheckSummary[];
-	/** Failed commands that are no check and that no later run of the same command fixed (`settleFailures`). */
-	failures: readonly CheckInput[];
-	commands: readonly { previewUrl?: string }[];
-	/** The first unfixed failed call of another tool, for a failure that is no command's. */
-	failedStep?: string;
-}
-
-export function deriveFindings({ running, checks, failures, commands, failedStep }: FindingsInput): WorkFindings {
-	if (running) return {};
-	const findings: WorkFindings = {};
-	const failedCheck = checks.find(check => !check.passed);
-	const failure = failedCheck ? undefined : failures.at(-1);
-	const cause = failedCheck?.cause ?? (failure?.text ? firstErrorLine(failure.text) : undefined);
-	const toolCallId = failedCheck?.toolCallId ?? failure?.toolCallId ?? failedStep;
-	if (failedCheck || failure || failedStep) {
-		findings.error = { ...(cause ? { cause } : {}), ...(toolCallId ? { toolCallId } : {}) };
-	}
-	const previewUrl = commands.findLast(command => command.previewUrl)?.previewUrl;
-	if (previewUrl) findings.previewUrl = previewUrl;
-	return findings;
-}
 
 /**
  * The card's main-agent calls other than commands (those come from the ledger, `commandOperation`) that can decide its
  * verdict: each settled failed call that is no read, search or `wait`, and the later calls of the same tool, the only
  * ones that can fix it. A card without such a failure has none, and costs nothing past the scan.
  */
-export function stepOperations(
-	entries: readonly (readonly [string, ToolEntry])[],
-	stoppedAt?: number,
-): (OperationCall & { toolCallId: string })[] {
+export function stepOperations(entries: readonly (readonly [string, ToolEntry])[], stoppedAt?: number): StepCall[] {
 	const settled = (entry: ToolEntry) =>
 		entry.status !== "aborted" &&
 		entry.status !== "pending" &&

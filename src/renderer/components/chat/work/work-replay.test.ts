@@ -8,20 +8,21 @@
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { checkKind, testCounts } from "../../../../../resources/gui-bridge/command-verdict-core";
 import type { AgentMessage, AgentSessionEvent } from "../../../../shared/rpc-types";
 import { createToolsStore } from "../../../stores/tools";
 import {
-	checkKind,
+	type CommandCall,
 	commandOperation,
 	firstErrorLine,
 	type OperationCall,
 	settleFailures,
-	summarizeChecks,
-	testCounts,
-	unresolvedFailures,
+	workVerdict,
 } from "./work-checks";
 import { operationLabel, stepOperations } from "./work-findings";
 import { workOutcomes } from "./work-view";
+
+const summarizeChecks = (commands: readonly CommandCall[]) => workVerdict(commands).checks;
 
 const recording: { events: AgentSessionEvent[] } = JSON.parse(
 	readFileSync("e2e/fixtures/real-advisor-frames.json", "utf8"),
@@ -63,17 +64,16 @@ describe("the real advisor recording", () => {
 		const entries = [...store.getState().finishedTools.values()];
 		const outcome = workOutcomes(entries);
 		expect(outcome.commands.map(command => command.command)).toEqual(["ls", "wc -l notes.txt", "exit 3"]);
-		expect(outcome.commands.map(command => [command.exitCode, command.failed])).toEqual([
-			[null, false],
-			[null, false],
+		expect(outcome.commands.map(command => [command.exitCode, command.status])).toEqual([
+			[null, "passed"],
+			[null, "passed"],
 			// `exit 3` was backgrounded early: stock answered with the job notice, not an exit code.
-			[null, false],
+			[null, "passed"],
 		]);
-		expect(outcome.commands.every(command => !command.unknown && !command.interrupted)).toBe(true);
 		// Nothing here is a check, and nothing failed in a way the card can see.
 		expect(outcome.commands.map(command => checkKind(command.command))).toEqual([undefined, undefined, undefined]);
-		expect(summarizeChecks(outcome.commands)).toEqual([]);
-		expect(unresolvedFailures(outcome.commands.map(commandOperation))).toEqual([]);
+		expect(workVerdict(outcome.commands).checks).toEqual([]);
+		expect(settleFailures(outcome.commands.map(commandOperation)).unresolved).toEqual([]);
 		// Non-check, non-failed output is not carried at all.
 		expect(outcome.commands.map(command => command.text)).toEqual([undefined, undefined, undefined]);
 	});
@@ -329,7 +329,7 @@ describe("stock bash results through the pipeline", () => {
 		const text = `${run.output}${exited(run.exitCode)}`;
 		const commands = stockBash(run.command, text, { exitCode: run.exitCode, wallTimeNoticeEmitted: false }, true);
 		expect(commands).toHaveLength(1);
-		expect(commands[0]).toMatchObject({ command: run.command, exitCode: run.exitCode, failed: true });
+		expect(commands[0]).toMatchObject({ command: run.command, exitCode: run.exitCode, status: "failed" });
 		expect(checkKind(run.command)).toBe(run.kind);
 		const [check] = summarizeChecks(commands);
 		expect(check).toMatchObject({ kind: run.kind, passed: false, exitCode: run.exitCode, cause: run.cause });

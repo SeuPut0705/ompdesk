@@ -443,7 +443,7 @@ describe("live work", () => {
 		expect(useToolsStore.getState().finishedTools.get("missed-end|fc")?.status).toBe("done");
 		const settled = useToolsStore.getState().finishedTools.get("missed-end|fc");
 		expect(settled && workOutcomes([settled]).commands).toMatchObject([
-			{ command: "wc -l a.ts", exitCode: null, failed: false, durationMs: 3000 },
+			{ command: "wc -l a.ts", exitCode: null, status: "passed", durationMs: 3000 },
 		]);
 	});
 	it.each([true, false])("shares a pending replay and follows only a still-missing gap (served=%s)", async served => {
@@ -594,15 +594,13 @@ describe("live work", () => {
 		expect(outcomes.commands[0]).toMatchObject({
 			command: "wc -l a.ts",
 			exitCode: null,
-			failed: false,
+			status: "passed",
 			durationMs: 3000,
 		});
 		expect(outcomes.commands[1]).toMatchObject({
 			command: "interrupted command",
 			exitCode: null,
-			failed: false,
-			unknown: true,
-			interrupted: true,
+			status: "interrupted",
 		});
 		useToolsStore.setState(
 			toolEntriesState([
@@ -617,14 +615,14 @@ describe("live work", () => {
 			entry("bash", { command: "bun test" }, { details: { exitCode: 0 } }),
 		]);
 		expect(outcome.files).toEqual([{ path: "a.ts", added: 2, removed: 0 }]);
-		expect(outcome.commands[0]).toMatchObject({ command: "bun test", exitCode: 0, failed: false });
+		expect(outcome.commands[0]).toMatchObject({ command: "bun test", exitCode: 0, status: "passed" });
 		const child = workOutcomes([
 			{ entry: entry("bash", { command: "wc -l a.ts" }, { details: { exitCode: 0 } }), agentName: "LineCounter" },
 		]);
 		expect(child.commands[0]).toMatchObject({
 			command: "wc -l a.ts",
 			exitCode: 0,
-			failed: false,
+			status: "passed",
 			agentName: "LineCounter",
 		});
 	});
@@ -658,7 +656,7 @@ describe("live work", () => {
 		const outcome = workOutcomes(entries.map(([, item]) => item));
 		expect(outcome.files).toEqual([{ path: "a.ts", added: 2, removed: 0 }]);
 		// Exit 0 carries no figure; a failing code is kept for the verdict block.
-		expect(outcome.commands[0]).toMatchObject({ command: "bun test", exitCode: 0, failed: false });
+		expect(outcome.commands[0]).toMatchObject({ command: "bun test", exitCode: 0, status: "passed" });
 		expect(outcome.commands[1]).toMatchObject({ command: "false", exitCode: 1 });
 		// Conclusions live on the lanes, never in the ledger.
 		expect(JSON.stringify(outcome)).not.toContain("Two lines.");

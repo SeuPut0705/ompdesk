@@ -1,21 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { type CheckInput, checkKind, commandOperation, summarizeChecks, unresolvedFailures } from "./work-checks";
-import { deriveFindings, operationLabel, workSummaryText } from "./work-findings";
+import { type CommandCall, workVerdict } from "./work-checks";
+import { operationLabel, workSummaryText } from "./work-findings";
 
 function bash(command: string, text: string, exitCode: number, toolCallId: string, previewUrl?: string) {
 	return {
 		command,
 		text,
 		exitCode,
-		failed: exitCode !== 0,
+		status: exitCode !== 0 ? "failed" : "passed",
 		toolCallId,
 		...(previewUrl ? { previewUrl } : {}),
-	} satisfies CheckInput & { previewUrl?: string };
+	} satisfies CommandCall & { previewUrl?: string };
 }
 
+/** What the card concludes: its error (a failing run), and, as the card reads it, the last dev server's address. */
 function derive(commands: ReturnType<typeof bash>[], failedStep?: string, running = false) {
-	const failures = unresolvedFailures(commands.map(commandOperation)).filter(command => !checkKind(command.command));
-	return deriveFindings({ running, checks: summarizeChecks(commands), failures, commands, failedStep });
+	const { error } = workVerdict(
+		commands,
+		"",
+		failedStep ? [{ toolName: "edit", args: {}, toolCallId: failedStep, outcome: "failed" }] : [],
+	);
+	const previewUrl = commands.findLast(command => command.previewUrl)?.previewUrl;
+	return { ...(!running && error ? { error } : {}), ...(!running && previewUrl ? { previewUrl } : {}) };
 }
 
 describe("deriveFindings", () => {

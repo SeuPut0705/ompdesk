@@ -703,17 +703,7 @@ export function buildHistoryRows(
 	for (let index = 0; index < rows.length - 1; index++) {
 		const row = rows[index];
 		const next = rows[index + 1];
-		if (
-			row?.kind === "process" &&
-			next?.kind === "message" &&
-			next.message.role === "assistant" &&
-			next.message.stopReason === "aborted" &&
-			messageContent(next.message).every(
-				block =>
-					(block.type === "text" && !isRenderableMessageText(block.text)) ||
-					(block.type === "thinking" && !isRenderableMessageText(block.thinking)),
-			)
-		) {
+		if (row?.kind === "process" && next?.kind === "message" && isEmptyAbort(next.message)) {
 			if (!isSilentAbort(next.message)) rows[index] = { ...row, stoppedAt: messageTimestampMs(next.message) };
 			stops.add(index + 1);
 		}
@@ -728,6 +718,66 @@ export function buildHistoryRows(
 		),
 		messages,
 	);
+}
+
+/** Stock's empty aborted reply (its content only blank text or thinking): the end of the run before it. */
+function isEmptyAbort(message: AgentMessage): boolean {
+	return (
+		message.role === "assistant" &&
+		message.stopReason === "aborted" &&
+		messageContent(message).every(
+			block =>
+				(block.type === "text" && !isRenderableMessageText(block.text)) ||
+				(block.type === "thinking" && !isRenderableMessageText(block.thinking)),
+		)
+	);
+}
+
+interface CallStopsCache {
+	messages: readonly AgentMessage[];
+	/** The empty aborted replies seen, by timestamp: the only messages that give a call a stop. */
+	aborts: string;
+	stops: ReadonlyMap<string, number>;
+}
+
+/** One cache per session, keyed by its first message: a prepended history page starts it afresh. */
+const callStopsCache = new WeakMap<AgentMessage, CallStopsCache>();
+const NO_STOPS: ReadonlyMap<string, number> = new Map();
+
+function abortsOf(messages: readonly AgentMessage[], from: number, seen: string): string {
+	let aborts = seen;
+	for (let index = from; index < messages.length; index++) {
+		const message = messages[index];
+		if (message && isEmptyAbort(message)) aborts += `${messageTimestampMs(message)},`;
+	}
+	return aborts;
+}
+
+/**
+ * Each call's stop, by entry key: the `stoppedAt` of the work row that holds it (`buildHistoryRows`), so a reader of
+ * calls outside the transcript (the work board) judges a call the stop cut off as its card does. Only an empty aborted
+ * reply gives a call a stop, so the rows are built again only when the session's set of those changes; a list that
+ * grew by appended messages is scanned from where it was, and the same map comes back while nothing stopped.
+ */
+export function callStops(messages: readonly AgentMessage[]): ReadonlyMap<string, number> {
+	const first = messages[0];
+	if (!first) return NO_STOPS;
+	const cached = callStopsCache.get(first);
+	if (cached?.messages === messages) return cached.stops;
+	const length = cached?.messages.length ?? 0;
+	const appended = !!cached && messages.length >= length && messages[length - 1] === cached.messages[length - 1];
+	const aborts = appended ? abortsOf(messages, length, cached.aborts) : abortsOf(messages, 0, "");
+	let stops = cached?.aborts === aborts ? cached.stops : undefined;
+	if (!stops) {
+		const built = new Map<string, number>();
+		if (aborts)
+			for (const row of buildHistoryRows([...messages], "compact"))
+				if (row.kind === "process" && row.stoppedAt !== undefined)
+					for (const key of row.toolCallIds) built.set(key, row.stoppedAt);
+		stops = built.size ? built : NO_STOPS;
+	}
+	callStopsCache.set(first, { messages, aborts, stops });
+	return stops;
 }
 
 /** One interval model for archived todos and custom notices. */

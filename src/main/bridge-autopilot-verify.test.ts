@@ -25,6 +25,7 @@ import {
 	parseNumstat,
 	reconcileCommit,
 	shouldSteerStop,
+	statusAfterStop,
 } from "../../resources/gui-bridge/modes/autopilot-verify";
 
 type EndReport = Extract<AutopilotToolInput, { op: "end" }>;
@@ -32,10 +33,10 @@ type EndReport = Extract<AutopilotToolInput, { op: "end" }>;
 const bash = (command: string, ok = true, background = false): LedgerCall => ({
 	tool: "bash",
 	command,
-	ok,
-	background,
+	status: background ? "unknown" : ok ? "passed" : "failed",
+	ended: { at: 0, errored: !ok, cutOff: false },
 });
-const edit: LedgerCall = { tool: "edit", ok: true, background: false };
+const edit: LedgerCall = { tool: "edit", status: "passed", ended: { at: 0, errored: false, cutOff: false } };
 
 function cycle(n: number, extra: Partial<AutopilotCycleRecord> = {}): AutopilotCycleRecord {
 	return {
@@ -89,18 +90,96 @@ describe("isCheckCommand", () => {
 
 describe("ledgerCall", () => {
 	it("keeps edits and bash, nothing else", () => {
-		expect(ledgerCall("edit", {}, {}, false)).toEqual({ tool: "edit", ok: true, background: false });
-		expect(ledgerCall("read", {}, {}, false)).toBeNull();
-		expect(ledgerCall("bash", { command: "bun test" }, { content: [] }, true)).toEqual({
+		expect(ledgerCall("edit", {}, {}, false, 0)).toMatchObject({ tool: "edit", status: "passed" });
+		expect(ledgerCall("read", {}, {}, false, 0)).toBeNull();
+		expect(
+			ledgerCall("bash", { command: "bun test" }, { content: [], details: { exitCode: 1 } }, true, 0),
+		).toMatchObject({
 			tool: "bash",
 			command: "bun test",
-			ok: false,
-			background: false,
+			status: "failed",
 		});
 	});
 	it("a bash call that became a background job has no verdict yet", () => {
-		const call = ledgerCall("bash", { command: "bun test" }, { details: { async: { state: "running" } } }, false);
-		expect(call).toMatchObject({ ok: true, background: true });
+		const call = ledgerCall("bash", { command: "bun test" }, { details: { async: { state: "running" } } }, false, 0);
+		expect(call).toMatchObject({ status: "unknown" });
+	});
+});
+
+describe("ledgerCall reads a command's end as the work card does (command-verdict-core)", () => {
+	const result = (text: string, details: Record<string, unknown> = {}) => ({
+		content: [{ type: "text", text }],
+		details,
+	});
+	it("fails a check whose own output shows failures though its pipe exited 0", () => {
+		const call = ledgerCall(
+			"bash",
+			{ command: "bunx vitest run | tail -3" },
+			result(" Tests  2 failed | 5 passed (7)"),
+			false,
+			0,
+		);
+		expect(call).toMatchObject({ status: "failed" });
+		expect(judgeVerify({ claimed: "green", changed: true, calls: [edit, call as LedgerCall] }).verify).toBe("red");
+	});
+	it("takes a check stock or the shared-checkout guard refused as no check run", () => {
+		const held = ledgerCall(
+			"bash",
+			{ command: "bun test" },
+			result("Refused while other sessions work here: git stash"),
+			true,
+			0,
+		);
+		const thrown = ledgerCall("bash", { command: "bun test" }, result("cwd does not exist: /nope"), true, 0);
+		for (const call of [held, thrown]) {
+			expect(call).toMatchObject({ status: "refused" });
+			expect(judgeVerify({ claimed: "green", changed: true, calls: [edit, call as LedgerCall] }).why).toEqual({
+				kind: "no_check",
+			});
+		}
+	});
+	it("fails a check that ran and lost its exit status", () => {
+		const call = ledgerCall(
+			"bash",
+			{ command: "bun test" },
+			result("ran\n\nCommand failed: missing exit status"),
+			true,
+			0,
+		);
+		expect(call).toMatchObject({ status: "failed" });
+	});
+	// The user stopped the turn while `end` waited for the build beside it: stock killed the build (exit 130) and the
+	// card reads it interrupted, so it is no check run, never a failed one.
+	it("takes a check the turn's stop cut off as no check run, as the card does", () => {
+		const killed = ledgerCall(
+			"bash",
+			{ command: "bun run build" },
+			result("vite…\n\nCommand exited with code 130", { exitCode: 130 }),
+			true,
+			9_000,
+		);
+		const aborted = ledgerCall("bash", { command: "bun test" }, result("partial\n\n[Command aborted]"), true, 2_000);
+		const passed = ledgerCall("bash", { command: "bun test" }, result(" 5 pass"), false, 1_000);
+		for (const call of [killed, aborted] as LedgerCall[]) {
+			expect(call.status).toBe("failed");
+			expect(statusAfterStop(call, 9_200)).toBe("interrupted");
+			expect(statusAfterStop(call, undefined)).toBe("failed");
+		}
+		const calls = [edit, passed, killed, aborted] as LedgerCall[];
+		expect(judgeVerify({ claimed: "green", changed: true, calls }).verify).toBe("red");
+		expect(judgeVerify({ claimed: "green", changed: true, calls, stoppedAt: 9_200 })).toMatchObject({
+			verify: "green",
+			check: "bun test",
+		});
+		// A failure that ended long before the stop, with no cut-off notice, still stands.
+		const earlier = ledgerCall(
+			"bash",
+			{ command: "bun test" },
+			result(" 1 fail", { exitCode: 1 }),
+			true,
+			3_000,
+		) as LedgerCall;
+		expect(statusAfterStop(earlier, 9_200)).toBe("failed");
 	});
 });
 

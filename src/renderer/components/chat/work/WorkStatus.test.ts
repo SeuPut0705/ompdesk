@@ -40,6 +40,6 @@ describe("isInterruptedError", () => {
 
 	it("reads a command the stop cut as cut off in the ledger, not failed", () => {
 		const [command] = workOutcomes([watch("Command aborted", 2_000)], stoppedAt).commands;
-		expect(command).toMatchObject({ interrupted: true, failed: false });
+		expect(command).toMatchObject({ status: "interrupted" });
 	});
 });

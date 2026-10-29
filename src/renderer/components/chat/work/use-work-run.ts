@@ -110,9 +110,10 @@ export function useRunAgents(
 /**
  * One outcome model for the whole run, main agent and subagents alike: the head's
  * counts and the outcome list read the same ledger. Finished agents' transcripts
- * are replayed once so their files and commands count after a reload too.
+ * are replayed once so their files and commands count after a reload too. `stops`: each
+ * call's own stop (`callStops`), for calls that span several cards.
  */
-export function useRunOutcome(toolCallIds: readonly string[], stoppedAt?: number) {
+export function useRunOutcome(toolCallIds: readonly string[], stoppedAt?: number, stops?: ReadonlyMap<string, number>) {
 	const { tools, subagents, messages } = useRunStores();
 	const cwd = useSessionStore(state => state.cwd);
 	const { agents, completions } = useRunAgents(toolCallIds);
@@ -153,13 +154,13 @@ export function useRunOutcome(toolCallIds: readonly string[], stoppedAt?: number
 	const outcome = useMemo(() => {
 		const entries: WorkEvidence[] = toolCallIds.flatMap(id => {
 			const entry = selectToolEntry(tools.getState(), id);
-			return entry ? [{ entry, toolCallId: id }] : [];
+			return entry ? [{ entry, toolCallId: id, stoppedAt: stops?.get(id) }] : [];
 		});
 		for (const agent of agents) {
 			for (const entry of subagents.getState().surfaces.get(agent.id)?.getState().finishedTools.values() ?? [])
 				entries.push({ entry, agentName: agent.id });
 		}
 		return workOutcomes(entries, stoppedAt, cwd, jobVerdicts);
-	}, [ids, toolsKey, surfacesKey, agents, stoppedAt, cwd, jobVerdicts, tools, subagents]);
+	}, [ids, toolsKey, surfacesKey, agents, stoppedAt, stops, cwd, jobVerdicts, tools, subagents]);
 	return { outcome, agents, completions, loading, error };
 }
