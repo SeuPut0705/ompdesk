@@ -132,6 +132,37 @@ async function pollSetting(page: Page, pathName: string, expected: unknown): Pro
 	return readSetting(page, pathName);
 }
 
+/**
+ * Open a value dropdown (ModelValueSelect) and return once it is open and settled: a model or provider picker shows a
+ * spinner until `get_available_models`/`get_providers` answers, then its list, or its error and Retry.
+ *
+ * Opening it can close it again. The read it starts may be the tab's first catalog answer; that answer also fills
+ * the Providers page's list above the row, and the column grows past the row (measured under four Playwright runs:
+ * +2 240 px, the trigger from y 460 to 1415 in an 876 px column), so the panel closes as designed once its trigger has
+ * scrolled out of view. So the signal is the panel still open, with its list, after two frames of layout (the scroll
+ * that closes it comes one frame after the answer); a panel that closed meanwhile is opened again, now on a page that
+ * no longer moves. A read that failed throws with the picker's own message.
+ */
+async function openValuePicker(row: Locator, trigger: Locator): Promise<void> {
+	const list = row.getByRole("listbox");
+	const retry = row.getByRole("button", { name: "Retry" });
+	await expect(async () => {
+		if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+		await expect(list.or(retry).first()).toBeVisible({ timeout: 10_000 });
+		await row.page().evaluate(
+			() =>
+				new Promise(done => {
+					requestAnimationFrame(() => requestAnimationFrame(done));
+				}),
+		);
+		expect(await trigger.getAttribute("aria-expanded")).toBe("true");
+	}).toPass({ timeout: 60_000 });
+	if (await retry.isVisible()) {
+		const message = await retry.locator("xpath=..").innerText();
+		throw new Error(`value picker failed to load: ${message.replace(/\s*Retry\s*$/, "")}`);
+	}
+}
+
 async function restoreInitial(page: Page, pathName: string, initial: unknown): Promise<"passed"> {
 	if (initial === undefined) {
 		const reset = settingRow(page, pathName).getByRole("button", { name: "Remove global override", exact: true });
@@ -356,9 +387,8 @@ async function mutateEntry(
 				if ((await trigger.count()) > 0) {
 					const marker =
 						entry.path === "shellPath" ? "/bin/sh" : `__gui_audit__/${entry.path.replaceAll(".", "_")}`;
-					await trigger.click();
+					await openValuePicker(row, trigger);
 					const pickerInput = row.locator("input").last();
-					await expect(pickerInput).toBeVisible();
 					if ((await pickerInput.count()) > 0) {
 						await pickerInput.fill(marker);
 						const custom = row.locator('[role="listbox"] button').filter({ hasText: marker });
@@ -377,7 +407,7 @@ async function mutateEntry(
 									notes,
 								};
 							}
-							await trigger.click();
+							await openValuePicker(row, trigger);
 							if (initial === "") {
 								await row.getByRole("option", { name: /Clear/ }).click();
 							} else {
@@ -549,9 +579,8 @@ async function mutateEntry(
 				const trigger = row.getByRole("button", { name: /Add provider/ }).first();
 				if ((await trigger.count()) > 0) {
 					const marker = "__gui_audit_provider__";
-					await trigger.click();
+					await openValuePicker(row, trigger);
 					const pickerInput = row.locator("input").last();
-					await expect(pickerInput).toBeVisible();
 					if ((await pickerInput.count()) > 0) {
 						await pickerInput.fill(marker);
 						const custom = row.getByRole("option", { name: new RegExp(marker) });
