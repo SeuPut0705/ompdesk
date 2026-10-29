@@ -124,6 +124,10 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description:
 			"task 도구에 outputSchema/schemaMode를 제공하고, 호출자 또는 에이전트의 출력 스키마로 검증한 서브에이전트 결과를 yield 도구로 반환해요. 끄면 task 서브에이전트는 yield 도구 없이 마지막 메시지를 일반 텍스트로 반환해요. Eval의 agent()/workpool로 실행한 에이전트는 항상 구조화된 결과를 사용해요.",
 	},
+	"task.file": {
+		label: "파일에서 작업 지시 읽기",
+		description: "task 도구가 서브에이전트 지시를 파일(taskFile)에서 읽고, 그 경로와 SHA-256을 기록해요.",
+	},
 	"task.agentCompactionThresholdOverrides": { label: "에이전트별 압축 임계값 재정의" },
 	"task.agentAccountPools": { label: "에이전트별 계정 풀" },
 	"task.agentSoftRequestBudget": { label: "에이전트별 요청 예산" },
@@ -296,6 +300,15 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	"prewalk.autoTarget": {
 		label: "자동 사전 탐색 대상",
 		description: "자동 사전 탐색이 첫 편집/쓰기 때 넘겨줄 모델이나 역할이에요(기본 '@smol').",
+	},
+	"prewalk.from": {
+		label: "사전 탐색 계획 모델",
+		description: "/prewalk restart가 계획하러 돌아갈 모델이나 역할이에요(기본 '@default').",
+	},
+	"prewalk.into": {
+		label: "사전 탐색 대상",
+		description:
+			"첫 편집/쓰기 때 사전 탐색이 넘겨줄 모델이나 역할이에요(기본 '@smol'). /prewalk, /prewalk restart, 사전 탐색 사용, --prewalk에 쓰여요. 자동 사전 탐색은 따로 정한 대상을 써요.",
 	},
 	// 17.3.0에서 전역 advisor.subagents가 제거됨(task.agentAdvisor로 이전).
 	"task.agentAdvisor": {
@@ -1006,6 +1019,16 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	"tools.intentTracing": {
 		label: "의도 추적",
 		description: "에이전트가 각 도구 호출 전에 의도를 설명하도록 요구해요",
+	},
+	"out.enabled": {
+		label: "작업 중 답하기",
+		description:
+			"에이전트가 out://에 써서 턴을 끝내지 않고 작업 중에 답할 수 있어요. 답변처럼 보여요. 지정하지 않으면 대화형 TUI에서는 켜지고 print, RPC, ACP에서는 꺼져요",
+	},
+	"extensionRenderers.assistantText": {
+		label: "확장의 답변 렌더러",
+		description:
+			"확장이 에이전트 답변을 그리는 방식을 바꾸고, 답변을 제자리에서 다시 그리고, 자기 링크의 클릭을 받을 수 있어요. 세션, 내보내기, 모델 컨텍스트에는 답변이 쓴 그대로 남아요",
 	},
 	"tools.abortOnFabricatedResult": {
 		label: "조작된 도구 결과 시 중단",

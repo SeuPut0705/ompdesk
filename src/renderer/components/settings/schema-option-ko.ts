@@ -926,6 +926,8 @@ export const KO_SCHEMA_OPTION_TEXT: Readonly<Record<string, string>> = {
 	"3/4 of a 200K window": "200K 창의 3/4",
 	"Judge only when the judge role resolves to a native TypeSafe jev model":
 		"판정 역할이 TypeSafe jev 네이티브 모델일 때만 판정해요",
+	"Smart when the judge role resolves to a native TypeSafe jev model, else Always":
+		"판정 역할이 TypeSafe jev 네이티브 모델이면 스마트, 아니면 항상",
 	"Always judge, whichever model the judge role resolves to": "판정 역할이 어떤 모델이든 항상 판정해요",
 	"Never judge; question rules stay inactive": "판정하지 않아요. 질문 규칙은 꺼진 채로 둬요",
 	"Save the complete output": "전체 출력을 저장해요",
