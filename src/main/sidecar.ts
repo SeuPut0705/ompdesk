@@ -6,21 +6,17 @@
 
 import { type ChildProcess, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import type { McpLiveChange } from "../../resources/gui-bridge/extensions/mcp-contracts";
 import { type AutoTitleSettings, titleSuppressedByEnv } from "../../resources/gui-bridge/modes/auto-title-contracts";
-import { agentBrowserEnv } from "../../resources/gui-bridge/modes/default-browser-contracts";
 import type { DelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
-import { JUDGE_ASSIST_ENV, JUDGE_ASSIST_SET } from "../../resources/gui-bridge/modes/judge-assist-contracts";
-import { MEMORY_ENV } from "../../resources/gui-bridge/modes/memory-recall-contracts";
+import { JUDGE_ASSIST_SET } from "../../resources/gui-bridge/modes/judge-assist-contracts";
 import type { NextPromptSettings } from "../../resources/gui-bridge/modes/next-prompt-contracts";
 import type { UserProfile } from "../../resources/gui-bridge/modes/user-profile-contracts";
-import { OMPDESK_ROLES_ENV } from "../../resources/gui-bridge/ompdesk-role-contracts";
 import type { PromptOriginEnv } from "../../resources/gui-bridge/prompt-origin-contracts";
 import type { AccountRotationMode } from "../shared/account-rotation";
-import { type AgentBrowser, DEFAULT_BROWSER_ENV } from "../shared/default-browser";
-import { parseLaunchProfile, profileToFlags, stripDenylistedFlags } from "../shared/launch-profile";
+import type { AgentBrowser } from "../shared/default-browser";
+import { parseLaunchProfile, profileToFlags } from "../shared/launch-profile";
 import { DEFAULT_ROLE_MODEL_SELECTOR, parseModelRestoreFailure } from "../shared/model-restore";
 import type {
 	AgentMessage,
@@ -41,7 +37,15 @@ import { withoutFrameBookkeeping } from "./frame-bookkeeping";
 import { localHandlerFor, runLocalCommand } from "./local";
 import { projectQueueUpdate } from "./local/queue";
 import type { BridgeClient, LocalCommandContext, OmpRuntime } from "./local/types";
-import { sessionOpen } from "./omp-launch";
+import {
+	type BuiltinLaunch,
+	type OmpLaunch,
+	ompArgs,
+	type SessionSettings,
+	sessionEnv,
+	sessionOpen,
+	withoutSessionEnv,
+} from "./omp-launch";
 import { OMP_TELEMETRY_OFF, type OmpResolution, ompBunDefaults, ompPathEnv } from "./omp-runtime";
 import { VISUALIZE_DEFINITION } from "./preview/visuals";
 import { MAX_RESTART_ATTEMPTS, restartDelay, WINDOWS_SESSION_END_EXIT_CODE } from "./restart-policy";
@@ -63,43 +67,6 @@ const ENTRY_ID_TIMEOUT_MS = 5_000;
 const STDERR_DRAIN_MS = 1_000;
 /** Pause between re-probes while a failed health check holds a live child in `error`. */
 const HEALTH_RECOVERY_PROBE_MS = 5_000;
-
-/** Files inside the gui-bridge directory (resources/gui-bridge). */
-const BRIDGE_ENTRY = "index.ts";
-/** `--config` overlay pinning `autoResume: false` so a fresh tab never reopens the last session. */
-const FRESH_LAUNCH_CONFIG = "fresh-launch.yml";
-
-/**
- * The variables this sidecar (and sidecar-factory's `builtinMcp.env`) sets per spawn from its own options. One
- * inherited from the environment OMPdesk was started in (a dev or test run launched from an OMPdesk session's shell)
- * describes that other app's session: its bridge socket, delegation, memory file. So none is ever passed through;
- * each spawn sets only its own.
- */
-const SESSION_OWNED_ENV = [
-	"OMP_GUI_BRIDGE",
-	"OMP_GUI_REPLY_LANGUAGE",
-	DEFAULT_BROWSER_ENV,
-	"OMP_GUI_USER_PROFILE",
-	"OMP_GUI_NEXT_PROMPT",
-	"OMP_GUI_AUTO_TITLE",
-	JUDGE_ASSIST_ENV,
-	"OMP_GUI_PROMPT_ORIGIN",
-	"OMP_GUI_DELEGATION",
-	"OMP_GUI_ACCOUNT_ROTATION",
-	"OMP_GUI_ACCOUNT_ROTATION_STATE",
-	OMPDESK_ROLES_ENV,
-	"OMP_GUI_REA_ROOT",
-	"OMP_GUI_REA_CACHE",
-	"OMP_GUI_PSTACK",
-	"OMP_GUI_ECC",
-	MEMORY_ENV,
-] as const;
-
-function withoutSessionEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-	const own = { ...env };
-	for (const key of SESSION_OWNED_ENV) delete own[key];
-	return own;
-}
 
 /** Stock commands after which the sidecar's session identity is unknown until the next `get_state`. */
 const SESSION_CHANGING_COMMANDS: Record<string, true> = {
@@ -237,7 +204,7 @@ export interface SidecarOptions {
 	/** The gui-bridge extension directory. Absent: no `-e`, no bridge (tests). */
 	bridgeDir?: string;
 	/** Optional app-only MCP root, resolved before a spawn; never touches stock config. */
-	builtinMcp?: () => Promise<{ args: string[]; root?: string; env?: Record<string, string> }>;
+	builtinMcp?: () => Promise<BuiltinLaunch>;
 	/** Whether the OMPdesk control tools are registered with the GUI's host tools (Settings switch); default off. */
 	hostTools?: () => boolean;
 	cwd: string;
@@ -486,7 +453,7 @@ export class SidecarManager extends EventEmitter {
 	#options: SidecarOptions;
 	#runtime: OmpRuntime | null = null;
 	#proxyEnvVars: Record<string, string> = {};
-	#builtinMcp: { args: string[]; root?: string; env?: Record<string, string> } = { args: [] };
+	#builtinMcp: BuiltinLaunch = { args: [] };
 	#defaultBrowser: AgentBrowser | undefined;
 	#egoBrowserDir: string | null = null;
 	#shellEnvVars: Record<string, string> = {};
@@ -630,6 +597,25 @@ export class SidecarManager extends EventEmitter {
 			});
 	}
 
+	/** The OMPdesk settings this spawn starts with, each read now (the same closures the `sync*` pushes read). */
+	#settings(): SessionSettings {
+		const options = this.#options;
+		this.#titleSuppressed = titleSuppressedByEnv({ ...process.env, ...this.#shellEnvVars });
+		const autoTitle = options.autoTitle?.();
+		return {
+			replyLanguage: options.replyLanguage?.(),
+			userProfile: options.userProfile?.(),
+			nextPrompt: options.nextPrompt?.(),
+			autoTitle: autoTitle ? { ...autoTitle, suppressed: this.#titleSuppressed } : undefined,
+			judgeAssist: options.judgeAssist?.(),
+			delegation: options.delegation?.(),
+			accountRotation: options.accountRotation?.(),
+			accountRotationLedger: options.accountRotationLedger,
+			ompdeskRolesFile: options.ompdeskRolesFile,
+			browser: this.#defaultBrowser,
+		};
+	}
+
 	#spawn(): void {
 		this.#spawnedAt = Date.now();
 		// One live child per manager. `#child` is only ever set here, so anything
@@ -647,33 +633,21 @@ export class SidecarManager extends EventEmitter {
 		this.#bootedThisSpawn = false;
 		this.#session = null;
 		const { bridgeDir, cwd, extraFlags } = this.#options;
-		const replyLanguage = this.#options.replyLanguage?.();
-		const userProfile = this.#options.userProfile?.();
-		const nextPrompt = this.#options.nextPrompt?.();
-		const delegation = this.#options.delegation?.();
-		const accountRotation = this.#options.accountRotation?.();
-		const { accountRotationLedger, ompdeskRolesFile } = this.#options;
-
-		const open = sessionOpen({ path: this.#sessionPath, isNew: this.#isNew });
-		const args = ["--mode", "rpc-ui"];
-		if (open === "new") {
-			if (bridgeDir) args.push("--config", join(bridgeDir, FRESH_LAUNCH_CONFIG));
-		} else if (open !== "default") args.push("--session", open.session);
-		if (this.#noModelBoot) args.push("--model", this.#noModelBoot);
-		else if (this.#bootModelFallback) args.push("--model", DEFAULT_ROLE_MODEL_SELECTOR);
-		const bridgeAddress = bridgeDir ? newBridgeAddress() : null;
-		if (bridgeDir) args.push("-e", join(bridgeDir, BRIDGE_ENTRY));
-		args.push(...this.#builtinMcp.args);
-		// User-controllable flags ride the extraFlags seam + the launch profile.
-		// Strip the code-controlled-flag denylist (pair-aware) over BOTH, then
-		// append: neither can override the code-controlled argv above, while a
-		// profile value that merely looks like a protected flag survives intact.
-		const userFlags = [...(extraFlags ?? []), ...loadLaunchProfileFlags(this.#options.launchProfiles, cwd)];
-		args.push(...stripDenylistedFlags(userFlags));
-		this.#titleSuppressed = titleSuppressedByEnv({ ...process.env, ...this.#shellEnvVars });
-		const autoTitle = this.#options.autoTitle?.();
-		const judgeAssist = this.#options.judgeAssist?.();
-
+		const launch: OmpLaunch = {
+			open: sessionOpen({ path: this.#sessionPath, isNew: this.#isNew }),
+			...(bridgeDir ? { bridge: { dir: bridgeDir, address: newBridgeAddress() } } : {}),
+			...(this.#noModelBoot
+				? { model: this.#noModelBoot }
+				: this.#bootModelFallback
+					? { model: DEFAULT_ROLE_MODEL_SELECTOR }
+					: {}),
+			builtin: this.#builtinMcp,
+			userFlags: [...(extraFlags ?? []), ...loadLaunchProfileFlags(this.#options.launchProfiles, cwd)],
+			settings: this.#settings(),
+			...(this.#options.promptOrigin ? { origin: this.#options.promptOrigin } : {}),
+		};
+		const args = ompArgs(launch);
+		const bridgeAddress = launch.bridge?.address ?? null;
 		const bin = runtime.bin;
 		console.log(`[sidecar] spawning omp ${runtime.version} (${args.length} args, cwd: ${cwd})`);
 
@@ -694,26 +668,7 @@ export class SidecarManager extends EventEmitter {
 						this.#shellEnvVars.PATH ?? process.env.PATH ?? "",
 						this.#egoBrowserDir ? [this.#egoBrowserDir] : [],
 					),
-					...(bridgeAddress ? { OMP_GUI_BRIDGE: bridgeAddress } : {}),
-					...(replyLanguage ? { OMP_GUI_REPLY_LANGUAGE: replyLanguage } : {}),
-					...(userProfile && (userProfile.name || userProfile.experience)
-						? { OMP_GUI_USER_PROFILE: JSON.stringify(userProfile) }
-						: {}),
-					...(nextPrompt ? { OMP_GUI_NEXT_PROMPT: JSON.stringify(nextPrompt) } : {}),
-					...(autoTitle
-						? { OMP_GUI_AUTO_TITLE: JSON.stringify({ ...autoTitle, suppressed: this.#titleSuppressed }) }
-						: {}),
-					...(judgeAssist === undefined ? {} : { [JUDGE_ASSIST_ENV]: judgeAssist ? "1" : "0" }),
-					...(this.#options.promptOrigin
-						? { OMP_GUI_PROMPT_ORIGIN: JSON.stringify(this.#options.promptOrigin) }
-						: {}),
-					...(delegation && delegation !== "default" ? { OMP_GUI_DELEGATION: delegation } : {}),
-					...(accountRotation ? { OMP_GUI_ACCOUNT_ROTATION: accountRotation } : {}),
-					...(accountRotationLedger ? { OMP_GUI_ACCOUNT_ROTATION_STATE: accountRotationLedger } : {}),
-					...(ompdeskRolesFile ? { [OMPDESK_ROLES_ENV]: ompdeskRolesFile } : {}),
-					...(this.#builtinMcp.root ? { OMP_GUI_REA_ROOT: this.#builtinMcp.root } : {}),
-					...(this.#defaultBrowser ? { [DEFAULT_BROWSER_ENV]: agentBrowserEnv(this.#defaultBrowser) } : {}),
-					...this.#builtinMcp.env,
+					...sessionEnv(launch),
 					PI_RPC_EMIT_TITLE: "1",
 					PI_NO_PTY: "1",
 					PI_NOTIFICATIONS: "off",
