@@ -57,7 +57,7 @@
 				"src/main/agent-control/service.ts:3327-3339",
 				"src/main/tab-release.ts#closeWindowTab"
 			],
-			"syncCommit": "d8ff37165dccb2558a63fd1f0cb1c60720c8c38e",
+			"syncCommit": "04d7c62b763ee02616868b908c60231e3010f22b",
 			"verifySkill": ".omp/skills/web-close-reports-verify/SKILL.md"
 		}
 	]
