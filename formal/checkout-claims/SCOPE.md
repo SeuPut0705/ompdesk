@@ -30,3 +30,14 @@ Why tests miss it: the claim lives in two processes (A's bridge and main), main'
 - Repo peers in other worktrees, hidden sessions, paired devices' tabs (the same coordinator; their peers lists only translate paths).
 - The guard's shell parsing and git rules (`bridge-checkout-peers-rules.test.ts`).
 - Main's own restart: OMPdesk quitting ends every omp, so main's memory and A's instance are lost together.
+
+## Status of the runs (29 Oct 2026)
+
+- Fast tier: passed at the stamp (`MC.cfg`, the sanity runs, the own-commit run `MC_clean.cfg`), and all 11 mutations detected (1 declared equivalent).
+- Deep tier (`MC_deep.cfg`, 3 calls with own commits, one restart, 3 world events): **pending at the stamp**. It passed once on the same model and code (157,260,171 distinct states, depth 60, 1431 s with every core; 3665 s on one worker), and the reviewer stopped the re-run on purpose. Run it later with:
+
+```bash
+bun <tools-dir>/scripts/verify-all.ts formal --only checkout-claims --tier deep
+```
+
+It needs about an hour on one worker (`timeoutSec` 7200 in `tla/matrix.json`).
