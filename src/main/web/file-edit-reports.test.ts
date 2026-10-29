@@ -1,5 +1,27 @@
 import { describe, expect, it, vi } from "vitest";
-import { FileEditReports, type FileEdits } from "./file-edit-reports";
+import { FileEditReports, type FileEdits, parseFileEditReport } from "./file-edit-reports";
+
+describe("parseFileEditReport", () => {
+	it("accepts exactly one {dirtyTabId} holding a tab id or null", () => {
+		expect(parseFileEditReport([{ dirtyTabId: "t1" }])).toEqual({ dirtyTabId: "t1" });
+		expect(parseFileEditReport([{ dirtyTabId: null }])).toEqual({ dirtyTabId: null });
+	});
+
+	it("refuses any other shape: an extra key or argument could carry a picture whose upload lands past a drop", () => {
+		const picture = { type: "image", mimeType: "image/png", upload: "/up/dev1/a/image.png" };
+		for (const args of [
+			[{ dirtyTabId: "t1", x: 1 }],
+			[{ dirtyTabId: "t1", extra: picture }],
+			[{ dirtyTabId: "t1" }, picture],
+			[{ dirtyTabId: 7 }],
+			[{}],
+			[["t1"]],
+			[null],
+			[],
+		])
+			expect(parseFileEditReport(args), JSON.stringify(args)).toBeNull();
+	});
+});
 
 describe("FileEditReports", () => {
 	it("knows nothing about a page until it reports, and never reads that as clean", () => {

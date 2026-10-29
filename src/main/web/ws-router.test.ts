@@ -885,8 +885,8 @@ describe("a connection ending", () => {
 		r.frame({ t: "inv", id: 2, ch: IPC_COMMANDS.FILE_EDIT_REPORT, a: [{ dirtyTabId: "t1" }, extra("b")] });
 		r.connection.dispose();
 		for (const end of r.ended) reports.forget(end.connId);
-		await vi.waitFor(() => expect(r.uploads.take).toHaveBeenCalledTimes(2));
-		await r.settle();
+		// Both frames reach the handler once their pictures landed (the nested one takes more turns), after the drop.
+		await vi.waitFor(() => expect(r.invoke).toHaveBeenCalledTimes(2));
 		expect(reports.edits(id, "t1")).toBe("unreported");
 	});
 
