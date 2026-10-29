@@ -48,8 +48,8 @@ export const MAIN_TEXT = {
 	"menu.modes": { en: "Modes", ko: "모드" },
 	"menu.modelRoles": { en: "Model Roles", ko: "모델 역할" },
 	"crash.body": {
-		en: "This window's renderer has crashed repeatedly and cannot recover on its own. The failure was written to the runtime log ({logPath}) — restarting may help, and sending the log via Help → Send Feedback helps us fix it.",
-		ko: "이 창의 렌더러가 반복해서 충돌해 스스로 복구할 수 없어요. 실패 내용은 런타임 로그({logPath})에 기록했어요. 재시작하면 해결될 수 있고, 도움말 → 피드백 보내기로 로그를 보내 주시면 수정에 도움이 돼요.",
+		en: "This window crashed repeatedly and can't recover on its own. The failure is in the runtime log ({logPath}). Restarting may help; send the log via Help → Send Feedback so we can fix it.",
+		ko: "이 창이 반복해서 충돌해 스스로 복구할 수 없어요. 실패 내용은 런타임 로그({logPath})에 있어요. 재시작하면 해결될 수 있어요. 도움말 → 피드백 보내기로 로그를 보내 주시면 수정에 도움이 돼요.",
 	},
 	"crash.close": { en: "Close", ko: "닫기" },
 	"crash.title": { en: "OMPdesk window crashed", ko: "OMPdesk 창이 충돌했어요" },
@@ -157,7 +157,7 @@ export const MAIN_TEXT = {
 	},
 	"autopilot.summary.pr": {
 		en: "{target} is protected: {landed} of {commits} landed, the rest waits in {url}",
-		ko: "{target}가 보호되어 있어 {commits}개 중 {landed}개만 반영, 나머지는 {url}에서 기다려요",
+		ko: "보호된 브랜치 {target}: {commits}개 중 {landed}개만 반영, 나머지는 {url}에서 기다려요",
 	},
 	"autopilot.summary.pushed": { en: "pushed to {target}", ko: "{target}에 푸시함" },
 	"autopilot.summary.notPushed": { en: "the last commit is not pushed", ko: "마지막 커밋은 푸시 안 됨" },
@@ -168,7 +168,7 @@ export const MAIN_TEXT = {
 	},
 	"autopilot.land.prBody": {
 		en: "{branch} is protected. Green cycles now go to one pull request instead: {url}",
-		ko: "{branch}가 보호되어 있어요. 이제 초록 사이클은 풀 리퀘스트 하나로 올라가요: {url}",
+		ko: "{branch} 브랜치가 보호되어 있어요. 이제 초록 사이클은 풀 리퀘스트 하나로 올라가요: {url}",
 	},
 	"autopilot.reason.user": { en: "Ended by you.", ko: "직접 끝냈어요." },
 	"autopilot.reason.user_pause": { en: "Paused by you.", ko: "직접 일시정지했어요." },
@@ -360,8 +360,8 @@ export const MAIN_TEXT = {
 		ko: "업데이트를 마치지 못했어요. 잠시 후 다시 시도하세요.",
 	},
 	"updates.noResult": {
-		en: "Couldn't finish the update check. Try again later.",
-		ko: "업데이트 확인을 마치지 못했어요. 잠시 후 다시 시도하세요.",
+		en: "Couldn't check for updates.",
+		ko: "업데이트를 확인하지 못했어요.",
 	},
 	"updates.openInstallerFailed": {
 		en: "The installer was downloaded, but macOS could not open it.",

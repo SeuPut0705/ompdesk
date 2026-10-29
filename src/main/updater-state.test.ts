@@ -97,7 +97,7 @@ describe("update check terminal state", () => {
 	it("does not leave a completed manual check spinning forever", () => {
 		expect(settleIncompleteUpdateCheck({ state: "checking" }, true)).toEqual({
 			state: "error",
-			message: "Couldn't finish the update check. Try again later.",
+			message: "Couldn't check for updates.",
 		});
 	});
 

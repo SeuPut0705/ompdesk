@@ -17,7 +17,7 @@ const OPTION_TEXT: Record<Lang, Readonly<Record<string, string>>> = { en: {}, ko
 // their stock tab id instead. These renderer labels cover that boundary.
 const TAB_TITLES: Record<string, Record<Lang, string>> = {
 	tasks: { en: "Tasks", ko: "작업" },
-	memory: { en: "Memory", ko: "기억" },
+	memory: { en: "Memory", ko: "메모리" },
 	context: { en: "Context", ko: "컨텍스트" },
 	model: { en: "Models", ko: "모델" },
 	files: { en: "Files", ko: "파일" },
@@ -56,6 +56,8 @@ const KO_ROLE_NAMES: Readonly<Record<string, string>> = {
 	Vision: "비전",
 	Architect: "설계",
 	Commit: "커밋",
+	"Commit messages": "커밋 메시지",
+	Plan: "계획",
 	Tiny: "초소형",
 	Memory: "메모리",
 	Subtask: "하위 작업",
@@ -65,7 +67,7 @@ const KO_ROLE_NAMES: Readonly<Record<string, string>> = {
 	"Web search": "웹 검색",
 	Speech: "음성 합성",
 	Dictation: "받아쓰기",
-	Judge: "평가",
+	Judge: "판정",
 	Review: "리뷰",
 };
 const ROLE_NAMES: Record<Lang, Readonly<Record<string, string>>> = { en: {}, ko: KO_ROLE_NAMES };

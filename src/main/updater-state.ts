@@ -182,7 +182,7 @@ export async function stageBundleFromDmg(options: StageBundleOptions): Promise<s
 export function settleIncompleteUpdateCheck(
 	status: UpdateStatus,
 	manual: boolean,
-	noResultMessage = "Couldn't finish the update check. Try again later.",
+	noResultMessage = "Couldn't check for updates.",
 ): UpdateStatus {
 	if (status.state !== "checking") return status;
 	return manual ? { state: "error", message: noResultMessage } : { state: "idle" };
