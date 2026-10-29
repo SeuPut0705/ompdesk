@@ -31,7 +31,7 @@ archive in `downloads/`, and an unusable cache (full or read-only disk, permissi
 `setup.ts lean --json` prints `{"status":"UNAVAILABLE","target":"lean","reason":"..."}` on stdout on failure and exits 3;
 progress and download lines go to stderr. In-progress files in the cache are `*.part-<host>-<pid>` and
 `*.tmp-<host>-<pid>`, and a killed setup's leftovers are removed by the next one. One installer runs per tool at a time
-(an OS lock on `.lock-<name>`, freed by the system when its holder dies); the cache must be on this computer, not a
+(an OS lock on `.oslock-<name>`, freed by the system when its holder dies); the cache must be on this computer, not a
 network drive shared by several.
 `OMPDESK_FORMAL_OFFLINE=1` refuses every download this skill makes. If the tools are missing and cannot be fetched,
 `setup.ts` exits 3 (`UNAVAILABLE`). Report that as "not checked", never as a pass.

@@ -626,7 +626,7 @@ async function openLock(file: string, label: string): Promise<LockFile> {
 
 /**
  * One installer at a time per name across processes (two agents may call setup together), and across calls in one
- * process: `<cache>/.lock-<name>` is held with an OS lock (`openLock`) until `work` ends. A waiter polls every `pollMs`
+ * process: `<cache>/.oslock-<name>` is held with an OS lock (`openLock`) until `work` ends. A waiter polls every `pollMs`
  * up to `maxWaitMs`, then is Unavailable, and prints progress; a holder that is merely slow, stopped or asleep keeps
  * the lock, and one that dies (killed, crashed) frees it at once. The holder's pid, host and start are written into
  * the lock file only so the waiting line can name them. A full or read-only disk, a lock file that cannot be opened and
@@ -641,17 +641,16 @@ export async function withLock<T>(
 	const log = options.log ?? ((line: string) => process.stderr.write(`${line}\n`));
 	const pollMs = options.pollMs ?? 500;
 	const maxWaitMs = options.maxWaitMs ?? 2 * 60 * 60_000;
-	const lock = path.join(cache, `.lock-${name}`);
+	const lock = path.join(cache, `.oslock-${name}`);
 	const label = `${name} lock`;
 	let file: LockFile;
 	try {
 		fs.mkdirSync(cache, { recursive: true });
-		// A folder of this name is the lock of the hand-made protocol this one replaced (its holder was killed): the
-		// file takes its place. Running a skill of the old protocol at the same time as this one is not supported:
-		// each ignores the other's lock (the old one makes a folder where this one's file is, this one removes the
-		// old folder), so two installers could work at once.
-		if (fs.statSync(lock, { throwIfNoEntry: false })?.isDirectory())
-			fs.rmSync(lock, { recursive: true, force: true });
+		// The lock file is never removed or replaced: an unlinked lock file lets the next opener lock a new inode while
+		// the old one is still held. So the folder the hand-made protocol this one replaced used as its lock
+		// (`.lock-<name>`) is left where it is, under a name this lock never uses; removing it by name raced between
+		// two installers (one removed it and locked its file there, the other's late remove unlinked that file). A
+		// skill of the old protocol running at the same time as this one is not supported: they ignore each other.
 		file = await openLock(lock, label);
 	} catch (error) {
 		throw error instanceof Unavailable

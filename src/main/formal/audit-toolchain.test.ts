@@ -196,7 +196,7 @@ describe("the install lock", () => {
 		const peers: Peer[] = [];
 		try {
 			await body({
-				lock: path.join(cache, ".lock-x"),
+				lock: path.join(cache, ".oslock-x"),
 				start: (id, options = {}) => {
 					const child = spawn(
 						"bun",
@@ -338,7 +338,7 @@ describe("the install lock", () => {
 
 	it("decides by the OS lock alone: a note left in the lock file by a holder that is gone is no obstacle", () => {
 		const cache = fs.mkdtempSync(path.join(temp, "stale-note-"));
-		const lock = path.join(cache, ".lock-x");
+		const lock = path.join(cache, ".oslock-x");
 		fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, host: os.hostname(), started: 1 })); // a live pid, long ago
 		const out = inBun(
 			temp,
@@ -385,7 +385,7 @@ describe("environmental failures are UNAVAILABLE, not a stack (finding 2)", () =
 
 	it.skipIf(!posix || isRoot)("a lock file that cannot be opened is Unavailable and names the file", () => {
 		const cache = fs.mkdtempSync(path.join(temp, "closed-lock-"));
-		const lock = path.join(cache, ".lock-x");
+		const lock = path.join(cache, ".oslock-x");
 		fs.writeFileSync(lock, "");
 		fs.chmodSync(lock, 0o000);
 		const out = inBun(
