@@ -6,7 +6,6 @@
 
 import { type ChildProcess, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import type { McpLiveChange } from "../../resources/gui-bridge/extensions/mcp-contracts";
@@ -42,6 +41,7 @@ import { withoutFrameBookkeeping } from "./frame-bookkeeping";
 import { localHandlerFor, runLocalCommand } from "./local";
 import { projectQueueUpdate } from "./local/queue";
 import type { BridgeClient, LocalCommandContext, OmpRuntime } from "./local/types";
+import { sessionOpen } from "./omp-launch";
 import { OMP_TELEMETRY_OFF, type OmpResolution, ompBunDefaults, ompPathEnv } from "./omp-runtime";
 import { VISUALIZE_DEFINITION } from "./preview/visuals";
 import { MAX_RESTART_ATTEMPTS, restartDelay, WINDOWS_SESSION_END_EXIT_CODE } from "./restart-policy";
@@ -490,8 +490,9 @@ export class SidecarManager extends EventEmitter {
 	#defaultBrowser: AgentBrowser | undefined;
 	#egoBrowserDir: string | null = null;
 	#shellEnvVars: Record<string, string> = {};
-	#resumeSessionPath: string | null = null;
-	#freshLaunchPending: boolean;
+	/** The session this tab is on, for every spawn of it (`sessionOpen`); see TabSession. */
+	#sessionPath: string | null = null;
+	#isNew: boolean;
 	/** Whether the current spawn cycle reached `ready`. */
 	#bootedThisSpawn = false;
 	/** The user's own environment turned stock's automatic titles off for this spawn (see AutoTitleSettings). */
@@ -531,7 +532,7 @@ export class SidecarManager extends EventEmitter {
 	constructor(options: SidecarOptions) {
 		super();
 		this.#options = options;
-		this.#freshLaunchPending = options.fresh === true;
+		this.#isNew = options.fresh === true;
 	}
 
 	get status(): SidecarStatus {
@@ -577,8 +578,8 @@ export class SidecarManager extends EventEmitter {
 			proxyEnv ? proxyEnv().catch(fallback) : Promise.resolve({}),
 			shellEnv ? shellEnv().catch(fallback) : Promise.resolve({}),
 			this.#options.builtinMcp?.().catch(() => ({ args: [] })) ?? Promise.resolve({ args: [] }),
-			this.#resumeSessionPath && this.#options.sessionFree
-				? this.#options.sessionFree(this.#resumeSessionPath).catch(() => "free" as const)
+			this.#sessionPath && this.#options.sessionFree
+				? this.#options.sessionFree(this.#sessionPath).catch(() => "free" as const)
 				: ("free" as const),
 			Promise.resolve(this.#options.defaultBrowser?.()).catch(() => undefined),
 			this.#options.egoBrowserDir?.().catch(() => null) ?? Promise.resolve(null),
@@ -617,7 +618,7 @@ export class SidecarManager extends EventEmitter {
 	 * press Restart. Each round is another `sessionFree` wait; a Restart, a new start or dispose ends it.
 	 */
 	#whenSessionLetGo(seq: number): void {
-		const sessionPath = this.#resumeSessionPath;
+		const sessionPath = this.#sessionPath;
 		const sessionFree = this.#options.sessionFree;
 		if (!sessionPath || !sessionFree) return;
 		void sessionFree(sessionPath)
@@ -653,16 +654,11 @@ export class SidecarManager extends EventEmitter {
 		const accountRotation = this.#options.accountRotation?.();
 		const { accountRotationLedger, ompdeskRolesFile } = this.#options;
 
-		// Stock writes a new session's file at its first assistant message. A path learned before that (a restored
-		// tab, a first turn a restart cut off, an omp restart on a tab never used) opens nothing, and `--session` on
-		// it only fails ("Session not found"): the tab starts a fresh session in its folder instead.
-		if (this.#resumeSessionPath && !existsSync(this.#resumeSessionPath)) {
-			this.#resumeSessionPath = null;
-			this.#freshLaunchPending = true;
-		}
+		const open = sessionOpen({ path: this.#sessionPath, isNew: this.#isNew });
 		const args = ["--mode", "rpc-ui"];
-		if (this.#resumeSessionPath) args.push("--session", this.#resumeSessionPath);
-		else if (this.#freshLaunchPending && bridgeDir) args.push("--config", join(bridgeDir, FRESH_LAUNCH_CONFIG));
+		if (open === "new") {
+			if (bridgeDir) args.push("--config", join(bridgeDir, FRESH_LAUNCH_CONFIG));
+		} else if (open !== "default") args.push("--session", open.session);
 		if (this.#noModelBoot) args.push("--model", this.#noModelBoot);
 		else if (this.#bootModelFallback) args.push("--model", DEFAULT_ROLE_MODEL_SELECTOR);
 		const bridgeAddress = bridgeDir ? newBridgeAddress() : null;
@@ -862,6 +858,7 @@ export class SidecarManager extends EventEmitter {
 			};
 			const previous = this.#session;
 			this.#session = next;
+			if (next.sessionFile) this.#sessionPath = next.sessionFile;
 			if (previous?.sessionId !== next.sessionId || previous?.sessionFile !== next.sessionFile) {
 				this.emit("session", next);
 			}
@@ -972,15 +969,13 @@ export class SidecarManager extends EventEmitter {
 	}
 
 	#handleReady(ready: RpcReadyFrame): void {
-		this.#resumeSessionPath = null;
 		this.#bootedThisSpawn = true;
 		const modelFallback = this.#bootModelFallback ?? undefined;
 		this.#bootModelFallback = null;
 		this.#noModelBoot = null;
-		// Freshness is a creation contract, not a restart policy. Once the new
-		// tab has booted successfully, later crash/manual restarts may auto-resume
-		// the session it has since created or opened.
-		this.#freshLaunchPending = false;
+		// Being new is a creation contract, not a restart policy: once the tab has booted, every later spawn opens the
+		// session it has since created or opened (`sessionOpen`).
+		this.#isNew = false;
 		// Negotiation settles after this frame — and when the sidecar dies on boot,
 		// `#cleanup()` rejects the pending command on a generation that is already
 		// gone. Unguarded, that rejection announced "ready" and zeroed the restart
@@ -1032,7 +1027,7 @@ export class SidecarManager extends EventEmitter {
 					if (this.#disposed) return;
 					if (cwd) {
 						// The tab's session begins in `cwd`: a fresh one, never an autoResume.
-						this.#freshLaunchPending = true;
+						this.#isNew = true;
 						this.restart(cwd);
 						return;
 					}
@@ -1391,10 +1386,14 @@ export class SidecarManager extends EventEmitter {
 		return promise;
 	}
 
+	/**
+	 * Stop the tab's omp and start it again: in `cwd` when given (a session there, `resumeSessionPath` or a new one),
+	 * else on `resumeSessionPath` or the session the tab is on.
+	 */
 	restart(cwd?: string, resumeSessionPath?: string): void {
 		this.kill();
 		if (cwd) this.#options = { ...this.#options, cwd };
-		this.#resumeSessionPath = resumeSessionPath ?? null;
+		this.#sessionPath = resumeSessionPath ?? (cwd ? null : this.#sessionPath);
 		this.#bootModelFallback = null;
 		this.#noModelBoot = null;
 		this.#restartCount = 0;

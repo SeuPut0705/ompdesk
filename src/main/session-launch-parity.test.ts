@@ -20,7 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as OmpRuntimeModule from "./omp-runtime";
 import type * as ShellEnvModule from "./shell-env";
 
-const spawned = vi.hoisted(() => ({ spawn: vi.fn() }));
+const spawned = vi.hoisted(() => ({ spawn: vi.fn(), ompInstalled: true, writesNewSession: true }));
 vi.mock("node:child_process", async importOriginal => ({
 	...(await importOriginal<typeof ChildProcess>()),
 	spawn: spawned.spawn,
@@ -41,10 +41,13 @@ vi.mock("./shell-env", async importOriginal => ({
 }));
 vi.mock("./omp-runtime", async importOriginal => ({
 	...(await importOriginal<typeof OmpRuntimeModule>()),
-	systemOmp: async () => ({
-		ok: true,
-		runtime: { bin: "omp", version: "18.13.3", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
-	}),
+	systemOmp: async () =>
+		spawned.ompInstalled
+			? {
+					ok: true,
+					runtime: { bin: "omp", version: "18.13.3", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
+				}
+			: { ok: false, error: "omp is not installed" },
 }));
 vi.mock("./builtin-mcp", () => ({
 	builtinReaState: async () => ({ enabled: true, available: true, nodeVersion: "v24.0.0" }),
@@ -123,16 +126,20 @@ beforeEach(() => {
 	dir = mkdtempSync(join(tmpdir(), "launch-parity-"));
 	omps = [];
 	initDeletedSessions(null);
+	spawned.ompInstalled = true;
+	spawned.writesNewSession = true;
 	spawned.spawn.mockReset();
 	spawned.spawn.mockImplementation((_bin: string, args: string[], options: { env: Record<string, string> }) => {
-		// A new session's file: stock writes it at the first answer, which every tab here has had.
-		const omp = new FakeOmp(args, options.env, storedSession(`new-${omps.length}.jsonl`));
+		// A new session's file: stock writes it at the first answer, which a tab that worked has had.
+		const name = `new-${omps.length}.jsonl`;
+		const omp = new FakeOmp(args, options.env, spawned.writesNewSession ? storedSession(name) : join(dir, name));
 		omps.push(omp);
 		return omp;
 	});
 });
 
 afterEach(() => {
+	vi.useRealTimers();
 	rmSync(dir, { recursive: true, force: true });
 });
 
@@ -374,5 +381,97 @@ describe("a session's omp launches the same way on every start path", () => {
 			});
 		}
 		expect(own?.origin).toBeUndefined();
+	});
+});
+
+describe("a restart that names no session continues the tab's own", () => {
+	it("an omp that crashed comes back on the session it was on", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		const create = factory();
+		const pool = new SidecarPool((cwd, kind, fresh) => create(cwd, kind, fresh));
+		const win = fakeWindow(1);
+		const stored = storedSession("stored.jsonl");
+		pool.acquire(dir, win, "stored-tab", stored);
+		pool.acquire(dir, win, "new-tab", undefined, "agent", undefined, true);
+		await settle();
+		const [onStored, onNew] = omps;
+
+		onStored?.exit(1);
+		onNew?.exit(1);
+		await vi.advanceTimersByTimeAsync(1_000);
+		await settle();
+
+		expect(
+			omps
+				.slice(2)
+				.map(launchOf)
+				.map(launch => launch.open),
+		).toEqual([{ session: stored }, { session: onNew?.session }]);
+	});
+
+	it("a crashed new tab whose session stock never wrote starts a new one, never another session", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		spawned.writesNewSession = false;
+		const create = factory();
+		const pool = new SidecarPool((cwd, kind, fresh) => create(cwd, kind, fresh));
+		pool.acquire(dir, fakeWindow(1), "new-tab", undefined, "agent", undefined, true);
+		await settle();
+
+		omps[0]?.exit(1);
+		await vi.advanceTimersByTimeAsync(1_000);
+		await settle();
+
+		expect(omps.map(launchOf).map(launch => launch.open)).toEqual(["new", "new"]);
+	});
+
+	it("a relaunch's saved tab that waited for omp opens its session once machine setup installed omp", async () => {
+		spawned.ompInstalled = false;
+		const create = factory();
+		const pool = new SidecarPool((cwd, kind, fresh) => create(cwd, kind, fresh));
+		const win = fakeWindow(1);
+		const saved = storedSession("saved.jsonl");
+		pool.restoreLayout(win, {
+			version: TAB_LAYOUT_VERSION,
+			tabs: [{ cwd: dir, kind: "agent", sessionPath: saved }],
+			activeIndex: 0,
+		});
+		for (const tab of pool.tabsForWindow(win)) pool.startTab(tab.tabId);
+		await settle();
+		expect(omps).toEqual([]);
+
+		// index.ts `followSetupState`: every local tab that waited starts now.
+		spawned.ompInstalled = true;
+		for (const sidecar of pool.allSidecars()) if (sidecar.status === "waiting") sidecar.restart();
+		await settle();
+
+		expect(omps.map(launchOf).map(launch => launch.open)).toEqual([{ session: saved }]);
+	});
+
+	it("the desktop slot's stop of a session's omp starts it again on that session", async () => {
+		const create = factory();
+		const pool = new SidecarPool((cwd, kind, fresh) => create(cwd, kind, fresh));
+		const stored = storedSession("stored.jsonl");
+		const sidecar = pool.acquire(dir, fakeWindow(1), "stored-tab", stored);
+		await settle();
+
+		// desktop-slot-host.ts `#kill`.
+		sidecar?.restart();
+		await settle();
+
+		expect(omps.map(launchOf).map(launch => launch.open)).toEqual([{ session: stored }, { session: stored }]);
+	});
+
+	it("a move to another folder starts a new session there", async () => {
+		const create = factory();
+		const pool = new SidecarPool((cwd, kind, fresh) => create(cwd, kind, fresh));
+		const stored = storedSession("stored.jsonl");
+		const sidecar = pool.acquire(dir, fakeWindow(1), "stored-tab", stored);
+		await settle();
+
+		// ipc.ts SIDECAR_SET_PROJECT.
+		sidecar?.restart(tmpdir());
+		await settle();
+
+		expect(omps.map(launchOf).map(launch => launch.open)).toEqual([{ session: stored }, "default"]);
 	});
 });
