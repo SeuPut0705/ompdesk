@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.84.1] - 2026-10-29
+
+연결된 기기의 사이드바가 오토파일럿 하위 세션과 다른 창의 세션까지 이 Mac과 똑같이 보여 주고, 메모리가 한 세션에 두 번 기록되던 경우를 막았어요.
+
+### 고친 것
+- 연결된 기기에서도 오토파일럿 실행의 하위 세션이 실행 아래로 묶여요. 이 Mac의 다른 창에 열려 있는 세션도 이 Mac과 같은 기준으로 보여요.
+- 터미널 omp에 ai-memory를 따로 연결해 둔 PC에서 OMPdesk 세션이 메모리를 두 번 기록하고 메모리 서버를 따로 띄우던 경우를 막았어요. OMPdesk 세션에는 OMPdesk의 메모리 하나만 붙고, 터미널 설정 파일은 건드리지 않아요.
+- 공유 체크아웃 소유권 모델의 가장 긴 검증(1억 5천만여 상태)을 마쳤어요. 반례는 없었어요.
+
+<!-- en -->
+
+A paired device's sidebar now matches this Mac for Autopilot run children and sessions held in other windows, and memory no longer records twice in one session.
+
+### Fixed
+- On a paired device an Autopilot run's child sessions group under the run, and sessions open in another window of the host follow the host's rule.
+- On a computer whose terminal omp has its own ai-memory wiring, an OMPdesk session recorded memory twice and started a second memory server. It now gets exactly OMPdesk's one, and the terminal setup is left untouched.
+- The shared-checkout claim model's longest check (over 157 million states) passed with no counterexample.
+
 ## [0.84.0] - 2026-10-29
 
 같은 버그가 다시 생기던 여섯 곳의 규칙을 한 곳으로 모으고, 끝난 작업 세션을 실패처럼 보여 주던 빨간 ✕를 고쳤어요.
