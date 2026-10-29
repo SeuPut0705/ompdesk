@@ -635,7 +635,7 @@ describe("lock takeover (finding 1)", () => {
 			const holder = withLock(
 				cache,
 				"x",
-				async signal => {
+				async (signal: AbortSignal) => {
 					hostname.mockReturnValue(realHost); // from here on every other call is this computer's
 					note("A:start");
 					while (!signal.aborted) {
@@ -645,7 +645,7 @@ describe("lock takeover (finding 1)", () => {
 					events.push("A:work-returned");
 				},
 				{ log: quiet, heartbeatMs: 30, pollMs: 5 },
-			).catch(error => {
+			).catch((error: unknown) => {
 				holderRejection = error;
 				events.push("A:rejected");
 			});
@@ -686,7 +686,7 @@ describe("lock takeover (finding 1)", () => {
 				withLock(
 					cache,
 					"x",
-					async signal => {
+					async (signal: AbortSignal) => {
 						// Another computer's takeover replaced this holder's lock while it worked.
 						fs.rmSync(lock, { recursive: true, force: true });
 						plantLock(cache, "x", { pid: process.pid, host: os.hostname(), started: 1, token: "someone-else" });
