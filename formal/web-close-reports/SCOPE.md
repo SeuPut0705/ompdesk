@@ -2,7 +2,7 @@
 
 ## The promise
 
-Main keeps, per live connection of a paired web page, that connection's latest report of the tab whose Files editor holds unsaved edits; an ended connection's report never counts again; and an agent's close (`ompdesk_session_stop {close}`, auto-close, a failed open's cleanup, Autopilot's source tab) never decides to release a tab a settled live page holds unsaved edits in.
+Main keeps, per live connection of a paired web page, that connection's latest report of the tab whose Files editor holds unsaved edits; an ended connection's report never counts again; and an agent's close (`ompdesk_session_stop {close}`, auto-close, a failed open's cleanup, Autopilot's source tab) never decides to release a tab a settled live page holds unsaved edits in, nor lets one go while main's store names it dirty.
 
 ## The harm
 
@@ -14,11 +14,11 @@ The bugs live in orders: a reload overlapping its predecessor, a drop between a 
 
 ## Bounds
 
-2 pages sharing one window, 2 tabs, 2 connections per page (one reconnect each), at most 3 editor changes, at most 2 report frames in flight per connection; any interleaving. 1,482,148 distinct states, depth 26, about 25 s (`MC.cfg`).
+2 pages sharing one window, 2 tabs, 2 connections per page (one reconnect each), at most 3 editor changes, at most 2 report frames in flight per connection; any interleaving. 1,192,923 distinct states, depth 25, about 30 s (`MC.cfg`).
 
 ## In the model
 
-`FileEditReporter` (send on change and on `open`), `WsRouter` attach, receive and detach, `onConnectionEnded` → `FileEditReports.forget`, the `FILE_EDIT_REPORT` handler → `report`, `edits`, `tabCloseStep`, `#closeTab`'s decision and the release after its awaits.
+`FileEditReporter` (send on change and on `open`), `WsRouter` attach, receive and detach, `onConnectionEnded` → `FileEditReports.forget`, the `FILE_EDIT_REPORT` handler → `report`, `edits`, `tabCloseStep`, `#closeTab`'s decision and the release after its awaits with its re-check (`stillClosable`).
 
 ## Not in the model
 

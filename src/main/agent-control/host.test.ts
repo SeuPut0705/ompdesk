@@ -58,6 +58,8 @@ function setup(
 		viewers?: Record<string, ClientWindow[]>;
 		/** Tabs a paired web page owns (its window id is negative). */
 		webTabs?: Partial<IpcTabInfo>[];
+		/** What happens while a release awaits (`closeWindowTab`'s exit-policy read), before it asks again. */
+		duringRelease?: (fileEdits: FileEditReports) => void;
 	} = {},
 ) {
 	const win = window();
@@ -147,9 +149,12 @@ function setup(
 		sweepMs: options.sweepMs,
 		mailOutboxFile: options.mailOutboxFile,
 		fileEdits,
-		releaseTab: async (target, tabId) => {
+		releaseTab: async (target, tabId, stillReleasable) => {
 			const at = webTabs.findIndex(tab => tab.tabId === tabId);
 			if (at < 0) return false;
+			await Promise.resolve();
+			options.duringRelease?.(fileEdits);
+			if (!stillReleasable()) return false;
 			webTabs.splice(at, 1);
 			released.push({ win: target, tabId });
 			log.push(`release:${tabId}`);
@@ -1112,11 +1117,12 @@ describe("AgentControlRuntime", () => {
 describe("closing a child a paired web page owns", () => {
 	const WEB = -1;
 	const stop = { session: "web00002", close: true };
-	const phone = () =>
+	const phone = (duringRelease?: (fileEdits: FileEditReports) => void) =>
 		setup({
 			tabs: [{ tabId: "main0001", sessionPath: "/s/boss.jsonl" }],
 			webTabs: [{ tabId: "web00002", title: "Phone child", sessionPath: "/s/kid.jsonl" }],
 			sweepMs: 0,
+			...(duringRelease ? { duringRelease } : {}),
 		});
 
 	it("releases the tab in main once the page reported its Files editor clean, and mails the note after", async () => {
@@ -1160,6 +1166,16 @@ describe("closing a child a paired web page owns", () => {
 		expect(webTabs).toEqual([]);
 		expect(log[0]).toBe("release:web00002");
 		expect(log.filter(line => line.startsWith("mail:main0001"))).toHaveLength(1);
+	});
+
+	it("keeps the tab when the page reports unsaved edits in it while the release awaits, and sends no note", async () => {
+		const { runtime, win, webTabs, fileEdits, released, log } = phone(edits => edits.report(WEB, "page", "web00002"));
+		fileEdits.report(WEB, "page", null);
+		const result = await runtime.run(win, "main0001", T.stop, stop);
+		expect(result.isError).toBe(true);
+		expect(released).toEqual([]);
+		expect(webTabs).toHaveLength(1);
+		expect(log).toEqual([]);
 	});
 
 	it("still asks a desktop window to close its own tab, and tells the caller only once it is gone", async () => {

@@ -11,7 +11,7 @@
 | `Edits(t)` | `FileEditReports.edits` | pure read |
 | `CloseStep(t)` | `tabCloseStep` (`src/main/agent-control/tab-close.ts`) minus `looked`/`userTouched` | pure |
 | `CloseDecide(t)` | `AgentControl.#closeTab` reads `host.tabs()` (each tab's `webEdits` from `edits`, `host.ts` `#controlTab`) and applies `tabCloseStep` | synchronous until `await host.release` |
-| `CloseRelease(t)` | `host.release` → `closeWindowTab` → `await refreshExitPolicy` → `SidecarPool.releaseTab` | split from the decision: there are awaits in between |
+| `CloseRelease(t)` | `host.release` → `closeWindowTab` → `await refreshExitPolicy` → `stillClosable()` (`tabCloseStep` on the store now) → `closeTabTerminals` → `SidecarPool.releaseTab` | split from the decision (awaits in between); the re-check and the release are one synchronous run |
 
 ## Abstractions that could hide a bug
 
@@ -20,6 +20,6 @@
 - `Greet` sends from the page's current editor state; the real page sends `fileEditTabId ?? activeTabId` when dirty, which the model folds into `edit[p]`.
 - The `SplitDispatch` switch is how the model says "no `await` before the handler"; the code keeps it because `#dispatch` awaits only a frame with picture blocks (or `FS_UPLOAD_TO_HOST`), and `parseFileEditReport` refuses any report but exactly one `{dirtyTabId: string | null}`, which holds none.
 
-## Suspected gap (accepted, not reproduced)
+## Closed gap: a report during the release's awaits
 
-`NoLateDirtyRelease` fails by design (`MC_late.cfg`): a dirty report that lands after `#closeTab` decided and before `releaseTab` ran (during `refreshExitPolicy`) does not stop the release. It is the same harm class as an edit the page has not yet reported at decision time, which the rule already accepts ("an offline page's tab closes"). Not reproduced in the code; not changed.
+Before `stillClosable`, a dirty report that landed after `#closeTab` decided and before `releaseTab` ran (during `refreshExitPolicy`) did not stop the release (`NoLateDirtyRelease` failed, 7 steps). `closeWindowTab` now asks `stillClosable` right after that await, and `AgentControlHost.release` builds it as `tabCloseStep` on the store's word at that moment; nothing awaits between the re-check and `releaseTab`. The `no-recheck-before-release` mutation puts the gap back and must be detected.

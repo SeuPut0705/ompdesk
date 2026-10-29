@@ -10,7 +10,8 @@
 		"TypeOK",
 		"StoreOnlyLive",
 		"QuiescentAgreement",
-		"NoReleaseOfKnownDirty"
+		"NoReleaseOfKnownDirty",
+		"NoLateDirtyRelease"
 	],
 	"waive": {
 		"TypeOK": "Shape check only: no behaviour change breaks it without also breaking a property above it."
@@ -78,6 +79,15 @@
 			"replace": "IN IF reported # {} /\\ \\A c \\in reported : store[c] = t THEN \"dirty\"",
 			"breaks": "NoReleaseOfKnownDirty",
 			"config": "MC_p3.cfg"
+		},
+		{
+			"name": "no-recheck-before-release",
+			"why": "closeWindowTab drops its stillClosable re-check after refreshExitPolicy (the decide-to-release window as it was before): a dirty report that lands during the await does not stop the release.",
+			"file": "WebCloseReports.tla",
+			"search": "    /\\ IF CloseStep(t) = \"release\"\n          THEN /\\ released' = released \\cup {t}",
+			"replace": "    /\\ IF TRUE\n          THEN /\\ released' = released \\cup {t}",
+			"breaks": "NoLateDirtyRelease",
+			"config": "MC_p4.cfg"
 		}
 	]
 }

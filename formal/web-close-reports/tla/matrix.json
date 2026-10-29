@@ -19,13 +19,6 @@
 			"expect": "invariant",
 			"property": "NeverRefuses",
 			"deadlock": false
-		},
-		{
-			"name": "suspected-late-dirty-report-between-decision-and-release",
-			"config": "MC_late.cfg",
-			"expect": "invariant",
-			"property": "NoLateDirtyRelease",
-			"deadlock": false
 		}
 	]
 }

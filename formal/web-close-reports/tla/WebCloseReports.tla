@@ -166,13 +166,19 @@ CloseDecide(t) ==
     /\ UNCHANGED <<edit, conn, live, greeted, q, handoff, store, released, edits, late>>
 
 \* The release lands after awaits (host.release, closeWindowTab's refreshExitPolicy); reports may arrive meanwhile.
-\* @code src/main/tab-release.ts:35-37 refreshExitPolicy then releaseTab
+\* Right after the await, with no await before the release, the one rule decides again on what the store says now.
+\* @code src/main/tab-release.ts:38-41 refreshExitPolicy, stillClosable, closeTabTerminals, releaseTab
+\* @code src/main/agent-control/host.ts:960-969 release: stillReleasable = tabCloseStep on the store's word then
 CloseRelease(t) ==
     /\ t \in deciding
     /\ deciding' = deciding \ {t}
-    /\ released' = released \cup {t}
-    /\ late' = (late \/ Edits(t) = "dirty")
-    /\ UNCHANGED <<edit, conn, live, greeted, q, handoff, store, edits, bad, refused>>
+    /\ IF CloseStep(t) = "release"
+          THEN /\ released' = released \cup {t}
+               /\ late' = (late \/ Edits(t) = "dirty")
+               /\ UNCHANGED refused
+          ELSE /\ refused' = TRUE
+               /\ UNCHANGED <<released, late>>
+    /\ UNCHANGED <<edit, conn, live, greeted, q, handoff, store, edits, bad>>
 
 Next ==
     \/ \E p \in Pages, v \in Dirty : Edit(p, v)
@@ -193,11 +199,11 @@ QuiescentAgreement == \A p \in Pages : Settled(p) => store[Current(p)] = edit[p]
 \* P3: a close never decides to release a tab a settled live page holds unsaved edits in.
 NoReleaseOfKnownDirty == ~bad
 
+\* P4: a release never lets a tab go while main's store names it dirty (a report that landed during its awaits).
+NoLateDirtyRelease == ~late
+
 \* ========================= Sanity (each must be violated) =========================
 
 NeverReleases == released = {}
 NeverRefuses == ~refused
-
-\* Suspected gap (accepted): a dirty report that lands between the decision and the release does not stop it.
-NoLateDirtyRelease == ~late
 =============================================================================

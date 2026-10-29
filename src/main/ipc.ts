@@ -1230,8 +1230,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// OMPdesk control tools (src/main/agent-control): the same pool, dispatcher, spawn path and notifications the GUI uses.
 	const agentControl: AgentControlRuntime = new AgentControlRuntime({
 		fileEdits: fileEditReports,
-		releaseTab: async (win, tabId) => {
-			const released = await closeWindowTab(tabRelease, win, tabId, win.webContents.id);
+		releaseTab: async (win, tabId, stillReleasable) => {
+			const released = await closeWindowTab(tabRelease, win, tabId, win.webContents.id, stillReleasable);
 			if (released) sidecarPool.announceClosed(win, tabId);
 			return released;
 		},

@@ -7,7 +7,7 @@ description: "Checks that a paired web page's Files-edit reports are kept per li
 
 ## The promise and the harm
 
-Main keeps each live connection's latest Files-edit report (`FileEditReports`, keyed by `connId`), an ended connection's report never counts again, and no close path (`tabCloseStep` through `#closeTab`) decides to release a tab a settled live page holds unsaved edits in. Broken, a person's unsaved edit on a phone is lost when an agent closes the tab, or a dropped page's stale word keeps a finished child open.
+Main keeps each live connection's latest Files-edit report (`FileEditReports`, keyed by `connId`), an ended connection's report never counts again, and no close path (`tabCloseStep` through `#closeTab`) decides to release a tab a settled live page holds unsaved edits in, nor lets one go while main's store names it dirty. Broken, a person's unsaved edit on a phone is lost when an agent closes the tab, or a dropped page's stale word keeps a finished child open.
 
 ## Coverage
 
@@ -19,10 +19,10 @@ Sync commit: see `syncCommit` of `web-close-reports` in `formal/manifest.json` (
 
 ## Bounds and assumptions
 
-- 2 pages in one window, 2 tabs, 2 connections per page, 3 editor changes, 2 frames in flight per connection: 1.48M states, depth 26, about 25 s.
+- 2 pages in one window, 2 tabs, 2 connections per page, 3 editor changes, 2 frames in flight per connection: 1.19M states, depth 25, about 30 s.
 - Assumptions: no `await` between a frame's `receive` and an accepted `FILE_EDIT_REPORT` (the handler's `parseFileEditReport` takes only one exact `{dirtyTabId}`, so a frame whose picture upload `#dispatch` awaits is refused; pinned by `ws-router.test.ts` "hands a Files-edit report to main within the frame…" and "never lets a report outlive its connection…"); detach → `forget` is one synchronous chain; frames are FIFO per connection. Full table: `formal/web-close-reports/CORRESPONDENCE.md`.
 - Not covered: several windows (unit-tested in `file-edit-reports.test.ts`), the person at the tab, the desktop window path, liveness. `formal/web-close-reports/SCOPE.md`.
-- `NoLateDirtyRelease` fails by design (`MC_late.cfg`): a report landing between the decision and the release does not stop it.
+- `NoLateDirtyRelease` holds because `closeWindowTab` re-asks `stillClosable` (`tabCloseStep` on the store now) after `refreshExitPolicy`, with no await before `releaseTab`.
 
 ## Run it
 
@@ -32,7 +32,7 @@ Sync commit: see `syncCommit` of `web-close-reports` in `formal/manifest.json` (
 bun <tools-dir>/scripts/verify-all.ts formal --only web-close-reports
 ```
 
-About a minute and a half (4 runs, 7 mutations). `PASS` (exit 0): no counterexample within the bounds, not "the code is correct". `FAIL` (exit 1): a property broke, a mutation was MISSED or an `@code` tag no longer resolves. `DRIFT:`: covered code changed since the sync commit. `NOT CHECKED` (exit 3): report "not checked", never a pass.
+About a minute and a half (3 runs, 8 mutations). `PASS` (exit 0): no counterexample within the bounds, not "the code is correct". `FAIL` (exit 1): a property broke, a mutation was MISSED or an `@code` tag no longer resolves. `DRIFT:`: covered code changed since the sync commit. `NOT CHECKED` (exit 3): report "not checked", never a pass.
 
 ## A failure: real bug or modeling error?
 

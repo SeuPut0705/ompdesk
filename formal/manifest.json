@@ -55,7 +55,8 @@
 				"src/main/web/ws-router.ts#WsConnection.receive",
 				"src/main/web/ws-router.ts:712-758",
 				"src/main/agent-control/service.ts:3327-3339",
-				"src/main/tab-release.ts#closeWindowTab"
+				"src/main/tab-release.ts#closeWindowTab",
+				"src/main/agent-control/host.ts:960-969"
 			],
 			"syncCommit": "04d7c62b763ee02616868b908c60231e3010f22b",
 			"verifySkill": ".omp/skills/web-close-reports-verify/SKILL.md"
