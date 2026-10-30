@@ -106,3 +106,31 @@ describe("ToastStack Korean wrapping", () => {
 		}
 	});
 });
+
+describe("ToastStack error detail", () => {
+	const path = "/Users/dev/projects/ompdesk/src/renderer/components/layout/sidebar/Sidebar.tsx";
+
+	it("says an error once: a detail that only repeats the message behind 'Error:' is left out", async () => {
+		await mount();
+		const message = `Could not read ${path}`;
+		await act(async () => {
+			toast({ variant: "error", title: "Read failed", message, detail: `Error: ${message}` });
+			toast({ variant: "error", title: "Write failed", message: "Could not save.", detail: "EACCES: permission denied" });
+		});
+		const details = [...document.querySelectorAll("[data-toast-detail]")].map(node => node.textContent);
+		expect(details).toEqual(["EACCES: permission denied"]);
+	});
+
+	it("lets a long path in the message break only after its slashes", async () => {
+		await mount();
+		await act(async () => {
+			toast({ message: `Copied ${path} to the clipboard.` });
+		});
+		const card = cards()[0];
+		expect(card?.textContent).toContain(`Copied ${path} to the clipboard.`);
+		// Every break opportunity follows a slash, so no folder name is cut ("compo / nents").
+		const pieces = (card?.innerHTML ?? "").split(/<wbr\s*\/?>(?:<\/wbr>)?/);
+		expect(pieces.length).toBeGreaterThan(1);
+		for (const piece of pieces.slice(0, -1)) expect(piece.endsWith("/")).toBe(true);
+	});
+});
