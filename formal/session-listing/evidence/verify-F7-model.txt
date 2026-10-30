@@ -1,0 +1,29 @@
+# session-listing after the same-drain read model (F7), 30 Oct 2026
+# 1) full matrix run (verify-all --only session-listing --tier fast, which still ran the deep runs): spec as committed; MC.cfg then had no SYMMETRY
+FAIL  code-overlay-2-devices: expected pass, got timeout  (no statistics, 1800.1s)
+ok    code-delta: no violation  (9288934 distinct states, 30473433 generated, depth 46, 696.8s)
+ok    code-two-devices: no violation  (27311255 distinct states, 95665200 generated, depth 56, 2120.7s)
+ok    deep-with-a-foreign-reader: no violation  (22607796 distinct states, 84070514 generated, depth 46, 1466.8s)
+ok    link-reorder-is-handled: no violation  (74767 distinct states, 178491 generated, depth 31, 6.6s)
+ok    a-window-can-show-a-held-row: invariant NeverHeld (as expected)  (1222 distinct states, 1954 generated, depth 6, 1.2s)
+ok    an-opener-row-is-reachable: invariant NeverOpener (as expected)  (1859 distinct states, 2930 generated, depth 6, 1.0s)
+ok    a-copy-can-drop-a-deleted-session: invariant NeverGone (as expected)  (13665 distinct states, 30484 generated, depth 7, 1.4s)
+ok    hsl-applies-a-delta: invariant NoHslApply (as expected)  (14373 distinct states, 30937 generated, depth 7, 1.4s)
+ok    hsl-meets-a-gap: invariant NoHslGap (as expected)  (11763 distinct states, 23614 generated, depth 7, 1.1s)
+ok    hsl-notes-a-change-during-a-read: invariant NoHslNote (as expected)  (294 distinct states, 397 generated, depth 4, 0.5s)
+ok    feed-applies-a-delta: invariant NoFeedApply (as expected)  (60385 distinct states, 147056 generated, depth 9, 3.3s)
+ok    feed-meets-a-gap-or-bare-event: invariant NoFeedGap (as expected)  (335 distinct states, 470 generated, depth 4, 0.5s)
+ok    feed-notes-a-change-during-a-read: invariant NoFeedNote (as expected)  (31001 distinct states, 71809 generated, depth 8, 1.9s)
+ok    feed-reads-again-for-an-announced-version: invariant NoFeedRaced (as expected)  (60387 distinct states, 147065 generated, depth 9, 2.7s)
+FAIL  matrix: 1 of 15 runs did not end as expected
+FAIL  session-listing: TLC matrix
+baseline: ERROR: timeout: Progress(36) at 2026-10-30 23:01:47: 132,510,339 states generated (11,510,838 s/min), 42,200,098 distinct states found (3,506,776 ds/min), 4,323,923 states left on queue. Progress(37) at 2026-10-30 23:02:47: 143,949,650 states generat
+FAIL  session-listing: mutations
+ok    session-listing: @code tags resolve
+FAIL  session-listing: 1 of 4 ok, 1 drift (TLC matrix, mutations)
+
+# 2) fast tier only (verify-all <copy of formal with session-listing only> --tier fast --skip-mutations), matrix.json with the three heavy runs marked deep
+ok code-delta: no violation (9288934 distinct states, 30473433 generated, depth 46, 416.9s)
+PASS matrix: all 12 runs ended as expected; @code tags resolve; mutations skipped (--skip-mutations); DRIFT: host-session-list.ts, session-list-delta.ts changed since dcf9c6cdc2 (not stamped)
+
+# 3) mutations run on the new model (mutate.ts, MC_delta.cfg, 8 workers): hsl-keeps-older-answer DETECTED (NoReappear); hsl-ignores-announced-version: declared equivalent was INVALID, the checker fails on ListConverges (now a detected mutation). The other 20 mutations were not rerun.

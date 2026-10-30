@@ -3,7 +3,7 @@
 	"workflow": "W6",
 	"generated_at": "2026-10-30T11:30:00.000Z",
 	"repo_commit": "b53551176948aa70f4ce7a999f8c9fc199e6c608",
-	"summary": "The model now follows the versioned delta path of b53551176 (the host's numbered list, deltas in flight, a receiver that misses one and reads again, a read racing a newer change, delete/move/rename forcing a fresh read, a link drop). It found 1 bug, fixed (F4: SessionListShare.set() cleared a request's stale(), so the ask after a delete could be answered from a copy that still listed the session); every window converges to the host's list, a deleted session stays out of every copy and no copy applies a change against another version within 1-2 devices, 1 hosted tab (1 window tab in MC.cfg), 2 sessions, 2 index changes, 1 link drop, an in-order link, any order on the window's two IPC paths (2.3M, 6.2M, 4.4M and 15.4M states); 18 of 18 guard mutations are DETECTED and 3 are declared equivalent. Two observations are not fixed (F5: a link that reordered would break HostSessionList; F6: the window's optimistic delete can flicker).",
+	"summary": "The model now follows the versioned delta path of b53551176 (the host's numbered list, deltas in flight, a receiver that misses one and reads again, a read racing a newer change, delete/move/rename forcing a fresh read, a link drop). It found 1 bug, fixed (F4: SessionListShare.set() cleared a request's stale(), so the ask after a delete could be answered from a copy that still listed the session); every window converges to the host's list, a deleted session stays out of every copy and no copy applies a change against another version within 1-2 devices, 1 hosted tab (1 window tab in MC.cfg), 2 sessions, 2 index changes, 1 link drop, an in-order link, any order on the window's two IPC paths (2.3M, 6.2M, 4.4M and 15.4M states); 18 of 18 guard mutations are DETECTED and 3 are declared equivalent. Two observations are not fixed (F5: a link that reordered would break HostSessionList; F6: the window's optimistic delete can flicker). UPDATE 30 Oct 2026 (F7): a read's answer older than the held host version replaced the copy when a change of that version applied in the same link drain (fixed in 27e13acb9; the model splits the reply into arrival and continuation, mutation hsl-keeps-older-answer). The fast tier (MC_delta.cfg 9.29M states, MC_gap.cfg, 10 sanity runs) passes; MC_two.cfg (27.3M) and MC_deep.cfg (22.6M) passed in full; MC.cfg did not finish (18.6M+ states, no violation, no verdict); 20 of 22 mutations were not rerun and the sync commit was not moved (SCOPE.md).",
 	"scope": {
 		"modeled": [
 			"the host's shared numbered list (#deviceList: changed/stale/current/publish), sessions.list, sessionsChanged and its debounce, listingChanged and the snapshot, the delta or bare event to each device",
@@ -119,6 +119,236 @@
 		}
 	],
 	"findings": [
+		{
+			"id": "F7",
+			"title": "A read's answer older than the host version the copy holds replaced the copy: a change delivered in the same drain as the answer applied first and the deleted session came back",
+			"severity": "medium",
+			"status": "fixed",
+			"property": "NoReappear",
+			"story": "A paired computer holds the host's list at h.1 and its copy is marked stale (a delete made through the host: hostSessionsStale). A window asks, HostSessionList#read sends sessions.list and awaits the host. The host answers at h.1 and publishes h.2 (the delete) right behind the answer. The link's #drain (wire.ts) delivers both frames in one synchronous loop: client.ts resolves the read's promise for the answer, then hostChanged(h.1 -> h.2) runs, finds held && hostVersion === base and applies it, so the copy loses the session and hostVersion is h.2. Only then does the promise's continuation run: #read sets hostVersion back to h.1 and returns h.1's rows, which the share publishes over h.2's. #announced is null (the change was applied, not announced), so nothing reads again, and the deleted session is listed again until the next change. F5 had put this down to a link that reorders and found it unreachable today: wrong, an ordered link does it.",
+			"trace": [
+				{
+					"step": 1,
+					"action": "Init",
+					"changed": {
+						"nDrops": "0",
+						"bad": "(d1 :> FALSE)",
+						"hver": "(d1 :> 0)",
+						"pendReg": "{}",
+						"lk": "(d1 :> <<>>)",
+						"need": "(d1 :> <<\"none\", \"none\", 0>>)",
+						"nChanges": "0",
+						"hrows": "[ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ]",
+						"fshow": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )",
+						"chk": "(d1 :> <<\"none\", \"none\", 0>>)",
+						"nForeign": "0",
+						"snap": "[held |-> {\"?\"}, op |-> {}]",
+						"fdeb": "(d1 :> FALSE)",
+						"goneD": "(d1 :> {})",
+						"goneF": "(d1 :> {})",
+						"file": "[h1 |-> \"none\"]",
+						"dv": "(d1 :> 0)",
+						"drd": "(d1 :> \"clean\")",
+						"fret": "(d1 :> FALSE)",
+						"fann": "(d1 :> 0)",
+						"rec": "FALSE",
+						"frows": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )",
+						"rp": "(d1 :> [kind |-> \"none\"])",
+						"rq": "(d1 :> TRUE)",
+						"fq": "(d1 :> FALSE)",
+						"fv": "(d1 :> 0)",
+						"ann": "(d1 :> 0)",
+						"fin": "(d1 :> TRUE)",
+						"hv": "0",
+						"nIdx": "0",
+						"up": "(d1 :> TRUE)",
+						"evTimer": "FALSE",
+						"ip": "(d1 :> <<>>)",
+						"post": "(d1 :> <<\"none\", \"none\", \"none\">>)",
+						"idx": "[s1 |-> 0, s2 |-> -1]",
+						"dstale": "(d1 :> FALSE)",
+						"drows": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )",
+						"nTicks": "0",
+						"seen": "(d1 :> {})"
+					}
+				},
+				{
+					"step": 2,
+					"action": "IdxBump(\"s1\",d1)",
+					"code": "src/main/session-index.ts:437-440, src/main/remote/host-services.ts:2315-2316, src/main/ipc.ts:1458-1463",
+					"changed": {
+						"nIdx": "0 -> 1",
+						"evTimer": "FALSE -> TRUE",
+						"post": "(d1 :> <<\"none\", \"none\", \"none\">>) -> (d1 :> <<\"main\", \"ren\", \"s1\">>)",
+						"idx": "[s1 |-> 0, s2 |-> -1] -> [s1 |-> 1, s2 |-> -1]"
+					}
+				},
+				{
+					"step": 3,
+					"action": "HostRequest(d1)",
+					"code": "src/main/remote/host-services.ts:1059-1067, src/main/session-list-share.ts:35-44, src/main/remote/host-services.ts:1371-1373",
+					"changed": {
+						"lk": "(d1 :> <<>>) -> ( d1 :> << [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] >> )",
+						"hrows": "[ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] -> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ]",
+						"snap": "[held |-> {\"?\"}, op |-> {}] -> [held |-> {}, op |-> {}]",
+						"rq": "(d1 :> TRUE) -> (d1 :> FALSE)",
+						"hv": "0 -> 1"
+					}
+				},
+				{
+					"step": 4,
+					"action": "PostMain(d1)",
+					"code": "src/main/ipc.ts:472-484, src/main/ipc.ts:1458-1463, src/main/ipc.ts:1473-1482, src/main/remote/devices.ts:562-564",
+					"changed": {
+						"drd": "(d1 :> \"clean\") -> (d1 :> \"dirty\")",
+						"ip": "(d1 :> <<>>) -> (d1 :> <<[kind |-> \"bare\"]>>)",
+						"post": "(d1 :> <<\"main\", \"ren\", \"s1\">>) -> (d1 :> <<\"feed\", \"ren\", \"s1\">>)",
+						"dstale": "(d1 :> FALSE) -> (d1 :> TRUE)"
+					}
+				},
+				{
+					"step": 5,
+					"action": "PostFeed(d1)",
+					"code": "src/renderer/stores/session-list.ts:255-273, src/renderer/stores/session-list.ts:274-284",
+					"changed": {
+						"need": "(d1 :> <<\"none\", \"none\", 0>>) -> (d1 :> <<\"ren\", \"s1\", 1>>)",
+						"fq": "(d1 :> FALSE) -> (d1 :> TRUE)",
+						"post": "(d1 :> <<\"feed\", \"ren\", \"s1\">>) -> (d1 :> <<\"none\", \"none\", \"none\">>)"
+					}
+				},
+				{
+					"step": 6,
+					"action": "FeedEvent(d1,1)",
+					"code": "src/renderer/stores/session-list.ts:211-228",
+					"changed": {
+						"fdeb": "(d1 :> FALSE) -> (d1 :> TRUE)",
+						"ip": "(d1 :> <<[kind |-> \"bare\"]>>) -> (d1 :> <<>>)"
+					}
+				},
+				{
+					"step": 7,
+					"action": "HostReplyArrive(d1,1)",
+					"code": "src/main/remote/wire.ts:416-440, src/main/remote/client.ts:722-733",
+					"changed": {
+						"lk": "( d1 :> << [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] >> ) -> (d1 :> <<>>)",
+						"rp": "(d1 :> [kind |-> \"none\"]) -> ( d1 :> [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] )"
+					}
+				},
+				{
+					"step": 8,
+					"action": "HostReplyResume(d1)",
+					"code": "src/main/remote/host-session-list.ts:87-114, src/main/session-list-share.ts:77-90, src/main/session-list-share.ts:35-44",
+					"changed": {
+						"hver": "(d1 :> 0) -> (d1 :> 1)",
+						"dv": "(d1 :> 0) -> (d1 :> 1)",
+						"drd": "(d1 :> \"dirty\") -> (d1 :> \"none\")",
+						"rp": "( d1 :> [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] ) -> (d1 :> [kind |-> \"none\"])",
+						"ip": "(d1 :> <<>>) -> ( d1 :> << [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] >> )",
+						"drows": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] ) -> ( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )"
+					}
+				},
+				{
+					"step": 9,
+					"action": "FeedReply(d1,1)",
+					"code": "src/renderer/stores/session-list.ts:164-206",
+					"changed": {
+						"need": "(d1 :> <<\"ren\", \"s1\", 1>>) -> (d1 :> <<\"none\", \"none\", 0>>)",
+						"fshow": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] ) -> ( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )",
+						"chk": "(d1 :> <<\"none\", \"none\", 0>>) -> (d1 :> <<\"ren\", \"s1\", 1>>)",
+						"drd": "(d1 :> \"none\") -> (d1 :> \"clean\")",
+						"frows": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] ) -> ( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )",
+						"rq": "(d1 :> FALSE) -> (d1 :> TRUE)",
+						"fq": "(d1 :> TRUE) -> (d1 :> FALSE)",
+						"fv": "(d1 :> 0) -> (d1 :> 1)",
+						"ip": "( d1 :> << [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] >> ) -> (d1 :> <<>>)"
+					}
+				},
+				{
+					"step": 10,
+					"action": "HostRequest(d1)",
+					"code": "src/main/remote/host-services.ts:1059-1067, src/main/session-list-share.ts:35-44, src/main/remote/host-services.ts:1371-1373",
+					"changed": {
+						"lk": "(d1 :> <<>>) -> ( d1 :> << [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] >> )",
+						"rq": "(d1 :> TRUE) -> (d1 :> FALSE)"
+					}
+				},
+				{
+					"step": 11,
+					"action": "IdxDelete(\"s1\",d1)",
+					"code": "src/main/session-index.ts:246-255, src/main/remote/host-services.ts:2282-2291, src/main/ipc.ts:472-484",
+					"changed": {
+						"nIdx": "1 -> 2",
+						"post": "(d1 :> <<\"none\", \"none\", \"none\">>) -> (d1 :> <<\"main\", \"del\", \"s1\">>)",
+						"idx": "[s1 |-> 1, s2 |-> -1] -> [s1 |-> -2, s2 |-> -1]"
+					}
+				},
+				{
+					"step": 12,
+					"action": "HostChanged",
+					"code": "src/main/remote/host-services.ts:1318-1325, src/main/session-list-share.ts:52-61, src/main/session-list-share.ts:77-90, src/main/remote/host-services.ts:587-590, src/main/remote/host-services.ts:1371-1373",
+					"changed": {
+						"lk": "( d1 :> << [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] >> ) -> ( d1 :> << [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ], [ kind |-> \"delta\", upd |-> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"] ], base |-> 1, ver |-> 2 ] >> )",
+						"hrows": "[ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] -> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ]",
+						"hv": "1 -> 2",
+						"evTimer": "TRUE -> FALSE"
+					}
+				},
+				{
+					"step": 13,
+					"action": "HostReplyArrive(d1,1)",
+					"code": "src/main/remote/wire.ts:416-440, src/main/remote/client.ts:722-733",
+					"changed": {
+						"lk": "( d1 :> << [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ], [ kind |-> \"delta\", upd |-> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"] ], base |-> 1, ver |-> 2 ] >> ) -> ( d1 :> << [ kind |-> \"delta\", upd |-> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"] ], base |-> 1, ver |-> 2 ] >> )",
+						"rp": "(d1 :> [kind |-> \"none\"]) -> ( d1 :> [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] )"
+					}
+				},
+				{
+					"step": 14,
+					"action": "HostEvent(d1,1)",
+					"code": "src/main/remote/host-session-list.ts:63-79, src/main/remote/devices.ts:974-978, src/main/session-list-share.ts:63-70, src/main/session-list-share.ts:47-49",
+					"changed": {
+						"hver": "(d1 :> 1) -> (d1 :> 2)",
+						"lk": "( d1 :> << [ kind |-> \"delta\", upd |-> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"] ], base |-> 1, ver |-> 2 ] >> ) -> (d1 :> <<>>)",
+						"goneD": "(d1 :> {}) -> (d1 :> {\"s1\"})",
+						"dv": "(d1 :> 1) -> (d1 :> 2)",
+						"ip": "(d1 :> <<>>) -> ( d1 :> << [ kind |-> \"delta\", upd |-> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"] ], base |-> 1, ver |-> 2 ] >> )",
+						"drows": "( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] ) -> ( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )"
+					}
+				},
+				{
+					"step": 15,
+					"action": "HostReplyResume(d1)",
+					"code": "src/main/remote/host-session-list.ts:87-114, src/main/session-list-share.ts:77-90, src/main/session-list-share.ts:35-44",
+					"changed": {
+						"hver": "(d1 :> 2) -> (d1 :> 1)",
+						"dv": "(d1 :> 2) -> (d1 :> 3)",
+						"drd": "(d1 :> \"clean\") -> (d1 :> \"none\")",
+						"rp": "( d1 :> [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] ) -> (d1 :> [kind |-> \"none\"])",
+						"ip": "( d1 :> << [ kind |-> \"delta\", upd |-> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"] ], base |-> 1, ver |-> 2 ] >> ) -> ( d1 :> << [ kind |-> \"delta\", upd |-> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"] ], base |-> 1, ver |-> 2 ], [ kind |-> \"delta\", upd |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"] ], base |-> 2, ver |-> 3 ], [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 3 ] >> )",
+						"dstale": "(d1 :> TRUE) -> (d1 :> FALSE)",
+						"drows": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] ) -> ( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )"
+					},
+					"violation": true
+				}
+			],
+			"reproduction": {
+				"test": "src/main/remote/host-session-list.test.ts::HostSessionList > keeps a change that applied right behind the answer of a read under way, though the answer is older (the second case, 'takes an answer that names the version a change just brought, and one newer than it', pins the neighbours)",
+				"result_before_fix": "fails",
+				"result_after_fix": "passes"
+			},
+			"fix": {
+				"summary": "HostSessionList#read compares the answer's version with the host version the copy holds (olderSessionListVersion, the one version rule in src/shared/session-list-delta.ts) and returns the copy when the answer is behind it; an answer at the same or a later version, an unnumbered one and one of another epoch still replace it. The window's feed (session-list.ts) already notes a change that arrives while its read is in flight instead of applying it, so it has no such window (a same-turn case is pinned and passes on the unchanged code); SessionListShare holds no host versions, so the guard belongs in #read. Model: the reply is split into HostReplyArrive and HostReplyResume with only the drain's HostEvents between them; the mutation hsl-keeps-older-answer removes the guard.",
+				"commit": "27e13acb9",
+				"model_recheck": "passes",
+				"mutation_check": "fails-as-expected"
+			},
+			"evidence": [
+				"formal/session-listing/evidence/F7-trace.json",
+				"formal/session-listing/evidence/F7-tlc.txt",
+				"formal/session-listing/evidence/mutations.txt",
+				"formal/session-listing/evidence/verify-F7-model.txt"
+			]
+		},
 		{
 			"id": "F4",
 			"title": "A request's stale() was forgotten when another change applied: the window's next ask showed what the request had just removed",
@@ -444,11 +674,11 @@
 		},
 		{
 			"id": "F5",
-			"title": "HostSessionList lets an older read overwrite a newer change if the link ever reorders a reply behind an event",
+			"title": "HostSessionList let an older read overwrite a newer change: the reordering link was one way, the link's own drain is another (see F7)",
 			"severity": "low",
-			"status": "suspected",
+			"status": "fixed",
 			"property": "ListConverges",
-			"story": "HostSessionList applies a change of the held version even while its own read of the host is under way (hostChanged checks the version before it checks the read). If the read's answer was taken before that change and arrives after it, #read sets the host version back and the share publishes the older rows over the newer ones; nothing names a later version (the change was applied, not announced), so no read follows and a deleted session is listed again until the next change. The link cannot do this today: it is one encrypted socket whose frames carry a counter and are refused out of order (wire.ts), and the host sends a reply in the continuation of the call that took it, so a reply is never older than a change that reached the computer before it. The model run with a link that lets a later event pass a reply (MC_gap.cfg) shows the result. Not reproduced in the code, because the code cannot reorder; kept as a finding of the model so a change that reorders (a second connection, a relay) meets it.",
+			"story": "HostSessionList applies a change of the held version even while its own read of the host is under way (hostChanged checks the version before it checks the read). If the read's answer was taken before that change and arrives after it, #read sets the host version back and the share publishes the older rows over the newer ones; nothing names a later version (the change was applied, not announced), so no read follows and a deleted session is listed again until the next change. The link cannot do this today: it is one encrypted socket whose frames carry a counter and are refused out of order (wire.ts), and the host sends a reply in the continuation of the call that took it, so a reply is never older than a change that reached the computer before it. The model run with a link that lets a later event pass a reply (MC_gap.cfg) shows the result. Not reproduced in the code, because the code cannot reorder; kept as a finding of the model so a change that reorders (a second connection, a relay) meets it. CORRECTION (30 Oct 2026, F7): this finding held that only a reordering link could put a change between a read's answer and its continuation. The in-order link can too, because one drain delivers several frames before any promise continues. The guard on the answer's version that closed F7 closes this as well, and MC_gap.cfg now passes.",
 			"trace": [
 				{
 					"step": 1,

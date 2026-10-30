@@ -3,32 +3,34 @@
 		{
 			"name": "code-overlay-2-devices",
 			"config": "MC.cfg",
-			"expect": "pass"
+			"expect": "pass",
+			"timeoutSec": 7200,
+			"tier": "deep"
 		},
 		{
 			"name": "code-delta",
 			"config": "MC_delta.cfg",
 			"expect": "pass",
-			"timeoutSec": 600
+			"timeoutSec": 1800
 		},
 		{
 			"name": "code-two-devices",
 			"config": "MC_two.cfg",
 			"expect": "pass",
-			"timeoutSec": 900
+			"timeoutSec": 3600,
+			"tier": "deep"
 		},
 		{
 			"name": "deep-with-a-foreign-reader",
 			"config": "MC_deep.cfg",
 			"expect": "pass",
 			"tier": "deep",
-			"timeoutSec": 1800
+			"timeoutSec": 3600
 		},
 		{
-			"name": "link-reorder-regresses-hsl",
+			"name": "link-reorder-is-handled",
 			"config": "MC_gap.cfg",
-			"expect": "invariant",
-			"property": "ListConverges"
+			"expect": "pass"
 		},
 		{
 			"name": "a-window-can-show-a-held-row",

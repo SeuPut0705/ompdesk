@@ -40,6 +40,8 @@
 				"src/main/session-list-share.ts",
 				"src/shared/session-list-delta.ts",
 				"src/main/remote/host-session-list.ts",
+				"src/main/remote/client.ts:722-733",
+				"src/main/remote/wire.ts:416-441",
 				"src/main/remote/devices.ts:548-564",
 				"src/main/remote/devices.ts:649-651",
 				"src/main/remote/devices.ts:957-978",

@@ -3,7 +3,7 @@
 		"kind": "tlc",
 		"config": "MC.cfg",
 		"workers": 4,
-		"timeoutSec": 900
+		"timeoutSec": 3600
 	},
 	"properties": [
 		"TypeOK",
@@ -143,14 +143,26 @@
 		},
 		{
 			"name": "hsl-ignores-announced-version",
-			"why": "HostSessionList stops re-reading when a change named a later version than the answer it got (the finally branch of #read): on a link that reordered, the older answer would stay.",
+			"why": "HostSessionList stops re-reading when a change named a later version than the answer it got (the finally branch of #read): a change that reached the computer while the read was under way, for a version the answer does not hold (a delta of the same drain whose base the copy does not hold), would then stay missing. Reachable on the in-order link since the read's answer and its continuation are two steps (F7).",
 			"file": "SessionListing.tla",
 			"search": "           late == ann[d] > 0 /\\ m.ver < ann[d]",
 			"replace": "           late == FALSE",
 			"breaks": "ListConverges",
 			"isolate": true,
-			"config": "MC_delta.cfg",
-			"equivalent": "On the in-order link a reply is never older than a change that reached the computer before it: the host's reply holds at least every version it sent before (publish sets the copy, then emits, then the reply is taken), so the branch never fires. MC_gap.cfg (LinkMode = gap) is the run where it matters, and there the copy fails anyway (F5)."
+			"config": "MC_delta.cfg"
+		},
+		{
+			"name": "hsl-keeps-older-answer",
+			"why": "HostSessionList's read takes whatever the host answered, even when its continuation runs after a change of the held version applied (the frames of one link drain: the answer's promise resolves, the change applies, then the read continues): the older answer overwrites the newer copy and hostVersion, and a session the change removed comes back (F7).",
+			"file": "SessionListing.tla",
+			"search": "ReplyBehind(h, v) == h > 0 /\\ v < h",
+			"replace": "ReplyBehind(h, v) == FALSE",
+			"breaks": [
+				"NoReappear",
+				"ListConverges"
+			],
+			"isolate": true,
+			"config": "MC_delta.cfg"
 		},
 		{
 			"name": "feed-skips-reread-on-gap",

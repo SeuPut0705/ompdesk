@@ -1,0 +1,850 @@
+{
+  "spec": "/private/tmp/f7/SessionListing.tla",
+  "name": "MC_delta.cfg",
+  "config": "MC_delta.cfg",
+  "ok": false,
+  "expect": "pass",
+  "durationMs": 29424,
+  "outcome": "invariant",
+  "property": "NoReappear",
+  "stats": {
+    "generated": 2617545,
+    "distinct": 961612,
+    "queue": 314093,
+    "depth": 15
+  },
+  "trace": [
+    {
+      "step": 1,
+      "action": "Init",
+      "changed": {
+        "nDrops": "0",
+        "bad": "(d1 :> FALSE)",
+        "hver": "(d1 :> 0)",
+        "pendReg": "{}",
+        "lk": "(d1 :> <<>>)",
+        "need": "(d1 :> <<\"none\", \"none\", 0>>)",
+        "nChanges": "0",
+        "hrows": "[ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ]",
+        "fshow": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )",
+        "chk": "(d1 :> <<\"none\", \"none\", 0>>)",
+        "nForeign": "0",
+        "snap": "[held |-> {\"?\"}, op |-> {}]",
+        "fdeb": "(d1 :> FALSE)",
+        "goneD": "(d1 :> {})",
+        "goneF": "(d1 :> {})",
+        "file": "[h1 |-> \"none\"]",
+        "dv": "(d1 :> 0)",
+        "drd": "(d1 :> \"clean\")",
+        "fret": "(d1 :> FALSE)",
+        "fann": "(d1 :> 0)",
+        "rec": "FALSE",
+        "frows": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )",
+        "rp": "(d1 :> [kind |-> \"none\"])",
+        "rq": "(d1 :> TRUE)",
+        "fq": "(d1 :> FALSE)",
+        "fv": "(d1 :> 0)",
+        "ann": "(d1 :> 0)",
+        "fin": "(d1 :> TRUE)",
+        "hv": "0",
+        "nIdx": "0",
+        "up": "(d1 :> TRUE)",
+        "evTimer": "FALSE",
+        "ip": "(d1 :> <<>>)",
+        "post": "(d1 :> <<\"none\", \"none\", \"none\">>)",
+        "idx": "[s1 |-> 0, s2 |-> -1]",
+        "dstale": "(d1 :> FALSE)",
+        "drows": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )",
+        "nTicks": "0",
+        "seen": "(d1 :> {})"
+      }
+    },
+    {
+      "step": 2,
+      "action": "IdxBump(\"s1\",d1)",
+      "code": "src/main/session-index.ts:437-440, src/main/remote/host-services.ts:2315-2316, src/main/ipc.ts:1458-1463",
+      "changed": {
+        "nIdx": "0 -> 1",
+        "evTimer": "FALSE -> TRUE",
+        "post": "(d1 :> <<\"none\", \"none\", \"none\">>) -> (d1 :> <<\"main\", \"ren\", \"s1\">>)",
+        "idx": "[s1 |-> 0, s2 |-> -1] -> [s1 |-> 1, s2 |-> -1]"
+      }
+    },
+    {
+      "step": 3,
+      "action": "HostRequest(d1)",
+      "code": "src/main/remote/host-services.ts:1059-1067, src/main/session-list-share.ts:35-44, src/main/remote/host-services.ts:1371-1373",
+      "changed": {
+        "lk": "(d1 :> <<>>) -> ( d1 :> << [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] >> )",
+        "hrows": "[ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] -> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ]",
+        "snap": "[held |-> {\"?\"}, op |-> {}] -> [held |-> {}, op |-> {}]",
+        "rq": "(d1 :> TRUE) -> (d1 :> FALSE)",
+        "hv": "0 -> 1"
+      }
+    },
+    {
+      "step": 4,
+      "action": "PostMain(d1)",
+      "code": "src/main/ipc.ts:472-484, src/main/ipc.ts:1458-1463, src/main/ipc.ts:1473-1482, src/main/remote/devices.ts:562-564",
+      "changed": {
+        "drd": "(d1 :> \"clean\") -> (d1 :> \"dirty\")",
+        "ip": "(d1 :> <<>>) -> (d1 :> <<[kind |-> \"bare\"]>>)",
+        "post": "(d1 :> <<\"main\", \"ren\", \"s1\">>) -> (d1 :> <<\"feed\", \"ren\", \"s1\">>)",
+        "dstale": "(d1 :> FALSE) -> (d1 :> TRUE)"
+      }
+    },
+    {
+      "step": 5,
+      "action": "PostFeed(d1)",
+      "code": "src/renderer/stores/session-list.ts:255-273, src/renderer/stores/session-list.ts:274-284",
+      "changed": {
+        "need": "(d1 :> <<\"none\", \"none\", 0>>) -> (d1 :> <<\"ren\", \"s1\", 1>>)",
+        "fq": "(d1 :> FALSE) -> (d1 :> TRUE)",
+        "post": "(d1 :> <<\"feed\", \"ren\", \"s1\">>) -> (d1 :> <<\"none\", \"none\", \"none\">>)"
+      }
+    },
+    {
+      "step": 6,
+      "action": "FeedEvent(d1,1)",
+      "code": "src/renderer/stores/session-list.ts:211-228",
+      "changed": {
+        "fdeb": "(d1 :> FALSE) -> (d1 :> TRUE)",
+        "ip": "(d1 :> <<[kind |-> \"bare\"]>>) -> (d1 :> <<>>)"
+      }
+    },
+    {
+      "step": 7,
+      "action": "HostReplyArrive(d1,1)",
+      "code": "src/main/remote/wire.ts:416-440, src/main/remote/client.ts:722-733",
+      "changed": {
+        "lk": "( d1 :> << [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] >> ) -> (d1 :> <<>>)",
+        "rp": "(d1 :> [kind |-> \"none\"]) -> ( d1 :> [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] )"
+      }
+    },
+    {
+      "step": 8,
+      "action": "HostReplyResume(d1)",
+      "code": "src/main/remote/host-session-list.ts:87-114, src/main/session-list-share.ts:77-90, src/main/session-list-share.ts:35-44",
+      "changed": {
+        "hver": "(d1 :> 0) -> (d1 :> 1)",
+        "dv": "(d1 :> 0) -> (d1 :> 1)",
+        "drd": "(d1 :> \"dirty\") -> (d1 :> \"none\")",
+        "rp": "( d1 :> [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] ) -> (d1 :> [kind |-> \"none\"])",
+        "ip": "(d1 :> <<>>) -> ( d1 :> << [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] >> )",
+        "drows": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] ) -> ( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )"
+      }
+    },
+    {
+      "step": 9,
+      "action": "FeedReply(d1,1)",
+      "code": "src/renderer/stores/session-list.ts:164-206",
+      "changed": {
+        "need": "(d1 :> <<\"ren\", \"s1\", 1>>) -> (d1 :> <<\"none\", \"none\", 0>>)",
+        "fshow": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] ) -> ( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )",
+        "chk": "(d1 :> <<\"none\", \"none\", 0>>) -> (d1 :> <<\"ren\", \"s1\", 1>>)",
+        "drd": "(d1 :> \"none\") -> (d1 :> \"clean\")",
+        "frows": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] ) -> ( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )",
+        "rq": "(d1 :> FALSE) -> (d1 :> TRUE)",
+        "fq": "(d1 :> TRUE) -> (d1 :> FALSE)",
+        "fv": "(d1 :> 0) -> (d1 :> 1)",
+        "ip": "( d1 :> << [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] >> ) -> (d1 :> <<>>)"
+      }
+    },
+    {
+      "step": 10,
+      "action": "HostRequest(d1)",
+      "code": "src/main/remote/host-services.ts:1059-1067, src/main/session-list-share.ts:35-44, src/main/remote/host-services.ts:1371-1373",
+      "changed": {
+        "lk": "(d1 :> <<>>) -> ( d1 :> << [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] >> )",
+        "rq": "(d1 :> TRUE) -> (d1 :> FALSE)"
+      }
+    },
+    {
+      "step": 11,
+      "action": "IdxDelete(\"s1\",d1)",
+      "code": "src/main/session-index.ts:246-255, src/main/remote/host-services.ts:2282-2291, src/main/ipc.ts:472-484",
+      "changed": {
+        "nIdx": "1 -> 2",
+        "post": "(d1 :> <<\"none\", \"none\", \"none\">>) -> (d1 :> <<\"main\", \"del\", \"s1\">>)",
+        "idx": "[s1 |-> 1, s2 |-> -1] -> [s1 |-> -2, s2 |-> -1]"
+      }
+    },
+    {
+      "step": 12,
+      "action": "HostChanged",
+      "code": "src/main/remote/host-services.ts:1318-1325, src/main/session-list-share.ts:52-61, src/main/session-list-share.ts:77-90, src/main/remote/host-services.ts:587-590, src/main/remote/host-services.ts:1371-1373",
+      "changed": {
+        "lk": "( d1 :> << [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] >> ) -> ( d1 :> << [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ], [ kind |-> \"delta\", upd |-> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"] ], base |-> 1, ver |-> 2 ] >> )",
+        "hrows": "[ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] -> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ]",
+        "hv": "1 -> 2",
+        "evTimer": "TRUE -> FALSE"
+      }
+    },
+    {
+      "step": 13,
+      "action": "HostReplyArrive(d1,1)",
+      "code": "src/main/remote/wire.ts:416-440, src/main/remote/client.ts:722-733",
+      "changed": {
+        "lk": "( d1 :> << [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ], [ kind |-> \"delta\", upd |-> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"] ], base |-> 1, ver |-> 2 ] >> ) -> ( d1 :> << [ kind |-> \"delta\", upd |-> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"] ], base |-> 1, ver |-> 2 ] >> )",
+        "rp": "(d1 :> [kind |-> \"none\"]) -> ( d1 :> [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] )"
+      }
+    },
+    {
+      "step": 14,
+      "action": "HostEvent(d1,1)",
+      "code": "src/main/remote/host-session-list.ts:63-79, src/main/remote/devices.ts:974-978, src/main/session-list-share.ts:63-70, src/main/session-list-share.ts:47-49",
+      "changed": {
+        "hver": "(d1 :> 1) -> (d1 :> 2)",
+        "lk": "( d1 :> << [ kind |-> \"delta\", upd |-> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"] ], base |-> 1, ver |-> 2 ] >> ) -> (d1 :> <<>>)",
+        "goneD": "(d1 :> {}) -> (d1 :> {\"s1\"})",
+        "dv": "(d1 :> 1) -> (d1 :> 2)",
+        "ip": "(d1 :> <<>>) -> ( d1 :> << [ kind |-> \"delta\", upd |-> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"] ], base |-> 1, ver |-> 2 ] >> )",
+        "drows": "( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] ) -> ( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )"
+      }
+    },
+    {
+      "step": 15,
+      "action": "HostReplyResume(d1)",
+      "code": "src/main/remote/host-session-list.ts:87-114, src/main/session-list-share.ts:77-90, src/main/session-list-share.ts:35-44",
+      "changed": {
+        "hver": "(d1 :> 2) -> (d1 :> 1)",
+        "dv": "(d1 :> 2) -> (d1 :> 3)",
+        "drd": "(d1 :> \"clean\") -> (d1 :> \"none\")",
+        "rp": "( d1 :> [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] ) -> (d1 :> [kind |-> \"none\"])",
+        "ip": "( d1 :> << [ kind |-> \"delta\", upd |-> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"] ], base |-> 1, ver |-> 2 ] >> ) -> ( d1 :> << [ kind |-> \"delta\", upd |-> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"] ], base |-> 1, ver |-> 2 ], [ kind |-> \"delta\", upd |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"] ], base |-> 2, ver |-> 3 ], [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 3 ] >> )",
+        "dstale": "(d1 :> TRUE) -> (d1 :> FALSE)",
+        "drows": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] ) -> ( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )"
+      },
+      "violation": true
+    }
+  ],
+  "rows": [
+    {
+      "n": 1,
+      "step": "Init",
+      "code": [],
+      "changed": {
+        "nDrops": {
+          "to": "0"
+        },
+        "bad": {
+          "to": "(d1 :> FALSE)"
+        },
+        "hver": {
+          "to": "(d1 :> 0)"
+        },
+        "pendReg": {
+          "to": "{}"
+        },
+        "lk": {
+          "to": "(d1 :> <<>>)"
+        },
+        "need": {
+          "to": "(d1 :> <<\"none\", \"none\", 0>>)"
+        },
+        "nChanges": {
+          "to": "0"
+        },
+        "hrows": {
+          "to": "[ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ]"
+        },
+        "fshow": {
+          "to": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )"
+        },
+        "chk": {
+          "to": "(d1 :> <<\"none\", \"none\", 0>>)"
+        },
+        "nForeign": {
+          "to": "0"
+        },
+        "snap": {
+          "to": "[held |-> {\"?\"}, op |-> {}]"
+        },
+        "fdeb": {
+          "to": "(d1 :> FALSE)"
+        },
+        "goneD": {
+          "to": "(d1 :> {})"
+        },
+        "goneF": {
+          "to": "(d1 :> {})"
+        },
+        "file": {
+          "to": "[h1 |-> \"none\"]"
+        },
+        "dv": {
+          "to": "(d1 :> 0)"
+        },
+        "drd": {
+          "to": "(d1 :> \"clean\")"
+        },
+        "fret": {
+          "to": "(d1 :> FALSE)"
+        },
+        "fann": {
+          "to": "(d1 :> 0)"
+        },
+        "rec": {
+          "to": "FALSE"
+        },
+        "frows": {
+          "to": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )"
+        },
+        "rp": {
+          "to": "(d1 :> [kind |-> \"none\"])"
+        },
+        "rq": {
+          "to": "(d1 :> TRUE)"
+        },
+        "fq": {
+          "to": "(d1 :> FALSE)"
+        },
+        "fv": {
+          "to": "(d1 :> 0)"
+        },
+        "ann": {
+          "to": "(d1 :> 0)"
+        },
+        "fin": {
+          "to": "(d1 :> TRUE)"
+        },
+        "hv": {
+          "to": "0"
+        },
+        "nIdx": {
+          "to": "0"
+        },
+        "up": {
+          "to": "(d1 :> TRUE)"
+        },
+        "evTimer": {
+          "to": "FALSE"
+        },
+        "ip": {
+          "to": "(d1 :> <<>>)"
+        },
+        "post": {
+          "to": "(d1 :> <<\"none\", \"none\", \"none\">>)"
+        },
+        "idx": {
+          "to": "[s1 |-> 0, s2 |-> -1]"
+        },
+        "dstale": {
+          "to": "(d1 :> FALSE)"
+        },
+        "drows": {
+          "to": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )"
+        },
+        "nTicks": {
+          "to": "0"
+        },
+        "seen": {
+          "to": "(d1 :> {})"
+        }
+      }
+    },
+    {
+      "n": 2,
+      "step": "IdxBump(\"s1\",d1)",
+      "action": "IdxBump",
+      "location": {
+        "module": "SessionListing",
+        "line": 295,
+        "col": 5,
+        "endLine": 299,
+        "endCol": 109
+      },
+      "code": [
+        "src/main/session-index.ts:437-440",
+        "src/main/remote/host-services.ts:2315-2316",
+        "src/main/ipc.ts:1458-1463"
+      ],
+      "changed": {
+        "nIdx": {
+          "from": "0",
+          "to": "1"
+        },
+        "evTimer": {
+          "from": "FALSE",
+          "to": "TRUE"
+        },
+        "post": {
+          "from": "(d1 :> <<\"none\", \"none\", \"none\">>)",
+          "to": "(d1 :> <<\"main\", \"ren\", \"s1\">>)"
+        },
+        "idx": {
+          "from": "[s1 |-> 0, s2 |-> -1]",
+          "to": "[s1 |-> 1, s2 |-> -1]"
+        }
+      }
+    },
+    {
+      "n": 3,
+      "step": "HostRequest(d1)",
+      "action": "HostRequest",
+      "location": {
+        "module": "SessionListing",
+        "line": 351,
+        "col": 5,
+        "endLine": 360,
+        "endCol": 65
+      },
+      "code": [
+        "src/main/remote/host-services.ts:1059-1067",
+        "src/main/session-list-share.ts:35-44",
+        "src/main/remote/host-services.ts:1371-1373"
+      ],
+      "changed": {
+        "lk": {
+          "from": "(d1 :> <<>>)",
+          "to": "( d1 :> << [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] >> )"
+        },
+        "hrows": {
+          "from": "[ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ]",
+          "to": "[ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ]"
+        },
+        "snap": {
+          "from": "[held |-> {\"?\"}, op |-> {}]",
+          "to": "[held |-> {}, op |-> {}]"
+        },
+        "rq": {
+          "from": "(d1 :> TRUE)",
+          "to": "(d1 :> FALSE)"
+        },
+        "hv": {
+          "from": "0",
+          "to": "1"
+        }
+      }
+    },
+    {
+      "n": 4,
+      "step": "PostMain(d1)",
+      "action": "PostMain",
+      "location": {
+        "module": "SessionListing",
+        "line": 611,
+        "col": 5,
+        "endLine": 616,
+        "endCol": 83
+      },
+      "code": [
+        "src/main/ipc.ts:472-484",
+        "src/main/ipc.ts:1458-1463",
+        "src/main/ipc.ts:1473-1482",
+        "src/main/remote/devices.ts:562-564"
+      ],
+      "changed": {
+        "drd": {
+          "from": "(d1 :> \"clean\")",
+          "to": "(d1 :> \"dirty\")"
+        },
+        "ip": {
+          "from": "(d1 :> <<>>)",
+          "to": "(d1 :> <<[kind |-> \"bare\"]>>)"
+        },
+        "post": {
+          "from": "(d1 :> <<\"main\", \"ren\", \"s1\">>)",
+          "to": "(d1 :> <<\"feed\", \"ren\", \"s1\">>)"
+        },
+        "dstale": {
+          "from": "(d1 :> FALSE)",
+          "to": "(d1 :> TRUE)"
+        }
+      }
+    },
+    {
+      "n": 5,
+      "step": "PostFeed(d1)",
+      "action": "PostFeed",
+      "location": {
+        "module": "SessionListing",
+        "line": 622,
+        "col": 5,
+        "endLine": 629,
+        "endCol": 131
+      },
+      "code": [
+        "src/renderer/stores/session-list.ts:255-273",
+        "src/renderer/stores/session-list.ts:274-284"
+      ],
+      "changed": {
+        "need": {
+          "from": "(d1 :> <<\"none\", \"none\", 0>>)",
+          "to": "(d1 :> <<\"ren\", \"s1\", 1>>)"
+        },
+        "fq": {
+          "from": "(d1 :> FALSE)",
+          "to": "(d1 :> TRUE)"
+        },
+        "post": {
+          "from": "(d1 :> <<\"feed\", \"ren\", \"s1\">>)",
+          "to": "(d1 :> <<\"none\", \"none\", \"none\">>)"
+        }
+      }
+    },
+    {
+      "n": 6,
+      "step": "FeedEvent(d1,1)",
+      "action": "FeedEvent",
+      "location": {
+        "module": "SessionListing",
+        "line": 526,
+        "col": 5,
+        "endLine": 548,
+        "endCol": 82
+      },
+      "code": [
+        "src/renderer/stores/session-list.ts:211-228"
+      ],
+      "changed": {
+        "fdeb": {
+          "from": "(d1 :> FALSE)",
+          "to": "(d1 :> TRUE)"
+        },
+        "ip": {
+          "from": "(d1 :> <<[kind |-> \"bare\"]>>)",
+          "to": "(d1 :> <<>>)"
+        }
+      }
+    },
+    {
+      "n": 7,
+      "step": "HostReplyArrive(d1,1)",
+      "action": "HostReplyArrive",
+      "location": {
+        "module": "SessionListing",
+        "line": 434,
+        "col": 5,
+        "endLine": 438,
+        "endCol": 105
+      },
+      "code": [
+        "src/main/remote/wire.ts:416-440",
+        "src/main/remote/client.ts:722-733"
+      ],
+      "changed": {
+        "lk": {
+          "from": "( d1 :> << [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] >> )",
+          "to": "(d1 :> <<>>)"
+        },
+        "rp": {
+          "from": "(d1 :> [kind |-> \"none\"])",
+          "to": "( d1 :> [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] )"
+        }
+      }
+    },
+    {
+      "n": 8,
+      "step": "HostReplyResume(d1)",
+      "action": "HostReplyResume",
+      "location": {
+        "module": "SessionListing",
+        "line": 448,
+        "col": 5,
+        "endLine": 463,
+        "endCol": 56
+      },
+      "code": [
+        "src/main/remote/host-session-list.ts:87-114",
+        "src/main/session-list-share.ts:77-90",
+        "src/main/session-list-share.ts:35-44"
+      ],
+      "changed": {
+        "hver": {
+          "from": "(d1 :> 0)",
+          "to": "(d1 :> 1)"
+        },
+        "dv": {
+          "from": "(d1 :> 0)",
+          "to": "(d1 :> 1)"
+        },
+        "drd": {
+          "from": "(d1 :> \"dirty\")",
+          "to": "(d1 :> \"none\")"
+        },
+        "rp": {
+          "from": "( d1 :> [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] )",
+          "to": "(d1 :> [kind |-> \"none\"])"
+        },
+        "ip": {
+          "from": "(d1 :> <<>>)",
+          "to": "( d1 :> << [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] >> )"
+        },
+        "drows": {
+          "from": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )",
+          "to": "( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )"
+        }
+      }
+    },
+    {
+      "n": 9,
+      "step": "FeedReply(d1,1)",
+      "action": "FeedReply",
+      "location": {
+        "module": "SessionListing",
+        "line": 552,
+        "col": 5,
+        "endLine": 570,
+        "endCol": 140
+      },
+      "code": [
+        "src/renderer/stores/session-list.ts:164-206"
+      ],
+      "changed": {
+        "need": {
+          "from": "(d1 :> <<\"ren\", \"s1\", 1>>)",
+          "to": "(d1 :> <<\"none\", \"none\", 0>>)"
+        },
+        "fshow": {
+          "from": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )",
+          "to": "( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )"
+        },
+        "chk": {
+          "from": "(d1 :> <<\"none\", \"none\", 0>>)",
+          "to": "(d1 :> <<\"ren\", \"s1\", 1>>)"
+        },
+        "drd": {
+          "from": "(d1 :> \"none\")",
+          "to": "(d1 :> \"clean\")"
+        },
+        "frows": {
+          "from": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )",
+          "to": "( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )"
+        },
+        "rq": {
+          "from": "(d1 :> FALSE)",
+          "to": "(d1 :> TRUE)"
+        },
+        "fq": {
+          "from": "(d1 :> TRUE)",
+          "to": "(d1 :> FALSE)"
+        },
+        "fv": {
+          "from": "(d1 :> 0)",
+          "to": "(d1 :> 1)"
+        },
+        "ip": {
+          "from": "( d1 :> << [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] >> )",
+          "to": "(d1 :> <<>>)"
+        }
+      }
+    },
+    {
+      "n": 10,
+      "step": "HostRequest(d1)",
+      "action": "HostRequest",
+      "location": {
+        "module": "SessionListing",
+        "line": 351,
+        "col": 5,
+        "endLine": 360,
+        "endCol": 65
+      },
+      "code": [
+        "src/main/remote/host-services.ts:1059-1067",
+        "src/main/session-list-share.ts:35-44",
+        "src/main/remote/host-services.ts:1371-1373"
+      ],
+      "changed": {
+        "lk": {
+          "from": "(d1 :> <<>>)",
+          "to": "( d1 :> << [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] >> )"
+        },
+        "rq": {
+          "from": "(d1 :> TRUE)",
+          "to": "(d1 :> FALSE)"
+        }
+      }
+    },
+    {
+      "n": 11,
+      "step": "IdxDelete(\"s1\",d1)",
+      "action": "IdxDelete",
+      "location": {
+        "module": "SessionListing",
+        "line": 306,
+        "col": 5,
+        "endLine": 310,
+        "endCol": 109
+      },
+      "code": [
+        "src/main/session-index.ts:246-255",
+        "src/main/remote/host-services.ts:2282-2291",
+        "src/main/ipc.ts:472-484"
+      ],
+      "changed": {
+        "nIdx": {
+          "from": "1",
+          "to": "2"
+        },
+        "post": {
+          "from": "(d1 :> <<\"none\", \"none\", \"none\">>)",
+          "to": "(d1 :> <<\"main\", \"del\", \"s1\">>)"
+        },
+        "idx": {
+          "from": "[s1 |-> 1, s2 |-> -1]",
+          "to": "[s1 |-> -2, s2 |-> -1]"
+        }
+      }
+    },
+    {
+      "n": 12,
+      "step": "HostChanged",
+      "action": "HostChanged",
+      "location": {
+        "module": "SessionListing",
+        "line": 334,
+        "col": 5,
+        "endLine": 344,
+        "endCol": 60
+      },
+      "code": [
+        "src/main/remote/host-services.ts:1318-1325",
+        "src/main/session-list-share.ts:52-61",
+        "src/main/session-list-share.ts:77-90",
+        "src/main/remote/host-services.ts:587-590",
+        "src/main/remote/host-services.ts:1371-1373"
+      ],
+      "changed": {
+        "lk": {
+          "from": "( d1 :> << [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] >> )",
+          "to": "( d1 :> << [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ], [ kind |-> \"delta\", upd |-> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"] ], base |-> 1, ver |-> 2 ] >> )"
+        },
+        "hrows": {
+          "from": "[ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ]",
+          "to": "[ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ]"
+        },
+        "hv": {
+          "from": "1",
+          "to": "2"
+        },
+        "evTimer": {
+          "from": "TRUE",
+          "to": "FALSE"
+        }
+      }
+    },
+    {
+      "n": 13,
+      "step": "HostReplyArrive(d1,1)",
+      "action": "HostReplyArrive",
+      "location": {
+        "module": "SessionListing",
+        "line": 434,
+        "col": 5,
+        "endLine": 438,
+        "endCol": 105
+      },
+      "code": [
+        "src/main/remote/wire.ts:416-440",
+        "src/main/remote/client.ts:722-733"
+      ],
+      "changed": {
+        "lk": {
+          "from": "( d1 :> << [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ], [ kind |-> \"delta\", upd |-> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"] ], base |-> 1, ver |-> 2 ] >> )",
+          "to": "( d1 :> << [ kind |-> \"delta\", upd |-> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"] ], base |-> 1, ver |-> 2 ] >> )"
+        },
+        "rp": {
+          "from": "(d1 :> [kind |-> \"none\"])",
+          "to": "( d1 :> [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] )"
+        }
+      }
+    },
+    {
+      "n": 14,
+      "step": "HostEvent(d1,1)",
+      "action": "HostEvent",
+      "location": {
+        "module": "SessionListing",
+        "line": 396,
+        "col": 5,
+        "endLine": 425,
+        "endCol": 53
+      },
+      "code": [
+        "src/main/remote/host-session-list.ts:63-79",
+        "src/main/remote/devices.ts:974-978",
+        "src/main/session-list-share.ts:63-70",
+        "src/main/session-list-share.ts:47-49"
+      ],
+      "changed": {
+        "hver": {
+          "from": "(d1 :> 1)",
+          "to": "(d1 :> 2)"
+        },
+        "lk": {
+          "from": "( d1 :> << [ kind |-> \"delta\", upd |-> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"] ], base |-> 1, ver |-> 2 ] >> )",
+          "to": "(d1 :> <<>>)"
+        },
+        "goneD": {
+          "from": "(d1 :> {})",
+          "to": "(d1 :> {\"s1\"})"
+        },
+        "dv": {
+          "from": "(d1 :> 1)",
+          "to": "(d1 :> 2)"
+        },
+        "ip": {
+          "from": "(d1 :> <<>>)",
+          "to": "( d1 :> << [ kind |-> \"delta\", upd |-> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"] ], base |-> 1, ver |-> 2 ] >> )"
+        },
+        "drows": {
+          "from": "( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )",
+          "to": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )"
+        }
+      }
+    },
+    {
+      "n": 15,
+      "step": "HostReplyResume(d1)",
+      "action": "HostReplyResume",
+      "location": {
+        "module": "SessionListing",
+        "line": 448,
+        "col": 5,
+        "endLine": 463,
+        "endCol": 56
+      },
+      "code": [
+        "src/main/remote/host-session-list.ts:87-114",
+        "src/main/session-list-share.ts:77-90",
+        "src/main/session-list-share.ts:35-44"
+      ],
+      "changed": {
+        "hver": {
+          "from": "(d1 :> 2)",
+          "to": "(d1 :> 1)"
+        },
+        "dv": {
+          "from": "(d1 :> 2)",
+          "to": "(d1 :> 3)"
+        },
+        "drd": {
+          "from": "(d1 :> \"clean\")",
+          "to": "(d1 :> \"none\")"
+        },
+        "rp": {
+          "from": "( d1 :> [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 1 ] )",
+          "to": "(d1 :> [kind |-> \"none\"])"
+        },
+        "ip": {
+          "from": "( d1 :> << [ kind |-> \"delta\", upd |-> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"] ], base |-> 1, ver |-> 2 ] >> )",
+          "to": "( d1 :> << [ kind |-> \"delta\", upd |-> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"] ], base |-> 1, ver |-> 2 ], [ kind |-> \"delta\", upd |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"] ], base |-> 2, ver |-> 3 ], [ kind |-> \"reply\", rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], ver |-> 3 ] >> )"
+        },
+        "dstale": {
+          "from": "(d1 :> TRUE)",
+          "to": "(d1 :> FALSE)"
+        },
+        "drows": {
+          "from": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )",
+          "to": "( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )"
+        }
+      },
+      "violation": true
+    }
+  ],
+  "tlcVersion": "2026.10.28.014557",
+  "message": "Invariant NoReappear is violated.",
+  "warnings": []
+}

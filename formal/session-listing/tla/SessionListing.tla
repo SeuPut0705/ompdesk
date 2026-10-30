@@ -21,8 +21,10 @@
 (* Granularity: one action per synchronous block (one event handler, timer   *)
 (* or microtask chain). The host's read (`await sessionIndex.list`) is one   *)
 (* block that samples the truth when it ends; the device computer's read of  *)
-(* the host spans several blocks (request, reply), which is where a delta    *)
-(* and a reply race. Assumptions: CORRESPONDENCE.md.                         *)
+(* the host spans several blocks (request, reply arrival, continuation),     *)
+(* where a delta and a reply race: the frames of one link drain run between  *)
+(* the reply's arrival and the read's continuation (F7). Assumptions:        *)
+(* CORRESPONDENCE.md.                                                        *)
 EXTENDS Integers, Sequences, FiniteSets, TLC
 
 CONSTANTS Devices, Sessions, WinTabs, HostTabs, Opens, ClosedPair, Idx0,
@@ -79,9 +81,10 @@ VARIABLES
     \* ----- the device computer's copy of the host's list (HostSessionList) -----
     dv, drows,  \* its own version (0 = no copy yet) and rows (what windows read)
     dstale,     \* the next ask reads again (SessionListShare.stale)
-    drd,        \* a read of the host is under way: "none", "clean", "dirty" (stale() came meanwhile)
+    drd,        \* a read of the host is under way: "none", "clean", "dirty" (stale() came meanwhile); it stays so until the read's continuation ran
     hver,       \* the host's version the copy holds (0 = none)
     ann,        \* the newest host version a change named while a read was under way (0 = none)
+    rp,         \* the read's answer arrived (its promise resolved) and the read's continuation has not run yet: NoMsg or a ReplyMsg
     goneD,      \* ghost: sessions this copy dropped after the host deleted them
     \* ----- the device computer -> window channel -----
     ip,         \* events (delta, bare) and answers (reply, err)
@@ -99,13 +102,16 @@ tr == <<file, pendReg, rec, idx>>
 an == <<snap, evTimer>>
 hs == <<hv, hrows>>
 lkv == <<up, lk, rq>>
-hsl == <<dv, drows, dstale, drd, hver, ann, goneD>>
+hsl == <<dv, drows, dstale, drd, hver, ann, rp, goneD>>
 fd == <<fv, frows, fshow, fin, fq, fann, fdeb, fret, goneF, need, chk, bad>>
 cn == <<nChanges, nIdx, nTicks, nDrops, nForeign>>
 vars == <<tr, an, hs, lkv, hsl, ip, fd, post, cn, seen>>
 
 \* Who asks for an index change: the host's own window, or a device (whose feed then continues after main answered).
 Free(by) == IF by = "host" THEN TRUE ELSE post[by][1] = "none"
+NoMsg == [kind |-> "none"]
+\* A read's answer arrived and its continuation has not run: until it does only the frames of that drain run on this computer (see Next).
+Busy == \E d \in Devices : rp[d] # NoMsg
 
 \* Ghost (Track): a branch of a guard was taken (sanity runs: each guard must be reachable).
 Tag(d, t) == seen' = IF Track THEN [seen EXCEPT ![d] = @ \cup {t}] ELSE seen
@@ -168,8 +174,9 @@ TypeOK ==
     /\ file \in [Tabs -> Files] /\ pendReg \subseteq WinTabs /\ rec \in BOOLEAN
     /\ idx \in [Sessions -> -2..MaxJ]
     /\ evTimer \in BOOLEAN /\ up \in [Devices -> BOOLEAN] /\ rq \in [Devices -> BOOLEAN]
-    /\ \A d \in Devices : Len(lk[d]) <= MaxCh /\ Len(ip[d]) <= MaxCh
+    /\ \A d \in Devices : Len(lk[d]) <= MaxCh /\ Len(ip[d]) <= MaxCh + 5   \* + 5: what a drain's events and the read's continuation add past the bound
     /\ drd \in [Devices -> {"none", "clean", "dirty"}]
+    /\ \A d \in Devices : rp[d].kind \in {"none", "reply"} /\ (rp[d].kind = "reply" => drd[d] # "none")
     /\ dstale \in [Devices -> BOOLEAN] /\ fin \in [Devices -> BOOLEAN] /\ fq \in [Devices -> BOOLEAN]
     /\ fdeb \in [Devices -> BOOLEAN] /\ fret \in [Devices -> BOOLEAN]
     /\ goneD \in [Devices -> SUBSET Sessions] /\ goneF \in [Devices -> SUBSET Sessions]
@@ -183,6 +190,7 @@ Init ==
     /\ rq = [d \in Devices |-> TRUE]                    \* the window's first read (retain => refresh) reaches the host computer's copy: it asks the host
     /\ dv = [d \in Devices |-> 0] /\ drows = [d \in Devices |-> NoRows] /\ dstale = [d \in Devices |-> FALSE]
     /\ drd = [d \in Devices |-> "clean"] /\ hver = [d \in Devices |-> 0] /\ ann = [d \in Devices |-> 0]
+    /\ rp = [d \in Devices |-> NoMsg]
     /\ ip = [d \in Devices |-> <<>>]
     /\ fv = [d \in Devices |-> 0] /\ frows = [d \in Devices |-> NoRows] /\ fshow = [d \in Devices |-> NoRows]
     /\ fin = [d \in Devices |-> TRUE] /\ fq = [d \in Devices |-> FALSE] /\ fann = [d \in Devices |-> 0]
@@ -206,6 +214,7 @@ Announce(f2, r2) ==
 \* @code src/main/sidecar-pool.ts:679-689 a window tab acquired a session: #registerSessionFile, then #notifyWindowTabsChanged -> listingChanged
 \* @code src/main/sidecar-pool.ts:2107-2116 #registerSessionFile: a file taken calls onSessionFilesChanged -> listingChanged
 Open(t, s) ==
+    /\ ~Busy
     /\ file[t] = NoS /\ t \notin pendReg /\ nChanges < MaxChanges
     /\ LET f2 == [file EXCEPT ![t] = s] IN file' = f2 /\ Announce(f2, rec)
     /\ nChanges' = nChanges + 1
@@ -214,6 +223,7 @@ Open(t, s) ==
 \* @code src/main/remote/host-services.ts:2383-2412 #closeTab ... listingChanged()
 \* @code src/main/sidecar-pool.ts:1322-1331 #releaseEntry lets the file go (#unregisterSessionFile); 1846-1847 releaseTab -> #notifyWindowTabsChanged -> listingChanged
 Close(t) ==
+    /\ ~Busy
     /\ (file[t] # NoS \/ t \in pendReg) /\ nChanges < MaxChanges
     /\ LET f2 == [file EXCEPT ![t] = NoS] IN file' = f2 /\ Announce(f2, rec)
     /\ pendReg' = pendReg \ {t}
@@ -223,6 +233,7 @@ Close(t) ==
 \* @code src/main/remote/host-services.ts:1782-1791 'session' handler: tab.sessionFile = identity.sessionFile; listingChanged() when it changed
 \* @code src/main/sidecar-pool.ts:1018-1029 'session' handler of a window tab: register the file, notify when it changed
 Switch(t, s) ==
+    /\ ~Busy
     /\ file[t] # NoS /\ file[t] # s /\ nChanges < MaxChanges
     /\ LET f2 == [file EXCEPT ![t] = s] IN file' = f2 /\ Announce(f2, rec)
     /\ nChanges' = nChanges + 1
@@ -232,6 +243,7 @@ Switch(t, s) ==
 \* @code src/main/sidecar-pool.ts:2118-2124 #unregisterSessionFile: the let-go calls onSessionFilesChanged
 \* @code src/main/index.ts:1105 onSessionFilesChanged -> hostServices.listingChanged()
 IdChange(t) ==
+    /\ ~Busy
     /\ t \in WinTabs /\ file[t] # NoS /\ nChanges < MaxChanges
     /\ LET f2 == [file EXCEPT ![t] = NoS]
        IN /\ file' = f2 /\ pendReg' = pendReg \cup {t}
@@ -241,6 +253,7 @@ IdChange(t) ==
 
 \* @code src/main/sidecar-pool.ts:1018-1029 the `session` identity arrives (get_state, heartbeat): register the file and notify
 Reregister(t, s) ==
+    /\ ~Busy
     /\ t \in pendReg
     /\ LET f2 == [file EXCEPT ![t] = s] IN file' = f2 /\ Announce(f2, rec)
     /\ pendReg' = pendReg \ {t}
@@ -249,6 +262,7 @@ Reregister(t, s) ==
 \* @code src/main/index.ts:980-990 sessionOpeners(): the closed-child record (AGENT_CLOSED_CHILDREN_PREF) appears or goes
 \* @code src/main/ipc.ts:1285 the pref changed: hostedTabs.listingChanged()
 Record ==
+    /\ ~Busy
     /\ nChanges < MaxChanges
     /\ rec' = ~rec
     /\ Announce(file, ~rec)
@@ -257,6 +271,7 @@ Record ==
 
 \* @code src/main/remote/host-services.ts:1318-1325 sessionsChanged(): a child's review changed, or the index moved but no row did
 Tick ==
+    /\ ~Busy
     /\ nTicks < MaxTicks
     /\ evTimer' = TRUE /\ nTicks' = nTicks + 1
     /\ UNCHANGED <<tr, snap, hs, lkv, hsl, ip, fd, post, nChanges, nIdx, nDrops, nForeign, seen>>
@@ -267,6 +282,7 @@ Tick ==
 \* @code src/main/session-index.ts:437-440 #notifyChange: the watch saw a new session file; the shared list reads again
 \* @code src/main/ipc.ts:598-606 sessionIndex.onListChange -> remoteDevices.hostSessionsChanged() -> sessionsChanged()
 IdxCreate(s) ==
+    /\ ~Busy
     /\ idx[s] = Absent /\ nIdx < MaxIdx
     /\ idx' = [idx EXCEPT ![s] = 0] /\ evTimer' = TRUE /\ nIdx' = nIdx + 1
     /\ UNCHANGED <<file, pendReg, rec, snap, hs, lkv, hsl, ip, fd, post, nChanges, nTicks, nDrops, nForeign, seen>>
@@ -276,6 +292,7 @@ IdxCreate(s) ==
 \* @code src/main/remote/host-services.ts:2315-2316 a device's rename: the title is in the journal, sessionIndex.relist()
 \* @code src/main/ipc.ts:1458-1463 SESSIONS_RENAME: remoteDevices.hostSessionsStale(device) once the host answered
 IdxBump(s, by) ==
+    /\ ~Busy
     /\ Listed(idx, s) /\ idx[s] < MaxJ /\ nIdx < MaxIdx /\ Free(by)
     /\ idx' = [idx EXCEPT ![s] = @ + 1] /\ evTimer' = TRUE /\ nIdx' = nIdx + 1
     /\ post' = IF by = "host" THEN post ELSE [post EXCEPT ![by] = <<"main", "ren", s>>]
@@ -286,6 +303,7 @@ IdxBump(s, by) ==
 \* @code src/main/remote/host-services.ts:2282-2291 #deleteSession (a device's delete takes the host's path)
 \* @code src/main/ipc.ts:472-484 SESSIONS_DELETE: remoteDevices.request(sessions.delete), then hostSessionsStale(device)
 IdxDelete(s, by) ==
+    /\ ~Busy
     /\ Listed(idx, s) /\ nIdx < MaxIdx /\ Free(by)
     /\ idx' = [idx EXCEPT ![s] = Gone] /\ evTimer' = TRUE /\ nIdx' = nIdx + 1
     /\ post' = IF by = "host" THEN post ELSE [post EXCEPT ![by] = <<"main", "del", s>>]
@@ -296,6 +314,7 @@ IdxDelete(s, by) ==
 \* @code src/main/remote/host-services.ts:1107-1112 sessions.move
 \* @code src/main/ipc.ts:1473-1482 SESSIONS_MOVE: remoteDevices.request(sessions.move), then hostSessionsStale(device)
 IdxMove(s, t, by) ==
+    /\ ~Busy
     /\ Listed(idx, s) /\ idx[t] = Absent /\ nIdx < MaxIdx /\ Free(by)
     /\ idx' = [idx EXCEPT ![t] = idx[s], ![s] = Gone] /\ evTimer' = TRUE /\ nIdx' = nIdx + 1
     /\ post' = IF by = "host" THEN post ELSE [post EXCEPT ![by] = <<"main", "mov", s>>]
@@ -312,6 +331,7 @@ EmitAll(l, m) == [d \in Devices |-> IF up[d] THEN Append(l[d], m) ELSE l[d]]
 \* @code src/main/remote/host-services.ts:587-590 onChange: a delta to a device that has the capability, a bare event to the others
 \* @code src/main/remote/host-services.ts:1371-1373 #decorated records the listing snapshot of this read
 HostChanged ==
+    /\ ~Busy
     /\ evTimer /\ \A d \in Devices : Len(lk[d]) + 1 <= MaxCh
     /\ evTimer' = FALSE
     /\ IF hv = 0
@@ -328,6 +348,7 @@ HostChanged ==
 \* @code src/main/session-list-share.ts:35-44 current()
 \* @code src/main/remote/host-services.ts:1371-1373 #decorated records the listing snapshot of this read
 HostRequest(d) ==
+    /\ ~Busy
     /\ rq[d] /\ up[d] /\ \A e \in Devices : Len(lk[e]) + 2 <= MaxCh
     /\ rq' = [rq EXCEPT ![d] = FALSE]
     /\ snap' = Listing(file, rec)
@@ -342,6 +363,7 @@ HostRequest(d) ==
 \* every device, this one included; the answer goes elsewhere.
 \* @code src/main/remote/host-services.ts:1059-1067 sessions.list of a device that is not modeled
 ForeignRead ==
+    /\ ~Busy
     /\ nForeign < MaxForeign /\ \A e \in Devices : Len(lk[e]) + 1 <= MaxCh
     /\ nForeign' = nForeign + 1
     /\ snap' = Listing(file, rec)
@@ -371,6 +393,7 @@ StaleAfterSet(st) == st
 \* @code src/main/session-list-share.ts:63-70 set(rows): the applied list becomes the copy, no fresher than before (F4), handed on like a read
 \* @code src/main/session-list-share.ts:47-49 stale(); src/main/remote/host-session-list.ts:82-85 stale() also tells the windows (a bare event)
 HostEvent(d, i) ==
+    /\ (~Busy \/ rp[d] # NoMsg)
     /\ EvOk(lk[d], i, LinkMode) /\ Len(ip[d]) + 2 <= MaxCh
     /\ LET m == lk[d][i]
            isD == m.kind = "delta"
@@ -389,46 +412,64 @@ HostEvent(d, i) ==
                                 /\ drows' = [drows EXCEPT ![d] = nr]
                                 /\ ip' = [ip EXCEPT ![d] = Append(@, DeltaMsg(dv[d], dv[d] + 1, Diff(drows[d], nr)))]
                      /\ Tag(d, "hslApply")
-                     /\ UNCHANGED <<drd, ann>>
+                     /\ UNCHANGED <<drd, ann, rp>>
                 ELSE IF have
                 THEN UNCHANGED <<hsl, ip, seen>>
                 ELSE IF reading
                 THEN /\ ann' = [ann EXCEPT ![d] = IF isD THEN m.ver ELSE @]
                      /\ Tag(d, "hslNote")
-                     /\ UNCHANGED <<dv, drows, dstale, drd, hver, goneD, ip>>
+                     /\ UNCHANGED <<dv, drows, dstale, drd, hver, goneD, ip, rp>>
                 ELSE /\ HslGap(d)
                      /\ Tag(d, "hslGap")
-                     /\ UNCHANGED <<dv, drows, drd, hver, ann, goneD>>
+                     /\ UNCHANGED <<dv, drows, drd, hver, ann, goneD, rp>>
     /\ UNCHANGED <<tr, an, hs, up, rq, fd, post, cn>>
 
-\* @code src/main/remote/host-session-list.ts:87-104 #read: the host's answer sets hostVersion, the finally branch asks for another read when a change named a later version
+\* The link's `#drain` hands a computer every frame it has read in one synchronous loop, and a read's `await` continues only
+\* after that loop: the reply's frame resolves the read's promise (HostReplyArrive), the frames behind it in the same drain
+\* run (HostEvent: a delta of the held version applies), and only then the read continues (HostReplyResume). The model lets any
+\* number of events run between the two (a superset of the frames of one drain).
+\* @code src/main/remote/wire.ts:416-440 #drain: delivers every pending frame synchronously, the listener returns before any promise continues
+\* @code src/main/remote/client.ts:722-733 #onMessage: the reply's frame resolves the pending request of `sessions.list`
+HostReplyArrive(d, i) ==
+    /\ ~Busy
+    /\ RepOk(lk[d], i, LinkMode) /\ lk[d][i].kind = "reply" /\ rp[d] = NoMsg /\ Len(ip[d]) + 3 <= MaxCh
+    /\ lk' = [lk EXCEPT ![d] = Drop(lk[d], i)]
+    /\ rp' = [rp EXCEPT ![d] = lk[d][i]]
+    /\ UNCHANGED <<tr, an, hs, up, rq, dv, drows, dstale, drd, hver, ann, goneD, ip, fd, post, cn, seen>>
+
+\* An answer older than the version the copy holds is not taken (a change of that version applied between the answer's arrival
+\* and the read's continuation): the read gives the copy it found.
+ReplyBehind(h, v) == h > 0 /\ v < h
+
+\* @code src/main/remote/host-session-list.ts:87-114 #read: the answer continues the read: an answer older than the held host version gives the copy; else it sets hostVersion; the finally branch asks for another read when a change named a later version
 \* @code src/main/session-list-share.ts:77-90 #readOnce, #publish: the rows become the copy; a changed list goes to the windows as a delta
 \* @code src/main/session-list-share.ts:35-44 current() returns the copy to the window's ask
-HostReply(d, i) ==
-    /\ RepOk(lk[d], i, LinkMode) /\ lk[d][i].kind = "reply" /\ Len(ip[d]) + 3 <= MaxCh
-    /\ LET m == lk[d][i]
+HostReplyResume(d) ==
+    /\ rp[d].kind = "reply"
+    /\ LET m == IF ReplyBehind(hver[d], rp[d].ver) THEN ReplyMsg(hver[d], drows[d]) ELSE rp[d]
            late == ann[d] > 0 /\ m.ver < ann[d]
            before == dv[d] > 0
            chg == before /\ m.rows # drows[d]
            q1 == IF late THEN Append(ip[d], BareMsg) ELSE ip[d]
            q2 == IF chg THEN Append(q1, DeltaMsg(dv[d], dv[d] + 1, Diff(drows[d], m.rows))) ELSE q1
            dv2 == IF ~before THEN 1 ELSE IF chg THEN dv[d] + 1 ELSE dv[d]
-       IN /\ lk' = [lk EXCEPT ![d] = Drop(lk[d], i)]
+       IN /\ rp' = [rp EXCEPT ![d] = NoMsg]
           /\ hver' = [hver EXCEPT ![d] = m.ver]
           /\ drd' = [drd EXCEPT ![d] = "none"] /\ ann' = [ann EXCEPT ![d] = 0]
           /\ dstale' = [dstale EXCEPT ![d] = late \/ (drd[d] = "dirty" /\ dstale[d])]
           /\ dv' = [dv EXCEPT ![d] = dv2] /\ drows' = [drows EXCEPT ![d] = m.rows]
           /\ goneD' = [goneD EXCEPT ![d] = @ \cup Dropped(drows[d], m.rows)]
           /\ ip' = [ip EXCEPT ![d] = Append(q2, ReplyMsg(dv2, m.rows))]
-    /\ UNCHANGED <<tr, an, hs, up, rq, fd, post, cn, seen>>
+    /\ UNCHANGED <<tr, an, hs, lkv, fd, post, cn, seen>>
 
 ----------------------------------------------------------------------------
 \* ===== the link =====
 
 \* The connection drops: what was in flight is lost, a read of the host fails (and so does the window's ask).
 \* @code src/main/remote/devices.ts:957-972 client.on("state"): a link that is not online
-\* @code src/main/remote/host-session-list.ts:87-104 #read throws; its finally still runs
+\* @code src/main/remote/host-session-list.ts:87-114 #read throws; its finally still runs
 LinkDrop(d) ==
+    /\ ~Busy
     /\ up[d] /\ nDrops < MaxDrops /\ Len(ip[d]) + 2 <= MaxCh
     /\ up' = [up EXCEPT ![d] = FALSE] /\ lk' = [lk EXCEPT ![d] = <<>>] /\ rq' = [rq EXCEPT ![d] = FALSE]
     /\ nDrops' = nDrops + 1
@@ -438,15 +479,16 @@ LinkDrop(d) ==
                   /\ dstale' = [dstale EXCEPT ![d] = @ \/ late]
                   /\ ip' = [ip EXCEPT ![d] = Append(IF late THEN Append(@, BareMsg) ELSE @, ErrMsg)]
           ELSE UNCHANGED <<drd, ann, dstale, ip>>
-    /\ UNCHANGED <<tr, an, hs, dv, drows, hver, goneD, fd, post, nChanges, nIdx, nTicks, nForeign, seen>>
+    /\ UNCHANGED <<tr, an, hs, dv, drows, hver, rp, goneD, fd, post, nChanges, nIdx, nTicks, nForeign, seen>>
 
 \* The link is back: the copy may have missed changes, so it is stale (the windows are told).
 \* @code src/main/remote/devices.ts:957-972 client.on("state") online: link.sessions.stale()
 LinkUp(d) ==
+    /\ ~Busy
     /\ ~up[d] /\ Len(ip[d]) + 1 <= MaxCh
     /\ up' = [up EXCEPT ![d] = TRUE]
     /\ LinkBack(d)
-    /\ UNCHANGED <<tr, an, hs, lk, rq, dv, drows, drd, hver, ann, goneD, fd, post, cn, seen>>
+    /\ UNCHANGED <<tr, an, hs, lk, rq, dv, drows, drd, hver, ann, rp, goneD, fd, post, cn, seen>>
 
 ----------------------------------------------------------------------------
 \* ===== the window's feed (session-list.ts) =====
@@ -481,6 +523,7 @@ SetShow(d, new) == fshow' = [fshow EXCEPT ![d] = new]
 
 \* @code src/renderer/stores/session-list.ts:211-228 onSessionsChanged: a delta while a read is under way is noted; a delta of the held version applies; the same version is ignored; else the 350 ms debounce
 FeedEvent(d, i) ==
+    /\ ~Busy
     /\ EvOk(ip[d], i, IpcMode)
     /\ LET m == ip[d][i]
            isD == m.kind = "delta"
@@ -506,6 +549,7 @@ FeedEvent(d, i) ==
 
 \* @code src/renderer/stores/session-list.ts:164-206 the read's answer: copy = answer, accept, queue a read when a change named a later version; .finally: a queued refresh runs now
 FeedReply(d, i) ==
+    /\ ~Busy
     /\ RepOk(ip[d], i, IpcMode) /\ ip[d][i].kind = "reply" /\ Len(ip[d]) + 1 <= MaxCh
     /\ LET m == ip[d][i]
            raced == FeedRaced(fann[d], m.ver)
@@ -523,10 +567,11 @@ FeedReply(d, i) ==
                      /\ drd' = [drd EXCEPT ![d] = IF AskStarts(d) THEN "clean" ELSE @]
                      /\ rq' = [rq EXCEPT ![d] = IF AskStarts(d) THEN TRUE ELSE @]
                 ELSE /\ ip' = [ip EXCEPT ![d] = Drop(@, i)] /\ UNCHANGED <<drd, rq>>
-    /\ UNCHANGED <<tr, an, hs, up, lk, dv, drows, dstale, hver, ann, goneD, fdeb, fret, post, nChanges, nIdx, nTicks, nDrops, nForeign>>
+    /\ UNCHANGED <<tr, an, hs, up, lk, dv, drows, dstale, hver, ann, rp, goneD, fdeb, fret, post, nChanges, nIdx, nTicks, nDrops, nForeign>>
 
 \* @code src/renderer/stores/session-list.ts:183-197 the read failed: the error is shown, a retry is set while held; .finally runs the queued refresh
 FeedErr(d, i) ==
+    /\ ~Busy
     /\ RepOk(ip[d], i, IpcMode) /\ ip[d][i].kind = "err" /\ Len(ip[d]) + 1 <= MaxCh
     /\ LET again == fq[d]
        IN /\ fret' = [fret EXCEPT ![d] = TRUE]
@@ -539,21 +584,23 @@ FeedErr(d, i) ==
                      /\ drd' = [drd EXCEPT ![d] = IF AskStarts(d) THEN "clean" ELSE @]
                      /\ rq' = [rq EXCEPT ![d] = IF AskStarts(d) THEN TRUE ELSE @]
                 ELSE /\ ip' = [ip EXCEPT ![d] = Drop(@, i)] /\ UNCHANGED <<drd, rq>>
-    /\ UNCHANGED <<tr, an, hs, up, lk, dv, drows, dstale, hver, ann, goneD, fv, frows, fshow, goneF, fdeb, bad, post, cn, seen>>
+    /\ UNCHANGED <<tr, an, hs, up, lk, dv, drows, dstale, hver, ann, rp, goneD, fv, frows, fshow, goneF, fdeb, bad, post, cn, seen>>
 
 \* @code src/renderer/stores/session-list.ts:211-228 the debounce fires: refresh()
 FeedDebFire(d) ==
+    /\ ~Busy
     /\ fdeb[d] /\ Len(ip[d]) + 1 <= MaxCh
     /\ fdeb' = [fdeb EXCEPT ![d] = FALSE]
     /\ RefreshFx(d, NoNeed)
-    /\ UNCHANGED <<tr, an, hs, up, lk, dv, drows, dstale, hver, ann, goneD, fv, frows, fshow, goneF, fann, fret, bad, post, cn, seen>>
+    /\ UNCHANGED <<tr, an, hs, up, lk, dv, drows, dstale, hver, ann, rp, goneD, fv, frows, fshow, goneF, fann, fret, bad, post, cn, seen>>
 
 \* @code src/renderer/stores/session-list.ts:183-197 the retry timer of a failed read fires: refresh()
 FeedRetry(d) ==
+    /\ ~Busy
     /\ fret[d] /\ Len(ip[d]) + 1 <= MaxCh
     /\ fret' = [fret EXCEPT ![d] = FALSE]
     /\ RefreshFx(d, NoNeed)
-    /\ UNCHANGED <<tr, an, hs, up, lk, dv, drows, dstale, hver, ann, goneD, fv, frows, fshow, goneF, fann, fdeb, bad, post, cn, seen>>
+    /\ UNCHANGED <<tr, an, hs, up, lk, dv, drows, dstale, hver, ann, rp, goneD, fv, frows, fshow, goneF, fann, fdeb, bad, post, cn, seen>>
 
 \* A device's delete, rename or move: main answered after the host did, and marked the device computer's copy stale (a bare event goes to the windows) ...
 \* @code src/main/ipc.ts:472-484 SESSIONS_DELETE: remoteDevices.hostSessionsStale(device)
@@ -561,32 +608,37 @@ FeedRetry(d) ==
 \* @code src/main/ipc.ts:1473-1482 SESSIONS_MOVE: remoteDevices.hostSessionsStale(device)
 \* @code src/main/remote/devices.ts:562-564 hostSessionsStale -> HostSessionList.stale()
 PostMain(d) ==
+    /\ ~Busy
     /\ post[d][1] = "main" /\ Len(ip[d]) + 1 <= MaxCh
     /\ post' = [post EXCEPT ![d] = <<"feed", post[d][2], post[d][3]>>]
     /\ dstale' = [dstale EXCEPT ![d] = PostStale(dstale[d])] /\ drd' = [drd EXCEPT ![d] = IF @ = "clean" THEN "dirty" ELSE @]
     /\ ip' = [ip EXCEPT ![d] = Append(@, BareMsg)]
-    /\ UNCHANGED <<tr, an, hs, lkv, dv, drows, hver, ann, goneD, fd, cn, seen>>
+    /\ UNCHANGED <<tr, an, hs, lkv, dv, drows, hver, ann, rp, goneD, fd, cn, seen>>
 
 \* ... and the window's feed continues: a delete drops the row from the rows it shows, then it reads again.
 \* @code src/renderer/stores/session-list.ts:255-273 deleteSession: every list of this device drops the row, then refresh()
 \* @code src/renderer/stores/session-list.ts:274-284 renameSession: the row's title, then refresh()
 PostFeed(d) ==
+    /\ ~Busy
     /\ post[d][1] = "feed" /\ Len(ip[d]) + 1 <= MaxCh
     /\ post' = [post EXCEPT ![d] = <<"none", "none", NoS>>]
     /\ IF post[d][2] = "del"
           THEN SetShow(d, [fshow[d] EXCEPT ![post[d][3]] = NoRow])
           ELSE UNCHANGED fshow
     /\ RefreshFx(d, <<post[d][2], post[d][3], IF Listed(idx, post[d][3]) THEN idx[post[d][3]] ELSE 0>>)
-    /\ UNCHANGED <<tr, an, hs, up, lk, dv, drows, dstale, hver, ann, goneD, fv, frows, goneF, fann, fdeb, fret, bad, cn, seen>>
+    /\ UNCHANGED <<tr, an, hs, up, lk, dv, drows, dstale, hver, ann, rp, goneD, fv, frows, goneF, fann, fdeb, fret, bad, cn, seen>>
 
 ----------------------------------------------------------------------------
 Quiescent ==
     /\ pendReg = {} /\ ~evTimer
     /\ \A d \in Devices :
-          /\ up[d] /\ lk[d] = <<>> /\ ip[d] = <<>> /\ ~rq[d] /\ drd[d] = "none"
+          /\ up[d] /\ lk[d] = <<>> /\ ip[d] = <<>> /\ ~rq[d] /\ drd[d] = "none" /\ rp[d] = NoMsg
           /\ ~fin[d] /\ ~fq[d] /\ ~fdeb[d] /\ ~fret[d] /\ post[d][1] = "none"
 Terminated == Quiescent /\ UNCHANGED vars
 
+\* A reply that arrived (its promise resolved) is continued by the microtask that follows the synchronous drain: until then only
+\* the frames of that drain run on this computer (HostEvent of that computer, then HostReplyResume), nothing else (a timer, an
+\* IPC message, the socket's close and every other computer's work are other tasks): every other action has `~Busy`.
 Next == \/ \E t \in Tabs, s \in Sessions : Open(t, s) \/ Switch(t, s)
         \/ \E t \in Tabs : Close(t)
         \/ \E t \in WinTabs : IdChange(t)
@@ -597,16 +649,16 @@ Next == \/ \E t \in Tabs, s \in Sessions : Open(t, s) \/ Switch(t, s)
         \/ \E s \in Sessions, by \in Devices \cup {"host"} : IdxBump(s, by) \/ IdxDelete(s, by)
         \/ \E s, t \in Sessions, by \in Devices \cup {"host"} : IdxMove(s, t, by)
         \/ HostChanged \/ ForeignRead
-        \/ \E d \in Devices : HostRequest(d) \/ FeedDebFire(d) \/ FeedRetry(d) \/ PostMain(d) \/ PostFeed(d) \/ LinkDrop(d) \/ LinkUp(d)
+        \/ \E d \in Devices : HostRequest(d) \/ HostReplyResume(d) \/ FeedDebFire(d) \/ FeedRetry(d) \/ PostMain(d) \/ PostFeed(d) \/ LinkDrop(d) \/ LinkUp(d)
         \/ \E d \in Devices, i \in 1..MaxCh :
-              HostEvent(d, i) \/ HostReply(d, i) \/ FeedEvent(d, i) \/ FeedReply(d, i) \/ FeedErr(d, i)
+              HostEvent(d, i) \/ HostReplyArrive(d, i) \/ FeedEvent(d, i) \/ FeedReply(d, i) \/ FeedErr(d, i)
         \/ Terminated
 
 Spec == Init /\ [][Next]_vars /\ WF_vars(HostChanged)
         /\ \A d \in Devices :
               WF_vars(HostRequest(d)) /\ WF_vars(FeedDebFire(d)) /\ WF_vars(FeedRetry(d)) /\ WF_vars(LinkUp(d))
               /\ WF_vars(PostMain(d)) /\ WF_vars(PostFeed(d))
-              /\ WF_vars(\E i \in 1..MaxCh : HostEvent(d, i)) /\ WF_vars(\E i \in 1..MaxCh : HostReply(d, i))
+              /\ WF_vars(\E i \in 1..MaxCh : HostEvent(d, i)) /\ WF_vars(\E i \in 1..MaxCh : HostReplyArrive(d, i)) /\ WF_vars(HostReplyResume(d))
               /\ WF_vars(\E i \in 1..MaxCh : FeedEvent(d, i)) /\ WF_vars(\E i \in 1..MaxCh : FeedReply(d, i))
               /\ WF_vars(\E i \in 1..MaxCh : FeedErr(d, i))
         /\ \A t \in WinTabs, s \in Sessions : WF_vars(Reregister(t, s))
