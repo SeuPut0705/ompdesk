@@ -1,10 +1,12 @@
 import * as fs from "node:fs/promises";
+import { promises } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { RM_TEMP } from "../../test-fake-omp";
 import type { OmpRuntime } from "../types";
-import { getGitChanges } from "./changes";
+import { getGitChanges, repoRoot } from "./changes";
+import { REPO_LOCK_HOLD_MS, withRepoLock } from "./exec";
 import { isValidRefName, parseBranchHeaders, parseDecorations, remoteWebBase } from "./parse";
 import * as scm from "./scm";
 import { gitSync, initRepo, pathExists } from "./test-repos";
@@ -103,6 +105,59 @@ describe("stage, unstage, discard", () => {
 	it("refuses paths that leave the checkout", async () => {
 		await expect(scm.stage(root, ["../outside"])).rejects.toMatchObject({ code: "invalid_path" });
 		await expect(scm.discard(root, [])).rejects.toMatchObject({ code: "invalid_path" });
+	});
+});
+
+describe("a discard that outlives the repository lock", () => {
+	afterEach(() => {
+		vi.useRealTimers();
+		vi.restoreAllMocks();
+	});
+
+	it("does not remove what the next holder created at the same path once its realpath resolves", async () => {
+		const file = path.join(root, "fresh.txt");
+		await fs.writeFile(file, "mine\n");
+		await scm.stage(root, ["fresh.txt"]);
+		const lockRoot = (await repoRoot(root)) as string;
+		const realRealpath = promises.realpath.bind(promises) as (...args: unknown[]) => Promise<string>;
+		const realRm = promises.rm.bind(promises) as (...args: unknown[]) => Promise<void>;
+		const reached = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		const resolved = Promise.withResolvers<void>();
+		const removals: Promise<void>[] = [];
+		// The seam: the module's fenced `fs` calls `promises.realpath` / `promises.rm` at call time.
+		vi.spyOn(promises, "realpath").mockImplementation((async (...args: unknown[]) => {
+			if (args[0] === lockRoot) {
+				reached.resolve();
+				await release.promise;
+				const real = await realRealpath(...args);
+				resolved.resolve();
+				return real;
+			}
+			return realRealpath(...args);
+		}) as never);
+		vi.spyOn(promises, "rm").mockImplementation(((...args: unknown[]) => {
+			const done = realRm(...args);
+			removals.push(done);
+			return done;
+		}) as never);
+		vi.useFakeTimers();
+
+		const old = scm.discard(root, ["fresh.txt"]).then(
+			() => null,
+			error => error,
+		);
+		await reached.promise;
+		await vi.advanceTimersByTimeAsync(REPO_LOCK_HOLD_MS);
+		await withRepoLock(lockRoot, () => fs.writeFile(file, "next holder\n"));
+		release.resolve();
+		await resolved.promise;
+		// The old holder's continuation after realpath is a fixed run of microtasks: let it all run, then its removals.
+		for (let hop = 0; hop < 100; hop++) await Promise.resolve();
+		await Promise.all(removals);
+
+		expect(await old).toBeInstanceOf(Error);
+		expect(await fs.readFile(file, "utf8")).toBe("next holder\n");
 	});
 });
 
