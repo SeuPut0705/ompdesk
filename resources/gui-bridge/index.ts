@@ -11,7 +11,9 @@
  *
  * Area modules load independently: a module whose static omp import vanished
  * (a link error) takes down only its own features, which `capabilities` and
- * `unsupported_omp` errors then name, instead of the whole extension.
+ * `unsupported_omp` errors then name, instead of the whole extension. They load
+ * at the bridge's first use (first connection, first prompt or a subagent's
+ * rebind), never while omp starts (see `guiBridge`).
  */
 import * as fs from "node:fs";
 import * as net from "node:net";
@@ -176,6 +178,8 @@ function isRequest(value: unknown): value is BridgeRequest {
  */
 interface ProcessBind {
 	bound?: Promise<LoadedMethods | undefined>;
+	/** Starts loading the first bind's areas (`bound`) when nothing has yet; later calls do nothing. */
+	startLoading?: () => void;
 }
 const PROCESS_BIND = Symbol.for("ompdesk.gui-bridge");
 const holder = globalThis as Record<symbol, unknown>;
@@ -186,12 +190,20 @@ export default async function guiBridge(pi: ExtensionAPI): Promise<void> {
 	const address = process.env.OMP_GUI_BRIDGE;
 	if (!address) return;
 	if (processBind.bound) {
+		processBind.startLoading?.();
 		const loaded = await processBind.bound;
 		for (const install of loaded?.installs ?? []) install(pi);
 		return;
 	}
 	const first = Promise.withResolvers<LoadedMethods | undefined>();
 	processBind.bound = first.promise;
+	// The area modules load at their first use, not while omp starts: the first connection (main connects at
+	// stock's `ready`), the first prompt (the gates below) or a subagent's rebind. Loaded here, their imports ran on
+	// omp's one thread in the middle of its startup: `ready` came 69 ms later (median of 15 interleaved spawns with
+	// OMPdesk's extensions, 14 of 15 later), the first `get_state` answer 59 ms later and the omp held 14 MB more at
+	// idle (15 of 15), while the first bridge answer came no sooner (tmp/perf-bridge-startup, 30 Oct 2026).
+	const firstUse = Promise.withResolvers<void>();
+	processBind.startLoading = firstUse.resolve;
 
 	// Stock picks the first session's thinking level right after the extensions
 	// load, so the default must be in place before this factory returns. Dynamic
@@ -208,7 +220,7 @@ export default async function guiBridge(pi: ExtensionAPI): Promise<void> {
 		.then(module => module.settleOmpdeskRoles(pi.pi.Settings.instance as unknown as RoleSettings))
 		.catch(err => pi.logger.error("gui-bridge: OMPdesk roles failed", { error: String(err) }));
 
-	const loading = loadMethods(pi);
+	const loading = firstUse.promise.then(() => loadMethods(pi));
 	// Requests rethrow a failed table; this logs it once, and a rebind then installs nothing.
 	first.resolve(
 		loading.catch(err => {
@@ -216,6 +228,22 @@ export default async function guiBridge(pi: ExtensionAPI): Promise<void> {
 			return undefined;
 		}),
 	);
+	// A prompt that comes before the areas loaded (one sent at `ready`, before main connected) starts the load and
+	// waits for their hooks (prompt sections, recall, account rotation, roles, turn stages), bounded by the load
+	// itself and by stock's handler timeout: stock walks this extension's handler list as it stands, so the hooks
+	// installed during that wait run for the same prompt (bridge-first-use-stock.test.ts). Once loaded, the gates
+	// return at once.
+	let installed = false;
+	void first.promise.then(() => {
+		installed = true;
+	});
+	const gate = () => {
+		if (installed) return undefined;
+		firstUse.resolve();
+		return first.promise.then(() => undefined);
+	};
+	pi.on("input", gate);
+	pi.on("before_agent_start", gate);
 	const clients = new Set<net.Socket>();
 	let latestContext: ExtensionContext | undefined;
 	const remember = (_event: unknown, ctx: ExtensionContext) => {
@@ -251,7 +279,7 @@ export default async function guiBridge(pi: ExtensionAPI): Promise<void> {
 	interface ReplyTiming {
 		/** When this omp's event loop got to the request (epoch ms, the same machine's clock as main's). */
 		receivedAt: number;
-		/** Waiting for the bridge's area modules to load (stock imports at startup). */
+		/** Waiting for the bridge's area modules to load (they start loading at the first connection). */
 		loadMs: number;
 		/** The method itself. */
 		ms: number;
@@ -298,6 +326,7 @@ export default async function guiBridge(pi: ExtensionAPI): Promise<void> {
 	};
 
 	const server = net.createServer(socket => {
+		firstUse.resolve();
 		clients.add(socket);
 		socket.setEncoding("utf8");
 		let buffer = "";

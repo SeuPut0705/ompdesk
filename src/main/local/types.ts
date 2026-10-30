@@ -27,7 +27,7 @@ export interface BridgeTiming {
 	sentAt: number;
 	/** When omp's event loop got to the request: `receivedAt - sentAt` is time omp was busy with other work. */
 	receivedAt?: number;
-	/** The bridge waiting for its area modules to load (stock imports at omp startup). */
+	/** The bridge waiting for its area modules to load (stock imports, from the bridge's first connection). */
 	loadMs?: number;
 	/** The method itself (the stock call). */
 	bridgeMs?: number;
