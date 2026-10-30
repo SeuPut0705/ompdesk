@@ -1,5 +1,5 @@
 {
-	"commit": "3ffb0d90af1e8501ef80209992ecc8749fa5fc08",
+	"commit": "d4c1fecfafb6ecc5b1a681a3f078b02eecc2de3d",
 	"version": "2.2.3",
 	"files": {
 		"README.md": "1e6434887b3a548576ef8607c930211b71cde2b74bf7a34eef6ddc5f6fd28770",
@@ -29,7 +29,7 @@
 		"commands/test-coverage.md": "f492c2dac27b98118cf965ae3071e044d7292ae9299e661bb01e2e6109d20711",
 		"commands/update-codemaps.md": "dee7709ae4044862fd947e17048f8af170145b70ac53dfe01caa672a903853ea",
 		"commands/update-docs.md": "f0f4645d697c7c5874b79c64218cd2057a291cc6301f6a044cb2bac5ccc14f4a",
-		"ecc-config.json": "8287e3e058a0766463773323b0e7fc88b0353c4af7e7ca6d5d1fa00080f1e5ef",
+		"ecc-config.json": "ccd21eedd90a73586279cdf5d3b336a955ec36d818b7d56f0e99c8e6d475d62f",
 		"skills/accessibility/SKILL.md": "d403cadbabcecf78e9076e808e6efc72d006d6b5cf1535de1c33c131dbf03569",
 		"skills/agent-architecture-audit/SKILL.md": "200a080dba8ee4f009c6ad105b9c03937a4ad71c94417606f5c90927298185f0",
 		"skills/agent-eval/SKILL.md": "6adde94f764cbfcd9b0dcfe0a2fb1d7e53a94788d611629229d1c489ddacfe73",
