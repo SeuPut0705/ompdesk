@@ -162,7 +162,7 @@ test("fan out into worktrees, compare, merge two through the tool, close a third
 	for (const title of await page
 		.locator("[data-board-opened]")
 		.evaluateAll(rows => rows.map(row => row.getAttribute("title"))))
-		expect(title).toMatch(/\/local-fixture · Estimate at API prices \$0\.25/);
+		expect(title).toMatch(/\/local-fixture · About \$0\.25 at API prices/);
 
 	// The agent lands the first through the tool: with full control (the default) it merges at once, without a card.
 	const first = made[0] as { tabId: string; path: string; branch: string };

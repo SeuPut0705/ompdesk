@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { ElectronApplication, Page } from "playwright";
+import { AGENT_POWERS_MIGRATION_PREF, AGENT_POWERS_MIGRATION_VERSION } from "../src/main/agent-power-migration";
 import { exitApp, launchApp, readRecords } from "./harness";
 
 // `ompdesk_app_list` / `ompdesk_app` (src/main/agent-control/app-*.ts): the main agent changes OMPdesk itself.
@@ -20,7 +21,10 @@ let record: string;
 let errors: string[];
 let main: string;
 
-/** Launch a fresh profile; `prefs` seeds `prefs.json` (a pref left out is unset, which is the shipped default). */
+/**
+ * Launch a fresh profile; `prefs` seeds `prefs.json` (a pref left out is unset, which is the shipped default). The
+ * profile counts as already migrated: the one-time agent-power migration would otherwise turn a seeded off back on.
+ */
 async function start(prefs: Record<string, unknown> = {}): Promise<void> {
 	profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-agent-app-"));
 	const project = path.join(profile, "project");
@@ -30,7 +34,12 @@ async function start(prefs: Record<string, unknown> = {}): Promise<void> {
 	record = path.join(profile, "rpc.jsonl");
 	await fs.writeFile(
 		path.join(desktop, "prefs.json"),
-		JSON.stringify({ language: "en", firstRunComplete: true, ...prefs }),
+		JSON.stringify({
+			language: "en",
+			firstRunComplete: true,
+			[AGENT_POWERS_MIGRATION_PREF]: AGENT_POWERS_MIGRATION_VERSION,
+			...prefs,
+		}),
 	);
 	app = await launchApp({
 		project,

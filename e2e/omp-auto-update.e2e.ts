@@ -121,21 +121,23 @@ async function expectUpdated(launched: Launched): Promise<void> {
 	await expect.poll(() => sidecarStatus(page), { timeout: 30_000 }).toBe("ready");
 	await expect(page.locator(".omp-composer-input").first()).toHaveValue(DRAFT);
 	// The restarted bridge answered the capabilities probe for 18.13.0; planMode is missing there.
-	await expect(page.getByText(/missing internals OMPdesk needs for: Plan mode/)).toBeVisible({ timeout: 30_000 });
+	await expect(page.getByText(/lacks internals OMPdesk needs for: Plan mode/)).toBeVisible({ timeout: 30_000 });
 	expect(await installs(launched)).toEqual(["omp omp-update"]);
 	// Every check (main's, and Settings' on the tab) ran with this omp's folder first on PATH: stock's
 	// `omp update` resolves `$which("omp")`, so that is the install it checked and would update.
 	const ran = await checks(launched);
 	expect(ran.length).toBeGreaterThan(0);
 	expect(new Set(ran)).toEqual(new Set([path.dirname(launched.omp)]));
-	const state = await page.evaluate(() => window.omp.ompUpdate.getState());
-	expect(state).toMatchObject({
-		phase: "idle",
-		installed: "18.13.0",
-		latest: "18.13.0",
-		updatedTo: "18.13.0",
-		failure: null,
-	});
+	// A check that starts right after the restart may still run here; the state it settles to is what counts.
+	await expect
+		.poll(() => page.evaluate(() => window.omp.ompUpdate.getState()), { timeout: 30_000 })
+		.toMatchObject({
+			phase: "idle",
+			installed: "18.13.0",
+			latest: "18.13.0",
+			updatedTo: "18.13.0",
+			failure: null,
+		});
 	expect(launched.errors).toEqual([]);
 }
 
