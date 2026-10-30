@@ -166,32 +166,67 @@ export function ToastStack() {
 	const [atFoot, setAtFoot] = useState(false);
 	const [stripBottom, setStripBottom] = useState<number | null>(null);
 	const shown = toasts.length > 0;
-	// Measured while any toast shows (4× a second; a few rects): the board docks, leaves (its last child finished) or goes
-	// with a tab switch independently of the toasts, and a stack left at the foot would cover Send and Stop.
+	// Measured while any toast shows, when something that places the board or the strip changes: the board docks or
+	// leaves (its pane's `data-work-board`, its last child finished), the strip shows (`data-work-board-strip`), the shell
+	// changes, the window, a board, the chip or their panes resize (a pane leaving with a tab switch reports 0×0). A stack
+	// left at the foot would cover Send and Stop. It was a 250 ms timer: four forced layouts a second while a toast showed.
 	useLayoutEffect(() => {
 		if (!shown) return;
+		const sized = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => schedule());
+		const watched = new Set<Element>();
+		/** Follow exactly `elements`: a new one reports its size once (one more measure, which finds nothing new). */
+		const watch = (elements: Element[]) => {
+			if (!sized) return;
+			const next = new Set(elements);
+			for (const element of watched) if (!next.has(element)) sized.unobserve(element);
+			for (const element of next) if (!watched.has(element)) sized.observe(element);
+			watched.clear();
+			for (const element of next) watched.add(element);
+		};
+		const withPanes = (elements: Element[]) =>
+			elements.flatMap(element => {
+				const pane = element.closest(".omp-session-pane");
+				return pane ? [element, pane] : [element];
+			});
 		const measure = () => {
+			pending = undefined;
 			if (document.documentElement.dataset.shell === "phone") {
 				setAtFoot(false);
-				const chip = document.querySelector("[data-work-chip]")?.getBoundingClientRect();
+				const chipElement = document.querySelector("[data-work-chip]");
+				const chip = chipElement?.getBoundingClientRect();
 				setStripBottom(chip && chip.height > 0 ? Math.ceil(chip.bottom) : null);
+				watch(chipElement ? withPanes([chipElement]) : []);
 				return;
 			}
 			setStripBottom(null);
 			const right = window.innerWidth;
+			const boards = Array.from(document.querySelectorAll("[data-work-board-panel]"));
 			setAtFoot(
-				Array.from(document.querySelectorAll("[data-work-board-panel]")).some(panel => {
+				boards.some(panel => {
 					const box = panel.getBoundingClientRect();
 					return box.width > 0 && box.right >= right - 32 && box.top < 160;
 				}),
 			);
+			watch(withPanes(boards));
+		};
+		// After the mutation's task, so the measure reads a settled layout once however many changes came together.
+		let pending: number | undefined;
+		const schedule = () => {
+			pending ??= window.setTimeout(measure, 0);
 		};
 		measure();
-		const timer = setInterval(measure, 250);
-		window.addEventListener("resize", measure);
+		const marks = typeof MutationObserver === "undefined" ? null : new MutationObserver(() => schedule());
+		marks?.observe(document.documentElement, {
+			subtree: true,
+			attributes: true,
+			attributeFilter: ["data-shell", "data-work-board", "data-work-board-strip"],
+		});
+		window.addEventListener("resize", schedule);
 		return () => {
-			clearInterval(timer);
-			window.removeEventListener("resize", measure);
+			clearTimeout(pending);
+			sized?.disconnect();
+			marks?.disconnect();
+			window.removeEventListener("resize", schedule);
 		};
 	}, [shown]);
 

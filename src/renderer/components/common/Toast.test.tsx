@@ -6,6 +6,21 @@ import { I18nProvider } from "../../lib/i18n";
 import { toast, useToastStore } from "../../stores/toast";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
+/** linkedom reports a subtree's attributes only with `childList`; the browser does without: the test delivers them. */
+const observers: Array<{ callback: () => void; options?: MutationObserverInit }> = [];
+class RecordingMutationObserver {
+	readonly entry: { callback: () => void; options?: MutationObserverInit };
+	constructor(callback: () => void) {
+		this.entry = { callback };
+	}
+	observe(_target: unknown, options: MutationObserverInit) {
+		this.entry.options = options;
+		observers.push(this.entry);
+	}
+	disconnect() {
+		observers.splice(observers.indexOf(this.entry), 1);
+	}
+}
 Object.assign(globalThis as Record<string, unknown>, {
 	document,
 	window,
@@ -13,6 +28,7 @@ Object.assign(globalThis as Record<string, unknown>, {
 	HTMLElement,
 	Element,
 	Node,
+	MutationObserver: RecordingMutationObserver,
 	IS_REACT_ACT_ENVIRONMENT: true,
 });
 
@@ -107,6 +123,38 @@ describe("ToastStack", () => {
 		} finally {
 			chip.remove();
 			delete document.documentElement.dataset.shell;
+		}
+	});
+
+	it("moves to the board's foot when a board docks at the right edge while a toast shows, with no timer left running", async () => {
+		vi.useFakeTimers();
+		Object.assign(window, { innerWidth: 1440 });
+		const pane = document.createElement("div");
+		pane.className = "omp-session-pane";
+		document.body.appendChild(pane as never);
+		try {
+			await mount();
+			await act(async () => {
+				toast({ message: "Copied", durationMs: Number.POSITIVE_INFINITY });
+			});
+			const stack = () => document.querySelector("[data-toast-stack]");
+			expect(stack()?.getAttribute("data-toast-at")).toBeNull();
+			// Nothing changes, nothing is measured: no interval runs beside the toast's own expiry.
+			const idle = vi.getTimerCount();
+			const board = document.createElement("aside");
+			board.setAttribute("data-work-board-panel", "");
+			board.getBoundingClientRect = () =>
+				({ top: 56, bottom: 800, height: 744, left: 1100, right: 1430, width: 330 }) as DOMRect;
+			pane.appendChild(board as never);
+			pane.setAttribute("data-work-board", "");
+			const [marks] = observers;
+			expect(marks?.options?.attributeFilter).toContain("data-work-board");
+			await act(async () => marks?.callback());
+			await advance(0);
+			expect(stack()?.getAttribute("data-toast-at")).toBe("board-foot");
+			expect(vi.getTimerCount()).toBe(idle);
+		} finally {
+			pane.remove();
 		}
 	});
 });
