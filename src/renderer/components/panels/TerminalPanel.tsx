@@ -174,8 +174,6 @@ export function TerminalViewport({
 				return;
 			}
 			handle.current = view;
-			let offset = 0;
-			let timer: NodeJS.Timeout;
 			const request = async (operation: TerminalOperation) => {
 				try {
 					return await window.omp.terminal.request(tabId, operation);
@@ -276,33 +274,28 @@ export function TerminalViewport({
 			if (latest.current.takeFocus) view.terminal.focus();
 			// A new font size arrives through `latest`; the effect below calls this.
 			fontChanged.current = applyFontSize;
-			if (chromePlatform() === "web") {
-				// A phone asks once and the host holds the answer until the PTY writes; the next request is the
-				// acknowledgement of the last output (terminal-poll.ts).
-				void pollTerminal({
-					id,
-					request,
-					write: output =>
-						new Promise<void>(done => view.terminal.write(echo ? echo.output(output) : output, done)),
-					onSnapshot,
-					stopped: () => stopped,
-				});
-			} else {
-				const poll = async () => {
-					const snapshots = await request({ action: "list", offsets: { [id]: offset } });
-					if (stopped) return;
-					const snapshot = snapshots?.find(item => item.id === id);
-					if (snapshot) {
-						if (snapshot.output) view.terminal.write(echo ? echo.output(snapshot.output) : snapshot.output);
-						offset = snapshot.offset;
-						onSnapshot(snapshot);
-					}
-					if (snapshots) timer = setTimeout(() => void poll(), 80);
-				};
-				void poll();
-			}
+			// One read loop for every window: the host holds each request until the PTY writes or changes (at most
+			// 1 s), and the next request is the acknowledgement of the last output (terminal-poll.ts), so an idle shell
+			// costs one request a second instead of twelve. A phone's link drops and comes back, so it asks again; a
+			// desktop window's failed request is the panel's error and its read stops, as before.
+			const web = chromePlatform() === "web";
+			let failed = false;
+			void pollTerminal({
+				id,
+				request: async operation => {
+					const snapshots = await request(operation);
+					if (!snapshots && !web) failed = true;
+					return snapshots;
+				},
+				write: output => {
+					const { promise, resolve } = Promise.withResolvers<void>();
+					view.terminal.write(echo ? echo.output(output) : output, resolve);
+					return promise;
+				},
+				onSnapshot,
+				stopped: () => stopped || failed,
+			});
 			cleanup = () => {
-				clearTimeout(timer);
 				refit.current = null;
 				fontChanged.current = null;
 				clearTimeout(fitTimer);

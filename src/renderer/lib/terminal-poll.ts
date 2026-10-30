@@ -1,9 +1,10 @@
 /**
- * A web viewer's terminal read loop (design §7.2). The desktop asks for new output every 80 ms; a phone asks once
- * and the host holds the answer until the PTY writes (at most 1 s, `waitMs`), so an idle shell costs nothing. The
- * viewer's next request is also its acknowledgement: it is made only after xterm has taken the last output
- * (`write` resolves when xterm has parsed it), carrying the offset the viewer has reached, and the host cuts each
- * answer to an output budget (64 KB), so a runaway program feeds the screen as fast as it can draw, never faster.
+ * A terminal viewport's read loop (design §7.2), a desktop window's and a web viewer's alike: it asks once and the
+ * host holds the answer until the PTY writes or changes (at most 1 s, `waitMs`), so an idle shell costs one request a
+ * second (the desktop used to ask every 80 ms). The viewer's next request is also its acknowledgement: it is made only
+ * after xterm has taken the last output (`write` resolves when xterm has parsed it), carrying the offset the viewer has
+ * reached, and the host cuts each answer to an output budget (64 KB), so a runaway program feeds the screen as fast as
+ * it can draw, never faster.
  *
  * A host that predates the long poll answers at once with nothing new; `MIN_GAP_MS` keeps that from becoming a
  * busy loop.
@@ -15,7 +16,7 @@ import {
 	type TerminalSnapshot,
 } from "../../shared/terminal-types";
 
-/** The shortest an empty answer may take before the next request goes out (80 ms, the desktop's own poll). */
+/** The shortest an empty answer may take before the next request goes out (80 ms, the old desktop poll's period). */
 export const MIN_GAP_MS = 80;
 /** Pause after a failed request before asking again. */
 export const RETRY_MS = 1000;

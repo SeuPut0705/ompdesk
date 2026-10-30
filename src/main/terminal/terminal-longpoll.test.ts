@@ -1,7 +1,8 @@
 /**
- * A web viewer's terminal poll (design §7.2): `list` with `waitMs` is held in the stock helper's service until a
- * session has output past the viewer's offset, exits, or the hold ends; `budget` cuts one reply and the offset
- * it returns is where the cut fell, so the viewer's next request (its acknowledgement) reads on from there.
+ * A terminal viewport's poll (design §7.2), a desktop window's and a web viewer's: `list` with `waitMs` is held in the
+ * stock helper's service until a session has output past the viewer's offset, exits, changes what a viewer shows
+ * (size, restart, close, clear, a claim of the size), or the hold ends; `budget` cuts one reply and the offset it
+ * returns is where the cut fell, so the viewer's next request (its acknowledgement) reads on from there.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -84,6 +85,20 @@ describe("terminal long poll", () => {
 		exit({ exitCode: 2 });
 		const [snapshot] = await reply;
 		expect(snapshot).toMatchObject({ exited: true, exitCode: 2 });
+	});
+
+	it("wakes another window's poll when one resizes or claims the PTY, so it follows the new size at once", async () => {
+		const { service, id } = fixture();
+		const resized = service.list("tab", { action: "list", offsets: { [id]: 0 }, waitMs: 1000 }, options);
+		service.request("tab", { action: "resize", id, cols: 120, rows: 40 }, options);
+		expect(await resized).toEqual([expect.objectContaining({ id, output: "", cols: 120, rows: 40 })]);
+		const claimed = service.list("tab", { action: "list", offsets: { [id]: 0 }, waitMs: 1000 }, options);
+		// A claim answers as a list (no output) and is no error, even for a session already gone.
+		expect(service.request("tab", { action: "claim", id: "gone" }, options)).toEqual([
+			expect.objectContaining({ id, output: "" }),
+		]);
+		await claimed;
+		expect(vi.getTimerCount()).toBe(0);
 	});
 
 	it("cuts a reply to the budget and reports where it cut, so the next poll continues without a gap", async () => {

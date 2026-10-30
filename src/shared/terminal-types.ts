@@ -28,8 +28,8 @@ export const TERMINAL_POLL_MAX_WAIT_MS = 1000;
 export const TERMINAL_OUTPUT_BUDGET = 64 * 1024;
 export type TerminalOperation =
 	/**
-	 * `waitMs`: hold the answer until some listed session has output past its offset, exited, or this long
-	 * (a web viewer's long poll; at most `TERMINAL_POLL_MAX_WAIT_MS`). `budget`: cut each session's `output` to this many units.
+	 * `waitMs`: hold the answer until some listed session has output past its offset, any session changed (exit, size,
+	 * restart, close, clear, claim), or this long (a viewport's long poll; at most `TERMINAL_POLL_MAX_WAIT_MS`). `budget`: cut each session's `output` to this many units.
 	 */
 	| { action: "list"; offsets?: Record<string, number>; waitMs?: number; budget?: number }
 	/** `shell`: a detected shell's path; omitted = this computer's default. */

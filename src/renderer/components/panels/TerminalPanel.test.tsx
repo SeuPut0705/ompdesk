@@ -94,7 +94,14 @@ describe("TerminalPanel", () => {
 				handle={handle}
 			/>,
 		);
-		expect(write).toHaveBeenCalledWith("ompdesk-term\r\n");
+		expect(write).toHaveBeenCalledWith("ompdesk-term\r\n", expect.any(Function));
+		// A desktop window reads as a phone does: one long poll held by the host, never a timer loop.
+		expect(request).toHaveBeenCalledWith("tab", {
+			action: "list",
+			offsets: { term: 0 },
+			waitMs: TERMINAL_POLL_MAX_WAIT_MS,
+			budget: TERMINAL_OUTPUT_BUDGET,
+		});
 		data.callback("echo hello\r");
 		expect(request).toHaveBeenCalledWith("tab", { action: "write", id: "term", data: "echo hello\r" });
 		await act(async () => root?.unmount());

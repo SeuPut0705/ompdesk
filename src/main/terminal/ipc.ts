@@ -81,8 +81,8 @@ export function registerTerminalIpc(
 		}
 		const viewer = caller.sender.id;
 		const session = (id: string) => `${owner}|${id}`;
-		// A web viewer's list is a long poll with an output budget, whatever it asked for (the acknowledgement is
-		// its next request); a desktop window's list keeps the plain read.
+		// A list is a long poll with an output budget (the acknowledgement is the viewer's next request): a web
+		// viewer's whatever it asked for, a desktop window's as its viewport asks (bounded by validTerminalOperation).
 		let forwarded: TerminalOperation = operation;
 		if (operation.action === "list" && isWebWindow(viewer)) {
 			forwarded = {
@@ -94,8 +94,8 @@ export function registerTerminalIpc(
 			// Another viewer sizes this PTY: the resize is dropped and the answer says who has it.
 			forwarded = { action: "list", offsets: {} };
 		} else if (operation.action === "claim") {
+			// The worker answers a claim as a list and wakes the other viewers' polls, which carry their new standing.
 			lease.claim(session(operation.id), viewer);
-			forwarded = { action: "list", offsets: {} };
 		} else if (operation.action === "write") {
 			lease.typed(session(operation.id), viewer);
 		} else if (operation.action === "close") {

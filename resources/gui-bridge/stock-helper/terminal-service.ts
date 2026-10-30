@@ -31,14 +31,18 @@ interface Entry {
 const SCROLLBACK_CHARS = 1_000_000;
 export class TerminalService {
 	readonly #entries = new Map<string, Entry>();
-	/** Long polls (`list` with `waitMs`) waiting for the next output or exit of any session. */
+	/** Long polls (`list` with `waitMs`) waiting for the next output or change of any session. */
 	readonly #waiters = new Set<() => void>();
-	/** Exits and failures so far: a poll that began earlier answers when this moved. */
-	#ended = 0;
+	/**
+	 * What a viewer shows besides output, changed so far: exits and failures, a resize, a restart, a close, a clear, a
+	 * claim of the size. A poll that began earlier answers when this moved, so another window showing the same PTY
+	 * follows at once.
+	 */
+	#changed = 0;
 	constructor(readonly factory: () => Pty) {}
 
-	#wake(ended = false): void {
-		if (ended) this.#ended += 1;
+	#wake(changed = false): void {
+		if (changed) this.#changed += 1;
 		for (const wake of [...this.#waiters]) wake();
 	}
 
@@ -96,6 +100,9 @@ export class TerminalService {
 			};
 			this.#entries.set(randomUUID(), entry);
 			this.#start(entry);
+		} else if (operation.action === "claim") {
+			// Main moved the size lease to the claiming viewer; the others' polls answer with their new standing.
+			this.#wake(true);
 		} else if (operation.action !== "list") {
 			const entry = this.#entries.get(operation.id);
 			if (!entry || entry.owner !== owner) throw new Error("Terminal not found");
@@ -107,19 +114,23 @@ export class TerminalService {
 					entry.options.cols = operation.cols;
 					entry.options.rows = operation.rows;
 					if (!entry.exited) entry.pty.resize(operation.cols, operation.rows);
+					this.#wake(true);
 					break;
 				case "close":
 					if (!entry.exited) entry.pty.kill();
 					this.#entries.delete(operation.id);
+					this.#wake(true);
 					break;
 				case "restart":
 					if (!entry.exited) entry.pty.kill();
 					entry.pty = this.factory();
 					this.#start(entry);
+					this.#wake(true);
 					break;
 				case "clear":
 					entry.base += entry.output.length;
 					entry.output = "";
+					this.#wake(true);
 					break;
 			}
 		}
@@ -150,9 +161,10 @@ export class TerminalService {
 	}
 
 	/**
-	 * A `list` that holds until one of the owner's sessions has output past its offset, has exited or failed since,
-	 * or `waitMs` has passed (a web viewer's long poll: nothing is sent while nothing happens). Output already
-	 * waiting answers at once, so a viewer behind a `budget` keeps reading without pause.
+	 * A `list` that holds until one of the owner's sessions has output past its offset, or any session has changed
+	 * otherwise since (exit, failure, size, restart, close, clear, claim), or `waitMs` has passed (a viewer's long poll:
+	 * nothing is sent while nothing happens). Output already waiting answers at once, so a viewer behind a `budget`
+	 * keeps reading without pause.
 	 */
 	async list(
 		owner: string,
@@ -167,10 +179,10 @@ export class TerminalService {
 					operation.offsets?.[id] !== undefined &&
 					entry.base + entry.output.length > (operation.offsets[id] ?? 0),
 			);
-		const ended = this.#ended;
+		const changed = this.#changed;
 		const deadline = Date.now() + waitMs;
 		// Any session's output wakes every poll; each looks again and sleeps on unless it was its own news.
-		while (waitMs > 0 && !pending() && this.#ended === ended && Date.now() < deadline) {
+		while (waitMs > 0 && !pending() && this.#changed === changed && Date.now() < deadline) {
 			const { promise, resolve } = Promise.withResolvers<void>();
 			const timer = setTimeout(resolve, deadline - Date.now());
 			this.#waiters.add(resolve);
