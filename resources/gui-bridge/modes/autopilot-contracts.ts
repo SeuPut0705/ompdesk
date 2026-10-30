@@ -457,6 +457,13 @@ export interface AutopilotBranchInfo {
 	current: string | null;
 }
 
+/** A step of main's pipeline for the run (a cycle's end, the ship queue, a nudge) that ran past its bound and was stopped; the run went on. */
+export interface AutopilotStall {
+	step: string;
+	at: number;
+	ms: number;
+}
+
 export interface AutopilotStatus {
 	/** False: this session is not an autopilot run (the other fields are absent). */
 	active: boolean;
@@ -497,6 +504,8 @@ export interface AutopilotStatus {
 	children?: AutopilotChildLive[];
 	/** Waiting for the account quota until this time (ms). */
 	quotaResetAt?: number;
+	/** The newest steps main stopped for running past their bound; absent when none. */
+	stalls?: AutopilotStall[];
 }
 
 /**

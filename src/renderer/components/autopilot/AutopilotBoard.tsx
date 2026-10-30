@@ -188,6 +188,7 @@ function AutopilotRunSection() {
 	const state = useAutopilotStore(s => s.status.state);
 	const children = useAutopilotStore(s => s.status.children);
 	const redStreak = useAutopilotStore(s => s.status.redStreak);
+	const stall = useAutopilotStore(s => s.status.stalls?.at(-1));
 	const stateText = useAutopilotStateText();
 	const calls = useCycleCalls(now?.startedAt);
 	const step = autopilotStep(calls);
@@ -230,6 +231,17 @@ function AutopilotRunSection() {
 				<BoardRow
 					data={{ "data-autopilot-red-streak": String(redStreak) }}
 					label={<span className="text-(--sc-text-muted)">{t("autopilot.redStreak", { n: redStreak })}</span>}
+					lead={<Dot tone="warning" />}
+				/>
+			)}
+			{stall !== undefined && (
+				<BoardRow
+					data={{ "data-autopilot-stall": stall.step }}
+					label={
+						<span className="text-(--sc-text-muted)">
+							{t("autopilot.stalled", { step: stall.step, min: Math.max(1, Math.round(stall.ms / 60_000)) })}
+						</span>
+					}
 					lead={<Dot tone="warning" />}
 				/>
 			)}

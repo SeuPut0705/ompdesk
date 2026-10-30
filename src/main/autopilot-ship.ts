@@ -23,6 +23,7 @@ import type {
 } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import { checkLandCandidate, type LandCheck, type LandCheckInput } from "./autopilot-land-check";
 import { gitRaw } from "./local/git/exec";
+import { SerialChain, StepStalledError } from "./serial-chain";
 
 export interface ShipTarget {
 	/** The run's worktree. */
@@ -55,6 +56,8 @@ export interface ShipDeps {
 	id(): string;
 	/** Check a land candidate in a temporary checkout (default: {@link checkLandCandidate}). */
 	checkCandidate?(input: LandCheckInput): Promise<LandCheck>;
+	/** The longest one drain runs before it is stopped and its running items fail (default {@link SHIP_DRAIN_MAX_MS}). */
+	drainMaxMs?: number;
 }
 
 export interface ShipRequest {
@@ -103,6 +106,12 @@ export interface ShipResult {
 
 const PUSH_TIMEOUT_MS = 180_000;
 const GIT_TIMEOUT_MS = 120_000;
+/**
+ * The longest one drain runs: a land builds up to {@link LAND_ATTEMPTS} candidates, each checked for up to
+ * 30 min (`LAND_CHECK_TIMEOUT_MS`) after a worktree add and a setup hook, with git calls between. Every step has its
+ * own timeout, so this only ends a drain whose step never reported back; the queue is then free again.
+ */
+export const SHIP_DRAIN_MAX_MS = 3 * 60 * 60_000;
 /** Finished items kept for the screen. */
 const KEEP_FINISHED = 20;
 /** Candidates a land builds when the default branch keeps moving (each checked); then the next cycle tries again. */
@@ -174,10 +183,11 @@ export class ShipRunner {
 	readonly #checks = new Map<string, string>();
 	/** The pull request a protected default branch made landing open (one per run; later lands update its branch). */
 	#landPr: { url?: string } | null = null;
-	#tail: Promise<unknown> = Promise.resolve();
+	readonly #chain: SerialChain;
 
 	constructor(deps: ShipDeps) {
 		this.#deps = deps;
+		this.#chain = new SerialChain({ name: "autopilot ship queue", maxStepMs: deps.drainMaxMs ?? SHIP_DRAIN_MAX_MS });
 	}
 
 	queue(): ShipQueueItem[] {
@@ -243,17 +253,37 @@ export class ShipRunner {
 
 	/**
 	 * Run the queued items in order (items queued meanwhile too); with `accept`, only those it takes, the rest stay
-	 * queued for a later drain. Drains never overlap.
+	 * queued for a later drain. Drains never overlap. A drain that runs past {@link SHIP_DRAIN_MAX_MS} is stopped: the
+	 * item it was running fails (its reason says so, the screen and the agent's note show it), what finished before it
+	 * is returned, and the next drain starts.
 	 */
-	drain(target: ShipTarget, accept?: (item: ShipQueueItem) => boolean): Promise<ShipResult[]> {
-		const run = this.#tail.then(() => this.#drain(target, accept));
-		this.#tail = run.catch(() => undefined);
-		return run;
+	async drain(target: ShipTarget, accept?: (item: ShipQueueItem) => boolean): Promise<ShipResult[]> {
+		const results: ShipResult[] = [];
+		try {
+			return await this.#chain.run(signal => this.#drain(target, accept, results, signal), "drain");
+		} catch (error) {
+			if (!(error instanceof StepStalledError)) throw error;
+			for (const item of this.#items) {
+				if (item.state !== "running" || item.kind === "release") continue;
+				item.state = "failed";
+				item.detail = error.message;
+				this.#modes.delete(item.id);
+				this.#checks.delete(item.id);
+				results.push({ item: { ...item } });
+			}
+			this.#broadcast();
+			return results;
+		}
 	}
 
-	async #drain(target: ShipTarget, accept?: (item: ShipQueueItem) => boolean): Promise<ShipResult[]> {
-		const results: ShipResult[] = [];
+	async #drain(
+		target: ShipTarget,
+		accept: ((item: ShipQueueItem) => boolean) | undefined,
+		results: ShipResult[],
+		signal: AbortSignal,
+	): Promise<ShipResult[]> {
 		for (;;) {
+			if (signal.aborted) break;
 			const item = this.#items.find(entry => entry.state === "queued" && (accept?.(entry) ?? true));
 			if (!item) break;
 			item.state = "running";
@@ -265,8 +295,11 @@ export class ShipRunner {
 				else if (item.kind === "merge") await this.#merge(target, item);
 				else if (item.kind === "land") Object.assign(result, await this.#land(target, item));
 				else if (item.kind === "revert") await this.#revert(target, item);
+				// Stopped meanwhile: the drain's caller already failed this item and went on.
+				if (signal.aborted) break;
 				item.state = "done";
 			} catch (error) {
+				if (signal.aborted) break;
 				item.state = "failed";
 				item.detail = error instanceof Error ? brief(error.message) : String(error);
 				if (error instanceof ShipFailure && error.push) result.failure = error.push;

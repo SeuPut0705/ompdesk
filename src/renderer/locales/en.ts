@@ -584,6 +584,7 @@ export const en: Record<string, string> = {
 	"autopilot.timeline": "Timeline",
 	"autopilot.redStreak": "{n} red in a row",
 	"autopilot.untitled": "(untitled)",
+	"autopilot.stalled": "{step} did not finish in {min} min and was stopped; the run went on",
 	"autopilot.reverted": "reverted",
 	"autopilot.revert": "Revert",
 	"autopilot.revertConfirm.title": "Revert this cycle?",

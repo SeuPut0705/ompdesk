@@ -578,6 +578,7 @@ export const ko: Record<string, string> = {
 	"autopilot.timeline": "타임라인",
 	"autopilot.redStreak": "연속 빨강 {n}",
 	"autopilot.untitled": "(제목 없음)",
+	"autopilot.stalled": "{step} 단계가 {min}분 안에 끝나지 않아 멈추고 계속 진행했습니다",
 	"autopilot.reverted": "되돌림",
 	"autopilot.revert": "되돌리기",
 	"autopilot.revertConfirm.title": "이 사이클을 되돌릴까요?",

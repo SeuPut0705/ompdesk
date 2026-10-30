@@ -43,6 +43,7 @@ import {
 	type AutopilotSettings,
 	type AutopilotShipPolicy,
 	type AutopilotShipState,
+	type AutopilotStall,
 	type AutopilotStartOptions,
 	type AutopilotStatus,
 	type AutopilotStopRequest,
@@ -80,6 +81,7 @@ import { ghText, gitRaw, resolveBin } from "./local/git/exec";
 import { prCreate } from "./local/git/pr";
 import type { WorktreeBranchSource } from "./local/git/worktree";
 import { detectReleaseProcedure } from "./release-detect";
+import { SerialChain, StepStalledError } from "./serial-chain";
 import type { TabActivity } from "./sidecar-pool";
 import type { SidecarLike } from "./sidecar-types";
 import type { GoalSettlement, RelaunchContinuation } from "./turn-resume";
@@ -95,6 +97,15 @@ const WORKTREE_MS = 960_000;
 const GUIDE_MS = 45_000;
 /** TurnResume arms its scheduled retry a beat after a failed turn is reported; a failure still standing after this is final. */
 const ERROR_GRACE_MS = 3_000;
+/** The longest one ordinary step of a run's pipeline (a nudge, a stop, a quota wake) runs before it is stopped. */
+const STEP_MAX_MS = 15 * 60_000;
+/** A cycle's end holds the ship queue's drain (3 h, `SHIP_DRAIN_MAX_MS`): the drain's own bound fires first. */
+const CYCLE_END_MAX_MS = 4 * 60 * 60_000;
+/** Stopped steps the run's status keeps. */
+const KEEP_STALLS = 5;
+/** A failed retry after a quota wake is tried again after this, doubling, never longer than {@link QUOTA_RETRY_MAX_MS}. */
+const QUOTA_RETRY_MIN_MS = 30_000;
+const QUOTA_RETRY_MAX_MS = 10 * 60_000;
 /** A usage-limit stop (the renderer's `messages.ts` "rateLimit" kind): the renderer books the reservation that resumes it. */
 const QUOTA_ERROR = /\b429\b|rate[ _-]?limit|too many requests|quota|usage limit|insufficient_quota/i;
 
@@ -297,8 +308,14 @@ interface Run {
 	nudgeLater: boolean;
 	/** Cancels the wake armed for the end of a quota wait (`waiting_quota`). */
 	cancelQuotaWake: (() => void) | null;
-	/** The cycle-end pipeline of one run is sequential. */
+	/** The cycle-end pipeline of one run is sequential, and every step of it has a bound ({@link RunStep}). */
+	steps: SerialChain;
+	/** The newest queued step's end: what {@link Autopilot.idle} waits for. */
 	chain: Promise<unknown>;
+	/** Steps the pipeline stopped for running past their bound (newest {@link KEEP_STALLS}); shown in the run's status. */
+	stalls: AutopilotStall[];
+	/** Failed retries since the quota wait began: the backoff's exponent. */
+	quotaRetries: number;
 	refreshing: boolean;
 	/** The title this run gave its session (`runSessionTitle`), and the cycle item it last named it after. */
 	title?: { name: string; item: string | null };
@@ -512,12 +529,12 @@ export class Autopilot {
 		if (!run) return;
 		if (QUOTA_ERROR.test(message)) {
 			// Stock's own auto-retry may still take it: look once it has had the chance, as for any other failure.
-			(this.#deps.after ?? afterMs)(() => this.#enqueue(run, () => this.#waitForQuota(run)), ERROR_GRACE_MS);
+			(this.#deps.after ?? afterMs)(() => this.#enqueue(run, () => this.#waitForQuota(run), "quota wait"), ERROR_GRACE_MS);
 			return;
 		}
 		// TurnResume arms its retry a moment after the failure is reported: look again once it has had the chance (the
 		// nudge itself asks nothing while a retry, a turn or the connection wait holds the run).
-		(this.#deps.after ?? afterMs)(() => this.#enqueue(run, () => this.#nudge(run, "error")), ERROR_GRACE_MS);
+		(this.#deps.after ?? afterMs)(() => this.#enqueue(run, () => this.#nudge(run, "error"), "nudge"), ERROR_GRACE_MS);
 	}
 
 	/**
@@ -564,16 +581,16 @@ export class Autopilot {
 			const record = frame.record as AutopilotCycleRecord;
 			const receivedAt = this.#now();
 			this.#titleByItem(run, record.title);
-			this.#enqueue(run, () => this.#cycleEnd(run, record, receivedAt));
+			this.#enqueue(run, () => this.#cycleEnd(run, record, receivedAt), "cycle end", CYCLE_END_MAX_MS);
 		} else if (frame.type === "autopilot_nudge") {
 			const reason = frame.reason as AutopilotNudgeReason;
-			this.#enqueue(run, () => this.#nudge(run, reason));
+			this.#enqueue(run, () => this.#nudge(run, reason), "nudge");
 		} else if (frame.type === "autopilot_stop_requested") {
 			const request = frame as unknown as AutopilotStopRequest;
-			this.#enqueue(run, () => this.#stopRequested(run, request));
+			this.#enqueue(run, () => this.#stopRequested(run, request), "stop");
 		} else if (frame.type === "autopilot_settled") {
 			const reason = frame.reason as AutopilotPauseReason | AutopilotEndReason;
-			this.#enqueue(run, () => this.#settled(run, reason));
+			this.#enqueue(run, () => this.#settled(run, reason), "settle");
 		}
 	}
 
@@ -892,7 +909,10 @@ export class Autopilot {
 			nextNudgeAt: 0,
 			nudgeLater: false,
 			cancelQuotaWake: null,
+			steps: this.#stepsOf(tabId),
 			chain: Promise.resolve(),
+			stalls: [],
+			quotaRetries: 0,
 			refreshing: false,
 			refreshAgain: false,
 			stopPolling: null,
@@ -969,7 +989,7 @@ export class Autopilot {
 			await Promise.all([...run.children.keys()].map(child => control.clearQueue(child).catch(() => undefined)));
 		}
 		// No turn in flight: no `agent_end` will bring `autopilot_settled`.
-		if (!this.#deps.pool.tabFacts(run.tabId)?.busy) this.#enqueue(run, () => this.#settled(run, reason));
+		if (!this.#deps.pool.tabFacts(run.tabId)?.busy) this.#enqueue(run, () => this.#settled(run, reason), "settle");
 	}
 
 	/**
@@ -1183,15 +1203,37 @@ export class Autopilot {
 		const status = await this.#fetchStatus(run).catch(() => null);
 		const cycleInFlight = status?.now !== undefined && (status.state === "running" || status.state === "stopping");
 		if (!this.#deps.pool.tabFacts(run.tabId)?.busy && !cycleInFlight)
-			this.#enqueue(run, async () => void (await this.#drain(run)));
+			this.#enqueue(run, async () => void (await this.#drain(run)), "ship queue", CYCLE_END_MAX_MS);
 	}
 
 	// ----------------------------------------------------------------------------------------
 	// A cycle's end: children, audit, ship
 	// ----------------------------------------------------------------------------------------
 
-	#enqueue(run: Run, work: () => Promise<void>): void {
-		run.chain = run.chain.then(work).catch(error => this.#log(`${run.tabId}: ${String(error)}`));
+	/**
+	 * Queue one step of the run's pipeline. Each ends for real: past its bound ({@link STEP_MAX_MS}, or `maxMs`) it is
+	 * stopped, written to the runtime log (`chain-stall`) and shown in the run's status, and the next step starts.
+	 */
+	#enqueue(run: Run, work: () => Promise<void>, step = "step", maxMs?: number): void {
+		run.chain = run.steps
+			.run(work, step, maxMs)
+			.catch(error => {
+				if (!(error instanceof StepStalledError)) this.#log(`${run.tabId}: ${String(error)}`);
+			});
+	}
+
+	#stepsOf(tabId: string): SerialChain {
+		return new SerialChain({
+			name: `autopilot ${tabId}`,
+			maxStepMs: STEP_MAX_MS,
+			onStall: stall => {
+				const run = this.#runs.get(tabId);
+				if (!run) return;
+				this.#log(`${tabId}: ${stall.message}`);
+				run.stalls = [...run.stalls, { step: stall.step, at: this.#now(), ms: stall.ms }].slice(-KEEP_STALLS);
+				this.#track(this.#refresh(run));
+			},
+		});
 	}
 
 	async #cycleEnd(run: Run, record: AutopilotCycleRecord, receivedAt: number): Promise<void> {
@@ -1441,7 +1483,7 @@ export class Autopilot {
 			run.nudgeLater = true;
 			(this.#deps.after ?? afterMs)(() => {
 				run.nudgeLater = false;
-				this.#enqueue(run, () => this.#nudge(run, reason));
+				this.#enqueue(run, () => this.#nudge(run, reason), "nudge");
 			}, run.nextNudgeAt - now);
 			return;
 		}
@@ -1477,6 +1519,7 @@ export class Autopilot {
 		const now = this.#now();
 		const reports = Array.isArray(usage?.reports) ? usage.reports : [];
 		const resetAt = quotaResetAt(reports, state?.model?.provider ?? undefined, now) ?? now + QUOTA_FALLBACK_MS;
+		run.quotaRetries = 0;
 		await this.#setState(run, { state: "waiting_quota", quotaResetAt: resetAt });
 		this.#armQuotaWake(run, resetAt, false);
 	}
@@ -1486,7 +1529,7 @@ export class Autopilot {
 		run.cancelQuotaWake = (this.#deps.after ?? afterMs)(
 			() => {
 				run.cancelQuotaWake = null;
-				this.#enqueue(run, () => this.#quotaWake(run, restarted));
+				this.#enqueue(run, () => this.#quotaWake(run, restarted), "quota wake");
 			},
 			Math.max(0, at - this.#now()),
 		);
@@ -1507,7 +1550,23 @@ export class Autopilot {
 			return;
 		}
 		const retried = await this.#stockResponse(run.tabId, { type: "retry" }).catch(() => null);
-		if (!retried?.success) this.#enqueue(run, () => this.#nudge(run, "error"));
+		if (retried?.success) {
+			run.quotaRetries = 0;
+			return;
+		}
+		// A turn is already under way (a message of the user's, a nudge): the run is going on.
+		const facts = this.#deps.pool.tabFacts(run.tabId);
+		if (facts?.busy || facts?.retrying) return;
+		// The retry did not take: wait again, visibly (`waiting_quota` with the time of the next try), at the next reset
+		// the provider reports or after a backoff of at most {@link QUOTA_RETRY_MAX_MS}, whichever is sooner. It repeats
+		// until the run goes on.
+		const now = this.#now();
+		const backoff = Math.min(QUOTA_RETRY_MAX_MS, QUOTA_RETRY_MIN_MS * 2 ** run.quotaRetries);
+		run.quotaRetries += 1;
+		const next = now + backoff;
+		this.#log(`${run.tabId}: the retry after the quota wait failed; trying again at ${new Date(next).toISOString()}`);
+		await this.#setState(run, { state: "waiting_quota", quotaResetAt: next });
+		this.#armQuotaWake(run, next, false);
 	}
 
 	async #stopRequested(run: Run, request: AutopilotStopRequest): Promise<void> {
@@ -1862,7 +1921,7 @@ export class Autopilot {
 			...(child.branch ? { branch: child.branch } : {}),
 			status: this.#deps.pool.tabFacts(child.tabId)?.busy ? "running" : "done",
 		}));
-		return { ...status, ship, children };
+		return { ...status, ship, children, ...(run.stalls.length > 0 ? { stalls: run.stalls } : {}) };
 	}
 
 	async #fetchStatus(run: Run): Promise<AutopilotStatus> {

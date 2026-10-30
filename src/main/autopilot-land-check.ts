@@ -25,6 +25,8 @@ import { findOnPath } from "./spawn";
 
 /** A check that runs this long is stopped and counts as failed (the candidate is not landed). */
 export const LAND_CHECK_TIMEOUT_MS = 30 * 60_000;
+/** After the timeout asked the supervisor to stop the check, how long it has before the check is killed and given up. */
+const STOP_GRACE_MS = 30_000;
 const OUTPUT_TAIL = 2_000;
 /** A line that starts an error report: JavaScript's error names, `error:`/`Error:` lines, a Python traceback. */
 const ERROR_LINE = /^\s*(?:[A-Z][A-Za-z]*Error\b|Error:|error(?:\[[^\]]*\])?:|Traceback)/;
@@ -131,9 +133,20 @@ async function run(command: string, cwd: string, timeoutMs: number): Promise<Omi
 	let timedOut = false;
 	const env = await sessionEnv();
 	const child = spawnSupervised({ ...shellFor(command, env), shell: false }, env, cwd);
+	let killTimer: ReturnType<typeof setTimeout> | undefined;
 	const timer = setTimeout(() => {
 		timedOut = true;
 		child.stdin?.end();
+		// A supervisor that does not stop the check (or never reports its end) must not hold the land: kill, give up.
+		killTimer = setTimeout(() => {
+			try {
+				child.kill("SIGKILL");
+			} catch {
+				// Already gone.
+			}
+			finish(null, "the check did not stop when asked");
+		}, STOP_GRACE_MS);
+		killTimer.unref();
 	}, timeoutMs);
 	child.stdout?.on("data", (chunk: Buffer) => chunks.push(chunk));
 	child.stderr?.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -142,6 +155,7 @@ async function run(command: string, cwd: string, timeoutMs: number): Promise<Omi
 		if (done) return;
 		done = true;
 		clearTimeout(timer);
+		clearTimeout(killTimer);
 		const output = Buffer.concat(chunks).toString("utf8") + (error ? `${error}\n` : "");
 		// A stopped check's own exit code is never taken as a pass.
 		const exitCode = timedOut || code === SUPERVISOR_STOPPED_CODE ? null : code;
