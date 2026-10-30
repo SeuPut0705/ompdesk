@@ -540,9 +540,8 @@ export function TitleBar() {
 				<StatusPill label={statusLabel} tone={tone} />
 			</div>
 
-			<div className="flex-1" />
-
-			<div className="no-drag flex shrink-0 items-center gap-0.5">
+			{/* `ml-auto`, not an empty flex-1 spacer: the spacer cost the bar one more gap, 14 px of a phone's title. */}
+			<div className="no-drag ml-auto flex shrink-0 items-center gap-0.5">
 				<Button
 					aria-expanded={statusOpen}
 					aria-haspopup="dialog"
