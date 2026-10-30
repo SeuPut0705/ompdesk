@@ -27,13 +27,13 @@ const TEXT = {
 	en: {
 		waiting: "Waiting for the internet connection…",
 		notice: "Re-running 1 background task the restart stopped",
-		subagents: "Continuing 1 background task after the restart",
+		subagents: "Continuing 1 subagent after the restart",
 		cancel: "Cancel",
 	},
 	ko: {
 		waiting: "인터넷 연결을 기다리는 중이에요…",
 		notice: "재시작 때 멈춘 백그라운드 작업 1개를 다시 실행해요",
-		subagents: "재시작 뒤 백그라운드 작업 1개를 이어서 진행해요",
+		subagents: "재시작 뒤 서브에이전트 1개를 이어서 진행해요",
 		cancel: "취소",
 	},
 } as const;
