@@ -538,6 +538,7 @@ export const ko: Record<string, string> = {
 	"input.modes.title": "세션 모드",
 	"input.modes.activeTitle": "세션 모드: {modes}",
 	"input.modes.label": "모드",
+	"input.modes.formsLabel": "목표 또는 오토파일럿",
 	"input.modes.name.plan": "계획 모드",
 	"input.modes.name.goal": "목표 모드",
 	"input.modes.tab.plan": "계획",

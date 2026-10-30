@@ -37,6 +37,7 @@ if (typeof elementPrototype.focus !== "function") elementPrototype.focus = () =>
 
 const ok = (command: string, data: unknown): RpcResponse => ({ type: "response", command, success: true, data });
 const rpc = {
+	getGoal: vi.fn(async () => ok("get_goal", { enabled: false, status: "none" })),
 	getDelegation: vi.fn(async () => ok("get_delegation", { mode: "assisted" })),
 	setDelegation: vi.fn(async (mode: string) => ok("set_delegation", { mode })),
 	getSettings: vi.fn(async () =>
@@ -191,7 +192,12 @@ describe("the Mode section opened before the tab's run state arrived", () => {
 
 	it("shows the run once it is known, so its controls (open the screen, End) are there", async () => {
 		await openSheet({ openAdvanced: false });
-		expect(selectedTab()).toContain(translate("input.modes.tab.plan"));
+		expect(selectedTab()).toBe("");
+		expect(document.querySelector("[data-autopilot-sheet]")).toBeNull();
+		// Plan is one switch above the tabs, never a tab that could read as chosen over an off switch.
+		const tabNames = Array.from(document.querySelectorAll('[role="tab"]')).map(tab => tab.textContent ?? "");
+		expect(tabNames.some(name => name.includes(translate("input.modes.tab.plan")))).toBe(false);
+		expect(document.querySelectorAll("[data-plan-mode]")).toHaveLength(1);
 		await act(async () => useAutopilotStore.getState().apply(running));
 		expect(selectedTab()).toContain(translate("input.modes.tab.autopilot"));
 		expect(document.querySelector("[data-autopilot-open-screen]")).not.toBeNull();

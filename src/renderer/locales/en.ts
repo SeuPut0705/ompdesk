@@ -544,6 +544,7 @@ export const en: Record<string, string> = {
 	"input.modes.title": "Session mode",
 	"input.modes.activeTitle": "Session mode: {modes}",
 	"input.modes.label": "Mode",
+	"input.modes.formsLabel": "Goal or Autopilot",
 	"input.modes.name.plan": "Plan mode",
 	"input.modes.name.goal": "Goal mode",
 	"input.modes.tab.plan": "Plan",

@@ -50,7 +50,7 @@ export function Tabs({ tabs, activeId, onChange, variant = "underline", compact,
 		if (event.key === "Home") next = 0;
 		else if (event.key === "End") next = enabled.length - 1;
 		else if (event.key === "ArrowRight") next = (current + 1) % enabled.length;
-		else next = (current - 1 + enabled.length) % enabled.length;
+		else next = current < 0 ? enabled.length - 1 : (current - 1 + enabled.length) % enabled.length;
 		onChange(enabled[next].id);
 		requestAnimationFrame(() => {
 			listRef.current?.querySelector<HTMLElement>(`[data-tab-id="${CSS.escape(enabled[next].id)}"]`)?.focus();
@@ -69,6 +69,9 @@ export function Tabs({ tabs, activeId, onChange, variant = "underline", compact,
 		else if (at.right > box.right) list.scrollLeft += at.right - box.right;
 	}, [activeId]);
 
+	// With no tab selected (a strip that only opens forms) the first enabled tab is the one Tab stop.
+	const anySelected = tabs.some(tab => tab.id === activeId);
+	const rovingStop = tabs.find(tab => !tab.disabled);
 	return (
 		<div
 			aria-label={ariaLabel}
@@ -111,7 +114,7 @@ export function Tabs({ tabs, activeId, onChange, variant = "underline", compact,
 						key={tab.id}
 						onClick={() => onChange(tab.id)}
 						role="tab"
-						tabIndex={active ? 0 : -1}
+						tabIndex={active || (tab === rovingStop && !anySelected) ? 0 : -1}
 						type="button"
 					>
 						{tab.label}

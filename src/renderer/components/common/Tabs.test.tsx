@@ -114,6 +114,15 @@ describe("Tabs", () => {
 		expect(tabs().map(tab => tab.getAttribute("tabindex"))).toEqual(["-1", "-1", "0"]);
 	});
 
+	it("may have no tab selected: the first one is the Tab stop and ←/→ start from the ends", async () => {
+		const change = vi.fn();
+		await mount(<Host initial="" items={TABS} onChange={change} />);
+		expect(selectedIds()).toEqual([]);
+		expect(tabs().map(tab => tab.getAttribute("tabindex"))).toEqual(["0", "-1", "-1"]);
+		await press("ArrowRight");
+		expect(change).toHaveBeenLastCalledWith("a");
+	});
+
 	it("reports the clicked tab's id", async () => {
 		const change = vi.fn();
 		await mount(<Tabs activeId="a" onChange={change} tabs={TABS} />);

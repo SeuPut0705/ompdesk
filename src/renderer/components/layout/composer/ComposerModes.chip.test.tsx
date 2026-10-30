@@ -130,12 +130,11 @@ describe("Composer mode chip", () => {
 		await act(async () => trigger().click());
 		await flush();
 
-		for (const name of ["Plan", "Goal"]) {
-			expect(tab(name)?.textContent).toBe(`${name}on`);
-		}
-		// Opens on the first active mode: Plan, whose switch is on.
-		expect(tab("Plan")?.getAttribute("aria-selected")).toBe("true");
-		expect(document.querySelector('[role="switch"]')?.getAttribute("aria-checked")).toBe("true");
+		expect(tab("Goal")?.textContent).toBe("Goalon");
+		expect(tab("Plan")).toBeUndefined();
+		// Plan is the switch above the tabs, on; the open tab is a form's and says nothing about Plan.
+		expect(tab("Goal")?.getAttribute("aria-selected")).toBe("true");
+		expect(document.querySelector("[data-plan-mode]")?.getAttribute("aria-checked")).toBe("true");
 	});
 
 	it("counts a paused goal as the session's goal, as goalIsActive does", async () => {
@@ -158,7 +157,9 @@ describe("Composer mode chip", () => {
 		const tabNames = (Array.from(document.querySelectorAll('[role="tab"]')) as unknown as TestElement[]).map(
 			element => element.textContent,
 		);
-		expect(tabNames).toEqual(["Plan", "Goal", "Autopilot"]);
+		expect(tabNames).toEqual(["Goal", "Autopilot"]);
+		// Plan has no form: with no Goal or Autopilot open, no tab reads as chosen and no form is drawn.
+		expect(document.querySelector('[role="tab"][aria-selected="true"]')).toBeNull();
 		expect(tab("Loop")).toBeUndefined();
 		expect(tab("Vibe")).toBeUndefined();
 		expect(tab("Ratchet")).toBeUndefined();

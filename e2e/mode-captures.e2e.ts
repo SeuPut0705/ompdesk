@@ -1,6 +1,6 @@
 /**
- * Mode popover captures: the Plan, Goal and Autopilot tabs in light/dark × en/ko, plus the Autopilot tab in a short
- * window (the popover scrolls inside the viewport instead of overflowing it).
+ * Mode popover captures: the Plan switch and the Goal and Autopilot tabs in light/dark × en/ko, plus the Autopilot and
+ * Goal tabs in a short window (the popover scrolls inside the viewport instead of overflowing it).
  * Runs only with OMPDESK_MODE_SHOTS=<dir> (before/after comparisons of the compact redesign).
  */
 import * as fs from "node:fs/promises";
@@ -32,7 +32,12 @@ for (const language of ["en", "ko"] as const)
 				const popover = page.locator('[role="dialog"]').filter({ has: page.locator("[data-tab-id='autopilot']") });
 				await page.locator("[data-run-settings-trigger]").click();
 				await expect(popover).toBeVisible();
-				for (const tab of ["plan", "goal", "autopilot"]) {
+				await page.waitForTimeout(400);
+				await shoot("plan");
+				// Plan is one switch above the tabs (never a tab beside its own off switch); Goal and Autopilot are tabs.
+				await expect(popover.locator('[data-tab-id="plan"]')).toHaveCount(0);
+				await expect(popover.locator("[data-plan-mode]")).toHaveCount(1);
+				for (const tab of ["goal", "autopilot"]) {
 					await popover.locator(`[data-tab-id="${tab}"]`).click();
 					await page.waitForTimeout(400);
 					await shoot(tab);
@@ -46,6 +51,18 @@ for (const language of ["en", "ko"] as const)
 				expect((box?.y ?? -1) + (box?.height ?? 0)).toBeLessThanOrEqual(viewport);
 				expect(box?.y ?? -1).toBeGreaterThanOrEqual(0);
 				await shoot("autopilot-short-window");
+				await popover.locator('[data-tab-id="goal"]').click();
+				await page.waitForTimeout(400);
+				// The model-roles row is pinned to the popover's foot: whole, never half under the scroll edge.
+				const roles = popover.locator("[data-run-sheet-row]").last();
+				const rolesBox = await roles.boundingBox();
+				const popoverBox = await popover.boundingBox();
+				expect(rolesBox).not.toBeNull();
+				expect((rolesBox?.y ?? 0) + (rolesBox?.height ?? 0)).toBeLessThanOrEqual(
+					(popoverBox?.y ?? 0) + (popoverBox?.height ?? 0),
+				);
+				expect(rolesBox?.y ?? -1).toBeGreaterThanOrEqual(popoverBox?.y ?? 0);
+				await shoot("goal-short-window");
 			} finally {
 				await exitApp(app);
 				await cleanupAp(profile);

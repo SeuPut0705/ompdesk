@@ -77,9 +77,16 @@ export function useComposerModes(): ComposerModesView {
 	};
 }
 
+/** The modes that open a form (Goal's objective, Autopilot's start sheet); Plan has none and is the switch above them. */
+const FORM_MODE_IDS = ["goal", "autopilot"] as const;
+
 /**
- * The popover's Mode section: one tab per mode and the selected mode's config, then the automatic-choice switch.
- * `tab` is controlled so `openModes(tab)` and the chip's first-active-mode default can pick it.
+ * The popover's Mode section: Plan's one switch, then a tab per mode that opens a form (Goal, Autopilot) and the
+ * selected one's config, then the automatic-choice switch. Plan is never a tab: a Plan tab selected over its own off
+ * switch read as Plan chosen and off at once, so each mode has exactly one control (the switch, or the tab's form and
+ * its "on" badge). `tab` is controlled so `openModes(tab)` and the chip's first-active-mode default can pick it; "plan"
+ * has no form, so with it no tab is selected and the section stays short (a Goal form open by default made the
+ * popover scroll in an ordinary window).
  */
 export function ModesSection({
 	active,
@@ -94,6 +101,7 @@ export function ModesSection({
 	onClose: () => void;
 }) {
 	const t = useT();
+	const formTab = tab === "plan" ? null : tab;
 	return (
 		<section
 			aria-label={t("input.modes.label")}
@@ -103,25 +111,25 @@ export function ModesSection({
 			<h3 className="text-sc-xs font-semibold tracking-wide text-(--sc-text-muted) uppercase">
 				{t("input.modes.label")}
 			</h3>
-			{/* Underlined tabs, not a segmented pick: the selected tab is only which mode's controls show (the Plan
-			    tab over an off Plan switch read as Plan chosen and off at once); a mode that is on says so in its badge. */}
+			<PlanModeConfig />
 			<Tabs
-				activeId={tab}
-				ariaLabel={t("input.modes.label")}
+				activeId={formTab ?? ""}
+				ariaLabel={t("input.modes.formsLabel")}
 				className="w-full *:flex-1 *:justify-center"
 				compact
 				onChange={id => onTabChange(id as ComposerModeId)}
-				tabs={MODE_IDS.map(mode => ({
+				tabs={FORM_MODE_IDS.map(mode => ({
 					id: mode,
 					label: t(`input.modes.tab.${mode}`),
 					badge: active[mode] ? t("modesPanel.on") : undefined,
 				}))}
 			/>
-			<div className="min-h-0">
-				{tab === "plan" && <PlanModeConfig />}
-				{tab === "goal" && <GoalModeConfig />}
-				{tab === "autopilot" && <AutopilotModeConfig onStarted={onClose} />}
-			</div>
+			{formTab && (
+				<div className="min-h-0">
+					{formTab === "goal" && <GoalModeConfig />}
+					{formTab === "autopilot" && <AutopilotModeConfig onStarted={onClose} />}
+				</div>
+			)}
 			<div className="-mx-3 border-t border-(--sc-divider) px-3 pt-1.5">
 				<AutoModeSwitch />
 			</div>

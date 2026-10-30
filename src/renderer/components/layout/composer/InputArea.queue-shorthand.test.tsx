@@ -163,7 +163,12 @@ async function mount(withRuntime = false): Promise<void> {
 	(window as unknown as Record<string, unknown>).omp = {
 		fs: { list: vi.fn(async () => ({ entries: [] })) },
 		// RunSettings' Context row (ContextSizeField) re-reads compaction limits on config changes.
-		events: { onTabCommandsUpdate: vi.fn(() => () => {}), onConfigUpdate: vi.fn(() => () => {}) },
+		events: {
+			onTabCommandsUpdate: vi.fn(() => () => {}),
+			onConfigUpdate: vi.fn(() => () => {}),
+			// The Run popover opens on the Goal form (Plan is the switch above the tabs), which listens for goal updates.
+			onBatch: vi.fn(() => () => {}),
+		},
 		prefs: { set: vi.fn(async () => ({})), get: vi.fn(async () => []) },
 		rpc: {
 			historyRecord: vi.fn(async (prompt: string, cwd?: string) => {
@@ -173,6 +178,7 @@ async function mount(withRuntime = false): Promise<void> {
 			historyRecent: vi.fn(async () => ok(history)),
 			historySearch: vi.fn(async () => ok(history)),
 			getAvailableCommands: vi.fn(async () => ok({ commands: [] })),
+			getGoal: vi.fn(async () => ok({ enabled: false, status: "none" })),
 			command: vi.fn(async (command: RpcCommand) => {
 				if (command.type === "get_queue") return ok({ steering: [], followUp: [] });
 				if (command.type === "set_setting") return setSetting(command.path, command.value);

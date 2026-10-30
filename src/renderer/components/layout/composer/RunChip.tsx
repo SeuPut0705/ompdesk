@@ -69,9 +69,11 @@ export function RunChip() {
 	};
 
 	const first = modes.shown[0];
+	// Plan has no form to open on: the section follows the first mode that has one.
+	const firstForm = modes.shown.find(mode => mode !== "plan");
 	useEffect(() => {
-		if (open && followsModes && first) setTab(first);
-	}, [open, followsModes, first]);
+		if (open && followsModes && firstForm) setTab(firstForm);
+	}, [open, followsModes, firstForm]);
 	const title = t("input.runSettings.title");
 	const ApprovalGlyph = APPROVAL_ICONS[approvalMode];
 	const delegationName = delegation.mode === null ? null : t(`input.delegation.mode.${delegation.mode}`);
@@ -119,7 +121,7 @@ export function RunChip() {
 							close();
 							return;
 						}
-						setTab(first ?? "plan");
+						setTab(firstForm ?? "plan");
 						setFollowsModes(true);
 						setOpen(true);
 					}}

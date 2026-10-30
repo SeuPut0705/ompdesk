@@ -240,7 +240,9 @@ export function AdvancedAndRoles({ onClose }: { onClose: () => void }) {
 					</div>
 				)}
 			</div>
-			<div className="-mx-3 -mb-1 border-t border-(--sc-divider) px-1 pt-1">
+			{/* Pinned to the popover's foot (flush with its edge: sticky counts the surface's 12 px padding in): in a short
+			    window the rows above scroll under it, so it is never half cut. A phone's sheet scrolls as one, unpinned. */}
+			<div className="sticky -bottom-3 z-10 -mx-3 -mb-1 border-t border-(--sc-divider) bg-(--sc-elevated) px-1 pt-1 in-[.omp-action-sheet]:static">
 				<Button
 					className="w-full justify-start"
 					data-run-sheet-row
