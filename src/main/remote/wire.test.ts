@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createCipheriv, randomBytes } from "node:crypto";
 import { connect, createServer, type Socket } from "node:net";
 import { deflateRawSync } from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -322,5 +322,22 @@ describe("FrameSealer / FrameOpener", () => {
 		tampered[14] = (tampered[14] ?? 0) ^ 1;
 		expect(() => new FrameOpener(key).open(tampered)).toThrow();
 		expect(() => new FrameOpener(randomBytes(32)).open(frame)).toThrow();
+	});
+
+	it("seals each frame as AES-256-GCM under the raw key would, and a new sealer under its own key", () => {
+		const sealer = new FrameSealer(key);
+		for (const [counter, text] of ["one", "two", "three"].entries()) {
+			const frame = sealer.seal(Buffer.from(text));
+			const iv = Buffer.alloc(12);
+			iv.writeBigUInt64BE(BigInt(counter), 4);
+			const cipher = createCipheriv("aes-256-gcm", key, iv);
+			const body = Buffer.concat([cipher.update(Buffer.from(text)), cipher.final()]);
+			expect(frame).toEqual(Buffer.concat([iv, body, cipher.getAuthTag()]));
+		}
+		// A link that secures again (its next session's keys) seals under the new key only.
+		const next = randomBytes(32);
+		const frame = new FrameSealer(next).seal(Buffer.from("later"));
+		expect(new FrameOpener(next).open(frame).toString()).toBe("later");
+		expect(() => new FrameOpener(key).open(frame)).toThrow();
 	});
 });
