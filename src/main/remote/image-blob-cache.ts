@@ -15,9 +15,10 @@
  * nothing else waits on another read. The folder is bounded (`IMAGE_BLOB_CACHE_BYTES`): past it the least recently
  * read blobs go first.
  */
-import { createHash, randomBytes } from "node:crypto";
-import { mkdir, readdir, readFile, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readdir, readFile, rm, stat, utimes } from "node:fs/promises";
 import path from "node:path";
+import { writeFileAtomic } from "../atomic-file";
 import { BLOB_REF_PREFIX, imageBlobSites } from "../local/image-blobs";
 
 /** The cache folder's bound: a few hundred captures, a day of heavy browser work. */
@@ -95,12 +96,9 @@ export class ImageBlobCache {
 		return data;
 	}
 
-	/** Written whole under a temporary name, then renamed: a reader never sees part of a blob. */
+	/** Through the shared atomic writer (Windows retries a held rename): a reader never sees part of a blob. */
 	async #keep(file: string, bytes: Buffer): Promise<void> {
-		await mkdir(this.#dir, { recursive: true });
-		const temp = `${file}.${randomBytes(4).toString("hex")}.tmp`;
-		await writeFile(temp, bytes);
-		await rename(temp, file);
+		await writeFileAtomic(file, bytes);
 		// The first write measures the folder (this blob included); later ones add theirs. A trim measures it again.
 		if (this.#size === null) this.#size = await this.#measure();
 		else this.#size += bytes.length;

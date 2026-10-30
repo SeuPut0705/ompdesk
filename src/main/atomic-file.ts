@@ -78,7 +78,7 @@ export interface AsyncAtomicWriteOptions extends AtomicWriteOptions {
 /** Replaces `file` with `data`; a refused rename is tried again for about 5 s without blocking. Resolves once it is there (or dropped by `commitIf`). */
 export async function writeFileAtomic(
 	file: string,
-	data: string,
+	data: string | Uint8Array,
 	options: AsyncAtomicWriteOptions = {},
 ): Promise<void> {
 	await mkdir(dirname(file), { recursive: true, ...(options.dirMode === undefined ? {} : { mode: options.dirMode }) });
