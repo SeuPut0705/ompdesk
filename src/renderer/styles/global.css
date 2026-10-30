@@ -645,10 +645,11 @@ html[data-platform="darwin"] .omp-sidebar-search {
 
 /* While a split shows several sessions, the pane that has focus carries the selection (its wash and the same accent
    ring as `.omp-session-pane--active`, inset on all four sides so the rounded row never shows a cut edge); the other
-   panes' rows keep a lighter wash: on screen, not the one typed into. One full wash on every pane's row and a 2 px right
-   edge on the focused one read as four selected rows, the edge as a clipped ring. */
+   panes' rows are only outlined (a hairline, no wash): on screen, not the one typed into. A grey wash on every pane's
+   row, however light (4 %), still read as four selected rows with a ring on one; one fill is the focused one. */
 .omp-sidebar-session-row[data-pane-shown="true"] {
-	background-color: color-mix(in srgb, var(--sc-text) 4%, transparent);
+	background-color: transparent;
+	box-shadow: inset 0 0 0 1px var(--sc-border-subtle);
 }
 
 .omp-sidebar-session-row[data-pane-focus="true"] {
