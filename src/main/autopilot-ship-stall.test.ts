@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	branch,
 	commit,
@@ -13,16 +13,35 @@ import {
 
 installShipRig();
 
+/**
+ * The drain's bound. The stuck drain reaches it on a fake clock, once its check is running; the drain after it runs
+ * real git on the real clock, which costs over a second per git process on a saturated Windows runner.
+ */
+const BOUND_MS = 60_000;
+
+afterEach(() => {
+	vi.useRealTimers();
+});
+
 describe("a drain that never ends", () => {
 	it("is stopped at its bound: the item it ran fails with the reason, and the next drain goes through", async () => {
 		await landElsewhere("other.txt", "other\n");
 		const sha = await commit(work, "a.txt");
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		const checking = Promise.withResolvers<void>();
 		const ship = runner({
-			drainMaxMs: 300,
+			drainMaxMs: BOUND_MS,
 			// A check whose supervisor never reports back.
-			checkCandidate: () => Promise.withResolvers<never>().promise,
+			checkCandidate: () => {
+				checking.resolve();
+				return Promise.withResolvers<never>().promise;
+			},
 		});
-		const stuck = await land(ship, sha, "true");
+		const landing = land(ship, sha, "true");
+		await checking.promise;
+		vi.advanceTimersByTime(BOUND_MS);
+		const stuck = await landing;
+		vi.useRealTimers();
 		expect(stuck?.item.state).toBe("failed");
 		expect(stuck?.item.detail).toMatch(/did not finish in/);
 		expect(ship.queue().some(item => item.state === "running")).toBe(false);
