@@ -2084,7 +2084,9 @@ export function runRpcUi(): void {
 				: fs.mkdtempSync(nodePath.join(os.tmpdir(), "omp-fork-"));
 			const sessionPath = nodePath.join(dir, `${forkId}.jsonl`);
 			// Stock `createBranchedSession` gives the fork the source's title (the fixture's title line, as `persistSession`).
-			const title = sessionTitle ? [{ type: "title", v: 1, title: sessionTitle, updatedAt: new Date().toISOString() }] : [];
+			const title = sessionTitle
+				? [{ type: "title", v: 1, title: sessionTitle, updatedAt: new Date().toISOString() }]
+				: [];
 			const header = {
 				type: "session",
 				version: 3,
@@ -2093,10 +2095,7 @@ export function runRpcUi(): void {
 				cwd: process.cwd(),
 			};
 			fs.mkdirSync(dir, { recursive: true });
-			fs.writeFileSync(
-				sessionPath,
-				`${[...title, header, ...path].map(line => JSON.stringify(line)).join("\n")}\n`,
-			);
+			fs.writeFileSync(sessionPath, `${[...title, header, ...path].map(line => JSON.stringify(line)).join("\n")}\n`);
 			return { sessionPath, sessionId: forkId, ...(cut.draft ? { draft: cut.draft } : {}) };
 		},
 		"sessions.arg_completions": () => ({ items: [] }),
