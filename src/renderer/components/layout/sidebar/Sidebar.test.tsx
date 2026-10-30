@@ -3861,6 +3861,28 @@ describe("Sidebar device sections", () => {
 		expect(groups()).toEqual(["/code/web", "/code/app"]);
 	});
 
+	it("a paired host's stored session has the same edits in its menu as this computer's: rename, pin and archive", async () => {
+		const omp = installWithRemote();
+		const host = [
+			session("/s/app/one.jsonl", "/code/app", {
+				title: "App one",
+				device: "dev-studio",
+				created: "2026-01-03T00:00:00Z",
+			}),
+		];
+		omp.sessions.list.mockImplementation(async (_scope, device) => (device === "dev-studio" ? host : LIST));
+		seedStores();
+		useSidebarPrefs.setState({ hydrated: true });
+		pairHost("online");
+		await mount(<Sidebar />);
+
+		await fire(container.querySelector('[data-device-session="/s/app/one.jsonl"]'), "onContextMenu");
+		const labels = menuItemLabels();
+		expect(labels).toContain("Rename session");
+		expect(labels).toContain("Pin to top");
+		expect(labels).toContain("Archive");
+	});
+
 	it("dragging a host's session row onto another row of its list moves it, kept under the host's id", async () => {
 		const omp = installWithRemote();
 		const host = [
