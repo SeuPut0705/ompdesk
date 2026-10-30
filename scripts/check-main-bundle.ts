@@ -138,8 +138,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // Oct 2026: it read as a failure): 1,155 bytes more (measured 3,204,573).
 // The UI polish pass of 30 Oct 2026 (shorter wording in both languages, sidebar rows that keep their titles, toasts
 // and What's new laid out in the flow, the palette's group icons, the phone composer's model chip): measured
-// 3,206,471, 1,898 bytes over the measure above.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_207_000;
+// 3,206,471, 1,898 bytes over the measure above. The phone judge's follow-up (toasts under the work strip, a touch
+// sheet's focus on its panel, the disabled primary button, the ask card's header once; others' edits to the same
+// bundle in the tree: the composer, the palette): measured 3,207,596.
+const WEB_FIRST_SCREEN_JS_BYTES = 3_208_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
