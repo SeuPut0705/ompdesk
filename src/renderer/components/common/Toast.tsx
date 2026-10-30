@@ -164,9 +164,10 @@ export function ToastStack() {
 	// the composer's Send and Stop (those sit in the transcript's column, left of the board).
 	const [atFoot, setAtFoot] = useState(false);
 	const shown = toasts.length > 0;
-	// Measured again as each toast arrives: a board that docked after the first one (its first child started) counts.
+	// Measured while any toast shows (4× a second; a few rects): the board docks, leaves (its last child finished) or goes
+	// with a tab switch independently of the toasts, and a stack left at the foot would cover Send and Stop.
 	useLayoutEffect(() => {
-		if (toasts.length === 0) return;
+		if (!shown) return;
 		const measure = () => {
 			if (document.documentElement.dataset.shell === "phone") return setAtFoot(false);
 			const right = window.innerWidth;
@@ -178,9 +179,13 @@ export function ToastStack() {
 			);
 		};
 		measure();
+		const timer = setInterval(measure, 250);
 		window.addEventListener("resize", measure);
-		return () => window.removeEventListener("resize", measure);
-	}, [toasts.length]);
+		return () => {
+			clearInterval(timer);
+			window.removeEventListener("resize", measure);
+		};
+	}, [shown]);
 
 	if (!shown) return null;
 
