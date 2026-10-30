@@ -3,12 +3,14 @@
  * queues. The `queue_update` session event is the authoritative update
  * channel — it fires on every queue mutation (enqueue, drain/consume,
  * remove, move, clear, dequeue restore) and lands here via setFromFrame from
- * the onBatch handler. get_queue survives only as the hydrate fallback
- * (mount, sidecar reconnect) since no snapshot predates the subscription.
- * Shared by the composer's queue tray (ComposerQueue) and the side panel's
- * queue tab (QueuePanel).
+ * the onBatch handler. get_queue is read once per hydrate of the tab (it
+ * becomes shown, its sidecar reconnects, its session switches: session-
+ * hydration.ts), since main forwards no frames for a tab out of view, and
+ * after a failed queue write; the views showing the queue only subscribe.
+ * Every read and frame bumps the tab's generation, so an answer to an older
+ * read never overwrites a newer snapshot. Shared by the composer's queue tray
+ * (ComposerQueue) and its edit bar (ComposerQueueEdit).
  */
-import { useEffect } from "react";
 import { createStore } from "zustand/vanilla";
 import type { ImageContent, RpcGetQueueResult, RpcQueuedMessage } from "../../shared/rpc-types";
 import { IMAGE_ONLY_CHIP, queueChipLabel } from "../lib/queue-chip";
@@ -140,17 +142,9 @@ export const createQueueStore = (command: TabCommand = activeTabCommand) => {
 const defaultQueueStore = createQueueStore();
 export const useQueueStore = createScopedStoreHook("queue", defaultQueueStore);
 
-/**
- * Queue data plus the hydrate-fallback wiring: pull get_queue on mount (the
- * frame stream only carries mutations after subscription). Steady-state
- * updates arrive as queue_update frames via use-rpc-events.
- */
+/** This tab's queued messages, as the tab's hydrate and queue_update frames left them: reads nothing itself. */
 export function useQueuedMessages(): { steering: RpcQueuedMessage[]; followUp: RpcQueuedMessage[] } {
 	const steering = useQueueStore(s => s.steering);
 	const followUp = useQueueStore(s => s.followUp);
-	const refresh = useQueueStore(s => s.refresh);
-	useEffect(() => {
-		void refresh();
-	}, [refresh]);
 	return { steering, followUp };
 }

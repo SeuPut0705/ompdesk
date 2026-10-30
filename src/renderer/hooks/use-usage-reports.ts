@@ -17,8 +17,8 @@ export interface UsageFeed {
 	/** Why the latest read failed; `null` once one succeeds. */
 	error: string | null;
 	/**
-	 * Counts the reads of the poll's own schedule (interval, focus, back in view, a turn's end), never a
-	 * surface's mount read: a surface that re-reads its own quota data on that schedule follows it.
+	 * Counts the reads of the poll's own schedule (interval, focus, back in view, a turn's end), never the read
+	 * that starts the poll: a surface that re-reads its own quota data on that schedule follows it.
 	 */
 	polls: number;
 }
@@ -58,7 +58,6 @@ const usagePoll = new TabPoll<UsageFeed>(NO_USAGE, (rpc, publish) => {
 	void load(false);
 	const unwatch = watchUsage(() => load(true));
 	return {
-		read: () => void load(false),
 		stop: () => {
 			stopped = true;
 			unwatch();
@@ -67,10 +66,11 @@ const usagePoll = new TabPoll<UsageFeed>(NO_USAGE, (rpc, publish) => {
 });
 
 /**
- * `select` of this tab's usage, read when each surface showing it mounts and kept current by `watchUsage`
- * alone: one poll per tab however many surfaces show it (the sidebar's usage lines, the work board's account
- * row, Stats › Usage, the Settings model tables and accounts, the usage-limit notice). Polls while the tab's omp
- * is ready and `active`; a surface re-renders only when what it selects changes.
+ * `select` of this tab's usage, read when the tab's first surface showing it mounts and kept current by
+ * `watchUsage` alone: one poll per tab however many surfaces show it (the sidebar's usage lines, the work board's
+ * account row, Stats › Usage, the Settings model tables and accounts, the usage-limit notice), and a surface
+ * mounting into a running poll reads nothing. Polls while the tab's omp is ready and `active`; a surface
+ * re-renders only when what it selects changes.
  */
 export function useUsage<S>(select: (feed: UsageFeed) => S, active = true): S {
 	const ready = useSessionStore(s => s.status) === "ready";

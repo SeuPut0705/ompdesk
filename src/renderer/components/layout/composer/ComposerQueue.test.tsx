@@ -53,6 +53,7 @@ let queueMove: Mock;
 let queueEdit: Mock;
 let queueRemove: Mock;
 let queueClear: Mock;
+let getQueue: Mock;
 
 async function flush(): Promise<void> {
 	await act(async () => {
@@ -98,9 +99,10 @@ async function mount(steering: RpcQueuedMessage[], followUp: RpcQueuedMessage[])
 	queueMove = vi.fn(async () => ok({ lane: "steering", index: 0 }));
 	queueEdit = vi.fn(async () => ok({ updated: true }));
 	queueClear = vi.fn(async () => ok({ removed: 0 }));
+	getQueue = vi.fn(async () => ok({ steering, followUp }));
 	(window as unknown as Record<string, unknown>).omp = {
 		rpc: {
-			getQueue: vi.fn(async () => ok({ steering, followUp })),
+			getQueue,
 			queueEdit,
 			queueMove,
 			queueRemove,
@@ -139,6 +141,17 @@ describe("ComposerQueuePill", () => {
 	it("renders no pill while the queue is empty", async () => {
 		await mount([], []);
 		expect(pill()).toBeNull();
+	});
+
+	it("shows the tab's queue as its hydrate and frames left it, reading nothing itself on mount", async () => {
+		await mount([queued("s1", "steer")], []);
+		expect(getQueue).not.toHaveBeenCalled();
+		expect(pill()?.textContent).toContain("1 queued");
+		await act(async () =>
+			useQueueStore.getState().setFromFrame({ steering: [], followUp: [queued("f1", "one"), queued("f2", "two")] }),
+		);
+		expect(pill()?.textContent).toContain("2 queued");
+		expect(getQueue).not.toHaveBeenCalled();
 	});
 
 	it("counts the queued messages in one pill and adds nothing to the composer until it opens", async () => {

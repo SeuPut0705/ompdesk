@@ -49,40 +49,41 @@ afterEach(async () => {
 });
 
 describe("useUsageReports", () => {
-	it("reads when each surface of a tab mounts, then keeps one poll for all of them", async () => {
+	it("reads once for every surface of a tab, however many mount, then keeps one poll for all of them", async () => {
 		await render(["sidebar"]);
 		expect(getUsage).toHaveBeenCalledTimes(1);
 		expect(seen.sidebar).toEqual([report]);
 
-		// The board mounts after the account's usage changed: it reads now, and both surfaces show the new reports.
+		// The board mounts later (a tab switch mounts it after the sidebar): it shows the tab's reports and reads nothing.
+		await render(["sidebar", "board"]);
+		expect(getUsage).toHaveBeenCalledTimes(1);
+		expect(seen.board).toBe(seen.sidebar);
+
+		// One poll for both, and its reads show on both.
 		const later = { ...report, account: "work@example.com" };
 		getUsage.mockResolvedValueOnce({ success: true, data: { reports: [later] } });
-		await render(["sidebar", "board"]);
-		expect(getUsage).toHaveBeenCalledTimes(2);
-		expect(seen.board).toEqual([later]);
-		expect(seen.sidebar).toBe(seen.board);
-
-		// One poll for both.
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(USAGE_POLL_MS);
 		});
-		expect(getUsage).toHaveBeenCalledTimes(3);
+		expect(getUsage).toHaveBeenCalledTimes(2);
+		expect(seen.board).toEqual([later]);
+		expect(seen.sidebar).toBe(seen.board);
 
 		// One surface leaves: the other keeps the poll.
 		await render(["sidebar"]);
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(USAGE_POLL_MS);
 		});
-		expect(getUsage).toHaveBeenCalledTimes(4);
+		expect(getUsage).toHaveBeenCalledTimes(3);
 
-		// The last one leaves: nothing polls, and the next mount reads afresh.
+		// The last one leaves: nothing polls, and the next mount (the tab shown again) reads afresh.
 		await render([]);
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(USAGE_POLL_MS * 3);
 		});
-		expect(getUsage).toHaveBeenCalledTimes(4);
+		expect(getUsage).toHaveBeenCalledTimes(3);
 		await render(["board"]);
-		expect(getUsage).toHaveBeenCalledTimes(5);
+		expect(getUsage).toHaveBeenCalledTimes(4);
 	});
 
 	it("counts only the schedule's reads, keeps the reports through a failed one, and shows a read made outside the poll", async () => {

@@ -4,26 +4,28 @@ import { useRuntimeTabId } from "../stores/session-runtime-context";
 import { useTabsStore } from "../stores/tabs";
 
 /**
- * Starts polling one tab: read through `rpc()` (the route of a surface still showing it, undefined once none
- * is) and publish each read as an update of the shown value (returning the current one changes nothing).
- * Returns `read` (one read now, outside the schedule) and `stop`.
+ * Starts polling one tab: read now, then on the poll's own schedule, through `rpc()` (the route of a surface still
+ * showing it, undefined once none is), and publish each read as an update of the shown value (returning the
+ * current one changes nothing). Returns `stop`.
  */
 export type TabPollStart<T> = (
 	rpc: () => TabRpc | undefined,
 	publish: (update: (current: T) => T) => void,
-) => { read: () => void; stop: () => void };
+) => { stop: () => void };
 
 interface Feed<T> {
 	value: T;
 	listeners: Set<() => void>;
 	/** The surfaces polling now, each with its own route to the tab; the feed polls while any is. */
 	readers: Set<{ rpc: TabRpc }>;
-	poller: { read: () => void; stop: () => void } | null;
+	poller: { stop: () => void } | null;
 }
 
 /**
- * One value per tab that several surfaces show (the sidebar and the work board, the dock and the board):
- * one poll per tab however many of them are mounted, started by the first and stopped with the last.
+ * One value per tab that several surfaces show (the sidebar and the work board, the dock and the board): one poll
+ * per tab however many of them are mounted, started (and so read) by the first and stopped with the last. A
+ * surface joining a running poll shows its value and reads nothing: a tab switch reads each value once, however
+ * many surfaces of the tab mount and in how many commits (the board's rows after its head).
  */
 export class TabPoll<T> {
 	readonly #feeds = new Map<string, Feed<T>>();
@@ -91,14 +93,11 @@ export function useTabPoll<T, S>(poll: TabPoll<T>, active: boolean, select: (val
 		const feed = poll.feed(key);
 		const reader = { rpc };
 		feed.readers.add(reader);
-		// The first surface starts the poll; each later one reads once more, as a surface did on its own mount
-		// (the work board mounts mid-turn, after the sidebar's read, and must not wait for the next poll).
-		if (feed.poller) feed.poller.read();
-		else
-			feed.poller = poll.start(
-				() => feed.readers.values().next().value?.rpc,
-				update => show(feed, update),
-			);
+		// The first surface starts the poll, which reads at once; a later one shares it (TabPoll).
+		feed.poller ??= poll.start(
+			() => feed.readers.values().next().value?.rpc,
+			update => show(feed, update),
+		);
 		return () => {
 			feed.readers.delete(reader);
 			if (feed.readers.size === 0) {

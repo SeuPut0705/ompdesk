@@ -66,7 +66,6 @@ const jobsPoll = new TabPoll<JobsFeed>(NO_FEED, (rpc, publish) => {
 	const poll = window.setInterval(() => void refresh(), JOBS_POLL_MS);
 	document.addEventListener("visibilitychange", refresh);
 	return {
-		read: () => void refresh(),
 		stop: () => {
 			cancelled = true;
 			window.clearInterval(poll);
