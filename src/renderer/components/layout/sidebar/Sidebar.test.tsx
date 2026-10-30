@@ -6258,6 +6258,8 @@ describe("Sidebar remembered folds", () => {
 	it("prunes the folds of folders, hosts and sessions that no longer exist once a live read lands", async () => {
 		installMockOmp(LIST);
 		seedStores();
+		// Main's tab list is in: only then does a folder no tab names count as gone.
+		useTabsStore.setState({ listed: true });
 		useRemoteStore.getState().apply({
 			tailnet: "ready",
 			host: {

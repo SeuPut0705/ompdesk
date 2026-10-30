@@ -847,9 +847,11 @@ export function Sidebar() {
 		void useSidebarSubagentsStore.getState().hydrate();
 	}, []);
 	// Forget the folds of folders, hosts and sessions that are gone. Only a live read (not the last-known snapshot,
-	// which holds the newest rows only) and a loaded host list say what still exists.
+	// which holds the newest rows only), main's tab list (a folder or session only a tab names: the shared session list
+	// can answer before the first tab list does) and a loaded host list say what still exists.
+	const tabsListed = useTabsStore(s => s.listed);
 	useEffect(() => {
-		if (!listLive) return;
+		if (!listLive || !tabsListed) return;
 		const folders = new Set(allGroups.map(group => group.cwd));
 		for (const session of sessions) if (!projectName(session.cwd).gone) folders.add(session.cwd);
 		useSidebarFolds.getState().pruneGroups(key => folders.has(key));
@@ -862,7 +864,7 @@ export function Sidebar() {
 		useSidebarSubagentsStore
 			.getState()
 			.pruneFamilies(key => !isRememberedSession(key) || key.startsWith("device:") || known.has(key));
-	}, [listLive, allGroups, sessions, rowTabs, projectName]);
+	}, [listLive, tabsListed, allGroups, sessions, rowTabs, projectName]);
 	const hostsLoaded = useRemoteStore(s => s.state !== null);
 	useEffect(() => {
 		if (!hostsLoaded) return;

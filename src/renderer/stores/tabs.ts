@@ -472,6 +472,11 @@ export interface TabsStore {
 	 * back as it was; closing a tab drops it from its split.
 	 */
 	rememberedSplits: SplitLayout[];
+	/**
+	 * Main's tab list has been applied (a `reconcileTabs` answered): until then the strip is last launch's ghosts, or
+	 * nothing, so a folder only one of this window's tabs names is not known yet (the sidebar's fold pruning waits).
+	 */
+	listed: boolean;
 	/** Boot reconciliation with the main-process pool: the window's initial
 	 * sidecar arrives as tab 0 and must never be duplicated — entries merge by
 	 * id, preserving local flags (unreadDone, pendingSessionPath). Entries the
@@ -555,6 +560,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 	bundles: new Map(),
 	split: null,
 	rememberedSplits: [],
+	listed: false,
 
 	reconcileTabs: async options => {
 		const listed = await window.omp.tabs.list().catch(() => null);
@@ -586,6 +592,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			} finally {
 				openingStartTab = false;
 			}
+			set({ listed: true });
 			return true;
 		}
 		// A web page keeps its own done marks across reloads (lib/unread-marks.ts); the desktop's live in memory.
@@ -667,7 +674,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 				claimed,
 			);
 			mainRemembersSplits = fromMain.length > 0;
-			return { tabs, activeTabId, split, rememberedSplits };
+			return { tabs, activeTabId, split, rememberedSplits, listed: true };
 		});
 		// A ghost is gone by now, adopted or not: its runtime (the seeded transcript) goes with it.
 		for (const ghost of ghosts) if (!get().tabs.some(tab => tab.id === ghost.id)) deleteSessionRuntime(ghost.id);
@@ -1260,6 +1267,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			split: null,
 			rememberedSplits: [],
 			closedTabs: [],
+			listed: false,
 		});
 	},
 }));
