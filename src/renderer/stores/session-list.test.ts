@@ -283,7 +283,13 @@ describe("the numbered global list", () => {
 			for (const answer of pending.splice(0)) answer();
 			await vi.runAllTimersAsync();
 		};
-		return { state, push, land };
+		// The read's answer lands and a change is pushed in the same turn of the event loop, before the read's `.then`.
+		const together = async (change: IpcSessionsChanged) => {
+			for (const answer of pending.splice(0)) answer();
+			for (const listener of listeners) listener(change);
+			await vi.runAllTimersAsync();
+		};
+		return { state, push, land, together };
 	}
 	afterEach(() => vi.useRealTimers());
 
@@ -345,6 +351,26 @@ describe("the numbered global list", () => {
 		// A read that already holds what a change under way named is not read again.
 		await push({ list: { base: "e.2", version: "e.3", set: [at("/c")], remove: [] } });
 		expect(state.reads).toBe(2);
+		release();
+	});
+
+	it("keeps a change pushed in the same turn as the answer of the read under way", async () => {
+		const { state, land, together } = numbered({ version: "e.1", sessions: [at("/a"), at("/b")] });
+		state.hold = true;
+		const feed = sessionListFeed("global");
+		const release = feed.retain();
+		await vi.runAllTimersAsync();
+		expect(state.reads).toBe(1);
+		// The answer was taken at e.1; the change of e.1 behind it removes /a.
+		await together({ list: { base: "e.1", version: "e.2", set: [], remove: ["/a"] } });
+		// The answer is older than the change: read once more, and the answer of that read is the list as of e.2.
+		expect(state.reads).toBe(2);
+		state.answer = { version: "e.2", sessions: [at("/b")] };
+		await land();
+		expect(feed.store.getState().sessions.map(s => s.path)).toEqual(["/b"]);
+		// The next change applies to e.2, and nothing brings /a back.
+		await together({ list: { base: "e.2", version: "e.3", set: [at("/c")], remove: [] } });
+		expect(feed.store.getState().sessions.map(s => s.path)).toEqual(["/b", "/c"]);
 		release();
 	});
 });

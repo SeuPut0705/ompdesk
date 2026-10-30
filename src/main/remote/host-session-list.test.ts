@@ -160,4 +160,48 @@ describe("HostSessionList", () => {
 		await answer({ version: "h.3", sessions: [row("/b", "Renamed")] });
 		expect((await next).sessions.map(entry => entry.path)).toEqual(["/b"]);
 	});
+
+	it("keeps a change that applied right behind the answer of a read under way, though the answer is older", async () => {
+		const { list, asked, told, answer } = rig();
+		const first = list.current();
+		await answer({ version: "h.1", sessions: [row("/a"), row("/b")] });
+		await first;
+
+		list.stale();
+		const reading = list.current();
+		expect(asked).toHaveLength(1);
+		// The link delivered both frames in one drain: the read's answer (taken at h.1) resolves its promise, and the
+		// host's change of h.1 runs before the read's continuation does.
+		asked.shift()?.({ version: "h.1", sessions: [row("/a"), row("/b")] });
+		list.hostChanged({ base: "h.1", version: "h.2", set: [], remove: ["/a"] });
+		expect((await reading).sessions.map(entry => entry.path)).toEqual(["/b"]);
+		// Nothing later brings /a back: the copy holds h.2, and the host's next change applies to it.
+		await new Promise(resolve => setImmediate(resolve));
+		expect((await list.current()).sessions.map(entry => entry.path)).toEqual(["/b"]);
+		expect(asked).toHaveLength(0);
+		list.hostChanged({ base: "h.2", version: "h.3", set: [row("/c")], remove: [] });
+		expect((await list.current()).sessions.map(entry => entry.path)).toEqual(["/b", "/c"]);
+		expect(asked).toHaveLength(0);
+		// The windows were told each change once, as what changed, and never a change that put /a back.
+		expect(told.flatMap(change => (change.list ? [change.list.remove] : []))).toEqual([["/a"], []]);
+	});
+
+	it("takes an answer that names the version a change just brought, and one newer than it", async () => {
+		const { list, asked } = rig();
+		const first = list.current();
+		asked.shift()?.({ version: "h.1", sessions: [row("/a"), row("/b")] });
+		await first;
+
+		list.stale();
+		const same = list.current();
+		asked.shift()?.({ version: "h.2", sessions: [row("/b")] });
+		list.hostChanged({ base: "h.1", version: "h.2", set: [], remove: ["/a"] });
+		expect((await same).sessions.map(entry => entry.path)).toEqual(["/b"]);
+
+		list.stale();
+		const newer = list.current();
+		asked.shift()?.({ version: "h.4", sessions: [row("/b"), row("/d")] });
+		list.hostChanged({ base: "h.2", version: "h.3", set: [row("/c")], remove: [] });
+		expect((await newer).sessions.map(entry => entry.path)).toEqual(["/b", "/d"]);
+	});
 });
