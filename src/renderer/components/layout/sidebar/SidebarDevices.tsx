@@ -109,11 +109,14 @@ function DeviceHeader({
 	onAction,
 	local,
 	extra,
+	badge,
 }: {
 	deviceId: string;
 	folded: boolean;
 	name: string;
 	children?: ReactNode;
+	/** The host's state dot, drawn on the glyph's corner. */
+	badge?: ReactNode;
 	/** Another button before the project button (a phone's way to the host's own page). */
 	extra?: ReactNode;
 	canAct?: boolean;
@@ -173,7 +176,12 @@ function DeviceHeader({
 				title={name}
 				type="button"
 			>
-				<Monitor aria-hidden className="size-(--sc-icon-sm) shrink-0" data-device-glyph />
+				{/* The state dot rides the glyph's corner: beside the name it cost the name ~14 px and "Build server in the
+				    office closet" lost its last word at rest. */}
+				<span className="relative flex shrink-0">
+					<Monitor aria-hidden className="size-(--sc-icon-sm) shrink-0" data-device-glyph />
+					{badge}
+				</span>
 				<span className="min-w-0 truncate">{name}</span>
 				{children}
 				<Chevron aria-hidden className="size-(--sc-icon-sm) shrink-0" />
@@ -301,6 +309,16 @@ export function SidebarDeviceSection({
 						/>
 					) : undefined
 				}
+				badge={
+					<span
+						aria-hidden
+						className={cx(
+							"absolute -right-0.5 -bottom-0.5 size-2 rounded-full ring-2 ring-(--omp-sidebar-bg)",
+							pending && host.state !== "offline" ? "bg-(--sc-text-subtle)" : DOT_CLASS[host.state],
+						)}
+						data-device-dot
+					/>
+				}
 				folded={collapsed}
 				name={host.name}
 				onAction={() =>
@@ -309,13 +327,6 @@ export function SidebarDeviceSection({
 					})
 				}
 			>
-				<span
-					aria-hidden
-					className={cx(
-						"size-1.5 shrink-0 rounded-full",
-						pending && host.state !== "offline" ? "bg-(--sc-text-subtle)" : DOT_CLASS[host.state],
-					)}
-				/>
 				{host.state === "offline" ? (
 					<span
 						className="shrink-0 rounded-(--sc-radius-sm) bg-(--sc-hover) px-1 text-sc-xs text-(--sc-text-secondary)"
