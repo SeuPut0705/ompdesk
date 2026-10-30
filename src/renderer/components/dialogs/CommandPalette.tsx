@@ -16,6 +16,7 @@ import {
 	CircleHelp,
 	Cpu,
 	Folder,
+	History,
 	Layers,
 	type LucideIcon,
 	MessageSquare,
@@ -463,7 +464,10 @@ export function CommandPalette() {
 		armed && activeItem?.name === armed
 			? t(commandGuard(activeItem) === "destructive" ? "palette.confirmDestructive" : "palette.confirmTurn")
 			: "";
-	const sectionHeaderClass = "px-2.5 pt-3 pb-1 text-sc-xs font-medium text-(--sc-text-muted) select-none";
+	// Each group's header names its category and carries its icon once; it stays at the list's top while its rows
+	// scroll under it. One category icon on every row of a group read as the same icon for every command.
+	const sectionHeaderClass =
+		"sticky top-0 z-(--sc-z-raised) flex items-center gap-2 bg-(--sc-elevated) px-2.5 pt-3 pb-1 text-sc-xs font-medium text-(--sc-text-muted) select-none [&>svg]:size-(--sc-icon-sm) [&>svg]:shrink-0";
 
 	const renderItem = (item: CommandMenuItem, options?: { categoryLabel?: string }) => {
 		flatIndex++;
@@ -474,8 +478,6 @@ export function CommandPalette() {
 		const isSubmenu = item.affordance.kind === "submenu";
 		const toggleOn = item.affordance.kind === "toggle" ? item.affordance.get() : null;
 		const isArmed = isActive && armed === item.name;
-		// Submenu rows carry a placeholder category: show their parent's icon.
-		const Icon = CATEGORY_ICON[submenu?.category ?? item.category];
 
 		const detail = isArmed
 			? armedMessage
@@ -506,7 +508,6 @@ export function CommandPalette() {
 					setArmed(null);
 				}}
 			>
-				<Icon aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
 				{/* Labels stay readable at narrow widths; supporting copy wraps onto a quiet second line. */}
 				<span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
 					<span className="max-w-full shrink-0 truncate text-sc-md font-medium text-(--sc-text)">
@@ -603,7 +604,9 @@ export function CommandPalette() {
 				)}
 				<div
 					aria-label={flatList.length > 0 ? t("palette.results") : undefined}
-					className="omp-command-list min-h-0 flex-1 overflow-y-auto p-1.5"
+					// Grouped, the sticky header owns the top edge (its own top padding); `scroll-pt` keeps the row the
+					// arrows pick clear of it.
+					className={cx("omp-command-list min-h-0 flex-1 overflow-y-auto p-1.5", grouped && "scroll-pt-9 pt-0")}
 					id={listboxId}
 					ref={listRef}
 					// A listbox only while option rows render; the empty states are plain blocks.
@@ -622,19 +625,24 @@ export function CommandPalette() {
 							{recentItems.length > 0 && (
 								<div aria-label={t("palette.recent")} className="mb-1" role="group">
 									<div aria-hidden className={sectionHeaderClass}>
+										<History />
 										{t("palette.recent")}
 									</div>
 									{recentItems.map(item => renderItem(item))}
 								</div>
 							)}
-							{Array.from(grouped.entries()).map(([category, items]) => (
-								<div aria-label={t(`category.${category}`)} className="mb-1" key={category} role="group">
-									<div aria-hidden className={sectionHeaderClass}>
-										{t(`category.${category}`)}
+							{Array.from(grouped.entries()).map(([category, items]) => {
+								const Icon = CATEGORY_ICON[category];
+								return (
+									<div aria-label={t(`category.${category}`)} className="mb-1" key={category} role="group">
+										<div aria-hidden className={sectionHeaderClass}>
+											<Icon />
+											{t(`category.${category}`)}
+										</div>
+										{items.map(item => renderItem(item))}
 									</div>
-									{items.map(item => renderItem(item))}
-								</div>
-							))}
+								);
+							})}
 						</>
 					) : (
 						flatList.map(item =>

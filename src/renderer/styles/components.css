@@ -522,8 +522,15 @@
 	height: calc(100dvh - 2rem);
 }
 
+/* More commands below: a shade along the list's bottom edge says so, where a row cut mid-line read as the list's end.
+   The elevated-colored cover scrolls with the rows and hides the shade once the last row is in view (the same edge
+   shade as wide tables and math). */
 .omp-command-list {
 	max-height: min(60dvh, 44rem);
+	background:
+		linear-gradient(to top, var(--sc-elevated) 30%, transparent) bottom center / 100% 2.5rem no-repeat local,
+		linear-gradient(to top, color-mix(in srgb, var(--sc-text) 12%, transparent), transparent) bottom center / 100%
+		0.75rem no-repeat scroll;
 }
 
 /* ---------------------------------------------------------------------------
@@ -3402,6 +3409,21 @@ button.omp-file-chip-name:hover {
 
 	.omp-starter-description {
 		font-size: var(--sc-font-xs);
+	}
+}
+
+/* A quarter of a split (short and narrow): two columns of the starters' names alone. The icon and the one-line
+   description beside it squeezed each name into two lines and the description to a few words ("Explain this
+   codebase and its…"), and the second row ran under the composer. */
+@container omp-workspace (max-height: 480px) and (max-width: 560px) {
+	.omp-starter-card .omp-starter-icon,
+	.omp-starter-description {
+		display: none;
+	}
+
+	.omp-starter-card {
+		align-items: center;
+		word-break: keep-all;
 	}
 }
 
