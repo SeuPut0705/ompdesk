@@ -16,6 +16,11 @@ const REQUEST_TIMEOUT_MS = 30_000;
 /** How long past its timeout a stock request may stay unanswered before its worker counts as hung and is replaced. */
 const RECYCLE_GRACE_MS = 30_000;
 
+/** How long the extensions worker stays up with nothing in its lane. It holds no state between requests and is
+ * asked at launch, then every 4 h and when Settings opens: kept up, its stock module graph (~145 MB footprint,
+ * measured on omp 18.14.0, macOS) sat idle between passes; a later request starts it again (~0.35 s). */
+const EXTENSIONS_IDLE_EXIT_MS = 60_000;
+
 /** Terminals (`terminal.*`, `pty.*`) run in their own worker: it holds every live shell, so it never ends
  * because a session scan or model validation hung; the stock worker can then be replaced without a notice
  * to anyone. The extensions worker (`extensions.*`) is a serial lane of its own: a plugin upgrade runs
@@ -38,6 +43,9 @@ export interface StockHelperOptions {
 	worker?: HelperWorker;
 	requestTimeoutMs?: number;
 	recycleGraceMs?: number;
+	/** Ends the worker once every request it was sent has been answered and none came for this long (0: never);
+	 * the next request starts it again. Default: the extensions worker's `EXTENSIONS_IDLE_EXIT_MS`, others never. */
+	idleExitMs?: number;
 	/** Test seam: the worker process to talk to; production starts `stock-helper/host.ts` on the user's omp. */
 	spawnWorker?: () => Promise<ChildProcessWithoutNullStreams>;
 }
@@ -57,6 +65,11 @@ export class StockHelper {
 	/** Timed-out stock requests the worker has not answered yet: any answer (a late result, the
 	 * withdrawal) shows the lane still moves; none within the grace means it is stuck. */
 	#overdue = new Map<number, NodeJS.Timeout>();
+	/** Requests written to the current worker that it has not answered yet (a timed-out one included: it may
+	 * still be running, a plugin upgrade's `bun install`). The idle exit waits for none. */
+	#unanswered = new Set<number>();
+	#idleTimer: NodeJS.Timeout | null = null;
+	readonly #idleExitMs: number;
 	readonly #bridgeDir: string;
 	readonly #worker: HelperWorker;
 	readonly #requestTimeoutMs: number;
@@ -68,6 +81,7 @@ export class StockHelper {
 		this.#worker = options.worker ?? "stock";
 		this.#requestTimeoutMs = options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS;
 		this.#recycleGraceMs = options.recycleGraceMs ?? RECYCLE_GRACE_MS;
+		this.#idleExitMs = options.idleExitMs ?? (this.#worker === "extensions" ? EXTENSIONS_IDLE_EXIT_MS : 0);
 		this.#spawnWorker = options.spawnWorker ?? (() => this.#spawnStockWorker());
 	}
 
@@ -114,6 +128,8 @@ export class StockHelper {
 				if (response.id === undefined) return;
 				clearTimeout(this.#overdue.get(response.id));
 				this.#overdue.delete(response.id);
+				this.#unanswered.delete(response.id);
+				this.#armIdleExit(child);
 				const pending = this.#pending.get(response.id);
 				if (!pending) return;
 				this.#pending.delete(response.id);
@@ -125,6 +141,7 @@ export class StockHelper {
 				if (this.#child !== child) return;
 				this.#child = null;
 				this.#clearOverdue();
+				this.#clearIdle();
 				for (const pending of this.#pending.values()) {
 					clearTimeout(pending.timer);
 					pending.reject(error);
@@ -148,6 +165,26 @@ export class StockHelper {
 		this.#overdue.clear();
 	}
 
+	#clearIdle(): void {
+		clearTimeout(this.#idleTimer ?? undefined);
+		this.#idleTimer = null;
+		this.#unanswered.clear();
+	}
+
+	/** Every request this worker was sent is answered: end it if nothing new comes within the idle exit. */
+	#armIdleExit(child: ChildProcessWithoutNullStreams): void {
+		if (this.#idleExitMs <= 0 || this.#unanswered.size > 0 || this.#child !== child) return;
+		clearTimeout(this.#idleTimer ?? undefined);
+		this.#idleTimer = setTimeout(() => {
+			this.#idleTimer = null;
+			if (this.#child !== child || this.#unanswered.size > 0) return;
+			// Its exit then finds another `#child` (or none) and fails nothing; the next request starts a fresh one.
+			this.#child = null;
+			child.stdin.end();
+		}, this.#idleExitMs);
+		this.#idleTimer.unref();
+	}
+
 	/** The stock lane has not moved for a timed-out request's whole grace: end that worker (its queue
 	 * would hold every later scan and validation forever) and let the next request start a fresh one. */
 	#recycle(child: ChildProcessWithoutNullStreams, method: string): void {
@@ -158,6 +195,7 @@ export class StockHelper {
 		const error = new Error(`omp stock helper restarted: "${method}" hung`);
 		this.#child = null;
 		this.#clearOverdue();
+		this.#clearIdle();
 		for (const pending of this.#pending.values()) {
 			clearTimeout(pending.timer);
 			pending.reject(error);
@@ -169,6 +207,9 @@ export class StockHelper {
 
 	request<T>(method: string, params: unknown, options: StockHelperRequestOptions = {}): Promise<T> {
 		const id = ++this.#sequence;
+		// A request keeps the worker up: the idle exit re-arms once this one is answered.
+		clearTimeout(this.#idleTimer ?? undefined);
+		this.#idleTimer = null;
 		const { promise, resolve, reject } = Promise.withResolvers<unknown>();
 		// Armed before the worker starts, so a start that never finishes fails the request too.
 		let child: ChildProcessWithoutNullStreams | null = null;
@@ -195,7 +236,11 @@ export class StockHelper {
 		};
 		this.#start().then(started => {
 			child = started;
-			if (!this.#pending.has(id)) return;
+			if (!this.#pending.has(id)) {
+				this.#armIdleExit(started);
+				return;
+			}
+			this.#unanswered.add(id);
 			started.stdin.write(`${JSON.stringify({ id, method, params })}\n`, error => {
 				if (error) failed(error);
 			});
@@ -210,6 +255,7 @@ export class StockHelper {
 		const exited = child ? once(child, "exit").then(() => undefined) : Promise.resolve();
 		child?.stdin.end();
 		this.#clearOverdue();
+		this.#clearIdle();
 		for (const pending of this.#pending.values()) {
 			clearTimeout(pending.timer);
 			pending.reject(new Error("Stock helper stopped"));

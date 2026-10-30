@@ -180,6 +180,25 @@ describe("StockHelper request timeout", () => {
 		await helper.stop();
 		await rejected;
 	});
+
+	it("ends an idle worker once every request it was sent is answered, and starts a fresh one on the next", async () => {
+		const { helper, children } = await helperOnWorker(5000, { worker: "extensions", idleExitMs: 150 });
+		await vi.waitFor(() => expect(gone(children[0])).toBe(true), { timeout: 10_000 });
+		await expect(helper.request("fast", {}, { timeoutMs: 30_000 })).resolves.toBe("ok");
+		expect(children).toHaveLength(2);
+	});
+
+	it("keeps an idle-exit worker up while a request it was sent still runs, even one whose caller timed out", async () => {
+		const { helper, children } = await helperOnWorker(100, { worker: "extensions", idleExitMs: 150 });
+		await expect(helper.request("gated", {})).rejects.toThrow("timed out");
+		// A plugin upgrade past its timeout: the worker is still at it, so it stays.
+		await sleep(500);
+		expect(gone(children[0])).toBe(false);
+		// Its late answer leaves the lane empty: now it ends.
+		await fs.writeFile(path.join(dir, "release"), "");
+		await vi.waitFor(() => expect(gone(children[0])).toBe(true), { timeout: 10_000 });
+		expect(children).toHaveLength(1);
+	});
 });
 
 describe("helperWorker", () => {

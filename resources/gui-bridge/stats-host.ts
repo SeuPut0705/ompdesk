@@ -51,10 +51,14 @@ const stats = await import(fromOmp("@oh-my-pi/omp-stats"));
 const statsDb = await import(fromOmp("@oh-my-pi/omp-stats/db"));
 const { getTimeRangeConfig } = await import(fromOmp("@oh-my-pi/omp-stats/aggregator"));
 const { statsLive } = await import(fromOmp("@oh-my-pi/omp-stats/live"));
-const { openStandaloneJudge } = await import(fromOmp("@oh-my-pi/pi-coding-agent/judgment/standalone"));
 const cwd = process.cwd();
+// The judge's module is pi-coding-agent's agent graph (~84 of the host's ~142 MB footprint, ~220 ms of its ~310 ms
+// start; omp 18.14.0, macOS): stock asks for the judge only on a `/api/frustration/*` estimate or run, so it loads then.
 const upstream = await stats.startServer(0, "127.0.0.1", {
-	judge: async () => (await openStandaloneJudge(cwd, "stats_frustration")).judge,
+	judge: async () => {
+		const { openStandaloneJudge } = await import(fromOmp("@oh-my-pi/pi-coding-agent/judgment/standalone"));
+		return (await openStandaloneJudge(cwd, "stats_frustration")).judge;
+	},
 });
 const upstreamOrigin = `http://127.0.0.1:${upstream.port}`;
 statsLive().start();
