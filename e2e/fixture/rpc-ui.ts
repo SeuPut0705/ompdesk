@@ -2675,6 +2675,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 	/** `fixture:work-stream`: stream the current step's output and its subagents' events until the step moves on. */
 	let streamWork: (() => void) | undefined;
 	let workStreamTimer: Timer | undefined;
+	let workTicks = 0;
 	const recordedMessages = new Map<string, AgentMessage[]>();
 	const startWorkView = (user: AgentMessage) => {
 		const screenshot = Buffer.from(
@@ -3042,7 +3043,13 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				partialResult: step.name === "bash" ? { content: step.result.content } : step.result,
 			});
 			if (step.name === "task") {
-				subagentRoster = ["WorkspaceScout", "WorkspaceReview"].map((name, agentIndex) => ({
+				// OMP_GUI_TEST_WORK_AGENTS=<n>: n agents instead of two (e2e/load-performance.e2e.ts).
+				const agentCount = Number(process.env.OMP_GUI_TEST_WORK_AGENTS ?? 2);
+				const agentNames =
+					agentCount === 2
+						? ["WorkspaceScout", "WorkspaceReview"]
+						: Array.from({ length: agentCount }, (_, at) => `WorkspaceAgent${at + 1}`);
+				subagentRoster = agentNames.map((name, agentIndex) => ({
 					id: name,
 					index: agentIndex,
 					agent: "scout",
@@ -3207,6 +3214,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			// ~30 frames a second, the rate stock forwards a busy tool's partials.
 			workStreamTimer = setInterval(() => {
 				tick++;
+				workTicks++;
 				output += `${step.name} output line ${tick}: ${"x".repeat(tick % 80)}\n`;
 				if (step.name === "bash")
 					write({
@@ -5109,6 +5117,12 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				if (line === "fixture:work-stream") {
 					streamWork?.();
 					ok();
+					break;
+				}
+				// How many ticks `fixture:work-stream` and `fixture stream` have sent: a load audit's proof its
+				// generator kept pace.
+				if (line === "fixture:work-ticks") {
+					ok({ ticks: workTicks + streamChunks });
 					break;
 				}
 				if (line === "fixture:work-output") {
