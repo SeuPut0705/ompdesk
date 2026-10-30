@@ -184,7 +184,7 @@ test("Stop lets the cycle in flight finish, empties and closes the children, end
 				return original.call(this);
 			};
 		});
-		const tabId = await startRun(page, await mainTab(page), { maxParallel: 2 });
+		const tabId = await startRun(page, await mainTab(page));
 		// Mid-cycle: two children run.
 		const running = await waitForStatus(
 			page,

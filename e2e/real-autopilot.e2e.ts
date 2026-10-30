@@ -116,7 +116,6 @@ test("real omp autopilot: two cycles in a new worktree, guarded, local only, the
 		const first = await startRun(page, origin, {
 			preset: "local",
 			limits: { usd: 2, minutes: 20 },
-			maxParallel: 0,
 		});
 		const tab = await waitForRunTab(page);
 		expect(tab.tabId).toBe(first);
@@ -189,7 +188,6 @@ test("real omp autopilot: two cycles in a new worktree, guarded, local only, the
 		const second = await startRun(page, origin, {
 			preset: "push",
 			limits: { cycles: 1, usd: 1, minutes: 10 },
-			maxParallel: 0,
 		});
 		const run2Tab = await page.evaluate(
 			id => window.omp.tabs.list().then(tabs => tabs.find(row => row.tabId === id)?.worktree?.branch),
@@ -306,7 +304,7 @@ test("real omp autopilot: yolo and the tool set are held only while the run live
 		const origin = await mainTab(page);
 
 		// Run 1: armed while cycle 1 runs; Stop; once ended, the run's omp is back to the fresh session's values.
-		const first = await startRun(page, origin, { maxParallel: 0 });
+		const first = await startRun(page, origin);
 		const run1 = await waitForRunTab(page);
 		await waitForStatus(page, first, s => s.now?.n === 1, "run 1 cycle 1 starts", 180_000);
 		const armed1 = await permissions(page, first);
@@ -316,7 +314,7 @@ test("real omp autopilot: yolo and the tool set are held only while the run live
 		evidence.run1 = { base: base1, armed: armed1, ...(await stopAndRestore(first, base1, "run 1")) };
 
 		// Run 2: armed while cycle 1 runs, then SIGKILL; the relaunch resumes it armed; Stop; restored as in run 1.
-		const second = await startRun(page, origin, { maxParallel: 0 });
+		const second = await startRun(page, origin);
 		const run2 = (await tabs()).find(tab => tab.tabId === second);
 		const cwd = run2?.cwd ?? "";
 		const sessionPath = run2?.sessionPath ?? "";

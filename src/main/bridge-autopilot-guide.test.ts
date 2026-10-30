@@ -117,11 +117,11 @@ describe("begin carries the guide", () => {
 
 describe("the static section", () => {
 	it("ranks the guide below the rules files and below the hard limits, and is the same text every time", () => {
-		const text = autopilotSection(2);
+		const text = autopilotSection();
 		expect(text).toContain("begin.guide");
 		expect(text).toMatch(/ranks below the repository's rules files/);
 		expect(text).toMatch(/never lift the HARD LIMITS|can never lift the HARD LIMITS/);
-		expect(autopilotSection(2)).toBe(text);
+		expect(autopilotSection()).toBe(text);
 	});
 });
 

@@ -393,13 +393,17 @@ describe("children", () => {
 		});
 	});
 
-	it("allows no more parallel children than the run's setting", async () => {
-		await start({ type: "set_autopilot", action: "start", maxParallel: 1 });
-		for (const tab of ["c1", "c2"]) world.addTab(tab, path.join(tmp, tab));
-		await autopilot.beforeFirstPrompt({ tabId: "c1", callerTabId: "ap-1", tag: "autopilot-child" });
-		await expect(
-			autopilot.beforeFirstPrompt({ tabId: "c2", callerTabId: "ap-1", tag: "autopilot-child" }),
-		).rejects.toThrow(/at most 1/);
+	it("never caps the children a cycle opens: an old caller's maxParallel is ignored, not enforced", async () => {
+		// The cap and its setting are gone (the owner's rule: nothing in front of agent work); a start that still names one
+		// opens the run as any other.
+		await start({ type: "set_autopilot", action: "start", maxParallel: 1 } as never);
+		const tabs = ["c1", "c2", "c3"];
+		for (const tab of tabs) world.addTab(tab, path.join(tmp, tab));
+		for (const tab of tabs) {
+			await autopilot.beforeFirstPrompt({ tabId: tab, callerTabId: "ap-1", tag: "autopilot-child" });
+		}
+		for (const tab of tabs) expect(world.bridgeCalls(tab, AUTOPILOT_BRIDGE_METHODS.arm)).toHaveLength(1);
+		expect(JSON.stringify(world.statuses.get("ap-1")?.settings)).not.toContain("maxParallel");
 	});
 
 	it("refuses a tagged child whose parent is no run", async () => {

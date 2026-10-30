@@ -62,9 +62,9 @@ describe("pure helpers", () => {
 			autoRelease: { on: true },
 		});
 		expect(startSettings({ ship: { remote: "up" } }).ship.remote).toBe("up");
-		expect(startSettings({ maxParallel: 9 }).maxParallel).toBe(9);
-		expect(startSettings({ maxParallel: -2 }).maxParallel).toBe(0);
-		expect(startSettings({}).maxParallel).toBeNull();
+		// No cap on fan-out any more: a start that still names one gets no such setting.
+		expect(startSettings({ maxParallel: 9 } as never)).not.toHaveProperty("maxParallel");
+		expect(startSettings({})).not.toHaveProperty("maxParallel");
 		expect(startSettings({ limits: { cycles: 3 } }).limits).toEqual({
 			tokens: null,
 			minutes: null,

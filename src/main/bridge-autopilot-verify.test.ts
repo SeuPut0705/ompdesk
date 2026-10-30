@@ -368,7 +368,7 @@ describe("pick and the status's now", () => {
 });
 
 describe("begin hints", () => {
-	const facts = { open: [] as string[], maxParallel: 0 };
+	const facts = { open: [] as string[] };
 	it("counts how many cycles a follow-up has been open, listed again or not", () => {
 		const records = [
 			cycle(1, { followups: ["Emitter.once missing"] }),
@@ -404,10 +404,9 @@ describe("begin hints", () => {
 		expect(beginHints([cycle(1), cycle(2, { area: "docs" })], facts).join(" ")).toContain("documentation only");
 		expect(beginHints([docs, cycle(3)], facts)).toEqual([]);
 	});
-	it("fan-out advice only when fan-out is on and there are two items to tempt it", () => {
-		expect(beginHints([], { open: ["a", "b"], maxParallel: 2 }).join(" ")).toContain("Child sessions pay only");
-		expect(beginHints([], { open: ["a", "b"], maxParallel: 0 })).toEqual([]);
-		expect(beginHints([], { open: ["a"], maxParallel: 2 })).toEqual([]);
+	it("fan-out advice only when there are two items to tempt it", () => {
+		expect(beginHints([], { open: ["a", "b"] }).join(" ")).toContain("Child sessions pay only");
+		expect(beginHints([], { open: ["a"] })).toEqual([]);
 	});
 	it("puts an open follow-up that names a defect ahead of docs and polish", () => {
 		const hints = beginHints([cycle(1)], { ...facts, open: ["truncate breaks on n < 0", "document the CLI"] });

@@ -156,7 +156,6 @@ const status: AutopilotStatus = {
 		focus: ["design"],
 		ship: { autoPush: false, autoRelease: { on: false, cadence: { kind: "every", n: 5 } }, remote: "origin" },
 		limits: { tokens: null, minutes: null, cycles: null, usd: null },
-		maxParallel: 3,
 	},
 	cycles: [cycle(1, { area: "design" }), cycle(2, { verify: "red", commit: undefined })],
 	totals: { tokens: 1_840_000, usd: 6.2 },

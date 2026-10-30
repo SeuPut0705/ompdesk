@@ -68,7 +68,7 @@ describe("ompdesk_autopilot arguments", () => {
 				action: "start",
 				ship: "push",
 				branch: { kind: "existing", name: "dev" },
-				advanced: { parallel: 2, limits: { cycles: 3 } },
+				advanced: { limits: { cycles: 3 } },
 			}),
 		).toBeTruthy();
 		expect(args.parse({ action: "stop", session: "abcd", now: true })).toMatchObject({ now: true });
@@ -76,8 +76,8 @@ describe("ompdesk_autopilot arguments", () => {
 		expect(() => args.parse({ action: "start", session: "abcd" })).toThrow();
 		expect(() => args.parse({ action: "start", ship: "force" })).toThrow();
 		expect(() => args.parse({ action: "start", branch: { kind: "existing" } })).toThrow();
-		expect(() => args.parse({ action: "start", advanced: { parallel: -1 } })).toThrow();
-		expect(args.parse({ action: "start", advanced: { parallel: 9 } })).toMatchObject({ advanced: { parallel: 9 } });
+		// No cap on child sessions: `parallel` is no argument any more.
+		expect(() => args.parse({ action: "start", advanced: { parallel: 2 } })).toThrow();
 		expect(() => args.parse({ action: "start", advanced: { limits: { usd: -1 } } })).toThrow();
 	});
 });

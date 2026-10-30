@@ -445,7 +445,8 @@ describe("settings merge", () => {
 			autoRelease: { on: true, cadence: { kind: "every", n: 7 } },
 		});
 		expect(next.limits).toEqual({ tokens: 5000, minutes: null, cycles: null, usd: null });
-		expect(next.maxParallel).toBe(99);
+		// An old caller's fan-out cap is dropped, never kept.
+		expect(next).not.toHaveProperty("maxParallel");
 	});
 	it("null clears a limit, an absent key keeps it, bad values keep the old one", () => {
 		const withLimits: AutopilotSettings = { ...base, limits: { tokens: 10, minutes: 20, cycles: 30, usd: 40 } };
@@ -462,10 +463,9 @@ describe("settings merge", () => {
 		expect(
 			mergeSettings(base, { ship: { autoRelease: { on: true, cadence: { kind: "agent" } } } }).ship.autoRelease,
 		).toEqual({ on: true, cadence: { kind: "agent" } });
-		expect(mergeSettings(base, { maxParallel: -3 }).maxParallel).toBe(0);
-		expect(mergeSettings(base, { maxParallel: "x" as never }).maxParallel).toBe(base.maxParallel);
-		expect(mergeSettings({ ...base, maxParallel: 2 }, { maxParallel: null }).maxParallel).toBeNull();
-		expect(base.maxParallel).toBeNull();
+		// A stored cap (an older run's journal) is dropped when the settings are merged again.
+		expect(mergeSettings({ ...base, maxParallel: 2 } as AutopilotSettings, {})).not.toHaveProperty("maxParallel");
+		expect(base).not.toHaveProperty("maxParallel");
 	});
 	it("does not mutate its input", () => {
 		const frozen = structuredClone(base);
@@ -955,15 +955,15 @@ describe("ship requests", () => {
 });
 
 describe("prompt sections", () => {
-	it("the parent section is static for a given fan-out and carries the protocol and the hard limits", () => {
-		const text = autopilotSection(3);
-		expect(autopilotSection(3)).toBe(text);
+	it("the parent section is static and carries the protocol and the hard limits", () => {
+		const text = autopilotSection();
+		expect(autopilotSection()).toBe(text);
 		expect(text.startsWith("<autopilot>")).toBe(true);
 		expect(text.endsWith("</autopilot>")).toBe(true);
 		for (const phrase of [
 			'autopilot({op:"begin"})',
 			"HARD LIMITS",
-			"At most 3 sessions",
+			"no fixed cap",
 			"wait",
 			"never call goal complete",
 			"eval and debug",
@@ -973,11 +973,11 @@ describe("prompt sections", () => {
 		// Nothing that changes during the run is in it: no cycle number, branch or date.
 		expect(text).not.toMatch(/\bcycle \d+\b|20\d\d-\d\d-\d\d/);
 	});
-	it("fan-out off says so and offers no session tools", () => {
-		const text = autopilotSection(0);
-		expect(text).toContain("Fan-out is off");
+	it("fan-out is the agent's call: no cap and no switch that turns it off", () => {
+		const text = autopilotSection();
 		expect(text).not.toContain("At most");
-		expect(text).not.toContain("ompdesk_session_open");
+		expect(text).not.toContain("Fan-out is off");
+		expect(text).toContain("ompdesk_session_open");
 	});
 	it("the child section is one item, no push, no questions", () => {
 		expect(AUTOPILOT_CHILD_SECTION).toContain("ONE item");

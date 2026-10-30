@@ -84,7 +84,6 @@ async function seedRun(page: Page): Promise<void> {
 					land: true,
 				},
 				limits: { tokens: null, minutes: null, cycles: null, usd: null },
-				maxParallel: null,
 			},
 			cycles: [
 				cycle(1, {
