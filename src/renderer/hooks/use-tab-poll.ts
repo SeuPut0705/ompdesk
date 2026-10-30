@@ -6,11 +6,13 @@ import { useTabsStore } from "../stores/tabs";
 /**
  * Starts polling one tab: read now, then on the poll's own schedule, through `rpc()` (the route of a surface still
  * showing it, undefined once none is), and publish each read as an update of the shown value (returning the
- * current one changes nothing). Returns `stop`.
+ * current one changes nothing). `key` is the feed's: the tab id, then `\n` and the scope when there is one. Returns
+ * `stop`.
  */
 export type TabPollStart<T> = (
 	rpc: () => TabRpc | undefined,
 	publish: (update: (current: T) => T) => void,
+	key: string,
 ) => { stop: () => void };
 
 interface Feed<T> {
@@ -97,6 +99,7 @@ export function useTabPoll<T, S>(poll: TabPoll<T>, active: boolean, select: (val
 		feed.poller ??= poll.start(
 			() => feed.readers.values().next().value?.rpc,
 			update => show(feed, update),
+			key,
 		);
 		return () => {
 			feed.readers.delete(reader);
