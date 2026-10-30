@@ -76,6 +76,15 @@ export interface IpcHostOmpUpdate {
 	state: OmpUpdateState;
 }
 
+/**
+ * Sessions that wait on the same provider together (src/main/model-wait-count.ts): per tab id, how many sessions of
+ * the computer whose account the tab uses (itself included) have waited out a model request; absent = alone. The
+ * whole map, pushed whenever it changes; the working cue names it (`lib/model-wait.ts`).
+ */
+export interface IpcModelWaitTogether {
+	tabs: Record<string, number>;
+}
+
 /** A paired host's `SchedulesState`, pushed by the host whenever its scheduled runs change. */
 export interface IpcHostSchedules {
 	device: string;
@@ -158,6 +167,8 @@ export const IPC_EVENTS = {
 	OMP_UPDATE_STATE: "omp-update:state",
 	/** omp was just updated on its own; payload is an OmpUpdatedNotice, sent to one window (one quiet toast). */
 	OMP_UPDATED: "omp-update:updated",
+	/** Sessions waiting on one provider together changed (src/main/model-wait-count.ts); payload is an IpcModelWaitTogether. */
+	MODEL_WAIT_TOGETHER: "model-wait:together",
 	/** A paired host's omp update changed (pushed by the host over the link); payload is an IpcHostOmpUpdate. */
 	HOST_OMP_UPDATE_STATE: "host-omp-update:state",
 	/** Disk care ran, measured or started (src/main/disk/); payload is the whole DiskCareState. */
@@ -577,6 +588,8 @@ export type RuntimeErrorSource =
 	| "settle-watch"
 	/** An omp sidecar that exited and is restarting (src/main/sidecar-factory.ts): `message` is the reason, `details` the attempt and stderr. */
 	| "sidecar-restart"
+	/** An omp whose CPU priority could not be lowered below the app's (src/main/agent-priority.ts), logged once: `message` is why. */
+	| "process-priority"
 	/**
 	 * A start that waited for another live omp to let go of its session (src/main/session-free.ts): `message` says
 	 * whether it was let go or the wait ran out, `details` the session file's name and the wait.
@@ -2081,6 +2094,10 @@ export interface OmpApi {
 		onState(callback: (state: OmpUpdateState) => void): () => void;
 		/** omp updated itself (one window only): show "omp updated to X". */
 		onUpdated(callback: (notice: OmpUpdatedNotice) => void): () => void;
+	};
+	/** Which sessions wait on the model together (the host's count for a tab a paired host runs). */
+	modelWait: {
+		onTogether(callback: (together: IpcModelWaitTogether) => void): () => void;
 	};
 	/** omp's automatic update on a paired host (`device`), driven by that host's own OmpUpdater: the same state the local row shows. */
 	hostOmpUpdate: {

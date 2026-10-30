@@ -86,6 +86,7 @@ describe("runtime crash log", () => {
 		"memory-sync",
 		"settle-watch",
 		"sidecar-restart",
+		"process-priority",
 		"goal-time-limit",
 		"slow-bridge-call",
 	])("writes a main-side line under its own source %s, not unknown", async source => {

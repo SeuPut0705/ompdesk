@@ -30,6 +30,7 @@ import type {
 } from "../shared/rpc-types";
 import { BTW_FRAME_TYPES, LIVE_FRAME_TYPES } from "../shared/rpc-types";
 import { AGENT_CONTROL_DEFINITIONS } from "./agent-control/tools";
+import { type LowerAgentPriority, lowerAgentPriority } from "./agent-priority";
 import { isNoModelBootFailure } from "./boot-model";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
 import { withoutControlEnv } from "./control-socket/env";
@@ -341,6 +342,11 @@ export interface SidecarOptions {
 	 * Electron's `app`, so the manager must keep working without it.
 	 */
 	reportFailure?: (report: SidecarFailureReport) => void;
+	/**
+	 * Lowers a spawned omp's CPU priority below the app's own (agent-priority.ts); the tools it starts inherit it.
+	 * Default: `lowerAgentPriority`. The factory injects one that logs the first failure to gui-runtime.jsonl.
+	 */
+	lowerPriority?: LowerAgentPriority;
 	/**
 	 * A catalog `provider/model` selector for `runtime` (src/main/boot-model.ts).
 	 * Absent: a spawn that exits for lack of a usable model just crash-loops.
@@ -692,6 +698,10 @@ export class SidecarManager extends EventEmitter {
 			this.#attemptRestart(err instanceof Error ? err.message : String(err));
 			return;
 		}
+
+		// Right after the spawn, before omp starts a tool: what a process starts inherits its priority. A failure
+		// is logged once by the injected lowerer and never fails the start.
+		(this.#options.lowerPriority ?? lowerAgentPriority)(child.pid);
 
 		this.#child = child;
 		this.#bridgeAddress = bridgeAddress;
