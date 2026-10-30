@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { answersWithin, ConnectivityMonitor, PROBE_INTERVAL_MS, RESUME_WINDOW_MS } from "./connectivity";
+import {
+	answersWithin,
+	ConnectivityMonitor,
+	PROBE_INTERVAL_MS,
+	PROBE_TIMEOUT_MS,
+	REPROBE_INTERVAL_MS,
+	RESUME_WINDOW_MS,
+} from "./connectivity";
 
 function harness(initialOnline = true) {
 	const state = { online: initialOnline, reachable: true, now: 1_000_000 };
@@ -118,13 +125,100 @@ describe("ConnectivityMonitor", () => {
 		expect(monitor.shouldWait()).toBe(false);
 	});
 
-	it("stops probing when the computer goes back to sleep", async () => {
+	it("stops the wake's probe loop when the computer goes back to sleep", async () => {
 		const { monitor, state, settle, timers } = harness();
 		state.reachable = false;
 		monitor.resume();
 		await settle();
 		monitor.suspend();
-		expect(timers.every(timer => !timer.live)).toBe(true);
+		expect(timers.filter(timer => timer.live).every(timer => timer.ms === REPROBE_INTERVAL_MS)).toBe(true);
+	});
+
+	describe("an offline state nothing ends (a missed `online` event, a wake whose `resume` never came)", () => {
+		it("asks again on its own interval and goes online as soon as a probe answers", async () => {
+			const { monitor, state, changes, settle, fireTimer, timers } = harness();
+			monitor.report(false);
+			expect(timers.filter(timer => timer.live).map(timer => timer.ms)).toEqual([REPROBE_INTERVAL_MS]);
+
+			// Nothing answers yet: it stays offline and asks again later, for as long as it takes.
+			state.reachable = false;
+			await fireTimer();
+			await fireTimer();
+			expect(monitor.online).toBe(false);
+			expect(timers.filter(timer => timer.live).map(timer => timer.ms)).toEqual([REPROBE_INTERVAL_MS]);
+
+			// The network is back though no event said so: the next ask releases the wait.
+			state.reachable = true;
+			await fireTimer();
+			expect(monitor.online).toBe(true);
+			expect(changes).toEqual([false, true]);
+			expect(timers.every(timer => !timer.live)).toBe(true);
+		});
+
+		it("is within a minute of the network coming back, with the probe's own time counted", () => {
+			expect(REPROBE_INTERVAL_MS + PROBE_TIMEOUT_MS).toBeLessThanOrEqual(60_000);
+		});
+
+		it("trusts an answering probe over a link flag that says offline", async () => {
+			const { monitor, state, fireTimer } = harness();
+			monitor.report(false);
+			state.online = false;
+			await fireTimer();
+			expect(monitor.online).toBe(true);
+		});
+
+		it("covers a suspend whose resume never arrives", async () => {
+			const { monitor, changes, fireTimer } = harness();
+			monitor.suspend();
+			await fireTimer();
+			expect(monitor.online).toBe(true);
+			expect(changes).toEqual([false, true]);
+		});
+
+		it("a real online event ends it at once and cancels the asking", () => {
+			const { monitor, timers } = harness();
+			monitor.report(false);
+			monitor.report(true);
+			expect(timers.every(timer => !timer.live)).toBe(true);
+		});
+
+		it("leaves the wake's own probe loop in charge once the wake comes", async () => {
+			const { monitor, state, settle, timers } = harness();
+			monitor.suspend();
+			state.reachable = false;
+			monitor.resume();
+			await settle();
+			expect(timers.filter(timer => timer.live).map(timer => timer.ms)).toEqual([PROBE_INTERVAL_MS]);
+		});
+
+		it("treats a probe that throws as unreachable and asks again", async () => {
+			const changes: boolean[] = [];
+			const timers: Array<{ run: () => void; ms: number; live: boolean }> = [];
+			const monitor = new ConnectivityMonitor({
+				isOnline: () => true,
+				probe: async () => {
+					throw new Error("resolver gone");
+				},
+				now: () => 0,
+				schedule: (run, ms) => {
+					const timer = { run, ms, live: true };
+					timers.push(timer);
+					return () => {
+						timer.live = false;
+					};
+				},
+				changed: online => changes.push(online),
+			});
+			monitor.report(false);
+			const timer = timers.findLast(candidate => candidate.live);
+			timer?.run();
+			for (let i = 0; i < 5; i++) await Promise.resolve();
+			expect(monitor.online).toBe(false);
+			expect(timers.filter(candidate => candidate.live).map(candidate => candidate.ms)).toEqual([
+				REPROBE_INTERVAL_MS,
+			]);
+			expect(changes).toEqual([false]);
+		});
 	});
 
 	it("treats a throwing probe as unreachable", async () => {

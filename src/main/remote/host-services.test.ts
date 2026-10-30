@@ -2438,6 +2438,18 @@ describe("LocalHostServices for this computer's own windows", () => {
 		expect(changed).toHaveBeenCalled();
 	});
 
+	it("shows the connection wait this computer holds a hosted tab's turn for on its sidebar row, and says when it starts and ends", async () => {
+		const { services } = await hosted();
+		const changed = vi.fn();
+		services.onHostedSessionsChange(changed);
+		services.setAwaitingConnection("peer:device-x:t1", true);
+		expect(services.hostedSessions()[0]).toMatchObject({ status: "ready", awaitingConnection: true });
+		expect(changed).toHaveBeenCalledTimes(1);
+		services.setAwaitingConnection("peer:device-x:t1", false);
+		expect(services.hostedSessions()[0]).not.toHaveProperty("awaitingConnection");
+		expect(changed).toHaveBeenCalledTimes(2);
+	});
+
 	it("tells every device and every window which of its sessions work now, from its windows and the tabs it runs for devices", async () => {
 		vi.useFakeTimers();
 		let windows: HostLiveSession[] = [{ sessionPath: "/s/window.jsonl", state: "background" }];
@@ -2767,11 +2779,11 @@ describe("LocalHostServices: a device opening a session a window of this compute
 		view.emit("awaitingConnection", false);
 		expect(x.tabEvents().at(-1)).toEqual({ rtab: "t1", name: "awaitingConnection", arg: false });
 		// What is left, never this computer's clock: the device's may differ.
-		view.emit("scheduledRetry", { at: 130_000, attempt: 1, max: 3 });
+		view.emit("scheduledRetry", { at: 130_000, attempt: 1 });
 		expect(x.tabEvents().at(-1)).toEqual({
 			rtab: "t1",
 			name: "scheduledRetry",
-			arg: { remainingMs: 30_000, attempt: 1, max: 3 },
+			arg: { remainingMs: 30_000, attempt: 1 },
 		});
 		view.emit("awaitingConnection", true);
 
@@ -2784,7 +2796,7 @@ describe("LocalHostServices: a device opening a session a window of this compute
 		expect(back.tabEvents()).toContainEqual({
 			rtab: "t1",
 			name: "scheduledRetry",
-			arg: { remainingMs: 20_000, attempt: 1, max: 3 },
+			arg: { remainingMs: 20_000, attempt: 1 },
 		});
 		view.emit("scheduledRetry", undefined);
 		expect(back.tabEvents().at(-1)).toEqual({ rtab: "t1", name: "scheduledRetry", arg: null });

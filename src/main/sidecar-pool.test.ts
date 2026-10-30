@@ -2616,7 +2616,7 @@ describe("SidecarPool background tabs", () => {
 			const fw = fakeWindow(1);
 			pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
 			sidecars[0]?.emitStatus("ready");
-			const retry = { at: 31_000, attempt: 1, max: 3 };
+			const retry = { at: 31_000, attempt: 1 };
 
 			pool.setScheduledRetry("tab-a", retry);
 			expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({ tabId: "tab-a", scheduledRetry: retry });
@@ -2845,7 +2845,7 @@ describe("SidecarPool background tabs", () => {
 			pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
 			const a = sidecars[0];
 			a?.emitStatus("ready");
-			const retry = { at: 40_000, attempt: 2, max: 3 };
+			const retry = { at: 40_000, attempt: 2 };
 			a?.emit("scheduledRetry", retry);
 			expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({ tabId: "tab-a", scheduledRetry: retry });
 			expect(pool.tabsForWindow(fw.win)[0]?.scheduledRetry).toEqual(retry);
@@ -3368,7 +3368,7 @@ describe("SidecarPool tab activity (the observer Web Push listens to)", () => {
 			retrying: true,
 			scheduledRetry: false,
 		});
-		pool.setScheduledRetry("tab-a", { at: 1_000, attempt: 1, max: 3 });
+		pool.setScheduledRetry("tab-a", { at: 1_000, attempt: 1 });
 		expect(pool.tabFacts("tab-a")?.scheduledRetry).toBe(true);
 		pool.setScheduledRetry("tab-a", undefined);
 		expect(pool.tabFacts("tab-a")?.scheduledRetry).toBe(false);
@@ -3583,7 +3583,7 @@ describe("SidecarPool device views (a paired device viewing a tab of a window he
 		const { pool, view } = viewed();
 		const retries: unknown[] = [];
 		view.on("scheduledRetry", (retry: unknown) => retries.push(retry));
-		const retry = { at: 40_000, attempt: 1, max: 3 };
+		const retry = { at: 40_000, attempt: 1 };
 		pool.setScheduledRetry("tab-a", retry);
 		pool.setScheduledRetry("tab-a", undefined);
 		expect(retries).toEqual([retry, undefined]);

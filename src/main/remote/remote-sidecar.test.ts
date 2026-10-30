@@ -841,15 +841,15 @@ describe("RemoteSidecar", () => {
 			sidecar.handleEvent({
 				rtab: "tab-1",
 				name: "scheduledRetry",
-				arg: { remainingMs: 30_000, attempt: 1, max: 3 },
+				arg: { remainingMs: 30_000, attempt: 1 },
 			});
-			sidecar.handleEvent({ rtab: "tab-1", name: "scheduledRetry", arg: { remainingMs: -5, attempt: 1, max: 3 } });
-			sidecar.handleEvent({ rtab: "tab-1", name: "scheduledRetry", arg: { at: 5, attempt: 1, max: 3 } });
+			sidecar.handleEvent({ rtab: "tab-1", name: "scheduledRetry", arg: { remainingMs: -5, attempt: 1 } });
+			sidecar.handleEvent({ rtab: "tab-1", name: "scheduledRetry", arg: { at: 5, attempt: 1 } });
 			sidecar.handleEvent({ rtab: "tab-1", name: "scheduledRetry", arg: null });
 		} finally {
 			now.mockRestore();
 		}
-		expect(retries).toEqual([{ at: 1_030_000, attempt: 1, max: 3 }, undefined]);
+		expect(retries).toEqual([{ at: 1_030_000, attempt: 1 }, undefined]);
 	});
 
 	it("starts a restored tab on its session without restarting the omp a host still runs for it", async () => {

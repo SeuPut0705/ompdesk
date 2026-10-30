@@ -194,7 +194,7 @@ describe("TurnErrorNotice scheduled retry", () => {
 	const cancelWait = vi.fn(async () => {});
 	const prompt = vi.fn(async () => ({ success: true }));
 
-	function arm(patch: { at?: number; attempt?: number; max?: number } = {}): void {
+	function arm(patch: { at?: number; attempt?: number } = {}): void {
 		useTabsStore.setState({
 			activeTabId: "t1",
 			tabs: [
@@ -204,7 +204,7 @@ describe("TurnErrorNotice scheduled retry", () => {
 					status: "ready",
 					kind: "agent",
 					unreadDone: false,
-					scheduledRetry: { at: Date.now() + 30_000, attempt: 1, max: 3, ...patch },
+					scheduledRetry: { at: Date.now() + 30_000, attempt: 1, ...patch },
 				},
 			],
 		});
@@ -231,8 +231,8 @@ describe("TurnErrorNotice scheduled retry", () => {
 	});
 
 	it.each([
-		["en", "Retrying in 0:30…", "Attempt 1 of 3", "Retry now", "Cancel"],
-		["ko", "0:30 뒤에 다시 시도해요…", "3번 중 1번째", "지금 다시 시도", "취소"],
+		["en", "Retrying in 0:30…", "Attempt 1", "Retry now", "Cancel"],
+		["ko", "0:30 뒤에 다시 시도해요…", "1번째", "지금 다시 시도", "취소"],
 	])(
 		"counts down on the latest failed turn in %s, with Cancel and Retry now instead of Try again",
 		async (lang, countdown, attempt, now, cancel) => {
@@ -253,11 +253,19 @@ describe("TurnErrorNotice scheduled retry", () => {
 		},
 	);
 
-	it("shows minutes and seconds of the longer waits", async () => {
+	it("shows minutes and seconds of the longer waits, and counts on past the third attempt without ever saying it gave up", async () => {
 		arm({ at: Date.now() + 600_000, attempt: 3 });
 		await mount(2, SERVER);
 		expect(container.querySelector("[data-scheduled-retry]")?.textContent).toContain("Retrying in 10:00…");
-		expect(container.querySelector("[data-scheduled-retry]")?.textContent).toContain("Attempt 3 of 3");
+		expect(container.querySelector("[data-scheduled-retry]")?.textContent).toContain("Attempt 3");
+		await unmount();
+
+		arm({ at: Date.now() + 600_000, attempt: 12 });
+		await mount(2, SERVER);
+		const line = container.querySelector("[data-scheduled-retry]")?.textContent;
+		expect(line).toContain("Retrying in 10:00…");
+		expect(line).toContain("Attempt 12");
+		expect(line).not.toMatch(/\bof\b/);
 	});
 
 	it("Cancel asks main to call the retry off", async () => {

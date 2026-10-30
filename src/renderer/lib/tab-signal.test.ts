@@ -70,4 +70,29 @@ describe("tabSignalPresentation", () => {
 		expect(waiting.running).toBe(true);
 		expect(tabSignalPresentation(tab({ status: "ready", awaitingInput: "input" })).active).toBe(true);
 	});
+
+	it("shows a tab whose turn waits for the connection as a wait, never as an idle tab (tab strip, sidebar row, a paired device's row)", () => {
+		expect(tabSignalPresentation(tab({ status: "ready", awaitingConnection: true }))).toEqual({
+			active: true,
+			color: "var(--omp-warning)",
+			labelKey: "titlebar.status.connectionWait",
+			running: false,
+		});
+		// A relaunch's continuation held offline, its tab's omp not started yet.
+		expect(tabSignalPresentation(tab({ status: "asleep", awaitingConnection: true })).labelKey).toBe(
+			"titlebar.status.connectionWait",
+		);
+		// Its own state, a question or a run that began meanwhile still outranks the wait.
+		expect(tabSignalPresentation(tab({ status: "error", awaitingConnection: true })).labelKey).toBe(
+			"titlebar.status.error",
+		);
+		expect(tabSignalPresentation(tab({ status: "running", awaitingConnection: true })).labelKey).toBe(
+			"titlebar.status.working",
+		);
+		expect(tabSignalPresentation(tab({ status: "ready", awaitingConnection: true, awaitingInput: "input" })).labelKey).toBe(
+			"attention.question",
+		);
+		// No wait, no signal: the tab stays as idle as before.
+		expect(tabSignalPresentation(tab({ status: "ready" })).active).toBe(false);
+	});
 });

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { wrapAgentMessage } from "../shared/agent-control";
 import type { IpcScheduledRetry, IpcTabRunOutcome } from "../shared/ipc-types";
 import type { RpcCommand, RpcResponse } from "../shared/rpc-types";
+import { ConnectivityMonitor } from "./connectivity";
 import { deletedSessions, initDeletedSessions } from "./deleted-sessions";
 import { RpcTimeoutError } from "./rpc-client";
 import type { SidecarLike } from "./sidecar-types";
@@ -1533,10 +1534,10 @@ describe("TurnResume scheduled retry", () => {
 
 	const retrySent = () => h.commands.filter(command => command.type === "retry").length;
 
-	it("schedules the first retry 30 s after a transient failure and shows it with attempt and total", async () => {
+	it("schedules the first retry 30 s after a transient failure and shows it with its attempt number", async () => {
 		await failed();
 		expect(h.timers.map(timer => timer.ms)).toEqual([30_000]);
-		expect(h.retries).toEqual([{ at: 31_000, attempt: 1, max: 3 }]);
+		expect(h.retries).toEqual([{ at: 31_000, attempt: 1 }]);
 		expect(h.commands.map(command => command.type)).toEqual(["get_settings"]);
 		expect(h.commands[0]).toMatchObject({ paths: ["retry.enabled"] });
 	});
@@ -1604,7 +1605,7 @@ describe("TurnResume scheduled retry", () => {
 		expect(h.retries).toEqual([]);
 	});
 
-	it("sends stock retry when the timer fires, then waits 2 min and 10 min, and stops after the third attempt", async () => {
+	it("sends stock retry when the timer fires, waits 2 min, then 10 min, and keeps trying every 10 min after the third attempt", async () => {
 		await failed();
 		h.timers[0]?.run();
 		await settleLong();
@@ -1613,32 +1614,51 @@ describe("TurnResume scheduled retry", () => {
 
 		await retryEnded({ ...SERVER_DOWN });
 		expect(h.timers.map(timer => timer.ms)).toEqual([30_000, 120_000]);
-		expect(h.retries.at(-1)).toEqual({ at: 121_000, attempt: 2, max: 3 });
+		expect(h.retries.at(-1)).toEqual({ at: 121_000, attempt: 2 });
 
 		h.timers[1]?.run();
 		await settleLong();
 		await retryEnded({ ...SERVER_DOWN });
 		expect(retrySent()).toBe(2);
 		expect(h.timers.map(timer => timer.ms)).toEqual([30_000, 120_000, 600_000]);
-		expect(h.retries.at(-1)).toEqual({ at: 601_000, attempt: 3, max: 3 });
+		expect(h.retries.at(-1)).toEqual({ at: 601_000, attempt: 3 });
 
-		h.timers[2]?.run();
+		// Past the third attempt the red card never stands: the same 10 minutes again, the attempt number counting on.
+		for (const index of [2, 3, 4, 5]) {
+			h.timers[index]?.run();
+			await settleLong();
+			await retryEnded({ ...SERVER_DOWN });
+			expect(h.timers.map(timer => timer.ms).at(-1)).toBe(600_000);
+			expect(h.retries.at(-1)).toEqual({ at: 601_000, attempt: index + 2 });
+		}
+		expect(retrySent()).toBe(6);
+		expect(h.timers).toHaveLength(7);
+	});
+
+	it("a failure that is not transient any more ends a long chain at once: today's behaviour, no schedule", async () => {
+		await failed();
+		for (const index of [0, 1, 2, 3]) {
+			h.timers[index]?.run();
+			await settleLong();
+			await retryEnded({ ...SERVER_DOWN });
+		}
+		expect(h.timers).toHaveLength(5);
+		h.timers[4]?.run();
 		await settleLong();
-		await retryEnded({ ...SERVER_DOWN });
-		expect(retrySent()).toBe(3);
-		// Three attempts failed: the red error card stands.
-		expect(h.timers).toHaveLength(3);
+		await retryEnded({ stopReason: "error", errorMessage: "401 invalid x-api-key" });
+		expect(h.timers).toHaveLength(5);
 		expect(h.retries.at(-1)).toBeUndefined();
 	});
 
-	it("starts over when the user runs something new after the attempts are spent, and when a retry ends otherwise", async () => {
+	it("starts over when the user runs something new after many attempts, and when a retry ends otherwise", async () => {
 		await failed();
 		for (const index of [0, 1, 2]) {
 			h.timers[index]?.run();
 			await settleLong();
 			await retryEnded({ ...SERVER_DOWN });
 		}
-		expect(h.timers).toHaveLength(3);
+		expect(h.timers).toHaveLength(4);
+		expect(h.timers.map(timer => timer.ms).at(-1)).toBe(600_000);
 		// A prompt of the user's: a new chain, 30 s again.
 		h.facts[0] = fact({ running: true });
 		h.resume.sync();
@@ -1646,10 +1666,10 @@ describe("TurnResume scheduled retry", () => {
 		h.resume.sync();
 		await settleLong();
 		expect(h.timers.map(timer => timer.ms).at(-1)).toBe(30_000);
-		expect(h.timers).toHaveLength(4);
+		expect(h.timers).toHaveLength(5);
 
 		// A retry that succeeds resets the count too.
-		h.timers[3]?.run();
+		h.timers[4]?.run();
 		await settleLong();
 		await retryEnded({ stopReason: "stop", reply: "ok" });
 		h.facts[0] = fact({ running: true });
@@ -2429,5 +2449,112 @@ describe("TurnResume races (review of v0.82.0)", () => {
 			await trackMove("get_state", tracker, async () => ok("get_state"));
 			expect(order).toEqual([]);
 		});
+	});
+});
+
+/**
+ * A continuation held for the connection has no timer of its own (a held wait and the relaunch's, `#hold`): it waits as
+ * long as the computer is really offline, the person sees the wait the whole time (`awaitingConnection` on the tab, which
+ * the pane's row, the tab and sidebar signal and a paired device read), and a probe that answers releases it within a
+ * minute even when no `online` event ever came (`ConnectivityMonitor`'s re-probe).
+ */
+describe("a continuation held for the connection", () => {
+	let h: Harness;
+	afterEach(() => rmSync(h.dir, { recursive: true, force: true }));
+
+	const networkFailure = { stopReason: "error", errorMessage: "fetch failed: getaddrinfo ENOTFOUND api.example.com" };
+
+	/** The real monitor, with its timers and the world's answer in the test's hands; it drives `h`'s connection. */
+	function monitored() {
+		const world = { reachable: false };
+		const timers: Array<{ run: () => void; ms: number; live: boolean }> = [];
+		const monitor = new ConnectivityMonitor({
+			isOnline: () => true,
+			probe: async () => world.reachable,
+			now: () => 1_000,
+			schedule: (run, ms) => {
+				const timer = { run, ms, live: true };
+				timers.push(timer);
+				return () => {
+					timer.live = false;
+				};
+			},
+			changed: online => {
+				h.net.online = online;
+				h.resume.connectivityChanged();
+			},
+		});
+		/** The oldest timer the monitor still holds fires, and its probe settles. */
+		const fireNext = async () => {
+			const timer = timers.find(candidate => candidate.live);
+			if (!timer) throw new Error("the monitor holds no timer: nothing would ever release the wait");
+			timer.live = false;
+			timer.run();
+			await settle();
+		};
+		return { world, monitor, timers, fireNext };
+	}
+
+	it("a failed turn's wait is shown without a gap for as long as the computer is offline, then released by a probe that answers though no `online` event came", async () => {
+		h = setup({ answers: { retry: RETRIED } });
+		const { world, monitor, fireNext } = monitored();
+		h.resume.launch();
+		// A window's `offline` event, and the tab's turn fails on the network.
+		monitor.report(false);
+		h.facts.push(fact({ running: false, lastRun: { ...networkFailure } }));
+		h.resume.sync();
+		expect(h.awaiting).toEqual([["t1", true]]);
+		expect(h.facts[0]?.awaitingConnection).toBe(true);
+		expect(h.store.read().map(entry => entry.reason)).toEqual(["network"]);
+
+		// Hours offline: the wait is still shown every time anything looks, never cleared, nothing sent.
+		for (let i = 0; i < 480; i++) {
+			await fireNext();
+			h.resume.sync();
+			expect(h.facts[0]?.awaitingConnection).toBe(true);
+		}
+		expect(h.awaiting).toEqual([["t1", true]]);
+		expect(h.commands).toEqual([]);
+		expect(h.store.read().map(entry => entry.reason)).toEqual(["network"]);
+
+		// The network comes back and no event says so: the next probe releases the continuation.
+		world.reachable = true;
+		await fireNext();
+		expect(monitor.online).toBe(true);
+		expect(h.commands.map(cmd => cmd.type)).toEqual(["retry"]);
+		expect(h.awaiting.at(-1)).toEqual(["t1", false]);
+	});
+
+	it("the relaunch's own wait is held the same way and released by the same probe", async () => {
+		h = setup({ answers: { restore_interrupted: RESTORED } });
+		const { world, monitor, fireNext } = monitored();
+		monitor.report(false);
+		new InterruptedTurnStore(h.file).write([marker()]);
+		h.facts.push(fact({ tabId: "restored", running: false }));
+		h.resume.launch();
+		await settle();
+		expect(h.awaiting).toEqual([["restored", true]]);
+		for (let i = 0; i < 120; i++) await fireNext();
+		expect(h.facts[0]?.awaitingConnection).toBe(true);
+		expect(h.commands).toEqual([]);
+		expect(h.store.read().map(entry => entry.reason)).toEqual(["running"]);
+
+		world.reachable = true;
+		await fireNext();
+		expect(h.commands.map(cmd => cmd.type)).toEqual(["restore_interrupted"]);
+		expect(h.awaiting.at(-1)).toEqual(["restored", false]);
+	});
+
+	it("a sleep whose wake event never came releases it too", async () => {
+		h = setup({ answers: { retry: RETRIED } });
+		const { monitor, fireNext } = monitored();
+		h.resume.launch();
+		monitor.suspend();
+		h.facts.push(fact({ running: false, lastRun: { ...networkFailure } }));
+		h.resume.sync();
+		expect(h.awaiting).toEqual([["t1", true]]);
+		// The wake's probe loop never started (no `resume` event); the re-probe finds the network answering.
+		await fireNext();
+		expect(h.commands.map(cmd => cmd.type)).toEqual(["retry"]);
 	});
 });
