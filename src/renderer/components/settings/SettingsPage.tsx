@@ -64,7 +64,7 @@ import { MobileWebSection } from "./MobileWebSection";
 import { ModelsSection } from "./ModelsSection";
 import { MemorySection } from "./memory/MemorySection";
 import { OtherExtensionIds } from "./OtherExtensionIds";
-import { AdvancedSchemaSettings, OwnedSchemaSettings } from "./OwnedSchemaSettings";
+import { AdvancedSchemaSettings, OwnedSchemaSettings, ownedSchemaGroups } from "./OwnedSchemaSettings";
 import { PermissionsSection } from "./PermissionsSection";
 import { PluginsSection } from "./PluginsSection";
 import { RemoteSection } from "./RemoteSection";
@@ -225,6 +225,14 @@ export function SettingsPage() {
 		if (contentRef.current) contentRef.current.scrollTop = 0;
 	}, [section, stacked, detailOpen]);
 
+	// A narrow tablet's section bar is one row that scrolls sideways: keep the open section's chip in view.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a section change moves the current chip.
+	useEffect(() => {
+		document
+			.querySelector<HTMLElement>('.settings-nav [data-settings-section][aria-current="true"]')
+			?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+	}, [section]);
+
 	// Deep links and search results scroll to their row once it has rendered (schema rows arrive after load).
 	// A `sub` that starts with `setting-` names a row id outright (`models:setting-providers.webSearch`).
 	// biome-ignore lint/correctness/useExhaustiveDependencies: loadState re-runs the lookup when schema rows mount.
@@ -272,6 +280,12 @@ export function SettingsPage() {
 		return () => cancelAnimationFrame(frame);
 	}, [focusRowId, section, sub, query, data.loadState]);
 
+	// Other settings holds only the stock settings no other section owns: an omp that has none leaves an empty page,
+	// so neither the list nor the search offers it (the page itself stays reachable while it is the open one).
+	const advancedHidden =
+		data.schema != null &&
+		section !== "advanced" &&
+		ownedSchemaGroups(data.schema, { section: "advanced" }).size === 0;
 	const listPlaceholder = LIST_SECTIONS[section];
 	const listSection = listPlaceholder !== undefined;
 	// A page search shows its own results; on a phone the section list is where it is typed, so the shortcut list
@@ -291,8 +305,9 @@ export function SettingsPage() {
 				return translated === key ? (tabs.find(tab => tab.id === tabId)?.label ?? tabId) : translated;
 			},
 			schemaLabel: (entry: SettingEntry) => schemaSettingText(lang, entry.path)?.label ?? entry.label ?? entry.path,
+			hiddenSections: advancedHidden ? ["advanced"] : undefined,
 		});
-	}, [query, filterInPlace, data.schema, data.sidecarReady, data.values, lang, t]);
+	}, [query, filterInPlace, data.schema, data.sidecarReady, data.values, lang, t, advancedHidden]);
 
 	const sectionTitle = t(`settings.section.${section}`);
 	const extensionsTab: ExtensionsTab = (EXTENSIONS_TABS as readonly string[]).includes(sub ?? "")
@@ -479,26 +494,28 @@ export function SettingsPage() {
 											>
 												{t(`settings.navHeading.${group.id}`)}
 											</div>
-											{group.items.map(id => {
-												const Icon = SECTION_ICONS[id];
-												return (
-													<ListRow
-														buttonProps={{ "data-settings-section": id }}
-														key={id}
-														leading={<Icon aria-hidden />}
-														meta={SECTION_SCOPE[id] === "app" ? <ThisDeviceTag compact /> : undefined}
-														onClick={() => navigate(id)}
-														// Search results replace the section: no row claims the page meanwhile.
-														// A phone's list has no current section: the pushed page is it.
-														selected={results === null && !stacked && id === section}
-														title={t(`settings.section.${id}`)}
-														rowProps={{
-															"data-settings-nav": id,
-															"data-settings-scope": SECTION_SCOPE[id],
-														}}
-													/>
-												);
-											})}
+											{group.items
+												.filter(id => id !== "advanced" || !advancedHidden)
+												.map(id => {
+													const Icon = SECTION_ICONS[id];
+													return (
+														<ListRow
+															buttonProps={{ "data-settings-section": id }}
+															key={id}
+															leading={<Icon aria-hidden />}
+															meta={SECTION_SCOPE[id] === "app" ? <ThisDeviceTag compact /> : undefined}
+															onClick={() => navigate(id)}
+															// Search results replace the section: no row claims the page meanwhile.
+															// A phone's list has no current section: the pushed page is it.
+															selected={results === null && !stacked && id === section}
+															title={t(`settings.section.${id}`)}
+															rowProps={{
+																"data-settings-nav": id,
+																"data-settings-scope": SECTION_SCOPE[id],
+															}}
+														/>
+													);
+												})}
 										</div>
 									))
 								)}

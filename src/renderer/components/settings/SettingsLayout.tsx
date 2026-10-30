@@ -84,6 +84,7 @@ export function SettingsSection({
 		<section
 			aria-labelledby={showTitle ? headingId : undefined}
 			className={cx("settings-section scroll-mt-4", nested && "settings-section-nested", className)}
+			data-settings-actions={actions ? "" : undefined}
 			id={id}
 		>
 			{(showTitle || description || actions) && (

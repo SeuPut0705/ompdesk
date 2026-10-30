@@ -73,6 +73,8 @@ export interface SettingsSearchInput {
 	schemaTabLabel: (tabId: string) => string;
 	/** Localized schema label for an entry. */
 	schemaLabel: (entry: SettingEntry) => string;
+	/** Sections the page does not list (an empty Other settings): no result opens them. */
+	hiddenSections?: readonly SettingsSectionId[];
 	limit?: number;
 }
 
@@ -81,6 +83,7 @@ export function searchSettings({
 	t,
 	entries,
 	schemaLabel,
+	hiddenSections,
 	limit = 60,
 }: SettingsSearchInput): SettingsSearchResult[] {
 	const words = normalize(query).trim().split(/\s+/).filter(Boolean);
@@ -89,6 +92,7 @@ export function searchSettings({
 	const candidates: Candidate[] = [];
 
 	for (const id of SETTINGS_SECTION_IDS) {
+		if (hiddenSections?.includes(id)) continue;
 		candidates.push({
 			key: `section:${id}`,
 			title: sectionLabel(id),

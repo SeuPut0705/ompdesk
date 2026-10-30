@@ -99,6 +99,20 @@ function SettingStatus({ dirty, saving, saved }: { dirty: boolean; saving: boole
 	return null;
 }
 
+/** `thinkingBudgets.high` → "Thinking budgets · high": a stock key nobody labelled still reads as words. */
+export function humanizeSettingPath(path: string): string {
+	return path
+		.split(".")
+		.map(part =>
+			part
+				.replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+				.replace(/[_-]+/g, " ")
+				.toLowerCase(),
+		)
+		.join(" · ")
+		.replace(/^./, first => first.toUpperCase());
+}
+
 function draftFor(entry: SettingEntry, value: unknown): string {
 	if (entry.type === "array" || entry.type === "record") {
 		return JSON.stringify(value ?? (entry.type === "array" ? [] : {}), null, 2);
@@ -173,7 +187,8 @@ function SchemaSettingRow({
 
 	const { lang } = useLang();
 	const localized = schemaSettingText(lang, entry.path);
-	const label = labelOverride ?? localized?.label ?? entry.label ?? entry.path;
+	const unlabelled = labelOverride === undefined && !localized?.label && !entry.label;
+	const label = labelOverride ?? localized?.label ?? entry.label ?? humanizeSettingPath(entry.path);
 	const description = descriptionOverride ?? localized?.description ?? entry.description;
 	const controlId = useId();
 	const baseDraft = draftFor(entry, value);
@@ -333,6 +348,19 @@ function SchemaSettingRow({
 		</>
 	);
 	const rowId = `setting-${entry.path}`;
+	// Where stock sets no default an empty field means "not set", not a forgotten value.
+	const emptyHint = entry.default === undefined ? t("settings.valueUnset") : undefined;
+	// A key with no label of its own keeps its id beside the words, in small mono, so it can still be looked up.
+	const rowLabel = (
+		<>
+			<span title={entry.path}>{label}</span>
+			{unlabelled && (
+				<code className="ml-2 font-mono text-sc-2xs font-normal break-all text-(--sc-text-muted)">
+					{entry.path}
+				</code>
+			)}
+		</>
+	);
 	const CuratedIcon = CURATED_ICONS[entry.path];
 	const icon = CuratedIcon ? <CuratedIcon /> : undefined;
 
@@ -348,7 +376,7 @@ function SchemaSettingRow({
 				footer={footer}
 				icon={icon}
 				id={rowId}
-				label={<span title={entry.path}>{label}</span>}
+				label={rowLabel}
 				onCheckedChange={next => void commit(next)}
 				risk={risk && { value: risk.value, warning: t(risk.warning) }}
 			/>
@@ -491,14 +519,7 @@ function SchemaSettingRow({
 			);
 		}
 		return (
-			<SettingsRow
-				badge={badge}
-				description={description}
-				footer={footer}
-				icon={icon}
-				id={rowId}
-				label={<span title={entry.path}>{label}</span>}
-			>
+			<SettingsRow badge={badge} description={description} footer={footer} icon={icon} id={rowId} label={rowLabel}>
 				{editor}
 			</SettingsRow>
 		);
@@ -518,6 +539,7 @@ function SchemaSettingRow({
 					onBlur={commitText}
 					onChange={event => setDraft(event.target.value)}
 					onKeyDown={onTextKeyDown}
+					placeholder={emptyHint}
 					value={draft ?? baseDraft}
 				/>
 			) : (
@@ -548,6 +570,7 @@ function SchemaSettingRow({
 				disabled={saving}
 				error={error ?? undefined}
 				id={controlId}
+				placeholder={emptyHint}
 				onBlur={commitText}
 				onChange={event => {
 					setDraft(event.target.value);
@@ -591,6 +614,7 @@ function SchemaSettingRow({
 					onBlur={commitText}
 					onChange={event => setDraft(event.target.value)}
 					onKeyDown={onTextKeyDown}
+					placeholder={emptyHint}
 					trailing={
 						entry.secret === true ? (
 							<IconButton
@@ -617,7 +641,7 @@ function SchemaSettingRow({
 			footer={footer}
 			htmlFor={controlId}
 			id={rowId}
-			label={<span title={entry.path}>{label}</span>}
+			label={rowLabel}
 		/>
 	);
 }

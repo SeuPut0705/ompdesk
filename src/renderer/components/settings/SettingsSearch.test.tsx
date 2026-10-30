@@ -80,6 +80,21 @@ describe("settings search", () => {
 		expect(search("mcp")).toContainEqual(rea);
 	});
 
+	it("offers no section the page does not list (an empty Other settings)", () => {
+		const keys = (hiddenSections?: readonly "advanced"[]) =>
+			searchSettings({
+				query: "other settings",
+				t: key => translate(key),
+				entries: [],
+				values: {},
+				schemaTabLabel: id => id,
+				schemaLabel: entry => entry.path,
+				hiddenSections,
+			}).map(result => result.key);
+		expect(keys()).toContain("section:advanced");
+		expect(keys(["advanced"])).not.toContain("section:advanced");
+	});
+
 	it("selects no nav row while results replace the section", async () => {
 		useSessionStore.setState({ status: "starting" });
 		useUiStore.setState({ settingsTab: "advanced" });

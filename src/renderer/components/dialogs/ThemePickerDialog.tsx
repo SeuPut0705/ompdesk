@@ -6,7 +6,7 @@
  * settings window stay in sync.
  */
 
-import { Check, Monitor } from "lucide-react";
+import { Check } from "lucide-react";
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ThemeScheme } from "../../../shared/theme-names";
 import { useT } from "../../lib/i18n";
@@ -201,9 +201,6 @@ export function ThemePickerDialog() {
 									</span>
 									<span className="min-w-0 flex-1">
 										<span className="flex flex-wrap items-center gap-2 text-sc-md font-medium text-(--sc-text)">
-											{isSystem && (
-												<Monitor aria-hidden className="size-(--sc-icon-sm) text-(--sc-text-secondary)" />
-											)}
 											{entry.label}
 											{isCurrent && (
 												<>

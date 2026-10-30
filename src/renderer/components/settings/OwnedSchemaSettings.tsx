@@ -24,8 +24,10 @@ interface OwnedSchemaFilter {
 }
 
 /** A section's non-curated schema entries, by their stock group title. */
-export function useOwnedSchemaGroups({ section, resetPolicies = false, group }: OwnedSchemaFilter) {
-	const { schema } = useSettingsData();
+export function ownedSchemaGroups(
+	schema: { entries: readonly SettingEntry[] } | null | undefined,
+	{ section, resetPolicies = false, group }: OwnedSchemaFilter,
+) {
 	const groups = new Map<string, SettingEntry[]>();
 	for (const entry of schema?.entries ?? []) {
 		if (
@@ -43,6 +45,11 @@ export function useOwnedSchemaGroups({ section, resetPolicies = false, group }: 
 		groups.set(title, entries);
 	}
 	return groups;
+}
+
+export function useOwnedSchemaGroups(filter: OwnedSchemaFilter) {
+	const { schema } = useSettingsData();
+	return ownedSchemaGroups(schema, filter);
 }
 
 /**

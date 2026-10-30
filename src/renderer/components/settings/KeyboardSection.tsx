@@ -227,15 +227,11 @@ export function KeyboardSection({ query }: { query: string }) {
 			    touch the glyph and the button each reach 10 px, and never each other's. */}
 			<div className="mb-2 flex items-center justify-end gap-5 [--hit-gap-x:20px]" data-hotkeys-toolbar>
 				<SettingInfo text={t("hotkeys.description")} />
-				<Button
-					disabled={!hasOverrides}
-					icon={<RotateCcw />}
-					onClick={() => setConfirmingResetAll(true)}
-					size="sm"
-					variant="ghost"
-				>
-					{t("hotkeys.remap.resetAll")}
-				</Button>
+				{hasOverrides && (
+					<Button icon={<RotateCcw />} onClick={() => setConfirmingResetAll(true)} size="sm" variant="secondary">
+						{t("hotkeys.remap.resetAll")}
+					</Button>
+				)}
 			</div>
 			{groups.length === 0 && <EmptyState icon={<Keyboard />} size="sm" title={t("hotkeys.empty")} />}
 			{groups.map(group => (
@@ -262,19 +258,30 @@ export function KeyboardSection({ query }: { query: string }) {
 														size="sm"
 													/>
 												)}
-												<IconButton
-													className={cx(!capturing && REVEAL_CLASS)}
-													icon={<Pencil />}
-													label={t("hotkeys.remap.rebindFor", { action: row.label })}
-													onClick={() => setCapture({ actionId, chord: null })}
-													size="sm"
-												/>
+												{row.shortcut && (
+													<IconButton
+														className={cx(!capturing && REVEAL_CLASS)}
+														icon={<Pencil />}
+														label={t("hotkeys.remap.rebindFor", { action: row.label })}
+														onClick={() => setCapture({ actionId, chord: null })}
+														size="sm"
+													/>
+												)}
 											</>
 										)}
 										<span className="ml-1" data-hotkey-keys="" data-hotkey-action={actionId ?? undefined}>
-											{/* An action with no chord says so in words, never an empty key box. */}
 											{row.shortcut ? (
 												<Kbd shortcut={row.shortcut} />
+											) : actionId ? (
+												/* An action with no chord says so in words and is itself the way to set one. */
+												<Button
+													aria-label={t("hotkeys.remap.rebindFor", { action: row.label })}
+													onClick={() => setCapture({ actionId, chord: null })}
+													size="sm"
+													variant="secondary"
+												>
+													{t("hotkeys.unbound")}
+												</Button>
 											) : (
 												<span className="text-sc-xs text-(--sc-text-muted)">{t("hotkeys.unbound")}</span>
 											)}

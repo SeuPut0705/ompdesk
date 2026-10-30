@@ -114,7 +114,9 @@ describe("KeyboardSection", () => {
 		expect(names.some(name => /undefined|for $/.test(name))).toBe(false);
 		for (const button of rebind) {
 			expect(button.className).not.toMatch(/(^|\s)hidden(\s|$)/);
-			expect(button.className).toContain("group-focus-within:opacity-100");
+			// An unbound action's "Not set" is itself the button, always shown; a bound one's pencil appears on hover or focus.
+			if (button.textContent === translate("hotkeys.unbound")) expect(button.className).not.toContain("opacity-0");
+			else expect(button.className).toContain("group-focus-within:opacity-100");
 		}
 	});
 });
