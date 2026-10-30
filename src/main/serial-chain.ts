@@ -108,11 +108,35 @@ export class SerialChain {
 	/**
 	 * Run `task` after every step queued before it ended. Resolves with its result, rejects with its error, or with a
 	 * `StepStalledError` once `maxStepMs` (the step's own bound, else the chain's) passed (counted from when the step starts, not from when it was queued).
+	 *
+	 * A call made inside another chain's step is fenced to that step: its signal also aborts when the caller's step is
+	 * stopped, the call rejects with the caller's reason, and a step queued behind others never starts once its caller
+	 * was stopped. A caller that is already stopped gets a rejection and the chain is not touched.
 	 */
 	run<T>(task: (signal: AbortSignal) => Promise<T> | T, step = "step", maxStepMs?: number): Promise<T> {
+		const parent = currentStep.getStore();
+		if (parent?.aborted) return Promise.reject(parent.reason);
 		this.#pending += 1;
-		const result = this.#tail.then(() => this.#step(task, step, maxStepMs ?? this.#options.maxStepMs));
-		const settled = result.then(
+		const { promise, resolve, reject } = Promise.withResolvers<T>();
+		// Stopped while still waiting for its turn: the caller is told at once, the step is skipped when its turn comes.
+		const onParentAbort = () => reject(parent?.reason);
+		parent?.addEventListener("abort", onParentAbort, { once: true });
+		const inner = this.#tail.then(() =>
+			parent?.aborted
+				? Promise.reject(parent.reason)
+				: this.#step(task, step, maxStepMs ?? this.#options.maxStepMs, parent),
+		);
+		inner.then(
+			value => {
+				parent?.removeEventListener("abort", onParentAbort);
+				resolve(value);
+			},
+			error => {
+				parent?.removeEventListener("abort", onParentAbort);
+				reject(error);
+			},
+		);
+		const settled = inner.then(
 			() => undefined,
 			() => undefined,
 		);
@@ -120,10 +144,15 @@ export class SerialChain {
 		void settled.then(() => {
 			this.#pending -= 1;
 		});
-		return result;
+		return promise;
 	}
 
-	#step<T>(task: (signal: AbortSignal) => Promise<T> | T, step: string, maxStepMs: number): Promise<T> {
+	#step<T>(
+		task: (signal: AbortSignal) => Promise<T> | T,
+		step: string,
+		maxStepMs: number,
+		parent: AbortSignal | undefined,
+	): Promise<T> {
 		const { name, onStall, log } = this.#options;
 		const controller = new AbortController();
 		const { promise, resolve, reject } = Promise.withResolvers<T>();
@@ -139,10 +168,19 @@ export class SerialChain {
 			reject(stall);
 		}, maxStepMs);
 		timer.unref();
+		// The caller's step was stopped: this one is stopped with it and frees the chain, without being a stall of its own.
+		const onParentAbort = () => {
+			controller.abort(parent?.reason);
+			reject(parent?.reason);
+		};
+		parent?.addEventListener("abort", onParentAbort, { once: true });
 		Promise.resolve()
 			.then(() => currentStep.run(controller.signal, () => task(controller.signal)))
 			.then(resolve, reject)
-			.finally(() => clearTimeout(timer));
+			.finally(() => {
+				clearTimeout(timer);
+				parent?.removeEventListener("abort", onParentAbort);
+			});
 		return promise;
 	}
 }
