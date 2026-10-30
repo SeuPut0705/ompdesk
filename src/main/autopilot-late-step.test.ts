@@ -143,7 +143,7 @@ describe("a settle that stalls while the ship queue drains", () => {
 			await vi.waitFor(() => expect(world.held.length).toBeGreaterThan(0));
 			await vi.advanceTimersByTimeAsync(15 * 60_000);
 			// The drain the settle awaited is stopped with it: its item fails now instead of running on behind it.
-			const queue = (world.statuses.get("ap-1") as AutopilotStatus).ship?.queue ?? [];
+			const queue = (await autopilot.status(sidecar, "ap-1")).ship?.queue ?? [];
 			expect(queue.map(item => item.state)).toEqual(["failed"]);
 			world.hang.clear();
 			for (const held of world.held.splice(0)) held.release();

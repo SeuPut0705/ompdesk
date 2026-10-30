@@ -217,7 +217,7 @@ describe("SerialChain", () => {
 
 		it("a nested step still waiting behind another never starts once its caller was stopped, and the chain goes on", async () => {
 			const outer = chain().serial;
-			const inner = chain().serial;
+			const inner = new SerialChain({ name: "inner", maxStepMs: 60_000, log: () => undefined });
 			const started: string[] = [];
 			const gate = Promise.withResolvers<void>();
 			const blocker = inner.run(async () => {
@@ -233,6 +233,7 @@ describe("SerialChain", () => {
 			gate.resolve();
 			await blocker;
 			expect(await inner.run(() => "after", "after")).toBe("after");
+			await vi.advanceTimersByTimeAsync(0);
 			expect(started).toEqual([]);
 			expect(inner.pending).toBe(0);
 		});
