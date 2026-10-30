@@ -89,9 +89,9 @@ describe("tabSignalPresentation", () => {
 		expect(tabSignalPresentation(tab({ status: "running", awaitingConnection: true })).labelKey).toBe(
 			"titlebar.status.working",
 		);
-		expect(tabSignalPresentation(tab({ status: "ready", awaitingConnection: true, awaitingInput: "input" })).labelKey).toBe(
-			"attention.question",
-		);
+		expect(
+			tabSignalPresentation(tab({ status: "ready", awaitingConnection: true, awaitingInput: "input" })).labelKey,
+		).toBe("attention.question");
 		// No wait, no signal: the tab stays as idle as before.
 		expect(tabSignalPresentation(tab({ status: "ready" })).active).toBe(false);
 	});

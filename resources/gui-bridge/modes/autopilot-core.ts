@@ -855,10 +855,7 @@ export const FOLLOWUP_MATCH_WORDS = 2;
 export const FOLLOWUP_MATCH_SHARE = 0.4;
 
 /** What the run's own history says about this pick: follow-ups carried too long, a docs-only last cycle, fan-out cost. */
-export function beginHints(
-	records: readonly AutopilotCycleRecord[],
-	facts: { open: readonly string[] },
-): string[] {
+export function beginHints(records: readonly AutopilotCycleRecord[], facts: { open: readonly string[] }): string[] {
 	const hints: string[] = [];
 	const carried = facts.open
 		.map(text => ({ text, age: followupAge(records, text) }))
