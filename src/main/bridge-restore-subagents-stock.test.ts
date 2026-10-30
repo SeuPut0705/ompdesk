@@ -324,9 +324,15 @@ interface Restored {
 
 /**
  * One isolated omp life whose parent runs `script` until the subagent is mid-call (after `subagentScript`'s tool
- * calls), stopped by `signal`, then relaunched.
+ * calls), stopped by `signal`, then relaunched. `between` runs after the stop and before that relaunch (omp lives that
+ * run no restore).
  */
-async function cutOff(script: readonly Step[], signal: Signal, subagentScript: readonly Step[] = []) {
+async function cutOff(
+	script: readonly Step[],
+	signal: Signal,
+	subagentScript: readonly Step[] = [],
+	between?: (life: { provider: Provider; isolated: string; root: string }) => Promise<void>,
+) {
 	const provider = await startProvider(script, subagentScript);
 	cleanups.push(() => provider.close());
 	const isolated = mkdtempSync(join(tmpdir(), "ompdesk-revive-"));
@@ -357,9 +363,35 @@ async function cutOff(script: readonly Step[], signal: Signal, subagentScript: r
 	// Counted with no omp running: stock starts a revived subagent during the restore, before it answers.
 	const requestsAtCut = provider.subagentRequests;
 	const parentCallsAtCut = provider.parentCalls.length;
+	await between?.({ provider, isolated, root });
 	const second = await startOmp(provider, isolated, root, true);
 	const outcome = await second.bridge.request<Restored>("composer.restore_interrupted", {});
 	return { provider, isolated, second, outcome, id: spawned?.id, requestsAtCut, parentCallsAtCut };
+}
+
+/** Every journal under `isolated`, written `ms` earlier than it was (the lives so far happened that long ago). */
+function ageJournals(isolated: string, ms: number): void {
+	const shift = (value: unknown) =>
+		typeof value === "string" && Number.isFinite(Date.parse(value)) ? new Date(Date.parse(value) - ms).toISOString() : value;
+	const walk = (dir: string) => {
+		for (const entry of readdirSync(dir, { withFileTypes: true })) {
+			const path = join(dir, entry.name);
+			if (entry.isDirectory()) walk(path);
+			else if (entry.name.endsWith(".jsonl")) {
+				const lines = readFileSync(path, "utf8")
+					.split("\n")
+					.filter(Boolean)
+					.map(line => {
+						const parsed = JSON.parse(line) as { timestamp?: unknown; data?: { recordedAt?: unknown } };
+						parsed.timestamp = shift(parsed.timestamp);
+						if (parsed.data?.recordedAt !== undefined) parsed.data.recordedAt = shift(parsed.data.recordedAt);
+						return JSON.stringify(parsed);
+					});
+				writeFileSync(path, `${lines.join("\n")}\n`);
+			}
+		}
+	};
+	walk(join(isolated, "agent", "sessions"));
 }
 
 describe.skipIf(!existsSync(omp))("revived subagents on stock omp", () => {
@@ -467,5 +499,29 @@ describe.skipIf(!existsSync(omp))("revived subagents on stock omp", () => {
 		const revived = provider.subagentCalls[requestsAtCut];
 		expect(live?.system).toContain("<background-checks>");
 		expect(revived?.system).toBe(live?.system);
+	}, 240_000);
+});
+
+// 30 Oct 2026: the parent's omp restart (SIGTERM) cut a background subagent; the session went on without it (the
+// parent's work was handed to another subagent), relaunches ran no restore for the idle session, and ten hours later a
+// relaunch with a turn running revived it, because stock's restore revives every restorable subagent whatever its age.
+describe.skipIf(!existsSync(omp))("a subagent an earlier stop cut", () => {
+	it("is not revived by a later relaunch once the session went on without it", async () => {
+		const { provider, outcome, requestsAtCut, isolated } = await cutOff(
+			[SPAWN, { text: "SPAWNED" }],
+			"SIGTERM",
+			[],
+			async ({ provider: model, isolated: dir, root }) => {
+				// The cut happened hours ago; since then the session went on (a turn) and a relaunch ran no restore.
+				ageJournals(dir, 3 * 60 * 60_000);
+				const idle = await startOmp(model, dir, root, true);
+				await idle.send({ type: "prompt", message: "something else" });
+				await expect.poll(() => idle.frames.some(frame => frame.type === "agent_end"), { timeout: 60_000 }).toBe(true);
+				await idle.kill("EOF");
+			},
+		);
+		expect(outcome).toMatchObject({ turn: false, subagents: [], followUp: false });
+		expect(provider.subagentRequests).toBe(requestsAtCut);
+		expect(mainJournal(isolated).some(entry => entry.customType === "ompdesk-restart-subagents")).toBe(false);
 	}, 240_000);
 });

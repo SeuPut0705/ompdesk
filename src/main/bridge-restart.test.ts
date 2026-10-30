@@ -7,6 +7,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+	cutByEarlierStop,
 	goalActiveAtExit,
 	interruptedJobs,
 	type JournalEntry,
@@ -407,6 +408,86 @@ describe("shutdownMarks", () => {
 		expect(withoutMarks([call, abortedResult, aborted], [earlier, ...parent])).toEqual([call, abortedResult]);
 		const next: JournalEntry = { ...parentExit, timestamp: at("14:49:00.000") };
 		expect(withoutMarks([call, abortedResult, aborted], [...parent, next])).toBeUndefined();
+	});
+});
+
+// 30 Oct 2026: a background subagent the parent's omp restart (SIGTERM, 29 Oct 20:33:27) cut 12 s after it started was
+// revived by the 30 Oct 06:37:02 relaunch, ten hours on, after three relaunches that ran no restore for the idle
+// session and a replacement subagent that had finished its work. Stock's restore revives every restorable subagent of a
+// session, whatever its age, so the bridge closes the ones an earlier stop cut.
+describe("cutByEarlierStop", () => {
+	const startedAt = Date.parse("2026-10-30T06:37:00.000Z");
+	const at = (time: string, day = "30") => `2026-10-${day}T${time}Z`;
+	const exitOf = (time: string, reason = "dispose", day = "30", kind = "normal"): JournalEntry => ({
+		type: "custom",
+		customType: "session_exit",
+		timestamp: at(time, day),
+		data: { reason, kind },
+	});
+	const message = (time: string, role: string, day = "30", stopReason?: string): JournalEntry => ({
+		type: "message",
+		timestamp: at(time, day),
+		message: { role, ...(stopReason ? { stopReason } : {}) },
+	});
+	/** The subagent the SIGTERM cut: a tool result nothing answered, then its own exit 5 ms before the parent's. */
+	const sigtermCut = [
+		message("20:33:27.037", "toolResult", "29"),
+		exitOf("20:33:27.734", "sigterm", "29", "signal"),
+	];
+	/** The parent's journal as the real session shows it: that exit, a quiet process, then days of work. */
+	const parent = [
+		message("20:33:27.661", "assistant", "29", "stop"),
+		exitOf("20:33:27.739", "sigterm", "29", "signal"),
+		exitOf("21:03:02.572", "dispose", "29"),
+		message("21:06:31.902", "user", "29"),
+		message("04:22:00.000", "assistant"),
+		exitOf("04:22:58.959"),
+		message("05:43:00.000", "assistant"),
+		exitOf("05:43:06.110"),
+		message("06:33:09.168", "user"),
+		exitOf("06:36:51.048"),
+		message("06:36:51.097", "assistant", "30", "aborted"),
+	];
+
+	it("finds the subagent a stop cut that the session has gone on past: a later turn after its exit", () => {
+		expect(cutByEarlierStop(sigtermCut, parent, startedAt)).toBe(true);
+	});
+
+	it("leaves the subagent the last stop cut, whether the parent exited cleanly or was killed", () => {
+		const lastStop = [message("06:30:00.000", "toolResult"), exitOf("06:36:51.020", "dispose")];
+		expect(cutByEarlierStop(lastStop, parent, startedAt)).toBe(false);
+		// SIGKILL: no exit of the subagent's, nor of the parent's last process; its calls went on until the kill.
+		const killed = parent.slice(0, -2);
+		expect(cutByEarlierStop([message("06:30:00.000", "toolResult")], killed, startedAt)).toBe(false);
+		// Waiting for its model since long before the stop (the app going away under omp): no exit of its own.
+		expect(cutByEarlierStop([message("05:50:00.000", "toolResult")], parent, startedAt)).toBe(false);
+	});
+
+	it("leaves the stop's own late records alone: an aborted reply and a second exit within a minute of the first", () => {
+		const quit = [
+			message("06:20:00.000", "assistant"),
+			exitOf("06:36:51.048"),
+			message("06:36:56.521", "assistant", "30", "aborted"),
+			exitOf("06:37:00.100", "sigterm", "30", "signal"),
+		];
+		expect(cutByEarlierStop([message("06:36:40.000", "toolResult")], quit, startedAt)).toBe(false);
+	});
+
+	it("leaves a subagent the session has not gone on past: the next relaunch that follows the stop", () => {
+		const stop = [message("04:00:00.000", "assistant"), exitOf("04:22:58.959")];
+		expect(cutByEarlierStop([message("04:22:58.900", "toolResult")], stop, startedAt)).toBe(false);
+	});
+
+	it("leaves a subagent this process runs, a parent with no exit, and a transcript with no time", () => {
+		expect(cutByEarlierStop([...sigtermCut, message("06:37:05.000", "assistant")], parent, startedAt)).toBe(false);
+		expect(cutByEarlierStop(sigtermCut, [message("21:06:31.902", "user", "29")], startedAt)).toBe(false);
+		expect(cutByEarlierStop([{ type: "message", message: { role: "toolResult" } }], parent, startedAt)).toBe(false);
+		expect(cutByEarlierStop([], parent, startedAt)).toBe(false);
+	});
+
+	it("does not count what this process wrote", () => {
+		const own = [...parent.slice(0, 2), message("06:37:30.000", "user")];
+		expect(cutByEarlierStop(sigtermCut, own, startedAt)).toBe(false);
 	});
 });
 
