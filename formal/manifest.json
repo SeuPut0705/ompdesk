@@ -25,7 +25,7 @@
 		},
 		{
 			"id": "session-listing",
-			"title": "Session listing: a device's list follows the host's tabs",
+			"title": "Session listing: a device's list follows the host's shared, numbered list and its changes",
 			"kind": "tla",
 			"dir": "session-listing/tla",
 			"spec": "SessionListing.tla",
@@ -36,7 +36,17 @@
 				"src/main/sidecar-pool.ts",
 				"src/main/index.ts",
 				"src/main/ipc.ts",
-				"src/renderer/stores/session-list.ts"
+				"src/renderer/stores/session-list.ts",
+				"src/main/session-list-share.ts",
+				"src/shared/session-list-delta.ts",
+				"src/main/remote/host-session-list.ts",
+				"src/main/remote/devices.ts:548-564",
+				"src/main/remote/devices.ts:649-651",
+				"src/main/remote/devices.ts:957-978",
+				"src/main/session-index.ts:195-197",
+				"src/main/session-index.ts:246-255",
+				"src/main/session-index.ts:276-289",
+				"src/main/session-index.ts:437-440"
 			],
 			"syncCommit": "05ca852827e81fb495ca59c1cde27d0d3ab0b92c",
 			"verifySkill": ".omp/skills/session-listing-verify/SKILL.md"

@@ -1,0 +1,122 @@
+TLC (tla2tools release 1.8.0)  java 17 (system)  spec SessionListing.tla
+  TLC reports itself as version 2026.10.28.014557
+FAIL  invariant violated: ListConverges  (41318 distinct states, 94585 generated, depth 17, 1.6s)
+Trace (17 states, shortest first):
+  #1  Init
+        nDrops = 0
+        bad = (d1 :> FALSE)
+        hver = (d1 :> 0)
+        pendReg = {}
+        lk = (d1 :> <<>>)
+        need = (d1 :> <<"none", "none", 0>>)
+        nChanges = 0
+        hrows = [ s1 |-> [j |-> -1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ]
+        fshow = ( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ] )
+        chk = (d1 :> <<"none", "none", 0>>)
+        nForeign = 0
+        snap = [held |-> {"?"}, op |-> {}]
+        fdeb = (d1 :> FALSE)
+        goneD = (d1 :> {})
+        goneF = (d1 :> {})
+        file = [h1 |-> "none"]
+        dv = (d1 :> 0)
+        drd = (d1 :> "clean")
+        fret = (d1 :> FALSE)
+        fann = (d1 :> 0)
+        rec = FALSE
+        frows = ( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ] )
+        rq = (d1 :> TRUE)
+        fq = (d1 :> FALSE)
+        fv = (d1 :> 0)
+        ann = (d1 :> 0)
+        fin = (d1 :> TRUE)
+        hv = 0
+        nIdx = 0
+        up = (d1 :> TRUE)
+        evTimer = FALSE
+        ip = (d1 :> <<>>)
+        post = (d1 :> <<"none", "none", "none">>)
+        idx = [s1 |-> 0, s2 |-> -1]
+        dstale = (d1 :> FALSE)
+        drows = ( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ] )
+        nTicks = 0
+        seen = (d1 :> {})
+  #2  IdxBump("s1",d1)   [src/main/session-index.ts:437-440, src/main/remote/host-services.ts:2315-2316, src/main/ipc.ts:1458-1463]
+        nIdx: 0  ->  1
+        evTimer: FALSE  ->  TRUE
+        post: (d1 :> <<"none", "none", "none">>)  ->  (d1 :> <<"main", "ren", "s1">>)
+        idx: [s1 |-> 0, s2 |-> -1]  ->  [s1 |-> 1, s2 |-> -1]
+  #3  HostRequest(d1)   [src/main/remote/host-services.ts:1059-1067, src/main/session-list-share.ts:35-44, src/main/remote/host-services.ts:1371-1373]
+        lk: (d1 :> <<>>)  ->  ( d1 :> << [ rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ], kind |-> "reply", ver |-> 1 ] >> )
+        hrows: [ s1 |-> [j |-> -1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ]  ->  [ s1 |-> [j |-> 1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ]
+        snap: [held |-> {"?"}, op |-> {}]  ->  [held |-> {}, op |-> {}]
+        rq: (d1 :> TRUE)  ->  (d1 :> FALSE)
+        hv: 0  ->  1
+  #4  PostMain(d1)   [src/main/ipc.ts:472-484, src/main/ipc.ts:1458-1463, src/main/ipc.ts:1473-1482, src/main/remote/devices.ts:562-564]
+        drd: (d1 :> "clean")  ->  (d1 :> "dirty")
+        ip: (d1 :> <<>>)  ->  (d1 :> <<[kind |-> "bare"]>>)
+        post: (d1 :> <<"main", "ren", "s1">>)  ->  (d1 :> <<"feed", "ren", "s1">>)
+        dstale: (d1 :> FALSE)  ->  (d1 :> TRUE)
+  #5  PostFeed(d1)   [src/renderer/stores/session-list.ts:255-273, src/renderer/stores/session-list.ts:274-284]
+        need: (d1 :> <<"none", "none", 0>>)  ->  (d1 :> <<"ren", "s1", 1>>)
+        fq: (d1 :> FALSE)  ->  (d1 :> TRUE)
+        post: (d1 :> <<"feed", "ren", "s1">>)  ->  (d1 :> <<"none", "none", "none">>)
+  #6  FeedEvent(d1,1)   [src/renderer/stores/session-list.ts:211-228]
+        fdeb: (d1 :> FALSE)  ->  (d1 :> TRUE)
+        ip: (d1 :> <<[kind |-> "bare"]>>)  ->  (d1 :> <<>>)
+  #7  FeedDebFire(d1)   [src/renderer/stores/session-list.ts:211-228]
+        fdeb: (d1 :> TRUE)  ->  (d1 :> FALSE)
+  #8  HostReply(d1,1)   [src/main/remote/host-session-list.ts:87-104, src/main/session-list-share.ts:77-90, src/main/session-list-share.ts:35-44]
+        hver: (d1 :> 0)  ->  (d1 :> 1)
+        lk: ( d1 :> << [ rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ], kind |-> "reply", ver |-> 1 ] >> )  ->  (d1 :> <<>>)
+        dv: (d1 :> 0)  ->  (d1 :> 1)
+        drd: (d1 :> "dirty")  ->  (d1 :> "none")
+        ip: (d1 :> <<>>)  ->  ( d1 :> << [ rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ], kind |-> "reply", ver |-> 1 ] >> )
+        drows: ( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ] )  ->  ( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ] )
+  #9  FeedReply(d1,1)   [src/renderer/stores/session-list.ts:164-206]
+        need: (d1 :> <<"ren", "s1", 1>>)  ->  (d1 :> <<"none", "none", 0>>)
+        fshow: ( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ] )  ->  ( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ] )
+        chk: (d1 :> <<"none", "none", 0>>)  ->  (d1 :> <<"ren", "s1", 1>>)
+        drd: (d1 :> "none")  ->  (d1 :> "clean")
+        frows: ( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ] )  ->  ( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ] )
+        rq: (d1 :> FALSE)  ->  (d1 :> TRUE)
+        fq: (d1 :> TRUE)  ->  (d1 :> FALSE)
+        fv: (d1 :> 0)  ->  (d1 :> 1)
+        ip: ( d1 :> << [ rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ], kind |-> "reply", ver |-> 1 ] >> )  ->  (d1 :> <<>>)
+  #10  HostRequest(d1)   [src/main/remote/host-services.ts:1059-1067, src/main/session-list-share.ts:35-44, src/main/remote/host-services.ts:1371-1373]
+        lk: (d1 :> <<>>)  ->  ( d1 :> << [ rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ], kind |-> "reply", ver |-> 1 ] >> )
+        rq: (d1 :> TRUE)  ->  (d1 :> FALSE)
+  #11  IdxCreate("s2")   [src/main/session-index.ts:437-440, src/main/ipc.ts:598-606]
+        nIdx: 1  ->  2
+        idx: [s1 |-> 1, s2 |-> -1]  ->  [s1 |-> 1, s2 |-> 0]
+  #12  HostChanged   [src/main/remote/host-services.ts:1318-1325, src/main/session-list-share.ts:52-61, src/main/session-list-share.ts:77-90, src/main/remote/host-services.ts:587-590, src/main/remote/host-services.ts:1371-1373]
+        lk: ( d1 :> << [ rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ], kind |-> "reply", ver |-> 1 ] >> )  ->  ( d1 :> << [ rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ], kind |-> "reply", ver |-> 1 ], [ upd |-> [ s1 |-> [j |-> -2, h |-> FALSE, o |-> "none"], s2 |-> [j |-> 0, h |-> FALSE, o |-> "none"] ], kind |-> "delta", base |-> 1, ver |-> 2 ] >> )
+        hrows: [ s1 |-> [j |-> 1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ]  ->  [ s1 |-> [j |-> 1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> 0, h |-> FALSE, o |-> "none"] ]
+        hv: 1  ->  2
+        evTimer: TRUE  ->  FALSE
+  #13  HostEvent(d1,2)   [src/main/remote/host-session-list.ts:63-79, src/main/remote/devices.ts:974-978, src/main/session-list-share.ts:63-70, src/main/session-list-share.ts:47-49]
+        hver: (d1 :> 1)  ->  (d1 :> 2)
+        lk: ( d1 :> << [ rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ], kind |-> "reply", ver |-> 1 ], [ upd |-> [ s1 |-> [j |-> -2, h |-> FALSE, o |-> "none"], s2 |-> [j |-> 0, h |-> FALSE, o |-> "none"] ], kind |-> "delta", base |-> 1, ver |-> 2 ] >> )  ->  ( d1 :> << [ rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ], kind |-> "reply", ver |-> 1 ] >> )
+        dv: (d1 :> 1)  ->  (d1 :> 2)
+        ip: (d1 :> <<>>)  ->  ( d1 :> << [ upd |-> [ s1 |-> [j |-> -2, h |-> FALSE, o |-> "none"], s2 |-> [j |-> 0, h |-> FALSE, o |-> "none"] ], kind |-> "delta", base |-> 1, ver |-> 2 ] >> )
+        drows: ( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ] )  ->  ( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> 0, h |-> FALSE, o |-> "none"] ] )
+  #14  FeedEvent(d1,1)   [src/renderer/stores/session-list.ts:211-228]
+        fann: (d1 :> 0)  ->  (d1 :> 2)
+        ip: ( d1 :> << [ upd |-> [ s1 |-> [j |-> -2, h |-> FALSE, o |-> "none"], s2 |-> [j |-> 0, h |-> FALSE, o |-> "none"] ], kind |-> "delta", base |-> 1, ver |-> 2 ] >> )  ->  (d1 :> <<>>)
+  #15  HostReply(d1,1)   [src/main/remote/host-session-list.ts:87-104, src/main/session-list-share.ts:77-90, src/main/session-list-share.ts:35-44]
+        hver: (d1 :> 2)  ->  (d1 :> 1)
+        lk: ( d1 :> << [ rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ], kind |-> "reply", ver |-> 1 ] >> )  ->  (d1 :> <<>>)
+        dv: (d1 :> 2)  ->  (d1 :> 3)
+        drd: (d1 :> "clean")  ->  (d1 :> "none")
+        ip: (d1 :> <<>>)  ->  ( d1 :> << [ upd |-> [ s1 |-> [j |-> -2, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ], kind |-> "delta", base |-> 2, ver |-> 3 ], [ rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ], kind |-> "reply", ver |-> 3 ] >> )
+        dstale: (d1 :> TRUE)  ->  (d1 :> FALSE)
+        drows: ( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> 0, h |-> FALSE, o |-> "none"] ] )  ->  ( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ] )
+  #16  FeedEvent(d1,1)   [src/renderer/stores/session-list.ts:211-228]
+        fann: (d1 :> 2)  ->  (d1 :> 3)
+        ip: ( d1 :> << [ upd |-> [ s1 |-> [j |-> -2, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ], kind |-> "delta", base |-> 2, ver |-> 3 ], [ rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ], kind |-> "reply", ver |-> 3 ] >> )  ->  ( d1 :> << [ rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ], kind |-> "reply", ver |-> 3 ] >> )
+  #17  FeedReply(d1,1)   [src/renderer/stores/session-list.ts:164-206]   <-- violation
+        chk: (d1 :> <<"ren", "s1", 1>>)  ->  (d1 :> <<"none", "none", 0>>)
+        fann: (d1 :> 3)  ->  (d1 :> 0)
+        fv: (d1 :> 1)  ->  (d1 :> 3)
+        fin: (d1 :> TRUE)  ->  (d1 :> FALSE)
+        ip: ( d1 :> << [ rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> "none"], s2 |-> [j |-> -1, h |-> FALSE, o |-> "none"] ], kind |-> "reply", ver |-> 3 ] >> )  ->  (d1 :> <<>>)

@@ -1,0 +1,31 @@
+baseline: pass
+EQUIVALENT id-change-silent: no property notices it, as declared: Since the host shares one numbered list, any read that finds the list changed publishes it and the delta goes to every device: the snapshot another device's read recorded can no longer hide a change from this one, so the F3 gap (listi
+DETECTED drop-announce-on-close: failed on HeldConverges
+DETECTED drop-announce-on-open: failed on HeldConverges
+DETECTED signature-ignores-openers: failed on OpenersConverge
+DETECTED snapshot-not-recorded-by-a-read: failed on HeldConverges
+DETECTED sameRow-ignores-heldOnHost: failed on HeldConverges
+DETECTED sameRow-ignores-openedBySession: failed on OpenersConverge
+DETECTED event-never-sent: failed on ListConverges
+DETECTED hsl-applies-on-mismatched-version: failed on SameVersionSameRows
+DETECTED feed-applies-on-mismatched-version: failed on SameVersionSameRows
+EQUIVALENT hsl-skips-reread-on-gap: no property notices it, as declared: The only way the computer's copy misses a version is a link drop (A6), and the link coming back marks the copy stale (LinkUp) before any later change could expose the gap; the gap branch repeats that. See link-up-does-not-mark-
+DETECTED link-up-does-not-mark-stale: failed on ListConverges
+EQUIVALENT hsl-ignores-announced-version: no property notices it, as declared: On the in-order link a reply is never older than a change that reached the computer before it: the host's reply holds at least every version it sent before (publish sets the copy, then emits, then the reply is taken), so 
+DETECTED feed-skips-reread-on-gap: failed on ListConverges
+DETECTED feed-ignores-announced-version: failed on ListConverges
+DETECTED feed-applies-delta-during-read: failed on NoReappear
+DETECTED lost-queued-refresh: failed on ListConverges
+DETECTED refresh-while-in-flight-reads-again: failed on OneAsk
+DETECTED delta-clears-stale: failed on FreshAfterRequest
+DETECTED no-stale-after-request: failed on FreshAfterRequest
+DETECTED stale-during-read-forgotten: failed on FreshAfterRequest
+WAIVED   TypeOK: Shape check only: no behaviour change breaks it without also breaking a property above it.
+covered  HeldConverges (by drop-announce-on-close, drop-announce-on-open, snapshot-not-recorded-by-a-read, sameRow-ignores-heldOnHost)
+covered  OpenersConverge (by signature-ignores-openers, sameRow-ignores-openedBySession)
+covered  ListConverges (by event-never-sent, link-up-does-not-mark-stale, feed-skips-reread-on-gap, feed-ignores-announced-version, lost-queued-refresh)
+covered  NoReappear (by feed-applies-delta-during-read)
+covered  SameVersionSameRows (by hsl-applies-on-mismatched-version, feed-applies-on-mismatched-version)
+covered  OneAsk (by refresh-while-in-flight-reads-again)
+covered  FreshAfterRequest (by delta-clears-stale, no-stale-after-request, stale-during-read-forgotten)
+18 of 18 mutations detected (3 more declared equivalent, not counted)

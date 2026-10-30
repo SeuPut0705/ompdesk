@@ -1,6 +1,20 @@
 {
-	"checker": { "kind": "tlc", "config": "MC.cfg", "workers": 4, "timeoutSec": 600 },
-	"properties": ["TypeOK", "HeldConverges", "OpenersConverge"],
+	"checker": {
+		"kind": "tlc",
+		"config": "MC.cfg",
+		"workers": 4,
+		"timeoutSec": 900
+	},
+	"properties": [
+		"TypeOK",
+		"HeldConverges",
+		"OpenersConverge",
+		"ListConverges",
+		"NoReappear",
+		"SameVersionSameRows",
+		"OneAsk",
+		"FreshAfterRequest"
+	],
 	"waive": {
 		"TypeOK": "Shape check only: no behaviour change breaks it without also breaking a property above it."
 	},
@@ -12,7 +26,8 @@
 			"search": "          /\\ Announce(f2, rec)\n",
 			"replace": "          /\\ UNCHANGED <<snap, evTimer>>\n",
 			"breaks": "HeldConverges",
-			"config": "MC_held.cfg"
+			"isolate": true,
+			"equivalent": "Since the host shares one numbered list, any read that finds the list changed publishes it and the delta goes to every device: the snapshot another device's read recorded can no longer hide a change from this one, so the F3 gap (listingChanged() silent on a session-id change) no longer leaves a device stale. The pool's announce stays (it is cheap and keeps the snapshot honest); the F3 unit tests still pin it."
 		},
 		{
 			"name": "drop-announce-on-close",
@@ -21,7 +36,7 @@
 			"search": "    /\\ LET f2 == [file EXCEPT ![t] = NoS] IN file' = f2 /\\ Announce(f2, rec)",
 			"replace": "    /\\ LET f2 == [file EXCEPT ![t] = NoS] IN file' = f2 /\\ UNCHANGED <<snap, evTimer>>",
 			"breaks": "HeldConverges",
-			"config": "MC_held.cfg"
+			"isolate": true
 		},
 		{
 			"name": "drop-announce-on-open",
@@ -30,61 +45,195 @@
 			"search": "    /\\ file[t] = NoS /\\ t \\notin pendReg /\\ nChanges < MaxChanges\n    /\\ LET f2 == [file EXCEPT ![t] = s] IN file' = f2 /\\ Announce(f2, rec)",
 			"replace": "    /\\ file[t] = NoS /\\ t \\notin pendReg /\\ nChanges < MaxChanges\n    /\\ LET f2 == [file EXCEPT ![t] = s] IN file' = f2 /\\ UNCHANGED <<snap, evTimer>>",
 			"breaks": "HeldConverges",
-			"config": "MC_held.cfg"
+			"isolate": true
 		},
 		{
 			"name": "signature-ignores-openers",
-			"why": "listingSignature compares only the held sessions: a closed-child record appearing or going changes no signature, so no device reads again.",
+			"why": "listingSignature compares only the held sessions: a closed-child record appearing or going changes no signature, so the host never reads and publishes it.",
 			"file": "SessionListing.tla",
 			"search": "    IF snap # Unk /\\ Listing(f2, r2) # snap",
 			"replace": "    IF snap # Unk /\\ Held(f2) # snap.held",
 			"breaks": "OpenersConverge",
-			"config": "MC_openers.cfg"
-		},
-		{
-			"name": "sameRow-ignores-heldOnHost",
-			"why": "reconcile() keeps the old row when only heldOnHost differs (sameRow forgot the field): the device keeps its stale held set.",
-			"file": "SessionListing.tla",
-			"search": "    /\\ view' = [view EXCEPT ![d] = ch[d][i].l]",
-			"replace": "    /\\ view' = [view EXCEPT ![d] = [held |-> (IF view[d] = Unk THEN ch[d][i].l.held ELSE view[d].held), op |-> ch[d][i].l.op]]",
-			"breaks": "HeldConverges",
-			"config": "MC_held.cfg"
-		},
-		{
-			"name": "sameRow-ignores-openedBySession",
-			"why": "reconcile() keeps the old row when only openedBySession differs: the device keeps nesting a child under the wrong opener.",
-			"file": "SessionListing.tla",
-			"search": "    /\\ view' = [view EXCEPT ![d] = ch[d][i].l]",
-			"replace": "    /\\ view' = [view EXCEPT ![d] = [held |-> ch[d][i].l.held, op |-> (IF view[d] = Unk THEN ch[d][i].l.op ELSE view[d].op)]]",
-			"breaks": "OpenersConverge",
-			"config": "MC_openers.cfg"
-		},
-		{
-			"name": "lost-queued-refresh",
-			"why": "A refresh asked for while a read was in flight is forgotten when the read lands: the last change never reaches the device.",
-			"file": "SessionListing.tla",
-			"search": "               /\\ inFlight' = [inFlight EXCEPT ![d] = TRUE]       \\* refresh() right after\n               /\\ req' = [req EXCEPT ![d] = TRUE]",
-			"replace": "               /\\ inFlight' = [inFlight EXCEPT ![d] = FALSE]\n               /\\ req' = req",
-			"breaks": "HeldConverges",
-			"config": "MC_held.cfg"
+			"isolate": true
 		},
 		{
 			"name": "snapshot-not-recorded-by-a-read",
-			"why": "sessions.list stops recording #listingSnapshot: listingChanged() keeps returning early and never re-announces.",
+			"why": "The host's reads stop recording #listingSnapshot: listingChanged() keeps returning early and never re-announces.",
 			"file": "SessionListing.tla",
-			"search": "    /\\ snap' = Listing(file, rec)\n",
-			"replace": "    /\\ UNCHANGED snap\n",
+			"search": "snap' = Listing(file, rec)",
+			"replace": "snap' = snap",
 			"breaks": "HeldConverges",
-			"config": "MC_held.cfg"
+			"isolate": true,
+			"all": true
+		},
+		{
+			"name": "sameRow-ignores-heldOnHost",
+			"why": "reconcile() keeps the old row when only heldOnHost differs (sameRow forgot the field): the window keeps its stale held flag.",
+			"file": "SessionListing.tla",
+			"search": "SetShow(d, new) == fshow' = [fshow EXCEPT ![d] = new]",
+			"replace": "SetShow(d, new) == fshow' = [fshow EXCEPT ![d] = [s \\in Sessions |-> IF fshow[d][s] # NoRow /\\ new[s] # NoRow THEN [j |-> new[s].j, h |-> fshow[d][s].h, o |-> new[s].o] ELSE new[s]]]",
+			"breaks": "HeldConverges",
+			"isolate": true
+		},
+		{
+			"name": "sameRow-ignores-openedBySession",
+			"why": "reconcile() keeps the old row when only openedBySession differs: the window keeps nesting a child under the wrong opener.",
+			"file": "SessionListing.tla",
+			"search": "SetShow(d, new) == fshow' = [fshow EXCEPT ![d] = new]",
+			"replace": "SetShow(d, new) == fshow' = [fshow EXCEPT ![d] = [s \\in Sessions |-> IF fshow[d][s] # NoRow /\\ new[s] # NoRow THEN [j |-> new[s].j, h |-> new[s].h, o |-> fshow[d][s].o] ELSE new[s]]]",
+			"breaks": "OpenersConverge",
+			"isolate": true
 		},
 		{
 			"name": "event-never-sent",
-			"why": "The debounced SESSIONS_CHANGED push is dropped: a device never reads again after the first read.",
+			"why": "The host's SESSIONS_CHANGED push (delta or bare) is dropped: a device never hears of a change after its first read.",
 			"file": "SessionListing.tla",
-			"search": "    /\\ ch' = [d \\in Devices |-> Append(ch[d], [kind |-> \"event\"])]",
-			"replace": "    /\\ ch' = ch",
-			"breaks": "HeldConverges",
-			"config": "MC_held.cfg"
+			"search": "EmitAll(l, m) == [d \\in Devices |-> IF up[d] THEN Append(l[d], m) ELSE l[d]]",
+			"replace": "EmitAll(l, m) == l",
+			"breaks": "ListConverges",
+			"isolate": true,
+			"config": "MC_delta.cfg"
+		},
+		{
+			"name": "hsl-applies-on-mismatched-version",
+			"why": "HostSessionList applies a change whose base is not the host version its copy holds (the guard `hostVersion === base` is gone): after a missed change it applies a delta to rows it was not made for.",
+			"file": "SessionListing.tla",
+			"search": "\nBaseOk(h, b) == h = b",
+			"replace": "\nBaseOk(h, b) == TRUE",
+			"breaks": [
+				"SameVersionSameRows",
+				"ListConverges"
+			],
+			"isolate": true,
+			"config": "MC_delta.cfg"
+		},
+		{
+			"name": "feed-applies-on-mismatched-version",
+			"why": "The window's feed applies a change whose base is not the version of its copy (`copy?.version === delta.base` is gone).",
+			"file": "SessionListing.tla",
+			"search": "FeedBaseOk(h, b) == h = b",
+			"replace": "FeedBaseOk(h, b) == TRUE",
+			"breaks": [
+				"SameVersionSameRows",
+				"ListConverges"
+			],
+			"isolate": true,
+			"config": "MC_delta.cfg"
+		},
+		{
+			"name": "hsl-skips-reread-on-gap",
+			"why": "HostSessionList ignores a change it cannot apply (a missed version) instead of marking its copy stale and telling the windows.",
+			"file": "SessionListing.tla",
+			"search": "HslGap(d) == MarkStale(d)",
+			"replace": "HslGap(d) == UNCHANGED <<dstale, ip>>",
+			"breaks": "ListConverges",
+			"config": "MC_delta.cfg",
+			"equivalent": "The only way the computer's copy misses a version is a link drop (A6), and the link coming back marks the copy stale (LinkUp) before any later change could expose the gap; the gap branch repeats that. See link-up-does-not-mark-stale for the mutation that does make a missed version stick.",
+			"isolate": true
+		},
+		{
+			"name": "link-up-does-not-mark-stale",
+			"why": "A link that came back does not mark the computer's copy of the host's list stale: the changes made while it was away stay missing until another change names a version the copy cannot apply.",
+			"file": "SessionListing.tla",
+			"search": "LinkBack(d) == MarkStale(d)",
+			"replace": "LinkBack(d) == UNCHANGED <<dstale, ip>>",
+			"breaks": "ListConverges",
+			"isolate": true,
+			"config": "MC_delta.cfg"
+		},
+		{
+			"name": "hsl-ignores-announced-version",
+			"why": "HostSessionList stops re-reading when a change named a later version than the answer it got (the finally branch of #read): on a link that reordered, the older answer would stay.",
+			"file": "SessionListing.tla",
+			"search": "           late == ann[d] > 0 /\\ m.ver < ann[d]",
+			"replace": "           late == FALSE",
+			"breaks": "ListConverges",
+			"isolate": true,
+			"config": "MC_delta.cfg",
+			"equivalent": "On the in-order link a reply is never older than a change that reached the computer before it: the host's reply holds at least every version it sent before (publish sets the copy, then emits, then the reply is taken), so the branch never fires. MC_gap.cfg (LinkMode = gap) is the run where it matters, and there the copy fails anyway (F5)."
+		},
+		{
+			"name": "feed-skips-reread-on-gap",
+			"why": "The window's feed does not read again for a change it cannot apply (a missed version, or a bare event from a copy marked stale).",
+			"file": "SessionListing.tla",
+			"search": "FeedGap(d) == fdeb' = [fdeb EXCEPT ![d] = TRUE]",
+			"replace": "FeedGap(d) == UNCHANGED fdeb",
+			"breaks": "ListConverges",
+			"isolate": true,
+			"config": "MC_delta.cfg"
+		},
+		{
+			"name": "feed-ignores-announced-version",
+			"why": "The feed forgets the version a change named while its read was under way: an answer older than that change stays on screen.",
+			"file": "SessionListing.tla",
+			"search": "FeedRaced(fa, v) == fa > 0 /\\ v < fa",
+			"replace": "FeedRaced(fa, v) == FALSE",
+			"breaks": "ListConverges",
+			"isolate": true,
+			"config": "MC_delta.cfg"
+		},
+		{
+			"name": "feed-applies-delta-during-read",
+			"why": "The feed applies a change while its read is under way instead of noting its version: the older answer lands after it and overwrites it, a deleted row comes back.",
+			"file": "SessionListing.tla",
+			"search": "           noted == isD /\\ fin[d]",
+			"replace": "           noted == FALSE",
+			"breaks": [
+				"NoReappear",
+				"ListConverges"
+			],
+			"isolate": true,
+			"config": "MC_delta.cfg"
+		},
+		{
+			"name": "lost-queued-refresh",
+			"why": "A refresh asked for while a read was in flight is forgotten when the read lands: the last change never reaches the window.",
+			"file": "SessionListing.tla",
+			"search": "           again == fq[d] \\/ raced",
+			"replace": "           again == raced",
+			"breaks": "ListConverges",
+			"isolate": true,
+			"config": "MC_delta.cfg"
+		},
+		{
+			"name": "refresh-while-in-flight-reads-again",
+			"why": "refresh() starts another read while one is under way instead of queueing one: two asks at the device computer's copy.",
+			"file": "SessionListing.tla",
+			"search": "    IN IF fin[d]\n          THEN /\\ fq' = [fq EXCEPT ![d] = TRUE] /\\ need' = [need EXCEPT ![d] = n]",
+			"replace": "    IN IF FALSE\n          THEN /\\ fq' = [fq EXCEPT ![d] = TRUE] /\\ need' = [need EXCEPT ![d] = n]",
+			"breaks": "OneAsk",
+			"isolate": true,
+			"config": "MC_delta.cfg"
+		},
+		{
+			"name": "delta-clears-stale",
+			"why": "F4 as it was: an applied change marks the copy current, so a request's stale() is forgotten and the next ask answers from a copy that still lists what the request deleted.",
+			"file": "SessionListing.tla",
+			"search": "StaleAfterSet(st) == st",
+			"replace": "StaleAfterSet(st) == FALSE",
+			"breaks": "FreshAfterRequest",
+			"isolate": true,
+			"config": "MC_delta.cfg"
+		},
+		{
+			"name": "no-stale-after-request",
+			"why": "A delete, rename or move through a device no longer marks its copy of the host's list stale: the next ask answers from the copy before it.",
+			"file": "SessionListing.tla",
+			"search": "PostStale(st) == TRUE",
+			"replace": "PostStale(st) == st",
+			"breaks": "FreshAfterRequest",
+			"isolate": true,
+			"config": "MC_delta.cfg"
+		},
+		{
+			"name": "stale-during-read-forgotten",
+			"why": "A stale() that comes while a read of the host is under way is lost when the read lands: the read counts as fresher than the request it started before.",
+			"file": "SessionListing.tla",
+			"search": "          /\\ dstale' = [dstale EXCEPT ![d] = late \\/ (drd[d] = \"dirty\" /\\ dstale[d])]",
+			"replace": "          /\\ dstale' = [dstale EXCEPT ![d] = late]",
+			"breaks": "FreshAfterRequest",
+			"isolate": true,
+			"config": "MC_delta.cfg"
 		}
 	]
 }

@@ -1,57 +1,333 @@
 {
 	"concern": "session-listing",
-	"workflow": "W1",
-	"generated_at": "2026-10-28T09:45:00.000Z",
-	"repo_commit": "1cc0239708a810cbdc1683f5be194b968caaea87",
-	"summary": "1 finding, fixed: a paired device could keep listing a session as held by a host tab after that tab was gone (F3), because the host's re-announce compares with the snapshot any device's read last recorded and the window tab's session-id change unregistered the file silently. The pool now announces every take and let-go of a session file; heldOnHost and openedBySession converge for 2 devices, 1 window tab, 1 hosted tab, 2 sessions, 3 host changes, any message order (2.9M states, depth 32; 14.8M with a journal event), and each property has mutations that fail it (9 of 9 DETECTED, the bug itself among them).",
+	"workflow": "W6",
+	"generated_at": "2026-10-30T11:30:00.000Z",
+	"repo_commit": "b53551176948aa70f4ce7a999f8c9fc199e6c608",
+	"summary": "The model now follows the versioned delta path of b53551176 (the host's numbered list, deltas in flight, a receiver that misses one and reads again, a read racing a newer change, delete/move/rename forcing a fresh read, a link drop). It found 1 bug, fixed (F4: SessionListShare.set() cleared a request's stale(), so the ask after a delete could be answered from a copy that still listed the session); every window converges to the host's list, a deleted session stays out of every copy and no copy applies a change against another version within 1-2 devices, 1 hosted tab (1 window tab in MC.cfg), 2 sessions, 2 index changes, 1 link drop, an in-order link, any order on the window's two IPC paths (2.3M, 6.2M, 4.4M and 15.4M states); 18 of 18 guard mutations are DETECTED and 3 are declared equivalent. Two observations are not fixed (F5: a link that reordered would break HostSessionList; F6: the window's optimistic delete can flicker).",
 	"scope": {
 		"modeled": [
-			"LocalHostServices listingChanged/#listing/#listingSnapshot/sessionsChanged/sessions.list; the window tabs' register/unregister/notify; the closed-child record merged by sessionOpeners",
-			"the device feed: refresh (one read in flight, one queued), the 350 ms debounce, reconcile/sameRow"
+			"the host's shared numbered list (#deviceList: changed/stale/current/publish), sessions.list, sessionsChanged and its debounce, listingChanged and the snapshot, the delta or bare event to each device",
+			"the index's changes as the host sees them: create, write, rename, delete, move",
+			"the paired computer's copy of the host's list (HostSessionList: hostChanged, #read, stale), the link state and hostSessionsStale",
+			"the window tabs' register/unregister/notify and the closed-child record",
+			"the window's feed: refresh, the onSessionsChanged handler, the answer, retries, deleteSession, renameSession, reconcile/sameRow"
 		],
 		"abstracted": [
-			"two devices, one window tab, one hosted tab opened by the window tab, two sessions, at most 3 host changes; a device's two feeds are two devices",
-			"only the overlay the property is about (heldOnHost, openedBySession): the index rows are not modeled",
-			"timers are order only"
+			"rows are [journal state, heldOnHost, openedBySession]; the host's read samples them in one block",
+			"the link is in order; the two IPC paths to a window have no order between them (a reply anywhere, events in order)",
+			"version numbers are integers (no epoch), generation counters are a stale flag and a clean or dirty read",
+			"a second paired device whose answers go elsewhere is a read that publishes (ForeignRead)"
 		],
 		"out_of_scope": [
-			"connection loss and reconnect, retain/release of the feed, read errors and backoff",
-			"other row fields (status, messageCount, firstMessage, parentSessionPath are not compared by sameRow; not examined)",
-			"deleting and renaming sessions, the snapshot cache, several windows of one device"
+			"a host that restarts, devices older than this build, retain/release of the feed, read errors' backoff, the snapshot cache",
+			"the window's optimistic hide of its own delete (F6)",
+			"other row fields, the per-device filter of SESSIONS_CHANGED, several windows of one device"
 		],
 		"assumptions": [
-			"A1: replies and events reach a device in any order (the code enforces none)",
-			"A2: a handler's mutation and its listingChanged() call run in one synchronous block; a sessions.list reads rows and snapshot in one block",
-			"A6: sessionInfoUpdate with a new id is eventually followed by the `session` identity (the code's own comment relies on a hydrate)"
+			"A1: the host's messages reach a computer in order (one counted encrypted socket); with a reordering link HostSessionList fails (F5)",
+			"A2: a window gets events in order and a reply at any position",
+			"A3: the host's read samples rows and tabs in one block, and every sessions.list reads again",
+			"A4: one window feed per computer and host; its read under way is its one ask (OneAsk)",
+			"A6: a host emit does not fail",
+			"A7: a handler's mutation and its listingChanged() call run in one synchronous block"
 		]
 	},
 	"properties": [
 		{
 			"name": "HeldConverges",
 			"kind": "invariant",
-			"statement": "HeldConverges == Quiescent => \\A d \\in Devices : view[d] # Unk /\\ view[d].held = Held(file)",
-			"meaning": "Once nothing is in flight, every device's rows say heldOnHost for exactly the sessions a host tab holds.",
-			"source": "src/shared/ipc-types.ts:1773-1778; host-services.ts:1263-1267; host-services.test.ts 'tells devices to read the list again when a tab here takes or lets go of a session'",
+			"statement": "HeldConverges == Quiescent => \\A d \\in Devices : HeldRows(fshow[d]) = HeldRows(Truth)",
+			"meaning": "Once nothing is in flight, every window's rows say heldOnHost for exactly the listed sessions a host tab holds.",
+			"source": "src/shared/ipc-types.ts:1773-1778; host-services.ts:1327-1331; host-services.test.ts 'tells devices to read the list again when a tab here takes or lets go of a session'",
 			"frozen": true,
 			"result": "holds",
-			"tool": "TLC 1.8.0",
-			"bounds": "Devices={d1,d2}, Sessions={s1,s2}, WinTabs={w1}, HostTabs={h1}, MaxChanges=3, MaxCh=3, any delivery order (violated before F3's fix, IdChangeAnnounces=FALSE, evidence SessionListing-MC_code.log)",
-			"evidence": "formal/evidence/verify-all-after-fixes.log"
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "MC.cfg: 2 devices, 1 window tab, 1 hosted tab, 2 sessions, 3 tab changes (2.3M states, depth 39); MC_delta.cfg, MC_two.cfg, MC_deep.cfg as ListConverges",
+			"evidence": "formal/session-listing/evidence/verify-all-delta-run.txt"
 		},
 		{
 			"name": "OpenersConverge",
 			"kind": "invariant",
-			"statement": "OpenersConverge == Quiescent => \\A d \\in Devices : view[d] # Unk /\\ view[d].op = Openers(file, rec)",
-			"meaning": "Under the same condition every device's openedBySession equals the host's opener map.",
+			"statement": "OpenersConverge == Quiescent => \\A d \\in Devices : OpenRows(fshow[d]) = OpenRows(Truth)",
+			"meaning": "Under the same condition every window's openedBySession equals the host's opener map for the listed sessions.",
 			"source": "src/shared/ipc-types.ts:1760-1766; host-services.test.ts 'names who opened each session it lists to a device'",
 			"frozen": true,
 			"result": "holds",
-			"tool": "TLC 1.8.0",
-			"bounds": "as HeldConverges (2925449 states); the unannounced id change was not shown to break it in the minimal counterexample",
-			"evidence": "formal/evidence/verify-all-after-fixes.log"
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "as HeldConverges",
+			"evidence": "formal/session-listing/evidence/verify-all-delta-run.txt"
+		},
+		{
+			"name": "ListConverges",
+			"kind": "invariant",
+			"statement": "ListConverges == Quiescent => \\A d \\in Devices : fshow[d] = Truth",
+			"meaning": "Under the same condition every window lists exactly the host's list: a row for each session the index lists, with its heldOnHost and openedBySession; a delete, a move and a rename show.",
+			"source": "src/main/session-list-share.ts:1-8; src/shared/session-list-delta.ts:1-6; host-session-list.test.ts",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "MC_delta.cfg: 1 device, 2 sessions (one not yet listed), 1 tab change, 2 index changes, 1 link drop, queues of 3, in-order link, two IPC paths in any order (6.2M states, depth 34); MC_two.cfg: 2 devices, 2 index changes (4.4M states, depth 34); MC_deep.cfg: with a second reader (15.4M states, depth 34). Violated when the link may reorder a reply behind an event: MC_gap.cfg (F5)",
+			"evidence": "formal/session-listing/evidence/verify-all-delta-run.txt"
+		},
+		{
+			"name": "NoReappear",
+			"kind": "invariant",
+			"statement": "NoReappear == \\A d \\in Devices : (\\A s \\in goneD[d] : drows[d][s] = NoRow) /\\ (\\A s \\in goneF[d] : frows[d][s] = NoRow)",
+			"meaning": "A session the host deleted or moved away that a receiver's copy dropped never comes back in that copy.",
+			"source": "src/main/session-index.ts:164-175; src/renderer/stores/session-list.ts:255-273",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "as ListConverges (the window's optimistic view is not covered: F6)",
+			"evidence": "formal/session-listing/evidence/verify-all-delta-run.txt"
+		},
+		{
+			"name": "SameVersionSameRows",
+			"kind": "invariant",
+			"statement": "SameVersionSameRows == \\A d \\in Devices : ((hver[d] > 0 /\\ hver[d] = hv) => drows[d] = hrows) /\\ ((dv[d] > 0 /\\ fv[d] = dv[d]) => frows[d] = drows[d])",
+			"meaning": "A copy that holds a version the host (or the computer's copy) numbered holds that version's rows: a change was never applied against another base.",
+			"source": "src/shared/session-list-delta.ts:1-6; host-session-list.ts:59-62; session-list.ts:129-132",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "as ListConverges",
+			"evidence": "formal/session-listing/evidence/verify-all-delta-run.txt"
+		},
+		{
+			"name": "FreshAfterRequest",
+			"kind": "invariant",
+			"statement": "FreshAfterRequest == \\A d \\in Devices : ~bad[d]",
+			"meaning": "The ask a window makes after a delete, rename or move through a paired host shows what that request did, whatever other changes were applied in between.",
+			"source": "src/main/ipc.ts:472-484, 1458-1463; devices.ts:561-564",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "as ListConverges (violated before F4's fix: F4-trace.json)",
+			"evidence": "formal/session-listing/evidence/verify-all-delta-run.txt"
+		},
+		{
+			"name": "OneAsk",
+			"kind": "invariant",
+			"statement": "OneAsk == \\A d \\in Devices : drd[d] # \"none\" => fin[d]",
+			"meaning": "A read of the host under way is the window's one ask (a check of assumption A4, not a promise of the code).",
+			"source": "src/renderer/stores/session-list.ts:164-170",
+			"frozen": false,
+			"result": "holds",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "as ListConverges",
+			"evidence": "formal/session-listing/evidence/verify-all-delta-run.txt"
 		}
 	],
 	"findings": [
+		{
+			"id": "F4",
+			"title": "A request's stale() was forgotten when another change applied: the window's next ask showed what the request had just removed",
+			"severity": "low",
+			"status": "fixed",
+			"property": "FreshAfterRequest",
+			"story": "A device deletes session s1 through its host. The host deletes the file and answers; main on the device's computer then marks its copy of the host's list stale (hostSessionsStale), because the host will publish the removal only after its 300 ms debounce. Before the window's own refresh() asks, a turn on the host writes to s2: the host publishes that change, and it applies to the version the computer's copy holds. SessionListShare.set() marked the copy current at the share's latest generation, so the stale() was gone. The window then asks and is answered from the copy, which still lists s1: the deleted session (or the old title of a rename, the old path of a move) is on screen again until the host's own change arrives. The window has just hidden the row itself, so it flashes back.",
+			"trace": [
+				{
+					"step": 1,
+					"action": "Init",
+					"changed": {
+						"nDrops": "0",
+						"bad": "(d1 :> FALSE)",
+						"hver": "(d1 :> 0)",
+						"pendReg": "{}",
+						"lk": "(d1 :> <<>>)",
+						"need": "(d1 :> <<\"none\", \"none\", 0>>)",
+						"nChanges": "0",
+						"hrows": "[ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ]",
+						"fshow": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )",
+						"chk": "(d1 :> <<\"none\", \"none\", 0>>)",
+						"nForeign": "0",
+						"snap": "[held |-> {\"?\"}, op |-> {}]",
+						"fdeb": "(d1 :> FALSE)",
+						"goneD": "(d1 :> {})",
+						"goneF": "(d1 :> {})",
+						"file": "[h1 |-> \"none\"]",
+						"dv": "(d1 :> 0)",
+						"drd": "(d1 :> \"clean\")",
+						"fret": "(d1 :> FALSE)",
+						"fann": "(d1 :> 0)",
+						"rec": "FALSE",
+						"frows": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )",
+						"rq": "(d1 :> TRUE)",
+						"fq": "(d1 :> FALSE)",
+						"fv": "(d1 :> 0)",
+						"ann": "(d1 :> 0)",
+						"fin": "(d1 :> TRUE)",
+						"hv": "0",
+						"nIdx": "0",
+						"up": "(d1 :> TRUE)",
+						"evTimer": "FALSE",
+						"ip": "(d1 :> <<>>)",
+						"post": "(d1 :> <<\"none\", \"none\", \"none\">>)",
+						"idx": "[s1 |-> 0, s2 |-> -1]",
+						"dstale": "(d1 :> FALSE)",
+						"drows": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )",
+						"nTicks": "0",
+						"seen": "(d1 :> {})"
+					}
+				},
+				{
+					"step": 2,
+					"action": "Open(\"h1\",\"s2\")",
+					"code": "src/main/remote/host-services.ts:1684-1723, src/main/sidecar-pool.ts:679-689, src/main/sidecar-pool.ts:2107-2116",
+					"changed": {
+						"nChanges": "0 -> 1",
+						"file": "[h1 |-> \"none\"] -> [h1 |-> \"s2\"]"
+					}
+				},
+				{
+					"step": 3,
+					"action": "HostRequest(d1)",
+					"code": "src/main/remote/host-services.ts:1059-1067, src/main/session-list-share.ts:35-44, src/main/remote/host-services.ts:1371-1373",
+					"changed": {
+						"lk": "(d1 :> <<>>) -> ( d1 :> << [ rows |-> [ s1 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], kind |-> \"reply\", ver |-> 1 ] >> )",
+						"hrows": "[ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] -> [ s1 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ]",
+						"snap": "[held |-> {\"?\"}, op |-> {}] -> [held |-> {\"s2\"}, op |-> {}]",
+						"rq": "(d1 :> TRUE) -> (d1 :> FALSE)",
+						"hv": "0 -> 1"
+					}
+				},
+				{
+					"step": 4,
+					"action": "IdxCreate(\"s2\")",
+					"code": "src/main/session-index.ts:437-440, src/main/ipc.ts:598-606",
+					"changed": {
+						"nIdx": "0 -> 1",
+						"evTimer": "FALSE -> TRUE",
+						"idx": "[s1 |-> 0, s2 |-> -1] -> [s1 |-> 0, s2 |-> 0]"
+					}
+				},
+				{
+					"step": 5,
+					"action": "HostChanged",
+					"code": "src/main/remote/host-services.ts:1318-1325, src/main/session-list-share.ts:52-61, src/main/session-list-share.ts:77-90, src/main/remote/host-services.ts:587-590, src/main/remote/host-services.ts:1371-1373",
+					"changed": {
+						"lk": "( d1 :> << [ rows |-> [ s1 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], kind |-> \"reply\", ver |-> 1 ] >> ) -> ( d1 :> << [ rows |-> [ s1 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], kind |-> \"reply\", ver |-> 1 ], [ upd |-> [ s1 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> 0, h  ...",
+						"hrows": "[ s1 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] -> [ s1 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> 0, h |-> TRUE, o |-> \"none\"] ]",
+						"hv": "1 -> 2",
+						"evTimer": "TRUE -> FALSE"
+					}
+				},
+				{
+					"step": 6,
+					"action": "IdxDelete(\"s1\",d1)",
+					"code": "src/main/session-index.ts:246-255, src/main/remote/host-services.ts:2282-2291, src/main/ipc.ts:472-484",
+					"changed": {
+						"nIdx": "1 -> 2",
+						"evTimer": "FALSE -> TRUE",
+						"post": "(d1 :> <<\"none\", \"none\", \"none\">>) -> (d1 :> <<\"main\", \"del\", \"s1\">>)",
+						"idx": "[s1 |-> 0, s2 |-> 0] -> [s1 |-> -2, s2 |-> 0]"
+					}
+				},
+				{
+					"step": 7,
+					"action": "HostReply(d1,1)",
+					"code": "src/main/remote/host-session-list.ts:87-104, src/main/session-list-share.ts:77-90, src/main/session-list-share.ts:35-44",
+					"changed": {
+						"hver": "(d1 :> 0) -> (d1 :> 1)",
+						"lk": "( d1 :> << [ rows |-> [ s1 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], kind |-> \"reply\", ver |-> 1 ], [ upd |-> [ s1 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> 0, h |-> TRUE, o |-> \"none\"] ], kind |-> \"delta\", base |-> 1, ver |-> 2 ] >> ) -> ( d1 :> << [ upd |-> [ s1 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"], s2 |-> [j ...",
+						"dv": "(d1 :> 0) -> (d1 :> 1)",
+						"drd": "(d1 :> \"clean\") -> (d1 :> \"none\")",
+						"ip": "(d1 :> <<>>) -> ( d1 :> << [ rows |-> [ s1 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], kind |-> \"reply\", ver |-> 1 ] >> )",
+						"drows": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] ) -> ( d1 :> [ s1 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )"
+					}
+				},
+				{
+					"step": 8,
+					"action": "PostMain(d1)",
+					"code": "src/main/ipc.ts:472-484, src/main/ipc.ts:1458-1463, src/main/ipc.ts:1473-1482, src/main/remote/devices.ts:562-564",
+					"changed": {
+						"ip": "( d1 :> << [ rows |-> [ s1 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], kind |-> \"reply\", ver |-> 1 ] >> ) -> ( d1 :> << [ rows |-> [ s1 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], kind |-> \"reply\", ver |-> 1 ], [kind |-> \"bare\"] >> )",
+						"post": "(d1 :> <<\"main\", \"del\", \"s1\">>) -> (d1 :> <<\"feed\", \"del\", \"s1\">>)",
+						"dstale": "(d1 :> FALSE) -> (d1 :> TRUE)"
+					}
+				},
+				{
+					"step": 9,
+					"action": "PostFeed(d1)",
+					"code": "src/renderer/stores/session-list.ts:255-273, src/renderer/stores/session-list.ts:274-284",
+					"changed": {
+						"need": "(d1 :> <<\"none\", \"none\", 0>>) -> (d1 :> <<\"del\", \"s1\", 0>>)",
+						"fq": "(d1 :> FALSE) -> (d1 :> TRUE)",
+						"post": "(d1 :> <<\"feed\", \"del\", \"s1\">>) -> (d1 :> <<\"none\", \"none\", \"none\">>)"
+					}
+				},
+				{
+					"step": 10,
+					"action": "FeedEvent(d1,2)",
+					"code": "src/renderer/stores/session-list.ts:211-228",
+					"changed": {
+						"fdeb": "(d1 :> FALSE) -> (d1 :> TRUE)",
+						"ip": "( d1 :> << [ rows |-> [ s1 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], kind |-> \"reply\", ver |-> 1 ], [kind |-> \"bare\"] >> ) -> ( d1 :> << [ rows |-> [ s1 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], kind |-> \"reply\", ver |-> 1 ] >> )"
+					}
+				},
+				{
+					"step": 11,
+					"action": "HostEvent(d1,1)",
+					"code": "src/main/remote/host-session-list.ts:63-79, src/main/remote/devices.ts:974-978, src/main/session-list-share.ts:63-70, src/main/session-list-share.ts:47-49",
+					"changed": {
+						"hver": "(d1 :> 1) -> (d1 :> 2)",
+						"lk": "( d1 :> << [ upd |-> [ s1 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> 0, h |-> TRUE, o |-> \"none\"] ], kind |-> \"delta\", base |-> 1, ver |-> 2 ] >> ) -> (d1 :> <<>>)",
+						"dv": "(d1 :> 1) -> (d1 :> 2)",
+						"ip": "( d1 :> << [ rows |-> [ s1 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], kind |-> \"reply\", ver |-> 1 ] >> ) -> ( d1 :> << [ rows |-> [ s1 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], kind |-> \"reply\", ver |-> 1 ], [ upd |-> [ s1 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> 0, h  ...",
+						"dstale": "(d1 :> TRUE) -> (d1 :> FALSE)",
+						"drows": "( d1 :> [ s1 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] ) -> ( d1 :> [ s1 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> 0, h |-> TRUE, o |-> \"none\"] ] )"
+					}
+				},
+				{
+					"step": 12,
+					"action": "FeedReply(d1,1)",
+					"code": "src/renderer/stores/session-list.ts:164-206",
+					"changed": {
+						"need": "(d1 :> <<\"del\", \"s1\", 0>>) -> (d1 :> <<\"none\", \"none\", 0>>)",
+						"fshow": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] ) -> ( d1 :> [ s1 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )",
+						"chk": "(d1 :> <<\"none\", \"none\", 0>>) -> (d1 :> <<\"del\", \"s1\", 0>>)",
+						"frows": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] ) -> ( d1 :> [ s1 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )",
+						"fq": "(d1 :> TRUE) -> (d1 :> FALSE)",
+						"fv": "(d1 :> 0) -> (d1 :> 1)",
+						"ip": "( d1 :> << [ rows |-> [ s1 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], kind |-> \"reply\", ver |-> 1 ], [ upd |-> [ s1 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> 0, h |-> TRUE, o |-> \"none\"] ], kind |-> \"delta\", base |-> 1, ver |-> 2 ] >> ) -> ( d1 :> << [ upd |-> [ s1 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"], s2 |-> [j ..."
+					}
+				},
+				{
+					"step": 13,
+					"action": "FeedReply(d1,2)",
+					"code": "src/renderer/stores/session-list.ts:164-206",
+					"violation": true,
+					"changed": {
+						"bad": "(d1 :> FALSE) -> (d1 :> TRUE)",
+						"fshow": "( d1 :> [ s1 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] ) -> ( d1 :> [ s1 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> 0, h |-> TRUE, o |-> \"none\"] ] )",
+						"chk": "(d1 :> <<\"del\", \"s1\", 0>>) -> (d1 :> <<\"none\", \"none\", 0>>)",
+						"frows": "( d1 :> [ s1 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] ) -> ( d1 :> [ s1 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> 0, h |-> TRUE, o |-> \"none\"] ] )",
+						"fv": "(d1 :> 1) -> (d1 :> 2)",
+						"fin": "(d1 :> TRUE) -> (d1 :> FALSE)",
+						"ip": "( d1 :> << [ upd |-> [ s1 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> 0, h |-> TRUE, o |-> \"none\"] ], kind |-> \"delta\", base |-> 1, ver |-> 2 ], [ rows |-> [ s1 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> 0, h |-> TRUE, o |-> \"none\"] ], kind |-> \"reply\", ver |-> 2 ] >> ) -> ( d1 :> << [ upd |-> [ s1 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"], s2 |-> [j | ..."
+					}
+				}
+			],
+			"reproduction": {
+				"test": "src/main/remote/host-session-list.test.ts::HostSessionList > still reads the host for the ask after a request through it, when another change of the version it holds applies first; src/main/session-list-share.test.ts::SessionListShare > keeps a list stale that a list read elsewhere is applied to, so the next ask still reads",
+				"result_before_fix": "fails",
+				"result_after_fix": "passes"
+			},
+			"fix": {
+				"summary": "SessionListShare.set() publishes at the copy's own generation (this.#copyGeneration), not the latest one: an applied change is no fresher than the copy it replaces, so a stale() still waits for its read. A copy that is current stays current (its generation equals the latest one). One line and its doc comment in src/main/session-list-share.ts.",
+				"commit": "9185a05e9",
+				"model_recheck": "passes",
+				"mutation_check": "fails-as-expected"
+			},
+			"evidence": [
+				"formal/session-listing/evidence/F4-trace.json",
+				"formal/session-listing/evidence/F4-tlc.txt",
+				"formal/session-listing/evidence/repro-F4-vitest.txt",
+				"formal/session-listing/evidence/repro-after-fix-F4-vitest-pass.txt",
+				"formal/session-listing/evidence/mutations.txt"
+			]
+		},
 		{
 			"id": "F3",
 			"title": "A device keeps listing a session as held by a host tab after the tab is gone",
@@ -165,22 +441,285 @@
 				"formal/session-listing/evidence/repro-after-fix-vitest-pass.log",
 				"formal/evidence/verify-all-after-fixes.log"
 			]
+		},
+		{
+			"id": "F5",
+			"title": "HostSessionList lets an older read overwrite a newer change if the link ever reorders a reply behind an event",
+			"severity": "low",
+			"status": "suspected",
+			"property": "ListConverges",
+			"story": "HostSessionList applies a change of the held version even while its own read of the host is under way (hostChanged checks the version before it checks the read). If the read's answer was taken before that change and arrives after it, #read sets the host version back and the share publishes the older rows over the newer ones; nothing names a later version (the change was applied, not announced), so no read follows and a deleted session is listed again until the next change. The link cannot do this today: it is one encrypted socket whose frames carry a counter and are refused out of order (wire.ts), and the host sends a reply in the continuation of the call that took it, so a reply is never older than a change that reached the computer before it. The model run with a link that lets a later event pass a reply (MC_gap.cfg) shows the result. Not reproduced in the code, because the code cannot reorder; kept as a finding of the model so a change that reorders (a second connection, a relay) meets it.",
+			"trace": [
+				{
+					"step": 1,
+					"action": "Init",
+					"changed": {
+						"nDrops": "0",
+						"bad": "(d1 :> FALSE)",
+						"hver": "(d1 :> 0)",
+						"pendReg": "{}",
+						"lk": "(d1 :> <<>>)",
+						"need": "(d1 :> <<\"none\", \"none\", 0>>)",
+						"nChanges": "0",
+						"hrows": "[ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ]",
+						"fshow": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )",
+						"chk": "(d1 :> <<\"none\", \"none\", 0>>)",
+						"nForeign": "0",
+						"snap": "[held |-> {\"?\"}, op |-> {}]",
+						"fdeb": "(d1 :> FALSE)",
+						"goneD": "(d1 :> {})",
+						"goneF": "(d1 :> {})",
+						"file": "[h1 |-> \"none\"]",
+						"dv": "(d1 :> 0)",
+						"drd": "(d1 :> \"clean\")",
+						"fret": "(d1 :> FALSE)",
+						"fann": "(d1 :> 0)",
+						"rec": "FALSE",
+						"frows": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )",
+						"rq": "(d1 :> TRUE)",
+						"fq": "(d1 :> FALSE)",
+						"fv": "(d1 :> 0)",
+						"ann": "(d1 :> 0)",
+						"fin": "(d1 :> TRUE)",
+						"hv": "0",
+						"nIdx": "0",
+						"up": "(d1 :> TRUE)",
+						"evTimer": "FALSE",
+						"ip": "(d1 :> <<>>)",
+						"post": "(d1 :> <<\"none\", \"none\", \"none\">>)",
+						"idx": "[s1 |-> 0, s2 |-> -1]",
+						"dstale": "(d1 :> FALSE)",
+						"drows": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )",
+						"nTicks": "0",
+						"seen": "(d1 :> {})"
+					}
+				},
+				{
+					"step": 2,
+					"action": "IdxBump(\"s1\",d1)",
+					"code": "src/main/session-index.ts:437-440, src/main/remote/host-services.ts:2315-2316, src/main/ipc.ts:1458-1463",
+					"changed": {
+						"nIdx": "0 -> 1",
+						"evTimer": "FALSE -> TRUE",
+						"post": "(d1 :> <<\"none\", \"none\", \"none\">>) -> (d1 :> <<\"main\", \"ren\", \"s1\">>)",
+						"idx": "[s1 |-> 0, s2 |-> -1] -> [s1 |-> 1, s2 |-> -1]"
+					}
+				},
+				{
+					"step": 3,
+					"action": "HostRequest(d1)",
+					"code": "src/main/remote/host-services.ts:1059-1067, src/main/session-list-share.ts:35-44, src/main/remote/host-services.ts:1371-1373",
+					"changed": {
+						"lk": "(d1 :> <<>>) -> ( d1 :> << [ rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], kind |-> \"reply\", ver |-> 1 ] >> )",
+						"hrows": "[ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] -> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ]",
+						"snap": "[held |-> {\"?\"}, op |-> {}] -> [held |-> {}, op |-> {}]",
+						"rq": "(d1 :> TRUE) -> (d1 :> FALSE)",
+						"hv": "0 -> 1"
+					}
+				},
+				{
+					"step": 4,
+					"action": "PostMain(d1)",
+					"code": "src/main/ipc.ts:472-484, src/main/ipc.ts:1458-1463, src/main/ipc.ts:1473-1482, src/main/remote/devices.ts:562-564",
+					"changed": {
+						"drd": "(d1 :> \"clean\") -> (d1 :> \"dirty\")",
+						"ip": "(d1 :> <<>>) -> (d1 :> <<[kind |-> \"bare\"]>>)",
+						"post": "(d1 :> <<\"main\", \"ren\", \"s1\">>) -> (d1 :> <<\"feed\", \"ren\", \"s1\">>)",
+						"dstale": "(d1 :> FALSE) -> (d1 :> TRUE)"
+					}
+				},
+				{
+					"step": 5,
+					"action": "PostFeed(d1)",
+					"code": "src/renderer/stores/session-list.ts:255-273, src/renderer/stores/session-list.ts:274-284",
+					"changed": {
+						"need": "(d1 :> <<\"none\", \"none\", 0>>) -> (d1 :> <<\"ren\", \"s1\", 1>>)",
+						"fq": "(d1 :> FALSE) -> (d1 :> TRUE)",
+						"post": "(d1 :> <<\"feed\", \"ren\", \"s1\">>) -> (d1 :> <<\"none\", \"none\", \"none\">>)"
+					}
+				},
+				{
+					"step": 6,
+					"action": "FeedEvent(d1,1)",
+					"code": "src/renderer/stores/session-list.ts:211-228",
+					"changed": {
+						"fdeb": "(d1 :> FALSE) -> (d1 :> TRUE)",
+						"ip": "(d1 :> <<[kind |-> \"bare\"]>>) -> (d1 :> <<>>)"
+					}
+				},
+				{
+					"step": 7,
+					"action": "FeedDebFire(d1)",
+					"code": "src/renderer/stores/session-list.ts:211-228",
+					"changed": {
+						"fdeb": "(d1 :> TRUE) -> (d1 :> FALSE)"
+					}
+				},
+				{
+					"step": 8,
+					"action": "HostReply(d1,1)",
+					"code": "src/main/remote/host-session-list.ts:87-104, src/main/session-list-share.ts:77-90, src/main/session-list-share.ts:35-44",
+					"changed": {
+						"hver": "(d1 :> 0) -> (d1 :> 1)",
+						"lk": "( d1 :> << [ rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], kind |-> \"reply\", ver |-> 1 ] >> ) -> (d1 :> <<>>)",
+						"dv": "(d1 :> 0) -> (d1 :> 1)",
+						"drd": "(d1 :> \"dirty\") -> (d1 :> \"none\")",
+						"ip": "(d1 :> <<>>) -> ( d1 :> << [ rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], kind |-> \"reply\", ver |-> 1 ] >> )",
+						"drows": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] ) -> ( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )"
+					}
+				},
+				{
+					"step": 9,
+					"action": "FeedReply(d1,1)",
+					"code": "src/renderer/stores/session-list.ts:164-206",
+					"changed": {
+						"need": "(d1 :> <<\"ren\", \"s1\", 1>>) -> (d1 :> <<\"none\", \"none\", 0>>)",
+						"fshow": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] ) -> ( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )",
+						"chk": "(d1 :> <<\"none\", \"none\", 0>>) -> (d1 :> <<\"ren\", \"s1\", 1>>)",
+						"drd": "(d1 :> \"none\") -> (d1 :> \"clean\")",
+						"frows": "( d1 :> [ s1 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] ) -> ( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )",
+						"rq": "(d1 :> FALSE) -> (d1 :> TRUE)",
+						"fq": "(d1 :> TRUE) -> (d1 :> FALSE)",
+						"fv": "(d1 :> 0) -> (d1 :> 1)",
+						"ip": "( d1 :> << [ rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], kind |-> \"reply\", ver |-> 1 ] >> ) -> (d1 :> <<>>)"
+					}
+				},
+				{
+					"step": 10,
+					"action": "HostRequest(d1)",
+					"code": "src/main/remote/host-services.ts:1059-1067, src/main/session-list-share.ts:35-44, src/main/remote/host-services.ts:1371-1373",
+					"changed": {
+						"lk": "(d1 :> <<>>) -> ( d1 :> << [ rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], kind |-> \"reply\", ver |-> 1 ] >> )",
+						"rq": "(d1 :> TRUE) -> (d1 :> FALSE)"
+					}
+				},
+				{
+					"step": 11,
+					"action": "IdxCreate(\"s2\")",
+					"code": "src/main/session-index.ts:437-440, src/main/ipc.ts:598-606",
+					"changed": {
+						"nIdx": "1 -> 2",
+						"idx": "[s1 |-> 1, s2 |-> -1] -> [s1 |-> 1, s2 |-> 0]"
+					}
+				},
+				{
+					"step": 12,
+					"action": "HostChanged",
+					"code": "src/main/remote/host-services.ts:1318-1325, src/main/session-list-share.ts:52-61, src/main/session-list-share.ts:77-90, src/main/remote/host-services.ts:587-590, src/main/remote/host-services.ts:1371-1373",
+					"changed": {
+						"lk": "( d1 :> << [ rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], kind |-> \"reply\", ver |-> 1 ] >> ) -> ( d1 :> << [ rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], kind |-> \"reply\", ver |-> 1 ], [ upd |-> [ s1 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> 0, h  ...",
+						"hrows": "[ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] -> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"] ]",
+						"hv": "1 -> 2",
+						"evTimer": "TRUE -> FALSE"
+					}
+				},
+				{
+					"step": 13,
+					"action": "HostEvent(d1,2)",
+					"code": "src/main/remote/host-session-list.ts:63-79, src/main/remote/devices.ts:974-978, src/main/session-list-share.ts:63-70, src/main/session-list-share.ts:47-49",
+					"changed": {
+						"hver": "(d1 :> 1) -> (d1 :> 2)",
+						"lk": "( d1 :> << [ rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], kind |-> \"reply\", ver |-> 1 ], [ upd |-> [ s1 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"] ], kind |-> \"delta\", base |-> 1, ver |-> 2 ] >> ) -> ( d1 :> << [ rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [ ...",
+						"dv": "(d1 :> 1) -> (d1 :> 2)",
+						"ip": "(d1 :> <<>>) -> ( d1 :> << [ upd |-> [ s1 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"] ], kind |-> \"delta\", base |-> 1, ver |-> 2 ] >> )",
+						"drows": "( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] ) -> ( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"] ] )"
+					}
+				},
+				{
+					"step": 14,
+					"action": "FeedEvent(d1,1)",
+					"code": "src/renderer/stores/session-list.ts:211-228",
+					"changed": {
+						"fann": "(d1 :> 0) -> (d1 :> 2)",
+						"ip": "( d1 :> << [ upd |-> [ s1 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"] ], kind |-> \"delta\", base |-> 1, ver |-> 2 ] >> ) -> (d1 :> <<>>)"
+					}
+				},
+				{
+					"step": 15,
+					"action": "HostReply(d1,1)",
+					"code": "src/main/remote/host-session-list.ts:87-104, src/main/session-list-share.ts:77-90, src/main/session-list-share.ts:35-44",
+					"changed": {
+						"hver": "(d1 :> 2) -> (d1 :> 1)",
+						"lk": "( d1 :> << [ rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], kind |-> \"reply\", ver |-> 1 ] >> ) -> (d1 :> <<>>)",
+						"dv": "(d1 :> 2) -> (d1 :> 3)",
+						"drd": "(d1 :> \"clean\") -> (d1 :> \"none\")",
+						"ip": "(d1 :> <<>>) -> ( d1 :> << [ upd |-> [ s1 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], kind |-> \"delta\", base |-> 2, ver |-> 3 ], [ rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], kind |-> \"reply\", ver |-> 3 ] >> )",
+						"dstale": "(d1 :> TRUE) -> (d1 :> FALSE)",
+						"drows": "( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> 0, h |-> FALSE, o |-> \"none\"] ] ) -> ( d1 :> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ] )"
+					}
+				},
+				{
+					"step": 16,
+					"action": "FeedEvent(d1,1)",
+					"code": "src/renderer/stores/session-list.ts:211-228",
+					"changed": {
+						"fann": "(d1 :> 2) -> (d1 :> 3)",
+						"ip": "( d1 :> << [ upd |-> [ s1 |-> [j |-> -2, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], kind |-> \"delta\", base |-> 2, ver |-> 3 ], [ rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], kind |-> \"reply\", ver |-> 3 ] >> ) -> ( d1 :> << [ rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |->  ..."
+					}
+				},
+				{
+					"step": 17,
+					"action": "FeedReply(d1,1)",
+					"code": "src/renderer/stores/session-list.ts:164-206",
+					"violation": true,
+					"changed": {
+						"chk": "(d1 :> <<\"ren\", \"s1\", 1>>) -> (d1 :> <<\"none\", \"none\", 0>>)",
+						"fann": "(d1 :> 3) -> (d1 :> 0)",
+						"fv": "(d1 :> 1) -> (d1 :> 3)",
+						"fin": "(d1 :> TRUE) -> (d1 :> FALSE)",
+						"ip": "( d1 :> << [ rows |-> [ s1 |-> [j |-> 1, h |-> FALSE, o |-> \"none\"], s2 |-> [j |-> -1, h |-> FALSE, o |-> \"none\"] ], kind |-> \"reply\", ver |-> 3 ] >> ) -> (d1 :> <<>>)"
+					}
+				}
+			],
+			"reproduction": {
+				"test": "none: the in-order link makes the interleaving unreachable",
+				"result_before_fix": "not-reproduced",
+				"result_after_fix": "not-run"
+			},
+			"fix": {
+				"summary": "None applied. A guard on the answer's version in HostSessionList.#read (drop an answer older than the host version the copy holds) would close it.",
+				"model_recheck": "not-run",
+				"mutation_check": "not-run"
+			},
+			"evidence": [
+				"formal/session-listing/evidence/F5-trace.json",
+				"formal/session-listing/evidence/F5-tlc.txt"
+			]
+		},
+		{
+			"id": "F6",
+			"title": "A window's own delete can be shown again for one read by an answer that was already on its way",
+			"severity": "low",
+			"status": "suspected",
+			"property": "ListConverges",
+			"story": "The window's deleteSession hides the row in the rows it shows and reads again. An answer that main computed before the delete (it is in flight on the invoke reply path, which has no order against the SESSIONS_CHANGED events) lands after the hide and accepts the older rows, so the deleted row is on screen until the queued read answers. The copies never take it back (NoReappear holds on them) and the settled view is right (ListConverges holds); only the optimistic view flickers. The same race existed before the delta commit. Seen in an earlier revision of the model where NoReappear was stated on the window's view; not reproduced in the code and not fixed, so it is out of the checked properties (SCOPE.md).",
+			"trace": [],
+			"reproduction": {
+				"test": "none",
+				"result_before_fix": "not-reproduced",
+				"result_after_fix": "not-run"
+			},
+			"fix": {
+				"summary": "None applied. Dropping the answers of reads that started before the delete (the generation counter the feed keeps for release) would close it.",
+				"model_recheck": "not-run",
+				"mutation_check": "not-run"
+			},
+			"evidence": []
 		}
 	],
 	"trust_base": {
 		"tla": {
-			"tool_version": "TLC 1.8.0 (tla2tools 1.8.0), java 17",
-			"states_generated": 15073864,
-			"distinct_states": 2925449,
-			"depth": 32,
+			"tool_version": "TLC2 2026.10.28.014557 (tla2tools 1.8.0), java 17",
+			"states_generated": 8182282,
+			"distinct_states": 2329289,
+			"depth": 39,
 			"sanity_checks": [
-				"before the fix MC_code.cfg (IdChangeAnnounces=FALSE) violated HeldConverges (SessionListing-MC_code.log); the fixed model holds on MC.cfg and the old silent id change, the mutation id-change-silent, is DETECTED",
-				"NeverHeld and NeverOpener are violated, so a held row and an opener row are reachable",
-				"mutate.ts: 9 of 9 mutations DETECTED, no property UNCOVERED (TypeOK waived)",
-				"with an in-order channel (Ordered=TRUE) the mutation lost-queued-refresh is MISSED (formal/session-listing/evidence/mutation-queued-ordered.log): the queued re-read is redundant if replies never trail events; the code does not enforce that order, so the model allows any order",
-				"deep run (a journal event, queues of 4): 14791048 distinct states, depth 35, holds",
-				"deadlock checking is ON (explicit Terminated action)",
-				"scratch break (persist step A.5): removing listingChanged() from #closeTab in host-services.ts and from the model's hosted-tab Close made `verify-all.ts formal --only session-listing` FAIL on HeldConverges with Close(\"h1\") tagged host-services.ts:2237-2265 and the drift line naming src/main/remote/host-services.ts (formal/session-listing/evidence/scratch-break-run.log); after dropping both edits the run PASSES with --strict-drift (formal/session-listing/evidence/scratch-dropped-rerun.log)"
+				"MC.cfg 2.3M distinct states (depth 39); MC_delta.cfg 6.2M (depth 34); MC_two.cfg 4.4M with device symmetry (depth 34); MC_deep.cfg 15.4M (depth 34, deep tier); all pass TypeOK, HeldConverges, OpenersConverge, ListConverges, NoReappear, SameVersionSameRows, OneAsk, FreshAfterRequest",
+				"NeverHeld, NeverOpener, NeverGone and seven branch checks (NoHslApply, NoHslGap, NoHslNote, NoFeedApply, NoFeedGap, NoFeedNote, NoFeedRaced) are violated, so each reached state and each guard branch of the two receivers exists",
+				"MC_gap.cfg (a later event may pass a reply) violates ListConverges: the matrix expects it (F5)",
+				"mutate.ts: 18 of 18 mutations DETECTED, 3 declared equivalent with a reason written from the code (id-change-silent, hsl-skips-reread-on-gap, hsl-ignores-announced-version), no property UNCOVERED (TypeOK waived); the mutations of the three guards asked for: apply on a mismatched version (hsl-, feed-applies-on-mismatched-version), skip the re-read on a gap (feed-skips-reread-on-gap, link-up-does-not-mark-stale), an older read overwriting a newer change (feed-applies-delta-during-read, feed-ignores-announced-version); F4 is the mutation delta-clears-stale",
+				"deadlock checking is ON (explicit Terminated action); delivery guards bound the queues (MaxCh), so a state with a full queue has no step: no run reported a deadlock",
+				"the unit tests of the fix: host-session-list.test.ts and session-list-share.test.ts fail on the unchanged code and pass after (repro-F4-vitest.txt, repro-after-fix-F4-vitest-pass.txt); the 555 tests of the session list, host services, index and store suites pass"
 			]
 		}
 	},
@@ -188,12 +727,12 @@
 		"bun <tools-dir>/scripts/verify-all.ts formal --only session-listing",
 		"bun <tools-dir>/scripts/tlc.ts formal/session-listing/tla/SessionListing.tla --matrix formal/session-listing/tla/matrix.json",
 		"bun <tools-dir>/scripts/mutate.ts formal/session-listing/tla/SessionListing.tla formal/session-listing/tla/mutations.json",
-		"bunx vitest run src/main/remote/host-services.test.ts src/main/sidecar-pool.test.ts -t \"lets go of it|control for F3|announces every take\""
+		"bunx vitest run src/main/remote/host-session-list.test.ts src/main/session-list-share.test.ts"
 	],
 	"next_steps": [
-		"W4 candidate, not applied: listingChanged() in onWindowTabsChanged now overlaps onSessionFilesChanged for session-file changes; it still covers openers learned through the layout, so keep it",
-		"W4 candidate, not applied: the device's `queued` re-read is dead if replies and events are delivered in order; the code does not guarantee that order, so keep it",
-		"W5: add the fast tier (about 40 s plus mutations) to CI; the deep tier (108 s) nightly",
-		"Model connection loss and reconnect, and the other row fields sameRow ignores, as further concerns"
+		"W4 candidate, not applied: the pool's announce on a session-id change (F3's fix) is now redundant for convergence (the mutation id-change-silent is equivalent): a read that finds the list changed publishes it to every device; keep it until the snapshot comparison itself is reconsidered",
+		"W4 candidate, not applied: HostSessionList's gap branch and its #announced guard are not exercised by any reachable state (hsl-skips-reread-on-gap, hsl-ignores-announced-version are equivalent mutants); they are defense for a link that loses or reorders messages",
+		"If the link or the IPC paths ever order or lose differently, rerun with LinkMode/IpcMode and read F5",
+		"Model a host restart (the epoch) and the window's release and retain as further concerns"
 	]
 }

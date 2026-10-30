@@ -1,0 +1,11 @@
+
+ RUN  v3.2.7 /Users/seuput/Desktop/GitHub/omgdesk
+
+ ✓ |node| src/main/session-list-share.test.ts (6 tests) 3ms
+ ✓ |node| src/main/remote/host-session-list.test.ts (7 tests) 5ms
+
+ Test Files  2 passed (2)
+      Tests  13 passed (13)
+   Start at  19:28:20
+   Duration  425ms (transform 251ms, setup 397ms, collect 35ms, tests 9ms, environment 0ms, prepare 63ms)
+

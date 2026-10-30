@@ -1,0 +1,50 @@
+   ✓ HostSessionList > reads the host again after a request through it changed its sessions or the link came back 0ms
+   × HostSessionList > still reads the host for the ask after a request through it, when another change of the version it holds applies first 4ms
+     → expected [] to have a length of 1 but got +0
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |node| src/main/session-list-share.test.ts > SessionListShare > keeps a list stale that a list read elsewhere is applied to, so the next ask still reads
+AssertionError: expected [] to have a length of 1 but got +0
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ src/main/session-list-share.test.ts:128:19
+    126|   r.share.set([row("/a"), row("/b")]);
+    127|   const next = r.share.current();
+    128|   expect(r.reads).toHaveLength(1);
+       |                   ^
+    129|   await r.answerAll();
+    130|   expect((await next).sessions).toHaveLength(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |node| src/main/remote/host-session-list.test.ts > HostSessionList > still reads the host for the ask after a request through it, when another change of the version it holds applies first
+AssertionError: expected [] to have a length of 1 but got +0
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ src/main/remote/host-session-list.test.ts:159:17
+    157|   // The window asks now: the copy still lists /a, which the host dele…
+    158|   const next = list.current();
+    159|   expect(asked).toHaveLength(1);
+       |                 ^
+    160|   await answer({ version: "h.3", sessions: [row("/b", "Renamed")] });
+    161|   expect((await next).sessions.map(entry => entry.path)).toEqual(["/b"…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  2 failed | 11 passed (13)
+   Start at  19:28:11
+   Duration  427ms (transform 241ms, setup 367ms, collect 30ms, tests 15ms, environment 0ms, prepare 64ms)
+

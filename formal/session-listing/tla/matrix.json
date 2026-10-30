@@ -1,8 +1,94 @@
 {
 	"runs": [
-		{ "name": "code-2-devices", "config": "MC.cfg", "expect": "pass" },
-		{ "name": "a-device-can-show-a-held-row", "config": "MC_sanity.cfg", "expect": "invariant", "property": "NeverHeld" },
-		{ "name": "an-opener-row-is-reachable", "config": "MC_sanity_op.cfg", "expect": "invariant", "property": "NeverOpener" },
-		{ "name": "deep-with-journal-tick", "config": "MC_deep.cfg", "expect": "pass", "tier": "deep", "timeoutSec": 900 }
+		{
+			"name": "code-overlay-2-devices",
+			"config": "MC.cfg",
+			"expect": "pass"
+		},
+		{
+			"name": "code-delta",
+			"config": "MC_delta.cfg",
+			"expect": "pass",
+			"timeoutSec": 600
+		},
+		{
+			"name": "code-two-devices",
+			"config": "MC_two.cfg",
+			"expect": "pass",
+			"timeoutSec": 900
+		},
+		{
+			"name": "deep-with-a-foreign-reader",
+			"config": "MC_deep.cfg",
+			"expect": "pass",
+			"tier": "deep",
+			"timeoutSec": 1800
+		},
+		{
+			"name": "link-reorder-regresses-hsl",
+			"config": "MC_gap.cfg",
+			"expect": "invariant",
+			"property": "ListConverges"
+		},
+		{
+			"name": "a-window-can-show-a-held-row",
+			"config": "MC_sanity.cfg",
+			"expect": "invariant",
+			"property": "NeverHeld"
+		},
+		{
+			"name": "an-opener-row-is-reachable",
+			"config": "MC_sanity_op.cfg",
+			"expect": "invariant",
+			"property": "NeverOpener"
+		},
+		{
+			"name": "a-copy-can-drop-a-deleted-session",
+			"config": "MC_sanity_gone.cfg",
+			"expect": "invariant",
+			"property": "NeverGone"
+		},
+		{
+			"name": "hsl-applies-a-delta",
+			"config": "MC_sanity_hslapply.cfg",
+			"expect": "invariant",
+			"property": "NoHslApply"
+		},
+		{
+			"name": "hsl-meets-a-gap",
+			"config": "MC_sanity_hslgap.cfg",
+			"expect": "invariant",
+			"property": "NoHslGap"
+		},
+		{
+			"name": "hsl-notes-a-change-during-a-read",
+			"config": "MC_sanity_hslnote.cfg",
+			"expect": "invariant",
+			"property": "NoHslNote"
+		},
+		{
+			"name": "feed-applies-a-delta",
+			"config": "MC_sanity_feedapply.cfg",
+			"expect": "invariant",
+			"property": "NoFeedApply"
+		},
+		{
+			"name": "feed-meets-a-gap-or-bare-event",
+			"config": "MC_sanity_feedgap.cfg",
+			"expect": "invariant",
+			"property": "NoFeedGap"
+		},
+		{
+			"name": "feed-notes-a-change-during-a-read",
+			"config": "MC_sanity_feednote.cfg",
+			"expect": "invariant",
+			"property": "NoFeedNote"
+		},
+		{
+			"name": "feed-reads-again-for-an-announced-version",
+			"config": "MC_sanity_feedraced.cfg",
+			"expect": "invariant",
+			"property": "NoFeedRaced"
+		}
 	]
 }
