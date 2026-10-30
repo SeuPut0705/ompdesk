@@ -90,4 +90,27 @@ describe("settings store display sync", () => {
 
 		expect(useSettingsStore.getState().goalStatusInFooter).toBe(false);
 	});
+
+	it("joins the latest read for a session state instead of reading again, until reset", async () => {
+		getSettings.mockImplementation(() => success({ "goal.statusInFooter": false }));
+		const state = {
+			steeringMode: "all",
+			followUpMode: "all",
+			interruptMode: "immediate",
+			autoCompactionEnabled: true,
+			autoRetryEnabled: true,
+		} as never;
+		await useSettingsStore.getState().syncDisplaySettings();
+		await useSettingsStore.getState().syncApproval();
+		expect(getSettings).toHaveBeenCalledTimes(2);
+		// Every get_state lands here (a tab switch's hydration, the run settings): the reads above still hold.
+		useSettingsStore.getState().setFromState(state);
+		useSettingsStore.getState().setFromState(state);
+		expect(getSettings).toHaveBeenCalledTimes(2);
+		// A new omp (reset) knows nothing: its first state reads each kind once.
+		useSettingsStore.getState().reset();
+		useSettingsStore.getState().setFromState(state);
+		useSettingsStore.getState().setFromState(state);
+		expect(getSettings).toHaveBeenCalledTimes(4);
+	});
 });

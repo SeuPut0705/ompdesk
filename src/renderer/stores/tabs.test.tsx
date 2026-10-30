@@ -867,8 +867,11 @@ describe("tabs store switch", () => {
 			await switching;
 			// Hydrate's get_state (mock: not streaming) is authoritative afterwards…
 			expect(useSessionStore.getState().isStreaming).toBe(false);
-			// …from a fetch begun after the route attached: the early one could miss events.
-			expect(omp.rpc.getTranscriptPage).toHaveBeenCalledTimes(2);
+			// …from the one fetch, begun after the route attached (a fetch begun before it could miss events).
+			expect(omp.rpc.getTranscriptPage).toHaveBeenCalledTimes(1);
+			expect(omp.tabs.setActive.mock.invocationCallOrder[0]).toBeLessThan(
+				omp.rpc.getTranscriptPage.mock.invocationCallOrder[0] ?? 0,
+			);
 		} finally {
 			vi.useRealTimers();
 		}

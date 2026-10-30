@@ -175,14 +175,20 @@ async function syncDisplaySettings(
 export const createSettingsStore = (command: TabCommand = activeTabCommand) => {
 	let approvalSyncVersion = 0;
 	let displaySyncVersion = 0;
+	// The latest read of each kind since the store was reset: a session state (setFromState, after every get_state)
+	// joins it rather than reading again. A change (config_update, a hydration, a save) reads afresh.
+	let approvalRead: Promise<void> | undefined;
+	let displayRead: Promise<void> | undefined;
 	return createStore<SettingsStore>()(set => {
 		const syncApproval = (): Promise<void> => {
 			const version = ++approvalSyncVersion;
-			return syncApprovalMode(set, command, () => version === approvalSyncVersion);
+			approvalRead = syncApprovalMode(set, command, () => version === approvalSyncVersion);
+			return approvalRead;
 		};
 		const syncDisplay = (): Promise<void> => {
 			const version = ++displaySyncVersion;
-			return syncDisplaySettings(set, command, () => version === displaySyncVersion);
+			displayRead = syncDisplaySettings(set, command, () => version === displaySyncVersion);
+			return displayRead;
 		};
 		return {
 			...initialState,
@@ -194,8 +200,8 @@ export const createSettingsStore = (command: TabCommand = activeTabCommand) => {
 					autoCompaction: state.autoCompactionEnabled,
 					autoRetry: state.autoRetryEnabled,
 				});
-				void syncApproval();
-				void syncDisplay();
+				void (approvalRead ?? syncApproval());
+				void (displayRead ?? syncDisplay());
 			},
 			setApprovalMode: async mode => {
 				const version = ++approvalSyncVersion;
@@ -216,6 +222,8 @@ export const createSettingsStore = (command: TabCommand = activeTabCommand) => {
 			reset: () => {
 				approvalSyncVersion++;
 				displaySyncVersion++;
+				approvalRead = undefined;
+				displayRead = undefined;
 				set(initialState);
 			},
 		};
