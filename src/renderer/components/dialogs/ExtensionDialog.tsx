@@ -548,7 +548,7 @@ function AskDialog({
 								type="button"
 							>
 								{isAnswered(index) && <Check aria-hidden className="size-3 text-(--sc-success)" />}
-								<span className="max-w-32 truncate">{item.header || index + 1}</span>
+								<span className="max-w-40 truncate">{item.header || index + 1}</span>
 								{isAnswered(index) && <span className="sr-only">{`, ${t("extDialog.ask.stepAnswered")}`}</span>}
 							</button>
 						))}
@@ -556,7 +556,7 @@ function AskDialog({
 				)}
 				<div className="space-y-2.5" key={question.id} ref={bodyRef}>
 					<div className="space-y-1">
-						{question.header && total === 1 && (
+						{question.header && (
 							<div className="text-sc-xs font-medium text-(--sc-text-muted)">{question.header}</div>
 						)}
 						<p

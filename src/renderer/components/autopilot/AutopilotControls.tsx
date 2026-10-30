@@ -81,13 +81,13 @@ export function AutopilotControls({ compact = false }: { compact?: boolean }) {
 						loading={abort.loading}
 						onClick={abort.onClick}
 						size="sm"
-						variant="danger"
+						variant="danger-soft"
 					/>
 				</>
 			) : (
-				<div className="grid min-w-0 flex-1 grid-cols-3 gap-1" data-autopilot-control-row>
+				<div className="flex min-w-0 flex-1 flex-wrap gap-1" data-autopilot-control-row>
 					<Button
-						className="h-auto! min-h-(--sc-control-lg) min-w-0 flex-col gap-0.5! px-1! py-1 text-sc-xs!"
+						className="h-auto! min-h-(--sc-control-lg) min-w-fit flex-1 px-2! py-1 text-sc-xs!"
 						data-autopilot-pause={paused ? undefined : ""}
 						data-autopilot-resume={paused ? "" : undefined}
 						disabled={pause.disabled}
@@ -102,7 +102,7 @@ export function AutopilotControls({ compact = false }: { compact?: boolean }) {
 					</Button>
 					<Button
 						aria-pressed={shipThenStop}
-						className="h-auto! min-h-(--sc-control-lg) min-w-0 flex-col gap-0.5! px-1! py-1 text-sc-xs!"
+						className="h-auto! min-h-(--sc-control-lg) min-w-fit flex-1 px-2! py-1 text-sc-xs!"
 						data-autopilot-ship-stop
 						disabled={ship.disabled}
 						icon={ship.icon}
@@ -115,7 +115,7 @@ export function AutopilotControls({ compact = false }: { compact?: boolean }) {
 						<span className="max-w-full truncate">{ship.label}</span>
 					</Button>
 					<Button
-						className="h-auto! min-h-(--sc-control-lg) min-w-0 flex-col gap-0.5! px-1! py-1 text-sc-xs!"
+						className="h-auto! min-h-(--sc-control-lg) min-w-fit flex-1 px-2! py-1 text-sc-xs!"
 						data-autopilot-abort
 						disabled={abort.disabled}
 						icon={abort.icon}
@@ -123,7 +123,7 @@ export function AutopilotControls({ compact = false }: { compact?: boolean }) {
 						onClick={abort.onClick}
 						size="sm"
 						title={abort.title}
-						variant="danger"
+						variant="danger-soft"
 					>
 						<span className="max-w-full truncate">{abort.label}</span>
 					</Button>

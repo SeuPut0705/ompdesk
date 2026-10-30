@@ -221,7 +221,7 @@ export function ChoiceList({
 						<span
 							aria-hidden
 							className={cx(
-								"mt-px flex size-5 shrink-0 items-center justify-center rounded-(--sc-radius-sm) border text-sc-xs font-medium tabular-nums",
+								"flex size-5 shrink-0 items-center justify-center rounded-(--sc-radius-sm) border text-sc-xs font-medium tabular-nums",
 								checked
 									? "border-(--sc-accent) bg-(--sc-accent) text-(--sc-accent-fg)"
 									: "border-(--sc-border) text-(--sc-text-muted)",
@@ -232,7 +232,7 @@ export function ChoiceList({
 						<span className="min-w-0 flex-1">
 							<span
 								className={cx(
-									"flex flex-wrap items-center gap-x-2 gap-y-1 text-sc-md break-keep break-words",
+									"flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sc-md leading-5 break-keep break-words",
 									choice.tone === "danger" && "text-(--sc-danger)",
 								)}
 							>
