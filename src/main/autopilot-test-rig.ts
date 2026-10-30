@@ -76,10 +76,23 @@ export class World {
 	/** What stock's `get_usage` answers (`reports`). */
 	usage: Array<{ provider: string; fetchedAt: number; limits: never[]; resetAt?: number }> = [];
 
-	/** Stock commands that never answer (a call whose reply is lost). */
+	/**
+	 * Commands that do not answer until released (`stock type` or `bridge:<method>`): a call whose reply is late, or lost.
+	 * Each held call is pushed to `held`; its `release` answers it.
+	 */
 	hang = new Set<string>();
+	held: Array<{ key: string; release: () => void }> = [];
 	/** How many `retry` commands stock refuses before it takes one. */
 	failRetries = 0;
+
+	#hold(key: string, answer: () => unknown): Promise<RpcResponse> {
+		const { promise, resolve } = Promise.withResolvers<RpcResponse>();
+		this.held.push({
+			key,
+			release: () => resolve({ type: "response", success: true, data: answer() } as RpcResponse),
+		});
+		return promise;
+	}
 
 	handle(tab: string, command: RpcCommand): Promise<RpcResponse> {
 		const ok = (data?: unknown) => Promise.resolve({ type: "response", success: true, data } as RpcResponse);
@@ -87,11 +100,13 @@ export class World {
 		if (command.type === "autopilot_bridge") {
 			const params = (command.params ?? {}) as Record<string, unknown>;
 			this.calls.push({ tab, kind: "bridge", name: command.method, params });
+			if (this.hang.has(`bridge:${command.method}`))
+				return this.#hold(`bridge:${command.method}`, () => this.bridge(tab, command.method, params));
 			return ok(this.bridge(tab, command.method, params));
 		}
 		const { type, ...rest } = command as unknown as { type: string } & Record<string, unknown>;
 		this.calls.push({ tab, kind: "stock", name: type, params: rest });
-		if (this.hang.has(type)) return Promise.withResolvers<RpcResponse>().promise;
+		if (this.hang.has(type)) return this.#hold(type, () => undefined);
 		if (type === "retry" && this.failRetries > 0) {
 			this.failRetries -= 1;
 			return fail("Nothing to retry.");
