@@ -811,6 +811,12 @@ html[data-platform="darwin"] .omp-sidebar-search {
 	margin-top: var(--sc-space-3);
 }
 
+/* A group none of whose rows rendered (a stock setting this omp lacks, a mode switched off) would leave
+   its heading over a gap. Only a group with header actions stays: those are controls in their own right. */
+.settings-section:not([data-settings-actions]):has(> .settings-section-body:empty) {
+	display: none;
+}
+
 /* "Advanced" folds a section's rarely changed groups behind a hairline at its end. */
 .settings-sections > * + .settings-advanced {
 	margin-top: var(--sc-space-6);
@@ -872,6 +878,12 @@ html[data-platform="darwin"] .omp-sidebar-search {
 	width: 100%;
 }
 
+/* What a row shows under its label (the model a role runs on): under the label text, past the icon. A row that stacks
+   puts the control above it, so it then lines up with that control. */
+[data-settings-row-detail] {
+	padding-inline-start: calc(var(--sc-icon-lg) + var(--sc-space-2));
+}
+
 .settings-theme-grid {
 	display: grid;
 	grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
@@ -888,6 +900,10 @@ html[data-platform="darwin"] .omp-sidebar-search {
 	.settings-field-row:not(.settings-field-row-compact) {
 		grid-template-columns: minmax(0, 1fr);
 		gap: var(--sc-space-2);
+	}
+
+	[data-settings-row-detail] {
+		padding-inline-start: 0;
 	}
 }
 
@@ -938,6 +954,10 @@ html[data-platform="darwin"] .omp-sidebar-search {
 	display: grid;
 	grid-template-columns: minmax(0, 2fr) minmax(14.375rem, 1fr);
 	min-height: 14rem;
+}
+
+.security-master-detail[data-idle] {
+	min-height: 0;
 }
 
 .security-finding-detail {

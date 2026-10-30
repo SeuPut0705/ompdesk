@@ -26,6 +26,8 @@ import { ChangelogDialog, WhatsNewNotice } from "./ChangelogDialog";
 const firstRelease = changelogMarkdown.match(/^## (.+)$/m)?.[1] ?? "";
 const latest = firstRelease.match(/^\[([^\]]+)\]/)?.[1] ?? "";
 const older = changelogMarkdown.match(/^## \[([^\]]+)\]/gm)?.[1]?.slice(4, -1) ?? "";
+// The window shows a heading as `<version> · <date>`, never the file's `[version] - date`.
+const shown = (version: string) => `${version} · `;
 
 let stored: Record<string, unknown> = {};
 const prefs = {
@@ -98,12 +100,12 @@ describe("ChangelogDialog", () => {
 	it("stays hidden until the ui store opens it", { timeout: 30_000 }, async () => {
 		await mount(<ChangelogDialog />);
 		expect(firstRelease).not.toBe("");
-		expect(document.body.textContent ?? "").not.toContain(firstRelease);
+		expect(document.body.textContent ?? "").not.toContain(shown(latest));
 		await act(async () => {
 			useUiStore.getState().openChangelog();
 		});
 		await settle();
-		expect(document.body.textContent ?? "").toContain(firstRelease);
+		expect(document.body.textContent ?? "").toContain(shown(latest));
 	});
 
 	it("renders the bundled changelog as sanitized markdown under the window's one title", async () => {
@@ -113,7 +115,8 @@ describe("ChangelogDialog", () => {
 		const text = document.body.textContent ?? "";
 		// The help menu's item and the window share one name.
 		expect(text).toContain("What's new");
-		expect(text).toContain(firstRelease);
+		expect(text).toContain(shown(latest));
+		expect(text).not.toContain(`[${latest}]`);
 		// The markdown pipeline renders headings as elements, not literal "#".
 		expect(document.querySelector("h2")).not.toBeNull();
 		// The file's own "# Changelog" heading would repeat the window title.
@@ -124,7 +127,7 @@ describe("ChangelogDialog", () => {
 		useUiStore.getState().openChangelog();
 		await mount(<ChangelogDialog />);
 		await settle();
-		expect(document.body.textContent ?? "").toContain(firstRelease);
+		expect(document.body.textContent ?? "").toContain(shown(latest));
 		// The modal lingers ~240ms for its exit animation before unmounting.
 		vi.useFakeTimers();
 		try {
@@ -137,7 +140,7 @@ describe("ChangelogDialog", () => {
 		} finally {
 			vi.useRealTimers();
 		}
-		expect(document.body.textContent ?? "").not.toContain(firstRelease);
+		expect(document.body.textContent ?? "").not.toContain(shown(latest));
 	});
 });
 
@@ -177,9 +180,9 @@ describe("WhatsNewNotice", () => {
 		expect(useUiStore.getState().whatsNewCard).toBeNull();
 		const text = document.body.textContent ?? "";
 		expect(text).toContain(translate("whatsNew.title", { version: latest }));
-		expect(text).not.toContain(`[${older}]`);
+		expect(text).not.toContain(shown(older));
 		await click(translate("whatsNew.allChanges"));
-		expect(document.body.textContent ?? "").toContain(`[${older}]`);
+		expect(document.body.textContent ?? "").toContain(shown(older));
 	});
 
 	it("lists every release since the last seen one when several were skipped", async () => {
@@ -203,9 +206,9 @@ describe("WhatsNewNotice", () => {
 		);
 		await click(translate("whatsNew.details"));
 		const text = document.body.textContent ?? "";
-		expect(text).toContain(`[${versions[0]}]`);
-		expect(text).toContain(`[${versions[1]}]`);
-		expect(text).not.toContain(`[${oldest}]`);
+		expect(text).toContain(shown(versions[0] ?? ""));
+		expect(text).toContain(shown(versions[1] ?? ""));
+		expect(text).not.toContain(shown(oldest ?? ""));
 	});
 
 	it("dismisses with the close button or Esc and opens from a click on the card", async () => {

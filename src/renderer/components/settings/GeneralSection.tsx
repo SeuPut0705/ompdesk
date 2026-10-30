@@ -32,7 +32,7 @@ import { ProxyRow } from "./LaunchSettings";
 import { OutputStyleRow } from "./OutputStyleRow";
 import { ProfileSection } from "./ProfileSection";
 import { ReplyLanguageRow } from "./ReplyLanguageRow";
-import { SettingsAdvanced, SettingsRow, SettingsSection, SettingsSwitchRow, SettingsTiles } from "./SettingsLayout";
+import { SettingsAdvanced, SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
 import { TerminalShellRow } from "./TerminalShellRow";
 
 const PANEL_SIDES: readonly PanelSide[] = ["right", "left"];
@@ -94,34 +94,32 @@ export function GeneralSection() {
 				<OutputStyleRow />
 			</SettingsSection>
 			<SettingsSection title={t("settings.general.notifications")}>
-				<SettingsTiles>
-					<SettingsSwitchRow
-						checked={notifications}
-						description={t("settings.gui.notificationsDesc")}
-						icon={<Bell />}
-						id="setting-gui-notifications"
-						label={t("settings.gui.notifications")}
-						onCheckedChange={next =>
-							void saveGuiPreference("notifications", next, () => useUiStore.getState().setNotifications(next))
-						}
-					/>
-					<SettingsSwitchRow
-						checked={notificationSound}
-						extra={
-							<Button icon={<Play />} onClick={() => playChime(notificationVolume)} size="sm" variant="ghost">
-								{t("settings.gui.notificationSoundTest")}
-							</Button>
-						}
-						icon={<Volume2 />}
-						id="setting-gui-notificationSound"
-						label={t("settings.gui.notificationSound")}
-						onCheckedChange={next =>
-							void saveGuiPreference("notificationSound", next, () =>
-								useUiStore.setState({ notificationSound: next }),
-							)
-						}
-					/>
-				</SettingsTiles>
+				<SettingsSwitchRow
+					checked={notifications}
+					description={t("settings.gui.notificationsDesc")}
+					icon={<Bell />}
+					id="setting-gui-notifications"
+					label={t("settings.gui.notifications")}
+					onCheckedChange={next =>
+						void saveGuiPreference("notifications", next, () => useUiStore.getState().setNotifications(next))
+					}
+				/>
+				<SettingsSwitchRow
+					checked={notificationSound}
+					extra={
+						<Button icon={<Play />} onClick={() => playChime(notificationVolume)} size="sm" variant="ghost">
+							{t("settings.gui.notificationSoundTest")}
+						</Button>
+					}
+					icon={<Volume2 />}
+					id="setting-gui-notificationSound"
+					label={t("settings.gui.notificationSound")}
+					onCheckedChange={next =>
+						void saveGuiPreference("notificationSound", next, () =>
+							useUiStore.setState({ notificationSound: next }),
+						)
+					}
+				/>
 				{notificationSound && (
 					<SettingsRow
 						control={

@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createSessionRpcClient } from "../../../shared/rpc-client";
 import type { RpcCommand, RpcResponse, SettingEntry } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
-import { SchemaSettingRow } from "./SchemaSettingRow";
+import { humanizeSettingPath, SchemaSettingRow } from "./SchemaSettingRow";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -174,5 +174,15 @@ describe("SchemaSettingRow", () => {
 		});
 		await settle();
 		expect(onCommitted.mock.calls.map(call => call[1])).toEqual([12345]);
+	});
+
+	it("reads a stock key nobody labelled as words, keeps its id, and hints at an empty field with no stock default", async () => {
+		expect(humanizeSettingPath("thinkingBudgets.high")).toBe("Thinking budgets · high");
+		expect(humanizeSettingPath("auth.broker.url")).toBe("Auth · broker · url");
+		await mount(entry({ path: "async.maxJobs", label: undefined, default: undefined, value: undefined }), undefined);
+		const row = document.querySelector('[data-setting-row="true"]');
+		expect(row?.textContent).toContain("Async · max jobs");
+		expect(row?.querySelector("code")?.textContent).toBe("async.maxJobs");
+		expect(field().getAttribute("placeholder")).toBe(translate("settings.valueUnset"));
 	});
 });

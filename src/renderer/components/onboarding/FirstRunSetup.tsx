@@ -251,9 +251,11 @@ function ConnectStep() {
 					/>
 				</div>
 			)}
-			<div className="mt-2 flex items-center gap-3 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) px-4 py-3">
-				<div className="flex min-w-0 flex-1 items-center gap-1.5">
-					<span className="truncate text-sc-md font-medium text-(--sc-text)">{t("setup.custom.title")}</span>
+			<div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) px-4 py-3">
+				<div className="flex min-w-0 flex-1 basis-48 items-center gap-1.5">
+					<span className="min-w-0 text-sc-md font-medium break-keep text-(--sc-text)">
+						{t("setup.custom.title")}
+					</span>
 					<SettingInfo text={t("setup.custom.description")} />
 				</div>
 				<Button icon={<Plus />} onClick={() => setCustomForm(true)} variant="secondary">
@@ -261,7 +263,7 @@ function ConnectStep() {
 				</Button>
 			</div>
 			<div className="mt-4 flex justify-end border-t border-(--sc-divider) pt-4">
-				<Button onClick={() => setPhase("idle")} variant="ghost">
+				<Button onClick={() => setPhase("idle")} variant="secondary">
 					{t("setup.later")}
 				</Button>
 			</div>

@@ -455,7 +455,7 @@ export function ProvidersSection({
 					<IconButton
 						disabled={!catalog.sidecarReady}
 						icon={<RefreshCw />}
-						label={catalog.sidecarReady ? t("common.refresh") : t("providers.notConnected")}
+						label={catalog.sidecarReady ? t("settings.models.providersRefresh") : t("providers.notConnected")}
 						loading={catalog.loading}
 						onClick={() => void load(true)}
 						size="sm"

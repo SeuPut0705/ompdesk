@@ -122,6 +122,19 @@ export function changelogSince(markdown: string, seen: string | null, current: s
 }
 
 /**
+ * The window's markdown with each file heading `## [0.85.1] - 2026-10-30` shown as `## 0.85.1 · Oct 30, 2026`
+ * (the date in `lang`): the file's own bracket-and-dash header reads as markup to a person. The file is not rewritten.
+ */
+export function displayReleaseHeadings(markdown: string, lang = "ko"): string {
+	const format = new Intl.DateTimeFormat(lang, { dateStyle: "long", timeZone: "UTC" });
+	return markdown.replace(/^## \[([^\]]+)\](?: - (.+?))?[ \t]*$/gm, (_heading, version: string, rest?: string) => {
+		if (!rest) return `## ${version}`;
+		const day = /^\d{4}-\d{2}-\d{2}$/.test(rest) ? new Date(`${rest}T00:00:00Z`) : null;
+		return `## ${version} · ${day && !Number.isNaN(day.getTime()) ? format.format(day) : rest}`;
+	});
+}
+
+/**
  * The one-line summary of a release's notes: its first paragraph (what the card shows), as plain text.
  * A section that opens with a list takes its first item.
  */

@@ -22,6 +22,7 @@ import {
 import type { ModelRoleEntry, ModelRolesResult } from "../../../shared/rpc-types";
 import { useUsageRead, useUsageReports } from "../../hooks/use-usage-reports";
 import { useCompactionPoints } from "../../lib/compaction-limits";
+import { cx } from "../../lib/format";
 import { useLang, useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useModelStore } from "../../stores/model";
@@ -151,7 +152,7 @@ export function ModelRolesSection() {
 				<IconButton
 					disabled={!sidecarReady}
 					icon={<RefreshCw />}
-					label={sidecarReady ? t("common.refresh") : t("modelRoles.notConnected")}
+					label={sidecarReady ? t("settings.models.rolesRefresh") : t("modelRoles.notConnected")}
 					loading={loading}
 					onClick={() => {
 						void load();
@@ -189,13 +190,13 @@ export function ModelRolesSection() {
 			{sidecarReady && loaded && !loading && error === null && !hasRows && (
 				<EmptyState icon={<Tags />} size="sm" title={t("modelRoles.empty")} />
 			)}
-			{groups.map(group => (
+			{groups.map((group, index) => (
 				<div aria-labelledby={`model-roles-${group.id}`} key={group.id} role="group">
-					<div className="flex items-center justify-between gap-3 pt-2 pb-0.5">
+					<div className={cx("flex items-center justify-between gap-3 pb-0.5", index > 0 && "pt-2")}>
 						<div className="flex min-w-0 items-center gap-1.5">
-							<h5 className="text-sc-xs font-medium text-(--sc-text-muted)" id={`model-roles-${group.id}`}>
+							<h4 className="text-sc-xs font-medium text-(--sc-text-muted)" id={`model-roles-${group.id}`}>
 								{t(`modelRoles.group.${group.id}`)}
-							</h5>
+							</h4>
 							<SettingInfo text={t(`modelRoles.group.${group.id}.desc`)} />
 						</div>
 					</div>

@@ -4,7 +4,7 @@
  * (the light one for a light OS, the dark one for a dark OS). Every choice applies at once.
  */
 
-import { Check, Monitor, Moon, Sun } from "lucide-react";
+import { Check, Moon, Sun } from "lucide-react";
 import { type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import {
 	DARK_THEME_NAMES,
@@ -34,7 +34,7 @@ const THEME_SELECTIONS: readonly ThemeSelection[] = ["system", ...LIGHT_THEME_NA
 
 /**
  * A theme drawn in its own colors: sidebar strip, a text line and the accent, and a line of
- * code in its syntax colors. Decorative; the card carries the name.
+ * code as bars in its syntax colors. Decorative; the card carries the name.
  */
 export function ThemePreview({ theme }: { theme: ThemeDefinition }) {
 	const color = (key: Parameters<typeof resolveTokenColor>[1]) => resolveTokenColor(theme, key);
@@ -55,17 +55,25 @@ export function ThemePreview({ theme }: { theme: ThemeDefinition }) {
 					<span className="h-1.5 w-1/4 rounded-(--sc-radius-full)" style={{ background: color("--omp-accent") }} />
 				</span>
 				<span className="h-1 w-2/3 rounded-(--sc-radius-full)" style={{ background: color("--omp-muted") }} />
+				{/* A line of code as syntax-colored runs: they scale with the swatch, so a half-width System preview never cuts text. */}
 				<span
-					className="truncate rounded-(--sc-radius-sm) px-1 py-0.5 font-mono text-sc-2xs leading-none whitespace-nowrap"
-					style={{ background: color("--omp-code-bg"), color: color("--omp-text") }}
+					className="flex h-3 items-center gap-0.5 overflow-hidden rounded-(--sc-radius-sm) px-1"
+					style={{ background: color("--omp-code-bg") }}
 				>
-					<span style={{ color: color("--omp-syntax-keyword") }}>if</span>{" "}
-					<span style={{ color: color("--omp-syntax-function") }}>go</span>
-					<span style={{ color: color("--omp-syntax-punctuation") }}>(</span>
-					<span style={{ color: color("--omp-syntax-string") }}>"a"</span>
-					<span style={{ color: color("--omp-syntax-punctuation") }}>,</span>
-					<span style={{ color: color("--omp-syntax-number") }}>7</span>
-					<span style={{ color: color("--omp-syntax-punctuation") }}>)</span>
+					{(
+						[
+							["--omp-syntax-keyword", 2],
+							["--omp-syntax-function", 3],
+							["--omp-syntax-string", 4],
+							["--omp-syntax-number", 2],
+						] as const
+					).map(([token, weight]) => (
+						<span
+							className="h-1 min-w-0 rounded-(--sc-radius-full)"
+							key={token}
+							style={{ background: color(token), flex: weight }}
+						/>
+					))}
 				</span>
 			</span>
 		</span>
@@ -110,7 +118,6 @@ function ThemeCard({ selection, selected, label, title, preview, onChoose }: The
 			</span>
 			{/* A name wraps to a second line rather than cutting off: "High Contrast Light" outgrew a tablet's card. */}
 			<span className="flex items-start gap-1 px-0.5 text-sc-sm leading-snug text-(--sc-text-secondary)">
-				{selection === "system" && <Monitor aria-hidden className="mt-0.5 size-(--sc-icon-sm) shrink-0" />}
 				<span className="line-clamp-2 min-w-0 break-words">{label}</span>
 			</span>
 		</button>

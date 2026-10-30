@@ -47,6 +47,7 @@ import {
 	MenuButton,
 	Modal,
 	OptionRow,
+	PathText,
 	Popover,
 	ProgressBar,
 	Radio,
@@ -838,6 +839,9 @@ export default function StyleGuide() {
 						<Badge variant="error">Failed</Badge>
 						<Badge variant="info">New</Badge>
 						<Badge variant="muted">Draft</Badge>
+					</Block>
+					<Block className="w-64 text-sc-sm" label="PathText">
+						<PathText path="/Users/someone/projects/a-long-folder-name/node_modules/.bin/omp" />
 					</Block>
 					<Block className="grid grid-cols-2 gap-3" label="Banner">
 						<Banner actions={<Button size="sm">Reconnect</Button>} title="omp disconnected" variant="danger">

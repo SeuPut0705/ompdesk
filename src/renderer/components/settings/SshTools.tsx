@@ -5,7 +5,7 @@
  * the questions OMPdesk's ssh asks are SshPromptDialog.tsx (mounted by App, so it stays out of this settings chunk).
  */
 import { ArrowRightLeft, Globe, KeyRound, Play, RotateCw, Square, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import {
 	SSH_GRACE_DEFAULT_MS,
 	type SshAgentStatus,
@@ -37,8 +37,11 @@ const STATUS_BADGE: Record<SshForward["status"]["kind"], BadgeVariant> = {
 	hostKeyChanged: "error",
 };
 
-/** C149: is an ssh-agent there, which keys it holds, and how to get a key. */
-export function SshAgentRow() {
+/**
+ * C149: is an ssh-agent there, which keys it holds, and how to get a key. `lead` and `trail` are the status
+ * badges and the refresh button of the Settings section: they share the agent's badge line, one row of status.
+ */
+export function SshAgentRow({ lead, trail }: { lead?: ReactNode; trail?: ReactNode }) {
 	const t = useT();
 	const [status, setStatus] = useState<SshAgentStatus | null>(null);
 	const [busy, setBusy] = useState(false);
@@ -70,21 +73,30 @@ export function SshAgentRow() {
 			if (result) setStatus(result);
 		}
 	};
-	if (!status) return null;
+	if (!status) {
+		return lead || trail ? (
+			<div className="flex flex-wrap items-center gap-2">
+				{lead}
+				{trail}
+			</div>
+		) : null;
+	}
 	const variant: BadgeVariant = status.agent === "available" ? "success" : "warning";
 	const windows = PLATFORM === "windows";
 	return (
-		<div className="flex flex-col gap-2" data-ssh-agent={status.agent}>
-			<div className="flex flex-wrap items-center gap-2">
+		<div className="flex flex-col items-start gap-2" data-ssh-agent={status.agent}>
+			<div className="flex w-full flex-wrap items-center gap-2">
+				{lead}
 				<Badge dot variant={variant}>
 					{status.agent === "available"
 						? t("ssh.tools.agent.keys", { count: status.agentKeys.length })
 						: t(status.agent === "none" ? "ssh.tools.agent.none" : "ssh.tools.agent.error")}
 				</Badge>
 				<Badge>{t("ssh.tools.agent.files", { count: status.keyFiles.length })}</Badge>
+				{trail}
 			</div>
 			{status.keyFiles.length === 0 && status.keygen && (
-				<Banner title={t("ssh.tools.agent.noKey")}>
+				<Banner className="w-full" title={t("ssh.tools.agent.noKey")}>
 					<Button disabled={busy} onClick={() => void act("createKey")} size="sm">
 						{t("ssh.tools.agent.createKey")}
 					</Button>
@@ -94,7 +106,13 @@ export function SshAgentRow() {
 				<p className="text-sc-xs text-(--sc-text-muted)">{t("ssh.tools.agent.startWindows")}</p>
 			)}
 			{status.agent !== "none" && status.agentKeys.length === 0 && status.keyFiles.length > 0 && (
-				<Button disabled={busy} onClick={() => void act("loadKeys")} size="sm" variant="secondary">
+				<Button
+					className="self-end"
+					disabled={busy}
+					onClick={() => void act("loadKeys")}
+					size="sm"
+					variant="secondary"
+				>
 					{t("ssh.tools.agent.loadKeys")}
 				</Button>
 			)}

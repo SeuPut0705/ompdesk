@@ -118,19 +118,24 @@ describe("CliUpdateRows", () => {
 					last: { kind: "current" },
 				}),
 				tool({
-					id: "gh",
+					id: "copilot",
 					providers: [],
 					installed: "2.96.0",
 					method: "brew",
 					last: { kind: "updated", from: "2.90.0", to: "2.96.0" },
 				}),
+				// Machine setup lists GitHub CLI: its row is there, not a second one here.
+				tool({ id: "gh", providers: [], installed: "2.96.0", method: "brew" }),
 			]),
 		);
 		expect(document.body.querySelectorAll("[data-cli-tool]").length).toBe(3);
 		// Each CLI wears its company's mark: Claude Code Anthropic, Codex OpenAI, the GitHub CLI GitHub's.
 		expect(row("claude").querySelector("[data-provider-mark]")?.getAttribute("data-provider-mark")).toBe("anthropic");
 		expect(row("codex").querySelector("[data-provider-mark]")?.getAttribute("data-provider-mark")).toBe("openai");
-		expect(row("gh").querySelector("[data-provider-mark]")?.getAttribute("data-provider-mark")).toBe("githubcopilot");
+		expect(row("copilot").querySelector("[data-provider-mark]")?.getAttribute("data-provider-mark")).toBe(
+			"githubcopilot",
+		);
+		expect(row("gh")).toBeNull();
 		expect(row("codex").textContent).toContain("Codex CLI");
 		expect(row("codex").textContent).toContain(translate("cliUpdate.method", { method: "npm" }));
 		expect(text("cli-version-codex")).toBe(
@@ -141,8 +146,10 @@ describe("CliUpdateRows", () => {
 			translate("cliUpdate.method", { method: translate("cliUpdate.method.self") }),
 		);
 		expect(text("cli-status-claude")).toBe(translate("cliUpdate.status.current"));
-		expect(text("cli-status-gh")).toBe(translate("cliUpdate.status.updatedFrom", { from: "2.90.0", to: "2.96.0" }));
-		expect(row("gh").textContent).toContain(translate("cliUpdate.method", { method: "Homebrew" }));
+		expect(text("cli-status-copilot")).toBe(
+			translate("cliUpdate.status.updatedFrom", { from: "2.90.0", to: "2.96.0" }),
+		);
+		expect(row("copilot").textContent).toContain(translate("cliUpdate.method", { method: "Homebrew" }));
 	});
 
 	it("names a skipped copy's reason and offers no update for it", async () => {

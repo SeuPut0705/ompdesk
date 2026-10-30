@@ -117,7 +117,7 @@ export function ProviderPicker({
 					{available.length > 0 && (
 						<ul
 							aria-label={t("providers.add")}
-							className="grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] gap-x-1 gap-y-0.5"
+							className="grid grid-cols-[repeat(auto-fill,minmax(min(11rem,calc(50%_-_0.25rem)),1fr))] gap-x-1 gap-y-0.5"
 							data-provider-picker
 						>
 							{available.map(provider => {

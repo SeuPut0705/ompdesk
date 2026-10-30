@@ -22,7 +22,7 @@ import { useLang, useT } from "../../lib/i18n";
 import { usageLimitLabel } from "../../lib/usage-labels";
 import { inUseReport, tightestLimit } from "../../lib/usage-reports";
 import { useUiStore } from "../../stores/ui";
-import { Badge, LinkButton, ProgressBar } from "../common";
+import { Badge, LinkButton, ProgressBar, Tooltip } from "../common";
 import { SettingInfo } from "../common/SettingInfo";
 import { CompactsAt } from "./CompactsAt";
 import { JUDGE_ASSIST_SETTING_TARGET } from "./JudgeAssistRow";
@@ -224,6 +224,14 @@ function roleProviderId(entry: ModelRoleEntry): string {
 	return slash < 0 ? "" : model.slice(0, slash);
 }
 
+/** Stock's tag (SLOW, SMOL …) when it says something the name does not; none where it only repeats the name (Plan, Advisor). */
+function roleTag(entry: ModelRoleEntry, name: string): string | undefined {
+	const tag = entry.tag;
+	if (!tag) return undefined;
+	const same = (label: string) => label.toLowerCase() === tag.toLowerCase();
+	return same(name) || same(entry.name) ? undefined : tag;
+}
+
 export function ModelRoleRow({
 	entry,
 	name,
@@ -267,14 +275,15 @@ export function ModelRoleRow({
 		[candidates, t],
 	);
 
+	const tag = roleTag(entry, name);
 	// What the role is for and, while empty, what it follows: both in the info tooltip.
 	const use = rolePurpose(entry, name, t, lang);
 	const fallback = roleFallback(entry, t, roleName);
 
 	return (
 		<SettingsRow
-			// A role tag is a name, not a state: neutral like every other tag.
-			badge={entry.tag ? <Badge>{entry.tag}</Badge> : undefined}
+			// Stock's tag (SLOW, SMOL …) is an id, not something to read: it sits in a tooltip on the name, and not at all
+			// where it only repeats the name (Plan, Advisor).
 			control={
 				<ModelValueSelect
 					ariaLabel={t("modelRoles.select", { role: name })}
@@ -297,9 +306,17 @@ export function ModelRoleRow({
 				)
 			}
 			id={`model-role-${entry.id}`}
-			label={name}
+			label={
+				tag ? (
+					<Tooltip content={tag}>
+						<span>{name}</span>
+					</Tooltip>
+				) : (
+					name
+				)
+			}
 		>
-			<div className="space-y-0.5 ps-7">
+			<div className="space-y-0.5" data-settings-row-detail>
 				<EffectiveLine
 					compaction={compaction}
 					entry={entry}

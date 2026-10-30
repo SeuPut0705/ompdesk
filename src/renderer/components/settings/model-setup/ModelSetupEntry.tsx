@@ -4,7 +4,7 @@
  * apply saw it adds one quiet line that opens the dialog. Nothing here changes a role by itself.
  */
 
-import { Sparkles } from "lucide-react";
+import { Sparkles, Undo2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { setupSignature } from "../../../../shared/role-plan";
 import type { ModelRolesResult } from "../../../../shared/rpc-types";
@@ -129,6 +129,7 @@ export function ModelSetupEntry() {
 				badge={
 					applied && (
 						<span className="text-sc-xs text-(--sc-text-muted)" data-model-setup-last>
+							<span aria-hidden>· </span>
 							{t("modelSetup.entryLast", { date: formatClock(applied.at) })}
 						</span>
 					)
@@ -138,6 +139,7 @@ export function ModelSetupEntry() {
 						{applied && (
 							<Button
 								disabled={!sidecarReady || undoing}
+								icon={<Undo2 />}
 								loading={undoing}
 								onClick={() => void undo()}
 								size="sm"

@@ -8,6 +8,7 @@
 import { RefreshCw, Terminal } from "lucide-react";
 import { useEffect } from "react";
 import { CLI_TOOL_NAMES, type CliToolId, type CliToolState, type CliUpdateState } from "../../../shared/cli-update";
+import { isSetupItemId } from "../../../shared/setup";
 import { useT } from "../../lib/i18n";
 import { useCliUpdateStore } from "../../stores/cli-update";
 import { Badge, IconButton, InlineNotice } from "../common";
@@ -61,37 +62,64 @@ function versionText(t: Translate, tool: CliToolState): string {
 	return tool.latest ? `${installed} · ${t("cliUpdate.version.latest", { version: tool.latest })}` : installed;
 }
 
-function CliToolRow({ tool, state }: { tool: CliToolState; state: CliUpdateState }) {
+/** How OMPdesk updates a tool ("Updated by: Homebrew"), as the quiet badge beside its name. */
+export function CliMethodBadge({ tool }: { tool: CliToolState }) {
+	const t = useT();
+	return (
+		<Badge variant="muted">
+			{tool.method
+				? t("cliUpdate.method", { method: t(`cliUpdate.method.${tool.method}`) })
+				: t("cliUpdate.method.none")}
+		</Badge>
+	);
+}
+
+/** "Update now" for one tool: off while it runs or when it is left alone. */
+export function CliUpdateNowButton({ tool }: { tool: CliToolState }) {
 	const t = useT();
 	const updateNow = useCliUpdateStore(store => store.updateNow);
-	const name = CLI_TOOL_NAMES[tool.id];
-	const busy = tool.phase !== "idle";
+	return (
+		<IconButton
+			data-testid={`cli-update-now-${tool.id}`}
+			disabled={tool.phase !== "idle" || tool.skip !== null}
+			icon={<RefreshCw />}
+			label={t("cliUpdate.nowFor", { name: CLI_TOOL_NAMES[tool.id] })}
+			onClick={() => void updateNow(tool.id)}
+			size="sm"
+			variant="secondary"
+		/>
+	);
+}
+
+/** What the tool's last update check found (or why it is left alone), on one truncating line. */
+export function CliToolStatusText({ tool, state }: { tool: CliToolState; state: CliUpdateState }) {
+	const t = useT();
+	const text = cliStatusText(t, tool, state);
+	return (
+		<span className="min-w-0 truncate" data-testid={`cli-status-${tool.id}`} title={text}>
+			{text}
+		</span>
+	);
+}
+
+/** The reason the last update failed, quiet under the tool's line; nothing when it did not fail. */
+export function CliFailureNotice({ tool }: { tool: CliToolState }) {
+	const t = useT();
 	const failure = !tool.skip && tool.last?.kind === "failed" ? tool.last.failure : null;
+	return failure ? <InlineNotice detail={failure.detail} title={t("cliUpdate.retryNote")} tone="warning" /> : null;
+}
+
+function CliToolRow({ tool, state }: { tool: CliToolState; state: CliUpdateState }) {
+	const t = useT();
 	return (
 		<SettingsRow
+			badge={<CliMethodBadge tool={tool} />}
 			className="min-w-0"
 			compactControl
-			control={
-				<IconButton
-					data-testid={`cli-update-now-${tool.id}`}
-					disabled={busy || tool.skip !== null}
-					icon={<RefreshCw />}
-					label={t("cliUpdate.nowFor", { name })}
-					onClick={() => void updateNow(tool.id)}
-					size="sm"
-					variant="secondary"
-				/>
-			}
+			control={<CliUpdateNowButton tool={tool} />}
 			icon={<CliToolMark id={tool.id} />}
 			id={`setting-cli-tool-${tool.id}`}
-			label={name}
-			badge={
-				<Badge variant="muted">
-					{tool.method
-						? t("cliUpdate.method", { method: t(`cliUpdate.method.${tool.method}`) })
-						: t("cliUpdate.method.none")}
-				</Badge>
-			}
+			label={CLI_TOOL_NAMES[tool.id]}
 		>
 			<div data-cli-tool={tool.id} data-phase={tool.phase}>
 				{/* One line: version, then the status; the path rides on hover. */}
@@ -99,15 +127,9 @@ function CliToolRow({ tool, state }: { tool: CliToolState; state: CliUpdateState
 					<span className="shrink-0 text-(--sc-text-secondary)" data-testid={`cli-version-${tool.id}`}>
 						{versionText(t, tool)}
 					</span>
-					<span
-						className="min-w-0 truncate"
-						data-testid={`cli-status-${tool.id}`}
-						title={cliStatusText(t, tool, state)}
-					>
-						{cliStatusText(t, tool, state)}
-					</span>
+					<CliToolStatusText state={state} tool={tool} />
 				</p>
-				{failure && <InlineNotice detail={failure.detail} title={t("cliUpdate.retryNote")} tone="warning" />}
+				<CliFailureNotice tool={tool} />
 			</div>
 		</SettingsRow>
 	);
@@ -119,12 +141,15 @@ export function CliUpdateRows() {
 	useEffect(() => {
 		void useCliUpdateStore.getState().load();
 	}, []);
+	if (!state) return null;
+	// A tool machine setup lists (GitHub CLI, Node.js) is one row there, with its update method and "Update now".
+	const tools = state.tools.filter(tool => !isSetupItemId(tool.id));
 	return (
 		<>
-			{state?.tools.map(tool => (
+			{tools.map(tool => (
 				<CliToolRow key={tool.id} state={state} tool={tool} />
 			))}
-			{state && state.tools.length === 0 && (
+			{tools.length === 0 && (
 				<p className="py-2 text-sc-sm text-(--sc-text-muted)" data-testid="cli-update-none">
 					{t("cliUpdate.none")}
 				</p>

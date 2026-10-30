@@ -5,6 +5,7 @@ import {
 	changelogSection,
 	changelogSince,
 	changelogSummary,
+	displayReleaseHeadings,
 	endsWithFinalConsonant,
 	loadChangelog,
 	whatsNewAction,
@@ -161,5 +162,15 @@ describe("loadChangelog", () => {
 		const first = loadChangelog();
 		expect(loadChangelog()).toBe(first);
 		expect(await first).toBe(changelogMarkdown);
+	});
+});
+
+describe("displayReleaseHeadings", () => {
+	it("shows a release heading as its version and a dated line in the reader's language, not the file's markup", () => {
+		const file = "## [0.85.1] - 2026-10-30\n\n- 고쳤어요\n\n## [0.1.0] - Unreleased\n\n## [0.0.1]\n\n### Added\n- x";
+		expect(displayReleaseHeadings(file, "en")).toBe(
+			"## 0.85.1 · October 30, 2026\n\n- 고쳤어요\n\n## 0.1.0 · Unreleased\n\n## 0.0.1\n\n### Added\n- x",
+		);
+		expect(displayReleaseHeadings(file, "ko")).toContain("## 0.85.1 · 2026년 10월 30일");
 	});
 });

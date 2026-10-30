@@ -15,6 +15,12 @@ import { useMachineSetupState } from "../onboarding/MachineSetupView";
 import { SetupInstallInline, setupInstallShown } from "../onboarding/SetupInstallInline";
 import { SettingsSwitchRow } from "./SettingsLayout";
 
+/** Oldest Node.js major an engines range allows ("^22.19.0 || ^24.11.0 || >=26.0.0" → "22"): what a person needs to read. */
+export function reaNodeMinimumMajor(range: string): string {
+	const majors = [...range.matchAll(/(\d+)\.\d+\.\d+/g)].map(match => Number(match[1]));
+	return String(Math.min(...majors));
+}
+
 /** Machine-owned preference: only new OMPdesk sessions receive the MCP root. */
 export function BuiltinReaRow({
 	device,
@@ -93,7 +99,9 @@ export function BuiltinReaRow({
 					<div className="mt-1 flex flex-col gap-1 text-sc-xs text-(--sc-text-muted)">
 						<p role="status">
 							{status}
-							{server && ` · ${t(`extPanel.status.${server.status}`)} · ${server.toolCount}`}
+							{state &&
+								server &&
+								` · ${t(`extPanel.status.${server.status}`)} · ${t("extPanel.tools", { count: server.toolCount })}`}
 						</p>
 						{state?.reason && <p>{t(`mcp.rea.${state.reason}`, { version: state.nodeVersion ?? "" })}</p>}
 						{state?.enabled &&
@@ -106,7 +114,7 @@ export function BuiltinReaRow({
 									onRetry={() => choose(true)}
 								/>
 							)}
-						<p>{t("mcp.rea.requirement", { range: REA_NODE_REQUIREMENT })}</p>
+						<p>{t("mcp.rea.requirement", { version: reaNodeMinimumMajor(REA_NODE_REQUIREMENT) })}</p>
 					</div>
 				}
 			/>

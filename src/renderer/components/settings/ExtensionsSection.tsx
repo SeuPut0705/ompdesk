@@ -52,6 +52,7 @@ import {
 	SettingInfo,
 	SkeletonRows,
 	Spinner,
+	splitDescription,
 	type TabItem,
 	Tabs,
 } from "../common";
@@ -310,14 +311,12 @@ function ListFrame({ tabId, rpc, query, visible, actions, emptyAction, children 
 	const trimmed = query.trim();
 	const loaded = rpc.data !== null;
 	const total = rpc.data?.length ?? 0;
-	// An empty list's own state says "none" and carries the fixing action: the toolbar repeats neither.
+	// The tab's badge already counts the list; the toolbar only says how many a search leaves. An empty list's own
+	// state says "none" and carries the fixing action.
 	const empty = loaded && total === 0;
 	const countText =
-		loaded && !empty
-			? trimmed
-				? t(`extPanel.countFiltered.${tabId}`, { shown: visible, total })
-				: t(`extPanel.count.${tabId}`, { count: total })
-			: null;
+		loaded && !empty && trimmed ? t(`extPanel.countFiltered.${tabId}`, { shown: visible, total }) : null;
+	const caption = splitDescription(t(`settings.extensions.${tabId}.description`));
 	const retry = (
 		<Button
 			disabled={!rpc.ready}
@@ -351,12 +350,18 @@ function ListFrame({ tabId, rpc, query, visible, actions, emptyAction, children 
 	return (
 		<div className="flex flex-col gap-2">
 			<div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-				{/* The tab's explanation rides an info glyph; the toolbar keeps count, actions and refresh on one line. */}
-				<div className="flex min-w-0 flex-1 items-center gap-1.5">
-					<SettingInfo text={t(`settings.extensions.${tabId}.description`)} />
-					{countText && <span className="text-sc-xs tabular-nums text-(--sc-text-muted)">{countText}</span>}
+				{/* The tab's one-line explanation (behind an info glyph when long) leads; the actions and refresh sit at the right. */}
+				<div className="flex min-w-0 flex-1 basis-60 flex-wrap items-center gap-x-1.5 text-sc-xs text-(--sc-text-muted)">
+					{caption.inline && <span className="min-w-0">{caption.inline}</span>}
+					{caption.tip && <SettingInfo text={caption.tip} />}
+					{countText && (
+						<>
+							{caption.inline && <span aria-hidden>·</span>}
+							<span className="tabular-nums">{countText}</span>
+						</>
+					)}
 				</div>
-				<div className="flex shrink-0 items-center gap-2">
+				<div className="ml-auto flex shrink-0 items-center gap-2">
 					{empty && emptyAction ? null : actions}
 					<IconButton
 						disabled={!rpc.ready}
@@ -857,11 +862,10 @@ export function ExtensionsSection({ tab, onTabChange, query }: ExtensionsSection
 
 	return (
 		<div className="flex flex-col gap-4">
-			{/* A narrow column wraps the tab row instead of widening the page. */}
+			{/* A narrow column scrolls the tab row sideways instead of wrapping it or widening the page. */}
 			<Tabs
 				activeId={tab}
 				ariaLabel={t("extPanel.title")}
-				className="flex-wrap"
 				onChange={id => onTabChange(id as ExtensionsTab)}
 				tabs={tabs}
 			/>

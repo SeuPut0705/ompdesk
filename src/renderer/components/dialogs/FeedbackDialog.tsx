@@ -173,7 +173,7 @@ export function FeedbackDialog() {
 						{/* Kept outside the label: clicking the preview to read/select text must not toggle the box. */}
 						{includeErrors && (
 							<details className="mt-1 ml-6">
-								<summary className="cursor-pointer text-sc-xs text-(--sc-text-muted) hover:text-(--sc-text-secondary)">
+								<summary className="cursor-pointer text-sc-sm text-(--sc-text-muted) hover:text-(--sc-text-secondary)">
 									{t("feedback.errorsPreview", { count: errorTail.length })}
 								</summary>
 								<pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-(--sc-radius-md) bg-(--sc-surface-2) p-2 font-mono text-sc-xs text-(--sc-text-muted)">
@@ -184,7 +184,7 @@ export function FeedbackDialog() {
 					</div>
 				</div>
 
-				<p className="text-sc-xs leading-relaxed text-(--sc-text-muted)">{t("feedback.note")}</p>
+				<p className="text-sc-sm leading-relaxed text-(--sc-text-muted)">{t("feedback.note")}</p>
 			</div>
 		</Modal>
 	);

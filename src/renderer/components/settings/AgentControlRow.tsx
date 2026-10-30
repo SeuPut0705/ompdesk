@@ -35,12 +35,16 @@ export function AgentControlRow({ query = "" }: { query?: string }) {
 	const label = t("settings.gui.agentControl");
 	if (query && !`${label} ${SEARCH}`.toLowerCase().includes(query.toLowerCase())) return null;
 	const covered = on && full;
+	// A switch that is off-limits says why next to it: a pale track alone reads as half-on.
+	const hint = (text: string) => <p className="mt-1 text-sc-xs text-(--sc-text-muted)">{text}</p>;
+	const needsOn = hint(t("settings.gui.agentControlNeedsOn"));
 	return (
 		<>
 			<SettingsSwitchRow
 				checked={full}
 				description={t("settings.gui.agentControlFullDesc")}
 				disabled={!on}
+				footer={on ? undefined : needsOn}
 				icon={<ShieldOff />}
 				id="setting-gui-agentControlFull"
 				label={t("settings.gui.agentControlFull")}
@@ -56,8 +60,9 @@ export function AgentControlRow({ query = "" }: { query?: string }) {
 			/>
 			<SettingsSwitchRow
 				checked={covered || approve}
-				description={covered ? t("settings.gui.agentControlCovered") : t("settings.gui.agentControlApproveDesc")}
+				description={t("settings.gui.agentControlApproveDesc")}
 				disabled={!on || covered}
+				footer={covered ? hint(t("settings.gui.agentControlCovered")) : on ? undefined : needsOn}
 				icon={<ShieldCheck />}
 				id="setting-gui-agentControlApprove"
 				label={t("settings.gui.agentControlApprove")}
@@ -65,8 +70,9 @@ export function AgentControlRow({ query = "" }: { query?: string }) {
 			/>
 			<SettingsSwitchRow
 				checked={covered || manage}
-				description={covered ? t("settings.gui.agentControlCovered") : t("settings.gui.agentControlManageDesc")}
+				description={t("settings.gui.agentControlManageDesc")}
 				disabled={!on || covered}
+				footer={covered ? hint(t("settings.gui.agentControlCovered")) : on ? undefined : needsOn}
 				icon={<ShieldQuestion />}
 				id="setting-gui-agentControlManage"
 				label={t("settings.gui.agentControlManage")}

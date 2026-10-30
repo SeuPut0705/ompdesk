@@ -4,7 +4,7 @@ import type { RpcContextFilesResult, RpcHooksResult, RpcSkillsResult } from "../
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { toastError } from "../../stores/toast";
-import { Banner, Button } from "../common";
+import { Banner, Button, ErrorDetail } from "../common";
 import { ArrayChipEditor } from "./editors/ArrayChipEditor";
 import { SettingsRow } from "./SettingsLayout";
 import { useSettingsData } from "./settings-data";
@@ -15,7 +15,7 @@ export function OtherExtensionIds() {
 	const rpc = useTabRpc();
 	const { values, sidecarReady, onCommitted } = useSettingsData();
 	const [covered, setCovered] = useState<string[] | null>(null);
-	const [error, setError] = useState<string | null>(null);
+	const [error, setError] = useState<{ cause: unknown } | null>(null);
 	const [saving, setSaving] = useState(false);
 	const load = useCallback(async () => {
 		if (!sidecarReady) return;
@@ -34,7 +34,7 @@ export function OtherExtensionIds() {
 				...(contextFiles.data as RpcContextFilesResult).files.map(file => file.id),
 			]);
 		} catch (cause) {
-			setError(String(cause));
+			setError({ cause });
 		}
 	}, [sidecarReady, rpc.getSkills, rpc.getHooks, rpc.getContextFiles]);
 	useEffect(() => {
@@ -75,8 +75,9 @@ export function OtherExtensionIds() {
 							{t("common.retry")}
 						</Button>
 					}
+					title={t("extPanel.loadFailed")}
 				>
-					{error}
+					<ErrorDetail error={error.cause} />
 				</Banner>
 			) : (
 				<ArrayChipEditor

@@ -9,6 +9,23 @@ import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
 import { Button, CopyButton, InlineNotice, Modal, Spinner } from "../common";
 
+/** A snapshot with no entries (`{"entries":[]}`): a session with nothing in it yet. */
+function isEmptySnapshot(text: string): boolean {
+	if (text.trim() === "") return true;
+	try {
+		const data: unknown = JSON.parse(text);
+		return (
+			typeof data === "object" &&
+			data !== null &&
+			"entries" in data &&
+			Array.isArray(data.entries) &&
+			data.entries.length === 0
+		);
+	} catch {
+		return false;
+	}
+}
+
 export function ShareSessionDialog() {
 	const t = useT();
 	const rpc = useTabRpc();
@@ -21,6 +38,7 @@ export function ShareSessionDialog() {
 	const [result, setResult] = useState<RpcShareSessionResult | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<InlineFailure | null>(null);
+	const empty = preview !== null && isEmptySnapshot(preview.preview);
 
 	const prepare = useCallback(async () => {
 		if (!sidecarReady) {
@@ -95,7 +113,7 @@ export function ShareSessionDialog() {
 						</Button>
 						<Button
 							loading={uploading}
-							disabled={uploading || !sidecarReady}
+							disabled={uploading || !sidecarReady || empty}
 							onClick={() => void upload()}
 							title={!sidecarReady ? t("sidecar.notResponding") : undefined}
 							variant="primary"
@@ -138,11 +156,11 @@ export function ShareSessionDialog() {
 			) : preview ? (
 				<div className="space-y-3">
 					<p className="text-sc-md text-(--sc-text-secondary)">{t("shareDialog.previewHint")}</p>
-					<p className="break-all text-sc-xs text-(--sc-text-muted)">
+					<p className="break-all text-sc-sm text-(--sc-text-muted)">
 						{t("shareDialog.destination")}: {preview.store === "gist" ? t("shareDialog.gistDestination") : ""}
 						{preview.serverUrl}
 					</p>
-					<p className="text-sc-xs text-(--sc-text-muted)">
+					<p className="text-sc-sm text-(--sc-text-muted)">
 						{t(preview.redactionEnabled ? "shareDialog.redactionOn" : "shareDialog.redactionOff")}
 					</p>
 					{preview.truncated && (
@@ -150,14 +168,23 @@ export function ShareSessionDialog() {
 							{t("shareDialog.previewTrimmed")}
 						</p>
 					)}
-					<pre
-						tabIndex={0}
-						role="region"
-						aria-label={t("shareDialog.preview")}
-						className="max-h-[40vh] overflow-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) p-3 text-sc-sm whitespace-pre-wrap break-words"
-					>
-						{preview.preview}
-					</pre>
+					{empty ? (
+						<p
+							role="status"
+							className="rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-3 py-4 text-center text-sc-md text-(--sc-text-muted)"
+						>
+							{t("shareDialog.empty")}
+						</p>
+					) : (
+						<pre
+							tabIndex={0}
+							role="region"
+							aria-label={t("shareDialog.preview")}
+							className="max-h-[40vh] overflow-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) p-3 text-sc-sm whitespace-pre-wrap break-words"
+						>
+							{preview.preview}
+						</pre>
+					)}
 				</div>
 			) : null}
 			{error && (

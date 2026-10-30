@@ -76,6 +76,19 @@ describe("AgentControlRow", () => {
 		expect(toggle().getAttribute("aria-checked")).toBe("false");
 	});
 
+	it("says why a switch is locked instead of leaving it pale: control tools off locks the three below", async () => {
+		stored = { [AGENT_CONTROL_PREF]: false };
+		await mount();
+		for (const id of [
+			"setting-gui-agentControlFull",
+			"setting-gui-agentControlApprove",
+			"setting-gui-agentControlManage",
+		]) {
+			expect(toggle(id).hasAttribute("disabled"), id).toBe(true);
+			expect(document.getElementById(id)?.textContent, id).toContain("Turn on OMPdesk control tools first");
+		}
+	});
+
 	it("puts full control first, on while unset, and shows the two older gates as covered while it is on", async () => {
 		await mount();
 		const first = document.querySelector('[role="switch"]');
