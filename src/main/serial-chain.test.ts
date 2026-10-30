@@ -133,4 +133,16 @@ describe("SerialChain", () => {
 		await Promise.resolve();
 		expect(serial.pending).toBe(0);
 	});
+
+	it("a step's own bound replaces the chain's", async () => {
+		const { serial, stalls } = chain();
+		const long = serial.run(() => after(5000), "long", 10_000);
+		const stalled = serial.run(NEVER, "never", 200);
+		const settled = expect(stalled).rejects.toBeInstanceOf(StepStalledError);
+		await vi.advanceTimersByTimeAsync(5000);
+		await long;
+		await vi.advanceTimersByTimeAsync(200);
+		await settled;
+		expect(stalls.map(stall => [stall.step, stall.ms])).toEqual([["never", 200]]);
+	});
 });

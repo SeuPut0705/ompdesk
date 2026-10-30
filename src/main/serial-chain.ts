@@ -69,11 +69,11 @@ export class SerialChain {
 
 	/**
 	 * Run `task` after every step queued before it ended. Resolves with its result, rejects with its error, or with a
-	 * `StepStalledError` once `maxStepMs` passed (counted from when the step starts, not from when it was queued).
+	 * `StepStalledError` once `maxStepMs` (the step's own bound, else the chain's) passed (counted from when the step starts, not from when it was queued).
 	 */
-	run<T>(task: (signal: AbortSignal) => Promise<T> | T, step = "step"): Promise<T> {
+	run<T>(task: (signal: AbortSignal) => Promise<T> | T, step = "step", maxStepMs?: number): Promise<T> {
 		this.#pending += 1;
-		const result = this.#tail.then(() => this.#step(task, step));
+		const result = this.#tail.then(() => this.#step(task, step, maxStepMs ?? this.#options.maxStepMs));
 		const settled = result.then(
 			() => undefined,
 			() => undefined,
@@ -85,8 +85,8 @@ export class SerialChain {
 		return result;
 	}
 
-	#step<T>(task: (signal: AbortSignal) => Promise<T> | T, step: string): Promise<T> {
-		const { name, maxStepMs, onStall, log } = this.#options;
+	#step<T>(task: (signal: AbortSignal) => Promise<T> | T, step: string, maxStepMs: number): Promise<T> {
+		const { name, onStall, log } = this.#options;
 		const controller = new AbortController();
 		const { promise, resolve, reject } = Promise.withResolvers<T>();
 		const timer = setTimeout(() => {
