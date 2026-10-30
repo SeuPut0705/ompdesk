@@ -675,6 +675,14 @@
 	}
 }
 
+/* A narrow column (a phone, a slim window): the update notice is its title and See details; its sentence would take
+   four lines there, and a clamp cut it mid-sentence. */
+@container omp-workspace (max-width: 600px) {
+	.omp-whats-new-summary {
+		display: none;
+	}
+}
+
 /* What the board shows, its dock twin does not repeat: docked beside the pane, or as the status strip a pane without
    room for it shows (a phone, a narrow desktop window, the side panel open), whose line and panel hold the plan and
    the running work. A todo card the person opened (Edit todos, or its own chevron) is the list to edit, which the

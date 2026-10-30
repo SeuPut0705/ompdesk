@@ -90,17 +90,17 @@ function WhatsNewCardBody({ version, since }: { version: string; since: string |
 				tabIndex={0}
 			>
 				<BrandMark size={16} />
-				{/* Title and summary are one sentence that wraps to two lines: one truncated line cut the summary
-				    mid-word ("…for the first t…"), so the visible text said nothing. */}
-				<p
-					className="line-clamp-2 min-w-0 flex-1 py-0.5 break-keep text-(--sc-text-secondary)"
-					title={summary || title}
-				>
+				{/* Title and the summary sentence wrap whole: one truncated line cut the summary mid-word ("…for the
+				    first t…"), so the visible text said nothing. A narrow pane (a phone, a split's quarter) shows the
+				    title alone (components.css), its sentence one tap away in See details. */}
+				<p className="min-w-0 flex-1 py-0.5 break-keep text-(--sc-text-secondary)" title={summary || title}>
 					<span className="font-semibold text-(--sc-text)">{title}</span>
 					{summary && (
 						<>
 							{" "}
-							<span data-whats-new-summary>{summary}</span>
+							<span className="omp-whats-new-summary" data-whats-new-summary>
+								{summary}
+							</span>
 						</>
 					)}
 				</p>
