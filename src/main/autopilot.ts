@@ -81,7 +81,7 @@ import { ghText, gitRaw, resolveBin } from "./local/git/exec";
 import { prCreate } from "./local/git/pr";
 import type { WorktreeBranchSource } from "./local/git/worktree";
 import { detectReleaseProcedure } from "./release-detect";
-import { SerialChain, StepStalledError } from "./serial-chain";
+import { SerialChain, StepStalledError, throwIfStepStalled } from "./serial-chain";
 import type { TabActivity } from "./sidecar-pool";
 import type { SidecarLike } from "./sidecar-types";
 import type { GoalSettlement, RelaunchContinuation } from "./turn-resume";
@@ -1231,6 +1231,8 @@ export class Autopilot {
 				const run = this.#runs.get(tabId);
 				if (!run) return;
 				this.#log(`${tabId}: ${stall.message}`);
+				// A stop the step began and never finished is abandoned with it: the person's next Stop starts it again.
+				if (stall.step === "stop") run.stopping = false;
 				run.stalls = [...run.stalls, { step: stall.step, at: this.#now(), ms: stall.ms }].slice(-KEEP_STALLS);
 				this.#track(this.#refresh(run));
 			},
@@ -1263,6 +1265,7 @@ export class Autopilot {
 				)
 			).requests;
 		} catch (error) {
+			throwIfStepStalled();
 			this.#log(`ship requests: ${String(error)}`);
 		}
 		if (requests.some(request => request.kind === "release")) run.releaseRequested = true;
@@ -1297,6 +1300,7 @@ export class Autopilot {
 		// This pipeline can outlive the next cycle's start: what the user queued after the frame arrived waits for that
 		// turn's end; everything queued before it, and this cycle's own push and land, go now.
 		const results = await this.#drain(run, item => own.has(item.id) || item.at <= receivedAt);
+		throwIfStepStalled();
 		// "Ship, then stop": a cycle that began after the choice ends the run only once its work shipped. One that did not
 		// (red, no commit, a refused push, a land the default branch did not take) leaves the choice on, and the next cycle
 		// is told to repair and ship it.
@@ -1328,6 +1332,7 @@ export class Autopilot {
 			return [];
 		}
 		const after = await takeSnapshot(run.root, run.checkoutRoot).catch(() => null);
+		throwIfStepStalled();
 		if (!after) return [];
 		const scope: AuditScope = {
 			branch: run.branch,
@@ -1341,6 +1346,7 @@ export class Autopilot {
 			configMayChange: run.configMayChange,
 		};
 		const violations = await auditCycle(run.root, run.snapshot, after, scope);
+		throwIfStepStalled();
 		run.snapshot = after;
 		run.expectedRefs = [];
 		run.checkoutMayMove = false;
@@ -1372,6 +1378,7 @@ export class Autopilot {
 			...(run.landTo ? { landTo: run.landTo } : {}),
 		};
 		const results = await run.ship.drain(target, accept);
+		throwIfStepStalled();
 		if (pushing) await this.#setState(run, { inFlight: null }).catch(() => undefined);
 		// What the ShipRunner moved is now part of the baseline.
 		run.snapshot = await takeSnapshot(run.root, run.checkoutRoot).catch(() => run.snapshot);
@@ -1590,6 +1597,7 @@ export class Autopilot {
 	async #settled(run: Run, reason: AutopilotPauseReason | AutopilotEndReason): Promise<void> {
 		await this.#closeChildren(run, run.status?.cycle ?? 0);
 		await this.#drain(run);
+		throwIfStepStalled();
 		run.stopPolling?.();
 		run.stopPolling = null;
 		const ending = (reason as string) === "user" || reason === "agent_done" || reason === "tab_closed";
@@ -1605,6 +1613,7 @@ export class Autopilot {
 		await this.#bridge(run.tabId, AUTOPILOT_BRIDGE_METHODS.disarm, {}).catch(error =>
 			this.#log(`disarm: ${String(error)}`),
 		);
+		throwIfStepStalled();
 		this.#deps.runLog?.("ended", summary.details);
 		this.#notify(run, { kind: "completion", title: this.#deps.text("autopilot.ended.title"), body: summary.line });
 		this.#runs.delete(run.tabId);
@@ -1978,18 +1987,24 @@ export class Autopilot {
 	}
 
 	async #bridge<T = unknown>(tabId: string, method: string, params: unknown, timeoutMs?: number): Promise<T> {
+		throwIfStepStalled();
 		const client = this.#deps.pool.sidecarOf(tabId)?.rpcClient;
 		if (!client) throw new Error("That session's process is gone.");
 		const response = await client.command({ type: "autopilot_bridge", method, params }, timeoutMs);
+		// A pipeline step stopped for running past its bound can resume here later: it ends, the next step owns the run.
+		throwIfStepStalled();
 		if (!response.success) throw new Error(response.error ?? `${method} failed`);
 		return response.data as T;
 	}
 
 	async #stockResponse(tabId: string, command: Record<string, unknown>): Promise<RpcResponse> {
+		throwIfStepStalled();
 		const client = this.#deps.pool.sidecarOf(tabId)?.rpcClient;
 		if (!client) throw new Error("That session's process is gone.");
 		// The coordinator speaks stock command names; RpcCommand only types the renderer's set.
-		return client.command(command as unknown as RpcCommand);
+		const response = await client.command(command as unknown as RpcCommand);
+		throwIfStepStalled();
+		return response;
 	}
 
 	async #stock<T = unknown>(tabId: string, command: Record<string, unknown>): Promise<T> {
