@@ -51,6 +51,7 @@ import {
 } from "./app-protocol";
 import type { ImageBlobCache } from "./image-blob-cache";
 import { createLinkEventDecoder, createReadDecoder, encodedReadKey, type WireSubagentFrame } from "./link-events";
+import type { TranscriptCache } from "./transcript-cache";
 
 /** The slice of RemoteClient a tab needs. */
 export interface RemoteLink {
@@ -88,6 +89,11 @@ export interface RemoteSidecarOptions {
 	 * (`imageRefs`) and reads each picture's bytes from here, or from the host once. Absent: the host sends the bytes.
 	 */
 	imageBlobs?: ImageBlobCache;
+	/**
+	 * This device's copies of the tab's transcripts (`TranscriptCache`): a subagent journal read and a tail page read
+	 * ask the host only for what changed since this device last read them, across relaunches. Absent: every read asks.
+	 */
+	transcripts?: TranscriptCache;
 }
 
 type StatusDetail = Pick<
@@ -188,6 +194,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	readonly #startTimeoutMs: number;
 	readonly #log: RemoteSidecarOptions["log"];
 	readonly #imageBlobs: ImageBlobCache | undefined;
+	readonly #transcripts: TranscriptCache | undefined;
 	/** The bring-up in progress and the step it waits on; null once the host reported the tab running. */
 	#pending: { step: BringUpStep; at: number } | null = null;
 	#startTimer: NodeJS.Timeout | null = null;
@@ -210,6 +217,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 		this.#startTimeoutMs = options.startTimeoutMs ?? REMOTE_START_TIMEOUT_MS;
 		this.#log = options.log;
 		this.#imageBlobs = options.imageBlobs;
+		this.#transcripts = options.transcripts;
 	}
 
 	get device(): string {
@@ -660,18 +668,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 		if (this.#link.state !== "online") throw codedError("remote_offline", OFFLINE_TEXT);
 		try {
 			await this.#open();
-			// A transcript read leaves its pictures as references this device reads once (`ImageBlobCache`). An older
-			// host ignores `imageRefs` and sends the bytes, which leave nothing to resolve.
-			let sent: RpcCommand = command;
-			let blobs: ImageBlobCache | undefined;
-			if (
-				this.#imageBlobs &&
-				(command.type === "get_subagent_messages" || command.type === "get_subagent_transcript")
-			) {
-				sent = { ...command, imageRefs: true };
-				blobs = this.#imageBlobs;
-			}
-			const ask = (fresh: boolean) =>
+			const ask = (sent: RpcCommand, fresh: boolean) =>
 				this.#link.request<RpcResponse>(
 					"tab.command",
 					{
@@ -682,10 +679,17 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 					},
 					(timeoutMs ?? HOST_COMMAND_TIMEOUT_MS) + LINK_SLACK_MS,
 				);
-			const response = await ask(false);
-			const answer = response.success ? response.data : undefined;
-			if (blobs && typeof answer === "object" && answer !== null && "messages" in answer)
-				await blobs.resolve(answer.messages, ref => this.#imageBlob(ref));
+			if (command.type === "get_subagent_messages" || command.type === "get_subagent_transcript")
+				return await this.#journalRead(command, sent => ask(sent, false));
+			const page = this.#tailKey(command);
+			const kept =
+				page && command.type === "get_transcript_page" && command.ifVersion === undefined
+					? await page.cache.page(page.key)
+					: null;
+			// A fresh reader (a relaunch, a reload) asks for the page this device kept, if the transcript is unchanged.
+			const sent: RpcCommand =
+				kept && command.type === "get_transcript_page" ? { ...command, ifVersion: kept.version } : command;
+			const response = await ask(sent, false);
 			const read = encodedReadKey(command);
 			if (!read || !response.success) return response;
 			// The answer may be a delta of an earlier one (`slimAutopilotReads`, `slimListReads`); one this side lacks is
@@ -695,15 +699,59 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 				decode = createReadDecoder();
 				this.#reads.set(read.key, decode);
 			}
-			const data = decode(response.data);
-			if (data !== null) return { ...response, data };
-			const whole = await ask(true);
-			return whole.success ? { ...whole, data: decode(whole.data) } : whole;
+			let data = decode(response.data);
+			if (data === null) {
+				const whole = await ask(sent, true);
+				if (!whole.success) return whole;
+				data = decode(whole.data);
+			}
+			if (page) {
+				const tail = data as { unchanged?: unknown; version?: unknown } | null;
+				if (kept && tail?.unchanged === true) return { ...response, data: kept.page };
+				if (typeof tail?.version === "string" && tail.unchanged !== true && typeof data === "object" && data)
+					void page.cache.keepPage(page.key, tail.version, data);
+			}
+			return { ...response, data };
 		} catch (error) {
 			// The link dropped mid-request: same refusal as a command sent while offline.
 			if (isOfflineError(error)) throw codedError("remote_offline", OFFLINE_TEXT);
 			throw error;
 		}
+	}
+
+	/** Where this device keeps the tab's tail page read at `limit`: by host, the tab's session file and the limit. */
+	#tailKey(command: RpcCommand): { cache: TranscriptCache; key: string } | null {
+		if (!this.#transcripts || !this.#resume || command.type !== "get_transcript_page") return null;
+		if (command.fromEnd !== true || command.cursor !== undefined) return null;
+		return {
+			cache: this.#transcripts,
+			key: `${this.#link.deviceId}\0${this.#resume}\0tail\0${String(command.limit)}`,
+		};
+	}
+
+	/**
+	 * A subagent's journal: the host leaves its pictures as references this device reads once (`ImageBlobCache`), and
+	 * the journal crosses once per change (`TranscriptCache`, by host, the tab's session file and the agent). An older
+	 * host ignores `imageRefs` and `tails`: it sends the bytes, and nothing it sends is kept.
+	 */
+	async #journalRead(
+		command: Extract<RpcCommand, { type: "get_subagent_messages" | "get_subagent_transcript" }>,
+		ask: (sent: RpcCommand) => Promise<RpcResponse>,
+	): Promise<RpcResponse> {
+		const sent = this.#imageBlobs ? { ...command, imageRefs: true } : command;
+		const id = command.subagentId;
+		const response =
+			this.#transcripts && this.#resume && id && command.firstPrompt !== true
+				? await this.#transcripts.readJournal(
+						`${this.#link.deviceId}\0${this.#resume}\0subagent\0${id}`,
+						command.fromByte ?? 0,
+						(fromByte, knownTail) => ask({ ...sent, fromByte, tails: true, ...(knownTail ? { knownTail } : {}) }),
+					)
+				: await ask(sent);
+		const answer = response.success ? response.data : undefined;
+		if (this.#imageBlobs && typeof answer === "object" && answer !== null && "messages" in answer)
+			await this.#imageBlobs.resolve(answer.messages, ref => this.#imageBlob(ref));
+		return response;
 	}
 
 	/** One picture's bytes from the host (`read_image_blob`); null when it has none or does not know the command. */

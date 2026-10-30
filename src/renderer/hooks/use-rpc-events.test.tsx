@@ -1859,6 +1859,42 @@ describe("hydrateSession streaming reconcile (F-HYDRATE)", () => {
 		expect(sessionRuntimeStore<MessagesStore>("t-tail-race", "messages")?.getState().messages).toEqual([message]);
 	});
 
+	it("asks for the tail only if the transcript changed since the rows the tab holds", async () => {
+		const { commandForTab } = installTabRoutedMockOmp();
+		seedReadyTab("t-unchanged");
+		const row = (id: string, timestamp: number): AgentMessage => ({
+			role: "user",
+			content: id,
+			timestamp,
+			entryId: id,
+		});
+		const messages = sessionRuntimeStore<MessagesStore>("t-unchanged", "messages")!;
+		let version = "v1";
+		let rows = [row("a", 1), row("b", 2)];
+		const asked: Array<string | undefined> = [];
+		const original = commandForTab.getMockImplementation()!;
+		commandForTab.mockImplementation(async (tabId, command) => {
+			if (command.type !== "get_transcript_page") return original(tabId, command);
+			asked.push(command.ifVersion);
+			if (command.ifVersion === version)
+				return success({ messages: [], totalMessages: rows.length, version, unchanged: true });
+			return success({ messages: rows, totalMessages: rows.length, version });
+		});
+		await hydrateTabSession("t-unchanged");
+		const shown = messages.getState().messages;
+		expect(shown.map(message => message.entryId)).toEqual(["a", "b"]);
+		expect(messages.getState().tailVersion).toBe("v1");
+		// A tab switch back to an idle session: nothing to apply, the rows stay the same objects.
+		await hydrateTabSession("t-unchanged");
+		expect(messages.getState().messages).toBe(shown);
+		version = "v2";
+		rows = [...rows, row("c", 3)];
+		await hydrateTabSession("t-unchanged");
+		expect(messages.getState().messages.map(message => message.entryId)).toEqual(["a", "b", "c"]);
+		expect(messages.getState().tailVersion).toBe("v2");
+		expect(asked).toEqual([undefined, "v1", "v1"]);
+	});
+
 	it("a failed first transcript read says so instead of an empty session, and hydrating again clears it", async () => {
 		const { commandForTab } = installTabRoutedMockOmp();
 		seedReadyTab("t-first-fail");

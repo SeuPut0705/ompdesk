@@ -375,8 +375,23 @@ export async function syncPlanProposal(tabId: string, command: TabCommand, isCur
 // heavier page again with fewer messages (local/sessions.ts BACKWARD_PAGE_BUDGET).
 export const TRANSCRIPT_TAIL_LIMIT = 200;
 
-async function fetchTranscriptTail(command: TabCommand): Promise<RpcResponse> {
-	const request = { type: "get_transcript_page" as const, fromEnd: true, limit: TRANSCRIPT_TAIL_LIMIT };
+/**
+ * The tail page, or `unchanged` when the rows `messages` holds came from the transcript as it still is: a tab switch or
+ * hydration of an idle session then costs the omp a metadata read and the IPC almost nothing (`ifVersion`). Seeded
+ * rows (a snapshot is a guess), a failed read and an empty store ask for the page.
+ */
+async function fetchTranscriptTail(command: TabCommand, messages?: StoreApi<MessagesStore>): Promise<RpcResponse> {
+	const held = messages?.getState();
+	const ifVersion =
+		held?.tailVersion && held.restoredAt === null && held.pageError === null && held.messages.length > 0
+			? held.tailVersion
+			: undefined;
+	const request = {
+		type: "get_transcript_page" as const,
+		fromEnd: true,
+		limit: TRANSCRIPT_TAIL_LIMIT,
+		...(ifVersion ? { ifVersion } : {}),
+	};
 	const response = await command(request);
 	// A live commit between the metadata and tail reads invalidates that
 	// snapshot, not the session. Re-read its newest page, never the full history.
@@ -552,7 +567,11 @@ function commitHydration({
 		messagesResult.status === "fulfilled" && messagesResult.value.success
 			? (messagesResult.value.data as MessagesPage | undefined)
 			: undefined;
-	const turnStartedAt = page ? workTurnStartedAt(page.messages) : undefined;
+	// An unchanged tail (`ifVersion`) leaves the rows this store holds as they are: they are the transcript's.
+	const unchanged = page?.unchanged === true;
+	const turnStartedAt = page
+		? workTurnStartedAt(unchanged ? (messages?.getState().messages ?? []) : page.messages)
+		: undefined;
 
 	if (eventsUnchanged && focusUnchanged && wire != null) {
 		applyState(wire, turnStartedAt);
@@ -604,13 +623,17 @@ function commitHydration({
 		}
 		return;
 	}
-	const fetched = page?.messages ?? [];
-	const current = messages?.getState().messages ?? [];
-	const merged = mergeFetchedTranscript(fetched, before.messages, current);
-	const retained = restored ? reuseSeededRows(merged, before.messages) : retainLoadedHistory(merged, current);
-	const prevCursor = !restored && retained.length > merged.length ? messages?.getState().prevCursor : page?.prevCursor;
-	messages?.getState().reconcileFetched(retained);
-	messages?.setState({ prevCursor, pageError: null, restoredAt: null });
+	// Only rows with no read error and no seed asked `ifVersion`: an unchanged answer has nothing to clear.
+	if (!unchanged) {
+		const fetched = page?.messages ?? [];
+		const current = messages?.getState().messages ?? [];
+		const merged = mergeFetchedTranscript(fetched, before.messages, current);
+		const retained = restored ? reuseSeededRows(merged, before.messages) : retainLoadedHistory(merged, current);
+		const prevCursor =
+			!restored && retained.length > merged.length ? messages?.getState().prevCursor : page?.prevCursor;
+		messages?.getState().reconcileFetched(retained);
+		messages?.setState({ prevCursor, pageError: null, restoredAt: null, tailVersion: page?.version ?? null });
+	}
 	if (eventsUnchanged && stateIsIdle && messages?.getState().liveMessages === before.liveMessages) {
 		messages.getState().clearDeliveredLiveMessages();
 	}
@@ -639,7 +662,7 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 	const before = captureHydrationBaseline(stores);
 	const core = Promise.allSettled([
 		initialState ? Promise.resolve(initialState) : activeTabCommand({ type: "get_state", brief: true }),
-		fetchTranscriptTail(activeTabCommand),
+		fetchTranscriptTail(activeTabCommand, useMessagesStore),
 	]);
 	const subagents = useSubagentsStore.getState().refresh({ expect: isCurrent });
 	const secondary = Promise.allSettled([
@@ -835,7 +858,7 @@ async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackNa
 
 	const coreResult = Promise.allSettled([
 		runtime.command({ type: "get_state", brief: true }),
-		fetchTranscriptTail(runtime.command),
+		fetchTranscriptTail(runtime.command, stores.messages ?? undefined),
 	]);
 	const subagentsResult = sessionRuntimeStore<SubagentsStore>(tabId, "subagents")
 		?.getState()

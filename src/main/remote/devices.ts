@@ -88,6 +88,7 @@ import { PeerQuota, type QuotaReservation } from "./peer-quota";
 import { PeerStore } from "./peers-store";
 import { REFUSAL_CODES } from "./protocol";
 import { PendingTabCloses, RemoteSidecar, type RemoteSidecarOptions } from "./remote-sidecar";
+import { TranscriptCache } from "./transcript-cache";
 
 const ModelWaitCountsSchema = z.object({ counts: z.record(z.string(), z.number().int().nonnegative()) });
 const RenamePayload = z.object({ deviceId: z.string().min(1), name: z.string() });
@@ -200,6 +201,8 @@ export class RemoteDevices {
 	readonly #hosts: HostStore;
 	/** Every host's subagent pictures this device read, by content address: one folder for all tabs and hosts. */
 	readonly #imageBlobs: ImageBlobCache;
+	/** Every host's transcripts this device read (subagent journals, tail pages): one folder for all tabs and hosts. */
+	readonly #transcripts: TranscriptCache;
 	readonly #links = new Map<string, HostLink>();
 	#host: RemoteHost | null = null;
 	#disposed = false;
@@ -231,6 +234,7 @@ export class RemoteDevices {
 		this.#peers = new PeerStore(deps.userData);
 		this.#hosts = new HostStore(deps.userData);
 		this.#imageBlobs = new ImageBlobCache(path.join(deps.userData, "remote-image-blobs"));
+		this.#transcripts = new TranscriptCache(path.join(deps.userData, "remote-transcripts"));
 		this.#keepAwake = new KeepAwakePolicy({
 			blocker: deps.powerSaveBlocker,
 			onChange: () => this.#broadcastState(),
@@ -591,6 +595,7 @@ export class RemoteDevices {
 			...(this.#deps.startTimeoutMs === undefined ? {} : { startTimeoutMs: this.#deps.startTimeoutMs }),
 			...(this.#deps.logTab ? { log: this.#deps.logTab } : {}),
 			imageBlobs: this.#imageBlobs,
+			transcripts: this.#transcripts,
 		});
 		link.tabs.set(rtab, sidecar);
 		return sidecar;

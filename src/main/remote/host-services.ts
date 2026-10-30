@@ -2079,6 +2079,10 @@ export class LocalHostServices implements HostServices {
 	): RpcResponse {
 		const { conn } = tab;
 		if (!conn?.slim?.[read.needs] || !response.success) return response;
+		// A tail read of an unchanged transcript (`ifVersion`) names no page: the chain stays on the last page sent, so
+		// the next page that changed is still a delta of it.
+		const data = response.data;
+		if (typeof data === "object" && data !== null && "unchanged" in data && data.unchanged === true) return response;
 		const slim = JSON.stringify(conn.slim);
 		if (tab.reads?.slim !== slim) tab.reads = { slim, encoders: new Map() };
 		let encode = tab.reads.encoders.get(read.key);

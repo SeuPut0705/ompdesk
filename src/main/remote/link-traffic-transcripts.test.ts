@@ -10,7 +10,8 @@
  * `OMP_GUI_LINK_TRAFFIC=1` prints the bytes a minute of each. Measured 29 Oct 2026: before the host left stock's
  * `entries`, the request bookkeeping and thinking signatures out of its answers, the 0.82.1 device's minute was
  * 2,630 KB in 57 reads (this build's reads 1,497 KB in 14); after it, 293 KB and 167 KB. The relaunch's four replays
- * are most of what is left: a relaunched app holds nothing.
+ * were most of what was left: since the device keeps what it read on its disk (`TranscriptCache`, 30 Oct 2026) they
+ * ask only what each journal gained, and this build's minute is 105 KB.
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -140,7 +141,10 @@ const transcriptOf = (response: RpcResponse) => {
 	return response.data as { messages: AgentMessage[]; nextByte: number };
 };
 
-/** 0.82.1: `hydrateSurface` read the whole journal each time; the view read it whole at every open, then followed. */
+/**
+ * 0.82.1: `hydrateSurface` read the whole journal each time; the view read it whole at every open, then followed. Its
+ * main sent each read as asked (`tab.command`): it kept no transcript (`TranscriptCache`).
+ */
 function olderDevice(send: Send, journal: (id: string) => string): DeviceReads {
 	const views = new Map<string, { messages: AgentMessage[]; nextByte: number }>();
 	const follow = async (id: string) => {
@@ -196,7 +200,9 @@ async function minute(build: keyof typeof DEVICES) {
 		if (!client) throw new Error("the device's tab has no client");
 		return client.command(command);
 	};
-	const device = DEVICES[build](send, journal);
+	const raw: Send = command =>
+		session.device.devices.request<RpcResponse>(session.hostId, "tab.command", { rtab: "t1", command });
+	const device = DEVICES[build](build === "current" ? send : raw, journal);
 	wire.tx = 0;
 	wire.requests = 0;
 	// The run's lanes replay its four agents while they work.

@@ -16,6 +16,8 @@
  * (`imageRefs`: a paired device, which reads each blob once, `read_image_blob`).
  */
 
+import { createHash } from "node:crypto";
+import { open } from "node:fs/promises";
 import { transcriptPageMessages } from "../../../resources/gui-bridge/transcript-page";
 import type { RpcMcpServersResult } from "../../shared/rpc-types";
 import { noteMcpChange } from "../mcp-live";
@@ -93,17 +95,68 @@ async function firstOnly<T extends { messages?: unknown }>(read: Promise<T>, fir
  * `imageRefs`: the references stay (a paired device's `RemoteSidecar` asks so). The device keeps each blob by its
  * content address and reads only those it lacks, once (`read_image_blob`); a transcript's pictures were 70 % of its
  * deflated bytes over the subagent journals this Mac's sessions wrote on 30 Oct 2026 (143 MB with, 42 MB without).
+ *
+ * `tails`: the answer names the journal's `tail` at its `nextByte`, and a read from `knownTail` checks the journal
+ * still has those bytes before `fromByte` (a device that kept what it read across its relaunch,
+ * `remote/transcript-cache.ts`): a journal that does not is read again from its start, as `reset`.
  */
-async function transcriptRead<T extends { messages?: unknown; entries?: unknown }>(
-	read: Promise<T>,
+async function transcriptRead<T extends TranscriptAnswer>(
+	read: (fromByte?: number) => Promise<T>,
 	ctx: LocalCommandContext,
-	imageRefs: unknown,
-): Promise<Omit<T, "entries">> {
-	const { entries: _entries, ...transcript } = await read;
-	if (!Array.isArray(transcript.messages)) return transcript;
+	{ imageRefs, tails, knownTail }: { imageRefs: unknown; tails: unknown; knownTail: unknown },
+): Promise<Omit<T, "entries"> & { tail?: string }> {
+	let answer = await read();
+	if (
+		typeof knownTail === "string" &&
+		typeof answer.sessionFile === "string" &&
+		answer.reset !== true &&
+		typeof answer.fromByte === "number" &&
+		answer.fromByte > 0 &&
+		(await journalTail(answer.sessionFile, answer.fromByte)) !== knownTail
+	)
+		answer = { ...(await read(0)), reset: true };
+	const { entries: _entries, ...transcript } = answer;
+	const tail =
+		tails === true && typeof transcript.sessionFile === "string" && typeof transcript.nextByte === "number"
+			? await journalTail(transcript.sessionFile, transcript.nextByte)
+			: null;
+	if (!Array.isArray(transcript.messages)) return tail ? { ...transcript, tail } : transcript;
 	const messages = transcriptPageMessages(transcript.messages);
 	if (imageRefs !== true) await resolveImageBlobs(messages, ctx.bridge);
-	return { ...transcript, messages };
+	return { ...transcript, messages, ...(tail ? { tail } : {}) };
+}
+
+/** What stock's journal read answers (`readRpcSubagentTranscript`), the fields a tail check reads. */
+interface TranscriptAnswer {
+	messages?: unknown;
+	entries?: unknown;
+	sessionFile?: unknown;
+	fromByte?: unknown;
+	nextByte?: unknown;
+	reset?: unknown;
+}
+
+/** How many bytes before an offset a journal's `tail` covers: a line's end, enough to tell two journals apart. */
+const TAIL_BYTES = 64;
+
+/**
+ * A journal's tail at `byte`: the offset and a hash of the bytes just before it. Stock only appends to a subagent's
+ * journal, so a reader that kept what it read up to `byte` reads on from there while the tail is the same. Null when
+ * the file cannot be read that far.
+ */
+export async function journalTail(file: string, byte: number): Promise<string | null> {
+	if (byte <= 0) return "0";
+	const start = Math.max(0, byte - TAIL_BYTES);
+	const handle = await open(file, "r").catch(() => null);
+	if (!handle) return null;
+	try {
+		const bytes = Buffer.alloc(byte - start);
+		const { bytesRead } = await handle.read(bytes, 0, bytes.length, start);
+		if (bytesRead !== bytes.length) return null;
+		return `${byte}:${createHash("sha256").update(bytes).digest("base64url").slice(0, 22)}`;
+	} finally {
+		await handle.close();
+	}
 }
 
 /** A second reauth while one is in flight fails with the fork's `oauth_busy` code. */
@@ -151,8 +204,24 @@ export const handlers: Record<string, LocalHandler> = {
 	mcp_action: mcpAction,
 	mcp_add: mcpAdd,
 	mcp_reload: mcpReload,
-	get_subagent_messages: ({ id: _id, firstPrompt, imageRefs, ...command }, ctx) =>
-		transcriptRead(firstOnly(ctx.send<{ messages?: unknown }>(command), firstPrompt), ctx, imageRefs),
-	get_subagent_transcript: ({ type, id: _id, firstPrompt, imageRefs, ...params }, ctx) =>
-		transcriptRead(firstOnly(ctx.bridge.request<{ messages?: unknown }>(type, params), firstPrompt), ctx, imageRefs),
+	get_subagent_messages: ({ id: _id, firstPrompt, imageRefs, tails, knownTail, ...command }, ctx) =>
+		transcriptRead(
+			fromByte =>
+				firstOnly(
+					ctx.send<TranscriptAnswer>(fromByte === undefined ? command : { ...command, fromByte }),
+					firstPrompt,
+				),
+			ctx,
+			{ imageRefs, tails, knownTail },
+		),
+	get_subagent_transcript: ({ type, id: _id, firstPrompt, imageRefs, tails, knownTail, ...params }, ctx) =>
+		transcriptRead(
+			fromByte =>
+				firstOnly(
+					ctx.bridge.request<TranscriptAnswer>(type, fromByte === undefined ? params : { ...params, fromByte }),
+					firstPrompt,
+				),
+			ctx,
+			{ imageRefs, tails, knownTail },
+		),
 };

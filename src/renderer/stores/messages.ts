@@ -26,6 +26,11 @@ export interface MessagesStore {
 	 * live page replaces them: the transcript shows a quiet "updating" hint and the older-history load waits.
 	 */
 	restoredAt: number | null;
+	/**
+	 * The `version` of the tail page these rows were last hydrated from (`MessagesPage.version`): the next hydration
+	 * asks for the tail only if the transcript changed since (`ifVersion`). Null for seeded rows and an older host.
+	 */
+	tailVersion: string | null;
 	/** Output-token meter for the running (or last) agent run; lib/turn-meter. */
 	turnMeter: TurnMeter;
 	/**
@@ -75,6 +80,7 @@ const initialState = {
 	pageError: null as string | null,
 	isLoadingPage: false,
 	restoredAt: null as number | null,
+	tailVersion: null as string | null,
 	turnMeter: EMPTY_TURN_METER,
 	ownSends: [] as string[],
 	readTargets: new Map() as ReadonlyMap<string, ReadGroupTarget | null>,

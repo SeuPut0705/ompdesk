@@ -14,8 +14,11 @@ function message(id: string, parentId: string | null, body: AgentMessage) {
 
 const user = (text: string, timestamp: number): AgentMessage => ({ role: "user", content: text, timestamp });
 
-/** A bridge serving its replay page by page, as gui-bridge sessions.transcript does. */
-function pagedBridge(entries: ReturnType<typeof message>[], leaf: () => string) {
+/**
+ * A bridge serving its replay page by page, as gui-bridge sessions.transcript does; `versioned` names each replay's
+ * version as the bridge does (here: its leaf and length).
+ */
+function pagedBridge(entries: ReturnType<typeof message>[], leaf: () => string, versioned = false) {
 	const requested: unknown[] = [];
 	const bridge = new GuiBridgeClient("");
 	vi.spyOn(bridge, "request").mockImplementation(async <T>(method: string, params?: unknown) => {
@@ -25,7 +28,14 @@ function pagedBridge(entries: ReturnType<typeof message>[], leaf: () => string) 
 		const messages = entries.map(entry => ({ ...entry.message, entryId: entry.id }));
 		const end = Math.min(messages.length, offset + limit);
 		const startIndex = snapToTurn ? transcriptRunStart(messages, offset, end) : offset;
-		return { leafId: leaf(), total: messages.length, startIndex, messages: messages.slice(startIndex, end) } as T;
+		const version = versioned ? { version: `${leaf()}:${messages.length}` } : {};
+		return {
+			leafId: leaf(),
+			...version,
+			total: messages.length,
+			startIndex,
+			messages: messages.slice(startIndex, end),
+		} as T;
 	});
 	const ctx: LocalCommandContext = {
 		cwd: "/tmp",
@@ -178,6 +188,39 @@ describe("get_transcript_page", () => {
 		await expect(page({ type: "get_transcript_page", cursor: tail.prevCursor, limit: 2 }, ctx)).rejects.toThrow(
 			"stale",
 		);
+	});
+
+	it("answers a tail read of an unchanged transcript with its metadata read alone", async () => {
+		const entries = chain(30);
+		const { ctx, requested } = pagedBridge(entries, () => `u${entries.length - 1}`, true);
+		const page = handlers.get_transcript_page as (
+			command: Record<string, unknown>,
+			ctx: LocalCommandContext,
+		) => Promise<MessagesPage>;
+		const tail = await page({ type: "get_transcript_page", fromEnd: true, limit: 200 }, ctx);
+		expect(tail.version).toBe("u29:30");
+		expect(tail.messages).toHaveLength(30);
+		expect(requested).toHaveLength(2);
+		// A caller holding this version gets nothing to apply; a fresh one gets the page this omp read, unread again.
+		await expect(
+			page({ type: "get_transcript_page", fromEnd: true, limit: 200, ifVersion: "u29:30" }, ctx),
+		).resolves.toEqual({
+			messages: [],
+			totalMessages: 30,
+			version: "u29:30",
+			unchanged: true,
+		});
+		await expect(page({ type: "get_transcript_page", fromEnd: true, limit: 200 }, ctx)).resolves.toBe(tail);
+		expect(requested).toHaveLength(4);
+		// Another limit is its own page; a transcript that moved on is read again for every caller.
+		expect((await page({ type: "get_transcript_page", fromEnd: true, limit: 8 }, ctx)).messages).toHaveLength(8);
+		entries.push(message("u30", "u29", user("m30", 30)));
+		const moved = await page({ type: "get_transcript_page", fromEnd: true, limit: 200, ifVersion: "u29:30" }, ctx);
+		expect(moved.unchanged).toBeUndefined();
+		expect(moved.version).toBe("u30:31");
+		expect(moved.messages.at(-1)?.entryId).toBe("u30");
+		// A page read forward names no version: only a tail read is compared.
+		expect((await page({ type: "get_transcript_page", limit: 2 }, ctx)).version).toBeUndefined();
 	});
 
 	it("snaps a tool result/assistant step back to the start of its run", () => {

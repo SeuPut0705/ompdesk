@@ -53,7 +53,17 @@ interface TranscriptPage {
 	total: number;
 	messages: AgentMessage[];
 	startIndex?: number;
+	/** The bridge's replay key (gui-bridge sessions.ts): one version, one transcript. */
+	version?: string;
 }
+
+/**
+ * The last tail page each omp answered (keyed by its bridge), per limit, with its version. A window asks for the tail
+ * at every tab switch and hydration, a paired device at every open, an agent's control tools at their own limit; read
+ * again while the transcript is unchanged, it costs the metadata read alone instead of a page, its budget measure and
+ * its messages over the bridge. A new version replaces every limit's page, so each holds at most the current one.
+ */
+const lastTails = new WeakMap<object, { version: string; pages: Map<number, MessagesPage> }>();
 
 /**
  * One page of the bridge's cached stock replay. Pages, never the whole
@@ -105,6 +115,15 @@ export const handlers: Record<string, LocalHandler> = {
 		const cursor = command.cursor === undefined ? undefined : decodeCursor(command.cursor);
 		const backward = command.fromEnd === true || cursor?.backward === true;
 		const metadata = backward && !cursor ? await transcriptPage(ctx, 0, 0) : undefined;
+		const version = metadata?.version;
+		if (version !== undefined) {
+			// The caller holds this very transcript: nothing to send. A fresh caller gets the page this omp last read.
+			if (command.ifVersion === version)
+				return { messages: [], totalMessages: metadata?.total ?? 0, version, unchanged: true };
+			const last = lastTails.get(ctx.bridge);
+			const kept = last?.version === version ? last.pages.get(limit) : undefined;
+			if (kept) return kept;
+		}
 		const endIndex = cursor?.offset ?? metadata?.total ?? limit;
 		let take = backward ? Math.min(limit, endIndex) : limit;
 		let offset = backward ? endIndex - take : (cursor?.offset ?? 0);
@@ -136,6 +155,12 @@ export const handlers: Record<string, LocalHandler> = {
 			});
 		} else if (!backward && end < page.total) {
 			result.nextCursor = encodeCursor({ v: 1, leafId: page.leafId, total: page.total, offset: end });
+		}
+		if (metadata && page.version !== undefined && page.version === version) {
+			result.version = page.version;
+			const last = lastTails.get(ctx.bridge);
+			if (last?.version === version) last.pages.set(limit, result);
+			else lastTails.set(ctx.bridge, { version, pages: new Map([[limit, result]]) });
 		}
 		return result;
 	},

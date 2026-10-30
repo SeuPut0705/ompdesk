@@ -10,7 +10,9 @@
  * `readRpcSubagentTranscript` reads a subagent's journal: what follows `fromByte` up to the last whole line, as both
  * `entries` and `messages`, with the offset to read from next. Launched with a bridge (`OMP_GUI_BRIDGE`, the rig's
  * `bridge` option) it serves `read_image_blob` there, from `blobs/<sha256>` under its working folder as stock's blob
- * store keeps them; every other bridge method fails.
+ * store keeps them, and `sessions.transcript` (the gui-bridge's page of the session's messages) over
+ * `transcript.jsonl` there, one message a line, its leaf named by the line count; every other bridge method fails.
+ * `get_state` names `session.jsonl` in its working folder as the session's file.
  * Standalone: the test writes this file's text out as the omp script, so it imports nothing local.
  */
 import { readFileSync, statSync } from "node:fs";
@@ -465,11 +467,22 @@ async function run(scenario: Scenario): Promise<void> {
 	out({ type: "session_settled" });
 }
 
-/** The gui-bridge's `read_image_blob` (resources/gui-bridge/extensions/agents.ts) over `blobs/` in the working folder. */
+/**
+ * The gui-bridge's `read_image_blob` (resources/gui-bridge/extensions/agents.ts) over `blobs/` in the working folder,
+ * and its `sessions.transcript` page over `transcript.jsonl` there.
+ */
 async function serveBridge(address: string): Promise<void> {
 	const server = createServer(socket => {
 		createInterface({ input: socket }).on("line", line => {
-			const { id, method, params } = JSON.parse(line) as { id: number; method: string; params?: { ref?: unknown } };
+			const { id, method, params } = JSON.parse(line) as {
+				id: number;
+				method: string;
+				params?: { ref?: unknown; offset?: number; limit?: number };
+			};
+			if (method === "sessions.transcript") {
+				socket.write(`${JSON.stringify({ id, ok: true, result: sessionPage(params?.offset, params?.limit) })}\n`);
+				return;
+			}
 			if (method !== "read_image_blob") {
 				socket.write(`${JSON.stringify({ id, ok: false, error: `unknown method ${method}` })}\n`);
 				return;
@@ -488,6 +501,25 @@ async function serveBridge(address: string): Promise<void> {
 	const listening = Promise.withResolvers<void>();
 	server.listen(address, listening.resolve);
 	await listening.promise;
+}
+
+/** One page of `transcript.jsonl`'s messages: `{leafId, version, total, messages, startIndex}`, as the bridge answers. */
+function sessionPage(offset = 0, limit = 0): Record<string, unknown> {
+	let lines: string[] = [];
+	try {
+		lines = readFileSync(join(process.cwd(), "transcript.jsonl"), "utf8").split("\n").filter(Boolean);
+	} catch {
+		lines = [];
+	}
+	const start = Math.max(0, Math.min(offset, lines.length));
+	const messages = lines.slice(start, start + Math.max(0, limit)).map(text => JSON.parse(text) as unknown);
+	return {
+		leafId: `leaf-${lines.length}`,
+		version: `v${lines.length}`,
+		total: lines.length,
+		messages,
+		startIndex: start,
+	};
 }
 
 if (process.env.OMP_GUI_BRIDGE) await serveBridge(process.env.OMP_GUI_BRIDGE);
@@ -548,15 +580,17 @@ createInterface({ input: process.stdin }).on("line", line => {
 	}
 	// Stock's slash command list as the built-in skill packs make it: about 300 commands, most a long description.
 	const data =
-		command.type === "get_available_commands"
-			? {
-					commands: Array.from({ length: 300 }, (_, index) => ({
-						name: `skill:pack-${index}`,
-						source: "skill",
-						description: `Use this skill when the work touches area ${index}: ${WORDS.join(" ")}`,
-					})),
-				}
-			: {};
+		command.type === "get_state"
+			? { sessionFile: join(process.cwd(), "session.jsonl"), sessionId: `session-${process.pid}` }
+			: command.type === "get_available_commands"
+				? {
+						commands: Array.from({ length: 300 }, (_, index) => ({
+							name: `skill:pack-${index}`,
+							source: "skill",
+							description: `Use this skill when the work touches area ${index}: ${WORDS.join(" ")}`,
+						})),
+					}
+				: {};
 	out({ type: "response", id: command.id, command: command.type, success: true, data });
 	if (command.type === "prompt" && command.message) void run(JSON.parse(command.message) as Scenario);
 });

@@ -90,6 +90,10 @@ export type RpcCommand =
 			firstPrompt?: boolean;
 			/** Leave stock's `blob:sha256:` image references for the caller to read (`read_image_blob`): a paired device. */
 			imageRefs?: boolean;
+			/** Answer the journal's `tail` (`SubagentTailCheck`): a paired device that keeps what it read. */
+			tails?: boolean;
+			/** The `tail` the caller holds at `fromByte`: a journal that no longer has it is read from its start (`reset`). */
+			knownTail?: string;
 	  }
 	| { id?: string; type: "set_model"; provider: string; modelId: string }
 	| { id?: string; type: "cycle_model"; direction?: "forward" | "backward" }
@@ -263,7 +267,18 @@ export type RpcCommand =
 	| { id?: string; type: "get_session_tree" }
 	| { id?: string; type: "get_theme_colors"; name: string }
 	| { id?: string; type: "get_transcript" }
-	| { id?: string; type: "get_transcript_page"; cursor?: string; limit?: number; fromEnd?: boolean }
+	| {
+			id?: string;
+			type: "get_transcript_page";
+			cursor?: string;
+			limit?: number;
+			fromEnd?: boolean;
+			/**
+			 * A tail read (`fromEnd`, no cursor) of a transcript the caller holds at this `MessagesPage.version`: one
+			 * that has not changed since is answered `unchanged`, with no messages.
+			 */
+			ifVersion?: string;
+	  }
 	| { id?: string; type: "get_copy_targets" }
 	/** The newest http(s) link in an assistant message (stock `extractLastLink`), for `/open`. */
 	| { id?: string; type: "get_last_link" }
@@ -396,6 +411,8 @@ export type RpcCommand =
 			fromByte?: number;
 			firstPrompt?: boolean;
 			imageRefs?: boolean;
+			tails?: boolean;
+			knownTail?: string;
 	  }
 	/** One image's bytes (base64) behind stock's `blob:sha256:` reference, or `data: null` once the blob is gone. */
 	| { id?: string; type: "read_image_blob"; ref: string }
@@ -2185,6 +2202,13 @@ export interface MessagesPage {
 	nextCursor?: string;
 	startIndex?: number;
 	prevCursor?: string;
+	/**
+	 * The transcript's state a tail page was read at (the gui-bridge's replay key): the same version is the same page.
+	 * Absent from an older host's answer and from a page read by cursor.
+	 */
+	version?: string;
+	/** A tail read asked `ifVersion` of the transcript as it is: no messages, nothing to apply. */
+	unchanged?: true;
 }
 
 // ============================================================================

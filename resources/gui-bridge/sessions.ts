@@ -3,6 +3,7 @@
  * leaf moves (`navigateTree`), an independent copy of one branch, and session
  * pins under omp's own cross-process lock.
  */
+import { createHash } from "node:crypto";
 import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import { guard } from "./health";
@@ -34,11 +35,15 @@ function optionalString(params: unknown, key: string): string | undefined {
  * unchanged: a transcript walk asks page by page, and each page must cost a
  * slice, not a replay. Pages keep every bridge reply small, since one socket
  * carries every bridge request in order and a whole long transcript (tens of
- * MB) would hold up the rest behind it.
+ * MB) would hold up the rest behind it. `version` names the replay's key: every
+ * page of one version is the same page (main answers a tail read of an unchanged
+ * version without reading it, `ifVersion` in local/sessions.ts).
  */
-let replay: { key: string; snapshot: ReturnType<typeof buildTranscript> } | undefined;
+let replay: { key: string; snapshot: TranscriptSnapshot } | undefined;
 
-function transcriptSnapshot(manager: SessionManager): ReturnType<typeof buildTranscript> {
+type TranscriptSnapshot = ReturnType<typeof buildTranscript> & { version: string };
+
+function transcriptSnapshot(manager: SessionManager): TranscriptSnapshot {
 	const entries = manager.getEntries();
 	const key = [
 		manager.getSessionFile() ?? "",
@@ -48,8 +53,9 @@ function transcriptSnapshot(manager: SessionManager): ReturnType<typeof buildTra
 	].join("\0");
 	if (replay?.key !== key) {
 		const { leafId, messages } = buildTranscript(manager);
+		const version = createHash("sha256").update(key).digest("base64url").slice(0, 22);
 		// A85: prompts a paired device (or this host) typed, labelled for the viewing device.
-		replay = { key, snapshot: { leafId, messages: labelPromptOrigins(messages, entries, promptOrigin) } };
+		replay = { key, snapshot: { leafId, version, messages: labelPromptOrigins(messages, entries, promptOrigin) } };
 	}
 	return replay.snapshot;
 }
@@ -65,7 +71,7 @@ export const methods: BridgeMethods = {
 	...guard(["sessionTree", "streamMetadata"], {
 		"sessions.transcript": async (params, env) => {
 			const { decorateMessages } = await import("./stream-metadata");
-			const { leafId, messages } = transcriptSnapshot(env.session().sessionManager);
+			const { leafId, version, messages } = transcriptSnapshot(env.session().sessionManager);
 			let offset = Math.min(pageNumber(params, "offset", 0), messages.length);
 			const end = Math.min(messages.length, offset + pageNumber(params, "limit", messages.length));
 			// A page starts with a run (a typed prompt, or after a run that ended), never with an orphan tool result
@@ -73,6 +79,7 @@ export const methods: BridgeMethods = {
 			if (param(params, "snapToTurn") === true) offset = transcriptRunStart(messages, offset, end);
 			return {
 				leafId,
+				version,
 				total: messages.length,
 				startIndex: offset,
 				messages: decorateMessages(transcriptPageMessages(messages.slice(offset, end))),

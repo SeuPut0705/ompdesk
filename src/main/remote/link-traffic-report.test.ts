@@ -112,7 +112,12 @@ describe("link traffic harness", () => {
 		const { sidecar, recorder } = await openSession();
 		recorder.reset();
 		await sidecar.rpcClient?.command({ type: "get_state" });
-		expect([...recorder.links.keys()]).toEqual(["A>B req tab.command", "B>A res tab.command"]);
+		// The scripted omp's state names its session file, so the host tells the device the tab's session as well.
+		expect([...recorder.links.keys()].sort()).toEqual([
+			"A>B req tab.command",
+			"B>A evt tab.event session",
+			"B>A res tab.command",
+		]);
 		expect(recorder.totalBytes).toBeGreaterThan(0);
 	}, 30_000);
 });
