@@ -26,7 +26,7 @@ import { git, gitRaw } from "../local/git/exec";
 import { prepareWorktree } from "../local/git/worktree-seed";
 import { LocalCommandError } from "../local/types";
 import { ompsExitedIn } from "../omp-exits";
-import { stepStalled } from "../serial-chain";
+import { stepStalled, trackEffect } from "../serial-chain";
 import type { BeforeRemove } from "../worktree-orphans";
 import { realFolder, withRemovalClaim } from "../worktree-removals";
 import { diskBytes } from "./usage";
@@ -81,11 +81,15 @@ export class SavedWorktreeStore {
 			const records = change(await this.list());
 			const file = path.join(this.#dir, "saved.json");
 			// A holder of the repository lock stopped for running long never replaces the file under the next one.
-			await writeFileAtomic(file, `${JSON.stringify(records, null, 2)}\n`, {
-				mode: 0o600,
-				dirMode: 0o700,
-				commitIf: () => !stepStalled(),
-			});
+			// Tracked whole: a rename it already issued must finish before the next holder of the lock runs.
+			await trackEffect(
+				"saved.json write",
+				writeFileAtomic(file, `${JSON.stringify(records, null, 2)}\n`, {
+					mode: 0o600,
+					dirMode: 0o700,
+					commitIf: () => !stepStalled(),
+				}),
+			);
 		});
 		this.#writing = next.catch(() => {});
 		return next;

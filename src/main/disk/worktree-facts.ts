@@ -11,7 +11,7 @@ import { agentDir } from "../agent-paths";
 import { fs } from "../fenced-fs";
 import { git, gitRaw } from "../local/git/exec";
 import { isInside } from "../local/git/parse";
-import { currentStepSignal, throwIfStepStalled } from "../serial-chain";
+import { currentStepSignal, throwIfStepStalled, trackEffect } from "../serial-chain";
 import { realFolder } from "../worktree-removals";
 import { classifyIgnored, type IgnoredVerdict, readEvidence } from "./regenerable";
 
@@ -160,10 +160,14 @@ function run(command: string, args: string[]): Promise<string | null> {
 	throwIfStepStalled();
 	const hold = currentStepSignal();
 	const { promise, resolve, reject } = Promise.withResolvers<string | null>();
+	const exited = Promise.withResolvers<void>();
 	const child = execFile(command, args, { timeout: 30_000, maxBuffer: 64 * 1024 * 1024 }, (error, stdout) => {
 		hold?.removeEventListener("abort", stop);
 		resolve(error && !stdout ? null : String(stdout));
+		exited.resolve();
 	});
+	// The repository lock waits for the killed child to exit before its next holder runs.
+	trackEffect(command, exited.promise);
 	function stop(): void {
 		child.kill("SIGKILL");
 		reject(hold?.reason);

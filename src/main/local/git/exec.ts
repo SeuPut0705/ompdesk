@@ -8,9 +8,10 @@ import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { withoutGitSelectors } from "../../../shared/git-env";
-import { currentStepSignal, SerialChain } from "../../serial-chain";
+import { ChainBusyError, currentStepSignal, SerialChain, trackEffect } from "../../serial-chain";
 import { brewBinDirs, spawnPath } from "../../shell-env";
 import { findOnPath } from "../../spawn";
+import { LocalCommandError } from "../types";
 
 /** Timeout for a `git`/`gh` call that names none; commands' answer budgets count in it. */
 export const DEFAULT_TIMEOUT_MS = 60_000;
@@ -115,6 +116,12 @@ export async function execBin(bin: string, args: string[], opts: ExecOptions): P
 		stdio: ["pipe", "pipe", "pipe"],
 		windowsHide: true,
 	});
+	// The repository lock waits for this child to exit when its holder is stopped: a git still writing must not overlap
+	// the next holder.
+	const exited = Promise.withResolvers<void>();
+	child.once("close", () => exited.resolve());
+	child.once("error", () => exited.resolve());
+	trackEffect(`${bin} ${args[0] ?? ""}`.trim(), exited.promise);
 	const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES;
 	const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 	const chunks: Buffer[] = [];
@@ -235,7 +242,9 @@ const repoLocks = new Map<string, SerialChain>();
 /**
  * Per-repository mutex for worktree/branch/config mutations (git uses O_EXCL lock files with no waiter).
  * A holder that runs past `REPO_LOCK_HOLD_MS` fails with a `StepStalledError`, the git processes it started end and
- * it starts no more, and the repository's next mutation runs.
+ * it starts no more (nor does any file call: `fenced-fs`). The repository's next mutation runs once the git process
+ * and the file calls the stopped holder already had running ended; while they still run a minute after the stop, every
+ * mutation fails at once with a `repo_busy` error naming them (reads take no lock and are not held).
  */
 export function withRepoLock<T>(root: string, fn: () => Promise<T>): Promise<T> {
 	let chain = repoLocks.get(root);
@@ -244,10 +253,21 @@ export function withRepoLock<T>(root: string, fn: () => Promise<T>): Promise<T> 
 		repoLocks.set(root, chain);
 	}
 	const held = chain;
-	const run = held.run(() => fn(), root);
+	const run = held
+		.run(() => fn(), root)
+		.catch((error: unknown) => {
+			// Refused, not run: a stopped holder's git or file call still runs on this repository.
+			if (error instanceof ChainBusyError) throw new LocalCommandError(error.message, "repo_busy");
+			throw error;
+		});
 	const release = () => {
 		if (held.pending === 0 && repoLocks.get(root) === held) repoLocks.delete(root);
 	};
-	run.then(release, release);
+	// A chain that a stopped holder still holds stays registered until that ended: the next holder checks it.
+	const retire = () => {
+		if (!held.held) release();
+		else void held.released().then(release);
+	};
+	run.then(retire, retire);
 	return run;
 }

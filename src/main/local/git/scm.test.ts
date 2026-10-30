@@ -148,10 +148,12 @@ describe("a discard that outlives the repository lock", () => {
 			error => error,
 		);
 		await reached.promise;
+		// The realpath is in flight, so the lock is handed on once it answered (repo-lock-fence.test.ts).
+		const next = withRepoLock(lockRoot, () => fs.writeFile(file, "next holder\n"));
 		await vi.advanceTimersByTimeAsync(REPO_LOCK_HOLD_MS);
-		await withRepoLock(lockRoot, () => fs.writeFile(file, "next holder\n"));
 		release.resolve();
 		await resolved.promise;
+		await next;
 		// The old holder's continuation after realpath is a fixed run of microtasks: let it all run, then its removals.
 		for (let hop = 0; hop < 100; hop++) await Promise.resolve();
 		await Promise.all(removals);
