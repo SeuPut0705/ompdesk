@@ -6,8 +6,9 @@ import {
 	restoreSavedWorktree,
 	savedWorktreeStore,
 } from "../disk/saved-worktrees";
+import { gitFingerprints } from "../git-fingerprints";
 import { listOrphanWorktrees, removeOrphanWorktree, sessionOpenFolders } from "../worktree-orphans";
-import { getGitChanges, getGitDiff, getGitFingerprint, getGitStatus, primaryRoot } from "./git/changes";
+import { getGitChanges, getGitDiff, getGitStatus, primaryRoot } from "./git/changes";
 import { githubCommand } from "./git/github";
 import {
 	prCheckout,
@@ -36,7 +37,8 @@ export const handlers: Record<string, LocalHandler> = {
 	get_git_changes: (_command, ctx) => getGitChanges(ctx.cwd),
 	// The work board's "Not in main yet" row: a session branch's commits and uncommitted work (git/unlanded.ts).
 	get_git_unlanded: (_command, ctx) => getGitUnlanded(ctx.cwd),
-	get_git_fingerprint: (command, ctx) => getGitFingerprint(ctx.cwd, str(command.root)),
+	// One watch per checkout for the whole app answers every window's and tab's check (git-fingerprints.ts).
+	get_git_fingerprint: (command, ctx) => gitFingerprints.read(ctx.cwd, str(command.root)),
 	get_git_diff: (command, ctx) => getGitDiff(ctx.cwd, str(command.path) ?? ""),
 	worktree_create: (command, ctx) =>
 		createWorktree(
