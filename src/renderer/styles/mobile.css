@@ -642,6 +642,12 @@ html[data-input="touch"] [data-autopilot-controls] {
 	--hit-gap-y: 14px;
 }
 
+/* The full board's three labelled controls wrap onto a second row where the board is narrow (icon beside the label,
+   never stacked over it): the rows sit 14 px apart, as bounded, so Stop now's reach never takes the row above's taps. */
+html[data-input="touch"] [data-autopilot-control-row] {
+	row-gap: 14px;
+}
+
 /* The Work tree's icon button ends its section's head, as the aside does: a 22 px box that reaches 36 (7 px each way,
    14 px apart from the fold button beside it and bounded 14 px), 8 px in from the board's edge so its reach stays inside
    the board and never makes a docked board scroll sideways. */
