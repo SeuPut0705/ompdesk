@@ -10,10 +10,11 @@
 import { createInterface } from "node:readline";
 import { methods as accounts } from "./accounts";
 import { createDispatcher, type HelperMethods } from "./dispatch";
+import { UNQUEUED_METHODS as HISTORY_UNQUEUED, methods as history } from "./history";
 import { methods as images } from "./images";
 import { methods as models } from "./models";
 import { methods as search } from "./search";
-import { methods as sessions, UNQUEUED_METHODS } from "./sessions";
+import { UNQUEUED_METHODS as SESSIONS_UNQUEUED, methods as sessions } from "./sessions";
 import { disposeTerminals, methods as terminals } from "./terminals";
 import { methods as worktrees } from "./worktrees";
 
@@ -23,7 +24,7 @@ const methods: HelperMethods = terminalWorker
 	? terminals
 	: worker === "extensions"
 		? (await import("./extensions")).methods
-		: { ...sessions, ...models, ...search, ...accounts, ...images, ...worktrees };
+		: { ...sessions, ...models, ...search, ...accounts, ...images, ...worktrees, ...history };
 const input = createInterface({ input: process.stdin });
 if (terminalWorker) process.on("exit", disposeTerminals);
 input.on("close", () => {
@@ -35,6 +36,6 @@ input.on(
 	createDispatcher(
 		methods,
 		line => process.stdout.write(`${line}\n`),
-		terminalWorker ? true : worker === "extensions" ? false : UNQUEUED_METHODS,
+		terminalWorker ? true : worker === "extensions" ? false : { ...SESSIONS_UNQUEUED, ...HISTORY_UNQUEUED },
 	),
 );

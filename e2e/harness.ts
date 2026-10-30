@@ -27,6 +27,7 @@ export async function fixtureOmp(dir: string): Promise<string> {
 			name: "@oh-my-pi/pi-coding-agent",
 			type: "module",
 			exports: {
+				"./session/history-storage": "./history-storage.ts",
 				"./session/session-listing": "./session-store.ts",
 				"./session/session-storage": "./session-store.ts",
 				"./session/session-loader": "./session-store.ts",
@@ -39,6 +40,8 @@ export async function fixtureOmp(dir: string): Promise<string> {
 	);
 	const store = pathToFileURL(path.resolve("e2e/session-store-fixture.ts")).href;
 	await writeFile(path.join(root, "session-store.ts"), `export * from ${JSON.stringify(store)};\n`);
+	const history = pathToFileURL(path.resolve("e2e/history-store-fixture.ts")).href;
+	await writeFile(path.join(root, "history-storage.ts"), `export * from ${JSON.stringify(history)};\n`);
 	const config = pathToFileURL(path.resolve("e2e/models-config-fixture.ts")).href;
 	await writeFile(path.join(root, "models-config.ts"), `export * from ${JSON.stringify(config)};\n`);
 	const images = pathToFileURL(path.resolve("e2e/image-convert-fixture.ts")).href;

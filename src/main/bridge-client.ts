@@ -11,23 +11,13 @@ import * as net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { type BridgeClient, type BridgeTiming, LocalCommandError } from "./local/types";
+import { type BridgeClient, LocalCommandError } from "./local/types";
 
 type BridgeEvent = { type: string; [k: string]: unknown };
 
 interface Pending {
 	resolve: (value: unknown) => void;
 	reject: (error: Error) => void;
-	timing: BridgeTiming;
-	onTiming?: (timing: BridgeTiming) => void;
-}
-
-/** The bridge's `timing` field of a reply frame, when it is well formed. */
-function replyTiming(frame: object): { receivedAt: number; loadMs: number; ms: number } | null {
-	if (!("timing" in frame) || typeof frame.timing !== "object" || frame.timing === null) return null;
-	const { receivedAt, loadMs, ms } = frame.timing as Record<string, unknown>;
-	if (typeof receivedAt !== "number" || typeof loadMs !== "number" || typeof ms !== "number") return null;
-	return { receivedAt, loadMs, ms };
 }
 
 /**
@@ -121,20 +111,12 @@ export class GuiBridgeClient implements BridgeClient {
 	 * `options.timeoutMs`: a request the bridge has not answered by then rejects (`bridge_timeout`) and is forgotten, so a
 	 * frozen omp leaves no entry behind. Without it a request waits as long as the bridge takes (a user prompt, a login).
 	 */
-	async request<T = unknown>(
-		method: string,
-		params?: unknown,
-		onTiming?: (timing: BridgeTiming) => void,
-		options?: { timeoutMs?: number },
-	): Promise<T> {
-		const asked = Date.now();
+	async request<T = unknown>(method: string, params?: unknown, options?: { timeoutMs?: number }): Promise<T> {
 		if (this.#connecting) await this.#connecting;
 		const socket = this.#socket;
 		if (!socket || socket.destroyed) throw new LocalCommandError("GUI bridge is not connected", "bridge_unavailable");
 		const id = ++this.#nextId;
 		const { promise, resolve, reject } = Promise.withResolvers<unknown>();
-		const sentAt = Date.now();
-		const timing: BridgeTiming = { connectWaitMs: sentAt - asked, sentAt };
 		const timeoutMs = options?.timeoutMs;
 		const timer =
 			timeoutMs === undefined
@@ -143,7 +125,6 @@ export class GuiBridgeClient implements BridgeClient {
 						const pending = this.#pending.get(id);
 						if (!pending) return;
 						this.#pending.delete(id);
-						pending.onTiming?.({ ...timing, answeredAt: Date.now() });
 						pending.reject(
 							new LocalCommandError(
 								`GUI bridge did not answer ${method} within ${timeoutMs}ms`,
@@ -161,11 +142,8 @@ export class GuiBridgeClient implements BridgeClient {
 				clearTimeout(timer);
 				reject(error);
 			},
-			timing,
-			onTiming,
 		});
 		socket.write(`${JSON.stringify({ id, method, params })}\n`);
-		onTiming?.(timing);
 		return promise as Promise<T>;
 	}
 
@@ -203,12 +181,6 @@ export class GuiBridgeClient implements BridgeClient {
 		const pending = this.#pending.get(frame.id);
 		if (!pending) return;
 		this.#pending.delete(frame.id);
-		const reply = replyTiming(frame);
-		pending.onTiming?.({
-			...pending.timing,
-			...(reply ? { receivedAt: reply.receivedAt, loadMs: reply.loadMs, bridgeMs: reply.ms } : {}),
-			answeredAt: Date.now(),
-		});
 		if ("ok" in frame && frame.ok === true) {
 			pending.resolve("result" in frame ? frame.result : undefined);
 			return;
@@ -223,11 +195,7 @@ export class GuiBridgeClient implements BridgeClient {
 	}
 
 	#rejectAll(reason: string): void {
-		const now = Date.now();
-		for (const pending of this.#pending.values()) {
-			pending.onTiming?.({ ...pending.timing, answeredAt: now });
-			pending.reject(new LocalCommandError(reason, "bridge_unavailable"));
-		}
+		for (const pending of this.#pending.values()) pending.reject(new LocalCommandError(reason, "bridge_unavailable"));
 		this.#pending.clear();
 	}
 }

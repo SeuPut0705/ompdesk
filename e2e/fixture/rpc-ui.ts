@@ -52,6 +52,7 @@ import type {
 	RpcSecurityDashboardResult,
 	SubagentSnapshot,
 } from "../../src/shared/rpc-types";
+import { recordHistory } from "../history-store-fixture";
 import { tinyPdf } from "../tiny-pdf";
 import { createAutopilotFake } from "./autopilot";
 import { createCheckoutFake } from "./checkout-peers";
@@ -1272,7 +1273,7 @@ export function runRpcUi(): void {
 			return { path: fs.realpathSync(target), branch, sourceCwd: cwd, baseCommit, root };
 		},
 	};
-	const promptHistory: Array<{ prompt: string; created_at: number; cwd?: string }> = [];
+	// Prompt history is the shared file the stock helper reads (../history-store-fixture.ts).
 	/** Stock's blob store: base64 bytes by sha256 hex, behind the `blob:sha256:` refs a journal persists. */
 	const imageBlobs = new Map<string, string>();
 	/** The delegation strength the GUI holds on this tab (gui-bridge modes/delegation.ts); spawn env first. */
@@ -1477,31 +1478,10 @@ export function runRpcUi(): void {
 			if (!hash) throw new Error("Invalid image blob reference");
 			return { data: imageBlobs.get(hash) ?? null };
 		},
-		history_recent: params =>
-			promptHistory.filter(entry => !params.cwd || entry.cwd === params.cwd).slice(0, Number(params.limit ?? 200)),
-		history_search: params =>
-			promptHistory
-				.filter(
-					entry =>
-						(!params.cwd || entry.cwd === params.cwd) &&
-						String(params.query)
-							.toLowerCase()
-							.split(/\s+/)
-							.every(token => entry.prompt.toLowerCase().includes(token)),
-				)
-				.slice(0, Number(params.limit ?? 100)),
 		history_record: params => {
 			const prompt = String(params.prompt);
 			const skipped = /^\/(?:login|join)[\s:]/.test(prompt) || /^\/mcp[\s:]add\b.*--token\s/.test(prompt);
-			if (!skipped) {
-				const index = promptHistory.findIndex(entry => entry.prompt === prompt);
-				if (index !== -1) promptHistory.splice(index, 1);
-				promptHistory.unshift({
-					prompt,
-					created_at: Date.now() / 1000,
-					cwd: typeof params.cwd === "string" ? params.cwd : undefined,
-				});
-			}
+			if (!skipped) recordHistory(prompt, typeof params.cwd === "string" ? params.cwd : undefined);
 			return { skipped };
 		},
 		"stream_metadata.start": () => {

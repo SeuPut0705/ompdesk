@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
+import { StockHelper } from "./stock-helper";
 
 const stockRoot = path.join(os.homedir(), ".bun/install/global/node_modules/@oh-my-pi/pi-coding-agent");
 const omp = path.join(os.homedir(), ".bun/bin/omp");
@@ -45,6 +46,7 @@ describe.skipIf(!existsSync(omp) || !existsSync(stockRoot))("stock history and c
 			{ cwd: profile, env, stdio: "pipe" },
 		);
 		const client = new GuiBridgeClient(address);
+		let helper: StockHelper | undefined;
 		let errors = "";
 		child.stderr.on("data", chunk => {
 			errors += String(chunk);
@@ -111,14 +113,31 @@ describe.skipIf(!existsSync(omp) || !existsSync(stockRoot))("stock history and c
 				prompt: string;
 			}>;
 			expect(terminal.some(entry => entry.prompt === "from OMPdesk")).toBe(true);
-			const recent = await client.request<Array<{ prompt: string }>>("history_recent", { limit: 20 });
+			// Reads are the stock helper's, on the same history.db the tab's omp writes: the handle it opened first still
+			// sees a write another process makes after, with no change notice.
+			helper = new StockHelper(path.resolve("resources/gui-bridge"), {
+				spawnWorker: async () =>
+					spawn("bun", [path.resolve("resources/gui-bridge/stock-helper/host.ts"), "stock"], {
+						env: { ...env, OMP_PACKAGE_ROOT: stockRoot },
+						stdio: ["pipe", "pipe", "pipe"],
+					}),
+			});
+			const recent = await helper.request<Array<{ prompt: string }>>("history.recent", { limit: 20 });
 			expect(recent.some(entry => entry.prompt === "from terminal omp")).toBe(true);
+			expect(await client.request("history_record", { prompt: "written after the helper opened" })).toEqual({
+				skipped: false,
+			});
+			expect(
+				(await helper.request<Array<{ prompt: string }>>("history.recent", { limit: 1 })).map(
+					entry => entry.prompt,
+				),
+			).toEqual(["written after the helper opened"]);
 			for (const prompt of ["/login:secret", "/join secret-link", "/mcp add server --token secret"]) {
 				expect(await client.request("history_record", { prompt })).toEqual({ skipped: true });
 			}
-			const safeHistory = await client.request<Array<{ prompt: string }>>("history_recent", { limit: 20 });
+			const safeHistory = await helper.request<Array<{ prompt: string }>>("history.recent", { limit: 20 });
 			expect(safeHistory.some(entry => entry.prompt.includes("secret"))).toBe(false);
-			expect(await client.request("history_search", { query: "terminal omp", cwd: profile })).toMatchObject([
+			expect(await helper.request("history.search", { query: "terminal omp", cwd: profile })).toMatchObject([
 				{ prompt: "from terminal omp" },
 			]);
 			for (const [input, value] of [
@@ -169,6 +188,7 @@ describe.skipIf(!existsSync(omp) || !existsSync(stockRoot))("stock history and c
 			expect(await client.request("sessions.usage_history")).toMatchObject({ compactions: 0 });
 		} finally {
 			client.close();
+			await helper?.stop();
 			child.stdin.end();
 			child.kill();
 			await new Promise<void>(resolve => {

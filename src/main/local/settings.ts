@@ -14,7 +14,7 @@ import type {
 	ResetPassRedeemResult,
 	UsageLimit,
 } from "../../shared/rpc-types";
-import { timedBridgeRequest } from "./slow-bridge-call";
+import { stockHelperRequest } from "../stock-helper";
 import { LocalCommandError, type LocalHandler } from "./types";
 
 /** Stock `get_logout_accounts` row (`LogoutAccount`). */
@@ -87,6 +87,10 @@ export function mergeProviderAccounts(
 }
 
 const providerIdParam = z.string().min(1);
+
+/** What a history read passes on: the command's own `id` and `type` stay here. */
+const historyRead = z.object({ limit: z.number().int().optional(), cwd: z.string().optional() });
+const historySearch = historyRead.extend({ query: z.string() });
 
 const LOOPBACK_HOSTS: Record<string, true> = { localhost: true, "127.0.0.1": true, "[::1]": true };
 
@@ -180,8 +184,9 @@ export const handlers: Record<string, LocalHandler> = {
 		await recap;
 		return armed;
 	},
-	// A background read the renderer drops after the RPC timeout: when it is that slow, say where the time went.
-	history_recent: (command, ctx) => timedBridgeRequest(ctx, "history_recent", command),
-	history_search: (command, ctx) => ctx.bridge.request("history_search", command),
+	// Reads go to the stock helper's one handle on the history.db every omp on this computer writes: never through the
+	// tab's omp, whose thread is busy mid-turn (stock-helper/history.ts). The write stays there, for the session id.
+	history_recent: async command => stockHelperRequest("history.recent", historyRead.parse(command)),
+	history_search: async command => stockHelperRequest("history.search", historySearch.parse(command)),
 	history_record: (command, ctx) => ctx.bridge.request("history_record", command),
 };

@@ -9,7 +9,7 @@
 import type { RpcCommand, RpcResponse } from "../shared/rpc-types";
 
 /** How long a command may take before the caller gets `RPC timeout`. */
-export const DEFAULT_TIMEOUT_MS = 8_000;
+const DEFAULT_TIMEOUT_MS = 8_000;
 
 /** A command that got no answer in time: its outcome is unknown (omp may still have run it). */
 export class RpcTimeoutError extends Error {

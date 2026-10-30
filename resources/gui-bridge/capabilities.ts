@@ -1059,6 +1059,10 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			],
 		},
 	},
+	/**
+	 * input-history.ts writes (`open`, `add`, `shouldSkipHistory`) through the tab's omp; stock-helper/history.ts reads
+	 * (`getRecent`, `search`) in the helper's stock worker, on the one history.db every omp on the machine shares.
+	 */
 	inputHistory: {
 		session: ["sessionManager.getSessionId()"],
 		modules: {

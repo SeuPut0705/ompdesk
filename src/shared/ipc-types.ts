@@ -598,8 +598,6 @@ export type RuntimeErrorSource =
 	| "session-owner"
 	/** A goal's time-limit update that failed (src/main/sidecar-factory.ts): `message` is the error. */
 	| "goal-time-limit"
-	/** A bridge call that was slow or timed out (src/main/local/slow-bridge-call.ts): `details` is where the time went. */
-	| "slow-bridge-call"
 	/**
 	 * A model call that waited long for its first output, or ended aborted or errored with none (the bridge's
 	 * turn-stages.ts through src/main/turn-stages-log.ts): `message` says where the wait went, `details` is each stage's

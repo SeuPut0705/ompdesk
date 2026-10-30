@@ -1,8 +1,13 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { stockHelperRequest as stockHelperRequestImport } from "../stock-helper";
 import { type BridgeProviderAccounts, handlers, mergeProviderAccounts, type StockLogoutAccount } from "./settings";
 import type { LocalCommandContext } from "./types";
+
+vi.mock("../stock-helper", () => ({ stockHelperRequest: vi.fn() }));
+const stockHelperRequest = vi.mocked(stockHelperRequestImport);
+beforeEach(() => stockHelperRequest.mockReset());
 
 const work: StockLogoutAccount = {
 	credentialId: 7,
@@ -265,5 +270,36 @@ describe("login_cancel handler", () => {
 		} finally {
 			fetchSpy.mockRestore();
 		}
+	});
+});
+
+describe("history handlers", () => {
+	it("read through the stock helper, never the tab's omp, and keep the write in it", async () => {
+		const send = vi.fn();
+		const request = vi.fn(async () => ({ skipped: false }));
+		const ctx = fakeCtx(send, request);
+		stockHelperRequest.mockResolvedValue([{ prompt: "entry" }]);
+		expect(
+			await handlers.history_recent({ type: "history_recent", id: "gui-1", limit: 200, cwd: "/repo" }, ctx),
+		).toEqual([{ prompt: "entry" }]);
+		expect(stockHelperRequest).toHaveBeenLastCalledWith("history.recent", { limit: 200, cwd: "/repo" });
+		await handlers.history_recent({ type: "history_recent", id: "gui-2", limit: 50 }, ctx);
+		expect(stockHelperRequest).toHaveBeenLastCalledWith("history.recent", { limit: 50 });
+		await handlers.history_search({ type: "history_search", id: "gui-3", query: "ship", limit: 20 }, ctx);
+		expect(stockHelperRequest).toHaveBeenLastCalledWith("history.search", { query: "ship", limit: 20 });
+		expect(request).not.toHaveBeenCalled();
+		expect(send).not.toHaveBeenCalled();
+		await handlers.history_record({ type: "history_record", prompt: "ship it", cwd: "/repo" }, ctx);
+		expect(request).toHaveBeenCalledWith("history_record", {
+			type: "history_record",
+			prompt: "ship it",
+			cwd: "/repo",
+		});
+	});
+
+	it("refuse a malformed read instead of forwarding it", async () => {
+		const ctx = fakeCtx(vi.fn(), vi.fn());
+		await expect(handlers.history_search({ type: "history_search", limit: 5 }, ctx)).rejects.toThrow();
+		await expect(handlers.history_recent({ type: "history_recent", limit: "many" }, ctx)).rejects.toThrow();
 	});
 });
