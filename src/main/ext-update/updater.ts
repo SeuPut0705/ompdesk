@@ -35,6 +35,7 @@ import type { CliCommand, PlanTools } from "../cli-tools/plans";
 import { runCheckProcess } from "../cli-tools/updater";
 import { EMPTY_APPLY_PLAN, type ExtensionApplyPlan, mergeApplyPlans, planIsEmpty } from "../extension-reload";
 import { parseOmpVersion } from "../omp-runtime";
+import { fencedCall, stepStalled, throwIfStepStalled } from "../serial-chain";
 import type { SpawnSpec } from "../setup/plans";
 import type { ToolUpdateOutcome, ToolUpdateRequest } from "../setup/service";
 import { needsShell, spawnArgs, spawnCommand } from "../spawn";
@@ -117,9 +118,24 @@ export class ExtensionUpdater {
 	readonly #scheduler: UpdateScheduler;
 
 	constructor(deps: ExtensionUpdaterDeps) {
-		this.#deps = deps;
+		// A pass the scheduler stopped for running past its bound can resume when one of these settles: fence each
+		// call to its step so it neither starts the next nor goes on to write the state the next pass owns.
+		this.#deps = {
+			...deps,
+			helper: fencedCall(deps.helper) as ExtensionUpdaterDeps["helper"],
+			env: fencedCall(deps.env),
+			runUpdate: fencedCall(deps.runUpdate),
+			processes: fencedCall(deps.processes),
+			detectBinary: fencedCall(deps.detectBinary ?? detectMcpBinary),
+			runCheck: fencedCall(deps.runCheck ?? runCheckProcess),
+		};
 		this.#scheduler = new UpdateScheduler({
 			scheduled: deps.scheduled,
+			// The stopped pass can no longer write: a row it left "checking" or "updating" is idle again.
+			onStall: () => {
+				for (const record of this.#records.values())
+					if (record.row.phase !== "idle") this.#set(record, { phase: "idle" });
+			},
 			tick: () => this.#scheduler.enqueue(() => (this.#deps.enabled() ? this.#pass(null, true) : this.#refresh())),
 		});
 	}
@@ -134,14 +150,15 @@ export class ExtensionUpdater {
 
 	/** Machine setup finished its first pass: list everything, and when this launch schedules, check now and on the timer. */
 	start(): void {
-		if (this.#scheduler.start() && !this.#deps.scheduled) void this.#scheduler.enqueue(() => this.#refresh());
+		if (this.#scheduler.start() && !this.#deps.scheduled)
+			void this.#scheduler.enqueue(() => this.#refresh()).catch(() => undefined);
 	}
 
 	/** The pref changed: turning it on checks right away. */
 	prefChanged(): void {
 		this.#emit();
 		if (this.#scheduler.started && this.#deps.scheduled && this.#deps.enabled())
-			void this.#scheduler.enqueue(() => this.#pass(null, true));
+			void this.#scheduler.enqueue(() => this.#pass(null, true)).catch(() => undefined);
 	}
 
 	/** Settings › Update now: check (and update) the row `key`, or every row, whatever the pref and back-off say. */
@@ -163,10 +180,11 @@ export class ExtensionUpdater {
 	}
 
 	#emit(): void {
-		if (!this.#scheduler.disposed) this.#deps.onState(this.state());
+		if (!this.#scheduler.disposed && !stepStalled()) this.#deps.onState(this.state());
 	}
 
 	#set(record: RowRecord, patch: Partial<ExtensionRow>): void {
+		if (stepStalled()) return;
 		record.row = { ...record.row, ...patch };
 		this.#emit();
 	}
@@ -178,6 +196,7 @@ export class ExtensionUpdater {
 	}
 
 	#finish(record: RowRecord, last: ExtensionResult): void {
+		if (stepStalled()) return;
 		// A cancel (the user's, or a quit) is no failure: it does not back off.
 		settleBackoff(record, last.kind === "failed" && last.failure.reason !== "cancelled", this.#now());
 		this.#set(record, { phase: "idle", last });
@@ -234,6 +253,7 @@ export class ExtensionUpdater {
 					binaries.set(server.name, await detect(cls.command, ownerDeps).catch(() => null));
 			}),
 		);
+		throwIfStepStalled();
 		const seeds = classifyInventory(inventory, {
 			reaRoot: this.#deps.reaRoot,
 			reaEnabled: this.#deps.reaEnabled(),
@@ -293,6 +313,7 @@ export class ExtensionUpdater {
 			}
 			plan = mergeApplyPlans(plan, await this.#work(record, environment));
 		}
+		throwIfStepStalled();
 		if (!planIsEmpty(plan) && !this.#scheduler.disposed) {
 			try {
 				this.#deps.apply(plan);
@@ -517,6 +538,7 @@ export class ExtensionUpdater {
 		}
 		if (scansProcesses(this.#deps.platform) && deferForRunning(owner.method, binary.script)) {
 			const commands = await this.#deps.processes().catch(() => "");
+			throwIfStepStalled();
 			if (runningServer(commands, { command }, binary)) {
 				this.#finish(record, { kind: "deferred", latest, why: "running" });
 				return noPlan();
@@ -547,6 +569,7 @@ export class ExtensionUpdater {
 			return noPlan();
 		}
 		const after = await (this.#deps.detectBinary ?? detectMcpBinary)(command, environment.owner).catch(() => null);
+		throwIfStepStalled();
 		const now = after?.installed ?? null;
 		if (after) {
 			record.target = after.owner ? { kind: "binary", command, binary: after, owner: after.owner } : record.target;

@@ -36,6 +36,8 @@ export interface UpdateSchedulerOptions {
 	tick: () => Promise<unknown>;
 	/** The wait after a tick ends; `CHECK_INTERVAL_MS` by default. */
 	delay?: () => number;
+	/** A queued pass was stopped for running past `UPDATE_STEP_MAX_MS`: put back what it left half done. */
+	onStall?: () => void;
 }
 
 /** The longest one queued check or update pass runs; past it the pass is stopped and the next starts. */
@@ -44,7 +46,11 @@ export const UPDATE_STEP_MAX_MS = 30 * 60_000;
 export class UpdateScheduler {
 	readonly #options: UpdateSchedulerOptions;
 	#timer: NodeJS.Timeout | null = null;
-	#queue = new SerialChain({ name: "update scheduler", maxStepMs: UPDATE_STEP_MAX_MS });
+	#queue = new SerialChain({
+		name: "update scheduler",
+		maxStepMs: UPDATE_STEP_MAX_MS,
+		onStall: () => this.#options.onStall?.(),
+	});
 	#started = false;
 	#disposed = false;
 

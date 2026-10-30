@@ -1087,8 +1087,47 @@ process.exit(1);`,
 				await vi.waitFor(() => expect(h.spawned).toHaveLength(1));
 				const next = h.service.installForConnection("gh");
 				await vi.advanceTimersByTimeAsync(SETUP_STEP_MAX_MS);
-				expect(await hung).toEqual({ kind: "cancelled" });
+				expect(await hung).toMatchObject({ kind: "failed", detail: expect.stringContaining("was stopped") });
 				expect(await next).toMatchObject({ id: "gh" });
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("a stopped step that resumes later starts no installer and writes no state", async () => {
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+			try {
+				const sha = "a".repeat(64);
+				const lookup = Promise.withResolvers<string>();
+				const download = vi.fn(async () => new Response("never", { status: 500 }));
+				const h = harness(machine({}), {
+					testInstaller: null,
+					fetch: download as unknown as DownloadFetch,
+					fetchText: async url => {
+						if (url.endsWith("/releases/latest")) return lookup.promise;
+						if (url.endsWith("_checksums.txt")) return `${sha}  gh_2.99.0_macOS_arm64.zip\n`;
+						throw new Error(`unexpected ${url}`);
+					},
+				});
+				const stale = h.service.runToolUpdate({
+					tool: "gh",
+					method: "managed",
+					spawn: null,
+					managed: "gh",
+					env: {},
+				});
+				const next = h.service.gitAslr("fix");
+				await vi.advanceTimersByTimeAsync(SETUP_STEP_MAX_MS);
+				expect(await stale).toMatchObject({ kind: "failed" });
+				await next;
+				const before = h.states.length;
+				// The stopped step's lookup answers after the next step ran: it must neither download nor spawn.
+				lookup.resolve(JSON.stringify({ tag_name: "v2.99.0" }));
+				await vi.advanceTimersByTimeAsync(1000);
+				await new Promise<void>(done => setImmediate(done));
+				expect(download).not.toHaveBeenCalled();
+				expect(h.spawned).toEqual([]);
+				expect(h.states).toHaveLength(before);
 			} finally {
 				vi.useRealTimers();
 			}

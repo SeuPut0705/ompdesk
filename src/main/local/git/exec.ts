@@ -5,11 +5,10 @@
  * launchd's bare PATH, where Homebrew's `gh` is missing.
  */
 import { type ChildProcess, execFile, spawn } from "node:child_process";
-import { AsyncLocalStorage } from "node:async_hooks";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { withoutGitSelectors } from "../../../shared/git-env";
-import { SerialChain } from "../../serial-chain";
+import { currentStepSignal, SerialChain } from "../../serial-chain";
 import { brewBinDirs, spawnPath } from "../../shell-env";
 import { findOnPath } from "../../spawn";
 
@@ -98,15 +97,10 @@ function endProcess(child: ChildProcess): void {
 	setTimeout(() => child.kill("SIGKILL"), KILL_GRACE_MS).unref();
 }
 
-/**
- * The repository-lock hold a call runs in: when the hold is stopped (`withRepoLock`'s bound) the process a call
- * started ends, and a call made afterwards never starts one.
- */
-const repoLockHold = new AsyncLocalStorage<AbortSignal>();
-
 /** Spawn `bin args`; never rejects on non-zero exit, rejects on spawn failure / timeout. */
 export async function execBin(bin: string, args: string[], opts: ExecOptions): Promise<ExecResult> {
-	const hold = repoLockHold.getStore();
+	// A call made in a chain step that was stopped (the repository lock's bound) never starts, and ends once it is.
+	const hold = currentStepSignal();
 	if (hold?.aborted) throw hold.reason;
 	const pathEnv = await spawnPath();
 	if (hold?.aborted) throw hold.reason;
@@ -250,7 +244,7 @@ export function withRepoLock<T>(root: string, fn: () => Promise<T>): Promise<T> 
 		repoLocks.set(root, chain);
 	}
 	const held = chain;
-	const run = held.run(hold => repoLockHold.run(hold, fn), root);
+	const run = held.run(() => fn(), root);
 	const release = () => {
 		if (held.pending === 0 && repoLocks.get(root) === held) repoLocks.delete(root);
 	};

@@ -33,6 +33,7 @@ import {
 import { isNewer } from "../../shared/version";
 import { manifestBunMinimum, ompUpdateEnv, parseUpdateCheck } from "../omp-runtime";
 import { writeRuntimeLog } from "../runtime-log";
+import { SerialChain, stepStalled, throwIfStepStalled } from "../serial-chain";
 import { needsShell, spawnArgs, spawnCommand } from "../spawn";
 import { type FetchText, fetchText, resolveArchiveRelease, resolveTailscaleRelease } from "./archives";
 import { setAsideCompiledOmp, settleSetAside } from "./compiled-launcher";
@@ -63,7 +64,6 @@ import {
 	type TailscaleRelease,
 	tailscaleMsiArch,
 } from "./plans";
-import { SerialChain } from "../serial-chain";
 import { type RunOutcome, SetupRunner } from "./runner";
 
 /** Automatic attempts before an item waits BACKOFF_MS between automatic attempts. */
@@ -436,7 +436,9 @@ export class SetupService {
 			let release: ArchiveRelease;
 			try {
 				release = await resolveArchiveRelease(request.managed, this.#deps.arch, this.#deps.fetchText ?? fetchText);
+				throwIfStepStalled();
 			} catch (error) {
+				throwIfStepStalled();
 				return { kind: "failed", detail: error instanceof Error ? error.message : String(error) };
 			}
 			const plan = detection ? buildPlan(request.managed, "archive", this.#planContext(detection), release) : null;
@@ -457,16 +459,19 @@ export class SetupService {
 						...(this.#deps.fetch ? { fetch: this.#deps.fetch } : {}),
 					});
 				} catch (error) {
+					throwIfStepStalled();
 					if (controller.signal.aborted) return { kind: "cancelled" };
 					return { kind: "failed", detail: error instanceof Error ? error.message : String(error) };
 				} finally {
-					this.#download = null;
+					if (this.#download === controller) this.#download = null;
 				}
 			}
 			const env = { ...(await this.#installEnv()), ...request.env };
+			throwIfStepStalled();
 			const outcome = await this.#runner.run(spawn, env, chunk => {
 				output = (output + chunk).slice(-SETUP_OUTPUT_TAIL);
 			});
+			throwIfStepStalled();
 			if (outcome.kind === "cancelled") return { kind: "cancelled" };
 			if (outcome.kind === "failed") {
 				const exit = outcome.exitCode === null ? undefined : `exit ${outcome.exitCode}`;
@@ -510,6 +515,7 @@ export class SetupService {
 			const recordFile = join(dir, GIT_ASLR_RECORD);
 			const files = { input: join(dir, "git-aslr-in.json"), output: join(dir, "git-aslr-out.json") };
 			const recorded = recordedImages(await readGitAslrRecord(recordFile), root);
+			throwIfStepStalled();
 			if (action === "undo") {
 				if (recorded.length === 0) {
 					resolve({ ok: false, detail: "No record of what Fix changed, so there is nothing to undo exactly" });
@@ -518,10 +524,13 @@ export class SetupService {
 				await writeFile(files.input, undoInput(recorded), { mode: 0o600 });
 			}
 			await rm(files.output, { force: true });
+			throwIfStepStalled();
 			let output = "";
+			const spawnEnv = await this.#deps.spawnEnv();
+			throwIfStepStalled();
 			const outcome = await this.#runner.run(
 				gitAslrSpawn(this.#deps.systemRoot, root, action, files),
-				await this.#deps.spawnEnv(),
+				spawnEnv,
 				chunk => {
 					output = (output + chunk).slice(-SETUP_OUTPUT_TAIL);
 				},
@@ -602,9 +611,11 @@ export class SetupService {
 
 	async #detect(): Promise<void> {
 		const detection = await (this.#deps.detect ?? detectMachine)(this.#deps.platform, this.#deps.bunInstall);
+		throwIfStepStalled();
 		const git = detection.presence.git;
 		if (git.kind === "present" && git.gitAslrOverride && git.path) {
 			const record = await readGitAslrRecord(join(dirname(this.#deps.statePath), GIT_ASLR_RECORD));
+			throwIfStepStalled();
 			if (recordedImages(record, git.path).length > 0) detection.presence.git = { ...git, gitAslrUndoable: true };
 		}
 		this.#detection = detection;
@@ -643,9 +654,12 @@ export class SetupService {
 		const plan = buildPlan("omp", "omp-update", this.#planContext(detection));
 		if (!plan || !detection.omp) return { kind: "skipped" };
 		const env = await this.#updateEnv(detection.omp);
+		throwIfStepStalled();
 		const blocked = await this.#readyForRelease(target, env, detection.bun);
+		throwIfStepStalled();
 		if (blocked) return { kind: "failed", failure: blocked };
 		await beforeInstall?.().catch(() => undefined);
+		throwIfStepStalled();
 		item.method = "omp-update";
 		item.command = plan.command;
 		item.location = plan.location;
@@ -662,10 +676,14 @@ export class SetupService {
 				this.#emitSoon();
 			});
 		} finally {
-			item.progress = null;
-			item.phase = "checking";
+			if (!stepStalled()) {
+				item.progress = null;
+				item.phase = "checking";
+			}
 		}
+		throwIfStepStalled();
 		await (this.#deps.refreshPath ?? refreshPath)(this.#deps.platform, this.#deps.toolsDir);
+		throwIfStepStalled();
 		await this.#detect();
 		const reason = updateDetail(item.output);
 		const detail = (...parts: (string | undefined)[]) => parts.filter(Boolean).join(" — ") || undefined;
@@ -675,6 +693,7 @@ export class SetupService {
 		// or the package now needs a newer Bun. Setup puts the package back (Bun first when it is too old) before any tab
 		// restarts on it; `resume` then restarts them on the repaired omp.
 		if (item.presence?.kind !== "present") await this.#runRequired(true, false);
+		throwIfStepStalled();
 		if (outcome.kind === "failed") {
 			const exit = outcome.exitCode === null ? undefined : `exit ${outcome.exitCode}`;
 			return { kind: "failed", failure: { reason: "install", detail: detail(exit, reason) } };
@@ -748,10 +767,13 @@ export class SetupService {
 		try {
 			await this.#installEach(items, manual);
 		} finally {
-			this.#requiredRunning = false;
-			for (const id of items) if (this.#items[id].phase === "queued") this.#items[id].phase = "idle";
-			this.#emit();
+			if (!stepStalled()) {
+				this.#requiredRunning = false;
+				for (const id of items) if (this.#items[id].phase === "queued") this.#items[id].phase = "idle";
+				this.#emit();
+			}
 		}
+		throwIfStepStalled();
 		if (announce && !wasReady && this.#items.omp.presence?.kind === "present" && !this.#disposed) {
 			this.#deps.onOmpReady();
 		}
@@ -771,8 +793,10 @@ export class SetupService {
 		try {
 			await this.#installEach(items, manual);
 		} finally {
-			for (const id of items) if (this.#items[id].phase === "queued") this.#items[id].phase = "idle";
-			this.#emit();
+			if (!stepStalled()) {
+				for (const id of items) if (this.#items[id].phase === "queued") this.#items[id].phase = "idle";
+				this.#emit();
+			}
 		}
 	}
 
@@ -781,6 +805,7 @@ export class SetupService {
 		this.#markQueued(items, manual);
 		const run = items.filter(id => this.#items[id].phase === "queued");
 		for (const id of items) {
+			throwIfStepStalled();
 			if (this.#stopPipeline || this.#disposed) break;
 			await this.#ensure(id, manual, { step: run.indexOf(id) + 1, steps: run.length });
 		}
@@ -819,7 +844,9 @@ export class SetupService {
 			else {
 				try {
 					release = await resolveArchiveRelease(id, this.#deps.arch, this.#deps.fetchText ?? fetchText);
+					throwIfStepStalled();
 				} catch (error) {
+					throwIfStepStalled();
 					this.#fail(id, { reason: "download", detail: error instanceof Error ? error.message : String(error) });
 					return;
 				}
@@ -837,7 +864,9 @@ export class SetupService {
 						tailscaleMsiArch(this.#deps.arch),
 						this.#deps.fetchText ?? fetchText,
 					);
+					throwIfStepStalled();
 				} catch (error) {
+					throwIfStepStalled();
 					this.#fail(id, { reason: "download", detail: error instanceof Error ? error.message : String(error) });
 					return;
 				}
@@ -873,6 +902,7 @@ export class SetupService {
 			method === "bun-global"
 				? await setAsideCompiledOmp(this.#deps.bunInstall, this.#deps.platform, (this.#deps.now ?? Date.now)())
 				: null;
+		throwIfStepStalled();
 		const putBack = async () => {
 			if (!moved) return;
 			await settleSetAside(moved, existsSync(moved.launcher));
@@ -880,19 +910,26 @@ export class SetupService {
 		};
 		try {
 			if (download && !(await this.#fetch(id, download))) return;
-			const outcome = await this.#runner.run(this.#spec(plan.spawn, id, method), await this.#installEnv(), chunk => {
+			const installEnv = await this.#installEnv();
+			throwIfStepStalled();
+			const outcome = await this.#runner.run(this.#spec(plan.spawn, id, method), installEnv, chunk => {
+				if (stepStalled()) return;
 				item.output = (item.output + chunk).slice(-SETUP_OUTPUT_TAIL);
 				this.#emitSoon();
 			});
+			throwIfStepStalled();
 			item.progress = null;
 			await putBack();
 			await this.#settle(id, outcome);
 		} finally {
 			await putBack();
-			this.#installing = null;
-			item.progress = null;
+			if (!stepStalled()) {
+				this.#installing = null;
+				item.progress = null;
+			}
 			if (download) await rm(download.file, { force: true });
 		}
+		throwIfStepStalled();
 		// A `bun upgrade` that could not finish (GitHub's release API refused, Windows refused the swap, a Bun it cannot
 		// replace): Bun's official installer puts a whole Bun in place, also over a missing or half-replaced bun.exe.
 		if (method === "bun-upgrade" && phaseOf(item) === "failed" && !this.#disposed) {
@@ -922,6 +959,7 @@ export class SetupService {
 				...(this.#deps.fetch ? { fetch: this.#deps.fetch } : {}),
 			});
 		} catch (error) {
+			throwIfStepStalled();
 			item.progress = null;
 			if (controller.signal.aborted) {
 				this.#uncountRunning();
@@ -936,8 +974,9 @@ export class SetupService {
 			}
 			return false;
 		} finally {
-			this.#download = null;
+			if (this.#download === controller) this.#download = null;
 		}
+		throwIfStepStalled();
 		if (item.progress) item.progress = { ...item.progress, download: null };
 		this.#emit();
 		return true;
@@ -963,8 +1002,10 @@ export class SetupService {
 			return;
 		}
 		await (this.#deps.refreshPath ?? refreshPath)(this.#deps.platform, this.#deps.toolsDir);
+		throwIfStepStalled();
 		item.phase = "checking";
 		await this.#detect();
+		throwIfStepStalled();
 		if (item.presence?.kind === "present") return;
 		if (item.method === "xcode-select") {
 			// macOS took over with its own dialog; the next check (launch or retry) sees the result.

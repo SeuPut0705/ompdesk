@@ -23,7 +23,7 @@ import type { ExtensionRow, ExtensionUpdateState } from "../../shared/extension-
 import { IPC_COMMANDS } from "../../shared/ipc-types";
 import type { ExtensionApplyPlan } from "../extension-reload";
 import type { ToolUpdateOutcome, ToolUpdateRequest } from "../setup/service";
-import { CHECK_INTERVAL_MS, nextCheckDelay } from "../update-scheduler";
+import { CHECK_INTERVAL_MS, nextCheckDelay, UPDATE_STEP_MAX_MS } from "../update-scheduler";
 import { type IpcCaller, IpcRegistry } from "../web/ipc-registry";
 import { registerExtensionUpdateIpc } from "./ipc";
 import type { McpBinary, McpOwner } from "./mcp-owner";
@@ -129,6 +129,8 @@ interface Harness {
 	path: { value: string };
 	/** Runs on every helper call (a test makes omp busy in the middle of a pass). */
 	onCall: ((method: string) => void) | null;
+	/** The next helper call of `method` answers with `promise` instead of its fake (a test holds a call open). */
+	hold: { method: string; promise: Promise<unknown> } | null;
 }
 
 function harness(over: Partial<ExtensionUpdaterDeps> = {}, scheduled = true): Harness {
@@ -161,6 +163,7 @@ function harness(over: Partial<ExtensionUpdaterDeps> = {}, scheduled = true): Ha
 		blocked: { value: false },
 		path: { value: "/nowhere" },
 		onCall: null,
+		hold: null,
 	};
 	const pick = <T>(table: Record<string, T | Error>, id: unknown): T => {
 		const found = table[String(id)];
@@ -177,6 +180,11 @@ function harness(over: Partial<ExtensionUpdaterDeps> = {}, scheduled = true): Ha
 			const p = params as Record<string, unknown>;
 			h.calls.push(`${method.replace("extensions.", "")} ${String(p.name ?? p.id ?? "")}`.trim());
 			h.onCall?.(method);
+			if (h.hold?.method === method) {
+				const { promise } = h.hold;
+				h.hold = null;
+				return promise as Promise<T>;
+			}
 			switch (method) {
 				case EXTENSION_HELPER_METHODS.inventory:
 					return h.inventory as T;
@@ -438,6 +446,38 @@ describe("a pass", () => {
 		await h.updater.updateNow();
 		expect(row(h, "plugin:dev:user")).toMatchObject({ skip: "linked", method: null, last: null });
 		expect(h.calls).toEqual(["inventory"]);
+	});
+});
+
+describe("a pass that never ends", () => {
+	it("is stopped, leaves its row idle, and when it resumes later applies and writes nothing", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		const answer = Promise.withResolvers<PluginUpgradeResult>();
+		const h = harness({}, false);
+		h.inventory.plugins = [plugin()];
+		h.pluginChecks["tools@official"] = pluginCheck();
+		h.upgrades["tools@official"] = upgrade();
+		h.hold = { method: EXTENSION_HELPER_METHODS.pluginUpgrade, promise: answer.promise };
+		const stale = h.updater.updateNow().then(
+			() => null,
+			error => error,
+		);
+		await vi.waitFor(() => expect(row(h, "plugin:tools@official:user").phase).toBe("updating"));
+		const next = h.updater.updateNow();
+		await vi.advanceTimersByTimeAsync(UPDATE_STEP_MAX_MS);
+		expect(((await stale) as Error).name).toBe("StepStalledError");
+		await next;
+		expect(row(h, "plugin:tools@official:user").phase).toBe("idle");
+		const applied = h.applied.length;
+		const emitted = h.states.length;
+		const before = JSON.stringify(h.updater.state());
+		// The stopped pass's upgrade answers after the next pass ran: nothing is applied, no state changes.
+		answer.resolve(upgrade({ activation: "restart-required" }));
+		await vi.advanceTimersByTimeAsync(1000);
+		await new Promise<void>(done => setImmediate(done));
+		expect(h.applied).toHaveLength(applied);
+		expect(h.states).toHaveLength(emitted);
+		expect(JSON.stringify(h.updater.state())).toBe(before);
 	});
 });
 

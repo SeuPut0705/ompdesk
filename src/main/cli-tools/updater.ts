@@ -26,6 +26,7 @@ import {
 import { IPC_COMMANDS } from "../../shared/ipc-types";
 import { isNewer } from "../../shared/version";
 import { parseOmpVersion } from "../omp-runtime";
+import { fencedCall, stepStalled, throwIfStepStalled } from "../serial-chain";
 import type { SpawnSpec } from "../setup/plans";
 import type { ToolUpdateOutcome, ToolUpdateRequest } from "../setup/service";
 import { needsShell, spawnArgs, spawnCommand } from "../spawn";
@@ -112,9 +113,25 @@ export class CliUpdater {
 	readonly #scheduler: UpdateScheduler;
 
 	constructor(deps: CliUpdaterDeps) {
-		this.#deps = deps;
+		// A pass the scheduler stopped for running past its bound can resume when one of these settles: fence each
+		// call to its step so it neither starts the next nor goes on to write the state the next pass owns.
+		this.#deps = {
+			...deps,
+			connectedProviders: fencedCall(deps.connectedProviders),
+			env: fencedCall(deps.env),
+			managedLatest: fencedCall(deps.managedLatest),
+			runUpdate: fencedCall(deps.runUpdate),
+			processes: fencedCall(deps.processes),
+			detect: fencedCall(deps.detect ?? detectCliTool),
+			runCheck: fencedCall(deps.runCheck ?? runCheckProcess),
+		};
 		this.#scheduler = new UpdateScheduler({
 			scheduled: deps.scheduled,
+			// The stopped pass can no longer write: a tool it left "checking" or "updating" is idle again.
+			onStall: () => {
+				for (const record of this.#tools.values())
+					if (record.state.phase !== "idle") this.#set(record, { phase: "idle" });
+			},
 			tick: () => this.#scheduler.enqueue(() => (this.#deps.enabled() ? this.#pass(null, true) : this.#refresh())),
 		});
 	}
@@ -132,14 +149,15 @@ export class CliUpdater {
 
 	/** Machine setup finished its first pass: list the tools, and when this launch schedules, check now and on the timer. */
 	start(): void {
-		if (this.#scheduler.start() && !this.#deps.scheduled) void this.#scheduler.enqueue(() => this.#refresh());
+		if (this.#scheduler.start() && !this.#deps.scheduled)
+			void this.#scheduler.enqueue(() => this.#refresh()).catch(() => undefined);
 	}
 
 	/** The pref changed: turning it on checks right away. */
 	prefChanged(): void {
 		this.#emit();
 		if (this.#scheduler.started && this.#deps.scheduled && this.#deps.enabled())
-			void this.#scheduler.enqueue(() => this.#pass(null, true));
+			void this.#scheduler.enqueue(() => this.#pass(null, true)).catch(() => undefined);
 	}
 
 	/** Settings › Update now: check (and update) `id`, or every listed tool, whatever the pref and back-off say. */
@@ -157,10 +175,11 @@ export class CliUpdater {
 	}
 
 	#emit(): void {
-		if (!this.#scheduler.disposed) this.#deps.onState(this.state());
+		if (!this.#scheduler.disposed && !stepStalled()) this.#deps.onState(this.state());
 	}
 
 	#set(record: ToolRecord, patch: Partial<CliToolState>): void {
+		if (stepStalled()) return;
 		record.state = { ...record.state, ...patch };
 		this.#emit();
 	}
@@ -180,11 +199,13 @@ export class CliUpdater {
 	async #refresh(): Promise<DetectDeps> {
 		const deps = await this.#detectDeps();
 		const providers = await this.#deps.connectedProviders().catch(() => []);
+		throwIfStepStalled();
 		const relevant = relevantTools(providers, CLI_TOOLS);
 		const detect = this.#deps.detect ?? detectCliTool;
 		const found = await Promise.all(
 			[...relevant].map(async ([id, using]) => [id, using, await detect(id, deps).catch(() => null)] as const),
 		);
+		throwIfStepStalled();
 		for (const id of CLI_TOOLS) if (!relevant.has(id)) this.#tools.delete(id);
 		for (const [id, using, detection] of found) {
 			if (!detection) {
@@ -229,6 +250,7 @@ export class CliUpdater {
 	}
 
 	#finish(record: ToolRecord, last: CliUpdateResult): void {
+		if (stepStalled()) return;
 		// A cancel (the user's, or a quit) is no failure: it does not back off.
 		settleBackoff(
 			record,
@@ -269,6 +291,7 @@ export class CliUpdater {
 					: null;
 			}
 		} catch (error) {
+			throwIfStepStalled();
 			this.#fail(record, { reason: "check", detail: message(error) });
 			return;
 		}
@@ -280,6 +303,7 @@ export class CliUpdater {
 		}
 		if (this.#deps.platform === "darwin" && waitsForIdle(detection, owner)) {
 			const commands = await this.#deps.processes().catch(() => "");
+			throwIfStepStalled();
 			if (runningIn(commands, detection, owner)) {
 				this.#finish(record, { kind: "deferred", latest: latest ?? "" });
 				return;
@@ -298,6 +322,7 @@ export class CliUpdater {
 		}
 		this.#set(record, { phase: "updating" });
 		const outcome = await this.#deps.runUpdate(request);
+		throwIfStepStalled();
 		if (outcome.kind === "skipped") {
 			this.#set(record, { phase: "idle" });
 			return;
@@ -311,6 +336,7 @@ export class CliUpdater {
 			return;
 		}
 		const after = await (this.#deps.detect ?? detectCliTool)(detection.id, deps).catch(() => null);
+		throwIfStepStalled();
 		const now = after?.installed ?? null;
 		if (after) {
 			record.detection = after;

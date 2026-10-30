@@ -1241,6 +1241,39 @@ describe("AiMemoryService", () => {
 	});
 
 	describe("a step that never ends", () => {
+		it("a stopped step that resumes later runs no command and writes no state", async () => {
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+			try {
+				const bun = Promise.withResolvers<boolean>();
+				let first = true;
+				const { service, commands } = await make({
+					bunPresent: () => {
+						if (!first) return Promise.resolve(true);
+						first = false;
+						return bun.promise;
+					},
+				});
+				const stale = service.retry().then(
+					() => null,
+					error => error,
+				);
+				const next = service.retry();
+				await vi.advanceTimersByTimeAsync(AI_MEMORY_STEP_MAX_MS);
+				expect(((await stale) as Error).name).toBe("StepStalledError");
+				await next;
+				const ran = commands().length;
+				const state = JSON.stringify(service.state());
+				// The stopped step's Bun check answers after the next step ran: it must run nothing and change nothing.
+				bun.resolve(false);
+				await vi.advanceTimersByTimeAsync(1000);
+				await new Promise<void>(done => setImmediate(done));
+				expect(commands()).toHaveLength(ran);
+				expect(JSON.stringify(service.state())).toBe(state);
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
 		it("is stopped with its command, and the next queued call runs", async () => {
 			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 			try {

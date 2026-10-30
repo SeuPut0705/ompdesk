@@ -530,6 +530,35 @@ describe("MobileWebService phases", () => {
 		}
 	});
 
+	it("a stopped step that resumes later calls nothing and writes no state", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		try {
+			const h = track(harness());
+			const started = Promise.withResolvers<{ port: number }>();
+			h.server.start.mockImplementationOnce(() => started.promise);
+			const stale = h.service.request({ action: "enable" }).then(
+				() => null,
+				error => error,
+			);
+			const next = h.service.request({ action: "retry" });
+			await vi.advanceTimersByTimeAsync(TAILSCALE_STEP_MAX_MS);
+			expect(((await stale) as Error).name).toBe("StepStalledError");
+			await next;
+			const calls = h.calls.length;
+			const state = JSON.stringify(h.service.state());
+			const emitted = h.states.length;
+			// The stopped step's server answers after the next step ran: no serve write, no state change.
+			started.resolve({ port: LOCAL_PORT + 1 });
+			await vi.advanceTimersByTimeAsync(1000);
+			await new Promise<void>(done => setImmediate(done));
+			expect(h.calls).toHaveLength(calls);
+			expect(JSON.stringify(h.service.state())).toBe(state);
+			expect(h.states).toHaveLength(emitted);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("waits for the app, starts it on request, and asks for OS approval when it never answers", async () => {
 		const h = track(harness({ scenario: { daemon: "down" } }));
 		const first = await h.enable();

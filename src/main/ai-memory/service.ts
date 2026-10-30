@@ -48,8 +48,8 @@ import {
 	type AiMemoryWriteInput,
 } from "../../shared/ai-memory";
 import type { SetupPlatform } from "../../shared/setup";
+import { SerialChain, stepStalled, throwIfStepStalled } from "../serial-chain";
 import { bunInstallDir } from "../setup/paths";
-import { SerialChain } from "../serial-chain";
 import { SetupRunner } from "../setup/runner";
 import { findBun } from "../setup/supervisor";
 import { findOnPath, needsShell, spawnArgs, spawnCommand } from "../spawn";
@@ -314,7 +314,8 @@ export class AiMemoryService {
 	bunInstalled(): void {
 		if (!this.#awaitingBun) return;
 		this.#awaitingBun = false;
-		void this.retry();
+		// A stopped step already failed its own caller and is in the chain-stall log; nobody waits on this one.
+		void this.retry().catch(() => undefined);
 	}
 
 	/** Erase everything ai-memory remembers (wiki, database, raw events, token); wire it again afterwards. */
@@ -328,9 +329,11 @@ export class AiMemoryService {
 		this.#enqueue(async () => {
 			try {
 				await this.#purgeData();
+				throwIfStepStalled();
 				await this.#enable();
 				resolve();
 			} catch (error) {
+				throwIfStepStalled();
 				await this.#enable().catch(() => undefined);
 				reject(error);
 			}
@@ -478,7 +481,7 @@ export class AiMemoryService {
 			this.#retryTimer = null;
 			if (this.#disposed || this.#state.phase !== "failed") return;
 			this.#patch({ phase: "starting", step: "stage", detail: null });
-			void this.#enqueue(() => this.#enable());
+			void this.#enqueue(() => this.#enable()).catch(() => undefined);
 		}, inMs);
 		this.#retryTimer.unref();
 	}
@@ -625,6 +628,8 @@ export class AiMemoryService {
 		options: { env?: NodeJS.ProcessEnv; isolated?: boolean } = {},
 	): Promise<{ ok: boolean; cancelled: boolean; output: string }> {
 		let output = "";
+		const spawnEnv = await this.#deps.spawnEnv();
+		throwIfStepStalled();
 		// Its own commands read the working directory as "this project" (setup's doctor, `status`): a neutral one.
 		const outcome = await this.#runner.run(
 			{
@@ -633,12 +638,13 @@ export class AiMemoryService {
 				shell: needsShell(bin),
 				...(options.isolated ? { isolated: true } : {}),
 			},
-			{ ...(await this.#deps.spawnEnv()), ...options.env },
+			{ ...spawnEnv, ...options.env },
 			chunk => {
 				output = (output + chunk).slice(-OUTPUT_TAIL);
 			},
 			this.#deps.home,
 		);
+		throwIfStepStalled();
 		if (outcome.kind === "failed" && outcome.reason === "spawn") {
 			throw new StepError(`ai-memory could not start: ${outcome.detail ?? bin}`);
 		}
@@ -704,12 +710,15 @@ export class AiMemoryService {
 	async #enable(): Promise<void> {
 		try {
 			this.#awaitingBun = false;
-			if (this.#deps.bunPresent && !(await this.#deps.bunPresent())) {
+			const bunPresent = this.#deps.bunPresent ? await this.#deps.bunPresent() : true;
+			throwIfStepStalled();
+			if (!bunPresent) {
 				this.#awaitingBun = true;
 				throw new StepError("Waiting for Bun: memory sets itself up as soon as the setup has installed it.");
 			}
 			this.#step("stage");
 			const resolved = await this.#resolve();
+			throwIfStepStalled();
 			this.#resolved = resolved;
 			this.#patch({ version: resolved.version, binary: resolved.bin });
 			this.#deps.log?.("binary", { version: resolved.version, bin: resolved.bin });
@@ -721,8 +730,10 @@ export class AiMemoryService {
 			if (facts?.dataDir) this.#patch({ dataDir: facts.dataDir });
 			// Whether a server of someone else's already runs on this data dir (read before `init` can write a config).
 			const before = facts?.configPath ? await readFile(facts.configPath, "utf8").catch(() => null) : null;
+			throwIfStepStalled();
 			if (before !== null) this.#patch({ serverUrl: serverUrlFromConfig(before) });
 			const serverWasUp = before !== null && (await this.#client.healthy());
+			throwIfStepStalled();
 			// A fresh data dir: ai-memory's own `init` writes the config (and token) first, and the one setting OMPdesk
 			// changes goes in before the service starts, so the embedding model is never fetched. An existing config
 			// (a user's, or an earlier OMPdesk run) is left exactly as it is.
@@ -731,20 +742,24 @@ export class AiMemoryService {
 				if (init.cancelled) return;
 				if (!init.ok) throw new StepError(`init failed: ${tail(init.output) || "no output"}`);
 				const current = await readFile(facts.configPath, "utf8").catch(() => null);
+				throwIfStepStalled();
 				const next = current === null ? null : withoutLocalEmbeddings(current);
 				if (next !== null) await writeFile(facts.configPath, next);
 			}
 			await this.#takeOverService(serverWasUp);
+			throwIfStepStalled();
 
 			// An earlier build wired omp globally (extension + MCP entry running OMPdesk's staged binary): move that to
 			// the app-owned root, once. Wiring the person made themselves is never adopted as the terminal's: it stays
 			// untouched and is not read as "terminal omp connected" (only the button sets `aiMemoryTerminal` true).
 			const agentDir = this.#deps.agentDir();
 			let terminal = await readTerminalWiring(agentDir);
+			throwIfStepStalled();
 			if (this.#deps.terminalPref() === undefined) {
 				if (legacyOwned(terminal, this.#ownedPaths())) {
 					await removeTerminalWiring(agentDir);
 					terminal = await readTerminalWiring(agentDir);
+					throwIfStepStalled();
 				}
 				this.#deps.persistTerminal(false);
 			}
@@ -753,6 +768,7 @@ export class AiMemoryService {
 			try {
 				await this.#setup(resolved.bin, { terminal: terminalWired });
 			} catch (error) {
+				throwIfStepStalled();
 				if (error instanceof Cancelled) return;
 				// The extension root belongs to the binary in use, not to the service: an update whose service step failed
 				// still gets the new extension (`promptTitle`, the child-session rules), or it stays stale for the whole run.
@@ -763,18 +779,24 @@ export class AiMemoryService {
 						stack: null,
 					}),
 				);
-				this.#patch({ wiring: await this.#wiring() });
+				const failedWiring = await this.#wiring();
+				throwIfStepStalled();
+				this.#patch({ wiring: failedWiring });
 				throw error;
 			}
 			const toml = facts?.configPath ? await readFile(facts.configPath, "utf8").catch(() => null) : null;
+			throwIfStepStalled();
 			this.#patch({ serverUrl: serverUrlFromConfig(toml) });
 			const generated = await this.#generateRoot(resolved.bin);
+			throwIfStepStalled();
 			if (!generated) return;
 			const wiring = await this.#wiring();
+			throwIfStepStalled();
 			this.#patch({ wiring });
 			if (!wiring.app) throw new StepError(`ai-memory's extension root is not complete in ${this.#deps.rootDir}`);
 			this.#step("check");
 			const up = await this.#waitHealthy();
+			throwIfStepStalled();
 			this.#patch({
 				phase: up ? "ready" : "unreachable",
 				step: null,
@@ -783,9 +805,12 @@ export class AiMemoryService {
 			this.#downPolls = 0;
 			this.#retries = 0;
 			if (up) await this.#readStats();
+			throwIfStepStalled();
 			this.#startPolling();
 			if (resolved.staged) void pruneStaged(this.#deps.toolsDir, resolved.staged);
 		} catch (error) {
+			// A stopped step ends here without a word: the next step owns the state now.
+			if (stepStalled()) throw error;
 			this.#fail(error);
 			this.#scheduleRetry();
 		}
@@ -837,10 +862,15 @@ export class AiMemoryService {
 		this.#stopPolling();
 		try {
 			this.#step("purge");
-			if ((await this.#unit.inspect()).installed) await this.#removeUnit();
+			const unit = await this.#unit.inspect();
+			throwIfStepStalled();
+			if (unit.installed) await this.#removeUnit();
+			throwIfStepStalled();
 			await this.#wipeData();
+			throwIfStepStalled();
 			this.#patch({ step: null, detail: null, stats: null });
 		} catch (error) {
+			if (stepStalled()) throw error;
 			this.#fail(error);
 			throw error;
 		}

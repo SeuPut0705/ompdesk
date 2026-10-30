@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SerialChain, StepStalledError } from "./serial-chain";
+import { fencedCall, SerialChain, StepStalledError, stepStalled, throwIfStepStalled } from "./serial-chain";
 
 const NEVER = () => Promise.withResolvers<never>().promise;
 
 /** A step that ends `ms` of fake time after it starts. */
-function after(ms: number): Promise<void> {
+function elapse(ms: number): Promise<void> {
 	const { promise, resolve } = Promise.withResolvers<void>();
 	setTimeout(resolve, ms);
 	return promise;
@@ -65,9 +65,9 @@ describe("SerialChain", () => {
 
 	it("counts the bound from when a step starts, not from when it was queued", async () => {
 		const { serial, stalls } = chain();
-		const first = serial.run(() => after(800));
+		const first = serial.run(() => elapse(800));
 		const second = serial.run(async () => {
-			await after(800);
+			await elapse(800);
 			return "ok";
 		});
 		await vi.advanceTimersByTimeAsync(1600);
@@ -136,7 +136,7 @@ describe("SerialChain", () => {
 
 	it("a step's own bound replaces the chain's", async () => {
 		const { serial, stalls } = chain();
-		const long = serial.run(() => after(5000), "long", 10_000);
+		const long = serial.run(() => elapse(5000), "long", 10_000);
 		const stalled = serial.run(NEVER, "never", 200);
 		const settled = expect(stalled).rejects.toBeInstanceOf(StepStalledError);
 		await vi.advanceTimersByTimeAsync(5000);
@@ -144,5 +144,40 @@ describe("SerialChain", () => {
 		await vi.advanceTimersByTimeAsync(200);
 		await settled;
 		expect(stalls.map(stall => [stall.step, stall.ms])).toEqual([["never", 200]]);
+	});
+
+	it("a stopped step that resumes finds itself stopped at every fence, and a live one never does", async () => {
+		const { serial } = chain();
+		const gate = Promise.withResolvers<void>();
+		const seen: string[] = [];
+		const stalled = serial
+			.run(async () => {
+				const fenced = fencedCall(async () => "called");
+				seen.push(stepStalled() ? "stopped early" : "live");
+				await gate.promise;
+				seen.push(stepStalled() ? "stopped" : "live");
+				for (const fence of [throwIfStepStalled, () => fenced()]) {
+					try {
+						await fence();
+						seen.push("passed");
+					} catch (error) {
+						seen.push((error as Error).name);
+					}
+				}
+			}, "late")
+			.catch(() => undefined);
+		const next = serial.run(async () => {
+			seen.push(stepStalled() ? "next stopped" : "next live");
+			throwIfStepStalled();
+			return "ok";
+		});
+		await vi.advanceTimersByTimeAsync(1000);
+		await stalled;
+		expect(await next).toBe("ok");
+		gate.resolve();
+		await vi.advanceTimersByTimeAsync(10);
+		expect(seen).toEqual(["live", "next live", "stopped", "StepStalledError", "StepStalledError"]);
+		expect(stepStalled()).toBe(false);
+		expect(() => throwIfStepStalled()).not.toThrow();
 	});
 });

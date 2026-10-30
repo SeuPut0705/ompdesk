@@ -8,7 +8,45 @@
  * A chain whose steps all end by themselves (every child process they run has its own timeout that kills it) needs
  * no bound; this is for the ones whose steps can wait on something nothing times out.
  */
+import { AsyncLocalStorage } from "node:async_hooks";
 import { writeRuntimeLog } from "./runtime-log";
+
+/**
+ * The step whose code is running (across its awaits). A stopped step is not awaited again, so it can still resume
+ * later: every await that leads to a side effect (a spawn, a write, a state change, an emit) asks `throwIfStepStalled`
+ * first, and a step that was stopped ends there instead of acting on the next step's state.
+ */
+const currentStep = new AsyncLocalStorage<AbortSignal>();
+
+/** The signal of the chain step this code runs in, or undefined outside any step. */
+export function currentStepSignal(): AbortSignal | undefined {
+	return currentStep.getStore();
+}
+
+/** True once the chain step this code runs in was stopped for running past its bound. */
+export function stepStalled(): boolean {
+	return currentStep.getStore()?.aborted === true;
+}
+
+/**
+ * `call` fenced to the chain step it is made in: it throws before it starts and as soon as it returns when that step was
+ * stopped, so a step that resumes after its bound cannot start the next call or go on to act on what it returned.
+ * Outside any step it is `call`.
+ */
+export function fencedCall<A extends unknown[], R>(call: (...args: A) => Promise<R>): (...args: A) => Promise<R> {
+	return async (...args: A) => {
+		throwIfStepStalled();
+		const result = await call(...args);
+		throwIfStepStalled();
+		return result;
+	};
+}
+
+/** Throws the step's `StepStalledError` when it was stopped; a no-op in a live step and outside any step. */
+export function throwIfStepStalled(): void {
+	const signal = currentStep.getStore();
+	if (signal?.aborted) throw signal.reason;
+}
 
 /** A step ran past its bound and was stopped; the chain went on without it. */
 export class StepStalledError extends Error {
@@ -102,7 +140,7 @@ export class SerialChain {
 		}, maxStepMs);
 		timer.unref();
 		Promise.resolve()
-			.then(() => task(controller.signal))
+			.then(() => currentStep.run(controller.signal, () => task(controller.signal)))
 			.then(resolve, reject)
 			.finally(() => clearTimeout(timer));
 		return promise;

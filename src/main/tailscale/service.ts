@@ -17,6 +17,7 @@ import { z } from "zod";
 import type { MobileWebPhase, MobileWebRequest, MobileWebState, MobileWebTailscale } from "../../shared/mobile-web";
 import type { SetupItemState, SetupState } from "../../shared/setup";
 import { compareVersions } from "../../shared/version";
+import { fencedCall, SerialChain, StepStalledError, throwIfStepStalled } from "../serial-chain";
 import {
 	authUrlFromUpJson,
 	controlHostFromPrefs,
@@ -47,8 +48,35 @@ import {
 	parseStatus,
 	type TailscaleStatus,
 } from "./status";
-import { SerialChain } from "../serial-chain";
 import { parseWhois, type TailnetPeer } from "./whois";
+
+/**
+ * `deps` with every call that reaches outside (the CLI's executor, the locate, the server, the app, the browser, the
+ * install) fenced to its chain step: a step that was stopped for running past its bound can still resume when
+ * one of them settles, and must neither start the next call nor go on to write state the next step owns. The fence
+ * throws before a call starts and as soon as it returns; outside any step it does nothing.
+ */
+function fenced(deps: MobileWebServiceDeps): MobileWebServiceDeps {
+	const guard = fencedCall;
+	return {
+		...deps,
+		locate: guard(() => deps.locate()),
+		exec: guard((file, args, options) => deps.exec(file, args, options)),
+		startApp: guard(located => deps.startApp(located)),
+		openExternal: guard(url => deps.openExternal(url)),
+		openSystemSettings: guard(() => deps.openSystemSettings()),
+		server: {
+			...deps.server,
+			start: guard(() => deps.server.start()),
+			stop: guard(() => deps.server.stop()),
+			configure: (...args) => {
+				throwIfStepStalled();
+				return deps.server.configure(...args);
+			},
+		},
+		setup: { ...deps.setup, installForConnection: guard(item => deps.setup.installForConnection(item)) },
+	};
+}
 
 /** The longest one serialized step (enable, login, a poll tick) runs. */
 export const TAILSCALE_STEP_MAX_MS = 10 * 60_000;
@@ -200,7 +228,7 @@ export class MobileWebService {
 	#lastEmitted = "";
 
 	constructor(deps: MobileWebServiceDeps) {
-		this.#deps = deps;
+		this.#deps = fenced(deps);
 	}
 
 	#now(): number {
@@ -341,7 +369,10 @@ export class MobileWebService {
 
 	/** One poll tick now, then the next is scheduled. */
 	async refresh(): Promise<void> {
-		await this.#serial(() => this.#tick());
+		// A poll that was stopped for running past its bound is logged (chain-stall); the next one runs on the timer.
+		await this.#serial(() => this.#tick()).catch(error => {
+			if (!(error instanceof StepStalledError)) throw error;
+		});
 		this.#schedule();
 	}
 
@@ -517,6 +548,7 @@ export class MobileWebService {
 		try {
 			await this.#evaluate();
 		} catch (error) {
+			throwIfStepStalled();
 			this.#published = false;
 			this.#phase = "error";
 			this.#detail = error instanceof Error ? error.message : String(error);
@@ -679,6 +711,7 @@ export class MobileWebService {
 				this.#localPort = (await this.#deps.server.start()).port;
 				this.#serverUp = true;
 			} catch (error) {
+				throwIfStepStalled();
 				this.#phase = "error";
 				this.#detail = error instanceof Error ? error.message : String(error);
 				return;
@@ -794,6 +827,7 @@ export class MobileWebService {
 		if (!this.#serverUp) return;
 		this.#serverUp = false;
 		await this.#deps.server.stop().catch(() => undefined);
+		throwIfStepStalled();
 	}
 
 	// ── helpers ──────────────────────────────────────────────────────────────

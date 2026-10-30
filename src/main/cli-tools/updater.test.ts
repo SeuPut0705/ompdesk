@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CliToolId, CliUpdateState } from "../../shared/cli-update";
 import { IPC_COMMANDS } from "../../shared/ipc-types";
 import type { ToolUpdateOutcome, ToolUpdateRequest } from "../setup/service";
-import { CHECK_INTERVAL_MS } from "../update-scheduler";
+import { CHECK_INTERVAL_MS, UPDATE_STEP_MAX_MS } from "../update-scheduler";
 import { type IpcCaller, IpcRegistry } from "../web/ipc-registry";
 import type { CliDetection, CliOwner, DetectDeps } from "./detect";
 import { CliUpdater, type CliUpdaterDeps, registerCliUpdateIpc, runCheckProcess } from "./updater";
@@ -491,6 +491,33 @@ describe("CliUpdater", () => {
 		h.updater.start();
 		await h.updater.updateNow();
 		expect(checks).toBe(1);
+	});
+});
+
+describe("CliUpdater, a pass that never ends", () => {
+	it("is stopped, leaves its tool idle, and when it resumes later writes nothing", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		const answer = Promise.withResolvers<ToolUpdateOutcome>();
+		const h = harness({ runUpdate: () => answer.promise }, false);
+		const stale = h.updater.updateNow("codex").then(
+			() => null,
+			error => error,
+		);
+		await vi.waitFor(() => expect(tool(h, "codex")?.phase).toBe("updating"));
+		const next = h.updater.rescan();
+		await vi.advanceTimersByTimeAsync(UPDATE_STEP_MAX_MS);
+		expect(((await stale) as Error).name).toBe("StepStalledError");
+		await next;
+		expect(tool(h, "codex")?.phase).toBe("idle");
+		const emitted = h.states.length;
+		const before = JSON.stringify(h.updater.state());
+		// The stopped pass's installer answers after the next pass ran: no re-detect, no result, no state.
+		h.detections.codex = codex({ installed: "9.9.9" });
+		answer.resolve({ kind: "succeeded" });
+		await vi.advanceTimersByTimeAsync(1000);
+		await new Promise<void>(done => setImmediate(done));
+		expect(h.states).toHaveLength(emitted);
+		expect(JSON.stringify(h.updater.state())).toBe(before);
 	});
 });
 

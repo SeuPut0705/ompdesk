@@ -141,10 +141,12 @@ describe("UpdateScheduler", () => {
 	it("a pass that never settles does not keep the next one waiting", async () => {
 		vi.useFakeTimers();
 		const scheduler = new UpdateScheduler({ scheduled: false, tick: async () => {} });
-		const hung = scheduler.enqueue(() => Promise.withResolvers<void>().promise).then(
-			() => null,
-			error => error,
-		);
+		const hung = scheduler
+			.enqueue(() => Promise.withResolvers<void>().promise)
+			.then(
+				() => null,
+				error => error,
+			);
 		const ran = vi.fn(async () => {});
 		const next = scheduler.enqueue(ran);
 		await vi.advanceTimersByTimeAsync(UPDATE_STEP_MAX_MS);
