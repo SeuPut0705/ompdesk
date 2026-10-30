@@ -372,7 +372,9 @@ async function cutOff(
 /** Every journal under `isolated`, written `ms` earlier than it was (the lives so far happened that long ago). */
 function ageJournals(isolated: string, ms: number): void {
 	const shift = (value: unknown) =>
-		typeof value === "string" && Number.isFinite(Date.parse(value)) ? new Date(Date.parse(value) - ms).toISOString() : value;
+		typeof value === "string" && Number.isFinite(Date.parse(value))
+			? new Date(Date.parse(value) - ms).toISOString()
+			: value;
 	const walk = (dir: string) => {
 		for (const entry of readdirSync(dir, { withFileTypes: true })) {
 			const path = join(dir, entry.name);
@@ -516,7 +518,9 @@ describe.skipIf(!existsSync(omp))("a subagent an earlier stop cut", () => {
 				ageJournals(dir, 3 * 60 * 60_000);
 				const idle = await startOmp(model, dir, root, true);
 				await idle.send({ type: "prompt", message: "something else" });
-				await expect.poll(() => idle.frames.some(frame => frame.type === "agent_end"), { timeout: 60_000 }).toBe(true);
+				await expect
+					.poll(() => idle.frames.some(frame => frame.type === "agent_end"), { timeout: 60_000 })
+					.toBe(true);
 				await idle.kill("EOF");
 			},
 		);

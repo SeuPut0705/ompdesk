@@ -261,6 +261,54 @@ export function shutdownMarks(
 	return marks;
 }
 
+/**
+ * How long after a process's exit record the session's own journal can still hold that process's last records (an
+ * aborted reply came 5.4 s after the exit, a second exit 19 s: 28 Oct 2026). A conversation entry later than this is
+ * another process's.
+ */
+const NEXT_PROCESS_MS = 60_000;
+
+/**
+ * Whether a stop before the last one cut the background subagent whose transcript is `entries`, and the session has gone
+ * on since: stock's `restoreSession` revives every subagent it finds mid-turn whatever its age, so a relaunch that
+ * ran a restore for the session (a turn was running) revived a subagent that an earlier relaunch, with no turn running
+ * and so no restore, had left cut. On 30 Oct 2026 that was `OsInstallLock`: the parent's omp restart (SIGTERM, 29 Oct
+ * 20:33:27) cut it 12 s after it started, three relaunches ran no restore for the idle session, its work went to a new
+ * subagent that finished, and the 06:37:02 relaunch revived the old one, ten hours on, to do it again.
+ *
+ * A subagent is revived only by the relaunch right after the stop that cut it. `entries` is its transcript, `parent` the
+ * session's journal, `startedAt` this process's start (epoch ms). The stop that cut it is the first exit record of the
+ * parent's from `STOP_SPAN_MS` before the subagent's last entry (a quit's cleanup pass records the subagent's exit a few
+ * ms before the parent's); that process ended there. The session went on past it when the parent journaled a message
+ * more than `NEXT_PROCESS_MS` later and before this process started: a later process lived and ran no restore for the
+ * subagent, since one that had would have written to its transcript. False for a subagent with an entry from this
+ * process (it runs), one the last stop cut (no later message), one cut by a parent killed without an exit record (no
+ * exit to date it by), and a transcript or journal without times: it stays as stock reads it.
+ */
+export function cutByEarlierStop(
+	entries: readonly JournalEntry[],
+	parent: readonly JournalEntry[],
+	startedAt: number,
+): boolean {
+	const timeOf = (entry: JournalEntry) => (entry.timestamp === undefined ? Number.NaN : Date.parse(entry.timestamp));
+	let lastAt = Number.NEGATIVE_INFINITY;
+	for (const entry of entries) {
+		const at = timeOf(entry);
+		if (at > lastAt) lastAt = at;
+	}
+	if (!Number.isFinite(lastAt) || lastAt >= startedAt) return false;
+	let stopAt = Number.POSITIVE_INFINITY;
+	for (const entry of parent) {
+		const at = timeOf(entry);
+		if (isExit(entry) && at >= lastAt - STOP_SPAN_MS && at < startedAt && at < stopAt) stopAt = at;
+	}
+	if (!Number.isFinite(stopAt)) return false;
+	return parent.some(entry => {
+		const at = timeOf(entry);
+		return entry.type === "message" && at > stopAt + NEXT_PROCESS_MS && at < startedAt;
+	});
+}
+
 /** A subagent stock `restoreSession` revived: its id and what it was asked to do. */
 export interface RevivedSubagent {
 	id: string;

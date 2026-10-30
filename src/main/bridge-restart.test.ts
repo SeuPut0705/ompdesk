@@ -430,10 +430,7 @@ describe("cutByEarlierStop", () => {
 		message: { role, ...(stopReason ? { stopReason } : {}) },
 	});
 	/** The subagent the SIGTERM cut: a tool result nothing answered, then its own exit 5 ms before the parent's. */
-	const sigtermCut = [
-		message("20:33:27.037", "toolResult", "29"),
-		exitOf("20:33:27.734", "sigterm", "29", "signal"),
-	];
+	const sigtermCut = [message("20:33:27.037", "toolResult", "29"), exitOf("20:33:27.734", "sigterm", "29", "signal")];
 	/** The parent's journal as the real session shows it: that exit, a quiet process, then days of work. */
 	const parent = [
 		message("20:33:27.661", "assistant", "29", "stop"),

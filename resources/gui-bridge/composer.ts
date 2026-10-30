@@ -18,6 +18,7 @@ import { guard } from "./health";
 import { jobRows } from "./jobs-core";
 import { keepSectionsOnRestore } from "./prompt-sections";
 import {
+	cutByEarlierStop,
 	goalActiveAtExit,
 	interruptedJobs,
 	type JournalEntry,
@@ -137,22 +138,58 @@ async function sharePreview(session: Session) {
 }
 
 // ── Restore ──────────────────────────────────────────────────────────────────
+/** A subagent's transcript a restore wrote to, with its id. */
+interface SubagentRecord {
+	id: string;
+	file: string;
+}
+
 /**
- * Closes, with stock's own interrupted-turn record, the background subagents a stop of the last processes cut in the
- * middle of a turn that stock's `restoreSession` reads as finished (`shutdownMarks`: an aborted reply, or a clean exit
- * record while the subagent waited for its model), so stock revives them. The record is stock's, built from the
- * transcript without those marks; a subagent stock cannot revive (no `session_init`, isolated) or whose turn stock
- * reads as ended there is left alone. The record goes through stock's session writer; a subagent whose transcript
- * cannot be written is reported to `onFailure`, never blocks the restore of the others or of the session's own turn.
+ * Ends the subagent's transcript with a normal exit record, which stock's `hasRestorableTurn` reads as a finished turn,
+ * so no restore revives it. The record goes through stock's session writer; a transcript that cannot be written is
+ * reported to `onFailure`, never blocks the restore of the others or of the session's own turn.
+ */
+async function closeSubagent(
+	{ id, file }: SubagentRecord,
+	reason: string,
+	onFailure: (id: string, error: unknown) => void,
+): Promise<void> {
+	try {
+		const { SessionManager } = await import("@oh-my-pi/pi-coding-agent/session/session-manager");
+		requireFn(SessionManager, "open", "composer", "session/session-manager");
+		const writer = await SessionManager.open(file, undefined, undefined, { throwIfMissing: true });
+		try {
+			writer.appendCustomEntry("session_exit", { reason, kind: "normal", recordedAt: new Date().toISOString() });
+		} finally {
+			await writer.close();
+		}
+	} catch (error) {
+		onFailure(id, error);
+	}
+}
+
+/**
+ * Prepares the background subagents of the last processes for stock's `restoreSession`, which revives every one it
+ * reads as mid-turn, whatever its age. Returns the ones given stock's interrupted-turn record below, so the caller can
+ * close those stock did not revive (`closeSubagent`): a record this restore wrote must not outlive it, or a later
+ * relaunch would revive the subagent on it.
+ *
+ * - A subagent a stop before the last one cut (`cutByEarlierStop`: the session has gone on past it) is closed, never
+ *   revived: 30 Oct 2026, `OsInstallLock` was cut by an omp restart, its work was redone by another subagent, and a
+ *   relaunch ten hours later revived it to do it again.
+ * - A subagent the last stop cut in the middle of a turn that stock reads as finished (`shutdownMarks`: an aborted
+ *   reply, or a clean exit record while the subagent waited for its model) gets stock's own interrupted-turn record, so
+ *   stock revives it. The record is built from the transcript without those marks; a subagent stock cannot revive (no
+ *   `session_init`, isolated) or whose turn stock reads as ended there is left alone.
  */
 async function closeShutdownSubagents(
 	session: Session,
 	branch: readonly JournalEntry[],
 	startedAt: number,
 	onFailure: (id: string, error: unknown) => void,
-): Promise<void> {
+): Promise<SubagentRecord[]> {
 	const sessionFile = session.sessionManager.getSessionFile();
-	if (!sessionFile?.endsWith(".jsonl") || !session.asyncJobManager) return;
+	if (!sessionFile?.endsWith(".jsonl") || !session.asyncJobManager) return [];
 	// Late imports isolate a moved stock internal from the other composer adapters.
 	const { collectSubSessions } = await import("@oh-my-pi/pi-coding-agent/session/sub-sessions");
 	const diagnostics = await import("@oh-my-pi/pi-coding-agent/session/exit-diagnostics");
@@ -160,8 +197,20 @@ async function closeShutdownSubagents(
 	requireFn(diagnostics, "hasRestorableTurn", "composer", "session/exit-diagnostics");
 	requireFn(SessionManager, "open", "composer", "session/session-manager");
 	const subSessions = await collectSubSessions(sessionFile);
+	const appended: SubagentRecord[] = [];
 	for (const [key, sub] of Object.entries(subSessions)) {
-		if (sub.aborted || diagnostics.hasRestorableTurn(sub.entries)) continue;
+		if (sub.aborted) continue;
+		// A subagent's transcript sits at `<session>/<id>.jsonl`, its children's under `<session>/<id>/`.
+		const target = {
+			id: sub.agentId,
+			file: `${join(sessionFile.slice(0, -".jsonl".length), ...key.split("/"))}.jsonl`,
+		};
+		if (diagnostics.hasRestorableTurn(sub.entries)) {
+			if (cutByEarlierStop(sub.entries as readonly JournalEntry[], branch, startedAt)) {
+				await closeSubagent(target, "stale-cut", onFailure);
+			}
+			continue;
+		}
 		const marks = new Set(shutdownMarks(sub.entries as readonly JournalEntry[], branch, startedAt));
 		if (marks.size === 0) continue;
 		const init = extractSessionInit(sub.entries);
@@ -177,19 +226,19 @@ async function closeShutdownSubagents(
 			{ assumeExit: true },
 		);
 		if (!interrupted) continue;
-		// A subagent's transcript sits at `<session>/<id>.jsonl`, its children's under `<session>/<id>/`.
-		const file = `${join(sessionFile.slice(0, -".jsonl".length), ...key.split("/"))}.jsonl`;
 		try {
-			const writer = await SessionManager.open(file, undefined, undefined, { throwIfMissing: true });
+			const writer = await SessionManager.open(target.file, undefined, undefined, { throwIfMissing: true });
 			try {
 				writer.appendMessage(interrupted);
 			} finally {
 				await writer.close();
 			}
+			appended.push(target);
 		} catch (error) {
 			onFailure(sub.agentId, error);
 		}
 	}
+	return appended;
 }
 
 // ── Methods ──────────────────────────────────────────────────────────────────
@@ -430,11 +479,11 @@ export const methods: BridgeMethods = {
 					: undefined;
 			if (abort) session.sessionManager.appendMessage(abort);
 			// Before stock reads the subagents' transcripts: the stop left some of them cut mid-turn.
-			await closeShutdownSubagents(session, branch, startedAt, (id, error) =>
+			const prepared = await closeShutdownSubagents(session, branch, startedAt, (id, error) =>
 				env.emit({
 					type: "notice",
 					level: "error",
-					message: `Continuing the background agent ${id} after the restart failed: ${error instanceof Error ? error.message : String(error)}`,
+					message: `Preparing the background agent ${id} for the restart failed: ${error instanceof Error ? error.message : String(error)}`,
 				}),
 			);
 			// The buses a live `task` run reports its subagents on (the task tool's stock `ToolSession`), as
@@ -447,6 +496,12 @@ export const methods: BridgeMethods = {
 				eventBus: taskTool?.session?.eventBus,
 				subagentEventBus: taskTool?.session?.subagentEventBus,
 			});
+			// A record written above that stock did not revive would outlive this relaunch: close it.
+			for (const record of prepared) {
+				if (!outcome.subagents.includes(record.id)) {
+					await closeSubagent(record, "not-revived", () => undefined);
+				}
+			}
 			// A turn stock neither restores nor can retry, because a custom message came after its aborted reply, goes on
 			// with the follow-up (`turnCutBehindNotes`; read before the restore, which may append to the journal).
 			const turnCut = !outcome.turn && turnCutBehindNotes(branch, startedAt);
