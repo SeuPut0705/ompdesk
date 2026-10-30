@@ -112,16 +112,19 @@ export function SavedWorktrees() {
 						<li
 							className={cx(
 								PANEL_ROW_SURFACE,
-								"omp-work-tree-row flex h-(--sc-control-md) items-center gap-1.5 rounded-none py-0 pl-3",
+								"omp-work-tree-row @container flex min-h-(--sc-control-md) items-center gap-1.5 rounded-none py-0! pl-3",
 							)}
 							data-saved-worktree={worktree.id}
 							key={worktree.id}
 							title={title}
 						>
 							<History aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
-							<span className="min-w-0 shrink-0 truncate font-mono text-sc-xs">{name}</span>
-							<span className="min-w-0 flex-1 truncate font-mono text-sc-xs text-(--sc-text-muted)">
-								{branch}
+							{/* A narrow panel (a phone's sheet) stacks the branch under the folder, so neither is cut to a few letters. */}
+							<span className="flex min-w-0 flex-1 flex-col @min-[32rem]:flex-row @min-[32rem]:items-center @min-[32rem]:gap-1.5">
+								<span className="min-w-0 truncate font-mono text-sc-xs @min-[32rem]:shrink-0">{name}</span>
+								<span className="min-w-0 truncate font-mono text-sc-xs text-(--sc-text-muted) @min-[32rem]:flex-1">
+									{branch}
+								</span>
 							</span>
 							<span className="shrink-0 text-sc-xs text-(--sc-text-subtle) tabular-nums">{age}</span>
 							<Button

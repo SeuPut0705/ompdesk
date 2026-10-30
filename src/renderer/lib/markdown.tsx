@@ -1,5 +1,6 @@
 import {
-	ImageOff,
+	Film,
+	ImageIcon,
 	Info,
 	Lightbulb,
 	type LucideIcon,
@@ -733,7 +734,11 @@ function RemoteMarkdownImage({ src, alt, media }: { src: string; alt: string; me
 			title={src}
 			className="my-1 inline-flex max-w-full items-center gap-1.5 rounded-md border border-[var(--omp-border-muted)] px-2 py-1 text-omp-md text-[var(--omp-dim)]"
 		>
-			<ImageOff size={13} className="shrink-0" aria-hidden />
+			{media ? (
+				<Film size={13} className="shrink-0" aria-hidden />
+			) : (
+				<ImageIcon size={13} className="shrink-0" aria-hidden />
+			)}
 			<span className="truncate">{alt || t(media ? "markdown.remoteMedia" : "markdown.remoteImage")}</span>
 			<a
 				href={src}
@@ -741,7 +746,7 @@ function RemoteMarkdownImage({ src, alt, media }: { src: string; alt: string; me
 					event.preventDefault();
 					openExternal(src);
 				}}
-				className="shrink-0 truncate font-mono text-omp-xs text-[var(--omp-md-link)] underline decoration-[var(--omp-md-link-url)] hover:decoration-[var(--omp-md-link)]"
+				className="shrink-0 truncate text-[var(--omp-md-link)] underline decoration-[var(--omp-md-link-url)] hover:decoration-[var(--omp-md-link)]"
 			>
 				{t("markdown.remoteImageOpen")}
 			</a>

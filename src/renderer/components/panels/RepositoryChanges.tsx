@@ -239,63 +239,66 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 	const allChecked = changes !== null && changes.files.length > 0 && fullyStaged === changes.files.length;
 	return (
 		<div className="omp-changes flex min-h-0 flex-1 flex-col">
-			<PanelToolbar>
-				{sourceSelector}
-				{changes?.isRepo && (
-					<span className="ml-auto text-sc-xs text-(--sc-text-muted)">
-						{t("diffPanel.repositorySummary", {
-							count: changes.files.length,
-						})}
-					</span>
-				)}
-				{counted && (
-					<>
-						<span aria-hidden className="text-(--sc-text-subtle)">
-							·
+			{/* One block for everything above the list, so a short landscape phone can set it beside the list. */}
+			<div className="omp-changes-top flex shrink-0 flex-col">
+				<PanelToolbar>
+					{sourceSelector}
+					{changes?.isRepo && (
+						<span className="ml-auto text-sc-xs text-(--sc-text-muted)">
+							{t("diffPanel.repositorySummary", {
+								count: changes.files.length,
+							})}
 						</span>
-						<ChangeCounts {...totals} />
-					</>
+					)}
+					{counted && (
+						<>
+							<span aria-hidden className="text-(--sc-text-subtle)">
+								·
+							</span>
+							<ChangeCounts {...totals} />
+						</>
+					)}
+					<IconButton
+						className="ml-auto"
+						icon={<RefreshCw />}
+						loading={loading}
+						label={t("common.refresh")}
+						onClick={reload}
+						size="sm"
+					/>
+					{changes?.truncated && (
+						<span className="text-sc-xs text-(--sc-text-muted)" role="status">
+							{t("diffPanel.listLimited")}
+						</span>
+					)}
+				</PanelToolbar>
+				{changes?.isRepo && head && (
+					<SourceControlBar
+						conflicts={conflicts}
+						head={head}
+						requestName={setNameRequest}
+						rpc={rpc}
+						runner={runner}
+					/>
 				)}
-				<IconButton
-					className="ml-auto"
-					icon={<RefreshCw />}
-					loading={loading}
-					label={t("common.refresh")}
-					onClick={reload}
-					size="sm"
-				/>
-				{changes?.truncated && (
-					<span className="text-sc-xs text-(--sc-text-muted)" role="status">
-						{t("diffPanel.listLimited")}
-					</span>
+				{error && (
+					<InlineNotice
+						action={
+							<Button onClick={reload} size="sm" variant="ghost">
+								{t("common.retry")}
+							</Button>
+						}
+						className="px-3"
+						detail={error}
+						live
+						title={t("diffPanel.loadFailed")}
+						tone="danger"
+					/>
 				)}
-			</PanelToolbar>
-			{changes?.isRepo && head && (
-				<SourceControlBar
-					conflicts={conflicts}
-					head={head}
-					requestName={setNameRequest}
-					rpc={rpc}
-					runner={runner}
-				/>
-			)}
-			{error && (
-				<InlineNotice
-					action={
-						<Button onClick={reload} size="sm" variant="ghost">
-							{t("common.retry")}
-						</Button>
-					}
-					className="px-3"
-					detail={error}
-					live
-					title={t("diffPanel.loadFailed")}
-					tone="danger"
-				/>
-			)}
-			{changes?.isRepo && head && !selected && (
-				<CommitBox branch={head.branch} conflicts={conflicts} rpc={rpc} runner={runner} staged={staged} />
-			)}
+				{changes?.isRepo && head && !selected && (
+					<CommitBox branch={head.branch} conflicts={conflicts} rpc={rpc} runner={runner} staged={staged} />
+				)}
+			</div>
 			{loading && !changes ? (
 				<SkeletonRows className="px-3 py-2" label={t("common.loading")} widths={[56, 70, 48, 64, 52, 60]} />
 			) : changes && !changes.isRepo ? (
@@ -381,22 +384,31 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 														path={file.path}
 														className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)"
 													/>
-													<span className="min-w-0 flex-1 truncate">
-														{file.path.slice(slash + 1)}
-														{slash >= 0 && (
-															<span className="ml-2 text-sc-xs text-(--sc-text-subtle)">
-																{file.path.slice(0, slash)}
+													{/* Two lines, so no column depends on another's width: the name and its counts
+													    on the first, the folder (cut from its start, the end is what tells files
+													    apart) and the status on the second. Both right-hand cells end at one edge. */}
+													<span className="flex min-w-0 flex-1 flex-col">
+														<span className="flex min-w-0 items-center gap-2">
+															<span className="min-w-0 flex-1 truncate">
+																{file.path.slice(slash + 1)}
 															</span>
-														)}
+															<ChangeCounts added={file.added} removed={file.removed} />
+														</span>
+														<span className="flex min-w-0 items-center gap-2 text-sc-xs">
+															<span
+																className="min-w-0 flex-1 truncate text-left text-(--sc-text-subtle)"
+																dir="rtl"
+															>
+																{slash >= 0 ? `\u200E${file.path.slice(0, slash)}` : ""}
+															</span>
+															<span
+																className={cx("shrink-0", STATUS_STYLE[status])}
+																title={t(`diffPanel.status.${status}`)}
+															>
+																{t(`diffPanel.status.${status}`)}
+															</span>
+														</span>
 													</span>
-													<span
-														className={cx("shrink-0 text-sc-xs", STATUS_STYLE[status])}
-														title={t(`diffPanel.status.${status}`)}
-														aria-label={t(`diffPanel.status.${status}`)}
-													>
-														{t(`diffPanel.status.${status}`)}
-													</span>
-													<ChangeCounts added={file.added} removed={file.removed} />
 												</PanelListRow>
 												<IconButton
 													className="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"

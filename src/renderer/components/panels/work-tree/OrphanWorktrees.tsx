@@ -169,7 +169,7 @@ export function OrphanWorktrees() {
 								<span
 									className={cx(
 										"shrink-0 text-sc-xs",
-										REMOVABLE[worktree.state] ? "text-(--sc-success)" : "text-(--sc-text-muted)",
+										REMOVABLE[worktree.state] ? "text-(--sc-success)" : "text-(--sc-warning)",
 									)}
 								>
 									{state}

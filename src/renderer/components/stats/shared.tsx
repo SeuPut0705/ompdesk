@@ -115,9 +115,17 @@ export function MetricCard({
 	);
 }
 
-/** Grid for MetricCards: as many ≥9rem columns as the page's own width holds (not the window's). */
+/**
+ * Grid for MetricCards: as many ≥9rem columns as the page's own width holds (not the window's). Rows share one
+ * height, so a card with no detail line is as tall as its neighbours'; where only two columns fit, an odd last card
+ * takes the whole row instead of leaving an empty cell.
+ */
 export function MetricGrid({ children }: { children: ReactNode }) {
-	return <div className="omp-metric-grid grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3">{children}</div>;
+	return (
+		<div className="omp-metric-grid @container grid auto-rows-fr grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3 [&>:last-child:nth-child(odd)]:@max-md:col-span-full">
+			{children}
+		</div>
+	);
 }
 
 export interface StatColumn<T> {

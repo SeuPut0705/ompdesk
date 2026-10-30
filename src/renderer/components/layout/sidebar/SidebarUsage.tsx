@@ -19,7 +19,7 @@ import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { useUiStore } from "../../../stores/ui";
 import { UsageGauges, usageDescription, usageTooltip } from "../../common/UsageGauges";
 import { ProviderMark } from "../../settings/providers/ProviderMark";
-import { bareEmail, shortAccountLabel } from "../AccountLimit";
+import { AccountAddress, bareEmail, shortAccountLabel } from "../AccountLimit";
 
 /** Providers the block stacks before "+N" takes the rest to Settings. */
 export const USAGE_LINE_CAP = 4;
@@ -78,7 +78,9 @@ export function SidebarUsage({
 					>
 						<ProviderMark provider={{ id: report.provider, name: report.provider }} />
 						<UsageGauges compact limits={report.limits} />
-						<span className="omp-sidebar-usage-account">{email}</span>
+						<span className="omp-sidebar-usage-account flex">
+							<AccountAddress label={email} />
+						</span>
 					</button>
 				);
 			})}

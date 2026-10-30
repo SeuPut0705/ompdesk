@@ -1,8 +1,8 @@
 /**
- * The Changes panel's source-control row: branch picker, Fetch, Pull (with
- * the behind count) and Push or Publish (with the ahead count), a menu for
- * stash, pop and undo-last-commit, and the banner of a merge, rebase,
- * cherry-pick or revert that stopped on conflicts.
+ * The Changes panel's source-control row: branch picker, Pull (with the behind
+ * count) and Push or Publish (with the ahead count), a menu for fetch, stash,
+ * pop and undo-last-commit, and the banner of a merge, rebase, cherry-pick or
+ * revert that stopped on conflicts. The list's own refresh sits in the toolbar above.
  */
 import {
 	Archive,
@@ -18,7 +18,7 @@ import { useState } from "react";
 import type { RpcGitHead, RpcGitRemoteResult } from "../../../../shared/rpc-types";
 import { useT } from "../../../lib/i18n";
 import type { TabRpc } from "../../../lib/tab-rpc";
-import { Button, ConfirmDialog, IconButton, InlineNotice, MenuButton } from "../../common";
+import { Button, ConfirmDialog, InlineNotice, MenuButton } from "../../common";
 import { BranchPicker } from "./BranchPicker";
 import type { NameRequest } from "./NameDialog";
 import type { ScmRunner } from "./use-scm-action";
@@ -47,20 +47,6 @@ export function SourceControlBar({
 			<div className="flex flex-wrap items-center gap-1 border-b border-(--sc-divider) px-2 py-1.5" data-scm-bar>
 				<BranchPicker branch={head.branch} disabled={blocked} requestName={requestName} rpc={rpc} runner={runner} />
 				<div className="ml-auto flex shrink-0 items-center gap-0.5">
-					<IconButton
-						disabled={blocked || !head.hasRemote}
-						icon={<RefreshCcw />}
-						label={head.hasRemote ? t("scm.remote.fetch") : t("scm.remote.none")}
-						loading={busy === "fetch"}
-						onClick={() =>
-							void run(
-								"fetch",
-								{ type: "git_remote", action: "fetch" },
-								{ failure: t("scm.remote.fetchFailed") },
-							)
-						}
-						size="sm"
-					/>
 					<Button
 						disabled={blocked || remoteReason !== undefined || !head.upstream}
 						icon={<ArrowDown />}
@@ -126,6 +112,19 @@ export function SourceControlBar({
 						disabled={busy !== null}
 						icon={<MoreHorizontal />}
 						items={[
+							{
+								id: "fetch",
+								label: t("scm.remote.fetch"),
+								icon: RefreshCcw,
+								disabled: !head.hasRemote || head.operation !== null,
+								disabledReason: head.hasRemote ? undefined : t("scm.remote.none"),
+								onSelect: () =>
+									void run(
+										"fetch",
+										{ type: "git_remote", action: "fetch" },
+										{ failure: t("scm.remote.fetchFailed") },
+									),
+							},
 							{
 								id: "stash",
 								label: t("scm.stash.push"),

@@ -2246,6 +2246,36 @@ html[data-input="touch"] .omp-session-sidebar [data-sidebar-group-new][data-side
 	}
 }
 
+/* A phone turned sideways has ~240 px between the sheet's title and its tab bar: the toolbar, branch row and commit
+   box alone filled it and the file list sat below the fold (phone audit 22). Past that height the chrome takes a
+   column of its own, scrolling by itself, and the list (or the open diff) gets the rest of the width and the full
+   height. The pane's own wide-container rule (list and diff side by side) would squeeze both into half the screen. */
+@media (orientation: landscape) and (max-height: 480px) {
+	html[data-shell="phone"] .omp-changes {
+		flex-direction: row;
+	}
+
+	html[data-shell="phone"] .omp-changes-top {
+		flex: 0 0 44%;
+		min-width: 0;
+		overflow-y: auto;
+		border-right: var(--sc-hairline) solid var(--sc-divider);
+	}
+
+	html[data-shell="phone"] .omp-changes > :not(.omp-changes-top) {
+		flex: 1 1 0;
+		min-width: 0;
+	}
+
+	html[data-shell="phone"] .omp-changes .omp-changes-body {
+		flex-direction: column;
+	}
+
+	html[data-shell="phone"] .omp-changes .omp-changes-body[data-open="true"] .omp-changes-list {
+		display: none;
+	}
+}
+
 /* A GitHub section's toolbar wraps on a narrow screen: a button on the second line reached 9 px up across the 8 px
    between the lines and took the bottom edge of the search field above it (22 Oct 2026 responsive audit, 360 px,
    Issues). The lines sit 14 px apart on touch and each control's reach stops halfway, so a 28 px button still

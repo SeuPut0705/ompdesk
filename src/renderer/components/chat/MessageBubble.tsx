@@ -465,7 +465,7 @@ export const MessageBubble = memo(function MessageBubble({
 	if (isUser) {
 		return (
 			<div className="omp-user-turn group flex justify-end px-6 py-2.5">
-				<div className="omp-user-bubble relative min-w-0 rounded-(--sc-radius-lg) bg-(--sc-surface-2) px-4 py-2.5 text-sc-lg text-(--sc-text)">
+				<div className="omp-user-bubble relative min-w-0 rounded-(--sc-radius-lg) px-4 py-2.5 text-sc-lg text-(--sc-text)">
 					{reaction ? (
 						<span
 							aria-label={reaction}

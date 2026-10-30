@@ -33,6 +33,22 @@ export function bareEmail(label: string): string {
 	return /^(\S+@[^\s(]+)\s*\(/.exec(label.trim())?.[1] ?? label;
 }
 
+/**
+ * An account label that gives way in the middle of an address: a narrow row shortens the name before the "@" and keeps
+ * the domain, which says which account it is ("someone.with.a…@example.com"). Any other label ends in an ellipsis.
+ * Renders spans for a flex row (`flex` on the parent, which clips).
+ */
+export function AccountAddress({ label }: { label: string }) {
+	const match = /^([^\s@]+)(@\S+)$/.exec(label.trim());
+	if (!match) return <span className="min-w-0 truncate">{label}</span>;
+	return (
+		<>
+			<span className="min-w-0 truncate">{match[1]}</span>
+			<span className="shrink-0">{match[2]}</span>
+		</>
+	);
+}
+
 export function AccountLimit() {
 	const t = useT();
 	const provider = useModelStore(s => s.model?.provider ?? null);

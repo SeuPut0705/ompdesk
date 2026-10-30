@@ -314,7 +314,12 @@ export function runRpcUi(): void {
 		activeLeafId = entries.at(-1)?.id ?? null;
 		return header;
 	};
-	if (process.env.OMP_GUI_TEST_SEED_SESSION) loadJournal(process.env.OMP_GUI_TEST_SEED_SESSION);
+	// A seeded session is a stock file from the start, as a real session with a transcript is: the index lists it.
+	// A process booting on `--session` (a fork's tab) opens that file instead and writes no copy of the seed.
+	if (process.env.OMP_GUI_TEST_SEED_SESSION) {
+		sessionTitle = loadJournal(process.env.OMP_GUI_TEST_SEED_SESSION).title ?? "";
+		if (!(flags["--session"] && fs.existsSync(flags["--session"]))) persistSession();
+	}
 
 	const count = Math.min(50_000, Number(process.env.OMP_GUI_TEST_HISTORY ?? 0));
 	for (let index = 0; index < count; index++) {
@@ -2078,6 +2083,10 @@ export function runRpcUi(): void {
 				? nodePath.dirname(sessionFile)
 				: fs.mkdtempSync(nodePath.join(os.tmpdir(), "omp-fork-"));
 			const sessionPath = nodePath.join(dir, `${forkId}.jsonl`);
+			// Stock `createBranchedSession` gives the fork the source's title (the fixture's title line, as `persistSession`).
+			const title = sessionTitle
+				? [{ type: "title", v: 1, title: sessionTitle, updatedAt: new Date().toISOString() }]
+				: [];
 			const header = {
 				type: "session",
 				version: 3,
@@ -2086,7 +2095,7 @@ export function runRpcUi(): void {
 				cwd: process.cwd(),
 			};
 			fs.mkdirSync(dir, { recursive: true });
-			fs.writeFileSync(sessionPath, `${[header, ...path].map(line => JSON.stringify(line)).join("\n")}\n`);
+			fs.writeFileSync(sessionPath, `${[...title, header, ...path].map(line => JSON.stringify(line)).join("\n")}\n`);
 			return { sessionPath, sessionId: forkId, ...(cut.draft ? { draft: cut.draft } : {}) };
 		},
 		"sessions.arg_completions": () => ({ items: [] }),

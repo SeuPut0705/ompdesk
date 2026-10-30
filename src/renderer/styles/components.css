@@ -195,10 +195,12 @@
 	unicode-bidi: plaintext;
 	text-align: start;
 }
+/* Room above and below for display limits and subscripts (the ∏'s `i=1`): the
+   block clips vertically, since it scrolls only sideways. */
 .markdown-body .katex-display {
 	max-width: 100%;
 	overflow: auto hidden;
-	padding-block: 0.2em;
+	padding-block: 0.5em;
 }
 .markdown-body .katex-display > .katex {
 	width: max-content;
@@ -913,6 +915,17 @@
    the row on hover or focus moves nothing. */
 .omp-transcript-editorial {
 	--omp-actions-reserve: calc(var(--sc-control-sm) + var(--sc-space-0-5));
+}
+
+/* The person's own prompt sits on a ground one step off the page. Dark pages sit between surface-1 and
+   surface-2, so there surface-2 was a few shades from the page and the bubble's edge vanished; it takes
+   surface-3 instead (inline code in it then reads as a darker inset). */
+.omp-user-bubble {
+	background: var(--sc-surface-2);
+}
+
+:root[data-theme="dark"] .omp-user-bubble {
+	background: var(--sc-surface-3);
 }
 
 /* User turn: a compact soft bubble on the right; its actions sit right-aligned
@@ -3059,7 +3072,10 @@ button.omp-file-chip-name:hover {
 /* Wide math and tables scroll sideways inside the column. Instead of a raw
    scrollbar track, an edge shade appears only on the side with more content
    (the canvas-colored covers scroll with the content and hide the shade at
-   either end); the bar itself stays thin. */
+   either end); the bar itself stays thin. The shade starts one pixel in from
+   the edge: on a box at a fractional x the covers only partly cover the edge
+   pixel, and a shade there drew a 1 px seam down both sides of a block that
+   does not scroll. */
 .omp-transcript-editorial :is(.omp-assistant-turn, .omp-thinking-body) .markdown-body :is(.katex-display, table) {
 	--omp-scroll-cover: var(--sc-bg);
 	--omp-scroll-shade: color-mix(in srgb, var(--sc-text) 14%, transparent);
@@ -3068,8 +3084,8 @@ button.omp-file-chip-name:hover {
 	background:
 		linear-gradient(to right, var(--omp-scroll-cover) 30%, transparent) left center / 2.5rem 100% no-repeat local,
 		linear-gradient(to left, var(--omp-scroll-cover) 30%, transparent) right center / 2.5rem 100% no-repeat local,
-		linear-gradient(to right, var(--omp-scroll-shade), transparent) left center / 0.75rem 100% no-repeat scroll,
-		linear-gradient(to left, var(--omp-scroll-shade), transparent) right center / 0.75rem 100% no-repeat scroll;
+		linear-gradient(to right, transparent 1px, var(--omp-scroll-shade) 1px, transparent) left center / 0.75rem 100% no-repeat scroll,
+		linear-gradient(to left, transparent 1px, var(--omp-scroll-shade) 1px, transparent) right center / 0.75rem 100% no-repeat scroll;
 }
 
 /* Mouse and trackpad only (see global.css Scrollbars): touch keeps the overlay bar. */
@@ -3316,6 +3332,20 @@ button.omp-file-chip-name:hover {
    status trigger keeps its icon, the status keeps its icon. */
 @container omp-workspace (max-width: 720px) {
 	.omp-session-status-cost {
+		display: none;
+	}
+}
+
+/* Narrow pane: "Jump to latest" is its arrow alone (the label stays its accessible name), so the pill hides
+   a word of the text it floats over, not a heading. */
+@container omp-workspace (max-width: 720px) {
+	[data-jump-to-latest] {
+		width: 2.25rem;
+		justify-content: center;
+		padding-inline: 0;
+	}
+
+	[data-jump-to-latest] .omp-jump-label {
 		display: none;
 	}
 }

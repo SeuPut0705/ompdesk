@@ -3,7 +3,8 @@
  *
  * Sits at the bottom centre of a `relative` parent (`className` sets its `bottom-*` offset). While `pinned` (the
  * reader is already at the edge) it slides away, ignores the pointer and leaves the tab order and the
- * accessibility tree, so it is only ever there when it has something to do.
+ * accessibility tree, so it is only ever there when it has something to do. In a narrow pane it is the arrow alone
+ * (`.omp-jump-label`, components.css), so less of the text it floats over is hidden.
  */
 
 import { ArrowDown } from "lucide-react";
@@ -34,7 +35,7 @@ export function JumpToLatest({ pinned, className, type, ...rest }: JumpToLatestP
 			{...rest}
 		>
 			<ArrowDown aria-hidden size={14} />
-			{label}
+			<span className="omp-jump-label">{label}</span>
 		</button>
 	);
 }
