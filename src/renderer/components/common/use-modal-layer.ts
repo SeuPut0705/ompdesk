@@ -38,7 +38,10 @@ export function useModalLayer(open: boolean, panelRef: RefObject<HTMLElement | n
 		// Preserve a caller-autofocused control inside the new dialog, but never
 		// leave focus on its trigger or on a dialog now covered by this one.
 		if (!(active instanceof HTMLElement && panel?.contains(active))) {
-			const first = panel?.querySelector<HTMLElement>(FOCUSABLE);
+			// A touch screen has no one at a keyboard: focus the panel itself, so the first control (a sheet's close
+			// button) does not wear a focus ring over a layer nobody tabbed into. Tab still enters at the first control.
+			const first =
+				document.documentElement.dataset.input === "touch" ? null : panel?.querySelector<HTMLElement>(FOCUSABLE);
 			(first ?? panel)?.focus();
 		}
 
@@ -66,7 +69,7 @@ export function useModalLayer(open: boolean, panelRef: RefObject<HTMLElement | n
 			}
 			const firstEl = items[0];
 			const lastEl = items[items.length - 1];
-			if (event.shiftKey && document.activeElement === firstEl) {
+			if (event.shiftKey && (document.activeElement === firstEl || document.activeElement === panel)) {
 				event.preventDefault();
 				lastEl.focus();
 			} else if (!event.shiftKey && document.activeElement === lastEl) {

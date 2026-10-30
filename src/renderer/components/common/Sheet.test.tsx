@@ -83,6 +83,36 @@ describe("Sheet placements", () => {
 		});
 		expect(onClose).toHaveBeenCalledTimes(1);
 	});
+
+	it("takes focus on its close button, but on a touch screen on the panel, so no ring shows over it", async () => {
+		const focused: unknown[] = [];
+		vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement) {
+			focused.push(this);
+		});
+		await mount(
+			<Sheet onClose={() => {}} open title="Details">
+				body
+			</Sheet>,
+		);
+		const dialog = document.querySelector('[role="dialog"]');
+		expect(focused.at(-1)).not.toBe(dialog);
+		expect((focused.at(-1) as HTMLElement).closest('[role="dialog"]')).toBe(dialog);
+		await act(async () => root?.unmount());
+		root = undefined;
+		focused.length = 0;
+		document.documentElement.dataset.input = "touch";
+		try {
+			await mount(
+				<Sheet onClose={() => {}} open title="Details">
+					body
+				</Sheet>,
+			);
+			expect(focused.at(-1)).toBe(document.querySelector('[role="dialog"]'));
+		} finally {
+			delete document.documentElement.dataset.input;
+			vi.restoreAllMocks();
+		}
+	});
 });
 
 describe("back layers", () => {
