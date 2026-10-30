@@ -80,7 +80,13 @@ writeFileSync(${JSON.stringify(output)}, JSON.stringify(orderedSettings().map(se
 		);
 		expect(names.length).toBeGreaterThan(0);
 		expect(names.filter(name => modelRoleName("ko", name) === name)).toEqual([]);
-		expect(names.every(name => modelRoleName("en", name) === name)).toBe(true);
+		expect(
+			names.every(
+				name =>
+					modelRoleName("en", name) ===
+					(name === "Architect" ? "Plan" : name === "Commit" ? "Commit messages" : name),
+			),
+		).toBe(true);
 	});
 });
 
@@ -88,5 +94,7 @@ describe("Korean role names", () => {
 	it("gives a role the same name whichever stock name it comes under, so Settings and the setup dialog agree", () => {
 		expect(modelRoleName("ko", "Architect")).toBe(modelRoleName("ko", "Plan"));
 		expect(modelRoleName("ko", "Commit")).toBe(modelRoleName("ko", "Commit messages"));
+		expect(modelRoleName("en", "Architect")).toBe(modelRoleName("en", "Plan"));
+		expect(modelRoleName("en", "Commit")).toBe(modelRoleName("en", "Commit messages"));
 	});
 });

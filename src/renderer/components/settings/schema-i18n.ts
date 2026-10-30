@@ -72,7 +72,9 @@ const KO_ROLE_NAMES: Readonly<Record<string, string>> = {
 	Judge: "판정",
 	Review: "리뷰",
 };
-const ROLE_NAMES: Record<Lang, Readonly<Record<string, string>>> = { en: {}, ko: KO_ROLE_NAMES };
+// Stock calls the same two roles Architect/Plan and Commit/Commit messages across versions: English folds them too.
+const EN_ROLE_NAMES: Readonly<Record<string, string>> = { Architect: "Plan", Commit: "Commit messages" };
+const ROLE_NAMES: Record<Lang, Readonly<Record<string, string>>> = { en: EN_ROLE_NAMES, ko: KO_ROLE_NAMES };
 
 /** Display name of a model role: stock's English name, translated for a built-in role. */
 export function modelRoleName(lang: Lang, name: string): string {
