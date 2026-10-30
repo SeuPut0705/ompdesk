@@ -8,10 +8,13 @@
  * (`set_subagent_subscription`), as `subagent_progress` frames, plus its own stream as `subagent_event` at `events`.
  * `get_subagent_messages` reads `subagents/<id>.jsonl` under its working folder as stock's
  * `readRpcSubagentTranscript` reads a subagent's journal: what follows `fromByte` up to the last whole line, as both
- * `entries` and `messages`, with the offset to read from next.
+ * `entries` and `messages`, with the offset to read from next. Launched with a bridge (`OMP_GUI_BRIDGE`, the rig's
+ * `bridge` option) it serves `read_image_blob` there, from `blobs/<sha256>` under its working folder as stock's blob
+ * store keeps them; every other bridge method fails.
  * Standalone: the test writes this file's text out as the omp script, so it imports nothing local.
  */
 import { readFileSync, statSync } from "node:fs";
+import { createServer } from "node:net";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -461,6 +464,33 @@ async function run(scenario: Scenario): Promise<void> {
 	emit({ type: "agent_end", messages: turn });
 	out({ type: "session_settled" });
 }
+
+/** The gui-bridge's `read_image_blob` (resources/gui-bridge/extensions/agents.ts) over `blobs/` in the working folder. */
+async function serveBridge(address: string): Promise<void> {
+	const server = createServer(socket => {
+		createInterface({ input: socket }).on("line", line => {
+			const { id, method, params } = JSON.parse(line) as { id: number; method: string; params?: { ref?: unknown } };
+			if (method !== "read_image_blob") {
+				socket.write(`${JSON.stringify({ id, ok: false, error: `unknown method ${method}` })}\n`);
+				return;
+			}
+			const hash =
+				typeof params?.ref === "string" ? /^blob:sha256:([a-f0-9]{64})$/.exec(params.ref)?.[1] : undefined;
+			let data: string | null = null;
+			try {
+				if (hash) data = readFileSync(join(process.cwd(), "blobs", hash)).toString("base64");
+			} catch {
+				data = null;
+			}
+			socket.write(`${JSON.stringify({ id, ok: true, result: { data } })}\n`);
+		});
+	});
+	const listening = Promise.withResolvers<void>();
+	server.listen(address, listening.resolve);
+	await listening.promise;
+}
+
+if (process.env.OMP_GUI_BRIDGE) await serveBridge(process.env.OMP_GUI_BRIDGE);
 
 out({
 	type: "ready",

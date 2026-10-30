@@ -19,7 +19,7 @@ import type { SidecarLike } from "../sidecar-types";
 import { RM_TEMP, writeFakeOmp } from "../test-fake-omp";
 import { LocalHostServices } from "./host-services";
 import type { RemoteSidecar } from "./remote-sidecar";
-import { DevicesRig } from "./test-devices";
+import { type Computer, DevicesRig } from "./test-devices";
 import { Link } from "./wire";
 
 const FRAME_OVERHEAD = 32;
@@ -211,10 +211,10 @@ export interface RawTap {
 	frames: SubagentFrame[];
 }
 
-function hostServices(bin: string, workDir: string, raw: RawTap): LocalHostServices {
+function hostServices(bin: string, workDir: string, raw: RawTap, bridgeDir?: string): LocalHostServices {
 	return new LocalHostServices({
 		createSidecar: (cwd, kind, fresh) => {
-			const sidecar = new SidecarManager({ omp: ompAt(bin), cwd, kind, fresh });
+			const sidecar = new SidecarManager({ omp: ompAt(bin), cwd, kind, fresh, ...(bridgeDir ? { bridgeDir } : {}) });
 			sidecar.on("events", (batch: AgentSessionEvent[]) => raw.events.push(...batch));
 			sidecar.on("subagentFrame", (frame: SubagentFrame) => raw.frames.push(frame));
 			return sidecar as unknown as SidecarLike;
@@ -265,6 +265,9 @@ export interface Session {
 	hostLog: Array<{ message: string; details: Record<string, unknown> }>;
 	/** The host omp's working folder (the scripted omp reads subagent journals from its `subagents/`). */
 	workDir: string;
+	/** The device's computer and the host's id there, for requests a tab does not make itself (`fs.*`). */
+	device: Computer;
+	hostId: string;
 	/** Runs one scripted turn and resolves when the host's omp settled it. */
 	turn(scenario: object): Promise<void>;
 	setLevel(level: "off" | "progress" | "events"): Promise<void>;
@@ -273,7 +276,11 @@ export interface Session {
 const rigs: DevicesRig[] = [];
 const recorders: LinkRecorder[] = [];
 
-export async function openSession(options: { device?: DeviceKind } = {}): Promise<Session> {
+/**
+ * `bridge`: the host's omp gets a gui-bridge socket, which the scripted omp serves for `read_image_blob` from its
+ * working folder's `blobs/`.
+ */
+export async function openSession(options: { device?: DeviceKind; bridge?: boolean } = {}): Promise<Session> {
 	const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-link-traffic-"));
 	WORK_DIRS.push(dir);
 	const bin = await writeFakeOmp(
@@ -290,7 +297,7 @@ export async function openSession(options: { device?: DeviceKind } = {}): Promis
 	const hostLog: Session["hostLog"] = [];
 	const raw: RawTap = { events: [], frames: [] };
 	const { a, hostId } = await rig.connected({
-		services: hostServices(bin, workDir, raw),
+		services: hostServices(bin, workDir, raw, options.bridge ? path.join(dir, "bridge") : undefined),
 		logLink: (message, details) => hostLog.push({ message, details }),
 	});
 	const sidecar = a.devices.createSidecar(hostId, "t1", workDir, "agent", true);
@@ -314,6 +321,8 @@ export async function openSession(options: { device?: DeviceKind } = {}): Promis
 		rig,
 		hostLog,
 		workDir,
+		device: a,
+		hostId,
 		async turn(scenario) {
 			const settled = Promise.withResolvers<void>();
 			const ended = Promise.withResolvers<void>();
