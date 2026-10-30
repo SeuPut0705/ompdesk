@@ -605,6 +605,11 @@ export type RuntimeErrorSource =
 	 * ms since the prompt (`at.<stage>`), the last stage reached and whether a provider request was sent.
 	 */
 	| "turn-stages"
+	/**
+	 * A serial chain's step that ran past its bound and was stopped so the next could run (src/main/serial-chain.ts):
+	 * `details` has the chain, the step and the bound in ms.
+	 */
+	| "chain-stall"
 	| "unknown";
 
 /** Bounded, serializable renderer/main failure payload written as JSONL. */
