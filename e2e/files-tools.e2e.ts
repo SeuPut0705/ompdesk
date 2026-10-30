@@ -139,7 +139,10 @@ for (const [language, theme] of variants([
 			await expect(row("file:notes.md").locator("[data-git-mark]")).toHaveText(/^U/);
 			await expect(row("dir:src").locator('[data-git-mark="dir"]')).toHaveCount(1);
 			await row("dir:src").click();
-			await expect(row("file:src/app.ts").locator('[data-git-mark="M"]')).toHaveAttribute("title", label.modified);
+			const modified = row("file:src/app.ts").locator('[data-git-mark="M"]');
+			await expect(modified).toContainText(label.modified);
+			await modified.hover();
+			await expect(page.getByRole("tooltip")).toHaveText(label.modified);
 			await capture("files-git");
 
 			// C34: a new file inside the selected folder, named inline.
