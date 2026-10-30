@@ -170,11 +170,10 @@ export function useAutoLoad(
 // Shared chrome
 // ============================================================================
 
-/** Tab body: description + count + refresh toolbar, content, footer note. */
+/** Tab body: count + refresh toolbar (once there is a list), content, footer note. */
 function TabPanel({
 	visible,
 	label,
-	description,
 	count,
 	resource,
 	footer,
@@ -182,7 +181,6 @@ function TabPanel({
 }: {
 	visible: boolean;
 	label: string;
-	description?: ReactNode;
 	/** "{shown} of {total}" once loaded; omitted for non-list tabs. */
 	count?: string;
 	resource: RpcResource<unknown>;
@@ -192,12 +190,10 @@ function TabPanel({
 	const t = useT();
 	return (
 		<div aria-label={label} className={cx("flex flex-col gap-3", !visible && "hidden")} role="tabpanel">
-			<div className="flex flex-wrap items-start gap-x-3 gap-y-2">
-				<div className="min-w-0 max-w-2xl flex-1 text-sc-sm text-(--sc-text-muted)">{description}</div>
-				<div className="flex shrink-0 items-center gap-2">
-					{count && (
-						<span className="text-sc-xs whitespace-nowrap tabular-nums text-(--sc-text-muted)">{count}</span>
-					)}
+			{/* The toolbar is the list's count and its refresh; with no count (loading, empty, failed) the state below carries it. */}
+			{count && (
+				<div className="flex items-center justify-end gap-2">
+					<span className="text-sc-xs whitespace-nowrap tabular-nums text-(--sc-text-muted)">{count}</span>
 					<IconButton
 						disabled={!resource.ready}
 						icon={<RefreshCw />}
@@ -207,7 +203,7 @@ function TabPanel({
 						size="sm"
 					/>
 				</div>
-			</div>
+			)}
 			{children}
 			{footer && <p className="text-sc-xs text-(--sc-text-muted)">{footer}</p>}
 		</div>
@@ -568,11 +564,10 @@ export function PluginsSection({ tab, onTabChange, query }: PluginsSectionProps)
 
 	return (
 		<div className="flex flex-col gap-4">
-			{/* A narrow column wraps the tab row instead of widening the page. */}
+			{/* A narrow column scrolls the tab row sideways instead of wrapping it or widening the page. */}
 			<Tabs
 				activeId={tab}
 				ariaLabel={t("settings.resources.title")}
-				className="flex-wrap"
 				onChange={id => onTabChange(id as PluginsTab)}
 				tabs={tabs}
 			/>

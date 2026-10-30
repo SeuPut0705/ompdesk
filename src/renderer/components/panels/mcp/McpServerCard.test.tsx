@@ -1,7 +1,7 @@
 /**
  * The MCP server row says why a server is off, or that it needs a sign-in, in one muted line under the target and
- * puts the fix on that line as a button (never only in the ⋯ menu); the button fires the card action the parent
- * handles.
+ * puts the fix as a button in the row's right-hand action column (never only in the ⋯ menu); the button fires the
+ * card action the parent handles.
  */
 import { parseHTML } from "linkedom";
 import { act } from "react";
@@ -76,9 +76,9 @@ async function mount(
 type Mock = ReturnType<typeof vi.fn<(action: McpCardAction) => void>>;
 
 const note = (): Element | null => document.querySelector("[data-mcp-note]");
-/** The fix buttons on the note line; the (i) glyph is a button too but explains, it does not act. */
+/** The fix button in the row's right-hand action column (not on the note line). */
 const noteButtons = (): Element[] =>
-	[...(note()?.querySelectorAll("button") ?? [])].filter(item => !item.hasAttribute("data-setting-info"));
+	[...document.querySelectorAll("[data-mcp-meta] button")].filter(item => !item.hasAttribute("data-setting-info"));
 
 async function click(element: Element | undefined): Promise<void> {
 	if (!element) throw new Error("click: element missing");
