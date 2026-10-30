@@ -3466,11 +3466,14 @@ button.omp-file-chip-name:hover {
 	font-feature-settings: normal;
 }
 
-/* An empty composer is one line tall: a placeholder longer than the pane
-   stays on that line, clipped, instead of wrapping under a scrollbar. */
+/* An empty composer is one line tall: a placeholder longer than the pane stays on that line instead of wrapping under
+   a scrollbar. Its end fades out rather than being cut mid-glyph (a phone's question placeholder): Chromium draws no
+   `text-overflow` ellipsis for a textarea's placeholder. The fade covers the last 1.5em only, past the caret and any
+   placeholder that fits. */
 .omp-composer-input:placeholder-shown {
 	overflow: hidden;
 	white-space: nowrap;
+	mask-image: linear-gradient(to right, #000 calc(100% - 1.5em), transparent);
 }
 
 /* The browser sizes the field to its text (use-composer-field.ts keeps only the ceiling, 40% of the pane, in

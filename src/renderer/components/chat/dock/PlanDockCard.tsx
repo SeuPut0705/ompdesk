@@ -31,8 +31,18 @@ import { usePlanApprovalStore } from "../../../stores/plan-approval";
 import { type SessionStore, useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { toast, toastError } from "../../../stores/toast";
-import { Badge, Button, EmptyState, ErrorDetail, IconButton, Spinner, Switch, Tabs, TextArea } from "../../common";
-import { PanelActions } from "../../panels/PanelChrome";
+import {
+	Badge,
+	Button,
+	EmptyState,
+	ErrorDetail,
+	IconButton,
+	Spinner,
+	Switch,
+	SwitchField,
+	Tabs,
+	TextArea,
+} from "../../common";
 import { DockCard } from "./DockCard";
 
 const POLL_STREAMING_MS = 3000;
@@ -356,23 +366,45 @@ export function PlanDockCard({ presentation = "dock" }: { presentation?: "dock" 
 	return (
 		<Frame
 			actions={
-				<>
-					<IconButton
-						icon={<RefreshCw />}
-						label={t("planPanel.refresh")}
-						loading={loading}
-						onClick={() => void load()}
-						size="sm"
-					/>
-					<Switch
-						checked={planModeEnabled}
-						disabled={toggling}
-						label={t("planPanel.toggle")}
-						onCheckedChange={() => void togglePlanMode()}
-						size="sm"
-						title={t("planPanel.exit")}
-					/>
-				</>
+				presentation === "sheet" ? (
+					// The sheet has no "Plan mode" badge beside the switch, so the switch carries its own visible label.
+					<>
+						<SwitchField
+							checked={planModeEnabled}
+							className="min-w-0 flex-1"
+							disabled={toggling}
+							label={t("planPanel.badge.on")}
+							onCheckedChange={() => void togglePlanMode()}
+							size="sm"
+							title={planModeEnabled ? t("planPanel.exit") : t("planPanel.toggle")}
+						/>
+						<IconButton
+							icon={<RefreshCw />}
+							label={t("planPanel.refresh")}
+							loading={loading}
+							onClick={() => void load()}
+							size="sm"
+						/>
+					</>
+				) : (
+					<>
+						<IconButton
+							icon={<RefreshCw />}
+							label={t("planPanel.refresh")}
+							loading={loading}
+							onClick={() => void load()}
+							size="sm"
+						/>
+						<Switch
+							checked={planModeEnabled}
+							disabled={toggling}
+							label={t("planPanel.toggle")}
+							onCheckedChange={() => void togglePlanMode()}
+							size="sm"
+							title={t("planPanel.exit")}
+						/>
+					</>
+				)
 			}
 			badge={
 				<span className="flex shrink-0 items-center gap-1.5">
@@ -586,7 +618,7 @@ export function PlanDockCard({ presentation = "dock" }: { presentation?: "dock" 
 function PlanSheetFrame({ actions, children }: ComponentProps<typeof DockCard>) {
 	return (
 		<div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto p-2">
-			<PanelActions>{actions}</PanelActions>
+			<div className="no-drag flex shrink-0 items-center gap-1 pb-1">{actions}</div>
 			{children}
 		</div>
 	);

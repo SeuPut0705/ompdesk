@@ -21,6 +21,7 @@ import {
 } from "react";
 import type { LoginProvider, ModelInfo } from "../../../shared/rpc-types";
 import { applyModelInfo, hydrateSession } from "../../hooks/use-rpc-events";
+import { useShellInput } from "../../hooks/use-shell-mode";
 import { compactionPointValue, useCompactionPoints } from "../../lib/compaction-limits";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { cx, formatTokens } from "../../lib/format";
@@ -65,6 +66,7 @@ export function ModelPicker() {
 	const tabRpc = useTabRpc();
 	const tabId = useRuntimeTabId();
 	const t = useT();
+	const touch = useShellInput() === "touch";
 	const open = useUiStore(state => state.modelPickerOpen);
 	const close = useUiStore(state => state.closeModelPicker);
 	const openProviders = useUiStore(state => state.openProviders);
@@ -545,15 +547,20 @@ export function ModelPicker() {
 					className="flex items-center gap-3 border-t border-(--sc-divider) px-2 py-1 text-sc-2xs text-(--sc-text-muted)"
 					title={t("modelPicker.defaultHint")}
 				>
-					<span className="flex shrink-0 items-center gap-1 max-sm:hidden">
-						<Kbd shortcut="↑" />
-						<Kbd shortcut="↓" />
-						{t("modelPicker.keys.move")}
-					</span>
-					<span className="flex shrink-0 items-center gap-1 max-sm:hidden">
-						<Kbd shortcut="↵" />
-						{t("modelPicker.keys.pick")}
-					</span>
+					{/* Keys mean nothing on a touch screen (Kbd draws no glyph there): the row keeps Manage providers. */}
+					{!touch && (
+						<>
+							<span className="flex shrink-0 items-center gap-1 max-sm:hidden">
+								<Kbd shortcut="↑" />
+								<Kbd shortcut="↓" />
+								{t("modelPicker.keys.move")}
+							</span>
+							<span className="flex shrink-0 items-center gap-1 max-sm:hidden">
+								<Kbd shortcut="↵" />
+								{t("modelPicker.keys.pick")}
+							</span>
+						</>
+					)}
 					<Button className="ml-auto" icon={<Settings2 />} onClick={manageProviders} size="sm" variant="ghost">
 						{t("modelPicker.manageProviders")}
 					</Button>

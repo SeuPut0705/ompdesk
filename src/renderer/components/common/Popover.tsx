@@ -10,7 +10,15 @@
  * list of actions use MenuButton instead.
  */
 
-import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+	type CSSProperties,
+	type ReactNode,
+	type RefObject,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 import { createPortal } from "react-dom";
 import { useBackLayer } from "../../hooks/use-back-layer";
 import { useShellInput, useShellMode } from "../../hooks/use-shell-mode";
@@ -24,6 +32,21 @@ export type PopoverPlacement = "bottom-start" | "bottom-end" | "top-start" | "to
 
 const GAP = 6;
 const MARGIN = 8;
+
+/**
+ * The room on the side the popover prefers, as `--omp-popover-room` on its layer, so a tall panel (the Run settings)
+ * can cap itself to it (`max-h-[min(40rem,var(--omp-popover-room))]`) and scroll instead of flipping or covering the
+ * window's top bars: above its anchor the room ends under the lowest `.omp-topbar` that sits above it.
+ */
+function preferredRoom(anchor: DOMRect, placement: PopoverPlacement): number {
+	if (placement.startsWith("bottom")) return window.innerHeight - anchor.bottom - GAP - MARGIN;
+	let ceiling = 0;
+	for (const bar of document.querySelectorAll<HTMLElement>(".omp-topbar")) {
+		const { bottom } = bar.getBoundingClientRect();
+		if (bottom <= anchor.top) ceiling = Math.max(ceiling, bottom);
+	}
+	return anchor.top - GAP - ceiling - MARGIN;
+}
 
 /** Popover panel visuals. */
 export function PopoverSurface({ className, children }: { className?: string; children: ReactNode }) {
@@ -63,7 +86,7 @@ export function Popover({
 	const panelRef = useRef<HTMLDivElement>(null);
 	const onCloseRef = useRef(onClose);
 	onCloseRef.current = onClose;
-	const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
+	const [position, setPosition] = useState<{ left: number; top: number; room: number } | null>(null);
 	const sheet = useShellMode() === "phone";
 	const touch = useShellInput() === "touch";
 	// The system back gesture dismisses it on any touch screen, as it does a touch ContextMenu: on a tablet (where it
@@ -89,7 +112,7 @@ export function Popover({
 			if (top < MARGIN) top = anchor.bottom + GAP;
 			left = Math.min(Math.max(MARGIN, left), window.innerWidth - width - MARGIN);
 			top = Math.min(Math.max(MARGIN, top), window.innerHeight - height - MARGIN);
-			setPosition({ left, top });
+			setPosition({ left, top, room: Math.max(0, preferredRoom(anchor, placement)) });
 		};
 		place();
 		window.addEventListener("resize", place);
@@ -166,7 +189,15 @@ export function Popover({
 			ref={panelRef}
 			role="dialog"
 			// Unpositioned first frame: transparent rather than hidden, so focus can land inside.
-			style={position ?? { left: 0, top: 0, opacity: 0 }}
+			style={
+				position
+					? ({
+							left: position.left,
+							top: position.top,
+							"--omp-popover-room": `${position.room}px`,
+						} as CSSProperties)
+					: { left: 0, top: 0, opacity: 0 }
+			}
 			tabIndex={-1}
 		>
 			<PopoverSurface className={className}>{children}</PopoverSurface>

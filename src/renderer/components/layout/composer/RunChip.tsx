@@ -100,6 +100,8 @@ export function RunChip() {
 					</>
 				}
 				describe={false}
+				// Open, the popover says it all; the tooltip otherwise sat over the popover's last rows.
+				hidden={open}
 			>
 				<Button
 					aria-busy={delegation.pending || undefined}
@@ -145,7 +147,7 @@ export function RunChip() {
 			<Popover
 				anchorRef={triggerRef}
 				ariaLabel={title}
-				className="max-h-[min(40rem,calc(100dvh-6rem))] w-96 max-w-[calc(100vw-1rem)] overflow-y-auto"
+				className="max-h-[min(40rem,var(--omp-popover-room,calc(100dvh-6rem)))] w-96 max-w-[calc(100vw-1rem)] overflow-y-auto"
 				onClose={close}
 				open={open}
 				placement="top-start"

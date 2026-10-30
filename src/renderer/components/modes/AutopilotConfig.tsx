@@ -172,7 +172,7 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 			{block && <InlineNotice title={t(`autopilot.sheet.blocked.${block}`)} tone="info" />}
 
 			<fieldset className="settings-section-body min-w-0" disabled={block !== null}>
-				<SettingsAdvanced>
+				<SettingsAdvanced label={t("autopilot.sheet.options")}>
 					<SettingsRow
 						badge={<SettingInfo text={shipNote} />}
 						compactControl

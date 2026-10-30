@@ -113,23 +113,15 @@ export function JobsPanel() {
 						<span title={title} className="line-clamp-2 min-w-0 flex-1 text-sc-sm break-words text-(--sc-text)">
 							{title}
 						</span>
-						<Badge dot pulse={job.status === "running"} variant={STATUS_VARIANT[job.status]}>
-							{t(job.cancellationPending ? "jobs.cancelling" : `jobs.status.${job.status}`)}
-						</Badge>
-					</div>
-					<div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-sc-xs text-(--sc-text-muted)">
-						<span className="shrink-0">{t(`jobs.type.${job.type}`)}</span>
-						<span aria-hidden>·</span>
-						<span className="shrink-0 tabular-nums">
-							{live || job.endedAt !== undefined
-								? live
-									? formatElapsed(Math.max(0, now - job.startTime))
-									: formatDuration(Math.max(0, (job.endedAt ?? now) - job.startTime))
-								: t("jobs.durationUnavailable")}
-						</span>
+						{/* The group header already says "Running": a badge only where it says more (cancelling, settled states). */}
+						{!(job.status === "running" && !job.cancellationPending) && (
+							<Badge dot variant={STATUS_VARIANT[job.status]}>
+								{t(job.cancellationPending ? "jobs.cancelling" : `jobs.status.${job.status}`)}
+							</Badge>
+						)}
 						{job.status === "running" && row.cancellable && (
 							<Button
-								className="ml-auto shrink-0"
+								className="shrink-0"
 								size="sm"
 								variant="secondary"
 								disabled={job.cancellationPending || cancelling === job.id}
@@ -150,6 +142,17 @@ export function JobsPanel() {
 								{t("common.cancel")}
 							</Button>
 						)}
+					</div>
+					<div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-sc-xs text-(--sc-text-muted)">
+						<span className="shrink-0">{t(`jobs.type.${job.type}`)}</span>
+						<span aria-hidden>·</span>
+						<span className="shrink-0 tabular-nums">
+							{live || job.endedAt !== undefined
+								? live
+									? formatElapsed(Math.max(0, now - job.startTime))
+									: formatDuration(Math.max(0, (job.endedAt ?? now) - job.startTime))
+								: t("jobs.durationUnavailable")}
+						</span>
 					</div>
 					{preview && (
 						<details className="group/job mt-1.5" open={live}>

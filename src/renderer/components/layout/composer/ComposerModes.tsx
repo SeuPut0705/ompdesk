@@ -103,6 +103,8 @@ export function ModesSection({
 			<h3 className="text-sc-xs font-semibold tracking-wide text-(--sc-text-muted) uppercase">
 				{t("input.modes.label")}
 			</h3>
+			{/* Underlined tabs, not a segmented pick: the selected tab is only which mode's controls show (the Plan
+			    tab over an off Plan switch read as Plan chosen and off at once); a mode that is on says so in its badge. */}
 			<Tabs
 				activeId={tab}
 				ariaLabel={t("input.modes.label")}
@@ -114,7 +116,6 @@ export function ModesSection({
 					label: t(`input.modes.tab.${mode}`),
 					badge: active[mode] ? t("modesPanel.on") : undefined,
 				}))}
-				variant="segmented"
 			/>
 			<div className="min-h-0">
 				{tab === "plan" && <PlanModeConfig />}
