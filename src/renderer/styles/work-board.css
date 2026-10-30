@@ -154,31 +154,21 @@
 	color: var(--sc-text-secondary);
 }
 
-/* The strip's panel scrolls its sections under its own border: a head scrolled to the edge is half drawn there, its
-   text cut mid-glyph (phone audit, 390 px). A head stays whole at the top of its section instead, on a ground that
-   hides the rows passing under it; a washed section's head carries its wash over the panel's surface. */
-.omp-work-strip-body .omp-work-board-title {
-	position: sticky;
-	top: 0;
-	z-index: 1;
-	border-radius: var(--sc-radius-md);
-	background-color: var(--sc-elevated);
-}
-
-/* What the panel's height leaves below goes out in a fade, not a cut through the row's text (844 × 390: the last row
-   showed its upper half). The padding under the last row (the board's and this one) keeps a list that fits, or one
+/* The strip's panel scrolls its sections under its own border, so what lies at either edge fades out instead of being
+   cut through its text (phone audit, 390 and 844 × 390): the last 24 px at the bottom, the first 8 px at the top
+   (the board's own 8 px of padding, so a body at rest loses nothing). A zone's head is no sticky bar: pinned, it lay
+   over the first row of its section while that scrolled under it, 11 px of the goal row's tap taken (responsive audit
+   `overlap` / `stolen-tap`). The padding under the last row (the board's and this one) keeps a list that fits, or one
    scrolled to its end, from fading its last row's text. */
 .omp-work-strip-body {
 	padding-block-end: var(--sc-space-2);
-	mask-image: linear-gradient(to bottom, #000 calc(100% - var(--sc-space-6)), transparent);
-}
-
-.omp-work-strip-body .omp-work-board-section[data-tone="warning"] .omp-work-board-title {
-	background-image: linear-gradient(var(--sc-warning-soft), var(--sc-warning-soft));
-}
-
-.omp-work-strip-body .omp-work-board-section[data-tone="danger"] .omp-work-board-title {
-	background-image: linear-gradient(var(--sc-danger-soft), var(--sc-danger-soft));
+	mask-image: linear-gradient(
+		to bottom,
+		transparent,
+		#000 var(--sc-space-2),
+		#000 calc(100% - var(--sc-space-6)),
+		transparent
+	);
 }
 
 .omp-work-board-fold {
