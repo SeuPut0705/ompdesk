@@ -7,20 +7,22 @@ import { executableName, findOnPath, needsShell, spawnCommand } from "./spawn";
 
 type ReaRuntime = Omit<BuiltinReaState, "enabled">;
 
-/** A probe's answer, with the executables an available answer ran (they key the stored answer). */
-interface ReaProbe {
-	runtime: ReaRuntime;
-	tools?: ReaTools;
+/** Node and npx on PATH as `toolIdentity` names each (null: none there, or gone): what a probe ran, its answer's key. */
+interface ReaInstall {
+	node: string | null;
+	npx: string | null;
 }
 
-/** Each executable as `toolIdentity` names it. */
-interface ReaTools {
-	node: string;
-	npx: string;
+/** A probe's answer, with the executables it ran (they key the stored answer and the last unavailable one). */
+interface ReaProbe {
+	runtime: ReaRuntime;
+	install: ReaInstall;
 }
 
 /** The last available answer, kept across launches (`spawnReaState`). */
-interface StoredReaRuntime extends ReaTools {
+interface StoredReaRuntime {
+	node: string;
+	npx: string;
 	nodeVersion: string;
 }
 
@@ -54,7 +56,11 @@ async function toolIdentity(bin: string | null): Promise<string | null> {
 async function probeReaRuntime(): Promise<ReaProbe> {
 	const path = await spawnPath();
 	const node = findNode(path);
-	if (!node) return { runtime: { available: false, reason: "node-missing" } };
+	const npx = findNpx(path);
+	// Both identities are read before either binary runs: one replaced while the probe ran keys an answer no spawn matches.
+	const [nodeId, npxId] = await Promise.all([toolIdentity(node), toolIdentity(npx)]);
+	const install = { node: nodeId, npx: npxId };
+	if (!node) return { runtime: { available: false, reason: "node-missing" }, install };
 	const version = (bin: string) => {
 		const { promise, resolve, reject } = Promise.withResolvers<string>();
 		execFile(
@@ -70,49 +76,54 @@ async function probeReaRuntime(): Promise<ReaProbe> {
 		);
 		return promise;
 	};
-	// Each identity is read before its binary runs: one replaced while the probe ran keys an answer no spawn matches.
-	const nodeId = await toolIdentity(node);
 	let nodeVersion: string;
 	try {
 		nodeVersion = await version(node);
 	} catch {
-		return { runtime: { available: false, reason: "node-failed" } };
+		return { runtime: { available: false, reason: "node-failed" }, install };
 	}
-	if (!reaNodeSupported(nodeVersion)) return { runtime: { available: false, nodeVersion, reason: "node-version" } };
-	const npx = findNpx(path);
-	if (!npx) return { runtime: { available: false, nodeVersion, reason: "npx-missing" } };
-	const npxId = await toolIdentity(npx);
+	if (!reaNodeSupported(nodeVersion)) {
+		return { runtime: { available: false, nodeVersion, reason: "node-version" }, install };
+	}
+	if (!npx) return { runtime: { available: false, nodeVersion, reason: "npx-missing" }, install };
 	try {
 		await version(npx);
 	} catch {
-		return { runtime: { available: false, nodeVersion, reason: "npx-failed" } };
+		return { runtime: { available: false, nodeVersion, reason: "npx-failed" }, install };
 	}
-	return {
-		runtime: { available: true, nodeVersion },
-		...(nodeId && npxId ? { tools: { node: nodeId, npx: npxId } } : {}),
-	};
+	return { runtime: { available: true, nodeVersion }, install };
 }
 
 let cached: Promise<ReaProbe> | null = null;
+/** The last unavailable answer (`spawnReaState`); null once a probe found REA available. */
+let unavailable: ReaProbe | null = null;
 let stored: { file: string; read: Promise<StoredReaRuntime | null> } | null = null;
 
-/** Test seam: drop the cached probe so a stubbed PATH takes effect, and forget the stored answer read. */
+/** Test seam: drop the cached probe so a stubbed PATH takes effect, and forget the stored and unavailable answers. */
 export function resetReaRuntimeCache(): void {
 	cached = null;
+	unavailable = null;
 	stored = null;
 }
 
 /**
  * Every tab spawn asks, so the node/npx probe runs once per process, like
  * systemOmp. An unavailable result is not cached: the next spawn or Settings
- * read probes again after the user installs Node.
+ * read probes again after the user installs Node. It is kept as `unavailable`
+ * for a spawn to take while the executables it ran are unchanged.
  */
 function reaProbe(): Promise<ReaProbe> {
 	if (cached) return cached;
 	const pending = probeReaRuntime();
 	cached = pending;
 	void pending.then(result => {
-		if (!result.runtime.available && cached === pending) cached = null;
+		if (cached !== pending) return;
+		if (result.runtime.available) {
+			unavailable = null;
+			return;
+		}
+		cached = null;
+		unavailable = result;
 	});
 	return pending;
 }
@@ -136,10 +147,9 @@ async function readStored(file: string): Promise<StoredReaRuntime | null> {
 
 /** The probe's answer replaces the stored one: an available answer is written, any other removes it. */
 async function store(file: string, previous: StoredReaRuntime | null, probe: ReaProbe): Promise<void> {
-	const next =
-		probe.runtime.available && probe.tools && probe.runtime.nodeVersion
-			? { ...probe.tools, nodeVersion: probe.runtime.nodeVersion }
-			: null;
+	const { node, npx } = probe.install;
+	const { available, nodeVersion } = probe.runtime;
+	const next = available && node && npx && nodeVersion ? { node, npx, nodeVersion } : null;
 	if (previous?.node === next?.node && previous?.npx === next?.npx && previous?.nodeVersion === next?.nodeVersion)
 		return;
 	if (stored?.file === file) stored.read = Promise.resolve(next);
@@ -152,6 +162,12 @@ async function store(file: string, previous: StoredReaRuntime | null, probe: Rea
  * answer serves every later spawn and replaces the stored one). `node --version` and `npx --version` (through a
  * version manager's shims) took 0.3 to 1 s, all of it on a restored tab's way to its first spawn. No stored answer,
  * or other executables, waits for the probe as before.
+ *
+ * An unavailable answer (Node missing, too old, failing) is not stored across launches, and the probe runs again
+ * behind every spawn so a fix is seen; a spawn takes this process's last unavailable answer while Node and npx are
+ * the executables it ran, rather than waiting for `node --version` again (every tab of a machine whose Node is below
+ * REA's range paid it). A Node installed or upgraded behind PATH is another identity, so that spawn waits for the
+ * probe; a shim whose config picks another Node is the one change not seen, by the next spawn only.
  */
 export async function spawnReaState(pref: unknown, file: string): Promise<BuiltinReaState> {
 	const enabled = reaEnabled(pref);
@@ -160,11 +176,13 @@ export async function spawnReaState(pref: unknown, file: string): Promise<Builti
 	const probe = reaProbe();
 	void Promise.all([read, probe]).then(([previous, result]) => store(file, previous, result));
 	const last = await read;
-	if (last) {
+	const known = unavailable;
+	if (last || known) {
 		const path = await spawnPath();
-		const [nodeId, npxId] = await Promise.all([toolIdentity(findNode(path)), toolIdentity(findNpx(path))]);
-		if (nodeId === last.node && npxId === last.npx && reaNodeSupported(last.nodeVersion))
+		const [node, npx] = await Promise.all([toolIdentity(findNode(path)), toolIdentity(findNpx(path))]);
+		if (last && node === last.node && npx === last.npx && reaNodeSupported(last.nodeVersion))
 			return { enabled, available: true, nodeVersion: last.nodeVersion };
+		if (known && node === known.install.node && npx === known.install.npx) return { enabled, ...known.runtime };
 	}
 	return { enabled, ...(await probe).runtime };
 }

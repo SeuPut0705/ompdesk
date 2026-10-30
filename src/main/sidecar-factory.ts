@@ -161,7 +161,8 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 			bridgeDir,
 			builtinMcp: async () => {
 				const reaRoot = join(deps.builtinDir, "rea");
-				// Off asks nothing: the probe runs node and npx (seconds on Windows) and is not cached while Node is missing.
+				// Off asks nothing: the probe runs node and npx (seconds on Windows), and runs again behind every
+				// spawn while REA is unavailable.
 				const reaPref = deps.builtinReaPref();
 				const rea = reaEnabled(reaPref)
 					? reaExtensionArgs(

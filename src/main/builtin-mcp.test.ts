@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -174,5 +175,47 @@ describe.skipIf(process.platform === "win32")("spawnReaState", () => {
 		);
 		await expect(spawnReaState(true, file)).resolves.toMatchObject({ available: false, reason: "node-version" });
 		await vi.waitFor(async () => expect(await stored(file)).toBeNull());
+	});
+
+	it("serves an unavailable answer while Node is unchanged; a Node upgraded behind PATH is waited for", async () => {
+		const file = path.join(dir, "rea-runtime.json");
+		await installTools("unused");
+		await installKeg("v20.0.0");
+		// While a `gate` FIFO exists the old keg's `node` blocks on it, as a slow shim would.
+		const gate = path.join(dir, "gate");
+		await fs.writeFile(
+			path.join(dir, "Cellar", "v20.0.0", "node"),
+			`#!/bin/sh\necho node >> '${calls}'\nif [ -p '${gate}' ]; then read go < '${gate}'; fi\necho v20.0.0\n`,
+		);
+		await expect(spawnReaState(true, file)).resolves.toMatchObject({ available: false, reason: "node-version" });
+		expect(await probes()).toEqual(["node"]);
+		// The next tab takes that answer while the probe behind it (a fix is seen) is still running.
+		execFileSync("/usr/bin/mkfifo", [gate]);
+		await expect(spawnReaState(true, file)).resolves.toMatchObject({ available: false, reason: "node-version" });
+		await vi.waitFor(async () => expect(await probes()).toEqual(["node", "node"]));
+		await fs.writeFile(gate, "go\n");
+		// That probe settles first: one already running when Node changes answers for the Node it found.
+		await builtinReaState(true);
+		// `brew upgrade node`: the same `node` on PATH is another keg, so the spawn waits for the probe.
+		await installKeg("v26.0.0");
+		await expect(spawnReaState(true, file)).resolves.toEqual({
+			enabled: true,
+			available: true,
+			nodeVersion: "v26.0.0",
+		});
+		await vi.waitFor(async () => expect((await stored(file))?.nodeVersion).toBe("v26.0.0"));
+	});
+
+	it("an unavailable answer behind a shim is corrected by the probe behind the next spawn", async () => {
+		const file = path.join(dir, "rea-runtime.json");
+		await installShim("v20.0.0");
+		await expect(spawnReaState(true, file)).resolves.toMatchObject({ available: false, reason: "node-version" });
+		// `mise use node@26`: the shim is unchanged, so one spawn takes the old answer while its probe sees the fix.
+		await fs.writeFile(path.join(dir, "node-version"), "v26.0.0");
+		await expect(spawnReaState(true, file)).resolves.toMatchObject({ available: false, reason: "node-version" });
+		await vi.waitFor(async () => expect((await stored(file))?.nodeVersion).toBe("v26.0.0"));
+		await expect(spawnReaState(true, file)).resolves.toMatchObject({ available: true, nodeVersion: "v26.0.0" });
+		// Settings asks the probe itself, never the kept answer.
+		await expect(builtinReaState(true)).resolves.toMatchObject({ available: true, nodeVersion: "v26.0.0" });
 	});
 });
