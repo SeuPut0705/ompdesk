@@ -14,7 +14,7 @@
  */
 
 import { AlertTriangle, CheckCircle2, Info, X, XCircle } from "lucide-react";
-import { Fragment, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type CSSProperties, Fragment, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -161,15 +161,23 @@ export function ToastStack() {
 
 	// A work board docked along the window's right edge holds what needs the person at its top ("Needs you"); toasts
 	// there covered it (and its rows under them). With one on screen they gather at its foot instead, which is clear of
-	// the composer's Send and Stop (those sit in the transcript's column, left of the board).
+	// the composer's Send and Stop (those sit in the transcript's column, left of the board). A phone has no docked
+	// board but its status strip under the header: the stack starts below it (`stripBottom`), never over its line.
 	const [atFoot, setAtFoot] = useState(false);
+	const [stripBottom, setStripBottom] = useState<number | null>(null);
 	const shown = toasts.length > 0;
 	// Measured while any toast shows (4× a second; a few rects): the board docks, leaves (its last child finished) or goes
 	// with a tab switch independently of the toasts, and a stack left at the foot would cover Send and Stop.
 	useLayoutEffect(() => {
 		if (!shown) return;
 		const measure = () => {
-			if (document.documentElement.dataset.shell === "phone") return setAtFoot(false);
+			if (document.documentElement.dataset.shell === "phone") {
+				setAtFoot(false);
+				const chip = document.querySelector("[data-work-chip]")?.getBoundingClientRect();
+				setStripBottom(chip && chip.height > 0 ? Math.ceil(chip.bottom) : null);
+				return;
+			}
+			setStripBottom(null);
 			const right = window.innerWidth;
 			setAtFoot(
 				Array.from(document.querySelectorAll("[data-work-board-panel]")).some(panel => {
@@ -198,6 +206,7 @@ export function ToastStack() {
 			)}
 			data-toast-at={atFoot ? "board-foot" : undefined}
 			data-toast-stack
+			style={stripBottom === null ? undefined : ({ "--omp-toast-top": `${stripBottom + 8}px` } as CSSProperties)}
 			onBlur={event => {
 				if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusWithin(false);
 			}}

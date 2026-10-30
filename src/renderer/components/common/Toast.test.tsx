@@ -89,6 +89,26 @@ describe("ToastStack", () => {
 		await advance(8_000);
 		expect(cards()).toHaveLength(1);
 	});
+
+	it("on a phone starts under the work strip, never over its line", async () => {
+		document.documentElement.dataset.shell = "phone";
+		const chip = document.createElement("button");
+		chip.setAttribute("data-work-chip", "");
+		chip.getBoundingClientRect = () =>
+			({ top: 87, bottom: 115, height: 28, left: 0, right: 390, width: 390 }) as DOMRect;
+		document.body.appendChild(chip as never);
+		try {
+			await mount();
+			await act(async () => {
+				toast({ message: "Copied the link" });
+			});
+			const stack = document.querySelector("[data-toast-stack]") as HTMLElement | null;
+			expect(stack?.style.getPropertyValue("--omp-toast-top")).toBe("123px");
+		} finally {
+			chip.remove();
+			delete document.documentElement.dataset.shell;
+		}
+	});
 });
 
 describe("ToastStack Korean wrapping", () => {
