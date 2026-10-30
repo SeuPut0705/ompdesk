@@ -155,6 +155,10 @@ describe("MCP hub: REA", () => {
 			const client = session(await hubWith(), folder);
 			await initialize(client);
 			expect((await client.request("fixture/cwd")).result).toEqual({ cwd: folder });
+			// Windows refuses to remove a running process's working folder: REA must be gone before the folder goes.
+			const childPid = Pid.parse((await client.request("ping")).result).pid;
+			await client.close();
+			await expect.poll(() => gone(childPid), { timeout: 10_000 }).toBe(true);
 		} finally {
 			fs.rmSync(folder, { recursive: true, force: true });
 		}
