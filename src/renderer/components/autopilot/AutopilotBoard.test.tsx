@@ -275,7 +275,9 @@ describe("an Autopilot run on the work board", () => {
 		expect($("[data-autopilot-stall]")).toBeNull();
 		const stalls = [{ step: "ship queue", at: 1, ms: 3 * 60 * 60_000 }];
 		await act(async () => useAutopilotStore.getState().apply({ ...status, stalls }));
-		expect($("[data-autopilot-stall]")?.textContent).toBe(translate("autopilot.stalled", { step: "ship queue", min: 180 }));
+		expect($("[data-autopilot-stall]")?.textContent).toBe(
+			translate("autopilot.stalled", { step: "ship queue", min: 180 }),
+		);
 	});
 
 	it("lists what the cycles left for later, one line each, the first three and a row for the rest", async () => {

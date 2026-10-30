@@ -529,7 +529,10 @@ export class Autopilot {
 		if (!run) return;
 		if (QUOTA_ERROR.test(message)) {
 			// Stock's own auto-retry may still take it: look once it has had the chance, as for any other failure.
-			(this.#deps.after ?? afterMs)(() => this.#enqueue(run, () => this.#waitForQuota(run), "quota wait"), ERROR_GRACE_MS);
+			(this.#deps.after ?? afterMs)(
+				() => this.#enqueue(run, () => this.#waitForQuota(run), "quota wait"),
+				ERROR_GRACE_MS,
+			);
 			return;
 		}
 		// TurnResume arms its retry a moment after the failure is reported: look again once it has had the chance (the
@@ -1215,11 +1218,9 @@ export class Autopilot {
 	 * stopped, written to the runtime log (`chain-stall`) and shown in the run's status, and the next step starts.
 	 */
 	#enqueue(run: Run, work: () => Promise<void>, step = "step", maxMs?: number): void {
-		run.chain = run.steps
-			.run(work, step, maxMs)
-			.catch(error => {
-				if (!(error instanceof StepStalledError)) this.#log(`${run.tabId}: ${String(error)}`);
-			});
+		run.chain = run.steps.run(work, step, maxMs).catch(error => {
+			if (!(error instanceof StepStalledError)) this.#log(`${run.tabId}: ${String(error)}`);
+		});
 	}
 
 	#stepsOf(tabId: string): SerialChain {

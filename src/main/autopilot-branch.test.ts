@@ -480,7 +480,9 @@ describe("a failed turn", () => {
 			vi.useRealTimers();
 		}
 		const shown = await autopilot.handleCommand(win, sidecar, "ap-1", { type: "get_autopilot" }, "1");
-		expect((shown.data as AutopilotStatus).stalls).toEqual([expect.objectContaining({ step: "nudge", ms: 15 * 60_000 })]);
+		expect((shown.data as AutopilotStatus).stalls).toEqual([
+			expect.objectContaining({ step: "nudge", ms: 15 * 60_000 }),
+		]);
 		expect(world.stock("ap-1", "prompt")).toHaveLength(2);
 	});
 
