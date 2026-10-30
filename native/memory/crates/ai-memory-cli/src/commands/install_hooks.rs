@@ -4464,6 +4464,13 @@ pub(crate) fn ts_apply_marker_params(
 /// `project` outranks the remote and routes by name, so git is not consulted;
 /// otherwise the `upstream` remote, else `origin`. Normalising here keeps
 /// credentials embedded in a remote URL on the host.
+///
+/// `applyMarkerParams` asks for the remote on every captured event (each tool
+/// call and tool result), and its synchronous `git config` spawns blocked the
+/// host's event loop 18 ms per event (median of 40; two spawns in a checkout
+/// with only `origin`, macOS), so the answer is memoized per `cwd` like
+/// `repoRootProject`'s: a remote added or changed later is seen after the
+/// plugin reloads.
 pub(crate) const TS_IDENTITY: &str = r#"function markerAliases(text: string): string | undefined {
   let inTable = false;
   const declarations: string[] = [];
@@ -4540,8 +4547,17 @@ function identityStyleParam(style: string | undefined): "path" | "host_path" {
   return style?.trim() === "host_path" ? "host_path" : "path";
 }
 
+const remoteIdentityCache = new Map<string, string | undefined>();
+
 function discoverRemoteIdentity(cwd: string | undefined): string | undefined {
   if (!cwd) return undefined;
+  if (remoteIdentityCache.has(cwd)) return remoteIdentityCache.get(cwd);
+  const identity = gitRemoteIdentity(cwd);
+  remoteIdentityCache.set(cwd, identity);
+  return identity;
+}
+
+function gitRemoteIdentity(cwd: string): string | undefined {
   for (const name of ["upstream", "origin"]) {
     try {
       const remote = execFileSync("git", ["-C", cwd, "config", "--get", `remote.${name}.url`], {
@@ -16195,6 +16211,59 @@ mod identity_parity_tests {
         assert_eq!(
             String::from_utf8_lossy(&output.stderr),
             "?identity=acme%2Fplatform&identity_src=explicit||"
+        );
+    }
+
+    /// Every captured event asks for the remote; git runs once per `cwd` for
+    /// the life of the plugin, so a remote changed afterwards is not seen
+    /// until it reloads.
+    #[test]
+    fn the_typescript_port_asks_git_for_a_folders_remote_once() {
+        let strips_types = Command::new("node")
+            .args(["--experimental-strip-types", "-e", "0"])
+            .output()
+            .is_ok_and(|out| out.status.success());
+        if !strips_types {
+            return;
+        }
+        let tmp = tempfile::TempDir::new().unwrap();
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let git = |args: &[&str]| {
+            assert!(Command::new("git")
+                .args(args)
+                .current_dir(&repo)
+                .status()
+                .unwrap()
+                .success());
+        };
+        git(&["init", "-q"]);
+        git(&["remote", "add", "origin", "git@github.com:acme/api.git"]);
+        let module = tmp.path().join("memo.ts");
+        let source = format!(
+            "import {{ execFileSync }} from \"node:child_process\";\n\
+             {}\n\
+             const cwd = {};\n\
+             const first = discoverRemoteIdentity(cwd);\n\
+             execFileSync(\"git\", [\"-C\", cwd, \"remote\", \"set-url\", \"origin\", \"git@github.com:acme/web.git\"]);\n\
+             process.stdout.write(`${{first}}|${{discoverRemoteIdentity(cwd)}}`);\n",
+            super::TS_IDENTITY,
+            serde_json::to_string(&repo.to_string_lossy()).unwrap(),
+        );
+        std::fs::write(&module, source).unwrap();
+        let output = Command::new("node")
+            .args(["--experimental-strip-types", "--no-warnings"])
+            .arg(&module)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "github.com/acme/api|github.com/acme/api"
         );
     }
 }
