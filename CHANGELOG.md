@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.88.0] - 2026-10-31
+
+설정의 프로바이더 계정이 회사별로 묶이고, 묶음마다 "계정 추가" 버튼이 보여요.
+
+### 바뀐 것
+- Claude, ChatGPT처럼 프로바이더마다 한 묶음으로 보이고, 계정 줄에는 이메일·상태·사용량만 남았어요. ⋯ 메뉴에는 그 계정의 동작만 있어요.
+- 이름이 짧아졌어요(Claude, ChatGPT, Gemini, Grok). 플랜 이름은 omp가 알려 주는 대로 보여서, 구독 이름이 바뀌어도 따로 고칠 필요가 없어요.
+
+<!-- en -->
+
+Provider accounts in Settings are grouped by company, each group with a visible "Add account" button.
+
+### Changed
+- Each provider (Claude, ChatGPT, …) is one group; account rows show only the email, state and usage, and their ⋯ menu holds only that account's actions.
+- Shorter names (Claude, ChatGPT, Gemini, Grok). The plan name comes from omp as it reports it, so a renamed subscription shows up by itself.
+
 ## [0.87.0] - 2026-10-31
 
 에이전트 작업을 멈춰 세우던 제한을 없애고, 같은 일을 세션·창·기기마다 따로 하던 것을 한곳으로 모아 가볍게 했어요.
