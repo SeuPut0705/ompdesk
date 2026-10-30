@@ -286,6 +286,8 @@ describe("ExtensionDialog ask", () => {
 		expect(card().textContent).toContain("Where should this deploy?");
 		expect(card().textContent).not.toContain("Run the tests first?");
 		expect(buttonWithText("Submit")).toBeUndefined();
+		// The step chip says the header; the body does not repeat it above the question.
+		expect((card().textContent?.match(/Target/g) ?? []).length).toBe(1);
 		// A chip cuts a long label: hovering it names the label and the question that step asks.
 		expect(card().querySelector('[data-ask-step="0"]')?.getAttribute("title")).toBe(
 			"Target · Where should this deploy?",

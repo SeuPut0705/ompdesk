@@ -533,7 +533,7 @@ function AskDialog({
 							<button
 								aria-selected={index === step}
 								className={cx(
-									"flex shrink-0 items-center gap-1 rounded-(--sc-radius-full) border px-2.5 py-0.5 text-sc-xs transition-colors duration-(--sc-duration-fast)",
+									"flex max-w-full shrink-0 items-center gap-1 rounded-(--sc-radius-full) border px-2.5 py-0.5 text-sc-xs transition-colors duration-(--sc-duration-fast)",
 									index === step
 										? "border-(--sc-accent-border) bg-(--sc-accent-soft) text-(--sc-text)"
 										: "border-(--sc-border-subtle) text-(--sc-text-muted) hover:bg-(--sc-hover)",
@@ -548,7 +548,7 @@ function AskDialog({
 								type="button"
 							>
 								{isAnswered(index) && <Check aria-hidden className="size-3 text-(--sc-success)" />}
-								<span className="max-w-40 truncate">{item.header || index + 1}</span>
+								<span className="truncate">{item.header || index + 1}</span>
 								{isAnswered(index) && <span className="sr-only">{`, ${t("extDialog.ask.stepAnswered")}`}</span>}
 							</button>
 						))}
@@ -556,7 +556,7 @@ function AskDialog({
 				)}
 				<div className="space-y-2.5" key={question.id} ref={bodyRef}>
 					<div className="space-y-1">
-						{question.header && (
+						{question.header && total === 1 && (
 							<div className="text-sc-xs font-medium text-(--sc-text-muted)">{question.header}</div>
 						)}
 						<p
