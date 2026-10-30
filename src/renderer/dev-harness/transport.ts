@@ -263,6 +263,14 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				});
 			case "history_recent":
 				return respond(command, []);
+			case "preview_share_session":
+				return respond(command, {
+					snapshotId: "harness",
+					preview: JSON.stringify({ entries: [] }),
+					serverUrl: "http://127.0.0.1/local-share",
+					store: "blob",
+					redactionEnabled: true,
+				});
 			case "get_settings_schema":
 				return respond(command, SETTINGS_SCHEMA);
 			case "get_settings":
