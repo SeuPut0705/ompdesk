@@ -757,11 +757,11 @@ export class LocalHostServices implements HostServices {
 		tab.awaitingConnection = awaiting;
 		this.#emit(tab, "awaitingConnection", awaiting);
 		for (const view of tab.views) view.emit("awaitingConnection", awaiting);
+		this.#hostedChanged();
 	}
 
 	/** Spawn a hosted tab's omp if it has not run yet (a revived tab); its sidecar, or null when it is gone. */
 	startTab(id: string): SidecarLike | null {
-		this.#hostedChanged();
 		const tab = this.#byResumeId(id);
 		if (!tab) return null;
 		this.#start(tab);
@@ -805,11 +805,11 @@ export class LocalHostServices implements HostServices {
 			if (tab.sessionId !== undefined) session.sessionId = tab.sessionId;
 			if (tab.title) session.title = tab.title;
 			if (tab.asks.size > 0) session.awaitingInput = true;
+			if (tab.awaitingConnection) session.awaitingConnection = true;
 			sessions.push(session);
 		}
 		return sessions;
 	}
-			if (tab.awaitingConnection) session.awaitingConnection = true;
 
 	/** The omps here that run for paired devices, as members of a shared checkout (`checkout-peers.ts`). */
 	checkoutMembers(): CheckoutMember[] {

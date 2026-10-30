@@ -1677,6 +1677,8 @@ export interface IpcHostedSession {
 	awaitingInput?: true;
 	/** With `status` `error`: another omp still holds the session, a wait (as {@link IpcTabInfo.sessionHeld}). */
 	sessionHeld?: true;
+	/** This computer holds the tab's turn for its internet connection (turn-resume.ts): the row says so the whole wait. */
+	awaitingConnection?: true;
 	/** The paired device's name. */
 	device: string;
 }
@@ -1686,8 +1688,6 @@ export interface IpcSpawnTabResult {
 	 * Minted tab id. Null when the requested sessionPath is already attached
 	 * to a tab — the renderer switches to/focuses the owner instead of
 	 * spawning a second sidecar for the same file (F-OWN).
-	/** This computer holds the tab's turn for its internet connection (turn-resume.ts): the row says so the whole wait. */
-	awaitingConnection?: true;
 	 */
 	tabId: string | null;
 	/** Resolved cwd when main selected the default workspace (Work or chat tab). */
