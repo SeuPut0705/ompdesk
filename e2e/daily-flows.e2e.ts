@@ -584,7 +584,7 @@ test("daily flow c: a host's question survives a cut link, is answered on the de
 			expect(await exists()).toBe(true);
 			await row.hover();
 			await row.locator("[data-sidebar-row-menu]").click();
-			await a.getByRole("menuitem", { name: "Delete session" }).click();
+			await a.getByRole("menuitem", { name: "Delete", exact: true }).click();
 			const dialog = a.getByRole("dialog");
 			await expect(dialog).toContainText("on Host B");
 			await dialog.getByRole("button", { name: "Delete", exact: true }).click();

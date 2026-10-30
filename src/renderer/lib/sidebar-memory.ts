@@ -48,6 +48,8 @@ export interface SidebarFolds {
 	deviceColors: Record<string, DeviceColorChoice>;
 	/** The Archived section is open. */
 	archivedOpen: boolean;
+	/** A paired host's deviceId → its Archived section open (this device's is `archivedOpen`). */
+	deviceArchived: Record<string, boolean>;
 	/** The Get started checklist is open. */
 	starterOpen: boolean;
 	/** The footer usage block is folded to its header. */
@@ -79,6 +81,7 @@ export const EMPTY_FOLDS: SidebarFolds = {
 	chats: {},
 	deviceColors: {},
 	archivedOpen: false,
+	deviceArchived: {},
 	starterOpen: false,
 	usageCollapsed: false,
 	deviceOrder: [],
@@ -115,6 +118,7 @@ export function parseSidebarFolds(value: unknown): SidebarFolds {
 		chats: parseFlags(record.chats),
 		deviceColors: parseColors(record.deviceColors),
 		archivedOpen: record.archivedOpen === true,
+		deviceArchived: parseFlags(record.deviceArchived),
 		starterOpen: record.starterOpen === true,
 		usageCollapsed: record.usageCollapsed === true,
 		deviceOrder: parseDeviceOrder(record.deviceOrder),

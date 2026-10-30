@@ -141,7 +141,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // 3,206,471, 1,898 bytes over the measure above. The phone judge's follow-up (toasts under the work strip, a touch
 // sheet's focus on its panel, the disabled primary button, the ask card's header once; others' edits to the same
 // bundle in the tree: the composer, the palette): measured 3,207,596.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_208_000;
+// One session menu for every device's rows (`session-menu.ts`; 30 Oct 2026): a paired host's rows now rename, pin,
+// archive, move to a project and open in a split or window, with their own Archived section: measured 3,213,335,
+// 5,739 bytes over the measure above.
+const WEB_FIRST_SCREEN_JS_BYTES = 3_214_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

@@ -42,6 +42,7 @@ describe("remembered folds", () => {
 		folds.setDeviceGroupFolded("dev-1", "/srv/app", true);
 		folds.setChatsFolded(LOCAL_DEVICE, true);
 		folds.setArchivedOpen(true);
+		folds.setDeviceArchivedOpen("dev-1", true);
 		folds.setStarterOpen(true);
 		folds.setUsageCollapsed(true);
 
@@ -52,6 +53,7 @@ describe("remembered folds", () => {
 		expect(state.devices).toEqual({ [LOCAL_DEVICE]: true, "dev-1": true });
 		expect(state.deviceGroups).toEqual({ "dev-1\n/srv/app": true });
 		expect(state.chats).toEqual({ [LOCAL_DEVICE]: true });
+		expect(state.deviceArchived).toEqual({ "dev-1": true });
 		expect([state.archivedOpen, state.starterOpen, state.usageCollapsed]).toEqual([true, true, true]);
 		expect(get).not.toHaveBeenCalled();
 	});
@@ -89,6 +91,8 @@ describe("remembered folds", () => {
 		state.setDeviceFolded("dev-gone", true);
 		state.setDeviceGroupFolded("dev-live", "/a", true);
 		state.setDeviceGroupFolded("dev-gone", "/b", true);
+		state.setDeviceArchivedOpen("dev-live", true);
+		state.setDeviceArchivedOpen("dev-gone", true);
 
 		const exists = (key: string) => ["/work/live", "/repo"].includes(key);
 		folds.getState().pruneGroups(exists);
@@ -97,6 +101,7 @@ describe("remembered folds", () => {
 		expect(folds.getState().groups).toEqual({ "/work/live": true });
 		expect(folds.getState().devices).toEqual({ [LOCAL_DEVICE]: true, "dev-live": true });
 		expect(folds.getState().deviceGroups).toEqual({ "dev-live\n/a": true });
+		expect(folds.getState().deviceArchived).toEqual({ "dev-live": true });
 		// The pruned record is what the next start reads.
 		const next = await launch();
 		expect(next.folds.getState().groups).toEqual({ "/work/live": true });

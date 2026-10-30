@@ -680,7 +680,7 @@ test("a device deletes a host's session from its sidebar row: the host's omp let
 		const row = section.locator(`[data-device-session=${cssString(sessionPath)}]`);
 		await row.hover();
 		await row.locator("[data-sidebar-row-menu]").click();
-		await a.getByRole("menuitem", { name: "Delete session" }).click();
+		await a.getByRole("menuitem", { name: "Delete", exact: true }).click();
 		const dialog = a.getByRole("dialog");
 		await expect(dialog).toContainText("on Host B");
 		await dialog.getByRole("button", { name: "Delete", exact: true }).click();
@@ -754,7 +754,7 @@ test("a device deletes a host's session the host's own window has open: Stop and
 		const remove = async () => {
 			await row.hover();
 			await row.locator("[data-sidebar-row-menu]").click();
-			await a.getByRole("menuitem", { name: "Delete session" }).click();
+			await a.getByRole("menuitem", { name: "Delete", exact: true }).click();
 			await a.getByRole("dialog").getByRole("button", { name: "Delete", exact: true }).click();
 		};
 

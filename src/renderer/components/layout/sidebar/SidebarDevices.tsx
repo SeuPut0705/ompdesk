@@ -11,12 +11,12 @@
 import { closestCenter, DndContext, type DragEndEvent, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import {
+	Archive,
 	ArrowDown,
 	ArrowUp,
 	ChevronDown,
 	ChevronRight,
 	ExternalLink,
-	FileArchive,
 	Folder,
 	FolderMinus,
 	FolderOpen,
@@ -24,10 +24,9 @@ import {
 	MessageCircle,
 	Monitor,
 	MoreHorizontal,
+	Pin,
 	Plus,
 	Settings2,
-	Trash2,
-	X,
 } from "lucide-react";
 import { Fragment, type ReactNode, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
@@ -47,9 +46,12 @@ import { hostOrderKey, moveInOrder, reorderProjects } from "../../../lib/project
 import { sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
 import { deviceGroupKey, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { tabSignalPresentation } from "../../../lib/tab-signal";
+import { pickWorkspaceDirectory } from "../../../lib/workspace-dirs";
 import { useAgentReviewStore } from "../../../stores/agent-review";
 import { pickRemoteDirectory } from "../../../stores/remote";
+import type { SessionStore } from "../../../stores/session";
 import { sessionListFeed } from "../../../stores/session-list";
+import { sessionRuntimeStore } from "../../../stores/session-runtime-context";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { useSidebarPrefs } from "../../../stores/sidebar-prefs";
 import { useProjectList, useSidebarProjects } from "../../../stores/sidebar-projects";
@@ -59,22 +61,18 @@ import { useUiStore } from "../../../stores/ui";
 import { webPwa } from "../../../web/pwa";
 import { Button, IconButton, InlineNotice, ListRow, Spinner } from "../../common";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
-import {
-	anchorFromEvent,
-	ContextMenu,
-	type ContextMenuItem,
-	MenuButton,
-	type MenuSelectModifiers,
-} from "../../common/ContextMenu";
+import { anchorFromEvent, ContextMenu, type ContextMenuItem, MenuButton } from "../../common/ContextMenu";
 import { TimeAgo } from "../../common/TimeAgo";
 import { TabLiveAge, TabLiveTitle } from "../SessionLiveTitle";
 import { useHostWorkspace } from "./host-workspace";
 import { SidebarChats } from "./SidebarChats";
 import { useDeviceHeaderHandle } from "./SidebarDeviceSections";
 import { SidebarFoldButton } from "./SidebarFoldButton";
+import { SidebarRenameField } from "./SidebarRenameField";
 import { type FamilyOpened, SidebarLooseChildren, SidebarSubagents, SidebarSubagentsToggle } from "./SidebarSubagents";
 import { SortableProject } from "./SortableProject";
-import { type SessionList, useSessionReorder } from "./session-reorder";
+import { sessionMenuItems } from "./session-menu";
+import { canMoveWithin, type SessionList, useSessionReorder } from "./session-reorder";
 import { CHILD_TOKEN, openedChildStatus } from "./sidebar-family";
 
 const NO_OPENED: readonly FamilyOpened[] = [];
@@ -280,7 +278,7 @@ export function SidebarDeviceSection({
 
 	const openRemote = async (args: RemoteOpenArgs) => {
 		useUiStore.getState().closeDestination();
-		await useTabsStore.getState().openTab({ ...args, device: host.deviceId });
+		return useTabsStore.getState().openTab({ ...args, device: host.deviceId });
 	};
 
 	return (
@@ -376,11 +374,17 @@ function DeviceSessions({
 	nested: ReadonlySet<string> | undefined;
 	childForTab: (tab: SessionTab) => FamilyOpened;
 	onNewChat: () => void;
-	onOpen: (args: RemoteOpenArgs) => Promise<void>;
+	onOpen: (args: RemoteOpenArgs) => Promise<string | null>;
 	read: boolean;
 }) {
 	const t = useT();
-	const { sessions, isLoading, error, refresh, deleteSession } = useSessionList("global", host.deviceId, { read });
+	const { sessions, isLoading, error, refresh, deleteSession, renameSession } = useSessionList(
+		"global",
+		host.deviceId,
+		{
+			read,
+		},
+	);
 	const [pendingDelete, setPendingDelete] = useState<DeviceSession | null>(null);
 	const [deleting, setDeleting] = useState(false);
 	// A finger has no hover, so Close and Delete would sit on every row for good: one ⋯ opens them as an action sheet
@@ -389,6 +393,11 @@ function DeviceSessions({
 	const [rowMenu, setRowMenu] = useState<{ x: number; y: number; items: ContextMenuItem[]; label: string } | null>(
 		null,
 	);
+	// Where the open row menu stood: the Move to project… list opens in its place.
+	const menuAnchor = useRef({ x: 0, y: 0 });
+	const [moveMenu, setMoveMenu] = useState<{ session: DeviceSession; x: number; y: number } | null>(null);
+	const [renamingPath, setRenamingPath] = useState<string | null>(null);
+	const [renameDraft, setRenameDraft] = useState("");
 	const allTabs = useTabsStore(state => state.tabs);
 	const activeTabId = useTabsStore(state => state.activeTabId);
 	const destination = useUiStore(state => state.destination);
@@ -398,6 +407,20 @@ function DeviceSessions({
 	// The order the person set for this host's projects and each of its lists, kept with this computer's own.
 	const groupOrder = useSidebarPrefs(s => s.groupOrder);
 	const sessionOrder = useSidebarPrefs(s => s.sessionOrder);
+	// This host's pins and archive, kept in this computer's prefs under the host's id (`hostOrderKey`) beside the
+	// order, so this computer's own pins and archive never move with it. The local pin's omp resume-list sync does
+	// not apply to a host.
+	const pinnedSessions = useSidebarPrefs(s => s.pinnedSessions);
+	const archivedSessions = useSidebarPrefs(s => s.archivedSessions);
+	const prefix = hostOrderKey(host.deviceId, "");
+	const hostPins = useMemo(
+		() => pinnedSessions.filter(key => key.startsWith(prefix)).map(key => key.slice(prefix.length)),
+		[pinnedSessions, prefix],
+	);
+	const hostArchived = useMemo(
+		() => new Set(archivedSessions.filter(key => key.startsWith(prefix)).map(key => key.slice(prefix.length))),
+		[archivedSessions, prefix],
+	);
 	const deviceTabs = useMemo(() => allTabs.filter(tab => tab.device === host.deviceId), [allTabs, host.deviceId]);
 	const hostTabs = useMemo(() => deviceTabs.filter(tab => !nested?.has(tab.id)), [deviceTabs, nested]);
 
@@ -414,7 +437,6 @@ function DeviceSessions({
 	const liveSince = useRef(new Map<string, string>());
 	const tree = useMemo(() => {
 		const gone = new Set(projectList.gone ?? []);
-		const prefix = hostOrderKey(host.deviceId, "");
 		const since = liveSince.current;
 		for (const id of since.keys()) if (!deviceTabs.some(tab => tab.id === id)) since.delete(id);
 		let stamp = Date.now();
@@ -455,11 +477,11 @@ function DeviceSessions({
 				const project = projectList.worktrees[session.cwd];
 				return run && project ? { child: run.child, key: `${project}\n${run.run}` } : null;
 			},
-			archived: NO_PATHS,
+			archived: hostArchived,
 			nested: nested ?? NO_PATHS,
 			// Kept in this computer's prefs under the host's id, so this computer's own lists never move with it.
 			order: {
-				pinnedSessions: [],
+				pinnedSessions: hostPins,
 				pinnedGroups: [],
 				groupOrder: groupOrder.filter(key => key.startsWith(prefix)).map(key => key.slice(prefix.length)),
 				sessionOrder: list => sessionOrder[hostOrderKey(host.deviceId, list)],
@@ -478,13 +500,17 @@ function DeviceSessions({
 		nested,
 		groupOrder,
 		sessionOrder,
+		hostPins,
+		hostArchived,
+		prefix,
 		query,
 	]);
-	const { chats, groups, children: familyChildrenOf } = tree;
+	const { chats, groups, children: familyChildrenOf, archived: archivedRows } = tree;
+	const archivedOpen = useSidebarFolds(s => s.deviceArchived[host.deviceId] === true);
+	const archivedShown = archivedOpen || query.length > 0;
 
 	/** Moves a project of this host up or down; the other projects of every device keep their order. */
 	const saveGroupOrder = (next: readonly string[]) => {
-		const prefix = hostOrderKey(host.deviceId, "");
 		const others = useSidebarPrefs.getState().groupOrder.filter(key => !key.startsWith(prefix));
 		void useSidebarPrefs
 			.getState()
@@ -517,9 +543,10 @@ function DeviceSessions({
 		// A row the host has no file for yet (a new tab's) has no place to keep.
 		const stored = (list: readonly DeviceSession[]) =>
 			list.filter(row => row.liveTabId === undefined).map(row => row.path);
-		if (chats.some(item => item.path === session.path)) return { key: CHATS_ORDER_KEY, paths: stored(chats) };
+		if (chats.some(item => item.path === session.path))
+			return { key: CHATS_ORDER_KEY, paths: stored(chats), pinned: hostPins };
 		const group = groups.find(item => item.sessions.some(row => row.path === session.path));
-		return group ? { key: group.cwd, paths: stored(group.sessions) } : null;
+		return group ? { key: group.cwd, paths: stored(group.sessions), pinned: hostPins } : null;
 	};
 	// Kept in this computer's prefs under the host's id, so this computer's own lists never move with it.
 	const reorder = useSessionReorder({
@@ -530,9 +557,9 @@ function DeviceSessions({
 		save: (list, next) =>
 			void useSidebarPrefs.getState().setSessionOrder(hostOrderKey(host.deviceId, list.key), [...next]),
 	});
-	const moveSession = (session: DeviceSession, delta: number): boolean => {
+	const moveSession = (session: DeviceSession, delta: -1 | 1): boolean => {
 		const list = listOf(session);
-		const next = list && moveInOrder(list.paths, session.path, delta);
+		const next = canMoveWithin(list, session.path, delta) && list && moveInOrder(list.paths, session.path, delta);
 		if (!list || !next) return false;
 		reorder.move(list, session.path, next, sessionDisplayTitle(session, ""));
 		return true;
@@ -686,6 +713,135 @@ function DeviceSessions({
 		}
 	};
 
+	/** Shows a new name in the title bar of the tab that holds the session, without waiting for the list to refresh. */
+	const showName = (session: DeviceSession, name: string) => {
+		const store = sessionRuntimeStore<SessionStore>(tabFor(session)?.id ?? null, "session");
+		if (store?.getState().sessionId === session.id) store.setState({ sessionName: name });
+	};
+	const startRename = (session: DeviceSession) => {
+		setRenameDraft(sessionDisplayTitle(session, ""));
+		setRenamingPath(session.path);
+	};
+	const commitRename = (session: DeviceSession, value: string) => {
+		setRenamingPath(null);
+		const name = value.trim();
+		if (!name || name === session.title) return;
+		renameSession(session.path, name).then(
+			() => showName(session, name),
+			error => toastError({ title: t("sidebar.renameFailed"), error }),
+		);
+	};
+
+	/** Open a stored session in a new tab placed beside the focused one (this computer's rule, Sidebar.tsx). */
+	const openInSplit = async (session: DeviceSession) => {
+		const anchorTabId = useTabsStore.getState().activeTabId;
+		const opened = await onOpen({ cwd: session.cwd, sessionPath: session.path, kind: session.kind ?? "agent" });
+		if (!opened || !anchorTabId || opened === anchorTabId) return;
+		// openTab focused the new tab: bring the previous one back, then split the new one in beside it.
+		await useTabsStore.getState().switchTab(anchorTabId);
+		await useTabsStore.getState().splitTab(opened, "right");
+	};
+
+	/** Move a stored session's file to another project folder of the host (stock SessionManager.moveTo there). */
+	const moveStoredSession = async (session: DeviceSession, target: string) => {
+		setMoveMenu(null);
+		try {
+			const movedPath = await window.omp.sessions.move(session.path, target, host.deviceId);
+			// Pins are kept by file path, which the move changed.
+			const prefs = useSidebarPrefs.getState();
+			const pinKey = hostOrderKey(host.deviceId, session.path);
+			if (movedPath !== session.path && prefs.pinnedSessions.includes(pinKey)) {
+				await prefs.toggleSessionPin(pinKey);
+				await prefs.toggleSessionPin(hostOrderKey(host.deviceId, movedPath));
+			}
+			toast({ variant: "success", message: t("sidebar.moved", { name: basename(target) || target }) });
+			refresh();
+		} catch (error) {
+			toastError({ title: t("sidebar.moveFailed"), error });
+		}
+	};
+	const moveToOtherFolder = async (session: DeviceSession) => {
+		try {
+			const picked = await pickWorkspaceDirectory({
+				title: t("sidebar.move.pickTitle"),
+				buttonLabel: t("sidebar.move.pickButton"),
+				device: host.deviceId,
+			});
+			if (picked && picked !== session.cwd) await moveStoredSession(session, picked);
+		} catch (error) {
+			toastError({ title: t("sidebar.moveFailed"), error });
+		}
+	};
+
+	/** The row's menu: the one builder this computer's rows use (session-menu.ts), with what a host's row can do. */
+	const menuFor = (session: DeviceSession): ContextMenuItem[] => {
+		const tab = tabFor(session);
+		const list = listOf(session);
+		const signal = tab && tab.status !== "asleep" ? tabSignalPresentation(tab) : null;
+		return sessionMenuItems({
+			facts: {
+				// A tab's row whose omp already names its file is the host's session as much as an indexed one: it can be
+				// renamed and deleted there; one still on `tab:<id>` has no file.
+				stored: !session.path.startsWith("tab:"),
+				hasTab: tab !== undefined,
+				busy: signal?.active === true,
+				tabFocused: tab !== undefined && tab.id === activeTabId,
+				tabInSplit: tab !== undefined && splitIds?.has(tab.id) === true,
+				splitShown: splitIds !== null,
+				canCloseTab: allTabs.length > 1,
+				chat: session.kind === "chat",
+				pinned: hostPins.includes(session.path),
+				archived: hostArchived.has(session.id),
+				agentHidden: false,
+				canMoveUp: canMoveWithin(list, session.path, -1),
+				canMoveDown: canMoveWithin(list, session.path, 1),
+			},
+			actions: {
+				openSplit: () => void openInSplit(session),
+				openWindow: () =>
+					void window.omp.sessions
+						.openInNewWindow({ sessionPath: session.path, cwd: session.cwd, device: host.deviceId })
+						.then(
+							ok => {
+								if (!ok) toast({ variant: "error", message: t("sidebar.openFailed") });
+							},
+							error => toastError({ title: t("sidebar.openFailed"), error }),
+						),
+				...(tab
+					? {
+							splitTab: placement => {
+								useUiStore.getState().closeDestination();
+								void useTabsStore.getState().splitTab(tab.id, placement);
+							},
+							unsplit: () => void useTabsStore.getState().unsplit(tab.id),
+							closeTab: () => void useTabsStore.getState().closeTab(tab.id),
+						}
+					: {}),
+				rename: () => startRename(session),
+				togglePin: () =>
+					void useSidebarPrefs.getState().toggleSessionPin(hostOrderKey(host.deviceId, session.path)),
+				...(list
+					? {
+							moveUp: () => void moveSession(session, -1),
+							moveDown: () => void moveSession(session, 1),
+						}
+					: {}),
+				moveToProject: () => setMoveMenu({ session, ...menuAnchor.current }),
+				toggleArchive: () =>
+					void useSidebarPrefs
+						.getState()
+						.setSessionsArchived([hostOrderKey(host.deviceId, session.id)], !hostArchived.has(session.id)),
+				saveBundle: anonymized => {
+					if (tab)
+						void saveDiagnosticBundle({ tabId: tab.id, title: sessionDisplayTitle(session, "") }, anonymized);
+				},
+				remove: () => setPendingDelete(session),
+			},
+			t,
+			altHint: !touchInput,
+		});
+	};
+
 	const renderRow = (session: DeviceSession) => {
 		const tab = tabFor(session);
 		// A tab restored asleep when this computer launched (no omp attached until it is shown) has heard nothing of the
@@ -703,6 +859,34 @@ function DeviceSessions({
 		const active = (current || inVisibleSplit) && destination === "session";
 		const indexed = session.liveTabId === undefined;
 		const title = sessionDisplayTitle(session, indexed ? t("sidebar.untitled") : t("sidebar.newSession"));
+		if (renamingPath === session.path) {
+			const rovingKey = `device-session:${host.deviceId}:${session.path}`;
+			const stopRenaming = () => {
+				setRenamingPath(null);
+				// The field unmounts: the row takes focus back.
+				requestAnimationFrame(() =>
+					document.querySelector<HTMLElement>(`[data-roving-item="${CSS.escape(rovingKey)}"]`)?.focus(),
+				);
+			};
+			return (
+				<div className="omp-sidebar-session-rename grid content-center py-0.5 pr-1 pl-1" key={session.path}>
+					<SidebarRenameField
+						onCancel={stopRenaming}
+						onChange={setRenameDraft}
+						onCommit={(value, via) => {
+							commitRename(session, value);
+							if (via === "enter") stopRenaming();
+						}}
+						onGenerated={generated => {
+							showName(session, generated);
+							stopRenaming();
+						}}
+						tabId={tab?.id}
+						value={renameDraft}
+					/>
+				</div>
+			);
+		}
 		// No leading slot (the local rows' rule, Sidebar.tsx): the title starts at the group's content edge, a chat's
 		// glyph sits at the end before the age, and a tab open elsewhere is said in words only.
 		const openElsewhere = tab !== undefined && !current && !inVisibleSplit;
@@ -716,58 +900,9 @@ function DeviceSessions({
 				waiting={waiting}
 			/>
 		);
-		// A row the host has not written to disk yet has no file to delete; closing its tab is all there is.
-		const deletable = !session.path.startsWith("tab:") && !signal?.running;
-		const closeSession = () => {
-			if (tab) void useTabsStore.getState().closeTab(tab.id);
-		};
 		const list = listOf(session);
-		const index = list ? list.paths.indexOf(session.path) : -1;
-		const menuItems: ContextMenuItem[] = [
-			...(tab ? [{ id: "close", label: t("sidebar.menu.closeSession"), icon: X, onSelect: closeSession }] : []),
-			...(list
-				? [
-						{
-							id: "move-up",
-							label: t("sidebar.menu.moveUp"),
-							icon: ArrowUp,
-							disabled: index <= 0,
-							onSelect: () => moveSession(session, -1),
-						},
-						{
-							id: "move-down",
-							label: t("sidebar.menu.moveDown"),
-							icon: ArrowDown,
-							disabled: index === -1 || index >= list.paths.length - 1,
-							onSelect: () => moveSession(session, 1),
-						},
-					]
-				: []),
-			// Stock's `/dump` runs in the omp the tab drives, on the host: a session no tab holds has nothing to dump.
-			...[false, true].map(anonymizedItem => ({
-				id: anonymizedItem ? "dump-bundle-anonymized" : "dump-bundle",
-				separatorBefore: !anonymizedItem,
-				label: t(anonymizedItem ? "diagnosticBundle.saveAnonymized" : "diagnosticBundle.save"),
-				icon: FileArchive,
-				disabled: tab === undefined,
-				disabledReason: t("diagnosticBundle.needsOpenTab"),
-				onSelect: (modifiers?: MenuSelectModifiers) => {
-					if (tab)
-						void saveDiagnosticBundle({ tabId: tab.id, title }, anonymizedItem || modifiers?.altKey === true);
-				},
-			})),
-			...(deletable
-				? [
-						{
-							id: "delete",
-							label: t("sidebar.delete"),
-							icon: Trash2,
-							danger: true,
-							onSelect: () => setPendingDelete(session),
-						},
-					]
-				: []),
-		];
+		const pinned = hostPins.includes(session.path);
+		const marker = chat ?? (pinned ? <Pin aria-label={t("sidebar.pinned")} className="size-(--sc-icon-sm)" /> : null);
 		// Its family, as a local row's (Sidebar.tsx): the tab's subagents and the sessions its agent opened on this host.
 		const children = familyChildrenOf.get(session.path);
 		const opened = children ? children.map(familyChildFor) : NO_OPENED;
@@ -779,19 +914,17 @@ function DeviceSessions({
 				<ListRow
 					// One ⋯ on every input, so the title keeps its width; at rest under touch, on hover or focus elsewhere.
 					actions={
-						menuItems.length > 0 && (
-							<IconButton
-								data-sidebar-row-menu
-								icon={<MoreHorizontal />}
-								label={t("sidebar.sessionMenu")}
-								onClick={event => {
-									const rect = event.currentTarget.getBoundingClientRect();
-									setRowMenu({ x: rect.left, y: rect.bottom + 4, items: menuItems, label: title });
-								}}
-								size="sm"
-								tabIndex={-1}
-							/>
-						)
+						<IconButton
+							data-sidebar-row-menu
+							icon={<MoreHorizontal />}
+							label={t("sidebar.sessionMenu")}
+							onClick={event => {
+								const rect = event.currentTarget.getBoundingClientRect();
+								setRowMenu({ x: rect.left, y: rect.bottom + 4, items: menuFor(session), label: title });
+							}}
+							size="sm"
+							tabIndex={-1}
+						/>
 					}
 					actionCount={1}
 					actionsAtRest={touchInput}
@@ -807,14 +940,18 @@ function DeviceSessions({
 								moveSession(session, event.key === "ArrowUp" ? -1 : 1)
 							)
 								event.preventDefault();
+							else if (event.key === "F2" && indexed) {
+								event.preventDefault();
+								startRename(session);
+							}
 						},
 					}}
 					className="omp-sidebar-session-row"
 					key={session.path}
 					meta={
-						chat || age ? (
+						marker || age ? (
 							<span className="inline-flex min-w-0 items-center gap-1.5">
-								{chat}
+								{marker}
 								{age}
 							</span>
 						) : undefined
@@ -825,10 +962,8 @@ function DeviceSessions({
 						// dropped on a row of its own list it moves there.
 						...reorder.rowDrag(session.path, list, tab ? { id: tab.id, shown: current } : undefined),
 						"data-device-session": session.path,
-						onContextMenu: event => {
-							const anchor = anchorFromEvent(event);
-							setRowMenu({ ...anchor, items: menuItems, label: title });
-						},
+						onContextMenu: event =>
+							setRowMenu({ ...anchorFromEvent(event), items: menuFor(session), label: title }),
 						"data-active": active,
 						"data-current": current || undefined,
 						"data-pane-focus": (current && splitIds !== null) || undefined,
@@ -884,7 +1019,7 @@ function DeviceSessions({
 			</div>
 		);
 	}
-	if (chats.length === 0 && groups.length === 0) {
+	if (chats.length === 0 && groups.length === 0 && archivedRows.length === 0) {
 		return (
 			<p className="px-2.5 py-1.5 text-sc-xs text-(--sc-text-muted)" data-device-empty>
 				{query ? t("sidebar.noMatch") : t("remote.sidebar.empty")}
@@ -916,6 +1051,7 @@ function DeviceSessions({
 					items={rowMenu.items.map(item => ({
 						...item,
 						onSelect: modifiers => {
+							menuAnchor.current = { x: rowMenu.x, y: rowMenu.y };
 							setRowMenu(null);
 							item.onSelect(modifiers);
 						},
@@ -923,6 +1059,31 @@ function DeviceSessions({
 					onClose={() => setRowMenu(null)}
 					x={rowMenu.x}
 					y={rowMenu.y}
+				/>
+			)}
+			{moveMenu && (
+				<ContextMenu
+					ariaLabel={t("sidebar.menu.moveToProject")}
+					items={[
+						...tree.allGroups
+							.filter(group => group.cwd !== moveMenu.session.cwd)
+							.map(group => ({
+								id: `move-${group.cwd}`,
+								label: basename(group.cwd) || group.cwd,
+								icon: Folder,
+								onSelect: () => void moveStoredSession(moveMenu.session, group.cwd),
+							})),
+						{
+							id: "move-other",
+							separatorBefore: true,
+							label: t("sidebar.move.otherFolder"),
+							icon: FolderOpen,
+							onSelect: () => void moveToOtherFolder(moveMenu.session),
+						},
+					]}
+					onClose={() => setMoveMenu(null)}
+					x={moveMenu.x}
+					y={moveMenu.y}
 				/>
 			)}
 		</>
@@ -1043,6 +1204,29 @@ function DeviceSessions({
 				>
 					{chats.map(session => renderRow(session))}
 				</SidebarChats>
+			)}
+			{archivedRows.length > 0 && (
+				<section className="mt-1" data-sidebar-archived={host.deviceId}>
+					<div className="flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)">
+						<SidebarFoldButton
+							className="text-(--sc-text-muted)"
+							data-roving-item={`device-archived:${host.deviceId}`}
+							folded={!archivedShown}
+							icon={<Archive aria-hidden className="size-(--sc-icon-sm) shrink-0" />}
+							onClick={() => useSidebarFolds.getState().setDeviceArchivedOpen(host.deviceId, !archivedOpen)}
+							tabIndex={-1}
+						>
+							<span className="min-w-0 flex-1 truncate">
+								{t("sidebar.archived", { count: archivedRows.length })}
+							</span>
+						</SidebarFoldButton>
+					</div>
+					{archivedShown && (
+						<div className="space-y-px" data-archived-list>
+							{archivedRows.map(session => renderRow(session))}
+						</div>
+					)}
+				</section>
 			)}
 		</div>
 	);

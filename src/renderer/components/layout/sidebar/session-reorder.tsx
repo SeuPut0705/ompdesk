@@ -34,6 +34,15 @@ export function canDropOn(list: SessionList, from: string, over: string): boolea
 	return pinned.includes(from) === pinned.includes(over);
 }
 
+/** Whether the row can trade places with its neighbour `delta` away: one exists on the same side of the pinned edge. */
+export function canMoveWithin(list: SessionList | null, path: string, delta: -1 | 1): boolean {
+	const index = list ? list.paths.indexOf(path) : -1;
+	const neighbour = list && index !== -1 ? list.paths[index + delta] : undefined;
+	if (list === null || neighbour === undefined) return false;
+	const pinned = list.pinned ?? [];
+	return pinned.includes(neighbour) === pinned.includes(path);
+}
+
 /** Dragging down lands a row after the one it is over, dragging up before it (as a project or device section does). */
 export function dropEdge(paths: readonly string[], from: string, over: string): Edge {
 	return paths.indexOf(over) < paths.indexOf(from) ? "before" : "after";

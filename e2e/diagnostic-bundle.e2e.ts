@@ -1,8 +1,8 @@
 /**
  * "Save diagnostic bundle" on the fake omp (e2e/fixture/rpc-ui.ts answers the bridge's `session_dump` with a real
  * zip in the temp dir): the session row's menu saves stock's dump members plus ompdesk-diagnostics.txt where the
- * (stubbed) save dialog points, Option/Alt and the anonymized item take the anonymized archive, and the temp
- * archive is gone afterwards. The real bridge method against stock is src/main/bridge-dump-stock.test.ts.
+ * (stubbed) save dialog points, and Option/Alt takes the anonymized archive (the menu has one item, not a twin);
+ * the temp archive is gone afterwards. The real bridge method against stock is src/main/bridge-dump-stock.test.ts.
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -19,7 +19,7 @@ async function tempArchives(): Promise<string[]> {
 	return (await fs.readdir(os.tmpdir())).filter(name => /^omp-dump-.*\.zip$/.test(name));
 }
 
-test("the session row menu saves a diagnostic bundle, anonymized with Alt or its own item", async () => {
+test("the session row menu saves a diagnostic bundle, anonymized with Alt", async () => {
 	test.setTimeout(180_000);
 	const profile = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-bundle-")));
 	const [project, desktop, agent] = ["project", "desktop", "agent"].map(name => path.join(profile, name));
@@ -60,7 +60,7 @@ test("the session row menu saves a diagnostic bundle, anonymized with Alt or its
 		const full = path.join(profile, "full.zip");
 		await chooseTarget(full);
 		await openMenu();
-		await page.getByRole("menuitem", { name: "Save diagnostic bundle", exact: true }).click();
+		await page.getByRole("menuitem", { name: /^Save diagnostic bundle/ }).click();
 		await expect
 			.poll(
 				() =>
@@ -80,7 +80,7 @@ test("the session row menu saves a diagnostic bundle, anonymized with Alt or its
 		const held = path.join(profile, "alt.zip");
 		await chooseTarget(held);
 		await openMenu();
-		await page.getByRole("menuitem", { name: "Save diagnostic bundle", exact: true }).click({ modifiers: ["Alt"] });
+		await page.getByRole("menuitem", { name: /^Save diagnostic bundle/ }).click({ modifiers: ["Alt"] });
 		await expect
 			.poll(
 				() =>
@@ -93,21 +93,12 @@ test("the session row menu saves a diagnostic bundle, anonymized with Alt or its
 			.toBe(true);
 		expect(await members(held)).toEqual(["ompdesk-diagnostics.txt", "session.jsonl"]);
 
-		const named = path.join(profile, "anon.zip");
-		await chooseTarget(named);
+		// One item, with its Option/Alt variant named on it; the anonymized item is Settings' (daily-flows).
 		await openMenu();
-		await page.getByRole("menuitem", { name: "Save diagnostic bundle (anonymized)", exact: true }).click();
-		await expect
-			.poll(
-				() =>
-					fs.access(named).then(
-						() => true,
-						() => false,
-					),
-				{ timeout: 30_000 },
-			)
-			.toBe(true);
-		expect(await members(named)).toEqual(["ompdesk-diagnostics.txt", "session.jsonl"]);
+		const items = page.getByRole("menuitem", { name: /diagnostic bundle/i });
+		await expect(items).toHaveCount(1);
+		await expect(items).toContainText(/(⌥|Alt) anonymized/);
+		await page.keyboard.press("Escape");
 
 		expect((await tempArchives()).filter(name => !before.has(name))).toEqual([]);
 	} finally {

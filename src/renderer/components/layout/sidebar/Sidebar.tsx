@@ -12,20 +12,12 @@ import {
 	ChevronDown,
 	ChevronRight,
 	CircleHelp,
-	Columns2,
 	Compass,
-	Copy,
 	Download,
-	ExternalLink,
-	Eye,
-	EyeOff,
-	FileArchive,
 	Folder,
-	FolderInput,
 	FolderMinus,
 	FolderOpen,
 	FolderPlus,
-	FolderSearch,
 	GitBranch,
 	GitBranchPlus,
 	GitFork,
@@ -36,21 +28,18 @@ import {
 	MoreHorizontal,
 	PanelLeft,
 	PanelLeftClose,
-	PanelRightClose,
 	Pencil,
 	Pin,
 	PinOff,
 	Plus,
 	RefreshCw,
 	Rocket,
-	Rows2,
 	Search,
 	SearchX,
 	Settings,
 	Sparkles,
 	SquareTerminal,
 	Trash2,
-	X,
 } from "lucide-react";
 import {
 	Fragment,
@@ -86,7 +75,7 @@ import { ATTENTION_LABEL_KEY, type AttentionKind, isAsk } from "../../../lib/att
 import { activeComposerInput } from "../../../lib/composer-focus";
 import { saveDiagnosticBundle } from "../../../lib/diagnostic-bundle";
 import { hideNativeDragImage } from "../../../lib/drag-image";
-import { copyText, cx } from "../../../lib/format";
+import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
 import { actionKbd, onEscape } from "../../../lib/keymap";
@@ -160,7 +149,8 @@ import {
 import { SidebarUpdateCard } from "./SidebarUpdateCard";
 import { SidebarUsage } from "./SidebarUsage";
 import { SortableProject } from "./SortableProject";
-import { type SessionList, useSessionReorder } from "./session-reorder";
+import { sessionMenuItems } from "./session-menu";
+import { canMoveWithin, type SessionList, useSessionReorder } from "./session-reorder";
 import { CHILD_TOKEN, isShownOpened, openedChildStatus } from "./sidebar-family";
 import "../../../styles/sidebar.css";
 
@@ -218,31 +208,6 @@ function activeTabUntouched(): boolean {
 
 function focusComposer(): void {
 	requestAnimationFrame(() => activeComposerInput()?.focus());
-}
-
-/** A session's own edits, in the order the row's ⋯ menu lists them first (delete last of them, set apart). */
-const ROW_MENU_FIRST = ["session-rename", "session-pin", "session-move", "session-archive", "session-restore"];
-
-/**
- * A session row's ⋯ menu (a sheet on a touch screen): it is opened to act on the row, and the touch sheet is
- * taller than a phone, so rename, pin, archive and delete come first (the right-click order put delete below the
- * fold, behind sixteen items) and "Open" goes (clicking or tapping the row opens it). The rest follow in the
- * right-click order, set apart. The same list on every input, so the desktop's ⋯ and the phone's sheet agree.
- */
-function rowMenuItems(items: readonly ContextMenuItem[]): ContextMenuItem[] {
-	const byId = new Map(items.map(item => [item.id, item]));
-	const edits = ROW_MENU_FIRST.flatMap(id => {
-		const item = byId.get(id);
-		return item ? [{ ...item, separatorBefore: false }] : [];
-	});
-	const remove = byId.get("session-delete");
-	const first = remove ? [...edits, { ...remove, separatorBefore: edits.length > 0 }] : edits;
-	const taken = new Set([...ROW_MENU_FIRST, "session-delete", "session-open"]);
-	const rest = items.filter(item => !taken.has(item.id));
-	return [
-		...first,
-		...rest.map((item, index) => (index === 0 ? { ...item, separatorBefore: first.length > 0 } : item)),
-	];
 }
 
 /** Destinations in the sidebar footer: the only three. */
@@ -495,12 +460,7 @@ export function Sidebar() {
 	const [workspaceDialog, setWorkspaceDialog] = useState<"switch" | "new-session" | null>(null);
 	const [renameDraft, setRenameDraft] = useState("");
 	const [groupMenu, setGroupMenu] = useState<{ anchor: ContextMenuAnchor; group: WorkspaceGroup } | null>(null);
-	// `rowMenu`: opened from the row's ⋯ (its own order, `rowMenuItems`), not by a right click or Shift+F10.
-	const [sessionMenu, setSessionMenu] = useState<{
-		anchor: ContextMenuAnchor;
-		session: SidebarSession;
-		rowMenu?: boolean;
-	} | null>(null);
+	const [sessionMenu, setSessionMenu] = useState<{ anchor: ContextMenuAnchor; session: SidebarSession } | null>(null);
 	// A session row's actions are one ⋯ on every input, so the title keeps its width: at rest under touch (no hover
 	// to reveal it), on hover or keyboard focus elsewhere.
 	const touchInput = useShellInput() === "touch";
@@ -965,14 +925,9 @@ export function Sidebar() {
 		save: (list, next) => void useSidebarPrefs.getState().setSessionOrder(list.key, [...next]),
 	});
 	/** A neighbour on the other side of the pinned rows' edge never trades places: pins stay on top. */
-	const canMoveSession = (session: SidebarSession, delta: number): boolean => {
+	const moveSession = (session: SidebarSession, delta: -1 | 1): boolean => {
 		const list = sessionListOf(session);
-		const neighbour = list?.paths[list.paths.indexOf(session.path) + delta];
-		return neighbour !== undefined && pinnedSessions.includes(neighbour) === pinnedSessions.includes(session.path);
-	};
-	const moveSession = (session: SidebarSession, delta: number): boolean => {
-		const list = sessionListOf(session);
-		const next = canMoveSession(session, delta) && list && moveInOrder(list.paths, session.path, delta);
+		const next = canMoveWithin(list, session.path, delta) && list && moveInOrder(list.paths, session.path, delta);
 		if (!list || !next) return false;
 		reorder.move(list, session.path, next, sessionDisplayTitle(session, ""));
 		return true;
@@ -1147,10 +1102,6 @@ export function Sidebar() {
 		} catch (error) {
 			toastError({ title: t("sidebar.moveFailed"), error });
 		}
-	};
-	const copySessionPath = async (session: SessionInfo) => {
-		if (await copyText(session.path)) toast({ variant: "success", message: t("sidebar.pathCopied") });
-		else toast({ variant: "error", message: t("sidebar.copyPathFailed") });
 	};
 	const revealSession = async (session: SessionInfo) => {
 		try {
@@ -1737,9 +1688,7 @@ export function Sidebar() {
 								data-sidebar-row-menu
 								icon={<MoreHorizontal />}
 								label={t("sidebar.sessionMenu")}
-								onClick={event =>
-									setSessionMenu({ anchor: anchorBelow(event.currentTarget), session, rowMenu: true })
-								}
+								onClick={event => setSessionMenu({ anchor: anchorBelow(event.currentTarget), session })}
 								size="sm"
 								tabIndex={-1}
 							/>
@@ -2444,279 +2393,96 @@ export function Sidebar() {
 					);
 				})()}
 
-			{/* Session row menu, grouped: open variants · view (split, close) · rename, pin · delete. */}
+			{/* Session row menu: the one builder every device's rows use (session-menu.ts). */}
 			{sessionMenu &&
 				(() => {
-					const targetBusy = isSessionBusy(sessionMenu.session);
-					const targetTab = tabForSession(sessionMenu.session);
+					const { session } = sessionMenu;
+					const targetTab = tabForSession(session);
 					const { split } = useTabsStore.getState();
-					const inSplit = targetTab && split && splitTabIds(split).includes(targetTab.id);
-					const viewItems: ContextMenuItem[] = !targetTab
-						? []
-						: [
-								...(targetTab.id !== activeTabId && !inSplit
-									? (["right", "bottom"] as const).map(placement => ({
-											id: `session-split-${placement}`,
-											label: t(placement === "right" ? "tabs.menu.splitRight" : "tabs.menu.splitBottom"),
-											icon: placement === "right" ? Columns2 : Rows2,
-											onSelect: () => {
-												setSessionMenu(null);
+					const list = sessionListOf(session);
+					// Every action closes the menu first.
+					const then = (run: () => void) => () => {
+						setSessionMenu(null);
+						run();
+					};
+					const items = sessionMenuItems({
+						facts: {
+							stored: session.liveTabId === undefined,
+							hasTab: targetTab !== undefined,
+							busy: isSessionBusy(session),
+							tabFocused: targetTab !== undefined && targetTab.id === activeTabId,
+							tabInSplit: targetTab !== undefined && split !== null && splitTabIds(split).includes(targetTab.id),
+							splitShown: split !== null,
+							canCloseTab: tabs.length > 1,
+							chat: session.kind === "chat",
+							pinned: pinnedSessions.includes(session.path),
+							archived: archivedIds.has(session.id),
+							agentHidden: agentHidden.includes(session.path),
+							canMoveUp: canMoveWithin(list, session.path, -1),
+							canMoveDown: canMoveWithin(list, session.path, 1),
+						},
+						actions: {
+							openSplit: then(() => void openSessionInSplit(session)),
+							openWindow: then(() => void openSessionInNewWindow(session)),
+							...(targetTab
+								? {
+										splitTab: placement =>
+											then(() => {
 												useUiStore.getState().closeDestination();
 												void useTabsStore.getState().splitTab(targetTab.id, placement);
-											},
-										}))
-									: []),
-								...(split
-									? [
-											{
-												id: "session-unsplit",
-												label: t("tabs.menu.removeSplit"),
-												icon: PanelRightClose,
-												onSelect: () => {
-													setSessionMenu(null);
-													void useTabsStore.getState().unsplit(targetTab.id);
-												},
-											},
-										]
-									: []),
-								...(tabs.length > 1
-									? [
-											{
-												id: "session-close-tab",
-												label: t("sidebar.menu.closeSession"),
-												icon: X,
-												disabled: targetBusy,
-												disabledReason: t("sidebar.menu.taskRunning"),
-												onSelect: () => {
-													setSessionMenu(null);
-													performTabClose(targetTab);
-												},
-											},
-										]
-									: []),
-							];
-					const tabItems = viewItems.map((item, index) =>
-						index === 0 ? { ...item, separatorBefore: true } : item,
-					);
-					// Stock's `/dump` runs in the tab's own omp: a stored session without a tab has nothing to dump.
-					const bundleItems: ContextMenuItem[] = [false, true].map(anonymizedItem => ({
-						id: anonymizedItem ? "session-dump-bundle-anonymized" : "session-dump-bundle",
-						...(anonymizedItem ? {} : { separatorBefore: true }),
-						label: t(anonymizedItem ? "diagnosticBundle.saveAnonymized" : "diagnosticBundle.save"),
-						icon: FileArchive,
-						disabled: targetTab === undefined,
-						disabledReason: t("diagnosticBundle.needsOpenTab"),
-						onSelect: modifiers => {
-							setSessionMenu(null);
-							if (!targetTab) return;
-							void saveDiagnosticBundle(
-								{ tabId: targetTab.id, title: sessionDisplayTitle(sessionMenu.session, "") },
-								anonymizedItem || modifiers?.altKey === true,
-							);
-						},
-					}));
-					const items: ContextMenuItem[] = [
-						{
-							id: "session-open",
-							label: t("sidebar.menu.open"),
-							icon: ChevronRight,
-							onSelect: () => {
+											})(),
+										unsplit: then(() => void useTabsStore.getState().unsplit(targetTab.id)),
+										closeTab: then(() => performTabClose(targetTab)),
+									}
+								: {}),
+							rename: then(() => startRename(session)),
+							togglePin: then(() => {
+								const pinned = !pinnedSessions.includes(session.path);
+								useSidebarPrefs.getState().toggleSessionPin(session.path);
+								const failed = () => toast({ variant: "warning", message: t("sidebar.pinSyncFailed") });
+								void tabRpc.setSessionPinned(session.id, pinned).then(response => {
+									if (!response.success) failed();
+								}, failed);
+							}),
+							...(list
+								? {
+										moveUp: then(() => void moveSession(session, -1)),
+										moveDown: then(() => void moveSession(session, 1)),
+									}
+								: {}),
+							moveToProject: () => {
+								setMoveMenu(sessionMenu);
 								setSessionMenu(null);
-								openSession(sessionMenu.session);
 							},
+							toggleArchive: then(() => setArchived([session], !archivedIds.has(session.id))),
+							...(session.device === undefined
+								? {
+										toggleAgentHidden: then(
+											() => void useSidebarPrefs.getState().toggleAgentHidden(session.path),
+										),
+									}
+								: {}),
+							reveal: then(() => void revealSession(session)),
+							saveBundle: anonymized =>
+								then(() => {
+									if (targetTab)
+										void saveDiagnosticBundle(
+											{ tabId: targetTab.id, title: sessionDisplayTitle(session, "") },
+											anonymized,
+										);
+								})(),
+							remove: then(() => setPendingDelete({ kind: "session", session })),
 						},
-						// File actions need a transcript on disk; live-only rows have none yet.
-						...(sessionMenu.session.liveTabId === undefined
-							? [
-									{
-										id: "session-open-tab",
-										label: t("sidebar.menu.openNewTab"),
-										icon: Plus,
-										onSelect: () => {
-											setSessionMenu(null);
-											useUiStore.getState().closeDestination();
-											void openTab({
-												cwd: sessionMenu.session.cwd,
-												kind: sessionMenu.session.kind ?? "agent",
-												sessionPath: sessionMenu.session.path,
-											});
-										},
-									},
-									// An open session splits through its tab items below instead.
-									...(targetTab === undefined
-										? [
-												{
-													id: "session-open-split",
-													label: t("sidebar.menu.openSplit"),
-													icon: Columns2,
-													onSelect: () => {
-														setSessionMenu(null);
-														void openSessionInSplit(sessionMenu.session);
-													},
-												},
-											]
-										: []),
-									{
-										id: "session-open-window",
-										label: t("sidebar.openInNewWindow"),
-										icon: ExternalLink,
-										onSelect: () => {
-											setSessionMenu(null);
-											void openSessionInNewWindow(sessionMenu.session);
-										},
-									},
-								]
-							: []),
-						...tabItems,
-						...(sessionMenu.session.device === undefined
-							? [
-									{
-										id: "session-agent-hidden",
-										label: agentHidden.includes(sessionMenu.session.path)
-											? t("sidebar.menu.showToAgents")
-											: t("sidebar.menu.hideFromAgents"),
-										icon: agentHidden.includes(sessionMenu.session.path) ? Eye : EyeOff,
-										onSelect: () => {
-											void useSidebarPrefs.getState().toggleAgentHidden(sessionMenu.session.path);
-											setSessionMenu(null);
-										},
-									},
-								]
-							: []),
-						...bundleItems,
-						...(sessionMenu.session.liveTabId === undefined
-							? [
-									{
-										id: "session-rename",
-										separatorBefore: true,
-										label: t("sidebar.rename"),
-										icon: Pencil,
-										onSelect: () => {
-											setSessionMenu(null);
-											startRename(sessionMenu.session);
-										},
-									},
-									{
-										id: "session-pin",
-										label: pinnedSessions.includes(sessionMenu.session.path)
-											? t("sidebar.menu.unpin")
-											: t("sidebar.menu.pin"),
-										icon: pinnedSessions.includes(sessionMenu.session.path) ? PinOff : Pin,
-										onSelect: () => {
-											const pinned = !pinnedSessions.includes(sessionMenu.session.path);
-											useSidebarPrefs.getState().toggleSessionPin(sessionMenu.session.path);
-											setSessionMenu(null);
-											const failed = () =>
-												toast({ variant: "warning", message: t("sidebar.pinSyncFailed") });
-											void tabRpc.setSessionPinned(sessionMenu.session.id, pinned).then(response => {
-												if (!response.success) failed();
-											}, failed);
-										},
-									},
-									...(() => {
-										const list = sessionListOf(sessionMenu.session);
-										if (!list) return [];
-										return [
-											{
-												id: "session-move-up",
-												label: t("sidebar.menu.moveUp"),
-												icon: ArrowUp,
-												disabled: !canMoveSession(sessionMenu.session, -1),
-												onSelect: () => {
-													setSessionMenu(null);
-													moveSession(sessionMenu.session, -1);
-												},
-											},
-											{
-												id: "session-move-down",
-												label: t("sidebar.menu.moveDown"),
-												icon: ArrowDown,
-												disabled: !canMoveSession(sessionMenu.session, 1),
-												onSelect: () => {
-													setSessionMenu(null);
-													moveSession(sessionMenu.session, 1);
-												},
-											},
-										];
-									})(),
-									...(sessionMenu.session.kind === "chat"
-										? []
-										: [
-												{
-													id: "session-move",
-													label: t("sidebar.menu.moveToProject"),
-													icon: FolderInput,
-													disabled: targetTab !== undefined,
-													disabledReason: t("sidebar.moveOpenTab"),
-													onSelect: () => {
-														setMoveMenu(sessionMenu);
-														setSessionMenu(null);
-													},
-												},
-											]),
-									archivedIds.has(sessionMenu.session.id) && targetTab === undefined
-										? {
-												id: "session-restore",
-												label: t("sidebar.menu.restore"),
-												icon: ArchiveRestore,
-												onSelect: () => {
-													setSessionMenu(null);
-													setArchived([sessionMenu.session], false);
-												},
-											}
-										: {
-												id: "session-archive",
-												label: t("sidebar.menu.archive"),
-												icon: Archive,
-												disabled: targetTab !== undefined,
-												disabledReason: t("sidebar.archiveOpenTab"),
-												onSelect: () => {
-													setSessionMenu(null);
-													setArchived([sessionMenu.session], true);
-												},
-											},
-									{
-										id: "session-copy-path",
-										separatorBefore: true,
-										label: t("sidebar.menu.copyPath"),
-										icon: Copy,
-										onSelect: () => {
-											setSessionMenu(null);
-											void copySessionPath(sessionMenu.session);
-										},
-									},
-									{
-										id: "session-reveal",
-										label: t("sidebar.menu.reveal"),
-										icon: FolderSearch,
-										onSelect: () => {
-											setSessionMenu(null);
-											void revealSession(sessionMenu.session);
-										},
-									},
-									{
-										id: "session-delete",
-										separatorBefore: true,
-										label: t("common.delete"),
-										icon: Trash2,
-										danger: true,
-										disabled: targetBusy,
-										disabledReason: t("sidebar.menu.taskRunning"),
-										onSelect: () => {
-											setPendingDelete({ kind: "session", session: sessionMenu.session });
-											setSessionMenu(null);
-										},
-									},
-								]
-							: []),
-					];
+						t,
+						altHint: !touchInput,
+					});
 					return (
 						<ContextMenu
-							ariaLabel={sessionDisplayTitle(sessionMenu.session, t("sidebar.untitled"))}
+							ariaLabel={sessionDisplayTitle(session, t("sidebar.untitled"))}
 							x={sessionMenu.anchor.x}
 							y={sessionMenu.anchor.y}
 							onClose={() => setSessionMenu(null)}
-							items={touchInput || sessionMenu.rowMenu ? rowMenuItems(items) : items}
+							items={items}
 						/>
 					);
 				})()}

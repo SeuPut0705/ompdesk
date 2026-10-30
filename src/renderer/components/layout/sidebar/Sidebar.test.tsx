@@ -799,11 +799,15 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(finished.querySelector("[data-sidebar-done]")).not.toBeNull();
 		expect(finished.textContent).toContain("Run completed");
 
-		// Live-only rows navigate; file actions stay out of their menu.
+		// A tab's row with no file yet navigates and closes; file actions stay out of its menu, and diagnostics is one
+		// item (the tab holds the session) that names its Option/Alt variant.
 		await fire(current, "onContextMenu");
 		const labels = menuItemLabels();
-		expect(labels[0]).toContain("Open");
-		for (const fileAction of ["Open in new window", "Rename", "Pin to top", "Delete"]) {
+		expect(labels[0]).toBe("Close session");
+		expect(labels.at(-1)).toContain("Save diagnostic bundle");
+		expect(labels.at(-1)).toContain("⌥ anonymized");
+		expect(labels.filter(label => label.includes("diagnostic"))).toHaveLength(1);
+		for (const fileAction of ["Open in new window", "Rename", "Pin to top", "Delete", "Show in folder"]) {
 			expect(labels.some(label => label.includes(fileAction))).toBe(false);
 		}
 	});
@@ -1381,27 +1385,21 @@ describe("Sidebar menus and pinned ordering", () => {
 		await fire(rowFor("Session /work/alpha/one"), "onContextMenu");
 
 		const labels = menuItemLabels();
+		// Clicking the row opens it, so the menu has no Open or Open in new tab; a session no tab holds has no
+		// diagnostics (stock's /dump runs in a tab's own omp) and no disabled stand-in for it.
 		expect(labels.map(label => label.replace(/⌘.*$/, ""))).toEqual([
-			"Open",
-			"Open in new tab",
 			"Open in split view",
 			"Open in new window",
-			"Hide from other agents",
-			"Save diagnostic bundle",
-			"Save diagnostic bundle (anonymized)",
 			"Rename session",
 			"Pin to top",
 			"Move up",
 			"Move down",
 			"Move to project…",
 			"Archive",
-			"Copy file path",
+			"Hide from other agents",
 			"Show in folder",
 			"Delete",
 		]);
-		// Stock's /dump runs in a tab's own omp: a stored session no tab holds cannot be dumped.
-		expect(menuItem("Save diagnostic bundle").hasAttribute("disabled")).toBe(true);
-		expect(menuItem("Save diagnostic bundle (anonymized)").hasAttribute("disabled")).toBe(true);
 
 		const pinItem = [...document.body.querySelectorAll('[role="menu"] button')].find(button =>
 			(button.textContent ?? "").includes("Pin to top"),
@@ -1815,36 +1813,32 @@ describe("Sidebar menus and pinned ordering", () => {
 		if (activeActions) expect(activeActions.className.split(/\s+/)).not.toContain("opacity-100");
 	});
 
-	it("a row's ⋯ lists the row's own edits first, renames inline, and is the keyboard's next stop after the row", async () => {
+	it("a row's ⋯ and its right click list one menu, rename inline, and the ⋯ is the keyboard's next stop after the row", async () => {
 		const omp = installMockOmp(LIST);
 		seedStores();
 		await mount(<Sidebar />);
 
 		await openRowMenu(rowFor("Session /work/alpha/one"));
 		expect(menuItemLabels().map(label => label.replace(/⌘.*$/, ""))).toEqual([
-			"Rename session",
-			"Pin to top",
-			"Move to project…",
-			"Archive",
-			"Delete",
-			"Open in new tab",
 			"Open in split view",
 			"Open in new window",
-			"Hide from other agents",
-			"Save diagnostic bundle",
-			"Save diagnostic bundle (anonymized)",
+			"Rename session",
+			"Pin to top",
 			"Move up",
 			"Move down",
-			"Copy file path",
+			"Move to project…",
+			"Archive",
+			"Hide from other agents",
 			"Show in folder",
+			"Delete",
 		]);
 		await fire(menuItem("Rename"), "onClick");
 		await commitRenameInput("Session /work/alpha/one.jsonl", "Renamed from the menu");
 		expect(omp.sessions.rename).toHaveBeenCalledWith("/work/alpha/one.jsonl", "Renamed from the menu");
 
-		// A right click keeps its own order (Open first).
+		// A right click lists the same menu as the ⋯.
 		await fire(rowFor("Session /work/alpha/two"), "onContextMenu");
-		expect(menuItemLabels()[0]).toBe("Open");
+		expect(menuItemLabels()[0]).toBe("Open in split view");
 
 		// Exactly one row is the list's tab stop, and its ⋯ is the next one; every other ⋯ stays out of the tab order.
 		const rowOf = (item: TestElement) => (item as unknown as Element).closest(".omp-list-row");
@@ -3861,26 +3855,152 @@ describe("Sidebar device sections", () => {
 		expect(groups()).toEqual(["/code/web", "/code/app"]);
 	});
 
-	it("a paired host's stored session has the same edits in its menu as this computer's: rename, pin and archive", async () => {
-		const omp = installWithRemote();
-		const host = [
-			session("/s/app/one.jsonl", "/code/app", {
-				title: "App one",
-				device: "dev-studio",
-				created: "2026-01-03T00:00:00Z",
-			}),
-		];
-		omp.sessions.list.mockImplementation(async (_scope, device) => (device === "dev-studio" ? host : LIST));
-		seedStores();
-		useSidebarPrefs.setState({ hydrated: true });
-		pairHost("online");
-		await mount(<Sidebar />);
+	describe("a paired host's session menu", () => {
+		const hostRow = (path: string) => container.querySelector(`[data-device-session="${path}"]`);
+		const hostRows = () =>
+			[...container.querySelectorAll('[data-sidebar-device="dev-studio"] [data-device-session]')].map(row =>
+				row.getAttribute("data-device-session"),
+			);
+		async function mountHost() {
+			const omp = installWithRemote();
+			const host = [
+				session("/s/app/one.jsonl", "/code/app", {
+					title: "App one",
+					device: "dev-studio",
+					created: "2026-01-03T00:00:00Z",
+				}),
+				session("/s/app/two.jsonl", "/code/app", {
+					title: "App two",
+					device: "dev-studio",
+					created: "2026-01-02T00:00:00Z",
+				}),
+				session("/s/web/one.jsonl", "/code/web", {
+					title: "Web one",
+					device: "dev-studio",
+					created: "2026-01-01T00:00:00Z",
+				}),
+			];
+			omp.sessions.list.mockImplementation(async (_scope, device) => (device === "dev-studio" ? host : LIST));
+			seedStores();
+			useSidebarPrefs.setState({ hydrated: true });
+			pairHost("online");
+			await mount(<Sidebar />);
+			return omp;
+		}
 
-		await fire(container.querySelector('[data-device-session="/s/app/one.jsonl"]'), "onContextMenu");
-		const labels = menuItemLabels();
-		expect(labels).toContain("Rename session");
-		expect(labels).toContain("Pin to top");
-		expect(labels).toContain("Archive");
+		it("is the one menu this computer's rows have, less what only this computer can do (show in folder, hide from agents)", async () => {
+			await mountHost();
+			await fire(hostRow("/s/app/one.jsonl"), "onContextMenu");
+			expect(menuItemLabels()).toEqual([
+				"Open in split view",
+				"Open in new window",
+				"Rename session",
+				"Pin to top",
+				"Move up",
+				"Move down",
+				"Move to project…",
+				"Archive",
+				"Delete",
+			]);
+		});
+
+		it("renames through the host", async () => {
+			const omp = await mountHost();
+			await fire(hostRow("/s/app/one.jsonl"), "onContextMenu");
+			await fire(menuItem("Rename"), "onClick");
+			await commitRenameInput("App one", "Renamed on the host");
+			expect(omp.sessions.rename).toHaveBeenCalledWith("/s/app/one.jsonl", "Renamed on the host", "dev-studio");
+		});
+
+		it("pins into this computer's prefs under the host's id, and the pinned row sorts first and says so", async () => {
+			await mountHost();
+			expect(hostRows()).toEqual(["/s/app/one.jsonl", "/s/app/two.jsonl", "/s/web/one.jsonl"]);
+			await fire(hostRow("/s/app/two.jsonl"), "onContextMenu");
+			await fire(menuItem("Pin to top"), "onClick");
+			expect(useSidebarPrefs.getState().pinnedSessions).toEqual(["dev-studio\n/s/app/two.jsonl"]);
+			expect(hostRows()).toEqual(["/s/app/two.jsonl", "/s/app/one.jsonl", "/s/web/one.jsonl"]);
+			expect(hostRow("/s/app/two.jsonl")?.querySelector('[aria-label="Pinned"]')).not.toBeNull();
+			await fire(hostRow("/s/app/two.jsonl"), "onContextMenu");
+			expect(menuItemLabels()).toContain("Unpin");
+			// Pins stay on top: the row below the pinned edge cannot trade places across it.
+			await fire(hostRow("/s/app/one.jsonl"), "onContextMenu");
+			expect(menuItem("Move up").hasAttribute("disabled")).toBe(true);
+		});
+
+		it("archives into the host's own Archived section and restores from it, kept under the host's id", async () => {
+			await mountHost();
+			await fire(hostRow("/s/app/one.jsonl"), "onContextMenu");
+			await fire(menuItem("Archive"), "onClick");
+			expect(useSidebarPrefs.getState().archivedSessions).toEqual(["dev-studio\n/s/app/one.jsonl"]);
+			expect(hostRows()).toEqual(["/s/app/two.jsonl", "/s/web/one.jsonl"]);
+			const section = container.querySelector('[data-sidebar-archived="dev-studio"]');
+			const header = section?.querySelector("button[aria-expanded]") ?? null;
+			expect(header?.textContent).toContain("Archived (1)");
+			expect(header?.getAttribute("aria-expanded")).toBe("false");
+			// This computer's own Archived section is not the host's.
+			expect(
+				container.querySelector("[data-sidebar-archived]:not([data-sidebar-archived='dev-studio'])"),
+			).toBeNull();
+
+			await fire(header, "onClick");
+			const archived = section?.querySelector('[data-device-session="/s/app/one.jsonl"]') ?? null;
+			expect(archived).not.toBeNull();
+			await fire(archived, "onContextMenu");
+			expect(menuItemLabels()).not.toContain("Archive");
+			await fire(menuItem("Restore"), "onClick");
+			expect(useSidebarPrefs.getState().archivedSessions).toEqual([]);
+			expect(hostRows()).toEqual(["/s/app/one.jsonl", "/s/app/two.jsonl", "/s/web/one.jsonl"]);
+		});
+
+		it("moves to one of the host's projects through the host, and keeps a pin with the moved file", async () => {
+			const omp = await mountHost();
+			omp.sessions.move.mockImplementation(async () => "/s/web/moved.jsonl");
+			await fire(hostRow("/s/app/one.jsonl"), "onContextMenu");
+			await fire(menuItem("Pin to top"), "onClick");
+			await fire(hostRow("/s/app/one.jsonl"), "onContextMenu");
+			await fire(menuItem("Move to project…"), "onClick");
+			expect(menuItemLabels()).toEqual(["web", "Other folder…"]);
+			await fire(menuItem("web"), "onClick");
+			expect(omp.sessions.move).toHaveBeenCalledWith("/s/app/one.jsonl", "/code/web", "dev-studio");
+			expect(useSidebarPrefs.getState().pinnedSessions).toEqual(["dev-studio\n/s/web/moved.jsonl"]);
+		});
+
+		it("opens in a new window and in a split on the host", async () => {
+			const omp = await mountHost();
+			const original = useTabsStore.getState();
+			const openTab = vi.fn(async () => "t-new");
+			const switchTab = vi.fn(async () => {});
+			const splitTab = vi.fn(async () => {});
+			useTabsStore.setState({ openTab, switchTab, splitTab });
+			try {
+				await fire(hostRow("/s/app/one.jsonl"), "onContextMenu");
+				await fire(menuItem("Open in new window"), "onClick");
+				expect(omp.sessions.openInNewWindow).toHaveBeenCalledWith({
+					sessionPath: "/s/app/one.jsonl",
+					cwd: "/code/app",
+					device: "dev-studio",
+				});
+
+				await fire(hostRow("/s/app/one.jsonl"), "onContextMenu");
+				await fire(menuItem("Open in split view"), "onClick");
+				expect(openTab).toHaveBeenCalledWith({
+					cwd: "/code/app",
+					sessionPath: "/s/app/one.jsonl",
+					kind: "agent",
+					device: "dev-studio",
+				});
+				expect(switchTab).toHaveBeenCalledWith("t0");
+				expect(splitTab).toHaveBeenCalledWith("t-new", "right");
+			} finally {
+				await act(async () =>
+					useTabsStore.setState({
+						openTab: original.openTab,
+						switchTab: original.switchTab,
+						splitTab: original.splitTab,
+					}),
+				);
+			}
+		});
 	});
 
 	it("dragging a host's session row onto another row of its list moves it, kept under the host's id", async () => {
@@ -6048,7 +6168,7 @@ describe("Sidebar on a touch screen", () => {
 		expect(head?.getAttribute("class")).toContain("[@media(hover:none)]:opacity-100");
 	});
 
-	it("lists a session's own edits first in its ⋯ sheet, delete within the first screen, and no Open (the row's tap opens it)", async () => {
+	it("lists the one trimmed menu in its ⋯ sheet, delete last, and no Open (the row's tap opens it)", async () => {
 		installMockOmp(LIST);
 		seedStores();
 		document.documentElement.dataset.platform = "web";
@@ -6065,21 +6185,17 @@ describe("Sidebar on a touch screen", () => {
 		await mount(<Sidebar />);
 		await fire(rowFor("Session /work/alpha/one")?.querySelector("[data-sidebar-row-menu]") ?? null, "onClick");
 		expect(menuItemLabels().map(label => label.replace(/⌘.*$/, ""))).toEqual([
-			"Rename session",
-			"Pin to top",
-			"Move to project…",
-			"Archive",
-			"Delete",
-			"Open in new tab",
 			"Open in split view",
 			"Open in new window",
-			"Hide from other agents",
-			"Save diagnostic bundle",
-			"Save diagnostic bundle (anonymized)",
+			"Rename session",
+			"Pin to top",
 			"Move up",
 			"Move down",
-			"Copy file path",
+			"Move to project…",
+			"Archive",
+			"Hide from other agents",
 			"Show in folder",
+			"Delete",
 		]);
 	});
 });
