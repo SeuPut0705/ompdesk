@@ -66,6 +66,40 @@ describe("SidecarManager", () => {
 		}
 	});
 
+	it.skipIf(process.platform === "win32")(
+		"runs the omp and every process it starts at a lower CPU priority than the app",
+		async () => {
+			const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-nice-"));
+			const reportPath = path.join(tempDir, "nice.json");
+			// The fake reads its own nice once the app has lowered it (the app does it right after spawn, so the fake
+			// polls the OS), then starts a grandchild the way a tool call does.
+			const binaryPath = await writeFakeOmp(
+				tempDir,
+				[
+					`import * as fs from "node:fs";`,
+					`import { spawn, spawnSync } from "node:child_process";`,
+					`const niceOf = (pid: number) => Number(spawnSync("ps", ["-o", "ni=", "-p", String(pid)], { encoding: "utf8" }).stdout.trim());`,
+					`for (let i = 0; i < 200 && niceOf(process.pid) === 0; i++) await Bun.sleep(10);`,
+					`const tool = spawn("sleep", ["30"], { stdio: "ignore" });`,
+					`fs.writeFileSync(${JSON.stringify(reportPath)}, JSON.stringify({ omp: niceOf(process.pid), tool: niceOf(tool.pid ?? 0) }));`,
+					`tool.kill();`,
+					`process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");`,
+					`process.stdin.resume();`,
+				].join("\n"),
+			);
+			const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir });
+			try {
+				const ready = waitForReady(sidecar);
+				sidecar.start();
+				await ready;
+				expect(JSON.parse(await fs.readFile(reportPath, "utf8"))).toEqual({ omp: 10, tool: 10 });
+			} finally {
+				sidecar.dispose();
+				await fs.rm(tempDir, RM_TEMP);
+			}
+		},
+	);
+
 	it.each([
 		{ hostTools: false, extra: [] as string[] },
 		// Agent control on (agent-control/tools.ts): its tools register with stock beside OMPdesk's own.
