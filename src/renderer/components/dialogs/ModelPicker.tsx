@@ -545,6 +545,7 @@ export function ModelPicker() {
 				)}
 				<div
 					className="flex items-center gap-3 border-t border-(--sc-divider) px-2 py-1 text-sc-2xs text-(--sc-text-muted)"
+					data-model-picker-footer
 					title={t("modelPicker.defaultHint")}
 				>
 					{/* Keys mean nothing on a touch screen (Kbd draws no glyph there): the row keeps Manage providers. */}

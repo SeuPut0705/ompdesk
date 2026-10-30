@@ -186,8 +186,10 @@ html[data-shell="phone"] .omp-dialog-panel--sheet.omp-scale-out {
 	animation: omp-sheet-out-bottom var(--omp-motion-fast) var(--omp-ease) both;
 }
 
-/* The wide action row of a dialog footer stacks into full-width buttons a thumb can hit. */
-html[data-shell="phone"] .omp-dialog-panel--sheet > div:last-child:not(:first-child):has(button) {
+/* The wide action row of a dialog footer stacks into full-width buttons a thumb can hit. A chromeless dialog's body
+   (the model picker: a list, a thinking choice and a footer) is the panel's last child holding buttons too, and is no
+   footer: it took a second 32 px under its own footer, over the panel's home-indicator padding. */
+html[data-shell="phone"] .omp-dialog-panel--sheet:not([data-chromeless]) > div:last-child:not(:first-child):has(button) {
 	padding-bottom: calc(var(--sc-space-3) + var(--safe-b));
 }
 
@@ -1167,9 +1169,9 @@ html[data-shell="phone"] .omp-composer-region--expanded .omp-composer-box > div:
    name (its provider mark and a name that ellipsizes inside its own box; thinking lives in the Run sheet), the Run
    chip's approval glyph and the active mode's name. The name takes the row's free room up to 6 em ("Sonnet 5.5"
    whole, the chip within 130 px) and gives it back down to 3.5 em before anything scrolls: the cluster and the chip
-   shrink, the label's own minimum holds (a fixed 3.5 em cut "Sonn…" beside 60 px of empty row at 390). Under 340 px
-   of toolbar (a 360 px phone) the model is its mark alone: the row then still ends before Stop/Send instead of
-   scrolling the context chip away. */
+   shrink, the label's own minimum holds (a fixed 3.5 em cut "Sonn…" beside 60 px of empty row at 390). A 360 px phone
+   (a toolbar of 334 px) keeps the name too while idle: its row has ~120 px of empty room, and the row still ends before
+   Stop/Send. Under 300 px of toolbar (a 320 px phone) the model is its mark alone. */
 html[data-shell="phone"] .omp-composer-scroll > .omp-composer-send-cluster {
 	flex-shrink: 1;
 	min-width: auto;
@@ -1186,7 +1188,10 @@ html[data-shell="phone"] .omp-composer-fold-4 .omp-composer-model-label {
 	max-width: 6em;
 }
 
-@container omp-toolbar (max-width: 340px) {
+/* A 360 px phone's idle row has ~120 px of empty row beside the chip, so it keeps the name there (6 em at most, "Sonnet
+   5.5" whole). While a turn runs the lane chip appears and the name goes (above, `[data-send-mode]`); a 320 px phone
+   (a toolbar under 300 px) keeps the mark alone. */
+@container omp-toolbar (max-width: 300px) {
 	html[data-shell="phone"] .omp-composer-fold-4 .omp-composer-model-label {
 		display: none;
 	}
@@ -2259,6 +2264,23 @@ html[data-shell] .omp-session-sidebar [data-sidebar-row-menu][data-sidebar-row-m
 	min-width: 44px;
 }
 
+/* A docked sidebar on a tablet is 248 px wide, and a finger has no hover to keep the 44 px ⋯ off the row: beside the
+   ⋯ and the age the title kept ~13 characters ("Fix the flaky s…") with the age beside it saying the same date on every
+   row. The idle age (still read aloud) gives its place to the title; the ✓, a waiting badge and a working arc stay.
+   The drawer on a phone is wider and keeps it. */
+html[data-input="touch"]
+	.omp-session-sidebar:not(.omp-drawer .omp-session-sidebar)
+	.omp-sidebar-session-row
+	[data-sidebar-row-end]
+	> time {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+
 /* With a mouse, the project row's ⋯ appears on hover over the title's faded end and shares the row's end with "new
    session here": that button takes the row's height but keeps its width, so the two never cover each other. A finger
    has no hover, so the ⋯ is always shown: it takes its own slot beside "+" instead of sitting over the title, whose
@@ -2373,6 +2395,46 @@ html[data-input="touch"] .omp-session-sidebar [data-sidebar-group-new][data-side
 
 	html[data-shell="phone"] .omp-changes .omp-changes-body[data-open="true"] .omp-changes-list {
 		display: none;
+	}
+}
+
+/* The model picker on a phone turned sideways (390 px high): search, the thinking block (label, five segments and a
+   sentence), the footer and the sheet's grip left the model list two rows, the third under the thinking block. The
+   thinking choice is one line (its label beside the segments; the sentence stays for a screen reader), so the list
+   gets the height. */
+@media (max-height: 499px) {
+	/* The 24 px segments and "Manage providers" are 15 px apart (10 under the segments, the rule and 4 above the button):
+	   each reaches half of the 14 px it is bound at, a 36 px target. */
+	html[data-shell="phone"] [data-model-picker-thinking] {
+		padding-block: 10px;
+	}
+
+	html[data-input="touch"] :is([data-model-picker-thinking], [data-model-picker-footer]) {
+		--hit-gap-y: 14px;
+	}
+
+	html[data-shell="phone"] [data-model-picker-thinking] [data-thinking-level] {
+		flex-direction: row;
+		align-items: center;
+		gap: var(--sc-space-3);
+	}
+
+	html[data-shell="phone"] [data-model-picker-thinking] [data-thinking-level] > :first-child {
+		flex: none;
+	}
+
+	html[data-shell="phone"] [data-model-picker-thinking] [data-thinking-level] > :nth-child(2) {
+		flex: 1 1 0;
+		min-width: 0;
+	}
+
+	html[data-shell="phone"] [data-model-picker-thinking] [data-thinking-level] > :last-child {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
 	}
 }
 

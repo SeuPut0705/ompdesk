@@ -277,6 +277,7 @@ export function Modal({
 					sheet && "omp-dialog-panel--sheet",
 					panelClassName,
 				)}
+				data-chromeless={chromeless ? "" : undefined}
 				data-presentation={sheet ? "sheet" : undefined}
 				handle={sheet ? <SheetHandle onClose={onClose} panelRef={panelRef} /> : undefined}
 				footer={shown.footer}
