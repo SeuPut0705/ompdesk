@@ -1041,8 +1041,8 @@ function SessionTranscript() {
 							<h1 className="font-display text-sc-3xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)">
 								{isChat ? t("chat.empty.title.chat") : t("chat.empty.title")}
 							</h1>
-							{/* Rows fit their own cards (cards in a row still stretch to one height): equal rows sized to the
-							    tallest card left every one-line card in English ~25 px of empty bottom. */}
+							{/* Cards in a row stretch to one height, and their content centres in it: pinned to the top, a
+							    one-line card beside a two-line one (English) kept ~25 px of empty bottom. */}
 							<div className="omp-starter-grid mt-8 grid grid-cols-2 gap-(--sc-space-3) max-sm:grid-cols-1">
 								{starters.map(({ icon: Icon, title, prompt }) => (
 									<button
@@ -1053,7 +1053,7 @@ function SessionTranscript() {
 												new CustomEvent("omp:fill-composer", { detail: { text: prompt, tabId } }),
 											)
 										}
-										className="omp-starter-card group flex items-start gap-3 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) p-4 text-left transition-colors duration-(--sc-duration-fast) hover:border-(--sc-border) hover:bg-(--sc-hover) active:bg-(--sc-pressed)"
+										className="omp-starter-card group flex items-center gap-3 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) p-4 text-left transition-colors duration-(--sc-duration-fast) hover:border-(--sc-border) hover:bg-(--sc-hover) active:bg-(--sc-pressed)"
 									>
 										<span className="omp-starter-icon flex size-8 shrink-0 items-center justify-center rounded-(--sc-radius-md) bg-(--sc-surface-2) text-(--sc-text-muted)">
 											<Icon aria-hidden className="size-(--sc-icon-md)" />
