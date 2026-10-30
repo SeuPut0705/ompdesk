@@ -20,7 +20,11 @@ export interface SessionListDelta {
 	remove: string[];
 }
 
-/** Whether version `a` comes before `b` of the same run (`epoch.n`); versions of two runs are never compared. */
+/**
+ * Whether version `a` comes before `b` of the same run (`epoch.n`); versions of two runs are never compared. The one
+ * rule for "this answer is behind what the copy holds": a copy that already applied `b` never takes a read at `a`
+ * (`HostSessionList.#read`), and a change that names a later version than the read's makes the next ask read again.
+ */
 export function olderSessionListVersion(a: string, b: string): boolean {
 	const [epochA, nA] = a.split(".");
 	const [epochB, nB] = b.split(".");

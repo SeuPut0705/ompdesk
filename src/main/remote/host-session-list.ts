@@ -89,6 +89,16 @@ export class HostSessionList {
 		try {
 			const reply = await this.#deps.read({ scope: "global", versioned: true });
 			const versioned = VersionedReply.safeParse(reply);
+			// The link delivers a read's answer and the change behind it in one drain: the change applied before this
+			// continuation ran. An answer older than the version the copy holds would put back what that change removed.
+			const held = this.#share.held();
+			if (
+				versioned.success &&
+				held &&
+				this.#hostVersion &&
+				olderSessionListVersion(versioned.data.version, this.#hostVersion)
+			)
+				return [...held.sessions];
 			// An older host answers the rows alone, in its own order.
 			const rows = versioned.success ? versioned.data.sessions : z.array(Row).parse(reply);
 			this.#hostVersion = versioned.success ? versioned.data.version : null;
