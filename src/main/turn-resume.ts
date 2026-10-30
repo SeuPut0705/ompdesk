@@ -292,7 +292,7 @@ export function isTransientError(message: string | undefined): boolean {
 	return RETRYABLE_ERROR.test(message) || isNetworkError(message);
 }
 
-/** Waits before each scheduled retry (the attempt count is its length): 30 s, 2 min, 10 min. */
+/** The wait before each scheduled retry, in order: 30 s, 2 min, 10 min; the last one repeats for as long as the failure stays transient. */
 export const SCHEDULED_RETRY_DELAYS_MS: readonly number[] = [30_000, 120_000, 600_000];
 
 /** `OMP_GUI_RETRY_DELAYS_MS` (comma-separated milliseconds, e2e runs) as the waits; anything unusable keeps the default. */
@@ -399,7 +399,7 @@ export interface ResumeDeps {
 	frozen(): boolean;
 	/** The backoff retry after transient errors; stock `retry.enabled` (Settings › Agent behavior) turns it on and off. */
 	scheduledRetry: {
-		/** Waits before each attempt; its length is the attempt count. */
+		/** Waits before each attempt, in order; once they run out the last one repeats, with no limit. */
 		delays: readonly number[];
 		/** Run `run` after `ms`; the returned function cancels it. */
 		schedule(run: () => void, ms: number): () => void;
@@ -529,7 +529,7 @@ export class TurnResume {
 	readonly #takenOverRuns = new Set<string>();
 	/** A scheduled retry per tab (state lives here, in main, so a renderer reload keeps it). */
 	readonly #scheduled = new Map<string, ArmedRetry>();
-	/** Per tab, the scheduled retries sent for the current failure chain; 3 and the red card stands. */
+	/** Per tab, the scheduled retries sent for the current failure chain (the attempt number the card shows); never a limit. */
 	readonly #attempts = new Map<string, number>();
 	/** Tabs whose next run is our own scheduled retry: its start is not the user's new run. */
 	readonly #ownRetries = new Set<string>();
@@ -706,7 +706,7 @@ export class TurnResume {
 			return;
 		}
 		const used = this.#attempts.get(tabId) ?? 0;
-		if (used >= this.#deps.scheduledRetry.delays.length || !this.#mayRetry(fact, outcome)) return;
+		if (!this.#mayRetry(fact, outcome)) return;
 		const generation = this.#cancels.get(tabId) ?? 0;
 		void this.#stockRetryOn(tabId).then(on => {
 			const current = this.#factFor(tabId);
@@ -717,14 +717,13 @@ export class TurnResume {
 	}
 
 	#arm(fact: ResumeFact, outcome: IpcTabRunOutcome, used: number): void {
-		const delay = this.#deps.scheduledRetry.delays[used];
+		// Past the last listed wait the last one repeats (10 min): no attempt is the final one.
+		const delay = this.#deps.scheduledRetry.delays[Math.min(used, this.#deps.scheduledRetry.delays.length - 1)];
 		if (delay === undefined || fact.sessionFile === undefined) return;
-		const max = this.#deps.scheduledRetry.delays.length;
 		const at = this.#deps.now() + delay;
 		const armed: ArmedRetry = {
 			at,
 			attempt: used + 1,
-			max,
 			outcome,
 			sessionFile: fact.sessionFile,
 			touched: fact.touched ?? 0,
@@ -732,7 +731,7 @@ export class TurnResume {
 		};
 		armed.cancelTimer = this.#deps.scheduledRetry.schedule(() => void this.#fire(fact.tabId, armed), delay);
 		this.#scheduled.set(fact.tabId, armed);
-		this.#deps.pool.setScheduledRetry(fact.tabId, { at, attempt: armed.attempt, max });
+		this.#deps.pool.setScheduledRetry(fact.tabId, { at, attempt: armed.attempt });
 	}
 
 	/** Every call-off of an armed retry (turn-resume-ends.ts `armed`); the person's new run also starts its chain over. */

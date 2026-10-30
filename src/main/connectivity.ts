@@ -10,12 +10,20 @@
  * a wake `net.isOnline()` can say yes while the Wi-Fi has not rejoined, so a
  * `resume` holds the state at offline until a probe confirms the way out, and a
  * network-class error in the minutes after it is still treated as the wake's doing.
+ *
+ * A held continuation has no timer of its own: it waits while this says offline. So the
+ * offline state must never outlive the outage: besides the events and the wake's probe
+ * loop, an offline state that nothing is recovering (a missed `online` event, a `resume`
+ * that never arrived) asks the resolver itself every {@link REPROBE_INTERVAL_MS} and goes
+ * online the moment it answers, whatever the link flag says.
  */
 
 /** A network-class error within this long of a wake still counts as caused by it. */
 export const RESUME_WINDOW_MS = 60_000;
 /** How often the post-wake probe retries until the network answers. */
 export const PROBE_INTERVAL_MS = 2_000;
+/** How often an offline state no probe loop is recovering asks again: a held continuation is released within this plus {@link PROBE_TIMEOUT_MS} of the network answering. */
+export const REPROBE_INTERVAL_MS = 15_000;
 /** A probe that has not answered by then counts as unreachable: a dead route can hold a lookup for tens of seconds. */
 export const PROBE_TIMEOUT_MS = 2_500;
 
@@ -50,6 +58,9 @@ export class ConnectivityMonitor {
 	#recovering = false;
 	#cancelProbe: (() => void) | null = null;
 	#probing = false;
+	/** Cancels the next re-probe of an offline state nothing is recovering (a missed `online`, a `resume` that never came). */
+	#cancelReprobe: (() => void) | null = null;
+	#reprobing = false;
 	#verifying = new Map<string, Promise<boolean>>();
 	/** The host whose failed lookup took the state offline: the recovery probe asks it beside the default. */
 	#probeHost: string | undefined;
@@ -95,6 +106,8 @@ export class ConnectivityMonitor {
 		this.#probeHost = undefined;
 		this.#stopProbe();
 		this.#set(false);
+		// A `resume` that never comes must not leave the state offline for good.
+		this.#armReprobe();
 	}
 
 	/** `powerMonitor` `resume`: offline until the probe answers. */
@@ -102,6 +115,7 @@ export class ConnectivityMonitor {
 		this.#resumedAt = this.#deps.now();
 		this.#probeHost = undefined;
 		this.#recovering = true;
+		this.#stopReprobe();
 		this.#set(false);
 		void this.#attempt();
 	}
@@ -131,6 +145,7 @@ export class ConnectivityMonitor {
 		if (!this.#recovering) {
 			this.#recovering = true;
 			this.#probeHost = host;
+			this.#stopReprobe();
 			this.#set(false);
 			if (!this.#probing) this.#cancelProbe = this.#deps.schedule(() => void this.#attempt(), PROBE_INTERVAL_MS);
 		}
@@ -140,6 +155,11 @@ export class ConnectivityMonitor {
 	/** The link is up and the default way out or `host` answers; a throwing probe is no answer. */
 	async #reachable(host: string | undefined): Promise<boolean> {
 		if (!this.#deps.isOnline()) return false;
+		return this.#answers(host);
+	}
+
+	/** The resolver answers for the default way out or `host`, whatever the link flag says; a throwing probe is no answer. */
+	async #answers(host: string | undefined): Promise<boolean> {
 		const ask = (target?: string) => this.#deps.probe(target).catch(() => false);
 		const answers = await Promise.all(host ? [ask(), ask(host)] : [ask()]);
 		return answers.includes(true);
@@ -148,7 +168,35 @@ export class ConnectivityMonitor {
 	#set(online: boolean): void {
 		if (online === this.#online) return;
 		this.#online = online;
+		if (online) this.#stopReprobe();
+		else this.#armReprobe();
 		this.#deps.changed(online);
+	}
+
+	/** Ask the resolver again in {@link REPROBE_INTERVAL_MS} while the state is offline and no probe loop is recovering it. */
+	#armReprobe(): void {
+		if (this.#online || this.#recovering || this.#cancelReprobe) return;
+		this.#cancelReprobe = this.#deps.schedule(() => void this.#reprobe(), REPROBE_INTERVAL_MS);
+	}
+
+	#stopReprobe(): void {
+		this.#cancelReprobe?.();
+		this.#cancelReprobe = null;
+	}
+
+	async #reprobe(): Promise<void> {
+		this.#stopReprobe();
+		if (this.#online || this.#recovering || this.#reprobing) return;
+		this.#reprobing = true;
+		let reachable = false;
+		try {
+			reachable = await this.#answers(undefined);
+		} finally {
+			this.#reprobing = false;
+		}
+		if (this.#online || this.#recovering) return;
+		if (reachable) this.#set(true);
+		else this.#armReprobe();
 	}
 
 	#stopProbe(): void {

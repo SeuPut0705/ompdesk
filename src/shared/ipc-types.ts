@@ -1498,11 +1498,10 @@ export type IpcWorktreeNotice =
 	| { kind: "kept-running"; path: string }
 	| { kind: "remove-failed"; path: string; message: string };
 
-/** A retry main scheduled for a tab's failed turn (turn-resume.ts): when it fires (epoch ms) and which attempt of how many. */
+/** A retry main scheduled for a tab's failed turn (turn-resume.ts): when it fires (epoch ms) and which attempt it is; never "of how many", the chain has no end. */
 export interface IpcScheduledRetry {
 	at: number;
 	attempt: number;
-	max: number;
 }
 
 /** One tab of a window: its sidecar's cwd, last status, and cached session meta. */
@@ -1678,6 +1677,8 @@ export interface IpcSpawnTabResult {
 	 * Minted tab id. Null when the requested sessionPath is already attached
 	 * to a tab — the renderer switches to/focuses the owner instead of
 	 * spawning a second sidecar for the same file (F-OWN).
+	/** This computer holds the tab's turn for its internet connection (turn-resume.ts): the row says so the whole wait. */
+	awaitingConnection?: true;
 	 */
 	tabId: string | null;
 	/** Resolved cwd when main selected the default workspace (Work or chat tab). */

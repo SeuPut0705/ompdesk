@@ -6,6 +6,7 @@
 		{ "name": "a-wait-is-reachable", "config": "MC_sanity_wait.cfg", "expect": "invariant", "property": "NeverWaits" },
 		{ "name": "a-retry-is-sent", "config": "MC_sanity_retry.cfg", "expect": "invariant", "property": "NeverRetries" },
 		{ "name": "a-retry-is-armed", "config": "MC_sanity_armed.cfg", "expect": "invariant", "property": "NeverArmed" },
+		{ "name": "a-retry-is-armed-past-the-attempt-count", "config": "MC_sanity_cap.cfg", "expect": "invariant", "property": "NeverArmedPastCount" },
 		{ "name": "a-probe-row-shows", "config": "MC_sanity_probe.cfg", "expect": "invariant", "property": "NeverProbing" },
 		{ "name": "a-relaunch-wait-is-reachable", "config": "MC_sanity_launch.cfg", "expect": "invariant", "property": "NeverLaunchWaits" },
 		{ "name": "a-launch-restore-is-in-flight", "config": "MC_sanity_restore.cfg", "expect": "invariant", "property": "NeverRestores" },

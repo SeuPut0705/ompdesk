@@ -37,4 +37,4 @@ Why tests miss it: each guard is tested alone (a prompt during the wait, Cancel 
 - Hosted tabs (`fact.device`, `fact.peer`), the quit freeze (`frozen()`), tab close (`#dropScheduled` on a missing tab), the `enabled()` setting.
 - Stock `retry.enabled` toggling (`#stockRetryOn` is always true).
 - The retry RPC's duration: a user prompt that arrives while the `retry` command is in flight is stock's to resolve.
-- Attempt counting beyond a bound of 2 attempts (the code allows 3).
+- The attempt number of a scheduled retry: it has no limit in the code, the model counts it to `MaxAttempts + 1` and keeps it there. The wait lengths (30 s, 2 min, 10 min, 10 min again) are not modeled: time is order only.

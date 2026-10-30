@@ -970,6 +970,7 @@ export function Sidebar() {
 			? tabSignalPresentation({
 					status: hosted.status,
 					awaitingInput: hosted.awaitingInput ? "input" : undefined,
+					awaitingConnection: hosted.awaitingConnection,
 					sessionHeld: hosted.sessionHeld,
 					unreadDone: false,
 				})

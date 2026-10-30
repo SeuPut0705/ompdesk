@@ -757,6 +757,7 @@ export class LocalHostServices implements HostServices {
 
 	/** Spawn a hosted tab's omp if it has not run yet (a revived tab); its sidecar, or null when it is gone. */
 	startTab(id: string): SidecarLike | null {
+		this.#hostedChanged();
 		const tab = this.#byResumeId(id);
 		if (!tab) return null;
 		this.#start(tab);
@@ -804,6 +805,7 @@ export class LocalHostServices implements HostServices {
 		}
 		return sessions;
 	}
+			if (tab.awaitingConnection) session.awaitingConnection = true;
 
 	/** The omps here that run for paired devices, as members of a shared checkout (`checkout-peers.ts`). */
 	checkoutMembers(): CheckoutMember[] {
@@ -2386,7 +2388,7 @@ function listingSignature(openers: ReadonlyMap<string, string>, held: ReadonlySe
 /** A scheduled retry as the device gets it: what is left of the wait, since the two computers share no clock. */
 function scheduledRetryArg(retry: IpcScheduledRetry | undefined): TabScheduledRetryArg {
 	if (!retry) return null;
-	return { remainingMs: Math.max(0, retry.at - Date.now()), attempt: retry.attempt, max: retry.max };
+	return { remainingMs: Math.max(0, retry.at - Date.now()), attempt: retry.attempt };
 }
 
 /** Why a tab left in its grace period is worth bringing back to its device (`tabs.kept`); null when it is idle. */

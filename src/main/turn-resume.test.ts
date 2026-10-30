@@ -2547,13 +2547,14 @@ describe("a continuation held for the connection", () => {
 
 	it("a sleep whose wake event never came releases it too", async () => {
 		h = setup({ answers: { retry: RETRIED } });
-		const { monitor, fireNext } = monitored();
+		const { world, monitor, fireNext } = monitored();
 		h.resume.launch();
 		monitor.suspend();
 		h.facts.push(fact({ running: false, lastRun: { ...networkFailure } }));
 		h.resume.sync();
 		expect(h.awaiting).toEqual([["t1", true]]);
-		// The wake's probe loop never started (no `resume` event); the re-probe finds the network answering.
+		// The wake's probe loop never started (no `resume` event); the network answers and the re-probe finds it.
+		world.reachable = true;
 		await fireNext();
 		expect(h.commands.map(cmd => cmd.type)).toEqual(["retry"]);
 	});

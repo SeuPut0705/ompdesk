@@ -136,7 +136,7 @@ describe("ConnectivityMonitor", () => {
 
 	describe("an offline state nothing ends (a missed `online` event, a wake whose `resume` never came)", () => {
 		it("asks again on its own interval and goes online as soon as a probe answers", async () => {
-			const { monitor, state, changes, settle, fireTimer, timers } = harness();
+			const { monitor, state, changes, fireTimer, timers } = harness();
 			monitor.report(false);
 			expect(timers.filter(timer => timer.live).map(timer => timer.ms)).toEqual([REPROBE_INTERVAL_MS]);
 
@@ -297,7 +297,8 @@ describe("ConnectivityMonitor", () => {
 		monitor.report(false);
 		state.reachable = true;
 		expect(await monitor.verify()).toBe(false);
-		expect(timers).toEqual([]);
+		// No probe loop, no ask of its own: only the offline state's slow re-probe is armed.
+		expect(timers.filter(timer => timer.ms !== REPROBE_INTERVAL_MS)).toEqual([]);
 		expect(monitor.online).toBe(false);
 	});
 

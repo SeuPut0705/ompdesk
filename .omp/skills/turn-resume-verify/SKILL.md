@@ -21,7 +21,7 @@ Sync commit: `0fe993fc83`. This is the commit at which the verification was last
 
 ## Bounds and assumptions
 
-- Bounds: 1 tab, 2 runs started, 2 scheduled attempts, 1 network flap, 1 session change (through a synced command or a file move no sync sees), 1 Cancel, at most one relaunch; 8.0M states, depth 78 (fast tier, about 2.5 min for the main run). The deep run uses 2 flaps. Liveness: 1 run started, 1 attempt, 1 flap, no session change, no Cancel (strong fairness per component and the network eventually coming back as an assumption). A larger liveness run (2 runs, 158504 states, 308 s, before the F1/F4 fixes) is saved in `formal/turn-resume/evidence/TurnResume-MC_live_deep.log`.
+- Bounds: 1 tab, 2 runs started, scheduled-retry attempts counted to 3 and kept there (the code has no limit), 1 network flap (the link may come back with or without its `online` event), 1 session change (through a synced command or a file move no sync sees), 1 Cancel, at most one relaunch; 8.8M states, depth 78 (fast tier, about 3.5 min for the main run). The deep run uses 2 flaps (56M states, about 17 min). Liveness: 1 run started, 1 attempt, 1 flap, no session change, no Cancel (strong fairness per component and the network eventually coming back as an assumption). A larger liveness run (2 runs, 158504 states, 308 s, before the F1/F4 fixes) is saved in `formal/turn-resume/evidence/TurnResume-MC_live_deep.log`.
 - Assumptions (each is a place a bug could hide): every pool event that changes a fact is followed by `sync()`; `sync()` and `flush()` run in one macrotask; a ready sidecar resolves `whenReady` in a microtask; a run cannot be live on an omp that is not up; one tab; stock `retry.enabled` is on. The full table is `formal/turn-resume/CORRESPONDENCE.md`.
 - Not covered: an online launch's continuation and the rest of the relaunch path past its offline wait, two continuations (`#run`s) of one tab at once (A13: the model ends the person's run after the continuation on its way), stock's auto-retry takeover, the wake window, hosted tabs, the quit freeze, tab close, the duration of the `retry` RPC, two tabs at once. `formal/turn-resume/SCOPE.md` lists them.
 
@@ -33,7 +33,7 @@ Sync commit: `0fe993fc83`. This is the commit at which the verification was last
 bun <tools-dir>/scripts/verify-all.ts formal --only turn-resume
 ```
 
-It takes about 3 minutes (matrix of 8 runs, 15 mutations, tag check, drift). Read the result like this:
+It takes about 30 minutes with the deep run (matrix of 15 runs, 27 mutations, tag check, drift); `--tier fast` skips the deep ones. Read the result like this:
 - `PASS`, exit 0: no counterexample within the bounds above. It does not mean the code is correct.
 - `FAIL`, exit 1: a property was violated, a mutation was MISSED, or an `@code` tag no longer resolves. A violation prints a trace with one row per step: the action, its `@code` location and the variables that changed.
 - `DRIFT:` note under the drift line: covered files differ from the sync commit, so the model needs another look (CI adds `--strict-drift` and fails on it). A sync commit that is not in this repository fails.

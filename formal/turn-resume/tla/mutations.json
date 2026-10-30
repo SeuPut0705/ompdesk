@@ -18,7 +18,8 @@
 		"NoRetryAfterSessionChangeWhileHeld",
 		"NoSendWhileMoveInFlight",
 		"GoalHeard",
-		"NoSendAfterPersonsPrompt"
+		"NoSendAfterPersonsPrompt",
+		"NoGiveUp"
 	],
 	"waive": {
 		"TypeOK": "Shape check only: no behaviour change breaks it without also breaking a property above it."
@@ -239,6 +240,33 @@
 			"replace": "cancels[t] = restGen[t] /\\ ~End_moved(t, rsg[t])",
 			"breaks": "NoSendAfterPersonsPrompt",
 			"config": "MC_p8.cfg"
+		},
+		{
+			"name": "plan-capped-after-judge",
+			"why": "The scheduled retry's old cap (`used >= delays.length`) in #planRetry as the run's judging reaches it: after the last listed attempt a transient failure plans nothing and the red card stands.",
+			"file": "TurnResume.tla",
+			"search": "/\\ IF ~MayRetry(t, o)",
+			"replace": "/\\ IF attempts[t] >= MaxAttempts \\/ ~MayRetry(t, o)",
+			"breaks": "NoGiveUp",
+			"config": "MC_p9.cfg"
+		},
+		{
+			"name": "plan-capped-after-probe",
+			"why": "The same cap on the path of a failed lookup whose probe answered (`#verifyNetwork` ends in #planRetry).",
+			"file": "TurnResume.tla",
+			"search": "/\\ planning' = (IF holds /\\ kindOf[o] # \"fatal\"",
+			"replace": "/\\ planning' = (IF holds /\\ kindOf[o] # \"fatal\" /\\ attempts[t] < MaxAttempts",
+			"breaks": "NoGiveUp",
+			"config": "MC_p9.cfg"
+		},
+		{
+			"name": "offline-never-reprobed",
+			"why": "ConnectivityMonitor has no re-probe of its own (as before 30 Oct 2026): an offline state whose `online` event was missed stays offline, and a continuation held for the connection waits for ever.",
+			"file": "TurnResume.tla",
+			"search": "/\\ Idle /\\ ~online /\\ ~recovering",
+			"replace": "/\\ FALSE /\\ Idle /\\ ~online /\\ ~recovering",
+			"breaks": "WaitEnds",
+			"config": "MC_live_wait.cfg"
 		}
 	]
 }

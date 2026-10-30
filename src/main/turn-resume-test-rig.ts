@@ -146,7 +146,7 @@ export class TurnResumeWorld {
 				},
 				setScheduledRetry: (_tab, retry) => {
 					this.#scheduled = retry;
-					this.trace.push(retry ? `scheduled ${retry.attempt}/${retry.max}` : "scheduled off");
+					this.trace.push(retry ? `scheduled ${retry.attempt}` : "scheduled off");
 				},
 				startTab: () => this.#sidecar,
 				tabForSession: path => (path === this.fact.sessionFile ? TAB : null),

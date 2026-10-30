@@ -485,7 +485,6 @@ export const TabScheduledRetryArg = z
 	.object({
 		remainingMs: z.number().nonnegative(),
 		attempt: z.number().int().positive(),
-		max: z.number().int().positive(),
 	})
 	.nullable();
 export type TabScheduledRetryArg = z.infer<typeof TabScheduledRetryArg>;

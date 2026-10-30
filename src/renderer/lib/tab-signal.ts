@@ -31,7 +31,10 @@ export function isSessionDown(tab: { status: string }): boolean {
 
 /** A tab's signal; any tab-shaped state works (the sidebar's row of a paired device's tab on this computer too). */
 export function tabSignalPresentation(
-	tab: Pick<SessionTab, "status" | "compacting" | "awaitingInput" | "unreadDone" | "sessionHeld">,
+	tab: Pick<
+		SessionTab,
+		"status" | "compacting" | "awaitingInput" | "awaitingConnection" | "unreadDone" | "sessionHeld"
+	>,
 	activeRuntime = false,
 ): TabSignalPresentation {
 	const running = tab.status === "running" || tab.compacting === true || activeRuntime;
@@ -42,6 +45,11 @@ export function tabSignalPresentation(
 	}
 	if (running) {
 		return { active: true, color: "var(--omp-accent)", labelKey: "titlebar.status.working", running: true };
+	}
+	// The turn waits for the internet connection and goes on by itself: shown the whole time, never as an idle tab.
+	// The session's own state (down, running) and a question outrank it, as above.
+	if (tab.awaitingConnection && !isSessionDown(tab)) {
+		return { active: true, color: "var(--omp-warning)", labelKey: "titlebar.status.connectionWait", running: false };
 	}
 	if (tab.unreadDone) {
 		return { active: false, color: "var(--omp-success)", labelKey: "tabs.done", running: false };

@@ -232,7 +232,7 @@ export function TurnErrorNotice({
 					})}
 					<span className="text-(--sc-text-muted)">
 						{" · "}
-						{t("turnError.scheduled.attempt", { attempt: scheduled.attempt, max: scheduled.max })}
+						{t("turnError.scheduled.attempt", { attempt: scheduled.attempt })}
 					</span>
 				</p>
 			) : null}

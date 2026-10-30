@@ -383,7 +383,6 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 						: ({
 								at: Date.now() + retry.remainingMs,
 								attempt: retry.attempt,
-								max: retry.max,
 							} satisfies IpcScheduledRetry),
 				);
 				return;
