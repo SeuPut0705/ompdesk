@@ -73,8 +73,12 @@ async function keyboardUp(page: Page, look: Look, focus: string): Promise<void> 
 	await page.waitForFunction(() => document.documentElement.dataset.kb === "open", undefined, { timeout: 5_000 });
 }
 const keyboardLook = (look: Look): boolean => (look.device ?? "touch") === "touch" && look.orientation === "portrait";
-/** A portrait tablet at least 800 px wide docks the session list; a phone and the narrower tablet use the drawer. */
-const sidebarDocked = (look: Look): boolean => look.width >= 800;
+/**
+ * A portrait tablet at least 800 px wide docks the session list; a phone and the narrower tablet use the drawer. A phone
+ * held sideways (844×390) is wider than 800 px but still a phone (`use-shell-mode.ts`: shorter than 500 px), drawer and
+ * all: read as docked, the audit waited for a list it never opened.
+ */
+const sidebarDocked = (look: Look): boolean => look.width >= 800 && look.height >= 500;
 
 async function openDrawer(page: Page, look: Look): Promise<void> {
 	if (sidebarDocked(look)) return;

@@ -1041,7 +1041,9 @@ function SessionTranscript() {
 							<h1 className="font-display text-sc-3xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)">
 								{isChat ? t("chat.empty.title.chat") : t("chat.empty.title")}
 							</h1>
-							<div className="omp-starter-grid mt-8 grid auto-rows-fr grid-cols-2 gap-(--sc-space-3) max-sm:grid-cols-1">
+							{/* Rows fit their own cards (cards in a row still stretch to one height): equal rows sized to the
+							    tallest card left every one-line card in English ~25 px of empty bottom. */}
+							<div className="omp-starter-grid mt-8 grid grid-cols-2 gap-(--sc-space-3) max-sm:grid-cols-1">
 								{starters.map(({ icon: Icon, title, prompt }) => (
 									<button
 										key={title}

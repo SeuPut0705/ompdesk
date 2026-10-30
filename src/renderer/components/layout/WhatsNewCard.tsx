@@ -55,7 +55,9 @@ function WhatsNewCardBody({ version, since }: { version: string; since: string |
 	}, [dismiss]);
 
 	return (
-		<div className="shrink-0 px-(--omp-column-pad) pt-2">
+		// A full-width row with its own rule under it, so the transcript plainly starts below it: a pill floating over
+		// the scroller's top edge, with a line cut there, read as covering the transcript.
+		<div className="shrink-0 border-b border-(--sc-divider) px-(--omp-column-pad) py-2">
 			<section
 				aria-label={title}
 				className="omp-whats-new-card mx-auto flex max-w-(--omp-column-reading) items-center gap-2 rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-surface-2) py-1 pr-1 pl-2.5 text-sc-sm"
@@ -88,18 +90,20 @@ function WhatsNewCardBody({ version, since }: { version: string; since: string |
 				tabIndex={0}
 			>
 				<BrandMark size={16} />
-				<span className="min-w-0 truncate font-semibold text-(--sc-text)" title={title}>
-					{title}
-				</span>
-				{summary && (
-					<span
-						className="min-w-0 flex-1 truncate text-(--sc-text-secondary)"
-						data-whats-new-summary
-						title={summary}
-					>
-						{summary}
-					</span>
-				)}
+				{/* Title and the summary sentence wrap whole: one truncated line cut the summary mid-word ("…for the
+				    first t…"), so the visible text said nothing. A narrow pane (a phone, a split's quarter) shows the
+				    title alone (components.css), its sentence one tap away in See details. */}
+				<p className="min-w-0 flex-1 py-0.5 break-keep text-(--sc-text-secondary)" title={summary || title}>
+					<span className="font-semibold text-(--sc-text)">{title}</span>
+					{summary && (
+						<>
+							{" "}
+							<span className="omp-whats-new-summary" data-whats-new-summary>
+								{summary}
+							</span>
+						</>
+					)}
+				</p>
 				<Button className="ml-auto shrink-0" data-whats-new-details onClick={open} size="sm" variant="ghost">
 					{t("whatsNew.details")}
 				</Button>

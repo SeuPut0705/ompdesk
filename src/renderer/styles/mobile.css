@@ -299,7 +299,14 @@ html[data-shell="phone"] .omp-titlebar-status-label {
 	white-space: nowrap;
 }
 
+/* The status is no target (nothing to tap), so it needs no room of its own beside the bar's 14 px gaps, and the title
+   button keeps a 4 px inset (its reach comes from those gaps): their padding went to the title, which a waiting chip
+   cut to "Fix the flaky side…" at 390 px. */
 html[data-shell="phone"] .omp-titlebar-status {
+	padding-inline: 0;
+}
+
+html[data-shell="phone"] .omp-titlebar [data-titlebar-session-name] {
 	padding-inline: var(--sc-space-1);
 }
 
@@ -2256,6 +2263,21 @@ html[data-input="touch"] .omp-session-sidebar .omp-sidebar-project-menu {
 
 html[data-input="touch"] .omp-session-sidebar [data-sidebar-group-new][data-sidebar-group-new] {
 	min-width: 36px;
+}
+
+/* A phone held sideways (390 px high): the drawer's header, search and footer (Get started, usage limits, Settings)
+   are fixed around the list and left it one row's height, cut mid-row. Below 500 px the drawer scrolls as one column
+   instead: the list takes its rows' height and the footer follows them. */
+@media (max-height: 499px) {
+	html[data-shell="phone"] .omp-session-sidebar {
+		overflow-y: auto;
+		overflow-x: hidden;
+	}
+
+	html[data-shell="phone"] .omp-session-sidebar > [data-tour="sessions"] {
+		flex: none;
+		overflow: visible;
+	}
 }
 
 /* A phone turned sideways (844 × 390 and the like): the row has the width the portrait phone lacks, so its controls

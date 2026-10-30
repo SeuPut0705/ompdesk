@@ -129,6 +129,7 @@ test("@smoke connects two computers over the tailnet with no code, runs a prompt
 		// ── A: open a session on B from the sidebar device section ──
 		const section = a.locator(`[data-sidebar-device="${deviceId}"]`);
 		await expect(section).toHaveAttribute("data-device-state", "online");
+		await section.locator(`[data-sidebar-device-toggle="${deviceId}"]`).hover();
 		await section.locator(`[data-sidebar-device-add="${deviceId}"]`).click();
 		const picker = a.getByRole("dialog", { name: /Choose a folder on/ });
 		// Up to the root, then down B's real path to its project folder.

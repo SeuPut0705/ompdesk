@@ -283,7 +283,7 @@ for (const language of ["en", "ko"] as const)
 				}
 				await page.emulateMedia({ reducedMotion: null });
 
-				// Sidebar filter: a match, then nothing; the chat lane; keyboard focus.
+				// Sidebar filter: a match, then nothing; the Chats section collapsed; keyboard focus.
 				const filter = page.getByRole("complementary").getByRole("searchbox").first();
 				await filter.fill("auth");
 				await page.waitForTimeout(250);
@@ -292,10 +292,11 @@ for (const language of ["en", "ko"] as const)
 				await page.waitForTimeout(250);
 				await shoot("filter-empty");
 				await filter.fill("");
-				await page.getByRole("complementary").getByRole("tab").nth(1).click();
+				const chatsToggle = page.locator('[data-sidebar-chats="local"] [data-sidebar-chats-toggle]');
+				await chatsToggle.click();
 				await page.waitForTimeout(300);
-				await shoot("chat-lane");
-				await page.getByRole("complementary").getByRole("tab").nth(0).click();
+				await shoot("chats-collapsed");
+				await chatsToggle.click();
 				await filter.focus();
 				await page.keyboard.press("Tab");
 				await page.keyboard.press("Tab");
@@ -339,7 +340,7 @@ for (const language of ["en", "ko"] as const)
 				await page.waitForTimeout(300);
 				await shoot("theme-dialog");
 				const picker = page.getByRole("dialog");
-				await picker.locator('button[aria-pressed="true"]').first().click();
+				await picker.locator("[data-theme-entry]").nth(1).click();
 				await page.waitForTimeout(300);
 				await shoot("toast");
 

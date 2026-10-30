@@ -130,7 +130,10 @@ export function MenuItemView({ item }: { item: Omit<ContextMenuItem, "onSelect" 
 			<span className="min-w-0 flex-1">
 				<span className="block truncate">{item.label}</span>
 				{item.description && (
-					<span className="mt-0.5 block text-sc-xs font-normal text-(--sc-text-muted)">{item.description}</span>
+					// Wraps at word boundaries, never inside a Korean word ("가져 / 오기"), and avoids a lone last word.
+					<span className="mt-0.5 block text-sc-xs font-normal text-pretty break-keep text-(--sc-text-muted)">
+						{item.description}
+					</span>
 				)}
 			</span>
 			{showCheckColumn && (

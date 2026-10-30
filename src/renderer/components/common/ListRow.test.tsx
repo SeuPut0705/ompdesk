@@ -11,7 +11,6 @@ describe("ListRow", () => {
 	it("keeps the title clear of the actions it reveals: room for two by default, for the stated count otherwise", () => {
 		expect(markup({})).toContain("group-hover/row:pr-14");
 		expect(markup({ actionCount: 3 })).toContain("group-hover/row:pr-24");
-		expect(markup({ actionCount: 3 })).toContain("group-focus-within/row:pr-24");
 		expect(markup({ actionCount: 4 })).toContain("group-hover/row:pr-32");
 		expect(markup({ actionCount: 1 })).toContain("group-hover/row:pr-9");
 		// A selected row shows its actions at rest, so the room is always there.
@@ -33,7 +32,6 @@ describe("ListRow", () => {
 		expect(quiet).not.toMatch(/class="[^"]*\b(group-[a-z-]+\/row:)?pr-24\b/);
 		expect(quiet).toContain("pointer-events-none");
 		expect(quiet).not.toMatch(/absolute inset-y-0[^"]* opacity-100[ "]/);
-		expect(quiet).toContain("group-focus-within/row:pointer-events-auto");
 		expect(quiet).toContain("--row-room:6rem");
 		// The meta gives the actions its place while they show, so the title runs on under the fade to them.
 		expect(quiet).toContain("group-hover/row:hidden");

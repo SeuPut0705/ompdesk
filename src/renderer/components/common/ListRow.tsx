@@ -26,14 +26,15 @@ export interface ListRowProps {
 	leading?: ReactNode;
 	/** Quiet right-aligned text (relative time, count) or a Kbd. */
 	meta?: ReactNode;
-	/** Row actions (IconButton size sm); shown on hover / focus-within / selected. */
+	/** Row actions (IconButton size sm); shown on hover / keyboard focus / selected. */
 	actions?: ReactNode;
 	/** How many actions show at most, so the title keeps clear of them (room for two when omitted). */
 	actionCount?: number;
 	/**
-	 * Actions show only on hover or focus-within, selected or not, and overlay the row's end on a fade. They take the
-	 * meta's place while they show: the meta steps aside and the title runs on under the fade up to them, so a row
-	 * with one action (the sidebar's ⋯) reads more of its title on hover, not less. Nothing else moves.
+	 * Actions show only on hover or keyboard focus (`:focus-visible` inside the row, so the row a click focused keeps its
+	 * meta), selected or not, and overlay the row's end on a fade. They take the meta's place while they show: the meta
+	 * steps aside and the title runs on under the fade up to them, so a row with one action (the sidebar's ⋯) reads more
+	 * of its title on hover, not less. Nothing else moves.
 	 */
 	actionsOnHover?: boolean;
 	/**
@@ -61,13 +62,19 @@ export interface ListRowProps {
 
 /**
  * Right padding that keeps the title clear of the overlaid actions: n buttons of 28px, the 2px gaps and
- * the 6px edge offset. Static strings, so Tailwind finds them.
+ * the 6px edge offset. Static strings, so Tailwind finds them. `group-has-[:focus-visible]` is keyboard focus
+ * anywhere in the row: a mouse click leaves the row focused (`:focus-within`), and that kept the actions over the
+ * selected row's title for as long as it stayed selected.
  */
 const ACTION_ROOM = [
-	{ reveal: "group-focus-within/row:pr-9 group-hover/row:pr-9", always: "pr-9", var: "[--row-room:2.25rem]" },
-	{ reveal: "group-focus-within/row:pr-14 group-hover/row:pr-14", always: "pr-14", var: "[--row-room:3.5rem]" },
-	{ reveal: "group-focus-within/row:pr-24 group-hover/row:pr-24", always: "pr-24", var: "[--row-room:6rem]" },
-	{ reveal: "group-focus-within/row:pr-32 group-hover/row:pr-32", always: "pr-32", var: "[--row-room:8rem]" },
+	{ reveal: "group-has-[:focus-visible]/row:pr-9 group-hover/row:pr-9", always: "pr-9", var: "[--row-room:2.25rem]" },
+	{
+		reveal: "group-has-[:focus-visible]/row:pr-14 group-hover/row:pr-14",
+		always: "pr-14",
+		var: "[--row-room:3.5rem]",
+	},
+	{ reveal: "group-has-[:focus-visible]/row:pr-24 group-hover/row:pr-24", always: "pr-24", var: "[--row-room:6rem]" },
+	{ reveal: "group-has-[:focus-visible]/row:pr-32 group-hover/row:pr-32", always: "pr-32", var: "[--row-room:8rem]" },
 ] as const;
 
 /**
@@ -75,7 +82,7 @@ const ACTION_ROOM = [
  * making room, so nothing shifts.
  */
 const QUIET_FADE =
-	"group-hover/row:mask-[linear-gradient(to_right,#000_calc(100%-var(--row-room)),transparent_calc(100%-var(--row-room)+0.75rem))] group-focus-within/row:mask-[linear-gradient(to_right,#000_calc(100%-var(--row-room)),transparent_calc(100%-var(--row-room)+0.75rem))]";
+	"group-hover/row:mask-[linear-gradient(to_right,#000_calc(100%-var(--row-room)),transparent_calc(100%-var(--row-room)+0.75rem))] group-has-[:focus-visible]/row:mask-[linear-gradient(to_right,#000_calc(100%-var(--row-room)),transparent_calc(100%-var(--row-room)+0.75rem))]";
 
 export function ListRow({
 	title,
@@ -107,9 +114,9 @@ export function ListRow({
 	const actionsOverlay = actions && !actionsAtRest && (
 		<span
 			className={cx(
-				"absolute inset-y-0 z-(--sc-z-raised) flex items-center gap-0.5 opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/row:opacity-100 group-hover/row:opacity-100 [@media(hover:none)]:opacity-100",
+				"absolute inset-y-0 z-(--sc-z-raised) flex items-center gap-0.5 opacity-0 transition-opacity duration-(--sc-duration-fast) group-has-[:focus-visible]/row:opacity-100 group-hover/row:opacity-100 [@media(hover:none)]:opacity-100",
 				actionsOnHover &&
-					"pointer-events-none group-focus-within/row:pointer-events-auto group-hover/row:pointer-events-auto [@media(hover:none)]:pointer-events-auto",
+					"pointer-events-none group-has-[:focus-visible]/row:pointer-events-auto group-hover/row:pointer-events-auto [@media(hover:none)]:pointer-events-auto",
 				trailing ? "right-full pr-0.5" : "right-1.5",
 				selected && !actionsOnHover && "opacity-100",
 			)}
@@ -135,7 +142,10 @@ export function ListRow({
 			)}
 			<span
 				className={cx(
-					"min-w-0 flex-1",
+					// The title is what tells rows apart: sized by its own text, it gives way only once the row's end (a
+					// waiting badge's word) has given what it can (meta below shrinks 99× faster). With a zero basis it got
+					// only what the badge, the age and a child count left: "Fix the f…".
+					"min-w-0 flex-[1_1_auto]",
 					// Actions overlay the right edge; make room only while they show.
 					actions != null && !actionsOnHover && !actionsAtRest && room.reveal,
 					actions != null && !actionsOnHover && !actionsAtRest && selected && room.always,
@@ -171,12 +181,14 @@ export function ListRow({
 			{meta && (
 				<span
 					className={cx(
-						"shrink-0 text-sc-xs tabular-nums text-(--sc-text-muted)",
+						// Down to `--row-meta-min` (its whole content unless the list sets less: the sidebar lets a waiting
+						// badge's word go, down to its ⚠ glyph) before the title loses a character.
+						"flex min-w-(--row-meta-min,min-content) flex-[0_99_auto] items-center justify-end overflow-hidden text-sc-xs whitespace-nowrap tabular-nums text-(--sc-text-muted)",
 						actions && !actionsAtRest
 							? cx(
 									actionsOnHover
-										? "group-focus-within/row:hidden group-hover/row:hidden [@media(hover:none)]:invisible"
-										: "group-focus-within/row:hidden group-hover/row:hidden [@media(hover:none)]:hidden",
+										? "group-has-[:focus-visible]/row:hidden group-hover/row:hidden [@media(hover:none)]:invisible"
+										: "group-has-[:focus-visible]/row:hidden group-hover/row:hidden [@media(hover:none)]:hidden",
 									selected && !actionsOnHover && "hidden",
 								)
 							: undefined,

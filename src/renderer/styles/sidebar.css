@@ -106,11 +106,21 @@
 }
 
 /* The attention word shares the row with the title: a translation longer than the English and Korean words (97 px
-   at most) ends in an ellipsis, the word staying the tooltip and the row's accessible text. */
+   at most) ends in an ellipsis, the word staying the tooltip and the row's accessible text. It gives way to the title
+   first: beside a child count it cut the title to "Fix the f…". */
 .omp-session-sidebar .omp-sidebar-approval {
 	max-width: 7.5rem;
+	min-width: 0;
+	flex-shrink: 1;
 	white-space: nowrap;
 	font-weight: var(--sc-weight-regular);
+}
+
+/* A row's end (ListRow's meta) gives way before its title, down to `--row-meta-min`: an age stays whole (ListRow's
+   default), a waiting badge goes down to its ⚠ glyph in the pill (the word's tooltip and accessible text stay). */
+.omp-session-sidebar .omp-sidebar-session-row[data-signal="waiting"] {
+	/* The pill's 8 px sides, the 12 px glyph and the 6 px gap after it: the word's box is then 0 wide, never a sliver. */
+	--row-meta-min: 2.125rem;
 }
 
 .omp-sidebar-controls {

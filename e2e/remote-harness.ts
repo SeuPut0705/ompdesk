@@ -251,6 +251,8 @@ export async function openHostFolder(client: Page, deviceId: string, folder: str
 	const before = new Set((await client.evaluate(() => window.omp.tabs.list())).map(tab => tab.tabId));
 	const section = client.locator(`[data-sidebar-device="${deviceId}"]`);
 	await expect(section).toHaveAttribute("data-device-state", "online");
+	// The host's project button shows with the header's hover, as with a mouse.
+	await section.locator(`[data-sidebar-device-toggle="${deviceId}"]`).hover();
 	await section.locator(`[data-sidebar-device-add="${deviceId}"]`).click();
 	const picker = client.locator("[role=dialog]").filter({ has: client.locator("[data-remote-picker-path]") });
 	await walkRemotePicker(picker, folder);

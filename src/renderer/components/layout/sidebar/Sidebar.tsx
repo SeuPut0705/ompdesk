@@ -1709,6 +1709,8 @@ export function Sidebar() {
 		const runningOpened = opened.filter(child => child.status === "running").length;
 		const age = waiting ? (
 			<Badge className="omp-sidebar-approval" variant="warning">
+				{/* The glyph stays when the word has no room left beside the title (it truncates, then hides). */}
+				<AlertTriangle aria-hidden className="size-3 shrink-0" />
 				<span className="min-w-0 truncate" title={waitingLabel ?? undefined}>
 					{waitingLabel}
 				</span>
@@ -1775,7 +1777,7 @@ export function Sidebar() {
 					className={cx("omp-sidebar-session-row", runChild && "omp-sidebar-session-run-child")}
 					meta={
 						marker || age ? (
-							<span className="inline-flex items-center gap-1.5" data-sidebar-row-end>
+							<span className="inline-flex min-w-0 items-center gap-1.5" data-sidebar-row-end>
 								{marker}
 								{age}
 							</span>
@@ -1797,6 +1799,7 @@ export function Sidebar() {
 						"data-active": active,
 						"data-current": isCurrent || undefined,
 						"data-pane-focus": (isCurrent && splitIds !== null) || undefined,
+						"data-pane-shown": (active && !isCurrent && splitIds !== null) || undefined,
 						"data-live": indexed ? undefined : true,
 						"data-switch-pending": switchPendingTo === session.id || undefined,
 						"data-session-kind": session.kind ?? "agent",
