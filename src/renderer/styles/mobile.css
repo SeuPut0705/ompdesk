@@ -694,6 +694,42 @@ html[data-shell="phone"] .settings-page[data-stacked] .settings-column {
 	padding-bottom: calc(var(--sc-space-12) + var(--safe-b));
 }
 
+/* A tablet (web build) beside its docked sidebar often leaves the page under the 700 px at which global.css turns the
+   section list into a wrapping chip bar; wrapped, twelve chips took five rows (55 % of a landscape 600 px height).
+   Here the bar is ONE row that scrolls sideways, and the search field is as high as a chip. An Electron window never
+   has `data-shell`, so it keeps the wrapping bar. */
+@container settings-root (max-width: 700px) {
+	html[data-shell^="tablet"] .settings-page:not([data-stacked]) .settings-nav {
+		flex-wrap: nowrap;
+		max-height: none;
+		overflow: auto hidden;
+		scrollbar-width: none;
+	}
+
+	html[data-shell^="tablet"] .settings-page:not([data-stacked]) .settings-nav::-webkit-scrollbar {
+		display: none;
+	}
+
+	html[data-shell^="tablet"] .settings-page:not([data-stacked]) .settings-nav > * {
+		flex: none;
+	}
+
+	html[data-shell^="tablet"] .settings-page:not([data-stacked]) .settings-nav > div:has(input) {
+		flex: 0 0 12rem;
+	}
+
+	html[data-shell^="tablet"] .settings-page:not([data-stacked]) .settings-nav [data-settings-nav] {
+		flex: none;
+		white-space: nowrap;
+	}
+
+	/* The search field and a chip are one height. */
+	html[data-shell^="tablet"] .settings-page:not([data-stacked]) .settings-nav :is([data-settings-nav], input) {
+		height: var(--sc-row-touch);
+		min-height: 0;
+	}
+}
+
 /* A row stacks its label and description above a full-width control; a switch or one-button row (`compactControl`)
    keeps its control at the right. */
 html[data-shell="phone"] .settings-field-row:not(.settings-field-row-compact) {
@@ -703,6 +739,10 @@ html[data-shell="phone"] .settings-field-row:not(.settings-field-row-compact) {
 
 html[data-shell="phone"] .settings-field-row:not(.settings-field-row-compact) > .settings-field-control {
 	text-align: start;
+}
+
+html[data-shell="phone"] [data-settings-row-detail] {
+	padding-inline-start: 0;
 }
 
 html[data-shell="phone"] [data-setting-desc] {

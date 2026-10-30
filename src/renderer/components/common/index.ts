@@ -52,6 +52,7 @@ export { Modal, type ModalAnchor, type ModalPlacement, type ModalProps, type Mod
 export { OptionRow, type OptionRowProps } from "./OptionRow";
 export { PageLayout, type PageLayoutProps } from "./PageLayout";
 export { PanelErrorBoundary } from "./PanelErrorBoundary";
+export { PathText, type PathTextProps } from "./PathText";
 export { Popover, type PopoverPlacement, type PopoverProps } from "./Popover";
 export { ProgressBar, type ProgressBarProps, type ProgressBarTone } from "./ProgressBar";
 export {

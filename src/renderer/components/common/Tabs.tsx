@@ -10,7 +10,7 @@
  * the sidebar. Pass `ariaLabel`, and label the panels with the tab ids.
  */
 
-import { type KeyboardEvent, useRef } from "react";
+import { type KeyboardEvent, useEffect, useRef } from "react";
 import { cx } from "../../lib/format";
 
 export interface TabItem {
@@ -57,6 +57,18 @@ export function Tabs({ tabs, activeId, onChange, variant = "underline", compact,
 		});
 	};
 
+	// A row wider than its column scrolls sideways (never wraps under itself); the chosen tab stays in view.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: re-runs when the chosen tab changes.
+	useEffect(() => {
+		const list = listRef.current;
+		const tab = list?.querySelector<HTMLElement>('[aria-selected="true"]');
+		if (!list || !tab || list.scrollWidth <= list.clientWidth) return;
+		const box = list.getBoundingClientRect();
+		const at = tab.getBoundingClientRect();
+		if (at.left < box.left) list.scrollLeft -= box.left - at.left;
+		else if (at.right > box.right) list.scrollLeft += at.right - box.right;
+	}, [activeId]);
+
 	return (
 		<div
 			aria-label={ariaLabel}
@@ -64,7 +76,7 @@ export function Tabs({ tabs, activeId, onChange, variant = "underline", compact,
 			className={cx(
 				segmented
 					? "inline-flex items-center gap-0.5 rounded-(--sc-radius-md) bg-(--sc-surface-3) p-0.5"
-					: "flex items-center gap-1 border-b border-(--sc-divider)",
+					: "flex max-w-full items-center gap-1 overflow-x-auto overflow-y-hidden border-b border-(--sc-divider) [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
 				className,
 			)}
 			onKeyDown={onKeyDown}

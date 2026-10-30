@@ -45,6 +45,7 @@ class) says why on the line or the one above: `controls-ok: <reason>`. Existing 
 | A label for an unspelled control | `Tooltip` (prefer `IconButton`, which wires it) | essential information only in a tooltip |
 | A longer explanation of a row | `SettingInfo` (the (i) glyph), `splitDescription` | a paragraph under a label |
 | A short status or count | `Badge` (`dot` + `pulse` while live; text says the state) | a clickable badge |
+| A file path or URL on one line (a tool's location, a repository root) | `PathText` (the middle gives way, the tail stays; the full text is the tooltip) | `truncate` on the whole path, which cuts the file name |
 | A persistent condition of a surface | `Banner` (one sentence, ≤ 2 actions) | a toast |
 | One part of a surface failed or is degraded | `InlineNotice` (with Retry; cause as `ErrorDetail`) | stacked Banners |
 | Brief feedback after an action | a toast (`stores/toast`, drawn by `ToastStack`) | a Banner |

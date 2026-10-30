@@ -341,11 +341,11 @@ export const MAIN_TEXT = {
 	},
 	"updates.checkFailed": {
 		en: "Couldn't check for updates. Check your connection and try again.",
-		ko: "업데이트를 확인하지 못했어요. 연결을 확인하고 다시 시도하세요.",
+		ko: "업데이트를 확인하지 못했어요. 연결을 확인하고 다시 시도해 주세요.",
 	},
 	"updates.downloadFailed": {
 		en: "The installer download failed. Check your connection and try again.",
-		ko: "설치 프로그램을 다운로드하지 못했어요. 연결을 확인하고 다시 시도하세요.",
+		ko: "설치 프로그램을 다운로드하지 못했어요. 연결을 확인하고 다시 시도해 주세요.",
 	},
 	"updates.hashMismatch": {
 		en: "The downloaded installer failed SHA-512 verification and was removed. Try the update again.",
