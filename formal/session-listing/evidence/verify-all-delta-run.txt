@@ -1,0 +1,76 @@
+
+== session-listing: Session listing: a device's list follows the host's shared, numbered list and its changes (tla)
+TLC (tla2tools release 1.8.0)  java 17 (system)  spec SessionListing.tla
+  TLC reports itself as version 2026.10.28.014557
+ok    code-overlay-2-devices: no violation  (2329289 distinct states, 8182282 generated, depth 39, 292.4s)
+ok    code-delta: no violation  (6241323 distinct states, 21799615 generated, depth 34, 401.6s)
+ok    code-two-devices: no violation  (4382853 distinct states, 17233251 generated, depth 34, 425.0s)
+ok    deep-with-a-foreign-reader: no violation  (15399178 distinct states, 60746584 generated, depth 34, 781.7s)
+ok    link-reorder-regresses-hsl: invariant ListConverges (as expected)  (41318 distinct states, 94585 generated, depth 17, 6.4s)
+ok    a-window-can-show-a-held-row: invariant NeverHeld (as expected)  (366 distinct states, 554 generated, depth 5, 1.0s)
+ok    an-opener-row-is-reachable: invariant NeverOpener (as expected)  (594 distinct states, 986 generated, depth 5, 1.3s)
+ok    a-copy-can-drop-a-deleted-session: invariant NeverGone (as expected)  (5991 distinct states, 12628 generated, depth 6, 2.8s)
+ok    hsl-applies-a-delta: invariant NoHslApply (as expected)  (6045 distinct states, 12194 generated, depth 6, 2.7s)
+ok    hsl-meets-a-gap: invariant NoHslGap (as expected)  (12480 distinct states, 26249 generated, depth 7, 1.7s)
+ok    hsl-notes-a-change-during-a-read: invariant NoHslNote (as expected)  (294 distinct states, 397 generated, depth 4, 0.9s)
+ok    feed-applies-a-delta: invariant NoFeedApply (as expected)  (33722 distinct states, 81450 generated, depth 8, 3.0s)
+ok    feed-meets-a-gap-or-bare-event: invariant NoFeedGap (as expected)  (335 distinct states, 470 generated, depth 4, 0.9s)
+ok    feed-notes-a-change-during-a-read: invariant NoFeedNote (as expected)  (15310 distinct states, 34500 generated, depth 7, 2.2s)
+ok    feed-reads-again-for-an-announced-version: invariant NoFeedRaced (as expected)  (33724 distinct states, 81459 generated, depth 8, 2.6s)
+PASS  matrix: all 15 runs ended as expected
+ok    session-listing: TLC matrix
+baseline: pass
+EQUIVALENT id-change-silent: no property notices it, as declared: Since the host shares one numbered list, any read that finds the list changed publishes it and the delta goes to every device: the snapshot another device's read recorded can no longer hide a ch
+DETECTED drop-announce-on-close: failed on HeldConverges
+DETECTED drop-announce-on-open: failed on HeldConverges
+DETECTED signature-ignores-openers: failed on OpenersConverge
+DETECTED snapshot-not-recorded-by-a-read: failed on HeldConverges
+DETECTED sameRow-ignores-heldOnHost: failed on HeldConverges
+DETECTED sameRow-ignores-openedBySession: failed on OpenersConverge
+DETECTED event-never-sent: failed on ListConverges
+DETECTED hsl-applies-on-mismatched-version: failed on SameVersionSameRows
+DETECTED feed-applies-on-mismatched-version: failed on SameVersionSameRows
+EQUIVALENT hsl-skips-reread-on-gap: no property notices it, as declared: The only way the computer's copy misses a version is a link drop (A6), and the link coming back marks the copy stale (LinkUp) before any later change could expose the gap; the gap branch 
+DETECTED link-up-does-not-mark-stale: failed on ListConverges
+EQUIVALENT hsl-ignores-announced-version: no property notices it, as declared: On the in-order link a reply is never older than a change that reached the computer before it: the host's reply holds at least every version it sent before (publish sets the copy, t
+DETECTED feed-skips-reread-on-gap: failed on ListConverges
+DETECTED feed-ignores-announced-version: failed on ListConverges
+DETECTED feed-applies-delta-during-read: failed on NoReappear
+DETECTED lost-queued-refresh: failed on ListConverges
+DETECTED refresh-while-in-flight-reads-again: failed on OneAsk
+DETECTED delta-clears-stale: failed on FreshAfterRequest
+DETECTED no-stale-after-request: failed on FreshAfterRequest
+DETECTED stale-during-read-forgotten: failed on FreshAfterRequest
+WAIVED   TypeOK: Shape check only: no behaviour change breaks it without also breaking a property above it.
+covered  HeldConverges (by drop-announce-on-close, drop-announce-on-open, snapshot-not-recorded-by-a-read, sameRow-ignores-heldOnHost)
+covered  OpenersConverge (by signature-ignores-openers, sameRow-ignores-openedBySession)
+covered  ListConverges (by event-never-sent, link-up-does-not-mark-stale, feed-skips-reread-on-gap, feed-ignores-announced-version, lost-queued-refresh)
+covered  NoReappear (by feed-applies-delta-during-read)
+covered  SameVersionSameRows (by hsl-applies-on-mismatched-version, feed-applies-on-mismatched-version)
+covered  OneAsk (by refresh-while-in-flight-reads-again)
+covered  FreshAfterRequest (by delta-clears-stale, no-stale-after-request, stale-during-read-forgotten)
+18 of 18 mutations detected (3 more declared equivalent, not counted)
+ok    session-listing: mutations
+ok    session-listing: @code tags resolve
+      changed since sync: src/main/index.ts
+      changed since sync: src/main/ipc.ts
+      changed since sync: src/main/remote/devices.ts:548-564 (lines moved by +38: update the range)
+      changed since sync: src/main/remote/devices.ts:649-651 (lines moved by +45: update the range)
+      changed since sync: src/main/remote/devices.ts:957-978 (lines moved by +60: update the range)
+      changed since sync: src/main/remote/host-services.ts
+      changed since sync: src/main/remote/host-session-list.ts
+      changed since sync: src/main/session-index.ts:195-197 (lines moved by +40: update the range)
+      changed since sync: src/main/session-index.ts:246-255 (lines moved by +40: update the range)
+      changed since sync: src/main/session-index.ts:276-289 (lines moved by +40: update the range)
+      changed since sync: src/main/session-index.ts:437-440 (lines moved by +41: update the range)
+      changed since sync: src/main/session-list-share.ts
+      changed since sync: src/main/sidecar-pool.ts
+      changed since sync: src/renderer/stores/session-list.ts
+      changed since sync: src/shared/session-list-delta.ts
+DRIFT  session-listing: drift - DRIFT: 15 covered item(s) changed since 05ca852827; check the model still describes them, then re-stamp
+
+stamp: NOTE session-listing: covered code changed since its old syncCommit. Stamping says you checked the model against it: do that first (references/persist.md, steps 3 and 4).
+
+stamp: session-listing syncCommit = dcf9c6cdc2
+
+DRIFT  session-listing: 3 of 4 ok, 1 drift
