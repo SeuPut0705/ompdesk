@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.86.1] - 2026-10-30
+
+원격 기기 세션에서도 이름 변경, 고정, 보관, 프로젝트로 이동을 쓸 수 있고, 세션 메뉴는 짧아졌어요.
+
+### 바뀐 것
+- 이 컴퓨터와 원격 기기의 세션 메뉴가 같아요. 원격 세션의 고정과 보관은 이 컴퓨터에 저장돼요.
+- 행을 클릭하면 되는 "열기"와 "새 탭에서 열기", "파일 경로 복사"를 메뉴에서 뺐어요.
+- 진단 묶음 저장은 탭이 열린 세션에만 한 항목으로 보여요. ⌥(Windows는 Alt)를 누른 채 고르면 익명화해요.
+
+<!-- en -->
+
+Sessions on a paired device can now be renamed, pinned, archived and moved to a project, and the session menu is shorter.
+
+### Changed
+- This computer's and a paired device's session rows share one menu; a device session's pin and archive are kept on this computer.
+- "Open", "Open in new tab" (a click on the row does it) and "Copy file path" left the menu.
+- Save diagnostic bundle is one item, shown only for a session with an open tab; hold ⌥ (Alt on Windows) to anonymize.
+
 ## [0.86.0] - 2026-10-30
 
 화면 곳곳에서 잘리거나 겹치던 부분을 고치고, 문구를 짧고 한결같게 다듬었어요.
