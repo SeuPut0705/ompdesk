@@ -81,6 +81,7 @@ import { WORKTREE_BRANCH_PREFIX_PREF, worktreeBranchPrefix } from "../shared/wor
 import { accountRotationDeps } from "./account-rotation";
 import { agentDir } from "./agent-paths";
 import { migrateAgentPowers } from "./agent-power-migration";
+import { lowerAgentPriority } from "./agent-priority";
 import { MemoryCare } from "./ai-memory/care";
 import { careUnits } from "./ai-memory/care-units";
 import { AiMemoryClient } from "./ai-memory/client";
@@ -132,6 +133,7 @@ import { renameStoredSession } from "./local/session-files";
 import { LogWatcher } from "./log-watcher";
 import { askMacPermissionsOnce } from "./mac-permissions";
 import { LocalMachine } from "./machine-services";
+import { McpHub } from "./mcp-hub";
 import { onMcpChange } from "./mcp-live";
 import { MEDIA_SCHEME, MediaStreams } from "./media-stream";
 import { createMenu } from "./menu";
@@ -452,6 +454,8 @@ async function resolveProxyEnvForSpawn(): Promise<Record<string, string>> {
 let windowManager: WindowManager;
 let sidecarPool: SidecarPool;
 let statsServer: StatsServerManager | null = null;
+/** OMPdesk's MCP hub (src/main/mcp-hub.ts): the one process serving every omp's `rea` and `ompdesk-memory`. */
+let mcpHub: McpHub | null = null;
 /** The startup omp resolution that creates `statsServer` has finished (with or without one). */
 let statsLaunchSettled = false;
 let sessionIndex: SessionIndex;
@@ -773,6 +777,25 @@ app.whenReady().then(() => {
 	// Memory's address for the bridge's recall in every omp this computer runs (src/main/ai-memory/recall-state.ts).
 	const memoryRecallState = new RecallStateFile(join(app.getPath("userData"), "ai-memory", "recall.json"));
 	const recallTermsFile = join(app.getPath("userData"), "ai-memory", RECALL_TERMS_FILE);
+	mcpHub = new McpHub({
+		script: join(bridgeDir, "mcp-hub.ts"),
+		env: async () => {
+			const [resolution, basePath, shell, proxy] = await Promise.all([
+				systemOmp(),
+				spawnPath(),
+				shellSpawnEnv(),
+				resolveProxyEnvForSpawn(),
+			]);
+			// Bun from omp's own install runs the hub; REA's npx comes from the same PATH an omp's spawn has.
+			return { ...shell, ...proxy, PATH: resolution.ok ? ompPathEnv(resolution.runtime.bin, basePath) : basePath };
+		},
+		reaCacheDir: join(app.getPath("userData"), "rea"),
+		memoryStateFile: memoryRecallState.path,
+		lowerPriority: lowerAgentPriority,
+		log: (message, details) => console.log(`[mcp-hub] ${message}`, details ?? ""),
+	});
+	mcpHub.start();
+	const hub = mcpHub;
 	const createLocalSidecar = localSidecarFactory({
 		bridgeDir,
 		builtinDir,
@@ -789,7 +812,7 @@ app.whenReady().then(() => {
 			return outcome;
 		},
 		builtinReaPref: () => prefsStore().get(REA_PREF),
-		reaCacheDir: join(app.getPath("userData"), "rea"),
+		mcpHubEnv: cwd => hub.ompEnv(cwd),
 		reaRuntimeFile: join(app.getPath("userData"), "rea-runtime.json"),
 		agentControlPref: () => prefsStore().get(AGENT_CONTROL_PREF),
 		pstackPref: () => prefsStore().get(PSTACK_PREF),
@@ -1386,7 +1409,6 @@ app.whenReady().then(() => {
 		home: homedir(),
 		agentDir,
 		rootDir: join(app.getPath("userData"), "ai-memory", "omp-ext"),
-		relaySource: join(builtinDir, "ai-memory", "memory-relay.mjs"),
 		terminalPref: () => {
 			const stored = prefs.get(AI_MEMORY_TERMINAL_PREF);
 			return typeof stored === "boolean" ? stored : undefined;
@@ -1604,6 +1626,7 @@ app.whenReady().then(() => {
 			omp: systemOmp,
 			env: async () => ({ ...process.env, ...(await shellSpawnEnv()), ...(await resolveProxyEnvForSpawn()) }),
 			extensionArgs: cwd => aiMemoryService?.extensionArgs(cwd) ?? Promise.resolve([]),
+			extensionEnv: cwd => mcpHub?.ompEnv(cwd) ?? Promise.resolve({}),
 		}),
 		onState: state => {
 			for (const win of BrowserWindow.getAllWindows()) {
@@ -2067,6 +2090,7 @@ installQuitGuard(
 		// Each step is named to the hang watchdog first: a stalled quit then names the step that never returned.
 		const steps: Array<[string, () => void]> = [
 			["stats-server", () => void statsServer?.kill()],
+			["mcp-hub", () => void mcpHub?.kill()],
 			["omp-updater", () => ompUpdater?.dispose()],
 			["cli-updater", () => cliUpdater?.dispose()],
 			["extension-updater", () => extensionUpdater?.dispose()],

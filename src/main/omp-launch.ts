@@ -7,6 +7,7 @@
  */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { MCP_AUTH_ENV, MCP_CWD_ENV, MCP_HUB_ENV } from "../../resources/gui-bridge/mcp-hub-contracts";
 import type { AutoTitleSettings } from "../../resources/gui-bridge/modes/auto-title-contracts";
 import { agentBrowserEnv } from "../../resources/gui-bridge/modes/default-browser-contracts";
 import type { DelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
@@ -44,7 +45,9 @@ export const SESSION_OWNED_ENV = [
 	"OMP_GUI_ACCOUNT_ROTATION_STATE",
 	OMPDESK_ROLES_ENV,
 	"OMP_GUI_REA_ROOT",
-	"OMP_GUI_REA_CACHE",
+	MCP_HUB_ENV,
+	MCP_AUTH_ENV,
+	MCP_CWD_ENV,
 	"OMP_GUI_PSTACK",
 	"OMP_GUI_ECC",
 	MEMORY_ENV,

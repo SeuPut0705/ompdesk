@@ -466,15 +466,21 @@ export function ompRunLauncher(options: {
 	env: () => Promise<NodeJS.ProcessEnv>;
 	/** Extension flags every run gets in its folder (ai-memory's root while memory is on). */
 	extensionArgs?: (cwd: string) => Promise<string[]>;
+	/** What a run with those extensions needs to reach their MCP servers (src/main/mcp-hub.ts `ompEnv`). */
+	extensionEnv?: (cwd: string) => Promise<Record<string, string>>;
 }): RunLauncher {
 	return async (schedule, files) => {
 		const resolution = await options.omp();
 		if (!resolution.ok) throw new Error(resolution.error);
 		const { bin } = resolution.runtime;
-		const env = await options.env();
+		const extensions = (await options.extensionArgs?.(schedule.cwd)) ?? [];
+		const env = {
+			...(await options.env()),
+			...(extensions.length ? await options.extensionEnv?.(schedule.cwd) : {}),
+		};
 		const args = [
 			"-p",
-			...((await options.extensionArgs?.(schedule.cwd)) ?? []),
+			...extensions,
 			...(schedule.model ? ["--model", schedule.model] : []),
 			...(schedule.autoApprove ? ["--yolo"] : []),
 		];

@@ -3,8 +3,9 @@ import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { MEMORY_HUB_ENTRY } from "../../../resources/gui-bridge/mcp-hub-contracts";
 import { RM_TEMP } from "../test-fake-omp";
-import { generateRoot, ROOT_RELAY, ROOT_SERVER, type RunAiMemory, rootComplete } from "./root";
+import { generateRoot, ROOT_SERVER, type RunAiMemory, rootComplete } from "./root";
 
 let base: string;
 let root: string;
@@ -101,46 +102,32 @@ describe("generateRoot", () => {
 		const servers = JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers;
 		expect(Object.keys(servers)).toEqual([ROOT_SERVER]);
 		expect(ROOT_SERVER).toBe("ompdesk-memory");
-		expect(servers[ROOT_SERVER]).toEqual({ command: "/bin/ai-memory", args: ["mcp-bridge"] });
 	});
 
-	describe("with the relay", () => {
-		const entry = {
-			type: "stdio",
-			command: "/bin/ai-memory",
-			args: ["mcp-bridge", "--no-session-id"],
-			enabled: true,
-		};
-		let relay: { source: string; command: string };
-		beforeEach(async () => {
-			relay = { source: join(base, "memory-relay.mjs"), command: "bun" };
-			await writeFile(relay.source, "// relay 1\n");
-		});
-		const mcp = async () => JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers[ROOT_SERVER];
-
-		it("is complete only while the relay file is there", async () => {
-			await generateRoot(root, generators({ entry }).run, text => text, relay);
+	it("serves the entry from OMPdesk's MCP hub, whatever the generator wrote, and starts no helper of its own", async () => {
+		for (const entry of [
+			{ type: "stdio", command: "/bin/ai-memory", args: ["mcp-bridge", "--no-session-id"], enabled: true },
+			{ url: "http://127.0.0.1:1/mcp" },
+		]) {
+			await generateRoot(root, generators({ entry }).run, text => text);
+			const servers = JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers;
+			// The names stock expands from every omp's env (`expandEnvVarsDeep`); main sets them at each spawn.
+			expect(servers[ROOT_SERVER]).toEqual({
+				type: "http",
+				url: `${"$"}{OMP_GUI_MCP_HUB}/memory`,
+				headers: { Authorization: `${"$"}{OMP_GUI_MCP_AUTH}` },
+			});
+			expect(servers[ROOT_SERVER]).toEqual(MEMORY_HUB_ENTRY);
+			expect((await readdir(root)).sort()).toEqual([".mcp.json", "index.ts", "skills"]);
 			expect(await rootComplete(root)).toBe(true);
-			await rm(join(root, ROOT_RELAY));
-			expect(await rootComplete(root)).toBe(false);
-		});
+		}
+	});
 
-		it("leaves an unchanged root alone and swaps in a new relay", async () => {
-			const { run } = generators({ entry });
-			await generateRoot(root, run, text => text, relay);
-			const first = (await stat(join(root, ROOT_RELAY))).ino;
-			await generateRoot(root, run, text => text, relay);
-			expect((await stat(join(root, ROOT_RELAY))).ino).toBe(first);
-			await writeFile(relay.source, "// relay 2\n");
-			await generateRoot(root, run, text => text, relay);
-			expect(await readFile(join(root, ROOT_RELAY), "utf8")).toBe("// relay 2\n");
-		});
-
-		it("leaves an entry that is not a stdio command as ai-memory wrote it, with no relay file", async () => {
-			await generateRoot(root, generators({ entry: { url: "http://127.0.0.1:1/mcp" } }).run, text => text, relay);
-			expect(await mcp()).toEqual({ url: "http://127.0.0.1:1/mcp" });
-			expect(existsSync(join(root, ROOT_RELAY))).toBe(false);
-			expect(await rootComplete(root)).toBe(true);
-		});
+	it("an unchanged generator output leaves the hub entry's file where it is", async () => {
+		const { run } = generators({ entry: { command: "/bin/ai-memory", args: ["mcp-bridge"] } });
+		await generateRoot(root, run, text => text);
+		const first = (await stat(join(root, ".mcp.json"))).ino;
+		await generateRoot(root, run, text => text);
+		expect((await stat(join(root, ".mcp.json"))).ino).toBe(first);
 	});
 });

@@ -46,6 +46,15 @@ lines.on("line", line => {
 			});
 		return;
 	}
+	if (message.method === undefined) {
+		// The client's answer to a request of REA's own: say what came back, under REA's own id.
+		send({
+			jsonrpc: "2.0",
+			method: "notifications/message",
+			params: { answered: message.id, result: message.result },
+		});
+		return;
+	}
 	const reply = result => send({ jsonrpc: "2.0", id: message.id, result });
 	if (message.method === "initialize" && process.env.REA_FIXTURE_FAIL_INITIALIZE)
 		send({ jsonrpc: "2.0", id: message.id, error: { code: -32603, message: "REA could not initialize" } });
@@ -69,7 +78,12 @@ lines.on("line", line => {
 			instructions: "Fake REA instructions, kept byte for byte.",
 		});
 	else if (message.method === "ping") reply({ pid: process.pid });
-	else if (message.method === "prompts/list") reply({ prompts: [{ name: "investigate_feature" }] });
+	else if (message.method === "fixture/cwd") reply({ cwd: process.cwd() });
+	else if (message.method === "fixture/ask") {
+		// A request of REA's own to its client (omp answers roots/list), answered back through the hub.
+		send({ jsonrpc: "2.0", id: 41, method: "roots/list" });
+		reply({});
+	} else if (message.method === "prompts/list") reply({ prompts: [{ name: "investigate_feature" }] });
 	else if (message.method === "tools/list")
 		reply(message.params?.cursor ? { tools: tools.slice(20) } : { tools: tools.slice(0, 20), nextCursor: "page-2" });
 	else if (message.method === "fixture/change") {

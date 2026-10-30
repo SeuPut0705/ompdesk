@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { MEMORY_HUB_ENTRY } from "../../../resources/gui-bridge/mcp-hub-contracts";
 import type { AiMemoryState } from "../../shared/ai-memory";
 import type { SpawnSpec } from "../setup/plans";
 import { SetupRunner, type SupervisedChild } from "../setup/runner";
@@ -357,28 +358,16 @@ describe("AiMemoryService", () => {
 				detail: null,
 				version: "3.1.1",
 			});
-			// The root holds ai-memory's own output: the extension, the MCP entry and the skills.
+			// The root holds ai-memory's own output: the extension, the MCP entry (served by OMPdesk's hub) and the skills.
 			expect(existsSync(join(rootDir, "index.ts"))).toBe(true);
-			expect(JSON.parse(await readFile(join(rootDir, ".mcp.json"), "utf8")).mcpServers[ROOT_SERVER].command).toBe(
-				BIN,
+			expect(JSON.parse(await readFile(join(rootDir, ".mcp.json"), "utf8")).mcpServers[ROOT_SERVER]).toEqual(
+				MEMORY_HUB_ENTRY,
 			);
 			expect(await readdir(join(rootDir, "skills"))).toEqual(["ai-memory-handoff"]);
 			expect(await readdir(dirname(rootDir))).toEqual(["omp-ext"]);
 			// Nothing lands in omp's own agent dir.
 			expect(existsSync(join(agentDir, EXTENSION_FILE))).toBe(false);
 			expect(existsSync(join(agentDir, MCP_FILE))).toBe(false);
-		});
-
-		it("leaves the MCP entry as ai-memory wrote it, every tool mounted, on a machine with no Bun", async () => {
-			const relaySource = join(await mkdtemp(join(tmpdir(), "ai-memory-relay-")), "memory-relay.mjs");
-			await writeFile(relaySource, "// relay\n");
-			const { service, rootDir } = await make({ relaySource });
-			await service.start();
-			const entry = JSON.parse(await readFile(join(rootDir, ".mcp.json"), "utf8")).mcpServers[ROOT_SERVER];
-			expect(entry).toEqual({ command: BIN, args: ["mcp-bridge"] });
-			expect(existsSync(join(rootDir, "memory-relay.mjs"))).toBe(false);
-			expect(service.state().wiring.app).toBe(true);
-			await rm(dirname(relaySource), RM_TEMP);
 		});
 
 		it("runs setup against a scratch agent dir that is gone afterwards, and takes back the shared skills it created", async () => {
@@ -584,7 +573,7 @@ describe("AiMemoryService", () => {
 				`${GENERATED_HEADER} --apply\`.\nexport default 1;\n`,
 			);
 			expect(JSON.parse(await readFile(join(rootDir, ".mcp.json"), "utf8"))).toMatchObject({
-				mcpServers: { [ROOT_SERVER]: { command: BIN } },
+				mcpServers: { [ROOT_SERVER]: MEMORY_HUB_ENTRY },
 			});
 		});
 	});

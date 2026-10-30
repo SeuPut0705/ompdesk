@@ -44,8 +44,11 @@ export interface LocalSidecarDeps {
 	/** OMPdesk's own extension root (`resources/omp-builtin`): the control tools' skill; REA is its `rea/` sub-root. */
 	builtinDir: string;
 	builtinReaPref: () => unknown;
-	/** Where REA's relay keeps the startup answers that let it start REA at first use (`OMP_GUI_REA_CACHE`). */
-	reaCacheDir?: string;
+	/**
+	 * What an omp spawned in a folder needs to reach OMPdesk's MCP hub (src/main/mcp-hub.ts `ompEnv`), which serves its
+	 * `rea` and `ompdesk-memory` servers; absent: none (tests).
+	 */
+	mcpHubEnv?: (cwd: string) => Promise<Record<string, string>>;
 	/** Where the last launch's REA runtime answer is kept (`spawnReaState`), so a spawn need not wait for `node --version` and `npx --version`; absent = every launch's first spawn waits (tests). */
 	reaRuntimeFile?: string;
 	/** Settings › Tools & extensions › OMPdesk control tools (`agentControl`, default on), read per use; absent = off (the caller that answers the tools supplies it). */
@@ -177,6 +180,7 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 				// The formal-verification skill (resources/omp-builtin/formal): no switch, every spawn, skill only.
 				const formal = ["-e", join(deps.builtinDir, "formal")];
 				const memory = (await deps.aiMemoryExtensionArgs?.(cwd)) ?? [];
+				const hub = rea.length || memory.length ? ((await deps.mcpHubEnv?.(cwd)) ?? {}) : {};
 				return {
 					args: [...own, ...rea, ...pstack, ...ecc, ...formal, ...memory],
 					...(rea.length ? { root: reaRoot } : {}),
@@ -185,7 +189,7 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 						OMP_GUI_PSTACK: pstack.length && kind === "agent" ? "1" : "0",
 						OMP_GUI_ECC: ecc.length && kind === "agent" ? "1" : "0",
 						...(deps.memoryStateFile ? { [MEMORY_ENV]: deps.memoryStateFile } : {}),
-						...(rea.length && deps.reaCacheDir ? { OMP_GUI_REA_CACHE: deps.reaCacheDir } : {}),
+						...hub,
 					},
 				};
 			},

@@ -12,6 +12,7 @@ import * as path from "node:path";
 import { type PlistObject, parsePlistFile, savePlistFile } from "app-builder-lib/out/util/plist";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
+import { REA_HUB_ENTRY } from "../../resources/gui-bridge/mcp-hub-contracts";
 import { REA_VERSION } from "../shared/builtin-mcp";
 import { UPDATE_ASSETS } from "./update-release";
 
@@ -163,13 +164,17 @@ describe("mac bundle configs", () => {
 		}
 	});
 
-	it("ships the built-in REA relay and declaration outside the asar on both platforms", () => {
+	it("ships the built-in REA declaration and the MCP hub that serves it outside the asar on both platforms", () => {
 		for (const file of ["electron-builder.yml", "electron-builder.win.yml"]) {
 			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
 			expect(config.extraResources, file).toContainEqual({ from: "resources/omp-builtin", to: "omp-builtin" });
+			for (const name of ["mcp-hub.ts", "mcp-hub-rea.ts", "mcp-hub-memory.ts", "mcp-hub-contracts.ts"]) {
+				expect(fs.existsSync(path.join(PACKAGE_ROOT, "resources/gui-bridge", name)), `${file} omits ${name}`).toBe(
+					true,
+				);
+			}
 			for (const name of [
 				"rea/.mcp.json",
-				"rea/rea-relay.mjs",
 				"rea/rea-config.json",
 				"rea/skills/reverse-engineer-anything/SKILL.md",
 				"rea/skills/reverse-engineer-anything/LICENSE",
@@ -185,7 +190,6 @@ describe("mac bundle configs", () => {
 				"ecc/skills/golang-patterns/SKILL.md",
 				"ecc/commands/code-review.md",
 				"skills/ompdesk/SKILL.md",
-				"ai-memory/memory-relay.mjs",
 				"formal/skills/ompdesk-formal-verify/SKILL.md",
 				"formal/skills/ompdesk-formal-verify/assets/toolchain.json",
 				"formal/skills/ompdesk-formal-verify/scripts/tlc.ts",
@@ -204,12 +208,13 @@ describe("mac bundle configs", () => {
 		const declaration: unknown = JSON.parse(
 			fs.readFileSync(path.join(PACKAGE_ROOT, "resources/omp-builtin/rea/.mcp.json"), "utf8"),
 		);
+		expect(declaration).toEqual({ mcpServers: { rea: REA_HUB_ENTRY } });
 		expect(declaration).toEqual({
 			mcpServers: {
 				rea: {
-					type: "stdio",
-					command: "node",
-					args: ["$" + "{OMP_PLUGIN_ROOT}/rea-relay.mjs"],
+					type: "http",
+					url: "$" + "{OMP_GUI_MCP_HUB}/rea?cwd=" + "$" + "{OMP_GUI_MCP_CWD}",
+					headers: { Authorization: "$" + "{OMP_GUI_MCP_AUTH}" },
 				},
 			},
 		});
@@ -218,9 +223,7 @@ describe("mac bundle configs", () => {
 	it("keeps OMPdesk's own extension root to its skill, so loading it never starts REA", () => {
 		// The control tools load `-e omp-builtin` on their own switch; REA is the separate `-e omp-builtin/rea`.
 		const root = path.join(PACKAGE_ROOT, "resources/omp-builtin");
-		// `ai-memory/` holds only memory-relay.mjs: no index.ts, `.mcp.json` or skills/, so it is no root.
-		expect(fs.readdirSync(root).sort()).toEqual(["ai-memory", "ecc", "formal", "pstack", "rea", "skills"]);
-		expect(fs.readdirSync(path.join(root, "ai-memory"))).toEqual(["memory-relay.mjs"]);
+		expect(fs.readdirSync(root).sort()).toEqual(["ecc", "formal", "pstack", "rea", "skills"]);
 		expect(fs.readdirSync(path.join(root, "skills"))).toEqual(["ompdesk"]);
 		const skill = fs.readFileSync(path.join(root, "skills/ompdesk/SKILL.md"), "utf8");
 		expect(skill).toMatch(/^---\nname: ompdesk\ndescription: \S/);

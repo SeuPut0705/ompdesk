@@ -16,8 +16,15 @@ const FULL: OmpLaunch = {
 	builtin: {
 		args: ["-e", "/builtin", "-e", "/builtin/rea"],
 		root: "/builtin/rea",
-		// sidecar-factory.ts `builtinMcp` with every pack and memory on.
-		env: { OMP_GUI_PSTACK: "1", OMP_GUI_ECC: "1", OMP_GUI_MEMORY: "/ud/recall.json", OMP_GUI_REA_CACHE: "/ud/rea" },
+		// sidecar-factory.ts `builtinMcp` with every pack and memory on, and the MCP hub's address.
+		env: {
+			OMP_GUI_PSTACK: "1",
+			OMP_GUI_ECC: "1",
+			OMP_GUI_MEMORY: "/ud/recall.json",
+			OMP_GUI_MCP_HUB: "http://127.0.0.1:4100",
+			OMP_GUI_MCP_AUTH: "Bearer s",
+			OMP_GUI_MCP_CWD: "%2Fw",
+		},
 	},
 	userFlags: [],
 	settings: {

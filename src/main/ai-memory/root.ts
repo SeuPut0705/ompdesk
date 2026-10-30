@@ -10,36 +10,27 @@
  *
  * Every byte is ai-memory's own generator output, produced next to the root and swapped in only when it differs, so
  * a launch that changed nothing touches nothing (a running omp keeps its files open on Windows) and ai-memory's
- * `.bak-<timestamp>` backups never pile up inside the root. OMPdesk adds two things to the generated MCP entry
- * (`ai-memory mcp-bridge …`). It is named `ompdesk-memory`, not the generator's `ai-memory`: omp dedupes MCP servers
- * by name and ranks the agent dir over a package root, so an `ai-memory` entry the person wired there would take
- * the name and OMPdesk's own would never mount (the tools are `mcp__ompdesk_memory_*` as a result; every tool's own
- * name and schema stay the server's). And it is started through `memory-relay.mjs`
- * (`resources/omp-builtin/ai-memory/`, copied into the root), which adds route summaries without changing tool names,
- * schemas or metadata. The upstream scope and trust instructions stay intact. The entry's own command and arguments
- * follow the relay's, unchanged.
+ * `.bak-<timestamp>` backups never pile up inside the root. OMPdesk changes one thing: the generated MCP entry
+ * (`ai-memory mcp-bridge …`) becomes the `ompdesk-memory` http entry of OMPdesk's MCP hub
+ * (resources/gui-bridge/mcp-hub.ts, one process per app, see mcp-hub-memory.ts), so no omp starts a relay or a bridge
+ * of its own. It is named `ompdesk-memory`, not the generator's `ai-memory`: omp dedupes MCP servers by name and ranks
+ * the agent dir over a package root, so an `ai-memory` entry the person wired there would take the name and OMPdesk's
+ * own would never mount (the tools are `mcp__ompdesk_memory_*` as a result; every tool's own name and schema stay the
+ * server's; the hub adds route summaries to the descriptions and passes the instructions through unchanged).
  */
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import { MEMORY_HUB_ENTRY } from "../../../resources/gui-bridge/mcp-hub-contracts";
 import { readMcp } from "./terminal";
 
 export const ROOT_ENTRY = "index.ts";
 export const ROOT_MCP = ".mcp.json";
 export const ROOT_SKILLS = "skills";
-export const ROOT_RELAY = "memory-relay.mjs";
 /** The root's MCP server name (see the header); the generator's own is `ai-memory`. */
 export const ROOT_SERVER = "ompdesk-memory";
 const GENERATED_SERVER = "ai-memory";
-/** omp substitutes this in a package root's `.mcp.json` (as `resources/omp-builtin/rea/.mcp.json` relies on). */
-const RELAY_ARG = `\${OMP_PLUGIN_ROOT}/${ROOT_RELAY}`;
-
-/** The relay OMPdesk starts the generated MCP entry through: its source file and the runtime that runs it. */
-export interface MemoryRelay {
-	source: string;
-	command: string;
-}
 const SWAP_ATTEMPTS = 6;
 const SWAP_WAIT_MS = 250;
 
@@ -61,25 +52,16 @@ async function digest(dir: string, prefix = ""): Promise<Record<string, string>>
 	return out;
 }
 
-/**
- * The root holds all three generated parts: the extension, an `ai-memory` MCP entry and at least one skill. An entry
- * that starts through the relay needs the relay's file beside it, or the server would never come up.
- */
+/** The root holds all three generated parts: the extension, the memory MCP entry and at least one skill. */
 export async function rootComplete(root: string): Promise<boolean> {
 	const present = await Promise.all([
 		stat(join(root, ROOT_ENTRY)).then(
 			info => info.isFile(),
 			() => false,
 		),
-		readMcp(join(root, ROOT_MCP)).then(async config => {
-			if (config?.mcpServers === undefined || !(ROOT_SERVER in config.mcpServers)) return false;
-			const args = (config.mcpServers[ROOT_SERVER] as { args?: unknown } | null)?.args;
-			if (!Array.isArray(args) || args[0] !== RELAY_ARG) return true;
-			return stat(join(root, ROOT_RELAY)).then(
-				info => info.isFile(),
-				() => false,
-			);
-		}),
+		readMcp(join(root, ROOT_MCP)).then(
+			config => config?.mcpServers !== undefined && ROOT_SERVER in config.mcpServers,
+		),
 		readdir(join(root, ROOT_SKILLS)).then(
 			names => names.length > 0,
 			() => false,
@@ -88,29 +70,15 @@ export async function rootComplete(root: string): Promise<boolean> {
 	return present.every(Boolean);
 }
 
-/** Give the generated MCP entry OMPdesk's own server name. */
-async function nameServer(next: string): Promise<void> {
+/** The generated MCP entry, under OMPdesk's own server name, as the hub's memory route. */
+async function mountHub(next: string): Promise<void> {
 	const file = join(next, ROOT_MCP);
 	const config = await readMcp(file);
 	if (!config?.mcpServers || !(GENERATED_SERVER in config.mcpServers)) return;
-	const { [GENERATED_SERVER]: entry, ...others } = config.mcpServers;
-	config.mcpServers = { [ROOT_SERVER]: entry, ...others };
+	const others = { ...config.mcpServers };
+	Reflect.deleteProperty(others, GENERATED_SERVER);
+	config.mcpServers = { [ROOT_SERVER]: MEMORY_HUB_ENTRY, ...others };
 	await writeFile(file, `${JSON.stringify(config, null, 2)}\n`);
-}
-
-/**
- * Start the MCP entry through the relay: `<runtime> <root>/memory-relay.mjs <command> <args…>`. An entry that is not a
- * stdio command (a future generator writing a URL) is left as it is, with no relay file.
- */
-async function mountRelay(next: string, relay: MemoryRelay): Promise<void> {
-	const file = join(next, ROOT_MCP);
-	const config = await readMcp(file);
-	const entry = config?.mcpServers?.[ROOT_SERVER] as { command?: unknown; args?: unknown } | undefined;
-	if (!config?.mcpServers || typeof entry?.command !== "string") return;
-	const args = Array.isArray(entry.args) ? entry.args : [];
-	config.mcpServers[ROOT_SERVER] = { ...entry, command: relay.command, args: [RELAY_ARG, entry.command, ...args] };
-	await writeFile(file, `${JSON.stringify(config, null, 2)}\n`);
-	await copyFile(relay.source, join(next, ROOT_RELAY));
 }
 
 async function replaceDir(next: string, root: string): Promise<void> {
@@ -135,7 +103,6 @@ export async function generateRoot(
 	root: string,
 	run: RunAiMemory,
 	describe: (output: string) => string,
-	relay?: MemoryRelay,
 ): Promise<boolean> {
 	const next = `${root}.next`;
 	await rm(next, { recursive: true, force: true });
@@ -157,8 +124,7 @@ export async function generateRoot(
 				await rm(join(next, entry), { recursive: true, force: true });
 			}
 		}
-		await nameServer(next);
-		if (relay) await mountRelay(next, relay);
+		await mountHub(next);
 		if (!(await rootComplete(next))) throw new Error("ai-memory's generators left the extension root incomplete");
 		const [fresh, current] = await Promise.all([digest(next), digest(root)]);
 		if (JSON.stringify(Object.entries(fresh).sort()) === JSON.stringify(Object.entries(current).sort())) return true;

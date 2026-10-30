@@ -1,9 +1,9 @@
 {
 	"mcpServers": {
 		"rea": {
-			"type": "stdio",
-			"command": "node",
-			"args": ["${OMP_PLUGIN_ROOT}/rea-relay.mjs"]
+			"type": "http",
+			"url": "${OMP_GUI_MCP_HUB}/rea?cwd=${OMP_GUI_MCP_CWD}",
+			"headers": { "Authorization": "${OMP_GUI_MCP_AUTH}" }
 		}
 	}
 }

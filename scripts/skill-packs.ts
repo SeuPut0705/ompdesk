@@ -92,7 +92,7 @@ const PACKS: Pack[] = [
 		package: "rea-agents",
 		sync: "sync:rea-skill",
 		tests: [
-			"src/main/rea-relay.test.ts",
+			"src/main/mcp-hub-rea.test.ts",
 			"src/main/builtin-mcp.test.ts",
 			"src/main/builtin-mcp-spawn.test.ts",
 			"src/shared/builtin-mcp.test.ts",

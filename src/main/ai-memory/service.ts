@@ -49,10 +49,8 @@ import {
 } from "../../shared/ai-memory";
 import type { SetupPlatform } from "../../shared/setup";
 import { SerialChain, stepStalled, throwIfStepStalled } from "../serial-chain";
-import { bunInstallDir } from "../setup/paths";
 import { SetupRunner } from "../setup/runner";
-import { findBun } from "../setup/supervisor";
-import { findOnPath, needsShell, spawnArgs, spawnCommand } from "../spawn";
+import { needsShell, spawnArgs, spawnCommand } from "../spawn";
 import {
 	AI_MEMORY_REQUIREMENT,
 	type BuiltAsset,
@@ -124,11 +122,6 @@ export interface AiMemoryServiceDeps {
 	 * machine-setup item a fresh machine may not have yet. Absent: nothing to wait for (macOS).
 	 */
 	bunPresent?: () => Promise<boolean>;
-	/**
-	 * `memory-relay.mjs` (`resources/omp-builtin/ai-memory/`): the generated MCP entry starts through it (see root.ts).
-	 * Absent: the entry stays exactly what ai-memory wrote (tests).
-	 */
-	relaySource?: string;
 	/**
 	 * One line of `<userData>/logs/gui-runtime.jsonl` (source `ai-memory`): `launch` once per start, `binary` when the
 	 * binary in use is known, `phase` on every change of phase, step or detail, `failed` for each failure (the step it
@@ -819,28 +812,12 @@ export class AiMemoryService {
 	/** The extension root, from ai-memory's own generators; false when a command was cancelled. */
 	async #generateRoot(bin: string): Promise<boolean> {
 		try {
-			const runtime = this.#deps.relaySource ? await this.#relayRuntime() : null;
-			const relay =
-				this.#deps.relaySource && runtime ? { source: this.#deps.relaySource, command: runtime } : undefined;
-			return await generateRoot(this.#deps.rootDir, args => this.#run(bin, args), tail, relay);
+			return await generateRoot(this.#deps.rootDir, args => this.#run(bin, args), tail);
 		} catch (error) {
 			throw error instanceof StepError
 				? error
 				: new StepError(error instanceof Error ? error.message : String(error));
 		}
-	}
-
-	/**
-	 * What runs the relay: the Bun on the spawn environment's PATH, else `BUN_INSTALL`/`~/.bun` (omp's own start, a
-	 * `#!/usr/bin/env bun` script, needs the same), as an absolute path; on Windows the machine setup's Bun, found the
-	 * way `setup` finds it. No Bun: null, and the MCP entry stays what ai-memory wrote (every tool mounted), so a
-	 * machine whose omp does not run on Bun loses nothing but the saving.
-	 */
-	async #relayRuntime(): Promise<string | null> {
-		const env = await this.#deps.spawnEnv();
-		if (this.#deps.platform === "win32") return findBun(env);
-		const path = Object.entries(env).find(([name]) => name.toUpperCase() === "PATH")?.[1] ?? "";
-		return findOnPath(["bun"], path, "darwin", [join(bunInstallDir(env, this.#deps.home), "bin", "bun")]);
 	}
 
 	/** Remove ai-memory's unit (its server goes with it) and wait for the server to stop answering. */
@@ -855,8 +832,8 @@ export class AiMemoryService {
 
 	/**
 	 * Delete all memory: the server is stopped first and then the data folders are wiped by OMPdesk itself
-	 * (`uninstall --purge-data` would refuse while any `ai-memory` process runs, and every live omp session has one: its
-	 * `mcp-bridge`, a stdio relay that holds no database). The caller wires memory again. Throws when a step fails.
+	 * (`uninstall --purge-data` would refuse while any `ai-memory` process runs). The caller wires memory again. Throws
+	 * when a step fails.
 	 */
 	async #purgeData(): Promise<void> {
 		this.#stopPolling();

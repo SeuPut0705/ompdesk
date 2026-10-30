@@ -306,14 +306,24 @@ describe("localSidecarFactory", () => {
 		expect(asked.length).toBeGreaterThan(0);
 	});
 
-	it("asks for Node only while the built-in REA is on", async () => {
+	it("asks for Node only while the built-in REA is on, and hands a spawn with REA or memory the hub's address", async () => {
 		let rea: unknown = false;
+		let memory: string[] = [];
+		const hubAsked: string[] = [];
 		created.length = 0;
 		const create = localSidecarFactory({
 			bridgeDir: "/bridge",
 			builtinDir: "/builtin",
 			builtinReaPref: () => rea,
-			reaCacheDir: "/ud/rea",
+			mcpHubEnv: async cwd => {
+				hubAsked.push(cwd);
+				return {
+					OMP_GUI_MCP_HUB: "http://127.0.0.1:7",
+					OMP_GUI_MCP_AUTH: "Bearer s",
+					OMP_GUI_MCP_CWD: "%2Fw%2Falpha",
+				};
+			},
+			aiMemoryExtensionArgs: async () => memory,
 			proxyEnv: async () => ({}),
 			bridgeHealth: new BridgeHealth(() => {}),
 			sessionKinds: new SessionKindStore(path.join(os.tmpdir(), "omp-gui-factory-kinds.json")),
@@ -333,13 +343,18 @@ describe("localSidecarFactory", () => {
 
 		const off = await options?.builtinMcp?.();
 		expect(off?.args).toEqual(FORMAL);
-		expect(off?.env).not.toHaveProperty("OMP_GUI_REA_CACHE");
+		expect(off?.env).not.toHaveProperty("OMP_GUI_MCP_HUB");
 		expect(reaProbes.count).toBe(0);
+		expect(hubAsked).toEqual([]);
 		rea = true;
 		const on = await options?.builtinMcp?.();
 		expect(on?.args).toEqual(["-e", path.join("/builtin", "rea"), ...FORMAL]);
-		expect(on?.env).toMatchObject({ OMP_GUI_REA_CACHE: "/ud/rea" });
+		expect(on?.env).toMatchObject({ OMP_GUI_MCP_HUB: "http://127.0.0.1:7", OMP_GUI_MCP_AUTH: "Bearer s" });
 		expect(reaProbes.count).toBe(1);
+		rea = false;
+		memory = ["-e", "/ud/ai-memory/omp-ext"];
+		expect((await options?.builtinMcp?.())?.env).toMatchObject({ OMP_GUI_MCP_CWD: "%2Fw%2Falpha" });
+		expect(hubAsked).toEqual(["/w/alpha", "/w/alpha"]);
 	});
 
 	it("wakes the shared-checkout pass on the bridge's checkout_files frame of any tab, and on no other frame", () => {

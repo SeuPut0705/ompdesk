@@ -178,7 +178,9 @@ function factory() {
 		bridgeDir: "/bridge",
 		builtinDir: "/builtin",
 		builtinReaPref: () => true,
-		reaCacheDir: "/ud/rea",
+		// The folder rides along as OMP_GUI_MCP_CWD; the start paths here spell the same temp folder two ways
+		// (/var vs /private/var), so the stand-in leaves it out.
+		mcpHubEnv: async () => ({ OMP_GUI_MCP_HUB: "http://127.0.0.1:4100", OMP_GUI_MCP_AUTH: "Bearer launch-secret" }),
 		reaRuntimeFile: "/ud/rea-runtime.json",
 		agentControlPref: () => true,
 		pstackPref: () => true,
@@ -361,7 +363,8 @@ describe("a session's omp launches the same way on every start path", () => {
 			OMP_GUI_ACCOUNT_ROTATION_STATE: "/ud/rotation.json",
 			OMP_GUI_OMPDESK_ROLES: "/ud/roles.json",
 			OMP_GUI_REA_ROOT: join("/builtin", "rea"),
-			OMP_GUI_REA_CACHE: "/ud/rea",
+			OMP_GUI_MCP_HUB: "http://127.0.0.1:4100",
+			OMP_GUI_MCP_AUTH: "Bearer launch-secret",
 			OMP_GUI_PSTACK: "1",
 			OMP_GUI_ECC: "1",
 			OMP_GUI_MEMORY: "/ud/memory-recall.json",
