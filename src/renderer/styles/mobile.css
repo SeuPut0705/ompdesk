@@ -1761,6 +1761,21 @@ html[data-shell="phone"][data-input="touch"] [data-view-sheet] :is(div, span, fo
 	--hit-gap-y: 16px;
 }
 
+/* The plan sheet's action row is a labelled switch and the refresh button (a div and a button, so the cluster rules
+   above, which need two buttons, miss it): 10 px apart on touch, 14 on a phone whose icon button draws 24 px behind a
+   1 px border, each reaching half the gap, a 36 px target (the responsive audit read 32×28 and 26×26). */
+html[data-input="touch"] [data-view-sheet] [data-plan-actions] {
+	column-gap: 10px;
+	--hit-gap-x: 10px;
+	--hit-gap-y: 12px;
+}
+
+html[data-shell="phone"][data-input="touch"] [data-view-sheet] [data-plan-actions] {
+	column-gap: 14px;
+	--hit-gap-x: 14px;
+	--hit-gap-y: 14px;
+}
+
 html[data-input="touch"] [data-view-sheet] :is(.omp-work-tree-row, h3) {
 	min-height: var(--sc-row-touch);
 	--hit-gap-x: 14px;

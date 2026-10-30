@@ -618,7 +618,9 @@ export function PlanDockCard({ presentation = "dock" }: { presentation?: "dock" 
 function PlanSheetFrame({ actions, children }: ComponentProps<typeof DockCard>) {
 	return (
 		<div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto p-2">
-			<div className="no-drag flex shrink-0 items-center gap-1 pb-1">{actions}</div>
+			<div className="no-drag flex shrink-0 items-center gap-1 pb-1" data-plan-actions>
+				{actions}
+			</div>
 			{children}
 		</div>
 	);

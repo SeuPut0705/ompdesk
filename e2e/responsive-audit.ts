@@ -787,10 +787,7 @@ function measureInPage(
 			// A point within 1 px of the clip's edge is the browser's own pixel snapping, not a tap lost: the hit test
 			// treats a point as a small box, so a neighbour that starts flush at the scroller's edge (a panel's grip under
 			// its body) answers up to 0.75 px above its top, where the clipped control still shows.
-			if (
-				!owner &&
-				(ownOnly || x < clip.left + 1 || x > clip.right - 1 || y < clip.top + 1 || y > clip.bottom - 1)
-			)
+			if (!owner && (ownOnly || x < clip.left + 1 || x > clip.right - 1 || y < clip.top + 1 || y > clip.bottom - 1))
 				continue;
 			// A point a clipping ancestor's rounded corner cuts off (a segmented tab bar's last, half-scrolled tab) is past
 			// its curve: nothing is drawn there to tap, so the tap that misses is no control's loss.
