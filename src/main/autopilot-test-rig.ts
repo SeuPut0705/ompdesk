@@ -76,6 +76,11 @@ export class World {
 	/** What stock's `get_usage` answers (`reports`). */
 	usage: Array<{ provider: string; fetchedAt: number; limits: never[]; resetAt?: number }> = [];
 
+	/** Stock commands that never answer (a call whose reply is lost). */
+	hang = new Set<string>();
+	/** How many `retry` commands stock refuses before it takes one. */
+	failRetries = 0;
+
 	handle(tab: string, command: RpcCommand): Promise<RpcResponse> {
 		const ok = (data?: unknown) => Promise.resolve({ type: "response", success: true, data } as RpcResponse);
 		const fail = (error: string) => Promise.resolve({ type: "response", success: false, error } as RpcResponse);
@@ -86,6 +91,11 @@ export class World {
 		}
 		const { type, ...rest } = command as unknown as { type: string } & Record<string, unknown>;
 		this.calls.push({ tab, kind: "stock", name: type, params: rest });
+		if (this.hang.has(type)) return Promise.withResolvers<RpcResponse>().promise;
+		if (type === "retry" && this.failRetries > 0) {
+			this.failRetries -= 1;
+			return fail("Nothing to retry.");
+		}
 		if (type === "get_plan_mode") return ok({ enabled: this.plan });
 		if (type === "get_goal") return ok(this.goal);
 		if (type === "get_session_stats") return ok(this.stats.get(tab) ?? { tokens: { total: 0 }, cost: 0 });

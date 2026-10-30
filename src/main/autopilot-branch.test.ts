@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	AUTOPILOT_BRIDGE_METHODS,
 	AUTOPILOT_CHILD_TAG,
@@ -432,6 +432,56 @@ describe("a failed turn", () => {
 		autopilot.observeActivity({ type: "idle", tabId: "ap-1", outcome: { stopReason: "stop" } });
 		autopilot.observeActivity({ type: "idle", tabId: "ap-1", outcome: undefined });
 		expect(afters).toHaveLength(2);
+	});
+
+	it("a retry that fails after the wake waits again, visibly, with a backoff of at most 10 min, until it takes", async () => {
+		await start();
+		autopilot.observeActivity(failed("429 usage limit reached"));
+		afters[0]?.();
+		await autopilot.idle();
+		const status = world.statuses.get("ap-1") as AutopilotStatus;
+		world.failRetries = 8;
+		const waits: number[] = [];
+		for (let i = 0; i < 8; i++) {
+			clock.value += 24 * 3_600_000;
+			afters.at(-1)?.();
+			await autopilot.idle();
+			expect(status.state).toBe("waiting_quota");
+			waits.push((status.quotaResetAt as number) - clock.value);
+		}
+		expect(waits).toEqual([30_000, 60_000, 120_000, 240_000, 480_000, 600_000, 600_000, 600_000]);
+		// No nudge piled on a retry that failed: the wait is the answer.
+		expect(world.stock("ap-1", "prompt")).toHaveLength(0);
+		clock.value += 600_000;
+		afters.at(-1)?.();
+		await autopilot.idle();
+		expect(status.state).toBe("running");
+		expect(world.stock("ap-1", "retry")).toHaveLength(9);
+	});
+
+	it("a step of the run's pipeline that never answers is stopped, shown in the status, and the run goes on", async () => {
+		await start();
+		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
+		vi.useFakeTimers();
+		try {
+			world.hang.add("prompt");
+			autopilot.observeActivity(failed("Provider returned 500: overloaded"));
+			afters[0]?.();
+			await vi.advanceTimersByTimeAsync(0);
+			expect(world.stock("ap-1", "prompt")).toHaveLength(1);
+			// A step queued behind the hung nudge waits for the bound, then runs.
+			world.hang.delete("prompt");
+			clock.value += 3_600_000;
+			autopilot.observeActivity(failed("fetch failed"));
+			afters[1]?.();
+			await vi.advanceTimersByTimeAsync(15 * 60_000);
+			await autopilot.idle();
+		} finally {
+			vi.useRealTimers();
+		}
+		const shown = await autopilot.handleCommand(win, sidecar, "ap-1", { type: "get_autopilot" }, "1");
+		expect((shown.data as AutopilotStatus).stalls).toEqual([expect.objectContaining({ step: "nudge", ms: 15 * 60_000 })]);
+		expect(world.stock("ap-1", "prompt")).toHaveLength(2);
 	});
 
 	it("a usage limit with no reset in the reports waits the fallback, and a pause meanwhile cancels the wake", async () => {
