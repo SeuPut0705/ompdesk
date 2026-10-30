@@ -12,7 +12,7 @@ import type { Detection } from "./detect";
 import type { DownloadFetch } from "./download";
 import type { SpawnSpec } from "./plans";
 import { SetupRunner, type SupervisedChild } from "./runner";
-import { BACKOFF_MS, SetupService, type SetupServiceDeps } from "./service";
+import { BACKOFF_MS, SETUP_STEP_MAX_MS, SetupService, type SetupServiceDeps } from "./service";
 
 const present = (version = "1.0.0"): SetupPresence => ({ kind: "present", version, path: "/bin/x" });
 const missing: SetupPresence = { kind: "missing" };
@@ -1077,6 +1077,21 @@ process.exit(1);`,
 			await vi.waitFor(() => expect(h.spawned).toHaveLength(1));
 			expect(h.service.cancel()).toBe(true);
 			expect(await run).toEqual({ kind: "cancelled" });
+		});
+
+		it("a step that never ends is stopped, and the next queued call runs", async () => {
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+			try {
+				const h = harness(machine({}), { holdTool: true });
+				const hung = h.service.runToolUpdate(request);
+				await vi.waitFor(() => expect(h.spawned).toHaveLength(1));
+				const next = h.service.installForConnection("gh");
+				await vi.advanceTimersByTimeAsync(SETUP_STEP_MAX_MS);
+				expect(await hung).toEqual({ kind: "cancelled" });
+				expect(await next).toMatchObject({ id: "gh" });
+			} finally {
+				vi.useRealTimers();
+			}
 		});
 
 		it("skips after quitting and on a platform without setup", async () => {

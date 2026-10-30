@@ -47,7 +47,11 @@ import {
 	parseStatus,
 	type TailscaleStatus,
 } from "./status";
+import { SerialChain } from "../serial-chain";
 import { parseWhois, type TailnetPeer } from "./whois";
+
+/** The longest one serialized step (enable, login, a poll tick) runs. */
+export const TAILSCALE_STEP_MAX_MS = 10 * 60_000;
 
 /** Prefs (electron-store; a dotted key is a nested path). */
 export const MOBILE_WEB_PREFS = {
@@ -191,7 +195,8 @@ export class MobileWebService {
 	#blocked: { phase: "serve-blocked" | "https-disabled"; detail: string; at: number } | null = null;
 	#watching = false;
 	#timer: NodeJS.Timeout | null = null;
-	#chain: Promise<unknown> = Promise.resolve();
+	/** One step at a time; a step past `TAILSCALE_STEP_MAX_MS` is stopped and the next runs (a poll never waits behind a hung CLI). */
+	#chain = new SerialChain({ name: "tailscale", maxStepMs: TAILSCALE_STEP_MAX_MS });
 	#lastEmitted = "";
 
 	constructor(deps: MobileWebServiceDeps) {
@@ -351,9 +356,7 @@ export class MobileWebService {
 	// ── serialization, timer, emit ───────────────────────────────────────────
 
 	#serial<T>(task: () => Promise<T>): Promise<T> {
-		const run = this.#chain.then(task);
-		this.#chain = run.catch(() => undefined);
-		return run;
+		return this.#chain.run(task);
 	}
 
 	#schedule(): void {

@@ -5,6 +5,7 @@ import {
 	MAX_CHECK_INTERVAL_MS,
 	nextCheckDelay,
 	settleBackoff,
+	UPDATE_STEP_MAX_MS,
 	UpdateScheduler,
 } from "./update-scheduler";
 
@@ -135,5 +136,21 @@ describe("UpdateScheduler", () => {
 		await queued;
 		await scheduler.enqueue(dropped);
 		expect(dropped).not.toHaveBeenCalled();
+	});
+
+	it("a pass that never settles does not keep the next one waiting", async () => {
+		vi.useFakeTimers();
+		const scheduler = new UpdateScheduler({ scheduled: false, tick: async () => {} });
+		const hung = scheduler.enqueue(() => Promise.withResolvers<void>().promise).then(
+			() => null,
+			error => error,
+		);
+		const ran = vi.fn(async () => {});
+		const next = scheduler.enqueue(ran);
+		await vi.advanceTimersByTimeAsync(UPDATE_STEP_MAX_MS);
+		expect(((await hung) as Error).name).toBe("StepStalledError");
+		await next;
+		expect(ran).toHaveBeenCalledOnce();
+		scheduler.dispose();
 	});
 });

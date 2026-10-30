@@ -14,6 +14,7 @@ import {
 	OS_APPROVAL_AFTER_MS,
 	POLL_MS,
 	TAILSCALE_DOWNLOAD_URL,
+	TAILSCALE_STEP_MAX_MS,
 } from "./service";
 import {
 	defaultTailscaleScenario,
@@ -508,6 +509,25 @@ describe("MobileWebService phases", () => {
 		await h.service.request({ action: "start-app" });
 		expect(h.calls.filter(args => args[0] === "up")).toHaveLength(2);
 		expect(h.startApp).not.toHaveBeenCalled();
+	});
+
+	it("a step that never settles is stopped, and the next call runs", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		try {
+			const h = track(harness());
+			h.server.start.mockImplementationOnce(() => Promise.withResolvers<{ port: number }>().promise);
+			const hung = h.service.request({ action: "enable" }).then(
+				() => null,
+				error => error,
+			);
+			const next = h.service.request({ action: "retry" });
+			await vi.advanceTimersByTimeAsync(TAILSCALE_STEP_MAX_MS);
+			expect(((await hung) as Error).name).toBe("StepStalledError");
+			await next;
+			expect(h.server.start).toHaveBeenCalledTimes(2);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("waits for the app, starts it on request, and asks for OS approval when it never answers", async () => {

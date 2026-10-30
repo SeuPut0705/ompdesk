@@ -13,7 +13,7 @@ import { RM_TEMP } from "../test-fake-omp";
 import { MAC_STAGE_KEY } from "./binary";
 import { AiMemoryClient } from "./client";
 import { ROOT_SERVER, rootComplete } from "./root";
-import { AiMemoryService, type AiMemoryServiceDeps, parsePlan, parseProblems } from "./service";
+import { AI_MEMORY_STEP_MAX_MS, AiMemoryService, type AiMemoryServiceDeps, parsePlan, parseProblems } from "./service";
 import { TERMINAL_EXTENSION_ID, TERMINAL_MCP_ID } from "./suppress";
 import { EXTENSION_FILE, GENERATED_HEADER, MCP_FILE } from "./terminal";
 import type { ServiceControl } from "./unit";
@@ -1237,6 +1237,30 @@ describe("AiMemoryService", () => {
 			// state() hands out a copy too.
 			service.state().wiring.terminal = true;
 			expect(service.state().wiring.terminal).toBe(false);
+		});
+	});
+
+	describe("a step that never ends", () => {
+		it("is stopped with its command, and the next queued call runs", async () => {
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+			try {
+				const { service, behavior, commands } = await make();
+				behavior.gate = async args => (args.includes("--plan") ? HANG : undefined);
+				const started = service.start().then(
+					() => null,
+					error => error,
+				);
+				await vi.waitFor(() => expect(commands()).toEqual([PLAN]));
+				behavior.gate = undefined;
+				const next = service.retry();
+				await vi.advanceTimersByTimeAsync(AI_MEMORY_STEP_MAX_MS);
+				await started;
+				await next;
+				expect(commands().length).toBeGreaterThan(1);
+				expect(commands().filter(command => command === PLAN)).toHaveLength(2);
+			} finally {
+				vi.useRealTimers();
+			}
 		});
 	});
 

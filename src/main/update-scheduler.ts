@@ -4,6 +4,7 @@
  * queue of passes, the start/dispose guards and the failure back-off. Each updater keeps its own checks,
  * state and pref. OMPdesk's own updater (updater.ts) runs on a different schedule and is not one of them.
  */
+import { SerialChain } from "./serial-chain";
 
 /** Between checks while all is well. */
 export const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
@@ -37,10 +38,13 @@ export interface UpdateSchedulerOptions {
 	delay?: () => number;
 }
 
+/** The longest one queued check or update pass runs; past it the pass is stopped and the next starts. */
+export const UPDATE_STEP_MAX_MS = 30 * 60_000;
+
 export class UpdateScheduler {
 	readonly #options: UpdateSchedulerOptions;
 	#timer: NodeJS.Timeout | null = null;
-	#queue: Promise<void> = Promise.resolve();
+	#queue = new SerialChain({ name: "update scheduler", maxStepMs: UPDATE_STEP_MAX_MS });
 	#started = false;
 	#disposed = false;
 
@@ -80,11 +84,9 @@ export class UpdateScheduler {
 
 	/** Run `work` after everything queued before it; skipped once disposed. Rejects with its error, and the queue goes on. */
 	enqueue(work: () => Promise<unknown>): Promise<void> {
-		const next = this.#queue.then(async () => {
+		return this.#queue.run(async () => {
 			if (!this.#disposed) await work();
 		});
-		this.#queue = next.catch(() => undefined);
-		return next;
 	}
 
 	dispose(): void {

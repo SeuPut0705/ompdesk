@@ -49,6 +49,7 @@ import {
 } from "../../shared/ai-memory";
 import type { SetupPlatform } from "../../shared/setup";
 import { bunInstallDir } from "../setup/paths";
+import { SerialChain } from "../serial-chain";
 import { SetupRunner } from "../setup/runner";
 import { findBun } from "../setup/supervisor";
 import { findOnPath, needsShell, spawnArgs, spawnCommand } from "../spawn";
@@ -199,6 +200,9 @@ function tail(output: string, lines = 4): string {
 class StepError extends Error {}
 
 /** The user's cancel (the runner stopped a command): not a failure. */
+/** The longest one queued step (stage, wire, a terminal wiring) runs; past it the step is stopped and the next starts. */
+export const AI_MEMORY_STEP_MAX_MS = 30 * 60_000;
+
 class Cancelled extends Error {}
 
 export class AiMemoryService {
@@ -206,7 +210,12 @@ export class AiMemoryService {
 	readonly #runner: SetupRunner;
 	readonly #client: AiMemoryClient;
 	#state: AiMemoryState;
-	#queue: Promise<void> = Promise.resolve();
+	/** One step at a time; a step past `AI_MEMORY_STEP_MAX_MS` is stopped (its child ends) and the next runs. */
+	#queue = new SerialChain({
+		name: "ai-memory",
+		maxStepMs: AI_MEMORY_STEP_MAX_MS,
+		onStall: () => this.#runner.cancel(),
+	});
 	#disposed = false;
 	#timer: NodeJS.Timeout | null = null;
 	#resolved: Resolved | null = null;
@@ -475,11 +484,9 @@ export class AiMemoryService {
 	}
 
 	#enqueue(task: () => Promise<void>): Promise<void> {
-		const next = this.#queue.then(async () => {
+		return this.#queue.run(async () => {
 			if (!this.#disposed) await task();
 		});
-		this.#queue = next.catch(() => undefined);
-		return next;
 	}
 
 	#patch(patch: Partial<AiMemoryState>): void {

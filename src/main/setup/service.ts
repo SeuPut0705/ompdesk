@@ -63,6 +63,7 @@ import {
 	type TailscaleRelease,
 	tailscaleMsiArch,
 } from "./plans";
+import { SerialChain } from "../serial-chain";
 import { type RunOutcome, SetupRunner } from "./runner";
 
 /** Automatic attempts before an item waits BACKOFF_MS between automatic attempts. */
@@ -226,12 +227,23 @@ export type ToolUpdateOutcome =
 	| { kind: "cancelled" }
 	| { kind: "skipped" };
 
+/** The longest one queued setup step (detect, an install, an update) runs; past it the step is stopped and the next starts. */
+export const SETUP_STEP_MAX_MS = 30 * 60_000;
+
 export class SetupService {
 	readonly #deps: SetupServiceDeps;
 	readonly #runner: SetupRunner;
 	readonly #items: Record<SetupItemId, SetupItemState>;
 	#detection: Detection | null = null;
-	#queue: Promise<void> = Promise.resolve();
+	/** One step at a time; a step past `SETUP_STEP_MAX_MS` is stopped (its download and installer end) and the next runs. */
+	#queue = new SerialChain({
+		name: "machine setup",
+		maxStepMs: SETUP_STEP_MAX_MS,
+		onStall: () => {
+			this.#download?.abort();
+			this.#runner.cancel();
+		},
+	});
 	#requiredRunning = false;
 	#stopPipeline = false;
 	#disposed = false;
@@ -561,13 +573,11 @@ export class SetupService {
 	}
 
 	#enqueue(task: () => Promise<void>): Promise<void> {
-		const next = this.#queue.then(async () => {
+		return this.#queue.run(async () => {
 			if (this.#disposed) return;
 			this.#stopPipeline = false;
 			await task();
 		});
-		this.#queue = next.catch(() => undefined);
-		return next;
 	}
 
 	#requiredItems(): SetupItemId[] {
