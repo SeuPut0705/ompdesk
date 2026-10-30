@@ -75,6 +75,18 @@ describe("Button", () => {
 		expect(click).not.toHaveBeenCalled();
 	});
 
+	it("draws a disabled primary as a quiet chip with readable text, not a faded accent fill", async () => {
+		await mount(
+			<Button disabled variant="primary">
+				Commit
+			</Button>,
+		);
+		const classes = button().className;
+		expect(classes).toContain("disabled:bg-(--sc-surface-3)");
+		expect(classes).toContain("disabled:text-(--sc-text-secondary)");
+		expect(classes).toContain("disabled:opacity-100!");
+	});
+
 	it("disables itself while loading, shows a status spinner, keeps its label and blocks onClick", async () => {
 		const click = vi.fn();
 		await mount(

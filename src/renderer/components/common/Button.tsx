@@ -22,7 +22,7 @@ export type ButtonSize = "sm" | "md" | "lg";
 /** Variant paint, shared with IconButton so both stay one visual family. */
 export const BUTTON_VARIANT_CLASSES: Record<ButtonVariant, string> = {
 	primary:
-		"border-transparent bg-(--sc-accent) text-(--sc-accent-fg) shadow-(--sc-shadow-sm) hover:bg-(--sc-accent-hover) active:brightness-95",
+		"border-transparent bg-(--sc-accent) text-(--sc-accent-fg) shadow-(--sc-shadow-sm) hover:bg-(--sc-accent-hover) active:brightness-95 disabled:border-(--sc-border-subtle) disabled:bg-(--sc-surface-3) disabled:text-(--sc-text-secondary) disabled:opacity-100!",
 	secondary:
 		"border-(--sc-border-subtle) bg-transparent text-(--sc-text) hover:border-(--sc-border) hover:bg-(--sc-hover) active:bg-(--sc-pressed)",
 	ghost: "border-transparent bg-transparent text-(--sc-text-secondary) hover:bg-(--sc-hover) hover:text-(--sc-text) active:bg-(--sc-pressed)",
