@@ -49,6 +49,7 @@ import {
 	TabSignInArg,
 	TabStatusArg,
 } from "./app-protocol";
+import type { ImageBlobCache } from "./image-blob-cache";
 import { createLinkEventDecoder, createReadDecoder, encodedReadKey, type WireSubagentFrame } from "./link-events";
 
 /** The slice of RemoteClient a tab needs. */
@@ -82,6 +83,11 @@ export interface RemoteSidecarOptions {
 	startTimeoutMs?: number;
 	/** One line per bring-up step for the runtime log: which step a tab that never came up was waiting on. */
 	log?: (step: RemoteTabLogStep, details: Record<string, string | number | boolean>) => void;
+	/**
+	 * This device's pictures by content address: a subagent transcript read asks the host for its blob references
+	 * (`imageRefs`) and reads each picture's bytes from here, or from the host once. Absent: the host sends the bytes.
+	 */
+	imageBlobs?: ImageBlobCache;
 }
 
 type StatusDetail = Pick<
@@ -181,6 +187,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	readonly #stalledMessage: (seconds: number) => string;
 	readonly #startTimeoutMs: number;
 	readonly #log: RemoteSidecarOptions["log"];
+	readonly #imageBlobs: ImageBlobCache | undefined;
 	/** The bring-up in progress and the step it waits on; null once the host reported the tab running. */
 	#pending: { step: BringUpStep; at: number } | null = null;
 	#startTimer: NodeJS.Timeout | null = null;
@@ -202,6 +209,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 		this.#stalledMessage = options.stalledMessage;
 		this.#startTimeoutMs = options.startTimeoutMs ?? REMOTE_START_TIMEOUT_MS;
 		this.#log = options.log;
+		this.#imageBlobs = options.imageBlobs;
 	}
 
 	get device(): string {
@@ -652,18 +660,32 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 		if (this.#link.state !== "online") throw codedError("remote_offline", OFFLINE_TEXT);
 		try {
 			await this.#open();
+			// A transcript read leaves its pictures as references this device reads once (`ImageBlobCache`). An older
+			// host ignores `imageRefs` and sends the bytes, which leave nothing to resolve.
+			let sent: RpcCommand = command;
+			let blobs: ImageBlobCache | undefined;
+			if (
+				this.#imageBlobs &&
+				(command.type === "get_subagent_messages" || command.type === "get_subagent_transcript")
+			) {
+				sent = { ...command, imageRefs: true };
+				blobs = this.#imageBlobs;
+			}
 			const ask = (fresh: boolean) =>
 				this.#link.request<RpcResponse>(
 					"tab.command",
 					{
 						rtab: this.#rtab,
-						command,
+						command: sent,
 						...(timeoutMs !== undefined ? { timeoutMs } : {}),
 						...(fresh ? { fresh } : {}),
 					},
 					(timeoutMs ?? HOST_COMMAND_TIMEOUT_MS) + LINK_SLACK_MS,
 				);
 			const response = await ask(false);
+			const answer = response.success ? response.data : undefined;
+			if (blobs && typeof answer === "object" && answer !== null && "messages" in answer)
+				await blobs.resolve(answer.messages, ref => this.#imageBlob(ref));
 			const read = encodedReadKey(command);
 			if (!read || !response.success) return response;
 			// The answer may be a delta of an earlier one (`slimAutopilotReads`, `slimListReads`); one this side lacks is
@@ -682,6 +704,15 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 			if (isOfflineError(error)) throw codedError("remote_offline", OFFLINE_TEXT);
 			throw error;
 		}
+	}
+
+	/** One picture's bytes from the host (`read_image_blob`); null when it has none or does not know the command. */
+	async #imageBlob(ref: string): Promise<string | null> {
+		const response = await this.#command({ type: "read_image_blob", ref });
+		const data = response.success ? response.data : undefined;
+		return typeof data === "object" && data !== null && "data" in data && typeof data.data === "string"
+			? data.data
+			: null;
 	}
 
 	#markOffline(): void {

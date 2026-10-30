@@ -19,6 +19,7 @@
 
 import { isIP, isIPv4 } from "node:net";
 import { hostname } from "node:os";
+import path from "node:path";
 import { z } from "zod";
 import { codedError, type IpcErrorCode, ipcErrorCode, isIpcErrorCode } from "../../shared/ipc-error-codes";
 import {
@@ -81,6 +82,7 @@ import { type GateResult, type HostMachineInfo, RemoteHost, type TailnetVisitor 
 import type { LocalHostServices } from "./host-services";
 import { HostStore, type PairedHost } from "./hosts-store";
 import { type Identity, loadIdentity } from "./identity";
+import { ImageBlobCache } from "./image-blob-cache";
 import { type KeepAwakeBlocker, KeepAwakePolicy } from "./keep-awake";
 import { PeerQuota, type QuotaReservation } from "./peer-quota";
 import { PeerStore } from "./peers-store";
@@ -196,6 +198,8 @@ export class RemoteDevices {
 	readonly #identity: Identity;
 	readonly #peers: PeerStore;
 	readonly #hosts: HostStore;
+	/** Every host's subagent pictures this device read, by content address: one folder for all tabs and hosts. */
+	readonly #imageBlobs: ImageBlobCache;
 	readonly #links = new Map<string, HostLink>();
 	#host: RemoteHost | null = null;
 	#disposed = false;
@@ -226,6 +230,7 @@ export class RemoteDevices {
 		this.#identity = loadIdentity(deps.userData);
 		this.#peers = new PeerStore(deps.userData);
 		this.#hosts = new HostStore(deps.userData);
+		this.#imageBlobs = new ImageBlobCache(path.join(deps.userData, "remote-image-blobs"));
 		this.#keepAwake = new KeepAwakePolicy({
 			blocker: deps.powerSaveBlocker,
 			onChange: () => this.#broadcastState(),
@@ -585,6 +590,7 @@ export class RemoteDevices {
 				this.#deps.stalledMessage((this.#links.get(deviceId) ?? link).client.host.name, seconds),
 			...(this.#deps.startTimeoutMs === undefined ? {} : { startTimeoutMs: this.#deps.startTimeoutMs }),
 			...(this.#deps.logTab ? { log: this.#deps.logTab } : {}),
+			imageBlobs: this.#imageBlobs,
 		});
 		link.tabs.set(rtab, sidecar);
 		return sidecar;

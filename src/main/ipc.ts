@@ -166,6 +166,7 @@ import type { RemoteDevices } from "./remote/devices";
 import type { LocalHostServices } from "./remote/host-services";
 import { uploadToHost } from "./remote/host-upload";
 import { hostedAutopilot } from "./remote/hosted-autopilot";
+import { RemoteImageReads } from "./remote/image-reads";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import { normalizeRuntimeErrorReport, tailLogLines } from "./runtime-log-core";
 import { fileNameOf, readRemoteFile, type SaveCopyRemote, saveCopy } from "./save-copy";
@@ -2298,20 +2299,25 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		},
 	);
 
+	// A paired host's reply pictures: each crosses once per change of its file (remote/image-reads.ts).
+	const imageReads = new RemoteImageReads();
 	ipc.handle(
 		IPC_COMMANDS.FS_READ_IMAGE,
 		async (caller, payload: IpcFsReadImagePayload): Promise<IpcFsReadImageResult> => {
 			const target = targetFor(deps, caller, payload?.tabId);
 			const request = { path: payload?.path };
 			if (target?.device) {
-				return remoteFs({ ...target, device: target.device }, "fs.readImage", request, (error, code) => ({
-					ok: false,
-					dataUrl: null,
-					mime: null,
-					size: 0,
-					error,
-					...(code ? { code } : {}),
-				}));
+				const remote = { ...target, device: target.device };
+				return imageReads.read(`${remote.device}\0${remote.sidecar.cwd}\0${String(request.path)}`, known =>
+					remoteFs(remote, "fs.readImage", known ? { ...request, known } : request, (error, code) => ({
+						ok: false,
+						dataUrl: null,
+						mime: null,
+						size: 0,
+						error,
+						...(code ? { code } : {}),
+					})),
+				);
 			}
 			return readWorkspaceImage(cwdFor(deps, caller, payload?.tabId), request);
 		},

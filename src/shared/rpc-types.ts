@@ -88,6 +88,8 @@ export type RpcCommand =
 			fromByte?: number;
 			/** Answer only the first user message (main trims it where the omp runs): a subagent's assignment. */
 			firstPrompt?: boolean;
+			/** Leave stock's `blob:sha256:` image references for the caller to read (`read_image_blob`): a paired device. */
+			imageRefs?: boolean;
 	  }
 	| { id?: string; type: "set_model"; provider: string; modelId: string }
 	| { id?: string; type: "cycle_model"; direction?: "forward" | "backward" }
@@ -387,7 +389,16 @@ export type RpcCommand =
 	/** Steer a running subagent this session owns (stock RPC `steer_subagent`). */
 	| { id?: string; type: "steer_subagent"; subagentId: string; message: string }
 	/** A settled subagent's transcript from the session's artifacts dir, after stock's registry forgot it (relaunch). */
-	| { id?: string; type: "get_subagent_transcript"; subagentId: string; fromByte?: number; firstPrompt?: boolean }
+	| {
+			id?: string;
+			type: "get_subagent_transcript";
+			subagentId: string;
+			fromByte?: number;
+			firstPrompt?: boolean;
+			imageRefs?: boolean;
+	  }
+	/** One image's bytes (base64) behind stock's `blob:sha256:` reference, or `data: null` once the blob is gone. */
+	| { id?: string; type: "read_image_blob"; ref: string }
 	| { id?: string; type: "write_local_paste"; content: string }
 	| { id?: string; type: "resolve_local_url"; url: string }
 	| { id?: string; type: "list_foreign_sessions"; source: "claude" | "codex" }

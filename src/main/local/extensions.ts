@@ -12,7 +12,8 @@
  * returned. `abort_subagent` maps onto stock `cancel_subagent`. Subagent
  * transcripts (stock `get_subagent_messages`, the bridge's
  * `get_subagent_transcript`) come back as a transcript page's messages, with
- * their image bytes restored.
+ * their image bytes restored unless the caller asks for the references
+ * (`imageRefs`: a paired device, which reads each blob once, `read_image_blob`).
  */
 
 import { transcriptPageMessages } from "../../../resources/gui-bridge/transcript-page";
@@ -52,6 +53,8 @@ const BRIDGED = [
 	"get_agent_authoring",
 	"revive_subagent",
 	"get_theme_colors",
+	// One image's bytes by its blob reference: a paired device reads each picture of a subagent transcript once.
+	"read_image_blob",
 ] as const;
 
 /** Stock `cancel_subagent` aborts a running subagent this session owns and tombstones it. */
@@ -86,15 +89,20 @@ async function firstOnly<T extends { messages?: unknown }>(read: Promise<T>, fir
  * same messages again in their journal entries. Nothing reads either, and a subagent's journal is mostly them: 12.5 MB
  * of JSON a read for a 6 MB journal on 28 Oct 2026, 1.2 MB without (2.0 → 0.33 MB deflated), and a paired device
  * read one on every replay.
+ *
+ * `imageRefs`: the references stay (a paired device's `RemoteSidecar` asks so). The device keeps each blob by its
+ * content address and reads only those it lacks, once (`read_image_blob`); a transcript's pictures were 70 % of its
+ * deflated bytes over the subagent journals this Mac's sessions wrote on 30 Oct 2026 (143 MB with, 42 MB without).
  */
 async function transcriptRead<T extends { messages?: unknown; entries?: unknown }>(
 	read: Promise<T>,
 	ctx: LocalCommandContext,
+	imageRefs: unknown,
 ): Promise<Omit<T, "entries">> {
 	const { entries: _entries, ...transcript } = await read;
 	if (!Array.isArray(transcript.messages)) return transcript;
 	const messages = transcriptPageMessages(transcript.messages);
-	await resolveImageBlobs(messages, ctx.bridge);
+	if (imageRefs !== true) await resolveImageBlobs(messages, ctx.bridge);
 	return { ...transcript, messages };
 }
 
@@ -143,8 +151,8 @@ export const handlers: Record<string, LocalHandler> = {
 	mcp_action: mcpAction,
 	mcp_add: mcpAdd,
 	mcp_reload: mcpReload,
-	get_subagent_messages: ({ id: _id, firstPrompt, ...command }, ctx) =>
-		transcriptRead(firstOnly(ctx.send<{ messages?: unknown }>(command), firstPrompt), ctx),
-	get_subagent_transcript: ({ type, id: _id, firstPrompt, ...params }, ctx) =>
-		transcriptRead(firstOnly(ctx.bridge.request<{ messages?: unknown }>(type, params), firstPrompt), ctx),
+	get_subagent_messages: ({ id: _id, firstPrompt, imageRefs, ...command }, ctx) =>
+		transcriptRead(firstOnly(ctx.send<{ messages?: unknown }>(command), firstPrompt), ctx, imageRefs),
+	get_subagent_transcript: ({ type, id: _id, firstPrompt, imageRefs, ...params }, ctx) =>
+		transcriptRead(firstOnly(ctx.bridge.request<{ messages?: unknown }>(type, params), firstPrompt), ctx, imageRefs),
 };

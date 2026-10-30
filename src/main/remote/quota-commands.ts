@@ -255,6 +255,8 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"queue_move",
 	"queue_remove",
 	"read_agent_file",
+	// One image's bytes from stock's blob store (local/extensions.ts): no model.
+	"read_image_blob",
 	"redeem_reset_pass",
 	"reload_plugins",
 	"remove_directory",

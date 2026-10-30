@@ -8,13 +8,16 @@
  * browser captures and generated pictures arrive as references a renderer
  * cannot draw. The tab's bridge reads each blob where the store lives (a remote
  * tab's host); a reference whose blob is gone stays as it is, and the renderer
- * shows that image as unavailable.
+ * shows that image as unavailable. A paired device asks for the references
+ * instead (`imageRefs`) and reads each blob once (remote/image-blob-cache.ts).
  */
 import type { BridgeClient } from "./types";
 
+export const BLOB_REF_PREFIX = "blob:sha256:";
 const BLOB_REF = /^blob:sha256:[a-f0-9]{64}$/;
 
-interface ImagePayload {
+/** One place in a transcript whose `data` holds stock's blob reference for an image's bytes. */
+export interface ImagePayload {
 	data: string;
 }
 
@@ -41,10 +44,16 @@ function collectBlobRefs(value: unknown, sites: ImagePayload[], key?: string): v
 	for (const [childKey, child] of Object.entries(record)) collectBlobRefs(child, sites, childKey);
 }
 
-/** Replace, in place, every image blob reference inside `messages` with its base64 bytes. */
-export async function resolveImageBlobs(messages: unknown, bridge: BridgeClient): Promise<void> {
+/** Every image whose bytes stock left as a blob reference inside `messages`, in order (a reference may repeat). */
+export function imageBlobSites(messages: unknown): ImagePayload[] {
 	const sites: ImagePayload[] = [];
 	collectBlobRefs(messages, sites);
+	return sites;
+}
+
+/** Replace, in place, every image blob reference inside `messages` with its base64 bytes. */
+export async function resolveImageBlobs(messages: unknown, bridge: BridgeClient): Promise<void> {
+	const sites = imageBlobSites(messages);
 	const bytes = new Map<string, string | null>();
 	// One blob per bridge reply, in turn: the bridge socket answers in order, so a
 	// single multi-image reply would hold every other bridge request behind it.

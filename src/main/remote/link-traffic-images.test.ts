@@ -18,6 +18,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createSubagentTranscripts } from "../../renderer/stores/subagent-transcripts";
 import type { IpcFsReadImageResult } from "../../shared/ipc-types";
 import type { AgentMessage, RpcCommand, RpcResponse } from "../../shared/rpc-types";
+import { RemoteImageReads } from "./image-reads";
 import { closeSessions, openSession, type Session } from "./link-traffic-test-rig";
 import { Link, type TrafficHandler } from "./wire";
 
@@ -134,41 +135,65 @@ function countHostWire() {
 type Send = (command: RpcCommand) => Promise<RpcResponse>;
 type ReadImage = (path: string) => Promise<IpcFsReadImageResult>;
 
-/** How the device reaches the host: the tab's commands and the reply's picture reads. */
+/** How a device build reaches the host: the tab's commands and the reply's picture reads. */
 interface Device {
 	send: Send;
 	readImage: ReadImage;
+	/** The app relaunched (an update): what it held in memory is gone, what it keeps on disk stays. */
+	relaunch(): void;
 }
 
-function tabSend(session: Session): Send {
-	return command => {
-		const client = session.sidecar.rpcClient;
-		if (!client) throw new Error("the device's tab has no client");
-		return client.command(command);
+/** 0.86.1: transcripts with every picture's bytes (`tab.command` as it sent it), each picture read whole each time. */
+function olderDevice(session: Session): Device {
+	const { device, hostId, workDir } = session;
+	return {
+		send: command => device.devices.request<RpcResponse>(hostId, "tab.command", { rtab: "t1", command }),
+		readImage: file =>
+			device.devices.request<IpcFsReadImageResult>(hostId, "fs.readImage", { path: file, rtab: "t1", cwd: workDir }),
+		relaunch: () => {},
 	};
 }
 
-function directReadImage(session: Session): ReadImage {
-	return file =>
-		session.device.devices.request<IpcFsReadImageResult>(session.hostId, "fs.readImage", {
-			path: file,
-			rtab: "t1",
-			cwd: session.workDir,
-		});
+/** This build: the tab's sidecar keeps each picture by its address, and main keeps the reply's picture by its file. */
+function currentDevice(session: Session): Device {
+	const { device, hostId, workDir } = session;
+	let reads = new RemoteImageReads();
+	return {
+		send: command => {
+			const client = session.sidecar.rpcClient;
+			if (!client) throw new Error("the device's tab has no client");
+			return client.command(command);
+		},
+		readImage: file =>
+			reads.read(`${hostId}\0${workDir}\0${file}`, known =>
+				device.devices.request<IpcFsReadImageResult>(hostId, "fs.readImage", {
+					path: file,
+					rtab: "t1",
+					cwd: workDir,
+					...(known ? { known } : {}),
+				}),
+			),
+		relaunch: () => {
+			reads = new RemoteImageReads();
+		},
+	};
 }
+
+const DEVICES = { "0.86.1": olderDevice, current: currentDevice };
 
 interface Phase {
 	name: string;
 	sent: number;
 	requests: number;
+	cpuMs: number;
 }
 
-/** The scenario's minutes on one device; the bytes and requests the host answered in each phase. */
-async function minutes(connect: (session: Session) => Device) {
+/** The scenario's minutes on one device build; the bytes and requests the host answered in each phase. */
+async function minutes(build: keyof typeof DEVICES) {
 	// The spy has to be in place before the link exists.
 	const wire = countHostWire();
 	const session = await openSession({ bridge: true });
-	const device = connect(session);
+	const device = DEVICES[build](session);
 	const shot = path.join(session.workDir, "shot.png");
 	const shotBytes = random(99);
 	await writeFile(shot, picture(shotBytes, SHOT_BYTES));
@@ -187,11 +212,7 @@ async function minutes(connect: (session: Session) => Device) {
 		const started = process.cpuUsage();
 		await run();
 		const cpu = process.cpuUsage(started);
-		phases.push({ name, sent: wire.tx, requests: wire.requests });
-		if (PRINT)
-			console.log(
-				`  ${name}: ${(wire.tx / 1000).toFixed(0)} KB in ${wire.requests} requests, ${((cpu.user + cpu.system) / 1000).toFixed(0)} ms CPU`,
-			);
+		phases.push({ name, sent: wire.tx, requests: wire.requests, cpuMs: (cpu.user + cpu.system) / 1000 });
 	};
 	const settled = (id: string) => `completed:${id}`;
 	const view = async (id: string, mark?: string) =>
@@ -220,6 +241,7 @@ async function minutes(connect: (session: Session) => Device) {
 		await mountShot();
 	});
 	await phase("relaunch", async () => {
+		device.relaunch();
 		transcripts = createSubagentTranscripts(device.send);
 		for (const id of AGENTS) await transcripts.read(id, { settled: settled(id) });
 		await view(AGENTS[0], settled(AGENTS[0]));
@@ -239,21 +261,38 @@ async function minutes(connect: (session: Session) => Device) {
 
 const imageData = (messages: readonly AgentMessage[]) =>
 	messages.flatMap(message =>
-		message.role === "toolResult"
+		message.role === "toolResult" && Array.isArray(message.content)
 			? message.content.flatMap(block => (block.type === "image" ? [block.data] : []))
 			: [],
 	);
 
+const kb = (bytes: number) => `${(bytes / 1000).toFixed(0)} KB`;
+
 describe("pictures over the link", () => {
-	it("a device viewing subagents that looked at pictures, and a reply's picture", async () => {
-		if (PRINT) console.log("device:");
-		const run = await minutes(session => ({ send: tabSend(session), readImage: directReadImage(session) }));
-		if (PRINT) console.log(`  total: ${(run.sent / 1000).toFixed(0)} KB`);
-		// The view shows the agent's whole transcript with every picture's bytes.
-		expect(run.held).toHaveLength(TURNS * 2);
-		const pictures = imageData(run.held);
+	it("a device viewing subagents that looked at pictures reads each picture once, and shows the same", async () => {
+		const older = await minutes("0.86.1");
+		const current = await minutes("current");
+		if (PRINT)
+			for (const [build, run] of Object.entries({ "0.86.1": older, current })) {
+				console.log(`${build}: ${kb(run.sent)}`);
+				for (const p of run.phases)
+					console.log(`  ${p.name}: ${kb(p.sent)} in ${p.requests} requests, ${p.cpuMs.toFixed(0)} ms CPU`);
+			}
+		// Both views show the agent's whole transcript with every picture's bytes, and the same reply pictures.
+		expect(current.held).toHaveLength(TURNS * 2);
+		expect(current.held).toEqual(older.held);
+		const pictures = imageData(current.held);
 		expect(pictures).toHaveLength(TURNS / IMAGE_EVERY);
 		for (const data of pictures) expect(data.startsWith("blob:")).toBe(false);
-		expect(new Set(run.shown).size).toBe(2);
+		expect(current.shown).toEqual(older.shown);
+		expect(new Set(current.shown).size).toBe(2);
+		// Each picture crossed once (the floor here, about 10 MB: 40 captures, and the reply's picture at its first read,
+		// after the relaunch and once its file changed): what the store reset read again is the journals' text alone,
+		// and a relaunch reads the reply's picture once more (main keeps it in memory), never a subagent's.
+		expect(current.sent).toBeLessThan(older.sent / 3);
+		const sent = (name: string) => current.phases.find(p => p.name === name)?.sent ?? Number.POSITIVE_INFINITY;
+		expect(sent("store reset")).toBeLessThan(IMAGE_BYTES);
+		expect(sent("relaunch")).toBeLessThan(SHOT_BYTES + IMAGE_BYTES);
+		expect(sent("picture changed")).toBeLessThan(SHOT_BYTES * 1.5);
 	}, 120_000);
 });

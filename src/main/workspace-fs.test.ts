@@ -1,4 +1,14 @@
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	symlinkSync,
+	utimesSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -258,6 +268,27 @@ describe("readWorkspaceImage", () => {
 			ok: false,
 			code: "unsupported_image",
 		});
+	});
+
+	it("answers a copy the caller knows as unchanged, without bytes, until the file changes", async () => {
+		writeFileSync(join(root, "pic.png"), fileOf(PNG));
+		const first = await readWorkspaceImage(root, { path: "pic.png" });
+		const { mtimeMs, size } = statSync(join(root, "pic.png"));
+		expect(first).toMatchObject({ ok: true, mtimeMs, size });
+		await expect(readWorkspaceImage(root, { path: "pic.png", known: { mtimeMs, size } })).resolves.toEqual({
+			ok: true,
+			dataUrl: null,
+			mime: null,
+			size,
+			mtimeMs,
+			unchanged: true,
+		});
+		// Rewritten in place, same size: its mtime moved, so the bytes come again.
+		writeFileSync(join(root, "pic.png"), fileOf(PNG));
+		utimesSync(join(root, "pic.png"), new Date(), new Date(mtimeMs + 5_000));
+		const again = await readWorkspaceImage(root, { path: "pic.png", known: { mtimeMs, size } });
+		expect(again).toMatchObject({ ok: true, mime: "image/png", dataUrl: first.dataUrl });
+		expect(again.unchanged).toBeUndefined();
 	});
 });
 

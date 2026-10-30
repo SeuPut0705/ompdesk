@@ -1289,15 +1289,24 @@ export interface IpcFsReadImagePayload {
 	 * channel, but the file must sniff as a real image type.
 	 */
 	path: string;
+	/**
+	 * The file as the caller last read it (a paired device's `RemoteImageReads`): while it still has this mtime and
+	 * size the answer is `unchanged`, with no bytes.
+	 */
+	known?: { mtimeMs: number; size: number };
 }
 
 export interface IpcFsReadImageResult {
 	ok: boolean;
-	/** `data:<mime>;base64,…` ready for <img src>. */
+	/** `data:<mime>;base64,…` ready for <img src>; null with `unchanged`. */
 	dataUrl: string | null;
 	mime: string | null;
 	/** Total file size in bytes. */
 	size: number;
+	/** The file's mtime when it was read, the validator a later `known` names. Absent from an older host. */
+	mtimeMs?: number;
+	/** The file still has the `known` mtime and size: the caller's copy is current, and no bytes came. */
+	unchanged?: true;
 	error?: string;
 	/** Stable failure code for the renderer's localized message (shared/ipc-error-codes). */
 	code?: IpcErrorCode;

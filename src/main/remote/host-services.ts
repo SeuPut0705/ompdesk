@@ -437,7 +437,11 @@ const FsListParams = z.object({
 });
 const FsReadParams = z.object({ ...FsRoot, path: z.string(), maxBytes: z.number().optional() });
 const FsReadRangeParams = HostFsReadRangeParams.extend(FsRoot);
-const FsReadImageParams = z.object({ ...FsRoot, path: z.string() });
+const FsReadImageParams = z.object({
+	...FsRoot,
+	path: z.string(),
+	known: z.object({ mtimeMs: z.number(), size: z.number() }).optional(),
+});
 const FsMutateParams = z.object({ ...FsRoot, mutation: z.unknown() });
 const FsSearchParams = z.object({ ...FsRoot, request: z.unknown() });
 const FsReadPlanParams = z.object({ ...FsRoot, fsPath: z.string(), localRoot: z.string().nullable() });

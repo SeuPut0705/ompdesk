@@ -138,6 +138,30 @@ describe("subagent transcript images", () => {
 		expect(imageData(result.messages[0])).toBe(PNG);
 	});
 
+	it("leaves the references for a caller that reads each blob itself, and answers one blob by its reference", async () => {
+		for (const type of ["get_subagent_messages", "get_subagent_transcript"]) {
+			const handler = localHandlerFor(type);
+			if (!handler) throw new Error(`${type} is not handled locally`);
+			const { ctx, stock, bridged } = context(transcript);
+			const result = (await handler(
+				{ type, id: "gui-10", subagentId: "ReloadTruth", imageRefs: true },
+				ctx,
+			)) as SubagentTranscript;
+			expect(result.messages.map(imageData)).toEqual([STORED, COLLECTED, STORED, undefined]);
+			// No blob is read here, and stock never sees the flag.
+			expect(bridged.filter(call => call.method === "read_image_blob")).toEqual([]);
+			const asked = type === "get_subagent_messages" ? stock[0] : bridged[0]?.params;
+			expect(asked).not.toHaveProperty("imageRefs");
+		}
+		const read = localHandlerFor("read_image_blob");
+		if (!read) throw new Error("read_image_blob is not handled locally");
+		const { ctx } = context(transcript);
+		await expect(read({ type: "read_image_blob", id: "gui-11", ref: STORED }, ctx)).resolves.toEqual({ data: PNG });
+		await expect(read({ type: "read_image_blob", id: "gui-12", ref: COLLECTED }, ctx)).resolves.toEqual({
+			data: null,
+		});
+	});
+
 	it("answers without stock's entries, request bookkeeping or thinking signatures, from either read", async () => {
 		const reply = {
 			sessionFile: "/tmp/ReloadTruth.jsonl",

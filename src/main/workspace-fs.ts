@@ -716,7 +716,8 @@ export async function resolveWorkspaceMedia(cwd: string | null, target: unknown)
  * and the renderer turns them into data URLs for <img>. Relative paths stay
  * workspace-confined; absolute paths and `~` are readable because the bytes
  * never leave the <img> (no exfil channel), but the file must sniff as a real
- * image type and fit under a size cap.
+ * image type and fit under a size cap. With `known` (a paired device's copy) a
+ * file that still has that mtime and size answers `unchanged`, without bytes.
  */
 export async function readWorkspaceImage(
 	cwd: string | null,
@@ -737,6 +738,9 @@ export async function readWorkspaceImage(
 		const stat = await fsp.stat(target.abs);
 		if (!stat.isFile()) return fail("Not a file", "not_a_file");
 		if (stat.size > FS_IMAGE_MAX_BYTES) return fail("Image too large", "image_too_large");
+		const { known } = payload;
+		if (known && known.mtimeMs === stat.mtimeMs && known.size === stat.size)
+			return { ok: true, dataUrl: null, mime: null, size: stat.size, mtimeMs: stat.mtimeMs, unchanged: true };
 		const handle = await fsp.open(target.abs, "r");
 		try {
 			const header = Buffer.alloc(512);
@@ -745,7 +749,13 @@ export async function readWorkspaceImage(
 			if (!mime) return fail("Not a supported image", "unsupported_image");
 			const body = Buffer.alloc(stat.size);
 			await handle.read(body, 0, stat.size, 0);
-			return { ok: true, dataUrl: `data:${mime};base64,${body.toString("base64")}`, mime, size: stat.size };
+			return {
+				ok: true,
+				dataUrl: `data:${mime};base64,${body.toString("base64")}`,
+				mime,
+				size: stat.size,
+				mtimeMs: stat.mtimeMs,
+			};
 		} finally {
 			await handle.close();
 		}
