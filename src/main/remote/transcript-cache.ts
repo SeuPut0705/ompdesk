@@ -20,10 +20,11 @@
  * (`TRANSCRIPT_CACHE_BYTES`): past it the least recently read go first. A file that cannot be read whole (a crash
  * mid-append) is dropped and read from the host again; nothing here is ever authoritative.
  */
-import { createHash, randomBytes } from "node:crypto";
-import { appendFile, mkdir, readdir, readFile, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { appendFile, readdir, readFile, rm, stat, utimes } from "node:fs/promises";
 import path from "node:path";
 import type { RpcResponse } from "../../shared/rpc-types";
+import { writeFileAtomic } from "../atomic-file";
 
 /** The folder's bound: a few weeks of a heavy user's subagents without their pictures (those are `ImageBlobCache`'s). */
 export const TRANSCRIPT_CACHE_BYTES = 128 * 1024 * 1024;
@@ -199,13 +200,10 @@ export class TranscriptCache {
 		await this.#write(file, segments.map(segment => `${JSON.stringify(segment)}\n`).join(""));
 	}
 
-	/** Written whole under a temporary name, then renamed: a reader never sees part of a file. */
+	/** Through the shared atomic writer (Windows retries a held rename): a reader never sees part of a file. */
 	async #write(file: string, text: string): Promise<void> {
 		try {
-			await mkdir(this.#dir, { recursive: true });
-			const temp = `${file}.${randomBytes(4).toString("hex")}.tmp`;
-			await writeFile(temp, text);
-			await rename(temp, file);
+			await writeFileAtomic(file, text);
 			await this.#grew(Buffer.byteLength(text));
 		} catch {
 			// A full or read-only disk: the transcript still shows, and is read from the host again next time.
