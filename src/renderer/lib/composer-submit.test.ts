@@ -440,6 +440,18 @@ describe("planComposerSubmit GUI-only routing", () => {
 		expect(merged.find(command => command.name === "compact")?.description).toBe("Compact the conversation");
 	});
 
+	it("describes a command through its native alias and hides a description that only repeats the name", () => {
+		installMockOmp();
+		const merged = withGuiCommands([
+			{ name: "models", source: "builtin", description: "models" },
+			{ name: "mystery", source: "builtin", description: "/Mystery" },
+		]);
+
+		expect(merged.find(command => command.name === "models")?.description).toBe(translate("cmd.model.desc"));
+		expect(merged.find(command => command.name === "mystery")?.description).toBe("");
+		for (const command of merged) expect(command.description.trim().toLowerCase()).not.toBe(command.name);
+	});
+
 	it("still sends an unknown slash command to the agent", () => {
 		const omp = installMockOmp();
 		const submit = planComposerSubmit({

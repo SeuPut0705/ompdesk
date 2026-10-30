@@ -2186,7 +2186,14 @@ export function withGuiCommands(stock: AvailableCommand[]): AvailableCommand[] {
 	const advertised = new Set(stock.flatMap(command => [command.name, ...(command.aliases ?? [])]));
 	const gui: AvailableCommand[] = [];
 	const menu = buildCurrentCommandMenu(stock);
-	const described = new Map(menu.flatMap(item => (item.description ? [[item.name, item.description] as const] : [])));
+	// A native item describes the names it answers to as well: omp's `/models` is the picker's alias.
+	const described = new Map(
+		menu.flatMap(item =>
+			item.description
+				? [item.name, ...(item.aliases ?? [])].map(name => [name, item.description as string] as const)
+				: [],
+		),
+	);
 	// omp advertises some commands with their own name as the description ("/jobs jobs"); ours says what they do.
 	const named = stock.map(command =>
 		command.description === command.name
@@ -2206,7 +2213,14 @@ export function withGuiCommands(stock: AvailableCommand[]): AvailableCommand[] {
 			textModeExecutable: false,
 		});
 	}
-	return [...named, ...gui];
+	// Whatever still restates its own name says nothing: the row shows the name alone, never "/models models".
+	return [...named, ...gui].map(command => (restatesName(command) ? { ...command, description: "" } : command));
+}
+
+// Stock's wire data may omit the description although the type says it is there.
+function restatesName(command: Pick<AvailableCommand, "name"> & { description?: string }): boolean {
+	const words = (command.description ?? "").trim().replace(/^\//, "").toLowerCase();
+	return words === command.name.toLowerCase();
 }
 
 /** Group items into palette sections, in `COMMAND_CATEGORIES` order (empty sections omitted). */
