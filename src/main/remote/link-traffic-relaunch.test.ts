@@ -13,7 +13,7 @@
  * `<prefix>-window.json`. The same file run on the build before (a worktree of it) is the baseline.
  */
 import { readFileSync, writeFileSync } from "node:fs";
-import { appendFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -288,13 +288,21 @@ async function hours() {
 		const tab = tabs[0] as Tab;
 		await hydrate(tab, true);
 	});
+	// Each tab reopens the session file its host named, as a restored tab does: the host's own string, never one
+	// rebuilt here (Windows' `realpath` spells the temp folder's 8.3 name `RUNNER~1` long, the omp's cwd keeps it short).
+	const files = await Promise.all(
+		tabs.map(async tab => {
+			const state = await tab.send({ type: "get_state", brief: true });
+			const sessionFile = (state.data as { sessionFile?: unknown } | undefined)?.sessionFile;
+			if (!state.success || typeof sessionFile !== "string") throw new Error("the host named no session file");
+			return sessionFile;
+		}),
+	);
 	await phase("device relaunch", async () => {
 		const { userData, prefs, fake } = device;
 		await device.devices.dispose();
 		device = await first.rig.computer("Laptop", fake, { userData, prefs });
 		device.devices.start();
-		// Each tab reopens the session file its host named (`get_state`), as a restored tab does.
-		const files = await Promise.all(workDirs.map(async dir => path.join(await realpath(dir), "session.jsonl")));
 		const reopened = workDirs.map((dir, index) =>
 			startSidecar(device, first.hostId, `r${index + 1}`, dir, files[index]),
 		);
