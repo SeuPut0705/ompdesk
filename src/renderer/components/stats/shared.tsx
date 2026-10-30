@@ -116,13 +116,14 @@ export function MetricCard({
 }
 
 /**
- * Grid for MetricCards: as many ≥9rem columns as the page's own width holds (not the window's). Rows share one
- * height, so a card with no detail line is as tall as its neighbours'; where only two columns fit, an odd last card
- * takes the whole row instead of leaving an empty cell.
+ * Grid for MetricCards: as many ≥9rem columns as the page's own width holds (not the window's). Cards of a row share
+ * its height; each row is as tall as its own tallest card, so a row of figures with no detail line stays short instead
+ * of borrowing another row's blank line. Where only two columns fit, an odd last card takes the whole row instead of
+ * leaving an empty cell.
  */
 export function MetricGrid({ children }: { children: ReactNode }) {
 	return (
-		<div className="omp-metric-grid @container grid auto-rows-fr grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3 [&>:last-child:nth-child(odd)]:@max-md:col-span-full">
+		<div className="omp-metric-grid @container grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3 [&>:last-child:nth-child(odd)]:@max-md:col-span-full">
 			{children}
 		</div>
 	);
