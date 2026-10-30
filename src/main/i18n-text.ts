@@ -360,8 +360,8 @@ export const MAIN_TEXT = {
 		ko: "업데이트를 마치지 못했어요. 잠시 후 다시 시도하세요.",
 	},
 	"updates.noResult": {
-		en: "Couldn't check for updates.",
-		ko: "업데이트를 확인하지 못했어요.",
+		en: "The update check ended without a result. Try again in a moment.",
+		ko: "업데이트 확인이 결과 없이 끝났어요. 잠시 후 다시 시도해 주세요.",
 	},
 	"updates.openInstallerFailed": {
 		en: "The installer was downloaded, but macOS could not open it.",
