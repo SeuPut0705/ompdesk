@@ -258,7 +258,7 @@ describe("ProvidersSection", () => {
 	it("shows a provider list that a catalog push replaces, not just the read it made on mount", async () => {
 		useSessionStore.setState({ status: "ready" });
 		await mount(<ProvidersSection />);
-		expect(text()).toContain("anthropic");
+		expect(text()).toContain("Claude");
 
 		await act(async () => {
 			useModelStore.getState().applyCatalogUpdate({
@@ -309,7 +309,7 @@ describe("ProvidersSection", () => {
 		await mount(<ProvidersSection />);
 		getProviders.mockClear();
 
-		await chooseAction("My Proxy API key", translate("providers.logout"));
+		await chooseAction("My Proxy", translate("providers.logout"));
 		expect(logout).not.toHaveBeenCalled();
 		expect(text()).toContain(translate("providers.logoutTitle", { provider: "My Proxy" }));
 		await act(async () => button(translate("providers.logoutConfirm"))?.click());
@@ -328,7 +328,7 @@ describe("ProvidersSection", () => {
 	it("keeps the credential when the sign-out prompt is cancelled", async () => {
 		useSessionStore.setState({ status: "ready" });
 		await mount(<ProvidersSection />);
-		await chooseAction("anthropic API key", translate("providers.logout"));
+		await chooseAction("anthropic", translate("providers.logout"));
 		await act(async () => button(translate("common.cancel"))?.click());
 		expect(disconnectProvider).not.toHaveBeenCalled();
 	});
@@ -422,7 +422,7 @@ describe("ProvidersSection", () => {
 		);
 		useSessionStore.setState({ status: "ready" });
 		await mount(<ProvidersSection />);
-		expect(text()).toContain("Anthropic");
+		expect(text()).toContain("Claude");
 		expect(text()).not.toContain("DeepSeek");
 		expect(document.querySelector('input[type="search"]')).toBeNull();
 
@@ -598,7 +598,7 @@ describe("ProvidersSection", () => {
 		);
 		useSessionStore.setState({ status: "ready" });
 		await mount(<ProvidersSection />);
-		await act(async () => button(translate("providers.picker.connect", { provider: "Claude (Pro/Max)" }))?.click());
+		await act(async () => button(translate("providers.picker.connect", { provider: "Claude" }))?.click());
 		const status = () => document.querySelector("[data-login-progress]")?.textContent ?? "";
 		expect(status()).toBe(translate("providerList.login.starting"));
 
@@ -764,9 +764,7 @@ describe("ProvidersSection", () => {
 					{extra}
 				</>,
 			);
-			await act(async () =>
-				button(translate("providers.picker.connect", { provider: "Claude (Pro/Max)" }))?.click(),
-			);
+			await act(async () => button(translate("providers.picker.connect", { provider: "Claude" }))?.click());
 			await beforeRequests?.();
 			await act(async () => {
 				useExtensionUiStore.getState().pushRequest(openUrl);
@@ -888,7 +886,7 @@ describe("ProvidersSection", () => {
 			expect(text()).not.toContain("Paste the authorization code");
 			// Stock's English instructions, which send the user to the paste, give way to the panel's own line.
 			expect(text()).not.toContain("when prompted");
-			expect(text()).toContain(translate("providerList.login.browser", { provider: "Anthropic" }));
+			expect(text()).toContain(translate("providerList.login.browser", { provider: "Claude" }));
 			expect(pasteField()).toBeNull();
 			const toggle = button(translate("providerList.login.pasteToggle"));
 			expect(toggle?.getAttribute("aria-expanded")).toBe("false");
@@ -968,7 +966,7 @@ describe("ProvidersSection", () => {
 			await act(async () =>
 				pendingLogin.resolve({ type: "response", command: "login", success: false, error: "Cancelled" }),
 			);
-			expect(text()).not.toContain(translate("providerList.login.failed", { provider: "Anthropic" }));
+			expect(text()).not.toContain(translate("providerList.login.failed", { provider: "Claude" }));
 			expect(cancelledIds()).toEqual(["code-1"]);
 		});
 
@@ -994,14 +992,12 @@ describe("ProvidersSection", () => {
 			expect(cancelledIds()).toEqual(["code-1", "code-2"]);
 			expect(pendingIds()).toEqual([]);
 			// The user cancelled: no failure banner.
-			expect(text()).not.toContain(translate("providerList.login.failed", { provider: "Anthropic" }));
+			expect(text()).not.toContain(translate("providerList.login.failed", { provider: "Claude" }));
 
 			// A new sign-in starts clean: it waits for the browser again.
 			pendingLogin = Promise.withResolvers<RpcResponse>();
 			login.mockReturnValueOnce(pendingLogin.promise);
-			await act(async () =>
-				button(translate("providers.picker.connect", { provider: "Claude (Pro/Max)" }))?.click(),
-			);
+			await act(async () => button(translate("providers.picker.connect", { provider: "Claude" }))?.click());
 			await act(async () => useExtensionUiStore.getState().pushRequest(openUrl));
 			expect(progress()).toBe(translate("providerList.login.waiting"));
 		});
@@ -1071,7 +1067,7 @@ describe("ProvidersSection", () => {
 						.settleAdoptedLogin("Authorization failed: Cancelled in OMPdesk"))
 						void respondExtensionUi({ type: "extension_ui_response", id: request.id, cancelled: true });
 				});
-				expect(text()).not.toContain(translate("providerList.login.failed", { provider: "Anthropic" }));
+				expect(text()).not.toContain(translate("providerList.login.failed", { provider: "Claude" }));
 				expect(cancelledIds()).toEqual(["code-1"]);
 			});
 
@@ -1093,7 +1089,7 @@ describe("ProvidersSection", () => {
 				await act(async () => {
 					useExtensionUiStore.getState().settleAdoptedLogin("Authorization failed: denied");
 				});
-				expect(text()).toContain(translate("providerList.login.failed", { provider: "Anthropic" }));
+				expect(text()).toContain(translate("providerList.login.failed", { provider: "Claude" }));
 				expect(text()).toContain("Authorization failed: denied");
 				expect(button(translate("providerList.login.retry"))).toBeDefined();
 			});
@@ -1142,12 +1138,43 @@ describe("ProviderAccounts", () => {
 		await mount(<ProvidersSection />);
 	}
 
-	it("shows every account of a provider open, in one flat list, without a toggle", async () => {
+	it("groups a provider's accounts under one header, open, without a toggle", async () => {
 		await mountWithAccounts();
 		expect(document.querySelector("[data-provider-list] [aria-controls]")).toBeNull();
-		const items = Array.from(document.querySelectorAll("[data-provider-list] > li"));
+		const groups = Array.from(document.querySelectorAll("[data-provider-list] > li"));
+		expect(groups.map(item => item.getAttribute("data-provider-row"))).toEqual(["anthropic"]);
+		const items = Array.from(groups[0].querySelectorAll("[data-provider-accounts] > li"));
 		expect(items.map(item => item.getAttribute("data-provider-account"))).toEqual(["7", "9"]);
+		// The brand and the mark sit once, on the header; the account rows repeat neither.
+		expect(groups[0].querySelectorAll("[data-provider-mark]").length).toBe(1);
+		expect(groups[0].querySelectorAll("[data-provider-name]").length).toBe(1);
+		expect(groups[0].querySelector("[data-provider-name]")?.textContent).toBe("Claude");
+		expect(groups[0].querySelector("[data-provider-head]")?.textContent).toContain(
+			translate("providers.accounts.count", { count: 2 }),
+		);
+		expect(items.every(item => item.querySelector("[data-provider-mark]") === null)).toBe(true);
 		expect(getProviderAccounts).toHaveBeenCalledTimes(1);
+	});
+
+	it("shows the plan stock's live name carries, so a rename needs no OMPdesk change", async () => {
+		const renamed = row("anthropic", {
+			name: "Anthropic (Claude Ultra)",
+			authKind: "oauth",
+			loginAvailable: true,
+		});
+		getProviders.mockResolvedValue(providersResponse(snapshot([renamed])));
+		getProviderAccounts.mockResolvedValue({
+			type: "response",
+			command: "get_provider_accounts",
+			success: true,
+			data: { providerId: "anthropic", accounts: [accounts[0]] },
+		});
+		useSessionStore.setState({ status: "ready" });
+		await mount(<ProvidersSection />);
+		const head = document.querySelector("[data-provider-head]");
+		expect(head?.querySelector("[data-provider-name]")?.textContent).toBe("Claude");
+		expect(head?.textContent).toContain("Ultra");
+		expect(head?.querySelector("[title]")?.getAttribute("title")).toBe("Anthropic (Claude Ultra)");
 	});
 
 	it("sorts the open list by company, one row per provider, each with its real mark or the neutral glyph", async () => {
@@ -1206,8 +1233,8 @@ describe("ProviderAccounts", () => {
 
 	it("signs out of every account from any account's menu", async () => {
 		await mountWithAccounts();
-		await chooseAction("Anthropic work@example.com", translate("providers.logoutAll"));
-		expect(text()).toContain(translate("providers.logoutTitle", { provider: "Anthropic" }));
+		await chooseAction("Anthropic", translate("providers.logoutAll"));
+		expect(text()).toContain(translate("providers.logoutTitle", { provider: "Claude" }));
 	});
 
 	it("removes only the chosen account, by its credentialId, after confirming", async () => {
@@ -1219,7 +1246,7 @@ describe("ProviderAccounts", () => {
 		);
 		expect(logout).not.toHaveBeenCalled();
 		expect(text()).toContain(
-			translate("providers.accounts.removeBody", { account: "home@example.com", provider: "Anthropic" }),
+			translate("providers.accounts.removeBody", { account: "home@example.com", provider: "Claude" }),
 		);
 		await act(async () => button(translate("providers.accounts.removeConfirm"))?.click());
 
@@ -1235,7 +1262,7 @@ describe("ProviderAccounts", () => {
 			translate("providers.accounts.remove", { account: "work@example.com" }),
 		);
 		expect(text()).toContain(
-			translate("providers.accounts.removeLastBody", { account: "work@example.com", provider: "Anthropic" }),
+			translate("providers.accounts.removeLastBody", { account: "work@example.com", provider: "Claude" }),
 		);
 		await act(async () => button(translate("providers.accounts.removeConfirm"))?.click());
 		expect(logout).toHaveBeenCalledWith("anthropic", 7);
@@ -1243,7 +1270,7 @@ describe("ProviderAccounts", () => {
 
 	it("adds another account through the same sign-in flow", async () => {
 		await mountWithAccounts();
-		await chooseAction("Anthropic work@example.com", translate("providers.accounts.add"));
+		await act(async () => button(translate("providers.accounts.addTo", { provider: "Anthropic" }))?.click());
 		expect(login).toHaveBeenCalledWith("anthropic");
 	});
 
@@ -1276,10 +1303,7 @@ describe("ProviderAccounts", () => {
 	it("refreshes through the bridge's stock invalidate, while the live poll reads stock's cache", async () => {
 		await mountWithAccounts();
 		expect(getProviderAccounts).toHaveBeenLastCalledWith("anthropic", false);
-		await chooseAction(
-			"Anthropic work@example.com",
-			translate("providers.accounts.refresh", { provider: "Anthropic" }),
-		);
+		await chooseAction("Anthropic", translate("providers.accounts.refresh", { provider: "Claude" }));
 		expect(getProviderAccounts).toHaveBeenLastCalledWith("anthropic", true);
 	});
 
@@ -1316,7 +1340,7 @@ describe("ProviderAccounts", () => {
 		useSessionStore.setState({ status: "ready" });
 		await mount(<ProvidersSection />);
 		expect(getProviderAccounts).not.toHaveBeenCalled();
-		expect(button(translate("providers.accounts.add"))).toBeUndefined();
+		expect(document.querySelector("[data-provider-add]")).toBeNull();
 		expect(document.querySelector("[data-models-rotation]")).toBeNull();
 	});
 });

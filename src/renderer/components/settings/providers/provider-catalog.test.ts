@@ -22,7 +22,6 @@ function provider(partial: Partial<ProviderInfo> & { id: string }): ProviderInfo
 		...partial,
 	};
 }
-
 function config(partial: Partial<CustomProviderView> & { id: string }): CustomProviderView {
 	return {
 		api: "openai-completions",

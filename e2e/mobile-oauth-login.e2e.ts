@@ -66,7 +66,7 @@ test("a phone signs in on its host through the provider URL and paste, including
 		await phone.screenshot({ path: test.info().outputPath("phone-login-paste.png") });
 		await paste.fill("abc");
 		await panel.getByRole("button", { name: "Connect", exact: true }).click();
-		await expect(phone.getByText("Signed in to Anthropic")).toBeVisible();
+		await expect(phone.getByText("Signed in to Claude")).toBeVisible();
 		await expect(panel.locator("[data-login-progress]")).toHaveCount(0);
 		await expect(phone.locator("[data-prompt-card]")).toHaveCount(0);
 		expect(errors).toEqual([]);

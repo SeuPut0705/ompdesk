@@ -45,21 +45,21 @@ export const STARTER_PROVIDERS: readonly ProviderInfo[] = [
  * kinds are stock's (pi-catalog `auth/*.kdl`, `/login` roster): `openai-codex` and `anthropic` are
  * subscription OAuth, `google-gemini-cli` is Google's own browser sign-in (stock's plain `google`
  * has no login), `openrouter` yields a durable API key (browser sign-in or paste), and Grok has
- * both: `xai-oauth` (SuperGrok / X Premium+ device-code sign-in, primary) and `xai` (xAI API key).
- * `label` is the card's name (stock's names are long); `kind` picks the one-line description.
+ * both: `xai-oauth` (device-code sign-in, primary) and `xai` (API key). A card's name is
+ * `providerLabel` of stock's live provider row: OMPdesk writes no plan or tier wording of its own,
+ * so a plan renamed in stock's catalog shows here after an omp update. `kind` picks the one-line description.
  */
 export const FEATURED_PROVIDERS: readonly {
 	id: string;
-	label: string;
 	kind: "subscription" | "apiKey";
 	/** A second stock login for the same company, offered as the card's quieter second action. */
 	apiKeyId?: string;
 }[] = [
-	{ id: "openai-codex", label: "ChatGPT (Plus/Pro)", kind: "subscription" },
-	{ id: "anthropic", label: "Claude (Pro/Max)", kind: "subscription" },
-	{ id: "openrouter", label: "OpenRouter", kind: "apiKey" },
-	{ id: "google-gemini-cli", label: "Google (Gemini)", kind: "subscription" },
-	{ id: "xai-oauth", label: "Grok (SuperGrok)", kind: "subscription", apiKeyId: "xai" },
+	{ id: "openai-codex", kind: "subscription" },
+	{ id: "anthropic", kind: "subscription" },
+	{ id: "openrouter", kind: "apiKey" },
+	{ id: "google-gemini-cli", kind: "subscription" },
+	{ id: "xai-oauth", kind: "subscription", apiKeyId: "xai" },
 ];
 
 /**

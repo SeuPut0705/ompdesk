@@ -15,6 +15,7 @@ import type { ProviderCatalog } from "./ProviderList";
 import type { ProviderLogin } from "./ProviderLogin";
 import { ProviderMark } from "./ProviderMark";
 import { FEATURED_PROVIDERS, providerMatches } from "./provider-catalog";
+import { providerLabel } from "./provider-groups";
 import { sortProvidersByCompany } from "./provider-marks";
 
 export function ProviderPicker({
@@ -158,6 +159,8 @@ interface FeaturedCardData {
 	apiKeyId: string | null;
 	connected: boolean;
 	mark: ProviderInfo;
+	/** Brand plus the plan stock's live name carries (`providerLabel`). */
+	label: string;
 }
 
 /** The featured providers this catalog can sign in to (or already has), in the featured order. */
@@ -179,6 +182,7 @@ function featuredCards(providers: readonly ProviderInfo[], showConnected: boolea
 			apiKeyId: startable === primary && secondary?.loginAvailable ? secondary.id : null,
 			connected,
 			mark,
+			label: providerLabel(mark),
 		});
 	}
 	return cards;
@@ -208,14 +212,14 @@ function FeaturedCard({
 			{connected ? (
 				<div className={frame} data-provider-connected={def.id}>
 					<ProviderMark provider={mark} />
-					<span className="min-w-0 flex-1 truncate text-sc-md font-medium text-(--sc-text)">{def.label}</span>
+					<span className="min-w-0 flex-1 truncate text-sc-md font-medium text-(--sc-text)">{card.label}</span>
 					<Badge dot variant="success">
 						{t("providerList.connected")}
 					</Badge>
 				</div>
 			) : (
 				<button
-					aria-label={t("providers.picker.connect", { provider: def.label })}
+					aria-label={t("providers.picker.connect", { provider: card.label })}
 					className={`${frame} rounded-(--sc-radius-lg) text-(--sc-text) hover:bg-(--sc-hover) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring) disabled:cursor-not-allowed disabled:opacity-50`}
 					data-provider-connect={startId}
 					disabled={!loginReady || busy}
@@ -225,7 +229,7 @@ function FeaturedCard({
 				>
 					<ProviderMark provider={mark} />
 					<span className="flex min-w-0 flex-1 flex-col">
-						<span className="truncate text-sc-md font-medium">{def.label}</span>
+						<span className="truncate text-sc-md font-medium">{card.label}</span>
 						<span className="truncate text-sc-sm text-(--sc-text-muted)">
 							{subscription ? t("providers.featured.subscription") : t("providers.featured.apiKey")}
 						</span>

@@ -1,21 +1,22 @@
 /**
- * The stored sign-ins of one connected subscription provider, as rows of the flat list in
- * Settings › Models & providers (ProvidersSection): each account is one ConnectedRow with its
- * tightest live quota and its reset, the one this tab's session is using, and the ones omp is
- * skipping after they hit a limit. omp itself picks between the accounts; the rows only show
- * that and add or remove accounts. "Add another account" is the same sign-in flow (a different
- * identity adds a row); removing logs out that one credential, and the last one disconnects the
- * provider. The read lives in `useProviderAccounts`, owned by the provider's rows; it is always
- * live (lib/usage-reports.ts): each account says how old its quota is in the quota's tooltip,
- * and "Refresh quotas" has stock probe the provider now. On omp 18.8.1+ each account with an
- * identity key offers to copy it (the name `task.agentAccountPools` matches) and a shortcut to
- * the Account pools editor. An account with saved rate-limit resets shows them and can spend one
- * (ResetPasses.tsx).
+ * The stored sign-ins of one connected subscription provider, as a group of Settings › Models & accounts
+ * (ProvidersSection): the provider's header (brand, account count, "Add account", the provider's own
+ * ⋯: refresh quotas, sign out of every account) and an account row under it each (ConnectedRow) with its
+ * tightest live quota and its reset, the one this tab's session is using, and the ones omp is skipping
+ * after they hit a limit. omp itself picks between the accounts; the rows only show that and add or
+ * remove accounts. "Add account" is the same sign-in flow (a different identity adds a row); removing
+ * logs out that one credential, and the last one disconnects the provider. The read lives in
+ * `useProviderAccounts`, owned by the provider's group; it is always live (lib/usage-reports.ts): each
+ * account says how old its quota is in the quota's tooltip, and "Refresh quotas" has stock probe the
+ * provider now. On omp 18.8.1+ each account with an identity key offers to copy it (the name
+ * `task.agentAccountPools` matches) and a shortcut to the Account pools editor. An account with saved
+ * rate-limit resets shows them and can spend one (ResetPasses.tsx). Names in toasts and dialogs are the
+ * brand (`group.shortName`), as in the list.
  */
 
-import { Copy, RefreshCw, Trash2, UserPlus, Users } from "lucide-react";
+import { Copy, RefreshCw, Trash2, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ProviderAccount, ProviderAccountsResult, ProviderInfo, UsageLimit } from "../../../../shared/rpc-types";
+import type { ProviderAccount, ProviderAccountsResult, UsageLimit } from "../../../../shared/rpc-types";
 import { type InlineFailure, inlineFailure } from "../../../lib/error-detail";
 import { copyText, formatClock, formatSpan } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
@@ -27,7 +28,8 @@ import { Badge, Button, ConfirmDialog, type ContextMenuItem, InlineNotice } from
 import { UsageGauges, usageTooltip } from "../../common/UsageGauges";
 import { bareEmail } from "../../layout/AccountLimit";
 import { useSettingsNavigate } from "../settings-navigation";
-import { ConnectedRow } from "./ConnectedRow";
+import { ConnectedRow, ProviderGroupItem } from "./ConnectedRow";
+import type { ProviderGroup } from "./provider-groups";
 import { ResetPassControl } from "./ResetPasses";
 
 /**
@@ -137,11 +139,12 @@ function QuotaCell({ account, now }: { account: ProviderAccount; now: number }) 
 }
 
 /**
- * The rows of one subscription provider: an account each, or one row naming the provider while
- * its accounts are being read, could not be read, or none are stored.
+ * One subscription provider as a group: the header (brand, count, "Add account", provider actions) and an
+ * account row each under it, or the header alone naming the problem while the accounts are being read, could
+ * not be read, or none are stored.
  */
 export function ProviderAccountRows({
-	provider,
+	group,
 	state,
 	sidecarReady,
 	adding,
@@ -149,7 +152,7 @@ export function ProviderAccountRows({
 	onChanged,
 	onSignOutAll,
 }: {
-	provider: ProviderInfo;
+	group: ProviderGroup;
 	state: ProviderAccountsState;
 	sidecarReady: boolean;
 	/** A sign-in for this provider is in flight. */
@@ -163,6 +166,7 @@ export function ProviderAccountRows({
 	const t = useT();
 	const tabRpc = useTabRpc();
 	const navigate = useSettingsNavigate();
+	const { provider, shortName, fullName } = group;
 	const { result, error, loading, load } = state;
 	const [pendingRemove, setPendingRemove] = useState<ProviderAccount | null>(null);
 	const [removing, setRemoving] = useState<number | null>(null);
@@ -180,7 +184,7 @@ export function ProviderAccountRows({
 			}
 			toast({
 				variant: "success",
-				message: t("providers.accounts.removed", { account: account.label, provider: provider.name }),
+				message: t("providers.accounts.removed", { account: account.label, provider: shortName }),
 			});
 			await Promise.allSettled([onChanged(), load()]);
 		} catch (cause) {
@@ -190,45 +194,71 @@ export function ProviderAccountRows({
 		}
 	};
 
-	const refresh: ContextMenuItem = {
-		id: "refresh",
-		label: t("providers.accounts.refresh", { provider: provider.name }),
-		icon: RefreshCw,
-		disabled: !sidecarReady,
-		onSelect: () => void load({ refresh: true }),
-	};
-	const addAccount: ContextMenuItem = {
-		id: "add",
-		label: t("providers.accounts.add"),
-		icon: UserPlus,
-		disabled: !sidecarReady || adding,
-		onSelect: onAdd,
-	};
-	const signOutAll: ContextMenuItem = {
-		id: "sign-out-all",
-		label: t("providers.logoutAll"),
-		icon: Trash2,
-		danger: true,
-		disabled: !sidecarReady,
-		onSelect: onSignOutAll,
+	// The provider's own actions (the header's ⋯); an account's ⋯ holds only that account's.
+	const providerMenu: ContextMenuItem[] = [
+		{
+			id: "refresh",
+			label: t("providers.accounts.refresh", { provider: shortName }),
+			icon: RefreshCw,
+			disabled: !sidecarReady,
+			onSelect: () => void load({ refresh: true }),
+		},
+		...(accounts.length > 0
+			? [
+					{
+						id: "sign-out-all",
+						label: t("providers.logoutAll"),
+						icon: Trash2,
+						danger: true,
+						separatorBefore: true,
+						disabled: !sidecarReady,
+						onSelect: onSignOutAll,
+					},
+				]
+			: []),
+	];
+	const header = {
+		group,
+		count: accounts.length,
+		menu: providerMenu,
+		onAdd,
+		addDisabled: !sidecarReady || adding,
 	};
 
 	if (accounts.length === 0) {
 		return (
-			<ConnectedRow
-				account={error ? error.message : undefined}
-				busy={loading && result === null}
-				menu={[refresh, addAccount]}
-				provider={provider}
-			/>
+			<ProviderGroupItem {...header} busy={loading && result === null} detail={error ? error.message : undefined} />
 		);
 	}
 	return (
-		<>
+		<ProviderGroupItem
+			{...header}
+			after={
+				<ConfirmDialog
+					busy={pendingRemove !== null && removing === pendingRemove.credentialId}
+					confirmLabel={t("providers.accounts.removeConfirm")}
+					message={
+						accounts.length > 1
+							? t("providers.accounts.removeBody", { account: pendingRemove?.label ?? "", provider: shortName })
+							: t("providers.accounts.removeLastBody", {
+									account: pendingRemove?.label ?? "",
+									provider: shortName,
+								})
+					}
+					onCancel={() => setPendingRemove(null)}
+					onConfirm={() => {
+						if (pendingRemove) void remove(pendingRemove);
+					}}
+					open={pendingRemove !== null}
+					title={t("providers.accounts.removeTitle")}
+				/>
+			}
+		>
 			{accounts.map(account => (
 				<ConnectedRow
 					account={bareEmail(account.label)}
 					accountTitle={[account.label, account.detail].filter(Boolean).join("\n")}
+					actionName={`${fullName} ${bareEmail(account.label)}`}
 					badges={
 						<>
 							{account.inUse && <Badge variant="success">{t("providers.accounts.inUse")}</Badge>}
@@ -254,15 +284,13 @@ export function ProviderAccountRows({
 								}
 								passes={account.resetPasses}
 								providerId={provider.id}
-								providerName={provider.name}
+								providerName={shortName}
 							/>
 						)
 					}
 					busy={removing === account.credentialId}
 					key={account.credentialId}
 					menu={[
-						refresh,
-						addAccount,
 						...(typeof account.identityKey === "string"
 							? [
 									{
@@ -291,13 +319,11 @@ export function ProviderAccountRows({
 							label: t("providers.accounts.remove", { account: account.label }),
 							icon: Trash2,
 							danger: true,
-							separatorBefore: true,
+							separatorBefore: typeof account.identityKey === "string",
 							disabled: !sidecarReady || removing !== null,
 							onSelect: () => setPendingRemove(account),
 						},
-						...(accounts.length > 1 ? [signOutAll] : []),
 					]}
-					provider={provider}
 					quota={<QuotaCell account={account} now={now} />}
 					rowProps={{ "data-provider-account": account.credentialId }}
 				/>
@@ -327,24 +353,6 @@ export function ProviderAccountRows({
 					/>
 				</li>
 			)}
-			<ConfirmDialog
-				busy={pendingRemove !== null && removing === pendingRemove.credentialId}
-				confirmLabel={t("providers.accounts.removeConfirm")}
-				message={
-					accounts.length > 1
-						? t("providers.accounts.removeBody", { account: pendingRemove?.label ?? "", provider: provider.name })
-						: t("providers.accounts.removeLastBody", {
-								account: pendingRemove?.label ?? "",
-								provider: provider.name,
-							})
-				}
-				onCancel={() => setPendingRemove(null)}
-				onConfirm={() => {
-					if (pendingRemove) void remove(pendingRemove);
-				}}
-				open={pendingRemove !== null}
-				title={t("providers.accounts.removeTitle")}
-			/>
-		</>
+		</ProviderGroupItem>
 	);
 }

@@ -212,7 +212,7 @@ test("@smoke connects two computers over the tailnet with no code, runs a prompt
 		// B's callback is out of A's browser's reach, so the code paste starts open.
 		await anthropic.getByLabel("Authorization code or redirect address").fill(redirect);
 		await anthropic.getByRole("button", { name: "Connect", exact: true }).click();
-		await expect(a.getByText("Signed in to Anthropic")).toBeVisible();
+		await expect(a.getByText("Signed in to Claude")).toBeVisible();
 		await expect(anthropic.locator("[data-remote-login-hint]")).toHaveCount(0);
 		const hostFrames = await readRecords(host.record);
 		expect(hostFrames).toContainEqual(expect.objectContaining({ type: "login", providerId: "anthropic" }));

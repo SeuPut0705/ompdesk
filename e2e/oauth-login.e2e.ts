@@ -161,7 +161,7 @@ for (const [language, theme] of variants([
 			expect(launchUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/launch$/);
 			expect(await finishInBrowser(launchUrl ?? "", { code: "abc" })).toBe(200);
 
-			await expect(page.getByText(tr(language, "providers.loginSuccess", { provider: "Anthropic" }))).toBeVisible();
+			await expect(page.getByText(tr(language, "providers.loginSuccess", { provider: "Claude" }))).toBeVisible();
 			await expect(anthropic.locator("[data-login-progress]")).toHaveCount(0);
 			// The paste request stock left open was answered for it, and never became a chat card.
 			const frames = await readRecords(record);
@@ -218,7 +218,7 @@ test("a reload mid-sign-in leaves no chat card and the panel shows the sign-in a
 		const launchUrl = ((await app.evaluate(() => Reflect.get(globalThis, "openedUrls"))) as string[]).at(-1);
 		expect(await finishInBrowser(launchUrl ?? "", { code: "abc" })).toBe(200);
 
-		await expect(page.getByText(tr("en", "providers.loginSuccess", { provider: "Anthropic" }))).toBeVisible();
+		await expect(page.getByText(tr("en", "providers.loginSuccess", { provider: "Claude" }))).toBeVisible();
 		await expect(anthropic.locator("[data-login-progress]")).toHaveCount(0);
 		// The leftover paste was answered once for stock, by the page that took the sign-in over.
 		await expect
@@ -270,7 +270,7 @@ test("an agent starts provider sign-in without waiting for authentication and sh
 		await panel.getByRole("button", { name: en["providerList.login.pasteToggle"] }).click();
 		await panel.getByLabel("Authorization code or redirect address").fill("abc");
 		await panel.getByRole("button", { name: "Connect", exact: true }).click();
-		await expect(page.getByText("Signed in to Anthropic")).toBeVisible();
+		await expect(page.getByText("Signed in to Claude")).toBeVisible();
 		await expect(panel.locator("[data-login-progress]")).toHaveCount(0);
 		expect(errors).toEqual([]);
 	} finally {

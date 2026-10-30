@@ -305,18 +305,19 @@ test("provider and account flows", async () => {
 			};
 		});
 		const settings = await openSettings(page, "models");
-		await expect(settings.getByText("Anthropic", { exact: true }).first()).toBeVisible();
+		await expect(settings.getByText("Claude", { exact: true }).first()).toBeVisible();
 		await rec.shoot("models");
 
-		// Anthropic's two accounts are open rows of the flat list; "Add another account" signs in a third.
+		// Claude's two accounts are rows under one group header; its "Add account" button signs in a third.
 		const accounts = settings.locator("[data-provider-list]");
 		const anthropic = settings.locator("[data-login-panel]");
-		await expect(accounts.locator('[data-provider-row="anthropic"]')).toHaveCount(2);
+		const claudeAccounts = accounts.locator('[data-provider-row="anthropic"] [data-provider-account]');
+		await expect(accounts.locator('[data-provider-row="anthropic"]')).toHaveCount(1);
+		await expect(claudeAccounts).toHaveCount(2);
 		await expect(accounts).toContainText("work@example.com");
 		await expect(accounts).toContainText("home@example.com");
 		await rec.shoot("accounts");
-		await accounts.getByRole("button", { name: "Actions for Anthropic work@example.com" }).click();
-		await page.getByRole("menuitem", { name: "Add another account" }).click();
+		await accounts.getByRole("button", { name: "Add account to Anthropic" }).click();
 		await expect(anthropic.getByRole("button", { name: "Sign in with browser" })).toBeVisible();
 		await rec.shoot("add-account-sign-in");
 		await anthropic.getByRole("button", { name: "Sign in with browser" }).click();
@@ -326,9 +327,9 @@ test("provider and account flows", async () => {
 			.getByLabel("Authorization code or redirect address")
 			.fill("http://localhost:54545/callback?code=abc&state=xyz");
 		await anthropic.getByRole("button", { name: "Connect", exact: true }).click();
-		await expect(page.getByText("Signed in to Anthropic")).toBeVisible();
+		await expect(page.getByText("Signed in to Claude")).toBeVisible();
 		await expect(accounts).toContainText("added-3@example.com");
-		await expect(accounts.locator('[data-provider-row="anthropic"]')).toHaveCount(3);
+		await expect(claudeAccounts).toHaveCount(3);
 		await rec.shoot("account-added");
 
 		// Remove the added account through its confirmation.
@@ -338,9 +339,9 @@ test("provider and account flows", async () => {
 		await expect(confirm).toBeVisible();
 		await rec.shoot("remove-confirm");
 		await confirm.getByRole("button", { name: "Remove account" }).click();
-		await expect(page.getByText("Removed added-3@example.com from Anthropic")).toBeVisible();
+		await expect(page.getByText("Removed added-3@example.com from Claude")).toBeVisible();
 		await expect(accounts).not.toContainText("added-3@example.com");
-		await expect(accounts.locator('[data-provider-row="anthropic"]')).toHaveCount(2);
+		await expect(claudeAccounts).toHaveCount(2);
 		await rec.shoot("account-removed");
 
 		// Rotation mode: Even, written to prefs and kept over a relaunch below.

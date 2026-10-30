@@ -1,10 +1,14 @@
 /**
  * Settings › Models & accounts › Providers & accounts — connection only, in
- * three parts: "Providers & accounts" is ONE open list of every signed-in
- * account, a row each (brand mark, provider, account, state, tightest live
- * quota, an overflow menu for the actions), sorted by company with a
- * provider's accounts adjacent and nothing grouped or collapsed
- * (ProviderAccounts, ConnectedRow); then the account-switching mode, and
+ * three parts: "Providers & accounts" is ONE open list grouped by provider
+ * company (the owner's call, 31 Oct 2026): each connected provider is a
+ * group, its header the mark, the brand name, an account count and (for a
+ * subscription) an "Add account" button beside the provider's own ⋯, and
+ * its accounts rows under it (ProviderAccounts, ConnectedRow); a provider
+ * with one credential is the header alone. The groups are built once by
+ * `buildProviderGroups` (provider-catalog.ts), sorted by company; names are
+ * brands (`shortProviderName`), stock's full name stays the tooltip. Then the
+ * account-switching mode, and
  * "Add a provider", a compact searchable grid of marks and names
  * (ProviderPicker). "Custom endpoints" lists this machine's models.yml entries
  * (neutral first-letter mark) and opens the inline form (`ui.providerForm`,
@@ -41,7 +45,7 @@ import {
 } from "../../common";
 import { SettingsAdvanced, SettingsSection } from "../SettingsLayout";
 import { AccountPoolsEditor } from "./AccountPoolsEditor";
-import { ConnectedRow } from "./ConnectedRow";
+import { ProviderGroupItem } from "./ConnectedRow";
 import { CustomProviderForm } from "./CustomProviderForm";
 import { ModelOverrides } from "./ModelOverrides";
 import { ProviderAccountRows, useProviderAccounts } from "./ProviderAccounts";
@@ -55,18 +59,13 @@ import {
 import { type ProviderLogin, ProviderLoginPanel, useProviderLogin } from "./ProviderLogin";
 import { ProviderMark } from "./ProviderMark";
 import { ProviderPicker } from "./ProviderPicker";
-import { groupProviders, providerDiscoveryErrors } from "./provider-catalog";
-import { sortProvidersByCompany } from "./provider-marks";
+import { providerDiscoveryErrors } from "./provider-catalog";
+import { buildProviderGroups, listsAccounts, type ProviderGroup, shortProviderName } from "./provider-groups";
 import { RotationModeControl } from "./RotationModeControl";
 
-/** A subscription sign-in can hold several accounts (stock lists them for OAuth providers). */
-function listsAccounts(provider: ProviderInfo): boolean {
-	return provider.authenticated && provider.authKind === "oauth" && provider.loginAvailable;
-}
-
-/** The row(s) of one connected provider: an account each for a subscription, else one row. */
+/** The header and rows of one connected provider: the account rows under it for a subscription, else one row. */
 function ConnectedProviderRows({
-	provider,
+	group,
 	config,
 	login,
 	busyProvider,
@@ -77,7 +76,7 @@ function ConnectedProviderRows({
 	onChanged,
 	onAccounts,
 }: {
-	provider: ProviderInfo;
+	group: ProviderGroup;
 	config: CustomProviderView | undefined;
 	login: ProviderLogin;
 	busyProvider: string | null;
@@ -91,17 +90,18 @@ function ConnectedProviderRows({
 	onAccounts: (providerId: string, result: ProviderAccountsResult | null) => void;
 }) {
 	const t = useT();
-	const accounts = listsAccounts(provider);
+	const { provider } = group;
+	const accounts = group.kind === "accounts";
 	const state = useProviderAccounts(provider.id, accounts && sidecarReady, revision, usagePolls);
 	useEffect(() => onAccounts(provider.id, state.result), [onAccounts, provider.id, state.result]);
 	if (accounts) {
 		return (
 			<ProviderAccountRows
 				adding={login.state.running}
+				group={group}
 				onAdd={() => void login.start(provider.id)}
 				onChanged={onChanged}
 				onSignOutAll={() => handlers.onLogout?.(provider)}
-				provider={provider}
 				sidecarReady={sidecarReady}
 				state={state}
 			/>
@@ -116,7 +116,7 @@ function ConnectedProviderRows({
 			? [
 					{
 						id: "credentials",
-						label: t("providers.updateCredentials", { provider: provider.name }),
+						label: t("providers.updateCredentials", { provider: group.shortName }),
 						icon: KeyRound,
 						disabled: !sidecarReady,
 						onSelect: () => handlers.onConnect(provider),
@@ -137,8 +137,10 @@ function ConnectedProviderRows({
 			: []),
 	];
 	return (
-		<ConnectedRow
-			account={[
+		<ProviderGroupItem
+			badges={provider.disabled && <Badge variant="warning">{t("providers.badge.disabled")}</Badge>}
+			busy={busyProvider === provider.id || (login.state.running && login.state.providerId === provider.id)}
+			detail={[
 				provider.account ?? authLabel(provider, t),
 				provider.modelCount === 1
 					? t("providers.modelOne")
@@ -148,11 +150,9 @@ function ConnectedProviderRows({
 			]
 				.filter(Boolean)
 				.join(" · ")}
-			accountTitle={provider.baseUrl}
-			badges={provider.disabled && <Badge variant="warning">{t("providers.badge.disabled")}</Badge>}
-			busy={busyProvider === provider.id || (login.state.running && login.state.providerId === provider.id)}
+			detailTitle={provider.baseUrl}
+			group={group}
 			menu={menu}
-			provider={provider}
 		/>
 	);
 }
@@ -311,7 +311,10 @@ export function ProvidersSection({
 			// A provider connected from the picker now sits under Connected; the picker
 			// (and a search that only it matched) folds away instead of saying nothing matches.
 			if (!before?.authenticated) setPickerOpen(null);
-			toast({ variant: "success", message: t("providers.loginSuccess", { provider: before?.name ?? providerId }) });
+			toast({
+				variant: "success",
+				message: t("providers.loginSuccess", { provider: before ? shortProviderName(before) : providerId }),
+			});
 		},
 		[load, providers, t],
 	);
@@ -385,9 +388,15 @@ export function ProvidersSection({
 			// a signed-out provider used to keep showing as connected.
 			const fresh = await load(true);
 			setAccountsRevision(revision => revision + 1);
-			toast({ variant: "success", message: t("providers.logoutSuccess", { provider: provider.name }) });
+			toast({
+				variant: "success",
+				message: t("providers.logoutSuccess", { provider: shortProviderName(provider) }),
+			});
 			if (fresh?.providers.some(row => row.id === provider.id && row.authenticated)) {
-				toast({ variant: "warning", message: t("providers.logoutKept", { provider: provider.name }) });
+				toast({
+					variant: "warning",
+					message: t("providers.logoutKept", { provider: shortProviderName(provider) }),
+				});
 			}
 		} catch (cause) {
 			toastError({ title: t("providers.logoutFailed"), error: cause });
@@ -440,13 +449,16 @@ export function ProvidersSection({
 	}
 
 	const discoveryErrors = providerDiscoveryErrors(discoveryStates, t("providers.discoveryUnavailable"));
-	const connected = sortProvidersByCompany(groupProviders(providers).connected);
+	const groups = buildProviderGroups(providers);
+	const connected = groups.map(group => group.provider);
 	const configById = new Map(catalog.customConfigs.map(config => [config.id, config]));
 	const handlers: RowHandlers = {
 		onConnect: provider => void login.start(provider.id),
 		onLogout: setPendingLogout,
 	};
 	const showPicker = pickerOpen ?? connected.length === 0;
+	const loginProvider = providers.find(row => row.id === login.state.providerId);
+	const loginName = loginProvider ? shortProviderName(loginProvider) : (login.state.providerId ?? "");
 
 	return (
 		<>
@@ -498,16 +510,16 @@ export function ProvidersSection({
 						className="flex flex-col divide-y divide-(--sc-divider)"
 						data-provider-list
 					>
-						{connected.map(provider => (
+						{groups.map(group => (
 							<ConnectedProviderRows
 								busyProvider={busyProvider}
-								config={configById.get(provider.id)}
+								config={configById.get(group.provider.id)}
+								group={group}
 								handlers={handlers}
-								key={provider.id}
+								key={group.provider.id}
 								login={login}
 								onAccounts={onAccounts}
 								onChanged={() => load(true)}
-								provider={provider}
 								revision={accountsRevision}
 								sidecarReady={catalog.sidecarReady}
 								usagePolls={usagePolls}
@@ -520,9 +532,7 @@ export function ProvidersSection({
 						<ProviderLoginPanel
 							login={login}
 							onRetry={() => void login.start(login.state.providerId ?? "")}
-							providerName={
-								providers.find(row => row.id === login.state.providerId)?.name ?? login.state.providerId
-							}
+							providerName={loginName}
 						/>
 					</div>
 				)}
@@ -567,13 +577,13 @@ export function ProvidersSection({
 				<ConfirmDialog
 					busy={pendingLogout !== null && busyProvider === pendingLogout.id}
 					confirmLabel={t("providers.logoutConfirm")}
-					message={t("providers.logoutBody", { provider: pendingLogout?.name ?? "" })}
+					message={t("providers.logoutBody", { provider: pendingLogout ? shortProviderName(pendingLogout) : "" })}
 					onCancel={() => setPendingLogout(null)}
 					onConfirm={() => {
 						if (pendingLogout) void logout(pendingLogout);
 					}}
 					open={pendingLogout !== null}
-					title={t("providers.logoutTitle", { provider: pendingLogout?.name ?? "" })}
+					title={t("providers.logoutTitle", { provider: pendingLogout ? shortProviderName(pendingLogout) : "" })}
 					warning={t("providers.logoutWarning")}
 				/>
 				<ConfirmDialog

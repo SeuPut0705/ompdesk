@@ -185,7 +185,7 @@ describe("reset passes on provider accounts", () => {
 		expect(redeemResetPass).not.toHaveBeenCalled();
 		const body = text();
 		expect(body).toContain(
-			translate("resetPasses.confirmSpend", { account: "home@example.com", provider: "Anthropic", count: 2 }),
+			translate("resetPasses.confirmSpend", { account: "home@example.com", provider: "Claude", count: 2 }),
 		);
 		expect(body).toContain(translate("resetPasses.confirmResets", { windows: translate("resetPasses.window.5h") }));
 		expect(body).toContain(translate("resetPasses.confirmPass", { title: "One free rate limit reset" }));

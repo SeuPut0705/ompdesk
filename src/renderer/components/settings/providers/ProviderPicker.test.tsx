@@ -112,8 +112,8 @@ describe("ProviderPicker featured group", () => {
 			`ChatGPT (Plus/Pro)${translate("providers.featured.subscription")}${translate("providers.featured.signIn")}`,
 			`Claude (Pro/Max)${translate("providers.featured.subscription")}${translate("providers.featured.signIn")}`,
 			`OpenRouter${translate("providers.featured.apiKey")}${translate("providers.featured.connect")}`,
-			`Google (Gemini)${translate("providers.featured.subscription")}${translate("providers.featured.signIn")}`,
-			`Grok (SuperGrok)${translate("providers.featured.subscription")}${translate("providers.featured.signIn")}`,
+			`Gemini (CLI)${translate("providers.featured.subscription")}${translate("providers.featured.signIn")}`,
+			`Grok (SuperGrok or X Premium+)${translate("providers.featured.subscription")}${translate("providers.featured.signIn")}`,
 		]);
 		// Each card carries the brand mark.
 		expect(document.querySelectorAll("[data-featured-provider] [data-provider-mark]").length).toBe(5);

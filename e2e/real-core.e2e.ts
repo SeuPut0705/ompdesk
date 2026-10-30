@@ -491,7 +491,7 @@ test("system omp's browser sign-in: loopback callback, default browser, cancel t
 		const started = Date.now();
 		await page.evaluate(() => window.omp.rpc.getState());
 		expect(Date.now() - started).toBeLessThan(5_000);
-		await expect(page.getByText("Couldn't connect Anthropic")).toHaveCount(0);
+		await expect(page.getByText("Couldn't connect Claude")).toHaveCount(0);
 		await expect(page.locator("[data-prompt-card]")).toHaveCount(0);
 		expect(errors).toEqual([]);
 	} finally {

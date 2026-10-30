@@ -626,7 +626,7 @@ test("a sign-in open on a host's tab when the link drops and returns never becom
 			.getByLabel("Authorization code or redirect address")
 			.fill("http://localhost:54545/callback?code=abc&state=xyz");
 		await anthropic.getByRole("button", { name: "Connect", exact: true }).click();
-		await expect(a.getByText("Signed in to Anthropic")).toBeVisible({ timeout: 30_000 });
+		await expect(a.getByText("Signed in to Claude")).toBeVisible({ timeout: 30_000 });
 		await expect(anthropic.locator("[data-login-progress]")).toHaveCount(0);
 		await expect(prompt).toHaveCount(0);
 		expect(await a.evaluate(() => window.omp.ui.openRequests().then(list => list.map(o => o.request.id)))).toEqual(

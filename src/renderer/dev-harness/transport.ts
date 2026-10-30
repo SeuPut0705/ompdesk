@@ -49,6 +49,7 @@ import {
 	tabsFixture,
 	transcriptFor,
 } from "./fixture";
+import { ACCOUNT_PROVIDERS, accountsFor } from "./fixture-accounts";
 import {
 	BOARD_BUSY,
 	boardJobs,
@@ -89,6 +90,8 @@ type Listener = (data: unknown) => void;
  * sign-in providers (ids as `omp /login` lists them), all signed out.
  */
 const FIRST_RUN = new URLSearchParams(location.search).get("firstrun") === "1";
+/** `?accounts=1`: several subscriptions with several accounts each (./fixture-accounts.ts). */
+const ACCOUNTS = new URLSearchParams(location.search).get("accounts") === "1";
 /** `?jobs=tree`: Background tasks lists subagents' jobs nested under them (./fixture-jobs.ts). */
 const JOBS_TREE = new URLSearchParams(location.search).get("jobs") === "tree";
 const FIRST_RUN_PROVIDERS = [
@@ -252,11 +255,16 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 			case "get_delegation":
 			case "set_delegation":
 				return respond(command, { mode: "assisted" });
+			case "get_provider_accounts":
+				return respond(command, {
+					providerId: command.providerId,
+					accounts: ACCOUNTS ? accountsFor(command.providerId) : [],
+				});
 			case "get_available_models":
 			case "get_providers":
 				return respond(command, {
 					models: FIRST_RUN ? [] : MODELS,
-					providers: FIRST_RUN ? FIRST_RUN_PROVIDERS : PROVIDERS,
+					providers: FIRST_RUN ? FIRST_RUN_PROVIDERS : ACCOUNTS ? ACCOUNT_PROVIDERS : PROVIDERS,
 					discoveryStates: [],
 					refreshPending: false,
 					generation: 1,
@@ -419,6 +427,9 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 			}
 			case IPC_COMMANDS.PREFS_GET_LAUNCH_PROFILE:
 				return launchProfiles.get((payload as { cwd: string }).cwd) ?? {};
+			case IPC_COMMANDS.ACCOUNT_ROTATION_GET:
+			case IPC_COMMANDS.ACCOUNT_ROTATION_SET:
+				return { mode: "quota", evenSupported: true };
 			case IPC_COMMANDS.DEFAULT_BROWSER_STATUS:
 				return {
 					egoInstalled: true,
