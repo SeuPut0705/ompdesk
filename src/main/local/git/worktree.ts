@@ -9,9 +9,9 @@
  */
 
 import * as path from "node:path";
-import { promises as fs } from "original-fs";
 import type { RpcWorktreeCreateResult } from "../../../shared/rpc-types";
 import { worktreeBranchPrefix } from "../../../shared/worktree-branch";
+import { fs } from "../../fenced-fs";
 import { stockHelperRequest } from "../../stock-helper";
 import { type BridgeClient, LocalCommandError } from "../types";
 import { getGitStatus, primaryRoot, repoRoot } from "./changes";

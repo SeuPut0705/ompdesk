@@ -11,7 +11,7 @@
  */
 import { createHash } from "node:crypto";
 import * as path from "node:path";
-import { promises as fs } from "original-fs";
+import { fs } from "../../fenced-fs";
 import { LocalCommandError } from "../types";
 import { primaryRoot, repoRoot } from "./changes";
 import { gitRaw, withRepoLock } from "./exec";

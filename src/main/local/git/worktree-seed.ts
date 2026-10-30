@@ -20,8 +20,8 @@
  */
 
 import * as path from "node:path";
-import { promises as fs } from "original-fs";
 import type { WorktreeSeedReport, WorktreeSetupReport } from "../../../shared/rpc-types";
+import { fs } from "../../fenced-fs";
 import { SUPERVISOR_STOPPED_CODE, spawnSupervised } from "../../setup/supervisor";
 import { DEFAULT_TIMEOUT_MS, gitRaw } from "./exec";
 import { isInside } from "./parse";

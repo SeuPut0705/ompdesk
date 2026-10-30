@@ -6,11 +6,12 @@
 import { execFile } from "node:child_process";
 import * as os from "node:os";
 import * as path from "node:path";
-import { promises as fs } from "original-fs";
 import { redactDiagnosticsText } from "../../../resources/gui-bridge/redactor";
 import { agentDir } from "../agent-paths";
+import { fs } from "../fenced-fs";
 import { git, gitRaw } from "../local/git/exec";
 import { isInside } from "../local/git/parse";
+import { currentStepSignal, throwIfStepStalled } from "../serial-chain";
 import { realFolder } from "../worktree-removals";
 import { classifyIgnored, type IgnoredVerdict, readEvidence } from "./regenerable";
 
@@ -155,11 +156,23 @@ export async function lastActivity(worktree: string, files: WorktreeFiles): Prom
 }
 
 function run(command: string, args: string[]): Promise<string | null> {
-	const { promise, resolve } = Promise.withResolvers<string | null>();
-	execFile(command, args, { timeout: 30_000, maxBuffer: 64 * 1024 * 1024 }, (error, stdout) =>
-		resolve(error && !stdout ? null : String(stdout)),
-	);
-	return promise;
+	// Inside a repository lock step that was stopped it never starts, and it ends once the step is stopped.
+	throwIfStepStalled();
+	const hold = currentStepSignal();
+	const { promise, resolve, reject } = Promise.withResolvers<string | null>();
+	const child = execFile(command, args, { timeout: 30_000, maxBuffer: 64 * 1024 * 1024 }, (error, stdout) => {
+		hold?.removeEventListener("abort", stop);
+		resolve(error && !stdout ? null : String(stdout));
+	});
+	function stop(): void {
+		child.kill("SIGKILL");
+		reject(hold?.reason);
+	}
+	hold?.addEventListener("abort", stop, { once: true });
+	return promise.then(output => {
+		throwIfStepStalled();
+		return output;
+	});
 }
 
 /**

@@ -5,11 +5,14 @@
  * Local only (the git here runs on this computer), through the GUI's own git runner. Nothing here pushes, and a
  * merge that conflicts is aborted so the parent's checkout is never left half merged.
  */
-import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
+import { fs } from "../fenced-fs";
 import { git, gitRaw } from "../local/git/exec";
 import type { BeforeRemove } from "../worktree-orphans";
+
+// Fenced: the worktree removals run inside the repository lock, and a holder past its bound must not touch the disk.
+const { mkdtemp, realpath, rm } = fs;
 
 /** The worktree binding of a tab (`IpcTabWorktree`): the checkout, its branch and the repo it forked from. */
 export interface WorktreeRef {

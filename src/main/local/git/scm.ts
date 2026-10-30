@@ -11,7 +11,6 @@
 
 import * as os from "node:os";
 import * as path from "node:path";
-import { promises as fs } from "original-fs";
 import { isConflictStatus } from "../../../shared/git-status";
 import type {
 	RpcGitBranch,
@@ -22,6 +21,7 @@ import type {
 	RpcGitMutationResult,
 	RpcGitRemoteResult,
 } from "../../../shared/rpc-types";
+import { fs } from "../../fenced-fs";
 import type { OmpRuntime } from "../types";
 import { LocalCommandError } from "../types";
 import { getGitHead, repoRoot } from "./changes";

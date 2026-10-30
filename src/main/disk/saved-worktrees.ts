@@ -18,14 +18,15 @@
 import { randomBytes } from "node:crypto";
 import * as os from "node:os";
 import * as path from "node:path";
-import { promises as fs } from "original-fs";
 import type { SavedWorktree, SavedWorktreeRestore } from "../../shared/disk-care";
 import { discardNewWorktree, type WorktreeRef, type WorktreeRemoval } from "../agent-control/branches";
 import { writeFileAtomic } from "../atomic-file";
+import { fs } from "../fenced-fs";
 import { git, gitRaw } from "../local/git/exec";
 import { prepareWorktree } from "../local/git/worktree-seed";
 import { LocalCommandError } from "../local/types";
 import { ompsExitedIn } from "../omp-exits";
+import { stepStalled } from "../serial-chain";
 import type { BeforeRemove } from "../worktree-orphans";
 import { realFolder, withRemovalClaim } from "../worktree-removals";
 import { diskBytes } from "./usage";
@@ -79,7 +80,12 @@ export class SavedWorktreeStore {
 			await fs.mkdir(this.#dir, { recursive: true, mode: 0o700 });
 			const records = change(await this.list());
 			const file = path.join(this.#dir, "saved.json");
-			await writeFileAtomic(file, `${JSON.stringify(records, null, 2)}\n`, { mode: 0o600, dirMode: 0o700 });
+			// A holder of the repository lock stopped for running long never replaces the file under the next one.
+			await writeFileAtomic(file, `${JSON.stringify(records, null, 2)}\n`, {
+				mode: 0o600,
+				dirMode: 0o700,
+				commitIf: () => !stepStalled(),
+			});
 		});
 		this.#writing = next.catch(() => {});
 		return next;

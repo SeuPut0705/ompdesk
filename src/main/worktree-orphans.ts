@@ -14,7 +14,6 @@
 
 import * as os from "node:os";
 import * as path from "node:path";
-import { promises as fs } from "original-fs";
 import type {
 	OrphanWorktreeState,
 	RpcOrphanWorktree,
@@ -23,6 +22,7 @@ import type {
 } from "../shared/rpc-types";
 import { removeLinkedWorktree, removeSafeWorktree, worktreeStanding } from "./agent-control/branches";
 import { KeepWorktree } from "./disk/saved-worktrees";
+import { fs } from "./fenced-fs";
 import { primaryRoot, repoRoot } from "./local/git/changes";
 import { git, withRepoLock } from "./local/git/exec";
 import { isInside } from "./local/git/parse";
