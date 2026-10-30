@@ -582,6 +582,47 @@ describe("events", () => {
 		expect(batch.payload[0]?.assistantMessageEvent).toMatchObject({ type: "text_delta", delta: "Hello world" });
 	});
 
+	it("writes a streamed push's data once for every connection that sends it, and other pushes for each", () => {
+		const r = rig();
+		const second = new FakeSocket();
+		r.router.attach("dev1", second);
+		const win = r.windows.windowFor("dev1");
+		let written = 0;
+		const counted = (label: string) => ({
+			toJSON: () => {
+				written++;
+				return label;
+			},
+		});
+		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, {
+			tabId: "a",
+			payload: [{ type: "agent_start", note: counted("x") }],
+		});
+		win.webContents.send(IPC_EVENTS.EVENTS_BATCH, { tabId: "a", payload: [{ type: "turn_start" }] });
+		r.timers.flush();
+		expect(written).toBe(1);
+		for (const socket of [r.socket, second]) {
+			expect(socket.frames("evt")).toEqual([
+				{
+					t: "evt",
+					seq: 1,
+					ch: IPC_EVENTS.EVENTS_BATCH,
+					d: { tabId: "a", payload: [{ type: "agent_start", note: "x" }, { type: "turn_start" }] },
+				},
+			]);
+		}
+		// A status is an object its handler may change and push again: each connection writes its own.
+		win.webContents.send(IPC_EVENTS.TAB_STATUS, { tabId: "a", status: "ready", note: counted("y") });
+		r.timers.flush();
+		expect(written).toBe(3);
+		expect(second.frames("evt")[1]).toEqual({
+			t: "evt",
+			seq: 2,
+			ch: IPC_EVENTS.TAB_STATUS,
+			d: { tabId: "a", status: "ready", note: "y" },
+		});
+	});
+
 	it("keeps order across tabs and channels", () => {
 		const events = coalesceEvents([
 			{ ch: IPC_EVENTS.EVENTS_BATCH, d: { tabId: "a", payload: [text("1")] } },

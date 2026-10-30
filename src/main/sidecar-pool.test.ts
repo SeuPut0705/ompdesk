@@ -3055,6 +3055,34 @@ describe("SidecarPool multi-viewer", () => {
 		expect(pool.activeTabForWindow(phone.win)).toBe("tab-a");
 	});
 
+	it("hands every window at the same message one push, and a window that joined mid-message its own whole one", () => {
+		const { pool, sidecar, desktop, phone } = shared();
+		const update = (delta: string) => ({
+			type: "message_update",
+			message: { role: "assistant", timestamp: 5, content: [{ type: "text", text: `so far ${delta}` }] },
+			assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta },
+		});
+		sidecar.emitEvents([update("a")]);
+		// A second phone opens the tab mid-message: it never saw the message's start.
+		const late = fakeWindow(-2);
+		expect(pool.attachViewer(late.win, "tab-a")).toBe(true);
+		sidecar.emitEvents([update("b")]);
+		const lastPush = (win: FakeWindow) => win.sentTo(IPC_EVENTS.EVENTS_BATCH).at(-1)?.data;
+		// One slimmed batch and one push object for both: a web page's frame text is made once from it.
+		expect(lastPush(phone)).toBe(lastPush(desktop));
+		expect(lastPush(desktop)).toEqual({
+			tabId: "tab-a",
+			payload: [
+				{
+					type: "message_update",
+					message: { role: "assistant", timestamp: 5 },
+					assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "b" },
+				},
+			],
+		});
+		expect(lastPush(late)).toEqual({ tabId: "tab-a", payload: [update("b")] });
+	});
+
 	it("lists a viewed tab as shared, counts its viewers, and lets the viewer reach it", () => {
 		const { pool, sidecar, desktop, phone } = shared();
 		expect(pool.tabsForWindow(phone.win)).toMatchObject([{ tabId: "tab-a", shared: true, viewerCount: 1 }]);

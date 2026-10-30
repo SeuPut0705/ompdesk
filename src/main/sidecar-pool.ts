@@ -1227,8 +1227,10 @@ export class SidecarPool {
 		const { sidecar } = entry;
 		const windows: FullWiring["windows"] = new Map([[winId, shown]]);
 		const removers: (() => void)[] = [];
+		// One push object for every window: a web page's frame text is then made once for all the pages showing the tab.
 		const forwardActive = <T>(channel: string, payload: T): void => {
-			for (const target of windows.values()) forwardToWindow(target.win, channel, { tabId: entry.tabId, payload });
+			const data = { tabId: entry.tabId, payload };
+			for (const target of windows.values()) forwardToWindow(target.win, channel, data);
 		};
 		const wire = <T>(event: string, listener: (payload: T) => void): void => {
 			sidecar.on(event, listener);
@@ -1241,8 +1243,16 @@ export class SidecarPool {
 		wire("events", (events: AgentSessionEvent[]) => {
 			// Subagent frames that arrived first leave first, as when each was sent alone.
 			subagentFrames.flush();
+			// Windows whose slimmers stand at the same message get the same slimmed batch, and so the same push object.
+			const pushes = new Map<AgentSessionEvent[], { tabId: string; payload: AgentSessionEvent[] }>();
 			for (const target of windows.values()) {
-				forwardToWindow(target.win, IPC_EVENTS.EVENTS_BATCH, { tabId: entry.tabId, payload: target.slim(events) });
+				const payload = target.slim(events);
+				let data = pushes.get(payload);
+				if (!data) {
+					data = { tabId: entry.tabId, payload };
+					pushes.set(payload, data);
+				}
+				forwardToWindow(target.win, IPC_EVENTS.EVENTS_BATCH, data);
 			}
 		});
 		// A response (a subagent's messages, a transcript) can hold frames still batched here.

@@ -130,6 +130,28 @@ describe("createMessageUpdateSlimmer", () => {
 		const resumed = update(1, { type: "text_delta", contentIndex: 1, delta: "b", partial: snapshot(1) });
 		expect(after([resumed])[0]).toBe(resumed);
 	});
+
+	it("gives slimmers that stand at the same message the very same batch, and one that stands elsewhere its own", () => {
+		const delta = (timestamp: number, text: string) =>
+			update(timestamp, { type: "text_delta", contentIndex: 1, delta: text, partial: snapshot(timestamp) });
+		const first = delta(1, "a");
+		const windows = [createMessageUpdateSlimmer(), createMessageUpdateSlimmer()];
+		for (const slim of windows) slim([first]);
+		// A window that became visible just now has sent nothing whole yet.
+		const joined = createMessageUpdateSlimmer();
+		const batch = [delta(1, "b"), delta(1, "c")];
+		const [one, two] = windows.map(slim => slim(batch));
+		expect(one).toBe(two);
+		expect(one).toEqual(batch.map(slimMessageUpdate));
+		const own = joined(batch);
+		expect(own).not.toBe(one);
+		expect(own).toEqual([batch[0], slimMessageUpdate(batch[1] as MessageUpdate)]);
+		// Each went on from where its own batch left it: all three now stand at the same message.
+		const next = [delta(1, "d")];
+		const outs = [...windows, joined].map(slim => slim(next));
+		expect(new Set(outs).size).toBe(1);
+		expect(outs[0]).toEqual(next.map(slimMessageUpdate));
+	});
 });
 
 describe("renderer stores on slimmed updates", () => {

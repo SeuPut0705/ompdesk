@@ -63,6 +63,23 @@ export function slimMessageUpdate(event: MessageUpdate): MessageUpdate {
 
 const NO_MESSAGE = Symbol("no message");
 
+/** A batch as one slimmer turned it, from the message it had last sent whole (`from`) to the one after (`to`). */
+interface SlimmedBatch {
+	from: unknown;
+	to: unknown;
+	out: AgentSessionEvent[];
+}
+
+/** Starting points kept per batch; the slimmers of one tab almost always stand at the same message. */
+const BATCH_STARTS_KEPT = 4;
+
+/**
+ * What each batch became from each starting point. The windows a tab is shown in (and the links of paired computers)
+ * slim the same batch one after another; those whose slimmers stand at the same message get the very array the first
+ * made, so what is made of it downstream (a web page's frame text) can be made once too.
+ */
+const slimmedBatches = new WeakMap<readonly AgentSessionEvent[], SlimmedBatch[]>();
+
 /**
  * One slimmer per renderer attachment (a tab's full-channel wiring). The
  * first `message_update` of each message it forwards keeps the full snapshot,
@@ -74,6 +91,13 @@ const NO_MESSAGE = Symbol("no message");
 export function createMessageUpdateSlimmer(): (events: AgentSessionEvent[]) => AgentSessionEvent[] {
 	let fullTimestamp: unknown = NO_MESSAGE;
 	return events => {
+		const known = slimmedBatches.get(events);
+		const shared = known?.find(batch => batch.from === fullTimestamp);
+		if (shared) {
+			fullTimestamp = shared.to;
+			return shared.out;
+		}
+		const from = fullTimestamp;
 		let slimmed: AgentSessionEvent[] | null = null;
 		for (const [index, event] of events.entries()) {
 			if (event.type !== "message_update") continue;
@@ -85,6 +109,10 @@ export function createMessageUpdateSlimmer(): (events: AgentSessionEvent[]) => A
 			slimmed ??= events.slice();
 			slimmed[index] = slimMessageUpdate(event);
 		}
-		return slimmed ?? events;
+		const out = slimmed ?? events;
+		const batch = { from, to: fullTimestamp, out };
+		if (!known) slimmedBatches.set(events, [batch]);
+		else if (known.length < BATCH_STARTS_KEPT) known.push(batch);
+		return out;
 	};
 }

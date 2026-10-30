@@ -239,9 +239,15 @@ export function mergeMessageUpdates(events: readonly AgentSessionEvent[]): Agent
 	return merged;
 }
 
+/** A push as it leaves: one queued push, or a tab's neighbouring batches joined. */
+export interface CoalescedEvent extends QueuedEvent {
+	/** The data of the queued pushes it was made of, in order: pushes made of the same ones read the same. */
+	from: readonly unknown[];
+}
+
 /** Join neighbouring `EVENTS_BATCH` pushes of one tab into one, then merge their streaming deltas. */
-export function coalesceEvents(queue: readonly QueuedEvent[]): QueuedEvent[] {
-	const out: QueuedEvent[] = [];
+export function coalesceEvents(queue: readonly QueuedEvent[]): CoalescedEvent[] {
+	const out: CoalescedEvent[] = [];
 	for (const item of queue) {
 		const previous = out.at(-1);
 		if (
@@ -255,17 +261,21 @@ export function coalesceEvents(queue: readonly QueuedEvent[]): QueuedEvent[] {
 			out[out.length - 1] = {
 				ch: item.ch,
 				d: { tabId: item.d.tabId, payload: [...previous.d.payload, ...item.d.payload] },
+				from: [...previous.from, item.d],
 			};
 			continue;
 		}
-		out.push(item);
+		out.push({ ch: item.ch, d: item.d, from: [item.d] });
 	}
 	return out.map(item =>
 		item.ch === IPC_EVENTS.EVENTS_BATCH && isTabBatch(item.d)
-			? { ch: item.ch, d: { ...item.d, payload: mergeMessageUpdates(item.d.payload) } }
+			? { ...item, d: { ...item.d, payload: mergeMessageUpdates(item.d.payload) } }
 			: item,
 	);
 }
+
+/** Pushes' data texts kept per first push: connections whose batch windows close apart join pushes differently. */
+const DATA_TEXTS_KEPT = 4;
 
 /** Tokens one assistant reply used (its `message_end` usage). */
 function assistantTokens(event: AgentSessionEvent): number {
@@ -462,6 +472,36 @@ export class WsRouter {
 		for (const event of payload.payload) tokens += assistantTokens(event);
 		if (tokens > 0) this.#deps.quota.record(deviceId, { tokens });
 	}
+
+	/**
+	 * A streamed push's data as JSON, made once for every connection that sends the same pushes joined the same way:
+	 * every page showing a tab gets the pool's very push objects (one slimmed batch for all, made fresh for each push and
+	 * never changed), and the batch windows of pages that received the same pushes close together. Keyed by the first
+	 * push it was made of. Other channels' data may be an object a handler changes and pushes again: made each time.
+	 */
+	readonly #dataTexts = new WeakMap<
+		object,
+		Array<{ ch: string; from: readonly unknown[]; text: string | undefined }>
+	>();
+
+	/** `JSON.stringify(item.d)`; throws as that does. */
+	dataText(item: CoalescedEvent): string | undefined {
+		const [first] = item.from;
+		if (!STREAM_CHANNELS.has(item.ch) || typeof first !== "object" || first === null) return JSON.stringify(item.d);
+		const known = this.#dataTexts.get(first);
+		const same = known?.find(
+			entry =>
+				entry.ch === item.ch &&
+				entry.from.length === item.from.length &&
+				entry.from.every((source, index) => source === item.from[index]),
+		);
+		if (same) return same.text;
+		const text = JSON.stringify(item.d);
+		const entry = { ch: item.ch, from: item.from, text };
+		if (!known) this.#dataTexts.set(first, [entry]);
+		else if (known.length < DATA_TEXTS_KEPT) known.push(entry);
+		return text;
+	}
 }
 
 export class WsConnection {
@@ -562,7 +602,7 @@ export class WsConnection {
 		if (this.#closed || this.#queue.length === 0) return;
 		const queue = this.#queue;
 		this.#queue = [];
-		for (const item of coalesceEvents(queue)) this.#write({ t: "evt", seq: ++this.#seq, ch: item.ch, d: item.d });
+		for (const item of coalesceEvents(queue)) this.#writeEvent(++this.#seq, item);
 		if ((this.#socket.bufferedAmount ?? 0) > MAX_BUFFERED_BYTES) this.close(CLOSE_SLOW_CONSUMER, "slow consumer");
 	}
 
@@ -602,12 +642,29 @@ export class WsConnection {
 		} catch {
 			return false;
 		}
+		this.#sendText(text);
+		return true;
+	}
+
+	/** `#write({t: "evt", seq, ch, d})`, the data's JSON made once for every connection that sends it (`dataText`). */
+	#writeEvent(seq: number, item: CoalescedEvent): void {
+		if (this.#closed) return;
+		let data: string | undefined;
+		try {
+			data = this.#router.dataText(item);
+		} catch {
+			return;
+		}
+		const head = `{"t":"evt","seq":${seq},"ch":${JSON.stringify(item.ch)}`;
+		this.#sendText(data === undefined ? `${head}}` : `${head},"d":${data}}`);
+	}
+
+	#sendText(text: string): void {
 		try {
 			this.#socket.send(text);
 		} catch {
 			// The socket is closing; its close event ends this connection.
 		}
-		return true;
 	}
 
 	#sendHello(resumed: boolean): void {
