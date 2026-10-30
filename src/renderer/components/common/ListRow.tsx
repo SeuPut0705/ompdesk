@@ -142,13 +142,10 @@ export function ListRow({
 			)}
 			<span
 				className={cx(
-					"flex-1",
-					// The title is what tells rows apart: whatever sits beside it (a status badge, an age, a count, the
-					// touch ⋯) gives way before the title drops under ten characters ("Fix the f…" beside a waiting badge
-					// and a child count).
-					meta != null || trailing != null || (actionsAtRest && actions != null)
-						? "min-w-[min(10ch,50%)]"
-						: "min-w-0",
+					// The title is what tells rows apart: sized by its own text, it gives way only once the row's end (a
+					// waiting badge's word) has given what it can (meta below shrinks 99× faster). With a zero basis it got
+					// only what the badge, the age and a child count left: "Fix the f…".
+					"min-w-0 flex-[1_1_auto]",
 					// Actions overlay the right edge; make room only while they show.
 					actions != null && !actionsOnHover && !actionsAtRest && room.reveal,
 					actions != null && !actionsOnHover && !actionsAtRest && selected && room.always,
@@ -184,9 +181,9 @@ export function ListRow({
 			{meta && (
 				<span
 					className={cx(
-						// Shrinks down to its content's least width (a badge's word truncates inside it, its glyph and an
-						// age stay whole) once the title is down to its floor.
-						"flex shrink items-center justify-end text-sc-xs whitespace-nowrap tabular-nums text-(--sc-text-muted)",
+						// Down to `--row-meta-min` (its whole content unless the list sets less: the sidebar lets a waiting
+						// badge's word go, down to its ⚠ glyph) before the title loses a character.
+						"flex min-w-(--row-meta-min,min-content) flex-[0_99_auto] items-center justify-end overflow-hidden text-sc-xs whitespace-nowrap tabular-nums text-(--sc-text-muted)",
 						actions && !actionsAtRest
 							? cx(
 									actionsOnHover
