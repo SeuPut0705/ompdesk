@@ -24,6 +24,9 @@ watchChunkFailures();
 // A tab's last known transcript page paints as soon as the tab is known (lib/transcript-snapshot.ts): the tabs of
 // the last run (lib/tab-snapshot.ts) are in the store before the first render, so their rows are too.
 installTranscriptSeeding();
+// Looping cues step at ten frames a second while the window is on screen but not focused (lib/cue-clock.ts); loaded
+// after the first screen, which it never changes.
+void import("./lib/cue-clock").then(({ installCueClock }) => installCueClock());
 
 const container = document.getElementById("root");
 if (!container) {

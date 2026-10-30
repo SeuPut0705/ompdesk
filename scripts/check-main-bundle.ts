@@ -144,7 +144,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // One session menu for every device's rows (`session-menu.ts`; 30 Oct 2026): a paired host's rows now rename, pin,
 // archive, move to a project and open in a split or window, with their own Archived section: measured 3,213,335,
 // 5,739 bytes over the measure above.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_214_000;
+// The working cues step at ten frames a second while the window is unfocused (`lib/cue-clock.ts`, loaded after the
+// first screen by one dynamic import in main.tsx; 30 Oct 2026): measured 3,214,065 on c7f5901ab, 730 bytes more.
+const WEB_FIRST_SCREEN_JS_BYTES = 3_215_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
