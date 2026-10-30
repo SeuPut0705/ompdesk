@@ -304,7 +304,7 @@ export function SshSection() {
 			{loading && !data && !loadError ? (
 				<SkeletonRows className="py-2" label={t("common.loading")} widths={[60, 44, 70, 52]} />
 			) : (
-				<div className="flex flex-col gap-3 py-3">
+				<div className="flex flex-col gap-3 py-3" data-ssh-body>
 					{remote ? (
 						data && (
 							<div className="flex flex-wrap items-center gap-2">

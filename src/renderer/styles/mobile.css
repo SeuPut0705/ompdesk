@@ -2218,6 +2218,30 @@ html[data-shell="phone"] .settings-content .omp-list-row > span.min-w-0.flex-1 >
 	overflow-wrap: anywhere;
 }
 
+/* One rhythm under a Settings heading on a phone: the content starts the head's 12 px margin below the heading, as
+   under "모바일 웹". A list that padded itself 8-12 px (other devices, blocked devices, SSH hosts) pushed its first row
+   ~20 px further down, and a heading whose info glyph makes its line 36 px tall (not 17) stood 9 px higher over the
+   same margin: that margin gives the glyph's extra line height back, so text-to-row stays ~12 px. A head with actions
+   keeps its margin (their reach, above). */
+html[data-shell="phone"] .settings-section-body > :is([data-remote-hosts], [data-mobile-web-blocked], [data-ssh-body]) {
+	padding-block: 0;
+}
+
+html[data-shell="phone"] .settings-section:not([data-settings-actions]) > [data-settings-section-head]:has([data-setting-info]) {
+	margin-bottom: var(--sc-space-1);
+}
+
+/* A blocked device's Unblock stays at the row's end beside the name: the title took its text's full width as its
+   basis, so the button wrapped under it at the icon's indent with a row of empty space after it. */
+html[data-shell="phone"] [data-mobile-web-blocked] .omp-list-row > span.min-w-0 {
+	flex-basis: 9rem;
+}
+
+html[data-shell="phone"] [data-mobile-web-blocked] .omp-list-row > span.min-w-0 > .truncate {
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
 /* Sidebar row actions (⋯, new session here): the rows are flush vertically but have room beside the title, so each
    action owns a real layout slot of the row height (36 px) × 44 px width at the row's end, so its hit area covers
    nothing else. List rows count the whole row, not an isolated 44 × 44 control. */
