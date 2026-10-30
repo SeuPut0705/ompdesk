@@ -1,5 +1,13 @@
+import { getEventListeners } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fencedCall, SerialChain, StepStalledError, stepStalled, throwIfStepStalled } from "./serial-chain";
+import {
+	currentStepSignal,
+	fencedCall,
+	SerialChain,
+	StepStalledError,
+	stepStalled,
+	throwIfStepStalled,
+} from "./serial-chain";
 
 const NEVER = () => Promise.withResolvers<never>().promise;
 
@@ -179,5 +187,84 @@ describe("SerialChain", () => {
 		expect(seen).toEqual(["live", "next live", "stopped", "StepStalledError", "StepStalledError"]);
 		expect(stepStalled()).toBe(false);
 		expect(() => throwIfStepStalled()).not.toThrow();
+	});
+
+	describe("nested across chains", () => {
+		it("a nested step is stopped with the step that called it, and its fenced effects never run", async () => {
+			const outer = chain().serial;
+			const inner = new SerialChain({ name: "inner", maxStepMs: 60_000, log: () => undefined });
+			const effects: string[] = [];
+			const gate = Promise.withResolvers<void>();
+			let innerSignal: AbortSignal | undefined;
+			const outerRun = outer
+				.run(async () => {
+					await inner.run(async signal => {
+						innerSignal = signal;
+						await gate.promise;
+						throwIfStepStalled();
+						effects.push("inner effect");
+					}, "nested");
+				}, "outer")
+				.catch(error => error);
+			await vi.advanceTimersByTimeAsync(1000);
+			expect(await outerRun).toBeInstanceOf(StepStalledError);
+			expect(innerSignal?.aborted).toBe(true);
+			gate.resolve();
+			await vi.advanceTimersByTimeAsync(10);
+			expect(effects).toEqual([]);
+			expect(inner.pending).toBe(0);
+		});
+
+		it("a nested step still waiting behind another never starts once its caller was stopped, and the chain goes on", async () => {
+			const outer = chain().serial;
+			const inner = chain().serial;
+			const started: string[] = [];
+			const gate = Promise.withResolvers<void>();
+			const blocker = inner.run(async () => {
+				await gate.promise;
+			}, "blocker");
+			const outerRun = outer
+				.run(async () => {
+					await inner.run(() => void started.push("nested"), "nested");
+				}, "outer")
+				.catch(error => error);
+			await vi.advanceTimersByTimeAsync(1000);
+			expect(await outerRun).toBeInstanceOf(StepStalledError);
+			gate.resolve();
+			await blocker;
+			expect(await inner.run(() => "after", "after")).toBe("after");
+			expect(started).toEqual([]);
+			expect(inner.pending).toBe(0);
+		});
+
+		it("work queued by a caller whose step is already stopped rejects with its reason and does not hold the chain", async () => {
+			const outer = chain().serial;
+			const inner = chain().serial;
+			const gate = Promise.withResolvers<void>();
+			const seen: string[] = [];
+			const outerRun = outer
+				.run(async () => {
+					await gate.promise;
+					await inner.run(() => void seen.push("ran"), "late").catch(error => seen.push(error.name));
+					expect(inner.pending).toBe(0);
+				}, "outer")
+				.catch(() => undefined);
+			await vi.advanceTimersByTimeAsync(1000);
+			await outerRun;
+			gate.resolve();
+			await vi.advanceTimersByTimeAsync(10);
+			expect(seen).toEqual(["StepStalledError"]);
+			expect(await inner.run(() => "free", "next")).toBe("free");
+		});
+
+		it("releases the caller's abort listeners when nested steps end (no leak over thousands of steps)", async () => {
+			const outer = chain().serial;
+			const inner = chain().serial;
+			await outer.run(async () => {
+				const parent = currentStepSignal() as AbortSignal;
+				for (let i = 0; i < 3000; i++) await inner.run(() => i, "n");
+				expect(getEventListeners(parent, "abort").length).toBe(0);
+			}, "outer");
+		});
 	});
 });

@@ -1,16 +1,22 @@
+import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { AUTOPILOT_BRIDGE_METHODS, type AutopilotStatus } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import {
 	afters,
 	autopilot,
 	clock,
+	commit,
 	installAutopilotRig,
 	notices,
 	record,
+	remote,
 	runLogs,
 	start,
+	tmp,
+	win,
 	world,
 } from "./autopilot-test-rig";
+import { gitSync } from "./local/git/test-repos";
 import type { SidecarLike } from "./sidecar-types";
 
 installAutopilotRig();
@@ -117,4 +123,35 @@ describe("a pipeline step stopped at its bound that answers late", () => {
 			}
 		});
 	}
+});
+
+describe("a settle that stalls while the ship queue drains", () => {
+	it("the drain it started is stopped with it: no push once the settle's bound passed", async () => {
+		await start({ type: "set_autopilot", action: "start", preset: "push" });
+		await commit(path.join(tmp, "wt-2026-10-17"), "a.txt");
+		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
+		// A push queued by the person; the turn is busy, so nothing drains it yet.
+		world.busy.add("ap-1");
+		await autopilot.handleCommand(win, sidecar, "ap-1", { type: "set_autopilot", action: "ship", kind: "push" }, "1");
+		world.busy.delete("ap-1");
+		vi.useFakeTimers();
+		try {
+			// The drain's journal write never answers: the settle step waits inside the drain.
+			world.hang.add(`bridge:${AUTOPILOT_BRIDGE_METHODS.shipAction}`);
+			frame({ type: "autopilot_settled", reason: "user" });
+			await vi.advanceTimersByTimeAsync(0);
+			await vi.waitFor(() => expect(world.held.length).toBeGreaterThan(0));
+			await vi.advanceTimersByTimeAsync(15 * 60_000);
+			// The drain the settle awaited is stopped with it: its item fails now instead of running on behind it.
+			const queue = (world.statuses.get("ap-1") as AutopilotStatus).ship?.queue ?? [];
+			expect(queue.map(item => item.state)).toEqual(["failed"]);
+			world.hang.clear();
+			for (const held of world.held.splice(0)) held.release();
+			await vi.advanceTimersByTimeAsync(0);
+			await autopilot.idle();
+		} finally {
+			vi.useRealTimers();
+		}
+		expect(gitSync(remote, "for-each-ref", "refs/heads/autopilot")).toBe("");
+	});
 });
