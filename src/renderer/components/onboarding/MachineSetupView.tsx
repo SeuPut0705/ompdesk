@@ -386,7 +386,8 @@ export function SetupItemBanner({ item, retry }: { item: SetupItemState; retry?:
 		>
 			<div className="flex min-w-0 flex-col gap-2">
 				<p className="text-sc-sm break-words">{lead}</p>
-				{phase !== "cancelled" && failure?.detail && (
+				{/* The installer's output (one toggle away) already holds the failure's own text: say it once. */}
+				{phase !== "cancelled" && failure?.detail && !item.output?.includes(failure.detail) && (
 					<p className="font-mono text-sc-xs break-all text-(--sc-text-muted) select-text">{failure.detail}</p>
 				)}
 				<SetupManualSteps item={item} />
@@ -478,7 +479,7 @@ export function MachineSetupView() {
 								{setupPhaseText(t, item)}
 								{note && <span className="text-(--sc-text-muted)"> · {note}</span>}
 							</span>
-							<SetupProgressLine className="basis-full" item={item} />
+							<SetupProgressLine className="mt-1.5 basis-full" item={item} />
 						</li>
 					);
 				})}

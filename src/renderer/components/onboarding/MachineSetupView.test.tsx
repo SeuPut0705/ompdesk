@@ -261,6 +261,26 @@ describe("MachineSetupView", () => {
 		expect(fake.api.retry).toHaveBeenCalledWith("omp");
 	});
 
+	it("says the failure's own text once when the installer output already holds it", async () => {
+		const detail = "error: GET https://registry.npmjs.org 503";
+		await mount(
+			<MachineSetupView />,
+			setupState(
+				"darwin",
+				{
+					omp: {
+						phase: "failed",
+						failure: { reason: "exit", exitCode: 1, detail },
+						output: `Resolving\n${detail}\n`,
+					},
+				},
+				{ ompReady: false },
+			),
+		);
+		await act(async () => query('[data-testid="setup-output-toggle"]')?.click());
+		expect(text().split(detail).length - 1).toBe(1);
+	});
+
 	it("hides a failed item's command and location until Show details, even with no output", async () => {
 		const noOutput = setupState(
 			"darwin",

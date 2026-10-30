@@ -10,8 +10,9 @@ import { useState } from "react";
 import type { GitAslrAction, SetupItemState } from "../../../shared/setup";
 import { useT } from "../../lib/i18n";
 import { openExternal } from "../../lib/open-external";
+import { useCliUpdateStore } from "../../stores/cli-update";
 import { useMachineSetupStore } from "../../stores/machine-setup";
-import { Badge, Button, InlineNotice, SettingInfo } from "../common";
+import { Badge, Button, InlineNotice, PathText, SettingInfo } from "../common";
 import {
 	SETUP_DETAILED,
 	SETUP_ITEM_NAMES,
@@ -27,7 +28,13 @@ import {
 	setupPresencePath,
 	useMachineSetupState,
 } from "../onboarding/MachineSetupView";
-import { CliUpdateRows } from "./CliUpdateRows";
+import {
+	CliFailureNotice,
+	CliMethodBadge,
+	CliToolStatusText,
+	CliUpdateNowButton,
+	CliUpdateRows,
+} from "./CliUpdateRows";
 import { DiskCareRow } from "./DiskCareRow";
 import { ExtensionUpdateRows } from "./ExtensionUpdateRows";
 import { MemoryComponentRow } from "./memory/MemoryComponentRow";
@@ -99,6 +106,9 @@ function SetupItemRow({ item, windows }: { item: SetupItemState; windows: boolea
 			: setupPresenceNote(t, item);
 	const path = setupPresencePath(item);
 	const purpose = item.id === "git" && windows ? "gitWindows" : item.id;
+	// GitHub CLI and Node.js are tools machine setup lists and the tool updater keeps current: one row, not two.
+	const cliState = useCliUpdateStore(store => store.state);
+	const cli = cliState?.tools.find(tool => tool.id === item.id);
 	return (
 		<div
 			className="settings-row min-w-0 py-1.5"
@@ -114,6 +124,7 @@ function SetupItemRow({ item, windows }: { item: SetupItemState; windows: boolea
 						<Badge variant="muted">
 							{item.required ? t("machineSetup.required") : t("machineSetup.optional")}
 						</Badge>
+						{cli && <CliMethodBadge tool={cli} />}
 						<SettingInfo text={t(`machineSetup.purpose.${purpose}`)} />
 					</div>
 					{/* The purpose rides the info glyph: one line per tool for its status and where it lives. */}
@@ -122,16 +133,21 @@ function SetupItemRow({ item, windows }: { item: SetupItemState; windows: boolea
 							{setupPhaseText(t, item)}
 							{note && <span className="text-(--sc-text-muted)"> · {note}</span>}
 						</span>
-						{path && (
-							<span className="min-w-0 truncate font-mono text-(--sc-text-muted) select-text" title={path}>
-								{path}
-							</span>
-						)}
+						{path && <PathText className="flex-1" path={path} />}
 					</p>
+					{cli && cliState && (
+						<p
+							className="flex min-w-0 ps-6 text-sc-xs text-(--sc-text-muted)"
+							data-cli-tool={cli.id}
+							data-phase={cli.phase}
+						>
+							<CliToolStatusText state={cliState} tool={cli} />
+						</p>
+					)}
 					<SetupProgressLine className="mt-1" item={item} />
 				</div>
-				{(item.phase === "running" || SETUP_RETRYABLE.includes(item.phase)) && (
-					<div className="flex max-w-full flex-wrap items-center gap-2">
+				{(item.phase === "running" || SETUP_RETRYABLE.includes(item.phase) || cli) && (
+					<div className="flex max-w-full flex-wrap items-center justify-end gap-2">
 						{item.phase === "running" && (
 							<Button data-testid="setup-cancel" onClick={() => void cancel()} size="sm" variant="secondary">
 								{t("common.cancel")}
@@ -148,9 +164,11 @@ function SetupItemRow({ item, windows }: { item: SetupItemState; windows: boolea
 								{t("common.retry")}
 							</Button>
 						)}
+						{cli && <CliUpdateNowButton tool={cli} />}
 					</div>
 				)}
 			</div>
+			{cli && <CliFailureNotice tool={cli} />}
 			{item.id === "git" && windows && <GitAslrControl item={item} />}
 			{item.phase === "unavailable" && (
 				<InlineNotice

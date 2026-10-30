@@ -237,9 +237,7 @@ export function UpdatesSection() {
 						>
 							{status.mode === "manual" ? t("updater.openInstaller") : t("updater.restart")}
 						</Button>
-					) : status.state === "error" ? (
-						<Badge variant="error">{t("updates.checkFailed")}</Badge>
-					) : status.state === "auth-required" ? (
+					) : status.state === "error" ? undefined : status.state === "auth-required" ? (
 						<Badge variant="warning">{t("updates.authRequired")}</Badge>
 					) : status.state === "not-available" ? (
 						<Badge variant="success">{t("updates.upToDate")}</Badge>

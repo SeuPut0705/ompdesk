@@ -99,7 +99,7 @@ export function DiskCareRow() {
 					loading={running}
 					onClick={() => void clean()}
 					size="sm"
-					variant="ghost"
+					variant="secondary"
 				>
 					{t("diskCare.clean")}
 				</Button>

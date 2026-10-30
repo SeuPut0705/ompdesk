@@ -8,8 +8,10 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { CliToolState, CliUpdateState } from "../../../shared/cli-update";
 import { SETUP_ITEMS, type SetupState } from "../../../shared/setup";
 import { I18nProvider, translate } from "../../lib/i18n";
+import { useCliUpdateStore } from "../../stores/cli-update";
 import { useMachineSetupStore } from "../../stores/machine-setup";
 import { fakeSetupApi, setupState } from "../../test-support/machine-setup";
 import { MachineSetupSection } from "./MachineSetupSection";
@@ -32,10 +34,15 @@ const diskCare = {
 	run: async () => ({ running: false, usage: null, lastRun: null, automatic: true }),
 	onState: () => () => {},
 };
+const cliTools: CliToolState[] = [];
+const cliUpdate = {
+	getState: async () => ({ enabled: true, scheduled: true, tools: cliTools }) satisfies CliUpdateState,
+	now: vi.fn(async () => {}),
+	onState: () => () => {},
+};
 Object.assign(window as unknown as Record<string, unknown>, {
-	omp: { setup: fake.api, system: { openExternal }, diskCare },
+	omp: { setup: fake.api, system: { openExternal }, diskCare, cliUpdate },
 });
-
 let root: Root | null = null;
 async function mount(state: SetupState): Promise<void> {
 	fake.current.state = state;
@@ -62,6 +69,9 @@ afterEach(async () => {
 	useMachineSetupStore.getState().reset();
 	for (const fn of Object.values(fake.api)) fn.mockClear();
 	openExternal.mockClear();
+	useCliUpdateStore.getState().reset();
+	cliTools.length = 0;
+	cliUpdate.now.mockClear();
 });
 
 describe("MachineSetupSection", () => {
@@ -112,6 +122,28 @@ describe("MachineSetupSection", () => {
 		);
 		expect(fake.api.cancel).toHaveBeenCalledTimes(1);
 		expect(row("bun")?.querySelector('[data-testid="setup-cancel"]')).toBeNull();
+	});
+
+	it("shows a tool machine setup and the tool updater both know as one row", async () => {
+		cliTools.push({
+			id: "gh",
+			providers: [],
+			installed: "2.96.0",
+			path: "/opt/homebrew/bin/gh",
+			method: "brew",
+			skip: null,
+			phase: "idle",
+			latest: null,
+			checkedAt: null,
+			last: null,
+		});
+		await mount(setupState("darwin"));
+		const gh = row("gh");
+		expect(document.body.querySelectorAll('[data-setup-item="gh"]').length).toBe(1);
+		expect(document.body.querySelector("#setting-cli-tool-gh")).toBeNull();
+		expect(gh?.textContent).toContain(translate("cliUpdate.method", { method: "Homebrew" }));
+		await act(async () => (gh?.querySelector('[data-testid="cli-update-now-gh"]') as HTMLElement | null)?.click());
+		expect(cliUpdate.now).toHaveBeenCalledWith("gh");
 	});
 
 	it("shows a background install's place in its run and its download percent", async () => {

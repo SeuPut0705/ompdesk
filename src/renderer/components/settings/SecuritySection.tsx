@@ -29,6 +29,7 @@ import {
 	IconButton,
 	Input,
 	ListRow,
+	PathText,
 	Select,
 	SkeletonRows,
 	Spinner,
@@ -343,23 +344,24 @@ export function SecuritySection() {
 	} else {
 		body = (
 			<div className="flex flex-col gap-3 py-3">
+				{/* Colour means "needs attention": a ready part is plain text in a quiet pill, a missing one is amber. */}
 				<div className="flex flex-wrap items-center gap-2">
-					<Badge dot variant={dashboard.enabled ? "success" : "warning"}>
+					<Badge dot={!dashboard.enabled} variant={dashboard.enabled ? "default" : "warning"}>
 						{dashboard.enabled ? t("security.ready.enabled") : t("security.ready.disabled")}
 					</Badge>
-					<Badge dot variant={dashboard.modelReady ? "success" : "warning"}>
+					<Badge dot={!dashboard.modelReady} variant={dashboard.modelReady ? "default" : "warning"}>
 						{dashboard.modelReady
 							? t("security.ready.model", { model: dashboard.modelLabel ?? "—" })
 							: t("security.ready.noModel")}
 					</Badge>
-					<Badge dot variant={dashboard.repositoryRoot ? "success" : "warning"}>
+					<Badge dot={!dashboard.repositoryRoot} variant={dashboard.repositoryRoot ? "default" : "warning"}>
 						{dashboard.repositoryRoot ? t("security.ready.repository") : t("security.ready.noRepository")}
 					</Badge>
-					<span className="ml-auto text-sc-xs text-(--sc-text-muted)">
-						{t("security.lastScan", {
-							time: scanTimes[0] ?? formatWhen(undefined),
-						})}
-					</span>
+					{scanTimes[0] && (
+						<span className="ml-auto text-sc-xs text-(--sc-text-muted)">
+							{t("security.lastScan", { time: scanTimes[0] })}
+						</span>
+					)}
 				</div>
 
 				<div className="flex flex-wrap items-center gap-2" data-security-scan-row>
@@ -414,16 +416,15 @@ export function SecuritySection() {
 					</div>
 				)}
 
-				<div className="flex items-center gap-3 text-sc-sm">
-					<span className="font-medium text-(--sc-text)">{t("security.repository")}</span>
-					<span
-						className="min-w-0 flex-1 truncate font-mono text-(--sc-text-muted)"
-						title={dashboard.repositoryRoot ?? undefined}
-					>
-						{dashboard.repositoryRoot ?? "—"}
-					</span>
-					<span className="font-mono text-sc-xs text-(--sc-text-muted)">{dashboard.revision ?? "—"}</span>
-				</div>
+				{dashboard.repositoryRoot && (
+					<div className="flex items-center gap-3 text-sc-sm">
+						<span className="shrink-0 font-medium text-(--sc-text)">{t("security.repository")}</span>
+						<PathText className="flex-1" path={dashboard.repositoryRoot} />
+						{dashboard.revision && (
+							<span className="shrink-0 font-mono text-sc-xs text-(--sc-text-muted)">{dashboard.revision}</span>
+						)}
+					</div>
+				)}
 
 				{error && (
 					<Banner live title={t("security.actionFailed")} variant="danger">
@@ -431,7 +432,10 @@ export function SecuritySection() {
 					</Banner>
 				)}
 
-				<div className="security-master-detail overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle)">
+				<div
+					className="security-master-detail overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle)"
+					data-idle={(findings.length === 0 && emptyState === "unscanned") || undefined}
+				>
 					<section aria-label={t("security.currentRisk")} className="security-findings-pane min-w-0">
 						<div className="border-b border-(--sc-divider) px-3 py-3">
 							<div className="flex items-center justify-between gap-3">
@@ -469,7 +473,12 @@ export function SecuritySection() {
 								</>
 							)}
 						</div>
-						{findings.length === 0 ? (
+						{findings.length === 0 && emptyState === "unscanned" ? (
+							// An idle project needs one quiet line, not a 140 px empty state.
+							<p className="px-3 py-2.5 text-sc-sm text-(--sc-text-muted)" role="status">
+								{t("security.empty.unscanned")}
+							</p>
+						) : findings.length === 0 ? (
 							<div role="status">
 								<EmptyState
 									description={emptyState === "clear" ? t("security.empty.description") : undefined}
@@ -482,6 +491,7 @@ export function SecuritySection() {
 											<ScanSearch />
 										)
 									}
+									size="sm"
 									title={t(emptyState === "clear" ? "security.empty.title" : `security.empty.${emptyState}`)}
 								/>
 							</div>

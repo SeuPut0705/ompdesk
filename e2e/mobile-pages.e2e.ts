@@ -511,6 +511,15 @@ for (const { engine, device } of variants(
 			await expect(step.getByRole("heading", { name: "Other providers" })).toBeVisible();
 			expect(await overflow(page, '[data-first-run-step="connect"]')).toEqual({ document: 0, offenders: [] });
 			expect(await smallTargets(page, '[data-first-run-step="connect"]')).toEqual([]);
+			// Scrolled to its end, the custom-endpoint card and "Set up later" stand clear of the composer.
+			const later = step.getByRole("button", { name: "Set up later" });
+			await later.scrollIntoViewIfNeeded();
+			const composerTop = await page
+				.locator(".omp-composer-region")
+				.first()
+				.evaluate(node => node.getBoundingClientRect().top);
+			const laterBox = await later.boundingBox();
+			expect((laterBox?.y ?? Number.POSITIVE_INFINITY) + (laterBox?.height ?? 0)).toBeLessThanOrEqual(composerTop);
 			await capture(page, "first-run-providers", tagOf(engine.name, device, LIGHT_EN));
 			await page.context().close();
 		});

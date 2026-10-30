@@ -65,7 +65,7 @@ function FirstRunSetupSkeleton() {
 			<Skeleton className="mt-5 h-8 w-2/3" />
 			<Skeleton className="mt-3 h-4 w-5/6" />
 			<div aria-hidden className="mt-8 flex flex-col gap-3">
-				{[0, 1, 2, 3].map(row => (
+				{[0, 1, 2, 3, 4].map(row => (
 					<Skeleton className="h-14" key={row} />
 				))}
 			</div>

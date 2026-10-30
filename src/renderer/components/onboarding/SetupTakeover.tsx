@@ -91,7 +91,7 @@ export function SetupTakeover({ open }: { open: boolean }) {
 				}}
 			/>
 			<div className="no-drag min-h-0 flex-1 overflow-y-auto">
-				<div className="mx-auto flex w-full max-w-2xl flex-col px-4 pb-10 sm:px-6">
+				<div className="mx-auto flex w-full max-w-2xl flex-col px-4 pt-[clamp(0rem,8vh,5rem)] pb-10 sm:px-6">
 					<BrandMark size={48} />
 					<h1
 						className="mt-5 text-sc-3xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)"
