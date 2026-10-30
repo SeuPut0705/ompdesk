@@ -637,9 +637,7 @@ function RoleRow({
 						onChange={event => onTick(event.target.checked)}
 					/>
 				)}
-				<span className="min-w-0 truncate font-medium text-(--sc-text)" title={name}>
-					{name}
-				</span>
+				<span className="min-w-0 leading-tight font-medium break-keep text-(--sc-text)">{name}</span>
 			</label>
 			<span aria-hidden className="shrink-0 text-(--sc-text-muted)">
 				→

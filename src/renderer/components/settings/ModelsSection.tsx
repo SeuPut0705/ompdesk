@@ -34,7 +34,7 @@ export function ModelsSection({ sub }: { sub?: string }) {
 				</>
 			}
 			modelSettings={
-				<SettingsSection title={t("settings.tabs.model")} id="settings-models-models">
+				<>
 					<ModelSetupEntry />
 					<ModelRolesSection />
 					<SchemaSection
@@ -72,7 +72,7 @@ export function ModelsSection({ sub }: { sub?: string }) {
 							)}
 						</div>
 					</SettingsSection>
-				</SettingsSection>
+				</>
 			}
 		/>
 	);

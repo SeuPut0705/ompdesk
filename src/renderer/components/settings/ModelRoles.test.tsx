@@ -167,7 +167,7 @@ describe("Model roles grouped by purpose", () => {
 		installRpc();
 		await mount();
 
-		const headings = [...document.body.querySelectorAll("h5")].map(heading => heading.textContent);
+		const headings = [...document.body.querySelectorAll("h4")].map(heading => heading.textContent);
 		expect(headings).toEqual(["Conversation", "Agent work", "Input & output"]);
 		expect(button("Add role")).toBeUndefined();
 		const order = [...document.body.querySelectorAll("[data-setting-row]")].map(element =>

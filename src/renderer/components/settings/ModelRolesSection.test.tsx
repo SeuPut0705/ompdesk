@@ -33,7 +33,6 @@ Object.assign(globalThis as Record<string, unknown>, {
 // Loaded after the linkedom globals exist: react-dom reads `window`/`document` at import time.
 const { createRoot } = await import("react-dom/client");
 const { ModelRolesSection } = await import("./ModelRolesSection");
-const { SettingsSection } = await import("./SettingsLayout");
 
 let root: Root;
 
@@ -120,40 +119,36 @@ describe("ModelRolesSection", () => {
 		expect(bodyText()).not.toContain("Hidden role");
 	});
 
-	it("shows each role's tag as a neutral tag, whatever color the backend names", async () => {
+	it("shows no tag chip: a tag that repeats the name is dropped, an internal id lives in a tooltip on the name only", async () => {
 		installRpc();
 		useSessionStore.getState().setStatus("ready", "/repo");
 
 		await mount(<ModelRolesSection />);
 
-		const tags = [...document.body.querySelectorAll("span")].filter(span =>
+		const chips = [...document.body.querySelectorAll("span")].filter(span =>
 			["DEFAULT", "IMAGE"].includes(span.textContent ?? ""),
 		);
-		expect(tags).toHaveLength(2);
-		for (const tag of tags) {
-			expect(tag.className).toContain("bg-(--sc-surface-3)");
-			expect(tag.className).not.toMatch(/--sc-(success|accent|info|warning|danger)/);
-		}
+		expect(chips).toHaveLength(0);
+		expect(bodyText()).toContain("Default");
+		expect(bodyText()).toContain("Image generation");
 	});
 
-	it("groups visible roles by purpose under the nested section's own title", async () => {
+	it("groups visible roles by purpose under the section's own heading, at the level of its siblings", async () => {
 		installRpc();
 		useSessionStore.getState().setStatus("ready", "/repo");
 
-		// Nested in Models › Model the way ModelsSection renders it.
-		await mount(
-			<SettingsSection title="Model">
-				<ModelRolesSection />
-			</SettingsSection>,
-		);
+		// Models › Model roles sits beside Providers & accounts and the other model sections, not inside a wrapper.
+		await mount(<ModelRolesSection />);
 
-		expect(document.body.querySelector("h3")?.textContent).toBe("Model");
-		// The description and refresh action carry the role section's name, never float unlabeled.
-		expect([...document.body.querySelectorAll("h4")].map(heading => heading.textContent)).toEqual([
+		expect([...document.body.querySelectorAll("h3")].map(heading => heading.textContent)).toEqual([
 			translate("settings.models.roles"),
 		]);
-		const headings = [...document.body.querySelectorAll("h5")].map(heading => heading.textContent);
+		const headings = [...document.body.querySelectorAll("h4")].map(heading => heading.textContent);
 		expect(headings).toEqual(["Conversation", "Input & output"]);
+		// The refresh icon names what it refreshes.
+		expect(
+			document.body.querySelector(`button[aria-label="${translate("settings.models.rolesRefresh")}"]`),
+		).not.toBeNull();
 	});
 
 	it("names stock's built-in roles in Korean on a Korean UI", async () => {
