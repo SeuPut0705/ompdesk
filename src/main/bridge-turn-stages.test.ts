@@ -651,6 +651,31 @@ describe("wrapStreamFn", () => {
 		expect(signals).toEqual(["sent", "answered"]);
 	});
 
+	it("names the request's provider in both signals, and none when the model has none", async () => {
+		const w = world();
+		const seen: [string, string | undefined][] = [];
+		const main = {
+			streamFn: async (
+				_model: unknown,
+				_context: unknown,
+				options: { onPayload: () => unknown; onResponse: (r: unknown) => unknown },
+			) => {
+				await options.onPayload();
+				await options.onResponse({ status: 200 });
+				return "stream";
+			},
+		};
+		wrapStreamFn(main, w.recorder, (phase, provider) => seen.push([phase, provider]));
+		await main.streamFn({ provider: "anthropic" }, {}, { onPayload: () => undefined, onResponse: () => undefined });
+		await main.streamFn({}, {}, { onPayload: () => undefined, onResponse: () => undefined });
+		expect(seen).toEqual([
+			["sent", "anthropic"],
+			["answered", "anthropic"],
+			["sent", undefined],
+			["answered", undefined],
+		]);
+	});
+
 	it("answers the wait only with a usable response: an error status leaves it waiting", async () => {
 		const w = world();
 		const signals: string[] = [];

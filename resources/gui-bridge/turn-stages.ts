@@ -82,7 +82,9 @@ function attach(pi: ExtensionAPI, recorder: TurnStageRecorder): void {
 	if (!session) return;
 	wrapHandlers(session.extensionRunner, recorder);
 	wrapPrompt(session, recorder);
-	wrapStreamFn(session.agent, recorder, phase => emit({ type: MODEL_REQUEST_EVENT, phase }));
+	wrapStreamFn(session.agent, recorder, (phase, provider) =>
+		emit({ type: MODEL_REQUEST_EVENT, phase, ...(provider ? { provider } : {}) }),
+	);
 	if (subscribed.has(session)) return;
 	subscribed.add(session);
 	session.subscribe(event => recorder.sessionEvent(event));

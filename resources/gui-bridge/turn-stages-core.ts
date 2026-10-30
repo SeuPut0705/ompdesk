@@ -434,7 +434,7 @@ function answers(response: unknown): boolean {
 export function wrapStreamFn(
 	agent: unknown,
 	recorder: TurnStageRecorder,
-	signal: (phase: ModelRequestPhase) => void,
+	signal: (phase: ModelRequestPhase, provider?: string) => void,
 ): void {
 	const target = agent as Record<string | symbol, unknown> | undefined;
 	const original = target?.streamFn;
@@ -443,16 +443,18 @@ export function wrapStreamFn(
 	target.streamFn = function streamFn(this: unknown, model: unknown, context: unknown, options?: StreamOptions) {
 		const onPayload = options?.onPayload;
 		const onResponse = options?.onResponse;
+		const rawProvider = (model as { provider?: unknown } | null | undefined)?.provider;
+		const provider = typeof rawProvider === "string" && rawProvider ? rawProvider : undefined;
 		return (original as Callback).call(this, model, context, {
 			...options,
 			onPayload: (...args: unknown[]) => {
 				recorder.providerRequest();
-				signal("sent");
+				signal("sent", provider);
 				return onPayload?.(...args);
 			},
 			onResponse: (...args: unknown[]) => {
 				recorder.providerResponse();
-				if (answers(args[0])) signal("answered");
+				if (answers(args[0])) signal("answered", provider);
 				return onResponse?.(...args);
 			},
 		});

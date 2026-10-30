@@ -80,6 +80,7 @@ import { createWorktree, tablessWorktreeBridge } from "../local/git/worktree";
 import { noteTypedPrompt } from "../local/prompt-origin";
 import type { BridgeClient } from "../local/types";
 import type { MachineServices } from "../machine-services";
+import type { ModelWaitTracker } from "../model-wait-count";
 import { noteOmpExit } from "../omp-exits";
 import { ompRestartDecision } from "../omp-restart";
 import type { SessionIndex } from "../session-index";
@@ -155,6 +156,7 @@ import {
 	type MemoryPushReply,
 	MOBILE_WEB_LINK_EVENT,
 	MOBILE_WEB_LINK_METHOD,
+	MODEL_WAIT_EVENT,
 	ModelOverrideInputSchema,
 	OMP_UPDATE_EVENT,
 	PROJECTS_EVENT,
@@ -257,7 +259,10 @@ export interface HostServicesDeps {
 		| "noteTouched"
 		| "notePrompted"
 		| "beginMove"
-	>;
+	> & {
+		/** Counts the tabs a device runs here among those waiting on one provider (model-wait-count.ts). */
+		modelWait?: Pick<ModelWaitTracker, "observe" | "forget" | "snapshot">;
+	};
 	/** Moves a path to this machine's trash (Electron `shell.trashItem`). */
 	trashItem: (abs: string) => Promise<void>;
 	graceMs?: number;
@@ -972,6 +977,10 @@ export class LocalHostServices implements HostServices {
 	}
 
 	async call(peer: PeerInfo, method: string, params: unknown, conn: HostConnection): Promise<unknown> {
+		if (!this.#conns.has(conn)) {
+			const counts = this.#deps.localTabs.modelWait?.snapshot.local;
+			if (counts && Object.keys(counts).length > 0) emitSafely(conn, MODEL_WAIT_EVENT, { counts });
+		}
 		this.#conns.add(conn);
 		this.#connOf.set(peer.deviceId, conn);
 		switch (method) {
@@ -1340,6 +1349,11 @@ export class LocalHostServices implements HostServices {
 	/** This machine's own OmpUpdater changed state: every connected device shows it like the computer's own row. */
 	ompUpdateChanged(state: OmpUpdateState): void {
 		for (const conn of this.#conns) emitSafely(conn, OMP_UPDATE_EVENT, state);
+	}
+
+	/** The sessions waiting on each provider here changed: every connected device's tabs on this host say how many wait together. */
+	modelWaitChanged(counts: Record<string, number>): void {
+		for (const conn of this.#conns) emitSafely(conn, MODEL_WAIT_EVENT, { counts });
 	}
 
 	/** This machine's scheduled runs changed: every connected device showing them follows. */
@@ -1808,6 +1822,8 @@ export class LocalHostServices implements HostServices {
 				for (const event of events) if (trackRunEvent(tab, event) || event.type === "auto_retry_start") news = true;
 				return news;
 			});
+			// A tab a window shows is counted by the pool; a device's own tab waits on this computer's account too.
+			if (!tab.viewsWindow) this.#deps.localTabs.modelWait?.observe(`hosted:${tab.resumeId}`, "", events);
 			// A device's view of an Autopilot run it started here counts nothing: the run itself is charged (`runEvents`).
 			if (tab.viewsWindow && this.#chargedSession(tab.sessionFile)) return;
 			let tokens = 0;
@@ -2324,6 +2340,7 @@ export class LocalHostServices implements HostServices {
 		const tab = this.#tabs.get(key);
 		if (!tab) return;
 		this.#tabs.delete(key);
+		this.#deps.localTabs.modelWait?.forget(`hosted:${tab.resumeId}`);
 		clearTimeout(tab.graceTimer);
 		tab.conn = null;
 		// The windows here that show it close their tab first, quietly, while its omp still runs.

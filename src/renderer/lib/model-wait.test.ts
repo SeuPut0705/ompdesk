@@ -14,4 +14,12 @@ describe("modelWaitText", () => {
 		expect(modelWaitText(0, 30_000, t)).toBe("chat.awaitingModel.wait|30s");
 		expect(modelWaitText(0, 2 * 60_000 + 40_000, t)).toBe("chat.awaitingModel.wait|2m");
 	});
+
+	it("says the wait is shared once two or more sessions wait on the provider together", () => {
+		expect(modelWaitText(0, 4 * 60_000, t, 0)).toBe("chat.awaitingModel.wait|4m");
+		expect(modelWaitText(0, 4 * 60_000, t, 1)).toBe("chat.awaitingModel.wait|4m");
+		expect(modelWaitText(0, 4 * 60_000, t, 3)).toBe("chat.awaitingModel.together|4m");
+		// Not before the wait itself is worth naming, however many others wait.
+		expect(modelWaitText(0, 10_000, t, 3)).toBeNull();
+	});
 });

@@ -527,6 +527,7 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[E.WORKTREE_PROMPTS]: { dir: "push", mode: "pass" },
 	[E.WORKTREE_NOTICE]: { dir: "push", mode: "pass" },
 	[E.SETUP_STATE]: { dir: "push", mode: "pass" },
+	[E.MODEL_WAIT_TOGETHER]: { dir: "push", mode: "pass" },
 	[E.OMP_UPDATE_STATE]: { dir: "push", mode: "pass" },
 	[E.OMP_UPDATED]: { dir: "push", mode: "pass" },
 	[E.HOST_OMP_UPDATE_STATE]: { dir: "push", mode: "pass" },

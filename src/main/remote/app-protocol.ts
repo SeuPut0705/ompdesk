@@ -158,6 +158,12 @@ export const TAB_EVENT = "tab.event";
 export const SESSIONS_CHANGED_EVENT = "sessions.changed";
 /** The host's omp update changed (data: OmpUpdateState); sent to every connected device. */
 export const OMP_UPDATE_EVENT = "host.ompUpdate.changed";
+/**
+ * The sessions waiting on each provider on the host changed (data: `{ counts: { [provider]: number } }`); sent to every
+ * connected device. A tab a device views says "n sessions wait together" from it: it is the host's account. An older
+ * host never sends it and an older device drops the name.
+ */
+export const MODEL_WAIT_EVENT = "host.modelWait.changed";
 /** The host's scheduled runs changed (data: SchedulesState); sent to every connected device. */
 export const SCHEDULES_EVENT = "host.schedules.changed";
 /** The host's sidebar project list changed (data: SidebarProjectsState); sent to every connected device. */

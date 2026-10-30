@@ -78,6 +78,7 @@ import { useExtensionUiStore } from "./stores/extension-ui";
 import { openHandoffDialog } from "./stores/fork-handoff";
 import { useHostedSessionsSync } from "./stores/hosted-sessions";
 import { useMachineSetupStore } from "./stores/machine-setup";
+import { useModelWaitTogetherSync } from "./stores/model-wait-together";
 import { usePreviewVisualEvents } from "./stores/preview-visuals";
 import { useRemoteStateSync } from "./stores/remote";
 import { useSessionStore } from "./stores/session";
@@ -206,6 +207,7 @@ const PANE_DIRECTION: Record<"pane.focusUp" | "pane.focusDown" | "pane.focusLeft
  */
 export function App() {
 	useRpcEvents();
+	useModelWaitTogetherSync();
 	// ⌃⇥ / tab overview order and ⌘[ ⌘] history.
 	useEffect(installTabHistory, []);
 	useExtensionUi();

@@ -7,7 +7,9 @@ import { EMPTY_TURN_METER } from "../../../lib/turn-meter";
 import { useAutopilotStore } from "../../../stores/autopilot";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useMessagesStore } from "../../../stores/messages";
+import { useModelWaitTogetherStore } from "../../../stores/model-wait-together";
 import { useSessionStore } from "../../../stores/session";
+import { setFocusedSessionRuntime } from "../../../stores/session-runtime-context";
 import { useSubagentsStore } from "../../../stores/subagents";
 import { useTabsStore } from "../../../stores/tabs";
 import { useTodoStore } from "../../../stores/todo";
@@ -101,6 +103,30 @@ describe("WorkBoardChip, the phone's work strip", () => {
 			expect(label()).not.toContain("Working…");
 		} finally {
 			await act(async () => useMessagesStore.setState({ turnMeter: EMPTY_TURN_METER }));
+		}
+	});
+
+	it("says the wait is shared when other sessions wait on the same provider, and only for tabs main counted", async () => {
+		await mount();
+		const label = () => container.querySelector("[data-work-chip] [role=status]")?.textContent ?? "";
+		try {
+			setFocusedSessionRuntime("t1");
+			await act(async () => useTodoStore.setState({ turnActive: true }));
+			await act(async () =>
+				useMessagesStore.setState({ turnMeter: { ...EMPTY_TURN_METER, modelWaitSince: Date.now() - 4 * 60_000 } }),
+			);
+			expect(label()).toContain("Waiting for the model's response · 4m");
+			expect(label()).not.toContain("together");
+			await act(async () => useModelWaitTogetherStore.setState({ tabs: { other: 5 } }));
+			expect(label()).not.toContain("together");
+			await act(async () => useModelWaitTogetherStore.setState({ tabs: { t1: 3 } }));
+			expect(label()).toContain("Waiting for the model's response · 4m · 3 sessions waiting together");
+		} finally {
+			setFocusedSessionRuntime(null);
+			await act(async () => {
+				useModelWaitTogetherStore.setState({ tabs: {} });
+				useMessagesStore.setState({ turnMeter: EMPTY_TURN_METER });
+			});
 		}
 	});
 

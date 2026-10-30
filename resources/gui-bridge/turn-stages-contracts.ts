@@ -76,4 +76,5 @@ export const MODEL_REQUEST_EVENT = "model_request";
 
 export type ModelRequestPhase = "sent" | "answered";
 
-export type ModelRequestFrame = { type: typeof MODEL_REQUEST_EVENT; phase: ModelRequestPhase };
+/** `provider` is the request's model provider id when the stream function was given a model that names one (omitted by an older bridge: main then falls back to the tab's own model). */
+export type ModelRequestFrame = { type: typeof MODEL_REQUEST_EVENT; phase: ModelRequestPhase; provider?: string };

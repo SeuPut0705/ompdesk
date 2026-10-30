@@ -3228,6 +3228,7 @@ export const ko: Record<string, string> = {
 	"chat.thinking.hide": "사고 과정 숨기기",
 	"chat.awaitingModel.announcement": "모델 응답을 기다리는 중…",
 	"chat.awaitingModel.wait": "모델 응답 기다리는 중 · {time}",
+	"chat.awaitingModel.together": "모델 응답 기다리는 중 · {time} · 세션 {count}개가 함께 기다리는 중",
 	"chat.turnEnd.complete": "응답을 마쳤어요",
 	"chat.turnEnd.stopped": "응답을 중단했어요",
 	"chat.turnEnd.failed": "응답 실패: {reason}",

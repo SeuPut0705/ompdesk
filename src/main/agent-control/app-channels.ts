@@ -288,6 +288,7 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[E.WORKTREE_PROMPTS]: never(PUSH),
 	[E.WORKTREE_NOTICE]: never(PUSH),
 	[E.SETUP_STATE]: never(PUSH),
+	[E.MODEL_WAIT_TOGETHER]: never(PUSH),
 	[E.OMP_UPDATE_STATE]: never(PUSH),
 	[E.OMP_UPDATED]: never(PUSH),
 	[E.HOST_OMP_UPDATE_STATE]: never(PUSH),

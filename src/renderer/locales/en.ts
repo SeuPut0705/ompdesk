@@ -3315,6 +3315,7 @@ export const en: Record<string, string> = {
 	"chat.thinking.hide": "Hide reasoning",
 	"chat.awaitingModel.announcement": "Waiting for model response…",
 	"chat.awaitingModel.wait": "Waiting for the model's response · {time}",
+	"chat.awaitingModel.together": "Waiting for the model's response · {time} · {count} sessions waiting together",
 	"chat.turnEnd.complete": "Response complete",
 	"chat.turnEnd.stopped": "Response stopped",
 	"chat.turnEnd.failed": "Response failed: {reason}",

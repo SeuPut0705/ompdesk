@@ -5168,6 +5168,14 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					ok();
 					break;
 				}
+				// The bridge's `model_request` frames of the main loop's provider request (turn-stages.ts):
+				// `fixture:model-request:sent:<provider>` leaves a request unanswered, `…:answered` answers it.
+				if (line.startsWith("fixture:model-request:")) {
+					const [phase, provider] = line.slice("fixture:model-request:".length).split(":");
+					write({ type: "model_request", phase, ...(provider ? { provider } : {}) });
+					ok();
+					break;
+				}
 				// A blocking confirm mid-run; the answer ends the turn (extension_ui_response).
 				if (line === "fixture:confirm") {
 					write({

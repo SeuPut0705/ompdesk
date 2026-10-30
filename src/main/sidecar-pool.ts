@@ -61,6 +61,7 @@ import {
 	type HostLiveSession,
 	IPC_EVENTS,
 	type IpcExtensionUiPayload,
+	type IpcModelWaitTogether,
 	type IpcOpenExtensionRequest,
 	type IpcScheduledRetry,
 	type IpcSessionOwner,
@@ -104,6 +105,7 @@ import { canonicalCwd } from "./canonical-cwd";
 import { deletedSessions } from "./deleted-sessions";
 import { type ExtensionApplyPlan, extensionApplyDecision, mergeApplyPlans } from "./extension-reload";
 import { createMessageUpdateSlimmer } from "./message-update-slim";
+import { ModelWaitTracker } from "./model-wait-count";
 import { noteOmpExit } from "./omp-exits";
 import { ompRestartDecision } from "./omp-restart";
 import type { WindowTabFact } from "./quit-guard";
@@ -455,8 +457,16 @@ export class SidecarPool {
 	settleWatch: SettleWatch | null = null;
 	readonly #activityObservers = new Set<(activity: TabActivity) => void>();
 
+	/** Which tabs wait on one provider together (model-wait-count.ts); fed by every tab's events, here and by host-services. */
+	readonly modelWait = new ModelWaitTracker();
+
 	constructor(factory: SidecarFactory) {
 		this.#factory = factory;
+		this.modelWait.onChange(snapshot => {
+			const tabs: Record<string, number> = {};
+			for (const [key, count] of snapshot.together) if (this.#byTabId.has(key)) tabs[key] = count;
+			this.broadcastApp(IPC_EVENTS.MODEL_WAIT_TOGETHER, { tabs } satisfies IpcModelWaitTogether);
+		});
 	}
 
 	/** What the settle diagnostic logs: stock's own settle predicate inputs and main's run flags. */
@@ -501,6 +511,15 @@ export class SidecarPool {
 			const entry = this.#byTabId.get(tabId);
 			const win = entry && windowOf(entry, winId);
 			if (win) forwardToWindow(win, IPC_EVENTS.EVENTS_BATCH, { tabId, payload: [event] });
+		}
+	}
+
+	/** App-wide state on a channel of its own, to every window that shows a tab (a window without one has no use for it). */
+	broadcastApp(channel: string, payload: unknown): void {
+		for (const [winId, tabId] of this.#activeByWindow) {
+			const entry = this.#byTabId.get(tabId);
+			const win = entry && windowOf(entry, winId);
+			if (win) forwardToWindow(win, channel, payload);
 		}
 	}
 
@@ -1133,6 +1152,7 @@ export class SidecarPool {
 			let retryStarted = false;
 			const unsavedBefore = entry.unsavedPrompt;
 			let stepped = false;
+			this.modelWait.observe(entry.tabId, entry.device ?? "", events);
 			for (const event of events) {
 				if (trackRunEvent(entry, event)) runEnded = true;
 				if (event.type === "agent_start") {
@@ -1292,6 +1312,7 @@ export class SidecarPool {
 	#releaseEntry(entry: PoolEntry): Promise<void> {
 		if (!this.#entries.delete(entry)) return Promise.resolve();
 		this.#byTabId.delete(entry.tabId);
+		this.modelWait.forget(entry.tabId);
 		this.settleWatch?.forget(entry.tabId);
 		this.onRunningChange?.();
 		const sessionFile = entry.sessionFile;

@@ -65,6 +65,7 @@ import type {
 	IpcHostSchedules,
 	IpcInstallBrowserRelayPayload,
 	IpcModelSetupRunResult,
+	IpcModelWaitTogether,
 	IpcNotifyKind,
 	IpcNotifyPayload,
 	IpcOpenExtensionRequest,
@@ -486,6 +487,11 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				subscribe<OmpUpdateState>(IPC_EVENTS.OMP_UPDATE_STATE, callback),
 			onUpdated: (callback: (notice: OmpUpdatedNotice) => void) =>
 				subscribe<OmpUpdatedNotice>(IPC_EVENTS.OMP_UPDATED, callback),
+		},
+
+		modelWait: {
+			onTogether: (callback: (together: IpcModelWaitTogether) => void) =>
+				subscribe<IpcModelWaitTogether>(IPC_EVENTS.MODEL_WAIT_TOGETHER, callback),
 		},
 
 		hostOmpUpdate: {

@@ -1020,6 +1020,7 @@ app.whenReady().then(() => {
 			for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) win.webContents.send(channel, data);
 		},
 		services: hostServices,
+		modelWait: sidecarPool.modelWait,
 		machineInfo: () => ({ platform: process.platform, ompVersion: hostOmpVersion, home: homedir(), sep }),
 		offlineMessage: () => mainT("remote.offline"),
 		stalledMessage: (device, seconds) => mainT("remote.tabStalled", undefined, { device, seconds }),
@@ -1057,6 +1058,14 @@ app.whenReady().then(() => {
 		logLink: (message, details) => writeRuntimeLog({ source: "remote-link", message, details }),
 	});
 	remoteDevices = devices;
+	// Devices that use this computer as their host say "n sessions wait together" from its own count (its account).
+	let lastModelWaitLocal = "{}";
+	sidecarPool.modelWait.onChange(({ local }) => {
+		const signature = JSON.stringify(Object.entries(local).sort());
+		if (signature === lastModelWaitLocal) return;
+		lastModelWaitLocal = signature;
+		devices.hostModelWaitChanged(local);
+	});
 	// A paired web device's window is filed under the device (its window id changes every launch); a quit tears
 	// the tabs down, which must not read as the device closing them.
 	sidecarPool.onWindowTabsChanged = (win, layout) => {

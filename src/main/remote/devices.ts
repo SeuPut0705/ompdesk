@@ -40,6 +40,7 @@ import {
 	SIDEBAR_PROJECTS_STATE,
 	type SidebarProjectsState,
 } from "../../shared/sidebar-projects";
+import type { ModelWaitTracker } from "../model-wait-count";
 import type { TailnetNode, TailscaleStatus } from "../tailscale/status";
 import { isTailnetAddress } from "../tailscale/tailnet";
 import type { TailnetPeer } from "../tailscale/whois";
@@ -61,6 +62,7 @@ import {
 	LiveSessionsReply,
 	MOBILE_WEB_LINK_EVENT,
 	MOBILE_WEB_LINK_METHOD,
+	MODEL_WAIT_EVENT,
 	MobileWebLinkReply,
 	NAME_METHODS,
 	NameParams,
@@ -85,6 +87,7 @@ import { PeerStore } from "./peers-store";
 import { REFUSAL_CODES } from "./protocol";
 import { PendingTabCloses, RemoteSidecar, type RemoteSidecarOptions } from "./remote-sidecar";
 
+const ModelWaitCountsSchema = z.object({ counts: z.record(z.string(), z.number().int().nonnegative()) });
 const RenamePayload = z.object({ deviceId: z.string().min(1), name: z.string() });
 /** Usage counters reach the Settings view at most this often. */
 const QUOTA_BROADCAST_MS = 1_000;
@@ -136,6 +139,8 @@ export interface RemoteDevicesDeps {
 	broadcast: (channel: string, data: unknown) => void;
 	/** Host role services (this machine's sidecars, sessions, files). */
 	services: LocalHostServices;
+	/** Receives a paired host's own count of the sessions waiting on each provider (model-wait-count.ts). */
+	modelWait?: Pick<ModelWaitTracker, "setHostCounts">;
 	/** Machine part of the host hello. */
 	machineInfo: () => HostMachineInfo;
 	/** Status message of a tab whose host is unreachable, in the UI language. */
@@ -590,6 +595,11 @@ export class RemoteDevices {
 		this.#deps.services.ompUpdateChanged(state);
 	}
 
+	/** The sessions waiting on each provider here changed: devices viewing a tab of this host say how many wait together. */
+	hostModelWaitChanged(counts: Record<string, number>): void {
+		this.#deps.services.modelWaitChanged(counts);
+	}
+
 	/** This machine's scheduled runs changed: devices showing them (Settings › Schedules on a tab here) follow. */
 	hostSchedulesChanged(state: SchedulesState): void {
 		this.#deps.services.schedulesChanged(state);
@@ -905,6 +915,7 @@ export class RemoteDevices {
 			for (const tab of link.tabs.values()) tab.linkStateChanged(state);
 			// What the host worked on is unknown while the link is down: its rows go quiet rather than stay lit.
 			if (state !== "online") {
+				this.#deps.modelWait?.setHostCounts(deviceId, undefined);
 				link.live = undefined;
 				link.webUrl = undefined;
 			}
@@ -920,6 +931,12 @@ export class RemoteDevices {
 		client.on("event", (event, data) => {
 			if (event === SESSIONS_CHANGED_EVENT) {
 				this.#deps.broadcast(IPC_EVENTS.SESSIONS_CHANGED, { device: deviceId } satisfies IpcSessionsChanged);
+				return;
+			}
+			if (event === MODEL_WAIT_EVENT) {
+				// The host's own count (its account); a malformed one, or none from an older host, leaves this computer's view.
+				const counts = ModelWaitCountsSchema.safeParse(data);
+				if (counts.success) this.#deps.modelWait?.setHostCounts(deviceId, counts.data.counts);
 				return;
 			}
 			if (event === OMP_UPDATE_EVENT) {

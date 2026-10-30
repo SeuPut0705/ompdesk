@@ -8,6 +8,8 @@
  */
 import { LATE_FIRST_OUTPUT_MS } from "../../../resources/gui-bridge/turn-stages-contracts";
 import { useMessagesStore } from "../stores/messages";
+import { useModelWaitTogetherStore } from "../stores/model-wait-together";
+import { useRuntimeTabId } from "../stores/session-runtime-context";
 import { formatSpan } from "./format";
 import { useT } from "./i18n";
 import { useNowTick } from "./now-tick";
@@ -17,14 +19,20 @@ export const MODEL_WAIT_SHOWN_MS = LATE_FIRST_OUTPUT_MS;
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
-export function modelWaitText(since: number | null, now: number, t: Translate): string | null {
+export function modelWaitText(since: number | null, now: number, t: Translate, together = 0): string | null {
 	if (since === null || now - since < MODEL_WAIT_SHOWN_MS) return null;
-	return t("chat.awaitingModel.wait", { time: formatSpan(now - since) });
+	const time = formatSpan(now - since);
+	// Two or more sessions waiting on one provider: the wait is the provider's queue, not this session.
+	return together >= 2
+		? t("chat.awaitingModel.together", { time, count: together })
+		: t("chat.awaitingModel.wait", { time });
 }
 
 /** The tab's model wait in words, or null; ticks on the shared clock only while a request waits. */
 export function useModelWait(): string | null {
 	const since = useMessagesStore(state => state.turnMeter.modelWaitSince);
 	const now = useNowTick(since !== null);
-	return modelWaitText(since, now, useT());
+	const tabId = useRuntimeTabId();
+	const together = useModelWaitTogetherStore(state => (tabId ? (state.tabs[tabId] ?? 0) : 0));
+	return modelWaitText(since, now, useT(), together);
 }
