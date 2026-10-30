@@ -498,7 +498,7 @@ describe("an Autopilot run's status", () => {
 		run: "2026-10-21",
 		branch: "autopilot/2026-10-21",
 		cycle: cycles.length + 1,
-		settings: { ship: { level: "land" }, maxParallel: null },
+		settings: { ship: { level: "land" } },
 		cycles,
 		backlog: [],
 		ship: { queue: [], landing: null },

@@ -46,7 +46,6 @@ import {
 	type AutopilotStartOptions,
 	type AutopilotStatus,
 	type AutopilotStopRequest,
-	DEFAULT_AUTOPILOT_SETTINGS,
 	DEFAULT_SHIP_POLICY,
 	NO_LIMITS,
 	type ShipQueueItem,
@@ -400,16 +399,10 @@ export function startSettings(options: AutopilotStartOptions): AutopilotSettings
 		autoRelease: options.ship?.autoRelease ?? preset.autoRelease,
 		remote,
 	};
-	const asked = options.maxParallel;
-	const maxParallel =
-		typeof asked === "number" && Number.isFinite(asked)
-			? Math.max(0, Math.floor(asked))
-			: DEFAULT_AUTOPILOT_SETTINGS.maxParallel;
 	return {
 		focus: options.focus ?? [],
 		ship,
 		limits: { ...NO_LIMITS, ...options.limits },
-		maxParallel,
 	};
 }
 
@@ -1575,9 +1568,6 @@ export class Autopilot {
 		const run = this.#runs.get(child.callerTabId);
 		if (!run) throw new Error("Autopilot is not running in the session that opened this one.");
 		if (run.stopping) throw new Error("Autopilot is ending: start nothing new.");
-		if (run.settings.maxParallel !== null && run.children.size >= run.settings.maxParallel) {
-			throw new Error(`Autopilot allows at most ${run.settings.maxParallel} parallel sessions per cycle.`);
-		}
 		const root = child.worktree?.path ?? this.#deps.pool.sidecarOf(child.tabId)?.cwd ?? run.root;
 		const branch = child.worktree?.branch ?? "";
 		const arm: AutopilotArmParams = {

@@ -121,15 +121,12 @@ export interface AutopilotSettings {
 	focus: AutopilotArea[];
 	ship: AutopilotShipPolicy;
 	limits: AutopilotLimits;
-	/** Child sessions per cycle: `null` = the agent decides, with no cap (default); a number caps it, 0 = no fan-out. */
-	maxParallel: number | null;
 }
 
 export const DEFAULT_AUTOPILOT_SETTINGS: AutopilotSettings = {
 	focus: [],
 	ship: DEFAULT_SHIP_POLICY,
 	limits: NO_LIMITS,
-	maxParallel: null,
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -551,7 +548,6 @@ export type AutopilotStartOptions = {
 	preset?: AutopilotShipPreset;
 	ship?: Partial<AutopilotShipPolicy>;
 	limits?: Partial<AutopilotLimits>;
-	maxParallel?: number;
 	/** An agent's guide text (`ompdesk_autopilot`); without it Start uses the repo's AUTOPILOT.md or builds one. A missing Release section is added from the project's facts; the result is the branch's first commit when it differs. */
 	guide?: string;
 	/** Where the run commits and pushes; absent: a new `autopilot/<date>` branch. */

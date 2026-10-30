@@ -465,12 +465,6 @@ export function mergeSettings(
 			cycles: "cycles" in limits ? limitValue(limits.cycles, base.limits.cycles) : base.limits.cycles,
 			usd: "usd" in limits ? limitValue(limits.usd, base.limits.usd) : base.limits.usd,
 		},
-		maxParallel:
-			typeof patch.maxParallel === "number" && Number.isFinite(patch.maxParallel)
-				? Math.max(0, Math.round(patch.maxParallel))
-				: patch.maxParallel === null
-					? null
-					: base.maxParallel,
 	};
 }
 
@@ -863,7 +857,7 @@ export const FOLLOWUP_MATCH_SHARE = 0.4;
 /** What the run's own history says about this pick: follow-ups carried too long, a docs-only last cycle, fan-out cost. */
 export function beginHints(
 	records: readonly AutopilotCycleRecord[],
-	facts: { open: readonly string[]; maxParallel: number | null },
+	facts: { open: readonly string[] },
 ): string[] {
 	const hints: string[] = [];
 	const carried = facts.open
@@ -885,7 +879,7 @@ export function beginHints(
 	if (docsOnly(records.at(-1))) {
 		hints.push("The last cycle changed documentation only: pick code, tests or a bug unless nothing else is left.");
 	}
-	if (facts.maxParallel !== 0 && facts.open.length >= 2) {
+	if (facts.open.length >= 2) {
 		hints.push(
 			"Child sessions pay only when each item takes several minutes: a child costs about 20 s of set-up and its own copy of the context. Run small independent items side by side as the task tool's subagents in this worktree instead, each on its own files.",
 		);
@@ -906,7 +900,7 @@ export function buildBegin(facts: BeginFacts): AutopilotBeginResult {
 	}));
 	const left = budgetLeft(settings.limits, facts.used, facts.activeMs, records.length);
 	const open = openFollowups(records, facts.dismissed);
-	const hints = beginHints(records, { open, maxParallel: settings.maxParallel });
+	const hints = beginHints(records, { open });
 	return {
 		cycle: facts.cycle,
 		focus: settings.focus,

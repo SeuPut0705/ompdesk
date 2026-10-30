@@ -627,7 +627,6 @@ function startOptions(args: Extract<AutopilotArgs, { action: "start" }>, ship: S
 		...(args.guide ? { guide: args.guide } : {}),
 		...(args.branch ? { branch: args.branch } : {}),
 		...(advanced.focus ? { focus: advanced.focus } : {}),
-		...(advanced.parallel !== undefined ? { maxParallel: advanced.parallel } : {}),
 		...(advanced.limits ? { limits: advanced.limits } : {}),
 	};
 }

@@ -460,10 +460,6 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 							items: { type: "string", enum: [...AUTOPILOT_AREAS] },
 							description: "Areas the cycles favour; default all.",
 						},
-						parallel: {
-							type: "integer",
-							description: "Most child sessions per cycle (0 = none); default the agent decides, no cap.",
-						},
 						cadence: {
 							type: "integer",
 							description: "With ship release: release every N cycles; default the run decides.",
@@ -572,7 +568,6 @@ const autopilotBranch = z.discriminatedUnion("kind", [
 const autopilotAdvanced = z
 	.object({
 		focus: z.array(z.enum(AUTOPILOT_AREAS)).max(AUTOPILOT_AREAS.length).optional(),
-		parallel: z.number().int().min(0).optional(),
 		cadence: z.number().int().min(1).max(100).optional(),
 		remote: z
 			.string()

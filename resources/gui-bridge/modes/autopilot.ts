@@ -992,7 +992,7 @@ export function install(pi: ExtensionAPI): void {
 	registerTool(pi);
 	registerPromptSection(pi, AUTOPILOT_PROMPT_SECTION, ctx => {
 		const state = runningState(ctx);
-		return state && (state.role ?? "parent") === "parent" ? autopilotSection(state.settings.maxParallel) : undefined;
+		return state && (state.role ?? "parent") === "parent" ? autopilotSection() : undefined;
 	});
 	registerPromptSection(pi, AUTOPILOT_CHILD_PROMPT_SECTION, ctx => {
 		const state = runningState(ctx);
@@ -1068,7 +1068,9 @@ async function arm(session: Session, params: AutopilotArmParams): Promise<Autopi
 	yoloHeld.add(session.settings as unknown as object);
 	pendingToolRestore = undefined;
 	const resumed = params.resume && previous ? previous : undefined;
-	const settings = resumed?.settings ?? mergeSettings(DEFAULT_AUTOPILOT_SETTINGS, params.settings ?? {});
+	// A resumed run's stored settings pass through the merge once more: a key a newer build dropped (an old fan-out cap)
+	// is not carried on.
+	const settings = mergeSettings(DEFAULT_AUTOPILOT_SETTINGS, resumed?.settings ?? params.settings ?? {});
 	const excludedTools = [...new Set([...(resumed?.excludedTools ?? []), ...removed])];
 	const mounted = [...new Set([...(resumed?.mountedTools ?? []), ...mountedAtArm])];
 	const patch: Partial<Omit<AutopilotStateEntry, "at" | "activeMs">> = {

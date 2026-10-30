@@ -391,7 +391,8 @@ describe("begin hints", () => {
 			cycle(i + 1, { followups: i === 2 ? ["old one", "older one", "new one"] : ["old one", "older one"] }),
 		);
 		const hints = beginHints(records, { ...facts, open: ["new one", "old one", "older one"] });
-		expect(hints).toHaveLength(2);
+		// Two decisions asked for (oldest first), then the fan-out advice every pair of open items earns.
+		expect(hints.filter(hint => hint.includes("has been open for"))).toHaveLength(2);
 		expect(hints[0]).toContain("open for 3 cycles");
 		expect(hints.join("\n")).not.toContain("new one");
 	});

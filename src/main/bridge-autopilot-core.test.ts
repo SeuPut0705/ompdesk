@@ -436,7 +436,7 @@ describe("settings merge", () => {
 			focus: ["tests", "bogus", "tests", "docs"],
 			ship: { autoPush: true, remote: "  up  ", autoRelease: { on: true, cadence: { kind: "every", n: 7.4 } } },
 			limits: { tokens: 5000, minutes: -1, cycles: Number.NaN },
-			maxParallel: 99,
+			...({ maxParallel: 99 } as object),
 		});
 		expect(next.focus).toEqual(["tests", "docs"]);
 		expect(next.ship).toEqual({
