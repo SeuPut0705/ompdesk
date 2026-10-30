@@ -146,7 +146,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // 5,739 bytes over the measure above.
 // The working cues step at ten frames a second while the window is unfocused (`lib/cue-clock.ts`, loaded after the
 // first screen by one dynamic import in main.tsx; 30 Oct 2026): measured 3,214,065 on c7f5901ab, 730 bytes more.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_215_000;
+// The window pollers (30 Oct 2026): ToastStack measures on observers instead of a 250 ms timer, the jobs poll follows
+// its tab's turn and subagents: measured 3,216,397 on d2f2af50f (this check's own count), 1,397 bytes over the budget.
+const WEB_FIRST_SCREEN_JS_BYTES = 3_217_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
