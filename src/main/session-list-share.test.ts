@@ -116,4 +116,17 @@ describe("SessionListShare", () => {
 		expect((await r.share.current()).sessions).toHaveLength(2);
 		expect(r.reads).toHaveLength(0);
 	});
+
+	it("keeps a list stale that a list read elsewhere is applied to, so the next ask still reads", async () => {
+		const r = rig([row("/a")]);
+		const first = r.share.current();
+		await r.answerAll();
+		await first;
+		r.share.stale();
+		r.share.set([row("/a"), row("/b")]);
+		const next = r.share.current();
+		expect(r.reads).toHaveLength(1);
+		await r.answerAll();
+		expect((await next).sessions).toHaveLength(1);
+	});
 });

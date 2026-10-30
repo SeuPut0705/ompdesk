@@ -143,4 +143,21 @@ describe("HostSessionList", () => {
 		await answer({ version: "h.2", sessions: [row("/a", "Renamed")] });
 		expect((await next).sessions[0]?.title).toBe("Renamed");
 	});
+
+	it("still reads the host for the ask after a request through it, when another change of the version it holds applies first", async () => {
+		const { list, asked, answer } = rig();
+		const reading = list.current();
+		await answer({ version: "h.1", sessions: [row("/a"), row("/b")] });
+		await reading;
+
+		// The device deleted /a through the host: its copy is stale, and the host has not published that change yet.
+		list.stale();
+		// Another change (a turn wrote to /b) comes first and applies to the version held.
+		list.hostChanged({ base: "h.1", version: "h.2", set: [row("/b", "Renamed")], remove: [] });
+		// The window asks now: the copy still lists /a, which the host deleted, so the host answers, not the copy.
+		const next = list.current();
+		expect(asked).toHaveLength(1);
+		await answer({ version: "h.3", sessions: [row("/b", "Renamed")] });
+		expect((await next).sessions.map(entry => entry.path)).toEqual(["/b"]);
+	});
 });

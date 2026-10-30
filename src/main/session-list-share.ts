@@ -60,9 +60,13 @@ export class SessionListShare {
 		});
 	}
 
-	/** A list someone else read (a host's change applied here): becomes the current copy, handed on like a read. */
+	/**
+	 * A list someone else read (a host's change applied here): becomes the copy, handed on like a read. It is no fresher
+	 * than the copy it replaces: a `stale()` still waits for its read, since the change that made it stale may not be
+	 * in what was applied (a delete through the host, whose own change the host publishes later).
+	 */
 	set(rows: SessionInfo[]): void {
-		this.#publish(rows, this.#generation);
+		this.#publish(rows, this.#copyGeneration);
 	}
 
 	/** The copy, current or not; null before the first read. */
