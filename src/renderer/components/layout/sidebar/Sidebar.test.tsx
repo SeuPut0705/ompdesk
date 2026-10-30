@@ -1504,7 +1504,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		await act(async () => {
 			buttonProps.onKeyDown({ key: "Delete", preventDefault: () => {} });
 		});
-		expect(document.body.textContent).not.toContain("Delete this session permanently?");
+		expect(document.body.textContent).not.toContain("Delete this session?");
 		await act(async () => {
 			buttonProps.onKeyDown({ key: "F2", preventDefault: () => {} });
 		});
@@ -1527,7 +1527,7 @@ describe("Sidebar menus and pinned ordering", () => {
 				preventDefault: () => {},
 			});
 		});
-		expect(document.body.textContent).toContain("Delete this session permanently?");
+		expect(document.body.textContent).toContain("Delete this session?");
 	});
 
 	it("moves focus to the next row when the focused row is deleted", async () => {
@@ -1905,7 +1905,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(omp.sessions.delete).not.toHaveBeenCalled();
 		const dialog = document.body.querySelector('[role="dialog"]');
 		expect(dialog?.textContent).toContain("/work/alpha/one");
-		expect(dialog?.textContent).toContain("cannot be undone");
+		expect(dialog?.textContent).toContain("permanently deletes");
 
 		const buttons = [...(dialog?.querySelectorAll("button") ?? [])];
 		await fire(buttons.find(b => (b.textContent ?? "").trim() === "Cancel") as unknown as Element, "onClick");

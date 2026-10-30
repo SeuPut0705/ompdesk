@@ -75,15 +75,17 @@ export function AgentWorktreesRows() {
 							size="sm"
 							variant="ghost"
 						/>
-						<Button
-							disabled={!sidecarReady || busy !== null || orphaned.length === 0}
-							icon={<Trash2 />}
-							loading={busy === "clear"}
-							onClick={() => void clear()}
-							size="sm"
-						>
-							{t("settings.agentWorktrees.clear")}
-						</Button>
+						{(orphaned.length > 0 || busy === "clear") && (
+							<Button
+								disabled={!sidecarReady || busy !== null}
+								icon={<Trash2 />}
+								loading={busy === "clear"}
+								onClick={() => void clear()}
+								size="sm"
+							>
+								{t("settings.agentWorktrees.clear")}
+							</Button>
+						)}
 					</div>
 				}
 				description={t("settings.agentWorktrees.desc")}

@@ -278,6 +278,26 @@ export function SshSection() {
 			tipOnly
 		/>
 	);
+	// One status line: OpenSSH, the agent's keys and Refresh, which re-reads them.
+	const statusLead = data && (
+		<>
+			<Badge dot variant={data.openSshAvailable ? "success" : "error"}>
+				{data.openSshAvailable ? t("ssh.ready.available") : t("ssh.ready.missing")}
+			</Badge>
+			{hostCount > 0 && <Badge>{t("ssh.ready.hosts", { count: hostCount })}</Badge>}
+			{hostCount > 0 && <Badge>{t("ssh.ready.reachable", { count: reachable })}</Badge>}
+		</>
+	);
+	const refreshButton = (
+		<IconButton
+			className="ms-auto"
+			disabled={!sidecarReady || loading}
+			icon={<RefreshCw />}
+			label={t("common.refresh")}
+			onClick={() => void load()}
+			size="sm"
+		/>
+	);
 
 	return (
 		<SettingsSection actions={empty && !creating ? undefined : addButton}>
@@ -285,25 +305,16 @@ export function SshSection() {
 				<SkeletonRows className="py-2" label={t("common.loading")} widths={[60, 44, 70, 52]} />
 			) : (
 				<div className="flex flex-col gap-3 py-3">
-					{data && (
-						// Refresh sits with the status it re-reads, not alone on a row of its own.
-						<div className="flex flex-wrap items-center gap-2">
-							<Badge dot variant={data.openSshAvailable ? "success" : "error"}>
-								{data.openSshAvailable ? t("ssh.ready.available") : t("ssh.ready.missing")}
-							</Badge>
-							{hostCount > 0 && <Badge>{t("ssh.ready.hosts", { count: hostCount })}</Badge>}
-							{hostCount > 0 && <Badge>{t("ssh.ready.reachable", { count: reachable })}</Badge>}
-							<IconButton
-								className="ms-auto"
-								disabled={!sidecarReady || loading}
-								icon={<RefreshCw />}
-								label={t("common.refresh")}
-								onClick={() => void load()}
-								size="sm"
-							/>
-						</div>
+					{remote ? (
+						data && (
+							<div className="flex flex-wrap items-center gap-2">
+								{statusLead}
+								{refreshButton}
+							</div>
+						)
+					) : (
+						<SshAgentRow lead={statusLead} trail={data ? refreshButton : undefined} />
 					)}
-					{!remote && <SshAgentRow />}
 
 					{loadError && (
 						<Banner

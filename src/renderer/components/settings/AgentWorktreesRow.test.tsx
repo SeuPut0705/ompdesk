@@ -110,7 +110,7 @@ describe("AgentWorktreesRows", () => {
 		expect(clearAgentWorktrees).toHaveBeenCalledTimes(1);
 		expect(text()).toContain(translate("settings.agentWorktrees.cleared", { count: 1 }));
 		expect(text()).toContain(translate("settings.agentWorktrees.summary", { total: 1, orphaned: 0 }));
-		expect(button(translate("settings.agentWorktrees.clear"))?.disabled).toBe(true);
+		expect(button(translate("settings.agentWorktrees.clear")) ?? null).toBeNull();
 	});
 
 	it("names the worktrees stock could not remove", async () => {

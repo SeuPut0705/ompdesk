@@ -382,7 +382,12 @@ export function ImportForeignDialog() {
 			{importError && (
 				<InlineNotice className="mb-2" detail={importError.cause} live title={importError.message} tone="danger" />
 			)}
-			<div className="max-h-[46vh] min-h-48 overflow-y-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle)">
+			<div
+				className={cx(
+					"max-h-[46vh] overflow-y-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle)",
+					(state?.loading || state?.error || filtered.length > 0) && "min-h-48",
+				)}
+			>
 				{state?.loading && <SkeletonRows className="py-2" label={t("common.loading")} widths={[60, 44, 70, 52]} />}
 				{state?.error && (
 					<InlineNotice
@@ -395,6 +400,8 @@ export function ImportForeignDialog() {
 				)}
 				{!state?.loading && !state?.error && filtered.length === 0 && (
 					<EmptyState
+						className="py-5"
+						description={query ? undefined : t(`import.looked.${source}`)}
 						icon={<Inbox />}
 						size="sm"
 						title={query ? t("import.noMatch", { query }) : t("import.empty")}

@@ -167,57 +167,71 @@ function TailnetComputers({ ready }: { ready: boolean }) {
 			setConnecting(null);
 		}
 	};
+	// Nothing to list: the row is one line, its state at the right, never a label over a lone sentence.
+	if (!ready) return null;
+	if (computers === null || computers.length === 0) {
+		return (
+			<SettingsRow
+				compactControl
+				control={
+					computers === null ? (
+						<span className="text-sc-sm text-(--sc-text-muted)">{t("remote.tailnet.searching")}</span>
+					) : (
+						<span className="text-sc-sm text-(--sc-text-muted)" data-remote-tailnet-empty>
+							{t("remote.tailnet.empty")}
+						</span>
+					)
+				}
+				description={t("remote.tailnet.desc")}
+				icon={<Router />}
+				label={t("remote.tailnet.title")}
+				tipOnly
+			/>
+		);
+	}
 	return (
 		<SettingsRow description={t("remote.tailnet.desc")} icon={<Router />} label={t("remote.tailnet.title")} tipOnly>
-			{!ready ? null : computers === null ? (
-				<p className="text-sc-sm text-(--sc-text-muted)">{t("remote.tailnet.searching")}</p>
-			) : computers.length === 0 ? (
-				<p className="text-sc-sm text-(--sc-text-muted)" data-remote-tailnet-empty>
-					{t("remote.tailnet.empty")}
-				</p>
-			) : (
-				<div className="flex flex-col gap-px" data-remote-tailnet>
-					{computers.map(computer => {
-						const status =
-							computer.state === "refused"
-								? t(`remote.tailnet.refused.${computer.refusal ?? "protocol"}`)
-								: t(computer.state === "available" ? "remote.tailnet.available" : "remote.tailnet.absent");
-						return (
-							<ListRow
-								description={
-									<span title={computer.login ?? undefined}>
-										{computer.login ? `${computer.login} · ${status}` : status}
-									</span>
-								}
-								key={computer.nodeId}
-								leading={<Monitor aria-hidden />}
-								rowProps={{
-									"data-remote-tailnet-row": computer.nodeId,
-									"data-remote-tailnet-state": computer.state,
-								}}
-								title={computer.name}
-								titleText={computer.name}
-								trailing={
-									computer.connected ? (
-										<Badge variant="muted">{t("remote.tailnet.connected")}</Badge>
-									) : computer.state === "available" ? (
-										<Button
-											aria-label={t("remote.tailnet.connectLabel", { name: computer.name })}
-											data-remote-tailnet-connect={computer.nodeId}
-											loading={connecting === computer.nodeId}
-											onClick={() => void connect(computer)}
-											size="sm"
-											variant="secondary"
-										>
-											{t("remote.tailnet.connect")}
-										</Button>
-									) : undefined
-								}
-							/>
-						);
-					})}
-				</div>
-			)}
+			<div className="flex flex-col gap-px" data-remote-tailnet>
+				{computers.map(computer => {
+					const status =
+						computer.state === "refused"
+							? t(`remote.tailnet.refused.${computer.refusal ?? "protocol"}`)
+							: t(computer.state === "available" ? "remote.tailnet.available" : "remote.tailnet.absent");
+					return (
+						<ListRow
+							description={
+								<span title={computer.login ?? undefined}>
+									{computer.login ? `${computer.login} · ${status}` : status}
+								</span>
+							}
+							key={computer.nodeId}
+							leading={<Monitor aria-hidden />}
+							rowProps={{
+								"data-remote-tailnet-row": computer.nodeId,
+								"data-remote-tailnet-state": computer.state,
+							}}
+							title={computer.name}
+							titleText={computer.name}
+							trailing={
+								computer.connected ? (
+									<Badge variant="muted">{t("remote.tailnet.connected")}</Badge>
+								) : computer.state === "available" ? (
+									<Button
+										aria-label={t("remote.tailnet.connectLabel", { name: computer.name })}
+										data-remote-tailnet-connect={computer.nodeId}
+										loading={connecting === computer.nodeId}
+										onClick={() => void connect(computer)}
+										size="sm"
+										variant="secondary"
+									>
+										{t("remote.tailnet.connect")}
+									</Button>
+								) : undefined
+							}
+						/>
+					);
+				})}
+			</div>
 		</SettingsRow>
 	);
 }

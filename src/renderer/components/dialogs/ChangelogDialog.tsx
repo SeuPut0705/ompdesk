@@ -17,6 +17,7 @@ import {
 	changelogReleases,
 	changelogSection,
 	changelogSince,
+	displayReleaseHeadings,
 	loadChangelog,
 	useChangelog,
 	WHATS_NEW_PREF,
@@ -40,6 +41,19 @@ export function ChangelogDialog() {
 	const notes = version && markdown !== null ? changelogSince(markdown, since, version, lang) : null;
 	// Until the markdown is in (only on the first open), a version's window keeps its title and an empty body.
 	const whatsNew = version !== null && (markdown === null || notes !== null);
+	// The window opens on its notes, not on the close button (a ring around the X read as the first thing to act on):
+	// once the notes are in, focus moves from the dialog's own first control to the notes. They stay a tab stop.
+	const notesRef = useRef<HTMLDivElement>(null);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `markdown` arriving is what the focus waits for.
+	useEffect(() => {
+		const notesEl = notesRef.current;
+		if (!open || !notesEl) return;
+		const active = document.activeElement;
+		const dialog = notesEl.closest('[role="dialog"]');
+		if (active instanceof HTMLElement && active.tagName === "BUTTON" && dialog?.contains(active)) {
+			notesEl.focus({ preventScroll: true });
+		}
+	}, [open, markdown]);
 	return (
 		<Modal
 			footer={
@@ -54,7 +68,11 @@ export function ChangelogDialog() {
 			size="lg"
 			title={version && whatsNew ? t("whatsNew.title", { version }) : t("changelog.title")}
 		>
-			{markdown === null ? null : <MarkdownRenderer content={notes ?? changelogReleases(markdown, lang)} />}
+			{markdown === null ? null : (
+				<div className="outline-none" data-changelog-notes ref={notesRef} tabIndex={-1}>
+					<MarkdownRenderer content={displayReleaseHeadings(notes ?? changelogReleases(markdown, lang), lang)} />
+				</div>
+			)}
 		</Modal>
 	);
 }

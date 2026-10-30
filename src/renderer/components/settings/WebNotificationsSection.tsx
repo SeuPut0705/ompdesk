@@ -228,7 +228,7 @@ function NotificationsSection({ pwa }: { pwa: WebPwa }) {
 /** The device's own notification and install controls (the web page's Settings › Mobile web). */
 export function WebNotificationsSection({ pwa }: { pwa: WebPwa }) {
 	return (
-		<div className="flex flex-col gap-8" data-web-device-section>
+		<div data-web-device-section>
 			<NotificationsSection pwa={pwa} />
 			<InstallSection pwa={pwa} />
 		</div>

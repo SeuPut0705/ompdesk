@@ -162,7 +162,7 @@ export function SchedulesSection() {
 			icon={<Plus />}
 			onClick={() => setEditing({ schedule: null })}
 			size="sm"
-			variant={state.schedules.length === 0 ? "primary" : "secondary"}
+			variant="secondary"
 		>
 			{t("schedules.new")}
 		</Button>
@@ -290,10 +290,8 @@ export function SchedulesSection() {
 				)}
 			</SettingsSection>
 
-			<SettingsSection id="settings-schedules-runs" title={t("schedules.runs")}>
-				{state.runs.length === 0 ? (
-					<p className="py-2 text-sc-sm text-(--sc-text-muted)">{t("schedules.runsEmpty")}</p>
-				) : (
+			{state.runs.length > 0 && (
+				<SettingsSection id="settings-schedules-runs" title={t("schedules.runs")}>
 					<ul className="flex flex-col" data-schedule-runs>
 						{runs.map(run => (
 							<RunRow
@@ -307,18 +305,18 @@ export function SchedulesSection() {
 							/>
 						))}
 					</ul>
-				)}
-				{state.runs.length > RUNS_SHOWN && (
-					<Button
-						aria-expanded={showAllRuns}
-						onClick={() => setShowAllRuns(value => !value)}
-						size="sm"
-						variant="ghost"
-					>
-						{showAllRuns ? t("schedules.runsFewer") : t("schedules.runsAll", { count: state.runs.length })}
-					</Button>
-				)}
-			</SettingsSection>
+					{state.runs.length > RUNS_SHOWN && (
+						<Button
+							aria-expanded={showAllRuns}
+							onClick={() => setShowAllRuns(value => !value)}
+							size="sm"
+							variant="ghost"
+						>
+							{showAllRuns ? t("schedules.runsFewer") : t("schedules.runsAll", { count: state.runs.length })}
+						</Button>
+					)}
+				</SettingsSection>
+			)}
 
 			<ScheduleDialog
 				defaultCwd={cwd ?? ""}
