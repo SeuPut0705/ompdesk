@@ -4,10 +4,12 @@
  * (same merge as the omp runtime) because a Finder-launched app inherits
  * launchd's bare PATH, where Homebrew's `gh` is missing.
  */
-import { execFile, spawn } from "node:child_process";
+import { type ChildProcess, execFile, spawn } from "node:child_process";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { withoutGitSelectors } from "../../../shared/git-env";
+import { SerialChain } from "../../serial-chain";
 import { brewBinDirs, spawnPath } from "../../shell-env";
 import { findOnPath } from "../../spawn";
 
@@ -15,6 +17,8 @@ import { findOnPath } from "../../spawn";
 export const DEFAULT_TIMEOUT_MS = 60_000;
 /** Hard cap on captured stdout; matches gh's 8 MiB output ceiling. */
 const DEFAULT_MAX_BYTES = 8 * 1024 * 1024;
+/** How long a process that was asked to end may ignore it before it is killed outright. */
+const KILL_GRACE_MS = 2_000;
 
 export interface ExecResult {
 	code: number;
@@ -88,9 +92,24 @@ async function gitBin(): Promise<string | null> {
 	return trampolineTarget;
 }
 
+/** Ask a process to end, and end it for good when it ignores the request. */
+function endProcess(child: ChildProcess): void {
+	child.kill();
+	setTimeout(() => child.kill("SIGKILL"), KILL_GRACE_MS).unref();
+}
+
+/**
+ * The repository-lock hold a call runs in: when the hold is stopped (`withRepoLock`'s bound) the process a call
+ * started ends, and a call made afterwards never starts one.
+ */
+const repoLockHold = new AsyncLocalStorage<AbortSignal>();
+
 /** Spawn `bin args`; never rejects on non-zero exit, rejects on spawn failure / timeout. */
 export async function execBin(bin: string, args: string[], opts: ExecOptions): Promise<ExecResult> {
+	const hold = repoLockHold.getStore();
+	if (hold?.aborted) throw hold.reason;
 	const pathEnv = await spawnPath();
+	if (hold?.aborted) throw hold.reason;
 	const { promise, resolve, reject } = Promise.withResolvers<ExecResult>();
 	const child = spawn(bin, args, {
 		cwd: opts.cwd,
@@ -109,16 +128,22 @@ export async function execBin(bin: string, args: string[], opts: ExecOptions): P
 	let truncated = false;
 	let stderr = "";
 	const timer = setTimeout(() => {
-		child.kill();
+		endProcess(child);
 		reject(new Error(`${args[0] ?? bin} timed out after ${timeoutMs}ms`));
 	}, timeoutMs);
+	const stop = () => {
+		clearTimeout(timer);
+		endProcess(child);
+		reject(hold?.reason);
+	};
+	hold?.addEventListener("abort", stop, { once: true });
 	child.stdout.on("data", (chunk: Buffer) => {
 		if (truncated) return;
 		if (size + chunk.length > maxBytes) {
 			chunks.push(chunk.subarray(0, maxBytes - size));
 			size = maxBytes;
 			truncated = true;
-			child.kill();
+			endProcess(child);
 			return;
 		}
 		chunks.push(chunk);
@@ -132,10 +157,12 @@ export async function execBin(bin: string, args: string[], opts: ExecOptions): P
 	child.stdin.end(opts.input);
 	child.on("error", err => {
 		clearTimeout(timer);
+		hold?.removeEventListener("abort", stop);
 		reject(err);
 	});
 	child.on("close", code => {
 		clearTimeout(timer);
+		hold?.removeEventListener("abort", stop);
 		resolve({ code: code ?? 1, stdout: Buffer.concat(chunks), stderr, truncated });
 	});
 	return promise;
@@ -203,16 +230,30 @@ export async function ghText(
 	return { code: result.code, stdout: result.stdout.toString("utf8"), stderr: result.stderr };
 }
 
-/** Per-repository mutex for worktree/branch/config mutations (git uses O_EXCL lock files with no waiter). */
-const repoLocks = new Map<string, Promise<unknown>>();
+/**
+ * The longest one holder keeps a repository's lock. The longest legitimate holder is `worktree_create`'s answer
+ * budget (six git steps, `git worktree add`, the seed and setup hook: 16 min); a holder past this is hung.
+ */
+export const REPO_LOCK_HOLD_MS = 20 * 60_000;
 
+const repoLocks = new Map<string, SerialChain>();
+
+/**
+ * Per-repository mutex for worktree/branch/config mutations (git uses O_EXCL lock files with no waiter).
+ * A holder that runs past `REPO_LOCK_HOLD_MS` fails with a `StepStalledError`, the git processes it started end and
+ * it starts no more, and the repository's next mutation runs.
+ */
 export function withRepoLock<T>(root: string, fn: () => Promise<T>): Promise<T> {
-	const previous = repoLocks.get(root) ?? Promise.resolve();
-	const run = previous.then(fn, fn);
-	const settled = run.catch(() => undefined);
-	repoLocks.set(root, settled);
-	void settled.then(() => {
-		if (repoLocks.get(root) === settled) repoLocks.delete(root);
-	});
+	let chain = repoLocks.get(root);
+	if (!chain) {
+		chain = new SerialChain({ name: "repository lock", maxStepMs: REPO_LOCK_HOLD_MS });
+		repoLocks.set(root, chain);
+	}
+	const held = chain;
+	const run = held.run(hold => repoLockHold.run(hold, fn), root);
+	const release = () => {
+		if (held.pending === 0 && repoLocks.get(root) === held) repoLocks.delete(root);
+	};
+	run.then(release, release);
 	return run;
 }
