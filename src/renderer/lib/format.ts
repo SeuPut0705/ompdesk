@@ -17,7 +17,7 @@ export function uiLocale(): string {
 	return UI_LANGUAGE_INTL[getCurrentLanguage()];
 }
 
-/** "just now" / "8m" / "3h" / "2d" / "Aug 2", of an ISO time or epoch ms. */
+/** "just now" / "8m" / "3h" / "2d" / "Aug 2" (Korean "8. 2."), of an ISO time or epoch ms. */
 export function formatTimeAgo(value: number | string | undefined | null): string {
 	const then = toMs(value);
 	if (then == null) return "";
@@ -26,7 +26,9 @@ export function formatTimeAgo(value: number | string | undefined | null): string
 	if (seconds < 3600) return translate("time.minutesShort", { count: Math.floor(seconds / 60) });
 	if (seconds < 86_400) return translate("time.hoursShort", { count: Math.floor(seconds / 3600) });
 	if (seconds < 604_800) return translate("time.daysShort", { count: Math.floor(seconds / 86_400) });
-	return new Date(then).toLocaleDateString(uiLocale(), { month: "short", day: "numeric" });
+	// Korean's short month is a word ("10월 17일", a sidebar row's widest age, ~1.4× "Oct 17"): numbers there.
+	const month = getCurrentLanguage() === "ko" ? "numeric" : "short";
+	return new Date(then).toLocaleDateString(uiLocale(), { month, day: "numeric" });
 }
 
 /**

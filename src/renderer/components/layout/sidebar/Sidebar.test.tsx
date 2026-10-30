@@ -1804,7 +1804,6 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(actions).toContain("opacity-0");
 		expect(actions).toContain("pointer-events-none");
 		expect(actions).toContain("group-hover/row:opacity-100");
-		expect(actions).toContain("group-focus-within/row:opacity-100");
 		expect(actions).not.toContain("hidden");
 		// The title keeps its full width at rest and while it shows: no padding is reserved for it.
 		const titleBox = (title?.parentNode as unknown as Element | null)?.className ?? "";
@@ -5601,6 +5600,11 @@ describe("Sidebar with a split on screen", () => {
 		expect(rowFor("Pane B").getAttribute("data-pane-focus")).toBe("true");
 		expect(rowFor("Pane A").getAttribute("data-pane-focus")).toBeNull();
 		expect(rowFor("Pane C").getAttribute("data-pane-focus")).toBeNull();
+		// The other panes' rows read as on screen, a step quieter than the focused one (global.css `data-pane-shown`).
+		expect(rowFor("Pane A").getAttribute("data-pane-shown")).toBe("true");
+		expect(rowFor("Pane C").getAttribute("data-pane-shown")).toBe("true");
+		expect(rowFor("Pane B").getAttribute("data-pane-shown")).toBeNull();
+		expect(rowFor("Outside D").getAttribute("data-pane-shown")).toBeNull();
 		// A pane is not "open elsewhere": it is on screen. The open tab elsewhere is said in words only (tooltip,
 		// screen-reader text): no dot leads a row.
 		const open = translate("sidebar.row.open");

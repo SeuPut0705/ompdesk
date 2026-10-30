@@ -643,10 +643,16 @@ html[data-platform="darwin"] .omp-sidebar-search {
 	color: color-mix(in srgb, var(--sc-warning) 80%, var(--sc-text));
 }
 
-/* While a split shows several sessions every one of them is selected; the pane that has focus adds a quiet edge
-   on the right (the left edge belongs to the row's state bar, sidebar.css `data-signal`). */
+/* While a split shows several sessions, the pane that has focus carries the selection (its wash and the same accent
+   ring as `.omp-session-pane--active`, inset on all four sides so the rounded row never shows a cut edge); the other
+   panes' rows keep a lighter wash: on screen, not the one typed into. One full wash on every pane's row and a 2 px right
+   edge on the focused one read as four selected rows, the edge as a clipped ring. */
+.omp-sidebar-session-row[data-pane-shown="true"] {
+	background-color: color-mix(in srgb, var(--sc-text) 4%, transparent);
+}
+
 .omp-sidebar-session-row[data-pane-focus="true"] {
-	box-shadow: inset -2px 0 0 var(--sc-border-strong);
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--omp-accent) 62%, transparent);
 }
 
 /* A sidebar row whose session is being switched to (the transcript still shows the outgoing one). */

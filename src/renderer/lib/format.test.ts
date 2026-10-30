@@ -103,7 +103,8 @@ describe("UI-language dates", () => {
 			setItem: () => {},
 		};
 		expect(uiLocale()).toBe("ko-KR");
-		expect(formatTimeAgo("2026-08-08T12:00:00Z")).toBe("8월 8일");
+		// Korean numbers, not the OS locale's "8/8" and not the wordy "8월 8일" a sidebar row cannot spare.
+		expect(formatTimeAgo("2026-08-08T12:00:00Z")).toBe("8. 8.");
 	});
 });
 

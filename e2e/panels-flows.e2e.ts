@@ -193,6 +193,7 @@ test("remote connection flow", async () => {
 		const section = client.page.locator(`[data-sidebar-device="${deviceId}"]`);
 		await expect(section).toHaveAttribute("data-device-state", "online");
 		await a.shoot("sidebar-device");
+		await section.locator(`[data-sidebar-device-toggle="${deviceId}"]`).hover();
 		await section.locator(`[data-sidebar-device-add="${deviceId}"]`).click();
 		const picker = client.page.getByRole("dialog", { name: /Choose a folder on/ });
 		await expect(picker.locator("[data-remote-picker-path]")).not.toHaveText("");

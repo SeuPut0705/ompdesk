@@ -199,16 +199,27 @@ function DeviceHeader({
 				// "Old desktop" 36 px beside its offline badge and the gear).
 				<span className="w-1 shrink-0" />
 			) : (
-				<IconButton
-					className="mr-1 text-(--sc-text-subtle) hover:text-(--sc-text)"
-					data-sidebar-device-add={deviceId}
-					disabled={!canAct}
-					icon={<FolderPlus />}
-					label={t("remote.sidebar.addProject", { name })}
-					onClick={onAction}
-					size="sm"
-					tabIndex={-1}
-				/>
+				// A host's name ("Build server in the office") is longer than "This device": with a mouse its project
+				// button shows with the gear, so the name keeps the room at rest. This device's stays, the only
+				// project button once a host is paired.
+				<span
+					className={
+						local
+							? "contents"
+							: "hidden group-focus-within/device:contents group-hover/device:contents [@media(hover:none)]:contents"
+					}
+				>
+					<IconButton
+						className="mr-1 text-(--sc-text-subtle) hover:text-(--sc-text)"
+						data-sidebar-device-add={deviceId}
+						disabled={!canAct}
+						icon={<FolderPlus />}
+						label={t("remote.sidebar.addProject", { name })}
+						onClick={onAction}
+						size="sm"
+						tabIndex={-1}
+					/>
+				</span>
 			)}
 		</div>
 	);
@@ -791,7 +802,7 @@ function DeviceSessions({
 					key={session.path}
 					meta={
 						chat || age ? (
-							<span className="inline-flex items-center gap-1.5">
+							<span className="inline-flex min-w-0 items-center gap-1.5">
 								{chat}
 								{age}
 							</span>
@@ -810,6 +821,7 @@ function DeviceSessions({
 						"data-active": active,
 						"data-current": current || undefined,
 						"data-pane-focus": (current && splitIds !== null) || undefined,
+						"data-pane-shown": (active && !current && splitIds !== null) || undefined,
 						"data-live": indexed ? undefined : true,
 					}}
 					selected={active}
