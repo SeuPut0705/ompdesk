@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.87.0] - 2026-10-30
+
+에이전트 작업을 멈춰 세우던 제한을 없애고, 같은 일을 세션·창·기기마다 따로 하던 것을 한곳으로 모아 가볍게 했어요.
+
+### 멈추지 않게
+- 일시적인 오류는 세 번에서 멈추지 않고 10분마다 계속 다시 시도해요. 카드에는 다음 시도까지 남은 시간과 몇 번째인지 보여요.
+- 연결을 기다리던 작업은 인터넷이 돌아오면 1분 안에 이어 가요. 온라인 신호를 놓쳐도요.
+- git, 기기 설치, 메모리, Tailscale, 업데이트, 오토파일럿에서 한 단계가 멈추면 뒤가 전부 막히던 것을 고쳤어요. 멈춘 단계는 끊기고, 늦게 돌아와도 아무것도 바꾸지 못해요.
+- 오토파일럿의 동시 세션 개수 제한을 없앴고, 사용량 한도가 풀릴 때까지 계속 다시 시도해요.
+- 이미 끝난 서브에이전트가 나중 재시작에 다시 살아나 돌던 문제를 고쳤어요.
+- 에이전트와 그 도구는 앱보다 한 단계 낮은 우선순위로 돌아요. CPU가 남으면 그대로 다 쓰고, 다툴 때만 화면이 먼저예요.
+- 여러 세션이 같은 모델 응답을 기다리면 "세션 N개가 함께 기다리는 중"이라고 보여요.
+
+### 더 가볍게
+- 세션마다 따로 뜨던 보조 프로세스 셋(REA, 메모리 중계)을 앱 하나로 합쳤어요. 세션 5개면 프로세스 20개가 6개로 줄어요.
+- 세션 목록을 바뀔 때 한 번만 읽어 모든 창과 기기에 바뀐 부분만 보내요.
+- 원격 기기가 그림과 대화 기록을 다시 받지 않아요. 재시작 뒤 받는 양이 1MB에서 5KB 수준으로 줄었어요.
+- 탭을 바꿀 때 omp에 보내는 요청이 절반으로 줄었고, 가만히 있는 터미널과 변경 목록은 주기적으로 묻지 않아요.
+- 통계와 확장 보조 프로세스가 필요할 때만 무거운 부분을 불러서, 앱 보조 프로세스 메모리가 절반으로 줄었어요.
+- 세션 시작이 조금 빨라졌고, 입력 기록은 바쁜 세션을 기다리지 않고 바로 읽어요.
+
+<!-- en -->
+
+Removed the limits that held agent work back, and moved work done once per session, window or device into one shared place.
+
+### Nothing stalls
+- A transient failure is retried every 10 minutes for as long as it takes, not three times; the card shows the next try and the attempt number.
+- Work waiting for the connection goes on within a minute of the network coming back, even if the online event was missed.
+- A hung step in git, machine setup, memory, Tailscale, updates or Autopilot no longer blocks every later one: it is cut off, and if it comes back late it changes nothing.
+- Autopilot has no cap on parallel sessions and keeps retrying after a usage limit until the run goes on.
+- A subagent that had already finished is no longer revived by a later relaunch.
+- Agents and the tools they start run one step below the app's priority: they still use every idle core, and the window goes first only when both want the CPU.
+- When several sessions wait on the same model, the cue says how many are waiting together.
+
+### Lighter
+- The per-session helper trio (REA and memory relays) is one app-wide hub: 20 processes become 6 with five sessions.
+- The session list is read once per change and sent to every window and device as a diff.
+- A paired device no longer downloads pictures and transcripts again: after a restart it gets about 5 KB instead of 1 MB.
+- A tab switch sends half the requests to omp, and an idle terminal or Changes list no longer polls.
+- Stats and the extensions helper load their heavy parts only when needed, halving the helpers' memory.
+- Sessions start a little sooner, and composer history is read without waiting on a busy session.
+
 ## [0.86.1] - 2026-10-30
 
 원격 기기 세션에서도 이름 변경, 고정, 보관, 프로젝트로 이동을 쓸 수 있고, 세션 메뉴는 짧아졌어요.
