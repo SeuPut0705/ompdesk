@@ -51,6 +51,7 @@ import {
 	IconButton,
 	SearchField,
 	SkeletonRows,
+	Tooltip,
 } from "../common";
 import { type TreeNode, TreeView } from "../common/TreeView";
 import { PathLink } from "../tools/media/PathLink";
@@ -817,22 +818,23 @@ export function FilesPanel() {
 					<FileIcon path={entry.path} className="size-(--sc-icon-sm)" />
 				),
 				trailing: mark ? (
-					<span
-						className={`ms-1 shrink-0 font-mono text-sc-xs ${GIT_MARK_STYLE[mark].color}`}
-						data-git-mark={mark}
-						title={t(GIT_MARK_STYLE[mark].label)}
-					>
-						{mark}
-						<span className="sr-only">{t(GIT_MARK_STYLE[mark].label)}</span>
-					</span>
+					<Tooltip content={t(GIT_MARK_STYLE[mark].label)} describe={false}>
+						<span
+							className={`ms-1 shrink-0 font-mono text-sc-xs ${GIT_MARK_STYLE[mark].color}`}
+							data-git-mark={mark}
+						>
+							{mark}
+							<span className="sr-only">{t(GIT_MARK_STYLE[mark].label)}</span>
+						</span>
+					</Tooltip>
 				) : isDir && git.dirs.has(entry.path) ? (
-					<span
-						className="ms-1 inline-flex size-1.5 shrink-0 rounded-full bg-(--sc-text-muted)"
-						data-git-mark="dir"
-						title={t("filesPanel.git.inside")}
-					>
-						<span className="sr-only">{t("filesPanel.git.inside")}</span>
-					</span>
+					// A bare dot says nothing: the bubble names it, and the padding makes the 6 px dot hoverable.
+					<Tooltip content={t("filesPanel.git.inside")} describe={false}>
+						<span className="-my-1.5 ms-0.5 inline-flex shrink-0 p-1.5" data-git-mark="dir">
+							<span aria-hidden className="inline-flex size-1.5 rounded-full bg-(--sc-text-muted)" />
+							<span className="sr-only">{t("filesPanel.git.inside")}</span>
+						</span>
+					</Tooltip>
 				) : undefined,
 				onClick: renaming ? undefined : () => onNodeClick(id),
 				onMenu: anchor =>
