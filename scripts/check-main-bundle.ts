@@ -148,7 +148,11 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // first screen by one dynamic import in main.tsx; 30 Oct 2026): measured 3,214,065 on c7f5901ab, 730 bytes more.
 // The window pollers (30 Oct 2026): ToastStack measures on observers instead of a 250 ms timer, the jobs poll follows
 // its tab's turn and subagents: measured 3,216,397 on d2f2af50f (this check's own count), 1,397 bytes over the budget.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_217_000;
+// The session list read once per change and shared (30 Oct 2026): the global feed keeps main's numbered copy and
+// applies what each change carries (`stores/session-list.ts`, `shared/session-list-delta.ts`, `sessions.listShared`)
+// instead of reading the whole list after every change: measured 3,218,041, 1,278 bytes over its parent 51f0e312f
+// (3,216,763).
+const WEB_FIRST_SCREEN_JS_BYTES = 3_218_600;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

@@ -8,10 +8,12 @@ import { join, resolve, sep } from "node:path";
 import { codedError } from "../shared/ipc-error-codes";
 import type { SessionContentMatch, SessionInfo, SessionKind } from "../shared/ipc-types";
 import type { AgentMessage } from "../shared/rpc-types";
+import { compareSessionRows, type SessionListDelta, type VersionedSessionList } from "../shared/session-list-delta";
 import { agentDir } from "./agent-paths";
 import { deletedSessions } from "./deleted-sessions";
 import { OmpUnavailableError } from "./omp-availability";
 import { StampedLru } from "./session-cache";
+import { SessionListShare } from "./session-list-share";
 import { contentSnippet } from "./session-snippet";
 import { StockSessionStore } from "./session-store";
 
@@ -36,6 +38,11 @@ const SESSION_DIR_SEGMENTS = 2;
 const SETTLE_MS = 300;
 /** While the sessions root does not exist yet, how often to look for it. */
 const ROOT_POLL_MS = 1000;
+/**
+ * The OS starts delivering a moment after the watch is made: a file written in that moment is never reported, so the
+ * shared list (read once per change) is read once more this long after the watch starts.
+ */
+const WATCH_WARMUP_MS = 2000;
 
 export class SessionIndex {
 	#watcher: FSWatcher | null = null;
@@ -58,12 +65,21 @@ export class SessionIndex {
 	 * list (asked for after every settled append while an agent streams) reads each file's head once, not each time.
 	 */
 	#legacyChat = new Map<string, { id: string; chat: boolean }>();
+	/** The global list, read once per change while the tree is watched and shared by every asker. */
+	readonly #share = new SessionListShare(() => this.#readAll());
+	#warmup: NodeJS.Timeout | undefined;
 
 	/**
-	 * A session file, or a project or session directory, appeared, changed or vanished: called with its path once
-	 * its writes settled. Without a path, anything may have changed.
+	 * The watch reported a session file, or a project or session directory, that appeared, changed or vanished, once its
+	 * writes settled; without a path, anything may have changed.
 	 */
 	onChange: ((path?: string) => void) | null = null;
+
+	/**
+	 * The global list changed: `delta` turns the last version into the new one; null when there was no list to compare
+	 * with, and whoever shows it asks (`SessionListShare.onChange`).
+	 */
+	onListChange: ((delta: SessionListDelta | null) => void) | null = null;
 
 	constructor(
 		sessionsDir: string | undefined,
@@ -75,6 +91,7 @@ export class SessionIndex {
 		this.#cwd = resolve(cwd);
 		this.#isChat = isChat;
 		this.#store = new StockSessionStore(this.#sessionsDir, bridgeDir);
+		this.#share.onChange = delta => this.onListChange?.(delta);
 	}
 
 	/** Sessions root watched by this index (plan files live in per-session artifact dirs beneath it). */
@@ -87,8 +104,8 @@ export class SessionIndex {
 	 * Never a watch per directory (chokidar's way): libuv's macOS backend keeps one FSEvents stream for all of them
 	 * and recreates it, from "now", whenever a watched directory is added or removed, so each new session's artifact
 	 * directory dropped the new and removed session files of the whole tree that the old stream had not delivered
-	 * yet. The OS starts delivering a moment after this returns; nothing reads that moment, as every reader lists
-	 * the sessions when it opens.
+	 * yet. The OS starts delivering a moment after this returns: every reader lists the sessions when it opens, and
+	 * the shared list is read once more after {@link WATCH_WARMUP_MS} for a file written in that moment.
 	 */
 	start(): void {
 		let watcher: FSWatcher;
@@ -105,6 +122,10 @@ export class SessionIndex {
 			if (this.#watcher === watcher) this.#watcher = null;
 		});
 		this.#watcher = watcher;
+		clearTimeout(this.#warmup);
+		// A list nobody read yet is read whole by its first reader, after this moment anyway.
+		this.#warmup = setTimeout(() => this.#share.held() && this.#share.changed(), WATCH_WARMUP_MS);
+		this.#warmup.unref?.();
 	}
 
 	/**
@@ -126,6 +147,7 @@ export class SessionIndex {
 		this.#watcher?.close();
 		this.#watcher = null;
 		clearInterval(this.#rootPoll);
+		clearTimeout(this.#warmup);
 		this.#rootPoll = undefined;
 		for (const timer of this.#settling.values()) clearTimeout(timer);
 		this.#settling.clear();
@@ -142,30 +164,48 @@ export class SessionIndex {
 	 *   own so each window sees only its project's sessions.
 	 */
 	async list(scope: "local" | "global", cwd?: string): Promise<SessionInfo[]> {
-		let parsed: SessionInfo[];
-		try {
-			parsed = await this.#store.list();
-		} catch (error) {
-			// No usable omp yet (machine setup is on it): nothing to list, and nothing failed. Main
-			// signals a change once omp is usable, and the readers list again.
-			if (error instanceof OmpUnavailableError) return [];
-			throw error;
-		}
+		const { sessions } = await this.listShared();
 		const localCwd = cwd !== undefined ? resolve(cwd) : this.#cwd;
 		const deleted = deletedSessions();
 		// A file a stray writer put back after its session was deleted is not that session coming back.
-		const infos = parsed.filter(info => {
-			if (deleted.has(info.path)) return false;
-			return scope === "global" || (info.cwd != null && resolve(info.cwd) === localCwd);
-		});
+		return sessions.filter(
+			info =>
+				!deleted.has(info.path) && (scope === "global" || (info.cwd != null && resolve(info.cwd) === localCwd)),
+		);
+	}
+
+	/**
+	 * The global list and its version, read once per change and shared (the rows are the copy every asker gets: never
+	 * changed in place). Unwatched (no root yet, a watch that stopped, an index never started) nothing says when a file
+	 * changes, so every ask reads.
+	 */
+	async listShared(): Promise<VersionedSessionList> {
+		if (this.#watcher === null) this.#share.stale();
+		try {
+			return await this.#share.current();
+		} catch (error) {
+			// No usable omp yet (machine setup is on it): nothing to list, and nothing failed. Main signals a change once
+			// omp is usable (`relist`), and the readers list again; a version no change names makes them ask then.
+			if (error instanceof OmpUnavailableError) return { version: "", sessions: [] };
+			throw error;
+		}
+	}
+
+	/** Something listed may have changed with no file event (omp became usable, a rename went through stock): read again. */
+	relist(): void {
+		this.#share.changed();
+	}
+
+	/** Every session file once (deleted ones never), chat-labelled, newest first, one row per session id. */
+	async #readAll(): Promise<SessionInfo[]> {
+		const deleted = deletedSessions();
+		const infos = (await this.#store.list()).filter(info => !deleted.has(info.path));
 		await Promise.all(
 			infos.map(async info => {
 				if (this.#isChat(info.id) || (await this.#listedLegacyChat(info))) info.kind = "chat";
 			}),
 		);
-		// Sort by modified descending
-		infos.sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime());
-
+		infos.sort(compareSessionRows);
 		// Dedupe by session id: the agent migrates sessions between legacy and
 		// current cwd-directory encodings (e.g. `-AiProject-x` → `home-x-<hash>`),
 		// and during that window the same session id can exist as a file in both
@@ -396,5 +436,6 @@ export class SessionIndex {
 
 	#notifyChange(path?: string): void {
 		this.onChange?.(path);
+		this.#share.changed();
 	}
 }

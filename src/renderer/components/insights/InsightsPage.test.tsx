@@ -96,6 +96,7 @@ function installOmp(): RpcMock {
 			stats: { fetch: vi.fn(async () => ({ error: "not running" })) },
 			// The page's title reads the sidebar's session list: this session is indexed with its first prompt only.
 			sessions: {
+				listShared: async () => ({ version: "test.1", sessions: await window.omp.sessions.list("global") }),
 				list: vi.fn(async () => [
 					{
 						path: "/repo/a.jsonl",

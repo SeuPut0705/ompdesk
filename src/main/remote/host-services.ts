@@ -49,6 +49,7 @@ import {
 	type HostLiveSession,
 	type IpcHostedSession,
 	type IpcScheduledRetry,
+	type SessionInfo,
 } from "../../shared/ipc-types";
 import { ModelSetupRequestSchema } from "../../shared/model-setup";
 import type { OmpUpdateState } from "../../shared/omp-update";
@@ -84,6 +85,7 @@ import type { ModelWaitTracker } from "../model-wait-count";
 import { noteOmpExit } from "../omp-exits";
 import { ompRestartDecision } from "../omp-restart";
 import type { SessionIndex } from "../session-index";
+import { SessionListShare } from "../session-list-share";
 import { deleteSession, moveSession, recordSessionDelete, renameSession } from "../session-mutations";
 import type { SidecarSessionIdentity } from "../sidecar";
 import { type SidecarPool, STOP_SESSION_WAIT_MS } from "../sidecar-pool";
@@ -223,6 +225,7 @@ export interface HostServicesDeps {
 	sessionIndex: Pick<
 		SessionIndex,
 		| "list"
+		| "relist"
 		| "searchContent"
 		| "kindFor"
 		| "recordedCwd"
@@ -421,7 +424,12 @@ const CommandParams = z.object({
 	fresh: z.boolean().optional(),
 });
 const SideChannelParams = z.object({ rtab: Rtab, frame: z.object({}).passthrough() });
-const SessionsListParams = z.object({ scope: Scope, cwd: AbsolutePath.optional() });
+/** `versioned`: the global list with its version, what a `sessions.changed` delta applies to (`slimSessionLists`). */
+const SessionsListParams = z.object({
+	scope: Scope,
+	cwd: AbsolutePath.optional(),
+	versioned: z.literal(true).optional(),
+});
 const SessionsSearchParams = z.object({ query: z.string(), scope: Scope, cwd: AbsolutePath.optional() });
 const SessionPathParams = z.object({ sessionPath: SessionPath });
 const SessionFolderParams = z.object({ sessionPath: SessionPath, restore: z.boolean().optional() });
@@ -554,6 +562,14 @@ export class LocalHostServices implements HostServices {
 	 * Undefined until a device read the list.
 	 */
 	#listingSnapshot: string | undefined;
+	/**
+	 * The global list as the devices get it (each row with who opened it, whether a tab here holds it, its children's
+	 * verdict), numbered: a change goes to every device as what changed (`slimSessionLists`), or as a bare
+	 * `sessions.changed` to a device that reads the whole list again.
+	 */
+	readonly #deviceList = new SessionListShare(async () =>
+		this.#decorated(await this.#deps.sessionIndex.list("global")),
+	);
 	#liveTimer: NodeJS.Timeout | undefined;
 	#quota: PeerQuota | null = null;
 	#memory: HostMemory | null = null;
@@ -568,6 +584,10 @@ export class LocalHostServices implements HostServices {
 	constructor(deps: HostServicesDeps) {
 		this.#deps = deps;
 		this.#graceMs = deps.graceMs ?? HOST_TAB_GRACE_MS;
+		this.#deviceList.onChange = delta => {
+			for (const conn of this.#conns)
+				emitSafely(conn, SESSIONS_CHANGED_EVENT, delta && conn.slim?.sessionLists === true ? delta : null);
+		};
 	}
 
 	/** Paired devices with a host tab running a turn here (connected or in their grace period). */
@@ -1037,21 +1057,13 @@ export class LocalHostServices implements HostServices {
 				this.#tab(peer, parse(RtabParams, method, params).rtab).sidecar.syncImageGeneration();
 				return null;
 			case "sessions.list": {
-				const { scope, cwd } = parse(SessionsListParams, method, params);
-				const rows = await this.#deps.sessionIndex.list(scope, cwd);
-				const { openers, held } = this.#listing();
-				this.#listingSnapshot = listingSignature(openers, held);
-				const problems = new Map([...this.#childProblems.values()].flatMap(children => [...children]));
-				// Every row says, even `null` for none: an older host's rows say nothing, and a device lists those as before.
-				return rows.map(row => {
-					const childProblem = problems.get(row.path);
-					return {
-						...row,
-						openedBySession: openers.get(row.path) ?? null,
-						...(childProblem ? { childProblem } : {}),
-						...(held.has(row.path) ? { heldOnHost: true as const } : {}),
-					};
-				});
+				const { scope, cwd, versioned } = parse(SessionsListParams, method, params);
+				if (scope === "local") return this.#decorated(await this.#deps.sessionIndex.list(scope, cwd));
+				// Each read decorates the index's copy again (a tab here taking a session moves no journal) and keeps the
+				// version while nothing changed.
+				this.#deviceList.stale();
+				const list = await this.#deviceList.current();
+				return versioned ? list : list.sessions;
 			}
 			case "sessions.search": {
 				const { query, scope, cwd } = parse(SessionsSearchParams, method, params);
@@ -1299,12 +1311,15 @@ export class LocalHostServices implements HostServices {
 			if (tab.peerId === peer.deviceId && tab.conn === conn) this.#startGrace(tab);
 	}
 
-	/** This machine's session index changed: tell every connected device (debounced). */
+	/**
+	 * This machine's session list, or what it says of a row, changed: once the burst settles the devices' list is read
+	 * once and every connected device gets what changed (debounced; a device that asks meanwhile reads it then).
+	 */
 	sessionsChanged(): void {
 		if (this.#sessionsTimer) return;
 		this.#sessionsTimer = setTimeout(() => {
 			this.#sessionsTimer = undefined;
-			for (const conn of this.#conns) emitSafely(conn, SESSIONS_CHANGED_EVENT, null);
+			this.#deviceList.changed();
 		}, SESSIONS_CHANGED_DEBOUNCE_MS);
 		this.#sessionsTimer.unref?.();
 	}
@@ -1350,6 +1365,23 @@ export class LocalHostServices implements HostServices {
 		const held = new Set(this.#deps.localTabs.windowSessionFiles());
 		for (const tab of this.#tabs.values()) if (tab.sessionFile) held.add(tab.sessionFile);
 		return { openers: this.#deps.sessionOpeners?.() ?? new Map<string, string>(), held };
+	}
+
+	/** This machine's rows as a device gets them: what this computer knows of each beside its journal (`#listing`). */
+	#decorated(rows: readonly SessionInfo[]): SessionInfo[] {
+		const { openers, held } = this.#listing();
+		this.#listingSnapshot = listingSignature(openers, held);
+		const problems = new Map([...this.#childProblems.values()].flatMap(children => [...children]));
+		// Every row says, even `null` for none: an older host's rows say nothing, and a device lists those as before.
+		return rows.map(row => {
+			const childProblem = problems.get(row.path);
+			return {
+				...row,
+				openedBySession: openers.get(row.path) ?? null,
+				...(childProblem ? { childProblem } : {}),
+				...(held.has(row.path) ? { heldOnHost: true as const } : {}),
+			};
+		});
 	}
 
 	/** This machine's own OmpUpdater changed state: every connected device shows it like the computer's own row. */
@@ -2280,6 +2312,8 @@ export class LocalHostServices implements HostServices {
 				return owner.sidecar.status === "ready" ? owner.sidecar.rpcClient : null;
 			},
 		});
+		// The title is in the journal now: the device's next read (its renamer's own) reads it, not the copy before.
+		this.#deps.sessionIndex.relist();
 		return null;
 	}
 

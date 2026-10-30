@@ -142,6 +142,11 @@ export const HelloVersion = z.object({ t: z.literal("hello"), protocol: z.unknow
  * live stream repeats most of its last frames (progress snapshots, keys, output lines), which a frame deflated on its
  * own cannot use, and frames under 1 KB were not deflated at all. Four subagents streaming crossed in 3 to 4 times
  * fewer bytes (28 Oct 2026). A device without it (v0.79.0 and older) gets each frame deflated on its own.
+ *
+ * `slimSessionLists` (independent of the others): the device keeps the host's session list as a numbered copy
+ * (`shared/session-list-delta.ts`), so the host's `sessions.changed` event carries what changed since the version it
+ * last sent, and a `sessions.list` read with `versioned` gets that version beside the rows. A device without it gets
+ * a bare event and reads the whole list again (128 KB of JSON on this Mac, 30 Oct 2026, for each of its windows).
  */
 export const ClientHello = z.object({
 	t: z.literal("hello"),
@@ -165,6 +170,7 @@ export const ClientHello = z.object({
 	slimToolArgs: z.boolean().optional(),
 	deflate: z.boolean().optional(),
 	deflateContext: z.boolean().optional(),
+	slimSessionLists: z.boolean().optional(),
 });
 
 /**
@@ -189,6 +195,7 @@ export interface LinkSlim {
 	toolArgs: boolean;
 	deflate: boolean;
 	deflateContext: boolean;
+	sessionLists: boolean;
 }
 
 export function slimOf(hello: z.infer<typeof ClientHello>): LinkSlim {
@@ -214,6 +221,7 @@ export function slimOf(hello: z.infer<typeof ClientHello>): LinkSlim {
 		toolArgs: events && hello.slimToolArgs === true,
 		deflate: hello.deflate === true,
 		deflateContext: hello.deflate === true && hello.deflateContext === true,
+		sessionLists: hello.slimSessionLists === true,
 	};
 }
 
@@ -236,6 +244,7 @@ export const SLIM_LOG_NAMES: Readonly<Record<keyof LinkSlim, string>> = {
 	toolArgs: "args",
 	deflate: "deflate",
 	deflateContext: "context",
+	sessionLists: "sessions",
 };
 
 export const HostHelloMessage = z.object({

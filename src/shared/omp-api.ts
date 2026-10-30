@@ -162,6 +162,7 @@ import type {
 	SubagentFrame,
 } from "./rpc-types";
 import { SCHEDULES_COMMAND, SCHEDULES_LOG, SCHEDULES_STATE, type SchedulesState } from "./schedules";
+import type { VersionedSessionList } from "./session-list-delta";
 import type { GitAslrAction, GitAslrResult, SetupItemId, SetupState } from "./setup";
 import { type IpcSidebarProjects, SIDEBAR_PROJECTS_COMMAND, SIDEBAR_PROJECTS_STATE } from "./sidebar-projects";
 import {
@@ -534,6 +535,12 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 		sessions: {
 			list: (scope: "local" | "global", device?: string) =>
 				transport.invoke(IPC_COMMANDS.SESSIONS_LIST, { scope, device }) as Promise<SessionInfo[]>,
+			listShared: (device?: string) =>
+				transport.invoke(IPC_COMMANDS.SESSIONS_LIST, {
+					scope: "global",
+					device,
+					versioned: true,
+				}) as Promise<VersionedSessionList>,
 			delete: (sessionPath: string, device?: string) =>
 				transport.invoke(IPC_COMMANDS.SESSIONS_DELETE, { sessionPath, device }) as Promise<void>,
 			/** Stop every turn on the session (on `device` when given) and resolve once they have ended. */

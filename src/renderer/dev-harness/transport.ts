@@ -9,7 +9,7 @@
  */
 
 import { EMPTY_GITHUB_AUTH_STATE } from "../../shared/github-auth";
-import { IPC_COMMANDS } from "../../shared/ipc-types";
+import { IPC_COMMANDS, type IpcSessionsListPayload } from "../../shared/ipc-types";
 import type { LaunchProfile } from "../../shared/launch-profile";
 import { MOBILE_WEB_COMMAND, MOBILE_WEB_GET_STATE, WEB_BLOCKS_LIST, WEB_DEVICES_LIST } from "../../shared/mobile-web";
 import type { OmpTransport } from "../../shared/omp-api";
@@ -404,7 +404,10 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 			case IPC_COMMANDS.RPC_COMMAND_FOR_TAB:
 				return rpc(payload as RpcPayload);
 			case IPC_COMMANDS.SESSIONS_LIST:
-				return sessionsFixture();
+				// The feed's read (`listShared`) takes the list with its version; nothing here ever changes it.
+				return (payload as IpcSessionsListPayload | undefined)?.versioned
+					? { version: "harness.1", sessions: sessionsFixture() }
+					: sessionsFixture();
 			case IPC_COMMANDS.PREFS_GET: {
 				const request = payload as PrefsGetPayload | undefined;
 				return request?.key === undefined ? prefs : prefs[request.key];

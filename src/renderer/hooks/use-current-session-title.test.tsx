@@ -41,7 +41,12 @@ function row(overrides: Partial<SessionInfo>): SessionInfo {
 
 let listed: SessionInfo[] = [];
 (window as unknown as { omp: unknown }).omp = {
-	sessions: { list: vi.fn(async () => listed), delete: vi.fn(async () => {}), rename: vi.fn(async () => {}) },
+	sessions: {
+		list: vi.fn(async () => listed),
+		listShared: async () => ({ version: "test.1", sessions: listed }),
+		delete: vi.fn(async () => {}),
+		rename: vi.fn(async () => {}),
+	},
 	events: { onSessionsChanged: vi.fn(() => () => {}) },
 };
 

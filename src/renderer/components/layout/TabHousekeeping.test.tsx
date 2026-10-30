@@ -71,6 +71,8 @@ function listedSession(id: string, overrides: Partial<SessionInfo> = {}): Sessio
 interface MockOmp {
 	sessions: {
 		list: Mock<() => Promise<SessionInfo[]>>;
+		/** The feed's read, answered by `list` (a test sets that). */
+		listShared: () => Promise<{ version: string; sessions: SessionInfo[] }>;
 	};
 	tabs: {
 		list: Mock<() => Promise<IpcTabInfo[]>>;
@@ -96,7 +98,10 @@ interface MockOmp {
 
 function installMockOmp(): MockOmp {
 	const omp: MockOmp = {
-		sessions: { list: vi.fn(async () => []) },
+		sessions: {
+			list: vi.fn(async () => []),
+			listShared: async () => ({ version: "test.1", sessions: await omp.sessions.list() }),
+		},
 		tabs: {
 			list: vi.fn(async () => []),
 			spawn: vi.fn(async () => ({ tabId: "t9" })),

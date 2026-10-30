@@ -83,6 +83,8 @@ interface MockOmp {
 	};
 	sessions: {
 		list: Mock<(scope: string, device?: string) => Promise<SessionInfo[]>>;
+		/** The feed's read: answered by `list` (a test sets that), so its calls say which lists were read. */
+		listShared: (device?: string) => Promise<{ version: string; sessions: SessionInfo[] }>;
 		delete: Mock<(path: string) => Promise<void>>;
 		stop: Mock<(path: string, device?: string) => Promise<void>>;
 		rename: Mock<(path: string, name: string) => Promise<void>>;
@@ -129,6 +131,10 @@ function installMockOmp(sessionList: SessionInfo[]): MockOmp {
 		},
 		sessions: {
 			list: vi.fn(async () => sessionList),
+			listShared: async device => ({
+				version: "test.1",
+				sessions: await (device === undefined ? omp.sessions.list("global") : omp.sessions.list("global", device)),
+			}),
 			delete: vi.fn(async () => {}),
 			stop: vi.fn(async () => {}),
 			rename: vi.fn(async () => {}),

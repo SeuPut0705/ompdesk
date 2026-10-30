@@ -76,6 +76,7 @@ import type { HostedTabView } from "./hosted-view";
 import { createLinkEventDecoder, createReadDecoder, type WireSubagentFrame } from "./link-events";
 import { localDay, PeerQuota } from "./peer-quota";
 import type { PeerInfo } from "./peers-store";
+import { slimOf } from "./protocol";
 import { FrameTooLargeError } from "./wire";
 
 /** A SidecarManager stand-in for the host side. */
@@ -354,6 +355,7 @@ function setup(graceMs = 60_000, extra: Partial<HostServicesDeps> = {}) {
 		hostName: () => "Host B",
 		sessionIndex: {
 			list: async () => [],
+			relist: () => {},
 			searchContent: async () => [],
 			kindFor: async () => "chat",
 			recordedCwd,
@@ -1895,22 +1897,87 @@ describe("LocalHostServices", () => {
 		expect(sidecars[1]?.disposed).toBe(false);
 	});
 
-	it("pushes one sessions.changed per burst to every connected device, and drops a revoked peer's tabs", async () => {
+	it("pushes one sessions.changed per burst that changed the list to every connected device, and drops a revoked peer's tabs", async () => {
 		vi.useFakeTimers();
-		const { services, sidecars } = setup();
+		const row = (path: string, size: number) => ({
+			path,
+			id: path,
+			title: path,
+			cwd: workDir,
+			firstMessage: "",
+			size,
+		});
+		let rows = [row("/s/a.jsonl", 1)];
+		const { services, sidecars } = setup(60_000, {
+			sessionIndex: {
+				list: async () => rows,
+				kindFor: async () => "agent",
+				recordedCwd: async () => workDir,
+			} as unknown as HostServicesDeps["sessionIndex"],
+		});
 		const x = new FakeConnection(peer("device-x"));
 		const y = new FakeConnection(peer("device-y"));
 		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
 		await services.call(y.peer, "sessions.list", { scope: "global" }, y);
+		const heard = (conn: FakeConnection) => conn.events.filter(entry => entry.event === "sessions.changed");
 
+		rows = [row("/s/a.jsonl", 2)];
 		services.sessionsChanged();
 		services.sessionsChanged();
-		vi.advanceTimersByTime(1_000);
-		expect(x.events.filter(entry => entry.event === "sessions.changed")).toHaveLength(1);
-		expect(y.events.filter(entry => entry.event === "sessions.changed")).toHaveLength(1);
+		await vi.advanceTimersByTimeAsync(1_000);
+		expect(heard(x)).toHaveLength(1);
+		expect(heard(y)).toHaveLength(1);
+		// A change that left every row as it was (a subagent's journal grew) says nothing.
+		services.sessionsChanged();
+		await vi.advanceTimersByTimeAsync(1_000);
+		expect(heard(y)).toHaveLength(1);
 
 		services.dropPeer("device-x");
 		expect(sidecars[0]?.disposed).toBe(true);
+	});
+
+	it("sends a device that keeps a numbered copy what changed, and the version with its read", async () => {
+		vi.useFakeTimers();
+		const row = (path: string, size: number) => ({
+			path,
+			id: path,
+			title: path,
+			cwd: workDir,
+			firstMessage: "",
+			size,
+		});
+		let rows = [row("/s/a.jsonl", 1), row("/s/b.jsonl", 1)];
+		const { services } = setup(60_000, {
+			sessionIndex: { list: async () => rows } as unknown as HostServicesDeps["sessionIndex"],
+		});
+		const numbered = Object.assign(new FakeConnection(peer("device-new")), {
+			slim: { ...slimOf({ t: "hello", protocol: 1, appVersion: "1", name: "n" }), sessionLists: true },
+		});
+		const older = new FakeConnection(peer("device-old"));
+		const first = (await services.call(
+			numbered.peer,
+			"sessions.list",
+			{ scope: "global", versioned: true },
+			numbered,
+		)) as {
+			version: string;
+			sessions: SessionInfo[];
+		};
+		expect(first.sessions.map(entry => entry.path)).toEqual(["/s/a.jsonl", "/s/b.jsonl"]);
+		// An older device's read gets the rows alone.
+		expect(await services.call(older.peer, "sessions.list", { scope: "global" }, older)).toEqual(first.sessions);
+
+		rows = [row("/s/a.jsonl", 9)];
+		services.sessionsChanged();
+		await vi.advanceTimersByTimeAsync(1_000);
+		const delta = numbered.events.find(entry => entry.event === "sessions.changed")?.data as {
+			base: string;
+			set: SessionInfo[];
+			remove: string[];
+		};
+		expect(delta).toMatchObject({ base: first.version, remove: ["/s/b.jsonl"] });
+		expect(delta.set.map(entry => [entry.path, entry.size])).toEqual([["/s/a.jsonl", 9]]);
+		expect(older.events.filter(entry => entry.event === "sessions.changed").map(entry => entry.data)).toEqual([null]);
 	});
 
 	it("serves a saved session's transcript to a device's agent, never one this computer's user hid", async () => {
@@ -1965,37 +2032,44 @@ describe("LocalHostServices", () => {
 
 	it("tells devices to read the list again when a tab here takes or lets go of a session, and only then", async () => {
 		vi.useFakeTimers();
-		const { services, local } = setup();
+		const row = (path: string) => ({ path, id: path, title: path, cwd: workDir, firstMessage: "" });
+		const { services, local } = setup(60_000, {
+			sessionIndex: {
+				list: async () => [row("/s/a.jsonl"), row("/s/b.jsonl")],
+				kindFor: async () => "agent",
+				recordedCwd: async () => workDir,
+			} as unknown as HostServicesDeps["sessionIndex"],
+		});
 		const x = new FakeConnection(peer("device-x"));
 		const heard = () => x.events.filter(entry => entry.event === "sessions.changed").length;
-		const settle = () => vi.advanceTimersByTime(1_000);
+		const settle = () => vi.advanceTimersByTimeAsync(1_000);
 		// Nobody read the list yet: nothing to correct.
 		local.owned.set("/s/early.jsonl", { tabId: "w0", winId: 1 });
 		services.listingChanged();
-		settle();
+		await settle();
 		expect(heard()).toBe(0);
 		await services.call(x.peer, "sessions.list", { scope: "global" }, x);
 
 		// A window here opens a stored session, closes it again; a nudge that changed nothing says nothing.
 		local.owned.set("/s/a.jsonl", { tabId: "w1", winId: 1 });
 		services.listingChanged();
-		settle();
+		await settle();
 		expect(heard()).toBe(1);
 		services.listingChanged();
-		settle();
+		await settle();
 		expect(heard()).toBe(1);
 		local.owned.delete("/s/a.jsonl");
 		services.listingChanged();
-		settle();
+		await settle();
 		expect(heard()).toBe(2);
 
 		// A device's tab here on a stored session, and its close.
 		const y = new FakeConnection(peer("device-y"));
 		await services.call(y.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: "/s/b.jsonl" }, y);
-		settle();
+		await settle();
 		expect(heard()).toBe(3);
 		services.dropPeer("device-y");
-		settle();
+		await settle();
 		expect(heard()).toBe(4);
 	});
 
@@ -2041,7 +2115,7 @@ describe("LocalHostServices", () => {
 		expect(rowsB[0]?.heldOnHost).toBeUndefined();
 		// The tab closes: the listing equals B's snapshot, so nothing more is said, and A heard already.
 		services.listingChanged();
-		vi.advanceTimersByTime(1_000);
+		await vi.advanceTimersByTimeAsync(1_000);
 		expect(a.events.filter(entry => entry.event === "sessions.changed").length).toBe(1);
 	});
 
@@ -2058,7 +2132,7 @@ describe("LocalHostServices", () => {
 		await services.call(a.peer, "sessions.list", { scope: "global" }, a);
 		local.owned.delete("/s/w.jsonl");
 		services.listingChanged();
-		vi.advanceTimersByTime(1_000);
+		await vi.advanceTimersByTimeAsync(1_000);
 		expect(a.events.filter(entry => entry.event === "sessions.changed").length).toBeGreaterThan(0);
 	});
 
@@ -3833,6 +3907,7 @@ describe("LocalHostServices tab events past the link's frame cap", () => {
 			toolArgs: false,
 			deflate: false,
 			deflateContext: false,
+			sessionLists: false,
 		};
 		override emit(event: string, data: unknown): void {
 			if (JSON.stringify(data).length > CAP) throw new FrameTooLargeError(JSON.stringify(data).length);
@@ -3941,6 +4016,7 @@ describe("LocalHostServices an Autopilot status on the link", () => {
 				toolArgs: false,
 				deflate: false,
 				deflateContext: false,
+				sessionLists: false,
 			},
 		});
 		await context.services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
@@ -3997,6 +4073,7 @@ describe("LocalHostServices a get_autopilot answer on the link", () => {
 				toolArgs: false,
 				deflate: false,
 				deflateContext: false,
+				sessionLists: false,
 			},
 		});
 		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
@@ -4066,6 +4143,7 @@ describe("LocalHostServices a get_autopilot answer on the link", () => {
 			toolArgs: false,
 			deflate: false,
 			deflateContext: false,
+			sessionLists: false,
 		};
 		let cycles = 30;
 		services.attachAutopilot(async (_target, command) => ({
@@ -4139,6 +4217,7 @@ describe("LocalHostServices the reads a device repeats on every hydration", () =
 				toolArgs: false,
 				deflate: false,
 				deflateContext: false,
+				sessionLists: false,
 			},
 		});
 		await context.services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);

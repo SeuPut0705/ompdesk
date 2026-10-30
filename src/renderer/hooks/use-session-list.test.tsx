@@ -26,6 +26,8 @@ globals.IS_REACT_ACT_ENVIRONMENT = true;
 interface MockOmp {
 	sessions: {
 		list: Mock<(scope: string) => Promise<SessionInfo[]>>;
+		/** The feed's read, answered by `list` so its calls count the reads. */
+		listShared: () => Promise<{ version: string; sessions: SessionInfo[] }>;
 		delete: Mock<() => Promise<void>>;
 		rename: Mock<() => Promise<void>>;
 	};
@@ -54,6 +56,7 @@ function installMockOmp(): MockOmp {
 	const omp: MockOmp = {
 		sessions: {
 			list: vi.fn(async () => listResult),
+			listShared: async () => ({ version: "test.1", sessions: await omp.sessions.list("global") }),
 			delete: vi.fn(async () => {}),
 			rename: vi.fn(async () => {}),
 		},

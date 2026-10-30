@@ -222,6 +222,7 @@ function hostServices(bin: string, workDir: string, raw: RawTap, bridgeDir?: str
 		hostName: () => "Studio",
 		sessionIndex: {
 			list: async () => [],
+			relist: () => {},
 			searchContent: async () => [],
 			kindFor: async () => "chat",
 			recordedCwd: async () => null,

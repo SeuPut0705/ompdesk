@@ -264,6 +264,7 @@ function hostServices(pool: SidecarPool, create: LocalSidecarFactory): LocalHost
 		hostName: () => "Desk",
 		sessionIndex: {
 			list: async () => [],
+			relist: () => {},
 			searchContent: async () => [],
 			kindFor: async () => "agent",
 			recordedCwd: async () => dir,

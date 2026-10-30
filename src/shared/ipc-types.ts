@@ -58,6 +58,7 @@ import type {
 	SubagentFrame,
 } from "./rpc-types";
 import type { SchedulesApi, SchedulesState } from "./schedules";
+import type { SessionListDelta, VersionedSessionList } from "./session-list-delta";
 import type { GitAslrAction, GitAslrResult, SetupItemId, SetupState } from "./setup";
 import type { SidebarProjectsApi } from "./sidebar-projects";
 import type { SplitLayout } from "./split-layout";
@@ -1062,6 +1063,8 @@ export interface IpcSessionsListPayload {
 	scope: "local" | "global";
 	/** Paired host deviceId; absent = this device. */
 	device?: string;
+	/** The whole list with its version (`VersionedSessionList`, the global scope): what a `list` change applies to. */
+	versioned?: true;
 }
 
 export interface IpcSessionsDeletePayload {
@@ -1832,6 +1835,8 @@ export interface HostView {
  */
 export interface IpcSessionsChanged {
 	device?: string;
+	/** What changed (`session-list-delta.ts`): a feed holding `list.base` applies it; any other reads the list again. */
+	list?: SessionListDelta;
 }
 
 /** A session a paired host works on now, by the working cue's rule (`live-work.ts`). */
@@ -2209,6 +2214,11 @@ export interface OmpApi {
 	sessions: {
 		/** `device` = paired host deviceId; absent = this device. Remote results carry `device`. */
 		list(scope: "local" | "global", device?: string): Promise<SessionInfo[]>;
+		/**
+		 * The global list with the version a SESSIONS_CHANGED `list` change applies to: the feed's read, answered from the
+		 * one copy main keeps per computer (`SessionListShare`).
+		 */
+		listShared(device?: string): Promise<VersionedSessionList>;
 		delete(sessionPath: string, device?: string): Promise<void>;
 		/** Stop every turn on the session (on `device` when given) and resolve once they have ended ("Stop and delete"). */
 		stop(sessionPath: string, device?: string): Promise<void>;

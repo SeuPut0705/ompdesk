@@ -4,10 +4,16 @@
  * workspace dialog) reads the same feed, so a SESSIONS_CHANGED burst costs one
  * debounced `sessions.list` instead of one per mounted consumer.
  *
+ * The global list is numbered (`shared/session-list-delta.ts`): main keeps one
+ * copy per computer and pushes what changed with each SESSIONS_CHANGED. A feed
+ * holding the version a change starts from applies it and asks nothing; any
+ * other (no copy yet, a change missed while released or behind a dropped link)
+ * reads the whole list once.
+ *
  * Layering that keeps the sidebar calm (the "twitch/ghosting" fix):
  * - The loading state shows ONLY on the initial load.
  * - SessionIndex watcher events fire per session-file append (constantly
- *   while agents stream), so event-driven refreshes are DEBOUNCED (trailing
+ *   while agents stream), so event-driven reads are DEBOUNCED (trailing
  *   350ms) and update silently — NO animation on background churn.
  * - One read in flight per feed; a refresh asked for meanwhile runs once
  *   after it, so the last change is never missed.
@@ -19,6 +25,11 @@
  */
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { SessionInfo } from "../../shared/ipc-types";
+import {
+	applySessionListDelta,
+	olderSessionListVersion,
+	type VersionedSessionList,
+} from "../../shared/session-list-delta";
 import { snapshotNs, snapshots } from "../lib/snapshot-cache";
 
 export type SessionListScope = "local" | "global";
@@ -115,6 +126,40 @@ function createSessionListFeed(scope: SessionListScope, device: string | undefin
 	/** Failed reads in a row while held: each retry waits longer (`READ_RETRY_MS`, doubled, at most `READ_RETRY_MAX_MS`). */
 	let failures = 0;
 	let unsubscribe: (() => void) | null = null;
+	/** The global list at the version main numbered it (`listShared`): a pushed change of that version applies here. */
+	let copy: VersionedSessionList | null = null;
+	/** The newest version a change named while a read was under way: the read's answer must be at least that one. */
+	let announced: string | null = null;
+
+	const accept = (list: SessionInfo[]): void => {
+		loaded = true;
+		failures = 0;
+		const state = store.getState();
+		const sessions = reconcile(state.sessions, list);
+		if (sessions !== state.sessions || state.isLoading || !state.live || state.error !== null)
+			store.setState({ sessions, isLoading: false, live: true, error: null });
+		if (sessions !== state.sessions || !state.error) remember();
+		// The global list holds every session, so a row of the local list's last-known copy it lacks was deleted,
+		// possibly on another device: dropped now, before that list next paints it (a phone reload, a mount).
+		if (scope === "global") {
+			const live = new Set(list.map(session => session.path));
+			const cached = snapshots().read<SessionInfo[]>("sessions", ns, snapshotKey("local"))?.value;
+			if (Array.isArray(cached) && cached.some(session => !live.has(session.path)))
+				snapshots().write(
+					"sessions",
+					ns,
+					snapshotKey("local"),
+					cached.filter(session => live.has(session.path)),
+				);
+		}
+	};
+
+	/** The global feed reads the numbered list; a folder's list is read as it is. */
+	const read = (): Promise<SessionInfo[] | VersionedSessionList> => {
+		if (scope === "global")
+			return device === undefined ? window.omp.sessions.listShared() : window.omp.sessions.listShared(device);
+		return device === undefined ? window.omp.sessions.list(scope) : window.omp.sessions.list(scope, device);
+	};
 
 	const refresh = (showSpinner = false): void => {
 		if (showSpinner && !loaded && !store.getState().isLoading && store.getState().sessions.length === 0)
@@ -125,30 +170,15 @@ function createSessionListFeed(scope: SessionListScope, device: string | undefin
 		}
 		inFlight = true;
 		const version = generation;
-		(device === undefined ? window.omp.sessions.list(scope) : window.omp.sessions.list(scope, device))
+		read()
 			.then(
-				list => {
+				answer => {
 					if (version !== generation) return;
-					loaded = true;
-					failures = 0;
-					const state = store.getState();
-					const sessions = reconcile(state.sessions, list);
-					if (sessions !== state.sessions || state.isLoading || !state.live || state.error !== null)
-						store.setState({ sessions, isLoading: false, live: true, error: null });
-					if (sessions !== state.sessions || !state.error) remember();
-					// The global list holds every session, so a row of the local list's last-known copy it lacks was deleted,
-					// possibly on another device: dropped now, before that list next paints it (a phone reload, a mount).
-					if (scope === "global") {
-						const live = new Set(list.map(session => session.path));
-						const cached = snapshots().read<SessionInfo[]>("sessions", ns, snapshotKey("local"))?.value;
-						if (Array.isArray(cached) && cached.some(session => !live.has(session.path)))
-							snapshots().write(
-								"sessions",
-								ns,
-								snapshotKey("local"),
-								cached.filter(session => live.has(session.path)),
-							);
-					}
+					if (Array.isArray(answer)) return accept(answer);
+					copy = answer;
+					accept(answer.sessions);
+					// A change main published in the moment between taking this answer and sending it.
+					if (announced !== null && olderSessionListVersion(answer.version, announced)) queued = true;
 				},
 				(cause: unknown) => {
 					// A read that never answered is not a read that found nothing — the
@@ -168,6 +198,7 @@ function createSessionListFeed(scope: SessionListScope, device: string | undefin
 			.finally(() => {
 				if (version !== generation) return;
 				inFlight = false;
+				announced = null;
 				if (!queued) return;
 				queued = false;
 				refresh();
@@ -180,6 +211,18 @@ function createSessionListFeed(scope: SessionListScope, device: string | undefin
 			unsubscribe = window.omp.events.onSessionsChanged(change => {
 				// Another machine's list changed: this one's rows are as they were.
 				if (change.device !== device) return;
+				const delta = scope === "global" ? change.list : undefined;
+				if (delta && inFlight) {
+					// The read under way answers it (main answers after every change it pushed before).
+					announced = delta.version;
+					return;
+				}
+				if (delta && copy?.version === delta.base) {
+					copy = { version: delta.version, sessions: applySessionListDelta(copy.sessions, delta) };
+					accept(copy.sessions);
+					return;
+				}
+				if (delta && copy?.version === delta.version) return;
 				window.clearTimeout(debounceTimer);
 				debounceTimer = window.setTimeout(() => refresh(), REFRESH_DEBOUNCE_MS);
 			});

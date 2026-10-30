@@ -98,7 +98,6 @@ import type {
 	IpcWorktreePromptAnswer,
 	NotificationClickPayload,
 	SessionContentMatch,
-	SessionInfo,
 	SessionKind,
 } from "../shared/ipc-types";
 import {
@@ -475,10 +474,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				sidecarPool,
 				sessionPath,
 				device,
-				() =>
-					device
-						? remoteDevices.request(device, "sessions.delete", { sessionPath })
-						: sessionIndex.deleteSession(sessionPath),
+				async () => {
+					if (!device) return sessionIndex.deleteSession(sessionPath);
+					await remoteDevices.request(device, "sessions.delete", { sessionPath });
+					// The deleter reads the list next: from the host, not this computer's copy from before.
+					remoteDevices.hostSessionsStale(device);
+				},
 				device ? undefined : deps.hostedTabs,
 			),
 		);
@@ -592,10 +593,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	sidecarPool.hostReplyDelivered = id => agentControl.acknowledge(id);
 	sidecarPool.selfDeviceId = () => deps.remoteDevices.deviceId;
 
-	// Session index changes: this window set, and every device using this
-	// computer as its host.
-	sessionIndex.onChange = () => {
-		broadcast(windowManager, IPC_EVENTS.SESSIONS_CHANGED, {} satisfies IpcSessionsChanged);
+	// The session list changed: every window here gets what changed (a window holding the last version applies it and
+	// asks nothing), and so does every device using this computer as its host.
+	sessionIndex.onListChange = delta => {
+		broadcast(
+			windowManager,
+			IPC_EVENTS.SESSIONS_CHANGED,
+			(delta ? { list: delta } : {}) satisfies IpcSessionsChanged,
+		);
 		remoteDevices.hostSessionsChanged();
 		deps.sidebarProjects?.schedule();
 	};
@@ -1406,14 +1411,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	});
 
 	// Sessions. `device` names the paired host whose session index answers;
-	// its sessions come back tagged with it.
+	// its sessions come back tagged with it. `versioned`: the whole list with the
+	// version a SESSIONS_CHANGED `list` change applies to (the renderer's feed).
 	ipc.handle(IPC_COMMANDS.SESSIONS_LIST, async (caller, payload: IpcSessionsListPayload) => {
-		const scope = payload.scope === "local" ? "local" : "global";
 		const device = deviceOf(payload.device);
+		if (payload.versioned === true) return device ? remoteDevices.hostSessions(device) : sessionIndex.listShared();
+		const scope = payload.scope === "local" ? "local" : "global";
 		const cwd = cwdOnDevice(deps, caller, device) ?? undefined;
 		if (!device) return sessionIndex.list(scope, cwd);
-		const sessions = await remoteDevices.request<SessionInfo[]>(device, "sessions.list", { scope, cwd });
-		return sessions.map(info => ({ ...info, device }));
+		return remoteDevices.listHostSessions(device, scope, cwd);
 	});
 
 	// "Stop and delete" (a delete refused while a turn runs on the session): stop every turn on the file, in any window
@@ -1452,6 +1458,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				await renameStoredSession(omp.runtime, payload.sessionPath, name);
 			},
 		});
+		// The title is in the journal now: the next read of the list (the renamer's own) reads it, not the copy before.
+		if (device) remoteDevices.hostSessionsStale(device);
+		else sessionIndex.relist();
 	});
 
 	ipc.handle(IPC_COMMANDS.SESSIONS_MOVE, async (_caller, payload: IpcSessionsMovePayload): Promise<string> => {
@@ -1462,14 +1471,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			throw codedError("not_absolute_path", "Not an absolute path");
 		}
 		const device = deviceOf(payload.device);
-		return moveSession(sidecarPool, payload.sessionPath, device, () =>
-			device
-				? remoteDevices.request<string>(device, "sessions.move", {
-						sessionPath: payload.sessionPath,
-						cwd: payload.cwd,
-					})
-				: sessionIndex.moveSession(payload.sessionPath, payload.cwd),
-		);
+		return moveSession(sidecarPool, payload.sessionPath, device, async () => {
+			if (!device) return sessionIndex.moveSession(payload.sessionPath, payload.cwd);
+			const moved = await remoteDevices.request<string>(device, "sessions.move", {
+				sessionPath: payload.sessionPath,
+				cwd: payload.cwd,
+			});
+			remoteDevices.hostSessionsStale(device);
+			return moved;
+		});
 	});
 
 	// Open a session (or a fresh project window) in a NEW parallel window with

@@ -37,7 +37,14 @@ const HOME: RemoteDirListing = {
 };
 
 const omp = {
-	sessions: { list: vi.fn(async (_scope: string, _device?: string): Promise<SessionInfo[]> => []) },
+	sessions: {
+		list: vi.fn(async (_scope: string, _device?: string): Promise<SessionInfo[]> => []),
+		// The feed's read, answered by `list` so its calls say which lists were read.
+		listShared: async (device?: string) => ({
+			version: "test.1",
+			sessions: await (device === undefined ? omp.sessions.list("global") : omp.sessions.list("global", device)),
+		}),
+	},
 	events: { onSessionsChanged: vi.fn(() => () => {}) },
 	sidecar: {
 		selectProject: vi.fn(async (): Promise<string | null> => "/work/local"),

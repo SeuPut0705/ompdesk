@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { SessionInfo } from "../../shared/ipc-types";
+import type { IpcSessionsChanged, SessionInfo } from "../../shared/ipc-types";
+import type { VersionedSessionList } from "../../shared/session-list-delta";
 import { resetSnapshotsForTest, snapshots } from "../lib/snapshot-cache";
 import { READ_RETRY_MS, resetSessionListFeeds, sessionListFeed } from "./session-list";
 
@@ -29,7 +30,10 @@ function install(list: () => Promise<SessionInfo[]>, remove: (path: string) => P
 	vi.stubGlobal("window", {
 		setTimeout,
 		clearTimeout,
-		omp: { sessions: { list, delete: remove }, events: { onSessionsChanged: () => () => {} } },
+		omp: {
+			sessions: { list, listShared: async () => ({ version: "e.1", sessions: await list() }), delete: remove },
+			events: { onSessionsChanged: () => () => {} },
+		},
 	});
 }
 
@@ -130,9 +134,9 @@ describe("session list snapshot", () => {
 			clearTimeout,
 			omp: {
 				sessions: {
-					list: async (_scope: string, device?: string) => {
+					listShared: async (device?: string) => {
 						reads.push(device);
-						return [];
+						return { version: "e.1", sessions: [] };
 					},
 				},
 				events: {
@@ -237,5 +241,110 @@ describe("session list snapshot", () => {
 				.store.getState()
 				.sessions.map(s => s.path),
 		).toEqual(["/b"]);
+	});
+});
+
+describe("the numbered global list", () => {
+	const at = (path: string, title = path): SessionInfo =>
+		({ path, title, modified: "2026-10-30T10:00:00.000Z", size: 1 }) as unknown as SessionInfo;
+
+	/** A window whose main answers `listShared` with what `answer` holds when the read lands. */
+	function numbered(first: VersionedSessionList) {
+		vi.useFakeTimers();
+		const listeners: Array<(change: IpcSessionsChanged) => void> = [];
+		const pending: Array<() => void> = [];
+		const state = { answer: first, reads: 0, hold: false };
+		vi.stubGlobal("window", {
+			setTimeout,
+			clearTimeout,
+			omp: {
+				sessions: {
+					listShared: () => {
+						state.reads++;
+						if (!state.hold) return Promise.resolve(state.answer);
+						const read = Promise.withResolvers<VersionedSessionList>();
+						pending.push(() => read.resolve(state.answer));
+						return read.promise;
+					},
+				},
+				events: {
+					onSessionsChanged: (listener: (change: IpcSessionsChanged) => void) => {
+						listeners.push(listener);
+						return () => {};
+					},
+				},
+			},
+		});
+		const push = async (change: IpcSessionsChanged) => {
+			for (const listener of listeners) listener(change);
+			await vi.runAllTimersAsync();
+		};
+		const land = async () => {
+			for (const answer of pending.splice(0)) answer();
+			await vi.runAllTimersAsync();
+		};
+		return { state, push, land };
+	}
+	afterEach(() => vi.useRealTimers());
+
+	it("applies a pushed change of the version it holds and reads nothing", async () => {
+		const { state, push } = numbered({ version: "e.1", sessions: [at("/a"), at("/b")] });
+		const feed = sessionListFeed("global");
+		const release = feed.retain();
+		await vi.runAllTimersAsync();
+		expect(state.reads).toBe(1);
+		const kept = feed.store.getState().sessions[0];
+
+		await push({ list: { base: "e.1", version: "e.2", set: [at("/b", "Renamed")], remove: [] } });
+		expect(feed.store.getState().sessions.map(s => [s.path, s.title])).toEqual([
+			["/a", "/a"],
+			["/b", "Renamed"],
+		]);
+		// A row the change left alone keeps its object: nothing that shows it renders again.
+		expect(feed.store.getState().sessions[0]).toBe(kept);
+		await push({ list: { base: "e.2", version: "e.3", set: [], remove: ["/a"] } });
+		expect(feed.store.getState().sessions.map(s => s.path)).toEqual(["/b"]);
+		// The version it already holds (a read that answered with it) changes nothing either.
+		await push({ list: { base: "e.2", version: "e.3", set: [], remove: ["/b"] } });
+		expect(feed.store.getState().sessions.map(s => s.path)).toEqual(["/b"]);
+		expect(state.reads).toBe(1);
+		release();
+	});
+
+	it("reads the whole list once when it missed a change, then applies the next one", async () => {
+		const { state, push } = numbered({ version: "e.1", sessions: [at("/a")] });
+		const feed = sessionListFeed("global");
+		const release = feed.retain();
+		await vi.runAllTimersAsync();
+
+		// e.2 never came (released meanwhile, a dropped link): e.3 does not apply to e.1.
+		state.answer = { version: "e.3", sessions: [at("/a"), at("/c")] };
+		await push({ list: { base: "e.2", version: "e.3", set: [at("/c")], remove: [] } });
+		expect(state.reads).toBe(2);
+		expect(feed.store.getState().sessions.map(s => s.path)).toEqual(["/a", "/c"]);
+		await push({ list: { base: "e.3", version: "e.4", set: [at("/d")], remove: [] } });
+		expect(feed.store.getState().sessions.map(s => s.path)).toEqual(["/a", "/c", "/d"]);
+		expect(state.reads).toBe(2);
+		release();
+	});
+
+	it("reads again after a read under way answered an older version than a change named meanwhile", async () => {
+		const { state, push, land } = numbered({ version: "e.1", sessions: [at("/a")] });
+		state.hold = true;
+		const feed = sessionListFeed("global");
+		const release = feed.retain();
+		await push({ list: { base: "e.1", version: "e.2", set: [at("/b")], remove: [] } });
+		expect(state.reads).toBe(1);
+		// Main took the list before e.2 and sent it after: the read is behind the change, so it is read once more.
+		await land();
+		state.answer = { version: "e.2", sessions: [at("/a"), at("/b")] };
+		await land();
+		expect(state.reads).toBe(2);
+		expect(feed.store.getState().sessions.map(s => s.path)).toEqual(["/a", "/b"]);
+
+		// A read that already holds what a change under way named is not read again.
+		await push({ list: { base: "e.2", version: "e.3", set: [at("/c")], remove: [] } });
+		expect(state.reads).toBe(2);
+		release();
 	});
 });

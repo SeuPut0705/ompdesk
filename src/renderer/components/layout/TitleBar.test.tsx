@@ -39,6 +39,8 @@ interface TestElement {
 
 const sessions = {
 	list: vi.fn(async () => []),
+	// The feed's read, answered by `list` (a test sets that).
+	listShared: async () => ({ version: "test.1", sessions: await sessions.list() }),
 	delete: vi.fn(async () => {}),
 	rename: vi.fn(async () => {}),
 };

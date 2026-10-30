@@ -1,0 +1,146 @@
+import { describe, expect, it } from "vitest";
+import type { IpcSessionsChanged, SessionInfo } from "../../shared/ipc-types";
+import { HostSessionList } from "./host-session-list";
+
+const row = (path: string, title: string | null = null, modified = "2026-10-30T00:00:00.000Z"): SessionInfo => ({
+	path,
+	id: path,
+	title,
+	cwd: "/work",
+	created: "2026-10-01T00:00:00.000Z",
+	modified,
+	messageCount: 1,
+	size: 1,
+	status: "complete",
+	firstMessage: "hi",
+});
+
+/** A device's copy of host "studio", whose reads of the host wait until the test answers them. */
+function rig() {
+	const asked: Array<(reply: unknown) => void> = [];
+	const told: IpcSessionsChanged[] = [];
+	const list = new HostSessionList("studio", {
+		read: () => {
+			const { promise, resolve } = Promise.withResolvers<unknown>();
+			asked.push(resolve);
+			return promise;
+		},
+		broadcast: change => told.push(change),
+	});
+	const answer = async (reply: unknown) => {
+		const next = asked.shift();
+		if (!next) throw new Error("nothing asked the host");
+		next(reply);
+		await new Promise(resolve => setImmediate(resolve));
+	};
+	return { list, asked, told, answer };
+}
+
+describe("HostSessionList", () => {
+	it("reads the host once for every window that asks, and tags the rows with the host", async () => {
+		const { list, asked, answer } = rig();
+		const first = list.current();
+		const second = list.current();
+		expect(asked).toHaveLength(1);
+		await answer({ version: "h.1", sessions: [row("/b"), row("/a")] });
+		const [a, b] = await Promise.all([first, second]);
+		expect(a).toBe(b);
+		expect(a.sessions.map(entry => [entry.path, entry.device])).toEqual([
+			["/a", "studio"],
+			["/b", "studio"],
+		]);
+		// Asked again with nothing changed: the copy answers.
+		expect(await list.current()).toBe(a);
+		expect(asked).toHaveLength(0);
+	});
+
+	it("applies a host change of the version it holds and hands its windows what changed, reading nothing", async () => {
+		const { list, asked, told, answer } = rig();
+		const reading = list.current();
+		await answer({ version: "h.1", sessions: [row("/a"), row("/b")] });
+		const before = await reading;
+
+		list.hostChanged({ base: "h.1", version: "h.2", set: [row("/b", "Renamed")], remove: ["/a"] });
+		expect(asked).toHaveLength(0);
+		expect(told).toHaveLength(1);
+		const change = told[0];
+		expect(change?.device).toBe("studio");
+		expect(change?.list).toMatchObject({ base: before.version, remove: ["/a"] });
+		expect(change?.list?.set).toEqual([{ ...row("/b", "Renamed"), device: "studio" }]);
+		const after = await list.current();
+		expect(after.version).toBe(change?.list?.version);
+		expect(after.sessions.map(entry => entry.title)).toEqual(["Renamed"]);
+		// The same change again (it crossed twice, or a read already held it) is nothing.
+		list.hostChanged({ base: "h.1", version: "h.2", set: [], remove: ["/b"] });
+		expect(told).toHaveLength(1);
+		expect(asked).toHaveLength(0);
+	});
+
+	it("reads the host once more after a change it cannot apply, and tells its windows to ask", async () => {
+		const { list, asked, told, answer } = rig();
+		const reading = list.current();
+		await answer({ version: "h.1", sessions: [row("/a")] });
+		await reading;
+
+		// h.2 never arrived (the link dropped): h.3 does not apply to h.1.
+		list.hostChanged({ base: "h.2", version: "h.3", set: [row("/c")], remove: [] });
+		expect(told).toEqual([{ device: "studio" }]);
+		expect(asked).toHaveLength(0);
+		const windows = [list.current(), list.current()];
+		expect(asked).toHaveLength(1);
+		await answer({ version: "h.3", sessions: [row("/a"), row("/c")] });
+		const [one, two] = await Promise.all(windows);
+		expect(one).toBe(two);
+		expect(one.sessions.map(entry => entry.path)).toEqual(["/a", "/c"]);
+		// From h.3 on the host's changes apply again.
+		list.hostChanged({ base: "h.3", version: "h.4", set: [], remove: ["/a"] });
+		expect(asked).toHaveLength(0);
+		expect((await list.current()).sessions.map(entry => entry.path)).toEqual(["/c"]);
+	});
+
+	it("reads an older host's list on each of its bare events, in this computer's order", async () => {
+		const { list, asked, told, answer } = rig();
+		const reading = list.current();
+		// An older host numbers nothing and answers the rows in its own order.
+		await answer([row("/old", null, "2026-10-01T00:00:00.000Z"), row("/new", null, "2026-10-30T00:00:00.000Z")]);
+		expect((await reading).sessions.map(entry => entry.path)).toEqual(["/new", "/old"]);
+
+		list.hostChanged(null);
+		expect(told).toEqual([{ device: "studio" }]);
+		const again = list.current();
+		expect(asked).toHaveLength(1);
+		await answer([row("/new", null, "2026-10-30T00:00:00.000Z")]);
+		expect((await again).sessions.map(entry => entry.path)).toEqual(["/new"]);
+		// What changed goes to the windows here, numbered by this computer.
+		expect(told.at(-1)?.list?.remove).toEqual(["/old"]);
+	});
+
+	it("reads again when a change named a later version than the read under way answered", async () => {
+		const { list, asked, told, answer } = rig();
+		const reading = list.current();
+		// The host published h.2 between taking the list for this read (h.1) and sending it.
+		list.hostChanged({ base: "h.1", version: "h.2", set: [row("/b")], remove: [] });
+		expect(told).toHaveLength(0);
+		await answer({ version: "h.1", sessions: [row("/a")] });
+		await reading;
+		expect(told).toEqual([{ device: "studio" }]);
+		const next = list.current();
+		expect(asked).toHaveLength(1);
+		await answer({ version: "h.2", sessions: [row("/a"), row("/b")] });
+		expect((await next).sessions.map(entry => entry.path)).toEqual(["/a", "/b"]);
+	});
+
+	it("reads the host again after a request through it changed its sessions or the link came back", async () => {
+		const { list, asked, told, answer } = rig();
+		const reading = list.current();
+		await answer({ version: "h.1", sessions: [row("/a")] });
+		await reading;
+
+		list.stale();
+		expect(told).toEqual([{ device: "studio" }]);
+		const next = list.current();
+		expect(asked).toHaveLength(1);
+		await answer({ version: "h.2", sessions: [row("/a", "Renamed")] });
+		expect((await next).sessions[0]?.title).toBe("Renamed");
+	});
+});

@@ -26,7 +26,12 @@ Object.assign(globalThis, { document, window, Event, HTMLElement, Element, Node,
 
 Object.assign(window as unknown as Record<string, unknown>, {
 	omp: {
-		sessions: { list: vi.fn(async () => []), delete: vi.fn(async () => {}), rename: vi.fn(async () => {}) },
+		sessions: {
+			list: vi.fn(async () => []),
+			listShared: async () => ({ version: "test.1", sessions: [] }),
+			delete: vi.fn(async () => {}),
+			rename: vi.fn(async () => {}),
+		},
 		events: { onSessionsChanged: vi.fn(() => () => {}) },
 		rpc: {
 			getSessionStats: vi.fn(async () => ({ type: "response", command: "get_session_stats", success: false })),

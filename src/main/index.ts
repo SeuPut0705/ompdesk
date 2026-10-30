@@ -1198,7 +1198,7 @@ app.whenReady().then(() => {
 			for (const sidecar of sidecarPool.allSidecars()) {
 				if (sidecar.device === undefined && sidecar.status === "waiting") sidecar.restart();
 			}
-			if (usable.refused) sessionIndex.onChange?.();
+			if (usable.refused) sessionIndex.relist();
 		},
 		beforeOptional: afterFirstTab,
 		onOmpReady: () => {

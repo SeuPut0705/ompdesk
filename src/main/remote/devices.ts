@@ -32,10 +32,12 @@ import {
 	type RemoteDirListing,
 	type RemoteState,
 	type RemoteTailnetPhase,
+	type SessionInfo,
 	type TailnetComputer,
 } from "../../shared/ipc-types";
 import type { OmpUpdateState } from "../../shared/omp-update";
 import type { SchedulesState } from "../../shared/schedules";
+import type { VersionedSessionList } from "../../shared/session-list-delta";
 import {
 	type IpcSidebarProjects,
 	SIDEBAR_PROJECTS_STATE,
@@ -80,6 +82,7 @@ import {
 import { connectFirst, type ProbeResult, probeAny, RemoteClient, RemoteError, type WakeTrigger } from "./client";
 import { type GateResult, type HostMachineInfo, RemoteHost, type TailnetVisitor } from "./host-server";
 import type { LocalHostServices } from "./host-services";
+import { HostSessionList } from "./host-session-list";
 import { HostStore, type PairedHost } from "./hosts-store";
 import { type Identity, loadIdentity } from "./identity";
 import { ImageBlobCache } from "./image-blob-cache";
@@ -187,6 +190,8 @@ interface HostLink {
 	tabs: Map<string, RemoteSidecar>;
 	/** Tabs closed here while the host was unreachable; it is told when the link is back. */
 	closes: PendingTabCloses;
+	/** The host's session list, one copy for every window here that shows it. */
+	sessions: HostSessionList;
 	/** The host's sessions whose work goes on now (`host.liveSessions`); unset while offline or from an older host. */
 	live?: HostLiveSession[];
 	/** The host's Mobile web address (`host.mobileWeb.link`); unset while offline, not serving, or from an older host. */
@@ -537,6 +542,25 @@ export class RemoteDevices {
 				throw codedError(error.code, error.message);
 			throw new Error(error.message);
 		}
+	}
+
+	/** A paired host's whole session list with this computer's version of it (the copy every window here shares). */
+	hostSessions(deviceId: string): Promise<VersionedSessionList> {
+		const link = this.#links.get(deviceId);
+		if (!link) return Promise.reject(codedError("remote_unknown_device", "The device is not paired"));
+		return link.sessions.current();
+	}
+
+	/** A paired host's sessions, tagged with it: the global list from the shared copy, a folder's from the host. */
+	async listHostSessions(deviceId: string, scope: "local" | "global", cwd?: string): Promise<SessionInfo[]> {
+		if (scope === "global") return (await this.hostSessions(deviceId)).sessions;
+		const sessions = await this.request<SessionInfo[]>(deviceId, "sessions.list", { scope, cwd });
+		return sessions.map(info => ({ ...info, device: deviceId }));
+	}
+
+	/** A request changed the host's sessions (a delete, a move, a rename): the next read asks the host, not the copy. */
+	hostSessionsStale(deviceId: string): void {
+		this.#links.get(deviceId)?.sessions.stale();
 	}
 
 	/**
@@ -921,7 +945,15 @@ export class RemoteDevices {
 			addresses: host => this.#hostAddresses(host),
 			log: this.#deps.logLink,
 		});
-		const link: HostLink = { client, tabs: new Map(), closes: new PendingTabCloses() };
+		const link: HostLink = {
+			client,
+			tabs: new Map(),
+			closes: new PendingTabCloses(),
+			sessions: new HostSessionList(deviceId, {
+				read: params => this.request(deviceId, "sessions.list", params),
+				broadcast: change => this.#deps.broadcast(IPC_EVENTS.SESSIONS_CHANGED, change),
+			}),
+		};
 		client.on("state", state => {
 			for (const tab of link.tabs.values()) tab.linkStateChanged(state);
 			// What the host worked on is unknown while the link is down: its rows go quiet rather than stay lit.
@@ -936,12 +968,12 @@ export class RemoteDevices {
 			void this.#readLiveSessions(link);
 			void this.#readWebLink(link);
 			// Its session list went stale while it was away (or never loaded).
-			this.#deps.broadcast(IPC_EVENTS.SESSIONS_CHANGED, { device: deviceId } satisfies IpcSessionsChanged);
+			link.sessions.stale();
 			for (const listener of this.#hostOnline) listener(deviceId);
 		});
 		client.on("event", (event, data) => {
 			if (event === SESSIONS_CHANGED_EVENT) {
-				this.#deps.broadcast(IPC_EVENTS.SESSIONS_CHANGED, { device: deviceId } satisfies IpcSessionsChanged);
+				link.sessions.hostChanged(data);
 				return;
 			}
 			if (event === MODEL_WAIT_EVENT) {

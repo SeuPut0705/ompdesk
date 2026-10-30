@@ -319,6 +319,7 @@ async function handshakeOn(address: string, link: Link, opts: HandshakeOptions):
 			slimToolArgs: true,
 			deflate: true,
 			deflateContext: true,
+			slimSessionLists: true,
 		});
 		const message = await link.receive(HANDSHAKE_TIMEOUT_MS);
 		if (message.t === "error") throw new RemoteError(String(message.code ?? "protocol"));
