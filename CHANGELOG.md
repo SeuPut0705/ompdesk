@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.86.0] - 2026-10-30
+
+화면 곳곳에서 잘리거나 겹치던 부분을 고치고, 문구를 짧고 한결같게 다듬었어요.
+
+### 바뀐 것
+- 사이드바 세션 제목이 배지와 날짜에 밀려 잘리지 않아요. 분할 보기에서는 지금 보는 칸의 행만 강조돼요.
+- 실행 설정에서 계획 모드는 스위치 하나로만 켜고 꺼요.
+- 폰 입력창에 모델 이름이 보이고, 질문 카드와 작업 보드가 잘리지 않아요. 토스트가 작업 보드를 가리지 않아요.
+- 설정, MCP 목록, 대화상자, 첫 실행 화면의 정렬과 간격을 바로잡았어요.
+- 같은 뜻을 두 이름으로 부르던 용어를 하나로 맞추고, 긴 설명을 줄였어요. 한국어 조사가 값에 따라 틀리던 문장도 고쳤어요.
+- 형식 검증 도구의 설치 잠금이 운영체제 잠금을 써서, 두 설치가 겹치지 않아요.
+
+<!-- en -->
+
+Fixed clipped and overlapping text across the app, and made the wording shorter and consistent.
+
+### Changed
+- Sidebar session titles no longer give way to badges and dates; in split view only the active pane's row is highlighted.
+- Plan mode in the Run settings is one switch.
+- The phone composer shows the model's name; question cards and the work board are no longer cut, and toasts stay clear of the work board.
+- Alignment and spacing fixed in Settings, the MCP list, dialogs and first run.
+- One term per concept, shorter descriptions, and Korean sentences that no longer break on a placeholder's value.
+- The formal verification tools' install lock is an OS lock, so two installs never overlap.
+
 ## [0.85.1] - 2026-10-30
 
 형식 검증 도구를 여러 에이전트가 동시에 처음 설치할 때 서로의 설치를 덮어쓸 수 있던 틈을 막았어요.
