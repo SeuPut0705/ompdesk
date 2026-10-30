@@ -281,7 +281,7 @@ describe("the field's placeholder, by priority", () => {
 				title: "Which file?",
 			}),
 		);
-		expect(placeholder()).toBe("Answer the question above, or type to add an instruction…");
+		expect(placeholder()).toBe("Answer above, or add an instruction…");
 	});
 });
 

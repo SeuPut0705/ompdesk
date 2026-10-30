@@ -1111,12 +1111,26 @@ html[data-shell="phone"] .omp-composer-region--expanded .omp-composer-box > div:
 	padding: 8px 12px;
 }
 /* The phone row scrolls sideways instead of folding, so it keeps what the toolbar's width ladder would drop: the model
-   name (its provider mark and a short name that ellipsizes inside its own box; thinking has its own chip), the Run
-   chip's approval glyph and the active mode's name. Under 340 px of toolbar (a 360 px phone) the model is its mark
-   alone: the row then still ends before Stop/Send instead of scrolling the context chip away. */
+   name (its provider mark and a name that ellipsizes inside its own box; thinking lives in the Run sheet), the Run
+   chip's approval glyph and the active mode's name. The name takes the row's free room up to 6 em ("Sonnet 5.5"
+   whole, the chip within 130 px) and gives it back down to 3.5 em before anything scrolls: the cluster and the chip
+   shrink, the label's own minimum holds (a fixed 3.5 em cut "Sonn…" beside 60 px of empty row at 390). Under 340 px
+   of toolbar (a 360 px phone) the model is its mark alone: the row then still ends before Stop/Send instead of
+   scrolling the context chip away. */
+html[data-shell="phone"] .omp-composer-scroll > .omp-composer-send-cluster {
+	flex-shrink: 1;
+	min-width: auto;
+}
+
+html[data-shell="phone"] .omp-composer-send-cluster > [data-model-chip] {
+	flex-shrink: 1;
+	min-width: auto;
+}
+
 html[data-shell="phone"] .omp-composer-fold-4 .omp-composer-model-label {
 	display: inline;
-	max-width: 3.5em;
+	min-width: 3.5em;
+	max-width: 6em;
 }
 
 @container omp-toolbar (max-width: 340px) {
@@ -1580,6 +1594,9 @@ html[data-input="touch"] .omp-work-head-side {
 html[data-input="touch"] .omp-work-head-side .omp-work-copy {
 	--hit-gap-x: 12px;
 	margin-inline-end: 4px;
+	/* The reach is laid out from the padding box, so the 1 px (transparent) border of a ghost icon button took 2 px
+	   off each axis (34 px, audit 30 Oct 2026). No border, same 24 px box: the 12 px bound makes it 36. */
+	border-width: 0;
 }
 
 /* Each address sits in 7 px above and below, inside its own row: the first one's reach stops short of the setting's

@@ -127,8 +127,11 @@ export function SettingsSection({
 	);
 }
 
-/** Rarely changed settings, folded at the end of a section (see the file comment). */
-export function SettingsAdvanced({ children }: { children: ReactNode }) {
+/**
+ * Rarely changed settings, folded at the end of a section (see the file comment). `label` names a fold that sits
+ * beside another "Advanced" (the Run popover's Autopilot options above its own Advanced).
+ */
+export function SettingsAdvanced({ children, label }: { children: ReactNode; label?: string }) {
 	const t = useT();
 	return (
 		<details className="settings-advanced group/advanced" data-settings-advanced="true">
@@ -137,7 +140,7 @@ export function SettingsAdvanced({ children }: { children: ReactNode }) {
 					aria-hidden
 					className="size-(--sc-icon-sm) shrink-0 transition-transform duration-(--sc-duration-fast) group-open/advanced:rotate-90 motion-reduce:transition-none"
 				/>
-				{t("settings.advancedGroup")}
+				{label ?? t("settings.advancedGroup")}
 			</summary>
 			<div className="settings-advanced-body">{children}</div>
 		</details>
