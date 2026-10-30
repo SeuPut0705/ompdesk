@@ -115,7 +115,12 @@ describe("ToastStack error detail", () => {
 		const message = `Could not read ${path}`;
 		await act(async () => {
 			toast({ variant: "error", title: "Read failed", message, detail: `Error: ${message}` });
-			toast({ variant: "error", title: "Write failed", message: "Could not save.", detail: "EACCES: permission denied" });
+			toast({
+				variant: "error",
+				title: "Write failed",
+				message: "Could not save.",
+				detail: "EACCES: permission denied",
+			});
 		});
 		const details = [...document.querySelectorAll("[data-toast-detail]")].map(node => node.textContent);
 		expect(details).toEqual(["EACCES: permission denied"]);
