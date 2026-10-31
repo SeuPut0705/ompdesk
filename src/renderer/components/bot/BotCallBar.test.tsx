@@ -38,6 +38,7 @@ const snapshot = (over: Partial<CallSnapshot> = {}): CallSnapshot => ({
 	muted: false,
 	busy: false,
 	heard: "",
+	partial: "",
 	pending: null,
 	playing: null,
 	levels: [0, 0, 0, 0, 0],
@@ -145,6 +146,19 @@ describe("BotCallBar", () => {
 		expect(query("[data-bot-call-heard]")?.getAttribute("title")).toBe(
 			translate("botCall.heard", { text: "what is on my calendar today" }),
 		);
+	});
+
+	it("shows the running text while the person talks, in place of the last words heard", async () => {
+		await mountBar();
+		await publish({ phase: "hearing", heard: "earlier", partial: "what is on my" });
+		expect(text("[data-bot-call-heard]")).toBe("“what is on my…”");
+		expect(query("[data-bot-call-heard]")?.hasAttribute("data-bot-call-partial")).toBe(true);
+		expect(query("[data-bot-call-heard]")?.getAttribute("title")).toBe(
+			translate("botCall.partial", { text: "what is on my" }),
+		);
+		await publish({ phase: "listening", heard: "what is on my calendar", partial: "" });
+		expect(text("[data-bot-call-heard]")).toBe("“what is on my calendar”");
+		expect(query("[data-bot-call-heard]")?.hasAttribute("data-bot-call-partial")).toBe(false);
 	});
 
 	it("draws the mic level as five bars", async () => {

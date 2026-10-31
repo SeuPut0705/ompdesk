@@ -85,7 +85,7 @@ export function BotCallBar({ tabId }: { tabId: string }) {
 		};
 	}, [tabId]);
 
-	const { phase, muted, heard, error, levels } = snapshot;
+	const { phase, muted, heard, partial, error, levels } = snapshot;
 	const ended = phase === "ended";
 	const endCall = () => {
 		callRef.current?.end();
@@ -141,11 +141,18 @@ export function BotCallBar({ tabId }: { tabId: string }) {
 								{t(phaseKey(snapshot))}
 							</span>
 							<span
-								className="min-w-0 flex-1 truncate text-(--sc-text-muted)"
+								className={`min-w-0 flex-1 truncate ${partial ? "italic text-(--sc-text)" : "text-(--sc-text-muted)"}`}
 								data-bot-call-heard=""
-								title={heard ? t("botCall.heard", { text: heard }) : undefined}
+								data-bot-call-partial={partial ? "" : undefined}
+								title={
+									partial
+										? t("botCall.partial", { text: partial })
+										: heard
+											? t("botCall.heard", { text: heard })
+											: undefined
+								}
 							>
-								{heard ? `“${heard}”` : null}
+								{partial ? `“${partial}…”` : heard ? `“${heard}”` : null}
 							</span>
 						</>
 					)}

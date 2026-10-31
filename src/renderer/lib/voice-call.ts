@@ -7,9 +7,13 @@
  * is the pure-ish VAD (levels in, speech signals out); {@link startVoiceCall} wires both to the mic, the recorder, the
  * RPCs and the tab's stores and runs the effects of each transition.
  *
- * Boundaries: the bridge's STT and TTS answer whole clips (stock's streaming `startStream` / `synthesizeStream` are not
- * exposed), so a reply's first sound waits for its full synthesis and an utterance is transcribed only once it ended.
- * While one is being transcribed the VAD is off: speech in that gap is not heard.
+ * Streaming: when the omp answers the bridge's `stt_stream_*` / `tts_stream_*` commands, an utterance is transcribed while
+ * it is spoken (16 kHz PCM frames from the mic's script processor, every ~200 ms, the running text shown as it comes), the
+ * call listens again the moment the speech ends (the stop resolves in the background, and results are sent in utterance
+ * order), and a reply starts playing at its first synthesized chunk. An omp without them answers `unsupported_omp` /
+ * unknown-command at the first start and the call uses the whole-clip path for the rest of its life: a MediaRecorder per
+ * utterance transcribed once it ended (the VAD is off meanwhile, so speech in that gap is not heard) and a reply played
+ * once fully synthesized.
  */
 import { parseBotSources } from "../../shared/bot-sources";
 import type { AgentMessage } from "../../shared/rpc-types";
@@ -20,13 +24,22 @@ import { messageText } from "./messages";
 import {
 	classifyMicError,
 	type DictationFailure,
+	type DictationResult,
 	METER_BARS,
 	playSpeech,
-	type SpeechPlayback,
 	setVoiceCallActive,
 	speechBandLevels,
 	transcribeBlob,
 } from "./voice";
+import {
+	createPcmTap,
+	ompVoiceStreams,
+	type PcmTap,
+	playSpeechStream,
+	type StreamSpeechPlayback,
+	SttStream,
+	type VoiceStreams,
+} from "./voice-stream";
 
 // ---------------------------------------------------------------------------
 // The state machine
@@ -44,6 +57,8 @@ export interface CallState {
 	readonly busy: boolean;
 	/** The last words the person said that were heard (not blank). */
 	readonly heard: string;
+	/** What the person is saying right now, as far as the running transcription has it (blank: nothing yet). */
+	readonly partial: string;
 	/** A reply held back while the person talks; spoken when they stop. */
 	readonly pending: string | null;
 	/** The reply being spoken now (set on entering `speaking`). */
@@ -55,10 +70,15 @@ export interface CallState {
 export type CallEvent =
 	| { type: "micReady" }
 	| { type: "speechStart" }
-	| { type: "speechEnd" }
+	/** `streamed`: the words are transcribed on a stream that goes on after this, so the call listens again at once instead of waiting in `transcribing`. */
+	| { type: "speechEnd"; streamed?: boolean }
 	/** The utterance was too short to be speech. */
 	| { type: "speechDropped" }
 	| { type: "transcript"; text: string }
+	/** The words of a streamed utterance, whenever its transcription settles: unlike `transcript` it lands in any phase. */
+	| { type: "streamTranscript"; text: string }
+	/** The running text of the utterance being heard. */
+	| { type: "partial"; text: string }
 	/** The words never reached the bot. */
 	| { type: "sendFailed" }
 	/** The bot's turn began. */
@@ -80,6 +100,7 @@ export const INITIAL_CALL_STATE: CallState = {
 	muted: false,
 	busy: false,
 	heard: "",
+	partial: "",
 	pending: null,
 	playing: null,
 };
@@ -115,7 +136,8 @@ export function nextPhase(state: CallState, event: CallEvent): CallState {
 				? { ...withoutError(state), phase: "hearing" }
 				: state;
 		case "speechEnd":
-			return state.phase === "hearing" ? { ...state, phase: "transcribing" } : state;
+			if (state.phase !== "hearing") return state;
+			return event.streamed ? rest(state) : { ...state, phase: "transcribing" };
 		case "speechDropped":
 			return state.phase === "hearing" ? rest(state) : state;
 		case "transcript": {
@@ -123,6 +145,14 @@ export function nextPhase(state: CallState, event: CallEvent): CallState {
 			const text = event.text.trim();
 			return text ? rest({ ...state, heard: text, busy: true }) : rest(state);
 		}
+		case "streamTranscript": {
+			const text = event.text.trim();
+			if (!text) return state;
+			const next = { ...state, heard: text, busy: true };
+			return state.phase === "listening" ? rest(next) : next;
+		}
+		case "partial":
+			return event.text === state.partial ? state : { ...state, partial: event.text };
 		case "sendFailed": {
 			const next = { ...state, busy: false };
 			return state.phase === "waiting" ? rest(next) : next;
@@ -303,6 +333,8 @@ export interface VoiceCallOptions {
 	send: (text: string, context: { streaming: boolean }) => Promise<boolean>;
 	/** Every change of the call, and of the mic level a few times a second. */
 	onState: (snapshot: CallSnapshot) => void;
+	/** The bridge's streaming voice commands; the app's RPC client by default. */
+	streams?: VoiceStreams;
 }
 
 interface Watchable<T> {
@@ -319,6 +351,8 @@ interface Capture {
 const SILENT_LEVELS: readonly number[] = Array.from({ length: METER_BARS }, () => 0);
 /** The meter publishes every this many VAD ticks (≈ 60 ms). */
 const METER_EVERY_TICKS = 2;
+/** While hearing, a frame of mic audio goes to the transcription at most this often. */
+const PUSH_EVERY_MS = 200;
 
 let activeCall: VoiceCall | null = null;
 
@@ -350,7 +384,19 @@ export function startVoiceCall(options: VoiceCallOptions): VoiceCall {
 	let context: AudioContext | null = null;
 	let stopTicking = (): void => {};
 	let capture: Capture | null = null;
-	let playback: SpeechPlayback | null = null;
+	let playback: StreamSpeechPlayback | null = null;
+	let tap: PcmTap | null = null;
+	/** Whether utterances stream: unknown until the first stream start answers; `batch` for the rest of the call once it was refused. */
+	let sttMode: "unknown" | "stream" | "batch" = "unknown";
+	let ttsBatch = false;
+	/** The utterance being heard, and the one whose running text the bar shows (it outlives the hearing until its stop settles). */
+	let utterance: { stream: SttStream; lastPushAt: number } | null = null;
+	let latest: SttStream | null = null;
+	/** Streams whose stop has not settled: ended with the call. */
+	const inflight = new Set<SttStream>();
+	/** Results go out in utterance order, whichever stream settles first. */
+	let delivery: Promise<void> = Promise.resolve();
+	const streams = options.streams ?? ompVoiceStreams();
 	let lastAssistantText: string | null = null;
 	const unsubscribers: Array<() => void> = [];
 	const vad = new VoiceActivity();
@@ -395,12 +441,55 @@ export function startVoiceCall(options: VoiceCallOptions): VoiceCall {
 	}
 
 	function startPlayback(text: string): void {
-		const started = playSpeech(text);
+		const target = context;
+		const started = ttsBatch || !target ? playSpeech(text) : playSpeechStream(text, streams, target);
 		playback = started;
 		void started.finished.then(end => {
 			if (playback !== started) return;
 			playback = null;
+			if (end.status === "unsupported") {
+				ttsBatch = true;
+				startPlayback(text);
+				return;
+			}
 			dispatch(end.status === "failed" ? { type: "warn", error: "speak" } : { type: "playbackEnded" });
+		});
+	}
+
+	/** The utterance's stream goes away; the bar stops showing its text. */
+	function forget(stream: SttStream): void {
+		stream.cancel();
+		inflight.delete(stream);
+		if (latest !== stream) return;
+		latest = null;
+		dispatch({ type: "partial", text: "" });
+	}
+
+	function discardUtterance(): void {
+		const taken = utterance;
+		utterance = null;
+		if (!taken) return;
+		tap?.end();
+		forget(taken.stream);
+	}
+
+	function beginUtterance(): void {
+		if (!tap || sttMode === "batch" || utterance) return;
+		const stream = new SttStream(streams, text => {
+			if (latest === stream) dispatch({ type: "partial", text });
+		});
+		utterance = { stream, lastPushAt: Date.now() };
+		latest = stream;
+		inflight.add(stream);
+		stream.push(tap.begin());
+		void stream.opened.then(open => {
+			if (open.kind === "unsupported") {
+				sttMode = "batch";
+			} else if (open.kind === "open") {
+				sttMode = "stream";
+				// The recorder that ran for the first utterance, before the call knew streaming works, is not needed.
+				if (utterance?.stream === stream) discardCapture();
+			}
 		});
 	}
 
@@ -408,7 +497,12 @@ export function startVoiceCall(options: VoiceCallOptions): VoiceCall {
 		stopTicking();
 		for (const unsubscribe of unsubscribers.splice(0)) unsubscribe();
 		discardCapture();
+		discardUtterance();
+		for (const open of inflight) open.cancel();
+		inflight.clear();
 		stopPlayback();
+		tap?.close();
+		tap = null;
 		vad.reset();
 		if (stream) for (const track of stream.getTracks()) track.stop();
 		stream = null;
@@ -431,16 +525,18 @@ export function startVoiceCall(options: VoiceCallOptions): VoiceCall {
 		} else if (previous.phase === "speaking" && next.phase !== "speaking") {
 			stopPlayback();
 		}
-		// Hearing that ends any way but into transcription (muted, too short) leaves nothing to keep.
+		// Hearing that ends any way but into transcription or a stream (muted, too short) leaves nothing to keep.
 		if (previous.phase === "hearing" && next.phase !== "hearing" && next.phase !== "transcribing") {
 			vad.reset();
 			discardCapture();
+			discardUtterance();
 		}
 		if (next.muted !== previous.muted) {
 			if (stream) for (const track of stream.getTracks()) track.enabled = !next.muted;
 			if (next.muted) {
 				vad.reset();
 				discardCapture();
+				discardUtterance();
 				levels = SILENT_LEVELS;
 			}
 		}
@@ -464,31 +560,52 @@ export function startVoiceCall(options: VoiceCallOptions): VoiceCall {
 		if (sessionStore.getState().isStreaming) dispatch({ type: "replyStarted" });
 	}
 
-	async function transcribe(blob: Blob | null): Promise<void> {
-		if (!blob) {
-			dispatch({ type: "transcript", text: "" });
-			return;
-		}
-		const result = await transcribeBlob(blob);
-		if (state.phase === "ended") return;
+	function transcribeRecording(blob: Blob | null): Promise<DictationResult> {
+		return blob ? transcribeBlob(blob) : Promise.resolve({ text: "" });
+	}
+
+	/** `background`: the call listens on while this settles (a stream), so nothing waits in `transcribing`. */
+	async function applyTranscript(result: DictationResult, background: boolean): Promise<void> {
 		if ("text" in result) {
 			const text = result.text.trim();
-			dispatch({ type: "transcript", text });
+			dispatch(background ? { type: "streamTranscript", text } : { type: "transcript", text });
 			if (text) await deliver(text);
 			return;
 		}
 		const failure = result.failure ?? "failed";
 		if (failure === "no-model") dispatch({ type: "fail", error: "no-model" });
-		else if (failure === "empty" || failure === "busy") dispatch({ type: "transcript", text: "" });
-		else dispatch({ type: "warn", error: "failed" });
+		else if (failure === "empty" || failure === "busy") {
+			if (!background) dispatch({ type: "transcript", text: "" });
+		} else dispatch({ type: "warn", error: "failed" });
 		// The words never became text: a turn that still runs keeps the call waiting.
 		if (sessionStore.getState().isStreaming) dispatch({ type: "replyStarted" });
+	}
+
+	/** Queue one utterance's outcome behind the earlier ones, so what the person said goes to the bot in the order they said it. */
+	function conclude(stream: SttStream | null, result: Promise<DictationResult>, background: boolean): void {
+		delivery = delivery.then(async () => {
+			const outcome = await result;
+			if (stream) forget(stream);
+			if (state.phase === "ended") return;
+			await applyTranscript(outcome, background);
+		});
+	}
+
+	/** The stream's final text, or (the omp refused streaming at the first start) the whole recording transcribed. */
+	async function streamedTranscript(
+		stream: SttStream,
+		tail: Int16Array,
+		recording: Promise<Blob | null>,
+	): Promise<DictationResult> {
+		const open = await stream.opened;
+		if (open.kind === "unsupported") return transcribeRecording(await recording);
+		return stream.stop(tail);
 	}
 
 	function onSignal(signal: VadSignal): void {
 		switch (signal.kind) {
 			case "candidate":
-				beginCapture();
+				if (sttMode !== "stream") beginCapture();
 				return;
 			case "dropped":
 				discardCapture();
@@ -499,20 +616,30 @@ export function startVoiceCall(options: VoiceCallOptions): VoiceCall {
 				if (state.phase !== "hearing") {
 					vad.reset();
 					discardCapture();
+					return;
 				}
+				beginUtterance();
 				return;
 			case "end": {
 				if (state.phase !== "hearing") {
 					discardCapture();
+					discardUtterance();
 					return;
 				}
 				if (signal.voicedMs < CALL_TUNING.minVoicedMs) {
 					discardCapture();
+					discardUtterance();
 					dispatch({ type: "speechDropped" });
 					return;
 				}
-				dispatch({ type: "speechEnd" });
-				void finishCapture().then(transcribe);
+				const recording = finishCapture();
+				const heard = utterance;
+				utterance = null;
+				const tail = heard ? (tap?.end() ?? new Int16Array(0)) : null;
+				const streamed = sttMode === "stream";
+				dispatch({ type: "speechEnd", streamed });
+				if (heard && tail) conclude(heard.stream, streamedTranscript(heard.stream, tail, recording), streamed);
+				else conclude(null, recording.then(transcribeRecording), false);
 				return;
 			}
 		}
@@ -538,7 +665,13 @@ export function startVoiceCall(options: VoiceCallOptions): VoiceCall {
 				publish();
 			}
 		}
-		const signal = vad.step(rms, Date.now(), vadMode(state));
+		const now = Date.now();
+		const pushDue = utterance && !utterance.stream.busy && now - utterance.lastPushAt >= PUSH_EVERY_MS;
+		if (utterance && pushDue && state.phase === "hearing") {
+			utterance.stream.push(tap?.drain() ?? new Int16Array(0));
+			utterance.lastPushAt = now;
+		}
+		const signal = vad.step(rms, now, vadMode(state));
 		if (signal) onSignal(signal);
 	}
 
@@ -567,7 +700,14 @@ export function startVoiceCall(options: VoiceCallOptions): VoiceCall {
 			analyser = context.createAnalyser();
 			analyser.fftSize = 1024;
 			analyser.smoothingTimeConstant = 0.6;
-			context.createMediaStreamSource(opened).connect(analyser);
+			const source = context.createMediaStreamSource(opened);
+			source.connect(analyser);
+			try {
+				tap = createPcmTap(context, source);
+			} catch {
+				// No raw PCM from this page: every utterance goes the whole-clip way.
+				sttMode = "batch";
+			}
 			if (context.state === "suspended") void context.resume();
 			samples = new Float32Array(analyser.fftSize);
 			bins = new Uint8Array(analyser.frequencyBinCount);

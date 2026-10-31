@@ -26,6 +26,7 @@ import {
 	VoiceActivity,
 	type VoiceCall,
 } from "./voice-call";
+import { createPcmTap, type StreamReply, type VoiceStreams } from "./voice-stream";
 
 // ---------------------------------------------------------------------------
 // The state machine
@@ -39,8 +40,11 @@ const EVENTS: CallEvent[] = [
 	{ type: "micReady" },
 	{ type: "speechStart" },
 	{ type: "speechEnd" },
+	{ type: "speechEnd", streamed: true },
 	{ type: "speechDropped" },
 	{ type: "transcript", text: "hi" },
+	{ type: "streamTranscript", text: "hi" },
+	{ type: "partial", text: "h" },
 	{ type: "sendFailed" },
 	{ type: "replyStarted" },
 	{ type: "reply", text: "ok" },
@@ -111,6 +115,36 @@ describe("nextPhase", () => {
 			expect(nextPhase(state, { type: "speechEnd" })).toBe(state);
 			expect(nextPhase(state, { type: "speechDropped" })).toBe(state);
 		}
+	});
+
+	it("listens again at once when the utterance streams on, and carries its words in later", () => {
+		expect(nextPhase(at("hearing"), { type: "speechEnd", streamed: true }).phase).toBe("listening");
+		expect(nextPhase(at("hearing", { busy: true }), { type: "speechEnd", streamed: true }).phase).toBe("waiting");
+		expect(nextPhase(at("hearing", { pending: "held" }), { type: "speechEnd", streamed: true })).toMatchObject({
+			phase: "speaking",
+			playing: "held",
+		});
+		expect(nextPhase(at("listening"), { type: "streamTranscript", text: " hello " })).toMatchObject({
+			phase: "waiting",
+			busy: true,
+			heard: "hello",
+		});
+		for (const phase of ["hearing", "speaking", "waiting"] as const) {
+			expect(nextPhase(at(phase), { type: "streamTranscript", text: "hello" })).toMatchObject({
+				phase,
+				busy: true,
+				heard: "hello",
+			});
+		}
+		const quiet = at("listening", { heard: "before" });
+		expect(nextPhase(quiet, { type: "streamTranscript", text: "  " })).toBe(quiet);
+	});
+
+	it("keeps the running text of the utterance apart from the phase", () => {
+		const hearing = nextPhase(at("hearing"), { type: "partial", text: "what is" });
+		expect(hearing).toMatchObject({ phase: "hearing", partial: "what is" });
+		expect(nextPhase(hearing, { type: "partial", text: "what is" })).toBe(hearing);
+		expect(nextPhase(hearing, { type: "partial", text: "" }).partial).toBe("");
 	});
 
 	it("waits for the bot after a transcript, and goes back to listening on an empty one", () => {
@@ -471,8 +505,8 @@ async function botTurn(text: string | null): Promise<void> {
 	await settle();
 }
 
-async function startCall(): Promise<VoiceCall> {
-	call = startVoiceCall({ tabId: "t-bot", send, onState: snapshot => states.push(snapshot) });
+async function startCall(streams?: VoiceStreams): Promise<VoiceCall> {
+	call = startVoiceCall({ tabId: "t-bot", send, streams, onState: snapshot => states.push(snapshot) });
 	await advance(0);
 	await settle();
 	// The floor is measured over the first ticks.
@@ -498,6 +532,21 @@ beforeEach(() => {
 				transcribeAudio,
 				synthesizeSpeech,
 				getSettings: vi.fn(async () => ({ success: true, data: { values: { "speech.mode": "yield" } } })),
+				// The default omp here lacks the streaming commands: these cases cover the whole-clip path.
+				...Object.fromEntries(
+					[
+						"sttStreamStart",
+						"sttStreamPush",
+						"sttStreamStop",
+						"sttStreamCancel",
+						"ttsStreamStart",
+						"ttsStreamNext",
+						"ttsStreamCancel",
+					].map(method => [
+						method,
+						vi.fn(async () => ({ success: false, error: `unsupported_omp: ${method}`, code: "unsupported_omp" })),
+					]),
+				),
 			},
 		},
 	});
@@ -886,6 +935,362 @@ describe("startVoiceCall", () => {
 	});
 });
 
+// ---------------------------------------------------------------------------
+// The call, streaming
+// ---------------------------------------------------------------------------
+
+type StreamMocks = { [K in keyof VoiceStreams]: Mock<VoiceStreams[K]> };
+
+const ok = (data: unknown): StreamReply => ({ success: true, data });
+
+/** 0.1 s of reply audio at 24 kHz, as the bridge sends it: base64 PCM16. */
+const CHUNK = btoa(String.fromCharCode(...new Uint8Array(new Int16Array(2400).fill(1000).buffer)));
+
+function decodePcm(base64: string): Int16Array {
+	const binary = atob(base64);
+	const bytes = new Uint8Array(binary.length);
+	for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+	return new Int16Array(bytes.buffer);
+}
+
+describe("startVoiceCall with streaming", () => {
+	let streams: StreamMocks;
+	let started: number;
+
+	/** The audio context of the call (its replies are scheduled on it). */
+	const audioContext = (): FakeAudioContext => {
+		const context = FakeAudioContext.instances[0];
+		if (!context) throw new Error("the call opened no audio context");
+		return context;
+	};
+
+	beforeEach(() => {
+		started = 0;
+		streams = {
+			sttStreamStart: vi.fn<VoiceStreams["sttStreamStart"]>(async () => ok({ streamId: `s${++started}` })),
+			sttStreamPush: vi.fn<VoiceStreams["sttStreamPush"]>(async () => ok({ text: "hello" })),
+			sttStreamStop: vi.fn<VoiceStreams["sttStreamStop"]>(async id => ok({ text: `said ${id}` })),
+			sttStreamCancel: vi.fn<VoiceStreams["sttStreamCancel"]>(async () => ok({})),
+			ttsStreamStart: vi.fn<VoiceStreams["ttsStreamStart"]>(async () => ok({ streamId: "t1", sampleRate: 24_000 })),
+			ttsStreamNext: vi.fn<VoiceStreams["ttsStreamNext"]>(async () => ok({ chunks: [CHUNK], done: true })),
+			ttsStreamCancel: vi.fn<VoiceStreams["ttsStreamCancel"]>(async () => ok({})),
+		};
+	});
+
+	it("transcribes while the person speaks, listens again the moment the speech ends, and sends the final text", async () => {
+		const stop = Promise.withResolvers<StreamReply>();
+		streams.sttStreamStop.mockImplementationOnce(() => stop.promise);
+		await startCall(streams);
+		await talk(600);
+		await settle();
+		expect(phase()).toBe("hearing");
+		expect(streams.sttStreamStart).toHaveBeenCalledTimes(1);
+		// Frames go out during the speech, the first one carrying the pre-roll.
+		expect(streams.sttStreamPush.mock.calls.length).toBeGreaterThan(1);
+		const [id, firstFrame] = streams.sttStreamPush.mock.calls[0] ?? [];
+		expect(id).toBe("s1");
+		const preRoll = decodePcm(firstFrame ?? "");
+		expect(preRoll.length).toBeGreaterThan(0);
+		expect(preRoll.length).toBeLessThanOrEqual(6400);
+		expect(preRoll.some(sample => sample !== 0)).toBe(true);
+		expect(last().partial).toBe("hello");
+		expect(streams.sttStreamStop).not.toHaveBeenCalled();
+		expect(transcribeAudio).not.toHaveBeenCalled();
+
+		await advance(CALL_TUNING.endMs + 100);
+		await settle();
+		expect(streams.sttStreamStop).toHaveBeenCalledWith("s1");
+		expect(phase()).toBe("listening");
+		expect(phases()).not.toContain("transcribing");
+		expect(send).not.toHaveBeenCalled();
+
+		stop.resolve(ok({ text: "what time is it" }));
+		await settle();
+		expect(send).toHaveBeenCalledTimes(1);
+		expect(send).toHaveBeenCalledWith("what time is it", { streaming: false });
+		expect(last()).toMatchObject({ phase: "waiting", heard: "what time is it", busy: true, partial: "" });
+		expect(transcribeAudio).not.toHaveBeenCalled();
+	});
+
+	it("drops the batch recorder once streaming works: the first one is released, later ones never start", async () => {
+		await startCall(streams);
+		await utterance();
+		expect(FakeMediaRecorder.instances).toHaveLength(1);
+		expect(FakeMediaRecorder.instances[0]?.state).toBe("inactive");
+		await utterance();
+		expect(FakeMediaRecorder.instances).toHaveLength(1);
+		expect(send).toHaveBeenCalledTimes(2);
+		expect(transcribeAudio).not.toHaveBeenCalled();
+	});
+
+	it("captures speech said while the previous utterance is still being transcribed, and sends both in order", async () => {
+		const first = Promise.withResolvers<StreamReply>();
+		streams.sttStreamStop.mockImplementationOnce(() => first.promise);
+		await startCall(streams);
+		await utterance();
+		expect(streams.sttStreamStop).toHaveBeenCalledWith("s1");
+		expect(phase()).toBe("listening");
+
+		await talk(600);
+		expect(phase()).toBe("hearing");
+		expect(streams.sttStreamStart).toHaveBeenCalledTimes(2);
+		await advance(CALL_TUNING.endMs + 100);
+		await settle();
+		expect(streams.sttStreamStop).toHaveBeenCalledWith("s2");
+		// The second one is final already, but it waits for the first.
+		expect(send).not.toHaveBeenCalled();
+
+		first.resolve(ok({ text: "first" }));
+		await settle();
+		expect(send.mock.calls.map(([text]) => text)).toEqual(["first", "said s2"]);
+	});
+
+	it("goes back to listening on an empty final text, and shows the failure of a stop that failed", async () => {
+		streams.sttStreamStop.mockImplementationOnce(async () => ok({ text: "  " }));
+		await startCall(streams);
+		await utterance();
+		expect(send).not.toHaveBeenCalled();
+		expect(phase()).toBe("listening");
+		expect(last().error).toBeUndefined();
+
+		streams.sttStreamStop.mockImplementationOnce(async () => ({ success: false, error: "stt crashed" }));
+		await utterance();
+		expect(phase()).toBe("listening");
+		expect(last().error).toBe("failed");
+	});
+
+	it("cancels the stream of an utterance that was too short, and of one muted midway", async () => {
+		await startCall(streams);
+		await talk(180);
+		await advance(CALL_TUNING.endMs + 100);
+		await settle();
+		expect(streams.sttStreamCancel).toHaveBeenCalledWith("s1");
+		expect(streams.sttStreamStop).not.toHaveBeenCalled();
+		expect(send).not.toHaveBeenCalled();
+
+		await talk(400);
+		expect(phase()).toBe("hearing");
+		call?.setMuted(true);
+		await settle();
+		expect(streams.sttStreamCancel).toHaveBeenCalledWith("s2");
+		expect(last().partial).toBe("");
+	});
+
+	it("ends with the reason when the stream start says no dictation model is configured", async () => {
+		streams.sttStreamStart.mockImplementationOnce(async () => ({
+			success: false,
+			error: "No stt model devices configured",
+		}));
+		await startCall(streams);
+		await utterance();
+		expect(last()).toMatchObject({ phase: "ended", error: "no-model" });
+		expect(mic.streams[0]?.track.stopped).toBe(true);
+	});
+
+	it("starts playing a reply at its first chunk, gaplessly, and is done once the last chunk ended", async () => {
+		const second = Promise.withResolvers<StreamReply>();
+		streams.ttsStreamNext
+			.mockImplementationOnce(async () => ok({ chunks: [CHUNK], done: false }))
+			.mockImplementationOnce(() => second.promise);
+		await startCall(streams);
+		await utterance();
+		await botTurn(`${REPLY}\n\nSources: notes.md`);
+		expect(streams.ttsStreamStart).toHaveBeenCalledWith(REPLY);
+		expect(synthesizeSpeech).not.toHaveBeenCalled();
+
+		// The first chunk plays while the stream is not done.
+		const sources = audioContext().sources;
+		expect(sources).toHaveLength(1);
+		expect(sources[0]?.startedAt).not.toBeNull();
+		expect(phase()).toBe("speaking");
+
+		second.resolve(ok({ chunks: [CHUNK], done: true }));
+		await settle();
+		expect(sources).toHaveLength(2);
+		const [one, two] = sources;
+		expect(two?.startedAt).toBeCloseTo((one?.startedAt ?? 0) + (one?.buffer?.duration ?? 0), 6);
+		expect(one?.buffer).toMatchObject({ length: 2400, sampleRate: 24_000 });
+
+		one?.finish();
+		await settle();
+		expect(phase()).toBe("speaking");
+		two?.finish();
+		await settle();
+		expect(phase()).toBe("listening");
+		expect(streams.ttsStreamCancel).not.toHaveBeenCalled();
+	});
+
+	it("stops every scheduled chunk and cancels the stream when the person talks over the reply", async () => {
+		const next = Promise.withResolvers<StreamReply>();
+		streams.ttsStreamNext
+			.mockImplementationOnce(async () => ok({ chunks: [CHUNK], done: false }))
+			.mockImplementationOnce(() => next.promise);
+		await startCall(streams);
+		await utterance();
+		await botTurn(REPLY);
+		const sources = audioContext().sources;
+		expect(sources).toHaveLength(1);
+
+		await talk(600);
+		expect(phase()).toBe("hearing");
+		expect(sources[0]?.stopped).toBe(true);
+		expect(streams.ttsStreamCancel).toHaveBeenCalledWith("t1");
+
+		// What the cancelled stream still answers is not played, and does not read as the reply having ended.
+		next.resolve(ok({ chunks: [CHUNK], done: true }));
+		await settle();
+		expect(sources).toHaveLength(1);
+		expect(phase()).toBe("hearing");
+
+		await advance(CALL_TUNING.endMs + 100);
+		await settle();
+		expect(send).toHaveBeenCalledTimes(2);
+	});
+
+	it("goes back to listening, with the reason, when the reply stream fails", async () => {
+		streams.ttsStreamNext.mockImplementationOnce(async () => ({ success: false, error: "tts down" }));
+		await startCall(streams);
+		await utterance();
+		await botTurn(REPLY);
+		expect(last()).toMatchObject({ phase: "listening", error: "speak" });
+		expect(streams.ttsStreamCancel).toHaveBeenCalledWith("t1");
+	});
+
+	it("releases the streams, the sources and the timers when the call ends", async () => {
+		const next = Promise.withResolvers<StreamReply>();
+		streams.ttsStreamNext
+			.mockImplementationOnce(async () => ok({ chunks: [CHUNK], done: false }))
+			.mockImplementationOnce(() => next.promise);
+		await startCall(streams);
+		await talk(400);
+		call?.end();
+		await settle();
+		expect(streams.sttStreamCancel).toHaveBeenCalledWith("s1");
+		expect(FakeAudioContext.instances.every(context => context.closed)).toBe(true);
+		expect(vi.getTimerCount()).toBe(0);
+
+		states = [];
+		call = await startCall(streams);
+		await utterance();
+		await botTurn(REPLY);
+		call.end();
+		const sources = FakeAudioContext.instances.at(-1)?.sources ?? [];
+		expect(sources).toHaveLength(1);
+		expect(sources.every(source => source.stopped)).toBe(true);
+		await settle();
+		expect(streams.ttsStreamCancel).toHaveBeenCalledWith("t1");
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	describe("on an omp without streaming", () => {
+		const refused = (): StreamReply => ({ success: false, error: "unknown command: stt_stream_start" });
+
+		it("transcribes the first utterance from the recording and keeps to the batch path for the rest of the call", async () => {
+			streams.sttStreamStart.mockImplementation(async () => refused());
+			await startCall(streams);
+			await talk(600);
+			await advance(CALL_TUNING.endMs + 100);
+			await settle();
+			expect(phases()).toContain("transcribing");
+			expect(transcribeAudio).toHaveBeenCalledTimes(1);
+			expect(send).toHaveBeenCalledWith("hello bot", { streaming: false });
+
+			await utterance();
+			expect(transcribeAudio).toHaveBeenCalledTimes(2);
+			expect(send).toHaveBeenCalledTimes(2);
+			expect(streams.sttStreamStart).toHaveBeenCalledTimes(1);
+			expect(streams.sttStreamPush).not.toHaveBeenCalled();
+		});
+
+		it("plays the reply whole, and does not ask for a speech stream again", async () => {
+			streams.ttsStreamStart.mockImplementation(async () => ({
+				success: false,
+				error: "unsupported_omp",
+				code: "unsupported_omp",
+			}));
+			await startCall(streams);
+			await utterance();
+			await botTurn(REPLY);
+			expect(synthesizeSpeech).toHaveBeenCalledWith(REPLY);
+			expect(audioContext().sources).toHaveLength(0);
+			expect(FakeAudio.instances).toHaveLength(1);
+			expect(phase()).toBe("speaking");
+
+			FakeAudio.instances[0]?.finish();
+			await settle();
+			expect(phase()).toBe("listening");
+
+			await botTurn(REPLY);
+			expect(synthesizeSpeech).toHaveBeenCalledTimes(2);
+			expect(streams.ttsStreamStart).toHaveBeenCalledTimes(1);
+		});
+
+		it("falls back on an unknown stream answered at the start", async () => {
+			streams.sttStreamStart.mockImplementation(async () => ({ success: false, error: "unknown_stream" }));
+			await startCall(streams);
+			await utterance();
+			expect(transcribeAudio).toHaveBeenCalledTimes(1);
+			expect(send).toHaveBeenCalledWith("hello bot", { streaming: false });
+		});
+	});
+});
+
 function phases(): CallPhase[] {
 	return states.map(snapshot => snapshot.phase);
 }
+
+describe("createPcmTap", () => {
+	/** A 44.1 kHz context whose script processor the test feeds by hand. */
+	function tapOn44100() {
+		const node = {
+			onaudioprocess: null as
+				| null
+				| ((event: { inputBuffer: { getChannelData(channel: number): Float32Array } }) => void),
+			connect: vi.fn(),
+			disconnect: vi.fn(),
+		};
+		const context = { sampleRate: 44_100, destination: {}, createScriptProcessor: () => node };
+		const source = { connect: vi.fn(), disconnect: vi.fn() };
+		const tap = createPcmTap(context as never, source as never);
+		const feed = (frames: number, level: number): void =>
+			node.onaudioprocess?.({ inputBuffer: { getChannelData: () => new Float32Array(frames).fill(level) } });
+		return { tap, node, source, feed };
+	}
+
+	it("resamples to 16 kHz mono PCM16, carrying the fractional remainder across blocks", () => {
+		const { tap, feed } = tapOn44100();
+		tap.begin();
+		feed(1000, 0.5);
+		feed(1000, 0.5);
+		const pcm = tap.end();
+		// 2000 input frames at 44.1 kHz are 725.6 output frames at 16 kHz.
+		expect(pcm).toHaveLength(725);
+		expect(pcm.every(sample => Math.abs(sample - 16_384) <= 1)).toBe(true);
+	});
+
+	it("hands over the last 400 ms as pre-roll, then only what came after", () => {
+		const { tap, feed } = tapOn44100();
+		feed(44_100, 0.25);
+		feed(4410, -0.5);
+		const preRoll = tap.begin();
+		expect(preRoll).toHaveLength(6400);
+		expect(preRoll.at(-1)).toBeLessThan(0);
+		expect(preRoll[0]).toBeGreaterThan(0);
+		expect(tap.drain()).toHaveLength(0);
+		feed(4410, 0.25);
+		expect(tap.drain()).toHaveLength(1600);
+		expect(tap.drain()).toHaveLength(0);
+		feed(441, 0.25);
+		expect(tap.end()).toHaveLength(160);
+		feed(441, 0.25);
+		expect(tap.drain()).toHaveLength(0);
+	});
+
+	it("releases the node", () => {
+		const { tap, node, source } = tapOn44100();
+		tap.close();
+		expect(node.disconnect).toHaveBeenCalled();
+		expect(source.disconnect).toHaveBeenCalledWith(node);
+		expect(node.onaudioprocess).toBeNull();
+	});
+});

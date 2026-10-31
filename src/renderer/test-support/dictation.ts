@@ -3,7 +3,9 @@
  * whose track records being released, `MediaRecorder` flushes the queued
  * chunks on stop like the real one, the analyser reports a fixed spectrum and
  * the offline render returns a constant signal. `install()` stubs the globals;
- * the test stubs `window.omp.rpc.transcribeAudio` itself.
+ * the test stubs `window.omp.rpc.transcribeAudio` itself. For the streaming voice call the context also hands out
+ * script processors (fed `FakeAudioContext.level` blocks by a timer, as the mic would) and buffer sources a test can
+ * finish by hand.
  */
 import { type Mock, vi } from "vitest";
 
@@ -51,11 +53,57 @@ export class FakeMediaRecorder {
 /** Every byte of the analyser's spectrum, so the meter's bars are predictable. */
 export const SPECTRUM_LEVEL = 100;
 
+/** A scheduled chunk of reply audio: it plays until the test calls {@link finish}, or until it is stopped. */
+export class FakeBufferSource {
+	buffer: { duration: number; length: number; sampleRate: number } | null = null;
+	onended: (() => void) | null = null;
+	/** The context time `start` was given. */
+	startedAt: number | null = null;
+	stopped = false;
+	start(when: number): void {
+		this.startedAt = when;
+	}
+	stop(): void {
+		this.stopped = true;
+	}
+	connect(): void {}
+	disconnect(): void {}
+	/** The source played to its end. */
+	finish(): void {
+		this.onended?.();
+	}
+}
+
+/** The mic's raw PCM node: every block is `FakeAudioContext.level` for as long as the block would last. */
+export class FakeScriptProcessor {
+	onaudioprocess: ((event: { inputBuffer: { getChannelData(channel: number): Float32Array } }) => void) | null = null;
+	readonly #timer: ReturnType<typeof setInterval>;
+	constructor(sampleRate: number, blockFrames: number) {
+		this.#timer = setInterval(
+			() => {
+				const block = new Float32Array(blockFrames).fill(FakeAudioContext.level);
+				this.onaudioprocess?.({ inputBuffer: { getChannelData: () => block } });
+			},
+			(blockFrames / sampleRate) * 1000,
+		);
+	}
+	connect(): void {}
+	disconnect(): void {
+		clearInterval(this.#timer);
+	}
+}
+
 export class FakeAudioContext {
 	static instances: FakeAudioContext[] = [];
 	/** The mic's instantaneous level (every time-domain sample), which the voice call's VAD reads as RMS; tests move it. */
 	static level = 0;
 	readonly sampleRate = 48_000;
+	/** Moved by the test; reply chunks are scheduled against it. */
+	currentTime = 0;
+	readonly destination = {};
+	/** Every buffer source the context handed out, oldest first. */
+	readonly sources: FakeBufferSource[] = [];
+	readonly #processors: FakeScriptProcessor[] = [];
 	closed = false;
 	constructor() {
 		FakeAudioContext.instances.push(this);
@@ -70,7 +118,21 @@ export class FakeAudioContext {
 		};
 	}
 	createMediaStreamSource() {
-		return { connect: () => undefined };
+		return { connect: () => undefined, disconnect: () => undefined };
+	}
+	createScriptProcessor(blockFrames: number): FakeScriptProcessor {
+		const processor = new FakeScriptProcessor(this.sampleRate, blockFrames);
+		this.#processors.push(processor);
+		return processor;
+	}
+	createBuffer(_channels: number, length: number, sampleRate: number) {
+		const data = new Float32Array(length);
+		return { length, sampleRate, duration: length / sampleRate, getChannelData: () => data };
+	}
+	createBufferSource(): FakeBufferSource {
+		const source = new FakeBufferSource();
+		this.sources.push(source);
+		return source;
 	}
 	/** A quarter-second take. */
 	async decodeAudioData() {
@@ -78,6 +140,7 @@ export class FakeAudioContext {
 	}
 	async close(): Promise<void> {
 		this.closed = true;
+		for (const processor of this.#processors) processor.disconnect();
 	}
 }
 

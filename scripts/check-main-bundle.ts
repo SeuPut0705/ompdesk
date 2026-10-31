@@ -202,7 +202,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // The bot's voice chat and its avatar generation (1 Nov 2026): the call store `BotPane` reads to mount the call bar,
 // the API's two avatar calls and the new strings; the call loop, its bar and the avatar dialog stay in lazy chunks:
 // measured 3,254,545, 1,543 bytes over the measure above.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_255_000;
+// Streaming voice (2 Nov 2026): the RPC client's seven stt_stream_*/tts_stream_* methods; the stream capture and
+// playback stay in voice-stream.ts, loaded only by the call: measured 3,255,196, 651 bytes over the measure above.
+const WEB_FIRST_SCREEN_JS_BYTES = 3_256_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

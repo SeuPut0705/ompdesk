@@ -49,6 +49,7 @@ export const FEATURES = {
 	security: "Security scans",
 	ssh: "SSH hosts",
 	voice: "Voice input & speech",
+	voiceStream: "Streaming voice input & speech",
 	debug: "Debug console",
 	sessionTree: "Session tree, labels & pins",
 	sessionImport: "Claude/Codex session import",
@@ -993,6 +994,22 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			[`${AGENT}/tts/wav`]: ["encodeWav()"],
 		},
 	},
+	// The streaming methods (voice.ts) are a feature of their own: an omp without these APIs keeps batch dictation and read-aloud.
+	voiceStream: {
+		session: ["settings", "modelRegistry"],
+		modules: {
+			[`${AGENT}/config/model-resolver`]: ["resolveRoleChain()"],
+			[`${AGENT}/config/model-roles`]: ["roleCandidatePool()"],
+			[`${AGENT}/config/registry`]: ["lookup()"],
+			[`${AGENT}/stt/asr-client`]: ["sttClient.startStream()"],
+			[`${AGENT}/stt/downloader`]: ["downloadSttModel()", "isSttModelCached()"],
+			[`${AGENT}/stt/models`]: ["resolveSttModelSpec()"],
+			[`${AGENT}/tts/models`]: ["DEFAULT_TTS_VOICE", "TTS_LOCAL_MODELS"],
+			[`${AGENT}/tts/speakable`]: ["SpeakableStream.prototype.push()", "SpeakableStream.prototype.flush()"],
+			[`${AGENT}/tts/tts-client`]: ["ttsClient.synthesizeStream()"],
+			[`${AGENT}/tools/tts`]: ["resolveSpeechCandidates()"],
+		},
+	},
 	debug: {
 		session: ["settings", "sessionManager.getCwd()"],
 		modules: {
@@ -1422,6 +1439,8 @@ export const COPY_SAFE: Readonly<Record<string, string>> = {
 	[`${AGENT}/tiny/message-preproc`]: "text cleanup: pure",
 	[`${AGENT}/tiny/text`]: "title text helpers: pure",
 	[`${AGENT}/tts/models`]: "the local voice and model tables: data",
+	[`${AGENT}/tts/speakable`]:
+		"the markdown-to-speech segmenter: a pure string transform that imports nothing, so it is neither a settings reader nor a transpile cost (not in HEAVY_COPIES)",
 	[`${AGENT}/tts/tts-client`]:
 		"NOT harmless, kept for want of a route: omp's bundle has no `tts/*` at all and only stock's `tts` tool reaches its client, falling through to cloud voices the speech role lists (read-aloud stays local). The copy runs its own worker and, uninitialised, takes the tiny-model device and dtype from the environment instead of `providers.tinyModel*` (needs `tts/*` in omp's bundle upstream)",
 	[`${AGENT}/tts/wav`]: "the WAV encoder: pure",

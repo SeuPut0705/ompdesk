@@ -406,6 +406,18 @@ export type RpcCommand =
 	// `mimeType` is informational ("audio/wav").
 	| { id?: string; type: "transcribe_audio"; audioBase64: string; mimeType: string }
 	| { id?: string; type: "synthesize_speech"; text: string }
+	// Streaming voice (gui-bridge voice.ts). Audio is base64 little-endian PCM16 mono: 16 kHz into STT, the
+	// model's `sampleRate` out of TTS. An omp without these answers an unknown-command or `unsupported_omp`
+	// error, which the renderer takes as "use the batch commands above". A stream nothing pushes to or polls for
+	// 30 s is cancelled; an unknown or finished `streamId` is the error `unknown_stream`.
+	| { id?: string; type: "stt_stream_start"; language?: string }
+	| { id?: string; type: "stt_stream_push"; streamId: string; pcm16: string }
+	| { id?: string; type: "stt_stream_stop"; streamId: string }
+	| { id?: string; type: "stt_stream_cancel"; streamId: string }
+	| { id?: string; type: "tts_stream_start"; text: string }
+	/** Long poll: answers when a chunk is ready, the stream is done, or `waitMs` (default 1500, at most 5000) passed. */
+	| { id?: string; type: "tts_stream_next"; streamId: string; waitMs?: number }
+	| { id?: string; type: "tts_stream_cancel"; streamId: string }
 	| { id?: string; type: "retry" }
 	/** Stock `restoreSession` (what `omp --restore` runs): go on with the turn the last process was cut off in. Main-only; the renderer never sends it. */
 	| { id?: string; type: "restore_interrupted" }
@@ -2613,6 +2625,28 @@ export interface TranscribeAudioResult {
 export interface SynthesizeSpeechResult {
 	audioBase64: string;
 	mimeType: string;
+}
+
+/** Result of `stt_stream_start`. */
+export interface SttStreamStartResult {
+	streamId: string;
+}
+
+/** Result of `stt_stream_push` (committed segments joined with the current partial) and `stt_stream_stop` (final). */
+export interface SttStreamTextResult {
+	text: string;
+}
+
+/** Result of `tts_stream_start`: base64 PCM16 mono chunks of `tts_stream_next` play at `sampleRate`. */
+export interface TtsStreamStartResult {
+	streamId: string;
+	sampleRate: number;
+}
+
+/** Result of `tts_stream_next`: chunks in order; `done` once the stream is finished and drained. */
+export interface TtsStreamNextResult {
+	chunks: string[];
+	done: boolean;
 }
 
 // ============================================================================

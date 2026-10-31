@@ -195,6 +195,7 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 	"@oh-my-pi/pi-coding-agent/tools/todo": () => import("@oh-my-pi/pi-coding-agent/tools/todo"),
 	"@oh-my-pi/pi-coding-agent/tools/tts": () => import("@oh-my-pi/pi-coding-agent/tools/tts"),
 	"@oh-my-pi/pi-coding-agent/tts/models": () => import("@oh-my-pi/pi-coding-agent/tts/models"),
+	"@oh-my-pi/pi-coding-agent/tts/speakable": () => import("@oh-my-pi/pi-coding-agent/tts/speakable"),
 	"@oh-my-pi/pi-coding-agent/tts/tts-client": () => import("@oh-my-pi/pi-coding-agent/tts/tts-client"),
 	"@oh-my-pi/pi-coding-agent/tts/wav": () => import("@oh-my-pi/pi-coding-agent/tts/wav"),
 	"@oh-my-pi/pi-coding-agent/utils/atomic-file": () => import("@oh-my-pi/pi-coding-agent/utils/atomic-file"),

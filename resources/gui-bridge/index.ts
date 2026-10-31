@@ -50,7 +50,7 @@ const AREAS: readonly Area[] = [
 	},
 	{ name: "model-setup-facts", features: ["modelSetupFacts"], load: () => import("./model-setup-facts") },
 	{ name: "ompdesk-roles", features: ["modelRoles"], load: () => import("./ompdesk-roles") },
-	{ name: "voice", features: ["voice"], load: () => import("./voice") },
+	{ name: "voice", features: ["voice", "voiceStream"], load: () => import("./voice") },
 	{ name: "debug", features: ["debug"], load: () => import("./debug") },
 	{ name: "security", features: ["security"], load: () => import("./security") },
 	{ name: "ssh", features: ["ssh"], load: () => import("./ssh") },

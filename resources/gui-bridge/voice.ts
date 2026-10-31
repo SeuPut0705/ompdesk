@@ -3,6 +3,7 @@
  * Ported from the fork's rpc-mode.ts transcribe/synthesize cases. Wire shapes
  * match `src/shared/rpc-types.ts`.
  */
+import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import { resolveRoleChain } from "@oh-my-pi/pi-coding-agent/config/model-resolver";
 import { roleCandidatePool } from "@oh-my-pi/pi-coding-agent/config/model-roles";
 import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
@@ -14,6 +15,7 @@ import { resolveSpeechCandidates } from "@oh-my-pi/pi-coding-agent/tools/tts";
 import { guard } from "./health";
 import { asRecord, requiredString } from "./params";
 import type { BridgeMethods } from "./types";
+import { VoiceStreams } from "./voice-stream-core";
 
 const WAV_HEADER_BYTES = 44;
 
@@ -37,18 +39,26 @@ function decodeWav(bytes: Uint8Array): { samples: Float32Array; sampleRate: numb
 	return { samples, sampleRate };
 }
 
+/** Same resolution as the TUI stt-controller: stale/legacy keys fall back to the default model; a missing model is downloaded. */
+async function sttModelKey(session: AgentSession): Promise<string> {
+	const pool = roleCandidatePool("dictation", session.settings, session.modelRegistry);
+	const modelKey = resolveSttModelSpec(resolveRoleChain("dictation", session.settings, pool)[0]?.model.id).key;
+	if (!(await isSttModelCached(modelKey))) await downloadSttModel(modelKey);
+	return modelKey;
+}
+
+function sttLanguage(session: AgentSession): string | undefined {
+	return (lookup("stt.language")?.get(session.settings) as string | undefined) || undefined;
+}
+
 async function transcribe(session: AgentSession, audioBase64: string) {
 	const { samples, sampleRate } = decodeWav(Buffer.from(audioBase64, "base64"));
 	if (sampleRate !== 16_000) {
 		throw new Error(`Unsupported sample rate ${sampleRate} Hz — transcribe_audio expects 16 kHz mono PCM16 WAV`);
 	}
 	if (samples.length === 0) return { text: "" };
-	// Same resolution as the TUI stt-controller: stale/legacy keys fall back to the default model.
-	const pool = roleCandidatePool("dictation", session.settings, session.modelRegistry);
-	const modelKey = resolveSttModelSpec(resolveRoleChain("dictation", session.settings, pool)[0]?.model.id).key;
-	if (!(await isSttModelCached(modelKey))) await downloadSttModel(modelKey);
-	const language = lookup("stt.language")?.get(session.settings) as string | undefined;
-	return { text: await sttClient.transcribe(modelKey, samples, { language: language || undefined }) };
+	const modelKey = await sttModelKey(session);
+	return { text: await sttClient.transcribe(modelKey, samples, { language: sttLanguage(session) }) };
 }
 
 /**
@@ -85,10 +95,52 @@ async function synthesize(session: AgentSession, rawText: string) {
 	};
 }
 
-export const methods: BridgeMethods = guard("voice", {
-	transcribe_audio: async (params, env) => transcribe(env.session(), requiredString(params, "audioBase64")),
-	synthesize_speech: async (params, env) => {
-		const text = asRecord(params).text;
-		return synthesize(env.session(), typeof text === "string" ? text : "");
+/** Stock behind the stream seam. The tts modules load here, on the first stream, like `synthesize` above. */
+const streams = new VoiceStreams<AgentSession>({
+	async stt(session) {
+		return { client: sttClient, modelKey: await sttModelKey(session), language: sttLanguage(session) };
+	},
+	async tts(session) {
+		const [{ DEFAULT_TTS_VOICE, TTS_LOCAL_MODELS }, { ttsClient }, { SpeakableStream }] = await Promise.all([
+			import("@oh-my-pi/pi-coding-agent/tts/models"),
+			import("@oh-my-pi/pi-coding-agent/tts/tts-client"),
+			import("@oh-my-pi/pi-coding-agent/tts/speakable"),
+		]);
+		const modelKey = localSpeechModelId(session, TTS_LOCAL_MODELS[0]);
+		return {
+			client: ttsClient,
+			modelKey,
+			voice: (lookup("speech.voice")?.get(session.settings) as string | undefined) || DEFAULT_TTS_VOICE,
+			sampleRate: (TTS_LOCAL_MODELS.find(model => model.key === modelKey) ?? TTS_LOCAL_MODELS[0]).sampleRate,
+			segment(text) {
+				const speakable = new SpeakableStream();
+				return [...speakable.push(text), ...speakable.flush()];
+			},
+		};
 	},
 });
+
+export const methods: BridgeMethods = {
+	...guard("voice", {
+		transcribe_audio: async (params, env) => transcribe(env.session(), requiredString(params, "audioBase64")),
+		synthesize_speech: async (params, env) => {
+			const text = asRecord(params).text;
+			return synthesize(env.session(), typeof text === "string" ? text : "");
+		},
+	}),
+	// Its own feature: an omp without the stream APIs refuses only these, and the renderer falls back to the batch pair.
+	...guard("voiceStream", {
+		stt_stream_start: async (params, env) => streams.sttStart(params, env.session()),
+		stt_stream_push: async params => streams.sttPush(params),
+		stt_stream_stop: async params => streams.sttStop(params),
+		stt_stream_cancel: async params => streams.sttCancel(params),
+		tts_stream_start: async (params, env) => streams.ttsStart(params, env.session()),
+		tts_stream_next: async params => streams.ttsNext(params),
+		tts_stream_cancel: async params => streams.ttsCancel(params),
+	}),
+};
+
+/** A stream dies with the session it serves. */
+export function install(pi: ExtensionAPI): void {
+	pi.on("session_shutdown", () => streams.closeAll());
+}

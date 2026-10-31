@@ -95,6 +95,13 @@ function viaBridge(method: string): LocalHandler {
 export const handlers: Record<string, LocalHandler> = {
 	transcribe_audio: viaBridge("transcribe_audio"),
 	synthesize_speech: viaBridge("synthesize_speech"),
+	stt_stream_start: viaBridge("stt_stream_start"),
+	stt_stream_push: viaBridge("stt_stream_push"),
+	stt_stream_stop: viaBridge("stt_stream_stop"),
+	stt_stream_cancel: viaBridge("stt_stream_cancel"),
+	tts_stream_start: viaBridge("tts_stream_start"),
+	tts_stream_next: viaBridge("tts_stream_next"),
+	tts_stream_cancel: viaBridge("tts_stream_cancel"),
 	debug: viaBridge("debug"),
 	// Preview panel agent browsing: stock's browser relay inside this tab's omp (gui-bridge browser-relay.ts).
 	browser_relay_start: viaBridge("browser.relay_start"),

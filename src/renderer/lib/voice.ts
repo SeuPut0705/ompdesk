@@ -11,6 +11,8 @@
  *   tool-result text, "yield" speaks only the last assistant message of a
  *   run. Synthesis runs on the sidecar's local TTS (`synthesize_speech` RPC);
  *   playback is a plain Audio element.
+ * - The voice call (`voice-call.ts`) streams both ways over the bridge's `stt_stream_*` / `tts_stream_*` commands
+ *   ({@link SttStream}, {@link createPcmTap}, {@link playSpeechStream}) and falls back to the whole-clip paths above.
  *
  * Playback policy: one utterance at a time — a speak request arriving while
  * another is still synthesizing or playing is DROPPED (documented choice;
@@ -27,7 +29,7 @@ import { toastError } from "../stores/toast";
 import { translate } from "./i18n";
 import { messageText } from "./messages";
 
-const STT_SAMPLE_RATE = 16_000;
+export const STT_SAMPLE_RATE = 16_000;
 const WAV_HEADER_BYTES = 44;
 
 // ---------------------------------------------------------------------------
@@ -65,7 +67,7 @@ function encodeWavPcm16(samples: Float32Array, sampleRate: number): Uint8Array {
 	return new Uint8Array(buffer);
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
+export function bytesToBase64(bytes: Uint8Array): string {
 	let binary = "";
 	const chunkSize = 0x8000;
 	for (let i = 0; i < bytes.length; i += chunkSize) {
@@ -74,7 +76,7 @@ function bytesToBase64(bytes: Uint8Array): string {
 	return btoa(binary);
 }
 
-function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
+export function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
 	const binary = atob(base64);
 	// A fresh ArrayBuffer keeps the type BlobPart-compatible
 	// (Uint8Array<ArrayBufferLike> is rejected under TS's generic ArrayBuffer).
