@@ -822,7 +822,7 @@
 }
 
 .omp-conversation-nav-marker:hover::after,
-.omp-conversation-nav-marker:focus-visible::after {
+.omp-conversation-nav-marker:focus-visible:where(:not(html[data-focus-modality="pointer"] *))::after {
 	width: 14px;
 	background: var(--sc-text-muted);
 }
@@ -836,19 +836,19 @@
 	background: var(--sc-text);
 }
 
-/* The ring draws on a pseudo box: the 3px-tall dense slots are too small to outline. */
+/* The ring draws on a pseudo box (an outline, as every ring): the 3px-tall dense slots are too small to outline. */
 .omp-conversation-nav-marker:focus-visible {
 	outline: none;
 }
 
-.omp-conversation-nav-marker:focus-visible::before {
+.omp-conversation-nav-marker:focus-visible:where(:not(html[data-focus-modality="pointer"] *))::before {
 	content: "";
 	position: absolute;
 	top: 50%;
-	right: 0;
+	right: var(--sc-focus-width);
 	width: 24px;
 	height: 12px;
-	border: var(--sc-focus-width) solid var(--sc-focus-ring);
+	outline: var(--sc-focus-width) solid var(--sc-focus-ring);
 	border-radius: var(--sc-radius-xs);
 	transform: translateY(-50%);
 }

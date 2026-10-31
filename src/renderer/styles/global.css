@@ -234,6 +234,26 @@ html[data-mica="true"] .omp-session-sidebar {
 	}
 }
 
+/* No focus style after a pointer press until a key that is not a modifier goes
+   down: lib/focus-modality.ts sets html[data-focus-modality="pointer"] then,
+   unless a text field holds the focus. Chromium counts a lone Shift as keyboard
+   use and would show the focus of whatever the click focused.
+   - A ring is an outline on the element or on its ::before/::after; this rule's
+     !important wins over each control's own ring rule.
+   - Tailwind's `focus-visible:` (and `group-focus-visible:`, …) utilities match
+     only outside the attribute: the variant below replaces Tailwind's own, with
+     :where() so a utility keeps the specificity it had.
+   - Any other `:focus-visible` rule in these stylesheets that paints more than an
+     outline (a background, a width) adds the same guard,
+     :where(:not(html[data-focus-modality="pointer"] *)) (styles/tokens.test.ts). */
+html[data-focus-modality="pointer"] :focus-visible,
+html[data-focus-modality="pointer"] :focus-visible::before,
+html[data-focus-modality="pointer"] :focus-visible::after {
+	outline: none !important;
+}
+
+@custom-variant focus-visible (&:focus-visible:where(:not(html[data-focus-modality="pointer"] *)));
+
 /* ============================================================================
    Window drag regions
    ============================================================================ */

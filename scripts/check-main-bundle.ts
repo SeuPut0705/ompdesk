@@ -155,7 +155,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // The secretary (31 Oct 2026): the session menu's Make secretary item, the row's briefcase mark and the sidebar prefs
 // field that names it (`secretary`): measured 3,219,374 on eb8409752 with it in the tree, 1,333 bytes over the measure
 // above.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_219_950;
+// A click then a modifier pressed alone shows no focus style (`lib/focus-modality.ts`, loaded after the first screen by
+// one dynamic import in main.tsx; 31 Oct 2026): 1,548 bytes (its 1,346-byte chunk and the 202-byte import), measured
+// 3,220,084 with the other changes of 31 Oct in the tree.
+const WEB_FIRST_SCREEN_JS_BYTES = 3_220_634;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

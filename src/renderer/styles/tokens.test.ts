@@ -312,6 +312,31 @@ describe("focus ring utilities", () => {
 		expect(offenders).toEqual([]);
 	});
 
+	it("paints no focus style but an outline after a click and a lone modifier (lib/focus-modality.ts)", () => {
+		// global.css drops every outline under html[data-focus-modality="pointer"] and its `focus-visible` variant keeps
+		// Tailwind's utilities out of it; a stylesheet rule that paints anything else on focus carries the same guard.
+		const guard = ':where(:not(html[data-focus-modality="pointer"] *))';
+		const global = readFileSync(join(dir, "global.css"), "utf8");
+		expect(global).toContain(`@custom-variant focus-visible (&:focus-visible${guard});`);
+		const offenders: string[] = [];
+		for (const entry of readdirSync(dir)) {
+			if (!entry.endsWith(".css")) continue;
+			const css = readFileSync(join(dir, entry), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+			for (const match of css.matchAll(/([^{};]+)\{([^{}]*)\}/g)) {
+				const focus = topLevelList(match[1] ?? "").filter(selector => selector.includes(":focus-visible"));
+				if (focus.length === 0) continue;
+				const paints = (match[2] ?? "")
+					.split(";")
+					.map(declaration => declaration.split(":")[0]?.trim() ?? "")
+					.filter(property => property !== "" && !/^(?:outline(?:-[a-z]+)?|border-radius)$/.test(property));
+				if (paints.length === 0) continue;
+				for (const selector of focus)
+					if (!selector.includes(guard)) offenders.push(`${entry}: ${selector} (${paints.join(", ")})`);
+			}
+		}
+		expect(offenders).toEqual([]);
+	});
+
 	it("draws a phone tab's ring inside it, where the sideways tab scroller clips anything outside", () => {
 		const css = readFileSync(join(dir, "mobile.css"), "utf8");
 		expect(css).toMatch(

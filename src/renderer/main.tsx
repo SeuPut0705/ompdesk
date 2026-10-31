@@ -27,6 +27,9 @@ installTranscriptSeeding();
 // Looping cues step at ten frames a second while the window is on screen but not focused (lib/cue-clock.ts); loaded
 // after the first screen, which it never changes.
 void import("./lib/cue-clock").then(({ installCueClock }) => installCueClock());
+// A modifier pressed alone after a click never rings what the click focused (lib/focus-modality.ts); loaded after the
+// first screen, which it never changes.
+void import("./lib/focus-modality").then(({ installFocusModality }) => installFocusModality());
 
 const container = document.getElementById("root");
 if (!container) {
