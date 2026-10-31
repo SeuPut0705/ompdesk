@@ -27,7 +27,14 @@ async function start(language: "en" | "ko"): Promise<void> {
 	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language, firstRunComplete: true }));
 	errors.length = 0;
 	record = path.join(profile, "rpc.jsonl");
-	app = await launchApp({ project, desktop, agent, profile, env: { OMP_GUI_TEST_RECORD: record } });
+	// The fake omp writes stock session files (OMP_GUI_TEST_SESSION_FILES): the bot's name reaches its file and the list.
+	app = await launchApp({
+		project,
+		desktop,
+		agent,
+		profile,
+		env: { OMP_GUI_TEST_RECORD: record, OMP_GUI_TEST_SESSION_FILES: "1" },
+	});
 	page = await app.firstWindow();
 	page.on("pageerror", error => errors.push(error.message));
 	await page.waitForFunction(() => window.omp?.rpc != null);
@@ -83,23 +90,42 @@ test("the rules screen lists the defaults and saves a change, an added rule and 
 		)
 		.not.toBe("");
 	await expect(page.locator("[data-sidebar-bot-row]")).toHaveCount(1, { timeout: 30_000 });
-	// Its tab open: a session a tab holds is renamed through the omp that holds it.
+	// Its tab open, with one turn: a session a tab holds is renamed through the omp that holds it, and the fake omp
+	// writes the session it opened only once it holds an entry (as stock writes a session with content).
 	await page.locator("[data-sidebar-bot-row] button").first().click();
+	let botTab = "";
 	await expect
-		.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).some(tab => tab.sessionPath === botFile))
-		.toBe(true);
+		.poll(async () => {
+			botTab =
+				(await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.sessionPath === botFile)?.tabId ?? "";
+			return botTab;
+		})
+		.not.toBe("");
+	await expect
+		.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === botTab)?.status, {
+			timeout: 30_000,
+		})
+		.toBe("ready");
+	await page.evaluate(id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "hello" }), botTab);
+	await expect.poll(() => fs.readFile(botFile, "utf8"), { timeout: 30_000 }).toContain('"type":"message"');
 	await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", page.locator("[data-settings-page]"));
 	await page.locator('[data-settings-page] [data-settings-section="bot"]').click();
 	await expect(botSwitch).toBeChecked();
-	// Its name is its session's title: set here, the bot's omp is asked to rename its own session (stock
-	// `set_session_name` writes it to the session file; the row showing it is Sidebar.test.tsx's).
+	// Its name is its session's title: set here, it sticks in the session file, the list and the sidebar row, and a
+	// second name replaces the first.
 	const name = page.locator("[data-bot-name]");
 	await expect(name).toHaveValue("Bot");
-	await name.fill("Jarvis");
-	await name.press("Enter");
-	await expect
-		.poll(async () => (await recordsOfType(record, "set_session_name")).map(frame => frame.name))
-		.toEqual(["Jarvis"]);
+	const listedTitle = async () =>
+		(await page.evaluate(() => window.omp.sessions.list("global"))).find(row => row.path === botFile)?.title;
+	for (const next of ["Jarvis", "Friday"]) {
+		await name.fill(next);
+		await name.press("Enter");
+		await expect.poll(() => fs.readFile(botFile, "utf8"), { timeout: 30_000 }).toContain(`"title":"${next}"`);
+		await expect.poll(listedTitle, { timeout: 30_000 }).toBe(next);
+		await expect(page.locator("[data-sidebar-bot-row]")).toContainText(next);
+		await expect(name).toHaveValue(next);
+	}
+	expect((await recordsOfType(record, "set_session_name")).map(frame => frame.name)).toEqual(["Jarvis", "Friday"]);
 	// The bot turned off with its tab open: neither its row nor its tab comes back as a plain chat.
 	await botSwitch.click();
 	await expect(botSwitch).not.toBeChecked();
