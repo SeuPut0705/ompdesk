@@ -217,7 +217,7 @@ test("the bot's omp hears the owner's rules, and a check it schedules for itself
 	// Told the default rules (the bridge turns them into the `ompdesk-bot` prompt section), once for this tab.
 	const told = async () => (await readRecords(record)).filter(frame => frame.type === "agent_control.bot");
 	await expect.poll(async () => (await told()).length, { timeout: 30_000 }).toBe(1);
-	expect(String((await told())[0]?.rules)).toContain("- Deploy or release: ask the owner before taking it.");
+	expect(String((await told())[0]?.rules)).toContain("- Make payments or purchases: ask the owner before taking it.");
 	expect(String((await told())[0]?.rules)).toContain("- Edit code: take it without asking.");
 
 	const made = await callAs(bot, "ompdesk_schedule", {

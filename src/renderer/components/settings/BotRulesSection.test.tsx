@@ -149,8 +149,8 @@ describe("BotRulesSection", () => {
 		await mount();
 		expect(document.body.querySelectorAll("[data-bot-rule-action]")).toHaveLength(DEFAULT_BOT_RULES.length);
 		expect(actionText("deploy")).toBe("Deploy or release");
-		expect((behaviorSelect("deploy") as HTMLSelectElement).value).toBe("ask");
-		expect((behaviorSelect("push") as HTMLSelectElement).value).toBe("preapproved");
+		expect((behaviorSelect("deploy") as HTMLSelectElement).value).toBe("auto");
+		expect((behaviorSelect("payments") as HTMLSelectElement).value).toBe("ask");
 		expect((behaviorSelect("edits") as HTMLSelectElement).value).toBe("auto");
 		const labels = [...(behaviorSelect("deploy")?.querySelectorAll("option") ?? [])].map(item => item.textContent);
 		expect(labels).toEqual(["Without asking", "Only if pre-approved", "Ask first", "Hand off to me"]);

@@ -11,11 +11,10 @@ import {
 const behaviorOf = (id: string) => DEFAULT_BOT_RULES.find(rule => rule.id === id)?.behavior;
 
 describe("DEFAULT_BOT_RULES", () => {
-	it("asks before the actions that reach outside, and only follows the owner's lead on push and merge", () => {
-		for (const id of ["deploy", "force-push", "delete", "outside-messages", "payments", "secrets"])
-			expect(behaviorOf(id), id).toBe("ask");
-		for (const id of ["push", "merge"]) expect(behaviorOf(id), id).toBe("preapproved");
-		for (const id of ["edits", "tests", "open-sessions"]) expect(behaviorOf(id), id).toBe("auto");
+	it("acts on its own by default, and waits for the owner only on money and secrets", () => {
+		for (const id of ["payments", "secrets"]) expect(behaviorOf(id), id).toBe("ask");
+		for (const rule of DEFAULT_BOT_RULES.filter(rule => !["payments", "secrets"].includes(rule.id)))
+			expect(rule.behavior, rule.id).toBe("auto");
 		expect(new Set(DEFAULT_BOT_RULES.map(rule => rule.id)).size).toBe(DEFAULT_BOT_RULES.length);
 	});
 });

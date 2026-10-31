@@ -30,17 +30,18 @@ export const BOT_RULES_MAX = 50;
 
 /**
  * English action text. The Settings screen shows a default rule translated while its text is still this one
- * (`botRules.default.<id>` in the locales); an edited rule is the owner's text, shown as written.
+ * (`botRules.default.<id>` in the locales); an edited rule is the owner's text, shown as written. The bot acts on its
+ * own by default (the owner's call, 31 Oct 2026: "봇은 알아서 대부분 진행하는게 기본"); only money and secrets wait for them.
  */
 export const DEFAULT_BOT_RULES: BotRule[] = [
-	{ id: "deploy", action: "Deploy or release", behavior: "ask" },
-	{ id: "force-push", action: "Force-push", behavior: "ask" },
-	{ id: "delete", action: "Delete data, sessions or branches", behavior: "ask" },
-	{ id: "outside-messages", action: "Send messages or post outside this computer", behavior: "ask" },
+	{ id: "deploy", action: "Deploy or release", behavior: "auto" },
+	{ id: "force-push", action: "Force-push", behavior: "auto" },
+	{ id: "delete", action: "Delete data, sessions or branches", behavior: "auto" },
+	{ id: "outside-messages", action: "Send messages or post outside this computer", behavior: "auto" },
 	{ id: "payments", action: "Make payments or purchases", behavior: "ask" },
 	{ id: "secrets", action: "Use or share credentials or secrets", behavior: "ask" },
-	{ id: "push", action: "Push to a branch", behavior: "preapproved" },
-	{ id: "merge", action: "Merge a branch", behavior: "preapproved" },
+	{ id: "push", action: "Push to a branch", behavior: "auto" },
+	{ id: "merge", action: "Merge a branch", behavior: "auto" },
 	{ id: "edits", action: "Edit code", behavior: "auto" },
 	{ id: "tests", action: "Run tests", behavior: "auto" },
 	{ id: "open-sessions", action: "Open sessions", behavior: "auto" },

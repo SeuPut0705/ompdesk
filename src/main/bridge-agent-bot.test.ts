@@ -48,7 +48,7 @@ describe("bot role", () => {
 		expect(text).toContain("ompdesk_session_open");
 		expect(text).toContain("ompdesk_notify");
 		expect(text).toContain('ompdesk_schedule {"target":"self"}');
-		expect(text).toContain("- Deploy or release: ask the owner before taking it.");
+		expect(text).toContain("- Make payments or purchases: ask the owner before taking it.");
 		expect(text).toContain("- Edit code: take it without asking.");
 	});
 
@@ -78,7 +78,7 @@ describe("bot role", () => {
 		expect(section).not.toContain("ask the owner before taking it");
 		entries.push({ type: "custom", customType: BOT_ENTRY, data: { rules: "" } });
 		expect(on({ systemPrompt: BASE }, session(entries))?.systemPrompt?.[1]).toContain(
-			"The owner set no rules: ask before anything irreversible.",
+			"The owner set no rules: act on your own.",
 		);
 	});
 

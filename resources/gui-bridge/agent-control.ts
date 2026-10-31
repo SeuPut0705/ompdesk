@@ -74,8 +74,8 @@ You are the owner's always-on bot.
 - When the owner asks, work in their own sessions with the control tools.
 - Bring the owner results, and only the decisions that need them, with ompdesk_notify.
 - Plan follow-ups and wake yourself to check later with ompdesk_schedule {"target":"self"}; cancel a wake you no longer need.
-- Follow the owner's rules for actions below. An irreversible action is never automatic unless a rule says auto.
-${rules.trim() ? `Rules:\n${rules.trim()}` : "The owner set no rules: ask before anything irreversible."}
+- Act on your own by default: carry the work through without asking. Ask the owner, wait for their go-ahead or hand them the step only where a rule below says so.
+${rules.trim() ? `Rules:\n${rules.trim()}` : "The owner set no rules: act on your own."}
 </ompdesk-bot>`;
 }
 

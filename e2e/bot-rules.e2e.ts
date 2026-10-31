@@ -65,8 +65,8 @@ test("the rules screen lists the defaults and saves a change, an added rule and 
 	const list = page.locator("[data-bot-rules]");
 	await expect(list.locator("[data-bot-rule-action]")).toHaveCount(11);
 	await expect(list.locator('[data-bot-rule-action="deploy"]')).toHaveText("Deploy or release");
-	await expect(list.locator('[data-bot-rule-behavior="deploy"]')).toHaveValue("ask");
-	await expect(list.locator('[data-bot-rule-behavior="push"]')).toHaveValue("preapproved");
+	await expect(list.locator('[data-bot-rule-behavior="deploy"]')).toHaveValue("auto");
+	await expect(list.locator('[data-bot-rule-behavior="payments"]')).toHaveValue("ask");
 	await expect(list.locator('[data-bot-rule-behavior="edits"]')).toHaveValue("auto");
 	expect(await storedRules()).toBeNull();
 	await capture("bot-rules-defaults");
@@ -108,8 +108,8 @@ test("a default rule reads in Korean while its stored text stays English", async
 	await start("ko");
 	const list = page.locator("[data-bot-rules]");
 	await expect(list.locator('[data-bot-rule-action="deploy"]')).toHaveText("배포 또는 릴리스");
-	await expect(page.locator('[data-bot-rule-behavior="deploy"] option:checked')).toHaveText("묻고 나서");
-	await expect(page.locator('[data-bot-rule-behavior="push"] option:checked')).toHaveText("미리 승인했을 때만");
+	await expect(page.locator('[data-bot-rule-behavior="deploy"] option:checked')).toHaveText("묻지 않고");
+	await expect(page.locator('[data-bot-rule-behavior="payments"] option:checked')).toHaveText("묻고 나서");
 	await capture("bot-rules-ko");
 
 	await page.locator('[data-bot-rule-behavior="deploy"]').selectOption("handoff");
