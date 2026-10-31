@@ -41,8 +41,8 @@ interface BotDeskStore {
 	apply: (desk: BotDeskState, device?: string) => void;
 	/** Read the desk from main; a push that lands meanwhile wins over the reply. */
 	refresh: (device?: string) => Promise<void>;
-	/** Answer a decision; false (and a toast) when main refused. */
-	answer: (id: string, answer: string, device?: string) => Promise<boolean>;
+	/** Answer a decision (with its draft as the owner edited it); false (and a toast) when main refused. */
+	answer: (id: string, answer: string, device?: string, draft?: string) => Promise<boolean>;
 	/** Write the whole duty list; false (and a toast) when main refused. */
 	setDuties: (duties: BotDeskDuties["duties"], device?: string) => Promise<boolean>;
 	/** One edit (identity, memory, routing, voice, side chats, undo); false (and a toast) when main refused. */
@@ -73,9 +73,9 @@ export const useBotDeskStore = create<BotDeskStore>()((set, get) => ({
 				}));
 		}
 	},
-	answer: async (id, answer, device) => {
+	answer: async (id, answer, device, draft) => {
 		try {
-			const payload = { id, answer };
+			const payload = draft === undefined ? { id, answer } : { id, answer, draft };
 			await (device === undefined
 				? window.omp.sessions.botDesk.answer(payload)
 				: window.omp.sessions.botDesk.answer(payload, device));

@@ -267,12 +267,14 @@ export function WorkTreeButton() {
 /** What a row of Needs you is, in a word of fixed width before its label. */
 export interface RowTag {
 	word: string;
-	tone: "warning" | "danger";
+	/** Colour only for a state that needs the person; absent is the muted word (the bot's task states). */
+	tone?: "warning" | "danger";
 }
 
 /**
- * One row: a lead mark, a label that truncates, a muted figure and an optional second line. A row that is not itself a
- * button may end in its own button (`action`: a backlog item's ✕, a follow-up's pin, a pull request's link).
+ * One row: a lead mark, a label that truncates, a muted figure and an optional second line. A row may end in its own
+ * buttons (`action`: a backlog item's ✕, a follow-up's pin, a pull request's link, a task's Stop); with `onClick` too,
+ * the rest of the row is one button and the actions sit beside it.
  */
 export function BoardRow({
 	lead,
@@ -295,7 +297,9 @@ export function BoardRow({
 	exiting?: boolean;
 	/** Needs you's rows say what kind of thing they are, in a word of fixed width before the label ("Ask", "Check"). */
 	tag?: RowTag;
-} & ({ onClick?: () => void; action?: never } | { onClick?: never; action?: ReactNode })) {
+	onClick?: () => void;
+	action?: ReactNode;
+}) {
 	const body = (
 		<>
 			<span className="omp-work-board-lead">{lead}</span>
@@ -316,7 +320,15 @@ export function BoardRow({
 	);
 	return (
 		<li aria-hidden={exiting || undefined} className="omp-work-board-item" data-exiting={exiting || undefined}>
-			{onClick ? (
+			{onClick && action ? (
+				<div className="omp-work-board-row omp-work-board-row--split" {...data}>
+					{/* controls-ok: the omp-work-board-row-main class draws the row's own part */}
+					<button className="omp-work-board-row-main" onClick={onClick} title={title} type="button">
+						{body}
+					</button>
+					{action}
+				</div>
+			) : onClick ? (
 				// controls-ok: the omp-work-board-row class draws the whole row
 				<button className="omp-work-board-row" onClick={onClick} title={title} type="button" {...data}>
 					{body}

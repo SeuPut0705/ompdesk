@@ -181,7 +181,11 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // The bot's identity, memory, notice routing, voice and side chats (1 Nov 2026): the desk's new fields and their
 // defaults (`shared/bot-desk.ts`; the edit schema and Memory.md helpers live apart in `bot-desk-edit.ts`, off this
 // screen), the store's `edit` and the API's two calls: measured 3,237,180, 3,152 bytes over the measure above.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_238_000;
+// The bot's parity surfaces (1 Nov 2026): the decision fields (operation, inputs, draft, expiry) and the desk's paused,
+// tasks-done and pin fields in the desk schema the store reads, the bot tab's context in the work board and its strip,
+// and the board row's open-and-act form; Tasks, Library and the cards stay in the bot's lazy chunk: measured
+// 3,239,068, 1,888 bytes over the measure above.
+const WEB_FIRST_SCREEN_JS_BYTES = 3_240_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

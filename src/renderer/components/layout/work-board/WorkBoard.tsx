@@ -407,13 +407,15 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 		...(planProposal ? [{ id: "plan", label: t("workBoard.planReview"), review: true }] : []),
 		...blocking.map(request => ({ id: request.id, label: requestLabel(request, t), review: false })),
 	];
-	const waitingChildren = opened.rows.filter(row => row.status === "waiting");
-	const nowChildren = opened.rows.filter(row => row.status !== "waiting");
+	// The bot's sessions are its Tasks (components/bot), waiting ones highlighted there: listed once, not again here.
+	const waitingChildren = bot ? [] : opened.rows.filter(row => row.status === "waiting");
+	const nowChildren = bot ? [] : opened.rows.filter(row => row.status !== "waiting");
 	// The presented lists, not the live ones: the last row of a finished agent or job fades out inside its section.
-	const runsNow = turnActive || presentedAgents.length + presentedJobs.length > 0 || opened.counts.running > 0;
+	const runsNow =
+		turnActive || presentedAgents.length + presentedJobs.length > 0 || (!bot && opened.counts.running > 0);
 	const showsNow = runsNow || nowChildren.length > 0;
 	// What the sessions this one opened lead to (the Work tree sheet) sits in the head of the section that lists them.
-	const workTree = opened.rows.length === 0 ? null : showsNow ? "now" : "needs";
+	const workTree = bot || opened.rows.length === 0 ? null : showsNow ? "now" : "needs";
 	const showsGoal = goal !== null && !autopilotTab;
 	const lastStep = steps.at(-1);
 	const nowLead = turnActive
@@ -495,11 +497,11 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 				</div>
 			</header>
 
-			{counts.needs > 0 && (
+			{(bot ? askItems.length > 0 : counts.needs > 0) && (
 				<BoardSection
 					action={workTree === "needs" ? <WorkTreeButton /> : null}
 					aside={jumpKey ? <Kbd shortcut={jumpKey} /> : null}
-					count={counts.needs}
+					count={bot ? askItems.length : counts.needs}
 					live={needsText}
 					id="needs"
 					title={t("workBoard.needs")}
@@ -536,7 +538,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 				</Suspense>
 			)}
 
-			{bot && botDesk && <botDesk.BotBoardSections device={bot.device} />}
+			{bot && botDesk && <botDesk.BotBoardSections device={bot.device} tabId={bot.tabId} />}
 
 			{showsNow && (
 				<BoardSection

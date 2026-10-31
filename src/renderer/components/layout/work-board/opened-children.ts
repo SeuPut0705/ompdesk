@@ -38,6 +38,24 @@ export interface OpenedChildRow {
 	device?: string;
 	/** That device's id, for a child this window holds no tab of: it opens there by its session file. */
 	deviceId?: string;
+	/** When it last said or did something final: its last report, or when main closed it (epoch ms). */
+	at?: number;
+	/** What its branch holds that its base does not: commits, files and lines, and files not committed yet. */
+	diff?: { commits: number; files: number; added: number; removed: number; uncommitted: number };
+}
+
+function diffOf(item: AgentReviewItem | undefined): Pick<OpenedChildRow, "diff"> {
+	if (!item || item.branch === undefined) return {};
+	if (item.commitsAhead + item.files + item.uncommitted === 0) return {};
+	return {
+		diff: {
+			commits: item.commitsAhead,
+			files: item.files,
+			added: item.added,
+			removed: item.removed,
+			uncommitted: item.uncommitted,
+		},
+	};
 }
 
 export interface OpenedChildCounts {
@@ -111,8 +129,9 @@ export function openedChildRows(input: {
 			...((item?.branch ?? tab.worktree?.branch) ? { branch: item?.branch ?? tab.worktree?.branch } : {}),
 			...(item?.baseBranch !== undefined ? { base: item.baseBranch } : {}),
 			...(unmerged ? { merge: "unmerged" as const } : tab.worktree && !item ? { merge: "merged" as const } : {}),
-			...(item?.report ? { report: item.report } : {}),
+			...(item?.report ? { report: item.report, at: item.report.at } : {}),
 			...(item?.question ? { question: item.question } : {}),
+			...diffOf(item),
 			...(tab.device ? { device: deviceName?.(tab.device) ?? tab.device } : {}),
 		});
 	}
@@ -143,8 +162,9 @@ export function openedChildRows(input: {
 			...(item.branch ? { branch: item.branch } : {}),
 			...(item.baseBranch !== undefined ? { base: item.baseBranch } : {}),
 			...(unmerged ? { merge: "unmerged" as const } : {}),
-			...(item.report ? { report: item.report } : {}),
+			...(item.report ? { report: item.report, at: item.report.at } : {}),
 			...(item.question ? { question: item.question } : {}),
+			...diffOf(item),
 		});
 	}
 	for (const child of closed) {
@@ -156,6 +176,7 @@ export function openedChildRows(input: {
 			sessionPath: child.path,
 			...(child.cwd ? { cwd: child.cwd } : {}),
 			title: child.title,
+			...(child.closedAt ? { at: child.closedAt } : {}),
 			status: "done",
 		});
 	}

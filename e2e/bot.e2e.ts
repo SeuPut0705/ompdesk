@@ -342,6 +342,9 @@ test("the bot's desk: a decision and a duty it posts show around its conversatio
 		action: "decide",
 		question: "Ship the release today?",
 		options: ["Ship it", "Wait"],
+		operation: "gh release create v0.43.0 --target main",
+		inputs: { version: "v0.43.0" },
+		draft: "Release notes: faster bot.",
 	});
 	expect(posted.isError, posted.text).toBe(false);
 	const id = /Decision (\S+) is posted/.exec(posted.text)?.[1] ?? "";
@@ -350,6 +353,10 @@ test("the bot's desk: a decision and a duty it posts show around its conversatio
 	const card = page.locator("[data-bot-decision]");
 	await expect(card).toHaveCount(1);
 	await expect(card).toContainText("Ship the release today?");
+	// The exact operation and its inputs, verbatim, and the draft the owner may edit before answering.
+	await expect(card.locator("[data-bot-decision-operation]")).toHaveText("gh release create v0.43.0 --target main");
+	await expect(card.locator("[data-bot-decision-inputs] dd")).toHaveText(["v0.43.0"]);
+	await card.locator("[data-bot-decision-draft]").fill("Release notes: faster bot, one screen.");
 	await expect(page.locator("[data-sidebar-bot-decisions]")).toHaveAttribute("data-sidebar-bot-decisions", "1");
 	await expect(pane.locator(".omp-transcript-scroll")).toBeVisible();
 	await capture("bot-wide");
@@ -375,6 +382,8 @@ test("the bot's desk: a decision and a duty it posts show around its conversatio
 	const [answer] = await answers();
 	expect(answer).toMatchObject({ triggerTurn: true, deliverAs: "aside" });
 	expect(String(answer?.content)).toContain("Answer: Ship it");
+	expect(String(answer?.content)).toContain("Operation: gh release create v0.43.0 --target main");
+	expect(String(answer?.content)).toContain("Draft as the owner approved it:\nRelease notes: faster bot, one screen.");
 
 	// The duty outlives the app: a relaunch reads the same desk.
 	await exitApp(app);
@@ -383,4 +392,84 @@ test("the bot's desk: a decision and a duty it posts show around its conversatio
 	await page.locator("[data-sidebar-bot-row]").click();
 	await expect(page.locator("[data-bot-duty]")).toContainText(["Check the nightly build"]);
 	await expect(page.locator("[data-bot-answered]")).toBeVisible();
+});
+
+test("the bot's tasks, library and pause: its sessions in progress and done by the owner's mark, held while paused", async () => {
+	test.setTimeout(240_000);
+	await windowWidth(1440);
+	const file = await botFile();
+	await page.locator("[data-sidebar-bot-row]").click();
+	const bot = await tabOf(file);
+	await untilReady(bot);
+	const pane = page.locator(`.omp-session-pane[data-tab-id="${bot}"]`);
+	const tasks = pane.locator('[data-board-section="tasks"]');
+	await expect(tasks).toBeVisible();
+
+	// One session waits on its approval card, another finishes: both are the bot's tasks, in progress.
+	const open = async (prompt: string): Promise<{ tab: string; file: string }> => {
+		const opened = await callAs(bot, "ompdesk_session_open", { show: "background" });
+		expect(opened.isError, opened.text).toBe(false);
+		const tab = /Opened session (\w+)/.exec(opened.text)?.[1] ?? "";
+		await untilReady(tab);
+		await page.evaluate(([id, message]) => window.omp.rpc.commandForTab(id, { type: "prompt", message }), [
+			tab,
+			prompt,
+		] as const);
+		let path = "";
+		await expect
+			.poll(async () => {
+				path =
+					(await page.evaluate(() => window.omp.tabs.list())).find(entry => entry.tabId === tab)?.sessionPath ??
+					"";
+				return path;
+			})
+			.not.toBe("");
+		return { tab, file: path };
+	};
+	const waiting = await open("fixture approval");
+	const finished = await open("hello");
+	await expect(tasks.locator(`[data-bot-task=${cssString(waiting.file)}]`)).toHaveAttribute(
+		"data-task-state",
+		"needs",
+		{
+			timeout: 60_000,
+		},
+	);
+	const done = tasks.locator(`[data-bot-task=${cssString(finished.file)}]`);
+	await expect(done).toHaveAttribute("data-task-state", "review", { timeout: 60_000 });
+	await capture("bot-tasks-wide");
+
+	// Only the owner completes it: the mark moves it to Completed, kept on the desk across a relaunch.
+	await done.locator('[data-bot-task-mark="done"]').click();
+	await expect(done).toHaveAttribute("data-task-state", "done");
+	await expect
+		.poll(async () => (await page.evaluate(() => window.omp.sessions.botDesk.get())).tasksDone)
+		.toEqual([finished.file]);
+
+	// Pause: the bar says so, the desk keeps it, and an answer to a decision waits until Resume.
+	await pane.locator('[data-bot-pause="running"]').click();
+	await expect(pane.locator('[data-bot-status-line="paused"]')).toBeVisible();
+	const posted = await callAs(bot, "ompdesk_bot", {
+		action: "decide",
+		question: "Rerun the nightly?",
+		options: ["Yes"],
+	});
+	const id = /Decision (\S+) is posted/.exec(posted.text)?.[1] ?? "";
+	await pane.locator('[data-bot-decision] [data-bot-option="Yes"]').click();
+	await expect(pane.locator("[data-bot-decision]")).toHaveCount(0);
+	const answers = () => mailReports(record, details => details.id === `bot-decision-${id}`);
+	// Held while paused: the outbox keeps it (main's host.test.ts pins the holding); the bot's omp hears it on Resume.
+	await capture("bot-paused-wide");
+	expect(await answers()).toHaveLength(0);
+	await pane.locator("[data-bot-resume]").click();
+	await expect(pane.locator('[data-bot-status-line="paused"]')).toHaveCount(0);
+	await expect.poll(async () => (await answers()).length, { timeout: 30_000 }).toBe(1);
+
+	// Narrow: the strip's panel holds the same tasks.
+	await windowWidth(760);
+	await expect(pane.locator("[data-work-chip]")).toBeVisible();
+	await pane.locator("[data-work-chip]").click();
+	await pane.locator('[data-board-section="tasks"] .omp-work-board-fold').click();
+	await expect(pane.locator(`[data-bot-task=${cssString(waiting.file)}]`)).toBeVisible();
+	await capture("bot-tasks-narrow");
 });

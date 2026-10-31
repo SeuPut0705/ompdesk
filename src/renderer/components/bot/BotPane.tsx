@@ -59,7 +59,11 @@ function LocalBotPane({ tab, children }: { tab: SessionTab; children: ReactNode 
 
 /** A paired host's bot session: the host's own list marks it, on or off (`SessionInfo.bot`), and only on is the bot's. */
 function HostBotPane({ tab, device, children }: { tab: SessionTab; device: string; children: ReactNode }) {
-	const isBot = useStore(sessionListFeed("global", device).store, state =>
+	const feed = sessionListFeed("global", device);
+	// The sidebar holds the host's list while its section shows; a phone's page keeps the sidebar in a drawer it may
+	// never open, so the pane holds it too (a deep-linked or reloaded bot tab still knows it is the host's bot).
+	useEffect(() => feed.retain(), [feed]);
+	const isBot = useStore(feed.store, state =>
 		state.sessions.some(row => row.path === tab.sessionPath && row.bot === "on"),
 	);
 	usePreloadBotDesk(isBot);

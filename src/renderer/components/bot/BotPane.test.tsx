@@ -76,7 +76,14 @@ function installApi(): DeskApi {
 		setDuties: vi.fn(async () => {}),
 		onChanged: vi.fn(() => () => {}),
 	};
-	(window as unknown as { omp: unknown }).omp = { sessions: { botDesk: api } };
+	(window as unknown as { omp: unknown }).omp = {
+		sessions: {
+			botDesk: api,
+			// The host's own list, as main reads it over the link: what `listHost` last set.
+			listShared: vi.fn(async () => hostRows),
+		},
+		events: { onSessionsChanged: vi.fn(() => () => {}) },
+	};
 	return api;
 }
 
@@ -105,7 +112,10 @@ async function mountPane(openTab: SessionTab = tab(), state: BotDeskState = OPEN
 	await mount(pane(openTab));
 }
 
+let hostRows: { path: string; bot: "on" | "off" }[] = [];
+
 function listHost(rows: { path: string; bot: "on" | "off" }[]): void {
+	hostRows = rows;
 	sessionListFeed("global", "mini").store.setState({ sessions: rows as never });
 }
 
@@ -125,6 +135,7 @@ afterEach(async () => {
 	useBotStore.getState().reset();
 	useBotDeskStore.getState().reset();
 	resetSessionListFeeds();
+	hostRows = [];
 	delete (window as unknown as { omp?: unknown }).omp;
 });
 
@@ -214,6 +225,15 @@ describe("BotPane", () => {
 		await vi.waitFor(() => expect(query('[data-bot-decision="d1"]')).not.toBeNull());
 		expect(api.get).toHaveBeenCalledWith("mini");
 		expect(api.get.mock.calls.every(call => call[0] === "mini")).toBe(true);
+	});
+
+	it("reads the host's list itself, so a host's bot tab opened with no sidebar (a phone's page) is the bot's", async () => {
+		installApi();
+		// Nothing read the host's list yet: no drawer was opened on this page.
+		hostRows = [{ path: "/mini/bot.jsonl", bot: "on" }];
+		await preloadBotDesk();
+		await mount(pane(tab({ device: "mini", sessionPath: "/mini/bot.jsonl" })));
+		await vi.waitFor(() => expect(query("[data-bot-bar]")).not.toBeNull());
 	});
 
 	it("leaves a paired computer's bot plain while that computer has it off, and follows its switch", async () => {

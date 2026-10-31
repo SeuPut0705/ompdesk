@@ -273,6 +273,55 @@ button.omp-work-board-row:hover {
 	color: var(--sc-text);
 }
 
+/* A row that opens what it names and has buttons of its own (the bot's tasks): its own part is the button. */
+.omp-work-board-row--split {
+	align-items: center;
+	padding-block: 0;
+	padding-inline-end: 0;
+}
+
+.omp-work-board-row-main {
+	display: flex;
+	min-width: 0;
+	flex: 1;
+	align-items: flex-start;
+	gap: var(--sc-space-2);
+	padding-block: 3px;
+	border-radius: var(--sc-radius-sm);
+	text-align: start;
+	color: inherit;
+	cursor: pointer;
+}
+
+.omp-work-board-row--split:hover {
+	background: var(--sc-hover);
+	color: var(--sc-text);
+}
+
+/* A group's name inside a section (the bot's In progress, Scheduled, Completed). */
+.omp-work-board-group {
+	display: flex;
+	align-items: baseline;
+	gap: var(--sc-space-1-5);
+	padding: var(--sc-space-1-5) var(--sc-space-1-5) 1px;
+	font-size: var(--sc-font-xs);
+	font-weight: 600;
+	color: var(--sc-text-muted);
+}
+
+.omp-work-board-group:first-child {
+	padding-top: 0;
+}
+
+/* A task the owner has not looked at since it finished (its tab's unread mark), or one that needs their answer. */
+.omp-work-board-row[data-task-unread] {
+	background: color-mix(in oklab, var(--sc-accent-soft) 60%, transparent);
+}
+
+.omp-work-board-row[data-task-state="needs"] {
+	background: var(--sc-warning-soft);
+}
+
 .omp-work-board-lead {
 	display: flex;
 	width: 14px;
