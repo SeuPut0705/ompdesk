@@ -1323,6 +1323,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			});
 			deps.webAsk.current?.({ type: "ask", tabId, requestId, text: title });
 		},
+		// The sessions this computer runs for paired devices: one that waits and no window shows is opened for the bot.
+		hosted: {
+			sessions: () =>
+				deps.hostedTabs
+					.hostedSessions()
+					.map(session => ({ sessionPath: session.sessionPath, awaitingInput: session.awaitingInput === true })),
+			onChange: listener => deps.hostedTabs.onHostedSessionsChange(listener),
+		},
 		// The desktop banner, and paired phones (Web Push), as an Autopilot run's notice reaches them.
 		notify: (win, tabId, title, body) => {
 			showNotification(win.webContents.id, { title, body, tabId });

@@ -89,7 +89,7 @@ import { type ClientWindow, isWebWindow } from "../web/client-window";
 import type { FileEditReports } from "../web/file-edit-reports";
 import { sessionOpenFolders } from "../worktree-orphans";
 import type { AppPorts } from "./app-control";
-import { BotFeed, type BotTab } from "./bot";
+import { BotFeed, type BotHostedSession, type BotTab } from "./bot";
 import {
 	type BranchEvidence,
 	type BranchFacts,
@@ -194,6 +194,11 @@ export interface AgentControlHostDeps {
 	botLog?: (entry: Record<string, unknown>) => void;
 	/** The owner's own notice of a question the bot left open too long (desktop banner, paired phones). */
 	botRemind?: (tabId: string, requestId: string, title: string) => void;
+	/** The sessions this computer runs for paired devices (`LocalHostServices`), and their changes. */
+	hosted?: {
+		sessions(): BotHostedSession[];
+		onChange(listener: () => void): () => void;
+	};
 	/** The sessions sharing a tab's checkout or repository on this computer (src/main/checkout-peers.ts). */
 	checkoutPeers?: (tabId: string) => readonly string[];
 	/** Autopilot's hooks (src/main/autopilot*.ts). */
@@ -335,6 +340,8 @@ export class AgentControlRuntime {
 		this.control = new AgentControl(this.#host());
 		this.#bot = new BotFeed(this.#botDeps());
 		deps.remote?.onLiveSessions?.((device, sessions) => this.#bot.liveSessions(device, sessions));
+		const hosted = deps.hosted;
+		hosted?.onChange(() => this.#bot.hostedSessions(hosted.sessions()));
 		deps.pool.observeTabs(activity => {
 			this.#bot.activity(activity);
 			const parent =
@@ -444,8 +451,14 @@ export class AgentControlRuntime {
 			},
 			open: async sessionPath => {
 				const win = deps.outsideWindow?.();
-				if (!win) throw new Error("No window to open the bot in.");
+				if (!win) throw new Error("No window to open the session in.");
 				await deps.spawnTab(win, { sessionPath });
+			},
+			close: sessionPath => {
+				const tabId = deps.pool.sessionOwner(sessionPath)?.tabId;
+				const win = tabId ? deps.pool.windowOfTab(tabId) : null;
+				const event: AgentControlViewEvent | null = tabId ? { tabId, how: "close", auto: true } : null;
+				if (win && event && !win.isDestroyed()) win.webContents.send(AGENT_CONTROL_VIEW, event);
 			},
 			start: tabId => void deps.pool.startTab(tabId),
 			deliver: (sessionPath, mail, delivery) => {

@@ -11,7 +11,7 @@
  * Sessions another session or Autopilot opened are their opener's (mail.ts `childAsked`), and a session the owner hid
  * from agents is never reported. Each report is a mail kept in the outbox until the bot's journal holds it.
  */
-import { AGENT_CARD_PREFIX, AGENT_HIDDEN_PREFS_KEY } from "../../shared/agent-control";
+import { AGENT_CARD_PREFIX, AGENT_HIDDEN_PREFS_KEY, agentHiddenPaths } from "../../shared/agent-control";
 import type { HostLiveSession, IpcTabRunOutcome, TabStatus } from "../../shared/ipc-types";
 import type { TabActivity } from "../sidecar-pool";
 import type { Mail, MailDelivery } from "./mail";
@@ -66,6 +66,12 @@ export interface BotGrants {
 	approve: boolean;
 }
 
+/** A session this computer runs for a paired device (`LocalHostServices.hostedSessions`): its file and whether it waits. */
+export interface BotHostedSession {
+	sessionPath: string;
+	awaitingInput: boolean;
+}
+
 export interface BotDeps {
 	prefs: { get(key: string): unknown; set?(key: string, value: unknown): void };
 	tab(tabId: string): BotTab | null;
@@ -74,8 +80,10 @@ export interface BotDeps {
 	grants(): BotGrants;
 	/** The tab on this computer holding `sessionPath`, if any. */
 	tabOfSession(sessionPath: string, device?: string): BotTab | null;
-	/** Opens the session in a background tab. */
+	/** Opens the session in a background tab (a session a paired device's tab here runs: a view of that omp). */
 	open(sessionPath: string): Promise<void>;
+	/** Closes the tab holding `sessionPath` as main's own close; the window keeps a tab the person is using. */
+	close(sessionPath: string): void;
 	/** Spawns a restored tab's omp nobody has shown yet. */
 	start(tabId: string): void;
 	/** Keeps the report until the session's journal holds it, and sends it to its tab when there is one. */
@@ -142,6 +150,8 @@ export class BotFeed {
 	#opening: Promise<void> | null = null;
 	/** Questions handed to the bot, by tab and request: the wait for its answer, and whether it ran out. */
 	readonly #handed = new Map<string, { timer: unknown; overdue: boolean }>();
+	/** Sessions run here for paired devices that the bot opened a tab for to answer them, by session file. */
+	readonly #shown = new Set<string>();
 	#seq = 0;
 	#timer: unknown;
 
@@ -269,6 +279,36 @@ export class BotFeed {
 			},
 			QUIET,
 		);
+	}
+
+	/**
+	 * The sessions this computer runs for paired devices, which no window here shows (`LocalHostServices`): their asks
+	 * never reach the pool. One that starts waiting while no tab here holds it is opened in a background tab, a view of
+	 * the same omp (`viewSession`), so its question reaches the bot through that tab's activity like any tab's; once it
+	 * no longer waits, that tab closes again. Never a session hidden from agents, nor while the control tools are off.
+	 */
+	hostedSessions(sessions: readonly BotHostedSession[]): void {
+		const hidden = agentHiddenPaths(this.#deps.prefs.get(AGENT_HIDDEN_PREFS_KEY));
+		const waiting = new Set(
+			sessions.flatMap(session =>
+				session.awaitingInput && !hidden.has(session.sessionPath) ? [session.sessionPath] : [],
+			),
+		);
+		for (const sessionPath of [...this.#shown]) {
+			if (waiting.has(sessionPath)) continue;
+			this.#shown.delete(sessionPath);
+			this.#deps.close(sessionPath);
+		}
+		const path = this.#deps.grants().control ? this.#path() : null;
+		if (!path) return;
+		for (const sessionPath of waiting) {
+			if (sessionPath === path || this.#shown.has(sessionPath) || this.#deps.tabOfSession(sessionPath)) continue;
+			this.#shown.add(sessionPath);
+			this.#deps.log({ event: "show", sessionPath });
+			this.#deps
+				.open(sessionPath)
+				.catch(error => this.#deps.log({ event: "show-failed", sessionPath, error: String(error) }));
+		}
 	}
 
 	/**

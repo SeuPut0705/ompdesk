@@ -53,6 +53,9 @@ function rig(options: { named?: boolean; botTab?: BotTab | null; at?: Date } = {
 			}
 	};
 	const reminded: { tabId: string; ask: BotAsk }[] = [];
+	const closed: string[] = [];
+	/** Session files a tab here holds (besides the bot's own). */
+	const held = new Set<string>();
 	const deps: BotDeps = {
 		prefs: { get: key => prefs.get(key), set: (key, value) => void prefs.set(key, value) },
 		tab: tabId => tabs.get(tabId) ?? null,
@@ -65,10 +68,13 @@ function rig(options: { named?: boolean; botTab?: BotTab | null; at?: Date } = {
 					: null
 				: sessionPath === BOT
 					? botTab
-					: null,
+					: held.has(sessionPath)
+						? tab(`held:${sessionPath}`)
+						: null,
 		open: async sessionPath => {
 			opened.push(sessionPath);
 		},
+		close: sessionPath => void closed.push(sessionPath),
 		start: tabId => void started.push(tabId),
 		deliver: (path, mail, delivery) => void sent.push({ path, mail, delivery }),
 		deviceName: id => `device ${id}`,
@@ -88,6 +94,8 @@ function rig(options: { named?: boolean; botTab?: BotTab | null; at?: Date } = {
 		prefs,
 		sent,
 		opened,
+		closed,
+		held,
 		started,
 		localDeviceTabs,
 		asks,
@@ -263,6 +271,33 @@ describe("BotFeed", () => {
 		r.setBotTab(tab("sec", { sessionPath: BOT, status: "asleep" }));
 		r.feed.activity({ type: "ask", tabId: "a", requestId: "q3", text: "?" });
 		expect(r.started).toEqual(["sec"]);
+	});
+
+	it("opens a session a paired device runs here once it waits, so its question reaches the bot, and closes it after", () => {
+		const r = rig();
+		const hosted = (awaitingInput: boolean, sessionPath = "/h/desk.jsonl") => ({ sessionPath, awaitingInput });
+		r.feed.hostedSessions([hosted(false)]);
+		expect(r.opened).toEqual([]);
+		r.feed.hostedSessions([hosted(true)]);
+		r.feed.hostedSessions([hosted(true)]);
+		expect(r.opened).toEqual(["/h/desk.jsonl"]);
+		// One a tab here already shows, one hidden from agents and the bot's own session are left as they are.
+		r.held.add("/h/shown.jsonl");
+		r.prefs.set(AGENT_HIDDEN_PREFS_KEY, { agentHidden: ["/h/hidden.jsonl"], bot: BOT });
+		r.feed.hostedSessions([
+			hosted(true),
+			hosted(true, "/h/shown.jsonl"),
+			hosted(true, "/h/hidden.jsonl"),
+			hosted(true, BOT),
+		]);
+		expect(r.opened).toEqual(["/h/desk.jsonl"]);
+		// Answered, it no longer waits: the tab the bot opened closes again.
+		r.feed.hostedSessions([hosted(false)]);
+		expect(r.closed).toEqual(["/h/desk.jsonl"]);
+		// With the control tools off nothing is opened.
+		r.grants.control = false;
+		r.feed.hostedSessions([hosted(true, "/h/next.jsonl")]);
+		expect(r.opened).toEqual(["/h/desk.jsonl"]);
 	});
 
 	it("follows a paired host's sessions: a new wait wakes it, an end is recorded, a tab here speaks for itself", () => {
