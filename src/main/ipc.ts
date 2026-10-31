@@ -290,11 +290,11 @@ export interface IpcDeps {
 	/** Web Push's share of a tab's notice (an Autopilot run's, an agent's `ompdesk_notify`), set once the web host exists. */
 	webTabNotice: { current: ((tabId: string, notice: AutopilotNotice) => void) | null };
 	/**
-	 * Whether the secretary answers a tab's question now (agent-control/secretary.ts; `requestId`: the question, when
+	 * Whether the bot answers a tab's question now (agent-control/bot.ts; `requestId`: the question, when
 	 * known), set once the control tools exist.
 	 */
-	secretaryAnswers: { current: ((tabId: string, requestId?: string) => boolean) | null };
-	/** Web Push's share of a tab's question told late (one the secretary left open), set once the web host exists. */
+	botAnswers: { current: ((tabId: string, requestId?: string) => boolean) | null };
+	/** Web Push's share of a tab's question told late (one the bot left open), set once the web host exists. */
 	webAsk: { current: ((activity: Extract<TabActivity, { type: "ask" }>) => void) | null };
 	/** The desktop slot's host, built in `registerIpcHandlers` (it needs the pool) and published here for the sidecar factory. */
 	desktopSlotRef: { current: DesktopSlotHost | null };
@@ -1052,7 +1052,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	};
 
 	/**
-	 * A notice no turn event of `tabId` carries (an Autopilot run's end, a question the secretary left open) as this
+	 * A notice no turn event of `tabId` carries (an Autopilot run's end, a question the bot left open) as this
 	 * computer's OS banner on the window that holds the tab, batched like any tab notification; nothing while General ›
 	 * Notifications is off.
 	 */
@@ -1312,9 +1312,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			request: (device, method, params, timeoutMs) => remoteDevices.request(device, method, params, timeoutMs),
 			onLiveSessions: listener => remoteDevices.onLiveSessions(listener),
 		},
-		secretaryLog: entry => writeRuntimeLog({ source: "secretary", message: String(entry.event), details: entry }),
-		// A question the secretary left open too long: the owner's own "needs you" notice, late, here and on phones.
-		secretaryRemind: (tabId, requestId, title) => {
+		botLog: entry => writeRuntimeLog({ source: "bot", message: String(entry.event), details: entry }),
+		// A question the bot left open too long: the owner's own "needs you" notice, late, here and on phones.
+		botRemind: (tabId, requestId, title) => {
 			const session = sidecarPool.tabFacts(tabId)?.title || "OMPdesk";
 			notifyTab(tabId, {
 				kind: "ask",
@@ -1367,7 +1367,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			return response === 0;
 		},
 	});
-	deps.secretaryAnswers.current = (tabId, requestId) => agentControl.secretaryAnswers(tabId, requestId);
+	deps.botAnswers.current = (tabId, requestId) => agentControl.botAnswers(tabId, requestId);
 	// The control socket (src/main/control-socket): anything on this computer drives the same service as the tools.
 	void startControlSocket({
 		userData: app.getPath("userData"),
@@ -1873,9 +1873,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					notificationBatcher.dropWindow(winId);
 				});
 			}
-			// The secretary answers this tab's question for the owner (agent-control/secretary.ts): its notice would repeat
-			// it. A banner names no request, so a tab holding any question the secretary cannot answer still notifies.
-			if (notice.kind === "ask" && notice.tabId && agentControl.secretaryAnswers(notice.tabId)) return;
+			// The bot answers this tab's question for the owner (agent-control/bot.ts): its notice would repeat
+			// it. A banner names no request, so a tab holding any question the bot cannot answer still notifies.
+			if (notice.kind === "ask" && notice.tabId && agentControl.botAnswers(notice.tabId)) return;
 			// Bursts fold into one summary (notification-batch.ts).
 			notificationBatcher.notify(winId, {
 				title: notice.title,

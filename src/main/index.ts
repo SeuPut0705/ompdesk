@@ -770,7 +770,7 @@ app.whenReady().then(() => {
 	// Autopilot's coordinator is built in ipc.ts (it needs the RPC dispatcher); the factory and TurnResume read it from here.
 	const autopilotRef: { current: Autopilot | null } = { current: null };
 	const webTabNotice: IpcDeps["webTabNotice"] = { current: null };
-	const secretaryAnswers: IpcDeps["secretaryAnswers"] = { current: null };
+	const botAnswers: IpcDeps["botAnswers"] = { current: null };
 	const webAsk: IpcDeps["webAsk"] = { current: null };
 	// The desktop slot's host is built in ipc.ts next to the pool's wiring; the factory reads it from here.
 	const desktopSlotRef: { current: DesktopSlotHost | null } = { current: null };
@@ -1857,7 +1857,7 @@ app.whenReady().then(() => {
 		remoteDevices: devices,
 		hostedTabs: hostServices,
 		webTabNotice,
-		secretaryAnswers,
+		botAnswers,
 		webAsk,
 		spawnWindow,
 		initialCwd: resolveInitialCwd,
@@ -1925,9 +1925,9 @@ app.whenReady().then(() => {
 	// Uploads expire on their own whether or not Mobile web serves: a paired computer's attached files land there too.
 	void webHost.keepUploadsSwept();
 	// Paired phones hear of finished turns, failures and asks through Web Push (web/web-push-notifier.ts); a question
-	// the secretary answers for the owner is not pushed (agent-control/secretary.ts), one it cannot answer is.
+	// the bot answers for the owner is not pushed (agent-control/bot.ts), one it cannot answer is.
 	sidecarPool.observeTabs(activity => {
-		if (activity.type === "ask" && secretaryAnswers.current?.(activity.tabId, activity.requestId)) return;
+		if (activity.type === "ask" && botAnswers.current?.(activity.tabId, activity.requestId)) return;
 		webHost?.tabActivity(activity);
 	});
 	webTabNotice.current = (tabId, notice) => webHost?.tabNotice(tabId, notice);

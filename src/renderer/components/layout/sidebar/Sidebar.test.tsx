@@ -1403,7 +1403,7 @@ describe("Sidebar menus and pinned ordering", () => {
 			"Move to project…",
 			"Archive",
 			"Hide from other agents",
-			"Make secretary",
+			"Set as bot",
 			"Show in folder",
 			"Delete",
 		]);
@@ -1836,7 +1836,7 @@ describe("Sidebar menus and pinned ordering", () => {
 			"Move to project…",
 			"Archive",
 			"Hide from other agents",
-			"Make secretary",
+			"Set as bot",
 			"Show in folder",
 			"Delete",
 		]);
@@ -6202,7 +6202,7 @@ describe("Sidebar on a touch screen", () => {
 			"Move to project…",
 			"Archive",
 			"Hide from other agents",
-			"Make secretary",
+			"Set as bot",
 			"Show in folder",
 			"Delete",
 		]);

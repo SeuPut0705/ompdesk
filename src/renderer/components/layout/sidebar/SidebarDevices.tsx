@@ -793,7 +793,7 @@ function DeviceSessions({
 				pinned: hostPins.includes(session.path),
 				archived: hostArchived.has(session.id),
 				agentHidden: false,
-				secretary: false,
+				bot: false,
 				canMoveUp: canMoveWithin(list, session.path, -1),
 				canMoveDown: canMoveWithin(list, session.path, 1),
 			},

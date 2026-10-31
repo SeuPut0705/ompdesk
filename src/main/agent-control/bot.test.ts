@@ -1,21 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { AGENT_HIDDEN_PREFS_KEY } from "../../shared/agent-control";
 import type { HostLiveSession, IpcTabRunOutcome } from "../../shared/ipc-types";
-import type { Mail, MailDelivery } from "./mail";
 import {
-	SECRETARY_ANSWER_WAIT_MS,
-	SECRETARY_BRIEF_DAY_PREF,
-	SECRETARY_TICK_MS,
-	type SecretaryAsk,
-	type SecretaryDeps,
-	SecretaryFeed,
-	type SecretaryGrants,
-	type SecretaryTab,
-} from "./secretary";
+	BOT_ANSWER_WAIT_MS,
+	BOT_BRIEF_DAY_PREF,
+	BOT_TICK_MS,
+	type BotAsk,
+	type BotDeps,
+	BotFeed,
+	type BotGrants,
+	type BotTab,
+} from "./bot";
+import type { Mail, MailDelivery } from "./mail";
 
-const SECRETARY = "/s/secretary.jsonl";
+const BOT = "/s/bot.jsonl";
 
-function tab(tabId: string, extra: Partial<SecretaryTab> = {}): SecretaryTab {
+function tab(tabId: string, extra: Partial<BotTab> = {}): BotTab {
 	return {
 		tabId,
 		title: `title ${tabId}`,
@@ -28,20 +28,19 @@ function tab(tabId: string, extra: Partial<SecretaryTab> = {}): SecretaryTab {
 	};
 }
 
-function rig(options: { named?: boolean; secretaryTab?: SecretaryTab | null; at?: Date } = {}) {
+function rig(options: { named?: boolean; botTab?: BotTab | null; at?: Date } = {}) {
 	const prefs = new Map<string, unknown>();
-	if (options.named !== false) prefs.set(AGENT_HIDDEN_PREFS_KEY, { agentHidden: [], secretary: SECRETARY });
-	const tabs = new Map<string, SecretaryTab>();
-	let secretaryTab: SecretaryTab | null =
-		options.secretaryTab === undefined ? tab("sec", { sessionPath: SECRETARY }) : options.secretaryTab;
-	if (secretaryTab) tabs.set(secretaryTab.tabId, secretaryTab);
+	if (options.named !== false) prefs.set(AGENT_HIDDEN_PREFS_KEY, { agentHidden: [], bot: BOT });
+	const tabs = new Map<string, BotTab>();
+	let botTab: BotTab | null = options.botTab === undefined ? tab("sec", { sessionPath: BOT }) : options.botTab;
+	if (botTab) tabs.set(botTab.tabId, botTab);
 	const sent: { path: string; mail: Mail; delivery: MailDelivery }[] = [];
 	const opened: string[] = [];
 	const started: string[] = [];
 	const localDeviceTabs = new Set<string>();
 	/** The questions open per tab. */
-	const asks = new Map<string, SecretaryAsk[]>();
-	const grants: SecretaryGrants = { control: true, approve: true };
+	const asks = new Map<string, BotAsk[]>();
+	const grants: BotGrants = { control: true, approve: true };
 	let now = (options.at ?? new Date(2026, 9, 31, 7, 0)).getTime();
 	/** Pending timers by handle; `run` fires those armed with that delay. */
 	const timers = new Map<number, { fn: () => void; ms: number }>();
@@ -53,8 +52,8 @@ function rig(options: { named?: boolean; secretaryTab?: SecretaryTab | null; at?
 				timer.fn();
 			}
 	};
-	const reminded: { tabId: string; ask: SecretaryAsk }[] = [];
-	const deps: SecretaryDeps = {
+	const reminded: { tabId: string; ask: BotAsk }[] = [];
+	const deps: BotDeps = {
 		prefs: { get: key => prefs.get(key), set: (key, value) => void prefs.set(key, value) },
 		tab: tabId => tabs.get(tabId) ?? null,
 		openAsks: tabId => asks.get(tabId) ?? [],
@@ -64,8 +63,8 @@ function rig(options: { named?: boolean; secretaryTab?: SecretaryTab | null; at?
 				? localDeviceTabs.has(`${device}:${sessionPath}`)
 					? tab("device-tab")
 					: null
-				: sessionPath === SECRETARY
-					? secretaryTab
+				: sessionPath === BOT
+					? botTab
 					: null,
 		open: async sessionPath => {
 			opened.push(sessionPath);
@@ -83,7 +82,7 @@ function rig(options: { named?: boolean; secretaryTab?: SecretaryTab | null; at?
 		},
 		clearTimer: handle => void timers.delete(handle as number),
 	};
-	const feed = new SecretaryFeed(deps);
+	const feed = new BotFeed(deps);
 	return {
 		feed,
 		prefs,
@@ -95,23 +94,23 @@ function rig(options: { named?: boolean; secretaryTab?: SecretaryTab | null; at?
 		grants,
 		reminded,
 		timers,
-		add: (entry: SecretaryTab) => tabs.set(entry.tabId, entry),
-		setSecretaryTab: (entry: SecretaryTab | null) => {
-			secretaryTab = entry;
+		add: (entry: BotTab) => tabs.set(entry.tabId, entry),
+		setBotTab: (entry: BotTab | null) => {
+			botTab = entry;
 		},
 		at: (date: Date) => {
 			now = date.getTime();
-			run(SECRETARY_TICK_MS);
+			run(BOT_TICK_MS);
 		},
-		/** The secretary's answer deadline runs out. */
-		overdue: () => run(SECRETARY_ANSWER_WAIT_MS),
+		/** The bot's answer deadline runs out. */
+		overdue: () => run(BOT_ANSWER_WAIT_MS),
 	};
 }
 
 const outcome = (extra: Partial<IpcTabRunOutcome> = {}): IpcTabRunOutcome => ({ stopReason: "stop", ...extra });
 
-describe("SecretaryFeed", () => {
-	it("tells the owner after all when the secretary leaves a question open past its wait", () => {
+describe("BotFeed", () => {
+	it("tells the owner after all when the bot leaves a question open past its wait", () => {
 		const r = rig();
 		r.add(tab("a"));
 		const question = { id: "q1", title: "Which branch?", approval: false };
@@ -133,23 +132,23 @@ describe("SecretaryFeed", () => {
 		r.feed.activity({ type: "released", tabId: "a" });
 		r.overdue();
 		expect(r.reminded).toHaveLength(1);
-		expect([...r.timers.values()].some(timer => timer.ms === SECRETARY_ANSWER_WAIT_MS)).toBe(false);
+		expect([...r.timers.values()].some(timer => timer.ms === BOT_ANSWER_WAIT_MS)).toBe(false);
 	});
 
-	it("wakes the secretary for a question of a session the owner runs, to answer within what the owner asked", () => {
+	it("wakes the bot for a question of a session the owner runs, to answer within what the owner asked", () => {
 		const r = rig();
 		r.add(tab("a"));
 		r.feed.activity({ type: "ask", tabId: "a", requestId: "q1", text: "Run the migration?" });
 		expect(r.sent).toHaveLength(1);
 		const [{ path, mail, delivery }] = r.sent as [(typeof r.sent)[number]];
-		expect(path).toBe(SECRETARY);
+		expect(path).toBe(BOT);
 		expect(delivery).toEqual({ triggerTurn: true, deliverAs: "aside" });
 		expect(mail).toMatchObject({ kind: "question", from: "a", card: "q1", text: "Run the migration?", to: "sec" });
 		expect(mail.instruction).toContain('ompdesk_session_answer {"session":"a","request":"q1"}');
 		expect(mail.instruction).toContain("choose the answer that does not do it");
 	});
 
-	it("leaves the secretary's own session, hidden ones and sessions another agent opened alone", () => {
+	it("leaves the bot's own session, hidden ones and sessions another agent opened alone", () => {
 		const r = rig();
 		r.add(tab("hidden", { hidden: true }));
 		r.add(tab("child", { delegated: true }));
@@ -158,8 +157,8 @@ describe("SecretaryFeed", () => {
 		expect(r.sent).toHaveLength(0);
 	});
 
-	it("reports nothing while no session is the secretary", () => {
-		const r = rig({ named: false, secretaryTab: null });
+	it("reports nothing while no session is the bot", () => {
+		const r = rig({ named: false, botTab: null });
 		r.add(tab("a"));
 		r.feed.activity({ type: "ask", tabId: "a", requestId: "q", text: "?" });
 		r.feed.activity({ type: "idle", tabId: "a", outcome: outcome() });
@@ -193,7 +192,7 @@ describe("SecretaryFeed", () => {
 		const card = { id: "c1", title: "[OMPdesk] Delete a session?", approval: false };
 		const question = { id: "q1", title: "Which branch?", approval: false };
 		r.asks.set("a", [card, question]);
-		// The secretary cannot answer such a card (ompdesk_session_answer refuses it): it is never reported to it.
+		// The bot cannot answer such a card (ompdesk_session_answer refuses it): it is never reported to it.
 		r.feed.activity({ type: "ask", tabId: "a", requestId: "c1", text: card.title });
 		expect(r.sent).toHaveLength(0);
 		// Its push still goes out; one for an ordinary question of the same tab does not.
@@ -217,7 +216,7 @@ describe("SecretaryFeed", () => {
 		expect(r.sent).toHaveLength(0);
 		expect(r.feed.answers("a", "q1")).toBe(false);
 		expect(r.feed.answers("a")).toBe(false);
-		// Switched back on, the secretary answers again.
+		// Switched back on, the bot answers again.
 		r.grants.control = true;
 		expect(r.feed.answers("a", "q1")).toBe(true);
 	});
@@ -248,20 +247,20 @@ describe("SecretaryFeed", () => {
 		expect(r.feed.answers("a")).toBe(true);
 		expect(r.feed.answers("sec")).toBe(false);
 		expect(r.feed.answers("child")).toBe(false);
-		r.setSecretaryTab(tab("sec", { sessionPath: SECRETARY, status: "error" }));
+		r.setBotTab(tab("sec", { sessionPath: BOT, status: "error" }));
 		expect(r.feed.answers("a")).toBe(false);
-		r.setSecretaryTab(null);
+		r.setBotTab(null);
 		expect(r.feed.answers("a")).toBe(false);
 	});
 
-	it("opens a closed secretary in the background and starts an asleep one", () => {
-		const r = rig({ secretaryTab: null });
+	it("opens a closed bot in the background and starts an asleep one", () => {
+		const r = rig({ botTab: null });
 		r.add(tab("a"));
 		r.feed.activity({ type: "ask", tabId: "a", requestId: "q1", text: "?" });
 		r.feed.activity({ type: "ask", tabId: "a", requestId: "q2", text: "?" });
 		expect(r.sent).toHaveLength(2);
-		expect(r.opened).toEqual([SECRETARY]);
-		r.setSecretaryTab(tab("sec", { sessionPath: SECRETARY, status: "asleep" }));
+		expect(r.opened).toEqual([BOT]);
+		r.setBotTab(tab("sec", { sessionPath: BOT, status: "asleep" }));
 		r.feed.activity({ type: "ask", tabId: "a", requestId: "q3", text: "?" });
 		expect(r.started).toEqual(["sec"]);
 	});
@@ -305,16 +304,16 @@ describe("SecretaryFeed", () => {
 		r.at(new Date(2026, 9, 31, 8, 0));
 		r.at(new Date(2026, 9, 31, 12, 0));
 		expect(r.sent).toHaveLength(1);
-		expect(r.sent[0]?.mail).toMatchObject({ id: "secretary-brief-2026-10-31", kind: "note" });
+		expect(r.sent[0]?.mail).toMatchObject({ id: "bot-brief-2026-10-31", kind: "note" });
 		expect(r.sent[0]?.delivery.triggerTurn).toBe(true);
-		expect(r.prefs.get(SECRETARY_BRIEF_DAY_PREF)).toBe("2026-10-31");
+		expect(r.prefs.get(BOT_BRIEF_DAY_PREF)).toBe("2026-10-31");
 		r.at(new Date(2026, 10, 1, 6, 0));
 		r.at(new Date(2026, 10, 1, 9, 30));
-		expect(r.sent.map(entry => entry.mail.id)).toEqual(["secretary-brief-2026-10-31", "secretary-brief-2026-11-01"]);
+		expect(r.sent.map(entry => entry.mail.id)).toEqual(["bot-brief-2026-10-31", "bot-brief-2026-11-01"]);
 	});
 
-	it("briefs at once when the app starts after the hour, and never without a secretary", () => {
+	it("briefs at once when the app starts after the hour, and never without a bot", () => {
 		expect(rig({ at: new Date(2026, 9, 31, 10, 0) }).sent).toHaveLength(1);
-		expect(rig({ at: new Date(2026, 9, 31, 10, 0), named: false, secretaryTab: null }).sent).toHaveLength(0);
+		expect(rig({ at: new Date(2026, 9, 31, 10, 0), named: false, botTab: null }).sent).toHaveLength(0);
 	});
 });

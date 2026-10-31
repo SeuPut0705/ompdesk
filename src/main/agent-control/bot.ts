@@ -1,5 +1,5 @@
 /**
- * The secretary (비서): one session on this computer the owner names from a session's menu (the `secretary` field
+ * The bot (봇): one session on this computer the owner names from a session's menu (the `bot` field
  * of the sidebar prefs blob, a session file). It does only what the owner asked:
  * - A question or approval of a session the owner runs (a top-level tab here, or a session a paired host works on)
  *   wakes it with a report: it answers by what the owner asked that session, and picks the answer that does not do
@@ -7,9 +7,9 @@
  *   not shown (`answers`).
  * - A finished or failed turn is written into its conversation quietly, for the brief: it never wakes it, and the
  *   owner's own notices for it stay as they are.
- * - Once a day from `SECRETARY_BRIEF_HOUR` it is woken for the morning brief.
+ * - Once a day from `BOT_BRIEF_HOUR` it is woken for the morning brief.
  * Sessions another session or Autopilot opened are their opener's (mail.ts `childAsked`), and a session the owner hid
- * from agents is never reported. Each report is a mail kept in the outbox until the secretary's journal holds it.
+ * from agents is never reported. Each report is a mail kept in the outbox until the bot's journal holds it.
  */
 import { AGENT_CARD_PREFIX, AGENT_HIDDEN_PREFS_KEY } from "../../shared/agent-control";
 import type { HostLiveSession, IpcTabRunOutcome, TabStatus } from "../../shared/ipc-types";
@@ -17,43 +17,43 @@ import type { TabActivity } from "../sidecar-pool";
 import type { Mail, MailDelivery } from "./mail";
 
 /** The local day (YYYY-MM-DD) the last morning brief was sent for. */
-export const SECRETARY_BRIEF_DAY_PREF = "secretaryBriefDay";
+export const BOT_BRIEF_DAY_PREF = "botBriefDay";
 /** The local hour from which the day's brief is sent. */
-export const SECRETARY_BRIEF_HOUR = 8;
+export const BOT_BRIEF_HOUR = 8;
 /** How often the brief's hour is looked for. */
-export const SECRETARY_TICK_MS = 60_000;
+export const BOT_TICK_MS = 60_000;
 /**
- * A question handed to the secretary that is still open this long after tells the owner after all, with their own
- * "needs you" notice: the secretary may be stuck or its model unreachable, and a wait is never silent.
+ * A question handed to the bot that is still open this long after tells the owner after all, with their own
+ * "needs you" notice: the bot may be stuck or its model unreachable, and a wait is never silent.
  */
-export const SECRETARY_ANSWER_WAIT_MS = 120_000;
+export const BOT_ANSWER_WAIT_MS = 120_000;
 const REPLY_MAX = 300;
 
 const WAKE: MailDelivery = { triggerTurn: true, deliverAs: "aside" };
 const QUIET: MailDelivery = { triggerTurn: false };
 
-/** The session file the owner named as secretary, if any. */
-export function secretaryPath(blob: unknown): string | null {
-	const value = blob && typeof blob === "object" ? (blob as { secretary?: unknown }).secretary : undefined;
+/** The session file the owner named as bot, if any. */
+export function botPath(blob: unknown): string | null {
+	const value = blob && typeof blob === "object" ? (blob as { bot?: unknown }).bot : undefined;
 	return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 /** What the feed needs to know of a live tab. */
-export interface SecretaryTab {
+export interface BotTab {
 	tabId: string;
 	title: string;
 	status: TabStatus;
 	sessionPath?: string;
 	/** The owner hid it from agents. */
 	hidden: boolean;
-	/** Another session or Autopilot opened it, or it is an Autopilot run: its questions are not the secretary's. */
+	/** Another session or Autopilot opened it, or it is an Autopilot run: its questions are not the bot's. */
 	delegated: boolean;
 	/** Its failure is not final yet (stock's retry, a scheduled retry, a dropped connection). */
 	retrying: boolean;
 }
 
 /** A question or approval open in a tab. */
-export interface SecretaryAsk {
+export interface BotAsk {
 	id: string;
 	title: string;
 	/** A stock tool approval (`approvalChoices`): only an agent the owner lets approve may say yes to it. */
@@ -61,19 +61,19 @@ export interface SecretaryAsk {
 }
 
 /** What the owner lets agents do (Settings › Tools & extensions): the control tools at all, and approving for them. */
-export interface SecretaryGrants {
+export interface BotGrants {
 	control: boolean;
 	approve: boolean;
 }
 
-export interface SecretaryDeps {
+export interface BotDeps {
 	prefs: { get(key: string): unknown; set?(key: string, value: unknown): void };
-	tab(tabId: string): SecretaryTab | null;
+	tab(tabId: string): BotTab | null;
 	/** The questions and approvals open in the tab now. */
-	openAsks(tabId: string): SecretaryAsk[];
-	grants(): SecretaryGrants;
+	openAsks(tabId: string): BotAsk[];
+	grants(): BotGrants;
 	/** The tab on this computer holding `sessionPath`, if any. */
-	tabOfSession(sessionPath: string, device?: string): SecretaryTab | null;
+	tabOfSession(sessionPath: string, device?: string): BotTab | null;
 	/** Opens the session in a background tab. */
 	open(sessionPath: string): Promise<void>;
 	/** Spawns a restored tab's omp nobody has shown yet. */
@@ -82,8 +82,8 @@ export interface SecretaryDeps {
 	deliver(sessionPath: string, mail: Mail, delivery: MailDelivery): void;
 	deviceName(deviceId: string): string;
 	log(entry: Record<string, unknown>): void;
-	/** Shows the owner the notice of a question the secretary left open past `SECRETARY_ANSWER_WAIT_MS`. */
-	remind(tabId: string, ask: SecretaryAsk): void;
+	/** Shows the owner the notice of a question the bot left open past `BOT_ANSWER_WAIT_MS`. */
+	remind(tabId: string, ask: BotAsk): void;
 	now(): number;
 	setTimer(fn: () => void, ms: number): unknown;
 	clearTimer(handle: unknown): void;
@@ -108,11 +108,11 @@ const DECIDE = [
 ].join(" ");
 
 function askInstruction(tabId: string, requestId: string): string {
-	return `You are the owner's secretary. Answer this for them now with ompdesk_session_answer {"session":"${tabId}","request":"${requestId}"}. ${DECIDE}`;
+	return `You are the owner's bot. Answer this for them now with ompdesk_session_answer {"session":"${tabId}","request":"${requestId}"}. ${DECIDE}`;
 }
 
 function liveInstruction(device: string, deviceName: string, sessionPath: string): string {
-	return `You are the owner's secretary. This session runs on ${deviceName} and waits for an answer, but no tab here shows it. Find it with ompdesk_sessions {"scope":"stored","device":"${device}"} (its file is ${sessionPath}), open it with ompdesk_session_open {"reopen":"<its id>"}, then answer its question with ompdesk_session_answer. ${DECIDE}`;
+	return `You are the owner's bot. This session runs on ${deviceName} and waits for an answer, but no tab here shows it. Find it with ompdesk_sessions {"scope":"stored","device":"${device}"} (its file is ${sessionPath}), open it with ompdesk_session_open {"reopen":"<its id>"}, then answer its question with ompdesk_session_answer. ${DECIDE}`;
 }
 
 const RECORD_INSTRUCTION = "For the owner's next brief only: nothing to do now.";
@@ -121,11 +121,11 @@ const BRIEF_INSTRUCTION =
 	"Morning brief. Write the owner a short brief from this conversation since the last brief: what finished, what failed, the questions you answered (your Decision lines), what still waits on them. Start, retry or change no work. Then call ompdesk_notify once with the brief's first line as its title.";
 
 /**
- * The secretary can answer it: the control tools are on, it is no confirmation card OMPdesk raises for the owner before
+ * The bot can answer it: the control tools are on, it is no confirmation card OMPdesk raises for the owner before
  * an agent action (`AGENT_CARD_PREFIX`, which `ompdesk_session_answer` refuses), and a tool approval only while the owner
  * lets agents approve (otherwise only Deny would go through).
  */
-function answerable(ask: SecretaryAsk, grants: SecretaryGrants): boolean {
+function answerable(ask: BotAsk, grants: BotGrants): boolean {
 	return grants.control && !ask.title.startsWith(AGENT_CARD_PREFIX) && (!ask.approval || grants.approve);
 }
 
@@ -133,47 +133,47 @@ function handedKey(tabId: string, requestId: string): string {
 	return `${tabId}\n${requestId}`;
 }
 
-export class SecretaryFeed {
-	readonly #deps: SecretaryDeps;
+export class BotFeed {
+	readonly #deps: BotDeps;
 	/** Run outcomes already recorded: a compaction may settle the same run again. */
 	readonly #recorded = new WeakSet<IpcTabRunOutcome>();
 	/** Per paired host, the state of each session it works on as last heard; absent until its first list. */
 	readonly #live = new Map<string, Map<string, HostLiveSession["state"]>>();
 	#opening: Promise<void> | null = null;
-	/** Questions handed to the secretary, by tab and request: the wait for its answer, and whether it ran out. */
+	/** Questions handed to the bot, by tab and request: the wait for its answer, and whether it ran out. */
 	readonly #handed = new Map<string, { timer: unknown; overdue: boolean }>();
 	#seq = 0;
 	#timer: unknown;
 
-	constructor(deps: SecretaryDeps) {
+	constructor(deps: BotDeps) {
 		this.#deps = deps;
 		this.#tick();
 	}
 
 	#path(): string | null {
-		return secretaryPath(this.#deps.prefs.get(AGENT_HIDDEN_PREFS_KEY));
+		return botPath(this.#deps.prefs.get(AGENT_HIDDEN_PREFS_KEY));
 	}
 
-	/** The secretary's tab, when one is named and a tab here holds it. */
-	#secretary(): SecretaryTab | null {
+	/** The bot's tab, when one is named and a tab here holds it. */
+	#bot(): BotTab | null {
 		const path = this.#path();
 		return path ? this.#deps.tabOfSession(path) : null;
 	}
 
 	/**
-	 * The owner's notice for a question of `tabId` would only repeat the secretary's work: the secretary is there, the
+	 * The owner's notice for a question of `tabId` would only repeat the bot's work: the bot is there, the
 	 * tab is one it reports and the question is one it can answer (`answerable`). `requestId` names the question; a
 	 * notice that names none (a desktop banner) is silenced only while every question open in the tab is answerable.
-	 * A question no longer open, one the secretary cannot answer, or one it left open past `SECRETARY_ANSWER_WAIT_MS`
+	 * A question no longer open, one the bot cannot answer, or one it left open past `BOT_ANSWER_WAIT_MS`
 	 * keeps the owner's notice.
 	 */
 	answers(tabId: string, requestId?: string): boolean {
 		const grants = this.#deps.grants();
 		if (!grants.control) return false;
-		const secretary = this.#secretary();
-		if (!secretary || secretary.status === "error" || secretary.status === "exited") return false;
+		const bot = this.#bot();
+		if (!bot || bot.status === "error" || bot.status === "exited") return false;
 		const tab = this.#deps.tab(tabId);
-		if (!tab || !this.#reported(tab, secretary.tabId)) return false;
+		if (!tab || !this.#reported(tab, bot.tabId)) return false;
 		const asks = this.#deps.openAsks(tabId);
 		if (requestId !== undefined) {
 			const ask = asks.find(entry => entry.id === requestId);
@@ -186,8 +186,8 @@ export class SecretaryFeed {
 		return this.#handed.get(handedKey(tabId, requestId))?.overdue === true;
 	}
 
-	/** The secretary has `SECRETARY_ANSWER_WAIT_MS` to answer `ask`; still open then, the owner hears of it. */
-	#await(tabId: string, ask: SecretaryAsk): void {
+	/** The bot has `BOT_ANSWER_WAIT_MS` to answer `ask`; still open then, the owner hears of it. */
+	#await(tabId: string, ask: BotAsk): void {
 		const key = handedKey(tabId, ask.id);
 		if (this.#handed.has(key)) return;
 		const timer = this.#deps.setTimer(() => {
@@ -200,7 +200,7 @@ export class SecretaryFeed {
 			handed.overdue = true;
 			this.#deps.log({ event: "overdue", tabId, request: ask.id });
 			this.#deps.remind(tabId, ask);
-		}, SECRETARY_ANSWER_WAIT_MS);
+		}, BOT_ANSWER_WAIT_MS);
 		this.#handed.set(key, { timer, overdue: false });
 	}
 
@@ -212,8 +212,8 @@ export class SecretaryFeed {
 		}
 	}
 
-	#reported(tab: SecretaryTab, secretaryTabId: string | undefined): boolean {
-		return tab.tabId !== secretaryTabId && !tab.hidden && !tab.delegated;
+	#reported(tab: BotTab, botTabId: string | undefined): boolean {
+		return tab.tabId !== botTabId && !tab.hidden && !tab.delegated;
 	}
 
 	/** `SidecarPool.observeTabs`'s listener. */
@@ -236,7 +236,7 @@ export class SecretaryFeed {
 			this.#send(
 				path,
 				{
-					id: `secretary-ask-${tab.tabId}-${activity.requestId}`,
+					id: `bot-ask-${tab.tabId}-${activity.requestId}`,
 					from: tab.tabId,
 					fromTitle: tab.title,
 					kind: "question",
@@ -258,7 +258,7 @@ export class SecretaryFeed {
 		this.#send(
 			path,
 			{
-				id: `secretary-run-${tab.tabId}-${this.#deps.now()}-${++this.#seq}`,
+				id: `bot-run-${tab.tabId}-${this.#deps.now()}-${++this.#seq}`,
 				from: tab.tabId,
 				fromTitle: tab.title,
 				kind: failed ? "blocked" : "done",
@@ -273,7 +273,7 @@ export class SecretaryFeed {
 
 	/**
 	 * A paired host's sessions at work (`host.liveSessions`), or null when its link went down. A session that starts
-	 * waiting wakes the secretary; one that left the list is recorded as ended. A session a tab here shows is reported
+	 * waiting wakes the bot; one that left the list is recorded as ended. A session a tab here shows is reported
 	 * through that tab's own activity instead.
 	 */
 	liveSessions(device: string, sessions: readonly HostLiveSession[] | null): void {
@@ -293,7 +293,7 @@ export class SecretaryFeed {
 			this.#send(
 				path,
 				{
-					id: `secretary-live-${device}-${sessionPath}-${this.#deps.now()}`,
+					id: `bot-live-${device}-${sessionPath}-${this.#deps.now()}`,
 					from: "ompdesk",
 					fromTitle: `${name}: ${sessionPath}`,
 					kind: "question",
@@ -309,7 +309,7 @@ export class SecretaryFeed {
 			this.#send(
 				path,
 				{
-					id: `secretary-live-end-${device}-${sessionPath}-${this.#deps.now()}`,
+					id: `bot-live-end-${device}-${sessionPath}-${this.#deps.now()}`,
 					from: "ompdesk",
 					fromTitle: `${name}: ${sessionPath}`,
 					kind: "done",
@@ -321,18 +321,18 @@ export class SecretaryFeed {
 		}
 	}
 
-	/** The morning brief, once per local day from `SECRETARY_BRIEF_HOUR` (a day the app was closed has none). */
+	/** The morning brief, once per local day from `BOT_BRIEF_HOUR` (a day the app was closed has none). */
 	#tick(): void {
-		this.#timer = this.#deps.setTimer(() => this.#tick(), SECRETARY_TICK_MS);
+		this.#timer = this.#deps.setTimer(() => this.#tick(), BOT_TICK_MS);
 		const path = this.#path();
 		if (!path) return;
 		const { day, hour } = localDay(this.#deps.now());
-		if (hour < SECRETARY_BRIEF_HOUR || this.#deps.prefs.get(SECRETARY_BRIEF_DAY_PREF) === day) return;
-		this.#deps.prefs.set?.(SECRETARY_BRIEF_DAY_PREF, day);
+		if (hour < BOT_BRIEF_HOUR || this.#deps.prefs.get(BOT_BRIEF_DAY_PREF) === day) return;
+		this.#deps.prefs.set?.(BOT_BRIEF_DAY_PREF, day);
 		this.#send(
 			path,
 			{
-				id: `secretary-brief-${day}`,
+				id: `bot-brief-${day}`,
 				from: "ompdesk",
 				fromTitle: "OMPdesk",
 				kind: "note",
@@ -344,11 +344,11 @@ export class SecretaryFeed {
 	}
 
 	#send(path: string, mail: Omit<Mail, "to" | "at">, delivery: MailDelivery): void {
-		const secretary = this.#deps.tabOfSession(path);
+		const bot = this.#deps.tabOfSession(path);
 		this.#deps.log({ event: mail.kind, id: mail.id, from: mail.from, wake: delivery.triggerTurn });
-		this.#deps.deliver(path, { ...mail, to: secretary?.tabId ?? "", at: this.#deps.now() }, delivery);
-		if (!secretary) this.#open(path);
-		else if (secretary.status === "asleep") this.#deps.start(secretary.tabId);
+		this.#deps.deliver(path, { ...mail, to: bot?.tabId ?? "", at: this.#deps.now() }, delivery);
+		if (!bot) this.#open(path);
+		else if (bot.status === "asleep") this.#deps.start(bot.tabId);
 	}
 
 	#open(path: string): void {

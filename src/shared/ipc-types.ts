@@ -526,10 +526,10 @@ export type RuntimeErrorSource =
 	 */
 	| "autopilot"
 	/**
-	 * A report the secretary got (src/main/agent-control/secretary.ts): `message` is its kind (question, done, blocked,
+	 * A report the bot got (src/main/agent-control/bot.ts): `message` is its kind (question, done, blocked,
 	 * note) or open-failed; `details.id`, `from` and `wake` (whether it started a turn).
 	 */
-	| "secretary"
+	| "bot"
 	/**
 	 * An app update's decisions (src/main/updater.ts, `AutoInstallScheduler`; info level, `details.level: "info"`):
 	 * `message` is check, download, scheduler or swap and `details.event` the step (never a token or a URL).

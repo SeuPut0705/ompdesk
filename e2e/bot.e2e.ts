@@ -5,10 +5,10 @@ import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
 import { exitApp, launchApp, readRecords } from "./harness";
 
-// The secretary (src/main/agent-control/secretary.ts): the session the owner named answers, for them, the question
+// The bot (src/main/agent-control/bot.ts): the session the owner named answers, for them, the question
 // card of a session they run. The card wakes it with a report (the fake omp's `agent_control.mail` runs a turn whose
 // reply names the report), its answer through the control tools reaches the card, and the session's finished turn is
-// then reported without waking it. Which sessions and kinds count is unit-tested in secretary.test.ts.
+// then reported without waking it. Which sessions and kinds count is unit-tested in bot.test.ts.
 
 let app: ElectronApplication;
 let page: Page;
@@ -17,7 +17,7 @@ let record: string;
 let errors: string[];
 
 test.beforeEach(async () => {
-	profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-secretary-"));
+	profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-bot-"));
 	const project = path.join(profile, "project");
 	const desktop = path.join(profile, "desktop");
 	const agent = path.join(profile, "agent");
@@ -86,35 +86,35 @@ async function sessionPathOf(tabId: string): Promise<string> {
 	return found;
 }
 
-test("the secretary is woken by another session's question card, answers it, and hears of its finish quietly", async () => {
+test("the bot is woken by another session's question card, answers it, and hears of its finish quietly", async () => {
 	test.setTimeout(150_000);
-	// The owner's own session (no opener): the one whose question the secretary answers.
+	// The owner's own session (no opener): the one whose question the bot answers.
 	const owner = (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId ?? "";
-	const opened = await callAs(owner, "ompdesk_session_open", { message: "Title: secretary\nStand by." });
-	const secretary = /Opened session (\w+)/.exec(opened.text)?.[1] ?? "";
-	expect(secretary, opened.text).not.toBe("");
+	const opened = await callAs(owner, "ompdesk_session_open", { message: "Title: bot\nStand by." });
+	const bot = /Opened session (\w+)/.exec(opened.text)?.[1] ?? "";
+	expect(bot, opened.text).not.toBe("");
 	// The person writes to it, as to any session they keep: it never closes by itself.
-	await page.evaluate(id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "hello" }), secretary);
-	await expect.poll(() => lastAnswer(secretary), { timeout: 30_000 }).not.toBe("");
-	const secretaryPath = await sessionPathOf(secretary);
-	await page.evaluate(file => window.omp.prefs.set("sidebar", { secretary: file }), secretaryPath);
-	// What the secretary's omp was told about the owner's session (the fake records each `agent_control.mail`).
+	await page.evaluate(id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "hello" }), bot);
+	await expect.poll(() => lastAnswer(bot), { timeout: 30_000 }).not.toBe("");
+	const botPath = await sessionPathOf(bot);
+	await page.evaluate(file => window.omp.prefs.set("sidebar", { bot: file }), botPath);
+	// What the bot's omp was told about the owner's session (the fake records each `agent_control.mail`).
 	const reports = async (kind: string) =>
 		(await readRecords(record)).filter(frame => {
 			const details = frame.details as Record<string, unknown> | undefined;
 			return frame.type === "agent_control.mail" && details?.kind === kind && details?.from === owner;
 		});
 
-	// The owner's session shows a tool approval; the card wakes the secretary with one question report from it.
+	// The owner's session shows a tool approval; the card wakes the bot with one question report from it.
 	await page.evaluate(id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "fixture approval" }), owner);
 	await expect.poll(async () => (await reports("question")).length, { timeout: 30_000 }).toBe(1);
 	const [question] = await reports("question");
 	expect(question).toMatchObject({ triggerTurn: true, deliverAs: "aside" });
 	expect(String(question?.content)).toContain(`ompdesk_session_answer {"session":"${owner}","request":"approval"}`);
-	await expect.poll(() => lastAnswer(secretary), { timeout: 30_000 }).toBe(`Read the question report from ${owner}.`);
+	await expect.poll(() => lastAnswer(bot), { timeout: 30_000 }).toBe(`Read the question report from ${owner}.`);
 
 	// Its answer reaches the card in the owner's omp.
-	const answered = await callAs(secretary, "ompdesk_session_answer", {
+	const answered = await callAs(bot, "ompdesk_session_answer", {
 		session: owner,
 		request: "approval",
 		choice: "Deny",
@@ -126,8 +126,8 @@ test("the secretary is woken by another session's question card, answers it, and
 		)
 		.toBe(true);
 
-	// The owner's finished turn is reported without a turn: the secretary's last answer stays the one above.
+	// The owner's finished turn is reported without a turn: the bot's last answer stays the one above.
 	await expect.poll(async () => (await reports("done")).length, { timeout: 30_000 }).toBe(1);
 	expect((await reports("done"))[0]?.triggerTurn).toBe(false);
-	expect(await lastAnswer(secretary)).toBe(`Read the question report from ${owner}.`);
+	expect(await lastAnswer(bot)).toBe(`Read the question report from ${owner}.`);
 });

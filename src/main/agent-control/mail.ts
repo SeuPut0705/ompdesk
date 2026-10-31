@@ -46,7 +46,7 @@ export interface Mail {
 	merged?: number;
 	/** The child's own question card (an extension UI request id) this mail announces, not a report it wrote. */
 	card?: string;
-	/** What the receiver is asked to do with it, in place of the kind's own line (the secretary's reports). */
+	/** What the receiver is asked to do with it, in place of the kind's own line (the bot's reports). */
 	instruction?: string;
 	at: number;
 }

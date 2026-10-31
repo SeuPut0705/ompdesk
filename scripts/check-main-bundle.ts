@@ -152,8 +152,8 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // applies what each change carries (`stores/session-list.ts`, `shared/session-list-delta.ts`, `sessions.listShared`)
 // instead of reading the whole list after every change: measured 3,218,041, 1,278 bytes over its parent 51f0e312f
 // (3,216,763).
-// The secretary (31 Oct 2026): the session menu's Make secretary item, the row's briefcase mark and the sidebar prefs
-// field that names it (`secretary`): measured 3,219,374 on eb8409752 with it in the tree, 1,333 bytes over the measure
+// The bot (31 Oct 2026): the session menu's Set as bot item, the row's bot mark and the sidebar prefs
+// field that names it (`bot`): measured 3,219,374 on eb8409752 with it in the tree, 1,333 bytes over the measure
 // above.
 // A click then a modifier pressed alone shows no focus style (`lib/focus-modality.ts`, loaded after the first screen by
 // one dynamic import in main.tsx; 31 Oct 2026): 1,548 bytes (its 1,346-byte chunk and the 202-byte import), measured

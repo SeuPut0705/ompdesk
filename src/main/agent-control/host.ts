@@ -89,6 +89,7 @@ import { type ClientWindow, isWebWindow } from "../web/client-window";
 import type { FileEditReports } from "../web/file-edit-reports";
 import { sessionOpenFolders } from "../worktree-orphans";
 import type { AppPorts } from "./app-control";
+import { BotFeed, type BotTab } from "./bot";
 import {
 	type BranchEvidence,
 	type BranchFacts,
@@ -105,7 +106,6 @@ import {
 import { CallJournal } from "./call-journal";
 import { type MailDelivery, mailDetails, mailText } from "./mail";
 import { MailOutbox, redeliverMail } from "./mail-outbox";
-import { SecretaryFeed, type SecretaryTab } from "./secretary";
 import {
 	AgentControl,
 	type AgentControlHost,
@@ -190,10 +190,10 @@ export interface AgentControlHostDeps {
 	mailOutboxFile?: string | null;
 	/** Where the control-tool calls that change something are recorded (`call-journal.ts`); absent: in memory only. */
 	callJournalFile?: string | null;
-	/** One line of the runtime log (`gui-runtime.jsonl`) about the secretary's reports. */
-	secretaryLog?: (entry: Record<string, unknown>) => void;
-	/** The owner's own notice of a question the secretary left open too long (desktop banner, paired phones). */
-	secretaryRemind?: (tabId: string, requestId: string, title: string) => void;
+	/** One line of the runtime log (`gui-runtime.jsonl`) about the bot's reports. */
+	botLog?: (entry: Record<string, unknown>) => void;
+	/** The owner's own notice of a question the bot left open too long (desktop banner, paired phones). */
+	botRemind?: (tabId: string, requestId: string, title: string) => void;
 	/** The sessions sharing a tab's checkout or repository on this computer (src/main/checkout-peers.ts). */
 	checkoutPeers?: (tabId: string) => readonly string[];
 	/** Autopilot's hooks (src/main/autopilot*.ts). */
@@ -326,17 +326,17 @@ export class AgentControlRuntime {
 	readonly #outsideMail = new Set<(callerId: string, text: string) => void>();
 	/** The card each outside caller shows now, if any: the next one waits for it. */
 	readonly #outsideCards = new Map<string, Promise<void>>();
-	readonly #secretary: SecretaryFeed;
+	readonly #bot: BotFeed;
 
 	constructor(deps: AgentControlHostDeps) {
 		this.#deps = deps;
 		this.#outbox = new MailOutbox(deps.mailOutboxFile ?? null);
 		this.#calls = new CallJournal(deps.callJournalFile ?? null);
 		this.control = new AgentControl(this.#host());
-		this.#secretary = new SecretaryFeed(this.#secretaryDeps());
-		deps.remote?.onLiveSessions?.((device, sessions) => this.#secretary.liveSessions(device, sessions));
+		this.#bot = new BotFeed(this.#botDeps());
+		deps.remote?.onLiveSessions?.((device, sessions) => this.#bot.liveSessions(device, sessions));
 		deps.pool.observeTabs(activity => {
-			this.#secretary.activity(activity);
+			this.#bot.activity(activity);
 			const parent =
 				this.#openerOf(activity.tabId) ??
 				(activity.type === "released" ? this.#listedIn.get(activity.tabId) : undefined);
@@ -390,14 +390,14 @@ export class AgentControlRuntime {
 	}
 
 	/**
-	 * The secretary answers this question of `tabId` now (secretary.ts), so the owner's own notice for it is not shown;
-	 * `requestId` names the question when the caller knows it. Never one the secretary cannot answer.
+	 * The bot answers this question of `tabId` now (bot.ts), so the owner's own notice for it is not shown;
+	 * `requestId` names the question when the caller knows it. Never one the bot cannot answer.
 	 */
-	secretaryAnswers(tabId: string, requestId?: string): boolean {
-		return this.#secretary.answers(tabId, requestId);
+	botAnswers(tabId: string, requestId?: string): boolean {
+		return this.#bot.answers(tabId, requestId);
 	}
 
-	#secretaryTab(tabId: string): SecretaryTab | null {
+	#botTab(tabId: string): BotTab | null {
 		const { pool } = this.#deps;
 		const win = this.#win(tabId);
 		const info = win ? pool.tabsForWindow(win).find(entry => entry.tabId === tabId) : undefined;
@@ -417,11 +417,11 @@ export class AgentControlRuntime {
 		};
 	}
 
-	#secretaryDeps(): ConstructorParameters<typeof SecretaryFeed>[0] {
+	#botDeps(): ConstructorParameters<typeof BotFeed>[0] {
 		const deps = this.#deps;
 		return {
 			prefs: deps.prefs,
-			tab: tabId => this.#secretaryTab(tabId),
+			tab: tabId => this.#botTab(tabId),
 			openAsks: tabId => {
 				const win = this.#win(tabId);
 				if (!win) return [];
@@ -440,11 +440,11 @@ export class AgentControlRuntime {
 			grants: () => ({ control: this.#controlEnabled(), approve: this.#approveEnabled() }),
 			tabOfSession: (sessionPath, device) => {
 				const owner = deps.pool.sessionOwner(sessionPath, device);
-				return owner ? this.#secretaryTab(owner.tabId) : null;
+				return owner ? this.#botTab(owner.tabId) : null;
 			},
 			open: async sessionPath => {
 				const win = deps.outsideWindow?.();
-				if (!win) throw new Error("No window to open the secretary in.");
+				if (!win) throw new Error("No window to open the bot in.");
 				await deps.spawnTab(win, { sessionPath });
 			},
 			start: tabId => void deps.pool.startTab(tabId),
@@ -462,8 +462,8 @@ export class AgentControlRuntime {
 						.catch(() => undefined);
 			},
 			deviceName: deps.deviceName,
-			log: entry => deps.secretaryLog?.(entry),
-			remind: (tabId, ask) => deps.secretaryRemind?.(tabId, ask.id, ask.title),
+			log: entry => deps.botLog?.(entry),
+			remind: (tabId, ask) => deps.botRemind?.(tabId, ask.id, ask.title),
 			now: Date.now,
 			setTimer: (fn, ms) => setTimeout(fn, ms).unref(),
 			clearTimer: handle => clearTimeout(handle as NodeJS.Timeout),

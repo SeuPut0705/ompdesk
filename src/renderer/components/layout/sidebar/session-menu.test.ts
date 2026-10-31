@@ -16,7 +16,7 @@ const stored: SessionMenuFacts = {
 	pinned: false,
 	archived: false,
 	agentHidden: false,
-	secretary: false,
+	bot: false,
 	canMoveUp: true,
 	canMoveDown: true,
 };
@@ -188,18 +188,16 @@ describe("sessionMenuItems", () => {
 		expect(ids({ hasTab: true, canCloseTab: false })).not.toContain("session-close-tab");
 	});
 
-	it("names a saved session the secretary, or lets it go, only where the list supports it", () => {
-		const toggleSecretary = vi.fn();
-		const withSecretary = { ...every, toggleSecretary };
-		const make = build({}, withSecretary).find(item => item.id === "session-secretary");
-		expect(make?.label).toBe("sidebar.menu.makeSecretary");
+	it("names a saved session the bot, or lets it go, only where the list supports it", () => {
+		const toggleBot = vi.fn();
+		const withBot = { ...every, toggleBot };
+		const make = build({}, withBot).find(item => item.id === "session-bot");
+		expect(make?.label).toBe("sidebar.menu.makeBot");
 		make?.onSelect?.();
-		expect(toggleSecretary).toHaveBeenCalledTimes(1);
-		expect(build({ secretary: true }, withSecretary).find(item => item.id === "session-secretary")?.label).toBe(
-			"sidebar.menu.stopSecretary",
-		);
+		expect(toggleBot).toHaveBeenCalledTimes(1);
+		expect(build({ bot: true }, withBot).find(item => item.id === "session-bot")?.label).toBe("sidebar.menu.stopBot");
 		// A paired host's rows pass no action; a tab with no file yet has nothing to name.
-		expect(ids({})).not.toContain("session-secretary");
-		expect(ids({ stored: false, hasTab: true }, withSecretary)).not.toContain("session-secretary");
+		expect(ids({})).not.toContain("session-bot");
+		expect(ids({ stored: false, hasTab: true }, withBot)).not.toContain("session-bot");
 	});
 });
