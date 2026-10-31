@@ -28,6 +28,8 @@ interface SidebarPrefsBlob {
 	railPins?: string[];
 	/** Session files the user hid from other agents (the OMPdesk control tools; main reads this field too). */
 	agentHidden?: string[];
+	/** The session file the owner named as secretary (main reads this field: agent-control/secretary.ts). */
+	secretary?: string;
 }
 
 /**
@@ -92,11 +94,15 @@ interface SidebarPrefsStore {
 	railPins: RailPin[];
 	/** Session files hidden from other agents (`ompdesk_*` tools refuse them). */
 	agentHidden: string[];
+	/** The session file that is the secretary, if any; one at most. */
+	secretary: string | null;
 	hydrated: boolean;
 	hydrate: () => Promise<void>;
 	toggleGroupPin: (cwd: string) => Promise<void>;
 	toggleSessionPin: (path: string) => Promise<void>;
 	toggleAgentHidden: (path: string) => Promise<void>;
+	/** Names the session the secretary, or lets it go when it is. */
+	toggleSecretary: (path: string) => Promise<void>;
 	setGroupAlias: (cwd: string, alias: string | null) => Promise<void>;
 	setGroupOrder: (order: string[]) => Promise<void>;
 	setSessionOrder: (list: string, order: string[]) => Promise<void>;
@@ -160,6 +166,7 @@ function prefsBlob(state: SidebarPrefsStore): SidebarPrefsBlob {
 		archivedSessions: state.archivedSessions,
 		railPins: state.railPins,
 		agentHidden: state.agentHidden,
+		...(state.secretary ? { secretary: state.secretary } : {}),
 	};
 }
 
@@ -197,6 +204,7 @@ function stateFromBlob(value: unknown): Partial<SidebarPrefsStore> {
 		agentHidden: Array.isArray(blob?.agentHidden)
 			? blob.agentHidden.filter((path): path is string => typeof path === "string" && path.length > 0)
 			: [],
+		secretary: typeof blob?.secretary === "string" && blob.secretary.length > 0 ? blob.secretary : null,
 	};
 }
 
@@ -249,6 +257,7 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => {
 		archivedSessions: [],
 		railPins: [...DEFAULT_RAIL_PINS],
 		agentHidden: [],
+		secretary: null,
 		hydrated: false,
 
 		hydrate: () => load(PREFS_BOOT_RETRY_MS),
@@ -273,6 +282,9 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => {
 					? state.agentHidden.filter(item => item !== path)
 					: [...state.agentHidden, path],
 			})),
+
+		toggleSecretary: path =>
+			write("sidebar.secretaryFailed", state => ({ secretary: state.secretary === path ? null : path })),
 
 		setGroupAlias: (cwd, alias) =>
 			write("sidebar.renameFailed", state => {
@@ -326,6 +338,7 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => {
 				sessionOrder: {},
 				archivedSessions: [],
 				agentHidden: [],
+				secretary: null,
 				railPins: [...DEFAULT_RAIL_PINS],
 				hydrated: false,
 			}),

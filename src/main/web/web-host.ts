@@ -288,8 +288,8 @@ export class WebHost {
 		if (this.server.port !== null) this.notifier.handle(activity);
 	}
 
-	/** An Autopilot run of tab `tabId` stopped, ended or released: paired phones hear it while the server runs. */
-	autopilotNotice(tabId: string, notice: { kind: "completion" | "error"; title: string; body: string }): void {
+	/** A tab's notice no turn event carries (an Autopilot run's end, an agent's `ompdesk_notify`): paired phones hear it while the server runs. */
+	tabNotice(tabId: string, notice: { kind: "completion" | "error"; title: string; body: string }): void {
 		if (this.server.port !== null) this.notifier.notice(tabId, notice);
 	}
 

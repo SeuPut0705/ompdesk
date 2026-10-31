@@ -231,6 +231,7 @@ export class RemoteDevices {
 	readonly #hostOnline = new Set<(deviceId: string) => void>();
 	readonly #autopilotNotices = new Set<(hostId: string, notice: AutopilotNoticeEvent) => void>();
 	readonly #hostProjects = new Set<(hostId: string, state: SidebarProjectsState) => void>();
+	readonly #liveSessions = new Set<(hostId: string, sessions: HostLiveSession[] | null) => void>();
 
 	constructor(deps: RemoteDevicesDeps) {
 		this.#deps = deps;
@@ -344,6 +345,12 @@ export class RemoteDevices {
 	onHostProjects(listener: (hostId: string, state: SidebarProjectsState) => void): () => void {
 		this.#hostProjects.add(listener);
 		return () => this.#hostProjects.delete(listener);
+	}
+
+	/** A paired host's sessions at work as each list arrives (`host.liveSessions`); null when its link went down. */
+	onLiveSessions(listener: (hostId: string, sessions: HostLiveSession[] | null) => void): () => void {
+		this.#liveSessions.add(listener);
+		return () => this.#liveSessions.delete(listener);
 	}
 
 	async setHostEnabled(enabled: boolean): Promise<RemoteState> {
@@ -959,13 +966,14 @@ export class RemoteDevices {
 			// What the host worked on is unknown while the link is down: its rows go quiet rather than stay lit.
 			if (state !== "online") {
 				this.#deps.modelWait?.setHostCounts(deviceId, undefined);
+				if (link.live) for (const listener of this.#liveSessions) listener(deviceId, null);
 				link.live = undefined;
 				link.webUrl = undefined;
 			}
 			this.#broadcastState();
 			if (state !== "online") return;
 			link.closes.flush(rtab => client.request("tab.close", { rtab }));
-			void this.#readLiveSessions(link);
+			void this.#readLiveSessions(deviceId, link);
 			void this.#readWebLink(link);
 			// Its session list went stale while it was away (or never loaded).
 			link.sessions.stale();
@@ -999,7 +1007,7 @@ export class RemoteDevices {
 				return;
 			}
 			if (event === LIVE_SESSIONS_EVENT) {
-				this.#setLiveSessions(link, data);
+				this.#setLiveSessions(deviceId, link, data);
 				return;
 			}
 			if (event === MOBILE_WEB_LINK_EVENT) {
@@ -1049,9 +1057,9 @@ export class RemoteDevices {
 	}
 
 	/** The host's live sessions as the link comes up; a host that does not know the method (older OMPdesk) sends none. */
-	async #readLiveSessions(link: HostLink): Promise<void> {
+	async #readLiveSessions(deviceId: string, link: HostLink): Promise<void> {
 		try {
-			this.#setLiveSessions(link, await link.client.request<unknown>(LIVE_SESSIONS_METHOD, {}));
+			this.#setLiveSessions(deviceId, link, await link.client.request<unknown>(LIVE_SESSIONS_METHOD, {}));
 		} catch {
 			// unsupported, or the link dropped again: the next push or link-up says it.
 		}
@@ -1075,14 +1083,16 @@ export class RemoteDevices {
 		this.#broadcastState();
 	}
 
-	#setLiveSessions(link: HostLink, data: unknown): void {
+	#setLiveSessions(deviceId: string, link: HostLink, data: unknown): void {
 		const reply = LiveSessionsReply.safeParse(data);
 		if (!reply.success || link.client.state !== "online") return;
-		link.live = reply.data.sessions.flatMap(entry => {
+		const live = reply.data.sessions.flatMap(entry => {
 			const session = HostLiveSessionSchema.safeParse(entry);
 			return session.success ? [session.data] : [];
 		});
+		link.live = live;
 		this.#broadcastState();
+		for (const listener of this.#liveSessions) listener(deviceId, live);
 	}
 
 	#hostView(deviceId: string): HostView | null {

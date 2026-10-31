@@ -769,7 +769,8 @@ app.whenReady().then(() => {
 	};
 	// Autopilot's coordinator is built in ipc.ts (it needs the RPC dispatcher); the factory and TurnResume read it from here.
 	const autopilotRef: { current: Autopilot | null } = { current: null };
-	const webAutopilotNotice: IpcDeps["webAutopilotNotice"] = { current: null };
+	const webTabNotice: IpcDeps["webTabNotice"] = { current: null };
+	const secretaryAnswers: IpcDeps["secretaryAnswers"] = { current: null };
 	// The desktop slot's host is built in ipc.ts next to the pool's wiring; the factory reads it from here.
 	const desktopSlotRef: { current: DesktopSlotHost | null } = { current: null };
 	// The shared-checkout pass is built in ipc.ts too; the factory runs it when a bridge reports a new changed file.
@@ -1854,7 +1855,8 @@ app.whenReady().then(() => {
 		windowManager,
 		remoteDevices: devices,
 		hostedTabs: hostServices,
-		webAutopilotNotice,
+		webTabNotice,
+		secretaryAnswers,
 		spawnWindow,
 		initialCwd: resolveInitialCwd,
 		worktreeLifecycle: lifecycle,
@@ -1920,9 +1922,13 @@ app.whenReady().then(() => {
 	});
 	// Uploads expire on their own whether or not Mobile web serves: a paired computer's attached files land there too.
 	void webHost.keepUploadsSwept();
-	// Paired phones hear of finished turns, failures and asks through Web Push (web/web-push-notifier.ts).
-	sidecarPool.observeTabs(activity => webHost?.tabActivity(activity));
-	webAutopilotNotice.current = (tabId, notice) => webHost?.autopilotNotice(tabId, notice);
+	// Paired phones hear of finished turns, failures and asks through Web Push (web/web-push-notifier.ts); a question
+	// the secretary answers for the owner is not pushed (agent-control/secretary.ts).
+	sidecarPool.observeTabs(activity => {
+		if (activity.type === "ask" && secretaryAnswers.current?.(activity.tabId)) return;
+		webHost?.tabActivity(activity);
+	});
+	webTabNotice.current = (tabId, notice) => webHost?.tabNotice(tabId, notice);
 	webHost.devices.onRevoked(deviceId => webTabLayouts.drop(deviceId));
 	const host = webHost;
 	// Mobile web's Tailscale side (src/main/tailscale/): the switch, Tailscale's own setup and the published

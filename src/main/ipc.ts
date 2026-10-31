@@ -287,8 +287,10 @@ export interface IpcDeps {
 	promptOrigins?: { of(win: ClientWindow): PromptOrigin | null; hostName(): string };
 	/** Autopilot's coordinator, built in `registerIpcHandlers` (it needs the RPC dispatcher) and published here for the sidecar factory and TurnResume. */
 	autopilotRef: { current: Autopilot | null };
-	/** Web Push's share of an Autopilot notice (paired phones), set once the web host exists. */
-	webAutopilotNotice: { current: ((tabId: string, notice: AutopilotNotice) => void) | null };
+	/** Web Push's share of a tab's notice (an Autopilot run's, an agent's `ompdesk_notify`), set once the web host exists. */
+	webTabNotice: { current: ((tabId: string, notice: AutopilotNotice) => void) | null };
+	/** Whether the secretary answers a tab's questions now (agent-control/secretary.ts), set once the control tools exist. */
+	secretaryAnswers: { current: ((tabId: string) => boolean) | null };
 	/** The desktop slot's host, built in `registerIpcHandlers` (it needs the pool) and published here for the sidecar factory. */
 	desktopSlotRef: { current: DesktopSlotHost | null };
 	/** The shared-checkout pass, published here for the sidecar factory: a bridge reporting a new changed file (`checkout_files`) runs one. */
@@ -1070,7 +1072,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			{
 				facts: () => sidecarPool.resumeFacts(),
 				notifyTab,
-				webPush: (tabId, event) => deps.webAutopilotNotice.current?.(tabId, event),
+				webPush: (tabId, event) => deps.webTabNotice.current?.(tabId, event),
 				banner: event => {
 					if (prefsStore.get("notifications") !== false)
 						appNotification({ title: event.title, body: event.body }).show();
@@ -1118,7 +1120,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			notifyTab(tabId, notice);
 			const sessionPath = sidecarPool.resumeFacts().find(fact => fact.tabId === tabId)?.sessionFile;
 			deps.hostedTabs.autopilotNotice({ root: autopilot.runRootOf(tabId), sessionPath }, notice);
-			deps.webAutopilotNotice.current?.(tabId, notice);
+			deps.webTabNotice.current?.(tabId, notice);
 		},
 		text: (key, params) => mainT(key, undefined, params),
 		// A run a paired device started stops counting against that device once it ends (hosted-autopilot.ts).
@@ -1302,9 +1304,13 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		remote: {
 			hosts: () => remoteDevices.state().hosts,
 			request: (device, method, params, timeoutMs) => remoteDevices.request(device, method, params, timeoutMs),
+			onLiveSessions: listener => remoteDevices.onLiveSessions(listener),
 		},
+		secretaryLog: entry => writeRuntimeLog({ source: "secretary", message: String(entry.event), details: entry }),
+		// The desktop banner, and paired phones (Web Push), as an Autopilot run's notice reaches them.
 		notify: (win, tabId, title, body) => {
 			showNotification(win.webContents.id, { title, body, tabId });
+			deps.webTabNotice.current?.(tabId, { kind: "completion", title, body });
 		},
 		deleteSession: deleteStoredSession,
 		checkoutPeers: tabId => checkoutPeers.peersOf(tabId),
@@ -1345,6 +1351,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			return response === 0;
 		},
 	});
+	deps.secretaryAnswers.current = tabId => agentControl.secretaryAnswers(tabId);
 	// The control socket (src/main/control-socket): anything on this computer drives the same service as the tools.
 	void startControlSocket({
 		userData: app.getPath("userData"),
@@ -1850,6 +1857,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					notificationBatcher.dropWindow(winId);
 				});
 			}
+			// The secretary answers this question for the owner (agent-control/secretary.ts): its notice would repeat it.
+			if (notice.kind === "ask" && notice.tabId && agentControl.secretaryAnswers(notice.tabId)) return;
 			// Bursts fold into one summary (notification-batch.ts).
 			notificationBatcher.notify(winId, {
 				title: notice.title,

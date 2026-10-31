@@ -46,6 +46,8 @@ export interface Mail {
 	merged?: number;
 	/** The child's own question card (an extension UI request id) this mail announces, not a report it wrote. */
 	card?: string;
+	/** What the receiver is asked to do with it, in place of the kind's own line (the secretary's reports). */
+	instruction?: string;
 	at: number;
 }
 
@@ -97,7 +99,8 @@ export function mailText(mail: Mail): string {
 		);
 	if (mail.merged) lines.push(`(latest of ${mail.merged + 1} progress reports)`);
 	lines.push("</ompdesk-mail>");
-	if (mail.card)
+	if (mail.instruction) lines.push(mail.instruction);
+	else if (mail.card)
 		lines.push(
 			`Session ${mail.from} shows this question card and waits (request ${mail.card}). When the answer is yours to give within its task, answer it with ompdesk_session_answer (the field named above); when only the user can decide, tell the user. Never guess an approval.`,
 		);

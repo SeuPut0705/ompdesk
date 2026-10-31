@@ -8,6 +8,7 @@ import {
 	ArrowUp,
 	BarChart3,
 	Bot,
+	BriefcaseBusiness,
 	Check,
 	ChevronDown,
 	ChevronRight,
@@ -516,6 +517,7 @@ export function Sidebar() {
 	const sessionOrder = useSidebarPrefs(s => s.sessionOrder);
 	const pinnedSessions = useSidebarPrefs(s => s.pinnedSessions);
 	const agentHidden = useSidebarPrefs(s => s.agentHidden);
+	const secretary = useSidebarPrefs(s => s.secretary);
 	const groupAliases = useSidebarPrefs(s => s.groupAliases);
 	const archivedSessions = useSidebarPrefs(s => s.archivedSessions);
 	// The projects this computer lists apart from its sessions: an empty one keeps its group (src/main/sidebar-projects.ts).
@@ -1642,12 +1644,18 @@ export function Sidebar() {
 		// The state is the row's own title sweeping (`SessionLiveTitle`) or its left-edge bar (sidebar.css `data-signal`), its words the
 		// tooltip and screen-reader text. Nothing leads the row: its title starts at the group's content edge. One small
 		// mark sits at the end, before the age: an unseen finish (no light or bar says it) as a ✓, a shape, not a colour
-		// alone; else a chat, a pin, a worktree's kind or a fork.
+		// alone; else the secretary, a chat, a pin, a worktree's kind or a fork.
 		// Anything that needs the person is the warning signal; a failed run is the danger one.
 		const signal = waiting ? "waiting" : running ? "running" : failed ? "error" : undefined;
 		const WorktreeMark = worktree?.kind === "autopilot" ? Rocket : GitBranch;
 		const marker: ReactNode = done ? (
 			<Check aria-hidden className="size-(--sc-icon-sm) text-(--sc-success)" data-sidebar-done />
+		) : secretary === session.path ? (
+			<BriefcaseBusiness
+				aria-label={t("sidebar.secretaryBadge")}
+				className="size-(--sc-icon-sm)"
+				data-sidebar-secretary
+			/>
 		) : session.kind === "chat" ? (
 			<MessageCircle aria-hidden className="size-(--sc-icon-sm)" data-sidebar-session-icon />
 		) : pinned ? (
@@ -2421,6 +2429,7 @@ export function Sidebar() {
 							pinned: pinnedSessions.includes(session.path),
 							archived: archivedIds.has(session.id),
 							agentHidden: agentHidden.includes(session.path),
+							secretary: secretary === session.path,
 							canMoveUp: canMoveWithin(list, session.path, -1),
 							canMoveDown: canMoveWithin(list, session.path, 1),
 						},
@@ -2462,6 +2471,9 @@ export function Sidebar() {
 								? {
 										toggleAgentHidden: then(
 											() => void useSidebarPrefs.getState().toggleAgentHidden(session.path),
+										),
+										toggleSecretary: then(
+											() => void useSidebarPrefs.getState().toggleSecretary(session.path),
 										),
 									}
 								: {}),

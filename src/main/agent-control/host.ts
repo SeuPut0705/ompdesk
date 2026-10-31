@@ -43,6 +43,7 @@ import {
 	sidebarViewOf,
 } from "../../shared/agent-control";
 import type {
+	HostLiveSession,
 	HostView,
 	IpcSpawnTabPayload,
 	IpcSpawnTabResult,
@@ -101,8 +102,9 @@ import {
 	type WorktreeRemoval,
 } from "./branches";
 import { CallJournal } from "./call-journal";
-import type { MailDelivery } from "./mail";
+import { type MailDelivery, mailDetails, mailText } from "./mail";
 import { MailOutbox, redeliverMail } from "./mail-outbox";
+import { SecretaryFeed, type SecretaryTab } from "./secretary";
 import {
 	AgentControl,
 	type AgentControlHost,
@@ -158,6 +160,8 @@ export interface AgentControlHostDeps {
 	remote?: {
 		hosts(): HostView[];
 		request<T>(deviceId: string, method: string, params: unknown, timeoutMs?: number): Promise<T>;
+		/** A host's sessions at work as each list arrives; null when its link went down. Returns the unsubscribe. */
+		onLiveSessions?(listener: (deviceId: string, sessions: HostLiveSession[] | null) => void): () => void;
 	};
 	/** The same dispatcher the renderer's RPC commands go through (local handlers, host link, quota). */
 	dispatch: (
@@ -185,6 +189,8 @@ export interface AgentControlHostDeps {
 	mailOutboxFile?: string | null;
 	/** Where the control-tool calls that change something are recorded (`call-journal.ts`); absent: in memory only. */
 	callJournalFile?: string | null;
+	/** One line of the runtime log (`gui-runtime.jsonl`) about the secretary's reports. */
+	secretaryLog?: (entry: Record<string, unknown>) => void;
 	/** The sessions sharing a tab's checkout or repository on this computer (src/main/checkout-peers.ts). */
 	checkoutPeers?: (tabId: string) => readonly string[];
 	/** Autopilot's hooks (src/main/autopilot*.ts). */
@@ -317,13 +323,17 @@ export class AgentControlRuntime {
 	readonly #outsideMail = new Set<(callerId: string, text: string) => void>();
 	/** The card each outside caller shows now, if any: the next one waits for it. */
 	readonly #outsideCards = new Map<string, Promise<void>>();
+	readonly #secretary: SecretaryFeed;
 
 	constructor(deps: AgentControlHostDeps) {
 		this.#deps = deps;
 		this.#outbox = new MailOutbox(deps.mailOutboxFile ?? null);
 		this.#calls = new CallJournal(deps.callJournalFile ?? null);
 		this.control = new AgentControl(this.#host());
+		this.#secretary = new SecretaryFeed(this.#secretaryDeps());
+		deps.remote?.onLiveSessions?.((device, sessions) => this.#secretary.liveSessions(device, sessions));
 		deps.pool.observeTabs(activity => {
+			this.#secretary.activity(activity);
 			const parent =
 				this.#openerOf(activity.tabId) ??
 				(activity.type === "released" ? this.#listedIn.get(activity.tabId) : undefined);
@@ -374,6 +384,67 @@ export class AgentControlRuntime {
 	/** The tab Autopilot (or anyone) opened this one for, if the control tools opened it. */
 	parentOf(tabId: string): { callerTabId: string; tag?: string } | undefined {
 		return this.#parents.get(tabId);
+	}
+
+	/** The secretary answers `tabId`'s questions now (secretary.ts): the owner's own notice for them is not shown. */
+	secretaryAnswers(tabId: string): boolean {
+		return this.#secretary.answers(tabId);
+	}
+
+	#secretaryTab(tabId: string): SecretaryTab | null {
+		const { pool } = this.#deps;
+		const win = this.#win(tabId);
+		const info = win ? pool.tabsForWindow(win).find(entry => entry.tabId === tabId) : undefined;
+		if (!info) return null;
+		const facts = pool.tabFacts(tabId);
+		return {
+			tabId,
+			title: info.title || info.task || "",
+			status: info.status,
+			...(info.sessionPath ? { sessionPath: info.sessionPath } : {}),
+			hidden: !info.device && typeof info.sessionPath === "string" && this.#hiddenPaths().has(info.sessionPath),
+			delegated:
+				this.#openerOf(tabId) !== undefined ||
+				this.#autopilotRuns.has(tabId) ||
+				this.#deps.isAutopilotRun?.(tabId) === true,
+			retrying: facts?.retrying === true || facts?.scheduledRetry === true || facts?.awaitingConnection === true,
+		};
+	}
+
+	#secretaryDeps(): ConstructorParameters<typeof SecretaryFeed>[0] {
+		const deps = this.#deps;
+		return {
+			prefs: deps.prefs,
+			tab: tabId => this.#secretaryTab(tabId),
+			tabOfSession: (sessionPath, device) => {
+				const owner = deps.pool.sessionOwner(sessionPath, device);
+				return owner ? this.#secretaryTab(owner.tabId) : null;
+			},
+			open: async sessionPath => {
+				const win = deps.outsideWindow?.();
+				if (!win) throw new Error("No window to open the secretary in.");
+				await deps.spawnTab(win, { sessionPath });
+			},
+			start: tabId => void deps.pool.startTab(tabId),
+			deliver: (sessionPath, mail, delivery) => {
+				const content = mailText(mail);
+				const details = mailDetails(mail);
+				this.#outbox.keep({ id: mail.id, sessionPath, content, details, delivery, at: mail.at });
+				const tabId = deps.pool.sessionOwner(sessionPath)?.tabId;
+				// No tab yet, or its omp starting: the outbox pass sends it once the tab answers.
+				if (tabId)
+					this.#sendMail(tabId, content, details, delivery)
+						.then(answer => {
+							if (answer?.duplicate && answer.journaled) this.#outbox.settle(mail.id);
+						})
+						.catch(() => undefined);
+			},
+			deviceName: deps.deviceName,
+			log: entry => deps.secretaryLog?.(entry),
+			now: Date.now,
+			setTimer: (fn, ms) => setTimeout(fn, ms).unref(),
+			clearTimer: handle => clearTimeout(handle as NodeJS.Timeout),
+		};
 	}
 
 	/** A person (not an agent) sent `tabId` a prompt: its session never closes by itself again. */

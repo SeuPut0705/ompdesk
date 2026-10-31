@@ -6,7 +6,7 @@
  * the session).
  *
  * Groups, each set apart: open and view (split, new window, the open tab's split and close) · edit (rename, pin,
- * move up and down, move to project, archive, hide from agents) · show in folder · diagnostics (one item; Option/Alt
+ * move up and down, move to project, archive, hide from agents, make secretary) · show in folder · diagnostics (one item; Option/Alt
  * while choosing it saves the anonymized bundle) · delete, last. Clicking a row already opens it, so the menu has no
  * "Open" or "Open in new tab".
  */
@@ -15,6 +15,7 @@ import {
 	ArchiveRestore,
 	ArrowDown,
 	ArrowUp,
+	BriefcaseBusiness,
 	Columns2,
 	ExternalLink,
 	Eye,
@@ -54,6 +55,8 @@ export interface SessionMenuFacts {
 	pinned: boolean;
 	archived: boolean;
 	agentHidden: boolean;
+	/** The session is the owner's secretary (agent-control/secretary.ts). */
+	secretary: boolean;
 	canMoveUp: boolean;
 	canMoveDown: boolean;
 }
@@ -77,6 +80,8 @@ export interface SessionMenuActions {
 	/** Archives it, or restores it when archived. */
 	toggleArchive?: () => void;
 	toggleAgentHidden?: () => void;
+	/** Names it the secretary, or lets it go when it is; this computer's sessions only. */
+	toggleSecretary?: () => void;
 	reveal?: () => void;
 	/** Saves the open tab's diagnostic bundle; `anonymized` when Option/Alt was held. */
 	saveBundle?: (anonymized: boolean) => void;
@@ -212,6 +217,13 @@ export function sessionMenuItems({
 			label: facts.agentHidden ? t("sidebar.menu.showToAgents") : t("sidebar.menu.hideFromAgents"),
 			icon: facts.agentHidden ? Eye : EyeOff,
 			onSelect: actions.toggleAgentHidden,
+		});
+	if (actions.toggleSecretary && facts.stored)
+		edit.push({
+			id: "session-secretary",
+			label: facts.secretary ? t("sidebar.menu.stopSecretary") : t("sidebar.menu.makeSecretary"),
+			icon: BriefcaseBusiness,
+			onSelect: actions.toggleSecretary,
 		});
 
 	const other: ContextMenuItem[] =

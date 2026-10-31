@@ -152,7 +152,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // applies what each change carries (`stores/session-list.ts`, `shared/session-list-delta.ts`, `sessions.listShared`)
 // instead of reading the whole list after every change: measured 3,218,041, 1,278 bytes over its parent 51f0e312f
 // (3,216,763).
-const WEB_FIRST_SCREEN_JS_BYTES = 3_218_600;
+// The secretary (31 Oct 2026): the session menu's Make secretary item, the row's briefcase mark and the sidebar prefs
+// field that names it (`secretary`): measured 3,219,374 on eb8409752 with it in the tree, 1,333 bytes over the measure
+// above.
+const WEB_FIRST_SCREEN_JS_BYTES = 3_219_950;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

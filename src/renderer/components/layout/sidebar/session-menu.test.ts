@@ -16,6 +16,7 @@ const stored: SessionMenuFacts = {
 	pinned: false,
 	archived: false,
 	agentHidden: false,
+	secretary: false,
 	canMoveUp: true,
 	canMoveDown: true,
 };
@@ -185,5 +186,20 @@ describe("sessionMenuItems", () => {
 		expect(ids({ hasTab: true, tabFocused: true })).not.toContain("session-split-right");
 		expect(ids({ hasTab: true, tabInSplit: true, splitShown: true })).not.toContain("session-split-right");
 		expect(ids({ hasTab: true, canCloseTab: false })).not.toContain("session-close-tab");
+	});
+
+	it("names a saved session the secretary, or lets it go, only where the list supports it", () => {
+		const toggleSecretary = vi.fn();
+		const withSecretary = { ...every, toggleSecretary };
+		const make = build({}, withSecretary).find(item => item.id === "session-secretary");
+		expect(make?.label).toBe("sidebar.menu.makeSecretary");
+		make?.onSelect?.();
+		expect(toggleSecretary).toHaveBeenCalledTimes(1);
+		expect(build({ secretary: true }, withSecretary).find(item => item.id === "session-secretary")?.label).toBe(
+			"sidebar.menu.stopSecretary",
+		);
+		// A paired host's rows pass no action; a tab with no file yet has nothing to name.
+		expect(ids({})).not.toContain("session-secretary");
+		expect(ids({ stored: false, hasTab: true }, withSecretary)).not.toContain("session-secretary");
 	});
 });

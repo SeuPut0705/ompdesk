@@ -119,7 +119,7 @@ export class WebPushNotifier {
 	}
 
 	/**
-	 * An Autopilot run of tab `tabId` stopped, ended or released (main's notice, which no turn event carries): every
+	 * A notice of tab `tabId` no turn event carries (an Autopilot run's end, an agent's `ompdesk_notify`): every
 	 * device that wants the kind hears it, like a turn of that tab.
 	 */
 	notice(tabId: string, notice: { kind: "completion" | "error"; title: string; body: string }): void {
