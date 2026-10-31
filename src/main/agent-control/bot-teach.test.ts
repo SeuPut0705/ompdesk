@@ -9,6 +9,8 @@ import {
 	BotTeach,
 	type BotTeachDeps,
 	gitCommits,
+	TEACH_HIDDEN_AT_PROMPT,
+	TEACH_HIDDEN_NO_ECHO,
 	TEACH_INSTRUCTION,
 	TEACH_LINE_CHARS,
 	TEACH_MAX_COMMITS,
@@ -19,6 +21,7 @@ import {
 	type TeachMail,
 	type TeachTab,
 	typedLines,
+	visibleOutput,
 } from "./bot-teach";
 
 const BOT_FILE = "/s/bot.jsonl";
@@ -98,6 +101,29 @@ function rig(options: { enabled?: boolean; commits?: Record<string, string[]>; d
 
 const keys = (text: string) => text.split("");
 
+/**
+ * One terminal of a tab as the recorder sees it: what the owner types, and what the terminal prints back with the
+ * stream offsets the worker names. `type` is typed in the open, echoed as a shell does.
+ */
+function terminal(teach: BotTeach, tabId: string, id = "t1") {
+	let offset = 0;
+	const print = (text: string) => {
+		offset += text.length;
+		teach.terminalOutput(tabId, id, offset, text);
+	};
+	return {
+		print,
+		/** Another viewer's poll of the same stretch of output: the same offset again. */
+		reprint: (text: string, end: number) => teach.terminalOutput(tabId, id, end, text),
+		end: () => offset,
+		write: (data: string) => teach.terminalWrite(tabId, id, data),
+		type: (data: string) => {
+			teach.terminalWrite(tabId, id, data);
+			print(data.replaceAll("\x7f", "\b \b").replaceAll("\r", "\r\n"));
+		},
+	};
+}
+
 describe("typed terminal lines", () => {
 	it("assembles lines from raw writes: Enter ends one, backspace and line editing change it, escapes and Ctrl-C vanish", () => {
 		expect(typedLines("", "git status\r")).toEqual({ pending: "", lines: ["git status"] });
@@ -171,13 +197,14 @@ describe("showing the bot a workflow", () => {
 		});
 		teach.start();
 		advance(1_000);
-		for (const part of keys("git pull\r")) teach.terminalWrite("fix", "t1", part);
+		const fix = terminal(teach, "fix");
+		for (const part of keys("git pull\r")) fix.type(part);
 		advance(1_000);
-		teach.terminalWrite("fix", "t1", "bun test\x7f\x7f\x7f\x7fvitest\r");
-		teach.terminalWrite("docs", "t1", "ls\r");
-		teach.terminalWrite("fix", "t2", "echo half");
-		teach.terminalWrite("bot", "t1", "the bot's terminal\r");
-		teach.terminalWrite("away", "t1", "a paired computer's terminal\r");
+		fix.type("bun test\x7f\x7f\x7f\x7fvitest\r");
+		terminal(teach, "docs").type("ls\r");
+		terminal(teach, "fix", "t2").type("echo half");
+		terminal(teach, "bot").type("the bot's terminal\r");
+		terminal(teach, "away").type("a paired computer's terminal\r");
 		teach.prompt("fix", "and then?");
 
 		await teach.stop();
@@ -272,7 +299,8 @@ describe("showing the bot a workflow", () => {
 		const { teach, delivered, asked } = rig({ commits: { "/repo/app": commits } });
 		teach.start();
 		for (let index = 0; index < TEACH_MAX_PROMPTS + 3; index++) teach.prompt("fix", `prompt ${index}`);
-		for (let index = 0; index < TEACH_MAX_LINES + 2; index++) teach.terminalWrite("fix", "t1", `echo ${index}\r`);
+		const fixTerminal = terminal(teach, "fix");
+		for (let index = 0; index < TEACH_MAX_LINES + 2; index++) fixTerminal.type(`echo ${index}\r`);
 		teach.prompt("docs", "one more than fits");
 		await teach.stop();
 		const text = delivered[0]?.text ?? "";
@@ -305,7 +333,8 @@ describe("showing the bot a workflow", () => {
 		const { teach, delivered } = rig();
 		teach.start();
 		teach.prompt("fix", "y".repeat(5_000));
-		teach.terminalWrite("fix", "t1", `${"z".repeat(1_000)}\r`);
+		const long = terminal(teach, "fix");
+		long.type(`${"z".repeat(1_000)}\r`);
 		await teach.stop();
 		const text = delivered[0]?.text ?? "";
 		expect(text).toContain(`${"y".repeat(TEACH_PROMPT_CHARS)}… (cut at ${TEACH_PROMPT_CHARS} characters)`);
@@ -340,6 +369,201 @@ describe("showing the bot a workflow", () => {
 		expect(a).toEqual({ delivered: true });
 		expect(b).toEqual({ delivered: true });
 		expect(delivered).toHaveLength(1);
+	});
+});
+
+describe("keeping secrets out of the record", () => {
+	const recordOf = async (teach: BotTeach, delivered: TeachMail[]) => {
+		await teach.stop();
+		return delivered[0]?.text ?? "";
+	};
+
+	it("hides a line typed at a password prompt that printed nothing back, however it is typed", async () => {
+		const { teach, delivered } = rig();
+		teach.start();
+		const fix = terminal(teach, "fix");
+		fix.print("[sudo] password for owner: ");
+		fix.write("hunter2\r");
+		fix.print("\r\n");
+		fix.print("Passphrase for key '/Users/owner/.ssh/id_ed25519': ");
+		for (const key of keys("correct horse\r")) fix.write(key);
+		const text = await recordOf(teach, delivered);
+		expect(text).not.toContain("hunter2");
+		expect(text).not.toContain("correct horse");
+		expect(text.split(TEACH_HIDDEN_AT_PROMPT)).toHaveLength(3);
+	});
+
+	it("hides what is typed at a prompt that asks for a secret even when the terminal echoes it", async () => {
+		const { teach, delivered } = rig();
+		teach.start();
+		const fix = terminal(teach, "fix");
+		fix.print("Enter verification code: ");
+		fix.type("493817\r");
+		const text = await recordOf(teach, delivered);
+		expect(text).not.toContain("493817");
+		expect(text).toContain(`terminal: ${TEACH_HIDDEN_AT_PROMPT}`);
+	});
+
+	it("hides a line the terminal never echoed even when no prompt text says why", async () => {
+		const { teach, delivered } = rig();
+		teach.start();
+		const fix = terminal(teach, "fix");
+		fix.print("> ");
+		fix.write("s3cretvalue\r");
+		fix.print("\r\n");
+		const text = await recordOf(teach, delivered);
+		expect(text).not.toContain("s3cretvalue");
+		expect(text).toContain(`terminal: ${TEACH_HIDDEN_NO_ECHO}`);
+	});
+
+	it("hides a finished line whose echo has not been seen by the time Stop is pressed, and shows it once the echo arrives", async () => {
+		const { teach, delivered } = rig();
+		teach.start();
+		const fix = terminal(teach, "fix");
+		fix.print("> ");
+		fix.write("s3cretvalue\r");
+		const late = terminal(teach, "docs");
+		late.print("$ ");
+		late.write("make build\r");
+		fix.print("some other output");
+		const text = await recordOf(teach, delivered);
+		expect(text).not.toContain("s3cretvalue");
+		expect(text).not.toContain("make build");
+		expect(text.split(TEACH_HIDDEN_NO_ECHO)).toHaveLength(3);
+
+		const second = rig();
+		second.teach.start();
+		const slow = terminal(second.teach, "fix");
+		slow.print("$ ");
+		slow.write("make build\r");
+		slow.print("make build");
+		expect(await recordOf(second.teach, second.delivered)).toContain("terminal: make build");
+	});
+
+	it("keeps a normal command the terminal echoed as it was typed, across several writes and outputs", async () => {
+		const { teach, delivered } = rig();
+		teach.start();
+		const fix = terminal(teach, "fix");
+		fix.print("$ ");
+		fix.write("git st");
+		fix.print("git st");
+		fix.write("atus\r");
+		fix.print("atus\r\n");
+		fix.print("On branch main\r\n$ ");
+		const text = await recordOf(teach, delivered);
+		expect(text).toContain("terminal: git status");
+		expect(text).not.toContain("hidden");
+	});
+
+	it("keeps a command whose echo carries colors, cursor moves and corrections", async () => {
+		const { teach, delivered } = rig();
+		teach.start();
+		const fix = terminal(teach, "fix");
+		fix.print("\x1b[32m$\x1b[0m ");
+		fix.write("gti\x7f\x7fit status\r");
+		fix.print("\x1b[1mg\x1b[0m\x1b[1mt\x1b[0mi\b \b\b \b");
+		fix.print("\x1b]0;title\x07it status\r\n");
+		expect(await recordOf(teach, delivered)).toContain("terminal: git status");
+	});
+
+	it("takes an escape sequence a chunk ended in the middle of for part of the next chunk", async () => {
+		const { teach, delivered } = rig();
+		teach.start();
+		const fix = terminal(teach, "fix");
+		fix.print("$ ");
+		fix.write("ls -la\r");
+		fix.print("\x1b[3");
+		fix.print("1mls -la\r\n");
+		expect(await recordOf(teach, delivered)).toContain("terminal: ls -la");
+	});
+
+	it("redacts a token in a typed line that was echoed, and keeps the rest of it", async () => {
+		const { teach, delivered } = rig();
+		teach.start();
+		const token = `ghp_${"a1B2c3D4e5".repeat(3)}x1y2z3`;
+		expect(token).toHaveLength(40);
+		const fix = terminal(teach, "fix");
+		fix.print("$ ");
+		fix.type(`export GH_TOKEN=${token}\r`);
+		const text = await recordOf(teach, delivered);
+		expect(text).not.toContain("ghp_");
+		expect(text).not.toContain("a1B2c3D4e5");
+		expect(text).toContain("terminal: export GH_TOKEN=<token>");
+	});
+
+	it("redacts a key in a prompt the owner sent and keeps its words", async () => {
+		const { teach, delivered } = rig();
+		teach.start();
+		teach.prompt("fix", `Call the API with sk-${"Ab3dEf6hIj9kLm2nOp5q"} and my email is a@b.example`);
+		const text = await recordOf(teach, delivered);
+		expect(text).not.toContain("sk-Ab3d");
+		expect(text).toContain("prompt: Call the API with <token> and my email is a@b.example");
+	});
+
+	it("counts every viewer's copy of the same output once", async () => {
+		const { teach, delivered } = rig();
+		teach.start();
+		const fix = terminal(teach, "fix");
+		fix.print("$ ");
+		fix.reprint("$ ", 2);
+		fix.write("git st");
+		fix.print("git st");
+		fix.reprint("git st", 8);
+		fix.write("atus\r");
+		fix.print("atus\r\n");
+		fix.reprint("atus\r\n", 14);
+		fix.reprint("git statu", 13);
+		const text = await recordOf(teach, delivered);
+		expect(text).toContain("terminal: git status");
+		expect(text.match(/terminal:/g)).toHaveLength(1);
+	});
+
+	it("does not take a copy of old output that reaches it late for the echo of what was just typed", async () => {
+		const { teach, delivered } = rig();
+		teach.start();
+		const fix = terminal(teach, "fix");
+		fix.print("$ echo hunter2\r\nhunter2\r\n> ");
+		const shown = fix.end();
+		fix.write("hunter2\r");
+		// A second viewer's poll, answered before the write, reaches the recorder after it.
+		fix.reprint("$ echo hunter2\r\nhunter2\r\n> ", shown);
+		fix.print("\r\n");
+		const text = await recordOf(teach, delivered);
+		expect(text).toContain(`terminal: ${TEACH_HIDDEN_NO_ECHO}`);
+		expect(text).not.toContain("terminal: hunter2");
+	});
+
+	it("takes a snapshot that only names where the stream ends for no news, and keeps the output that follows", async () => {
+		const { teach, delivered } = rig();
+		teach.start();
+		teach.terminalOutput("fix", "t1", 500, "");
+		teach.terminalOutput("fix", "t1", 12, "$ ");
+		teach.terminalWrite("fix", "t1", "ls\r");
+		teach.terminalOutput("fix", "t1", 16, "ls\r\n");
+		expect(await recordOf(teach, delivered)).toContain("terminal: ls");
+	});
+
+	it("tells each terminal's prompt and echo apart", async () => {
+		const { teach, delivered } = rig();
+		teach.start();
+		terminal(teach, "fix", "t2").print("Password: ");
+		terminal(teach, "docs").print("Password: ");
+		const fix = terminal(teach, "fix");
+		fix.print("$ ");
+		fix.type("ls\r");
+		const text = await recordOf(teach, delivered);
+		expect(text).toContain("terminal: ls");
+		expect(text).not.toContain("hidden");
+	});
+});
+
+describe("visible terminal output", () => {
+	it("drops escape sequences and control characters but keeps line breaks, and carries a cut sequence", () => {
+		expect(visibleOutput("", "\x1b[31mred\x1b[0m\r\nnext\x07")).toEqual({ text: "red\nnext", carry: "" });
+		expect(visibleOutput("", "a\x1b]0;a title\x1b\\b\x1b(Bc")).toEqual({ text: "abc", carry: "" });
+		expect(visibleOutput("", "ab\x1b[12")).toEqual({ text: "ab", carry: "\x1b[12" });
+		expect(visibleOutput("\x1b[12", ";5Hcd")).toEqual({ text: "cd", carry: "" });
+		expect(visibleOutput("", `x\x1b]0;${"t".repeat(300)}`)).toEqual({ text: "x", carry: "" });
 	});
 });
 

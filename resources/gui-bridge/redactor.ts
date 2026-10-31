@@ -5,7 +5,7 @@
  * read or sent. Import-free and free of names the generated omp memory extension declares: the ai-memory build
  * embeds this file into it (`native/memory` `install_hooks.rs`, `include_str!`).
  *
- * Rule groups, applied in this order:
+ * Rule groups, applied in this order (`redactSecretText` is group 1 alone, for text that only must not carry a secret):
  *  1. credentials: URL userinfo, PEM blocks, JWTs, vendor tokens (`gh*_`, `github_pat_`, `sk-`, `xox*-`,
  *     `AKIA…`, `AIza…`), `Bearer` values, `key=value` pairs whose key names a secret, long hex
  *     runs, long mixed-case base64-ish runs;
@@ -81,7 +81,12 @@ function isInertValue(raw: string): boolean {
 	return value === "" || value.startsWith("<") || /^(?:true|false|null|undefined|none|\d+)$/i.test(value);
 }
 
-export function redactDiagnosticsText(text: string): string {
+/**
+ * Only the credentials group of `redactDiagnosticsText` (rule group 1 below): what must never leave this computer
+ * whoever reads it, with emails, addresses and home folders left as they are. Pure; for text that is about a
+ * person's own machine and work (the bot's demonstration record), where `<email>` and `~` would only blur it.
+ */
+export function redactSecretText(text: string): string {
 	return text
 		.replace(URL_USERINFO, `$1${REDACTED_SECRET}@`)
 		.replace(PEM, REDACTED_SECRET)
@@ -92,7 +97,11 @@ export function redactDiagnosticsText(text: string): string {
 			isInertValue(value) ? whole : `${key}${REDACTED_SECRET}`,
 		)
 		.replace(LONG_HEX, REDACTED_TOKEN)
-		.replace(LONG_BASE64, run => (looksRandom(run) ? REDACTED_TOKEN : run))
+		.replace(LONG_BASE64, run => (looksRandom(run) ? REDACTED_TOKEN : run));
+}
+
+export function redactDiagnosticsText(text: string): string {
+	return redactSecretText(text)
 		.replace(EMAIL, email => (email.startsWith("git@") ? email : "<email>"))
 		.replace(TS_NET_HOST, "<tailnet-host>")
 		.replace(IPV4, (whole, a: string, b: string, c: string, d: string) => {

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { redactDiagnosticsText as redact, redactDiagnosticsFile } from "../../resources/gui-bridge/redactor";
+import {
+	redactDiagnosticsText as redact,
+	redactDiagnosticsFile,
+	redactSecretText,
+} from "../../resources/gui-bridge/redactor";
 
 describe("redactDiagnosticsText: credentials", () => {
 	it("redacts GitHub tokens in every prefix", () => {
@@ -83,6 +87,34 @@ describe("redactDiagnosticsText: credentials, false positives", () => {
 
 	it("keeps an empty or already redacted value", () => {
 		expect(redact("token=<token> password=")).toBe("token=<token> password=");
+	});
+});
+
+describe("redactSecretText: credentials only", () => {
+	it("redacts tokens, keys, URL passwords and secret pairs like the full redactor", () => {
+		const text = [
+			`export GH_TOKEN=ghp_${"a1B2".repeat(9)}`,
+			"curl -H 'Authorization: Bearer abc.DEF-123_456~xyz' https://alice:s3cret@example.com/x",
+			"OPENAI_API_KEY=hunter2hunter2 sk-proj-0123456789abcdefABCDEF",
+			`aws AKIAIOSFODNN7EXAMPLE and ${"0123456789abcdef".repeat(4)}`,
+		].join("\n");
+		const out = redactSecretText(text);
+		for (const leaked of ["ghp_", "abc.DEF", "s3cret", "hunter2", "sk-proj", "AKIAIOSFODNN7", "0123456789abcdef"])
+			expect(out).not.toContain(leaked);
+		expect(out).toContain("GH_TOKEN=<token>");
+		expect(out).toContain("OPENAI_API_KEY=<secret>");
+	});
+
+	it("leaves emails, home folders and addresses as they are", () => {
+		const text =
+			"mail alice@example.com from /Users/alice/work on 100.64.0.1 and 192.168.1.5 via box.tail1234.ts.net";
+		expect(redactSecretText(text)).toBe(text);
+		expect(redact(text)).not.toBe(text);
+	});
+
+	it("is the credentials group of the full redactor, which only adds the rest", () => {
+		const text = `token=abc123def and ${"0123456789abcdef".repeat(2)} by bob@corp.example.com`;
+		expect(redact(text)).toBe(redactSecretText(text).replace("bob@corp.example.com", "<email>"));
 	});
 });
 

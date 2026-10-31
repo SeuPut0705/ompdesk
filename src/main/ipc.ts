@@ -486,8 +486,15 @@ const progressStates = new Map<number, RunProgressState>();
 
 export function registerIpcHandlers(deps: IpcDeps): void {
 	const { ipc } = deps;
-	registerTerminalIpc(ipc, deps.sidecarPool, deps.remoteDevices, (tabId, terminalId, data) =>
-		botTeach.terminalWrite(tabId, terminalId, data),
+	registerTerminalIpc(
+		ipc,
+		deps.sidecarPool,
+		deps.remoteDevices,
+		(tabId, terminalId, data) => botTeach.terminalWrite(tabId, terminalId, data),
+		(tabId, snapshots) => {
+			for (const snapshot of snapshots)
+				botTeach.terminalOutput(tabId, snapshot.id, snapshot.offset, snapshot.output);
+		},
 	);
 	registerSshToolsIpc(ipc);
 	const visuals = new VisualStore(path.join(app.getPath("userData"), "visuals"));
