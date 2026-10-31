@@ -37,6 +37,47 @@ const pull = (number: number, title: string, login: string) => ({
 	html_url: `https://github.com/o/r/pull/${number}`,
 });
 
+describe("github source across a relaunch", () => {
+	it("fires once for what was opened while OMPdesk was closed, and nothing on the launch after", async () => {
+		const github = fakeGithub({ "repos/o/r/pulls": [pull(11, "Old", "bob")] });
+		const first = fakeContext();
+		const before = createGithubSource({
+			repo: "o/r",
+			events: ["pull_request"],
+			api: github.api,
+			context: first.context,
+		});
+		await vi.advanceTimersByTimeAsync(0);
+		before.stop();
+		const mark = first.saved.at(-1);
+		expect(mark).toEqual({ seen: { pull_request: [11] } });
+
+		github.answers["repos/o/r/pulls"] = [pull(12, "While closed", "alice"), pull(11, "Old", "bob")];
+		const next = fakeContext(mark);
+		const source = createGithubSource({
+			repo: "o/r",
+			events: ["pull_request"],
+			api: github.api,
+			context: next.context,
+		});
+		await vi.advanceTimersByTimeAsync(0);
+		expect(next.fired).toEqual(['PR #12 "While closed" opened by alice: https://github.com/o/r/pull/12']);
+		source.stop();
+
+		const third = fakeContext(next.saved.at(-1));
+		const last = createGithubSource({
+			repo: "o/r",
+			events: ["pull_request"],
+			api: github.api,
+			context: third.context,
+		});
+		await vi.advanceTimersByTimeAsync(0);
+		expect(third.fired).toEqual([]);
+		expect(github.calls.length).toBe(3);
+		last.stop();
+	});
+});
+
 describe("github source", () => {
 	it("records what exists on the first poll and fires once per pull request opened after it", async () => {
 		const github = fakeGithub({ "repos/o/r/pulls": [pull(11, "Old", "bob")] });

@@ -691,6 +691,31 @@ describe("routines: event triggers, once, run history", () => {
 		]);
 		service.dispose();
 	});
+
+	it("records a trigger's failure as a failed run that runs nothing, told to runEnded; none for a routine that is off", async () => {
+		const dir = await tempDir();
+		const { launch } = fakeLauncher();
+		const ends: [string, string, string | null][] = [];
+		const service = new ScheduleService({
+			file: join(dir, "schedules.json"),
+			logDir: join(dir, "runs"),
+			launch,
+			onState: () => {},
+			runEnded: (schedule, run) => ends.push([schedule.name, run.status, run.error]),
+		});
+		await service.start();
+		const id = await routine(service, dir, { name: "[agent] CI watch" });
+		expect(service.triggerFailed(id, "github o/r: gh: HTTP 401")).toBe(true);
+		expect(service.state().runs).toMatchObject([
+			{ scheduleId: id, trigger: "event", status: "failed", error: "Its trigger failed: github o/r: gh: HTTP 401" },
+		]);
+		expect(ends).toEqual([["[agent] CI watch", "failed", "Its trigger failed: github o/r: gh: HTTP 401"]]);
+
+		await service.command({ action: "setEnabled", id, enabled: false });
+		expect(service.triggerFailed(id, "again")).toBe(false);
+		expect(service.state().runs).toHaveLength(1);
+		service.dispose();
+	});
 });
 
 describe("ompRunLauncher", () => {

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -632,4 +633,69 @@ test("an email routine: the owner adds a mailbox in Settings, and new mail to th
 	} finally {
 		await imap.close();
 	}
+});
+
+// A routine's trigger keeps where it stood across a relaunch (src/main/routines/marks.ts, `<userData>/routine-marks.json`):
+// a git routine of the bot's, made while OMPdesk runs, wakes the bot once on the next launch for the commit made while
+// OMPdesk was closed.
+test("a git routine fires once after a relaunch for the commit made while OMPdesk was closed", async () => {
+	test.setTimeout(180_000);
+	const env = {
+		...process.env,
+		GIT_AUTHOR_NAME: "Test",
+		GIT_AUTHOR_EMAIL: "test@example.com",
+		GIT_COMMITTER_NAME: "Test",
+		GIT_COMMITTER_EMAIL: "test@example.com",
+		GIT_CONFIG_GLOBAL: "/dev/null",
+		GIT_CONFIG_NOSYSTEM: "1",
+	};
+	const git = (...args: string[]) => execFileSync("git", args, { cwd: repo, env, encoding: "utf8" }).trim();
+	const repo = path.join(profile, "repo");
+	await fs.mkdir(repo);
+	git("init", "-q", "-b", "main");
+	await fs.writeFile(path.join(repo, "a.txt"), "one\n");
+	git("add", ".");
+	git("commit", "-q", "-m", "First");
+	const first = git("rev-parse", "HEAD");
+
+	const file = await botFile();
+	await page.locator("[data-sidebar-bot-row]").click();
+	const bot = await tabOf(file);
+	await untilReady(bot);
+	const made = await callAs(bot, "ompdesk_schedule", {
+		action: "create",
+		target: "self",
+		name: "watch main",
+		prompt: "Review what landed",
+		on: { source: "git", repo, branch: "main" },
+	});
+	expect(made.isError, made.text).toBe(false);
+	const id = /id ([\w-]+);/.exec(made.text)?.[1] ?? "";
+	const marks = path.join(dirs.desktop, "routine-marks.json");
+	const markOf = async () =>
+		JSON.parse(await fs.readFile(marks, "utf8").catch(() => "{}")).marks?.[id]?.mark as { head?: string } | undefined;
+	await expect.poll(markOf).toEqual({ head: first });
+
+	await exitApp(app);
+	await fs.writeFile(path.join(repo, "b.txt"), "two\n");
+	git("add", ".");
+	git("commit", "-q", "-m", "Landed while closed");
+	const second = git("rev-parse", "HEAD");
+	await start();
+
+	const wakes = () => mailReports(record, details => typeof details.id === "string" && details.id.startsWith("wake-"));
+	await expect.poll(async () => (await wakes()).length, { timeout: 60_000 }).toBe(1);
+	expect(String((await wakes())[0]?.content)).toContain(
+		`1 new commit on main: ${second.slice(0, 7)} Landed while closed`,
+	);
+	await expect.poll(markOf).toEqual({ head: second });
+	await expect
+		.poll(
+			async () =>
+				(await page.evaluate(() => window.omp.schedules.command({ action: "get" }))).runs.filter(
+					run => run.scheduleId === id && run.trigger === "event",
+				).length,
+		)
+		.toBe(1);
+	expect(errors).toEqual([]);
 });

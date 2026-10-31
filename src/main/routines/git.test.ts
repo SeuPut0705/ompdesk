@@ -72,6 +72,38 @@ describe("git source on a real repository", () => {
 		source.stop();
 	});
 
+	it("a relaunch fires once for the commits made while OMPdesk was closed, saving the new head first", async () => {
+		vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
+		const first = fakeContext();
+		const before = createGitSource({ repo, branch: "main", git: counting, context: first.context });
+		await tick();
+		before.stop();
+		const head = first.saved.at(-1);
+		expect(head).toEqual({ head: gitSync(repo, "rev-parse", "HEAD") });
+
+		const made = await commit("While closed");
+		const order: string[] = [];
+		const next = fakeContext(head);
+		const context = {
+			...next.context,
+			saveMark: (mark: unknown) => {
+				order.push("save");
+				next.context.saveMark(mark);
+			},
+			fire: (detail: string) => {
+				order.push("fire");
+				return next.context.fire(detail);
+			},
+		};
+		const after = createGitSource({ repo, branch: "main", git: counting, context });
+		await tick();
+		await tick();
+		expect(next.fired).toEqual([`1 new commit on main: ${made} While closed`]);
+		expect(order).toEqual(["save", "fire"]);
+		expect(next.saved.at(-1)).toEqual({ head: gitSync(repo, "rev-parse", "HEAD") });
+		after.stop();
+	});
+
 	it("lists ten commits and counts the rest", async () => {
 		vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
 		const { context, fired } = fakeContext();

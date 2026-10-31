@@ -9,6 +9,7 @@ import type { MailPort } from "./email";
 import { FILES_DEBOUNCE_MS } from "./files";
 import type { GitPort } from "./git";
 import type { GhApi } from "./github";
+import { MemoryMarks } from "./marks";
 import type { SessionPorts } from "./sessions";
 import { fakeWatch } from "./test-context";
 import { RoutineTriggers } from "./triggers";
@@ -33,6 +34,8 @@ const NO_MAIL: MailPort = {
 	},
 };
 let gitCalls: string[];
+/** Where each trigger stood: kept across the "relaunches" a test makes with a new RoutineTriggers. */
+let marks: MemoryMarks;
 let observers: Set<unknown>;
 const logs: string[] = [];
 
@@ -45,6 +48,7 @@ beforeEach(async () => {
 	githubCalls = [];
 	mailAsked = [];
 	gitCalls = [];
+	marks = new MemoryMarks();
 	logs.length = 0;
 	observers = new Set();
 	const launch: RunLauncher = async (_schedule, files): Promise<RunProcess> => {
@@ -83,6 +87,8 @@ beforeEach(async () => {
 		log: message => logs.push(message),
 		github,
 		watch: watch.watch,
+		scan: watch.scan,
+		marks,
 		git,
 		sessions,
 		mail: NO_MAIL,
@@ -207,6 +213,8 @@ describe("RoutineTriggers", () => {
 			log: () => undefined,
 			github: async () => [],
 			watch: watch.watch,
+			scan: watch.scan,
+			marks,
 			git,
 			sessions: { observeTabs: () => () => undefined, tabs: () => [], botPath: () => null },
 			mail: NO_MAIL,
@@ -232,6 +240,95 @@ describe("RoutineTriggers", () => {
 		expect(observers.size).toBe(0);
 		await service.create(filesDraft("/later"));
 		expect(watch.live()).toHaveLength(0);
+	});
+
+	/** A RoutineTriggers over the same service and marks, as the next launch makes it, with this git. */
+	function relaunch(git: GitPort, ready?: Promise<void>): void {
+		triggers.dispose();
+		triggers = new RoutineTriggers({
+			service,
+			log: message => logs.push(message),
+			github: async () => [],
+			watch: watch.watch,
+			scan: watch.scan,
+			marks,
+			git,
+			sessions: { observeTabs: () => () => undefined, tabs: () => [], botPath: () => null },
+			mail: NO_MAIL,
+			quietMs: QUIET_MS,
+			...(ready === undefined ? {} : { ready }),
+		});
+		triggers.sync();
+	}
+	const gitAt = (head: () => string): GitPort => ({
+		head: async () => head(),
+		commits: async (_repo, from, to) => ({ total: 1, lines: [`${to} after ${from}`] }),
+	});
+
+	it("a relaunch fires a git routine once for the commits made while OMPdesk was closed", async () => {
+		let head = "aaa";
+		relaunch(gitAt(() => head));
+		const { id } = await service.create(draft({ source: "git", repo: dir, branch: "main" }));
+		await vi.advanceTimersByTimeAsync(0);
+		expect(marks.ids()).toEqual([id]);
+
+		// Closed: the branch moves; the next launch reads it from the kept head.
+		triggers.dispose();
+		head = "bbb";
+		relaunch(gitAt(() => head));
+		await vi.advanceTimersByTimeAsync(0);
+		await vi.waitFor(() => expect(launched).toHaveLength(1));
+		expect(launched[0]?.prompt).toContain("1 new commit on main: bbb after aaa");
+		launched[0]?.finish(0);
+		await vi.waitFor(() => expect(service.state().runs[0]?.status).toBe("succeeded"));
+
+		relaunch(gitAt(() => head));
+		await vi.advanceTimersByTimeAsync(QUIET_MS);
+		expect(launched).toHaveLength(1);
+	});
+
+	it("forgets where a routine's trigger stood when it is turned off, so what happens meanwhile never fires", async () => {
+		let head = "aaa";
+		relaunch(gitAt(() => head));
+		const { id } = await service.create(draft({ source: "git", repo: dir, branch: "main" }));
+		await vi.advanceTimersByTimeAsync(0);
+		expect(marks.ids()).toEqual([id]);
+		await service.command({ action: "setEnabled", id, enabled: false });
+		expect(marks.ids()).toEqual([]);
+		head = "bbb";
+		await service.command({ action: "setEnabled", id, enabled: true });
+		await vi.advanceTimersByTimeAsync(0);
+		expect(launched).toHaveLength(0);
+	});
+
+	it("starts no source before the app is ready, and all of them once it is", async () => {
+		const ready = Promise.withResolvers<void>();
+		relaunch(
+			gitAt(() => "aaa"),
+			ready.promise,
+		);
+		await service.create(filesDraft("/a"));
+		expect(watch.live()).toHaveLength(0);
+		ready.resolve();
+		await vi.waitFor(() => expect(watch.live().map(item => item.path)).toEqual(["/a"]));
+	});
+
+	it("records a trigger's failure as a failed run with its reason, once per distinct failure", async () => {
+		const failing: GitPort = {
+			head: async () => {
+				throw new Error("fatal: not a git repository");
+			},
+			commits: async () => ({ total: 0, lines: [] }),
+		};
+		relaunch(failing);
+		const { id } = await service.create(draft({ source: "git", repo: dir, branch: "main" }));
+		await vi.advanceTimersByTimeAsync(0);
+		await vi.waitFor(() => expect(service.state().runs.filter(run => run.scheduleId === id)).toHaveLength(1));
+		const [run] = service.state().runs;
+		expect(run).toMatchObject({ scheduleId: id, trigger: "event", status: "failed" });
+		expect(run?.error).toContain("fatal: not a git repository");
+		expect(logs.some(line => line.includes("fatal: not a git repository"))).toBe(true);
+		expect(launched).toHaveLength(0);
 	});
 
 	it("tells the log when a source cannot start, and starts the others", async () => {

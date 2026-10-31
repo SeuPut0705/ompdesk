@@ -10,24 +10,35 @@
  *
  * The sources never start a run themselves; the service's own loop guard (`ROUTINE_CHAIN_LIMIT`) stands behind the
  * source-specific ones (files and git ignore the routine's own work, sessions never see the bot's family).
- * Nothing is kept across a relaunch: every source records its baseline again, so nothing that happened while OMPdesk
- * was closed fires.
+ * Where each polling or watching source stood is kept across a relaunch (marks.ts): a source started with its mark
+ * fires once for what changed while OMPdesk was closed, and saves its new mark before it fires, so nothing fires twice.
+ * A routine turned off, edited, deleted or paused loses its mark, so what happens meanwhile never fires later. Sources
+ * start once `ready` resolves (the first window has loaded), so a run a relaunch fires can open the bot's session.
+ *
+ * A source that cannot watch what it names tells it once per distinct failure: a runtime-log line and a failed run in
+ * the routine's history (`ScheduleService.triggerFailed`), which also reaches the bot's activity log.
  */
 import type { Schedule, ScheduleEvent, SchedulesState } from "../../shared/schedules";
 import type { ScheduleService } from "../schedules";
 import { createEmailSource, type MailPort } from "./email";
-import { createFilesSource, type WatchPath } from "./files";
+import { createFilesSource, type ScanPath, type WatchPath } from "./files";
 import { createGitSource, type GitPort } from "./git";
 import { createGithubSource, type GhApi } from "./github";
+import type { TriggerMarks } from "./marks";
 import { createSessionSource, type SessionPorts } from "./sessions";
 import { ROUTINE_QUIET_MS, type RoutineSource, type SourceContext } from "./source";
 
 export interface RoutineTriggerDeps {
-	service: Pick<ScheduleService, "state" | "fire">;
+	service: Pick<ScheduleService, "state" | "fire" | "triggerFailed">;
+	/** Where each trigger stood, kept across a relaunch. */
+	marks: TriggerMarks;
+	/** Sources start once this resolves (absent: at once). */
+	ready?: Promise<void>;
 	/** One runtime-log line from a source (a failure told once, a path that does not exist). */
 	log: (message: string) => void;
 	github: GhApi;
 	watch: WatchPath;
+	scan: ScanPath;
 	git: GitPort;
 	sessions: SessionPorts;
 	/** The owner's mail accounts, read over IMAP (an email trigger). */
@@ -54,14 +65,20 @@ export class RoutineTriggers {
 	#syncing = false;
 	#again = false;
 	#disposed = false;
+	#ready: boolean;
 
 	constructor(deps: RoutineTriggerDeps) {
 		this.#deps = deps;
+		this.#ready = deps.ready === undefined;
+		void deps.ready?.then(() => {
+			this.#ready = true;
+			this.sync();
+		});
 	}
 
 	/** The schedules changed: start, keep and stop sources to match. Safe to call from inside a source's `fire`. */
 	sync(): void {
-		if (this.#disposed) return;
+		if (this.#disposed || !this.#ready) return;
 		if (this.#syncing) {
 			this.#again = true;
 			return;
@@ -109,15 +126,18 @@ export class RoutineTriggers {
 			if (want && live.key === keyOf(want.schedule, want.event)) continue;
 			this.#stop(live.source);
 			this.#live.delete(id);
+			// Off, edited or gone: what happens until it watches again is never news (an edit starts a new mark).
+			this.#deps.marks.drop([id]);
 		}
+		this.#deps.marks.drop(this.#deps.marks.ids().filter(id => !wanted.has(id)));
 		for (const [id, { schedule, event }] of wanted) {
 			if (this.#live.has(id)) continue;
 			try {
 				this.#live.set(id, { key: keyOf(schedule, event), source: this.#start(schedule, event) });
 			} catch (error) {
-				this.#deps.log(
-					`${schedule.name}: could not start its trigger: ${error instanceof Error ? error.message : String(error)}`,
-				);
+				const message = `could not start its trigger: ${error instanceof Error ? error.message : String(error)}`;
+				this.#deps.log(`${schedule.name}: ${message}`);
+				this.#deps.service.triggerFailed(id, message);
 			}
 		}
 		for (const id of ended) {
@@ -133,19 +153,28 @@ export class RoutineTriggers {
 
 	#start(schedule: Schedule, event: ScheduleEvent): RoutineSource {
 		const { id } = schedule;
+		const key = keyOf(schedule, event);
 		const context: SourceContext = {
 			fire: detail => this.#deps.service.fire(id, detail),
 			running: () => this.#running.has(id),
 			quiet: () =>
 				this.#running.has(id) ||
 				Date.now() < (this.#endedAt.get(id) ?? Number.NEGATIVE_INFINITY) + (this.#deps.quietMs ?? ROUTINE_QUIET_MS),
-			warn: message => this.#deps.log(`${schedule.name}: ${message}`),
+			warn: message => {
+				this.#deps.log(`${schedule.name}: ${message}`);
+				this.#deps.service.triggerFailed(id, message);
+			},
+			mark: this.#deps.marks.get(id, key),
+			// A source stopped meanwhile (its routine off, edited, gone) keeps nothing: its mark was dropped.
+			saveMark: mark => {
+				if (!this.#disposed && this.#live.get(id)?.key === key) this.#deps.marks.set(id, key, mark);
+			},
 		};
 		switch (event.source) {
 			case "github":
 				return createGithubSource({ repo: event.repo, events: event.events, api: this.#deps.github, context });
 			case "files":
-				return createFilesSource({ path: event.path, watch: this.#deps.watch, context });
+				return createFilesSource({ path: event.path, watch: this.#deps.watch, scan: this.#deps.scan, context });
 			case "git":
 				return createGitSource({ repo: event.repo, branch: event.branch, git: this.#deps.git, context });
 			case "session":

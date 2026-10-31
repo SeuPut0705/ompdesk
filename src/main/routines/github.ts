@@ -11,12 +11,13 @@
  *
  * The first answer of each kind only records what already exists (a new routine never runs on its creation); a kind
  * whose first answer failed takes its baseline from its first good one, and a kind that failed later keeps its baseline,
- * so what happened during the outage fires once GitHub answers again. Nothing is kept across a relaunch: a relaunch
- * records the baseline again, so an event that happened while OMPdesk was closed fires nothing (as a timed
- * schedule's missed start).
+ * so what happened during the outage fires once GitHub answers again. The seen ids and the default branch's head are
+ * kept across a relaunch (`context.mark`), so what happened while OMPdesk was closed fires once on the first poll
+ * after it starts (within what the endpoints still list); the mark is saved before the routine fires.
  * More than 20 events between two polls fire only the newest ones the endpoint lists, and at most
  * `EVENTS_PER_POLL` of a kind fire at once. A `gh` failure (not signed in, offline, 404, rate limit) fires nothing;
- * it is told to the runtime log once per distinct message (`failureReporter`) and polling goes on.
+ * it is told once per distinct message (`failureReporter`: the runtime log and a failed run in the routine's
+ * history) and polling goes on.
  */
 import { GITHUB_EVENT_KINDS, GITHUB_POLL_MINUTES, GITHUB_REPO, type GithubEventKind } from "../../shared/schedules";
 import { clip, describeCommits, failureReporter, type RoutineSource, type SourceContext } from "./source";
@@ -28,6 +29,12 @@ const EVENTS_PER_POLL = 10;
 /** Ids remembered per kind: the endpoints list at most 20, a rerun or an edit may bring an old id back. */
 const SEEN_MAX = 200;
 const TITLE_CHARS = 120;
+
+/** Where a GitHub trigger stood: the ids seen per row kind, the default branch's newest commit. */
+interface GithubMark {
+	seen: Record<string, (string | number)[]>;
+	head?: { branch: string; sha: string };
+}
 
 interface Person {
 	login?: string;
@@ -171,6 +178,7 @@ class GithubSource implements RoutineSource {
 		this.#api = options.api;
 		this.#context = options.context;
 		this.#report = failureReporter(message => options.context.warn(`github ${options.repo}: ${message}`));
+		this.#restore(options.context.mark);
 		if (!usableRepo(options.repo)) {
 			options.context.warn(`github ${options.repo}: not an owner/name repository`);
 			this.#stopped = true;
@@ -192,6 +200,7 @@ class GithubSource implements RoutineSource {
 				const details = kind === "push" ? await this.#readPush() : await this.#readRows(kind);
 				this.#report(kind, null);
 				if (this.#stopped) return;
+				this.#context.saveMark(this.#mark());
 				for (const detail of details) this.#context.fire(detail);
 			} catch (error) {
 				if (this.#stopped) return;
@@ -201,6 +210,30 @@ class GithubSource implements RoutineSource {
 		if (this.#stopped) return;
 		this.#timer = setTimeout(() => void this.#poll(), GITHUB_POLL_MINUTES * 60_000);
 		this.#timer.unref?.();
+	}
+
+	/** What it has seen, as the next launch reads it. */
+	#mark(): GithubMark {
+		return {
+			seen: Object.fromEntries([...this.#seen].map(([kind, ids]) => [kind, [...ids]])),
+			...(this.#head ? { head: this.#head } : {}),
+		};
+	}
+
+	/** The mark of the last launch, as far as it parses (it is JSON from disk). */
+	#restore(mark: unknown): void {
+		if (typeof mark !== "object" || mark === null) return;
+		const { seen, head } = mark as { seen?: unknown; head?: unknown };
+		if (typeof seen === "object" && seen !== null)
+			for (const [kind, ids] of Object.entries(seen))
+				if (Array.isArray(ids) && kind in READERS)
+					this.#seen.set(
+						kind,
+						new Set(ids.filter((id): id is string | number => typeof id === "string" || typeof id === "number")),
+					);
+		const last = head as { branch?: unknown; sha?: unknown } | null | undefined;
+		if (typeof last?.branch === "string" && typeof last.sha === "string")
+			this.#head = { branch: last.branch, sha: last.sha };
 	}
 
 	/** The lines of the rows of `kind` not seen before, oldest first; none (and a baseline taken) on its first answer. */

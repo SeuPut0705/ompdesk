@@ -22,11 +22,13 @@ const mail = (uid: number, headers: string[], body = "") => ({ uid, headers: hea
  * A source on a fake IMAP server, read the way the production port does, for the account "Work" (id acc1). `polls(n)`
  * settles once the n-th poll began, so every poll before it has finished: tests wait on polls, not on the clock.
  */
-async function rig(options: Partial<EmailSourceOptions> & { named?: () => boolean; already?: FakeMail[] } = {}) {
+async function rig(
+	options: Partial<EmailSourceOptions> & { named?: () => boolean; already?: FakeMail[]; mark?: unknown } = {},
+) {
 	server = await startFakeImap();
 	const imap = server;
 	imap.mail.push(...(options.already ?? []));
-	const ctx = fakeContext();
+	const ctx = fakeContext(options.mark);
 	let started = 0;
 	const waiters: { count: number; resolve: () => void }[] = [];
 	const mailPort: MailPort = {
@@ -50,6 +52,32 @@ async function rig(options: Partial<EmailSourceOptions> & { named?: () => boolea
 	source = createEmailSource({ account: "Work", mail: mailPort, context: ctx.context, pollMs: 5, ...options });
 	return { imap, ...ctx, polls, polled: () => started };
 }
+
+describe("the email trigger across a relaunch", () => {
+	it("fires once for mail that came while OMPdesk was closed, and keeps the cursor before it fires", async () => {
+		const { fired, polls, saved } = await rig({
+			mark: { accountId: "acc1", validity: 7, uid: 1 },
+			already: [
+				mail(1, ["From: old@example.com", "Subject: before"]),
+				mail(2, ["From: Ann <ann@example.com>", "To: owner@example.com", "Subject: while closed"], "hello"),
+			],
+		});
+		await polls(3);
+		expect(fired).toEqual([
+			'New mail in Work from Ann <ann@example.com> to owner@example.com: "while closed". It begins: hello',
+		]);
+		expect(saved[0]).toEqual({ accountId: "acc1", validity: 7, uid: 2 });
+	});
+
+	it("takes a baseline when the mark is for another mailbox generation", async () => {
+		const { fired, polls } = await rig({
+			mark: { accountId: "acc1", validity: 6, uid: 0 },
+			already: [mail(1, ["From: old@example.com", "Subject: before"])],
+		});
+		await polls(3);
+		expect(fired).toEqual([]);
+	});
+});
 
 describe("the email trigger", () => {
 	it("never fires for mail already there, then fires once per new mail, oldest first, with what it says", async () => {

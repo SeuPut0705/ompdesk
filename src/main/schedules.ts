@@ -203,6 +203,32 @@ export class ScheduleService {
 	}
 
 	/**
+	 * A routine's trigger cannot watch what it names (GitHub refused, a folder is gone, git or the mailbox failed;
+	 * src/main/routines tells each distinct failure once): recorded as a failed run with the reason, so the routine's
+	 * history and the bot's activity log show it, and nothing runs. False when the routine is gone, off or paused.
+	 */
+	triggerFailed(id: string, reason: string): boolean {
+		const schedule = this.#schedules.find(item => item.id === id);
+		if (!schedule || schedule.frequency.kind !== "event" || !schedule.enabled || this.#paused || this.#disposed)
+			return false;
+		const at = new Date().toISOString();
+		const run: ScheduleRun = {
+			id: randomUUID(),
+			scheduleId: id,
+			trigger: "event",
+			startedAt: at,
+			endedAt: at,
+			status: "failed",
+			exitCode: null,
+			error: `Its trigger failed: ${reason.replace(/\s+/g, " ").trim().slice(0, DETAIL_MAX)}`,
+		};
+		this.#record(run);
+		this.#options.runEnded?.({ ...schedule }, run);
+		this.#changed();
+		return true;
+	}
+
+	/**
 	 * `origin`: the paired device a request comes from (`host.schedules.command`). A save from a device makes the
 	 * schedule that device's (its runs count against its daily model limit here); a save here makes it this computer's.
 	 * A run now from a device is charged to that device and refused past its limit.

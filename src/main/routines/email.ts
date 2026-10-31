@@ -10,8 +10,10 @@
  * than `no`) and a reply sent from this mailbox itself (its own address with `In-Reply-To`, as the bot's answer to a
  * mail would be) never fire.
  *
- * A failure (no such account, a refused login, the network) is told to the runtime log once per distinct message,
- * never with the password, and polling goes on. Nothing is kept across a relaunch.
+ * A failure (no such account, a refused login, the network) is told once per distinct message (the runtime log and a failed run in the routine's history),
+ * never with the password, and polling goes on. The cursor (account, UIDVALIDITY, last UID) is kept across a relaunch
+ * (`context.mark`), so mail that came while OMPdesk was closed fires once on the first read after it starts (the newest
+ * `MESSAGES_PER_POLL` of them; older ones are passed over); the mark is saved before the routine fires.
  */
 import { EMAIL_POLL_MINUTES } from "../../shared/schedules";
 import type { MailboxRead, MailCursor, MailMessage } from "./imap";
@@ -52,6 +54,12 @@ class EmailSource implements RoutineSource {
 	constructor(options: EmailSourceOptions) {
 		this.#options = options;
 		this.#report = failureReporter(message => options.context.warn(`email ${options.account}: ${message}`));
+		const mark = options.context.mark as { accountId?: unknown; validity?: unknown; uid?: unknown } | undefined;
+		if (typeof mark?.accountId === "string" && Number.isSafeInteger(mark.validity) && Number.isSafeInteger(mark.uid))
+			this.#cursor = {
+				accountId: mark.accountId,
+				cursor: { validity: mark.validity as number, uid: mark.uid as number },
+			};
 		void this.#poll();
 	}
 
@@ -70,6 +78,7 @@ class EmailSource implements RoutineSource {
 			if (this.#stopped) return;
 			this.#cursor = { accountId: account.id, cursor: read.cursor };
 			this.#report("read", null);
+			this.#options.context.saveMark({ accountId: account.id, ...read.cursor });
 			if (known)
 				for (const message of read.messages)
 					if (this.#wanted(message, account.address)) this.#options.context.fire(describe(message, account.label));

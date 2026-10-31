@@ -160,7 +160,8 @@ import { LocalHostServices } from "./remote/host-services";
 import { KeepAwakePolicy } from "./remote/keep-awake";
 import { readoptHostTabs } from "./remote/readopt";
 import { migrateRetiredPrefs } from "./retired-prefs";
-import { ghApi, gitPort, sessionPorts, watchPath } from "./routines/ports";
+import { FileMarks } from "./routines/marks";
+import { ghApi, gitPort, scanPath, sessionPorts, watchPath } from "./routines/ports";
 import { RoutineTriggers } from "./routines/triggers";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import { layoutsToSave } from "./saved-layouts";
@@ -504,6 +505,20 @@ let githubAuthService: GithubAuthService | null = null;
 let scheduleService: ScheduleService | null = null;
 /** Watches what event routines (Settings › Schedules, the bot's routines) wait for (src/main/routines). */
 let routineTriggers: RoutineTriggers | null = null;
+let routineMarks: FileMarks | null = null;
+
+/** Resolves once a window of the app has loaded its page (at once when one has). */
+function firstWindowLoaded(): Promise<void> {
+	const { promise, resolve } = Promise.withResolvers<void>();
+	const loaded = (win: BrowserWindow) =>
+		!win.isDestroyed() && !win.webContents.isLoading() && win.webContents.getURL() !== "";
+	if (BrowserWindow.getAllWindows().some(loaded)) resolve();
+	else
+		app.on("browser-window-created", (_event, win) => {
+			win.webContents.once("did-finish-load", () => resolve());
+		});
+	return promise;
+}
 /** The owner's mail accounts for email routines (Settings › Schedules › Email accounts). */
 let mailAccounts: MailAccounts | null = null;
 /** Keep-awake while this computer's own tabs run a turn (Settings › General › Window). */
@@ -1753,11 +1768,17 @@ app.whenReady().then(() => {
 		},
 	});
 	const mailbox = mailAccounts;
+	const marks = new FileMarks(join(app.getPath("userData"), "routine-marks.json"));
+	routineMarks = marks;
 	routineTriggers = new RoutineTriggers({
 		service: scheduleService,
+		marks,
+		// What a relaunch fires may open the bot's session: sources start once the first window has loaded.
+		ready: firstWindowLoaded(),
 		log: message => writeRuntimeLog({ source: "routines", message }),
 		github: ghApi,
 		watch: watchPath,
+		scan: scanPath,
 		git: gitPort,
 		sessions: sessionPorts(sidecarPool, () => activeBotPath(key => prefsStore().get(key as never))),
 		mail: { account: name => mailbox.resolve(name), read: (id, cursor) => mailbox.read(id, cursor) },
@@ -2249,7 +2270,13 @@ installQuitGuard(
 			["ai-memory-care", () => aiMemoryCare?.dispose()],
 			["ai-memory", () => aiMemoryService?.dispose()],
 			["github-auth", () => githubAuthService?.dispose()],
-			["routine-triggers", () => routineTriggers?.dispose()],
+			[
+				"routine-triggers",
+				() => {
+					routineTriggers?.dispose();
+					routineMarks?.dispose();
+				},
+			],
 			["schedules", () => scheduleService?.dispose()],
 			["work-awake", () => workAwakePolicy?.dispose()],
 			["lid-awake", () => lidAwake?.dispose()],

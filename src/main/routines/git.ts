@@ -4,6 +4,9 @@
  * ten lines). The first read only records the baseline, and so does the first read of a branch that did not exist
  * before (a branch made later is not "new commits"); a branch moved backwards (a reset) fires nothing.
  *
+ * The baseline is kept across a relaunch (`context.mark`, `{head}`): a branch that moved while OMPdesk was closed
+ * fires once with those commits on the first read after it starts. The mark is saved before the routine fires.
+ *
  * The loop guard: commits made while the routine's own run goes are its own work. Nothing fires while it runs, and
  * when it ends the branch as it stands is the new baseline (`runEnded`), so a routine that commits to the branch it
  * watches never starts itself. Commits by anyone else during that run are taken with them: known and deliberate.
@@ -56,6 +59,8 @@ class GitSource implements RoutineSource {
 		this.#report = failureReporter(message =>
 			options.context.warn(`git ${options.repo} ${options.branch}: ${message}`),
 		);
+		const mark = options.context.mark as { head?: unknown } | undefined;
+		if (mark && (typeof mark.head === "string" || mark.head === null)) this.#baseline = mark.head;
 		this.#timer = setInterval(() => void this.#poll(), options.intervalMs ?? SCHEDULE_TICK_MS);
 		this.#timer.unref?.();
 		void this.#poll();
@@ -102,12 +107,16 @@ class GitSource implements RoutineSource {
 		this.#report("read", null);
 		if (head === null) {
 			this.#report("branch", new Error("the branch does not exist"));
-			this.#baseline ??= null;
+			if (this.#baseline === undefined) {
+				this.#baseline = null;
+				this.#context.saveMark({ head: null });
+			}
 			return;
 		}
 		this.#report("branch", null);
 		const before = this.#baseline;
 		this.#baseline = head;
+		if (before !== head) this.#context.saveMark({ head });
 		if (this.#rebase) {
 			this.#rebase = false;
 			return;
