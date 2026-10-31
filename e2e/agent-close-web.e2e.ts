@@ -128,19 +128,23 @@ function phoneTabs(phone: Page) {
 	return phone.evaluate(() => window.omp.tabs.list());
 }
 
-/** The close notes the caller's omp journaled (`agent_control.mail`, id `close:…`), the closed session's own aside. */
+/**
+ * The close notes the caller's omp got (`agent_control.mail`, id `close:…`), the closed session's own aside, once per
+ * id: the outbox sends a report again until the receiver's journal holds it, and the receiver drops a repeated id.
+ */
 async function closeNotes(): Promise<string[]> {
-	return (await readRecords(profile.record))
-		.filter(frame => {
-			const details = (frame.details ?? {}) as { id?: unknown };
-			return (
-				frame.type === "agent_control.mail" &&
-				typeof details.id === "string" &&
-				details.id.startsWith("close:") &&
-				/^(Closed|Deleted) /.test(String(frame.content))
-			);
-		})
-		.map(frame => String(frame.content));
+	const notes = new Map<string, string>();
+	for (const frame of await readRecords(profile.record)) {
+		const details = (frame.details ?? {}) as { id?: unknown };
+		if (
+			frame.type === "agent_control.mail" &&
+			typeof details.id === "string" &&
+			details.id.startsWith("close:") &&
+			/^(Closed|Deleted) /.test(String(frame.content))
+		)
+			notes.set(details.id, String(frame.content));
+	}
+	return [...notes.values()];
 }
 
 /** Open a child from `call` (the phone session's agent) and wait for its brief's reply. */

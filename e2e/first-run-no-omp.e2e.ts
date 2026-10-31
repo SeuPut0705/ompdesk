@@ -272,9 +272,12 @@ for (const language of variants(["en", "ko"] as const)) {
 				await expect(step.locator("[data-featured-providers]")).toBeVisible();
 				// The popular providers lead as their own group, in this order, one tap each (stock's login ids).
 				const featured = step.locator("[data-featured-provider]");
-				expect(
-					await featured.evaluateAll(items => items.map(item => item.getAttribute("data-featured-provider"))),
-				).toEqual(["openai-codex", "anthropic", "openrouter", "google-gemini-cli", "xai-oauth"]);
+				// The list fills once the provider catalog answers; a retrying read, not a snapshot at first paint.
+				await expect
+					.poll(() =>
+						featured.evaluateAll(items => items.map(item => item.getAttribute("data-featured-provider"))),
+					)
+					.toEqual(["openai-codex", "anthropic", "openrouter", "google-gemini-cli", "xai-oauth"]);
 				await expect(step.locator("[data-featured-provider] > button:first-child").first()).toBeEnabled();
 				// Late toasts (bridge health, usage) would land in this window.
 				await page.waitForTimeout(2_000);

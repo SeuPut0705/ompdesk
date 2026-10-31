@@ -767,14 +767,15 @@ test("daily flow d: a notification click opens its tab on the phone, a steer arr
 				) ?? "";
 			expect(tabB).not.toBe("");
 			await expect.poll(() => dActiveTab(phone), { timeout: 30_000 }).toBe(tabB);
-			// The person types into it, so leaving it for the other tab does not close the empty one.
-			const typed = await dBash(phone, tabB, "fixture:title:Second phone tab");
-			expect(typed.success, JSON.stringify(typed)).toBe(true);
+			// Its omp answers commands once the tab is ready; a command sent while it starts is refused.
 			await expect
 				.poll(() =>
 					phone.evaluate(async id => (await window.omp.tabs.list()).find(t => t.tabId === id)?.status, tabB),
 				)
 				.toBe("ready");
+			// The person types into it, so leaving it for the other tab does not close the empty one.
+			const typed = await dBash(phone, tabB, "fixture:title:Second phone tab");
+			expect(typed.success, JSON.stringify(typed)).toBe(true);
 			await expect(phone.locator("[data-composer-input]").first()).toBeVisible({ timeout: 30_000 });
 			await expect(phone.getByText("Background run finished")).toHaveCount(0);
 		});
