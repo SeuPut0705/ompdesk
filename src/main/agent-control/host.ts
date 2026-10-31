@@ -77,6 +77,7 @@ import type {
 } from "../../shared/schedules";
 import { approvalChoices } from "../../shared/tool-approval";
 import type { FamilyEdits } from "../../shared/turn-edits";
+import { deletedSessions } from "../deleted-sessions";
 import { discardOpenedWorktree } from "../disk/saved-worktrees";
 import { createWorktree, tablessWorktreeBridge, WORKTREE_COMMAND_BUDGETS_MS } from "../local/git/worktree";
 import { describePreparation } from "../local/git/worktree-seed";
@@ -947,6 +948,21 @@ export class AgentControlRuntime {
 		const rows = parseClosedChildren(prefs.get(AGENT_CLOSED_CHILDREN_PREF)).filter(row => row.path !== child.path);
 		rows.push(child);
 		prefs.set(AGENT_CLOSED_CHILDREN_PREF, rows.slice(-MAX_CLOSED_CHILDREN));
+		prefs.changed?.(AGENT_CLOSED_CHILDREN_PREF);
+	}
+
+	/**
+	 * Drop the closed record of every deleted session (`deleted-sessions.ts`): a deleted session never comes back, and
+	 * its record kept it in its opener's family and the bot's In progress with a Take over that opened nothing. Run on
+	 * every delete and once at startup, for records a delete before this rule left behind.
+	 */
+	forgetDeleted(): void {
+		const { prefs } = this.#deps;
+		if (!prefs.set) return;
+		const rows = parseClosedChildren(prefs.get(AGENT_CLOSED_CHILDREN_PREF));
+		const kept = rows.filter(row => !deletedSessions().has(row.path, row.device));
+		if (kept.length === rows.length) return;
+		prefs.set(AGENT_CLOSED_CHILDREN_PREF, kept);
 		prefs.changed?.(AGENT_CLOSED_CHILDREN_PREF);
 	}
 

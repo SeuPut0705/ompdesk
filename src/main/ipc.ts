@@ -199,7 +199,13 @@ import { normalizeRuntimeErrorReport, tailLogLines } from "./runtime-log-core";
 import { fileNameOf, readRemoteFile, type SaveCopyRemote, saveCopy } from "./save-copy";
 import type { RunProcess, ScheduleService } from "./schedules";
 import type { SessionIndex } from "./session-index";
-import { deleteSession, moveSession, recordSessionDelete, renameSession } from "./session-mutations";
+import {
+	deleteSession,
+	moveSession,
+	recordSessionDelete,
+	renameSession,
+	setSessionDeletedListener,
+} from "./session-mutations";
 import { resolveEditorCommand, shellSpawnEnv } from "./shell-env";
 import type { SidebarProjects } from "./sidebar-projects";
 import { deviceLanguage } from "./sidecar-factory";
@@ -2218,6 +2224,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			}
 		}
 	};
+	// A deleted session leaves the closed-children record (its opener's family, the bot's tasks) with its file, also
+	// when a paired device asked the delete; a delete before this rule left its record, which goes now.
+	setSessionDeletedListener(() => agentControl.forgetDeleted());
+	agentControl.forgetDeleted();
 	ipc.handle(IPC_COMMANDS.PREFS_SET, (caller, payload: IpcPrefsSetPayload) => {
 		if (typeof payload.key !== "string") {
 			throw codedError("invalid_preference_key", "Invalid preference key");
