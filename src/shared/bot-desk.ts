@@ -13,6 +13,7 @@
  * - Channels: side chats on one topic each, sessions that share the bot's desk and memory.
  */
 import { z } from "zod";
+import { type BotTakeover, BotTakeoverSchema } from "./bot-takeover";
 import { SCHEDULE_RUNS_PER_SCHEDULE } from "./schedules";
 import { ScheduleFrequencySchema, ScheduleRunSchema } from "./schedules-schema";
 
@@ -219,6 +220,8 @@ export interface BotDeskState extends BotDeskFile {
 	routines: BotRoutine[];
 	/** The owner is showing the bot a workflow (`main/agent-control/bot-teach.ts`) since this ISO time; null/absent = not. */
 	teaching?: { since: string } | null;
+	/** Sessions the owner took over from the bot and has not handed back (`shared/bot-takeover.ts`); absent = none. */
+	takeovers?: BotTakeover[];
 }
 
 /**
@@ -228,6 +231,7 @@ export interface BotDeskState extends BotDeskFile {
 export const BotDeskStateSchema: z.ZodType<BotDeskState, z.ZodTypeDef, unknown> = BotDeskFileSchema.extend({
 	routines: z.array(BotRoutineSchema),
 	teaching: z.object({ since: z.string() }).nullable().optional(),
+	takeovers: z.array(BotTakeoverSchema).optional(),
 });
 
 export const EMPTY_BOT_DESK_FILE: BotDeskFile = {

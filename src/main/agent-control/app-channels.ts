@@ -126,6 +126,7 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[C.BOT_AVATAR_GENERATE]: never(
 		"only the owner draws the bot's avatar from Settings; the bot sets its own with ompdesk_bot",
 	),
+	[C.BOT_TAKEOVER]: never("only the owner takes a session over from the bot and hands it back"),
 	[C.WORKTREE_PROMPTS_GET]: never(DENY),
 	[C.WORKTREE_PROMPT_ANSWER]: never(DENY),
 	[C.PROJECT_ORIGINS_GET]: never(DENY),

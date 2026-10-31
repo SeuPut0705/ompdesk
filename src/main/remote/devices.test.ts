@@ -9,7 +9,13 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type BotDeskState, EMPTY_BOT_DESK } from "../../shared/bot-desk";
 import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
-import { BOT_DESK_EVENT, LIVE_SESSIONS_EVENT, MOBILE_WEB_LINK_EVENT, TAB_EVENT } from "./app-protocol";
+import {
+	BOT_DESK_EVENT,
+	LIVE_SESSIONS_EVENT,
+	MOBILE_WEB_LINK_EVENT,
+	PREVIEW_RELAY_EVENT,
+	TAB_EVENT,
+} from "./app-protocol";
 import { generateKeyPair } from "./crypto";
 import type { HostConnection } from "./host-server";
 import { HostStore } from "./hosts-store";
@@ -574,5 +580,84 @@ describe("a host's bot desk", () => {
 			throw codedError("bot_off", "The bot is off on this computer");
 		});
 		expect(await rejectionCode(a.devices.request(hostId, "host.botDesk.get", {}))).toBe("bot_off");
+	});
+});
+
+describe("agent browsing's tunnel to a host tab's relay", () => {
+	/** The host's connection to this device, as the host's services see it, and what it was asked, newest last. */
+	async function tunnelled() {
+		const connected = await rig.connected();
+		const { b } = connected;
+		await vi.waitFor(() => expect(b.services.call.mock.calls.some(call => call[1] === "sessions.live")).toBe(true));
+		const conn = b.services.call.mock.calls.find(call => call[1] === "sessions.live")?.[3] as HostConnection;
+		const asked = () =>
+			b.services.call.mock.calls
+				.filter(call => String(call[1]).startsWith("host.previewRelay."))
+				.map(call => [call[1], call[2]]);
+		return { ...connected, conn, asked };
+	}
+
+	it("opens on the host, carries frames both ways and tells the host when it closes", async () => {
+		const { a, hostId, conn, asked } = await tunnelled();
+		const socket = a.devices.previewRelay(hostId, "t1");
+		const heard: string[] = [];
+		const closed = vi.fn();
+		socket.onMessage(data => heard.push(data));
+		socket.onClose(closed);
+		await socket.ready;
+		expect(socket.isOpen).toBe(true);
+		expect(asked()).toEqual([["host.previewRelay.open", { rtab: "t1" }]]);
+
+		socket.send('{"t":"hello"}');
+		socket.send('{"t":"cdpEvent"}');
+		await vi.waitFor(() => expect(asked()).toHaveLength(3));
+		expect(asked().slice(1)).toEqual([
+			["host.previewRelay.send", { rtab: "t1", data: '{"t":"hello"}' }],
+			["host.previewRelay.send", { rtab: "t1", data: '{"t":"cdpEvent"}' }],
+		]);
+
+		conn.emit(PREVIEW_RELAY_EVENT, { kind: "message", rtab: "t1", data: '{"t":"rpc"}' });
+		// Another tab's frames, and ones the link cannot read, reach nobody.
+		conn.emit(PREVIEW_RELAY_EVENT, { kind: "message", rtab: "t2", data: "other" });
+		conn.emit(PREVIEW_RELAY_EVENT, { kind: "message", rtab: "t1" });
+		await vi.waitFor(() => expect(heard).toEqual(['{"t":"rpc"}']));
+
+		socket.close();
+		expect(closed).toHaveBeenCalledTimes(1);
+		expect(socket.isOpen).toBe(false);
+		await vi.waitFor(() => expect(asked().at(-1)).toEqual(["host.previewRelay.close", { rtab: "t1" }]));
+	});
+
+	it("ends when the host's relay closes, and when the link drops", async () => {
+		const { a, b, hostId, conn } = await tunnelled();
+		const first = a.devices.previewRelay(hostId, "t1");
+		const firstClosed = vi.fn();
+		first.onClose(firstClosed);
+		await first.ready;
+		conn.emit(PREVIEW_RELAY_EVENT, { kind: "close", rtab: "t1" });
+		await vi.waitFor(() => expect(firstClosed).toHaveBeenCalledTimes(1));
+		expect(first.isOpen).toBe(false);
+
+		const second = a.devices.previewRelay(hostId, "t1");
+		const secondClosed = vi.fn();
+		second.onClose(secondClosed);
+		await second.ready;
+		await b.devices.dispose();
+		await vi.waitFor(() => expect(secondClosed).toHaveBeenCalledTimes(1));
+		expect(() => second.send("late")).toThrow(/not open/);
+	});
+
+	it("fails to open when the host has no relay for the tab", async () => {
+		const { a, b, hostId } = await tunnelled();
+		b.services.call.mockImplementation(async () => {
+			throw codedError("relay_unavailable", "This tab has no browser relay running");
+		});
+		const refused = a.devices.previewRelay(hostId, "t1");
+		const closed = vi.fn();
+		refused.onClose(closed);
+		expect(await rejectionCode(refused.ready)).toBe("relay_unavailable");
+		expect(closed).toHaveBeenCalledTimes(1);
+		expect(refused.isOpen).toBe(false);
+		expect(() => a.devices.previewRelay("unknown-host", "t1")).toThrow(/not paired/);
 	});
 });

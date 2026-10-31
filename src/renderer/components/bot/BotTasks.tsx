@@ -15,6 +15,8 @@ import {
 	MessageSquare,
 	RotateCcw,
 	Square,
+	SquareTerminal,
+	Undo2,
 } from "lucide-react";
 import { type ReactNode, useMemo } from "react";
 import type { BotDeskState } from "../../../shared/bot-desk";
@@ -22,7 +24,7 @@ import { useOpenedChildren } from "../../hooks/use-opened-children";
 import { formatClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
-import { useBotDeskStore, useDecisionClock } from "../../stores/bot-desk";
+import { useBotDesk, useBotDeskStore, useDecisionClock } from "../../stores/bot-desk";
 import { useTabsStore } from "../../stores/tabs";
 import { toastError } from "../../stores/toast";
 import { IconButton } from "../common";
@@ -38,6 +40,7 @@ import {
 } from "../layout/work-board/board-parts";
 import { openOpenedChild } from "../layout/work-board/open-peer";
 import { childActivity, type OpenedChildRow } from "../layout/work-board/opened-children";
+import { handBackTask, takeOverTask } from "./BotTakeover";
 import { botTasks, type TaskItem, type TaskState } from "./bot-tasks";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
@@ -86,6 +89,11 @@ function TaskRow({ item, now, device }: { item: Extract<TaskItem, { kind: "task"
 	const sub = [activity, diff].filter(Boolean).join(" · ");
 	const live = state === "running" || state === "needs";
 	const actions: ReactNode[] = [];
+	const sessionPath = row.sessionPath;
+	const taken =
+		useBotDesk(device).desk.takeovers?.some(
+			entry => sessionPath !== undefined && entry.sessionPath === sessionPath,
+		) ?? false;
 	if (live && row.tabId) {
 		const tabId = row.tabId;
 		actions.push(
@@ -115,6 +123,18 @@ function TaskRow({ item, now, device }: { item: Extract<TaskItem, { kind: "task"
 				/>,
 			);
 	}
+	// Take over: its turn stops and its terminal opens in its folder; Hand back tells it what the owner ran there.
+	if (sessionPath && (taken || state !== "done"))
+		actions.push(
+			<IconButton
+				data-bot-task-takeover={taken ? "hand-back" : "take"}
+				icon={taken ? <Undo2 /> : <SquareTerminal />}
+				key="takeover"
+				label={t(taken ? "botTakeover.handBackTask" : "botTakeover.takeTask", { title })}
+				onClick={() => void (taken ? handBackTask(sessionPath, device) : takeOverTask(row, device))}
+				size="sm"
+			/>,
+		);
 	if ((state === "review" || state === "done") && row.sessionPath) {
 		const sessions = [row.sessionPath];
 		const done = state === "review";
@@ -154,7 +174,11 @@ function TaskRow({ item, now, device }: { item: Extract<TaskItem, { kind: "task"
 			meta={meta}
 			onClick={() => openOpenedChild(row)}
 			sub={sub ? <span className="truncate">{sub}</span> : undefined}
-			tag={{ word: t(`botHome.tasks.state.${state}`), tone: STATE_TAG_TONE[state] }}
+			tag={
+				taken
+					? { word: t("botTakeover.tag"), tone: "warning" }
+					: { word: t(`botHome.tasks.state.${state}`), tone: STATE_TAG_TONE[state] }
+			}
 			title={[title, row.device ? t("botHome.device", { device: row.device }) : null, row.branch, activity, diff]
 				.filter(Boolean)
 				.join("\n")}

@@ -53,6 +53,7 @@ interface Api {
 	onChanged: Mock<(callback: (state: BotDeskState, device?: string) => void) => () => void>;
 	edit: Mock<(edit: BotDeskEdit, device?: string) => Promise<void>>;
 	commandForTab: Mock<(tabId: string, command: unknown) => Promise<{ success: boolean }>>;
+	takeover: Mock<(payload: { action: string; sessionPath: string }, device?: string) => Promise<{ lines?: number }>>;
 }
 
 function installApi(overrides: Partial<Api> = {}): Api {
@@ -63,6 +64,7 @@ function installApi(overrides: Partial<Api> = {}): Api {
 		onChanged: vi.fn(() => () => {}),
 		edit: vi.fn(async () => {}),
 		commandForTab: vi.fn(async () => ({ success: true })),
+		takeover: vi.fn(async () => ({ lines: 2 })),
 		...overrides,
 	};
 	const { commandForTab, ...botDesk } = api;
@@ -698,6 +700,33 @@ describe("the bot's tasks", () => {
 		expect(query('[data-bot-task="/s/fin.jsonl"]')?.getAttribute("data-task-state")).toBe("done");
 		await click(query('[data-bot-task="/s/fin.jsonl"] [data-bot-task-mark="reopen"]'));
 		expect(api.edit).toHaveBeenLastCalledWith({ op: "tasks_done", sessions: ["/s/fin.jsonl"], done: false });
+	});
+
+	it("takes a task over: its tab comes forward with the terminal, then hands it back from the row", async () => {
+		const api = installApi();
+		const applyAgentView = withChildren([childTab("run", "running")]);
+		useUiStore.setState({ panelTab: "diff", panelVisible: false });
+		await mountDesk(desk());
+
+		await click(query('[data-bot-task="/s/run.jsonl"] [data-bot-task-takeover="take"]'));
+		expect(applyAgentView).toHaveBeenLastCalledWith({ tabId: "run", how: "focus" });
+		expect(api.takeover).toHaveBeenCalledWith({ action: "take", sessionPath: "/s/run.jsonl" });
+		expect(useUiStore.getState().panelTab).toBe("terminal");
+		expect(useUiStore.getState().panelVisible).toBe(true);
+
+		// Main lists it as taken: the row says the owner has it and offers the way back.
+		await act(async () =>
+			useBotDeskStore
+				.getState()
+				.apply(desk({ takeovers: [{ sessionPath: "/s/run.jsonl", since: "2026-11-01T09:00:00.000Z" }] })),
+		);
+		const row = query('[data-bot-task="/s/run.jsonl"]');
+		expect(row?.textContent).toContain(translate("botTakeover.tag"));
+		await click(query('[data-bot-task="/s/run.jsonl"] [data-bot-task-takeover="hand-back"]'));
+		expect(api.takeover).toHaveBeenLastCalledWith({ action: "handBack", sessionPath: "/s/run.jsonl" });
+		expect(useToastStore.getState().toasts.at(-1)?.message).toBe(
+			translate("botTakeover.handedBackLines", { count: 2 }),
+		);
 	});
 
 	it("rewords a duty in place, writing the whole list", async () => {

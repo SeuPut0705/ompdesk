@@ -21,7 +21,7 @@
  */
 import type { Debugger } from "electron";
 import { z } from "zod";
-import { previewUrl } from "../../shared/preview";
+import { isLoopbackUrl, previewUrl } from "../../shared/preview";
 
 /** Stock's `DISCARDED_TABS_PROTOCOL_VERSION`: required for the relay to list our tab. */
 const DISCARDED_TABS_PROTOCOL = 1;
@@ -128,9 +128,17 @@ const DOMAIN_REASONS: Readonly<Record<string, string>> = {
 		"OMPdesk's preview does not allow Tracing (tab.traceStart): a trace is browser-wide and would record the app's other windows. Use Performance or Profiler on this page instead",
 };
 
-/** Whether the preview may show `url`: `about:blank` or an http(s) page (the rule every navigation shares). */
-function navigableUrl(url: unknown): boolean {
-	return typeof url === "string" && (url === "about:blank" || previewUrl(url) !== null);
+/**
+ * Why the preview may not show `url`, or null: `about:blank` or an http(s) page (the rule every navigation shares), and
+ * for a paired host's agent never this computer's own addresses.
+ */
+function navigationRefusal(url: unknown, blockLoopback: boolean): string | null {
+	if (url === "about:blank") return null;
+	const safe = typeof url === "string" ? previewUrl(url) : null;
+	if (!safe) return "OMPdesk's preview only opens http(s) pages";
+	return blockLoopback && isLoopbackUrl(safe)
+		? "OMPdesk's preview does not open this computer's own addresses for a paired computer's agent"
+		: null;
 }
 
 /** `Input.DragData` that hands the page files: `files` paths, or an item naming a `file:` URL. */
@@ -158,7 +166,7 @@ const FOREIGN_TARGET_TYPES: ReadonlySet<string> = new Set(["page", "tab", "brows
  * and skips the preview's `will-frame-navigate` guard. Which session a command
  * addresses is checked by `PreviewRelayExtension`, which sees the page's events.
  */
-export function refusedCommand(method: string, params: unknown): string | null {
+export function refusedCommand(method: string, params: unknown, blockLoopback = false): string | null {
 	const domain = method.slice(0, Math.max(method.indexOf("."), 0));
 	const allowed = domain === "Target" ? ALLOWED_TARGET_METHODS.has(method) : ALLOWED_DOMAINS.has(domain);
 	if (!allowed || REFUSED_METHODS.has(method)) {
@@ -167,8 +175,9 @@ export function refusedCommand(method: string, params: unknown): string | null {
 			: `OMPdesk's preview does not allow ${method}`;
 	}
 	const named = params && typeof params === "object" ? params : {};
-	if (method === "Page.navigate" && !navigableUrl("url" in named ? named.url : undefined)) {
-		return "OMPdesk's preview only opens http(s) pages";
+	if (method === "Page.navigate") {
+		const refusal = navigationRefusal("url" in named ? named.url : undefined, blockLoopback);
+		if (refusal) return refusal;
 	}
 	// DevTools' resource loader (source maps): only what the page could fetch from the web, never a local file.
 	if (method === "Network.loadNetworkResource") {
@@ -192,6 +201,7 @@ export class PreviewRelayExtension {
 	readonly #page: RelayPage;
 	readonly #post: (message: object) => void;
 	readonly #onActivity: (method: string) => void;
+	readonly #blockLoopback: boolean;
 	#relayDetaching = false;
 	#disposed = false;
 	/** Sessions this page's own debugger announced (its frames and workers); nothing else is addressable. */
@@ -210,10 +220,20 @@ export class PreviewRelayExtension {
 		this.#onActivity("");
 	};
 
-	constructor(page: RelayPage, post: (message: object) => void, onActivity: (method: string) => void) {
+	/**
+	 * `blockLoopback`: the agent is a paired host's, so this computer's own addresses (localhost) are not its to open
+	 * (the Preview's rule for a host's tab; a page's own navigations are held to it by `will-frame-navigate`).
+	 */
+	constructor(
+		page: RelayPage,
+		post: (message: object) => void,
+		onActivity: (method: string) => void,
+		options: { blockLoopback?: boolean } = {},
+	) {
 		this.#page = page;
 		this.#post = post;
 		this.#onActivity = onActivity;
+		this.#blockLoopback = options.blockLoopback === true;
 		page.debugger.on("message", this.#onMessage);
 		page.debugger.on("detach", this.#onDetach);
 	}
@@ -257,8 +277,7 @@ export class PreviewRelayExtension {
 		const entry = Array.isArray(entries)
 			? entries.find(candidate => candidate && typeof candidate === "object" && candidate.id === entryId)
 			: undefined;
-		if (!navigableUrl(entry?.url)) return "OMPdesk's preview only opens http(s) pages";
-		return null;
+		return navigationRefusal(entry?.url, this.#blockLoopback);
 	}
 
 	/** True while the agent holds the page's debugger. */
@@ -343,7 +362,8 @@ export class PreviewRelayExtension {
 			case "send": {
 				const method = rpc.method ?? "";
 				const refused =
-					refusedCommand(method, rpc.params) ?? this.#refusedSession(method, rpc.params, rpc.sessionId);
+					refusedCommand(method, rpc.params, this.#blockLoopback) ??
+					this.#refusedSession(method, rpc.params, rpc.sessionId);
 				if (refused) throw new Error(refused);
 				if (method === "Page.navigateToHistoryEntry") {
 					const historyRefused = await this.#historyRefusal(rpc.params, rpc.sessionId);

@@ -664,6 +664,42 @@ export class AgentControlRuntime {
 	}
 
 	/**
+	 * The owner took over `sessionPath` (`bot-takeover.ts`): its turn stops, as the owner's Stop would, so the session
+	 * waits while they work in its terminal. A session no tab holds, or one at rest, has nothing to stop.
+	 */
+	sessionTakenOver(sessionPath: string): void {
+		const tabId = this.#deps.pool.sessionOwner(sessionPath)?.tabId;
+		if (!tabId || this.#deps.pool.tabFacts(tabId)?.busy !== true) return;
+		recordTurnStop({ command: "abort", tab: tabId, by: "takeover", surface: "bot-takeover" });
+		void this.#hostCommand(tabId, { type: "abort" }).catch(() => undefined);
+	}
+
+	/**
+	 * The owner handed `sessionPath` back: the note of what they did reaches it as a message that starts its turn,
+	 * through the outbox like a decision's answer (opened in the background when no tab holds it). Rejects when it
+	 * cannot be reached at all, so the owner can hand back again.
+	 */
+	async sessionHandedBack(
+		sessionPath: string,
+		note: { id: string; text: string; instruction: string },
+	): Promise<void> {
+		await this.#reach(
+			sessionPath,
+			{
+				id: note.id,
+				from: "ompdesk",
+				fromTitle: "The owner handed this back",
+				to: "",
+				kind: "note",
+				text: note.text,
+				instruction: note.instruction,
+				at: Date.now(),
+			},
+			{ triggerTurn: true, deliverAs: "aside" },
+		);
+	}
+
+	/**
 	 * A session's own wake-up came due (`ompdesk_schedule` with `target: "self"`, a routine of the bot's, run by
 	 * `ScheduleService`): the schedule's prompt reaches that session as a mail that starts a turn, through the outbox like
 	 * every report (an omp that misses it gets it again). A session no tab here holds is opened in a background tab of

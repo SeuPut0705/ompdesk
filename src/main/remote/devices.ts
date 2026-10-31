@@ -46,6 +46,7 @@ import {
 	type SidebarProjectsState,
 } from "../../shared/sidebar-projects";
 import type { ModelWaitTracker } from "../model-wait-count";
+import type { RelaySocket } from "../preview/relay-socket";
 import type { TailnetNode, TailscaleStatus } from "../tailscale/status";
 import { isTailnetAddress } from "../tailscale/tailnet";
 import type { TailnetPeer } from "../tailscale/whois";
@@ -74,7 +75,9 @@ import {
 	NameParams,
 	OMP_UPDATE_EVENT,
 	OmpUpdateStateSchema,
+	PREVIEW_RELAY_EVENT,
 	PROJECTS_EVENT,
+	PreviewRelayEvent,
 	SCHEDULES_EVENT,
 	SchedulesStateSchema,
 	SESSIONS_CHANGED_EVENT,
@@ -90,6 +93,7 @@ import { HostStore, type PairedHost } from "./hosts-store";
 import { type Identity, loadIdentity } from "./identity";
 import { ImageBlobCache } from "./image-blob-cache";
 import { type KeepAwakeBlocker, KeepAwakePolicy } from "./keep-awake";
+import { LinkRelaySocket } from "./link-relay-socket";
 import { PeerQuota, type QuotaReservation } from "./peer-quota";
 import { PeerStore } from "./peers-store";
 import { REFUSAL_CODES } from "./protocol";
@@ -199,6 +203,8 @@ interface HostLink {
 	live?: HostLiveSession[];
 	/** The host's Mobile web address (`host.mobileWeb.link`); unset while offline, not serving, or from an older host. */
 	webUrl?: string;
+	/** Open agent-browsing tunnels to this host's tab relays, by rtab (`previewRelay`). */
+	relays: Map<string, LinkRelaySocket>;
 }
 
 export class RemoteDevices {
@@ -635,6 +641,25 @@ export class RemoteDevices {
 		return sidecar;
 	}
 
+	/**
+	 * A tunnel to the browser relay the host's tab `rtab` started, for this computer's Preview page to be driven through
+	 * (`host.previewRelay.*`). The host dials only the relay it remembered for that tab. One per tab: a new one closes the old.
+	 */
+	previewRelay(deviceId: string, rtab: string): RelaySocket {
+		const link = this.#links.get(deviceId);
+		if (!link) throw codedError("remote_unknown_device", "The device is not paired");
+		link.relays.get(rtab)?.close();
+		const socket = new LinkRelaySocket(
+			{ request: (method, params) => this.request(deviceId, method, params) },
+			rtab,
+			() => {
+				if (link.relays.get(rtab) === socket) link.relays.delete(rtab);
+			},
+		);
+		link.relays.set(rtab, socket);
+		return socket;
+	}
+
 	/** This machine's omp updater changed state: devices using it as a host show it. */
 	hostOmpUpdateChanged(state: OmpUpdateState): void {
 		this.#deps.services.ompUpdateChanged(state);
@@ -968,9 +993,12 @@ export class RemoteDevices {
 				read: params => this.request(deviceId, "sessions.list", params),
 				broadcast: change => this.#deps.broadcast(IPC_EVENTS.SESSIONS_CHANGED, change),
 			}),
+			relays: new Map(),
 		};
 		client.on("state", state => {
 			for (const tab of link.tabs.values()) tab.linkStateChanged(state);
+			// The agent's tunnel to a host tab's relay ends with the link (the host closes its end as the connection ends).
+			if (state !== "online") for (const relay of [...link.relays.values()]) relay.linkLost();
 			// What the host worked on is unknown while the link is down: its rows go quiet rather than stay lit.
 			if (state !== "online") {
 				this.#deps.modelWait?.setHostCounts(deviceId, undefined);
@@ -1054,6 +1082,11 @@ export class RemoteDevices {
 				}
 				client.hostRenamed(named.data.name);
 				this.#broadcastState();
+				return;
+			}
+			if (event === PREVIEW_RELAY_EVENT) {
+				const relay = PreviewRelayEvent.safeParse(data);
+				if (relay.success) link.relays.get(relay.data.rtab)?.receive(relay.data);
 				return;
 			}
 			if (event !== TAB_EVENT) return;

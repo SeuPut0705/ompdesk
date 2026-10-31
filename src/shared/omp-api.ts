@@ -35,6 +35,7 @@ import type {
 import type { BotActivityPage } from "./bot-activity";
 import type { BotDeskAnswer, BotDeskDuties, BotDeskState } from "./bot-desk";
 import type { BotDeskEdit } from "./bot-desk-edit";
+import type { BotTakeoverRequest, BotTakeoverResult } from "./bot-takeover";
 import type { BotTeachRequest, BotTeachResult } from "./bot-teach";
 import type { BuiltinReaState } from "./builtin-mcp";
 import type { CliToolId, CliUpdateState } from "./cli-update";
@@ -589,6 +590,9 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				avatarStatus: () => transport.invoke(IPC_COMMANDS.BOT_AVATAR_STATUS) as Promise<BotAvatarAnswer>,
 				generateAvatar: (prompt: string) =>
 					transport.invoke(IPC_COMMANDS.BOT_AVATAR_GENERATE, prompt) as Promise<void>,
+				/** Take over a session the bot opened, or hand it back. */
+				takeover: (payload: BotTakeoverRequest, device?: string) =>
+					transport.invoke(IPC_COMMANDS.BOT_TAKEOVER, payload, device) as Promise<BotTakeoverResult>,
 				onChanged: (callback: (state: BotDeskState, device?: string) => void) => {
 					const offLocal = subscribe<BotDeskState>(IPC_EVENTS.BOT_DESK_CHANGED, state => callback(state));
 					const offHost = subscribe<IpcHostBotDesk>(IPC_EVENTS.HOST_BOT_DESK_STATE, update =>

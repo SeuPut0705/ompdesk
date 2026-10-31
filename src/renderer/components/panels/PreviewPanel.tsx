@@ -105,7 +105,7 @@ export function PreviewPanel() {
 		if (owner) releaseAgentRelay(owner);
 	}, []);
 	const letAgentIn = async () => {
-		if (!tabId || !runtime || remote) return;
+		if (!tabId || !runtime) return;
 		setAgentStarting(true);
 		try {
 			const response = await runtime.command({ type: "browser_relay_start" });
@@ -423,17 +423,11 @@ export function PreviewPanel() {
 					)}
 					<IconButton
 						label={t(agentHere ? "panel.preview.agent.takeOver" : "panel.preview.agent.allow")}
-						title={
-							remote
-								? t("panel.preview.agent.localOnly")
-								: state.session === "visual" && !agentHere
-									? t("panel.preview.agent.webOnly")
-									: undefined
-						}
+						title={state.session === "visual" && !agentHere ? t("panel.preview.agent.webOnly") : undefined}
 						icon={<Bot />}
 						size="sm"
 						pressed={agentHere}
-						disabled={remote || !runtime || agentStarting || (state.session === "visual" && !agentHere)}
+						disabled={!runtime || agentStarting || (state.session === "visual" && !agentHere)}
 						onClick={() => (agentHere ? takeOver() : void letAgentIn())}
 					/>
 					<MenuButton

@@ -78,6 +78,8 @@ export const BOT_ACTIVITY_ACTIONS = [
 	"task_reopen",
 	"library_pin",
 	"library_unpin",
+	"take_over",
+	"hand_back",
 ] as const;
 export type BotActivityAction = (typeof BOT_ACTIVITY_ACTIONS)[number];
 

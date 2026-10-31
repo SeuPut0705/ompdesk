@@ -24,6 +24,7 @@ export { BotBar } from "./BotBar";
 export { BotCallBar } from "./BotCallBar";
 export { BotDecisionDock } from "./BotDecisions";
 export { AssistantText } from "./BotSources";
+export { BotTakeoverBar } from "./BotTakeover";
 
 /**
  * The bot's sections of its work board, after Needs you (as an Autopilot run's are): its standing duties (what it keeps

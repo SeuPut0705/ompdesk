@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import { createServer } from "node:http";
 import * as os from "node:os";
@@ -7,6 +6,13 @@ import { pathToFileURL } from "node:url";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 import { exitApp, fixtureOmp, pressShortcutUntilVisible, variants } from "./harness";
+import {
+	connectRelay,
+	fixtureSite,
+	type PuppeteerBrowser,
+	relayEnv,
+	stockRelayInstalled,
+} from "./preview-agent-fixture";
 
 // Agent browsing in the Preview panel, end to end on stock's own pieces: the
 // fake omp's bridge starts stock's relay server (tools/browser/relay/server.ts
@@ -15,55 +21,17 @@ import { exitApp, fixtureOmp, pressShortcutUntilVisible, variants } from "./harn
 // relay mode does. The user watches the banner, then takes over.
 // OMP_GUI_PREVIEW_AGENT_CAPTURES=<dir> keeps the panel captures.
 
-const stockRoot = path.join(os.homedir(), ".bun/install/global/node_modules/@oh-my-pi/pi-coding-agent");
-const relayModule = path.join(stockRoot, "src/tools/browser/relay/server.ts");
-const puppeteerEntry = path.join(
-	os.homedir(),
-	".bun/install/global/node_modules/puppeteer-core/lib/puppeteer/puppeteer-core.js",
-);
 const captures = process.env.OMP_GUI_PREVIEW_AGENT_CAPTURES;
-
-interface PuppeteerPage {
-	url(): string;
-	goto(url: string): Promise<unknown>;
-	click(selector: string): Promise<void>;
-	evaluate<T>(fn: () => T): Promise<T>;
-	goBack(): Promise<unknown>;
-	goForward(): Promise<unknown>;
-	waitForNavigation(): Promise<unknown>;
-	createCDPSession(): Promise<{ send(method: string, params?: object): Promise<unknown> }>;
-}
-interface PuppeteerBrowser {
-	connected: boolean;
-	pages(): Promise<PuppeteerPage[]>;
-	disconnect(): Promise<void>;
-}
-interface PuppeteerModule {
-	connect(options: { browserURL: string; defaultViewport: null }): Promise<PuppeteerBrowser>;
-}
 
 for (const [language, theme] of variants([
 	["en", "light"],
 	["ko", "dark"],
 ] as const)) {
 	test(`the agent drives the visible preview through stock's relay and the user takes over (${language}-${theme})`, async () => {
-		const entry = puppeteerEntry;
-		test.skip(!existsSync(relayModule) || !existsSync(entry), "needs the installed omp and its puppeteer-core");
+		test.skip(!stockRelayInstalled(), "needs the installed omp and its puppeteer-core");
 		test.setTimeout(120_000);
-		const server = createServer((request, response) => {
-			response.writeHead(200, { "Content-Type": "text/html" });
-			response.end(
-				request.url === "/next"
-					? "<!doctype html><title>Second page</title><h1>Clicked through</h1>"
-					: '<!doctype html><title>Agent fixture</title><h1>Agent fixture</h1><a id="next" href="/next">Next</a>',
-			);
-		});
-		const listening = Promise.withResolvers<void>();
-		server.listen(0, "127.0.0.1", () => listening.resolve());
-		await listening.promise;
-		const address = server.address();
-		if (!address || typeof address === "string") throw new Error("No fixture server address");
-		const site = `http://127.0.0.1:${address.port}/`;
+		const fixture = await fixtureSite("127.0.0.1");
+		const site = fixture.url;
 		const profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-preview-agent-"));
 		const desktop = path.join(profile, "desktop");
 		const project = path.join(profile, "project");
@@ -79,13 +47,9 @@ for (const [language, theme] of variants([
 			OMP_GUI_HEADLESS: "1",
 			PI_CODING_AGENT_DIR: agent,
 			OMP_GUI_OMP: await fixtureOmp(profile),
-			OMP_E2E_STOCK_RELAY: relayModule,
-			OMP_E2E_RELAY_FILE: relayFile,
+			...relayEnv(relayFile),
 		};
 		Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-		// The installed puppeteer-core is chosen at run time; it is not a dependency of this repo.
-		const puppeteer = (await import(pathToFileURL(entry).href)) as { default?: PuppeteerModule } & PuppeteerModule;
-		const connect = (puppeteer.default ?? puppeteer).connect;
 		const app = await electron.launch({
 			args: [
 				path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"),
@@ -119,12 +83,7 @@ for (const [language, theme] of variants([
 				});
 			}
 
-			const relay = JSON.parse(await fs.readFile(relayFile, "utf8")) as { url: string };
-			// The banner shows "waiting" as soon as main opens the relay socket; stock's relay answers
-			// /json/version with 503 until the preview's hello lands, and stock's browser tool waits for
-			// that (relay/probe.ts waitForRelayExtension) before it connects. So does this client.
-			await expect.poll(async () => (await fetch(new URL("/json/version", relay.url))).status).toBe(200);
-			browser = await connect({ browserURL: relay.url, defaultViewport: null });
+			browser = await connectRelay(relayFile);
 			const pages = await browser.pages();
 			expect(pages).toHaveLength(1);
 			const driven = pages[0];
@@ -200,9 +159,7 @@ for (const [language, theme] of variants([
 		} finally {
 			await browser?.disconnect().catch(() => {});
 			await exitApp(app);
-			const closed = Promise.withResolvers<void>();
-			server.close(() => closed.resolve());
-			await closed.promise;
+			await fixture.close();
 			await fs.rm(profile, { recursive: true, force: true });
 		}
 	});

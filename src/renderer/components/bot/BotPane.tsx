@@ -53,6 +53,28 @@ function BotScreen({
 	);
 }
 
+/** A session the owner took over from the bot: its pane says so, with "Hand back" (`BotTakeover.tsx`). */
+function TakenOver({ sessionPath, device, children }: { sessionPath: string; device?: string; children: ReactNode }) {
+	const desk = useBotDeskModule(true);
+	return (
+		<>
+			{desk ? <desk.BotTakeoverBar {...(device === undefined ? {} : { device })} sessionPath={sessionPath} /> : null}
+			{children}
+		</>
+	);
+}
+
+/** `children`, under the takeover bar while the owner has this tab's session (`BotDeskState.takeovers`). */
+function withTakeover(tab: SessionTab, taken: boolean, children: ReactNode, device?: string): ReactNode {
+	return taken && tab.sessionPath ? (
+		<TakenOver {...(device === undefined ? {} : { device })} sessionPath={tab.sessionPath}>
+			{children}
+		</TakenOver>
+	) : (
+		children
+	);
+}
+
 /** This computer's bot session, on its own tab. */
 function LocalBotPane({ tab, children }: { tab: SessionTab; children: ReactNode }) {
 	const enabled = useBotStore(state => state.enabled);
@@ -64,7 +86,9 @@ function LocalBotPane({ tab, children }: { tab: SessionTab; children: ReactNode 
 	}, []);
 	const path = useBotStore(state => state.path);
 	// A side chat (`BotChannel`) is the bot's too: the same bar, decisions and board, its topic on the bar.
-	const channel = useBotDesk().desk.channels.find(entry => entry.sessionPath === tab.sessionPath);
+	const desk = useBotDesk().desk;
+	const channel = desk.channels.find(entry => entry.sessionPath === tab.sessionPath);
+	const taken = desk.takeovers?.some(entry => entry.sessionPath === tab.sessionPath) ?? false;
 	const isBot = enabled && path !== null && (tab.sessionPath === path || channel !== undefined);
 	usePreloadBotDesk(enabled);
 	return isBot ? (
@@ -72,7 +96,7 @@ function LocalBotPane({ tab, children }: { tab: SessionTab; children: ReactNode 
 			{children}
 		</BotScreen>
 	) : (
-		children
+		withTakeover(tab, taken, children)
 	);
 }
 
@@ -85,14 +109,16 @@ function HostBotPane({ tab, device, children }: { tab: SessionTab; device: strin
 	const isBot = useStore(feed.store, state =>
 		state.sessions.some(row => row.path === tab.sessionPath && row.bot === "on"),
 	);
-	const channel = useBotDesk(device).desk.channels.find(entry => entry.sessionPath === tab.sessionPath);
+	const desk = useBotDesk(device).desk;
+	const channel = desk.channels.find(entry => entry.sessionPath === tab.sessionPath);
+	const taken = desk.takeovers?.some(entry => entry.sessionPath === tab.sessionPath) ?? false;
 	usePreloadBotDesk(isBot || channel !== undefined);
 	return isBot || channel ? (
 		<BotScreen {...(channel ? { channel: channel.title } : {})} device={device} tabId={tab.id}>
 			{children}
 		</BotScreen>
 	) : (
-		children
+		withTakeover(tab, taken, children, device)
 	);
 }
 

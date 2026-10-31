@@ -8,7 +8,9 @@
  *
  * Not covered: terminals (`terminal.request` runs the user's shell, where a device can
  * type `omp -p …` itself) and the agent's own `bash`/`eval`. They run arbitrary
- * programs on the host, which a request count cannot meter.
+ * programs on the host, which a request count cannot meter. `host.previewRelay.*` (agent browsing's tunnel, see
+ * app-protocol.ts) is no model call either: `browser_relay_start`/`_stop` below are free commands and the tunnel only
+ * carries the browser relay's frames, so none of it counts against a device's limit.
  */
 import type { RpcCommand } from "../../shared/rpc-types";
 

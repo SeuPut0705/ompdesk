@@ -51,6 +51,7 @@ import { PreviewRelayExtension, relayExtensionUrl } from "./agent-relay";
 import { applyPreviewLayout, fitPreviewFrame, MIN_FRAME_SCALE } from "./layout";
 import { PAGE_WORLD, pageCall } from "./page-scripts";
 import { judgeImage, PREVIEW_CHECK_SETTLE_MS, withDeadline } from "./preview-check";
+import { localRelaySocket, type RelaySocket } from "./relay-socket";
 import { visualMayNavigate } from "./visual-navigation";
 import type { VisualPages, VisualStore } from "./visuals";
 
@@ -152,7 +153,7 @@ interface PreviewPage {
 }
 
 interface AgentLink {
-	socket: WebSocket;
+	socket: RelaySocket;
 	extension: PreviewRelayExtension;
 	/** The one page the relay offers; showing or closing another tab releases it. */
 	page: PreviewPage;
@@ -182,6 +183,8 @@ interface PreviewOwner {
 	viewer: ClientWindow | null;
 	sender: PreviewSender;
 	remote: (tabId?: string) => boolean;
+	/** A tunnel to the relay a paired host's tab started (`remote(tabId)` tabs only); null when there is none to reach. */
+	tunnel: (tabId?: string) => RelaySocket | null;
 }
 
 /** An offscreen page as the stream sees it: its paints, its frame rate, and whether it paints at all. */
@@ -219,6 +222,7 @@ interface PreviewHost {
 	sender: PreviewSender;
 	/** Whether the owner's active tab (or `tabId`) runs on a paired host: its loopback addresses stay blocked. */
 	remote: (tabId?: string) => boolean;
+	tunnel: (tabId?: string) => RelaySocket | null;
 	sessions: PreviewSessions;
 	pages: PreviewPage[];
 	active: PreviewPage;
@@ -256,6 +260,12 @@ export interface PreviewWebSupport {
 	preloadPath(): string;
 }
 
+/**
+ * A tunnel to the browser relay a paired host's tab started, for `win`'s tab `tabId` (`RemoteDevices.previewRelay`); null
+ * when that tab is not on a paired host.
+ */
+export type PreviewRelayTunnel = (win: ClientWindow, tabId?: string) => RelaySocket | null;
+
 /** The widest or tallest an offscreen page's window is made, in DIPs. */
 const MAX_STREAM_DIP = 4096;
 /** Frames of the viewer's page are never asked for before this size exists. */
@@ -274,6 +284,7 @@ const DEFAULT_STREAM_GEOMETRY = {
  * A paired phone's preview (`web`) is the same host with the same rules, its pages offscreen windows instead of
  * views, in sessions of their own (`preview-web-<n>`, `preview-visual-web-<n>`); `web` also gives those sessions
  * the one dialog-shim preload (preview-dialog.ts), the single exception to "no preload".
+ * Agent browsing on a paired host's tab runs over `tunnel` (the relay is on the host's loopback); without one it is refused.
  * Returns what the agent's `gui_visualize` reads and waits on.
  */
 export function registerPreviewHost(
@@ -281,6 +292,7 @@ export function registerPreviewHost(
 	isRemote: (senderId: number, tabId?: string) => boolean,
 	visuals: VisualStore,
 	viewers?: PreviewWebSupport,
+	tunnel?: PreviewRelayTunnel,
 ): VisualPages {
 	const hosts = new Map<number, PreviewHost>();
 	/** One pair of sessions per window; Electron keeps a session for a name until the app quits, so hosts reuse it. */
@@ -700,7 +712,14 @@ export function registerPreviewHost(
 		if (win) {
 			if (win.webContents !== caller.sender) throw new Error("Invalid preview owner");
 			const renderer = win.webContents;
-			return { win, renderer, viewer: null, sender: renderer, remote: tabId => isRemote(renderer.id, tabId) };
+			return {
+				win,
+				renderer,
+				viewer: null,
+				sender: renderer,
+				remote: tabId => isRemote(renderer.id, tabId),
+				tunnel: tabId => tunnel?.(win, tabId) ?? null,
+			};
 		}
 		const viewer = caller.win;
 		if (!viewers || !viewer || !isWebWindow(viewer.webContents.id)) throw new Error("Invalid preview owner");
@@ -714,6 +733,7 @@ export function registerPreviewHost(
 				send: (channel, ...args) => viewer.webContents.send(channel, ...args),
 			},
 			remote: tabId => viewers.isRemote(viewer, tabId),
+			tunnel: tabId => tunnel?.(viewer, tabId) ?? null,
 		};
 	};
 	ipc.handle(PREVIEW_COMMAND, async (caller, request: PreviewRequest) => {
@@ -735,6 +755,7 @@ export function registerPreviewHost(
 				viewer: owner.viewer,
 				sender,
 				remote: owner.remote,
+				tunnel: owner.tunnel,
 				sessions,
 				pages: [first],
 				active: first,
@@ -757,14 +778,17 @@ export function registerPreviewHost(
 		const current = host;
 		const page = current.active;
 		if (request.action === "agentStart") {
-			if (current.remote(request.tabId)) throw new Error("Agent browsing is for tabs on this computer");
 			// The agent's browser drives web pages only; a visual's page has no network and its own rules.
 			if (page.state.session === "visual") throw new Error("Agent browsing is for web pages, not visuals");
 			const target = relayExtensionUrl(request.url, request.token);
 			if (!target) throw new Error("Invalid browser relay endpoint");
 			stopAgent(current);
 			const { contents } = page;
-			const socket = new WebSocket(target);
+			// A paired host's tab runs its agent there: its relay listens on the host's loopback, so the relay's frames
+			// cross the link, and the page the agent drives is still this one. The target above is the host's, not dialed here.
+			const remote = current.remote(request.tabId);
+			const socket = remote ? current.tunnel(request.tabId) : localRelaySocket(target);
+			if (!socket) throw new Error("Agent browsing is not available for this tab");
 			let lastPublished = 0;
 			let latest = "";
 			let pending: NodeJS.Timeout | undefined;
@@ -789,7 +813,7 @@ export function registerPreviewHost(
 					},
 				},
 				message => {
-					if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
+					if (socket.isOpen) socket.send(JSON.stringify(message));
 				},
 				// "" = the agent let go of the debugger; the mark keeps its last action.
 				method => {
@@ -799,16 +823,25 @@ export function registerPreviewHost(
 					if (wait <= 0) flushActivity();
 					else pending = setTimeout(flushActivity, wait);
 				},
+				// This computer's own addresses are never the host agent's to open (the Preview's rule for a host's tab).
+				{ blockLoopback: remote },
 			);
 			current.agent = { socket, extension, page };
-			const instanceId = `ompdesk-preview-${randomUUID()}`;
-			socket.addEventListener("open", () => socket.send(JSON.stringify(extension.hello(instanceId))));
-			socket.addEventListener("message", message => extension.handle(String(message.data)));
-			socket.addEventListener("close", () => {
+			socket.onMessage(data => extension.handle(data));
+			socket.onClose(() => {
 				clearTimeout(pending);
 				if (current.agent?.socket === socket) stopAgent(current);
 			});
 			publish(current, page, { agent: { tabId: request.tabId, attached: false, lastAction: "" } });
+			try {
+				await socket.ready;
+			} catch (error) {
+				if (current.agent?.socket === socket) stopAgent(current);
+				throw error;
+			}
+			// Taken back, or another page shown, while the relay was being reached.
+			if (current.agent?.socket !== socket) return windowState(current);
+			socket.send(JSON.stringify(extension.hello(`ompdesk-preview-${randomUUID()}`)));
 			return windowState(current);
 		}
 		if (request.action === "agentStop") stopAgent(current);

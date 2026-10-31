@@ -407,4 +407,14 @@ describe("preview relay extension", () => {
 		expect(relayExtensionUrl("https://127.0.0.1:9333", token)).toBeNull();
 		expect(relayExtensionUrl("http://127.0.0.1:9333", "short")).toBeNull();
 	});
+
+	it("keeps a paired host's agent off this computer's own addresses, and leaves a local agent's alone", () => {
+		for (const url of ["http://localhost:3000/", "http://127.0.0.1:47831/", "http://[::1]:8080/"]) {
+			expect(refusedCommand("Page.navigate", { url }), url).toBeNull();
+			expect(refusedCommand("Page.navigate", { url }, true), url).toMatch(/own addresses/);
+		}
+		expect(refusedCommand("Page.navigate", { url: "https://example.com/" }, true)).toBeNull();
+		expect(refusedCommand("Page.navigate", { url: "about:blank" }, true)).toBeNull();
+		expect(refusedCommand("Page.navigate", { url: "file:///etc/passwd" }, true)).toMatch(/http\(s\)/);
+	});
 });

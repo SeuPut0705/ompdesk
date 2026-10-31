@@ -51,6 +51,7 @@ import {
 } from "../shared/bot-desk";
 import { type BotDeskEdit, BotDeskEditSchema } from "../shared/bot-desk-edit";
 import { BOT_RULES_PREF } from "../shared/bot-rules";
+import { BotTakeoverRequestSchema, BotTakeoverResultSchema } from "../shared/bot-takeover";
 import { BotTeachRequestSchema, BotTeachResultSchema } from "../shared/bot-teach";
 import { REA_PREF } from "../shared/builtin-mcp";
 import {
@@ -146,6 +147,7 @@ import { type BotDesk, botRoutines } from "./agent-control/bot-desk";
 import { editBotDesk } from "./agent-control/bot-desk-edit";
 import type { BotHome } from "./agent-control/bot-home";
 import { BotNoticeRouter } from "./agent-control/bot-notify";
+import { BotTakeovers, takeoverAction } from "./agent-control/bot-takeover";
 import { BotTeach, gitCommits, teachAction } from "./agent-control/bot-teach";
 import { AgentControlRuntime, CARD_TIMEOUT_MS } from "./agent-control/host";
 import { appNotification } from "./app-icon";
@@ -490,10 +492,18 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		ipc,
 		deps.sidecarPool,
 		deps.remoteDevices,
-		(tabId, terminalId, data) => botTeach.terminalWrite(tabId, terminalId, data),
+		(tabId, terminalId, data) => {
+			botTeach.terminalWrite(tabId, terminalId, data);
+			const sessionPath = takenSessionOfTab(tabId);
+			if (sessionPath) botTakeovers.terminalWrite(sessionPath, `${tabId}|${terminalId}`, data);
+		},
 		(tabId, snapshots) => {
-			for (const snapshot of snapshots)
+			const sessionPath = takenSessionOfTab(tabId);
+			for (const snapshot of snapshots) {
 				botTeach.terminalOutput(tabId, snapshot.id, snapshot.offset, snapshot.output);
+				if (sessionPath)
+					botTakeovers.terminalOutput(sessionPath, `${tabId}|${snapshot.id}`, snapshot.offset, snapshot.output);
+			}
 		},
 	);
 	registerSshToolsIpc(ipc);
@@ -516,6 +526,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			},
 			hostScale: () => screen.getPrimaryDisplay().scaleFactor,
 			preloadPath: () => (dialogPreload ??= writeDialogPreload(app.getPath("userData"))),
+		},
+		// Agent browsing on a paired host's tab: its relay is on the host's loopback, so the frames cross the link.
+		(win, tabId) => {
+			const target = deps.sidecarPool.tabTarget(win, tabId);
+			return target?.device ? deps.remoteDevices.previewRelay(target.device, target.tabId) : null;
 		},
 	);
 	/** The paired host a window's running benchmark is on, so closing the window stops it there. */
@@ -1347,11 +1362,50 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		setTimer: (fn, ms) => setTimeout(fn, ms).unref(),
 		clearTimer: handle => clearTimeout(handle as NodeJS.Timeout),
 	});
-	const botDeskState = (): BotDeskState => ({
-		...deps.botDesk.state(),
-		routines: botRoutinesNow(),
-		teaching: botTeach.state(),
+	// Taking over a session the bot opened (agent-control/bot-takeover.ts): its turn stops, the owner works in its
+	// terminal, and handing back tells it what they ran.
+	const tabInfo = (tabId: string) => {
+		const win = sidecarPool.windowOfTab(tabId);
+		return win ? sidecarPool.tabsForWindow(win).find(entry => entry.tabId === tabId) : undefined;
+	};
+	const botTakeovers = new BotTakeovers({
+		enabled: () => botEnabled(prefsStore.get(BOT_ENABLED_PREF)),
+		session: sessionPath => {
+			const owner = sidecarPool.sessionOwner(sessionPath);
+			const info = owner ? tabInfo(owner.tabId) : undefined;
+			if (info) return { title: info.title || info.task || "", cwd: info.cwd };
+			// A tab this computer runs for a paired device (the device opened the session itself).
+			const hosted = deps.hostedTabs.hostedSessions().find(session => session.sessionPath === sessionPath);
+			return hosted ? { title: hosted.title ?? "", cwd: hosted.cwd } : null;
+		},
+		stop: sessionPath => agentControl.sessionTakenOver(sessionPath),
+		deliver: (sessionPath, note) => agentControl.sessionHandedBack(sessionPath, note),
+		activity: entry =>
+			void deps.botActivity.append({
+				kind: "sessions",
+				action: entry.action,
+				by: "owner",
+				text: entry.text,
+				target: { type: "session", value: entry.sessionPath },
+				...(entry.detail ? { detail: entry.detail } : {}),
+			}),
+		changed: () => pushBotDesk(),
+		now: Date.now,
 	});
+	/** The session a local tab holds while the owner has it taken over; terminals of a paired host's tab run there. */
+	const takenSessionOfTab = (tabId: string): string | undefined => {
+		const info = tabInfo(tabId);
+		return info && !info.device ? (info.sessionPath ?? undefined) : undefined;
+	};
+	const botDeskState = (): BotDeskState => {
+		const takeovers = botTakeovers.state();
+		return {
+			...deps.botDesk.state(),
+			routines: botRoutinesNow(),
+			teaching: botTeach.state(),
+			...(takeovers.length > 0 ? { takeovers } : {}),
+		};
+	};
 	const pushBotDesk = (): void => {
 		const state = botDeskState();
 		broadcast(windowManager, IPC_EVENTS.BOT_DESK_CHANGED, state);
@@ -1620,6 +1674,13 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		edit: editDesk,
 		activity: () => deps.botActivity.page(),
 		teach: request => teachAction(botTeach, request),
+		takeover: request => takeoverAction(botTakeovers, request),
+		terminalSeen: (sessionPath, terminal, operation, snapshots) => {
+			if (operation.action === "write")
+				botTakeovers.terminalWrite(sessionPath, `${terminal}|${operation.id}`, operation.data);
+			for (const snapshot of snapshots)
+				botTakeovers.terminalOutput(sessionPath, `${terminal}|${snapshot.id}`, snapshot.offset, snapshot.output);
+		},
 	});
 	// With `device`, a paired host's own desk over the link: its answer reaches that host's bot, never this one's.
 	ipc.handle(IPC_COMMANDS.BOT_DESK_GET, async (_caller, device?: unknown) => {
@@ -1676,6 +1737,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			BotAvatarPromptSchema.parse(prompt),
 		),
 	);
+	// The owner takes over a session the bot opened, or hands it back: with `device`, on that host.
+	ipc.handle(IPC_COMMANDS.BOT_TAKEOVER, async (_caller, payload: unknown, device?: unknown) => {
+		const request = BotTakeoverRequestSchema.parse(payload);
+		const host = deviceOf(device);
+		return host
+			? BotTakeoverResultSchema.parse(await remoteDevices.request(host, "host.botDesk.takeover", request))
+			: takeoverAction(botTakeovers, request);
+	});
 	// The bot's session (agent-control/bot-home.ts): the sidebar's bot row opens what this answers, made first when
 	// the file is missing (a launch is its first seconds; a deleted one). Never while the owner has the bot off.
 	ipc.handle(IPC_COMMANDS.SESSIONS_ENSURE_BOT, () =>
@@ -2235,7 +2304,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		// Off, the bot has no routines to show; on, its own come back.
 		if (payload.key === BOT_ENABLED_PREF) {
 			// A recording belongs to the bot that was on.
-			if (!botEnabled(prefsStore.get(BOT_ENABLED_PREF))) botTeach.cancel();
+			if (!botEnabled(prefsStore.get(BOT_ENABLED_PREF))) {
+				botTeach.cancel();
+				botTakeovers.clear();
+			}
 			pushBotDesk();
 		}
 		deps.onPrefChanged?.(payload.key);

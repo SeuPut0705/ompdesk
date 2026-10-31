@@ -53,6 +53,7 @@ import {
 	EMPTY_BOT_DESK,
 } from "../../shared/bot-desk";
 import { type BotDeskEdit, BotDeskEditSchema } from "../../shared/bot-desk-edit";
+import { type BotTakeoverRequest, BotTakeoverRequestSchema, type BotTakeoverResult } from "../../shared/bot-takeover";
 import { type BotTeachRequest, BotTeachRequestSchema, type BotTeachResult } from "../../shared/bot-teach";
 import { codedError } from "../../shared/ipc-error-codes";
 import {
@@ -78,7 +79,7 @@ import {
 } from "../../shared/rpc-types";
 import type { SchedulesState } from "../../shared/schedules";
 import type { SidebarProjectsState } from "../../shared/sidebar-projects";
-import type { TerminalOperation } from "../../shared/terminal-types";
+import type { TerminalOperation, TerminalSnapshot } from "../../shared/terminal-types";
 import { branchEvidence, branchFacts, landingFacts, mergeBranch, removeSafeWorktree } from "../agent-control/branches";
 import type { BridgeConnectResult } from "../bridge-health";
 import { canonicalCwd } from "../canonical-cwd";
@@ -173,7 +174,12 @@ import {
 	MODEL_WAIT_EVENT,
 	ModelOverrideInputSchema,
 	OMP_UPDATE_EVENT,
+	PREVIEW_RELAY_EVENT,
+	PREVIEW_RELAY_METHODS,
 	PROJECTS_EVENT,
+	type PreviewRelayEvent,
+	PreviewRelayOpenParams,
+	PreviewRelaySendParams,
 	ProjectsCommandParams,
 	SCHEDULES_EVENT,
 	SchedulesCommandParams,
@@ -195,6 +201,7 @@ import { HostedTabView, labelForHost } from "./hosted-view";
 import { createLinkEventSender, createReadEncoder, encodedReadKey, type LinkEventSender } from "./link-events";
 import type { PeerQuota } from "./peer-quota";
 import type { PeerInfo } from "./peers-store";
+import { PreviewRelayTunnels } from "./preview-relay-tunnels";
 import { commandUsesModel } from "./quota-commands";
 import { readJson, writeSecureJson } from "./secure-file";
 import { FrameTooLargeError } from "./wire";
@@ -426,6 +433,18 @@ export interface HostedBotDesk {
 	activity(): BotActivityPage;
 	/** Start, stop or cancel showing the bot a workflow (`agent-control/bot-teach.ts`); Stop answers whether it handed the bot a record. */
 	teach(request: BotTeachRequest): Promise<BotTeachResult>;
+	/** Take over a session the bot opened, or hand it back (`agent-control/bot-takeover.ts`). */
+	takeover(request: BotTakeoverRequest): Promise<BotTakeoverResult>;
+	/**
+	 * A device's request to a terminal of a tab here and its answer: a session the owner took over captures what is
+	 * typed in it there too. `terminal` is unique to the PTY.
+	 */
+	terminalSeen(
+		sessionPath: string,
+		terminal: string,
+		operation: TerminalOperation,
+		snapshots: readonly TerminalSnapshot[],
+	): void;
 }
 
 const Rtab = z.string().min(1).max(128);
@@ -558,6 +577,8 @@ export class LocalHostServices implements HostServices {
 	readonly #conns = new Set<HostConnection>();
 	/** Each connected device's latest connection, for events meant for one device. */
 	readonly #connOf = new Map<string, HostConnection>();
+	/** Each tab's browser relay (`browser_relay_start`'s answer), tunnelled to the device's Preview page (`host.previewRelay.*`). */
+	readonly #relays = new PreviewRelayTunnels();
 	#sessionsTimer: NodeJS.Timeout | undefined;
 	/**
 	 * Session file → the exit of the omp a device tab closed here ran it in: the device closes its tab
@@ -1152,13 +1173,36 @@ export class LocalHostServices implements HostServices {
 			case "terminal.request": {
 				const { rtab, operation } = parse(TerminalParams, method, params);
 				const tab = this.#tab(peer, rtab);
+				const owner = terminalOwner(peer.deviceId, rtab);
 				// A paired device's terminal here is never told where this computer's control socket is.
-				return terminalRequest(
-					terminalOwner(peer.deviceId, rtab),
+				const snapshots = await terminalRequest(
+					owner,
 					tab.sidecar.cwd,
 					operation as TerminalOperation,
 					controlEnvFor(true),
 				);
+				if (tab.sessionFile && this.#botDesk?.enabled())
+					this.#botDesk.terminalSeen(tab.sessionFile, owner, operation as TerminalOperation, snapshots);
+				return snapshots;
+			}
+			// The device's Preview page is driven by this tab's agent through the relay on this computer's loopback: the
+			// device never names an address, only the tab (see PreviewRelayTunnels).
+			case PREVIEW_RELAY_METHODS.open: {
+				const { rtab } = parse(PreviewRelayOpenParams, method, params);
+				this.#tab(peer, rtab);
+				await this.#relays.open(this.#key(peer.deviceId, rtab), rtab, conn, event => pushRelayEvent(conn, event));
+				return null;
+			}
+			case PREVIEW_RELAY_METHODS.send: {
+				const { rtab, data } = parse(PreviewRelaySendParams, method, params);
+				this.#tab(peer, rtab);
+				this.#relays.send(this.#key(peer.deviceId, rtab), data);
+				return null;
+			}
+			case PREVIEW_RELAY_METHODS.close: {
+				const { rtab } = parse(PreviewRelayOpenParams, method, params);
+				this.#relays.close(this.#key(peer.deviceId, rtab));
+				return null;
 			}
 			case "fs.list": {
 				const { rtab, cwd, ...payload } = parse(FsListParams, method, params);
@@ -1333,6 +1377,19 @@ export class LocalHostServices implements HostServices {
 					result => result.delivered,
 				);
 			}
+			// The owner takes over a session the bot opened here, or hands it back. A hand-back starts that session's
+			// turn on this computer's models: one request of the device's day.
+			case "host.botDesk.takeover": {
+				const request = parse(BotTakeoverRequestSchema, method, params);
+				const desk = this.#botDeskOn();
+				if (request.action !== "handBack") return desk.takeover(request);
+				return this.#metered(
+					peer.deviceId,
+					1,
+					() => desk.takeover(request),
+					result => result.lines !== undefined,
+				);
+			}
 			// The device's sidebar section for this computer: this computer's own project list, the one its windows show.
 			case "host.projects.command":
 				return this.#deps.machine.sidebarProjects(parse(ProjectsCommandParams, method, params).request);
@@ -1386,6 +1443,8 @@ export class LocalHostServices implements HostServices {
 		// Nobody is left to read the result.
 		void this.#deps.machine.abortBenchmark(benchCaller(peer.deviceId));
 		void this.#deps.machine.abortModelSetup(benchCaller(peer.deviceId));
+		// The agent's tunnel ended with the link: its relay stops too, as the device's own Take over would.
+		for (const key of this.#relays.dropConnection(conn)) this.#stopRelay(key);
 		for (const tab of this.#tabs.values())
 			if (tab.peerId === peer.deviceId && tab.conn === conn) this.#startGrace(tab);
 	}
@@ -1556,7 +1615,18 @@ export class LocalHostServices implements HostServices {
 		this.#sessionsTimer = undefined;
 		clearTimeout(this.#liveTimer);
 		this.#liveTimer = undefined;
+		this.#relays.dispose();
 		this.#conns.clear();
+	}
+
+	/** The tab's browser relay ends here (its device is gone): forget it and tell the tab's omp to give its browser back. */
+	#stopRelay(key: string): void {
+		if (!this.#relays.has(key)) return;
+		this.#relays.forget(key);
+		this.#tabs
+			.get(key)
+			?.sidecar.rpcClient?.command({ type: "browser_relay_stop" })
+			.catch(() => {});
 	}
 
 	#key(peerId: string, rtab: string): string {
@@ -1721,6 +1791,7 @@ export class LocalHostServices implements HostServices {
 		if (!tab) return undefined;
 		if (tab.peerId !== peer.deviceId || tab.conn === conn)
 			throw codedError("session_open_in_tab", "Session is already open in another tab on the host");
+		this.#stopRelay(this.#key(tab.peerId, tab.rtab));
 		this.#tabs.delete(this.#key(tab.peerId, tab.rtab));
 		// Terminals are owned by rtab; the device lost the old one with its previous launch.
 		disposeTerminals(terminalOwner(tab.peerId, tab.rtab));
@@ -2179,6 +2250,9 @@ export class LocalHostServices implements HostServices {
 					: this.#run(tab, client, command, params.timeoutMs),
 			);
 			if (!response.success) signInError = response.error ?? "";
+			if (command.type === "browser_relay_stop") this.#relays.forget(this.#key(tab.peerId, tab.rtab));
+			if (response.success && command.type === "browser_relay_start")
+				this.#relays.remember(this.#key(tab.peerId, tab.rtab), response.data);
 			if (response.success) {
 				const read = encodedReadKey(command as { type: string });
 				if (read) return this.#encodedRead(tab, read, response, params.fresh);
@@ -2500,6 +2574,7 @@ export class LocalHostServices implements HostServices {
 				if (this.#exiting.get(sessionFile) === all) this.#exiting.delete(sessionFile);
 			});
 		}
+		this.#relays.forget(key);
 		disposeTerminals(terminalOwner(tab.peerId, tab.rtab));
 		if (runBusy(tab.run)) this.#runningChanged();
 		this.#resume?.sync();
@@ -2551,6 +2626,19 @@ function emitSafely(conn: HostConnection, event: string, data: unknown): void {
 		conn.emit(event, data);
 	} catch (error) {
 		console.warn(`[remote-host] dropped ${event}: ${error instanceof Error ? error.message : String(error)}`);
+	}
+}
+
+/** Push one agent-browsing tunnel event; false when it did not go out (the link's frame cap), so the tunnel can end. */
+function pushRelayEvent(conn: HostConnection, event: PreviewRelayEvent): boolean {
+	try {
+		conn.emit(PREVIEW_RELAY_EVENT, event);
+		return true;
+	} catch (error) {
+		console.warn(
+			`[remote-host] dropped ${PREVIEW_RELAY_EVENT}: ${error instanceof Error ? error.message : String(error)}`,
+		);
+		return false;
 	}
 }
 

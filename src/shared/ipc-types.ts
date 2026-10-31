@@ -27,6 +27,7 @@ import type {
 import type { BotActivityPage } from "./bot-activity";
 import type { BotDeskAnswer, BotDeskDuties, BotDeskState } from "./bot-desk";
 import type { BotDeskEdit } from "./bot-desk-edit";
+import type { BotTakeoverRequest, BotTakeoverResult } from "./bot-takeover";
 import type { BotTeachRequest, BotTeachResult } from "./bot-teach";
 import type { BuiltinReaState } from "./builtin-mcp";
 import type { CliToolId, CliUpdateState } from "./cli-update";
@@ -277,6 +278,8 @@ export const IPC_COMMANDS = {
 	BOT_AVATAR_STATUS: "bot-avatar:status",
 	/** Draw the bot's avatar on the image model role from the owner's words and set it (`BotDeskEdit` identity, logged with Undo) */
 	BOT_AVATAR_GENERATE: "bot-avatar:generate",
+	/** The owner takes over a session the bot opened, or hands it back (`BotTakeoverRequest` → `BotTakeoverResult`, `shared/bot-takeover.ts`) */
+	BOT_TAKEOVER: "bot-desk:takeover",
 	/** Fetch stats endpoint */
 	STATS_FETCH: "stats:fetch",
 	/** Run/cancel an isolated bundled `omp bench --json` process. */
@@ -2335,6 +2338,8 @@ export interface OmpApi {
 			avatarStatus(): Promise<BotAvatarAnswer>;
 			/** Draws the avatar on the image model role and sets it; the desk's push carries it (`BOT_AVATAR_GENERATE`). */
 			generateAvatar(prompt: string): Promise<void>;
+			/** Take over a session the bot opened (its turn stops) or hand it back with a note (`BOT_TAKEOVER`). */
+			takeover(payload: BotTakeoverRequest, device?: string): Promise<BotTakeoverResult>;
 			/** This computer's desk (no `device`) and every paired host's, as each pushes it. */
 			onChanged(callback: (state: BotDeskState, device?: string) => void): () => void;
 		};

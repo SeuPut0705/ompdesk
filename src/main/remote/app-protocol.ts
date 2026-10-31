@@ -59,6 +59,10 @@
  *   "cancel"}` → `{delivered}` (refused `bot_off` while the bot is off there; it records what the owner does in the
  *   host's own windows, and `BotDeskState.teaching` says since when; Stop hands the host's bot the record and counts
  *   as one model request of the device, refunded when nothing was recorded)
+ * - Taking over a session the host's bot opened (agent-control/bot-takeover.ts): `host.botDesk.takeover {action: "take"
+ *   | "handBack", sessionPath}` → `{lines?}` (refused `bot_off` while the bot is off there, `session_not_open` when no
+ *   tab there holds it); `BotDeskState.takeovers` lists the sessions taken over; the device's own terminal requests
+ *   to that tab are captured on the host, and a hand-back starts the session's turn: one model request of the device
  * - Agent control on a session the host runs (agent-control/branches.ts and local/git/worktree.ts on the host's
  *   own checkout; `worktree` = `{path, branch, baseCwd}` of the tab's binding): `host.git.facts {worktree}` →
  *   BranchFacts, `host.git.evidence {worktree, diffChars}` → BranchEvidence (the child's diff cut to `diffChars`
@@ -77,12 +81,19 @@
  *   conclusions then those it holds from other computers, none the asking device itself sent),
  *   `host.memory.conclusions.push {conclusions}` → MemoryConclusionPushReply (insert-if-absent on the host's
  *   server: `written`, `same`, `skipped`, or `failed`). A host with memory off answers `{memory: false}`.
+ * - Agent browsing on a device's own Preview page (preview/host.ts, agent-relay.ts): the host's omp starts stock's browser
+ *   relay on ITS loopback (`browser_relay_start`), so the device cannot dial it; the host remembers what its bridge
+ *   answered per tab and tunnels the relay's socket over the link. `host.previewRelay.open {rtab}` → null (the host dials
+ *   only the relay it remembered for that tab, never an address the device names; refused `relay_unavailable` without
+ *   one), `host.previewRelay.send {rtab, data}` → null (one text frame to the relay), `host.previewRelay.close {rtab}` →
+ *   null; the host pushes each frame the relay sends and the socket's end as the `host.previewRelay` event. Free: no
+ *   model call, no quota. An older host answers `unsupported`.
  *
  * - The sessions the host works on now (any of its windows' tabs, the tabs it runs for any device):
  *   `sessions.live {}` → LiveSessionsReply; the host pushes every change as the `host.liveSessions` event.
  *
  * Events (B → A): `tab.event` (TabEventMessage), `sessions.changed` (no data), `host.ompUpdate.changed`,
- * `host.schedules.changed`, `host.projects.changed`, `host.botDesk.changed` and `host.liveSessions`.
+ * `host.schedules.changed`, `host.projects.changed`, `host.botDesk.changed`, `host.previewRelay` and `host.liveSessions`.
  * Both sides parse what crosses the link with the schemas below.
  */
 import { z } from "zod";
@@ -182,6 +193,25 @@ export const SCHEDULES_EVENT = "host.schedules.changed";
 export const BOT_DESK_EVENT = "host.botDesk.changed";
 /** The host's sidebar project list changed (data: SidebarProjectsState); sent to every connected device. */
 export const PROJECTS_EVENT = "host.projects.changed";
+/**
+ * Agent browsing's tunnel (`host.previewRelay.*` above). The params are strict: nothing a device sends names an address,
+ * the host dials the relay it remembered for the tab. The event carries each frame the relay sent (`message`) and the
+ * socket's end (`close`), to the connection that opened it.
+ */
+export const PREVIEW_RELAY_METHODS = {
+	open: "host.previewRelay.open",
+	send: "host.previewRelay.send",
+	close: "host.previewRelay.close",
+} as const;
+export const PREVIEW_RELAY_EVENT = "host.previewRelay";
+const PreviewRelayRtab = z.string().min(1).max(128);
+export const PreviewRelayOpenParams = z.object({ rtab: PreviewRelayRtab }).strict();
+export const PreviewRelaySendParams = z.object({ rtab: PreviewRelayRtab, data: z.string() }).strict();
+export const PreviewRelayEvent = z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("message"), rtab: PreviewRelayRtab, data: z.string() }),
+	z.object({ kind: z.literal("close"), rtab: PreviewRelayRtab }),
+]);
+export type PreviewRelayEvent = z.infer<typeof PreviewRelayEvent>;
 /**
  * The sessions this computer works on now changed (data: {@link LiveSessionsReply}): its windows' tabs and the tabs it
  * runs for any device, sent to every connected device so a row no tab of theirs holds still shows the work. An older

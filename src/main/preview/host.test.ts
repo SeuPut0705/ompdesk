@@ -4,10 +4,10 @@
  * and where a page may go: a visual's page stays in its visual, a web page on the web.
  */
 import { EventEmitter } from "node:events";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PREVIEW_COMMAND, type PreviewState, VISUAL_SCHEME } from "../../shared/preview";
 import { IpcRegistry } from "../web/ipc-registry";
-import { registerPreviewHost } from "./host";
+import { type PreviewRelayTunnel, registerPreviewHost } from "./host";
 import { type CapturedImage, PREVIEW_CHECK_BEHIND_MS } from "./preview-check";
 import { parseVisualUrl } from "./visual-navigation";
 import type { VisualPages } from "./visuals";
@@ -94,6 +94,23 @@ class FakeContents extends EventEmitter {
 		return 1;
 	}
 	setZoomFactor(): void {}
+	/** The page's DevTools agent: what the relay's extension drives. */
+	readonly debugger = Object.assign(new EventEmitter(), {
+		attached: false,
+		isAttached() {
+			return this.attached;
+		},
+		attach() {
+			this.attached = true;
+		},
+		detach() {
+			this.attached = false;
+		},
+		sendCommand: vi.fn(async () => ({})),
+	});
+	getUserAgent(): string {
+		return "Mozilla/5.0 Chrome/140.0.0.0 Electron";
+	}
 	readonly capturePage = vi.fn(async () => pngCapture());
 	close(): void {
 		this.closed = true;
@@ -180,7 +197,7 @@ const OTHER = "fedcba9876543210";
 const WEB_VISUAL = "aaaaaaaaaaaaaaaa";
 const WEB_URL = "https://example.com/";
 
-function register(serve = vi.fn(async () => new Response("served"))) {
+function register(serve = vi.fn(async () => new Response("served")), remote?: { tunnel: PreviewRelayTunnel }) {
 	// Only the slice of the store the host reads: one file visual, `VISUAL`, with versions 1 and 2, and one web visual.
 	const visuals = {
 		parse: parseVisualUrl,
@@ -194,7 +211,7 @@ function register(serve = vi.fn(async () => new Response("served"))) {
 		addToTab: async () => true,
 	};
 	const ipc = new IpcRegistry({ handle: (channel, handler) => electron.handlers.set(channel, handler), on: () => {} });
-	visualPages = registerPreviewHost(ipc, () => false, visuals as never);
+	visualPages = registerPreviewHost(ipc, () => Boolean(remote), visuals as never, undefined, remote?.tunnel);
 	return serve;
 }
 
@@ -560,5 +577,137 @@ describe("preview host", () => {
 			visualPages?.flag(VISUAL, 1, "error");
 			expect((await ask({ action: "clearProblems" })).notice).toBeNull();
 		});
+	});
+});
+
+/** A tunnel to a paired host's relay, as `RemoteDevices.previewRelay` returns it: frames by hand. */
+class FakeRelaySocket {
+	readonly ready: Promise<void>;
+	#messages: Array<(data: string) => void> = [];
+	#closes: Array<() => void> = [];
+	readonly sent: string[] = [];
+	isOpen = false;
+	closed = false;
+	constructor(opening: Promise<void>) {
+		this.ready = opening.then(() => {
+			this.isOpen = true;
+		});
+		this.ready.catch(() => {});
+	}
+	send(data: string): void {
+		this.sent.push(data);
+	}
+	close(): void {
+		if (this.closed) return;
+		this.closed = true;
+		this.isOpen = false;
+		for (const listener of this.#closes) listener();
+	}
+	onMessage(listener: (data: string) => void): void {
+		this.#messages.push(listener);
+	}
+	onClose(listener: () => void): void {
+		this.#closes.push(listener);
+	}
+	/** The relay sends a frame. */
+	push(data: object): void {
+		for (const listener of this.#messages) listener(JSON.stringify(data));
+	}
+	frames(): Array<Record<string, unknown>> {
+		return this.sent.map(frame => JSON.parse(frame) as Record<string, unknown>);
+	}
+}
+
+describe("agent browsing on a paired host's tab", () => {
+	const RELAY = { action: "agentStart", tabId: "tab", url: "http://127.0.0.1:9333", token: "x".repeat(32) } as const;
+
+	/** A window whose tab runs on a paired host, with `tunnel` giving it the relay's socket. */
+	function remoteWindow(socket: FakeRelaySocket | null) {
+		register(undefined, { tunnel: () => socket });
+		const window = openWindow();
+		const dialed = vi.fn();
+		vi.stubGlobal("WebSocket", dialed);
+		return { ...window, dialed };
+	}
+	const open = () => {
+		const opening = Promise.withResolvers<void>();
+		return { socket: new FakeRelaySocket(opening.promise), opening };
+	};
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it("runs the relay's extension on this computer's page over the tunnel, never dialing the host's address", async () => {
+		const { socket, opening } = open();
+		const { ask, pages, dialed } = remoteWindow(socket);
+		await ask({ action: "load", url: "https://example.com/" });
+		const starting = ask(RELAY);
+		// The banner is up (waiting) while the tunnel opens, and nothing is said to the relay before it is open.
+		expect(socket.sent).toEqual([]);
+		opening.resolve();
+		expect((await starting).agent).toEqual({ tabId: "tab", attached: false, lastAction: "" });
+		expect(dialed).not.toHaveBeenCalled();
+
+		const [hello] = socket.frames();
+		expect(hello).toMatchObject({ t: "hello", tabs: [{ url: "https://example.com/", active: true }] });
+
+		// The relay's frames drive this page's debugger, and answers go back over the tunnel.
+		const [page] = pages();
+		socket.push({ t: "rpc", id: 1, op: "attach" });
+		await vi.waitFor(() => expect(socket.frames().at(-1)).toEqual({ t: "rpcResult", id: 1, ok: true, result: {} }));
+		expect(page?.debugger.attached).toBe(true);
+		socket.push({ t: "rpc", id: 2, op: "send", method: "Page.navigate", params: { url: "https://example.org/" } });
+		await vi.waitFor(() => expect(socket.frames().at(-1)).toMatchObject({ id: 2, ok: true }));
+		expect(page?.debugger.sendCommand).toHaveBeenCalledWith(
+			"Page.navigate",
+			{ url: "https://example.org/" },
+			undefined,
+		);
+	});
+
+	it("never lets the host's agent open this computer's own addresses", async () => {
+		const { socket, opening } = open();
+		const { ask } = remoteWindow(socket);
+		await ask({ action: "load", url: "https://example.com/" });
+		opening.resolve();
+		await ask(RELAY);
+		for (const [id, url] of [
+			[1, "http://localhost:3000/"],
+			[2, "http://127.0.0.1:47831/"],
+			[3, "file:///etc/passwd"],
+		] as const) {
+			socket.push({ t: "rpc", id, op: "send", method: "Page.navigate", params: { url } });
+			await vi.waitFor(() => expect(socket.frames().at(-1)).toMatchObject({ id, ok: false }));
+		}
+	});
+
+	it("takes the page back: Take over closes the tunnel and drops the banner; the relay closing does too", async () => {
+		const first = open();
+		const { ask } = remoteWindow(first.socket);
+		first.opening.resolve();
+		expect((await ask(RELAY)).agent).not.toBeNull();
+		expect((await ask({ action: "agentStop" })).agent).toBeNull();
+		expect(first.socket.closed).toBe(true);
+
+		// The host's relay going away (its tab's omp stopped, the link dropped) ends it the same way.
+		const second = open();
+		const again = remoteWindow(second.socket);
+		second.opening.resolve();
+		await again.ask(RELAY);
+		second.socket.close();
+		expect((await again.ask({ action: "clearProblems" })).agent).toBeNull();
+	});
+
+	it("says why when the host's relay cannot be reached, and when the tab has no tunnel", async () => {
+		const failing = open();
+		const { ask } = remoteWindow(failing.socket);
+		failing.opening.reject(new Error("[relay_unavailable] This tab has no browser relay running"));
+		await expect(ask(RELAY)).rejects.toThrow("no browser relay");
+		expect((await ask({ action: "clearProblems" })).agent).toBeNull();
+
+		const none = remoteWindow(null);
+		await expect(none.ask(RELAY)).rejects.toThrow("not available for this tab");
+		expect(none.dialed).not.toHaveBeenCalled();
 	});
 });

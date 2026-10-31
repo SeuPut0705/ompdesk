@@ -1,8 +1,10 @@
 import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { WebSocket, WebSocketServer } from "ws";
 import { fixtureProviderOptions } from "../../../e2e/models-config-fixture";
 import type { PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origin-contracts";
 import type { AccountRotationMode, AccountRotationState } from "../../shared/account-rotation";
@@ -65,6 +67,8 @@ import {
 	MemoryPullReply,
 	MOBILE_WEB_LINK_EVENT,
 	OMP_UPDATE_EVENT,
+	PREVIEW_RELAY_EVENT,
+	PREVIEW_RELAY_METHODS,
 	PROJECTS_EVENT,
 	SCHEDULES_EVENT,
 	type TabEventMessage,
@@ -3505,6 +3509,8 @@ describe("LocalHostServices host.* calls", () => {
 				taught.push(request);
 				return { delivered: request.action === "stop" };
 			},
+			takeover: async () => ({}),
+			terminalSeen: () => {},
 		};
 		// Before the desk is attached this computer has none to share.
 		await expect(services.call(x.peer, "host.botDesk.get", {}, x)).rejects.toThrow(/no bot desk/);
@@ -3617,6 +3623,8 @@ describe("LocalHostServices host.* calls", () => {
 			edit: async () => {},
 			activity: () => ({ entries: [], revision: 0 }),
 			teach: async () => ({ delivered: true }),
+			takeover: async () => ({}),
+			terminalSeen: () => {},
 		});
 		const x = new FakeConnection(peer("device-x"));
 		const first = desk.postDecision({ question: "One?" });
@@ -3670,6 +3678,8 @@ describe("LocalHostServices host.* calls", () => {
 				if (action === "start") recorded = true;
 				return { delivered: action === "stop" && recorded };
 			},
+			takeover: async () => ({}),
+			terminalSeen: () => {},
 		});
 		const x = new FakeConnection(peer("device-x"));
 		const used = () => stored.get("device-x")?.usage?.requests ?? 0;
@@ -3693,6 +3703,73 @@ describe("LocalHostServices host.* calls", () => {
 			.call(x.peer, "host.botDesk.teach", { action: "stop" }, x)
 			.catch((error: unknown) => error);
 		expect(ipcErrorCode(refused)).toBe("remote_limit_reached");
+	});
+
+	it("takes over a session the bot opened for a device for free and counts the hand-back that starts its turn", async () => {
+		const { services } = setup();
+		const stored = new Map<string, PeerInfo>([["device-x", { ...peer("device-x"), limits: { requestsPerDay: 2 } }]]);
+		services.attachQuota(
+			new PeerQuota(
+				{
+					get: id => stored.get(id),
+					update: (id, patch) => {
+						const current = stored.get(id);
+						if (!current) return undefined;
+						const next = { ...current, ...patch };
+						stored.set(id, next);
+						return next;
+					},
+				},
+				() => {},
+			),
+		);
+		const asked: unknown[] = [];
+		let taken = false;
+		services.attachBotDesk({
+			enabled: () => true,
+			state: () => EMPTY_BOT_DESK,
+			answer: () => {},
+			setDuties: () => {},
+			edit: async () => {},
+			activity: () => ({ entries: [], revision: 0 }),
+			teach: async () => ({ delivered: false }),
+			takeover: async request => {
+				asked.push(request);
+				if (request.action === "take") {
+					taken = true;
+					return {};
+				}
+				const was = taken;
+				taken = false;
+				return was ? { lines: 3 } : {};
+			},
+			terminalSeen: () => {},
+		});
+		const x = new FakeConnection(peer("device-x"));
+		const used = () => stored.get("device-x")?.usage?.requests ?? 0;
+		const sessionPath = "/s/child.jsonl";
+
+		await expect(services.call(x.peer, "host.botDesk.takeover", { action: "take", sessionPath }, x)).resolves.toEqual(
+			{},
+		);
+		expect(used()).toBe(0);
+		await expect(
+			services.call(x.peer, "host.botDesk.takeover", { action: "handBack", sessionPath }, x),
+		).resolves.toEqual({ lines: 3 });
+		expect(used()).toBe(1);
+		// Nothing taken over: nothing told, nothing spent.
+		await expect(
+			services.call(x.peer, "host.botDesk.takeover", { action: "handBack", sessionPath }, x),
+		).resolves.toEqual({});
+		expect(used()).toBe(1);
+		expect(asked).toEqual([
+			{ action: "take", sessionPath },
+			{ action: "handBack", sessionPath },
+			{ action: "handBack", sessionPath },
+		]);
+		await expect(services.call(x.peer, "host.botDesk.takeover", { action: "steal", sessionPath }, x)).rejects.toThrow(
+			/Invalid host.botDesk.takeover/,
+		);
 	});
 
 	it("serves this computer's own project list to a device and pushes its changes to every device", async () => {
@@ -4652,5 +4729,158 @@ describe("LocalHostServices the reads a device repeats on every hydration", () =
 		await services.call(y.peer, "tab.open", { rtab: "t1", cwd: workDir }, y);
 		sidecar.emit("commandsUpdate", commands(4).commands);
 		expect(y.tabEvents().filter(event => event.name === "commandsUpdate")).toHaveLength(1);
+	});
+});
+
+describe("LocalHostServices agent browsing tunnel (host.previewRelay.*)", () => {
+	const TOKEN = "relay-token-0123456789abcdef";
+	const servers: WebSocketServer[] = [];
+
+	afterEach(async () => {
+		for (const server of servers.splice(0)) {
+			for (const client of server.clients) client.terminate();
+			const closing = Promise.withResolvers<void>();
+			server.close(() => closing.resolve());
+			await closing.promise;
+		}
+	});
+
+	/** Stock's relay server stand-in: a real WebSocket server on loopback that records who dialed it and what it heard. */
+	async function relayServer() {
+		const wss = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+		servers.push(wss);
+		const listening = Promise.withResolvers<void>();
+		wss.once("listening", () => listening.resolve());
+		await listening.promise;
+		const dialed: string[] = [];
+		const received: string[] = [];
+		const sockets: WebSocket[] = [];
+		wss.on("connection", (socket, request) => {
+			dialed.push(request.url ?? "");
+			sockets.push(socket);
+			socket.on("message", data => received.push(data.toString()));
+		});
+		return { port: (wss.address() as AddressInfo).port, dialed, received, sockets };
+	}
+
+	/** A device's tab whose omp answers `browser_relay_start` with `relay` (nothing when omitted). */
+	async function tabWith(relay?: { port: number }) {
+		const context = setup();
+		const x = new FakeConnection(peer("device-x"));
+		await context.services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+		await context.services.call(x.peer, "tab.start", { rtab: "t1" }, x);
+		const sidecar = context.sidecars[0];
+		if (!sidecar) throw new Error("no sidecar");
+		sidecar.rpcClient.command = async (command: RpcCommand): Promise<RpcResponse> => {
+			sidecar.commands.push(command);
+			const data =
+				command.type === "browser_relay_start" && relay
+					? { url: `http://127.0.0.1:${relay.port}`, token: TOKEN }
+					: {};
+			return { type: "response", command: command.type, success: true, data };
+		};
+		const command = (type: "browser_relay_start" | "browser_relay_stop") =>
+			context.services.call(x.peer, "tab.command", { rtab: "t1", command: { type } }, x);
+		const relayEvents = () => x.events.filter(entry => entry.event === PREVIEW_RELAY_EVENT).map(entry => entry.data);
+		return { ...context, x, sidecar, command, relayEvents };
+	}
+
+	it("refuses to open without a relay its tab's omp started, and never dials an address the device names", async () => {
+		const named = await relayServer();
+		const { services, x, command } = await tabWith();
+		const open = (params: unknown) => services.call(x.peer, PREVIEW_RELAY_METHODS.open, params, x);
+
+		// Nothing was started: no relay is remembered, and the omp's answer without an endpoint remembers none.
+		expect(ipcErrorCode(await open({ rtab: "t1" }).catch((error: unknown) => error))).toBe("relay_unavailable");
+		await command("browser_relay_start");
+		expect(ipcErrorCode(await open({ rtab: "t1" }).catch((error: unknown) => error))).toBe("relay_unavailable");
+
+		// The address and token a device supplies are never read, even with a relay at it.
+		await expect(open({ rtab: "t1", url: `ws://127.0.0.1:${named.port}/ext?token=${TOKEN}` })).rejects.toThrow(
+			/Invalid host.previewRelay.open/,
+		);
+		await expect(open({ rtab: "t1", url: `http://127.0.0.1:${named.port}`, token: TOKEN })).rejects.toThrow();
+		expect(named.dialed).toEqual([]);
+		// Another device's rtab is not reachable either.
+		const y = new FakeConnection(peer("device-y"));
+		const foreign = await services
+			.call(y.peer, PREVIEW_RELAY_METHODS.open, { rtab: "t1" }, y)
+			.catch((e: unknown) => e);
+		expect(ipcErrorCode(foreign)).toBe("unknown_tab");
+	});
+
+	it("dials the relay its bridge answered, and carries frames both ways", async () => {
+		const server = await relayServer();
+		const { services, x, command, relayEvents } = await tabWith(server);
+		await command("browser_relay_start");
+
+		await expect(services.call(x.peer, PREVIEW_RELAY_METHODS.open, { rtab: "t1" }, x)).resolves.toBeNull();
+		expect(server.dialed).toEqual([`/ext?token=${TOKEN}`]);
+
+		await services.call(x.peer, PREVIEW_RELAY_METHODS.send, { rtab: "t1", data: '{"t":"hello"}' }, x);
+		await vi.waitFor(() => expect(server.received).toEqual(['{"t":"hello"}']));
+
+		server.sockets[0]?.send('{"t":"rpc","id":1}');
+		await vi.waitFor(() =>
+			expect(relayEvents()).toEqual([{ kind: "message", rtab: "t1", data: '{"t":"rpc","id":1}' }]),
+		);
+
+		// The relay going away reaches the device, and a send after that is refused.
+		server.sockets[0]?.close();
+		await vi.waitFor(() => expect(relayEvents().at(-1)).toEqual({ kind: "close", rtab: "t1" }));
+		await expect(services.call(x.peer, PREVIEW_RELAY_METHODS.send, { rtab: "t1", data: "x" }, x)).rejects.toThrow(
+			/not open/,
+		);
+	});
+
+	it("closes the relay socket when the device closes it, takes its browser back, or releases the tab", async () => {
+		const server = await relayServer();
+		const { services, x, command, sidecar } = await tabWith(server);
+		const open = async () => {
+			await command("browser_relay_start");
+			await services.call(x.peer, PREVIEW_RELAY_METHODS.open, { rtab: "t1" }, x);
+		};
+		const closed = (n: number) => vi.waitFor(() => expect(server.sockets[n]?.readyState).toBe(WebSocket.CLOSED));
+
+		await open();
+		await services.call(x.peer, PREVIEW_RELAY_METHODS.close, { rtab: "t1" }, x);
+		await closed(0);
+
+		await open();
+		await command("browser_relay_stop");
+		await closed(1);
+		// Stopped: the endpoint is forgotten, so it cannot be opened again.
+		await expect(services.call(x.peer, PREVIEW_RELAY_METHODS.open, { rtab: "t1" }, x)).rejects.toThrow(
+			/no browser relay/,
+		);
+
+		await open();
+		await services.call(x.peer, "tab.close", { rtab: "t1" }, x);
+		await closed(2);
+		expect(sidecar.disposed).toBe(true);
+	});
+
+	it("stops the tab's relay when the link that carried it drops", async () => {
+		const server = await relayServer();
+		const { services, x, command, sidecar } = await tabWith(server);
+		await command("browser_relay_start");
+		await services.call(x.peer, PREVIEW_RELAY_METHODS.open, { rtab: "t1" }, x);
+		sidecar.commands.length = 0;
+
+		services.disconnected(x.peer, x);
+		await vi.waitFor(() => expect(server.sockets[0]?.readyState).toBe(WebSocket.CLOSED));
+		expect(sidecar.commands.map(entry => entry.type)).toEqual(["browser_relay_stop"]);
+	});
+
+	it("ends the tunnel when a frame from the relay does not fit the link", async () => {
+		const server = await relayServer();
+		const { services, x, command } = await tabWith(server);
+		x.emit = () => {
+			throw new FrameTooLargeError(1);
+		};
+		await command("browser_relay_start");
+		await services.call(x.peer, PREVIEW_RELAY_METHODS.open, { rtab: "t1" }, x);
+		server.sockets[0]?.send("a screenshot that does not fit");
+		await vi.waitFor(() => expect(server.sockets[0]?.readyState).toBe(WebSocket.CLOSED));
 	});
 });

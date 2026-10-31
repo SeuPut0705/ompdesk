@@ -32,7 +32,9 @@ export type TurnStopBy =
 	/** "Stop and delete" of a session whose delete a running turn refused (sidebar, `sessions:stop`). */
 	| "session-delete"
 	/** The Stop of a routine's run that woke a session (`ScheduleService`, agent-control `wakeSession`). */
-	| "schedule";
+	| "schedule"
+	/** The owner took over a session the bot opened (`agent-control/bot-takeover.ts`). */
+	| "takeover";
 
 export interface TurnStop {
 	command: string;
