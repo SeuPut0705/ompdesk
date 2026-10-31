@@ -1,5 +1,53 @@
 # Changelog
 
+## [0.92.0] - 2026-11-01
+
+봇 화면이 대화 하나로 합쳐지고, 맡긴 일의 진행·결과물·승인·반복 작업·기억·음성 대화를 그 화면에서 모두 다룰 수 있어요.
+
+### 새로 생긴 것
+- 봇 화면: 홈/대화 전환 없이 한 화면이에요. 위쪽 봇 바에 이름, 아바타, 상태와 지금 하는 단계, 다음 깨어남이 보이고, 결정은 입력창 위에 떠요. 연결된 컴퓨터의 봇을 볼 때 연결이 끊기면 "다시 연결 중"이 보여요.
+- 작업: 진행 중 / 예약됨 / 완료로 나뉘어요. 줄을 누르면 그 세션이 열리고, 나란히 띄워 지켜보거나 멈출 수 있어요. 완료 표시는 내가 해요.
+- 라이브러리: 봇의 세션이 만든 브랜치, PR, 커밋, 보고, 파일을 모아 보고 고정할 수 있어요. 고쳐지면 "업데이트 HH:MM"이 붙어요.
+- 결정 카드: 실행할 작업과 입력값, 자세히 보기, 고칠 수 있는 초안, 남은 시간이 보여요. 만료된 결정은 그 시각에 칸과 개수에서 빠져요. 봇은 답을 기다리는 동안에도 일을 계속해요.
+- 봇 일시정지·재개와 지금 멈추기.
+- 이어받기: 작업 줄에서 이어받으면 그 세션을 멈추고 같은 폴더의 터미널을 열어 줘요. 돌려주면 그동안 입력한 명령을 붙여 세션이 이어서 일해요. 비밀번호와 토큰은 넘기지 않아요. 에이전트 브라우징은 연결된 기기와 휴대폰에서도 지켜보고 이어받을 수 있어요.
+- 반복 작업: 봇에게 말해서 만들고, 테스트·일시정지·수정·삭제할 수 있어요. 실행마다 성공·실패·중지와 이유가 남아요(반복 작업마다 최근 20개).
+- 시간 말고도 GitHub(PR, 이슈, CI 실패, 릴리스, 푸시), 웹훅, 파일 변경, git 커밋, 다른 세션의 완료·대기, 메일로 반복 작업을 시작할 수 있어요. 메일은 설정 › 스케줄의 메일 계정(IMAP)을 2분마다 읽기만 해요. 앱이 꺼진 동안 생긴 변화도 다음 시작 때 한 번 실행해요.
+- 보여주며 가르치기: 한 번 해 보이면 봇이 따라 할 절차로 만들어요. 화면에 안 보이게 입력한 값과 비밀번호, 토큰은 기록하지 않아요.
+- 정체성: 아바타(모양·색, 사진, 이미지 모델로 그리기), 한 줄 소개, 성격을 정해요.
+- 기억: 봇이 기억하는 것을 보고, 더하고, 고치고, 잊게 하고, Memory.md로 내보내거나 가져올 수 있어요.
+- 사이드 챗: 주제별 대화를 따로 열어도 같은 기억과 맡은 일을 써요. 사이드 챗에서 올린 결정의 답은 그 사이드 챗으로 가요.
+- 알림 경로: 진행 상황, 결정과 질문, 끝난 일마다 배너 / 휴대폰 / 둘 다 / 조용히를 고르고 진행 알림 빈도를 정해요.
+- 출처: 답변 끝에 근거가 된 링크, 파일, 커밋, 세션이 칩으로 보여요. 출처 줄이 없으면 그 턴에 읽은 것을 보여 줘요.
+- 음성 대화: 봇 바의 전화 버튼으로 손을 쓰지 않고 대화해요. 말하는 동안 받아쓰고, 답은 첫 문장부터 읽어 주고, 말하면 읽기를 멈춰요. 봇 답변 읽어주기만 따로 켤 수도 있어요.
+- 활동 기록: 봇이 쓴 도구, 물어본 허락과 내가 고른 답, 규칙과 알림, 반복 작업 실행이 시간순으로 남아요. 기억·업무·정체성 같은 변경은 되돌릴 수 있어요.
+- 봇은 자기가 연 세션을 시키지 않아도 정리해요. 한 번 쓰는 세션은 결과가 오면 저절로 닫히고 지워져요. 코드를 바꾼 세션은 반영된 걸 확인한 뒤에만 지워요.
+- 세션 목록: 다른 컴퓨터의 앱에 열린 세션이 작업 중인지, 답을 기다리는지, 쉬는 중인지 보여요. 다른 기기가 이 컴퓨터에서 돌리는 세션도 열림으로 보여요.
+
+<!-- en -->
+
+The bot is one screen now: its conversation together with tasks, deliverables, approvals, routines, memory and a voice chat.
+
+### New
+- Bot screen: no Home/Chat switch. The bot bar shows its name, avatar, state with the current step and next wake; decisions sit above the composer. A paired computer's bot shows "Reconnecting…" while the link is down.
+- Tasks: In progress / Scheduled / Completed. A row opens the session; watch it beside the bot or stop it. Only you mark a task done.
+- Library: branches, PRs, commits, reports and files the bot's sessions produced, with pin and "Updated HH:MM".
+- Decision cards show the exact operation and inputs, details, an editable draft and the time left; an expired decision leaves the dock and counts on time. The bot keeps working while it waits.
+- Pause, Resume and Stop now for the bot.
+- Take over: from a task row, the session stops and its folder's terminal opens for you; Hand back resumes it with the commands you ran. Passwords and tokens are never passed on. Agent browsing can be watched and taken over from paired devices and the phone.
+- Routines: create them by asking the bot; Test, Pause, Edit, Delete; each run records succeeded / failed / stopped with the reason (20 latest per routine).
+- Triggers beyond time: GitHub (PRs, issues, CI failures, releases, pushes), webhooks, file changes, git commits, another session finishing or waiting, and email (an IMAP account in Settings › Schedules, read-only, every 2 minutes). Changes made while the app was off run once on the next start.
+- Teach by showing: do a task once and the bot turns it into a procedure. Hidden input, passwords and tokens are never recorded.
+- Identity: avatar (shape and colour, a photo, or drawn by the image model), tagline and personality.
+- Memory: see, add, edit and forget what the bot remembers; export or import Memory.md.
+- Side chats: topic conversations sharing the bot's memory and duties; a side chat's decision is answered in that side chat.
+- Notice routing: banner / phone / both / quiet for progress, decisions and questions, and finished work, with a progress frequency.
+- Sources: links, files, commits and sessions behind a reply show as chips; without a Sources line, what the turn read is shown.
+- Voice chat: the phone button on the bot bar starts a hands-free conversation that transcribes while you speak, reads replies from the first sentence and stops when you talk. Spoken replies can also be turned on alone.
+- Activity log: the bot's tool use, permissions asked and what you picked, rules, notices and routine runs in order; desk changes (memory, duties, identity…) can be undone.
+- The bot cleans up sessions it opened without being told: throwaway sessions close and delete themselves after their result; sessions that changed code are deleted only after their work is confirmed landed.
+- Session lists show whether a session open in another computer's app is running, waiting for an answer or idle, and mark sessions another device runs on this computer as open.
+
 ## [0.91.0] - 2026-10-31
 
 연결된 컴퓨터의 봇 홈을 다른 기기에서도 열 수 있어요. 맥미니의 봇이 올린 결정에 데스크탑이나 휴대폰에서 바로 답할 수 있어요.
