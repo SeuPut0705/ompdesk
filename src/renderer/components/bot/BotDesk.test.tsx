@@ -503,6 +503,40 @@ describe("the bot's decision cards", () => {
 		}
 	});
 
+	it("leave the dock at a deadline further away than one timer can wait", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+		try {
+			vi.setSystemTime(Date.parse("2026-11-01T09:00:00.000Z"));
+			installApi();
+			useUiStore.setState({ dockCollapsed: { decisions: true } });
+			await mountDesk(
+				desk({
+					decisions: [
+						{ ...OPEN, id: "far", question: "Deploy in December?", expiresAt: "2026-12-01T09:00:00.000Z" },
+						{ ...OPEN, id: "open", question: "Keep the cache?" },
+					],
+				}),
+			);
+			const peek = () => query('[data-testid="dock-peek-decisions"]')?.textContent;
+			// A day at a time, as a window open for a month would see it.
+			const days = async (count: number) => {
+				for (let i = 0; i < count; i++)
+					await act(async () => {
+						vi.advanceTimersByTime(24 * 60 * 60_000);
+					});
+			};
+			await days(29);
+			expect(peek()).toBe("Deploy in December?");
+			await days(1);
+			await act(async () => {
+				vi.advanceTimersByTime(60_000);
+			});
+			expect(peek()).toBe("Keep the cache?");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("show the exact operation and its inputs, with the bot's notes behind See details", async () => {
 		installApi();
 		await mountDesk(

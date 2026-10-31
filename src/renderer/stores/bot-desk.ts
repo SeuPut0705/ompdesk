@@ -132,6 +132,9 @@ export function useBotDesk(device?: string): BotDeskEntry {
 	return useBotDeskStore(state => state.desks[keyOf(device)] ?? NO_DESK);
 }
 
+/** A timer asked to wait longer than this fires at once. */
+const MAX_TIMER_MS = 2 ** 31 - 1;
+
 /**
  * The time to judge decisions' expiry by: it moves when the soonest open decision's `expiresAt` passes, so whatever
  * reads it (the dock, the rows' counts, Completed) re-renders then, not at the next unrelated change.
@@ -145,7 +148,16 @@ export function useDecisionClock(desk: Pick<BotDeskState, "decisions">): number 
 	}, null);
 	useEffect(() => {
 		if (next === null) return;
-		const timer = window.setTimeout(() => setNow(Date.now()), Math.max(0, next - Date.now()) + 50);
+		let timer: number;
+		// A deadline beyond one timer's reach waits in steps of MAX_TIMER_MS, each measured from the real time.
+		const arm = () => {
+			const left = next - Date.now();
+			timer = window.setTimeout(
+				left + 50 > MAX_TIMER_MS ? arm : () => setNow(Date.now()),
+				Math.min(Math.max(0, left) + 50, MAX_TIMER_MS),
+			);
+		};
+		arm();
 		return () => window.clearTimeout(timer);
 	}, [next]);
 	return now;
