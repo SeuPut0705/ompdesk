@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { create } from "zustand";
+import { ipcErrorCode } from "../../shared/ipc-error-codes";
 import { reportRuntimeError } from "../lib/runtime-errors";
 import { focusedTabRpc, type TabRpc } from "../lib/tab-rpc";
 import { isSessionReplaced } from "./session-runtime-context";
@@ -164,8 +165,12 @@ export const useInputHistoryStore = create<InputHistoryStore>()((set, get) => ({
 				}
 			})
 			// The prompt itself was sent. A history write that fails keeps the entry in memory
-			// (transient, still recallable) and is logged instead of toasted.
-			.catch(error => reportRuntimeError("background-task", error, { details: { task: "history_record" } }));
+			// (transient, still recallable) and is logged instead of toasted; a device that went offline is no fault
+			// of the write (the link reconnects on its own), so it is not logged.
+			.catch(error => {
+				if (ipcErrorCode(error) === "remote_offline") return;
+				reportRuntimeError("background-task", error, { details: { task: "history_record" } });
+			});
 	},
 	search: async (query, limit = 100, cwd, rpc = focusedTabRpc(), device) => {
 		const response = await (query.trim() ? rpc.historySearch(query, limit, cwd) : rpc.historyRecent(limit, cwd));

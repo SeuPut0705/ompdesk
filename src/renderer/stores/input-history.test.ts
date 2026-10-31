@@ -150,4 +150,19 @@ describe("stock prompt history adapter", () => {
 		await useInputHistoryStore.getState().hydrate(failing, "host");
 		expect(report).toHaveBeenCalledTimes(1);
 	});
+	it("logs no failure for a write the paired device could not take while offline, and still logs a real one", async () => {
+		const { rpc, command, prefs } = installHistory();
+		const report = vi.fn();
+		(globalThis as Record<string, unknown>).window = {
+			omp: { rpc: { commandForTab: vi.fn() }, prefs, runtime: { report } },
+		};
+		command.mockRejectedValueOnce(new Error("[remote_offline] The device running this tab is offline"));
+		useInputHistoryStore.getState().record("while away", "/repo", rpc, "host");
+		await vi.waitFor(() => expect(command).toHaveBeenCalledTimes(1));
+		await new Promise(resolve => setTimeout(resolve, 0));
+		expect(report).not.toHaveBeenCalled();
+		command.mockRejectedValueOnce(new Error("history store unwritable"));
+		useInputHistoryStore.getState().record("later", "/repo", rpc, "host");
+		await vi.waitFor(() => expect(report).toHaveBeenCalledTimes(1));
+	});
 });
