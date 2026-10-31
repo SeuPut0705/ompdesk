@@ -39,6 +39,23 @@ const gone = (pid: number) => {
 		return true;
 	}
 };
+/**
+ * Removes `folder`, waiting out EBUSY: a process gone from the process table can hold its working folder a moment
+ * longer on Windows. `rmSync`'s own `maxRetries` did not retry there (v0.89.0's release run: EBUSY 161 ms into the test
+ * with 20 retries asked), so this retries itself, every 200 ms for at most 8 s; the holder is not identified.
+ */
+async function removeWhenFree(folder: string): Promise<void> {
+	const deadline = Date.now() + 8_000;
+	for (;;) {
+		try {
+			fs.rmSync(folder, { recursive: true, force: true });
+			return;
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "EBUSY" || Date.now() > deadline) throw error;
+			await new Promise(resolve => setTimeout(resolve, 200));
+		}
+	}
+}
 afterEach(async () => {
 	for (const client of sessions.splice(0)) client.drop();
 	await stopTestHubs();
@@ -160,10 +177,7 @@ describe("MCP hub: REA", () => {
 			await client.close();
 			await expect.poll(() => gone(childPid), { timeout: 10_000 }).toBe(true);
 		} finally {
-			// A process gone from the process table can hold its working folder a while longer on Windows (EBUSY): 2 s of
-			// retries still failed three runs on 31 Oct 2026, the holder unidentified (REA's pid was gone, nothing else
-			// started there), so the cleanup waits up to 10 s.
-			fs.rmSync(folder, { recursive: true, force: true, maxRetries: 100, retryDelay: 100 });
+			await removeWhenFree(folder);
 		}
 	});
 
