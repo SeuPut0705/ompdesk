@@ -9,12 +9,21 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import { type BotDeskState, EMPTY_BOT_DESK } from "../../../shared/bot-desk";
 import { I18nProvider } from "../../lib/i18n";
+import type * as VoiceCallModule from "../../lib/voice-call";
 import { useBotStore } from "../../stores/bot";
+import { useBotCallStore } from "../../stores/bot-call";
 import { useBotDeskStore } from "../../stores/bot-desk";
 import { resetSessionListFeeds, sessionListFeed } from "../../stores/session-list";
 import type { SessionTab } from "../../stores/tabs";
 import { BotPane } from "./BotPane";
 import { preloadBotDesk, useBotTab } from "./bot-tab";
+
+const startVoiceCall = vi.hoisted(() => vi.fn());
+
+vi.mock("../../lib/voice-call", async importOriginal => ({
+	...(await importOriginal<typeof VoiceCallModule>()),
+	startVoiceCall,
+}));
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 
@@ -133,6 +142,7 @@ afterEach(async () => {
 	});
 	container.remove();
 	useBotStore.getState().reset();
+	useBotCallStore.setState({ tabId: null });
 	useBotDeskStore.getState().reset();
 	resetSessionListFeeds();
 	hostRows = [];
@@ -252,5 +262,50 @@ describe("BotPane", () => {
 		useBotStore.setState({ enabled: false, path: null });
 		await mount(pane(tab()));
 		expectPlain();
+	});
+
+	it("starts a voice call from the bar's Voice chat button and draws the call bar between the conversation and the decisions", async () => {
+		installApi();
+		const call = { end: vi.fn(), setMuted: vi.fn() };
+		startVoiceCall.mockReturnValue(call);
+		await mountPane();
+		expect(query("[data-bot-call-bar]")).toBeNull();
+		expect(query("[data-bot-call-start]")?.getAttribute("aria-pressed")).toBe("false");
+
+		await act(async () => props<{ onClick: () => void }>(query("[data-bot-call-start]")).onClick());
+		expect(startVoiceCall).toHaveBeenCalledTimes(1);
+		expect(startVoiceCall.mock.calls[0]?.[0]).toMatchObject({ tabId: "tbot" });
+		expect(query("[data-bot-call-start]")?.getAttribute("aria-pressed")).toBe("true");
+		const order = [
+			...container.querySelectorAll(
+				"[data-bot-bar], [data-transcript], [data-bot-call-bar], [data-bot-decisions-dock]",
+			),
+		];
+		expect(order).toEqual([
+			query("[data-bot-bar]"),
+			query("[data-transcript]"),
+			query("[data-bot-call-bar]"),
+			query("[data-bot-decisions-dock]"),
+		]);
+
+		// The same button hangs up: the bar goes and the call ends.
+		await act(async () => props<{ onClick: () => void }>(query("[data-bot-call-start]")).onClick());
+		expect(query("[data-bot-call-bar]")).toBeNull();
+		expect(call.end).toHaveBeenCalled();
+	});
+
+	it("ends the call when the pane goes away, and draws no call bar for another tab's call", async () => {
+		installApi();
+		const call = { end: vi.fn(), setMuted: vi.fn() };
+		startVoiceCall.mockReturnValue(call);
+		await mountPane();
+		useBotCallStore.setState({ tabId: "tother" });
+		await act(async () => {});
+		expect(query("[data-bot-call-bar]")).toBeNull();
+
+		await act(async () => useBotCallStore.setState({ tabId: "tbot" }));
+		expect(query("[data-bot-call-bar]")).not.toBeNull();
+		await act(async () => root.render(<div />));
+		expect(call.end).toHaveBeenCalled();
 	});
 });

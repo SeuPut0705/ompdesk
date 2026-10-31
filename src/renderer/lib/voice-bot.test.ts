@@ -6,11 +6,16 @@ import { useMessagesStore } from "../stores/messages";
 import { useSessionStore } from "../stores/session";
 import { useSettingsStore } from "../stores/settings";
 import { type SessionTab, useTabsStore } from "../stores/tabs";
-import { startVoiceAutoSpeak } from "./voice";
+import { setVoiceCallActive, startVoiceAutoSpeak } from "./voice";
 
 const BOT_PATH = "/sessions/bot.jsonl";
 
 const synthesizeSpeech = vi.fn(async (_text: string) => ({ success: true, data: {} }));
+const getSettings = vi.fn(async (_paths?: string[]) => ({ success: true, data: {} }));
+
+function setSpeechMode(mode: "yield" | "assistant"): void {
+	getSettings.mockImplementation(async () => ({ success: true, data: { values: { "speech.mode": mode } } }));
+}
 let stop: () => void;
 
 async function flush(): Promise<void> {
@@ -51,7 +56,9 @@ async function runWithReplies(): Promise<void> {
 
 beforeEach(() => {
 	synthesizeSpeech.mockClear();
-	vi.stubGlobal("window", { omp: { rpc: { synthesizeSpeech } } });
+	getSettings.mockReset();
+	setSpeechMode("yield");
+	vi.stubGlobal("window", { omp: { rpc: { synthesizeSpeech, getSettings } } });
 	vi.stubGlobal("document", { visibilityState: "visible" });
 	useSettingsStore.setState({ speechEnabled: false });
 	useBotStore.setState({ enabled: true, path: BOT_PATH });
@@ -62,6 +69,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	stop();
+	setVoiceCallActive(false);
 	vi.unstubAllGlobals();
 });
 
@@ -86,6 +94,47 @@ describe("bot spoken replies", () => {
 
 	it("stays silent while the window is hidden", async () => {
 		vi.stubGlobal("document", { visibilityState: "hidden" });
+		await runWithReplies();
+		expect(synthesizeSpeech).not.toHaveBeenCalled();
+	});
+
+	it("stays silent while a voice call speaks the replies itself, and speaks again once it ended", async () => {
+		setVoiceCallActive(true);
+		await runWithReplies();
+		expect(synthesizeSpeech).not.toHaveBeenCalled();
+		setVoiceCallActive(false);
+		await runWithReplies();
+		expect(synthesizeSpeech).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("spoken replies on the global speech switch", () => {
+	beforeEach(() => {
+		useSettingsStore.setState({ speechEnabled: true });
+		setSpeakReplies(false);
+	});
+
+	it("speaks the run's last reply in yield mode", async () => {
+		await runWithReplies();
+		expect(synthesizeSpeech).toHaveBeenCalledTimes(1);
+		expect(synthesizeSpeech).toHaveBeenCalledWith("All done.");
+	});
+
+	it("speaks each reply as it lands in assistant mode", async () => {
+		setSpeechMode("assistant");
+		await runWithReplies();
+		expect(synthesizeSpeech).toHaveBeenCalledWith("checking files");
+	});
+
+	it("stays silent during a voice call, in yield mode", async () => {
+		setVoiceCallActive(true);
+		await runWithReplies();
+		expect(synthesizeSpeech).not.toHaveBeenCalled();
+	});
+
+	it("stays silent during a voice call, in assistant mode", async () => {
+		setSpeechMode("assistant");
+		setVoiceCallActive(true);
 		await runWithReplies();
 		expect(synthesizeSpeech).not.toHaveBeenCalled();
 	});

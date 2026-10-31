@@ -126,9 +126,22 @@ export const METER_BARS = 5;
 const METER_INTERVAL_MS = 60;
 
 /**
- * Publish the stream's level as {@link METER_BARS} bands of the speech range
- * (≈ 0–4 kHz of an AnalyserNode's spectrum). Returns the stop function.
+ * The spectrum as {@link METER_BARS} bands of the speech range (≈ 0–4 kHz of an AnalyserNode's byte spectrum), each in
+ * 0–1. Shared by the dictation meter and the voice call's.
  */
+export function speechBandLevels(bins: Uint8Array, sampleRate: number): number[] {
+	const speechBins = Math.max(METER_BARS, Math.round((4000 / (sampleRate / 2)) * bins.length));
+	const perBar = Math.floor(speechBins / METER_BARS);
+	const levels: number[] = [];
+	for (let bar = 0; bar < METER_BARS; bar++) {
+		let sum = 0;
+		for (let index = bar * perBar; index < (bar + 1) * perBar; index++) sum += bins[index] ?? 0;
+		levels.push(Math.min(1, sum / perBar / 200));
+	}
+	return levels;
+}
+
+/** Publish the stream's level as {@link METER_BARS} bands. Returns the stop function. */
 function startLevelMeter(stream: MediaStream, onLevels: (levels: readonly number[]) => void): () => void {
 	const context = new AudioContext();
 	const analyser = context.createAnalyser();
@@ -136,17 +149,9 @@ function startLevelMeter(stream: MediaStream, onLevels: (levels: readonly number
 	analyser.smoothingTimeConstant = 0.6;
 	context.createMediaStreamSource(stream).connect(analyser);
 	const bins = new Uint8Array(analyser.frequencyBinCount);
-	const speechBins = Math.max(METER_BARS, Math.round((4000 / (context.sampleRate / 2)) * bins.length));
-	const perBar = Math.floor(speechBins / METER_BARS);
 	const timer = setInterval(() => {
 		analyser.getByteFrequencyData(bins);
-		const levels: number[] = [];
-		for (let bar = 0; bar < METER_BARS; bar++) {
-			let sum = 0;
-			for (let index = bar * perBar; index < (bar + 1) * perBar; index++) sum += bins[index] ?? 0;
-			levels.push(Math.min(1, sum / perBar / 200));
-		}
-		onLevels(levels);
+		onLevels(speechBandLevels(bins, context.sampleRate));
 	}, METER_INTERVAL_MS);
 	return () => {
 		clearInterval(timer);
@@ -237,8 +242,16 @@ export async function recordAndTranscribe(listener: DictationListener = {}): Pro
 	if (state.cancelled) return { error: "" };
 	if (state.chunks.length === 0) return { error: translate("voice.mic.empty"), failure: "empty" };
 	listener.onTranscribing?.();
+	return transcribeBlob(new Blob(state.chunks, { type: recorder.mimeType || "audio/webm" }));
+}
+
+/**
+ * One recorded take (whatever the browser's recorder produced) to text: decoded, resampled to the STT pipeline's 16 kHz
+ * mono PCM, shipped to the sidecar as a WAV and transcribed. Dictation and the voice call share it.
+ */
+export async function transcribeBlob(blob: Blob): Promise<DictationResult> {
 	try {
-		const encoded = await new Blob(state.chunks, { type: recorder.mimeType || "audio/webm" }).arrayBuffer();
+		const encoded = await blob.arrayBuffer();
 		const context = new AudioContext();
 		let wav: Uint8Array;
 		try {
@@ -311,6 +324,70 @@ export function evaluateSttSubmitTrigger(
 // ---------------------------------------------------------------------------
 
 let speaking = false;
+let voiceCallActive = false;
+
+/** The voice call (`voice-call.ts`) sets this while it is on: it speaks the bot's replies itself, so auto-speak stays silent. */
+export function setVoiceCallActive(active: boolean): void {
+	voiceCallActive = active;
+}
+
+export function isVoiceCallActive(): boolean {
+	return voiceCallActive;
+}
+
+/** How one {@link playSpeech} ended: played out, stopped by the caller, or failed (`error` is the RPC reply or the cause). */
+export type SpeechEnd = { status: "ended" | "stopped" } | { status: "failed"; error: unknown };
+
+export interface SpeechPlayback {
+	/** Stop at once, also while the text is still being synthesized (then nothing plays). Resolves {@link finished} as stopped. */
+	stop(): void;
+	readonly finished: Promise<SpeechEnd>;
+}
+
+/**
+ * Synthesize `text` on the sidecar's local TTS and play it, stoppable at any moment. Nothing here is streamed: the
+ * bridge answers with the whole clip, so the first sound waits for the full synthesis.
+ */
+export function playSpeech(text: string): SpeechPlayback {
+	let stopped = false;
+	let audio: HTMLAudioElement | null = null;
+	let release = (): void => {};
+	const finished = (async (): Promise<SpeechEnd> => {
+		try {
+			const response = await window.omp.rpc.synthesizeSpeech(text);
+			if (stopped) return { status: "stopped" };
+			if (!response.success) return { status: "failed", error: response };
+			const data = response.data as SynthesizeSpeechResult | undefined;
+			if (!data?.audioBase64) return { status: "ended" };
+			const url = URL.createObjectURL(
+				new Blob([base64ToBytes(data.audioBase64)], { type: data.mimeType || "audio/wav" }),
+			);
+			const playback = Promise.withResolvers<void>();
+			release = (): void => {
+				URL.revokeObjectURL(url);
+				playback.resolve();
+			};
+			audio = new Audio(url);
+			audio.onended = release;
+			audio.onerror = release;
+			// Autoplay-policy rejections are not user-facing failures.
+			audio.play().catch(release);
+			await playback.promise;
+			return { status: stopped ? "stopped" : "ended" };
+		} catch (cause) {
+			return stopped ? { status: "stopped" } : { status: "failed", error: cause };
+		}
+	})();
+	return {
+		finished,
+		stop() {
+			if (stopped) return;
+			stopped = true;
+			audio?.pause();
+			release();
+		},
+	};
+}
 
 /**
  * Speak one utterance through the sidecar's local TTS. Dropped silently when
@@ -321,35 +398,10 @@ export function speakText(text: string): void {
 	const trimmed = text.trim();
 	if (!trimmed || speaking) return;
 	speaking = true;
-	void (async () => {
-		try {
-			const response = await window.omp.rpc.synthesizeSpeech(trimmed);
-			if (!response.success) {
-				toastError({ title: translate("voice.speak.failed"), error: response });
-				return;
-			}
-			const data = response.data as SynthesizeSpeechResult | undefined;
-			if (!data?.audioBase64) return;
-			const url = URL.createObjectURL(
-				new Blob([base64ToBytes(data.audioBase64)], { type: data.mimeType || "audio/wav" }),
-			);
-			const audio = new Audio(url);
-			const playback = Promise.withResolvers<void>();
-			const finish = (): void => {
-				URL.revokeObjectURL(url);
-				playback.resolve();
-			};
-			audio.onended = finish;
-			audio.onerror = finish;
-			// Autoplay-policy rejections are not user-facing failures.
-			audio.play().catch(finish);
-			await playback.promise;
-		} catch (cause) {
-			toastError({ title: translate("voice.speak.failed"), error: cause });
-		} finally {
-			speaking = false;
-		}
-	})();
+	void playSpeech(trimmed).finished.then(end => {
+		speaking = false;
+		if (end.status === "failed") toastError({ title: translate("voice.speak.failed"), error: end.error });
+	});
 }
 
 // ---------------------------------------------------------------------------
@@ -404,7 +456,7 @@ export function startVoiceAutoSpeak(): () => void {
 			if (!useSettingsStore.getState().speechEnabled) return;
 			const modeValue = await readSetting("speech.mode");
 			// Yield messages are spoken by the run-end watcher below.
-			if (modeValue === "yield") return;
+			if (modeValue === "yield" || isVoiceCallActive()) return;
 			const all = modeValue === "all";
 			for (const message of appended) {
 				if (message.stopReason === "aborted") continue;
@@ -421,14 +473,14 @@ export function startVoiceAutoSpeak(): () => void {
 		if (!previous.isStreaming || state.isStreaming) return;
 		const pending = lastRunAssistantText;
 		lastRunAssistantText = null;
-		if (!pending) return;
+		if (!pending || isVoiceCallActive()) return;
 		if (!useSettingsStore.getState().speechEnabled) {
 			// speech.enabled is off: the bot's own tab still reads its reply when the desk asks for it.
 			if (activeTabIsSpokenBot()) speakText(pending);
 			return;
 		}
 		void (async () => {
-			if ((await readSetting("speech.mode")) !== "yield") return;
+			if ((await readSetting("speech.mode")) !== "yield" || isVoiceCallActive()) return;
 			speakText(pending);
 		})();
 	});

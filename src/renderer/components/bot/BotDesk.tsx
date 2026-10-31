@@ -21,6 +21,7 @@ import { BotTeachControl } from "./BotTeach";
 import { nextWake } from "./bot-status";
 
 export { BotBar } from "./BotBar";
+export { BotCallBar } from "./BotCallBar";
 export { BotDecisionDock } from "./BotDecisions";
 export { AssistantText } from "./BotSources";
 

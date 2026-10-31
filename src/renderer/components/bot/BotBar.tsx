@@ -5,7 +5,7 @@
  * turn runs (the running call's own words), the model's wait, or "Thinking"; for a paired host's bot the link's state
  * comes first while it is not online ("Reconnecting to Mac mini…", "Can't reach Mac mini"). Idle, the line is not drawn.
  */
-import { Pause, Play, Square } from "lucide-react";
+import { Pause, Phone, Play, Square } from "lucide-react";
 import { useMemo } from "react";
 import { formatClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -13,6 +13,7 @@ import { abortActiveTurn } from "../../lib/messages";
 import { useModelWait } from "../../lib/model-wait";
 import { botDisplayName } from "../../lib/session-title";
 import { useTabRpc } from "../../lib/tab-rpc";
+import { useBotCallStore } from "../../stores/bot-call";
 import { useBotDesk, useBotDeskStore } from "../../stores/bot-desk";
 import { useRemoteStore } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
@@ -62,6 +63,7 @@ export function BotBar({ tabId, device, channel }: { tabId: string; device?: str
 	const { routines, identity } = desk;
 	const paused = desk.paused === true;
 	const edit = useBotDeskStore(store => store.edit);
+	const onCall = useBotCallStore(store => store.tabId === tabId);
 	const setPaused = (next: boolean) => void edit({ op: "paused", paused: next }, device);
 	// This computer's name, or the paired host the bot runs on, and that host's link.
 	const host = useRemoteStore(state =>
@@ -140,6 +142,16 @@ export function BotBar({ tabId, device, channel }: { tabId: string; device?: str
 						{t("botHome.stop")}
 					</Button>
 				) : null}
+				<IconButton
+					data-bot-call-start=""
+					icon={<Phone />}
+					label={t("botCall.start")}
+					onClick={() =>
+						onCall ? useBotCallStore.getState().end(tabId) : useBotCallStore.getState().start(tabId)
+					}
+					pressed={onCall}
+					size="sm"
+				/>
 				{loaded ? (
 					<IconButton
 						aria-pressed={paused}

@@ -10,6 +10,7 @@
 import { type ReactNode, useEffect, useMemo } from "react";
 import { useStore } from "zustand";
 import { ensureBotPath, useBotStore } from "../../stores/bot";
+import { useBotCallStore } from "../../stores/bot-call";
 import { ensureBotDesk, useBotDesk } from "../../stores/bot-desk";
 import { sessionListFeed } from "../../stores/session-list";
 import type { SessionTab } from "../../stores/tabs";
@@ -29,6 +30,7 @@ function BotScreen({
 	children: ReactNode;
 }) {
 	const desk = useBotDeskModule(true);
+	const onCall = useBotCallStore(store => store.tabId === tabId);
 	const bot = useMemo(() => (device === undefined ? { tabId } : { tabId, device }), [tabId, device]);
 	// This computer's desk is read by the sidebar at launch; a host's is read here (its sidebar section reads it too for
 	// the count once its link is up).
@@ -45,6 +47,7 @@ function BotScreen({
 				</div>
 			)}
 			{children}
+			{desk && onCall ? <desk.BotCallBar tabId={tabId} /> : null}
 			{desk ? <desk.BotDecisionDock device={device} /> : null}
 		</BotTabContext.Provider>
 	);

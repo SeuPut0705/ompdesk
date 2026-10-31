@@ -9,6 +9,7 @@ import { type Mock, vi } from "vitest";
 
 /** A mic track that records whether it was released. */
 export class FakeTrack {
+	enabled = true;
 	stopped = false;
 	stop(): void {
 		this.stopped = true;
@@ -52,6 +53,8 @@ export const SPECTRUM_LEVEL = 100;
 
 export class FakeAudioContext {
 	static instances: FakeAudioContext[] = [];
+	/** The mic's instantaneous level (every time-domain sample), which the voice call's VAD reads as RMS; tests move it. */
+	static level = 0;
 	readonly sampleRate = 48_000;
 	closed = false;
 	constructor() {
@@ -63,6 +66,7 @@ export class FakeAudioContext {
 			smoothingTimeConstant: 0,
 			frequencyBinCount: 128,
 			getByteFrequencyData: (bins: Uint8Array) => bins.fill(SPECTRUM_LEVEL),
+			getFloatTimeDomainData: (samples: Float32Array) => samples.fill(FakeAudioContext.level),
 		};
 	}
 	createMediaStreamSource() {
@@ -116,6 +120,7 @@ export function installFakeMic(): FakeMic {
 	FakeMediaRecorder.instances = [];
 	FakeMediaRecorder.nextChunks = [AUDIO_CHUNK];
 	FakeAudioContext.instances = [];
+	FakeAudioContext.level = 0;
 	FakeOfflineAudioContext.last = null;
 	vi.stubGlobal("MediaRecorder", FakeMediaRecorder);
 	vi.stubGlobal("AudioContext", FakeAudioContext);
