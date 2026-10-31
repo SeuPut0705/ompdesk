@@ -331,10 +331,10 @@ describe("BotRulesSection", () => {
 		sessionListFeed("global").store.setState({ sessions: [botRow(BOT, "Jarvis")] } as never);
 		try {
 			await mount();
-			expect(document.body.querySelector("[data-bot-name]")).toBeNull();
+			expect(document.body.querySelector("[data-bot-name-field]")).toBeNull();
 			stored = { [BOT_ENABLED_PREF]: true, [BOT_PREF]: BOT };
 			await act(async () => useBotStore.getState().load());
-			const field = document.body.querySelector("[data-bot-name]") as unknown as { value: string };
+			const field = document.body.querySelector("[data-bot-name-field]") as unknown as { value: string };
 			expect(field.value).toBe("Jarvis");
 			const props = reactProps(field);
 			await act(async () => props.onFocus?.({}));

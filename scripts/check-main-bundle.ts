@@ -169,7 +169,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // 3,221,805 with it and the Bot rules screen's settings in the tree, 905 bytes over the measure above.
 // The bot is off until the owner turns it on, and a paired host's bot is a fixed row in its section (31 Oct 2026): the
 // store's enable pref and `SidebarDevices.tsx`'s bot row: measured 3,222,863, 1,058 bytes over the measure above.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_224_000;
+// The bot's desk (31 Oct 2026): its home is loaded on demand (`preloadBotHome`, 18.8 kB kept off the first screen),
+// while the pane's Home/Chat switch, the desk store, the row's decision count and their strings stay: measured
+// 3,231,571, 7,571 bytes over the measure above.
+const WEB_FIRST_SCREEN_JS_BYTES = 3_232_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

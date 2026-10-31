@@ -113,7 +113,7 @@ test("the rules screen lists the defaults and saves a change, an added rule and 
 	await expect(botSwitch).toBeChecked();
 	// Its name is its session's title: set here, it sticks in the session file, the list and the sidebar row, and a
 	// second name replaces the first.
-	const name = page.locator("[data-bot-name]");
+	const name = page.locator("[data-bot-name-field]");
 	await expect(name).toHaveValue("Bot");
 	const listedTitle = async () =>
 		(await page.evaluate(() => window.omp.sessions.list("global"))).find(row => row.path === botFile)?.title;

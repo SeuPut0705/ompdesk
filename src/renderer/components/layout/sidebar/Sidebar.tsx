@@ -21,6 +21,7 @@ import {
 	GitBranch,
 	GitBranchPlus,
 	GitFork,
+	Inbox,
 	Info,
 	Keyboard,
 	MessageCircle,
@@ -54,6 +55,7 @@ import {
 } from "react";
 import { reviewUnmerged } from "../../../../shared/agent-control";
 import { SIDEBAR_WIDTH } from "../../../../shared/boot-shell-geometry";
+import { openBotDecisions } from "../../../../shared/bot-desk";
 import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
 import type { HostView, IpcHostedSession, SessionInfo } from "../../../../shared/ipc-types";
 import { autopilotRunOf, worktreeKindOf, worktreeLabel } from "../../../../shared/project-origin";
@@ -77,7 +79,7 @@ import { ATTENTION_LABEL_KEY, type AttentionKind, isAsk } from "../../../lib/att
 import { activeComposerInput } from "../../../lib/composer-focus";
 import { saveDiagnosticBundle } from "../../../lib/diagnostic-bundle";
 import { hideNativeDragImage } from "../../../lib/drag-image";
-import { cx } from "../../../lib/format";
+import { cx, formatClock } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
 import { actionKbd, onEscape } from "../../../lib/keymap";
@@ -94,6 +96,7 @@ import { isSessionDown, isTabFailed, tabSignalPresentation } from "../../../lib/
 import { pickWorkspaceDirectory } from "../../../lib/workspace-dirs";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
 import { ensureBotPath, useBotStore } from "../../../stores/bot";
+import { ensureBotDesk, useBotDeskStore } from "../../../stores/bot-desk";
 import { ensureClosedChildren, useClosedChildrenStore } from "../../../stores/closed-children";
 import { useComposerStore } from "../../../stores/composer";
 import { useHostedSessionsStore } from "../../../stores/hosted-sessions";
@@ -110,6 +113,7 @@ import { type SessionTab, useTabsStore } from "../../../stores/tabs";
 import { toast, toastError } from "../../../stores/toast";
 import { type PageDestination, type PanelTab, useUiStore } from "../../../stores/ui";
 import { startInstall, useInstallOffered } from "../../../web/install-ui";
+import { botState, botStateKey, nextWake, tabBotFacts } from "../../bot/bot-status";
 import {
 	Badge,
 	BrandMark,
@@ -543,6 +547,7 @@ export function Sidebar() {
 	const agentHidden = useSidebarPrefs(s => s.agentHidden);
 	const botOn = useBotStore(s => s.enabled);
 	const botPath = useBotStore(s => s.path);
+	const botDesk = useBotDeskStore(s => s.desk);
 	const groupAliases = useSidebarPrefs(s => s.groupAliases);
 	const archivedSessions = useSidebarPrefs(s => s.archivedSessions);
 	// The projects this computer lists apart from its sessions: an empty one keeps its group (src/main/sidebar-projects.ts).
@@ -639,6 +644,7 @@ export function Sidebar() {
 		ensureClosedChildren();
 		ensureAgentReviewSubscription();
 		ensureBotPath();
+		ensureBotDesk();
 	}, []);
 	// A tab this window views (another window or device holds it) learns its children's states only from main's
 	// pushes, which come when a child starts or ends: ask once for each, so a page that just opened sees them now.
@@ -1474,6 +1480,7 @@ export function Sidebar() {
 			isCurrent,
 			tab,
 			hosted,
+			live,
 			active,
 			indexed,
 			waiting,
@@ -1691,6 +1698,8 @@ export function Sidebar() {
 			active,
 			indexed,
 			waiting,
+			hosted,
+			live,
 			running,
 			settling,
 			failed,
@@ -1754,7 +1763,7 @@ export function Sidebar() {
 		const marker: ReactNode = done ? (
 			<Check aria-hidden className="size-(--sc-icon-sm) text-(--sc-success)" data-sidebar-done />
 		) : bot ? (
-			<Bot aria-label={t("sidebar.botBadge")} className="size-(--sc-icon-sm)" data-sidebar-bot />
+			<Bot aria-label={t("sidebar.botBadge")} className="size-(--sc-icon-sm) text-(--sc-accent)" data-sidebar-bot />
 		) : session.kind === "chat" ? (
 			<MessageCircle aria-hidden className="size-(--sc-icon-sm)" data-sidebar-session-icon />
 		) : pinned ? (
@@ -1764,6 +1773,28 @@ export function Sidebar() {
 		) : fork ? (
 			<GitFork aria-hidden className="size-(--sc-icon-sm)" data-sidebar-fork />
 		) : null;
+		// The bot's state and next wake in words (its row's tooltip and screen-reader text; the home says them too), and
+		// the decisions waiting on the owner, which take the age slot unless the row's own prompt does.
+		const botCondition = bot
+			? botState(
+					tab
+						? tabBotFacts(tab)
+						: {
+								open: hosted !== undefined || live !== undefined,
+								asleep: false,
+								waiting: isAsk(waiting),
+								running,
+							},
+				)
+			: null;
+		const botWake = bot ? nextWake(botDesk.wakes) : null;
+		const botLine = botCondition
+			? [t(botStateKey(botCondition)), botWake ? t("botHome.nextWake", { time: formatClock(botWake) }) : null]
+					.filter(Boolean)
+					.join(" · ")
+			: null;
+		const botDecisions = bot ? openBotDecisions(botDesk).length : 0;
+		const botDecisionsTip = botDecisions > 0 ? t("sidebar.botDecisionsTip", { count: botDecisions }) : undefined;
 		const openTabId = tab?.id;
 		// The age slot: the waiting token, else the working arc while the session or anything it started works, else
 		// the time since it last did something.
@@ -1774,6 +1805,13 @@ export function Sidebar() {
 				<AlertTriangle aria-hidden className="size-3 shrink-0" />
 				<span className="min-w-0 truncate" title={waitingLabel ?? undefined}>
 					{waitingLabel}
+				</span>
+			</Badge>
+		) : botDecisions > 0 ? (
+			<Badge className="omp-sidebar-approval" variant="warning">
+				<Inbox aria-hidden className="size-3 shrink-0" />
+				<span className="min-w-0 truncate" data-sidebar-bot-decisions={botDecisions} title={botDecisionsTip}>
+					{t("sidebar.botDecisions", { count: botDecisions })}
 				</span>
 			</Badge>
 		) : (
@@ -1846,8 +1884,11 @@ export function Sidebar() {
 						// Clicking the session already in view folds/unfolds its family rows.
 						if (active && openTabId && sidebarSubagentCount(openTabId) + opened.length > 0)
 							toggleSidebarSubagents(session.path);
-						if (bot) openBot();
-						else openSession(session);
+						if (bot) {
+							// The count says a decision waits: the pane opens on the home, where it is answered.
+							if (botDecisions > 0) useBotDeskStore.getState().setView("home");
+							openBot();
+						} else openSession(session);
 					}}
 					rowProps={{
 						...reorder.rowDrag(
@@ -1857,6 +1898,7 @@ export function Sidebar() {
 						),
 						onContextMenu: bot ? undefined : event => setSessionMenu({ anchor: anchorFromEvent(event), session }),
 						"data-sidebar-bot-row": bot || undefined,
+						"data-bot-decisions": botDecisions > 0 || undefined,
 						"data-active": active,
 						"data-current": isCurrent || undefined,
 						"data-pane-focus": (isCurrent && splitIds !== null) || undefined,
@@ -1885,9 +1927,12 @@ export function Sidebar() {
 							{fork && <span className="sr-only">, {fork.label}</span>}
 							{worktree?.label && <span className="sr-only">, {worktree.label}</span>}
 							{statusLabel && <span className="sr-only">, {statusLabel}</span>}
+							{botLine && <span className="sr-only">, {botLine}</span>}
 						</>
 					}
-					titleText={[title, worktree?.label, fork?.tooltip, statusLabel].filter(Boolean).join("\n")}
+					titleText={[title, botLine, worktree?.label, fork?.tooltip, statusLabel, botDecisionsTip]
+						.filter(Boolean)
+						.join("\n")}
 					trailing={
 						openTabId || opened.length > 0 ? (
 							<SidebarSubagentsToggle opened={opened} sessionKey={session.path} tabId={openTabId ?? null} />

@@ -7,6 +7,7 @@ import type { CheckoutPeer, CheckoutPeers } from "../../../../../resources/gui-b
 import { routeToSessionOwner } from "../../../hooks/use-session-switch";
 import { useTabsStore } from "../../../stores/tabs";
 import { workFilePathKey } from "../../tools/edit-args";
+import type { OpenedChildRow } from "./opened-children";
 
 /** A live session that also changed some of these files: in this worktree, or in another worktree of the repository. */
 export interface PeerOverlap {
@@ -75,4 +76,16 @@ export async function openPeer(target: PeerOpen): Promise<void> {
 		}
 	}
 	await tabs.openTab({ sessionPath: target.sessionPath, ...(target.device ? { device: target.device } : {}) });
+}
+
+/** A session this one's agent opened, shown by a tap on its row: its tab here, else its file where it runs. */
+export function openOpenedChild(row: OpenedChildRow): void {
+	if (row.tabId) void useTabsStore.getState().applyAgentView({ tabId: row.tabId, how: "focus" });
+	else if (row.sessionPath)
+		void useTabsStore.getState().openTab({
+			cwd: row.cwd,
+			sessionPath: row.sessionPath,
+			kind: "agent",
+			...(row.deviceId ? { device: row.deviceId } : {}),
+		});
 }

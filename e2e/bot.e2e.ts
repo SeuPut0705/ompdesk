@@ -297,3 +297,55 @@ test("a session the bot opens shows under the bot row, and nowhere else in the l
 	await expect(page.locator("[data-sidebar-bot-row]")).toHaveCount(1);
 	await expect(page.locator(".omp-sidebar-session-row").first()).toHaveAttribute("data-sidebar-bot-row", "true");
 });
+
+test("the bot's desk: a decision and a duty it posts show on its home and row, and the owner's answer reaches it", async () => {
+	test.setTimeout(180_000);
+	const file = await botFile();
+	await page.locator("[data-sidebar-bot-row]").click();
+	const bot = await tabOf(file);
+	await untilReady(bot);
+	// Its pane opens on its home, not the conversation.
+	await expect(page.locator("[data-bot-home]")).toBeVisible();
+
+	// Only the bot may use its desk tool.
+	const owner = (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.sessionPath !== file)?.tabId;
+	if (owner) {
+		const refused = await callAs(owner, "ompdesk_bot", { action: "desk" });
+		expect(refused.isError).toBe(true);
+	}
+
+	const duty = await callAs(bot, "ompdesk_bot", { action: "duty_add", text: "Check the nightly build" });
+	expect(duty.isError, duty.text).toBe(false);
+	await expect(page.locator("[data-bot-duty]")).toContainText(["Check the nightly build"]);
+
+	const posted = await callAs(bot, "ompdesk_bot", {
+		action: "decide",
+		question: "Ship the release today?",
+		options: ["Ship it", "Wait"],
+	});
+	expect(posted.isError, posted.text).toBe(false);
+	const id = /Decision (\S+) is posted/.exec(posted.text)?.[1] ?? "";
+	expect(id).not.toBe("");
+	// The inbox on the home, and the count on the bot's row.
+	const card = page.locator("[data-bot-decision]");
+	await expect(card).toHaveCount(1);
+	await expect(card).toContainText("Ship the release today?");
+	await expect(page.locator("[data-sidebar-bot-decisions]")).toHaveAttribute("data-sidebar-bot-decisions", "1");
+
+	// The owner answers in place: the card leaves, the count goes, and the bot's omp gets the answer as a turn.
+	await card.locator('[data-bot-option="Ship it"]').click();
+	await expect(card).toHaveCount(0);
+	await expect(page.locator("[data-sidebar-bot-decisions]")).toHaveCount(0);
+	const answers = () => mailReports(record, details => details.id === `bot-decision-${id}`);
+	await expect.poll(async () => (await answers()).length, { timeout: 30_000 }).toBe(1);
+	const [answer] = await answers();
+	expect(answer).toMatchObject({ triggerTurn: true, deliverAs: "aside" });
+	expect(String(answer?.content)).toContain("Answer: Ship it");
+
+	// The duty outlives the app: a relaunch reads the same desk.
+	await exitApp(app);
+	await start();
+	await page.locator("[data-sidebar-bot-row]").click();
+	await expect(page.locator("[data-bot-duty]")).toContainText(["Check the nightly build"]);
+	await expect(page.locator("[data-bot-past]")).toBeVisible();
+});

@@ -14,6 +14,7 @@ import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { ensureTabRuntime } from "../../stores/tab-runtime";
 import { type SessionTab, type SplitAxis, type SplitPlacement, tabDisplayTitle, useTabsStore } from "../../stores/tabs";
 import { type PanelSubagent, useUiStore } from "../../stores/ui";
+import { BotPane } from "../bot/BotPane";
 import { ChatStream } from "../chat/ChatStream";
 import { WorkspaceDock } from "../chat/dock/WorkspaceDock";
 import { IconButton, LiveText, Spinner } from "../common";
@@ -241,8 +242,10 @@ function SessionPane({ tabId, split, label }: { tabId: string; split: boolean; l
 				{tab.device !== undefined && <RemoteTabBanner deviceId={tab.device} />}
 				<SidecarBanner />
 				<div className="relative flex min-h-0 flex-1 flex-col">
-					<ChatStream />
-					<WorkBoardHost />
+					<BotPane tab={tab}>
+						<ChatStream />
+						<WorkBoardHost />
+					</BotPane>
 					<div className="omp-composer-region relative shrink-0 bg-transparent pt-2">
 						<div className="omp-composer-shell relative w-full">
 							<WorkspaceDock />

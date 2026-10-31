@@ -63,7 +63,7 @@ function BotNameRow({ path }: { path: string }) {
 			control={
 				<Input
 					controlSize="sm"
-					data-bot-name
+					data-bot-name-field
 					id={inputId}
 					maxLength={64}
 					onBlur={event => commit(event.currentTarget.value)}

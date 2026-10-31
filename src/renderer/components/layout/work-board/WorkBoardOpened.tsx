@@ -17,6 +17,7 @@ import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useTabsStore } from "../../../stores/tabs";
 import { CostAmount, hasCost } from "../../common/CostAmount";
 import { BoardRow, CappedRows, elapsedLabel, KindMark, type RowTag, SECTION_CAP } from "./board-parts";
+import { openOpenedChild } from "./open-peer";
 import { childActivity, type OpenedChildRow } from "./opened-children";
 
 /** A session this one's agent opened, as a child like a subagent: status, what it does now, how long, its branch. */
@@ -47,16 +48,6 @@ function OpenedRow({ row, now, tag }: { row: OpenedChildRow; now: number; tag?: 
 	const projectName = useProjectNames(storedCwd ? [storedCwd] : []);
 	const gone = storedCwd !== undefined && projectName(storedCwd).gone;
 	const activity = childActivity(row);
-	const open = () => {
-		if (row.tabId) void useTabsStore.getState().applyAgentView({ tabId: row.tabId, how: "focus" });
-		else if (row.sessionPath)
-			void useTabsStore.getState().openTab({
-				cwd: row.cwd,
-				sessionPath: row.sessionPath,
-				kind: "agent",
-				...(row.deviceId ? { device: row.deviceId } : {}),
-			});
-	};
 	return (
 		<BoardRow
 			data={{
@@ -112,7 +103,7 @@ function OpenedRow({ row, now, tag }: { row: OpenedChildRow; now: number; tag?: 
 					<CostAmount className="tabular-nums" data={{ "data-board-opened-cost": true }} kinds={kinds} />
 				) : undefined
 			}
-			onClick={open}
+			onClick={() => openOpenedChild(row)}
 			sub={
 				activity ? (
 					<span className="min-w-0 truncate" data-board-child-activity>

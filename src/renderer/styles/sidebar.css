@@ -118,9 +118,16 @@
 
 /* A row's end (ListRow's meta) gives way before its title, down to `--row-meta-min`: an age stays whole (ListRow's
    default), a waiting badge goes down to its ⚠ glyph in the pill (the word's tooltip and accessible text stay). */
-.omp-session-sidebar .omp-sidebar-session-row[data-signal="waiting"] {
+.omp-session-sidebar .omp-sidebar-session-row:is([data-signal="waiting"], [data-bot-decisions]) {
 	/* The pill's 8 px sides, the 12 px glyph and the 6 px gap after it: the word's box is then 0 wide, never a sliver. */
 	--row-meta-min: 2.125rem;
+}
+
+/* The bot's fixed row reads apart from plain chats: a soft accent wash behind it (its mark is accent too). The wash is
+   a gradient layer, so the hover and selected washes (background-color) still show through it; no box-shadow, which
+   the split's pane ring and a pending switch's bar own. */
+.omp-session-sidebar .omp-sidebar-session-row[data-sidebar-bot-row] {
+	background-image: linear-gradient(var(--sc-accent-soft), var(--sc-accent-soft));
 }
 
 .omp-sidebar-controls {

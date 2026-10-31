@@ -15,6 +15,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import { SidebarProjects } from "../../../../main/sidebar-projects";
 import { type AgentReviewItem, wrapAgentMessage } from "../../../../shared/agent-control";
+import type { BotDecision } from "../../../../shared/bot-desk";
 import { codedError } from "../../../../shared/ipc-error-codes";
 import type { HostView, SessionInfo } from "../../../../shared/ipc-types";
 import type { SidebarProjectsRequest, SidebarProjectsState } from "../../../../shared/sidebar-projects";
@@ -22,12 +23,13 @@ import { CHATS_ORDER_KEY } from "../../../../shared/sidebar-rows";
 import { resetShellModeForTests, TOUCH_QUERY } from "../../../hooks/use-shell-mode";
 import { useWorkspaceRecency } from "../../../hooks/use-workspace-recency";
 import { DEVICE_COLORS } from "../../../lib/device-color";
-import { formatTimeAgo } from "../../../lib/format";
+import { formatClock, formatTimeAgo } from "../../../lib/format";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { resetLastReadForTest } from "../../../lib/last-read";
 import { LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { useAgentReviewStore } from "../../../stores/agent-review";
 import { useBotStore } from "../../../stores/bot";
+import { useBotDeskStore } from "../../../stores/bot-desk";
 import { useClosedChildrenStore } from "../../../stores/closed-children";
 import { useComposerStore } from "../../../stores/composer";
 import { useHostedSessionsStore } from "../../../stores/hosted-sessions";
@@ -361,6 +363,7 @@ afterEach(async () => {
 	useSidebarFolds.getState().reset();
 	useAgentReviewStore.getState().reset();
 	useBotStore.getState().reset();
+	useBotDeskStore.getState().reset();
 	useClosedChildrenStore.getState().reset();
 	useProjectOrigins.getState().reset();
 	useRemoteStore.getState().reset();
@@ -1570,6 +1573,134 @@ describe("Sidebar menus and pinned ordering", () => {
 			expect(botRow().nextElementSibling?.getAttribute("data-sidebar-family")).toBeNull();
 			expect(document.querySelectorAll(`[data-session-path="${OTHER}"]`)).toHaveLength(1);
 			expect(document.querySelector(`[data-sidebar-family="${BOT}"] [data-session-path="${OTHER}"]`)).toBeNull();
+		});
+
+		describe("its desk", () => {
+			const open = (id: string): BotDecision => ({
+				id,
+				state: "open",
+				question: `Question ${id}?`,
+				options: [],
+				at: "2026-10-31T09:00:00.000Z",
+			});
+			const answered = (id: string): BotDecision => ({
+				id,
+				state: "answered",
+				question: `Question ${id}?`,
+				options: [],
+				answer: "Yes",
+				at: "2026-10-31T08:00:00.000Z",
+				answeredAt: "2026-10-31T08:05:00.000Z",
+			});
+			const seedBot = (status: "ready" | "running") => {
+				seedStores();
+				useBotStore.setState({ enabled: true, path: BOT });
+				useTabsStore.setState({
+					tabs: [
+						{ id: "t0", cwd: "/work/alpha", status: "ready", kind: "agent", unreadDone: false },
+						{ id: "tbot", cwd: "/default/work", status, kind: "chat", unreadDone: false, sessionPath: BOT },
+					] as never,
+					activeTabId: "t0",
+					bundles: new Map(),
+				});
+				ensureTabRuntime("tbot");
+			};
+
+			it("counts the decisions waiting on the owner in its age slot, the answered ones left out", async () => {
+				installMockOmp([...LIST, botSession]);
+				seedBot("ready");
+				useBotDeskStore
+					.getState()
+					.apply({ duties: [], wakes: [], decisions: [open("a"), answered("b"), open("c")] });
+				await mount(<Sidebar />);
+
+				const count = botRow().querySelector("[data-sidebar-bot-decisions]");
+				expect(count?.textContent).toBe(translate("sidebar.botDecisions", { count: 2 }));
+				expect(count?.getAttribute("title")).toBe(translate("sidebar.botDecisionsTip", { count: 2 }));
+				expect(botRow().getAttribute("data-bot-decisions")).toBe("true");
+				expect(botRow().querySelector("button")?.getAttribute("title")).toContain(
+					translate("sidebar.botDecisionsTip", { count: 2 }),
+				);
+			});
+
+			it("shows no count while none is open, and none on any other row", async () => {
+				installMockOmp([...LIST, botSession]);
+				seedBot("ready");
+				useBotDeskStore.getState().apply({ duties: [], wakes: [], decisions: [answered("a")] });
+				await mount(<Sidebar />);
+
+				expect(botRow().querySelector("[data-sidebar-bot-decisions]")).toBeNull();
+				expect(botRow().getAttribute("data-bot-decisions")).toBeNull();
+				expect(document.querySelectorAll("[data-sidebar-bot-decisions]")).toHaveLength(0);
+			});
+
+			it("drops the count when main says the last decision was answered", async () => {
+				installMockOmp([...LIST, botSession]);
+				seedBot("ready");
+				useBotDeskStore.getState().apply({ duties: [], wakes: [], decisions: [open("a")] });
+				await mount(<Sidebar />);
+				expect(botRow().querySelector("[data-sidebar-bot-decisions]")).not.toBeNull();
+
+				await act(async () =>
+					useBotDeskStore.getState().apply({ duties: [], wakes: [], decisions: [answered("a")] }),
+				);
+
+				expect(botRow().querySelector("[data-sidebar-bot-decisions]")).toBeNull();
+			});
+
+			it("opens the bot's home when the row is clicked with a decision waiting", async () => {
+				installMockOmp([...LIST, botSession]);
+				seedStores();
+				useSessionStore.setState({ isStreaming: true });
+				useBotStore.setState({ enabled: true, path: BOT });
+				useBotDeskStore.getState().apply({ duties: [], wakes: [], decisions: [open("a")] });
+				useBotDeskStore.getState().setView("chat");
+				await mount(<Sidebar />);
+
+				await fire(botRow().querySelector("button"), "onClick");
+
+				expect(useBotDeskStore.getState().view).toBe("home");
+			});
+
+			it("leaves the chosen view alone when no decision waits", async () => {
+				installMockOmp([...LIST, botSession]);
+				seedStores();
+				useSessionStore.setState({ isStreaming: true });
+				useBotStore.setState({ enabled: true, path: BOT });
+				useBotDeskStore.getState().apply({ duties: [], wakes: [], decisions: [] });
+				useBotDeskStore.getState().setView("chat");
+				await mount(<Sidebar />);
+
+				await fire(botRow().querySelector("button"), "onClick");
+
+				expect(useBotDeskStore.getState().view).toBe("chat");
+			});
+
+			it("says its state and next wake in the row's tooltip", async () => {
+				installMockOmp([...LIST, botSession]);
+				seedBot("running");
+				useBotDeskStore.getState().apply({
+					duties: [],
+					decisions: [],
+					wakes: [{ id: "w", prompt: "Check the build", next: "2026-11-01T06:30:00.000Z" }],
+				});
+				await mount(<Sidebar />);
+
+				expect(botRow().querySelector("button")?.getAttribute("title")).toContain(
+					`${translate("botHome.state.working")} · ${translate("botHome.nextWake", { time: formatClock("2026-11-01T06:30:00.000Z") })}`,
+				);
+			});
+
+			it("reads asleep when no tab holds its session", async () => {
+				installMockOmp([...LIST, botSession]);
+				seedStores();
+				useBotStore.setState({ enabled: true, path: BOT });
+				await mount(<Sidebar />);
+
+				expect(botRow().querySelector("button")?.getAttribute("title")).toContain(
+					translate("botHome.state.asleep"),
+				);
+			});
 		});
 
 		it("shows the name the owner gave it and follows the filter by that name alone", async () => {
