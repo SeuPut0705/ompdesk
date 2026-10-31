@@ -1529,8 +1529,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
 	// One answer path for the owner's own and a paired device's (`host.botDesk.answer`): recorded first, so the bot is
 	// told once, and an answer for a decision that is gone or answered is refused here.
-	const answerBotDecision = ({ id, answer }: BotDeskAnswer): void =>
-		void agentControl.botDecisionAnswered(deps.botDesk.answer(id, answer));
+	const answerBotDecision = ({ id, answer, draft }: BotDeskAnswer): void =>
+		void agentControl.botDecisionAnswered(deps.botDesk.answer(id, answer, draft));
+	// The owner paused or resumed the bot, by its edit, an Undo of one, or a paired device's: its mail waits or goes.
+	let botPaused = deps.botDesk.state().paused === true;
+	deps.botDesk.onChange(() => {
+		const paused = deps.botDesk.state().paused === true;
+		if (paused === botPaused) return;
+		botPaused = paused;
+		agentControl.botPausedChanged(paused);
+	});
 	// The owner's edits (and a paired device's, `host.botDesk.edit`): one path, `bot-desk-edit.ts`.
 	const editDesk = (edit: BotDeskEdit): Promise<void> => {
 		if ((edit.op === "channel_add" || edit.op === "channel_remove") && !botEnabled(prefsStore.get(BOT_ENABLED_PREF)))

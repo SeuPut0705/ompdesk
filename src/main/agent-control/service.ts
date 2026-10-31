@@ -3888,6 +3888,10 @@ export class AgentControl {
 						question: args.question,
 						...(args.options === undefined ? {} : { options: args.options }),
 						...(args.context === undefined ? {} : { context: args.context }),
+						...(args.operation === undefined ? {} : { operation: args.operation }),
+						...(args.inputs === undefined ? {} : { inputs: args.inputs }),
+						...(args.draft === undefined ? {} : { draft: args.draft }),
+						...(args.expires_in_minutes === undefined ? {} : { expiresInMinutes: args.expires_in_minutes }),
 					});
 					return `Decision ${decision.id} is posted for the owner and waits on your desk. Keep working: do not wait for it and do not ask again. The answer arrives later as a message that starts your turn and names ${decision.id}.`;
 				}

@@ -134,6 +134,8 @@ import { tabCloseStep } from "./tab-close";
 export const CARD_TIMEOUT_MS = 10 * 60_000;
 /** The bot's omp takes its rules at once (a journal line); a tell that waits longer holds up the reports behind it. */
 const BOT_ROLE_TIMEOUT_MS = 15_000;
+/** The stop log's caller for the Stop that pausing the bot sends its running turn (`turn-stop-log.ts`). */
+const BOT_PAUSE_CALLER = "bot-pause";
 const WORKTREE_PREFIX = "omp/agent/";
 /** A child's activity comes in bursts; its review item is rebuilt (git runs) once it settles. */
 const REVIEW_SETTLE_MS = 400;
@@ -352,6 +354,8 @@ export class AgentControlRuntime {
 	/** Control-tool calls by their identity, so one a paired host re-sends after a relaunch runs once. */
 	readonly #calls: CallJournal;
 	#redelivering = false;
+	/** A pass was asked for while one ran (the bot was resumed): it runs once more when that one ends. */
+	#redeliverAgain = false;
 	/** Callers outside OMPdesk by id (`runOutside`), kept while the app runs: their sessions' provenance. */
 	readonly #outside = new Map<string, OutsideCaller>();
 	/** Whoever hears the reports addressed to an outside caller (the control socket's event stream). */
@@ -562,6 +566,23 @@ export class AgentControlRuntime {
 	}
 
 	/**
+	 * The owner paused or resumed the bot (`BotDesk.setPaused`). Paused, the turn it is running is stopped and no mail
+	 * reaches its session (`#sendMail`): its wakes, decision answers and reports wait in the outbox. Resumed, the
+	 * outbox pass sends them, oldest first, and the bot continues. Mail to any other session is unaffected.
+	 */
+	botPausedChanged(paused: boolean): void {
+		if (!paused) return this.#redeliverMail();
+		const path = activeBotPath(key => this.#deps.prefs.get(key));
+		const owner = path ? this.#deps.pool.sessionOwner(path) : undefined;
+		const tab = owner ? this.#botTab(owner.tabId) : null;
+		if (!tab || tab.status === "asleep" || tab.status === "exited" || tab.status === "error") return;
+		// An owner's pause, not a person's Stop button: logged as an agent-control stop with this caller.
+		void this.#hostCommand(tab.tabId, { type: "abort", origin: { agentControl: BOT_PAUSE_CALLER } }).catch(
+			() => undefined,
+		);
+	}
+
+	/**
 	 * The owner answered a decision the bot posted: the answer reaches the bot as a message that starts its turn, through
 	 * the outbox like a report (an omp that misses it gets it again). A closed bot is opened in the background and an
 	 * asleep one started, as a wake does. While the bot is off nothing is told: it is no session to wake. A bot that
@@ -579,7 +600,14 @@ export class AgentControlRuntime {
 			fromTitle: "Decision answered",
 			to: "",
 			kind: "note",
-			text: `The owner answered your decision ${decision.id}.\nQuestion: ${decision.question}\nAnswer: ${decision.answer}`,
+			text: [
+				`The owner answered your decision ${decision.id}.`,
+				`Question: ${decision.question}`,
+				...(decision.operation ? [`Operation: ${decision.operation}`] : []),
+				`Answer: ${decision.answer}`,
+				// The draft as the owner left it: they may have edited it; send or write this text, not your own.
+				...(decision.draft !== undefined ? [`Draft as the owner approved it:\n${decision.draft}`] : []),
+			].join("\n"),
 			instruction: "Continue from this answer: pick up the work the decision held back. Do not ask the owner again.",
 			at: Date.now(),
 		};
@@ -1583,8 +1611,12 @@ export class AgentControlRuntime {
 		details: Record<string, unknown>,
 		delivery: MailDelivery,
 	): Promise<{ duplicate?: boolean; journaled?: boolean } | undefined> {
-		// The bot's omp hears the owner's rules before any report: its first turn on it already carries its role.
-		if (this.#bot.isBotTab(tabId)) await this.#bot.role();
+		// A paused bot hears nothing: the report stays in the outbox, and the pass that follows its resume sends it.
+		if (this.#bot.isBotTab(tabId)) {
+			if (this.#deps.botDesk?.desk.state().paused === true) return undefined;
+			// The bot's omp hears the owner's rules before any report: its first turn on it already carries its role.
+			await this.#bot.role();
+		}
 		const response = await this.#hostCommand(tabId, {
 			type: "agent_control_mail",
 			content,
@@ -1600,13 +1632,19 @@ export class AgentControlRuntime {
 
 	/** Accepted reports whose receiver's journal does not hold them yet, sent again to its live tab. */
 	#redeliverMail(): void {
-		if (this.#redelivering) return;
+		if (this.#redelivering) {
+			this.#redeliverAgain = true;
+			return;
+		}
 		this.#redelivering = true;
 		void redeliverMail(this.#outbox, {
 			tabOf: (sessionPath, device) => this.#deps.pool.sessionOwner(sessionPath, device)?.tabId,
 			send: (tabId, mail) => this.#sendMail(tabId, mail.content, mail.details, mail.delivery),
 		}).finally(() => {
 			this.#redelivering = false;
+			if (!this.#redeliverAgain) return;
+			this.#redeliverAgain = false;
+			this.#redeliverMail();
 		});
 	}
 

@@ -9,6 +9,8 @@ import { AUTOPILOT_AREAS } from "../../../resources/gui-bridge/modes/autopilot-c
 import { AGENT_SCHEDULE_PREFIX, AGENT_CONTROL_TOOLS as T } from "../../shared/agent-control";
 import { BOT_ACTIVITY_PAGE } from "../../shared/bot-activity";
 import {
+	BOT_DECISION_DRAFT_MAX,
+	BOT_DECISION_INPUTS_MAX,
 	BOT_DECISION_OPTIONS_MAX,
 	BOT_DUTY_TEXT_MAX,
 	BOT_MEMORY_TEXT_MAX,
@@ -610,6 +612,28 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 					description: `decide: the choices you offer (at most ${BOT_DECISION_OPTIONS_MAX}); omit for a free answer.`,
 				},
 				context: { type: "string", description: "decide: what the owner needs to know to decide." },
+				operation: {
+					type: "string",
+					description:
+						"decide, when the answer approves an action: the exact operation as it would run (the command, the tool call, the release step), shown to the owner verbatim.",
+				},
+				inputs: {
+					type: "object",
+					additionalProperties: { type: "string" },
+					description: `decide: that operation's inputs by name (a target branch, a version, an amount); at most ${BOT_DECISION_INPUTS_MAX}.`,
+				},
+				draft: {
+					type: "string",
+					description:
+						"decide: the text you would send or write once approved (an email, a message, notes); the owner may edit it before answering, and the answer carries their version.",
+				},
+				expires_in_minutes: {
+					type: "integer",
+					minimum: 1,
+					maximum: 10080,
+					description:
+						"decide: when the answer stops counting (a hold or a deadline that lapses); after it the owner can no longer answer, and you ask again if you still need it.",
+				},
 				text: {
 					type: "string",
 					description: "duty_add: the duty, one sentence. remember: the fact, one sentence.",
@@ -890,6 +914,13 @@ export const ARGS = {
 				question: z.string().trim().min(1).max(2000),
 				options: z.array(z.string().trim().min(1).max(200)).max(BOT_DECISION_OPTIONS_MAX).optional(),
 				context: z.string().max(4000).optional(),
+				operation: z.string().trim().min(1).max(2000).optional(),
+				inputs: z
+					.record(z.string().trim().min(1).max(80), z.string().max(2000))
+					.refine(inputs => Object.keys(inputs).length <= BOT_DECISION_INPUTS_MAX)
+					.optional(),
+				draft: z.string().max(BOT_DECISION_DRAFT_MAX).optional(),
+				expires_in_minutes: z.number().int().min(1).max(10_080).optional(),
 			})
 			.strict(),
 		z.object({ action: z.literal("duty_add"), text: z.string().trim().min(1).max(BOT_DUTY_TEXT_MAX) }).strict(),

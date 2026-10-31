@@ -101,6 +101,21 @@ describe("ompdesk_bot arguments", () => {
 		expect(() =>
 			args.parse({ action: "decide", question: "Pick", options: Array.from({ length: 7 }, (_, i) => `${i}`) }),
 		).toThrow();
+		expect(
+			args.parse({
+				action: "decide",
+				question: "Release?",
+				operation: " gh release create v1.2.0 ",
+				inputs: { version: "v1.2.0" },
+			}),
+		).toMatchObject({ operation: "gh release create v1.2.0", inputs: { version: "v1.2.0" } });
+		expect(() =>
+			args.parse({
+				action: "decide",
+				question: "Release?",
+				inputs: Object.fromEntries(Array.from({ length: 13 }, (_, i) => [`k${i}`, "v"])),
+			}),
+		).toThrow();
 		expect(() => args.parse({ action: "duty_add" })).toThrow();
 		expect(() => args.parse({ action: "duty_add", text: "x".repeat(301) })).toThrow();
 		expect(() => args.parse({ action: "duty_remove" })).toThrow();

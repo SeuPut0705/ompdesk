@@ -1723,6 +1723,8 @@ describe("the bot's desk", () => {
 			question: "Ship the release?",
 			options: ["Yes", "No"],
 			context: "All checks pass.",
+			operation: "gh release create v1.2.0 --target main",
+			inputs: { version: "v1.2.0" },
 		});
 		expect(posted.isError).toBe(false);
 		const [decision] = desk.state().decisions;
@@ -1731,6 +1733,8 @@ describe("the bot's desk", () => {
 			question: "Ship the release?",
 			options: ["Yes", "No"],
 			context: "All checks pass.",
+			operation: "gh release create v1.2.0 --target main",
+			inputs: { version: "v1.2.0" },
 		});
 		expect(posted.text).toBe(
 			`Decision ${decision?.id} is posted for the owner and waits on your desk. Keep working: do not wait for it and do not ask again. The answer arrives later as a message that starts your turn and names ${decision?.id}.`,
@@ -1833,6 +1837,27 @@ describe("the bot's desk", () => {
 		);
 	});
 
+	it("tells the bot the operation it asked about and the draft as the owner edited it", async () => {
+		const { runtime, commands, desk } = await botRig();
+		const open = desk.postDecision({
+			question: "Send this reply?",
+			operation: "gmail send to kim@example.com",
+			draft: "Yes.",
+		});
+		await runtime.botDecisionAnswered(desk.answer(open.id, "Send", "Yes, see you at 3."));
+		await vi.waitFor(() => expect(mails(commands)).toHaveLength(1));
+		const [{ command }] = mails(commands) as [(typeof commands)[number]];
+		expect((command as { content: string }).content).toContain(
+			[
+				"Question: Send this reply?",
+				"Operation: gmail send to kim@example.com",
+				"Answer: Send",
+				"Draft as the owner approved it:",
+				"Yes, see you at 3.",
+			].join("\n"),
+		);
+	});
+
 	it("opens a closed bot in the background and starts an asleep one to hear the answer", async () => {
 		const closed = await botRig({ owned: false, outsideWindow: true });
 		const first = closed.desk.postDecision({ question: "Ship?" });
@@ -1854,6 +1879,102 @@ describe("the bot's desk", () => {
 		await runtime.botDecisionAnswered(desk.answer(open.id, "Yes"));
 		expect(mails(commands)).toEqual([]);
 		expect(spawned).toEqual([]);
+	});
+
+	describe("while the owner has paused it", () => {
+		/** Lets every promise a send chains settle; what must not happen is checked after it. */
+		const settle = async () => {
+			for (let turn = 0; turn < 20; turn++) await Promise.resolve();
+		};
+		const bodyOf = (entry: { command: RpcCommand }) =>
+			"content" in entry.command ? String(entry.command.content) : "";
+
+		it("stops its running turn and keeps every mail for its session in the outbox, then sends them once, in order, on resume", async () => {
+			const { runtime, commands, desk } = await botRig();
+			desk.setPaused(true);
+			runtime.botPausedChanged(true);
+			await settle();
+			const aborts = commands.filter(entry => entry.command.type === "abort");
+			expect(aborts).toHaveLength(1);
+			expect(aborts[0]).toMatchObject({ tabId: "main0001", command: { origin: { agentControl: "bot-pause" } } });
+
+			const first = desk.postDecision({ question: "First?" });
+			const second = desk.postDecision({ question: "Second?" });
+			await runtime.botDecisionAnswered(desk.answer(first.id, "Yes"));
+			await runtime.botDecisionAnswered(desk.answer(second.id, "No"));
+			await settle();
+			expect(mails(commands)).toEqual([]);
+
+			desk.setPaused(false);
+			runtime.botPausedChanged(false);
+			await vi.waitFor(() => expect(mails(commands)).toHaveLength(2));
+			await settle();
+			expect(mails(commands).map(bodyOf)).toEqual([
+				expect.stringContaining("Question: First?"),
+				expect.stringContaining("Question: Second?"),
+			]);
+			expect(commands.filter(entry => entry.command.type === "abort")).toHaveLength(1);
+		});
+
+		it("keeps the bot's own wake-ups waiting too, and leaves mail to every other session alone", async () => {
+			const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ompdesk-pause-"));
+			const botFile = path.join(dir, "bot.jsonl");
+			const otherFile = path.join(dir, "other.jsonl");
+			await fs.writeFile(botFile, "{}\n");
+			await fs.writeFile(otherFile, "{}\n");
+			const desk = new BotDesk({ file: null });
+			const { runtime, commands } = setup({
+				prefs: { bot: botFile, botEnabled: true },
+				tabs: [
+					{ tabId: "main0001", sessionPath: botFile },
+					{ tabId: "other0002", sessionPath: otherFile },
+				],
+				owners: { [botFile]: "main0001", [otherFile]: "other0002" },
+				botDesk: { desk },
+			});
+			const wake = (file: string, runId: string) =>
+				runtime.wakeSession(
+					{
+						id: runId,
+						createdAt: "2026-10-31T09:00:00.000Z",
+						name: "[agent] check",
+						prompt: "Look again",
+						cwd: "/repo",
+						frequency: { kind: "interval", minutes: 30 },
+						model: null,
+						autoApprove: false,
+						enabled: true,
+						wakeSession: file,
+					},
+					runId,
+				);
+			desk.setPaused(true);
+			runtime.botPausedChanged(true);
+			await wake(botFile, "bot-run");
+			await wake(otherFile, "other-run");
+			await vi.waitFor(() => expect(mails(commands)).toHaveLength(1));
+			await settle();
+			expect(mails(commands).map(entry => entry.tabId)).toEqual(["other0002"]);
+			desk.setPaused(false);
+			runtime.botPausedChanged(false);
+			await vi.waitFor(() => expect(mails(commands).map(entry => entry.tabId)).toContain("main0001"));
+		});
+
+		it("sends no stop for a bot with no running omp, and nothing when it is off", async () => {
+			const asleep = await botRig({ status: "asleep" });
+			asleep.desk.setPaused(true);
+			asleep.runtime.botPausedChanged(true);
+			const closed = await botRig({ owned: false });
+			closed.desk.setPaused(true);
+			closed.runtime.botPausedChanged(true);
+			const off = await botRig();
+			off.prefs.botEnabled = false;
+			off.desk.setPaused(true);
+			off.runtime.botPausedChanged(true);
+			await settle();
+			for (const rig of [asleep, closed, off])
+				expect(rig.commands.filter(entry => entry.command.type === "abort")).toEqual([]);
+		});
 	});
 
 	it("tells the bot's omp its duties as soon as they change", async () => {

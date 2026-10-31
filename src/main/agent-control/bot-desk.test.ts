@@ -58,6 +58,31 @@ describe("BotDesk", () => {
 		expect(openBotDecisions(reloaded).map(decision => decision.question)).toEqual(["Which branch?"]);
 	});
 
+	it("keeps the bot paused across a restart, and says nothing when it already is so", () => {
+		const desk = deskOver();
+		desk.addDuty("Watch the release");
+		expect(desk.state()).not.toHaveProperty("paused");
+		const heard = vi.fn();
+		desk.onChange(heard);
+		desk.setPaused(false);
+		expect(heard).not.toHaveBeenCalled();
+		desk.setPaused(true);
+		expect(heard).toHaveBeenCalledTimes(1);
+		expect(desk.state().paused).toBe(true);
+		const written = readFileSync(file, "utf8");
+		desk.setPaused(true);
+		expect(heard).toHaveBeenCalledTimes(1);
+		expect(readFileSync(file, "utf8")).toBe(written);
+		const reloaded = new BotDesk({ file });
+		expect(reloaded.state()).toEqual(desk.state());
+		expect(reloaded.state().paused).toBe(true);
+		reloaded.addDuty("Another");
+		expect(reloaded.state().paused).toBe(true);
+		reloaded.setPaused(false);
+		expect(new BotDesk({ file }).state()).not.toHaveProperty("paused");
+		expect(new BotDesk({ file }).state().duties).toHaveLength(2);
+	});
+
 	it("gives short unique ids, redrawing one in use", () => {
 		const draws = ["aaaa0000", "aaaa0000", "bbbb0000"];
 		const desk = new BotDesk({ file: null, newId: () => draws.shift() ?? "cccc0000" });
@@ -266,6 +291,74 @@ describe("BotDesk", () => {
 		expect(desk.state().identity.tagline).toBe("");
 		expect(log.at(-3)).toMatchObject({ action: "memory_restore", undo: { op: "memory_forget", id: kept.id } });
 	});
+
+	it("keeps the exact operation and its inputs with the decision, trimmed, through its answer and a reload", () => {
+		const desk = deskOver();
+		const open = desk.postDecision({
+			question: "Release v1.2.0?",
+			options: ["Release", "Wait"],
+			operation: "  gh release create v1.2.0 --target main ",
+			inputs: { " version ": " v1.2.0 ", branch: "main", " ": "dropped" },
+		});
+		expect(open).toMatchObject({
+			operation: "gh release create v1.2.0 --target main",
+			inputs: { version: "v1.2.0", branch: "main" },
+		});
+		const answered = desk.answer(open.id, "Release");
+		expect(answered).toMatchObject({ operation: open.operation, inputs: open.inputs, answer: "Release" });
+		expect(new BotDesk({ file }).state().decisions).toEqual([answered]);
+		const many = Object.fromEntries(Array.from({ length: 13 }, (_, index) => [`k${index}`, "v"]));
+		expect(() => desk.postDecision({ question: "Too much?", inputs: many })).toThrow(BotDeskError);
+	});
+
+	it("pauses and resumes, and keeps the tasks the owner marked done, each logged with the edit that takes it back", () => {
+		const log: BotActivityDraft[] = [];
+		const desk = new BotDesk({ file, activity: draft => void log.push(draft) });
+		desk.change({ op: "paused", paused: true }, "owner");
+		desk.change({ op: "paused", paused: true }, "owner");
+		desk.change({ op: "tasks_done", sessions: ["/s/a.jsonl", "/s/b.jsonl"], done: true }, "owner");
+		desk.change({ op: "tasks_done", sessions: ["/s/a.jsonl"], done: true }, "owner");
+		expect(new BotDesk({ file }).state()).toMatchObject({ paused: true, tasksDone: ["/s/a.jsonl", "/s/b.jsonl"] });
+		expect(log.map(entry => [entry.action, entry.text, entry.undo])).toEqual([
+			["paused", "paused", { op: "paused", paused: false }],
+			["task_done", "2", { op: "tasks_done", sessions: ["/s/a.jsonl", "/s/b.jsonl"], done: false }],
+		]);
+		for (const entry of log.toReversed())
+			if (entry.undo && isDeskChange(entry.undo)) desk.change(entry.undo, "owner");
+		expect(desk.state()).toMatchObject({ tasksDone: [] });
+		expect(desk.state().paused).toBeUndefined();
+		desk.change(
+			{
+				op: "tasks_done",
+				sessions: Array.from({ length: 201 }, (_, i) => `/s/${i}.jsonl`).slice(0, 200),
+				done: true,
+			},
+			"owner",
+		);
+		desk.change({ op: "tasks_done", sessions: ["/s/newest.jsonl"], done: true }, "owner");
+		expect(desk.state().tasksDone).toHaveLength(200);
+		expect(desk.state().tasksDone.at(-1)).toBe("/s/newest.jsonl");
+		expect(desk.state().tasksDone[0]).toBe("/s/1.jsonl");
+	});
+
+	it("keeps the owner's edit of the draft with the answer, and refuses an answer once the decision expired", () => {
+		const desk = deskOver();
+		const email = desk.postDecision({ question: "Send this reply?", draft: "Hi Kim,\nyes.", expiresInMinutes: 10 });
+		// Ten minutes from the moment it was posted (the desk's clock reads 09:00:00 then).
+		expect(email.expiresAt).toBe("2026-10-31T09:10:00.000Z");
+		expect(desk.answer(email.id, "Send", "Hi Kim,\nyes, see you at 3.")).toMatchObject({
+			draft: "Hi Kim,\nyes, see you at 3.",
+			answer: "Send",
+		});
+		// Without the owner's edit the bot's own draft stands; a decision without a draft takes none.
+		const plain = desk.postDecision({ question: "Ship?", draft: "Release notes" });
+		expect(desk.answer(plain.id, "Yes")).toMatchObject({ draft: "Release notes" });
+		const bare = desk.postDecision({ question: "Ship again?" });
+		expect(desk.answer(bare.id, "Yes", "ignored")).not.toHaveProperty("draft");
+		const lapsing = desk.postDecision({ question: "Hold the slot?", expiresInMinutes: 0 });
+		expect(() => desk.answer(lapsing.id, "Yes")).toThrow(/expired/);
+		expect(desk.state().decisions.find(decision => decision.id === lapsing.id)?.state).toBe("open");
+	});
 });
 
 describe("botWakes", () => {
@@ -317,7 +410,11 @@ describe("botDeskText", () => {
 		);
 		const desk = deskOver(null);
 		desk.addDuty("Watch the build");
-		const decision = desk.postDecision({ question: "Ship?", options: ["Yes", "No"] });
+		const decision = desk.postDecision({
+			question: "Ship?",
+			options: ["Yes", "No"],
+			operation: "gh release create v1.2.0\n--target main",
+		});
 		const answered = desk.postDecision({ question: "Done already?" });
 		desk.answer(answered.id, "Yes");
 		expect(
@@ -331,7 +428,7 @@ describe("botDeskText", () => {
 				"- Watch the build (id 00000000)",
 				"Memories: none.",
 				"Open decisions (1), waiting for the owner:",
-				`- ${decision.id}: Ship? [options: Yes | No] (posted 2026-10-31T09:00:01.000Z)`,
+				`- ${decision.id}: Ship? [operation: gh release create v1.2.0 --target main] [options: Yes | No] (posted 2026-10-31T09:00:01.000Z)`,
 				"Wakes you scheduled (1):",
 				"- w1: next 2026-10-31T10:00:00.000Z: check the build",
 			].join("\n"),

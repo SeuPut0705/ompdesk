@@ -27,6 +27,18 @@ export const BOT_PERSONA_MAX = 1500;
 export const BOT_AVATAR_URL_MAX = 120_000;
 export const BOT_CHANNELS_MAX = 12;
 export const BOT_CHANNEL_TITLE_MAX = 80;
+/** Named inputs a decision may carry with its operation. */
+export const BOT_DECISION_INPUTS_MAX = 12;
+export const BOT_DECISION_DRAFT_MAX = 8000;
+/** Tasks the owner marked done that the desk remembers. */
+export const BOT_TASKS_DONE_MAX = 200;
+/** Library items the owner pinned to the top. */
+export const BOT_LIBRARY_PINS_MAX = 50;
+
+/** A decision past its `expiresAt`: answering it is refused, and it no longer waits on the owner. */
+export function decisionExpired(decision: { expiresAt?: string }, now: number): boolean {
+	return decision.expiresAt !== undefined && Date.parse(decision.expiresAt) <= now;
+}
 
 const id = z.string().min(1).max(64);
 export const BotDutySchema = z.object({
@@ -44,6 +56,25 @@ const DecisionBase = z.object({
 	options: z.array(z.string().trim().min(1).max(200)).max(BOT_DECISION_OPTIONS_MAX),
 	/** What the owner needs to know to decide. */
 	context: z.string().max(4000).optional(),
+	/**
+	 * The exact operation the owner approves or refuses, as it would run (a command, a tool call, a release step):
+	 * the card shows it verbatim, so a "yes" approves this and nothing vaguer.
+	 */
+	operation: z.string().trim().min(1).max(2000).optional(),
+	/** That operation's inputs by name (a target branch, a version, an amount), shown beside it. */
+	inputs: z
+		.record(z.string().trim().min(1).max(80), z.string().max(2000))
+		.refine(inputs => Object.keys(inputs).length <= BOT_DECISION_INPUTS_MAX, {
+			message: `At most ${BOT_DECISION_INPUTS_MAX} inputs.`,
+		})
+		.optional(),
+	/**
+	 * Text the bot would send or write once approved (an email, a message, a release note): the owner may edit it
+	 * before answering, and the answer carries the text as they left it.
+	 */
+	draft: z.string().max(BOT_DECISION_DRAFT_MAX).optional(),
+	/** ISO time after which the answer no longer counts (a deadline, a hold that lapses); absent = never expires. */
+	expiresAt: z.string().optional(),
 	/** ISO time it was posted. */
 	at: z.string(),
 });
@@ -159,6 +190,15 @@ export const BotDeskFileSchema = z.object({
 	notify: BotNotifySchema.default({}),
 	voice: BotVoiceSchema.default({}),
 	channels: z.array(BotChannelSchema).max(BOT_CHANNELS_MAX).default([]),
+	/** The owner paused the bot: no mail starts a turn in its session until they resume it. Absent: running. */
+	paused: z.boolean().optional(),
+	/**
+	 * Sessions the bot opened that the owner marked done (Duet: only the owner completes a task), by session file,
+	 * newest last; the bot's own report never completes one. Bounded: the oldest marks go first.
+	 */
+	tasksDone: z.array(z.string().min(1).max(4096)).max(BOT_TASKS_DONE_MAX).default([]),
+	/** Library items the owner pinned, newest last (`library_pin`). */
+	libraryPins: z.array(z.string().min(1).max(4096)).max(BOT_LIBRARY_PINS_MAX).default([]),
 });
 export type BotDeskFile = z.infer<typeof BotDeskFileSchema>;
 
@@ -183,6 +223,8 @@ export const EMPTY_BOT_DESK_FILE: BotDeskFile = {
 	notify: { progress: "banner", decisions: "both", done: "both", progressEvery: "all" },
 	voice: { speakReplies: false },
 	channels: [],
+	tasksDone: [],
+	libraryPins: [],
 };
 export const EMPTY_BOT_DESK: BotDeskState = { ...EMPTY_BOT_DESK_FILE, wakes: [] };
 
@@ -192,9 +234,10 @@ export function parseBotDeskFile(value: unknown): BotDeskFile {
 	return parsed.success ? parsed.data : EMPTY_BOT_DESK_FILE;
 }
 
-/** The open decisions, oldest first: the home's inbox and the bot row's count. */
-export function openBotDecisions(desk: Pick<BotDeskFile, "decisions">): BotDecision[] {
-	return desk.decisions.filter(decision => decision.state === "open");
+/** The decisions still waiting on the owner, oldest first: the dock's inbox and the bot row's count. An expired one
+ * waits on nobody. */
+export function openBotDecisions(desk: Pick<BotDeskFile, "decisions">, now = Date.now()): BotDecision[] {
+	return desk.decisions.filter(decision => decision.state === "open" && !decisionExpired(decision, now));
 }
 
 /** The duties as the bot's prompt lists them, one line each; empty when there are none. */
@@ -232,10 +275,12 @@ export function botIdentityText(identity: Pick<BotIdentity, "tagline" | "persona
 		.join("\n");
 }
 
-/** IPC: `BOT_DESK_ANSWER`'s payload. `answer` is one of the options or the owner's own words. */
+/** IPC: `BOT_DESK_ANSWER`'s payload. `answer` is one of the options or the owner's own words; `draft` is the
+ * decision's draft as the owner edited it before answering. */
 export const BotDeskAnswerSchema = z.object({
 	id: z.string().min(1).max(64),
 	answer: z.string().trim().min(1).max(2000),
+	draft: z.string().max(BOT_DECISION_DRAFT_MAX).optional(),
 });
 export type BotDeskAnswer = z.infer<typeof BotDeskAnswerSchema>;
 

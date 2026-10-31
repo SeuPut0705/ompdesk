@@ -14,7 +14,9 @@ import {
 	BOT_DECISION_OPTIONS_MAX,
 	BOT_DECISIONS_ANSWERED_KEPT,
 	BOT_DUTIES_MAX,
+	BOT_LIBRARY_PINS_MAX,
 	BOT_MEMORIES_MAX,
+	BOT_TASKS_DONE_MAX,
 	type BotChannel,
 	BotChannelSchema,
 	type BotDecision,
@@ -32,6 +34,7 @@ import {
 	type BotWake,
 	botDutiesText,
 	botMemoryText,
+	decisionExpired,
 	EMPTY_BOT_DESK_FILE,
 	parseBotDeskFile,
 } from "../../shared/bot-desk";
@@ -62,6 +65,14 @@ export interface DecisionDraft {
 	question: string;
 	options?: readonly string[];
 	context?: string;
+	/** The exact operation the answer approves or refuses, verbatim. */
+	operation?: string;
+	/** That operation's inputs by name. */
+	inputs?: Readonly<Record<string, string>>;
+	/** Text the owner may edit before answering (an email, a message). */
+	draft?: string;
+	/** After this many minutes the answer no longer counts. */
+	expiresInMinutes?: number;
 }
 
 function read(file: string): BotDeskFile {
@@ -102,6 +113,13 @@ export class BotDesk {
 			memories: [...data.memories],
 			channels: [...data.channels],
 		};
+	}
+
+	/** The owner paused the bot (`paused`) or resumed it. Nothing is written or heard when it already is so. */
+	setPaused(paused: boolean): void {
+		if ((this.#data.paused === true) === paused) return;
+		const { paused: _was, ...rest } = this.#data;
+		this.#commit(paused ? { ...rest, paused: true } : rest);
 	}
 
 	/** Called after every change that was written; returns the unsubscribe. */
@@ -175,12 +193,25 @@ export class BotDesk {
 		if (options.length > BOT_DECISION_OPTIONS_MAX)
 			throw new BotDeskError(`A decision offers at most ${BOT_DECISION_OPTIONS_MAX} options.`);
 		const context = draft.context?.trim();
+		const operation = draft.operation?.trim();
+		const inputs = Object.entries(draft.inputs ?? {})
+			.map(([name, value]) => [name.trim(), value.trim()] as const)
+			.filter(([name]) => name !== "");
+		// Minutes from now, as the bot asks for it; the card counts down to it.
+		const expiresAt =
+			draft.expiresInMinutes === undefined
+				? undefined
+				: new Date(this.#now().getTime() + draft.expiresInMinutes * 60_000).toISOString();
 		const decision = this.#valid(BotDecisionSchema, {
 			id: this.#id(),
 			state: "open",
 			question: draft.question.trim(),
 			options,
 			...(context ? { context } : {}),
+			...(operation ? { operation } : {}),
+			...(inputs.length > 0 ? { inputs: Object.fromEntries(inputs) } : {}),
+			...(draft.draft?.trim() ? { draft: draft.draft } : {}),
+			...(expiresAt ? { expiresAt } : {}),
 			at: this.#stamp(),
 		});
 		if (decision.state !== "open") throw new BotDeskError("A new decision is open.");
@@ -194,14 +225,21 @@ export class BotDesk {
 	 * heard once is never sent a second time. Keeps the newest `BOT_DECISIONS_ANSWERED_KEPT` answered decisions and
 	 * every open one.
 	 */
-	answer(id: string, answer: string): AnsweredDecision {
+	answer(id: string, answer: string, draft?: string): AnsweredDecision {
 		const index = this.#data.decisions.findIndex(decision => decision.id === id);
 		const current = this.#data.decisions[index];
 		if (!current) throw new BotDeskError(`No decision "${id}" is on the desk.`);
 		if (current.state === "answered") throw new BotDeskError(`Decision "${id}" was already answered.`);
+		if (decisionExpired(current, this.#now().getTime()))
+			throw new BotDeskError(
+				`Decision "${id}" expired at ${current.expiresAt}; the bot asks again if it still needs it.`,
+			);
+		// The owner's edit of the bot's draft replaces it; a decision without a draft takes none.
+		const kept = current.draft === undefined ? undefined : (draft ?? current.draft);
 		const answered = this.#valid(BotDecisionSchema, {
 			...current,
 			state: "answered",
+			...(kept === undefined ? {} : { draft: kept }),
 			answer: answer.trim(),
 			answeredAt: this.#stamp(),
 		});
@@ -316,6 +354,50 @@ export class BotDesk {
 					by,
 					text: voice.speakReplies ? "on" : "off",
 					undo: { op: "voice", speakReplies: before.speakReplies },
+				});
+				return;
+			}
+			case "paused": {
+				if ((this.#data.paused === true) === edit.paused) return;
+				this.setPaused(edit.paused);
+				this.#log({
+					kind: "desk",
+					action: "paused",
+					by,
+					text: edit.paused ? "paused" : "resumed",
+					undo: { op: "paused", paused: !edit.paused },
+				});
+				return;
+			}
+			case "tasks_done": {
+				const before = new Set(this.#data.tasksDone);
+				const changed = edit.sessions.filter(session => before.has(session) !== edit.done);
+				if (changed.length === 0) return;
+				const tasksDone = edit.done
+					? [...this.#data.tasksDone, ...changed].slice(-BOT_TASKS_DONE_MAX)
+					: this.#data.tasksDone.filter(session => !changed.includes(session));
+				this.#commit({ ...this.#data, tasksDone });
+				this.#log({
+					kind: "desk",
+					action: edit.done ? "task_done" : "task_reopen",
+					by,
+					text: String(changed.length),
+					undo: { op: "tasks_done", sessions: changed, done: !edit.done },
+				});
+				return;
+			}
+			case "library_pin": {
+				if (this.#data.libraryPins.includes(edit.key) === edit.pinned) return;
+				const libraryPins = edit.pinned
+					? [...this.#data.libraryPins, edit.key].slice(-BOT_LIBRARY_PINS_MAX)
+					: this.#data.libraryPins.filter(key => key !== edit.key);
+				this.#commit({ ...this.#data, libraryPins });
+				this.#log({
+					kind: "desk",
+					action: edit.pinned ? "library_pin" : "library_unpin",
+					by,
+					text: edit.key,
+					undo: { op: "library_pin", key: edit.key, pinned: !edit.pinned },
 				});
 				return;
 			}
@@ -518,7 +600,7 @@ export function botDeskText(desk: BotDeskState): string {
 			? `Open decisions (${open.length}), waiting for the owner:\n${open
 					.map(
 						decision =>
-							`- ${decision.id}: ${oneLine(decision.question, 200)}${decision.options.length > 0 ? ` [options: ${decision.options.join(" | ")}]` : ""} (posted ${decision.at})`,
+							`- ${decision.id}: ${oneLine(decision.question, 200)}${decision.operation ? ` [operation: ${oneLine(decision.operation, 200)}]` : ""}${decision.options.length > 0 ? ` [options: ${decision.options.join(" | ")}]` : ""} (posted ${decision.at}${decision.expiresAt ? `, expires ${decision.expiresAt}` : ""})`,
 					)
 					.join("\n")}`
 			: "Open decisions: none.",

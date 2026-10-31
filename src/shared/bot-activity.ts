@@ -72,6 +72,11 @@ export const BOT_ACTIVITY_ACTIONS = [
 	"rules",
 	"approval_asked",
 	"routine_run",
+	"paused",
+	"task_done",
+	"task_reopen",
+	"library_pin",
+	"library_unpin",
 ] as const;
 export type BotActivityAction = (typeof BOT_ACTIVITY_ACTIONS)[number];
 
