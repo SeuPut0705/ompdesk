@@ -4452,7 +4452,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			appendMessage(answer);
 			write({ type: "message_end", message: answer });
 			endTurn([user, answer]);
-		} else if (message === "fixture socket drop") {
+		} else if (message === "fixture socket drop" || message === "fixture socket drop recovered") {
 			// Bun's own words when the provider's socket closes mid-response (Wi-Fi rejoining). Stock classes it
 			// transient and runs its auto-retry saga in stock's order (agent-session.ts agent_end routing,
 			// turn-recovery.ts `handleRetryableError`): the failed attempt's `message_end`, `auto_retry_start`, the
@@ -4460,9 +4460,37 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			// `auto_retry_end` failed and the terminal `agent_end`. The prompt stays in flight (`isStreaming`) all along.
 			// Every attempt fails the same way while the network is gone; `/retry` afterwards answers like
 			// `fixture network error`.
-			networkFailed = true;
+			// `recovered`: the first retry gets through, but its answer starts only after `OMP_GUI_TEST_SOCKET_ANSWER_MS`
+			// (25 Oct 2026: 55 s to the first byte). Stock closes the saga once that answer settled with output
+			// (turn-recovery.ts `onAssistantSettledSuccessfully`): its `message_end`, `auto_retry_end` success, then the
+			// terminal `agent_end`.
+			const recovers = message === "fixture socket drop recovered";
+			if (!recovers) networkFailed = true;
 			const maxAttempts = 3;
 			const delayMs = Number(process.env.OMP_GUI_TEST_SOCKET_RETRY_MS ?? 1500);
+			const answerMs = Number(process.env.OMP_GUI_TEST_SOCKET_ANSWER_MS ?? 8000);
+			const answer = (attempt: number, failed: AgentMessage) => {
+				socketRetry = {
+					attempt,
+					failed,
+					timer: setTimeout(() => {
+						socketRetry = undefined;
+						const reply: AgentMessage = {
+							role: "assistant",
+							content: [{ type: "text", text: "Answered after the dropped connection" }],
+							timestamp: Date.now(),
+							provider: model.provider,
+							model: model.id,
+							stopReason: "stop",
+						};
+						appendMessage(reply);
+						write({ type: "message_start", message: reply });
+						write({ type: "message_end", message: reply });
+						write({ type: "auto_retry_end", success: true, attempt });
+						endTurn([reply]);
+					}, answerMs),
+				};
+			};
 			const fail = (attempt: number) => {
 				const failed: AgentMessage = {
 					role: "assistant",
@@ -4488,7 +4516,8 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 						socketRetry = undefined;
 						write({ type: "agent_end", messages: [failed], isTerminal: false });
 						write({ type: "agent_start" });
-						fail(attempt + 1);
+						if (recovers) answer(attempt, failed);
+						else fail(attempt + 1);
 					}, delayMs),
 				};
 			};

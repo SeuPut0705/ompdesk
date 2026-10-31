@@ -2490,6 +2490,35 @@ describe("SidecarPool background tabs", () => {
 		});
 	});
 
+	it("puts the open retry saga on the tab's status from its auto_retry_start until stock closes it", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		const a = sidecars[0];
+		a?.emitStatus("ready");
+		const statuses = () => fw.sentTo(IPC_EVENTS.TAB_STATUS).map(entry => entry.data as IpcTabStatusPayload);
+		const saga = { attempt: 1, maxAttempts: 3, delayMs: 10, errorMessage: "socket closed" };
+
+		a?.emitEvents([{ type: "agent_start" }]);
+		// A background tab hears only its status: the saga is news there even though the run stays busy.
+		const before = statuses().length;
+		a?.emitEvents([{ type: "auto_retry_start", ...saga }]);
+		expect(statuses()).toHaveLength(before + 1);
+		expect(statuses().at(-1)).toMatchObject({ status: "running", retrySaga: saga });
+		expect(statuses().at(-1)?.retrySaga?.startedAt).toBeTypeOf("number");
+		// Stock's backoff ends: the coalesced agent_end and the retried request's agent_start stay inside the saga.
+		a?.emitEvents([{ type: "agent_end", messages: [], isTerminal: false }, { type: "agent_start" }]);
+		expect(statuses().at(-1)).toMatchObject({ status: "running", retrySaga: saga });
+
+		// The retried answer settled: stock closes the saga, and the turn goes on to its own end.
+		a?.emitEvents([{ type: "auto_retry_end", success: true, attempt: 1 }]);
+		expect(statuses().at(-1)?.status).toBe("running");
+		expect(statuses().at(-1)).not.toHaveProperty("retrySaga");
+		a?.emitEvents([{ type: "agent_end", messages: [] }]);
+		expect(statuses().at(-1)?.status).toBe("ready");
+		expect(pool.tabsForWindow(fw.win).find(tab => tab.tabId === "tab-a")).not.toHaveProperty("retrySaga");
+	});
+
 	describe("resume facts (turn-resume.ts)", () => {
 		it("reports a running turn, an open ask, Stop, and the waiting-for-connection state per tab", async () => {
 			const { pool, sidecars } = fakePool();
@@ -3505,6 +3534,18 @@ describe("SidecarPool device views (a paired device viewing a tab of a window he
 		const reading = view.runReading();
 		expect(reading).toMatchObject({ running: true, turn: true });
 		expect(reading.elapsedMs).toBeGreaterThanOrEqual(0);
+		// Mid-saga: the device's view heard no auto_retry_start, and the failed attempt is no outcome yet.
+		sidecar.emitEvents([
+			{ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 10, errorMessage: "socket closed" },
+			{ type: "agent_end", messages: [], isTerminal: false },
+		]);
+		expect(view.runReading().saga).toMatchObject({
+			attempt: 1,
+			maxAttempts: 3,
+			delayMs: 10,
+			errorMessage: "socket closed",
+			ended: true,
+		});
 	});
 
 	it("hands the device the tab's omp: its stream but never its host tool calls, the tab counts it as a viewer", async () => {

@@ -45,7 +45,7 @@ import { type SettingsStore, useSettingsStore } from "../stores/settings";
 import { useSubagentGraphStore } from "../stores/subagent-graph";
 import { type SubagentsStore, useSubagentsStore } from "../stores/subagents";
 import { ensureTabRuntime } from "../stores/tab-runtime";
-import { isTabClosed, type SessionTab, useTabsStore } from "../stores/tabs";
+import { isTabClosed, type SessionTab, sagaRetryInfo, useTabsStore } from "../stores/tabs";
 import { useTodoStore } from "../stores/todo";
 import { type ToolsStore, useToolsStore } from "../stores/tools";
 
@@ -894,7 +894,14 @@ async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackNa
 		focusUnchanged: true,
 		command: runtime.command,
 		applyState: (wire, startedAt) => {
-			withSessionRuntime(tabId, () => applySessionState(wire, fallbackName, startedAt));
+			withSessionRuntime(tabId, () => {
+				applySessionState(wire, fallbackName, startedAt);
+				// A view that joined after the retry saga started heard no auto_retry_start, and its status may have
+				// come before this runtime existed: main's status for the tab has the saga.
+				const saga = useTabsStore.getState().tabs.find(tab => tab.id === tabId)?.retrySaga;
+				if (wire.isStreaming && saga && useSessionStore.getState().retryInfo === null)
+					useSessionStore.setState({ retryInfo: sagaRetryInfo(saga, null) });
+			});
 			// An idle session has no retry outstanding, whatever end event was missed.
 			if (!wire.isStreaming) retryPendingTabs.delete(tabId);
 		},

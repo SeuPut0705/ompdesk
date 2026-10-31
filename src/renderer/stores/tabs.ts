@@ -36,6 +36,7 @@ import { create, type StoreApi } from "zustand";
 import type { AgentControlViewEvent } from "../../shared/agent-control";
 import type {
 	IpcOpenExtensionRequest,
+	IpcRetrySaga,
 	IpcScheduledRetry,
 	IpcSignIn,
 	IpcSpawnTabResult,
@@ -146,6 +147,8 @@ export interface SessionTab {
 	runningSince?: number;
 	/** The tab's failed turn retries by itself at `at` (main's turn-resume schedule); the error card counts it down. */
 	scheduledRetry?: IpcScheduledRetry;
+	/** While `running`: stock's auto-retry saga the turn is in (main's `retrySaga`); hydration seeds the retry row from it. */
+	retrySaga?: IpcRetrySaga;
 	/** Another window owns this tab and this one views it (multi-viewer); closing it here only leaves it. */
 	shared?: true;
 	/** How many windows besides the owner show this tab; absent when none does. Main's list is the authority. */
@@ -299,10 +302,23 @@ function projectSessionTab(
 		...(info.settling === true ? { settling: true as const } : {}),
 		...(info.status === "running" && info.runningSince !== undefined ? { runningSince: info.runningSince } : {}),
 		...(info.scheduledRetry ? { scheduledRetry: info.scheduledRetry } : {}),
+		...(info.status === "running" && info.retrySaga ? { retrySaga: info.retrySaga } : {}),
 		// A status push carries no viewer fields: only a tab list (GET_TABS, TAB_LIST_CHANGED) states them.
 		...(previous?.shared ? { shared: true as const } : {}),
 		...(previous?.viewerCount === undefined ? {} : { viewerCount: previous.viewerCount }),
 	};
+}
+
+/**
+ * The retry row main's saga calls for: the row the tab's own `auto_retry_start` set while it is the same attempt (its
+ * countdown runs on this renderer's clock), else the attempt as main reports it; null once no saga is open.
+ */
+export function sagaRetryInfo(
+	saga: IpcRetrySaga | undefined,
+	shown: SessionStore["retryInfo"],
+): SessionStore["retryInfo"] {
+	if (!saga) return null;
+	return shown?.attempt === saga.attempt ? shown : { ...saga };
 }
 
 /**
@@ -1175,12 +1191,16 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			void attachTabSession(payload.tabId);
 		}
 		// The end events that clear the retry/compaction rows and the retry gate
-		// only reach a visible tab; main's view of the run is authoritative.
+		// only reach a visible tab; main's view of the run is authoritative. So is
+		// its retry saga: a tab shown after the saga started (a background tab, a
+		// view that joined later) heard no auto_retry_start, and the failed attempt
+		// then read as the turn's end (a failure card for the whole retried request).
 		const running = payload.status === "running";
 		const compacting = payload.compacting === true;
 		if (!running) resetRetryPending(payload.tabId);
+		const shownRetry = (session ? session.getState() : useSessionStore.getState()).retryInfo;
 		const settled = {
-			...(running ? {} : { retryInfo: null }),
+			retryInfo: running ? sagaRetryInfo(payload.retrySaga, shownRetry) : null,
 			...(compacting ? {} : { compactionInfo: null }),
 		};
 		if (session) {

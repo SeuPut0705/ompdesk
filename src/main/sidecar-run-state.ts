@@ -4,7 +4,7 @@
  * same thing on every machine, and both report the same facts to their
  * computer's resume coordinator (turn-resume.ts).
  */
-import type { IpcTabRunOutcome } from "../shared/ipc-types";
+import type { IpcRetrySaga, IpcTabRunOutcome } from "../shared/ipc-types";
 import type { AgentMessage, AgentSessionEvent } from "../shared/rpc-types";
 
 export interface RunState {
@@ -14,8 +14,11 @@ export interface RunState {
 	awaitingSettled: boolean;
 	/** A turn runs in front: agent_start seen, its last attempt not yet ended (`running` also covers settling). */
 	turn: boolean;
-	/** Inside an auto-retry saga: its coalesced agent_end is not the end of the run. */
-	retrying: boolean;
+	/**
+	 * Inside stock's auto-retry saga (`auto_retry_start` until `auto_retry_end`; a recovered saga closes once the retried
+	 * answer settled): its latest attempt. Its coalesced agent_end is not the end of the run.
+	 */
+	saga?: IpcRetrySaga;
 	/** The saga's coalesced agent_end arrived while the retry was still outstanding. */
 	endedWhileRetrying: boolean;
 	/** Automatic compaction state once observed since the spawn; true blocks session mutation. */
@@ -33,11 +36,13 @@ export interface RunReading {
 	turn: boolean;
 	compacting?: boolean;
 	elapsedMs?: number;
+	/** The open retry saga, its attempt's start as elapsed time; `ended`: its coalesced agent_end already came. */
+	saga?: Omit<IpcRetrySaga, "startedAt"> & { elapsedMs: number; ended: boolean };
 }
 
 /** A fresh spawn's state, and what a restart or crash leaves: the run dies with the process. */
 export function idleRun(): RunState {
-	return { running: false, awaitingSettled: false, turn: false, retrying: false, endedWhileRetrying: false };
+	return { running: false, awaitingSettled: false, turn: false, endedWhileRetrying: false };
 }
 
 export function runBusy(run: RunState): boolean {
@@ -54,26 +59,52 @@ export function runSettling(run: RunState): boolean {
 
 /**
  * How a run stands, for a party that saw none of its events: a device re-attaching to a paired host's tab, a window
- * joining a tab another one runs. The start goes as elapsed time, since no clock between two computers is shared.
+ * or a device joining a tab another one runs. The start goes as elapsed time, since no clock between two computers is
+ * shared. An open retry saga goes too: a view that heard none of its `auto_retry_start` read the failed attempt as the
+ * turn's end (31 Oct 2026, a paired desktop showed the failure card for the whole retried request).
  */
 export function runReading(run: RunState, now = Date.now()): RunReading {
+	const { saga } = run;
 	return {
 		running: run.running,
 		turn: run.turn,
 		...(run.compacting !== undefined ? { compacting: run.compacting } : {}),
 		...(run.since !== undefined ? { elapsedMs: Math.max(0, now - run.since) } : {}),
+		...(saga
+			? {
+					saga: {
+						attempt: saga.attempt,
+						maxAttempts: saga.maxAttempts,
+						delayMs: saga.delayMs,
+						errorMessage: saga.errorMessage,
+						elapsedMs: Math.max(0, now - saga.startedAt),
+						ended: run.endedWhileRetrying,
+					},
+				}
+			: {}),
 	};
 }
 
 /** The run a {@link runReading} describes; `kept` is this side's own reading, whose pending settlement survives. */
 export function runFromReading(reading: RunReading, kept?: RunState, now = Date.now()): RunState {
+	const saga = reading.running ? reading.saga : undefined;
 	return {
 		running: reading.running,
 		turn: reading.turn,
 		awaitingSettled:
 			reading.running && (!reading.turn || (kept !== undefined && runBusy(kept) && kept.awaitingSettled)),
-		retrying: false,
-		endedWhileRetrying: false,
+		endedWhileRetrying: saga?.ended === true,
+		...(saga
+			? {
+					saga: {
+						attempt: saga.attempt,
+						maxAttempts: saga.maxAttempts,
+						delayMs: saga.delayMs,
+						errorMessage: saga.errorMessage,
+						startedAt: now - saga.elapsedMs,
+					},
+				}
+			: {}),
 		...(reading.compacting !== undefined ? { compacting: reading.compacting } : {}),
 		...(reading.running
 			? { since: reading.elapsedMs !== undefined ? now - reading.elapsedMs : (kept?.since ?? now) }
@@ -106,7 +137,7 @@ export function applyRunEvent(run: RunState, event: AgentSessionEvent, now = Dat
 		case "agent_end":
 			// The saga's coalesced agent_end can arrive before its auto_retry_end;
 			// only that end event says whether the run is over.
-			if (run.retrying) {
+			if (run.saga) {
 				run.endedWhileRetrying = true;
 				return false;
 			}
@@ -117,11 +148,17 @@ export function applyRunEvent(run: RunState, event: AgentSessionEvent, now = Dat
 			}
 			return true;
 		case "auto_retry_start":
-			run.retrying = true;
+			run.saga = {
+				attempt: event.attempt,
+				maxAttempts: event.maxAttempts,
+				delayMs: event.delayMs,
+				errorMessage: event.errorMessage,
+				startedAt: now,
+			};
 			return false;
 		case "auto_retry_end": {
 			const failedAfterEnd = !event.success && run.endedWhileRetrying;
-			run.retrying = false;
+			delete run.saga;
 			run.endedWhileRetrying = false;
 			if (failedAfterEnd) run.turn = false;
 			if (failedAfterEnd && !run.awaitingSettled) {

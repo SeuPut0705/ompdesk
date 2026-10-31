@@ -1519,6 +1519,21 @@ export interface IpcScheduledRetry {
 	attempt: number;
 }
 
+/**
+ * Stock's auto-retry saga a tab's turn is in (`auto_retry_start` until `auto_retry_end`): its latest attempt. The
+ * failed attempt it retries is no outcome while it lasts.
+ */
+export interface IpcRetrySaga {
+	attempt: number;
+	maxAttempts: number;
+	/** The backoff before the attempt's request. */
+	delayMs: number;
+	/** The failure the attempt retries. */
+	errorMessage: string;
+	/** When the attempt's `auto_retry_start` came (epoch ms, the clock of the computer that reports it). */
+	startedAt: number;
+}
+
 /** One tab of a window: its sidecar's cwd, last status, and cached session meta. */
 export interface IpcTabInfo {
 	/** Opaque snowflake id minted by main at acquire. */
@@ -1577,6 +1592,11 @@ export interface IpcTabInfo {
 	resuming?: boolean;
 	/** The tab's failed turn retries by itself at `at` (resume, src/main/turn-resume.ts). */
 	scheduledRetry?: IpcScheduledRetry;
+	/**
+	 * While `status` is `running`: stock's auto-retry saga the turn is in. Rides the status because a tab that was not
+	 * shown when the saga started (a background tab, a view that joined later) never heard its `auto_retry_start`.
+	 */
+	retrySaga?: IpcRetrySaga;
 	/**
 	 * `status` is `running` only because stock's background work (subagents, async jobs) keeps the session unsettled
 	 * after its turn ended (`prompt_result.sessionSettled: false` until `session_settled`): the session cards show the

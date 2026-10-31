@@ -158,6 +158,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // A click then a modifier pressed alone shows no focus style (`lib/focus-modality.ts`, loaded after the first screen by
 // one dynamic import in main.tsx; 31 Oct 2026): 1,548 bytes (its 1,346-byte chunk and the 202-byte import), measured
 // 3,220,084 with the other changes of 31 Oct in the tree.
+// A retry saga rides the tab status (`retrySaga`; 31 Oct 2026): the tabs store and session hydration, both on the first
+// screen, put stock's open retry on a tab shown after it started, so its failed attempt shows no failure card: measured
+// 3,220,084 with it and the other changes of 31 Oct in the tree.
 const WEB_FIRST_SCREEN_JS_BYTES = 3_220_634;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's

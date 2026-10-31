@@ -425,6 +425,20 @@ export const TabRunArg = z.object({
 	compacting: z.boolean().optional(),
 	/** How long ago the run started, by the host's clock (no clock between the two computers is shared). */
 	elapsedMs: z.number().nonnegative().optional(),
+	/**
+	 * Stock's auto-retry saga the turn is in (sidecar-run-state.ts `RunReading.saga`): a device that joins mid-saga heard
+	 * none of its `auto_retry_start`. An older device drops it.
+	 */
+	saga: z
+		.object({
+			attempt: z.number(),
+			maxAttempts: z.number(),
+			delayMs: z.number(),
+			errorMessage: z.string(),
+			elapsedMs: z.number().nonnegative(),
+			ended: z.boolean(),
+		})
+		.optional(),
 });
 export type TabRunArg = z.infer<typeof TabRunArg>;
 

@@ -1512,17 +1512,36 @@ describe("tabs store applyTabStatus", () => {
 describe("tabs store background tab signals", () => {
 	const tabOf = (id: string) => useTabsStore.getState().tabs.find(tab => tab.id === id);
 
-	it("clears retry and compaction rows once main reports the run is over", () => {
+	it("follows main's retry saga, and clears the retry and compaction rows once main reports the run is over", () => {
 		seedTabs();
 		const session = sessionRuntimeStore<SessionStore>("t1", "session")!;
-		session.setState({
-			retryInfo: { attempt: 1, maxAttempts: 3, delayMs: 1000, errorMessage: "529", startedAt: 1 },
-			compactionInfo: { reason: "threshold", action: "compacting" },
-		});
-		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "running" });
-		expect(session.getState().retryInfo).not.toBeNull();
+		const shown = { attempt: 1, maxAttempts: 3, delayMs: 1000, errorMessage: "529", startedAt: 1 };
+		session.setState({ retryInfo: shown, compactionInfo: { reason: "threshold", action: "compacting" } });
+		const saga = { ...shown, startedAt: 5 };
+		const status = (retrySaga?: typeof saga) =>
+			useTabsStore
+				.getState()
+				.applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "running", retrySaga });
+		status(saga);
+		// The attempt the tab's own auto_retry_start set keeps its row (its countdown runs on this renderer's clock).
+		expect(session.getState().retryInfo).toBe(shown);
 		expect(session.getState().compactionInfo).toBeNull();
 
+		// 25 Oct 2026: a tab shown after the saga started heard no auto_retry_start, so the failed attempt read as the
+		// turn's end and its failure card stayed up for the whole retried request. Main's status carries the saga.
+		session.setState({ retryInfo: null });
+		status(saga);
+		expect(session.getState().retryInfo).toEqual(saga);
+		expect(tabOf("t1")?.retrySaga).toEqual(saga);
+		status({ ...saga, attempt: 2 });
+		expect(session.getState().retryInfo?.attempt).toBe(2);
+
+		// The saga closed (stock's retry answered, the turn goes on): no retry row.
+		status();
+		expect(session.getState().retryInfo).toBeNull();
+		expect(tabOf("t1")?.retrySaga).toBeUndefined();
+
+		status(saga);
 		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "ready" });
 		expect(session.getState().retryInfo).toBeNull();
 	});

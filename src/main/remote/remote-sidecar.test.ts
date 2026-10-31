@@ -338,13 +338,25 @@ describe("RemoteSidecar", () => {
 		]);
 	});
 
-	it("hands the pool the host's reading of the turn, and drops a malformed one", () => {
+	it("hands the pool the host's reading of the turn, its retry saga included, and drops a malformed one", () => {
 		const { sidecar } = setup();
 		const runs: unknown[] = [];
 		sidecar.on("hostRun", run => runs.push(run));
 		sidecar.handleEvent({ rtab: "tab-1", name: "run", arg: { running: true, turn: false, elapsedMs: 1200 } });
 		sidecar.handleEvent({ rtab: "tab-1", name: "run", arg: { running: "yes" } });
-		expect(runs).toEqual([{ running: true, turn: false, elapsedMs: 1200 }]);
+		const saga = {
+			attempt: 1,
+			maxAttempts: 3,
+			delayMs: 2000,
+			errorMessage: "socket closed",
+			elapsedMs: 900,
+			ended: false,
+		};
+		sidecar.handleEvent({ rtab: "tab-1", name: "run", arg: { running: true, turn: true, elapsedMs: 5000, saga } });
+		expect(runs).toEqual([
+			{ running: true, turn: false, elapsedMs: 1200 },
+			{ running: true, turn: true, elapsedMs: 5000, saga },
+		]);
 	});
 
 	describe("a re-attach after a lost link", () => {

@@ -1144,6 +1144,7 @@ export class SidecarPool {
 			const wasSettling = runSettling(entry.run);
 			const wasPlaceholder = entry.placeholder;
 			const wasSince = entry.run.since;
+			const wasSaga = entry.run.saga;
 			// A plan proposal blocks a hidden tab's session on the user: it goes to
 			// that tab's runtime here (the full channel carries it for a shown tab).
 			let hiddenProposals: AgentSessionEvent[] | undefined;
@@ -1190,7 +1191,8 @@ export class SidecarPool {
 				busyChanged ||
 				runSettling(entry.run) !== wasSettling ||
 				entry.placeholder !== wasPlaceholder ||
-				entry.run.since !== wasSince
+				entry.run.since !== wasSince ||
+				entry.run.saga !== wasSaga
 			) {
 				this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			}
@@ -2694,6 +2696,7 @@ function tabStatusPayload(entry: PoolEntry): IpcTabStatusPayload {
 	if (payload.status === "running" && runSettling(entry.run)) payload.settling = true;
 	if (payload.status === "running" && entry.run.since !== undefined) payload.runningSince = entry.run.since;
 	if (entry.run.compacting !== undefined) payload.compacting = entry.run.compacting;
+	if (payload.status === "running" && entry.run.saga) payload.retrySaga = entry.run.saga;
 	if (entry.sessionId !== undefined) payload.sessionId = entry.sessionId;
 	if (entry.title !== undefined) payload.title = entry.title;
 	if (entry.task !== undefined) payload.task = entry.task;
