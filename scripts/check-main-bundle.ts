@@ -199,7 +199,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // A decision leaving the dock and the bot rows' counts at its deadline (1 Nov 2026): `useDecisionClock` and
 // `useOpenBotDecisions` in the desk store both sidebars read: measured 3,252,878, 725 bytes over the measure above.
 // A deadline weeks away waits in timer-sized steps (1 Nov 2026): measured 3,253,002, 124 bytes over the measure above.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_253_500;
+// The bot's voice chat and its avatar generation (1 Nov 2026): the call store `BotPane` reads to mount the call bar,
+// the API's two avatar calls and the new strings; the call loop, its bar and the avatar dialog stay in lazy chunks:
+// measured 3,254,545, 1,543 bytes over the measure above.
+const WEB_FIRST_SCREEN_JS_BYTES = 3_255_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
