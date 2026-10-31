@@ -13,6 +13,8 @@
  * - Channels: side chats on one topic each, sessions that share the bot's desk and memory.
  */
 import { z } from "zod";
+import { SCHEDULE_RUNS_PER_SCHEDULE } from "./schedules";
+import { ScheduleFrequencySchema, ScheduleRunSchema } from "./schedules-schema";
 
 export const BOT_DUTIES_MAX = 20;
 export const BOT_DUTY_TEXT_MAX = 300;
@@ -88,14 +90,21 @@ export const BotDecisionSchema = z.discriminatedUnion("state", [
 ]);
 export type BotDecision = z.infer<typeof BotDecisionSchema>;
 
-/** A wake the bot scheduled for itself (`ompdesk_schedule {"target":"self"}`), as the home lists it. */
-export const BotWakeSchema = z.object({
+/**
+ * One of the bot's routines: a schedule that wakes its session (`ompdesk_schedule {"target":"self"}`), on a clock, once
+ * or on an event, as its desk lists it. `name` is without the agent mark; `runs` are its newest first.
+ */
+export const BotRoutineSchema = z.object({
 	id: z.string(),
+	name: z.string(),
 	prompt: z.string(),
-	/** ISO time of the next start; null when the schedule is paused or has none. */
+	frequency: ScheduleFrequencySchema,
+	enabled: z.boolean(),
+	/** ISO time of the next start; null when it is off, paused, spent, or starts on an event. */
 	next: z.string().nullable(),
+	runs: z.array(ScheduleRunSchema).max(SCHEDULE_RUNS_PER_SCHEDULE),
 });
-export type BotWake = z.infer<typeof BotWakeSchema>;
+export type BotRoutine = z.infer<typeof BotRoutineSchema>;
 
 /** The marks an avatar can wear; `components/bot/BotAvatar.tsx` draws each with its icon. */
 export const BOT_AVATAR_SHAPES = [
@@ -202,9 +211,11 @@ export const BotDeskFileSchema = z.object({
 });
 export type BotDeskFile = z.infer<typeof BotDeskFileSchema>;
 
-/** What a window reads (`BOT_DESK_GET`) and hears (`BOT_DESK_CHANGED`): the file plus the bot's own wakes. */
+/** What a window reads (`BOT_DESK_GET`) and hears (`BOT_DESK_CHANGED`): the file plus the bot's routines. */
 export interface BotDeskState extends BotDeskFile {
-	wakes: BotWake[];
+	routines: BotRoutine[];
+	/** The owner is showing the bot a workflow (`main/agent-control/bot-teach.ts`) since this ISO time; null/absent = not. */
+	teaching?: { since: string } | null;
 }
 
 /**
@@ -212,7 +223,8 @@ export interface BotDeskState extends BotDeskFile {
  * host sends no identity, memories, notify, voice or channels: they read as their defaults.
  */
 export const BotDeskStateSchema: z.ZodType<BotDeskState, z.ZodTypeDef, unknown> = BotDeskFileSchema.extend({
-	wakes: z.array(BotWakeSchema),
+	routines: z.array(BotRoutineSchema),
+	teaching: z.object({ since: z.string() }).nullable().optional(),
 });
 
 export const EMPTY_BOT_DESK_FILE: BotDeskFile = {
@@ -226,7 +238,7 @@ export const EMPTY_BOT_DESK_FILE: BotDeskFile = {
 	tasksDone: [],
 	libraryPins: [],
 };
-export const EMPTY_BOT_DESK: BotDeskState = { ...EMPTY_BOT_DESK_FILE, wakes: [] };
+export const EMPTY_BOT_DESK: BotDeskState = { ...EMPTY_BOT_DESK_FILE, routines: [] };
 
 /** A stored file as main reads it: anything unreadable is an empty desk, never a crash. */
 export function parseBotDeskFile(value: unknown): BotDeskFile {

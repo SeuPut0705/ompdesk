@@ -30,7 +30,9 @@ export type TurnStopBy =
 	| "quit"
 	| "turn-resume"
 	/** "Stop and delete" of a session whose delete a running turn refused (sidebar, `sessions:stop`). */
-	| "session-delete";
+	| "session-delete"
+	/** The Stop of a routine's run that woke a session (`ScheduleService`, agent-control `wakeSession`). */
+	| "schedule";
 
 export interface TurnStop {
 	command: string;

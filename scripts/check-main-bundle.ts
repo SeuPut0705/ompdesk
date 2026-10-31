@@ -185,7 +185,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // tasks-done and pin fields in the desk schema the store reads, the bot tab's context in the work board and its strip,
 // and the board row's open-and-act form; Tasks, Library and the cards stay in the bot's lazy chunk: measured
 // 3,239,068, 1,888 bytes over the measure above.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_240_000;
+// The bot's routines (1 Nov 2026): the desk's routines with their schedule and run shapes (`shared/schedules-schema.ts`,
+// read by the desk store the first screen's sidebar uses) and the routines, run history and teaching strings; the
+// routines section itself stays in the lazy desk chunk: measured 3,242,506, 3,438 bytes over the measure above.
+const WEB_FIRST_SCREEN_JS_BYTES = 3_243_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

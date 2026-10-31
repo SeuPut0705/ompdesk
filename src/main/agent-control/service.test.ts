@@ -12,7 +12,7 @@ import type {
 	RpcGitUnlanded,
 	RpcResponse,
 } from "../../shared/rpc-types";
-import type { ScheduleDraft } from "../../shared/schedules";
+import type { ScheduleDraft, ScheduleRun } from "../../shared/schedules";
 import type { RpcTurnEdits } from "../../shared/turn-edits";
 import type { FileEdits } from "../web/file-edit-reports";
 import type { BranchEvidence, BranchFacts, LandingFacts, MergeOutcome, WorktreeRef, WorktreeRemoval } from "./branches";
@@ -235,7 +235,41 @@ class FakeHost implements AgentControlHost {
 		remove: async id => {
 			this.scheduleRows = this.scheduleRows.filter(row => row.id !== id);
 		},
+		update: async (id, change) => {
+			const index = this.scheduleRows.findIndex(row => row.id === id);
+			const before = this.scheduleRows[index] as ScheduleRow;
+			const draft = change({
+				name: before.name,
+				prompt: "before",
+				cwd: before.cwd,
+				frequency: before.frequency,
+				model: null,
+				autoApprove: false,
+				enabled: before.enabled,
+			});
+			this.updatedDrafts.push(draft);
+			const row: ScheduleRow = { ...before, name: draft.name, frequency: draft.frequency, enabled: draft.enabled };
+			this.scheduleRows[index] = row;
+			return row;
+		},
+		setEnabled: async (id, enabled) => {
+			const index = this.scheduleRows.findIndex(row => row.id === id);
+			const row: ScheduleRow = {
+				...(this.scheduleRows[index] as ScheduleRow),
+				enabled,
+				nextRun: enabled ? "2026-10-18T09:00:00.000Z" : null,
+			};
+			this.scheduleRows[index] = row;
+			return row;
+		},
+		runNow: async id => {
+			this.ranNow.push(id);
+		},
+		runs: async id => this.scheduleRuns.filter(run => run.scheduleId === id),
 	};
+	updatedDrafts: ScheduleDraft[] = [];
+	ranNow: string[] = [];
+	scheduleRuns: ScheduleRun[] = [];
 	savedDrafts: ScheduleDraft[] = [];
 	/** The device each `schedules()` call asked for (undefined = this computer). */
 	scheduleDevices: (string | undefined)[] = [];
@@ -1890,8 +1924,23 @@ describe("ompdesk_schedule", () => {
 			(await service.run("main0001", T.schedule, { ...base, every_minutes: 60, folder: "relative/dir" })).text,
 		).toMatch(/absolute/);
 		expect((await service.run("main0001", T.schedule, { ...base })).text).toMatch(
-			/exactly one of every_minutes or daily_at/,
+			/exactly one of every_minutes, daily_at, at, in_minutes or on/,
 		);
+		expect((await service.run("main0001", T.schedule, { ...base, every_minutes: 60, in_minutes: 5 })).text).toMatch(
+			/exactly one of/,
+		);
+		expect(
+			(await service.run("main0001", T.schedule, { ...base, on: { source: "files", path: "rel/dir" } })).text,
+		).toMatch(/on.path must be an absolute path/);
+		expect(
+			(
+				await service.run("main0001", T.schedule, {
+					...base,
+					on: { source: "github", repo: "nope", events: ["issue"] },
+				})
+			).text,
+		).toMatch(/owner\/name/);
+		expect((await service.run("main0001", T.schedule, { action: "pause" })).text).toMatch(/pause needs id/);
 		expect(
 			(await service.run("main0001", T.schedule, { action: "create", name: "n", every_minutes: 60 })).text,
 		).toMatch(/needs prompt/);
@@ -1919,7 +1968,7 @@ describe("ompdesk_schedule", () => {
 		expect(listed.text).toContain(
 			"user0001 “Weekly report” daily at 08:00 in /work; next —; last run succeeded [the user's own: leave it]",
 		);
-		expect(listed.text).toContain("[made by an agent: you can cancel it]");
+		expect(listed.text).toContain("[made by an agent: you can change it]");
 		expect((await service.run("main0001", T.schedule, { action: "cancel", id: "user0001" })).text).toMatch(
 			/the user's own schedule/,
 		);
@@ -1930,6 +1979,116 @@ describe("ompdesk_schedule", () => {
 		expect((await service.run("main0001", T.schedule, { action: "cancel", id: "nope0000" })).text).toMatch(
 			/No scheduled run/,
 		);
+	});
+
+	it("creates once and event starts: a follow-up in N minutes, a webhook with its key, a git trigger in the caller's repo", async () => {
+		const host = new FakeHost({ tabId: "main0001", cwd: "/repo" });
+		host.manage = true;
+		const service = control(host);
+		const before = Date.now();
+		await service.run("main0001", T.schedule, { action: "create", name: "f", prompt: "p", in_minutes: 30 });
+		const once = host.savedDrafts[0]?.frequency;
+		expect(once?.kind).toBe("once");
+		const at = once?.kind === "once" ? Date.parse(once.at) : 0;
+		expect(at).toBeGreaterThanOrEqual(before + 30 * 60_000);
+		expect(at).toBeLessThan(Date.now() + 30 * 60_000 + 1);
+		await service.run("main0001", T.schedule, {
+			action: "create",
+			name: "h",
+			prompt: "p",
+			on: { source: "webhook" },
+		});
+		// The service makes the key: the tool asks for one with an empty key.
+		expect(host.savedDrafts[1]?.frequency).toEqual({ kind: "event", event: { source: "webhook", key: "" } });
+		await service.run("main0001", T.schedule, {
+			action: "create",
+			name: "g",
+			prompt: "p",
+			on: { source: "git", branch: "main" },
+		});
+		expect(host.savedDrafts[2]?.frequency).toEqual({
+			kind: "event",
+			event: { source: "git", repo: "/repo", branch: "main" },
+		});
+		host.scheduleRows[1] = {
+			...(host.scheduleRows[1] as ScheduleRow),
+			frequency: { kind: "event", event: { source: "webhook", key: "k".repeat(32) } },
+		};
+		const listed = await service.run("main0001", T.schedule, { action: "list" });
+		expect(listed.text).toContain("on a webhook call in /repo; waits for its event");
+	});
+
+	it("pauses, resumes, tests, updates and reads the runs of the agent's own; the user's own only its runs", async () => {
+		const host = new FakeHost({ tabId: "main0001", cwd: "/repo" });
+		host.manage = true;
+		host.scheduleRows.push({
+			id: "user0001",
+			name: "Weekly report",
+			frequency: { kind: "daily", time: "08:00", days: [] },
+			cwd: "/work",
+			enabled: true,
+			nextRun: null,
+			lastStatus: null,
+		});
+		const service = control(host);
+		await service.run("main0001", T.schedule, { action: "create", name: "mine", prompt: "p", every_minutes: 45 });
+		const own = host.scheduleRows[1] as ScheduleRow;
+		expect((await service.run("main0001", T.schedule, { action: "pause", id: own.id })).text).toBe(
+			`Paused “[agent] mine” on this computer; off.`,
+		);
+		expect((await service.run("main0001", T.schedule, { action: "resume", id: own.id })).text).toContain("Resumed");
+		expect((await service.run("main0001", T.schedule, { action: "run", id: own.id })).text).toContain(
+			"Started a test run",
+		);
+		expect(host.ranNow).toEqual([own.id]);
+		const updated = await service.run("main0001", T.schedule, {
+			action: "update",
+			id: own.id,
+			prompt: "new prompt",
+			on: { source: "session", events: ["failed"], folder: "repo" },
+		});
+		expect(updated.text).toContain("when a session fails a turn in a folder containing repo; waits for its event");
+		expect(host.updatedDrafts[0]).toMatchObject({
+			name: "[agent] mine",
+			prompt: "new prompt",
+			frequency: { kind: "event", event: { source: "session", events: ["failed"], folder: "repo" } },
+		});
+		host.scheduleRuns.push(
+			{
+				id: "r2",
+				scheduleId: own.id,
+				trigger: "event",
+				startedAt: "2026-10-31T10:00:00.000Z",
+				endedAt: "2026-10-31T10:01:00.000Z",
+				status: "failed",
+				exitCode: null,
+				error: "The turn ended with an error",
+				detail: 'Session "x" failed its turn',
+			},
+			{
+				id: "r1",
+				scheduleId: own.id,
+				trigger: "manual",
+				startedAt: "2026-10-31T09:00:00.000Z",
+				endedAt: "2026-10-31T09:01:00.000Z",
+				status: "succeeded",
+				exitCode: 0,
+				error: null,
+			},
+		);
+		const runs = (await service.run("main0001", T.schedule, { action: "runs", id: own.id })).text;
+		expect(runs).toContain(
+			'- 2026-10-31T10:00:00.000Z failed (event) ended 2026-10-31T10:01:00.000Z — reason: The turn ended with an error — fired by: Session "x" failed its turn',
+		);
+		expect(runs).toContain("- 2026-10-31T09:00:00.000Z succeeded (test)");
+		// The user's own: its runs can be read, nothing else.
+		expect((await service.run("main0001", T.schedule, { action: "runs", id: "user0001" })).text).toContain(
+			"has not run yet",
+		);
+		for (const action of ["pause", "resume", "run", "update"])
+			expect((await service.run("main0001", T.schedule, { action, id: "user0001" })).text).toMatch(
+				/the user's own schedule/,
+			);
 	});
 
 	it("says so when there is no Schedules service", async () => {

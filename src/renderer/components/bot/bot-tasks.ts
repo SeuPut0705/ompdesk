@@ -22,9 +22,23 @@ export interface BotTasks {
 	completed: TaskItem[];
 }
 
-/** The bot's scheduled wakes, soonest first and paused ones last (the desk's order): the Scheduled list's rows. */
-export function scheduledOf(desk: Pick<BotDeskState, "wakes">): TaskItem[] {
-	return desk.wakes.map(wake => ({ kind: "wake", key: `wake:${wake.id}`, prompt: wake.prompt, next: wake.next }));
+/**
+ * The bot's routines that start on a clock, the next to start first and the off ones last (the desk's order): the
+ * Scheduled list's rows. A routine that waits for an event is no scheduled task, and a spent one-time one is done.
+ */
+export function scheduledOf(desk: Pick<BotDeskState, "routines">): TaskItem[] {
+	return desk.routines
+		.filter(
+			routine =>
+				routine.frequency.kind !== "event" &&
+				!(routine.frequency.kind === "once" && !routine.enabled && routine.runs.length > 0),
+		)
+		.map(routine => ({
+			kind: "wake",
+			key: `wake:${routine.id}`,
+			prompt: routine.name || routine.prompt,
+			next: routine.next,
+		}));
 }
 
 const PROGRESS_ORDER: Record<TaskState, number> = { needs: 0, failed: 1, running: 2, review: 3, done: 4 };
@@ -42,7 +56,7 @@ function timeOf(item: TaskItem): number {
 
 export function botTasks(input: {
 	rows: readonly OpenedChildRow[];
-	desk: Pick<BotDeskState, "wakes" | "decisions" | "tasksDone">;
+	desk: Pick<BotDeskState, "routines" | "decisions" | "tasksDone">;
 	/** A finished child the owner has not looked at since (its tab's unread mark). */
 	unread: (row: OpenedChildRow) => boolean;
 	now: number;

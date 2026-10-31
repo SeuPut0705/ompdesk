@@ -2,8 +2,8 @@
  * The bot's parts around its conversation: the bar (name, state, the step it runs, the host's link, Stop now, Pause),
  * the decisions above the composer (operation and inputs, details, an editable draft, expiry; answered with an option
  * or in the owner's own words), and its work board sections: duties (reworded in place, the whole list written on
- * every edit), Tasks (in progress, scheduled, completed; stop, watch, mark done) and the Library, a static skeleton
- * before the first read.
+ * every edit), Tasks (in progress, scheduled, completed; stop, watch, mark done), routines and the Library, a static
+ * skeleton before the first read.
  */
 import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
@@ -14,6 +14,7 @@ import {
 	type BotDeskAnswer,
 	type BotDeskDuties,
 	type BotDeskState,
+	type BotRoutine,
 	EMPTY_BOT_DESK,
 } from "../../../shared/bot-desk";
 import type { BotDeskEdit } from "../../../shared/bot-desk-edit";
@@ -56,7 +57,7 @@ interface Api {
 
 function installApi(overrides: Partial<Api> = {}): Api {
 	const api: Api = {
-		get: vi.fn(async () => ({ ...EMPTY_BOT_DESK, duties: [], decisions: [], wakes: [] })),
+		get: vi.fn(async () => ({ ...EMPTY_BOT_DESK, duties: [], decisions: [], routines: [] })),
 		answer: vi.fn(async () => {}),
 		setDuties: vi.fn(async () => {}),
 		onChanged: vi.fn(() => () => {}),
@@ -70,7 +71,19 @@ function installApi(overrides: Partial<Api> = {}): Api {
 }
 
 function desk(overrides: Partial<BotDeskState> = {}): BotDeskState {
-	return { ...EMPTY_BOT_DESK, duties: [], decisions: [], wakes: [], ...overrides };
+	return { ...EMPTY_BOT_DESK, duties: [], decisions: [], routines: [], ...overrides };
+}
+
+function routine(id: string, prompt: string, next: string | null): BotRoutine {
+	return {
+		id,
+		name: id,
+		prompt,
+		frequency: { kind: "interval", minutes: 30 },
+		enabled: true,
+		next,
+		runs: [],
+	};
 }
 
 const OPEN: BotDecision = {
@@ -351,7 +364,7 @@ describe("the bot's desk", () => {
 		);
 	});
 
-	it("lists the wakes and puts the earliest one, the name and the computer in the bar", async () => {
+	it("lists the routines and puts the earliest start, the name and the computer in the bar", async () => {
 		installApi();
 		useSessionStore.setState({ sessionName: "Jarvis" } as never);
 		useRemoteStore.setState({ state: { host: { name: "SeuPut's Mac" } } } as never);
@@ -361,16 +374,20 @@ describe("the bot's desk", () => {
 		} as never);
 		await mountDesk(
 			desk({
-				wakes: [
-					{ id: "w2", prompt: "Look at the open pull requests", next: "2026-11-02T09:00:00.000Z" },
-					{ id: "w1", prompt: "Check the nightly build", next: "2026-11-01T06:30:00.000Z" },
-					{ id: "w3", prompt: "Paused check", next: null },
+				routines: [
+					routine("w2", "Look at the open pull requests", "2026-11-02T09:00:00.000Z"),
+					routine("w1", "Check the nightly build", "2026-11-01T06:30:00.000Z"),
+					{ ...routine("w3", "Paused check", null), enabled: false },
 				],
 			}),
 		);
 
-		expect(queryAll("[data-bot-wake]").map(row => row.getAttribute("data-bot-wake"))).toEqual(["w2", "w1", "w3"]);
-		expect(query('[data-bot-wake="w3"]')?.textContent).toContain(translate("botHome.wakes.paused"));
+		expect(queryAll("[data-bot-routine]").map(row => row.getAttribute("data-bot-routine"))).toEqual([
+			"w2",
+			"w1",
+			"w3",
+		]);
+		expect(query('[data-bot-routine="w3"]')?.textContent).toContain(translate("botHome.routines.off"));
 		expect(query("[data-bot-bar] [data-bot-name]")?.textContent).toBe("Jarvis");
 		expect(query("[data-bot-state]")?.getAttribute("data-bot-state")).toBe("idle");
 		expect(query("[data-bot-device]")?.textContent).toBe(translate("botHome.device", { device: "SeuPut's Mac" }));
@@ -380,13 +397,14 @@ describe("the bot's desk", () => {
 		);
 	});
 
-	it("says it has nothing in progress or scheduled and no duties when it has none, and keeps the field to add one", async () => {
+	it("says it has nothing in progress or scheduled, no routines and no duties when it has none, and keeps the field to add one", async () => {
 		installApi();
 		await mountDesk(desk());
 
 		expect(query("[data-bot-task-group]")).toBeNull();
 		expect(query("[data-bot-tasks-empty]")?.textContent).toBe(translate("botHome.tasks.noneInProgress"));
 		expect(query("[data-bot-wake]")).toBeNull();
+		expect(query("[data-bot-routines-empty]")).not.toBeNull();
 		expect(query("[data-bot-duty]")).toBeNull();
 		expect(query("[data-bot-duty-input]")).not.toBeNull();
 		expect(query('[data-board-section="library"]')).toBeNull();
@@ -584,7 +602,7 @@ describe("the bot's tasks", () => {
 			childTab("fin", "ready", { lastRun: { stopReason: "stop" }, unreadDone: true }),
 			childTab("fin2", "ready", { lastRun: { stopReason: "stop" } }),
 		]);
-		await mountDesk(desk({ wakes: [{ id: "w1", prompt: "check CI", next: "2026-11-02T06:30:00.000Z" }] }));
+		await mountDesk(desk({ routines: [routine("w1", "check CI", "2026-11-02T06:30:00.000Z")] }));
 
 		const progress = queryAll("[data-bot-task]").map(row => [
 			row.getAttribute("data-bot-task"),

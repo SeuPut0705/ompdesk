@@ -53,6 +53,7 @@ import {
 	EMPTY_BOT_DESK,
 } from "../../shared/bot-desk";
 import { type BotDeskEdit, BotDeskEditSchema } from "../../shared/bot-desk-edit";
+import { type BotTeachRequest, BotTeachRequestSchema, type BotTeachResult } from "../../shared/bot-teach";
 import { codedError } from "../../shared/ipc-error-codes";
 import {
 	HOST_UPLOAD_MAX_BYTES,
@@ -423,6 +424,8 @@ export interface HostedBotDesk {
 	/** The path the owner's own edit takes (`bot-desk-edit.ts`). */
 	edit(payload: BotDeskEdit): Promise<void>;
 	activity(): BotActivityPage;
+	/** Start, stop or cancel showing the bot a workflow (`agent-control/bot-teach.ts`); Stop answers whether it handed the bot a record. */
+	teach(request: BotTeachRequest): Promise<BotTeachResult>;
 }
 
 const Rtab = z.string().min(1).max(128);
@@ -1315,6 +1318,20 @@ export class LocalHostServices implements HostServices {
 			case "host.botDesk.activity": {
 				const desk = this.#hostedBotDesk();
 				return desk.enabled() ? desk.activity() : { entries: [], revision: 0 };
+			}
+			// A device starts, stops or cancels a recording on this computer's bot (it captures what the owner does in this
+			// computer's own windows). Stop wakes the bot on this computer's models: a delivered record is one request of
+			// the device's day, an empty one is refunded.
+			case "host.botDesk.teach": {
+				const request = parse(BotTeachRequestSchema, method, params);
+				const desk = this.#botDeskOn();
+				if (request.action !== "stop") return desk.teach(request);
+				return this.#metered(
+					peer.deviceId,
+					1,
+					() => desk.teach(request),
+					result => result.delivered,
+				);
 			}
 			// The device's sidebar section for this computer: this computer's own project list, the one its windows show.
 			case "host.projects.command":

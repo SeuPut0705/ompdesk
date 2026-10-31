@@ -18,6 +18,7 @@ import {
 	BOT_TAGLINE_MAX,
 } from "../../shared/bot-desk";
 import type { HostToolDefinition } from "../../shared/rpc-types";
+import { GITHUB_EVENT_KINDS, GITHUB_REPO, SESSION_EVENT_KINDS } from "../../shared/schedules";
 import { MAIL_KINDS } from "./mail";
 
 export type ReportArgs = {
@@ -400,16 +401,17 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		name: T.schedule,
 		label: "Schedule an OMPdesk run",
 		description:
-			"Create, list or cancel timed scheduled runs of a prompt.\n" +
-			`Create, list or cancel a scheduled run: a prompt that OMPdesk runs on a timer as a fresh print-mode session in a folder, only while the app is open on that device (its Settings › Schedules shows it, marked ${AGENT_SCHEDULE_PREFIX.trim()}). device picks the computer it runs on (default: the one your session runs on). create needs name, prompt and either every_minutes or daily_at (HH:MM, optional days 0-6). With target "self" the prompt is instead delivered into your own session each time (a wake-up to check later; cancel it when done). No card by default; the user confirms a new one only if they turned off "Let agents manage other sessions". It never runs with auto-approve, and you can cancel only agent-made schedules. See skill://ompdesk.`,
+			"Create, list, change or cancel scheduled runs and routines: on a timer, once, or on an event.\n" +
+			`Create, list, change or cancel a scheduled run: a prompt that OMPdesk runs as a fresh print-mode session in a folder, only while the app is open on that device (its Settings › Schedules shows it, marked ${AGENT_SCHEDULE_PREFIX.trim()}). device picks the computer it runs on (default: the one your session runs on). create needs name, prompt and exactly one start: every_minutes, daily_at (HH:MM, optional days 0-6), at or in_minutes (once), or on (an event: webhook, github, files, git, session). With target "self" the prompt is instead delivered into your own session each time (a routine of yours, or a follow-up to check later). update changes an agent-made one by id; pause, resume and run (a test run now) act on one; runs shows its run history with failure reasons. No card by default; the user confirms a new one only if they turned off "Let agents manage other sessions". It never runs with auto-approve, and you can change or cancel only agent-made schedules. See skill://ompdesk.`,
 		parameters: {
 			type: "object",
 			properties: {
-				action: { type: "string", enum: ["create", "list", "cancel"] },
-				name: { type: "string", description: "create: a short name." },
+				action: { type: "string", enum: ["create", "list", "cancel", "update", "pause", "resume", "run", "runs"] },
+				name: { type: "string", description: "create, update: a short name." },
 				prompt: {
 					type: "string",
-					description: "create: what each run is asked; it has no memory of this conversation.",
+					description:
+						"create, update: what each run is asked; a fresh run has no memory of this conversation. An event run is also told what fired it.",
 				},
 				folder: {
 					type: "string",
@@ -418,25 +420,52 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 				},
 				every_minutes: {
 					type: "integer",
-					description: "create: repeat every N minutes.",
+					description: "create, update: repeat every N minutes (at least 5).",
 				},
-				daily_at: { type: "string", description: "create: local time HH:MM, every day or on days." },
+				daily_at: { type: "string", description: "create, update: local time HH:MM, every day or on days." },
 				days: {
 					type: "array",
 					items: { type: "integer" },
-					description: "create with daily_at: weekdays, 0 = Sunday.",
+					description: "with daily_at: weekdays, 0 = Sunday.",
 				},
-				model: { type: "string", description: "create: provider/id; default omp's default model." },
+				at: {
+					type: "string",
+					description:
+						"create, update: once, at this moment (ISO 8601 with an offset, e.g. 2026-11-02T09:00:00+09:00); it then turns itself off.",
+				},
+				in_minutes: {
+					type: "integer",
+					description: "create, update: once, this many minutes from now (a follow-up); it then turns itself off.",
+				},
+				on: {
+					type: "object",
+					description:
+						'create, update: start on an event instead of a clock. {"source":"webhook"} (POST to this computer\'s OMPdesk web server, the answer gives the URL path and key; Mobile web must be on); {"source":"github","repo":"owner/name","events":["pull_request"|"issue"|"ci_failure"|"release"|"push"]} (asked with the user\'s gh every 5 min); {"source":"files","path":"/abs/path"} (a file or folder changed); {"source":"git","repo":"/abs/repo","branch":"main"} (new local commits); {"source":"session","events":["done"|"failed"|"waiting"],"folder":"text"} (another session on this computer finished, failed or waits for the user; never the bot\'s own or ones it opened). Events during a run start one more run after it.',
+					properties: {
+						source: { type: "string", enum: ["webhook", "github", "files", "git", "session"] },
+						repo: { type: "string" },
+						events: { type: "array", items: { type: "string" } },
+						path: { type: "string" },
+						branch: { type: "string" },
+						folder: { type: "string" },
+					},
+					required: ["source"],
+					additionalProperties: false,
+				},
+				model: { type: "string", description: "create, update: provider/id; default omp's default model." },
 				device: {
 					...DEVICE,
 					description: `${DEVICE.description} The computer whose schedules these are. Default: the device your own session runs on.`,
 				},
-				id: { type: "string", description: "cancel: the schedule id list shows." },
+				id: {
+					type: "string",
+					description: "cancel, update, pause, resume, run, runs: the schedule id list shows.",
+				},
 				target: {
 					type: "string",
 					enum: ["self"],
 					description:
-						'create: "self" delivers the prompt into THIS session at each start, as a message that starts a turn (this session is opened in the background if no tab holds it), instead of running a fresh session. Use it to check back on work later; give the prompt as a note to yourself, since you keep this conversation. This computer\'s sessions only; no folder, model or device; every_minutes at least 5. Repeats until you cancel it.',
+						'create: "self" delivers the prompt into THIS session at each start, as a message that starts a turn (this session is opened in the background if no tab holds it), instead of running a fresh session: a routine or a follow-up of yours. Give the prompt as a note to yourself, since you keep this conversation. This computer\'s sessions only; no folder, model or device. A repeating or event one runs until you cancel it; a once one turns itself off.',
 				},
 			},
 			required: ["action"],
@@ -864,7 +893,7 @@ export const ARGS = {
 	[T.merge]: z.object({ session: sessionArg }).strict(),
 	[T.schedule]: z
 		.object({
-			action: z.enum(["create", "list", "cancel"]),
+			action: z.enum(["create", "list", "cancel", "update", "pause", "resume", "run", "runs"]),
 			name: z.string().trim().min(1).max(60).optional(),
 			prompt: z.string().trim().min(1).max(MESSAGE_MAX_CHARS).optional(),
 			folder: z.string().trim().min(1).max(4096).optional(),
@@ -879,6 +908,44 @@ export const ARGS = {
 				.regex(/^([01]\d|2[0-3]):[0-5]\d$/, "daily_at is HH:MM (24 hours)")
 				.optional(),
 			days: z.array(z.number().int().min(0).max(6)).max(7).optional(),
+			at: z
+				.string()
+				.trim()
+				.refine(value => Number.isFinite(Date.parse(value)), "at is an ISO 8601 moment")
+				.optional(),
+			in_minutes: z
+				.number()
+				.int()
+				.min(1)
+				.max(7 * 24 * 60)
+				.optional(),
+			on: z
+				.discriminatedUnion("source", [
+					z.object({ source: z.literal("webhook") }).strict(),
+					z
+						.object({
+							source: z.literal("github"),
+							repo: z.string().trim().regex(GITHUB_REPO, "repo is owner/name"),
+							events: z.array(z.enum(GITHUB_EVENT_KINDS)).min(1).max(GITHUB_EVENT_KINDS.length),
+						})
+						.strict(),
+					z.object({ source: z.literal("files"), path: z.string().trim().min(1).max(4096) }).strict(),
+					z
+						.object({
+							source: z.literal("git"),
+							repo: z.string().trim().min(1).max(4096).optional(),
+							branch: z.string().trim().min(1).max(250),
+						})
+						.strict(),
+					z
+						.object({
+							source: z.literal("session"),
+							events: z.array(z.enum(SESSION_EVENT_KINDS)).min(1).max(SESSION_EVENT_KINDS.length),
+							folder: z.string().trim().min(1).max(4096).optional(),
+						})
+						.strict(),
+				])
+				.optional(),
 			model: z.string().trim().min(1).max(200).optional(),
 			id: z.string().trim().min(1).max(200).optional(),
 			device: deviceArg.optional(),
@@ -887,19 +954,27 @@ export const ARGS = {
 		.strict()
 		.superRefine((args, ctx) => {
 			const problem = (message: string) => ctx.addIssue({ code: "custom", message });
+			const starts = [args.every_minutes, args.daily_at, args.at, args.in_minutes, args.on].filter(
+				start => start !== undefined,
+			).length;
+			if (args.days !== undefined && args.daily_at === undefined) problem("days goes with daily_at");
 			if (args.action === "create") {
 				if (!args.name) problem("create needs name");
 				if (!args.prompt) problem("create needs prompt");
-				if ((args.every_minutes === undefined) === (args.daily_at === undefined))
-					problem("create needs exactly one of every_minutes or daily_at");
-				if (args.days !== undefined && args.daily_at === undefined) problem("days goes with daily_at");
+				if (starts !== 1) problem("create needs exactly one of every_minutes, daily_at, at, in_minutes or on");
 				if (args.target === "self") {
 					if (args.folder !== undefined) problem("target self wakes this session: it takes no folder");
 					if (args.model !== undefined) problem("target self wakes this session: it takes no model");
 					if (args.device !== undefined)
 						problem("target self wakes this session on this computer: it takes no device");
 				}
-			} else if (args.action === "cancel" && !args.id) problem("cancel needs id");
+			} else {
+				if (args.action !== "list" && !args.id) problem(`${args.action} needs id`);
+				if (args.action === "update" && starts > 1)
+					problem("update takes at most one of every_minutes, daily_at, at, in_minutes or on");
+				if (args.action !== "update" && (starts > 0 || args.name || args.prompt || args.model || args.target))
+					problem(`${args.action} takes only id (and device)`);
+			}
 		}),
 	[T.autopilot]: autopilotArgs,
 	[T.appList]: z

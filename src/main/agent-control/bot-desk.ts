@@ -8,6 +8,7 @@
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import type { ZodType, ZodTypeDef } from "zod";
+import { AGENT_SCHEDULE_PREFIX } from "../../shared/agent-control";
 import type { BotActivityDraft } from "../../shared/bot-activity";
 import {
 	BOT_CHANNELS_MAX,
@@ -30,8 +31,8 @@ import {
 	type BotMemory,
 	BotMemorySchema,
 	BotNotifySchema,
+	type BotRoutine,
 	BotVoiceSchema,
-	type BotWake,
 	botDutiesText,
 	botMemoryText,
 	decisionExpired,
@@ -39,7 +40,7 @@ import {
 	parseBotDeskFile,
 } from "../../shared/bot-desk";
 import type { BotDeskChange, BotDeskEdit } from "../../shared/bot-desk-edit";
-import type { SchedulesState } from "../../shared/schedules";
+import { describeFrequency, SCHEDULE_RUNS_PER_SCHEDULE, type SchedulesState } from "../../shared/schedules";
 import { writeFileAtomicSync } from "../atomic-file";
 
 /** A refusal with a message the caller (the bot, or the owner's window) may read as it is. */
@@ -561,24 +562,26 @@ function keepNewestAnswered(decisions: readonly BotDecision[]): BotDecision[] {
 }
 
 /**
- * The bot's own wake-ups among the schedules: those delivering into its session file (`wakeSession`), soonest first,
- * the paused or off ones last.
+ * The bot's routines among the schedules: those delivering into its session file (`wakeSession`), the next to start
+ * first, then the event ones, the off ones last; each with its own runs, newest first.
  */
-export function botWakes(schedules: Pick<SchedulesState, "schedules" | "nextRuns">, botPath: string | null): BotWake[] {
+export function botRoutines(state: SchedulesState, botPath: string | null): BotRoutine[] {
 	if (botPath === null) return [];
-	const wakes = schedules.schedules
+	const routines = state.schedules
 		.filter(schedule => schedule.wakeSession === botPath)
 		.map(schedule => ({
 			id: schedule.id,
+			name: schedule.name.startsWith(AGENT_SCHEDULE_PREFIX)
+				? schedule.name.slice(AGENT_SCHEDULE_PREFIX.length).trim()
+				: schedule.name,
 			prompt: schedule.prompt,
-			next: schedule.enabled ? (schedules.nextRuns[schedule.id] ?? null) : null,
+			frequency: schedule.frequency,
+			enabled: schedule.enabled,
+			next: schedule.enabled ? (state.nextRuns[schedule.id] ?? null) : null,
+			runs: state.runs.filter(run => run.scheduleId === schedule.id).slice(0, SCHEDULE_RUNS_PER_SCHEDULE),
 		}));
-	return wakes.sort((a, b) => {
-		if (a.next === b.next) return 0;
-		if (a.next === null) return 1;
-		if (b.next === null) return -1;
-		return a.next.localeCompare(b.next);
-	});
+	const rank = (routine: BotRoutine) => (!routine.enabled ? 2 : routine.next === null ? 1 : 0);
+	return routines.sort((a, b) => rank(a) - rank(b) || (a.next ?? "").localeCompare(b.next ?? ""));
 }
 
 function oneLine(text: string, max: number): string {
@@ -604,13 +607,18 @@ export function botDeskText(desk: BotDeskState): string {
 					)
 					.join("\n")}`
 			: "Open decisions: none.",
-		desk.wakes.length > 0
-			? `Wakes you scheduled (${desk.wakes.length}):\n${desk.wakes
-					.map(
-						wake =>
-							`- ${wake.id}: ${wake.next ? `next ${wake.next}` : "not scheduled"}: ${oneLine(wake.prompt, 120)}`,
-					)
+		desk.routines.length > 0
+			? `Your routines (${desk.routines.length}):\n${desk.routines
+					.map(routine => {
+						const last = routine.runs[0];
+						const state = !routine.enabled
+							? "off"
+							: routine.next
+								? `next ${routine.next}`
+								: "waits for its event";
+						return `- ${routine.id} “${routine.name}” ${describeFrequency(routine.frequency)}; ${state}${last ? `; last run ${last.status}${last.error ? ` (${oneLine(last.error, 120)})` : ""}` : ""}: ${oneLine(routine.prompt, 120)}`;
+					})
 					.join("\n")}`
-			: "Wakes you scheduled: none.",
+			: "Your routines: none.",
 	].join("\n");
 }

@@ -55,6 +55,7 @@ const RUNTIME_ERROR_SOURCE_TABLE: Record<RuntimeErrorSource, true> = {
 	"goal-time-limit": true,
 	"turn-stages": true,
 	"chain-stall": true,
+	routines: true,
 	unknown: true,
 };
 

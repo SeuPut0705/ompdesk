@@ -58,7 +58,7 @@ export function BotBar({ tabId, device }: { tabId: string; device?: string }) {
 	const rpc = useTabRpc();
 	const tab = useTabsStore(state => state.tabs.find(entry => entry.id === tabId));
 	const { desk, loaded } = useBotDesk(device);
-	const { wakes } = desk;
+	const { routines } = desk;
 	const paused = desk.paused === true;
 	const edit = useBotDeskStore(store => store.edit);
 	const setPaused = (next: boolean) => void edit({ op: "paused", paused: next }, device);
@@ -73,7 +73,7 @@ export function BotBar({ tabId, device }: { tabId: string; device?: string }) {
 	const name = botDisplayName({ title: sessionName ?? "" }, t("sidebar.botBadge"));
 	const state = botState(tabBotFacts(tab));
 	const step = useCurrentStep(state === "working");
-	const wake = nextWake(wakes);
+	const wake = nextWake(routines);
 	const badge = STATE_BADGE[state];
 	const wakeText = wake ? t("botHome.nextWake", { time: formatClock(wake) }) : t("botHome.noWake");
 	const deviceText = t("botHome.device", { device: computer || t("botHome.thisComputer") });

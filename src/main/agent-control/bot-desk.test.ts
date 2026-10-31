@@ -12,8 +12,8 @@ import {
 	EMPTY_BOT_DESK_FILE,
 	openBotDecisions,
 } from "../../shared/bot-desk";
-import type { Schedule } from "../../shared/schedules";
-import { BotDesk, BotDeskError, botDeskText, botWakes, isDeskChange } from "./bot-desk";
+import type { Schedule, ScheduleRun } from "../../shared/schedules";
+import { BotDesk, BotDeskError, botDeskText, botRoutines, isDeskChange } from "./bot-desk";
 
 let dir: string;
 let file: string;
@@ -361,52 +361,81 @@ describe("BotDesk", () => {
 	});
 });
 
-describe("botWakes", () => {
-	const schedule = (id: string, wakeSession: string | undefined, enabled = true): Schedule => ({
+describe("botRoutines", () => {
+	const schedule = (
+		id: string,
+		wakeSession: string | undefined,
+		enabled = true,
+		frequency: Schedule["frequency"] = { kind: "interval", minutes: 30 },
+	): Schedule => ({
 		id,
-		name: id,
+		name: `[agent] ${id}`,
 		prompt: `prompt ${id}`,
 		cwd: "/work",
-		frequency: { kind: "interval", minutes: 30 },
+		frequency,
 		model: null,
 		autoApprove: false,
 		enabled,
 		createdAt: "2026-10-31T00:00:00.000Z",
 		...(wakeSession === undefined ? {} : { wakeSession }),
 	});
+	const run = (id: string, scheduleId: string, status: ScheduleRun["status"], error: string | null = null) => ({
+		id,
+		scheduleId,
+		trigger: "schedule" as const,
+		startedAt: "2026-10-31T09:00:00.000Z",
+		endedAt: "2026-10-31T09:01:00.000Z",
+		status,
+		exitCode: null,
+		error,
+	});
 
-	it("lists only the schedules that wake the bot's session, soonest first, paused ones last", () => {
-		const wakes = botWakes(
+	it("lists only the schedules that wake the bot's session: timed soonest first, then event ones, off ones last", () => {
+		const routines = botRoutines(
 			{
+				paused: false,
 				schedules: [
 					schedule("late", "/s/bot.jsonl"),
 					schedule("other", "/s/other.jsonl"),
 					schedule("plain", undefined),
 					schedule("off", "/s/bot.jsonl", false),
+					schedule("hook", "/s/bot.jsonl", true, {
+						kind: "event",
+						event: { source: "webhook", key: "k".repeat(32) },
+					}),
 					schedule("soon", "/s/bot.jsonl"),
 				],
+				runs: [run("r2", "late", "failed", "The turn ended with an error"), run("r1", "late", "succeeded")],
 				nextRuns: {
 					late: "2026-10-31T12:00:00.000Z",
 					other: "2026-10-31T08:00:00.000Z",
 					off: "2026-10-31T07:00:00.000Z",
+					hook: null,
 					soon: "2026-10-31T10:00:00.000Z",
 				},
 			},
 			"/s/bot.jsonl",
 		);
-		expect(wakes).toEqual([
-			{ id: "soon", prompt: "prompt soon", next: "2026-10-31T10:00:00.000Z" },
-			{ id: "late", prompt: "prompt late", next: "2026-10-31T12:00:00.000Z" },
-			{ id: "off", prompt: "prompt off", next: null },
+		expect(routines.map(routine => [routine.id, routine.name, routine.next])).toEqual([
+			["soon", "soon", "2026-10-31T10:00:00.000Z"],
+			["late", "late", "2026-10-31T12:00:00.000Z"],
+			["hook", "hook", null],
+			["off", "off", null],
 		]);
-		expect(botWakes({ schedules: [schedule("late", "/s/bot.jsonl")], nextRuns: {} }, null)).toEqual([]);
+		expect(routines[1]?.runs.map(entry => [entry.status, entry.error])).toEqual([
+			["failed", "The turn ended with an error"],
+			["succeeded", null],
+		]);
+		expect(
+			botRoutines({ paused: false, schedules: [schedule("late", "/s/bot.jsonl")], runs: [], nextRuns: {} }, null),
+		).toEqual([]);
 	});
 });
 
 describe("botDeskText", () => {
 	it("is compact and says none for what is empty", () => {
 		expect(botDeskText({ ...EMPTY_BOT_DESK })).toBe(
-			"Standing duties: none.\nMemories: none.\nOpen decisions: none.\nWakes you scheduled: none.",
+			"Standing duties: none.\nMemories: none.\nOpen decisions: none.\nYour routines: none.",
 		);
 		const desk = deskOver(null);
 		desk.addDuty("Watch the build");
@@ -420,7 +449,37 @@ describe("botDeskText", () => {
 		expect(
 			botDeskText({
 				...desk.state(),
-				wakes: [{ id: "w1", prompt: "check the\nbuild", next: "2026-10-31T10:00:00.000Z" }],
+				routines: [
+					{
+						id: "w1",
+						name: "build check",
+						prompt: "check the\nbuild",
+						frequency: { kind: "interval", minutes: 30 },
+						enabled: true,
+						next: "2026-10-31T10:00:00.000Z",
+						runs: [],
+					},
+					{
+						id: "w2",
+						name: "on CI",
+						prompt: "look at the failure",
+						frequency: { kind: "event", event: { source: "github", repo: "o/r", events: ["ci_failure"] } },
+						enabled: true,
+						next: null,
+						runs: [
+							{
+								id: "r",
+								scheduleId: "w2",
+								trigger: "event",
+								startedAt: "2026-10-31T09:00:00.000Z",
+								endedAt: "2026-10-31T09:02:00.000Z",
+								status: "failed",
+								exitCode: null,
+								error: "The turn ended with an error",
+							},
+						],
+					},
+				],
 			}),
 		).toBe(
 			[
@@ -429,8 +488,9 @@ describe("botDeskText", () => {
 				"Memories: none.",
 				"Open decisions (1), waiting for the owner:",
 				`- ${decision.id}: Ship? [operation: gh release create v1.2.0 --target main] [options: Yes | No] (posted 2026-10-31T09:00:01.000Z)`,
-				"Wakes you scheduled (1):",
-				"- w1: next 2026-10-31T10:00:00.000Z: check the build",
+				"Your routines (2):",
+				"- w1 “build check” every 30 min; next 2026-10-31T10:00:00.000Z: check the build",
+				"- w2 “on CI” on GitHub ci_failure in o/r; waits for its event; last run failed (The turn ended with an error): look at the failure",
 			].join("\n"),
 		);
 	});

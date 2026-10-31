@@ -46,6 +46,8 @@ import {
 	AGENT_CLOSED_CHILDREN_PREF,
 	AGENT_CONTROL_PREF,
 	AGENT_HIDDEN_PREFS_KEY,
+	AGENT_SCHEDULE_PREFIX,
+	activeBotPath,
 	agentHiddenPaths,
 	BOT_ENABLED_PREF,
 	botEnabled,
@@ -156,6 +158,8 @@ import { LocalHostServices } from "./remote/host-services";
 import { KeepAwakePolicy } from "./remote/keep-awake";
 import { readoptHostTabs } from "./remote/readopt";
 import { migrateRetiredPrefs } from "./retired-prefs";
+import { ghApi, gitPort, sessionPorts, watchPath } from "./routines/ports";
+import { RoutineTriggers } from "./routines/triggers";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import { layoutsToSave } from "./saved-layouts";
 import { ompRunLauncher, ScheduleService } from "./schedules";
@@ -496,6 +500,8 @@ const RECALL_TERMS_REFRESH_MS = 10 * 60_000;
 let extensionUpdater: ExtensionUpdater | null = null;
 let githubAuthService: GithubAuthService | null = null;
 let scheduleService: ScheduleService | null = null;
+/** Watches what event routines (Settings › Schedules, the bot's routines) wait for (src/main/routines). */
+let routineTriggers: RoutineTriggers | null = null;
 /** Keep-awake while this computer's own tabs run a turn (Settings › General › Window). */
 let workAwakePolicy: KeepAwakePolicy | null = null;
 /** A charging laptop's lid close never stops work a keep-awake blocker holds (src/main/power/lid-awake.ts). */
@@ -1690,6 +1696,8 @@ app.whenReady().then(() => {
 			devices.hostSchedulesChanged(state);
 			// The bot's home lists its own wakes.
 			botDeskPush.current?.();
+			// An event routine's trigger starts, changes or stops with its schedule.
+			routineTriggers?.sync();
 		},
 		// A session's own wake-up (`ompdesk_schedule` with `target: "self"`) is delivered into that session by the control
 		// tools; the test launches shorten the check and the minute so a wake comes within seconds.
@@ -1713,6 +1721,29 @@ app.whenReady().then(() => {
 						reason: `The daily ${reservation.refusal === "requests" ? "request" : "token"} limit of the device that saved this schedule is used up on this computer's models`,
 					};
 		},
+		// The bot's routines (schedules that wake its session) leave one line each in its activity log as they end.
+		runEnded: (schedule, run) => {
+			if (run.status === "running" || schedule.wakeSession === undefined) return;
+			if (schedule.wakeSession !== activeBotPath(key => prefsStore().get(key as never))) return;
+			const reason = run.error ?? run.detail;
+			botActivity.append({
+				kind: "routine",
+				action: "routine_run",
+				by: "bot",
+				text: schedule.name.replace(AGENT_SCHEDULE_PREFIX, "").trim() || schedule.prompt.slice(0, 120),
+				outcome: run.status,
+				trigger: run.trigger,
+				...(reason ? { detail: reason.slice(0, 1000) } : {}),
+			});
+		},
+	});
+	routineTriggers = new RoutineTriggers({
+		service: scheduleService,
+		log: message => writeRuntimeLog({ source: "routines", message }),
+		github: ghApi,
+		watch: watchPath,
+		git: gitPort,
+		sessions: sessionPorts(sidecarPool, () => activeBotPath(key => prefsStore().get(key as never))),
 	});
 	void scheduleService.start();
 	// Lists every folder sessions ran in (the first pass also the ones from before the list existed).
@@ -2006,6 +2037,8 @@ app.whenReady().then(() => {
 			appNotification({ title: mainT("web.unknownDevice.title"), body: mainT("web.unknownDevice.body") }).show(),
 		language: () => getMainLanguage(),
 		pushes: (tabId, kind) => botPush.current?.(tabId, kind) ?? true,
+		// Routine webhooks: `POST /hooks/<schedule id>` (web/server.ts) is answered by the schedule service.
+		hooks: () => scheduleService,
 		log: message => console.warn(`[web-push] ${message}`),
 	});
 	// Uploads expire on their own whether or not Mobile web serves: a paired computer's attached files land there too.
@@ -2195,6 +2228,7 @@ installQuitGuard(
 			["ai-memory-care", () => aiMemoryCare?.dispose()],
 			["ai-memory", () => aiMemoryService?.dispose()],
 			["github-auth", () => githubAuthService?.dispose()],
+			["routine-triggers", () => routineTriggers?.dispose()],
 			["schedules", () => scheduleService?.dispose()],
 			["work-awake", () => workAwakePolicy?.dispose()],
 			["lid-awake", () => lidAwake?.dispose()],

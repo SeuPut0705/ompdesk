@@ -300,4 +300,96 @@ describe("SchedulesSection", () => {
 		expect(document.body.querySelector("[data-schedule-next]")?.textContent).toBe("Paused");
 		expect(command.mock.calls.every(([, device]) => device === "host-studio")).toBe(true);
 	});
+
+	it("says what starts a one-time or event schedule and what fired its runs", async () => {
+		const github: Schedule = {
+			...SCHEDULE,
+			id: "g1",
+			name: "Review PRs",
+			frequency: { kind: "event", event: { source: "github", repo: "octo/app", events: ["pull_request", "issue"] } },
+		};
+		const files: Schedule = {
+			...SCHEDULE,
+			id: "f1",
+			name: "Watch src",
+			frequency: { kind: "event", event: { source: "files", path: "/work/app/src" } },
+		};
+		const once: Schedule = {
+			...SCHEDULE,
+			id: "o1",
+			name: "Follow up",
+			frequency: { kind: "once", at: "2026-12-24T09:30:00.000Z" },
+		};
+		state = {
+			paused: false,
+			schedules: [github, files, once],
+			runs: [
+				{
+					id: "r1",
+					scheduleId: "g1",
+					trigger: "event",
+					startedAt: "2026-10-15T09:30:00.000Z",
+					endedAt: "2026-10-15T09:31:00.000Z",
+					status: "succeeded",
+					exitCode: 0,
+					error: null,
+					detail: "PR #12 opened\nPR #13 opened",
+				},
+			],
+			nextRuns: { g1: null, f1: null, o1: null },
+		};
+		await mount();
+
+		expect(document.body.querySelector('[data-schedule="g1"]')?.textContent).toContain(
+			"GitHub pull requests and issues in octo/app · app",
+		);
+		expect(document.body.querySelector('[data-schedule="f1"]')?.textContent).toContain("When files change under src");
+		expect(document.body.querySelector('[data-schedule="o1"]')?.textContent).toContain("Once at");
+		const fired = document.body.querySelector('[data-schedule-run-row="r1"]');
+		expect(fired?.textContent).toContain("event");
+		expect(fired?.querySelector("[data-schedule-run-detail]")?.textContent).toBe("PR #12 opened\nPR #13 opened");
+	});
+
+	it("keeps a one-time or event schedule's trigger when it is edited and saved", async () => {
+		const watch: Schedule = {
+			...SCHEDULE,
+			id: "g1",
+			name: "Review PRs",
+			frequency: { kind: "event", event: { source: "github", repo: "octo/app", events: ["pull_request"] } },
+		};
+		const once: Schedule = {
+			...SCHEDULE,
+			id: "o1",
+			name: "Follow up",
+			frequency: { kind: "once", at: "2026-12-24T09:30:00.000Z" },
+		};
+		state = { ...emptyState(), schedules: [watch, once] };
+		await mount();
+
+		for (const schedule of [watch, once]) {
+			await act(async () => (button(`Actions for ${schedule.name}`) as HTMLButtonElement).click());
+			const edit = [...document.body.querySelectorAll('[role="menuitem"]')].find(item =>
+				(item.textContent ?? "").includes("Edit"),
+			) as HTMLElement | undefined;
+			await act(async () => edit?.click());
+			// The trigger is shown in words, with no repeat controls to turn it into a daily one.
+			expect(document.body.querySelector("[data-schedule-fixed-trigger]")).not.toBeNull();
+			expect(document.body.querySelector("[data-schedule-day]")).toBeNull();
+			await type("Name", `${schedule.name} v2`);
+			await act(async () =>
+				reactProps(document.body.querySelector("[data-schedule-form]") as object).onSubmit({ preventDefault() {} }),
+			);
+			await act(async () => {
+				await Promise.resolve();
+			});
+			expect(command).toHaveBeenCalledWith(
+				{
+					action: "save",
+					id: schedule.id,
+					draft: expect.objectContaining({ name: `${schedule.name} v2`, frequency: schedule.frequency }),
+				},
+				undefined,
+			);
+		}
+	});
 });

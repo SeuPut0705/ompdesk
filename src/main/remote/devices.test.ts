@@ -525,7 +525,7 @@ describe("a host's bot desk", () => {
 		decisions: [
 			{ id: "d1", state: "open", question: "Ship?", options: ["Yes", "No"], at: "2026-10-31T09:00:00.000Z" },
 		],
-		wakes: [],
+		routines: [],
 	};
 
 	it("reaches this computer's windows with the host's id, and a host's own push is its own devices'", async () => {

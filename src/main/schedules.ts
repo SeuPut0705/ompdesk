@@ -12,12 +12,18 @@
  * handler. A start that falls due while the previous run of the same schedule
  * still goes is recorded as skipped instead of piling up.
  *
- * A schedule with `wakeSession` (a session's own wake-up, `ompdesk_schedule` with `target: "self"`) starts no omp:
- * its start hands the prompt to `wake`, which delivers it into that session as a mail that starts a turn. That run
- * succeeds once the mail is delivered and fails with the reason when it cannot be.
+ * A schedule with `wakeSession` (a session's own wake-up, `ompdesk_schedule` with `target: "self"`; the bot's routines)
+ * starts no omp: its start hands the prompt to `wake`, which delivers it into that session as a mail that starts a turn
+ * and follows that turn. The run ends with the turn: succeeded, failed with the turn's error, or stopped.
+ *
+ * An event schedule (`frequency.kind` `event`, a routine) has no clock: `fire` starts it (src/main/routines watches
+ * its trigger; `webhook` answers `POST /hooks/<id>`). Events that come while it runs are kept and start one more run
+ * after it with all of them; a routine whose every run is asked for again before it ends is turned off after
+ * `ROUTINE_CHAIN_LIMIT` such runs in a row (its own work keeps firing its trigger). A `once` schedule starts at its
+ * moment and turns itself off.
  */
 import type { ChildProcess } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { createWriteStream, existsSync } from "node:fs";
 import { mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -25,10 +31,14 @@ import { finished } from "node:stream/promises";
 import { codedError } from "../shared/ipc-error-codes";
 import {
 	nextRunAt,
+	ROUTINE_CHAIN_LIMIT,
+	SCHEDULE_ONCE_DONE_KEPT,
 	SCHEDULE_RUNS_KEPT,
+	SCHEDULE_RUNS_PER_SCHEDULE,
 	type Schedule,
 	type ScheduleCreated,
 	type ScheduleDraft,
+	type ScheduleFrequency,
 	type ScheduleRun,
 	type SchedulesRequest,
 	type SchedulesState,
@@ -63,10 +73,12 @@ export interface ScheduleServiceOptions {
 	launch: RunLauncher;
 	onState: (state: SchedulesState) => void;
 	/**
-	 * Delivers a wake-up's prompt into its session on this computer (`Schedule.wakeSession`); rejects with a readable
-	 * reason when it cannot. Absent: a wake-up's run fails (no tab holds sessions here).
+	 * Delivers a wake-up's prompt (`schedule.prompt`, with what fired it) into its session on this computer
+	 * (`Schedule.wakeSession`) and follows the turn it starts: `done` settles when that turn ends (`code` 0, or null and
+	 * the turn's error), `stop()` stops that turn. Rejects with a readable reason when it cannot deliver. Absent: a
+	 * wake-up's run fails (no tab holds sessions here).
 	 */
-	wake?: (schedule: Schedule, runId: string) => Promise<void>;
+	wake?: (schedule: Schedule, runId: string) => Promise<RunProcess>;
 	/** How often due schedules are checked (default `SCHEDULE_TICK_MS`); only a test launch shortens it. */
 	tickMs?: number;
 	/** The length of a minute for intervals (default 60 000 ms); only a test launch shortens it. */
@@ -76,6 +88,8 @@ export interface ScheduleServiceOptions {
 	 * is charged at every start, timed or not; absent = no device is ever charged (tests, no remote host).
 	 */
 	reserve?: (device: string) => ScheduleCharge;
+	/** A run ended (or was skipped), as recorded; the bot's routines go to its activity log (index.ts). */
+	runEnded?: (schedule: Schedule, run: ScheduleRun) => void;
 }
 
 interface StoredSchedules {
@@ -91,6 +105,17 @@ interface ActiveRun {
 	stopRequested: boolean;
 }
 
+/** What a webhook call came to (`ScheduleService.webhook`): started or kept for after the running one, or why not. */
+export type WebhookOutcome = "fired" | "unknown" | "denied" | "off";
+
+/** Thrown by `launch`/`wake` when a run should not happen now (the bot is paused): the run is recorded as skipped. */
+export class ScheduleSkip extends Error {}
+
+/** Event lines kept for the run after the running one (the newest). */
+const PENDING_DETAILS_MAX = 20;
+/** One event line, as a run's prompt and record carry it. */
+const DETAIL_MAX = 500;
+
 export class ScheduleService {
 	readonly #options: ScheduleServiceOptions;
 	#paused = false;
@@ -99,6 +124,10 @@ export class ScheduleService {
 	#next = new Map<string, number>();
 	/** Running starts by schedule id. */
 	#active = new Map<string, ActiveRun>();
+	/** Events that came while a routine ran, by schedule id: one more run starts with them when it ends. */
+	#pending = new Map<string, string[]>();
+	/** Event runs in a row each asked for while the one before ran, by schedule id (the loop guard). */
+	#chain = new Map<string, number>();
 	#tick: NodeJS.Timeout | null = null;
 	#writes: Promise<void> = Promise.resolve();
 	#disposed = false;
@@ -139,6 +168,41 @@ export class ScheduleService {
 	}
 
 	/**
+	 * An event schedule's trigger fired (src/main/routines; `detail`: one English line saying what happened). Starts a
+	 * run now, or keeps the event for one more run after the running one. False when nothing will run on it: no such
+	 * routine, it is no event schedule, off, everything is paused, or the app is closing.
+	 */
+	fire(id: string, detail: string): boolean {
+		const schedule = this.#schedules.find(item => item.id === id);
+		if (!schedule || schedule.frequency.kind !== "event" || !schedule.enabled || this.#paused || this.#disposed)
+			return false;
+		const line = detail.replace(/\s+/g, " ").trim().slice(0, DETAIL_MAX) || "The trigger fired";
+		if (this.#active.has(id)) {
+			this.#pending.set(id, [...(this.#pending.get(id) ?? []), line].slice(-PENDING_DETAILS_MAX));
+			return true;
+		}
+		this.#chain.delete(id);
+		this.#startEvent(schedule, [line]);
+		this.#changed();
+		return true;
+	}
+
+	/**
+	 * `POST /hooks/<id>` with `Authorization: Bearer <key>` (src/main/web/server.ts): fires the routine whose webhook
+	 * key it is. The key is compared in constant time; any other id, source or key is `unknown`/`denied` alike to the
+	 * caller's eyes only by status, never by timing of the key.
+	 */
+	webhook(id: string, bearer: string, detail: string): WebhookOutcome {
+		const schedule = this.#schedules.find(item => item.id === id);
+		const event = schedule?.frequency.kind === "event" ? schedule.frequency.event : null;
+		if (!schedule || event?.source !== "webhook") return "unknown";
+		const want = Buffer.from(event.key);
+		const got = Buffer.from(bearer);
+		if (want.length !== got.length || !timingSafeEqual(want, got)) return "denied";
+		return this.fire(id, detail) ? "fired" : "off";
+	}
+
+	/**
 	 * `origin`: the paired device a request comes from (`host.schedules.command`). A save from a device makes the
 	 * schedule that device's (its runs count against its daily model limit here); a save here makes it this computer's.
 	 * A run now from a device is charged to that device and refused past its limit.
@@ -150,19 +214,15 @@ export class ScheduleService {
 			case "save":
 				this.#save(request.draft, request.id, origin);
 				break;
-			case "delete": {
+			case "delete":
 				this.#find(request.id);
-				this.#stopSchedule(request.id);
-				this.#schedules = this.#schedules.filter(schedule => schedule.id !== request.id);
-				const dropped = this.#runs.filter(run => run.scheduleId === request.id && run.status !== "running");
-				this.#runs = this.#runs.filter(run => !dropped.includes(run));
-				this.#removeLogs(dropped);
-				this.#next.delete(request.id);
+				this.#delete(request.id);
 				break;
-			}
 			case "setEnabled": {
 				const schedule = this.#find(request.id);
 				schedule.enabled = request.enabled === true;
+				this.#pending.delete(schedule.id);
+				this.#chain.delete(schedule.id);
 				this.#reschedule(schedule);
 				break;
 			}
@@ -175,7 +235,12 @@ export class ScheduleService {
 				if (this.#active.has(schedule.id)) throw new Error("This schedule is already running");
 				const charge = origin === undefined ? undefined : this.#options.reserve?.(origin);
 				if (charge && !charge.ok) throw codedError("remote_limit_reached", charge.reason);
-				void this.#startRun(schedule, "manual", charge);
+				void this.#startRun(
+					schedule,
+					"manual",
+					charge,
+					schedule.frequency.kind === "event" ? ["A test run: no event fired"] : undefined,
+				);
 				break;
 			}
 			case "stop": {
@@ -256,14 +321,7 @@ export class ScheduleService {
 			name: String(draft.name ?? "").trim(),
 			prompt: String(draft.prompt ?? ""),
 			cwd: String(draft.cwd ?? ""),
-			frequency:
-				draft.frequency?.kind === "daily"
-					? {
-							kind: "daily",
-							time: String(draft.frequency.time),
-							days: [...new Set(draft.frequency.days)].toSorted(),
-						}
-					: { kind: "interval", minutes: Number(draft.frequency?.minutes) },
+			frequency: cleanFrequency(draft.frequency, existing?.frequency),
 			model: typeof draft.model === "string" && draft.model.trim() ? draft.model.trim() : null,
 			autoApprove: draft.autoApprove === true,
 			enabled: draft.enabled === true,
@@ -271,6 +329,13 @@ export class ScheduleService {
 		};
 		const problem = scheduleDraftProblem(clean);
 		if (problem) throw new Error(`Invalid schedule: ${problem}`);
+		// A one-time start is set for a moment still to come (a changed moment too); a missed one never runs.
+		if (
+			clean.frequency.kind === "once" &&
+			Date.parse(clean.frequency.at) <= Date.now() &&
+			!(existing?.frequency.kind === "once" && existing.frequency.at === clean.frequency.at)
+		)
+			throw new Error("Invalid schedule: once (the moment has passed)");
 		if (clean.wakeSession !== undefined) {
 			if (!(clean.wakeSession.startsWith("/") || /^[A-Za-z]:[\\/]/.test(clean.wakeSession)))
 				throw new Error("Invalid schedule: session");
@@ -300,18 +365,40 @@ export class ScheduleService {
 	}
 
 	#reschedule(schedule: Schedule): void {
-		if (this.#paused || !schedule.enabled) {
-			this.#next.delete(schedule.id);
-			return;
-		}
-		this.#next.set(
-			schedule.id,
-			nextRunAt(schedule.frequency, new Date(), this.#lastStart(schedule.id), this.#options.minuteMs).getTime(),
-		);
+		const next =
+			this.#paused || !schedule.enabled
+				? null
+				: nextRunAt(schedule.frequency, new Date(), this.#lastStart(schedule.id), this.#options.minuteMs);
+		if (next === null) this.#next.delete(schedule.id);
+		else this.#next.set(schedule.id, next.getTime());
 	}
 
 	#rescheduleAll(): void {
 		for (const schedule of this.#schedules) this.#reschedule(schedule);
+	}
+
+	/** The start after a skipped one, from the moment it was due. */
+	#skipTo(schedule: Schedule, now: number, due: number): void {
+		const next = nextRunAt(schedule.frequency, new Date(now), new Date(due), this.#options.minuteMs);
+		if (next === null) this.#next.delete(schedule.id);
+		else this.#next.set(schedule.id, next.getTime());
+	}
+
+	#skipped(schedule: Schedule, trigger: ScheduleRun["trigger"], error: string, detail?: string): void {
+		const at = new Date().toISOString();
+		const run: ScheduleRun = {
+			id: randomUUID(),
+			scheduleId: schedule.id,
+			trigger,
+			startedAt: at,
+			endedAt: at,
+			status: "skipped",
+			exitCode: null,
+			error,
+			...(detail === undefined ? {} : { detail }),
+		};
+		this.#record(run);
+		this.#options.runEnded?.({ ...schedule }, run);
 	}
 
 	#runDue(): void {
@@ -323,32 +410,14 @@ export class ScheduleService {
 			if (due === undefined || due > now) continue;
 			changed = true;
 			if (this.#active.has(schedule.id)) {
-				this.#record({
-					id: randomUUID(),
-					scheduleId: schedule.id,
-					trigger: "schedule",
-					startedAt: new Date(now).toISOString(),
-					endedAt: new Date(now).toISOString(),
-					status: "skipped",
-					exitCode: null,
-					error: "The previous run was still going",
-				});
-				this.#next.set(schedule.id, nextRunAt(schedule.frequency, new Date(now), new Date(due)).getTime());
+				this.#skipped(schedule, "schedule", "The previous run was still going");
+				this.#skipTo(schedule, now, due);
 				continue;
 			}
 			const charge = schedule.device === undefined ? undefined : this.#options.reserve?.(schedule.device);
 			if (charge && !charge.ok) {
-				this.#record({
-					id: randomUUID(),
-					scheduleId: schedule.id,
-					trigger: "schedule",
-					startedAt: new Date(now).toISOString(),
-					endedAt: new Date(now).toISOString(),
-					status: "skipped",
-					exitCode: null,
-					error: charge.reason,
-				});
-				this.#next.set(schedule.id, nextRunAt(schedule.frequency, new Date(now), new Date(due)).getTime());
+				this.#skipped(schedule, "schedule", charge.reason);
+				this.#skipTo(schedule, now, due);
 				continue;
 			}
 			void this.#startRun(schedule, "schedule", charge);
@@ -356,11 +425,54 @@ export class ScheduleService {
 		if (changed) this.#changed();
 	}
 
+	/** An event run with what fired it; a paired device's routine is charged like any start of its. */
+	#startEvent(schedule: Schedule, details: string[]): void {
+		const charge = schedule.device === undefined ? undefined : this.#options.reserve?.(schedule.device);
+		if (charge && !charge.ok) {
+			this.#skipped(schedule, "event", charge.reason, details.join("\n"));
+			return;
+		}
+		void this.#startRun(schedule, "event", charge, details);
+	}
+
+	/**
+	 * A routine's run ended with events kept meanwhile: one more run with all of them, unless every run has been asked
+	 * for again before it ended `ROUTINE_CHAIN_LIMIT` times in a row (its own work fires its trigger): then it is off.
+	 */
+	#afterRun(schedule: Schedule): void {
+		const details = this.#pending.get(schedule.id);
+		this.#pending.delete(schedule.id);
+		if (!details || this.#paused || !schedule.enabled || !this.#schedules.includes(schedule)) {
+			this.#chain.delete(schedule.id);
+			return;
+		}
+		const chain = (this.#chain.get(schedule.id) ?? 0) + 1;
+		if (chain >= ROUTINE_CHAIN_LIMIT) {
+			schedule.enabled = false;
+			this.#chain.delete(schedule.id);
+			this.#reschedule(schedule);
+			this.#skipped(
+				schedule,
+				"event",
+				`Turned off: its trigger fired again during each of its last ${ROUTINE_CHAIN_LIMIT} runs, so its own work probably fires it. Check the trigger, then turn it back on.`,
+				details.join("\n"),
+			);
+			this.#changed();
+			return;
+		}
+		this.#chain.set(schedule.id, chain);
+		this.#startEvent(schedule, details);
+		this.#changed();
+	}
+
 	async #startRun(
 		schedule: Schedule,
 		trigger: ScheduleRun["trigger"],
 		charge: Extract<ScheduleCharge, { ok: true }> | undefined,
+		/** What fired an event run (or says a test run fired nothing); told to the run under its prompt. */
+		details?: readonly string[],
 	): Promise<void> {
+		const detail = details?.join("\n");
 		const run: ScheduleRun = {
 			id: randomUUID(),
 			scheduleId: schedule.id,
@@ -370,36 +482,49 @@ export class ScheduleService {
 			status: "running",
 			exitCode: null,
 			error: null,
+			...(detail === undefined ? {} : { detail }),
 		};
 		const active: ActiveRun = { runId: run.id, process: null, stopRequested: false };
 		this.#active.set(schedule.id, active);
 		this.#record(run);
+		// A one-time start is spent: the schedule is off from now on (a test run leaves it as it was).
+		if (schedule.frequency.kind === "once" && trigger === "schedule") {
+			schedule.enabled = false;
+			this.#pruneOnce();
+		}
 		this.#reschedule(schedule);
 		this.#changed();
 		const files = {
 			log: join(this.#options.logDir, `${run.id}.log`),
 			prompt: join(this.#options.logDir, `${run.id}.prompt`),
 		};
-		let result: { code: number | null; error?: string };
+		const prompt =
+			detail === undefined
+				? schedule.prompt
+				: `${schedule.prompt}\n\n${trigger === "manual" ? "Test run" : "What fired this run"}:\n${detail}`;
+		let result: { code: number | null; error?: string; skipped?: true };
 		let launched: RunProcess | null = null;
 		try {
 			await mkdir(this.#options.logDir, { recursive: true });
 			if (schedule.wakeSession !== undefined) {
 				const wake = this.#options.wake;
 				if (!wake) throw new Error("Waking a session is not available here");
-				await wake({ ...schedule }, run.id);
-				await writeFile(files.log, `Woke ${schedule.wakeSession}\n`);
-				result = { code: 0 };
+				launched = await wake({ ...schedule, prompt }, run.id);
+				await writeFile(files.log, `Woke ${schedule.wakeSession}\n${prompt}\n`);
 			} else {
-				await writeFile(files.prompt, schedule.prompt);
+				await writeFile(files.prompt, prompt);
 				if (!existsSync(schedule.cwd)) throw new Error(`Project folder not found: ${schedule.cwd}`);
-				launched = await this.#options.launch({ ...schedule }, files);
-				active.process = launched;
-				if (active.stopRequested || this.#disposed) launched.stop();
-				result = await launched.done;
+				launched = await this.#options.launch({ ...schedule, prompt }, files);
 			}
+			active.process = launched;
+			if (active.stopRequested || this.#disposed) launched.stop();
+			result = await launched.done;
 		} catch (error) {
-			result = { code: null, error: error instanceof Error ? error.message : String(error) };
+			result = {
+				code: null,
+				error: error instanceof Error ? error.message : String(error),
+				...(error instanceof ScheduleSkip ? { skipped: true as const } : {}),
+			};
 		}
 		// A run that never started spent nothing of the device's day.
 		if (!launched) charge?.refund();
@@ -408,16 +533,20 @@ export class ScheduleService {
 		if (this.#disposed) return;
 		const stopped = active.stopRequested || result.code === SUPERVISOR_STOPPED_CODE;
 		this.#finish(run.id, {
-			status: stopped ? "stopped" : result.code === 0 ? "succeeded" : "failed",
+			status: stopped ? "stopped" : result.skipped ? "skipped" : result.code === 0 ? "succeeded" : "failed",
 			exitCode: result.code,
 			error: stopped ? null : (result.error ?? (result.code === 0 ? null : `omp exited with code ${result.code}`)),
 		});
+		if (schedule.frequency.kind === "event") this.#afterRun(schedule);
 	}
 
 	#finish(runId: string, patch: Pick<ScheduleRun, "status" | "exitCode" | "error">): void {
 		const endedAt = new Date().toISOString();
 		this.#runs = this.#runs.map(run => (run.id === runId ? { ...run, ...patch, endedAt } : run));
 		this.#changed();
+		const run = this.#runs.find(entry => entry.id === runId);
+		const schedule = run && this.#schedules.find(entry => entry.id === run.scheduleId);
+		if (run && schedule) this.#options.runEnded?.({ ...schedule }, { ...run });
 	}
 
 	#stopSchedule(scheduleId: string): void {
@@ -427,17 +556,43 @@ export class ScheduleService {
 		active.process?.stop();
 	}
 
+	/** Newest first; each schedule keeps its `SCHEDULE_RUNS_PER_SCHEDULE` newest, all together `SCHEDULE_RUNS_KEPT`. */
 	#record(run: ScheduleRun): void {
 		this.#runs = [run, ...this.#runs];
-		if (this.#runs.length <= SCHEDULE_RUNS_KEPT) return;
 		const kept: ScheduleRun[] = [];
 		const dropped: ScheduleRun[] = [];
+		const perSchedule = new Map<string, number>();
 		for (const entry of this.#runs) {
-			if (kept.length < SCHEDULE_RUNS_KEPT || entry.status === "running") kept.push(entry);
-			else dropped.push(entry);
+			const count = perSchedule.get(entry.scheduleId) ?? 0;
+			if (entry.status === "running" || (kept.length < SCHEDULE_RUNS_KEPT && count < SCHEDULE_RUNS_PER_SCHEDULE)) {
+				kept.push(entry);
+				perSchedule.set(entry.scheduleId, count + 1);
+			} else dropped.push(entry);
 		}
+		if (dropped.length === 0) return;
 		this.#runs = kept;
 		this.#removeLogs(dropped);
+	}
+
+	/** A schedule and its finished runs go; a running one is stopped and its record ends as it ends. */
+	#delete(id: string): void {
+		this.#stopSchedule(id);
+		this.#schedules = this.#schedules.filter(schedule => schedule.id !== id);
+		const dropped = this.#runs.filter(run => run.scheduleId === id && run.status !== "running");
+		this.#runs = this.#runs.filter(run => !dropped.includes(run));
+		this.#removeLogs(dropped);
+		this.#next.delete(id);
+		this.#pending.delete(id);
+		this.#chain.delete(id);
+	}
+
+	/** Spent one-time schedules past `SCHEDULE_ONCE_DONE_KEPT`, the oldest first, are deleted with their runs. */
+	#pruneOnce(): void {
+		const spent = this.#schedules.filter(
+			schedule => schedule.frequency.kind === "once" && !schedule.enabled && !this.#active.has(schedule.id),
+		);
+		for (const schedule of spent.slice(0, Math.max(0, spent.length - SCHEDULE_ONCE_DONE_KEPT)))
+			this.#delete(schedule.id);
 	}
 
 	#removeLogs(runs: readonly ScheduleRun[]): void {
@@ -463,6 +618,59 @@ export class ScheduleService {
 			)
 			.catch(error => console.error("[schedules] couldn't save:", error));
 		this.#options.onState(this.state());
+	}
+}
+
+/**
+ * A draft's timing as stored: unknown fields dropped. A webhook trigger saved without a key gets a new one, or keeps
+ * the key the schedule already had (an edit never shows or resends it).
+ */
+function cleanFrequency(
+	frequency: ScheduleFrequency | undefined,
+	before: ScheduleFrequency | undefined,
+): ScheduleFrequency {
+	switch (frequency?.kind) {
+		case "daily":
+			return { kind: "daily", time: String(frequency.time), days: [...new Set(frequency.days)].toSorted() };
+		case "once":
+			return { kind: "once", at: String(frequency.at) };
+		case "event": {
+			const event = frequency.event;
+			switch (event?.source) {
+				case "webhook": {
+					const kept = before?.kind === "event" && before.event.source === "webhook" ? before.event.key : "";
+					const key = String(event.key ?? "") || kept || randomBytes(24).toString("base64url");
+					return { kind: "event", event: { source: "webhook", key } };
+				}
+				case "github":
+					return {
+						kind: "event",
+						event: { source: "github", repo: String(event.repo), events: [...new Set(event.events)].toSorted() },
+					};
+				case "files":
+					return { kind: "event", event: { source: "files", path: String(event.path) } };
+				case "git":
+					return {
+						kind: "event",
+						event: { source: "git", repo: String(event.repo), branch: String(event.branch) },
+					};
+				case "session":
+					return {
+						kind: "event",
+						event: {
+							source: "session",
+							events: [...new Set(event.events)].toSorted(),
+							...(typeof event.folder === "string" && event.folder.trim()
+								? { folder: event.folder.trim() }
+								: {}),
+						},
+					};
+				default:
+					return frequency;
+			}
+		}
+		default:
+			return { kind: "interval", minutes: Number(frequency?.minutes) };
 	}
 }
 

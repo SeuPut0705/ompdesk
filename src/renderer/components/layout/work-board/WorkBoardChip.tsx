@@ -224,7 +224,7 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 						: goal
 							? t("workBoard.goal")
 							: bot
-								? t("botHome.strip", { duties: botDesk.duties.length, wakes: botDesk.wakes.length })
+								? t("botHome.strip", { duties: botDesk.duties.length, routines: botDesk.routines.length })
 								: null;
 	// What the strip says is gone (the run ended and the board emptied): nothing to expand either.
 	useEffect(() => {

@@ -9,6 +9,7 @@ export type WorkBoardSectionId =
 	| "followups"
 	| "duties"
 	| "tasks"
+	| "routines"
 	| "library"
 	| "review"
 	| "now"
@@ -25,6 +26,7 @@ const SECTION_IDS: readonly WorkBoardSectionId[] = [
 	"followups",
 	"duties",
 	"tasks",
+	"routines",
 	"library",
 	"review",
 	"now",

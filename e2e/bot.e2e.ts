@@ -252,10 +252,17 @@ test("the bot's omp hears the owner's rules, and a check it schedules for itself
 	expect(String(wake?.content)).toContain("Check the build; tell the owner only if it failed");
 	await expect.poll(() => lastAnswer(bot), { timeout: 30_000 }).toBe("Read the note report from ompdesk.");
 
-	// The run is recorded as a success, no omp -p was started for it, and the agent that made it can cancel it.
+	// The run follows the turn the wake started and is recorded as a success when it ends (starts that came due while it
+	// ran are skipped); no omp -p was started for it, and the agent that made it can cancel it.
 	await expect
-		.poll(async () => (await state()).runs.find(run => run.scheduleId === id)?.status, { timeout: 30_000 })
-		.toBe("succeeded");
+		.poll(
+			async () =>
+				(await state()).runs.some(
+					run => run.scheduleId === id && run.status === "succeeded" && run.endedAt !== null,
+				),
+			{ timeout: 30_000 },
+		)
+		.toBe(true);
 	const cancelled = await callAs(bot, "ompdesk_schedule", { action: "cancel", id });
 	expect(cancelled.isError, cancelled.text).toBe(false);
 	expect((await state()).schedules.some(schedule => schedule.id === id)).toBe(false);
@@ -472,4 +479,76 @@ test("the bot's tasks, library and pause: its sessions in progress and done by t
 	await pane.locator('[data-board-section="tasks"] .omp-work-board-fold').click();
 	await expect(pane.locator(`[data-bot-task=${cssString(waiting.file)}]`)).toBeVisible();
 	await capture("bot-tasks-narrow");
+});
+
+// The bot's routines (schedules that wake its own session; src/main/schedules.ts, BotRoutines.tsx): asked for in chat,
+// the bot makes one with `ompdesk_schedule {target: "self"}` (an event routine and a once follow-up here); the owner
+// sees them on its board, tests one, and the run follows the bot's turn to its end into the run history.
+test("the bot's routines: made in chat, listed on its board, tested by the owner, with the run in their history", async () => {
+	test.setTimeout(180_000);
+	await windowWidth(1440);
+	const file = await botFile();
+	await page.locator("[data-sidebar-bot-row]").click();
+	const bot = await tabOf(file);
+	await untilReady(bot);
+	const pane = page.locator(`.omp-session-pane[data-tab-id="${bot}"]`);
+
+	const watch = await callAs(bot, "ompdesk_schedule", {
+		action: "create",
+		target: "self",
+		name: "CI watch",
+		prompt: "Look at the failed session and tell the owner why",
+		on: { source: "session", events: ["failed"] },
+	});
+	expect(watch.isError, watch.text).toBe(false);
+	expect(watch.text).toContain("it waits for its event");
+	const id = /id ([\w-]+);/.exec(watch.text)?.[1] ?? "";
+	const followUp = await callAs(bot, "ompdesk_schedule", {
+		action: "create",
+		target: "self",
+		name: "check back",
+		prompt: "See whether the release went out",
+		in_minutes: 30,
+	});
+	expect(followUp.isError, followUp.text).toBe(false);
+
+	const routines = pane.locator("[data-bot-routine]");
+	await expect(routines).toHaveCount(2);
+	const row = pane.locator(`[data-bot-routine="${id}"]`);
+	await expect(row).toContainText("CI watch");
+	await expect(row).toContainText("When a session fails a turn");
+	await row.click();
+	await pane.locator("[data-bot-routine-test]").click();
+	// The test run wakes the bot (the fake omp runs a turn on the mail) and ends with that turn.
+	const run = pane.locator('[data-bot-routine-run][data-status="succeeded"]');
+	await expect(run).toHaveCount(1, { timeout: 60_000 });
+	await expect(run).toContainText("Test");
+	await expect.poll(() => lastAnswer(bot), { timeout: 30_000 }).toBe("Read the note report from ompdesk.");
+	const history = await callAs(bot, "ompdesk_schedule", { action: "runs", id });
+	expect(history.text).toContain("succeeded (test)");
+	await capture("routines-wide");
+
+	// Narrow: the board is the strip's panel, and the routines section is there.
+	await windowWidth(760);
+	await pane.locator("[data-work-chip]").click();
+	await pane.locator('[data-board-section="routines"] .omp-work-board-fold').click();
+	await expect(pane.locator(`[data-bot-routine="${id}"]`)).toBeVisible();
+	await capture("routines-narrow");
+	await pane.locator("[data-work-chip]").click();
+	await windowWidth(1440);
+
+	// The owner pauses it from the board: the schedule is off in the service too.
+	await pane.locator(`[data-bot-routine="${id}"]`).click();
+	if ((await pane.locator("[data-bot-routine-toggle]").count()) === 0)
+		await pane.locator(`[data-bot-routine="${id}"]`).click();
+	await pane.locator("[data-bot-routine-toggle]").click();
+	await expect
+		.poll(
+			async () =>
+				(await page.evaluate(() => window.omp.schedules.command({ action: "get" }))).schedules.find(
+					schedule => schedule.id === id,
+				)?.enabled,
+		)
+		.toBe(false);
+	expect(errors).toEqual([]);
 });

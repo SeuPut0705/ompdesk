@@ -33,7 +33,7 @@ const BOT = "/work-sessions/bot.jsonl";
 const OPEN_DESK: BotDeskState = {
 	...EMPTY_BOT_DESK,
 	duties: [],
-	wakes: [],
+	routines: [],
 	decisions: [{ id: "d1", state: "open", question: "Ship?", options: ["Yes"], at: "2026-10-31T09:00:00.000Z" }],
 };
 
@@ -166,7 +166,7 @@ describe("BotPane", () => {
 		expect(query("[data-transcript]")).not.toBeNull();
 
 		await act(async () =>
-			useBotDeskStore.getState().apply({ ...EMPTY_BOT_DESK, duties: [], wakes: [], decisions: [] }),
+			useBotDeskStore.getState().apply({ ...EMPTY_BOT_DESK, duties: [], routines: [], decisions: [] }),
 		);
 		expect(query("[data-bot-decisions-dock]")).toBeNull();
 		expect(query("[data-bot-bar]")).not.toBeNull();
@@ -203,7 +203,7 @@ describe("BotPane", () => {
 		useBotStore.setState({ enabled: false, path: null });
 		listHost([{ path: "/mini/bot.jsonl", bot: "on" }]);
 		// This computer's own desk says nothing is waiting; only the host's has a decision.
-		useBotDeskStore.getState().apply({ ...EMPTY_BOT_DESK, duties: [], wakes: [], decisions: [] });
+		useBotDeskStore.getState().apply({ ...EMPTY_BOT_DESK, duties: [], routines: [], decisions: [] });
 		useBotDeskStore.getState().apply(OPEN_DESK, "mini");
 		await preloadBotDesk();
 		await mount(pane(tab({ device: "mini", sessionPath: "/mini/bot.jsonl" })));

@@ -44,7 +44,7 @@ import {
 	parseClosedChildren,
 	sidebarViewOf,
 } from "../../shared/agent-control";
-import { type BotWake, botRoleDesk, EMPTY_BOT_DESK_FILE } from "../../shared/bot-desk";
+import { type BotRoutine, botRoleDesk, EMPTY_BOT_DESK_FILE } from "../../shared/bot-desk";
 import { BOT_RULES_PREF, botRulesText, parseBotRules } from "../../shared/bot-rules";
 import type {
 	HostView,
@@ -86,9 +86,11 @@ import {
 	SchedulesStateSchema,
 	WorktreeCreateReply,
 } from "../remote/app-protocol";
-import type { ScheduleService } from "../schedules";
+import { type RunProcess, type ScheduleService, ScheduleSkip } from "../schedules";
+import { SUPERVISOR_STOPPED_CODE } from "../setup/supervisor";
 import type { SidecarPool } from "../sidecar-pool";
 import type { SidecarLike } from "../sidecar-types";
+import { recordTurnStop } from "../turn-stop-log";
 import { type ClientWindow, isWebWindow } from "../web/client-window";
 import type { FileEditReports } from "../web/file-edit-reports";
 import { sessionOpenFolders } from "../worktree-orphans";
@@ -97,6 +99,7 @@ import { BotFeed, type BotTab } from "./bot";
 import type { BotActivityLog } from "./bot-activity";
 import { botToolActivity } from "./bot-activity-feed";
 import type { AnsweredDecision, BotDesk, OpenDecision } from "./bot-desk";
+import type { TeachMail } from "./bot-teach";
 import {
 	type BranchEvidence,
 	type BranchFacts,
@@ -136,6 +139,8 @@ export const CARD_TIMEOUT_MS = 10 * 60_000;
 const BOT_ROLE_TIMEOUT_MS = 15_000;
 /** The stop log's caller for the Stop that pausing the bot sends its running turn (`turn-stop-log.ts`). */
 const BOT_PAUSE_CALLER = "bot-pause";
+/** A woken session that starts no turn on its routine's mail within this long fails that run (folded into context). */
+const WAKE_TURN_START_MS = 120_000;
 const WORKTREE_PREFIX = "omp/agent/";
 /** A child's activity comes in bursts; its review item is rebuilt (git runs) once it settles. */
 const REVIEW_SETTLE_MS = 400;
@@ -217,12 +222,12 @@ export interface AgentControlHostDeps {
 	/** The owner's own notice of a question the bot left open too long (desktop banner, paired phones). */
 	botRemind?: (tabId: string, requestId: string, title: string) => void;
 	/**
-	 * The bot's desk (`bot-desk.ts`), the wakes it scheduled for itself and its activity log; absent where there is no
-	 * desk. `avatarFromFile` reads a picture the bot made and answers it as the avatar's data URL (cut to its size).
+	 * The bot's desk (`bot-desk.ts`), its routines (the schedules that wake it) and its activity log; absent where there
+	 * is no desk. `avatarFromFile` reads a picture the bot made and answers it as the avatar's data URL (cut to its size).
 	 */
 	botDesk?: {
 		desk: BotDesk;
-		wakes(): BotWake[];
+		routines(): BotRoutine[];
 		activity: BotActivityLog;
 		avatarFromFile(path: string): Promise<string>;
 	};
@@ -484,7 +489,7 @@ export class AgentControlRuntime {
 		const { desk } = source;
 		return {
 			sessionPath: () => activeBotPath(key => this.#deps.prefs.get(key)),
-			state: () => ({ ...desk.state(), wakes: source.wakes() }),
+			state: () => ({ ...desk.state(), routines: source.routines() }),
 			decide: (callerTabId, draft) => {
 				const decision = desk.postDecision(draft);
 				this.#deps.botDecisionNotice?.(callerTabId, decision);
@@ -619,14 +624,47 @@ export class AgentControlRuntime {
 	}
 
 	/**
-	 * A session's own wake-up came due (`ompdesk_schedule` with `target: "self"`, run by `ScheduleService`): the schedule's
-	 * prompt reaches that session as a mail that starts a turn, through the outbox like every report (an omp that
-	 * misses it gets it again). A session no tab here holds is opened in a background tab of the front window, an asleep
-	 * one is started; a session whose file is gone, or with no window to open it in, fails the run with the reason.
+	 * The owner showed the bot a workflow (`bot-teach.ts`): the record reaches it as a message that starts its turn,
+	 * through the outbox like a decision's answer. Unlike that one it rejects when the bot is off or cannot be reached
+	 * at all (no window to open it in), so Stop tells the owner and can be pressed again.
 	 */
-	async wakeSession(schedule: Schedule, runId: string): Promise<void> {
+	async botTaught(teach: TeachMail): Promise<void> {
+		const sessionPath = activeBotPath(key => this.#deps.prefs.get(key));
+		if (!sessionPath) throw new Error("The bot is off.");
+		await this.#reach(
+			sessionPath,
+			{
+				id: teach.id,
+				from: "ompdesk",
+				fromTitle: "Demonstration",
+				to: "",
+				kind: "note",
+				text: teach.text,
+				instruction: teach.instruction,
+				at: Date.now(),
+			},
+			{ triggerTurn: true, deliverAs: "aside" },
+		);
+	}
+
+	/**
+	 * A session's own wake-up came due (`ompdesk_schedule` with `target: "self"`, a routine of the bot's, run by
+	 * `ScheduleService`): the schedule's prompt reaches that session as a mail that starts a turn, through the outbox like
+	 * every report (an omp that misses it gets it again). A session no tab here holds is opened in a background tab of
+	 * the front window, an asleep one is started; a session whose file is gone, or with no window to open it in, fails
+	 * the run with the reason. Delivered, the run follows the turn it started (or the one it joined): it ends when that
+	 * turn ends, with the turn's error if it failed; a tab closed meanwhile, or no turn within `WAKE_TURN_START_MS`, fails
+	 * it. `stop()` stops that turn.
+	 */
+	async wakeSession(schedule: Schedule, runId: string): Promise<RunProcess> {
 		const sessionPath = schedule.wakeSession;
 		if (sessionPath === undefined) throw new Error("This schedule wakes no session");
+		// A paused bot's routines skip their runs (pausing never cancels them, and nothing piles up for its resume).
+		if (
+			this.#deps.botDesk?.desk.state().paused === true &&
+			sessionPath === activeBotPath(key => this.#deps.prefs.get(key))
+		)
+			throw new ScheduleSkip("The bot is paused");
 		if (
 			!(await stat(sessionPath).then(
 				entry => entry.isFile(),
@@ -641,16 +679,64 @@ export class AgentControlRuntime {
 			to: "",
 			kind: "note",
 			text: schedule.prompt,
-			instruction: "You scheduled this wake-up for yourself: act on it now.",
+			instruction: "One of your routines started this turn: act on it now.",
 			at: Date.now(),
+		};
+		const { pool } = this.#deps;
+		const owner = () => pool.sessionOwner(sessionPath)?.tabId;
+		const { promise: done, resolve } = Promise.withResolvers<{ code: number | null; error?: string }>();
+		let tabId = owner();
+		let started = tabId !== undefined && pool.tabFacts(tabId)?.busy === true;
+		// After the delivery any `idle` ends the turn the mail started or joined: a turn that starts and ends within one
+		// event batch is announced as `idle` alone, with no `busy` before it.
+		let delivered = false;
+		let timer: NodeJS.Timeout | undefined;
+		// Watched from before the delivery, so a turn that starts and ends at once is never missed.
+		const unobserve = pool.observeTabs(activity => {
+			tabId = owner() ?? tabId;
+			if (activity.tabId !== tabId) return;
+			if (activity.type === "busy") started = true;
+			else if (activity.type === "released")
+				finish({ code: null, error: "The session's tab closed before its turn ended" });
+			else if (activity.type === "idle" && (started || delivered)) {
+				const outcome = activity.outcome;
+				if (outcome?.stopReason === "aborted") finish({ code: SUPERVISOR_STOPPED_CODE });
+				else if (outcome?.stopReason === "error")
+					finish({ code: null, error: outcome.errorMessage || "The turn ended with an error" });
+				else finish({ code: 0 });
+			}
+		});
+		const finish = (result: { code: number | null; error?: string }) => {
+			unobserve();
+			clearTimeout(timer);
+			resolve(result);
 		};
 		try {
 			await this.#reach(sessionPath, mail, { triggerTurn: true, deliverAs: "aside" });
 		} catch (error) {
+			unobserve();
 			// Nothing woke: the run fails, and the mail is not left to turn up in this session later.
 			this.#outbox.settle(mail.id);
 			throw error;
 		}
+		delivered = true;
+		tabId = owner() ?? tabId;
+		if (tabId !== undefined && pool.tabFacts(tabId)?.busy === true) started = true;
+		timer = setTimeout(() => {
+			if (!started) finish({ code: null, error: "The session started no turn on the wake-up within 2 minutes" });
+		}, WAKE_TURN_START_MS);
+		timer.unref();
+		return {
+			done,
+			stop: () => {
+				const holder = owner();
+				if (holder && started) {
+					recordTurnStop({ command: "abort", tab: holder, by: "schedule", surface: "routine-stop" });
+					void this.#hostCommand(holder, { type: "abort" }).catch(() => undefined);
+				}
+				finish({ code: SUPERVISOR_STOPPED_CODE });
+			},
+		};
 	}
 
 	/**
@@ -1526,6 +1612,25 @@ export class AgentControlRuntime {
 					remove: async id => {
 						await command({ action: "delete", id });
 					},
+					update: async (id, change) => {
+						const before = (await command({ action: "get" })).schedules.find(schedule => schedule.id === id);
+						if (!before) throw new Error("The schedule is gone.");
+						const { id: _id, createdAt: _createdAt, device: _device, ...draft } = before;
+						const state = await command({ action: "save", id, draft: change(draft) });
+						const saved = state.schedules.find(schedule => schedule.id === id);
+						if (!saved) throw new Error("The schedule is gone.");
+						return rowOf(state, saved);
+					},
+					setEnabled: async (id, enabled) => {
+						const state = await command({ action: "setEnabled", id, enabled });
+						const saved = state.schedules.find(schedule => schedule.id === id);
+						if (!saved) throw new Error("The schedule is gone.");
+						return rowOf(state, saved);
+					},
+					runNow: async id => {
+						await command({ action: "runNow", id });
+					},
+					runs: async id => (await command({ action: "get" })).runs.filter(run => run.scheduleId === id),
 				};
 			},
 			observe: listener => deps.pool.observeTabs(() => listener()),

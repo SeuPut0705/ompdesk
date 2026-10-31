@@ -26,6 +26,7 @@ import type {
 import type { BotActivityPage } from "./bot-activity";
 import type { BotDeskAnswer, BotDeskDuties, BotDeskState } from "./bot-desk";
 import type { BotDeskEdit } from "./bot-desk-edit";
+import type { BotTeachRequest, BotTeachResult } from "./bot-teach";
 import type { BuiltinReaState } from "./builtin-mcp";
 import type { CliToolId, CliUpdateState } from "./cli-update";
 import type { AgentBrowserStatus, ChromiumBrowserId } from "./default-browser";
@@ -268,6 +269,8 @@ export const IPC_COMMANDS = {
 	BOT_DESK_EDIT: "bot-desk:edit",
 	/** The bot's activity log, newest page (`BotActivityPage`) */
 	BOT_ACTIVITY_GET: "bot-activity:get",
+	/** The owner records a workflow for the bot to turn into a skill: start, stop or cancel (`BotTeachRequest` → `BotTeachResult`, `shared/bot-teach.ts`) */
+	BOT_TEACH: "bot-desk:teach",
 	/** Fetch stats endpoint */
 	STATS_FETCH: "stats:fetch",
 	/** Run/cancel an isolated bundled `omp bench --json` process. */
@@ -639,6 +642,12 @@ export type RuntimeErrorSource =
 	 * `details` has the chain, the step and the bound in ms.
 	 */
 	| "chain-stall"
+	/**
+	 * A routine's trigger (src/main/routines): a source that could not read what it watches (GitHub through `gh`, a
+	 * path that does not exist, a branch or repository git cannot read). Told once per distinct failure; `message`
+	 * names the routine and the source.
+	 */
+	| "routines"
 	| "unknown";
 
 /** Bounded, serializable renderer/main failure payload written as JSONL. */
@@ -2312,6 +2321,8 @@ export interface OmpApi {
 			edit(payload: BotDeskEdit, device?: string): Promise<void>;
 			/** The newest page of the bot's activity log (`shared/bot-activity.ts`). */
 			activity(device?: string): Promise<BotActivityPage>;
+			/** Show the bot a workflow: start recording, stop (hands the bot the record) or cancel (`BOT_TEACH`). */
+			teach(payload: BotTeachRequest, device?: string): Promise<BotTeachResult>;
 			/** This computer's desk (no `device`) and every paired host's, as each pushes it. */
 			onChanged(callback: (state: BotDeskState, device?: string) => void): () => void;
 		};

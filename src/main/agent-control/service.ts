@@ -70,7 +70,13 @@ import type {
 	SubagentSnapshot,
 	TodoPhase,
 } from "../../shared/rpc-types";
-import type { ScheduleDraft, ScheduleFrequency } from "../../shared/schedules";
+import {
+	describeFrequency,
+	type ScheduleDraft,
+	type ScheduleEvent,
+	type ScheduleFrequency,
+	type ScheduleRun,
+} from "../../shared/schedules";
 import { APPROVE_DENY, approvalChoices } from "../../shared/tool-approval";
 import {
 	type FamilyEdits,
@@ -293,13 +299,20 @@ export interface ScheduleSource {
 	list(): Promise<ScheduleRow[]>;
 	save(draft: ScheduleDraft): Promise<ScheduleRow>;
 	remove(id: string): Promise<void>;
+	/** Saves `change` of the schedule's stored draft (a webhook keeps its key); rejects with the service's reason. */
+	update(id: string, change: (draft: ScheduleDraft) => ScheduleDraft): Promise<ScheduleRow>;
+	setEnabled(id: string, enabled: boolean): Promise<ScheduleRow>;
+	/** A test run now; rejects when it already runs. */
+	runNow(id: string): Promise<void>;
+	/** Its kept runs, newest first. */
+	runs(id: string): Promise<ScheduleRun[]>;
 }
 
 /** The bot's desk as `ompdesk_bot` uses it (`host.ts`, over `bot-desk.ts` and the Schedules service). */
 export interface BotDeskPort {
 	/** The bot's session file while the owner has the bot on; null while it is off. */
 	sessionPath(): string | null;
-	/** The desk and the bot's own wakes. */
+	/** The desk and the bot's routines. */
 	state(): BotDeskState;
 	/** Posts a decision for the owner and tells them (a banner on the bot's tab, a push to paired phones). */
 	decide(callerTabId: string, draft: DecisionDraft): OpenDecision;
@@ -664,14 +677,32 @@ function label(tab: ControlTab): string {
 	return tab.title ? `"${oneLine(tab.title, 80)}"` : `(untitled, in ${folder})`;
 }
 
-/** "every 30 min", "daily at 09:00", "Mon, Wed at 09:00". */
-function describeFrequency(frequency: ScheduleFrequency): string {
-	if (frequency.kind === "interval") return `every ${frequency.minutes} min`;
-	const days = frequency.days.map(day => WEEKDAYS[day] ?? String(day));
-	return `${days.length > 0 ? days.join(", ") : "daily"} at ${frequency.time}`;
+/** "next 2026-…" ("next —" while every schedule is paused), "off", "done" (a once that ran), "waits for its event". */
+function scheduleState(row: ScheduleRow): string {
+	if (!row.enabled) return row.frequency.kind === "once" && row.lastStatus ? "done" : "off";
+	if (row.frequency.kind === "event") return "waits for its event";
+	return `next ${row.nextRun ?? "—"}`;
 }
 
-const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+/** How to call a webhook trigger: the path and the key it answers to (the key is in the schedule's own trigger). */
+function webhookLine(row: ScheduleRow): string {
+	if (row.frequency.kind !== "event" || row.frequency.event.source !== "webhook") return "";
+	return ` Webhook: POST /hooks/${row.id} on that computer's OMPdesk web server (on while Mobile web is on: http://127.0.0.1:<its port> there, or its Mobile web link from the tailnet) with the header "Authorization: Bearer ${row.frequency.event.key}"; the request body is passed to the run.`;
+}
+
+/** `ompdesk_schedule {"action":"runs"}`: the kept runs, newest first, with what fired them and why one failed. */
+function scheduleRunsText(row: ScheduleRow, runs: readonly ScheduleRun[]): string {
+	if (runs.length === 0) return `“${row.name}” has not run yet; ${scheduleState(row)}.`;
+	return [
+		`Runs of “${row.name}” (${runs.length}, newest first; ${scheduleState(row)}):`,
+		...runs.map(run => {
+			const trigger = run.trigger === "manual" ? "test" : run.trigger === "event" ? "event" : "timer";
+			const detail = run.detail ? ` — fired by: ${oneLine(run.detail, 300)}` : "";
+			const error = run.error ? ` — ${run.status === "skipped" ? "why" : "reason"}: ${oneLine(run.error, 300)}` : "";
+			return `- ${run.startedAt} ${run.status} (${trigger})${run.endedAt ? ` ended ${run.endedAt}` : ""}${error}${detail}`;
+		}),
+	].join("\n");
+}
 
 /** A path without trailing separators (a root stays as it is). */
 function trimSeparators(path: string): string {
@@ -3777,7 +3808,10 @@ export class AgentControl {
 		}
 	}
 
-	/** `ompdesk_schedule`: create, list or cancel the runs an agent put on the Schedules service of a device. */
+	/**
+	 * `ompdesk_schedule`: create, list, change or cancel the runs an agent put on the Schedules service of a device (a
+	 * timer, once, or an event), test one now and read its run history. Only agent-made ones can be changed.
+	 */
 	async #schedule(caller: ControlTab, args: ScheduleArgs): Promise<string> {
 		// Default: the device the caller's own session runs on, so its folder is a path there.
 		let device: ControlDevice | null;
@@ -3804,27 +3838,48 @@ export class AgentControl {
 				`Scheduled runs ${where}:`,
 				...rows.map(
 					row =>
-						`- ${row.id} “${row.name}” ${describeFrequency(row.frequency)} in ${row.cwd}; ${row.enabled ? `next ${row.nextRun ?? "—"}` : "off"}${row.lastStatus ? `; last run ${row.lastStatus}` : ""}${row.wakes ? "; wakes a session" : ""}${row.name.startsWith(AGENT_SCHEDULE_PREFIX) ? " [made by an agent: you can cancel it]" : " [the user's own: leave it]"}`,
+						`- ${row.id} “${row.name}” ${describeFrequency(row.frequency)}${row.wakes ? "" : ` in ${row.cwd}`}; ${scheduleState(row)}${row.lastStatus ? `; last run ${row.lastStatus}` : ""}${row.wakes ? "; wakes a session" : ""}${row.name.startsWith(AGENT_SCHEDULE_PREFIX) ? " [made by an agent: you can change it]" : " [the user's own: leave it]"}`,
 				),
 			].join("\n");
 		}
 		const deviceArg = device ? `,"device":${JSON.stringify(device.name)}` : "";
-		if (args.action === "cancel") {
+		if (args.action !== "create") {
 			const id = args.id ?? "";
 			const row =
 				rows.find(entry => entry.id === id) ??
 				rows.find(entry => id.length >= SESSION_PREFIX_MIN && entry.id.startsWith(id));
 			if (!row)
 				fail(`No scheduled run "${id}" ${where}. ompdesk_schedule {"action":"list"${deviceArg}} shows them.`);
+			if (args.action === "runs") return scheduleRunsText(row, await source.runs(row.id));
 			if (!row.name.startsWith(AGENT_SCHEDULE_PREFIX))
 				fail(`“${row.name}” is the user's own schedule; only the user changes it (Settings › Schedules).`);
-			await source.remove(row.id);
-			return `Cancelled “${row.name}” ${where}.`;
+			switch (args.action) {
+				case "cancel":
+					await source.remove(row.id);
+					return `Cancelled “${row.name}” ${where}.`;
+				case "pause":
+				case "resume": {
+					const changed = await source.setEnabled(row.id, args.action === "resume");
+					return `${args.action === "resume" ? "Resumed" : "Paused"} “${changed.name}” ${where}; ${scheduleState(changed)}.`;
+				}
+				case "run":
+					await source.runNow(row.id);
+					return `Started a test run of “${row.name}” ${where}. ompdesk_schedule {"action":"runs","id":"${row.id}"${deviceArg}} shows how it ends.`;
+				case "update": {
+					const frequency = this.#frequencyOf(caller, args, device);
+					const changed = await source.update(row.id, draft => ({
+						...draft,
+						...(args.name ? { name: `${AGENT_SCHEDULE_PREFIX}${args.name}` } : {}),
+						...(args.prompt ? { prompt: args.prompt } : {}),
+						...(args.model ? { model: args.model } : {}),
+						...(frequency ? { frequency, enabled: true } : {}),
+					}));
+					return `Updated “${changed.name}” ${where}: ${describeFrequency(changed.frequency)}; ${scheduleState(changed)}.${webhookLine(changed)}`;
+				}
+			}
 		}
-		const frequency: ScheduleFrequency =
-			args.every_minutes !== undefined
-				? { kind: "interval", minutes: args.every_minutes }
-				: { kind: "daily", time: args.daily_at ?? "09:00", days: [...new Set(args.days ?? [])].sort() };
+		const frequency = this.#frequencyOf(caller, args, device);
+		if (!frequency) fail("create needs exactly one of every_minutes, daily_at, at, in_minutes or on.");
 		// The caller's folder is a path on its own device; another device needs its folder named.
 		if (!args.folder && device?.id !== caller.device) fail(`folder is required: name an absolute folder ${where}.`);
 		const cwd = args.folder ?? caller.cwd;
@@ -3860,9 +3915,51 @@ export class AgentControl {
 			enabled: true,
 			...(wakeSession === undefined ? {} : { wakeSession }),
 		});
+		const when = describeFrequency(row.frequency);
+		const start = (word: string) =>
+			row.frequency.kind === "event" ? "it waits for its event" : `next ${word} ${row.nextRun ?? "—"}`;
 		if (wakeSession !== undefined)
-			return `Scheduled “${row.name}” ${describeFrequency(frequency)}: it wakes this session with the prompt, opening it in the background if no tab holds it; id ${row.id}; next wake ${row.nextRun ?? "—"}. It runs only while OMPdesk is open on this computer; cancel it when you no longer need it with ompdesk_schedule {"action":"cancel","id":"${row.id}"}.`;
-		return `Scheduled “${row.name}” ${describeFrequency(frequency)} in ${cwd} ${where}; id ${row.id}; next run ${row.nextRun ?? "—"}. It runs only while OMPdesk is open ${where}, never with auto-approve; cancel it with ompdesk_schedule {"action":"cancel","id":"${row.id}"${deviceArg}}.`;
+			return `Scheduled “${row.name}” ${when}: it wakes this session with the prompt, opening it in the background if no tab holds it; id ${row.id}; ${start("wake")}. It runs only while OMPdesk is open on this computer; the owner sees it among your routines with its runs. ${frequency.kind === "once" ? "It turns itself off after its run." : `Cancel it when you no longer need it with ompdesk_schedule {"action":"cancel","id":"${row.id}"}.`}${webhookLine(row)}`;
+		return `Scheduled “${row.name}” ${when} in ${cwd} ${where}; id ${row.id}; ${start("run")}. It runs only while OMPdesk is open ${where}, never with auto-approve; cancel it with ompdesk_schedule {"action":"cancel","id":"${row.id}"${deviceArg}}.${webhookLine(row)}`;
+	}
+
+	/** The one start `args` names, or undefined when it names none (an update that keeps the timing). */
+	#frequencyOf(caller: ControlTab, args: ScheduleArgs, device: ControlDevice | null): ScheduleFrequency | undefined {
+		if (args.every_minutes !== undefined) return { kind: "interval", minutes: args.every_minutes };
+		if (args.daily_at !== undefined)
+			return { kind: "daily", time: args.daily_at, days: [...new Set(args.days ?? [])].sort() };
+		if (args.at !== undefined) return { kind: "once", at: new Date(Date.parse(args.at)).toISOString() };
+		if (args.in_minutes !== undefined)
+			return { kind: "once", at: new Date(Date.now() + args.in_minutes * 60_000).toISOString() };
+		const on = args.on;
+		if (!on) return undefined;
+		const absolute = (path: string, what: string) => {
+			if (!(path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path))) fail(`${what} must be an absolute path.`);
+			return path;
+		};
+		let event: ScheduleEvent;
+		switch (on.source) {
+			case "webhook":
+				// The service makes the key.
+				event = { source: "webhook", key: "" };
+				break;
+			case "github":
+				event = { source: "github", repo: on.repo, events: on.events };
+				break;
+			case "files":
+				event = { source: "files", path: absolute(on.path, "on.path") };
+				break;
+			case "git": {
+				// The caller's folder is a path on its own device only.
+				if (!on.repo && device?.id !== caller.device) fail("on.repo is required on another device.");
+				event = { source: "git", repo: absolute(on.repo ?? caller.cwd, "on.repo"), branch: on.branch };
+				break;
+			}
+			case "session":
+				event = { source: "session", events: on.events, ...(on.folder ? { folder: on.folder } : {}) };
+				break;
+		}
+		return { kind: "event", event };
 	}
 
 	/** `ompdesk_bot`: the bot's own desk. Only the owner's bot session and its side chats may use it. */

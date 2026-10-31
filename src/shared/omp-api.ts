@@ -34,6 +34,7 @@ import type {
 import type { BotActivityPage } from "./bot-activity";
 import type { BotDeskAnswer, BotDeskDuties, BotDeskState } from "./bot-desk";
 import type { BotDeskEdit } from "./bot-desk-edit";
+import type { BotTeachRequest, BotTeachResult } from "./bot-teach";
 import type { BuiltinReaState } from "./builtin-mcp";
 import type { CliToolId, CliUpdateState } from "./cli-update";
 import type { DiagnosticBundleRequest, DiagnosticBundleResult } from "./diagnostic-bundle";
@@ -576,6 +577,9 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 					transport.invoke(IPC_COMMANDS.BOT_DESK_EDIT, payload, device) as Promise<void>,
 				activity: (device?: string) =>
 					transport.invoke(IPC_COMMANDS.BOT_ACTIVITY_GET, device) as Promise<BotActivityPage>,
+				/** Show the bot a workflow: start recording, stop (hands the bot the record) or cancel. */
+				teach: (payload: BotTeachRequest, device?: string) =>
+					transport.invoke(IPC_COMMANDS.BOT_TEACH, payload, device) as Promise<BotTeachResult>,
 				onChanged: (callback: (state: BotDeskState, device?: string) => void) => {
 					const offLocal = subscribe<BotDeskState>(IPC_EVENTS.BOT_DESK_CHANGED, state => callback(state));
 					const offHost = subscribe<IpcHostBotDesk>(IPC_EVENTS.HOST_BOT_DESK_STATE, update =>

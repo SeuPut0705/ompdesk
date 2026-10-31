@@ -16,11 +16,46 @@ export const SCHEDULE_MIN_INTERVAL = 5;
 export const SCHEDULE_MAX_INTERVAL = 7 * 24 * 60;
 /** Runs kept in the log, all schedules together; older ones and their log files go. */
 export const SCHEDULE_RUNS_KEPT = 200;
+/** Runs kept per schedule (a routine's run history); a schedule's older ones go first. */
+export const SCHEDULE_RUNS_PER_SCHEDULE = 20;
+/** Finished one-time schedules kept (off, with their runs); older ones are deleted. */
+export const SCHEDULE_ONCE_DONE_KEPT = 20;
+/**
+ * Loop guard: event runs in a row, each asked for while the one before it was still going, after which the routine
+ * is turned off instead of starting again (its own run keeps firing its trigger).
+ */
+export const ROUTINE_CHAIN_LIMIT = 10;
+/** How often a GitHub trigger asks GitHub for news, in minutes (the shortest interval any schedule repeats at). */
+export const GITHUB_POLL_MINUTES = SCHEDULE_MIN_INTERVAL;
 
 export type ScheduleFrequency =
 	| { kind: "interval"; minutes: number }
 	/** Local wall-clock `HH:MM`; `days` are weekdays (0 = Sunday), empty = every day. */
-	| { kind: "daily"; time: string; days: number[] };
+	| { kind: "daily"; time: string; days: number[] }
+	/** One start at `at` (ISO); then the schedule turns itself off (a follow-up set for a moment). */
+	| { kind: "once"; at: string }
+	/** No clock: started by its event (src/main/routines). */
+	| { kind: "event"; event: ScheduleEvent };
+
+export const GITHUB_EVENT_KINDS = ["pull_request", "issue", "ci_failure", "release", "push"] as const;
+export type GithubEventKind = (typeof GITHUB_EVENT_KINDS)[number];
+export const SESSION_EVENT_KINDS = ["done", "failed", "waiting"] as const;
+/** A session of this computer finished a turn, failed one, or waits for the person's answer. */
+export type SessionEventKind = (typeof SESSION_EVENT_KINDS)[number];
+
+export type ScheduleEvent =
+	/** `POST /hooks/<schedule id>` on this computer's web server with `Authorization: Bearer <key>`. */
+	| { source: "webhook"; key: string }
+	/** News on a GitHub repository (`owner/name`), asked with the person's `gh` every `GITHUB_POLL_MINUTES`. */
+	| { source: "github"; repo: string; events: GithubEventKind[] }
+	/** A file under `path` (absolute; a folder is watched with everything in it) was created, changed or removed. */
+	| { source: "files"; path: string }
+	/** New commits on a local branch of the repository at `repo` (absolute). */
+	| { source: "git"; repo: string; branch: string }
+	/** A session on this computer (`folder`: only those whose folder contains it). Never the bot's own sessions. */
+	| { source: "session"; events: SessionEventKind[]; folder?: string };
+
+export type ScheduleEventSource = ScheduleEvent["source"];
 
 export interface ScheduleDraft {
 	name: string;
@@ -53,13 +88,16 @@ export type ScheduleRunStatus = "running" | "succeeded" | "failed" | "stopped" |
 export interface ScheduleRun {
 	id: string;
 	scheduleId: string;
-	trigger: "schedule" | "manual";
+	/** `manual`: run now (a routine's Test); `event`: its trigger fired. */
+	trigger: "schedule" | "manual" | "event";
 	startedAt: string;
 	endedAt: string | null;
 	status: ScheduleRunStatus;
 	exitCode: number | null;
 	/** Why a run failed to start or was skipped (English; the log has the details). */
 	error: string | null;
+	/** What fired an event run, one line per event (English), as its prompt was told; absent otherwise. */
+	detail?: string;
 }
 
 export interface SchedulesState {
@@ -99,32 +137,75 @@ export interface SchedulesApi {
 }
 
 const TIME = /^([01]\d|2[0-3]):([0-5]\d)$/;
+const ABSOLUTE = /^(?:\/|[A-Za-z]:[\\/])/;
+/** `owner/name` as GitHub spells a repository. */
+export const GITHUB_REPO = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
+/** A branch name git accepts in `refs/heads/` (the common subset: no spaces, `..`, `~^:?*[\`, or leading `-`). */
+const BRANCH = /^(?!-)(?!.*\.\.)(?!.*\/\/)[^\s~^:?*[\\]+(?<![./])$/;
 
 /** Why a draft cannot be saved, as a locale key suffix; null when it can. */
 export function scheduleDraftProblem(
 	draft: ScheduleDraft,
-): "name" | "prompt" | "cwd" | "interval" | "time" | "days" | null {
+): "name" | "prompt" | "cwd" | "interval" | "time" | "days" | "once" | "event" | null {
 	if (!draft.name.trim()) return "name";
 	if (!draft.prompt.trim()) return "prompt";
-	if (!draft.cwd || !(draft.cwd.startsWith("/") || /^[A-Za-z]:[\\/]/.test(draft.cwd))) return "cwd";
+	if (!draft.cwd || !ABSOLUTE.test(draft.cwd)) return "cwd";
 	const frequency = draft.frequency;
-	if (frequency.kind === "interval") {
-		const { minutes } = frequency;
-		if (!Number.isInteger(minutes) || minutes < SCHEDULE_MIN_INTERVAL || minutes > SCHEDULE_MAX_INTERVAL) {
-			return "interval";
+	switch (frequency.kind) {
+		case "interval": {
+			const { minutes } = frequency;
+			if (!Number.isInteger(minutes) || minutes < SCHEDULE_MIN_INTERVAL || minutes > SCHEDULE_MAX_INTERVAL)
+				return "interval";
+			return null;
 		}
-		return null;
+		case "daily":
+			if (!TIME.test(frequency.time)) return "time";
+			if (!frequency.days.every(day => Number.isInteger(day) && day >= 0 && day <= 6)) return "days";
+			return null;
+		case "once":
+			return typeof frequency.at === "string" && Number.isFinite(Date.parse(frequency.at)) ? null : "once";
+		case "event":
+			return scheduleEventProblem(frequency.event) ? "event" : null;
+		default:
+			return "interval";
 	}
-	if (!TIME.test(frequency.time)) return "time";
-	if (!frequency.days.every(day => Number.isInteger(day) && day >= 0 && day <= 6)) return "days";
-	return null;
+}
+
+/** Whether an event trigger is malformed (English, for the agent and the log); null when it is sound. */
+export function scheduleEventProblem(event: ScheduleEvent): string | null {
+	switch (event?.source) {
+		case "webhook":
+			return typeof event.key === "string" && event.key.length >= 16 ? null : "a webhook needs its key";
+		case "github":
+			if (!GITHUB_REPO.test(event.repo ?? "")) return "repo is owner/name";
+			return nonEmptySubset(event.events, GITHUB_EVENT_KINDS)
+				? null
+				: `events are some of ${GITHUB_EVENT_KINDS.join(", ")}`;
+		case "files":
+			return ABSOLUTE.test(event.path ?? "") ? null : "path must be absolute";
+		case "git":
+			if (!ABSOLUTE.test(event.repo ?? "")) return "repo must be an absolute folder";
+			return BRANCH.test(event.branch ?? "") ? null : "branch is not a branch name";
+		case "session":
+			if (event.folder !== undefined && (typeof event.folder !== "string" || !event.folder.trim()))
+				return "folder must be text";
+			return nonEmptySubset(event.events, SESSION_EVENT_KINDS)
+				? null
+				: `events are some of ${SESSION_EVENT_KINDS.join(", ")}`;
+		default:
+			return "unknown event source";
+	}
+}
+
+function nonEmptySubset(values: unknown, allowed: readonly string[]): boolean {
+	return Array.isArray(values) && values.length > 0 && values.every(value => allowed.includes(value));
 }
 
 /**
- * The first start strictly after `now`. An interval repeats from the previous
- * start (else from `now`); a start that fell while the app was closed is
- * skipped, so the next one is a full interval away. A daily schedule starts at
- * its local time on an allowed weekday.
+ * The first start strictly after `now`; null when the clock never starts it (an event trigger, a one-time schedule
+ * that ran or whose moment passed). An interval repeats from the previous start (else from `now`); a start that fell
+ * while the app was closed is skipped, so the next one is a full interval away. A daily schedule starts at its local
+ * time on an allowed weekday.
  */
 export function nextRunAt(
 	frequency: ScheduleFrequency,
@@ -132,7 +213,12 @@ export function nextRunAt(
 	lastStart: Date | null,
 	/** The length of a minute; only a test launch shortens it (`OMP_GUI_TEST_SCHEDULE_MINUTE_MS`). */
 	minuteMs = 60_000,
-): Date {
+): Date | null {
+	if (frequency.kind === "event") return null;
+	if (frequency.kind === "once") {
+		const at = Date.parse(frequency.at);
+		return lastStart === null && at > now.getTime() ? new Date(at) : null;
+	}
 	if (frequency.kind === "interval") {
 		const step = frequency.minutes * minuteMs;
 		const due = lastStart ? lastStart.getTime() + step : now.getTime() + step;
@@ -148,4 +234,35 @@ export function nextRunAt(
 	}
 	// Unreachable with a valid weekday list; a day out runs again tomorrow at the time.
 	return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, hours, minutes, 0, 0);
+}
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+/** When a schedule starts, in English for agents and logs: "every 30 min", "Mon, Wed at 09:00", "on a webhook call". */
+export function describeFrequency(frequency: ScheduleFrequency): string {
+	switch (frequency.kind) {
+		case "interval":
+			return `every ${frequency.minutes} min`;
+		case "daily": {
+			const days = frequency.days.map(day => WEEKDAYS[day] ?? String(day));
+			return `${days.length > 0 ? days.join(", ") : "daily"} at ${frequency.time}`;
+		}
+		case "once":
+			return `once at ${frequency.at}`;
+		case "event": {
+			const event = frequency.event;
+			switch (event.source) {
+				case "webhook":
+					return "on a webhook call";
+				case "github":
+					return `on GitHub ${event.events.join("/")} in ${event.repo}`;
+				case "files":
+					return `when files change under ${event.path}`;
+				case "git":
+					return `on new commits to ${event.branch} in ${event.repo}`;
+				case "session":
+					return `when a session ${event.events.map(kind => (kind === "waiting" ? "waits for the owner" : kind === "done" ? "finishes a turn" : "fails a turn")).join(" or ")}${event.folder ? ` in a folder containing ${event.folder}` : ""}`;
+			}
+		}
+	}
 }

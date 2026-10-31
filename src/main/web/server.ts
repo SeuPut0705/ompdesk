@@ -18,6 +18,7 @@ import { type RawData, WebSocketServer } from "ws";
 import { z } from "zod";
 import { DEFAULT_WEB_GRANTS } from "../../shared/web-protocol";
 import { WEB_PUSH_CATEGORIES, type WebPushSettings, type WebPushStateResponse } from "../../shared/web-push";
+import type { WebhookOutcome } from "../schedules";
 import type { TailnetPeer } from "../tailscale/whois";
 import {
 	checkRequest,
@@ -57,6 +58,11 @@ const PEER_CACHE_MAX = 256;
 /** Compressed copies of static files kept in memory, in bytes. */
 const COMPRESSED_CACHE_MAX_BYTES = 64 * 1024 * 1024;
 const WS_PROTOCOL = "ompdesk.v1";
+/** `POST /hooks/<schedule id>` starts the routine whose webhook key the bearer is (`ScheduleService.webhook`). */
+const HOOK_PREFIX = "/hooks/";
+const HOOK_BODY_MAX_BYTES = 64 * 1024;
+/** How much of a call's body the routine's run is told (characters, one line). */
+const HOOK_DETAIL_CHARS = 400;
 /** How long stopping waits for sockets to finish their close handshake. */
 const CLOSE_GRACE_MS = 1000;
 
@@ -157,6 +163,8 @@ export interface WebServerDeps {
 	onUnpairedAuth?: (info: { address: string }) => void;
 	/** Web Push: the VAPID public key a page subscribes against. */
 	push: { publicKey: () => string };
+	/** The schedule service that answers `POST /hooks/<id>`; null or absent while there is none (503). */
+	hooks?: () => { webhook(id: string, bearer: string, detail: string): WebhookOutcome } | null;
 	now?: () => number;
 }
 
@@ -232,6 +240,21 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
 	} catch {
 		throw new HttpError(400, "invalid json");
 	}
+}
+
+/** The text of a webhook call's body as the routine's run is told it: one line, the first `HOOK_DETAIL_CHARS` characters. */
+async function readHookDetail(req: IncomingMessage): Promise<string> {
+	const chunks: Buffer[] = [];
+	let size = 0;
+	for await (const chunk of req) {
+		const buffer = chunk as Buffer;
+		size += buffer.length;
+		if (size > HOOK_BODY_MAX_BYTES) throw new HttpError(413, "body too large", { connection: "close" });
+		chunks.push(buffer);
+	}
+	const text = Buffer.concat(chunks).toString("utf8").replace(/\s+/g, " ").trim();
+	if (text === "") return "Webhook call with no body";
+	return `Webhook call: ${[...text.slice(0, HOOK_DETAIL_CHARS * 2)].slice(0, HOOK_DETAIL_CHARS).join("")}`;
 }
 
 /** The peer address for limits and notices: serve's `X-Forwarded-For` (one Tailscale IP), else the socket's. */
@@ -443,7 +466,12 @@ export class WebServer {
 		const stripped = prefix === null ? null : stripServePrefix(req.url ?? "/", prefix);
 		const queryAt = (stripped ?? "/").indexOf("?");
 		const pathname = queryAt === -1 ? (stripped ?? "/") : (stripped ?? "/").slice(0, queryAt);
+		// A webhook call to the loopback address itself (a script on this computer) carries no serve prefix: the bearer key
+		// is its only credential, and nothing a browser can send is accepted (`#directHook`).
+		const bare = stripped === null ? (req.url ?? "/").split("?")[0] : null;
+		if (bare?.startsWith(HOOK_PREFIX)) return this.#directHook(req, res, method, bare);
 
+		const isHook = pathname.startsWith(HOOK_PREFIX);
 		const isApi =
 			pathname === "/api/pair" ||
 			pathname === "/api/session" ||
@@ -451,7 +479,7 @@ export class WebServer {
 			pathname === "/upload" ||
 			pathname === "/healthz" ||
 			pathname.startsWith(BLOB_URL_PREFIX);
-		const kind: RequestKind = isApi ? "api" : "page";
+		const kind: RequestKind = isHook ? "hook" : isApi ? "api" : "page";
 		const check = this.#check(req, kind);
 		if (!check.ok) {
 			this.#refuse(req, res, check, kind);
@@ -459,6 +487,7 @@ export class WebServer {
 		}
 		const target = check.target;
 		req.url = target;
+		if (isHook) return this.#hook(req, res, method, pathname);
 		// A blocked device must not reach the app: a page load without a device cookie asks who the visitor is.
 		if (PAGE_ROUTES.has(pathname) && this.#deps.blocks.active && !this.#hasDevice(req)) {
 			const address = tailnetAddress(req);
@@ -482,6 +511,58 @@ export class WebServer {
 		if (pathname.startsWith(BLOB_URL_PREFIX)) return this.#blob(req, res, method, target);
 		if (pathname.startsWith("/api/")) throw new HttpError(404, "not found");
 		return this.#static(req, res, method, pathname);
+	}
+
+	/**
+	 * `POST /hooks/<id>` called on the loopback address itself, without serve's secret prefix: a script, cron job or git
+	 * hook on this computer. No identity header is believed here; the routine's webhook key is the only credential
+	 * (`#hook`), and anything that marks a browser is refused first (an `Origin`, a `Sec-Fetch-*`), as is a `Host` that is
+	 * not this loopback address (DNS rebinding).
+	 */
+	async #directHook(req: IncomingMessage, res: ServerResponse, method: string, pathname: string): Promise<void> {
+		const { headers } = req;
+		if (!isLoopbackAddress(req.socket.remoteAddress) || headers["tailscale-funnel-request"] !== undefined)
+			throw new HttpError(403, "forbidden");
+		if (
+			headers.origin !== undefined ||
+			headers["sec-fetch-site"] !== undefined ||
+			headers["sec-fetch-mode"] !== undefined
+		)
+			throw new HttpError(403, "forbidden");
+		const host = singleHeader(headers.host)?.toLowerCase();
+		const loopbackHosts = [`127.0.0.1:${this.#port}`, `localhost:${this.#port}`, `[::1]:${this.#port}`];
+		if (host === undefined || !loopbackHosts.includes(host)) throw new HttpError(421, "wrong host");
+		return this.#hook(req, res, method, pathname);
+	}
+
+	/**
+	 * The webhook call itself, however it arrived: `Authorization: Bearer <key>` is checked by the schedule service in
+	 * constant time. 202 fired (or kept for after the run in progress), 404 no such routine, 401 a wrong or missing key,
+	 * 409 the routine is off, 413 a body over 64 KiB. A call with no bearer, or for an id that cannot be one, costs
+	 * nothing: its body is not read. A call with one reads at most 64 KiB before the key is compared.
+	 */
+	async #hook(req: IncomingMessage, res: ServerResponse, method: string, pathname: string): Promise<void> {
+		if (method !== "POST") throw new HttpError(405, "method not allowed", { allow: "POST" });
+		const id = pathname.slice(HOOK_PREFIX.length);
+		if (!/^[A-Za-z0-9-]{1,64}$/.test(id)) throw new HttpError(404, "unknown_hook");
+		const bearer = /^Bearer[ \t]+(\S{1,256})$/i.exec(singleHeader(req.headers.authorization) ?? "")?.[1];
+		if (bearer === undefined) throw new HttpError(401, "unauthorized", { "www-authenticate": "Bearer" });
+		const declared = Number(singleHeader(req.headers["content-length"]));
+		if (declared > HOOK_BODY_MAX_BYTES) throw new HttpError(413, "body too large", { connection: "close" });
+		const detail = await readHookDetail(req);
+		const service = this.#deps.hooks?.();
+		if (!service) throw new HttpError(503, "unavailable");
+		switch (service.webhook(id, bearer, detail)) {
+			case "fired":
+				sendJson(res, 202, { ok: true });
+				return;
+			case "unknown":
+				throw new HttpError(404, "unknown_hook");
+			case "denied":
+				throw new HttpError(401, "unauthorized", { "www-authenticate": "Bearer" });
+			case "off":
+				throw new HttpError(409, "off");
+		}
 	}
 
 	/** The device behind the request's cookie; a failure is counted, and told to the desktop once it repeats. */

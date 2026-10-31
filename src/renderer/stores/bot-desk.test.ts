@@ -10,7 +10,7 @@ interface DeskApi {
 	onChanged: Mock<(callback: (state: BotDeskState, device?: string) => void) => () => void>;
 }
 
-const EMPTY: BotDeskState = { ...EMPTY_BOT_DESK, duties: [], decisions: [], wakes: [] };
+const EMPTY: BotDeskState = { ...EMPTY_BOT_DESK, duties: [], decisions: [], routines: [] };
 const WITH_DUTY: BotDeskState = {
 	...EMPTY,
 	duties: [{ id: "a", text: "Check the build", at: "2026-10-31T09:00:00.000Z" }],

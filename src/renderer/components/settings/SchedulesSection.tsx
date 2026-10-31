@@ -21,23 +21,16 @@ import {
 	Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useId, useState } from "react";
-import type {
-	Schedule,
-	ScheduleDraft,
-	ScheduleFrequency,
-	ScheduleRun,
-	SchedulesRequest,
-	SchedulesState,
-} from "../../../shared/schedules";
+import type { Schedule, ScheduleDraft, ScheduleRun, SchedulesRequest, SchedulesState } from "../../../shared/schedules";
 import { AnsiText } from "../../lib/ansi";
 import { basename, durationBetween, formatClock, formatTimeAgo } from "../../lib/format";
-import { translate, useT } from "../../lib/i18n";
+import { useT } from "../../lib/i18n";
+import { frequencySummary, RUN_STATUS_BADGE } from "../../lib/schedule-text";
 import { useFocusedTabDevice } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { toastError } from "../../stores/toast";
 import {
 	Badge,
-	type BadgeVariant,
 	Banner,
 	Button,
 	ConfirmDialog,
@@ -48,36 +41,11 @@ import {
 	Spinner,
 	Switch,
 } from "../common";
-import { ScheduleDialog, weekdayNames } from "./ScheduleDialog";
+import { ScheduleDialog } from "./ScheduleDialog";
 import { SettingsRow, SettingsSection } from "./SettingsLayout";
 
 /** Runs listed before "Show all". */
 const RUNS_SHOWN = 20;
-
-const STATUS_BADGE: Record<ScheduleRun["status"], BadgeVariant> = {
-	running: "info",
-	succeeded: "success",
-	failed: "error",
-	stopped: "muted",
-	skipped: "warning",
-};
-
-/** "Every 2 h" / "Every day at 09:30" / "Mon, Wed at 09:30", in the UI language. */
-export function frequencySummary(frequency: ScheduleFrequency): string {
-	if (frequency.kind === "interval") {
-		return frequency.minutes % 60 === 0
-			? translate("schedules.every.hours", { count: frequency.minutes / 60 })
-			: translate("schedules.every.minutes", { count: frequency.minutes });
-	}
-	if (frequency.days.length === 0 || frequency.days.length === 7) {
-		return translate("schedules.daily", { time: frequency.time });
-	}
-	const names = weekdayNames();
-	return translate("schedules.weekly", {
-		days: frequency.days.map(day => names[day]).join(", "),
-		time: frequency.time,
-	});
-}
 
 export function SchedulesSection() {
 	const t = useT();
@@ -224,7 +192,7 @@ export function SchedulesSection() {
 												</Badge>
 											) : (
 												last && (
-													<Badge variant={STATUS_BADGE[last.status]}>
+													<Badge variant={RUN_STATUS_BADGE[last.status]}>
 														{t(`schedules.status.${last.status}`)}
 													</Badge>
 												)
@@ -378,11 +346,11 @@ function RunRow({
 	return (
 		<li className="border-b border-(--sc-divider) last:border-b-0" data-schedule-run-row={run.id}>
 			<div className="omp-run-head flex min-w-0 items-center gap-2 py-2">
-				<Badge variant={STATUS_BADGE[run.status]}>{t(`schedules.status.${run.status}`)}</Badge>
+				<Badge variant={RUN_STATUS_BADGE[run.status]}>{t(`schedules.status.${run.status}`)}</Badge>
 				<span className="omp-run-name min-w-0 flex-1 truncate text-sc-sm text-(--sc-text)">
 					{name}
-					{run.trigger === "manual" && (
-						<span className="text-(--sc-text-muted)"> · {t("schedules.trigger.manual")}</span>
+					{run.trigger !== "schedule" && (
+						<span className="text-(--sc-text-muted)"> · {t(`schedules.trigger.${run.trigger}`)}</span>
 					)}
 				</span>
 				<span className="shrink-0 text-sc-xs text-(--sc-text-muted)" title={formatClock(run.startedAt)}>
@@ -401,6 +369,11 @@ function RunRow({
 			{(run.error || (run.status === "failed" && run.exitCode !== null)) && (
 				<p className="pb-2 text-sc-xs text-(--sc-text-muted)">
 					{run.error ?? t("schedules.exitCode", { code: run.exitCode ?? "" })}
+				</p>
+			)}
+			{run.detail && (
+				<p className="pb-2 text-sc-xs whitespace-pre-wrap text-(--sc-text-muted)" data-schedule-run-detail>
+					{run.detail}
 				</p>
 			)}
 			{open && (

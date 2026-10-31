@@ -1787,7 +1787,7 @@ export function Sidebar() {
 							},
 				)
 			: null;
-		const botWake = bot ? nextWake(botDesk.wakes) : null;
+		const botWake = bot ? nextWake(botDesk.routines) : null;
 		const botLine = botCondition
 			? [t(botStateKey(botCondition)), botWake ? t("botHome.nextWake", { time: formatClock(botWake) }) : null]
 					.filter(Boolean)

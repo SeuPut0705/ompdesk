@@ -9,6 +9,7 @@ import type { AccountRotationMode, AccountRotationState } from "../../shared/acc
 import { type AgentReviewItem, type AgentReviewResult, wrapAgentMessage } from "../../shared/agent-control";
 import { BotActivityPageSchema } from "../../shared/bot-activity";
 import { EMPTY_BOT_DESK } from "../../shared/bot-desk";
+import type { BotTeachRequest } from "../../shared/bot-teach";
 import { ipcErrorCode } from "../../shared/ipc-error-codes";
 import type {
 	CustomProviderInput,
@@ -3469,11 +3470,22 @@ describe("LocalHostServices host.* calls", () => {
 			activity: draft => void activity.append(draft),
 		});
 		const told: AnsweredDecision[] = [];
+		const taught: BotTeachRequest[] = [];
 		let on = false;
-		const wakes = [{ id: "w1", prompt: "check the build", next: "2026-10-31T10:00:00.000Z" }];
+		const routines = [
+			{
+				id: "w1",
+				name: "build",
+				prompt: "check the build",
+				frequency: { kind: "interval" as const, minutes: 30 },
+				enabled: true,
+				next: "2026-10-31T10:00:00.000Z",
+				runs: [],
+			},
+		];
 		const bot: HostedBotDesk = {
 			enabled: () => on,
-			state: () => ({ ...desk.state(), wakes }),
+			state: () => ({ ...desk.state(), routines }),
 			// What the IPC handler's `answerBotDecision` does: the desk records it, the bot is told what it returns.
 			answer: ({ id, answer }) => void told.push(desk.answer(id, answer)),
 			setDuties: payload => desk.setDuties(payload),
@@ -3484,6 +3496,10 @@ describe("LocalHostServices host.* calls", () => {
 					"owner",
 				),
 			activity: () => activity.page(),
+			teach: async request => {
+				taught.push(request);
+				return { delivered: request.action === "stop" };
+			},
 		};
 		// Before the desk is attached this computer has none to share.
 		await expect(services.call(x.peer, "host.botDesk.get", {}, x)).rejects.toThrow(/no bot desk/);
@@ -3500,6 +3516,7 @@ describe("LocalHostServices host.* calls", () => {
 			["host.botDesk.answer", { id: open.id, answer: "Yes" }],
 			["host.botDesk.setDuties", { duties: [{ text: "Check the build" }] }],
 			["host.botDesk.edit", { op: "memory_add", text: "Ships on Fridays" }],
+			["host.botDesk.teach", { action: "start" }],
 		] as const) {
 			const refused = await services.call(x.peer, method, params, x).catch((error: unknown) => error);
 			expect(ipcErrorCode(refused), method).toBe("bot_off");
@@ -3507,10 +3524,11 @@ describe("LocalHostServices host.* calls", () => {
 		expect(told).toEqual([]);
 		expect(desk.state().duties).toEqual([]);
 		expect(desk.state().memories).toEqual([]);
+		expect(taught).toEqual([]);
 
-		// On: the desk as this computer's own windows see it, wakes included.
+		// On: the desk as this computer's own windows see it, routines included.
 		on = true;
-		await expect(services.call(y.peer, "host.botDesk.get", {}, y)).resolves.toEqual({ ...desk.state(), wakes });
+		await expect(services.call(y.peer, "host.botDesk.get", {}, y)).resolves.toEqual({ ...desk.state(), routines });
 		await expect(
 			services.call(x.peer, "host.botDesk.setDuties", { duties: [{ text: "Check the build" }] }, x),
 		).resolves.toBeNull();
@@ -3524,6 +3542,14 @@ describe("LocalHostServices host.* calls", () => {
 			/already answered/,
 		);
 		expect(told).toHaveLength(1);
+		// A device records on this computer's bot, then hands it the record: the same path as the owner's own Record.
+		await expect(services.call(x.peer, "host.botDesk.teach", { action: "start" }, x)).resolves.toEqual({
+			delivered: false,
+		});
+		await expect(services.call(y.peer, "host.botDesk.teach", { action: "stop" }, y)).resolves.toEqual({
+			delivered: true,
+		});
+		expect(taught).toEqual([{ action: "start" }, { action: "stop" }]);
 
 		// An edit goes through the owner's own path; the log it leaves reads over the link, and its Undo works there too.
 		await expect(
@@ -3544,10 +3570,11 @@ describe("LocalHostServices host.* calls", () => {
 			["host.botDesk.setDuties", {}],
 			["host.botDesk.edit", { op: "memory_add", text: "" }],
 			["host.botDesk.edit", { op: "rename_everything" }],
+			["host.botDesk.teach", { action: "pause" }],
 		] as const)
 			await expect(services.call(x.peer, method, params, x), method).rejects.toThrow(/Invalid host\.botDesk/);
 
-		const state = { ...desk.state(), wakes };
+		const state = { ...desk.state(), routines };
 		services.botDeskChanged(state);
 		for (const conn of [x, y])
 			expect(conn.events.filter(entry => entry.event === BOT_DESK_EVENT).map(entry => entry.data)).toEqual([state]);
@@ -3579,11 +3606,12 @@ describe("LocalHostServices host.* calls", () => {
 		const desk = new BotDesk({ file: join(workDir, "bot-desk.json") });
 		services.attachBotDesk({
 			enabled: () => true,
-			state: () => ({ ...desk.state(), wakes: [] }),
+			state: () => ({ ...desk.state(), routines: [] }),
 			answer: ({ id, answer }) => void desk.answer(id, answer),
 			setDuties: payload => desk.setDuties(payload),
 			edit: async () => {},
 			activity: () => ({ entries: [], revision: 0 }),
+			teach: async () => ({ delivered: true }),
 		});
 		const x = new FakeConnection(peer("device-x"));
 		const first = desk.postDecision({ question: "One?" });
@@ -3605,6 +3633,61 @@ describe("LocalHostServices host.* calls", () => {
 		// Reading the desk and editing duties never counts.
 		await expect(services.call(x.peer, "host.botDesk.get", {}, x)).resolves.toMatchObject({ duties: [] });
 		await services.call(x.peer, "host.botDesk.setDuties", { duties: [{ text: "Check the build" }] }, x);
+	});
+
+	it("counts a device's Stop that handed the bot a record as one request of its day and refunds an empty one", async () => {
+		const { services } = setup();
+		const stored = new Map<string, PeerInfo>([["device-x", { ...peer("device-x"), limits: { requestsPerDay: 1 } }]]);
+		services.attachQuota(
+			new PeerQuota(
+				{
+					get: id => stored.get(id),
+					update: (id, patch) => {
+						const current = stored.get(id);
+						if (!current) return undefined;
+						const next = { ...current, ...patch };
+						stored.set(id, next);
+						return next;
+					},
+				},
+				() => {},
+			),
+		);
+		let recorded = false;
+		services.attachBotDesk({
+			enabled: () => true,
+			state: () => EMPTY_BOT_DESK,
+			answer: () => {},
+			setDuties: () => {},
+			edit: async () => {},
+			activity: () => ({ entries: [], revision: 0 }),
+			teach: async ({ action }) => {
+				if (action === "start") recorded = true;
+				return { delivered: action === "stop" && recorded };
+			},
+		});
+		const x = new FakeConnection(peer("device-x"));
+		const used = () => stored.get("device-x")?.usage?.requests ?? 0;
+
+		// Nothing recorded: Stop mails nothing and spends nothing.
+		await expect(services.call(x.peer, "host.botDesk.teach", { action: "stop" }, x)).resolves.toEqual({
+			delivered: false,
+		});
+		expect(used()).toBe(0);
+		await expect(services.call(x.peer, "host.botDesk.teach", { action: "start" }, x)).resolves.toEqual({
+			delivered: false,
+		});
+		await expect(services.call(x.peer, "host.botDesk.teach", { action: "stop" }, x)).resolves.toEqual({
+			delivered: true,
+		});
+		expect(used()).toBe(1);
+		// Recording and cancelling are free, a second record handed over is over the day's limit.
+		await services.call(x.peer, "host.botDesk.teach", { action: "start" }, x);
+		await services.call(x.peer, "host.botDesk.teach", { action: "cancel" }, x);
+		const refused = await services
+			.call(x.peer, "host.botDesk.teach", { action: "stop" }, x)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(refused)).toBe("remote_limit_reached");
 	});
 
 	it("serves this computer's own project list to a device and pushes its changes to every device", async () => {

@@ -1,5 +1,5 @@
 /**
- * The bot's desk as this window knows it (`shared/bot-desk.ts`): duties, decisions and the bot's own wakes, for this
+ * The bot's desk as this window knows it (`shared/bot-desk.ts`): duties, decisions and the bot's routines, for this
  * computer's bot and for each paired host's (`device` = the host's id; a host's bot pane reads the host's desk over
  * the link, `host.botDesk.*`). Main owns the files; this store holds the last state main sent per computer
  * (`BOT_DESK_GET`, then every `BOT_DESK_CHANGED` / `HOST_BOT_DESK_STATE`) and whether the first read landed.

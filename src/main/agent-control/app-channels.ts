@@ -120,6 +120,7 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[C.BOT_DESK_SET_DUTIES]: never("the bot records its duties with ompdesk_bot"),
 	[C.BOT_DESK_EDIT]: never("the owner edits the bot's desk; the bot keeps its memory with ompdesk_bot"),
 	[C.BOT_ACTIVITY_GET]: never("the bot reads its own activity with ompdesk_bot"),
+	[C.BOT_TEACH]: never("only the owner shows the bot a workflow; the bot never records itself"),
 	[C.WORKTREE_PROMPTS_GET]: never(DENY),
 	[C.WORKTREE_PROMPT_ANSWER]: never(DENY),
 	[C.PROJECT_ORIGINS_GET]: never(DENY),

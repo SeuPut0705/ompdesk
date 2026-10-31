@@ -42,7 +42,7 @@ import type { IpcRegistry } from "./ipc-registry";
 import { PairingConfirmations } from "./pairing";
 import { PushSender, type PushTransport } from "./push";
 import { ServeSecretStore } from "./serve-secret";
-import { WebServer } from "./server";
+import { WebServer, type WebServerDeps } from "./server";
 import { UploadStore } from "./uploads";
 import { VapidStore } from "./vapid-store";
 import { WebClientWindow, WebWindows } from "./web-client-window";
@@ -99,6 +99,8 @@ export interface WebHostDeps {
 	log?: ((message: string) => void) | undefined;
 	/** The host's UI language: pushes read in it. */
 	language: () => UiLanguage;
+	/** The schedule service that answers `POST /hooks/<id>` (routine webhooks); read per call, it is made after the host. */
+	hooks?: WebServerDeps["hooks"] | undefined;
 }
 
 const DeviceId = z.string().min(1).max(128);
@@ -218,6 +220,7 @@ export class WebHost {
 			previousBuilds: () => this.assets.roots(),
 			onUnpairedAuth: deps.onUnpairedAuth,
 			push: { publicKey: () => this.vapid.keys().publicKey },
+			...(deps.hooks ? { hooks: deps.hooks } : {}),
 			now,
 		});
 		this.devices.onRevoked(deviceId => {

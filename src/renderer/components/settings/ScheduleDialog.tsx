@@ -1,7 +1,8 @@
 /**
  * Create or edit one scheduled run (Settings › Schedules): name, prompt,
  * project folder, repeat (an interval or a time of day on chosen weekdays),
- * model, --yolo, and whether it starts on. Validation is the shared
+ * model, --yolo, and whether it starts on. A one-time or event-triggered schedule (made by an agent or the bot) keeps its
+ * trigger: the dialog shows it in words and saving sends it back unchanged. Validation is the shared
  * `scheduleDraftProblem`, the same check main applies before saving.
  */
 import { FolderOpen } from "lucide-react";
@@ -10,10 +11,12 @@ import {
 	SCHEDULE_MAX_INTERVAL,
 	type Schedule,
 	type ScheduleDraft,
+	type ScheduleFrequency,
 	scheduleDraftProblem,
 } from "../../../shared/schedules";
-import { cx, uiLocale } from "../../lib/format";
+import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { frequencySummary, weekdayNames } from "../../lib/schedule-text";
 import { pickWorkspaceDirectory } from "../../lib/workspace-dirs";
 import { Button, Input, Modal, Select, SwitchField, Tabs, TextArea } from "../common";
 
@@ -24,6 +27,8 @@ interface Form {
 	prompt: string;
 	cwd: string;
 	kind: "interval" | "daily";
+	/** A one-time or event trigger the form cannot edit: saved back as it was. */
+	fixed: ScheduleFrequency | null;
 	every: string;
 	unit: IntervalUnit;
 	time: string;
@@ -41,7 +46,8 @@ function formFor(schedule: Schedule | null, cwd: string): Form {
 		name: schedule?.name ?? "",
 		prompt: schedule?.prompt ?? "",
 		cwd: schedule?.cwd ?? cwd,
-		kind: frequency?.kind ?? "daily",
+		kind: frequency?.kind === "interval" ? "interval" : "daily",
+		fixed: frequency?.kind === "once" || frequency?.kind === "event" ? frequency : null,
 		every: String(hours ? minutes / 60 : minutes),
 		unit: hours ? "hours" : "minutes",
 		time: frequency?.kind === "daily" ? frequency.time : "09:00",
@@ -59,19 +65,14 @@ function draftOf(form: Form): ScheduleDraft {
 		prompt: form.prompt,
 		cwd: form.cwd,
 		frequency:
-			form.kind === "interval"
+			form.fixed ??
+			(form.kind === "interval"
 				? { kind: "interval", minutes: form.unit === "hours" ? every * 60 : every }
-				: { kind: "daily", time: form.time, days: form.days.toSorted() },
+				: { kind: "daily", time: form.time, days: form.days.toSorted() }),
 		model: form.model.trim() || null,
 		autoApprove: form.autoApprove,
 		enabled: form.enabled,
 	};
-}
-
-/** Short weekday names in the UI language, Sunday first (2026-10-18 is a Sunday). */
-export function weekdayNames(): string[] {
-	const format = new Intl.DateTimeFormat(uiLocale(), { weekday: "short" });
-	return Array.from({ length: 7 }, (_, day) => format.format(new Date(2026, 9, 18 + day)));
 }
 
 export function ScheduleDialog({
@@ -201,76 +202,88 @@ export function ScheduleDialog({
 					<span className="text-sc-sm font-medium text-(--sc-text)" id={`${formId}-repeat`}>
 						{t("schedules.field.repeat")}
 					</span>
-					<Tabs
-						activeId={form.kind}
-						ariaLabel={t("schedules.field.repeat")}
-						compact
-						onChange={id => set("kind", id === "interval" ? "interval" : "daily")}
-						tabs={[
-							{ id: "daily", label: t("schedules.repeat.daily") },
-							{ id: "interval", label: t("schedules.repeat.interval") },
-						]}
-						variant="segmented"
-					/>
-					{form.kind === "interval" ? (
-						<div className="flex items-end gap-2">
-							<Input
-								className="w-24"
-								error={touched && problem === "interval" ? t("schedules.problem.interval") : undefined}
-								inputMode="numeric"
-								label={t("schedules.field.every")}
-								max={form.unit === "hours" ? SCHEDULE_MAX_INTERVAL / 60 : SCHEDULE_MAX_INTERVAL}
-								min={1}
-								onChange={event => set("every", event.target.value)}
-								type="number"
-								value={form.every}
-							/>
-							<Select
-								aria-label={t("schedules.field.every")}
-								onChange={event => set("unit", event.target.value === "hours" ? "hours" : "minutes")}
-								options={[
-									{ value: "minutes", label: t("schedules.unit.minutes") },
-									{ value: "hours", label: t("schedules.unit.hours") },
-								]}
-								value={form.unit}
-							/>
+					{form.fixed ? (
+						<div className="flex flex-col gap-0.5" data-schedule-fixed-trigger>
+							<span className="text-sc-md text-(--sc-text)">{frequencySummary(form.fixed)}</span>
+							<span className="text-sc-xs text-(--sc-text-muted)">{t("schedules.field.triggerFixed")}</span>
 						</div>
 					) : (
-						<div className="flex flex-col gap-2">
-							<Input
-								className="w-32"
-								error={touched && problem === "time" ? t("schedules.problem.time") : undefined}
-								label={t("schedules.field.time")}
-								onChange={event => set("time", event.target.value)}
-								type="time"
-								value={form.time}
+						<>
+							<Tabs
+								activeId={form.kind}
+								ariaLabel={t("schedules.field.repeat")}
+								compact
+								onChange={id => set("kind", id === "interval" ? "interval" : "daily")}
+								tabs={[
+									{ id: "daily", label: t("schedules.repeat.daily") },
+									{ id: "interval", label: t("schedules.repeat.interval") },
+								]}
+								variant="segmented"
 							/>
-							<fieldset className="flex flex-col gap-1.5">
-								<legend className="mb-1.5 text-sc-sm font-medium text-(--sc-text)">
-									{t("schedules.field.days")}
-								</legend>
-								<div className="flex flex-wrap gap-1">
-									{days.map((label, day) => {
-										const on = form.days.includes(day);
-										return (
-											<Button
-												aria-pressed={on}
-												data-schedule-day={day}
-												key={label}
-												onClick={() =>
-													set("days", on ? form.days.filter(item => item !== day) : [...form.days, day])
-												}
-												size="sm"
-												variant={on ? "secondary" : "ghost"}
-											>
-												{label}
-											</Button>
-										);
-									})}
+							{form.kind === "interval" ? (
+								<div className="flex items-end gap-2">
+									<Input
+										className="w-24"
+										error={touched && problem === "interval" ? t("schedules.problem.interval") : undefined}
+										inputMode="numeric"
+										label={t("schedules.field.every")}
+										max={form.unit === "hours" ? SCHEDULE_MAX_INTERVAL / 60 : SCHEDULE_MAX_INTERVAL}
+										min={1}
+										onChange={event => set("every", event.target.value)}
+										type="number"
+										value={form.every}
+									/>
+									<Select
+										aria-label={t("schedules.field.every")}
+										onChange={event => set("unit", event.target.value === "hours" ? "hours" : "minutes")}
+										options={[
+											{ value: "minutes", label: t("schedules.unit.minutes") },
+											{ value: "hours", label: t("schedules.unit.hours") },
+										]}
+										value={form.unit}
+									/>
 								</div>
-								<p className="text-sc-xs text-(--sc-text-muted)">{t("schedules.field.daysHint")}</p>
-							</fieldset>
-						</div>
+							) : (
+								<div className="flex flex-col gap-2">
+									<Input
+										className="w-32"
+										error={touched && problem === "time" ? t("schedules.problem.time") : undefined}
+										label={t("schedules.field.time")}
+										onChange={event => set("time", event.target.value)}
+										type="time"
+										value={form.time}
+									/>
+									<fieldset className="flex flex-col gap-1.5">
+										<legend className="mb-1.5 text-sc-sm font-medium text-(--sc-text)">
+											{t("schedules.field.days")}
+										</legend>
+										<div className="flex flex-wrap gap-1">
+											{days.map((label, day) => {
+												const on = form.days.includes(day);
+												return (
+													<Button
+														aria-pressed={on}
+														data-schedule-day={day}
+														key={label}
+														onClick={() =>
+															set(
+																"days",
+																on ? form.days.filter(item => item !== day) : [...form.days, day],
+															)
+														}
+														size="sm"
+														variant={on ? "secondary" : "ghost"}
+													>
+														{label}
+													</Button>
+												);
+											})}
+										</div>
+										<p className="text-sc-xs text-(--sc-text-muted)">{t("schedules.field.daysHint")}</p>
+									</fieldset>
+								</div>
+							)}
+						</>
 					)}
 				</div>
 				<Input

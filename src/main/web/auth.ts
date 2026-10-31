@@ -38,8 +38,13 @@ export interface RequestPolicy {
 	allowedUsers: () => readonly string[];
 }
 
-/** What a request is: a page load, an API call/upload/blob, or the WebSocket upgrade. */
-export type RequestKind = "page" | "api" | "ws";
+/**
+ * What a request is: a page load, an API call/upload/blob, the WebSocket upgrade, or a webhook call (`POST
+ * /hooks/<id>`, server.ts). A webhook call is a script's, not a browser's: it needs no `Origin` (a browser page can
+ * neither send its bearer key without a CORS preflight this server never answers, nor pass the `Sec-Fetch-Site`
+ * check below); an `Origin` it does carry must still be the published one.
+ */
+export type RequestKind = "page" | "api" | "ws" | "hook";
 
 /** Why a request is refused: the walls the page has a message for, or any other. */
 export type RefusalReason = "user not allowed" | "no tailscale user" | "other";
@@ -165,7 +170,7 @@ export function checkRequest(input: {
 	if (host !== expectedHost) return refuse(421, "wrong host");
 
 	const origin = single(headers.origin);
-	const mustCarryOrigin = kind === "ws" || (method !== "GET" && method !== "HEAD");
+	const mustCarryOrigin = kind === "ws" || (kind !== "hook" && method !== "GET" && method !== "HEAD");
 	if (origin === undefined ? mustCarryOrigin : origin.toLowerCase() !== originOf(policy).toLowerCase()) {
 		return refuse(403, "wrong origin");
 	}

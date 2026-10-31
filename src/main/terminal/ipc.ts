@@ -42,6 +42,8 @@ export function registerTerminalIpc(
 	ipc: IpcRegistry,
 	pool: SidecarPool,
 	remoteDevices: Pick<RemoteDevices, "request">,
+	/** What the owner types in a Terminal panel session of a tab this computer runs (never a paired host's tab). */
+	onWrite?: (tabId: string, terminalId: string, data: string) => void,
 ): void {
 	const released = pool.onTabReleased;
 	pool.onTabReleased = (tabId, exited) => {
@@ -98,6 +100,7 @@ export function registerTerminalIpc(
 			lease.claim(session(operation.id), viewer);
 		} else if (operation.action === "write") {
 			lease.typed(session(operation.id), viewer);
+			onWrite?.(tabId, operation.id, operation.data);
 		} else if (operation.action === "close") {
 			lease.forget(session(operation.id));
 		}

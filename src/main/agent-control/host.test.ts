@@ -14,7 +14,7 @@ import {
 	type AgentReviewResult,
 	AGENT_CONTROL_TOOLS as T,
 } from "../../shared/agent-control";
-import type { BotWake } from "../../shared/bot-desk";
+import type { BotRoutine } from "../../shared/bot-desk";
 import type { IpcOpenExtensionRequest, IpcSpawnTabPayload, IpcTabInfo } from "../../shared/ipc-types";
 import type { ExtensionUIRequest, RpcCommand, RpcResponse } from "../../shared/rpc-types";
 import type {
@@ -28,7 +28,7 @@ import { createControlBackend } from "../control-socket/backend";
 import { gitSync, initRepo } from "../local/git/test-repos";
 import { WORKTREE_COMMAND_BUDGETS_MS } from "../local/git/worktree";
 import { SchedulesCommandParams, SchedulesCreateParams } from "../remote/app-protocol";
-import type { ScheduleService } from "../schedules";
+import { type ScheduleService, ScheduleSkip } from "../schedules";
 import type { ClientWindow } from "../web/client-window";
 import { FileEditReports } from "../web/file-edit-reports";
 import { BotActivityLog } from "./bot-activity";
@@ -75,8 +75,8 @@ function setup(
 		owners?: Record<string, string>;
 		/** The front window sessions are opened in without a tab of their own (`outsideWindow`). */
 		outsideWindow?: boolean;
-		/** The bot's desk and the wakes it lists. */
-		botDesk?: { desk: BotDesk; wakes?: () => BotWake[]; activity?: BotActivityLog };
+		/** The bot's desk and the routines it lists. */
+		botDesk?: { desk: BotDesk; routines?: () => BotRoutine[]; activity?: BotActivityLog };
 	} = {},
 ) {
 	const win = window();
@@ -173,7 +173,7 @@ function setup(
 			? {
 					botDesk: {
 						desk: options.botDesk.desk,
-						wakes: options.botDesk.wakes ?? (() => []),
+						routines: options.botDesk.routines ?? (() => []),
 						activity: options.botDesk.activity ?? new BotActivityLog({ file: null }),
 						avatarFromFile: async (file: string) =>
 							`data:image/png;base64,${Buffer.from(file).toString("base64")}`,
@@ -701,7 +701,7 @@ describe("AgentControlRuntime", () => {
 			enabled: true,
 		});
 		const listed = await runtime.run(win, "main0001", T.schedule, { action: "list" });
-		expect(listed.text).toContain("[made by an agent: you can cancel it]");
+		expect(listed.text).toContain("[made by an agent: you can change it]");
 		const cancelled = await runtime.run(win, "main0001", T.schedule, { action: "cancel", id: "sched-1" });
 		expect(cancelled.isError).toBe(false);
 		expect(fake.requests.at(-1)).toEqual({ action: "delete", id: "sched-1" });
@@ -1570,8 +1570,51 @@ describe("the bot's role and a session's own wake-up", () => {
 			details: { id: "wake-run-1", from: "ompdesk", kind: "note", fromTitle: "check the build" },
 		});
 		expect((command as { content: string }).content).toContain("Look at the build and tell the owner if it failed");
-		expect((command as { content: string }).content).toContain("You scheduled this wake-up for yourself");
+		expect((command as { content: string }).content).toContain("One of your routines started this turn");
 		expect(spawned).toEqual([]);
+	});
+
+	it("ends the run with the turn the wake started: its error, its stop, or the tab closing", async () => {
+		const file = await sessionFile();
+		const rig = setup({ tabs: [{ tabId: "main0001", sessionPath: file }], owners: { [file]: "main0001" } });
+		const emit = (event: { type: string; tabId: string; outcome?: unknown }) => {
+			for (const observer of rig.activity) observer(event);
+		};
+		const failed = await rig.runtime.wakeSession(wakeable(file), "run-a");
+		let settled = false;
+		void failed.done.then(() => {
+			settled = true;
+		});
+		// Other tabs' activity ends nothing.
+		emit({ type: "idle", tabId: "other0002", outcome: { stopReason: "stop" } });
+		await Promise.resolve();
+		expect(settled).toBe(false);
+		emit({ type: "busy", tabId: "main0001" });
+		emit({ type: "idle", tabId: "main0001", outcome: { stopReason: "error", errorMessage: "rate limited" } });
+		await expect(failed.done).resolves.toEqual({ code: null, error: "rate limited" });
+
+		// A turn that started and ended within one event batch is announced as idle alone: it ends the run too.
+		const quick = await rig.runtime.wakeSession(wakeable(file), "run-q");
+		emit({ type: "idle", tabId: "main0001", outcome: { stopReason: "stop" } });
+		await expect(quick.done).resolves.toEqual({ code: 0 });
+
+		const ok = await rig.runtime.wakeSession(wakeable(file), "run-b");
+		emit({ type: "busy", tabId: "main0001" });
+		emit({ type: "idle", tabId: "main0001", outcome: { stopReason: "stop" } });
+		await expect(ok.done).resolves.toEqual({ code: 0 });
+
+		const closed = await rig.runtime.wakeSession(wakeable(file), "run-c");
+		emit({ type: "released", tabId: "main0001" });
+		await expect(closed.done).resolves.toEqual({
+			code: null,
+			error: "The session's tab closed before its turn ended",
+		});
+
+		const stopped = await rig.runtime.wakeSession(wakeable(file), "run-d");
+		emit({ type: "busy", tabId: "main0001" });
+		stopped.stop();
+		await expect(stopped.done).resolves.toEqual({ code: 130 });
+		expect(rig.commands.some(entry => entry.tabId === "main0001" && entry.command.type === "abort")).toBe(true);
 	});
 
 	it("opens a session no tab holds in the background, and starts an asleep one", async () => {
@@ -1693,7 +1736,17 @@ describe("the bot's desk", () => {
 			...(options.outsideWindow ? { outsideWindow: true } : {}),
 			botDesk: {
 				desk,
-				wakes: () => [{ id: "w1", prompt: "check the build", next: "2026-10-31T10:00:00.000Z" }],
+				routines: () => [
+					{
+						id: "w1",
+						name: "build",
+						prompt: "check the build",
+						frequency: { kind: "interval" as const, minutes: 30 },
+						enabled: true,
+						next: "2026-10-31T10:00:00.000Z",
+						runs: [],
+					},
+				],
 				activity,
 			},
 		});
@@ -1749,8 +1802,8 @@ describe("the bot's desk", () => {
 				"Standing duties: none.",
 				"Memories: none.",
 				"Open decisions: none.",
-				"Wakes you scheduled (1):",
-				"- w1: next 2026-10-31T10:00:00.000Z: check the build",
+				"Your routines (1):",
+				"- w1 “build” every 30 min; next 2026-10-31T10:00:00.000Z: check the build",
 			].join("\n"),
 		);
 		const added = await runtime.run(win, "main0001", T.bot, { action: "duty_add", text: "Check the nightly build" });
@@ -1916,7 +1969,7 @@ describe("the bot's desk", () => {
 			expect(commands.filter(entry => entry.command.type === "abort")).toHaveLength(1);
 		});
 
-		it("keeps the bot's own wake-ups waiting too, and leaves mail to every other session alone", async () => {
+		it("skips the bot's own routine runs while paused (nothing waits for the resume), and leaves every other session's alone", async () => {
 			const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ompdesk-pause-"));
 			const botFile = path.join(dir, "bot.jsonl");
 			const otherFile = path.join(dir, "other.jsonl");
@@ -1950,14 +2003,17 @@ describe("the bot's desk", () => {
 				);
 			desk.setPaused(true);
 			runtime.botPausedChanged(true);
-			await wake(botFile, "bot-run");
+			await expect(wake(botFile, "bot-run")).rejects.toBeInstanceOf(ScheduleSkip);
+			await expect(wake(botFile, "bot-run")).rejects.toThrow("The bot is paused");
 			await wake(otherFile, "other-run");
 			await vi.waitFor(() => expect(mails(commands)).toHaveLength(1));
 			await settle();
 			expect(mails(commands).map(entry => entry.tabId)).toEqual(["other0002"]);
 			desk.setPaused(false);
 			runtime.botPausedChanged(false);
-			await vi.waitFor(() => expect(mails(commands).map(entry => entry.tabId)).toContain("main0001"));
+			await settle();
+			// The resume sends nothing to the bot (the other session's mail may go again: its outbox pass dedups by id).
+			expect(mails(commands).map(entry => entry.tabId)).not.toContain("main0001");
 		});
 
 		it("sends no stop for a bot with no running omp, and nothing when it is off", async () => {
@@ -1975,6 +2031,33 @@ describe("the bot's desk", () => {
 			for (const rig of [asleep, closed, off])
 				expect(rig.commands.filter(entry => entry.command.type === "abort")).toEqual([]);
 		});
+	});
+
+	it("hands the bot a demonstration record as a mail that starts a turn, and refuses it while the bot is off", async () => {
+		const { runtime, commands, prefs } = await botRig();
+		await runtime.botTaught({ id: "bot-teach-1", text: "Demonstration record: …", instruction: "Write a skill." });
+		await vi.waitFor(() => expect(mails(commands)).toHaveLength(1));
+		const [{ tabId, command }] = mails(commands) as [(typeof commands)[number]];
+		expect(tabId).toBe("main0001");
+		expect(command).toMatchObject({
+			type: "agent_control_mail",
+			triggerTurn: true,
+			deliverAs: "aside",
+			details: { id: "bot-teach-1", from: "ompdesk", kind: "note", fromTitle: "Demonstration" },
+		});
+		expect((command as { content: string }).content).toBe(
+			[
+				'<ompdesk-mail from="ompdesk" title="Demonstration" kind="note">',
+				"Demonstration record: …",
+				"</ompdesk-mail>",
+				"Write a skill.",
+			].join("\n"),
+		);
+		prefs.botEnabled = false;
+		await expect(
+			runtime.botTaught({ id: "bot-teach-2", text: "Demonstration record: …", instruction: "Write a skill." }),
+		).rejects.toThrow("The bot is off.");
+		expect(mails(commands)).toHaveLength(1);
 	});
 
 	it("tells the bot's omp its duties as soon as they change", async () => {

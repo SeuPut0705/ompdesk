@@ -47,10 +47,11 @@ import {
 	BotDeskDutiesSchema,
 	type BotDeskState,
 	BotDeskStateSchema,
-	type BotWake,
+	type BotRoutine,
 } from "../shared/bot-desk";
 import { type BotDeskEdit, BotDeskEditSchema } from "../shared/bot-desk-edit";
 import { BOT_RULES_PREF } from "../shared/bot-rules";
+import { BotTeachRequestSchema, BotTeachResultSchema } from "../shared/bot-teach";
 import { REA_PREF } from "../shared/builtin-mcp";
 import {
 	type AgentBrowserStatus,
@@ -139,10 +140,11 @@ import {
 } from "./agent-browsers";
 import type { BotActivityLog } from "./agent-control/bot-activity";
 import { avatarFromFile } from "./agent-control/bot-avatar";
-import { type BotDesk, botWakes } from "./agent-control/bot-desk";
+import { type BotDesk, botRoutines } from "./agent-control/bot-desk";
 import { editBotDesk } from "./agent-control/bot-desk-edit";
 import type { BotHome } from "./agent-control/bot-home";
 import { BotNoticeRouter } from "./agent-control/bot-notify";
+import { BotTeach, gitCommits, teachAction } from "./agent-control/bot-teach";
 import { AgentControlRuntime, CARD_TIMEOUT_MS } from "./agent-control/host";
 import { appNotification } from "./app-icon";
 import { requestQuit } from "./app-quit";
@@ -190,7 +192,7 @@ import { RemoteImageReads } from "./remote/image-reads";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import { normalizeRuntimeErrorReport, tailLogLines } from "./runtime-log-core";
 import { fileNameOf, readRemoteFile, type SaveCopyRemote, saveCopy } from "./save-copy";
-import type { ScheduleService } from "./schedules";
+import type { RunProcess, ScheduleService } from "./schedules";
 import type { SessionIndex } from "./session-index";
 import { deleteSession, moveSession, recordSessionDelete, renameSession } from "./session-mutations";
 import { resolveEditorCommand, shellSpawnEnv } from "./shell-env";
@@ -316,8 +318,8 @@ export interface IpcDeps {
 	 * known), set once the control tools exist.
 	 */
 	botAnswers: { current: ((tabId: string, requestId?: string) => boolean) | null };
-	/** Set once the control tools exist: delivers a session's own scheduled wake-up (`ScheduleService`'s `wake`). */
-	sessionWake: { current: ((schedule: Schedule, runId: string) => Promise<void>) | null };
+	/** Set once the control tools exist: delivers a session's own scheduled wake-up and follows its turn (`ScheduleService`'s `wake`). */
+	sessionWake: { current: ((schedule: Schedule, runId: string) => Promise<RunProcess>) | null };
 	/** The bot's session (agent-control/bot-home.ts): the sidebar's bot row asks it to be made when missing. */
 	botHome: BotHome;
 	/** The bot's desk (agent-control/bot-desk.ts): its duties and the decisions it posted for the owner. */
@@ -479,7 +481,9 @@ const progressStates = new Map<number, RunProgressState>();
 
 export function registerIpcHandlers(deps: IpcDeps): void {
 	const { ipc } = deps;
-	registerTerminalIpc(ipc, deps.sidecarPool, deps.remoteDevices);
+	registerTerminalIpc(ipc, deps.sidecarPool, deps.remoteDevices, (tabId, terminalId, data) =>
+		botTeach.terminalWrite(tabId, terminalId, data),
+	);
 	registerSshToolsIpc(ipc);
 	const visuals = new VisualStore(path.join(app.getPath("userData"), "visuals"));
 	let dialogPreload: string | null = null;
@@ -838,6 +842,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (issuerTabId && personsPrompt(cmd)) {
 			agentControl.noteUserPrompt(issuerTabId);
 			sidecarPool.notePrompted(issuerTabId);
+			if ("message" in cmd && typeof cmd.message === "string") botTeach.prompt(issuerTabId, cmd.message);
 		}
 		// A tab viewing a paired host's window session: the sessions its agent opened are that host's tabs, which only
 		// the host's control tools know. It answers (host-services `attachAgentReview`), and each item opens there.
@@ -1288,13 +1293,47 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	};
 	const fileEditReports = deps.fileEditReports;
 	// OMPdesk control tools (src/main/agent-control): the same pool, dispatcher, spawn path and notifications the GUI uses.
-	// The bot's desk (agent-control/bot-desk.ts): its own wakes are the schedules delivering into its session file.
-	const botWakesNow = (): BotWake[] =>
-		botWakes(
-			deps.schedules?.()?.state() ?? { schedules: [], nextRuns: {} },
+	// The bot's desk (agent-control/bot-desk.ts): its routines are the schedules delivering into its session file.
+	const botRoutinesNow = (): BotRoutine[] =>
+		botRoutines(
+			deps.schedules?.()?.state() ?? { paused: false, schedules: [], runs: [], nextRuns: {} },
 			activeBotPath(key => prefsStore.get(key)),
 		);
-	const botDeskState = (): BotDeskState => ({ ...deps.botDesk.state(), wakes: botWakesNow() });
+	// Showing the bot a workflow (agent-control/bot-teach.ts): records the owner's prompts and terminal lines while on.
+	const botTeach = new BotTeach({
+		enabled: () => botEnabled(prefsStore.get(BOT_ENABLED_PREF)),
+		botPath: () => activeBotPath(key => prefsStore.get(key)),
+		tab: tabId => {
+			const win = sidecarPool.windowOfTab(tabId);
+			const info = win ? sidecarPool.tabsForWindow(win).find(entry => entry.tabId === tabId) : undefined;
+			if (!info) return null;
+			return {
+				title: info.title || info.task || "",
+				cwd: info.cwd,
+				...(info.sessionPath ? { sessionPath: info.sessionPath } : {}),
+				...(info.sessionId ? { sessionId: info.sessionId } : {}),
+				...(info.device
+					? {
+							device: info.device,
+							deviceName:
+								remoteDevices.state().hosts.find(host => host.deviceId === info.device)?.name ?? info.device,
+						}
+					: {}),
+			};
+		},
+		commits: gitCommits,
+		deliver: mail => agentControl.botTaught(mail),
+		changed: () => pushBotDesk(),
+		now: Date.now,
+		log: entry => writeRuntimeLog({ source: "bot", message: String(entry.event), details: entry }),
+		setTimer: (fn, ms) => setTimeout(fn, ms).unref(),
+		clearTimer: handle => clearTimeout(handle as NodeJS.Timeout),
+	});
+	const botDeskState = (): BotDeskState => ({
+		...deps.botDesk.state(),
+		routines: botRoutinesNow(),
+		teaching: botTeach.state(),
+	});
 	const pushBotDesk = (): void => {
 		const state = botDeskState();
 		broadcast(windowManager, IPC_EVENTS.BOT_DESK_CHANGED, state);
@@ -1317,7 +1356,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		log: draft => void deps.botActivity.append(draft),
 	});
 	const agentControl: AgentControlRuntime = new AgentControlRuntime({
-		botDesk: { desk: deps.botDesk, wakes: botWakesNow, activity: deps.botActivity, avatarFromFile },
+		botDesk: { desk: deps.botDesk, routines: botRoutinesNow, activity: deps.botActivity, avatarFromFile },
 		// A decision the bot posted: the owner's "needs you" banner on its tab and the paired phones, as for a late question.
 		botDecisionNotice: (tabId, decision) => {
 			const session = sidecarPool.tabFacts(tabId)?.title || "OMPdesk";
@@ -1562,6 +1601,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		setDuties: payload => deps.botDesk.setDuties(payload),
 		edit: editDesk,
 		activity: () => deps.botActivity.page(),
+		teach: request => teachAction(botTeach, request),
 	});
 	// With `device`, a paired host's own desk over the link: its answer reaches that host's bot, never this one's.
 	ipc.handle(IPC_COMMANDS.BOT_DESK_GET, async (_caller, device?: unknown) => {
@@ -1593,6 +1633,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		return host
 			? BotActivityPageSchema.parse(await remoteDevices.request(host, "host.botDesk.activity", {}))
 			: deps.botActivity.page();
+	});
+	// The owner shows the bot a workflow: with `device`, that host's own bot records and is handed the record.
+	ipc.handle(IPC_COMMANDS.BOT_TEACH, async (_caller, payload: unknown, device?: unknown) => {
+		const request = BotTeachRequestSchema.parse(payload);
+		const host = deviceOf(device);
+		return host
+			? BotTeachResultSchema.parse(await remoteDevices.request(host, "host.botDesk.teach", request))
+			: teachAction(botTeach, request);
 	});
 	// The bot's session (agent-control/bot-home.ts): the sidebar's bot row opens what this answers, made first when
 	// the file is missing (a launch is its first seconds; a deleted one). Never while the owner has the bot off.
@@ -2150,8 +2198,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (payload.key === AGENT_CONTROL_PREF)
 			for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncHostTools();
 		if (payload.key === BOT_RULES_PREF || payload.key === BOT_ENABLED_PREF) agentControl.botRulesChanged();
-		// Off, the bot has no wakes to show; on, its own come back.
-		if (payload.key === BOT_ENABLED_PREF) pushBotDesk();
+		// Off, the bot has no routines to show; on, its own come back.
+		if (payload.key === BOT_ENABLED_PREF) {
+			// A recording belongs to the bot that was on.
+			if (!botEnabled(prefsStore.get(BOT_ENABLED_PREF))) botTeach.cancel();
+			pushBotDesk();
+		}
 		deps.onPrefChanged?.(payload.key);
 		prefChanged(caller.win, payload.key);
 	});

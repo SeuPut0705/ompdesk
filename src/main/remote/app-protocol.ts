@@ -55,6 +55,10 @@
  *   `host.botDesk.edit BotDeskEdit` → null (identity, memory, routing, voice, side chats, undo; refused `bot_off` the
  *   same way) and `host.botDesk.activity {}` → BotActivityPage (empty while off); the host pushes every desk change as
  *   the `host.botDesk.changed` event (the activity log is read, never pushed)
+ * - Showing the host's bot a workflow (agent-control/bot-teach.ts): `host.botDesk.teach {action: "start" | "stop" |
+ *   "cancel"}` → `{delivered}` (refused `bot_off` while the bot is off there; it records what the owner does in the
+ *   host's own windows, and `BotDeskState.teaching` says since when; Stop hands the host's bot the record and counts
+ *   as one model request of the device, refunded when nothing was recorded)
  * - Agent control on a session the host runs (agent-control/branches.ts and local/git/worktree.ts on the host's
  *   own checkout; `worktree` = `{path, branch, baseCwd}` of the tab's binding): `host.git.facts {worktree}` →
  *   BranchFacts, `host.git.evidence {worktree, diffChars}` → BranchEvidence (the child's diff cut to `diffChars`
@@ -106,7 +110,8 @@ import {
 import type { ModelSetupStatus } from "../../shared/model-setup";
 import { OMP_UPDATE_FAILURE_REASONS, type OmpUpdateState } from "../../shared/omp-update";
 import { BLOCKING_UI_METHODS, type ExtensionUIRequest } from "../../shared/rpc-types";
-import type { ScheduleCreated, ScheduleFrequency, SchedulesRequest, SchedulesState } from "../../shared/schedules";
+import type { ScheduleCreated, SchedulesRequest, SchedulesState } from "../../shared/schedules";
+import { ScheduleFrequencySchema, ScheduleRunSchema } from "../../shared/schedules-schema";
 import type { SidebarProjectsRequest, SidebarProjectsState } from "../../shared/sidebar-projects";
 
 /**
@@ -693,11 +698,6 @@ export const OmpUpdateStateSchema: z.ZodType<OmpUpdateState> = z.object({
 	failure: z.object({ reason: z.enum(OMP_UPDATE_FAILURE_REASONS), detail: z.string().optional() }).nullable(),
 });
 
-const ScheduleFrequencySchema: z.ZodType<ScheduleFrequency> = z.discriminatedUnion("kind", [
-	z.object({ kind: z.literal("interval"), minutes: z.number().int() }),
-	z.object({ kind: z.literal("daily"), time: z.string().max(5), days: z.array(z.number().int()).max(7) }),
-]);
-
 const ScheduleDraftSchema = z.object({
 	name: z.string().max(200),
 	prompt: z.string().max(200_000),
@@ -732,18 +732,7 @@ export const SchedulesStateSchema: z.ZodType<SchedulesState> = z.object({
 	schedules: z.array(
 		ScheduleDraftSchema.extend({ id: z.string(), createdAt: z.string(), device: z.string().optional() }),
 	),
-	runs: z.array(
-		z.object({
-			id: z.string(),
-			scheduleId: z.string(),
-			trigger: z.enum(["schedule", "manual"]),
-			startedAt: z.string(),
-			endedAt: z.string().nullable(),
-			status: z.enum(["running", "succeeded", "failed", "stopped", "skipped"]),
-			exitCode: z.number().nullable(),
-			error: z.string().nullable(),
-		}),
-	),
+	runs: z.array(ScheduleRunSchema),
 	nextRuns: z.record(z.string(), z.string().nullable()),
 });
 

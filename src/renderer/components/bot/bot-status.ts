@@ -2,7 +2,7 @@
  * What the bot is doing, in the four words its row and its bar both say: one rule, read by `Sidebar.tsx` (tooltip)
  * and `BotBar.tsx`. Pure.
  */
-import type { BotWake } from "../../../shared/bot-desk";
+import type { BotRoutine } from "../../../shared/bot-desk";
 import { isSessionDown } from "../../lib/tab-signal";
 import type { SessionTab } from "../../stores/tabs";
 
@@ -41,13 +41,13 @@ export function botStateKey(state: BotState): string {
 	return `botHome.state.${state}`;
 }
 
-/** The earliest next start among the bot's wakes (ISO), or null when none has one. */
-export function nextWake(wakes: readonly BotWake[]): string | null {
+/** The earliest next start among the bot's routines (ISO), or null when none has one. */
+export function nextWake(routines: readonly BotRoutine[]): string | null {
 	let best: { iso: string; at: number } | null = null;
-	for (const wake of wakes) {
-		const at = wake.next === null ? Number.NaN : Date.parse(wake.next);
+	for (const routine of routines) {
+		const at = routine.next === null ? Number.NaN : Date.parse(routine.next);
 		if (Number.isNaN(at)) continue;
-		if (best === null || at < best.at) best = { iso: wake.next as string, at };
+		if (best === null || at < best.at) best = { iso: routine.next as string, at };
 	}
 	return best?.iso ?? null;
 }

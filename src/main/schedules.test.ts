@@ -2,7 +2,13 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Schedule, ScheduleDraft, SchedulesState } from "../shared/schedules";
+import {
+	ROUTINE_CHAIN_LIMIT,
+	SCHEDULE_RUNS_PER_SCHEDULE,
+	type Schedule,
+	type ScheduleDraft,
+	type SchedulesState,
+} from "../shared/schedules";
 import type { OmpResolution } from "./omp-runtime";
 import {
 	ompRunLauncher,
@@ -11,6 +17,7 @@ import {
 	SCHEDULE_TICK_MS,
 	ScheduleService,
 	type ScheduleServiceOptions,
+	ScheduleSkip,
 } from "./schedules";
 import { SUPERVISOR_STOPPED_CODE } from "./setup/supervisor";
 import { RM_TEMP, writeFakeOmp } from "./test-fake-omp";
@@ -299,11 +306,17 @@ describe("ScheduleService", () => {
 describe("a session's own wake-up (wakeSession)", () => {
 	const SESSION = "/sessions/bot.jsonl";
 
-	function wakeHarness(dir: string, options: Partial<ScheduleServiceOptions> = {}) {
+	/** `turns`: how the woken turn ends, in order (default: it succeeds at once). */
+	function wakeHarness(
+		dir: string,
+		options: Partial<ScheduleServiceOptions> = {},
+		turns: { code: number | null; error?: string }[] = [],
+	) {
 		const { launch } = fakeLauncher();
 		const woken: { prompt: string; session: string | undefined; runId: string }[] = [];
-		const wake = vi.fn(async (schedule: Schedule, runId: string) => {
+		const wake = vi.fn(async (schedule: Schedule, runId: string): Promise<RunProcess> => {
 			woken.push({ prompt: schedule.prompt, session: schedule.wakeSession, runId });
+			return { stop: () => {}, done: Promise.resolve(turns.shift() ?? { code: 0 }) };
 		});
 		const service = new ScheduleService({
 			file: join(dir, "schedules.json"),
@@ -342,7 +355,7 @@ describe("a session's own wake-up (wakeSession)", () => {
 		]);
 		expect(launch).not.toHaveBeenCalled();
 		expect(service.state().runs[0]).toMatchObject({ scheduleId: id, status: "succeeded", exitCode: 0, error: null });
-		expect(await service.readLog(service.state().runs[0]?.id ?? "")).toBe(`Woke ${SESSION}\n`);
+		expect(await service.readLog(service.state().runs[0]?.id ?? "")).toBe(`Woke ${SESSION}\nCheck the build\n`);
 		// It repeats like any schedule, and stays in the list the Schedules panel shows.
 		expect(service.state().nextRuns[id]).not.toBeNull();
 		service.dispose();
@@ -409,6 +422,237 @@ describe("a session's own wake-up (wakeSession)", () => {
 		});
 		await vi.waitFor(() => expect(woken.length).toBeGreaterThanOrEqual(1), { timeout: 3000 });
 		expect(woken[0]).toMatchObject({ prompt: "Soon", session: SESSION });
+		service.dispose();
+	});
+});
+
+describe("routines: event triggers, once, run history", () => {
+	const SESSION = "/sessions/bot.jsonl";
+	const event = (source: "files" | "webhook" = "files"): ScheduleDraft["frequency"] =>
+		source === "files"
+			? { kind: "event", event: { source: "files", path: "/watched" } }
+			: { kind: "event", event: { source: "webhook", key: "" } };
+
+	/** A woken turn per wake, ended by the test (`end(i, result)`); `woke(n)` settles once n wakes came. */
+	function routineHarness(dir: string) {
+		const { launch } = fakeLauncher();
+		const turns: { prompt: string; end: (result: { code: number | null; error?: string }) => void }[] = [];
+		const waiters: { count: number; resolve: () => void }[] = [];
+		const wake = vi.fn(async (schedule: Schedule): Promise<RunProcess> => {
+			const { promise, resolve } = Promise.withResolvers<{ code: number | null; error?: string }>();
+			turns.push({ prompt: schedule.prompt, end: resolve });
+			for (const waiter of waiters.filter(item => turns.length >= item.count)) waiter.resolve();
+			return { stop: () => resolve({ code: SUPERVISOR_STOPPED_CODE }), done: promise };
+		});
+		const woke = (count: number) => {
+			if (turns.length >= count) return Promise.resolve();
+			const { promise, resolve } = Promise.withResolvers<void>();
+			waiters.push({ count, resolve });
+			return promise;
+		};
+		const service = new ScheduleService({
+			file: join(dir, "schedules.json"),
+			logDir: join(dir, "runs"),
+			launch,
+			onState: () => {},
+			wake,
+		});
+		return { service, turns, woke, wake };
+	}
+
+	async function routine(service: ScheduleService, dir: string, overrides: Partial<ScheduleDraft> = {}) {
+		const { id } = await service.create(draft(dir, { frequency: event(), wakeSession: SESSION, ...overrides }));
+		return id;
+	}
+
+	const ended = (service: ScheduleService, count: number) =>
+		vi.waitFor(() => expect(service.state().runs.filter(run => run.status !== "running")).toHaveLength(count));
+
+	it("an event starts a run told what fired it; events during it make exactly one more run with all of them", async () => {
+		const dir = await tempDir();
+		const { service, turns, woke } = routineHarness(dir);
+		await service.start();
+		const id = await routine(service, dir, { prompt: "Review the change" });
+		expect(service.state().nextRuns[id]).toBeNull();
+		expect(service.fire(id, "src/a.ts changed")).toBe(true);
+		await woke(1);
+		expect(turns[0]?.prompt).toBe("Review the change\n\nWhat fired this run:\nsrc/a.ts changed");
+		expect(service.state().runs[0]).toMatchObject({
+			trigger: "event",
+			status: "running",
+			detail: "src/a.ts changed",
+		});
+		expect(service.fire(id, "src/b.ts changed")).toBe(true);
+		expect(service.fire(id, "src/c.ts changed")).toBe(true);
+		turns[0]?.end({ code: 0 });
+		await woke(2);
+		expect(turns[1]?.prompt).toBe("Review the change\n\nWhat fired this run:\nsrc/b.ts changed\nsrc/c.ts changed");
+		turns[1]?.end({ code: null, error: "The turn ended with an error" });
+		await ended(service, 2);
+		expect(service.state().runs.map(run => [run.status, run.error])).toEqual([
+			["failed", "The turn ended with an error"],
+			["succeeded", null],
+		]);
+		// Nothing else was kept: no third run.
+		expect(turns).toHaveLength(2);
+		service.dispose();
+	});
+
+	it("turns a routine off when its own runs keep firing it, and says why in its history", async () => {
+		const dir = await tempDir();
+		const { service, turns, woke } = routineHarness(dir);
+		await service.start();
+		const id = await routine(service, dir);
+		service.fire(id, "change 0");
+		for (let index = 0; index < ROUTINE_CHAIN_LIMIT; index++) {
+			await woke(index + 1);
+			// Every run's own work fires the trigger again before it ends.
+			service.fire(id, `change ${index + 1}`);
+			turns[index]?.end({ code: 0 });
+		}
+		await vi.waitFor(() => expect(service.state().schedules[0]?.enabled).toBe(false));
+		expect(turns).toHaveLength(ROUTINE_CHAIN_LIMIT);
+		expect(service.state().runs[0]).toMatchObject({ status: "skipped", trigger: "event" });
+		expect(service.state().runs[0]?.error).toContain("its own work probably fires it");
+		expect(service.fire(id, "later")).toBe(false);
+		service.dispose();
+	});
+
+	it("fires nothing for a schedule that is no routine, is off, or while everything is paused", async () => {
+		const dir = await tempDir();
+		const { service } = routineHarness(dir);
+		await service.start();
+		const timed = (await service.create(draft(dir))).id;
+		const off = await routine(service, dir, { enabled: false });
+		const on = await routine(service, dir);
+		expect(service.fire(timed, "x")).toBe(false);
+		expect(service.fire(off, "x")).toBe(false);
+		expect(service.fire("nope", "x")).toBe(false);
+		await service.command({ action: "setPaused", paused: true });
+		expect(service.fire(on, "x")).toBe(false);
+		expect(service.state().runs).toEqual([]);
+		service.dispose();
+	});
+
+	it("a test run of a routine says no event fired", async () => {
+		const dir = await tempDir();
+		const { service, turns, woke } = routineHarness(dir);
+		await service.start();
+		const id = await routine(service, dir, { prompt: "Look" });
+		await service.command({ action: "runNow", id });
+		await woke(1);
+		expect(turns[0]?.prompt).toBe("Look\n\nTest run:\nA test run: no event fired");
+		expect(service.state().runs[0]).toMatchObject({ trigger: "manual" });
+		service.dispose();
+	});
+
+	it("a webhook gets its key on save, keeps it through an edit, and fires only for that key", async () => {
+		const dir = await tempDir();
+		const { service, woke, turns } = routineHarness(dir);
+		await service.start();
+		const id = await routine(service, dir, { frequency: event("webhook") });
+		const stored = service.state().schedules[0]?.frequency;
+		const key = stored?.kind === "event" && stored.event.source === "webhook" ? stored.event.key : "";
+		expect(key.length).toBeGreaterThanOrEqual(32);
+		await service.command({ action: "save", id, draft: draft(dir, { frequency: event("webhook"), prompt: "New" }) });
+		expect(service.state().schedules[0]?.frequency).toEqual({ kind: "event", event: { source: "webhook", key } });
+		expect(service.webhook(id, "wrong", "body")).toBe("denied");
+		expect(service.webhook(id, `${key}x`, "body")).toBe("denied");
+		expect(service.webhook("nope", key, "body")).toBe("unknown");
+		expect(service.state().runs).toEqual([]);
+		expect(service.webhook(id, key, 'Webhook call: {"ok":true}')).toBe("fired");
+		await woke(1);
+		expect(turns[0]?.prompt).toContain('Webhook call: {"ok":true}');
+		turns[0]?.end({ code: 0 });
+		await ended(service, 1);
+		await service.command({ action: "setEnabled", id, enabled: false });
+		expect(service.webhook(id, key, "x")).toBe("off");
+		service.dispose();
+	});
+
+	it("a once routine starts at its moment, then is off and done; a moment already past is refused", async () => {
+		fakeClock(new Date(2026, 9, 15, 12, 0));
+		const dir = await tempDir();
+		const { service, turns, woke } = routineHarness(dir);
+		await service.start();
+		const at = new Date(2026, 9, 15, 12, 30).toISOString();
+		const id = await routine(service, dir, { frequency: { kind: "once", at } });
+		expect(service.state().nextRuns[id]).toBe(at);
+		await vi.advanceTimersByTimeAsync(30 * 60_000 + SCHEDULE_TICK_MS);
+		await woke(1);
+		expect(service.state().schedules[0]?.enabled).toBe(false);
+		expect(service.state().nextRuns[id]).toBeNull();
+		turns[0]?.end({ code: 0 });
+		await ended(service, 1);
+		await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
+		expect(turns).toHaveLength(1);
+		await expect(
+			service.create(draft(dir, { frequency: { kind: "once", at: new Date(2026, 9, 15, 11, 0).toISOString() } })),
+		).rejects.toThrow("the moment has passed");
+		service.dispose();
+	});
+
+	it("keeps each schedule's newest runs, so a busy routine never pushes out another's history", async () => {
+		const dir = await tempDir();
+		const { service, turns, woke } = routineHarness(dir);
+		await service.start();
+		const quiet = await routine(service, dir);
+		const busy = await routine(service, dir);
+		service.fire(quiet, "once");
+		await woke(1);
+		turns[0]?.end({ code: 0 });
+		await ended(service, 1);
+		for (let index = 0; index < SCHEDULE_RUNS_PER_SCHEDULE + 5; index++) {
+			service.fire(busy, `event ${index}`);
+			await woke(index + 2);
+			turns[index + 1]?.end({ code: 0 });
+			await ended(service, Math.min(index + 2, SCHEDULE_RUNS_PER_SCHEDULE + 1));
+		}
+		const runs = service.state().runs;
+		expect(runs.filter(run => run.scheduleId === busy)).toHaveLength(SCHEDULE_RUNS_PER_SCHEDULE);
+		expect(runs.filter(run => run.scheduleId === busy)[0]?.detail).toBe(`event ${SCHEDULE_RUNS_PER_SCHEDULE + 4}`);
+		expect(runs.filter(run => run.scheduleId === quiet)).toHaveLength(1);
+		service.dispose();
+	});
+
+	it("records a run the wake declines (the bot is paused) as skipped with the reason", async () => {
+		const dir = await tempDir();
+		const { service, wake } = routineHarness(dir);
+		wake.mockRejectedValueOnce(new ScheduleSkip("The bot is paused"));
+		await service.start();
+		const id = await routine(service, dir);
+		service.fire(id, "x");
+		await ended(service, 1);
+		expect(service.state().runs[0]).toMatchObject({ status: "skipped", error: "The bot is paused" });
+		service.dispose();
+	});
+
+	it("tells runEnded each run once as it ended, a skipped one included, never a running one", async () => {
+		const dir = await tempDir();
+		const { launch } = fakeLauncher();
+		const ends: [string, string, string | null][] = [];
+		const wake = vi
+			.fn<(schedule: Schedule) => Promise<RunProcess>>()
+			.mockResolvedValueOnce({ stop: () => {}, done: Promise.resolve({ code: null, error: "rate limited" }) })
+			.mockRejectedValueOnce(new ScheduleSkip("The bot is paused"));
+		const service = new ScheduleService({
+			file: join(dir, "schedules.json"),
+			logDir: join(dir, "runs"),
+			launch,
+			onState: () => {},
+			wake,
+			runEnded: (schedule, run) => ends.push([schedule.name, run.status, run.error]),
+		});
+		await service.start();
+		const id = await routine(service, dir, { name: "[agent] CI watch" });
+		service.fire(id, "CI failed");
+		await ended(service, 1);
+		service.fire(id, "CI failed again");
+		await ended(service, 2);
+		expect(ends).toEqual([
+			["[agent] CI watch", "failed", "rate limited"],
+			["[agent] CI watch", "skipped", "The bot is paused"],
+		]);
 		service.dispose();
 	});
 });
