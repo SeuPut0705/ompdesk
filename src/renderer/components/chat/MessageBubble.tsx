@@ -534,11 +534,19 @@ export const MessageBubble = memo(function MessageBubble({
 	const blocks: ReactNode[] = [];
 	const replyGallery = messageGallery(content, t("chat.attachedImage"));
 	let sawNonToolBlock = false;
-	for (const block of content) {
+	// The reply's last text block: in the bot's pane the one that shows where the turn's facts came from.
+	const lastText = content.findLastIndex(block => block.type === "text" && isRenderableMessageText(block.text));
+	for (const [index, block] of content.entries()) {
 		switch (block.type) {
 			case "text": {
 				if (isRenderableMessageText(block.text)) {
-					blocks.push(<AssistantMarkdown key={blocks.length} text={block.text} />);
+					blocks.push(
+						<AssistantMarkdown
+							key={blocks.length}
+							{...(index === lastText ? { message } : {})}
+							text={block.text}
+						/>,
+					);
 					sawNonToolBlock = true;
 				}
 				break;

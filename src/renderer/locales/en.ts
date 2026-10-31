@@ -5915,6 +5915,8 @@ export const en: Record<string, string> = {
 	"botSources.copyCommit": "Copy the commit hash",
 	"botSources.openSession": "Open the session",
 	"botSources.copySession": "Copy the session id",
+	"botSources.derivedLabel": "Read this turn",
+	"botSources.derivedTip": "The reply named no sources: these are what the bot read, fetched or opened while answering.",
 	"botHome.wakes.paused": "Paused",
 	"botHome.operation": "Operation",
 	"botHome.inputs": "Inputs",

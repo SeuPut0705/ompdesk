@@ -58,3 +58,59 @@ export function parseBotSources(text: string): { body: string; sources: BotSourc
 	if (sources.length === 0) return null;
 	return { body: lines.slice(0, last).join("\n").trimEnd(), sources };
 }
+
+/** Sources a reply shows at most when they come from its turn's activity rather than its own line. */
+export const BOT_DERIVED_SOURCES_MAX = 8;
+
+/** What a turn's activity entry needs to name a source (`shared/bot-activity.ts` `BotActivity`). */
+interface ActivityLike {
+	at: string;
+	kind: string;
+	text: string;
+	channel?: string;
+	target?: { type: string; value: string };
+}
+
+function shortLabel(type: string, value: string): string {
+	if (type === "url") {
+		try {
+			const url = new URL(value);
+			return `${url.hostname}${url.pathname === "/" ? "" : url.pathname}`;
+		} catch {
+			return value;
+		}
+	}
+	if (type === "file") return value.split(/[\\/]/).filter(Boolean).at(-1) ?? value;
+	return value;
+}
+
+/**
+ * The sources of a reply that named none: what its turn read, fetched or opened (files, pages, sessions) and the commits
+ * its git commands named, from the bot's activity log between the turn's start and the reply. `channel` is the side
+ * chat the reply is in (absent: the bot's main conversation); each source once, newest last, at most
+ * `BOT_DERIVED_SOURCES_MAX`.
+ */
+export function botSourcesFromActivity(
+	entries: readonly ActivityLike[],
+	turn: { from: number; to: number; channel?: string },
+): BotSource[] {
+	const seen = new Set<string>();
+	const sources: BotSource[] = [];
+	const add = (source: BotSource) => {
+		const key = `${source.kind}\n${source.value}`;
+		if (seen.has(key)) return;
+		seen.add(key);
+		sources.push(source);
+	};
+	for (const entry of entries) {
+		const at = Date.parse(entry.at);
+		if (!(at >= turn.from && at <= turn.to) || entry.channel !== turn.channel) continue;
+		const target = entry.target;
+		if (target && (target.type === "file" || target.type === "url" || target.type === "session"))
+			add({ kind: target.type, label: shortLabel(target.type, target.value), value: target.value });
+		if (entry.kind === "run" && /\bgit\b/.test(entry.text))
+			for (const [hash] of entry.text.matchAll(/\b[0-9a-f]{7,40}\b/g))
+				if (/[a-f]/.test(hash) && /\d/.test(hash)) add({ kind: "commit", label: hash.slice(0, 7), value: hash });
+	}
+	return sources.slice(-BOT_DERIVED_SOURCES_MAX);
+}

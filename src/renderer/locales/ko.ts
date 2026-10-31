@@ -5906,6 +5906,8 @@ export const ko: Record<string, string> = {
 	"botSources.copyCommit": "커밋 해시 복사",
 	"botSources.openSession": "세션 열기",
 	"botSources.copySession": "세션 id 복사",
+	"botSources.derivedLabel": "이번 턴에 읽은 것",
+	"botSources.derivedTip": "답변에 출처 줄이 없어서, 봇이 답하는 동안 읽고 가져오고 연 것을 보여 줘요.",
 	"botHome.wakes.paused": "멈춤",
 	"botHome.operation": "실행할 작업",
 	"botHome.inputs": "입력값",

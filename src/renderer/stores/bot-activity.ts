@@ -44,13 +44,34 @@ export const useBotActivityStore = create<BotActivityStore>()((set, get) => ({
 	reset: () => set({ byComputer: {} }),
 }));
 
-/** The log of this computer's bot (no `device`) or a paired host's, read while `active`. */
+/** Readers per computer, and the one poll they share. */
+const readers = new Map<string, { count: number; stop: () => void }>();
+
+function startReading(device: string | undefined): () => void {
+	const key = keyOf(device);
+	const held = readers.get(key);
+	if (held) held.count++;
+	else {
+		const refresh = () => void useBotActivityStore.getState().refresh(device);
+		refresh();
+		readers.set(key, { count: 1, stop: pollWhileVisible(refresh, BOT_ACTIVITY_POLL_MS) });
+	}
+	return () => {
+		const reader = readers.get(key);
+		if (!reader || --reader.count > 0) return;
+		reader.stop();
+		readers.delete(key);
+	};
+}
+
+/**
+ * The log of this computer's bot (no `device`) or a paired host's, read while `active`. Every reader of one computer
+ * shares one poll (the board's section and each bot reply that names its sources from the log).
+ */
 export function useBotActivity(device: string | undefined, active: boolean): BotActivityEntry {
 	useEffect(() => {
 		if (!active || typeof window.omp?.sessions?.botDesk?.activity !== "function") return;
-		const refresh = useBotActivityStore.getState().refresh;
-		void refresh(device);
-		return pollWhileVisible(() => void refresh(device), BOT_ACTIVITY_POLL_MS);
+		return startReading(device);
 	}, [device, active]);
 	return useBotActivityStore(state => state.byComputer[keyOf(device)] ?? NONE);
 }

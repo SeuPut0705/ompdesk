@@ -3,6 +3,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
+import { useBotActivityStore } from "../../stores/bot-activity";
+import { useMessagesStore } from "../../stores/messages";
 import { AssistantText } from "./BotSources";
 import { BotTabContext } from "./bot-tab";
 
@@ -53,5 +55,69 @@ describe("AssistantText", () => {
 		const host = mount(false);
 		expect(host.querySelectorAll("[data-kind]")).toHaveLength(0);
 		expect(host.textContent).toContain("Sources: src/a.ts:4");
+	});
+});
+
+describe("a reply that names no sources", () => {
+	afterEach(() => {
+		useMessagesStore.setState({ messages: [] } as never);
+		useBotActivityStore.getState().reset();
+	});
+
+	it("shows what its turn read, and nothing for an earlier reply of the same turn", async () => {
+		const user = { role: "user", content: "How many files?", timestamp: Date.UTC(2026, 10, 1, 9, 0, 0) };
+		const early = {
+			role: "assistant",
+			content: [{ type: "text", text: "Looking." }],
+			timestamp: Date.UTC(2026, 10, 1, 9, 0, 5),
+		};
+		const last = {
+			role: "assistant",
+			content: [{ type: "text", text: "Three." }],
+			timestamp: Date.UTC(2026, 10, 1, 9, 0, 30),
+		};
+		useMessagesStore.setState({ messages: [user, early, last] } as never);
+		const entries = [
+			{
+				id: "a",
+				at: "2026-11-01T08:59:00.000Z",
+				kind: "read",
+				action: "tool",
+				by: "bot",
+				text: "read",
+				target: { type: "file", value: "/before.ts" },
+			},
+			{
+				id: "b",
+				at: "2026-11-01T09:00:10.000Z",
+				kind: "read",
+				action: "tool",
+				by: "bot",
+				text: "read",
+				target: { type: "file", value: "/src/count.ts" },
+			},
+		];
+		(window as unknown as { omp: unknown }).omp = {
+			fs: { read: async () => ({ ok: false, code: "not_found" }) },
+			sessions: { botDesk: { activity: async () => ({ entries, revision: 1 }) } },
+		};
+		const host = document.createElement("div");
+		document.body.appendChild(host);
+		const root = createRoot(host);
+		await act(async () =>
+			root.render(
+				<I18nProvider>
+					<BotTabContext.Provider value={{ tabId: "t1" }}>
+						<AssistantText message={last as never} text="Three." />
+						<AssistantText message={early as never} text="Looking." />
+					</BotTabContext.Provider>
+				</I18nProvider>,
+			),
+		);
+		const groups = [...host.querySelectorAll("[data-bot-sources]")];
+		expect(groups).toHaveLength(1);
+		expect(groups[0]?.getAttribute("data-bot-sources")).toBe("derived");
+		expect([...host.querySelectorAll("[data-kind]")].map(chip => chip.textContent)).toEqual(["count.ts"]);
+		act(() => root.unmount());
 	});
 });
