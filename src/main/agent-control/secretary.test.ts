@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 import { AGENT_HIDDEN_PREFS_KEY } from "../../shared/agent-control";
 import type { HostLiveSession, IpcTabRunOutcome } from "../../shared/ipc-types";
 import type { Mail, MailDelivery } from "./mail";
-import { SECRETARY_BRIEF_DAY_PREF, type SecretaryDeps, SecretaryFeed, type SecretaryTab } from "./secretary";
+import {
+	SECRETARY_BRIEF_DAY_PREF,
+	type SecretaryAsk,
+	type SecretaryDeps,
+	SecretaryFeed,
+	type SecretaryGrants,
+	type SecretaryTab,
+} from "./secretary";
 
 const SECRETARY = "/s/secretary.jsonl";
 
@@ -30,14 +37,16 @@ function rig(options: { named?: boolean; secretaryTab?: SecretaryTab | null; at?
 	const opened: string[] = [];
 	const started: string[] = [];
 	const localDeviceTabs = new Set<string>();
-	/** The titles of the questions open per tab. */
-	const asks = new Map<string, string[]>();
+	/** The questions open per tab. */
+	const asks = new Map<string, SecretaryAsk[]>();
+	const grants: SecretaryGrants = { control: true, approve: true };
 	let now = (options.at ?? new Date(2026, 9, 31, 7, 0)).getTime();
 	let tick: (() => void) | null = null;
 	const deps: SecretaryDeps = {
 		prefs: { get: key => prefs.get(key), set: (key, value) => void prefs.set(key, value) },
 		tab: tabId => tabs.get(tabId) ?? null,
 		openAsks: tabId => asks.get(tabId) ?? [],
+		grants: () => grants,
 		tabOfSession: (sessionPath, device) =>
 			device
 				? localDeviceTabs.has(`${device}:${sessionPath}`)
@@ -69,6 +78,7 @@ function rig(options: { named?: boolean; secretaryTab?: SecretaryTab | null; at?
 		started,
 		localDeviceTabs,
 		asks,
+		grants,
 		add: (entry: SecretaryTab) => tabs.set(entry.tabId, entry),
 		setSecretaryTab: (entry: SecretaryTab | null) => {
 			secretaryTab = entry;
@@ -137,16 +147,53 @@ describe("SecretaryFeed", () => {
 	it("leaves a confirmation card OMPdesk raises for the owner to the owner, and keeps the owner's notice for it", () => {
 		const r = rig();
 		r.add(tab("a"));
+		const card = { id: "c1", title: "[OMPdesk] Delete a session?", approval: false };
+		const question = { id: "q1", title: "Which branch?", approval: false };
+		r.asks.set("a", [card, question]);
 		// The secretary cannot answer such a card (ompdesk_session_answer refuses it): it is never reported to it.
-		r.feed.activity({ type: "ask", tabId: "a", requestId: "c1", text: "[OMPdesk] Delete a session?" });
+		r.feed.activity({ type: "ask", tabId: "a", requestId: "c1", text: card.title });
 		expect(r.sent).toHaveLength(0);
-		// The push for that card still goes out; one for an ordinary question of the same tab does not.
-		expect(r.feed.answers("a", "[OMPdesk] Delete a session?")).toBe(false);
-		expect(r.feed.answers("a", "Allow tool: bash")).toBe(true);
+		// Its push still goes out; one for an ordinary question of the same tab does not.
+		expect(r.feed.answers("a", "c1")).toBe(false);
+		expect(r.feed.answers("a", "q1")).toBe(true);
 		// A banner names no request: a tab holding such a card still notifies, one holding only questions does not.
-		r.asks.set("a", ["Allow tool: bash", "[OMPdesk] Delete a session?"]);
 		expect(r.feed.answers("a")).toBe(false);
-		r.asks.set("a", ["Allow tool: bash"]);
+		r.asks.set("a", [question]);
+		expect(r.feed.answers("a")).toBe(true);
+		// A question no longer open keeps its notice.
+		expect(r.feed.answers("a", "gone")).toBe(false);
+	});
+
+	it("hands nothing over and silences nothing while the owner turned the agents' control tools off", () => {
+		const r = rig();
+		r.add(tab("a"));
+		r.asks.set("a", [{ id: "q1", title: "Which branch?", approval: false }]);
+		r.grants.control = false;
+		r.feed.activity({ type: "ask", tabId: "a", requestId: "q1", text: "Which branch?" });
+		r.feed.liveSessions("mini", [{ sessionPath: "/h/a.jsonl", state: "waiting" }]);
+		expect(r.sent).toHaveLength(0);
+		expect(r.feed.answers("a", "q1")).toBe(false);
+		expect(r.feed.answers("a")).toBe(false);
+		// Switched back on, the secretary answers again.
+		r.grants.control = true;
+		expect(r.feed.answers("a", "q1")).toBe(true);
+	});
+
+	it("leaves a tool approval to the owner while agents may not approve, and still takes plain questions", () => {
+		const r = rig();
+		r.add(tab("a"));
+		const approval = { id: "t1", title: "Allow tool: bash", approval: true };
+		const question = { id: "q1", title: "Which branch?", approval: false };
+		r.asks.set("a", [approval, question]);
+		r.grants.approve = false;
+		r.feed.activity({ type: "ask", tabId: "a", requestId: "t1", text: approval.title });
+		r.feed.activity({ type: "ask", tabId: "a", requestId: "q1", text: question.title });
+		expect(r.sent.map(entry => entry.mail.card)).toEqual(["q1"]);
+		expect(r.feed.answers("a", "t1")).toBe(false);
+		expect(r.feed.answers("a", "q1")).toBe(true);
+		expect(r.feed.answers("a")).toBe(false);
+		r.grants.approve = true;
+		expect(r.feed.answers("a", "t1")).toBe(true);
 		expect(r.feed.answers("a")).toBe(true);
 	});
 
@@ -154,6 +201,7 @@ describe("SecretaryFeed", () => {
 		const r = rig();
 		r.add(tab("a"));
 		r.add(tab("child", { delegated: true }));
+		for (const tabId of ["a", "sec", "child"]) r.asks.set(tabId, [{ id: "q", title: "?", approval: false }]);
 		expect(r.feed.answers("a")).toBe(true);
 		expect(r.feed.answers("sec")).toBe(false);
 		expect(r.feed.answers("child")).toBe(false);

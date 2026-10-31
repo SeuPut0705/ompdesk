@@ -47,11 +47,26 @@ export interface SecretaryTab {
 	retrying: boolean;
 }
 
+/** A question or approval open in a tab. */
+export interface SecretaryAsk {
+	id: string;
+	title: string;
+	/** A stock tool approval (`approvalChoices`): only an agent the owner lets approve may say yes to it. */
+	approval: boolean;
+}
+
+/** What the owner lets agents do (Settings › Tools & extensions): the control tools at all, and approving for them. */
+export interface SecretaryGrants {
+	control: boolean;
+	approve: boolean;
+}
+
 export interface SecretaryDeps {
 	prefs: { get(key: string): unknown; set?(key: string, value: unknown): void };
 	tab(tabId: string): SecretaryTab | null;
-	/** The titles of the questions and approvals open in the tab now. */
-	openAsks(tabId: string): string[];
+	/** The questions and approvals open in the tab now. */
+	openAsks(tabId: string): SecretaryAsk[];
+	grants(): SecretaryGrants;
 	/** The tab on this computer holding `sessionPath`, if any. */
 	tabOfSession(sessionPath: string, device?: string): SecretaryTab | null;
 	/** Opens the session in a background tab. */
@@ -98,9 +113,13 @@ const RECORD_INSTRUCTION = "For the owner's next brief only: nothing to do now."
 const BRIEF_INSTRUCTION =
 	"Morning brief. Write the owner a short brief from this conversation since the last brief: what finished, what failed, the questions you answered (your Decision lines), what still waits on them. Start, retry or change no work. Then call ompdesk_notify once with the brief's first line as its title.";
 
-/** A confirmation card OMPdesk raises for the owner before an agent action: only the owner answers it. */
-function ownerOnly(title: string): boolean {
-	return title.startsWith(AGENT_CARD_PREFIX);
+/**
+ * The secretary can answer it: the control tools are on, it is no confirmation card OMPdesk raises for the owner before
+ * an agent action (`AGENT_CARD_PREFIX`, which `ompdesk_session_answer` refuses), and a tool approval only while the owner
+ * lets agents approve (otherwise only Deny would go through).
+ */
+function answerable(ask: SecretaryAsk, grants: SecretaryGrants): boolean {
+	return grants.control && !ask.title.startsWith(AGENT_CARD_PREFIX) && (!ask.approval || grants.approve);
 }
 
 export class SecretaryFeed {
@@ -129,17 +148,24 @@ export class SecretaryFeed {
 	}
 
 	/**
-	 * The owner's notice for a question of `tabId` would only repeat the secretary's work: it is open and the tab is one
-	 * it reports. Never for a confirmation card OMPdesk raises for the owner (`AGENT_CARD_PREFIX`), which only the owner
-	 * answers: `request` names the question when known, else the tab holds no such card.
+	 * The owner's notice for a question of `tabId` would only repeat the secretary's work: the secretary is there, the
+	 * tab is one it reports and the question is one it can answer (`answerable`). `requestId` names the question; a
+	 * notice that names none (a desktop banner) is silenced only while every question open in the tab is answerable.
+	 * A question no longer open, or one the secretary cannot answer, keeps the owner's notice.
 	 */
-	answers(tabId: string, request?: string): boolean {
+	answers(tabId: string, requestId?: string): boolean {
+		const grants = this.#deps.grants();
+		if (!grants.control) return false;
 		const secretary = this.#secretary();
 		if (!secretary || secretary.status === "error" || secretary.status === "exited") return false;
 		const tab = this.#deps.tab(tabId);
 		if (!tab || !this.#reported(tab, secretary.tabId)) return false;
-		if (request !== undefined) return !ownerOnly(request);
-		return !this.#deps.openAsks(tabId).some(ownerOnly);
+		const asks = this.#deps.openAsks(tabId);
+		if (requestId !== undefined) {
+			const ask = asks.find(entry => entry.id === requestId);
+			return ask !== undefined && answerable(ask, grants);
+		}
+		return asks.length > 0 && asks.every(ask => answerable(ask, grants));
 	}
 
 	#reported(tab: SecretaryTab, secretaryTabId: string | undefined): boolean {
@@ -154,7 +180,13 @@ export class SecretaryFeed {
 		const tab = this.#deps.tab(activity.tabId);
 		if (!tab || !this.#reported(tab, this.#deps.tabOfSession(path)?.tabId)) return;
 		if (activity.type === "ask") {
-			if (ownerOnly(activity.text)) return;
+			// The ask is held before it is announced (SidecarPool `#holdRequest`); a title alone is never an approval.
+			const ask = this.#deps.openAsks(tab.tabId).find(entry => entry.id === activity.requestId) ?? {
+				id: activity.requestId,
+				title: activity.text,
+				approval: false,
+			};
+			if (!answerable(ask, this.#deps.grants())) return;
 			this.#send(
 				path,
 				{
@@ -205,7 +237,7 @@ export class SecretaryFeed {
 		}
 		const now = new Map(sessions.map(session => [session.sessionPath, session.state]));
 		this.#live.set(device, now);
-		const path = this.#path();
+		const path = this.#deps.grants().control ? this.#path() : null;
 		if (!path) return;
 		const name = this.#deps.deviceName(device);
 		for (const [sessionPath, state] of now) {

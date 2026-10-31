@@ -70,6 +70,7 @@ import type {
 	SchedulesRequest,
 	SchedulesState,
 } from "../../shared/schedules";
+import { approvalChoices } from "../../shared/tool-approval";
 import type { FamilyEdits } from "../../shared/turn-edits";
 import { discardOpenedWorktree } from "../disk/saved-worktrees";
 import { createWorktree, tablessWorktreeBridge, WORKTREE_COMMAND_BUDGETS_MS } from "../local/git/worktree";
@@ -388,10 +389,10 @@ export class AgentControlRuntime {
 
 	/**
 	 * The secretary answers this question of `tabId` now (secretary.ts), so the owner's own notice for it is not shown;
-	 * `request` is the question's title when the caller knows it. Never an OMPdesk confirmation card for the owner.
+	 * `requestId` names the question when the caller knows it. Never one the secretary cannot answer.
 	 */
-	secretaryAnswers(tabId: string, request?: string): boolean {
-		return this.#secretary.answers(tabId, request);
+	secretaryAnswers(tabId: string, requestId?: string): boolean {
+		return this.#secretary.answers(tabId, requestId);
 	}
 
 	#secretaryTab(tabId: string): SecretaryTab | null {
@@ -422,14 +423,19 @@ export class AgentControlRuntime {
 			openAsks: tabId => {
 				const win = this.#win(tabId);
 				if (!win) return [];
-				return deps.pool
-					.openRequests(win)
-					.flatMap(({ tabId: owner, request, signIn }) =>
-						owner === tabId && !signIn && BLOCKING_UI_METHODS[request.method]
-							? ["title" in request && typeof request.title === "string" ? request.title : ""]
-							: [],
-					);
+				return deps.pool.openRequests(win).flatMap(({ tabId: owner, request, signIn }) =>
+					owner === tabId && !signIn && BLOCKING_UI_METHODS[request.method]
+						? [
+								{
+									id: request.id,
+									title: "title" in request && typeof request.title === "string" ? request.title : "",
+									approval: approvalChoices(request) !== undefined,
+								},
+							]
+						: [],
+				);
 			},
+			grants: () => ({ control: this.#controlEnabled(), approve: this.#approveEnabled() }),
 			tabOfSession: (sessionPath, device) => {
 				const owner = deps.pool.sessionOwner(sessionPath, device);
 				return owner ? this.#secretaryTab(owner.tabId) : null;
@@ -1016,15 +1022,27 @@ export class AgentControlRuntime {
 		};
 	}
 
+	/** The control tools at all (Settings › Tools & extensions). */
+	#controlEnabled(): boolean {
+		return agentControlEnabled(this.#deps.prefs.get(AGENT_CONTROL_PREF));
+	}
+
+	/** Agents may approve a tool for the owner: full control, or the approve switch. */
+	#approveEnabled(): boolean {
+		const { prefs } = this.#deps;
+		return (
+			agentControlFullEnabled(prefs.get(AGENT_CONTROL_FULL_PREF)) ||
+			agentControlApproveEnabled(prefs.get(AGENT_CONTROL_APPROVE_PREF))
+		);
+	}
+
 	#host(): AgentControlHost {
 		const deps = this.#deps;
 		return {
 			calls: this.#calls,
-			enabled: () => agentControlEnabled(deps.prefs.get(AGENT_CONTROL_PREF)),
+			enabled: () => this.#controlEnabled(),
 			fullEnabled: () => agentControlFullEnabled(deps.prefs.get(AGENT_CONTROL_FULL_PREF)),
-			approveEnabled: () =>
-				agentControlFullEnabled(deps.prefs.get(AGENT_CONTROL_FULL_PREF)) ||
-				agentControlApproveEnabled(deps.prefs.get(AGENT_CONTROL_APPROVE_PREF)),
+			approveEnabled: () => this.#approveEnabled(),
 			manageEnabled: () =>
 				agentControlFullEnabled(deps.prefs.get(AGENT_CONTROL_FULL_PREF)) ||
 				agentControlManageEnabled(deps.prefs.get(AGENT_CONTROL_MANAGE_PREF)),
