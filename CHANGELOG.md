@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.91.0] - 2026-10-31
+
+연결된 컴퓨터의 봇 홈을 다른 기기에서도 열 수 있어요. 맥미니의 봇이 올린 결정에 데스크탑이나 휴대폰에서 바로 답할 수 있어요.
+
+### 새로 생긴 것
+- 연결된 컴퓨터 구역의 봇 줄에 열린 결정 개수가 보여요. 누르면 그 컴퓨터 봇의 홈이 열리고, 결정에 답하거나 상시 업무를 고치고 예약된 깨어남을 볼 수 있어요.
+- 그 컴퓨터에서 결정이나 업무가 바뀌면 연결된 기기에 바로 반영돼요.
+- 다른 기기에서 결정에 답하면 그 기기의 하루 요청 한도에서 1회로 세요. 보기와 상시 업무 고치기는 세지 않아요.
+
+<!-- en -->
+
+A paired computer's bot home opens on your other devices too: answer the decisions your Mac mini's bot posts from your desktop or phone.
+
+### New
+- A paired computer's bot row shows how many decisions are open. Click it to open that bot's home there: answer its decisions, edit its standing duties and see its scheduled wakes.
+- Changes on that computer reach paired devices at once.
+- Answering from another device counts once against that device's daily request limit; reading and editing duties do not.
+
 ## [0.90.0] - 2026-10-31
 
 봇을 열면 홈이 먼저 보여요. 봇이 내게 물어볼 결정, 계속 맡은 일, 봇이 연 세션, 다음에 깨어날 시각을 한눈에 볼 수 있어요.
