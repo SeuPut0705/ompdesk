@@ -175,6 +175,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // A paired host's bot desk (31 Oct 2026): the desk store keyed per host and the shared decision-count badge on the host's
 // bot row (`BotDecisionsBadge`), both drawn by the first screen's sidebar: measured 3,234,021, 2,021 bytes over the
 // measure above.
+// The bot's one screen (31 Oct 2026): the Home/Chat switch goes, the pane's context and bar frame and the strip's bot
+// label come; the bar, decisions and board sections stay one lazy chunk (`preloadBotDesk`): measured 3,234,028, 7 bytes
+// over the measure above.
 const WEB_FIRST_SCREEN_JS_BYTES = 3_235_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's

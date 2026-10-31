@@ -1,21 +1,19 @@
 /**
  * The bot's desk as this window knows it (`shared/bot-desk.ts`): duties, decisions and the bot's own wakes, for this
- * computer's bot and for each paired host's (`device` = the host's id; the home of a host's bot reads the host's desk
- * over the link, `host.botDesk.*`). Main owns the files; this store holds the last state main sent per computer
- * (`BOT_DESK_GET`, then every `BOT_DESK_CHANGED` / `HOST_BOT_DESK_STATE`), whether the first read landed, and which of
- * the bot's two views its pane shows (`BotPane`). Answering and editing the duties go through main and come back as a
- * change: the card leaves, the list moves, only when main says so.
+ * computer's bot and for each paired host's (`device` = the host's id; a host's bot pane reads the host's desk over
+ * the link, `host.botDesk.*`). Main owns the files; this store holds the last state main sent per computer
+ * (`BOT_DESK_GET`, then every `BOT_DESK_CHANGED` / `HOST_BOT_DESK_STATE`) and whether the first read landed.
+ * Answering and editing the duties go through main and come back as a change: the decision leaves, the list moves,
+ * only when main says so.
  */
 import { create } from "zustand";
 import { type BotDeskDuties, type BotDeskState, EMPTY_BOT_DESK } from "../../shared/bot-desk";
 import { translate } from "../lib/i18n";
 import { toastError } from "./toast";
 
-export type BotView = "home" | "chat";
-
 export interface BotDeskEntry {
 	desk: BotDeskState;
-	/** The first read (or a push) has landed: until then the home draws its static skeleton. */
+	/** The first read (or a push) has landed: until then the bot's board sections draw their static skeleton. */
 	loaded: boolean;
 	/** The first read failed and nothing has arrived since. */
 	loadError: unknown;
@@ -39,9 +37,7 @@ const requested = new Set<string>();
 interface BotDeskStore {
 	/** By computer: `local`, or a paired host's device id. */
 	desks: Record<string, BotDeskEntry>;
-	view: BotView;
 	apply: (desk: BotDeskState, device?: string) => void;
-	setView: (view: BotView) => void;
 	/** Read the desk from main; a push that lands meanwhile wins over the reply. */
 	refresh: (device?: string) => Promise<void>;
 	/** Answer a decision; false (and a toast) when main refused. */
@@ -53,14 +49,12 @@ interface BotDeskStore {
 
 export const useBotDeskStore = create<BotDeskStore>()((set, get) => ({
 	desks: {},
-	view: "home",
 	apply: (desk, device) =>
 		set(current => {
 			const key = keyOf(device);
 			const revision = (current.desks[key]?.revision ?? 0) + 1;
 			return { desks: { ...current.desks, [key]: { desk, loaded: true, loadError: null, revision } } };
 		}),
-	setView: view => set({ view }),
 	refresh: async device => {
 		const key = keyOf(device);
 		const revision = get().desks[key]?.revision ?? 0;
@@ -107,7 +101,7 @@ export const useBotDeskStore = create<BotDeskStore>()((set, get) => ({
 		unsubscribe?.();
 		unsubscribe = null;
 		requested.clear();
-		set({ desks: {}, view: "home" });
+		set({ desks: {} });
 	},
 }));
 

@@ -298,14 +298,34 @@ test("a session the bot opens shows under the bot row, and nowhere else in the l
 	await expect(page.locator(".omp-sidebar-session-row").first()).toHaveAttribute("data-sidebar-bot-row", "true");
 });
 
-test("the bot's desk: a decision and a duty it posts show on its home and row, and the owner's answer reaches it", async () => {
+/** The window's screenshot, attached to the report; `OMPDESK_BOT_SHOTS=<dir>` also keeps it there. */
+async function capture(name: string): Promise<void> {
+	const body = await page.screenshot({ animations: "disabled" });
+	await test.info().attach(name, { body, contentType: "image/png" });
+	const dir = process.env.OMPDESK_BOT_SHOTS;
+	if (dir) {
+		await fs.mkdir(dir, { recursive: true });
+		await fs.writeFile(path.join(dir, `${name}.png`), body);
+	}
+}
+
+async function windowWidth(width: number): Promise<void> {
+	await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0]?.setContentSize(size, 860), width);
+}
+
+test("the bot's desk: a decision and a duty it posts show around its conversation and on its row, and the owner's answer reaches it", async () => {
 	test.setTimeout(180_000);
+	await windowWidth(1440);
 	const file = await botFile();
 	await page.locator("[data-sidebar-bot-row]").click();
 	const bot = await tabOf(file);
 	await untilReady(bot);
-	// Its pane opens on its home, not the conversation.
-	await expect(page.locator("[data-bot-home]")).toBeVisible();
+	// One screen: the bar over the conversation, no Home/Chat switch, the duties on the docked board.
+	const pane = page.locator(`.omp-session-pane[data-tab-id="${bot}"]`);
+	await expect(pane.locator("[data-bot-bar] [data-bot-state]")).toBeVisible();
+	await expect(pane.locator(".omp-transcript-scroll")).toBeVisible();
+	await expect(pane.getByRole("tablist")).toHaveCount(0);
+	await expect(pane.locator('[data-board-section="duties"]')).toBeVisible();
 
 	// Only the bot may use its desk tool.
 	const owner = (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.sessionPath !== file)?.tabId;
@@ -326,11 +346,25 @@ test("the bot's desk: a decision and a duty it posts show on its home and row, a
 	expect(posted.isError, posted.text).toBe(false);
 	const id = /Decision (\S+) is posted/.exec(posted.text)?.[1] ?? "";
 	expect(id).not.toBe("");
-	// The inbox on the home, and the count on the bot's row.
+	// The inbox above the composer, the conversation still on screen, and the count on the bot's row.
 	const card = page.locator("[data-bot-decision]");
 	await expect(card).toHaveCount(1);
 	await expect(card).toContainText("Ship the release today?");
 	await expect(page.locator("[data-sidebar-bot-decisions]")).toHaveAttribute("data-sidebar-bot-decisions", "1");
+	await expect(pane.locator(".omp-transcript-scroll")).toBeVisible();
+	await capture("bot-wide");
+	// Narrow: the board becomes the strip, whose panel holds the duties; the bar and the decisions stay.
+	await windowWidth(760);
+	await expect(pane.locator("[data-work-chip]")).toBeVisible();
+	await expect(pane.locator("[data-bot-bar] [data-bot-next-wake]")).toBeVisible();
+	await expect(card.locator('[data-bot-option="Ship it"]')).toBeVisible();
+	await capture("bot-narrow");
+	await pane.locator("[data-work-chip]").click();
+	await pane.locator('[data-board-section="duties"] .omp-work-board-fold').click();
+	await expect(pane.locator("[data-bot-duty]")).toContainText(["Check the nightly build"]);
+	await capture("bot-narrow-strip");
+	await pane.locator("[data-work-chip]").click();
+	await windowWidth(1440);
 
 	// The owner answers in place: the card leaves, the count goes, and the bot's omp gets the answer as a turn.
 	await card.locator('[data-bot-option="Ship it"]').click();
@@ -345,7 +379,8 @@ test("the bot's desk: a decision and a duty it posts show on its home and row, a
 	// The duty outlives the app: a relaunch reads the same desk.
 	await exitApp(app);
 	await start();
+	await windowWidth(1440);
 	await page.locator("[data-sidebar-bot-row]").click();
 	await expect(page.locator("[data-bot-duty]")).toContainText(["Check the nightly build"]);
-	await expect(page.locator("[data-bot-past]")).toBeVisible();
+	await expect(page.locator("[data-bot-answered]")).toBeVisible();
 });

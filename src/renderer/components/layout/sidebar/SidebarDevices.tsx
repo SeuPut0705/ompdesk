@@ -50,7 +50,7 @@ import { deviceGroupKey, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { tabSignalPresentation } from "../../../lib/tab-signal";
 import { pickWorkspaceDirectory } from "../../../lib/workspace-dirs";
 import { useAgentReviewStore } from "../../../stores/agent-review";
-import { ensureBotDesk, releaseBotDesk, useBotDesk, useBotDeskStore } from "../../../stores/bot-desk";
+import { ensureBotDesk, releaseBotDesk, useBotDesk } from "../../../stores/bot-desk";
 import { pickRemoteDirectory } from "../../../stores/remote";
 import type { SessionStore } from "../../../stores/session";
 import { sessionListFeed } from "../../../stores/session-list";
@@ -998,8 +998,8 @@ function DeviceSessions({
 						) : undefined
 					}
 					onClick={() => {
-						// The count says a decision waits: the pane opens on the home, where it is answered.
-						if (botDecisions > 0) useBotDeskStore.getState().setView("home");
+						// The count says a decision waits: its card above the composer opens and flashes.
+						if (botDecisions > 0) useUiStore.getState().focusDockCard("decisions");
 						openSession(session);
 					}}
 					rowProps={{

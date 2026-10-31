@@ -8,8 +8,8 @@ import { connectHost, launchRemote, makeRemoteProfile, type RemoteInstance } fro
 // The host's bot (src/main/agent-control/bot.ts) seen from a paired device: the device's section for the host draws
 // it as its one fixed row, and a session the device runs on the host is the device's own, never handed to that bot (it
 // answers only the sessions it opened): the device answers its card, and the host opens no tab for it and mails the
-// bot nothing. The rules are unit-tested in bot.test.ts. The second test is the host's bot home on the device
-// (`host.botDesk.*`, host-services.test.ts): the count on the host's row, the home, the answer reaching the host's bot.
+// bot nothing. The rules are unit-tested in bot.test.ts. The second test is the host's bot pane on the device
+// (`host.botDesk.*`, host-services.test.ts): the count on the host's row, the pane, the answer reaching the host's bot.
 
 let parent: string;
 let host: RemoteInstance | undefined;
@@ -113,7 +113,7 @@ test("a device shows the host's bot row, and a session it runs on the host stays
 	expect((await hostTabs()).filter(tab => !before.has(tab.tabId))).toEqual([]);
 });
 
-test("a device opens the host's bot home, sees its decision count, answers on it, and edits its duties", async () => {
+test("a device opens the host's bot, sees its decision count, answers it, and edits its duties", async () => {
 	test.setTimeout(300_000);
 	const hostProfile = await makeRemoteProfile(parent, "host", {
 		language: "en",
@@ -179,9 +179,9 @@ test("a device opens the host's bot home, sees its decision count, answers on it
 	await expect(count).toHaveAttribute("data-sidebar-bot-decisions", "1", { timeout: 30_000 });
 	await expect(clientPage.locator("[data-sidebar-bot-decisions]")).toHaveCount(1);
 
-	// Opening the row opens the host's bot on its home: the host's desk, drawn under the host's name.
+	// Opening the row opens the host's bot: the host's desk around the conversation, under the host's name.
 	await section.locator("[data-sidebar-bot-row]").click();
-	await expect(clientPage.locator("[data-bot-home]")).toBeVisible({ timeout: 60_000 });
+	await expect(clientPage.locator("[data-bot-bar]")).toBeVisible({ timeout: 60_000 });
 	await expect(clientPage.locator("[data-bot-device]")).toContainText("PC-B");
 	const card = clientPage.locator("[data-bot-decision]");
 	await expect(card).toHaveCount(1);
@@ -196,11 +196,11 @@ test("a device opens the host's bot home, sees its decision count, answers on it
 	const [answer] = await answers();
 	expect(answer).toMatchObject({ triggerTurn: true, deliverAs: "aside" });
 	expect(String(answer?.content)).toContain("Answer: Ship it");
-	// The host's own home agrees, and nothing is told twice.
+	// The host's own pane agrees, and nothing is told twice.
 	await expect(hostPage.locator("[data-bot-decision]")).toHaveCount(0);
 	expect(await answers()).toHaveLength(1);
 
-	// A duty added on the device is the host bot's: the host's home lists it.
+	// A duty added on the device is the host bot's: the host's board lists it.
 	await clientPage.locator("[data-bot-duty-input]").fill("Check the nightly build");
 	await clientPage.locator("[data-bot-duty-input]").press("Enter");
 	await expect(clientPage.locator("[data-bot-duty]")).toContainText(["Check the nightly build"]);

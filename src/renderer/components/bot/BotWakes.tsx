@@ -1,6 +1,6 @@
 /**
- * The bot's own scheduled wakes on its home (`ompdesk_schedule {"target":"self"}`): the next start and the prompt it
- * wakes with, one line each; the whole prompt is the tooltip.
+ * The bot's own scheduled wakes (`ompdesk_schedule {"target":"self"}`) as rows of its work board section: the prompt
+ * it wakes with and its next start, one line each; the whole prompt is the tooltip.
  */
 import { AlarmClock } from "lucide-react";
 import type { BotWake } from "../../../shared/bot-desk";
@@ -8,26 +8,22 @@ import { formatClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { BoardRow, KindMark } from "../layout/work-board/board-parts";
 
-export function BotWakes({ wakes }: { wakes: readonly BotWake[] }) {
+export function BotWakeRows({ wakes }: { wakes: readonly BotWake[] }) {
 	const t = useT();
 	if (wakes.length === 0)
 		return (
-			<p className="text-sc-sm text-(--sc-text-muted)" data-bot-wakes-empty>
+			<li className="omp-work-board-more" data-bot-wakes-empty>
 				{t("botHome.wakes.empty")}
-			</p>
+			</li>
 		);
-	return (
-		<ul className="omp-work-board-list" data-bot-wakes>
-			{wakes.map(wake => (
-				<BoardRow
-					data={{ "data-bot-wake": wake.id }}
-					key={wake.id}
-					label={wake.prompt.replace(/\s+/g, " ").trim()}
-					lead={<KindMark icon={AlarmClock} tone="muted" />}
-					meta={wake.next === null ? t("botHome.wakes.paused") : formatClock(wake.next)}
-					title={wake.prompt}
-				/>
-			))}
-		</ul>
-	);
+	return wakes.map(wake => (
+		<BoardRow
+			data={{ "data-bot-wake": wake.id }}
+			key={wake.id}
+			label={wake.prompt.replace(/\s+/g, " ").trim()}
+			lead={<KindMark icon={AlarmClock} tone={wake.next === null ? "muted" : "info"} />}
+			meta={wake.next === null ? t("botHome.wakes.paused") : formatClock(wake.next)}
+			title={wake.prompt}
+		/>
+	));
 }

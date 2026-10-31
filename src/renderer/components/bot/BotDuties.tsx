@@ -1,6 +1,7 @@
 /**
- * The bot's standing duties on its home: the list with a remove button on each and one field to add (Enter adds).
- * Every edit writes the whole list (`setDuties`), the way main stores it; the list changes when main's change arrives.
+ * The bot's standing duties as rows of its work board section: one line each with a remove button, then one field to
+ * add (Enter adds). Every edit writes the whole list (`setDuties`), the way main stores it; the list changes when
+ * main's change arrives.
  */
 import { ListChecks, Plus, X } from "lucide-react";
 import { useState } from "react";
@@ -8,10 +9,10 @@ import { BOT_DUTIES_MAX, BOT_DUTY_TEXT_MAX, type BotDuty } from "../../../shared
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { useBotDeskStore } from "../../stores/bot-desk";
-import { Button, IconButton, Input } from "../common";
+import { IconButton, Input } from "../common";
 import { BoardRow, KindMark } from "../layout/work-board/board-parts";
 
-export function BotDuties({ duties, device }: { duties: readonly BotDuty[]; device?: string }) {
+export function BotDutyRows({ duties, device }: { duties: readonly BotDuty[]; device?: string }) {
 	const t = useT();
 	const setDuties = useBotDeskStore(state => state.setDuties);
 	const [draft, setDraft] = useState("");
@@ -30,35 +31,27 @@ export function BotDuties({ duties, device }: { duties: readonly BotDuty[]; devi
 		if (await write([...kept, { text }])) setDraft("");
 	};
 	return (
-		<div className="flex flex-col gap-2">
-			{duties.length === 0 ? (
-				<p className="text-sc-sm text-(--sc-text-muted)" data-bot-duties-empty>
-					{t("botHome.duties.empty")}
-				</p>
-			) : (
-				<ul className="omp-work-board-list" data-bot-duties>
-					{duties.map(duty => (
-						<BoardRow
-							action={
-								<IconButton
-									data-bot-duty-remove={duty.id}
-									disabled={pending}
-									icon={<X />}
-									label={t("botHome.duties.remove", { text: duty.text })}
-									onClick={() => void write(kept.filter(entry => entry.id !== duty.id))}
-									size="sm"
-								/>
-							}
-							data={{ "data-bot-duty": duty.id }}
-							key={duty.id}
-							label={<span className="whitespace-normal [overflow-wrap:anywhere]">{duty.text}</span>}
-							lead={<KindMark icon={ListChecks} tone="muted" />}
-							title={duty.text}
+		<>
+			{duties.map(duty => (
+				<BoardRow
+					action={
+						<IconButton
+							data-bot-duty-remove={duty.id}
+							disabled={pending}
+							icon={<X />}
+							label={t("botHome.duties.remove", { text: duty.text })}
+							onClick={() => void write(kept.filter(entry => entry.id !== duty.id))}
+							size="sm"
 						/>
-					))}
-				</ul>
-			)}
-			<div className="flex items-center gap-2">
+					}
+					data={{ "data-bot-duty": duty.id }}
+					key={duty.id}
+					label={duty.text}
+					lead={<KindMark icon={ListChecks} tone="muted" />}
+					title={duty.text}
+				/>
+			))}
+			<li className="omp-work-board-item flex items-center gap-1.5 py-1">
 				<div className="min-w-0 flex-1">
 					<Input
 						aria-label={t("botHome.duties.add")}
@@ -75,19 +68,19 @@ export function BotDuties({ duties, device }: { duties: readonly BotDuty[]; devi
 							}
 						}}
 						placeholder={full ? t("botHome.duties.full") : t("botHome.duties.placeholder")}
+						title={full ? t("botHome.duties.full") : undefined}
 						value={draft}
 					/>
 				</div>
-				<Button
+				<IconButton
 					data-bot-duty-add
 					disabled={full || pending || draft.trim() === ""}
 					icon={<Plus />}
+					label={t("botHome.duties.add")}
 					onClick={() => void add()}
 					size="sm"
-				>
-					{t("botHome.duties.addButton")}
-				</Button>
-			</div>
-		</div>
+				/>
+			</li>
+		</>
 	);
 }

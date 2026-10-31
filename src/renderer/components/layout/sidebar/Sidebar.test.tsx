@@ -1648,32 +1648,34 @@ describe("Sidebar menus and pinned ordering", () => {
 				expect(botRow().querySelector("[data-sidebar-bot-decisions]")).toBeNull();
 			});
 
-			it("opens the bot's home when the row is clicked with a decision waiting", async () => {
+			it("opens the bot's decisions card when the row is clicked with a decision waiting", async () => {
 				installMockOmp([...LIST, botSession]);
 				seedStores();
 				useSessionStore.setState({ isStreaming: true });
 				useBotStore.setState({ enabled: true, path: BOT });
 				useBotDeskStore.getState().apply({ duties: [], wakes: [], decisions: [open("a")] });
-				useBotDeskStore.getState().setView("chat");
+				useUiStore.setState({ dockCollapsed: { decisions: true }, dockFocus: null });
 				await mount(<Sidebar />);
 
 				await fire(botRow().querySelector("button"), "onClick");
 
-				expect(useBotDeskStore.getState().view).toBe("home");
+				expect(useUiStore.getState().dockFocus?.id).toBe("decisions");
+				expect(useUiStore.getState().dockCollapsed.decisions).toBe(false);
 			});
 
-			it("leaves the chosen view alone when no decision waits", async () => {
+			it("leaves the decisions card alone when no decision waits", async () => {
 				installMockOmp([...LIST, botSession]);
 				seedStores();
 				useSessionStore.setState({ isStreaming: true });
 				useBotStore.setState({ enabled: true, path: BOT });
 				useBotDeskStore.getState().apply({ duties: [], wakes: [], decisions: [] });
-				useBotDeskStore.getState().setView("chat");
+				useUiStore.setState({ dockCollapsed: { decisions: true }, dockFocus: null });
 				await mount(<Sidebar />);
 
 				await fire(botRow().querySelector("button"), "onClick");
 
-				expect(useBotDeskStore.getState().view).toBe("chat");
+				expect(useUiStore.getState().dockFocus).toBeNull();
+				expect(useUiStore.getState().dockCollapsed.decisions).toBe(true);
 			});
 
 			it("says its state and next wake in the row's tooltip", async () => {
@@ -4341,7 +4343,7 @@ describe("Sidebar device sections", () => {
 			expect(hostRow()?.getAttribute("data-bot-decisions")).toBeNull();
 		});
 
-		it("follows the host's pushes and opens the home when the row is clicked with a decision waiting", async () => {
+		it("follows the host's pushes and opens the decisions card when the row is clicked with a decision waiting", async () => {
 			await mountWithHostDesk({ duties: [], wakes: [], decisions: [decision("a", "open")] });
 			expect(hostRow()?.querySelector("[data-sidebar-bot-decisions]")).not.toBeNull();
 
@@ -4357,9 +4359,9 @@ describe("Sidebar device sections", () => {
 					.getState()
 					.apply({ duties: [], wakes: [], decisions: [decision("d", "open")] }, "dev-studio"),
 			);
-			useBotDeskStore.getState().setView("chat");
+			useUiStore.setState({ dockCollapsed: { decisions: true }, dockFocus: null });
 			await fire(hostRow()?.querySelector("button") ?? null, "onClick");
-			expect(useBotDeskStore.getState().view).toBe("home");
+			expect(useUiStore.getState().dockFocus?.id).toBe("decisions");
 		});
 	});
 

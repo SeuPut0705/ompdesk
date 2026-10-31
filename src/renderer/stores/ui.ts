@@ -84,13 +84,15 @@ const INSIGHTS_TABS: readonly string[] = ["stats", "usage"] satisfies InsightsTa
 const DEFAULT_SETTINGS_TAB = "general";
 /** Documents whose rendered/source choice the Files viewer remembers. */
 const FILE_VIEW_MODE_CAP = 200;
-/** Center-dock card identifiers: todo/plan render as live cards above the composer. */
-export type DockCardId = "todo" | "plan";
+/** Center-dock card identifiers: todo/plan render as live cards above the composer; `decisions` is the bot's inbox of
+ * questions for the owner, above its own pane's composer (components/bot). */
+export type DockCardId = "todo" | "plan" | "decisions";
 
 /** The todo card starts collapsed: its header peek (progress, current task) is
  * the at-a-glance view, and the full list is one click away. The plan card
- * starts open because a proposed plan is there to be read. */
-const DOCK_CARD_DEFAULT_COLLAPSED: Record<DockCardId, boolean> = { todo: true, plan: false };
+ * starts open because a proposed plan is there to be read, and the bot's decisions because they are there to be
+ * answered. */
+const DOCK_CARD_DEFAULT_COLLAPSED: Record<DockCardId, boolean> = { todo: true, plan: false, decisions: false };
 
 /** Whether a center-dock card is collapsed: the user's override, else the card's default. */
 export function isDockCardCollapsed(overrides: Partial<Record<DockCardId, boolean>>, id: DockCardId): boolean {

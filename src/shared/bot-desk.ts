@@ -1,7 +1,7 @@
 /**
  * The bot's desk: what the bot carries for the owner, apart from its conversation. Main alone keeps it
  * (`<userData>/bot-desk.json`, `src/main/agent-control/bot-desk.ts`); the bot changes it with the `ompdesk_bot` tool,
- * the owner from the bot's home (`BotHome.tsx`) through IPC, and every window hears `BOT_DESK_CHANGED`.
+ * the owner from the bot's pane (`components/bot`) through IPC, and every window hears `BOT_DESK_CHANGED`.
  * - Duties: standing responsibilities ("check the nightly build every morning"). They survive a new conversation and
  *   a compaction, and reach the bot's prompt section each time they change.
  * - Decisions: what only the owner can decide. Posting one never blocks the bot; the owner's answer reaches the bot as

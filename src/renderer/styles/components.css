@@ -652,6 +652,18 @@
 	padding-inline-end: calc(var(--omp-scrollbar-size) + var(--omp-board-reserve));
 }
 
+/* The bot's bar and its decisions above the composer (components/bot) keep the composer's column, a docked board
+   beside them included. */
+.omp-bot-column {
+	min-width: 0;
+	max-width: 100%;
+	padding-inline: 0 var(--omp-scrollbar-size);
+}
+
+.omp-session-pane[data-work-board] .omp-bot-column {
+	padding-inline-end: calc(var(--omp-scrollbar-size) + var(--omp-board-reserve));
+}
+
 .omp-work-board-slot {
 	position: absolute;
 	z-index: var(--sc-z-raised);

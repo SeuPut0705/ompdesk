@@ -1,6 +1,6 @@
 /**
- * What the bot is doing, in the four words its row and its home both say: one rule, read by `Sidebar.tsx` (tooltip)
- * and `BotHome.tsx` (header). Pure.
+ * What the bot is doing, in the four words its row and its bar both say: one rule, read by `Sidebar.tsx` (tooltip)
+ * and `BotBar.tsx`. Pure.
  */
 import type { BotWake } from "../../../shared/bot-desk";
 import { isSessionDown } from "../../lib/tab-signal";

@@ -46,6 +46,7 @@ import { selectTodoCardVisible, useTodoStore } from "../../../stores/todo";
 import { type ToolEntry, useToolsStore } from "../../../stores/tools";
 import { useUiStore } from "../../../stores/ui";
 import { useWorkBoardStore } from "../../../stores/work-board";
+import { useBotDeskModule, useBotTab } from "../../bot/bot-tab";
 import { formatTokenRate } from "../../chat/TurnOutputMeter";
 import { useRunStores } from "../../chat/work/use-work-run";
 import { resumedAgents } from "../../chat/work/work-run";
@@ -301,6 +302,9 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	// An Autopilot tab's board is the run's home: its head names the run, its first sections are the run's.
 	const autopilotTab = useAutopilotStore(isAutopilotTab);
 	const autopilotRunning = useAutopilotStore(state => isLiveAutopilot(state) && state.status.state === "running");
+	// The bot's board is its desk too: its duties, wakes and past decisions follow Needs you (components/bot).
+	const bot = useBotTab();
+	const botDesk = useBotDeskModule(bot !== null);
 
 	const pending = useExtensionUiStore(state => state.pendingRequests);
 	const loginRequestIds = useExtensionUiStore(state => state.loginRequestIds);
@@ -332,6 +336,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	const present =
 		turnActive ||
 		autopilotTab ||
+		bot !== null ||
 		asks.length > 0 ||
 		running > 0 ||
 		presentedAgents.length + presentedJobs.length > 0 ||
@@ -530,6 +535,8 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 					<AutopilotBoardSections />
 				</Suspense>
 			)}
+
+			{bot && botDesk && <botDesk.BotBoardSections device={bot.device} />}
 
 			{showsNow && (
 				<BoardSection

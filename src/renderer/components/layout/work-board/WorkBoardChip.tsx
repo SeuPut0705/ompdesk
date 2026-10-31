@@ -19,6 +19,7 @@ import { useT } from "../../../lib/i18n";
 import { useModelWait } from "../../../lib/model-wait";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
 import { isAutopilotTab, isLiveAutopilot, useAutopilotStore } from "../../../stores/autopilot";
+import { useBotDesk } from "../../../stores/bot-desk";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { usePlanApprovalStore } from "../../../stores/plan-approval";
 import { useSessionStore } from "../../../stores/session";
@@ -28,6 +29,7 @@ import { useTabsStore } from "../../../stores/tabs";
 import { selectTodoCardVisible, useTodoStore } from "../../../stores/todo";
 import { useWorkBoardStore } from "../../../stores/work-board";
 import { useAutopilotStateText } from "../../autopilot/use-autopilot-state-text";
+import { useBotTab } from "../../bot/bot-tab";
 import { SummaryBoard, type ZoneOpen } from "./board-parts";
 import { attentionClause, boardCounts, liveSubagents, todoBoard, workingSubagents } from "./work-board";
 
@@ -194,6 +196,9 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 	const ended = useAutopilotStore(state => isAutopilotTab(state) && state.status.state === "ended");
 	const autopilotState = runText ?? (ended ? t("autopilot.state.ended") : null);
 	const autopilotRunning = useAutopilotStore(state => isLiveAutopilot(state) && state.status.state === "running");
+	// The bot's pane keeps its strip when nothing runs: its duties and wakes are in the panel (components/bot).
+	const bot = useBotTab();
+	const botDesk = useBotDesk(bot?.device).desk;
 
 	const counts = boardCounts({
 		asks: pendingAsks({ pendingRequests: pending, loginRequestIds }, planPending),
@@ -218,7 +223,9 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 						? `${t("workBoard.running")} · ${running}`
 						: goal
 							? t("workBoard.goal")
-							: null;
+							: bot
+								? t("botHome.strip", { duties: botDesk.duties.length, wakes: botDesk.wakes.length })
+								: null;
 	// What the strip says is gone (the run ended and the board emptied): nothing to expand either.
 	useEffect(() => {
 		if (label === null && open) close();

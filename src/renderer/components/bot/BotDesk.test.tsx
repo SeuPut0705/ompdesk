@@ -1,6 +1,7 @@
 /**
- * The bot's home: its decisions (answered with an option or in the owner's own words), its duties (the whole list
- * written on every edit), its sessions and wakes, and the static skeleton before the first read.
+ * The bot's parts around its conversation: the bar (name, state, next wake, computer), the decisions above the
+ * composer (answered with an option or in the owner's own words), and its work board sections: duties (the whole list
+ * written on every edit), wakes and past decisions, a static skeleton before the first read.
  */
 import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
@@ -15,7 +16,8 @@ import { useRemoteStore } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
 import { useToastStore } from "../../stores/toast";
-import { BotHome } from "./BotHome";
+import { useUiStore } from "../../stores/ui";
+import { BotBar, BotBoardSections, BotDecisionDock } from "./BotDesk";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 
@@ -100,9 +102,20 @@ async function enter(element: Element | null): Promise<void> {
 const query = (selector: string) => container.querySelector(selector);
 const queryAll = (selector: string) => [...container.querySelectorAll(selector)];
 
-async function mountHome(state: BotDeskState): Promise<void> {
+/** The three parts as the bot's pane and its board draw them. */
+function Parts({ tabId, device }: { tabId: string; device?: string }) {
+	return (
+		<>
+			<BotBar device={device} tabId={tabId} />
+			<BotBoardSections device={device} />
+			<BotDecisionDock device={device} />
+		</>
+	);
+}
+
+async function mountDesk(state: BotDeskState): Promise<void> {
 	useBotDeskStore.getState().apply(state);
-	await mount(<BotHome tabId="tbot" />);
+	await mount(<Parts tabId="tbot" />);
 }
 
 afterEach(async () => {
@@ -116,40 +129,70 @@ afterEach(async () => {
 	useSessionStore.getState().reset();
 	useTabsStore.setState({ tabs: [], activeTabId: null } as never);
 	useToastStore.setState({ toasts: [] } as never);
+	useUiStore.setState({ dockCollapsed: {}, dockFocus: null });
 	delete (window as unknown as { omp?: unknown }).omp;
 });
 
-describe("BotHome", () => {
+describe("the bot's desk", () => {
 	it("draws a static skeleton, never a spinner, until the first read lands", async () => {
 		installApi();
-		await mount(<BotHome tabId="tbot" />);
+		await mount(<Parts tabId="tbot" />);
 
 		expect(queryAll("[data-skeleton-row]").length).toBeGreaterThan(0);
-		expect(query("[data-bot-decisions]")).toBeNull();
+		expect(query("[data-bot-decisions-dock]")).toBeNull();
+		expect(query("[data-bot-duty-input]")).toBeNull();
 		expect(query('[aria-busy="true"]')).toBeNull();
 		expect(query(".omp-spinner")).toBeNull();
 	});
 
-	it("shows each open decision with its question, context and one button per option", async () => {
+	it("says the first read failed above the composer, and reads again on Retry", async () => {
+		const api = installApi({
+			get: vi.fn(async () => {
+				throw new Error("main is busy");
+			}),
+		});
+		await mount(<Parts tabId="tbot" />);
+		await act(async () => useBotDeskStore.getState().refresh());
+
+		const dock = query("[data-bot-decisions-dock]");
+		expect(dock?.textContent).toContain(translate("botHome.loadFailed"));
+		api.get.mockResolvedValue(desk({ decisions: [OPEN] }));
+		await click(dock?.querySelector("button") ?? null);
+		expect(query('[data-bot-decision="d1"]')).not.toBeNull();
+	});
+
+	it("docks each open decision with its question, context and one button per option", async () => {
 		installApi();
-		await mountHome(desk({ decisions: [OPEN] }));
+		await mountDesk(desk({ decisions: [OPEN] }));
 
 		const card = query('[data-bot-decision="d1"]');
+		expect(card?.closest("[data-bot-decisions-dock]")).not.toBeNull();
 		expect(card?.textContent).toContain(OPEN.question);
 		expect(card?.textContent).toContain("One flaky e2e retried twice.");
 		expect(queryAll("[data-bot-option]").map(button => button.textContent)).toEqual(["Ship it", "Wait a day"]);
-		expect(query("[data-bot-decisions-empty]")).toBeNull();
 	});
 
-	it("says so when nothing waits on the owner", async () => {
+	it("folds to one line naming the first question, and opens again", async () => {
 		installApi();
-		await mountHome(desk());
-		expect(query("[data-bot-decisions-empty]")?.textContent).toBe(translate("botHome.decisions.empty"));
+		await mountDesk(desk({ decisions: [OPEN] }));
+
+		await click(query('[data-dock-card="decisions"] button[aria-expanded="true"]'));
+		expect(query('[data-bot-decision="d1"]')).toBeNull();
+		expect(query('[data-testid="dock-peek-decisions"]')?.textContent).toBe(OPEN.question);
+
+		await act(async () => useUiStore.getState().focusDockCard("decisions"));
+		expect(query('[data-bot-decision="d1"]')).not.toBeNull();
+	});
+
+	it("docks nothing while nothing waits on the owner", async () => {
+		installApi();
+		await mountDesk(desk());
+		expect(query("[data-bot-decisions-dock]")).toBeNull();
 	});
 
 	it("answers with the chosen option", async () => {
 		const api = installApi();
-		await mountHome(desk({ decisions: [OPEN] }));
+		await mountDesk(desk({ decisions: [OPEN] }));
 
 		await click(query('[data-bot-option="Wait a day"]'));
 
@@ -159,7 +202,7 @@ describe("BotHome", () => {
 
 	it("answers with the owner's own words on Enter and on the send button, trimmed, never empty", async () => {
 		const api = installApi();
-		await mountHome(desk({ decisions: [{ ...OPEN, id: "d1", options: [] }] }));
+		await mountDesk(desk({ decisions: [{ ...OPEN, id: "d1", options: [] }] }));
 		const sendButton = () => query("[data-bot-answer-send]");
 
 		expect(props<{ disabled: boolean }>(sendButton()).disabled).toBe(true);
@@ -178,7 +221,7 @@ describe("BotHome", () => {
 				throw new Error("refused");
 			}),
 		});
-		await mountHome(desk({ decisions: [OPEN] }));
+		await mountDesk(desk({ decisions: [OPEN] }));
 
 		await click(query('[data-bot-option="Ship it"]'));
 
@@ -190,9 +233,10 @@ describe("BotHome", () => {
 		);
 	});
 
-	it("drops the card when main's change arrives, and folds the answered ones under Past decisions", async () => {
+	it("drops the card when main's change arrives, and lists the answer under Past decisions on the board", async () => {
 		installApi();
-		await mountHome(desk({ decisions: [OPEN] }));
+		await mountDesk(desk({ decisions: [OPEN] }));
+		expect(query('[data-board-section="decided"]')).toBeNull();
 
 		await act(async () =>
 			useBotDeskStore.getState().apply(
@@ -203,18 +247,17 @@ describe("BotHome", () => {
 		);
 
 		expect(query('[data-bot-decision="d1"]')).toBeNull();
-		const past = query("[data-bot-past]");
-		expect(past?.textContent).toContain(translate("botHome.decisions.past", { count: 1 }));
-		expect(query("[data-bot-answered]")).toBeNull();
-		await click(past?.querySelector("button") ?? null);
-		expect(query('[data-bot-answered="d1"]')?.textContent).toContain(
-			translate("botHome.answered", { answer: "Ship it" }),
-		);
+		expect(query("[data-bot-decisions-dock]")).toBeNull();
+		const row = query('[data-bot-answered="d1"]');
+		expect(row?.closest('[data-board-section="decided"]')).not.toBeNull();
+		expect(row?.textContent).toContain(OPEN.question);
+		expect(row?.textContent).toContain("Ship it");
+		expect(row?.getAttribute("title")).toContain(translate("botHome.answered", { answer: "Ship it" }));
 	});
 
 	it("renders markdown context as markdown and plain context as text", async () => {
 		installApi();
-		await mountHome(
+		await mountDesk(
 			desk({
 				decisions: [
 					{ ...OPEN, id: "m", context: "**Risk:** the migration is slow" },
@@ -231,7 +274,7 @@ describe("BotHome", () => {
 
 	it("adds a duty on Enter by writing the whole list with the new one last", async () => {
 		const api = installApi();
-		await mountHome(
+		await mountDesk(
 			desk({
 				duties: [
 					{ id: "a", text: "Check the nightly build", at: "2026-10-30T08:00:00.000Z" },
@@ -240,6 +283,7 @@ describe("BotHome", () => {
 			}),
 		);
 
+		expect(query('[data-bot-duty="a"]')?.closest('[data-board-section="duties"]')).not.toBeNull();
 		await type(query("[data-bot-duty-input]"), "  Watch the release branch ");
 		await enter(query("[data-bot-duty-input]"));
 
@@ -256,7 +300,7 @@ describe("BotHome", () => {
 
 	it("removes a duty by writing the whole list without it", async () => {
 		const api = installApi();
-		await mountHome(
+		await mountDesk(
 			desk({
 				duties: [
 					{ id: "a", text: "Check the nightly build", at: "2026-10-30T08:00:00.000Z" },
@@ -276,7 +320,7 @@ describe("BotHome", () => {
 				throw new Error("refused");
 			}),
 		});
-		await mountHome(desk());
+		await mountDesk(desk());
 
 		await type(query("[data-bot-duty-input]"), "Check the nightly build");
 		await enter(query("[data-bot-duty-input]"));
@@ -287,7 +331,7 @@ describe("BotHome", () => {
 		);
 	});
 
-	it("lists the wakes and puts the earliest one, the name and the computer in the header", async () => {
+	it("lists the wakes and puts the earliest one, the name and the computer in the bar", async () => {
 		installApi();
 		useSessionStore.setState({ sessionName: "Jarvis" } as never);
 		useRemoteStore.setState({ state: { host: { name: "SeuPut's Mac" } } } as never);
@@ -295,7 +339,7 @@ describe("BotHome", () => {
 			tabs: [{ id: "tbot", cwd: "/w", status: "ready", kind: "chat", sessionPath: BOT, unreadDone: false }],
 			activeTabId: "tbot",
 		} as never);
-		await mountHome(
+		await mountDesk(
 			desk({
 				wakes: [
 					{ id: "w2", prompt: "Look at the open pull requests", next: "2026-11-02T09:00:00.000Z" },
@@ -307,7 +351,7 @@ describe("BotHome", () => {
 
 		expect(queryAll("[data-bot-wake]").map(row => row.getAttribute("data-bot-wake"))).toEqual(["w2", "w1", "w3"]);
 		expect(query('[data-bot-wake="w3"]')?.textContent).toContain(translate("botHome.wakes.paused"));
-		expect(query("[data-bot-name]")?.textContent).toBe("Jarvis");
+		expect(query("[data-bot-bar] [data-bot-name]")?.textContent).toBe("Jarvis");
 		expect(query("[data-bot-state]")?.getAttribute("data-bot-state")).toBe("idle");
 		expect(query("[data-bot-device]")?.textContent).toBe(translate("botHome.device", { device: "SeuPut's Mac" }));
 		// The earliest of the three, not the first listed.
@@ -316,47 +360,18 @@ describe("BotHome", () => {
 		);
 	});
 
-	it("says it has no wakes, duties or sessions when it has none", async () => {
+	it("says it has no wakes or duties when it has none, and keeps the field to add one", async () => {
 		installApi();
-		await mountHome(desk());
+		await mountDesk(desk());
 
 		expect(query("[data-bot-wakes-empty]")).not.toBeNull();
-		expect(query("[data-bot-duties-empty]")).not.toBeNull();
-		expect(query("[data-bot-sessions-empty]")).not.toBeNull();
+		expect(query("[data-bot-duty]")).toBeNull();
+		expect(query("[data-bot-duty-input]")).not.toBeNull();
+		expect(query('[data-board-section="decided"]')).toBeNull();
 		expect(query("[data-bot-next-wake]")?.textContent).toBe(translate("botHome.noWake"));
 	});
 
-	it("lists the sessions the bot opened, a tap focusing the child", async () => {
-		installApi();
-		const applyAgentView = vi.fn(async () => {});
-		useTabsStore.setState({
-			tabs: [
-				{ id: "tbot", cwd: "/w", status: "ready", kind: "chat", sessionPath: BOT, unreadDone: false },
-				{
-					id: "tkid",
-					cwd: "/w/alpha",
-					status: "running",
-					kind: "agent",
-					title: "Check the build",
-					sessionPath: "/w/alpha/kid.jsonl",
-					openedBy: "tbot",
-					openedBySession: BOT,
-					unreadDone: false,
-				},
-			],
-			activeTabId: "tbot",
-			applyAgentView,
-		} as never);
-		await mountHome(desk());
-
-		const row = query('[data-bot-session="tkid"]');
-		expect(row?.textContent).toContain("Check the build");
-		expect(row?.getAttribute("data-status")).toBe("running");
-		await click(row);
-		expect(applyAgentView).toHaveBeenCalledWith({ tabId: "tkid", how: "focus" });
-	});
-
-	it("is a paired host's home: its desk, its name in the header, and answers and duties go to that host", async () => {
+	it("is a paired host's desk: its decisions, its name in the bar, and answers and duties go to that host", async () => {
 		const api = installApi({ get: vi.fn(async () => desk({ decisions: [OPEN] })) });
 		useRemoteStore.setState({
 			state: { host: { name: "SeuPut's Mac" }, hosts: [{ deviceId: "mini", name: "Mac mini" }] },
@@ -378,12 +393,10 @@ describe("BotHome", () => {
 		// This computer's own desk says nothing is waiting; only the host's has a decision.
 		useBotDeskStore.getState().apply(desk());
 		useBotDeskStore.getState().apply(desk({ decisions: [OPEN] }), "mini");
-		await mount(<BotHome device="mini" tabId="tmini" />);
+		await mount(<Parts device="mini" tabId="tmini" />);
 
 		expect(queryAll("[data-bot-option]").map(button => button.textContent)).toEqual(["Ship it", "Wait a day"]);
 		expect(query("[data-bot-device]")?.textContent).toBe(translate("botHome.device", { device: "Mac mini" }));
-		// Only the host's desk is read, never this computer's.
-		expect(api.get.mock.calls.every(call => call[0] === "mini")).toBe(true);
 
 		await click(query('[data-bot-option="Ship it"]'));
 		expect(api.answer).toHaveBeenCalledWith({ id: "d1", answer: "Ship it" }, "mini");
@@ -391,13 +404,5 @@ describe("BotHome", () => {
 		await type(query("[data-bot-duty-input]"), "Check the build");
 		await enter(query("[data-bot-duty-input]"));
 		expect(api.setDuties).toHaveBeenCalledWith({ duties: [{ text: "Check the build" }] }, "mini");
-	});
-
-	it("reads a host's desk when its home opens before anything read it", async () => {
-		const api = installApi({ get: vi.fn(async () => desk({ decisions: [OPEN] })) });
-		await mount(<BotHome device="mini" tabId="tmini" />);
-
-		await vi.waitFor(() => expect(query('[data-bot-decision="d1"]')).not.toBeNull());
-		expect(api.get).toHaveBeenCalledWith("mini");
 	});
 });

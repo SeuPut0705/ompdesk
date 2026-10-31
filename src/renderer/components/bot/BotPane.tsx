@@ -1,135 +1,72 @@
 /**
- * The bot's own session pane: a two-way switch (Home, Chat) above the body, and the home in place of the transcript
- * while it is on Home. The composer stays under both; sending a message switches to Chat, where the reply shows.
- * Home is the default each time the pane opens. A paired host's bot gets the same home, read from that host's own
- * desk: its tab is the bot's once the host's session list marks its session (`bot: "on"`). Any other pane (a plain
- * session, a bot the owner turned off) is drawn as it was: `BotPane` returns its children untouched.
- *
- * The home is loaded on demand (`preloadBotHome`): a paired phone's first screen never shows it, and with it the first
- * screen grew 18.8 kB past its budget (scripts/check-main-bundle.ts). It is fetched on idle once the bot is on, so the
- * pane usually has it at once; until then the body is a static skeleton (rule://no-loading-screens).
+ * The bot's own session pane: one screen, the conversation in the middle with the bot's desk around it. Its bar on top
+ * (the bot's name, its state, its next wake, the computer it runs on), the decisions it waits on docked above the
+ * composer, and its duties, wakes and past decisions as sections of the work board (docked beside the conversation, or
+ * the status strip's panel where the pane is narrow; the board's Now section lists the sessions it opened). A paired
+ * host's bot gets the same screen, read from that host's own desk: its tab is the bot's once the host's session list
+ * marks its session (`bot: "on"`). Any other pane (a plain session, a bot the owner turned off) is drawn as it was:
+ * `BotPane` returns its children untouched.
  */
-import { type ComponentType, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo } from "react";
 import { useStore } from "zustand";
-import { openBotDecisions } from "../../../shared/bot-desk";
-import { useT } from "../../lib/i18n";
-import { useBotStore } from "../../stores/bot";
-import { type BotView, useBotDesk, useBotDeskStore } from "../../stores/bot-desk";
-import { useComposerStore } from "../../stores/composer";
+import { ensureBotPath, useBotStore } from "../../stores/bot";
+import { ensureBotDesk } from "../../stores/bot-desk";
 import { sessionListFeed } from "../../stores/session-list";
 import type { SessionTab } from "../../stores/tabs";
-import { SkeletonRows, Tabs } from "../common";
+import { BOT_BAR_FRAME } from "./bot-bar-frame";
+import { BotTabContext, useBotDeskModule, usePreloadBotDesk } from "./bot-tab";
 
-type HomeComponent = ComponentType<{ tabId: string; device?: string }>;
-let loadedHome: HomeComponent | null = null;
-let loadingHome: Promise<HomeComponent> | null = null;
-
-/** The home's module, fetched once; later calls share it. */
-export function preloadBotHome(): Promise<HomeComponent> {
-	loadingHome ??= import("./BotHome").then(module => {
-		loadedHome = module.BotHome;
-		return module.BotHome;
-	});
-	return loadingHome;
-}
-
-function LoadedHome({ tabId, device }: { tabId: string; device?: string }) {
-	const t = useT();
-	const [Home, setHome] = useState<HomeComponent | null>(() => loadedHome);
+function BotScreen({ tabId, device, children }: { tabId: string; device?: string; children: ReactNode }) {
+	const desk = useBotDeskModule(true);
+	const bot = useMemo(() => (device === undefined ? { tabId } : { tabId, device }), [tabId, device]);
+	// This computer's desk is read by the sidebar at launch; a host's is read here (its sidebar section reads it too for
+	// the count once its link is up).
 	useEffect(() => {
-		if (Home) return;
-		let live = true;
-		preloadBotHome().then(
-			component => {
-				if (live) setHome(() => component);
-			},
-			() => undefined,
-		);
-		return () => {
-			live = false;
-		};
-	}, [Home]);
-	return Home ? (
-		<Home device={device} tabId={tabId} />
-	) : (
-		<SkeletonRows label={t("botHome.loading")} widths={[60, 44, 70]} />
-	);
-}
-
-function BotSwitch({ device }: { device?: string }) {
-	const t = useT();
-	const view = useBotDeskStore(state => state.view);
-	const setView = useBotDeskStore(state => state.setView);
-	const decisions = openBotDecisions(useBotDesk(device).desk).length;
+		if (device !== undefined) ensureBotDesk(device);
+	}, [device]);
 	return (
-		<div className="flex shrink-0 justify-center px-4 pt-2" data-bot-switch>
-			<Tabs
-				ariaLabel={t("botHome.switch")}
-				activeId={view}
-				compact
-				onChange={id => setView(id as BotView)}
-				tabs={[
-					{ id: "home", label: t("botHome.tab.home"), ...(decisions > 0 ? { badge: decisions } : {}) },
-					{ id: "chat", label: t("botHome.tab.chat") },
-				]}
-				variant="segmented"
-			/>
-		</div>
+		<BotTabContext.Provider value={bot}>
+			{desk ? (
+				<desk.BotBar device={device} tabId={tabId} />
+			) : (
+				<div aria-hidden className={BOT_BAR_FRAME.outer} data-bot-bar="">
+					<div className={BOT_BAR_FRAME.inner} />
+				</div>
+			)}
+			{children}
+			{desk ? <desk.BotDecisionDock device={device} /> : null}
+		</BotTabContext.Provider>
 	);
-}
-
-function BotBody({ tabId, device, children }: { tabId: string; device?: string; children: ReactNode }) {
-	const view = useBotDeskStore(state => state.view);
-	const setView = useBotDeskStore(state => state.setView);
-	const sending = useComposerStore(state => state.sending);
-	const wasSending = useRef(sending);
-	// Home each time the pane opens, before the first paint.
-	useLayoutEffect(() => setView("home"), [setView]);
-	useEffect(() => {
-		if (sending && !wasSending.current) setView("chat");
-		wasSending.current = sending;
-	}, [sending, setView]);
-	return (
-		<>
-			<BotSwitch device={device} />
-			{view === "home" ? <LoadedHome device={device} tabId={tabId} /> : children}
-		</>
-	);
-}
-
-/** The bot is on: fetch its home while nothing else happens, so opening it shows the home at once. */
-function usePreloadHome(wanted: boolean): void {
-	useEffect(() => {
-		if (!wanted || loadedHome) return;
-		const idle = window.requestIdleCallback?.(() => void preloadBotHome().catch(() => undefined));
-		return () => {
-			if (idle !== undefined) window.cancelIdleCallback?.(idle);
-		};
-	}, [wanted]);
 }
 
 /** This computer's bot session, on its own tab. */
 function LocalBotPane({ tab, children }: { tab: SessionTab; children: ReactNode }) {
 	const enabled = useBotStore(state => state.enabled);
+	// The sidebar reads both at launch; a phone's page keeps its sidebar in a drawer it may never open, so the pane does
+	// too (both read once, whoever asks first).
+	useEffect(() => {
+		ensureBotPath();
+		ensureBotDesk();
+	}, []);
 	const path = useBotStore(state => state.path);
-	usePreloadHome(enabled);
+	usePreloadBotDesk(enabled);
 	return enabled && path !== null && tab.sessionPath === path ? (
-		<BotBody tabId={tab.id}>{children}</BotBody>
+		<BotScreen tabId={tab.id}>{children}</BotScreen>
 	) : (
 		children
 	);
 }
 
-/** A paired host's bot session: the host's own list marks it, on or off (`SessionInfo.bot`), and only on is its home. */
+/** A paired host's bot session: the host's own list marks it, on or off (`SessionInfo.bot`), and only on is the bot's. */
 function HostBotPane({ tab, device, children }: { tab: SessionTab; device: string; children: ReactNode }) {
 	const isBot = useStore(sessionListFeed("global", device).store, state =>
 		state.sessions.some(row => row.path === tab.sessionPath && row.bot === "on"),
 	);
-	usePreloadHome(isBot);
+	usePreloadBotDesk(isBot);
 	return isBot ? (
-		<BotBody device={device} tabId={tab.id}>
+		<BotScreen device={device} tabId={tab.id}>
 			{children}
-		</BotBody>
+		</BotScreen>
 	) : (
 		children
 	);

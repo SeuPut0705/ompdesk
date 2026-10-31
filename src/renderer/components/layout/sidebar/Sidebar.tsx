@@ -95,7 +95,7 @@ import { isSessionDown, isTabFailed, tabSignalPresentation } from "../../../lib/
 import { pickWorkspaceDirectory } from "../../../lib/workspace-dirs";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
 import { ensureBotPath, useBotStore } from "../../../stores/bot";
-import { ensureBotDesk, useBotDesk, useBotDeskStore } from "../../../stores/bot-desk";
+import { ensureBotDesk, useBotDesk } from "../../../stores/bot-desk";
 import { ensureClosedChildren, useClosedChildrenStore } from "../../../stores/closed-children";
 import { useComposerStore } from "../../../stores/composer";
 import { useHostedSessionsStore } from "../../../stores/hosted-sessions";
@@ -1880,8 +1880,8 @@ export function Sidebar() {
 						if (active && openTabId && sidebarSubagentCount(openTabId) + opened.length > 0)
 							toggleSidebarSubagents(session.path);
 						if (bot) {
-							// The count says a decision waits: the pane opens on the home, where it is answered.
-							if (botDecisions > 0) useBotDeskStore.getState().setView("home");
+							// The count says a decision waits: its card above the composer opens and flashes.
+							if (botDecisions > 0) useUiStore.getState().focusDockCard("decisions");
 							openBot();
 						} else openSession(session);
 					}}

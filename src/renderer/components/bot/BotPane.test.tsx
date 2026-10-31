@@ -1,6 +1,7 @@
 /**
- * The bot's own pane: the home first, one switch to the chat, the composer's send switching to the chat, and the home
- * nowhere else (a plain session, a paired computer's bot, a bot the owner turned off).
+ * The bot's own pane is one screen: the conversation stays, its bar sits above it, its open decisions above the
+ * composer, and its board knows it is the bot's. Nowhere else (a plain session, a paired computer's session the
+ * computer does not mark as its bot, a bot the owner turned off).
  */
 import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
@@ -10,10 +11,10 @@ import type { BotDeskState } from "../../../shared/bot-desk";
 import { I18nProvider } from "../../lib/i18n";
 import { useBotStore } from "../../stores/bot";
 import { useBotDeskStore } from "../../stores/bot-desk";
-import { useComposerStore } from "../../stores/composer";
 import { resetSessionListFeeds, sessionListFeed } from "../../stores/session-list";
 import type { SessionTab } from "../../stores/tabs";
-import { BotPane, preloadBotHome } from "./BotPane";
+import { BotPane } from "./BotPane";
+import { preloadBotDesk, useBotTab } from "./bot-tab";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 
@@ -28,6 +29,12 @@ globals.IS_REACT_ACT_ENVIRONMENT = true;
 globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0);
 
 const BOT = "/work-sessions/bot.jsonl";
+
+const OPEN_DESK: BotDeskState = {
+	duties: [],
+	wakes: [],
+	decisions: [{ id: "d1", state: "open", question: "Ship?", options: ["Yes"], at: "2026-10-31T09:00:00.000Z" }],
+};
 
 function tab(overrides: Partial<SessionTab> = {}): SessionTab {
 	return { id: "tbot", cwd: "/w", status: "ready", kind: "chat", sessionPath: BOT, unreadDone: false, ...overrides };
@@ -62,7 +69,8 @@ function props<T>(element: Element | null): T {
 
 function installApi(): DeskApi {
 	const api: DeskApi = {
-		get: vi.fn(async () => ({ duties: [], decisions: [], wakes: [] })),
+		// The pane reads this computer's desk once itself (a phone's page has no sidebar to): the same desk as applied.
+		get: vi.fn(async () => OPEN_DESK),
 		answer: vi.fn(async () => {}),
 		setDuties: vi.fn(async () => {}),
 		onChanged: vi.fn(() => () => {}),
@@ -73,24 +81,39 @@ function installApi(): DeskApi {
 
 const query = (selector: string) => container.querySelector(selector);
 
-async function choose(view: "home" | "chat"): Promise<void> {
-	await act(async () => props<{ onClick: () => void }>(query(`[data-bot-switch] [data-tab-id="${view}"]`)).onClick());
+/** What the work board reads to draw the bot's sections. */
+function BoardProbe() {
+	const bot = useBotTab();
+	return <div data-board-probe={bot === null ? "none" : `${bot.tabId}@${bot.device ?? "local"}`} />;
 }
 
-async function mountPane(openTab: SessionTab = tab()): Promise<void> {
-	useBotStore.setState({ enabled: true, path: BOT });
-	useBotDeskStore.getState().apply({ duties: [], decisions: [], wakes: [] });
-	// The home is loaded on demand; once the bot is on the app fetches it on idle, as here.
-	await preloadBotHome();
-	await mount(
+function pane(openTab: SessionTab): ReactElement {
+	return (
 		<BotPane tab={openTab}>
 			<div data-transcript>transcript</div>
-		</BotPane>,
+			<BoardProbe />
+		</BotPane>
 	);
+}
+
+async function mountPane(openTab: SessionTab = tab(), state: BotDeskState = OPEN_DESK): Promise<void> {
+	useBotStore.setState({ enabled: true, path: BOT });
+	useBotDeskStore.getState().apply(state);
+	// The bot's parts are loaded on demand; once the bot is on the app fetches them on idle, as here.
+	await preloadBotDesk();
+	await mount(pane(openTab));
 }
 
 function listHost(rows: { path: string; bot: "on" | "off" }[]): void {
 	sessionListFeed("global", "mini").store.setState({ sessions: rows as never });
+}
+
+/** A plain pane: the transcript as it was, nothing of the bot around it. */
+function expectPlain(): void {
+	expect(query("[data-transcript]")).not.toBeNull();
+	expect(query("[data-bot-bar]")).toBeNull();
+	expect(query("[data-bot-decisions-dock]")).toBeNull();
+	expect(query("[data-board-probe]")?.getAttribute("data-board-probe")).toBe("none");
 }
 
 afterEach(async () => {
@@ -101,156 +124,110 @@ afterEach(async () => {
 	useBotStore.getState().reset();
 	useBotDeskStore.getState().reset();
 	resetSessionListFeeds();
-	useComposerStore.setState({ sending: false });
 	delete (window as unknown as { omp?: unknown }).omp;
 });
 
 describe("BotPane", () => {
-	it("opens on the home, in place of the transcript, with the switch above it", async () => {
+	it("keeps the conversation with the bar above it, the open decisions above the composer, and no switch", async () => {
 		installApi();
 		await mountPane();
 
-		expect(query("[data-bot-home]")).not.toBeNull();
-		expect(query("[data-transcript]")).toBeNull();
-		expect(query('[data-bot-switch] [data-tab-id="home"]')?.getAttribute("aria-selected")).toBe("true");
-		expect(query('[data-bot-switch] [data-tab-id="chat"]')?.getAttribute("aria-selected")).toBe("false");
+		const bar = query("[data-bot-bar]");
+		const transcript = query("[data-transcript]");
+		const dock = query("[data-bot-decisions-dock]");
+		expect(bar?.querySelector("[data-bot-state]")).not.toBeNull();
+		expect(transcript).not.toBeNull();
+		expect(dock?.querySelector('[data-bot-decision="d1"]')).not.toBeNull();
+		// In that order: bar, conversation, decisions.
+		const order = [...container.querySelectorAll("[data-bot-bar], [data-transcript], [data-bot-decisions-dock]")];
+		expect(order).toEqual([bar, transcript, dock]);
+		expect(query('[role="tablist"]')).toBeNull();
+		expect(query("[data-board-probe]")?.getAttribute("data-board-probe")).toBe("tbot@local");
 	});
 
-	it("switches to the chat and back with the one switch", async () => {
-		installApi();
+	it("answers a decision while the conversation stays on screen, and drops the dock when none is open", async () => {
+		const api = installApi();
 		await mountPane();
 
-		await choose("chat");
-		expect(query("[data-bot-home]")).toBeNull();
+		await act(async () => props<{ onClick: () => void }>(query('[data-bot-option="Yes"]')).onClick());
+		expect(api.answer).toHaveBeenCalledWith({ id: "d1", answer: "Yes" });
 		expect(query("[data-transcript]")).not.toBeNull();
 
-		await choose("home");
-		expect(query("[data-bot-home]")).not.toBeNull();
-		expect(query("[data-transcript]")).toBeNull();
+		await act(async () => useBotDeskStore.getState().apply({ duties: [], wakes: [], decisions: [] }));
+		expect(query("[data-bot-decisions-dock]")).toBeNull();
+		expect(query("[data-bot-bar]")).not.toBeNull();
 	});
 
-	it("goes back to the chat when the owner sends a message from the composer", async () => {
+	it("draws the bar's static frame until the bot's parts load, never a spinner", async () => {
 		installApi();
-		await mountPane();
-		expect(query("[data-bot-home]")).not.toBeNull();
-
-		await act(async () => useComposerStore.setState({ sending: true }));
-
-		expect(query("[data-bot-home]")).toBeNull();
+		// A fresh module graph (a module boundary on purpose): nothing of the bot loaded yet, and its own stores.
+		vi.resetModules();
+		const fresh = await import("./BotPane");
+		const freshBot = await import("../../stores/bot");
+		freshBot.useBotStore.setState({ enabled: true, path: BOT });
+		await mount(<fresh.BotPane tab={tab()}>{<div data-transcript>transcript</div>}</fresh.BotPane>);
+		expect(query("[data-bot-bar]")?.getAttribute("aria-hidden")).toBe("true");
+		expect(query(".omp-spinner")).toBeNull();
 		expect(query("[data-transcript]")).not.toBeNull();
 	});
 
-	it("opens on the home again each time the pane opens", async () => {
-		installApi();
-		await mountPane();
-		await choose("chat");
-		await act(async () => root.unmount());
-		container.remove();
-
-		await mountPane();
-
-		expect(query("[data-bot-home]")).not.toBeNull();
-	});
-
-	it("counts the open decisions on the Home side of the switch", async () => {
-		installApi();
-		await mountPane();
-		await act(async () =>
-			useBotDeskStore.getState().apply({
-				duties: [],
-				wakes: [],
-				decisions: [
-					{ id: "a", state: "open", question: "One?", options: [], at: "2026-10-31T09:00:00.000Z" },
-					{ id: "b", state: "open", question: "Two?", options: [], at: "2026-10-31T09:01:00.000Z" },
-					{
-						id: "c",
-						state: "answered",
-						question: "Three?",
-						options: [],
-						answer: "Yes",
-						at: "2026-10-31T08:00:00.000Z",
-						answeredAt: "2026-10-31T08:01:00.000Z",
-					},
-				],
-			}),
-		);
-
-		expect(query('[data-bot-switch] [data-tab-id="home"]')?.textContent).toContain("2");
-		expect(query('[data-bot-switch] [data-tab-id="chat"]')?.textContent).not.toMatch(/\d/);
-	});
-
-	it("is only the bot's own session: a plain session keeps its transcript and has no switch", async () => {
+	it("is only the bot's own session: a plain session stays plain", async () => {
 		installApi();
 		await mountPane(tab({ id: "tother", sessionPath: "/work/other.jsonl" }));
-
-		expect(query("[data-bot-switch]")).toBeNull();
-		expect(query("[data-bot-home]")).toBeNull();
-		expect(query("[data-transcript]")).not.toBeNull();
+		expectPlain();
 	});
 
 	it("never takes over a paired computer's session at the bot's own path unless that computer marks it its bot", async () => {
 		installApi();
 		await mountPane(tab({ device: "mini" }));
-
-		expect(query("[data-bot-switch]")).toBeNull();
-		expect(query("[data-transcript]")).not.toBeNull();
+		expectPlain();
 	});
 
-	it("is the same home for a paired computer's bot, once that computer's list marks its session on", async () => {
-		const hostDesk: BotDeskState = {
-			duties: [],
-			wakes: [],
-			decisions: [{ id: "d1", state: "open", question: "Ship?", options: ["Yes"], at: "2026-10-31T09:00:00.000Z" }],
-		};
+	it("is the same screen for a paired computer's bot, once that computer's list marks its session on", async () => {
 		const api = installApi();
-		api.get.mockResolvedValue(hostDesk);
+		api.get.mockResolvedValue(OPEN_DESK);
 		useBotStore.setState({ enabled: false, path: null });
 		listHost([{ path: "/mini/bot.jsonl", bot: "on" }]);
-		useBotDeskStore.getState().apply(hostDesk, "mini");
-		await preloadBotHome();
-		await mount(
-			<BotPane tab={tab({ device: "mini", sessionPath: "/mini/bot.jsonl" })}>
-				<div data-transcript>transcript</div>
-			</BotPane>,
-		);
+		// This computer's own desk says nothing is waiting; only the host's has a decision.
+		useBotDeskStore.getState().apply({ duties: [], wakes: [], decisions: [] });
+		useBotDeskStore.getState().apply(OPEN_DESK, "mini");
+		await preloadBotDesk();
+		await mount(pane(tab({ device: "mini", sessionPath: "/mini/bot.jsonl" })));
 
-		expect(query("[data-bot-home]")).not.toBeNull();
-		expect(query("[data-transcript]")).toBeNull();
-		// The host's own decision count, read from the host's desk.
-		expect(query('[data-bot-switch] [data-tab-id="home"]')?.textContent).toContain("1");
+		expect(query("[data-bot-bar]")).not.toBeNull();
+		expect(query("[data-transcript]")).not.toBeNull();
+		expect(query("[data-board-probe]")?.getAttribute("data-board-probe")).toBe("tbot@mini");
 		await act(async () => props<{ onClick: () => void }>(query('[data-bot-option="Yes"]')).onClick());
 		expect(api.answer).toHaveBeenCalledWith({ id: "d1", answer: "Yes" }, "mini");
-
-		await choose("chat");
-		expect(query("[data-transcript]")).not.toBeNull();
 	});
 
-	it("leaves a paired computer's bot a plain transcript while that computer has it off, and follows its switch", async () => {
+	it("reads a host's desk when its bot pane opens before anything read it", async () => {
+		const api = installApi();
+		api.get.mockResolvedValue(OPEN_DESK);
+		listHost([{ path: "/mini/bot.jsonl", bot: "on" }]);
+		await preloadBotDesk();
+		await mount(pane(tab({ device: "mini", sessionPath: "/mini/bot.jsonl" })));
+
+		await vi.waitFor(() => expect(query('[data-bot-decision="d1"]')).not.toBeNull());
+		expect(api.get).toHaveBeenCalledWith("mini");
+		expect(api.get.mock.calls.every(call => call[0] === "mini")).toBe(true);
+	});
+
+	it("leaves a paired computer's bot plain while that computer has it off, and follows its switch", async () => {
 		installApi();
 		listHost([{ path: "/mini/bot.jsonl", bot: "off" }]);
-		await mount(
-			<BotPane tab={tab({ device: "mini", sessionPath: "/mini/bot.jsonl" })}>
-				<div data-transcript>transcript</div>
-			</BotPane>,
-		);
-		expect(query("[data-bot-switch]")).toBeNull();
-		expect(query("[data-transcript]")).not.toBeNull();
+		await mount(pane(tab({ device: "mini", sessionPath: "/mini/bot.jsonl" })));
+		expectPlain();
 
-		await preloadBotHome();
+		await preloadBotDesk();
 		await act(async () => listHost([{ path: "/mini/bot.jsonl", bot: "on" }]));
-		expect(query("[data-bot-home]")).not.toBeNull();
+		expect(query("[data-bot-bar]")).not.toBeNull();
 	});
 
-	it("leaves the transcript alone while the owner has the bot off", async () => {
+	it("leaves the pane plain while the owner has the bot off", async () => {
 		installApi();
 		useBotStore.setState({ enabled: false, path: null });
-		await mount(
-			<BotPane tab={tab()}>
-				<div data-transcript>transcript</div>
-			</BotPane>,
-		);
-
-		expect(query("[data-bot-switch]")).toBeNull();
-		expect(query("[data-transcript]")).not.toBeNull();
+		await mount(pane(tab()));
+		expectPlain();
 	});
 });
