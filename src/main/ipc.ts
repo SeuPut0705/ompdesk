@@ -153,7 +153,7 @@ import { type LocalMachine, type MachineServices, machineFor as pickMachine } fr
 import type { MediaStreams } from "./media-stream";
 import { createMenu } from "./menu";
 import { modelsPath } from "./models-config";
-import { NotificationBatcher, type ShownNotice } from "./notification-batch";
+import { type NoticeKind, NotificationBatcher, type ShownNotice } from "./notification-batch";
 import { createNotifyHandler } from "./notify-triage";
 import { systemOmp } from "./omp-runtime";
 import { openLocalPath } from "./open-path";
@@ -175,7 +175,7 @@ import { deleteSession, moveSession, recordSessionDelete, renameSession } from "
 import { resolveEditorCommand, shellSpawnEnv } from "./shell-env";
 import type { SidebarProjects } from "./sidebar-projects";
 import { deviceLanguage } from "./sidecar-factory";
-import type { SidecarPool } from "./sidecar-pool";
+import type { SidecarPool, TabActivity } from "./sidecar-pool";
 import type { SidecarLike } from "./sidecar-types";
 import { registerSshToolsIpc } from "./ssh/ipc";
 import { markStartupFromRenderer } from "./startup-timing";
@@ -294,6 +294,8 @@ export interface IpcDeps {
 	 * known), set once the control tools exist.
 	 */
 	secretaryAnswers: { current: ((tabId: string, requestId?: string) => boolean) | null };
+	/** Web Push's share of a tab's question told late (one the secretary left open), set once the web host exists. */
+	webAsk: { current: ((activity: Extract<TabActivity, { type: "ask" }>) => void) | null };
 	/** The desktop slot's host, built in `registerIpcHandlers` (it needs the pool) and published here for the sidecar factory. */
 	desktopSlotRef: { current: DesktopSlotHost | null };
 	/** The shared-checkout pass, published here for the sidecar factory: a bridge reporting a new changed file (`checkout_files`) runs one. */
@@ -1050,10 +1052,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	};
 
 	/**
-	 * An Autopilot notice as this computer's OS banner on the window that holds `tabId`, batched like any tab
-	 * notification; nothing while General › Notifications is off.
+	 * A notice no turn event of `tabId` carries (an Autopilot run's end, a question the secretary left open) as this
+	 * computer's OS banner on the window that holds the tab, batched like any tab notification; nothing while General ›
+	 * Notifications is off.
 	 */
-	const notifyTab = (tabId: string, notice: AutopilotNotice): void => {
+	const notifyTab = (tabId: string, notice: { kind: NoticeKind; title: string; body: string }): void => {
 		if (prefsStore.get("notifications") === false) return;
 		const windowId = sidecarPool.tabInventory().find(tab => tab.tabId === tabId)?.windowId;
 		if (windowId === undefined) return;
@@ -1310,6 +1313,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			onLiveSessions: listener => remoteDevices.onLiveSessions(listener),
 		},
 		secretaryLog: entry => writeRuntimeLog({ source: "secretary", message: String(entry.event), details: entry }),
+		// A question the secretary left open too long: the owner's own "needs you" notice, late, here and on phones.
+		secretaryRemind: (tabId, requestId, title) => {
+			const session = sidecarPool.tabFacts(tabId)?.title || "OMPdesk";
+			notifyTab(tabId, {
+				kind: "ask",
+				title: mainT("notify.needsInput", undefined, { title: session }),
+				body: title,
+			});
+			deps.webAsk.current?.({ type: "ask", tabId, requestId, text: title });
+		},
 		// The desktop banner, and paired phones (Web Push), as an Autopilot run's notice reaches them.
 		notify: (win, tabId, title, body) => {
 			showNotification(win.webContents.id, { title, body, tabId });

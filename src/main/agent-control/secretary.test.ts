@@ -3,7 +3,9 @@ import { AGENT_HIDDEN_PREFS_KEY } from "../../shared/agent-control";
 import type { HostLiveSession, IpcTabRunOutcome } from "../../shared/ipc-types";
 import type { Mail, MailDelivery } from "./mail";
 import {
+	SECRETARY_ANSWER_WAIT_MS,
 	SECRETARY_BRIEF_DAY_PREF,
+	SECRETARY_TICK_MS,
 	type SecretaryAsk,
 	type SecretaryDeps,
 	SecretaryFeed,
@@ -41,7 +43,17 @@ function rig(options: { named?: boolean; secretaryTab?: SecretaryTab | null; at?
 	const asks = new Map<string, SecretaryAsk[]>();
 	const grants: SecretaryGrants = { control: true, approve: true };
 	let now = (options.at ?? new Date(2026, 9, 31, 7, 0)).getTime();
-	let tick: (() => void) | null = null;
+	/** Pending timers by handle; `run` fires those armed with that delay. */
+	const timers = new Map<number, { fn: () => void; ms: number }>();
+	let nextTimer = 1;
+	const run = (ms: number) => {
+		for (const [handle, timer] of [...timers])
+			if (timer.ms === ms) {
+				timers.delete(handle);
+				timer.fn();
+			}
+	};
+	const reminded: { tabId: string; ask: SecretaryAsk }[] = [];
 	const deps: SecretaryDeps = {
 		prefs: { get: key => prefs.get(key), set: (key, value) => void prefs.set(key, value) },
 		tab: tabId => tabs.get(tabId) ?? null,
@@ -62,12 +74,14 @@ function rig(options: { named?: boolean; secretaryTab?: SecretaryTab | null; at?
 		deliver: (path, mail, delivery) => void sent.push({ path, mail, delivery }),
 		deviceName: id => `device ${id}`,
 		log: () => undefined,
+		remind: (tabId, ask) => void reminded.push({ tabId, ask }),
 		now: () => now,
-		setTimer: fn => {
-			tick = fn;
-			return 1;
+		setTimer: (fn, ms) => {
+			const handle = nextTimer++;
+			timers.set(handle, { fn, ms });
+			return handle;
 		},
-		clearTimer: () => undefined,
+		clearTimer: handle => void timers.delete(handle as number),
 	};
 	const feed = new SecretaryFeed(deps);
 	return {
@@ -79,20 +93,49 @@ function rig(options: { named?: boolean; secretaryTab?: SecretaryTab | null; at?
 		localDeviceTabs,
 		asks,
 		grants,
+		reminded,
+		timers,
 		add: (entry: SecretaryTab) => tabs.set(entry.tabId, entry),
 		setSecretaryTab: (entry: SecretaryTab | null) => {
 			secretaryTab = entry;
 		},
 		at: (date: Date) => {
 			now = date.getTime();
-			tick?.();
+			run(SECRETARY_TICK_MS);
 		},
+		/** The secretary's answer deadline runs out. */
+		overdue: () => run(SECRETARY_ANSWER_WAIT_MS),
 	};
 }
 
 const outcome = (extra: Partial<IpcTabRunOutcome> = {}): IpcTabRunOutcome => ({ stopReason: "stop", ...extra });
 
 describe("SecretaryFeed", () => {
+	it("tells the owner after all when the secretary leaves a question open past its wait", () => {
+		const r = rig();
+		r.add(tab("a"));
+		const question = { id: "q1", title: "Which branch?", approval: false };
+		const other = { id: "q2", title: "Push now?", approval: false };
+		r.asks.set("a", [question, other]);
+		r.feed.activity({ type: "ask", tabId: "a", requestId: "q1", text: question.title });
+		r.feed.activity({ type: "ask", tabId: "a", requestId: "q2", text: other.title });
+		expect(r.feed.answers("a", "q1")).toBe(true);
+		// q2 is answered in time: its wait ends with it.
+		r.asks.set("a", [question]);
+		r.feed.activity({ type: "askClosed", tabId: "a", requestId: "q2" });
+		r.overdue();
+		expect(r.reminded).toEqual([{ tabId: "a", ask: question }]);
+		// From then on the owner's own notices for it come through, its push and the tab's banner alike.
+		expect(r.feed.answers("a", "q1")).toBe(false);
+		expect(r.feed.answers("a")).toBe(false);
+		// A question answered before the wait ran out tells nobody, and a closed tab leaves no wait behind.
+		r.feed.activity({ type: "ask", tabId: "a", requestId: "q3", text: "Retry?" });
+		r.feed.activity({ type: "released", tabId: "a" });
+		r.overdue();
+		expect(r.reminded).toHaveLength(1);
+		expect([...r.timers.values()].some(timer => timer.ms === SECRETARY_ANSWER_WAIT_MS)).toBe(false);
+	});
+
 	it("wakes the secretary for a question of a session the owner runs, to answer within what the owner asked", () => {
 		const r = rig();
 		r.add(tab("a"));

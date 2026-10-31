@@ -192,6 +192,8 @@ export interface AgentControlHostDeps {
 	callJournalFile?: string | null;
 	/** One line of the runtime log (`gui-runtime.jsonl`) about the secretary's reports. */
 	secretaryLog?: (entry: Record<string, unknown>) => void;
+	/** The owner's own notice of a question the secretary left open too long (desktop banner, paired phones). */
+	secretaryRemind?: (tabId: string, requestId: string, title: string) => void;
 	/** The sessions sharing a tab's checkout or repository on this computer (src/main/checkout-peers.ts). */
 	checkoutPeers?: (tabId: string) => readonly string[];
 	/** Autopilot's hooks (src/main/autopilot*.ts). */
@@ -461,6 +463,7 @@ export class AgentControlRuntime {
 			},
 			deviceName: deps.deviceName,
 			log: entry => deps.secretaryLog?.(entry),
+			remind: (tabId, ask) => deps.secretaryRemind?.(tabId, ask.id, ask.title),
 			now: Date.now,
 			setTimer: (fn, ms) => setTimeout(fn, ms).unref(),
 			clearTimer: handle => clearTimeout(handle as NodeJS.Timeout),

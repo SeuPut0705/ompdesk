@@ -22,6 +22,11 @@ export const SECRETARY_BRIEF_DAY_PREF = "secretaryBriefDay";
 export const SECRETARY_BRIEF_HOUR = 8;
 /** How often the brief's hour is looked for. */
 export const SECRETARY_TICK_MS = 60_000;
+/**
+ * A question handed to the secretary that is still open this long after tells the owner after all, with their own
+ * "needs you" notice: the secretary may be stuck or its model unreachable, and a wait is never silent.
+ */
+export const SECRETARY_ANSWER_WAIT_MS = 120_000;
 const REPLY_MAX = 300;
 
 const WAKE: MailDelivery = { triggerTurn: true, deliverAs: "aside" };
@@ -77,6 +82,8 @@ export interface SecretaryDeps {
 	deliver(sessionPath: string, mail: Mail, delivery: MailDelivery): void;
 	deviceName(deviceId: string): string;
 	log(entry: Record<string, unknown>): void;
+	/** Shows the owner the notice of a question the secretary left open past `SECRETARY_ANSWER_WAIT_MS`. */
+	remind(tabId: string, ask: SecretaryAsk): void;
 	now(): number;
 	setTimer(fn: () => void, ms: number): unknown;
 	clearTimer(handle: unknown): void;
@@ -122,6 +129,10 @@ function answerable(ask: SecretaryAsk, grants: SecretaryGrants): boolean {
 	return grants.control && !ask.title.startsWith(AGENT_CARD_PREFIX) && (!ask.approval || grants.approve);
 }
 
+function handedKey(tabId: string, requestId: string): string {
+	return `${tabId}\n${requestId}`;
+}
+
 export class SecretaryFeed {
 	readonly #deps: SecretaryDeps;
 	/** Run outcomes already recorded: a compaction may settle the same run again. */
@@ -129,6 +140,8 @@ export class SecretaryFeed {
 	/** Per paired host, the state of each session it works on as last heard; absent until its first list. */
 	readonly #live = new Map<string, Map<string, HostLiveSession["state"]>>();
 	#opening: Promise<void> | null = null;
+	/** Questions handed to the secretary, by tab and request: the wait for its answer, and whether it ran out. */
+	readonly #handed = new Map<string, { timer: unknown; overdue: boolean }>();
 	#seq = 0;
 	#timer: unknown;
 
@@ -151,7 +164,8 @@ export class SecretaryFeed {
 	 * The owner's notice for a question of `tabId` would only repeat the secretary's work: the secretary is there, the
 	 * tab is one it reports and the question is one it can answer (`answerable`). `requestId` names the question; a
 	 * notice that names none (a desktop banner) is silenced only while every question open in the tab is answerable.
-	 * A question no longer open, or one the secretary cannot answer, keeps the owner's notice.
+	 * A question no longer open, one the secretary cannot answer, or one it left open past `SECRETARY_ANSWER_WAIT_MS`
+	 * keeps the owner's notice.
 	 */
 	answers(tabId: string, requestId?: string): boolean {
 		const grants = this.#deps.grants();
@@ -163,9 +177,39 @@ export class SecretaryFeed {
 		const asks = this.#deps.openAsks(tabId);
 		if (requestId !== undefined) {
 			const ask = asks.find(entry => entry.id === requestId);
-			return ask !== undefined && answerable(ask, grants);
+			return ask !== undefined && answerable(ask, grants) && !this.#overdue(tabId, ask.id);
 		}
-		return asks.length > 0 && asks.every(ask => answerable(ask, grants));
+		return asks.length > 0 && asks.every(ask => answerable(ask, grants) && !this.#overdue(tabId, ask.id));
+	}
+
+	#overdue(tabId: string, requestId: string): boolean {
+		return this.#handed.get(handedKey(tabId, requestId))?.overdue === true;
+	}
+
+	/** The secretary has `SECRETARY_ANSWER_WAIT_MS` to answer `ask`; still open then, the owner hears of it. */
+	#await(tabId: string, ask: SecretaryAsk): void {
+		const key = handedKey(tabId, ask.id);
+		if (this.#handed.has(key)) return;
+		const timer = this.#deps.setTimer(() => {
+			const handed = this.#handed.get(key);
+			if (!handed) return;
+			if (!this.#deps.openAsks(tabId).some(entry => entry.id === ask.id)) {
+				this.#handed.delete(key);
+				return;
+			}
+			handed.overdue = true;
+			this.#deps.log({ event: "overdue", tabId, request: ask.id });
+			this.#deps.remind(tabId, ask);
+		}, SECRETARY_ANSWER_WAIT_MS);
+		this.#handed.set(key, { timer, overdue: false });
+	}
+
+	#settled(tabId: string, requestId?: string): void {
+		for (const [key, handed] of this.#handed) {
+			if (requestId === undefined ? !key.startsWith(`${tabId}\n`) : key !== handedKey(tabId, requestId)) continue;
+			this.#deps.clearTimer(handed.timer);
+			this.#handed.delete(key);
+		}
 	}
 
 	#reported(tab: SecretaryTab, secretaryTabId: string | undefined): boolean {
@@ -174,6 +218,8 @@ export class SecretaryFeed {
 
 	/** `SidecarPool.observeTabs`'s listener. */
 	activity(activity: TabActivity): void {
+		if (activity.type === "askClosed") return this.#settled(activity.tabId, activity.requestId);
+		if (activity.type === "released") return this.#settled(activity.tabId);
 		if (activity.type !== "ask" && activity.type !== "idle") return;
 		const path = this.#path();
 		if (!path) return;
@@ -200,6 +246,7 @@ export class SecretaryFeed {
 				},
 				WAKE,
 			);
+			this.#await(tab.tabId, ask);
 			return;
 		}
 		const outcome = activity.outcome;
@@ -315,5 +362,7 @@ export class SecretaryFeed {
 
 	dispose(): void {
 		this.#deps.clearTimer(this.#timer);
+		for (const handed of this.#handed.values()) this.#deps.clearTimer(handed.timer);
+		this.#handed.clear();
 	}
 }

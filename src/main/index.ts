@@ -771,6 +771,7 @@ app.whenReady().then(() => {
 	const autopilotRef: { current: Autopilot | null } = { current: null };
 	const webTabNotice: IpcDeps["webTabNotice"] = { current: null };
 	const secretaryAnswers: IpcDeps["secretaryAnswers"] = { current: null };
+	const webAsk: IpcDeps["webAsk"] = { current: null };
 	// The desktop slot's host is built in ipc.ts next to the pool's wiring; the factory reads it from here.
 	const desktopSlotRef: { current: DesktopSlotHost | null } = { current: null };
 	// The shared-checkout pass is built in ipc.ts too; the factory runs it when a bridge reports a new changed file.
@@ -1857,6 +1858,7 @@ app.whenReady().then(() => {
 		hostedTabs: hostServices,
 		webTabNotice,
 		secretaryAnswers,
+		webAsk,
 		spawnWindow,
 		initialCwd: resolveInitialCwd,
 		worktreeLifecycle: lifecycle,
@@ -1929,6 +1931,7 @@ app.whenReady().then(() => {
 		webHost?.tabActivity(activity);
 	});
 	webTabNotice.current = (tabId, notice) => webHost?.tabNotice(tabId, notice);
+	webAsk.current = activity => webHost?.tabActivity(activity);
 	webHost.devices.onRevoked(deviceId => webTabLayouts.drop(deviceId));
 	const host = webHost;
 	// Mobile web's Tailscale side (src/main/tailscale/): the switch, Tailscale's own setup and the published
