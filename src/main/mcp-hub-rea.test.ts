@@ -160,8 +160,10 @@ describe("MCP hub: REA", () => {
 			await client.close();
 			await expect.poll(() => gone(childPid), { timeout: 10_000 }).toBe(true);
 		} finally {
-			// A process gone from the process table can hold its working folder a moment longer on Windows (EBUSY).
-			fs.rmSync(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+			// A process gone from the process table can hold its working folder a while longer on Windows (EBUSY): 2 s of
+			// retries still failed three runs on 31 Oct 2026, the holder unidentified (REA's pid was gone, nothing else
+			// started there), so the cleanup waits up to 10 s.
+			fs.rmSync(folder, { recursive: true, force: true, maxRetries: 100, retryDelay: 100 });
 		}
 	});
 

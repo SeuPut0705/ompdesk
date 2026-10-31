@@ -194,7 +194,10 @@ test("system omp persists settings and sessions and serves every stats route", a
 			pathToFileURL(path.join(profile, "audit-export.html")).href,
 		);
 		const exportPage = await exportWindow;
-		await expect(exportPage.locator("#messages")).toContainText("arm audit ok");
+		// Stock's export viewer loads marked and highlight.js from a CDN before it draws #messages
+		// (export/html/template.html.txt): on a hosted runner that fetch outlasted the default 10 s (v0.89.0's release run,
+		// the page still at "Loading session viewer…"), so it gets the 30 s the real-omp waits here have.
+		await expect(exportPage.locator("#messages")).toContainText("arm audit ok", { timeout: 30_000 });
 		await exportPage.screenshot({ path: "test-results/exported-session.png", scale: "css", animations: "disabled" });
 		await exportPage.close();
 		await page.screenshot({ path: "test-results/04-real-core.png", scale: "css", animations: "disabled" });
