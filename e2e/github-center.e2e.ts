@@ -193,7 +193,7 @@ for (const [language, theme] of variants([
 			await center.getByRole("button", { name: "Use", exact: true }).click();
 			await expect(center.locator("[data-github-repo-shown]")).toHaveText("other/lib");
 			await expect(center.getByRole("button", { name: /Other issue/ })).toBeVisible();
-			await center.getByRole("button", { name: "Use this project's", exact: true }).click();
+			await center.getByRole("button", { name: "Use this project's repository", exact: true }).click();
 			await expect(center.getByRole("button", { name: /Login button misaligned/ })).toBeVisible();
 
 			// C96: re-run the failed jobs after a confirm, then read the failed steps' log.
