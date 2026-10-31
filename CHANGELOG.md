@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.89.1] - 2026-10-31
+
+봇은 이제 자기가 연 세션의 질문에만 답해요. 내가 직접 돌리는 세션의 질문은 예전처럼 나에게 와요.
+
+### 바뀐 것
+- 봇에게 일을 맡기면 봇이 연 세션의 질문과 승인만 봇이 처리해요. 봇이 답할 수 있는 질문은 따로 알림이 뜨지 않고, 2분 안에 답하지 못하면 그때 알려 드려요.
+- 내가 직접 연 세션, 다른 에이전트가 연 세션, 연결된 기기가 이 컴퓨터에서 돌리는 세션의 질문은 봇에게 넘어가지 않아요. 봇이 그런 세션을 대신 열지도 않아요.
+- 세션이 끝날 때마다 봇 대화에 남던 기록이 없어졌어요.
+
+<!-- en -->
+
+The bot now answers only the questions of sessions it opened. Questions of the sessions you run yourself come to you as before.
+
+### Changed
+- When you hand the bot work, only the questions and approvals of the sessions it opened are its to handle. A question it can answer no longer notifies you, unless it is still open 2 minutes later.
+- Questions of sessions you opened, sessions another agent opened, and sessions a paired device runs on this computer are no longer handed to the bot, and the bot no longer opens such sessions to answer them.
+- The bot's conversation no longer gets a note each time a session finishes.
+
 ## [0.89.0] - 2026-10-31
 
 설정 › 봇에서 봇을 켜면 사이드바 맨 위에 봇이 하나 생겨요. 일을 맡기면 알아서 세션을 열어 끝까지 챙기고, 내 세션들의 질문에도 대신 답하고, 내가 정해야 할 것만 가져와요.
