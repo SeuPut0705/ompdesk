@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
 import { type BotRule, parseBotRules } from "../src/shared/bot-rules";
-import { exitApp, launchApp, pressShortcutUntilVisible } from "./harness";
+import { cssString, exitApp, launchApp, pressShortcutUntilVisible } from "./harness";
 
 // Settings › Bot (BotRulesSection.tsx): the default rules show, a behavior change, an added rule and a deleted rule
 // are each written to pref `botRules` in prefs.json, and a default rule reads in the UI language while its stored text
@@ -69,12 +69,36 @@ test("the rules screen lists the defaults and saves a change, an added rule and 
 	expect(await page.evaluate(() => window.omp.prefs.get("bot"))).toBeUndefined();
 	await botSwitch.click();
 	await expect(botSwitch).toBeChecked();
+	let botFile = "";
 	await expect
-		.poll(() => page.evaluate(() => window.omp.prefs.get("bot")), { timeout: 30_000 })
-		.toEqual(expect.any(String));
+		.poll(
+			async () => {
+				const value = await page.evaluate(() => window.omp.prefs.get("bot"));
+				botFile = typeof value === "string" ? value : "";
+				return botFile;
+			},
+			{ timeout: 30_000 },
+		)
+		.not.toBe("");
 	await expect(page.locator("[data-sidebar-bot-row]")).toHaveCount(1, { timeout: 30_000 });
+	// Its tab open, the bot turned off: neither its row nor its tab comes back as a plain chat.
+	await page.locator("[data-sidebar-bot-row] button").first().click();
+	await expect
+		.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).some(tab => tab.sessionPath === botFile))
+		.toBe(true);
+	await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", page.locator("[data-settings-page]"));
+	await page.locator('[data-settings-page] [data-settings-section="bot"]').click();
+	await expect(botSwitch).toBeChecked();
 	await botSwitch.click();
+	await expect(botSwitch).not.toBeChecked();
 	await expect(page.locator("[data-sidebar-bot-row]")).toHaveCount(0);
+	await expect(page.locator(`[data-session-path=${cssString(botFile)}]`)).toHaveCount(0);
+	await expect
+		.poll(
+			async () =>
+				(await page.evaluate(() => window.omp.sessions.list("global"))).find(row => row.path === botFile)?.bot,
+		)
+		.toBe("off");
 	const list = page.locator("[data-bot-rules]");
 	await expect(list.locator("[data-bot-rule-action]")).toHaveCount(11);
 	await expect(list.locator('[data-bot-rule-action="deploy"]')).toHaveText("Deploy or release");

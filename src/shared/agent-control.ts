@@ -50,13 +50,17 @@ export function activeBotPath(get: (key: string) => unknown): string | null {
 	return botEnabled(get(BOT_ENABLED_PREF)) ? botPathOf(get(BOT_PREF)) : null;
 }
 
+/** What a session list says of the computer's bot session: `on` (its fixed row) or `off` (no row at all). */
+export type SessionBotState = "on" | "off";
+
 /**
- * What the bot's session is to a session list: `bot` (its fixed row) while the bot is on, `hidden` while it is off (no
- * list shows it, here or on a paired device), null for any other session.
+ * What the bot's session is to a session list, null for any other session. Both states mark it, so every sidebar
+ * (here, the phone page, a paired device) keeps it and any tab holding it out of its lists, and draws its fixed row
+ * only while it is `on`.
  */
-export function botRowOf(sessionPath: string, get: (key: string) => unknown): "bot" | "hidden" | null {
+export function botRowOf(sessionPath: string, get: (key: string) => unknown): SessionBotState | null {
 	if (botPathOf(get(BOT_PREF)) !== sessionPath) return null;
-	return botEnabled(get(BOT_ENABLED_PREF)) ? "bot" : "hidden";
+	return botEnabled(get(BOT_ENABLED_PREF)) ? "on" : "off";
 }
 
 /**

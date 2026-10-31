@@ -722,17 +722,27 @@ export function Sidebar() {
 		return heldByWindows.filter(file => !own.has(file));
 	}, [heldByWindows, rowTabs]);
 	const archivedIds = useMemo(() => new Set(archivedSessions), [archivedSessions]);
+	// The bot's session, on or off (the list marks it either way; before it lists it, the store's path): never one of
+	// the lists' rows, nor is a tab holding it, which would otherwise come back as a plain chat once the bot is off.
+	const botFiles = useMemo(
+		() =>
+			new Set([
+				...sessions.flatMap(session => (session.bot === undefined ? [] : [session.path])),
+				...(botPath ? [botPath] : []),
+			]),
+		[sessions, botPath],
+	);
 	const rowFacts = useMemo<SidebarFacts>(
 		() => ({
 			// What main recorded of who opened each, as a host says it of its rows to a device.
-			// The bot has its own fixed row above the lists (`renderSessionRow` "bot"): never one of the lists' rows.
+			// The bot has its own fixed row above the lists (`renderSessionRow` "bot") while it is on, none while off.
 			sessions: sessions
-				.filter(session => session.path !== botPath)
+				.filter(session => !botFiles.has(session.path))
 				.map(session => ({
 					...session,
 					openedBySession: recordedOpeners.get(session.path) ?? null,
 				})),
-			tabs: botPath ? rowTabs.filter(tab => tab.sessionPath !== botPath) : rowTabs,
+			tabs: rowTabs.filter(tab => !tab.sessionPath || !botFiles.has(tab.sessionPath)),
 			// A paired device's tab here runs an omp for it: held and in use, whatever its state. Another window's tab at
 			// work is too: this window sees no tab of it, so what this computer works on now says it.
 			usedThere: new Set([...hostedByKey.keys(), ...liveByPath.keys(), ...heldByOtherWindows]),
@@ -787,7 +797,7 @@ export function Sidebar() {
 		}),
 		[
 			sessions,
-			botPath,
+			botFiles,
 			recordedOpeners,
 			rowTabs,
 			hostedByKey,

@@ -424,13 +424,14 @@ function DeviceSessions({
 	);
 	const deviceTabs = useMemo(() => allTabs.filter(tab => tab.device === host.deviceId), [allTabs, host.deviceId]);
 	const hostTabs = useMemo(() => deviceTabs.filter(tab => !nested?.has(tab.id)), [deviceTabs, nested]);
-	// The host's bot, flagged in its list while the host's owner has it on: one fixed row first, as on the host, never
-	// one of the lists' rows (nor is the tab holding it).
-	const hostBot = useMemo(() => sessions.find(session => session.bot === true), [sessions]);
-	const listed = useMemo(
-		() => (hostBot ? sessions.filter(session => session !== hostBot) : sessions),
-		[sessions, hostBot],
+	// The host's bot, marked in its list on or off: while on, one fixed row first, as on the host; on or off, never one
+	// of the lists' rows, nor is a tab here holding it (it would come back as a plain chat once the host's bot is off).
+	const hostBot = useMemo(() => sessions.find(session => session.bot === "on"), [sessions]);
+	const botFiles = useMemo(
+		() => new Set(sessions.flatMap(session => (session.bot === undefined ? [] : [session.path]))),
+		[sessions],
 	);
+	const listed = useMemo(() => sessions.filter(session => !botFiles.has(session.path)), [sessions, botFiles]);
 
 	// The host's own rule (Sidebar.tsx): a session in its no-project workspace (`~/.omp/work`, where a session opened
 	// there without a folder starts) is one of its chats, so it is here too.
@@ -451,7 +452,7 @@ function DeviceSessions({
 		return sidebarRows({
 			sessions: listed,
 			tabs: deviceTabs
-				.filter(tab => hostBot === undefined || tab.sessionPath !== hostBot.path)
+				.filter(tab => !tab.sessionPath || !botFiles.has(tab.sessionPath))
 				.map(tab => {
 					let seenAt = since.get(tab.id);
 					if (!seenAt) {
@@ -502,7 +503,7 @@ function DeviceSessions({
 	}, [
 		sessions,
 		listed,
-		hostBot,
+		botFiles,
 		deviceTabs,
 		hostTabs,
 		host.live,

@@ -77,18 +77,21 @@ describe.skipIf(!stockRoot)("SessionIndex using real stock storage", () => {
 		expect(await index.kindFor(path.join(dir, "missing.jsonl"))).toBe("agent");
 	});
 
-	it("lists no bot session while the bot is off and flags it as the bot once it is on", async () => {
+	it("marks the bot's session on or off by the owner's switch, and no other", async () => {
 		const prefs = new Map<string, unknown>();
 		const { index, dir } = await makeIndex(prefs);
 		const bot = await writeSession(dir, "bot-one", "chat");
 		await writeSession(dir, "chat-one", "chat");
 		prefs.set(BOT_PREF, bot);
-		expect((await index.list("global")).map(info => [info.id, info.bot])).toEqual([["chat-one", undefined]]);
+		const marks = async () => (await index.list("global")).map(info => [info.id, info.bot]).sort();
+		expect(await marks()).toEqual([
+			["bot-one", "off"],
+			["chat-one", undefined],
+		]);
 		prefs.set(BOT_ENABLED_PREF, true);
 		index.relist();
-		const rows = await index.list("global");
-		expect(rows.map(info => [info.id, info.bot]).sort()).toEqual([
-			["bot-one", true],
+		expect(await marks()).toEqual([
+			["bot-one", "on"],
 			["chat-one", undefined],
 		]);
 	});

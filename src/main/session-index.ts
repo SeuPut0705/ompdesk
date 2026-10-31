@@ -59,11 +59,8 @@ export class SessionIndex {
 	#cwd: string;
 	/** GUI-side chat labels for sessions whose header carries no kind (stock omp writes none). */
 	#isChat: (sessionId: string) => boolean;
-	/**
-	 * What the computer's bot session is to the list: `bot` while the bot is on (its row carries `bot`: the fixed row
-	 * here and on a paired device), `hidden` while it is off (no list shows it), null for any other session.
-	 */
-	#botRow: (sessionPath: string) => "bot" | "hidden" | null;
+	/** What the computer's bot session is to the list (`botRowOf`): its row carries it, on or off. */
+	#botRow: (sessionPath: string) => "on" | "off" | null;
 	#store: StockSessionStore;
 	/**
 	 * Each listed session file's legacy chat flag, with the session id its header named: a header never changes, so a
@@ -91,7 +88,7 @@ export class SessionIndex {
 		cwd: string,
 		isChat: (sessionId: string) => boolean = () => false,
 		bridgeDir = resolve("resources/gui-bridge"),
-		botRow: (sessionPath: string) => "bot" | "hidden" | null = () => null,
+		botRow: (sessionPath: string) => "on" | "off" | null = () => null,
 	) {
 		this.#sessionsDir = sessionsDir ?? join(agentDir(), "sessions");
 		this.#cwd = resolve(cwd);
@@ -203,16 +200,15 @@ export class SessionIndex {
 		this.#share.changed();
 	}
 
-	/** Every session file once (deleted ones and the bot's while it is off never), chat-labelled, newest first, one row per session id. */
+	/** Every session file once (deleted ones never), chat- and bot-labelled, newest first, one row per session id. */
 	async #readAll(): Promise<SessionInfo[]> {
 		const deleted = deletedSessions();
-		const infos = (await this.#store.list()).filter(
-			info => !deleted.has(info.path) && this.#botRow(info.path) !== "hidden",
-		);
+		const infos = (await this.#store.list()).filter(info => !deleted.has(info.path));
 		await Promise.all(
 			infos.map(async info => {
 				if (this.#isChat(info.id) || (await this.#listedLegacyChat(info))) info.kind = "chat";
-				if (this.#botRow(info.path) === "bot") info.bot = true;
+				const bot = this.#botRow(info.path);
+				if (bot) info.bot = bot;
 			}),
 		);
 		infos.sort(compareSessionRows);

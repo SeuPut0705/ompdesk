@@ -1598,6 +1598,27 @@ describe("Sidebar menus and pinned ordering", () => {
 			await flush();
 			expect([...document.querySelectorAll(".omp-sidebar-session-row")][0]).toBe(botRow());
 		});
+
+		it("lists neither its session nor the tab holding it as a chat once the owner turns it off", async () => {
+			installMockOmp([...LIST, { ...botSession, bot: "off" as const }]);
+			seedStores();
+			useTabsStore.setState({
+				tabs: [
+					{
+						id: "t-bot",
+						cwd: "/default/work",
+						status: "ready",
+						kind: "chat",
+						sessionPath: BOT,
+						unreadDone: false,
+					},
+				],
+				activeTabId: "t-bot",
+			} as never);
+			await mount(<Sidebar />);
+			expect(document.querySelector("[data-sidebar-bot-row]")).toBeNull();
+			expect(document.querySelectorAll(`[data-session-path="${BOT}"]`)).toHaveLength(0);
+		});
 	});
 
 	it("an inline rename keeps the row's height so the rows below never shift", async () => {
@@ -4052,7 +4073,7 @@ describe("Sidebar device sections", () => {
 		const bot = session("/s/work/bot.jsonl", "/work", {
 			title: "Bot",
 			kind: "chat",
-			bot: true,
+			bot: "on",
 			device: "dev-studio",
 			created: "2026-01-01T00:00:00Z",
 		});
@@ -4083,7 +4104,7 @@ describe("Sidebar device sections", () => {
 		const bot = session("/s/work/bot.jsonl", "/work", {
 			title: "Bot",
 			kind: "chat",
-			bot: true,
+			bot: "on",
 			device: "dev-studio",
 		});
 		omp.sessions.list.mockImplementation(async (_scope, device) => (device === "dev-studio" ? [bot] : LIST));
@@ -4093,6 +4114,31 @@ describe("Sidebar device sections", () => {
 		const section = container.querySelector('[data-sidebar-device="dev-studio"]');
 		expect(section?.querySelector("[data-sidebar-bot-row]")).not.toBeNull();
 		expect(section?.querySelector("[data-device-empty]")).toBeNull();
+	});
+
+	it("never lists a host's bot or a tab here holding it while the host's bot is off", async () => {
+		const omp = installWithRemote();
+		const bot = session("/s/work/bot.jsonl", "/work", {
+			title: "Bot",
+			kind: "chat",
+			bot: "off",
+			device: "dev-studio",
+		});
+		const app = session("/s/app/one.jsonl", "/code/app", { title: "App one", device: "dev-studio" });
+		omp.sessions.list.mockImplementation(async (_scope, device) => (device === "dev-studio" ? [app, bot] : LIST));
+		seedStores();
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t-bot", cwd: "/work", status: "ready", kind: "chat", device: "dev-studio", sessionPath: bot.path },
+			],
+			activeTabId: "t-bot",
+		} as never);
+		pairHost("online");
+		await mount(<Sidebar />);
+		const section = container.querySelector('[data-sidebar-device="dev-studio"]');
+		expect(section?.querySelector("[data-sidebar-bot-row]")).toBeNull();
+		expect(section?.querySelector(`[data-device-session="${bot.path}"]`)).toBeNull();
+		expect(section?.querySelector(`[data-device-session="${app.path}"]`)).not.toBeNull();
 	});
 
 	describe("a paired host's session menu", () => {
