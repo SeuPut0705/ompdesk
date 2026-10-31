@@ -2,13 +2,13 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import { controlToolCaller, cssString, exitApp, mailReports, readRecords } from "./harness";
+import { cssString, exitApp, mailReports, readRecords } from "./harness";
 import { connectHost, launchRemote, makeRemoteProfile, type RemoteInstance } from "./remote-harness";
 
-// The bot (src/main/agent-control/bot.ts) for a session a paired device runs on this computer: its omp lives in
-// LocalHostServices, which no window here shows, so its question never reaches the pool by itself. Once it waits,
-// the bot's computer opens it in a background tab (a view of the same omp), the question wakes the bot there, the
-// bot's answer reaches the card in that omp, and the tab closes again. The rules are unit-tested in bot.test.ts.
+// The host's bot (src/main/agent-control/bot.ts) seen from a paired device: the device's section for the host draws
+// it as its one fixed row, and a session the device runs on the host is the device's own, never handed to that bot (it
+// answers only the sessions it opened): the device answers its card, and the host opens no tab for it and mails the
+// bot nothing. The rules are unit-tested in bot.test.ts.
 
 let parent: string;
 let host: RemoteInstance | undefined;
@@ -24,7 +24,7 @@ test.afterEach(async () => {
 	await fs.rm(parent, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
-test("answers the question of a session a paired device runs here, which no window here showed", async () => {
+test("a device shows the host's bot row, and a session it runs on the host stays its own", async () => {
 	test.setTimeout(240_000);
 	const hostProfile = await makeRemoteProfile(parent, "host", { language: "en", theme: "light" });
 	const clientProfile = await makeRemoteProfile(parent, "client", {
@@ -82,29 +82,24 @@ test("answers the question of a session a paired device runs here, which no wind
 		onHost,
 	);
 
-	// Its tool approval wakes the host's bot with one question report, from the tab the host opened for it.
-	const questions = () => mailReports(hostProfile.record, details => details.kind === "question");
-	await expect.poll(async () => (await questions()).length, { timeout: 60_000 }).toBe(1);
-	const [question] = await questions();
-	expect(question).toMatchObject({ triggerTurn: true, deliverAs: "aside" });
-	const shown = String((question?.details as Record<string, unknown> | undefined)?.from ?? "");
-	expect(before.has(shown)).toBe(false);
-	expect((await hostTabs()).map(tab => tab.tabId)).toContain(shown);
-
-	// The bot's answer reaches the card in the omp the device's session runs in. Its tab is the one the question woke.
-	let bot = "";
+	// Its tool approval is the device's: the device answers it itself, once the card is open there.
 	await expect
 		.poll(
-			async () => {
-				bot = (await hostTabs()).find(tab => tab.sessionPath === botPath)?.tabId ?? "";
-				return bot;
-			},
-			{ timeout: 30_000 },
+			() =>
+				client?.page.evaluate(async tabId => {
+					try {
+						await window.omp.ui.respondExtensionUi(
+							{ type: "extension_ui_response", id: "approval", value: "Deny" },
+							tabId,
+						);
+						return "accepted";
+					} catch (error) {
+						return error instanceof Error ? error.message : String(error);
+					}
+				}, onHost),
+			{ timeout: 60_000 },
 		)
-		.not.toBe("");
-	const call = await controlToolCaller(hostPage, hostProfile.record, bot);
-	const answered = await call("ompdesk_session_answer", { session: shown, request: "approval", choice: "Deny" });
-	expect(answered.isError, answered.text).toBe(false);
+		.toBe("accepted");
 	await expect
 		.poll(async () =>
 			(await readRecords(hostProfile.record)).some(
@@ -112,6 +107,7 @@ test("answers the question of a session a paired device runs here, which no wind
 			),
 		)
 		.toBe(true);
-	// Answered, the session no longer waits: the tab the host opened for it closes again.
-	await expect.poll(async () => (await hostTabs()).some(tab => tab.tabId === shown), { timeout: 30_000 }).toBe(false);
+	// The host's bot heard nothing of it, and no tab here was opened for it.
+	expect(await mailReports(hostProfile.record, details => details.kind === "question")).toEqual([]);
+	expect((await hostTabs()).filter(tab => !before.has(tab.tabId))).toEqual([]);
 });

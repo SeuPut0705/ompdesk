@@ -44,7 +44,6 @@ import {
 	sidebarViewOf,
 } from "../../shared/agent-control";
 import type {
-	HostLiveSession,
 	HostView,
 	IpcSpawnTabPayload,
 	IpcSpawnTabResult,
@@ -90,7 +89,7 @@ import { type ClientWindow, isWebWindow } from "../web/client-window";
 import type { FileEditReports } from "../web/file-edit-reports";
 import { sessionOpenFolders } from "../worktree-orphans";
 import type { AppPorts } from "./app-control";
-import { BotFeed, type BotHostedSession, type BotTab } from "./bot";
+import { BotFeed, type BotTab } from "./bot";
 import {
 	type BranchEvidence,
 	type BranchFacts,
@@ -164,8 +163,6 @@ export interface AgentControlHostDeps {
 	remote?: {
 		hosts(): HostView[];
 		request<T>(deviceId: string, method: string, params: unknown, timeoutMs?: number): Promise<T>;
-		/** A host's sessions at work as each list arrives; null when its link went down. Returns the unsubscribe. */
-		onLiveSessions?(listener: (deviceId: string, sessions: HostLiveSession[] | null) => void): () => void;
 	};
 	/** The same dispatcher the renderer's RPC commands go through (local handlers, host link, quota). */
 	dispatch: (
@@ -193,15 +190,10 @@ export interface AgentControlHostDeps {
 	mailOutboxFile?: string | null;
 	/** Where the control-tool calls that change something are recorded (`call-journal.ts`); absent: in memory only. */
 	callJournalFile?: string | null;
-	/** One line of the runtime log (`gui-runtime.jsonl`) about the bot's reports. */
+	/** One line of the runtime log (`gui-runtime.jsonl`) about the bot. */
 	botLog?: (entry: Record<string, unknown>) => void;
 	/** The owner's own notice of a question the bot left open too long (desktop banner, paired phones). */
 	botRemind?: (tabId: string, requestId: string, title: string) => void;
-	/** The sessions this computer runs for paired devices (`LocalHostServices`), and their changes. */
-	hosted?: {
-		sessions(): BotHostedSession[];
-		onChange(listener: () => void): () => void;
-	};
 	/** The sessions sharing a tab's checkout or repository on this computer (src/main/checkout-peers.ts). */
 	checkoutPeers?: (tabId: string) => readonly string[];
 	/** Autopilot's hooks (src/main/autopilot*.ts). */
@@ -342,9 +334,6 @@ export class AgentControlRuntime {
 		this.#calls = new CallJournal(deps.callJournalFile ?? null);
 		this.control = new AgentControl(this.#host());
 		this.#bot = new BotFeed(this.#botDeps());
-		deps.remote?.onLiveSessions?.((device, sessions) => this.#bot.liveSessions(device, sessions));
-		const hosted = deps.hosted;
-		hosted?.onChange(() => this.#bot.hostedSessions(hosted.sessions()));
 		deps.pool.observeTabs(activity => {
 			this.#bot.activity(activity);
 			const parent =
@@ -413,18 +402,12 @@ export class AgentControlRuntime {
 		const win = this.#win(tabId);
 		const info = win ? pool.tabsForWindow(win).find(entry => entry.tabId === tabId) : undefined;
 		if (!info) return null;
-		const facts = pool.tabFacts(tabId);
+		const openedBy = this.#openerOf(tabId);
 		return {
 			tabId,
-			title: info.title || info.task || "",
 			status: info.status,
-			...(info.sessionPath ? { sessionPath: info.sessionPath } : {}),
 			hidden: !info.device && typeof info.sessionPath === "string" && this.#hiddenPaths().has(info.sessionPath),
-			delegated:
-				this.#openerOf(tabId) !== undefined ||
-				this.#autopilotRuns.has(tabId) ||
-				this.#deps.isAutopilotRun?.(tabId) === true,
-			retrying: facts?.retrying === true || facts?.scheduledRetry === true || facts?.awaitingConnection === true,
+			...(openedBy === undefined ? {} : { openedBy }),
 		};
 	}
 
@@ -449,31 +432,16 @@ export class AgentControlRuntime {
 				);
 			},
 			grants: () => ({ control: this.#controlEnabled(), approve: this.#approveEnabled() }),
-			tabOfSession: (sessionPath, device) => {
-				const owner = deps.pool.sessionOwner(sessionPath, device);
+			tabOfSession: sessionPath => {
+				const owner = deps.pool.sessionOwner(sessionPath);
 				return owner ? this.#botTab(owner.tabId) : null;
 			},
-			open: async sessionPath => {
-				const win = deps.outsideWindow?.();
-				if (!win) throw new Error("No window to open the session in.");
-				await deps.spawnTab(win, { sessionPath });
-			},
-			close: sessionPath => {
-				const tabId = deps.pool.sessionOwner(sessionPath)?.tabId;
-				const win = tabId ? deps.pool.windowOfTab(tabId) : null;
-				const event: AgentControlViewEvent | null = tabId ? { tabId, how: "close", auto: true } : null;
-				if (win && event && !win.isDestroyed()) win.webContents.send(AGENT_CONTROL_VIEW, event);
-			},
-			start: tabId => void deps.pool.startTab(tabId),
-			deliver: (sessionPath, mail, delivery) => this.#keepAndSend(sessionPath, mail, delivery),
 			tell: async (tabId, rules) => {
 				const response = await this.#hostCommand(tabId, { type: "agent_control_bot", rules }, BOT_ROLE_TIMEOUT_MS);
 				if (!response.success) throw new Error(response.error ?? "The bot's omp did not take its rules.");
 			},
-			deviceName: deps.deviceName,
 			log: entry => deps.botLog?.(entry),
 			remind: (tabId, ask) => deps.botRemind?.(tabId, ask.id, ask.title),
-			now: Date.now,
 			setTimer: (fn, ms) => setTimeout(fn, ms).unref(),
 			clearTimer: handle => clearTimeout(handle as NodeJS.Timeout),
 		};

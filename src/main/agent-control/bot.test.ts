@@ -1,40 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { AGENT_HIDDEN_PREFS_KEY, BOT_ENABLED_PREF, BOT_PREF } from "../../shared/agent-control";
+import { BOT_ENABLED_PREF, BOT_PREF } from "../../shared/agent-control";
 import { BOT_RULES_PREF, botRulesText, DEFAULT_BOT_RULES } from "../../shared/bot-rules";
-import type { HostLiveSession, IpcTabRunOutcome } from "../../shared/ipc-types";
 import { BOT_ANSWER_WAIT_MS, type BotAsk, type BotDeps, BotFeed, type BotGrants, type BotTab } from "./bot";
-import type { Mail, MailDelivery } from "./mail";
 
 const BOT = "/s/bot.jsonl";
 
 function tab(tabId: string, extra: Partial<BotTab> = {}): BotTab {
-	return {
-		tabId,
-		title: `title ${tabId}`,
-		status: "ready",
-		sessionPath: `/s/${tabId}.jsonl`,
-		hidden: false,
-		delegated: false,
-		retrying: false,
-		...extra,
-	};
+	return { tabId, status: "ready", hidden: false, ...extra };
 }
+
+/** A session the bot opened. */
+const kid = (tabId: string, extra: Partial<BotTab> = {}) => tab(tabId, { openedBy: "sec", ...extra });
 
 function rig(options: { named?: boolean; botTab?: BotTab | null; enabled?: boolean } = {}) {
 	const prefs = new Map<string, unknown>();
 	if (options.named !== false) prefs.set(BOT_PREF, BOT);
 	if (options.enabled !== false) prefs.set(BOT_ENABLED_PREF, true);
 	const tabs = new Map<string, BotTab>();
-	let botTab: BotTab | null = options.botTab === undefined ? tab("sec", { sessionPath: BOT }) : options.botTab;
+	let botTab: BotTab | null = options.botTab === undefined ? tab("sec") : options.botTab;
 	if (botTab) tabs.set(botTab.tabId, botTab);
-	const sent: { path: string; mail: Mail; delivery: MailDelivery }[] = [];
-	const opened: string[] = [];
-	const started: string[] = [];
-	const localDeviceTabs = new Set<string>();
 	/** The questions open per tab. */
 	const asks = new Map<string, BotAsk[]>();
 	const grants: BotGrants = { control: true, approve: true };
-	const now = new Date(2026, 9, 31, 7, 0).getTime();
 	/** Pending timers by handle; `run` fires those armed with that delay. */
 	const timers = new Map<number, { fn: () => void; ms: number }>();
 	let nextTimer = 1;
@@ -46,33 +33,15 @@ function rig(options: { named?: boolean; botTab?: BotTab | null; enabled?: boole
 			}
 	};
 	const reminded: { tabId: string; ask: BotAsk }[] = [];
-	const closed: string[] = [];
 	/** What the bot's omp was told (`role`), and an error the next tell fails with. */
 	const told: { tabId: string; rules: string }[] = [];
 	let tellError: Error | null = null;
-	/** Session files a tab here holds (besides the bot's own). */
-	const held = new Set<string>();
 	const deps: BotDeps = {
-		prefs: { get: key => prefs.get(key), set: (key, value) => void prefs.set(key, value) },
+		prefs: { get: key => prefs.get(key) },
 		tab: tabId => tabs.get(tabId) ?? null,
 		openAsks: tabId => asks.get(tabId) ?? [],
 		grants: () => grants,
-		tabOfSession: (sessionPath, device) =>
-			device
-				? localDeviceTabs.has(`${device}:${sessionPath}`)
-					? tab("device-tab")
-					: null
-				: sessionPath === BOT
-					? botTab
-					: held.has(sessionPath)
-						? tab(`held:${sessionPath}`)
-						: null,
-		open: async sessionPath => {
-			opened.push(sessionPath);
-		},
-		close: sessionPath => void closed.push(sessionPath),
-		start: tabId => void started.push(tabId),
-		deliver: (path, mail, delivery) => void sent.push({ path, mail, delivery }),
+		tabOfSession: sessionPath => (sessionPath === BOT ? botTab : null),
 		tell: async (tabId, rules) => {
 			if (tellError) {
 				const error = tellError;
@@ -81,10 +50,8 @@ function rig(options: { named?: boolean; botTab?: BotTab | null; enabled?: boole
 			}
 			told.push({ tabId, rules });
 		},
-		deviceName: id => `device ${id}`,
 		log: () => undefined,
 		remind: (tabId, ask) => void reminded.push({ tabId, ask }),
-		now: () => now,
 		setTimer: (fn, ms) => {
 			const handle = nextTimer++;
 			timers.set(handle, { fn, ms });
@@ -96,16 +63,10 @@ function rig(options: { named?: boolean; botTab?: BotTab | null; enabled?: boole
 	return {
 		feed,
 		prefs,
-		sent,
-		opened,
-		closed,
 		told,
 		tellFails: (error: Error) => {
 			tellError = error;
 		},
-		held,
-		started,
-		localDeviceTabs,
 		asks,
 		grants,
 		reminded,
@@ -119,25 +80,40 @@ function rig(options: { named?: boolean; botTab?: BotTab | null; enabled?: boole
 	};
 }
 
-const outcome = (extra: Partial<IpcTabRunOutcome> = {}): IpcTabRunOutcome => ({ stopReason: "stop", ...extra });
+const QUESTION = { id: "q", title: "Which branch?", approval: false };
 
 describe("BotFeed", () => {
+	it("answers only for the sessions it opened: the owner's own, another agent's and a hidden one keep their notice", () => {
+		const r = rig();
+		r.add(kid("kid"));
+		r.add(tab("own"));
+		r.add(tab("other", { openedBy: "own" }));
+		r.add(kid("hidden", { hidden: true }));
+		for (const tabId of ["kid", "own", "other", "hidden", "sec"]) r.asks.set(tabId, [QUESTION]);
+		for (const tabId of ["kid", "own", "other", "hidden"])
+			r.feed.activity({ type: "ask", tabId, requestId: "q", text: QUESTION.title });
+		expect(r.feed.answers("kid", "q")).toBe(true);
+		expect(r.feed.answers("kid")).toBe(true);
+		for (const tabId of ["own", "other", "hidden", "sec"]) expect(r.feed.answers(tabId, "q"), tabId).toBe(false);
+		// Only the bot's own session's question is waited on; nothing else is ever reminded of.
+		r.overdue();
+		expect(r.reminded.map(entry => entry.tabId)).toEqual(["kid"]);
+	});
+
 	it("tells the owner after all when the bot leaves a question open past its wait", () => {
 		const r = rig();
-		r.add(tab("a"));
-		const question = { id: "q1", title: "Which branch?", approval: false };
+		r.add(kid("a"));
 		const other = { id: "q2", title: "Push now?", approval: false };
-		r.asks.set("a", [question, other]);
-		r.feed.activity({ type: "ask", tabId: "a", requestId: "q1", text: question.title });
+		r.asks.set("a", [QUESTION, other]);
+		r.feed.activity({ type: "ask", tabId: "a", requestId: "q", text: QUESTION.title });
 		r.feed.activity({ type: "ask", tabId: "a", requestId: "q2", text: other.title });
-		expect(r.feed.answers("a", "q1")).toBe(true);
 		// q2 is answered in time: its wait ends with it.
-		r.asks.set("a", [question]);
+		r.asks.set("a", [QUESTION]);
 		r.feed.activity({ type: "askClosed", tabId: "a", requestId: "q2" });
 		r.overdue();
-		expect(r.reminded).toEqual([{ tabId: "a", ask: question }]);
+		expect(r.reminded).toEqual([{ tabId: "a", ask: QUESTION }]);
 		// From then on the owner's own notices for it come through, its push and the tab's banner alike.
-		expect(r.feed.answers("a", "q1")).toBe(false);
+		expect(r.feed.answers("a", "q")).toBe(false);
 		expect(r.feed.answers("a")).toBe(false);
 		// A question answered before the wait ran out tells nobody, and a closed tab leaves no wait behind.
 		r.feed.activity({ type: "ask", tabId: "a", requestId: "q3", text: "Retry?" });
@@ -147,234 +123,63 @@ describe("BotFeed", () => {
 		expect([...r.timers.values()].some(timer => timer.ms === BOT_ANSWER_WAIT_MS)).toBe(false);
 	});
 
-	it("wakes the bot for a question of a session the owner runs, to answer within what the owner asked", () => {
-		const r = rig();
-		r.add(tab("a"));
-		r.feed.activity({ type: "ask", tabId: "a", requestId: "q1", text: "Run the migration?" });
-		expect(r.sent).toHaveLength(1);
-		const [{ path, mail, delivery }] = r.sent as [(typeof r.sent)[number]];
-		expect(path).toBe(BOT);
-		expect(delivery).toEqual({ triggerTurn: true, deliverAs: "aside" });
-		expect(mail).toMatchObject({ kind: "question", from: "a", card: "q1", text: "Run the migration?", to: "sec" });
-		expect(mail.instruction).toContain('ompdesk_session_answer {"session":"a","request":"q1"}');
-		expect(mail.instruction).toContain("choose the answer that does not do it");
-	});
-
-	it("leaves the bot's own session, hidden ones and sessions another agent opened alone", () => {
-		const r = rig();
-		r.add(tab("hidden", { hidden: true }));
-		r.add(tab("child", { delegated: true }));
-		for (const tabId of ["sec", "hidden", "child", "gone"])
-			r.feed.activity({ type: "ask", tabId, requestId: "q", text: "?" });
-		expect(r.sent).toHaveLength(0);
-	});
-
-	it("reports nothing while no session is the bot (the sidebar blob's old bot field names none)", () => {
-		const r = rig({ named: false, botTab: null });
-		r.prefs.set(AGENT_HIDDEN_PREFS_KEY, { agentHidden: [], bot: BOT });
-		r.add(tab("a"));
-		r.feed.activity({ type: "ask", tabId: "a", requestId: "q", text: "?" });
-		r.feed.activity({ type: "idle", tabId: "a", outcome: outcome() });
-		expect(r.sent).toHaveLength(0);
-		expect(r.feed.answers("a")).toBe(false);
-	});
-
-	it("hands nothing over and tells nothing while the owner has the bot off, its session and tab still there", async () => {
-		const r = rig({ enabled: false });
-		r.add(tab("a"));
-		r.asks.set("a", [{ id: "q", title: "?", approval: false }]);
-		r.feed.activity({ type: "ask", tabId: "a", requestId: "q", text: "?" });
-		r.feed.activity({ type: "idle", tabId: "a", outcome: outcome() });
-		expect(r.sent).toHaveLength(0);
-		expect(r.feed.answers("a", "q")).toBe(false);
-		await r.feed.role();
-		expect(r.told).toEqual([]);
-		// Turned on, the same question is the bot's.
-		r.prefs.set(BOT_ENABLED_PREF, true);
-		r.feed.activity({ type: "ask", tabId: "a", requestId: "q", text: "?" });
-		expect(r.sent).toHaveLength(1);
-	});
-
-	it("records finished and failed turns quietly, once each, never a stop or a failure still being retried", () => {
-		const r = rig();
-		r.add(tab("a"));
-		const done = outcome({ reply: "All tests pass." });
-		r.feed.activity({ type: "idle", tabId: "a", outcome: done });
-		r.feed.activity({ type: "idle", tabId: "a", outcome: done });
-		r.feed.activity({ type: "idle", tabId: "a", outcome: outcome({ stopReason: "aborted" }) });
-		r.feed.activity({ type: "idle", tabId: "a", outcome: undefined });
-		r.add(tab("b", { retrying: true }));
-		r.feed.activity({ type: "idle", tabId: "b", outcome: outcome({ stopReason: "error", errorMessage: "429" }) });
-		r.add(tab("c"));
-		r.feed.activity({ type: "idle", tabId: "c", outcome: outcome({ stopReason: "error", errorMessage: "boom" }) });
-		expect(r.sent.map(entry => [entry.mail.from, entry.mail.kind, entry.delivery.triggerTurn])).toEqual([
-			["a", "done", false],
-			["c", "blocked", false],
-		]);
-		expect(r.sent[0]?.mail.text).toContain("All tests pass.");
-		expect(r.sent[1]?.mail.text).toContain("boom");
-	});
-
-	it("keeps a quiet record for a closed or asleep bot without opening or starting it; a question still does", () => {
-		const r = rig({ botTab: null });
-		r.add(tab("a"));
-		r.feed.activity({ type: "idle", tabId: "a", outcome: outcome({ reply: "Done." }) });
-		expect(r.sent).toHaveLength(1);
-		expect(r.opened).toEqual([]);
-		r.setBotTab(tab("sec", { sessionPath: BOT, status: "asleep" }));
-		r.feed.activity({ type: "idle", tabId: "a", outcome: outcome({ reply: "Again." }) });
-		expect(r.sent).toHaveLength(2);
-		expect(r.started).toEqual([]);
-		r.feed.activity({ type: "ask", tabId: "a", requestId: "q", text: "?" });
-		expect(r.started).toEqual(["sec"]);
-	});
-
 	it("leaves a confirmation card OMPdesk raises for the owner to the owner, and keeps the owner's notice for it", () => {
 		const r = rig();
-		r.add(tab("a"));
+		r.add(kid("a"));
 		const card = { id: "c1", title: "[OMPdesk] Delete a session?", approval: false };
-		const question = { id: "q1", title: "Which branch?", approval: false };
-		r.asks.set("a", [card, question]);
-		// The bot cannot answer such a card (ompdesk_session_answer refuses it): it is never reported to it.
+		r.asks.set("a", [card, QUESTION]);
 		r.feed.activity({ type: "ask", tabId: "a", requestId: "c1", text: card.title });
-		expect(r.sent).toHaveLength(0);
-		// Its push still goes out; one for an ordinary question of the same tab does not.
 		expect(r.feed.answers("a", "c1")).toBe(false);
-		expect(r.feed.answers("a", "q1")).toBe(true);
+		expect(r.feed.answers("a", "q")).toBe(true);
 		// A banner names no request: a tab holding such a card still notifies, one holding only questions does not.
 		expect(r.feed.answers("a")).toBe(false);
-		r.asks.set("a", [question]);
+		r.asks.set("a", [QUESTION]);
 		expect(r.feed.answers("a")).toBe(true);
 		// A question no longer open keeps its notice.
 		expect(r.feed.answers("a", "gone")).toBe(false);
+		r.overdue();
+		expect(r.reminded).toEqual([]);
 	});
 
-	it("hands nothing over and silences nothing while the owner turned the agents' control tools off", () => {
+	it("silences nothing while the control tools are off, or a tool approval while agents may not approve", () => {
 		const r = rig();
-		r.add(tab("a"));
-		r.asks.set("a", [{ id: "q1", title: "Which branch?", approval: false }]);
-		r.grants.control = false;
-		r.feed.activity({ type: "ask", tabId: "a", requestId: "q1", text: "Which branch?" });
-		r.feed.liveSessions("mini", [{ sessionPath: "/h/a.jsonl", state: "waiting" }]);
-		expect(r.sent).toHaveLength(0);
-		expect(r.feed.answers("a", "q1")).toBe(false);
-		expect(r.feed.answers("a")).toBe(false);
-		// Switched back on, the bot answers again.
-		r.grants.control = true;
-		expect(r.feed.answers("a", "q1")).toBe(true);
-	});
-
-	it("leaves a tool approval to the owner while agents may not approve, and still takes plain questions", () => {
-		const r = rig();
-		r.add(tab("a"));
+		r.add(kid("a"));
 		const approval = { id: "t1", title: "Allow tool: bash", approval: true };
-		const question = { id: "q1", title: "Which branch?", approval: false };
-		r.asks.set("a", [approval, question]);
+		r.asks.set("a", [approval, QUESTION]);
+		r.grants.control = false;
+		expect(r.feed.answers("a", "q")).toBe(false);
+		r.grants.control = true;
 		r.grants.approve = false;
-		r.feed.activity({ type: "ask", tabId: "a", requestId: "t1", text: approval.title });
-		r.feed.activity({ type: "ask", tabId: "a", requestId: "q1", text: question.title });
-		expect(r.sent.map(entry => entry.mail.card)).toEqual(["q1"]);
 		expect(r.feed.answers("a", "t1")).toBe(false);
-		expect(r.feed.answers("a", "q1")).toBe(true);
+		expect(r.feed.answers("a", "q")).toBe(true);
 		expect(r.feed.answers("a")).toBe(false);
 		r.grants.approve = true;
-		expect(r.feed.answers("a", "t1")).toBe(true);
 		expect(r.feed.answers("a")).toBe(true);
 	});
 
-	it("answers for the owner's sessions only while its own tab works", () => {
+	it("answers only while the owner has it on and its own tab works", () => {
 		const r = rig();
-		r.add(tab("a"));
-		r.add(tab("child", { delegated: true }));
-		for (const tabId of ["a", "sec", "child"]) r.asks.set(tabId, [{ id: "q", title: "?", approval: false }]);
+		r.add(kid("a"));
+		r.asks.set("a", [QUESTION]);
 		expect(r.feed.answers("a")).toBe(true);
-		expect(r.feed.answers("sec")).toBe(false);
-		expect(r.feed.answers("child")).toBe(false);
-		r.setBotTab(tab("sec", { sessionPath: BOT, status: "error" }));
+		r.setBotTab(tab("sec", { status: "error" }));
 		expect(r.feed.answers("a")).toBe(false);
 		r.setBotTab(null);
 		expect(r.feed.answers("a")).toBe(false);
-	});
-
-	it("opens a closed bot in the background and starts an asleep one", () => {
-		const r = rig({ botTab: null });
-		r.add(tab("a"));
-		r.feed.activity({ type: "ask", tabId: "a", requestId: "q1", text: "?" });
-		r.feed.activity({ type: "ask", tabId: "a", requestId: "q2", text: "?" });
-		expect(r.sent).toHaveLength(2);
-		expect(r.opened).toEqual([BOT]);
-		r.setBotTab(tab("sec", { sessionPath: BOT, status: "asleep" }));
-		r.feed.activity({ type: "ask", tabId: "a", requestId: "q3", text: "?" });
-		expect(r.started).toEqual(["sec"]);
-	});
-
-	it("opens a session a paired device runs here once it waits, so its question reaches the bot, and closes it after", () => {
-		const r = rig();
-		const hosted = (awaitingInput: boolean, sessionPath = "/h/desk.jsonl") => ({ sessionPath, awaitingInput });
-		r.feed.hostedSessions([hosted(false)]);
-		expect(r.opened).toEqual([]);
-		r.feed.hostedSessions([hosted(true)]);
-		r.feed.hostedSessions([hosted(true)]);
-		expect(r.opened).toEqual(["/h/desk.jsonl"]);
-		// One a tab here already shows, one hidden from agents and the bot's own session are left as they are.
-		r.held.add("/h/shown.jsonl");
-		r.prefs.set(AGENT_HIDDEN_PREFS_KEY, { agentHidden: ["/h/hidden.jsonl"] });
-		r.feed.hostedSessions([
-			hosted(true),
-			hosted(true, "/h/shown.jsonl"),
-			hosted(true, "/h/hidden.jsonl"),
-			hosted(true, BOT),
-		]);
-		expect(r.opened).toEqual(["/h/desk.jsonl"]);
-		// Answered, it no longer waits: the tab the bot opened closes again.
-		r.feed.hostedSessions([hosted(false)]);
-		expect(r.closed).toEqual(["/h/desk.jsonl"]);
-		// With the control tools off nothing is opened.
-		r.grants.control = false;
-		r.feed.hostedSessions([hosted(true, "/h/next.jsonl")]);
-		expect(r.opened).toEqual(["/h/desk.jsonl"]);
-	});
-
-	it("follows a paired host's sessions: a new wait wakes it, an end is recorded, a tab here speaks for itself", () => {
-		const r = rig();
-		const list = (entries: [string, HostLiveSession["state"]][]) =>
-			entries.map(([sessionPath, state]) => ({ sessionPath, state }));
-		r.localDeviceTabs.add("mini:/h/shown.jsonl");
-		r.feed.liveSessions(
-			"mini",
-			list([
-				["/h/a.jsonl", "waiting"],
-				["/h/b.jsonl", "turn"],
-				["/h/shown.jsonl", "waiting"],
-			]),
-		);
-		r.feed.liveSessions(
-			"mini",
-			list([
-				["/h/a.jsonl", "waiting"],
-				["/h/b.jsonl", "waiting"],
-			]),
-		);
-		r.feed.liveSessions("mini", list([["/h/b.jsonl", "waiting"]]));
-		expect(r.sent.map(entry => [entry.mail.kind, entry.mail.text, entry.delivery.triggerTurn])).toEqual([
-			["question", "A session on device mini waits for an answer (/h/a.jsonl).", true],
-			["question", "A session on device mini waits for an answer (/h/b.jsonl).", true],
-			["done", "A session on device mini stopped working (/h/a.jsonl); how it ended is in its transcript.", false],
-		]);
-		expect(r.sent[0]?.mail.instruction).toContain('ompdesk_sessions {"scope":"stored","device":"mini"}');
-		// The link dropped: what the host did meanwhile is unknown, so nothing is called ended.
-		r.feed.liveSessions("mini", null);
-		r.feed.liveSessions("mini", []);
-		expect(r.sent).toHaveLength(3);
+		const off = rig({ enabled: false });
+		off.add(kid("a"));
+		off.asks.set("a", [QUESTION]);
+		off.feed.activity({ type: "ask", tabId: "a", requestId: "q", text: QUESTION.title });
+		expect(off.feed.answers("a")).toBe(false);
+		off.overdue();
+		expect(off.reminded).toEqual([]);
 	});
 
 	describe("its role (the owner's rules for its actions)", () => {
 		it("tells the bot's omp the default rules once per tab, and again only when they change", async () => {
 			const r = rig();
 			await r.feed.role();
-			expect(r.told).toHaveLength(1);
-			expect(r.told[0]?.tabId).toBe("sec");
-			expect(r.told[0]?.rules).toBe(botRulesText(DEFAULT_BOT_RULES));
+			expect(r.told).toEqual([{ tabId: "sec", rules: botRulesText(DEFAULT_BOT_RULES) }]);
 			// Heard already: the sweep and every bot activity ask again at no cost.
 			await r.feed.role();
 			r.feed.activity({ type: "busy", tabId: "sec" });
@@ -383,7 +188,6 @@ describe("BotFeed", () => {
 			// The owner edits the rules: the next call carries them.
 			r.prefs.set(BOT_RULES_PREF, [{ id: "deploy", action: "Deploy or release", behavior: "auto" }]);
 			await r.feed.role();
-			expect(r.told).toHaveLength(2);
 			expect(r.told[1]?.rules).toBe("- Deploy or release: take it without asking.");
 			// An empty list is the owner's choice too, and is told as nothing.
 			r.prefs.set(BOT_RULES_PREF, []);
@@ -391,33 +195,23 @@ describe("BotFeed", () => {
 			expect(r.told[2]?.rules).toBe("");
 		});
 
-		it("tells a new tab of the bot's session again, and nothing while it has no omp or no tab", async () => {
-			const r = rig({ botTab: tab("asleep", { sessionPath: BOT, status: "asleep" }) });
+		it("tells a new tab of the bot's session again, and nothing while it has no omp, no tab or is off", async () => {
+			const r = rig({ botTab: tab("asleep", { status: "asleep" }) });
 			await r.feed.role();
-			r.setBotTab(tab("failed", { sessionPath: BOT, status: "error" }));
+			r.setBotTab(tab("failed", { status: "error" }));
 			await r.feed.role();
 			r.setBotTab(null);
 			await r.feed.role();
 			expect(r.told).toEqual([]);
-			r.setBotTab(tab("first", { sessionPath: BOT, status: "starting" }));
+			r.setBotTab(tab("first", { status: "starting" }));
 			await r.feed.role();
-			r.setBotTab(tab("second", { sessionPath: BOT, status: "ready" }));
+			r.setBotTab(tab("second"));
 			await r.feed.role();
 			expect(r.told.map(entry => entry.tabId)).toEqual(["first", "second"]);
-			// No session is the bot: nobody is told.
-			const none = rig({ named: false });
-			await none.feed.role();
-			expect(none.told).toEqual([]);
-		});
-
-		it("is told to the bot's omp alone, whatever other tabs do", async () => {
-			const r = rig();
-			r.add(tab("a"));
-			expect(r.feed.isBotTab("sec")).toBe(true);
-			expect(r.feed.isBotTab("a")).toBe(false);
-			r.feed.activity({ type: "idle", tabId: "a", outcome: undefined });
-			await r.feed.role();
-			expect(r.told.map(entry => entry.tabId)).toEqual(["sec"]);
+			for (const none of [rig({ named: false }), rig({ enabled: false })]) {
+				await none.feed.role();
+				expect(none.told).toEqual([]);
+			}
 		});
 
 		it("retries a failed tell at the next call and never rejects", async () => {

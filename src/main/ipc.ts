@@ -1318,7 +1318,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		remote: {
 			hosts: () => remoteDevices.state().hosts,
 			request: (device, method, params, timeoutMs) => remoteDevices.request(device, method, params, timeoutMs),
-			onLiveSessions: listener => remoteDevices.onLiveSessions(listener),
 		},
 		botLog: entry => writeRuntimeLog({ source: "bot", message: String(entry.event), details: entry }),
 		// A question the bot left open too long: the owner's own "needs you" notice, late, here and on phones.
@@ -1330,14 +1329,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				body: title,
 			});
 			deps.webAsk.current?.({ type: "ask", tabId, requestId, text: title });
-		},
-		// The sessions this computer runs for paired devices: one that waits and no window shows is opened for the bot.
-		hosted: {
-			sessions: () =>
-				deps.hostedTabs
-					.hostedSessions()
-					.map(session => ({ sessionPath: session.sessionPath, awaitingInput: session.awaitingInput === true })),
-			onChange: listener => deps.hostedTabs.onHostedSessionsChange(listener),
 		},
 		// The desktop banner, and paired phones (Web Push), as an Autopilot run's notice reaches them.
 		notify: (win, tabId, title, body) => {

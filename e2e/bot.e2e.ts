@@ -7,10 +7,10 @@ import { cssString, exitApp, launchApp, mailReports, readRecords } from "./harne
 
 // The bot (src/main/agent-control/bot.ts, kept by bot-home.ts): off on a fresh install; once the owner turns it on
 // (pref `botEnabled`, Settings › Bot; bot-rules.e2e.ts clicks the switch) it has one bot row at the top of
-// the sidebar and its session. A question card of a session the owner runs wakes it with a report (the fake omp's
-// `agent_control.mail` runs a turn whose reply names the report), its answer through the control tools reaches the
-// card, and the session's finished turn is then reported without waking it. Which sessions and kinds count is
-// unit-tested in bot.test.ts, and the keeping of the session in bot-home.test.ts.
+// the sidebar and its session. It answers only the sessions it opened: a question card of the owner's own session never
+// reaches it, one of a session the bot opened does (the fake omp's `agent_control.mail` runs a turn whose reply names
+// the report), and its answer through the control tools reaches the card. Which sessions count is unit-tested in
+// bot.test.ts, and the keeping of the session in bot-home.test.ts.
 
 let app: ElectronApplication;
 let page: Page;
@@ -116,8 +116,8 @@ async function tabOf(file: string): Promise<string> {
 	return found;
 }
 
-test("with the bot on, the app has the bot row and its session, and a question in another session wakes it", async () => {
-	test.setTimeout(150_000);
+test("with the bot on, the app has the bot row and its session, and only its own sessions' questions reach it", async () => {
+	test.setTimeout(180_000);
 	// Nothing else was set up: main made the bot's session (titled, listed) and the sidebar's first row is the bot.
 	const file = await botFile();
 	expect(file.startsWith(dirs.agent)).toBe(true);
@@ -134,25 +134,34 @@ test("with the bot on, the app has the bot row and its session, and a question i
 	await row.click({ button: "right" });
 	await expect(page.getByRole("menu")).toHaveCount(0);
 
-	// The owner's own session (no opener): the one whose question the bot answers.
+	// The owner's own session (no opener) shows a tool approval: the owner answers it, the bot never hears of it.
 	const owner = (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId ?? "";
 	expect(owner).not.toBe("");
-	// What the bot's omp was told about the owner's session (the fake records each `agent_control.mail`).
-	const reports = (kind: string) => mailReports(record, details => details.kind === kind && details.from === owner);
-
-	// The owner's session shows a tool approval; the card wakes the bot (no tab of it yet) with one question report.
 	await page.evaluate(id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "fixture approval" }), owner);
-	await expect.poll(async () => (await reports("question")).length, { timeout: 60_000 }).toBe(1);
-	const [question] = await reports("question");
-	expect(question).toMatchObject({ triggerTurn: true, deliverAs: "aside" });
-	expect(String(question?.content)).toContain(`ompdesk_session_answer {"session":"${owner}","request":"approval"}`);
-	const bot = await tabOf(file);
-	expect(bot).not.toBe(owner);
-	await expect.poll(() => lastAnswer(bot), { timeout: 30_000 }).toBe(`Read the question report from ${owner}.`);
+	await expect(page.locator("[data-prompt-card]")).toBeVisible({ timeout: 60_000 });
+	const questionsFrom = (tabId: string) =>
+		mailReports(record, details => details.kind === "question" && details.from === tabId);
 
-	// Its answer reaches the card in the owner's omp.
+	// A session the bot opened shows one: that question comes to the bot.
+	await row.click();
+	const bot = await tabOf(file);
+	await untilReady(bot);
+	const opened = await callAs(bot, "ompdesk_session_open", { show: "background" });
+	expect(opened.isError, opened.text).toBe(false);
+	const child = /Opened session (\w+)/.exec(opened.text)?.[1] ?? "";
+	expect(child).not.toBe("");
+	await untilReady(child);
+	await page.evaluate(id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "fixture approval" }), child);
+	await expect.poll(async () => (await questionsFrom(child)).length, { timeout: 60_000 }).toBe(1);
+	const [question] = await questionsFrom(child);
+	expect(question).toMatchObject({ triggerTurn: true, deliverAs: "aside" });
+	// The owner's question came first and still went to nobody.
+	expect(await questionsFrom(owner)).toEqual([]);
+	await expect.poll(() => lastAnswer(bot), { timeout: 30_000 }).toBe(`Read the question report from ${child}.`);
+
+	// Its answer reaches the card in the child's omp.
 	const answered = await callAs(bot, "ompdesk_session_answer", {
-		session: owner,
+		session: child,
 		request: "approval",
 		choice: "Deny",
 	});
@@ -162,11 +171,6 @@ test("with the bot on, the app has the bot row and its session, and a question i
 			(await readRecords(record)).some(frame => frame.type === "extension_ui_response" && frame.id === "approval"),
 		)
 		.toBe(true);
-
-	// The owner's finished turn is reported without a turn: the bot's last answer stays the one above.
-	await expect.poll(async () => (await reports("done")).length, { timeout: 30_000 }).toBe(1);
-	expect((await reports("done"))[0]?.triggerTurn).toBe(false);
-	expect(await lastAnswer(bot)).toBe(`Read the question report from ${owner}.`);
 });
 
 test("a relaunch keeps the same bot session; a deleted one is made again, by a launch or a click on the row", async () => {
