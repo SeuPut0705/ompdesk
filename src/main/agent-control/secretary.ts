@@ -11,7 +11,7 @@
  * Sessions another session or Autopilot opened are their opener's (mail.ts `childAsked`), and a session the owner hid
  * from agents is never reported. Each report is a mail kept in the outbox until the secretary's journal holds it.
  */
-import { AGENT_HIDDEN_PREFS_KEY } from "../../shared/agent-control";
+import { AGENT_CARD_PREFIX, AGENT_HIDDEN_PREFS_KEY } from "../../shared/agent-control";
 import type { HostLiveSession, IpcTabRunOutcome, TabStatus } from "../../shared/ipc-types";
 import type { TabActivity } from "../sidecar-pool";
 import type { Mail, MailDelivery } from "./mail";
@@ -50,6 +50,8 @@ export interface SecretaryTab {
 export interface SecretaryDeps {
 	prefs: { get(key: string): unknown; set?(key: string, value: unknown): void };
 	tab(tabId: string): SecretaryTab | null;
+	/** The titles of the questions and approvals open in the tab now. */
+	openAsks(tabId: string): string[];
 	/** The tab on this computer holding `sessionPath`, if any. */
 	tabOfSession(sessionPath: string, device?: string): SecretaryTab | null;
 	/** Opens the session in a background tab. */
@@ -96,6 +98,11 @@ const RECORD_INSTRUCTION = "For the owner's next brief only: nothing to do now."
 const BRIEF_INSTRUCTION =
 	"Morning brief. Write the owner a short brief from this conversation since the last brief: what finished, what failed, the questions you answered (your Decision lines), what still waits on them. Start, retry or change no work. Then call ompdesk_notify once with the brief's first line as its title.";
 
+/** A confirmation card OMPdesk raises for the owner before an agent action: only the owner answers it. */
+function ownerOnly(title: string): boolean {
+	return title.startsWith(AGENT_CARD_PREFIX);
+}
+
 export class SecretaryFeed {
 	readonly #deps: SecretaryDeps;
 	/** Run outcomes already recorded: a compaction may settle the same run again. */
@@ -121,12 +128,18 @@ export class SecretaryFeed {
 		return path ? this.#deps.tabOfSession(path) : null;
 	}
 
-	/** A tab whose questions the secretary answers now: the owner's notice for them would only repeat its work. */
-	answers(tabId: string): boolean {
+	/**
+	 * The owner's notice for a question of `tabId` would only repeat the secretary's work: it is open and the tab is one
+	 * it reports. Never for a confirmation card OMPdesk raises for the owner (`AGENT_CARD_PREFIX`), which only the owner
+	 * answers: `request` names the question when known, else the tab holds no such card.
+	 */
+	answers(tabId: string, request?: string): boolean {
 		const secretary = this.#secretary();
 		if (!secretary || secretary.status === "error" || secretary.status === "exited") return false;
 		const tab = this.#deps.tab(tabId);
-		return tab !== null && this.#reported(tab, secretary.tabId);
+		if (!tab || !this.#reported(tab, secretary.tabId)) return false;
+		if (request !== undefined) return !ownerOnly(request);
+		return !this.#deps.openAsks(tabId).some(ownerOnly);
 	}
 
 	#reported(tab: SecretaryTab, secretaryTabId: string | undefined): boolean {
@@ -141,6 +154,7 @@ export class SecretaryFeed {
 		const tab = this.#deps.tab(activity.tabId);
 		if (!tab || !this.#reported(tab, this.#deps.tabOfSession(path)?.tabId)) return;
 		if (activity.type === "ask") {
+			if (ownerOnly(activity.text)) return;
 			this.#send(
 				path,
 				{

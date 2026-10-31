@@ -386,9 +386,12 @@ export class AgentControlRuntime {
 		return this.#parents.get(tabId);
 	}
 
-	/** The secretary answers `tabId`'s questions now (secretary.ts): the owner's own notice for them is not shown. */
-	secretaryAnswers(tabId: string): boolean {
-		return this.#secretary.answers(tabId);
+	/**
+	 * The secretary answers this question of `tabId` now (secretary.ts), so the owner's own notice for it is not shown;
+	 * `request` is the question's title when the caller knows it. Never an OMPdesk confirmation card for the owner.
+	 */
+	secretaryAnswers(tabId: string, request?: string): boolean {
+		return this.#secretary.answers(tabId, request);
 	}
 
 	#secretaryTab(tabId: string): SecretaryTab | null {
@@ -416,6 +419,17 @@ export class AgentControlRuntime {
 		return {
 			prefs: deps.prefs,
 			tab: tabId => this.#secretaryTab(tabId),
+			openAsks: tabId => {
+				const win = this.#win(tabId);
+				if (!win) return [];
+				return deps.pool
+					.openRequests(win)
+					.flatMap(({ tabId: owner, request, signIn }) =>
+						owner === tabId && !signIn && BLOCKING_UI_METHODS[request.method]
+							? ["title" in request && typeof request.title === "string" ? request.title : ""]
+							: [],
+					);
+			},
 			tabOfSession: (sessionPath, device) => {
 				const owner = deps.pool.sessionOwner(sessionPath, device);
 				return owner ? this.#secretaryTab(owner.tabId) : null;

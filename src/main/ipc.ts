@@ -289,8 +289,11 @@ export interface IpcDeps {
 	autopilotRef: { current: Autopilot | null };
 	/** Web Push's share of a tab's notice (an Autopilot run's, an agent's `ompdesk_notify`), set once the web host exists. */
 	webTabNotice: { current: ((tabId: string, notice: AutopilotNotice) => void) | null };
-	/** Whether the secretary answers a tab's questions now (agent-control/secretary.ts), set once the control tools exist. */
-	secretaryAnswers: { current: ((tabId: string) => boolean) | null };
+	/**
+	 * Whether the secretary answers a tab's question now (agent-control/secretary.ts; `request`: the question's title,
+	 * when known), set once the control tools exist.
+	 */
+	secretaryAnswers: { current: ((tabId: string, request?: string) => boolean) | null };
 	/** The desktop slot's host, built in `registerIpcHandlers` (it needs the pool) and published here for the sidecar factory. */
 	desktopSlotRef: { current: DesktopSlotHost | null };
 	/** The shared-checkout pass, published here for the sidecar factory: a bridge reporting a new changed file (`checkout_files`) runs one. */
@@ -1351,7 +1354,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			return response === 0;
 		},
 	});
-	deps.secretaryAnswers.current = tabId => agentControl.secretaryAnswers(tabId);
+	deps.secretaryAnswers.current = (tabId, request) => agentControl.secretaryAnswers(tabId, request);
 	// The control socket (src/main/control-socket): anything on this computer drives the same service as the tools.
 	void startControlSocket({
 		userData: app.getPath("userData"),
@@ -1857,7 +1860,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					notificationBatcher.dropWindow(winId);
 				});
 			}
-			// The secretary answers this question for the owner (agent-control/secretary.ts): its notice would repeat it.
+			// The secretary answers this tab's question for the owner (agent-control/secretary.ts): its notice would repeat
+			// it. A banner names no request, so a tab holding an OMPdesk confirmation card for the owner still notifies.
 			if (notice.kind === "ask" && notice.tabId && agentControl.secretaryAnswers(notice.tabId)) return;
 			// Bursts fold into one summary (notification-batch.ts).
 			notificationBatcher.notify(winId, {

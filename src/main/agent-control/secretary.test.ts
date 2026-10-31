@@ -30,11 +30,14 @@ function rig(options: { named?: boolean; secretaryTab?: SecretaryTab | null; at?
 	const opened: string[] = [];
 	const started: string[] = [];
 	const localDeviceTabs = new Set<string>();
+	/** The titles of the questions open per tab. */
+	const asks = new Map<string, string[]>();
 	let now = (options.at ?? new Date(2026, 9, 31, 7, 0)).getTime();
 	let tick: (() => void) | null = null;
 	const deps: SecretaryDeps = {
 		prefs: { get: key => prefs.get(key), set: (key, value) => void prefs.set(key, value) },
 		tab: tabId => tabs.get(tabId) ?? null,
+		openAsks: tabId => asks.get(tabId) ?? [],
 		tabOfSession: (sessionPath, device) =>
 			device
 				? localDeviceTabs.has(`${device}:${sessionPath}`)
@@ -65,6 +68,7 @@ function rig(options: { named?: boolean; secretaryTab?: SecretaryTab | null; at?
 		opened,
 		started,
 		localDeviceTabs,
+		asks,
 		add: (entry: SecretaryTab) => tabs.set(entry.tabId, entry),
 		setSecretaryTab: (entry: SecretaryTab | null) => {
 			secretaryTab = entry;
@@ -128,6 +132,22 @@ describe("SecretaryFeed", () => {
 		]);
 		expect(r.sent[0]?.mail.text).toContain("All tests pass.");
 		expect(r.sent[1]?.mail.text).toContain("boom");
+	});
+
+	it("leaves a confirmation card OMPdesk raises for the owner to the owner, and keeps the owner's notice for it", () => {
+		const r = rig();
+		r.add(tab("a"));
+		// The secretary cannot answer such a card (ompdesk_session_answer refuses it): it is never reported to it.
+		r.feed.activity({ type: "ask", tabId: "a", requestId: "c1", text: "[OMPdesk] Delete a session?" });
+		expect(r.sent).toHaveLength(0);
+		// The push for that card still goes out; one for an ordinary question of the same tab does not.
+		expect(r.feed.answers("a", "[OMPdesk] Delete a session?")).toBe(false);
+		expect(r.feed.answers("a", "Allow tool: bash")).toBe(true);
+		// A banner names no request: a tab holding such a card still notifies, one holding only questions does not.
+		r.asks.set("a", ["Allow tool: bash", "[OMPdesk] Delete a session?"]);
+		expect(r.feed.answers("a")).toBe(false);
+		r.asks.set("a", ["Allow tool: bash"]);
+		expect(r.feed.answers("a")).toBe(true);
 	});
 
 	it("answers for the owner's sessions only while its own tab works", () => {
