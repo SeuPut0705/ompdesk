@@ -36,6 +36,7 @@ import type { ExtensionUpdateState } from "./extension-update";
 import type { GithubAuthState, GithubStarState } from "./github-auth";
 import type { IpcErrorCode } from "./ipc-error-codes";
 import type { LaunchProfile } from "./launch-profile";
+import type { MailAccountsApi } from "./mail-accounts";
 import type { MobileWebApi } from "./mobile-web";
 import type { ModelSetupPlan, ModelSetupRequest, ModelSetupStatus } from "./model-setup";
 import type { OmpUpdatedNotice, OmpUpdateState } from "./omp-update";
@@ -2044,6 +2045,8 @@ export interface OmpApi {
 	preview: PreviewApi;
 	/** Scheduled `omp -p` runs on this machine (Settings › Schedules). */
 	schedules: SchedulesApi;
+	/** This computer's mail accounts for email routines (Settings › Schedules › Email accounts); passwords go one way. */
+	mailAccounts: MailAccountsApi;
 	/** The sidebar's project list of this computer or a paired host (src/main/sidebar-projects.ts). */
 	sidebarProjects: SidebarProjectsApi;
 	/** OMPdesk's own ssh on this computer: port forwards, port watch, agent state, prompts (Settings › SSH). */

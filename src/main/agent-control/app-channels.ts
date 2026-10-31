@@ -11,6 +11,7 @@ import { ACCOUNT_ROTATION_PREF } from "../../shared/account-rotation";
 import { AGENT_CONTROL_APP, AGENT_CONTROL_REVIEW, AGENT_CONTROL_VIEW } from "../../shared/agent-control";
 import { REA_PREF } from "../../shared/builtin-mcp";
 import { IPC_COMMANDS, IPC_EVENTS } from "../../shared/ipc-types";
+import { MAIL_ACCOUNTS_COMMAND } from "../../shared/mail-accounts";
 import {
 	MOBILE_WEB_COMMAND,
 	MOBILE_WEB_GET_STATE,
@@ -219,6 +220,7 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[C.EXTENSION_UPDATE_GET_STATE]: never(DENY),
 	[C.EXTENSION_UPDATE_NOW]: never(OPERATOR),
 	[SCHEDULES_COMMAND]: never(OPERATOR),
+	[MAIL_ACCOUNTS_COMMAND]: never(CREDENTIALS),
 	[SCHEDULES_LOG]: never(DENY),
 	[SIDEBAR_PROJECTS_COMMAND]: read(
 		"sidebar.projects",

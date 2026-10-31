@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScheduleDraft, ScheduleEvent } from "../../shared/schedules";
 import { type RunLauncher, type RunProcess, ScheduleService } from "../schedules";
+import { RM_TEMP } from "../test-fake-omp";
+import type { MailPort } from "./email";
 import { FILES_DEBOUNCE_MS } from "./files";
 import type { GitPort } from "./git";
 import type { GhApi } from "./github";
@@ -19,6 +21,17 @@ let triggers: RoutineTriggers;
 let watch: ReturnType<typeof fakeWatch>;
 let launched: { prompt: string; finish: (code: number) => void }[];
 let githubCalls: string[];
+/** The accounts the email sources asked for (no mail account exists: each poll asks once). */
+let mailAsked: string[];
+const NO_MAIL: MailPort = {
+	account: name => {
+		mailAsked.push(name);
+		return null;
+	},
+	read: async () => {
+		throw new Error("no mailbox in this test");
+	},
+};
 let gitCalls: string[];
 let observers: Set<unknown>;
 const logs: string[] = [];
@@ -30,6 +43,7 @@ beforeEach(async () => {
 	watch = fakeWatch();
 	launched = [];
 	githubCalls = [];
+	mailAsked = [];
 	gitCalls = [];
 	logs.length = 0;
 	observers = new Set();
@@ -71,6 +85,7 @@ beforeEach(async () => {
 		watch: watch.watch,
 		git,
 		sessions,
+		mail: NO_MAIL,
 		quietMs: QUIET_MS,
 	});
 	await service.start();
@@ -80,7 +95,8 @@ afterEach(async () => {
 	triggers.dispose();
 	service.dispose();
 	vi.useRealTimers();
-	for (const path of dirs.splice(0)) await rm(path, { recursive: true, force: true });
+	// A schedule save still in flight at dispose may write and drop its temp file while the folder goes.
+	for (const path of dirs.splice(0)) await rm(path, RM_TEMP);
 });
 
 const draft = (event: ScheduleEvent, extra: Partial<ScheduleDraft> = {}): ScheduleDraft => ({
@@ -119,6 +135,7 @@ describe("RoutineTriggers", () => {
 		await service.create(draft({ source: "github", repo: "o/r", events: ["pull_request"] }));
 		await service.create(draft({ source: "git", repo: dir, branch: "main" }));
 		await service.create(draft({ source: "session", events: ["done"] }));
+		await service.create(draft({ source: "email", account: "Work", to: "owner+bot@" }));
 		await service.create(draft({ source: "webhook", key: "" }));
 		await service.create({ ...filesDraft(), frequency: { kind: "interval", minutes: 30 } });
 		await service.create({ ...filesDraft("/off"), enabled: false });
@@ -126,6 +143,7 @@ describe("RoutineTriggers", () => {
 		expect(githubCalls).toEqual(["repos/o/r/pulls?state=all&sort=created&direction=desc&per_page=20"]);
 		expect(gitCalls).toEqual(["head main"]);
 		expect(observers.size).toBe(1);
+		expect(mailAsked).toEqual(["Work"]);
 		expect(watch.watchers).toHaveLength(0);
 	});
 
@@ -191,6 +209,7 @@ describe("RoutineTriggers", () => {
 			watch: watch.watch,
 			git,
 			sessions: { observeTabs: () => () => undefined, tabs: () => [], botPath: () => null },
+			mail: NO_MAIL,
 			quietMs: QUIET_MS,
 		});
 		const { id } = await service.create(draft({ source: "git", repo: dir, branch: "main" }));

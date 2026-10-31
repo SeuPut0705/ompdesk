@@ -126,6 +126,7 @@ import {
 	type RunProgressState,
 	type TrayState,
 } from "../shared/ipc-types";
+import { MAIL_ACCOUNTS_COMMAND, type MailAccountDraft } from "../shared/mail-accounts";
 import type { ModelSetupRequest } from "../shared/model-setup";
 import { PREVIEW_VISUAL, type PreviewVisualEvent } from "../shared/preview";
 import { isReplyLanguagePref, REPLY_LANGUAGE_PREF } from "../shared/reply-language";
@@ -174,6 +175,7 @@ import { noteTypedPrompt } from "./local/prompt-origin";
 import { renameStoredSession } from "./local/session-files";
 import type { LogWatcher } from "./log-watcher";
 import { type LocalMachine, type MachineServices, machineFor as pickMachine } from "./machine-services";
+import type { MailAccounts } from "./mail-accounts";
 import type { MediaStreams } from "./media-stream";
 import { createMenu } from "./menu";
 import { modelsPath } from "./models-config";
@@ -302,6 +304,8 @@ export interface IpcDeps {
 	onPrefChanged?: (key: string) => void;
 	/** The Schedules service, created later than the handlers: read per use. */
 	schedules?: () => Pick<ScheduleService, "command" | "create" | "state"> | null;
+	/** The owner's mail accounts for email routines, created with the Schedules service: read per use. */
+	mailAccounts?: () => Pick<MailAccounts, "state" | "save" | "remove" | "test"> | null;
 	/** This computer's sidebar project list: it looks for new folders when the session index changes. */
 	sidebarProjects?: Pick<SidebarProjects, "schedule">;
 	/**
@@ -2417,6 +2421,22 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipc.handle(SCHEDULES_COMMAND, (caller, request: unknown, device?: unknown) => {
 		if (typeof request !== "object" || request === null) throw new Error("Invalid schedules request");
 		return machineFor(caller, device).schedules(request as SchedulesRequest);
+	});
+	// Settings › Schedules › Email accounts: this computer's own (a password goes in and never comes back out).
+	ipc.handle(MAIL_ACCOUNTS_COMMAND, async (_caller, request: unknown) => {
+		const accounts = deps.mailAccounts?.();
+		if (!accounts) throw new Error("Mail accounts are not available yet");
+		const { action, id, draft } = (typeof request === "object" && request !== null ? request : {}) as {
+			action?: unknown;
+			id?: unknown;
+			draft?: unknown;
+		};
+		if (action === "list") return accounts.state();
+		if (action === "save" && typeof draft === "object" && draft !== null)
+			return accounts.save(draft as MailAccountDraft, typeof id === "string" ? id : undefined);
+		if (action === "remove" && typeof id === "string") return accounts.remove(id);
+		if (action === "test" && typeof id === "string") return accounts.test(id);
+		throw new Error("Invalid mail accounts request");
 	});
 	ipc.handle(SCHEDULES_LOG, (caller, runId: unknown, device?: unknown) => {
 		if (typeof runId !== "string") throw new Error("Invalid run id");

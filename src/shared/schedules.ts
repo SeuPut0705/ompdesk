@@ -53,7 +53,16 @@ export type ScheduleEvent =
 	/** New commits on a local branch of the repository at `repo` (absolute). */
 	| { source: "git"; repo: string; branch: string }
 	/** A session on this computer (`folder`: only those whose folder contains it). Never the bot's own sessions. */
-	| { source: "session"; events: SessionEventKind[]; folder?: string };
+	| { source: "session"; events: SessionEventKind[]; folder?: string }
+	/**
+	 * New mail in a mailbox the owner added in Settings › Schedules › Email accounts (`account`: its id or label), asked
+	 * over IMAP every `EMAIL_POLL_MINUTES`. Each filter is optional text the mail must contain (case aside): `from` in
+	 * its sender, `subject` in its subject, `to` in a recipient address (a plus-address such as `owner+bot@…`).
+	 */
+	| { source: "email"; account: string; from?: string; subject?: string; to?: string };
+
+/** How often an email trigger asks its mailbox for new mail, in minutes. */
+export const EMAIL_POLL_MINUTES = 2;
 
 export type ScheduleEventSource = ScheduleEvent["source"];
 
@@ -192,6 +201,16 @@ export function scheduleEventProblem(event: ScheduleEvent): string | null {
 			return nonEmptySubset(event.events, SESSION_EVENT_KINDS)
 				? null
 				: `events are some of ${SESSION_EVENT_KINDS.join(", ")}`;
+		case "email": {
+			if (typeof event.account !== "string" || !event.account.trim() || event.account.length > 200)
+				return "account names a mail account (its label or id)";
+			const filters = [event.from, event.subject, event.to];
+			return filters.every(
+				value => value === undefined || (typeof value === "string" && value.trim() && value.length <= 200),
+			)
+				? null
+				: "from, subject and to are short text";
+		}
 		default:
 			return "unknown event source";
 	}
@@ -263,6 +282,14 @@ export function describeFrequency(frequency: ScheduleFrequency): string {
 					return `on new commits to ${event.branch} in ${event.repo}`;
 				case "session":
 					return `when a session ${event.events.map(kind => (kind === "waiting" ? "waits for the owner" : kind === "done" ? "finishes a turn" : "fails a turn")).join(" or ")}${event.folder ? ` in a folder containing ${event.folder}` : ""}`;
+				case "email": {
+					const filters = [
+						event.from ? `from ${event.from}` : null,
+						event.to ? `to ${event.to}` : null,
+						event.subject ? `with "${event.subject}" in the subject` : null,
+					].filter(Boolean);
+					return `on new mail in ${event.account}${filters.length > 0 ? ` ${filters.join(", ")}` : ""}`;
+				}
 			}
 		}
 	}

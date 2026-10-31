@@ -64,8 +64,26 @@ const onHostState = vi.fn((callback: (device: string, next: SchedulesState) => v
 		hostListener = null;
 	};
 });
+const mailCommand = vi.fn(async (_request: { action: string }) => ({
+	accounts: [
+		{
+			id: "a1",
+			label: "Work mail",
+			host: "imap.example.com",
+			port: 993,
+			username: "owner@example.com",
+			mailbox: "INBOX",
+			address: "owner@example.com",
+			hasPassword: true,
+		},
+	],
+}));
 Object.assign(window as unknown as Record<string, unknown>, {
-	omp: { schedules: { command, readLog, onState: () => () => {}, onHostState }, system: { showOpenDialog } },
+	omp: {
+		schedules: { command, readLog, onState: () => () => {}, onHostState },
+		mailAccounts: { command: mailCommand, test: vi.fn() },
+		system: { showOpenDialog },
+	},
 });
 
 const roots: Root[] = [];
@@ -391,5 +409,39 @@ describe("SchedulesSection", () => {
 				undefined,
 			);
 		}
+	});
+
+	it("lists this computer's email accounts, and on a paired host only says where they are set", async () => {
+		const email: Schedule = {
+			...SCHEDULE,
+			id: "m1",
+			name: "Triage",
+			frequency: { kind: "event", event: { source: "email", account: "Work mail", from: "boss@example.com" } },
+		};
+		state = { ...emptyState(), schedules: [email] };
+		await mount();
+		expect(document.body.querySelector('[data-schedule="m1"]')?.textContent).toContain(
+			"New mail in Work mail from boss@example.com",
+		);
+		expect(mailCommand).toHaveBeenCalledWith({ action: "list" });
+		expect(document.body.querySelector('[data-mail-account="a1"]')?.textContent).toContain("Work mail");
+		expect(document.body.querySelector("[data-mail-elsewhere]")).toBeNull();
+
+		for (const root of roots.splice(0)) await act(async () => root.unmount());
+		document.body.innerHTML = "";
+		mailCommand.mockClear();
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t1", cwd: "C:\\work", status: "ready", kind: "agent", unreadDone: false, device: "host-studio" },
+			],
+			activeTabId: "t1",
+		});
+		setFocusedSessionRuntime("t1");
+		await mount();
+		expect(document.body.querySelector("[data-mail-elsewhere]")?.textContent).toContain(
+			"set on that computer itself",
+		);
+		expect(document.body.querySelector("[data-mail-account]")).toBeNull();
+		expect(mailCommand).not.toHaveBeenCalled();
 	});
 });

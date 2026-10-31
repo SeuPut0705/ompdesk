@@ -110,6 +110,7 @@ import type {
 	UpdateStatus,
 } from "./ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS } from "./ipc-types";
+import { MAIL_ACCOUNTS_COMMAND, type MailAccountsApi } from "./mail-accounts";
 import {
 	MOBILE_WEB_COMMAND,
 	MOBILE_WEB_GET_STATE,
@@ -261,6 +262,10 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 					callback(update.device, update.state),
 				),
 		},
+		mailAccounts: {
+			command: request => transport.invoke(MAIL_ACCOUNTS_COMMAND, request),
+			test: id => transport.invoke(MAIL_ACCOUNTS_COMMAND, { action: "test", id }),
+		} satisfies MailAccountsApi,
 		sidebarProjects: {
 			command: (request, device) => transport.invoke(SIDEBAR_PROJECTS_COMMAND, request, device),
 			onState: callback => subscribe<IpcSidebarProjects>(SIDEBAR_PROJECTS_STATE, callback),

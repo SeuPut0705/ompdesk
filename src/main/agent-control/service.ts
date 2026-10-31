@@ -3958,6 +3958,15 @@ export class AgentControl {
 			case "session":
 				event = { source: "session", events: on.events, ...(on.folder ? { folder: on.folder } : {}) };
 				break;
+			case "email":
+				event = {
+					source: "email",
+					account: on.account,
+					...(on.from ? { from: on.from } : {}),
+					...(on.subject ? { subject: on.subject } : {}),
+					...(on.to ? { to: on.to } : {}),
+				};
+				break;
 		}
 		return { kind: "event", event };
 	}

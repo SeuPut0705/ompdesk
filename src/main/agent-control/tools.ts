@@ -440,14 +440,18 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 				on: {
 					type: "object",
 					description:
-						'create, update: start on an event instead of a clock. {"source":"webhook"} (POST to this computer\'s OMPdesk web server, the answer gives the URL path and key; Mobile web must be on); {"source":"github","repo":"owner/name","events":["pull_request"|"issue"|"ci_failure"|"release"|"push"]} (asked with the user\'s gh every 5 min); {"source":"files","path":"/abs/path"} (a file or folder changed); {"source":"git","repo":"/abs/repo","branch":"main"} (new local commits); {"source":"session","events":["done"|"failed"|"waiting"],"folder":"text"} (another session on this computer finished, failed or waits for the user; never the bot\'s own or ones it opened). Events during a run start one more run after it.',
+						'create, update: start on an event instead of a clock. {"source":"webhook"} (POST to this computer\'s OMPdesk web server, the answer gives the URL path and key; Mobile web must be on); {"source":"github","repo":"owner/name","events":["pull_request"|"issue"|"ci_failure"|"release"|"push"]} (asked with the user\'s gh every 5 min); {"source":"files","path":"/abs/path"} (a file or folder changed); {"source":"git","repo":"/abs/repo","branch":"main"} (new local commits); {"source":"session","events":["done"|"failed"|"waiting"],"folder":"text"} (another session on this computer finished, failed or waits for the user; never the bot\'s own or ones it opened); {"source":"email","account":"label","from":"text","subject":"text","to":"owner+bot@"} (new mail in a mailbox the user added in Settings › Schedules › Email accounts, by its label, checked every 2 min; from, subject and to are optional text the mail must contain; a reply sent from that mailbox or an automatic mail never starts it; this computer only). Events during a run start one more run after it.',
 					properties: {
-						source: { type: "string", enum: ["webhook", "github", "files", "git", "session"] },
+						source: { type: "string", enum: ["webhook", "github", "files", "git", "session", "email"] },
 						repo: { type: "string" },
 						events: { type: "array", items: { type: "string" } },
 						path: { type: "string" },
 						branch: { type: "string" },
 						folder: { type: "string" },
+						account: { type: "string" },
+						from: { type: "string" },
+						subject: { type: "string" },
+						to: { type: "string" },
 					},
 					required: ["source"],
 					additionalProperties: false,
@@ -942,6 +946,15 @@ export const ARGS = {
 							source: z.literal("session"),
 							events: z.array(z.enum(SESSION_EVENT_KINDS)).min(1).max(SESSION_EVENT_KINDS.length),
 							folder: z.string().trim().min(1).max(4096).optional(),
+						})
+						.strict(),
+					z
+						.object({
+							source: z.literal("email"),
+							account: z.string().trim().min(1).max(200),
+							from: z.string().trim().min(1).max(200).optional(),
+							subject: z.string().trim().min(1).max(200).optional(),
+							to: z.string().trim().min(1).max(200).optional(),
 						})
 						.strict(),
 				])

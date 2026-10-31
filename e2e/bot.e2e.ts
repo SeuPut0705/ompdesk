@@ -3,7 +3,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
-import { cssString, exitApp, launchApp, mailReports, readRecords } from "./harness";
+import { type FakeImap, startFakeImap } from "../src/main/routines/fake-imap";
+import { cssString, exitApp, launchApp, mailReports, pressShortcutUntilVisible, readRecords } from "./harness";
 
 // The bot (src/main/agent-control/bot.ts, kept by bot-home.ts): off on a fresh install; once the owner turns it on
 // (pref `botEnabled`, Settings › Bot; bot-rules.e2e.ts clicks the switch) it has one bot row at the top of
@@ -30,6 +31,9 @@ async function start(): Promise<void> {
 			OMP_GUI_TEST_SCHEDULE_TICK_MS: "100",
 			OMP_GUI_TEST_SCHEDULE_MINUTE_MS: "200",
 			OMP_GUI_TEST_AGENT_SWEEP_MS: "500",
+			// Email routines reach the spec's fake IMAP server over plain TCP and poll it every 300 ms.
+			OMP_GUI_TEST_IMAP_PLAIN: "1",
+			OMP_GUI_TEST_EMAIL_POLL_MS: "300",
 		},
 	});
 	page = await app.firstWindow();
@@ -551,4 +555,81 @@ test("the bot's routines: made in chat, listed on its board, tested by the owner
 		)
 		.toBe(false);
 	expect(errors).toEqual([]);
+});
+
+// An email routine (src/main/routines/email.ts): the owner adds a mailbox in Settings › Schedules (the password typed
+// once, kept by the OS keystore), the bot makes a routine on it, and new mail to the plus-address wakes the bot with
+// the mail's sender, subject and text; mail to the plain address does not.
+test("an email routine: the owner adds a mailbox in Settings, and new mail to the bot's address wakes the bot", async () => {
+	test.setTimeout(180_000);
+	const imap: FakeImap = await startFakeImap();
+	try {
+		await windowWidth(1440);
+		const file = await botFile();
+		await page.locator("[data-sidebar-bot-row]").click();
+		const bot = await tabOf(file);
+		await untilReady(bot);
+
+		const settings = page.locator("[data-settings-page]");
+		await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settings);
+		await settings.locator('[data-settings-section="schedules"]').click();
+		await settings.locator("[data-mail-account-new]").click();
+		const form = page.locator("[data-mail-account-form]");
+		await form.getByLabel("Label").fill("Work");
+		await form.getByLabel("Server").fill("127.0.0.1");
+		await form.getByLabel("Port").fill(String(imap.port));
+		await form.getByLabel("Username").fill(imap.state.user);
+		await form.getByLabel("Password").fill(imap.state.password);
+		await page.getByRole("dialog").getByRole("button", { name: "Add", exact: true }).click();
+		const account = settings.locator("[data-mail-account]").filter({ hasText: "Work" });
+		await expect(account).toBeVisible();
+		imap.mail.push({ uid: 1, headers: "From: old@example.com\r\nSubject: already there" });
+		await account.locator("[data-mail-test]").click();
+		await expect(account.locator("[data-mail-test-result]")).toContainText("Mailbox opened: 1 message");
+		await capture("mail-account-settings");
+		// The password never comes back to a window.
+		const listed = await page.evaluate(() => window.omp.mailAccounts.command({ action: "list" }));
+		expect(JSON.stringify(listed)).not.toContain(imap.state.password);
+		await page.keyboard.press("Escape");
+
+		const made = await callAs(bot, "ompdesk_schedule", {
+			action: "create",
+			target: "self",
+			name: "bot mail",
+			prompt: "Answer what the owner mailed you",
+			on: { source: "email", account: "Work", to: "owner+bot@" },
+		});
+		expect(made.isError, made.text).toBe(false);
+		const id = /id ([\w-]+);/.exec(made.text)?.[1] ?? "";
+		// The trigger takes its baseline first (the mail already there never fires), then mail arrives.
+		await expect.poll(() => imap.commands.filter(line => / EXAMINE /.test(line)).length).toBeGreaterThanOrEqual(2);
+		imap.mail.push(
+			{ uid: 2, headers: "From: Ann <ann@example.com>\r\nTo: owner@example.com\r\nSubject: not for the bot" },
+			{
+				uid: 3,
+				headers: "From: Owner <owner@example.com>\r\nTo: owner+bot@example.com\r\nSubject: Rerun the nightly",
+				body: "Please rerun it tonight.",
+			},
+		);
+		const wakes = () =>
+			mailReports(record, details => typeof details.id === "string" && details.id.startsWith("wake-"));
+		await expect.poll(async () => (await wakes()).length, { timeout: 60_000 }).toBe(1);
+		const [wake] = await wakes();
+		expect(String(wake?.content)).toContain(
+			'New mail in Work from Owner <owner@example.com> to owner+bot@example.com: "Rerun the nightly"',
+		);
+		expect(String(wake?.content)).toContain("Please rerun it tonight.");
+		expect(String(wake?.content)).not.toContain("not for the bot");
+		await expect
+			.poll(
+				async () =>
+					(await page.evaluate(() => window.omp.schedules.command({ action: "get" }))).runs.find(
+						run => run.scheduleId === id && run.trigger === "event",
+					)?.status,
+			)
+			.toBe("succeeded");
+		expect(errors).toEqual([]);
+	} finally {
+		await imap.close();
+	}
 });

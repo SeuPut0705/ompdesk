@@ -11,6 +11,7 @@
  */
 import { AGENT_CONTROL_APP, AGENT_CONTROL_REVIEW, AGENT_CONTROL_VIEW } from "../../shared/agent-control";
 import { IPC_COMMANDS, IPC_EVENTS } from "../../shared/ipc-types";
+import { MAIL_ACCOUNTS_COMMAND } from "../../shared/mail-accounts";
 import {
 	MOBILE_WEB_COMMAND,
 	MOBILE_WEB_GET_STATE,
@@ -67,6 +68,7 @@ export type IpcChannel =
 	| typeof PREVIEW_STATE
 	| typeof PREVIEW_VISUAL
 	| typeof SCHEDULES_COMMAND
+	| typeof MAIL_ACCOUNTS_COMMAND
 	| typeof SCHEDULES_LOG
 	| typeof SCHEDULES_STATE
 	| typeof SIDEBAR_PROJECTS_COMMAND
@@ -441,6 +443,8 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[C.EXTENSION_UPDATE_GET_STATE]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.EXTENSION_UPDATE_NOW]: { dir: "invoke", permission: "extensions-admin", mode: "pass" },
 	[SCHEDULES_COMMAND]: { dir: "invoke", permission: "extensions-admin", mode: "pass" },
+	// Mail accounts for email routines: a password is sent to main only, never read back.
+	[MAIL_ACCOUNTS_COMMAND]: { dir: "invoke", permission: "extensions-admin", mode: "pass" },
 	[SCHEDULES_LOG]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[SIDEBAR_PROJECTS_COMMAND]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[SSH_TOOLS_COMMAND]: { dir: "invoke", permission: "extensions-admin", mode: "pass" },

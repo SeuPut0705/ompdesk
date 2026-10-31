@@ -6,6 +6,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { IPC_COMMANDS, IPC_EVENTS } from "../../shared/ipc-types";
+import * as mailAccounts from "../../shared/mail-accounts";
 import * as mobileWeb from "../../shared/mobile-web";
 import { createOmpApi } from "../../shared/omp-api";
 import * as preview from "../../shared/preview";
@@ -15,7 +16,14 @@ import * as sshTools from "../../shared/ssh-tools";
 import { IPC_POLICY, type IpcChannel } from "./ipc-policy";
 
 const MAIN = path.join(__dirname, "..");
-const NAMED: Record<string, unknown> = { ...mobileWeb, ...preview, ...schedules, ...sidebarProjects, ...sshTools };
+const NAMED: Record<string, unknown> = {
+	...mailAccounts,
+	...mobileWeb,
+	...preview,
+	...schedules,
+	...sidebarProjects,
+	...sshTools,
+};
 const GROUPS: Record<string, Record<string, string>> = { IPC_COMMANDS, IPC_EVENTS };
 
 /** The channel a registration's first argument names: `IPC_COMMANDS.X`, a shared constant, or a literal. */

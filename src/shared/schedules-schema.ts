@@ -28,6 +28,13 @@ export const ScheduleEventSchema: z.ZodType<ScheduleEvent> = z.discriminatedUnio
 		events: z.array(z.enum(SESSION_EVENT_KINDS)).max(SESSION_EVENT_KINDS.length),
 		folder: z.string().max(4096).optional(),
 	}),
+	z.object({
+		source: z.literal("email"),
+		account: z.string().max(200),
+		from: z.string().max(200).optional(),
+		subject: z.string().max(200).optional(),
+		to: z.string().max(200).optional(),
+	}),
 ]);
 
 export const ScheduleFrequencySchema: z.ZodType<ScheduleFrequency> = z.discriminatedUnion("kind", [

@@ -89,6 +89,13 @@ export function frequencySummary(frequency: ScheduleFrequency): string {
 						? translate("schedules.event.sessionIn", { what, folder: basename(event.folder) || event.folder })
 						: translate("schedules.event.session", { what });
 				}
+				case "email":
+					return [
+						translate("schedules.event.email", { account: event.account }),
+						event.from ? translate("schedules.event.emailFrom", { from: event.from }) : "",
+						event.to ? translate("schedules.event.emailTo", { to: event.to }) : "",
+						event.subject ? translate("schedules.event.emailSubject", { subject: event.subject }) : "",
+					].join("");
 			}
 		}
 	}

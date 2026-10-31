@@ -1,5 +1,5 @@
 /**
- * Routine triggers: keeps one live source (GitHub, files, git, sessions) per enabled event schedule and fires
+ * Routine triggers: keeps one live source (GitHub, files, git, sessions, email) per enabled event schedule and fires
  * `ScheduleService.fire` when it sees something. `sync()` is told on every schedules state change (the service's
  * `onState`) and starts the sources a schedule now needs, stops those of schedules that were deleted, turned off or
  * edited (an edited trigger starts again with a new baseline) and all of them while everything is paused, so nothing
@@ -15,6 +15,7 @@
  */
 import type { Schedule, ScheduleEvent, SchedulesState } from "../../shared/schedules";
 import type { ScheduleService } from "../schedules";
+import { createEmailSource, type MailPort } from "./email";
 import { createFilesSource, type WatchPath } from "./files";
 import { createGitSource, type GitPort } from "./git";
 import { createGithubSource, type GhApi } from "./github";
@@ -29,6 +30,10 @@ export interface RoutineTriggerDeps {
 	watch: WatchPath;
 	git: GitPort;
 	sessions: SessionPorts;
+	/** The owner's mail accounts, read over IMAP (an email trigger). */
+	mail: MailPort;
+	/** How often an email trigger polls (default `EMAIL_POLL_MINUTES`); only a test launch shortens it. */
+	emailPollMs?: number;
 	/** How long after its run a routine's changes still count as its own (default `ROUTINE_QUIET_MS`). */
 	quietMs?: number;
 }
@@ -149,6 +154,16 @@ export class RoutineTriggers {
 					...(event.folder === undefined ? {} : { folder: event.folder }),
 					...(schedule.wakeSession === undefined ? {} : { wakeSession: schedule.wakeSession }),
 					sessions: this.#deps.sessions,
+					context,
+				});
+			case "email":
+				return createEmailSource({
+					account: event.account,
+					...(event.from === undefined ? {} : { from: event.from }),
+					...(event.subject === undefined ? {} : { subject: event.subject }),
+					...(event.to === undefined ? {} : { to: event.to }),
+					mail: this.#deps.mail,
+					...(this.#deps.emailPollMs === undefined ? {} : { pollMs: this.#deps.emailPollMs }),
 					context,
 				});
 			case "webhook":

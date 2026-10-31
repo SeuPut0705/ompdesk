@@ -21,6 +21,7 @@ import {
 	powerMonitor,
 	powerSaveBlocker,
 	protocol,
+	safeStorage,
 	session,
 	shell,
 	systemPreferences,
@@ -141,6 +142,7 @@ import { renameStoredSession } from "./local/session-files";
 import { LogWatcher } from "./log-watcher";
 import { askMacPermissionsOnce } from "./mac-permissions";
 import { LocalMachine } from "./machine-services";
+import { MailAccounts, plainImapConnect } from "./mail-accounts";
 import { McpHub } from "./mcp-hub";
 import { onMcpChange } from "./mcp-live";
 import { MEDIA_SCHEME, MediaStreams } from "./media-stream";
@@ -502,6 +504,8 @@ let githubAuthService: GithubAuthService | null = null;
 let scheduleService: ScheduleService | null = null;
 /** Watches what event routines (Settings › Schedules, the bot's routines) wait for (src/main/routines). */
 let routineTriggers: RoutineTriggers | null = null;
+/** The owner's mail accounts for email routines (Settings › Schedules › Email accounts). */
+let mailAccounts: MailAccounts | null = null;
 /** Keep-awake while this computer's own tabs run a turn (Settings › General › Window). */
 let workAwakePolicy: KeepAwakePolicy | null = null;
 /** A charging laptop's lid close never stops work a keep-awake blocker holds (src/main/power/lid-awake.ts). */
@@ -1737,6 +1741,18 @@ app.whenReady().then(() => {
 			});
 		},
 	});
+	// The owner's mailboxes for email routines; each password is kept encrypted by the OS keystore (mail-accounts.ts).
+	mailAccounts = new MailAccounts({
+		dir: app.getPath("userData"),
+		// A test launch reaches its fake IMAP server over plain TCP on this computer; a real launch always uses TLS.
+		...(process.env.OMP_GUI_TEST_IMAP_PLAIN ? { connect: plainImapConnect } : {}),
+		box: {
+			available: () => safeStorage.isEncryptionAvailable(),
+			encrypt: text => safeStorage.encryptString(text),
+			decrypt: data => safeStorage.decryptString(data),
+		},
+	});
+	const mailbox = mailAccounts;
 	routineTriggers = new RoutineTriggers({
 		service: scheduleService,
 		log: message => writeRuntimeLog({ source: "routines", message }),
@@ -1744,6 +1760,10 @@ app.whenReady().then(() => {
 		watch: watchPath,
 		git: gitPort,
 		sessions: sessionPorts(sidecarPool, () => activeBotPath(key => prefsStore().get(key as never))),
+		mail: { account: name => mailbox.resolve(name), read: (id, cursor) => mailbox.read(id, cursor) },
+		...(process.env.OMP_GUI_TEST_EMAIL_POLL_MS
+			? { emailPollMs: Number(process.env.OMP_GUI_TEST_EMAIL_POLL_MS) }
+			: {}),
 	});
 	void scheduleService.start();
 	// Lists every folder sessions ran in (the first pass also the ones from before the list existed).
@@ -1974,6 +1994,7 @@ app.whenReady().then(() => {
 		mediaStreams,
 		uploads: { store: (deviceId, name, bytes) => hostUploads().store(deviceId, name, bytes) },
 		schedules: () => scheduleService,
+		mailAccounts: () => mailAccounts,
 		sidebarProjects,
 		// `webHost` is created below: the prompt origins read it when a prompt is sent, never at registration.
 		promptOrigins: {

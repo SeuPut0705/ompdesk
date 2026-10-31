@@ -41,6 +41,7 @@ import {
 	Spinner,
 	Switch,
 } from "../common";
+import { MailAccounts } from "./MailAccounts";
 import { ScheduleDialog } from "./ScheduleDialog";
 import { SettingsRow, SettingsSection } from "./SettingsLayout";
 
@@ -257,6 +258,8 @@ export function SchedulesSection() {
 					</ul>
 				)}
 			</SettingsSection>
+
+			<MailAccounts device={device} />
 
 			{state.runs.length > 0 && (
 				<SettingsSection id="settings-schedules-runs" title={t("schedules.runs")}>

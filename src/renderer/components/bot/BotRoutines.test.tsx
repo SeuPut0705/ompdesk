@@ -160,6 +160,29 @@ describe("the bot's routines", () => {
 		expect(text('[data-bot-routine="s"]')).toContain("When a session finishes a turn or fails a turn");
 	});
 
+	it("say the mailbox an email routine watches and the filters it holds, in full when opened", async () => {
+		await mountRoutines([
+			routine("m", { kind: "event", event: { source: "email", account: "Work mail" } }),
+			routine("n", {
+				kind: "event",
+				event: {
+					source: "email",
+					account: "Work mail",
+					from: "boss@example.com",
+					subject: "Deploy",
+					to: "owner+bot@example.com",
+				},
+			}),
+		]);
+
+		expect(text('[data-bot-routine="m"]')).toContain("New mail in Work mail");
+		expect(text('[data-bot-routine="m"]')).not.toContain(" from ");
+		const full = "New mail in Work mail from boss@example.com to owner+bot@example.com about “Deploy”";
+		expect(text('[data-bot-routine="n"]')).toContain(full);
+		await open("n");
+		expect(text("[data-bot-routine-trigger]")).toBe(full);
+	});
+
 	it("tint the lead mark by the last run", async () => {
 		const every = { kind: "interval", minutes: 30 } as const;
 		await mountRoutines([
