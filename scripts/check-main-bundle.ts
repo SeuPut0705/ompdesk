@@ -161,7 +161,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // A retry saga rides the tab status (`retrySaga`; 31 Oct 2026): the tabs store and session hydration, both on the first
 // screen, put stock's open retry on a tab shown after it started, so its failed attempt shows no failure card: measured
 // 3,220,084 with it and the other changes of 31 Oct in the tree.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_220_634;
+// The bot is always in the sidebar (31 Oct 2026): the fixed bot row and its store (`stores/bot.ts`, the row's stand-in
+// and click) replace the session menu's Set as bot item and the sidebar prefs field: measured 3,220,755 on a922320b3
+// with it in the tree, 121 bytes over the measure above.
+const WEB_FIRST_SCREEN_JS_BYTES = 3_220_900;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

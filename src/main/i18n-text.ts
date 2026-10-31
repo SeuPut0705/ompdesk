@@ -7,6 +7,7 @@ import type { UiLanguage } from "../shared/ui-language";
 
 export const MAIN_TEXT = {
 	"dialog.openProject": { en: "Open project", ko: "프로젝트 열기" },
+	"bot.title": { en: "Bot", ko: "봇" },
 	"web.unknownDevice.title": { en: "An unknown device tried to connect", ko: "알 수 없는 기기가 접속을 시도했어요" },
 	"web.unknownDevice.body": {
 		en: "Mobile web refused it (no paired device). Nothing to do unless it was you.",

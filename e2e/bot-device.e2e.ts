@@ -40,20 +40,18 @@ test("answers the question of a session a paired device runs here, which no wind
 	const hostPage = host.page;
 	const hostTabs = () => hostPage.evaluate(() => window.omp.tabs.list());
 
-	// The bot: the host's own first session, which one turn gives a file.
-	const bot = (await hostTabs()).find(tab => tab.active)?.tabId ?? "";
-	await hostPage.evaluate(id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "hello" }), bot);
+	// The bot: the session main made by itself, no setup (agent-control/bot-home.ts).
 	let botPath = "";
 	await expect
 		.poll(
 			async () => {
-				botPath = (await hostTabs()).find(tab => tab.tabId === bot)?.sessionPath ?? "";
+				const value = await hostPage.evaluate(() => window.omp.prefs.get("bot"));
+				botPath = typeof value === "string" ? value : "";
 				return botPath;
 			},
 			{ timeout: 30_000 },
 		)
 		.not.toBe("");
-	await hostPage.evaluate(file => window.omp.prefs.set("sidebar", { bot: file }), botPath);
 
 	// The device opens a session that runs on the host; no window of the host shows it.
 	const spawned = await client.page.evaluate(([cwd, device]) => window.omp.tabs.spawn({ cwd, device }), [
@@ -91,7 +89,17 @@ test("answers the question of a session a paired device runs here, which no wind
 	expect(before.has(shown)).toBe(false);
 	expect((await hostTabs()).map(tab => tab.tabId)).toContain(shown);
 
-	// The bot's answer reaches the card in the omp the device's session runs in.
+	// The bot's answer reaches the card in the omp the device's session runs in. Its tab is the one the question woke.
+	let bot = "";
+	await expect
+		.poll(
+			async () => {
+				bot = (await hostTabs()).find(tab => tab.sessionPath === botPath)?.tabId ?? "";
+				return bot;
+			},
+			{ timeout: 30_000 },
+		)
+		.not.toBe("");
 	const call = await controlToolCaller(hostPage, hostProfile.record, bot);
 	const answered = await call("ompdesk_session_answer", { session: shown, request: "approval", choice: "Deny" });
 	expect(answered.isError, answered.text).toBe(false);

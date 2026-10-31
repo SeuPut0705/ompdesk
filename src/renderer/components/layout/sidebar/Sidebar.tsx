@@ -91,6 +91,7 @@ import { useTabRpc } from "../../../lib/tab-rpc";
 import { isSessionDown, isTabFailed, tabSignalPresentation } from "../../../lib/tab-signal";
 import { pickWorkspaceDirectory } from "../../../lib/workspace-dirs";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
+import { ensureBotPath, useBotStore } from "../../../stores/bot";
 import { ensureClosedChildren, useClosedChildrenStore } from "../../../stores/closed-children";
 import { useComposerStore } from "../../../stores/composer";
 import { useHostedSessionsStore } from "../../../stores/hosted-sessions";
@@ -170,6 +171,28 @@ interface WorkspaceGroup extends RowGroup {
 }
 
 const NO_PATHS: ReadonlySet<string> = new Set();
+
+/** The bot row's file and tab while main has not made the session (or no list row holds it yet). */
+const BOT_PENDING = "bot:pending";
+
+/** A row for the bot's session before the index lists it: a chat in the Work workspace. */
+function botStandIn(path: string, cwd: string, liveTabId?: string): SidebarSession {
+	const never = new Date(0).toISOString();
+	return {
+		path,
+		id: path,
+		title: null,
+		cwd,
+		created: never,
+		modified: never,
+		messageCount: 0,
+		size: 0,
+		status: "unknown",
+		kind: "chat",
+		firstMessage: "",
+		...(liveTabId === undefined ? {} : { liveTabId }),
+	};
+}
 
 /** A delete the row or context menu queued, awaiting the confirmation dialog. */
 type PendingDelete =
@@ -516,7 +539,7 @@ export function Sidebar() {
 	const sessionOrder = useSidebarPrefs(s => s.sessionOrder);
 	const pinnedSessions = useSidebarPrefs(s => s.pinnedSessions);
 	const agentHidden = useSidebarPrefs(s => s.agentHidden);
-	const botPath = useSidebarPrefs(s => s.bot);
+	const botPath = useBotStore(s => s.path);
 	const groupAliases = useSidebarPrefs(s => s.groupAliases);
 	const archivedSessions = useSidebarPrefs(s => s.archivedSessions);
 	// The projects this computer lists apart from its sessions: an empty one keeps its group (src/main/sidebar-projects.ts).
@@ -612,6 +635,7 @@ export function Sidebar() {
 	useEffect(() => {
 		ensureClosedChildren();
 		ensureAgentReviewSubscription();
+		ensureBotPath();
 	}, []);
 	// A tab this window views (another window or device holds it) learns its children's states only from main's
 	// pushes, which come when a child starts or ends: ask once for each, so a page that just opened sees them now.
@@ -699,11 +723,14 @@ export function Sidebar() {
 		() =>
 			sidebarRows({
 				// What main recorded of who opened each, as a host says it of its rows to a device.
-				sessions: sessions.map(session => ({
-					...session,
-					openedBySession: recordedOpeners.get(session.path) ?? null,
-				})),
-				tabs: rowTabs,
+				// The bot has its own fixed row above the lists (`renderSessionRow` "bot"): never one of the lists' rows.
+				sessions: sessions
+					.filter(session => session.path !== botPath)
+					.map(session => ({
+						...session,
+						openedBySession: recordedOpeners.get(session.path) ?? null,
+					})),
+				tabs: botPath ? rowTabs.filter(tab => tab.sessionPath !== botPath) : rowTabs,
 				// A paired device's tab here runs an omp for it: held and in use, whatever its state. Another window's tab at
 				// work is too: this window sees no tab of it, so what this computer works on now says it.
 				usedThere: new Set([...hostedByKey.keys(), ...liveByPath.keys(), ...heldByOtherWindows]),
@@ -758,6 +785,7 @@ export function Sidebar() {
 			}),
 		[
 			sessions,
+			botPath,
 			recordedOpeners,
 			rowTabs,
 			hostedByKey,
@@ -1009,6 +1037,31 @@ export function Sidebar() {
 			return;
 		}
 		void openTab({ cwd: reopened.cwd, sessionPath: reopened.path, kind: reopened.kind ?? "agent" });
+	};
+	// The bot's row is always there, the first seconds of a launch included: its listed session once the index has
+	// it, else a stand-in (a tab holding the file gives it a live state), which a click fills in through main.
+	const botInfo = botPath ? sessions.find(session => session.path === botPath) : undefined;
+	const botSession =
+		botInfo ??
+		botStandIn(
+			botPath ?? BOT_PENDING,
+			defaultWorkspace ?? "",
+			localTabs.find(tab => botPath !== null && tab.sessionPath === botPath)?.id ?? BOT_PENDING,
+		);
+	const openBot = () => {
+		if (botInfo) {
+			openSession(botInfo);
+			return;
+		}
+		// Not listed yet: main makes the session when it is missing (`ensureBotSession`) and answers its file.
+		void (async () => {
+			try {
+				const file = await window.omp.sessions.ensureBot();
+				openSession(botStandIn(file, defaultWorkspace ?? (await window.omp.sidecar.defaultWorkspace())));
+			} catch (error) {
+				toastError({ title: t("sidebar.openFailed"), error });
+			}
+		})();
 	};
 	/** Start in `target`: re-root the untouched tab, else open a new one. */
 	const goToProject = async (target: string) => {
@@ -1583,8 +1636,8 @@ export function Sidebar() {
 		};
 	};
 
-	/** `archived`: a row of the Archived section. */
-	const renderSessionRow = (session: SidebarSession, nested = false, variant?: "archived") => {
+	/** `archived`: a row of the Archived section. `bot`: the bot's fixed row above the lists: no menu, rename or delete. */
+	const renderSessionRow = (session: SidebarSession, nested = false, variant?: "archived" | "bot") => {
 		const key = `session:${session.path}`;
 		const {
 			isCurrent,
@@ -1602,16 +1655,18 @@ export function Sidebar() {
 		} = sessionRowState(session);
 		// An Autopilot child sits under its run's row inside the run's group (`runParentOf`).
 		const runChild = nested && variant === undefined && runParentOf.has(session.path);
+		const bot = variant === "bot";
 		// The sessions this one's agent opened nest under it, one indent level in, like its subagents.
 		const opened =
-			variant === "archived"
+			variant === "archived" || variant === "bot"
 				? []
 				: [
 						...(familyChildrenOf.get(session.path) ?? []).map(child => familyChildFor(child)),
 						...(remoteChildrenOf.get(session.path) ?? []).map(child => remoteFamilyChildFor(child)),
 					];
-		const title =
-			sessionDisplayTitle(session, "") || tab?.task || (indexed ? t("sidebar.untitled") : t("sidebar.newSession"));
+		const title = bot
+			? t("sidebar.botBadge")
+			: sessionDisplayTitle(session, "") || tab?.task || (indexed ? t("sidebar.untitled") : t("sidebar.newSession"));
 		const fork = sessionForkOrigin(session, sessionsByPathOrId);
 		const pinned = pinnedSessions.includes(session.path);
 		// Renaming is safe mid-run (stock applies it live); deleting is not.
@@ -1649,7 +1704,7 @@ export function Sidebar() {
 		const WorktreeMark = worktree?.kind === "autopilot" ? Rocket : GitBranch;
 		const marker: ReactNode = done ? (
 			<Check aria-hidden className="size-(--sc-icon-sm) text-(--sc-success)" data-sidebar-done />
-		) : botPath === session.path ? (
+		) : bot ? (
 			<Bot aria-label={t("sidebar.botBadge")} className="size-(--sc-icon-sm)" data-sidebar-bot />
 		) : session.kind === "chat" ? (
 			<MessageCircle aria-hidden className="size-(--sc-icon-sm)" data-sidebar-session-icon />
@@ -1689,7 +1744,7 @@ export function Sidebar() {
 					actionsOnHover={!touchInput}
 					actionCount={1}
 					actions={
-						indexed ? (
+						indexed && !bot ? (
 							<IconButton
 								data-sidebar-row-menu
 								icon={<MoreHorizontal />}
@@ -1705,16 +1760,16 @@ export function Sidebar() {
 						"data-roving-item": key,
 						onFocus: () => setFocusKey(key),
 						onKeyDown: event => {
-							if (opensMenu(event)) {
+							if (!bot && opensMenu(event)) {
 								event.preventDefault();
 								setSessionMenu({ anchor: anchorBelow(event.currentTarget), session });
-							} else if (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+							} else if (!bot && event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
 								// Alt+↑/↓ moves the row in its list, as a project header and a device section do.
 								if (moveSession(session, event.key === "ArrowUp" ? -1 : 1)) event.preventDefault();
-							} else if (event.key === "F2" && indexed) {
+							} else if (!bot && event.key === "F2" && indexed) {
 								event.preventDefault();
 								startRename(session);
-							} else if (event.key === "Delete" && deletable) {
+							} else if (!bot && event.key === "Delete" && deletable) {
 								event.preventDefault();
 								setPendingDelete({ kind: "session", session });
 							} else if (
@@ -1742,7 +1797,8 @@ export function Sidebar() {
 						// Clicking the session already in view folds/unfolds its family rows.
 						if (active && openTabId && sidebarSubagentCount(openTabId) + opened.length > 0)
 							toggleSidebarSubagents(session.path);
-						openSession(session);
+						if (bot) openBot();
+						else openSession(session);
 					}}
 					rowProps={{
 						...reorder.rowDrag(
@@ -1750,7 +1806,8 @@ export function Sidebar() {
 							variant === undefined ? sessionListOf(session) : null,
 							openTabId ? { id: openTabId, shown: isCurrent } : undefined,
 						),
-						onContextMenu: event => setSessionMenu({ anchor: anchorFromEvent(event), session }),
+						onContextMenu: bot ? undefined : event => setSessionMenu({ anchor: anchorFromEvent(event), session }),
+						"data-sidebar-bot-row": bot || undefined,
 						"data-active": active,
 						"data-current": isCurrent || undefined,
 						"data-pane-focus": (isCurrent && splitIds !== null) || undefined,
@@ -1953,6 +2010,9 @@ export function Sidebar() {
 			{reorder.status}
 			{!localFolded && (
 				<>
+					{/* One bot always sits first, above the projects and chats (agent-control/bot-home.ts keeps its session); a filter keeps it only when it names it. */}
+					{(!query || t("sidebar.botBadge").toLocaleLowerCase().includes(query)) &&
+						renderSessionRow(botSession, false, "bot")}
 					{listError &&
 						(allSessions.length > 0 ? (
 							<div
@@ -2424,7 +2484,6 @@ export function Sidebar() {
 							pinned: pinnedSessions.includes(session.path),
 							archived: archivedIds.has(session.id),
 							agentHidden: agentHidden.includes(session.path),
-							bot: botPath === session.path,
 							canMoveUp: canMoveWithin(list, session.path, -1),
 							canMoveDown: canMoveWithin(list, session.path, 1),
 						},
@@ -2467,7 +2526,6 @@ export function Sidebar() {
 										toggleAgentHidden: then(
 											() => void useSidebarPrefs.getState().toggleAgentHidden(session.path),
 										),
-										toggleBot: then(() => void useSidebarPrefs.getState().toggleBot(session.path)),
 									}
 								: {}),
 							reveal: then(() => void revealSession(session)),

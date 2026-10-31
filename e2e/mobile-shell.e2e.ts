@@ -448,9 +448,11 @@ for (const { engine, device } of variants(
 			// Every row carries one (a finger has no hover): this computer's indexed rows and a paired host's rows alike.
 			// A small glyph with a 44 px hit area that leaves the title its width.
 			const menus = sidebar.locator("[data-sidebar-row-menu]");
+			// The bot's fixed row has none: it offers no menu (agent-control/bot-home.ts).
 			expect(await menus.count()).toBe(
-				(await sidebar.locator("[data-session-path]:not([data-session-path^='tab:'])").count()) +
-					(await sidebar.locator("[data-device-session]").count()),
+				(await sidebar
+					.locator("[data-session-path]:not([data-session-path^='tab:']):not([data-sidebar-bot-row])")
+					.count()) + (await sidebar.locator("[data-device-session]").count()),
 			);
 			for (const { visual, hit } of await hitSizes(menus)) {
 				// Rows are flush: a row's ⋯ owns a slot of the row's height (36) × 44 px, growing sideways only.

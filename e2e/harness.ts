@@ -30,6 +30,7 @@ export async function fixtureOmp(dir: string): Promise<string> {
 				"./session/history-storage": "./history-storage.ts",
 				"./session/session-listing": "./session-store.ts",
 				"./session/session-storage": "./session-store.ts",
+				"./session/session-manager": "./session-manager.ts",
 				"./session/session-loader": "./session-store.ts",
 				"./config/models-config-schema": "./models-config.ts",
 				"./utils/image-resize": "./image-convert.ts",
@@ -40,6 +41,8 @@ export async function fixtureOmp(dir: string): Promise<string> {
 	);
 	const store = pathToFileURL(path.resolve("e2e/session-store-fixture.ts")).href;
 	await writeFile(path.join(root, "session-store.ts"), `export * from ${JSON.stringify(store)};\n`);
+	const manager = pathToFileURL(path.resolve("e2e/session-manager-fixture.ts")).href;
+	await writeFile(path.join(root, "session-manager.ts"), `export * from ${JSON.stringify(manager)};\n`);
 	const history = pathToFileURL(path.resolve("e2e/history-store-fixture.ts")).href;
 	await writeFile(path.join(root, "history-storage.ts"), `export * from ${JSON.stringify(history)};\n`);
 	const config = pathToFileURL(path.resolve("e2e/models-config-fixture.ts")).href;
@@ -79,6 +82,19 @@ export async function fixtureOmp(dir: string): Promise<string> {
 	);
 	await writeFile(path.join(utils, "worktree-location.ts"), `export * from ${JSON.stringify(location)};\n`);
 	return bin;
+}
+
+/**
+ * The session file main keeps as the bot's (pref `bot`, `agent-control/bot-home.ts`): every launch with a usable omp has
+ * one from its first seconds, so a spec that counts the session files on disk leaves it out. Undefined until main made it.
+ */
+export async function botSessionFile(desktop: string): Promise<string | undefined> {
+	try {
+		const prefs = JSON.parse(await readFile(path.join(desktop, "prefs.json"), "utf8")) as { bot?: unknown };
+		return typeof prefs.bot === "string" && prefs.bot.length > 0 ? prefs.bot : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 /** Where one launch of the built app lives: every path is the test's own (a `mkdtemp` profile). */

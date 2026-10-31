@@ -27,6 +27,7 @@ import { I18nProvider, translate } from "../../../lib/i18n";
 import { resetLastReadForTest } from "../../../lib/last-read";
 import { LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { useAgentReviewStore } from "../../../stores/agent-review";
+import { useBotStore } from "../../../stores/bot";
 import { useClosedChildrenStore } from "../../../stores/closed-children";
 import { useComposerStore } from "../../../stores/composer";
 import { useHostedSessionsStore } from "../../../stores/hosted-sessions";
@@ -91,6 +92,7 @@ interface MockOmp {
 		search: Mock<(query: string, scope: string) => Promise<string[]>>;
 		openInNewWindow: Mock<(payload: { sessionPath?: string }) => Promise<boolean>>;
 		move: Mock<(path: string, cwd: string) => Promise<string>>;
+		ensureBot: Mock<() => Promise<string>>;
 	};
 	events: {
 		onSessionsChanged: Mock<() => () => void>;
@@ -141,6 +143,7 @@ function installMockOmp(sessionList: SessionInfo[]): MockOmp {
 			search: vi.fn(async () => []),
 			openInNewWindow: vi.fn(async () => true),
 			move: vi.fn(async (path: string, cwd: string) => `${cwd}/${path.slice(path.lastIndexOf("/") + 1)}`),
+			ensureBot: vi.fn(async () => "/work-sessions/bot.jsonl"),
 		},
 		events: {
 			onSessionsChanged: vi.fn(() => () => {}),
@@ -357,6 +360,7 @@ afterEach(async () => {
 	resetLastReadForTest();
 	useSidebarFolds.getState().reset();
 	useAgentReviewStore.getState().reset();
+	useBotStore.getState().reset();
 	useClosedChildrenStore.getState().reset();
 	useProjectOrigins.getState().reset();
 	useRemoteStore.getState().reset();
@@ -1093,7 +1097,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		await mount(<Sidebar />);
 
 		expect(container.querySelectorAll("[data-sidebar-workspace-icon]").length).toBeGreaterThan(0);
-		const chatRow = container.querySelector('[data-session-kind="chat"]');
+		const chatRow = container.querySelector('[data-session-kind="chat"]:not([data-sidebar-bot-row])');
 		const groupedAgentRow = container.querySelector('[data-session-group="/work/alpha"] [data-session-kind="agent"]');
 		expect(chatRow?.querySelector("[data-sidebar-row-end] svg[data-sidebar-session-icon]")).not.toBeNull();
 		expect(groupedAgentRow?.querySelector("[data-sidebar-session-icon]")).toBeNull();
@@ -1403,7 +1407,6 @@ describe("Sidebar menus and pinned ordering", () => {
 			"Move to project…",
 			"Archive",
 			"Hide from other agents",
-			"Set as bot",
 			"Show in folder",
 			"Delete",
 		]);
@@ -1413,6 +1416,88 @@ describe("Sidebar menus and pinned ordering", () => {
 		);
 		await fire(pinItem as Element, "onClick");
 		expect(omp.rpc.setSessionPinned).toHaveBeenCalledWith("/work/alpha/one.jsonl", true);
+	});
+
+	describe("the bot row", () => {
+		const BOT = "/work-sessions/bot.jsonl";
+		const botSession = session(BOT, "/default/work", {
+			title: "Bot",
+			kind: "chat",
+			messageCount: 0,
+			firstMessage: "",
+		});
+		const botRow = () => document.querySelector("[data-sidebar-bot-row]") as Element;
+
+		it("sits first with the Bot label, once, out of the Chats list, with no menu and no delete", async () => {
+			const omp = installMockOmp([...LIST, botSession]);
+			seedStores();
+			useBotStore.setState({ path: BOT });
+			await mount(<Sidebar />);
+
+			const rows = [...document.querySelectorAll(".omp-sidebar-session-row")];
+			expect(rows[0]).toBe(botRow());
+			expect(botRow().textContent).toContain(translate("sidebar.botBadge"));
+			expect(botRow().querySelector("[data-sidebar-bot]")).not.toBeNull();
+			expect(document.querySelectorAll(`[data-session-path="${BOT}"]`)).toHaveLength(1);
+			expect(botRow().querySelector("[data-sidebar-row-menu]")).toBeNull();
+			await expect(fire(botRow(), "onContextMenu")).rejects.toThrow("onContextMenu not found");
+			expect(menuItemLabels()).toEqual([]);
+			expect(omp.sessions.delete).not.toHaveBeenCalled();
+		});
+
+		it("opens its session like any row", async () => {
+			const omp = installMockOmp([...LIST, botSession]);
+			seedStores();
+			useSessionStore.setState({ isStreaming: true });
+			useBotStore.setState({ path: BOT });
+			await mount(<Sidebar />);
+
+			await fire(botRow().querySelector("button"), "onClick");
+
+			expect(omp.sessions.ensureBot).not.toHaveBeenCalled();
+			expect(omp.tabs.spawn).toHaveBeenCalledWith({
+				cwd: undefined,
+				kind: "chat",
+				sessionPath: BOT,
+				worktree: undefined,
+			});
+		});
+
+		it("shows before main has made the session, and a click asks main for it and opens the answer", async () => {
+			const omp = installMockOmp(LIST);
+			seedStores();
+			useSessionStore.setState({ isStreaming: true });
+			await mount(<Sidebar />);
+
+			expect([...document.querySelectorAll(".omp-sidebar-session-row")][0]).toBe(botRow());
+			expect(botRow().textContent).toContain(translate("sidebar.botBadge"));
+			await fire(botRow().querySelector("button"), "onClick");
+
+			expect(omp.sessions.ensureBot).toHaveBeenCalledTimes(1);
+			expect(omp.tabs.spawn).toHaveBeenCalledWith({
+				cwd: undefined,
+				kind: "chat",
+				sessionPath: "/work-sessions/bot.jsonl",
+				worktree: undefined,
+			});
+		});
+
+		it("follows the filter by its label alone", async () => {
+			installMockOmp([...LIST, botSession]);
+			seedStores();
+			useBotStore.setState({ path: BOT });
+			await mount(<Sidebar />);
+			const field = container.querySelector('input[aria-label="Filter sessions"]') as unknown as Element;
+			const props = reactProps<{ onChange: (event: { target: { value: string } }) => void }>(field);
+
+			await act(async () => props.onChange({ target: { value: "three" } }));
+			await flush();
+			expect(document.querySelector("[data-sidebar-bot-row]")).toBeNull();
+
+			await act(async () => props.onChange({ target: { value: "bo" } }));
+			await flush();
+			expect(document.querySelector("[data-sidebar-bot-row]")).not.toBeNull();
+		});
 	});
 
 	it("an inline rename keeps the row's height so the rows below never shift", async () => {
@@ -1836,7 +1921,6 @@ describe("Sidebar menus and pinned ordering", () => {
 			"Move to project…",
 			"Archive",
 			"Hide from other agents",
-			"Set as bot",
 			"Show in folder",
 			"Delete",
 		]);
@@ -6165,7 +6249,9 @@ describe("Sidebar on a touch screen", () => {
 		await mount(<SidebarWithWorkspaceRecency />);
 		await flush();
 		const rows = [...container.querySelectorAll(".omp-sidebar-session-row")].filter(
-			row => !row.getAttribute("data-session-path")?.startsWith("tab:"),
+			row =>
+				!row.getAttribute("data-session-path")?.startsWith("tab:") &&
+				row.getAttribute("data-sidebar-bot-row") === null,
 		);
 		expect(rows.length).toBeGreaterThan(0);
 		for (const row of rows) {
@@ -6202,7 +6288,6 @@ describe("Sidebar on a touch screen", () => {
 			"Move to project…",
 			"Archive",
 			"Hide from other agents",
-			"Set as bot",
 			"Show in folder",
 			"Delete",
 		]);

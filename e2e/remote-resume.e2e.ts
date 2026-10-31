@@ -21,6 +21,7 @@
  * Captures in the test output directory.
  */
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -84,12 +85,24 @@ async function crash(app: ElectronApplication, profile: RemoteProfile): Promise<
 		.toEqual([]);
 }
 
-/** The fake omps running in RPC mode under a profile: one per live tab of that instance. */
+/**
+ * The fake omps running in RPC mode under a profile: one per live tab of that instance, the bot's own left out (a
+ * question the host's bot answers opens its tab there: agent-control/bot.ts).
+ */
 function ompPids(profile: RemoteProfile): number[] {
 	if (process.platform === "win32") return [];
+	let bot = "";
+	try {
+		const prefs = z
+			.object({ bot: z.string().optional() })
+			.parse(JSON.parse(readFileSync(path.join(profile.desktop, "prefs.json"), "utf8")));
+		bot = prefs.bot ?? "";
+	} catch {
+		// No prefs yet: no bot session either.
+	}
 	return execFileSync("ps", ["-axo", "pid=,command="], { encoding: "utf8" })
 		.split("\n")
-		.filter(line => line.includes(profile.root) && line.includes("rpc-ui"))
+		.filter(line => line.includes(profile.root) && line.includes("rpc-ui") && (!bot || !line.includes(bot)))
 		.map(line => Number.parseInt(line, 10));
 }
 

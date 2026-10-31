@@ -5,37 +5,46 @@ import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
 import { exitApp, launchApp, readRecords } from "./harness";
 
-// The bot (src/main/agent-control/bot.ts): the session the owner named answers, for them, the question
-// card of a session they run. The card wakes it with a report (the fake omp's `agent_control.mail` runs a turn whose
-// reply names the report), its answer through the control tools reaches the card, and the session's finished turn is
-// then reported without waking it. Which sessions and kinds count is unit-tested in bot.test.ts.
+// The bot (src/main/agent-control/bot.ts, kept by bot-home.ts): a fresh app with no setup has one bot row at the top of
+// the sidebar and its session. A question card of a session the owner runs wakes it with a report (the fake omp's
+// `agent_control.mail` runs a turn whose reply names the report), its answer through the control tools reaches the
+// card, and the session's finished turn is then reported without waking it. Which sessions and kinds count is
+// unit-tested in bot.test.ts, and the keeping of the session in bot-home.test.ts.
 
 let app: ElectronApplication;
 let page: Page;
 let profile: string;
 let record: string;
 let errors: string[];
+let dirs: { project: string; desktop: string; agent: string };
 
-test.beforeEach(async () => {
-	profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-bot-"));
-	const project = path.join(profile, "project");
-	const desktop = path.join(profile, "desktop");
-	const agent = path.join(profile, "agent");
-	await Promise.all([fs.mkdir(project), fs.mkdir(desktop), fs.mkdir(agent)]);
-	record = path.join(profile, "rpc.jsonl");
-	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language: "en", firstRunComplete: true }));
+async function start(): Promise<void> {
 	app = await launchApp({
-		project,
-		desktop,
-		agent,
+		...dirs,
 		profile,
 		env: { OMP_GUI_HEADLESS: "1", OMP_GUI_TEST_RECORD: record, OMP_GUI_TEST_SESSION_FILES: "1" },
 	});
 	page = await app.firstWindow();
-	errors = [];
 	page.on("pageerror", error => errors.push(error.message));
 	await page.waitForFunction(() => window.omp?.rpc != null);
 	await expect.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status).toBe("ready");
+}
+
+test.beforeEach(async () => {
+	profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-bot-"));
+	dirs = {
+		project: path.join(profile, "project"),
+		desktop: path.join(profile, "desktop"),
+		agent: path.join(profile, "agent"),
+	};
+	await Promise.all(Object.values(dirs).map(dir => fs.mkdir(dir)));
+	record = path.join(profile, "rpc.jsonl");
+	await fs.writeFile(
+		path.join(dirs.desktop, "prefs.json"),
+		JSON.stringify({ language: "en", firstRunComplete: true }),
+	);
+	errors = [];
+	await start();
 });
 
 test.afterEach(async () => {
@@ -74,30 +83,52 @@ async function lastAnswer(tabId: string): Promise<string> {
 	return (response.data as { text?: string | null } | undefined)?.text ?? "";
 }
 
-async function sessionPathOf(tabId: string): Promise<string> {
+/** The file main keeps as the bot's session, once it made one. */
+async function botFile(): Promise<string> {
 	let found = "";
 	await expect
 		.poll(async () => {
-			const tab = (await page.evaluate(() => window.omp.tabs.list())).find(entry => entry.tabId === tabId);
-			found = tab?.sessionPath ?? "";
+			const value = await page.evaluate(() => window.omp.prefs.get("bot"));
+			found = typeof value === "string" ? value : "";
 			return found;
 		})
 		.not.toBe("");
 	return found;
 }
 
-test("the bot is woken by another session's question card, answers it, and hears of its finish quietly", async () => {
+/** The tab holding `file`, once a tab does. */
+async function tabOf(file: string): Promise<string> {
+	let found = "";
+	await expect
+		.poll(async () => {
+			found = (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.sessionPath === file)?.tabId ?? "";
+			return found;
+		})
+		.not.toBe("");
+	return found;
+}
+
+test("a fresh app has the bot row and its session, and a question in another session wakes it with no setup", async () => {
 	test.setTimeout(150_000);
+	// Nothing was set up: main made the bot's session (titled, listed) and the sidebar's first row is the bot.
+	const file = await botFile();
+	expect(file.startsWith(dirs.agent)).toBe(true);
+	expect(await fs.readFile(file, "utf8")).toContain('"title":"Bot"');
+	const listed = (await page.evaluate(() => window.omp.sessions.list("global"))).filter(row => row.path === file);
+	expect(listed).toHaveLength(1);
+	const row = page.locator("[data-sidebar-bot-row]");
+	await expect(row).toHaveCount(1);
+	await expect(row).toContainText("Bot");
+	await expect(page.locator(".omp-sidebar-session-row").first()).toHaveAttribute("data-sidebar-bot-row", "true");
+	// It is not also a chat row, and nothing offers a menu or a delete for it.
+	await expect(page.locator(`[data-session-path="${file}"]`)).toHaveCount(1);
+	await expect(row.locator("[data-sidebar-row-menu]")).toHaveCount(0);
+	await row.click({ button: "right" });
+	await expect(page.getByRole("menu")).toHaveCount(0);
+
 	// The owner's own session (no opener): the one whose question the bot answers.
 	const owner = (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId ?? "";
-	const opened = await callAs(owner, "ompdesk_session_open", { message: "Title: bot\nStand by." });
-	const bot = /Opened session (\w+)/.exec(opened.text)?.[1] ?? "";
-	expect(bot, opened.text).not.toBe("");
-	// The person writes to it, as to any session they keep: it never closes by itself.
-	await page.evaluate(id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "hello" }), bot);
-	await expect.poll(() => lastAnswer(bot), { timeout: 30_000 }).not.toBe("");
-	const botPath = await sessionPathOf(bot);
-	await page.evaluate(file => window.omp.prefs.set("sidebar", { bot: file }), botPath);
+	expect(owner).not.toBe("");
 	// What the bot's omp was told about the owner's session (the fake records each `agent_control.mail`).
 	const reports = async (kind: string) =>
 		(await readRecords(record)).filter(frame => {
@@ -105,12 +136,14 @@ test("the bot is woken by another session's question card, answers it, and hears
 			return frame.type === "agent_control.mail" && details?.kind === kind && details?.from === owner;
 		});
 
-	// The owner's session shows a tool approval; the card wakes the bot with one question report from it.
+	// The owner's session shows a tool approval; the card wakes the bot (no tab of it yet) with one question report.
 	await page.evaluate(id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "fixture approval" }), owner);
-	await expect.poll(async () => (await reports("question")).length, { timeout: 30_000 }).toBe(1);
+	await expect.poll(async () => (await reports("question")).length, { timeout: 60_000 }).toBe(1);
 	const [question] = await reports("question");
 	expect(question).toMatchObject({ triggerTurn: true, deliverAs: "aside" });
 	expect(String(question?.content)).toContain(`ompdesk_session_answer {"session":"${owner}","request":"approval"}`);
+	const bot = await tabOf(file);
+	expect(bot).not.toBe(owner);
 	await expect.poll(() => lastAnswer(bot), { timeout: 30_000 }).toBe(`Read the question report from ${owner}.`);
 
 	// Its answer reaches the card in the owner's omp.
@@ -130,4 +163,26 @@ test("the bot is woken by another session's question card, answers it, and hears
 	await expect.poll(async () => (await reports("done")).length, { timeout: 30_000 }).toBe(1);
 	expect((await reports("done"))[0]?.triggerTurn).toBe(false);
 	expect(await lastAnswer(bot)).toBe(`Read the question report from ${owner}.`);
+});
+
+test("a relaunch keeps the same bot session; a deleted one is made again, by a launch or a click on the row", async () => {
+	test.setTimeout(150_000);
+	const file = await botFile();
+	await exitApp(app);
+	await start();
+	expect(await botFile()).toBe(file);
+	const bots = async () =>
+		(await page.evaluate(() => window.omp.sessions.list("global"))).filter(row => row.title === "Bot");
+	expect(await bots()).toHaveLength(1);
+
+	// Deleted through any path (e.g. `/delete`), the row still shows; a click asks main, which makes a new one and opens it.
+	await page.evaluate(path => window.omp.sessions.delete(path), file);
+	await expect(page.locator("[data-sidebar-bot-row]")).toHaveCount(1);
+	await page.locator("[data-sidebar-bot-row]").click();
+	await expect.poll(async () => (await bots()).length).toBe(1);
+	const next = (await bots())[0]?.path ?? "";
+	expect(next).not.toBe(file);
+	expect(await botFile()).toBe(next);
+	await tabOf(next);
+	await expect(page.locator("[data-sidebar-bot-row]")).toHaveAttribute("data-active", "true");
 });

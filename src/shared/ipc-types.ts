@@ -243,6 +243,8 @@ export const IPC_COMMANDS = {
 	SESSIONS_MOVE: "sessions:move",
 	/** Save one open session's diagnostic bundle: stock's `/dump all|anon` zip plus OMPdesk's diagnostics text (`DiagnosticBundleRequest` → `DiagnosticBundleResult`) */
 	SESSIONS_DUMP_BUNDLE: "sessions:dump-bundle",
+	/** The bot's session file (`string`), made first when it is missing: the sidebar's bot row opens it (`agent-control/bot-home.ts`) */
+	SESSIONS_ENSURE_BOT: "sessions:ensure-bot",
 	/** Fetch stats endpoint */
 	STATS_FETCH: "stats:fetch",
 	/** Run/cancel an isolated bundled `omp bench --json` process. */
@@ -2269,6 +2271,8 @@ export interface OmpApi {
 		live(): Promise<HostLiveSession[]>;
 		/** The session files this computer's windows' tabs hold, idle or not (`SESSIONS_HELD`): the rows another window keeps. */
 		held(): Promise<string[]>;
+		/** The bot's session file on this computer, made first when it is missing (`SESSIONS_ENSURE_BOT`). */
+		ensureBot(): Promise<string>;
 	};
 	tabs: {
 		/** The calling window's tabs in acquisition order (boot reconciliation). */

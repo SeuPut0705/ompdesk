@@ -80,7 +80,13 @@ export async function listSessionsReadOnly(dir: string): Promise<unknown[]> {
 					messageCount: messages.length,
 					size: stamp.size,
 					firstMessage,
-					status: messages.at(-1)?.message.role === "assistant" ? "complete" : "pending",
+					// Stock: a session with no message at all (the bot's, made with a title only) is `unknown`, never `pending`.
+					status:
+						messages.length === 0
+							? "unknown"
+							: messages.at(-1)?.message.role === "assistant"
+								? "complete"
+								: "pending",
 					// Stock session-listing: `parentSessionPath: header.parentSession` (set on a fork).
 					...(typeof header.parentSession === "string" ? { parentSessionPath: header.parentSession } : {}),
 				};

@@ -122,6 +122,7 @@ import {
 	openExtensionsPage,
 	reprobeAgentBrowserStatus,
 } from "./agent-browsers";
+import type { BotHome } from "./agent-control/bot-home";
 import { AgentControlRuntime, CARD_TIMEOUT_MS } from "./agent-control/host";
 import { appNotification } from "./app-icon";
 import { requestQuit } from "./app-quit";
@@ -294,6 +295,8 @@ export interface IpcDeps {
 	 * known), set once the control tools exist.
 	 */
 	botAnswers: { current: ((tabId: string, requestId?: string) => boolean) | null };
+	/** The bot's session (agent-control/bot-home.ts): the sidebar's bot row asks it to be made when missing. */
+	botHome: BotHome;
 	/** Web Push's share of a tab's question told late (one the bot left open), set once the web host exists. */
 	webAsk: { current: ((activity: Extract<TabActivity, { type: "ask" }>) => void) | null };
 	/** The desktop slot's host, built in `registerIpcHandlers` (it needs the pool) and published here for the sidecar factory. */
@@ -1452,6 +1455,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (!device) return sessionIndex.list(scope, cwd);
 		return remoteDevices.listHostSessions(device, scope, cwd);
 	});
+
+	// The bot's session (agent-control/bot-home.ts): the sidebar's bot row opens what this answers, made first when
+	// the file is missing (a launch is its first seconds; a deleted one).
+	ipc.handle(IPC_COMMANDS.SESSIONS_ENSURE_BOT, () => deps.botHome.ensureBotSession());
 
 	// "Stop and delete" (a delete refused while a turn runs on the session): stop every turn on the file, in any window
 	// or tab this computer runs for a paired device (or, with `device`, on that host), and answer once they ended.

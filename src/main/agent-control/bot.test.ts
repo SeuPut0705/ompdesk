@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AGENT_HIDDEN_PREFS_KEY } from "../../shared/agent-control";
+import { AGENT_HIDDEN_PREFS_KEY, BOT_PREF } from "../../shared/agent-control";
 import type { HostLiveSession, IpcTabRunOutcome } from "../../shared/ipc-types";
 import { BOT_ANSWER_WAIT_MS, type BotAsk, type BotDeps, BotFeed, type BotGrants, type BotTab } from "./bot";
 import type { Mail, MailDelivery } from "./mail";
@@ -21,7 +21,7 @@ function tab(tabId: string, extra: Partial<BotTab> = {}): BotTab {
 
 function rig(options: { named?: boolean; botTab?: BotTab | null } = {}) {
 	const prefs = new Map<string, unknown>();
-	if (options.named !== false) prefs.set(AGENT_HIDDEN_PREFS_KEY, { agentHidden: [], bot: BOT });
+	if (options.named !== false) prefs.set(BOT_PREF, BOT);
 	const tabs = new Map<string, BotTab>();
 	let botTab: BotTab | null = options.botTab === undefined ? tab("sec", { sessionPath: BOT }) : options.botTab;
 	if (botTab) tabs.set(botTab.tabId, botTab);
@@ -152,8 +152,9 @@ describe("BotFeed", () => {
 		expect(r.sent).toHaveLength(0);
 	});
 
-	it("reports nothing while no session is the bot", () => {
+	it("reports nothing while no session is the bot (the sidebar blob's old bot field names none)", () => {
 		const r = rig({ named: false, botTab: null });
+		r.prefs.set(AGENT_HIDDEN_PREFS_KEY, { agentHidden: [], bot: BOT });
 		r.add(tab("a"));
 		r.feed.activity({ type: "ask", tabId: "a", requestId: "q", text: "?" });
 		r.feed.activity({ type: "idle", tabId: "a", outcome: outcome() });
@@ -179,6 +180,20 @@ describe("BotFeed", () => {
 		]);
 		expect(r.sent[0]?.mail.text).toContain("All tests pass.");
 		expect(r.sent[1]?.mail.text).toContain("boom");
+	});
+
+	it("keeps a quiet record for a closed or asleep bot without opening or starting it; a question still does", () => {
+		const r = rig({ botTab: null });
+		r.add(tab("a"));
+		r.feed.activity({ type: "idle", tabId: "a", outcome: outcome({ reply: "Done." }) });
+		expect(r.sent).toHaveLength(1);
+		expect(r.opened).toEqual([]);
+		r.setBotTab(tab("sec", { sessionPath: BOT, status: "asleep" }));
+		r.feed.activity({ type: "idle", tabId: "a", outcome: outcome({ reply: "Again." }) });
+		expect(r.sent).toHaveLength(2);
+		expect(r.started).toEqual([]);
+		r.feed.activity({ type: "ask", tabId: "a", requestId: "q", text: "?" });
+		expect(r.started).toEqual(["sec"]);
 	});
 
 	it("leaves a confirmation card OMPdesk raises for the owner to the owner, and keeps the owner's notice for it", () => {
@@ -270,7 +285,7 @@ describe("BotFeed", () => {
 		expect(r.opened).toEqual(["/h/desk.jsonl"]);
 		// One a tab here already shows, one hidden from agents and the bot's own session are left as they are.
 		r.held.add("/h/shown.jsonl");
-		r.prefs.set(AGENT_HIDDEN_PREFS_KEY, { agentHidden: ["/h/hidden.jsonl"], bot: BOT });
+		r.prefs.set(AGENT_HIDDEN_PREFS_KEY, { agentHidden: ["/h/hidden.jsonl"] });
 		r.feed.hostedSessions([
 			hosted(true),
 			hosted(true, "/h/shown.jsonl"),

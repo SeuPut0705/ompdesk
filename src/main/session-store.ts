@@ -24,6 +24,7 @@ const sessionRows = z.array(
 );
 
 const movedSession = z.object({ sessionPath: z.string() });
+const createdSession = z.object({ sessionPath: z.string(), sessionId: z.string() });
 
 /** Session wire adaptation only. Listing/deletion share the app's stock helper. */
 export class StockSessionStore {
@@ -54,6 +55,13 @@ export class StockSessionStore {
 			await stockHelperRequest("sessions.move", { sessionsRoot: this.#sessionsRoot, sessionPath, cwd }),
 		);
 		return result.sessionPath;
+	}
+
+	/** A new titled session file in `cwd` (stock `createEmptySessionFile` and `renameSessionTitle` in the helper). */
+	async createNamed(cwd: string, title: string): Promise<{ sessionPath: string; sessionId: string }> {
+		return createdSession.parse(
+			await stockHelperRequest("sessions.createNamed", { sessionsRoot: this.#sessionsRoot, cwd, title }),
+		);
 	}
 
 	/** A stored session's transcript (stock `loadSessionMessagesReadOnly` in the helper). */

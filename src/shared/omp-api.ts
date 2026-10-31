@@ -560,6 +560,7 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			hosted: () => transport.invoke(IPC_COMMANDS.HOSTED_SESSIONS) as Promise<IpcHostedSession[]>,
 			live: () => transport.invoke(IPC_COMMANDS.LIVE_SESSIONS) as Promise<HostLiveSession[]>,
 			held: () => transport.invoke(IPC_COMMANDS.SESSIONS_HELD) as Promise<string[]>,
+			ensureBot: () => transport.invoke(IPC_COMMANDS.SESSIONS_ENSURE_BOT) as Promise<string>,
 		},
 
 		tabs: {

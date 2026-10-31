@@ -338,7 +338,7 @@ for (const surface of SURFACES)
 				if (device) return device.querySelector(":scope > div:first-child button");
 				return row.closest("[data-session-group]")?.previousElementSibling?.querySelector("button") ?? null;
 			};
-			const rows = [...root.querySelectorAll(".omp-sidebar-session-row")].map(row => {
+			const rows = [...root.querySelectorAll(".omp-sidebar-session-row:not([data-sidebar-bot-row])")].map(row => {
 				const header = headerOf(row);
 				return {
 					text: (row.textContent ?? "").slice(0, 20),

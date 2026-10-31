@@ -63,7 +63,7 @@ import {
 } from "../shared/desktop-prefs";
 import { ECC_PREF } from "../shared/ecc";
 import { nativeAccelerator } from "../shared/hotkeys";
-import { IPC_COMMANDS, IPC_EVENTS, type SessionKind } from "../shared/ipc-types";
+import { IPC_COMMANDS, IPC_EVENTS, type IpcPrefsChangedPayload, type SessionKind } from "../shared/ipc-types";
 import { MOBILE_WEB_COMMAND, MOBILE_WEB_GET_STATE, MOBILE_WEB_PORT, MOBILE_WEB_STATE } from "../shared/mobile-web";
 import { VISUAL_SCHEME } from "../shared/preview";
 import { PSTACK_PREF } from "../shared/pstack";
@@ -79,6 +79,7 @@ import {
 import { migrateThemeName } from "../shared/theme-names";
 import { WORKTREE_BRANCH_PREFIX_PREF, worktreeBranchPrefix } from "../shared/worktree-branch";
 import { accountRotationDeps } from "./account-rotation";
+import { BotHome } from "./agent-control/bot-home";
 import { agentDir } from "./agent-paths";
 import { migrateAgentPowers } from "./agent-power-migration";
 import { lowerAgentPriority } from "./agent-priority";
@@ -103,7 +104,7 @@ import { answersWithin, ConnectivityMonitor, PROBE_TIMEOUT_MS } from "./connecti
 import { installCliLaunchers } from "./control-socket/cli-install";
 import { setupDeepLinks } from "./deep-link";
 import { ensureDefaultWorkspace } from "./default-workspace";
-import { initDeletedSessions } from "./deleted-sessions";
+import { deletedSessions, initDeletedSessions } from "./deleted-sessions";
 import type { DesktopSlotHost } from "./desktop-slot-host";
 import { poolTabFor, registerDiagnosticBundleIpc } from "./diagnostic-bundle";
 import { currentDiagnosticsReport, type DiagnosticsDeps, registerDiagnosticsIpc } from "./diagnostics";
@@ -846,6 +847,20 @@ app.whenReady().then(() => {
 	});
 	initDeletedSessions(join(app.getPath("userData"), "deleted-sessions.json"));
 	sessionIndex = new SessionIndex(undefined, initialCwd, sessionId => sessionKinds.isChat(sessionId), bridgeDir);
+	// The bot's session: one always exists, made here once omp is usable and when the sidebar's bot row is clicked first.
+	const botHome = new BotHome({
+		prefs: { get: key => prefsStore().get(key), set: (key, value) => prefsStore().set(key, value) },
+		deleted: sessionPath => deletedSessions().has(sessionPath),
+		workspace: ensureDefaultWorkspace,
+		title: () => mainT("bot.title"),
+		create: ({ cwd, title }) => sessionIndex.createNamed(cwd, title),
+		markChat: sessionId => sessionKinds.markChat(sessionId),
+		changed: key => {
+			for (const win of windowManager.getAllWindows()) {
+				win.webContents.send(IPC_EVENTS.PREFS_CHANGED, { key } satisfies IpcPrefsChangedPayload);
+			}
+		},
+	});
 	// The sidebar's project list: folders outlive their last session (src/main/sidebar-projects.ts).
 	const sidebarProjects = new SidebarProjects({
 		read: () => prefsStore().get(SIDEBAR_PROJECTS_PREF),
@@ -1201,6 +1216,15 @@ app.whenReady().then(() => {
 				if (sidecar.device === undefined && sidecar.status === "waiting") sidecar.restart();
 			}
 			if (usable.refused) sessionIndex.relist();
+			void afterFirstTab()
+				.then(() => botHome.ensureBotSession())
+				.catch(error =>
+					writeRuntimeLog({
+						source: "background-task",
+						message: "bot-session-failed",
+						details: { error: String(error) },
+					}),
+				);
 		},
 		beforeOptional: afterFirstTab,
 		onOmpReady: () => {
@@ -1858,6 +1882,7 @@ app.whenReady().then(() => {
 		hostedTabs: hostServices,
 		webTabNotice,
 		botAnswers,
+		botHome,
 		webAsk,
 		spawnWindow,
 		initialCwd: resolveInitialCwd,

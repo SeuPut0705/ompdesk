@@ -1,6 +1,6 @@
 /**
- * The bot (봇): one session on this computer the owner names from a session's menu (the `bot` field
- * of the sidebar prefs blob, a session file). It does only what the owner asked:
+ * The bot (봇): the one session on this computer that answers for the owner. Main keeps it (`bot-home.ts`: pref `bot`
+ * names its session file, created at the first launch and again when it is gone). It does only what the owner asked:
  * - A question or approval of a session the owner runs (a top-level tab here, or a session a paired host works on)
  *   wakes it with a report: it answers by what the owner asked that session, and picks the answer that does not do
  *   a thing the owner did not ask for. While it is there, the owner's own "needs you" notice for such a question is
@@ -10,7 +10,13 @@
  * Sessions another session or Autopilot opened are their opener's (mail.ts `childAsked`), and a session the owner hid
  * from agents is never reported. Each report is a mail kept in the outbox until the bot's journal holds it.
  */
-import { AGENT_CARD_PREFIX, AGENT_HIDDEN_PREFS_KEY, agentHiddenPaths } from "../../shared/agent-control";
+import {
+	AGENT_CARD_PREFIX,
+	AGENT_HIDDEN_PREFS_KEY,
+	agentHiddenPaths,
+	BOT_PREF,
+	botPathOf,
+} from "../../shared/agent-control";
 import type { HostLiveSession, IpcTabRunOutcome, TabStatus } from "../../shared/ipc-types";
 import type { TabActivity } from "../sidecar-pool";
 import type { Mail, MailDelivery } from "./mail";
@@ -24,12 +30,6 @@ const REPLY_MAX = 300;
 
 const WAKE: MailDelivery = { triggerTurn: true, deliverAs: "aside" };
 const QUIET: MailDelivery = { triggerTurn: false };
-
-/** The session file the owner named as bot, if any. */
-export function botPath(blob: unknown): string | null {
-	const value = blob && typeof blob === "object" ? (blob as { bot?: unknown }).bot : undefined;
-	return typeof value === "string" && value.length > 0 ? value : null;
-}
 
 /** What the feed needs to know of a live tab. */
 export interface BotTab {
@@ -143,7 +143,7 @@ export class BotFeed {
 	}
 
 	#path(): string | null {
-		return botPath(this.#deps.prefs.get(AGENT_HIDDEN_PREFS_KEY));
+		return botPathOf(this.#deps.prefs.get(BOT_PREF));
 	}
 
 	/** The bot's tab, when one is named and a tab here holds it. */
@@ -343,10 +343,16 @@ export class BotFeed {
 		}
 	}
 
+	/**
+	 * Keeps the report in the outbox and sends it to the bot's tab when there is one. Only a report that wakes the bot
+	 * opens a closed bot or starts an asleep one: a quiet record waits in the outbox until the bot is open, so the
+	 * session that is always there never puts a tab and an omp on the owner's screen for a turn that merely ended.
+	 */
 	#send(path: string, mail: Omit<Mail, "to" | "at">, delivery: MailDelivery): void {
 		const bot = this.#deps.tabOfSession(path);
 		this.#deps.log({ event: mail.kind, id: mail.id, from: mail.from, wake: delivery.triggerTurn });
 		this.#deps.deliver(path, { ...mail, to: bot?.tabId ?? "", at: this.#deps.now() }, delivery);
+		if (delivery.triggerTurn !== true) return;
 		if (!bot) this.#open(path);
 		else if (bot.status === "asleep") this.#deps.start(bot.tabId);
 	}

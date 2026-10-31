@@ -98,14 +98,20 @@ for (const language of ["en", "ko"] as const)
 			// A session on each computer: this one's in the first tab, the host's in a tab opened on it.
 			await send(a, "local hello");
 			await expect(a.locator("[data-transcript-kind]").filter({ hasText: "Local fixture reply" })).toHaveCount(1);
-			const localRow = a.locator(".omp-sidebar-session-row[data-session-path$='.jsonl']:not([data-live])").first();
+			const localRow = a
+				.locator(
+					".omp-sidebar-session-row[data-session-path$='.jsonl']:not([data-live]):not([data-sidebar-bot-row])",
+				)
+				.first();
 			await expect(localRow).toBeVisible({ timeout: 30_000 });
 			await openHostFolder(a, deviceId, hostProfile.project);
 			await send(a, "remote hello");
 			await expect(a.locator("[data-transcript-kind]").filter({ hasText: "Local fixture reply" })).toHaveCount(1);
-			// Once the host's index lists the file, the row is a stored session (`data-live` goes).
+			// Once the host's index lists the file, the row is a stored session (`data-live` goes). The host's own bot
+			// session is listed there too (a plain row in its section): not the one to open.
 			const hostRow = a
 				.locator(`[data-sidebar-device="${deviceId}"] [data-device-session$='.jsonl']:not([data-live])`)
+				.filter({ hasNotText: text("sidebar.botBadge") })
 				.first();
 			await expect(hostRow).toBeVisible({ timeout: 30_000 });
 

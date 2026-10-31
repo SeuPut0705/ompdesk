@@ -6,6 +6,7 @@ import { lastActivity } from "./session-activity";
 /** The fields of stock's `SessionInfo` this helper reads; the rest pass through untouched. */
 interface StockSessionInfo {
 	path: string;
+	id: string;
 	size: number;
 	modified: Date | string;
 	firstMessage: string;
@@ -32,7 +33,7 @@ interface StockFirstPrompt {
 	textContent(content: string | readonly unknown[], separator: string): string;
 }
 
-/** The stock SessionManager surface `sessions.move` uses. */
+/** The stock SessionManager surface `sessions.move` and `sessions.createNamed` use. */
 interface StockSessionManagerStatic {
 	open(
 		filePath: string,
@@ -40,6 +41,8 @@ interface StockSessionManagerStatic {
 		storage: undefined,
 		options: { throwIfMissing: boolean },
 	): Promise<{ moveTo(cwd: string): Promise<void>; getSessionFile(): string | undefined; close(): Promise<void> }>;
+	createEmptySessionFile(cwd: string): string;
+	renameSessionTitle(sessionPath: string, title: string, options?: { cwd?: string }): Promise<string | null>;
 }
 
 /** Runtime-selected installed paths: static imports would use the app's resolver. */
@@ -332,6 +335,45 @@ export const methods: Record<string, (params: unknown) => Promise<unknown>> = {
 		} finally {
 			await manager.close();
 		}
+	},
+	/**
+	 * A new session file with a title, listed like any other: stock `createEmptySessionFile` (a header only, which the
+	 * listing filters out) and stock's own `renameSessionTitle` (the title slot and entry the listing counts). No omp
+	 * agent runs. The bot's session (`src/main/agent-control/bot-home.ts`) is made this way.
+	 */
+	"sessions.createNamed": async params => {
+		const { sessionsRoot } = paths(params);
+		const cwd = typeof params === "object" && params !== null && "cwd" in params ? params.cwd : undefined;
+		if (typeof cwd !== "string" || !isAbsolute(cwd)) throw new Error("Invalid session folder");
+		const title = typeof params === "object" && params !== null && "title" in params ? params.title : undefined;
+		if (typeof title !== "string" || title.trim().length === 0) throw new Error("Invalid session title");
+		const { SessionManager } = (await importFromOmp("@oh-my-pi/pi-coding-agent/session/session-manager")) as {
+			SessionManager: StockSessionManagerStatic;
+		};
+		const folder = resolve(cwd);
+		const sessionPath = SessionManager.createEmptySessionFile(folder);
+		const undo = async () => {
+			const { storage } = await stockSessions();
+			await storage.deleteSessionWithArtifacts(sessionPath).catch(() => undefined);
+		};
+		if (!sessionPath.startsWith(`${sessionsRoot}${sep}`)) {
+			await undo();
+			throw new Error("Stock made the session outside the sessions root");
+		}
+		if ((await SessionManager.renameSessionTitle(sessionPath, title.trim(), { cwd: folder })) === null) {
+			await undo();
+			throw new Error("Stock could not title the new session");
+		}
+		// The same read the sidebar's list makes: a session it does not list is no session the bot can live in.
+		const { listing, storage } = await stockSessions();
+		const listed = (await listing.listSessionsReadOnly(dirname(sessionPath), storage)).find(
+			row => row.path === sessionPath,
+		);
+		if (!listed?.id) {
+			await undo();
+			throw new Error("Stock does not list the new session");
+		}
+		return { sessionPath, sessionId: listed.id };
 	},
 	/**
 	 * Whether another live omp process owns the session (stock's ownership lease, `tryAcquireSessionLease`, keyed by

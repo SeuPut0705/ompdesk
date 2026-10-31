@@ -31,6 +31,7 @@ import {
 import { fixtureTailscale } from "./fixture/fake-tailscale-install";
 import { ServeProxy, serveSites } from "./fixture/phone-serve";
 import {
+	botSessionFile,
 	controlToolCaller,
 	cssString,
 	exitApp,
@@ -50,6 +51,10 @@ import {
 	type RemoteInstance,
 } from "./remote-harness";
 import { expectNoRuntimeErrors } from "./runtime-errors";
+
+/** The sidebar's session rows without the bot's fixed row, which every profile has (agent-control/bot-home.ts). */
+const SIDEBAR_SESSION_ROWS =
+	".omp-session-sidebar .omp-sidebar-session-row[data-session-path]:not([data-sidebar-bot-row])";
 
 // The phone page (flow d) answers through a host round trip; the default 10 s per action is tight there.
 test.use({ actionTimeout: 30_000 });
@@ -121,7 +126,11 @@ async function flowAMarkers(profile: FlowAProfile): Promise<Array<{ reason: stri
 async function flowASessionFiles(profile: FlowAProfile): Promise<string[]> {
 	const root = path.join(profile.agent, "sessions");
 	const names = await fs.readdir(root, { recursive: true }).catch(() => []);
-	return names.filter(name => name.endsWith(".jsonl")).map(name => path.join(root, name));
+	const bot = await botSessionFile(profile.desktop);
+	return names
+		.filter(name => name.endsWith(".jsonl"))
+		.map(name => path.join(root, name))
+		.filter(file => file !== bot);
 }
 
 async function flowALayoutHasSession(profile: FlowAProfile): Promise<boolean> {
@@ -190,7 +199,7 @@ test("daily flow a: a quit mid-turn with subagents and a background job resumes 
 			if (inStrip) await strip.click();
 			await expect(page.locator("[data-sidebar-subagents-toggle]")).toHaveCount(1);
 			await expect(page.locator(".omp-user-bubble")).toHaveText([new RegExp(`^${FLOW_A_PROMPT}`)]);
-			await expect(page.locator(".omp-session-sidebar .omp-sidebar-session-row[data-session-path]")).toHaveCount(1);
+			await expect(page.locator(SIDEBAR_SESSION_ROWS)).toHaveCount(1);
 		});
 
 		await test.step("normal approved quit mid-turn keeps the marker", async () => {
@@ -240,7 +249,7 @@ test("daily flow a: a quit mid-turn with subagents and a background job resumes 
 				.poll(
 					() =>
 						page
-							.locator(".omp-session-sidebar .omp-sidebar-session-row[data-session-path]")
+							.locator(SIDEBAR_SESSION_ROWS)
 							.evaluateAll(els => els.map(el => el.getAttribute("data-session-path"))),
 					{ timeout: 15_000 },
 				)
@@ -259,7 +268,7 @@ test("daily flow a: a quit mid-turn with subagents and a background job resumes 
 			await expect(page.getByText("Continued after the interruption.")).toHaveCount(1, { timeout: 15_000 });
 			await expect(page.locator("[data-resuming]")).toHaveCount(0);
 			await expect(page.locator(".omp-user-bubble")).toHaveText([new RegExp(`^${FLOW_A_PROMPT}`)]);
-			await expect(page.locator(".omp-session-sidebar .omp-sidebar-session-row[data-session-path]")).toHaveCount(1);
+			await expect(page.locator(SIDEBAR_SESSION_ROWS)).toHaveCount(1);
 			expect(await flowAMarkers(profile)).toEqual([]);
 			expect(await flowASessionFiles(profile)).toEqual([sessionPath]);
 			await expectNoRuntimeErrors(profile.desktop);
@@ -1016,7 +1025,7 @@ test("daily flow e: deleting sessions out of a 3-pane split keeps the split sane
 	try {
 		let page = launched.page;
 		const paneCount = () => page.locator(".omp-session-pane");
-		const rowTitles = () => page.locator(".omp-sidebar-session-row").allTextContents();
+		const rowTitles = () => page.locator(".omp-sidebar-session-row:not([data-sidebar-bot-row])").allTextContents();
 		const sessionRowCount = async () => (await rowTitles()).length;
 
 		await test.step("three saved sessions", async () => {
@@ -1123,8 +1132,9 @@ test("daily flow e: deleting sessions out of a 3-pane split keeps the split sane
 			const tabs = await flowETabs(page);
 			expect(tabs.length).toBeLessThanOrEqual(1);
 			await expect(paneCount()).toHaveCount(1);
-			const files = (await fs.readdir(path.join(root, "agent", "sessions"), { recursive: true })).filter(name =>
-				name.endsWith(".jsonl"),
+			const bot = await botSessionFile(desktop);
+			const files = (await fs.readdir(path.join(root, "agent", "sessions"), { recursive: true })).filter(
+				name => name.endsWith(".jsonl") && path.join(root, "agent", "sessions", name) !== bot,
 			);
 			expect(files).toHaveLength(1);
 			expect(launched.errors).toEqual([]);

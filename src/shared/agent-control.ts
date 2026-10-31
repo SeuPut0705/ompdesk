@@ -26,6 +26,16 @@ export function agentHiddenPaths(sidebarBlob: unknown): Set<string> {
 }
 
 /**
+ * Prefs key of the bot's session file (main alone writes it: `agent-control/bot-home.ts`). Never inside the `sidebar`
+ * blob, which the renderer rewrites whole on every change.
+ */
+export const BOT_PREF = "bot";
+
+export function botPathOf(value: unknown): string | null {
+	return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+/**
  * Prefs key, default ON (unset counts as on; only a stored `false` is off; the user's decision, 29 Oct 2026: agents
  * have every power by default): an orchestrating agent may approve another session's pending tool approval.
  */

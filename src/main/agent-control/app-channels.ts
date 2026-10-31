@@ -114,6 +114,7 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[C.HOSTED_SESSIONS]: never(SESSION_TOOLS),
 	[C.LIVE_SESSIONS]: never(SESSION_TOOLS),
 	[C.SESSIONS_HELD]: never(SESSION_TOOLS),
+	[C.SESSIONS_ENSURE_BOT]: never("main keeps the bot's session; an agent opens sessions with ompdesk_session_open"),
 	[C.WORKTREE_PROMPTS_GET]: never(DENY),
 	[C.WORKTREE_PROMPT_ANSWER]: never(DENY),
 	[C.PROJECT_ORIGINS_GET]: never(DENY),

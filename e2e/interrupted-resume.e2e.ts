@@ -17,7 +17,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { capture, exitApp, fixtureOmp, variants } from "./harness";
+import { botSessionFile, capture, exitApp, fixtureOmp, variants } from "./harness";
 import { survivors } from "./process-tree";
 
 type Language = "en" | "ko";
@@ -141,11 +141,15 @@ async function startLongTurn(profile: Profile, page: Page): Promise<string> {
 	return (await markers(profile))[0]?.sessionPath ?? "";
 }
 
-/** Every session file of the profile's agent dir. */
+/** Every session file of the profile's agent dir, the bot's own left out (`botSessionFile`: every profile has one). */
 async function sessionFiles(profile: Profile): Promise<string[]> {
 	const root = path.join(profile.agent, "sessions");
 	const names = await fs.readdir(root, { recursive: true }).catch(() => []);
-	return names.filter(name => name.endsWith(".jsonl")).map(name => path.join(root, name));
+	const bot = await botSessionFile(profile.desktop);
+	return names
+		.filter(name => name.endsWith(".jsonl"))
+		.map(name => path.join(root, name))
+		.filter(file => file !== bot);
 }
 
 /**
@@ -157,7 +161,9 @@ async function expectOneSession(profile: Profile, page: Page, sessionPath: strin
 		.poll(() => fs.readFile(sessionPath, "utf8").catch(() => ""), { timeout: 15_000 })
 		.toContain("Continued after the interruption.");
 	expect(await sessionFiles(profile)).toEqual([sessionPath]);
-	const rows = page.locator(".omp-session-sidebar .omp-sidebar-session-row[data-session-path]");
+	const rows = page.locator(
+		".omp-session-sidebar .omp-sidebar-session-row[data-session-path]:not([data-sidebar-bot-row])",
+	);
 	await expect
 		.poll(
 			() =>

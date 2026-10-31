@@ -289,6 +289,13 @@ export class SessionIndex {
 		return moved;
 	}
 
+	/** A new titled session in `cwd`, listed at once (the bot's own session, `agent-control/bot-home.ts`). */
+	async createNamed(cwd: string, title: string): Promise<{ sessionPath: string; sessionId: string }> {
+		const created = await this.#store.createNamed(cwd, title);
+		this.#notifyChange();
+		return created;
+	}
+
 	/**
 	 * Full-content search: the given session files whose raw JSONL text
 	 * contains every query token (case-insensitive), each with an excerpt of
