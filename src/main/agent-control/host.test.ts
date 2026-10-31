@@ -1732,7 +1732,9 @@ describe("the bot's desk", () => {
 				{ tabId: "main0001", sessionPath: file, ...(options.status ? { status: options.status } : {}) },
 				{ tabId: "other0002", sessionPath: path.join(dir, "own.jsonl") },
 			],
-			...(options.owned === false ? {} : { owners: { [file]: "main0001" } }),
+			...(options.owned === false
+				? {}
+				: { owners: { [file]: "main0001", [path.join(dir, "own.jsonl")]: "other0002" } }),
 			...(options.outsideWindow ? { outsideWindow: true } : {}),
 			botDesk: {
 				desk,
@@ -1888,6 +1890,21 @@ describe("the bot's desk", () => {
 				"Continue from this answer: pick up the work the decision held back. Do not ask the owner again.",
 			].join("\n"),
 		);
+	});
+
+	it("answers a side chat's decision in that side chat, and the bot's own in its main conversation", async () => {
+		const { runtime, win, commands, desk, file } = await botRig();
+		desk.addChannel("Release notes", path.join(path.dirname(file), "own.jsonl"), "owner");
+		await runtime.run(win, "other0002", T.bot, { action: "decide", question: "Publish the notes?" });
+		const [fromSide] = desk.state().decisions;
+		expect(fromSide).toMatchObject({ channel: desk.state().channels[0]?.id });
+		await runtime.botDecisionAnswered(desk.answer(fromSide?.id ?? "", "Yes"));
+		await vi.waitFor(() => expect(mails(commands)).toHaveLength(1));
+		expect(mails(commands)[0]?.tabId).toBe("other0002");
+		const own = desk.postDecision({ question: "Ship?" });
+		await runtime.botDecisionAnswered(desk.answer(own.id, "No"));
+		await vi.waitFor(() => expect(mails(commands)).toHaveLength(2));
+		expect(mails(commands)[1]?.tabId).toBe("main0001");
 	});
 
 	it("tells the bot the operation it asked about and the draft as the owner edited it", async () => {

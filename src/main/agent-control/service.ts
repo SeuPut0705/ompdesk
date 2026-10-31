@@ -3990,6 +3990,8 @@ export class AgentControl {
 				case "desk":
 					return botDeskText(desk.state());
 				case "decide": {
+					// A side chat's decision is answered in that side chat, where its conversation is.
+					const channel = desk.state().channels.find(entry => entry.sessionPath === caller.sessionPath);
 					const decision = desk.decide(caller.tabId, {
 						question: args.question,
 						...(args.options === undefined ? {} : { options: args.options }),
@@ -3998,6 +4000,7 @@ export class AgentControl {
 						...(args.inputs === undefined ? {} : { inputs: args.inputs }),
 						...(args.draft === undefined ? {} : { draft: args.draft }),
 						...(args.expires_in_minutes === undefined ? {} : { expiresInMinutes: args.expires_in_minutes }),
+						...(channel ? { channel: channel.id } : {}),
 					});
 					return `Decision ${decision.id} is posted for the owner and waits on your desk. Keep working: do not wait for it and do not ask again. The answer arrives later as a message that starts your turn and names ${decision.id}.`;
 				}

@@ -78,6 +78,8 @@ const DecisionBase = z.object({
 	draft: z.string().max(BOT_DECISION_DRAFT_MAX).optional(),
 	/** ISO time after which the answer no longer counts (a deadline, a hold that lapses); absent = never expires. */
 	expiresAt: z.string().optional(),
+	/** The side chat (`BotChannel.id`) that posted it; its answer goes back there. Absent: the bot's main conversation. */
+	channel: z.string().min(1).max(64).optional(),
 	/** ISO time it was posted. */
 	at: z.string(),
 });

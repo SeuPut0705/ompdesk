@@ -74,6 +74,8 @@ export interface DecisionDraft {
 	draft?: string;
 	/** After this many minutes the answer no longer counts. */
 	expiresInMinutes?: number;
+	/** The side chat that posts it (`BotChannel.id`). */
+	channel?: string;
 }
 
 function read(file: string): BotDeskFile {
@@ -213,6 +215,7 @@ export class BotDesk {
 			...(inputs.length > 0 ? { inputs: Object.fromEntries(inputs) } : {}),
 			...(draft.draft?.trim() ? { draft: draft.draft } : {}),
 			...(expiresAt ? { expiresAt } : {}),
+			...(draft.channel ? { channel: draft.channel } : {}),
 			at: this.#stamp(),
 		});
 		if (decision.state !== "open") throw new BotDeskError("A new decision is open.");

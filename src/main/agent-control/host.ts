@@ -594,11 +594,16 @@ export class AgentControlRuntime {
 	 * cannot be opened now still gets the message from the outbox once a tab holds its session.
 	 */
 	async botDecisionAnswered(decision: AnsweredDecision): Promise<void> {
-		const sessionPath = activeBotPath(key => this.#deps.prefs.get(key));
-		if (!sessionPath) {
+		const botPath = activeBotPath(key => this.#deps.prefs.get(key));
+		if (!botPath) {
 			this.#deps.botLog?.({ event: "decision-not-told", id: decision.id });
 			return;
 		}
+		// A side chat's decision goes back to that side chat (its own conversation), while it still exists.
+		const channel = decision.channel
+			? this.#deps.botDesk?.desk.state().channels.find(entry => entry.id === decision.channel)
+			: undefined;
+		const sessionPath = channel?.sessionPath ?? botPath;
 		const mail: Mail = {
 			id: `bot-decision-${decision.id}`,
 			from: "ompdesk",
