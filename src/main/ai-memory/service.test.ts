@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -1168,7 +1168,10 @@ describe("AiMemoryService", () => {
 			});
 			await service.start();
 			removed = true;
-			await rm(rootDir, { recursive: true });
+			// Gone in one step: a poll (every 10 ms) that saw it half removed would heal it into the folder being removed.
+			const gone = join(dirname(dirname(rootDir)), "omp-ext.gone");
+			await rename(rootDir, gone);
+			await rm(gone, RM_TEMP);
 			await healed.promise;
 			expect(commands().filter(command => command === SETUP)).toHaveLength(2);
 			expect(existsSync(join(rootDir, "index.ts"))).toBe(true);

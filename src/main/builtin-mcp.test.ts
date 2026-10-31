@@ -194,6 +194,9 @@ describe.skipIf(process.platform === "win32")("spawnReaState", () => {
 		await expect(spawnReaState(true, file)).resolves.toMatchObject({ available: false, reason: "node-version" });
 		await vi.waitFor(async () => expect(await probes()).toEqual(["node", "node"]));
 		await fs.writeFile(gate, "go\n");
+		// Gone before anything else runs `node`: the released probe may already have settled, and the next one would
+		// block on a FIFO nobody writes again.
+		await fs.rm(gate);
 		// That probe settles first: one already running when Node changes answers for the Node it found.
 		await builtinReaState(true);
 		// `brew upgrade node`: the same `node` on PATH is another keg, so the spawn waits for the probe.

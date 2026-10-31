@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
-import { exitApp, launchApp, readRecords } from "./harness";
+import { cssString, exitApp, launchApp, readRecords } from "./harness";
 
 // The bot (src/main/agent-control/bot.ts, kept by bot-home.ts): a fresh app with no setup has one bot row at the top of
 // the sidebar and its session. A question card of a session the owner runs wakes it with a report (the fake omp's
@@ -128,7 +128,7 @@ test("a fresh app has the bot row and its session, and a question in another ses
 	await expect(row).toContainText("Bot");
 	await expect(page.locator(".omp-sidebar-session-row").first()).toHaveAttribute("data-sidebar-bot-row", "true");
 	// It is not also a chat row, and nothing offers a menu or a delete for it.
-	await expect(page.locator(`[data-session-path="${file}"]`)).toHaveCount(1);
+	await expect(page.locator(`[data-session-path=${cssString(file)}]`)).toHaveCount(1);
 	await expect(row.locator("[data-sidebar-row-menu]")).toHaveCount(0);
 	await row.click({ button: "right" });
 	await expect(page.getByRole("menu")).toHaveCount(0);
@@ -287,12 +287,12 @@ test("a session the bot opens shows under the bot row, and nowhere else in the l
 		})
 		.not.toBe("");
 
-	const nested = page.locator(`[data-sidebar-family="${file}"] [data-sidebar-opened-session]`);
+	const nested = page.locator(`[data-sidebar-family=${cssString(file)}] [data-sidebar-opened-session]`);
 	await expect(nested).toHaveCount(1, { timeout: 60_000 });
 	await expect(nested).toHaveAttribute("data-session-path", childFile);
 	await expect(nested).toHaveAttribute("data-child-status", "waiting");
 	// It is that row alone: no project or chat row repeats it, and the bot's own row is still the one fixed row.
-	await expect(page.locator(`[data-session-path="${childFile}"]`)).toHaveCount(1);
+	await expect(page.locator(`[data-session-path=${cssString(childFile)}]`)).toHaveCount(1);
 	await expect(page.locator("[data-sidebar-bot-row]")).toHaveCount(1);
 	await expect(page.locator(".omp-sidebar-session-row").first()).toHaveAttribute("data-sidebar-bot-row", "true");
 });
