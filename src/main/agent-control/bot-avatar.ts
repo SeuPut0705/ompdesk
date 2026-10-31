@@ -6,10 +6,9 @@
 import { readFile, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { nativeImage } from "electron";
-import { BOT_AVATAR_URL_MAX } from "../../shared/bot-desk";
+import { BOT_AVATAR_PX, BOT_AVATAR_URL_MAX } from "../../shared/bot-desk";
 import { BotDeskError } from "./bot-desk";
 
-export const BOT_AVATAR_PX = 128;
 /** A source picture past this is refused before it is read. */
 const SOURCE_MAX_BYTES = 25 * 1024 * 1024;
 

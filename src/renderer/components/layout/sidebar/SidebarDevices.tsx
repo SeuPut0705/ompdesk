@@ -14,7 +14,6 @@ import {
 	Archive,
 	ArrowDown,
 	ArrowUp,
-	Bot,
 	ChevronDown,
 	ChevronRight,
 	ExternalLink,
@@ -62,6 +61,7 @@ import { type SessionTab, tabChipLabel, useTabsStore } from "../../../stores/tab
 import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
 import { webPwa } from "../../../web/pwa";
+import { BotAvatar } from "../../bot/BotAvatar";
 import { BotDecisionsBadge } from "../../bot/BotDecisionsBadge";
 import { Button, IconButton, InlineNotice, ListRow, Spinner } from "../../common";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
@@ -438,7 +438,8 @@ function DeviceSessions({
 	// The host's desk gives its bot's row the count of decisions waiting; read once its link is up and its bot is on, and
 	// again after each link loss, as a push sent meanwhile was missed.
 	const hostBotOn = hostBot !== undefined;
-	const hostDecisions = openBotDecisions(useBotDesk(host.deviceId).desk).length;
+	const hostDesk = useBotDesk(host.deviceId).desk;
+	const hostDecisions = openBotDecisions(hostDesk).length;
 	useEffect(() => {
 		if (!read || !hostBotOn) return;
 		ensureBotDesk(host.deviceId);
@@ -936,7 +937,7 @@ function DeviceSessions({
 		const list = listOf(session);
 		const pinned = hostPins.includes(session.path);
 		const marker = bot ? (
-			<Bot aria-label={t("sidebar.botBadge")} className="size-(--sc-icon-sm)" data-sidebar-bot />
+			<BotAvatar avatar={hostDesk.identity.avatar} data-sidebar-bot label={t("sidebar.botBadge")} size="inline" />
 		) : (
 			(chat ?? (pinned ? <Pin aria-label={t("sidebar.pinned")} className="size-(--sc-icon-sm)" /> : null))
 		);

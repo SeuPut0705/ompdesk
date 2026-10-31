@@ -20,6 +20,7 @@ import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { toast, toastError } from "../../stores/toast";
 import { toolEntryKey } from "../../stores/tools";
+import { AssistantMarkdown } from "../bot/AssistantMarkdown";
 import { Badge, Button, CopyButton, DisclosureButton, IconButton, MenuButton } from "../common";
 import type { GalleryImage } from "../common/ZoomableImage";
 import { isAbsoluteChatPath, referencedFiles } from "../tools/media/chat-media";
@@ -537,7 +538,7 @@ export const MessageBubble = memo(function MessageBubble({
 		switch (block.type) {
 			case "text": {
 				if (isRenderableMessageText(block.text)) {
-					blocks.push(<MarkdownRenderer key={blocks.length} content={block.text} />);
+					blocks.push(<AssistantMarkdown key={blocks.length} text={block.text} />);
 					sawNonToolBlock = true;
 				}
 				break;

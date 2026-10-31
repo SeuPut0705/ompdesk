@@ -28,6 +28,7 @@ import { ensureBotPath, useBotStore } from "../../stores/bot";
 import { sessionListFeed } from "../../stores/session-list";
 import { toastError } from "../../stores/toast";
 import { Banner, Button, ConfirmDialog, Input, MenuButton, Select, SkeletonRows } from "../common";
+import { BotIdentitySettings } from "./BotIdentitySettings";
 import { BotRuleDialog, type BotRuleDraft, botBehaviorOptions } from "./BotRuleDialog";
 import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
 
@@ -157,17 +158,20 @@ export function BotRulesSection() {
 	// Off on a fresh install (the owner's decision, 31 Oct 2026): on, main makes the bot's session and the sidebar shows
 	// its fixed row (`stores/bot.ts`); off, no row, no session made, nothing handed to it.
 	const enable = (
-		<SettingsSection id="settings-bot-on">
-			<SettingsSwitchRow
-				checked={botOn}
-				description={t("botRules.enableDesc")}
-				icon={<Bot />}
-				id="setting-bot-enabled"
-				label={t("botRules.enable")}
-				onCheckedChange={next => void setBotOn(next)}
-			/>
-			{botOn && botPath && <BotNameRow path={botPath} />}
-		</SettingsSection>
+		<>
+			<SettingsSection id="settings-bot-on">
+				<SettingsSwitchRow
+					checked={botOn}
+					description={t("botRules.enableDesc")}
+					icon={<Bot />}
+					id="setting-bot-enabled"
+					label={t("botRules.enable")}
+					onCheckedChange={next => void setBotOn(next)}
+				/>
+				{botOn && botPath && <BotNameRow path={botPath} />}
+			</SettingsSection>
+			{botOn && <BotIdentitySettings />}
+		</>
 	);
 
 	if (!rules) {

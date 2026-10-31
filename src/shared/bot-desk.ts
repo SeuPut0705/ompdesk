@@ -25,8 +25,9 @@ export const BOT_MEMORIES_MAX = 50;
 export const BOT_MEMORY_TEXT_MAX = 300;
 export const BOT_TAGLINE_MAX = 80;
 export const BOT_PERSONA_MAX = 1500;
-/** A picture avatar as a data URL (`components/bot/avatar-image.ts` draws it at 128 px). */
+/** A picture avatar as a data URL: the centre square drawn at `BOT_AVATAR_PX`. */
 export const BOT_AVATAR_URL_MAX = 120_000;
+export const BOT_AVATAR_PX = 128;
 export const BOT_CHANNELS_MAX = 12;
 export const BOT_CHANNEL_TITLE_MAX = 80;
 /** Named inputs a decision may carry with its operation. */

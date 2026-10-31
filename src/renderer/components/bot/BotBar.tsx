@@ -5,7 +5,7 @@
  * turn runs (the running call's own words), the model's wait, or "Thinking"; for a paired host's bot the link's state
  * comes first while it is not online ("Reconnecting to Mac mini…", "Can't reach Mac mini"). Idle, the line is not drawn.
  */
-import { Bot, Pause, Play, Square } from "lucide-react";
+import { Pause, Play, Square } from "lucide-react";
 import { useMemo } from "react";
 import { formatClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -22,6 +22,7 @@ import { useTodoStore } from "../../stores/todo";
 import { useToolsStore } from "../../stores/tools";
 import { Badge, type BadgeVariant, Button, IconButton, LinkButton } from "../common";
 import { getToolHeader } from "../tools/index";
+import { BotAvatar } from "./BotAvatar";
 import { BOT_BAR_FRAME } from "./bot-bar-frame";
 import { type BotState, botState, botStateKey, nextWake, tabBotFacts } from "./bot-status";
 
@@ -53,12 +54,12 @@ function useCurrentStep(working: boolean): string | null {
 	}, [working, turnActive, live, modelWait, t]);
 }
 
-export function BotBar({ tabId, device }: { tabId: string; device?: string }) {
+export function BotBar({ tabId, device, channel }: { tabId: string; device?: string; channel?: string }) {
 	const t = useT();
 	const rpc = useTabRpc();
 	const tab = useTabsStore(state => state.tabs.find(entry => entry.id === tabId));
 	const { desk, loaded } = useBotDesk(device);
-	const { routines } = desk;
+	const { routines, identity } = desk;
 	const paused = desk.paused === true;
 	const edit = useBotDeskStore(store => store.edit);
 	const setPaused = (next: boolean) => void edit({ op: "paused", paused: next }, device);
@@ -93,15 +94,24 @@ export function BotBar({ tabId, device }: { tabId: string; device?: string }) {
 	return (
 		<header className={BOT_BAR_FRAME.outer} data-bot-bar="">
 			<div className={BOT_BAR_FRAME.inner}>
-				<span
-					aria-hidden
-					className="flex size-7 shrink-0 items-center justify-center rounded-(--sc-radius-md) bg-(--sc-accent-soft) text-(--sc-accent-on-soft)"
-				>
-					<Bot className="size-4" />
-				</span>
+				<BotAvatar avatar={identity.avatar} size="md" />
 				<h2 className="min-w-0 shrink truncate text-sc-md font-semibold text-(--sc-text)" data-bot-name>
 					{name}
 				</h2>
+				{identity.tagline && (
+					<span
+						className="hidden min-w-0 shrink-[2] truncate text-sc-sm text-(--sc-text-muted) sm:inline"
+						data-bot-tagline
+						title={identity.tagline}
+					>
+						{identity.tagline}
+					</span>
+				)}
+				{channel !== undefined && (
+					<Badge variant="muted">
+						<span data-bot-channel-badge>{t("botChannels.badge")}</span>
+					</Badge>
+				)}
 				<Badge dot pulse={badge.live} variant={badge.variant}>
 					<span data-bot-state={state}>{t(botStateKey(state))}</span>
 				</Badge>

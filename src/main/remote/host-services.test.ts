@@ -3491,7 +3491,13 @@ describe("LocalHostServices host.* calls", () => {
 			setDuties: payload => desk.setDuties(payload),
 			edit: edit =>
 				editBotDesk(
-					{ desk, activity, createSideChat: async () => "/s/side.jsonl", deleteSession: async () => {} },
+					{
+						desk,
+						activity,
+						createSideChat: async () => "/s/side.jsonl",
+						deleteSession: async () => {},
+						askBot: async () => {},
+					},
 					edit,
 					"owner",
 				),

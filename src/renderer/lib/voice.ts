@@ -17,9 +17,12 @@
  * the TUI vocalizer chains utterances, the GUI keeps the transport simple).
  */
 import type { SynthesizeSpeechResult, TranscribeAudioResult } from "../../shared/rpc-types";
+import { useBotStore } from "../stores/bot";
+import { useBotDeskStore } from "../stores/bot-desk";
 import { useMessagesStore } from "../stores/messages";
 import { useSessionStore } from "../stores/session";
 import { useSettingsStore } from "../stores/settings";
+import { useTabsStore } from "../stores/tabs";
 import { toastError } from "../stores/toast";
 import { translate } from "./i18n";
 import { messageText } from "./messages";
@@ -354,6 +357,20 @@ export function speakText(text: string): void {
 // `speech.enabled` (synced store) and `speech.mode` (read at decision time).
 // ---------------------------------------------------------------------------
 
+/** True when this window's active tab is the bot (or a side chat of it) and its desk wants replies read aloud. */
+function activeTabIsSpokenBot(): boolean {
+	if (typeof document !== "undefined" && document.visibilityState === "hidden") return false;
+	const { tabs, activeTabId } = useTabsStore.getState();
+	const tab = tabs.find(candidate => candidate.id === activeTabId);
+	if (!tab?.sessionPath) return false;
+	const entry = useBotDeskStore.getState().desks[tab.device ?? "local"];
+	if (!entry?.desk.voice.speakReplies) return false;
+	if (entry.desk.channels.some(channel => channel.sessionPath === tab.sessionPath)) return true;
+	if (tab.device !== undefined) return false;
+	const bot = useBotStore.getState();
+	return bot.enabled && bot.path === tab.sessionPath;
+}
+
 /**
  * Subscribe to the messages store and speak new finalized output while
  * `speech.enabled` is on (TUI event-controller parity):
@@ -405,8 +422,12 @@ export function startVoiceAutoSpeak(): () => void {
 		const pending = lastRunAssistantText;
 		lastRunAssistantText = null;
 		if (!pending) return;
+		if (!useSettingsStore.getState().speechEnabled) {
+			// speech.enabled is off: the bot's own tab still reads its reply when the desk asks for it.
+			if (activeTabIsSpokenBot()) speakText(pending);
+			return;
+		}
 		void (async () => {
-			if (!useSettingsStore.getState().speechEnabled) return;
 			if ((await readSetting("speech.mode")) !== "yield") return;
 			speakText(pending);
 		})();

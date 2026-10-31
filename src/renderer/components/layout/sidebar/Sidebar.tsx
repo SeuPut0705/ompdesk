@@ -112,6 +112,7 @@ import { type SessionTab, useTabsStore } from "../../../stores/tabs";
 import { toast, toastError } from "../../../stores/toast";
 import { type PageDestination, type PanelTab, useUiStore } from "../../../stores/ui";
 import { startInstall, useInstallOffered } from "../../../web/install-ui";
+import { BotAvatar } from "../../bot/BotAvatar";
 import { BotDecisionsBadge } from "../../bot/BotDecisionsBadge";
 import { botState, botStateKey, nextWake, tabBotFacts } from "../../bot/bot-status";
 import {
@@ -843,8 +844,10 @@ export function Sidebar() {
 			],
 			recordedOpeners,
 		);
+		// Its side chats nest there too: they are the bot's own conversations, not plain chats.
+		const channels = new Set(botDesk.channels.map(channel => channel.sessionPath));
 		const sessions = baseRows.sessions
-			.filter(session => family.get(session.path) === botPath)
+			.filter(session => family.get(session.path) === botPath || channels.has(session.path))
 			.toSorted((a, b) => (a.created < b.created ? -1 : a.created > b.created ? 1 : a.path < b.path ? -1 : 1));
 		if (sessions.length === 0) return none;
 		const keys = new Set(sessions.flatMap(kid => [kid.path, kid.id, ...(kid.liveTabId ? [kid.liveTabId] : [])]));
@@ -852,7 +855,7 @@ export function Sidebar() {
 			if ((tab.sessionPath && keys.has(tab.sessionPath)) || (tab.sessionId && keys.has(tab.sessionId)))
 				keys.add(tab.id);
 		return { sessions, keys };
-	}, [botPath, rowTabs, baseRows, recordedOpeners]);
+	}, [botPath, rowTabs, baseRows, recordedOpeners, botDesk.channels]);
 	const rows = useMemo(
 		() => (botKids.keys.size === 0 ? baseRows : sidebarRows({ ...rowFacts, nested: botKids.keys })),
 		[baseRows, botKids, rowFacts],
@@ -1763,7 +1766,7 @@ export function Sidebar() {
 		const marker: ReactNode = done ? (
 			<Check aria-hidden className="size-(--sc-icon-sm) text-(--sc-success)" data-sidebar-done />
 		) : bot ? (
-			<Bot aria-label={t("sidebar.botBadge")} className="size-(--sc-icon-sm) text-(--sc-accent)" data-sidebar-bot />
+			<BotAvatar avatar={botDesk.identity.avatar} data-sidebar-bot label={t("sidebar.botBadge")} size="inline" />
 		) : session.kind === "chat" ? (
 			<MessageCircle aria-hidden className="size-(--sc-icon-sm)" data-sidebar-session-icon />
 		) : pinned ? (

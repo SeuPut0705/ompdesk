@@ -75,13 +75,14 @@ export const BotDeskEditSchema = z.discriminatedUnion("op", [
 		.strict(),
 	/** Pin a Library item to its top, or unpin it (its Undo); `key` is the item's own (`components/bot/bot-library.ts`). */
 	z.object({ op: z.literal("library_pin"), key: z.string().min(1).max(4096), pinned: z.boolean() }).strict(),
+	/** Asks the bot to make itself an avatar from the owner's words (`generate_image`, then `ompdesk_bot identity`). */
+	z.object({ op: z.literal("avatar_generate"), description: z.string().trim().min(1).max(500) }).strict(),
 	/** Replays the inverse an activity entry carries (`BotActivity.undo`). */
 	z.object({ op: z.literal("undo"), activity: id }).strict(),
 ]);
 export type BotDeskEdit = z.infer<typeof BotDeskEditSchema>;
 
-/** The ops whose change the desk itself makes (no session to create or delete, no activity to look up). */
-export type BotDeskChange = Exclude<BotDeskEdit, { op: "channel_add" | "channel_remove" | "undo" }>;
+export type BotDeskChange = Exclude<BotDeskEdit, { op: "channel_add" | "channel_remove" | "undo" | "avatar_generate" }>;
 
 /** A memory file the owner exports (Memory.md): one memory per bullet, oldest first. */
 export function botMemoryMarkdown(memories: readonly BotMemory[], name: string): string {

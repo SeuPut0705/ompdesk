@@ -624,6 +624,30 @@ export class AgentControlRuntime {
 	}
 
 	/**
+	 * The owner asks the bot for something from the app rather than its chat (Settings › Bot's "Generate" avatar): the
+	 * request reaches the bot like an answered decision, a message that starts its turn through the outbox, opening a
+	 * closed bot in the background. Refused while the bot is off.
+	 */
+	async botAsked(id: string, text: string): Promise<void> {
+		const sessionPath = activeBotPath(key => this.#deps.prefs.get(key));
+		if (!sessionPath) throw new Error("The bot is off (Settings › Bot)");
+		await this.#reach(
+			sessionPath,
+			{
+				id: `bot-ask-${id}`,
+				from: "ompdesk",
+				fromTitle: "The owner, from Settings",
+				to: "",
+				kind: "note",
+				text,
+				instruction: "The owner asked this from the app: do it now, then tell them in one line.",
+				at: Date.now(),
+			},
+			{ triggerTurn: true, deliverAs: "aside" },
+		);
+	}
+
+	/**
 	 * The owner showed the bot a workflow (`bot-teach.ts`): the record reaches it as a message that starts its turn,
 	 * through the outbox like a decision's answer. Unlike that one it rejects when the bot is off or cannot be reached
 	 * at all (no window to open it in), so Stop tells the owner and can be pressed again.

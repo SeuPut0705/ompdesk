@@ -10,13 +10,24 @@
 import { type ReactNode, useEffect, useMemo } from "react";
 import { useStore } from "zustand";
 import { ensureBotPath, useBotStore } from "../../stores/bot";
-import { ensureBotDesk } from "../../stores/bot-desk";
+import { ensureBotDesk, useBotDesk } from "../../stores/bot-desk";
 import { sessionListFeed } from "../../stores/session-list";
 import type { SessionTab } from "../../stores/tabs";
 import { BOT_BAR_FRAME } from "./bot-bar-frame";
 import { BotTabContext, useBotDeskModule, usePreloadBotDesk } from "./bot-tab";
 
-function BotScreen({ tabId, device, children }: { tabId: string; device?: string; children: ReactNode }) {
+function BotScreen({
+	tabId,
+	device,
+	channel,
+	children,
+}: {
+	tabId: string;
+	device?: string;
+	/** The side chat's topic, when the tab holds one. */
+	channel?: string;
+	children: ReactNode;
+}) {
 	const desk = useBotDeskModule(true);
 	const bot = useMemo(() => (device === undefined ? { tabId } : { tabId, device }), [tabId, device]);
 	// This computer's desk is read by the sidebar at launch; a host's is read here (its sidebar section reads it too for
@@ -27,7 +38,7 @@ function BotScreen({ tabId, device, children }: { tabId: string; device?: string
 	return (
 		<BotTabContext.Provider value={bot}>
 			{desk ? (
-				<desk.BotBar device={device} tabId={tabId} />
+				<desk.BotBar {...(channel === undefined ? {} : { channel })} device={device} tabId={tabId} />
 			) : (
 				<div aria-hidden className={BOT_BAR_FRAME.outer} data-bot-bar="">
 					<div className={BOT_BAR_FRAME.inner} />
@@ -49,9 +60,14 @@ function LocalBotPane({ tab, children }: { tab: SessionTab; children: ReactNode 
 		ensureBotDesk();
 	}, []);
 	const path = useBotStore(state => state.path);
+	// A side chat (`BotChannel`) is the bot's too: the same bar, decisions and board, its topic on the bar.
+	const channel = useBotDesk().desk.channels.find(entry => entry.sessionPath === tab.sessionPath);
+	const isBot = enabled && path !== null && (tab.sessionPath === path || channel !== undefined);
 	usePreloadBotDesk(enabled);
-	return enabled && path !== null && tab.sessionPath === path ? (
-		<BotScreen tabId={tab.id}>{children}</BotScreen>
+	return isBot ? (
+		<BotScreen {...(channel ? { channel: channel.title } : {})} tabId={tab.id}>
+			{children}
+		</BotScreen>
 	) : (
 		children
 	);
@@ -66,9 +82,10 @@ function HostBotPane({ tab, device, children }: { tab: SessionTab; device: strin
 	const isBot = useStore(feed.store, state =>
 		state.sessions.some(row => row.path === tab.sessionPath && row.bot === "on"),
 	);
-	usePreloadBotDesk(isBot);
-	return isBot ? (
-		<BotScreen device={device} tabId={tab.id}>
+	const channel = useBotDesk(device).desk.channels.find(entry => entry.sessionPath === tab.sessionPath);
+	usePreloadBotDesk(isBot || channel !== undefined);
+	return isBot || channel ? (
+		<BotScreen {...(channel ? { channel: channel.title } : {})} device={device} tabId={tab.id}>
 			{children}
 		</BotScreen>
 	) : (

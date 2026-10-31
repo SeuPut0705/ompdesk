@@ -9,6 +9,7 @@
  * (`remote_path_native`): this machine cannot see that disk.
  */
 
+import { randomUUID } from "node:crypto";
 import { existsSync, promises as fsp } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -525,7 +526,13 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				sessionPath,
 				device,
 				async () => {
-					if (!device) return sessionIndex.deleteSession(sessionPath);
+					if (!device) {
+						await sessionIndex.deleteSession(sessionPath);
+						// A side chat deleted from the sidebar leaves the bot's desk with it.
+						const channel = deps.botDesk.channelOf(sessionPath);
+						if (channel) deps.botDesk.removeChannel(channel.id, "owner");
+						return;
+					}
 					await remoteDevices.request(device, "sessions.delete", { sessionPath });
 					// The deleter reads the list next: from the host, not this computer's copy from before.
 					remoteDevices.hostSessionsStale(device);
@@ -1588,6 +1595,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				activity: deps.botActivity,
 				createSideChat: topic => deps.botHome.createSideChat(topic),
 				deleteSession: sessionPath => deleteStoredSession(sessionPath, undefined),
+				askBot: text => agentControl.botAsked(randomUUID(), text),
 			},
 			edit,
 			"owner",

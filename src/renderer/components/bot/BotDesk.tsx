@@ -5,11 +5,16 @@
  */
 import { formatClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { botDisplayName } from "../../lib/session-title";
 import { useBotDesk } from "../../stores/bot-desk";
+import { useSessionStore } from "../../stores/session";
 import { SkeletonRows } from "../common";
 import { BoardSection } from "../layout/work-board/board-parts";
+import { BotActivityRows } from "./BotActivity";
+import { BotChannelRows } from "./BotChannels";
 import { BotDutyRows } from "./BotDuties";
 import { BotLibrarySection } from "./BotLibrary";
+import { BotMemoryActions, BotMemoryRows } from "./BotMemory";
 import { BotRoutineRows } from "./BotRoutines";
 import { BotTasksSection } from "./BotTasks";
 import { BotTeachControl } from "./BotTeach";
@@ -17,6 +22,7 @@ import { nextWake } from "./bot-status";
 
 export { BotBar } from "./BotBar";
 export { BotDecisionDock } from "./BotDecisions";
+export { AssistantText } from "./BotSources";
 
 /**
  * The bot's sections of its work board, after Needs you (as an Autopilot run's are): its standing duties (what it keeps
@@ -28,6 +34,9 @@ export function BotBoardSections({ tabId, device }: { tabId: string; device?: st
 	const { desk, loaded } = useBotDesk(device);
 	const wake = nextWake(desk.routines);
 	const firstRoutine = (wake ? desk.routines.find(entry => entry.next === wake) : undefined) ?? desk.routines[0];
+	// The tab's own omp holds the bot's name (its session's title); Memory.md is headed by it.
+	const sessionName = useSessionStore(state => state.sessionName);
+	const name = botDisplayName({ title: sessionName ?? "" }, t("sidebar.botBadge"));
 	return (
 		<>
 			<BoardSection
@@ -80,6 +89,38 @@ export function BotBoardSections({ tabId, device }: { tabId: string; device?: st
 				)}
 			</BoardSection>
 			<BotLibrarySection device={device} pins={desk.libraryPins} tabId={tabId} />
+			<BoardSection
+				action={<BotMemoryActions device={device} memories={desk.memories} name={name} />}
+				count={desk.memories.length > 0 ? desk.memories.length : undefined}
+				id="memory"
+				summary={{
+					lead: desk.memories.at(-1)?.text ?? t("botMemory.none"),
+					count: desk.memories.length > 0 ? desk.memories.length : undefined,
+				}}
+				title={t("botMemory.title")}
+			>
+				{loaded ? (
+					<BotMemoryRows device={device} memories={desk.memories} />
+				) : (
+					<li>
+						<SkeletonRows label={t("botHome.loading")} widths={[60, 45]} />
+					</li>
+				)}
+			</BoardSection>
+			<BoardSection
+				count={desk.channels.length > 0 ? desk.channels.length : undefined}
+				id="channels"
+				summary={{
+					lead: desk.channels[0]?.title ?? t("botChannels.none"),
+					count: desk.channels.length > 0 ? desk.channels.length : undefined,
+				}}
+				title={t("botChannels.title")}
+			>
+				{loaded && <BotChannelRows channels={desk.channels} device={device} />}
+			</BoardSection>
+			<BoardSection id="activity" summary={{ lead: t("botActivity.title") }} title={t("botActivity.title")}>
+				<BotActivityRows channels={desk.channels} device={device} />
+			</BoardSection>
 		</>
 	);
 }

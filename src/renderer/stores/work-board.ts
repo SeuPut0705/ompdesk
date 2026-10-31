@@ -11,6 +11,9 @@ export type WorkBoardSectionId =
 	| "tasks"
 	| "routines"
 	| "library"
+	| "memory"
+	| "channels"
+	| "activity"
 	| "review"
 	| "now"
 	| "plan"
@@ -28,6 +31,9 @@ const SECTION_IDS: readonly WorkBoardSectionId[] = [
 	"tasks",
 	"routines",
 	"library",
+	"memory",
+	"channels",
+	"activity",
 	"review",
 	"now",
 	"plan",
