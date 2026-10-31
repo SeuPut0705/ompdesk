@@ -84,19 +84,6 @@ export async function fixtureOmp(dir: string): Promise<string> {
 	return bin;
 }
 
-/**
- * The session file main keeps as the bot's (pref `bot`, `agent-control/bot-home.ts`): every launch with a usable omp has
- * one from its first seconds, so a spec that counts the session files on disk leaves it out. Undefined until main made it.
- */
-export async function botSessionFile(desktop: string): Promise<string | undefined> {
-	try {
-		const prefs = JSON.parse(await readFile(path.join(desktop, "prefs.json"), "utf8")) as { bot?: unknown };
-		return typeof prefs.bot === "string" && prefs.bot.length > 0 ? prefs.bot : undefined;
-	} catch {
-		return undefined;
-	}
-}
-
 /** Where one launch of the built app lives: every path is the test's own (a `mkdtemp` profile). */
 export interface LaunchOptions {
 	/** The folder the app opens. */

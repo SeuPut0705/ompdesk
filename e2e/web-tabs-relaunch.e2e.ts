@@ -19,10 +19,9 @@ import type { IpcSpawnTabResult, IpcTabInfo } from "../src/shared/ipc-types";
 import { IPC_COMMANDS } from "../src/shared/ipc-types";
 import type { RpcResponse } from "../src/shared/rpc-types";
 import { type FixtureTailscale, fixtureTailscale } from "./fixture/fake-tailscale-install";
-import { botSessionFile, exitApp, fixtureOmp } from "./harness";
+import { exitApp, fixtureOmp } from "./harness";
 
-/** The sidebar's session rows without the bot's fixed row (agent-control/bot-home.ts). */
-const SESSION_ROWS = ".omp-session-sidebar .omp-sidebar-session-row[data-session-path]:not([data-sidebar-bot-row])";
+const SESSION_ROWS = ".omp-session-sidebar .omp-sidebar-session-row[data-session-path]";
 interface Profile {
 	root: string;
 	desktop: string;
@@ -222,11 +221,7 @@ async function pair(target: Site): Promise<string> {
 async function sessionFiles(profile: Profile): Promise<string[]> {
 	const root = path.join(profile.agent, "sessions");
 	const names = await fs.readdir(root, { recursive: true }).catch(() => []);
-	const bot = await botSessionFile(profile.desktop);
-	return names
-		.filter(name => name.endsWith(".jsonl"))
-		.map(name => path.join(root, name))
-		.filter(file => file !== bot);
+	return names.filter(name => name.endsWith(".jsonl")).map(name => path.join(root, name));
 }
 
 async function savedWebLayouts(profile: Profile): Promise<Record<string, { tabs: Array<{ sessionPath?: string }> }>> {

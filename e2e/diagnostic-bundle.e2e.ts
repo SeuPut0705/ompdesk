@@ -53,7 +53,7 @@ test("the session row menu saves a diagnostic bundle, anonymized with Alt", asyn
 				dialog.showSaveDialog = (async () => ({ canceled: false, filePath: file })) as typeof dialog.showSaveDialog;
 			}, target);
 		const openMenu = async () => {
-			await page.locator(".omp-sidebar-session-row:not([data-sidebar-bot-row])").first().click({ button: "right" });
+			await page.locator(".omp-sidebar-session-row").first().click({ button: "right" });
 			await expect(page.getByRole("menu")).toBeVisible();
 		};
 

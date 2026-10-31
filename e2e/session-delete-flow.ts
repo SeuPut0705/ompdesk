@@ -13,7 +13,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { botSessionFile, cssString, exitApp } from "./harness";
+import { cssString, exitApp } from "./harness";
 
 export interface DeleteProfile {
 	desktop: string;
@@ -32,7 +32,7 @@ interface Seeded {
 	file: string;
 }
 
-const rowsText = (page: Page) => page.locator(".omp-sidebar-session-row:not([data-sidebar-bot-row])").allTextContents();
+const rowsText = (page: Page) => page.locator(".omp-sidebar-session-row").allTextContents();
 const tabs = (page: Page) => page.evaluate(() => window.omp.tabs.list());
 const tabPaths = async (page: Page) => (await tabs(page)).map(tab => tab.sessionPath ?? null);
 /** The rows of the projects' groups: chats follow them in the same list, in their own section. */
@@ -40,11 +40,10 @@ const codeRowsText = (page: Page) => page.locator("[data-session-group] .omp-sid
 const rowOf = (page: Page, session: Seeded) =>
 	page.locator(`.omp-sidebar-session-row[data-session-path=${cssString(session.file)}]`);
 
-/** The session files under `dir`, relative, without the bot's own (`botSessionFile`: every profile has one). */
-async function sessionFiles(dir: string, desktop: string): Promise<string[]> {
+/** The session files under `dir`, relative. */
+async function sessionFiles(dir: string): Promise<string[]> {
 	const entries = await fs.readdir(dir, { recursive: true }).catch(() => []);
-	const bot = await botSessionFile(desktop);
-	return entries.filter(name => name.endsWith(".jsonl") && path.join(dir, name) !== bot).sort();
+	return entries.filter(name => name.endsWith(".jsonl")).sort();
 }
 
 async function expectGone(page: Page, session: Seeded): Promise<void> {
@@ -218,7 +217,7 @@ export async function deleteSessionsEndToEnd(profile: DeleteProfile, seedSession
 
 		for (const session of deleted) await expect(fs.access(session.file)).rejects.toThrow();
 		// No session file at all: none replaced a deleted one, header-only or otherwise.
-		await expect.poll(() => sessionFiles(sessionsRoot, desktop)).toEqual([]);
+		await expect.poll(() => sessionFiles(sessionsRoot)).toEqual([]);
 		// The saved layout names none of them, so a relaunch cannot bring one back under a tab.
 		await expect
 			.poll(async () => {
@@ -261,7 +260,7 @@ export async function deleteSessionsEndToEnd(profile: DeleteProfile, seedSession
 			.toEqual([{ placeholder: true }]);
 		await expect.poll(async () => (await rowsText(again)).length).toBe(0);
 		for (const session of deleted) await expect(fs.access(session.file)).rejects.toThrow();
-		expect(await sessionFiles(sessionsRoot, desktop)).toEqual([]);
+		expect(await sessionFiles(sessionsRoot)).toEqual([]);
 		await again.screenshot({ path: test.info().outputPath("relaunch.png"), animations: "disabled", scale: "css" });
 	} finally {
 		if (app) await exitApp(app);

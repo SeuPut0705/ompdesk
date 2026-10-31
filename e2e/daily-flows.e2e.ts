@@ -31,7 +31,6 @@ import {
 import { fixtureTailscale } from "./fixture/fake-tailscale-install";
 import { ServeProxy, serveSites } from "./fixture/phone-serve";
 import {
-	botSessionFile,
 	controlToolCaller,
 	cssString,
 	exitApp,
@@ -52,9 +51,7 @@ import {
 } from "./remote-harness";
 import { expectNoRuntimeErrors } from "./runtime-errors";
 
-/** The sidebar's session rows without the bot's fixed row, which every profile has (agent-control/bot-home.ts). */
-const SIDEBAR_SESSION_ROWS =
-	".omp-session-sidebar .omp-sidebar-session-row[data-session-path]:not([data-sidebar-bot-row])";
+const SIDEBAR_SESSION_ROWS = ".omp-session-sidebar .omp-sidebar-session-row[data-session-path]";
 
 // The phone page (flow d) answers through a host round trip; the default 10 s per action is tight there.
 test.use({ actionTimeout: 30_000 });
@@ -126,11 +123,7 @@ async function flowAMarkers(profile: FlowAProfile): Promise<Array<{ reason: stri
 async function flowASessionFiles(profile: FlowAProfile): Promise<string[]> {
 	const root = path.join(profile.agent, "sessions");
 	const names = await fs.readdir(root, { recursive: true }).catch(() => []);
-	const bot = await botSessionFile(profile.desktop);
-	return names
-		.filter(name => name.endsWith(".jsonl"))
-		.map(name => path.join(root, name))
-		.filter(file => file !== bot);
+	return names.filter(name => name.endsWith(".jsonl")).map(name => path.join(root, name));
 }
 
 async function flowALayoutHasSession(profile: FlowAProfile): Promise<boolean> {
@@ -1026,7 +1019,7 @@ test("daily flow e: deleting sessions out of a 3-pane split keeps the split sane
 	try {
 		let page = launched.page;
 		const paneCount = () => page.locator(".omp-session-pane");
-		const rowTitles = () => page.locator(".omp-sidebar-session-row:not([data-sidebar-bot-row])").allTextContents();
+		const rowTitles = () => page.locator(".omp-sidebar-session-row").allTextContents();
 		const sessionRowCount = async () => (await rowTitles()).length;
 
 		await test.step("three saved sessions", async () => {
@@ -1133,9 +1126,8 @@ test("daily flow e: deleting sessions out of a 3-pane split keeps the split sane
 			const tabs = await flowETabs(page);
 			expect(tabs.length).toBeLessThanOrEqual(1);
 			await expect(paneCount()).toHaveCount(1);
-			const bot = await botSessionFile(desktop);
-			const files = (await fs.readdir(path.join(root, "agent", "sessions"), { recursive: true })).filter(
-				name => name.endsWith(".jsonl") && path.join(root, "agent", "sessions", name) !== bot,
+			const files = (await fs.readdir(path.join(root, "agent", "sessions"), { recursive: true })).filter(name =>
+				name.endsWith(".jsonl"),
 			);
 			expect(files).toHaveLength(1);
 			expect(launched.errors).toEqual([]);
