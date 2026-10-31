@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.90.0] - 2026-10-31
+
+봇을 열면 홈이 먼저 보여요. 봇이 내게 물어볼 결정, 계속 맡은 일, 봇이 연 세션, 다음에 깨어날 시각을 한눈에 볼 수 있어요.
+
+### 새로 생긴 것
+- 봇 홈: 봇을 열면 대화 대신 홈이 먼저 나오고, 위쪽 스위치로 대화와 오가요. 홈 머리말에 봇의 상태(쉬는 중, 일하는 중, 확인을 기다려요, 잠들어 있어요), 다음 깨어남, 실행 중인 컴퓨터가 보여요.
+- 결정 받은함: 봇이 내가 정해야 할 일을 올려도 봇은 멈추지 않고 하던 일을 계속해요. 결정은 홈에 카드로 쌓이고 사이드바 봇 줄에 개수가 떠요. 선택지를 누르거나 직접 써서 답하면 그 답이 봇에게 전해져 이어서 일해요.
+- 상시 업무: "매일 아침 빌드 확인" 같은 계속 맡는 일을 홈에서 적어 두거나, 봇에게 맡기면 봇이 직접 적어요. 대화를 새로 시작하거나 대화가 요약돼도 봇이 매번 이 목록을 보고 일해요.
+- 봇 이름: 설정 › 봇에서 이름을 정하고 바꿀 수 있어요. 사이드바와 연결된 컴퓨터에도 그 이름으로 보이고, 봇도 그 이름으로 불러요.
+- 사이드바의 봇 줄은 강조색으로 일반 세션과 구분돼요.
+- 에이전트가 연결된 컴퓨터의 저장 세션을 볼 때, 그 컴퓨터 앱의 탭에 열려 있는 세션에 "열려 있음" 표시가 붙어요.
+
+<!-- en -->
+
+The bot opens on a home: the decisions it needs from you, its standing duties, the sessions it opened and its next wake, at a glance.
+
+### New
+- Bot home: the bot opens on its home instead of the conversation, with a switch at the top to go between them. The header shows its state (idle, working, waiting for you, asleep), its next wake and the computer it runs on.
+- Decision inbox: when the bot needs you to decide something it posts the decision and keeps working. Decisions stack up as cards on its home, and its sidebar row shows how many. Pick an option or answer in your own words, and the bot gets your answer and carries on.
+- Standing duties: write down ongoing responsibilities such as "check the nightly build every morning" on its home, or hand one to the bot and it records it. The bot works from this list every turn, even after a new conversation or a compaction.
+- Bot name: set and change the bot's name in Settings › Bot. The sidebar and paired computers show it, and the bot answers to it.
+- The bot's sidebar row is accent-tinted, apart from plain sessions.
+- When an agent lists a paired computer's saved sessions, the ones open in a tab of that computer's app are marked as open there.
+
 ## [0.89.1] - 2026-10-31
 
 봇은 이제 자기가 연 세션의 질문에만 답해요. 내가 직접 돌리는 세션의 질문은 예전처럼 나에게 와요.
