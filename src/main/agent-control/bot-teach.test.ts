@@ -9,8 +9,6 @@ import {
 	BotTeach,
 	type BotTeachDeps,
 	gitCommits,
-	TEACH_HIDDEN_AT_PROMPT,
-	TEACH_HIDDEN_NO_ECHO,
 	TEACH_INSTRUCTION,
 	TEACH_LINE_CHARS,
 	TEACH_MAX_COMMITS,
@@ -20,9 +18,8 @@ import {
 	TEACH_PROMPT_CHARS,
 	type TeachMail,
 	type TeachTab,
-	typedLines,
-	visibleOutput,
 } from "./bot-teach";
+import { CAPTURE_HIDDEN_AT_PROMPT, CAPTURE_HIDDEN_NO_ECHO, typedLines, visibleOutput } from "./terminal-capture";
 
 const BOT_FILE = "/s/bot.jsonl";
 const START = Date.parse("2026-11-01T09:00:00Z");
@@ -390,7 +387,7 @@ describe("keeping secrets out of the record", () => {
 		const text = await recordOf(teach, delivered);
 		expect(text).not.toContain("hunter2");
 		expect(text).not.toContain("correct horse");
-		expect(text.split(TEACH_HIDDEN_AT_PROMPT)).toHaveLength(3);
+		expect(text.split(CAPTURE_HIDDEN_AT_PROMPT)).toHaveLength(3);
 	});
 
 	it("hides what is typed at a prompt that asks for a secret even when the terminal echoes it", async () => {
@@ -401,7 +398,7 @@ describe("keeping secrets out of the record", () => {
 		fix.type("493817\r");
 		const text = await recordOf(teach, delivered);
 		expect(text).not.toContain("493817");
-		expect(text).toContain(`terminal: ${TEACH_HIDDEN_AT_PROMPT}`);
+		expect(text).toContain(`terminal: ${CAPTURE_HIDDEN_AT_PROMPT}`);
 	});
 
 	it("hides a line the terminal never echoed even when no prompt text says why", async () => {
@@ -413,7 +410,7 @@ describe("keeping secrets out of the record", () => {
 		fix.print("\r\n");
 		const text = await recordOf(teach, delivered);
 		expect(text).not.toContain("s3cretvalue");
-		expect(text).toContain(`terminal: ${TEACH_HIDDEN_NO_ECHO}`);
+		expect(text).toContain(`terminal: ${CAPTURE_HIDDEN_NO_ECHO}`);
 	});
 
 	it("hides a finished line whose echo has not been seen by the time Stop is pressed, and shows it once the echo arrives", async () => {
@@ -429,7 +426,7 @@ describe("keeping secrets out of the record", () => {
 		const text = await recordOf(teach, delivered);
 		expect(text).not.toContain("s3cretvalue");
 		expect(text).not.toContain("make build");
-		expect(text.split(TEACH_HIDDEN_NO_ECHO)).toHaveLength(3);
+		expect(text.split(CAPTURE_HIDDEN_NO_ECHO)).toHaveLength(3);
 
 		const second = rig();
 		second.teach.start();
@@ -529,7 +526,7 @@ describe("keeping secrets out of the record", () => {
 		fix.reprint("$ echo hunter2\r\nhunter2\r\n> ", shown);
 		fix.print("\r\n");
 		const text = await recordOf(teach, delivered);
-		expect(text).toContain(`terminal: ${TEACH_HIDDEN_NO_ECHO}`);
+		expect(text).toContain(`terminal: ${CAPTURE_HIDDEN_NO_ECHO}`);
 		expect(text).not.toContain("terminal: hunter2");
 	});
 
