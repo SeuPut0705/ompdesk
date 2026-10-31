@@ -6,8 +6,15 @@
  * Answering and editing the duties go through main and come back as a change: the decision leaves, the list moves,
  * only when main says so.
  */
+import { useEffect, useMemo, useState } from "react";
 import { create } from "zustand";
-import { type BotDeskDuties, type BotDeskState, EMPTY_BOT_DESK } from "../../shared/bot-desk";
+import {
+	type BotDecision,
+	type BotDeskDuties,
+	type BotDeskState,
+	EMPTY_BOT_DESK,
+	openBotDecisions,
+} from "../../shared/bot-desk";
 import type { BotDeskEdit } from "../../shared/bot-desk-edit";
 import { translate } from "../lib/i18n";
 import { toastError } from "./toast";
@@ -123,6 +130,32 @@ export const useBotDeskStore = create<BotDeskStore>()((set, get) => ({
 /** The desk of this computer (no `device`) or of a paired host; an empty one until the first read lands. */
 export function useBotDesk(device?: string): BotDeskEntry {
 	return useBotDeskStore(state => state.desks[keyOf(device)] ?? NO_DESK);
+}
+
+/**
+ * The time to judge decisions' expiry by: it moves when the soonest open decision's `expiresAt` passes, so whatever
+ * reads it (the dock, the rows' counts, Completed) re-renders then, not at the next unrelated change.
+ */
+export function useDecisionClock(desk: Pick<BotDeskState, "decisions">): number {
+	const [now, setNow] = useState(() => Date.now());
+	const next = desk.decisions.reduce<number | null>((soonest, decision) => {
+		if (decision.state !== "open" || decision.expiresAt === undefined) return soonest;
+		const at = Date.parse(decision.expiresAt);
+		return at > now && (soonest === null || at < soonest) ? at : soonest;
+	}, null);
+	useEffect(() => {
+		if (next === null) return;
+		const timer = window.setTimeout(() => setNow(Date.now()), Math.max(0, next - Date.now()) + 50);
+		return () => window.clearTimeout(timer);
+	}, [next]);
+	return now;
+}
+
+/** The decisions still waiting on the owner, as of now (`useDecisionClock`). */
+export function useOpenBotDecisions(device?: string): BotDecision[] {
+	const { desk } = useBotDesk(device);
+	const now = useDecisionClock(desk);
+	return useMemo(() => openBotDecisions(desk, now), [desk, now]);
 }
 
 /** Read a computer's desk once and follow every computer's changes; a missing bridge (tests) is skipped. */

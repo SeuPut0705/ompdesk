@@ -31,7 +31,6 @@ import {
 import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { reviewUnmerged } from "../../../../shared/agent-control";
-import { openBotDecisions } from "../../../../shared/bot-desk";
 import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
 import type { HostView, SessionKind } from "../../../../shared/ipc-types";
 import { CHATS_ORDER_KEY, type RowSession, sidebarRows } from "../../../../shared/sidebar-rows";
@@ -49,7 +48,7 @@ import { deviceGroupKey, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { tabSignalPresentation } from "../../../lib/tab-signal";
 import { pickWorkspaceDirectory } from "../../../lib/workspace-dirs";
 import { useAgentReviewStore } from "../../../stores/agent-review";
-import { ensureBotDesk, releaseBotDesk, useBotDesk } from "../../../stores/bot-desk";
+import { ensureBotDesk, releaseBotDesk, useBotDesk, useOpenBotDecisions } from "../../../stores/bot-desk";
 import { pickRemoteDirectory } from "../../../stores/remote";
 import type { SessionStore } from "../../../stores/session";
 import { sessionListFeed } from "../../../stores/session-list";
@@ -439,7 +438,7 @@ function DeviceSessions({
 	// again after each link loss, as a push sent meanwhile was missed.
 	const hostBotOn = hostBot !== undefined;
 	const hostDesk = useBotDesk(host.deviceId).desk;
-	const hostDecisions = openBotDecisions(hostDesk).length;
+	const hostDecisions = useOpenBotDecisions(host.deviceId).length;
 	useEffect(() => {
 		if (!read || !hostBotOn) return;
 		ensureBotDesk(host.deviceId);

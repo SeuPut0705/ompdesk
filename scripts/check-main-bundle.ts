@@ -196,7 +196,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // The email trigger (1 Nov 2026): the `email` event in the schedule schema the desk store reads, its summary line and
 // the Email accounts strings; the accounts block itself stays in the lazy Settings chunk: measured 3,252,153, 1,487
 // bytes over the measure above.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_252_600;
+// A decision leaving the dock and the bot rows' counts at its deadline (1 Nov 2026): `useDecisionClock` and
+// `useOpenBotDecisions` in the desk store both sidebars read: measured 3,252,878, 725 bytes over the measure above.
+const WEB_FIRST_SCREEN_JS_BYTES = 3_253_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

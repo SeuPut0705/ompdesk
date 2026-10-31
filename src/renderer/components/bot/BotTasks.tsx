@@ -22,7 +22,7 @@ import { useOpenedChildren } from "../../hooks/use-opened-children";
 import { formatClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
-import { useBotDeskStore } from "../../stores/bot-desk";
+import { useBotDeskStore, useDecisionClock } from "../../stores/bot-desk";
 import { useTabsStore } from "../../stores/tabs";
 import { toastError } from "../../stores/toast";
 import { IconButton } from "../common";
@@ -245,15 +245,17 @@ export function BotTasksSection({ tabId, desk, device }: { tabId: string; desk: 
 	);
 	const running = opened.rows.some(row => row.status === "running");
 	const now = useNowTick(running);
+	// Completed takes a decision the moment its deadline passes, with nothing else changing.
+	const clock = useDecisionClock(desk);
 	const lists = useMemo(() => {
 		const unread = new Set(unreadIds.split("\n"));
 		return botTasks({
 			rows: opened.rows,
 			desk,
 			unread: row => row.tabId !== null && unread.has(row.tabId),
-			now: Date.now(),
+			now: clock,
 		});
-	}, [opened.rows, desk, unreadIds]);
+	}, [opened.rows, desk, unreadIds, clock]);
 	const review = lists.progress.flatMap(item =>
 		item.kind === "task" && item.state === "review" && item.row.sessionPath ? [item.row.sessionPath] : [],
 	);

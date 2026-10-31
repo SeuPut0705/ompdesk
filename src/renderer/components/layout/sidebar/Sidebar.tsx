@@ -54,7 +54,6 @@ import {
 } from "react";
 import { reviewUnmerged } from "../../../../shared/agent-control";
 import { SIDEBAR_WIDTH } from "../../../../shared/boot-shell-geometry";
-import { openBotDecisions } from "../../../../shared/bot-desk";
 import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
 import type { HostView, IpcHostedSession, SessionInfo } from "../../../../shared/ipc-types";
 import { autopilotRunOf, worktreeKindOf, worktreeLabel } from "../../../../shared/project-origin";
@@ -95,7 +94,7 @@ import { isSessionDown, isTabFailed, tabSignalPresentation } from "../../../lib/
 import { pickWorkspaceDirectory } from "../../../lib/workspace-dirs";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
 import { ensureBotPath, useBotStore } from "../../../stores/bot";
-import { ensureBotDesk, useBotDesk } from "../../../stores/bot-desk";
+import { ensureBotDesk, useBotDesk, useOpenBotDecisions } from "../../../stores/bot-desk";
 import { ensureClosedChildren, useClosedChildrenStore } from "../../../stores/closed-children";
 import { useComposerStore } from "../../../stores/composer";
 import { useHostedSessionsStore } from "../../../stores/hosted-sessions";
@@ -549,6 +548,8 @@ export function Sidebar() {
 	const botOn = useBotStore(s => s.enabled);
 	const botPath = useBotStore(s => s.path);
 	const botDesk = useBotDesk().desk;
+	// The row's count drops a decision at its expiry, with no other change to re-render it.
+	const openDecisions = useOpenBotDecisions();
 	const groupAliases = useSidebarPrefs(s => s.groupAliases);
 	const archivedSessions = useSidebarPrefs(s => s.archivedSessions);
 	// The projects this computer lists apart from its sessions: an empty one keeps its group (src/main/sidebar-projects.ts).
@@ -1796,7 +1797,7 @@ export function Sidebar() {
 					.filter(Boolean)
 					.join(" · ")
 			: null;
-		const botDecisions = bot ? openBotDecisions(botDesk).length : 0;
+		const botDecisions = bot ? openDecisions.length : 0;
 		const botDecisionsTip = botDecisions > 0 ? t("sidebar.botDecisionsTip", { count: botDecisions }) : undefined;
 		const openTabId = tab?.id;
 		// The age slot: the waiting token, else the working arc while the session or anything it started works, else

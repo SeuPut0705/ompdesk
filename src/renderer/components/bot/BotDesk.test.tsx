@@ -476,6 +476,33 @@ function withChildren(children: ReturnType<typeof childTab>[], applyAgentView = 
 }
 
 describe("the bot's decision cards", () => {
+	it("leave the dock when their deadline passes, with nothing else changing", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+		try {
+			vi.setSystemTime(Date.parse("2026-11-01T09:00:00.000Z"));
+			installApi();
+			// Collapsed, the card's header names the first decision still open.
+			useUiStore.setState({ dockCollapsed: { decisions: true } });
+			await mountDesk(
+				desk({
+					decisions: [
+						{ ...OPEN, id: "soon", question: "Deploy soon?", expiresAt: "2026-11-01T09:02:00.000Z" },
+						{ ...OPEN, id: "later", question: "Deploy later?", expiresAt: "2026-11-01T10:00:00.000Z" },
+					],
+				}),
+			);
+			const peek = () => query('[data-testid="dock-peek-decisions"]')?.textContent;
+			expect(peek()).toBe("Deploy soon?");
+			await act(async () => {
+				vi.advanceTimersByTime(2 * 60_000 + 100);
+			});
+			expect(peek()).toBe("Deploy later?");
+			expect(query('[data-bot-expired="soon"]')).not.toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("show the exact operation and its inputs, with the bot's notes behind See details", async () => {
 		installApi();
 		await mountDesk(

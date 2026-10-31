@@ -1655,6 +1655,37 @@ describe("Sidebar menus and pinned ordering", () => {
 				expect(botRow().querySelector("[data-sidebar-bot-decisions]")).toBeNull();
 			});
 
+			it("drops the count when a decision's deadline passes, with nothing else changing", async () => {
+				installMockOmp([...LIST, botSession]);
+				seedBot("ready");
+				await mount(<Sidebar />);
+				vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+				try {
+					const inMinutes = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString();
+					await act(async () =>
+						useBotDeskStore.getState().apply({
+							...EMPTY_BOT_DESK,
+							duties: [],
+							routines: [],
+							decisions: [
+								{ ...open("a"), expiresAt: inMinutes(2) },
+								{ ...open("b"), expiresAt: inMinutes(60) },
+							],
+						}),
+					);
+					const count = () => botRow().querySelector("[data-sidebar-bot-decisions]")?.textContent;
+					expect(count()).toBe(translate("sidebar.botDecisions", { count: 2 }));
+
+					await act(async () => {
+						vi.advanceTimersByTime(2 * 60_000 + 100);
+					});
+
+					expect(count()).toBe(translate("sidebar.botDecisions", { count: 1 }));
+				} finally {
+					vi.useRealTimers();
+				}
+			});
+
 			it("opens the bot's decisions card when the row is clicked with a decision waiting", async () => {
 				installMockOmp([...LIST, botSession]);
 				seedStores();

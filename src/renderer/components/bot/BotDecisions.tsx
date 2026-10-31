@@ -9,13 +9,13 @@
  */
 import { Clock, Inbox, Send } from "lucide-react";
 import { useState } from "react";
-import { type BotDecision, decisionExpired, openBotDecisions } from "../../../shared/bot-desk";
+import { type BotDecision, decisionExpired } from "../../../shared/bot-desk";
 import { formatClock, formatDuration } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { useNowTick } from "../../lib/now-tick";
-import { useBotDesk, useBotDeskStore } from "../../stores/bot-desk";
+import { useBotDesk, useBotDeskStore, useOpenBotDecisions } from "../../stores/bot-desk";
 import { DockCard } from "../chat/dock/DockCard";
 import { Badge, Button, DisclosureButton, InlineNotice, Input, TextArea } from "../common";
 
@@ -199,9 +199,9 @@ function DecisionCard({ decision, device }: { decision: BotDecision; device?: st
 /** The open decisions above the composer, in the transcript's column; nothing while none is open. */
 export function BotDecisionDock({ device }: { device?: string }) {
 	const t = useT();
-	const { desk, loaded, loadError } = useBotDesk(device);
+	const { loaded, loadError } = useBotDesk(device);
 	const refresh = useBotDeskStore(state => state.refresh);
-	const open = openBotDecisions(desk);
+	const open = useOpenBotDecisions(device);
 	if (!loaded && loadError)
 		return (
 			<div className="omp-bot-column shrink-0 pt-2" data-bot-decisions-dock>
