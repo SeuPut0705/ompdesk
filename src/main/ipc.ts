@@ -33,6 +33,8 @@ import {
 	type AgentReviewResult,
 	agentControlEnabled,
 	agentHiddenPaths,
+	BOT_ENABLED_PREF,
+	botEnabled,
 	isAgentControlTool,
 	privacyPaneUrl,
 	reviewFromDevice,
@@ -1461,8 +1463,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	});
 
 	// The bot's session (agent-control/bot-home.ts): the sidebar's bot row opens what this answers, made first when
-	// the file is missing (a launch is its first seconds; a deleted one).
-	ipc.handle(IPC_COMMANDS.SESSIONS_ENSURE_BOT, () => deps.botHome.ensureBotSession());
+	// the file is missing (a launch is its first seconds; a deleted one). Never while the owner has the bot off.
+	ipc.handle(IPC_COMMANDS.SESSIONS_ENSURE_BOT, () =>
+		botEnabled(prefsStore.get(BOT_ENABLED_PREF))
+			? deps.botHome.ensureBotSession()
+			: Promise.reject(new Error("The bot is off (Settings › Bot)")),
+	);
 
 	// "Stop and delete" (a delete refused while a turn runs on the session): stop every turn on the file, in any window
 	// or tab this computer runs for a paired device (or, with `device`, on that host), and answer once they ended.
@@ -2005,7 +2011,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		}
 		if (payload.key === AGENT_CONTROL_PREF)
 			for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncHostTools();
-		if (payload.key === BOT_RULES_PREF) agentControl.botRulesChanged();
+		if (payload.key === BOT_RULES_PREF || payload.key === BOT_ENABLED_PREF) agentControl.botRulesChanged();
 		deps.onPrefChanged?.(payload.key);
 		prefChanged(caller.win, payload.key);
 	});

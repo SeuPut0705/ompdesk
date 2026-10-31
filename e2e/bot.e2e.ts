@@ -5,7 +5,8 @@ import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
 import { cssString, exitApp, launchApp, readRecords } from "./harness";
 
-// The bot (src/main/agent-control/bot.ts, kept by bot-home.ts): a fresh app with no setup has one bot row at the top of
+// The bot (src/main/agent-control/bot.ts, kept by bot-home.ts): off on a fresh install; once the owner turns it on
+// (pref `botEnabled`, Settings › Bot; bot-rules.e2e.ts clicks the switch) it has one bot row at the top of
 // the sidebar and its session. A question card of a session the owner runs wakes it with a report (the fake omp's
 // `agent_control.mail` runs a turn whose reply names the report), its answer through the control tools reaches the
 // card, and the session's finished turn is then reported without waking it. Which sessions and kinds count is
@@ -48,7 +49,7 @@ test.beforeEach(async () => {
 	record = path.join(profile, "rpc.jsonl");
 	await fs.writeFile(
 		path.join(dirs.desktop, "prefs.json"),
-		JSON.stringify({ language: "en", firstRunComplete: true }),
+		JSON.stringify({ language: "en", firstRunComplete: true, botEnabled: true }),
 	);
 	errors = [];
 	await start();
@@ -115,9 +116,9 @@ async function tabOf(file: string): Promise<string> {
 	return found;
 }
 
-test("a fresh app has the bot row and its session, and a question in another session wakes it with no setup", async () => {
+test("with the bot on, the app has the bot row and its session, and a question in another session wakes it", async () => {
 	test.setTimeout(150_000);
-	// Nothing was set up: main made the bot's session (titled, listed) and the sidebar's first row is the bot.
+	// Nothing else was set up: main made the bot's session (titled, listed) and the sidebar's first row is the bot.
 	const file = await botFile();
 	expect(file.startsWith(dirs.agent)).toBe(true);
 	expect(await fs.readFile(file, "utf8")).toContain('"title":"Bot"');

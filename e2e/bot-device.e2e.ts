@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import { controlToolCaller, exitApp, readRecords } from "./harness";
+import { controlToolCaller, cssString, exitApp, readRecords } from "./harness";
 import { connectHost, launchRemote, makeRemoteProfile, type RemoteInstance } from "./remote-harness";
 
 // The bot (src/main/agent-control/bot.ts) for a session a paired device runs on this computer: its omp lives in
@@ -40,7 +40,8 @@ test("answers the question of a session a paired device runs here, which no wind
 	const hostPage = host.page;
 	const hostTabs = () => hostPage.evaluate(() => window.omp.tabs.list());
 
-	// The bot: the session main made by itself, no setup (agent-control/bot-home.ts).
+	// The owner turns the bot on (Settings › Bot): main makes its session (agent-control/bot-home.ts).
+	await hostPage.evaluate(() => window.omp.prefs.set("botEnabled", true));
 	let botPath = "";
 	await expect
 		.poll(
@@ -52,6 +53,12 @@ test("answers the question of a session a paired device runs here, which no wind
 			{ timeout: 30_000 },
 		)
 		.not.toBe("");
+
+	// The device's section for the host draws the host's bot as its one fixed row, first, as the host does.
+	const section = client.page.locator(`[data-sidebar-device=${cssString(deviceId)}]`);
+	await expect(section.locator("[data-sidebar-bot-row]")).toHaveCount(1, { timeout: 30_000 });
+	await expect(section.locator(".omp-sidebar-session-row").first()).toHaveAttribute("data-sidebar-bot-row", "true");
+	await expect(section.locator(`[data-device-session=${cssString(botPath)}]`)).toHaveCount(1);
 
 	// The device opens a session that runs on the host; no window of the host shows it.
 	const spawned = await client.page.evaluate(([cwd, device]) => window.omp.tabs.spawn({ cwd, device }), [

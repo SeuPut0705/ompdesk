@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AGENT_HIDDEN_PREFS_KEY, BOT_PREF } from "../../shared/agent-control";
+import { AGENT_HIDDEN_PREFS_KEY, BOT_ENABLED_PREF, BOT_PREF } from "../../shared/agent-control";
 import { BOT_RULES_PREF, botRulesText, DEFAULT_BOT_RULES } from "../../shared/bot-rules";
 import type { HostLiveSession, IpcTabRunOutcome } from "../../shared/ipc-types";
 import { BOT_ANSWER_WAIT_MS, type BotAsk, type BotDeps, BotFeed, type BotGrants, type BotTab } from "./bot";
@@ -20,9 +20,10 @@ function tab(tabId: string, extra: Partial<BotTab> = {}): BotTab {
 	};
 }
 
-function rig(options: { named?: boolean; botTab?: BotTab | null } = {}) {
+function rig(options: { named?: boolean; botTab?: BotTab | null; enabled?: boolean } = {}) {
 	const prefs = new Map<string, unknown>();
 	if (options.named !== false) prefs.set(BOT_PREF, BOT);
+	if (options.enabled !== false) prefs.set(BOT_ENABLED_PREF, true);
 	const tabs = new Map<string, BotTab>();
 	let botTab: BotTab | null = options.botTab === undefined ? tab("sec", { sessionPath: BOT }) : options.botTab;
 	if (botTab) tabs.set(botTab.tabId, botTab);
@@ -176,6 +177,22 @@ describe("BotFeed", () => {
 		r.feed.activity({ type: "idle", tabId: "a", outcome: outcome() });
 		expect(r.sent).toHaveLength(0);
 		expect(r.feed.answers("a")).toBe(false);
+	});
+
+	it("hands nothing over and tells nothing while the owner has the bot off, its session and tab still there", async () => {
+		const r = rig({ enabled: false });
+		r.add(tab("a"));
+		r.asks.set("a", [{ id: "q", title: "?", approval: false }]);
+		r.feed.activity({ type: "ask", tabId: "a", requestId: "q", text: "?" });
+		r.feed.activity({ type: "idle", tabId: "a", outcome: outcome() });
+		expect(r.sent).toHaveLength(0);
+		expect(r.feed.answers("a", "q")).toBe(false);
+		await r.feed.role();
+		expect(r.told).toEqual([]);
+		// Turned on, the same question is the bot's.
+		r.prefs.set(BOT_ENABLED_PREF, true);
+		r.feed.activity({ type: "ask", tabId: "a", requestId: "q", text: "?" });
+		expect(r.sent).toHaveLength(1);
 	});
 
 	it("records finished and failed turns quietly, once each, never a stop or a failure still being retried", () => {

@@ -5713,9 +5713,12 @@ export const en: Record<string, string> = {
 	"settings.section.permissions": "Permissions & security",
 	"settings.section.permissions.desc": "What the agent may do without asking, and the security scan.",
 	"settings.section.bot": "Bot",
-	"settings.section.bot.desc": "What the bot does on its own, and what it asks you first.",
+	"settings.section.bot.desc": "Turn the bot on, and say what it does on its own and what it asks you first.",
 	"botRules.title": "Custom rules",
 	"botRules.desc": "Say what the bot may do on its own, and what it asks you first.",
+	"botRules.enable": "Use the bot",
+	"botRules.enableDesc":
+		"Puts a bot at the top of the sidebar. It works through what you hand it, follows the sessions it opens, and answers your sessions' questions within what you asked them.",
 	"botRules.add": "Add rule",
 	"botRules.full": "The list is full. Delete a rule first.",
 	"botRules.empty": "No rules. Add one, or restore the defaults.",

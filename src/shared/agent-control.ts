@@ -36,6 +36,30 @@ export function botPathOf(value: unknown): string | null {
 }
 
 /**
+ * Prefs key, default OFF (the owner's decision, 31 Oct 2026): the bot is off on a fresh install and turned on in
+ * Settings › Bot. Off, no bot session is made, no row shows and nothing is handed to it.
+ */
+export const BOT_ENABLED_PREF = "botEnabled";
+
+export function botEnabled(value: unknown): boolean {
+	return value === true;
+}
+
+/** The bot's session file while the owner has the bot on; null while it is off or no session is named yet. */
+export function activeBotPath(get: (key: string) => unknown): string | null {
+	return botEnabled(get(BOT_ENABLED_PREF)) ? botPathOf(get(BOT_PREF)) : null;
+}
+
+/**
+ * What the bot's session is to a session list: `bot` (its fixed row) while the bot is on, `hidden` while it is off (no
+ * list shows it, here or on a paired device), null for any other session.
+ */
+export function botRowOf(sessionPath: string, get: (key: string) => unknown): "bot" | "hidden" | null {
+	if (botPathOf(get(BOT_PREF)) !== sessionPath) return null;
+	return botEnabled(get(BOT_ENABLED_PREF)) ? "bot" : "hidden";
+}
+
+/**
  * Prefs key, default ON (unset counts as on; only a stored `false` is off; the user's decision, 29 Oct 2026: agents
  * have every power by default): an orchestrating agent may approve another session's pending tool approval.
  */

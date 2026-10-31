@@ -1470,7 +1470,11 @@ describe("the bot's role and a session's own wake-up", () => {
 	it("tells the bot's omp the owner's rules before the first mail it takes, and again when they change", async () => {
 		const file = await sessionFile();
 		const { runtime, commands, prefs } = setup({
-			prefs: { bot: file, botRules: [{ id: "deploy", action: "Deploy or release", behavior: "ask" }] },
+			prefs: {
+				bot: file,
+				botEnabled: true,
+				botRules: [{ id: "deploy", action: "Deploy or release", behavior: "ask" }],
+			},
 			tabs: [{ tabId: "main0001", sessionPath: file }],
 			owners: { [file]: "main0001" },
 		});

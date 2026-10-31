@@ -14,6 +14,7 @@ import {
 	Archive,
 	ArrowDown,
 	ArrowUp,
+	Bot,
 	ChevronDown,
 	ChevronRight,
 	ExternalLink,
@@ -423,6 +424,13 @@ function DeviceSessions({
 	);
 	const deviceTabs = useMemo(() => allTabs.filter(tab => tab.device === host.deviceId), [allTabs, host.deviceId]);
 	const hostTabs = useMemo(() => deviceTabs.filter(tab => !nested?.has(tab.id)), [deviceTabs, nested]);
+	// The host's bot, flagged in its list while the host's owner has it on: one fixed row first, as on the host, never
+	// one of the lists' rows (nor is the tab holding it).
+	const hostBot = useMemo(() => sessions.find(session => session.bot === true), [sessions]);
+	const listed = useMemo(
+		() => (hostBot ? sessions.filter(session => session !== hostBot) : sessions),
+		[sessions, hostBot],
+	);
 
 	// The host's own rule (Sidebar.tsx): a session in its no-project workspace (`~/.omp/work`, where a session opened
 	// there without a folder starts) is one of its chats, so it is here too.
@@ -441,15 +449,17 @@ function DeviceSessions({
 		for (const id of since.keys()) if (!deviceTabs.some(tab => tab.id === id)) since.delete(id);
 		let stamp = Date.now();
 		return sidebarRows({
-			sessions,
-			tabs: deviceTabs.map(tab => {
-				let seenAt = since.get(tab.id);
-				if (!seenAt) {
-					seenAt = new Date(stamp++).toISOString();
-					since.set(tab.id, seenAt);
-				}
-				return { ...tab, title: tab.title ?? tabChipLabel(tab, hostTabs), seenAt };
-			}),
+			sessions: listed,
+			tabs: deviceTabs
+				.filter(tab => hostBot === undefined || tab.sessionPath !== hostBot.path)
+				.map(tab => {
+					let seenAt = since.get(tab.id);
+					if (!seenAt) {
+						seenAt = new Date(stamp++).toISOString();
+						since.set(tab.id, seenAt);
+					}
+					return { ...tab, title: tab.title ?? tabChipLabel(tab, hostTabs), seenAt };
+				}),
 			usedThere: new Set(host.live?.map(session => session.sessionPath)),
 			// The host names an opener beside a row its windows' tabs hold (then `heldOnHost`) or that its records say it
 			// closed: a row no tab holds that names one is a closed child.
@@ -491,6 +501,8 @@ function DeviceSessions({
 		});
 	}, [
 		sessions,
+		listed,
+		hostBot,
 		deviceTabs,
 		hostTabs,
 		host.live,
@@ -842,7 +854,7 @@ function DeviceSessions({
 		});
 	};
 
-	const renderRow = (session: DeviceSession) => {
+	const renderRow = (session: DeviceSession, bot = false) => {
 		const tab = tabFor(session);
 		// A tab restored asleep when this computer launched (no omp attached until it is shown) has heard nothing of the
 		// host's run: the host's live list says it instead.
@@ -858,7 +870,9 @@ function DeviceSessions({
 		const inVisibleSplit = !current && tab !== undefined && splitIds?.has(tab.id) === true;
 		const active = (current || inVisibleSplit) && destination === "session";
 		const indexed = session.liveTabId === undefined;
-		const title = sessionDisplayTitle(session, indexed ? t("sidebar.untitled") : t("sidebar.newSession"));
+		const title = bot
+			? t("sidebar.botBadge")
+			: sessionDisplayTitle(session, indexed ? t("sidebar.untitled") : t("sidebar.newSession"));
 		if (renamingPath === session.path) {
 			const rovingKey = `device-session:${host.deviceId}:${session.path}`;
 			const stopRenaming = () => {
@@ -902,7 +916,11 @@ function DeviceSessions({
 		);
 		const list = listOf(session);
 		const pinned = hostPins.includes(session.path);
-		const marker = chat ?? (pinned ? <Pin aria-label={t("sidebar.pinned")} className="size-(--sc-icon-sm)" /> : null);
+		const marker = bot ? (
+			<Bot aria-label={t("sidebar.botBadge")} className="size-(--sc-icon-sm)" data-sidebar-bot />
+		) : (
+			(chat ?? (pinned ? <Pin aria-label={t("sidebar.pinned")} className="size-(--sc-icon-sm)" /> : null))
+		);
 		// Its family, as a local row's (Sidebar.tsx): the tab's subagents and the sessions its agent opened on this host.
 		const children = familyChildrenOf.get(session.path);
 		const opened = children ? children.map(familyChildFor) : NO_OPENED;
@@ -913,18 +931,21 @@ function DeviceSessions({
 			<Fragment key={session.path}>
 				<ListRow
 					// One ⋯ on every input, so the title keeps its width; at rest under touch, on hover or focus elsewhere.
+					// The bot's fixed row has none: no rename, move or delete, as on the host.
 					actions={
-						<IconButton
-							data-sidebar-row-menu
-							icon={<MoreHorizontal />}
-							label={t("sidebar.sessionMenu")}
-							onClick={event => {
-								const rect = event.currentTarget.getBoundingClientRect();
-								setRowMenu({ x: rect.left, y: rect.bottom + 4, items: menuFor(session), label: title });
-							}}
-							size="sm"
-							tabIndex={-1}
-						/>
+						bot ? undefined : (
+							<IconButton
+								data-sidebar-row-menu
+								icon={<MoreHorizontal />}
+								label={t("sidebar.sessionMenu")}
+								onClick={event => {
+									const rect = event.currentTarget.getBoundingClientRect();
+									setRowMenu({ x: rect.left, y: rect.bottom + 4, items: menuFor(session), label: title });
+								}}
+								size="sm"
+								tabIndex={-1}
+							/>
+						)
 					}
 					actionCount={1}
 					actionsAtRest={touchInput}
@@ -933,6 +954,7 @@ function DeviceSessions({
 						tabIndex: -1,
 						"data-roving-item": `device-session:${host.deviceId}:${session.path}`,
 						onKeyDown: event => {
+							if (bot) return;
 							// Alt+↑/↓ moves the row in its list, as on this computer's own rows.
 							if (
 								event.altKey &&
@@ -960,10 +982,12 @@ function DeviceSessions({
 					rowProps={{
 						// Dragged onto a session pane, the open tab joins the split there (SplitWorkspace takes `omp:tab-drag`);
 						// dropped on a row of its own list it moves there.
-						...reorder.rowDrag(session.path, list, tab ? { id: tab.id, shown: current } : undefined),
+						...(bot ? {} : reorder.rowDrag(session.path, list, tab ? { id: tab.id, shown: current } : undefined)),
 						"data-device-session": session.path,
-						onContextMenu: event =>
-							setRowMenu({ ...anchorFromEvent(event), items: menuFor(session), label: title }),
+						"data-sidebar-bot-row": bot || undefined,
+						onContextMenu: bot
+							? undefined
+							: event => setRowMenu({ ...anchorFromEvent(event), items: menuFor(session), label: title }),
 						"data-active": active,
 						"data-current": current || undefined,
 						"data-pane-focus": (current && splitIds !== null) || undefined,
@@ -996,7 +1020,11 @@ function DeviceSessions({
 		);
 	};
 
-	if (error && tree.sessions.length === 0) {
+	// The host's bot row, when it shows: a host whose only session is its bot is not empty.
+	const botShown =
+		hostBot !== undefined &&
+		(!query || t("sidebar.botBadge").toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+	if (error && tree.sessions.length === 0 && !botShown) {
 		return (
 			<InlineNotice
 				action={
@@ -1012,14 +1040,14 @@ function DeviceSessions({
 			/>
 		);
 	}
-	if (isLoading && tree.sessions.length === 0) {
+	if (isLoading && tree.sessions.length === 0 && !botShown) {
 		return (
 			<div aria-label={t("sidebar.loading")} className="flex justify-center py-2" role="status">
 				<Spinner size="sm" />
 			</div>
 		);
 	}
-	if (chats.length === 0 && groups.length === 0 && archivedRows.length === 0) {
+	if (!botShown && chats.length === 0 && groups.length === 0 && archivedRows.length === 0) {
 		return (
 			<p className="px-2.5 py-1.5 text-sc-xs text-(--sc-text-muted)" data-device-empty>
 				{query ? t("sidebar.noMatch") : t("remote.sidebar.empty")}
@@ -1092,6 +1120,7 @@ function DeviceSessions({
 		<div className="space-y-px">
 			{reorder.status}
 			{dialog}
+			{botShown && hostBot && renderRow(hostBot, true)}
 			<DndContext collisionDetection={closestCenter} onDragEnd={onGroupDragEnd} sensors={groupSensors}>
 				<SortableContext items={groups.map(group => group.cwd)} strategy={verticalListSortingStrategy}>
 					{groups.map(group => {

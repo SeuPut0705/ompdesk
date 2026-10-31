@@ -541,6 +541,7 @@ export function Sidebar() {
 	const sessionOrder = useSidebarPrefs(s => s.sessionOrder);
 	const pinnedSessions = useSidebarPrefs(s => s.pinnedSessions);
 	const agentHidden = useSidebarPrefs(s => s.agentHidden);
+	const botOn = useBotStore(s => s.enabled);
 	const botPath = useBotStore(s => s.path);
 	const groupAliases = useSidebarPrefs(s => s.groupAliases);
 	const archivedSessions = useSidebarPrefs(s => s.archivedSessions);
@@ -2048,8 +2049,9 @@ export function Sidebar() {
 			{reorder.status}
 			{!localFolded && (
 				<>
-					{/* One bot always sits first, above the projects and chats (agent-control/bot-home.ts keeps its session); a filter keeps it only when it names it. */}
-					{(!query || t("sidebar.botBadge").toLocaleLowerCase().includes(query)) &&
+					{/* While the owner has the bot on (Settings › Bot), it sits first, above the projects and chats (agent-control/bot-home.ts keeps its session); a filter keeps it only when it names it. */}
+					{botOn &&
+						(!query || t("sidebar.botBadge").toLocaleLowerCase().includes(query)) &&
 						renderSessionRow(botSession, false, "bot")}
 					{listError &&
 						(allSessions.length > 0 ? (

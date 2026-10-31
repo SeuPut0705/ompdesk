@@ -47,6 +47,9 @@ import {
 	AGENT_CONTROL_PREF,
 	AGENT_HIDDEN_PREFS_KEY,
 	agentHiddenPaths,
+	BOT_ENABLED_PREF,
+	botEnabled,
+	botRowOf,
 	parseClosedChildren,
 } from "../shared/agent-control";
 import { AI_MEMORY_TERMINAL_PREF } from "../shared/ai-memory";
@@ -847,8 +850,15 @@ app.whenReady().then(() => {
 		checkoutFiles: sidecar => checkoutFilesRef.current?.(sidecar),
 	});
 	initDeletedSessions(join(app.getPath("userData"), "deleted-sessions.json"));
-	sessionIndex = new SessionIndex(undefined, initialCwd, sessionId => sessionKinds.isChat(sessionId), bridgeDir);
-	// The bot's session: one always exists, made here once omp is usable and when the sidebar's bot row is clicked first.
+	sessionIndex = new SessionIndex(
+		undefined,
+		initialCwd,
+		sessionId => sessionKinds.isChat(sessionId),
+		bridgeDir,
+		sessionPath => botRowOf(sessionPath, key => prefsStore().get(key)),
+	);
+	// The bot's session, while the owner has the bot on (Settings › Bot): made here once omp is usable, when the bot is
+	// turned on, and when the sidebar's bot row is clicked first.
 	const botHome = new BotHome({
 		prefs: { get: key => prefsStore().get(key), set: (key, value) => prefsStore().set(key, value) },
 		deleted: sessionPath => deletedSessions().has(sessionPath),
@@ -857,6 +867,8 @@ app.whenReady().then(() => {
 		create: ({ cwd, title }) => sessionIndex.createNamed(cwd, title),
 		markChat: sessionId => sessionKinds.markChat(sessionId),
 		changed: key => {
+			// Its row in the list carries `bot` (a paired device draws it from there).
+			sessionIndex.relist();
 			for (const win of windowManager.getAllWindows()) {
 				win.webContents.send(IPC_EVENTS.PREFS_CHANGED, { key } satisfies IpcPrefsChangedPayload);
 			}
@@ -1218,7 +1230,7 @@ app.whenReady().then(() => {
 			}
 			if (usable.refused) sessionIndex.relist();
 			void afterFirstTab()
-				.then(() => botHome.ensureBotSession())
+				.then(() => (botEnabled(prefsStore().get(BOT_ENABLED_PREF)) ? botHome.ensureBotSession() : undefined))
 				.catch(error =>
 					writeRuntimeLog({
 						source: "background-task",
@@ -1916,6 +1928,18 @@ app.whenReady().then(() => {
 			hostName: () => devices.deviceName(),
 		},
 		onPrefChanged: key => {
+			if (key === BOT_ENABLED_PREF) {
+				// Turned on, the bot's session is made (or kept); either way its row in the list says it.
+				sessionIndex.relist();
+				if (botEnabled(prefsStore().get(BOT_ENABLED_PREF)))
+					void botHome.ensureBotSession().catch(error =>
+						writeRuntimeLog({
+							source: "background-task",
+							message: "bot-session-failed",
+							details: { error: String(error) },
+						}),
+					);
+			}
 			if (key === KEEP_AWAKE_WORKING_PREF) syncWorkAwake();
 			if (key === RESUME_INTERRUPTED_PREF) turnResume.sync();
 			if (key === APP_AUTO_UPDATE_PREF) appAutoUpdatePrefChanged();

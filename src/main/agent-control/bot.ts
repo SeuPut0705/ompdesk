@@ -12,13 +12,7 @@
  * Its omp is told the owner's action rules (`role`: `agent_control_bot`, journaled by the bridge, which adds the bot role
  * and those rules to its prompt), at each start of its tab and when the rules change.
  */
-import {
-	AGENT_CARD_PREFIX,
-	AGENT_HIDDEN_PREFS_KEY,
-	agentHiddenPaths,
-	BOT_PREF,
-	botPathOf,
-} from "../../shared/agent-control";
+import { AGENT_CARD_PREFIX, AGENT_HIDDEN_PREFS_KEY, activeBotPath, agentHiddenPaths } from "../../shared/agent-control";
 import { BOT_RULES_PREF, botRulesText, parseBotRules } from "../../shared/bot-rules";
 import type { HostLiveSession, IpcTabRunOutcome, TabStatus } from "../../shared/ipc-types";
 import type { TabActivity } from "../sidecar-pool";
@@ -151,7 +145,7 @@ export class BotFeed {
 	}
 
 	#path(): string | null {
-		return botPathOf(this.#deps.prefs.get(BOT_PREF));
+		return activeBotPath(key => this.#deps.prefs.get(key));
 	}
 
 	/** The bot's tab, when one is named and a tab here holds it. */

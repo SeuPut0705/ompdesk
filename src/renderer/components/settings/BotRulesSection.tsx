@@ -6,7 +6,7 @@
  * Nothing stored reads as `DEFAULT_BOT_RULES`. A default rule is shown translated (`botRules.default.<id>`) while its
  * text is still the default; once the owner edits the words they are theirs, shown as written.
  */
-import { MoreHorizontal, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Bot, MoreHorizontal, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	BOT_RULES_MAX,
@@ -20,9 +20,10 @@ import {
 import { saveGuiPreference } from "../../lib/display-preferences";
 import { useT } from "../../lib/i18n";
 import { readPref } from "../../lib/prefs-read";
+import { ensureBotPath, useBotStore } from "../../stores/bot";
 import { Banner, Button, ConfirmDialog, MenuButton, Select, SkeletonRows } from "../common";
 import { BotRuleDialog, type BotRuleDraft, botBehaviorOptions } from "./BotRuleDialog";
-import { SettingsRow, SettingsSection } from "./SettingsLayout";
+import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
 
 /** What the list shows for a rule: the translation of an untouched default, else the owner's own text. */
 function ruleLabel(rule: BotRule, t: (key: string) => string): string {
@@ -32,6 +33,8 @@ function ruleLabel(rule: BotRule, t: (key: string) => string): string {
 
 export function BotRulesSection() {
 	const t = useT();
+	const botOn = useBotStore(s => s.enabled);
+	const setBotOn = useBotStore(s => s.setEnabled);
 	const [rules, setRules] = useState<BotRule[] | null>(null);
 	const [loadFailed, setLoadFailed] = useState(false);
 	const [editing, setEditing] = useState<{ rule: BotRule | null } | null>(null);
@@ -53,6 +56,7 @@ export function BotRulesSection() {
 	}, []);
 	useEffect(() => {
 		void load();
+		ensureBotPath();
 		const unsubscribe = window.omp.prefs.onChanged?.(event => {
 			if (event.key === BOT_RULES_PREF) void load();
 		});
@@ -86,24 +90,42 @@ export function BotRulesSection() {
 		return done;
 	};
 
+	// Off on a fresh install (the owner's decision, 31 Oct 2026): on, main makes the bot's session and the sidebar shows
+	// its fixed row (`stores/bot.ts`); off, no row, no session made, nothing handed to it.
+	const enable = (
+		<SettingsSection id="settings-bot-on">
+			<SettingsSwitchRow
+				checked={botOn}
+				description={t("botRules.enableDesc")}
+				icon={<Bot />}
+				id="setting-bot-enabled"
+				label={t("botRules.enable")}
+				onCheckedChange={next => void setBotOn(next)}
+			/>
+		</SettingsSection>
+	);
+
 	if (!rules) {
 		return (
-			<SettingsSection>
-				{loadFailed ? (
-					<Banner
-						actions={
-							<Button icon={<RefreshCw />} onClick={() => void load()} size="sm">
-								{t("common.retry")}
-							</Button>
-						}
-						live
-						title={t("botRules.loadFailed")}
-						variant="danger"
-					/>
-				) : (
-					<SkeletonRows label={t("botRules.loading")} widths={[60, 48, 66]} />
-				)}
-			</SettingsSection>
+			<>
+				{enable}
+				<SettingsSection>
+					{loadFailed ? (
+						<Banner
+							actions={
+								<Button icon={<RefreshCw />} onClick={() => void load()} size="sm">
+									{t("common.retry")}
+								</Button>
+							}
+							live
+							title={t("botRules.loadFailed")}
+							variant="danger"
+						/>
+					) : (
+						<SkeletonRows label={t("botRules.loading")} widths={[60, 48, 66]} />
+					)}
+				</SettingsSection>
+			</>
 		);
 	}
 
@@ -111,6 +133,7 @@ export function BotRulesSection() {
 	const options = botBehaviorOptions(t);
 	return (
 		<>
+			{enable}
 			<SettingsSection
 				actions={
 					<Button

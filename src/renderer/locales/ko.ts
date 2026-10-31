@@ -5706,9 +5706,12 @@ export const ko: Record<string, string> = {
 	"settings.section.permissions": "권한 및 보안",
 	"settings.section.permissions.desc": "에이전트가 묻지 않고 할 수 있는 일과 보안 스캔을 관리해요.",
 	"settings.section.bot": "봇",
-	"settings.section.bot.desc": "봇이 혼자 할 일과 먼저 물어볼 일을 정해요.",
+	"settings.section.bot.desc": "봇을 켜고, 혼자 할 일과 먼저 물어볼 일을 정해요.",
 	"botRules.title": "사용자 지정 규칙",
 	"botRules.desc": "봇이 혼자 해도 되는 일과 먼저 물어볼 일을 정해요.",
+	"botRules.enable": "봇 사용",
+	"botRules.enableDesc":
+		"사이드바 맨 위에 봇을 둬요. 맡긴 일을 알아서 진행하고, 자기가 연 세션을 끝까지 챙기고, 내 세션들의 질문에 시킨 범위 안에서 대신 답해요.",
 	"botRules.add": "규칙 추가",
 	"botRules.full": "규칙이 가득 찼어요. 하나를 먼저 삭제하세요.",
 	"botRules.empty": "규칙이 없어요. 추가하거나 기본 규칙을 복원하세요.",

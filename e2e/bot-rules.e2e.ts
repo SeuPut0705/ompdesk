@@ -62,6 +62,19 @@ async function capture(name: string): Promise<void> {
 test("the rules screen lists the defaults and saves a change, an added rule and a delete in prefs", async () => {
 	test.setTimeout(180_000);
 	await start("en");
+	// The bot is off on a fresh install: no row, no session. Its switch here turns it on.
+	const botSwitch = page.locator("#setting-bot-enabled").getByRole("switch", { name: "Use the bot" });
+	await expect(botSwitch).not.toBeChecked();
+	await expect(page.locator("[data-sidebar-bot-row]")).toHaveCount(0);
+	expect(await page.evaluate(() => window.omp.prefs.get("bot"))).toBeUndefined();
+	await botSwitch.click();
+	await expect(botSwitch).toBeChecked();
+	await expect
+		.poll(() => page.evaluate(() => window.omp.prefs.get("bot")), { timeout: 30_000 })
+		.toEqual(expect.any(String));
+	await expect(page.locator("[data-sidebar-bot-row]")).toHaveCount(1, { timeout: 30_000 });
+	await botSwitch.click();
+	await expect(page.locator("[data-sidebar-bot-row]")).toHaveCount(0);
 	const list = page.locator("[data-bot-rules]");
 	await expect(list.locator("[data-bot-rule-action]")).toHaveCount(11);
 	await expect(list.locator('[data-bot-rule-action="deploy"]')).toHaveText("Deploy or release");

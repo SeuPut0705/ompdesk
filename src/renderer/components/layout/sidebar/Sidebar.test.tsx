@@ -1431,7 +1431,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		it("sits first with the Bot label, once, out of the Chats list, with no menu and no delete", async () => {
 			const omp = installMockOmp([...LIST, botSession]);
 			seedStores();
-			useBotStore.setState({ path: BOT });
+			useBotStore.setState({ enabled: true, path: BOT });
 			await mount(<Sidebar />);
 
 			const rows = [...document.querySelectorAll(".omp-sidebar-session-row")];
@@ -1449,7 +1449,7 @@ describe("Sidebar menus and pinned ordering", () => {
 			const omp = installMockOmp([...LIST, botSession]);
 			seedStores();
 			useSessionStore.setState({ isStreaming: true });
-			useBotStore.setState({ path: BOT });
+			useBotStore.setState({ enabled: true, path: BOT });
 			await mount(<Sidebar />);
 
 			await fire(botRow().querySelector("button"), "onClick");
@@ -1467,6 +1467,7 @@ describe("Sidebar menus and pinned ordering", () => {
 			const omp = installMockOmp(LIST);
 			seedStores();
 			useSessionStore.setState({ isStreaming: true });
+			useBotStore.setState({ enabled: true });
 			await mount(<Sidebar />);
 
 			expect([...document.querySelectorAll(".omp-sidebar-session-row")][0]).toBe(botRow());
@@ -1492,7 +1493,7 @@ describe("Sidebar menus and pinned ordering", () => {
 				session(GRANDKID, "/work/alpha", { title: "Dig into the failure", created: "2026-02-04T00:00:00Z" }),
 			]);
 			seedStores();
-			useBotStore.setState({ path: BOT });
+			useBotStore.setState({ enabled: true, path: BOT });
 			useTabsStore.setState({
 				tabs: [
 					{ id: "t0", cwd: "/work/alpha", status: "ready", kind: "agent", unreadDone: false },
@@ -1545,7 +1546,7 @@ describe("Sidebar menus and pinned ordering", () => {
 			const OTHER = "/work/alpha/other.jsonl";
 			installMockOmp([...LIST, botSession, session(OTHER, "/work/alpha", { title: "Mine" })]);
 			seedStores();
-			useBotStore.setState({ path: BOT });
+			useBotStore.setState({ enabled: true, path: BOT });
 			useTabsStore.setState({
 				tabs: [
 					{ id: "t0", cwd: "/work/alpha", status: "ready", kind: "agent", unreadDone: false },
@@ -1574,7 +1575,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		it("follows the filter by its label alone", async () => {
 			installMockOmp([...LIST, botSession]);
 			seedStores();
-			useBotStore.setState({ path: BOT });
+			useBotStore.setState({ enabled: true, path: BOT });
 			await mount(<Sidebar />);
 			const field = container.querySelector('input[aria-label="Filter sessions"]') as unknown as Element;
 			const props = reactProps<{ onChange: (event: { target: { value: string } }) => void }>(field);
@@ -1586,6 +1587,16 @@ describe("Sidebar menus and pinned ordering", () => {
 			await act(async () => props.onChange({ target: { value: "bo" } }));
 			await flush();
 			expect(document.querySelector("[data-sidebar-bot-row]")).not.toBeNull();
+		});
+
+		it("is not there while the owner has the bot off", async () => {
+			installMockOmp(LIST);
+			seedStores();
+			await mount(<Sidebar />);
+			expect(document.querySelector("[data-sidebar-bot-row]")).toBeNull();
+			await act(async () => useBotStore.setState({ enabled: true }));
+			await flush();
+			expect([...document.querySelectorAll(".omp-sidebar-session-row")][0]).toBe(botRow());
 		});
 	});
 
@@ -4034,6 +4045,54 @@ describe("Sidebar device sections", () => {
 			expect.arrayContaining(["dev-studio\n/code/web", "dev-studio\n/code/app"]),
 		);
 		expect(groups()).toEqual(["/code/web", "/code/app"]);
+	});
+
+	it("draws a paired host's bot as one fixed row first in its section, with no menu", async () => {
+		const omp = installWithRemote();
+		const bot = session("/s/work/bot.jsonl", "/work", {
+			title: "Bot",
+			kind: "chat",
+			bot: true,
+			device: "dev-studio",
+			created: "2026-01-01T00:00:00Z",
+		});
+		const app = session("/s/app/one.jsonl", "/code/app", {
+			title: "App one",
+			device: "dev-studio",
+			created: "2026-01-03T00:00:00Z",
+		});
+		omp.sessions.list.mockImplementation(async (_scope, device) => (device === "dev-studio" ? [app, bot] : LIST));
+		seedStores();
+		pairHost("online");
+		await mount(<Sidebar />);
+		const section = () => container.querySelector('[data-sidebar-device="dev-studio"]');
+		const rows = () => [...(section()?.querySelectorAll(".omp-sidebar-session-row") ?? [])];
+		const botRow = () => section()?.querySelector("[data-sidebar-bot-row]") ?? null;
+
+		expect(rows()[0]).toBe(botRow());
+		expect(botRow()?.textContent).toContain(translate("sidebar.botBadge"));
+		expect(section()?.querySelectorAll(`[data-device-session="${bot.path}"]`)).toHaveLength(1);
+		expect(botRow()?.querySelector("[data-sidebar-row-menu]")).toBeNull();
+		await expect(fire(botRow(), "onContextMenu")).rejects.toThrow("onContextMenu not found");
+		// This computer's own list has no bot row while its own bot is off.
+		expect(container.querySelectorAll("[data-sidebar-bot-row]")).toHaveLength(1);
+	});
+
+	it("shows a host's bot when it is the host's only session, not the empty notice", async () => {
+		const omp = installWithRemote();
+		const bot = session("/s/work/bot.jsonl", "/work", {
+			title: "Bot",
+			kind: "chat",
+			bot: true,
+			device: "dev-studio",
+		});
+		omp.sessions.list.mockImplementation(async (_scope, device) => (device === "dev-studio" ? [bot] : LIST));
+		seedStores();
+		pairHost("online");
+		await mount(<Sidebar />);
+		const section = container.querySelector('[data-sidebar-device="dev-studio"]');
+		expect(section?.querySelector("[data-sidebar-bot-row]")).not.toBeNull();
+		expect(section?.querySelector("[data-device-empty]")).toBeNull();
 	});
 
 	describe("a paired host's session menu", () => {

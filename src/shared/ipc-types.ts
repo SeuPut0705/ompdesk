@@ -1790,6 +1790,11 @@ export interface SessionInfo {
 	status: "complete" | "interrupted" | "aborted" | "error" | "pending" | "unknown";
 	/** Session kind read from the file header; absent = agent (legacy sessions). */
 	kind?: "chat";
+	/**
+	 * The computer's bot session while its owner has the bot on (`activeBotPath`): set by the computer that lists it,
+	 * so a paired device draws the host's bot as its fixed row too. Absent from a host that predates it.
+	 */
+	bot?: true;
 	firstMessage: string;
 	/** Stock's `parentSessionPath`: the session this one was forked from (its file path, or its id). */
 	parentSessionPath?: string;
