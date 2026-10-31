@@ -5,9 +5,8 @@
  *   wakes it with a report: it answers by what the owner asked that session, and picks the answer that does not do
  *   a thing the owner did not ask for. While it is there, the owner's own "needs you" notice for such a question is
  *   not shown (`answers`).
- * - A finished or failed turn is written into its conversation quietly, for the brief: it never wakes it, and the
- *   owner's own notices for it stay as they are.
- * - Once a day from `BOT_BRIEF_HOUR` it is woken for the morning brief.
+ * - A finished or failed turn is written into its conversation quietly, a record the owner can ask it about: it
+ *   never wakes it, and the owner's own notices for it stay as they are.
  * Sessions another session or Autopilot opened are their opener's (mail.ts `childAsked`), and a session the owner hid
  * from agents is never reported. Each report is a mail kept in the outbox until the bot's journal holds it.
  */
@@ -16,12 +15,6 @@ import type { HostLiveSession, IpcTabRunOutcome, TabStatus } from "../../shared/
 import type { TabActivity } from "../sidecar-pool";
 import type { Mail, MailDelivery } from "./mail";
 
-/** The local day (YYYY-MM-DD) the last morning brief was sent for. */
-export const BOT_BRIEF_DAY_PREF = "botBriefDay";
-/** The local hour from which the day's brief is sent. */
-export const BOT_BRIEF_HOUR = 8;
-/** How often the brief's hour is looked for. */
-export const BOT_TICK_MS = 60_000;
 /**
  * A question handed to the bot that is still open this long after tells the owner after all, with their own
  * "needs you" notice: the bot may be stuck or its model unreachable, and a wait is never silent.
@@ -102,12 +95,6 @@ function clip(value: string, max: number): string {
 	return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`;
 }
 
-function localDay(at: number): { day: string; hour: number } {
-	const date = new Date(at);
-	const pad = (n: number) => String(n).padStart(2, "0");
-	return { day: `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`, hour: date.getHours() };
-}
-
 const DECIDE = [
 	"As the owner would, approvals included: read what the owner asked that session (ompdesk_session_read) and stay inside it.",
 	"When the question or approval goes beyond what the owner asked, choose the answer that does not do it (Deny, or the option that leaves things as they are).",
@@ -123,10 +110,7 @@ function liveInstruction(device: string, deviceName: string, sessionPath: string
 	return `You are the owner's bot. This session runs on ${deviceName} and waits for an answer, but no tab here shows it. Find it with ompdesk_sessions {"scope":"stored","device":"${device}"} (its file is ${sessionPath}), open it with ompdesk_session_open {"reopen":"<its id>"}, then answer its question with ompdesk_session_answer. ${DECIDE}`;
 }
 
-const RECORD_INSTRUCTION = "For the owner's next brief only: nothing to do now.";
-
-const BRIEF_INSTRUCTION =
-	"Morning brief. Write the owner a short brief from this conversation since the last brief: what finished, what failed, the questions you answered (your Decision lines), what still waits on them. Start, retry or change no work. Then call ompdesk_notify once with the brief's first line as its title.";
+const RECORD_INSTRUCTION = "For the record only: nothing to do now.";
 
 /**
  * The bot can answer it: the control tools are on, it is no confirmation card OMPdesk raises for the owner before
@@ -153,11 +137,9 @@ export class BotFeed {
 	/** Sessions run here for paired devices that the bot opened a tab for to answer them, by session file. */
 	readonly #shown = new Set<string>();
 	#seq = 0;
-	#timer: unknown;
 
 	constructor(deps: BotDeps) {
 		this.#deps = deps;
-		this.#tick();
 	}
 
 	#path(): string | null {
@@ -361,28 +343,6 @@ export class BotFeed {
 		}
 	}
 
-	/** The morning brief, once per local day from `BOT_BRIEF_HOUR` (a day the app was closed has none). */
-	#tick(): void {
-		this.#timer = this.#deps.setTimer(() => this.#tick(), BOT_TICK_MS);
-		const path = this.#path();
-		if (!path) return;
-		const { day, hour } = localDay(this.#deps.now());
-		if (hour < BOT_BRIEF_HOUR || this.#deps.prefs.get(BOT_BRIEF_DAY_PREF) === day) return;
-		this.#deps.prefs.set?.(BOT_BRIEF_DAY_PREF, day);
-		this.#send(
-			path,
-			{
-				id: `bot-brief-${day}`,
-				from: "ompdesk",
-				fromTitle: "OMPdesk",
-				kind: "note",
-				text: `Morning brief for ${day}.`,
-				instruction: BRIEF_INSTRUCTION,
-			},
-			WAKE,
-		);
-	}
-
 	#send(path: string, mail: Omit<Mail, "to" | "at">, delivery: MailDelivery): void {
 		const bot = this.#deps.tabOfSession(path);
 		this.#deps.log({ event: mail.kind, id: mail.id, from: mail.from, wake: delivery.triggerTurn });
@@ -401,7 +361,6 @@ export class BotFeed {
 	}
 
 	dispose(): void {
-		this.#deps.clearTimer(this.#timer);
 		for (const handed of this.#handed.values()) this.#deps.clearTimer(handed.timer);
 		this.#handed.clear();
 	}

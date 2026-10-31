@@ -1,16 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AGENT_HIDDEN_PREFS_KEY } from "../../shared/agent-control";
 import type { HostLiveSession, IpcTabRunOutcome } from "../../shared/ipc-types";
-import {
-	BOT_ANSWER_WAIT_MS,
-	BOT_BRIEF_DAY_PREF,
-	BOT_TICK_MS,
-	type BotAsk,
-	type BotDeps,
-	BotFeed,
-	type BotGrants,
-	type BotTab,
-} from "./bot";
+import { BOT_ANSWER_WAIT_MS, type BotAsk, type BotDeps, BotFeed, type BotGrants, type BotTab } from "./bot";
 import type { Mail, MailDelivery } from "./mail";
 
 const BOT = "/s/bot.jsonl";
@@ -28,7 +19,7 @@ function tab(tabId: string, extra: Partial<BotTab> = {}): BotTab {
 	};
 }
 
-function rig(options: { named?: boolean; botTab?: BotTab | null; at?: Date } = {}) {
+function rig(options: { named?: boolean; botTab?: BotTab | null } = {}) {
 	const prefs = new Map<string, unknown>();
 	if (options.named !== false) prefs.set(AGENT_HIDDEN_PREFS_KEY, { agentHidden: [], bot: BOT });
 	const tabs = new Map<string, BotTab>();
@@ -41,7 +32,7 @@ function rig(options: { named?: boolean; botTab?: BotTab | null; at?: Date } = {
 	/** The questions open per tab. */
 	const asks = new Map<string, BotAsk[]>();
 	const grants: BotGrants = { control: true, approve: true };
-	let now = (options.at ?? new Date(2026, 9, 31, 7, 0)).getTime();
+	const now = new Date(2026, 9, 31, 7, 0).getTime();
 	/** Pending timers by handle; `run` fires those armed with that delay. */
 	const timers = new Map<number, { fn: () => void; ms: number }>();
 	let nextTimer = 1;
@@ -105,10 +96,6 @@ function rig(options: { named?: boolean; botTab?: BotTab | null; at?: Date } = {
 		add: (entry: BotTab) => tabs.set(entry.tabId, entry),
 		setBotTab: (entry: BotTab | null) => {
 			botTab = entry;
-		},
-		at: (date: Date) => {
-			now = date.getTime();
-			run(BOT_TICK_MS);
 		},
 		/** The bot's answer deadline runs out. */
 		overdue: () => run(BOT_ANSWER_WAIT_MS),
@@ -331,24 +318,5 @@ describe("BotFeed", () => {
 		r.feed.liveSessions("mini", null);
 		r.feed.liveSessions("mini", []);
 		expect(r.sent).toHaveLength(3);
-	});
-
-	it("sends the morning brief once a day from 8 o'clock", () => {
-		const r = rig({ at: new Date(2026, 9, 31, 7, 59) });
-		expect(r.sent).toHaveLength(0);
-		r.at(new Date(2026, 9, 31, 8, 0));
-		r.at(new Date(2026, 9, 31, 12, 0));
-		expect(r.sent).toHaveLength(1);
-		expect(r.sent[0]?.mail).toMatchObject({ id: "bot-brief-2026-10-31", kind: "note" });
-		expect(r.sent[0]?.delivery.triggerTurn).toBe(true);
-		expect(r.prefs.get(BOT_BRIEF_DAY_PREF)).toBe("2026-10-31");
-		r.at(new Date(2026, 10, 1, 6, 0));
-		r.at(new Date(2026, 10, 1, 9, 30));
-		expect(r.sent.map(entry => entry.mail.id)).toEqual(["bot-brief-2026-10-31", "bot-brief-2026-11-01"]);
-	});
-
-	it("briefs at once when the app starts after the hour, and never without a bot", () => {
-		expect(rig({ at: new Date(2026, 9, 31, 10, 0) }).sent).toHaveLength(1);
-		expect(rig({ at: new Date(2026, 9, 31, 10, 0), named: false, botTab: null }).sent).toHaveLength(0);
 	});
 });
