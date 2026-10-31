@@ -8,6 +8,7 @@
  * `window.__harness.emit(channel, payload)` plays a main→renderer push (a tab status, a streaming batch, an ask).
  */
 
+import { EMPTY_BOT_DESK } from "../../shared/bot-desk";
 import { EMPTY_GITHUB_AUTH_STATE } from "../../shared/github-auth";
 import { IPC_COMMANDS, type IpcSessionsListPayload } from "../../shared/ipc-types";
 import type { LaunchProfile } from "../../shared/launch-profile";
@@ -401,6 +402,9 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 		switch (channel) {
 			case IPC_COMMANDS.GET_TABS:
 				return tabsFixture();
+			// The sidebars read the bot's desk on every computer; main always answers one, the empty one here.
+			case IPC_COMMANDS.BOT_DESK_GET:
+				return EMPTY_BOT_DESK;
 			case IPC_COMMANDS.SET_ACTIVE_TAB:
 				activeTabId = (payload as TabPayload).tabId;
 				return true;
