@@ -25,7 +25,7 @@ import { formatClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useBotActivity } from "../../stores/bot-activity";
 import { useBotDeskStore } from "../../stores/bot-desk";
-import { Badge, Button, InlineNotice, SegmentedChoice, SkeletonRows } from "../common";
+import { Badge, Button, InlineNotice, Select, SkeletonRows } from "../common";
 import { BoardRow, CappedRows, KindMark } from "../layout/work-board/board-parts";
 
 const KIND_ICON: Record<BotActivityKind, LucideIcon> = {
@@ -40,7 +40,8 @@ const KIND_ICON: Record<BotActivityKind, LucideIcon> = {
 	tool: Wrench,
 };
 
-type Filter = "all" | "changes" | "reads" | "approvals";
+const FILTERS = ["all", "changes", "reads", "approvals"] as const;
+type Filter = (typeof FILTERS)[number];
 
 const SHOWS: Record<Filter, (entry: BotActivity) => boolean> = {
 	all: () => true,
@@ -112,15 +113,15 @@ export function BotActivityRows({ channels, device }: { channels: readonly BotCh
 	return (
 		<>
 			<li className="omp-work-board-item py-1">
-				<SegmentedChoice
+				<Select
 					aria-label={t("botActivity.filter.label")}
-					fit="content"
-					onChange={setFilter}
-					optionAttr="data-bot-activity-filter"
-					options={(["all", "changes", "reads", "approvals"] as const).map(value => ({
-						value,
-						label: t(`botActivity.filter.${value}`),
-					}))}
+					controlSize="sm"
+					data-bot-activity-filter={filter}
+					onChange={event => {
+						const next = FILTERS.find(value => value === event.target.value);
+						if (next) setFilter(next);
+					}}
+					options={FILTERS.map(value => ({ value, label: t(`botActivity.filter.${value}`) }))}
 					value={filter}
 				/>
 			</li>

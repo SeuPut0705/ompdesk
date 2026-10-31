@@ -5891,7 +5891,7 @@ export const ko: Record<string, string> = {
 	"botChannels.none": "아직 사이드 챗이 없어요.",
 	"botChannels.new": "새 사이드 챗",
 	"botChannels.topic": "주제",
-	"botChannels.topicPlaceholder": "릴리스 노트",
+	"botChannels.topicPlaceholder": "새 사이드 챗 주제",
 	"botChannels.create": "시작",
 	"botChannels.full": "사이드 챗은 최대 {count}개까지예요.",
 	"botChannels.delete": "사이드 챗 삭제",

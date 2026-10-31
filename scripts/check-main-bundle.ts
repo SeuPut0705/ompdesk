@@ -188,7 +188,12 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // The bot's routines (1 Nov 2026): the desk's routines with their schedule and run shapes (`shared/schedules-schema.ts`,
 // read by the desk store the first screen's sidebar uses) and the routines, run history and teaching strings; the
 // routines section itself stays in the lazy desk chunk: measured 3,242,506, 3,438 bytes over the measure above.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_243_000;
+// The bot's identity on its rows, side chats as bot panes, its spoken replies and the board's three new section ids
+// (1 Nov 2026): the avatar's marks on both sidebars' bot rows (`BotAvatar`, twelve lucide shapes), the side-chat test in
+// `BotPane`, the `speakReplies` watcher in `lib/voice.ts`, `AssistantMarkdown`'s lazy hand-off and the new strings;
+// Memory, Side chats, Activity, Sources and Settings' identity stay in lazy chunks: measured 3,247,244, 8,176 bytes over
+// the measure above.
+const WEB_FIRST_SCREEN_JS_BYTES = 3_248_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

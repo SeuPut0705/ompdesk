@@ -5900,7 +5900,7 @@ export const en: Record<string, string> = {
 	"botChannels.none": "No side chats yet.",
 	"botChannels.new": "New side chat",
 	"botChannels.topic": "Topic",
-	"botChannels.topicPlaceholder": "Release notes",
+	"botChannels.topicPlaceholder": "New side chat topic",
 	"botChannels.create": "Start",
 	"botChannels.full": "The bot keeps at most {count} side chats.",
 	"botChannels.delete": "Delete side chat",

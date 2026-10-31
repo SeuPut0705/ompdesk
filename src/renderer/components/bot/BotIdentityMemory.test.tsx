@@ -173,10 +173,7 @@ describe("the bot's activity", () => {
 		await click(query("[data-bot-activity-undo='a3']"));
 		expect(api.edit).toHaveBeenLastCalledWith({ op: "undo", activity: "a3" });
 
-		const reads = queryAll("[data-bot-activity-filter]").find(
-			button => button.getAttribute("data-bot-activity-filter") === "reads",
-		);
-		await click(reads ?? null);
+		await change(query("[data-bot-activity-filter]"), { value: "reads" });
 		expect(queryAll("[data-bot-activity]").map(row => row.getAttribute("data-bot-activity"))).toEqual(["a1"]);
 	});
 });
