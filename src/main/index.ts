@@ -82,6 +82,7 @@ import {
 import { migrateThemeName } from "../shared/theme-names";
 import { WORKTREE_BRANCH_PREFIX_PREF, worktreeBranchPrefix } from "../shared/worktree-branch";
 import { accountRotationDeps } from "./account-rotation";
+import { BotDesk } from "./agent-control/bot-desk";
 import { BotHome } from "./agent-control/bot-home";
 import { agentDir } from "./agent-paths";
 import { migrateAgentPowers } from "./agent-power-migration";
@@ -777,6 +778,10 @@ app.whenReady().then(() => {
 	const botAnswers: IpcDeps["botAnswers"] = { current: null };
 	const sessionWake: IpcDeps["sessionWake"] = { current: null };
 	const webAsk: IpcDeps["webAsk"] = { current: null };
+	// The bot's desk (agent-control/bot-desk.ts); `botDeskPush` is set in ipc.ts, and the Schedules service (the bot's
+	// own wakes) and the bot session's pref call it.
+	const botDesk = new BotDesk({ file: join(app.getPath("userData"), "bot-desk.json") });
+	const botDeskPush: IpcDeps["botDeskPush"] = { current: null };
 	// The desktop slot's host is built in ipc.ts next to the pool's wiring; the factory reads it from here.
 	const desktopSlotRef: { current: DesktopSlotHost | null } = { current: null };
 	// The shared-checkout pass is built in ipc.ts too; the factory runs it when a bridge reports a new changed file.
@@ -872,6 +877,8 @@ app.whenReady().then(() => {
 			for (const win of windowManager.getAllWindows()) {
 				win.webContents.send(IPC_EVENTS.PREFS_CHANGED, { key } satisfies IpcPrefsChangedPayload);
 			}
+			// Its wakes are the schedules naming this file.
+			botDeskPush.current?.();
 		},
 	});
 	// The sidebar's project list: folders outlive their last session (src/main/sidebar-projects.ts).
@@ -1673,6 +1680,8 @@ app.whenReady().then(() => {
 			}
 			// Devices showing this computer's schedules (Settings › Schedules on a tab here) follow.
 			devices.hostSchedulesChanged(state);
+			// The bot's home lists its own wakes.
+			botDeskPush.current?.();
 		},
 		// A session's own wake-up (`ompdesk_schedule` with `target: "self"`) is delivered into that session by the control
 		// tools; the test launches shorten the check and the minute so a wake comes within seconds.
@@ -1909,6 +1918,9 @@ app.whenReady().then(() => {
 		botAnswers,
 		sessionWake,
 		botHome,
+		botDesk,
+		botDeskPush,
+		webPages: () => webHost?.windows.all() ?? [],
 		webAsk,
 		spawnWindow,
 		initialCwd: resolveInitialCwd,

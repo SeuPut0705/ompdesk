@@ -47,6 +47,7 @@ import {
 	AGENT_CONTROL_TOOLS as T,
 	wrapAgentMessage,
 } from "../../shared/agent-control";
+import { BOT_DUTIES_MAX, type BotDeskState, type BotDuty } from "../../shared/bot-desk";
 import { ipcErrorCode } from "../../shared/ipc-error-codes";
 import type { IpcSavedFolder, IpcTabRunOutcome, IpcTabWorktree, TabStatus } from "../../shared/ipc-types";
 import type {
@@ -75,6 +76,7 @@ import {
 import type { FileEdits } from "../web/file-edit-reports";
 import { AppControl, type AppPorts, AppRefusal } from "./app-control";
 import { type AutoCloseFacts, autoCloseDecision } from "./auto-close";
+import { BotDeskError, botDeskText, type DecisionDraft, type OpenDecision } from "./bot-desk";
 import {
 	type BranchEvidence,
 	type BranchFacts,
@@ -95,6 +97,7 @@ import {
 	type AnswerArgs,
 	ARGS,
 	type AutopilotArgs,
+	type BotArgs,
 	type ListArgs,
 	MESSAGE_MAX_CHARS,
 	type OpenOne,
@@ -253,6 +256,17 @@ export interface ScheduleSource {
 	remove(id: string): Promise<void>;
 }
 
+/** The bot's desk as `ompdesk_bot` uses it (`host.ts`, over `bot-desk.ts` and the Schedules service). */
+export interface BotDeskPort {
+	/** The bot's session file while the owner has the bot on; null while it is off. */
+	sessionPath(): string | null;
+	/** The desk and the bot's own wakes. */
+	state(): BotDeskState;
+	/** Posts a decision for the owner and tells them (a banner on the bot's tab, a push to paired phones). */
+	decide(callerTabId: string, draft: DecisionDraft): OpenDecision;
+	addDuty(text: string): { duty: BotDuty; added: boolean };
+	removeDuty(id: string): BotDuty | undefined;
+}
 export type ShipLevel = "commit" | "push" | "release";
 
 /** `ompdesk_autopilot`'s ship levels as the start sheet's presets. */
@@ -358,6 +372,8 @@ export interface AgentControlHost {
 	closedChildren?(): readonly ClosedChild[];
 	/** The Schedules service of this computer (no `device`) or of the paired host `device`, or null where there is none. */
 	schedules(device?: string): ScheduleSource | null;
+	/** The bot's desk (`ompdesk_bot`); absent where there is none. */
+	botDesk?: BotDeskPort;
 	/**
 	 * The control-tool calls that change something, by their identity (`call-journal.ts`): a call a paired host re-sends
 	 * after this computer relaunched runs at most once. Absent: calls are not recorded.
@@ -1361,6 +1377,8 @@ export class AgentControl {
 				return this.#schedule(caller, ARGS[T.schedule].parse(raw));
 			case T.autopilot:
 				return this.#autopilot(caller, tabs, ARGS[T.autopilot].parse(raw));
+			case T.bot:
+				return this.#bot(caller, ARGS[T.bot].parse(raw));
 			case T.appList:
 				return this.#appControl().list(ARGS[T.appList].parse(raw ?? {}));
 			case T.app: {
@@ -3688,6 +3706,43 @@ export class AgentControl {
 		if (wakeSession !== undefined)
 			return `Scheduled “${row.name}” ${describeFrequency(frequency)}: it wakes this session with the prompt, opening it in the background if no tab holds it; id ${row.id}; next wake ${row.nextRun ?? "—"}. It runs only while OMPdesk is open on this computer; cancel it when you no longer need it with ompdesk_schedule {"action":"cancel","id":"${row.id}"}.`;
 		return `Scheduled “${row.name}” ${describeFrequency(frequency)} in ${cwd} ${where}; id ${row.id}; next run ${row.nextRun ?? "—"}. It runs only while OMPdesk is open ${where}, never with auto-approve; cancel it with ompdesk_schedule {"action":"cancel","id":"${row.id}"${deviceArg}}.`;
+	}
+
+	/** `ompdesk_bot`: the bot's own desk. Only the owner's bot session may use it. */
+	#bot(caller: ControlTab, args: BotArgs): string {
+		const desk = this.#host.botDesk;
+		const botPath = desk?.sessionPath();
+		if (!desk || !botPath || caller.device || caller.sessionPath !== botPath)
+			fail(
+				"ompdesk_bot is the owner's bot's tool: only the bot's own session (Settings › Bot) may use it. To reach the owner from another session use ompdesk_notify, and to reach the session that opened you use ompdesk_report.",
+			);
+		try {
+			switch (args.action) {
+				case "desk":
+					return botDeskText(desk.state());
+				case "decide": {
+					const decision = desk.decide(caller.tabId, {
+						question: args.question,
+						...(args.options === undefined ? {} : { options: args.options }),
+						...(args.context === undefined ? {} : { context: args.context }),
+					});
+					return `Decision ${decision.id} is posted for the owner and waits on your desk. Keep working: do not wait for it and do not ask again. The answer arrives later as a message that starts your turn and names ${decision.id}.`;
+				}
+				case "duty_add": {
+					const { duty, added } = desk.addDuty(args.text);
+					if (!added) return `Duty ${duty.id} is already on your desk: “${duty.text}”.`;
+					return `Duty ${duty.id} recorded: “${duty.text}”. It stays in your prompt every turn, also after a new conversation or a compaction (${desk.state().duties.length} of ${BOT_DUTIES_MAX} duties).`;
+				}
+				case "duty_remove": {
+					const duty = desk.removeDuty(args.id);
+					if (!duty) fail(`No duty "${args.id}" is on your desk. ompdesk_bot {"action":"desk"} lists them.`);
+					return `Duty ${duty.id} removed: “${duty.text}”.`;
+				}
+			}
+		} catch (error) {
+			if (error instanceof BotDeskError) fail(error.message);
+			throw error;
+		}
 	}
 
 	/** `ompdesk_autopilot`: start, read or stop an Autopilot run through the coordinator the Autopilot screen uses. */

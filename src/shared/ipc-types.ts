@@ -23,6 +23,7 @@ import type {
 	AiMemorySweep,
 	AiMemoryWriteInput,
 } from "./ai-memory";
+import type { BotDeskAnswer, BotDeskDuties, BotDeskState } from "./bot-desk";
 import type { BuiltinReaState } from "./builtin-mcp";
 import type { CliToolId, CliUpdateState } from "./cli-update";
 import type { AgentBrowserStatus, ChromiumBrowserId } from "./default-browser";
@@ -130,6 +131,8 @@ export const IPC_EVENTS = {
 	MODEL_CATALOG_UPDATE: "model-catalog:update",
 	/** Session list changed */
 	SESSIONS_CHANGED: "sessions:changed",
+	/** The bot's desk changed (`BotDeskState`) */
+	BOT_DESK_CHANGED: "bot-desk:changed",
 	/** The sessions paired devices' tabs run on this computer changed (`IpcHostedSession[]`) */
 	HOSTED_SESSIONS_CHANGED: "sessions:hosted-changed",
 	/** What this computer works on now changed (`HostLiveSession[]`, `LIVE_SESSIONS`) */
@@ -245,6 +248,12 @@ export const IPC_COMMANDS = {
 	SESSIONS_DUMP_BUNDLE: "sessions:dump-bundle",
 	/** The bot's session file (`string`), made first when it is missing: the sidebar's bot row opens it (`agent-control/bot-home.ts`) */
 	SESSIONS_ENSURE_BOT: "sessions:ensure-bot",
+	/** The bot's desk (`BotDeskState`, `shared/bot-desk.ts`): its duties, decisions and own wakes */
+	BOT_DESK_GET: "bot-desk:get",
+	/** The owner answers one open decision (`BotDeskAnswer`); main tells the bot */
+	BOT_DESK_ANSWER: "bot-desk:answer",
+	/** The owner's duty list, whole (`BotDeskDuties`) */
+	BOT_DESK_SET_DUTIES: "bot-desk:set-duties",
 	/** Fetch stats endpoint */
 	STATS_FETCH: "stats:fetch",
 	/** Run/cancel an isolated bundled `omp bench --json` process. */
@@ -2279,6 +2288,13 @@ export interface OmpApi {
 		held(): Promise<string[]>;
 		/** The bot's session file on this computer, made first when it is missing (`SESSIONS_ENSURE_BOT`). */
 		ensureBot(): Promise<string>;
+		/** The bot's desk (`shared/bot-desk.ts`), kept by main. */
+		botDesk: {
+			get(): Promise<BotDeskState>;
+			answer(payload: BotDeskAnswer): Promise<void>;
+			setDuties(payload: BotDeskDuties): Promise<void>;
+			onChanged(callback: (state: BotDeskState) => void): () => void;
+		};
 	};
 	tabs: {
 		/** The calling window's tabs in acquisition order (boot reconciliation). */

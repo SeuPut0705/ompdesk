@@ -81,3 +81,30 @@ describe("ompdesk_autopilot arguments", () => {
 		expect(() => args.parse({ action: "start", advanced: { limits: { usd: -1 } } })).toThrow();
 	});
 });
+
+describe("ompdesk_bot arguments", () => {
+	const args = ARGS[AGENT_CONTROL_TOOLS.bot];
+
+	it("parses each action and rejects another action's fields", () => {
+		expect(args.parse({ action: "desk" })).toEqual({ action: "desk" });
+		expect(
+			args.parse({ action: "decide", question: "  Ship it? ", options: ["Yes", "No"], context: "CI is green" }),
+		).toEqual({
+			action: "decide",
+			question: "Ship it?",
+			options: ["Yes", "No"],
+			context: "CI is green",
+		});
+		expect(args.parse({ action: "duty_add", text: "Check the nightly build" })).toMatchObject({ action: "duty_add" });
+		expect(args.parse({ action: "duty_remove", id: "0a1b2c3d" })).toMatchObject({ id: "0a1b2c3d" });
+		expect(() => args.parse({ action: "decide" })).toThrow();
+		expect(() =>
+			args.parse({ action: "decide", question: "Pick", options: Array.from({ length: 7 }, (_, i) => `${i}`) }),
+		).toThrow();
+		expect(() => args.parse({ action: "duty_add" })).toThrow();
+		expect(() => args.parse({ action: "duty_add", text: "x".repeat(301) })).toThrow();
+		expect(() => args.parse({ action: "duty_remove" })).toThrow();
+		expect(() => args.parse({ action: "desk", id: "x" })).toThrow();
+		expect(() => args.parse({ action: "answer", id: "x" })).toThrow();
+	});
+});

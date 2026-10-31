@@ -10,7 +10,7 @@ import type { LocalHandler } from "./types";
 const confirmCommand = z.object({ title: z.string().min(1).max(200), message: z.string().min(1).max(2000) });
 const noteCommand = z.object({ text: z.string().min(1).max(500) });
 const workerCommand = z.object({ from: z.string().min(1).max(200) });
-const botCommand = z.object({ rules: z.string().max(20_000) });
+const botCommand = z.object({ rules: z.string().max(20_000), duties: z.string().max(20_000).optional() });
 const judgeCommand = z.object({ system: z.string().min(1).max(20_000), user: z.string().min(1).max(200_000) });
 const mailCommand = z.object({
 	content: z.string().min(1).max(200_000),
@@ -37,10 +37,13 @@ export const handlers: Record<string, LocalHandler> = {
 		await ctx.bridge.request("agent_control.worker", { from });
 		return {};
 	},
-	/** This session is the owner's bot and these are the owner's rules: its bridge journals them and adds the bot role. */
+	/**
+	 * This session is the owner's bot: these are the owner's rules for its actions and its standing duties (`botDutiesText`,
+	 * empty when there are none); its bridge journals them and adds the bot role.
+	 */
 	agent_control_bot: async (command, ctx) => {
-		const { rules } = botCommand.parse(command);
-		return ctx.bridge.request("agent_control.bot", { rules });
+		const { rules, duties } = botCommand.parse(command);
+		return ctx.bridge.request("agent_control.bot", { rules, duties: duties ?? "" });
 	},
 	/**
 	 * `ompdesk_compare` with criteria: one request on the `advisor` role, else `slow`, preferring a model family other

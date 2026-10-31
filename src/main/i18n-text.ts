@@ -312,6 +312,8 @@ export const MAIN_TEXT = {
 	// A finished turn whose last reply waits for the person (notify-triage.ts), in the renderer's `attention.question`
 	// word; {title} is the tab's title.
 	"notify.needsInput": { en: "Needs input · {title}", ko: "답변 필요 · {title}" },
+	// A decision the bot posted for the owner (agent-control/bot-desk.ts); {title} is the bot's name.
+	"notify.botDecision": { en: "Decision needed · {title}", ko: "결정 필요 · {title}" },
 	// Web Push to a paired phone (web/web-push-notifier.ts). The body reads like the desktop banner's; a device that
 	// hides content gets only the title, and the batch summary above.
 	"push.complete": { en: "Complete", ko: "완료" },

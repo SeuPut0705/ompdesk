@@ -18,7 +18,7 @@ Each OMPdesk session is a tab in one of the user's windows, on this computer or 
 - `ompdesk_tab_focus` — `session`, `how`. `ompdesk_notify` — `title`, `body`. `ompdesk_report` (as a child, or to a session working in the same checkout) — `kind` (`progress`, `done`, `blocked`, `question`, `review`, `note`), `text`, `files`, `checks`, `to`, `dispatch`, `id`.
 - `ompdesk_session_stop` — `session`, `close`, `delete`, `device` (where a saved id is).
 - `ompdesk_compare` — `sessions`, `criteria`: evidence and a ranked verdict; `ompdesk_merge`: skill://ompdesk/references/worktrees-review.md
-- `ompdesk_schedule` — `action`, `device`, `target`: recurring runs on this computer or a paired one, or your own wake-up (`self`): skill://ompdesk/references/schedules.md
+- `ompdesk_schedule` — `action`, `device`, `target`: recurring runs on this computer or a paired one, or your own wake-up (`self`): skill://ompdesk/references/schedules.md. `ompdesk_bot` (the owner's bot session only) — `action` (`desk`, `decide`, `duty_add`, `duty_remove`), `question`, `options`, `context`, `text`, `id`: post a decision without blocking, keep standing duties: skill://ompdesk/references/bot.md
 - `ompdesk_autopilot` — `action` (`start`, `status`, `stop`), `folder`, `device`, `ship`, `branch`, `session`, `now`: endless repo improvement, not bounded tasks: skill://ompdesk/references/autopilot.md
 - `ompdesk_app_list`, `ompdesk_app` — change OMPdesk itself instead of asking the user to click: skill://ompdesk/references/app-control.md
 

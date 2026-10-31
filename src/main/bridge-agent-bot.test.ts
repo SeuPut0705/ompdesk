@@ -1,8 +1,8 @@
 /**
  * gui-bridge agent-control.ts bot role: the owner's bot session journals `ompdesk.bot` with the owner's action rules
- * (`agent_control.bot`, only when they differ from the newest entry), and while an entry is on its branch its main
- * agent's prompt carries the bot role and the newest rules (`ompdesk-bot`); a session with no entry, and the bot's own
- * subagents, never do.
+ * and its standing duties (`agent_control.bot`, only when either differs from the newest entry), and while an entry is
+ * on its branch its main agent's prompt carries the bot role, the newest duties and the newest rules (`ompdesk-bot`);
+ * a session with no entry, and the bot's own subagents, never do.
  */
 import { describe, expect, it } from "vitest";
 import { BOT_ENTRY, botSection, install, methods } from "../../resources/gui-bridge/agent-control";
@@ -52,6 +52,22 @@ describe("bot role", () => {
 		expect(text).toContain("- Edit code: take it without asking.");
 	});
 
+	it("lists the standing duties, and says none yet when there are none", () => {
+		const duties = "- Check the nightly build every morning (id 0a1b2c3d)\n- Watch the release (id 11223344)";
+		const entries: JournalEntry[] = [{ type: "custom", customType: BOT_ENTRY, data: { rules: RULES, duties } }];
+		const text = hook()({ systemPrompt: BASE }, session(entries))?.systemPrompt?.at(-1) ?? "";
+		expect(text).toBe(botSection(RULES, undefined, duties));
+		expect(text).toContain(`Standing duties:\n${duties}\nRules:`);
+		expect(text).toContain('ompdesk_bot {"action":"decide"}');
+		expect(text).toContain('ompdesk_bot {"action":"duty_add"}');
+		expect(text).toContain("the owner's answer comes back to you as a message that starts your turn");
+		// An entry journaled before the desk existed carries rules only: the section still builds, with no duties.
+		const old: JournalEntry[] = [{ type: "custom", customType: BOT_ENTRY, data: { rules: RULES } }];
+		const plain = hook()({ systemPrompt: BASE }, session(old))?.systemPrompt?.at(-1) ?? "";
+		expect(plain).toContain("Standing duties: none yet.");
+		expect(plain).toBe(botSection(RULES));
+	});
+
 	it("is not in the prompt of a session without the entry, nor of the bot's subagents", () => {
 		const on = hook();
 		expect(
@@ -94,7 +110,7 @@ describe("bot role", () => {
 		);
 	});
 
-	it("is journaled by agent_control.bot only when the rules differ from the newest entry", async () => {
+	it("is journaled by agent_control.bot only when the rules or the duties differ from the newest entry", async () => {
 		const journal: JournalEntry[] = [];
 		const env = envOver(journal);
 		await expect(methods["agent_control.bot"]?.({ rules: RULES }, env)).resolves.toEqual({ changed: true });
@@ -112,5 +128,24 @@ describe("bot role", () => {
 		expect(journal).toHaveLength(3);
 		await expect(methods["agent_control.bot"]?.({ rules: "" }, env)).resolves.toEqual({ changed: true });
 		await expect(methods["agent_control.bot"]?.({}, env)).rejects.toThrow("rules");
+	});
+
+	it("journals the duties with the rules, once per text, and a caller with no duties tells none", async () => {
+		const journal: JournalEntry[] = [];
+		const env = envOver(journal);
+		const duties = "- Check the nightly build every morning (id 0a1b2c3d)";
+		await expect(methods["agent_control.bot"]?.({ rules: RULES, duties }, env)).resolves.toEqual({ changed: true });
+		await expect(methods["agent_control.bot"]?.({ rules: RULES, duties }, env)).resolves.toEqual({ changed: false });
+		expect(journal.at(-1)).toMatchObject({ customType: BOT_ENTRY, data: { rules: RULES, duties } });
+		// The same rules with other duties is a change; so is dropping them.
+		await expect(
+			methods["agent_control.bot"]?.({ rules: RULES, duties: `${duties}\n- Watch the release (id 11223344)` }, env),
+		).resolves.toEqual({ changed: true });
+		await expect(methods["agent_control.bot"]?.({ rules: RULES, duties: "" }, env)).resolves.toEqual({
+			changed: true,
+		});
+		await expect(methods["agent_control.bot"]?.({ rules: RULES }, env)).resolves.toEqual({ changed: false });
+		expect(journal).toHaveLength(3);
+		await expect(methods["agent_control.bot"]?.({ rules: RULES, duties: 7 }, env)).rejects.toThrow("duties");
 	});
 });

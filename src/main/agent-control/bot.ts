@@ -6,8 +6,9 @@
  * handed to it.
  * - While it can answer such a question (`answers`), the owner's own "needs you" notice for it is not shown; one it
  *   leaves open past `BOT_ANSWER_WAIT_MS` notifies the owner after all.
- * - Its omp is told the owner's action rules (`role`: `agent_control_bot`, journaled by the bridge, which adds the bot
- *   role and those rules to its prompt), at each start of its tab and when the rules change.
+ * - Its omp is told the owner's action rules and its standing duties (`role`: `agent_control_bot`, journaled by the
+ *   bridge, which adds the bot role, the duties and those rules to its prompt), at each start of its tab and when
+ *   either changes.
  */
 import { AGENT_CARD_PREFIX, activeBotPath } from "../../shared/agent-control";
 import { BOT_RULES_PREF, botRulesText, parseBotRules } from "../../shared/bot-rules";
@@ -52,8 +53,10 @@ export interface BotDeps {
 	grants(): BotGrants;
 	/** The tab on this computer holding `sessionPath`, if any. */
 	tabOfSession(sessionPath: string): BotTab | null;
-	/** Tells the bot's omp its rules (`agent_control_bot`); rejects when it could not. */
-	tell(tabId: string, rules: string): Promise<void>;
+	/** Tells the bot's omp its rules and its duties as its prompt lists them (`agent_control_bot`); rejects when it could not. */
+	tell(tabId: string, rules: string, duties: string): Promise<void>;
+	/** The bot's standing duties as its prompt lists them (`botDutiesText`); empty when there are none. */
+	duties(): string;
 	log(entry: Record<string, unknown>): void;
 	/** Shows the owner the notice of a question the bot left open past `BOT_ANSWER_WAIT_MS`. */
 	remind(tabId: string, ask: BotAsk): void;
@@ -78,7 +81,7 @@ export class BotFeed {
 	readonly #deps: BotDeps;
 	/** Questions the bot is answering, by tab and request: the wait for its answer, and whether it ran out. */
 	readonly #handed = new Map<string, { timer: unknown; overdue: boolean }>();
-	/** The tab and rules text the bot's omp was last told (`role`), as `<tabId>\n<rules>`. */
+	/** The tab, rules and duties the bot's omp was last told (`role`), as one JSON line. */
 	#told: string | null = null;
 	#telling: Promise<void> = Promise.resolve();
 
@@ -171,9 +174,10 @@ export class BotFeed {
 	}
 
 	/**
-	 * Tells the bot's omp the owner's rules for its actions (`deps.tell`; its bridge adds the bot role to the prompt),
-	 * once per tab and rules text: at each start of its tab, and again when the rules change. A tab with no omp (asleep,
-	 * exited, failed) is told when it starts. Never rejects: a failed tell is logged and tried again by the next call.
+	 * Tells the bot's omp the owner's rules for its actions and its standing duties (`deps.tell`; its bridge adds the
+	 * bot role to the prompt), once per tab and text: at each start of its tab, and again when the rules or the duties
+	 * change. A tab with no omp (asleep, exited, failed) is told when it starts. Never rejects: a failed tell is logged
+	 * and tried again by the next call.
 	 */
 	role(): Promise<void> {
 		this.#telling = this.#telling.then(() => this.#tell());
@@ -189,10 +193,11 @@ export class BotFeed {
 		const bot = this.#bot();
 		if (!bot || bot.status === "asleep" || bot.status === "exited" || bot.status === "error") return;
 		const rules = botRulesText(parseBotRules(this.#deps.prefs.get(BOT_RULES_PREF)));
-		const told = `${bot.tabId}\n${rules}`;
+		const duties = this.#deps.duties();
+		const told = JSON.stringify([bot.tabId, rules, duties]);
 		if (this.#told === told) return;
 		try {
-			await this.#deps.tell(bot.tabId, rules);
+			await this.#deps.tell(bot.tabId, rules, duties);
 			this.#told = told;
 		} catch (error) {
 			this.#deps.log({ event: "role-failed", tabId: bot.tabId, error: String(error) });

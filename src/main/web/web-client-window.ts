@@ -74,6 +74,11 @@ export class WebWindows {
 		return win;
 	}
 
+	/** Every device's window, for a push that is the app's own and no tab's. */
+	all(): WebClientWindow[] {
+		return [...this.#windows.values()];
+	}
+
 	has(deviceId: string): boolean {
 		return this.#windows.has(deviceId);
 	}

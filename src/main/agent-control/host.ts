@@ -31,6 +31,7 @@ import {
 	type AgentReviewEvent,
 	type AgentReviewItem,
 	type AgentReviewResult,
+	activeBotPath,
 	agentControlApproveEnabled,
 	agentControlEnabled,
 	agentControlFullEnabled,
@@ -43,6 +44,7 @@ import {
 	parseClosedChildren,
 	sidebarViewOf,
 } from "../../shared/agent-control";
+import { type BotWake, botDutiesText } from "../../shared/bot-desk";
 import type {
 	HostView,
 	IpcSpawnTabPayload,
@@ -90,6 +92,7 @@ import type { FileEditReports } from "../web/file-edit-reports";
 import { sessionOpenFolders } from "../worktree-orphans";
 import type { AppPorts } from "./app-control";
 import { BotFeed, type BotTab } from "./bot";
+import type { AnsweredDecision, BotDesk, OpenDecision } from "./bot-desk";
 import {
 	type BranchEvidence,
 	type BranchFacts,
@@ -110,6 +113,7 @@ import {
 	AgentControl,
 	type AgentControlHost,
 	type AutopilotSource,
+	type BotDeskPort,
 	type ControlAsk,
 	type ControlTab,
 	type OpenedChild,
@@ -194,6 +198,10 @@ export interface AgentControlHostDeps {
 	botLog?: (entry: Record<string, unknown>) => void;
 	/** The owner's own notice of a question the bot left open too long (desktop banner, paired phones). */
 	botRemind?: (tabId: string, requestId: string, title: string) => void;
+	/** The bot's desk (`bot-desk.ts`) and the wakes it scheduled for itself; absent where there is no desk. */
+	botDesk?: { desk: BotDesk; wakes(): BotWake[] };
+	/** The owner's notice that a decision waits for them (desktop banner on the bot's tab, paired phones). */
+	botDecisionNotice?: (tabId: string, decision: OpenDecision) => void;
 	/** The sessions sharing a tab's checkout or repository on this computer (src/main/checkout-peers.ts). */
 	checkoutPeers?: (tabId: string) => readonly string[];
 	/** Autopilot's hooks (src/main/autopilot*.ts). */
@@ -334,6 +342,8 @@ export class AgentControlRuntime {
 		this.#calls = new CallJournal(deps.callJournalFile ?? null);
 		this.control = new AgentControl(this.#host());
 		this.#bot = new BotFeed(this.#botDeps());
+		// A change to the duties is told to the bot's omp now; the feed tells only what differs from the last tell.
+		deps.botDesk?.desk.onChange(() => void this.#bot.role());
 		deps.pool.observeTabs(activity => {
 			this.#bot.activity(activity);
 			const parent =
@@ -411,6 +421,22 @@ export class AgentControlRuntime {
 		};
 	}
 
+	/** The desk as `ompdesk_bot` uses it: a decision it posts also tells the owner. */
+	#botDeskPort(source: NonNullable<AgentControlHostDeps["botDesk"]>): BotDeskPort {
+		const { desk } = source;
+		return {
+			sessionPath: () => activeBotPath(key => this.#deps.prefs.get(key)),
+			state: () => ({ ...desk.state(), wakes: source.wakes() }),
+			decide: (callerTabId, draft) => {
+				const decision = desk.postDecision(draft);
+				this.#deps.botDecisionNotice?.(callerTabId, decision);
+				return decision;
+			},
+			addDuty: text => desk.addDuty(text),
+			removeDuty: id => desk.removeDuty(id),
+		};
+	}
+
 	#botDeps(): ConstructorParameters<typeof BotFeed>[0] {
 		const deps = this.#deps;
 		return {
@@ -436,8 +462,13 @@ export class AgentControlRuntime {
 				const owner = deps.pool.sessionOwner(sessionPath);
 				return owner ? this.#botTab(owner.tabId) : null;
 			},
-			tell: async (tabId, rules) => {
-				const response = await this.#hostCommand(tabId, { type: "agent_control_bot", rules }, BOT_ROLE_TIMEOUT_MS);
+			duties: () => botDutiesText(deps.botDesk?.desk.state().duties ?? []),
+			tell: async (tabId, rules, duties) => {
+				const response = await this.#hostCommand(
+					tabId,
+					{ type: "agent_control_bot", rules, duties },
+					BOT_ROLE_TIMEOUT_MS,
+				);
 				if (!response.success) throw new Error(response.error ?? "The bot's omp did not take its rules.");
 			},
 			log: entry => deps.botLog?.(entry),
@@ -448,10 +479,40 @@ export class AgentControlRuntime {
 	}
 
 	/**
-	 * The owner's rules for the bot changed (pref `botRules`): its omp is told now, not at its next start.
+	 * The owner's rules for the bot changed (pref `botRules`, or the switch): its omp is told now, not at its next
+	 * start. A change to its duties is heard from the desk itself.
 	 */
 	botRulesChanged(): void {
 		void this.#bot.role();
+	}
+
+	/**
+	 * The owner answered a decision the bot posted: the answer reaches the bot as a message that starts its turn, through
+	 * the outbox like a report (an omp that misses it gets it again). A closed bot is opened in the background and an
+	 * asleep one started, as a wake does. While the bot is off nothing is told: it is no session to wake. A bot that
+	 * cannot be opened now still gets the message from the outbox once a tab holds its session.
+	 */
+	async botDecisionAnswered(decision: AnsweredDecision): Promise<void> {
+		const sessionPath = activeBotPath(key => this.#deps.prefs.get(key));
+		if (!sessionPath) {
+			this.#deps.botLog?.({ event: "decision-not-told", id: decision.id });
+			return;
+		}
+		const mail: Mail = {
+			id: `bot-decision-${decision.id}`,
+			from: "ompdesk",
+			fromTitle: "Decision answered",
+			to: "",
+			kind: "note",
+			text: `The owner answered your decision ${decision.id}.\nQuestion: ${decision.question}\nAnswer: ${decision.answer}`,
+			instruction: "Continue from this answer: pick up the work the decision held back. Do not ask the owner again.",
+			at: Date.now(),
+		};
+		try {
+			await this.#reach(sessionPath, mail, { triggerTurn: true, deliverAs: "aside" });
+		} catch (error) {
+			this.#deps.botLog?.({ event: "decision-undelivered", id: decision.id, error: String(error) });
+		}
 	}
 
 	/**
@@ -470,31 +531,39 @@ export class AgentControlRuntime {
 			))
 		)
 			throw new Error(`The session to wake is gone (${sessionPath})`);
-		const owner = this.#deps.pool.sessionOwner(sessionPath);
-		const tab = owner ? this.#botTab(owner.tabId) : null;
-		const win = tab ? null : this.#deps.outsideWindow?.();
-		if (!tab && !win) throw new Error("No window to open the session in.");
 		const mail: Mail = {
 			id: `wake-${runId}`,
 			from: "ompdesk",
 			fromTitle: schedule.name.replace(AGENT_SCHEDULE_PREFIX, "").trim() || "Scheduled wake",
-			to: tab?.tabId ?? "",
+			to: "",
 			kind: "note",
 			text: schedule.prompt,
 			instruction: "You scheduled this wake-up for yourself: act on it now.",
 			at: Date.now(),
 		};
-		this.#keepAndSend(sessionPath, mail, { triggerTurn: true, deliverAs: "aside" });
-		if (tab?.status === "asleep") void this.#deps.pool.startTab(tab.tabId);
-		else if (win) {
-			try {
-				await this.#deps.spawnTab(win, { sessionPath });
-			} catch (error) {
-				// Nothing woke: the run fails, and the mail is not left to turn up in this session later.
-				this.#outbox.settle(mail.id);
-				throw error;
-			}
+		try {
+			await this.#reach(sessionPath, mail, { triggerTurn: true, deliverAs: "aside" });
+		} catch (error) {
+			// Nothing woke: the run fails, and the mail is not left to turn up in this session later.
+			this.#outbox.settle(mail.id);
+			throw error;
 		}
+	}
+
+	/**
+	 * Keeps `mail` for the session file until its journal holds it and sends it to the tab holding that session; an
+	 * asleep tab is started, and with no tab the session is opened in a background tab of the front window. Rejects
+	 * when there is no window to open it in, or the open fails; the mail stays kept.
+	 */
+	async #reach(sessionPath: string, mail: Mail, delivery: MailDelivery): Promise<void> {
+		const owner = this.#deps.pool.sessionOwner(sessionPath);
+		const tab = owner ? this.#botTab(owner.tabId) : null;
+		this.#keepAndSend(sessionPath, { ...mail, to: tab?.tabId ?? "" }, delivery);
+		if (tab?.status === "asleep") void this.#deps.pool.startTab(tab.tabId);
+		if (tab) return;
+		const win = this.#deps.outsideWindow?.();
+		if (!win) throw new Error("No window to open the session in.");
+		await this.#deps.spawnTab(win, { sessionPath });
 	}
 
 	/** Keeps a report in the outbox until the session's journal holds it, and sends it to its tab when there is one. */
@@ -1289,6 +1358,7 @@ export class AgentControlRuntime {
 				),
 			recordClosed: child => this.#recordClosed(child),
 			closedChildren: () => parseClosedChildren(deps.prefs.get(AGENT_CLOSED_CHILDREN_PREF)),
+			botDesk: deps.botDesk ? this.#botDeskPort(deps.botDesk) : undefined,
 			schedules: device => {
 				// The machine that runs the schedules: this computer's service, or a paired host's own over the link
 				// (`host.schedules.*`), which checks the draft the same way.

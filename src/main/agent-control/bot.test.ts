@@ -34,21 +34,23 @@ function rig(options: { named?: boolean; botTab?: BotTab | null; enabled?: boole
 	};
 	const reminded: { tabId: string; ask: BotAsk }[] = [];
 	/** What the bot's omp was told (`role`), and an error the next tell fails with. */
-	const told: { tabId: string; rules: string }[] = [];
+	const told: { tabId: string; rules: string; duties: string }[] = [];
 	let tellError: Error | null = null;
+	let duties = "";
 	const deps: BotDeps = {
 		prefs: { get: key => prefs.get(key) },
 		tab: tabId => tabs.get(tabId) ?? null,
 		openAsks: tabId => asks.get(tabId) ?? [],
 		grants: () => grants,
 		tabOfSession: sessionPath => (sessionPath === BOT ? botTab : null),
-		tell: async (tabId, rules) => {
+		duties: () => duties,
+		tell: async (tabId, rules, dutiesText) => {
 			if (tellError) {
 				const error = tellError;
 				tellError = null;
 				throw error;
 			}
-			told.push({ tabId, rules });
+			told.push({ tabId, rules, duties: dutiesText });
 		},
 		log: () => undefined,
 		remind: (tabId, ask) => void reminded.push({ tabId, ask }),
@@ -64,6 +66,9 @@ function rig(options: { named?: boolean; botTab?: BotTab | null; enabled?: boole
 		feed,
 		prefs,
 		told,
+		setDuties: (text: string) => {
+			duties = text;
+		},
 		tellFails: (error: Error) => {
 			tellError = error;
 		},
@@ -179,7 +184,7 @@ describe("BotFeed", () => {
 		it("tells the bot's omp the default rules once per tab, and again only when they change", async () => {
 			const r = rig();
 			await r.feed.role();
-			expect(r.told).toEqual([{ tabId: "sec", rules: botRulesText(DEFAULT_BOT_RULES) }]);
+			expect(r.told).toEqual([{ tabId: "sec", rules: botRulesText(DEFAULT_BOT_RULES), duties: "" }]);
 			// Heard already: the sweep and every bot activity ask again at no cost.
 			await r.feed.role();
 			r.feed.activity({ type: "busy", tabId: "sec" });
@@ -193,6 +198,31 @@ describe("BotFeed", () => {
 			r.prefs.set(BOT_RULES_PREF, []);
 			await r.feed.role();
 			expect(r.told[2]?.rules).toBe("");
+		});
+
+		it("tells the duties with the rules, and again when they change", async () => {
+			const r = rig();
+			r.setDuties("- Check the nightly build every morning (id 0a1b2c3d)");
+			await r.feed.role();
+			expect(r.told).toEqual([
+				{
+					tabId: "sec",
+					rules: botRulesText(DEFAULT_BOT_RULES),
+					duties: "- Check the nightly build every morning (id 0a1b2c3d)",
+				},
+			]);
+			await r.feed.role();
+			expect(r.told).toHaveLength(1);
+			r.setDuties("");
+			await r.feed.role();
+			expect(r.told[1]?.duties).toBe("");
+			r.setDuties("- Watch the release (id 11223344)");
+			await r.feed.role();
+			expect(r.told.map(entry => entry.duties)).toEqual([
+				"- Check the nightly build every morning (id 0a1b2c3d)",
+				"",
+				"- Watch the release (id 11223344)",
+			]);
 		});
 
 		it("tells a new tab of the bot's session again, and nothing while it has no omp, no tab or is off", async () => {

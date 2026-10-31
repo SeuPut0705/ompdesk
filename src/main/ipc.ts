@@ -31,6 +31,7 @@ import {
 	AGENT_CONTROL_PREF,
 	AGENT_HIDDEN_PREFS_KEY,
 	type AgentReviewResult,
+	activeBotPath,
 	agentControlEnabled,
 	agentHiddenPaths,
 	BOT_ENABLED_PREF,
@@ -39,6 +40,7 @@ import {
 	privacyPaneUrl,
 	reviewFromDevice,
 } from "../shared/agent-control";
+import { BotDeskAnswerSchema, BotDeskDutiesSchema, type BotDeskState, type BotWake } from "../shared/bot-desk";
 import { BOT_RULES_PREF } from "../shared/bot-rules";
 import { REA_PREF } from "../shared/builtin-mcp";
 import {
@@ -125,6 +127,7 @@ import {
 	openExtensionsPage,
 	reprobeAgentBrowserStatus,
 } from "./agent-browsers";
+import { type BotDesk, botWakes } from "./agent-control/bot-desk";
 import type { BotHome } from "./agent-control/bot-home";
 import { AgentControlRuntime, CARD_TIMEOUT_MS } from "./agent-control/host";
 import { appNotification } from "./app-icon";
@@ -280,7 +283,7 @@ export interface IpcDeps {
 	/** A preference was written through PREFS_SET (main-side effects such as keep-awake). */
 	onPrefChanged?: (key: string) => void;
 	/** The Schedules service, created later than the handlers: read per use. */
-	schedules?: () => Pick<ScheduleService, "command" | "create"> | null;
+	schedules?: () => Pick<ScheduleService, "command" | "create" | "state"> | null;
 	/** This computer's sidebar project list: it looks for new folders when the session index changes. */
 	sidebarProjects?: Pick<SidebarProjects, "schedule">;
 	/**
@@ -302,6 +305,15 @@ export interface IpcDeps {
 	sessionWake: { current: ((schedule: Schedule, runId: string) => Promise<void>) | null };
 	/** The bot's session (agent-control/bot-home.ts): the sidebar's bot row asks it to be made when missing. */
 	botHome: BotHome;
+	/** The bot's desk (agent-control/bot-desk.ts): its duties and the decisions it posted for the owner. */
+	botDesk: BotDesk;
+	/**
+	 * Set here: tells every window and paired web page the desk as it stands now. The Schedules service (the bot's
+	 * wakes) and the bot's session pref change elsewhere and call it.
+	 */
+	botDeskPush: { current: (() => void) | null };
+	/** The paired web pages' windows: `broadcast` reaches the desktop's own only. */
+	webPages?: () => readonly ClientWindow[];
 	/** Web Push's share of a tab's question told late (one the bot left open), set once the web host exists. */
 	webAsk: { current: ((activity: Extract<TabActivity, { type: "ask" }>) => void) | null };
 	/** The desktop slot's host, built in `registerIpcHandlers` (it needs the pool) and published here for the sidecar factory. */
@@ -1257,7 +1269,30 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	};
 	const fileEditReports = deps.fileEditReports;
 	// OMPdesk control tools (src/main/agent-control): the same pool, dispatcher, spawn path and notifications the GUI uses.
+	// The bot's desk (agent-control/bot-desk.ts): its own wakes are the schedules delivering into its session file.
+	const botWakesNow = (): BotWake[] =>
+		botWakes(
+			deps.schedules?.()?.state() ?? { schedules: [], nextRuns: {} },
+			activeBotPath(key => prefsStore.get(key)),
+		);
+	const botDeskState = (): BotDeskState => ({ ...deps.botDesk.state(), wakes: botWakesNow() });
+	const pushBotDesk = (): void => {
+		const state = botDeskState();
+		broadcast(windowManager, IPC_EVENTS.BOT_DESK_CHANGED, state);
+		for (const win of deps.webPages?.() ?? [])
+			if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.BOT_DESK_CHANGED, state);
+	};
+	deps.botDesk.onChange(pushBotDesk);
+	deps.botDeskPush.current = pushBotDesk;
 	const agentControl: AgentControlRuntime = new AgentControlRuntime({
+		botDesk: { desk: deps.botDesk, wakes: botWakesNow },
+		// A decision the bot posted: the owner's "needs you" banner on its tab and the paired phones, as for a late question.
+		botDecisionNotice: (tabId, decision) => {
+			const session = sidecarPool.tabFacts(tabId)?.title || "OMPdesk";
+			const title = mainT("notify.botDecision", undefined, { title: session });
+			notifyTab(tabId, { kind: "ask", title, body: decision.question });
+			deps.webTabNotice.current?.(tabId, { kind: "completion", title, body: decision.question });
+		},
 		fileEdits: fileEditReports,
 		releaseTab: async (win, tabId, stillReleasable) => {
 			const released = await closeWindowTab(tabRelease, win, tabId, win.webContents.id, stillReleasable);
@@ -1455,6 +1490,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
 	// The bot's session (agent-control/bot-home.ts): the sidebar's bot row opens what this answers, made first when
 	// the file is missing (a launch is its first seconds; a deleted one). Never while the owner has the bot off.
+	ipc.handle(IPC_COMMANDS.BOT_DESK_GET, () => botDeskState());
+	ipc.handle(IPC_COMMANDS.BOT_DESK_ANSWER, (_caller, payload: unknown) => {
+		const { id, answer } = BotDeskAnswerSchema.parse(payload);
+		// Recorded first: the bot is told once, and an answer for a decision that is gone or answered is refused here.
+		void agentControl.botDecisionAnswered(deps.botDesk.answer(id, answer));
+	});
+	ipc.handle(IPC_COMMANDS.BOT_DESK_SET_DUTIES, (_caller, payload: unknown) =>
+		deps.botDesk.setDuties(BotDeskDutiesSchema.parse(payload)),
+	);
 	ipc.handle(IPC_COMMANDS.SESSIONS_ENSURE_BOT, () =>
 		botEnabled(prefsStore.get(BOT_ENABLED_PREF))
 			? deps.botHome.ensureBotSession()
@@ -2003,6 +2047,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (payload.key === AGENT_CONTROL_PREF)
 			for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncHostTools();
 		if (payload.key === BOT_RULES_PREF || payload.key === BOT_ENABLED_PREF) agentControl.botRulesChanged();
+		// Off, the bot has no wakes to show; on, its own come back.
+		if (payload.key === BOT_ENABLED_PREF) pushBotDesk();
 		deps.onPrefChanged?.(payload.key);
 		prefChanged(caller.win, payload.key);
 	});

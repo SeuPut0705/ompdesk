@@ -7,6 +7,7 @@
 import { z } from "zod";
 import { AUTOPILOT_AREAS } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import { AGENT_SCHEDULE_PREFIX, AGENT_CONTROL_TOOLS as T } from "../../shared/agent-control";
+import { BOT_DECISION_OPTIONS_MAX, BOT_DUTY_TEXT_MAX } from "../../shared/bot-desk";
 import type { HostToolDefinition } from "../../shared/rpc-types";
 import { MAIL_KINDS } from "./mail";
 
@@ -558,6 +559,30 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 			additionalProperties: false,
 		},
 	},
+	{
+		name: T.bot,
+		label: "OMPdesk bot desk",
+		description:
+			"The owner's bot: read its desk, post decisions, keep duties.\n" +
+			"The desk of the owner's bot, usable only from the bot's own session (Settings › Bot); any other session is refused. desk reads your standing duties, the decisions still waiting for the owner and the wakes you scheduled. decide posts what only the owner can decide and returns at once: keep working, the owner's answer arrives later as a message that starts your turn. duty_add records a standing responsibility the owner gave you; it stays in your prompt through a new conversation and a compaction. duty_remove drops one by id. See skill://ompdesk.",
+		parameters: {
+			type: "object",
+			properties: {
+				action: { type: "string", enum: ["desk", "decide", "duty_add", "duty_remove"] },
+				question: { type: "string", description: "decide: what the owner is asked, one clear sentence." },
+				options: {
+					type: "array",
+					items: { type: "string" },
+					description: `decide: the choices you offer (at most ${BOT_DECISION_OPTIONS_MAX}); omit for a free answer.`,
+				},
+				context: { type: "string", description: "decide: what the owner needs to know to decide." },
+				text: { type: "string", description: "duty_add: the duty, one sentence." },
+				id: { type: "string", description: "duty_remove: the duty id desk shows." },
+			},
+			required: ["action"],
+			additionalProperties: false,
+		},
+	},
 ];
 
 const sessionArg = z.string().trim().min(1).max(200);
@@ -799,6 +824,19 @@ export const ARGS = {
 		.object({ area: z.string().trim().max(60).optional(), query: z.string().trim().max(200).optional() })
 		.strict(),
 	[T.app]: z.object({ action: z.string().trim().min(1).max(100), args: z.record(z.unknown()).optional() }).strict(),
+	[T.bot]: z.discriminatedUnion("action", [
+		z.object({ action: z.literal("desk") }).strict(),
+		z
+			.object({
+				action: z.literal("decide"),
+				question: z.string().trim().min(1).max(2000),
+				options: z.array(z.string().trim().min(1).max(200)).max(BOT_DECISION_OPTIONS_MAX).optional(),
+				context: z.string().max(4000).optional(),
+			})
+			.strict(),
+		z.object({ action: z.literal("duty_add"), text: z.string().trim().min(1).max(BOT_DUTY_TEXT_MAX) }).strict(),
+		z.object({ action: z.literal("duty_remove"), id: z.string().trim().min(1).max(64) }).strict(),
+	]),
 } as const;
 
 export type ListArgs = z.infer<(typeof ARGS)[typeof T.list]>;
@@ -806,5 +844,7 @@ export type ListArgs = z.infer<(typeof ARGS)[typeof T.list]>;
 export type AnswerArgs = z.infer<(typeof ARGS)[typeof T.answer]>;
 
 export type ScheduleArgs = z.infer<(typeof ARGS)[typeof T.schedule]>;
+
+export type BotArgs = z.infer<(typeof ARGS)[typeof T.bot]>;
 
 export type AutopilotArgs = z.infer<typeof autopilotArgs>;
