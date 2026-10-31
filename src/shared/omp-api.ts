@@ -4,6 +4,7 @@
  * only `fs.pathForFile` (a dropped file's local path) stays with the preload, because only Electron knows it.
  */
 
+import type { BotAvatarAnswer } from "../../resources/gui-bridge/bot-avatar-contracts";
 import type { AccountRotationMode, AccountRotationState } from "./account-rotation";
 import {
 	AGENT_CONTROL_APP,
@@ -585,6 +586,9 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				/** Show the bot a workflow: start recording, stop (hands the bot the record) or cancel. */
 				teach: (payload: BotTeachRequest, device?: string) =>
 					transport.invoke(IPC_COMMANDS.BOT_TEACH, payload, device) as Promise<BotTeachResult>,
+				avatarStatus: () => transport.invoke(IPC_COMMANDS.BOT_AVATAR_STATUS) as Promise<BotAvatarAnswer>,
+				generateAvatar: (prompt: string) =>
+					transport.invoke(IPC_COMMANDS.BOT_AVATAR_GENERATE, prompt) as Promise<void>,
 				onChanged: (callback: (state: BotDeskState, device?: string) => void) => {
 					const offLocal = subscribe<BotDeskState>(IPC_EVENTS.BOT_DESK_CHANGED, state => callback(state));
 					const offHost = subscribe<IpcHostBotDesk>(IPC_EVENTS.HOST_BOT_DESK_STATE, update =>

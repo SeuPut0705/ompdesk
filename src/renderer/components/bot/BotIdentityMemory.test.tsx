@@ -6,6 +6,7 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
+import type { BotAvatarAnswer } from "../../../../resources/gui-bridge/bot-avatar-contracts";
 import { BOT_ACTIVITY_ACTIONS, type BotActivity, type BotActivityPage } from "../../../shared/bot-activity";
 import { type BotDeskState, EMPTY_BOT_DESK } from "../../../shared/bot-desk";
 import type { BotDeskEdit } from "../../../shared/bot-desk-edit";
@@ -16,6 +17,7 @@ import { useBotActivityStore } from "../../stores/bot-activity";
 import { useBotDeskStore } from "../../stores/bot-desk";
 import { useSessionStore } from "../../stores/session";
 import { useToastStore } from "../../stores/toast";
+import { useUiStore } from "../../stores/ui";
 import { BotIdentitySettings } from "../settings/BotIdentitySettings";
 import { BotBar, BotBoardSections } from "./BotDesk";
 
@@ -35,14 +37,21 @@ interface Api {
 	edit: Mock<(payload: BotDeskEdit, device?: string) => Promise<void>>;
 	activity: Mock<(device?: string) => Promise<BotActivityPage>>;
 	onChanged: Mock<() => () => void>;
+	avatarStatus: Mock<() => Promise<BotAvatarAnswer>>;
+	generateAvatar: Mock<(prompt: string) => Promise<void>>;
 }
 
-function installApi(page: BotActivityPage = { entries: [], revision: 0 }): Api {
+function installApi(
+	page: BotActivityPage = { entries: [], revision: 0 },
+	status: BotAvatarAnswer = { available: true, model: "openai/gpt-image-1" },
+): Api {
 	const api: Api = {
 		get: vi.fn(async () => EMPTY_BOT_DESK),
 		edit: vi.fn(async () => {}),
 		activity: vi.fn(async () => page),
 		onChanged: vi.fn(() => () => {}),
+		avatarStatus: vi.fn(async () => status),
+		generateAvatar: vi.fn(async () => {}),
 	};
 	(window as unknown as { omp: unknown }).omp = { sessions: { botDesk: api } };
 	return api;
@@ -231,6 +240,71 @@ describe("the bot's identity and notices", () => {
 		await click(query("[data-bot-avatar-generate]"));
 		await change(document.querySelector("[data-bot-avatar-description]"), { value: "a calm blue fox" });
 		await click(document.querySelector("[data-bot-avatar-generate-send]"));
-		expect(api.edit).toHaveBeenLastCalledWith({ op: "avatar_generate", description: "a calm blue fox" });
+		expect(api.generateAvatar).toHaveBeenLastCalledWith("a calm blue fox");
+		expect(api.edit).not.toHaveBeenCalledWith(expect.objectContaining({ op: "avatar_generate" }));
+	});
+});
+
+describe("Generate on the image model", () => {
+	const disabled = (element: Element | null) => props<{ disabled?: boolean }>(element).disabled === true;
+
+	it("is off with the reason and a link to the image role while no image model can draw", async () => {
+		const api = installApi(undefined, { available: false, reason: "no_model" });
+		await mount(<BotIdentitySettings />);
+		expect(api.avatarStatus).toHaveBeenCalledOnce();
+		expect(disabled(query("[data-bot-avatar-generate]"))).toBe(true);
+		expect(query("[data-bot-avatar-reason]")?.textContent).toContain(en["botAvatar.reason.no_model"]);
+		const openSettings = vi.fn();
+		const original = useUiStore.getState().openSettings;
+		useUiStore.setState({ openSettings });
+		try {
+			await click(query("[data-bot-avatar-role-link]"));
+		} finally {
+			useUiStore.setState({ openSettings: original });
+		}
+		expect(openSettings).toHaveBeenCalledWith("models:roles");
+	});
+
+	it("says to open a session first, without a link to the role, when none can be asked", async () => {
+		installApi(undefined, { available: false, reason: "no_session" });
+		await mount(<BotIdentitySettings />);
+		expect(disabled(query("[data-bot-avatar-generate]"))).toBe(true);
+		expect(query("[data-bot-avatar-reason]")?.textContent).toBe(en["botAvatar.reason.no_session"]);
+		expect(query("[data-bot-avatar-role-link]")).toBeNull();
+	});
+
+	it("is on when the image model can draw, shows pending on its button, and closes once drawn", async () => {
+		const drawn = Promise.withResolvers<void>();
+		const api = installApi();
+		api.generateAvatar.mockReturnValue(drawn.promise);
+		await mount(<BotIdentitySettings />);
+		expect(disabled(query("[data-bot-avatar-generate]"))).toBe(false);
+		expect(query("[data-bot-avatar-reason]")).toBeNull();
+
+		await click(query("[data-bot-avatar-generate]"));
+		await change(document.querySelector("[data-bot-avatar-description]"), { value: "  a calm blue fox " });
+		await click(document.querySelector("[data-bot-avatar-generate-send]"));
+		expect(api.generateAvatar).toHaveBeenCalledWith("a calm blue fox");
+		expect(props<{ disabled?: boolean }>(document.querySelector("[data-bot-avatar-generate-send]")).disabled).toBe(
+			true,
+		);
+
+		await act(async () => drawn.resolve());
+		expect(document.querySelector("[role='dialog']")).toBeNull();
+	});
+
+	it("toasts a failure and keeps the dialog open for another try", async () => {
+		const api = installApi();
+		api.generateAvatar.mockRejectedValue(new Error("Image generation exhausted the resolved image chain"));
+		await mount(<BotIdentitySettings />);
+		await click(query("[data-bot-avatar-generate]"));
+		await change(document.querySelector("[data-bot-avatar-description]"), { value: "a fox" });
+		await click(document.querySelector("[data-bot-avatar-generate-send]"));
+		expect(useToastStore.getState().toasts.map(toast => toast.title)).toContain(en["botAvatar.failed"]);
+		expect(document.querySelector("[role='dialog']")).not.toBeNull();
+		expect(document.querySelector("[data-bot-avatar-description]")).not.toBeNull();
+		expect(props<{ disabled?: boolean }>(document.querySelector("[data-bot-avatar-generate-send]")).disabled).toBe(
+			false,
+		);
 	});
 });

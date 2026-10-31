@@ -3496,7 +3496,6 @@ describe("LocalHostServices host.* calls", () => {
 						activity,
 						createSideChat: async () => "/s/side.jsonl",
 						deleteSession: async () => {},
-						askBot: async () => {},
 					},
 					edit,
 					"owner",

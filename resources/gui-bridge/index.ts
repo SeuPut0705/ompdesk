@@ -103,6 +103,7 @@ const AREAS: readonly Area[] = [
 	{ name: "todo-reminder", features: ["todoReminder"], load: () => import("./todo-reminder") },
 	{ name: "todo-stale", features: ["todoStale"], load: () => import("./todo-stale") },
 	{ name: "turn-stages", features: ["turnStages"], load: () => import("./turn-stages") },
+	{ name: "bot-avatar", features: ["botAvatar"], load: () => import("./bot-avatar") },
 ];
 
 function builtins(failures: readonly AreaFailure[]): BridgeMethods {

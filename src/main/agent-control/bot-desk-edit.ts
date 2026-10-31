@@ -14,8 +14,6 @@ export interface BotDeskEditDeps {
 	createSideChat(topic: string): Promise<string>;
 	/** Deletes a session as the sidebar's Delete does (its tab closes first; refused while it runs a turn). */
 	deleteSession(sessionPath: string): Promise<void>;
-	/** Hands the bot a request from the owner as a message that starts its turn (`AgentControlRuntime.botAsked`). */
-	askBot(text: string): Promise<void>;
 }
 
 export async function editBotDesk(deps: BotDeskEditDeps, edit: BotDeskEdit, by: BotDeskActor): Promise<void> {
@@ -34,11 +32,6 @@ export async function editBotDesk(deps: BotDeskEditDeps, edit: BotDeskEdit, by: 
 			desk.removeChannel(channel.id, by);
 			return;
 		}
-		case "avatar_generate":
-			await deps.askBot(
-				`Make yourself a new avatar: ${edit.description}\nDraw one square picture with generate_image, then set it with ompdesk_bot {"action":"identity","avatar_file":"<the picture's absolute path>"}.`,
-			);
-			return;
 		case "undo": {
 			const entry = activity.get(edit.activity);
 			if (!entry) throw new BotDeskError("That activity is no longer in the log.");

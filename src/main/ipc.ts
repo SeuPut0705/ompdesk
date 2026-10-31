@@ -9,7 +9,6 @@
  * (`remote_path_native`): this machine cannot see that disk.
  */
 
-import { randomUUID } from "node:crypto";
 import { existsSync, promises as fsp } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -141,7 +140,8 @@ import {
 	reprobeAgentBrowserStatus,
 } from "./agent-browsers";
 import type { BotActivityLog } from "./agent-control/bot-activity";
-import { avatarFromFile } from "./agent-control/bot-avatar";
+import { avatarFromBuffer, avatarFromFile } from "./agent-control/bot-avatar";
+import { avatarBridge, avatarStatus, BotAvatarPromptSchema, generateAvatar } from "./agent-control/bot-avatar-draw";
 import { type BotDesk, botRoutines } from "./agent-control/bot-desk";
 import { editBotDesk } from "./agent-control/bot-desk-edit";
 import type { BotHome } from "./agent-control/bot-home";
@@ -1606,7 +1606,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				activity: deps.botActivity,
 				createSideChat: topic => deps.botHome.createSideChat(topic),
 				deleteSession: sessionPath => deleteStoredSession(sessionPath, undefined),
-				askBot: text => agentControl.botAsked(randomUUID(), text),
 			},
 			edit,
 			"owner",
@@ -1661,6 +1660,22 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			? BotTeachResultSchema.parse(await remoteDevices.request(host, "host.botDesk.teach", request))
 			: teachAction(botTeach, request);
 	});
+	// Settings › Bot › Generate: the image model role draws the avatar in a live local omp (the bot's own tab, else the
+	// asking window's active one), and the owner's identity change keeps it with Undo (agent-control/bot-avatar-draw.ts).
+	const avatarBridgeFor = (caller: IpcCaller) =>
+		avatarBridge(
+			sidecarPool,
+			activeBotPath(key => prefsStore.get(key)),
+			sidecarFor(deps, caller),
+		);
+	ipc.handle(IPC_COMMANDS.BOT_AVATAR_STATUS, caller => avatarStatus(avatarBridgeFor(caller)));
+	ipc.handle(IPC_COMMANDS.BOT_AVATAR_GENERATE, async (caller, prompt: unknown) =>
+		generateAvatar(
+			{ desk: deps.botDesk, avatarFromBuffer },
+			avatarBridgeFor(caller),
+			BotAvatarPromptSchema.parse(prompt),
+		),
+	);
 	// The bot's session (agent-control/bot-home.ts): the sidebar's bot row opens what this answers, made first when
 	// the file is missing (a launch is its first seconds; a deleted one). Never while the owner has the bot off.
 	ipc.handle(IPC_COMMANDS.SESSIONS_ENSURE_BOT, () =>

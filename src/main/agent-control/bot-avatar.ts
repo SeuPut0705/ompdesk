@@ -1,7 +1,8 @@
 /**
- * A picture the bot made for its avatar (`ompdesk_bot {"action":"identity","avatar_file":…}`), as the desk keeps it:
- * the centre square, 128 px, as a PNG data URL (a JPEG one when the PNG would not fit `BOT_AVATAR_URL_MAX`). The
- * owner's own upload is cut the same way in the window (`components/bot/avatar-image.ts`).
+ * A picture for the bot's avatar, as the desk keeps it: the centre square, 128 px, as a PNG data URL (a JPEG one when
+ * the PNG would not fit `BOT_AVATAR_URL_MAX`). It comes from a file the bot made (`ompdesk_bot
+ * {"action":"identity","avatar_file":…}`, `avatarFromFile`) or from the image model Settings › Bot drew it on
+ * (`avatarFromBuffer`). The owner's own upload is cut the same way in the window (`components/bot/avatar-image.ts`).
  */
 import { readFile, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
@@ -17,8 +18,12 @@ export async function avatarFromFile(path: string): Promise<string> {
 	const info = await stat(path).catch(() => null);
 	if (!info?.isFile()) throw new BotDeskError(`No picture at ${path}.`);
 	if (info.size > SOURCE_MAX_BYTES) throw new BotDeskError("The picture is larger than 25 MB.");
-	const image = nativeImage.createFromBuffer(await readFile(path));
-	if (image.isEmpty()) throw new BotDeskError("That file is not a PNG, JPEG or WebP picture.");
+	return avatarFromBuffer(await readFile(path));
+}
+
+export function avatarFromBuffer(bytes: Buffer): string {
+	const image = nativeImage.createFromBuffer(bytes);
+	if (image.isEmpty()) throw new BotDeskError("That is not a PNG, JPEG or WebP picture.");
 	const { width, height } = image.getSize();
 	const side = Math.min(width, height);
 	const square = image

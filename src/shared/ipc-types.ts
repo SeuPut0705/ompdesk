@@ -3,6 +3,7 @@
  * Type-safe contract for the contextBridge API.
  */
 
+import type { BotAvatarAnswer } from "../../resources/gui-bridge/bot-avatar-contracts";
 import type { AccountRotationMode, AccountRotationState } from "./account-rotation";
 import type { AgentAppEvent, AgentControlViewEvent, AgentReviewEvent } from "./agent-control";
 import type {
@@ -272,6 +273,10 @@ export const IPC_COMMANDS = {
 	BOT_ACTIVITY_GET: "bot-activity:get",
 	/** The owner records a workflow for the bot to turn into a skill: start, stop or cancel (`BotTeachRequest` → `BotTeachResult`, `shared/bot-teach.ts`) */
 	BOT_TEACH: "bot-desk:teach",
+	/** Whether the image model role can draw the bot's avatar (`BotAvatarAnswer`), asked through a live session's bridge */
+	BOT_AVATAR_STATUS: "bot-avatar:status",
+	/** Draw the bot's avatar on the image model role from the owner's words and set it (`BotDeskEdit` identity, logged with Undo) */
+	BOT_AVATAR_GENERATE: "bot-avatar:generate",
 	/** Fetch stats endpoint */
 	STATS_FETCH: "stats:fetch",
 	/** Run/cancel an isolated bundled `omp bench --json` process. */
@@ -2326,6 +2331,10 @@ export interface OmpApi {
 			activity(device?: string): Promise<BotActivityPage>;
 			/** Show the bot a workflow: start recording, stop (hands the bot the record) or cancel (`BOT_TEACH`). */
 			teach(payload: BotTeachRequest, device?: string): Promise<BotTeachResult>;
+			/** Whether the image model role can draw an avatar, without drawing one (`BOT_AVATAR_STATUS`). */
+			avatarStatus(): Promise<BotAvatarAnswer>;
+			/** Draws the avatar on the image model role and sets it; the desk's push carries it (`BOT_AVATAR_GENERATE`). */
+			generateAvatar(prompt: string): Promise<void>;
 			/** This computer's desk (no `device`) and every paired host's, as each pushes it. */
 			onChanged(callback: (state: BotDeskState, device?: string) => void): () => void;
 		};

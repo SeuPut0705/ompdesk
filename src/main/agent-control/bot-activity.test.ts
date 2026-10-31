@@ -65,7 +65,6 @@ describe("BotActivityLog", () => {
 describe("editBotDesk", () => {
 	function rig() {
 		const activity = new BotActivityLog({ file: null });
-		const asked: string[] = [];
 		const desk = new BotDesk({ file: null, activity: draft => void activity.append(draft) });
 		const created: string[] = [];
 		const deleted: string[] = [];
@@ -77,9 +76,8 @@ describe("editBotDesk", () => {
 				return `/s/${created.length}.jsonl`;
 			},
 			deleteSession: async (sessionPath: string) => void deleted.push(sessionPath),
-			askBot: async (text: string) => void asked.push(text),
 		};
-		return { activity, desk, deps, created, deleted, asked };
+		return { activity, desk, deps, created, deleted };
 	}
 
 	it("undoes a change once, and refuses what cannot be undone", async () => {
@@ -98,16 +96,6 @@ describe("editBotDesk", () => {
 			/cannot be undone/,
 		);
 		await expect(editBotDesk(deps, { op: "undo", activity: "gone" }, "owner")).rejects.toThrow(/no longer/);
-	});
-
-	it("hands an avatar request to the bot as a message, and changes nothing on the desk itself", async () => {
-		const { desk, deps, asked } = rig();
-		const before = desk.state();
-		await editBotDesk(deps, { op: "avatar_generate", description: "a calm blue fox" }, "owner");
-		expect(asked).toHaveLength(1);
-		expect(asked[0]).toContain("a calm blue fox");
-		expect(asked[0]).toContain('ompdesk_bot {"action":"identity","avatar_file"');
-		expect(desk.state()).toEqual(before);
 	});
 
 	it("makes a side chat's session before recording it, deletes it before forgetting it, and makes none past the cap", async () => {

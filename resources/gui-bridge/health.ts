@@ -63,6 +63,7 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 	"@oh-my-pi/pi-coding-agent/config/compaction-threshold": () =>
 		import("@oh-my-pi/pi-coding-agent/config/compaction-threshold"),
 	"@oh-my-pi/pi-coding-agent/config/model-resolver": () => import("@oh-my-pi/pi-coding-agent/config/model-resolver"),
+	"@oh-my-pi/pi-coding-agent/config/model-registry": () => import("@oh-my-pi/pi-coding-agent/config/model-registry"),
 	"@oh-my-pi/pi-coding-agent/config/model-roles": () => import("@oh-my-pi/pi-coding-agent/config/model-roles"),
 	"@oh-my-pi/pi-coding-agent/config/models-config": () => import("@oh-my-pi/pi-coding-agent/config/models-config"),
 	"@oh-my-pi/pi-coding-agent/config/prompt-templates": () =>
@@ -184,6 +185,7 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 	"@oh-my-pi/pi-coding-agent/tools/computer/supervisor": () =>
 		import("@oh-my-pi/pi-coding-agent/tools/computer/supervisor"),
 	"@oh-my-pi/pi-coding-agent/tools/builtin-names": () => import("@oh-my-pi/pi-coding-agent/tools/builtin-names"),
+	"@oh-my-pi/pi-coding-agent/tools/image-gen": () => import("@oh-my-pi/pi-coding-agent/tools/image-gen"),
 	"@oh-my-pi/pi-coding-agent/tools/debug": () => import("@oh-my-pi/pi-coding-agent/tools/debug"),
 	"@oh-my-pi/pi-coding-agent/tools/gh-pr-checkout": () => import("@oh-my-pi/pi-coding-agent/tools/gh-pr-checkout"),
 	"@oh-my-pi/pi-coding-agent/tools/manage-skill": () => import("@oh-my-pi/pi-coding-agent/tools/manage-skill"),

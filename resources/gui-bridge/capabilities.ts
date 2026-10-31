@@ -83,6 +83,7 @@ export const FEATURES = {
 	todoReminder: "A refused todo call's reminder reaches its own turn, and the turn then reads finished",
 	todoStale: "A todo list left from earlier work is named to the agent when a new request starts a turn",
 	turnStages: "Turn stages recorded when a turn waits long for the model or ends without output (gui-runtime.jsonl)",
+	botAvatar: "Bot avatar drawn on the image model role (Settings › Bot › Generate)",
 } as const;
 
 export type FeatureId = keyof typeof FEATURES;
@@ -1339,6 +1340,33 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		modules: {
 			[`${AGENT}/session/session-storage`]: ["tryAcquireSessionLease()"],
 			[`${AGENT}/session/session-title-slot`]: ["parseTitleSlotFromContent()"],
+		},
+	},
+	/**
+	 * bot-avatar.ts: Settings › Bot's "Generate…". The status resolves stock's image role chain (`roleCandidatePool`,
+	 * `resolveRoleChain`, `isImageGenerationApi`, the session's credentials) without drawing; the picture is one run of
+	 * stock's own `generate_image` tool (`imageGenTool.execute`) over the session's registry and settings, because its
+	 * candidate order and hosted carriers (`defaultImageCandidates`, `resolveHostedImageCarrier`) are not exported.
+	 */
+	botAvatar: {
+		session: [
+			"settings",
+			"modelRegistry",
+			"model",
+			"sessionId",
+			"sessionManager",
+			"modelRegistry.getApiKey()",
+			"modelRegistry.getAvailable()",
+			"modelRegistry.resolver()",
+			"modelRegistry.resolveModelHeaders()",
+			"sessionManager.getSessionId()",
+		],
+		modules: {
+			"@oh-my-pi/pi-ai": ["isImageGenerationApi()"],
+			[`${AGENT}/config/model-registry`]: ["isAuthenticated()"],
+			[`${AGENT}/config/model-resolver`]: ["resolveRoleChain()"],
+			[`${AGENT}/config/model-roles`]: ["roleCandidatePool()"],
+			[`${AGENT}/tools/image-gen`]: ["imageGenTool.execute()"],
 		},
 	},
 };

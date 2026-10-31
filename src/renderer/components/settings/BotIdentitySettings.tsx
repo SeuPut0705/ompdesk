@@ -7,6 +7,7 @@
  */
 import { ImageUp, MessageSquareQuote, Palette, Sparkles, UserRound, Volume2 } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
+import { BOT_AVATAR_PROMPT_MAX, type BotAvatarAnswer } from "../../../../resources/gui-bridge/bot-avatar-contracts";
 import {
 	BOT_AVATAR_COLORS,
 	BOT_AVATAR_SHAPES,
@@ -22,10 +23,11 @@ import {
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { ensureBotDesk, useBotDesk, useBotDeskStore } from "../../stores/bot-desk";
-import { toast, toastError } from "../../stores/toast";
+import { toastError } from "../../stores/toast";
+import { useUiStore } from "../../stores/ui";
 import { AvatarImageError, avatarDataUrl, BOT_AVATAR_ACCEPT } from "../bot/avatar-image";
 import { BOT_SHAPE_ICONS, BOT_TILE_CLASSES, BotAvatar } from "../bot/BotAvatar";
-import { Button, IconButton, Input, Modal, Select, TextArea } from "../common";
+import { Button, IconButton, Input, LinkButton, Modal, Select, TextArea } from "../common";
 import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
 
 function notifyField(kind: BotNotifyKind, route: BotNotifyRoute): Partial<Pick<BotNotify, BotNotifyKind>> {
@@ -41,12 +43,35 @@ function useDraft(stored: string) {
 	return { draft, setDraft, editing, setEditing };
 }
 
+/** Whether the image model role can draw an avatar (read once, when the row appears); null until main answers. */
+function useAvatarDrawing(): BotAvatarAnswer | null {
+	const [answer, setAnswer] = useState<BotAvatarAnswer | null>(null);
+	useEffect(() => {
+		let live = true;
+		void (async () => {
+			let next: BotAvatarAnswer;
+			try {
+				next = await window.omp.sessions.botDesk.avatarStatus();
+			} catch {
+				next = { available: false, reason: "unavailable" };
+			}
+			if (live) setAnswer(next);
+		})();
+		return () => {
+			live = false;
+		};
+	}, []);
+	return answer;
+}
+
 function AvatarRow() {
 	const t = useT();
 	const { desk } = useBotDesk();
 	const edit = useBotDeskStore(state => state.edit);
 	const fileRef = useRef<HTMLInputElement>(null);
 	const [generating, setGenerating] = useState(false);
+	const drawing = useAvatarDrawing();
+	const unavailable = drawing && !drawing.available ? (drawing.reason ?? "unavailable") : null;
 	const avatar = desk.identity.avatar;
 	const mark = avatar.kind === "mark" ? avatar : null;
 	const upload = async (file: File | undefined) => {
@@ -137,14 +162,31 @@ function AvatarRow() {
 						/>
 						<Button
 							data-bot-avatar-generate
+							disabled={!drawing?.available}
 							icon={<Sparkles />}
 							onClick={() => setGenerating(true)}
 							size="sm"
 							variant="secondary"
 						>
-							{t("botIdentity.generate")}
+							{t("botAvatar.generate")}
 						</Button>
 					</div>
+					{unavailable && (
+						<p className="text-sc-xs text-(--sc-text-muted)" data-bot-avatar-reason={unavailable}>
+							{t(`botAvatar.reason.${unavailable}`)}
+							{unavailable === "no_model" || unavailable === "no_credentials" ? (
+								<>
+									{" "}
+									<LinkButton
+										data-bot-avatar-role-link
+										onClick={() => useUiStore.getState().openSettings("models:roles")}
+									>
+										{t("botAvatar.openRole")}
+									</LinkButton>
+								</>
+							) : null}
+						</p>
+					)}
 				</div>
 			</div>
 			<GenerateDialog onClose={() => setGenerating(false)} open={generating} />
@@ -152,49 +194,63 @@ function AvatarRow() {
 	);
 }
 
-/** The owner describes the avatar; the bot draws it (`generate_image`) and sets it itself. */
+/** The owner describes the avatar; the app draws it on the image model role and sets it (main, `BOT_AVATAR_GENERATE`). */
 function GenerateDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
 	const t = useT();
-	const edit = useBotDeskStore(state => state.edit);
 	const id = useId();
 	const [description, setDescription] = useState("");
+	const [pending, setPending] = useState(false);
 	const send = async () => {
 		const text = description.trim();
-		if (!text) return;
-		if (await edit({ op: "avatar_generate", description: text })) {
-			toast({ message: t("botIdentity.generateSent") });
+		if (!text || pending) return;
+		setPending(true);
+		try {
+			await window.omp.sessions.botDesk.generateAvatar(text);
 			setDescription("");
 			onClose();
+		} catch (error) {
+			toastError({ title: t("botAvatar.failed"), error });
+		} finally {
+			setPending(false);
 		}
+	};
+	const close = () => {
+		if (!pending) onClose();
 	};
 	return (
 		<Modal
-			description={t("botIdentity.generateDesc")}
+			description={t("botAvatar.desc")}
 			footer={
 				<>
-					<Button onClick={onClose} variant="secondary">
+					<Button disabled={pending} onClick={close} variant="secondary">
 						{t("common.cancel")}
 					</Button>
-					<Button data-bot-avatar-generate-send disabled={!description.trim()} onClick={() => void send()}>
-						{t("botIdentity.generateSend")}
+					<Button
+						data-bot-avatar-generate-send
+						disabled={!description.trim()}
+						loading={pending}
+						onClick={() => void send()}
+					>
+						{t("botAvatar.send")}
 					</Button>
 				</>
 			}
-			onClose={onClose}
+			onClose={close}
 			open={open}
 			size="sm"
-			title={t("botIdentity.generateTitle")}
+			title={t("botAvatar.title")}
 		>
 			<TextArea
 				aria-labelledby={id}
 				data-bot-avatar-description
-				maxLength={500}
+				disabled={pending}
+				maxLength={BOT_AVATAR_PROMPT_MAX}
 				onChange={event => setDescription(event.target.value)}
-				placeholder={t("botIdentity.generatePlaceholder")}
+				placeholder={t("botAvatar.placeholder")}
 				value={description}
 			/>
 			<span className="sr-only" id={id}>
-				{t("botIdentity.generateTitle")}
+				{t("botAvatar.title")}
 			</span>
 		</Modal>
 	);
