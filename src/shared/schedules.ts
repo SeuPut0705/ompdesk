@@ -203,9 +203,10 @@ function nonEmptySubset(values: unknown, allowed: readonly string[]): boolean {
 
 /**
  * The first start strictly after `now`; null when the clock never starts it (an event trigger, a one-time schedule
- * that ran or whose moment passed). An interval repeats from the previous start (else from `now`); a start that fell
- * while the app was closed is skipped, so the next one is a full interval away. A daily schedule starts at its local
- * time on an allowed weekday.
+ * whose moment passed). An interval repeats from the previous start (else from `now`); a start that fell while the app
+ * was closed is skipped, so the next one is a full interval away. A daily schedule starts at its local time on an
+ * allowed weekday. A one-time schedule's own start is spent by turning it off (`ScheduleService`), never read from its
+ * runs: a Test before its moment, or a run of an earlier moment it was changed from, leaves the start where it is.
  */
 export function nextRunAt(
 	frequency: ScheduleFrequency,
@@ -217,7 +218,7 @@ export function nextRunAt(
 	if (frequency.kind === "event") return null;
 	if (frequency.kind === "once") {
 		const at = Date.parse(frequency.at);
-		return lastStart === null && at > now.getTime() ? new Date(at) : null;
+		return at > now.getTime() ? new Date(at) : null;
 	}
 	if (frequency.kind === "interval") {
 		const step = frequency.minutes * minuteMs;

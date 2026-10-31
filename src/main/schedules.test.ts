@@ -592,6 +592,42 @@ describe("routines: event triggers, once, run history", () => {
 		service.dispose();
 	});
 
+	it("a Test before a once routine's moment keeps that moment; moving a spent one to a new moment schedules it again", async () => {
+		fakeClock(new Date(2026, 9, 15, 12, 0));
+		const dir = await tempDir();
+		const { service, turns, woke } = routineHarness(dir);
+		await service.start();
+		const at = new Date(2026, 9, 15, 12, 30).toISOString();
+		const id = await routine(service, dir, { frequency: { kind: "once", at } });
+
+		// Test now: a run, but the real start is still due at its moment.
+		await service.command({ action: "runNow", id });
+		await woke(1);
+		turns[0]?.end({ code: 0 });
+		await ended(service, 1);
+		expect(service.state().schedules[0]?.enabled).toBe(true);
+		expect(service.state().nextRuns[id]).toBe(at);
+		await vi.advanceTimersByTimeAsync(30 * 60_000 + SCHEDULE_TICK_MS);
+		await woke(2);
+		expect(service.state().runs[0]).toMatchObject({ trigger: "schedule" });
+		turns[1]?.end({ code: 0 });
+		await ended(service, 2);
+		expect(service.state().nextRuns[id]).toBeNull();
+
+		// Spent, then moved to a new moment and turned on: it starts again at that moment.
+		const later = new Date(2026, 9, 15, 14, 0).toISOString();
+		await service.command({
+			action: "save",
+			id,
+			draft: draft(dir, { frequency: { kind: "once", at: later }, wakeSession: SESSION, enabled: true }),
+		});
+		expect(service.state().nextRuns[id]).toBe(later);
+		await vi.advanceTimersByTimeAsync(90 * 60_000 + SCHEDULE_TICK_MS);
+		await woke(3);
+		expect(service.state().runs[0]).toMatchObject({ trigger: "schedule" });
+		service.dispose();
+	});
+
 	it("keeps each schedule's newest runs, so a busy routine never pushes out another's history", async () => {
 		const dir = await tempDir();
 		const { service, turns, woke } = routineHarness(dir);
