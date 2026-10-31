@@ -9,3 +9,7 @@ Only the owner's bot session has this tool in practice (Settings › Bot; the bo
 - `action: "duty_add"` records a standing responsibility the owner gave you (`text`, one sentence: "check the nightly build every morning"), not a single task. The same text twice is one duty. At most twenty. `action: "duty_remove"` drops one by `id` once it is over; `desk` shows the ids.
 
 A duty that needs a timer is a duty plus a wake: record it, then schedule the wake with `ompdesk_schedule`.
+
+## Cleaning up the sessions you open
+
+Open a one-off session (a lookup, a check, an inventory on a paired device) with `ompdesk_session_open` `throwaway: true`: once its final answer ends with `Result: ok` and has reached you, OMPdesk closes it and deletes its saved session on the computer it ran on, and tells you in one quiet line. One that ends `Result: problem` closes but stays saved for a follow-up. Any other session you opened: delete it with `ompdesk_session_stop` `delete: true` once its result is in and nothing more needs it; the id you were given still names it after its tab closed, and deleting a session you opened asks nothing. A session that changed code goes only after you checked its work landed and told the owner. Sessions the owner or another agent opened are never yours to delete unless the owner asks.
