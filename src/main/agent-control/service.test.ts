@@ -2359,10 +2359,14 @@ describe("ompdesk_autopilot", () => {
 
 describe("autoClose: opened sessions whose work landed", () => {
 	/** The caller opens one session; its tab then reads as a finished, agent-opened child with a stored file. */
-	async function finishedChild(options: { worktree?: boolean; patch?: Partial<FakeTab> } = {}) {
+	async function finishedChild(options: { worktree?: boolean; throwaway?: boolean; patch?: Partial<FakeTab> } = {}) {
 		const host = new FakeHost({ tabId: "main0001", title: "Boss", sessionPath: "/s/boss.jsonl" });
 		const service = control(host);
-		await service.run("main0001", T.open, { message: "do it", ...(options.worktree ? { worktree: true } : {}) });
+		await service.run("main0001", T.open, {
+			message: "do it",
+			...(options.worktree ? { worktree: true } : {}),
+			...(options.throwaway ? { throwaway: true } : {}),
+		});
 		const child = [...host.tabsById.values()].find(tab => tab.tabId !== "main0001") as FakeTab;
 		Object.assign(child, {
 			busy: false,
@@ -2397,6 +2401,95 @@ describe("autoClose: opened sessions whose work landed", () => {
 		]);
 		expect(host.deleted).toEqual([]);
 		expect(host.removed).toEqual([]);
+	});
+
+	describe("a throwaway child", () => {
+		it("closes and deletes its saved session once its done report reached the opener, and tells the opener", async () => {
+			const { host, service, child } = await finishedChild({ throwaway: true });
+			// The pass that sends its done report leaves it: the opener reads the report in its next turn.
+			await service.autoClose("main0001");
+			expect(host.mails.filter(mail => mail.to === "main0001")).toHaveLength(1);
+			expect(closes(host)).toHaveLength(0);
+			expect(host.deletedStored).toEqual([]);
+			await service.autoClose("main0001");
+			expect(closes(host)).toEqual([{ tabId: child.tabId, how: "close", auto: true }]);
+			expect(host.deletedStored).toEqual([{ path: "/s/kid.jsonl", device: undefined }]);
+			expect(host.closedRecords).toEqual([]);
+			const note = host.mails.filter(mail => mail.to === "main0001").at(-1);
+			expect(note?.content).toContain("Deleted");
+			expect(note?.delivery).toEqual({ triggerTurn: false });
+		});
+
+		it("deletes one on a paired device on that device, worktree and all once it landed", async () => {
+			const { host, service } = await finishedChild({
+				throwaway: true,
+				worktree: true,
+				patch: { device: desktop.id, deviceName: desktop.name },
+			});
+			host.landings.set("omp/agent/w", { hasWork: true, landed: true, clean: true });
+			await service.autoClose("main0001");
+			await service.autoClose("main0001");
+			expect(host.removed).toEqual(["omp/agent/w"]);
+			expect(host.deletedStored).toEqual([{ path: "/s/kid.jsonl", device: desktop.id }]);
+		});
+
+		it("keeps a problem, one the person reopened, and one whose worktree git kept", async () => {
+			const problem = await finishedChild({
+				throwaway: true,
+				patch: { last: "Two tests fail.\nResult: problem — two tests fail" },
+			});
+			await problem.service.autoClose("main0001");
+			await problem.service.autoClose("main0001");
+			expect(closes(problem.host)).toHaveLength(1);
+			expect(problem.host.deletedStored).toEqual([]);
+			expect(problem.host.closedRecords).toHaveLength(1);
+
+			const reopened = await finishedChild({ throwaway: true });
+			await reopened.service.autoClose("main0001");
+			reopened.host.view = (_caller, event) => {
+				reopened.host.views.push(event);
+				reopened.host.tabsById.delete(event.tabId);
+				reopened.host.add({ tabId: "back0003", sessionPath: "/s/kid.jsonl" });
+			};
+			await reopened.service.autoClose("main0001");
+			expect(closes(reopened.host)).toHaveLength(1);
+			expect(reopened.host.deletedStored).toEqual([]);
+			expect(reopened.host.closedRecords).toHaveLength(1);
+
+			const kept = await finishedChild({ throwaway: true, worktree: true });
+			kept.host.landings.set("omp/agent/w", { hasWork: true, landed: true, clean: true });
+			kept.host.removeSafeWorktree = async () => {
+				throw new Error("in use");
+			};
+			await kept.service.autoClose("main0001");
+			await kept.service.autoClose("main0001");
+			expect(closes(kept.host)).toHaveLength(1);
+			expect(kept.host.deletedStored).toEqual([]);
+		});
+
+		it("is refused with reopen", async () => {
+			const host = new FakeHost({ tabId: "main0001", title: "Boss" });
+			const result = await control(host).run("main0001", T.open, { reopen: "11111111-aaaa", throwaway: true });
+			expect(result.isError).toBe(true);
+			expect(result.text).toContain("throwaway");
+			expect(host.spawned).toEqual([]);
+		});
+	});
+
+	it("lets the opener read and delete a closed child by the id it was given, with no card", async () => {
+		const { host, service, child } = await finishedChild();
+		host.storedTranscripts.set("/s/kid.jsonl", [{ role: "assistant", content: "the whole table" } as AgentMessage]);
+		await service.autoClose("main0001");
+		expect(host.tabsById.has(child.tabId)).toBe(false);
+		const read = await service.run("main0001", T.read, { session: child.tabId });
+		expect(read.isError).toBe(false);
+		expect(read.text).toContain("the whole table");
+		const deleted = await service.run("main0001", T.stop, { session: child.tabId, delete: true });
+		expect(deleted.isError).toBe(false);
+		expect(host.cards).toEqual([]);
+		expect(host.deletedStored).toEqual([{ path: "/s/kid.jsonl", device: undefined }]);
+		// Gone for good: the id names nothing any more.
+		expect((await service.run("main0001", T.read, { session: child.tabId })).isError).toBe(true);
 	});
 
 	it("treats a plan awaiting approval as waiting: listed, a wait returns, no auto-close, no review", async () => {
@@ -3143,6 +3236,26 @@ describe("ompdesk_session_stop of a saved session", () => {
 		expect(result.isError).toBe(false);
 		expect(result.text).toContain("not open");
 		expect(host.deletedStored).toEqual([]);
+	});
+
+	it("deletes a saved session main recorded closing under the caller without a card, a sibling's with one", async () => {
+		const host = new FakeHost({ tabId: "main0001", title: "Boss", sessionPath: "/s/boss.jsonl" });
+		host.deviceList = [desktop];
+		host.storedRows = [
+			storedRow({ device: desktop.id, path: "C:/s/one.jsonl" }),
+			storedRow({ id: "66666666-ffff", device: desktop.id, path: "C:/s/six.jsonl" }),
+		];
+		const closed = { title: "Lookup", cwd: "C:/repo", device: desktop.id, closedAt: 1 };
+		host.closed = [
+			{ ...closed, path: "C:/s/one.jsonl", openedBySession: "/s/boss.jsonl" },
+			{ ...closed, path: "C:/s/six.jsonl", openedBySession: "/s/other.jsonl" },
+		];
+		const service = control(host);
+		await service.run("main0001", T.stop, { session: "11111111-aaaa", device: desktop.id, delete: true });
+		expect(host.cards).toEqual([]);
+		await service.run("main0001", T.stop, { session: "66666666-ffff", device: desktop.id, delete: true });
+		expect(host.cards).toHaveLength(1);
+		expect(host.deletedStored.map(row => row.path)).toEqual(["C:/s/one.jsonl", "C:/s/six.jsonl"]);
 	});
 });
 

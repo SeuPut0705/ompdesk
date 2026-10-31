@@ -2,10 +2,12 @@
  * When a session an agent opened (`ompdesk_session_open`) closes by itself. Pure rules: `AgentControl.autoClose`
  * gathers the facts (tab state, git, what the person is doing) and applies the decision.
  *
- * A tab closes only once its work has landed and nobody is using it; the session file always stays. A child that
- * ended `Result: problem` closes its tab too, once its opener read the answer: its worktree stays when its branch
- * has not landed. A finished child that needs a look (it ended in an error or was stopped, its branch holds commits
- * nothing merged, its worktree holds uncommitted or untracked files, it gave no verdict) stays a row.
+ * A tab closes only once its work has landed and nobody is using it; the session file stays, except for a throwaway
+ * session (`ompdesk_session_open {throwaway: true}`) that ended `Result: ok`: its saved session is deleted with the
+ * close. A child that ended `Result: problem` closes its tab too, once its opener read the answer: its worktree stays
+ * when its branch has not landed, and its saved session stays even when it was opened as throwaway. A finished child
+ * that needs a look (it ended in an error or was stopped, its branch holds commits nothing merged, its worktree holds
+ * uncommitted or untracked files, it gave no verdict) stays a row.
  */
 
 /** What git says about the child's branch; null for a session without a worktree. */
@@ -40,6 +42,8 @@ export interface AutoCloseFacts {
 	userTouched: boolean;
 	/** The opener read the answer (a result, a read, a merge), or has nothing running that could still read it. */
 	collected: boolean;
+	/** Its opener asked for it to be deleted once done (`ompdesk_session_open {throwaway: true}`). */
+	throwaway: boolean;
 }
 
 export type KeepReason =
@@ -58,8 +62,11 @@ export type KeepReason =
 
 export type AutoCloseDecision =
 	| { action: "keep"; reason: KeepReason }
-	/** Close the tab; `removeWorktree`: its branch landed and the worktree is clean, so it goes too. */
-	| { action: "close"; removeWorktree: boolean };
+	/**
+	 * Close the tab; `removeWorktree`: its branch landed and the worktree is clean, so it goes too; `deleteSession`: a
+	 * throwaway session that ended `Result: ok`, whose saved session goes with the tab.
+	 */
+	| { action: "close"; removeWorktree: boolean; deleteSession: boolean };
 
 /** The first rule that holds decides; the order is the rules' priority. */
 export function autoCloseDecision(facts: AutoCloseFacts): AutoCloseDecision {
@@ -75,13 +82,17 @@ export function autoCloseDecision(facts: AutoCloseFacts): AutoCloseDecision {
 	// A problem verdict is delivered to the opener as its done report; the tab has nothing left to show. Its work is
 	// not landed work, so the worktree goes only where a clean, landed branch makes that safe anyway.
 	if (facts.result === "problem")
-		return { action: "close", removeWorktree: branch ? branch.hasWork && branch.landed && branch.clean : false };
+		return {
+			action: "close",
+			removeWorktree: branch ? branch.hasWork && branch.landed && branch.clean : false,
+			deleteSession: false,
+		};
 	// Without a verdict line the work is done, but left for the person.
 	if (facts.result === "missing") return { action: "keep", reason: "no-result" };
-	if (!branch) return { action: "close", removeWorktree: false };
+	if (!branch) return { action: "close", removeWorktree: false, deleteSession: facts.throwaway };
 	if (!branch.hasWork) return { action: "keep", reason: "nothing-landed" };
 	if (!branch.landed) return { action: "keep", reason: "unmerged" };
 	// Landed commits with work left beside them are not landed work: the leftovers wait for the person.
 	if (!branch.clean) return { action: "keep", reason: "uncommitted" };
-	return { action: "close", removeWorktree: true };
+	return { action: "close", removeWorktree: true, deleteSession: facts.throwaway };
 }

@@ -14,17 +14,22 @@ const finished: AutoCloseFacts = {
 	looked: false,
 	userTouched: false,
 	collected: true,
+	throwaway: false,
 };
 
 const landed = { hasWork: true, landed: true, clean: true };
 
 describe("autoCloseDecision", () => {
 	it("closes a finished session without a branch once its answer is in, and leaves its worktree alone", () => {
-		expect(autoCloseDecision(finished)).toEqual({ action: "close", removeWorktree: false });
+		expect(autoCloseDecision(finished)).toEqual({ action: "close", removeWorktree: false, deleteSession: false });
 	});
 
 	it("closes a landed, clean branch and removes its worktree; a landed one with files left over stays open", () => {
-		expect(autoCloseDecision({ ...finished, branch: landed })).toEqual({ action: "close", removeWorktree: true });
+		expect(autoCloseDecision({ ...finished, branch: landed })).toEqual({
+			action: "close",
+			removeWorktree: true,
+			deleteSession: false,
+		});
 		expect(autoCloseDecision({ ...finished, branch: { ...landed, clean: false } })).toEqual({
 			action: "keep",
 			reason: "uncommitted",
@@ -71,7 +76,11 @@ describe("autoCloseDecision", () => {
 	});
 
 	it("closes a Result: problem session's tab once the opener read it, whatever its branch says, and keeps an unlanded worktree", () => {
-		expect(autoCloseDecision({ ...finished, result: "problem" })).toEqual({ action: "close", removeWorktree: false });
+		expect(autoCloseDecision({ ...finished, result: "problem" })).toEqual({
+			action: "close",
+			removeWorktree: false,
+			deleteSession: false,
+		});
 		for (const branch of [
 			{ hasWork: true, landed: false, clean: true },
 			{ hasWork: true, landed: true, clean: false },
@@ -80,11 +89,42 @@ describe("autoCloseDecision", () => {
 			expect(autoCloseDecision({ ...finished, result: "problem", branch })).toEqual({
 				action: "close",
 				removeWorktree: false,
+				deleteSession: false,
 			});
 		expect(autoCloseDecision({ ...finished, result: "problem", branch: landed })).toEqual({
 			action: "close",
 			removeWorktree: true,
+			deleteSession: false,
 		});
+	});
+
+	it("deletes a throwaway session's saved session with the close only when it ended Result: ok", () => {
+		const throwaway = { ...finished, throwaway: true };
+		expect(autoCloseDecision(throwaway)).toEqual({ action: "close", removeWorktree: false, deleteSession: true });
+		expect(autoCloseDecision({ ...throwaway, branch: landed })).toEqual({
+			action: "close",
+			removeWorktree: true,
+			deleteSession: true,
+		});
+		// A problem is closed but kept for a follow-up; every guard that keeps an ok tab keeps a throwaway one.
+		expect(autoCloseDecision({ ...throwaway, result: "problem", branch: landed })).toEqual({
+			action: "close",
+			removeWorktree: true,
+			deleteSession: false,
+		});
+		expect(autoCloseDecision({ ...throwaway, branch: { ...landed, landed: false } })).toEqual({
+			action: "keep",
+			reason: "unmerged",
+		});
+		expect(autoCloseDecision({ ...throwaway, userTouched: true })).toEqual({
+			action: "keep",
+			reason: "user-touched",
+		});
+		expect(autoCloseDecision({ ...throwaway, collected: false })).toEqual({
+			action: "keep",
+			reason: "not-collected",
+		});
+		expect(autoCloseDecision({ ...throwaway, result: "missing" })).toEqual({ action: "keep", reason: "no-result" });
 	});
 
 	it("keeps a problem session until its opener read the answer, and every guard that holds an ok one", () => {

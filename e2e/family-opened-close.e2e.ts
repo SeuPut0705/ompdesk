@@ -167,3 +167,46 @@ test("finished opened sessions are not listed and their tabs close; unmerged wor
 	await expect.poll(async () => page.locator("body").innerText()).not.toContain("(untitled)");
 	expect(git(project, "status", "--porcelain")).toBe("");
 });
+
+/** The children's saved session files (`OMP_GUI_TEST_SESSION_FILES`) whose text holds `marker`; never the opener's. */
+async function savedWith(marker: string): Promise<string[]> {
+	const dir = path.join(root, "agent", "sessions", "fixture");
+	const opener = (await tabs()).find(tab => tab.tabId === main)?.sessionPath;
+	const names = (await fs.readdir(dir).catch(() => [] as string[])).filter(
+		name => !opener || path.basename(opener) !== name,
+	);
+	const hits = await Promise.all(
+		names.map(async name => ((await fs.readFile(path.join(dir, name), "utf8")).includes(marker) ? name : null)),
+	);
+	return hits.filter((name): name is string => name !== null);
+}
+
+test("a throwaway session is closed and deleted once its answer is in; a kept one stays reachable by its id", async () => {
+	test.setTimeout(180_000);
+	const opened = await call("ompdesk_session_open", {
+		sessions: [
+			{ message: "Title: throwaway lookup\nread only fixture:result-ok", throwaway: true },
+			{ message: "Title: kept lookup\nread only fixture:result-ok" },
+		],
+	});
+	expect(opened.isError).toBe(false);
+	expect(opened.text).toContain("throwaway");
+	const [throwaway, kept] = [...opened.text.matchAll(/Opened session (\w+)/g)].map(match => match[1] ?? "");
+	expect(throwaway).toBeTruthy();
+	expect(kept).toBeTruthy();
+
+	// Both close once their answers are in; only the throwaway one's saved session goes with its tab.
+	await expect
+		.poll(async () => (await tabs()).some(tab => tab.tabId === throwaway || tab.tabId === kept), { timeout: 60_000 })
+		.toBe(false);
+	await expect.poll(() => savedWith("throwaway lookup"), { timeout: 30_000 }).toEqual([]);
+	expect(await savedWith("kept lookup")).toHaveLength(1);
+
+	// The kept one's id still names its saved session after its tab closed: read it, then delete it by that id.
+	const read = await call("ompdesk_session_read", { session: kept });
+	expect(read.isError).toBe(false);
+	const deleted = await call("ompdesk_session_stop", { session: kept, delete: true });
+	expect(deleted).toMatchObject({ isError: false });
+	expect(deleted.text).toContain("Deleted");
+	await expect.poll(() => savedWith("kept lookup"), { timeout: 30_000 }).toEqual([]);
+});

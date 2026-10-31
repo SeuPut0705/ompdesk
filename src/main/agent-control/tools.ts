@@ -92,6 +92,11 @@ const OPEN_ONE = {
 		description:
 			"true: give the session its own git worktree and branch, so parallel sessions never edit the same files.",
 	},
+	throwaway: {
+		type: "boolean",
+		description:
+			"true: a one-off session (a lookup, a check). Once its final answer ends with Result: ok and has reached you, OMPdesk closes it and deletes its saved session, on a paired device too. Not with reopen.",
+	},
 } as const;
 
 export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
@@ -508,7 +513,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		label: "Stop OMPdesk session",
 		description:
 			"Stop another session's work; optionally close or delete it.\n" +
-			"Stop another session's running work; close: true also closes its tab (the session stays saved), delete: true also deletes the saved session (also one no tab holds: its stored id, with device for a paired device's). Sessions you opened: no question asked. Other sessions: stop and close need no card by default (the user may turn that off); deleting one's saved session always asks the user first (a refusal is final).",
+			"Stop another session's running work; close: true also closes its tab (the session stays saved), delete: true also deletes the saved session (also one no tab holds: its stored id, or the id its tab had before it closed this launch, with device for a paired device's). Sessions you opened, closed ones included: no question asked. Other sessions: stop and close need no card by default (the user may turn that off); deleting one's saved session always asks the user first (a refusal is final).",
 		parameters: {
 			type: "object",
 			properties: {
@@ -651,6 +656,7 @@ const openFields = {
 	model: z.string().trim().min(1).max(200).optional(),
 	mode: z.enum(["plan", "goal"]).optional(),
 	worktree: worktreeArg.optional(),
+	throwaway: z.boolean().optional(),
 };
 
 const goalNeedsMessage = [
@@ -658,13 +664,23 @@ const goalNeedsMessage = [
 	{ message: "mode goal needs a message: it becomes the goal" },
 ] as const;
 const reopenAlone = [
-	(args: { reopen?: string; restore?: boolean; folder?: string; worktree?: unknown; mode?: string }) =>
+	(args: {
+		reopen?: string;
+		restore?: boolean;
+		folder?: string;
+		worktree?: unknown;
+		mode?: string;
+		throwaway?: boolean;
+	}) =>
 		args.reopen === undefined
 			? args.restore === undefined
-			: args.folder === undefined && args.worktree === undefined && args.mode === undefined,
+			: args.folder === undefined &&
+				args.worktree === undefined &&
+				args.mode === undefined &&
+				args.throwaway === undefined,
 	{
 		message:
-			"reopen opens a stored session as it was: give no folder, worktree or mode with it; restore goes only with reopen",
+			"reopen opens a stored session as it was: give no folder, worktree, mode or throwaway with it; restore goes only with reopen",
 	},
 ] as const;
 

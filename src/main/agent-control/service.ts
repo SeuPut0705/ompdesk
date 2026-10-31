@@ -473,6 +473,8 @@ const TOOL_RESULT_CHARS = 300;
 const MESSAGE_CHARS = 1_500;
 /** An automatic close waits this long for the window to drop the tab (it refuses a tab the person uses). */
 const AUTO_CLOSE_WAIT_MS = 2_000;
+/** Closed tabs whose id still names their saved session (`AgentControl.#closedTabs`); one launch's worth. */
+const CLOSED_TABS_MAX = 500;
 const LIST_DEFAULT_ROWS = 30;
 /** A sent message's receipt waits this long to see the target's turn start. */
 const TURN_START_WAIT_MS = 1_500;
@@ -1069,6 +1071,13 @@ export class AgentControl {
 	readonly #autoDoneFor = new Map<string, string>();
 	/** Saved sessions the last stored lists showed, by stock id: what read, reopen and compare resolve a stored id to. */
 	readonly #stored = new Map<string, StoredSession>();
+	/** Opened tabs to delete with their auto-close (`ompdesk_session_open {throwaway: true}`); this launch only. */
+	readonly #throwaway = new Set<string>();
+	/**
+	 * Tabs closed this launch (auto-close, a close by the tool), by tab id: the saved session it held and the tab that
+	 * opened it, so the id the opener was given still names that saved session (read, delete) after the tab is gone.
+	 */
+	readonly #closedTabs = new Map<string, { row: StoredSession; opener: string }>();
 	/** Reports between sessions (`mail.ts`): dispatch ids, coalescing, the last report of each child. */
 	readonly #mailbox: Mailbox;
 	/** Receipts of `ompdesk_session_send` by `caller|target|request_id`: a repeat is never delivered twice. */
@@ -1960,6 +1969,11 @@ export class AgentControl {
 				...(worktree ? { worktree: { path: worktree.path, branch: worktree.branch } } : {}),
 				...(tag ? { tag } : {}),
 			});
+			// Before its first message: a quick lookup may end before this call returns.
+			if (args.throwaway) {
+				this.#throwaway.add(tabId);
+				notes.push("throwaway: closed and deleted once its Result: ok answer reaches you");
+			}
 			if (args.message) {
 				if (args.mode === "goal") {
 					// The goal command starts the objective turn itself.
@@ -1990,6 +2004,7 @@ export class AgentControl {
 		} catch (error) {
 			// A child that cannot be set up does not linger half-configured, nor does the worktree made for it.
 			opened.delete(tabId);
+			this.#throwaway.delete(tabId);
 			const tabDevice = this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === tabId)?.device;
 			const closing = this.#closeTab(caller.tabId, tabId, { waitMs: CLOSE_WAIT_MS });
 			if (!worktree) {
@@ -2435,9 +2450,10 @@ export class AgentControl {
 	/**
 	 * Every way an agent names a session, the first match wins: a tab id; an id the tab had before a relaunch (whole
 	 * only: tab ids are random, so it names that session alone); the saved (stock) id of the session a tab holds; a
-	 * unique prefix of a tab id or of that saved id; the title, exactly or by a unique prefix in any case (a hidden
-	 * session's title is private and never matched); then a saved session no tab holds (`#storedSession`, on `device`
-	 * when given). An ambiguous name fails, naming the candidates.
+	 * unique prefix of a tab id or of that saved id; the id of a tab closed this launch (`#closedTabs`: the saved session
+	 * it held); the title, exactly or by a unique prefix in any case (a hidden session's title is private and never
+	 * matched); then a saved session no tab holds (`#storedSession`, on `device` when given). An ambiguous name fails,
+	 * naming the candidates.
 	 */
 	async #find(
 		tabs: ControlTab[],
@@ -2469,6 +2485,9 @@ export class AgentControl {
 					only(tabs.filter(entry => savedId(entry)?.startsWith(name))))
 				: undefined);
 		if (tab) return { target: tab, unreached: [] };
+		// A tab closed this launch: its id still names the saved session it held (or the tab that has it open again).
+		const closed = this.#closedTabs.get(name)?.row;
+		if (closed) return { target: this.#liveTab(tabs, closed) ?? closed, unreached: [] };
 		const wanted = name.toLowerCase();
 		const titled = tabs.filter(entry => !entry.hidden);
 		const titleOf = (entry: ControlTab): string => (entry.title || entry.task || "").trim().toLowerCase();
@@ -2770,6 +2789,7 @@ export class AgentControl {
 					fail(
 						`${label(target)} is still open: its page holds unsaved edits in the Files editor of this tab, and closing it would lose them. Ask the user to save or discard them, then close it again; its session is saved either way.`,
 					);
+				if (target.sessionPath) this.#rememberClosed(target, target.sessionPath, own ? caller.tabId : "");
 			}
 			// Told only once the tab is gone: a close that did not happen sends no note.
 			if (args.close || args.delete)
@@ -2832,7 +2852,9 @@ export class AgentControl {
 
 	/**
 	 * A saved session no tab holds: nothing runs to stop or close; a delete removes its file on the device it is saved
-	 * on (the sidebar's delete). The caller cannot have it open, so a delete asks unless full control is on.
+	 * on (the sidebar's delete). One the caller opened (its tab closed this launch, or main recorded closing it under
+	 * the caller's session) is deleted without a card, as an open one it opened is; any other asks unless full control
+	 * is on.
 	 */
 	async #stopStored(
 		caller: ControlTab,
@@ -2842,7 +2864,17 @@ export class AgentControl {
 		if (row.hidden) fail("The user hid that session from other agents.");
 		const name = `"${oneLine(storedTitle(row), 80)}" (saved${row.deviceName ? ` on ${row.deviceName}` : ""})`;
 		if (!args.delete) return `${name} is not open in any tab: nothing to stop or close.`;
-		if (!this.#host.fullEnabled()) {
+		const same = (path: string, device: string | undefined) =>
+			path === row.path && (device ?? undefined) === (row.device ?? undefined);
+		const own =
+			[...this.#closedTabs.values()].some(
+				entry => entry.opener === caller.tabId && same(entry.row.path, entry.row.device),
+			) ||
+			(caller.sessionPath !== undefined &&
+				(this.#host.closedChildren?.() ?? []).some(
+					child => child.openedBySession === caller.sessionPath && same(child.path, child.device),
+				));
+		if (!own && !this.#host.fullEnabled()) {
 			const params = { caller: caller.title || "—", target: storedTitle(row) || row.id };
 			const approved = await this.#host.confirm(
 				caller.tabId,
@@ -2853,6 +2885,8 @@ export class AgentControl {
 		}
 		await this.#host.deleteStored(row);
 		this.#stored.delete(row.id);
+		for (const [tabId, entry] of this.#closedTabs)
+			if (same(entry.row.path, entry.row.device)) this.#closedTabs.delete(tabId);
 		return `Deleted ${name}.`;
 	}
 
@@ -3445,7 +3479,8 @@ export class AgentControl {
 	/**
 	 * Close the sessions `callerTabId` opened whose work has landed and that nobody is using (`autoCloseDecision`):
 	 * the tab closes the way the person's close does (the window refuses it for a tab in use), the session file stays
-	 * and the opener's family keeps a row for it; the worktree goes only when its branch is merged and it is clean.
+	 * (a throwaway child's is deleted) and the opener's family keeps a row for it; the worktree goes only when its
+	 * branch is merged and it is clean.
 	 * Called on tab activity and on a timer by `AgentControlRuntime`; one pass per caller at a time.
 	 */
 	async autoClose(callerTabId: string): Promise<void> {
@@ -3471,13 +3506,14 @@ export class AgentControl {
 				if (!tab.lastRun && !tab.restored) continue;
 				const facts = await this.#autoCloseFacts(tab, openerIdle);
 				const reported = await this.#autoDone(caller, tabs, tab, facts);
-				// A problem child's tab holds the only live trace of its failure: the report just sent is read in the
-				// opener's next turn, so the tab closes in a later pass (the opener idle again, or a read of it).
-				if (reported && facts.result === "problem") continue;
+				// A problem child's tab holds the only live trace of its failure, and a throwaway child's session goes with
+				// its tab: the report just sent is read in the opener's next turn, so the tab closes in a later pass (the
+				// opener idle again, or a read of it).
+				if (reported && (facts.result === "problem" || facts.throwaway)) continue;
 				// A question or blocker the opener has not answered is the child waiting: it stays open for the answer.
 				if (facts.result === "problem" && this.#mailbox.state(tab.tabId, caller.tabId)?.waiting) continue;
 				const decision = autoCloseDecision(facts);
-				if (decision.action === "close") await this.#autoCloseTab(caller, tab, decision.removeWorktree);
+				if (decision.action === "close") await this.#autoCloseTab(caller, tab, decision);
 				else await this.#nudgeSilent(caller, tab, facts);
 			}
 		} finally {
@@ -3604,6 +3640,7 @@ export class AgentControl {
 			looked: tab.looked === true,
 			userTouched: tab.userTouched === true || (tab.restored === true && ending?.personPrompted === true),
 			collected: openerIdle || this.#collected.has(tab.tabId),
+			throwaway: this.#throwaway.has(tab.tabId),
 		};
 	}
 
@@ -3637,7 +3674,53 @@ export class AgentControl {
 		return (response?.success ? transcriptPage(response.data)?.messages : null) ?? [];
 	}
 
-	async #autoCloseTab(caller: ControlTab, tab: ControlTab, removeWorktree: boolean): Promise<void> {
+	/** A tab closed this launch keeps naming its saved session (`#closedTabs`); the oldest go past `CLOSED_TABS_MAX`. */
+	#rememberClosed(tab: ControlTab, path: string, opener: string): void {
+		this.#closedTabs.delete(tab.tabId);
+		this.#closedTabs.set(tab.tabId, { row: this.#tabRow(tab, path), opener });
+		for (const oldest of this.#closedTabs.keys()) {
+			if (this.#closedTabs.size <= CLOSED_TABS_MAX) break;
+			this.#closedTabs.delete(oldest);
+		}
+	}
+
+	/**
+	 * A throwaway child's saved session goes with its tab, on the computer it is saved on (the sidebar's delete), and its
+	 * opener gets one quiet line saying so. Not when a tab holds the session again (the person reopened it meanwhile)
+	 * or the delete failed: then it stays like any closed child. Resolves true when it was deleted.
+	 */
+	async #deleteThrowaway(caller: ControlTab, tab: ControlTab, path: string): Promise<boolean> {
+		if (this.#host.tabs(caller.tabId)?.some(open => open.sessionPath === path && open.device === tab.device))
+			return false;
+		try {
+			await this.#host.deleteStored(this.#tabRow(tab, path));
+		} catch {
+			return false;
+		}
+		const text = `Deleted ${label(tab)}: it was opened as throwaway and its answer reached you.`;
+		await this.#host
+			.mail(
+				caller.tabId,
+				text,
+				{
+					id: `throwaway:${tab.device ?? ""}:${path}`,
+					from: tab.tabId,
+					fromTitle: tab.title,
+					kind: "note",
+					label: "note",
+					text,
+				},
+				deliveryFor("note"),
+			)
+			.catch(() => undefined);
+		return true;
+	}
+
+	async #autoCloseTab(
+		caller: ControlTab,
+		tab: ControlTab,
+		decision: { removeWorktree: boolean; deleteSession: boolean },
+	): Promise<void> {
 		// A tab the close would keep (its paired page's unsaved Files edits): not worth reading the child.
 		if (tabCloseStep(tab).action === "keep") return;
 		this.#closing.add(tab.tabId);
@@ -3655,12 +3738,18 @@ export class AgentControl {
 			// edits in it): nothing else changes, and a later pass tries again.
 			const outcome = await this.#closeTab(caller.tabId, tab.tabId, { auto: true, waitMs: AUTO_CLOSE_WAIT_MS });
 			if (outcome !== "closed") return;
+			this.#throwaway.delete(tab.tabId);
 			const removed =
-				removeWorktree && tab.worktree
+				decision.removeWorktree && tab.worktree
 					? (await this.#host.removeSafeWorktree(tab.worktree, tab.device).catch(() => null)) !== null
 					: false;
+			const path = tab.sessionPath as string;
+			// A worktree git kept would lose the session that names it: then the session stays too.
+			if (decision.deleteSession && (!tab.worktree || removed) && (await this.#deleteThrowaway(caller, tab, path)))
+				return;
+			this.#rememberClosed(tab, path, caller.tabId);
 			this.#host.recordClosed({
-				path: tab.sessionPath as string,
+				path,
 				openedBySession: caller.sessionPath as string,
 				title: tab.title || tab.task || "",
 				cwd: removed && tab.worktree ? tab.worktree.baseCwd : tab.cwd,
