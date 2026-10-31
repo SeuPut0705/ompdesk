@@ -1,31 +1,5 @@
 # Changelog
 
-## [0.89.0] - 2026-10-31
-
-세션 하나를 비서로 지정하면, 내가 돌리는 세션들의 질문과 승인에 내가 시킨 범위 안에서 대신 답해요.
-
-### 새로 생긴 것
-- 세션 메뉴의 "비서로 지정"으로 세션 하나를 비서로 둘 수 있어요. 이 Mac이나 연결된 기기에서 돌아가는 내 세션이 질문 카드를 띄우면 비서가 바로 깨어나서, 그 세션에 시킨 일 안에서만 답해요. 시키지 않은 일을 하게 되는 질문에는 하지 않는 쪽으로 답하고, 결정마다 한 줄을 남겨요.
-- 세션이 끝나거나 실패하면 비서 대화에 조용히 기록만 남아요. 매일 아침 8시에는 그날의 요약을 써요. 비서가 답하는 질문은 따로 알림이 뜨지 않고, 비서가 보내는 알림은 휴대폰에도 와요.
-
-### 고친 것
-- 자동 재시도가 아직 진행 중인데 "응답 실패" 카드가 뜨던 문제를 고쳤어요. 재시도가 시작된 뒤에 연 세션이나 연결된 기기에서 보던 세션에서 그랬는데, 이제는 재시도 줄만 보여요.
-- 클릭한 뒤 Shift 같은 수식키만 눌러도 대화창과 버튼에 포커스 테두리나 강조가 생기던 문제를 고쳤어요. Tab이나 화살표 키로 옮겨 갈 때는 지금처럼 보여요.
-- omp 18.14.1에 새로 생긴 설정(Codex Daybreak Blue, 프롬프트 후 제목 갱신)이 한국어로 보여요.
-
-<!-- en -->
-
-Name one session your secretary, and it answers the questions and approvals of the sessions you run, within what you asked them to do.
-
-### New
-- "Make secretary" in a session's menu names one session the secretary. When a session you run, here or on a paired device, shows a question card, the secretary wakes and answers it within what you asked that session. A question that would do something you did not ask gets the answer that does not do it, and every decision is noted in one line.
-- Finished and failed turns are noted quietly in its conversation, and each morning at 8 it writes the day's brief. A question it answers no longer notifies you, and its own notifications reach your phone too.
-
-### Fixed
-- A "Response failed" card showed while stock's automatic retry was still running, in a session opened after the retry started or watched from a paired device. Only the retry row shows now.
-- After a click, pressing a modifier such as Shift alone outlined or highlighted the transcript and buttons. Tab and the arrow keys still show focus.
-- The settings omp 18.14.1 added (Codex Daybreak Blue, Refresh Title After Prompts) read in Korean.
-
 ## [0.88.0] - 2026-10-31
 
 설정의 프로바이더 계정이 회사별로 묶이고, 묶음마다 "계정 추가" 버튼이 보여요.
