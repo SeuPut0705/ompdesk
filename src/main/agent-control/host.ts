@@ -46,6 +46,7 @@ import {
 } from "../../shared/agent-control";
 import { type BotRoutine, botRoleDesk, EMPTY_BOT_DESK_FILE } from "../../shared/bot-desk";
 import { BOT_RULES_PREF, botRulesText, parseBotRules } from "../../shared/bot-rules";
+import { botToolActivity } from "../../shared/bot-tool-activity";
 import type {
 	HostView,
 	IpcHostedSession,
@@ -97,7 +98,6 @@ import { sessionOpenFolders } from "../worktree-orphans";
 import type { AppPorts } from "./app-control";
 import { BotFeed, type BotTab } from "./bot";
 import type { BotActivityLog } from "./bot-activity";
-import { botToolActivity } from "./bot-activity-feed";
 import type { AnsweredDecision, BotDesk, OpenDecision } from "./bot-desk";
 import type { TeachMail } from "./bot-teach";
 import {

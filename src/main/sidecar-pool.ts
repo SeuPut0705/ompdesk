@@ -1191,7 +1191,7 @@ export class SidecarPool {
 					entry.unstarted = undefined;
 				} else if (event.type === "tool_execution_start" || event.type === "tool_execution_end") {
 					stepped = true;
-					// The bot's activity log hears its tabs' tool calls (agent-control/bot-activity-feed.ts).
+					// The bot's activity log hears its tabs' tool calls (shared/bot-tool-activity.ts).
 					if (event.type === "tool_execution_start" && entry.device === undefined && this.#toolObservers.size > 0)
 						for (const observer of this.#toolObservers)
 							try {

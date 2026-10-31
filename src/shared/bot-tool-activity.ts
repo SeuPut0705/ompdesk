@@ -4,7 +4,7 @@
  * `ompdesk_bot visited` and the log's "Read" filter list). Calls whose effect the log hears elsewhere are left out:
  * `ompdesk_bot` (the desk logs its own changes), `ompdesk_notify` (the notice router logs where it went) and `todo`.
  */
-import type { BotActivityDraft, BotActivityKind, BotActivityTarget } from "../../shared/bot-activity";
+import type { BotActivityDraft, BotActivityKind, BotActivityTarget } from "./bot-activity";
 
 /** Tool name → kind; a tool not listed is `tool`. */
 const KIND_BY_TOOL: Record<string, BotActivityKind> = {

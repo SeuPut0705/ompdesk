@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { botVisited } from "../../shared/bot-activity";
-import { BotActivityLog } from "./bot-activity";
-import { botToolActivity } from "./bot-activity-feed";
+import { type BotActivity, botVisited } from "./bot-activity";
+import { botToolActivity } from "./bot-tool-activity";
 
 describe("botToolActivity", () => {
 	it("names what each kind of tool touched", () => {
@@ -42,15 +41,15 @@ describe("botToolActivity", () => {
 	});
 
 	it("feeds what the bot read into the visited list", () => {
-		const log = new BotActivityLog({ file: null });
+		const log: BotActivity[] = [];
 		for (const [tool, args] of [
 			["read", { path: "/a.ts" }],
 			["bash", { command: "ls" }],
 			["web_search", { query: "q" }],
 		] as const) {
 			const draft = botToolActivity(tool, args);
-			if (draft) log.append(draft);
+			if (draft) log.push({ ...draft, id: `e${log.length}`, at: new Date(log.length * 1000).toISOString() });
 		}
-		expect(botVisited(log.entries()).map(entry => entry.target?.value)).toEqual(["q", "/a.ts"]);
+		expect(botVisited(log).map(entry => entry.target?.value)).toEqual(["q", "/a.ts"]);
 	});
 });

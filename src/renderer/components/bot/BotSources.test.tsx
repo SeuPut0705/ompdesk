@@ -3,7 +3,6 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
-import { useBotActivityStore } from "../../stores/bot-activity";
 import { useMessagesStore } from "../../stores/messages";
 import { AssistantText } from "./BotSources";
 import { BotTabContext } from "./bot-tab";
@@ -61,63 +60,71 @@ describe("AssistantText", () => {
 describe("a reply that names no sources", () => {
 	afterEach(() => {
 		useMessagesStore.setState({ messages: [] } as never);
-		useBotActivityStore.getState().reset();
 	});
 
-	it("shows what its turn read, and nothing for an earlier reply of the same turn", async () => {
-		const user = { role: "user", content: "How many files?", timestamp: Date.UTC(2026, 10, 1, 9, 0, 0) };
-		const early = {
-			role: "assistant",
-			content: [{ type: "text", text: "Looking." }],
-			timestamp: Date.UTC(2026, 10, 1, 9, 0, 5),
-		};
-		const last = {
-			role: "assistant",
-			content: [{ type: "text", text: "Three." }],
-			timestamp: Date.UTC(2026, 10, 1, 9, 0, 30),
-		};
-		useMessagesStore.setState({ messages: [user, early, last] } as never);
-		const entries = [
-			{
-				id: "a",
-				at: "2026-11-01T08:59:00.000Z",
-				kind: "read",
-				action: "tool",
-				by: "bot",
-				text: "read",
-				target: { type: "file", value: "/before.ts" },
-			},
-			{
-				id: "b",
-				at: "2026-11-01T09:00:10.000Z",
-				kind: "read",
-				action: "tool",
-				by: "bot",
-				text: "read",
-				target: { type: "file", value: "/src/count.ts" },
-			},
-		];
-		(window as unknown as { omp: unknown }).omp = {
-			fs: { read: async () => ({ ok: false, code: "not_found" }) },
-			sessions: { botDesk: { activity: async () => ({ entries, revision: 1 }) } },
-		};
+	const user = { role: "user", content: "How many files?", timestamp: 1 };
+	const tools = {
+		role: "assistant",
+		content: [
+			{ type: "toolCall", id: "c1", name: "read", arguments: { path: "/src/count.ts" } },
+			{ type: "toolCall", id: "c2", name: "bash", arguments: { command: "git show 3f6bd016 --stat" } },
+			{ type: "toolCall", id: "c3", name: "ompdesk_bot", arguments: { action: "activity" } },
+		],
+		timestamp: 2,
+	};
+	const early = { role: "assistant", content: [{ type: "text", text: "Looking." }], timestamp: 3 };
+	const last = { role: "assistant", content: [{ type: "text", text: "Three." }], timestamp: 4 };
+
+	function render(messages: unknown[], replies: { message: unknown; text: string }[]): HTMLElement {
+		useMessagesStore.setState({ messages } as never);
 		const host = document.createElement("div");
 		document.body.appendChild(host);
 		const root = createRoot(host);
-		await act(async () =>
+		act(() =>
 			root.render(
 				<I18nProvider>
 					<BotTabContext.Provider value={{ tabId: "t1" }}>
-						<AssistantText message={last as never} text="Three." />
-						<AssistantText message={early as never} text="Looking." />
+						{replies.map(reply => (
+							<AssistantText key={reply.text} message={reply.message as never} text={reply.text} />
+						))}
 					</BotTabContext.Provider>
 				</I18nProvider>,
 			),
 		);
+		return host;
+	}
+
+	it("shows what its turn's own tool calls read, on the turn's last reply only", () => {
+		const host = render(
+			[user, early, tools, last],
+			[
+				{ message: last, text: "Three." },
+				{ message: early, text: "Looking." },
+			],
+		);
 		const groups = [...host.querySelectorAll("[data-bot-sources]")];
-		expect(groups).toHaveLength(1);
-		expect(groups[0]?.getAttribute("data-bot-sources")).toBe("derived");
-		expect([...host.querySelectorAll("[data-kind]")].map(chip => chip.textContent)).toEqual(["count.ts"]);
-		act(() => root.unmount());
+		expect(groups.map(group => group.getAttribute("data-bot-sources"))).toEqual(["derived"]);
+		expect(
+			[...host.querySelectorAll("[data-kind]")].map(chip => [chip.getAttribute("data-kind"), chip.textContent]),
+		).toEqual([
+			["file", "count.ts"],
+			["commit", "3f6bd01"],
+		]);
+	});
+
+	it("keeps them however much the bot did since, and after a reload, as they come from the saved transcript", () => {
+		// Hundreds of later turns, and a fresh store read back from the session: the old reply still names its sources.
+		const later = Array.from({ length: 300 }, (_, turn) => [
+			{ role: "user", content: `q${turn}`, timestamp: 10 + turn * 3 },
+			{
+				role: "assistant",
+				content: [{ type: "toolCall", id: `x${turn}`, name: "read", arguments: { path: `/later/${turn}.ts` } }],
+				timestamp: 11 + turn * 3,
+			},
+			{ role: "assistant", content: [{ type: "text", text: `a${turn}` }], timestamp: 12 + turn * 3 },
+		]).flat();
+		const reloaded = JSON.parse(JSON.stringify([user, early, tools, last, ...later]));
+		const host = render(reloaded, [{ message: reloaded[3], text: "Three." }]);
+		expect([...host.querySelectorAll("[data-kind]")].map(chip => chip.textContent)).toEqual(["count.ts", "3f6bd01"]);
 	});
 });

@@ -12,6 +12,7 @@ import {
 	botSourcesFromActivity,
 	parseBotSources,
 } from "../../../shared/bot-sources";
+import { botToolActivity } from "../../../shared/bot-tool-activity";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { switchSessionNow } from "../../hooks/use-session-switch";
 import { copyText, cx } from "../../lib/format";
@@ -19,13 +20,9 @@ import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { openLocalPath, pathLocation } from "../../lib/markdown-path-link";
 import { openExternal } from "../../lib/open-external";
-import { useBotActivity } from "../../stores/bot-activity";
-import { useBotDesk } from "../../stores/bot-desk";
 import { useMessagesStore } from "../../stores/messages";
 import { sessionListFeed } from "../../stores/session-list";
-import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
-import { messageTimestampMs } from "../chat/work/work-turn";
 import { Tooltip } from "../common";
 import { useBotTab } from "./bot-tab";
 
@@ -118,38 +115,35 @@ export function BotSources({ sources, derived = false }: { sources: BotSource[];
 }
 
 /**
- * Where a reply that named no sources got its facts: what its turn read, fetched or opened, from the bot's activity
- * log, when this message is the turn's last reply with text. Empty while the log has nothing for the turn.
+ * Where a reply that named no sources got its facts, when this message is its turn's last reply with text: what the
+ * turn's own tool calls read, fetched or opened, from the transcript (it is saved with the session, so a reload or any
+ * amount of later activity keeps them).
  */
 function useTurnSources(message: AgentMessage | undefined): BotSource[] {
-	const bot = useBotTab();
-	const device = bot?.device;
-	const { page } = useBotActivity(device, message !== undefined && bot !== null);
-	const sessionPath = useTabsStore(state => state.tabs.find(tab => tab.id === bot?.tabId)?.sessionPath);
-	const channel = useBotDesk(device).desk.channels.find(entry => entry.sessionPath === sessionPath)?.id;
 	const messages = useMessagesStore(state => state.messages);
 	return useMemo(() => {
-		if (!message || !page) return [];
+		if (!message) return [];
 		const index = messages.findIndex(entry => entry.role === message.role && entry.timestamp === message.timestamp);
 		if (index < 0) return [];
-		let from = 0;
-		for (let at = index - 1; at >= 0; at--)
-			if (messages[at]?.role === "user") {
-				from = messageTimestampMs(messages[at] as AgentMessage);
-				break;
-			}
-		let to = Number.POSITIVE_INFINITY;
 		for (let at = index + 1; at < messages.length; at++) {
 			const next = messages[at] as AgentMessage;
-			if (next.role === "user") {
-				to = messageTimestampMs(next);
-				break;
-			}
+			if (next.role === "user") break;
 			// A later reply of the same turn carries the turn's sources.
 			if (next.role === "assistant" && Array.isArray(next.content) && next.content.some(isTextBlock)) return [];
 		}
-		return botSourcesFromActivity(page.entries, { from, to, ...(channel ? { channel } : {}) });
-	}, [message, page, messages, channel]);
+		const calls: { at: string; kind: string; text: string; target?: { type: string; value: string } }[] = [];
+		for (let at = index; at >= 0; at--) {
+			const entry = messages[at] as AgentMessage;
+			if (entry.role === "user") break;
+			if (entry.role !== "assistant" || !Array.isArray(entry.content)) continue;
+			const own = entry.content.flatMap(block => {
+				const draft = block.type === "toolCall" ? botToolActivity(block.name, block.arguments) : null;
+				return draft ? [{ at: new Date(0).toISOString(), ...draft }] : [];
+			});
+			calls.unshift(...own);
+		}
+		return botSourcesFromActivity(calls, { from: 0, to: Number.POSITIVE_INFINITY });
+	}, [message, messages]);
 }
 
 function isTextBlock(block: unknown): boolean {
