@@ -47,6 +47,7 @@ import {
 import { type BotWake, botDutiesText } from "../../shared/bot-desk";
 import type {
 	HostView,
+	IpcHostedSession,
 	IpcSpawnTabPayload,
 	IpcSpawnTabResult,
 	IpcTabInfo,
@@ -120,6 +121,8 @@ import {
 	type ScheduleRow,
 	SessionFolderMissing,
 	type SpawnRequest,
+	type StoredSession,
+	type StoredWork,
 	type ToolOutcome,
 } from "./service";
 import { tabCloseStep } from "./tab-close";
@@ -135,6 +138,13 @@ const REVIEW_SETTLE_MS = 400;
 const SWEEP_SETTLE_MS = 1_000;
 /** Opened sessions are looked at this often even without activity (a merge or push elsewhere moves no tab). */
 const SWEEP_INTERVAL_MS = 10_000;
+
+/** What a tab this computer runs for a paired device does now, by `LocalHostServices.liveSessions`' rule; unknown before it is up. */
+function hostedWork(session: IpcHostedSession): StoredWork | undefined {
+	if (session.awaitingInput) return "waiting";
+	if (session.status === "running") return session.settling ? "background" : "turn";
+	return session.status === "ready" ? "idle" : undefined;
+}
 
 export interface AgentControlHostDeps {
 	pool: Pick<
@@ -168,6 +178,8 @@ export interface AgentControlHostDeps {
 		hosts(): HostView[];
 		request<T>(deviceId: string, method: string, params: unknown, timeoutMs?: number): Promise<T>;
 	};
+	/** The sessions this computer runs for paired devices (`LocalHostServices.hostedSessions`), with their tabs' state. */
+	hosted?: () => readonly IpcHostedSession[];
 	/** The same dispatcher the renderer's RPC commands go through (local handlers, host link, quota). */
 	dispatch: (
 		win: ClientWindow,
@@ -1242,6 +1254,22 @@ export class AgentControlRuntime {
 				}
 				const snippets = new Map((matches ?? []).map(match => [match.path, match.snippet]));
 				const needle = query?.toLowerCase();
+				// Where a row no tab here holds is open, and what that tab does: on the paired host, its own list
+				// (`heldOnHost`) and what it works on now (`HostView.live`, unknown from an older host or offline); here, a
+				// tab this computer runs for a paired device.
+				const live = device ? deps.remote?.hosts().find(host => host.deviceId === device)?.live : undefined;
+				const working = new Map(live?.map(session => [session.sessionPath, session.state]));
+				const hosted = new Map(device ? [] : deps.hosted?.().map(session => [session.sessionPath, session]));
+				const elsewhere = (row: SessionInfo): Pick<StoredSession, "openThere" | "openFor" | "work"> => {
+					if (device) {
+						if (!row.heldOnHost && !working.has(row.path)) return {};
+						return { openThere: true, ...(live ? { work: working.get(row.path) ?? "idle" } : {}) };
+					}
+					const tab = hosted.get(row.path);
+					if (!tab) return {};
+					const work = hostedWork(tab);
+					return { openFor: tab.device, ...(work ? { work } : {}) };
+				};
 				return rows.flatMap(row => {
 					const named =
 						needle !== undefined && `${row.title ?? ""} ${row.firstMessage}`.toLowerCase().includes(needle);
@@ -1260,7 +1288,7 @@ export class AgentControlRuntime {
 							status: row.status,
 							hidden: !device && hidden.has(row.path),
 							...(device ? { device, deviceName: deps.deviceName(device) } : {}),
-							...(tab ? { tabId: tab } : device && row.heldOnHost ? { openThere: true as const } : {}),
+							...(tab ? { tabId: tab } : elsewhere(row)),
 							...(snippet ? { snippet } : {}),
 						},
 					];

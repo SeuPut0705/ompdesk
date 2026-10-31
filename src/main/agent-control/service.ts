@@ -195,8 +195,40 @@ export interface StoredSession {
 	tabId?: string;
 	/** A paired device's session that a tab on that device holds (its own app's, or one it runs for another device). */
 	openThere?: true;
+	/** This computer's session that a tab it runs for a paired device holds (`LocalHostServices`): that device's name. */
+	openFor?: string;
+	/**
+	 * What the tab of `openThere`/`openFor` does now (`HostLiveSession`'s states, else `idle`); absent while it is not
+	 * known (a host that does not say, a link that is down, a tab not started).
+	 */
+	work?: StoredWork;
 	/** Text around a search hit. */
 	snippet?: string;
+}
+
+/** What the tab holding a saved session elsewhere does with it: its turn, background work, an open ask, nothing. */
+export type StoredWork = "turn" | "background" | "waiting" | "idle";
+
+/**
+ * Where a saved session no tab of this app holds is open and what it does there, as the list and a read's header
+ * both say it; "" when nowhere. `step` is its running tool call (`currentStep` of its saved transcript).
+ */
+function openElsewhereText(row: StoredSession, step: string | null): string {
+	const where = row.openThere
+		? `open in a tab on ${row.deviceName ?? row.device}`
+		: row.openFor
+			? `open in a tab this computer runs for ${row.openFor}`
+			: "";
+	if (!where || !row.work) return where;
+	const work =
+		row.work === "turn"
+			? `running${step ? `, ${step}` : ""}`
+			: row.work === "background"
+				? "running (background work still going)"
+				: row.work === "waiting"
+					? "waiting for the user's answer there"
+					: "idle";
+	return `${where}: ${work}`;
 }
 
 /** A paired host this computer can run sessions on (Settings › Devices). */
@@ -1722,20 +1754,25 @@ export class AgentControl {
 			.filter(row => (!args.folder || row.cwd.includes(args.folder)) && (!args.mine || mine.has(row.path)))
 			.sort((a, b) => b.modified.localeCompare(a.modified));
 		for (const row of rows) this.#stored.set(row.id, row);
-		const lines = rows.slice(0, limit).map(row => {
-			if (row.hidden) return `- ${row.id} (hidden from agents by the user)`;
-			const title = storedTitle(row);
-			const open = row.tabId
-				? `; open in tab ${row.tabId}`
-				: row.openThere
-					? `; open in a tab on ${row.deviceName ?? row.device}`
-					: "";
-			const hit = row.snippet ? `\n  match: ${oneLine(row.snippet, SUMMARY_CHARS)}` : "";
-			return `- ${row.id} "${oneLine(title, 80)}"\n  folder ${row.cwd}; ${row.messages} message(s); ${row.status}; changed ${row.modified}${open}${hit}`;
-		});
+		const lines = await Promise.all(
+			rows.slice(0, limit).map(async row => {
+				if (row.hidden) return `- ${row.id} (hidden from agents by the user)`;
+				const title = storedTitle(row);
+				const elsewhere = row.tabId ? "" : openElsewhereText(row, await this.#storedStep(row));
+				const open = row.tabId ? `; open in tab ${row.tabId}` : elsewhere ? `; ${elsewhere}` : "";
+				const hit = row.snippet ? `\n  match: ${oneLine(row.snippet, SUMMARY_CHARS)}` : "";
+				return `- ${row.id} "${oneLine(title, 80)}"\n  folder ${row.cwd}; ${row.messages} message(s); ${row.status}; changed ${row.modified}${open}${hit}`;
+			}),
+		);
 		const where = device ? `saved on ${device.name}` : "saved on this computer";
 		const more = rows.length > limit ? `\n… ${rows.length - limit} more; narrow with folder, query or limit.` : "";
 		return `${rows.length} session${rows.length === 1 ? "" : "s"} ${where}${args.query ? ` matching "${args.query}"` : ""}:\n${lines.join("\n")}${more}\nRead one with ompdesk_session_read; open it again with ompdesk_session_open {"reopen":"<id>"}.\n${this.#devicesLine()}`;
+	}
+
+	/** The tool call a saved session runs in a tab elsewhere (its turn's `currentStep`, from the saved transcript). */
+	async #storedStep(row: StoredSession): Promise<string | null> {
+		if (row.work !== "turn") return null;
+		return currentStep(await this.#host.storedMessages(row).catch((): AgentMessage[] => []));
 	}
 
 	async #whenReady(tabId: string, callerTabId: string): Promise<void> {
@@ -2364,17 +2401,35 @@ export class AgentControl {
 		return renderPage(label(target), target.tabId, page.messages, page.totalMessages, page.prevCursor ?? null);
 	}
 
-	/** A saved session's transcript, paged from its end; the cursor is the index of the page's first message. */
+	/**
+	 * A saved session's transcript, paged from its end; the cursor is the index of the page's first message. The header
+	 * says where it is open as the stored list does, read again now: a listed row says only what was true then.
+	 */
 	async #readStored(row: StoredSession, args: { limit?: number; before?: string }): Promise<string> {
 		if (row.hidden) fail("The user hid this session from other agents.");
-		const messages = await this.#overLink(row.device, () => this.#host.storedMessages(row));
+		const [messages, now] = await Promise.all([
+			this.#overLink(row.device, () => this.#host.storedMessages(row)),
+			row.tabId ? row : this.#currentRow(row),
+		]);
 		const limit = args.limit ?? READ_DEFAULT_MESSAGES;
 		const end = args.before === undefined ? messages.length : Number.parseInt(args.before, 10);
 		if (!Number.isInteger(end) || end < 0 || end > messages.length)
 			fail(`"${args.before}" is not a cursor of this session; use the one a previous page returned.`);
 		const start = Math.max(0, end - limit);
-		const title = `"${oneLine(storedTitle(row), 80)}" (saved${row.deviceName ? ` on ${row.deviceName}` : ""}${row.tabId ? `, open in tab ${row.tabId}` : ", not open"})`;
+		const open = now.tabId
+			? `open in tab ${now.tabId}`
+			: openElsewhereText(now, now.work === "turn" ? currentStep(messages) : null) || "not open";
+		const title = `"${oneLine(storedTitle(row), 80)}" (saved${row.deviceName ? ` on ${row.deviceName}` : ""}, ${open})`;
 		return renderPage(title, row.id, messages.slice(start, end), messages.length, start > 0 ? String(start) : null);
+	}
+
+	/** `row` as its computer lists it now (kept for the next lookup); the row itself when that list cannot be read. */
+	async #currentRow(row: StoredSession): Promise<StoredSession> {
+		const rows = await this.#host.stored(row.device).catch((): StoredSession[] => []);
+		const now = rows.find(entry => entry.path === row.path);
+		if (!now) return row;
+		this.#stored.set(now.id, now);
+		return now;
 	}
 
 	/**

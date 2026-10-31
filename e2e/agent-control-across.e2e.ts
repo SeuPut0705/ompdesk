@@ -25,7 +25,8 @@ import {
 // OMPdesk control tools beyond the caller's window (src/main/agent-control): another window's sessions, saved
 // sessions read and reopened without a tab, a judged compare of two sessions, and sessions on a paired device: one
 // opened there whose prompt runs on that device's omp, whose saved transcript is read back (paged), reopened after its
-// tab closed and deleted by its saved id; one that is shown, notifies and reports to its opener across the link; a
+// tab closed and deleted by its saved id; saved sessions a tab on the other computer holds, listed and read as open
+// there with that tab's state; one that is shown, notifies and reports to its opener across the link; a
 // schedule created, listed and cancelled there, kept in that device's own schedules.json; and a worktree session on
 // that device compared and merged there with real git. The fake omp calls a tool with
 // `fixture:host-tool:<name> <json>` and records the `host_tool_result` it gets; its judge (`agent_control.judge`)
@@ -370,6 +371,46 @@ test.describe("on a paired device", () => {
 				timeout: 30_000,
 			})
 			.not.toContain(id);
+	});
+
+	test("says which saved sessions a tab on the other computer holds, and what that tab does, in the list and a read", async () => {
+		test.setTimeout(240_000);
+		const { hostProfile, call, client: app } = await pairApps();
+		if (!host) throw new Error("no host");
+		const hostCall = await caller(host.page, hostProfile.record);
+
+		// A session the device runs on the host: the host's own list marks it open for that device.
+		const open = await call("ompdesk_session_open", { device: "PC-B", message: "Run this for the device" });
+		expect(open.isError, open.text).toBe(false);
+		const [child] = opened(open.text);
+		await untilAnswered(app.page, child as string);
+		await expect
+			.poll(async () => (await hostCall("ompdesk_sessions", { scope: "stored", query: "for the device" })).text, {
+				timeout: 30_000,
+			})
+			.toMatch(/\n- \S+ "[^\n]*\n[^\n]*; open in a tab this computer runs for [^:\n]+: idle\n/);
+
+		// A session in the host's own window: the device's list of the host says it is open there and idle, and a
+		// read of it says the same.
+		const own = await hostCall("ompdesk_session_open", { message: "Work in the host's own window" });
+		expect(own.isError, own.text).toBe(false);
+		const [hostChild] = opened(own.text);
+		await untilAnswered(host.page, hostChild as string);
+		const openThere = /\n- (\S+) "[^\n]*\n[^\n]*; open in a tab on PC-B: idle\n/;
+		let stored = "";
+		await expect
+			.poll(
+				async () => {
+					stored = (await call("ompdesk_sessions", { scope: "stored", device: "PC-B", query: "own window" })).text;
+					return stored;
+				},
+				{ timeout: 30_000 },
+			)
+			.toMatch(openThere);
+		const id = openThere.exec(stored)?.[1] ?? "";
+		const read = await call("ompdesk_session_read", { session: id });
+		expect(read.isError, read.text).toBe(false);
+		expect(read.text).toContain("(saved on PC-B, open in a tab on PC-B: idle)");
 	});
 
 	test("restores a worktree the paired device's disk care saved and reopens the session there", async () => {

@@ -62,6 +62,7 @@ function setup(
 		mailOutboxFile?: string;
 		sessions?: AgentControlHostDeps["sessions"];
 		remote?: AgentControlHostDeps["remote"];
+		hosted?: AgentControlHostDeps["hosted"];
 		app?: AgentControlHostDeps["app"];
 		/** Windows viewing a tab (a paired phone's page), by tab id. */
 		viewers?: Record<string, ClientWindow[]>;
@@ -146,6 +147,7 @@ function setup(
 		},
 		sessions: options.sessions,
 		remote: options.remote,
+		hosted: options.hosted,
 		app: options.app,
 		dispatch: async (target, _sidecar, tabId, command) => {
 			commands.push({ tabId, command, win: target });
@@ -820,6 +822,108 @@ describe("AgentControlRuntime", () => {
 		const text = (await runtime.run(win, "main0001", T.list, { scope: "stored", device: "SeuPut" })).text;
 		expect(text).toMatch(/open-there "open-there"\n {2}folder \/far;[^\n]*; open in a tab on device dev-1\n/);
 		expect(text).toMatch(/closed "closed"\n {2}folder \/far;[^\n]*changed [^;\n]*\n/);
+	});
+
+	describe("a saved session a tab elsewhere holds", () => {
+		const row = (folder: string, id: string, extra: Record<string, unknown> = {}) => ({
+			path: `${folder}/${id}.jsonl`,
+			id,
+			title: id,
+			cwd: folder,
+			created: "2026-10-31T00:00:00Z",
+			modified: "2026-10-31T00:00:00Z",
+			messageCount: 2,
+			size: 10,
+			status: "complete",
+			firstMessage: "hi",
+			...extra,
+		});
+		/** A transcript whose last tool call has no result yet: the step it runs. */
+		const runningTool = (name: string, intent: string) => [
+			{ role: "user", content: "go", timestamp: 1 },
+			{ role: "assistant", content: [{ type: "toolCall", id: "c1", name, arguments: {}, intent }], timestamp: 2 },
+		];
+
+		it("says what a session open in a paired computer's own tab does there: its step, an open ask, or nothing", async () => {
+			const request = vi.fn(async (_device: string, method: string, params: { sessionPath?: string }) => {
+				if (method === "sessions.list")
+					return [
+						row("/far", "busy", { heldOnHost: true }),
+						row("/far", "asks", { heldOnHost: true }),
+						row("/far", "quiet", { heldOnHost: true }),
+						row("/far", "closed"),
+					];
+				if (method === "sessions.messages" && params.sessionPath === "/far/busy.jsonl")
+					return runningTool("bash", "vitest");
+				return null;
+			});
+			const live = [
+				{ sessionPath: "/far/busy.jsonl", state: "turn" as const },
+				{ sessionPath: "/far/asks.jsonl", state: "waiting" as const },
+			];
+			const { runtime, win } = setup({
+				remote: {
+					hosts: () => [{ deviceId: "dev-1", name: "SeuPut", state: "online", live }],
+					request: request as never,
+				},
+			});
+			const text = (await runtime.run(win, "main0001", T.list, { scope: "stored", device: "SeuPut" })).text;
+			expect(text).toMatch(/busy "busy"\n[^\n]*; open in a tab on device dev-1: running, running bash \(vitest\)\n/);
+			expect(text).toMatch(
+				/asks "asks"\n[^\n]*; open in a tab on device dev-1: waiting for the user's answer there\n/,
+			);
+			expect(text).toMatch(/quiet "quiet"\n[^\n]*; open in a tab on device dev-1: idle\n/);
+			expect(text).toMatch(/closed "closed"\n {2}folder \/far;[^\n]*changed [^;\n]*\n/);
+		});
+
+		it("marks this computer's saved session a paired device runs here as open for it, with what its tab does", async () => {
+			const { runtime, win } = setup({
+				sessions: {
+					list: async () => [row("/s", "run") as never, row("/s", "rest") as never, row("/s", "plain") as never],
+					search: async () => [],
+					read: async sessionPath =>
+						(sessionPath === "/s/run.jsonl" ? runningTool("grep", "find it") : []) as never,
+				},
+				hosted: () => [
+					{ sessionPath: "/s/run.jsonl", cwd: "/s", kind: "agent", status: "running", device: "SeuPut" },
+					{ sessionPath: "/s/rest.jsonl", cwd: "/s", kind: "agent", status: "ready", device: "SeuPut" },
+				],
+			});
+			const text = (await runtime.run(win, "main0001", T.list, { scope: "stored" })).text;
+			expect(text).toMatch(
+				/run "run"\n[^\n]*; open in a tab this computer runs for SeuPut: running, running grep \(find it\)\n/,
+			);
+			expect(text).toMatch(/rest "rest"\n[^\n]*; open in a tab this computer runs for SeuPut: idle\n/);
+			expect(text).toMatch(/plain "plain"\n {2}folder \/s;[^\n]*changed [^;\n]*\n/);
+		});
+
+		it("reads a saved session's header as the stored list says it, as of the read", async () => {
+			let rows = [row("/far", "there", { heldOnHost: true })];
+			let live: { sessionPath: string; state: "turn" | "background" | "waiting" }[] = [];
+			const request = vi.fn(async (_device: string, method: string) =>
+				method === "sessions.list" ? rows : method === "sessions.messages" ? runningTool("read", "notes") : null,
+			);
+			const { runtime, win } = setup({
+				remote: {
+					hosts: () => [{ deviceId: "dev-1", name: "SeuPut", state: "online", live }],
+					request: request as never,
+				},
+			});
+			const list = (await runtime.run(win, "main0001", T.list, { scope: "stored", device: "SeuPut" })).text;
+			expect(list).toContain("; open in a tab on device dev-1: idle");
+			const header = async () =>
+				(await runtime.run(win, "main0001", T.read, { session: "there" })).text.split("\n")[0] ?? "";
+			expect(await header()).toContain('"there" (saved on device dev-1, open in a tab on device dev-1: idle)');
+			// Its turn started there since the list: the read says so, with the step its saved transcript shows.
+			live = [{ sessionPath: "/far/there.jsonl", state: "turn" }];
+			expect(await header()).toContain(
+				"(saved on device dev-1, open in a tab on device dev-1: running, running read (notes))",
+			);
+			// The device closed its tab.
+			rows = [row("/far", "there")];
+			live = [];
+			expect(await header()).toContain('"there" (saved on device dev-1, not open)');
+		});
 	});
 
 	it("makes a worktree on the paired device the session runs on and binds the new tab to it", async () => {

@@ -1371,6 +1371,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			hosts: () => remoteDevices.state().hosts,
 			request: (device, method, params, timeoutMs) => remoteDevices.request(device, method, params, timeoutMs),
 		},
+		hosted: () => deps.hostedTabs.hostedSessions(),
 		botLog: entry => writeRuntimeLog({ source: "bot", message: String(entry.event), details: entry }),
 		// A question the bot left open too long: the owner's own "needs you" notice, late, here and on phones.
 		botRemind: (tabId, requestId, title) => {
