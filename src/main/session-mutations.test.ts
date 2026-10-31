@@ -4,7 +4,13 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { codedError, ipcErrorCode } from "../shared/ipc-error-codes";
 import { deletedSessions, initDeletedSessions } from "./deleted-sessions";
-import { deleteSession, recordSessionDelete, type SessionTabs, setSessionDeleteLog } from "./session-mutations";
+import {
+	deleteSession,
+	recordSessionDelete,
+	type SessionTabs,
+	setSessionDeletedListener,
+	setSessionDeleteLog,
+} from "./session-mutations";
 
 beforeEach(() => {
 	initDeletedSessions(null);
@@ -103,6 +109,21 @@ describe("deleteSession", () => {
 		expect(ipcErrorCode(refused)).toBe("session_running");
 		expect(deviceTabs.closeSessionTabs).not.toHaveBeenCalled();
 		expect(busy.calls).toEqual([]);
+	});
+
+	it("tells what else keeps the session that it is gone, only once its file is deleted", async () => {
+		const told: string[] = [];
+		setSessionDeletedListener((sessionPath, device) => void told.push(`${sessionPath} ${device ?? "local"}`));
+		try {
+			await deleteSession(tabs(true).fake, "/s/g.jsonl", "host-b", async () => {});
+			await deleteSession(tabs(false).fake, "/s/h.jsonl", undefined, async () => {}).catch(() => undefined);
+			await deleteSession(tabs(true).fake, "/s/i.jsonl", undefined, async () => {
+				throw new Error("disk");
+			}).catch(() => undefined);
+			expect(told).toEqual(["/s/g.jsonl host-b"]);
+		} finally {
+			setSessionDeletedListener(null);
+		}
 	});
 });
 

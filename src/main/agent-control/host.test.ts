@@ -25,6 +25,7 @@ import type {
 	SchedulesState,
 } from "../../shared/schedules";
 import { createControlBackend } from "../control-socket/backend";
+import { deletedSessions, initDeletedSessions } from "../deleted-sessions";
 import { gitSync, initRepo } from "../local/git/test-repos";
 import { WORKTREE_COMMAND_BUDGETS_MS } from "../local/git/worktree";
 import { SchedulesCommandParams, SchedulesCreateParams } from "../remote/app-protocol";
@@ -1083,6 +1084,42 @@ describe("AgentControlRuntime", () => {
 			await fs.rm(root, { recursive: true, force: true });
 		}
 	}, 30_000);
+
+	it("forgets the closed record of every deleted session, on the device it was deleted on only", () => {
+		const { runtime, deps } = setup();
+		const record = (path: string, device?: string) => ({
+			path,
+			openedBySession: "/s/bot.jsonl",
+			title: path,
+			cwd: "/repo",
+			closedAt: 1,
+			...(device ? { device } : {}),
+		});
+		let closed: unknown = [record("/s/kid.jsonl"), record("/s/kid.jsonl", "dev-1"), record("/s/other.jsonl")];
+		const changed = vi.fn();
+		deps.prefs = {
+			get: key => (key === AGENT_CLOSED_CHILDREN_PREF ? closed : undefined),
+			set: (key, value) => {
+				if (key === AGENT_CLOSED_CHILDREN_PREF) closed = value;
+			},
+			changed,
+		};
+		initDeletedSessions(null);
+		try {
+			// Nothing deleted: nothing written, nobody told.
+			runtime.forgetDeleted();
+			expect(changed).not.toHaveBeenCalled();
+			deletedSessions().add("/s/kid.jsonl", "dev-1");
+			runtime.forgetDeleted();
+			expect(closed).toEqual([record("/s/kid.jsonl"), record("/s/other.jsonl")]);
+			expect(changed).toHaveBeenCalledWith(AGENT_CLOSED_CHILDREN_PREF);
+			deletedSessions().add("/s/kid.jsonl");
+			runtime.forgetDeleted();
+			expect(closed).toEqual([record("/s/other.jsonl")]);
+		} finally {
+			initDeletedSessions(null);
+		}
+	});
 
 	it("lists and reads saved sessions of this computer and of a paired device", async () => {
 		const row = {
