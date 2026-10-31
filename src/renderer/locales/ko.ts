@@ -5880,6 +5880,7 @@ export const ko: Record<string, string> = {
 	"botActivity.action.notice_sent": "나에게 알림",
 	"botActivity.action.notice_held": "알림 설정으로 보류됨",
 	"botActivity.action.approval_asked": "내 허락을 물음",
+	"botActivity.action.approval_answered": "내가 요청에 답함",
 	"botActivity.action.rules": "내가 규칙을 바꿈",
 	"botActivity.action.routine_run": "루틴 실행",
 	"botActivity.action.paused": "멈춤 또는 다시 시작",

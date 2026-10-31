@@ -166,6 +166,25 @@ export type DraftCommand = (typeof DRAFT_COMMANDS)[number];
 
 const SUBAGENT_LEVEL_RANK: Record<SubagentSubscriptionLevel, number> = { off: 0, progress: 1, events: 2 };
 
+/** An extension UI response (`ExtensionUIResponse`) in words, for the logs that keep what was chosen. */
+export function describeAnswer(frame: object): string {
+	if ("cancelled" in frame && frame.cancelled === true) return "dismissed";
+	if ("value" in frame && typeof frame.value === "string") return frame.value;
+	if ("confirmed" in frame && typeof frame.confirmed === "boolean") return frame.confirmed ? "yes" : "no";
+	if ("answers" in frame && Array.isArray(frame.answers))
+		return frame.answers
+			.flatMap((answer: unknown) => {
+				if (!answer || typeof answer !== "object") return [];
+				const picked =
+					"selectedOptions" in answer && Array.isArray(answer.selectedOptions) ? answer.selectedOptions : [];
+				const custom =
+					"customInput" in answer && typeof answer.customInput === "string" ? [answer.customInput] : [];
+				return [...picked.map(String), ...custom];
+			})
+			.join(", ");
+	return "";
+}
+
 /** The level that serves every window's request: the highest. */
 function highestSubagentLevel(levels: Iterable<SubagentSubscriptionLevel>): SubagentSubscriptionLevel {
 	let top: SubagentSubscriptionLevel = "off";
@@ -183,7 +202,11 @@ export type TabActivity =
 	| { type: "busy"; tabId: string }
 	| { type: "idle"; tabId: string; outcome: IpcTabRunOutcome | undefined }
 	| { type: "ask"; tabId: string; requestId: string; text: string }
-	| { type: "askClosed"; tabId: string; requestId: string }
+	/**
+	 * A question or approval closed. `answered` is set when a window, a page or an agent answered it here: the card's
+	 * title and the choice in its words (an option, yes/no, the answers, or "dismissed").
+	 */
+	| { type: "askClosed"; tabId: string; requestId: string; answered?: { title: string; choice: string } }
 	| { type: "released"; tabId: string }
 	/**
 	 * A running turn moved on: a tool call started or ended, or a reply was written (its step and cost changed). Once
@@ -2023,7 +2046,16 @@ export class SidecarPool {
 		}
 		if (this.#requestOwners.get(id) === entry) {
 			this.#requestOwners.delete(id);
-			this.#announce({ type: "askClosed", tabId: entry.tabId, requestId: id });
+			const request = this.#requestBodies.get(id);
+			this.#announce({
+				type: "askClosed",
+				tabId: entry.tabId,
+				requestId: id,
+				answered: {
+					title: request && "title" in request && typeof request.title === "string" ? request.title : "",
+					choice: describeAnswer(frame),
+				},
+			});
 			this.onRunningChange?.();
 		}
 		if (shared) this.#sendAnsweredElsewhere(entry, id, responderId);

@@ -71,6 +71,7 @@ export const BOT_ACTIVITY_ACTIONS = [
 	"notice_held",
 	"rules",
 	"approval_asked",
+	"approval_answered",
 	"routine_run",
 	"paused",
 	"task_done",

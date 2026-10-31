@@ -5889,6 +5889,7 @@ export const en: Record<string, string> = {
 	"botActivity.action.notice_sent": "Notified you",
 	"botActivity.action.notice_held": "Notice held by your routing",
 	"botActivity.action.approval_asked": "Asked your permission",
+	"botActivity.action.approval_answered": "You answered its request",
 	"botActivity.action.rules": "You changed its rules",
 	"botActivity.action.routine_run": "Routine ran",
 	"botActivity.action.paused": "Paused or resumed",

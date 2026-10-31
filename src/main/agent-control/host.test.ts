@@ -1752,7 +1752,7 @@ describe("the bot's desk", () => {
 				activity,
 			},
 		});
-		return { ...rig, desk, file, activity };
+		return { ...rig, desk, file, log: activity };
 	}
 
 	it("refuses every caller that is not the bot's own session, and every caller while the bot is off", async () => {
@@ -1905,6 +1905,30 @@ describe("the bot's desk", () => {
 		await runtime.botDecisionAnswered(desk.answer(own.id, "No"));
 		await vi.waitFor(() => expect(mails(commands)).toHaveLength(2));
 		expect(mails(commands)[1]?.tabId).toBe("main0001");
+	});
+
+	it("logs a question the bot's tab put to the owner and the choice the owner made on it", async () => {
+		const { activity, log } = await botRig();
+		for (const observer of activity) {
+			observer({ type: "ask", tabId: "main0001", requestId: "r1", text: "Allow tool: bash" } as never);
+			observer({
+				type: "askClosed",
+				tabId: "main0001",
+				requestId: "r1",
+				answered: { title: "Allow tool: bash", choice: "Always bash" },
+			} as never);
+			// Another session's card is not the bot's to log.
+			observer({
+				type: "askClosed",
+				tabId: "other0002",
+				requestId: "r2",
+				answered: { title: "Deploy?", choice: "yes" },
+			} as never);
+		}
+		expect(log.entries().map(entry => [entry.action, entry.by, entry.text])).toEqual([
+			["approval_asked", "bot", "Allow tool: bash"],
+			["approval_answered", "owner", "Allow tool: bash → Always bash"],
+		]);
 	});
 
 	it("tells the bot the operation it asked about and the draft as the owner edited it", async () => {

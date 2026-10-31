@@ -380,8 +380,8 @@ export class AgentControlRuntime {
 		this.#bot = new BotFeed(this.#botDeps());
 		// A change to the duties is told to the bot's omp now; the feed tells only what differs from the last tell.
 		deps.botDesk?.desk.onChange(() => void this.#bot.role());
-		// The bot's activity log: each tool call of the bot's tabs (its side chats' too), and each question its own tabs
-		// put to the owner.
+		// The bot's activity log: each tool call of the bot's tabs (its side chats' too), each question its own tabs put
+		// to the owner, and what the owner chose on it.
 		const activityLog = deps.botDesk?.activity;
 		if (activityLog) {
 			deps.pool.observeToolCalls?.((tabId, call) => {
@@ -391,15 +391,26 @@ export class AgentControlRuntime {
 				if (draft) activityLog.append({ ...draft, ...(channel ? { channel } : {}) });
 			});
 			deps.pool.observeTabs(activity => {
-				if (activity.type !== "ask" || !this.#bot.isBotTab(activity.tabId)) return;
+				if ((activity.type !== "ask" && activity.type !== "askClosed") || !this.#bot.isBotTab(activity.tabId))
+					return;
 				const channel = this.#bot.channelOf(activity.tabId)?.id;
-				activityLog.append({
-					kind: "approval",
-					action: "approval_asked",
-					by: "bot",
-					text: activity.text,
-					...(channel ? { channel } : {}),
-				});
+				const where = channel ? { channel } : {};
+				if (activity.type === "ask")
+					activityLog.append({
+						kind: "approval",
+						action: "approval_asked",
+						by: "bot",
+						text: activity.text,
+						...where,
+					});
+				else if (activity.answered)
+					activityLog.append({
+						kind: "approval",
+						action: "approval_answered",
+						by: "owner",
+						text: `${activity.answered.title} → ${activity.answered.choice}`,
+						...where,
+					});
 			});
 		}
 		deps.pool.observeTabs(activity => {

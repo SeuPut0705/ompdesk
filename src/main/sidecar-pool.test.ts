@@ -3289,8 +3289,28 @@ describe("SidecarPool tab activity (the observer Web Push listens to)", () => {
 		a.emitUiRequest({ id: "ask-1", method: "confirm", title: "Deploy?", message: "" });
 		expect(seen).toEqual([{ type: "ask", tabId: "tab-a", requestId: "ask-1", text: "Deploy?" }]);
 		await pool.routeSideChannel("ask-1", { type: "extension_ui_response", id: "ask-1", confirmed: true });
-		expect(seen.at(-1)).toEqual({ type: "askClosed", tabId: "tab-a", requestId: "ask-1" });
+		expect(seen.at(-1)).toEqual({
+			type: "askClosed",
+			tabId: "tab-a",
+			requestId: "ask-1",
+			answered: { title: "Deploy?", choice: "yes" },
+		});
 		expect(seen).toHaveLength(2);
+	});
+
+	it("says which option an approval was answered with, and that a dismissed card chose nothing", async () => {
+		const { pool, a, seen } = observed();
+		a.emitUiRequest({
+			id: "tool-1",
+			method: "select",
+			title: "Allow tool: bash",
+			options: ["Approve", "Always bash", "Deny"],
+		});
+		await pool.routeSideChannel("tool-1", { type: "extension_ui_response", id: "tool-1", value: "Always bash" });
+		expect(seen.at(-1)).toMatchObject({ answered: { title: "Allow tool: bash", choice: "Always bash" } });
+		a.emitUiRequest({ id: "ask-2", method: "input", title: "Name?" });
+		await pool.routeSideChannel("ask-2", { type: "extension_ui_response", id: "ask-2", cancelled: true });
+		expect(seen.at(-1)).toMatchObject({ answered: { title: "Name?", choice: "dismissed" } });
 	});
 
 	it("announces an ask omp withdrew, and every ask a restart of its omp took with it", () => {
