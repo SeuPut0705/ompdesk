@@ -143,6 +143,11 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		label: "코드 모드 추가 직접 도구",
 		description: "eval, ask, todo, yield, think, checkpoint, rewind 외에 직접 호출을 허용할 도구예요.",
 	},
+	"providers.openai-codex.daybreak": {
+		label: "Codex Daybreak Blue",
+		description:
+			"자격이 되는 ChatGPT 계정에서 Daybreak Blue 사이버 접근 프로그램을 자동으로 요청해요. OpenAI가 Daybreak Blue 세션 내용을 모델 개선에 쓸 수 있어요. 전용 Daybreak Blue 모델(gpt-daybreak-blue-*)은 여기에 해당하지 않으며 여전히 Daybreak 세션으로 실행될 수 있어요.",
+	},
 	"update.channel": {
 		label: "omp 업데이트 채널",
 		description:
@@ -1114,6 +1119,11 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	"title.refreshOnReplan": {
 		label: "재계획 시 제목 갱신",
 		description: "할 일 초기화로 재계획되면 생성된 세션 제목을 갱신해요. 사용자가 정한 제목은 제외해요",
+	},
+	"title.refreshAfterPrompts": {
+		label: "프롬프트 후 제목 갱신",
+		description:
+			"사용자 프롬프트가 이 횟수만큼 쌓일 때마다 판정 모델에게 생성된 세션 제목이 아직 대화에 맞는지 묻고, 맞지 않으면 다시 만들어요",
 	},
 	"task.isolation.enabled": {
 		label: "서브에이전트 격리",
