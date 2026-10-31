@@ -15,7 +15,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import { SidebarProjects } from "../../../../main/sidebar-projects";
 import { type AgentReviewItem, wrapAgentMessage } from "../../../../shared/agent-control";
-import type { BotDecision, BotDeskState } from "../../../../shared/bot-desk";
+import { type BotDecision, type BotDeskState, EMPTY_BOT_DESK } from "../../../../shared/bot-desk";
 import { codedError } from "../../../../shared/ipc-error-codes";
 import type { HostView, SessionInfo } from "../../../../shared/ipc-types";
 import type { SidebarProjectsRequest, SidebarProjectsState } from "../../../../shared/sidebar-projects";
@@ -1611,7 +1611,7 @@ describe("Sidebar menus and pinned ordering", () => {
 				seedBot("ready");
 				useBotDeskStore
 					.getState()
-					.apply({ duties: [], wakes: [], decisions: [open("a"), answered("b"), open("c")] });
+					.apply({ ...EMPTY_BOT_DESK, duties: [], wakes: [], decisions: [open("a"), answered("b"), open("c")] });
 				await mount(<Sidebar />);
 
 				const count = botRow().querySelector("[data-sidebar-bot-decisions]");
@@ -1626,7 +1626,7 @@ describe("Sidebar menus and pinned ordering", () => {
 			it("shows no count while none is open, and none on any other row", async () => {
 				installMockOmp([...LIST, botSession]);
 				seedBot("ready");
-				useBotDeskStore.getState().apply({ duties: [], wakes: [], decisions: [answered("a")] });
+				useBotDeskStore.getState().apply({ ...EMPTY_BOT_DESK, duties: [], wakes: [], decisions: [answered("a")] });
 				await mount(<Sidebar />);
 
 				expect(botRow().querySelector("[data-sidebar-bot-decisions]")).toBeNull();
@@ -1637,12 +1637,14 @@ describe("Sidebar menus and pinned ordering", () => {
 			it("drops the count when main says the last decision was answered", async () => {
 				installMockOmp([...LIST, botSession]);
 				seedBot("ready");
-				useBotDeskStore.getState().apply({ duties: [], wakes: [], decisions: [open("a")] });
+				useBotDeskStore.getState().apply({ ...EMPTY_BOT_DESK, duties: [], wakes: [], decisions: [open("a")] });
 				await mount(<Sidebar />);
 				expect(botRow().querySelector("[data-sidebar-bot-decisions]")).not.toBeNull();
 
 				await act(async () =>
-					useBotDeskStore.getState().apply({ duties: [], wakes: [], decisions: [answered("a")] }),
+					useBotDeskStore
+						.getState()
+						.apply({ ...EMPTY_BOT_DESK, duties: [], wakes: [], decisions: [answered("a")] }),
 				);
 
 				expect(botRow().querySelector("[data-sidebar-bot-decisions]")).toBeNull();
@@ -1653,7 +1655,7 @@ describe("Sidebar menus and pinned ordering", () => {
 				seedStores();
 				useSessionStore.setState({ isStreaming: true });
 				useBotStore.setState({ enabled: true, path: BOT });
-				useBotDeskStore.getState().apply({ duties: [], wakes: [], decisions: [open("a")] });
+				useBotDeskStore.getState().apply({ ...EMPTY_BOT_DESK, duties: [], wakes: [], decisions: [open("a")] });
 				useUiStore.setState({ dockCollapsed: { decisions: true }, dockFocus: null });
 				await mount(<Sidebar />);
 
@@ -1668,7 +1670,7 @@ describe("Sidebar menus and pinned ordering", () => {
 				seedStores();
 				useSessionStore.setState({ isStreaming: true });
 				useBotStore.setState({ enabled: true, path: BOT });
-				useBotDeskStore.getState().apply({ duties: [], wakes: [], decisions: [] });
+				useBotDeskStore.getState().apply({ ...EMPTY_BOT_DESK, duties: [], wakes: [], decisions: [] });
 				useUiStore.setState({ dockCollapsed: { decisions: true }, dockFocus: null });
 				await mount(<Sidebar />);
 
@@ -1682,6 +1684,7 @@ describe("Sidebar menus and pinned ordering", () => {
 				installMockOmp([...LIST, botSession]);
 				seedBot("running");
 				useBotDeskStore.getState().apply({
+					...EMPTY_BOT_DESK,
 					duties: [],
 					decisions: [],
 					wakes: [{ id: "w", prompt: "Check the build", next: "2026-11-01T06:30:00.000Z" }],
@@ -4300,7 +4303,7 @@ describe("Sidebar device sections", () => {
 			omp.sessions.list.mockImplementation(async (_scope, device) => (device === "dev-studio" ? [hostBot] : LIST));
 			// This computer's own desk is empty: a count on the host's row is the host's.
 			const get = vi.fn(async (device?: string) =>
-				device === "dev-studio" ? hostDesk : { duties: [], wakes: [], decisions: [] },
+				device === "dev-studio" ? hostDesk : { ...EMPTY_BOT_DESK, duties: [], wakes: [], decisions: [] },
 			);
 			(omp.sessions as unknown as { botDesk: unknown }).botDesk = {
 				get,
@@ -4320,6 +4323,7 @@ describe("Sidebar device sections", () => {
 
 		it("counts the host's open decisions on its bot's row, as this computer's own row does", async () => {
 			await mountWithHostDesk({
+				...EMPTY_BOT_DESK,
 				duties: [],
 				wakes: [],
 				decisions: [decision("a", "open"), decision("b", "answered"), decision("c", "open")],
@@ -4336,7 +4340,7 @@ describe("Sidebar device sections", () => {
 		});
 
 		it("shows no count while none of the host's decisions is open", async () => {
-			await mountWithHostDesk({ duties: [], wakes: [], decisions: [decision("a", "answered")] });
+			await mountWithHostDesk({ ...EMPTY_BOT_DESK, duties: [], wakes: [], decisions: [decision("a", "answered")] });
 
 			expect(hostRow()).not.toBeNull();
 			expect(hostRow()?.querySelector("[data-sidebar-bot-decisions]")).toBeNull();
@@ -4344,20 +4348,23 @@ describe("Sidebar device sections", () => {
 		});
 
 		it("follows the host's pushes and opens the decisions card when the row is clicked with a decision waiting", async () => {
-			await mountWithHostDesk({ duties: [], wakes: [], decisions: [decision("a", "open")] });
+			await mountWithHostDesk({ ...EMPTY_BOT_DESK, duties: [], wakes: [], decisions: [decision("a", "open")] });
 			expect(hostRow()?.querySelector("[data-sidebar-bot-decisions]")).not.toBeNull();
 
 			await act(async () =>
 				useBotDeskStore
 					.getState()
-					.apply({ duties: [], wakes: [], decisions: [decision("a", "answered")] }, "dev-studio"),
+					.apply(
+						{ ...EMPTY_BOT_DESK, duties: [], wakes: [], decisions: [decision("a", "answered")] },
+						"dev-studio",
+					),
 			);
 			expect(hostRow()?.querySelector("[data-sidebar-bot-decisions]")).toBeNull();
 
 			await act(async () =>
 				useBotDeskStore
 					.getState()
-					.apply({ duties: [], wakes: [], decisions: [decision("d", "open")] }, "dev-studio"),
+					.apply({ ...EMPTY_BOT_DESK, duties: [], wakes: [], decisions: [decision("d", "open")] }, "dev-studio"),
 			);
 			useUiStore.setState({ dockCollapsed: { decisions: true }, dockFocus: null });
 			await fire(hostRow()?.querySelector("button") ?? null, "onClick");

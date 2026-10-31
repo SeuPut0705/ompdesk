@@ -60,4 +60,14 @@ export class BotHome {
 		this.#deps.changed(BOT_PREF);
 		return made.sessionPath;
 	}
+
+	/**
+	 * A side chat of the bot (`BotChannel`): one more plain chat session in the bot's workspace, titled by its topic.
+	 * The desk records it; its tab is told the bot's role like the bot's own (`bot.ts`).
+	 */
+	async createSideChat(topic: string): Promise<string> {
+		const made = await this.#deps.create({ cwd: this.#deps.workspace(), title: topic });
+		this.#deps.markChat(made.sessionId);
+		return made.sessionPath;
+	}
 }

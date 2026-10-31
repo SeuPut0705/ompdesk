@@ -2,6 +2,7 @@ import { parseHTML } from "linkedom";
 import { act, type ReactNode } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { EMPTY_BOT_DESK } from "../../../../shared/bot-desk";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { EMPTY_TURN_METER } from "../../../lib/turn-meter";
 import { useAutopilotStore } from "../../../stores/autopilot";
@@ -94,6 +95,7 @@ describe("WorkBoardChip, the phone's work strip", () => {
 
 	it("stays on the bot's pane with nothing running, naming its duties and wakes, and only there", async () => {
 		useBotDeskStore.getState().apply({
+			...EMPTY_BOT_DESK,
 			duties: [{ id: "a", text: "Check the nightly build", at: "2026-10-30T08:00:00.000Z" }],
 			wakes: [],
 			decisions: [],

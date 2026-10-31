@@ -40,10 +40,13 @@ import {
 	privacyPaneUrl,
 	reviewFromDevice,
 } from "../shared/agent-control";
+import { BotActivityPageSchema } from "../shared/bot-activity";
 import {
 	type BotDeskAnswer,
 	BotDeskAnswerSchema,
 	BotDeskDutiesSchema,
+	type BotDeskEdit,
+	BotDeskEditSchema,
 	type BotDeskState,
 	BotDeskStateSchema,
 	type BotWake,
@@ -135,7 +138,9 @@ import {
 	openExtensionsPage,
 	reprobeAgentBrowserStatus,
 } from "./agent-browsers";
+import type { BotActivityLog } from "./agent-control/bot-activity";
 import { type BotDesk, botWakes } from "./agent-control/bot-desk";
+import { editBotDesk } from "./agent-control/bot-desk-edit";
 import type { BotHome } from "./agent-control/bot-home";
 import { AgentControlRuntime, CARD_TIMEOUT_MS } from "./agent-control/host";
 import { appNotification } from "./app-icon";
@@ -316,6 +321,8 @@ export interface IpcDeps {
 	botHome: BotHome;
 	/** The bot's desk (agent-control/bot-desk.ts): its duties and the decisions it posted for the owner. */
 	botDesk: BotDesk;
+	/** The bot's activity log (agent-control/bot-activity.ts), which the desk and the bot's tabs append to. */
+	botActivity: BotActivityLog;
 	/**
 	 * Set here: tells every window and paired web page the desk as it stands now. The Schedules service (the bot's
 	 * wakes) and the bot's session pref change elsewhere and call it.
@@ -1510,12 +1517,29 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// told once, and an answer for a decision that is gone or answered is refused here.
 	const answerBotDecision = ({ id, answer }: BotDeskAnswer): void =>
 		void agentControl.botDecisionAnswered(deps.botDesk.answer(id, answer));
+	// The owner's edits (and a paired device's, `host.botDesk.edit`): one path, `bot-desk-edit.ts`.
+	const editDesk = (edit: BotDeskEdit): Promise<void> => {
+		if ((edit.op === "channel_add" || edit.op === "channel_remove") && !botEnabled(prefsStore.get(BOT_ENABLED_PREF)))
+			return Promise.reject(new Error("The bot is off (Settings › Bot)"));
+		return editBotDesk(
+			{
+				desk: deps.botDesk,
+				activity: deps.botActivity,
+				createSideChat: topic => deps.botHome.createSideChat(topic),
+				deleteSession: sessionPath => deleteStoredSession(sessionPath, undefined),
+			},
+			edit,
+			"owner",
+		);
+	};
 	// A paired device's home for this computer's bot: only while the bot is on, as its row is gone otherwise.
 	deps.hostedTabs.attachBotDesk({
 		enabled: () => botEnabled(prefsStore.get(BOT_ENABLED_PREF)),
 		state: botDeskState,
 		answer: answerBotDecision,
 		setDuties: payload => deps.botDesk.setDuties(payload),
+		edit: editDesk,
+		activity: () => deps.botActivity.page(),
 	});
 	// With `device`, a paired host's own desk over the link: its answer reaches that host's bot, never this one's.
 	ipc.handle(IPC_COMMANDS.BOT_DESK_GET, async (_caller, device?: unknown) => {
@@ -1535,6 +1559,18 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		const host = deviceOf(device);
 		if (host) await remoteDevices.request(host, "host.botDesk.setDuties", duties);
 		else deps.botDesk.setDuties(duties);
+	});
+	ipc.handle(IPC_COMMANDS.BOT_DESK_EDIT, async (_caller, payload: unknown, device?: unknown) => {
+		const edit = BotDeskEditSchema.parse(payload);
+		const host = deviceOf(device);
+		if (host) await remoteDevices.request(host, "host.botDesk.edit", edit);
+		else await editDesk(edit);
+	});
+	ipc.handle(IPC_COMMANDS.BOT_ACTIVITY_GET, async (_caller, device?: unknown) => {
+		const host = deviceOf(device);
+		return host
+			? BotActivityPageSchema.parse(await remoteDevices.request(host, "host.botDesk.activity", {}))
+			: deps.botActivity.page();
 	});
 	// The bot's session (agent-control/bot-home.ts): the sidebar's bot row opens what this answers, made first when
 	// the file is missing (a launch is its first seconds; a deleted one). Never while the owner has the bot off.

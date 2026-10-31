@@ -7,6 +7,8 @@ import { fixtureProviderOptions } from "../../../e2e/models-config-fixture";
 import type { PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origin-contracts";
 import type { AccountRotationMode, AccountRotationState } from "../../shared/account-rotation";
 import { type AgentReviewItem, type AgentReviewResult, wrapAgentMessage } from "../../shared/agent-control";
+import { BotActivityPageSchema } from "../../shared/bot-activity";
+import { EMPTY_BOT_DESK } from "../../shared/bot-desk";
 import { ipcErrorCode } from "../../shared/ipc-error-codes";
 import type {
 	CustomProviderInput,
@@ -35,7 +37,9 @@ import type {
 } from "../../shared/rpc-types";
 import type { ScheduleCreated, ScheduleDraft, SchedulesRequest, SchedulesState } from "../../shared/schedules";
 import type { SidebarProjectsRequest, SidebarProjectsState } from "../../shared/sidebar-projects";
+import { BotActivityLog } from "../agent-control/bot-activity";
 import { type AnsweredDecision, BotDesk } from "../agent-control/bot-desk";
+import { editBotDesk } from "../agent-control/bot-desk-edit";
 import { branchEvidence, branchFacts, landingFacts, type WorktreeRef } from "../agent-control/branches";
 import type { MemoryPageCopy } from "../ai-memory/client";
 import { serveConclusionPull, serveConclusionPush, servePull, servePush } from "../ai-memory/sync";
@@ -3459,7 +3463,11 @@ describe("LocalHostServices host.* calls", () => {
 		const { services } = setup();
 		const x = new FakeConnection(peer("device-x"));
 		const y = new FakeConnection(peer("device-y"));
-		const desk = new BotDesk({ file: join(workDir, "bot-desk.json") });
+		const activity = new BotActivityLog({ file: null });
+		const desk = new BotDesk({
+			file: join(workDir, "bot-desk.json"),
+			activity: draft => void activity.append(draft),
+		});
 		const told: AnsweredDecision[] = [];
 		let on = false;
 		const wakes = [{ id: "w1", prompt: "check the build", next: "2026-10-31T10:00:00.000Z" }];
@@ -3469,6 +3477,13 @@ describe("LocalHostServices host.* calls", () => {
 			// What the IPC handler's `answerBotDecision` does: the desk records it, the bot is told what it returns.
 			answer: ({ id, answer }) => void told.push(desk.answer(id, answer)),
 			setDuties: payload => desk.setDuties(payload),
+			edit: edit =>
+				editBotDesk(
+					{ desk, activity, createSideChat: async () => "/s/side.jsonl", deleteSession: async () => {} },
+					edit,
+					"owner",
+				),
+			activity: () => activity.page(),
 		};
 		// Before the desk is attached this computer has none to share.
 		await expect(services.call(x.peer, "host.botDesk.get", {}, x)).rejects.toThrow(/no bot desk/);
@@ -3476,20 +3491,22 @@ describe("LocalHostServices host.* calls", () => {
 		const open = desk.postDecision({ question: "Ship the release?", options: ["Yes", "No"] });
 
 		// Off: an empty desk to read, and nothing to answer or edit.
-		await expect(services.call(x.peer, "host.botDesk.get", {}, x)).resolves.toEqual({
-			duties: [],
-			decisions: [],
-			wakes: [],
+		await expect(services.call(x.peer, "host.botDesk.get", {}, x)).resolves.toEqual(EMPTY_BOT_DESK);
+		await expect(services.call(x.peer, "host.botDesk.activity", {}, x)).resolves.toEqual({
+			entries: [],
+			revision: 0,
 		});
 		for (const [method, params] of [
 			["host.botDesk.answer", { id: open.id, answer: "Yes" }],
 			["host.botDesk.setDuties", { duties: [{ text: "Check the build" }] }],
+			["host.botDesk.edit", { op: "memory_add", text: "Ships on Fridays" }],
 		] as const) {
 			const refused = await services.call(x.peer, method, params, x).catch((error: unknown) => error);
 			expect(ipcErrorCode(refused), method).toBe("bot_off");
 		}
 		expect(told).toEqual([]);
 		expect(desk.state().duties).toEqual([]);
+		expect(desk.state().memories).toEqual([]);
 
 		// On: the desk as this computer's own windows see it, wakes included.
 		on = true;
@@ -3508,12 +3525,25 @@ describe("LocalHostServices host.* calls", () => {
 		);
 		expect(told).toHaveLength(1);
 
+		// An edit goes through the owner's own path; the log it leaves reads over the link, and its Undo works there too.
+		await expect(
+			services.call(x.peer, "host.botDesk.edit", { op: "memory_add", text: "Ships on Fridays" }, x),
+		).resolves.toBeNull();
+		expect(desk.state().memories.map(memory => memory.text)).toEqual(["Ships on Fridays"]);
+		const page = await services.call(y.peer, "host.botDesk.activity", {}, y);
+		const added = BotActivityPageSchema.parse(page).entries.find(entry => entry.action === "memory_add");
+		expect(added).toMatchObject({ by: "owner", text: "Ships on Fridays", undo: { op: "memory_forget" } });
+		await services.call(x.peer, "host.botDesk.edit", { op: "undo", activity: added?.id }, x);
+		expect(desk.state().memories).toEqual([]);
+
 		// Only what the owner's own handlers accept crosses the link.
 		for (const [method, params] of [
 			["host.botDesk.answer", { id: "", answer: "Yes" }],
 			["host.botDesk.answer", { id: open.id, answer: "  " }],
 			["host.botDesk.setDuties", { duties: [{ text: "" }] }],
 			["host.botDesk.setDuties", {}],
+			["host.botDesk.edit", { op: "memory_add", text: "" }],
+			["host.botDesk.edit", { op: "rename_everything" }],
 		] as const)
 			await expect(services.call(x.peer, method, params, x), method).rejects.toThrow(/Invalid host\.botDesk/);
 
@@ -3552,6 +3582,8 @@ describe("LocalHostServices host.* calls", () => {
 			state: () => ({ ...desk.state(), wakes: [] }),
 			answer: ({ id, answer }) => void desk.answer(id, answer),
 			setDuties: payload => desk.setDuties(payload),
+			edit: async () => {},
+			activity: () => ({ entries: [], revision: 0 }),
 		});
 		const x = new FakeConnection(peer("device-x"));
 		const first = desk.postDecision({ question: "One?" });

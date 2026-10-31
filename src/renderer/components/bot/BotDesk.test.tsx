@@ -7,7 +7,13 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
-import type { BotDecision, BotDeskAnswer, BotDeskDuties, BotDeskState } from "../../../shared/bot-desk";
+import {
+	type BotDecision,
+	type BotDeskAnswer,
+	type BotDeskDuties,
+	type BotDeskState,
+	EMPTY_BOT_DESK,
+} from "../../../shared/bot-desk";
 import { formatClock } from "../../lib/format";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useBotStore } from "../../stores/bot";
@@ -42,7 +48,7 @@ interface Api {
 
 function installApi(overrides: Partial<Api> = {}): Api {
 	const api: Api = {
-		get: vi.fn(async () => ({ duties: [], decisions: [], wakes: [] })),
+		get: vi.fn(async () => ({ ...EMPTY_BOT_DESK, duties: [], decisions: [], wakes: [] })),
 		answer: vi.fn(async () => {}),
 		setDuties: vi.fn(async () => {}),
 		onChanged: vi.fn(() => () => {}),
@@ -53,7 +59,7 @@ function installApi(overrides: Partial<Api> = {}): Api {
 }
 
 function desk(overrides: Partial<BotDeskState> = {}): BotDeskState {
-	return { duties: [], decisions: [], wakes: [], ...overrides };
+	return { ...EMPTY_BOT_DESK, duties: [], decisions: [], wakes: [], ...overrides };
 }
 
 const OPEN: BotDecision = {

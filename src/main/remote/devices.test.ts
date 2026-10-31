@@ -7,7 +7,7 @@ import { type AddressInfo, connect, createServer, type Server, type Socket } fro
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { BotDeskState } from "../../shared/bot-desk";
+import { type BotDeskState, EMPTY_BOT_DESK } from "../../shared/bot-desk";
 import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
 import { BOT_DESK_EVENT, LIVE_SESSIONS_EVENT, MOBILE_WEB_LINK_EVENT, TAB_EVENT } from "./app-protocol";
 import { generateKeyPair } from "./crypto";
@@ -520,6 +520,7 @@ describe("the tabs a host keeps for this device", () => {
 
 describe("a host's bot desk", () => {
 	const OPEN: BotDeskState = {
+		...EMPTY_BOT_DESK,
 		duties: [],
 		decisions: [
 			{ id: "d1", state: "open", question: "Ship?", options: ["Yes", "No"], at: "2026-10-31T09:00:00.000Z" },

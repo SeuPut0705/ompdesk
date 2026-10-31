@@ -23,7 +23,8 @@ import type {
 	AiMemorySweep,
 	AiMemoryWriteInput,
 } from "./ai-memory";
-import type { BotDeskAnswer, BotDeskDuties, BotDeskState } from "./bot-desk";
+import type { BotActivityPage } from "./bot-activity";
+import type { BotDeskAnswer, BotDeskDuties, BotDeskEdit, BotDeskState } from "./bot-desk";
 import type { BuiltinReaState } from "./builtin-mcp";
 import type { CliToolId, CliUpdateState } from "./cli-update";
 import type { AgentBrowserStatus, ChromiumBrowserId } from "./default-browser";
@@ -262,6 +263,10 @@ export const IPC_COMMANDS = {
 	BOT_DESK_ANSWER: "bot-desk:answer",
 	/** The owner's duty list, whole (`BotDeskDuties`) */
 	BOT_DESK_SET_DUTIES: "bot-desk:set-duties",
+	/** One edit of the bot's desk by the owner (`BotDeskEdit`: identity, memory, routing, voice, side chats, undo) */
+	BOT_DESK_EDIT: "bot-desk:edit",
+	/** The bot's activity log, newest page (`BotActivityPage`) */
+	BOT_ACTIVITY_GET: "bot-activity:get",
 	/** Fetch stats endpoint */
 	STATS_FETCH: "stats:fetch",
 	/** Run/cancel an isolated bundled `omp bench --json` process. */
@@ -2302,6 +2307,10 @@ export interface OmpApi {
 			get(device?: string): Promise<BotDeskState>;
 			answer(payload: BotDeskAnswer, device?: string): Promise<void>;
 			setDuties(payload: BotDeskDuties, device?: string): Promise<void>;
+			/** One edit by the owner (`BotDeskEdit`); answers once main kept it. */
+			edit(payload: BotDeskEdit, device?: string): Promise<void>;
+			/** The newest page of the bot's activity log (`shared/bot-activity.ts`). */
+			activity(device?: string): Promise<BotActivityPage>;
 			/** This computer's desk (no `device`) and every paired host's, as each pushes it. */
 			onChanged(callback: (state: BotDeskState, device?: string) => void): () => void;
 		};

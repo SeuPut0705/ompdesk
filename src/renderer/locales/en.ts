@@ -5765,6 +5765,7 @@ export const en: Record<string, string> = {
 	"botHome.duties.remove": "Remove duty: {text}",
 	"botHome.duties.full": "The list is full. Remove a duty first.",
 	"botHome.dutiesFailed": "Couldn't save the duties",
+	"botHome.editFailed": "Couldn't save the change",
 	"botHome.wakes.title": "Scheduled wakes",
 	"botHome.wakes.empty": "No wakes scheduled.",
 	"botHome.wakes.paused": "Paused",

@@ -7,7 +7,7 @@
  * only when main says so.
  */
 import { create } from "zustand";
-import { type BotDeskDuties, type BotDeskState, EMPTY_BOT_DESK } from "../../shared/bot-desk";
+import { type BotDeskDuties, type BotDeskEdit, type BotDeskState, EMPTY_BOT_DESK } from "../../shared/bot-desk";
 import { translate } from "../lib/i18n";
 import { toastError } from "./toast";
 
@@ -44,6 +44,8 @@ interface BotDeskStore {
 	answer: (id: string, answer: string, device?: string) => Promise<boolean>;
 	/** Write the whole duty list; false (and a toast) when main refused. */
 	setDuties: (duties: BotDeskDuties["duties"], device?: string) => Promise<boolean>;
+	/** One edit (identity, memory, routing, voice, side chats, undo); false (and a toast) when main refused. */
+	edit: (edit: BotDeskEdit, device?: string) => Promise<boolean>;
 	reset: () => void;
 }
 
@@ -92,6 +94,18 @@ export const useBotDeskStore = create<BotDeskStore>()((set, get) => ({
 				: window.omp.sessions.botDesk.setDuties(payload, device));
 		} catch (error) {
 			toastError({ title: translate("botHome.dutiesFailed"), error });
+			return false;
+		}
+		if (device !== undefined) void get().refresh(device);
+		return true;
+	},
+	edit: async (edit, device) => {
+		try {
+			await (device === undefined
+				? window.omp.sessions.botDesk.edit(edit)
+				: window.omp.sessions.botDesk.edit(edit, device));
+		} catch (error) {
+			toastError({ title: translate("botHome.editFailed"), error });
 			return false;
 		}
 		if (device !== undefined) void get().refresh(device);

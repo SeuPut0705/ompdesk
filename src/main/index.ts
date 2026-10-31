@@ -82,6 +82,7 @@ import {
 import { migrateThemeName } from "../shared/theme-names";
 import { WORKTREE_BRANCH_PREFIX_PREF, worktreeBranchPrefix } from "../shared/worktree-branch";
 import { accountRotationDeps } from "./account-rotation";
+import { BotActivityLog } from "./agent-control/bot-activity";
 import { BotDesk } from "./agent-control/bot-desk";
 import { BotHome } from "./agent-control/bot-home";
 import { agentDir } from "./agent-paths";
@@ -779,8 +780,14 @@ app.whenReady().then(() => {
 	const sessionWake: IpcDeps["sessionWake"] = { current: null };
 	const webAsk: IpcDeps["webAsk"] = { current: null };
 	// The bot's desk (agent-control/bot-desk.ts); `botDeskPush` is set in ipc.ts, and the Schedules service (the bot's
-	// own wakes) and the bot session's pref call it.
-	const botDesk = new BotDesk({ file: join(app.getPath("userData"), "bot-desk.json") });
+	// own wakes) and the bot session's pref call it. Every desk change, and every tool the bot's tabs run, goes to the
+	// activity log (agent-control/bot-activity.ts).
+	const botActivity = new BotActivityLog({ file: join(app.getPath("userData"), "bot-activity.json") });
+	const botDesk = new BotDesk({
+		file: join(app.getPath("userData"), "bot-desk.json"),
+		activity: draft => void botActivity.append(draft),
+	});
+	app.on("will-quit", () => botActivity.flush());
 	const botDeskPush: IpcDeps["botDeskPush"] = { current: null };
 	// The desktop slot's host is built in ipc.ts next to the pool's wiring; the factory reads it from here.
 	const desktopSlotRef: { current: DesktopSlotHost | null } = { current: null };
@@ -1919,6 +1926,7 @@ app.whenReady().then(() => {
 		sessionWake,
 		botHome,
 		botDesk,
+		botActivity,
 		botDeskPush,
 		webPages: () => webHost?.windows.all() ?? [],
 		webAsk,

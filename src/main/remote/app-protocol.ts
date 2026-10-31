@@ -51,8 +51,10 @@
  * - The host's bot desk (agent-control/bot-desk.ts; the bot's home on a device): `host.botDesk.get {}` →
  *   BotDeskState (an empty desk while the host's bot is off), `host.botDesk.answer {id, answer}` and
  *   `host.botDesk.setDuties {duties}` → null (both refused `bot_off` while the bot is off there; an answer reaches the
- *   host's bot exactly as one given at the host, and counts as one model request of the device); the host pushes every
- *   change as the `host.botDesk.changed` event
+ *   host's bot exactly as one given at the host, and counts as one model request of the device),
+ *   `host.botDesk.edit BotDeskEdit` → null (identity, memory, routing, voice, side chats, undo; refused `bot_off` the
+ *   same way) and `host.botDesk.activity {}` → BotActivityPage (empty while off); the host pushes every desk change as
+ *   the `host.botDesk.changed` event (the activity log is read, never pushed)
  * - Agent control on a session the host runs (agent-control/branches.ts and local/git/worktree.ts on the host's
  *   own checkout; `worktree` = `{path, branch, baseCwd}` of the tab's binding): `host.git.facts {worktree}` →
  *   BranchFacts, `host.git.evidence {worktree, diffChars}` → BranchEvidence (the child's diff cut to `diffChars`

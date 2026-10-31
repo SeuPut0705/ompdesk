@@ -5758,6 +5758,7 @@ export const ko: Record<string, string> = {
 	"botHome.duties.remove": "맡은 일 삭제: {text}",
 	"botHome.duties.full": "목록이 가득 찼어요. 하나를 먼저 삭제해 주세요.",
 	"botHome.dutiesFailed": "맡은 일을 저장하지 못했어요",
+	"botHome.editFailed": "변경을 저장하지 못했어요",
 	"botHome.wakes.title": "예약된 깨어남",
 	"botHome.wakes.empty": "예약된 깨어남이 없어요.",
 	"botHome.wakes.paused": "멈춤",

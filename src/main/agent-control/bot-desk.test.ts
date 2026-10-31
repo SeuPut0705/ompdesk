@@ -2,9 +2,17 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BOT_DECISIONS_ANSWERED_KEPT, BOT_DUTIES_MAX, openBotDecisions } from "../../shared/bot-desk";
+import type { BotActivityDraft } from "../../shared/bot-activity";
+import {
+	BOT_DECISIONS_ANSWERED_KEPT,
+	BOT_DUTIES_MAX,
+	BOT_MEMORIES_MAX,
+	EMPTY_BOT_DESK,
+	EMPTY_BOT_DESK_FILE,
+	openBotDecisions,
+} from "../../shared/bot-desk";
 import type { Schedule } from "../../shared/schedules";
-import { BotDesk, BotDeskError, botDeskText, botWakes } from "./bot-desk";
+import { BotDesk, BotDeskError, botDeskText, botWakes, isDeskChange } from "./bot-desk";
 
 let dir: string;
 let file: string;
@@ -138,14 +146,14 @@ describe("BotDesk", () => {
 	});
 
 	it("reads a missing, corrupt or wrongly shaped file as an empty desk, and writes over it", () => {
-		expect(deskOver().state()).toEqual({ duties: [], decisions: [] });
+		expect(deskOver().state()).toEqual(EMPTY_BOT_DESK_FILE);
 		writeFileSync(file, "{ not json");
 		const corrupt = deskOver();
-		expect(corrupt.state()).toEqual({ duties: [], decisions: [] });
+		expect(corrupt.state()).toEqual(EMPTY_BOT_DESK_FILE);
 		corrupt.addDuty("fresh start");
 		expect(JSON.parse(readFileSync(file, "utf8")).duties).toHaveLength(1);
 		writeFileSync(file, JSON.stringify({ duties: "x", decisions: [] }));
-		expect(deskOver().state()).toEqual({ duties: [], decisions: [] });
+		expect(deskOver().state()).toEqual(EMPTY_BOT_DESK_FILE);
 	});
 
 	it("writes the file before it tells anyone", () => {
@@ -166,6 +174,94 @@ describe("BotDesk", () => {
 			/at most 6 options/,
 		);
 		expect(desk.state().decisions).toEqual([]);
+	});
+
+	it("reads a desk written before identity and memory with their defaults, and keeps them across a restart", () => {
+		writeFileSync(
+			file,
+			JSON.stringify({ duties: [{ id: "d1", text: "Watch CI", at: "2026-10-31T08:00:00.000Z" }], decisions: [] }),
+		);
+		const desk = deskOver();
+		expect(desk.state()).toMatchObject({
+			duties: [{ id: "d1", text: "Watch CI" }],
+			identity: { tagline: "", persona: "", avatar: { kind: "mark", shape: "bot", color: "accent" } },
+			memories: [],
+			notify: { progress: "banner", decisions: "both", done: "both", progressEvery: "all" },
+			voice: { speakReplies: false },
+			channels: [],
+		});
+		desk.change(
+			{ op: "identity", tagline: " Keeps the lights on ", avatar: { kind: "mark", shape: "cat", color: "info" } },
+			"owner",
+		);
+		desk.change({ op: "notify", progress: "quiet", progressEvery: "hourly" }, "owner");
+		desk.change({ op: "voice", speakReplies: true }, "owner");
+		desk.remember("The owner deploys on Fridays only", "bot");
+		desk.addChannel("Release notes", "/s/side.jsonl", "owner");
+		const reloaded = new BotDesk({ file }).state();
+		expect(reloaded).toEqual(desk.state());
+		expect(reloaded).toMatchObject({
+			identity: { tagline: "Keeps the lights on", persona: "", avatar: { shape: "cat", color: "info" } },
+			notify: { progress: "quiet", decisions: "both", progressEvery: "hourly" },
+			voice: { speakReplies: true },
+			memories: [{ text: "The owner deploys on Fridays only", by: "bot" }],
+			channels: [{ title: "Release notes", sessionPath: "/s/side.jsonl" }],
+		});
+	});
+
+	it("keeps one memory per text up to the cap, edits, forgets and imports", () => {
+		const desk = deskOver(null);
+		const first = desk.remember("  Prefers   Korean replies ", "bot");
+		expect(first).toMatchObject({ added: true, memory: { text: "Prefers Korean replies" } });
+		expect(desk.remember("Prefers Korean replies", "owner")).toEqual({ memory: first.memory, added: false });
+		desk.change({ op: "memory_edit", id: first.memory.id, text: "Prefers Korean replies, English code" }, "owner");
+		expect(desk.state().memories).toMatchObject([
+			{ id: first.memory.id, text: "Prefers Korean replies, English code", by: "owner" },
+		]);
+		expect(() => desk.change({ op: "memory_edit", id: "nope", text: "x" }, "owner")).toThrow(/No memory/);
+		desk.change(
+			{ op: "memory_import", texts: ["Lives in Seoul", "Prefers Korean replies, English code"], replace: false },
+			"owner",
+		);
+		expect(desk.state().memories.map(memory => memory.text)).toEqual([
+			"Prefers Korean replies, English code",
+			"Lives in Seoul",
+		]);
+		for (let index = desk.state().memories.length; index < BOT_MEMORIES_MAX; index++)
+			desk.remember(`fact ${index}`, "bot");
+		expect(() => desk.remember("one too many", "bot")).toThrow(/Forget one/);
+		desk.change({ op: "memory_import", texts: ["Only this"], replace: true }, "owner");
+		expect(desk.state().memories.map(memory => memory.text)).toEqual(["Only this"]);
+		expect(desk.forget(desk.state().memories[0]?.id ?? "", "bot")?.text).toBe("Only this");
+		expect(desk.forget("gone", "bot")).toBeUndefined();
+		expect(desk.state().memories).toEqual([]);
+	});
+
+	it("tells the log each change, by whom, with the edit that takes it back", () => {
+		const log: BotActivityDraft[] = [];
+		const desk = new BotDesk({ file: null, activity: draft => void log.push(draft) });
+		desk.addDuty("Watch CI");
+		const kept = desk.remember("Deploys on Fridays", "bot").memory;
+		desk.forget(kept.id, "owner");
+		desk.change({ op: "identity", tagline: "Night shift" }, "owner");
+		desk.answer(desk.postDecision({ question: "Ship?" }).id, "Yes");
+		expect(log.map(entry => [entry.action, entry.by, entry.text])).toEqual([
+			["duty_add", "bot", "Watch CI"],
+			["memory_add", "bot", "Deploys on Fridays"],
+			["memory_forget", "owner", "Deploys on Fridays"],
+			["identity", "owner", "tagline"],
+			["decision_post", "bot", "Ship?"],
+			["decision_answer", "owner", "Ship? → Yes"],
+		]);
+		// Replaying each inverse puts the desk back as it was, the forgotten memory with its id.
+		for (const entry of log.slice(0, 4).reverse()) {
+			const undo = entry.undo;
+			if (undo && isDeskChange(undo)) desk.change(undo, "owner");
+		}
+		expect(desk.state().duties).toEqual([]);
+		expect(desk.state().memories).toEqual([]);
+		expect(desk.state().identity.tagline).toBe("");
+		expect(log.at(-3)).toMatchObject({ action: "memory_restore", undo: { op: "memory_forget", id: kept.id } });
 	});
 });
 
@@ -213,7 +309,7 @@ describe("botWakes", () => {
 
 describe("botDeskText", () => {
 	it("is compact and says none for what is empty", () => {
-		expect(botDeskText({ duties: [], decisions: [], wakes: [] })).toBe(
+		expect(botDeskText({ ...EMPTY_BOT_DESK })).toBe(
 			"Standing duties: none.\nOpen decisions: none.\nWakes you scheduled: none.",
 		);
 		const desk = deskOver(null);

@@ -31,7 +31,8 @@ import type {
 	AiMemorySweep,
 	AiMemoryWriteInput,
 } from "./ai-memory";
-import type { BotDeskAnswer, BotDeskDuties, BotDeskState } from "./bot-desk";
+import type { BotActivityPage } from "./bot-activity";
+import type { BotDeskAnswer, BotDeskDuties, BotDeskEdit, BotDeskState } from "./bot-desk";
 import type { BuiltinReaState } from "./builtin-mcp";
 import type { CliToolId, CliUpdateState } from "./cli-update";
 import type { DiagnosticBundleRequest, DiagnosticBundleResult } from "./diagnostic-bundle";
@@ -570,6 +571,10 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 					transport.invoke(IPC_COMMANDS.BOT_DESK_ANSWER, payload, device) as Promise<void>,
 				setDuties: (payload: BotDeskDuties, device?: string) =>
 					transport.invoke(IPC_COMMANDS.BOT_DESK_SET_DUTIES, payload, device) as Promise<void>,
+				edit: (payload: BotDeskEdit, device?: string) =>
+					transport.invoke(IPC_COMMANDS.BOT_DESK_EDIT, payload, device) as Promise<void>,
+				activity: (device?: string) =>
+					transport.invoke(IPC_COMMANDS.BOT_ACTIVITY_GET, device) as Promise<BotActivityPage>,
 				onChanged: (callback: (state: BotDeskState, device?: string) => void) => {
 					const offLocal = subscribe<BotDeskState>(IPC_EVENTS.BOT_DESK_CHANGED, state => callback(state));
 					const offHost = subscribe<IpcHostBotDesk>(IPC_EVENTS.HOST_BOT_DESK_STATE, update =>

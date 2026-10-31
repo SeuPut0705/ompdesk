@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
-import type { BotDeskAnswer, BotDeskDuties, BotDeskState } from "../../shared/bot-desk";
+import { type BotDeskAnswer, type BotDeskDuties, type BotDeskState, EMPTY_BOT_DESK } from "../../shared/bot-desk";
 import { ensureBotDesk, releaseBotDesk, useBotDeskStore } from "./bot-desk";
 import { useToastStore } from "./toast";
 
@@ -10,7 +10,7 @@ interface DeskApi {
 	onChanged: Mock<(callback: (state: BotDeskState, device?: string) => void) => () => void>;
 }
 
-const EMPTY: BotDeskState = { duties: [], decisions: [], wakes: [] };
+const EMPTY: BotDeskState = { ...EMPTY_BOT_DESK, duties: [], decisions: [], wakes: [] };
 const WITH_DUTY: BotDeskState = {
 	...EMPTY,
 	duties: [{ id: "a", text: "Check the build", at: "2026-10-31T09:00:00.000Z" }],

@@ -169,6 +169,8 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[C.BOT_DESK_GET]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.BOT_DESK_ANSWER]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.BOT_DESK_SET_DUTIES]: { dir: "invoke", permission: "workspace", mode: "pass" },
+	[C.BOT_DESK_EDIT]: { dir: "invoke", permission: "workspace", mode: "pass" },
+	[C.BOT_ACTIVITY_GET]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.WORKTREE_PROMPTS_GET]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.WORKTREE_PROMPT_ANSWER]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.PROJECT_ORIGINS_GET]: { dir: "invoke", permission: "workspace", mode: "pass" },

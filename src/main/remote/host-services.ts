@@ -43,11 +43,14 @@ import { z } from "zod";
 import { PROMPT_ORIGIN_HOST_ID, type PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origin-contracts";
 import { ACCOUNT_ROTATION_MODES } from "../../shared/account-rotation";
 import { type AgentReviewResult, reviewUnmerged } from "../../shared/agent-control";
+import type { BotActivityPage } from "../../shared/bot-activity";
 import {
 	type BotDeskAnswer,
 	BotDeskAnswerSchema,
 	type BotDeskDuties,
 	BotDeskDutiesSchema,
+	type BotDeskEdit,
+	BotDeskEditSchema,
 	type BotDeskState,
 	EMPTY_BOT_DESK,
 } from "../../shared/bot-desk";
@@ -418,6 +421,9 @@ export interface HostedBotDesk {
 	state(): BotDeskState;
 	answer(payload: BotDeskAnswer): void;
 	setDuties(payload: BotDeskDuties): void;
+	/** The path the owner's own edit takes (`bot-desk-edit.ts`). */
+	edit(payload: BotDeskEdit): Promise<void>;
+	activity(): BotActivityPage;
 }
 
 const Rtab = z.string().min(1).max(128);
@@ -1302,6 +1308,14 @@ export class LocalHostServices implements HostServices {
 			case "host.botDesk.setDuties": {
 				this.#botDeskOn().setDuties(parse(BotDeskDutiesSchema, method, params));
 				return null;
+			}
+			case "host.botDesk.edit": {
+				await this.#botDeskOn().edit(parse(BotDeskEditSchema, method, params));
+				return null;
+			}
+			case "host.botDesk.activity": {
+				const desk = this.#hostedBotDesk();
+				return desk.enabled() ? desk.activity() : { entries: [], revision: 0 };
 			}
 			// The device's sidebar section for this computer: this computer's own project list, the one its windows show.
 			case "host.projects.command":
