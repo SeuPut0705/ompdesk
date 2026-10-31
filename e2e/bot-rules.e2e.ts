@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
 import { type BotRule, parseBotRules } from "../src/shared/bot-rules";
-import { cssString, exitApp, launchApp, pressShortcutUntilVisible } from "./harness";
+import { cssString, exitApp, launchApp, pressShortcutUntilVisible, recordsOfType } from "./harness";
 
 // Settings › Bot (BotRulesSection.tsx): the default rules show, a behavior change, an added rule and a deleted rule
 // are each written to pref `botRules` in prefs.json, and a default rule reads in the UI language while its stored text
@@ -16,6 +16,7 @@ let page: Page;
 let profile: string;
 let desktop: string;
 const errors: string[] = [];
+let record: string;
 
 async function start(language: "en" | "ko"): Promise<void> {
 	profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-bot-rules-"));
@@ -25,7 +26,8 @@ async function start(language: "en" | "ko"): Promise<void> {
 	await Promise.all([desktop, project, agent].map(dir => fs.mkdir(dir)));
 	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language, firstRunComplete: true }));
 	errors.length = 0;
-	app = await launchApp({ project, desktop, agent, profile });
+	record = path.join(profile, "rpc.jsonl");
+	app = await launchApp({ project, desktop, agent, profile, env: { OMP_GUI_TEST_RECORD: record } });
 	page = await app.firstWindow();
 	page.on("pageerror", error => errors.push(error.message));
 	await page.waitForFunction(() => window.omp?.rpc != null);
@@ -81,7 +83,7 @@ test("the rules screen lists the defaults and saves a change, an added rule and 
 		)
 		.not.toBe("");
 	await expect(page.locator("[data-sidebar-bot-row]")).toHaveCount(1, { timeout: 30_000 });
-	// Its tab open, the bot turned off: neither its row nor its tab comes back as a plain chat.
+	// Its tab open: a session a tab holds is renamed through the omp that holds it.
 	await page.locator("[data-sidebar-bot-row] button").first().click();
 	await expect
 		.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).some(tab => tab.sessionPath === botFile))
@@ -89,6 +91,16 @@ test("the rules screen lists the defaults and saves a change, an added rule and 
 	await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", page.locator("[data-settings-page]"));
 	await page.locator('[data-settings-page] [data-settings-section="bot"]').click();
 	await expect(botSwitch).toBeChecked();
+	// Its name is its session's title: set here, the bot's omp is asked to rename its own session (stock
+	// `set_session_name` writes it to the session file; the row showing it is Sidebar.test.tsx's).
+	const name = page.locator("[data-bot-name]");
+	await expect(name).toHaveValue("Bot");
+	await name.fill("Jarvis");
+	await name.press("Enter");
+	await expect
+		.poll(async () => (await recordsOfType(record, "set_session_name")).map(frame => frame.name))
+		.toEqual(["Jarvis"]);
+	// The bot turned off with its tab open: neither its row nor its tab comes back as a plain chat.
 	await botSwitch.click();
 	await expect(botSwitch).not.toBeChecked();
 	await expect(page.locator("[data-sidebar-bot-row]")).toHaveCount(0);

@@ -66,10 +66,11 @@ Another agent opened this session and handed you its first message; the person s
 - Keep replying to the person in their language when they write to you.
 </ompdesk-worker>`;
 
-/** The bot's role, short and plain: what the owner expects of it, then their rules for actions. */
-export function botSection(rules: string): string {
+/** The bot's role, short and plain: its name, what the owner expects of it, then their rules for actions. */
+export function botSection(rules: string, name?: string): string {
+	const called = name?.trim();
 	return `<ompdesk-bot>
-You are the owner's always-on bot.
+You are ${called ? `"${called}", ` : ""}the owner's always-on bot.${called ? " The owner names you in Settings › Bot; answer to that name." : ""}
 - When the owner gives you a responsibility, open sessions for the work with ompdesk_session_open and follow them until done. Their questions and reports come back to you: answer those within the work you gave them.
 - Answer only the sessions you opened. The owner's own sessions, and those other agents opened, are not yours to answer.
 - When the owner asks, work in their own sessions with the control tools.
@@ -126,7 +127,8 @@ export function install(pi: PromptSectionHost & Partial<MailHost>): void {
 	registerPromptSection(pi, "ompdesk-bot", ctx => {
 		if (ctx.agent.kind !== "main") return undefined;
 		const rules = botRulesOf(ctx);
-		return rules === undefined ? undefined : botSection(rules);
+		// Its name is its session's own title (stock `getSessionName`), which the owner sets in Settings › Bot.
+		return rules === undefined ? undefined : botSection(rules, ctx.sessionManager.getSessionName?.());
 	});
 }
 

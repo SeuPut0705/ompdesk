@@ -24,7 +24,8 @@ export interface JournalEntry {
 
 /** The slice of omp's extension context a section may read. */
 export interface PromptSectionContext {
-	sessionManager: { getBranch(): readonly JournalEntry[] };
+	/** `getSessionName`: stock's title of the session (the bot section names the bot by it). */
+	sessionManager: { getBranch(): readonly JournalEntry[]; getSessionName?(): string | undefined };
 	agent: { kind: string };
 	/** The session's working folder (stock's `ExtensionContext.cwd`). */
 	cwd?: string;

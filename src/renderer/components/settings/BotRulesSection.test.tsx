@@ -8,11 +8,33 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { BOT_ENABLED_PREF, BOT_PREF } from "../../../shared/agent-control";
 import { BOT_RULES_PREF, type BotRule, DEFAULT_BOT_RULES } from "../../../shared/bot-rules";
+import type { SessionInfo } from "../../../shared/ipc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { en } from "../../locales/en";
 import { ko } from "../../locales/ko";
+import { useBotStore } from "../../stores/bot";
+import { sessionListFeed } from "../../stores/session-list";
 import { BotRulesSection } from "./BotRulesSection";
+
+function botRow(path: string, title: string): SessionInfo {
+	return {
+		path,
+		id: "bot",
+		title,
+		cwd: "/work",
+		created: "2026-10-31T00:00:00Z",
+		modified: "2026-10-31T00:00:00Z",
+		messageCount: 0,
+		size: 0,
+		status: "complete",
+		kind: "chat",
+		bot: "on",
+		firstMessage: "",
+	};
+}
+
 import { resolveSettingsTarget, SECTION_SCOPE, SETTINGS_NAV, SETTINGS_SECTION_IDS } from "./settings-catalog";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -299,6 +321,34 @@ describe("BotRulesSection", () => {
 		failGet = false;
 		await click(button("Retry"));
 		expect(document.body.querySelectorAll("[data-bot-rule-action]")).toHaveLength(DEFAULT_BOT_RULES.length);
+	});
+
+	it("names the bot by its session's title and renames that session, only while the bot is on", async () => {
+		const BOT = "/s/bot.jsonl";
+		const rename = vi.fn(async () => undefined);
+		const omp = (window as unknown as { omp: Record<string, unknown> }).omp;
+		omp.sessions = { rename };
+		sessionListFeed("global").store.setState({ sessions: [botRow(BOT, "Jarvis")] } as never);
+		try {
+			await mount();
+			expect(document.body.querySelector("[data-bot-name]")).toBeNull();
+			stored = { [BOT_ENABLED_PREF]: true, [BOT_PREF]: BOT };
+			await act(async () => useBotStore.getState().load());
+			const field = document.body.querySelector("[data-bot-name]") as unknown as { value: string };
+			expect(field.value).toBe("Jarvis");
+			const props = reactProps(field);
+			await act(async () => props.onFocus?.({}));
+			await act(async () => props.onBlur?.({ currentTarget: { value: "  Friday  " } }));
+			expect(rename).toHaveBeenCalledWith(BOT, "Friday");
+			// The same name, or an empty one, renames nothing.
+			await act(async () => props.onBlur?.({ currentTarget: { value: "   " } }));
+			await act(async () => props.onBlur?.({ currentTarget: { value: "Jarvis" } }));
+			expect(rename).toHaveBeenCalledTimes(1);
+		} finally {
+			delete omp.sessions;
+			sessionListFeed("global").store.setState({ sessions: [] } as never);
+			useBotStore.getState().reset();
+		}
 	});
 });
 

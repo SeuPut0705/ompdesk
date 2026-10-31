@@ -5718,7 +5718,10 @@ export const en: Record<string, string> = {
 	"botRules.desc": "Say what the bot may do on its own, and what it asks you first.",
 	"botRules.enable": "Use the bot",
 	"botRules.enableDesc":
-		"Puts a bot at the top of the sidebar. It works through what you hand it, follows the sessions it opens, and answers your sessions' questions within what you asked them.",
+		"Puts a bot at the top of the sidebar. It works through what you hand it, opens the sessions the work needs and answers their questions within what you asked. Your own sessions' questions still come to you.",
+	"botRules.name": "Name",
+	"botRules.nameDesc": "What the bot is called, in the sidebar and on paired computers. It answers to it too.",
+	"botRules.renameFailed": "Couldn't rename the bot",
 	"botRules.add": "Add rule",
 	"botRules.full": "The list is full. Delete a rule first.",
 	"botRules.empty": "No rules. Add one, or restore the defaults.",

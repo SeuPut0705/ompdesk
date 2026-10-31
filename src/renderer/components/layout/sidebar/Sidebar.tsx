@@ -84,7 +84,7 @@ import { actionKbd, onEscape } from "../../../lib/keymap";
 import { moveInOrder, reorderProjects, withLocalProjectOrder } from "../../../lib/project-order";
 import { useProjectNames, useWorktreeKindLabels } from "../../../lib/project-origin";
 import { sessionForkOrigin } from "../../../lib/session-fork";
-import { sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
+import { botDisplayName, sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
 import { isRememberedSession, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { clampSidebarWidth, readSidebarWidth, writeSidebarWidth } from "../../../lib/sidebar-width";
 import { snapshotNs, snapshots } from "../../../lib/snapshot-cache";
@@ -1714,7 +1714,7 @@ export function Sidebar() {
 						...(remoteChildrenOf.get(session.path) ?? []).map(child => remoteFamilyChildFor(child)),
 					];
 		const title = bot
-			? t("sidebar.botBadge")
+			? botDisplayName(session, t("sidebar.botBadge"))
 			: sessionDisplayTitle(session, "") || tab?.task || (indexed ? t("sidebar.untitled") : t("sidebar.newSession"));
 		const fork = sessionForkOrigin(session, sessionsByPathOrId);
 		const pinned = pinnedSessions.includes(session.path);
@@ -2061,7 +2061,7 @@ export function Sidebar() {
 				<>
 					{/* While the owner has the bot on (Settings › Bot), it sits first, above the projects and chats (agent-control/bot-home.ts keeps its session); a filter keeps it only when it names it. */}
 					{botOn &&
-						(!query || t("sidebar.botBadge").toLocaleLowerCase().includes(query)) &&
+						(!query || botDisplayName(botSession, t("sidebar.botBadge")).toLocaleLowerCase().includes(query)) &&
 						renderSessionRow(botSession, false, "bot")}
 					{listError &&
 						(allSessions.length > 0 ? (

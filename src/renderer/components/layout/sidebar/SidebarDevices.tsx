@@ -44,7 +44,7 @@ import { basename, cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { openExternal } from "../../../lib/open-external";
 import { hostOrderKey, moveInOrder, reorderProjects } from "../../../lib/project-order";
-import { sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
+import { botDisplayName, sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
 import { deviceGroupKey, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { tabSignalPresentation } from "../../../lib/tab-signal";
 import { pickWorkspaceDirectory } from "../../../lib/workspace-dirs";
@@ -872,7 +872,7 @@ function DeviceSessions({
 		const active = (current || inVisibleSplit) && destination === "session";
 		const indexed = session.liveTabId === undefined;
 		const title = bot
-			? t("sidebar.botBadge")
+			? botDisplayName(session, t("sidebar.botBadge"))
 			: sessionDisplayTitle(session, indexed ? t("sidebar.untitled") : t("sidebar.newSession"));
 		if (renamingPath === session.path) {
 			const rovingKey = `device-session:${host.deviceId}:${session.path}`;
@@ -1024,7 +1024,8 @@ function DeviceSessions({
 	// The host's bot row, when it shows: a host whose only session is its bot is not empty.
 	const botShown =
 		hostBot !== undefined &&
-		(!query || t("sidebar.botBadge").toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+		(!query ||
+			botDisplayName(hostBot, t("sidebar.botBadge")).toLocaleLowerCase().includes(query.toLocaleLowerCase()));
 	if (error && tree.sessions.length === 0 && !botShown) {
 		return (
 			<InlineNotice

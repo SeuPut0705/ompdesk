@@ -5711,7 +5711,10 @@ export const ko: Record<string, string> = {
 	"botRules.desc": "봇이 혼자 해도 되는 일과 먼저 물어볼 일을 정해요.",
 	"botRules.enable": "봇 사용",
 	"botRules.enableDesc":
-		"사이드바 맨 위에 봇을 둬요. 맡긴 일을 알아서 진행하고, 자기가 연 세션을 끝까지 챙기고, 내 세션들의 질문에 시킨 범위 안에서 대신 답해요.",
+		"사이드바 맨 위에 봇을 둬요. 맡긴 일을 알아서 진행하고, 필요한 세션을 직접 열어 그 세션의 질문에 시킨 범위 안에서 답해요. 내가 연 세션의 질문은 지금처럼 나에게 와요.",
+	"botRules.name": "이름",
+	"botRules.nameDesc": "사이드바와 연결된 컴퓨터에 보이는 봇의 이름이에요. 봇도 이 이름으로 불러요.",
+	"botRules.renameFailed": "봇 이름을 바꾸지 못했어요",
 	"botRules.add": "규칙 추가",
 	"botRules.full": "규칙이 가득 찼어요. 하나를 먼저 삭제하세요.",
 	"botRules.empty": "규칙이 없어요. 추가하거나 기본 규칙을 복원하세요.",

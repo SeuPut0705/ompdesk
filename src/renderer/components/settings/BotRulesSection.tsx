@@ -6,8 +6,9 @@
  * Nothing stored reads as `DEFAULT_BOT_RULES`. A default rule is shown translated (`botRules.default.<id>`) while its
  * text is still the default; once the owner edits the words they are theirs, shown as written.
  */
-import { Bot, MoreHorizontal, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Bot, MoreHorizontal, Pencil, Plus, RefreshCw, Tag, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useStore } from "zustand";
 import {
 	BOT_RULES_MAX,
 	BOT_RULES_PREF,
@@ -19,11 +20,73 @@ import {
 } from "../../../shared/bot-rules";
 import { saveGuiPreference } from "../../lib/display-preferences";
 import { useT } from "../../lib/i18n";
+import { isImeKeyEvent } from "../../lib/ime";
+import { onEscape } from "../../lib/keymap";
 import { readPref } from "../../lib/prefs-read";
+import { botDisplayName } from "../../lib/session-title";
 import { ensureBotPath, useBotStore } from "../../stores/bot";
-import { Banner, Button, ConfirmDialog, MenuButton, Select, SkeletonRows } from "../common";
+import { sessionListFeed } from "../../stores/session-list";
+import { toastError } from "../../stores/toast";
+import { Banner, Button, ConfirmDialog, Input, MenuButton, Select, SkeletonRows } from "../common";
 import { BotRuleDialog, type BotRuleDraft, botBehaviorOptions } from "./BotRuleDialog";
 import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
+
+/**
+ * The bot's name, while it is on and main has made its session: the session's own title, renamed through stock's
+ * rename like any session (a name the owner sets is never replaced by an automatic title). A paired computer shows it
+ * on its fixed bot row, and the bot's prompt names it by it (`botSection`).
+ */
+function BotNameRow({ path }: { path: string }) {
+	const t = useT();
+	const inputId = useId();
+	const listed = useStore(sessionListFeed("global").store, s => s.sessions.find(session => session.path === path));
+	const name = botDisplayName(listed, t("sidebar.botBadge"));
+	const [draft, setDraft] = useState(name);
+	const [editing, setEditing] = useState(false);
+	useEffect(() => {
+		if (!editing) setDraft(name);
+	}, [editing, name]);
+	const commit = (value: string) => {
+		setEditing(false);
+		const next = value.trim();
+		if (!next || next === name) {
+			setDraft(name);
+			return;
+		}
+		window.omp.sessions.rename(path, next).catch(error => {
+			setDraft(name);
+			toastError({ title: t("botRules.renameFailed"), error });
+		});
+	};
+	return (
+		<SettingsRow
+			control={
+				<Input
+					controlSize="sm"
+					data-bot-name
+					id={inputId}
+					maxLength={64}
+					onBlur={event => commit(event.currentTarget.value)}
+					onChange={event => setDraft(event.target.value)}
+					onFocus={() => setEditing(true)}
+					onKeyDown={event => {
+						if (isImeKeyEvent(event)) return;
+						if (event.key === "Enter") event.currentTarget.blur();
+						onEscape(event, () => {
+							setDraft(name);
+							setEditing(false);
+						});
+					}}
+					value={draft}
+				/>
+			}
+			description={t("botRules.nameDesc")}
+			htmlFor={inputId}
+			icon={<Tag />}
+			label={t("botRules.name")}
+		/>
+	);
+}
 
 /** What the list shows for a rule: the translation of an untouched default, else the owner's own text. */
 function ruleLabel(rule: BotRule, t: (key: string) => string): string {
@@ -34,6 +97,7 @@ function ruleLabel(rule: BotRule, t: (key: string) => string): string {
 export function BotRulesSection() {
 	const t = useT();
 	const botOn = useBotStore(s => s.enabled);
+	const botPath = useBotStore(s => s.path);
 	const setBotOn = useBotStore(s => s.setEnabled);
 	const [rules, setRules] = useState<BotRule[] | null>(null);
 	const [loadFailed, setLoadFailed] = useState(false);
@@ -102,6 +166,7 @@ export function BotRulesSection() {
 				label={t("botRules.enable")}
 				onCheckedChange={next => void setBotOn(next)}
 			/>
+			{botOn && botPath && <BotNameRow path={botPath} />}
 		</SettingsSection>
 	);
 

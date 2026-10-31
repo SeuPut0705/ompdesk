@@ -365,6 +365,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"model",
 			"modelRegistry.getApiKey()",
 			"modelRegistry.resolver()",
+			// The bot's prompt section names it by its session's title.
+			"sessionManager.getSessionName()",
 		],
 		modules: {
 			"@oh-my-pi/pi-ai": ["completeSimple()"],

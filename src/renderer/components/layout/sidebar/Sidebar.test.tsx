@@ -1572,19 +1572,20 @@ describe("Sidebar menus and pinned ordering", () => {
 			expect(document.querySelector(`[data-sidebar-family="${BOT}"] [data-session-path="${OTHER}"]`)).toBeNull();
 		});
 
-		it("follows the filter by its label alone", async () => {
-			installMockOmp([...LIST, botSession]);
+		it("shows the name the owner gave it and follows the filter by that name alone", async () => {
+			installMockOmp([...LIST, { ...botSession, title: "Jarvis" }]);
 			seedStores();
 			useBotStore.setState({ enabled: true, path: BOT });
 			await mount(<Sidebar />);
+			expect(botRow().textContent).toContain("Jarvis");
 			const field = container.querySelector('input[aria-label="Filter sessions"]') as unknown as Element;
 			const props = reactProps<{ onChange: (event: { target: { value: string } }) => void }>(field);
 
-			await act(async () => props.onChange({ target: { value: "three" } }));
+			await act(async () => props.onChange({ target: { value: "bo" } }));
 			await flush();
 			expect(document.querySelector("[data-sidebar-bot-row]")).toBeNull();
 
-			await act(async () => props.onChange({ target: { value: "bo" } }));
+			await act(async () => props.onChange({ target: { value: "jar" } }));
 			await flush();
 			expect(document.querySelector("[data-sidebar-bot-row]")).not.toBeNull();
 		});
@@ -4071,7 +4072,7 @@ describe("Sidebar device sections", () => {
 	it("draws a paired host's bot as one fixed row first in its section, with no menu", async () => {
 		const omp = installWithRemote();
 		const bot = session("/s/work/bot.jsonl", "/work", {
-			title: "Bot",
+			title: "Friday",
 			kind: "chat",
 			bot: "on",
 			device: "dev-studio",
@@ -4091,7 +4092,7 @@ describe("Sidebar device sections", () => {
 		const botRow = () => section()?.querySelector("[data-sidebar-bot-row]") ?? null;
 
 		expect(rows()[0]).toBe(botRow());
-		expect(botRow()?.textContent).toContain(translate("sidebar.botBadge"));
+		expect(botRow()?.textContent).toContain("Friday");
 		expect(section()?.querySelectorAll(`[data-device-session="${bot.path}"]`)).toHaveLength(1);
 		expect(botRow()?.querySelector("[data-sidebar-row-menu]")).toBeNull();
 		await expect(fire(botRow(), "onContextMenu")).rejects.toThrow("onContextMenu not found");

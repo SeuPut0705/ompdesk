@@ -62,6 +62,18 @@ describe("bot role", () => {
 		expect(on({ systemPrompt: BASE }, session(entries, "subagent"))).toBeUndefined();
 	});
 
+	it("names the bot by its session's title, the name the owner set", () => {
+		const entries: JournalEntry[] = [{ type: "custom", customType: BOT_ENTRY, data: { rules: RULES } }];
+		const named: PromptSectionContext = {
+			sessionManager: { getBranch: () => entries, getSessionName: () => "  Jarvis  " },
+			agent: { kind: "main" },
+		};
+		const text = hook()({ systemPrompt: BASE }, named)?.systemPrompt?.at(-1) ?? "";
+		expect(text).toContain('You are "Jarvis", the owner\'s always-on bot.');
+		// An untitled session (or an omp without the getter) keeps the plain role.
+		expect(botSection(RULES, "  ")).toContain("You are the owner's always-on bot.");
+	});
+
 	it("follows the newest entry when the rules change, and says so when the owner has none", () => {
 		const on = hook();
 		const entries: JournalEntry[] = [
