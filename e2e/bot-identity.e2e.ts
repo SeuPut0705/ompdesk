@@ -27,7 +27,12 @@ test.beforeEach(async () => {
 		JSON.stringify({ language: "en", firstRunComplete: true, botEnabled: true, theme: "light" }),
 	);
 	errors = [];
-	app = await launchApp({ ...dirs, profile, env: { OMP_GUI_HEADLESS: "1", OMP_GUI_TEST_SESSION_FILES: "1" } });
+	app = await launchApp({
+		...dirs,
+		profile,
+		env: { OMP_GUI_HEADLESS: "1", OMP_GUI_TEST_SESSION_FILES: "1" },
+		args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"],
+	});
 	page = await app.firstWindow();
 	page.on("pageerror", error => errors.push(error.message));
 	await page.waitForFunction(() => window.omp?.rpc != null);
@@ -132,4 +137,32 @@ test("the bot's identity shows in Settings, the sidebar and its bar; memory, und
 	await capture("pane-1280");
 	await windowWidth(760);
 	await capture("pane-760");
+});
+
+test("the bot's voice call: its bar mounts from the bar's button, mutes and ends", async () => {
+	test.setTimeout(120_000);
+	await windowWidth(1280);
+	await page.locator("[data-sidebar-bot-row]").click();
+	const pane = page.locator(".omp-session-pane:visible").first();
+	await pane.locator("[data-bot-call-start]").click();
+	const bar = pane.locator("[data-bot-call-bar]");
+	await expect(bar).toBeVisible();
+	const listening = bar.and(page.locator('[data-bot-call-phase="listening"]'));
+	const failed = bar.locator("[data-bot-call-error]");
+	await expect(listening.or(failed)).toBeVisible({ timeout: 30_000 });
+	const granted = (await failed.count()) === 0;
+	test.info().annotations.push({ type: "branch", description: granted ? "granted" : "denied" });
+	console.log(
+		`bot call branch: ${granted ? "granted" : `denied (${await failed.getAttribute("data-bot-call-error")})`}`,
+	);
+	if (granted) {
+		const mute = bar.locator("[data-bot-call-mute]");
+		await mute.click();
+		await expect(mute).toHaveAttribute("aria-pressed", "true");
+		await expect(bar.locator("[data-bot-call-status]")).toHaveText("Muted");
+	}
+	await expect(bar.locator("[data-bot-call-end]")).toBeVisible();
+	await capture("call-1280");
+	await bar.locator("[data-bot-call-end]").click();
+	await expect(pane.locator("[data-bot-call-bar]")).toHaveCount(0);
 });
