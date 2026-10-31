@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
-import { cssString, exitApp, launchApp, readRecords } from "./harness";
+import { cssString, exitApp, launchApp, mailReports, readRecords } from "./harness";
 
 // The bot (src/main/agent-control/bot.ts, kept by bot-home.ts): off on a fresh install; once the owner turns it on
 // (pref `botEnabled`, Settings › Bot; bot-rules.e2e.ts clicks the switch) it has one bot row at the top of
@@ -138,11 +138,7 @@ test("with the bot on, the app has the bot row and its session, and a question i
 	const owner = (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId ?? "";
 	expect(owner).not.toBe("");
 	// What the bot's omp was told about the owner's session (the fake records each `agent_control.mail`).
-	const reports = async (kind: string) =>
-		(await readRecords(record)).filter(frame => {
-			const details = frame.details as Record<string, unknown> | undefined;
-			return frame.type === "agent_control.mail" && details?.kind === kind && details?.from === owner;
-		});
+	const reports = (kind: string) => mailReports(record, details => details.kind === kind && details.from === owner);
 
 	// The owner's session shows a tool approval; the card wakes the bot (no tab of it yet) with one question report.
 	await page.evaluate(id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "fixture approval" }), owner);

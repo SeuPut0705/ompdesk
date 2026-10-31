@@ -18,7 +18,7 @@ import type { ElectronApplication } from "playwright";
 import { _electron as electron } from "playwright";
 import { type FixtureTailscale, fixtureTailscale } from "./fixture/fake-tailscale-install";
 import { phonePaired, ServeProxy, serveSites } from "./fixture/phone-serve";
-import { appLaunchOptions, controlToolCaller, exitApp, openedSessions, readRecords, untilAnswered } from "./harness";
+import { appLaunchOptions, controlToolCaller, exitApp, mailReports, openedSessions, untilAnswered } from "./harness";
 
 /** A control tool called by an agent (`controlToolCaller`). */
 type ControlCall = (name: string, args?: Record<string, unknown>) => Promise<{ text: string; isError: boolean }>;
@@ -128,23 +128,16 @@ function phoneTabs(phone: Page) {
 	return phone.evaluate(() => window.omp.tabs.list());
 }
 
-/**
- * The close notes the caller's omp got (`agent_control.mail`, id `close:…`), the closed session's own aside, once per
- * id: the outbox sends a report again until the receiver's journal holds it, and the receiver drops a repeated id.
- */
+/** The close notes the caller's omp got (`agent_control.mail`, id `close:…`), the closed session's own aside. */
 async function closeNotes(): Promise<string[]> {
-	const notes = new Map<string, string>();
-	for (const frame of await readRecords(profile.record)) {
-		const details = (frame.details ?? {}) as { id?: unknown };
-		if (
-			frame.type === "agent_control.mail" &&
+	const notes = await mailReports(
+		profile.record,
+		(details, frame) =>
 			typeof details.id === "string" &&
 			details.id.startsWith("close:") &&
-			/^(Closed|Deleted) /.test(String(frame.content))
-		)
-			notes.set(details.id, String(frame.content));
-	}
-	return [...notes.values()];
+			/^(Closed|Deleted) /.test(String(frame.content)),
+	);
+	return notes.map(frame => String(frame.content));
 }
 
 /** Open a child from `call` (the phone session's agent) and wait for its brief's reply. */

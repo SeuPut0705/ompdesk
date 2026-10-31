@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
-import { controlToolCaller, cssString, exitApp, readRecords } from "./harness";
+import { controlToolCaller, cssString, exitApp, mailReports, readRecords } from "./harness";
 import { connectHost, launchRemote, makeRemoteProfile, type RemoteInstance } from "./remote-harness";
 
 // The bot (src/main/agent-control/bot.ts) for a session a paired device runs on this computer: its omp lives in
@@ -83,12 +83,7 @@ test("answers the question of a session a paired device runs here, which no wind
 	);
 
 	// Its tool approval wakes the host's bot with one question report, from the tab the host opened for it.
-	const questions = async () =>
-		(await readRecords(hostProfile.record)).filter(
-			frame =>
-				frame.type === "agent_control.mail" &&
-				(frame.details as Record<string, unknown> | undefined)?.kind === "question",
-		);
+	const questions = () => mailReports(hostProfile.record, details => details.kind === "question");
 	await expect.poll(async () => (await questions()).length, { timeout: 60_000 }).toBe(1);
 	const [question] = await questions();
 	expect(question).toMatchObject({ triggerTurn: true, deliverAs: "aside" });

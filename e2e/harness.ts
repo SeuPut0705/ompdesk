@@ -199,6 +199,24 @@ export async function recordsOfType(file: string, type: string): Promise<Record<
 }
 
 /**
+ * The `agent_control.mail` frames the fake omp recorded in `file` whose `details` `keep` accepts, once per report id:
+ * the mail outbox sends a report again until the receiver's journal holds it, and the receiver's bridge drops a
+ * repeated id, so a spec that counts raw frames sees a resend as a second report.
+ */
+export async function mailReports(
+	file: string,
+	keep: (details: Record<string, unknown>, frame: Record<string, unknown>) => boolean,
+): Promise<Record<string, unknown>[]> {
+	const seen = new Set<unknown>();
+	return (await recordsOfType(file, "agent_control.mail")).filter(frame => {
+		const details = (frame.details ?? {}) as Record<string, unknown>;
+		if (!keep(details, frame) || seen.has(details.id)) return false;
+		seen.add(details.id);
+		return true;
+	});
+}
+
+/**
  * The main agent of `page`'s focused tab (or of `tabId`) calls an OMPdesk control tool (the fake omp runs
  * `fixture:host-tool:<name> <json>` and records the `host_tool_result` it gets in `record`);
  * resolves with the result the agent gets back.

@@ -8,6 +8,7 @@ import {
 	controlToolCaller as caller,
 	exitApp,
 	launchApp,
+	mailReports,
 	openedSessions as opened,
 	readRecords,
 	untilAnswered,
@@ -481,13 +482,8 @@ test.describe("on a paired device", () => {
 			child as string,
 		);
 		// Nobody polls: the opener's omp on this computer gets one question mail naming the card, between its steps.
-		const mails = async () =>
-			(await readRecords(clientProfile.record)).filter(
-				frame =>
-					frame.type === "agent_control.mail" &&
-					(frame.details as Record<string, unknown> | undefined)?.kind === "question" &&
-					(frame.details as Record<string, unknown> | undefined)?.from === child,
-			);
+		const mails = () =>
+			mailReports(clientProfile.record, details => details.kind === "question" && details.from === child);
 		await expect.poll(async () => (await mails()).length, { timeout: 30_000 }).toBe(1);
 		const [mail] = await mails();
 		expect(mail?.deliverAs).toBe("aside");
