@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.89.0] - 2026-10-31
+
+설정 › 봇에서 봇을 켜면 사이드바 맨 위에 봇이 하나 생겨요. 일을 맡기면 알아서 세션을 열어 끝까지 챙기고, 내 세션들의 질문에도 대신 답하고, 내가 정해야 할 것만 가져와요.
+
+### 새로 생긴 것
+- 봇은 처음에는 꺼져 있어요. 설정 › 봇의 "봇 사용"을 켜면 사이드바 맨 위에 하나 생기고, 끄면 사라져요.
+- 연결된 컴퓨터 구역에도 그 컴퓨터의 봇이 맨 위 고정 줄로 보여요(그 컴퓨터에서 봇을 켰을 때).
+- 기본은 알아서 진행이에요. 맡긴 일에 필요한 세션을 직접 열고 끝날 때까지 따라가요. 결제·구매와 비밀번호·키 같은 민감한 일만 먼저 물어봐요.
+- 이 Mac이나 연결된 기기에서 돌아가는 내 세션이 질문 카드를 띄우면 봇이 깨어나서, 그 세션에 시킨 일 안에서만 답해요. 시키지 않은 일을 하게 되는 질문에는 하지 않는 쪽으로 답하고, 결정마다 한 줄을 남겨요. 이 컴퓨터가 연결된 기기를 위해 돌리는 세션도 포함돼요.
+- 봇은 나중에 스스로 다시 깨어날 수 있어요(5분 이상 간격, 취소할 때까지 반복).
+- 설정 › 봇에서 일의 종류마다 "묻지 않고", "묻고 나서" 같은 규칙을 정할 수 있어요. 규칙은 봇에게 주는 지시라서, 봇이 지키도록 안내하지만 강제로 막지는 않아요.
+- 봇이 연 세션은 사이드바에서 봇 아래에 묶여 보여요.
+- 세션이 끝나거나 실패하면 봇 대화에 조용히 기록만 남아요. 봇을 닫아 둔 동안에는 기록이 쌓여 있다가 다음에 열 때 들어가요.
+- 봇이 답할 수 있는 질문은 따로 알림이 뜨지 않아요. 2분 안에 답하지 못하면 그때 알려 드려요. 에이전트 권한을 꺼 두었거나 OMPdesk 확인 카드라 봇이 답할 수 없는 질문은 지금처럼 바로 알려요. 봇이 보내는 알림은 휴대폰에도 와요.
+
+### 고친 것
+- 자동 재시도가 아직 진행 중인데 "응답 실패" 카드가 뜨던 문제를 고쳤어요. 재시도가 시작된 뒤에 연 세션이나 연결된 기기에서 보던 세션에서 그랬는데, 이제는 재시도 줄만 보여요.
+- 클릭한 뒤 Shift 같은 수식키만 눌러도 대화창과 버튼에 포커스 테두리나 강조가 생기던 문제를 고쳤어요. Tab이나 화살표 키로 옮겨 갈 때는 지금처럼 보여요.
+- 연결된 컴퓨터가 잠시 오프라인일 때 보낸 메시지의 입력 기록 저장이 오류로 기록되던 문제를 고쳤어요.
+- omp 18.14.1에 새로 생긴 설정(Codex Daybreak Blue, 프롬프트 후 제목 갱신)이 한국어로 보여요.
+
+<!-- en -->
+
+Turn the bot on in Settings › Bot and it sits at the top of the sidebar. Hand it work and it opens sessions and follows them to the end, answers your sessions' questions, and brings back only what you need to decide.
+
+### New
+- The bot starts off. "Use the bot" in Settings › Bot puts one at the top of the sidebar; turning it off removes it.
+- A paired computer's section shows that computer's bot as its fixed first row too, while the bot is on there.
+- By default it acts on its own. It opens the sessions a job needs and follows them until they finish. It asks first only about payments and purchases, and about passwords, keys and other secrets.
+- When a session you run, here or on a paired device, shows a question card, the bot wakes and answers it within what you asked that session. A question that would do something you did not ask gets the answer that does not do it, and every decision is noted in one line. Sessions this computer runs for a paired device count too.
+- The bot can wake itself later (every 5 minutes or more, until cancelled).
+- Settings › Bot sets a rule per kind of work, such as "Without asking" or "Ask first". Rules are instructions to the bot: it is told to follow them, but nothing enforces them.
+- Sessions the bot opens sit under it in the sidebar.
+- Finished and failed turns are noted quietly in its conversation. While the bot is closed the notes wait and arrive when it opens.
+- A question the bot can answer no longer notifies you, unless it is still open 2 minutes later. One it cannot answer (agent permissions off, an OMPdesk confirmation card) notifies you at once as before. The bot's own notifications reach your phone too.
+
+### Fixed
+- A "Response failed" card showed while stock's automatic retry was still running, in a session opened after the retry started or watched from a paired device. Only the retry row shows now.
+- After a click, pressing a modifier such as Shift alone outlined or highlighted the transcript and buttons. Tab and the arrow keys still show focus.
+- Saving the input history of a prompt sent while a paired computer was briefly offline was logged as an error.
+- The settings omp 18.14.1 added (Codex Daybreak Blue, Refresh Title After Prompts) read in Korean.
+
 ## [0.88.0] - 2026-10-31
 
 설정의 프로바이더 계정이 회사별로 묶이고, 묶음마다 "계정 추가" 버튼이 보여요.
