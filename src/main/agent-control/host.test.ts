@@ -786,6 +786,31 @@ describe("AgentControlRuntime", () => {
 		expect(spawned).toHaveLength(2);
 	});
 
+	it("lists a paired computer's saved session that a tab there holds as open there, which a tab here does not hold", async () => {
+		const row = (id: string, extra: Record<string, unknown> = {}) => ({
+			path: `/far/${id}.jsonl`,
+			id,
+			title: id,
+			cwd: "/far",
+			created: "2026-10-31T00:00:00Z",
+			modified: "2026-10-31T00:00:00Z",
+			messageCount: 2,
+			size: 10,
+			status: "complete",
+			firstMessage: "hi",
+			...extra,
+		});
+		const request = vi.fn(async (_device: string, method: string) =>
+			method === "sessions.list" ? [row("open-there", { heldOnHost: true }), row("closed")] : null,
+		);
+		const { runtime, win } = setup({
+			remote: { hosts: () => [{ deviceId: "dev-1", name: "SeuPut", state: "online" }], request: request as never },
+		});
+		const text = (await runtime.run(win, "main0001", T.list, { scope: "stored", device: "SeuPut" })).text;
+		expect(text).toMatch(/open-there "open-there"\n {2}folder \/far;[^\n]*; open in a tab on device dev-1\n/);
+		expect(text).toMatch(/closed "closed"\n {2}folder \/far;[^\n]*changed [^;\n]*\n/);
+	});
+
 	it("makes a worktree on the paired device the session runs on and binds the new tab to it", async () => {
 		const request = vi.fn(async (_device: string, method: string) =>
 			method === "host.git.worktreeCreate"

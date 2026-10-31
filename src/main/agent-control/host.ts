@@ -1191,7 +1191,7 @@ export class AgentControlRuntime {
 							status: row.status,
 							hidden: !device && hidden.has(row.path),
 							...(device ? { device, deviceName: deps.deviceName(device) } : {}),
-							...(tab ? { tabId: tab } : {}),
+							...(tab ? { tabId: tab } : device && row.heldOnHost ? { openThere: true as const } : {}),
 							...(snippet ? { snippet } : {}),
 						},
 					];

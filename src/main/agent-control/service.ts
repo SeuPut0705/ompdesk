@@ -190,6 +190,8 @@ export interface StoredSession {
 	deviceName?: string;
 	/** The tab of this app that has it open. */
 	tabId?: string;
+	/** A paired device's session that a tab on that device holds (its own app's, or one it runs for another device). */
+	openThere?: true;
 	/** Text around a search hit. */
 	snippet?: string;
 }
@@ -1608,7 +1610,7 @@ export class AgentControl {
 	#devicesLine(): string {
 		const devices = this.#host.devices();
 		return devices.length
-			? `Paired devices: ${devices.map(device => `${device.name} (id ${device.id}, ${device.state})`).join("; ")}; "local" is this computer.`
+			? `Paired devices: ${devices.map(device => `${device.name} (id ${device.id}, ${device.state})`).join("; ")}; "local" is this computer. Sessions open in a paired device's own app show with scope stored and that device, as open there.`
 			: "No paired devices.";
 	}
 
@@ -1705,7 +1707,11 @@ export class AgentControl {
 		const lines = rows.slice(0, limit).map(row => {
 			if (row.hidden) return `- ${row.id} (hidden from agents by the user)`;
 			const title = storedTitle(row);
-			const open = row.tabId ? `; open in tab ${row.tabId}` : "";
+			const open = row.tabId
+				? `; open in tab ${row.tabId}`
+				: row.openThere
+					? `; open in a tab on ${row.deviceName ?? row.device}`
+					: "";
 			const hit = row.snippet ? `\n  match: ${oneLine(row.snippet, SUMMARY_CHARS)}` : "";
 			return `- ${row.id} "${oneLine(title, 80)}"\n  folder ${row.cwd}; ${row.messages} message(s); ${row.status}; changed ${row.modified}${open}${hit}`;
 		});
