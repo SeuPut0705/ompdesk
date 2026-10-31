@@ -7,12 +7,14 @@
  * `host.botDesk.activity` for a paired host's), never by push.
  */
 import { z } from "zod";
-import { BotDeskEditSchema } from "./bot-desk";
+import { BotDeskEditSchema } from "./bot-desk-edit";
 
 /** Entries the file keeps; the oldest go first. */
 export const BOT_ACTIVITY_KEPT = 400;
 /** Entries one read returns at most. */
 export const BOT_ACTIVITY_PAGE = 200;
+/** What `ompdesk_bot visited` / `activity` list when the bot names no limit. */
+export const BOT_ACTIVITY_DEFAULT_LIMIT = 30;
 export const BOT_ACTIVITY_TEXT_MAX = 240;
 
 /**
@@ -68,6 +70,7 @@ export const BOT_ACTIVITY_ACTIONS = [
 	"notice_sent",
 	"notice_held",
 	"rules",
+	"approval_asked",
 	"routine_run",
 ] as const;
 export type BotActivityAction = (typeof BOT_ACTIVITY_ACTIONS)[number];

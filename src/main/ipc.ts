@@ -45,12 +45,11 @@ import {
 	type BotDeskAnswer,
 	BotDeskAnswerSchema,
 	BotDeskDutiesSchema,
-	type BotDeskEdit,
-	BotDeskEditSchema,
 	type BotDeskState,
 	BotDeskStateSchema,
 	type BotWake,
 } from "../shared/bot-desk";
+import { type BotDeskEdit, BotDeskEditSchema } from "../shared/bot-desk-edit";
 import { BOT_RULES_PREF } from "../shared/bot-rules";
 import { REA_PREF } from "../shared/builtin-mcp";
 import {
@@ -139,9 +138,11 @@ import {
 	reprobeAgentBrowserStatus,
 } from "./agent-browsers";
 import type { BotActivityLog } from "./agent-control/bot-activity";
+import { avatarFromFile } from "./agent-control/bot-avatar";
 import { type BotDesk, botWakes } from "./agent-control/bot-desk";
 import { editBotDesk } from "./agent-control/bot-desk-edit";
 import type { BotHome } from "./agent-control/bot-home";
+import { BotNoticeRouter } from "./agent-control/bot-notify";
 import { AgentControlRuntime, CARD_TIMEOUT_MS } from "./agent-control/host";
 import { appNotification } from "./app-icon";
 import { requestQuit } from "./app-quit";
@@ -328,6 +329,8 @@ export interface IpcDeps {
 	 * wakes) and the bot's session pref change elsewhere and call it.
 	 */
 	botDeskPush: { current: (() => void) | null };
+	/** Set here: whether a tab's turn end or question may push to paired phones (the bot's routing; others always). */
+	botPush: { current: ((tabId: string, kind: "completion" | "ask") => boolean) | null };
 	/** The paired web pages' windows: `broadcast` reaches the desktop's own only. */
 	webPages?: () => readonly ClientWindow[];
 	/** Web Push's share of a tab's question told late (one the bot left open), set once the web host exists. */
@@ -1308,14 +1311,20 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.HOST_BOT_DESK_STATE, update);
 	});
 	deps.botDeskPush.current = pushBotDesk;
+	// The bot's notices go where the owner routed each kind (Settings › Bot › Notifications; agent-control/bot-notify.ts).
+	const botNotices = new BotNoticeRouter({
+		notify: () => deps.botDesk.state().notify,
+		log: draft => void deps.botActivity.append(draft),
+	});
 	const agentControl: AgentControlRuntime = new AgentControlRuntime({
-		botDesk: { desk: deps.botDesk, wakes: botWakesNow },
+		botDesk: { desk: deps.botDesk, wakes: botWakesNow, activity: deps.botActivity, avatarFromFile },
 		// A decision the bot posted: the owner's "needs you" banner on its tab and the paired phones, as for a late question.
 		botDecisionNotice: (tabId, decision) => {
 			const session = sidecarPool.tabFacts(tabId)?.title || "OMPdesk";
 			const title = mainT("notify.botDecision", undefined, { title: session });
-			notifyTab(tabId, { kind: "ask", title, body: decision.question });
-			deps.webTabNotice.current?.(tabId, { kind: "completion", title, body: decision.question });
+			const route = botNotices.route("decisions", decision.question);
+			if (route.banner) notifyTab(tabId, { kind: "ask", title, body: decision.question });
+			if (route.push) deps.webTabNotice.current?.(tabId, { kind: "completion", title, body: decision.question });
 		},
 		fileEdits: fileEditReports,
 		releaseTab: async (win, tabId, stillReleasable) => {
@@ -1390,10 +1399,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			});
 			deps.webAsk.current?.({ type: "ask", tabId, requestId, text: title });
 		},
-		// The desktop banner, and paired phones (Web Push), as an Autopilot run's notice reaches them.
-		notify: (win, tabId, title, body) => {
-			showNotification(win.webContents.id, { title, body, tabId });
-			deps.webTabNotice.current?.(tabId, { kind: "completion", title, body });
+		// The desktop banner, and paired phones (Web Push), as an Autopilot run's notice reaches them; the bot's and its
+		// side chats' as the owner routed their kind.
+		notify: (win, tabId, title, body, kind) => {
+			const route = agentControl.isBotTab(tabId) ? botNotices.route(kind, title) : { banner: true, push: true };
+			if (route.banner) showNotification(win.webContents.id, { title, body, tabId });
+			if (route.push) deps.webTabNotice.current?.(tabId, { kind: "completion", title, body });
 		},
 		deleteSession: deleteStoredSession,
 		checkoutPeers: tabId => checkoutPeers.peersOf(tabId),
@@ -1435,6 +1446,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		},
 	});
 	deps.botAnswers.current = (tabId, requestId) => agentControl.botAnswers(tabId, requestId);
+	deps.botPush.current = (tabId, kind) =>
+		!agentControl.isBotTab(tabId) ||
+		botNotices.route(kind === "ask" ? "decisions" : "done", sidecarPool.tabFacts(tabId)?.title ?? "", "push").push;
 	deps.sessionWake.current = (schedule, runId) => agentControl.wakeSession(schedule, runId);
 	// The control socket (src/main/control-socket): anything on this computer drives the same service as the tools.
 	void startControlSocket({
@@ -2011,6 +2025,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			// The bot answers this tab's question for the owner (agent-control/bot.ts): its notice would repeat
 			// it. A banner names no request, so a tab holding any question the bot cannot answer still notifies.
 			if (notice.kind === "ask" && notice.tabId && agentControl.botAnswers(notice.tabId)) return;
+			// The bot's and its side chats' banners go where the owner routed them: a finished turn is `done`, its
+			// own question `decisions`.
+			if (notice.tabId && notice.kind !== "error" && agentControl.isBotTab(notice.tabId)) {
+				const kind = notice.kind === "ask" ? "decisions" : "done";
+				if (!botNotices.route(kind, notice.body || notice.title, "banner").banner) return;
+			}
 			// Bursts fold into one summary (notification-batch.ts).
 			notificationBatcher.notify(winId, {
 				title: notice.title,

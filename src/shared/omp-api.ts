@@ -32,7 +32,8 @@ import type {
 	AiMemoryWriteInput,
 } from "./ai-memory";
 import type { BotActivityPage } from "./bot-activity";
-import type { BotDeskAnswer, BotDeskDuties, BotDeskEdit, BotDeskState } from "./bot-desk";
+import type { BotDeskAnswer, BotDeskDuties, BotDeskState } from "./bot-desk";
+import type { BotDeskEdit } from "./bot-desk-edit";
 import type { BuiltinReaState } from "./builtin-mcp";
 import type { CliToolId, CliUpdateState } from "./cli-update";
 import type { DiagnosticBundleRequest, DiagnosticBundleResult } from "./diagnostic-bundle";

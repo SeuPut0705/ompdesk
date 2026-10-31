@@ -31,6 +31,7 @@ import { SchedulesCommandParams, SchedulesCreateParams } from "../remote/app-pro
 import type { ScheduleService } from "../schedules";
 import type { ClientWindow } from "../web/client-window";
 import { FileEditReports } from "../web/file-edit-reports";
+import { BotActivityLog } from "./bot-activity";
 import { BotDesk, type OpenDecision } from "./bot-desk";
 import { type AgentControlHostDeps, AgentControlRuntime, splitBranch } from "./host";
 
@@ -75,7 +76,7 @@ function setup(
 		/** The front window sessions are opened in without a tab of their own (`outsideWindow`). */
 		outsideWindow?: boolean;
 		/** The bot's desk and the wakes it lists. */
-		botDesk?: { desk: BotDesk; wakes?: () => BotWake[] };
+		botDesk?: { desk: BotDesk; wakes?: () => BotWake[]; activity?: BotActivityLog };
 	} = {},
 ) {
 	const win = window();
@@ -169,7 +170,15 @@ function setup(
 		text: (key, params) => `${key}|${JSON.stringify(params)}`,
 		schedules: options.schedules,
 		...(options.botDesk
-			? { botDesk: { desk: options.botDesk.desk, wakes: options.botDesk.wakes ?? (() => []) } }
+			? {
+					botDesk: {
+						desk: options.botDesk.desk,
+						wakes: options.botDesk.wakes ?? (() => []),
+						activity: options.botDesk.activity ?? new BotActivityLog({ file: null }),
+						avatarFromFile: async (file: string) =>
+							`data:image/png;base64,${Buffer.from(file).toString("base64")}`,
+					},
+				}
 			: {}),
 		botDecisionNotice: (tabId, decision) => void noticed.push({ tabId, decision }),
 		autopilot: options.autopilot,
@@ -1625,6 +1634,8 @@ describe("the bot's role and a session's own wake-up", () => {
 			type: "agent_control_bot",
 			rules: "- Deploy or release: ask the owner before taking it.",
 			duties: "",
+			memory: "",
+			identity: "",
 		});
 		// The same rules are not told again with the next mail.
 		await runtime.wakeSession(wakeable(file), "run-9");
@@ -1640,6 +1651,8 @@ describe("the bot's role and a session's own wake-up", () => {
 			type: "agent_control_bot",
 			rules: "- Deploy or release: do not take it; hand the step to the owner.",
 			duties: "",
+			memory: "",
+			identity: "",
 		});
 	});
 
@@ -1665,7 +1678,11 @@ describe("the bot's desk", () => {
 		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ompdesk-desk-"));
 		const file = path.join(dir, "bot.jsonl");
 		await fs.writeFile(file, "{}\n");
-		const desk = new BotDesk({ file: path.join(dir, "bot-desk.json") });
+		const activity = new BotActivityLog({ file: null });
+		const desk = new BotDesk({
+			file: path.join(dir, "bot-desk.json"),
+			activity: draft => void activity.append(draft),
+		});
 		const rig = setup({
 			prefs: { bot: file, botEnabled: true },
 			tabs: [
@@ -1674,9 +1691,13 @@ describe("the bot's desk", () => {
 			],
 			...(options.owned === false ? {} : { owners: { [file]: "main0001" } }),
 			...(options.outsideWindow ? { outsideWindow: true } : {}),
-			botDesk: { desk, wakes: () => [{ id: "w1", prompt: "check the build", next: "2026-10-31T10:00:00.000Z" }] },
+			botDesk: {
+				desk,
+				wakes: () => [{ id: "w1", prompt: "check the build", next: "2026-10-31T10:00:00.000Z" }],
+				activity,
+			},
 		});
-		return { ...rig, desk, file };
+		return { ...rig, desk, file, activity };
 	}
 
 	it("refuses every caller that is not the bot's own session, and every caller while the bot is off", async () => {
@@ -1722,6 +1743,7 @@ describe("the bot's desk", () => {
 		expect((await runtime.run(win, "main0001", T.bot, { action: "desk" })).text).toBe(
 			[
 				"Standing duties: none.",
+				"Memories: none.",
 				"Open decisions: none.",
 				"Wakes you scheduled (1):",
 				"- w1: next 2026-10-31T10:00:00.000Z: check the build",
@@ -1746,6 +1768,44 @@ describe("the bot's desk", () => {
 			text: `No duty "${duty?.id}" is on your desk. ompdesk_bot {"action":"desk"} lists them.`,
 			isError: true,
 		});
+	});
+
+	it("keeps memories, sets its identity, and reads what it visited and did, from its side chats too", async () => {
+		const { runtime, win, desk, file } = await botRig();
+		const side = path.join(path.dirname(file), "own.jsonl");
+		// A session that is not the bot's is refused until the desk names it a side chat.
+		expect((await runtime.run(win, "other0002", T.bot, { action: "remember", text: "x" })).isError).toBe(true);
+		desk.addChannel("Release notes", side, "owner");
+		const kept = await runtime.run(win, "other0002", T.bot, { action: "remember", text: "Deploys on Fridays only" });
+		const [memory] = desk.state().memories;
+		expect(kept.text).toBe(
+			`Memory ${memory?.id} kept: “Deploys on Fridays only”. It stays in your prompt every turn, in every chat of yours (1 of 50); the owner can see, edit and forget it.`,
+		);
+		expect(memory).toMatchObject({ by: "bot" });
+		const identity = await runtime.run(win, "main0001", T.bot, {
+			action: "identity",
+			tagline: "Night shift",
+			avatar_file: "/tmp/avatar.png",
+		});
+		expect(identity.isError).toBe(false);
+		expect(desk.state().identity).toMatchObject({
+			tagline: "Night shift",
+			avatar: {
+				kind: "image",
+				dataUrl: `data:image/png;base64,${Buffer.from("/tmp/avatar.png").toString("base64")}`,
+			},
+		});
+		expect((await runtime.run(win, "main0001", T.bot, { action: "identity" })).isError).toBe(true);
+		const forgot = await runtime.run(win, "main0001", T.bot, { action: "forget", id: memory?.id });
+		expect(forgot.text).toContain("forgotten");
+		expect(desk.state().memories).toEqual([]);
+		const activity = (await runtime.run(win, "main0001", T.bot, { action: "activity" })).text;
+		expect(activity).toMatch(/\[owner\] channel_add: Release notes/);
+		expect(activity).toMatch(/\[bot\] memory_add: Deploys on Fridays only/);
+		expect(activity).toMatch(/\[bot\] memory_forget: Deploys on Fridays only/);
+		expect((await runtime.run(win, "main0001", T.bot, { action: "visited" })).text).toBe(
+			"You read no file or page that the activity log still holds.",
+		);
 	});
 
 	it("delivers the owner's answer to the bot's session as a mail that starts a turn", async () => {

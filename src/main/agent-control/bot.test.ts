@@ -33,24 +33,34 @@ function rig(options: { named?: boolean; botTab?: BotTab | null; enabled?: boole
 			}
 	};
 	const reminded: { tabId: string; ask: BotAsk }[] = [];
-	/** What the bot's omp was told (`role`), and an error the next tell fails with. */
-	const told: { tabId: string; rules: string; duties: string }[] = [];
+	/** What the bot's omp (and a side chat's) was told (`role`), and an error the next tell fails with. */
+	const told: { tabId: string; rules: string; duties: string; memory?: string; channel?: string }[] = [];
 	let tellError: Error | null = null;
 	let duties = "";
+	let memory = "";
+	const channels: { id: string; sessionPath: string; title: string }[] = [];
 	const deps: BotDeps = {
 		prefs: { get: key => prefs.get(key) },
 		tab: tabId => tabs.get(tabId) ?? null,
 		openAsks: tabId => asks.get(tabId) ?? [],
 		grants: () => grants,
-		tabOfSession: sessionPath => (sessionPath === BOT ? botTab : null),
-		duties: () => duties,
-		tell: async (tabId, rules, dutiesText) => {
+		tabOfSession: sessionPath =>
+			sessionPath === BOT ? botTab : ([...tabs.values()].find(entry => entry.tabId === sessionPath) ?? null),
+		desk: () => ({ duties, memory, identity: "" }),
+		channels: () => channels,
+		tell: async (tabId, rules, desk, channel) => {
 			if (tellError) {
 				const error = tellError;
 				tellError = null;
 				throw error;
 			}
-			told.push({ tabId, rules, duties: dutiesText });
+			told.push({
+				tabId,
+				rules,
+				duties: desk.duties,
+				...(desk.memory ? { memory: desk.memory } : {}),
+				...(channel === undefined ? {} : { channel }),
+			});
 		},
 		log: () => undefined,
 		remind: (tabId, ask) => void reminded.push({ tabId, ask }),
@@ -69,6 +79,12 @@ function rig(options: { named?: boolean; botTab?: BotTab | null; enabled?: boole
 		setDuties: (text: string) => {
 			duties = text;
 		},
+		setMemory: (text: string) => {
+			memory = text;
+		},
+		/** A side chat whose session path is also the id of the tab holding it, when one does. */
+		addChannel: (sessionPath: string, title: string) =>
+			void channels.push({ id: `c-${sessionPath}`, sessionPath, title }),
 		tellFails: (error: Error) => {
 			tellError = error;
 		},
@@ -251,6 +267,33 @@ describe("BotFeed", () => {
 			expect(r.told).toEqual([]);
 			await r.feed.role();
 			expect(r.told).toHaveLength(1);
+		});
+
+		it("tells each side chat's tab the same desk with its topic, and the memories with the rules", async () => {
+			const r = rig();
+			r.setMemory("- Deploys on Fridays (id m1)");
+			r.addChannel("side", "Release notes");
+			r.addChannel("/s/closed.jsonl", "No tab holds this one");
+			r.add(tab("side"));
+			await r.feed.role();
+			const rules = botRulesText(DEFAULT_BOT_RULES);
+			expect(r.told).toEqual([
+				{ tabId: "sec", rules, duties: "", memory: "- Deploys on Fridays (id m1)" },
+				{ tabId: "side", rules, duties: "", memory: "- Deploys on Fridays (id m1)", channel: "Release notes" },
+			]);
+			expect(r.feed.isBotTab("side")).toBe(true);
+			expect(r.feed.channelOf("side")).toEqual({ id: "c-side", title: "Release notes" });
+			// A memory the bot keeps reaches every chat of its, once each.
+			r.setMemory("");
+			await r.feed.role();
+			await r.feed.role();
+			expect(r.told.slice(2).map(entry => [entry.tabId, entry.memory])).toEqual([
+				["sec", undefined],
+				["side", undefined],
+			]);
+			// Off, no side chat is the bot's either.
+			r.prefs.set(BOT_ENABLED_PREF, false);
+			expect(r.feed.isBotTab("side")).toBe(false);
 		});
 	});
 });

@@ -1308,7 +1308,9 @@ describe("ompdesk_tab_focus and ompdesk_notify", () => {
 		expect(host.views).toEqual([{ tabId: "work0002", how: "split-right" }]);
 		expect((await service.run("main0001", T.focus, { session: "work0003" })).isError).toBe(true);
 		await service.run("main0001", T.notify, { title: "Done", body: "all three" });
-		expect(host.notify).toHaveBeenCalledWith("main0001", "Done", "all three");
+		expect(host.notify).toHaveBeenCalledWith("main0001", "Done", "all three", "done");
+		await service.run("main0001", T.notify, { title: "Halfway", kind: "progress" });
+		expect(host.notify).toHaveBeenLastCalledWith("main0001", "Halfway", "", "progress");
 	});
 });
 

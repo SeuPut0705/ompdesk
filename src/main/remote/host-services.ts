@@ -49,11 +49,10 @@ import {
 	BotDeskAnswerSchema,
 	type BotDeskDuties,
 	BotDeskDutiesSchema,
-	type BotDeskEdit,
-	BotDeskEditSchema,
 	type BotDeskState,
 	EMPTY_BOT_DESK,
 } from "../../shared/bot-desk";
+import { type BotDeskEdit, BotDeskEditSchema } from "../../shared/bot-desk-edit";
 import { codedError } from "../../shared/ipc-error-codes";
 import {
 	HOST_UPLOAD_MAX_BYTES,

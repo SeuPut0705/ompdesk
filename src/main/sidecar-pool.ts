@@ -456,6 +456,7 @@ export class SidecarPool {
 	/** Diagnostic only: a turn that ended but stays settling past a minute leaves one runtime-log line (settle-watch.ts). */
 	settleWatch: SettleWatch | null = null;
 	readonly #activityObservers = new Set<(activity: TabActivity) => void>();
+	readonly #toolObservers = new Set<(tabId: string, call: { toolName: string; args: unknown }) => void>();
 
 	/** Which tabs wait on one provider together (model-wait-count.ts); fed by every tab's events, here and by host-services. */
 	readonly modelWait = new ModelWaitTracker();
@@ -500,6 +501,12 @@ export class SidecarPool {
 	observeTabs(observer: (activity: TabActivity) => void): () => void {
 		this.#activityObservers.add(observer);
 		return () => this.#activityObservers.delete(observer);
+	}
+
+	/** Be told each tool call a tab of this computer starts (name and arguments). Returns the unsubscribe. */
+	observeToolCalls(observer: (tabId: string, call: { toolName: string; args: unknown }) => void): () => void {
+		this.#toolObservers.add(observer);
+		return () => this.#toolObservers.delete(observer);
 	}
 
 	/**
@@ -1159,8 +1166,17 @@ export class SidecarPool {
 				if (event.type === "agent_start") {
 					entry.placeholder = false;
 					entry.unstarted = undefined;
-				} else if (event.type === "tool_execution_start" || event.type === "tool_execution_end") stepped = true;
-				else if (event.type === "auto_retry_start") retryStarted = true;
+				} else if (event.type === "tool_execution_start" || event.type === "tool_execution_end") {
+					stepped = true;
+					// The bot's activity log hears its tabs' tool calls (agent-control/bot-activity-feed.ts).
+					if (event.type === "tool_execution_start" && entry.device === undefined && this.#toolObservers.size > 0)
+						for (const observer of this.#toolObservers)
+							try {
+								observer(entry.tabId, { toolName: event.toolName, args: event.args });
+							} catch (error) {
+								console.warn(`[sidecar-pool] a tool observer failed: ${error}`);
+							}
+				} else if (event.type === "auto_retry_start") retryStarted = true;
 				else if (event.type === "plan_proposal" || event.type === "plan_proposal_resolved") {
 					if (event.type === "plan_proposal")
 						entry.planProposal = { title: event.title ?? "", planFilePath: event.planFilePath };

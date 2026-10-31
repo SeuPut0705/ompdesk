@@ -54,6 +54,21 @@ export const BOT_ENTRY = "ompdesk.bot";
 const BOT_RULES_MAX = 20_000;
 /** The duties text is a line per duty (twenty at most); this is the last guard on its size. */
 const BOT_DUTIES_MAX_CHARS = 20_000;
+/** The memory text is a line per memory (fifty at most, 300 characters each). */
+const BOT_MEMORY_MAX_CHARS = 40_000;
+const BOT_IDENTITY_MAX_CHARS = 4_000;
+const BOT_CHANNEL_MAX_CHARS = 200;
+
+/** What main tells a bot tab besides its rules (`botRoleDesk`, and a side chat's topic). */
+export interface BotDeskText {
+	duties: string;
+	memory: string;
+	identity: string;
+	/** The side chat's topic; absent in the bot's main conversation. */
+	channel?: string;
+}
+
+const NO_DESK: BotDeskText = { duties: "", memory: "", identity: "" };
 
 /** What a session opened by another agent should know about its role; kept short and plain. */
 export const WORKER_CONTRACT = `<ompdesk-worker>
@@ -68,37 +83,57 @@ Another agent opened this session and handed you its first message; the person s
 - Keep replying to the person in their language when they write to you.
 </ompdesk-worker>`;
 
-/** The bot's role, short and plain: its name, what the owner expects of it, its standing duties, then their rules for actions. */
-export function botSection(rules: string, name?: string, duties = ""): string {
+/** The bot's role, short and plain: its name, what the owner expects of it, its desk, then their rules for actions. */
+export function botSection(rules: string, name?: string, desk: Partial<BotDeskText> = {}): string {
 	const called = name?.trim();
+	const duties = desk.duties?.trim() ?? "";
+	const memory = desk.memory?.trim() ?? "";
+	const identity = desk.identity?.trim() ?? "";
+	const channel = desk.channel?.trim();
 	return `<ompdesk-bot>
 You are ${called ? `"${called}", ` : ""}the owner's always-on bot.${called ? " The owner names you in Settings › Bot; answer to that name." : ""}
-- When the owner gives you a responsibility, open sessions for the work with ompdesk_session_open and follow them until done. Their questions and reports come back to you: answer those within the work you gave them.
+${channel ? `This conversation is your side chat on "${channel}", apart from your main conversation. Your desk, memory, duties and rules are the same in every chat; keep this one to its topic.\n` : ""}${identity ? `Who you are (the owner set this; follow it):\n${identity}\n` : ""}- When the owner gives you a responsibility, open sessions for the work with ompdesk_session_open and follow them until done. Their questions and reports come back to you: answer those within the work you gave them.
 - Answer only the sessions you opened. The owner's own sessions, and those other agents opened, are not yours to answer.
 - When the owner asks, work in their own sessions with the control tools.
-- Bring the owner results with ompdesk_notify. When you report, name the sessions you opened that you kept, and why.
+- Bring the owner results with ompdesk_notify, only when something is meaningfully new or needs them: kind "progress" for a step along the way, "done" for finished work. The owner chooses where each kind reaches them and how often. When you report, name the sessions you opened that you kept, and why.
 - Clean up after yourself without being told. Open a one-off session (a lookup, a check, an inventory) with throwaway: true: once its Result: ok answer reaches you, OMPdesk closes it and deletes its saved session, on a paired device too. Any other session you opened: once its result is in and nothing more needs it, delete it with ompdesk_session_stop {"delete":true} (the id you were given still names it after its tab closed).
 - A session that changed code is deleted only after you checked its work landed (its branch tip is an ancestor of the target branch, or the same commits are on it) and told the owner. Never say work landed without that check.
 - Never stop, close or delete a session the owner or another agent opened, unless the owner asks.
 - When something needs the owner's decision, post it with ompdesk_bot {"action":"decide"} and keep working: it returns at once, and the owner's answer comes back to you as a message that starts your turn.
 - When the owner gives you a standing responsibility (something you keep doing, not one task), record it with ompdesk_bot {"action":"duty_add"}; ompdesk_bot {"action":"duty_remove"} drops one that is over. Standing duties survive a new conversation.
+- Keep what you learn about the owner and their work that will matter later (a preference, a decision, a fact about a project) with ompdesk_bot {"action":"remember"}, one fact per entry, without asking; ompdesk_bot {"action":"forget"} drops one that no longer holds. Never keep a password, token or other secret. The owner sees, edits and forgets these.
+- When you report a number, a status or a summary, end that reply with one line \`Sources: \` naming where each came from, separated by " · ": file paths, commit hashes, URLs, session ids. The app shows them as chips the owner can open. ompdesk_bot {"action":"visited"} lists the files and pages you read.
 - Plan follow-ups and wake yourself to check later with ompdesk_schedule {"target":"self"}; cancel a wake you no longer need.
 - Act on your own by default: carry the work through without asking. Ask the owner, wait for their go-ahead or hand them the step only where a rule below says so.
-${duties.trim() ? `Standing duties:\n${duties.trim()}` : "Standing duties: none yet."}
+${duties ? `Standing duties:\n${duties}` : "Standing duties: none yet."}
+${memory ? `What you remember:\n${memory}` : "What you remember: nothing yet."}
 ${rules.trim() ? `Rules:\n${rules.trim()}` : "The owner set no rules: act on your own."}
 </ompdesk-bot>`;
 }
 
+function textField(data: Record<string, unknown>, key: string): string {
+	const value = data[key];
+	return typeof value === "string" ? value : "";
+}
+
 /** What the newest `ompdesk.bot` entry on the branch says, or undefined when this is not the bot's session. */
-export function botEntryOf(ctx: PromptSectionContext): { rules: string; duties: string } | undefined {
+export function botEntryOf(ctx: PromptSectionContext): ({ rules: string } & BotDeskText) | undefined {
 	const entries = ctx.sessionManager.getBranch();
 	for (let index = entries.length - 1; index >= 0; index--) {
 		const entry = entries[index];
 		if (entry?.customType !== BOT_ENTRY) continue;
-		const data = entry.data as { rules?: unknown; duties?: unknown } | undefined;
-		if (typeof data?.rules !== "string") return undefined;
-		// An entry journaled before the desk existed has no duties.
-		return { rules: data.rules, duties: typeof data.duties === "string" ? data.duties : "" };
+		const data: unknown = entry.data;
+		if (!data || typeof data !== "object" || !("rules" in data) || typeof data.rules !== "string") return undefined;
+		const record = data as Record<string, unknown>;
+		// An entry journaled before the desk existed has no duties; one before memory has no memory or identity.
+		const channel = textField(record, "channel");
+		return {
+			rules: data.rules,
+			duties: textField(record, "duties"),
+			memory: textField(record, "memory"),
+			identity: textField(record, "identity"),
+			...(channel ? { channel } : {}),
+		};
 	}
 	return undefined;
 }
@@ -138,9 +173,7 @@ export function install(pi: PromptSectionHost & Partial<MailHost>): void {
 		if (ctx.agent.kind !== "main") return undefined;
 		const entry = botEntryOf(ctx);
 		// Its name is its session's own title (stock `getSessionName`), which the owner sets in Settings › Bot.
-		return entry === undefined
-			? undefined
-			: botSection(entry.rules, ctx.sessionManager.getSessionName?.(), entry.duties);
+		return entry === undefined ? undefined : botSection(entry.rules, ctx.sessionManager.getSessionName?.(), entry);
 	});
 }
 
@@ -199,19 +232,36 @@ export const methods: BridgeMethods = {
 		return {};
 	},
 	/**
-	 * `{rules, duties?}` → `{changed}`: this is the owner's bot session, and these are the owner's rules for its actions
-	 * (the text `botRulesText` builds, empty when the owner set none) and its standing duties (`botDutiesText`, empty when
-	 * there are none; absent from a caller that predates the desk). Journaled as `ompdesk.bot` only when either differs
-	 * from the newest entry, so a session main tells again at every start journals them once; the newest entry wins.
+	 * `{rules, duties?, memory?, identity?, channel?}` → `{changed}`: this is the owner's bot session (or its side chat on
+	 * `channel`), and these are the owner's rules for its actions (the text `botRulesText` builds, empty when the owner set
+	 * none) and its desk (`botRoleDesk`: duties, memories, identity, each empty when there is none; absent from a caller
+	 * that predates them). Journaled as `ompdesk.bot` only when any differs from the newest entry, so a session main tells
+	 * again at every start journals them once; the newest entry wins.
 	 */
 	"agent_control.bot": async (params, env) => {
-		const { rules, duties } = (params ?? {}) as { rules?: unknown; duties?: unknown };
-		if (typeof rules !== "string") throw new Error("agent_control needs rules");
-		if (duties !== undefined && typeof duties !== "string") throw new Error("agent_control needs duties as text");
+		const record: Record<string, unknown> = params && typeof params === "object" ? { ...params } : {};
+		if (typeof record.rules !== "string") throw new Error("agent_control needs rules");
+		for (const key of ["duties", "memory", "identity", "channel"] as const)
+			if (record[key] !== undefined && typeof record[key] !== "string")
+				throw new Error(`agent_control needs ${key} as text`);
 		const manager = env.session().sessionManager;
-		const next = { rules: rules.slice(0, BOT_RULES_MAX), duties: (duties ?? "").slice(0, BOT_DUTIES_MAX_CHARS) };
-		const last = botEntryOf({ sessionManager: manager, agent: { kind: "main" } });
-		if (last?.rules === next.rules && last.duties === next.duties) return { changed: false };
+		const channel = textField(record, "channel").slice(0, BOT_CHANNEL_MAX_CHARS);
+		const next = {
+			rules: record.rules.slice(0, BOT_RULES_MAX),
+			duties: textField(record, "duties").slice(0, BOT_DUTIES_MAX_CHARS),
+			memory: textField(record, "memory").slice(0, BOT_MEMORY_MAX_CHARS),
+			identity: textField(record, "identity").slice(0, BOT_IDENTITY_MAX_CHARS),
+			...(channel ? { channel } : {}),
+		};
+		const last = botEntryOf({ sessionManager: manager, agent: { kind: "main" } }) ?? { rules: undefined, ...NO_DESK };
+		if (
+			last.rules === next.rules &&
+			last.duties === next.duties &&
+			last.memory === next.memory &&
+			last.identity === next.identity &&
+			last.channel === next.channel
+		)
+			return { changed: false };
 		manager.appendCustomEntry(BOT_ENTRY, { ...next, at: Date.now() });
 		return { changed: true };
 	},

@@ -3,7 +3,7 @@
  * (`host.botDesk.edit`) and an Undo all come here. Most edits are the desk's own (`BotDesk.change`); a side chat is a
  * session made or deleted first, and an Undo replays the inverse an activity entry carries, once.
  */
-import type { BotDeskEdit } from "../../shared/bot-desk";
+import type { BotDeskEdit } from "../../shared/bot-desk-edit";
 import type { BotActivityLog } from "./bot-activity";
 import { type BotDesk, type BotDeskActor, BotDeskError, isDeskChange } from "./bot-desk";
 

@@ -178,7 +178,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // The bot's one screen (31 Oct 2026): the Home/Chat switch goes, the pane's context and bar frame and the strip's bot
 // label come; the bar, decisions and board sections stay one lazy chunk (`preloadBotDesk`): measured 3,234,028, 7 bytes
 // over the measure above.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_235_000;
+// The bot's identity, memory, notice routing, voice and side chats (1 Nov 2026): the desk's new fields and their
+// defaults (`shared/bot-desk.ts`; the edit schema and Memory.md helpers live apart in `bot-desk-edit.ts`, off this
+// screen), the store's `edit` and the API's two calls: measured 3,237,180, 3,152 bytes over the measure above.
+const WEB_FIRST_SCREEN_JS_BYTES = 3_238_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

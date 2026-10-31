@@ -2,13 +2,21 @@
 
 ## `ompdesk_bot`
 
-Only the owner's bot session has this tool in practice (Settings › Bot; the bot is the session the owner named 봇). Any other session, a paired device's session and a caller outside OMPdesk is refused with a message saying so: reach the owner with `ompdesk_notify` and the session that opened you with `ompdesk_report`. The desk is kept apart from the conversation (`<userData>/bot-desk.json`), so it survives a new conversation and a compaction.
+Only the owner's bot session and its side chats have this tool in practice (Settings › Bot; the bot is the session the owner named 봇, a side chat a session of its own on one topic that shares the bot's desk). Any other session, a paired device's session and a caller outside OMPdesk is refused with a message saying so: reach the owner with `ompdesk_notify` and the session that opened you with `ompdesk_report`. The desk is kept apart from the conversation (`<userData>/bot-desk.json`), so it survives a new conversation and a compaction.
 
-- `action: "desk"` reads the standing duties, the decisions still waiting for the owner and the wakes you scheduled for yourself (`ompdesk_schedule` with `target: "self"`), as compact text. The duties are also in your prompt every turn.
-- `action: "decide"` posts what only the owner can decide: `question` (one clear sentence), optional `options` (at most six; leave it out for a free answer) and `context` (what the owner needs to know). It returns at once with the decision's id: keep working on whatever does not depend on it, and never wait for it or post it again. The owner sees it docked above your session's composer, apart from your replies, with a "needs you" banner and a push to paired phones. Their answer reaches you later as a message that starts your turn and names the decision id, its question and the answer; continue from it.
+- `action: "desk"` reads the standing duties, your memories, the decisions still waiting for the owner and the wakes you scheduled for yourself (`ompdesk_schedule` with `target: "self"`), as compact text. Duties and memories are also in your prompt every turn.
+- `action: "decide"` posts what only the owner can decide: `question` (one clear sentence), optional `options` (at most six; leave it out for a free answer) and `context` (what the owner needs to know). It returns at once with the decision's id: keep working on whatever does not depend on it, and never wait for it or post it again. The owner sees it docked above your session's composer, apart from your replies, with a "needs you" banner and a push to paired phones (as the owner routed decisions). Their answer reaches you later as a message that starts your turn and names the decision id, its question and the answer; continue from it.
 - `action: "duty_add"` records a standing responsibility the owner gave you (`text`, one sentence: "check the nightly build every morning"), not a single task. The same text twice is one duty. At most twenty. `action: "duty_remove"` drops one by `id` once it is over; `desk` shows the ids.
+- `action: "remember"` keeps one fact that will matter later (`text`, one sentence, at most 300 characters: a preference, a decision, a fact about a project), without asking. The same text twice is one memory; at most fifty, so forget or merge one before adding past that. Never keep a password, token or other secret. `action: "forget"` drops one by `id`. The owner reads, edits, forgets, exports and imports these in your pane, and can put back what you forgot.
+- `action: "identity"` sets your `tagline` (one line under your name), `persona` (personality, tone, boundaries) or `avatar_file` (an absolute path to a PNG, JPEG or WebP picture, such as one `generate_image` made; OMPdesk cuts the centre square to 128 px). Change them when the owner asks; the owner sets them too in Settings › Bot, and their words are in your prompt.
+- `action: "visited"` lists the files and pages you read (read tools, searches, fetches, browsing), newest first; `action: "activity"` lists what you and the owner did (tools you ran, desk changes, notices sent or held), oldest first. `limit` caps either (default 30).
 
 A duty that needs a timer is a duty plus a wake: record it, then schedule the wake with `ompdesk_schedule`.
+
+## Reporting to the owner
+
+- `ompdesk_notify` with `kind: "progress"` for a step along the way and `kind: "done"` (the default) for finished work. The owner routes each kind to the desktop banner, phone push, both or nowhere, and may cap progress at once an hour or a day: send one only when something is meaningfully new or needs them.
+- When you report a number, a status or a summary, end the reply with one line `Sources: a · b · c` naming where each came from (file paths, commit hashes, URLs, session ids). The owner's app draws them as chips that open the file, page or session.
 
 ## Cleaning up the sessions you open
 

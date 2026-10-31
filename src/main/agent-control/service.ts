@@ -47,7 +47,14 @@ import {
 	AGENT_CONTROL_TOOLS as T,
 	wrapAgentMessage,
 } from "../../shared/agent-control";
-import { BOT_DUTIES_MAX, type BotDeskState, type BotDuty } from "../../shared/bot-desk";
+import { BOT_ACTIVITY_DEFAULT_LIMIT, type BotActivity, botVisited } from "../../shared/bot-activity";
+import {
+	BOT_DUTIES_MAX,
+	BOT_MEMORIES_MAX,
+	type BotDeskState,
+	type BotDuty,
+	type BotMemory,
+} from "../../shared/bot-desk";
 import { ipcErrorCode } from "../../shared/ipc-error-codes";
 import type { IpcSavedFolder, IpcTabRunOutcome, IpcTabWorktree, TabStatus } from "../../shared/ipc-types";
 import type {
@@ -298,6 +305,12 @@ export interface BotDeskPort {
 	decide(callerTabId: string, draft: DecisionDraft): OpenDecision;
 	addDuty(text: string): { duty: BotDuty; added: boolean };
 	removeDuty(id: string): BotDuty | undefined;
+	remember(text: string): { memory: BotMemory; added: boolean };
+	forget(id: string): BotMemory | undefined;
+	/** Sets the bot's own tagline, persona or avatar (a picture file read and cut to the avatar's size). */
+	identity(change: { tagline?: string; persona?: string; avatarFile?: string }): Promise<void>;
+	/** The activity log, oldest first. */
+	activity(): readonly BotActivity[];
 }
 export type ShipLevel = "commit" | "push" | "release";
 
@@ -372,7 +385,7 @@ export interface AgentControlHost {
 	release(callerTabId: string, tabId: string): Promise<boolean>;
 	/** Resolves once the omp of a tab the window closed has exited (at once when none is exiting, and for a paired device's tab). */
 	exited(tabId: string): Promise<void>;
-	notify(callerTabId: string, title: string, body: string): void;
+	notify(callerTabId: string, title: string, body: string, kind: "progress" | "done"): void;
 	/** A confirmation card on the calling tab; resolves false on refusal, dismissal or failure. */
 	confirm(callerTabId: string, title: string, message: string): Promise<boolean>;
 	/** Deliver the answer to the request the tab raised (the pool's side channel). */
@@ -1395,7 +1408,7 @@ export class AgentControl {
 			}
 			case T.notify: {
 				const args = ARGS[T.notify].parse(raw);
-				this.#host.notify(caller.tabId, args.title, args.body ?? "");
+				this.#host.notify(caller.tabId, args.title, args.body ?? "", args.kind ?? "done");
 				return "Notification shown.";
 			}
 			case T.stop: {
@@ -3852,13 +3865,19 @@ export class AgentControl {
 		return `Scheduled “${row.name}” ${describeFrequency(frequency)} in ${cwd} ${where}; id ${row.id}; next run ${row.nextRun ?? "—"}. It runs only while OMPdesk is open ${where}, never with auto-approve; cancel it with ompdesk_schedule {"action":"cancel","id":"${row.id}"${deviceArg}}.`;
 	}
 
-	/** `ompdesk_bot`: the bot's own desk. Only the owner's bot session may use it. */
-	#bot(caller: ControlTab, args: BotArgs): string {
+	/** `ompdesk_bot`: the bot's own desk. Only the owner's bot session and its side chats may use it. */
+	async #bot(caller: ControlTab, args: BotArgs): Promise<string> {
 		const desk = this.#host.botDesk;
 		const botPath = desk?.sessionPath();
-		if (!desk || !botPath || caller.device || caller.sessionPath !== botPath)
+		const ownSession =
+			!!desk &&
+			!!botPath &&
+			!caller.device &&
+			(caller.sessionPath === botPath ||
+				desk.state().channels.some(channel => channel.sessionPath === caller.sessionPath));
+		if (!desk || !ownSession)
 			fail(
-				"ompdesk_bot is the owner's bot's tool: only the bot's own session (Settings › Bot) may use it. To reach the owner from another session use ompdesk_notify, and to reach the session that opened you use ompdesk_report.",
+				"ompdesk_bot is the owner's bot's tool: only the bot's own session and its side chats (Settings › Bot) may use it. To reach the owner from another session use ompdesk_notify, and to reach the session that opened you use ompdesk_report.",
 			);
 		try {
 			switch (args.action) {
@@ -3881,6 +3900,43 @@ export class AgentControl {
 					const duty = desk.removeDuty(args.id);
 					if (!duty) fail(`No duty "${args.id}" is on your desk. ompdesk_bot {"action":"desk"} lists them.`);
 					return `Duty ${duty.id} removed: “${duty.text}”.`;
+				}
+				case "remember": {
+					const { memory, added } = desk.remember(args.text);
+					if (!added) return `Memory ${memory.id} already says this: “${memory.text}”.`;
+					return `Memory ${memory.id} kept: “${memory.text}”. It stays in your prompt every turn, in every chat of yours (${desk.state().memories.length} of ${BOT_MEMORIES_MAX}); the owner can see, edit and forget it.`;
+				}
+				case "forget": {
+					const memory = desk.forget(args.id);
+					if (!memory) fail(`No memory "${args.id}" is kept. ompdesk_bot {"action":"desk"} lists them.`);
+					return `Memory ${memory.id} forgotten: “${memory.text}”. The owner can put it back from the activity log.`;
+				}
+				case "identity": {
+					if (args.tagline === undefined && args.persona === undefined && args.avatar_file === undefined)
+						fail("identity needs tagline, persona or avatar_file.");
+					await desk.identity({
+						...(args.tagline === undefined ? {} : { tagline: args.tagline }),
+						...(args.persona === undefined ? {} : { persona: args.persona }),
+						...(args.avatar_file === undefined ? {} : { avatarFile: args.avatar_file }),
+					});
+					return `Identity updated (${[args.tagline !== undefined && "tagline", args.persona !== undefined && "persona", args.avatar_file !== undefined && "avatar"].filter(Boolean).join(", ")}). The owner sees it beside your name and can change it in Settings › Bot.`;
+				}
+				case "visited": {
+					const visited = botVisited(desk.activity()).slice(0, args.limit ?? BOT_ACTIVITY_DEFAULT_LIMIT);
+					if (visited.length === 0) return "You read no file or page that the activity log still holds.";
+					return `Files and pages you read, newest first (${visited.length}):\n${visited
+						.map(entry => `- ${entry.at} ${entry.target?.type}: ${entry.target?.value}`)
+						.join("\n")}`;
+				}
+				case "activity": {
+					const entries = desk.activity().slice(-(args.limit ?? BOT_ACTIVITY_DEFAULT_LIMIT));
+					if (entries.length === 0) return "The activity log is empty.";
+					return `Your activity, oldest first (${entries.length}):\n${entries
+						.map(
+							entry =>
+								`- ${entry.at} [${entry.by}${entry.channel ? `, side chat ${entry.channel}` : ""}] ${entry.action === "tool" ? entry.text : `${entry.action}: ${entry.text}`}${entry.undone ? " (undone)" : ""}`,
+						)
+						.join("\n")}`;
 				}
 			}
 		} catch (error) {

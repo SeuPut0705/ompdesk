@@ -7,7 +7,8 @@
  * only when main says so.
  */
 import { create } from "zustand";
-import { type BotDeskDuties, type BotDeskEdit, type BotDeskState, EMPTY_BOT_DESK } from "../../shared/bot-desk";
+import { type BotDeskDuties, type BotDeskState, EMPTY_BOT_DESK } from "../../shared/bot-desk";
+import type { BotDeskEdit } from "../../shared/bot-desk-edit";
 import { translate } from "../lib/i18n";
 import { toastError } from "./toast";
 

@@ -19,9 +19,7 @@ import {
 	BotChannelSchema,
 	type BotDecision,
 	BotDecisionSchema,
-	type BotDeskChange,
 	type BotDeskDuties,
-	type BotDeskEdit,
 	type BotDeskFile,
 	type BotDeskState,
 	type BotDuty,
@@ -33,9 +31,11 @@ import {
 	BotVoiceSchema,
 	type BotWake,
 	botDutiesText,
+	botMemoryText,
 	EMPTY_BOT_DESK_FILE,
 	parseBotDeskFile,
 } from "../../shared/bot-desk";
+import type { BotDeskChange, BotDeskEdit } from "../../shared/bot-desk-edit";
 import type { SchedulesState } from "../../shared/schedules";
 import { writeFileAtomicSync } from "../atomic-file";
 
@@ -511,6 +511,9 @@ export function botDeskText(desk: BotDeskState): string {
 		desk.duties.length > 0
 			? `Standing duties (${desk.duties.length}):\n${botDutiesText(desk.duties)}`
 			: "Standing duties: none.",
+		desk.memories.length > 0
+			? `Memories (${desk.memories.length} of ${BOT_MEMORIES_MAX}):\n${botMemoryText(desk.memories)}`
+			: "Memories: none.",
 		open.length > 0
 			? `Open decisions (${open.length}), waiting for the owner:\n${open
 					.map(

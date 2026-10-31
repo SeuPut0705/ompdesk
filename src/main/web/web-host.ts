@@ -89,6 +89,8 @@ export interface WebHostDeps {
 	now?: () => number;
 	/** The wire for Web Push; the real `web-push` HTTPS transport when absent (tests pass a fake push service). */
 	pushTransport?: PushTransport | undefined;
+	/** Whether a tab's turn end or question may push (the bot's routing); always when absent. */
+	pushes?: (tabId: string, kind: "completion" | "ask") => boolean;
 	/** The notifier's debounce and batch timers; real unref'd timers when absent. */
 	pushTimers?:
 		| { setTimer: (fn: () => void, ms: number) => unknown; clearTimer: (handle: unknown) => void }
@@ -187,6 +189,7 @@ export class WebHost {
 			language: deps.language,
 			setTimer: deps.pushTimers?.setTimer ?? ((fn, ms) => setTimeout(fn, ms).unref()),
 			clearTimer: deps.pushTimers?.clearTimer ?? (handle => clearTimeout(handle as NodeJS.Timeout)),
+			...(deps.pushes ? { pushes: deps.pushes } : {}),
 		});
 		const policy: RequestPolicy = {
 			host: "127.0.0.1",

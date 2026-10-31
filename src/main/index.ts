@@ -789,6 +789,7 @@ app.whenReady().then(() => {
 	});
 	app.on("will-quit", () => botActivity.flush());
 	const botDeskPush: IpcDeps["botDeskPush"] = { current: null };
+	const botPush: IpcDeps["botPush"] = { current: null };
 	// The desktop slot's host is built in ipc.ts next to the pool's wiring; the factory reads it from here.
 	const desktopSlotRef: { current: DesktopSlotHost | null } = { current: null };
 	// The shared-checkout pass is built in ipc.ts too; the factory runs it when a bridge reports a new changed file.
@@ -1928,6 +1929,7 @@ app.whenReady().then(() => {
 		botDesk,
 		botActivity,
 		botDeskPush,
+		botPush,
 		webPages: () => webHost?.windows.all() ?? [],
 		webAsk,
 		spawnWindow,
@@ -2003,6 +2005,7 @@ app.whenReady().then(() => {
 		onUnpairedAuth: () =>
 			appNotification({ title: mainT("web.unknownDevice.title"), body: mainT("web.unknownDevice.body") }).show(),
 		language: () => getMainLanguage(),
+		pushes: (tabId, kind) => botPush.current?.(tabId, kind) ?? true,
 		log: message => console.warn(`[web-push] ${message}`),
 	});
 	// Uploads expire on their own whether or not Mobile web serves: a paired computer's attached files land there too.

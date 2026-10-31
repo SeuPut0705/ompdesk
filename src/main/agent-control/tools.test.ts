@@ -106,5 +106,16 @@ describe("ompdesk_bot arguments", () => {
 		expect(() => args.parse({ action: "duty_remove" })).toThrow();
 		expect(() => args.parse({ action: "desk", id: "x" })).toThrow();
 		expect(() => args.parse({ action: "answer", id: "x" })).toThrow();
+		expect(args.parse({ action: "remember", text: " Deploys on Fridays " })).toEqual({
+			action: "remember",
+			text: "Deploys on Fridays",
+		});
+		expect(() => args.parse({ action: "remember", text: "x".repeat(301) })).toThrow();
+		expect(args.parse({ action: "identity", avatar_file: "/tmp/a.png" })).toMatchObject({
+			avatar_file: "/tmp/a.png",
+		});
+		expect(() => args.parse({ action: "identity", text: "x" })).toThrow();
+		expect(args.parse({ action: "visited", limit: 5 })).toEqual({ action: "visited", limit: 5 });
+		expect(() => args.parse({ action: "activity", limit: 0 })).toThrow();
 	});
 });

@@ -7,7 +7,14 @@
 import { z } from "zod";
 import { AUTOPILOT_AREAS } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import { AGENT_SCHEDULE_PREFIX, AGENT_CONTROL_TOOLS as T } from "../../shared/agent-control";
-import { BOT_DECISION_OPTIONS_MAX, BOT_DUTY_TEXT_MAX } from "../../shared/bot-desk";
+import { BOT_ACTIVITY_PAGE } from "../../shared/bot-activity";
+import {
+	BOT_DECISION_OPTIONS_MAX,
+	BOT_DUTY_TEXT_MAX,
+	BOT_MEMORY_TEXT_MAX,
+	BOT_PERSONA_MAX,
+	BOT_TAGLINE_MAX,
+} from "../../shared/bot-desk";
 import type { HostToolDefinition } from "../../shared/rpc-types";
 import { MAIL_KINDS } from "./mail";
 
@@ -294,7 +301,16 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 			"Show the user a system notification (for work that finished or needs them while they look elsewhere); clicking it opens this session.",
 		parameters: {
 			type: "object",
-			properties: { title: { type: "string" }, body: { type: "string" } },
+			properties: {
+				title: { type: "string" },
+				body: { type: "string" },
+				kind: {
+					type: "string",
+					enum: ["progress", "done"],
+					description:
+						"progress for a step along the way, done (default) for finished work; the owner's bot settings route each kind.",
+				},
+			},
 			required: ["title"],
 			additionalProperties: false,
 		},
@@ -568,12 +584,25 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		name: T.bot,
 		label: "OMPdesk bot desk",
 		description:
-			"The owner's bot: read its desk, post decisions, keep duties.\n" +
-			"The desk of the owner's bot, usable only from the bot's own session (Settings › Bot); any other session is refused. desk reads your standing duties, the decisions still waiting for the owner and the wakes you scheduled. decide posts what only the owner can decide and returns at once: keep working, the owner's answer arrives later as a message that starts your turn. duty_add records a standing responsibility the owner gave you; it stays in your prompt through a new conversation and a compaction. duty_remove drops one by id. See skill://ompdesk.",
+			"The owner's bot: read its desk, post decisions, keep duties and memory.\n" +
+			"The desk of the owner's bot, usable only from the bot's own session and its side chats (Settings › Bot); any other session is refused. desk reads your standing duties, memories, the decisions still waiting for the owner and the wakes you scheduled. decide posts what only the owner can decide and returns at once: keep working, the owner's answer arrives later as a message that starts your turn. duty_add records a standing responsibility the owner gave you; it stays in your prompt through a new conversation and a compaction. duty_remove drops one by id. remember keeps one fact about the owner or their work in your memory (in your prompt every turn; the owner can see, edit and forget it); forget drops one by id. identity sets your tagline, persona or avatar (avatar_file: a PNG, JPEG or WebP you made, e.g. with generate_image). visited lists the files and pages you read; activity lists what you did, newest last. See skill://ompdesk.",
 		parameters: {
 			type: "object",
 			properties: {
-				action: { type: "string", enum: ["desk", "decide", "duty_add", "duty_remove"] },
+				action: {
+					type: "string",
+					enum: [
+						"desk",
+						"decide",
+						"duty_add",
+						"duty_remove",
+						"remember",
+						"forget",
+						"identity",
+						"visited",
+						"activity",
+					],
+				},
 				question: { type: "string", description: "decide: what the owner is asked, one clear sentence." },
 				options: {
 					type: "array",
@@ -581,8 +610,15 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 					description: `decide: the choices you offer (at most ${BOT_DECISION_OPTIONS_MAX}); omit for a free answer.`,
 				},
 				context: { type: "string", description: "decide: what the owner needs to know to decide." },
-				text: { type: "string", description: "duty_add: the duty, one sentence." },
-				id: { type: "string", description: "duty_remove: the duty id desk shows." },
+				text: {
+					type: "string",
+					description: "duty_add: the duty, one sentence. remember: the fact, one sentence.",
+				},
+				id: { type: "string", description: "duty_remove, forget: the id desk shows." },
+				tagline: { type: "string", description: "identity: one line under your name." },
+				persona: { type: "string", description: "identity: your personality, tone and boundaries." },
+				avatar_file: { type: "string", description: "identity: an absolute path to your new avatar picture." },
+				limit: { type: "number", description: "visited, activity: entries at most (default 30)." },
 			},
 			required: ["action"],
 			additionalProperties: false,
@@ -780,7 +816,13 @@ export const ARGS = {
 		})
 		.strict(),
 	[T.focus]: z.object({ session: sessionArg, how: placement.optional() }).strict(),
-	[T.notify]: z.object({ title: z.string().trim().min(1).max(200), body: z.string().max(2000).optional() }).strict(),
+	[T.notify]: z
+		.object({
+			title: z.string().trim().min(1).max(200),
+			body: z.string().max(2000).optional(),
+			kind: z.enum(["progress", "done"]).optional(),
+		})
+		.strict(),
 	[T.stop]: z
 		.object({
 			session: sessionArg,
@@ -852,6 +894,22 @@ export const ARGS = {
 			.strict(),
 		z.object({ action: z.literal("duty_add"), text: z.string().trim().min(1).max(BOT_DUTY_TEXT_MAX) }).strict(),
 		z.object({ action: z.literal("duty_remove"), id: z.string().trim().min(1).max(64) }).strict(),
+		z.object({ action: z.literal("remember"), text: z.string().trim().min(1).max(BOT_MEMORY_TEXT_MAX) }).strict(),
+		z.object({ action: z.literal("forget"), id: z.string().trim().min(1).max(64) }).strict(),
+		z
+			.object({
+				action: z.literal("identity"),
+				tagline: z.string().trim().max(BOT_TAGLINE_MAX).optional(),
+				persona: z.string().trim().max(BOT_PERSONA_MAX).optional(),
+				avatar_file: z.string().trim().min(1).max(4096).optional(),
+			})
+			.strict(),
+		z
+			.object({ action: z.literal("visited"), limit: z.number().int().min(1).max(BOT_ACTIVITY_PAGE).optional() })
+			.strict(),
+		z
+			.object({ action: z.literal("activity"), limit: z.number().int().min(1).max(BOT_ACTIVITY_PAGE).optional() })
+			.strict(),
 	]),
 } as const;
 

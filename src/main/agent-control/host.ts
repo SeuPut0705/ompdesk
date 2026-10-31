@@ -44,7 +44,8 @@ import {
 	parseClosedChildren,
 	sidebarViewOf,
 } from "../../shared/agent-control";
-import { type BotWake, botDutiesText } from "../../shared/bot-desk";
+import { type BotWake, botRoleDesk, EMPTY_BOT_DESK_FILE } from "../../shared/bot-desk";
+import { BOT_RULES_PREF, botRulesText, parseBotRules } from "../../shared/bot-rules";
 import type {
 	HostView,
 	IpcHostedSession,
@@ -93,6 +94,8 @@ import type { FileEditReports } from "../web/file-edit-reports";
 import { sessionOpenFolders } from "../worktree-orphans";
 import type { AppPorts } from "./app-control";
 import { BotFeed, type BotTab } from "./bot";
+import type { BotActivityLog } from "./bot-activity";
+import { botToolActivity } from "./bot-activity-feed";
 import type { AnsweredDecision, BotDesk, OpenDecision } from "./bot-desk";
 import {
 	type BranchEvidence,
@@ -166,7 +169,8 @@ export interface AgentControlHostDeps {
 		| "tabWindows"
 		| "sessionOwner"
 		| "whenTabExited"
-	>;
+	> &
+		Partial<Pick<SidecarPool, "observeToolCalls">>;
 	/** This computer's session index (stored sessions the control tools list, search and read). */
 	sessions?: {
 		list(): Promise<SessionInfo[]>;
@@ -193,8 +197,8 @@ export interface AgentControlHostDeps {
 	prefs: { get(key: string): unknown; set?(key: string, value: unknown): void; changed?(key: string): void };
 	/** A paired host's display name for a deviceId. */
 	deviceName: (deviceId: string) => string;
-	/** An OS notification; a click opens the tab. */
-	notify: (win: ClientWindow, tabId: string, title: string, body: string) => void;
+	/** An OS notification; a click opens the tab. `kind` is the bot's routing kind (`ompdesk_notify`'s, `done` by default). */
+	notify: (win: ClientWindow, tabId: string, title: string, body: string, kind: "progress" | "done") => void;
 	/** Close a session's tab and delete its saved file (the sidebar's delete). */
 	deleteSession: (sessionPath: string, device: string | undefined) => Promise<void>;
 	text: AgentControlHost["text"];
@@ -210,8 +214,16 @@ export interface AgentControlHostDeps {
 	botLog?: (entry: Record<string, unknown>) => void;
 	/** The owner's own notice of a question the bot left open too long (desktop banner, paired phones). */
 	botRemind?: (tabId: string, requestId: string, title: string) => void;
-	/** The bot's desk (`bot-desk.ts`) and the wakes it scheduled for itself; absent where there is no desk. */
-	botDesk?: { desk: BotDesk; wakes(): BotWake[] };
+	/**
+	 * The bot's desk (`bot-desk.ts`), the wakes it scheduled for itself and its activity log; absent where there is no
+	 * desk. `avatarFromFile` reads a picture the bot made and answers it as the avatar's data URL (cut to its size).
+	 */
+	botDesk?: {
+		desk: BotDesk;
+		wakes(): BotWake[];
+		activity: BotActivityLog;
+		avatarFromFile(path: string): Promise<string>;
+	};
 	/** The owner's notice that a decision waits for them (desktop banner on the bot's tab, paired phones). */
 	botDecisionNotice?: (tabId: string, decision: OpenDecision) => void;
 	/** The sessions sharing a tab's checkout or repository on this computer (src/main/checkout-peers.ts). */
@@ -347,15 +359,40 @@ export class AgentControlRuntime {
 	/** The card each outside caller shows now, if any: the next one waits for it. */
 	readonly #outsideCards = new Map<string, Promise<void>>();
 	readonly #bot: BotFeed;
+	/** The owner's rules as last logged, so the activity log keeps each change once. */
+	#loggedRules: string;
 
 	constructor(deps: AgentControlHostDeps) {
 		this.#deps = deps;
+		this.#loggedRules = botRulesText(parseBotRules(deps.prefs.get(BOT_RULES_PREF)));
 		this.#outbox = new MailOutbox(deps.mailOutboxFile ?? null);
 		this.#calls = new CallJournal(deps.callJournalFile ?? null);
 		this.control = new AgentControl(this.#host());
 		this.#bot = new BotFeed(this.#botDeps());
 		// A change to the duties is told to the bot's omp now; the feed tells only what differs from the last tell.
 		deps.botDesk?.desk.onChange(() => void this.#bot.role());
+		// The bot's activity log: each tool call of the bot's tabs (its side chats' too), and each question its own tabs
+		// put to the owner.
+		const activityLog = deps.botDesk?.activity;
+		if (activityLog) {
+			deps.pool.observeToolCalls?.((tabId, call) => {
+				if (!this.#bot.isBotTab(tabId)) return;
+				const draft = botToolActivity(call.toolName, call.args);
+				const channel = this.#bot.channelOf(tabId)?.id;
+				if (draft) activityLog.append({ ...draft, ...(channel ? { channel } : {}) });
+			});
+			deps.pool.observeTabs(activity => {
+				if (activity.type !== "ask" || !this.#bot.isBotTab(activity.tabId)) return;
+				const channel = this.#bot.channelOf(activity.tabId)?.id;
+				activityLog.append({
+					kind: "approval",
+					action: "approval_asked",
+					by: "bot",
+					text: activity.text,
+					...(channel ? { channel } : {}),
+				});
+			});
+		}
 		deps.pool.observeTabs(activity => {
 			this.#bot.activity(activity);
 			const parent =
@@ -419,6 +456,11 @@ export class AgentControlRuntime {
 		return this.#bot.answers(tabId, requestId);
 	}
 
+	/** `tabId` holds the bot's session or one of its side chats (its notices follow the owner's routing). */
+	isBotTab(tabId: string): boolean {
+		return this.#bot.isBotTab(tabId);
+	}
+
 	#botTab(tabId: string): BotTab | null {
 		const { pool } = this.#deps;
 		const win = this.#win(tabId);
@@ -446,6 +488,21 @@ export class AgentControlRuntime {
 			},
 			addDuty: text => desk.addDuty(text),
 			removeDuty: id => desk.removeDuty(id),
+			remember: text => desk.remember(text, "bot"),
+			forget: id => desk.forget(id, "bot"),
+			identity: async ({ tagline, persona, avatarFile }) => {
+				const avatar = avatarFile === undefined ? undefined : await source.avatarFromFile(avatarFile);
+				desk.change(
+					{
+						op: "identity",
+						...(tagline === undefined ? {} : { tagline }),
+						...(persona === undefined ? {} : { persona }),
+						...(avatar === undefined ? {} : { avatar: { kind: "image", dataUrl: avatar } }),
+					},
+					"bot",
+				);
+			},
+			activity: () => source.activity.entries(),
 		};
 	}
 
@@ -474,11 +531,12 @@ export class AgentControlRuntime {
 				const owner = deps.pool.sessionOwner(sessionPath);
 				return owner ? this.#botTab(owner.tabId) : null;
 			},
-			duties: () => botDutiesText(deps.botDesk?.desk.state().duties ?? []),
-			tell: async (tabId, rules, duties) => {
+			desk: () => botRoleDesk(deps.botDesk?.desk.state() ?? EMPTY_BOT_DESK_FILE),
+			channels: () => deps.botDesk?.desk.state().channels ?? [],
+			tell: async (tabId, rules, desk, channel) => {
 				const response = await this.#hostCommand(
 					tabId,
-					{ type: "agent_control_bot", rules, duties },
+					{ type: "agent_control_bot", rules, ...desk, ...(channel === undefined ? {} : { channel }) },
 					BOT_ROLE_TIMEOUT_MS,
 				);
 				if (!response.success) throw new Error(response.error ?? "The bot's omp did not take its rules.");
@@ -492,9 +550,14 @@ export class AgentControlRuntime {
 
 	/**
 	 * The owner's rules for the bot changed (pref `botRules`, or the switch): its omp is told now, not at its next
-	 * start. A change to its duties is heard from the desk itself.
+	 * start, and the activity log keeps the new rules (the permissions the owner gave it). A change to its duties is
+	 * heard from the desk itself.
 	 */
 	botRulesChanged(): void {
+		const rules = botRulesText(parseBotRules(this.#deps.prefs.get(BOT_RULES_PREF)));
+		if (this.#loggedRules !== rules)
+			this.#deps.botDesk?.activity.append({ kind: "approval", action: "rules", by: "owner", text: rules || "—" });
+		this.#loggedRules = rules;
 		void this.#bot.role();
 	}
 
@@ -1338,9 +1401,9 @@ export class AgentControlRuntime {
 				if (win && !win.isDestroyed()) win.webContents.send(AGENT_CONTROL_VIEW, event);
 			},
 			exited: tabId => deps.pool.whenTabExited(tabId),
-			notify: (callerTabId, title, body) => {
+			notify: (callerTabId, title, body, kind) => {
 				const win = this.#win(callerTabId);
-				if (win && !win.isDestroyed()) deps.notify(win, callerTabId, title, body);
+				if (win && !win.isDestroyed()) deps.notify(win, callerTabId, title, body, kind);
 			},
 			confirm: (callerTabId, title, message) => this.#confirm(callerTabId, title, message),
 			answer: async (tabId, requestId, response: ExtensionUIResponse) => {

@@ -7,6 +7,7 @@ import {
 	BOT_DECISIONS_ANSWERED_KEPT,
 	BOT_DUTIES_MAX,
 	BOT_MEMORIES_MAX,
+	BotDeskFileSchema,
 	EMPTY_BOT_DESK,
 	EMPTY_BOT_DESK_FILE,
 	openBotDecisions,
@@ -154,6 +155,8 @@ describe("BotDesk", () => {
 		expect(JSON.parse(readFileSync(file, "utf8")).duties).toHaveLength(1);
 		writeFileSync(file, JSON.stringify({ duties: "x", decisions: [] }));
 		expect(deskOver().state()).toEqual(EMPTY_BOT_DESK_FILE);
+		// The desk the app starts from is what the schema makes of an empty file.
+		expect(BotDeskFileSchema.parse({ duties: [], decisions: [] })).toEqual(EMPTY_BOT_DESK_FILE);
 	});
 
 	it("writes the file before it tells anyone", () => {
@@ -310,7 +313,7 @@ describe("botWakes", () => {
 describe("botDeskText", () => {
 	it("is compact and says none for what is empty", () => {
 		expect(botDeskText({ ...EMPTY_BOT_DESK })).toBe(
-			"Standing duties: none.\nOpen decisions: none.\nWakes you scheduled: none.",
+			"Standing duties: none.\nMemories: none.\nOpen decisions: none.\nWakes you scheduled: none.",
 		);
 		const desk = deskOver(null);
 		desk.addDuty("Watch the build");
@@ -326,6 +329,7 @@ describe("botDeskText", () => {
 			[
 				"Standing duties (1):",
 				"- Watch the build (id 00000000)",
+				"Memories: none.",
 				"Open decisions (1), waiting for the owner:",
 				`- ${decision.id}: Ship? [options: Yes | No] (posted 2026-10-31T09:00:01.000Z)`,
 				"Wakes you scheduled (1):",

@@ -175,7 +175,15 @@ export const BotDeskStateSchema: z.ZodType<BotDeskState, z.ZodTypeDef, unknown> 
 	wakes: z.array(BotWakeSchema),
 });
 
-export const EMPTY_BOT_DESK_FILE: BotDeskFile = BotDeskFileSchema.parse({ duties: [], decisions: [] });
+export const EMPTY_BOT_DESK_FILE: BotDeskFile = {
+	duties: [],
+	decisions: [],
+	identity: { tagline: "", persona: "", avatar: DEFAULT_BOT_AVATAR },
+	memories: [],
+	notify: { progress: "banner", decisions: "both", done: "both", progressEvery: "all" },
+	voice: { speakReplies: false },
+	channels: [],
+};
 export const EMPTY_BOT_DESK: BotDeskState = { ...EMPTY_BOT_DESK_FILE, wakes: [] };
 
 /** A stored file as main reads it: anything unreadable is an empty desk, never a crash. */
@@ -194,6 +202,21 @@ export function botDutiesText(duties: readonly BotDuty[]): string {
 	return duties.map(duty => `- ${duty.text.replace(/\s+/g, " ").trim()} (id ${duty.id})`).join("\n");
 }
 
+/** The desk as the bot's prompt carries it (`agent_control_bot`): duties, memories and identity, each as text. */
+export interface BotRoleDesk {
+	duties: string;
+	memory: string;
+	identity: string;
+}
+
+export function botRoleDesk(desk: Pick<BotDeskFile, "duties" | "memories" | "identity">): BotRoleDesk {
+	return {
+		duties: botDutiesText(desk.duties),
+		memory: botMemoryText(desk.memories),
+		identity: botIdentityText(desk.identity),
+	};
+}
+
 /** The memories as the bot's prompt lists them, one line each; empty when there are none. */
 export function botMemoryText(memories: readonly BotMemory[]): string {
 	return memories.map(memory => `- ${memory.text.replace(/\s+/g, " ").trim()} (id ${memory.id})`).join("\n");
@@ -207,52 +230,6 @@ export function botIdentityText(identity: Pick<BotIdentity, "tagline" | "persona
 	]
 		.filter(Boolean)
 		.join("\n");
-}
-
-/** A memory file the owner exports (Memory.md): one memory per bullet, newest last. */
-export function botMemoryMarkdown(memories: readonly BotMemory[], name: string): string {
-	const lines = memories.map(memory => `- ${memory.text.replace(/\s+/g, " ").trim()}`);
-	return `# ${name.replace(/\s+/g, " ").trim() || "Bot"}: memory\n\n${lines.join("\n")}\n`;
-}
-
-const MemoryImportJsonSchema = z.union([
-	z.array(z.unknown()),
-	z.object({ memories: z.array(z.unknown()) }).transform(file => file.memories),
-]);
-const ImportItemSchema = z.union([z.string(), z.object({ text: z.string() }).transform(item => item.text)]);
-
-/**
- * The memories in a file the owner imports: a Memory.md this app exported, any Markdown or text with one memory per
- * bullet or line (headings and blank lines skipped), or a JSON list of strings or of `{text}`. Each cut to
- * `BOT_MEMORY_TEXT_MAX`, the same text once, at most `BOT_MEMORIES_MAX`.
- */
-export function parseBotMemoryImport(content: string): string[] {
-	let json: unknown;
-	try {
-		json = JSON.parse(content);
-	} catch {
-		json = undefined;
-	}
-	const list = MemoryImportJsonSchema.safeParse(json);
-	const raw = list.success
-		? list.data.map(item => {
-				const parsed = ImportItemSchema.safeParse(item);
-				return parsed.success ? parsed.data : "";
-			})
-		: content
-				.split(/\r?\n/)
-				.filter(line => !/^\s*#/.test(line))
-				.map(line => line.replace(/^\s*(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?/, ""));
-	const seen = new Set<string>();
-	const texts: string[] = [];
-	for (const line of raw) {
-		const text = line.replace(/\s+/g, " ").trim().slice(0, BOT_MEMORY_TEXT_MAX).trim();
-		if (!text || seen.has(text)) continue;
-		seen.add(text);
-		texts.push(text);
-		if (texts.length >= BOT_MEMORIES_MAX) break;
-	}
-	return texts;
 }
 
 /** IPC: `BOT_DESK_ANSWER`'s payload. `answer` is one of the options or the owner's own words. */
@@ -271,53 +248,3 @@ export const BotDeskDutiesSchema = z.object({
 		.max(BOT_DUTIES_MAX),
 });
 export type BotDeskDuties = z.infer<typeof BotDeskDutiesSchema>;
-
-const memoryText = z.string().trim().min(1).max(BOT_MEMORY_TEXT_MAX);
-
-/**
- * IPC: `BOT_DESK_EDIT`'s payload, one change the owner makes (and the inverse an Undo replays, `bot-activity.ts`).
- * `channel_add` and `channel_remove` make or delete a session, which main does before the desk records it.
- */
-export const BotDeskEditSchema = z.discriminatedUnion("op", [
-	z
-		.object({
-			op: z.literal("identity"),
-			tagline: z.string().trim().max(BOT_TAGLINE_MAX).optional(),
-			persona: z.string().trim().max(BOT_PERSONA_MAX).optional(),
-			avatar: BotAvatarSchema.optional(),
-		})
-		.strict(),
-	z.object({ op: z.literal("memory_add"), text: memoryText }).strict(),
-	z.object({ op: z.literal("memory_edit"), id, text: memoryText }).strict(),
-	z.object({ op: z.literal("memory_forget"), id }).strict(),
-	/** Puts back a forgotten memory as it was (the Undo of a forget). */
-	z.object({ op: z.literal("memory_restore"), memory: BotMemorySchema }).strict(),
-	z
-		.object({
-			op: z.literal("memory_import"),
-			texts: z.array(memoryText).max(BOT_MEMORIES_MAX),
-			/** Replace every memory instead of adding to them (an empty list with it forgets them all). */
-			replace: z.boolean(),
-		})
-		.strict(),
-	/** The whole duty list as it was (the Undo of a duty change). */
-	BotDeskDutiesSchema.extend({ op: z.literal("duties") }).strict(),
-	z
-		.object({
-			op: z.literal("notify"),
-			progress: route.optional(),
-			decisions: route.optional(),
-			done: route.optional(),
-			progressEvery: z.enum(BOT_PROGRESS_EVERY).optional(),
-		})
-		.strict(),
-	z.object({ op: z.literal("voice"), speakReplies: z.boolean() }).strict(),
-	z.object({ op: z.literal("channel_add"), title: z.string().trim().min(1).max(BOT_CHANNEL_TITLE_MAX) }).strict(),
-	z.object({ op: z.literal("channel_remove"), id }).strict(),
-	/** Replays the inverse an activity entry carries (`BotActivity.undo`). */
-	z.object({ op: z.literal("undo"), activity: id }).strict(),
-]);
-export type BotDeskEdit = z.infer<typeof BotDeskEditSchema>;
-
-/** The ops whose change the desk itself makes (no session to create or delete, no activity to look up). */
-export type BotDeskChange = Exclude<BotDeskEdit, { op: "channel_add" | "channel_remove" | "undo" }>;

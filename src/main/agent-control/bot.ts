@@ -6,11 +6,13 @@
  * handed to it.
  * - While it can answer such a question (`answers`), the owner's own "needs you" notice for it is not shown; one it
  *   leaves open past `BOT_ANSWER_WAIT_MS` notifies the owner after all.
- * - Its omp is told the owner's action rules and its standing duties (`role`: `agent_control_bot`, journaled by the
- *   bridge, which adds the bot role, the duties and those rules to its prompt), at each start of its tab and when
- *   either changes.
+ * - Its omp is told the owner's action rules and its desk as its prompt carries it (`role`: `agent_control_bot`,
+ *   journaled by the bridge, which adds the bot role, its identity, duties, memories and those rules to its prompt), at
+ *   each start of its tab and when any of them changes. Each side chat's tab (`BotChannel`) is told the same, with its
+ *   topic: side chats share the bot's desk and memory.
  */
 import { AGENT_CARD_PREFIX, activeBotPath } from "../../shared/agent-control";
+import type { BotRoleDesk } from "../../shared/bot-desk";
 import { BOT_RULES_PREF, botRulesText, parseBotRules } from "../../shared/bot-rules";
 import type { TabStatus } from "../../shared/ipc-types";
 import type { TabActivity } from "../sidecar-pool";
@@ -53,10 +55,12 @@ export interface BotDeps {
 	grants(): BotGrants;
 	/** The tab on this computer holding `sessionPath`, if any. */
 	tabOfSession(sessionPath: string): BotTab | null;
-	/** Tells the bot's omp its rules and its duties as its prompt lists them (`agent_control_bot`); rejects when it could not. */
-	tell(tabId: string, rules: string, duties: string): Promise<void>;
-	/** The bot's standing duties as its prompt lists them (`botDutiesText`); empty when there are none. */
-	duties(): string;
+	/** Tells a bot tab's omp its rules and its desk as its prompt lists them (`agent_control_bot`); rejects when it could not. */
+	tell(tabId: string, rules: string, desk: BotRoleDesk, channel?: string): Promise<void>;
+	/** The desk as the bot's prompt lists it. */
+	desk(): BotRoleDesk;
+	/** The bot's side chats (`BotChannel`): their ids, session files and topics. */
+	channels(): readonly { id: string; sessionPath: string; title: string }[];
 	log(entry: Record<string, unknown>): void;
 	/** Shows the owner the notice of a question the bot left open past `BOT_ANSWER_WAIT_MS`. */
 	remind(tabId: string, ask: BotAsk): void;
@@ -81,8 +85,8 @@ export class BotFeed {
 	readonly #deps: BotDeps;
 	/** Questions the bot is answering, by tab and request: the wait for its answer, and whether it ran out. */
 	readonly #handed = new Map<string, { timer: unknown; overdue: boolean }>();
-	/** The tab, rules and duties the bot's omp was last told (`role`), as one JSON line. */
-	#told: string | null = null;
+	/** What each bot tab's omp was last told (`role`), as one JSON line, by tab. */
+	readonly #told = new Map<string, string>();
 	#telling: Promise<void> = Promise.resolve();
 
 	constructor(deps: BotDeps) {
@@ -154,8 +158,9 @@ export class BotFeed {
 
 	/** `SidecarPool.observeTabs`'s listener. */
 	activity(activity: TabActivity): void {
-		// Whatever the bot's tab does proves its omp is up: tell it the rules if it has not heard them yet.
+		// Whatever a bot tab does proves its omp is up: tell it the rules if it has not heard them yet.
 		if (activity.type !== "released" && this.isBotTab(activity.tabId)) void this.role();
+		if (activity.type === "released") this.#told.delete(activity.tabId);
 		if (activity.type === "askClosed") return this.#settled(activity.tabId, activity.requestId);
 		if (activity.type === "released") return this.#settled(activity.tabId);
 		if (activity.type !== "ask") return;
@@ -174,33 +179,53 @@ export class BotFeed {
 	}
 
 	/**
-	 * Tells the bot's omp the owner's rules for its actions and its standing duties (`deps.tell`; its bridge adds the
-	 * bot role to the prompt), once per tab and text: at each start of its tab, and again when the rules or the duties
-	 * change. A tab with no omp (asleep, exited, failed) is told when it starts. Never rejects: a failed tell is logged
-	 * and tried again by the next call.
+	 * Tells the bot's omp, and each side chat's, the owner's rules for its actions and its desk (`deps.tell`; its bridge
+	 * adds the bot role to the prompt), once per tab and text: at each start of its tab, and again when the rules or the
+	 * desk change. A tab with no omp (asleep, exited, failed) is told when it starts. Never rejects: a failed tell is
+	 * logged and tried again by the next call.
 	 */
 	role(): Promise<void> {
 		this.#telling = this.#telling.then(() => this.#tell());
 		return this.#telling;
 	}
 
-	/** The tab holding the bot's session is `tabId`. */
+	/** The tab holding the bot's session, or one of its side chats, is `tabId`. */
 	isBotTab(tabId: string): boolean {
-		return this.#bot()?.tabId === tabId;
+		return this.#botTabs().some(entry => entry.tab.tabId === tabId);
+	}
+
+	/** The side chat a tab holds (its id and topic), or undefined for the bot's own tab and any other. */
+	channelOf(tabId: string): { id: string; title: string } | undefined {
+		return this.#botTabs().find(entry => entry.tab.tabId === tabId)?.channel;
+	}
+
+	/** The bot's tab and its side chats' tabs, while the bot is on. */
+	#botTabs(): { tab: BotTab; channel?: { id: string; title: string } }[] {
+		if (!activeBotPath(key => this.#deps.prefs.get(key))) return [];
+		const bot = this.#bot();
+		const tabs: { tab: BotTab; channel?: { id: string; title: string } }[] = bot ? [{ tab: bot }] : [];
+		for (const { id, title, sessionPath } of this.#deps.channels()) {
+			const tab = this.#deps.tabOfSession(sessionPath);
+			if (tab) tabs.push({ tab, channel: { id, title } });
+		}
+		return tabs;
 	}
 
 	async #tell(): Promise<void> {
-		const bot = this.#bot();
-		if (!bot || bot.status === "asleep" || bot.status === "exited" || bot.status === "error") return;
+		const tabs = this.#botTabs();
+		if (tabs.length === 0) return;
 		const rules = botRulesText(parseBotRules(this.#deps.prefs.get(BOT_RULES_PREF)));
-		const duties = this.#deps.duties();
-		const told = JSON.stringify([bot.tabId, rules, duties]);
-		if (this.#told === told) return;
-		try {
-			await this.#deps.tell(bot.tabId, rules, duties);
-			this.#told = told;
-		} catch (error) {
-			this.#deps.log({ event: "role-failed", tabId: bot.tabId, error: String(error) });
+		const desk = this.#deps.desk();
+		for (const { tab, channel } of tabs) {
+			if (tab.status === "asleep" || tab.status === "exited" || tab.status === "error") continue;
+			const told = JSON.stringify([rules, desk, channel?.title ?? null]);
+			if (this.#told.get(tab.tabId) === told) continue;
+			try {
+				await this.#deps.tell(tab.tabId, rules, desk, channel?.title);
+				this.#told.set(tab.tabId, told);
+			} catch (error) {
+				this.#deps.log({ event: "role-failed", tabId: tab.tabId, error: String(error) });
+			}
 		}
 	}
 

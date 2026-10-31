@@ -56,8 +56,8 @@ describe("bot role", () => {
 		const duties = "- Check the nightly build every morning (id 0a1b2c3d)\n- Watch the release (id 11223344)";
 		const entries: JournalEntry[] = [{ type: "custom", customType: BOT_ENTRY, data: { rules: RULES, duties } }];
 		const text = hook()({ systemPrompt: BASE }, session(entries))?.systemPrompt?.at(-1) ?? "";
-		expect(text).toBe(botSection(RULES, undefined, duties));
-		expect(text).toContain(`Standing duties:\n${duties}\nRules:`);
+		expect(text).toBe(botSection(RULES, undefined, { duties }));
+		expect(text).toContain(`Standing duties:\n${duties}\nWhat you remember: nothing yet.\nRules:`);
 		expect(text).toContain('ompdesk_bot {"action":"decide"}');
 		expect(text).toContain('ompdesk_bot {"action":"duty_add"}');
 		expect(text).toContain("the owner's answer comes back to you as a message that starts your turn");
@@ -66,6 +66,41 @@ describe("bot role", () => {
 		const plain = hook()({ systemPrompt: BASE }, session(old))?.systemPrompt?.at(-1) ?? "";
 		expect(plain).toContain("Standing duties: none yet.");
 		expect(plain).toBe(botSection(RULES));
+	});
+
+	it("carries the memories, the owner's words about who it is and a side chat's topic", () => {
+		const memory = "- Deploys on Fridays only (id m1)";
+		const identity =
+			"Tagline: Night shift\nPersona, tone and boundaries (the owner's words):\nTerse. Never pushes on weekends.";
+		const entries: JournalEntry[] = [
+			{
+				type: "custom",
+				customType: BOT_ENTRY,
+				data: { rules: RULES, duties: "", memory, identity, channel: "Release notes" },
+			},
+		];
+		const text = hook()({ systemPrompt: BASE }, session(entries))?.systemPrompt?.at(-1) ?? "";
+		expect(text).toContain(`What you remember:\n${memory}\n`);
+		expect(text).toContain(`Who you are (the owner set this; follow it):\n${identity}\n`);
+		expect(text).toContain('your side chat on "Release notes"');
+		expect(text).toContain('ompdesk_bot {"action":"remember"}');
+		expect(text).toContain("Sources: ");
+		// The main conversation names no side chat.
+		expect(botSection(RULES, "Bot", { memory })).not.toContain("side chat on");
+	});
+
+	it("journals memory, identity and topic changes once each", async () => {
+		const journal: JournalEntry[] = [];
+		const env = envOver(journal);
+		const tell = (extra: Record<string, unknown>) => methods["agent_control.bot"]?.({ rules: RULES, ...extra }, env);
+		await expect(tell({ memory: "- a (id 1)" })).resolves.toEqual({ changed: true });
+		await expect(tell({ memory: "- a (id 1)" })).resolves.toEqual({ changed: false });
+		await expect(tell({ memory: "- a (id 1)", identity: "Tagline: x" })).resolves.toEqual({ changed: true });
+		await expect(tell({ memory: "- a (id 1)", identity: "Tagline: x", channel: "Ops" })).resolves.toEqual({
+			changed: true,
+		});
+		expect(journal.at(-1)).toMatchObject({ data: { memory: "- a (id 1)", identity: "Tagline: x", channel: "Ops" } });
+		await expect(tell({ memory: 5 })).rejects.toThrow("memory");
 	});
 
 	it("is not in the prompt of a session without the entry, nor of the bot's subagents", () => {
