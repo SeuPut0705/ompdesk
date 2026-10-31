@@ -7,8 +7,9 @@ import { type AddressInfo, connect, createServer, type Server, type Socket } fro
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { BotDeskState } from "../../shared/bot-desk";
 import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
-import { LIVE_SESSIONS_EVENT, MOBILE_WEB_LINK_EVENT, TAB_EVENT } from "./app-protocol";
+import { BOT_DESK_EVENT, LIVE_SESSIONS_EVENT, MOBILE_WEB_LINK_EVENT, TAB_EVENT } from "./app-protocol";
 import { generateKeyPair } from "./crypto";
 import type { HostConnection } from "./host-server";
 import { HostStore } from "./hosts-store";
@@ -514,5 +515,63 @@ describe("the tabs a host keeps for this device", () => {
 		});
 		expect(await a.devices.keptTabs(hostId)).toBeNull();
 		expect(await rejectionCode(a.devices.keptTabs("nobody"))).toBe("remote_unknown_device");
+	});
+});
+
+describe("a host's bot desk", () => {
+	const OPEN: BotDeskState = {
+		duties: [],
+		decisions: [
+			{ id: "d1", state: "open", question: "Ship?", options: ["Yes", "No"], at: "2026-10-31T09:00:00.000Z" },
+		],
+		wakes: [],
+	};
+
+	it("reaches this computer's windows with the host's id, and a host's own push is its own devices'", async () => {
+		const { a, b, hostId } = await rig.connected();
+		await vi.waitFor(() => expect(b.services.call.mock.calls.some(call => call[1] === "sessions.live")).toBe(true));
+		const conn = b.services.call.mock.calls.find(call => call[1] === "sessions.live")?.[3] as HostConnection;
+		const heard: [string, unknown][] = [];
+		a.devices.onHostBotDesk((device, state) => heard.push([device, state]));
+
+		conn.emit(BOT_DESK_EVENT, OPEN);
+		await vi.waitFor(() =>
+			expect(a.broadcasts.filter(entry => entry.channel === "host-bot-desk:state")).toEqual([
+				{ channel: "host-bot-desk:state", data: { device: hostId, state: OPEN } },
+			]),
+		);
+		expect(heard).toEqual([[hostId, OPEN]]);
+
+		// A desk the link cannot read changes nothing.
+		conn.emit(BOT_DESK_EVENT, { duties: "none" });
+		conn.emit(LIVE_SESSIONS_EVENT, { sessions: [] });
+		await until(a, state => state.hosts[0]?.live !== undefined);
+		expect(a.broadcasts.filter(entry => entry.channel === "host-bot-desk:state")).toHaveLength(1);
+
+		// This computer's own desk goes out to the devices that use it as a host.
+		b.devices.hostBotDeskChanged(OPEN);
+		expect(b.services.botDeskChanged).toHaveBeenCalledWith(OPEN);
+	});
+
+	it("is read, answered and edited on the host the device names, over the link", async () => {
+		const { a, b, hostId } = await rig.connected();
+		b.services.call.mockImplementation(async (_peer, method) => (method === "host.botDesk.get" ? OPEN : null));
+		await expect(a.devices.request(hostId, "host.botDesk.get", {})).resolves.toEqual(OPEN);
+		await a.devices.request(hostId, "host.botDesk.answer", { id: "d1", answer: "Yes" });
+		await a.devices.request(hostId, "host.botDesk.setDuties", { duties: [{ text: "Check the build" }] });
+		expect(
+			b.services.call.mock.calls
+				.filter(call => String(call[1]).startsWith("host.botDesk."))
+				.map(call => [call[1], call[2]]),
+		).toEqual([
+			["host.botDesk.get", {}],
+			["host.botDesk.answer", { id: "d1", answer: "Yes" }],
+			["host.botDesk.setDuties", { duties: [{ text: "Check the build" }] }],
+		]);
+
+		b.services.call.mockImplementation(async () => {
+			throw codedError("bot_off", "The bot is off on this computer");
+		});
+		expect(await rejectionCode(a.devices.request(hostId, "host.botDesk.get", {}))).toBe("bot_off");
 	});
 });

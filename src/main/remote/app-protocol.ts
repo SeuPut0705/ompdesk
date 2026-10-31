@@ -48,6 +48,11 @@
  * - The host's sidebar project list (sidebar-projects.ts): `host.projects.command {request: SidebarProjectsRequest}`
  *   → SidebarProjectsState (get, add a folder the person opened there, remove one from the sidebar); the host pushes
  *   every change as the `host.projects.changed` event
+ * - The host's bot desk (agent-control/bot-desk.ts; the bot's home on a device): `host.botDesk.get {}` →
+ *   BotDeskState (an empty desk while the host's bot is off), `host.botDesk.answer {id, answer}` and
+ *   `host.botDesk.setDuties {duties}` → null (both refused `bot_off` while the bot is off there; an answer reaches the
+ *   host's bot exactly as one given at the host, and counts as one model request of the device); the host pushes every
+ *   change as the `host.botDesk.changed` event
  * - Agent control on a session the host runs (agent-control/branches.ts and local/git/worktree.ts on the host's
  *   own checkout; `worktree` = `{path, branch, baseCwd}` of the tab's binding): `host.git.facts {worktree}` →
  *   BranchFacts, `host.git.evidence {worktree, diffChars}` → BranchEvidence (the child's diff cut to `diffChars`
@@ -71,7 +76,7 @@
  *   `sessions.live {}` → LiveSessionsReply; the host pushes every change as the `host.liveSessions` event.
  *
  * Events (B → A): `tab.event` (TabEventMessage), `sessions.changed` (no data), `host.ompUpdate.changed`,
- * `host.schedules.changed`, `host.projects.changed` and `host.liveSessions`.
+ * `host.schedules.changed`, `host.projects.changed`, `host.botDesk.changed` and `host.liveSessions`.
  * Both sides parse what crosses the link with the schemas below.
  */
 import { z } from "zod";
@@ -166,6 +171,8 @@ export const OMP_UPDATE_EVENT = "host.ompUpdate.changed";
 export const MODEL_WAIT_EVENT = "host.modelWait.changed";
 /** The host's scheduled runs changed (data: SchedulesState); sent to every connected device. */
 export const SCHEDULES_EVENT = "host.schedules.changed";
+/** The host's bot desk changed (data: BotDeskState); sent to every connected device. */
+export const BOT_DESK_EVENT = "host.botDesk.changed";
 /** The host's sidebar project list changed (data: SidebarProjectsState); sent to every connected device. */
 export const PROJECTS_EVENT = "host.projects.changed";
 /**

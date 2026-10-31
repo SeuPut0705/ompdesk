@@ -35,6 +35,7 @@ import type {
 } from "../../shared/rpc-types";
 import type { ScheduleCreated, ScheduleDraft, SchedulesRequest, SchedulesState } from "../../shared/schedules";
 import type { SidebarProjectsRequest, SidebarProjectsState } from "../../shared/sidebar-projects";
+import { type AnsweredDecision, BotDesk } from "../agent-control/bot-desk";
 import { branchEvidence, branchFacts, landingFacts, type WorktreeRef } from "../agent-control/branches";
 import type { MemoryPageCopy } from "../ai-memory/client";
 import { serveConclusionPull, serveConclusionPush, servePull, servePush } from "../ai-memory/sync";
@@ -52,6 +53,7 @@ import { FS_BINARY_REMOTE_MAX_BYTES } from "../workspace-fs";
 import { withRemovalClaim } from "../worktree-removals";
 import {
 	AUTOPILOT_NOTICE_EVENT,
+	BOT_DESK_EVENT,
 	decodeBinaryRead,
 	LIVE_SESSIONS_EVENT,
 	MemoryConclusionPullReply,
@@ -66,6 +68,7 @@ import {
 } from "./app-protocol";
 import type { HostConnection } from "./host-server";
 import {
+	type HostedBotDesk,
 	type HostServicesDeps,
 	LIVE_SESSIONS_DEBOUNCE_MS,
 	LocalHostServices,
@@ -3450,6 +3453,126 @@ describe("LocalHostServices host.* calls", () => {
 			expect(conn.events.filter(entry => entry.event === SCHEDULES_EVENT).map(entry => entry.data)).toEqual([
 				changed,
 			]);
+	});
+
+	it("serves this computer's bot desk to a device only while the bot is on, answers through the owner's own path and pushes changes", async () => {
+		const { services } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		const y = new FakeConnection(peer("device-y"));
+		const desk = new BotDesk({ file: join(workDir, "bot-desk.json") });
+		const told: AnsweredDecision[] = [];
+		let on = false;
+		const wakes = [{ id: "w1", prompt: "check the build", next: "2026-10-31T10:00:00.000Z" }];
+		const bot: HostedBotDesk = {
+			enabled: () => on,
+			state: () => ({ ...desk.state(), wakes }),
+			// What the IPC handler's `answerBotDecision` does: the desk records it, the bot is told what it returns.
+			answer: ({ id, answer }) => void told.push(desk.answer(id, answer)),
+			setDuties: payload => desk.setDuties(payload),
+		};
+		// Before the desk is attached this computer has none to share.
+		await expect(services.call(x.peer, "host.botDesk.get", {}, x)).rejects.toThrow(/no bot desk/);
+		services.attachBotDesk(bot);
+		const open = desk.postDecision({ question: "Ship the release?", options: ["Yes", "No"] });
+
+		// Off: an empty desk to read, and nothing to answer or edit.
+		await expect(services.call(x.peer, "host.botDesk.get", {}, x)).resolves.toEqual({
+			duties: [],
+			decisions: [],
+			wakes: [],
+		});
+		for (const [method, params] of [
+			["host.botDesk.answer", { id: open.id, answer: "Yes" }],
+			["host.botDesk.setDuties", { duties: [{ text: "Check the build" }] }],
+		] as const) {
+			const refused = await services.call(x.peer, method, params, x).catch((error: unknown) => error);
+			expect(ipcErrorCode(refused), method).toBe("bot_off");
+		}
+		expect(told).toEqual([]);
+		expect(desk.state().duties).toEqual([]);
+
+		// On: the desk as this computer's own windows see it, wakes included.
+		on = true;
+		await expect(services.call(y.peer, "host.botDesk.get", {}, y)).resolves.toEqual({ ...desk.state(), wakes });
+		await expect(
+			services.call(x.peer, "host.botDesk.setDuties", { duties: [{ text: "Check the build" }] }, x),
+		).resolves.toBeNull();
+		expect(desk.state().duties.map(duty => duty.text)).toEqual(["Check the build"]);
+		await expect(
+			services.call(x.peer, "host.botDesk.answer", { id: open.id, answer: "Yes, after lunch" }, x),
+		).resolves.toBeNull();
+		expect(told).toMatchObject([{ id: open.id, state: "answered", answer: "Yes, after lunch" }]);
+		// A second answer for the same decision is the desk's refusal, so the bot is never told twice.
+		await expect(services.call(y.peer, "host.botDesk.answer", { id: open.id, answer: "No" }, y)).rejects.toThrow(
+			/already answered/,
+		);
+		expect(told).toHaveLength(1);
+
+		// Only what the owner's own handlers accept crosses the link.
+		for (const [method, params] of [
+			["host.botDesk.answer", { id: "", answer: "Yes" }],
+			["host.botDesk.answer", { id: open.id, answer: "  " }],
+			["host.botDesk.setDuties", { duties: [{ text: "" }] }],
+			["host.botDesk.setDuties", {}],
+		] as const)
+			await expect(services.call(x.peer, method, params, x), method).rejects.toThrow(/Invalid host\.botDesk/);
+
+		const state = { ...desk.state(), wakes };
+		services.botDeskChanged(state);
+		for (const conn of [x, y])
+			expect(conn.events.filter(entry => entry.event === BOT_DESK_EVENT).map(entry => entry.data)).toEqual([state]);
+		// A device that left gets nothing more.
+		services.disconnected(y.peer, y);
+		services.botDeskChanged(state);
+		expect(y.events.filter(entry => entry.event === BOT_DESK_EVENT)).toHaveLength(1);
+		expect(x.events.filter(entry => entry.event === BOT_DESK_EVENT)).toHaveLength(2);
+	});
+
+	it("counts a device's answer to the bot as one request of its day and refunds an answer the desk refused", async () => {
+		const { services } = setup();
+		const stored = new Map<string, PeerInfo>([["device-x", { ...peer("device-x"), limits: { requestsPerDay: 1 } }]]);
+		services.attachQuota(
+			new PeerQuota(
+				{
+					get: id => stored.get(id),
+					update: (id, patch) => {
+						const current = stored.get(id);
+						if (!current) return undefined;
+						const next = { ...current, ...patch };
+						stored.set(id, next);
+						return next;
+					},
+				},
+				() => {},
+			),
+		);
+		const desk = new BotDesk({ file: join(workDir, "bot-desk.json") });
+		services.attachBotDesk({
+			enabled: () => true,
+			state: () => ({ ...desk.state(), wakes: [] }),
+			answer: ({ id, answer }) => void desk.answer(id, answer),
+			setDuties: payload => desk.setDuties(payload),
+		});
+		const x = new FakeConnection(peer("device-x"));
+		const first = desk.postDecision({ question: "One?" });
+		const second = desk.postDecision({ question: "Two?" });
+
+		// A desk that refuses the answer spent nothing.
+		await expect(services.call(x.peer, "host.botDesk.answer", { id: "missing", answer: "Yes" }, x)).rejects.toThrow(
+			/No decision/,
+		);
+		expect(stored.get("device-x")?.usage?.requests ?? 0).toBe(0);
+
+		await services.call(x.peer, "host.botDesk.answer", { id: first.id, answer: "Yes" }, x);
+		expect(stored.get("device-x")?.usage).toMatchObject({ requests: 1 });
+		const refused = await services
+			.call(x.peer, "host.botDesk.answer", { id: second.id, answer: "Yes" }, x)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(refused)).toBe("remote_limit_reached");
+		expect(desk.state().decisions.find(decision => decision.id === second.id)?.state).toBe("open");
+		// Reading the desk and editing duties never counts.
+		await expect(services.call(x.peer, "host.botDesk.get", {}, x)).resolves.toMatchObject({ duties: [] });
+		await services.call(x.peer, "host.botDesk.setDuties", { duties: [{ text: "Check the build" }] }, x);
 	});
 
 	it("serves this computer's own project list to a device and pushes its changes to every device", async () => {

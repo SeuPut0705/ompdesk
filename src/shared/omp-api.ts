@@ -61,6 +61,7 @@ import type {
 	IpcFsSaveCopyPayload,
 	IpcFsSaveCopyResult,
 	IpcFsUploadToHostResult,
+	IpcHostBotDesk,
 	IpcHostedSession,
 	IpcHostOmpUpdate,
 	IpcHostSchedules,
@@ -564,13 +565,21 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			ensureBot: () => transport.invoke(IPC_COMMANDS.SESSIONS_ENSURE_BOT) as Promise<string>,
 			/** The bot's desk (`shared/bot-desk.ts`): main keeps it, the bot's home reads and edits it. */
 			botDesk: {
-				get: () => transport.invoke(IPC_COMMANDS.BOT_DESK_GET) as Promise<BotDeskState>,
-				answer: (payload: BotDeskAnswer) =>
-					transport.invoke(IPC_COMMANDS.BOT_DESK_ANSWER, payload) as Promise<void>,
-				setDuties: (payload: BotDeskDuties) =>
-					transport.invoke(IPC_COMMANDS.BOT_DESK_SET_DUTIES, payload) as Promise<void>,
-				onChanged: (callback: (state: BotDeskState) => void) =>
-					subscribe<BotDeskState>(IPC_EVENTS.BOT_DESK_CHANGED, callback),
+				get: (device?: string) => transport.invoke(IPC_COMMANDS.BOT_DESK_GET, device) as Promise<BotDeskState>,
+				answer: (payload: BotDeskAnswer, device?: string) =>
+					transport.invoke(IPC_COMMANDS.BOT_DESK_ANSWER, payload, device) as Promise<void>,
+				setDuties: (payload: BotDeskDuties, device?: string) =>
+					transport.invoke(IPC_COMMANDS.BOT_DESK_SET_DUTIES, payload, device) as Promise<void>,
+				onChanged: (callback: (state: BotDeskState, device?: string) => void) => {
+					const offLocal = subscribe<BotDeskState>(IPC_EVENTS.BOT_DESK_CHANGED, state => callback(state));
+					const offHost = subscribe<IpcHostBotDesk>(IPC_EVENTS.HOST_BOT_DESK_STATE, update =>
+						callback(update.state, update.device),
+					);
+					return () => {
+						offLocal();
+						offHost();
+					};
+				},
 			},
 		},
 

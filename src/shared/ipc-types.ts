@@ -93,6 +93,12 @@ export interface IpcHostSchedules {
 	state: SchedulesState;
 }
 
+/** A paired host's `BotDeskState`, pushed by the host whenever its bot's desk changes (`host.botDesk.changed`). */
+export interface IpcHostBotDesk {
+	device: string;
+	state: BotDeskState;
+}
+
 export const IPC_EVENTS = {
 	/** Batched agent session events (16ms cadence) */
 	EVENTS_BATCH: "rpc:events",
@@ -133,6 +139,8 @@ export const IPC_EVENTS = {
 	SESSIONS_CHANGED: "sessions:changed",
 	/** The bot's desk changed (`BotDeskState`) */
 	BOT_DESK_CHANGED: "bot-desk:changed",
+	/** A paired host's bot desk changed (pushed by the host over the link); payload is an IpcHostBotDesk. */
+	HOST_BOT_DESK_STATE: "host-bot-desk:state",
 	/** The sessions paired devices' tabs run on this computer changed (`IpcHostedSession[]`) */
 	HOSTED_SESSIONS_CHANGED: "sessions:hosted-changed",
 	/** What this computer works on now changed (`HostLiveSession[]`, `LIVE_SESSIONS`) */
@@ -2290,10 +2298,12 @@ export interface OmpApi {
 		ensureBot(): Promise<string>;
 		/** The bot's desk (`shared/bot-desk.ts`), kept by main. */
 		botDesk: {
-			get(): Promise<BotDeskState>;
-			answer(payload: BotDeskAnswer): Promise<void>;
-			setDuties(payload: BotDeskDuties): Promise<void>;
-			onChanged(callback: (state: BotDeskState) => void): () => void;
+			/** `device` = a paired host's id: that computer's desk, read over the link. */
+			get(device?: string): Promise<BotDeskState>;
+			answer(payload: BotDeskAnswer, device?: string): Promise<void>;
+			setDuties(payload: BotDeskDuties, device?: string): Promise<void>;
+			/** This computer's desk (no `device`) and every paired host's, as each pushes it. */
+			onChanged(callback: (state: BotDeskState, device?: string) => void): () => void;
 		};
 	};
 	tabs: {

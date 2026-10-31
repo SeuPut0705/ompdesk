@@ -66,7 +66,8 @@ function snapshotKey(scope: SessionListScope): string {
 
 /**
  * The same row as before: its journal (modified, size, title, kind) and what a paired host says of it beside the
- * journal (who opened it, whether a tab there holds it, its children's verdict), which change with no journal write.
+ * journal (who opened it, whether a tab there holds it, its children's verdict, whether it is the bot's, the owner's
+ * switch moving it on or off), which change with no journal write.
  */
 function sameRow(prev: SessionInfo, next: SessionInfo): boolean {
 	return (
@@ -76,7 +77,8 @@ function sameRow(prev: SessionInfo, next: SessionInfo): boolean {
 		prev.kind === next.kind &&
 		prev.openedBySession === next.openedBySession &&
 		prev.heldOnHost === next.heldOnHost &&
-		prev.childProblem === next.childProblem
+		prev.childProblem === next.childProblem &&
+		prev.bot === next.bot
 	);
 }
 

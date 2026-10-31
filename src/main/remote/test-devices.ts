@@ -66,6 +66,8 @@ export interface Computer {
 	listeners: Set<() => void>;
 	/** The last `remote:tailnet` push. */
 	tailnet: { pushed: TailnetComputer[] };
+	/** Every other push to this computer's windows (the host events a device broadcasts), in order. */
+	broadcasts: { channel: string; data: unknown }[];
 	prefs: Map<string, unknown>;
 	userData: string;
 	fake: FakeTailnet;
@@ -74,7 +76,7 @@ export interface Computer {
 	confirm: { answer: boolean; asked: string[] };
 	allowed: string[];
 	/** The fake host services: `call`'s 4th argument is the connection a device's request came on. */
-	services: { call: ReturnType<typeof vi.fn> };
+	services: { call: ReturnType<typeof vi.fn>; botDeskChanged: ReturnType<typeof vi.fn> };
 }
 
 export class DevicesRig {
@@ -100,6 +102,7 @@ export class DevicesRig {
 		if (!prefs.has("remote.deviceName")) prefs.set("remote.deviceName", name);
 		const listeners = new Set<() => void>();
 		const tailnet = { pushed: [] as TailnetComputer[] };
+		const broadcasts: { channel: string; data: unknown }[] = [];
 		const blocks = new WebBlocks(dir);
 		const confirm = { answer: true, asked: [] as string[] };
 		const allowed = [LOGIN];
@@ -111,6 +114,7 @@ export class DevicesRig {
 			dropPeer: vi.fn(),
 			call: vi.fn(async () => null),
 			disconnected: vi.fn(),
+			botDeskChanged: vi.fn(),
 		};
 		const devices = new RemoteDevices({
 			userData: dir,
@@ -118,7 +122,8 @@ export class DevicesRig {
 			prefs: { get: key => prefs.get(key), set: (key, value) => prefs.set(key, value) },
 			broadcast: (channel, data) => {
 				if (channel === "remote:state") for (const listener of [...listeners]) listener();
-				if (channel === "remote:tailnet") tailnet.pushed = structuredClone(data as TailnetComputer[]);
+				else if (channel === "remote:tailnet") tailnet.pushed = structuredClone(data as TailnetComputer[]);
+				else broadcasts.push({ channel, data });
 			},
 			services: options.services ?? (services as unknown as LocalHostServices),
 			logLink: options.logLink,
@@ -142,7 +147,19 @@ export class DevicesRig {
 			loopback: true,
 		});
 		this.#running.push(devices);
-		return { devices, listeners, tailnet, prefs, userData: dir, fake, blocks, confirm, allowed, services };
+		return {
+			devices,
+			listeners,
+			tailnet,
+			broadcasts,
+			prefs,
+			userData: dir,
+			fake,
+			blocks,
+			confirm,
+			allowed,
+			services,
+		};
 	}
 
 	/** A host B sharing itself and a device A that sees it as node `nSTUDIO`; B sees A as node `nLAPTOP`. */

@@ -5,12 +5,12 @@
  * is main's (`stores/bot-desk.ts`); until the first read lands every part of it is a static skeleton, never a spinner.
  */
 import { Bot } from "lucide-react";
-import { type ReactNode, useId } from "react";
+import { type ReactNode, useEffect, useId } from "react";
 import { openBotDecisions } from "../../../shared/bot-desk";
 import { formatClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { botDisplayName } from "../../lib/session-title";
-import { useBotDeskStore } from "../../stores/bot-desk";
+import { ensureBotDesk, useBotDesk, useBotDeskStore } from "../../stores/bot-desk";
 import { useRemoteStore } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
@@ -41,11 +41,16 @@ function HomeSection({ title, count, children }: { title: string; count?: number
 	);
 }
 
-function BotHeader({ tabId }: { tabId: string }) {
+function BotHeader({ tabId, device }: { tabId: string; device?: string }) {
 	const t = useT();
 	const tab = useTabsStore(state => state.tabs.find(entry => entry.id === tabId));
-	const wakes = useBotDeskStore(state => state.desk.wakes);
-	const device = useRemoteStore(state => state.state?.host.name);
+	const { wakes } = useBotDesk(device).desk;
+	// This computer's name, or the paired host the bot runs on.
+	const computer = useRemoteStore(state =>
+		device === undefined
+			? state.state?.host.name
+			: (state.state?.hosts.find(host => host.deviceId === device)?.name ?? device),
+	);
 	// The tab's own omp holds the name (its session's title, which Settings › Bot renames); no list read for it.
 	const sessionName = useSessionStore(state => state.sessionName);
 	const name = botDisplayName({ title: sessionName ?? "" }, t("sidebar.botBadge"));
@@ -71,29 +76,32 @@ function BotHeader({ tabId }: { tabId: string }) {
 					<span data-bot-next-wake>
 						{wake ? t("botHome.nextWake", { time: formatClock(wake) }) : t("botHome.noWake")}
 					</span>
-					<span data-bot-device>{t("botHome.device", { device: device || t("botHome.thisComputer") })}</span>
+					<span data-bot-device>{t("botHome.device", { device: computer || t("botHome.thisComputer") })}</span>
 				</p>
 			</div>
 		</header>
 	);
 }
 
-export function BotHome({ tabId }: { tabId: string }) {
+export function BotHome({ tabId, device }: { tabId: string; device?: string }) {
 	const t = useT();
-	const desk = useBotDeskStore(state => state.desk);
-	const loaded = useBotDeskStore(state => state.loaded);
-	const loadError = useBotDeskStore(state => state.loadError);
+	const { desk, loaded, loadError } = useBotDesk(device);
 	const refresh = useBotDeskStore(state => state.refresh);
 	const open = openBotDecisions(desk);
+	// This computer's desk is read by the sidebar at launch; a host's is read on demand (its sidebar section reads it
+	// too for the count once its link is up).
+	useEffect(() => {
+		if (device !== undefined) ensureBotDesk(device);
+	}, [device]);
 	const skeleton = (widths: readonly number[]) => <SkeletonRows label={t("botHome.loading")} widths={widths} />;
 	return (
 		<div className="min-h-0 flex-1 overflow-y-auto" data-bot-home>
 			<div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-6">
-				<BotHeader tabId={tabId} />
+				<BotHeader device={device} tabId={tabId} />
 				{!loaded && loadError ? (
 					<InlineNotice
 						action={
-							<Button onClick={() => void refresh()} size="sm">
+							<Button onClick={() => void refresh(device)} size="sm">
 								{t("common.retry")}
 							</Button>
 						}
@@ -103,10 +111,10 @@ export function BotHome({ tabId }: { tabId: string }) {
 					/>
 				) : null}
 				<HomeSection count={open.length} title={t("botHome.decisions.title")}>
-					{loaded ? <BotDecisions decisions={desk.decisions} /> : skeleton([70, 45])}
+					{loaded ? <BotDecisions decisions={desk.decisions} device={device} /> : skeleton([70, 45])}
 				</HomeSection>
 				<HomeSection title={t("botHome.duties.title")}>
-					{loaded ? <BotDuties duties={desk.duties} /> : skeleton([60, 50, 40])}
+					{loaded ? <BotDuties device={device} duties={desk.duties} /> : skeleton([60, 50, 40])}
 				</HomeSection>
 				<HomeSection title={t("botHome.sessions.title")}>
 					<BotSessions tabId={tabId} />

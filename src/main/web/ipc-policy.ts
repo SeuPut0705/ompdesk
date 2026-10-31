@@ -510,6 +510,7 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[E.MODEL_CATALOG_UPDATE]: { dir: "push", mode: "pass" },
 	[E.SESSIONS_CHANGED]: { dir: "push", mode: "pass" },
 	[E.BOT_DESK_CHANGED]: { dir: "push", mode: "pass" },
+	[E.HOST_BOT_DESK_STATE]: { dir: "push", mode: "pass" },
 	[E.HOSTED_SESSIONS_CHANGED]: { dir: "push", mode: "pass" },
 	[E.LIVE_SESSIONS_CHANGED]: { dir: "push", mode: "pass" },
 	[E.SESSIONS_HELD_CHANGED]: { dir: "push", mode: "pass" },

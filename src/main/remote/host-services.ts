@@ -43,6 +43,14 @@ import { z } from "zod";
 import { PROMPT_ORIGIN_HOST_ID, type PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origin-contracts";
 import { ACCOUNT_ROTATION_MODES } from "../../shared/account-rotation";
 import { type AgentReviewResult, reviewUnmerged } from "../../shared/agent-control";
+import {
+	type BotDeskAnswer,
+	BotDeskAnswerSchema,
+	type BotDeskDuties,
+	BotDeskDutiesSchema,
+	type BotDeskState,
+	EMPTY_BOT_DESK,
+} from "../../shared/bot-desk";
 import { codedError } from "../../shared/ipc-error-codes";
 import {
 	HOST_UPLOAD_MAX_BYTES,
@@ -137,6 +145,7 @@ import {
 	AUTOPILOT_NOTICE_EVENT,
 	type AutopilotNoticeEvent,
 	BenchmarkOptionsSchema,
+	BOT_DESK_EVENT,
 	CustomProviderInputSchema,
 	encodeBinaryRead,
 	GIT_METHODS,
@@ -399,6 +408,18 @@ export type HostedAgentReview = (
 	command: { type: "agent_control_review" | "agent_control_family_edits" } & Record<string, unknown>,
 ) => Promise<RpcResponse>;
 
+/**
+ * This computer's bot desk as a paired device sees it (`attachBotDesk`, built with the IPC handlers). `answer` is the
+ * path the owner's own answer takes, so the bot is told once whoever answered.
+ */
+export interface HostedBotDesk {
+	/** The owner has the bot on: only then is the desk read or answered over the link. */
+	enabled(): boolean;
+	state(): BotDeskState;
+	answer(payload: BotDeskAnswer): void;
+	setDuties(payload: BotDeskDuties): void;
+}
+
 const Rtab = z.string().min(1).max(128);
 const AbsolutePath = z.string().min(1).refine(isAbsolute, "absolute path required");
 const SessionPath = z.string().endsWith(".jsonl");
@@ -576,6 +597,7 @@ export class LocalHostServices implements HostServices {
 	#resume: Pick<TurnResume, "sync" | "cancelWait"> | null = null;
 	#autopilot: HostedAutopilot | null = null;
 	#agentReview: HostedAgentReview | null = null;
+	#botDesk: HostedBotDesk | null = null;
 	/** Autopilot runs a device started here (worktree root → deviceId), read once from `runChargesFile`. */
 	#runCharges: Map<string, RunCharge> | null = null;
 	/** The run (worktree root) a window tab holding a session belongs to: the run itself or one of its children. */
@@ -636,6 +658,11 @@ export class LocalHostServices implements HostServices {
 	/** This computer's control tools for a device viewing a window's session (see {@link HostedAgentReview}). */
 	attachAgentReview(review: HostedAgentReview): void {
 		this.#agentReview = review;
+	}
+
+	/** This computer's bot desk (built after this service, with the IPC handlers). */
+	attachBotDesk(desk: HostedBotDesk): void {
+		this.#botDesk = desk;
 	}
 
 	/**
@@ -1254,6 +1281,28 @@ export class LocalHostServices implements HostServices {
 				return this.#deps.machine.scheduleLog(parse(SchedulesLogParams, method, params).runId);
 			case "host.schedules.create":
 				return this.#deps.machine.createSchedule(parse(SchedulesCreateParams, method, params).draft, peer.deviceId);
+			// The device's view of this computer's bot: the desk its own windows show. An answer goes through the one
+			// path the owner's own does (`HostedBotDesk.answer`), so the bot is told exactly once, as at this computer.
+			case "host.botDesk.get": {
+				const desk = this.#hostedBotDesk();
+				return desk.enabled() ? desk.state() : EMPTY_BOT_DESK;
+			}
+			case "host.botDesk.answer": {
+				const payload = parse(BotDeskAnswerSchema, method, params);
+				const desk = this.#botDeskOn();
+				// The answer wakes the bot on this computer's models: one request of the device's day.
+				await this.#metered(
+					peer.deviceId,
+					1,
+					async () => desk.answer(payload),
+					() => true,
+				);
+				return null;
+			}
+			case "host.botDesk.setDuties": {
+				this.#botDeskOn().setDuties(parse(BotDeskDutiesSchema, method, params));
+				return null;
+			}
 			// The device's sidebar section for this computer: this computer's own project list, the one its windows show.
 			case "host.projects.command":
 				return this.#deps.machine.sidebarProjects(parse(ProjectsCommandParams, method, params).request);
@@ -1397,6 +1446,23 @@ export class LocalHostServices implements HostServices {
 	/** This machine's scheduled runs changed: every connected device showing them follows. */
 	schedulesChanged(state: SchedulesState): void {
 		for (const conn of this.#conns) emitSafely(conn, SCHEDULES_EVENT, state);
+	}
+
+	/** This computer's bot desk changed: every connected device showing it follows. */
+	botDeskChanged(state: BotDeskState): void {
+		for (const conn of this.#conns) emitSafely(conn, BOT_DESK_EVENT, state);
+	}
+
+	#hostedBotDesk(): HostedBotDesk {
+		if (!this.#botDesk) throw codedError("unsupported", "This computer has no bot desk to share");
+		return this.#botDesk;
+	}
+
+	/** The desk for a change: refused while the owner has the bot off, as the bot's row is gone there. */
+	#botDeskOn(): HostedBotDesk {
+		const desk = this.#hostedBotDesk();
+		if (!desk.enabled()) throw codedError("bot_off", "The bot is off on this computer");
+		return desk;
 	}
 
 	/** This machine's sidebar project list changed: every connected device's section for it follows. */

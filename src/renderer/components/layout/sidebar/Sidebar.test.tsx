@@ -15,7 +15,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import { SidebarProjects } from "../../../../main/sidebar-projects";
 import { type AgentReviewItem, wrapAgentMessage } from "../../../../shared/agent-control";
-import type { BotDecision } from "../../../../shared/bot-desk";
+import type { BotDecision, BotDeskState } from "../../../../shared/bot-desk";
 import { codedError } from "../../../../shared/ipc-error-codes";
 import type { HostView, SessionInfo } from "../../../../shared/ipc-types";
 import type { SidebarProjectsRequest, SidebarProjectsState } from "../../../../shared/sidebar-projects";
@@ -4271,6 +4271,96 @@ describe("Sidebar device sections", () => {
 		expect(section?.querySelector("[data-sidebar-bot-row]")).toBeNull();
 		expect(section?.querySelector(`[data-device-session="${bot.path}"]`)).toBeNull();
 		expect(section?.querySelector(`[data-device-session="${app.path}"]`)).not.toBeNull();
+	});
+
+	describe("a paired host's bot decisions", () => {
+		const decision = (id: string, state: "open" | "answered"): BotDecision =>
+			state === "open"
+				? { id, state, question: `Question ${id}?`, options: [], at: "2026-10-31T09:00:00.000Z" }
+				: {
+						id,
+						state,
+						question: `Question ${id}?`,
+						options: [],
+						answer: "Yes",
+						at: "2026-10-31T09:00:00.000Z",
+						answeredAt: "2026-10-31T09:01:00.000Z",
+					};
+		const hostBot = session("/s/work/bot.jsonl", "/work", {
+			title: "Friday",
+			kind: "chat",
+			bot: "on",
+			device: "dev-studio",
+		});
+
+		async function mountWithHostDesk(hostDesk: BotDeskState) {
+			const omp = installWithRemote();
+			omp.sessions.list.mockImplementation(async (_scope, device) => (device === "dev-studio" ? [hostBot] : LIST));
+			// This computer's own desk is empty: a count on the host's row is the host's.
+			const get = vi.fn(async (device?: string) =>
+				device === "dev-studio" ? hostDesk : { duties: [], wakes: [], decisions: [] },
+			);
+			(omp.sessions as unknown as { botDesk: unknown }).botDesk = {
+				get,
+				answer: vi.fn(async () => {}),
+				setDuties: vi.fn(async () => {}),
+				onChanged: vi.fn(() => () => {}),
+			};
+			seedStores();
+			pairHost("online");
+			await mount(<Sidebar />);
+			await act(async () => {
+				await vi.waitFor(() => expect(get).toHaveBeenCalledWith("dev-studio"));
+			});
+			return get;
+		}
+		const hostRow = () => container.querySelector('[data-sidebar-device="dev-studio"] [data-sidebar-bot-row]');
+
+		it("counts the host's open decisions on its bot's row, as this computer's own row does", async () => {
+			await mountWithHostDesk({
+				duties: [],
+				wakes: [],
+				decisions: [decision("a", "open"), decision("b", "answered"), decision("c", "open")],
+			});
+
+			const count = hostRow()?.querySelector("[data-sidebar-bot-decisions]");
+			expect(count?.textContent).toBe(translate("sidebar.botDecisions", { count: 2 }));
+			expect(count?.getAttribute("title")).toBe(translate("sidebar.botDecisionsTip", { count: 2 }));
+			expect(hostRow()?.getAttribute("data-bot-decisions")).toBe("true");
+			expect(hostRow()?.querySelector("button")?.getAttribute("title")).toContain(
+				translate("sidebar.botDecisionsTip", { count: 2 }),
+			);
+			expect(container.querySelectorAll("[data-sidebar-bot-decisions]")).toHaveLength(1);
+		});
+
+		it("shows no count while none of the host's decisions is open", async () => {
+			await mountWithHostDesk({ duties: [], wakes: [], decisions: [decision("a", "answered")] });
+
+			expect(hostRow()).not.toBeNull();
+			expect(hostRow()?.querySelector("[data-sidebar-bot-decisions]")).toBeNull();
+			expect(hostRow()?.getAttribute("data-bot-decisions")).toBeNull();
+		});
+
+		it("follows the host's pushes and opens the home when the row is clicked with a decision waiting", async () => {
+			await mountWithHostDesk({ duties: [], wakes: [], decisions: [decision("a", "open")] });
+			expect(hostRow()?.querySelector("[data-sidebar-bot-decisions]")).not.toBeNull();
+
+			await act(async () =>
+				useBotDeskStore
+					.getState()
+					.apply({ duties: [], wakes: [], decisions: [decision("a", "answered")] }, "dev-studio"),
+			);
+			expect(hostRow()?.querySelector("[data-sidebar-bot-decisions]")).toBeNull();
+
+			await act(async () =>
+				useBotDeskStore
+					.getState()
+					.apply({ duties: [], wakes: [], decisions: [decision("d", "open")] }, "dev-studio"),
+			);
+			useBotDeskStore.getState().setView("chat");
+			await fire(hostRow()?.querySelector("button") ?? null, "onClick");
+			expect(useBotDeskStore.getState().view).toBe("home");
+		});
 	});
 
 	describe("a paired host's session menu", () => {

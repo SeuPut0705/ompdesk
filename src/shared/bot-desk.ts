@@ -64,6 +64,9 @@ export interface BotDeskState extends BotDeskFile {
 	wakes: BotWake[];
 }
 
+/** `host.botDesk.get`'s reply and `host.botDesk.changed`'s data: a paired host's desk as the link carries it. */
+export const BotDeskStateSchema: z.ZodType<BotDeskState> = BotDeskFileSchema.extend({ wakes: z.array(BotWakeSchema) });
+
 export const EMPTY_BOT_DESK: BotDeskState = { duties: [], decisions: [], wakes: [] };
 
 /** A stored file as main reads it: anything unreadable is an empty desk, never a crash. */

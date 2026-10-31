@@ -1775,6 +1775,7 @@ export const en: Record<string, string> = {
 	"ipcError.remote_tailscale_off": "Tailscale isn't running on this computer. Start it and sign in, then try again.",
 	"ipcError.remote_limit_reached":
 		"This device's daily limit on the host's models is used up. It resets at midnight on the host, or the host can raise it in Settings › Devices & connections.",
+	"ipcError.bot_off": "The bot is off on that computer. Turn it on in its Settings › Bot.",
 	"ipcError.host_busy":
 		"Work is running on the host computer, so it can't restart now. Install once its sessions and devices are idle.",
 	"ipcError.update_not_ready":

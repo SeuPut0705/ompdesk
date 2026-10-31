@@ -21,7 +21,6 @@ import {
 	GitBranch,
 	GitBranchPlus,
 	GitFork,
-	Inbox,
 	Info,
 	Keyboard,
 	MessageCircle,
@@ -96,7 +95,7 @@ import { isSessionDown, isTabFailed, tabSignalPresentation } from "../../../lib/
 import { pickWorkspaceDirectory } from "../../../lib/workspace-dirs";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
 import { ensureBotPath, useBotStore } from "../../../stores/bot";
-import { ensureBotDesk, useBotDeskStore } from "../../../stores/bot-desk";
+import { ensureBotDesk, useBotDesk, useBotDeskStore } from "../../../stores/bot-desk";
 import { ensureClosedChildren, useClosedChildrenStore } from "../../../stores/closed-children";
 import { useComposerStore } from "../../../stores/composer";
 import { useHostedSessionsStore } from "../../../stores/hosted-sessions";
@@ -113,6 +112,7 @@ import { type SessionTab, useTabsStore } from "../../../stores/tabs";
 import { toast, toastError } from "../../../stores/toast";
 import { type PageDestination, type PanelTab, useUiStore } from "../../../stores/ui";
 import { startInstall, useInstallOffered } from "../../../web/install-ui";
+import { BotDecisionsBadge } from "../../bot/BotDecisionsBadge";
 import { botState, botStateKey, nextWake, tabBotFacts } from "../../bot/bot-status";
 import {
 	Badge,
@@ -547,7 +547,7 @@ export function Sidebar() {
 	const agentHidden = useSidebarPrefs(s => s.agentHidden);
 	const botOn = useBotStore(s => s.enabled);
 	const botPath = useBotStore(s => s.path);
-	const botDesk = useBotDeskStore(s => s.desk);
+	const botDesk = useBotDesk().desk;
 	const groupAliases = useSidebarPrefs(s => s.groupAliases);
 	const archivedSessions = useSidebarPrefs(s => s.archivedSessions);
 	// The projects this computer lists apart from its sessions: an empty one keeps its group (src/main/sidebar-projects.ts).
@@ -1808,12 +1808,7 @@ export function Sidebar() {
 				</span>
 			</Badge>
 		) : botDecisions > 0 ? (
-			<Badge className="omp-sidebar-approval" variant="warning">
-				<Inbox aria-hidden className="size-3 shrink-0" />
-				<span className="min-w-0 truncate" data-sidebar-bot-decisions={botDecisions} title={botDecisionsTip}>
-					{t("sidebar.botDecisions", { count: botDecisions })}
-				</span>
-			</Badge>
+			<BotDecisionsBadge count={botDecisions} />
 		) : (
 			<SessionLiveAge
 				iso={indexed ? session.modified : null}

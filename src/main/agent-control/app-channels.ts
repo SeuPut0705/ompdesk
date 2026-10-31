@@ -279,6 +279,7 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[E.MODEL_CATALOG_UPDATE]: never(PUSH),
 	[E.SESSIONS_CHANGED]: never(PUSH),
 	[E.BOT_DESK_CHANGED]: never(PUSH),
+	[E.HOST_BOT_DESK_STATE]: never(PUSH),
 	[E.HOSTED_SESSIONS_CHANGED]: never(PUSH),
 	[E.LIVE_SESSIONS_CHANGED]: never(PUSH),
 	[E.SESSIONS_HELD_CHANGED]: never(PUSH),

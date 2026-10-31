@@ -28,7 +28,7 @@ function DecisionContext({ text }: { text: string }) {
 	);
 }
 
-function DecisionCard({ decision }: { decision: BotDecision }) {
+function DecisionCard({ decision, device }: { decision: BotDecision; device?: string }) {
 	const t = useT();
 	const answer = useBotDeskStore(state => state.answer);
 	const [draft, setDraft] = useState("");
@@ -37,7 +37,7 @@ function DecisionCard({ decision }: { decision: BotDecision }) {
 		const value = text.trim();
 		if (!value || pending) return;
 		setPending(true);
-		const ok = await answer(decision.id, value);
+		const ok = await answer(decision.id, value, device);
 		// An accepted answer leaves with main's change; a refused one stays to try again.
 		if (!ok) setPending(false);
 	};
@@ -118,7 +118,7 @@ function AnsweredDecision({ decision }: { decision: Extract<BotDecision, { state
 	);
 }
 
-export function BotDecisions({ decisions }: { decisions: readonly BotDecision[] }) {
+export function BotDecisions({ decisions, device }: { decisions: readonly BotDecision[]; device?: string }) {
 	const t = useT();
 	const [pastOpen, setPastOpen] = useState(false);
 	const open = decisions.filter(decision => decision.state === "open");
@@ -133,7 +133,7 @@ export function BotDecisions({ decisions }: { decisions: readonly BotDecision[] 
 			) : (
 				<ul className="flex flex-col gap-3" data-bot-decisions>
 					{open.map(decision => (
-						<DecisionCard decision={decision} key={decision.id} />
+						<DecisionCard decision={decision} device={device} key={decision.id} />
 					))}
 				</ul>
 			)}

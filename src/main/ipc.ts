@@ -40,7 +40,14 @@ import {
 	privacyPaneUrl,
 	reviewFromDevice,
 } from "../shared/agent-control";
-import { BotDeskAnswerSchema, BotDeskDutiesSchema, type BotDeskState, type BotWake } from "../shared/bot-desk";
+import {
+	type BotDeskAnswer,
+	BotDeskAnswerSchema,
+	BotDeskDutiesSchema,
+	type BotDeskState,
+	BotDeskStateSchema,
+	type BotWake,
+} from "../shared/bot-desk";
 import { BOT_RULES_PREF } from "../shared/bot-rules";
 import { REA_PREF } from "../shared/builtin-mcp";
 import {
@@ -108,6 +115,7 @@ import type {
 import {
 	IPC_COMMANDS,
 	IPC_EVENTS,
+	type IpcHostBotDesk,
 	type IpcInstallBrowserRelayPayload,
 	type IpcInstallBrowserRelayResult,
 	type IpcSessionsChanged,
@@ -253,6 +261,7 @@ export interface IpcDeps {
 		| "sidecarOf"
 		| "attachAutopilot"
 		| "attachAgentReview"
+		| "attachBotDesk"
 		| "agentReviewChanged"
 		| "chargeRun"
 		| "runEvents"
@@ -1281,8 +1290,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		broadcast(windowManager, IPC_EVENTS.BOT_DESK_CHANGED, state);
 		for (const win of deps.webPages?.() ?? [])
 			if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.BOT_DESK_CHANGED, state);
+		// Devices showing this computer's bot follow too, whatever moved the desk (the bot, an answer, a wake, the switch).
+		remoteDevices.hostBotDeskChanged(state);
 	};
 	deps.botDesk.onChange(pushBotDesk);
+	// The desktop windows hear a host's desk from `devices.ts`; a paired web page's window is reached only from here.
+	remoteDevices.onHostBotDesk((device, state) => {
+		const update: IpcHostBotDesk = { device, state };
+		for (const win of deps.webPages?.() ?? [])
+			if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.HOST_BOT_DESK_STATE, update);
+	});
 	deps.botDeskPush.current = pushBotDesk;
 	const agentControl: AgentControlRuntime = new AgentControlRuntime({
 		botDesk: { desk: deps.botDesk, wakes: botWakesNow },
@@ -1488,17 +1505,38 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		return remoteDevices.listHostSessions(device, scope, cwd);
 	});
 
+	// One answer path for the owner's own and a paired device's (`host.botDesk.answer`): recorded first, so the bot is
+	// told once, and an answer for a decision that is gone or answered is refused here.
+	const answerBotDecision = ({ id, answer }: BotDeskAnswer): void =>
+		void agentControl.botDecisionAnswered(deps.botDesk.answer(id, answer));
+	// A paired device's home for this computer's bot: only while the bot is on, as its row is gone otherwise.
+	deps.hostedTabs.attachBotDesk({
+		enabled: () => botEnabled(prefsStore.get(BOT_ENABLED_PREF)),
+		state: botDeskState,
+		answer: answerBotDecision,
+		setDuties: payload => deps.botDesk.setDuties(payload),
+	});
+	// With `device`, a paired host's own desk over the link: its answer reaches that host's bot, never this one's.
+	ipc.handle(IPC_COMMANDS.BOT_DESK_GET, async (_caller, device?: unknown) => {
+		const host = deviceOf(device);
+		return host
+			? BotDeskStateSchema.parse(await remoteDevices.request(host, "host.botDesk.get", {}))
+			: botDeskState();
+	});
+	ipc.handle(IPC_COMMANDS.BOT_DESK_ANSWER, async (_caller, payload: unknown, device?: unknown) => {
+		const answer = BotDeskAnswerSchema.parse(payload);
+		const host = deviceOf(device);
+		if (host) await remoteDevices.request(host, "host.botDesk.answer", answer);
+		else answerBotDecision(answer);
+	});
+	ipc.handle(IPC_COMMANDS.BOT_DESK_SET_DUTIES, async (_caller, payload: unknown, device?: unknown) => {
+		const duties = BotDeskDutiesSchema.parse(payload);
+		const host = deviceOf(device);
+		if (host) await remoteDevices.request(host, "host.botDesk.setDuties", duties);
+		else deps.botDesk.setDuties(duties);
+	});
 	// The bot's session (agent-control/bot-home.ts): the sidebar's bot row opens what this answers, made first when
 	// the file is missing (a launch is its first seconds; a deleted one). Never while the owner has the bot off.
-	ipc.handle(IPC_COMMANDS.BOT_DESK_GET, () => botDeskState());
-	ipc.handle(IPC_COMMANDS.BOT_DESK_ANSWER, (_caller, payload: unknown) => {
-		const { id, answer } = BotDeskAnswerSchema.parse(payload);
-		// Recorded first: the bot is told once, and an answer for a decision that is gone or answered is refused here.
-		void agentControl.botDecisionAnswered(deps.botDesk.answer(id, answer));
-	});
-	ipc.handle(IPC_COMMANDS.BOT_DESK_SET_DUTIES, (_caller, payload: unknown) =>
-		deps.botDesk.setDuties(BotDeskDutiesSchema.parse(payload)),
-	);
 	ipc.handle(IPC_COMMANDS.SESSIONS_ENSURE_BOT, () =>
 		botEnabled(prefsStore.get(BOT_ENABLED_PREF))
 			? deps.botHome.ensureBotSession()

@@ -11,7 +11,7 @@ import { useBotDeskStore } from "../../stores/bot-desk";
 import { Button, IconButton, Input } from "../common";
 import { BoardRow, KindMark } from "../layout/work-board/board-parts";
 
-export function BotDuties({ duties }: { duties: readonly BotDuty[] }) {
+export function BotDuties({ duties, device }: { duties: readonly BotDuty[]; device?: string }) {
 	const t = useT();
 	const setDuties = useBotDeskStore(state => state.setDuties);
 	const [draft, setDraft] = useState("");
@@ -19,7 +19,7 @@ export function BotDuties({ duties }: { duties: readonly BotDuty[] }) {
 	const full = duties.length >= BOT_DUTIES_MAX;
 	const write = async (next: { id?: string; text: string }[]): Promise<boolean> => {
 		setPending(true);
-		const ok = await setDuties(next);
+		const ok = await setDuties(next, device);
 		setPending(false);
 		return ok;
 	};

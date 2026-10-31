@@ -115,6 +115,8 @@ export const IPC_ERROR_CODES = [
 	"remote_tailscale_off",
 	// A paired device's daily model-use limit on this host is used up (remote/peer-quota.ts).
 	"remote_limit_reached",
+	// A paired device read or answered a host's bot while it is off there (host-services.ts `host.botDesk.*`).
+	"bot_off",
 	// A device asked a host to install its update (machine-services.ts desktopUpdate).
 	"host_busy",
 	"update_not_ready",

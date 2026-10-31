@@ -32,10 +32,10 @@ globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0
 const BOT = "/work-sessions/bot.jsonl";
 
 interface Api {
-	get: Mock<() => Promise<BotDeskState>>;
-	answer: Mock<(payload: BotDeskAnswer) => Promise<void>>;
-	setDuties: Mock<(payload: BotDeskDuties) => Promise<void>>;
-	onChanged: Mock<(callback: (state: BotDeskState) => void) => () => void>;
+	get: Mock<(device?: string) => Promise<BotDeskState>>;
+	answer: Mock<(payload: BotDeskAnswer, device?: string) => Promise<void>>;
+	setDuties: Mock<(payload: BotDeskDuties, device?: string) => Promise<void>>;
+	onChanged: Mock<(callback: (state: BotDeskState, device?: string) => void) => () => void>;
 }
 
 function installApi(overrides: Partial<Api> = {}): Api {
@@ -354,5 +354,50 @@ describe("BotHome", () => {
 		expect(row?.getAttribute("data-status")).toBe("running");
 		await click(row);
 		expect(applyAgentView).toHaveBeenCalledWith({ tabId: "tkid", how: "focus" });
+	});
+
+	it("is a paired host's home: its desk, its name in the header, and answers and duties go to that host", async () => {
+		const api = installApi({ get: vi.fn(async () => desk({ decisions: [OPEN] })) });
+		useRemoteStore.setState({
+			state: { host: { name: "SeuPut's Mac" }, hosts: [{ deviceId: "mini", name: "Mac mini" }] },
+		} as never);
+		useTabsStore.setState({
+			tabs: [
+				{
+					id: "tmini",
+					device: "mini",
+					cwd: "/w",
+					status: "ready",
+					kind: "chat",
+					sessionPath: BOT,
+					unreadDone: false,
+				},
+			],
+			activeTabId: "tmini",
+		} as never);
+		// This computer's own desk says nothing is waiting; only the host's has a decision.
+		useBotDeskStore.getState().apply(desk());
+		useBotDeskStore.getState().apply(desk({ decisions: [OPEN] }), "mini");
+		await mount(<BotHome device="mini" tabId="tmini" />);
+
+		expect(queryAll("[data-bot-option]").map(button => button.textContent)).toEqual(["Ship it", "Wait a day"]);
+		expect(query("[data-bot-device]")?.textContent).toBe(translate("botHome.device", { device: "Mac mini" }));
+		// Only the host's desk is read, never this computer's.
+		expect(api.get.mock.calls.every(call => call[0] === "mini")).toBe(true);
+
+		await click(query('[data-bot-option="Ship it"]'));
+		expect(api.answer).toHaveBeenCalledWith({ id: "d1", answer: "Ship it" }, "mini");
+
+		await type(query("[data-bot-duty-input]"), "Check the build");
+		await enter(query("[data-bot-duty-input]"));
+		expect(api.setDuties).toHaveBeenCalledWith({ duties: [{ text: "Check the build" }] }, "mini");
+	});
+
+	it("reads a host's desk when its home opens before anything read it", async () => {
+		const api = installApi({ get: vi.fn(async () => desk({ decisions: [OPEN] })) });
+		await mount(<BotHome device="mini" tabId="tmini" />);
+
+		await vi.waitFor(() => expect(query('[data-bot-decision="d1"]')).not.toBeNull());
+		expect(api.get).toHaveBeenCalledWith("mini");
 	});
 });

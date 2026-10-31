@@ -29,9 +29,10 @@ import {
 	Plus,
 	Settings2,
 } from "lucide-react";
-import { Fragment, type ReactNode, useMemo, useRef, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { reviewUnmerged } from "../../../../shared/agent-control";
+import { openBotDecisions } from "../../../../shared/bot-desk";
 import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
 import type { HostView, SessionKind } from "../../../../shared/ipc-types";
 import { CHATS_ORDER_KEY, type RowSession, sidebarRows } from "../../../../shared/sidebar-rows";
@@ -49,6 +50,7 @@ import { deviceGroupKey, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { tabSignalPresentation } from "../../../lib/tab-signal";
 import { pickWorkspaceDirectory } from "../../../lib/workspace-dirs";
 import { useAgentReviewStore } from "../../../stores/agent-review";
+import { ensureBotDesk, releaseBotDesk, useBotDesk, useBotDeskStore } from "../../../stores/bot-desk";
 import { pickRemoteDirectory } from "../../../stores/remote";
 import type { SessionStore } from "../../../stores/session";
 import { sessionListFeed } from "../../../stores/session-list";
@@ -60,6 +62,7 @@ import { type SessionTab, tabChipLabel, useTabsStore } from "../../../stores/tab
 import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
 import { webPwa } from "../../../web/pwa";
+import { BotDecisionsBadge } from "../../bot/BotDecisionsBadge";
 import { Button, IconButton, InlineNotice, ListRow, Spinner } from "../../common";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuItem, MenuButton } from "../../common/ContextMenu";
@@ -432,6 +435,15 @@ function DeviceSessions({
 		[sessions],
 	);
 	const listed = useMemo(() => sessions.filter(session => !botFiles.has(session.path)), [sessions, botFiles]);
+	// The host's desk gives its bot's row the count of decisions waiting; read once its link is up and its bot is on, and
+	// again after each link loss, as a push sent meanwhile was missed.
+	const hostBotOn = hostBot !== undefined;
+	const hostDecisions = openBotDecisions(useBotDesk(host.deviceId).desk).length;
+	useEffect(() => {
+		if (!read || !hostBotOn) return;
+		ensureBotDesk(host.deviceId);
+		return () => releaseBotDesk(host.deviceId);
+	}, [read, hostBotOn, host.deviceId]);
 
 	// The host's own rule (Sidebar.tsx): a session in its no-project workspace (`~/.omp/work`, where a session opened
 	// there without a folder starts) is one of its chats, so it is here too.
@@ -906,15 +918,21 @@ function DeviceSessions({
 		// glyph sits at the end before the age, and a tab open elsewhere is said in words only.
 		const openElsewhere = tab !== undefined && !current && !inVisibleSplit;
 		const chat = session.kind === "chat" ? <MessageCircle aria-hidden className="size-(--sc-icon-sm)" /> : null;
-		const age = (
-			<TabLiveAge
-				iso={indexed ? session.modified : null}
-				running={running}
-				settling={settling}
-				tabId={tab?.id ?? null}
-				waiting={waiting}
-			/>
-		);
+		// This host's open decisions, on its bot's row only (the local row's rule, Sidebar.tsx): the host's own prompt
+		// takes the slot first.
+		const botDecisions = bot ? hostDecisions : 0;
+		const age =
+			botDecisions > 0 && !waiting ? (
+				<BotDecisionsBadge count={botDecisions} />
+			) : (
+				<TabLiveAge
+					iso={indexed ? session.modified : null}
+					running={running}
+					settling={settling}
+					tabId={tab?.id ?? null}
+					waiting={waiting}
+				/>
+			);
 		const list = listOf(session);
 		const pinned = hostPins.includes(session.path);
 		const marker = bot ? (
@@ -979,13 +997,18 @@ function DeviceSessions({
 							</span>
 						) : undefined
 					}
-					onClick={() => openSession(session)}
+					onClick={() => {
+						// The count says a decision waits: the pane opens on the home, where it is answered.
+						if (botDecisions > 0) useBotDeskStore.getState().setView("home");
+						openSession(session);
+					}}
 					rowProps={{
 						// Dragged onto a session pane, the open tab joins the split there (SplitWorkspace takes `omp:tab-drag`);
 						// dropped on a row of its own list it moves there.
 						...(bot ? {} : reorder.rowDrag(session.path, list, tab ? { id: tab.id, shown: current } : undefined)),
 						"data-device-session": session.path,
 						"data-sidebar-bot-row": bot || undefined,
+						"data-bot-decisions": botDecisions > 0 || undefined,
 						onContextMenu: bot
 							? undefined
 							: event => setRowMenu({ ...anchorFromEvent(event), items: menuFor(session), label: title }),
@@ -1009,7 +1032,13 @@ function DeviceSessions({
 							{openElsewhere && !working && <span className="sr-only">, {t("sidebar.row.open")}</span>}
 						</>
 					}
-					titleText={[title, openElsewhere && !working ? t("sidebar.row.open") : null].filter(Boolean).join("\n")}
+					titleText={[
+						title,
+						botDecisions > 0 ? t("sidebar.botDecisionsTip", { count: botDecisions }) : null,
+						openElsewhere && !working ? t("sidebar.row.open") : null,
+					]
+						.filter(Boolean)
+						.join("\n")}
 					trailing={
 						family ? (
 							<SidebarSubagentsToggle opened={opened} sessionKey={familyKey} tabId={tab?.id ?? null} />

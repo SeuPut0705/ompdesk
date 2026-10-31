@@ -21,11 +21,13 @@ import { isIP, isIPv4 } from "node:net";
 import { hostname } from "node:os";
 import path from "node:path";
 import { z } from "zod";
+import { type BotDeskState, BotDeskStateSchema } from "../../shared/bot-desk";
 import { codedError, type IpcErrorCode, ipcErrorCode, isIpcErrorCode } from "../../shared/ipc-error-codes";
 import {
 	type HostLiveSession,
 	type HostView,
 	IPC_EVENTS,
+	type IpcHostBotDesk,
 	type IpcHostOmpUpdate,
 	type IpcHostSchedules,
 	type IpcSessionsChanged,
@@ -53,6 +55,7 @@ import { formatAddress, parseAddress, remotePortCandidates } from "./address";
 import {
 	AUTOPILOT_NOTICE_EVENT,
 	AutopilotNoticeEvent,
+	BOT_DESK_EVENT,
 	DEVICE_RENAME_EVENT,
 	DeviceNameSchema,
 	HOST_NAME_EVENT,
@@ -231,6 +234,7 @@ export class RemoteDevices {
 	readonly #hostOnline = new Set<(deviceId: string) => void>();
 	readonly #autopilotNotices = new Set<(hostId: string, notice: AutopilotNoticeEvent) => void>();
 	readonly #hostProjects = new Set<(hostId: string, state: SidebarProjectsState) => void>();
+	readonly #hostBotDesks = new Set<(hostId: string, state: BotDeskState) => void>();
 
 	constructor(deps: RemoteDevicesDeps) {
 		this.#deps = deps;
@@ -344,6 +348,12 @@ export class RemoteDevices {
 	onHostProjects(listener: (hostId: string, state: SidebarProjectsState) => void): () => void {
 		this.#hostProjects.add(listener);
 		return () => this.#hostProjects.delete(listener);
+	}
+
+	/** A paired host's bot desk changed (`host.botDesk.changed`), after the windows were told. */
+	onHostBotDesk(listener: (hostId: string, state: BotDeskState) => void): () => void {
+		this.#hostBotDesks.add(listener);
+		return () => this.#hostBotDesks.delete(listener);
 	}
 
 	async setHostEnabled(enabled: boolean): Promise<RemoteState> {
@@ -638,6 +648,11 @@ export class RemoteDevices {
 	/** This machine's scheduled runs changed: devices showing them (Settings › Schedules on a tab here) follow. */
 	hostSchedulesChanged(state: SchedulesState): void {
 		this.#deps.services.schedulesChanged(state);
+	}
+
+	/** This machine's bot desk changed: devices showing its bot's home follow. */
+	hostBotDeskChanged(state: BotDeskState): void {
+		this.#deps.services.botDeskChanged(state);
 	}
 
 	/** This machine's sidebar project list changed: devices showing its section follow. */
@@ -995,6 +1010,15 @@ export class RemoteDevices {
 				if (state.success) {
 					const update: IpcHostSchedules = { device: deviceId, state: state.data };
 					this.#deps.broadcast(IPC_EVENTS.HOST_SCHEDULES_STATE, update);
+				}
+				return;
+			}
+			if (event === BOT_DESK_EVENT) {
+				const state = BotDeskStateSchema.safeParse(data);
+				if (state.success) {
+					const update: IpcHostBotDesk = { device: deviceId, state: state.data };
+					this.#deps.broadcast(IPC_EVENTS.HOST_BOT_DESK_STATE, update);
+					for (const listener of this.#hostBotDesks) listener(deviceId, state.data);
 				}
 				return;
 			}

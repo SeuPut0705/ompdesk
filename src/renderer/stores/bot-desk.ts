@@ -1,8 +1,10 @@
 /**
- * The bot's desk as this window knows it (`shared/bot-desk.ts`): duties, decisions and the bot's own wakes. Main owns
- * the file; this store holds the last state main sent (`BOT_DESK_GET`, then every `BOT_DESK_CHANGED`), whether the
- * first read landed, and which of the bot's two views its pane shows (`BotPane`). Answering and editing the duties go
- * through main and come back as a change: the card leaves, the list moves, only when main says so.
+ * The bot's desk as this window knows it (`shared/bot-desk.ts`): duties, decisions and the bot's own wakes, for this
+ * computer's bot and for each paired host's (`device` = the host's id; the home of a host's bot reads the host's desk
+ * over the link, `host.botDesk.*`). Main owns the files; this store holds the last state main sent per computer
+ * (`BOT_DESK_GET`, then every `BOT_DESK_CHANGED` / `HOST_BOT_DESK_STATE`), whether the first read landed, and which of
+ * the bot's two views its pane shows (`BotPane`). Answering and editing the duties go through main and come back as a
+ * change: the card leaves, the list moves, only when main says so.
  */
 import { create } from "zustand";
 import { type BotDeskDuties, type BotDeskState, EMPTY_BOT_DESK } from "../../shared/bot-desk";
@@ -11,7 +13,7 @@ import { toastError } from "./toast";
 
 export type BotView = "home" | "chat";
 
-interface BotDeskStore {
+export interface BotDeskEntry {
 	desk: BotDeskState;
 	/** The first read (or a push) has landed: until then the home draws its static skeleton. */
 	loaded: boolean;
@@ -19,62 +21,112 @@ interface BotDeskStore {
 	loadError: unknown;
 	/** Bumped by every push; a read begun before a push must not overwrite it. */
 	revision: number;
+}
+
+const NO_DESK: BotDeskEntry = { desk: EMPTY_BOT_DESK, loaded: false, loadError: null, revision: 0 };
+
+/** This computer's own desk, the one `device` leaves out. */
+const LOCAL_DESK = "local";
+
+function keyOf(device: string | undefined): string {
+	return device ?? LOCAL_DESK;
+}
+
+let unsubscribe: (() => void) | null = null;
+/** The computers whose first read was asked for. */
+const requested = new Set<string>();
+
+interface BotDeskStore {
+	/** By computer: `local`, or a paired host's device id. */
+	desks: Record<string, BotDeskEntry>;
 	view: BotView;
-	apply: (desk: BotDeskState) => void;
+	apply: (desk: BotDeskState, device?: string) => void;
 	setView: (view: BotView) => void;
 	/** Read the desk from main; a push that lands meanwhile wins over the reply. */
-	refresh: () => Promise<void>;
+	refresh: (device?: string) => Promise<void>;
 	/** Answer a decision; false (and a toast) when main refused. */
-	answer: (id: string, answer: string) => Promise<boolean>;
+	answer: (id: string, answer: string, device?: string) => Promise<boolean>;
 	/** Write the whole duty list; false (and a toast) when main refused. */
-	setDuties: (duties: BotDeskDuties["duties"]) => Promise<boolean>;
+	setDuties: (duties: BotDeskDuties["duties"], device?: string) => Promise<boolean>;
 	reset: () => void;
 }
 
 export const useBotDeskStore = create<BotDeskStore>()((set, get) => ({
-	desk: EMPTY_BOT_DESK,
-	loaded: false,
-	loadError: null,
-	revision: 0,
+	desks: {},
 	view: "home",
-	apply: desk => set(current => ({ desk, loaded: true, loadError: null, revision: current.revision + 1 })),
+	apply: (desk, device) =>
+		set(current => {
+			const key = keyOf(device);
+			const revision = (current.desks[key]?.revision ?? 0) + 1;
+			return { desks: { ...current.desks, [key]: { desk, loaded: true, loadError: null, revision } } };
+		}),
 	setView: view => set({ view }),
-	refresh: async () => {
-		const revision = get().revision;
+	refresh: async device => {
+		const key = keyOf(device);
+		const revision = get().desks[key]?.revision ?? 0;
+		const fresh = () => (get().desks[key]?.revision ?? 0) === revision;
 		try {
-			const desk = await window.omp.sessions.botDesk.get();
-			if (get().revision === revision) get().apply(desk);
+			const botDesk = window.omp.sessions.botDesk;
+			const desk = await (device === undefined ? botDesk.get() : botDesk.get(device));
+			if (fresh()) get().apply(desk, device);
 		} catch (error) {
-			if (get().revision === revision) set({ loadError: error });
+			if (fresh())
+				set(current => ({
+					desks: { ...current.desks, [key]: { ...(current.desks[key] ?? NO_DESK), loadError: error } },
+				}));
 		}
 	},
-	answer: async (id, answer) => {
+	answer: async (id, answer, device) => {
 		try {
-			await window.omp.sessions.botDesk.answer({ id, answer });
-			return true;
+			const payload = { id, answer };
+			await (device === undefined
+				? window.omp.sessions.botDesk.answer(payload)
+				: window.omp.sessions.botDesk.answer(payload, device));
 		} catch (error) {
 			toastError({ title: translate("botHome.answerFailed"), error });
 			return false;
 		}
+		// A host's push can miss this page (a paired web page hears none), so its desk is read again.
+		if (device !== undefined) void get().refresh(device);
+		return true;
 	},
-	setDuties: async duties => {
+	setDuties: async (duties, device) => {
 		try {
-			await window.omp.sessions.botDesk.setDuties({ duties });
-			return true;
+			const payload = { duties };
+			await (device === undefined
+				? window.omp.sessions.botDesk.setDuties(payload)
+				: window.omp.sessions.botDesk.setDuties(payload, device));
 		} catch (error) {
 			toastError({ title: translate("botHome.dutiesFailed"), error });
 			return false;
 		}
+		if (device !== undefined) void get().refresh(device);
+		return true;
 	},
-	reset: () => set({ desk: EMPTY_BOT_DESK, loaded: false, loadError: null, revision: 0, view: "home" }),
+	reset: () => {
+		unsubscribe?.();
+		unsubscribe = null;
+		requested.clear();
+		set({ desks: {}, view: "home" });
+	},
 }));
 
-let subscribed = false;
+/** The desk of this computer (no `device`) or of a paired host; an empty one until the first read lands. */
+export function useBotDesk(device?: string): BotDeskEntry {
+	return useBotDeskStore(state => state.desks[keyOf(device)] ?? NO_DESK);
+}
 
-/** Read the desk once and follow main's changes; a missing bridge (tests) is skipped. */
-export function ensureBotDesk(): void {
-	if (subscribed || typeof window === "undefined" || typeof window.omp?.sessions?.botDesk?.get !== "function") return;
-	subscribed = true;
-	void useBotDeskStore.getState().refresh();
-	window.omp.sessions.botDesk.onChanged(desk => useBotDeskStore.getState().apply(desk));
+/** Read a computer's desk once and follow every computer's changes; a missing bridge (tests) is skipped. */
+export function ensureBotDesk(device?: string): void {
+	if (typeof window === "undefined" || typeof window.omp?.sessions?.botDesk?.get !== "function") return;
+	unsubscribe ??= window.omp.sessions.botDesk.onChanged((desk, from) => useBotDeskStore.getState().apply(desk, from));
+	const key = keyOf(device);
+	if (requested.has(key)) return;
+	requested.add(key);
+	void useBotDeskStore.getState().refresh(device);
+}
+
+/** A host's link is gone or its bot is: the next `ensureBotDesk` for it reads again, as its changes were missed. */
+export function releaseBotDesk(device: string): void {
+	requested.delete(keyOf(device));
 }
