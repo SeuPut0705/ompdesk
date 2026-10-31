@@ -191,9 +191,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // The bot's identity on its rows, side chats as bot panes, its spoken replies and the board's three new section ids
 // (1 Nov 2026): the avatar's marks on both sidebars' bot rows (`BotAvatar`, twelve lucide shapes), the side-chat test in
 // `BotPane`, the `speakReplies` watcher in `lib/voice.ts`, `AssistantMarkdown`'s lazy hand-off and the new strings;
-// Memory, Side chats, Activity, Sources and Settings' identity stay in lazy chunks: measured 3,247,244, 8,176 bytes over
-// the measure above.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_248_000;
+// Memory, Side chats, Activity, Sources and Settings' identity stay in lazy chunks: measured 3,250,666 with the
+// routines in the tree, 8,160 bytes over the measure above.
+const WEB_FIRST_SCREEN_JS_BYTES = 3_251_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
