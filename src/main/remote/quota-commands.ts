@@ -82,6 +82,7 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"agent_control_confirm",
 	"agent_control_note",
 	"agent_control_worker",
+	"agent_control_bot",
 	"autopilot_bridge",
 	"agent_control_review",
 	"agent_control_family_edits",

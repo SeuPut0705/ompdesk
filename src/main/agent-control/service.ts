@@ -240,6 +240,8 @@ export interface ScheduleRow {
 	nextRun: string | null;
 	/** How the last run ended; null before the first. */
 	lastStatus: string | null;
+	/** A wake-up of a session on this computer (`target: "self"`), not a fresh run. */
+	wakes?: boolean;
 }
 
 /** The Schedules service seen by `ompdesk_schedule` (`host.ts` adapts `src/main/schedules.ts`, or a paired host's over the link). */
@@ -3598,7 +3600,13 @@ export class AgentControl {
 	async #schedule(caller: ControlTab, args: ScheduleArgs): Promise<string> {
 		// Default: the device the caller's own session runs on, so its folder is a path there.
 		let device: ControlDevice | null;
-		if (args.device !== undefined) device = this.#device(args.device);
+		if (args.target === "self") {
+			if (caller.device)
+				fail(
+					`This session runs on ${caller.deviceName ?? caller.device}: a session wakes itself only on the computer it runs on, and only from that computer's own app.`,
+				);
+			device = null;
+		} else if (args.device !== undefined) device = this.#device(args.device);
 		else if (caller.device) {
 			const own = this.#host.devices().find(entry => entry.id === caller.device);
 			if (!own) fail(`${caller.deviceName ?? caller.device} is no longer a paired device.`);
@@ -3615,7 +3623,7 @@ export class AgentControl {
 				`Scheduled runs ${where}:`,
 				...rows.map(
 					row =>
-						`- ${row.id} “${row.name}” ${describeFrequency(row.frequency)} in ${row.cwd}; ${row.enabled ? `next ${row.nextRun ?? "—"}` : "off"}${row.lastStatus ? `; last run ${row.lastStatus}` : ""}${row.name.startsWith(AGENT_SCHEDULE_PREFIX) ? " [made by an agent: you can cancel it]" : " [the user's own: leave it]"}`,
+						`- ${row.id} “${row.name}” ${describeFrequency(row.frequency)} in ${row.cwd}; ${row.enabled ? `next ${row.nextRun ?? "—"}` : "off"}${row.lastStatus ? `; last run ${row.lastStatus}` : ""}${row.wakes ? "; wakes a session" : ""}${row.name.startsWith(AGENT_SCHEDULE_PREFIX) ? " [made by an agent: you can cancel it]" : " [the user's own: leave it]"}`,
 				),
 			].join("\n");
 		}
@@ -3640,6 +3648,13 @@ export class AgentControl {
 		if (!args.folder && device?.id !== caller.device) fail(`folder is required: name an absolute folder ${where}.`);
 		const cwd = args.folder ?? caller.cwd;
 		if (!(cwd.startsWith("/") || /^[A-Za-z]:[\\/]/.test(cwd))) fail("folder must be an absolute path.");
+		// A wake-up goes to the caller's own session file, which is a path on this computer only.
+		let wakeSession: string | undefined;
+		if (args.target === "self") {
+			if (!caller.sessionPath)
+				fail("This session has no saved file yet, so it cannot wake itself. Try again after its first message.");
+			wakeSession = caller.sessionPath;
+		}
 		const name = `${AGENT_SCHEDULE_PREFIX}${args.name ?? ""}`;
 		if (!this.#host.manageEnabled()) {
 			const approved = await this.#host.confirm(
@@ -3662,7 +3677,10 @@ export class AgentControl {
 			model: args.model ?? null,
 			autoApprove: false,
 			enabled: true,
+			...(wakeSession === undefined ? {} : { wakeSession }),
 		});
+		if (wakeSession !== undefined)
+			return `Scheduled “${row.name}” ${describeFrequency(frequency)}: it wakes this session with the prompt, opening it in the background if no tab holds it; id ${row.id}; next wake ${row.nextRun ?? "—"}. It runs only while OMPdesk is open on this computer; cancel it when you no longer need it with ompdesk_schedule {"action":"cancel","id":"${row.id}"}.`;
 		return `Scheduled “${row.name}” ${describeFrequency(frequency)} in ${cwd} ${where}; id ${row.id}; next run ${row.nextRun ?? "—"}. It runs only while OMPdesk is open ${where}, never with auto-approve; cancel it with ompdesk_schedule {"action":"cancel","id":"${row.id}"${deviceArg}}.`;
 	}
 

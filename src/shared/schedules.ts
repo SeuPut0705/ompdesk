@@ -3,7 +3,8 @@
  * project folder on a timer, by main, only while OMPdesk is open. Times missed
  * while the app was closed are skipped, never caught up. Stock omp has no
  * scheduler, so this one is GUI-owned; each run is one ordinary print-mode
- * session that stock saves like any other.
+ * session that stock saves like any other. A schedule with `wakeSession` is a session's own wake-up instead: its
+ * start delivers the prompt into that existing session (a mail that starts a turn) and spawns no omp.
  */
 
 export const SCHEDULES_COMMAND = "schedules:command";
@@ -32,6 +33,11 @@ export interface ScheduleDraft {
 	/** `--yolo`: run every tool without asking (print mode cannot ask). */
 	autoApprove: boolean;
 	enabled: boolean;
+	/**
+	 * A session file on this computer to deliver `prompt` into at every start (`ompdesk_schedule` with `target: "self"`),
+	 * instead of running it as a fresh `omp -p`. `model` and `autoApprove` mean nothing then. Never set by a paired device.
+	 */
+	wakeSession?: string;
 }
 
 export interface Schedule extends ScheduleDraft {
@@ -120,9 +126,15 @@ export function scheduleDraftProblem(
  * skipped, so the next one is a full interval away. A daily schedule starts at
  * its local time on an allowed weekday.
  */
-export function nextRunAt(frequency: ScheduleFrequency, now: Date, lastStart: Date | null): Date {
+export function nextRunAt(
+	frequency: ScheduleFrequency,
+	now: Date,
+	lastStart: Date | null,
+	/** The length of a minute; only a test launch shortens it (`OMP_GUI_TEST_SCHEDULE_MINUTE_MS`). */
+	minuteMs = 60_000,
+): Date {
 	if (frequency.kind === "interval") {
-		const step = frequency.minutes * 60_000;
+		const step = frequency.minutes * minuteMs;
 		const due = lastStart ? lastStart.getTime() + step : now.getTime() + step;
 		return new Date(due > now.getTime() ? due : now.getTime() + step);
 	}

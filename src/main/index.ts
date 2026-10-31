@@ -772,6 +772,7 @@ app.whenReady().then(() => {
 	const autopilotRef: { current: Autopilot | null } = { current: null };
 	const webTabNotice: IpcDeps["webTabNotice"] = { current: null };
 	const botAnswers: IpcDeps["botAnswers"] = { current: null };
+	const sessionWake: IpcDeps["sessionWake"] = { current: null };
 	const webAsk: IpcDeps["webAsk"] = { current: null };
 	// The desktop slot's host is built in ipc.ts next to the pool's wiring; the factory reads it from here.
 	const desktopSlotRef: { current: DesktopSlotHost | null } = { current: null };
@@ -1661,6 +1662,18 @@ app.whenReady().then(() => {
 			// Devices showing this computer's schedules (Settings › Schedules on a tab here) follow.
 			devices.hostSchedulesChanged(state);
 		},
+		// A session's own wake-up (`ompdesk_schedule` with `target: "self"`) is delivered into that session by the control
+		// tools; the test launches shorten the check and the minute so a wake comes within seconds.
+		wake: (schedule, runId) => {
+			if (!sessionWake.current) throw new Error("OMPdesk is still starting");
+			return sessionWake.current(schedule, runId);
+		},
+		...(process.env.OMP_GUI_TEST_SCHEDULE_TICK_MS
+			? { tickMs: Number(process.env.OMP_GUI_TEST_SCHEDULE_TICK_MS) }
+			: {}),
+		...(process.env.OMP_GUI_TEST_SCHEDULE_MINUTE_MS
+			? { minuteMs: Number(process.env.OMP_GUI_TEST_SCHEDULE_MINUTE_MS) }
+			: {}),
 		// A schedule a paired device saved here spends that device's daily model requests at every start.
 		reserve: device => {
 			const reservation = devices.reserveModelRequest(device);
@@ -1882,6 +1895,7 @@ app.whenReady().then(() => {
 		hostedTabs: hostServices,
 		webTabNotice,
 		botAnswers,
+		sessionWake,
 		botHome,
 		webAsk,
 		spawnWindow,

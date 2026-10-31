@@ -296,6 +296,123 @@ describe("ScheduleService", () => {
 	});
 });
 
+describe("a session's own wake-up (wakeSession)", () => {
+	const SESSION = "/sessions/bot.jsonl";
+
+	function wakeHarness(dir: string, options: Partial<ScheduleServiceOptions> = {}) {
+		const { launch } = fakeLauncher();
+		const woken: { prompt: string; session: string | undefined; runId: string }[] = [];
+		const wake = vi.fn(async (schedule: Schedule, runId: string) => {
+			woken.push({ prompt: schedule.prompt, session: schedule.wakeSession, runId });
+		});
+		const service = new ScheduleService({
+			file: join(dir, "schedules.json"),
+			logDir: join(dir, "runs"),
+			launch,
+			onState: () => {},
+			wake,
+			...options,
+		});
+		return { service, launch, wake, woken };
+	}
+
+	async function settled(service: ScheduleService): Promise<void> {
+		await vi.waitFor(() => expect(service.state().runs[0]?.status).not.toBe("running"));
+	}
+
+	it("hands the prompt to wake when due, spawns no omp, and records a succeeded run with a log line", async () => {
+		fakeClock(new Date(2026, 9, 15, 12, 0));
+		const dir = await tempDir();
+		const { service, launch, woken } = wakeHarness(dir);
+		await service.start();
+		const saved = await service.command({
+			action: "save",
+			draft: draft(dir, {
+				prompt: "Check the build",
+				frequency: { kind: "interval", minutes: 30 },
+				wakeSession: SESSION,
+			}),
+		});
+		const id = saved.schedules[0]?.id ?? "";
+		expect(saved.schedules[0]?.wakeSession).toBe(SESSION);
+		await vi.advanceTimersByTimeAsync(30 * 60_000 + SCHEDULE_TICK_MS);
+		await settled(service);
+		expect(woken).toEqual([
+			{ prompt: "Check the build", session: SESSION, runId: service.state().runs[0]?.id ?? "" },
+		]);
+		expect(launch).not.toHaveBeenCalled();
+		expect(service.state().runs[0]).toMatchObject({ scheduleId: id, status: "succeeded", exitCode: 0, error: null });
+		expect(await service.readLog(service.state().runs[0]?.id ?? "")).toBe(`Woke ${SESSION}\n`);
+		// It repeats like any schedule, and stays in the list the Schedules panel shows.
+		expect(service.state().nextRuns[id]).not.toBeNull();
+		service.dispose();
+	});
+
+	it("fails the run with the reason when the session cannot be woken, and keeps the schedule", async () => {
+		const dir = await tempDir();
+		const { service, wake } = wakeHarness(dir);
+		wake.mockRejectedValueOnce(new Error("The session to wake is gone (/sessions/bot.jsonl)"));
+		await service.start();
+		const saved = await service.command({ action: "save", draft: draft(dir, { wakeSession: SESSION }) });
+		await service.command({ action: "runNow", id: saved.schedules[0]?.id ?? "" });
+		await settled(service);
+		expect(service.state().runs[0]).toMatchObject({
+			status: "failed",
+			trigger: "manual",
+			error: "The session to wake is gone (/sessions/bot.jsonl)",
+		});
+		expect(service.state().schedules).toHaveLength(1);
+		service.dispose();
+	});
+
+	it("fails its run where nothing delivers wake-ups", async () => {
+		const dir = await tempDir();
+		const { service, launch } = wakeHarness(dir, { wake: undefined });
+		await service.start();
+		const saved = await service.command({ action: "save", draft: draft(dir, { wakeSession: SESSION }) });
+		await service.command({ action: "runNow", id: saved.schedules[0]?.id ?? "" });
+		await settled(service);
+		expect(service.state().runs[0]).toMatchObject({
+			status: "failed",
+			error: "Waking a session is not available here",
+		});
+		expect(launch).not.toHaveBeenCalled();
+		service.dispose();
+	});
+
+	it("keeps its session through an edit from Settings, and only this computer's own sessions are woken", async () => {
+		const dir = await tempDir();
+		const { service } = wakeHarness(dir);
+		await service.start();
+		const saved = await service.command({ action: "save", draft: draft(dir, { wakeSession: SESSION }) });
+		const id = saved.schedules[0]?.id ?? "";
+		// The Settings dialog sends no `wakeSession`.
+		const edited = await service.command({ action: "save", id, draft: draft(dir, { prompt: "Look again" }) });
+		expect(edited.schedules[0]).toMatchObject({ prompt: "Look again", wakeSession: SESSION });
+		// A paired device never makes or edits one, and a session path must be absolute.
+		await expect(service.command({ action: "save", id, draft: draft(dir) }, "device-1")).rejects.toThrow(
+			"only this computer's own sessions",
+		);
+		await expect(
+			service.command({ action: "save", draft: draft(dir, { wakeSession: "bot.jsonl" }) }),
+		).rejects.toThrow("Invalid schedule: session");
+		service.dispose();
+	});
+
+	it("counts a minute by minuteMs and checks every tickMs, so a test launch wakes within moments", async () => {
+		const dir = await tempDir();
+		const { service, woken } = wakeHarness(dir, { minuteMs: 20, tickMs: 10 });
+		await service.start();
+		await service.command({
+			action: "save",
+			draft: draft(dir, { prompt: "Soon", frequency: { kind: "interval", minutes: 5 }, wakeSession: SESSION }),
+		});
+		await vi.waitFor(() => expect(woken.length).toBeGreaterThanOrEqual(1), { timeout: 3000 });
+		expect(woken[0]).toMatchObject({ prompt: "Soon", session: SESSION });
+		service.dispose();
+	});
+});
+
 describe("ompRunLauncher", () => {
 	const FAKE = `
 const prompt = await Bun.stdin.text();

@@ -377,7 +377,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		label: "Schedule an OMPdesk run",
 		description:
 			"Create, list or cancel timed scheduled runs of a prompt.\n" +
-			`Create, list or cancel a scheduled run: a prompt that OMPdesk runs on a timer as a fresh print-mode session in a folder, only while the app is open on that device (its Settings › Schedules shows it, marked ${AGENT_SCHEDULE_PREFIX.trim()}). device picks the computer it runs on (default: the one your session runs on). create needs name, prompt and either every_minutes or daily_at (HH:MM, optional days 0-6). No card by default; the user confirms a new one only if they turned off "Let agents manage other sessions". It never runs with auto-approve, and you can cancel only agent-made schedules. See skill://ompdesk.`,
+			`Create, list or cancel a scheduled run: a prompt that OMPdesk runs on a timer as a fresh print-mode session in a folder, only while the app is open on that device (its Settings › Schedules shows it, marked ${AGENT_SCHEDULE_PREFIX.trim()}). device picks the computer it runs on (default: the one your session runs on). create needs name, prompt and either every_minutes or daily_at (HH:MM, optional days 0-6). With target "self" the prompt is instead delivered into your own session each time (a wake-up to check later; cancel it when done). No card by default; the user confirms a new one only if they turned off "Let agents manage other sessions". It never runs with auto-approve, and you can cancel only agent-made schedules. See skill://ompdesk.`,
 		parameters: {
 			type: "object",
 			properties: {
@@ -408,6 +408,12 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 					description: `${DEVICE.description} The computer whose schedules these are. Default: the device your own session runs on.`,
 				},
 				id: { type: "string", description: "cancel: the schedule id list shows." },
+				target: {
+					type: "string",
+					enum: ["self"],
+					description:
+						'create: "self" delivers the prompt into THIS session at each start, as a message that starts a turn (this session is opened in the background if no tab holds it), instead of running a fresh session. Use it to check back on work later; give the prompt as a note to yourself, since you keep this conversation. This computer\'s sessions only; no folder, model or device; every_minutes at least 5. Repeats until you cancel it.',
+				},
 			},
 			required: ["action"],
 			additionalProperties: false,
@@ -769,6 +775,7 @@ export const ARGS = {
 			model: z.string().trim().min(1).max(200).optional(),
 			id: z.string().trim().min(1).max(200).optional(),
 			device: deviceArg.optional(),
+			target: z.enum(["self"]).optional(),
 		})
 		.strict()
 		.superRefine((args, ctx) => {
@@ -779,6 +786,12 @@ export const ARGS = {
 				if ((args.every_minutes === undefined) === (args.daily_at === undefined))
 					problem("create needs exactly one of every_minutes or daily_at");
 				if (args.days !== undefined && args.daily_at === undefined) problem("days goes with daily_at");
+				if (args.target === "self") {
+					if (args.folder !== undefined) problem("target self wakes this session: it takes no folder");
+					if (args.model !== undefined) problem("target self wakes this session: it takes no model");
+					if (args.device !== undefined)
+						problem("target self wakes this session on this computer: it takes no device");
+				}
 			} else if (args.action === "cancel" && !args.id) problem("cancel needs id");
 		}),
 	[T.autopilot]: autopilotArgs,

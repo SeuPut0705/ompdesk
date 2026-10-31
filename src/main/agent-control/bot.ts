@@ -9,6 +9,8 @@
  *   never wakes it, and the owner's own notices for it stay as they are.
  * Sessions another session or Autopilot opened are their opener's (mail.ts `childAsked`), and a session the owner hid
  * from agents is never reported. Each report is a mail kept in the outbox until the bot's journal holds it.
+ * Its omp is told the owner's action rules (`role`: `agent_control_bot`, journaled by the bridge, which adds the bot role
+ * and those rules to its prompt), at each start of its tab and when the rules change.
  */
 import {
 	AGENT_CARD_PREFIX,
@@ -17,6 +19,7 @@ import {
 	BOT_PREF,
 	botPathOf,
 } from "../../shared/agent-control";
+import { BOT_RULES_PREF, botRulesText, parseBotRules } from "../../shared/bot-rules";
 import type { HostLiveSession, IpcTabRunOutcome, TabStatus } from "../../shared/ipc-types";
 import type { TabActivity } from "../sidecar-pool";
 import type { Mail, MailDelivery } from "./mail";
@@ -81,6 +84,8 @@ export interface BotDeps {
 	start(tabId: string): void;
 	/** Keeps the report until the session's journal holds it, and sends it to its tab when there is one. */
 	deliver(sessionPath: string, mail: Mail, delivery: MailDelivery): void;
+	/** Tells the bot's omp its rules (`agent_control_bot`); rejects when it could not. */
+	tell(tabId: string, rules: string): Promise<void>;
 	deviceName(deviceId: string): string;
 	log(entry: Record<string, unknown>): void;
 	/** Shows the owner the notice of a question the bot left open past `BOT_ANSWER_WAIT_MS`. */
@@ -137,6 +142,9 @@ export class BotFeed {
 	/** Sessions run here for paired devices that the bot opened a tab for to answer them, by session file. */
 	readonly #shown = new Set<string>();
 	#seq = 0;
+	/** The tab and rules text the bot's omp was last told (`role`), as `<tabId>\n<rules>`. */
+	#told: string | null = null;
+	#telling: Promise<void> = Promise.resolve();
 
 	constructor(deps: BotDeps) {
 		this.#deps = deps;
@@ -210,6 +218,8 @@ export class BotFeed {
 
 	/** `SidecarPool.observeTabs`'s listener. */
 	activity(activity: TabActivity): void {
+		// Whatever the bot's tab does proves its omp is up: tell it the rules if it has not heard them yet.
+		if (activity.type !== "released" && this.isBotTab(activity.tabId)) void this.role();
 		if (activity.type === "askClosed") return this.#settled(activity.tabId, activity.requestId);
 		if (activity.type === "released") return this.#settled(activity.tabId);
 		if (activity.type !== "ask" && activity.type !== "idle") return;
@@ -364,6 +374,35 @@ export class BotFeed {
 			.finally(() => {
 				this.#opening = null;
 			});
+	}
+
+	/**
+	 * Tells the bot's omp the owner's rules for its actions (`deps.tell`; its bridge adds the bot role to the prompt),
+	 * once per tab and rules text: at each start of its tab, and again when the rules change. A tab with no omp (asleep,
+	 * exited, failed) is told when it starts. Never rejects: a failed tell is logged and tried again by the next call.
+	 */
+	role(): Promise<void> {
+		this.#telling = this.#telling.then(() => this.#tell());
+		return this.#telling;
+	}
+
+	/** The tab holding the bot's session is `tabId`. */
+	isBotTab(tabId: string): boolean {
+		return this.#bot()?.tabId === tabId;
+	}
+
+	async #tell(): Promise<void> {
+		const bot = this.#bot();
+		if (!bot || bot.status === "asleep" || bot.status === "exited" || bot.status === "error") return;
+		const rules = botRulesText(parseBotRules(this.#deps.prefs.get(BOT_RULES_PREF)));
+		const told = `${bot.tabId}\n${rules}`;
+		if (this.#told === told) return;
+		try {
+			await this.#deps.tell(bot.tabId, rules);
+			this.#told = told;
+		} catch (error) {
+			this.#deps.log({ event: "role-failed", tabId: bot.tabId, error: String(error) });
+		}
 	}
 
 	dispose(): void {

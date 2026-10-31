@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AGENT_HIDDEN_PREFS_KEY, BOT_PREF } from "../../shared/agent-control";
+import { BOT_RULES_PREF, botRulesText, DEFAULT_BOT_RULES } from "../../shared/bot-rules";
 import type { HostLiveSession, IpcTabRunOutcome } from "../../shared/ipc-types";
 import { BOT_ANSWER_WAIT_MS, type BotAsk, type BotDeps, BotFeed, type BotGrants, type BotTab } from "./bot";
 import type { Mail, MailDelivery } from "./mail";
@@ -45,6 +46,9 @@ function rig(options: { named?: boolean; botTab?: BotTab | null } = {}) {
 	};
 	const reminded: { tabId: string; ask: BotAsk }[] = [];
 	const closed: string[] = [];
+	/** What the bot's omp was told (`role`), and an error the next tell fails with. */
+	const told: { tabId: string; rules: string }[] = [];
+	let tellError: Error | null = null;
 	/** Session files a tab here holds (besides the bot's own). */
 	const held = new Set<string>();
 	const deps: BotDeps = {
@@ -68,6 +72,14 @@ function rig(options: { named?: boolean; botTab?: BotTab | null } = {}) {
 		close: sessionPath => void closed.push(sessionPath),
 		start: tabId => void started.push(tabId),
 		deliver: (path, mail, delivery) => void sent.push({ path, mail, delivery }),
+		tell: async (tabId, rules) => {
+			if (tellError) {
+				const error = tellError;
+				tellError = null;
+				throw error;
+			}
+			told.push({ tabId, rules });
+		},
 		deviceName: id => `device ${id}`,
 		log: () => undefined,
 		remind: (tabId, ask) => void reminded.push({ tabId, ask }),
@@ -86,6 +98,10 @@ function rig(options: { named?: boolean; botTab?: BotTab | null } = {}) {
 		sent,
 		opened,
 		closed,
+		told,
+		tellFails: (error: Error) => {
+			tellError = error;
+		},
 		held,
 		started,
 		localDeviceTabs,
@@ -333,5 +349,67 @@ describe("BotFeed", () => {
 		r.feed.liveSessions("mini", null);
 		r.feed.liveSessions("mini", []);
 		expect(r.sent).toHaveLength(3);
+	});
+
+	describe("its role (the owner's rules for its actions)", () => {
+		it("tells the bot's omp the default rules once per tab, and again only when they change", async () => {
+			const r = rig();
+			await r.feed.role();
+			expect(r.told).toHaveLength(1);
+			expect(r.told[0]?.tabId).toBe("sec");
+			expect(r.told[0]?.rules).toBe(botRulesText(DEFAULT_BOT_RULES));
+			// Heard already: the sweep and every bot activity ask again at no cost.
+			await r.feed.role();
+			r.feed.activity({ type: "busy", tabId: "sec" });
+			await r.feed.role();
+			expect(r.told).toHaveLength(1);
+			// The owner edits the rules: the next call carries them.
+			r.prefs.set(BOT_RULES_PREF, [{ id: "deploy", action: "Deploy or release", behavior: "auto" }]);
+			await r.feed.role();
+			expect(r.told).toHaveLength(2);
+			expect(r.told[1]?.rules).toBe("- Deploy or release: take it without asking.");
+			// An empty list is the owner's choice too, and is told as nothing.
+			r.prefs.set(BOT_RULES_PREF, []);
+			await r.feed.role();
+			expect(r.told[2]?.rules).toBe("");
+		});
+
+		it("tells a new tab of the bot's session again, and nothing while it has no omp or no tab", async () => {
+			const r = rig({ botTab: tab("asleep", { sessionPath: BOT, status: "asleep" }) });
+			await r.feed.role();
+			r.setBotTab(tab("failed", { sessionPath: BOT, status: "error" }));
+			await r.feed.role();
+			r.setBotTab(null);
+			await r.feed.role();
+			expect(r.told).toEqual([]);
+			r.setBotTab(tab("first", { sessionPath: BOT, status: "starting" }));
+			await r.feed.role();
+			r.setBotTab(tab("second", { sessionPath: BOT, status: "ready" }));
+			await r.feed.role();
+			expect(r.told.map(entry => entry.tabId)).toEqual(["first", "second"]);
+			// No session is the bot: nobody is told.
+			const none = rig({ named: false });
+			await none.feed.role();
+			expect(none.told).toEqual([]);
+		});
+
+		it("is told to the bot's omp alone, whatever other tabs do", async () => {
+			const r = rig();
+			r.add(tab("a"));
+			expect(r.feed.isBotTab("sec")).toBe(true);
+			expect(r.feed.isBotTab("a")).toBe(false);
+			r.feed.activity({ type: "idle", tabId: "a", outcome: undefined });
+			await r.feed.role();
+			expect(r.told.map(entry => entry.tabId)).toEqual(["sec"]);
+		});
+
+		it("retries a failed tell at the next call and never rejects", async () => {
+			const r = rig();
+			r.tellFails(new Error("omp is not ready"));
+			await expect(r.feed.role()).resolves.toBeUndefined();
+			expect(r.told).toEqual([]);
+			await r.feed.role();
+			expect(r.told).toHaveLength(1);
+		});
 	});
 });

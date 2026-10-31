@@ -1343,6 +1343,7 @@ export function runRpcUi(): void {
 		},
 		"agent_control.note": () => ({}),
 		"agent_control.worker": () => ({}),
+		"agent_control.bot": () => ({ changed: true }),
 		// gui-bridge agent-control.ts `agent_control.mail` → stock `sendMessage`: the report becomes a displayed custom
 		// message in the journal; with `triggerTurn` an idle session takes a turn on it (the parent reacts by itself),
 		// a running one reads it at its next step (stock's `aside`), whatever its kind. The woken turn's reply names the

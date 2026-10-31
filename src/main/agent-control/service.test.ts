@@ -1982,6 +1982,65 @@ describe("ompdesk_schedule", () => {
 		expect(offline.isError).toBe(true);
 		expect(offline.text).toMatch(/PC is offline/);
 	});
+
+	it("with target self wakes the caller's own session: its file is the draft's wakeSession, in its own folder, after the card", async () => {
+		const host = new FakeHost({ tabId: "main0001", title: "Bot", cwd: "/work", sessionPath: "/s/bot.jsonl" });
+		const service = control(host);
+		const made = await service.run("main0001", T.schedule, {
+			action: "create",
+			target: "self",
+			name: "check the build",
+			prompt: "Look at the build and tell the owner if it failed",
+			every_minutes: 30,
+		});
+		expect(made.isError).toBe(false);
+		expect(made.text).toContain("it wakes this session with the prompt");
+		expect(made.text).toContain('ompdesk_schedule {"action":"cancel","id":"sched1000"}');
+		expect(host.cards).toHaveLength(1);
+		expect(host.savedDrafts[0]).toMatchObject({
+			name: "[agent] check the build",
+			prompt: "Look at the build and tell the owner if it failed",
+			cwd: "/work",
+			frequency: { kind: "interval", minutes: 30 },
+			model: null,
+			autoApprove: false,
+			enabled: true,
+			wakeSession: "/s/bot.jsonl",
+		});
+		// A plain create has no wake target.
+		await service.run("main0001", T.schedule, { action: "create", name: "n", prompt: "p", every_minutes: 60 });
+		expect(host.savedDrafts[1]).not.toHaveProperty("wakeSession");
+		expect(host.scheduleDevices).toEqual([undefined, undefined]);
+		// The agent that made it can cancel it like any agent-made schedule, and the list says it wakes a session.
+		host.scheduleRows[0] = { ...(host.scheduleRows[0] as ScheduleRow), wakes: true };
+		expect((await service.run("main0001", T.schedule, { action: "list" })).text).toContain("; wakes a session");
+		expect((await service.run("main0001", T.schedule, { action: "cancel", id: "sched1000" })).text).toContain(
+			"Cancelled “[agent] check the build”",
+		);
+	});
+
+	it("with target self refuses a folder, a model or a device, a session with no file, and a session on a paired device", async () => {
+		const host = new FakeHost(
+			{ tabId: "main0001", cwd: "/work", sessionPath: "/s/bot.jsonl" },
+			{ tabId: "bare0002", cwd: "/work" },
+			{ tabId: "remo0003", device: "studio-id", deviceName: "Studio", cwd: "/srv", sessionPath: "/s/remote.jsonl" },
+		);
+		host.deviceList = [{ id: "studio-id", name: "Studio", state: "online" }];
+		host.manage = true;
+		const service = control(host);
+		const base = { action: "create", target: "self", name: "n", prompt: "p", every_minutes: 30 };
+		for (const extra of [{ folder: "/x" }, { model: "a/b" }, { device: "Studio" }]) {
+			const refused = await service.run("main0001", T.schedule, { ...base, ...extra });
+			expect(refused.isError).toBe(true);
+			expect(refused.text).toContain("target self wakes this session");
+		}
+		expect((await service.run("bare0002", T.schedule, base)).text).toContain("no saved file yet");
+		expect((await service.run("remo0003", T.schedule, base)).text).toContain(
+			"a session wakes itself only on the computer it runs on",
+		);
+		expect(host.savedDrafts).toEqual([]);
+		expect((await service.run("main0001", T.schedule, { ...base, target: "other" })).isError).toBe(true);
+	});
 });
 
 describe("a table of several finished sessions", () => {

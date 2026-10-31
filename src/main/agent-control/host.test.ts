@@ -16,7 +16,13 @@ import {
 } from "../../shared/agent-control";
 import type { IpcOpenExtensionRequest, IpcSpawnTabPayload, IpcTabInfo } from "../../shared/ipc-types";
 import type { ExtensionUIRequest, RpcCommand, RpcResponse } from "../../shared/rpc-types";
-import type { ScheduleCreated, ScheduleDraft, SchedulesRequest, SchedulesState } from "../../shared/schedules";
+import type {
+	Schedule,
+	ScheduleCreated,
+	ScheduleDraft,
+	SchedulesRequest,
+	SchedulesState,
+} from "../../shared/schedules";
 import { createControlBackend } from "../control-socket/backend";
 import { gitSync, initRepo } from "../local/git/test-repos";
 import { WORKTREE_COMMAND_BUDGETS_MS } from "../local/git/worktree";
@@ -61,6 +67,10 @@ function setup(
 		webTabs?: Partial<IpcTabInfo>[];
 		/** What happens while a release awaits (`closeWindowTab`'s exit-policy read), before it asks again. */
 		duringRelease?: (fileEdits: FileEditReports) => void;
+		/** The tab holding each session file (`sessionOwner`). */
+		owners?: Record<string, string>;
+		/** The front window sessions are opened in without a tab of their own (`outsideWindow`). */
+		outsideWindow?: boolean;
 	} = {},
 ) {
 	const win = window();
@@ -122,7 +132,10 @@ function setup(
 				return owner ? [owner, ...(options.viewers?.[tabId] ?? [])] : [];
 			},
 			tabWindows: () => [win, ...(otherTabs.length ? [win2] : []), ...(webTabs.length ? [webWin] : [])],
-			sessionOwner: () => null,
+			sessionOwner: sessionPath => {
+				const tabId = options.owners?.[sessionPath];
+				return tabId ? { tabId, winId: win.webContents.id } : null;
+			},
 			whenTabExited: async () => {},
 		},
 		sessions: options.sessions,
@@ -141,6 +154,7 @@ function setup(
 			return { tabId: "new00003" };
 		},
 		prefs: { get: key => prefs[key] },
+		...(options.outsideWindow ? { outsideWindow: () => win } : {}),
 		deviceName: id => `device ${id}`,
 		notify: vi.fn(),
 		deleteSession: vi.fn(async () => undefined),
@@ -1362,5 +1376,137 @@ describe("a caller outside OMPdesk (the control socket)", () => {
 		await expect(backend.resolve(outside, "hide0003")).rejects.toThrow("hid this session");
 		expect(backend.views().map(view => view.session)).toEqual(["main0001", "work0002"]);
 		expect(backend.view("hide0003")).toBeNull();
+	});
+});
+
+describe("the bot's role and a session's own wake-up", () => {
+	const wakeable = (file: string, overrides: Partial<Schedule> = {}): Schedule => ({
+		id: "sched-1",
+		createdAt: "2026-10-31T09:00:00.000Z",
+		name: "[agent] check the build",
+		prompt: "Look at the build and tell the owner if it failed",
+		cwd: "/repo",
+		frequency: { kind: "interval", minutes: 30 },
+		model: null,
+		autoApprove: false,
+		enabled: true,
+		wakeSession: file,
+		...overrides,
+	});
+
+	async function sessionFile(): Promise<string> {
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ompdesk-wake-"));
+		const file = path.join(dir, "s.jsonl");
+		await fs.writeFile(file, "{}\n");
+		return file;
+	}
+
+	const mails = (commands: { tabId: string; command: RpcCommand }[]) =>
+		commands.filter(entry => entry.command.type === "agent_control_mail");
+
+	it("delivers the prompt into the session as a mail that starts a turn, to the tab that holds it", async () => {
+		const file = await sessionFile();
+		const { runtime, commands, spawned } = setup({
+			tabs: [{ tabId: "main0001", sessionPath: file }],
+			owners: { [file]: "main0001" },
+		});
+		await runtime.wakeSession(wakeable(file), "run-1");
+		await vi.waitFor(() => expect(mails(commands)).toHaveLength(1));
+		const [{ tabId, command }] = mails(commands) as [(typeof commands)[number]];
+		expect(tabId).toBe("main0001");
+		expect(command).toMatchObject({
+			type: "agent_control_mail",
+			triggerTurn: true,
+			deliverAs: "aside",
+			details: { id: "wake-run-1", from: "ompdesk", kind: "note", fromTitle: "check the build" },
+		});
+		expect((command as { content: string }).content).toContain("Look at the build and tell the owner if it failed");
+		expect((command as { content: string }).content).toContain("You scheduled this wake-up for yourself");
+		expect(spawned).toEqual([]);
+	});
+
+	it("opens a session no tab holds in the background, and starts an asleep one", async () => {
+		const file = await sessionFile();
+		const none = setup({ outsideWindow: true });
+		await none.runtime.wakeSession(wakeable(file), "run-2");
+		expect(none.spawned).toEqual([{ sessionPath: file }]);
+		// No tab to send to yet: the outbox holds the mail until the opened tab answers.
+		expect(mails(none.commands)).toEqual([]);
+
+		const asleep = setup({
+			tabs: [{ tabId: "main0001", sessionPath: file, status: "asleep" }],
+			owners: { [file]: "main0001" },
+		});
+		await asleep.runtime.wakeSession(wakeable(file), "run-3");
+		expect(asleep.deps.pool.startTab).toHaveBeenCalledWith("main0001");
+		expect(asleep.spawned).toEqual([]);
+	});
+
+	it("fails with the reason when the session file is gone or there is no window to open it in", async () => {
+		const file = await sessionFile();
+		const { runtime } = setup();
+		await expect(runtime.wakeSession(wakeable(file), "run-4")).rejects.toThrow("No window to open the session in");
+		await expect(runtime.wakeSession(wakeable(`${file}.gone`), "run-5")).rejects.toThrow(
+			"The session to wake is gone",
+		);
+		await expect(runtime.wakeSession(wakeable(file, { wakeSession: undefined }), "run-6")).rejects.toThrow(
+			"wakes no session",
+		);
+	});
+
+	it("does not leave a mail behind when opening the session fails", async () => {
+		const file = await sessionFile();
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ompdesk-wake-outbox-"));
+		const outbox = path.join(dir, "outbox.json");
+		const rig = setup({ outsideWindow: true, mailOutboxFile: outbox });
+		rig.deps.spawnTab = async () => {
+			throw new Error("The window is closing");
+		};
+		await expect(rig.runtime.wakeSession(wakeable(file), "run-7")).rejects.toThrow("The window is closing");
+		const kept = await fs.readFile(outbox, "utf8").catch(() => "");
+		expect(kept).not.toContain("wake-run-7");
+	});
+
+	it("tells the bot's omp the owner's rules before the first mail it takes, and again when they change", async () => {
+		const file = await sessionFile();
+		const { runtime, commands, prefs } = setup({
+			prefs: { bot: file, botRules: [{ id: "deploy", action: "Deploy or release", behavior: "ask" }] },
+			tabs: [{ tabId: "main0001", sessionPath: file }],
+			owners: { [file]: "main0001" },
+		});
+		await runtime.wakeSession(wakeable(file), "run-8");
+		await vi.waitFor(() => expect(mails(commands)).toHaveLength(1));
+		expect(commands.map(entry => entry.command.type)).toEqual(["agent_control_bot", "agent_control_mail"]);
+		expect(commands[0]?.command).toEqual({
+			type: "agent_control_bot",
+			rules: "- Deploy or release: ask the owner before taking it.",
+		});
+		// The same rules are not told again with the next mail.
+		await runtime.wakeSession(wakeable(file), "run-9");
+		await vi.waitFor(() => expect(mails(commands)).toHaveLength(2));
+		expect(commands.filter(entry => entry.command.type === "agent_control_bot")).toHaveLength(1);
+		// The owner edits them: the bot's omp hears at once, without waiting for a mail.
+		prefs.botRules = [{ id: "deploy", action: "Deploy or release", behavior: "handoff" }];
+		runtime.botRulesChanged();
+		await vi.waitFor(() =>
+			expect(commands.filter(entry => entry.command.type === "agent_control_bot")).toHaveLength(2),
+		);
+		expect(commands.at(-1)?.command).toEqual({
+			type: "agent_control_bot",
+			rules: "- Deploy or release: do not take it; hand the step to the owner.",
+		});
+	});
+
+	it("tells nobody's omp the bot's rules when no session is the bot", async () => {
+		const file = await sessionFile();
+		const { runtime, commands } = setup({
+			tabs: [{ tabId: "main0001", sessionPath: file }],
+			owners: { [file]: "main0001" },
+		});
+		await runtime.wakeSession(wakeable(file), "run-10");
+		await vi.waitFor(() => expect(mails(commands)).toHaveLength(1));
+		expect(commands.some(entry => entry.command.type === "agent_control_bot")).toBe(false);
+		runtime.botRulesChanged();
+		expect(commands.some(entry => entry.command.type === "agent_control_bot")).toBe(false);
 	});
 });

@@ -1482,6 +1482,95 @@ describe("Sidebar menus and pinned ordering", () => {
 			});
 		});
 
+		it("nests the sessions the bot opened under its row, and in no list", async () => {
+			const KID = "/work/alpha/kid.jsonl";
+			const GRANDKID = "/work/alpha/grandkid.jsonl";
+			installMockOmp([
+				...LIST,
+				botSession,
+				session(KID, "/work/alpha", { title: "Check the build", created: "2026-02-03T00:00:00Z" }),
+				session(GRANDKID, "/work/alpha", { title: "Dig into the failure", created: "2026-02-04T00:00:00Z" }),
+			]);
+			seedStores();
+			useBotStore.setState({ path: BOT });
+			useTabsStore.setState({
+				tabs: [
+					{ id: "t0", cwd: "/work/alpha", status: "ready", kind: "agent", unreadDone: false },
+					{ id: "tbot", cwd: "/default/work", status: "ready", kind: "chat", unreadDone: false, sessionPath: BOT },
+					{
+						id: "tkid",
+						cwd: "/work/alpha",
+						status: "running",
+						kind: "agent",
+						unreadDone: false,
+						sessionPath: KID,
+						openedBy: "tbot",
+						openedBySession: BOT,
+					},
+					// Opened by what the bot opened: still the bot's family, one level deep.
+					{
+						id: "tgrand",
+						cwd: "/work/alpha",
+						status: "running",
+						kind: "agent",
+						unreadDone: false,
+						sessionPath: GRANDKID,
+						openedBy: "tkid",
+						openedBySession: KID,
+					},
+				] as never,
+				activeTabId: "t0",
+				bundles: new Map(),
+			});
+			ensureTabRuntime("tbot");
+			useSidebarSubagentsStore.setState({ expanded: new Set([BOT]) });
+			await mount(<Sidebar />);
+
+			const family = botRow().nextElementSibling;
+			expect(family?.getAttribute("data-sidebar-family")).toBe(BOT);
+			const kids = [...(family?.querySelectorAll("[data-sidebar-opened-session]") ?? [])];
+			expect(kids.map(kid => kid.getAttribute("data-session-path"))).toEqual([KID, GRANDKID]);
+			expect(kids.map(kid => kid.querySelector("button")?.firstChild?.textContent)).toEqual([
+				"Check the build",
+				"Dig into the failure",
+			]);
+			// Neither is also a row of its project, and the bot's own row is still first and once.
+			expect(document.querySelectorAll(`[data-session-path="${KID}"]`)).toHaveLength(1);
+			expect(document.querySelectorAll(`[data-session-path="${GRANDKID}"]`)).toHaveLength(1);
+			expect([...document.querySelectorAll(".omp-sidebar-session-row")][0]).toBe(botRow());
+			expect(document.querySelectorAll(`[data-session-path="${BOT}"]`)).toHaveLength(1);
+		});
+
+		it("lists a session by its own project when the bot did not open it", async () => {
+			const OTHER = "/work/alpha/other.jsonl";
+			installMockOmp([...LIST, botSession, session(OTHER, "/work/alpha", { title: "Mine" })]);
+			seedStores();
+			useBotStore.setState({ path: BOT });
+			useTabsStore.setState({
+				tabs: [
+					{ id: "t0", cwd: "/work/alpha", status: "ready", kind: "agent", unreadDone: false },
+					{ id: "tbot", cwd: "/default/work", status: "ready", kind: "chat", unreadDone: false, sessionPath: BOT },
+					{
+						id: "tother",
+						cwd: "/work/alpha",
+						status: "ready",
+						kind: "agent",
+						unreadDone: false,
+						sessionPath: OTHER,
+					},
+				] as never,
+				activeTabId: "t0",
+				bundles: new Map(),
+			});
+			ensureTabRuntime("tbot");
+			useSidebarSubagentsStore.setState({ expanded: new Set([BOT]) });
+			await mount(<Sidebar />);
+
+			expect(botRow().nextElementSibling?.getAttribute("data-sidebar-family")).toBeNull();
+			expect(document.querySelectorAll(`[data-session-path="${OTHER}"]`)).toHaveLength(1);
+			expect(document.querySelector(`[data-sidebar-family="${BOT}"] [data-session-path="${OTHER}"]`)).toBeNull();
+		});
+
 		it("follows the filter by its label alone", async () => {
 			installMockOmp([...LIST, botSession]);
 			seedStores();

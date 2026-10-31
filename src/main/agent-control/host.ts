@@ -25,6 +25,7 @@ import {
 	AGENT_CONTROL_REVIEW,
 	AGENT_CONTROL_VIEW,
 	AGENT_HIDDEN_PREFS_KEY,
+	AGENT_SCHEDULE_PREFIX,
 	type AgentControlToolName,
 	type AgentControlViewEvent,
 	type AgentReviewEvent,
@@ -104,7 +105,7 @@ import {
 	type WorktreeRemoval,
 } from "./branches";
 import { CallJournal } from "./call-journal";
-import { type MailDelivery, mailDetails, mailText } from "./mail";
+import { type Mail, type MailDelivery, mailDetails, mailText } from "./mail";
 import { MailOutbox, redeliverMail } from "./mail-outbox";
 import {
 	AgentControl,
@@ -122,6 +123,8 @@ import { tabCloseStep } from "./tab-close";
 
 /** A confirmation card waits for the person this long. */
 export const CARD_TIMEOUT_MS = 10 * 60_000;
+/** The bot's omp takes its rules at once (a journal line); a tell that waits longer holds up the reports behind it. */
+const BOT_ROLE_TIMEOUT_MS = 15_000;
 const WORKTREE_PREFIX = "omp/agent/";
 /** A child's activity comes in bursts; its review item is rebuilt (git runs) once it settles. */
 const REVIEW_SETTLE_MS = 400;
@@ -388,6 +391,7 @@ export class AgentControlRuntime {
 			setInterval(() => {
 				this.#sweepAll();
 				this.#redeliverMail();
+				void this.#bot.role();
 			}, every).unref();
 	}
 
@@ -461,18 +465,10 @@ export class AgentControlRuntime {
 				if (win && event && !win.isDestroyed()) win.webContents.send(AGENT_CONTROL_VIEW, event);
 			},
 			start: tabId => void deps.pool.startTab(tabId),
-			deliver: (sessionPath, mail, delivery) => {
-				const content = mailText(mail);
-				const details = mailDetails(mail);
-				this.#outbox.keep({ id: mail.id, sessionPath, content, details, delivery, at: mail.at });
-				const tabId = deps.pool.sessionOwner(sessionPath)?.tabId;
-				// No tab yet, or its omp starting: the outbox pass sends it once the tab answers.
-				if (tabId)
-					this.#sendMail(tabId, content, details, delivery)
-						.then(answer => {
-							if (answer?.duplicate && answer.journaled) this.#outbox.settle(mail.id);
-						})
-						.catch(() => undefined);
+			deliver: (sessionPath, mail, delivery) => this.#keepAndSend(sessionPath, mail, delivery),
+			tell: async (tabId, rules) => {
+				const response = await this.#hostCommand(tabId, { type: "agent_control_bot", rules }, BOT_ROLE_TIMEOUT_MS);
+				if (!response.success) throw new Error(response.error ?? "The bot's omp did not take its rules.");
 			},
 			deviceName: deps.deviceName,
 			log: entry => deps.botLog?.(entry),
@@ -483,9 +479,75 @@ export class AgentControlRuntime {
 		};
 	}
 
+	/**
+	 * The owner's rules for the bot changed (pref `botRules`): its omp is told now, not at its next start.
+	 */
+	botRulesChanged(): void {
+		void this.#bot.role();
+	}
+
+	/**
+	 * A session's own wake-up came due (`ompdesk_schedule` with `target: "self"`, run by `ScheduleService`): the schedule's
+	 * prompt reaches that session as a mail that starts a turn, through the outbox like every report (an omp that
+	 * misses it gets it again). A session no tab here holds is opened in a background tab of the front window, an asleep
+	 * one is started; a session whose file is gone, or with no window to open it in, fails the run with the reason.
+	 */
+	async wakeSession(schedule: Schedule, runId: string): Promise<void> {
+		const sessionPath = schedule.wakeSession;
+		if (sessionPath === undefined) throw new Error("This schedule wakes no session");
+		if (
+			!(await stat(sessionPath).then(
+				entry => entry.isFile(),
+				() => false,
+			))
+		)
+			throw new Error(`The session to wake is gone (${sessionPath})`);
+		const owner = this.#deps.pool.sessionOwner(sessionPath);
+		const tab = owner ? this.#botTab(owner.tabId) : null;
+		const win = tab ? null : this.#deps.outsideWindow?.();
+		if (!tab && !win) throw new Error("No window to open the session in.");
+		const mail: Mail = {
+			id: `wake-${runId}`,
+			from: "ompdesk",
+			fromTitle: schedule.name.replace(AGENT_SCHEDULE_PREFIX, "").trim() || "Scheduled wake",
+			to: tab?.tabId ?? "",
+			kind: "note",
+			text: schedule.prompt,
+			instruction: "You scheduled this wake-up for yourself: act on it now.",
+			at: Date.now(),
+		};
+		this.#keepAndSend(sessionPath, mail, { triggerTurn: true, deliverAs: "aside" });
+		if (tab?.status === "asleep") void this.#deps.pool.startTab(tab.tabId);
+		else if (win) {
+			try {
+				await this.#deps.spawnTab(win, { sessionPath });
+			} catch (error) {
+				// Nothing woke: the run fails, and the mail is not left to turn up in this session later.
+				this.#outbox.settle(mail.id);
+				throw error;
+			}
+		}
+	}
+
+	/** Keeps a report in the outbox until the session's journal holds it, and sends it to its tab when there is one. */
+	#keepAndSend(sessionPath: string, mail: Mail, delivery: MailDelivery): void {
+		const content = mailText(mail);
+		const details = mailDetails(mail);
+		this.#outbox.keep({ id: mail.id, sessionPath, content, details, delivery, at: mail.at });
+		const tabId = this.#deps.pool.sessionOwner(sessionPath)?.tabId;
+		// No tab yet, or its omp starting: the outbox pass sends it once the tab answers.
+		if (tabId)
+			this.#sendMail(tabId, content, details, delivery)
+				.then(answer => {
+					if (answer?.duplicate && answer.journaled) this.#outbox.settle(mail.id);
+				})
+				.catch(() => undefined);
+	}
+
 	/** A person (not an agent) sent `tabId` a prompt: its session never closes by itself again. */
 	noteUserPrompt(tabId: string): void {
 		if (this.#openerOf(tabId)) this.#userPrompted.add(tabId);
+		if (this.#bot.isBotTab(tabId)) void this.#bot.role();
 	}
 
 	/**
@@ -1289,6 +1351,7 @@ export class AgentControlRuntime {
 					enabled: schedule.enabled,
 					nextRun: state.nextRuns[schedule.id] ?? null,
 					lastStatus: state.runs.find(run => run.scheduleId === schedule.id)?.status ?? null,
+					...(schedule.wakeSession === undefined ? {} : { wakes: true }),
 				});
 				return {
 					list: async () => {
@@ -1391,6 +1454,8 @@ export class AgentControlRuntime {
 		details: Record<string, unknown>,
 		delivery: MailDelivery,
 	): Promise<{ duplicate?: boolean; journaled?: boolean } | undefined> {
+		// The bot's omp hears the owner's rules before any report: its first turn on it already carries its role.
+		if (this.#bot.isBotTab(tabId)) await this.#bot.role();
 		const response = await this.#hostCommand(tabId, {
 			type: "agent_control_mail",
 			content,
@@ -1416,7 +1481,7 @@ export class AgentControlRuntime {
 		});
 	}
 
-	async #hostCommand(tabId: string, command: RpcCommand): Promise<RpcResponse> {
+	async #hostCommand(tabId: string, command: RpcCommand, timeoutMs = CARD_TIMEOUT_MS): Promise<RpcResponse> {
 		if (isOutside(tabId))
 			return {
 				type: "response",
@@ -1426,7 +1491,7 @@ export class AgentControlRuntime {
 		const win = this.#win(tabId);
 		const sidecar = this.#deps.pool.sidecarOf(tabId);
 		if (!win || !sidecar) return { type: "response", success: false, error: "That session is gone." } as RpcResponse;
-		return this.#deps.dispatch(win, sidecar, tabId, command, CARD_TIMEOUT_MS).catch(
+		return this.#deps.dispatch(win, sidecar, tabId, command, timeoutMs).catch(
 			error =>
 				({
 					type: "response",

@@ -60,10 +60,12 @@ import { autopilotRunOf, worktreeKindOf, worktreeLabel } from "../../../../share
 import {
 	CHATS_ORDER_KEY,
 	isChatSession,
+	openerOfSessions,
 	type RowGroup,
 	type RowSession,
 	type RowTab,
 	remoteOpenedChildren,
+	type SidebarFacts,
 	sidebarRows,
 } from "../../../../shared/sidebar-rows";
 import { splitTabIds } from "../../../../shared/split-layout";
@@ -719,70 +721,69 @@ export function Sidebar() {
 		return heldByWindows.filter(file => !own.has(file));
 	}, [heldByWindows, rowTabs]);
 	const archivedIds = useMemo(() => new Set(archivedSessions), [archivedSessions]);
-	const rows = useMemo(
-		() =>
-			sidebarRows({
-				// What main recorded of who opened each, as a host says it of its rows to a device.
-				// The bot has its own fixed row above the lists (`renderSessionRow` "bot"): never one of the lists' rows.
-				sessions: sessions
-					.filter(session => session.path !== botPath)
-					.map(session => ({
-						...session,
-						openedBySession: recordedOpeners.get(session.path) ?? null,
-					})),
-				tabs: botPath ? rowTabs.filter(tab => tab.sessionPath !== botPath) : rowTabs,
-				// A paired device's tab here runs an omp for it: held and in use, whatever its state. Another window's tab at
-				// work is too: this window sees no tab of it, so what this computer works on now says it.
-				usedThere: new Set([...hostedByKey.keys(), ...liveByPath.keys(), ...heldByOtherWindows]),
-				closed: new Set(closedChildren.map(row => row.path)),
-				projects: projectList.projects,
-				removed: projectList.removed,
-				folder: at => {
-					const shown = projectName(at);
-					const project = shown.worktree ? shown.root : projectList.worktrees[at];
-					// Git's answer, else what main's list says of the folder (the device's only source).
-					const kind = shown.worktree?.worktree?.kind ?? projectList.worktreeKinds?.[at];
-					return {
-						...(project === undefined ? {} : { project }),
-						root: shown.root,
-						...(kind === undefined ? {} : { kind }),
-						gone: shown.gone,
-					};
-				},
-				workspace: defaultWorkspace,
-				titleOf: session => sessionDisplayTitle(session, ""),
-				hasContent: sessionHasContent,
-				// An Autopilot run opens a child session per item of a cycle (`autopilot/<run>-c<N>-<area>`, each in a
-				// worktree of its own): its row goes under the run's own row, never a group per child. Run and child meet by
-				// the main checkout and the run's name: git's answer for the folder, or, while git cannot place a worktree
-				// being made, the tab's own binding (`worktree_create` reports the main checkout as `baseCwd`).
-				runOf: session => {
-					const origin = projectName(session.cwd).worktree;
-					const fromGit = autopilotRunOf(origin?.worktree?.branch ?? null);
-					if (origin && fromGit) return { child: fromGit.child, key: `${origin.root}\n${fromGit.run}` };
-					// The tab of this session, else any tab bound to its folder: the binding names the folder's run.
-					const tab =
-						localTabs.find(
-							entry =>
-								entry.id === session.liveTabId ||
-								(entry.sessionPath !== undefined && entry.sessionPath === session.path),
-						) ?? localTabs.find(entry => entry.worktree?.path === session.cwd);
-					const fromTab = autopilotRunOf(tab?.worktree?.branch ?? null);
-					return tab?.worktree && fromTab
-						? { child: fromTab.child, key: `${tab.worktree.baseCwd}\n${fromTab.run}` }
-						: null;
-				},
-				archived: archivedIds,
-				nested: NO_PATHS,
-				order: {
-					pinnedSessions,
-					pinnedGroups,
-					groupOrder,
-					sessionOrder: list => sessionOrder[list],
-				},
-				query: filter,
-				nameOf: key => groupAliases[key] ?? projectName(key).name,
-			}),
+	const rowFacts = useMemo<SidebarFacts>(
+		() => ({
+			// What main recorded of who opened each, as a host says it of its rows to a device.
+			// The bot has its own fixed row above the lists (`renderSessionRow` "bot"): never one of the lists' rows.
+			sessions: sessions
+				.filter(session => session.path !== botPath)
+				.map(session => ({
+					...session,
+					openedBySession: recordedOpeners.get(session.path) ?? null,
+				})),
+			tabs: botPath ? rowTabs.filter(tab => tab.sessionPath !== botPath) : rowTabs,
+			// A paired device's tab here runs an omp for it: held and in use, whatever its state. Another window's tab at
+			// work is too: this window sees no tab of it, so what this computer works on now says it.
+			usedThere: new Set([...hostedByKey.keys(), ...liveByPath.keys(), ...heldByOtherWindows]),
+			closed: new Set(closedChildren.map(row => row.path)),
+			projects: projectList.projects,
+			removed: projectList.removed,
+			folder: at => {
+				const shown = projectName(at);
+				const project = shown.worktree ? shown.root : projectList.worktrees[at];
+				// Git's answer, else what main's list says of the folder (the device's only source).
+				const kind = shown.worktree?.worktree?.kind ?? projectList.worktreeKinds?.[at];
+				return {
+					...(project === undefined ? {} : { project }),
+					root: shown.root,
+					...(kind === undefined ? {} : { kind }),
+					gone: shown.gone,
+				};
+			},
+			workspace: defaultWorkspace,
+			titleOf: session => sessionDisplayTitle(session, ""),
+			hasContent: sessionHasContent,
+			// An Autopilot run opens a child session per item of a cycle (`autopilot/<run>-c<N>-<area>`, each in a
+			// worktree of its own): its row goes under the run's own row, never a group per child. Run and child meet by
+			// the main checkout and the run's name: git's answer for the folder, or, while git cannot place a worktree
+			// being made, the tab's own binding (`worktree_create` reports the main checkout as `baseCwd`).
+			runOf: session => {
+				const origin = projectName(session.cwd).worktree;
+				const fromGit = autopilotRunOf(origin?.worktree?.branch ?? null);
+				if (origin && fromGit) return { child: fromGit.child, key: `${origin.root}\n${fromGit.run}` };
+				// The tab of this session, else any tab bound to its folder: the binding names the folder's run.
+				const tab =
+					localTabs.find(
+						entry =>
+							entry.id === session.liveTabId ||
+							(entry.sessionPath !== undefined && entry.sessionPath === session.path),
+					) ?? localTabs.find(entry => entry.worktree?.path === session.cwd);
+				const fromTab = autopilotRunOf(tab?.worktree?.branch ?? null);
+				return tab?.worktree && fromTab
+					? { child: fromTab.child, key: `${tab.worktree.baseCwd}\n${fromTab.run}` }
+					: null;
+			},
+			archived: archivedIds,
+			nested: NO_PATHS,
+			order: {
+				pinnedSessions,
+				pinnedGroups,
+				groupOrder,
+				sessionOrder: list => sessionOrder[list],
+			},
+			query: filter,
+			nameOf: key => groupAliases[key] ?? projectName(key).name,
+		}),
 		[
 			sessions,
 			botPath,
@@ -804,6 +805,40 @@ export function Sidebar() {
 			filter,
 			groupAliases,
 		],
+	);
+	const baseRows = useMemo(() => sidebarRows(rowFacts), [rowFacts]);
+	// What the bot opened, and what those opened, nests under its fixed row (`renderSessionRow` "bot") like any opener's
+	// family and leaves the lists: the opener rule runs over the rows with the bot's session as a candidate, which no
+	// list holds, and the lists are rebuilt without the family.
+	const botKids = useMemo(() => {
+		const none: { sessions: RowSession[]; keys: ReadonlySet<string> } = { sessions: [], keys: NO_PATHS };
+		if (!botPath) return none;
+		const family = openerOfSessions(
+			rowTabs,
+			[
+				{ path: botPath, id: botPath },
+				...baseRows.sessions.map(session => ({
+					path: session.path,
+					id: session.id,
+					created: session.created,
+					...(session.liveTabId === undefined ? {} : { liveTabId: session.liveTabId }),
+				})),
+			],
+			recordedOpeners,
+		);
+		const sessions = baseRows.sessions
+			.filter(session => family.get(session.path) === botPath)
+			.toSorted((a, b) => (a.created < b.created ? -1 : a.created > b.created ? 1 : a.path < b.path ? -1 : 1));
+		if (sessions.length === 0) return none;
+		const keys = new Set(sessions.flatMap(kid => [kid.path, kid.id, ...(kid.liveTabId ? [kid.liveTabId] : [])]));
+		for (const tab of rowTabs)
+			if ((tab.sessionPath && keys.has(tab.sessionPath)) || (tab.sessionId && keys.has(tab.sessionId)))
+				keys.add(tab.id);
+		return { sessions, keys };
+	}, [botPath, rowTabs, baseRows, recordedOpeners]);
+	const rows = useMemo(
+		() => (botKids.keys.size === 0 ? baseRows : sidebarRows({ ...rowFacts, nested: botKids.keys })),
+		[baseRows, botKids, rowFacts],
 	);
 	const { listed: listedSessions, sessions: allSessions, code: codeSessions, chats: chatSessions } = rows;
 	const { runParent: runParentOf, children: familyChildrenOf, archived: archivedRows } = rows;
@@ -1656,12 +1691,15 @@ export function Sidebar() {
 		// An Autopilot child sits under its run's row inside the run's group (`runParentOf`).
 		const runChild = nested && variant === undefined && runParentOf.has(session.path);
 		const bot = variant === "bot";
-		// The sessions this one's agent opened nest under it, one indent level in, like its subagents.
+		// The sessions this one's agent opened nest under it, one indent level in, like its subagents. The bot's fixed row
+		// holds the ones it opened (`botKids`), which no list holds.
 		const opened =
-			variant === "archived" || variant === "bot"
+			variant === "archived"
 				? []
 				: [
-						...(familyChildrenOf.get(session.path) ?? []).map(child => familyChildFor(child)),
+						...(bot ? botKids.sessions : (familyChildrenOf.get(session.path) ?? [])).map(child =>
+							familyChildFor(child),
+						),
 						...(remoteChildrenOf.get(session.path) ?? []).map(child => remoteFamilyChildFor(child)),
 					];
 		const title = bot

@@ -11,6 +11,9 @@
  *   `ompdesk.worker` before its first prompt; while that entry is on its branch its main agent gets the short worker
  *   contract (`WORKER_CONTRACT`) as a registered prompt section. The journal, not process state, carries it, so a
  *   relaunched child keeps it and a session the user opened never gets it.
+ * - The owner's bot session (src/main/agent-control/bot.ts) journals `ompdesk.bot` with the owner's action rules each
+ *   time they change (the latest entry wins); while one is on its branch its main agent gets the bot role and those
+ *   rules (`botSection`) as the `ompdesk-bot` prompt section. No entry, no section.
  *
  * No omp imports (not even types): the GUI's vitest installs it on a fake `pi`.
  */
@@ -27,7 +30,7 @@ interface ControlSession {
 	/** Stock `AgentSession.isStreaming`: a turn runs (or a prompt is being set up). */
 	isStreaming: boolean;
 	sessionManager: {
-		getBranch(): { customType?: unknown }[];
+		getBranch(): { customType?: unknown; data?: unknown }[];
 		appendCustomEntry(customType: string, data: unknown): unknown;
 	};
 }
@@ -46,6 +49,9 @@ const JUDGE_INPUT_MAX = 120_000;
 const JUDGE_DEADLINE_MS = 170_000;
 export const AGENT_ANSWER_ENTRY = "ompdesk.agent-answer";
 export const WORKER_ENTRY = "ompdesk.worker";
+export const BOT_ENTRY = "ompdesk.bot";
+/** The rules text is a prompt line per rule; this is the last guard on its size. */
+const BOT_RULES_MAX = 20_000;
 
 /** What a session opened by another agent should know about its role; kept short and plain. */
 export const WORKER_CONTRACT = `<ompdesk-worker>
@@ -59,6 +65,31 @@ Another agent opened this session and handed you its first message; the person s
 - Use ompdesk_report only for question or blocked when you need its decision (then wait for its answer; never guess an approval), progress at real milestones, and kind note with to set to a sibling it opened. Pass the dispatch id its message names.
 - Keep replying to the person in their language when they write to you.
 </ompdesk-worker>`;
+
+/** The bot's role, short and plain: what the owner expects of it, then their rules for actions. */
+export function botSection(rules: string): string {
+	return `<ompdesk-bot>
+You are the owner's always-on bot.
+- When the owner gives you a responsibility, open sessions for the work with ompdesk_session_open and follow them until done. Their questions and reports come back to you.
+- When the owner asks, work in their own sessions with the control tools.
+- Bring the owner results, and only the decisions that need them, with ompdesk_notify.
+- Plan follow-ups and wake yourself to check later with ompdesk_schedule {"target":"self"}; cancel a wake you no longer need.
+- Follow the owner's rules for actions below. An irreversible action is never automatic unless a rule says auto.
+${rules.trim() ? `Rules:\n${rules.trim()}` : "The owner set no rules: ask before anything irreversible."}
+</ompdesk-bot>`;
+}
+
+/** The rules text of the newest `ompdesk.bot` entry on the branch, or undefined when this is not the bot's session. */
+export function botRulesOf(ctx: PromptSectionContext): string | undefined {
+	const entries = ctx.sessionManager.getBranch();
+	for (let index = entries.length - 1; index >= 0; index--) {
+		const entry = entries[index];
+		if (entry?.customType !== BOT_ENTRY) continue;
+		const rules = (entry.data as { rules?: unknown } | undefined)?.rules;
+		return typeof rules === "string" ? rules : undefined;
+	}
+	return undefined;
+}
 
 function text(value: unknown, field: string): string {
 	if (typeof value !== "string" || !value.trim()) throw new Error(`agent_control needs a ${field}`);
@@ -91,6 +122,11 @@ export function install(pi: PromptSectionHost & Partial<MailHost>): void {
 	registerPromptSection(pi, "ompdesk-worker", ctx =>
 		ctx.agent.kind === "main" && isWorkerSession(ctx) ? WORKER_CONTRACT : undefined,
 	);
+	registerPromptSection(pi, "ompdesk-bot", ctx => {
+		if (ctx.agent.kind !== "main") return undefined;
+		const rules = botRulesOf(ctx);
+		return rules === undefined ? undefined : botSection(rules);
+	});
 }
 
 /** Report ids this process handed to stock (an aside is journaled only once the receiver's loop takes it). */
@@ -146,6 +182,21 @@ export const methods: BridgeMethods = {
 		if (!manager.getBranch().some((entry: { customType?: unknown }) => entry.customType === WORKER_ENTRY))
 			manager.appendCustomEntry(WORKER_ENTRY, { from, at: Date.now() });
 		return {};
+	},
+	/**
+	 * `{rules}` → `{changed}`: this is the owner's bot session and these are the owner's rules for its actions (the
+	 * text `botRulesText` builds, empty when the owner set none). Journaled as `ompdesk.bot` only when they differ from
+	 * the newest entry, so a session main tells again at every start journals them once; the newest entry wins.
+	 */
+	"agent_control.bot": async (params, env) => {
+		const rules = (params as { rules?: unknown } | null)?.rules;
+		if (typeof rules !== "string") throw new Error("agent_control needs rules");
+		const manager = env.session().sessionManager;
+		const next = rules.slice(0, BOT_RULES_MAX);
+		const last = botRulesOf({ sessionManager: manager, agent: { kind: "main" } });
+		if (last === next) return { changed: false };
+		manager.appendCustomEntry(BOT_ENTRY, { rules: next, at: Date.now() });
+		return { changed: true };
 	},
 	/**
 	 * `{system, user}` → `{text, model, role, family, mainModel, mainFamily, crossFamily, usd?, tokens?}`: the control

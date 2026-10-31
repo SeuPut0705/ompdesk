@@ -11,6 +11,10 @@
  * own stdin closes — a Stop, an app quit, or a crash that skips every quit
  * handler. A start that falls due while the previous run of the same schedule
  * still goes is recorded as skipped instead of piling up.
+ *
+ * A schedule with `wakeSession` (a session's own wake-up, `ompdesk_schedule` with `target: "self"`) starts no omp:
+ * its start hands the prompt to `wake`, which delivers it into that session as a mail that starts a turn. That run
+ * succeeds once the mail is delivered and fails with the reason when it cannot be.
  */
 import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -58,6 +62,15 @@ export interface ScheduleServiceOptions {
 	logDir: string;
 	launch: RunLauncher;
 	onState: (state: SchedulesState) => void;
+	/**
+	 * Delivers a wake-up's prompt into its session on this computer (`Schedule.wakeSession`); rejects with a readable
+	 * reason when it cannot. Absent: a wake-up's run fails (no tab holds sessions here).
+	 */
+	wake?: (schedule: Schedule, runId: string) => Promise<void>;
+	/** How often due schedules are checked (default `SCHEDULE_TICK_MS`); only a test launch shortens it. */
+	tickMs?: number;
+	/** The length of a minute for intervals (default 60 000 ms); only a test launch shortens it. */
+	minuteMs?: number;
 	/**
 	 * Count one run against `device`'s daily model limit here. A schedule a paired device saved (`Schedule.device`)
 	 * is charged at every start, timed or not; absent = no device is ever charged (tests, no remote host).
@@ -107,7 +120,7 @@ export class ScheduleService {
 		);
 		if (this.#disposed) return;
 		this.#rescheduleAll();
-		this.#tick = setInterval(() => this.#runDue(), SCHEDULE_TICK_MS);
+		this.#tick = setInterval(() => this.#runDue(), this.#options.tickMs ?? SCHEDULE_TICK_MS);
 		this.#changed();
 	}
 
@@ -236,6 +249,9 @@ export class ScheduleService {
 
 	/** Returns the id of the schedule saved. */
 	#save(draft: ScheduleDraft, id: string | undefined, origin: string | undefined): string {
+		const existing = id ? this.#find(id) : undefined;
+		// A saved edit keeps what the Settings dialog does not show: the session a wake-up goes to.
+		const wakeSession = draft.wakeSession ?? existing?.wakeSession;
 		const clean: ScheduleDraft = {
 			name: String(draft.name ?? "").trim(),
 			prompt: String(draft.prompt ?? ""),
@@ -251,16 +267,21 @@ export class ScheduleService {
 			model: typeof draft.model === "string" && draft.model.trim() ? draft.model.trim() : null,
 			autoApprove: draft.autoApprove === true,
 			enabled: draft.enabled === true,
+			...(wakeSession === undefined ? {} : { wakeSession: String(wakeSession) }),
 		};
 		const problem = scheduleDraftProblem(clean);
 		if (problem) throw new Error(`Invalid schedule: ${problem}`);
-		if (id) {
-			const schedule = this.#find(id);
-			Object.assign(schedule, clean);
-			if (origin === undefined) delete schedule.device;
-			else schedule.device = origin;
-			this.#reschedule(schedule);
-			return schedule.id;
+		if (clean.wakeSession !== undefined) {
+			if (!(clean.wakeSession.startsWith("/") || /^[A-Za-z]:[\\/]/.test(clean.wakeSession)))
+				throw new Error("Invalid schedule: session");
+			if (origin !== undefined) throw new Error("Invalid schedule: only this computer's own sessions are woken");
+		}
+		if (existing) {
+			Object.assign(existing, clean);
+			if (origin === undefined) delete existing.device;
+			else existing.device = origin;
+			this.#reschedule(existing);
+			return existing.id;
 		}
 		const schedule: Schedule = {
 			...clean,
@@ -283,7 +304,10 @@ export class ScheduleService {
 			this.#next.delete(schedule.id);
 			return;
 		}
-		this.#next.set(schedule.id, nextRunAt(schedule.frequency, new Date(), this.#lastStart(schedule.id)).getTime());
+		this.#next.set(
+			schedule.id,
+			nextRunAt(schedule.frequency, new Date(), this.#lastStart(schedule.id), this.#options.minuteMs).getTime(),
+		);
 	}
 
 	#rescheduleAll(): void {
@@ -360,12 +384,20 @@ export class ScheduleService {
 		let launched: RunProcess | null = null;
 		try {
 			await mkdir(this.#options.logDir, { recursive: true });
-			await writeFile(files.prompt, schedule.prompt);
-			if (!existsSync(schedule.cwd)) throw new Error(`Project folder not found: ${schedule.cwd}`);
-			launched = await this.#options.launch({ ...schedule }, files);
-			active.process = launched;
-			if (active.stopRequested || this.#disposed) launched.stop();
-			result = await launched.done;
+			if (schedule.wakeSession !== undefined) {
+				const wake = this.#options.wake;
+				if (!wake) throw new Error("Waking a session is not available here");
+				await wake({ ...schedule }, run.id);
+				await writeFile(files.log, `Woke ${schedule.wakeSession}\n`);
+				result = { code: 0 };
+			} else {
+				await writeFile(files.prompt, schedule.prompt);
+				if (!existsSync(schedule.cwd)) throw new Error(`Project folder not found: ${schedule.cwd}`);
+				launched = await this.#options.launch({ ...schedule }, files);
+				active.process = launched;
+				if (active.stopRequested || this.#disposed) launched.stop();
+				result = await launched.done;
+			}
 		} catch (error) {
 			result = { code: null, error: error instanceof Error ? error.message : String(error) };
 		}

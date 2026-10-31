@@ -111,6 +111,7 @@ const SETTINGS_SECTIONS = [
 	"memory",
 	"tools",
 	"permissions",
+	"bot",
 	"workspace",
 	"schedules",
 	"connections",

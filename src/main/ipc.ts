@@ -37,6 +37,7 @@ import {
 	privacyPaneUrl,
 	reviewFromDevice,
 } from "../shared/agent-control";
+import { BOT_RULES_PREF } from "../shared/bot-rules";
 import { REA_PREF } from "../shared/builtin-mcp";
 import {
 	type AgentBrowserStatus,
@@ -113,7 +114,7 @@ import type { ModelSetupRequest } from "../shared/model-setup";
 import { PREVIEW_VISUAL, type PreviewVisualEvent } from "../shared/preview";
 import { isReplyLanguagePref, REPLY_LANGUAGE_PREF } from "../shared/reply-language";
 import type { AgentSessionEvent, RpcCommand, RpcResponse, RpcSessionState } from "../shared/rpc-types";
-import { SCHEDULES_COMMAND, SCHEDULES_LOG, type SchedulesRequest } from "../shared/schedules";
+import { SCHEDULES_COMMAND, SCHEDULES_LOG, type Schedule, type SchedulesRequest } from "../shared/schedules";
 import { SIDEBAR_PROJECTS_COMMAND, type SidebarProjectsRequest } from "../shared/sidebar-projects";
 import { isUiLanguage } from "../shared/ui-language";
 import {
@@ -295,6 +296,8 @@ export interface IpcDeps {
 	 * known), set once the control tools exist.
 	 */
 	botAnswers: { current: ((tabId: string, requestId?: string) => boolean) | null };
+	/** Set once the control tools exist: delivers a session's own scheduled wake-up (`ScheduleService`'s `wake`). */
+	sessionWake: { current: ((schedule: Schedule, runId: string) => Promise<void>) | null };
 	/** The bot's session (agent-control/bot-home.ts): the sidebar's bot row asks it to be made when missing. */
 	botHome: BotHome;
 	/** Web Push's share of a tab's question told late (one the bot left open), set once the web host exists. */
@@ -1379,6 +1382,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		},
 	});
 	deps.botAnswers.current = (tabId, requestId) => agentControl.botAnswers(tabId, requestId);
+	deps.sessionWake.current = (schedule, runId) => agentControl.wakeSession(schedule, runId);
 	// The control socket (src/main/control-socket): anything on this computer drives the same service as the tools.
 	void startControlSocket({
 		userData: app.getPath("userData"),
@@ -2001,6 +2005,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		}
 		if (payload.key === AGENT_CONTROL_PREF)
 			for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncHostTools();
+		if (payload.key === BOT_RULES_PREF) agentControl.botRulesChanged();
 		deps.onPrefChanged?.(payload.key);
 		prefChanged(caller.win, payload.key);
 	});

@@ -39,6 +39,7 @@ const SECTION_ALIASES: Record<SettingsSectionId, string> = {
 	keyboard: "keyboard shortcuts hotkeys keymap",
 	models: "models providers login logout api key model roles compare benchmark thinking retry",
 	permissions: "permissions security approval secrets scan",
+	bot: "bot rules custom rules action behavior ask approve pre-approved hand off deploy push merge 봇 규칙 사용자 지정 묻기 승인 넘기기 배포 푸시 병합",
 	agent: "agent behavior plan goal loop ttsr advisor compaction retry speech",
 	tools: "tools extensions skills mcp servers hooks commands plugins marketplace templates resources",
 	workspace: "workspace project folders directories dirs worktrees launch profile system prompt",

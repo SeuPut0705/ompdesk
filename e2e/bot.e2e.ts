@@ -22,7 +22,14 @@ async function start(): Promise<void> {
 	app = await launchApp({
 		...dirs,
 		profile,
-		env: { OMP_GUI_HEADLESS: "1", OMP_GUI_TEST_RECORD: record, OMP_GUI_TEST_SESSION_FILES: "1" },
+		env: {
+			OMP_GUI_HEADLESS: "1",
+			OMP_GUI_TEST_RECORD: record,
+			OMP_GUI_TEST_SESSION_FILES: "1",
+			OMP_GUI_TEST_SCHEDULE_TICK_MS: "100",
+			OMP_GUI_TEST_SCHEDULE_MINUTE_MS: "200",
+			OMP_GUI_TEST_AGENT_SWEEP_MS: "500",
+		},
 	});
 	page = await app.firstWindow();
 	page.on("pageerror", error => errors.push(error.message));
@@ -185,4 +192,107 @@ test("a relaunch keeps the same bot session; a deleted one is made again, by a l
 	expect(await botFile()).toBe(next);
 	await tabOf(next);
 	await expect(page.locator("[data-sidebar-bot-row]")).toHaveAttribute("data-active", "true");
+});
+
+/** A command to the tab's omp is refused until it has started. */
+async function untilReady(tabId: string): Promise<void> {
+	await expect
+		.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === tabId)?.status, {
+			timeout: 30_000,
+		})
+		.toBe("ready");
+}
+
+// The bot's role (agent-control/bot.ts `role`, gui-bridge agent-control.ts `ompdesk-bot`): its omp is told the owner's
+// action rules, and `ompdesk_schedule {target: "self"}` puts a wake-up in the Schedules service that main delivers
+// into the bot's own session as a mail that starts a turn. The launch shortens the schedule clock
+// (`OMP_GUI_TEST_SCHEDULE_TICK_MS`, `OMP_GUI_TEST_SCHEDULE_MINUTE_MS`: five minutes pass in a second) and the sweep.
+test("the bot's omp hears the owner's rules, and a check it schedules for itself wakes its own turn", async () => {
+	test.setTimeout(180_000);
+	const file = await botFile();
+	await page.locator("[data-sidebar-bot-row]").click();
+	const bot = await tabOf(file);
+	await untilReady(bot);
+
+	// Told the default rules (the bridge turns them into the `ompdesk-bot` prompt section), once for this tab.
+	const told = async () => (await readRecords(record)).filter(frame => frame.type === "agent_control.bot");
+	await expect.poll(async () => (await told()).length, { timeout: 30_000 }).toBe(1);
+	expect(String((await told())[0]?.rules)).toContain("- Deploy or release: ask the owner before taking it.");
+	expect(String((await told())[0]?.rules)).toContain("- Edit code: take it without asking.");
+
+	const made = await callAs(bot, "ompdesk_schedule", {
+		action: "create",
+		target: "self",
+		name: "check the build",
+		prompt: "Check the build; tell the owner only if it failed",
+		every_minutes: 5,
+	});
+	expect(made.isError, made.text).toBe(false);
+	expect(made.text).toContain("it wakes this session");
+	const id = /id ([\w-]+);/.exec(made.text)?.[1] ?? "";
+	expect(id).not.toBe("");
+
+	// It is in the Schedules panel's list like any schedule, marked as the agent's.
+	const state = () => page.evaluate(() => window.omp.schedules.command({ action: "get" }));
+	expect((await state()).schedules.find(schedule => schedule.id === id)).toMatchObject({
+		name: "[agent] check the build",
+		wakeSession: file,
+	});
+
+	// A moment later main delivers its prompt into the bot's own session; the fake omp runs a turn on the mail.
+	const wakes = async () =>
+		(await readRecords(record)).filter(frame => {
+			const details = frame.details as Record<string, unknown> | undefined;
+			return frame.type === "agent_control.mail" && details?.from === "ompdesk" && details?.kind === "note";
+		});
+	await expect.poll(async () => (await wakes()).length, { timeout: 60_000 }).toBeGreaterThanOrEqual(1);
+	const [wake] = await wakes();
+	expect(wake).toMatchObject({ triggerTurn: true, deliverAs: "aside" });
+	expect(String(wake?.content)).toContain("Check the build; tell the owner only if it failed");
+	await expect.poll(() => lastAnswer(bot), { timeout: 30_000 }).toBe("Read the note report from ompdesk.");
+
+	// The run is recorded as a success, no omp -p was started for it, and the agent that made it can cancel it.
+	await expect
+		.poll(async () => (await state()).runs.find(run => run.scheduleId === id)?.status, { timeout: 30_000 })
+		.toBe("succeeded");
+	const cancelled = await callAs(bot, "ompdesk_schedule", { action: "cancel", id });
+	expect(cancelled.isError, cancelled.text).toBe(false);
+	expect((await state()).schedules.some(schedule => schedule.id === id)).toBe(false);
+	// Told once: the later mails did not repeat the rules.
+	expect(await told()).toHaveLength(1);
+});
+
+test("a session the bot opens shows under the bot row, and nowhere else in the lists", async () => {
+	test.setTimeout(180_000);
+	const file = await botFile();
+	await page.locator("[data-sidebar-bot-row]").click();
+	const bot = await tabOf(file);
+	await untilReady(bot);
+
+	// The child waits on a question card, so its row stays (a finished one that landed clean leaves every family). It
+	// is opened with no brief and the owner types the prompt that raises the card: an agent's own brief is wrapped, which
+	// the fake omp does not take for that prompt.
+	const opened = await callAs(bot, "ompdesk_session_open", { show: "background" });
+	expect(opened.isError, opened.text).toBe(false);
+	const child = /Opened session (\w+)/.exec(opened.text)?.[1] ?? "";
+	expect(child).not.toBe("");
+	await untilReady(child);
+	await page.evaluate(id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "fixture approval" }), child);
+	let childFile = "";
+	await expect
+		.poll(async () => {
+			childFile =
+				(await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === child)?.sessionPath ?? "";
+			return childFile;
+		})
+		.not.toBe("");
+
+	const nested = page.locator(`[data-sidebar-family="${file}"] [data-sidebar-opened-session]`);
+	await expect(nested).toHaveCount(1, { timeout: 60_000 });
+	await expect(nested).toHaveAttribute("data-session-path", childFile);
+	await expect(nested).toHaveAttribute("data-child-status", "waiting");
+	// It is that row alone: no project or chat row repeats it, and the bot's own row is still the one fixed row.
+	await expect(page.locator(`[data-session-path="${childFile}"]`)).toHaveCount(1);
+	await expect(page.locator("[data-sidebar-bot-row]")).toHaveCount(1);
+	await expect(page.locator(".omp-sidebar-session-row").first()).toHaveAttribute("data-sidebar-bot-row", "true");
 });

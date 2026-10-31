@@ -17,6 +17,7 @@
 import {
 	Blocks,
 	Bot,
+	BotMessageSquare,
 	Brain,
 	CalendarClock,
 	FolderOpen,
@@ -55,6 +56,7 @@ import { HostScoped, ThisDeviceTag } from "../remote/HostScope";
 import { AgentSection } from "./AgentSection";
 import { AgentWorktreesRows } from "./AgentWorktreesRow";
 import { AppearanceSection } from "./AppearanceSection";
+import { BotRulesSection } from "./BotRulesSection";
 import { ExtensionsSection } from "./ExtensionsSection";
 import { GeneralSection } from "./GeneralSection";
 import { KeyboardSection } from "./KeyboardSection";
@@ -102,6 +104,7 @@ const SECTION_ICONS: Record<SettingsSectionId, LucideIcon> = {
 	keyboard: Keyboard,
 	models: Bot,
 	permissions: ShieldCheck,
+	bot: BotMessageSquare,
 	agent: Sparkles,
 	tools: Blocks,
 	workspace: FolderOpen,
@@ -334,6 +337,8 @@ export function SettingsPage() {
 						<AdvancedSchemaSettings section="permissions" />
 					</>
 				);
+			case "bot":
+				return <BotRulesSection />;
 			case "agent":
 				return <AgentSection />;
 			case "tools":
