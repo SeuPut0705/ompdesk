@@ -422,6 +422,48 @@ describe("SidecarManager", () => {
 		}
 	});
 
+	it("tells its listeners the live session's new name when a rename succeeds, as stock's RPC rename does not", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-rename-"));
+		const sessionFile = path.join(tempDir, "session.jsonl");
+		// Stock 18.14: `set_session_name` answers success and sends no `session_info_update`.
+		const script = [
+			'import { createInterface } from "node:readline";',
+			"const out = (frame: unknown) => process.stdout.write(JSON.stringify(frame) + '\\n');",
+			'out({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] });',
+			"createInterface({ input: process.stdin }).on('line', line => {",
+			"\tconst command = JSON.parse(line);",
+			`\tif (command.type === "get_state") return out({ type: "response", id: command.id, command: "get_state", success: true, data: { sessionId: "s1", sessionFile: ${JSON.stringify(sessionFile)}, sessionName: "Old name" } });`,
+			'\tif (command.type === "set_session_name" && command.name === "Refused") return out({ type: "response", id: command.id, command: command.type, success: false, error: "no" });',
+			'\tout({ type: "response", id: command.id, command: command.type, success: true });',
+			"});",
+			'process.stdin.on("end", () => process.exit(0));',
+		].join("\n");
+		const binaryPath = await writeFakeOmp(tempDir, script);
+		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, bridgeDir: tempDir });
+		const titles: unknown[] = [];
+		sidecar.on("sessionInfoUpdate", frame => titles.push(frame));
+		try {
+			const ready = waitForReady(sidecar);
+			sidecar.start();
+			await ready;
+			const client = sidecar.rpcClient;
+			if (!client) throw new Error("no rpc client");
+			// The sidebar's path (the session by its file) and the title bar's (the tab's own session).
+			expect(
+				await client.command({ type: "set_session_name", name: " Named by hand ", sessionPath: sessionFile }),
+			).toMatchObject({ success: true });
+			await expect.poll(() => titles).toEqual([{ type: "session_info_update", title: "Named by hand" }]);
+			// A refused rename names nothing: the next one is the only title after the first.
+			expect(await client.command({ type: "set_session_name", name: "Refused" })).toMatchObject({ success: false });
+			expect(await client.command({ type: "set_session_name", name: "Again" })).toMatchObject({ success: true });
+			await expect.poll(() => titles).toHaveLength(2);
+			expect(titles[1]).toEqual({ type: "session_info_update", title: "Again" });
+		} finally {
+			sidecar.dispose();
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	});
+
 	it("delivers the events omp sent before a response ahead of that response", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-order-"));
 		const script = [
