@@ -28,6 +28,7 @@ const HOST_GATES = [
 	"nativeRendering",
 	"contextFilesExtraNotProject",
 	"restrictedFoldersNotProject",
+	"perCallModelAllowNotProject",
 ];
 
 /** Gates of stock's own memory settings, which OMPdesk does not list (ai-memory replaced them), so it has no rule for them. */

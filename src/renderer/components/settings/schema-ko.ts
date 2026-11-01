@@ -167,6 +167,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	"commit.mapBatchTokenBudget": { label: "커밋 분석 배치당 토큰 예산" },
 	"commit.cacheEnabled": { label: "커밋 분석 결과 캐시" },
 	"commit.cacheTtlDays": { label: "커밋 분석 캐시 보관 일수" },
+	"judgment.attemptTimeoutMs": { label: "판정 시도 타임아웃(ms)" },
 	"extensionHandlers.toolCallTimeoutMs": {
 		label: "확장 도구 호출 타임아웃(ms)",
 		description:
@@ -1171,6 +1172,16 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		label: "서브에이전트별 강도 지정",
 		description:
 			"서브에이전트 생성에 선택적 effort 파라미터를 노출해 호출자가 서브에이전트별 사고 수준을 덮어쓸 수 있게 해요",
+	},
+	"task.perCallModel": {
+		label: "호출별 모델 지정",
+		description:
+			"서브에이전트 호출이 provider/model-id[@upstream][:level] 형식의 정확한 선택자 하나로 모델을 고를 수 있는지 정해요. @upstream 고정은 모델 정체성의 일부이며 애그리게이터만 지원해요. 설정에서 이미 연결된 모델만 받아요. 프로젝트 설정은 이 기능을 끌 수만 있고 켤 수는 없으며, 모델을 승인하지도 못해요.",
+	},
+	"task.perCallModelAllow": {
+		label: "호출별 모델 허용 목록",
+		description:
+			"정확한 선택자 `provider/model-id` 목록이에요. `@upstream`은 고정된 OpenRouter/Vercel 경로에만 붙여요(예: `openrouter/x@y`). 목록이 있으면 호출별 모델도 여기에 있어야 해요. 비어 있으면 설정이 허용하는 모든 모델을 받아요. 프로젝트 목록은 이 목록을 좁히기만 할 수 있어요.",
 	},
 	"task.maxConcurrency": {
 		label: "최대 동시 서브에이전트 수",

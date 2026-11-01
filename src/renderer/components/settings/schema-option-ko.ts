@@ -1017,4 +1017,10 @@ export const KO_SCHEMA_OPTION_TEXT: Readonly<Record<string, string>> = {
 	Control: "제어",
 	"Auto-host; the registry hands out control links that can prompt the session":
 		"자동 호스팅; 레지스트리가 세션에 프롬프트를 보낼 수 있는 제어 링크를 배포해요",
+	"Reject `model` on task items and eval agent()/workpool()":
+		"task 항목과 eval agent()/workpool()에서 `model`을 거부해요",
+	"Eval only": "eval에서만",
+	"Accept `model` in eval agent() and workpool() only": "eval agent()와 workpool()에서만 `model`을 받아요",
+	"Accept `model` on task items and in eval agent()/workpool()":
+		"task 항목과 eval agent()/workpool() 모두에서 `model`을 받아요",
 };
