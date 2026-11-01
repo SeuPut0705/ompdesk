@@ -2656,6 +2656,18 @@ describe("InputArea attachments (DI-9, DI-14, DI-15, DI-18)", () => {
 		expect(useComposerStore.getState().images).toEqual([]);
 	});
 
+	it("Backspace in an empty field stays in the field and leaves the pictures alone", async () => {
+		await mount();
+		await act(async () => useComposerStore.getState().setImages([png("AA=="), png("AQ==")]));
+		const focused: HTMLElement[] = [];
+		for (const stop of document.querySelectorAll<HTMLElement>("[data-strip-stop], [data-zoomable-image]"))
+			stop.focus = () => void focused.push(stop);
+		const key = await pressKey({ key: "Backspace" });
+		expect(key.defaultPrevented).toBe(false);
+		expect(focused).toEqual([]);
+		expect(useComposerStore.getState().images).toHaveLength(2);
+	});
+
 	it("a drop anywhere on the pane attaches, and a non-file drag over it is refused outright", async () => {
 		await mount();
 		// Remount inside a session pane that also holds a transcript: the composer listens on the pane.
