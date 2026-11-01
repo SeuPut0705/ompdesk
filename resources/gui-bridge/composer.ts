@@ -19,6 +19,8 @@ import { jobRows } from "./jobs-core";
 import { keepSectionsOnRestore } from "./prompt-sections";
 import {
 	cutByEarlierStop,
+	cutCalls,
+	cutCallsLabel,
 	goalActiveAtExit,
 	interruptedJobs,
 	type JournalEntry,
@@ -168,11 +170,19 @@ async function closeSubagent(
 	}
 }
 
+/** What `closeShutdownSubagents` did and found. */
+interface PreparedSubagents {
+	/** The transcripts it gave stock's interrupted-turn record (the caller closes those stock did not revive). */
+	appended: SubagentRecord[];
+	/** What the last stop cut each subagent in (`cutCallsLabel`), by id, for the restart note's details. */
+	doing: Map<string, string>;
+}
+
 /**
  * Prepares the background subagents of the last processes for stock's `restoreSession`, which revives every one it
  * reads as mid-turn, whatever its age. Returns the ones given stock's interrupted-turn record below, so the caller can
  * close those stock did not revive (`closeSubagent`): a record this restore wrote must not outlive it, or a later
- * relaunch would revive the subagent on it.
+ * relaunch would revive the subagent on it; and the tool calls the stop cut each one in.
  *
  * - A subagent a stop before the last one cut (`cutByEarlierStop`: the session has gone on past it) is closed, never
  *   revived: 30 Oct 2026, `OsInstallLock` was cut by an omp restart, its work was redone by another subagent, and a
@@ -187,14 +197,16 @@ async function closeShutdownSubagents(
 	branch: readonly JournalEntry[],
 	startedAt: number,
 	onFailure: (id: string, error: unknown) => void,
-): Promise<SubagentRecord[]> {
+): Promise<PreparedSubagents> {
 	const sessionFile = session.sessionManager.getSessionFile();
-	if (!sessionFile?.endsWith(".jsonl") || !session.asyncJobManager) return [];
+	const doing = new Map<string, string>();
+	if (!sessionFile?.endsWith(".jsonl") || !session.asyncJobManager) return { appended: [], doing };
 	// Late imports isolate a moved stock internal from the other composer adapters.
 	const { collectSubSessions } = await import("@oh-my-pi/pi-coding-agent/session/sub-sessions");
 	const diagnostics = await import("@oh-my-pi/pi-coding-agent/session/exit-diagnostics");
 	const { SessionManager, extractSessionInit } = await import("@oh-my-pi/pi-coding-agent/session/session-manager");
 	requireFn(diagnostics, "hasRestorableTurn", "composer", "session/exit-diagnostics");
+	requireFn(diagnostics, "createInterruptedToolResults", "composer", "session/exit-diagnostics");
 	requireFn(SessionManager, "open", "composer", "session/session-manager");
 	const subSessions = await collectSubSessions(sessionFile);
 	const appended: SubagentRecord[] = [];
@@ -205,6 +217,9 @@ async function closeShutdownSubagents(
 			id: sub.agentId,
 			file: `${join(sessionFile.slice(0, -".jsonl".length), ...key.split("/"))}.jsonl`,
 		};
+		// What the stop cut it in, for the restart note (read only for the subagents stock revives).
+		const cutIn = cutCallsLabel(cutCalls(sub.entries as readonly JournalEntry[]));
+		if (cutIn) doing.set(sub.agentId, cutIn);
 		if (diagnostics.hasRestorableTurn(sub.entries)) {
 			if (cutByEarlierStop(sub.entries as readonly JournalEntry[], branch, startedAt)) {
 				await closeSubagent(target, "stale-cut", onFailure);
@@ -215,13 +230,17 @@ async function closeShutdownSubagents(
 		if (marks.size === 0) continue;
 		const init = extractSessionInit(sub.entries);
 		if (!init || init.isolated) continue;
-		// What stock would have recorded had the stop not been read as a finished turn: it builds the record from the
-		// transcript the stop cut, under the model of the subagent's last reply.
+		// What stock would have recorded had the stop not been read as a finished turn: it builds the records from the
+		// transcript the stop cut, under the model of the subagent's last reply. Stock's own exit recovery (sdk.ts) first
+		// answers each call the stop cut with an "outcome unknown" result, then closes the turn; without those results
+		// the tail is a call nothing answered and an empty aborted reply, from which stock's retry has nothing to replay:
+		// on 2 Nov 2026 four subagents cut in `bash` and `wait` calls were revived on it and each ended at once, empty.
 		const reply = sub.entries.findLast(entry => entry.type === "message" && entry.message.role === "assistant");
 		if (reply?.type !== "message") continue;
 		const { api, provider, model } = reply.message as AssistantMessage;
+		const cut = sub.entries.filter((_, index) => !marks.has(index));
 		const interrupted = diagnostics.createInterruptedTurnAbortMessage(
-			sub.entries.filter((_, index) => !marks.has(index)),
+			cut,
 			{ api, provider, model },
 			{ assumeExit: true },
 		);
@@ -229,6 +248,7 @@ async function closeShutdownSubagents(
 		try {
 			const writer = await SessionManager.open(target.file, undefined, undefined, { throwIfMissing: true });
 			try {
+				for (const result of diagnostics.createInterruptedToolResults(cut)) writer.appendMessage(result);
 				writer.appendMessage(interrupted);
 			} finally {
 				await writer.close();
@@ -238,7 +258,7 @@ async function closeShutdownSubagents(
 			onFailure(sub.agentId, error);
 		}
 	}
-	return appended;
+	return { appended, doing };
 }
 
 // ── Methods ──────────────────────────────────────────────────────────────────
@@ -497,7 +517,7 @@ export const methods: BridgeMethods = {
 				subagentEventBus: taskTool?.session?.subagentEventBus,
 			});
 			// A record written above that stock did not revive would outlive this relaunch: close it.
-			for (const record of prepared) {
+			for (const record of prepared.appended) {
 				if (!outcome.subagents.includes(record.id)) {
 					await closeSubagent(record, "not-revived", () => undefined);
 				}
@@ -507,7 +527,7 @@ export const methods: BridgeMethods = {
 			const turnCut = !outcome.turn && turnCutBehindNotes(branch, startedAt);
 			const followUp = restartFollowUp(
 				cutOff,
-				revivedSubagents(branch, outcome.subagents),
+				revivedSubagents(branch, outcome.subagents, id => prepared.doing.get(id)),
 				outcome.turn ? "restored" : turnCut ? "cut" : "idle",
 			);
 			if (followUp) {

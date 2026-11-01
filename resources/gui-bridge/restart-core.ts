@@ -19,7 +19,14 @@ export interface JournalEntry {
 	data?: unknown;
 	/** ISO time the entry was journaled (stock `SessionEntry.timestamp`). */
 	timestamp?: string;
-	message?: { role?: string; content?: unknown; toolCallId?: string; details?: unknown; stopReason?: string };
+	message?: {
+		role?: string;
+		content?: unknown;
+		toolCallId?: string;
+		details?: unknown;
+		stopReason?: string;
+		isError?: boolean;
+	};
 }
 
 /** Stock's journal record of a process ending (exit-diagnostics.ts `SESSION_EXIT_CUSTOM_TYPE`). */
@@ -309,11 +316,13 @@ export function cutByEarlierStop(
 	});
 }
 
-/** A subagent stock `restoreSession` revived: its id and what it was asked to do. */
+/** A subagent stock `restoreSession` revived: its id, what it was asked to do and what the stop cut it in. */
 export interface RevivedSubagent {
 	id: string;
 	/** The assignment's `Title:` line, else its first line (assignmentHeadline). */
 	intent?: string;
+	/** The tool calls the stop cut (`cutCallsLabel`), when it was in the middle of some. */
+	doing?: string;
 }
 
 /** Longest intent a list line carries. */
@@ -335,16 +344,72 @@ function assignmentOf(branch: readonly JournalEntry[], id: string): string | und
 	return undefined;
 }
 
-/** The revived subagents `ids` with the intent the session's journal gave each (none for one it did not spawn). */
-export function revivedSubagents(branch: readonly JournalEntry[], ids: readonly string[]): RevivedSubagent[] {
+/**
+ * The revived subagents `ids` with the intent the session's journal gave each (none for one it did not spawn) and what
+ * the stop cut each one in (`doing`, from its own transcript).
+ */
+export function revivedSubagents(
+	branch: readonly JournalEntry[],
+	ids: readonly string[],
+	doing: (id: string) => string | undefined = () => undefined,
+): RevivedSubagent[] {
 	return ids.map(id => {
 		const headline = assignmentHeadline(assignmentOf(branch, id));
-		if (!headline) return { id };
+		const cut = doing(id);
 		return {
 			id,
-			intent: headline.length > INTENT_MAX_CHARS ? `${headline.slice(0, INTENT_MAX_CHARS - 1)}…` : headline,
+			...(headline
+				? { intent: headline.length > INTENT_MAX_CHARS ? `${headline.slice(0, INTENT_MAX_CHARS - 1)}…` : headline }
+				: {}),
+			...(cut ? { doing: cut } : {}),
 		};
 	});
+}
+
+/** A tool call a stop cut before it returned: stock's `session_exit.pendingToolCalls` item. */
+export interface CutCall {
+	name: string;
+	/** The call's own `i` argument. */
+	intent?: string;
+}
+
+function cutCall(value: unknown): CutCall | undefined {
+	if (!isObject(value) || typeof value.toolName !== "string") return undefined;
+	const args = isObject(value.args) ? value.args : {};
+	const intent = (typeof value.intent === "string" ? value.intent : typeof args.i === "string" ? args.i : "").trim();
+	return intent ? { name: value.toolName, intent } : { name: value.toolName };
+}
+
+/**
+ * The tool calls the last stop cut in a subagent's transcript, oldest first; empty when its last process did not end in
+ * the middle of a call. That is stock's `session_exit` record with `pendingToolCalls` and, after it, nothing but the
+ * records that close such a turn: "outcome unknown" results (failed tool results) and stock's interrupted-turn record
+ * (an aborted reply with no content). Anything else after the exit (a reply, a prompt, a later exit) means the
+ * transcript went on. The restart note names them (`details.subagents[].doing`), so the transcript says what the
+ * subagent was doing when the restart cut it.
+ */
+export function cutCalls(entries: readonly JournalEntry[]): CutCall[] {
+	for (let index = entries.length - 1; index >= 0; index--) {
+		const entry = entries[index];
+		if (!entry) continue;
+		if (isExit(entry)) {
+			const pending = isObject(entry.data) ? entry.data.pendingToolCalls : undefined;
+			return Array.isArray(pending) ? pending.flatMap(item => cutCall(item) ?? []) : [];
+		}
+		if (entry.type !== "message") continue;
+		const { role, stopReason, content, isError } = entry.message ?? {};
+		if (role === "toolResult" && isError === true) continue;
+		if (role === "assistant" && stopReason === "aborted" && Array.isArray(content) && content.length === 0) continue;
+		return [];
+	}
+	return [];
+}
+
+/** What the stop cut a subagent in, for the transcript's label: each call's tool and intent, cut at 120 chars. */
+export function cutCallsLabel(calls: readonly CutCall[]): string | undefined {
+	if (calls.length === 0) return undefined;
+	const label = calls.map(call => (call.intent ? `${call.name}: ${call.intent}` : call.name)).join(", ");
+	return label.length > INTENT_MAX_CHARS ? `${label.slice(0, INTENT_MAX_CHARS - 1)}…` : label;
 }
 
 /**
@@ -398,7 +463,7 @@ function restartNotice(
 /** What the transcript's muted lines read from the message: ids and intents, never a job's command. */
 export interface RestartDetails {
 	jobs: Array<{ id: string; intent?: string }>;
-	subagents?: Array<{ id: string; intent?: string }>;
+	subagents?: Array<{ id: string; intent?: string; doing?: string }>;
 	/** The follow-up also continues a turn the restart cut off. */
 	turn?: true;
 }
@@ -412,6 +477,9 @@ export interface RestartFollowUp {
 
 const listed = (items: readonly { id: string; intent?: string }[]) =>
 	items.map(item => (item.intent ? { id: item.id, intent: item.intent } : { id: item.id }));
+
+const listedSubagents = (items: readonly RevivedSubagent[]) =>
+	items.map(({ id, intent, doing }) => ({ id, ...(intent ? { intent } : {}), ...(doing ? { doing } : {}) }));
 
 /**
  * The relaunch's one follow-up, or undefined when it has nothing to say: the cut-off jobs, the revived subagents and
@@ -433,7 +501,7 @@ export function restartFollowUp(
 		content: restartNotice(jobs, subagents, turn),
 		details: {
 			jobs: listed(jobs),
-			...(subagents.length > 0 ? { subagents: listed(subagents) } : {}),
+			...(subagents.length > 0 ? { subagents: listedSubagents(subagents) } : {}),
 			...(turn === "cut" ? { turn: true as const } : {}),
 		},
 	};

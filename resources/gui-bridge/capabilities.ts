@@ -211,9 +211,14 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			],
 			[`${AGENT}/utils/tool-choice`]: ["buildNamedToolChoice()"],
 			[`${AGENT}/task/restore`]: ["restoreSession()"],
-			[`${AGENT}/session/exit-diagnostics`]: ["createInterruptedTurnAbortMessage()", "hasRestorableTurn()"],
-			// A subagent a graceful stop parked on an aborted reply gets stock's interrupted-turn record appended
-			// through stock's writer before the restore (composer.restore_interrupted).
+			[`${AGENT}/session/exit-diagnostics`]: [
+				"createInterruptedTurnAbortMessage()",
+				"createInterruptedToolResults()",
+				"hasRestorableTurn()",
+			],
+			// A subagent a graceful stop parked on an aborted reply, or cut in a call stock's exit record calls clean, gets
+			// stock's "outcome unknown" results and interrupted-turn record appended through stock's writer before the
+			// restore (composer.restore_interrupted).
 			[`${AGENT}/session/sub-sessions`]: ["collectSubSessions()"],
 			[`${AGENT}/session/session-manager`]: [
 				"SessionManager.open()",

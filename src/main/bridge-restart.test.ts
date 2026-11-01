@@ -8,6 +8,8 @@
 import { describe, expect, it } from "vitest";
 import {
 	cutByEarlierStop,
+	cutCalls,
+	cutCallsLabel,
 	goalActiveAtExit,
 	interruptedJobs,
 	type JournalEntry,
@@ -485,6 +487,50 @@ describe("cutByEarlierStop", () => {
 	it("does not count what this process wrote", () => {
 		const own = [...parent.slice(0, 2), message("06:37:30.000", "user")];
 		expect(cutByEarlierStop(sigtermCut, own, startedAt)).toBe(false);
+	});
+});
+
+// 2 Nov 2026 (v0.94.0 → v0.94.1 automatic update): the swap took the app away while two subagents were in a `bash`
+// and a `wait` call; their transcripts end on a `manual` exit naming the call. The restart note says what each was doing.
+describe("cutCalls", () => {
+	const exitWith = (pendingToolCalls?: unknown[]): JournalEntry => ({
+		type: "custom",
+		customType: "session_exit",
+		data: { reason: "manual", kind: "normal", ...(pendingToolCalls ? { pendingToolCalls } : {}) },
+	});
+	const streamFast = [
+		bashCall("toolu_1", "godot --headless -s stream_probe.gd", "probing the stream"),
+		{ type: "custom", customType: "tool_execution_start" },
+		exitWith([
+			{
+				toolName: "bash",
+				toolCallId: "toolu_1",
+				args: { command: "godot --headless -s stream_probe.gd", timeout: 900 },
+				intent: "probing the stream",
+			},
+		]),
+	];
+	const closed = (error: boolean): JournalEntry[] => [
+		{ type: "message", message: { role: "toolResult", toolCallId: "toolu_1", isError: error, content: [] } },
+		{ type: "message", message: { role: "assistant", stopReason: "aborted", content: [] } },
+	];
+
+	it("names the calls the last stop cut, before and after the records that close the turn", () => {
+		expect(cutCalls(streamFast)).toEqual([{ name: "bash", intent: "probing the stream" }]);
+		expect(cutCalls([...streamFast, ...closed(true)])).toEqual([{ name: "bash", intent: "probing the stream" }]);
+		// LayoutSplit: a `wait` whose intent is only in its arguments.
+		expect(cutCalls([exitWith([{ toolName: "wait", args: { i: "waiting for bg_25" } }])])).toEqual([
+			{ name: "wait", intent: "waiting for bg_25" },
+		]);
+		expect(cutCallsLabel(cutCalls(streamFast))).toBe("bash: probing the stream");
+	});
+
+	it("names nothing when the transcript went on after the exit, or the exit cut no call", () => {
+		expect(cutCalls([...streamFast, ...closed(false)])).toEqual([]);
+		expect(cutCalls([...streamFast, { type: "message", message: { role: "user", content: "go on" } }])).toEqual([]);
+		expect(cutCalls([...streamFast, exitWith()])).toEqual([]);
+		expect(cutCalls([bashCall("toolu_1", "ls")])).toEqual([]);
+		expect(cutCallsLabel([])).toBeUndefined();
 	});
 });
 
