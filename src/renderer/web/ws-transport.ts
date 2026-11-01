@@ -5,14 +5,19 @@
  * - Connect: a one-time ticket (`fetchTicket`), the socket opened with `ompdesk.v1` and `ticket.<token>` as its
  *   subprotocols, the host's `hello` first. A host whose `minClient` is newer than this page's protocol makes
  *   the page reload (a stale cached bundle); a 4401 close or a refused ticket means the device is unpaired.
- * - Reconnect: a dropped socket retries after 0.5 s doubling to 8 s with jitter; a page coming back from sleep
- *   (`wake()`: visible, online, pageshow) retries at once. The host keeps a disconnected device's window parked.
+ * - Reconnect: a dropped socket retries at once, then after 0.25, 0.5 and 1 s, then every second while the page is
+ *   seen (doubling to 8 s while hidden), with a little jitter; a page coming back from sleep (`wake()`: visible,
+ *   online, pageshow) retries at once, and abandons an attempt still waiting after a second: a request sent on a route
+ *   that no longer exists (the phone changed networks) is never answered. An attempt gives up on its ticket after 4 s
+ *   and on the host's `hello` after 5 s. The host keeps a disconnected device's window parked.
  *   A reconnect offers the last connection's id (`resume.<connId>`); the host's `hello` says `resumed` when that
  *   connection ended with every event acknowledged and no push reached the device since, and the page carries on.
  *   Otherwise events were missed (or a call the drop failed is unanswered) and the page catches up in place
  *   (`onResync`, with the cause). A host that dropped stream pushes while the page was hidden sends `hello` again on its return.
- * - Liveness: the host pings every 20 s; the page declares the link dead only after three silent intervals, and a
- *   tick that fires late (the phone slept) counts for nothing.
+ * - Liveness: while the page is seen, 5 s without a frame from the host makes it ask (`ping`); a question left
+ *   unanswered 2.5 s means the link is dead, and the page drops it and reconnects. A socket that went silent (a
+ *   network change, a route that died) used to hold the page stale for up to a minute. A tick that fires late (the
+ *   phone slept) asks at once instead of judging. The host pings every 20 s on its side.
  * - Acks: the last event `seq` applied goes back, coalesced; the host resumes only a connection fully acknowledged.
  * - Calls made while the link is down wait for it (up to `connectWaitMs`); calls in flight when it drops fail.
  */
@@ -50,7 +55,8 @@ export interface WsLike {
 
 export interface WsTransportOptions {
 	url: string;
-	fetchTicket: () => Promise<string>;
+	/** `signal` aborts when the attempt gives up on it (`ticketMs`) or a wake abandons it. */
+	fetchTicket: (signal: AbortSignal) => Promise<string>;
 	createSocket: (url: string, protocols: string[]) => WsLike;
 	/** The page's protocol version; defaults to this build's. */
 	protocol?: number;
@@ -70,8 +76,12 @@ export interface WsTransportOptions {
 	onResync?: (cause: ResyncCause) => void;
 	/** No pairing for this browser. */
 	onUnpaired?: () => void;
-	heartbeatMs?: number;
-	heartbeatMisses?: number;
+	/** While the page is seen: how long without a frame from the host before it asks whether the link still works. */
+	quietMs?: number;
+	/** How long a question (`ping`) may go unanswered before the link counts as dead. */
+	answerMs?: number;
+	/** How long an attempt waits for its ticket before it gives up and tries again. */
+	ticketMs?: number;
 	/** How long a call waits for a link that is down before it fails. */
 	connectWaitMs?: number;
 	/** How long a socket may take to deliver `hello`. */
@@ -81,8 +91,14 @@ export interface WsTransportOptions {
 const OPEN = 1;
 /** The close code the host sends a revoked device. */
 const CLOSE_REVOKED = 4401;
-const BACKOFF_FIRST_MS = 500;
-const BACKOFF_MAX_MS = 8000;
+/** Waits before the retries after a drop; past the list each wait is its last one while the page is seen. */
+const RETRY_MS = [0, 250, 500, 1000] as const;
+/** A hidden page has nobody waiting: its waits keep doubling up to this. */
+const HIDDEN_RETRY_MAX_MS = 8000;
+/** How often the link's liveness is looked at; a tick three times this late means the page was asleep. */
+const LIVENESS_TICK_MS = 1000;
+/** A wake abandons an attempt older than this for a fresh one. */
+const STALE_ATTEMPT_MS = 1000;
 const ACK_DELAY_MS = 150;
 /** The host's frame limit; a bigger request fails here with a reason instead of closing the socket. */
 const MAX_FRAME_BYTES = 1_000_000;
@@ -96,6 +112,20 @@ interface Waiting {
 	run: () => void;
 	fail: (error: Error) => void;
 	timer: unknown;
+}
+
+/** One connection attempt: the ticket request and the socket that follows it. */
+interface Attempt {
+	readonly abort: AbortController;
+	readonly startedAt: number;
+}
+
+/** `promise`, or a rejection as soon as `signal` aborts (a fake or a browser that ignores the signal still lets go). */
+function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+	const { promise: aborted, reject } = Promise.withResolvers<never>();
+	if (signal.aborted) reject(new Error("aborted"));
+	else signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+	return Promise.race([promise, aborted]);
 }
 
 /** An error the way Electron's `invoke` rejection carries a code: `[code] message`. */
@@ -114,8 +144,9 @@ function isServerFrame(value: unknown): value is WebServerFrame {
 export class WsTransport implements OmpTransport {
 	readonly #options: WsTransportOptions;
 	readonly #protocol: number;
-	readonly #heartbeatMs: number;
-	readonly #heartbeatMisses: number;
+	readonly #quietMs: number;
+	readonly #answerMs: number;
+	readonly #ticketMs: number;
 	readonly #connectWaitMs: number;
 	readonly #helloMs: number;
 	readonly #listeners = new Map<string, Set<(data: unknown) => void>>();
@@ -128,21 +159,22 @@ export class WsTransport implements OmpTransport {
 	/** The socket is open and the host's `hello` arrived. */
 	#ready = false;
 	#nextId = 1;
-	#attempt = 0;
+	/** Failed attempts since the last `hello`: picks the next wait. */
+	#failures = 0;
 	#everConnected = false;
 	#started = false;
-	#connecting = false;
+	/** The connection attempt under way, until its `hello` or its end. */
+	#attempt: Attempt | null = null;
 	#retryTimer: unknown = null;
 	#helloTimer: unknown = null;
-	#heartbeatTimer: unknown = null;
+	#livenessTimer: unknown = null;
 	#ackTimer: unknown = null;
 	#lastSeq = 0;
 	#ackedSeq = 0;
 	#lastInbound = 0;
 	#lastTick = 0;
-	#misses = 0;
-	/** Frames received on this page so far; the wake probe compares it before and after. */
-	#inbound = 0;
+	/** When the page asked the host whether the link works (`ping`) and has had no frame since; null otherwise. */
+	#askedAt: number | null = null;
 	#features: WebFeatures | null = null;
 	#grants: readonly WebPermission[] | null = null;
 	/** The last connection's id: a reconnect offers it (`resume.<connId>`) so the host can continue it. */
@@ -153,10 +185,11 @@ export class WsTransport implements OmpTransport {
 	constructor(options: WsTransportOptions) {
 		this.#options = options;
 		this.#protocol = options.protocol ?? WEB_PROTOCOL_VERSION;
-		this.#heartbeatMs = options.heartbeatMs ?? 20_000;
-		this.#heartbeatMisses = options.heartbeatMisses ?? 3;
+		this.#quietMs = options.quietMs ?? 5000;
+		this.#answerMs = options.answerMs ?? 2500;
+		this.#ticketMs = options.ticketMs ?? 4000;
 		this.#connectWaitMs = options.connectWaitMs ?? 15_000;
-		this.#helloMs = options.helloMs ?? 10_000;
+		this.#helloMs = options.helloMs ?? 5000;
 	}
 
 	get state(): WsConnectionState {
@@ -186,23 +219,23 @@ export class WsTransport implements OmpTransport {
 		void this.#connect();
 	}
 
-	/** The page came back (visible, online, pageshow): retry now, or check that a link that looks open still is. */
+	/** The page came back (visible, online, pageshow): retry now, or ask whether a link that looks open still is. */
 	wake(): void {
 		if (!this.#started || this.#state === "unpaired" || this.#state === "outdated" || this.#state === "closed")
 			return;
 		if (this.#ready) {
-			this.#send({ t: "ping" });
-			// The probe's answer is any inbound frame; none within a few seconds means the phone's link died asleep.
-			const before = this.#inbound;
-			this.#after(5000, () => {
-				if (this.#ready && this.#inbound === before) this.#drop(4000, "no answer after wake");
-			});
+			// Any frame answers; none within `answerMs` and the liveness tick drops the link.
+			this.#ask();
 			return;
 		}
-		if (this.#connecting) return;
+		const attempt = this.#attempt;
+		if (attempt) {
+			if (this.#now() - attempt.startedAt < STALE_ATTEMPT_MS) return;
+			this.#abandonAttempt();
+		}
 		this.#clearTimer(this.#retryTimer);
 		this.#retryTimer = null;
-		this.#attempt = 0;
+		this.#failures = 0;
 		void this.#connect();
 	}
 
@@ -216,6 +249,7 @@ export class WsTransport implements OmpTransport {
 		this.#started = false;
 		this.#clearTimer(this.#retryTimer);
 		this.#retryTimer = null;
+		this.#abandonAttempt();
 		this.#setState("closed");
 		this.#drop(1000, "closed");
 	}
@@ -282,34 +316,60 @@ export class WsTransport implements OmpTransport {
 	}
 
 	async #connect(): Promise<void> {
-		if (this.#connecting || this.#ready || !this.#started) return;
-		this.#connecting = true;
+		if (this.#attempt || this.#ready || !this.#started) return;
+		const attempt: Attempt = { abort: new AbortController(), startedAt: this.#now() };
+		this.#attempt = attempt;
+		const giveUp = this.#after(this.#ticketMs, () => attempt.abort.abort());
+		let ticket: string;
 		try {
-			const ticket = await this.#options.fetchTicket();
-			if (!this.#started) return;
-			const protocols = ["ompdesk.v1", `ticket.${ticket}`];
-			if (this.#everConnected && this.#connId) protocols.push(`resume.${this.#connId}`);
-			const socket = this.#options.createSocket(this.#options.url, protocols);
-			this.#socket = socket;
-			socket.onmessage = event => {
-				if (this.#socket === socket) this.#receive(event.data);
-			};
-			socket.onclose = event => {
-				if (this.#socket === socket) this.#closed(event.code);
-			};
-			socket.onerror = () => {
-				// `close` follows with the code.
-			};
-			this.#helloTimer = this.#after(this.#helloMs, () => {
-				if (this.#socket === socket && !this.#ready) this.#drop(4001, "no hello");
-			});
+			ticket = await untilAborted(this.#options.fetchTicket(attempt.abort.signal), attempt.abort.signal);
 		} catch (error) {
-			this.#connecting = false;
+			// An attempt `wake()` or `close()` abandoned is over: whatever replaced it goes on.
+			if (this.#attempt !== attempt) return;
+			this.#attempt = null;
 			if (error instanceof UnpairedError) {
 				this.#unpaired();
 				return;
 			}
 			this.#scheduleRetry();
+			return;
+		} finally {
+			this.#clearTimer(giveUp);
+		}
+		if (this.#attempt !== attempt || !this.#started) return;
+		const protocols = ["ompdesk.v1", `ticket.${ticket}`];
+		if (this.#everConnected && this.#connId) protocols.push(`resume.${this.#connId}`);
+		const socket = this.#options.createSocket(this.#options.url, protocols);
+		this.#socket = socket;
+		socket.onmessage = event => {
+			if (this.#socket === socket) this.#receive(event.data);
+		};
+		socket.onclose = event => {
+			if (this.#socket === socket) this.#closed(event.code);
+		};
+		socket.onerror = () => {
+			// `close` follows with the code.
+		};
+		this.#helloTimer = this.#after(this.#helloMs, () => {
+			if (this.#socket === socket && !this.#ready) this.#drop(4001, "no hello");
+		});
+	}
+
+	/** Stop the attempt under way without counting it as a drop: its socket, if any, is closed unheard. */
+	#abandonAttempt(): void {
+		const attempt = this.#attempt;
+		if (!attempt) return;
+		this.#attempt = null;
+		attempt.abort.abort();
+		this.#clearTimer(this.#helloTimer);
+		this.#helloTimer = null;
+		const socket = this.#socket;
+		if (!socket || this.#ready) return;
+		this.#socket = null;
+		try {
+			socket.close(4000, "abandoned");
+		} catch {
+			// Already closed.
 		}
 	}
 
@@ -323,8 +383,7 @@ export class WsTransport implements OmpTransport {
 		}
 		if (!isServerFrame(frame)) return;
 		this.#lastInbound = this.#now();
-		this.#inbound++;
-		this.#misses = 0;
+		this.#askedAt = null;
 		switch (frame.t) {
 			case "hello":
 				this.#hello(frame);
@@ -351,7 +410,7 @@ export class WsTransport implements OmpTransport {
 	#hello(frame: Extract<WebServerFrame, { t: "hello" }>): void {
 		this.#clearTimer(this.#helloTimer);
 		this.#helloTimer = null;
-		this.#connecting = false;
+		this.#attempt = null;
 		if (frame.minClient > this.#protocol) {
 			this.#setState("outdated");
 			this.#started = false;
@@ -373,15 +432,16 @@ export class WsTransport implements OmpTransport {
 		this.#everConnected = true;
 		this.#connId = frame.connId;
 		this.#ready = true;
-		this.#attempt = 0;
+		this.#failures = 0;
 		this.#features = frame.features;
 		this.#grants = frame.grants;
 		this.#lastSeq = 0;
 		this.#ackedSeq = 0;
 		this.#lastInbound = this.#now();
 		this.#lastTick = this.#lastInbound;
+		this.#askedAt = null;
 		this.#setState("open");
-		this.#startHeartbeat();
+		this.#startLiveness();
 		this.#send({ t: "presence", visible: this.#options.isVisible?.() ?? true });
 		const waiting = [...this.#waiting];
 		this.#waiting.clear();
@@ -412,27 +472,33 @@ export class WsTransport implements OmpTransport {
 		this.#socket.send(JSON.stringify(frame));
 	}
 
-	#startHeartbeat(): void {
-		this.#clearTimer(this.#heartbeatTimer);
+	#ask(): void {
+		this.#askedAt = this.#now();
+		this.#send({ t: "ping" });
+	}
+
+	#startLiveness(): void {
+		this.#clearTimer(this.#livenessTimer);
 		const tick = () => {
 			if (!this.#ready) return;
 			const now = this.#now();
-			const late = now - this.#lastTick > this.#heartbeatMs * 1.5;
+			const late = now - this.#lastTick > LIVENESS_TICK_MS * 3;
 			this.#lastTick = now;
-			if (late) {
-				// The timer was starved (the phone slept): the silence says nothing about the link.
-				this.#misses = 0;
-			} else if (now - this.#lastInbound >= this.#heartbeatMs) {
-				this.#misses++;
-				if (this.#misses >= this.#heartbeatMisses) {
-					this.#drop(4000, "heartbeat");
+			// A hidden page judges nothing (the host sends it little, and its timers are throttled); `wake()` asks on its return.
+			if (this.#options.isVisible?.() ?? true) {
+				if (late) {
+					// The timer was starved (the phone slept): the silence says nothing yet, the answer will.
+					this.#ask();
+				} else if (this.#askedAt !== null && now - this.#askedAt >= this.#answerMs) {
+					this.#drop(4000, "no answer");
 					return;
+				} else if (this.#askedAt === null && now - this.#lastInbound >= this.#quietMs) {
+					this.#ask();
 				}
 			}
-			this.#send({ t: "ping" });
-			this.#heartbeatTimer = this.#after(this.#heartbeatMs, tick);
+			this.#livenessTimer = this.#after(LIVENESS_TICK_MS, tick);
 		};
-		this.#heartbeatTimer = this.#after(this.#heartbeatMs, tick);
+		this.#livenessTimer = this.#after(LIVENESS_TICK_MS, tick);
 	}
 
 	/** Close the current socket from this side and treat it as dropped. */
@@ -455,11 +521,12 @@ export class WsTransport implements OmpTransport {
 
 	#ended(code: number): void {
 		this.#ready = false;
-		this.#connecting = false;
+		this.#attempt = null;
+		this.#askedAt = null;
 		this.#clearTimer(this.#helloTimer);
-		this.#clearTimer(this.#heartbeatTimer);
+		this.#clearTimer(this.#livenessTimer);
 		this.#clearTimer(this.#ackTimer);
-		this.#helloTimer = this.#heartbeatTimer = this.#ackTimer = null;
+		this.#helloTimer = this.#livenessTimer = this.#ackTimer = null;
 		if (this.#pending.size > 0) this.#lostCalls = true;
 		for (const pending of this.#pending.values()) pending.reject(new Error(translate("web.call.dropped")));
 		this.#pending.clear();
@@ -485,9 +552,16 @@ export class WsTransport implements OmpTransport {
 
 	#scheduleRetry(): void {
 		this.#setState(this.#everConnected ? "reconnecting" : "connecting");
-		const base = Math.min(BACKOFF_MAX_MS, BACKOFF_FIRST_MS * 2 ** this.#attempt);
-		this.#attempt++;
-		const jitter = 0.75 + (this.#options.random ?? Math.random)() * 0.5;
+		const failures = this.#failures++;
+		const last = RETRY_MS[RETRY_MS.length - 1];
+		const base =
+			failures < RETRY_MS.length
+				? RETRY_MS[failures]
+				: (this.#options.isVisible?.() ?? true)
+					? last
+					: Math.min(HIDDEN_RETRY_MAX_MS, last * 2 ** (failures - RETRY_MS.length + 1));
+		// Never longer than the base: a few devices, no herd to spread; the jitter only keeps them from lockstep.
+		const jitter = 0.8 + (this.#options.random ?? Math.random)() * 0.2;
 		this.#retryTimer = this.#after(Math.round(base * jitter), () => {
 			this.#retryTimer = null;
 			void this.#connect();

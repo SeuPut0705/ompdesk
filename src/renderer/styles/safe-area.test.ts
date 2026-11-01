@@ -57,7 +57,5 @@ describe("safe areas", () => {
 		expect(rule("html[data-shell] .omp-toast-stack")).toContain("var(--safe-r)");
 		expect(rule("html[data-shell] .omp-prompt-dock")).toContain("var(--safe-b)");
 		expect(rule("html[data-shell] .omp-widget-float")).toContain("var(--safe-b)");
-		expect(read("../web/connection-banner.ts")).toContain("safe-area-inset-top");
-		expect(read("../web/connection-banner.ts")).toContain("safe-area-inset-left");
 	});
 });

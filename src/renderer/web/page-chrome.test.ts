@@ -1,10 +1,7 @@
 import { parseHTML } from "linkedom";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { TrayState } from "../../shared/ipc-types";
-import { LINK_NOTICE_GRACE_MS } from "../../shared/link-notice";
 import { WebChrome } from "./chrome";
-import { mountConnectionBanner } from "./connection-banner";
-import type { WsConnectionState } from "./ws-transport";
 
 function page() {
 	const { document } = parseHTML(
@@ -62,90 +59,5 @@ describe("WebChrome", () => {
 		const metas = Array.from(doc.querySelectorAll('meta[name="theme-color"]'));
 		expect(metas.map(meta => meta.getAttribute("content"))).toEqual(["#123456", "#123456"]);
 		expect(metas.some(meta => meta.hasAttribute("media"))).toBe(false);
-	});
-});
-
-describe("the connection banner", () => {
-	function source(initial: WsConnectionState) {
-		const listeners = new Set<(state: WsConnectionState) => void>();
-		const handle = {
-			state: initial,
-			onState: (listener: (state: WsConnectionState) => void) => {
-				listeners.add(listener);
-				return () => listeners.delete(listener);
-			},
-		};
-		return {
-			handle,
-			set: (state: WsConnectionState) => {
-				handle.state = state;
-				for (const l of listeners) l(state);
-			},
-		};
-	}
-
-	afterEach(() => {
-		vi.useRealTimers();
-	});
-
-	it("shows a bar once the link has stayed down past the grace, and removes it when the link is back", () => {
-		vi.useFakeTimers();
-		const doc = page();
-		const { handle, set } = source("open");
-		mountConnectionBanner(handle, doc, key => key);
-		expect(doc.getElementById("omp-web-connection")).toBeNull();
-		set("reconnecting");
-		expect(doc.getElementById("omp-web-connection")).toBeNull();
-		vi.advanceTimersByTime(LINK_NOTICE_GRACE_MS);
-		expect(doc.getElementById("omp-web-connection")?.textContent).toBe("web.connection.lost");
-		vi.advanceTimersByTime(60_000);
-		expect(doc.getElementById("omp-web-connection")?.textContent).toBe("web.connection.lost");
-		set("open");
-		expect(doc.getElementById("omp-web-connection")).toBeNull();
-	});
-
-	it("shows nothing for a reconnect that finishes inside the grace", () => {
-		vi.useFakeTimers();
-		const doc = page();
-		const { handle, set } = source("open");
-		mountConnectionBanner(handle, doc, key => key);
-		set("reconnecting");
-		vi.advanceTimersByTime(LINK_NOTICE_GRACE_MS - 1);
-		expect(doc.getElementById("omp-web-connection")).toBeNull();
-		set("open");
-		vi.advanceTimersByTime(60_000);
-		expect(doc.getElementById("omp-web-connection")).toBeNull();
-	});
-
-	it("waits a moment before showing a first connection, so a quick one never flashes", () => {
-		const doc = page();
-		const timers: (() => void)[] = [];
-		const { handle, set } = source("connecting");
-		mountConnectionBanner(
-			handle,
-			doc,
-			key => key,
-			callback => timers.push(callback) - 1,
-			() => undefined,
-		);
-		expect(doc.getElementById("omp-web-connection")).toBeNull();
-		timers[0]?.();
-		expect(doc.getElementById("omp-web-connection")?.textContent).toBe("web.connection.connecting");
-		set("open");
-		expect(doc.getElementById("omp-web-connection")).toBeNull();
-	});
-
-	it("says so when the device is unpaired, and shows nothing for an outdated page (it reloads itself)", () => {
-		vi.useFakeTimers();
-		const doc = page();
-		const { handle, set } = source("open");
-		mountConnectionBanner(handle, doc, key => key);
-		set("reconnecting");
-		vi.advanceTimersByTime(LINK_NOTICE_GRACE_MS);
-		expect(doc.getElementById("omp-web-connection")?.textContent).toBe("web.connection.lost");
-		set("outdated");
-		expect(doc.getElementById("omp-web-connection")).toBeNull();
-		set("unpaired");
-		expect(doc.getElementById("omp-web-connection")?.textContent).toBe("web.connection.unpaired");
 	});
 });

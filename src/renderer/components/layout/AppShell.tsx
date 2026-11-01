@@ -32,7 +32,7 @@ import { EdgeSwipeZone, SidebarDrawer } from "./SidebarDrawer";
 import { SplitWorkspace } from "./SplitWorkspace";
 import { Sidebar } from "./sidebar/Sidebar";
 import { TabHousekeeping } from "./TabHousekeeping";
-import { TitleBar } from "./TitleBar";
+import { TitleBar, WebLinkStatus } from "./TitleBar";
 import { UpdateBanner } from "./UpdateBanner";
 import { ViewSheetHost } from "./ViewSheetHost";
 import { WhatsNewCard } from "./WhatsNewCard";
@@ -155,6 +155,7 @@ function PageTopBar({ showSidebarToggle }: { showSidebarToggle: boolean }) {
 					/>
 				)}
 				<div className="no-drag flex min-w-0 flex-1 items-center gap-1" data-page-topbar-slot />
+				<WebLinkStatus />
 				<IconButton
 					className="no-drag"
 					icon={<X />}
@@ -186,6 +187,7 @@ function PageTopBar({ showSidebarToggle }: { showSidebarToggle: boolean }) {
 					{t("shell.backToSession")}
 				</Button>
 			</Tooltip>
+			<WebLinkStatus />
 		</div>
 	);
 }

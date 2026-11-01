@@ -226,7 +226,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // The same rule on every surface (2 Nov 2026): `lib/restart-cuts.ts` (moved out of the work card), the tab runtime's
 // binding of the transcript to the subagents store, the `restart-cut` status and its strings: measured 3,269,220,
 // 2,164 bytes over the measure above.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_269_800;
+// A lost link shown in the title bar, not over it (2 Nov 2026): the bar's `offline` status (its WifiOff glyph and
+// `web/link-status.ts`) on the session and page bars, and the transport's liveness question and attempt deadlines; the
+// full-width `connection-banner.ts` is gone: measured 3,270,423, 1,203 bytes over the measure above.
+const WEB_FIRST_SCREEN_JS_BYTES = 3_271_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

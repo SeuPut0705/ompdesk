@@ -12,7 +12,6 @@ import { getCurrentLanguage, loadLocale, translate } from "../lib/i18n";
 import { blockPageZoom } from "../lib/no-page-zoom";
 import { snapshots } from "../lib/snapshot-cache";
 import { WebChrome } from "./chrome";
-import { mountConnectionBanner } from "./connection-banner";
 import { LocalChannels, parseOpenHash } from "./deep-link";
 import { saveBlob } from "./download";
 import { recordVisit, showInstallHintIfDue } from "./install-hint";
@@ -86,7 +85,7 @@ async function bootApp(): Promise<void> {
 	let chunkStale = false;
 	const transport = new WsTransport({
 		url: wsUrl,
-		fetchTicket: () => fetchTicket({ fetch: (input, init) => fetch(input, init) }),
+		fetchTicket: signal => fetchTicket({ fetch: (input, init) => fetch(input, init) }, signal),
 		// The browser's WebSocket has the members WsLike names; its event handler types are only narrower.
 		createSocket: (url, protocols) => new WebSocket(url, protocols) as unknown as WsLike,
 		isVisible: () => document.visibilityState === "visible",
@@ -205,7 +204,6 @@ async function bootApp(): Promise<void> {
 	});
 
 	listenNotificationClicks(payload => channels.emit(IPC_EVENTS.NOTIFICATION_CLICK, payload));
-	mountConnectionBanner(transport, document, translate);
 
 	// Push, install guidance and the update watcher, for the notification controls in Settings.
 	const pwa = createBrowserPwa({ registration, features: () => transport.features, update: null });

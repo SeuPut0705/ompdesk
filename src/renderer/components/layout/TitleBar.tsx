@@ -15,6 +15,7 @@ import {
 	Pencil,
 	Rocket,
 	Share2,
+	WifiOff,
 	Wrench,
 	XCircle,
 } from "lucide-react";
@@ -38,7 +39,7 @@ import { sessionForkOrigin } from "../../lib/session-fork";
 import { combinedTitle } from "../../lib/session-title";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useMessagesStore } from "../../stores/messages";
-import { useHostView, useRemoteStore } from "../../stores/remote";
+import { useHostLinkLost, useHostView, useRemoteStore } from "../../stores/remote";
 import { type SessionStore, useSessionStore } from "../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
@@ -46,6 +47,7 @@ import { useActiveTabKind, useTabsStore } from "../../stores/tabs";
 import { toastError } from "../../stores/toast";
 import { useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
+import { useWebLinkLost } from "../../web/link-status";
 import {
 	Badge,
 	Button,
@@ -64,8 +66,12 @@ import { DeviceChip } from "../remote/DeviceChip";
 import { ForkParent } from "./ForkParent";
 import { sessionCacheHitPercent, sessionExecutionDurationMs } from "./session-metrics";
 
-/** `pending`: the connection is coming up or back (starting, waiting, reconnecting): a still hollow dot, never a spinner. */
-type StatusTone = "ready" | "busy" | "pending" | "attention" | "error";
+/**
+ * `pending`: the connection is coming up or back (starting, waiting, reconnecting): a still hollow dot, never a spinner.
+ * `offline`: the link to the computer (a phone's page) or to the tab's paired host has stayed down past
+ * `LINK_NOTICE_GRACE_MS`: the one place a lost link shows, in the bar's own flow, so it never covers a control.
+ */
+type StatusTone = "ready" | "busy" | "pending" | "offline" | "attention" | "error";
 
 function StatusIcon({ tone }: { tone: StatusTone }) {
 	if (tone === "busy")
@@ -77,6 +83,7 @@ function StatusIcon({ tone }: { tone: StatusTone }) {
 	if (tone === "pending")
 		return <Circle aria-hidden className="size-2 fill-transparent text-(--sc-text-muted)" strokeWidth={3} />;
 	if (tone === "attention") return <AlertTriangle aria-hidden className="size-(--sc-icon-sm) text-(--sc-warning)" />;
+	if (tone === "offline") return <WifiOff aria-hidden className="size-(--sc-icon-sm) text-(--sc-warning)" />;
 	if (tone === "error") return <XCircle aria-hidden className="size-(--sc-icon-sm) text-(--sc-danger)" />;
 	return <Circle aria-hidden className="size-2 fill-current text-(--sc-success)" />;
 }
@@ -87,9 +94,9 @@ function StatusIcon({ tone }: { tone: StatusTone }) {
  * working keeps the row's spinner; ready stays quiet (dot + muted word).
  */
 function StatusPill({ tone, label }: { tone: StatusTone; label: string }) {
-	if (tone === "attention" || tone === "error") {
+	if (tone === "attention" || tone === "error" || tone === "offline") {
 		return (
-			<Badge className="omp-titlebar-status-badge gap-1" variant={tone === "attention" ? "warning" : "error"}>
+			<Badge className="omp-titlebar-status-badge gap-1" variant={tone === "error" ? "error" : "warning"}>
 				<StatusIcon tone={tone} />
 				<span className="omp-titlebar-status-label">{label}</span>
 			</Badge>
@@ -105,6 +112,25 @@ function StatusPill({ tone, label }: { tone: StatusTone; label: string }) {
 			<StatusIcon tone={tone} />
 			<span className="omp-titlebar-status-label">{label}</span>
 		</span>
+	);
+}
+
+/** A destination page's bar (Settings, Agents) shows the phone page's lost link the way the title bar does. */
+export function WebLinkStatus() {
+	const t = useT();
+	const lost = useWebLinkLost();
+	if (!lost) return null;
+	const label = t(lost === "connecting" ? "web.connection.connecting" : "web.connection.lost");
+	return (
+		<div
+			aria-label={label}
+			className="omp-titlebar-status no-drag flex shrink-0 items-center px-1.5"
+			data-tone="offline"
+			role="status"
+			title={label}
+		>
+			<StatusPill label={label} tone="offline" />
+		</div>
 	);
 }
 
@@ -187,6 +213,8 @@ export function TitleBar() {
 	// a pending state, not an alarm, so it names a dropped link at once (the pane's banner waits out the grace).
 	const unpaired = device !== undefined && remoteLoaded && host === undefined;
 	const reconnecting = host !== undefined && host.state !== "online";
+	const hostLinkLost = useHostLinkLost(device);
+	const webLinkLost = useWebLinkLost();
 	const statsMessageCount = useMessagesStore(s => s.messages.length);
 	const sidebarVisible = useUiStore(s => s.sidebarVisible);
 	const drawer = useDrawerMode();
@@ -320,25 +348,30 @@ export function TitleBar() {
 	const sessionHeld = useSessionStore(s => s.sidecarHeld);
 	// The session's own state (connecting, restarting, failed, exited) outranks what it needs from the person: a
 	// question on a session that is not up cannot be answered there, as the tray already says.
-	const [tone, statusLabel]: [StatusTone, string] = unpaired
-		? ["error", t("remote.tab.statusRemoved")]
-		: reconnecting
-			? ["pending", t("remote.tab.statusReconnecting")]
-			: status === "starting"
-				? ["pending", t("titlebar.status.connecting")]
-				: status === "waiting"
-					? ["pending", t("titlebar.status.waiting")]
-					: status === "restarting"
-						? ["pending", t("titlebar.status.restarting")]
-						: status === "error" && sessionHeld
-							? ["pending", t("titlebar.status.sessionHeld")]
-							: status === "error" || status === "exited"
-								? ["error", t(`titlebar.status.${status}`)]
-								: attention
-									? ["attention", t(ATTENTION_LABEL_KEY[attention.kind])]
-									: working
-										? ["busy", t("titlebar.status.working")]
-										: ["ready", t(`titlebar.status.${status}`)];
+	const hostOffline = !webLinkLost && !unpaired && hostLinkLost && host !== undefined;
+	const [tone, statusLabel]: [StatusTone, string] = webLinkLost
+		? ["offline", t(webLinkLost === "connecting" ? "web.connection.connecting" : "web.connection.lost")]
+		: unpaired
+			? ["error", t("remote.tab.statusRemoved")]
+			: hostOffline
+				? ["offline", t("remote.tab.reconnecting", { name: host.name })]
+				: reconnecting
+					? ["pending", t("remote.tab.statusReconnecting")]
+					: status === "starting"
+						? ["pending", t("titlebar.status.connecting")]
+						: status === "waiting"
+							? ["pending", t("titlebar.status.waiting")]
+							: status === "restarting"
+								? ["pending", t("titlebar.status.restarting")]
+								: status === "error" && sessionHeld
+									? ["pending", t("titlebar.status.sessionHeld")]
+									: status === "error" || status === "exited"
+										? ["error", t(`titlebar.status.${status}`)]
+										: attention
+											? ["attention", t(ATTENTION_LABEL_KEY[attention.kind])]
+											: working
+												? ["busy", t("titlebar.status.working")]
+												: ["ready", t(`titlebar.status.${status}`)];
 
 	const ui = useUiStore.getState;
 	const sessionMenuItems: ContextMenuItem[] = [
@@ -533,6 +566,7 @@ export function TitleBar() {
 				aria-live="polite"
 				className="omp-titlebar-status no-drag flex min-w-0 shrink-0 items-center px-1.5"
 				data-tone={tone}
+				data-remote-reconnecting={hostOffline ? device : undefined}
 				aria-label={statusLabel}
 				role="status"
 				title={statusLabel}

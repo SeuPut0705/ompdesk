@@ -30,28 +30,30 @@ interface TicketReply {
 	nonce?: unknown;
 }
 
-async function post(deps: SessionDeps, body: Record<string, string>): Promise<TicketReply> {
+async function post(deps: SessionDeps, body: Record<string, string>, signal?: AbortSignal): Promise<TicketReply> {
 	const response = await deps.fetch(`${deps.base ?? ""}/api/session`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(body),
 		credentials: "same-origin",
 		cache: "no-store",
+		signal,
 	});
 	if (response.status === 401 || response.status === 403) throw new UnpairedError();
 	if (!response.ok) throw new Error(`The computer refused the session (${response.status})`);
 	return (await response.json()) as TicketReply;
 }
 
-export async function fetchTicket(deps: SessionDeps): Promise<string> {
-	const first = await post(deps, {});
+/** `signal` ends a request the network never answers (a phone on a route that no longer exists). */
+export async function fetchTicket(deps: SessionDeps, signal?: AbortSignal): Promise<string> {
+	const first = await post(deps, {}, signal);
 	if (typeof first.ticket === "string") return first.ticket;
 	if (typeof first.nonce !== "string") throw new Error("The computer sent no session ticket");
 	const key = await (deps.loadKey ?? loadDeviceKey)();
 	// The host wants a proof this browser cannot give: its key is gone (site data cleared, ITP).
 	if (!key) throw new UnpairedError("This device's key is gone");
 	const sig = await (deps.sign ?? signNonce)(key.privateKey, first.nonce);
-	const second = await post(deps, { nonce: first.nonce, sig });
+	const second = await post(deps, { nonce: first.nonce, sig }, signal);
 	if (typeof second.ticket !== "string") throw new Error("The computer sent no session ticket");
 	return second.ticket;
 }

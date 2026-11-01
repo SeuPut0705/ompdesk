@@ -229,34 +229,82 @@ describe("WsTransport", () => {
 		expect(last().framesOf("presence").at(-1)).toEqual({ t: "presence", visible: false });
 	});
 
-	it("reconnects with a doubling backoff capped at 8 s, and resets it after a hello", async () => {
+	it("reconnects at once, then after 0.25, 0.5 and 1 s, then every second while seen, and resets after a hello", async () => {
 		const { transport, clock, sockets, last } = setup();
 		transport.start();
 		await settle();
 		last().serve(HELLO());
 		last().drop();
 		expect(transport.state).toBe("reconnecting");
-		const delays: number[] = [];
-		for (const expected of [500, 1000, 2000, 4000, 8000, 8000]) {
+		// random() is 0.5: each wait is 90 % of its base (the jitter only shortens it).
+		for (const expected of [0, 225, 450, 900, 900, 900]) {
 			const before = sockets.length;
-			clock.advance(expected - 1);
-			await settle();
-			expect(sockets.length).toBe(before);
-			clock.advance(1);
+			if (expected > 0) {
+				clock.advance(expected - 1);
+				await settle();
+				expect(sockets.length).toBe(before);
+			}
+			clock.advance(expected > 0 ? 1 : 0);
 			await settle();
 			expect(sockets.length).toBe(before + 1);
-			delays.push(expected);
 			last().drop();
 		}
-		expect(delays).toEqual([500, 1000, 2000, 4000, 8000, 8000]);
-		clock.advance(8000);
+		clock.advance(900);
 		await settle();
 		last().serve(HELLO(true));
 		last().drop();
 		const count = sockets.length;
-		clock.advance(500);
+		clock.advance(0);
 		await settle();
 		expect(sockets.length).toBe(count + 1);
+	});
+
+	it("waits longer, up to 8 s, while the page is hidden", async () => {
+		let visible = true;
+		const { transport, clock, sockets, last } = setup({ isVisible: () => visible });
+		transport.start();
+		await settle();
+		last().serve(HELLO());
+		visible = false;
+		last().drop();
+		const waits: number[] = [];
+		for (let i = 0; i < 7; i++) {
+			const before = sockets.length;
+			let waited = 0;
+			while (sockets.length === before) {
+				clock.advance(25);
+				waited += 25;
+				await settle();
+			}
+			waits.push(waited);
+			last().drop();
+		}
+		// 90 % of 0, 0.25, 0.5, 1, 2, 4 and 8 s, to the 25 ms step.
+		expect(waits).toEqual([25, 225, 450, 900, 1800, 3600, 7200]);
+	});
+
+	it("gives up on a ticket the network never answers and tries again", async () => {
+		const signals: AbortSignal[] = [];
+		const { transport, clock, sockets } = setup({
+			fetchTicket: signal => {
+				signals.push(signal);
+				// The first request went out on a route that died: no answer, ever.
+				return signals.length === 1 ? new Promise<string>(() => {}) : Promise.resolve("t2");
+			},
+		});
+		transport.start();
+		await settle();
+		clock.advance(3999);
+		await settle();
+		expect(sockets).toHaveLength(0);
+		clock.advance(1);
+		await settle();
+		expect(signals[0]?.aborted).toBe(true);
+		expect(transport.state).toBe("connecting");
+		clock.advance(0);
+		await settle();
+		expect(sockets).toHaveLength(1);
+		expect(sockets[0]?.protocols).toContain("ticket.t2");
 	});
 
 	it("asks for a resync only on a reconnect that lost events", async () => {
@@ -329,15 +377,49 @@ describe("WsTransport", () => {
 		transport.start();
 		await settle();
 		last().serve(HELLO());
+		// Four quick failures: the next wait is a second.
+		for (const wait of [0, 225, 450, 900]) {
+			last().drop();
+			clock.advance(wait);
+			await settle();
+		}
 		last().drop();
 		clock.advance(100);
+		await settle();
 		const before = sockets.length;
 		transport.wake();
 		await settle();
 		expect(sockets.length).toBe(before + 1);
 	});
 
-	it("wake() on an open link probes it and drops it when nothing answers", async () => {
+	it("wake() abandons an attempt that has waited over a second for its ticket, and leaves a fresh one alone", async () => {
+		const signals: AbortSignal[] = [];
+		const { transport, clock, sockets } = setup({
+			fetchTicket: signal => {
+				signals.push(signal);
+				return signals.length === 1 ? new Promise<string>(() => {}) : Promise.resolve(`t${signals.length}`);
+			},
+		});
+		transport.start();
+		await settle();
+		clock.advance(500);
+		transport.wake();
+		await settle();
+		expect(signals).toHaveLength(1);
+		clock.advance(600);
+		// The network is back (online, visible): the request sent on the old route will never be answered.
+		transport.wake();
+		await settle();
+		expect(signals[0]?.aborted).toBe(true);
+		expect(sockets).toHaveLength(1);
+		expect(sockets[0]?.protocols).toContain("ticket.t2");
+		// The abandoned attempt's own deadline passes without starting a third.
+		clock.advance(4000);
+		await settle();
+		expect(signals).toHaveLength(2);
+	});
+
+	it("wake() on an open link asks the host and drops the link when nothing answers", async () => {
 		const { transport, clock, sockets, last } = setup();
 		transport.start();
 		await settle();
@@ -345,10 +427,12 @@ describe("WsTransport", () => {
 		const first = last();
 		transport.wake();
 		expect(first.framesOf("ping")).toHaveLength(1);
-		clock.advance(5001);
+		clock.advance(2000);
+		expect(first.closedWith).toBeNull();
+		clock.advance(1000);
 		expect(first.closedWith).toBe(4000);
 		expect(transport.state).toBe("reconnecting");
-		clock.advance(600);
+		clock.advance(0);
 		await settle();
 		expect(sockets.length).toBe(2);
 	});
@@ -362,50 +446,64 @@ describe("WsTransport", () => {
 		clock.advance(1);
 		transport.wake();
 		last().serve({ t: "pong" });
-		clock.advance(5001);
+		clock.advance(4000);
 		expect(first.closedWith).toBeNull();
 		expect(transport.state).toBe("open");
 	});
 
-	it("drops the link only after three silent heartbeat intervals", async () => {
+	it("asks after 5 s of silence while seen, and drops a link that leaves the question unanswered 2.5 s", async () => {
 		const { transport, clock, last } = setup();
 		transport.start();
 		await settle();
 		last().serve(HELLO());
 		const socket = last();
-		clock.advance(20_000);
-		clock.advance(20_000);
+		clock.advance(4999);
+		expect(socket.framesOf("ping")).toHaveLength(0);
+		clock.advance(1);
+		expect(socket.framesOf("ping")).toHaveLength(1);
+		clock.advance(2000);
 		expect(socket.closedWith).toBeNull();
-		expect(socket.framesOf("ping").length).toBeGreaterThanOrEqual(2);
-		clock.advance(20_000);
+		clock.advance(1000);
 		expect(socket.closedWith).toBe(4000);
 		expect(transport.state).toBe("reconnecting");
 	});
 
-	it("does not count a missed beat when anything arrived in between", async () => {
+	it("keeps a link that answers or keeps talking", async () => {
 		const { transport, clock, last } = setup();
 		transport.start();
 		await settle();
 		last().serve(HELLO());
 		const socket = last();
-		for (let i = 0; i < 6; i++) {
-			clock.advance(20_000);
-			socket.serve({ t: "ping" });
+		for (let i = 0; i < 10; i++) {
+			clock.advance(4000);
+			socket.serve({ t: "evt", seq: i + 1, ch: "x", d: null });
 		}
+		expect(socket.framesOf("ping")).toHaveLength(0);
+		clock.advance(6000);
+		socket.serve({ t: "pong" });
+		clock.advance(4000);
 		expect(socket.closedWith).toBeNull();
 	});
 
-	it("ignores a heartbeat that fires late because the phone slept", async () => {
-		const { transport, clock, last } = setup();
+	it("judges nothing while hidden, and asks at once on a tick that fires late because the phone slept", async () => {
+		let visible = true;
+		const { transport, clock, last } = setup({ isVisible: () => visible });
 		transport.start();
 		await settle();
 		last().serve(HELLO());
 		const socket = last();
-		clock.advance(20_000);
-		clock.advance(20_000);
-		// The device slept for ten minutes: one late tick, no misses charged for it.
+		visible = false;
+		clock.advance(60_000);
+		expect(socket.framesOf("ping")).toHaveLength(0);
+		expect(socket.closedWith).toBeNull();
+		visible = true;
+		// The device slept for ten minutes: the next tick runs late and asks instead of judging the silence.
 		clock.now += 600_000;
-		clock.advance(20_000);
+		clock.advance(1);
+		expect(socket.framesOf("ping")).toHaveLength(1);
+		expect(socket.closedWith).toBeNull();
+		socket.serve({ t: "pong" });
+		clock.advance(4000);
 		expect(socket.closedWith).toBeNull();
 	});
 
