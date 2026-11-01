@@ -145,6 +145,15 @@
 .hljs-operator {
 	color: var(--omp-syntax-operator);
 }
+/* A ```diff fence: its + and - lines in the diff colors on their washes, as in a tool card's diff. */
+.hljs-addition {
+	color: var(--omp-diff-added);
+	background: var(--omp-diff-added-bg);
+}
+.hljs-deletion {
+	color: var(--omp-diff-removed);
+	background: var(--omp-diff-removed-bg);
+}
 /* Live thinking tail inherits the thinking body's typography — the reply
    tail's 14.5px would visibly outweigh promoted paragraphs inside the
    12px thinking block. */
