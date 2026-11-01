@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -71,6 +72,7 @@ import {
 	PREVIEW_RELAY_METHODS,
 	PROJECTS_EVENT,
 	SCHEDULES_EVENT,
+	SIGN_IN_CALLBACK_METHOD,
 	type TabEventMessage,
 	TabRunArg,
 	TabStatusArg,
@@ -1584,6 +1586,106 @@ describe("LocalHostServices", () => {
 		const third = new FakeConnection(peer("device-x"));
 		await services.call(third.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, third);
 		expect(signIns(third)).toEqual([{ active: [] }]);
+	});
+
+	it("replays a device's browser callback only to its tab's own running sign-in, with the flow's state, once", async () => {
+		// Stock's callback server stand-in on this computer's loopback: what reached it, and the page it answers.
+		const reached: string[] = [];
+		const stock = createServer((request, response) => {
+			reached.push(request.url ?? "");
+			response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end("<p>Signed in</p>");
+		});
+		const listening = Promise.withResolvers<void>();
+		stock.listen({ host: "127.0.0.1", port: 0 }, () => listening.resolve());
+		await listening.promise;
+		const port = (stock.address() as AddressInfo).port;
+		try {
+			const { services, sidecars } = setup();
+			const x = new FakeConnection(peer("device-x"));
+			await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+			await services.call(x.peer, "tab.start", { rtab: "t1" }, x);
+			const sidecar = sidecars[0];
+			if (!sidecar) throw new Error("expected a sidecar");
+			sidecar.setStatus("ready");
+			const callback = (params: unknown) =>
+				services.call(x.peer, SIGN_IN_CALLBACK_METHOD, params, x).catch((error: unknown) => ipcErrorCode(error));
+			const redirect = `http://127.0.0.1:${port}/callback`;
+			const openUrl = {
+				type: "extension_ui_request",
+				id: "url-1",
+				method: "open_url",
+				url: `https://claude.ai/oauth/authorize?code=true&redirect_uri=${encodeURIComponent(redirect)}&state=xyz`,
+				launchUrl: `http://127.0.0.1:${port}/launch`,
+			};
+
+			// No sign-in runs: a page stock raised outside one is not a callback to replay.
+			sidecar.emit("extensionUi", openUrl);
+			expect(await callback({ rtab: "t1", path: "/callback", query: "code=abc&state=xyz" })).toBe(
+				"sign_in_unavailable",
+			);
+
+			const finish = Promise.withResolvers<RpcResponse>();
+			sidecar.rpcClient.command = async () => finish.promise;
+			const login = services.call(
+				x.peer,
+				"tab.command",
+				{ rtab: "t1", command: { type: "login", providerId: "anthropic" } },
+				x,
+			);
+			await vi.waitFor(() => expect(x.tabEvents().some(event => event.name === "signIn")).toBe(true));
+			sidecar.emit("extensionUi", openUrl);
+
+			// Another path, another flow's state or none, an address the device names: refused, nothing dialed.
+			expect(await callback({ rtab: "t1", path: "/launch", query: "code=abc&state=xyz" })).toBe(
+				"sign_in_unavailable",
+			);
+			expect(await callback({ rtab: "t1", path: "/callback", query: "code=abc&state=other" })).toBe(
+				"sign_in_unavailable",
+			);
+			expect(await callback({ rtab: "t1", path: "/callback", query: "code=abc" })).toBe("sign_in_unavailable");
+			await expect(
+				services.call(
+					x.peer,
+					SIGN_IN_CALLBACK_METHOD,
+					{ rtab: "t1", path: "/callback", query: "code=abc&state=xyz", url: "http://127.0.0.1:1/x" },
+					x,
+				),
+			).rejects.toThrow(/Invalid host.signIn.callback/);
+			// Another device's tab is not reachable.
+			const y = new FakeConnection(peer("device-y"));
+			expect(
+				ipcErrorCode(
+					await services
+						.call(y.peer, SIGN_IN_CALLBACK_METHOD, { rtab: "t1", path: "/callback", query: "state=xyz" }, y)
+						.catch((error: unknown) => error),
+				),
+			).toBe("unknown_tab");
+			expect(reached).toEqual([]);
+
+			// The browser's callback reaches stock's own server here, and its page goes back to the device; once.
+			expect(await callback({ rtab: "t1", path: "/callback", query: "code=abc&state=xyz" })).toEqual({
+				status: 200,
+				contentType: "text/html; charset=utf-8",
+				body: "<p>Signed in</p>",
+			});
+			expect(reached).toEqual(["/callback?code=abc&state=xyz"]);
+			expect(await callback({ rtab: "t1", path: "/callback", query: "code=abc&state=xyz" })).toBe(
+				"sign_in_unavailable",
+			);
+
+			// A sign-in that ended takes its callback with it: a new page of the next one is needed.
+			sidecar.emit("extensionUi", openUrl);
+			finish.resolve({ type: "response", command: "login", success: true });
+			await login;
+			expect(await callback({ rtab: "t1", path: "/callback", query: "code=abc&state=xyz" })).toBe(
+				"sign_in_unavailable",
+			);
+			expect(reached).toHaveLength(1);
+		} finally {
+			const closed = Promise.withResolvers<void>();
+			stock.close(() => closed.resolve());
+			await closed.promise;
+		}
 	});
 
 	it("keeps a hosted turn running when Windows ended the session under its omp", async () => {

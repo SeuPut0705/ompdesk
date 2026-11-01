@@ -228,7 +228,7 @@ afterEach(async () => {
 	useModelStore.getState().reset();
 	useSessionStore.getState().reset();
 	useExtensionUiStore.getState().clearAll();
-	useExtensionUiStore.setState({ inlineLogins: 0, loginRequestIds: {}, adoptedLogin: null });
+	useExtensionUiStore.setState({ inlineLogins: 0, loginRequestIds: {}, adoptedLogin: null, signInRelay: null });
 	useToastStore.setState({ toasts: [] });
 	useTabsStore.getState().reset();
 	useRemoteStore.getState().reset();
@@ -803,12 +803,35 @@ describe("ProvidersSection", () => {
 			expect(pasteField()).toBeTruthy();
 		});
 
+		it("on a remote tab whose browser comes back through this computer keeps the paste behind its toggle", async () => {
+			await startSignIn(HOST_ID);
+			await act(async () => useExtensionUiStore.getState().setSignInRelay({ listening: true }));
+			expect(document.querySelector("[data-remote-login-hint]")?.textContent).toBe(
+				translate("providerList.login.relayHint", { name: "Studio" }),
+			);
+			expect(pasteField()).toBeNull();
+			await act(async () => button(translate("providerList.login.pasteToggle"))?.click());
+			expect(pasteField()).toBeTruthy();
+			expect(text()).toContain(translate("providerList.login.pasteHint"));
+		});
+
+		it("on a remote tab whose callback port is taken here says so and shows the paste", async () => {
+			await startSignIn(HOST_ID);
+			await act(async () => useExtensionUiStore.getState().setSignInRelay({ listening: false, port: 54545 }));
+			expect(document.querySelector("[data-remote-login-hint]")?.textContent).toBe(
+				translate("providerList.login.relayBusy", { port: "54545" }),
+			);
+			expect(pasteField()).toBeTruthy();
+			expect(text()).toContain(translate("providerList.login.pasteHintRemote"));
+			expect(button(translate("providerList.login.pasteToggle"))).toBeUndefined();
+		});
+
 		it("on a web viewer's local-host tab opens the provider page only on a click and shows the paste fallback", async () => {
 			viewer.web = true;
 			await startSignIn(undefined);
 			expect(openExternal).not.toHaveBeenCalled();
 			expect(pasteField()).toBeTruthy();
-			expect(text()).toContain(translate("providerList.login.pasteHint"));
+			expect(text()).toContain(translate("providerList.login.pasteHintRemote"));
 			expect(button(translate("providerList.login.pasteToggle"))).toBeUndefined();
 
 			await act(async () => button(translate("providerList.login.openBrowser"))?.click());

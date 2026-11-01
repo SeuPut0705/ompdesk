@@ -1,11 +1,12 @@
+import { type AddressInfo, createServer as createNetServer } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
 import type { RemoteLinkState } from "../../shared/ipc-types";
 import type { RpcResponse, SidecarStatusPayload } from "../../shared/rpc-types";
 import type { BridgeConnectResult } from "../bridge-health";
-import type { TabEventMessage, TabStatusArg } from "./app-protocol";
+import { SIGN_IN_CALLBACK_METHOD, type TabEventMessage, type TabStatusArg } from "./app-protocol";
 import { createReadEncoder } from "./link-events";
-import { PendingTabCloses, type RemoteLink, RemoteSidecar } from "./remote-sidecar";
+import { PendingTabCloses, type RemoteLink, RemoteSidecar, type RemoteSidecarOptions } from "./remote-sidecar";
 
 interface SentRequest {
 	method: string;
@@ -51,7 +52,14 @@ function hostStatus(status: TabStatusArg["status"], extra: Partial<TabStatusArg>
 	};
 }
 
-function setup(options: { startTimeoutMs?: number; keepOnHost?: () => boolean; cwd?: string } = {}): {
+function setup(
+	options: {
+		startTimeoutMs?: number;
+		keepOnHost?: () => boolean;
+		cwd?: string;
+		signInRelay?: RemoteSidecarOptions["signInRelay"];
+	} = {},
+): {
 	link: FakeLink;
 	sidecar: RemoteSidecar;
 	statuses: SidecarStatusPayload[];
@@ -532,6 +540,59 @@ describe("RemoteSidecar", () => {
 			{ active: ["anthropic"] },
 			{ active: [], ended: { providerId: "anthropic", error: null } },
 		]);
+	});
+
+	it("stands in on this computer's loopback for the host's sign-in callback while the host's login runs", async () => {
+		const probe = createNetServer();
+		const bound = Promise.withResolvers<void>();
+		probe.listen({ host: "127.0.0.1", port: 0 }, () => bound.resolve());
+		await bound.promise;
+		const port = (probe.address() as AddressInfo).port;
+		const closed = Promise.withResolvers<void>();
+		probe.close(() => closed.resolve());
+		await closed.promise;
+
+		const failure = () => ({ title: "Not finished", message: "Paste the address" });
+		const { link, sidecar } = setup({ signInRelay: { failure } });
+		link.handlers[SIGN_IN_CALLBACK_METHOD] = () => ({ status: 200, contentType: "text/plain", body: "Signed in." });
+		sidecar.start();
+		await settle();
+		sidecar.handleEvent(hostStatus("ready"));
+		const relays: unknown[] = [];
+		sidecar.on("signInRelay", (state: unknown) => relays.push(state));
+		const openUrl = {
+			type: "extension_ui_request",
+			id: "url-1",
+			method: "open_url",
+			url: `https://claude.ai/oauth/authorize?redirect_uri=${encodeURIComponent(`http://127.0.0.1:${port}/callback`)}&state=xyz`,
+			launchUrl: `http://127.0.0.1:${port}/launch`,
+		};
+
+		// A page raised outside a sign-in the host runs is no callback to stand in for.
+		sidecar.handleEvent({ rtab: "tab-1", name: "extensionUi", arg: openUrl });
+		await settle();
+		expect(relays).toEqual([]);
+
+		sidecar.handleEvent({ rtab: "tab-1", name: "signIn", arg: { active: ["anthropic"] } });
+		sidecar.handleEvent({ rtab: "tab-1", name: "extensionUi", arg: openUrl });
+		await vi.waitFor(() => expect(relays).toEqual([{ listening: true }]));
+		const page = await fetch(`http://127.0.0.1:${port}/callback?code=abc&state=xyz`);
+		expect(await page.text()).toBe("Signed in.");
+		expect(
+			link.sent.filter(request => request.method === SIGN_IN_CALLBACK_METHOD).map(request => request.params),
+		).toEqual([{ rtab: "tab-1", path: "/callback", query: "code=abc&state=xyz" }]);
+
+		// The host's login ended: the stand-in goes, and the page hears there is none.
+		sidecar.handleEvent({ rtab: "tab-1", name: "extensionUi", arg: openUrl });
+		await vi.waitFor(() => expect(relays.at(-1)).toEqual({ listening: true }));
+		sidecar.handleEvent({
+			rtab: "tab-1",
+			name: "signIn",
+			arg: { active: [], ended: { providerId: "anthropic", error: null } },
+		});
+		expect(relays.at(-1)).toBeNull();
+		await expect(fetch(`http://127.0.0.1:${port}/callback?code=abc&state=xyz`)).rejects.toThrow();
+		sidecar.dispose();
 	});
 
 	it("goes to error with the offline message and refuses commands while the link is down", async () => {
