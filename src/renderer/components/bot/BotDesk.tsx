@@ -8,7 +8,7 @@ import { useT } from "../../lib/i18n";
 import { useBotDesk } from "../../stores/bot-desk";
 import { SkeletonRows } from "../common";
 import { BoardSection } from "../layout/work-board/board-parts";
-import { BotActivityRows } from "./BotActivity";
+import { BotActivitySection } from "./BotActivity";
 import { BotChannelRows } from "./BotChannels";
 import { BotDutyRows } from "./BotDuties";
 import { BotLibrarySection } from "./BotLibrary";
@@ -76,9 +76,7 @@ export function BotBoardSections({ tabId, device }: { tabId: string; device?: st
 			</BoardSection>
 			<BotLibrarySection device={device} pins={desk.libraryPins} tabId={tabId} />
 			{loaded && <BotCompletedSection desk={desk} device={device} tabId={tabId} />}
-			<BoardSection id="activity" summary={{ lead: t("botActivity.title") }} title={t("botActivity.title")}>
-				<BotActivityRows channels={desk.channels} device={device} />
-			</BoardSection>
+			<BotActivitySection channels={desk.channels} device={device} />
 			{desk.duties.length > 0 && (
 				<BoardSection
 					count={desk.duties.length}

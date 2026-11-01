@@ -22,7 +22,7 @@ import { formatClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useBotActivity } from "../../stores/bot-activity";
 import { InlineNotice, SkeletonRows } from "../common";
-import { BoardRow, CappedRows, KindMark } from "../layout/work-board/board-parts";
+import { BoardRow, BoardSection, CappedRows, KindMark } from "../layout/work-board/board-parts";
 
 const KIND_ICON: Record<BotActivityKind, LucideIcon> = {
 	read: BookOpen,
@@ -39,9 +39,16 @@ const KIND_ICON: Record<BotActivityKind, LucideIcon> = {
 /** Rows the section lists before folding the rest. */
 const CAP = 6;
 
+type Translate = (key: string, params?: Record<string, string | number>) => string;
+
+/** One entry in words: a tool call as the call in short, anything else as its action and subject. */
+function activityLine(entry: BotActivity, t: Translate): string {
+	return entry.action === "tool" ? entry.text : `${t(`botActivity.action.${entry.action}`)}: ${entry.text}`;
+}
+
 function ActivityRow({ entry, channels }: { entry: BotActivity; channels: readonly BotChannel[] }) {
 	const t = useT();
-	const what = entry.action === "tool" ? entry.text : `${t(`botActivity.action.${entry.action}`)}: ${entry.text}`;
+	const what = activityLine(entry, t);
 	const topic = entry.channel ? channels.find(channel => channel.id === entry.channel)?.title : undefined;
 	const meta = [
 		formatClock(entry.at),
@@ -61,7 +68,25 @@ function ActivityRow({ entry, channels }: { entry: BotActivity; channels: readon
 	);
 }
 
-export function BotActivityRows({ channels, device }: { channels: readonly BotChannel[]; device?: string }) {
+/**
+ * The Activity section. Folded in the strip's panel, its one line is the newest entry this window already read (no
+ * read starts for it); the rows read the log while shown.
+ */
+export function BotActivitySection({ channels, device }: { channels: readonly BotChannel[]; device?: string }) {
+	const t = useT();
+	const newest = useBotActivity(device, false).page?.entries.findLast(entry => entry.kind !== "read");
+	return (
+		<BoardSection
+			id="activity"
+			summary={{ lead: newest ? activityLine(newest, t) : "" }}
+			title={t("botActivity.title")}
+		>
+			<BotActivityRows channels={channels} device={device} />
+		</BoardSection>
+	);
+}
+
+function BotActivityRows({ channels, device }: { channels: readonly BotChannel[]; device?: string }) {
 	const t = useT();
 	const { page, loadError } = useBotActivity(device, true);
 	// Reads and visits are left out: a reply's Sources chips show them, and the bot lists them when asked (`visited`).
