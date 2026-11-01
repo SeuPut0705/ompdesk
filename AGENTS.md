@@ -96,10 +96,9 @@ renderer (React) ── IPC ──▶ main (Electron)
   - `TurnResume.launch` drops and purges its marker.
   - A host's `tab.open` refuses `session_deleted` for a device whose layout still names it; that device's `RemoteSidecar` emits `sessionDeleted` and its pool closes the tab and records the tombstone under the host's id instead of showing an error tab.
   - `SessionIndex.list` never lists it, even if a stray writer recreated the file.
-  - Its closed-children record (pref `agentClosedChildren`) goes (`AgentControlRuntime.forgetDeleted`, on every delete through `setSessionDeletedListener` and once at launch): kept, it stayed a done child of its opener and an In progress row of the bot's Tasks offering Take over of a session that no longer existed (the bot's board on 0.92.0).
 - A never-written session (first turn cut off before stock wrote its file, marker `prompt`, `#unwrittenSessionTab`) has no tombstone and still continues.
 - Renderer: `sessionListFeed(...).deleteSession` drops the row from both scopes' feeds and snapshot copies (`lib/snapshot-cache.ts`), and every global list read prunes the local snapshot of rows it lacks, so a session deleted on another device never repaints after reload. Ghost tabs (`lib/tab-snapshot.ts`) become real only when the live tab list names their session.
-- Pinned by the tombstone cases in `session-mutations.test.ts`, `tab-layout.test.ts`, `turn-resume.test.ts`, `sidecar-pool.test.ts`, `agent-control/host.test.ts`, `remote/host-services.test.ts`, `remote/remote-sidecar.test.ts`, `session-index.test.ts`, `stores/session-list.test.ts`, and the relaunch over a stale layout and marker in `e2e/session-delete.e2e.ts`.
+- Pinned by the tombstone cases in `session-mutations.test.ts`, `tab-layout.test.ts`, `turn-resume.test.ts`, `sidecar-pool.test.ts`, `remote/host-services.test.ts`, `remote/remote-sidecar.test.ts`, `session-index.test.ts`, `stores/session-list.test.ts`, and the relaunch over a stale layout and marker in `e2e/session-delete.e2e.ts`.
 
 ### Packaging
 - Packaged apps ship `resources/gui-bridge` **outside the asar** (`extraResources` in `electron-builder.yml` and `electron-builder.win.yml`; `src/main/packaging-config.test.ts` enforces it). The app contains no `omp` binary.
