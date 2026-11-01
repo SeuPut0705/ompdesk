@@ -49,12 +49,12 @@
  *   → SidebarProjectsState (get, add a folder the person opened there, remove one from the sidebar); the host pushes
  *   every change as the `host.projects.changed` event
  * - The host's bot desk (agent-control/bot-desk.ts; the bot's home on a device): `host.botDesk.get {}` →
- *   BotDeskState (an empty desk while the host's bot is off), `host.botDesk.answer {id, answer}` and
- *   `host.botDesk.setDuties {duties}` → null (both refused `bot_off` while the bot is off there; an answer reaches the
- *   host's bot exactly as one given at the host, and counts as one model request of the device),
- *   `host.botDesk.edit BotDeskEdit` → null (identity, memory, routing, voice, side chats, undo; refused `bot_off` the
- *   same way) and `host.botDesk.activity {}` → BotActivityPage (empty while off); the host pushes every desk change as
- *   the `host.botDesk.changed` event (the activity log is read, never pushed)
+ *   BotDeskState (an empty desk while the host's bot is off), `host.botDesk.answer {id, answer}` → null (refused
+ *   `bot_off` while the bot is off there; an answer reaches the host's bot exactly as one given at the host, and counts
+ *   as one model request of the device),
+ *   `host.botDesk.edit BotDeskEdit` → null (identity, routing, voice, side chats, pause, task marks, pins; refused
+ *   `bot_off` the same way) and `host.botDesk.activity {}` → BotActivityPage (empty while off); the host pushes every
+ *   desk change as the `host.botDesk.changed` event (the activity log is read, never pushed)
  * - Showing the host's bot a workflow (agent-control/bot-teach.ts): `host.botDesk.teach {action: "start" | "stop" |
  *   "cancel"}` → `{delivered}` (refused `bot_off` while the bot is off there; it records what the owner does in the
  *   host's own windows, and `BotDeskState.teaching` says since when; Stop hands the host's bot the record and counts

@@ -565,7 +565,7 @@ describe("a host's bot desk", () => {
 		b.services.call.mockImplementation(async (_peer, method) => (method === "host.botDesk.get" ? OPEN : null));
 		await expect(a.devices.request(hostId, "host.botDesk.get", {})).resolves.toEqual(OPEN);
 		await a.devices.request(hostId, "host.botDesk.answer", { id: "d1", answer: "Yes" });
-		await a.devices.request(hostId, "host.botDesk.setDuties", { duties: [{ text: "Check the build" }] });
+		await a.devices.request(hostId, "host.botDesk.edit", { op: "paused", paused: true });
 		expect(
 			b.services.call.mock.calls
 				.filter(call => String(call[1]).startsWith("host.botDesk."))
@@ -573,7 +573,7 @@ describe("a host's bot desk", () => {
 		).toEqual([
 			["host.botDesk.get", {}],
 			["host.botDesk.answer", { id: "d1", answer: "Yes" }],
-			["host.botDesk.setDuties", { duties: [{ text: "Check the build" }] }],
+			["host.botDesk.edit", { op: "paused", paused: true }],
 		]);
 
 		b.services.call.mockImplementation(async () => {

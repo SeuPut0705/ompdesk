@@ -2,12 +2,11 @@
  * The bot's activity log (Muse's Activity log, Grok's audit log): what the bot and the owner did, newest last. Main
  * alone keeps it (`<userData>/bot-activity.json`, `src/main/agent-control/bot-activity.ts`): every tool the bot's
  * sessions (its own and its side chats) ran, each desk change by either side, the notices it sent and the permissions
- * asked of the owner. An entry whose change can be taken back carries the edit that does it (`undo`); the owner replays
- * it once (`BOT_DESK_EDIT {op:"undo"}`), and the entry is then `undone`. Windows read it on demand (`BOT_ACTIVITY_GET`,
- * `host.botDesk.activity` for a paired host's), never by push.
+ * asked of the owner. The owner reads it and corrects the bot in chat; the log has no Undo. Windows read it on demand
+ * (`BOT_ACTIVITY_GET`, `host.botDesk.activity` for a paired host's), never by push. The schema is not strict, so a
+ * file written when entries carried `undo` and `undone` still loads; the next write drops them.
  */
 import { z } from "zod";
-import { BotDeskEditSchema } from "./bot-desk-edit";
 
 /** Entries the file keeps; the oldest go first. */
 export const BOT_ACTIVITY_KEPT = 400;
@@ -48,7 +47,9 @@ export type BotActivityTarget = z.infer<typeof BotActivityTargetSchema>;
 /**
  * What happened, as the log's rows name it (`botActivity.action.<action>` in the locales): `tool` is a tool call whose
  * `text` is the call in short ("read src/main/index.ts"); every other action's `text` is its subject (the memory, the
- * duty, the decision's question, the notice's title, the side chat's topic).
+ * duty, the decision's question, the notice's title, the side chat's topic). `duties_set`, `memory_edit`,
+ * `memory_restore` and `memory_import` are kept only so entries stored before the owner lost those edits still parse;
+ * nothing writes them now.
  */
 export const BOT_ACTIVITY_ACTIONS = [
 	"tool",
@@ -103,14 +104,11 @@ export const BotActivitySchema = z.object({
 	detail: z.string().max(1000).optional(),
 	/** The side chat it happened in (`BotChannel.id`), when not the bot's main conversation. */
 	channel: z.string().max(64).optional(),
-	/** The edit that takes it back, while it can be. */
-	undo: BotDeskEditSchema.optional(),
-	undone: z.boolean().optional(),
 });
 export type BotActivity = z.infer<typeof BotActivitySchema>;
 
 /** What an entry is made from: the log stamps `id` and `at`, and cuts `text`. */
-export type BotActivityDraft = Omit<BotActivity, "id" | "at" | "undone">;
+export type BotActivityDraft = Omit<BotActivity, "id" | "at">;
 
 /** `BOT_ACTIVITY_GET`'s reply and `host.botDesk.activity`'s: the newest entries, oldest first, and the log's revision. */
 export const BotActivityPageSchema = z.object({

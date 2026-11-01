@@ -16,7 +16,6 @@ import {
 	NO_SESSION_MESSAGE,
 } from "./bot-avatar-draw";
 import { BotDesk } from "./bot-desk";
-import { editBotDesk } from "./bot-desk-edit";
 
 /** A sidecar whose bridge answers with its own name, so a test can tell which one was asked. */
 function sidecar(name: string, over: Partial<AvatarSidecar> = {}): AvatarSidecar {
@@ -96,7 +95,6 @@ describe("generateAvatar", () => {
 
 	it("sends the words to the bridge, cuts the picture it returns and sets it as the owner's change", async () => {
 		const { activity, desk, deps, cut } = rig();
-		const before = desk.state().identity.avatar;
 		const bridge = vi.fn(async () => ({ mimeType: "image/png", base64: Buffer.from("pixels").toString("base64") }));
 		await generateAvatar(deps, bridge, "a calm blue fox");
 		expect(bridge).toHaveBeenCalledOnce();
@@ -111,21 +109,6 @@ describe("generateAvatar", () => {
 		});
 		const entry = activity.entries().find(item => item.action === "identity");
 		expect(entry).toMatchObject({ by: "owner" });
-		expect(entry?.undo).toMatchObject({ op: "identity", avatar: before });
-	});
-
-	it("is undone from the activity log like any identity change", async () => {
-		const { activity, desk, deps } = rig();
-		const before = desk.state().identity.avatar;
-		await generateAvatar(deps, async () => ({ mimeType: "image/png", base64: "AAAA" }), "a fox");
-		const entry = activity.entries().find(item => item.action === "identity");
-		await editBotDesk(
-			{ desk, activity, createSideChat: async () => "", deleteSession: async () => {} },
-			{ op: "undo", activity: entry?.id ?? "" },
-			"owner",
-		);
-		expect(desk.state().identity.avatar).toEqual(before);
-		expect(activity.get(entry?.id ?? "")?.undone).toBe(true);
 	});
 
 	it("refuses with no live session, and leaves the desk alone when the model draws nothing", async () => {

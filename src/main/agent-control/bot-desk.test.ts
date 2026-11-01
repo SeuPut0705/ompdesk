@@ -13,7 +13,7 @@ import {
 	openBotDecisions,
 } from "../../shared/bot-desk";
 import type { Schedule, ScheduleRun } from "../../shared/schedules";
-import { BotDesk, BotDeskError, botDeskText, botRoutines, isDeskChange } from "./bot-desk";
+import { BotDesk, BotDeskError, botDeskText, botRoutines } from "./bot-desk";
 
 let dir: string;
 let file: string;
@@ -99,50 +99,9 @@ describe("BotDesk", () => {
 		for (let index = 1; index < BOT_DUTIES_MAX; index++) desk.addDuty(`duty ${index}`);
 		expect(desk.state().duties).toHaveLength(BOT_DUTIES_MAX);
 		expect(() => desk.addDuty("one too many")).toThrow(BotDeskError);
-		expect(() =>
-			desk.setDuties({ duties: Array.from({ length: BOT_DUTIES_MAX + 1 }, (_, i) => ({ text: `d${i}` })) }),
-		).toThrow(BotDeskError);
 		expect(desk.removeDuty(first.duty.id)).toEqual(first.duty);
 		expect(desk.removeDuty(first.duty.id)).toBeUndefined();
 		expect(desk.addDuty("fits again").added).toBe(true);
-	});
-
-	it("setDuties keeps the ids it knows, makes new ones for new rows, and says nothing when nothing changed", () => {
-		const desk = deskOver();
-		const a = desk.addDuty("alpha").duty;
-		const b = desk.addDuty("beta").duty;
-		const heard = vi.fn();
-		desk.onChange(heard);
-		desk.setDuties({
-			duties: [
-				{ id: b.id, text: "beta" },
-				{ id: a.id, text: "alpha" },
-			],
-		});
-		expect(desk.state().duties.map(duty => duty.id)).toEqual([b.id, a.id]);
-		expect(heard).toHaveBeenCalledTimes(1);
-		desk.setDuties({
-			duties: [
-				{ id: b.id, text: "beta" },
-				{ id: a.id, text: "alpha" },
-			],
-		});
-		expect(heard).toHaveBeenCalledTimes(1);
-		desk.setDuties({
-			duties: [
-				{ id: a.id, text: " alpha, reworded " },
-				{ text: "gamma" },
-				{ id: "feedfeed", text: "from a stale window" },
-				{ id: a.id, text: "alpha again" },
-			],
-		});
-		const after = desk.state().duties;
-		expect(after.map(duty => duty.text)).toEqual(["alpha, reworded", "gamma", "from a stale window", "alpha again"]);
-		expect(after[0]).toMatchObject({ id: a.id, at: a.at });
-		expect(new Set(after.map(duty => duty.id)).size).toBe(4);
-		expect(after.some(duty => duty.id === "feedfeed")).toBe(false);
-		desk.setDuties({ duties: [] });
-		expect(new BotDesk({ file }).state().duties).toEqual([]);
 	});
 
 	it("refuses an answer to an unknown or an already answered decision, and keeps the first answer", () => {
@@ -237,35 +196,20 @@ describe("BotDesk", () => {
 		});
 	});
 
-	it("keeps one memory per text up to the cap, edits, forgets and imports", () => {
+	it("keeps one memory per text up to the cap, and forgets", () => {
 		const desk = deskOver(null);
 		const first = desk.remember("  Prefers   Korean replies ", "bot");
 		expect(first).toMatchObject({ added: true, memory: { text: "Prefers Korean replies" } });
 		expect(desk.remember("Prefers Korean replies", "owner")).toEqual({ memory: first.memory, added: false });
-		desk.change({ op: "memory_edit", id: first.memory.id, text: "Prefers Korean replies, English code" }, "owner");
-		expect(desk.state().memories).toMatchObject([
-			{ id: first.memory.id, text: "Prefers Korean replies, English code", by: "owner" },
-		]);
-		expect(() => desk.change({ op: "memory_edit", id: "nope", text: "x" }, "owner")).toThrow(/No memory/);
-		desk.change(
-			{ op: "memory_import", texts: ["Lives in Seoul", "Prefers Korean replies, English code"], replace: false },
-			"owner",
-		);
-		expect(desk.state().memories.map(memory => memory.text)).toEqual([
-			"Prefers Korean replies, English code",
-			"Lives in Seoul",
-		]);
 		for (let index = desk.state().memories.length; index < BOT_MEMORIES_MAX; index++)
 			desk.remember(`fact ${index}`, "bot");
 		expect(() => desk.remember("one too many", "bot")).toThrow(/Forget one/);
-		desk.change({ op: "memory_import", texts: ["Only this"], replace: true }, "owner");
-		expect(desk.state().memories.map(memory => memory.text)).toEqual(["Only this"]);
-		expect(desk.forget(desk.state().memories[0]?.id ?? "", "bot")?.text).toBe("Only this");
+		expect(desk.forget(first.memory.id, "bot")?.text).toBe("Prefers Korean replies");
 		expect(desk.forget("gone", "bot")).toBeUndefined();
-		expect(desk.state().memories).toEqual([]);
+		expect(desk.remember("fits again", "bot").added).toBe(true);
 	});
 
-	it("tells the log each change, by whom, with the edit that takes it back", () => {
+	it("tells the log each change and by whom, with nothing to take it back", () => {
 		const log: BotActivityDraft[] = [];
 		const desk = new BotDesk({ file: null, activity: draft => void log.push(draft) });
 		desk.addDuty("Watch CI");
@@ -281,15 +225,7 @@ describe("BotDesk", () => {
 			["decision_post", "bot", "Ship?"],
 			["decision_answer", "owner", "Ship? → Yes"],
 		]);
-		// Replaying each inverse puts the desk back as it was, the forgotten memory with its id.
-		for (const entry of log.slice(0, 4).reverse()) {
-			const undo = entry.undo;
-			if (undo && isDeskChange(undo)) desk.change(undo, "owner");
-		}
-		expect(desk.state().duties).toEqual([]);
-		expect(desk.state().memories).toEqual([]);
-		expect(desk.state().identity.tagline).toBe("");
-		expect(log.at(-3)).toMatchObject({ action: "memory_restore", undo: { op: "memory_forget", id: kept.id } });
+		expect(log.every(entry => !("undo" in entry))).toBe(true);
 	});
 
 	it("keeps the exact operation and its inputs with the decision, trimmed, through its answer and a reload", () => {
@@ -311,7 +247,7 @@ describe("BotDesk", () => {
 		expect(() => desk.postDecision({ question: "Too much?", inputs: many })).toThrow(BotDeskError);
 	});
 
-	it("pauses and resumes, and keeps the tasks the owner marked done, each logged with the edit that takes it back", () => {
+	it("pauses and resumes, and keeps the tasks the owner marked done, each logged", () => {
 		const log: BotActivityDraft[] = [];
 		const desk = new BotDesk({ file, activity: draft => void log.push(draft) });
 		desk.change({ op: "paused", paused: true }, "owner");
@@ -319,12 +255,12 @@ describe("BotDesk", () => {
 		desk.change({ op: "tasks_done", sessions: ["/s/a.jsonl", "/s/b.jsonl"], done: true }, "owner");
 		desk.change({ op: "tasks_done", sessions: ["/s/a.jsonl"], done: true }, "owner");
 		expect(new BotDesk({ file }).state()).toMatchObject({ paused: true, tasksDone: ["/s/a.jsonl", "/s/b.jsonl"] });
-		expect(log.map(entry => [entry.action, entry.text, entry.undo])).toEqual([
-			["paused", "paused", { op: "paused", paused: false }],
-			["task_done", "2", { op: "tasks_done", sessions: ["/s/a.jsonl", "/s/b.jsonl"], done: false }],
+		expect(log.map(entry => [entry.action, entry.text])).toEqual([
+			["paused", "paused"],
+			["task_done", "2"],
 		]);
-		for (const entry of log.toReversed())
-			if (entry.undo && isDeskChange(entry.undo)) desk.change(entry.undo, "owner");
+		desk.change({ op: "tasks_done", sessions: ["/s/a.jsonl", "/s/b.jsonl"], done: false }, "owner");
+		desk.change({ op: "paused", paused: false }, "owner");
 		expect(desk.state()).toMatchObject({ tasksDone: [] });
 		expect(desk.state().paused).toBeUndefined();
 		desk.change(

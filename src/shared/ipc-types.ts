@@ -25,7 +25,7 @@ import type {
 	AiMemoryWriteInput,
 } from "./ai-memory";
 import type { BotActivityPage } from "./bot-activity";
-import type { BotDeskAnswer, BotDeskDuties, BotDeskState } from "./bot-desk";
+import type { BotDeskAnswer, BotDeskState } from "./bot-desk";
 import type { BotDeskEdit } from "./bot-desk-edit";
 import type { BotTakeoverRequest, BotTakeoverResult } from "./bot-takeover";
 import type { BotTeachRequest, BotTeachResult } from "./bot-teach";
@@ -268,9 +268,7 @@ export const IPC_COMMANDS = {
 	BOT_DESK_GET: "bot-desk:get",
 	/** The owner answers one open decision (`BotDeskAnswer`); main tells the bot */
 	BOT_DESK_ANSWER: "bot-desk:answer",
-	/** The owner's duty list, whole (`BotDeskDuties`) */
-	BOT_DESK_SET_DUTIES: "bot-desk:set-duties",
-	/** One edit of the bot's desk by the owner (`BotDeskEdit`: identity, memory, routing, voice, side chats, undo) */
+	/** One edit of the bot's desk by the owner (`BotDeskEdit`: identity, routing, voice, side chats, pause, task marks, pins) */
 	BOT_DESK_EDIT: "bot-desk:edit",
 	/** The bot's activity log, newest page (`BotActivityPage`) */
 	BOT_ACTIVITY_GET: "bot-activity:get",
@@ -2346,7 +2344,6 @@ export interface OmpApi {
 			/** `device` = a paired host's id: that computer's desk, read over the link. */
 			get(device?: string): Promise<BotDeskState>;
 			answer(payload: BotDeskAnswer, device?: string): Promise<void>;
-			setDuties(payload: BotDeskDuties, device?: string): Promise<void>;
 			/** One edit by the owner (`BotDeskEdit`); answers once main kept it. */
 			edit(payload: BotDeskEdit, device?: string): Promise<void>;
 			/** The newest page of the bot's activity log (`shared/bot-activity.ts`). */

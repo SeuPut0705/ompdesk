@@ -33,7 +33,7 @@ import type {
 	AiMemoryWriteInput,
 } from "./ai-memory";
 import type { BotActivityPage } from "./bot-activity";
-import type { BotDeskAnswer, BotDeskDuties, BotDeskState } from "./bot-desk";
+import type { BotDeskAnswer, BotDeskState } from "./bot-desk";
 import type { BotDeskEdit } from "./bot-desk-edit";
 import type { BotTakeoverRequest, BotTakeoverResult } from "./bot-takeover";
 import type { BotTeachRequest, BotTeachResult } from "./bot-teach";
@@ -581,8 +581,6 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				get: (device?: string) => transport.invoke(IPC_COMMANDS.BOT_DESK_GET, device) as Promise<BotDeskState>,
 				answer: (payload: BotDeskAnswer, device?: string) =>
 					transport.invoke(IPC_COMMANDS.BOT_DESK_ANSWER, payload, device) as Promise<void>,
-				setDuties: (payload: BotDeskDuties, device?: string) =>
-					transport.invoke(IPC_COMMANDS.BOT_DESK_SET_DUTIES, payload, device) as Promise<void>,
 				edit: (payload: BotDeskEdit, device?: string) =>
 					transport.invoke(IPC_COMMANDS.BOT_DESK_EDIT, payload, device) as Promise<void>,
 				activity: (device?: string) =>

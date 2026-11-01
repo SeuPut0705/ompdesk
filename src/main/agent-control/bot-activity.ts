@@ -75,10 +75,6 @@ export class BotActivityLog {
 		return entry;
 	}
 
-	get(id: string): BotActivity | undefined {
-		return this.#entries.find(entry => entry.id === id);
-	}
-
 	/** Every entry kept, oldest first. */
 	entries(): readonly BotActivity[] {
 		return this.#entries;
@@ -90,15 +86,6 @@ export class BotActivityLog {
 			entries: this.#entries.slice(-Math.max(1, Math.min(limit, BOT_ACTIVITY_PAGE))),
 			revision: this.#revision,
 		};
-	}
-
-	/** The entry's change was taken back: it offers no Undo again. */
-	markUndone(id: string): void {
-		const index = this.#entries.findIndex(entry => entry.id === id);
-		const entry = this.#entries[index];
-		if (!entry || entry.undone) return;
-		this.#entries[index] = { ...entry, undone: true };
-		this.#changed();
 	}
 
 	/** Writes what is waiting now (quit, tests). */

@@ -4047,7 +4047,7 @@ export class AgentControl {
 					return `Your activity, oldest first (${entries.length}):\n${entries
 						.map(
 							entry =>
-								`- ${entry.at} [${entry.by}${entry.channel ? `, side chat ${entry.channel}` : ""}] ${entry.action === "tool" ? entry.text : `${entry.action}: ${entry.text}`}${entry.undone ? " (undone)" : ""}`,
+								`- ${entry.at} [${entry.by}${entry.channel ? `, side chat ${entry.channel}` : ""}] ${entry.action === "tool" ? entry.text : `${entry.action}: ${entry.text}`}`,
 						)
 						.join("\n")}`;
 				}

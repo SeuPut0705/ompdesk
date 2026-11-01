@@ -44,7 +44,6 @@ import { BotActivityPageSchema } from "../shared/bot-activity";
 import {
 	type BotDeskAnswer,
 	BotDeskAnswerSchema,
-	BotDeskDutiesSchema,
 	type BotDeskState,
 	BotDeskStateSchema,
 	type BotRoutine,
@@ -1663,7 +1662,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		return editBotDesk(
 			{
 				desk: deps.botDesk,
-				activity: deps.botActivity,
 				createSideChat: topic => deps.botHome.createSideChat(topic),
 				deleteSession: sessionPath => deleteStoredSession(sessionPath, undefined),
 			},
@@ -1676,7 +1674,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		enabled: () => botEnabled(prefsStore.get(BOT_ENABLED_PREF)),
 		state: botDeskState,
 		answer: answerBotDecision,
-		setDuties: payload => deps.botDesk.setDuties(payload),
 		edit: editDesk,
 		activity: () => deps.botActivity.page(),
 		teach: request => teachAction(botTeach, request),
@@ -1700,12 +1697,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		const host = deviceOf(device);
 		if (host) await remoteDevices.request(host, "host.botDesk.answer", answer);
 		else answerBotDecision(answer);
-	});
-	ipc.handle(IPC_COMMANDS.BOT_DESK_SET_DUTIES, async (_caller, payload: unknown, device?: unknown) => {
-		const duties = BotDeskDutiesSchema.parse(payload);
-		const host = deviceOf(device);
-		if (host) await remoteDevices.request(host, "host.botDesk.setDuties", duties);
-		else deps.botDesk.setDuties(duties);
 	});
 	ipc.handle(IPC_COMMANDS.BOT_DESK_EDIT, async (_caller, payload: unknown, device?: unknown) => {
 		const edit = BotDeskEditSchema.parse(payload);

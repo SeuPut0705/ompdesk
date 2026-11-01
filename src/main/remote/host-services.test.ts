@@ -3594,12 +3594,10 @@ describe("LocalHostServices host.* calls", () => {
 			state: () => ({ ...desk.state(), routines }),
 			// What the IPC handler's `answerBotDecision` does: the desk records it, the bot is told what it returns.
 			answer: ({ id, answer }) => void told.push(desk.answer(id, answer)),
-			setDuties: payload => desk.setDuties(payload),
 			edit: edit =>
 				editBotDesk(
 					{
 						desk,
-						activity,
 						createSideChat: async () => "/s/side.jsonl",
 						deleteSession: async () => {},
 					},
@@ -3627,8 +3625,7 @@ describe("LocalHostServices host.* calls", () => {
 		});
 		for (const [method, params] of [
 			["host.botDesk.answer", { id: open.id, answer: "Yes" }],
-			["host.botDesk.setDuties", { duties: [{ text: "Check the build" }] }],
-			["host.botDesk.edit", { op: "memory_add", text: "Ships on Fridays" }],
+			["host.botDesk.edit", { op: "paused", paused: true }],
 			["host.botDesk.teach", { action: "start" }],
 		] as const) {
 			const refused = await services.call(x.peer, method, params, x).catch((error: unknown) => error);
@@ -3642,10 +3639,10 @@ describe("LocalHostServices host.* calls", () => {
 		// On: the desk as this computer's own windows see it, routines included.
 		on = true;
 		await expect(services.call(y.peer, "host.botDesk.get", {}, y)).resolves.toEqual({ ...desk.state(), routines });
-		await expect(
-			services.call(x.peer, "host.botDesk.setDuties", { duties: [{ text: "Check the build" }] }, x),
-		).resolves.toBeNull();
-		expect(desk.state().duties.map(duty => duty.text)).toEqual(["Check the build"]);
+		desk.addDuty("Check the build");
+		await expect(services.call(y.peer, "host.botDesk.get", {}, y)).resolves.toMatchObject({
+			duties: [{ text: "Check the build" }],
+		});
 		await expect(
 			services.call(x.peer, "host.botDesk.answer", { id: open.id, answer: "Yes, after lunch" }, x),
 		).resolves.toBeNull();
@@ -3664,28 +3661,34 @@ describe("LocalHostServices host.* calls", () => {
 		});
 		expect(taught).toEqual([{ action: "start" }, { action: "stop" }]);
 
-		// An edit goes through the owner's own path; the log it leaves reads over the link, and its Undo works there too.
-		await expect(
-			services.call(x.peer, "host.botDesk.edit", { op: "memory_add", text: "Ships on Fridays" }, x),
-		).resolves.toBeNull();
-		expect(desk.state().memories.map(memory => memory.text)).toEqual(["Ships on Fridays"]);
+		// An edit goes through the owner's own path; the log it leaves reads over the link.
+		await expect(services.call(x.peer, "host.botDesk.edit", { op: "paused", paused: true }, x)).resolves.toBeNull();
+		expect(desk.state().paused).toBe(true);
 		const page = await services.call(y.peer, "host.botDesk.activity", {}, y);
-		const added = BotActivityPageSchema.parse(page).entries.find(entry => entry.action === "memory_add");
-		expect(added).toMatchObject({ by: "owner", text: "Ships on Fridays", undo: { op: "memory_forget" } });
-		await services.call(x.peer, "host.botDesk.edit", { op: "undo", activity: added?.id }, x);
-		expect(desk.state().memories).toEqual([]);
+		const paused = BotActivityPageSchema.parse(page).entries.find(entry => entry.action === "paused");
+		expect(paused).toMatchObject({ by: "owner", text: "paused" });
+		expect(paused).not.toHaveProperty("undo");
 
-		// Only what the owner's own handlers accept crosses the link.
+		// Only what the owner's own handlers accept crosses the link: no memory edit, duty list or undo.
 		for (const [method, params] of [
 			["host.botDesk.answer", { id: "", answer: "Yes" }],
 			["host.botDesk.answer", { id: open.id, answer: "  " }],
-			["host.botDesk.setDuties", { duties: [{ text: "" }] }],
-			["host.botDesk.setDuties", {}],
-			["host.botDesk.edit", { op: "memory_add", text: "" }],
+			["host.botDesk.edit", { op: "memory_add", text: "Ships on Fridays" }],
+			["host.botDesk.edit", { op: "memory_edit", id: "m1", text: "x" }],
+			["host.botDesk.edit", { op: "memory_forget", id: "m1" }],
+			["host.botDesk.edit", { op: "memory_import", texts: ["x"], replace: true }],
+			["host.botDesk.edit", { op: "duties", duties: [{ text: "Check the build" }] }],
+			["host.botDesk.edit", { op: "undo", activity: "x" }],
 			["host.botDesk.edit", { op: "rename_everything" }],
 			["host.botDesk.teach", { action: "pause" }],
 		] as const)
 			await expect(services.call(x.peer, method, params, x), method).rejects.toThrow(/Invalid host\.botDesk/);
+		expect(desk.state().memories).toEqual([]);
+		// The duty list is the bot's alone: a device has no method to set it.
+		await expect(
+			services.call(x.peer, "host.botDesk.setDuties", { duties: [{ text: "Check the build" }] }, x),
+		).rejects.toThrow(/Unknown method/);
+		expect(desk.state().duties.map(duty => duty.text)).toEqual(["Check the build"]);
 
 		const state = { ...desk.state(), routines };
 		services.botDeskChanged(state);
@@ -3721,7 +3724,6 @@ describe("LocalHostServices host.* calls", () => {
 			enabled: () => true,
 			state: () => ({ ...desk.state(), routines: [] }),
 			answer: ({ id, answer }) => void desk.answer(id, answer),
-			setDuties: payload => desk.setDuties(payload),
 			edit: async () => {},
 			activity: () => ({ entries: [], revision: 0 }),
 			teach: async () => ({ delivered: true }),
@@ -3745,9 +3747,9 @@ describe("LocalHostServices host.* calls", () => {
 			.catch((error: unknown) => error);
 		expect(ipcErrorCode(refused)).toBe("remote_limit_reached");
 		expect(desk.state().decisions.find(decision => decision.id === second.id)?.state).toBe("open");
-		// Reading the desk and editing duties never counts.
+		// Reading the desk and editing it never counts.
 		await expect(services.call(x.peer, "host.botDesk.get", {}, x)).resolves.toMatchObject({ duties: [] });
-		await services.call(x.peer, "host.botDesk.setDuties", { duties: [{ text: "Check the build" }] }, x);
+		await services.call(x.peer, "host.botDesk.edit", { op: "library_pin", key: "file:/a.ts", pinned: true }, x);
 	});
 
 	it("counts a device's Stop that handed the bot a record as one request of its day and refunds an empty one", async () => {
@@ -3773,7 +3775,6 @@ describe("LocalHostServices host.* calls", () => {
 			enabled: () => true,
 			state: () => EMPTY_BOT_DESK,
 			answer: () => {},
-			setDuties: () => {},
 			edit: async () => {},
 			activity: () => ({ entries: [], revision: 0 }),
 			teach: async ({ action }) => {
@@ -3831,7 +3832,6 @@ describe("LocalHostServices host.* calls", () => {
 			enabled: () => true,
 			state: () => EMPTY_BOT_DESK,
 			answer: () => {},
-			setDuties: () => {},
 			edit: async () => {},
 			activity: () => ({ entries: [], revision: 0 }),
 			teach: async () => ({ delivered: false }),

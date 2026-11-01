@@ -302,13 +302,3 @@ export const BotDeskAnswerSchema = z.object({
 	draft: z.string().max(BOT_DECISION_DRAFT_MAX).optional(),
 });
 export type BotDeskAnswer = z.infer<typeof BotDeskAnswerSchema>;
-
-/** IPC: `BOT_DESK_SET_DUTIES`'s payload, the whole list as the owner left it. */
-export const BotDeskDutiesSchema = z.object({
-	duties: z
-		.array(
-			z.object({ id: z.string().min(1).max(64).optional(), text: z.string().trim().min(1).max(BOT_DUTY_TEXT_MAX) }),
-		)
-		.max(BOT_DUTIES_MAX),
-});
-export type BotDeskDuties = z.infer<typeof BotDeskDutiesSchema>;

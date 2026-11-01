@@ -44,14 +44,7 @@ import { PROMPT_ORIGIN_HOST_ID, type PromptOriginEnv } from "../../../resources/
 import { ACCOUNT_ROTATION_MODES } from "../../shared/account-rotation";
 import { type AgentReviewResult, reviewUnmerged } from "../../shared/agent-control";
 import type { BotActivityPage } from "../../shared/bot-activity";
-import {
-	type BotDeskAnswer,
-	BotDeskAnswerSchema,
-	type BotDeskDuties,
-	BotDeskDutiesSchema,
-	type BotDeskState,
-	EMPTY_BOT_DESK,
-} from "../../shared/bot-desk";
+import { type BotDeskAnswer, BotDeskAnswerSchema, type BotDeskState, EMPTY_BOT_DESK } from "../../shared/bot-desk";
 import { type BotDeskEdit, BotDeskEditSchema } from "../../shared/bot-desk-edit";
 import { type BotTakeoverRequest, BotTakeoverRequestSchema, type BotTakeoverResult } from "../../shared/bot-takeover";
 import { type BotTeachRequest, BotTeachRequestSchema, type BotTeachResult } from "../../shared/bot-teach";
@@ -436,7 +429,6 @@ export interface HostedBotDesk {
 	enabled(): boolean;
 	state(): BotDeskState;
 	answer(payload: BotDeskAnswer): void;
-	setDuties(payload: BotDeskDuties): void;
 	/** The path the owner's own edit takes (`bot-desk-edit.ts`). */
 	edit(payload: BotDeskEdit): Promise<void>;
 	activity(): BotActivityPage;
@@ -1363,10 +1355,6 @@ export class LocalHostServices implements HostServices {
 					async () => desk.answer(payload),
 					() => true,
 				);
-				return null;
-			}
-			case "host.botDesk.setDuties": {
-				this.#botDeskOn().setDuties(parse(BotDeskDutiesSchema, method, params));
 				return null;
 			}
 			case "host.botDesk.edit": {

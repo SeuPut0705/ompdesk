@@ -1,9 +1,10 @@
 /**
  * The bot's desk (`shared/bot-desk.ts`): its standing duties, the decisions it posted for the owner, its identity,
  * memories, notice routing, voice and side chats, in `<userData>/bot-desk.json`. Main alone writes it: the bot through
- * `ompdesk_bot`, the owner through the IPC handlers in `ipc.ts`. Every change is written (atomically) before it is
- * kept and heard, so what a window reads is what a relaunch finds. A file that cannot be read is an empty desk.
- * Every change is also told to the activity log (`activity`), with the edit that takes it back where one can.
+ * `ompdesk_bot` (its memory and duties are its own: the owner has no editor for either), the owner through the IPC
+ * handlers in `ipc.ts`. Every change is written (atomically) before it is kept and heard, so what a window reads is
+ * what a relaunch finds. A file that cannot be read is an empty desk. Every change is also told to the activity log
+ * (`activity`).
  */
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -22,7 +23,6 @@ import {
 	BotChannelSchema,
 	type BotDecision,
 	BotDecisionSchema,
-	type BotDeskDuties,
 	type BotDeskFile,
 	type BotDeskState,
 	type BotDuty,
@@ -39,7 +39,7 @@ import {
 	EMPTY_BOT_DESK_FILE,
 	parseBotDeskFile,
 } from "../../shared/bot-desk";
-import type { BotDeskChange, BotDeskEdit } from "../../shared/bot-desk-edit";
+import type { BotDeskChange } from "../../shared/bot-desk-edit";
 import { describeFrequency, SCHEDULE_RUNS_PER_SCHEDULE, type SchedulesState } from "../../shared/schedules";
 import { writeFileAtomicSync } from "../atomic-file";
 
@@ -84,10 +84,6 @@ function read(file: string): BotDeskFile {
 	} catch {
 		return EMPTY_BOT_DESK_FILE;
 	}
-}
-
-function dutyRows(duties: readonly BotDuty[]): BotDeskDuties["duties"] {
-	return duties.map(duty => ({ id: duty.id, text: duty.text }));
 }
 
 export class BotDesk {
@@ -140,10 +136,9 @@ export class BotDesk {
 			throw new BotDeskError(
 				`The desk holds ${BOT_DUTIES_MAX} duties already. Remove one that is over with ompdesk_bot {"action":"duty_remove"} first.`,
 			);
-		const before = dutyRows(this.#data.duties);
 		const duty = this.#valid(BotDutySchema, { id: this.#id(), text: clean, at: this.#stamp() });
 		this.#commit({ ...this.#data, duties: [...this.#data.duties, duty] });
-		this.#log({ kind: "desk", action: "duty_add", by, text: duty.text, undo: { op: "duties", duties: before } });
+		this.#log({ kind: "desk", action: "duty_add", by, text: duty.text });
 		return { duty, added: true };
 	}
 
@@ -151,43 +146,9 @@ export class BotDesk {
 	removeDuty(id: string, by: BotDeskActor = "bot"): BotDuty | undefined {
 		const duty = this.#data.duties.find(entry => entry.id === id);
 		if (!duty) return undefined;
-		const before = dutyRows(this.#data.duties);
 		this.#commit({ ...this.#data, duties: this.#data.duties.filter(entry => entry !== duty) });
-		this.#log({ kind: "desk", action: "duty_remove", by, text: duty.text, undo: { op: "duties", duties: before } });
+		this.#log({ kind: "desk", action: "duty_remove", by, text: duty.text });
 		return duty;
-	}
-
-	/**
-	 * The owner's whole list. A row naming a duty on the desk keeps its id and time; any other row (no id, or an id
-	 * this desk does not hold, such as one a stale window still shows) is a new duty with a new id.
-	 */
-	setDuties(input: BotDeskDuties, by: BotDeskActor = "owner"): void {
-		if (input.duties.length > BOT_DUTIES_MAX)
-			throw new BotDeskError(`The desk holds at most ${BOT_DUTIES_MAX} duties.`);
-		const held = new Map(this.#data.duties.map(duty => [duty.id, duty]));
-		const keptIds = new Set<string>();
-		const rows = input.duties.map(row => {
-			const kept = row.id === undefined || keptIds.has(row.id) ? undefined : held.get(row.id);
-			if (kept) keptIds.add(kept.id);
-			return { kept, text: row.text.trim() };
-		});
-		const taken = new Set([...keptIds, ...this.#ids()]);
-		const duties = rows.map(({ kept, text }) => {
-			if (kept) return this.#valid(BotDutySchema, { ...kept, text });
-			const id = this.#id(taken);
-			taken.add(id);
-			return this.#valid(BotDutySchema, { id, text, at: this.#stamp() });
-		});
-		if (JSON.stringify(duties) === JSON.stringify(this.#data.duties)) return;
-		const before = dutyRows(this.#data.duties);
-		this.#commit({ ...this.#data, duties });
-		this.#log({
-			kind: "desk",
-			action: "duties_set",
-			by,
-			text: duties.map(duty => duty.text).join(" · "),
-			undo: { op: "duties", duties: before },
-		});
 	}
 
 	/** Posts a decision for the owner and returns it open; nothing waits on it. */
@@ -278,12 +239,11 @@ export class BotDesk {
 			action: "memory_add",
 			by,
 			text: memory.text,
-			undo: { op: "memory_forget", id: memory.id },
 		});
 		return { memory, added: true };
 	}
 
-	/** Forgets a memory; undefined when none has the id. The log keeps it, so the owner can put it back. */
+	/** Forgets a memory; undefined when none has the id. The activity log keeps its text. */
 	forget(id: string, by: BotDeskActor): BotMemory | undefined {
 		const memory = this.#data.memories.find(entry => entry.id === id);
 		if (!memory) return undefined;
@@ -293,28 +253,13 @@ export class BotDesk {
 			action: "memory_forget",
 			by,
 			text: memory.text,
-			undo: { op: "memory_restore", memory },
 		});
 		return memory;
 	}
 
-	/** A change the desk makes on its own (the owner's edits, and the Undo of earlier ones). */
+	/** A change the desk makes on its own (the owner's edits). */
 	change(edit: BotDeskChange, by: BotDeskActor): void {
 		switch (edit.op) {
-			case "duties":
-				return this.setDuties({ duties: edit.duties }, by);
-			case "memory_add":
-				this.remember(edit.text, by);
-				return;
-			case "memory_forget":
-				if (!this.forget(edit.id, by)) throw new BotDeskError(`No memory "${edit.id}" is kept.`);
-				return;
-			case "memory_edit":
-				return this.#editMemory(edit.id, edit.text, by);
-			case "memory_restore":
-				return this.#restoreMemory(edit.memory, by);
-			case "memory_import":
-				return this.#importMemories(edit.texts, edit.replace, by);
 			case "identity": {
 				const { op: _, ...fields } = edit;
 				const before = this.#data.identity;
@@ -326,7 +271,6 @@ export class BotDesk {
 					action: "identity",
 					by,
 					text: Object.keys(fields).join(", "),
-					undo: { op: "identity", ...before },
 				});
 				return;
 			}
@@ -343,7 +287,6 @@ export class BotDesk {
 					text: Object.entries(fields)
 						.map(([key, value]) => `${key}: ${String(value)}`)
 						.join(", "),
-					undo: { op: "notify", ...before },
 				});
 				return;
 			}
@@ -357,7 +300,6 @@ export class BotDesk {
 					action: "voice",
 					by,
 					text: voice.speakReplies ? "on" : "off",
-					undo: { op: "voice", speakReplies: before.speakReplies },
 				});
 				return;
 			}
@@ -369,7 +311,6 @@ export class BotDesk {
 					action: "paused",
 					by,
 					text: edit.paused ? "paused" : "resumed",
-					undo: { op: "paused", paused: !edit.paused },
 				});
 				return;
 			}
@@ -386,7 +327,6 @@ export class BotDesk {
 					action: edit.done ? "task_done" : "task_reopen",
 					by,
 					text: String(changed.length),
-					undo: { op: "tasks_done", sessions: changed, done: !edit.done },
 				});
 				return;
 			}
@@ -401,7 +341,6 @@ export class BotDesk {
 					action: edit.pinned ? "library_pin" : "library_unpin",
 					by,
 					text: edit.key,
-					undo: { op: "library_pin", key: edit.key, pinned: !edit.pinned },
 				});
 				return;
 			}
@@ -437,67 +376,6 @@ export class BotDesk {
 	/** The side chat whose session is `sessionPath`. */
 	channelOf(sessionPath: string): BotChannel | undefined {
 		return this.#data.channels.find(channel => channel.sessionPath === sessionPath);
-	}
-
-	#editMemory(id: string, text: string, by: BotDeskActor): void {
-		const index = this.#data.memories.findIndex(memory => memory.id === id);
-		const before = this.#data.memories[index];
-		if (!before) throw new BotDeskError(`No memory "${id}" is kept.`);
-		const clean = text.replace(/\s+/g, " ").trim();
-		if (clean === before.text) return;
-		if (this.#data.memories.some(memory => memory.id !== id && memory.text === clean))
-			throw new BotDeskError("Another memory says the same.");
-		const memory = this.#valid(BotMemorySchema, { ...before, text: clean, by, at: this.#stamp() });
-		this.#commit({
-			...this.#data,
-			memories: this.#data.memories.map((entry, at) => (at === index ? memory : entry)),
-		});
-		this.#log({
-			kind: "desk",
-			action: "memory_edit",
-			by,
-			text: memory.text,
-			undo: { op: "memory_edit", id, text: before.text },
-		});
-	}
-
-	#restoreMemory(memory: BotMemory, by: BotDeskActor): void {
-		if (this.#data.memories.some(entry => entry.id === memory.id || entry.text === memory.text)) return;
-		if (this.#data.memories.length >= BOT_MEMORIES_MAX)
-			throw new BotDeskError(`Memory holds ${BOT_MEMORIES_MAX} entries already. Forget one first.`);
-		const restored = this.#valid(BotMemorySchema, memory);
-		this.#commit({ ...this.#data, memories: [...this.#data.memories, restored] });
-		this.#log({
-			kind: "desk",
-			action: "memory_restore",
-			by,
-			text: restored.text,
-			undo: { op: "memory_forget", id: restored.id },
-		});
-	}
-
-	/** Adds each text not kept yet (as many as fit), or replaces every memory with them. */
-	#importMemories(texts: readonly string[], replace: boolean, by: BotDeskActor): void {
-		const before = this.#data.memories;
-		const kept = replace ? [] : [...before];
-		const taken = new Set(this.#ids());
-		for (const raw of texts) {
-			const text = raw.replace(/\s+/g, " ").trim();
-			if (!text || kept.some(memory => memory.text === text)) continue;
-			if (kept.length >= BOT_MEMORIES_MAX) break;
-			const id = this.#id(taken);
-			taken.add(id);
-			kept.push(this.#valid(BotMemorySchema, { id, text, by, at: this.#stamp() }));
-		}
-		if (JSON.stringify(kept) === JSON.stringify(before)) return;
-		this.#commit({ ...this.#data, memories: kept });
-		this.#log({
-			kind: "desk",
-			action: "memory_import",
-			by,
-			text: `${kept.length}`,
-			undo: { op: "memory_import", texts: before.map(memory => memory.text), replace: true },
-		});
 	}
 
 	#log(draft: BotActivityDraft): void {
@@ -545,11 +423,6 @@ export class BotDesk {
 			}
 		}
 	}
-}
-
-/** Edits whose inverse an Undo replays here; the others (side chats, undo itself) go through `ipc.ts`. */
-export function isDeskChange(edit: BotDeskEdit): edit is BotDeskChange {
-	return edit.op !== "channel_add" && edit.op !== "channel_remove" && edit.op !== "undo";
 }
 
 /** Every open decision, and the `BOT_DECISIONS_ANSWERED_KEPT` answered ones that were answered last. */

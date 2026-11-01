@@ -60,6 +60,34 @@ describe("BotActivityLog", () => {
 		read("file", "/a.ts");
 		expect(botVisited(log.entries()).map(entry => entry.target?.value)).toEqual(["/a.ts", "https://example.com"]);
 	});
+
+	it("loads an older log whose entries carry undo and undone, and the rewritten file no longer has them", () => {
+		writeFileSync(
+			file,
+			JSON.stringify([
+				{
+					id: "old1",
+					at: "2026-11-01T08:00:00.000Z",
+					kind: "desk",
+					action: "memory_forget",
+					by: "owner",
+					text: "Deploys on Fridays",
+					undo: { op: "memory_restore", memory: { id: "m1", text: "Deploys on Fridays", by: "bot", at: "x" } },
+					undone: true,
+				},
+			]),
+		);
+		const log = new BotActivityLog({ file });
+		expect(log.entries().map(entry => entry.text)).toEqual(["Deploys on Fridays"]);
+		log.append({ kind: "run", action: "tool", by: "bot", text: "bash ls", tool: "bash" });
+		log.flush();
+		const stored = JSON.parse(readFileSync(file, "utf8"));
+		expect(stored).toHaveLength(2);
+		for (const entry of stored) {
+			expect(entry).not.toHaveProperty("undo");
+			expect(entry).not.toHaveProperty("undone");
+		}
+	});
 });
 
 describe("editBotDesk", () => {
@@ -70,7 +98,6 @@ describe("editBotDesk", () => {
 		const deleted: string[] = [];
 		const deps = {
 			desk,
-			activity,
 			createSideChat: async (topic: string) => {
 				created.push(topic);
 				return `/s/${created.length}.jsonl`;
@@ -80,22 +107,13 @@ describe("editBotDesk", () => {
 		return { activity, desk, deps, created, deleted };
 	}
 
-	it("undoes a change once, and refuses what cannot be undone", async () => {
-		const { activity, desk, deps } = rig();
+	it("logs a forget with no edit that takes it back", () => {
+		const { activity, desk } = rig();
 		const memory = desk.remember("Ships on Fridays", "bot").memory;
 		desk.forget(memory.id, "owner");
 		const forgot = activity.entries().find(entry => entry.action === "memory_forget");
-		await editBotDesk(deps, { op: "undo", activity: forgot?.id ?? "" }, "owner");
-		expect(desk.state().memories).toEqual([memory]);
-		await expect(editBotDesk(deps, { op: "undo", activity: forgot?.id ?? "" }, "owner")).rejects.toThrow(
-			/already undone/,
-		);
-		desk.postDecision({ question: "Ship?" });
-		const posted = activity.entries().find(entry => entry.action === "decision_post");
-		await expect(editBotDesk(deps, { op: "undo", activity: posted?.id ?? "" }, "owner")).rejects.toThrow(
-			/cannot be undone/,
-		);
-		await expect(editBotDesk(deps, { op: "undo", activity: "gone" }, "owner")).rejects.toThrow(/no longer/);
+		expect(forgot).toMatchObject({ by: "owner", text: "Ships on Fridays" });
+		expect(forgot).not.toHaveProperty("undo");
 	});
 
 	it("makes a side chat's session before recording it, deletes it before forgetting it, and makes none past the cap", async () => {
