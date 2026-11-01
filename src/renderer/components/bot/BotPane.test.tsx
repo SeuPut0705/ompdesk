@@ -53,7 +53,6 @@ function tab(overrides: Partial<SessionTab> = {}): SessionTab {
 interface DeskApi {
 	get: Mock<(device?: string) => Promise<BotDeskState>>;
 	answer: Mock<(payload: unknown, device?: string) => Promise<void>>;
-	setDuties: Mock<(payload: unknown, device?: string) => Promise<void>>;
 	onChanged: Mock<(callback: unknown) => () => void>;
 }
 
@@ -82,7 +81,6 @@ function installApi(): DeskApi {
 		// The pane reads this computer's desk once itself (a phone's page has no sidebar to): the same desk as applied.
 		get: vi.fn(async () => OPEN_DESK),
 		answer: vi.fn(async () => {}),
-		setDuties: vi.fn(async () => {}),
 		onChanged: vi.fn(() => () => {}),
 	};
 	(window as unknown as { omp: unknown }).omp = {

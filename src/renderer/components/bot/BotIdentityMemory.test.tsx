@@ -1,6 +1,7 @@
 /**
- * The bot's identity, memory, side chats, activity and notice routing as the owner edits them: each control sends one
- * `BOT_DESK_EDIT` with the change, and the screen shows what the desk holds.
+ * The bot's identity, side chats, activity and notice routing as the owner edits them: each control sends one
+ * `BOT_DESK_EDIT` with the change, and the screen shows what the desk holds. Its memory is the bot's alone: the owner
+ * sees what it remembered or forgot in the activity log and corrects it in chat.
  */
 import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
@@ -58,15 +59,17 @@ function installApi(
 }
 
 let container: Element;
-let root: Root;
+/** Unset for a test that mounts nothing (the labels check). */
+let root: Root | undefined;
 
 async function mount(element: ReactElement, desk: Partial<BotDeskState> = {}): Promise<void> {
 	useBotDeskStore.getState().apply({ ...EMPTY_BOT_DESK, ...desk });
 	container = document.createElement("div") as unknown as Element;
 	document.body.appendChild(container as never);
-	root = createRoot(container);
+	const created = createRoot(container);
+	root = created;
 	await act(async () => {
-		root.render(<I18nProvider>{element}</I18nProvider>);
+		created.render(<I18nProvider>{element}</I18nProvider>);
 	});
 }
 
@@ -90,8 +93,12 @@ const enter = (element: Element | null) =>
 	);
 
 afterEach(async () => {
-	await act(async () => root.unmount());
-	container.remove();
+	if (root) {
+		const mounted = root;
+		await act(async () => mounted.unmount());
+		container.remove();
+		root = undefined;
+	}
 	useBotDeskStore.getState().reset();
 	useBotActivityStore.getState().reset();
 	useSessionStore.getState().reset();
@@ -105,38 +112,6 @@ const entry = (over: Partial<BotActivity> & Pick<BotActivity, "id" | "kind" | "a
 	...over,
 });
 
-describe("the bot's memory", () => {
-	it("lists what it keeps with who wrote it, and adds, edits and imports through main", async () => {
-		const api = installApi();
-		await mount(<BotBoardSections tabId="tbot" />, {
-			memories: [
-				{ id: "m1", text: "Deploys on Fridays only", by: "bot", at: "2026-11-01T08:00:00.000Z" },
-				{ id: "m2", text: "Prefers Korean replies", by: "owner", at: "2026-11-01T08:01:00.000Z" },
-			],
-		});
-		expect(
-			queryAll("[data-bot-memory]").map(row => [row.textContent, row.getAttribute("data-bot-memory-by")]),
-		).toEqual([
-			["Deploys on Fridays only", "bot"],
-			["Prefers Korean replies", "owner"],
-		]);
-
-		await change(query("[data-bot-memory-input]"), { value: "Lives in Seoul" });
-		await enter(query("[data-bot-memory-input]"));
-		expect(api.edit).toHaveBeenLastCalledWith({ op: "memory_add", text: "Lives in Seoul" });
-
-		const file = { name: "Memory.md", text: async () => "# Mine\n\n- Ships on Fridays\n- Lives in Seoul\n" };
-		await change(query("[data-bot-memory-file]"), { files: [file], value: "Memory.md" });
-		expect(document.body.textContent).toContain("Memory.md");
-		await click(document.querySelector("[data-bot-memory-import-replace]"));
-		expect(api.edit).toHaveBeenLastCalledWith({
-			op: "memory_import",
-			texts: ["Ships on Fridays", "Lives in Seoul"],
-			replace: true,
-		});
-	});
-});
-
 describe("the bot's activity", () => {
 	it("names every action the log can hold, in both languages", () => {
 		for (const action of BOT_ACTIVITY_ACTIONS) {
@@ -146,8 +121,8 @@ describe("the bot's activity", () => {
 		}
 	});
 
-	it("lists newest first, filters to what it read, and undoes a change once", async () => {
-		const api = installApi({
+	it("lists newest first what the bot did, its memory changes included, with no reads and nothing to take back", async () => {
+		installApi({
 			revision: 3,
 			entries: [
 				entry({
@@ -158,32 +133,25 @@ describe("the bot's activity", () => {
 					target: { type: "file", value: "src/main/index.ts" },
 				}),
 				entry({ id: "a2", kind: "run", action: "tool", text: "bash git log -3" }),
-				entry({
-					id: "a3",
-					kind: "desk",
-					action: "memory_forget",
-					by: "owner",
-					text: "Deploys on Fridays only",
-					undo: {
-						op: "memory_restore",
-						memory: { id: "m1", text: "Deploys on Fridays only", by: "bot", at: "2026-11-01T08:00:00.000Z" },
-					},
-				}),
+				entry({ id: "a3", kind: "desk", action: "memory_add", text: "Deploys on Fridays only" }),
+				entry({ id: "a4", kind: "desk", action: "memory_forget", text: "Deploys on Mondays" }),
 			],
 		});
-		await mount(<BotBoardSections tabId="tbot" />);
+		await mount(<BotBoardSections tabId="tbot" />, {
+			memories: [{ id: "m1", text: "Deploys on Fridays only", by: "bot", at: "2026-11-01T08:00:00.000Z" }],
+		});
 		await act(async () => {});
 		expect(queryAll("[data-bot-activity]").map(row => row.getAttribute("data-bot-activity"))).toEqual([
+			"a4",
 			"a3",
 			"a2",
-			"a1",
 		]);
-
-		await click(query("[data-bot-activity-undo='a3']"));
-		expect(api.edit).toHaveBeenLastCalledWith({ op: "undo", activity: "a3" });
-
-		await change(query("[data-bot-activity-filter]"), { value: "reads" });
-		expect(queryAll("[data-bot-activity]").map(row => row.getAttribute("data-bot-activity"))).toEqual(["a1"]);
+		expect(query("[data-bot-activity='a3']")?.textContent).toContain(
+			`${en["botActivity.action.memory_add"]}: Deploys on Fridays only`,
+		);
+		// The bot keeps its memory itself: no section lists or edits it, and no row of the log offers an undo.
+		expect(query('[data-board-section="memory"]')).toBeNull();
+		expect(query("[data-bot-activity] button, [data-board-section='activity'] select")).toBeNull();
 	});
 });
 

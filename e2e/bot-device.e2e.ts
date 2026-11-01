@@ -113,7 +113,7 @@ test("a device shows the host's bot row, and a session it runs on the host stays
 	expect((await hostTabs()).filter(tab => !before.has(tab.tabId))).toEqual([]);
 });
 
-test("a device opens the host's bot, sees its decision count, answers it, and edits its duties", async () => {
+test("a device opens the host's bot, sees its decision count, answers it, and pauses it", async () => {
 	test.setTimeout(300_000);
 	const hostProfile = await makeRemoteProfile(parent, "host", {
 		language: "en",
@@ -200,9 +200,8 @@ test("a device opens the host's bot, sees its decision count, answers it, and ed
 	await expect(hostPage.locator("[data-bot-decision]")).toHaveCount(0);
 	expect(await answers()).toHaveLength(1);
 
-	// A duty added on the device is the host bot's: the host's board lists it.
-	await clientPage.locator("[data-bot-duty-input]").fill("Check the nightly build");
-	await clientPage.locator("[data-bot-duty-input]").press("Enter");
-	await expect(clientPage.locator("[data-bot-duty]")).toContainText(["Check the nightly build"]);
-	await expect(hostPage.locator("[data-bot-duty]")).toContainText(["Check the nightly build"]);
+	// The device's Pause is the host bot's: the host's own bar says it is paused.
+	await clientPage.locator("[data-bot-pause]").click();
+	await expect(clientPage.locator('[data-bot-pause="paused"]')).toBeVisible({ timeout: 30_000 });
+	await expect(hostPage.locator('[data-bot-pause="paused"]')).toBeVisible({ timeout: 30_000 });
 });

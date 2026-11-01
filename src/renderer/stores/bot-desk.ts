@@ -3,18 +3,12 @@
  * computer's bot and for each paired host's (`device` = the host's id; a host's bot pane reads the host's desk over
  * the link, `host.botDesk.*`). Main owns the files; this store holds the last state main sent per computer
  * (`BOT_DESK_GET`, then every `BOT_DESK_CHANGED` / `HOST_BOT_DESK_STATE`) and whether the first read landed.
- * Answering and editing the duties go through main and come back as a change: the decision leaves, the list moves,
- * only when main says so.
+ * Answering and the owner's edits go through main and come back as a change: a decision leaves, a side chat appears,
+ * only when main says so. The bot alone keeps its duties and memory (`ompdesk_bot`); the owner sees them, never edits.
  */
 import { useEffect, useMemo, useState } from "react";
 import { create } from "zustand";
-import {
-	type BotDecision,
-	type BotDeskDuties,
-	type BotDeskState,
-	EMPTY_BOT_DESK,
-	openBotDecisions,
-} from "../../shared/bot-desk";
+import { type BotDecision, type BotDeskState, EMPTY_BOT_DESK, openBotDecisions } from "../../shared/bot-desk";
 import type { BotDeskEdit } from "../../shared/bot-desk-edit";
 import { translate } from "../lib/i18n";
 import { toastError } from "./toast";
@@ -50,9 +44,7 @@ interface BotDeskStore {
 	refresh: (device?: string) => Promise<void>;
 	/** Answer a decision (with its draft as the owner edited it); false (and a toast) when main refused. */
 	answer: (id: string, answer: string, device?: string, draft?: string) => Promise<boolean>;
-	/** Write the whole duty list; false (and a toast) when main refused. */
-	setDuties: (duties: BotDeskDuties["duties"], device?: string) => Promise<boolean>;
-	/** One edit (identity, memory, routing, voice, side chats, undo); false (and a toast) when main refused. */
+	/** One edit (identity, routing, voice, side chats, pause, task marks, pins); false (and a toast) when main refused. */
 	edit: (edit: BotDeskEdit, device?: string) => Promise<boolean>;
 	reset: () => void;
 }
@@ -91,19 +83,6 @@ export const useBotDeskStore = create<BotDeskStore>()((set, get) => ({
 			return false;
 		}
 		// A host's push can miss this page (a paired web page hears none), so its desk is read again.
-		if (device !== undefined) void get().refresh(device);
-		return true;
-	},
-	setDuties: async (duties, device) => {
-		try {
-			const payload = { duties };
-			await (device === undefined
-				? window.omp.sessions.botDesk.setDuties(payload)
-				: window.omp.sessions.botDesk.setDuties(payload, device));
-		} catch (error) {
-			toastError({ title: translate("botHome.dutiesFailed"), error });
-			return false;
-		}
 		if (device !== undefined) void get().refresh(device);
 		return true;
 	},

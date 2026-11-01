@@ -35,6 +35,7 @@ import { costKinds, costWords } from "../../../lib/spend";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
 import { isAutopilotTab, isLiveAutopilot, useAutopilotStore } from "../../../stores/autopilot";
+import { useOpenBotDecisions } from "../../../stores/bot-desk";
 import { isUserBlockingRequest, useExtensionUiStore } from "../../../stores/extension-ui";
 import { useMessagesStore } from "../../../stores/messages";
 import { usePlanApprovalStore } from "../../../stores/plan-approval";
@@ -302,9 +303,13 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	// An Autopilot tab's board is the run's home: its head names the run, its first sections are the run's.
 	const autopilotTab = useAutopilotStore(isAutopilotTab);
 	const autopilotRunning = useAutopilotStore(state => isLiveAutopilot(state) && state.status.state === "running");
-	// The bot's board is its desk too: its duties, wakes and past decisions follow Needs you (components/bot).
+	// The bot's board is its desk (components/bot): its Tasks follow Now, its routines, library, completed work,
+	// activity, duties and side chats follow the plan, in place of Current work; no account gauges.
 	const bot = useBotTab();
 	const botDesk = useBotDeskModule(bot !== null);
+	// The bot's decisions dock above its composer, not in Needs you; its head still says they wait instead of "Idle".
+	const openDecisions = useOpenBotDecisions(bot?.device);
+	const decisionsWaiting = bot ? openDecisions.length : 0;
 
 	const pending = useExtensionUiStore(state => state.pendingRequests);
 	const loginRequestIds = useExtensionUiStore(state => state.loginRequestIds);
@@ -376,16 +381,18 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	// work alone is "Working…", never "Idle"), else what the last turn left.
 	const clause = counts.attention
 		? { tone: "warning", text: needsText }
-		: counts.running > 0
-			? { tone: undefined, text: t("workBoard.head.running", { count: counts.running }) }
-			: counts.working > 0
-				? { tone: undefined, text: t("workBoard.step.working") }
-				: {
-						tone: undefined,
-						text:
-							[showsLast ? t("workBoard.head.done") : null, outcome].filter(Boolean).join(" · ") ||
-							t("workBoard.head.idle"),
-					};
+		: decisionsWaiting > 0
+			? { tone: "warning", text: t("sidebar.botDecisions", { count: decisionsWaiting }) }
+			: counts.running > 0
+				? { tone: undefined, text: t("workBoard.head.running", { count: counts.running }) }
+				: counts.working > 0
+					? { tone: undefined, text: t("workBoard.step.working") }
+					: {
+							tone: undefined,
+							text:
+								[showsLast ? t("workBoard.head.done") : null, outcome].filter(Boolean).join(" · ") ||
+								t("workBoard.head.idle"),
+						};
 
 	const turnState = retryInfo
 		? t("chat.retry.inflight", { attempt: retryInfo.attempt, maxAttempts: retryInfo.maxAttempts })
@@ -488,7 +495,9 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 					</span>
 				) : null}
 				<div className="omp-work-board-meters">
-					<AccountLimit />
+					{/* The account's windows are every session's, not the bot's work: its board leaves them to the
+					   sidebar and keeps only what the bot's own session spent on a metered provider. */}
+					{bot ? null : <AccountLimit />}
 					{hasCharge(spend) ? (
 						<Suspense fallback={null}>
 							<SessionSpendLine spend={spend} />
@@ -537,9 +546,6 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 					<AutopilotBoardSections />
 				</Suspense>
 			)}
-
-			{bot && botDesk && <botDesk.BotBoardSections device={bot.device} tabId={bot.tabId} />}
-
 			{showsNow && (
 				<BoardSection
 					action={workTree === "now" ? <WorkTreeButton /> : null}
@@ -622,6 +628,8 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 					)}
 				</BoardSection>
 			)}
+
+			{bot && botDesk && <botDesk.BotBoardTasks device={bot.device} tabId={bot.tabId} />}
 
 			{(plan || showsGoal) && (
 				<BoardSection
@@ -723,14 +731,17 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 					)}
 				</BoardSection>
 			)}
-
-			<Suspense fallback={null}>
-				<SessionSlot
-					aside={showsLast && lastTurn ? formatDuration(lastTurn.end - lastTurn.start) : undefined}
-					onOutcome={setOutcome}
-					turn={turnActive && startedAt !== null ? { start: startedAt, end: null } : lastTurn}
-				/>
-			</Suspense>
+			{bot ? (
+				botDesk && <botDesk.BotBoardSections device={bot.device} tabId={bot.tabId} />
+			) : (
+				<Suspense fallback={null}>
+					<SessionSlot
+						aside={showsLast && lastTurn ? formatDuration(lastTurn.end - lastTurn.start) : undefined}
+						onOutcome={setOutcome}
+						turn={turnActive && startedAt !== null ? { start: startedAt, end: null } : lastTurn}
+					/>
+				</Suspense>
+			)}
 		</aside>
 	);
 }

@@ -1,12 +1,12 @@
 /**
- * The bot's Tasks section on its work board (`bot-tasks.ts` builds the lists): In progress, Scheduled, Completed, one
- * line per item. A task row opens its session, where its progress, files, results and open requests are (take over:
- * it is a session tab like any other); a running one can be watched beside the bot (a split pane, live) and stopped
- * on its own, apart from the bot's own turn; a finished one waits for the owner's "Mark done" (only the owner completes
- * a task). A task that waits on an answer is tinted, one finished since the owner last looked carries a dot.
+ * The bot's Tasks and Completed sections on its work board (`bot-tasks.ts` builds the lists), one line per item. A
+ * task row opens its session, where its progress, files, results and open requests are (take over: it is a session
+ * tab like any other); a running one can be watched beside the bot (a split pane, live) and stopped on its own, apart
+ * from the bot's own turn; a finished one waits for the owner's "Mark done" (only the owner completes a task). A task
+ * that waits on an answer is tinted, one finished since the owner last looked carries a dot. Completed holds the tasks
+ * the owner marked done and the decisions answered or lapsed, newest first.
  */
 import {
-	AlarmClock,
 	Check,
 	CheckCheck,
 	Clock,
@@ -45,7 +45,7 @@ import { botTasks, type TaskItem, type TaskState } from "./bot-tasks";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
-const CAP = { progress: 6, scheduled: 3, completed: 5 } as const;
+const CAP = { progress: 6, completed: 5 } as const;
 
 const STATE_TONE: Record<TaskState, "info" | "success" | "warning" | "danger" | "muted"> = {
 	needs: "warning",
@@ -186,21 +186,8 @@ function TaskRow({ item, now, device }: { item: Extract<TaskItem, { kind: "task"
 	);
 }
 
-function OtherRow({ item }: { item: Exclude<TaskItem, { kind: "task" }> }) {
+function DecisionRow({ item }: { item: Extract<TaskItem, { kind: "decision" }> }) {
 	const t = useT();
-	if (item.kind === "wake") {
-		const prompt = item.prompt.replace(/\s+/g, " ").trim();
-		return (
-			<BoardRow
-				data={{ "data-bot-wake": item.key.slice("wake:".length) }}
-				label={prompt}
-				lead={<KindMark icon={AlarmClock} tone={item.next === null ? "muted" : "info"} />}
-				meta={item.next === null ? t("botHome.wakes.paused") : formatClock(item.next)}
-				tag={{ word: t("botHome.tasks.state.next") }}
-				title={item.prompt}
-			/>
-		);
-	}
 	const { decision } = item;
 	const answer = decision.state === "answered" ? decision.answer : null;
 	return (
@@ -228,38 +215,8 @@ function OtherRow({ item }: { item: Exclude<TaskItem, { kind: "task" }> }) {
 	);
 }
 
-function Group({
-	name,
-	items,
-	cap,
-	children,
-	extra,
-}: {
-	name: string;
-	items: readonly TaskItem[];
-	cap: number;
-	children: (item: TaskItem) => ReactNode;
-	extra?: ReactNode;
-}) {
-	// A group with nothing in it says nothing: three "0" headings would be noise.
-	if (items.length === 0) return null;
-	return (
-		<>
-			<li className="omp-work-board-group" data-bot-task-group={name}>
-				{name}
-				<span className="tabular-nums">{items.length}</span>
-			</li>
-			<CappedRows cap={cap} items={items}>
-				{children}
-			</CappedRows>
-			{extra}
-		</>
-	);
-}
-
-export function BotTasksSection({ tabId, desk, device }: { tabId: string; desk: BotDeskState; device?: string }) {
-	const t = useT();
-	const edit = useBotDeskStore(state => state.edit);
+/** The two lists, from the sessions the bot opened, the desk and the unread marks of their tabs. */
+function useBotTaskLists(tabId: string, desk: BotDeskState) {
 	const opened = useOpenedChildren(tabId);
 	const unreadIds = useTabsStore(state =>
 		state.tabs
@@ -267,8 +224,6 @@ export function BotTasksSection({ tabId, desk, device }: { tabId: string; desk: 
 			.map(tab => tab.id)
 			.join("\n"),
 	);
-	const running = opened.rows.some(row => row.status === "running");
-	const now = useNowTick(running);
 	// Completed takes a decision the moment its deadline passes, with nothing else changing.
 	const clock = useDecisionClock(desk);
 	const lists = useMemo(() => {
@@ -280,64 +235,88 @@ export function BotTasksSection({ tabId, desk, device }: { tabId: string; desk: 
 			now: clock,
 		});
 	}, [opened.rows, desk, unreadIds, clock]);
+	return { lists, opened: opened.rows };
+}
+
+/** In progress: what the bot's sessions do now, the ones that need an answer first. */
+export function BotTasksSection({ tabId, desk, device }: { tabId: string; desk: BotDeskState; device?: string }) {
+	const t = useT();
+	const edit = useBotDeskStore(state => state.edit);
+	const { lists, opened } = useBotTaskLists(tabId, desk);
+	const now = useNowTick(opened.some(row => row.status === "running"));
 	const review = lists.progress.flatMap(item =>
 		item.kind === "task" && item.state === "review" && item.row.sessionPath ? [item.row.sessionPath] : [],
 	);
-	const render = (item: TaskItem) =>
-		item.kind === "task" ? (
-			<TaskRow device={device} item={item} key={item.key} now={now} />
-		) : (
-			<OtherRow item={item} key={item.key} />
-		);
 	const lead = lists.progress[0];
+	const count = lists.progress.length > 0 ? lists.progress.length : undefined;
 	return (
 		<BoardSection
-			action={opened.rows.length > 0 ? <WorkTreeButton /> : null}
-			count={lists.progress.length > 0 ? lists.progress.length : undefined}
+			action={opened.length > 0 ? <WorkTreeButton /> : null}
+			count={count}
 			id="tasks"
 			summary={{
 				lead:
 					lead?.kind === "task"
 						? lead.row.title || t("workBoard.review.untitled")
 						: t("botHome.tasks.noneInProgress"),
-				count: lists.progress.length > 0 ? lists.progress.length : undefined,
+				count,
 			}}
 			title={t("botHome.tasks.title")}
 		>
-			<Group
-				cap={CAP.progress}
-				extra={
-					review.length > 1 ? (
-						<li className="omp-work-board-item">
-							{/* controls-ok: the omp-work-board-more class draws the whole row */}
-							<button
-								className="omp-work-board-more"
-								data-bot-task-mark-all=""
-								onClick={() => void edit({ op: "tasks_done", sessions: review, done: true }, device)}
-								type="button"
-							>
-								<CheckCheck aria-hidden className="me-1.5 size-3.5" />
-								{t("botHome.tasks.markAllDone", { count: review.length })}
-							</button>
-						</li>
-					) : null
-				}
-				items={lists.progress}
-				name={t("botHome.tasks.group.progress")}
-			>
-				{render}
-			</Group>
-			<Group cap={CAP.scheduled} items={lists.scheduled} name={t("botHome.tasks.group.scheduled")}>
-				{render}
-			</Group>
-			<Group cap={CAP.completed} items={lists.completed} name={t("botHome.tasks.group.completed")}>
-				{render}
-			</Group>
-			{lists.progress.length + lists.scheduled.length + lists.completed.length === 0 ? (
+			<CappedRows cap={CAP.progress} items={lists.progress}>
+				{item => (item.kind === "task" ? <TaskRow device={device} item={item} key={item.key} now={now} /> : null)}
+			</CappedRows>
+			{review.length > 1 ? (
+				<li className="omp-work-board-item">
+					{/* controls-ok: the omp-work-board-more class draws the whole row */}
+					<button
+						className="omp-work-board-more"
+						data-bot-task-mark-all=""
+						onClick={() => void edit({ op: "tasks_done", sessions: review, done: true }, device)}
+						type="button"
+					>
+						<CheckCheck aria-hidden className="me-1.5 size-3.5" />
+						{t("botHome.tasks.markAllDone", { count: review.length })}
+					</button>
+				</li>
+			) : null}
+			{lists.progress.length === 0 ? (
 				<li className="omp-work-board-more" data-bot-tasks-empty="">
 					{t("botHome.tasks.noneInProgress")}
 				</li>
 			) : null}
+		</BoardSection>
+	);
+}
+
+/** Completed: the tasks the owner marked done and the decisions answered or lapsed; absent while there are none. */
+export function BotCompletedSection({ tabId, desk, device }: { tabId: string; desk: BotDeskState; device?: string }) {
+	const t = useT();
+	const { lists } = useBotTaskLists(tabId, desk);
+	if (lists.completed.length === 0) return null;
+	const lead = lists.completed[0];
+	return (
+		<BoardSection
+			count={lists.completed.length}
+			id="completed"
+			summary={{
+				lead:
+					lead?.kind === "task"
+						? lead.row.title || t("workBoard.review.untitled")
+						: (lead?.decision.question ?? ""),
+				count: lists.completed.length,
+			}}
+			title={t("botHome.tasks.group.completed")}
+		>
+			<CappedRows cap={CAP.completed} items={lists.completed}>
+				{item =>
+					item.kind === "task" ? (
+						<TaskRow device={device} item={item} key={item.key} now={0} />
+					) : (
+						<DecisionRow item={item} key={item.key} />
+					)
+				}
+			</CappedRows>
 		</BoardSection>
 	);
 }

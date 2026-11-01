@@ -3,16 +3,17 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
-import { exitApp, launchApp, pressShortcutUntilVisible } from "./harness";
+import { exitApp, launchApp, pressShortcutUntilVisible, readRecords } from "./harness";
 
-// The bot's identity and desk (Settings › Bot, the bot's pane): avatar, tagline, memory, its activity log with Undo,
-// and side chats. `OMPDESK_BOT_IDENTITY_SHOTS=<dir>` also keeps the screenshots there.
+// The bot's identity and desk (Settings › Bot, the bot's pane): avatar, tagline, the memory the bot keeps itself as its
+// activity log shows it, and side chats. `OMPDESK_BOT_IDENTITY_SHOTS=<dir>` also keeps the screenshots there.
 
 let app: ElectronApplication;
 let page: Page;
 let profile: string;
 let errors: string[];
 let dirs: { project: string; desktop: string; agent: string };
+let record: string;
 
 test.beforeEach(async () => {
 	profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-botid-"));
@@ -27,10 +28,11 @@ test.beforeEach(async () => {
 		JSON.stringify({ language: "en", firstRunComplete: true, botEnabled: true, theme: "light" }),
 	);
 	errors = [];
+	record = path.join(profile, "rpc.jsonl");
 	app = await launchApp({
 		...dirs,
 		profile,
-		env: { OMP_GUI_HEADLESS: "1", OMP_GUI_TEST_SESSION_FILES: "1" },
+		env: { OMP_GUI_HEADLESS: "1", OMP_GUI_TEST_SESSION_FILES: "1", OMP_GUI_TEST_RECORD: record },
 		args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"],
 	});
 	page = await app.firstWindow();
@@ -76,7 +78,31 @@ async function openSettings(): Promise<void> {
 	await expect(page.locator("[data-bot-avatar-shape]").first()).toBeVisible();
 }
 
-test("the bot's identity shows in Settings, the sidebar and its bar; memory, undo and side chats work on its desk", async () => {
+/** The bot's own omp calls a control tool (the fake omp's `fixture:host-tool`); resolves with its result. */
+async function botCalls(name: string, args: Record<string, unknown>): Promise<{ text: string; isError: boolean }> {
+	const results = async () =>
+		(await readRecords(record))
+			.filter(frame => frame.type === "host_tool_result" && frame.recordedBy !== undefined)
+			.map(frame => {
+				const result = frame.result as { content?: { text?: string }[] } | undefined;
+				return { text: result?.content?.[0]?.text ?? "", isError: frame.isError === true };
+			});
+	const file = await page.evaluate(() => window.omp.prefs.get("bot"));
+	const tabId = (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.sessionPath === file)?.tabId;
+	if (!tabId) throw new Error("the bot has no tab");
+	await expect
+		.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === tabId)?.status)
+		.toBe("ready");
+	const before = (await results()).length;
+	await page.evaluate(([id, command]) => window.omp.rpc.commandForTab(id, { type: "bash", command }), [
+		tabId,
+		`fixture:host-tool:${name} ${JSON.stringify(args)}`,
+	] as const);
+	await expect.poll(async () => (await results()).length, { timeout: 60_000 }).toBe(before + 1);
+	return (await results())[before] as { text: string; isError: boolean };
+}
+
+test("the bot's identity shows in Settings, the sidebar and its bar; its memory changes show in its activity, and side chats work on its desk", async () => {
 	test.setTimeout(180_000);
 	await windowWidth(1280);
 
@@ -105,22 +131,20 @@ test("the bot's identity shows in Settings, the sidebar and its bar; memory, und
 	const pane = page.locator(".omp-session-pane:visible").first();
 	await expect(pane.locator("[data-bot-bar] [data-bot-tagline]")).toHaveText("Keeps CI green");
 
-	const input = pane.locator("[data-bot-memory-input]");
-	await input.fill("Deploys on Fridays only");
-	await input.press("Enter");
-	const row = pane.locator("[data-bot-memory]");
-	await expect(row).toHaveCount(1);
-	await expect(row).toContainText("Deploys on Fridays only");
-	await expect(row).toHaveAttribute("data-bot-memory-by", "owner");
+	// The bot keeps its memory itself: the board has no memory section, and what it remembered and forgot is in its
+	// activity log, with nothing there to take back (the owner corrects it in chat).
+	expect(await pane.locator('[data-board-section="memory"]').count()).toBe(0);
+	const kept = await botCalls("ompdesk_bot", { action: "remember", text: "Deploys on Fridays only" });
+	expect(kept.isError, kept.text).toBe(false);
 	await expect.poll(async () => (await desk()).memories?.map(m => m.text)).toEqual(["Deploys on Fridays only"]);
-
-	const entry = pane.locator("[data-bot-activity]").filter({ hasText: "Remembered: Deploys on Fridays only" });
-	await expect(entry).toHaveCount(1);
-	await entry.locator("[data-bot-activity-undo]").click();
-	await expect(row).toHaveCount(0);
+	const id = /Memory (\S+) kept/.exec(kept.text)?.[1] ?? "";
+	const forgot = await botCalls("ompdesk_bot", { action: "forget", id });
+	expect(forgot.isError, forgot.text).toBe(false);
 	await expect.poll(async () => (await desk()).memories ?? []).toEqual([]);
-	await expect(entry).toContainText("Undone");
-	await expect(entry.locator("[data-bot-activity-undo]")).toHaveCount(0);
+	const log = pane.locator("[data-bot-activity]");
+	await expect(log.filter({ hasText: "Remembered: Deploys on Fridays only" })).toHaveCount(1);
+	await expect(log.filter({ hasText: "Forgot: Deploys on Fridays only" })).toHaveCount(1);
+	await expect(log.locator("button")).toHaveCount(0);
 
 	const channelInput = pane.locator("[data-bot-channel-input]");
 	await channelInput.fill("Release notes");

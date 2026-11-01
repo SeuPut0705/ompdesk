@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
-import { type BotDeskAnswer, type BotDeskDuties, type BotDeskState, EMPTY_BOT_DESK } from "../../shared/bot-desk";
+import { type BotDeskAnswer, type BotDeskState, EMPTY_BOT_DESK } from "../../shared/bot-desk";
+import type { BotDeskEdit } from "../../shared/bot-desk-edit";
 import { ensureBotDesk, releaseBotDesk, useBotDeskStore } from "./bot-desk";
 import { useToastStore } from "./toast";
 
 interface DeskApi {
 	get: Mock<(device?: string) => Promise<BotDeskState>>;
 	answer: Mock<(payload: BotDeskAnswer, device?: string) => Promise<void>>;
-	setDuties: Mock<(payload: BotDeskDuties, device?: string) => Promise<void>>;
+	edit: Mock<(edit: BotDeskEdit, device?: string) => Promise<void>>;
 	onChanged: Mock<(callback: (state: BotDeskState, device?: string) => void) => () => void>;
 }
 
@@ -29,7 +30,7 @@ beforeEach(() => {
 	api = {
 		get: vi.fn(async () => EMPTY),
 		answer: vi.fn(async () => {}),
-		setDuties: vi.fn(async () => {}),
+		edit: vi.fn(async () => {}),
 		onChanged: vi.fn(() => () => {}),
 	};
 	vi.stubGlobal("window", { omp: { sessions: { botDesk: api } } });
@@ -73,22 +74,22 @@ describe("bot desk store", () => {
 		expect(local()?.loadError).toBeNull();
 	});
 
-	it("sends an answer and the whole duty list as main's payloads", async () => {
+	it("sends an answer and an edit as main's payloads", async () => {
 		expect(await useBotDeskStore.getState().answer("d1", "Ship it")).toBe(true);
 		expect(api.answer).toHaveBeenCalledWith({ id: "d1", answer: "Ship it" });
 
-		expect(await useBotDeskStore.getState().setDuties([{ id: "a", text: "Check the build" }])).toBe(true);
-		expect(api.setDuties).toHaveBeenCalledWith({ duties: [{ id: "a", text: "Check the build" }] });
+		expect(await useBotDeskStore.getState().edit({ op: "paused", paused: true })).toBe(true);
+		expect(api.edit).toHaveBeenCalledWith({ op: "paused", paused: true });
 		// This computer's own desk follows main's push: no second read.
 		expect(api.get).not.toHaveBeenCalled();
 	});
 
 	it("toasts and answers false when main refuses, never leaving the failure unhandled", async () => {
 		api.answer.mockRejectedValueOnce(new Error("refused"));
-		api.setDuties.mockRejectedValueOnce(new Error("refused"));
+		api.edit.mockRejectedValueOnce(new Error("refused"));
 
 		expect(await useBotDeskStore.getState().answer("d1", "Ship it")).toBe(false);
-		expect(await useBotDeskStore.getState().setDuties([])).toBe(false);
+		expect(await useBotDeskStore.getState().edit({ op: "paused", paused: true })).toBe(false);
 
 		expect(useToastStore.getState().toasts).toHaveLength(2);
 	});
@@ -126,13 +127,13 @@ describe("a paired host's desk", () => {
 		expect(local()?.desk).toBe(EMPTY);
 	});
 
-	it("answers and edits the duties on that host, then reads its desk again", async () => {
+	it("answers and edits on that host, then reads its desk again", async () => {
 		api.get.mockResolvedValue(WITH_DUTY);
 
 		expect(await useBotDeskStore.getState().answer("d1", "Ship it", "mini")).toBe(true);
 		expect(api.answer).toHaveBeenCalledWith({ id: "d1", answer: "Ship it" }, "mini");
-		expect(await useBotDeskStore.getState().setDuties([], "mini")).toBe(true);
-		expect(api.setDuties).toHaveBeenCalledWith({ duties: [] }, "mini");
+		expect(await useBotDeskStore.getState().edit({ op: "paused", paused: false }, "mini")).toBe(true);
+		expect(api.edit).toHaveBeenCalledWith({ op: "paused", paused: false }, "mini");
 
 		await vi.waitFor(() => expect(host("mini")?.desk).toBe(WITH_DUTY));
 		expect(api.get).toHaveBeenCalledWith("mini");

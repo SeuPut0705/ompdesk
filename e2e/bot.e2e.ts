@@ -332,12 +332,14 @@ test("the bot's desk: a decision and a duty it posts show around its conversatio
 	await page.locator("[data-sidebar-bot-row]").click();
 	const bot = await tabOf(file);
 	await untilReady(bot);
-	// One screen: the bar over the conversation, no Home/Chat switch, the duties on the docked board.
+	// One screen: the bar over the conversation, no Home/Chat switch, its tasks on the docked board.
 	const pane = page.locator(`.omp-session-pane[data-tab-id="${bot}"]`);
 	await expect(pane.locator("[data-bot-bar] [data-bot-state]")).toBeVisible();
 	await expect(pane.locator(".omp-transcript-scroll")).toBeVisible();
 	await expect(pane.getByRole("tablist")).toHaveCount(0);
-	await expect(pane.locator('[data-board-section="duties"]')).toBeVisible();
+	await expect(pane.locator('[data-board-section="tasks"]')).toBeVisible();
+	// No duties yet, so no duties section: the bot keeps the list itself and it shows once it holds one.
+	await expect(pane.locator('[data-board-section="duties"]')).toHaveCount(0);
 
 	// Only the bot may use its desk tool.
 	const owner = (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.sessionPath !== file)?.tabId;
@@ -349,6 +351,7 @@ test("the bot's desk: a decision and a duty it posts show around its conversatio
 	const duty = await callAs(bot, "ompdesk_bot", { action: "duty_add", text: "Check the nightly build" });
 	expect(duty.isError, duty.text).toBe(false);
 	await expect(page.locator("[data-bot-duty]")).toContainText(["Check the nightly build"]);
+	await expect(pane.locator('[data-board-section="duties"] input')).toHaveCount(0);
 
 	const posted = await callAs(bot, "ompdesk_bot", {
 		action: "decide",
@@ -453,7 +456,9 @@ test("the bot's tasks, library and pause: its sessions in progress and done by t
 
 	// Only the owner completes it: the mark moves it to Completed, kept on the desk across a relaunch.
 	await done.locator('[data-bot-task-mark="done"]').click();
-	await expect(done).toHaveAttribute("data-task-state", "done");
+	const completed = pane.locator(`[data-board-section="completed"] [data-bot-task=${cssString(finished.file)}]`);
+	await expect(completed).toHaveAttribute("data-task-state", "done");
+	await expect(done).toHaveCount(0);
 	await expect
 		.poll(async () => (await page.evaluate(() => window.omp.sessions.botDesk.get())).tasksDone)
 		.toEqual([finished.file]);

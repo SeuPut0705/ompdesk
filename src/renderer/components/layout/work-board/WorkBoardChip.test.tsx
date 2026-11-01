@@ -93,10 +93,9 @@ describe("WorkBoardChip, the phone's work strip", () => {
 		expect(container.hasAttribute("data-work-board-strip")).toBe(false);
 	});
 
-	it("stays on the bot's pane with nothing running, naming its duties and routines, and only there", async () => {
+	it("stays on the bot's pane with nothing running, naming its tasks and routines, and only there", async () => {
 		useBotDeskStore.getState().apply({
 			...EMPTY_BOT_DESK,
-			duties: [{ id: "a", text: "Check the nightly build", at: "2026-10-30T08:00:00.000Z" }],
 			routines: [],
 			decisions: [],
 		});
@@ -110,7 +109,7 @@ describe("WorkBoardChip, the phone's work strip", () => {
 			),
 		);
 		expect(container.querySelector("[data-work-chip] [role=status]")?.textContent).toBe(
-			translate("botHome.strip", { duties: 1, routines: 0 }),
+			translate("botHome.strip", { tasks: 0, routines: 0 }),
 		);
 		await mount();
 		expect(container.querySelector("[data-work-chip]")).toBeNull();

@@ -7,16 +7,16 @@ export type WorkBoardSectionId =
 	| "cycles"
 	| "ship"
 	| "followups"
-	| "duties"
-	| "tasks"
-	| "routines"
-	| "library"
-	| "memory"
-	| "channels"
-	| "activity"
 	| "review"
 	| "now"
+	| "tasks"
 	| "plan"
+	| "routines"
+	| "library"
+	| "completed"
+	| "activity"
+	| "duties"
+	| "channels"
 	| "current";
 
 const PREF = "workBoardCollapsed";
@@ -27,16 +27,16 @@ const SECTION_IDS: readonly WorkBoardSectionId[] = [
 	"cycles",
 	"ship",
 	"followups",
-	"duties",
-	"tasks",
-	"routines",
-	"library",
-	"memory",
-	"channels",
-	"activity",
 	"review",
 	"now",
+	"tasks",
 	"plan",
+	"routines",
+	"library",
+	"completed",
+	"activity",
+	"duties",
+	"channels",
 	"current",
 ];
 
@@ -44,7 +44,8 @@ const SECTION_IDS: readonly WorkBoardSectionId[] = [
  * The folds a saved pref holds that today's board still has. An id of the board before the four zones (23 Oct 2026:
  * waiting, check, turn, running, opened, todos, goal) is dropped, not mapped to the zone that took its rows: one fold
  * of a single old section would fold a whole zone (a folded failed check, Needs you; a folded child list, Now), and
- * unfolded is the safe default. Read once when the pref loads; the next fold the person makes writes today's ids back.
+ * unfolded is the safe default. So is `memory`, the bot's memory section before the bot kept its memory alone (1 Nov
+ * 2026). Read once when the pref loads; the next fold the person makes writes today's ids back.
  */
 export function migrateCollapsed(saved: unknown): Partial<Record<WorkBoardSectionId, true>> {
 	if (!saved || typeof saved !== "object") return {};

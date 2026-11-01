@@ -196,7 +196,7 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 	const ended = useAutopilotStore(state => isAutopilotTab(state) && state.status.state === "ended");
 	const autopilotState = runText ?? (ended ? t("autopilot.state.ended") : null);
 	const autopilotRunning = useAutopilotStore(state => isLiveAutopilot(state) && state.status.state === "running");
-	// The bot's pane keeps its strip when nothing runs: its duties and wakes are in the panel (components/bot).
+	// The bot's pane keeps its strip when nothing runs: its tasks and routines are in the panel (components/bot).
 	const bot = useBotTab();
 	const botDesk = useBotDesk(bot?.device).desk;
 
@@ -224,7 +224,13 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 						: goal
 							? t("workBoard.goal")
 							: bot
-								? t("botHome.strip", { duties: botDesk.duties.length, routines: botDesk.routines.length })
+								? t("botHome.strip", {
+										// The Tasks section's count: every session it opened the owner has not marked done.
+										tasks: opened.rows.filter(
+											row => row.sessionPath === undefined || !botDesk.tasksDone.includes(row.sessionPath),
+										).length,
+										routines: botDesk.routines.length,
+									})
 								: null;
 	// What the strip says is gone (the run ended and the board emptied): nothing to expand either.
 	useEffect(() => {

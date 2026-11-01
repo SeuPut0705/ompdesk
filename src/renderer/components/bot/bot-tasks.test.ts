@@ -63,7 +63,7 @@ describe("botTasks", () => {
 		]);
 	});
 
-	it("schedules the wakes and completes answered and expired decisions, newest first, beside done tasks", () => {
+	it("completes answered and expired decisions, newest first, beside done tasks", () => {
 		const answered: BotDecision = {
 			id: "d1",
 			state: "answered",
@@ -85,28 +85,7 @@ describe("botTasks", () => {
 		const result = lists([row("a", "done", { at: Date.parse("2026-11-01T08:30:00.000Z") })], {
 			tasksDone: ["/s/a.jsonl"],
 			decisions: [answered, lapsed, waiting],
-			routines: [
-				{
-					id: "w1",
-					name: "check CI",
-					prompt: "check CI",
-					frequency: { kind: "interval", minutes: 30 },
-					enabled: true,
-					next: "2026-11-01T12:00:00.000Z",
-					runs: [],
-				},
-				{
-					id: "e1",
-					name: "on push",
-					prompt: "look",
-					frequency: { kind: "event", event: { source: "git", repo: "/r", branch: "main" } },
-					enabled: true,
-					next: null,
-					runs: [],
-				},
-			],
 		});
-		expect(keys(result.scheduled)).toEqual(["wake:w1"]);
 		expect(keys(result.completed)).toEqual(["decision:d2", "decision:d1", "task:a"]);
 		expect(result.completed[0]).toMatchObject({ kind: "decision", outcome: "expired" });
 	});

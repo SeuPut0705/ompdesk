@@ -128,7 +128,7 @@ test("the phone views the bot as one screen: bar, conversation, a decision it an
 		const card = phone.locator("[data-bot-decision]");
 		await expect(card).toContainText("Ship the release today?");
 		const strip = phone.locator("[data-work-strip] [data-work-chip]");
-		await expect(strip).toContainText("Duties 1");
+		await expect(strip).toContainText("Tasks 0 · Routines 0");
 		// Bar, strip, decision and composer each keep their own place on the first screen.
 		const boxes = await Promise.all(
 			[

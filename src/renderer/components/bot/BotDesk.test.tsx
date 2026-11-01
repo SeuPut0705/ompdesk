@@ -1,9 +1,8 @@
 /**
  * The bot's parts around its conversation: the bar (name, state, the step it runs, the host's link, Stop now, Pause),
  * the decisions above the composer (operation and inputs, details, an editable draft, expiry; answered with an option
- * or in the owner's own words), and its work board sections: duties (reworded in place, the whole list written on
- * every edit), Tasks (in progress, scheduled, completed; stop, watch, mark done), routines and the Library, a static
- * skeleton before the first read.
+ * or in the owner's own words), and its work board sections: Tasks (in progress; stop, watch, mark done), routines,
+ * the Library, Completed, and the duties the bot keeps (read-only), a static skeleton before the first read.
  */
 import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
@@ -12,7 +11,6 @@ import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import {
 	type BotDecision,
 	type BotDeskAnswer,
-	type BotDeskDuties,
 	type BotDeskState,
 	type BotRoutine,
 	EMPTY_BOT_DESK,
@@ -30,7 +28,7 @@ import { useToastStore } from "../../stores/toast";
 import { useTodoStore } from "../../stores/todo";
 import { useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
-import { BotBar, BotBoardSections, BotDecisionDock } from "./BotDesk";
+import { BotBar, BotBoardSections, BotBoardTasks, BotDecisionDock } from "./BotDesk";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 
@@ -49,7 +47,6 @@ const BOT = "/work-sessions/bot.jsonl";
 interface Api {
 	get: Mock<(device?: string) => Promise<BotDeskState>>;
 	answer: Mock<(payload: BotDeskAnswer, device?: string) => Promise<void>>;
-	setDuties: Mock<(payload: BotDeskDuties, device?: string) => Promise<void>>;
 	onChanged: Mock<(callback: (state: BotDeskState, device?: string) => void) => () => void>;
 	edit: Mock<(edit: BotDeskEdit, device?: string) => Promise<void>>;
 	commandForTab: Mock<(tabId: string, command: unknown) => Promise<{ success: boolean }>>;
@@ -60,7 +57,6 @@ function installApi(overrides: Partial<Api> = {}): Api {
 	const api: Api = {
 		get: vi.fn(async () => ({ ...EMPTY_BOT_DESK, duties: [], decisions: [], routines: [] })),
 		answer: vi.fn(async () => {}),
-		setDuties: vi.fn(async () => {}),
 		onChanged: vi.fn(() => () => {}),
 		edit: vi.fn(async () => {}),
 		commandForTab: vi.fn(async () => ({ success: true })),
@@ -134,11 +130,12 @@ async function enter(element: Element | null): Promise<void> {
 const query = (selector: string) => container.querySelector(selector);
 const queryAll = (selector: string) => [...container.querySelectorAll(selector)];
 
-/** The three parts as the bot's pane and its board draw them. */
+/** The parts as the bot's pane and its board draw them. */
 function Parts({ tabId, device }: { tabId: string; device?: string }) {
 	return (
 		<>
 			<BotBar device={device} tabId={tabId} />
+			<BotBoardTasks device={device} tabId={tabId} />
 			<BotBoardSections device={device} tabId={tabId} />
 			<BotDecisionDock device={device} />
 		</>
@@ -175,7 +172,6 @@ describe("the bot's desk", () => {
 
 		expect(queryAll("[data-skeleton-row]").length).toBeGreaterThan(0);
 		expect(query("[data-bot-decisions-dock]")).toBeNull();
-		expect(query("[data-bot-duty-input]")).toBeNull();
 		expect(query('[aria-busy="true"]')).toBeNull();
 		expect(query(".omp-spinner")).toBeNull();
 	});
@@ -268,7 +264,7 @@ describe("the bot's desk", () => {
 		);
 	});
 
-	it("drops the card when main's change arrives, and lists the answer under the Tasks' Completed", async () => {
+	it("drops the card when main's change arrives, and lists the answer under Completed", async () => {
 		installApi();
 		await mountDesk(desk({ decisions: [OPEN] }));
 		expect(query("[data-bot-answered]")).toBeNull();
@@ -284,7 +280,7 @@ describe("the bot's desk", () => {
 		expect(query('[data-bot-decision="d1"]')).toBeNull();
 		expect(query("[data-bot-decisions-dock]")).toBeNull();
 		const row = query('[data-bot-answered="d1"]');
-		expect(row?.closest('[data-board-section="tasks"]')).not.toBeNull();
+		expect(row?.closest('[data-board-section="completed"]')).not.toBeNull();
 		expect(row?.textContent).toContain(OPEN.question);
 		expect(row?.textContent).toContain("Ship it");
 		expect(row?.getAttribute("title")).toContain(translate("botHome.answered", { answer: "Ship it" }));
@@ -307,8 +303,8 @@ describe("the bot's desk", () => {
 		);
 	});
 
-	it("adds a duty on Enter by writing the whole list with the new one last", async () => {
-		const api = installApi();
+	it("lists the duties the bot keeps, read-only, after what it has done", async () => {
+		installApi();
 		await mountDesk(
 			desk({
 				duties: [
@@ -318,52 +314,19 @@ describe("the bot's desk", () => {
 			}),
 		);
 
-		expect(query('[data-bot-duty="a"]')?.closest('[data-board-section="duties"]')).not.toBeNull();
-		await type(query("[data-bot-duty-input]"), "  Watch the release branch ");
-		await enter(query("[data-bot-duty-input]"));
-
-		expect(api.setDuties).toHaveBeenCalledTimes(1);
-		expect(api.setDuties).toHaveBeenCalledWith({
-			duties: [
-				{ id: "a", text: "Check the nightly build" },
-				{ id: "b", text: "Triage new issues" },
-				{ text: "Watch the release branch" },
-			],
-		});
-		expect(props<{ value: string }>(query("[data-bot-duty-input]")).value).toBe("");
-	});
-
-	it("removes a duty by writing the whole list without it", async () => {
-		const api = installApi();
-		await mountDesk(
-			desk({
-				duties: [
-					{ id: "a", text: "Check the nightly build", at: "2026-10-30T08:00:00.000Z" },
-					{ id: "b", text: "Triage new issues", at: "2026-10-30T08:01:00.000Z" },
-				],
-			}),
-		);
-
-		await click(query('[data-bot-duty-remove="a"]'));
-
-		expect(api.setDuties).toHaveBeenCalledWith({ duties: [{ id: "b", text: "Triage new issues" }] });
-	});
-
-	it("keeps the typed duty when main refuses it", async () => {
-		installApi({
-			setDuties: vi.fn(async () => {
-				throw new Error("refused");
-			}),
-		});
-		await mountDesk(desk());
-
-		await type(query("[data-bot-duty-input]"), "Check the nightly build");
-		await enter(query("[data-bot-duty-input]"));
-
-		expect(props<{ value: string }>(query("[data-bot-duty-input]")).value).toBe("Check the nightly build");
-		expect(useToastStore.getState().toasts.some(entry => entry.title === translate("botHome.dutiesFailed"))).toBe(
-			true,
-		);
+		expect(queryAll("[data-bot-duty]").map(row => row.textContent)).toEqual([
+			"Check the nightly build",
+			"Triage new issues",
+		]);
+		// The owner changes them by telling the bot: no field, no remove, no reword.
+		expect(query('[data-board-section="duties"] input, [data-board-section="duties"] button[aria-label]')).toBeNull();
+		expect(queryAll("[data-board-section]").map(node => node.getAttribute("data-board-section"))).toEqual([
+			"tasks",
+			"routines",
+			"activity",
+			"duties",
+			"channels",
+		]);
 	});
 
 	it("lists the routines and puts the earliest start, the name and the computer in the bar", async () => {
@@ -399,21 +362,19 @@ describe("the bot's desk", () => {
 		);
 	});
 
-	it("says it has nothing in progress or scheduled, no routines and no duties when it has none, and keeps the field to add one", async () => {
+	it("says it has nothing in progress and no routines when it has none, and shows no duties section", async () => {
 		installApi();
 		await mountDesk(desk());
 
-		expect(query("[data-bot-task-group]")).toBeNull();
 		expect(query("[data-bot-tasks-empty]")?.textContent).toBe(translate("botHome.tasks.noneInProgress"));
-		expect(query("[data-bot-wake]")).toBeNull();
 		expect(query("[data-bot-routines-empty]")).not.toBeNull();
-		expect(query("[data-bot-duty]")).toBeNull();
-		expect(query("[data-bot-duty-input]")).not.toBeNull();
+		expect(query('[data-board-section="duties"]')).toBeNull();
 		expect(query('[data-board-section="library"]')).toBeNull();
+		expect(query('[data-board-section="completed"]')).toBeNull();
 		expect(query("[data-bot-next-wake]")?.textContent).toBe(translate("botHome.noWake"));
 	});
 
-	it("is a paired host's desk: its decisions, its name in the bar, and answers and duties go to that host", async () => {
+	it("is a paired host's desk: its decisions, its name in the bar, and answers and edits go to that host", async () => {
 		const api = installApi({ get: vi.fn(async () => desk({ decisions: [OPEN] })) });
 		useRemoteStore.setState({
 			state: { host: { name: "SeuPut's Mac" }, hosts: [{ deviceId: "mini", name: "Mac mini" }] },
@@ -443,9 +404,8 @@ describe("the bot's desk", () => {
 		await click(query('[data-bot-option="Ship it"]'));
 		expect(api.answer).toHaveBeenCalledWith({ id: "d1", answer: "Ship it" }, "mini");
 
-		await type(query("[data-bot-duty-input]"), "Check the build");
-		await enter(query("[data-bot-duty-input]"));
-		expect(api.setDuties).toHaveBeenCalledWith({ duties: [{ text: "Check the build" }] }, "mini");
+		await click(query("[data-bot-pause]"));
+		expect(api.edit).toHaveBeenCalledWith({ op: "paused", paused: true }, "mini");
 	});
 });
 
@@ -677,7 +637,9 @@ describe("the bot's tasks", () => {
 			["/s/fin2.jsonl", "review"],
 		]);
 		expect(query('[data-bot-task="/s/fin.jsonl"]')?.hasAttribute("data-task-unread")).toBe(true);
-		expect(query('[data-bot-wake="w1"]')).not.toBeNull();
+		// A routine on a clock is the routines section's, never a task.
+		expect(query('[data-board-section="tasks"] [data-bot-routine="w1"]')).toBeNull();
+		expect(query('[data-board-section="routines"] [data-bot-routine="w1"]')).not.toBeNull();
 
 		await click(query('[data-bot-task="/s/run.jsonl"] [data-bot-task-stop]'));
 		expect(api.commandForTab).toHaveBeenCalledWith("run", { type: "abort", origin: { surface: "bot-activity" } });
@@ -695,9 +657,11 @@ describe("the bot's tasks", () => {
 			done: true,
 		});
 
-		// Main's change lands: the marked one is Completed, and its mark can be taken back.
+		// Main's change lands: the marked one moves to Completed, and its mark can be taken back there.
 		await act(async () => useBotDeskStore.getState().apply(desk({ tasksDone: ["/s/fin.jsonl"] })));
-		expect(query('[data-bot-task="/s/fin.jsonl"]')?.getAttribute("data-task-state")).toBe("done");
+		const marked = query('[data-bot-task="/s/fin.jsonl"]');
+		expect(marked?.getAttribute("data-task-state")).toBe("done");
+		expect(marked?.closest('[data-board-section="completed"]')).not.toBeNull();
 		await click(query('[data-bot-task="/s/fin.jsonl"] [data-bot-task-mark="reopen"]'));
 		expect(api.edit).toHaveBeenLastCalledWith({ op: "tasks_done", sessions: ["/s/fin.jsonl"], done: false });
 	});
@@ -727,15 +691,6 @@ describe("the bot's tasks", () => {
 		expect(useToastStore.getState().toasts.at(-1)?.message).toBe(
 			translate("botTakeover.handedBackLines", { count: 2 }),
 		);
-	});
-
-	it("rewords a duty in place, writing the whole list", async () => {
-		const api = installApi();
-		await mountDesk(desk({ duties: [{ id: "a", text: "Watch CI", at: "2026-10-30T08:00:00.000Z" }] }));
-		await click(query('[data-bot-duty="a"] .omp-work-board-row-main'));
-		await type(query('[data-bot-duty-edit="a"]'), "Watch CI every morning");
-		await enter(query('[data-bot-duty-edit="a"]'));
-		expect(api.setDuties).toHaveBeenCalledWith({ duties: [{ id: "a", text: "Watch CI every morning" }] });
 	});
 });
 
