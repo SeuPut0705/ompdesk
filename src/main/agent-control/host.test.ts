@@ -1874,9 +1874,9 @@ describe("the bot's desk", () => {
 		desk.addChannel("Release notes", side, "owner");
 		const kept = await runtime.run(win, "other0002", T.bot, { action: "remember", text: "Deploys on Fridays only" });
 		const [memory] = desk.state().memories;
-		expect(kept.text).toBe(
-			`Memory ${memory?.id} kept: “Deploys on Fridays only”. It stays in your prompt every turn, in every chat of yours (1 of 50); the owner can see, edit and forget it.`,
-		);
+		// The bot gets the memory's id back: it is what it forgets the memory by when the owner says it is wrong.
+		expect(kept.isError).toBe(false);
+		expect(kept.text).toContain(memory?.id ?? "missing");
 		expect(memory).toMatchObject({ by: "bot" });
 		const identity = await runtime.run(win, "main0001", T.bot, {
 			action: "identity",

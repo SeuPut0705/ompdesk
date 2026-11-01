@@ -4017,12 +4017,12 @@ export class AgentControl {
 				case "remember": {
 					const { memory, added } = desk.remember(args.text);
 					if (!added) return `Memory ${memory.id} already says this: “${memory.text}”.`;
-					return `Memory ${memory.id} kept: “${memory.text}”. It stays in your prompt every turn, in every chat of yours (${desk.state().memories.length} of ${BOT_MEMORIES_MAX}); the owner can see, edit and forget it.`;
+					return `Memory ${memory.id} kept: “${memory.text}”. It stays in your prompt every turn, in every chat of yours (${desk.state().memories.length} of ${BOT_MEMORIES_MAX}); the owner sees it in your activity log, and when they say it is wrong you forget or replace it.`;
 				}
 				case "forget": {
 					const memory = desk.forget(args.id);
 					if (!memory) fail(`No memory "${args.id}" is kept. ompdesk_bot {"action":"desk"} lists them.`);
-					return `Memory ${memory.id} forgotten: “${memory.text}”. The owner can put it back from the activity log.`;
+					return `Memory ${memory.id} forgotten: “${memory.text}”. The owner sees it in your activity log; remember it again if they ask for it back.`;
 				}
 				case "identity": {
 					if (args.tagline === undefined && args.persona === undefined && args.avatar_file === undefined)
