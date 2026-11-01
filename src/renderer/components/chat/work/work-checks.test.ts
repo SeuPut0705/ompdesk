@@ -856,10 +856,9 @@ describe("commandProgram", () => {
 		["/usr/bin/make all", "make all"],
 		["ls | head", "ls"],
 		["tsc", "tsc"],
-		["cd /tmp/board && (command -v magick || command -v montage) && magick a.png b.png +append c.png", "magick"],
-		["test -f dist/app.js && ./scripts/deploy.sh", "test"],
-		["{ ! grep -q x a.txt; } && rm a.txt", "grep"],
-		["grep -rn foo src && echo ok", "grep"],
+		["cd /tmp/board && magick a.png b.png +append c.png", "magick"],
+		["cd src && export A=1 && git push", "git push"],
+		["{ ! grep -q x a.txt; }", "grep"],
 		["which gh", "gh"],
 		["command -v /usr/local/bin/magick", "magick"],
 		["test -f dist/app.js", "test"],
@@ -869,6 +868,17 @@ describe("commandProgram", () => {
 	it("has no name for an empty command or one that is only setup", () => {
 		expect(commandProgram("")).toBeUndefined();
 		expect(commandProgram("cd src && export A=1")).toBeUndefined();
+	});
+	it.each([
+		"git merge --ff-only -q origin/main && git describe --tags && grep -n '0\\.91' README*.md",
+		"test -f dist/app.js && ./scripts/deploy.sh",
+		"{ ! grep -q x a.txt; } && rm a.txt",
+		"grep -rn foo src && echo ok",
+		"cd /tmp/board && (command -v magick || command -v montage) && magick a.png b.png +append c.png",
+		"git fetch || git pull",
+		"ls; git add -A && git commit -m wip",
+	])("names nothing for a chain whose exit code any of its steps could have set: %s", command => {
+		expect(commandProgram(command)).toBeUndefined();
 	});
 });
 
@@ -1087,7 +1097,7 @@ describe("lookups are no failure", () => {
 			),
 		).toEqual(none);
 		expect(commandProgram('echo "(" ; git push origin main')).toBe("git push");
-		expect(commandProgram('git commit -m "fix; run bun test" && git push')).toBe("git commit");
+		expect(commandProgram('git commit -m "fix && run bun test"')).toBe("git commit");
 	});
 
 	it.each([

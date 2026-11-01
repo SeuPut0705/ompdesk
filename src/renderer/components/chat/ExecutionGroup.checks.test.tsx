@@ -225,6 +225,18 @@ describe("work card failures", () => {
 		expect(container.querySelector('[data-work-finding="more-failed"]')?.textContent).toBe("+1 more failed");
 	});
 
+	it("never blames the first step of a chain whose exit code any step could have set", async () => {
+		const command =
+			"git merge --ff-only -q origin/main && git describe --tags && grep -n '\"version\"' package.json && grep -n '0\\.91' README*.md";
+		await mount([["a", bash(command, 'v0.91.0\n3:  "version": "0.92.0",', 1, 0)]]);
+		const block = finding("error");
+		expect(block.querySelector(".omp-work-verdict-label")?.textContent).toBe("Command failed");
+		expect(block.querySelector(".omp-work-verdict-meta")?.textContent).toBe("exit 1");
+		expect(container.querySelector(".omp-execution-group-header")?.getAttribute("aria-label")).not.toContain(
+			"git merge",
+		);
+	});
+
 	it("has no folded line for a single failure", async () => {
 		await mount([["a", bash("./first.sh", "first: boom", 1, 0)]]);
 		expect(container.querySelector('[data-work-finding="more-failed"]')).toBeNull();
