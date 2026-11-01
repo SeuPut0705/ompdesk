@@ -83,6 +83,14 @@ const SPAWN: Step = {
 	tool: "task",
 	args: { context: "probe", tasks: [{ name: "Probe", agent: "task", task: SUBTASK, solutionSpace: "one listing" }] },
 };
+/**
+ * A user agent with no output schema: stock's default `task.structured: false` gives it no `yield`, and its final
+ * message is its result (the 2 Nov 2026 subagents were such agents).
+ */
+const SPAWN_PLAIN: Step = {
+	tool: "task",
+	args: { context: "probe", tasks: [{ name: "Probe", agent: "worker", task: SUBTASK, solutionSpace: "one listing" }] },
+};
 const WAIT: Step = { tool: "wait", args: { i: "waiting for Probe" } };
 /** Any `eval` call in the journal makes stock append its eval-state-context after a session loads. */
 const EVAL: Step = { tool: "eval", args: { language: "js", code: "1 + 1", i: "probe eval" } };
@@ -218,6 +226,13 @@ async function startOmp(provider: Provider, isolated: string, root: string, resu
 			"",
 		].join("\n"),
 	);
+	mkdirSync(join(root, ".omp", "agents"), { recursive: true });
+	writeFileSync(
+		join(root, ".omp", "agents", "worker.md"),
+		["---", "name: worker", 'description: "Plain worker"', "tools: read, bash, wait", "---", "Do the work."].join(
+			"\n",
+		),
+	);
 	const address = newBridgeAddress();
 	const env: Record<string, string | undefined> = {
 		...process.env,
@@ -325,13 +340,15 @@ interface Restored {
 /**
  * One isolated omp life whose parent runs `script` until the subagent is mid-call (after `subagentScript`'s tool
  * calls), stopped by `signal`, then relaunched. `between` runs after the stop and before that relaunch (omp lives that
- * run no restore).
+ * run no restore). With `midTool`, the subagent's last scripted call is still running at the stop: the file of that
+ * name in the session's folder appears once it started.
  */
 async function cutOff(
 	script: readonly Step[],
 	signal: Signal,
 	subagentScript: readonly Step[] = [],
 	between?: (life: { provider: Provider; isolated: string; root: string }) => Promise<void>,
+	midTool?: string,
 ) {
 	const provider = await startProvider(script, subagentScript);
 	cleanups.push(() => provider.close());
@@ -344,7 +361,8 @@ async function cutOff(
 	});
 	const first = await startOmp(provider, isolated, root, false);
 	await first.send({ type: "prompt", message: "start the background work" });
-	await expect.poll(() => provider.subagentRequests, { timeout: 90_000 }).toBeGreaterThan(subagentScript.length);
+	if (midTool) await expect.poll(() => existsSync(join(root, midTool)), { timeout: 90_000 }).toBe(true);
+	else await expect.poll(() => provider.subagentRequests, { timeout: 90_000 }).toBeGreaterThan(subagentScript.length);
 	const waits = script.at(-1) === WAIT;
 	await expect
 		.poll(
@@ -366,7 +384,7 @@ async function cutOff(
 	await between?.({ provider, isolated, root });
 	const second = await startOmp(provider, isolated, root, true);
 	const outcome = await second.bridge.request<Restored>("composer.restore_interrupted", {});
-	return { provider, isolated, second, outcome, id: spawned?.id, requestsAtCut, parentCallsAtCut };
+	return { provider, isolated, root, second, outcome, id: spawned?.id, requestsAtCut, parentCallsAtCut };
 }
 
 /** Every journal under `isolated`, written `ms` earlier than it was (the lives so far happened that long ago). */
@@ -501,6 +519,51 @@ describe.skipIf(!existsSync(omp))("revived subagents on stock omp", () => {
 		const revived = provider.subagentCalls[requestsAtCut];
 		expect(live?.system).toContain("<background-checks>");
 		expect(revived?.system).toBe(live?.system);
+	}, 240_000);
+
+	// 2 Nov 2026 (v0.94.0 → v0.94.1 automatic update): background subagents were each in the middle of a `bash` or
+	// `wait` call when the update swap took the app away. Stock journaled their exits `manual` (kind normal) with the
+	// call pending, and the process was gone before anything else: the transcript ends on that exit. The relaunch's
+	// prepare step closed the turn with an empty aborted reply but no result for the cut call, stock's retry had no batch
+	// to replay, and each revived subagent ended at once, "failed in 353ms", "Subagent ended without a final message":
+	// the parent redid all their work. Closed the way stock's exit recovery closes it, the cut call runs again.
+	it("runs again the call a stop cut a subagent off in, and names it in the parent's note", async () => {
+		const BASH: Step = {
+			tool: "bash",
+			args: { command: "echo run >> runs.txt; sleep 300", i: "probing the stream" },
+		};
+		const endOnExit = ({ isolated: dir }: { isolated: string }) => {
+			const sessions = join(dir, "agent", "sessions");
+			const [project] = readdirSync(sessions);
+			const [folder] = readdirSync(join(sessions, project ?? ""), { withFileTypes: true }).filter(entry =>
+				entry.isDirectory(),
+			);
+			const file = join(sessions, project ?? "", folder?.name ?? "", "Probe.jsonl");
+			const lines = readFileSync(file, "utf8").split("\n").filter(Boolean);
+			const exit = lines.findIndex(
+				line => (JSON.parse(line) as { customType?: string }).customType === "session_exit",
+			);
+			expect(exit).toBeGreaterThan(0);
+			writeFileSync(file, `${lines.slice(0, exit + 1).join("\n")}\n`);
+			return Promise.resolve();
+		};
+		const { provider, isolated, outcome, id, root, requestsAtCut } = await cutOff(
+			[SPAWN_PLAIN, WAIT],
+			"GONE",
+			[BASH],
+			endOnExit,
+			"runs.txt",
+		);
+		expect(outcome).toMatchObject({ subagents: [id] });
+		await expect
+			.poll(() => readFileSync(join(root, "runs.txt"), "utf8").trim().split("\n").length, { timeout: 90_000 })
+			.toBe(2);
+		// Replayed from the transcript as stock replays a fully cut batch: no new model call decided it.
+		expect(provider.subagentRequests).toBe(requestsAtCut);
+		// The parent's note says what the stop cut the subagent in, for the transcript's label.
+		expect(
+			mainJournal(isolated).find(entry => entry.customType === "ompdesk-restart-subagents")?.details,
+		).toMatchObject({ subagents: [{ id, doing: "bash: probing the stream" }] });
 	}, 240_000);
 });
 
