@@ -3873,6 +3873,7 @@ export const en: Record<string, string> = {
 	"subagent.status.completed": "completed",
 	"subagent.status.failed": "failed",
 	"subagent.status.cancelled": "cancelled",
+	"subagent.status.restartCut": "interrupted by restart",
 	"subagent.status.pending": "pending",
 	"subagent.status.idle": "idle",
 	"subagent.status.parked": "parked",

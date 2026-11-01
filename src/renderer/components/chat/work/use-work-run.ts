@@ -2,23 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import type { StoreApi } from "zustand/vanilla";
 import type { AgentMessage } from "../../../../shared/rpc-types";
 import { useFrameSelector } from "../../../hooks/use-frame-selector";
+import { type RestartCut, transcriptOf } from "../../../lib/restart-cuts";
 import { type MessagesStore, useMessagesStore } from "../../../stores/messages";
 import { useSessionStore } from "../../../stores/session";
 import { useSessionRuntime } from "../../../stores/session-runtime-context";
 import { type SubagentNode, type SubagentsStore, useSubagentsStore } from "../../../stores/subagents";
 import { selectToolEntry, type ToolsStore, useToolsStore } from "../../../stores/tools";
 import { backgroundJobVerdicts } from "../completion-events";
-import {
-	type AgentCompletion,
-	cutRunAgents,
-	mergeRunAgents,
-	type RestartCut,
-	restartCuts,
-	resumedAgents,
-	runTranscript,
-	type TaskCallResult,
-	transcriptOf,
-} from "./work-run";
+import { type AgentCompletion, mergeRunAgents, resumedAgents, runTranscript, type TaskCallResult } from "./work-run";
 import { type WorkEvidence, workOutcomes } from "./work-view";
 
 const NO_MESSAGES: readonly AgentMessage[] = [];
@@ -48,8 +39,6 @@ export function useRunAgents(
 	agents: SubagentNode[];
 	completions: ReadonlyMap<string, AgentCompletion>;
 	resumed: ReadonlySet<string>;
-	/** The agents whose delivered end was a restart's (`restartCuts`). */
-	cut: ReadonlyMap<string, RestartCut>;
 } {
 	const { tools, subagents, messages } = useRunStores();
 	const ids = toolCallIds.join("\u0000");
@@ -93,7 +82,7 @@ export function useRunAgents(
 	);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `ids`/`taskKey`/`registeredKey` are the content keys read here.
 	const transcript = useMemo(() => {
-		if (!spawns) return { agents: [], completions: NO_COMPLETIONS };
+		if (!spawns) return { agents: [], completions: NO_COMPLETIONS, cuts: NO_CUTS };
 		const owns = (id: string) => toolCallIds.includes(tools.getState().entryKeyForCallId(id));
 		const taskCalls = toolCallIds.flatMap((id): TaskCallResult[] => {
 			const entry = selectToolEntry(tools.getState(), id);
@@ -109,7 +98,7 @@ export function useRunAgents(
 		return runTranscript(transcriptOf(committed, live), owns, taskCalls);
 	}, [spawns, taskKey, registeredKey, committed, live, ids, tools]);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: liveKey/ids encode the store rows read here.
-	const merged = useMemo(() => {
+	const agents = useMemo(() => {
 		const owned = [...subagents.getState().subagents.values()].filter(
 			node =>
 				!node.parentToolCallId || toolCallIds.includes(tools.getState().entryKeyForCallId(node.parentToolCallId)),
@@ -117,15 +106,7 @@ export function useRunAgents(
 		return mergeRunAgents(owned, transcript);
 	}, [liveKey, ids, transcript, subagents, tools]);
 	const resumed = useMemo(() => resumedAgents(transcriptOf(committed, live)), [committed, live]);
-	// The agents a restart ended at once read as interrupted, not failed (their delivery says so).
-	const cut = useFrameSelector(messages, state =>
-		spawns ? restartCuts(transcriptOf(state.messages, state.liveMessages)).agents : NO_CUTS,
-	);
-	const settled = useMemo(
-		() => cutRunAgents(merged, transcript.completions, cut),
-		[merged, transcript.completions, cut],
-	);
-	return { agents: settled.agents, completions: settled.completions, resumed, cut };
+	return { agents, completions: transcript.completions, resumed };
 }
 
 /**

@@ -6,6 +6,7 @@
 
 import type { CostSplit } from "../../../../shared/agent-control";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
+import { RESTART_CUT_STATUS } from "../../../lib/restart-cuts";
 import { isLiveSubagentStatus } from "../../panels/subagent-graph";
 
 /** What a child is: a subagent of the session, a session opened in a worktree, or a plain opened session. */
@@ -81,7 +82,7 @@ export function subagentFamilyState(status: string): FamilyState {
  * A failed or stale agent stays a row, because someone has to look at it.
  */
 export function isFoldedSubagent(status: string): boolean {
-	return status === "completed" || status === "aborted" || status === "cancelled";
+	return status === "completed" || status === "aborted" || status === "cancelled" || status === RESTART_CUT_STATUS;
 }
 
 /**

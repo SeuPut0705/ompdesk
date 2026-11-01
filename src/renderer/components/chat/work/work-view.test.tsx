@@ -411,6 +411,33 @@ describe("live work", () => {
 		expect(container.querySelector('[data-agent-status="running"]')?.textContent).toContain("running");
 		expect(container.querySelector("[data-agent-work]")?.textContent).not.toContain("completed");
 	});
+	it("says a worker the restart ended was interrupted by it, never completed", async () => {
+		const subagents = useSubagentsStore.getState();
+		subagents.reset();
+		subagents.applyFrame({
+			type: "subagent_lifecycle",
+			payload: {
+				id: "StreamFast",
+				index: 0,
+				agent: "task",
+				agentSource: "bundled",
+				status: "failed",
+				parentToolCallId: "parent",
+			},
+		});
+		subagents.setRestartCuts(new Map([["StreamFast", { doing: "bash: probing the stream" }]]));
+		await mount();
+		await act(async () =>
+			root.render(
+				<I18nProvider>
+					<TaskRenderer args={{}} result={{ details: {} }} isPartial={false} livePreview toolCallId="parent" />
+				</I18nProvider>,
+			),
+		);
+		const row = container.querySelector('[data-agent-status="restart-cut"]');
+		expect(row?.textContent).toContain("interrupted by restart");
+		expect(container.querySelector("[data-agent-work]")?.textContent).not.toContain("completed");
+	});
 	it("settles a missed end event from the completion transcript instead of preserving stale running state", async () => {
 		await mount();
 		const tools = useToolsStore.getState();

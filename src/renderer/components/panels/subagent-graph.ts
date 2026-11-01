@@ -17,6 +17,7 @@ import {
 	unwrapStockPrompt,
 } from "../../../../resources/gui-bridge/modes/subagent-title-contracts";
 import type { AgentMessage, SubagentSnapshot } from "../../../shared/rpc-types";
+import { RESTART_CUT_STATUS } from "../../lib/restart-cuts";
 import { useSubagentGraphStore } from "../../stores/subagent-graph";
 import type { BadgeVariant } from "../common";
 
@@ -45,6 +46,8 @@ const STATUS_META: Record<string, StatusMeta> = {
 	failed: { variant: "error", live: false, labelKey: "subagent.status.failed" },
 	aborted: { variant: "muted", live: false, labelKey: "subagent.status.cancelled" },
 	cancelled: { variant: "muted", live: false, labelKey: "subagent.status.cancelled" },
+	// A restart ended it (`restartCuts`): stopped from outside, not a failure.
+	[RESTART_CUT_STATUS]: { variant: "muted", live: false, labelKey: "subagent.status.restartCut" },
 };
 
 const UNKNOWN_STATUS_META: StatusMeta = { variant: "muted", live: false, labelKey: "subagent.status.unknown" };

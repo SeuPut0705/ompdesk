@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vite
 import type { RpcCommand, SubagentSnapshot } from "../../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { useAgentReviewStore } from "../../../stores/agent-review";
+import type { MessagesStore } from "../../../stores/messages";
 import type { SessionStore } from "../../../stores/session";
 import { deleteSessionRuntime, sessionRuntimeStore } from "../../../stores/session-runtime-context";
 import { revealSidebarSubagents, useSidebarSubagentsStore } from "../../../stores/sidebar-subagents";
@@ -650,6 +651,45 @@ describe("a session's family: one-line rows", () => {
 		expect(rowIds()).toEqual(["r1"]);
 		expect(groupText()).toContain("Check the build");
 		expect(doneFold()).toBeNull();
+	});
+
+	// 2 Nov 2026, the 0.94.0 → 0.94.1 update restart: each revived subagent ended at once and stock said `failed`.
+	it("folds an agent a restart ended like a stopped one, while a failed one stays a row", async () => {
+		const warning = "SYSTEM WARNING: Subagent ended without a final message.";
+		seed([
+			snap({ id: "r1", index: 1, status: "running" }),
+			snap({ id: "bad", index: 2, status: "failed" }),
+			snap({ id: "cut", index: 3, status: "failed" }),
+		]);
+		await mount(<Session />);
+		expect(rowIds()).toEqual(["r1", "bad", "cut"]);
+		await act(async () =>
+			sessionRuntimeStore<MessagesStore>(TAB, "messages")!.setState({
+				messages: [
+					{
+						role: "custom",
+						customType: "ompdesk-restart-subagents",
+						timestamp: 1,
+						display: true,
+						content: "These background agents you started are working again",
+						details: { jobs: [], subagents: [{ id: "cut", doing: "bash: probing the stream" }] },
+					},
+					{
+						role: "custom",
+						customType: "async-result",
+						timestamp: 2,
+						display: true,
+						content: `<system-notice>\nBackground job cut has failed.\n<task-result id="cut" agent="task" status="failed (exit 1)" duration="353ms">\n<output>\n${warning}\n</output>\n</task-result>\n</system-notice>`,
+						details: {
+							jobs: [{ jobId: "cut", agentId: "cut", type: "task", status: "failed", durationMs: 353 }],
+						},
+					},
+				],
+			}),
+		);
+		await flush();
+		expect(rowIds()).toEqual(["r1", "bad"]);
+		expect(row("bad").getAttribute("data-status")).toBe("failed");
 	});
 
 	it("nests sub-subagents one more step and keeps the tree connectors", async () => {

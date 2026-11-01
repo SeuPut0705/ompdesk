@@ -451,7 +451,7 @@ describe("a subagent a restart revived", () => {
 				useSubagentsStore.getState().setSnapshots([ended as SubagentNode]);
 				await render();
 				expect(buttons()).toHaveLength(1);
-				expect(buttons()[0]?.closest("li")?.getAttribute("data-status")).toBe("aborted");
+				expect(buttons()[0]?.closest("li")?.getAttribute("data-status")).toBe("restart-cut");
 				expect(buttons()[0]?.querySelector(".omp-work-status")?.getAttribute("data-state")).toBe("stopped");
 				expect(buttons()[0]?.querySelector(".omp-work-card-activity")?.textContent).toBe(text);
 				expect(buttons()[0]?.querySelector(".omp-work-card-activity")?.getAttribute("title")).toContain(

@@ -129,7 +129,9 @@ describe("buildSubagentFamilyRows", () => {
 				"cancelled",
 			].map(subagentFamilyState),
 		).toEqual(["running", "running", "running", "idle", "idle", "waiting", "failed", "done", "done", "done"]);
-		expect(["completed", "aborted", "cancelled"].every(isFoldedSubagent)).toBe(true);
+		expect(["completed", "aborted", "cancelled", "restart-cut"].every(isFoldedSubagent)).toBe(true);
+		// A restart ended it: finished and uneventful, never the red failed token.
+		expect(subagentFamilyState("restart-cut")).toBe("done");
 		expect(["failed", "stale", "running", "parked"].some(isFoldedSubagent)).toBe(false);
 	});
 });

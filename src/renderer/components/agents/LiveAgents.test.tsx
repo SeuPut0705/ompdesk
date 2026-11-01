@@ -163,6 +163,24 @@ function bodyText(): string {
 	return document.body.textContent ?? "";
 }
 
+// 2 Nov 2026, the 0.94.0 → 0.94.1 update restart: each revived subagent ended at once and stock said `failed`.
+describe("LiveAgents after a restart ended an agent", () => {
+	it("says it was interrupted by the restart, with what it was doing, and counts no failure", async () => {
+		installOmpMock();
+		useSubagentsStore.getState().setRestartCuts(new Map([["a1", { doing: "bash: probing the stream" }]]));
+		try {
+			useSubagentsStore.getState().setSnapshots([snap({ id: "a1", status: "failed", kind: "sub" })]);
+			await mount(<LiveAgents />);
+			expect(bodyText()).toContain(translate("subagent.status.restartCut"));
+			expect(bodyText()).toContain("bash: probing the stream");
+			expect(bodyText()).not.toContain(translate("subagent.status.failed"));
+			expect(document.body.innerHTML).not.toContain("--sc-danger");
+		} finally {
+			useSubagentsStore.getState().setRestartCuts(new Map());
+		}
+	});
+});
+
 describe("LiveAgents", () => {
 	it("hides pause-all while there are no agents to pause", async () => {
 		installOmpMock();

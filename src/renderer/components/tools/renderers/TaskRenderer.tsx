@@ -901,12 +901,14 @@ function TaskWorkRow({
 	const currentStatus = status || asString(row.status);
 	const running = currentStatus ? currentStatus === "running" || currentStatus === "pending" : active;
 	const detail =
-		activity ||
-		asString(row.lastIntent) ||
-		asString(row.currentToolArgs) ||
-		asString(row.currentTool) ||
-		asString(row.description) ||
-		t(running ? "subagent.status.started" : "subagent.status.completed");
+		currentStatus === "restart-cut"
+			? t("subagent.status.restartCut")
+			: activity ||
+				asString(row.lastIntent) ||
+				asString(row.currentToolArgs) ||
+				asString(row.currentTool) ||
+				asString(row.description) ||
+				t(running ? "subagent.status.started" : "subagent.status.completed");
 	return (
 		<div className="flex min-w-0 items-center gap-2 text-sc-sm" data-agent-status={status || asString(row.status)}>
 			<Bot aria-hidden className="omp-live-step-icon text-(--sc-text-muted)" />

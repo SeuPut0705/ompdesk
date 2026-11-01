@@ -273,6 +273,43 @@ describe("Subagent view header", () => {
 		}
 	});
 
+	// 2 Nov 2026, the 0.94.0 → 0.94.1 update restart: each revived subagent ended at once and stock said `failed`.
+	it("says an agent a restart ended was interrupted by it, never failed, once the tab's transcript says so", async () => {
+		const warning = "SYSTEM WARNING: Subagent ended without a final message.";
+		seed([snap({ status: "failed" })]);
+		await mount(<SubagentPanel subagent={{ tabId: TAB, agentId: "r1" }} />);
+		expect(view().querySelector("[data-subagent-status]")?.textContent).toContain(
+			translate("subagent.status.failed"),
+		);
+		await act(async () =>
+			sessionRuntimeStore<MessagesStore>(TAB, "messages")!.setState({
+				messages: [
+					{
+						role: "custom",
+						customType: "ompdesk-restart-subagents",
+						timestamp: 1,
+						display: true,
+						content: "These background agents you started are working again",
+						details: { jobs: [], subagents: [{ id: "r1", doing: "bash: probing the stream" }] },
+					},
+					{
+						role: "custom",
+						customType: "async-result",
+						timestamp: 2,
+						display: true,
+						content: `<system-notice>\nBackground job r1 has failed.\n<task-result id="r1" agent="explore" status="failed (exit 1)" duration="353ms">\n<output>\n${warning}\n</output>\n</task-result>\n</system-notice>`,
+						details: { jobs: [{ jobId: "r1", agentId: "r1", type: "task", status: "failed", durationMs: 353 }] },
+					},
+				],
+			}),
+		);
+		const status = view().querySelector("[data-subagent-status]");
+		expect(status?.getAttribute("data-subagent-status")).toBe("restart-cut");
+		expect(status?.textContent).toContain(translate("subagent.status.restartCut"));
+		expect(status?.textContent).not.toContain(translate("subagent.status.failed"));
+		expect(document.body.innerHTML).not.toContain("bg-(--sc-danger)");
+	});
+
 	it("offers no stop for a finished agent or an advisor", async () => {
 		seed([snap({ status: "completed" })]);
 		await mount(<SubagentPanel subagent={{ tabId: TAB, agentId: "r1" }} />);

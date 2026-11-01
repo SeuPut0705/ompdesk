@@ -14,6 +14,7 @@ import { formatElapsed } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { abortActiveTurn } from "../../lib/messages";
 import { useNowTick } from "../../lib/now-tick";
+import { RESTART_CUT_STATUS, restartCutNote } from "../../lib/restart-cuts";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { useSubagentsStore } from "../../stores/subagents";
@@ -33,7 +34,7 @@ import { agentSourceLabel } from "./agent-settings";
 function statusOrder(status: string): number {
 	if (isLiveSubagentStatus(status)) return 0;
 	if (status === "failed") return 1;
-	if (status === "cancelled" || status === "aborted") return 2;
+	if (status === "cancelled" || status === "aborted" || status === RESTART_CUT_STATUS) return 2;
 	return 3;
 }
 
@@ -74,7 +75,8 @@ const AgentRow = memo(function AgentRow({
 		agent.agentSource ? agentSourceLabel(t, agent.agentSource) : undefined,
 		agent.kind === "advisor" ? t("agentHub.hub.readOnly") : t("agentHub.hub.kind.sub"),
 		agent.progress?.resolvedModel,
-		agent.progress?.description,
+		// A restart ended it: what it was doing, in place of stock's empty-message warning.
+		agent.progress?.description ?? restartCutNote(agent),
 	]
 		.filter(Boolean)
 		.join(" · ");

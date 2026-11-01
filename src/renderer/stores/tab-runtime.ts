@@ -1,8 +1,10 @@
+import type { StoreApi } from "zustand/vanilla";
 import type { RpcCommand, RpcResponse } from "../../shared/rpc-types";
+import { restartCutsOf } from "../lib/restart-cuts";
 import { createAutopilotStore } from "./autopilot";
 import { type ComposerStore, createComposerStore } from "./composer";
 import { createExtensionUiStore } from "./extension-ui";
-import { createMessagesStore } from "./messages";
+import { createMessagesStore, type MessagesStore } from "./messages";
 import { createModelStore } from "./model";
 import { createPlanApprovalStore } from "./plan-approval";
 import { createQueueStore } from "./queue";
@@ -34,6 +36,20 @@ const SESSION_CHANGING_COMMANDS = new Set<RpcCommand["type"]>([
 	"switch_leaf",
 	"clear_context",
 ]);
+
+/**
+ * Hand the tab's subagents store the agents its transcript says a restart ended (`restartCuts`), now and whenever
+ * the committed or live messages change: the one place the rule meets the roster, so every surface reading the
+ * store (sidebar, Agents page, subagent panel, work lanes, a paired device's page) says the same.
+ */
+export function bindRestartCuts(messages: StoreApi<MessagesStore>, subagents: StoreApi<SubagentsStore>): void {
+	const apply = (state: MessagesStore) =>
+		subagents.getState().setRestartCuts(restartCutsOf(state.messages, state.liveMessages).agents);
+	messages.subscribe((state, previous) => {
+		if (state.messages !== previous.messages || state.liveMessages !== previous.liveMessages) apply(state);
+	});
+	apply(messages.getState());
+}
 
 export function createTabRuntime(tabId: string): SessionRuntime {
 	let generation = 0;
@@ -79,14 +95,17 @@ export function createTabRuntime(tabId: string): SessionRuntime {
 	addRuntimeStore(runtime, "autopilot", createAutopilotStore());
 	addRuntimeStore(runtime, "composer", createComposerStore());
 	addRuntimeStore(runtime, "extensionUi", createExtensionUiStore());
-	addRuntimeStore(runtime, "messages", createMessagesStore());
+	const messages = createMessagesStore();
+	const subagents = createSubagentsStore(command);
+	bindRestartCuts(messages, subagents);
+	addRuntimeStore(runtime, "messages", messages);
 	addRuntimeStore(runtime, "model", createModelStore(command));
 	addRuntimeStore(runtime, "planApproval", createPlanApprovalStore());
 	addRuntimeStore(runtime, "queue", createQueueStore(command));
 	addRuntimeStore(runtime, "session", createSessionStore());
 	addRuntimeStore(runtime, "settings", createSettingsStore(command));
 	addRuntimeStore(runtime, "subagentGraph", createSubagentGraphStore());
-	addRuntimeStore(runtime, "subagents", createSubagentsStore(command));
+	addRuntimeStore(runtime, "subagents", subagents);
 	addRuntimeStore(runtime, "todo", createTodoStore());
 	addRuntimeStore(runtime, "tools", createToolsStore());
 	return registerSessionRuntime(runtime);

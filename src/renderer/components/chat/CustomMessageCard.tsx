@@ -46,6 +46,7 @@ import { useT } from "../../lib/i18n";
 import { rememberedMailOpen, rememberMailOpen } from "../../lib/mail-open";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { rateRecall, recallRatedKey, useRecallRate } from "../../lib/recall-rated";
+import type { RestartCut } from "../../lib/restart-cuts";
 import { revealAndFocus } from "../../lib/reveal-focus";
 import { asArray } from "../../lib/wire-value";
 import { useMemoryPageStore } from "../../stores/memory-page";
@@ -69,7 +70,6 @@ import {
 	launchCompletionDaemons,
 } from "./completion-events";
 import { useDeliveryCuts } from "./work/use-restart-cuts";
-import type { RestartCut } from "./work/work-run";
 import { agentResultSummary } from "./work/work-view";
 
 /** customTypes with a dedicated card (the TUI dispatch set). */

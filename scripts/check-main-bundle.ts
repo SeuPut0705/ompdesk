@@ -223,7 +223,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // A subagent the restart ended reads as interrupted, not failed (2 Nov 2026): `restartCuts`/`cutRunAgents` in
 // `chat/work/work-run.ts`, the transcript hook (`use-restart-cuts.ts`) the async-result card and the work lanes read, and
 // the new strings: measured 3,267,056, 4,311 bytes over the measure above.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_267_600;
+// The same rule on every surface (2 Nov 2026): `lib/restart-cuts.ts` (moved out of the work card), the tab runtime's
+// binding of the transcript to the subagents store, the `restart-cut` status and its strings: measured 3,269,220,
+// 2,164 bytes over the measure above.
+const WEB_FIRST_SCREEN_JS_BYTES = 3_269_800;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

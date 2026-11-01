@@ -1,17 +1,12 @@
 import { assignmentTitle } from "../../../../../resources/gui-bridge/modes/subagent-title-contracts";
-import {
-	RESTART_JOBS_MESSAGE,
-	RESTART_SUBAGENTS_MESSAGE,
-	RESTART_TURN_MESSAGE,
-} from "../../../../../resources/gui-bridge/restart-core";
 import type { AgentMessage } from "../../../../shared/rpc-types";
 import { resultDetails, resultText } from "../../../lib/format";
+import { markCut, RESTART_NOTES, type RestartCut, restartCuts } from "../../../lib/restart-cuts";
 import { asRecord } from "../../../lib/wire-value";
 import type { SubagentNode } from "../../../stores/subagents";
 import type { TodoSnapshot } from "../../../stores/todo";
 import type { ToolEntry } from "../../../stores/tools";
 import { workFilePathKey } from "../../tools/edit-args";
-import { asyncJobResults, asyncResultJobs } from "../completion-events";
 import { messageSourceTimestamp } from "./work-turn";
 import { agentResultSummary, replyHeadline } from "./work-view";
 
@@ -34,6 +29,8 @@ export interface RunTranscript {
 	/** Agents spawned by this run's task calls, as stock's task result recorded them. */
 	agents: SubagentNode[];
 	completions: ReadonlyMap<string, AgentCompletion>;
+	/** The subagents a restart ended (`restartCuts`): a settled lane of one reads interrupted, not failed. */
+	cuts: ReadonlyMap<string, RestartCut>;
 }
 
 const ENVELOPE = /<task-result\b([^>]*)>([\s\S]*?)<\/task-result>/g;
@@ -305,7 +302,7 @@ export function runTranscript(
 		}
 		settleFrom(details, message, message.content);
 	}
-	return { agents: [...agents.values()], completions };
+	return { agents: [...agents.values()], completions, cuts: restartCuts(messages).agents };
 }
 
 const TERMINAL: Record<string, true> = { completed: true, failed: true, aborted: true, cancelled: true };
@@ -316,14 +313,15 @@ const TERMINAL: Record<string, true> = { completed: true, failed: true, aborted:
  * settled and is not live anymore was cut off with its run. A registry row with
  * no spawning call is an agent a restart's restore revived (the omp that spawned
  * it is gone): while it works it takes the lane its spawn named, keeping that
- * lane's place and title; any other row without a call belongs to no lane.
+ * lane's place and title; any other row without a call belongs to no lane. An agent the transcript says a restart
+ * ended reads `restart-cut`, not `failed` (`markCut`, the rule the subagents store applies to every other surface).
  */
 export function mergeRunAgents(live: readonly SubagentNode[], transcript: RunTranscript): SubagentNode[] {
 	const spawned = new Map(transcript.agents.map(node => [node.id, node]));
 	const byId = new Map<string, SubagentNode>();
 	for (const node of live) {
 		if (node.parentToolCallId) {
-			byId.set(node.id, node);
+			byId.set(node.id, markCut(node, transcript.cuts));
 			continue;
 		}
 		const lane = spawned.get(node.id);
@@ -339,12 +337,11 @@ export function mergeRunAgents(live: readonly SubagentNode[], transcript: RunTra
 	for (const node of transcript.agents) {
 		if (byId.has(node.id)) continue;
 		const status = transcript.completions.get(node.id)?.status ?? (TERMINAL[node.status] ? node.status : "aborted");
-		byId.set(node.id, { ...node, status });
+		byId.set(node.id, markCut({ ...node, status }, transcript.cuts));
 	}
 	return [...byId.values()].sort((a, b) => a.index - b.index);
 }
 
-const RESTART_NOTES = new Set<unknown>([RESTART_JOBS_MESSAGE, RESTART_SUBAGENTS_MESSAGE, RESTART_TURN_MESSAGE]);
 const NONE: ReadonlySet<string> = new Set();
 
 /**
@@ -373,127 +370,6 @@ export function resumedAgents(messages: readonly AgentMessage[]): ReadonlySet<st
 		}
 	}
 	return NONE;
-}
-
-/** What a restart cut a subagent in, from the note that named it (`details.subagents[]`). */
-export interface RestartCut {
-	/** The assignment's title line. */
-	intent?: string;
-	/** The calls the stop cut, in the bridge's words (`bash: probing the stream`). */
-	doing?: string;
-}
-
-/** Stock's `SUBAGENT_WARNING_EMPTY_MESSAGE` (task/executor.ts): what a subagent that ended with no message delivers. */
-const EMPTY_MESSAGE_WARNING = "SYSTEM WARNING: Subagent ended without a final message.";
-const RESULT_BLOCK = /<(error|output)>([\s\S]*?)<\/\1>/g;
-const NO_OUTPUT = /^\(no output\)(?: after \d+ req)?$/;
-
-/**
- * Whether a failed task job's delivered text says nothing but that the agent ended with no message: stock's
- * warning, its "(no output)" placeholder or no text at all, in the `<error>` and `<output>` of its
- * `<task-result>`. Any real error text, or any other part of the envelope (an abort reason, a preview), is a failure.
- */
-export function endedWithoutMessage(text: string | undefined): boolean {
-	const body = (text ?? "").replace(/<\/?task-result\b[^>]*>/g, "");
-	const blocks = [...body.matchAll(RESULT_BLOCK)].map(match => match[2]?.trim() ?? "");
-	const rest = body.replace(RESULT_BLOCK, "").trim();
-	if (blocks.length > 0 && rest) return false;
-	return (blocks.length > 0 ? blocks : [rest]).every(
-		said => said === "" || said === EMPTY_MESSAGE_WARNING || NO_OUTPUT.test(said),
-	);
-}
-
-export interface RestartCuts {
-	/** Per `async-result` message: each task job a restart cut, by job id. */
-	deliveries: ReadonlyMap<AgentMessage, ReadonlyMap<string, RestartCut>>;
-	/** Every subagent whose delivered end was a restart's, by agent id. */
-	agents: ReadonlyMap<string, RestartCut>;
-}
-
-const restartCutIndexes = new WeakMap<readonly AgentMessage[], RestartCuts>();
-
-/**
- * The one rule for a subagent the restart ended: a delivered `task` job that failed with stock's empty-message
- * warning (or no output) and whose agent id the newest restart note before the delivery names
- * (`details.subagents[].id`: the revive ended it at once). Any other failure stays a failure. Indexed once per list
- * (every async-result card and lane of a transcript reads one pass), so a list must not be edited in place.
- */
-export function restartCuts(messages: readonly AgentMessage[]): RestartCuts {
-	const cached = restartCutIndexes.get(messages);
-	if (cached) return cached;
-	const named = new Map<string, RestartCut>();
-	const deliveries = new Map<AgentMessage, ReadonlyMap<string, RestartCut>>();
-	const agents = new Map<string, RestartCut>();
-	for (const message of messages) {
-		if (message.role !== "custom") continue;
-		if (RESTART_NOTES.has(message.customType)) {
-			const subagents = asRecord(message.details)?.subagents;
-			for (const item of Array.isArray(subagents) ? subagents : []) {
-				const row = asRecord(item);
-				if (typeof row?.id !== "string") continue;
-				const intent = typeof row.intent === "string" && row.intent.trim() ? row.intent.trim() : undefined;
-				const doing = typeof row.doing === "string" && row.doing.trim() ? row.doing.trim() : undefined;
-				named.set(row.id, { ...(intent ? { intent } : {}), ...(doing ? { doing } : {}) });
-			}
-			continue;
-		}
-		if (message.customType !== "async-result") continue;
-		const jobs = asyncResultJobs(message);
-		const texts = asyncJobResults(resultText(message.content), jobs);
-		const cut = new Map<string, RestartCut>();
-		for (const job of jobs) {
-			const id = [job.agentId, job.jobId].find(candidate => candidate !== undefined && named.has(candidate));
-			const was = id === undefined ? undefined : named.get(id);
-			if (id === undefined || !was) continue;
-			// A delivery settles the name: a later one for the same id needs a later note.
-			named.delete(id);
-			if (job.type !== "task" || job.status !== "failed") continue;
-			if (!endedWithoutMessage(job.jobId ? texts.get(job.jobId) : undefined)) continue;
-			cut.set(job.jobId ?? id, was);
-			agents.set(id, was);
-		}
-		if (cut.size > 0) deliveries.set(message, cut);
-	}
-	const index = { deliveries, agents };
-	restartCutIndexes.set(messages, index);
-	return index;
-}
-
-const joinedTranscripts = new WeakMap<
-	readonly AgentMessage[],
-	{ committed: readonly AgentMessage[]; joined: readonly AgentMessage[] }
->();
-
-/** The committed messages with the live ones behind them, one array per pair so `restartCuts` indexes it once. */
-export function transcriptOf(
-	committed: readonly AgentMessage[],
-	live: readonly AgentMessage[],
-): readonly AgentMessage[] {
-	if (live.length === 0) return committed;
-	const hit = joinedTranscripts.get(live);
-	if (hit?.committed === committed) return hit.joined;
-	const joined = [...committed, ...live];
-	joinedTranscripts.set(live, { committed, joined });
-	return joined;
-}
-
-/**
- * The lanes with the agents a restart ended read as interrupted, not failed: their status and settled record say
- * so, and carry neither stock's warning nor its sub-second duration. An agent that runs again keeps running.
- */
-export function cutRunAgents(
-	agents: SubagentNode[],
-	completions: ReadonlyMap<string, AgentCompletion>,
-	cuts: ReadonlyMap<string, RestartCut>,
-): { agents: SubagentNode[]; completions: ReadonlyMap<string, AgentCompletion> } {
-	const ended = agents.filter(agent => agent.status === "failed" && cuts.has(agent.id));
-	if (ended.length === 0) return { agents, completions };
-	const settled = new Map(completions);
-	for (const agent of ended) settled.set(agent.id, { status: "aborted" });
-	return {
-		agents: agents.map(agent => (ended.includes(agent) ? { ...agent, status: "aborted" } : agent)),
-		completions: settled,
-	};
 }
 
 /**

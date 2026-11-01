@@ -3867,6 +3867,7 @@ export const ko: Record<string, string> = {
 	"subagent.status.completed": "완료",
 	"subagent.status.failed": "실패",
 	"subagent.status.cancelled": "취소됨",
+	"subagent.status.restartCut": "재시작으로 중단됨",
 	"subagent.status.pending": "대기",
 	"subagent.status.idle": "유휴",
 	"subagent.status.parked": "보류됨",

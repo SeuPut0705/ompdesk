@@ -35,6 +35,7 @@ import { hideNativeDragImage } from "../../../lib/drag-image";
 import { cx, formatElapsed, formatTimeAgo, formatTokens } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useNowTick } from "../../../lib/now-tick";
+import { restartCutNote } from "../../../lib/restart-cuts";
 import { type TabRpc, useTabRpc } from "../../../lib/tab-rpc";
 import { useSessionStore } from "../../../stores/session";
 import {
@@ -179,7 +180,8 @@ const SubagentFamilyRow = memo(function SubagentFamilyRow({
 	const primary = subagentPrimaryLabel(agent);
 	const showRole = primary !== agent.agent;
 	const progress = agent.progress;
-	const note = progress?.lastIntent ?? progress?.currentTool;
+	// A restart ended it: what it was doing in place of stock's empty-message warning.
+	const note = restartCutNote(agent) ?? progress?.lastIntent ?? progress?.currentTool;
 	// Stock's progress tally: "128.4k tokens · 48 tool calls".
 	const usage =
 		progress && (progress.tokens > 0 || progress.toolCount > 0)

@@ -3,11 +3,13 @@ import { createStore } from "zustand/vanilla";
 import { assignmentTitle, unwrapStockPrompt } from "../../../resources/gui-bridge/modes/subagent-title-contracts";
 import type { AgentMessage, SubagentFrame, SubagentSnapshot } from "../../shared/rpc-types";
 import { messageText } from "../lib/messages";
+import { markCut, type RestartCut, unmarkCut } from "../lib/restart-cuts";
 import { reportedOutputTokens } from "../lib/turn-meter";
 import { activeTabCommand, createScopedStoreHook, type TabCommand } from "./session-runtime-context";
 import { createSubagentTranscripts, type SubagentTranscripts } from "./subagent-transcripts";
 import { createToolsStore, type ToolsStore } from "./tools";
 
+/** A roster row as every surface reads it; a restart-ended `failed` agent has the `restart-cut` status (`setRestartCuts`). */
 export type SubagentNode = SubagentSnapshot;
 
 export interface SubagentsStore {
@@ -26,6 +28,12 @@ export interface SubagentsStore {
 	    roster plus an error is "couldn't load", never "nothing spawned". */
 	error: string | null;
 	applyFrame: (frame: SubagentFrame) => void;
+	/**
+	 * The agents a restart ended (`restartCuts` of this tab's transcript, handed over by `bindRestartCuts`). A row of
+	 * stock's `failed` among them reads `restart-cut` from then on, and a row marked before reads as stock says when
+	 * the transcript no longer names it. Frames and fetches that arrive later are marked the same way.
+	 */
+	setRestartCuts: (cuts: ReadonlyMap<string, RestartCut>) => void;
 	/**
 	 * Read a row's original assignment back from its transcript's first user message when the roster carries neither the
 	 * assignment nor a label (a snapshot taken after a follow-up run, which reports no assignment). Once per id.
@@ -121,6 +129,18 @@ function sameValue(a: unknown, b: unknown): boolean {
 	return true;
 }
 
+const NO_CUTS: ReadonlyMap<string, RestartCut> = new Map();
+
+function sameCuts(a: ReadonlyMap<string, RestartCut>, b: ReadonlyMap<string, RestartCut>): boolean {
+	if (a === b) return true;
+	if (a.size !== b.size) return false;
+	for (const [id, cut] of a) {
+		const other = b.get(id);
+		if (!other || other.intent !== cut.intent || other.doing !== cut.doing) return false;
+	}
+	return true;
+}
+
 export const createSubagentsStore = (command: TabCommand = activeTabCommand) => {
 	const transcripts = createSubagentTranscripts(command);
 	let refreshVersion = 0;
@@ -131,6 +151,7 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 		{ completed: boolean; toolCount: number; pending: boolean; load: Promise<void> }
 	>();
 	const observedUsage = new Map<string, Map<AgentMessage["timestamp"], number>>();
+	let cuts: ReadonlyMap<string, RestartCut> = NO_CUTS;
 	const captureOutput = (id: string, message: AgentMessage): number => {
 		if (message.role !== "assistant") return 0;
 		const tokens = reportedOutputTokens(message);
@@ -247,22 +268,28 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 					const p = frame.payload;
 					subagents = new Map(get().subagents);
 					const existing = subagents.get(p.id);
-					subagents.set(p.id, {
-						id: p.id,
-						index: p.index,
-						agent: p.agent,
-						agentSource: p.agentSource,
-						description: assignmentTitle(existing?.assignment) ?? p.description ?? existing?.description,
-						status: p.status === "started" ? "running" : p.status,
-						task: existing?.task,
-						assignment: existing?.assignment,
-						sessionFile: p.sessionFile ?? existing?.sessionFile,
-						lastUpdate: Date.now(),
-						parentToolCallId: p.parentToolCallId ?? existing?.parentToolCallId,
-						parentSubagentId: p.parentSubagentId ?? existing?.parentSubagentId,
-						progress: existing?.progress,
-						kind: existing?.kind ?? "sub",
-					});
+					subagents.set(
+						p.id,
+						markCut(
+							{
+								id: p.id,
+								index: p.index,
+								agent: p.agent,
+								agentSource: p.agentSource,
+								description: assignmentTitle(existing?.assignment) ?? p.description ?? existing?.description,
+								status: p.status === "started" ? "running" : p.status,
+								task: existing?.task,
+								assignment: existing?.assignment,
+								sessionFile: p.sessionFile ?? existing?.sessionFile,
+								lastUpdate: Date.now(),
+								parentToolCallId: p.parentToolCallId ?? existing?.parentToolCallId,
+								parentSubagentId: p.parentSubagentId ?? existing?.parentSubagentId,
+								progress: existing?.progress,
+								kind: existing?.kind ?? "sub",
+							},
+							cuts,
+						),
+					);
 					break;
 				}
 				case "subagent_progress": {
@@ -275,22 +302,28 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 					const assignment =
 						frame.payload.assignment ?? existing?.assignment ?? unwrapStockPrompt(frame.payload.task);
 					subagents = new Map(get().subagents);
-					subagents.set(progress.id, {
-						id: progress.id,
-						index: frame.payload.index,
-						agent: frame.payload.agent,
-						agentSource: frame.payload.agentSource,
-						description: assignmentTitle(assignment) ?? progress.description ?? existing?.description,
-						status: progress.status,
-						task: frame.payload.task,
-						assignment,
-						sessionFile: frame.payload.sessionFile ?? existing?.sessionFile,
-						lastUpdate: Date.now(),
-						parentToolCallId: frame.payload.parentToolCallId ?? existing?.parentToolCallId,
-						parentSubagentId: frame.payload.parentSubagentId ?? existing?.parentSubagentId,
-						kind: existing?.kind ?? "sub",
-						progress,
-					});
+					subagents.set(
+						progress.id,
+						markCut(
+							{
+								id: progress.id,
+								index: frame.payload.index,
+								agent: frame.payload.agent,
+								agentSource: frame.payload.agentSource,
+								description: assignmentTitle(assignment) ?? progress.description ?? existing?.description,
+								status: progress.status,
+								task: frame.payload.task,
+								assignment,
+								sessionFile: frame.payload.sessionFile ?? existing?.sessionFile,
+								lastUpdate: Date.now(),
+								parentToolCallId: frame.payload.parentToolCallId ?? existing?.parentToolCallId,
+								parentSubagentId: frame.payload.parentSubagentId ?? existing?.parentSubagentId,
+								kind: existing?.kind ?? "sub",
+								progress,
+							},
+							cuts,
+						),
+					);
 					touched = progress.id;
 					break;
 				}
@@ -298,6 +331,18 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 
 			if (subagents) set({ subagents });
 			if (touched) void get().recoverAssignment(touched);
+		},
+		setRestartCuts: next => {
+			if (sameCuts(cuts, next)) return;
+			cuts = next;
+			let changed = false;
+			const subagents = new Map<string, SubagentNode>();
+			for (const [id, node] of get().subagents) {
+				const marked = markCut(unmarkCut(node), cuts);
+				if (marked.status !== node.status || marked.restartCut !== node.restartCut) changed = true;
+				subagents.set(id, marked.status === node.status && marked.restartCut === node.restartCut ? node : marked);
+			}
+			if (changed) set({ subagents });
 		},
 		recoverAssignment: async id => {
 			const node = get().subagents.get(id);
@@ -328,7 +373,7 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 			refreshVersion++;
 			const subagents = new Map<string, SubagentNode>();
 			for (const snap of snapshots) {
-				const normalized = normalizeSnapshot(snap);
+				const normalized = markCut(normalizeSnapshot(snap), cuts);
 				subagents.set(normalized.id, normalized);
 			}
 			set({ subagents });
@@ -359,10 +404,10 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 					const normalized = normalizeSnapshot(snap);
 					fetched.add(normalized.id);
 					const prev = current.get(normalized.id);
-					let next = normalized;
+					let next = markCut(normalized, cuts);
 					if (prev && prev !== before.get(normalized.id)) next = prev;
 					else if (prev) {
-						const merged = mergeFetchedSnapshot(normalized, prev);
+						const merged = markCut(mergeFetchedSnapshot(normalized, prev), cuts);
 						// An idle poll returns the same rows: keep identity so selectors
 						// and memoized rows don't re-render every 3s.
 						next = sameValue(merged, prev) ? prev : merged;

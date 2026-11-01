@@ -16,6 +16,7 @@ import type { SubagentSnapshot } from "../../../shared/rpc-types";
 import { cx, formatElapsed, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
+import { restartCutNote } from "../../lib/restart-cuts";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { SessionRuntimeProvider, useTabSessionRuntime } from "../../stores/session-runtime-context";
 import { useSubagentsStore } from "../../stores/subagents";
@@ -101,7 +102,7 @@ function SubagentHeader({
 		<div className="omp-subagent-header flex min-h-(--sc-space-10) shrink-0 items-center gap-2 border-b border-(--sc-divider) py-1.5 pr-1.5 pl-3">
 			<div
 				className="flex min-w-0 flex-1 items-center gap-2"
-				title={[agent.agent, label, model].filter(Boolean).join("\n")}
+				title={[agent.agent, label, model, restartCutNote(agent)].filter(Boolean).join("\n")}
 			>
 				{provider ? (
 					<ProviderMark className="size-4" provider={provider} />

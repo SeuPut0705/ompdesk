@@ -11,7 +11,6 @@ import type { SubagentsStore } from "../../../stores/subagents";
 import { statusMeta } from "../../panels/subagent-graph";
 import { getToolHeader } from "../../tools/index";
 import { LiveStepPeek } from "../LiveStepPeek";
-import { useRestartCuts } from "./use-restart-cuts";
 import { useRunAgents, useRunStores } from "./use-work-run";
 import { agentGroupState, agentWorkState, WorkStatus } from "./WorkStatus";
 import { agentConclusion, agentDurationMs } from "./work-run";
@@ -46,7 +45,6 @@ function laneCall(progress: AgentProgress | undefined): { tool: string; args: st
 export function SubagentSurface({ id, store }: { id: string; store: StoreApi<SubagentsStore> }) {
 	const t = useT();
 	const [error, setError] = useState<string | null>(null);
-	const restartCut = useRestartCuts().agents.has(id);
 	const [loading, setLoading] = useState(false);
 	const tools = store.getState().surface(id);
 	const status = store.getState().subagents.get(id)?.status;
@@ -83,7 +81,7 @@ export function SubagentSurface({ id, store }: { id: string; store: StoreApi<Sub
 				toolCallIds={JSON.parse(key) as string[]}
 				thinkingLive={false}
 				toolsOverride={tools}
-				state={status === "failed" && restartCut ? "interrupted" : agentGroupState(status)}
+				state={agentGroupState(status)}
 				nested
 			/>
 		</>
@@ -113,7 +111,7 @@ export function WorkMap({
 	const runtime = useSessionRuntime();
 	const { subagents: store } = useRunStores();
 	// Stock's spawn index, so lanes keep the order the task listed them in whichever reports first.
-	const { agents: nodes, completions, resumed, cut } = useRunAgents(toolCallIds, "progress");
+	const { agents: nodes, completions, resumed } = useRunAgents(toolCallIds, "progress");
 	const observedKey = useFrameSelector(store, state =>
 		nodes
 			.map(node => {
@@ -170,7 +168,7 @@ export function WorkMap({
 					const running = meta.live;
 					const groupState = agentGroupState(node.status);
 					const completion = completions.get(node.id);
-					const restartCut = node.status === "aborted" ? cut.get(node.id) : undefined;
+					const restartCut = node.restartCut;
 					const call = running ? laneCall(progress) : null;
 					const args = progressArgs(call?.args);
 					const activity = call
