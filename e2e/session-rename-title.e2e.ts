@@ -9,7 +9,7 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import { exitApp } from "./harness";
 import { connectHost, launchRemote, makeRemoteProfile, openHostFolder, type RemoteInstance } from "./remote-harness";
 
@@ -155,18 +155,27 @@ test("a paired computer's session shows its typed name and its automatic title t
 		await expect(titleBar(a).locator("[data-title-name]")).toHaveText("My name");
 
 		// While it works, the row's name still draws (v0.94.0 drew a working row's name 0 px wide: a running session
-		// showed only its spinner), on the host's section here and in the host's own sidebar.
-		await a.evaluate(
-			tabId => window.omp.rpc.commandForTab(tabId, { type: "prompt", message: "fixture running" }),
-			remoteTab,
-		);
-		for (const name of [
-			a.locator(`[data-sidebar-device="${deviceId}"] [data-title-name]`, { hasText: "My name" }),
-			b.locator(".omp-session-sidebar [data-title-name]", { hasText: "My name" }),
-		]) {
-			await expect(name.locator('.omp-live-text[data-working="turn"]')).toHaveCount(1);
-			await expect.poll(() => name.evaluate(box => box.getBoundingClientRect().width)).toBeGreaterThan(20);
-		}
+		// showed only its spinner): through its turn on the host's section here and in the host's own sidebar, and on
+		// the host's section once the turn ends while the subagents it started still work (the host's window does not
+		// follow a device's subagents; a local tab's background form is row-glow.e2e.ts's).
+		const command = (body: { type: "prompt"; message: string } | { type: "bash"; command: string }) =>
+			a.evaluate(([tabId, line]) => window.omp.rpc.commandForTab(tabId as string, line as typeof body), [
+				remoteTab,
+				body,
+			] as const);
+		const deviceName = a.locator(`[data-sidebar-device="${deviceId}"] [data-title-name]`, { hasText: "My name" });
+		const hostName = b.locator(".omp-session-sidebar [data-title-name]", { hasText: "My name" });
+		const expectDrawn = async (working: "turn" | "background", names: Locator[]) => {
+			for (const name of names) {
+				await expect(name.locator(`.omp-live-text[data-working="${working}"]`)).toHaveCount(1, { timeout: 20_000 });
+				await expect.poll(() => name.evaluate(box => box.getBoundingClientRect().width)).toBeGreaterThan(20);
+			}
+		};
+		await command({ type: "prompt", message: "fixture running" });
+		await expectDrawn("turn", [deviceName, hostName]);
+		await command({ type: "bash", command: "fixture:subagents" });
+		await command({ type: "bash", command: "fixture:finish" });
+		await expectDrawn("background", [deviceName]);
 	} finally {
 		for (const instance of [client, host]) if (instance) await exitApp(instance.app);
 		for (const instance of [client, host]) expect(instance?.errors ?? []).toEqual([]);
