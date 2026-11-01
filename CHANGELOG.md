@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.94.1] - 2026-11-02
+
+작업 중인 세션의 사이드바 줄에 제목이 다시 보여요.
+
+### 고친 것
+- 0.94.0에서 작업 중인 세션의 사이드바 줄이 제목 없이 빈칸으로 보이던 문제를 고쳤어요. 이 컴퓨터와 연결된 컴퓨터 구역 모두, 하위 에이전트만 남아 돌 때도 제목이 보여요.
+
+### 바뀐 것
+- 봇에게 일을 시키거나 문제를 말하면, 봇이 먼저 예상 원인과 할 일·순서, 끝나면 알려 줄 것을 짧게 말하고 바로 시작해요. 허락을 기다리지는 않아요.
+
+<!-- en -->
+
+A working session's sidebar row shows its title again.
+
+### Fixed
+- Since 0.94.0 a working session's sidebar row showed no title. It shows again, on this computer and in a paired computer's section, also while only its subagents still run.
+
+### Changed
+- When you give the bot a task or report a problem, it first says in a few lines the likely cause, what it will do and in what order, and what it will report, then starts at once without waiting for a go-ahead.
+
 ## [0.94.0] - 2026-11-02
 
 이름을 바꾼 세션은 바꾼 이름과 자동 제목이 함께 보여요. 바꾼 이름은 채팅 위 제목에도 바로 반영돼요.
