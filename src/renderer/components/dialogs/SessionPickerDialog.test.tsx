@@ -129,6 +129,20 @@ describe("SessionPickerDialog content search", () => {
 	});
 });
 
+describe("SessionPickerDialog automatic titles", () => {
+	it("finds a renamed session by its automatic title and shows both names", async () => {
+		list.mockResolvedValueOnce([
+			...SESSIONS,
+			{ ...session("c", "Release prep"), autoTitle: "Fix the login redirect", firstMessage: "hi" },
+		]);
+		await mount();
+		await type("login redirect");
+		expect(rows()).toHaveLength(1);
+		expect(rows()[0]).toContain("Release prep");
+		expect(document.body.querySelector("[data-title-auto]")?.textContent).toBe("Fix the login redirect");
+	});
+});
+
 describe("SessionPickerDialog listing", () => {
 	it("leaves out a session file with no conversation yet (stock's header-only new session)", async () => {
 		const headerOnly: SessionInfo = { ...session("empty", ""), messageCount: 0, firstMessage: "", title: null };

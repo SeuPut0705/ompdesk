@@ -10,6 +10,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SessionInfo } from "../../shared/ipc-types";
 import { I18nProvider, translate } from "../lib/i18n";
+import { combinedTitle } from "../lib/session-title";
 import { useSessionStore } from "../stores/session";
 import { useCurrentSessionTitle } from "./use-current-session-title";
 
@@ -51,15 +52,19 @@ let listed: SessionInfo[] = [];
 };
 
 function Probe() {
-	return <span data-testid="title">{useCurrentSessionTitle()}</span>;
+	return <span data-testid="title">{combinedTitle(useCurrentSessionTitle())}</span>;
 }
 
 let root: Root;
 let container: { remove: () => void };
 
-async function titleFor(sessionName: string | null, rowOverrides: Partial<SessionInfo> | null): Promise<string> {
+async function titleFor(
+	sessionName: string | null,
+	rowOverrides: Partial<SessionInfo> | null,
+	autoTitle: string | null = null,
+): Promise<string> {
 	listed = rowOverrides ? [row(rowOverrides)] : [];
-	useSessionStore.setState({ status: "ready", sessionId: "s1", sessionName });
+	useSessionStore.setState({ status: "ready", sessionId: "s1", sessionName, autoTitle });
 	container = document.createElement("div") as never;
 	document.body.appendChild(container as never);
 	root = createRoot(container as unknown as Element);
@@ -105,5 +110,26 @@ describe("useCurrentSessionTitle", () => {
 		});
 		container.remove();
 		expect(await titleFor("  ", {})).toBe(translate("sidebar.untitled"));
+	});
+
+	it("puts the automatic title beside the name the session holds, from the store", async () => {
+		expect(await titleFor("Tally", { title: "Stored", firstMessage: "Build" }, "Fix login bug")).toBe(
+			"Tally · Fix login bug",
+		);
+	});
+
+	it("puts a row's automatic title beside its stored title when the session holds no name yet", async () => {
+		expect(await titleFor(null, { title: "Stored", autoTitle: "Fix login bug", firstMessage: "Build" })).toBe(
+			"Stored · Fix login bug",
+		);
+	});
+
+	it("shows the name alone when the automatic title says the same, and never beside a first prompt", async () => {
+		expect(await titleFor("Tally", { title: "Tally" }, "Tally")).toBe("Tally");
+		await act(async () => {
+			root.unmount();
+		});
+		container.remove();
+		expect(await titleFor(null, { title: null, autoTitle: "Fix login bug", firstMessage: "Build" })).toBe("Build");
 	});
 });

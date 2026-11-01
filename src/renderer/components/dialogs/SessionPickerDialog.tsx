@@ -19,7 +19,7 @@ import { isImeKeyEvent } from "../../lib/ime";
 import { listboxTarget } from "../../lib/listbox-nav";
 import { useProjectNames } from "../../lib/project-origin";
 import { mergeContentMatches, rankSessions, type SessionSortMode } from "../../lib/session-search";
-import { sessionDisplayTitle, sessionHasContent } from "../../lib/session-title";
+import { sessionDisplayParts, sessionHasContent } from "../../lib/session-title";
 import { useSessionStore } from "../../stores/session";
 import { sessionListFeed } from "../../stores/session-list";
 import { useUiStore } from "../../stores/ui";
@@ -32,6 +32,7 @@ import {
 	Modal,
 	OptionRow,
 	SearchField,
+	SessionTitle,
 	SkeletonRows,
 	Spinner,
 	Tooltip,
@@ -309,7 +310,7 @@ export function SessionPickerDialog() {
 							const isCurrent = session.id === sessionId;
 							const isActive = index === activeIndex;
 							// A blank stored title falls back like the sidebar's, never to an empty row.
-							const title = sessionDisplayTitle(session, t("sessionPicker.untitled"));
+							const titleParts = sessionDisplayParts(session, t("sessionPicker.untitled"));
 							return (
 								<OptionRow
 									active={isActive}
@@ -329,11 +330,11 @@ export function SessionPickerDialog() {
 										/>
 									)}
 									<span className="min-w-0 flex-1">
-										<span
-											className={`block truncate text-sc-md text-(--sc-text) ${isCurrent ? "font-semibold" : "font-medium"}`}
-										>
-											{title}
-										</span>
+										<SessionTitle
+											className="text-sc-md"
+											parts={titleParts}
+											titleClassName={`text-(--sc-text) ${isCurrent ? "font-semibold" : "font-medium"}`}
+										/>
 										<span className="block truncate text-sc-xs text-(--sc-text-muted)">
 											{effectiveShowPath && session.cwd
 												? shortenPath(session.cwd)

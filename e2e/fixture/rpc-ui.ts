@@ -11,10 +11,12 @@ import { hasMailEntry } from "../../resources/gui-bridge/agent-control-contracts
 import { DESKTOP_SLOT_STALE_NOTICE } from "../../resources/gui-bridge/desktop-slot-contracts";
 import type { ModelSetupFacts } from "../../resources/gui-bridge/model-setup-contracts";
 import {
+	AUTO_TITLE_ENTRY,
 	type AutoTitleSettings,
 	evolveEffective,
 	normalizeAutoTitle,
 	parseAutoTitleEnv,
+	TITLE_TRIGGER,
 	titleEffective,
 } from "../../resources/gui-bridge/modes/auto-title-contracts";
 import { autopilotRunning } from "../../resources/gui-bridge/modes/autopilot-core";
@@ -157,6 +159,8 @@ export function runRpcUi(): void {
 			: undefined;
 	const sessionCreated = new Date().toISOString();
 	let sessionTitle = "";
+	/** Stock's `titleSource` of `sessionTitle`, written in the title slot as stock does: "user" after a typed name. */
+	let titleSource: "auto" | "user" | undefined;
 	/**
 	 * The session stock `new_session` started (`/new`): the
 	 * journal's identity and file from then on, until a `switch_session`.
@@ -172,7 +176,7 @@ export function runRpcUi(): void {
 		const file = fresh ? fresh.file : resumed && sessionFile ? resumed.file : sessionFile;
 		if (!file || entries.length === 0) return;
 		const lines = [
-			{ type: "title", v: 1, title: sessionTitle, updatedAt: new Date().toISOString() },
+			{ type: "title", v: 1, title: sessionTitle, source: titleSource, updatedAt: new Date().toISOString() },
 			{
 				type: "session",
 				version: 3,
@@ -929,9 +933,11 @@ export function runRpcUi(): void {
 	/**
 	 * Automatic session titles (gui-bridge modes/auto-title.ts). Only with `OMP_GUI_TEST_AUTO_TITLE` (JSON `{latencyMs?,
 	 * fail?}`): every other spec keeps its untitled session. The fixture names the session "Auto N: <prompt>" as the
-	 * bridge does: after the first prompt, and again after two more finished turns while the title is automatic and
-	 * the sub-switch is on; a typed name (`set_session_name`) makes it manual and stops both; `regenerate_title`
-	 * names it again and makes it automatic. `OMP_GUI_AUTO_TITLE` and `auto_title_set` carry the switches.
+	 * bridge does: after the first prompt, and again after two more finished turns while the sub-switch is on. A typed
+	 * name (`set_session_name`) stays: later titles are journaled beside it (`ompdesk.auto-title`) and reported as
+	 * `session_info_update.autoTitle`, as is the automatic title a typed name went over; `regenerate_title` names the
+	 * session again and makes it automatic. Titles are journaled as stock does (`title_change`) so the session list reads
+	 * them. `OMP_GUI_AUTO_TITLE` and `auto_title_set` carry the switches.
 	 */
 	const autoTitleScript: { latencyMs?: number; fail?: boolean } | undefined = (() => {
 		try {
@@ -943,32 +949,49 @@ export function runRpcUi(): void {
 	const autoTitleLatency = Math.max(1, autoTitleScript?.latencyMs ?? 1);
 	let autoTitleSettings: AutoTitleSettings = parseAutoTitleEnv(process.env.OMP_GUI_AUTO_TITLE);
 	let titleIsAuto = false;
+	/** The newest automatic title beside a typed name (or the one the typed name went over). */
+	let autoBeside = "";
 	let titleGeneration = 0;
 	let titleTurns = 0;
 	let lastPromptText = "";
 	const autoTitleRequests = { first: 0, evolve: 0, regenerate: 0 };
+	/** The title the fixture keeps current: the name while automatic, else the automatic title beside it. */
+	const currentAuto = () => (titleIsAuto ? sessionTitle : sessionTitle ? autoBeside : "");
 	const nameAuto = (kind: keyof typeof autoTitleRequests): string => {
 		autoTitleRequests[kind]++;
 		titleGeneration++;
-		sessionTitle = `Auto ${titleGeneration}: ${lastPromptText.slice(0, 40)}`;
-		titleIsAuto = true;
+		const next = `Auto ${titleGeneration}: ${lastPromptText.slice(0, 40)}`;
 		titleTurns = 0;
-		persistSession();
+		if (sessionTitle && !titleIsAuto && kind !== "regenerate") {
+			autoBeside = next;
+			append({ type: "custom", customType: AUTO_TITLE_ENTRY, data: { title: next } }, Date.now());
+			pushBridgeEvent({ type: "session_info_update", autoTitle: next, sessionId: state().sessionId });
+			return next;
+		}
+		const typedOver = sessionTitle && !titleIsAuto;
+		sessionTitle = next;
+		titleIsAuto = true;
+		titleSource = typedOver ? "user" : "auto";
+		append(
+			{ type: "title_change", title: next, source: titleSource, ...(typedOver ? { trigger: TITLE_TRIGGER } : {}) },
+			Date.now(),
+		);
 		pushBridgeEvent({ type: "session_info_update", title: sessionTitle, sessionId: state().sessionId });
+		if (typedOver) pushBridgeEvent({ type: "session_info_update", autoTitle: null, sessionId: state().sessionId });
 		return sessionTitle;
 	};
 	const noteTitlePrompt = (message: string) => {
 		lastPromptText = message;
-		if (!autoTitleScript || !titleEffective(autoTitleSettings) || sessionTitle) return;
+		if (!autoTitleScript || !titleEffective(autoTitleSettings) || currentAuto()) return;
 		setTimeout(() => {
-			if (!sessionTitle) nameAuto("first");
+			if (!currentAuto()) nameAuto("first");
 		}, autoTitleLatency);
 	};
 	const noteTitleTurn = () => {
-		if (!autoTitleScript || !sessionTitle || !titleIsAuto || !evolveEffective(autoTitleSettings)) return;
+		if (!autoTitleScript || !currentAuto() || !evolveEffective(autoTitleSettings)) return;
 		if (++titleTurns < 2) return;
 		setTimeout(() => {
-			if (titleIsAuto) nameAuto("evolve");
+			if (currentAuto()) nameAuto("evolve");
 		}, autoTitleLatency);
 	};
 	/**
@@ -5975,6 +5998,8 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				activeLeafId = null;
 				sessionTitle = "";
 				titleIsAuto = false;
+				titleSource = undefined;
+				autoBeside = "";
 				const id = `fixture-new-${process.pid}-${++freshCount}`;
 				const file = sessionFile ? nodePath.join(nodePath.dirname(sessionFile), `${id}.jsonl`) : undefined;
 				fresh = { id, file, created: new Date().toISOString() };
@@ -6063,10 +6088,17 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				prompt(text("message"), ok, Array.isArray(command.images) ? (command.images as ImageContent[]) : []);
 				break;
 			case "set_session_name": {
-				// Stock RPC `set_session_name` is the person's own rename: the title is manual from now on.
-				sessionTitle = text("name");
+				// Stock RPC `set_session_name` is the person's own rename: the name stays theirs, and the bridge shows
+				// the automatic title it went over beside it.
+				const name = text("name");
+				if (titleIsAuto && sessionTitle) autoBeside = sessionTitle;
+				sessionTitle = name;
 				titleIsAuto = false;
-				persistSession();
+				titleSource = "user";
+				if (autoTitleScript) append({ type: "title_change", title: name, source: "user" }, Date.now());
+				else persistSession();
+				if (autoBeside && autoBeside !== name)
+					pushBridgeEvent({ type: "session_info_update", autoTitle: autoBeside, sessionId: state().sessionId });
 				ok();
 				break;
 			}

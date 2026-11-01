@@ -387,9 +387,10 @@ interface HostTab extends RunTracking {
 	reads?: { slim: string; encoders: Map<string, (status: unknown, fresh: boolean) => unknown> };
 	/** The last `commandsUpdate` list a connection got (JSON): stock repeats an unchanged list, which goes no further. */
 	sentCommands?: { conn: HostConnection; json: string };
-	/** The session's id and name as its omp last reported them (this computer's sidebar row). */
+	/** The session's id, name and automatic title beside a typed name, as its omp last reported them (this computer's sidebar row). */
 	sessionId?: string;
 	title?: string;
+	autoTitle?: string;
 }
 
 /** A device's tab here as this computer's Autopilot coordinator sees it (`attachAutopilot`). */
@@ -882,6 +883,7 @@ export class LocalHostServices implements HostServices {
 			if (session.status === "error" && sidecar.statusPayload?.sessionHeld) session.sessionHeld = true;
 			if (tab.sessionId !== undefined) session.sessionId = tab.sessionId;
 			if (tab.title) session.title = tab.title;
+			if (tab.autoTitle) session.autoTitle = tab.autoTitle;
 			if (tab.asks.size > 0) session.awaitingInput = true;
 			if (tab.awaitingConnection) session.awaitingConnection = true;
 			sessions.push(session);
@@ -1000,6 +1002,7 @@ export class LocalHostServices implements HostServices {
 				asks: [...tab.asks.values()],
 				...(tab.sessionId === undefined ? {} : { sessionId: tab.sessionId }),
 				...(tab.title ? { title: tab.title } : {}),
+				...(tab.autoTitle ? { autoTitle: tab.autoTitle } : {}),
 				...(tab.awaitingConnection ? { awaitingConnection: true } : {}),
 				run: runReading(tab.run),
 			}),
@@ -1926,6 +1929,7 @@ export class LocalHostServices implements HostServices {
 		sidecar.on("sessionInfoUpdate", (frame: SessionInfoUpdateFrame) => {
 			if (typeof frame.sessionId === "string") tab.sessionId = frame.sessionId;
 			if (frame.title !== undefined) tab.title = frame.title ?? undefined;
+			if (frame.autoTitle !== undefined) tab.autoTitle = frame.autoTitle ?? undefined;
 		});
 		for (const name of [
 			"status",

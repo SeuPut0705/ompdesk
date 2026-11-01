@@ -82,6 +82,75 @@ export function titleSuppressedByEnv(env: Readonly<Record<string, string | undef
  */
 export const TITLE_TRIGGER = "ompdesk-auto";
 
+/**
+ * The journal entry (stock `appendCustomEntry`) holding an automatic title the bridge generated while the session's
+ * name is one the person typed: stock's name slot stays theirs, and the newest of these is shown beside it.
+ */
+export const AUTO_TITLE_ENTRY = "ompdesk.auto-title";
+
+/** The slice of a journal entry the title rules read: stock's `title_change` and OMPdesk's {@link AUTO_TITLE_ENTRY}. */
+export interface TitleJournalEntry {
+	type: string;
+	title?: string;
+	source?: string;
+	trigger?: string;
+	customType?: string;
+	data?: unknown;
+}
+
+/** A `title_change` that wrote an automatic title: stock's own, or the bridge's stamped one over a typed name. */
+function automaticChange(entry: TitleJournalEntry): boolean {
+	return entry.source === "auto" || entry.trigger === TITLE_TRIGGER;
+}
+
+/** The automatic title a journal entry holds: OMPdesk's entry beside a typed name, or an automatic `title_change`. */
+function automaticTitleOf(entry: TitleJournalEntry): string | undefined {
+	if (entry.type === "custom" && entry.customType === AUTO_TITLE_ENTRY) {
+		const data = entry.data;
+		return typeof data === "object" && data !== null && "title" in data && typeof data.title === "string"
+			? data.title || undefined
+			: undefined;
+	}
+	return entry.type === "title_change" && automaticChange(entry) ? entry.title || undefined : undefined;
+}
+
+/** Whether a journal entry holds an automatic title ({@link latestAutoTitle} reads the newest such entry). */
+export function isAutomaticTitle(entry: TitleJournalEntry): boolean {
+	return automaticTitleOf(entry) !== undefined;
+}
+
+/** The newest automatic title in the journal: OMPdesk's entry beside a typed name, or an automatic `title_change`. */
+export function latestAutoTitle(entries: readonly TitleJournalEntry[]): string | undefined {
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const entry = entries[i];
+		const title = entry && automaticTitleOf(entry);
+		if (title) return title;
+	}
+	return undefined;
+}
+
+/** The name the person typed, when the session's newest `title_change` is one (not the bridge's stamped write). */
+export function typedTitle(entries: readonly TitleJournalEntry[]): string | undefined {
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const entry = entries[i];
+		if (entry?.type !== "title_change") continue;
+		return entry.title && !automaticChange(entry) ? entry.title : undefined;
+	}
+	return undefined;
+}
+
+/**
+ * The automatic title every surface shows beside the session's name (`SessionInfo.autoTitle`): the newest automatic
+ * title while the name is one the person typed and differs from it; undefined otherwise (no typed name: the name is
+ * the automatic title itself).
+ */
+export function shownAutoTitle(entries: readonly TitleJournalEntry[]): string | undefined {
+	const typed = typedTitle(entries);
+	if (!typed) return undefined;
+	const auto = latestAutoTitle(entries);
+	return auto && auto.trim() !== typed.trim() ? auto : undefined;
+}
+
 /** Why a regeneration produced no title (the renderer words it). */
 export type TitleRegenerateFailure =
 	/** The conversation names no task yet (empty, greetings only) or the title model returned nothing. */

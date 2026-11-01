@@ -17,7 +17,8 @@ const haystacks = new WeakMap<SessionInfo, string>();
 function haystack(session: SessionInfo): string {
 	let text = haystacks.get(session);
 	if (text === undefined) {
-		text = `${session.title ?? ""} ${session.firstMessage} ${session.cwd} ${session.id}`.toLowerCase();
+		text =
+			`${session.title ?? ""} ${session.autoTitle ?? ""} ${session.firstMessage} ${session.cwd} ${session.id}`.toLowerCase();
 		haystacks.set(session, text);
 	}
 	return text;

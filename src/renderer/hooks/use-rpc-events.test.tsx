@@ -120,11 +120,13 @@ function installMockOmp(): {
 	omp: MockOmp;
 	emitBatch: BatchHandler;
 	emitCommandOutput: (frame: CommandOutputFrame, tabId?: string) => void;
+	emitSessionInfo: (frame: SessionInfoUpdateFrame, tabId?: string) => void;
 	emitPromptResult: PromptResultHandler;
 	emitModelCatalogUpdate: ModelCatalogUpdateHandler;
 } {
 	let batchHandler: Stamped<BatchHandler> = () => {};
 	let commandOutputHandler: Stamped<CommandOutputHandler> = () => {};
+	let sessionInfoHandler: (frame: SessionInfoUpdateFrame, tabId: string) => void = () => {};
 	let promptResultHandler: Stamped<PromptResultHandler> = () => {};
 	let modelCatalogUpdateHandler: Stamped<ModelCatalogUpdateHandler> = () => {};
 	// Mirror the real server: get_state reports isStreaming=true mid-run, and
@@ -206,7 +208,10 @@ function installMockOmp(): {
 				commandOutputHandler = callback;
 				return () => {};
 			}),
-			onTabSessionInfoUpdate: vi.fn(() => () => {}),
+			onTabSessionInfoUpdate: vi.fn((callback: (frame: SessionInfoUpdateFrame, tabId: string) => void) => {
+				sessionInfoHandler = callback;
+				return () => {};
+			}),
 			onTabExtensionError: vi.fn(() => () => {}),
 		},
 		sidecar: { getStatus: vi.fn(async () => ({ status: "ready", cwd: "/tmp" })) },
@@ -232,6 +237,7 @@ function installMockOmp(): {
 		omp,
 		emitBatch,
 		emitCommandOutput: (frame, tabId = focusedTab()) => commandOutputHandler(frame, tabId),
+		emitSessionInfo: (frame, tabId = focusedTab()) => sessionInfoHandler(frame, tabId),
 		emitPromptResult: frame => promptResultHandler(frame, focusedTab()),
 		emitModelCatalogUpdate: frame => modelCatalogUpdateHandler(frame, focusedTab()),
 	};
@@ -1385,6 +1391,26 @@ describe("useRpcEvents non-transcript frames", () => {
 				content: [{ type: "text", text: "Enabled models: gpt-5.6" }],
 			}),
 		);
+	});
+
+	it("follows the automatic title a session_info_update carries beside a title the person set", async () => {
+		const { emitSessionInfo } = installMockOmp();
+		await mount(<RpcEventsProbe />);
+
+		await act(async () => {
+			emitSessionInfo({ type: "session_info_update", title: "Release prep", autoTitle: "Fix login bug" });
+		});
+		expect(useSessionStore.getState()).toMatchObject({ sessionName: "Release prep", autoTitle: "Fix login bug" });
+
+		await act(async () => {
+			emitSessionInfo({ type: "session_info_update", title: "Release prep (2)" });
+		});
+		expect(useSessionStore.getState()).toMatchObject({ sessionName: "Release prep (2)", autoTitle: "Fix login bug" });
+
+		await act(async () => {
+			emitSessionInfo({ type: "session_info_update", autoTitle: null });
+		});
+		expect(useSessionStore.getState().autoTitle).toBeNull();
 	});
 
 	it("rehydrates when a deferred prompt result reports a local-only extension command", async () => {

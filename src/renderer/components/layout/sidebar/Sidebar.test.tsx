@@ -597,6 +597,34 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(container.textContent).toContain("No matching sessions");
 	});
 
+	it("shows a renamed session as `name · automatic title` beside plain rows, and the filter finds it by either", async () => {
+		installMockOmp([
+			...LIST,
+			session("/work/alpha/renamed.jsonl", "/work/alpha", {
+				title: "Release prep",
+				autoTitle: "Fix the login redirect",
+				created: "2026-01-04T00:00:00Z",
+				modified: "2026-01-04T00:00:00Z",
+			}),
+		]);
+		seedStores();
+		await mount(<Sidebar />);
+
+		const renamed = rowFor("Release prep");
+		expect(renamed.querySelector("[data-title-name]")?.textContent).toBe("Release prep");
+		expect(renamed.querySelector("[data-title-auto]")?.textContent).toContain("Fix the login redirect");
+		expect(renamed.querySelector("button")?.getAttribute("title")).toContain("Release prep · Fix the login redirect");
+		expect(rowFor("Session /work/alpha/one.jsonl").querySelector("[data-title-auto]")).toBeNull();
+
+		const field = container.querySelector('input[aria-label="Filter sessions"]') as unknown as Element;
+		const props = reactProps<{ onChange: (event: { target: { value: string } }) => void }>(field);
+		await act(async () => props.onChange({ target: { value: "login redirect" } }));
+		await flush();
+		const rows = [...document.querySelectorAll(".omp-sidebar-session-row")].map(row => row.textContent ?? "");
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toContain("Release prep");
+	});
+
 	it("goes from the filter into the list: ↓ to its first row, Enter to the first session it matches", async () => {
 		installMockOmp(LIST);
 		seedStores();
@@ -4619,6 +4647,20 @@ describe("Sidebar device sections", () => {
 			expect.objectContaining({ sessionOrder: expect.any(Object) }),
 		);
 		expect(section()?.querySelector("[data-session-order-status]")?.textContent).toContain("App two");
+	});
+
+	it("shows a host's renamed session with the automatic title its list carries", async () => {
+		const omp = installMockOmp(LIST);
+		omp.sessions.list.mockImplementation(async (_scope, device) =>
+			device === "dev-studio" ? [{ ...REMOTE[0], autoTitle: "Fix the host login" } as SessionInfo] : LIST,
+		);
+		seedStores();
+		pairHost("online");
+		await mount(<Sidebar />);
+
+		const row = container.querySelector('[data-sidebar-device="dev-studio"] [data-device-session]');
+		expect(row?.querySelector("[data-title-name]")?.textContent).toBe("Remote fix");
+		expect(row?.querySelector("[data-title-auto]")?.textContent).toBe("Fix the host login");
 	});
 
 	it("lists an online host's projects and sessions under its own header and opens them remotely", async () => {

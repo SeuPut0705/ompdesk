@@ -64,6 +64,8 @@ import {
 	settleTabPlanApproval,
 	steppingFromTabId,
 	tabChipLabel,
+	tabChipParts,
+	tabDisplayParts,
 	tabDisplayTitle,
 	useSessionTabs,
 	useTabsStore,
@@ -377,6 +379,26 @@ describe("tabs store boot reconciliation", () => {
 			.applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "asleep", sessionPath: null });
 		const tab = useTabsStore.getState().tabs.find(entry => entry.id === "t1");
 		expect(tab).toMatchObject({ sessionPath: undefined, sessionId: undefined, title: undefined });
+	});
+
+	it("follows the tab's automatic title: set, kept by a push without one, cleared by null and by another session", () => {
+		seedTabs();
+		const status = (extra: Record<string, unknown>) =>
+			useTabsStore
+				.getState()
+				.applyTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", status: "ready", sessionId: "s1", ...extra });
+		const auto = () => useTabsStore.getState().tabs.find(tab => tab.id === "t0")?.autoTitle;
+		status({ title: "Release prep", autoTitle: "Fix login bug" });
+		expect(auto()).toBe("Fix login bug");
+		status({});
+		expect(auto()).toBe("Fix login bug");
+		status({ autoTitle: null });
+		expect(auto()).toBeNull();
+		status({});
+		expect(auto()).toBeNull();
+		status({ autoTitle: "Fix login bug" });
+		status({ sessionId: "s2", title: null });
+		expect(auto()).toBeUndefined();
 	});
 
 	it("retains unsent input when restarting an unpersisted session changes its identity", () => {
@@ -2081,6 +2103,68 @@ describe("tabChipLabel (F-HYDRATE)", () => {
 		expect(tabDisplayTitle(tab, [tab], { title: null, firstMessage: "Review the MySQL migration" }, "Untitled")).toBe(
 			"Review the MySQL migration",
 		);
+	});
+});
+
+describe("a tab's name beside its automatic title", () => {
+	const named: SessionTab = {
+		id: "t0",
+		cwd: "/work/alpha",
+		status: "ready",
+		kind: "agent",
+		unreadDone: false,
+		title: "Release prep",
+		autoTitle: "Fix login bug",
+	};
+
+	it("pairs a titled tab's name with its automatic title, and leaves an untitled tab alone", () => {
+		expect(tabChipParts(named, [named])).toEqual({ title: "Release prep", auto: "Fix login bug" });
+		expect(tabChipParts({ ...named, autoTitle: undefined }, [named])).toEqual({ title: "Release prep" });
+		const untitled = { ...named, title: undefined };
+		expect(tabChipParts(untitled, [untitled])).toEqual({ title: "alpha" });
+	});
+
+	it("a remote tab has no indexed row: its own name and automatic title show", () => {
+		expect(tabDisplayParts(named, [named], undefined, "Untitled")).toEqual({
+			title: "Release prep",
+			auto: "Fix login bug",
+		});
+	});
+
+	it("an indexed row names the tab; the tab's own report of the automatic title outranks the row's, null meaning none", () => {
+		const row = { title: "Release prep", firstMessage: "hi" };
+		expect(tabDisplayParts(named, [named], row, "Untitled")).toEqual({
+			title: "Release prep",
+			auto: "Fix login bug",
+		});
+		expect(tabDisplayParts(named, [named], { ...row, autoTitle: "Row's own" }, "Untitled")).toEqual({
+			title: "Release prep",
+			auto: "Fix login bug",
+		});
+		const silent = { ...named, autoTitle: undefined };
+		expect(tabDisplayParts(silent, [silent], { ...row, autoTitle: "Row's own" }, "Untitled")).toEqual({
+			title: "Release prep",
+			auto: "Row's own",
+		});
+		const none = { ...named, autoTitle: null };
+		expect(tabDisplayParts(none, [none], { ...row, autoTitle: "Row's own" }, "Untitled")).toEqual({
+			title: "Release prep",
+		});
+		expect(tabDisplayParts(named, [named], { title: null, firstMessage: "hi" }, "Untitled")).toEqual({ title: "hi" });
+	});
+
+	it("a paired host's tab that has not reported takes the host row's automatic title, only for the same title", () => {
+		const silent = { ...named, autoTitle: undefined };
+		const hostRow = { title: "Release prep", autoTitle: "Host's own" };
+		expect(tabDisplayParts(silent, [silent], undefined, "Untitled", hostRow)).toEqual({
+			title: "Release prep",
+			auto: "Host's own",
+		});
+		expect(tabDisplayParts(silent, [silent], undefined, "Untitled", { ...hostRow, title: "Other" })).toEqual({
+			title: "Release prep",
+		});
+		const none = { ...named, autoTitle: null };
+		expect(tabChipParts(none, [none], hostRow)).toEqual({ title: "Release prep" });
 	});
 });
 

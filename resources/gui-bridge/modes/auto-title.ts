@@ -37,6 +37,9 @@ setAutoTitleStockLoader(async () => {
 		resolveRoleChain: resolver.resolveRoleChain as unknown as AutoTitleStock["resolveRoleChain"],
 		completeSimple: ai.completeSimple as unknown as AutoTitleStock["completeSimple"],
 		normalizeGeneratedTitle: text.normalizeGeneratedTitle,
+		buildReplanTitleContext: messages.buildReplanTitleContext as unknown as AutoTitleStock["buildReplanTitleContext"],
+		isLowSignalTitleInput: text.isLowSignalTitleInput,
+		keepTitleCard: cards.keepTitleCard,
 	};
 });
 

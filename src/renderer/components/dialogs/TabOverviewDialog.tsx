@@ -8,15 +8,17 @@
 
 import { ArrowDown, ArrowUp, X } from "lucide-react";
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useTabListRows } from "../../hooks/use-tab-list-rows";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { listboxTarget } from "../../lib/listbox-nav";
+import { combinedTitle } from "../../lib/session-title";
 import { performTabClose } from "../../lib/tab-close";
 import { useTabHistoryStore } from "../../lib/tab-history";
 import { tabSignalPresentation } from "../../lib/tab-signal";
-import { type SessionTab, tabChipLabel, useTabsStore } from "../../stores/tabs";
+import { type SessionTab, tabChipParts, useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
-import { IconButton, Kbd, Modal, SearchField, Tabs } from "../common";
+import { IconButton, Kbd, Modal, SearchField, SessionTitle, Tabs } from "../common";
 
 type Sort = "recent" | "order";
 
@@ -24,6 +26,7 @@ export function TabOverviewDialog() {
 	const t = useT();
 	const open = useUiStore(state => state.tabOverviewOpen);
 	const tabs = useTabsStore(state => state.tabs);
+	const listedRowOf = useTabListRows();
 	const activeTabId = useTabsStore(state => state.activeTabId);
 	const mru = useTabHistoryStore(state => state.mru);
 	const [query, setQuery] = useState("");
@@ -44,15 +47,18 @@ export function TabOverviewDialog() {
 		requestAnimationFrame(() => inputRef.current?.focus());
 	}, [open]);
 
-	const labelOf = (tab: SessionTab) => tabChipLabel(tab, tabs);
+	const partsOf = (tab: SessionTab) => tabChipParts(tab, tabs, listedRowOf(tab));
+	const labelOf = (tab: SessionTab) => combinedTitle(partsOf(tab));
 	const rows = useMemo(() => {
 		const base = sort === "recent" ? mru.flatMap(id => tabs.find(tab => tab.id === id) ?? []) : tabs;
 		// A tab opened before the history saw it still lists (at the end).
 		const listed = [...base, ...tabs.filter(tab => !base.includes(tab))];
 		const needle = query.trim().toLowerCase();
 		if (!needle) return listed;
-		return listed.filter(tab => `${tabChipLabel(tab, tabs)} ${tab.cwd}`.toLowerCase().includes(needle));
-	}, [sort, mru, tabs, query]);
+		return listed.filter(tab =>
+			`${combinedTitle(tabChipParts(tab, tabs, listedRowOf(tab)))} ${tab.cwd}`.toLowerCase().includes(needle),
+		);
+	}, [sort, mru, tabs, query, listedRowOf]);
 	const reorderable = sort === "order" && query.trim() === "";
 
 	useEffect(() => {
@@ -183,9 +189,11 @@ export function TabOverviewDialog() {
 										{position < 9 ? position + 1 : ""}
 									</span>
 									<span className="min-w-0 flex-1">
-										<span className="block truncate text-sc-md font-medium text-(--sc-text)">
-											{labelOf(tab)}
-										</span>
+										<SessionTitle
+											className="text-sc-md"
+											parts={partsOf(tab)}
+											titleClassName="font-medium text-(--sc-text)"
+										/>
 										<span className="block truncate text-sc-xs text-(--sc-text-muted)">{tab.cwd}</span>
 									</span>
 									{tab.id === activeTabId && (

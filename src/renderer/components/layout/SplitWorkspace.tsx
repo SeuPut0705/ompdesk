@@ -5,19 +5,21 @@ import { worktreeLabel } from "../../../shared/project-origin";
 import { type SplitNode, splitTabIds } from "../../../shared/split-layout";
 import { useSessionList } from "../../hooks/use-session-list";
 import { isDrawerMode, maxSplitPanes, useShellMode } from "../../hooks/use-shell-mode";
+import { useTabListRows } from "../../hooks/use-tab-list-rows";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useProjectNames, useWorktreeKindLabels } from "../../lib/project-origin";
+import { combinedTitle, type TitleParts } from "../../lib/session-title";
 import { isSessionHeld } from "../../lib/tab-signal";
 import { SessionRuntimeProvider } from "../../stores/session-runtime-context";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { ensureTabRuntime } from "../../stores/tab-runtime";
-import { type SessionTab, type SplitAxis, type SplitPlacement, tabDisplayTitle, useTabsStore } from "../../stores/tabs";
+import { type SessionTab, type SplitAxis, type SplitPlacement, tabDisplayParts, useTabsStore } from "../../stores/tabs";
 import { type PanelSubagent, useUiStore } from "../../stores/ui";
 import { BotPane } from "../bot/BotPane";
 import { ChatStream } from "../chat/ChatStream";
 import { WorkspaceDock } from "../chat/dock/WorkspaceDock";
-import { IconButton, LiveText, Spinner } from "../common";
+import { IconButton, SessionTitle, Spinner } from "../common";
 import { DeviceChip } from "../remote/DeviceChip";
 import { RemoteTabBanner } from "../remote/RemoteTabBanner";
 import { InputArea } from "./composer/InputArea";
@@ -135,7 +137,7 @@ function DragChip({ title }: { title: string }) {
 	);
 }
 
-export function SplitPaneHeader({ tab, label }: { tab: SessionTab; label: string }) {
+export function SplitPaneHeader({ tab, parts }: { tab: SessionTab; parts: TitleParts }) {
 	const t = useT();
 	const removePane = useTabsStore(state => state.removePane);
 	const groupAliases = useSidebarPrefs(state => state.groupAliases);
@@ -208,7 +210,7 @@ export function SplitPaneHeader({ tab, label }: { tab: SessionTab; label: string
 					aria-hidden
 					className="omp-titlebar-crumb-sep size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)"
 				/>
-				<LiveText className="min-w-0 truncate font-medium text-(--sc-text)" state={live} text={label} />
+				<SessionTitle live={live} parts={parts} titleClassName="font-medium text-(--sc-text)" />
 			</span>
 			{tab.device !== undefined && <DeviceChip deviceId={tab.device} />}
 			<IconButton icon={<X />} label={t("split.removePane")} onClick={() => void removePane(tab.id)} size="sm" />
@@ -216,7 +218,7 @@ export function SplitPaneHeader({ tab, label }: { tab: SessionTab; label: string
 	);
 }
 
-function SessionPane({ tabId, split, label }: { tabId: string; split: boolean; label: string }) {
+function SessionPane({ tabId, split, parts }: { tabId: string; split: boolean; parts: TitleParts }) {
 	const t = useT();
 	const runtime = ensureTabRuntime(tabId);
 	const tab = useTabsStore(state => state.tabs.find(entry => entry.id === tabId));
@@ -227,7 +229,7 @@ function SessionPane({ tabId, split, label }: { tabId: string; split: boolean; l
 	return (
 		<SessionRuntimeProvider runtime={runtime}>
 			<section
-				aria-label={t("split.paneLabel", { title: label })}
+				aria-label={t("split.paneLabel", { title: combinedTitle(parts) })}
 				data-tab-id={tabId}
 				data-active={active ? "true" : "false"}
 				onPointerDownCapture={() => {
@@ -238,7 +240,7 @@ function SessionPane({ tabId, split, label }: { tabId: string; split: boolean; l
 					active && split && "omp-session-pane--active",
 				)}
 			>
-				{split && <SplitPaneHeader tab={tab} label={label} />}
+				{split && <SplitPaneHeader parts={parts} tab={tab} />}
 				{tab.device !== undefined && <RemoteTabBanner deviceId={tab.device} />}
 				<SidecarBanner />
 				<div className="relative flex min-h-0 flex-1 flex-col">
@@ -350,6 +352,7 @@ function SplitBranch({
 export function SplitWorkspace() {
 	const t = useT();
 	const { sessions } = useSessionList("global");
+	const listedRowOf = useTabListRows();
 	const tabs = useTabsStore(state => state.tabs);
 	const activeTabId = useTabsStore(state => state.activeTabId);
 	const split = useTabsStore(state => state.split);
@@ -372,11 +375,11 @@ export function SplitWorkspace() {
 				? undefined
 				: ((tab.sessionPath ? sessionsByPath.get(tab.sessionPath) : undefined) ??
 					(tab.sessionId ? sessionsById.get(tab.sessionId) : undefined));
-		return tabDisplayTitle(tab, tabs, indexedSession, t("sidebar.untitled"));
+		return tabDisplayParts(tab, tabs, indexedSession, t("sidebar.untitled"), listedRowOf(tab));
 	};
 	const pane = (tabId: string, isSplit: boolean) => {
-		const label = labelFor(tabId);
-		return label === null ? null : <SessionPane tabId={tabId} split={isSplit} label={label} />;
+		const parts = labelFor(tabId);
+		return parts === null ? null : <SessionPane parts={parts} split={isSplit} tabId={tabId} />;
 	};
 
 	useEffect(() => {
@@ -451,7 +454,8 @@ export function SplitWorkspace() {
 			)}
 		</div>
 	);
-	const dragLabel = dragSubagent ? dragSubagent.label : dragTabId ? labelFor(dragTabId) : null;
+	const dragParts = dragTabId ? labelFor(dragTabId) : null;
+	const dragLabel = dragSubagent ? dragSubagent.label : dragParts ? combinedTitle(dragParts) : null;
 	const workspace = (
 		<div className="omp-split-workspace relative grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]">
 			<SplitBranch
@@ -486,7 +490,7 @@ export function PaneSwitcher({
 }: {
 	ids: readonly string[];
 	activeTabId: string | null;
-	labelFor: (id: string) => string | null;
+	labelFor: (id: string) => TitleParts | null;
 	onPick: (id: string) => void;
 }) {
 	const t = useT();
@@ -494,7 +498,7 @@ export function PaneSwitcher({
 		<div aria-label={t("split.switcher")} className="omp-pane-switcher" role="group">
 			{ids.map(id => (
 				<button aria-current={id === activeTabId || undefined} key={id} onClick={() => onPick(id)} type="button">
-					<span className="truncate">{labelFor(id)}</span>
+					<SessionTitle noTooltip parts={labelFor(id) ?? { title: "" }} />
 				</button>
 			))}
 		</div>

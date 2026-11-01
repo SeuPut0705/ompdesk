@@ -2,6 +2,7 @@ import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { PROMPT_ORIGIN_ENTRY } from "../prompt-origin-contracts";
 import { NO_TEXT_PROMPT } from "../session-list-contracts";
 import { lastActivity } from "./session-activity";
+import { forgetAutoTitles, listedAutoTitle } from "./session-auto-title";
 
 /** The fields of stock's `SessionInfo` this helper reads; the rest pass through untouched. */
 interface StockSessionInfo {
@@ -12,6 +13,8 @@ interface StockSessionInfo {
 	firstMessage: string;
 	/** OMPdesk's: the paired device the first prompt came from (stock's journal holds OMPdesk's prompt-origin entry). */
 	promptOriginDevice?: string;
+	/** OMPdesk's: the automatic title beside a name the person typed (`session-auto-title.ts`). */
+	autoTitle?: string;
 }
 
 interface StockSessions {
@@ -278,6 +281,25 @@ async function withLastActivity(rows: StockSessionInfo[]): Promise<StockSessionI
 	return rows;
 }
 
+/**
+ * Each row's automatic title beside a typed name (`SessionInfo.autoTitle`); a row that cannot be read has none. Before
+ * {@link withLastActivity}: the stamp is stock's own `modified:size`.
+ */
+async function withAutoTitles(rows: StockSessionInfo[]): Promise<StockSessionInfo[]> {
+	await Promise.all(
+		rows.map(async row => {
+			try {
+				const stamp = `${new Date(row.modified).getTime()}:${row.size}`;
+				const autoTitle = await listedAutoTitle(row.path, row.size, stamp);
+				if (autoTitle) row.autoTitle = autoTitle;
+			} catch {
+				// Unreadable now (stock's own scan skips such files too): the row shows its name alone.
+			}
+		}),
+	);
+	return rows;
+}
+
 /** Read-only probes the stock worker answers at once, beside its serial queue (`createDispatcher`): a restored tab's
  * omp spawns only after `sessions.owned` answers, and queued behind launch's session-list scan it waited ~0.3–0.5 s
  * for the scan, not the lease. The probe takes the lease for an instant and touches no journal. */
@@ -287,10 +309,13 @@ export const methods: Record<string, (params: unknown) => Promise<unknown>> = {
 	"sessions.list": async params => {
 		const { sessionsRoot } = paths(params);
 		const { listing, storage } = await stockSessions();
-		const rows = await withLastActivity(await withFirstPrompts(await listing.listAllSessions(storage, sessionsRoot)));
+		const rows = await withLastActivity(
+			await withAutoTitles(await withFirstPrompts(await listing.listAllSessions(storage, sessionsRoot))),
+		);
 		const listed = new Set(rows.map(row => row.path));
 		for (const path of firstPrompts.keys()) if (!listed.has(path)) firstPrompts.delete(path);
 		for (const path of activity.keys()) if (!listed.has(path)) activity.delete(path);
+		forgetAutoTitles(listed);
 		return withoutPlaceholder(rows);
 	},
 	"sessions.list_directory": async params => {
@@ -299,7 +324,9 @@ export const methods: Record<string, (params: unknown) => Promise<unknown>> = {
 		const { listing, storage } = await stockSessions();
 		return withoutPlaceholder(
 			await withLastActivity(
-				await withFirstPrompts(await listing.listSessionsReadOnly(dirname(sessionPath), storage)),
+				await withAutoTitles(
+					await withFirstPrompts(await listing.listSessionsReadOnly(dirname(sessionPath), storage)),
+				),
 			),
 		);
 	},

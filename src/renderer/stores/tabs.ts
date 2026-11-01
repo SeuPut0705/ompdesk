@@ -62,7 +62,13 @@ import { maxSplitPanes } from "../hooks/use-shell-mode";
 import { autoCloseHeld } from "../lib/agent-auto-close";
 import { basename } from "../lib/format";
 import { translate } from "../lib/i18n";
-import { sessionDisplayTitle, shownSessionName } from "../lib/session-title";
+import {
+	sessionDisplayParts,
+	sessionDisplayTitle,
+	sessionTitleParts,
+	shownSessionName,
+	type TitleParts,
+} from "../lib/session-title";
 import { beginTabRoute, openingTab, reconcileTabRoute, resetTabRoute, settleTabRoute } from "../lib/tab-routing";
 import { isSessionHeld } from "../lib/tab-signal";
 import { limitTabs, readTabSnapshot, rememberTabs, tabSnapshotEntry } from "../lib/tab-snapshot";
@@ -117,6 +123,11 @@ export interface SessionTab {
 	device?: string;
 	/** Session title when known (session_info_update via TAB_STATUS). */
 	title?: string;
+	/**
+	 * The automatic title beside a title the person set (`SessionInfo.autoTitle`'s rule), from TAB_STATUS. Undefined: the
+	 * tab's omp has not said (a paired device that just reconnected), so the listed row's stands in; null: it said none.
+	 */
+	autoTitle?: string | null;
 	/** What another session's agent opened the tab for (main's `task`); stands in for the title until there is one. */
 	task?: string;
 	/** The tab whose agent opened this one with `ompdesk_session_open` (main's `openedBy`); the sidebar nests it there. */
@@ -266,6 +277,12 @@ function viewerFields(info: IpcTabInfo): Pick<SessionTab, "shared" | "viewerCoun
 	return { shared: info.shared, viewerCount: info.viewerCount };
 }
 
+/** The tab's automatic title: what a push says (null clears), else the previous one while the same session keeps its title. */
+function projectAutoTitle(info: IpcTabStatusPayload, previous: SessionTab | undefined, sessionChanged: boolean) {
+	if (info.autoTitle !== undefined) return info.autoTitle;
+	return sessionChanged || info.title === null ? undefined : previous?.autoTitle;
+}
+
 /**
  * Project a main-process tab snapshot (GET_TABS entry or TAB_STATUS push) over
  * the renderer's previous entry, keeping local flags (unreadDone,
@@ -288,6 +305,7 @@ function projectSessionTab(
 		worktree: info.worktree ?? previous?.worktree,
 		device: info.device ?? previous?.device,
 		title: info.title === undefined ? (sessionChanged ? undefined : previous?.title) : (info.title ?? undefined),
+		autoTitle: projectAutoTitle(info, previous, sessionChanged),
 		task: info.task ?? previous?.task,
 		openedBy: info.openedBy ?? previous?.openedBy,
 		openedBySession: info.openedBySession ?? previous?.openedBySession,
@@ -427,6 +445,52 @@ export function tabDisplayTitle(
 	untitled: string,
 ): string {
 	return indexedSession ? sessionDisplayTitle(indexedSession, untitled) : tabChipLabel(tab, tabs);
+}
+
+/**
+ * The automatic title a tab shows: its own report (null: none), else, while it has not reported, the listed row's
+ * (this computer's list for a local tab, the host's for a paired device's) when that row holds the tab's title.
+ */
+export function tabAutoTitle(tab: SessionTab, listed?: Pick<SessionInfo, "title" | "autoTitle">): string | undefined {
+	if (tab.autoTitle !== undefined) return tab.autoTitle ?? undefined;
+	const shown = shownSessionName(tab.title ?? "");
+	return listed && shown && shownSessionName(listed.title ?? "") === shown ? listed.autoTitle : undefined;
+}
+
+/**
+ * `tabChipLabel` as parts: the tab's own title with its automatic title beside it. Untitled and task names stand
+ * alone. `listed` is the session's row in the list the tab's computer keeps.
+ */
+export function tabChipParts(
+	tab: SessionTab,
+	tabs: readonly SessionTab[],
+	listed?: Pick<SessionInfo, "title" | "autoTitle">,
+): TitleParts {
+	const label = tabChipLabel(tab, tabs);
+	return shownSessionName(tab.title ?? "") ? sessionTitleParts(label, tabAutoTitle(tab, listed)) : { title: label };
+}
+
+/**
+ * `tabDisplayTitle` as parts. An indexed row names the session (this computer's, for a local tab); the tab's own
+ * report of the automatic title outranks the row's. A paired host's tab has no indexed row: it shows its own title,
+ * with `listed` (the host's row for it) standing in until the tab reports the automatic one.
+ */
+export function tabDisplayParts(
+	tab: SessionTab,
+	tabs: readonly SessionTab[],
+	indexedSession: Pick<SessionInfo, "title" | "firstMessage" | "autoTitle"> | undefined,
+	untitled: string,
+	listed?: Pick<SessionInfo, "title" | "autoTitle">,
+): TitleParts {
+	return indexedSession
+		? sessionDisplayParts(
+				{
+					...indexedSession,
+					autoTitle: tab.autoTitle === undefined ? indexedSession.autoTitle : (tab.autoTitle ?? undefined),
+				},
+				untitled,
+			)
+		: tabChipParts(tab, tabs, listed);
 }
 
 /**

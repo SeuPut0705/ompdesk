@@ -54,6 +54,7 @@ import {
 	SearchField,
 	SegmentedChoice,
 	Select,
+	SessionTitle,
 	Sheet,
 	Skeleton,
 	SkeletonRows,
@@ -842,6 +843,9 @@ export default function StyleGuide() {
 					</Block>
 					<Block className="w-64 text-sc-sm" label="PathText">
 						<PathText path="/Users/someone/projects/a-long-folder-name/node_modules/.bin/omp" />
+					</Block>
+					<Block className="w-64 text-sc-sm" label="SessionTitle">
+						<SessionTitle parts={{ title: "Release prep", auto: "Fix the login redirect loop on Safari" }} />
 					</Block>
 					<Block className="grid grid-cols-2 gap-3" label="Banner">
 						<Banner actions={<Button size="sm">Reconnect</Button>} title="omp disconnected" variant="danger">

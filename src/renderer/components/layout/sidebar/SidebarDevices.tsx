@@ -43,7 +43,15 @@ import { basename, cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { openExternal } from "../../../lib/open-external";
 import { hostOrderKey, moveInOrder, reorderProjects } from "../../../lib/project-order";
-import { botDisplayName, sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
+import {
+	botDisplayName,
+	combinedTitle,
+	sessionDisplayLabel,
+	sessionDisplayParts,
+	sessionDisplayTitle,
+	sessionHasContent,
+	type TitleParts,
+} from "../../../lib/session-title";
 import { deviceGroupKey, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { tabSignalPresentation } from "../../../lib/tab-signal";
 import { pickWorkspaceDirectory } from "../../../lib/workspace-dirs";
@@ -577,7 +585,7 @@ function DeviceSessions({
 	const reorder = useSessionReorder({
 		titleOf: path => {
 			const found = tree.sessions.find(session => session.path === path);
-			return found ? sessionDisplayTitle(found, "") : "";
+			return found ? sessionDisplayLabel(found, "") : "";
 		},
 		save: (list, next) =>
 			void useSidebarPrefs.getState().setSessionOrder(hostOrderKey(host.deviceId, list.key), [...next]),
@@ -586,7 +594,7 @@ function DeviceSessions({
 		const list = listOf(session);
 		const next = canMoveWithin(list, session.path, delta) && list && moveInOrder(list.paths, session.path, delta);
 		if (!list || !next) return false;
-		reorder.move(list, session.path, next, sessionDisplayTitle(session, ""));
+		reorder.move(list, session.path, next, sessionDisplayLabel(session, ""));
 		return true;
 	};
 
@@ -647,7 +655,8 @@ function DeviceSessions({
 			failed,
 			unmerged: reviewUnmerged(review) || child.childProblem === "unmerged",
 		});
-		const title = sessionDisplayTitle(child, t("sidebar.untitled"));
+		const childParts = sessionDisplayParts(child, t("sidebar.untitled"));
+		const title = childParts.title;
 		const statusLabel =
 			status === "failed"
 				? t("sidebar.row.failed")
@@ -669,9 +678,10 @@ function DeviceSessions({
 			state: status ? CHILD_TOKEN[status] : null,
 			stateLabel: statusLabel,
 			title,
+			auto: childParts.auto,
 			age: status !== "running" ? <TimeAgo className="text-(--sc-text-subtle)" iso={child.modified} /> : undefined,
 			device: host.name,
-			tooltip: [title, statusLabel, `${host.name} · ${child.cwd}`].filter(Boolean).join("\n"),
+			tooltip: [combinedTitle(childParts), statusLabel, `${host.name} · ${child.cwd}`].filter(Boolean).join("\n"),
 			selected: false,
 			onOpen: () => openSession(child),
 			buttonProps: { tabIndex: -1, "data-roving-item": key },
@@ -883,9 +893,17 @@ function DeviceSessions({
 		const inVisibleSplit = !current && tab !== undefined && splitIds?.has(tab.id) === true;
 		const active = (current || inVisibleSplit) && destination === "session";
 		const indexed = session.liveTabId === undefined;
-		const title = bot
-			? botDisplayName(session, t("sidebar.botBadge"))
-			: sessionDisplayTitle(session, indexed ? t("sidebar.untitled") : t("sidebar.newSession"));
+		const titleParts: TitleParts = bot
+			? { title: botDisplayName(session, t("sidebar.botBadge")) }
+			: sessionDisplayParts(
+					// The tab's own report outranks the host's row (null: none); the row's stands in until it reports.
+					{
+						...session,
+						autoTitle: tab?.autoTitle === undefined ? session.autoTitle : (tab.autoTitle ?? undefined),
+					},
+					indexed ? t("sidebar.untitled") : t("sidebar.newSession"),
+				);
+		const title = combinedTitle(titleParts);
 		if (renamingPath === session.path) {
 			const rovingKey = `device-session:${host.deviceId}:${session.path}`;
 			const stopRenaming = () => {
@@ -1022,10 +1040,10 @@ function DeviceSessions({
 					title={
 						<>
 							<TabLiveTitle
+								parts={titleParts}
 								running={running}
 								settling={settling}
 								tabId={tab?.id ?? null}
-								text={title}
 								waiting={waiting}
 							/>
 							{working && <span className="sr-only">, {t("sidebar.signal.running")}</span>}

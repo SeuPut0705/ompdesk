@@ -897,6 +897,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 			withSessionRuntime(tabId, () => {
 				useSessionStore.setState(state => ({
 					sessionName: frame.title === undefined ? state.sessionName : frame.title,
+					autoTitle: frame.autoTitle === undefined ? state.autoTitle : frame.autoTitle,
 					sessionId: frame.sessionId ?? state.sessionId,
 				}));
 			});

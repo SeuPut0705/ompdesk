@@ -83,6 +83,7 @@ export interface HostedTabPort {
 		asks: ExtensionUIRequest[];
 		sessionId?: string;
 		title?: string;
+		autoTitle?: string;
 		awaitingConnection?: boolean;
 		scheduledRetry?: IpcScheduledRetry;
 		run: RunReading;
@@ -116,11 +117,12 @@ export class HostedTabView extends EventEmitter implements SidecarLike {
 		this.#client = { command: (command, timeoutMs) => this.#command(command, timeoutMs) };
 		queueMicrotask(() => {
 			if (this.#left) return;
-			const { asks, sessionId, title, awaitingConnection, scheduledRetry } = port.snapshot();
-			if (sessionId !== undefined || title !== undefined) {
+			const { asks, sessionId, title, autoTitle, awaitingConnection, scheduledRetry } = port.snapshot();
+			if (sessionId !== undefined || title !== undefined || autoTitle !== undefined) {
 				const frame: SessionInfoUpdateFrame = { type: "session_info_update" };
 				if (sessionId !== undefined) frame.sessionId = sessionId;
 				if (title !== undefined) frame.title = title;
+				if (autoTitle !== undefined) frame.autoTitle = autoTitle;
 				this.emit("sessionInfoUpdate", frame);
 			}
 			this.emit("openAsks", asks);

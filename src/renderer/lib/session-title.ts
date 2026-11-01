@@ -44,6 +44,47 @@ export function sessionDisplayTitle(session: Pick<SessionInfo, "title" | "firstM
 	return title || agentTaskTitle(prompt) || named || untitled;
 }
 
+/**
+ * A session title as it shows: the name the person set and, beside it, the automatic title the bridge keeps writing
+ * (`SessionInfo.autoTitle`). `auto` is absent when there is none or it says the same.
+ */
+export interface TitleParts {
+	title: string;
+	auto?: string;
+}
+
+/** `title` with `autoTitle` beside it, once both read as something and differ after `shownSessionName`. */
+export function sessionTitleParts(title: string, autoTitle: string | null | undefined): TitleParts {
+	const shown = shownSessionName(title);
+	const auto = shownSessionName(autoTitle ?? "");
+	return shown && auto && auto !== shown ? { title: shown, auto } : { title: shown };
+}
+
+/** The parts as one string, for tooltips, aria-labels, switchers, the document title and search haystacks. */
+export function combinedTitle(parts: TitleParts): string {
+	return parts.auto ? `${parts.title} · ${parts.auto}` : parts.title;
+}
+
+/**
+ * `sessionDisplayTitle` as parts: the automatic title joins only a title the session stores. A first-prompt, task or
+ * placeholder name stands alone: nothing was renamed, so there is no second name to show.
+ */
+export function sessionDisplayParts(
+	session: Pick<SessionInfo, "title" | "firstMessage" | "autoTitle">,
+	untitled: string,
+): TitleParts {
+	const title = sessionDisplayTitle(session, untitled);
+	return shownSessionName(session.title ?? "") ? sessionTitleParts(title, session.autoTitle) : { title };
+}
+
+/** {@link sessionDisplayParts} as one string, for announcements, aria-labels and tooltips. */
+export function sessionDisplayLabel(
+	session: Pick<SessionInfo, "title" | "firstMessage" | "autoTitle">,
+	untitled: string,
+): string {
+	return combinedTitle(sessionDisplayParts(session, untitled));
+}
+
 /** True once a session has user-visible conversation content (the no-text sentinel counts). */
 export function sessionHasContent(session: Pick<SessionInfo, "title" | "firstMessage" | "messageCount">): boolean {
 	return session.messageCount > 0 || Boolean(session.title?.trim() || firstPrompt(session));

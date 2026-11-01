@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import { NO_TEXT_PROMPT } from "../../../resources/gui-bridge/session-list-contracts";
 import { wrapAgentMessage } from "../../shared/agent-control";
 import { translate } from "./i18n";
-import { sessionDisplayTitle, sessionHasContent } from "./session-title";
+import {
+	combinedTitle,
+	sessionDisplayParts,
+	sessionDisplayTitle,
+	sessionHasContent,
+	sessionTitleParts,
+} from "./session-title";
 
 describe("stock's '(no messages)' placeholder", () => {
 	it("is never a title: the fallback shows", () => {
@@ -66,5 +72,33 @@ describe("an Autopilot run's name", () => {
 		expect(sessionDisplayTitle({ title: "Autopilot notes", firstMessage: "" }, "New session")).toBe(
 			"Autopilot notes",
 		);
+	});
+});
+
+describe("a title the person set beside the automatic one", () => {
+	it("pairs the two only when both exist and differ after normalising", () => {
+		expect(sessionTitleParts("Release prep", "Fix login bug")).toEqual({
+			title: "Release prep",
+			auto: "Fix login bug",
+		});
+		expect(sessionTitleParts("Release prep", "Release prep")).toEqual({ title: "Release prep" });
+		expect(sessionTitleParts("Release prep", "  Title: Release prep ")).toEqual({ title: "Release prep" });
+		expect(sessionTitleParts("Title: Release prep", "Release prep")).toEqual({ title: "Release prep" });
+		expect(sessionTitleParts("Release prep", null)).toEqual({ title: "Release prep" });
+		expect(sessionTitleParts("Release prep", undefined)).toEqual({ title: "Release prep" });
+		expect(sessionTitleParts("Release prep", "  ")).toEqual({ title: "Release prep" });
+	});
+
+	it("reads as `title · auto` where only a string fits, and as the title alone without one", () => {
+		expect(combinedTitle({ title: "Release prep", auto: "Fix login bug" })).toBe("Release prep · Fix login bug");
+		expect(combinedTitle({ title: "Release prep" })).toBe("Release prep");
+	});
+
+	it("gives a row's automatic title only beside the stored title, never beside a first-prompt fallback", () => {
+		const row = { title: "Release prep", autoTitle: "Fix login bug", firstMessage: "hello" };
+		expect(sessionDisplayParts(row, "Untitled")).toEqual({ title: "Release prep", auto: "Fix login bug" });
+		expect(sessionDisplayParts({ ...row, autoTitle: undefined }, "Untitled")).toEqual({ title: "Release prep" });
+		expect(sessionDisplayParts({ ...row, title: null }, "Untitled")).toEqual({ title: "hello" });
+		expect(sessionDisplayParts({ ...row, title: "" }, "Untitled")).toEqual({ title: "hello" });
 	});
 });

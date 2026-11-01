@@ -7,12 +7,13 @@
 
 import { useEffect, useId, useState } from "react";
 import { create } from "zustand";
+import { useTabListRows } from "../../hooks/use-tab-list-rows";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { useTabHistoryStore } from "../../lib/tab-history";
-import { tabChipLabel, useTabsStore } from "../../stores/tabs";
+import { tabChipParts, useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
-import { Modal, OptionRow } from "../common";
+import { Modal, OptionRow, SessionTitle } from "../common";
 
 /** Which way the opening press moved: ⌃⇥ (1) or ⌃⇧⇥ (-1). */
 export const useTabSwitcherStore = create<{ step: 1 | -1 }>()(() => ({ step: 1 }));
@@ -27,6 +28,7 @@ export function TabSwitcher() {
 	const open = useUiStore(state => state.tabSwitcherOpen);
 	const step = useTabSwitcherStore(state => state.step);
 	const tabs = useTabsStore(state => state.tabs);
+	const listedRowOf = useTabListRows();
 	const mru = useTabHistoryStore(state => state.mru);
 	const ordered = mru.flatMap(id => tabs.find(tab => tab.id === id) ?? []);
 	// Null until ⇥ or an arrow moves the pick: the opening's own pick is derived,
@@ -107,7 +109,10 @@ export function TabSwitcher() {
 						}}
 						onMouseEnter={() => setMoved(position)}
 					>
-						<span className="min-w-0 flex-1 truncate text-sc-md text-(--sc-text)">{tabChipLabel(tab, tabs)}</span>
+						<SessionTitle
+							className="flex-1 text-sc-md text-(--sc-text)"
+							parts={tabChipParts(tab, tabs, listedRowOf(tab))}
+						/>
 						{tab.id === useTabsStore.getState().activeTabId && (
 							<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">{t("tabSwitcher.current")}</span>
 						)}

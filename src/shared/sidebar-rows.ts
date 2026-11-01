@@ -540,6 +540,7 @@ export function sidebarRows(facts: SidebarFacts): SidebarRows {
 	const matches = (session: RowSession) =>
 		!query ||
 		facts.titleOf(session).toLocaleLowerCase().includes(query) ||
+		(session.autoTitle ?? "").toLocaleLowerCase().includes(query) ||
 		session.cwd.toLocaleLowerCase().includes(query);
 	// A session matches when it does or when something it opened does: its family shows with it.
 	const familyMatches = (session: RowSession) => matches(session) || (children.get(session.path) ?? []).some(matches);

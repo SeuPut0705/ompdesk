@@ -75,6 +75,8 @@ export interface FamilyOpened {
 	state: FamilyState | null;
 	stateLabel: string;
 	title: string;
+	/** The automatic title beside a title the person set. */
+	auto?: string;
 	age?: ReactNode;
 	/** The paired device it runs on, by name; absent = this computer. */
 	device?: string;
@@ -420,6 +422,7 @@ function OpenedRow({ child }: { child: FamilyOpened }) {
 			selected={child.selected}
 			state={child.state}
 			stateLabel={child.stateLabel}
+			auto={child.auto}
 			title={child.title}
 			tooltip={child.tooltip}
 		/>

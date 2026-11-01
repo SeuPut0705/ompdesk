@@ -213,7 +213,11 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // A host's browser sign-in coming back through this computer (1 Nov 2026): the `signInRelay` state in the extension-UI
 // store every tab reads, its `SIGN_IN_RELAY` subscription and the API member; the panel stays in the lazy Settings
 // chunk: measured 3,257,562, 553 bytes over the measure above.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_258_100;
+// A typed session name shown with its automatic title (2 Nov 2026): the shared `SessionTitle` (name, muted automatic
+// title truncated first), the parts helpers in `lib/session-title.ts` and the tabs store, and the tab-to-row lookup
+// (`hooks/use-tab-list-rows.ts`) the title bar, panes and sidebar rows draw on the first screen: measured 3,261,772,
+// 4,210 bytes over the measure above.
+const WEB_FIRST_SCREEN_JS_BYTES = 3_262_300;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

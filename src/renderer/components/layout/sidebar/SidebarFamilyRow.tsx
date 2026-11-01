@@ -9,6 +9,7 @@ import { Bot, Check, GitBranch, GitMerge, MessageSquare, Pause, TriangleAlert, X
 import type { ReactNode } from "react";
 import { cx } from "../../../lib/format";
 import type { ListRowProps } from "../../common/ListRow";
+import { SessionTitle } from "../../common/SessionTitle";
 import { WorkingArc } from "../../common/WorkingArc";
 import type { FamilyKind, FamilyState } from "./sidebar-family";
 
@@ -48,6 +49,8 @@ export interface FamilyRowProps {
 	state: FamilyState | null;
 	stateLabel: string;
 	title: string;
+	/** The automatic title beside a title the person set (`SessionTitle`); absent for a name that stands alone. */
+	auto?: string;
 	/** Whole units only ("12s", "10m", "2h", or the sidebar's time ago, a ticking `TimeAgo`). */
 	age?: ReactNode;
 	/** The paired device a session runs on, by name: a short muted label before the token. */
@@ -70,6 +73,7 @@ export function FamilyRow({
 	state,
 	stateLabel,
 	title,
+	auto,
 	age,
 	device,
 	tooltip,
@@ -109,7 +113,7 @@ export function FamilyRow({
 					title={tooltip}
 					type="button"
 				>
-					{title}
+					{auto ? <SessionTitle noTooltip parts={{ title, auto }} /> : title}
 					<span className="sr-only">
 						, {kindLabel}
 						{state ? `, ${stateLabel}` : ""}

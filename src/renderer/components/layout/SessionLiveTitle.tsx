@@ -10,13 +10,14 @@
  * agent opened that run now. Each title subscribes to its own tab's roster, so a subagent's progress re-renders that
  * title only, and no runtime provider wraps the card (its other parts keep the focused tab's stores).
  */
-import { memo, type ReactElement, type ReactNode } from "react";
+import { memo, type ReactElement } from "react";
 import { useStore } from "zustand";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { useOpenedChildren } from "../../hooks/use-opened-children";
+import type { TitleParts } from "../../lib/session-title";
 import { useTabSessionRuntime } from "../../stores/session-runtime-context";
 import type { SubagentsStore } from "../../stores/subagents";
-import { type LiveState, LiveText } from "../common";
+import { type LiveState, SessionTitle } from "../common";
 import { TimeAgo } from "../common/TimeAgo";
 import { WorkingArc } from "../common/WorkingArc";
 import { liveWorkState, workingAgentCount } from "./live-work";
@@ -56,27 +57,19 @@ export function useTabLive(props: Omit<SessionLiveProps, "opened">): LiveState |
 }
 
 export const SessionLiveTitle = memo(function SessionLiveTitle({
-	text,
-	children,
+	parts,
+	swapScope,
 	...props
-}: SessionLiveProps & { text: string; children?: ReactNode }): ReactElement {
-	return (
-		<LiveText state={useSessionLive(props)} text={text}>
-			{children}
-		</LiveText>
-	);
+}: SessionLiveProps & { parts: TitleParts; swapScope?: string }): ReactElement {
+	return <SessionTitle live={useSessionLive(props)} noTooltip parts={parts} swapScope={swapScope} />;
 });
 
 export function TabLiveTitle({
-	text,
-	children,
+	parts,
+	swapScope,
 	...props
-}: Omit<SessionLiveProps, "opened"> & { text: string; children?: ReactNode }): ReactElement {
-	return (
-		<LiveText state={useTabLive(props)} text={text}>
-			{children}
-		</LiveText>
-	);
+}: Omit<SessionLiveProps, "opened"> & { parts: TitleParts; swapScope?: string }): ReactElement {
+	return <SessionTitle live={useTabLive(props)} noTooltip parts={parts} swapScope={swapScope} />;
 }
 
 /**

@@ -2743,6 +2743,8 @@ export interface CommandOutputFrame {
 export interface SessionInfoUpdateFrame {
 	type: "session_info_update";
 	title?: string | null;
+	/** OMPdesk's: the session's automatic title beside a title the person set; null: none (see `SessionInfo.autoTitle`). */
+	autoTitle?: string | null;
 	sessionId?: string;
 }
 

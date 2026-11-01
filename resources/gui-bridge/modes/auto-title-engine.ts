@@ -35,12 +35,16 @@
  */
 import { isUtf8Mojibake } from "../mojibake";
 import {
+	AUTO_TITLE_ENTRY,
 	type AutoTitleSettings,
 	DEFAULT_AUTO_TITLE,
 	evolveEffective,
+	latestAutoTitle,
 	normalizeAutoTitle,
 	parseAutoTitleEnv,
+	shownAutoTitle,
 	TITLE_TRIGGER,
+	type TitleJournalEntry,
 	type TitleRegenerateResult,
 	titleEffective,
 } from "./auto-title-contracts";
@@ -49,7 +53,6 @@ import {
 	EvolveGate,
 	isRewordedTitle,
 	planTitlePrompt,
-	type TitleChangeLike,
 	titleFits,
 	titleInput,
 	titleIsAuto,
@@ -78,8 +81,12 @@ export interface TitleManager {
 	getSessionName(): string | undefined;
 	readonly titleSource: string | undefined;
 	readonly titleRevision: number;
-	getEntries(): readonly TitleChangeLike[];
+	getEntries(): readonly TitleJournalEntry[];
 	setSessionName(name: string, source: "auto" | "user", trigger?: string): Promise<boolean>;
+	/** Stock's journal append for an extension's own entry ({@link AUTO_TITLE_ENTRY}). */
+	appendCustomEntry(customType: string, data?: unknown): string;
+	/** Called after every change of the session's name, whoever made it (a rename, `/rename`, this engine). */
+	onSessionNameChanged(listener: () => void): () => void;
 }
 
 /** An event `AgentSession.subscribe` delivers (only these fields are read). */
@@ -149,6 +156,12 @@ export interface AutoTitleStock {
 	completeSimple(model: never, context: unknown, options: unknown): Promise<TitleReply>;
 	/** `tiny/text` `normalizeGeneratedTitle`: stock's check of a title answer (`<title/>`, junk, a whole reply). */
 	normalizeGeneratedTitle(value: string, sourceText?: string): string | null;
+	/** `session/messages` `buildReplanTitleContext`: the recent conversation a retitle names (stock's `/rename`). */
+	buildReplanTitleContext(messages: never): string;
+	/** `tiny/text` `isLowSignalTitleInput`: a conversation with nothing to name (greetings only). */
+	isLowSignalTitleInput(text: string): boolean;
+	/** `utils/title-card` `keepTitleCard`: a fresh title headed by the current title's card, as stock's retitle does. */
+	keepTitleCard(current: string | undefined, title: string): string;
 }
 
 /** The retry's output ceiling (reasoning is off; a title is a handful of tokens) and how long it may take. */
@@ -181,10 +194,14 @@ interface Tracking {
 	gate: EvolveGate;
 	/** A first-title or evolve request is running: another one waits for the next turn. */
 	busy: boolean;
+	/** The automatic title the GUI was last told stands beside the name (`session_info_update.autoTitle`). */
+	shownAuto: string | null;
 }
 
 const tracked = new WeakMap<TitleSession, Tracking>();
 const subscribed = new WeakSet<TitleSession>();
+/** Managers whose name changes the engine follows (a rename from anywhere shows or drops the automatic title). */
+const followedManagers = new WeakSet<TitleManager>();
 let emitFrame: AutoTitleEnv["emit"] | undefined;
 let clock: () => number = Date.now;
 /** Title-model requests started (a first title, a retitle, a card, a regeneration), for the cost report. */
@@ -199,10 +216,37 @@ function tracking(session: TitleSession): Tracking {
 	const sessionId = session.sessionManager.getSessionId();
 	let state = tracked.get(session);
 	if (!state || state.sessionId !== sessionId) {
-		state = { sessionId, gate: new EvolveGate(clock()), busy: false };
+		state = { sessionId, gate: new EvolveGate(clock()), busy: false, shownAuto: null };
 		tracked.set(session, state);
 	}
 	return state;
+}
+
+/** The session's name is one the person typed: automatic titles go beside it ({@link AUTO_TITLE_ENTRY}), never over it. */
+function typedName(session: TitleSession): boolean {
+	const manager = session.sessionManager;
+	return Boolean(session.sessionName) && !titleIsAuto(session.sessionName, manager.titleSource, manager.getEntries());
+}
+
+/** The title the engine keeps current: the name while it is automatic, else the newest automatic title beside it. */
+function currentAutoTitle(session: TitleSession): string | undefined {
+	return typedName(session) ? latestAutoTitle(session.sessionManager.getEntries()) : session.sessionName;
+}
+
+/** Tell the GUI the automatic title beside the name when it changed (`SessionInfo.autoTitle`; null: none). */
+function announceAutoTitle(session: TitleSession): void {
+	const state = tracking(session);
+	const next = shownAutoTitle(session.sessionManager.getEntries()) ?? null;
+	if (state.shownAuto === next) return;
+	state.shownAuto = next;
+	emitFrame?.({ type: "session_info_update", autoTitle: next, sessionId: state.sessionId });
+}
+
+function followNameChanges(session: TitleSession): void {
+	const manager = session.sessionManager;
+	if (followedManagers.has(manager)) return;
+	followedManagers.add(manager);
+	manager.onSessionNameChanged(() => announceAutoTitle(session));
 }
 
 /** Stock's source for a write: "auto" unless a typed name made it "user" (stock refuses "auto" over that). */
@@ -332,8 +376,8 @@ async function concise(
 }
 
 /**
- * Write an automatic title and tell the GUI. The caller has checked that the name is still the one its
- * request started from; stock itself refuses an "auto" write over the person's name.
+ * Write an automatic title as the session's name and tell the GUI. Stock itself refuses an "auto" write over the
+ * person's name; a typed name gets {@link writeAutomatic}'s entry beside it instead.
  */
 async function writeTitle(session: TitleSession, title: string): Promise<boolean> {
 	const manager = session.sessionManager;
@@ -345,10 +389,19 @@ async function writeTitle(session: TitleSession, title: string): Promise<boolean
 	return true;
 }
 
-/** A request began for `sessionId` and `name`: still the live session and the same name afterwards? */
-function unchanged(session: TitleSession, sessionId: string, name: string | undefined, revision: number): boolean {
+/**
+ * Write a generated title where it belongs now (a name typed meanwhile included): the session's name while that is
+ * automatic, else the {@link AUTO_TITLE_ENTRY} beside the person's name, which stays untouched.
+ */
+async function writeAutomatic(session: TitleSession, sessionId: string, title: string): Promise<boolean> {
 	const manager = session.sessionManager;
-	return manager.getSessionId() === sessionId && session.sessionName === name && manager.titleRevision === revision;
+	if (manager.getSessionId() !== sessionId) return false;
+	if (!typedName(session)) return writeTitle(session, title);
+	tracking(session).gate.reset(clock());
+	if (latestAutoTitle(manager.getEntries()) === title) return false;
+	manager.appendCustomEntry(AUTO_TITLE_ENTRY, { title });
+	announceAutoTitle(session);
+	return true;
 }
 
 /**
@@ -367,6 +420,21 @@ async function retitle(
 	return { title: await concise(session, named, title === undefined ? answer => answer : undefined), revision };
 }
 
+/**
+ * A fresh title for the recent conversation, as stock's `renameTitle()` makes one (its context, its low-signal check,
+ * the current automatic title's card), but not dropped when the person renames the session meanwhile: stock's
+ * revision check would discard it, and it belongs beside their name then.
+ */
+async function conversationTitle(session: TitleSession): Promise<string | null | undefined> {
+	const functions = await stockFunctions();
+	const context = functions.buildReplanTitleContext((session.messages ?? []) as never);
+	if (!context || functions.isLowSignalTitleInput(context)) return null;
+	await applyTitleLanguage(session);
+	requests++;
+	const named = await session.generateTitle(context);
+	return concise(session, named && functions.keepTitleCard(currentAutoTitle(session), named), answer => answer);
+}
+
 /** The first title: the operator's message through the title model, then the card. */
 async function firstTitle(session: TitleSession, text: string): Promise<void> {
 	const manager = session.sessionManager;
@@ -374,39 +442,38 @@ async function firstTitle(session: TitleSession, text: string): Promise<void> {
 	await applyTitleLanguage(session);
 	requests++;
 	const plain = await concise(session, await session.generateTitle(text), () => text);
-	if (!plain || manager.getSessionId() !== sessionId || session.sessionName) return;
-	const { title, revision } = await retitle(session, plain);
-	if (!title || !unchanged(session, sessionId, undefined, revision)) return;
-	await writeTitle(session, title);
+	if (!plain || manager.getSessionId() !== sessionId || currentAutoTitle(session)) return;
+	// The card, when the person chose icons; a rename meanwhile makes stock drop it, and the plain title still counts.
+	const { title } = await retitle(session, plain);
+	if (currentAutoTitle(session)) return;
+	await writeAutomatic(session, sessionId, title || plain);
 }
 
-/** An unnamed session after a turn the title model declined: name it from the conversation. */
+/** A session with no automatic title after a turn the title model declined: name it from the conversation. */
 async function contextTitle(session: TitleSession): Promise<void> {
 	const sessionId = session.sessionManager.getSessionId();
-	const { title, revision } = await retitle(session);
-	if (!title || !unchanged(session, sessionId, undefined, revision)) return;
-	await writeTitle(session, title);
+	const title = await conversationTitle(session);
+	if (!title || currentAutoTitle(session)) return;
+	await writeAutomatic(session, sessionId, title);
 }
 
 /**
  * An automatic title after the work moved: a fresh one unless it only rewords the current, and, while the judge model
  * is native (judge-assist-engine.ts), only when the judge picks it over the current one for the recent turns. Measured
  * on 25 evolving retitles: wrong ones 9 → 2, at the price of 4 of 16 good ones waiting for the next window. A judge
- * that did not decide writes the title as before.
+ * that did not decide writes the title as before. The current title is the name while it is automatic, else the
+ * automatic title beside the person's name; a name they type meanwhile stays, the result going beside it.
  */
 async function evolveTitle(session: TitleSession): Promise<void> {
-	const manager = session.sessionManager;
-	const sessionId = manager.getSessionId();
-	const name = session.sessionName;
-	if (!name) return;
-	const { title, revision } = await retitle(session);
-	if (!title || !unchanged(session, sessionId, name, revision)) return;
-	if (!titleIsAuto(name, manager.titleSource, manager.getEntries()) || isRewordedTitle(name, title)) return;
+	const sessionId = session.sessionManager.getSessionId();
+	const current = currentAutoTitle(session);
+	if (!current) return;
+	const title = await conversationTitle(session);
+	if (!title || currentAutoTitle(session) !== current || isRewordedTitle(current, title)) return;
 	// The turns are read from the live transcript's tail only once the judge gate says a judgment will be asked.
-	const fits = await newTitleFits(session, name, title, () => recentTitleTurns(session.messages ?? []));
-	// A name typed while the judge answered still wins.
-	if (fits === false || !unchanged(session, sessionId, name, revision)) return;
-	await writeTitle(session, title);
+	const fits = await newTitleFits(session, current, title, () => recentTitleTurns(session.messages ?? []));
+	if (fits === false || currentAutoTitle(session) !== current) return;
+	await writeAutomatic(session, sessionId, title);
 }
 
 function runBackground(session: TitleSession, work: () => Promise<void>): void {
@@ -423,22 +490,23 @@ function runBackground(session: TitleSession, work: () => Promise<void>): void {
 async function onEvent(event: TitleEvent, session: TitleSession): Promise<void> {
 	const state = tracking(session);
 	state.gate.note(event);
+	if (event.type !== "message_end" && event.type !== "agent_end") return;
+	followNameChanges(session);
 	if (!titleEffective(settings)) return;
-	if (event.type === "message_end" && !session.sessionName && event.message !== undefined) {
+	if (event.type === "message_end") {
+		if (event.message === undefined || currentAutoTitle(session)) return;
 		const message = (await stockFunctions()).operatorTitleText(event.message as never);
 		const text = message && titleInput(message);
-		if (text && !session.sessionName) runBackground(session, () => firstTitle(session, text));
+		if (text && !currentAutoTitle(session)) runBackground(session, () => firstTitle(session, text));
 		return;
 	}
 	// A pending async wake is a pause, not the end of the work.
-	if (event.type !== "agent_end" || event.isTerminal === false) return;
-	const manager = session.sessionManager;
-	if (!session.sessionName) {
+	if (event.isTerminal === false) return;
+	if (!currentAutoTitle(session)) {
 		runBackground(session, () => contextTitle(session));
 		return;
 	}
-	if (!evolveEffective(settings) || !titleIsAuto(session.sessionName, manager.titleSource, manager.getEntries()))
-		return;
+	if (!evolveEffective(settings)) return;
 	if (state.gate.turnEnded(clock())) runBackground(session, () => evolveTitle(session));
 }
 
@@ -454,7 +522,9 @@ async function attach(session: TitleSession, env: AutoTitleEnv): Promise<void> {
 		subscribed.add(session);
 		session.subscribe(event => void onEvent(event, session).catch(() => {}));
 	}
+	followNameChanges(session);
 	await applyTitleLanguage(session);
+	announceAutoTitle(session);
 }
 
 /** `{enabled, evolve, suppressed}` as main's prefs say; anything else is refused rather than read as on. */

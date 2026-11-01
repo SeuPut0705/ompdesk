@@ -47,6 +47,7 @@ import { type PaneDirection, paneInDirection, renderedPaneBoxes } from "./lib/pa
 import { watchPluginActivation } from "./lib/plugin-activation";
 import { useProjectNames } from "./lib/project-origin";
 import { handleRegionKey } from "./lib/region-cycle";
+import { combinedTitle, sessionTitleParts } from "./lib/session-title";
 import { writeSidebarVisible } from "./lib/sidebar-memory";
 import { closeActiveTab } from "./lib/tab-close";
 import { followActivationFocus } from "./lib/tab-focus";
@@ -117,6 +118,7 @@ function FocusedSessionEffects() {
 	// The window title's ● and the dock badge's: a turn that streams, compacts or waits to retry (`sessionWorking`).
 	const working = useSessionStore(sessionWorking);
 	const titleSessionName = useSessionStore(s => s.sessionName);
+	const titleAutoTitle = useSessionStore(s => s.autoTitle);
 	// An extension's `setTitle` (stock rpc `PI_RPC_EMIT_TITLE`) names the window
 	// while its tab is in front; each tab keeps its own.
 	const titleExtension = useExtensionUiStore(s => s.title);
@@ -135,10 +137,14 @@ function FocusedSessionEffects() {
 	const titleProject = titleWorktree?.worktree ? titleWorktree.name : null;
 
 	useEffect(() => {
-		const base = titleExtension ?? titleSessionName ?? "OMPdesk";
+		const named =
+			titleSessionName && titleAutoTitle
+				? combinedTitle(sessionTitleParts(titleSessionName, titleAutoTitle))
+				: titleSessionName;
+		const base = titleExtension ?? named ?? "OMPdesk";
 		const name = titleProject ? `${base} — ${titleProject}` : base;
 		document.title = awaiting ? `! ${name}` : working ? `● ${name}` : `› ${name}`;
-	}, [awaiting, working, titleSessionName, titleExtension, titleProject]);
+	}, [awaiting, working, titleSessionName, titleAutoTitle, titleExtension, titleProject]);
 	useEffect(() => startVoiceAutoSpeak(), []);
 	useEffect(() => startAgentAppEvents(), []);
 	useEffect(() => {

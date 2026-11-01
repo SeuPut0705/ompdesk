@@ -87,6 +87,17 @@ describe("session list snapshot", () => {
 		release();
 	});
 
+	it("takes a row whose automatic title came, changed or went though its file did not", async () => {
+		snapshots().write("sessions", "local", "global", [{ ...row("/a"), title: "Release prep" }]);
+		const read = Promise.withResolvers<SessionInfo[]>();
+		install(() => read.promise);
+		const feed = sessionListFeed("global");
+		const release = feed.retain();
+		read.resolve([{ ...row("/a"), title: "Release prep", autoTitle: "Fix login bug" }]);
+		await vi.waitFor(() => expect(feed.store.getState().sessions[0]?.autoTitle).toBe("Fix login bug"));
+		release();
+	});
+
 	it("a host's last-known rows are replaced once a read answers, though the first reads failed", async () => {
 		vi.useFakeTimers();
 		try {

@@ -101,4 +101,22 @@ describe("TabOverviewDialog search", () => {
 		await type("a");
 		expect(highlighted()[0]).toContain("alpha");
 	});
+
+	it("shows a tab's name with its automatic title beside it and finds the tab by either", async () => {
+		await act(async () => {
+			useTabsStore.setState(state => ({
+				tabs: state.tabs.map(tab => (tab.id === "b" ? { ...tab, autoTitle: "Fix login bug" } : tab)),
+			}));
+		});
+		const row = [...document.body.querySelectorAll('[role="option"]')].find(entry =>
+			(entry.textContent ?? "").includes("beta"),
+		);
+		expect(row?.querySelector("[data-title-name]")?.textContent).toBe("beta");
+		expect(row?.querySelector("[data-title-auto]")?.textContent).toContain("Fix login bug");
+
+		await type("login");
+		const shown = [...document.body.querySelectorAll('[role="option"]')].map(entry => entry.textContent ?? "");
+		expect(shown).toHaveLength(1);
+		expect(shown[0]).toContain("beta");
+	});
 });

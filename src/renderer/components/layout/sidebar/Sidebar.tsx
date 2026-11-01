@@ -73,6 +73,7 @@ import { useSessionAttention } from "../../../hooks/use-session-attention";
 import { useSessionList } from "../../../hooks/use-session-list";
 import { requestSessionSwitch } from "../../../hooks/use-session-switch";
 import { useShellInput } from "../../../hooks/use-shell-mode";
+import { useTabListRows } from "../../../hooks/use-tab-list-rows";
 import { ATTENTION_LABEL_KEY, type AttentionKind, isAsk } from "../../../lib/attention";
 import { activeComposerInput } from "../../../lib/composer-focus";
 import { saveDiagnosticBundle } from "../../../lib/diagnostic-bundle";
@@ -84,7 +85,16 @@ import { actionKbd, onEscape } from "../../../lib/keymap";
 import { moveInOrder, reorderProjects, withLocalProjectOrder } from "../../../lib/project-order";
 import { useProjectNames, useWorktreeKindLabels } from "../../../lib/project-origin";
 import { sessionForkOrigin } from "../../../lib/session-fork";
-import { botDisplayName, sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
+import {
+	botDisplayName,
+	combinedTitle,
+	sessionDisplayLabel,
+	sessionDisplayParts,
+	sessionDisplayTitle,
+	sessionHasContent,
+	sessionTitleParts,
+	type TitleParts,
+} from "../../../lib/session-title";
 import { isRememberedSession, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { clampSidebarWidth, readSidebarWidth, writeSidebarWidth } from "../../../lib/sidebar-width";
 import { snapshotNs, snapshots } from "../../../lib/snapshot-cache";
@@ -107,7 +117,7 @@ import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { RAIL_PIN_LABEL_KEYS, type RailPin, useSidebarPrefs } from "../../../stores/sidebar-prefs";
 import { useProjectList, useSidebarProjects } from "../../../stores/sidebar-projects";
 import { toggleSidebarSubagents, useSidebarSubagentsStore } from "../../../stores/sidebar-subagents";
-import { type SessionTab, useTabsStore } from "../../../stores/tabs";
+import { type SessionTab, tabAutoTitle, useTabsStore } from "../../../stores/tabs";
 import { toast, toastError } from "../../../stores/toast";
 import { type PageDestination, type PanelTab, useUiStore } from "../../../stores/ui";
 import { startInstall, useInstallOffered } from "../../../web/install-ui";
@@ -132,7 +142,6 @@ import {
 } from "../../common";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../../common/ContextMenu";
-import { SwapText } from "../../common/SwapText";
 import { TimeAgo } from "../../common/TimeAgo";
 import { WorkspaceDialog } from "../../dialogs/WorkspaceDialog";
 import { StarterGuide } from "../../onboarding/StarterGuide";
@@ -563,6 +572,7 @@ export function Sidebar() {
 		deleteSession,
 		renameSession,
 	} = useSessionList("global");
+	const listedRowOf = useTabListRows();
 	// Stock lists a fork under its parent's title and marks it (`fork`, "Forked from …"); a fork's
 	// `parentSessionPath` holds the parent's file path or, after a move, its id.
 	const sessionsByPathOrId = useMemo(() => {
@@ -1007,7 +1017,7 @@ export function Sidebar() {
 	const reorder = useSessionReorder({
 		titleOf: path => {
 			const found = allSessions.find(session => session.path === path);
-			return found ? sessionDisplayTitle(found, "") : "";
+			return found ? sessionDisplayLabel(found, "") : "";
 		},
 		save: (list, next) => void useSidebarPrefs.getState().setSessionOrder(list.key, [...next]),
 	});
@@ -1016,7 +1026,7 @@ export function Sidebar() {
 		const list = sessionListOf(session);
 		const next = canMoveWithin(list, session.path, delta) && list && moveInOrder(list.paths, session.path, delta);
 		if (!list || !next) return false;
-		reorder.move(list, session.path, next, sessionDisplayTitle(session, ""));
+		reorder.move(list, session.path, next, sessionDisplayLabel(session, ""));
 		return true;
 	};
 	const onProjectDragEnd = ({ active, over }: DragEndEvent) => {
@@ -1530,8 +1540,12 @@ export function Sidebar() {
 		const openTabId = row.tab?.id;
 		// An opened session reads as its task until it has a title, even when the index lists it without its first
 		// message yet; a closed one keeps the title main recorded.
+		const childParts = sessionDisplayParts(
+			{ ...child, autoTitle: row.tab?.autoTitle === undefined ? child.autoTitle : (row.tab.autoTitle ?? undefined) },
+			"",
+		);
 		const title =
-			sessionDisplayTitle(child, "") ||
+			childParts.title ||
 			row.tab?.task ||
 			closedTitleOf.get(child.path) ||
 			t(row.indexed ? "sidebar.untitled" : "sidebar.newSession");
@@ -1576,13 +1590,16 @@ export function Sidebar() {
 			state: status ? CHILD_TOKEN[status] : null,
 			stateLabel: statusLabel,
 			title,
+			auto: childParts.auto,
 			// A running child's token is the working arc (`FamilyStatus`); its age comes back when it stops.
 			age:
 				row.indexed && status !== "running" ? (
 					<TimeAgo className="text-(--sc-text-subtle)" iso={child.modified} />
 				) : undefined,
 			// The one line has no room for the status in words, the folder or the model: they are the tooltip.
-			tooltip: [title, statusLabel, origin.tooltip, model].filter(Boolean).join("\n"),
+			tooltip: [combinedTitle({ title, auto: childParts.auto }), statusLabel, origin.tooltip, model]
+				.filter(Boolean)
+				.join("\n"),
 			selected: row.active,
 			onOpen: () => openSession(child),
 			renaming: renamingSessionPath === child.path ? renderRenameField(child, key, openTabId, "pl-3.5") : undefined,
@@ -1657,6 +1674,7 @@ export function Sidebar() {
 		});
 		const device = hosts.find(host => host.deviceId === tab.device)?.name ?? tab.device ?? "";
 		const title = tab.title || tab.task || t("sidebar.newSession");
+		const auto = tab.title ? sessionTitleParts(tab.title, tabAutoTitle(tab, listedRowOf(tab))).auto : undefined;
 		const statusLabel =
 			status === "failed"
 				? t("sidebar.row.failed")
@@ -1677,8 +1695,11 @@ export function Sidebar() {
 			state: status ? CHILD_TOKEN[status] : null,
 			stateLabel: statusLabel,
 			title,
+			auto,
 			device,
-			tooltip: [title, statusLabel, `${device} · ${tab.cwd}`, model].filter(Boolean).join("\n"),
+			tooltip: [combinedTitle({ title, auto }), statusLabel, `${device} · ${tab.cwd}`, model]
+				.filter(Boolean)
+				.join("\n"),
 			selected: tab.id === activeTabId || splitIds?.has(tab.id) === true,
 			onOpen: () => void useTabsStore.getState().switchTab(tab.id),
 			buttonProps: { tabIndex: -1, "data-roving-item": key, onFocus: () => setFocusKey(key) },
@@ -1726,9 +1747,22 @@ export function Sidebar() {
 						),
 						...(remoteChildrenOf.get(session.path) ?? []).map(child => remoteFamilyChildFor(child)),
 					];
-		const title = bot
-			? botDisplayName(session, t("sidebar.botBadge"))
-			: sessionDisplayTitle(session, "") || tab?.task || (indexed ? t("sidebar.untitled") : t("sidebar.newSession"));
+		// The tab's own report outranks the row's (null: none); a stand-in for a device's tab here only has what that says.
+		const shownParts = sessionDisplayParts(
+			{
+				...session,
+				autoTitle:
+					tab?.autoTitle === undefined ? (session.autoTitle ?? hosted?.autoTitle) : (tab.autoTitle ?? undefined),
+			},
+			"",
+		);
+		// The bot's row is its own name alone; a row with no name reads as its task, else a placeholder.
+		const titleParts: TitleParts = bot
+			? { title: botDisplayName(session, t("sidebar.botBadge")) }
+			: shownParts.title
+				? shownParts
+				: { title: tab?.task || (indexed ? t("sidebar.untitled") : t("sidebar.newSession")) };
+		const title = combinedTitle(titleParts);
 		const fork = sessionForkOrigin(session, sessionsByPathOrId);
 		const pinned = pinnedSessions.includes(session.path);
 		// Renaming is safe mid-run (stock applies it live); deleting is not.
@@ -1914,14 +1948,13 @@ export function Sidebar() {
 						<>
 							<SessionLiveTitle
 								opened={runningOpened}
+								parts={titleParts}
 								running={signal === "running"}
 								settling={settling}
+								swapScope={session.path}
 								tabId={openTabId ?? null}
-								text={title}
 								waiting={signal === "waiting"}
-							>
-								<SwapText scope={session.path}>{title}</SwapText>
-							</SessionLiveTitle>
+							/>
 							{fork?.parentTitle && <ForkParent name={fork.parentTitle} />}
 							{fork && <span className="sr-only">, {fork.label}</span>}
 							{worktree?.label && <span className="sr-only">, {worktree.label}</span>}
@@ -2638,7 +2671,7 @@ export function Sidebar() {
 					});
 					return (
 						<ContextMenu
-							ariaLabel={sessionDisplayTitle(session, t("sidebar.untitled"))}
+							ariaLabel={sessionDisplayLabel(session, t("sidebar.untitled"))}
 							x={sessionMenu.anchor.x}
 							y={sessionMenu.anchor.y}
 							onClose={() => setSessionMenu(null)}

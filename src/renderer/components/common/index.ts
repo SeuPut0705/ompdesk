@@ -61,6 +61,7 @@ export {
 	type SegmentedOption,
 } from "./SegmentedChoice";
 export { Select, type SelectOption, type SelectProps } from "./Select";
+export { SessionTitle, type SessionTitleProps } from "./SessionTitle";
 export { INLINE_DESCRIPTION_MAX, SettingInfo, splitDescription } from "./SettingInfo";
 export { Sheet, type SheetPlacement, type SheetProps, type SheetSize } from "./Sheet";
 export { Skeleton, SkeletonRows } from "./Skeleton";

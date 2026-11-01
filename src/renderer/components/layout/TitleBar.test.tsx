@@ -274,6 +274,27 @@ describe("TitleBar", () => {
 		expect(container.textContent).not.toContain(translate("sidebar.newSession"));
 	});
 
+	it("shows the name the person set with the automatic title beside it, and the field edits only the name", async () => {
+		sessions.list.mockResolvedValue([]);
+		useSessionStore.setState({
+			status: "ready",
+			sessionId: "session-1",
+			cwd: "/tmp/project",
+			sessionName: "Release prep",
+			autoTitle: "Fix login bug",
+		});
+		await mount();
+		await act(async () => new Promise<void>(resolve => setTimeout(resolve, 0)));
+		const name = document.querySelector("[data-titlebar-session-name]");
+		expect(name?.querySelector("[data-title-name]")?.textContent).toBe("Release prep");
+		expect(name?.querySelector("[data-title-auto]")?.textContent).toContain("Fix login bug");
+		expect(name?.getAttribute("aria-label")).toContain("Release prep · Fix login bug");
+		expect(document.querySelector("h1[data-titlebar-heading]")?.textContent).toBe("Release prep · Fix login bug");
+
+		await act(async () => useSessionStore.setState({ autoTitle: null }));
+		expect(document.querySelector("[data-titlebar-session-name] [data-title-auto]")).toBeNull();
+	});
+
 	it("says where a forked session came from, so it never reads as a second copy of the original", async () => {
 		const row = {
 			cwd: "/tmp/project",

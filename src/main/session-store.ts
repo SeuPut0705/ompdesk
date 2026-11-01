@@ -20,6 +20,7 @@ const sessionRows = z.array(
 		firstMessage: z.string(),
 		parentSessionPath: z.string().optional(),
 		promptOriginDevice: z.string().optional(),
+		autoTitle: z.string().optional(),
 	}),
 );
 

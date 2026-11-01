@@ -29,6 +29,8 @@ export interface SessionStore {
 	pinTranscriptToBottom: () => void;
 	sessionId: string;
 	sessionName: string | null;
+	/** The automatic title beside a title the person set (`SessionInfo.autoTitle`); null when there is none. */
+	autoTitle: string | null;
 	sessionFile: string | null;
 	cwd: string;
 	sidecarError: string | null;
@@ -101,6 +103,7 @@ const initialState = {
 	transcriptPinNonce: 0,
 	sessionId: "",
 	sessionName: null,
+	autoTitle: null as string | null,
 	sessionFile: null,
 	cwd: "",
 	sidecarError: null as string | null,
@@ -147,7 +150,7 @@ export function snapshotModeState(
 }
 
 export const createSessionStore = () =>
-	createStore<SessionStore>()(set => ({
+	createStore<SessionStore>()((set, get) => ({
 		...initialState,
 		setSidecarError: (error, restart = null, held = false) =>
 			set({ sidecarError: error, sidecarRestart: restart, sidecarHeld: held, sidecarDismissed: false }),
@@ -164,6 +167,8 @@ export const createSessionStore = () =>
 				// disk; normalize "" to null so the TitleBar falls through to the
 				// session-list title/first message instead of rendering blank.
 				sessionName: state.sessionName || null,
+				// A snapshot does not carry it: it stays while the same session holds it.
+				autoTitle: get().sessionId === state.sessionId ? get().autoTitle : null,
 				sessionFile: state.sessionFile ?? null,
 				cwd: state.cwd,
 				isStreaming: state.isStreaming,

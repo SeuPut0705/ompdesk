@@ -35,6 +35,7 @@ import { actionKbd, onEscape } from "../../lib/keymap";
 import { useNowTick } from "../../lib/now-tick";
 import { useProjectNames, useWorktreeKindLabels } from "../../lib/project-origin";
 import { sessionForkOrigin } from "../../lib/session-fork";
+import { combinedTitle } from "../../lib/session-title";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useMessagesStore } from "../../stores/messages";
 import { useHostView, useRemoteStore } from "../../stores/remote";
@@ -53,11 +54,11 @@ import {
 	Input,
 	MenuButton,
 	Popover,
+	SessionTitle,
 	Spinner,
 	Tooltip,
 } from "../common";
 import { AutoTitleButton } from "../common/AutoTitleButton";
-import { SwapText } from "../common/SwapText";
 import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
 import { DeviceChip } from "../remote/DeviceChip";
 import { ForkParent } from "./ForkParent";
@@ -269,7 +270,8 @@ export function TitleBar() {
 		return index;
 	}, [sessions]);
 	const fork = current ? sessionForkOrigin(current, sessionsByPathOrId) : null;
-	const displayName = useCurrentSessionTitle();
+	const displayParts = useCurrentSessionTitle();
+	const displayName = combinedTitle(displayParts);
 	const visibleStats = stats?.sessionId === sessionId ? stats : null;
 	const cost = visibleStats ? (visibleStats.history?.cost ?? visibleStats.cost) : null;
 	const tokens = visibleStats ? (visibleStats.history?.totalTokens ?? visibleStats.tokens.total) : null;
@@ -280,7 +282,7 @@ export function TitleBar() {
 		if (generated.current) return;
 		const name = draft.trim();
 		setEditingName(false);
-		if (!name || name === displayName) return;
+		if (!name || name === displayParts.title) return;
 		const originSession = sessionRuntimeStore<SessionStore>(tabId, "session") ?? useSessionStore;
 		const originId = originSession.getState().sessionId;
 		void tabRpc
@@ -507,9 +509,7 @@ export function TitleBar() {
 							size="sm"
 							variant="ghost"
 						>
-							<SwapText className="truncate text-sc-md" scope={sessionId ?? ""}>
-								{displayName}
-							</SwapText>
+							<SessionTitle noTooltip parts={displayParts} swapScope={sessionId ?? ""} className="text-sc-md" />
 						</Button>
 					</Tooltip>
 				)}

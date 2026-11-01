@@ -17,7 +17,7 @@ import { useTabRpc } from "../../lib/tab-rpc";
 import { useMessagesStore } from "../../stores/messages";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
-import { Banner, Button, EmptyState, ErrorDetail, IconButton, SkeletonRows } from "../common";
+import { Banner, Button, EmptyState, ErrorDetail, IconButton, SessionTitle, SkeletonRows } from "../common";
 import { MetricCard, MetricGrid, SectionTitle } from "../stats/shared";
 import { AdvisorInsights } from "./AdvisorInsights";
 import { ContextBreakdown } from "./ContextBreakdown";
@@ -163,7 +163,9 @@ export function SessionInsights() {
 	return (
 		<div className="flex flex-col">
 			<div className="flex items-center gap-3">
-				<h2 className="min-w-0 truncate text-sc-xl font-semibold text-(--sc-text)">{sessionTitle}</h2>
+				<h2 className="flex min-w-0 text-sc-xl font-semibold text-(--sc-text)">
+					<SessionTitle parts={sessionTitle} />
+				</h2>
 				<span
 					className="shrink-0 rounded-(--sc-radius-xs) bg-(--sc-surface-3) px-1.5 py-0.5 font-mono text-sc-2xs text-(--sc-text-muted)"
 					title={stats.sessionId}

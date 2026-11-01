@@ -331,6 +331,11 @@ interface PoolEntry extends RunTracking {
 	 * so its chip has something better than a folder name to show.
 	 */
 	title?: string | null;
+	/**
+	 * The automatic title beside a name the person typed, as the tab's omp last reported it (`session_info_update`);
+	 * null once it reported none (windows drop the one they show), undefined while it said nothing.
+	 */
+	autoTitle?: string | null;
 	/** What another session's agent opened this tab for (`agentTaskTitle` of its first message), until it has a title. */
 	task?: string;
 	/** The tab whose agent opened this one (`ompdesk_session_open`). */
@@ -823,6 +828,7 @@ export class SidecarPool {
 				}),
 				...(entry.sessionId === undefined ? {} : { sessionId: entry.sessionId }),
 				...(entry.title ? { title: entry.title } : {}),
+				...(entry.autoTitle ? { autoTitle: entry.autoTitle } : {}),
 				...(entry.awaitingConnection ? { awaitingConnection: true } : {}),
 				...(entry.scheduledRetry ? { scheduledRetry: entry.scheduledRetry } : {}),
 				run: runReading(entry.run),
@@ -1026,6 +1032,7 @@ export class SidecarPool {
 		});
 		sidecar.on("sessionInfoUpdate", (frame: SessionInfoUpdateFrame) => {
 			if (frame.title !== undefined) entry.title = frame.title;
+			if (frame.autoTitle !== undefined) entry.autoTitle = frame.autoTitle;
 			if (typeof frame.sessionId === "string") {
 				const previousId = entry.sessionId;
 				entry.sessionId = frame.sessionId;
@@ -1057,6 +1064,8 @@ export class SidecarPool {
 			// session_info_update only when a name changes) keeps it.
 			if (identity.sessionName) entry.title = identity.sessionName;
 			else if (previousId !== undefined && entry.sessionId !== previousId) entry.title = undefined;
+			// Another session's automatic title is not this one's; its omp tells the new one's when it has one.
+			if (previousId !== undefined && entry.sessionId !== previousId) entry.autoTitle = undefined;
 			if (identity.sessionFile) this.#registerSessionFile(entry, identity.sessionFile);
 			else this.#unregisterSessionFile(entry);
 			if (entry.sessionId === previousId && entry.sessionFile === previousFile && entry.title === previousTitle)
@@ -2764,6 +2773,7 @@ function tabStatusPayload(entry: PoolEntry): IpcTabStatusPayload {
 	if (payload.status === "running" && entry.run.saga) payload.retrySaga = entry.run.saga;
 	if (entry.sessionId !== undefined) payload.sessionId = entry.sessionId;
 	if (entry.title !== undefined) payload.title = entry.title;
+	if (entry.autoTitle !== undefined) payload.autoTitle = entry.autoTitle;
 	if (entry.task !== undefined) payload.task = entry.task;
 	if (entry.openedBy !== undefined) payload.openedBy = entry.openedBy;
 	if (entry.openedBySession !== undefined) payload.openedBySession = entry.openedBySession;

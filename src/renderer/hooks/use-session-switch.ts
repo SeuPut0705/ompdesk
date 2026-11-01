@@ -64,6 +64,7 @@ export function resetSessionSurface(closeOverlays = true): void {
 	useSessionStore.setState({
 		sessionId: "",
 		sessionName: null,
+		autoTitle: null,
 		sessionFile: null,
 		isStreaming: false,
 		isCompacting: false,

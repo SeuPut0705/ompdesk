@@ -3,9 +3,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
+import type { TitleParts } from "../../lib/session-title";
 import { useProjectOrigins } from "../../stores/project-origins";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
-import { type SessionTab, useTabsStore } from "../../stores/tabs";
+import { type SessionTab, tabDisplayParts, useTabsStore } from "../../stores/tabs";
 import { PaneSwitcher, SplitPaneHeader } from "./SplitWorkspace";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -21,14 +22,14 @@ const tab: SessionTab = {
 	unreadDone: false,
 };
 
-async function mount(shown: SessionTab = tab) {
+async function mount(shown: SessionTab = tab, parts: TitleParts = { title: "메인" }) {
 	container = document.createElement("div") as unknown as globalThis.HTMLElement;
 	document.body.appendChild(container as never);
 	root = createRoot(container);
 	await act(async () => {
 		root?.render(
 			<I18nProvider>
-				<SplitPaneHeader tab={shown} label="메인" />
+				<SplitPaneHeader parts={parts} tab={shown} />
 			</I18nProvider>,
 		);
 	});
@@ -82,6 +83,40 @@ describe("split pane breadcrumb", () => {
 	});
 });
 
+describe("split pane header automatic title", () => {
+	it("shows a paired host's tab name with the automatic title its TAB_STATUS carried, muted beside it", async () => {
+		useTabsStore.getState().applyTabStatus({
+			kind: "agent",
+			tabId: "remote",
+			cwd: "/host/work",
+			status: "ready",
+			device: "dev-1",
+			title: "Release prep",
+			autoTitle: "Fix login bug",
+		});
+		const remote = useTabsStore.getState().tabs.find(entry => entry.id === "remote") as SessionTab;
+		const parts = tabDisplayParts(remote, useTabsStore.getState().tabs, undefined, "Untitled");
+		await mount(remote, parts);
+		const header = container.querySelector("header");
+		expect(header?.querySelector("[data-title-name]")?.textContent).toBe("Release prep");
+		expect(header?.querySelector("[data-title-auto]")?.textContent).toContain("Fix login bug");
+
+		await act(async () => root?.unmount());
+		container.remove();
+		useTabsStore.getState().applyTabStatus({
+			kind: "agent",
+			tabId: "remote",
+			cwd: "/host/work",
+			status: "ready",
+			device: "dev-1",
+			autoTitle: null,
+		});
+		const cleared = useTabsStore.getState().tabs.find(entry => entry.id === "remote") as SessionTab;
+		await mount(cleared, tabDisplayParts(cleared, useTabsStore.getState().tabs, undefined, "Untitled"));
+		expect(container.querySelector("header [data-title-auto]")).toBeNull();
+	});
+});
+
 describe("split pane header working title", () => {
 	const light = () => container.querySelector("header [data-working]");
 
@@ -127,7 +162,7 @@ describe("pane switcher", () => {
 					<PaneSwitcher
 						activeTabId="b"
 						ids={["a", "b"]}
-						labelFor={id => `pane ${id}`}
+						labelFor={id => ({ title: `pane ${id}`, ...(id === "b" ? { auto: "auto b" } : {}) })}
 						onPick={id => picked.push(id)}
 					/>
 				</I18nProvider>,
@@ -140,5 +175,7 @@ describe("pane switcher", () => {
 			buttons[0].dispatchEvent(new Event("click", { bubbles: true }));
 		});
 		expect(picked).toEqual(["a"]);
+		expect(buttons[1]?.querySelector("[data-title-auto]")?.textContent).toContain("auto b");
+		expect(buttons[0]?.querySelector("[data-title-auto]")).toBeNull();
 	});
 });

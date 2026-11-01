@@ -1629,6 +1629,11 @@ export interface IpcTabInfo {
 	sessionId?: string;
 	/** Null explicitly clears the previous session's cached title. */
 	title?: string | null;
+	/**
+	 * The session's latest automatic title while its title is one the person set (`SessionInfo.autoTitle`'s rule), as
+	 * the tab's omp reports it; null clears it (the title became automatic again, another session took the tab).
+	 */
+	autoTitle?: string | null;
 	/** What another session's agent opened the tab for (`agentTaskTitle`); shown until the session has a title. */
 	task?: string;
 	/** The tab whose agent opened this one (`ompdesk_session_open`); the sidebar nests the session under it. */
@@ -1751,6 +1756,8 @@ export interface IpcHostedSession {
 	sessionPath: string;
 	sessionId?: string;
 	title?: string;
+	/** As {@link IpcTabInfo.autoTitle}. */
+	autoTitle?: string;
 	cwd: string;
 	kind: SessionKind;
 	/** The tab's status, `running` while a turn runs or its background work keeps the session unsettled. */
@@ -1834,6 +1841,12 @@ export interface SessionInfo {
 	path: string;
 	id: string;
 	title: string | null;
+	/**
+	 * The session's latest automatic title, present only while `title` is one the person set and the automatic one
+	 * differs from it (the bridge keeps generating automatic titles after a rename, journaled as `ompdesk.auto-title`;
+	 * `auto-title-core.ts` `shownAutoTitle`). Every surface shows `<title> · <autoTitle>` then.
+	 */
+	autoTitle?: string;
 	cwd: string;
 	created: string;
 	/**

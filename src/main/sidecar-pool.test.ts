@@ -2955,6 +2955,27 @@ describe("SidecarPool background tabs", () => {
 		expect(pool.tabsForWindow(fw.win)[0]?.title).toBe("Renamed asleep");
 	});
 
+	it("tells the windows the automatic title beside a typed name, its clearing, and drops it for another session", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a", "/sessions/one.jsonl");
+		const a = sidecars[0];
+		a?.emitSessionIdentity({ sessionId: "one", sessionFile: "/sessions/one.jsonl", sessionName: "Typed" });
+		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).not.toHaveProperty("autoTitle");
+		a?.emitSessionInfo({ autoTitle: "Fix login bug", sessionId: "one" });
+		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({
+			title: "Typed",
+			autoTitle: "Fix login bug",
+		});
+		// The title became automatic again: the windows drop the one they show.
+		a?.emitSessionInfo({ autoTitle: null, sessionId: "one" });
+		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({ autoTitle: null });
+		a?.emitSessionInfo({ autoTitle: "Fix login bug", sessionId: "one" });
+		// Another session takes the tab: the old one's automatic title is not its own.
+		a?.emitSessionIdentity({ sessionId: "two", sessionFile: "/sessions/two.jsonl" });
+		expect(pool.tabsForWindow(fw.win)[0]).not.toHaveProperty("autoTitle");
+	});
+
 	it("holds one window-closed listener however many tabs the window has, and a released tab is not released again", () => {
 		// A listener per tab passed Node's limit of 10 once a window held 11 tabs (MaxListenersExceededWarning).
 		const { pool, sidecars } = fakePool();

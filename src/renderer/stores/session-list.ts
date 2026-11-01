@@ -74,6 +74,7 @@ function sameRow(prev: SessionInfo, next: SessionInfo): boolean {
 		prev.modified === next.modified &&
 		prev.size === next.size &&
 		prev.title === next.title &&
+		prev.autoTitle === next.autoTitle &&
 		prev.kind === next.kind &&
 		prev.openedBySession === next.openedBySession &&
 		prev.heldOnHost === next.heldOnHost &&

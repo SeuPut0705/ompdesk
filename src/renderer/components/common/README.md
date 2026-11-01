@@ -46,6 +46,7 @@ class) says why on the line or the one above: `controls-ok: <reason>`. Existing 
 | A longer explanation of a row | `SettingInfo` (the (i) glyph), `splitDescription` | a paragraph under a label |
 | A short status or count | `Badge` (`dot` + `pulse` while live; text says the state) | a clickable badge |
 | A file path or URL on one line (a tool's location, a repository root) | `PathText` (the middle gives way, the tail stays; the full text is the tooltip) | `truncate` on the whole path, which cuts the file name |
+| A session's name on a surface (a row, a header, the title bar) | `SessionTitle` (`parts` from `lib/session-title.ts`: the name the person set, then ` · ` and the automatic title muted; the automatic part is cut first; `live` puts the working shimmer on the name) | `sessionDisplayTitle` rendered as a bare string, which drops the automatic title |
 | A persistent condition of a surface | `Banner` (one sentence, ≤ 2 actions) | a toast |
 | One part of a surface failed or is degraded | `InlineNotice` (with Retry; cause as `ErrorDetail`) | stacked Banners |
 | Brief feedback after an action | a toast (`stores/toast`, drawn by `ToastStack`) | a Banner |
