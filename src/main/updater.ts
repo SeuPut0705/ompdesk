@@ -863,7 +863,13 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 				busy: probe.busy(),
 				asking: probe.asking(),
 				compacting: probe.compacting(),
-				...(reading ? { backgroundWork: reading.work, backgroundWorkPending: reading.pending } : {}),
+				...(reading
+					? {
+							backgroundWork: reading.work,
+							backgroundWorkPending: reading.pending,
+							...(reading.askedAt !== undefined ? { backgroundWorkAskedAt: reading.askedAt } : {}),
+						}
+					: {}),
 				focused: BrowserWindow.getAllWindows().some(win => win.isFocused()),
 				idleMs: powerMonitor.getSystemIdleTime() * 1000,
 			};
@@ -877,6 +883,8 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 					broadcast({ state: "downloaded", version: current.version, mode: current.mode });
 			},
 			install: () => restartIntoUpdate("auto"),
+			// The countdown's end decides on a fresh answer; the tick after it lands decides.
+			verify: () => void probe.backgroundWork.fresh().then(() => autoInstall?.tick()),
 		},
 	});
 	setInterval(() => autoInstall?.tick(), AUTO_INSTALL_TICK_MS).unref();

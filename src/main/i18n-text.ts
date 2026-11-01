@@ -391,6 +391,10 @@ export const MAIN_TEXT = {
 	"updates.restartWork.jobs": { en: "{count} background job{plural}", ko: "백그라운드 작업 {count}개" },
 	"updates.restartWork.restart": { en: "Restart", ko: "재시작" },
 	"updates.restartWork.subagents": { en: "{count} subagent{plural}", ko: "서브에이전트 {count}개" },
+	"updates.restartWork.unknown": {
+		en: "{count} session{plural} that did not answer",
+		ko: "응답하지 않은 세션 {count}개의 작업",
+	},
 	"updates.restartWork.title": { en: "Background work is still running", ko: "백그라운드 작업이 아직 실행 중이에요" },
 	"updates.unsupportedArchitecture": {
 		en: "This Mac architecture does not have a supported installer.",

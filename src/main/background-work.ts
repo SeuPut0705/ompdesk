@@ -7,8 +7,9 @@
  * (`members`), `updater.ts` feeds the answer to the automatic-install scheduler (`app-auto-update.ts`) and a
  * click on "Restart & install" asks it fresh (`app-quit.ts`, `quit-guard.ts`' `updateRestartConfirmation`).
  *
- * A tab whose request fails or times out is unknown, which counts as no background work for that tab: the probe
- * never throws and never holds a restart over what it could not see.
+ * A tab whose request fails or times out is unknown, and unknown work holds a restart like running work (bounded by
+ * the scheduler's max wait): a timed-out answer once read as no work for a tab running a subagent. The probe never
+ * throws.
  */
 import type { BridgeJobRow } from "../../resources/gui-bridge/jobs-contracts";
 
@@ -29,12 +30,16 @@ export interface BackgroundWork {
 	subagentLabels: readonly string[];
 	/** The shell and eval jobs' labels. */
 	jobLabels: readonly string[];
+	/** Omps whose answer failed or did not come in time: their work is not known, so it counts as running. */
+	unknown?: number;
 }
 
 export const NO_BACKGROUND_WORK: BackgroundWork = { subagents: 0, jobs: 0, subagentLabels: [], jobLabels: [] };
 
+const UNKNOWN_WORK: BackgroundWork = { ...NO_BACKGROUND_WORK, unknown: 1 };
+
 export function hasBackgroundWork(work: BackgroundWork): boolean {
-	return work.subagents + work.jobs > 0;
+	return work.subagents + work.jobs + (work.unknown ?? 0) > 0;
 }
 
 /** The running work in one tab's `composer.jobs` rows; anything else the bridge sent is ignored. */
@@ -60,6 +65,7 @@ export function mergeBackgroundWork(parts: readonly BackgroundWork[]): Backgroun
 		jobs: work.reduce((sum, part) => sum + part.jobs, 0),
 		subagentLabels: work.flatMap(part => part.subagentLabels),
 		jobLabels: work.flatMap(part => part.jobLabels),
+		...(work.some(part => part.unknown) ? { unknown: work.reduce((sum, part) => sum + (part.unknown ?? 0), 0) } : {}),
 	};
 }
 
@@ -93,13 +99,19 @@ export function namedBackgroundWork(
 	};
 }
 
-/** The confirm's sentence subject: "2 subagents (LayoutSplit, StreamFast) and 1 background job (dev server)". */
+type SentenceKey =
+	| "updates.restartWork.subagents"
+	| "updates.restartWork.jobs"
+	| "updates.restartWork.unknown"
+	| "updates.restartWork.and";
+
+/**
+ * The confirm's sentence subject: "2 subagents (LayoutSplit, StreamFast) and 1 background job (dev server)", and the
+ * sessions whose answer did not come ("1 session that did not answer").
+ */
 export function backgroundWorkSentence(
 	work: BackgroundWork,
-	say: (
-		key: "updates.restartWork.subagents" | "updates.restartWork.jobs" | "updates.restartWork.and",
-		params?: Record<string, number>,
-	) => string,
+	say: (key: SentenceKey, params?: Record<string, number>) => string,
 ): string {
 	const named = namedBackgroundWork(work);
 	const part = (key: "updates.restartWork.subagents" | "updates.restartWork.jobs", kind: NamedWork): string => {
@@ -107,7 +119,12 @@ export function backgroundWorkSentence(
 		const names = kind.names.length > 0 ? ` (${kind.names.join(", ")}${kind.more ? ", …" : ""})` : "";
 		return `${say(key, { count: kind.count })}${names}`;
 	};
-	return [part("updates.restartWork.subagents", named.subagents), part("updates.restartWork.jobs", named.jobs)]
+	const unknown = work.unknown ? say("updates.restartWork.unknown", { count: work.unknown }) : "";
+	return [
+		part("updates.restartWork.subagents", named.subagents),
+		part("updates.restartWork.jobs", named.jobs),
+		unknown,
+	]
 		.filter(text => text !== "")
 		.join(say("updates.restartWork.and"));
 }
@@ -122,6 +139,8 @@ export interface BackgroundWorkMember {
 export interface BackgroundWorkReading {
 	work: BackgroundWork;
 	pending: boolean;
+	/** When the request whose answer `work` is began (epoch ms); undefined before the first answer. */
+	askedAt: number | undefined;
 }
 
 /** What `updater.ts` reads: the scheduler's cached reading, a fresh answer for a click, and "nobody is looking". */
@@ -136,7 +155,7 @@ export interface BackgroundWorkSource {
 
 /** A source with nothing running, for callers that do not watch (tests of other rules). */
 export const NO_BACKGROUND_WORK_SOURCE: BackgroundWorkSource = {
-	read: () => ({ work: NO_BACKGROUND_WORK, pending: false }),
+	read: () => ({ work: NO_BACKGROUND_WORK, pending: false, askedAt: undefined }),
 	idle: () => {},
 	fresh: async () => NO_BACKGROUND_WORK,
 };
@@ -156,6 +175,8 @@ export class BackgroundWorkWatcher implements BackgroundWorkSource {
 	#known = false;
 	/** When the last request began or its answer landed; the refresh interval counts from here. */
 	#askedAt: number | undefined;
+	/** When the request whose answer `#work` is began. */
+	#answerAskedAt: number | undefined;
 	#inflight: Promise<BackgroundWork> | undefined;
 	/** `idle()` bumps it: an answer that lands after is of an earlier live period and is dropped. */
 	#period = 0;
@@ -168,7 +189,7 @@ export class BackgroundWorkWatcher implements BackgroundWorkSource {
 		const refreshMs = this.#opts.refreshMs ?? BACKGROUND_WORK_REFRESH_MS;
 		const at = (this.#opts.now ?? Date.now)();
 		if (!this.#inflight && (this.#askedAt === undefined || at - this.#askedAt >= refreshMs)) void this.fresh();
-		return { work: this.#work, pending: !this.#known };
+		return { work: this.#work, pending: !this.#known, askedAt: this.#answerAskedAt };
 	}
 
 	idle(): void {
@@ -176,17 +197,20 @@ export class BackgroundWorkWatcher implements BackgroundWorkSource {
 		this.#period++;
 		this.#known = false;
 		this.#askedAt = undefined;
+		this.#answerAskedAt = undefined;
 		this.#work = NO_BACKGROUND_WORK;
 	}
 
 	fresh(): Promise<BackgroundWork> {
 		if (this.#inflight) return this.#inflight;
-		this.#askedAt = (this.#opts.now ?? Date.now)();
+		const askedAt = (this.#opts.now ?? Date.now)();
+		this.#askedAt = askedAt;
 		const period = this.#period;
 		const asked = this.#ask().then(work => {
 			if (period === this.#period) {
 				// The interval counts from the answer: a slow omp is not asked again at once.
 				this.#askedAt = (this.#opts.now ?? Date.now)();
+				this.#answerAskedAt = askedAt;
 				this.#work = work;
 				this.#known = true;
 			}
@@ -205,13 +229,13 @@ export class BackgroundWorkWatcher implements BackgroundWorkSource {
 		try {
 			members = this.#opts.members();
 		} catch {
-			return NO_BACKGROUND_WORK;
+			return UNKNOWN_WORK;
 		}
 		return mergeBackgroundWork(await Promise.all(members.map(member => askMember(member, timeoutMs))));
 	}
 }
 
-/** One omp's running work; a failed, refused or slow answer is none. */
+/** One omp's running work; a failed, refused or slow answer is unknown work. */
 async function askMember(member: BackgroundWorkMember, timeoutMs: number): Promise<BackgroundWork> {
 	let timer: NodeJS.Timeout | undefined;
 	try {
@@ -220,7 +244,7 @@ async function askMember(member: BackgroundWorkMember, timeoutMs: number): Promi
 		timer.unref();
 		return summarizeJobRows(await Promise.race([member.request("composer.jobs", {}, timeoutMs), timeout]));
 	} catch {
-		return NO_BACKGROUND_WORK;
+		return UNKNOWN_WORK;
 	} finally {
 		clearTimeout(timer);
 	}

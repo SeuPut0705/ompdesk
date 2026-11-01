@@ -48,6 +48,12 @@ export interface AutoInstallFacts {
 	backgroundWork?: BackgroundWork;
 	/** The probe has not answered yet since the update became installable: decide nothing with resume on. */
 	backgroundWorkPending?: boolean;
+	/**
+	 * When the request `backgroundWork` answers began (epoch ms). The restart at the countdown's end goes only on an
+	 * answer asked at or after the deadline: the cached one can be seconds old, and work started in those seconds would
+	 * be cut.
+	 */
+	backgroundWorkAskedAt?: number;
 	/** One of this app's windows has focus. */
 	focused: boolean;
 	/** Time since the user's last input anywhere on the computer. */
@@ -61,6 +67,8 @@ export interface AutoInstallEffects {
 	withdraw(): void;
 	/** Restart into the update. */
 	install(): void;
+	/** Ask the background-work probe again now, and tick once its answer landed (`backgroundWorkAskedAt` moves). */
+	verify?(): void;
 }
 
 /** Why the scheduler is not installing yet. */
@@ -131,6 +139,8 @@ export class AutoInstallScheduler {
 	#postponed = false;
 	/** The reason a resume-on restart at the countdown's end waits for, last logged. */
 	#loggedHold: string | undefined;
+	/** This countdown's end asked the probe for a fresh look (once per countdown). */
+	#verifyAsked = false;
 
 	constructor(options: AutoInstallOptions) {
 		this.#opts = options;
@@ -165,6 +175,16 @@ export class AutoInstallScheduler {
 				this.#loggedWait = undefined;
 				this.#opts.log?.("withdrawn", { reason: "work started, resume off" });
 				effects.withdraw();
+				return;
+			}
+			// The cached answer can be seconds old: the restart goes only on one asked at or after the deadline, so work
+			// started just before it holds. Past the max wait background work no longer holds, so nothing is asked.
+			const stale = f.backgroundWorkAskedAt === undefined || f.backgroundWorkAskedAt < this.#restartAt;
+			if (f.resumes && f.backgroundWork !== undefined && stale && waitedMs < maxWaitMs) {
+				if (!this.#verifyAsked) {
+					this.#verifyAsked = true;
+					effects.verify?.();
+				}
 				return;
 			}
 			// Running turns resume after the restart; an open card or a compaction would not, and background work would
@@ -217,6 +237,7 @@ export class AutoInstallScheduler {
 
 	#announce(at: number): void {
 		this.#restartAt = at + (this.#opts.countdownMs ?? AUTO_INSTALL_COUNTDOWN_MS);
+		this.#verifyAsked = false;
 		this.#opts.log?.("countdown", { restartAt: this.#restartAt });
 		this.#opts.effects.announce(this.#restartAt);
 	}
