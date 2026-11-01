@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.95.1] - 2026-11-02
+
+휴대폰과 다른 컴퓨터에서 연결이 끊겨도 몇 초 안에 조용히 다시 붙고, 위를 덮던 "다시 시도하고 있어요" 띠가 없어졌어요.
+
+### 고친 것
+- 네트워크가 바뀌거나 연결이 조용히 죽으면 최대 1분 가까이 멈춰 있다가 띠를 띄우던 문제를 고쳤어요. 이제 몇 초 안에 알아채고, 즉시·0.25·0.5·1초 간격으로 다시 붙어요. 화면으로 돌아오거나 네트워크가 돌아오면 바로 다시 연결해요.
+- 화면 맨 위를 덮던 전체 폭 띠를 없앴어요. 3초 안에 다시 붙으면 아무것도 보이지 않고, 더 오래 끊기면 제목 줄의 상태 자리에 작은 표시만 나와요. 다시 붙으면 바로 사라져요.
+- 다시 붙을 때 페이지를 새로 불러오지 않아요. 대화, 입력 중인 글, 읽던 위치가 그대로이고, 끊긴 동안 보낸 메시지는 한 번만 도착해요.
+- 데스크탑에서 다른 컴퓨터를 볼 때도 같은 방식이에요.
+
+<!-- en -->
+
+On the phone and when viewing another computer, a dropped link comes back quietly within seconds, and the "trying again" bar over the top is gone.
+
+### Fixed
+- A network change or a silently dead link stalled the page for up to a minute before the bar showed. It is now noticed within seconds and retried at once, then after 0.25, 0.5 and 1 s; returning to the page or the network coming back reconnects right away.
+- The full-width bar over the header is gone. A drop that recovers within 3 seconds shows nothing; a longer one shows a small mark in the title bar's status spot that leaves the moment the link is back.
+- Reconnecting never reloads the page: the conversation, your draft and your reading position stay, and a message sent while the link was down arrives once.
+- The same when the desktop app views another computer.
+
 ## [0.95.0] - 2026-11-02
 
 Nord, Tokyo Night, Gruvbox, Solarized, GitHub 테마가 원작 색을 그대로 써요. 자동 업데이트가 하위 에이전트 작업을 날리지 않아요.
