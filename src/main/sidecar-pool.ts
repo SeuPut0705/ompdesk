@@ -1049,15 +1049,18 @@ export class SidecarPool {
 		sidecar.on("session", (identity: SidecarSessionIdentity) => {
 			const previousId = entry.sessionId;
 			const previousFile = entry.sessionFile;
+			const previousTitle = entry.title;
 			if (identity.sessionId) entry.sessionId = identity.sessionId;
-			// Another session now runs under this tab (new session, switch, project
-			// change): its name replaces the old one's, since stock sends
-			// session_info_update only when a name changes. A first report keeps the
-			// title seeded at acquire.
-			if (previousId !== undefined && entry.sessionId !== previousId) entry.title = identity.sessionName;
+			// The live omp's name is the session's name: the title seeded at acquire, or one an omp started again after
+			// a rename on disk, may be older. Another session now under this tab (new session, switch, project change)
+			// without a name drops the old one's; the same session reported without one (stock sends
+			// session_info_update only when a name changes) keeps it.
+			if (identity.sessionName) entry.title = identity.sessionName;
+			else if (previousId !== undefined && entry.sessionId !== previousId) entry.title = undefined;
 			if (identity.sessionFile) this.#registerSessionFile(entry, identity.sessionFile);
 			else this.#unregisterSessionFile(entry);
-			if (entry.sessionId === previousId && entry.sessionFile === previousFile) return;
+			if (entry.sessionId === previousId && entry.sessionFile === previousFile && entry.title === previousTitle)
+				return;
 			this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			if (entry.sessionFile !== previousFile) this.#notifyWindowTabsChanged(win);
 		});
@@ -1593,8 +1596,8 @@ export class SidecarPool {
 	}
 
 	/**
-	 * Main renamed a live session (stock `set_session_name` answers without the `session_info_update` a rename
-	 * from inside omp sends): the tab entry, its strip and every window's session title learn the name now.
+	 * A session renamed on disk while its tab holds no live omp (asleep): the tab entry, its strip and every
+	 * window's session title learn the name now. A live omp's rename reports itself (`Sidecar`).
 	 */
 	noteSessionName(tabId: string, title: string): void {
 		const entry = this.#byTabId.get(tabId);

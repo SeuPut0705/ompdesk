@@ -71,8 +71,6 @@ export class World {
 	guide: unknown = undefined;
 	/** Stock's session name per tab (`set_session_name` / `get_state`). */
 	sessionNames = new Map<string, string>();
-	/** What the windows were told the session is called (`noteSessionName`). */
-	shownNames = new Map<string, string>();
 	/** What stock's `get_usage` answers (`reports`). */
 	usage: Array<{ provider: string; fetchedAt: number; limits: never[]; resetAt?: number }> = [];
 
@@ -246,9 +244,6 @@ export function build(
 		},
 		noteStopped: tab => {
 			world.stopped.push(tab);
-		},
-		noteSessionName: (tab, title) => {
-			world.shownNames.set(tab, title);
 		},
 		routeSideChannel: async (id, response, tab) => {
 			world.answers.push({ id, tab: tab ?? "", response });

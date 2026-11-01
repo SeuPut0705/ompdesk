@@ -304,6 +304,7 @@ function hostServices(local: SidecarPool, workDir: string): LocalHostServices {
 			sessionRunning: () => false,
 			commandForSession: async () => ({ type: "response", command: "get_state", success: true }),
 			closeSessionTab: async () => false,
+			noteSessionName: () => {},
 			allSidecars: () => [],
 			viewForDevice: (sessionPath, origin, hostName) => local.viewForDevice(sessionPath, origin, hostName),
 			stopSession: async () => {},

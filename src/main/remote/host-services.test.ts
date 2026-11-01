@@ -227,6 +227,8 @@ function fakeLocalTabs() {
 	const prompted: string[] = [];
 	/** The window tabs' moves in order: a device's command goes out (`begin`), is counted (`touched`), is answered (`end`). */
 	const moveLog: string[] = [];
+	/** Names a rename on disk gave a window tab's sleeping session (`noteSessionName`). */
+	const named: Array<{ tabId: string; title: string }> = [];
 	const localTabs: HostServicesDeps["localTabs"] = {
 		sessionOwner: path => owned.get(path) ?? null,
 		windowSessionFiles: () => new Set(owned.keys()),
@@ -240,6 +242,7 @@ function fakeLocalTabs() {
 			owned.delete(path);
 			return true;
 		},
+		noteSessionName: (tabId, title) => void named.push({ tabId, title }),
 		allSidecars: () => [tab as unknown as SidecarLike],
 		viewForDevice: (path, origin, hostName) => {
 			const view = views.get(path);
@@ -261,7 +264,7 @@ function fakeLocalTabs() {
 			return () => void moveLog.push(`end:${tabId}`);
 		},
 	};
-	return { tab, owned, closed, running, stopped, views, viewed, touched, prompted, moveLog, localTabs };
+	return { tab, owned, closed, running, stopped, views, viewed, touched, prompted, moveLog, named, localTabs };
 }
 
 const DESKTOP: HostDesktopState = {
@@ -996,11 +999,29 @@ describe("LocalHostServices", () => {
 		local.owned.set("/s/asleep.jsonl", { tabId: "local-1", winId: 1 });
 
 		await services.call(x.peer, "sessions.rename", { sessionPath: "/s/asleep.jsonl", name: "Kept" }, x);
+		// The sleeping tab shows the new name now, not when its omp starts again.
+		expect(local.named).toEqual([{ tabId: "local-1", title: "Kept" }]);
 		await services.call(x.peer, "sessions.delete", { sessionPath: "/s/asleep.jsonl" }, x);
 		expect(renameStoredSession).toHaveBeenCalledWith("/s/asleep.jsonl", "Kept");
 		expect(deleteSession).toHaveBeenCalledWith("/s/asleep.jsonl");
 		expect(local.tab.commands).toEqual([]);
 		expect(local.closed).toEqual(["local-1"]);
+	});
+
+	it("renames this computer's own session through the device's tab that holds it, never the file under its omp", async () => {
+		// 1 Nov 2026: the host's sidebar renamed a session a paired computer's tab held on the host straight on disk;
+		// that omp kept the old name in memory and the device's title above the chat never changed.
+		const { services, sidecars, renameStoredSession } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		await services.call(x.peer, "tab.open", { rtab: "t", cwd: workDir, fresh: false }, x);
+		sidecars[0]?.setStatus("ready");
+		sidecars[0]?.emit("session", { sessionId: "s", sessionFile: "/s/x.jsonl" });
+
+		await services.renameSession("/s/x.jsonl", " Named here ");
+		expect(sidecars[0]?.commands).toEqual([
+			{ type: "set_session_name", name: "Named here", sessionPath: "/s/x.jsonl" },
+		]);
+		expect(renameStoredSession).not.toHaveBeenCalled();
 	});
 
 	it("deletes a session the device's own tab held once that tab's omp has exited", async () => {

@@ -105,7 +105,12 @@ test("a paired device's view of a run's work board shows the run's follow-ups an
 		.getByText(/^Cycle \d/)
 		.first()
 		.click();
-	await client.page.locator("[data-work-board-panel]").getByText("project · PC-B").first().click();
+	// The run's row on A wears the name B's run gave its session now (its cycle's item), not the folder it started with.
+	await client.page
+		.locator("[data-work-board-panel]")
+		.getByText(/^Cycle \d.* · PC-B$/)
+		.first()
+		.click();
 	await expect(client.page.locator("[data-work-board-panel] [data-autopilot-state]")).toBeVisible({ timeout: 30_000 });
 	await fs.writeFile(early, "");
 	const cycle = async () => (await board(host?.page as Page, runTab)).status?.cycle;

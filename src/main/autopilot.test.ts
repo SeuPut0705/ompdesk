@@ -105,8 +105,6 @@ describe("start", () => {
 		const picked = { ...base, now: { n: 1, startedAt: 1, area: "bugs" as const, title: "Fix slugify spaces" } };
 		autopilot.overlay(sidecar, { type: "autopilot_update", status: picked });
 		await vi.waitFor(() => expect(world.sessionNames.get("ap-1")).toBe("Fix slugify spaces"));
-		// Stock sends no update for an RPC rename: the windows are told by main.
-		expect(world.shownNames.get("ap-1")).toBe("Fix slugify spaces");
 		// The next cycle's item names it in turn.
 		const second = { ...picked, now: { n: 2, startedAt: 2, area: "tests" as const, title: "Cover slugify edges" } };
 		autopilot.overlay(sidecar, { type: "autopilot_update", status: second });

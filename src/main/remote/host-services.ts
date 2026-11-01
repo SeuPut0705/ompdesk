@@ -271,6 +271,7 @@ export interface HostServicesDeps {
 		| "sessionRunning"
 		| "commandForSession"
 		| "closeSessionTab"
+		| "noteSessionName"
 		| "allSidecars"
 		| "viewForDevice"
 		| "stopSession"
@@ -1159,7 +1160,7 @@ export class LocalHostServices implements HostServices {
 				return null;
 			case "sessions.rename": {
 				const { sessionPath, name } = parse(RenameParams, method, params);
-				return this.#renameSession(sessionPath, name);
+				return this.renameSession(sessionPath, name);
 			}
 			case "sessions.move": {
 				const { sessionPath, cwd } = parse(MoveParams, method, params);
@@ -2501,8 +2502,11 @@ export class LocalHostServices implements HostServices {
 		};
 	}
 
-	/** This machine's sidebar policy, with a device tab holding the session as the first live owner. */
-	async #renameSession(sessionPath: string, name: string): Promise<null> {
+	/**
+	 * Rename a session of this computer, asked by a device or by this computer's own windows: a device tab holding it
+	 * here is its first live owner, then this computer's tabs, else the file.
+	 */
+	async renameSession(sessionPath: string, name: string): Promise<null> {
 		await renameSession(this.#deps.localTabs, sessionPath, name, {
 			renameStored: name => this.#deps.renameStoredSession(sessionPath, name),
 			otherOwner: () => {

@@ -23,6 +23,7 @@ function tabs(closes: boolean, running = false) {
 		sessionOwnerIsLive: () => true,
 		sessionRunning: () => running,
 		commandForSession: vi.fn(async () => null),
+		noteSessionName: () => {},
 		closeSessionTab: vi.fn(async (sessionPath: string, device?: string) => {
 			calls.push(`close ${sessionPath} ${device ?? "local"}`);
 			return closes;

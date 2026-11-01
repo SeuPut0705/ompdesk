@@ -852,6 +852,11 @@ export class SidecarManager extends EventEmitter {
 				this.#sessionPath = null;
 				this.#isNew = true;
 			}
+		} else if (command.type === "set_session_name") {
+			// Stock's RPC rename answers without the `session_info_update` a rename inside omp sends. Every rename of the
+			// live session ends here (the sidebar's, the title bar's, Autopilot's, a paired computer's), so this is where the
+			// tab, its windows and a paired computer viewing it learn the name.
+			this.#routeFrame({ type: "session_info_update", title: command.name.trim() });
 		}
 	}
 

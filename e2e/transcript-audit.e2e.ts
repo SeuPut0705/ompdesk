@@ -261,7 +261,7 @@ async function seedTranscript(file: string): Promise<void> {
 		],
 	});
 	add("a4", reply("Shipped **v0.27.0**. Both installers are signed with the rotated certificate."));
-	// A titled session, so the title bar and the sidebar row read the same name (the fake omp's fallback is this one).
+	// A titled session, so the title bar and the sidebar row read the same name.
 	const title = { type: "title", v: 1, title: "Audit session", updatedAt: new Date(start).toISOString() };
 	await fs.writeFile(file, `${[title, ...lines].map(line => JSON.stringify(line)).join("\n")}\n`);
 }

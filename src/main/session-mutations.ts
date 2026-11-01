@@ -17,7 +17,12 @@ import type { SidecarPool } from "./sidecar-pool";
 
 export type SessionTabs = Pick<
 	SidecarPool,
-	"sessionOwner" | "sessionOwnerIsLive" | "sessionRunning" | "commandForSession" | "closeSessionTab"
+	| "sessionOwner"
+	| "sessionOwnerIsLive"
+	| "sessionRunning"
+	| "commandForSession"
+	| "closeSessionTab"
+	| "noteSessionName"
 >;
 
 /** The tabs this computer runs for paired devices (LocalHostServices), as this computer's own delete closes them. */
@@ -122,8 +127,14 @@ export async function renameSession(
 	else if (tabs.sessionOwner(sessionPath, device) && tabs.sessionOwnerIsLive(sessionPath, device))
 		response = await tabs.commandForSession(sessionPath, command, device);
 	if (response === null) throw codedError("session_starting", "Session is still starting");
-	if (response === undefined) await options.renameStored(name);
-	else if (!response.success) throw new Error(response.error);
+	if (response !== undefined) {
+		if (!response.success) throw new Error(response.error);
+		return;
+	}
+	await options.renameStored(name);
+	// A tab holding the file with no live omp (asleep) shows the name it had; a live one reports its own (`Sidecar`).
+	const owner = tabs.sessionOwner(sessionPath, device);
+	if (owner) tabs.noteSessionName(owner.tabId, name);
 }
 
 /** Move a stored session no tab holds; returns its new path. */

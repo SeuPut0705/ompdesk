@@ -130,8 +130,6 @@ export interface AutopilotPool {
 	} | null;
 	releaseTabWhenExited(tabId: string): Promise<void>;
 	noteStopped(tabId: string): void;
-	/** Main renamed the tab's live session: the windows learn the name (stock sends no update for an RPC rename). */
-	noteSessionName(tabId: string, title: string): void;
 	routeSideChannel(id: string, frame: object, tabId?: string): Promise<boolean>;
 }
 
@@ -2040,7 +2038,6 @@ export class Autopilot {
 				if ((state.sessionName ?? "") !== run.title.name) return;
 			}
 			await this.#stock(run.tabId, { type: "set_session_name", name });
-			this.#deps.pool.noteSessionName(run.tabId, name);
 			run.title = { name, item: run.title?.item ?? null };
 		} catch (error) {
 			this.#log(`naming the run's session failed: ${error instanceof Error ? error.message : String(error)}`);

@@ -248,6 +248,7 @@ describe.skipIf(!OUT || !stockRoot)("session lists across windows and paired com
 						sessionRunning: () => false,
 						commandForSession: async () => ({ type: "response", command: "get_state", success: true }),
 						closeSessionTab: async () => false,
+						noteSessionName: () => {},
 						allSidecars: () => [] as SidecarLike[],
 						viewForDevice: () => null,
 						stopSession: async () => {},

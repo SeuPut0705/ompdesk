@@ -444,7 +444,8 @@ export function runRpcUi(): void {
 				: sessionFile
 					? { sessionFile }
 					: {}),
-		sessionName: sessionTitle || "Audit session",
+		// Stock reports no name for an unnamed session; a made-up one would read as the session's real name.
+		...(sessionTitle ? { sessionName: sessionTitle } : {}),
 		autoCompactionEnabled: true,
 		queuedMessageCount: lanes.steering.length + lanes.followUp.length,
 		hasPendingAsyncWork: false,

@@ -173,7 +173,6 @@ import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from 
 import { readOriginFacts, readProjectOrigin } from "./local/git/origin";
 import { WORKTREE_PREPARE_BUDGET_MS } from "./local/git/worktree-seed";
 import { noteTypedPrompt } from "./local/prompt-origin";
-import { renameStoredSession } from "./local/session-files";
 import type { LogWatcher } from "./log-watcher";
 import { type LocalMachine, type MachineServices, machineFor as pickMachine } from "./machine-services";
 import type { MailAccounts } from "./mail-accounts";
@@ -289,6 +288,7 @@ export interface IpcDeps {
 		| "checkoutMembers"
 		| "closeSessionTabs"
 		| "stopSessionTurns"
+		| "renameSession"
 		| "listingChanged"
 	>;
 	/** Spawn a window with its own sidecar (index.ts's pool-backed helper). */
@@ -1178,7 +1178,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			tabFacts: tabId => sidecarPool.tabFacts(tabId),
 			releaseTabWhenExited: tabId => sidecarPool.releaseTabWhenExited(tabId),
 			noteStopped: tabId => sidecarPool.noteStopped(tabId),
-			noteSessionName: (tabId, title) => sidecarPool.noteSessionName(tabId, title),
 			routeSideChannel: (id, frame, tabId) => sidecarPool.routeSideChannel(id, frame, tabId),
 		},
 		dispatch: (win, sidecar, tabId, command, timeoutMs) =>
@@ -1776,19 +1775,18 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			throw codedError("invalid_session_path", "Invalid session path");
 		}
 		const device = deviceOf(payload.device);
+		// This computer's own session goes the way a device's rename of it does: a device's tab may hold it here.
+		if (!device) {
+			await deps.hostedTabs.renameSession(payload.sessionPath, payload.name);
+			return;
+		}
 		await renameSession(sidecarPool, payload.sessionPath, payload.name, {
 			device,
-			renameStored: async name => {
-				if (device)
-					return remoteDevices.request(device, "sessions.rename", { sessionPath: payload.sessionPath, name });
-				const omp = await systemOmp();
-				if (!omp.ok) throw new Error(omp.error);
-				await renameStoredSession(omp.runtime, payload.sessionPath, name);
-			},
+			renameStored: name =>
+				remoteDevices.request(device, "sessions.rename", { sessionPath: payload.sessionPath, name }),
 		});
-		// The title is in the journal now: the next read of the list (the renamer's own) reads it, not the copy before.
-		if (device) remoteDevices.hostSessionsStale(device);
-		else sessionIndex.relist();
+		// The title is in the host's journal now: the next read of its list (the renamer's own) reads it, not the copy before.
+		remoteDevices.hostSessionsStale(device);
 	});
 
 	ipc.handle(IPC_COMMANDS.SESSIONS_MOVE, async (_caller, payload: IpcSessionsMovePayload): Promise<string> => {

@@ -2927,6 +2927,34 @@ describe("SidecarPool background tabs", () => {
 		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({ sessionId: "three", title: "Docs search" });
 	});
 
+	it("shows the live omp's name over the title the layout seeded and over one renamed on disk while it slept", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire(
+			"/a",
+			fw.win,
+			"tab-a",
+			"/sessions/one.jsonl",
+			"agent",
+			undefined,
+			false,
+			false,
+			false,
+			"Old layout name",
+		);
+		const a = sidecars[0];
+		expect(pool.tabsForWindow(fw.win)[0]?.title).toBe("Old layout name");
+		// The omp's first report names the session: renamed since the layout saved it.
+		a?.emitSessionIdentity({ sessionId: "one", sessionFile: "/sessions/one.jsonl", sessionName: "Renamed" });
+		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({ title: "Renamed" });
+		// An omp started again on the same session, renamed on disk meanwhile, says its name again.
+		a?.emitSessionIdentity({ sessionId: "one", sessionFile: "/sessions/one.jsonl", sessionName: "Renamed asleep" });
+		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({ title: "Renamed asleep" });
+		// The same session reported without a name keeps it.
+		a?.emitSessionIdentity({ sessionId: "one", sessionFile: "/sessions/one.jsonl" });
+		expect(pool.tabsForWindow(fw.win)[0]?.title).toBe("Renamed asleep");
+	});
+
 	it("holds one window-closed listener however many tabs the window has, and a released tab is not released again", () => {
 		// A listener per tab passed Node's limit of 10 once a window held 11 tabs (MaxListenersExceededWarning).
 		const { pool, sidecars } = fakePool();

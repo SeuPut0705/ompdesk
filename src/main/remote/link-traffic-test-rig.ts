@@ -242,6 +242,7 @@ function hostServices(bin: string, workDir: string, raw: RawTap, bridgeDir?: str
 			sessionRunning: () => false,
 			commandForSession: async () => ({ type: "response", command: "get_state", success: true }),
 			closeSessionTab: async () => false,
+			noteSessionName: () => {},
 			allSidecars: () => [],
 			viewForDevice: () => null,
 			stopSession: async () => {},
