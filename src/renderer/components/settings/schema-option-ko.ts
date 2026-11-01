@@ -856,6 +856,8 @@ export const KO_SCHEMA_OPTION_TEXT: Readonly<Record<string, string>> = {
 	Ultrafast: "초고속",
 	"Lowest-latency serving; OpenAI API preview access, or Codex models that advertise it":
 		"지연 시간이 가장 짧은 서빙이에요. OpenAI API 프리뷰 권한이나 이를 지원하는 Codex 모델이 필요해요",
+	"Lowest-latency serving; OpenAI API preview access, or Codex and relay models that advertise it":
+		"지연 시간이 가장 짧은 서빙이에요. OpenAI API 프리뷰 권한이나 이를 지원하는 Codex·릴레이 모델이 필요해요",
 	"Ultrafast serving (OpenAI family, where available)": "초고속 서빙 (OpenAI 계열, 지원되는 경우)",
 	"Apple silicon GPU via mlx-lm (Python subprocess; macOS arm64)":
 		"mlx-lm으로 Apple silicon GPU 사용 (Python 하위 프로세스, macOS arm64)",

@@ -68,6 +68,7 @@ const STOCK_PROVIDER_IDS: readonly string[] = [
 	"minimax-code",
 	"minimax-code-cn",
 	"mistral",
+	"modular",
 	"moonshot",
 	"muse-code",
 	"nanogpt",
