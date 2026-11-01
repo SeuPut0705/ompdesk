@@ -98,10 +98,13 @@ const caller: IpcCaller = { win: null, browserWindow: null, sender: { id: 1, onc
 const registry = new IpcRegistry({ handle: () => {}, on: () => {} });
 const realPlatform = process.platform;
 let autoInstallOn = false;
-/** What the background-work probe answers: the cached reading the scheduler reads, and what a click asks fresh. */
+/**
+ * What the background-work probe answers: the cached reading the scheduler reads (asked just now, as a probe that
+ * answers at once), and what a click asks fresh.
+ */
 const background = { work: NO_BACKGROUND_WORK as BackgroundWork, pending: false };
 const source: BackgroundWorkSource = {
-	read: () => ({ ...background }),
+	read: () => ({ ...background, askedAt: Date.now() }),
 	idle: () => {},
 	fresh: async () => background.work,
 };

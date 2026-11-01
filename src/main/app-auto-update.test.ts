@@ -11,7 +11,10 @@ import { type BackgroundWork, NO_BACKGROUND_WORK } from "./background-work";
 
 const MINUTE = 60 * 1000;
 
-/** The scheduler on a clock the test moves; `calls` records every effect in order. */
+/**
+ * The scheduler on a clock the test moves; `calls` records every effect in order. Its probe answers a request for a
+ * fresh look at the next tick, with the work `facts.backgroundWork` holds then (`verifies` counts the requests).
+ */
 function setup(initial: Partial<AutoInstallFacts> = {}) {
 	let time = 1_000_000;
 	const facts: AutoInstallFacts = {
@@ -26,6 +29,7 @@ function setup(initial: Partial<AutoInstallFacts> = {}) {
 	const calls: string[] = [];
 	/** Each logged transition: `event` plus its details as `key=value`, in order. */
 	const logs: string[] = [];
+	let verifies = 0;
 	const scheduler = new AutoInstallScheduler({
 		log: (event, details = {}) =>
 			logs.push([event, ...Object.entries(details).map(([key, value]) => `${key}=${value}`)].join(" ")),
@@ -35,6 +39,10 @@ function setup(initial: Partial<AutoInstallFacts> = {}) {
 			announce: restartAt => calls.push(`announce:${restartAt - time}`),
 			withdraw: () => calls.push("withdraw"),
 			install: () => calls.push("install"),
+			verify: () => {
+				verifies++;
+				facts.backgroundWorkAskedAt = time;
+			},
 		},
 	});
 	return {
@@ -42,6 +50,8 @@ function setup(initial: Partial<AutoInstallFacts> = {}) {
 		calls,
 		logs,
 		scheduler,
+		now: () => time,
+		verifies: () => verifies,
 		advance(ms: number) {
 			time += ms;
 			scheduler.tick();
@@ -401,6 +411,7 @@ describe("AutoInstallScheduler with background work (resume on)", () => {
 			expect.stringMatching(/^countdown restartAt=\d+$/),
 		]);
 		t.advance(AUTO_INSTALL_COUNTDOWN_MS);
+		t.advance(0);
 		expect(t.calls.at(-1)).toBe("install");
 	});
 
@@ -427,6 +438,7 @@ describe("AutoInstallScheduler with background work (resume on)", () => {
 			expect.stringMatching(/^countdown restartAt=\d+$/),
 		]);
 		t.advance(AUTO_INSTALL_COUNTDOWN_MS);
+		t.advance(0);
 		expect(t.calls.at(-1)).toBe("install");
 	});
 
@@ -502,5 +514,40 @@ describe("AutoInstallScheduler with background work (resume on)", () => {
 		t.facts.backgroundWork = SUBAGENTS;
 		t.advance(AUTO_INSTALL_COUNTDOWN_MS);
 		expect(t.calls).toEqual([`announce:${AUTO_INSTALL_COUNTDOWN_MS}`, "withdraw"]);
+	});
+
+	// The advisory on the 2 Nov 2026 fix: the countdown ended on a cached answer up to 5 s old, so a subagent started
+	// in those seconds was cut by the restart. The countdown's end asks again and installs only on that answer.
+	it("installs only on an answer asked at or after the countdown's end: work that started just before it holds", () => {
+		const t = setup({
+			busy: true,
+			resumes: true,
+			backgroundWork: NO_BACKGROUND_WORK,
+			backgroundWorkAskedAt: 1_000_000,
+		});
+		t.advance(0);
+		expect(t.calls).toEqual([`announce:${AUTO_INSTALL_COUNTDOWN_MS}`]);
+		t.advance(AUTO_INSTALL_COUNTDOWN_MS - 500);
+		// A task starts half a second before the deadline; the cached answer, asked 4 s ago, still says none.
+		t.facts.backgroundWorkAskedAt = t.now() - 4000;
+		t.advance(500);
+		expect(t.calls).toEqual([`announce:${AUTO_INSTALL_COUNTDOWN_MS}`]);
+		expect(t.verifies()).toBe(1);
+		// The fresh answer sees the task.
+		t.facts.backgroundWork = SUBAGENTS;
+		t.advance(1000);
+		expect(t.calls).toEqual([`announce:${AUTO_INSTALL_COUNTDOWN_MS}`]);
+		expect(t.logs.at(-1)).toBe("held reason=background work");
+	});
+
+	it("holds for unknown work (an omp that did not answer) like running work, up to the max wait", () => {
+		const unknown: BackgroundWork = { ...NO_BACKGROUND_WORK, unknown: 1 };
+		const t = setup({ busy: true, resumes: true, backgroundWork: unknown });
+		t.advance(0);
+		t.advance(AUTO_INSTALL_MAX_WAIT_MS - 1);
+		expect(t.calls).toEqual([]);
+		expect(t.logs).toEqual(["waiting reason=background work waitedMs=0"]);
+		t.advance(1);
+		expect(t.calls).toEqual([`announce:${AUTO_INSTALL_COUNTDOWN_MS}`]);
 	});
 });

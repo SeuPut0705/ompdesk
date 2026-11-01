@@ -5,6 +5,7 @@ import {
 	type BackgroundWorkMember,
 	BackgroundWorkWatcher,
 	backgroundWorkSentence,
+	hasBackgroundWork,
 	mergeBackgroundWork,
 	NO_BACKGROUND_WORK,
 	namedBackgroundWork,
@@ -102,6 +103,17 @@ describe("backgroundWorkSentence", () => {
 		expect(backgroundWorkSentence(summarizeJobRows([job("task", "A")]), say("en"))).toBe("1 subagent (A)");
 		expect(backgroundWorkSentence(summarizeJobRows([job("eval", "")]), say("en"))).toBe("1 background job");
 	});
+
+	it("names the sessions whose answer did not come, so the confirm never reads empty", () => {
+		expect(backgroundWorkSentence({ ...NO_BACKGROUND_WORK, unknown: 1 }, say("en"))).toBe(
+			"1 session that did not answer",
+		);
+		expect(
+			backgroundWorkSentence(mergeBackgroundWork([work, { ...NO_BACKGROUND_WORK, unknown: 2 }]), say("ko")),
+		).toBe(
+			"서브에이전트 2개 (LayoutSplit, StreamFast), 백그라운드 작업 1개 (dev server), 응답하지 않은 세션 2개의 작업",
+		);
+	});
 });
 
 /** A watcher on a clock the test moves, over omps whose answers it controls. */
@@ -163,7 +175,7 @@ describe("BackgroundWorkWatcher", () => {
 		expect(slow.asked).toBe(2);
 	});
 
-	it("counts a failed, refused or slow omp as no work and keeps the others", async () => {
+	it("counts an omp whose answer failed or never came as unknown work, which holds like running work", async () => {
 		const ok = member("ok", async () => [job("task", "A")]);
 		const broken = member("broken", async () => {
 			throw new Error("gui-bridge not connected");
@@ -172,22 +184,44 @@ describe("BackgroundWorkWatcher", () => {
 		const junk = member("junk", async () => "not rows");
 		const t = watched([broken, hung, junk, ok]);
 		const work = await t.watcher.fresh();
-		expect(work).toMatchObject({ subagents: 1, jobs: 0, subagentLabels: ["A"] });
+		expect(work).toMatchObject({ subagents: 1, jobs: 0, unknown: 2, subagentLabels: ["A"] });
+		expect(hasBackgroundWork(await watched([hung]).watcher.fresh())).toBe(true);
 	});
 
-	it("never throws, even when listing the omps does", async () => {
+	// The advisory on the 2 Nov 2026 fix: an omp running a subagent whose next answer timed out read as no work.
+	it("never reads a running subagent as gone when the next answer times out", async () => {
+		let hang = false;
+		const m = member("m", () => (hang ? new Promise(() => {}) : Promise.resolve([job("task", "StreamFast")])));
+		const t = watched([m]);
+		expect(hasBackgroundWork(await t.watcher.fresh())).toBe(true);
+		hang = true;
+		t.advance(BACKGROUND_WORK_REFRESH_MS);
+		expect(hasBackgroundWork(await t.watcher.fresh())).toBe(true);
+		expect(hasBackgroundWork(t.watcher.read().work)).toBe(true);
+	});
+
+	it("says when the answer it holds was asked", async () => {
+		const t = watched([member("m", async () => [])]);
+		expect(t.watcher.read().askedAt).toBeUndefined();
+		const asked = t.watcher.fresh();
+		t.advance(500);
+		await asked;
+		expect(t.watcher.read().askedAt).toBe(1_000_000);
+	});
+
+	it("never throws, and holds, when listing the omps does", async () => {
 		const watcher = new BackgroundWorkWatcher({
 			members: () => {
 				throw new Error("pool gone");
 			},
 		});
-		await expect(watcher.fresh()).resolves.toBe(NO_BACKGROUND_WORK);
+		expect(hasBackgroundWork(await watcher.fresh())).toBe(true);
 	});
 
 	it("asks nothing when no omp runs, and says none", async () => {
 		const t = watched([]);
 		expect(await t.watcher.fresh()).toBe(NO_BACKGROUND_WORK);
-		expect(t.watcher.read()).toEqual({ work: NO_BACKGROUND_WORK, pending: false });
+		expect(t.watcher.read()).toEqual({ work: NO_BACKGROUND_WORK, pending: false, askedAt: 1_000_000 });
 	});
 
 	it("starts a new live period after idle: pending again, the old answer dropped, a late answer ignored", async () => {
