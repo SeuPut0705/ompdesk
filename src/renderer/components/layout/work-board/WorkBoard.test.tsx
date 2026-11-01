@@ -410,6 +410,36 @@ describe("WorkBoard sections", () => {
 		expect(pane.querySelector('[data-board-agent="a1"]')?.getAttribute("title")).not.toContain("restart");
 	});
 
+	// 2 Nov 2026: each revived subagent ended at once and stock called it "failed in 353ms".
+	it("leaves a subagent the revive ended at once off the board, with no failure said anywhere", async () => {
+		useMessagesStore.setState({
+			messages: [
+				{
+					role: "custom",
+					customType: "ompdesk-restart-subagents",
+					timestamp: 1,
+					display: true,
+					content: "These background agents you started are working again",
+					details: { jobs: [], subagents: [{ id: "a1", doing: "bash: probing the stream" }] },
+				},
+				{
+					role: "custom",
+					customType: "async-result",
+					timestamp: 2,
+					display: true,
+					content:
+						'<system-notice>\nBackground job a1 has failed.\n<task-result id="a1" agent="task" status="failed (exit 1)" duration="353ms">\n<output>\nSYSTEM WARNING: Subagent ended without a final message.\n</output>\n</task-result>\n</system-notice>',
+					details: { jobs: [{ jobId: "a1", agentId: "a1", type: "task", status: "failed", durationMs: 353 }] },
+				},
+			],
+		});
+		useSubagentsStore.getState().setSnapshots([agent("a1", "failed", 0), agent("a2", "running", 1)]);
+		await mount();
+		expect(pane.querySelector('[data-board-agent="a1"]')).toBeNull();
+		expect(pane.querySelector('[data-board-agent="a2"]')).not.toBeNull();
+		expect(pane.textContent?.toLowerCase()).not.toContain("failed");
+	});
+
 	it("opens Background tasks from a job row", async () => {
 		rows = [jobRow({ id: "j1", type: "bash", status: "running", label: "watch", startTime: Date.now() })];
 		await mount();

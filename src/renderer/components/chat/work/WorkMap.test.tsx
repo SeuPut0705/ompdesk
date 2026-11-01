@@ -407,4 +407,67 @@ describe("a subagent a restart revived", () => {
 		expect(buttons()[0]?.textContent).toContain("Inspecting the implementation");
 		expect(container.textContent).not.toContain("Resuming after the restart");
 	});
+
+	// 2 Nov 2026, the 0.94.0 → 0.94.1 update restart: each revived subagent ended at once, "failed in 353ms".
+	describe("that the revive ended at once", () => {
+		const WARNING = "SYSTEM WARNING: Subagent ended without a final message.";
+		const delivery = (named: boolean): AgentMessage[] =>
+			[
+				...transcript.slice(0, 3),
+				{
+					...transcript[3],
+					details: {
+						jobs: [],
+						subagents: named
+							? [{ id: "Probe", intent: "List the files", doing: "bash: probing the stream" }]
+							: [],
+					},
+				},
+				{
+					role: "custom",
+					customType: "async-result",
+					timestamp: 6,
+					display: true,
+					content: `<system-notice>\nBackground job Probe has failed.\n<task-result id="Probe" agent="task" status="failed (exit 1)" duration="353ms">\n<output>\n${WARNING}\n</output>\n</task-result>\n</system-notice>`,
+					details: {
+						jobs: [{ jobId: "Probe", agentId: "Probe", type: "task", status: "failed", durationMs: 353 }],
+					},
+				},
+			] as AgentMessage[];
+		const ended = {
+			...revived,
+			status: "failed",
+			progress: progress("Probe", { status: "failed", durationMs: 353 }),
+		};
+
+		it.each([
+			["en", "Interrupted by the restart"],
+			["ko", "재시작으로 중단됨"],
+		])(
+			"reads %s as interrupted by the restart: no failed mark, no duration, no stock warning",
+			async (language, text) => {
+				vi.stubGlobal("localStorage", { getItem: () => language, setItem: vi.fn() });
+				useMessagesStore.setState({ messages: delivery(true), liveMessages: [] });
+				useSubagentsStore.getState().setSnapshots([ended as SubagentNode]);
+				await render();
+				expect(buttons()).toHaveLength(1);
+				expect(buttons()[0]?.closest("li")?.getAttribute("data-status")).toBe("aborted");
+				expect(buttons()[0]?.querySelector(".omp-work-status")?.getAttribute("data-state")).toBe("stopped");
+				expect(buttons()[0]?.querySelector(".omp-work-card-activity")?.textContent).toBe(text);
+				expect(buttons()[0]?.querySelector(".omp-work-card-activity")?.getAttribute("title")).toContain(
+					"bash: probing the stream",
+				);
+				expect(buttons()[0]?.querySelector(".omp-work-card-elapsed")?.textContent).toBe("");
+				expect(container.textContent).not.toContain("SYSTEM WARNING");
+			},
+		);
+
+		it("stays failed when no restart note names it", async () => {
+			useMessagesStore.setState({ messages: delivery(false), liveMessages: [] });
+			useSubagentsStore.getState().setSnapshots([ended as SubagentNode]);
+			await render();
+			expect(buttons()[0]?.closest("li")?.getAttribute("data-status")).toBe("failed");
+			expect(buttons()[0]?.querySelector(".omp-work-status")?.getAttribute("data-state")).toBe("failed");
+		});
+	});
 });

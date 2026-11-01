@@ -11,6 +11,7 @@ import type { SubagentsStore } from "../../../stores/subagents";
 import { statusMeta } from "../../panels/subagent-graph";
 import { getToolHeader } from "../../tools/index";
 import { LiveStepPeek } from "../LiveStepPeek";
+import { useRestartCuts } from "./use-restart-cuts";
 import { useRunAgents, useRunStores } from "./use-work-run";
 import { agentGroupState, agentWorkState, WorkStatus } from "./WorkStatus";
 import { agentConclusion, agentDurationMs } from "./work-run";
@@ -45,6 +46,7 @@ function laneCall(progress: AgentProgress | undefined): { tool: string; args: st
 export function SubagentSurface({ id, store }: { id: string; store: StoreApi<SubagentsStore> }) {
 	const t = useT();
 	const [error, setError] = useState<string | null>(null);
+	const restartCut = useRestartCuts().agents.has(id);
 	const [loading, setLoading] = useState(false);
 	const tools = store.getState().surface(id);
 	const status = store.getState().subagents.get(id)?.status;
@@ -81,7 +83,7 @@ export function SubagentSurface({ id, store }: { id: string; store: StoreApi<Sub
 				toolCallIds={JSON.parse(key) as string[]}
 				thinkingLive={false}
 				toolsOverride={tools}
-				state={agentGroupState(store.getState().subagents.get(id)?.status)}
+				state={status === "failed" && restartCut ? "interrupted" : agentGroupState(status)}
 				nested
 			/>
 		</>
@@ -111,7 +113,7 @@ export function WorkMap({
 	const runtime = useSessionRuntime();
 	const { subagents: store } = useRunStores();
 	// Stock's spawn index, so lanes keep the order the task listed them in whichever reports first.
-	const { agents: nodes, completions, resumed } = useRunAgents(toolCallIds, "progress");
+	const { agents: nodes, completions, resumed, cut } = useRunAgents(toolCallIds, "progress");
 	const observedKey = useFrameSelector(store, state =>
 		nodes
 			.map(node => {
@@ -168,6 +170,7 @@ export function WorkMap({
 					const running = meta.live;
 					const groupState = agentGroupState(node.status);
 					const completion = completions.get(node.id);
+					const restartCut = node.status === "aborted" ? cut.get(node.id) : undefined;
 					const call = running ? laneCall(progress) : null;
 					const args = progressArgs(call?.args);
 					const activity = call
@@ -185,9 +188,11 @@ export function WorkMap({
 								t(
 									groupState === "failed"
 										? "chat.work.failed"
-										: groupState === "interrupted"
-											? "chat.work.interrupted"
-											: "chat.work.completed",
+										: restartCut
+											? "chat.work.cutByRestart"
+											: groupState === "interrupted"
+												? "chat.work.interrupted"
+												: "chat.work.completed",
 								));
 					const header = call ? getToolHeader(call.tool, args) : null;
 					const toolTarget =
@@ -202,8 +207,8 @@ export function WorkMap({
 					const tokens = running ? progress?.tokens || store.getState().observedTokens.get(node.id) || 0 : 0;
 					const plural = toolCount === 1 ? "" : "s";
 					// A settled lane whose run recorded no duration (a reloaded detached agent) states none,
-					// never a made-up "0ms".
-					const settledMs = running ? 0 : agentDurationMs(node, completion);
+					// never a made-up "0ms"; nor one a restart ended (stock's duration is how long the revive lasted).
+					const settledMs = running || restartCut ? 0 : agentDurationMs(node, completion);
 					const elapsed = running
 						? formatElapsed(progress?.durationMs ?? 0)
 						: settledMs > 0
@@ -233,7 +238,16 @@ export function WorkMap({
 							>
 								<WorkStatus state={agentWorkState(node.status)} label={label} motion={laneMotion} />
 								<span className="omp-work-card-name">{node.id}</span>
-								<span className="omp-work-card-activity" title={target ? `${activity} · ${target}` : activity}>
+								<span
+									className="omp-work-card-activity"
+									title={
+										restartCut?.doing
+											? `${activity} · ${restartCut.doing}`
+											: target
+												? `${activity} · ${target}`
+												: activity
+									}
+								>
 									<span
 										className="omp-work-card-activity-text"
 										key={`${call?.tool ?? ""}\u0000${activity}\u0000${target}`}

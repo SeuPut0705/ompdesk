@@ -42,6 +42,8 @@ export function launchCompletionDaemons(message: AgentMessage): LaunchCompletion
  */
 export interface AsyncResultJob {
 	jobId?: string;
+	/** A task job's subagent (its id is the job's, stock's `details.jobs[].agentId`). */
+	agentId?: string;
 	type?: string;
 	status?: string;
 	label?: string;
@@ -61,6 +63,7 @@ export function asyncResultJobs(message: AgentMessage): AsyncResultJob[] {
 		return [
 			{
 				jobId: text(job, "jobId"),
+				agentId: text(job, "agentId"),
 				type: text(job, "type"),
 				status: text(job, "status"),
 				label: text(job, "label"),

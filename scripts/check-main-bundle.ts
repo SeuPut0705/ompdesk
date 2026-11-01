@@ -220,7 +220,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // Published palettes kept as published (2 Nov 2026): each well-known theme's own bright ANSI row, text selection and
 // diff washes in theme-palettes.ts (the per-role source colors stay in the test-only theme-sources.ts): measured
 // 3,262,745, 719 bytes over the same tree with the palettes before (3,262,026).
-const WEB_FIRST_SCREEN_JS_BYTES = 3_262_800;
+// A subagent the restart ended reads as interrupted, not failed (2 Nov 2026): `restartCuts`/`cutRunAgents` in
+// `chat/work/work-run.ts`, the transcript hook (`use-restart-cuts.ts`) the async-result card and the work lanes read, and
+// the new strings: measured 3,267,056, 4,311 bytes over the measure above.
+const WEB_FIRST_SCREEN_JS_BYTES = 3_267_600;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

@@ -17,6 +17,7 @@ import {
 	Check,
 	CheckCircle2,
 	ChevronRight,
+	CirclePause,
 	History,
 	Lightbulb,
 	MessagesSquare,
@@ -67,6 +68,8 @@ import {
 	exitCodeOf,
 	launchCompletionDaemons,
 } from "./completion-events";
+import { useDeliveryCuts } from "./work/use-restart-cuts";
+import type { RestartCut } from "./work/work-run";
 import { agentResultSummary } from "./work/work-view";
 
 /** customTypes with a dedicated card (the TUI dispatch set). */
@@ -90,8 +93,15 @@ export function isCustomMessageCardType(customType: string | undefined): boolean
 
 const EmbeddedCard = createContext(false);
 
+const NO_CUTS: ReadonlyMap<string, RestartCut> = new Map();
+
+/** The key a restart-cut job has in `RestartCuts.deliveries`. */
+function cutKey(job: { jobId?: string; agentId?: string }): string {
+	return job.jobId ?? job.agentId ?? "";
+}
+
 /** The same type marks and metadata are used by standalone cards and the work feed. */
-export function workNoteSummary(message: AgentMessage) {
+export function workNoteSummary(message: AgentMessage, cuts: ReadonlyMap<string, RestartCut> = NO_CUTS) {
 	const details = resultDetails(message);
 	const notes = Array.isArray(details?.notes) ? details.notes : [];
 	const advisorNotes = notes.filter(
@@ -106,9 +116,12 @@ export function workNoteSummary(message: AgentMessage) {
 	const jobs = asyncResultJobs(message);
 	const job = jobs[0];
 	const daemon = launchCompletionDaemons(message)[0];
+	// A task job a restart cut is no failure: stock's verdict stands only for the jobs it did not cut.
+	const cutJob = jobs.find(item => cuts.has(cutKey(item)));
+	const cut = cutJob && cuts.get(cutKey(cutJob));
 	// A completion's mark states how the job ended: stock's own failed verdict or a non-zero exit.
 	const failed =
-		jobs.some(item => item.status === "failed") ||
+		jobs.some(item => item.status === "failed" && !cuts.has(cutKey(item))) ||
 		launchCompletionDaemons(message).some(
 			item => item.state === "failed" || (item.exitCode !== undefined && item.exitCode !== 0),
 		);
@@ -120,7 +133,9 @@ export function workNoteSummary(message: AgentMessage) {
 				: type === "async-result" || type === "launch-completion"
 					? failed
 						? XCircle
-						: CheckCircle2
+						: cut
+							? CirclePause
+							: CheckCircle2
 					: type === "lsp-late-diagnostic"
 						? AlertTriangle
 						: type === "skill-prompt"
@@ -147,11 +162,12 @@ export function workNoteSummary(message: AgentMessage) {
 		// Stock task/result-summary.ts emits this envelope; only its output is
 		// preview text. The renderer cannot import the stock runtime formatter.
 		const output = delivered.match(/<output>([\s\S]*?)<\/output>/)?.[1] ?? delivered;
-		body = agentResultSummary({ output }) ?? completionNoticeText(rawBody);
+		// A cut one shows what the stop cut it in, never stock's warning.
+		body = cut ? (cut.doing ?? cut.intent ?? "") : (agentResultSummary({ output }) ?? completionNoticeText(rawBody));
 	} else if (type === "launch-completion") {
 		body = completionNoticeText(rawBody);
 	}
-	return { Icon, source, body, severity, variant: advisorVariant(severity), failed };
+	return { Icon, source, body, severity, variant: advisorVariant(severity), failed, interrupted: cut !== undefined };
 }
 
 export function CustomMessageCard({ message, inProcess = false }: { message: AgentMessage; inProcess?: boolean }) {
@@ -263,24 +279,27 @@ function CompletionRows({ children, inProcess }: { children: ReactNode; inProces
 }
 
 function CompletionRow({
+	cut,
 	failed,
 	label,
 	meta,
 	output,
 }: {
+	/** A restart ended it: neutral, never the failed mark. */
+	cut?: boolean;
 	failed?: boolean;
 	label: string;
 	meta?: string;
 	output?: string;
 }) {
-	const Icon = failed === undefined ? Zap : failed ? XCircle : CheckCircle2;
+	const Icon = cut ? CirclePause : failed === undefined ? Zap : failed ? XCircle : CheckCircle2;
 	const content = (
 		<>
 			<Icon
 				aria-hidden="true"
 				className={cx(
 					"shrink-0",
-					failed === undefined
+					cut || failed === undefined
 						? "text-(--sc-text-muted)"
 						: failed
 							? "text-[var(--omp-error)]"
@@ -417,6 +436,7 @@ function AsyncResultCard({ message, inProcess }: { message: AgentMessage; inProc
 	const t = useT();
 	const jobs = asyncResultJobs(message);
 	const results = asyncJobResults(resultText(message.content), jobs);
+	const cuts = useDeliveryCuts(message);
 
 	// A batch without job rows must not invent one: the delivery text is the
 	// only truthful summary left.
@@ -433,26 +453,29 @@ function AsyncResultCard({ message, inProcess }: { message: AgentMessage; inProc
 			{jobs.map((job, index) => {
 				const id = job.jobId ?? "unknown";
 				const output = job.jobId ? results.get(job.jobId) : undefined;
-				const failed = job.status === "failed";
-				const exitCode = exitCodeOf(output);
+				// A task job a restart cut reads as that, not as stock's failure with its sub-second duration and warning.
+				const cut = cuts.get(cutKey(job));
+				const failed = job.status === "failed" && !cut;
+				const exitCode = cut ? undefined : exitCodeOf(output);
 				// Stock's TUI writes the kind as a "[task]" token; here it reads as the tool's own name.
 				const kind = job.type ? JOB_KIND_LABELS[job.type] : undefined;
 				const meta = [
-					t(failed ? "chat.custom.asyncFailed" : "chat.custom.asyncDone"),
+					t(cut ? "chat.work.cutByRestart" : failed ? "chat.custom.asyncFailed" : "chat.custom.asyncDone"),
 					exitCode !== undefined && exitCode !== 0 ? t("chat.exec.exit", { code: exitCode }) : undefined,
 					kind ? t(kind) : undefined,
 					job.label && job.label !== id ? id : undefined,
-					job.durationMs != null ? formatDuration(job.durationMs) : undefined,
+					!cut && job.durationMs != null ? formatDuration(job.durationMs) : undefined,
 				]
 					.filter(Boolean)
 					.join(" · ");
 				return (
 					<CompletionRow
+						cut={cut !== undefined}
 						failed={failed}
 						key={job.jobId ?? index}
 						label={job.label ?? id}
 						meta={meta}
-						output={output}
+						output={cut ? (cut.doing ?? cut.intent) : output}
 					/>
 				);
 			})}

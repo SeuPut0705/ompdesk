@@ -3322,6 +3322,7 @@ export const ko: Record<string, string> = {
 	"chat.work.waitingForAnswer": "답변을 기다리고 있어요",
 	"chat.work.starting": "시작하는 중…",
 	"chat.work.resuming": "재시작 뒤 이어서 진행 중",
+	"chat.work.cutByRestart": "재시작으로 중단됨",
 	"chat.work.parallel": "{count}개 동시 진행 중",
 	"chat.work.justDone": "방금 끝났어요",
 	"chat.work.interruptedCount": "{count}개 중단",

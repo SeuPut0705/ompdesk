@@ -3,12 +3,16 @@ import type { AgentMessage } from "../../../../shared/rpc-types";
 import type { SubagentNode } from "../../../stores/subagents";
 import {
 	agentConclusion,
+	cutRunAgents,
+	endedWithoutMessage,
 	finishedHeadline,
 	mergeRunAgents,
 	projectPath,
+	restartCuts,
 	resumedAgents,
 	runSpan,
 	runTranscript,
+	transcriptOf,
 } from "./work-run";
 
 // Shapes recorded from real omp 18.10 (the real-work-map audit): a detached task
@@ -193,6 +197,127 @@ describe("run transcript", () => {
 		// A delivery before the restart settled the run that was cut; the note names the run that goes on.
 		expect([...resumedAgents([completion("done"), note(["Reader"], 10_000)])]).toEqual(["Reader"]);
 		expect([...resumedAgents([spawn, taskResult])]).toEqual([]);
+	});
+});
+
+// 2 Nov 2026, the 0.94.0 → 0.94.1 update restart: each revived subagent ended at once, stock delivered
+// "failed in 353ms" with its empty-message warning, and the transcript showed a failure.
+describe("a subagent a restart cut", () => {
+	const WARNING = "SYSTEM WARNING: Subagent ended without a final message.";
+	const note = (
+		subagents: Array<Record<string, unknown>>,
+		timestamp = 2_000,
+		customType = "ompdesk-restart-subagents",
+	) =>
+		({
+			role: "custom",
+			customType,
+			timestamp,
+			display: true,
+			content: "These background agents you started are working again",
+			details: { jobs: [], subagents },
+		}) as AgentMessage;
+	const failedDelivery = (body: string, jobId = "Reader", type = "task", timestamp = 9_000): AgentMessage => ({
+		role: "custom",
+		customType: "async-result",
+		timestamp,
+		content: `<system-notice>\nBackground job ${jobId} has failed.\n${body}\n</system-notice>`,
+		details: { jobs: [{ jobId, agentId: jobId, type, status: "failed", label: jobId, durationMs: 353 }] },
+	});
+	const envelope = (inner: string) =>
+		`<task-result id="Reader" agent="task" status="failed (exit 1)" duration="353ms">\n${inner}\n</task-result>`;
+	const cutsOf = (messages: AgentMessage[], delivery: AgentMessage) =>
+		restartCuts(messages).deliveries.get(delivery)?.get("Reader");
+
+	it("reads stock's empty-message warning, an empty output and nothing at all as an end without a message", () => {
+		expect(endedWithoutMessage(envelope(`<error>${WARNING}</error>\n<output>\n${WARNING}\n</output>`))).toBe(true);
+		expect(endedWithoutMessage(envelope(`<output>\n${WARNING}\n</output>`))).toBe(true);
+		expect(endedWithoutMessage(WARNING)).toBe(true);
+		expect(endedWithoutMessage(envelope("<output>\n(no output) after 2 req\n</output>"))).toBe(true);
+		expect(endedWithoutMessage(undefined)).toBe(true);
+		expect(
+			endedWithoutMessage(envelope("<error>Provider stream error</error>\n<output>\nhalf a sentence\n</output>")),
+		).toBe(false);
+		expect(endedWithoutMessage(envelope(`<error>boom</error>\n<output>\n${WARNING}\n</output>`))).toBe(false);
+		expect(
+			endedWithoutMessage(envelope(`<abort-reason>stopped</abort-reason>\n<output>\n${WARNING}\n</output>`)),
+		).toBe(false);
+	});
+
+	it("is interrupted by the restart when an earlier note names it and stock's warning is all it ended with", () => {
+		const delivery = failedDelivery(envelope(`<output>\n${WARNING}\n</output>`));
+		const messages = [
+			spawn,
+			taskResult,
+			note([{ id: "Reader", intent: "Count alpha lines", doing: "bash: probing the stream" }]),
+			delivery,
+		];
+		expect(cutsOf(messages, delivery)).toEqual({ intent: "Count alpha lines", doing: "bash: probing the stream" });
+		expect(restartCuts(messages).agents.get("Reader")).toEqual({
+			intent: "Count alpha lines",
+			doing: "bash: probing the stream",
+		});
+		// The bridge's other restart notes name subagents the same way.
+		expect(cutsOf([note([{ id: "Reader" }], 2_000, "ompdesk-restart-jobs"), delivery], delivery)).toEqual({});
+	});
+
+	it("stays a failure when no earlier note names the job, the note comes after, or the job is not a task", () => {
+		const delivery = failedDelivery(envelope(`<output>\n${WARNING}\n</output>`));
+		expect(cutsOf([spawn, taskResult, delivery], delivery)).toBeUndefined();
+		expect(cutsOf([note([{ id: "Scout" }]), delivery], delivery)).toBeUndefined();
+		expect(cutsOf([delivery, note([{ id: "Reader" }])], delivery)).toBeUndefined();
+		const bash = failedDelivery(envelope(`<output>\n${WARNING}\n</output>`), "Reader", "bash");
+		expect(cutsOf([note([{ id: "Reader" }]), bash], bash)).toBeUndefined();
+	});
+
+	it("stays a failure when the agent died with a real error", () => {
+		const delivery = failedDelivery(
+			envelope("<error>Provider stream error</error>\n<output>\nhalf a sentence\n</output>"),
+		);
+		expect(cutsOf([note([{ id: "Reader" }]), delivery], delivery)).toBeUndefined();
+		const completed: AgentMessage = {
+			...failedDelivery(envelope("<output>\nall done\n</output>")),
+			details: { jobs: [{ jobId: "Reader", type: "task", status: "completed" }] },
+		};
+		expect(cutsOf([note([{ id: "Reader" }]), completed], completed)).toBeUndefined();
+	});
+
+	it("takes the newest note naming the job, and a delivery settles the name for a later one", () => {
+		const first = failedDelivery(envelope(`<output>\n${WARNING}\n</output>`), "Reader", "task", 5_000);
+		const second = failedDelivery(envelope(`<output>\n${WARNING}\n</output>`), "Reader", "task", 9_000);
+		const cuts = restartCuts([
+			note([{ id: "Reader", doing: "old" }], 1_000),
+			note([{ id: "Reader", doing: "new" }], 2_000),
+			first,
+			second,
+		]);
+		expect(cuts.deliveries.get(first)?.get("Reader")?.doing).toBe("new");
+		expect(cuts.deliveries.get(second)).toBeUndefined();
+	});
+
+	it("indexes each transcript once, live messages joined behind the committed ones", () => {
+		const delivery = failedDelivery(envelope(`<output>\n${WARNING}\n</output>`));
+		const committed = [note([{ id: "Reader" }])];
+		const live = [delivery];
+		expect(restartCuts(committed)).toBe(restartCuts(committed));
+		expect(transcriptOf(committed, [])).toBe(committed);
+		expect(transcriptOf(committed, live)).toBe(transcriptOf(committed, live));
+		expect(restartCuts(transcriptOf(committed, live)).deliveries.get(delivery)?.has("Reader")).toBe(true);
+	});
+
+	it("turns a failed lane into an interrupted one with no stock duration or warning", () => {
+		const cuts = new Map([["Reader", { doing: "bash: probing the stream" }]]);
+		const lane = (status: string) =>
+			({ id: "Reader", index: 0, agent: "task", status, lastUpdate: 1 }) as SubagentNode;
+		const completions = new Map([["Reader", { status: "failed" as const, summary: WARNING, durationMs: 353 }]]);
+		const cut = cutRunAgents([lane("failed"), { ...lane("failed"), id: "Other" }], completions, cuts);
+		expect(cut.agents.map(agent => [agent.id, agent.status])).toEqual([
+			["Reader", "aborted"],
+			["Other", "failed"],
+		]);
+		expect(cut.completions.get("Reader")).toEqual({ status: "aborted" });
+		// A cut agent that runs again keeps running.
+		expect(cutRunAgents([lane("running")], completions, cuts).agents[0]?.status).toBe("running");
 	});
 });
 

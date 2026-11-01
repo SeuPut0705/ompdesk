@@ -3319,6 +3319,7 @@ export const en: Record<string, string> = {
 	"chat.work.waitingForAnswer": "Waiting for your answer",
 	"chat.work.starting": "Starting…",
 	"chat.work.resuming": "Resuming after the restart",
+	"chat.work.cutByRestart": "Interrupted by the restart",
 	"chat.work.parallel": "{count} running at once",
 	"chat.work.justDone": "Just finished",
 	"chat.work.interruptedCount": "{count} interrupted",

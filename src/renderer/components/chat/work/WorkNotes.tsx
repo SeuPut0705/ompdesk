@@ -9,6 +9,7 @@ import { LinkButton } from "../../common/LinkButton";
 import { advisorSeverityLabel, CustomMessageCard, workNoteSummary } from "../CustomMessageCard";
 import { TodoReminderNote } from "../TodoReminderNote";
 import { parseTodoReminder } from "../todo-reminder";
+import { useRestartCuts } from "./use-restart-cuts";
 
 /** A steer the user sent into this run (stock delivers it as a `steering` user message). */
 function isRunSteer(message: AgentMessage) {
@@ -19,6 +20,7 @@ export function WorkNotes({ messages, live = false }: { messages: readonly Agent
 	const t = useT();
 	const [showOlder, setShowOlder] = useState(false);
 	const [expanded, setExpanded] = useState<string[]>([]);
+	const cuts = useRestartCuts();
 	if (messages.length === 0) return null;
 	// Only agent/advisor notices fold behind "more": the user's own steers always stay in view.
 	const notices = messages.filter(message => !isRunSteer(message));
@@ -72,7 +74,10 @@ export function WorkNotes({ messages, live = false }: { messages: readonly Agent
 							</li>
 						);
 					const open = expanded.includes(key);
-					const { Icon, source, body, severity, variant, failed } = workNoteSummary(message);
+					const { Icon, source, body, severity, variant, failed, interrupted } = workNoteSummary(
+						message,
+						cuts.deliveries.get(message),
+					);
 					const label =
 						source ??
 						(message.customType === "advisor"
@@ -103,7 +108,9 @@ export function WorkNotes({ messages, live = false }: { messages: readonly Agent
 								{message.customType === "advisor" && severity && (
 									<Badge variant={variant}>{advisorSeverityLabel(severity, t)}</Badge>
 								)}
-								<span className="omp-work-notes-preview">{body.split(/\r?\n/)[0]}</span>
+								<span className="omp-work-notes-preview">
+									{(interrupted && !body ? t("chat.work.cutByRestart") : body).split(/\r?\n/)[0]}
+								</span>
 								{age && (
 									<time
 										className="omp-work-notes-age"
