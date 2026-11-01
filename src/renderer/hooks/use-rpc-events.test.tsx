@@ -11,7 +11,7 @@
 import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { IpcSidecarStatusPayload, IpcSignIn } from "../../shared/ipc-types";
 import type {
 	AgentMessage,
@@ -339,11 +339,23 @@ function installTabRoutedMockOmp(): {
 let container: TestElement;
 let root: Root;
 
+/** One task turn on the clock in use: a fake clock's zero-delay timers run, a real one yields a macrotask. */
 async function flush(): Promise<void> {
 	await act(async () => {
+		if (vi.isFakeTimers()) {
+			await vi.advanceTimersByTimeAsync(0);
+			return;
+		}
 		const { promise, resolve } = Promise.withResolvers<void>();
 		setTimeout(resolve, 0);
 		await promise;
+	});
+}
+
+/** Moves the fake clock `ms` forward, running every timer due on the way (the heartbeat's probes included). */
+async function elapse(ms: number): Promise<void> {
+	await act(async () => {
+		await vi.advanceTimersByTimeAsync(ms);
 	});
 }
 
@@ -428,6 +440,7 @@ afterEach(async () => {
 	useSubagentsStore.getState().reset();
 	useToastStore.setState({ toasts: [] });
 	vi.restoreAllMocks();
+	vi.useRealTimers();
 });
 
 describe("useRpcEvents thinking selection sync", () => {
@@ -579,6 +592,14 @@ function seedReadyTab(tabId: string) {
 }
 
 describe("useRpcEvents context usage sync", () => {
+	// The heartbeat's cadence and the probe's "no frame since it was sent" both read the clock: on a loaded machine
+	// real 20 ms gaps between frames outlasted two 25 ms probes, so these cases run on a fake one.
+	beforeEach(() => {
+		vi.useFakeTimers({
+			toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "performance", "Date"],
+		});
+	});
+
 	it("lands the turn's usage reading from a get_state that raced a trailing event", async () => {
 		const { emitTabBatch, commandForTab } = installTabRoutedMockOmp();
 		const session = seedReadyTab("t-usage");
@@ -587,11 +608,7 @@ describe("useRpcEvents context usage sync", () => {
 		// Drain the boot hydration's command chain first: a get_state still in
 		// flight would be caught by the interceptor below and apply the same
 		// snapshot through the unguarded hydrate path, hiding the race.
-		await act(async () => {
-			const { promise, resolve } = Promise.withResolvers<void>();
-			setTimeout(resolve, 60);
-			await promise;
-		});
+		await elapse(60);
 		session.setState({ contextUsage: { tokens: 40, contextWindow: 2000, percent: 2 } });
 
 		// Hold get_state open until the batch has been fully reduced: agent_end
@@ -631,11 +648,7 @@ describe("useRpcEvents context usage sync", () => {
 					? Promise.resolve(settledState({ contextUsage: { tokens: 900, contextWindow: 1000, percent: 90 } }))
 					: original(tabId, command),
 			);
-		await act(async () => {
-			const { promise, resolve } = Promise.withResolvers<void>();
-			setTimeout(resolve, 80);
-			await promise;
-		});
+		await elapse(80);
 
 		// The probe is already paid for (it tokenises the context to answer at
 		// all); a session that only idles between turns had no other way to land
@@ -665,11 +678,7 @@ describe("useRpcEvents context usage sync", () => {
 					)
 				: original(tabId, command),
 		);
-		await act(async () => {
-			const { promise, resolve } = Promise.withResolvers<void>();
-			setTimeout(resolve, 80);
-			await promise;
-		});
+		await elapse(80);
 		expect(first.getState().contextUsage?.tokens).toBe(100);
 		expect(second.getState().contextUsage?.tokens).toBe(800);
 		emitTabStatus({ status: "error", cwd: "/beta", message: "Second pane failed" }, "t-second");
@@ -680,13 +689,6 @@ describe("useRpcEvents context usage sync", () => {
 	});
 
 	describe("liveness probe", () => {
-		async function wait(ms: number): Promise<void> {
-			await act(async () => {
-				const { promise, resolve } = Promise.withResolvers<void>();
-				setTimeout(resolve, ms);
-				await promise;
-			});
-		}
 		function failGetState(
 			commandForTab: ReturnType<typeof installTabRoutedMockOmp>["commandForTab"],
 			fail: () => boolean,
@@ -709,7 +711,7 @@ describe("useRpcEvents context usage sync", () => {
 			const seen: (string | null)[] = [];
 			const off = session.subscribe(state => seen.push(state.sidecarError));
 			failGetState(commandForTab, () => failures-- > 0);
-			await wait(120);
+			await elapse(120);
 			off();
 			expect(seen.filter(Boolean)).toEqual([]);
 			expect(session.getState().sidecarError).toBeNull();
@@ -722,10 +724,14 @@ describe("useRpcEvents context usage sync", () => {
 			emitTabStatus({ status: "ready", cwd: "/alpha" }, "t-busy");
 			await flush();
 			failGetState(commandForTab, () => true);
+			const seen: (string | null)[] = [];
+			const off = session.subscribe(state => seen.push(state.sidecarError));
 			for (let i = 0; i < 6; i++) {
 				await act(async () => emitTabBatch([{ type: "turn_start" } as never], "t-busy"));
-				await wait(20);
+				await elapse(20);
 			}
+			off();
+			expect(seen.filter(Boolean)).toEqual([]);
 			expect(session.getState().sidecarError).toBeNull();
 		});
 
@@ -736,7 +742,7 @@ describe("useRpcEvents context usage sync", () => {
 			emitTabStatus({ status: "ready", cwd: "/alpha" }, "t-wedged");
 			await flush();
 			failGetState(commandForTab, () => true);
-			await wait(150);
+			await elapse(150);
 			expect(session.getState().sidecarError).toBe(translate("events.sidecarNoResponse"));
 		});
 
@@ -747,7 +753,7 @@ describe("useRpcEvents context usage sync", () => {
 			emitTabStatus({ status: "ready", cwd: "/alpha" }, "t-back");
 			await flush();
 			failGetState(commandForTab, () => true);
-			await wait(150);
+			await elapse(150);
 			expect(session.getState().sidecarError).toBe(translate("events.sidecarNoResponse"));
 			await act(async () => emitTabBatch([{ type: "turn_start" } as never], "t-back"));
 			expect(session.getState().sidecarError).toBeNull();
@@ -1609,6 +1615,11 @@ describe("retryPending reset on tab switch", () => {
 });
 
 describe("TurnStatusRow", () => {
+	// Each case states its times against one frozen instant: a mount that took a second under load read "in 8s".
+	beforeEach(() => {
+		vi.spyOn(Date, "now").mockReturnValue(Date.UTC(2026, 10, 2, 12));
+	});
+
 	it("a normal wait shows no label, interrupt hint or recovery buttons", async () => {
 		useSessionStore.setState({ awaitingModelSince: Date.now() - 5000 });
 		await mount(<TurnStatusRow />);
