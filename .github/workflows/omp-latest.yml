@@ -1,0 +1,107 @@
+# Daily vitest against the newest published omp, so an omp release that breaks
+# what OMPdesk reads from the installed stock omp (its settings and their
+# Korean copy, provider ids, tool renderers, the `*-stock` bridge suites) shows
+# the day it is published, even with no push to main. ci.yml's and release.yml's
+# `check` install the same omp, so every push and release runs these tests too.
+# While it fails on main, one issue ("Tests against the latest omp failed")
+# stays open with the omp version and the run; a passing run on main closes it.
+# A run from another ref only tests and touches no issue.
+#
+# Run it now: gh workflow run omp-latest.yml [--ref <branch>]
+name: omp-latest
+
+on:
+  schedule:
+    - cron: "47 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: omp-latest-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: check (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read # the failure report reads this run's jobs
+    outputs:
+      omp: ${{ steps.omp.outputs.version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: node
+            args: --project=node
+          - name: renderer 1/2
+            args: --project=renderer --shard=1/2
+          - name: renderer 2/2
+            args: --project=renderer --shard=2/2
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      # Tests import electron, whose index.js throws without the binary.
+      - name: Ensure the Electron binary
+        run: bun node_modules/electron/install.js && test -f node_modules/electron/path.txt
+      - name: Install omp
+        id: omp
+        run: |
+          # --minimum-release-age 0: the newest omp, not bunfig.toml's 3-day hold.
+          bun install -g --minimum-release-age 0 @oh-my-pi/pi-coding-agent
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+          "$HOME/.bun/bin/omp" --version | tee omp-version.txt
+          echo "version=$(head -n1 omp-version.txt)" >> "$GITHUB_OUTPUT"
+      - run: bunx vitest run ${{ matrix.args }}
+      - if: failure()
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  issue:
+    needs: check
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          RESULT: ${{ needs.check.result }}
+          OMP: ${{ needs.check.outputs.omp }}
+        with:
+          script: |
+            const title = "Tests against the latest omp failed";
+            const { owner, repo } = context.repo;
+            const run = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const omp = process.env.OMP || "omp (version not read)";
+            const failed = process.env.RESULT !== "success";
+            const issues = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: failed ? "all" : "open", per_page: 100 });
+            const existing = issues.filter(issue => !issue.pull_request && issue.title === title);
+            if (failed) {
+              const body = [
+                `vitest failed on main against ${omp}: ${run}`,
+                "",
+                "Each failing job's summary names its first errors. A stock test that broke is OMPdesk catching up with this omp (settings copy, provider marks, a bridge internal), never a test to skip.",
+              ].join("\n");
+              if (existing[0]) {
+                await github.rest.issues.update({ owner, repo, issue_number: existing[0].number, body, state: "open" });
+                core.info(`Updated #${existing[0].number}`);
+              } else {
+                const created = await github.rest.issues.create({ owner, repo, title, body });
+                core.info(`Opened #${created.data.number}`);
+              }
+              return;
+            }
+            for (const issue of existing) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: `Passing again against ${omp}: ${run}` });
+              await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: "closed" });
+            }

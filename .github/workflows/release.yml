@@ -209,8 +209,8 @@ jobs:
 
   # vitest on three runners at once, off every other job: the node project and
   # the renderer project in two halves (the full suite in one job took 176 s
-  # on a 2-core host; the renderer project is most of it). `publish` waits for
-  # every one of them.
+  # on a 2-core host; the renderer project is most of it), against the newest
+  # published omp like ci.yml's `check`. `publish` waits for every one of them.
   check:
     name: check (${{ matrix.name }})
     needs: prepare
@@ -241,6 +241,12 @@ jobs:
       # installed.
       - name: Ensure the Electron binary
         run: bun node_modules/electron/install.js && test -f node_modules/electron/path.txt
+      - name: Install omp
+        run: |
+          # --minimum-release-age 0: the runner wants the newest omp, not bunfig.toml's 3-day hold.
+          bun install -g --minimum-release-age 0 @oh-my-pi/pi-coding-agent
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+          "$HOME/.bun/bin/omp" --version
       - run: bunx vitest run ${{ matrix.args }}
       - if: failure()
         run: bash scripts/ci-failure.sh
