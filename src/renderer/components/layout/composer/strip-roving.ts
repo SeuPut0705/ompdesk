@@ -21,11 +21,6 @@ function syncTabStops(strip: HTMLElement, active: HTMLElement | null): void {
 	for (const stop of stops) stop.tabIndex = stop === current ? 0 : -1;
 }
 
-/** The last attachment of every strip inside a container, in document order ("Remove all" is no attachment). */
-export function lastAttachmentStop(container: HTMLElement | null): HTMLElement | undefined {
-	return container ? stopsOf(container).findLast(stop => stop.closest("[data-strip-item]") !== null) : undefined;
-}
-
 export interface RovingStrip<T extends HTMLElement> {
 	ref: RefObject<T | null>;
 	onKeyDown: (event: KeyboardEvent<HTMLElement>) => void;

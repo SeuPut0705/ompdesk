@@ -155,7 +155,6 @@ export function InputArea() {
 	/** False once the composer unmounted: uploads, dictation and the $EDITOR round trip check it before writing. */
 	const mountedRef = useRef(true);
 	const regionRef = useRef<HTMLDivElement>(null);
-	const attachmentsRef = useRef<HTMLDivElement>(null);
 	const { fileInputRef, onFilesPicked, openFilePicker, attachFiles, sendingFiles, dragActive } = useComposerAttach({
 		cwd,
 		historyDevice,
@@ -329,7 +328,6 @@ export function InputArea() {
 		toggleHistorySearch: () => setHistorySearchOpen(open => !open),
 		runActive: isStreaming || submitPending || manualMaintenance,
 		touchInput,
-		attachmentsRef,
 		enterSends,
 		queueEdit: queueEdit.editing ? { cancel: cancelQueueEdit } : null,
 		send,
@@ -499,7 +497,6 @@ export function InputArea() {
 							setText={setText}
 							text={text}
 							textareaRef={textareaRef}
-							containerRef={attachmentsRef}
 							touch={touchInput}
 						/>
 						<ComposerField

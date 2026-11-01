@@ -4,7 +4,8 @@
  * draft shows "Esc again" and a second Esc clears it into ↑ history; a double
  * Esc on an empty composer opens stock's rewind picker (`doubleEscapeAction`
  * default). Printable keys typed on the focused transcript land in the
- * composer, and PageUp in the composer pages the transcript. The context
+ * composer; a click on the transcript and a key that stays there draw no
+ * focus ring, Shift+F6 does. PageUp in the composer pages the transcript. The context
  * popover compacts through stock `compact` and opens the handoff dialog.
  * Captures: light/dark × en/ko and a narrow window.
  */
@@ -162,6 +163,17 @@ for (const language of variants(["en", "ko"] as const))
 				await expect(input).toBeFocused();
 				await expect(input).toHaveValue("hi");
 				await input.fill("");
+
+				// A click on the transcript focuses it without a ring, and a key that stays there (Backspace) draws
+				// none either; reached from the keyboard (Shift+F6 from the composer) it shows its ring.
+				const ring = () =>
+					scroller.evaluate(el => (el.matches(":focus") ? getComputedStyle(el).outlineStyle : "unfocused"));
+				await scroller.click({ position: { x: 300, y: 200 } });
+				await page.keyboard.press("Backspace");
+				expect(await ring()).toBe("none");
+				await input.focus();
+				await page.keyboard.press("Shift+F6");
+				expect(await ring()).toBe("solid");
 
 				// PageUp in the composer pages the transcript.
 				await scroller.evaluate(el => el.scrollTo({ top: el.scrollHeight }));

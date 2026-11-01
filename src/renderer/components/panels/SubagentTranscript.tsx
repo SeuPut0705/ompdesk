@@ -21,6 +21,7 @@ import type { AgentMessage, SubagentSnapshot } from "../../../shared/rpc-types";
 import { errorDetail } from "../../lib/error-detail";
 import { basename, extractResultImages, resultDetails } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { pointerFocusMark } from "../../lib/pointer-focus";
 import { groupReadRows } from "../../lib/read-group";
 import { createMessagesStore, type MessagesStore } from "../../stores/messages";
 import { createSessionStore, type SessionStore } from "../../stores/session";
@@ -223,6 +224,7 @@ export const SubagentTranscript = memo(function SubagentTranscript({
 					role="region"
 					tabIndex={0}
 					{...stick.scrollerProps}
+					{...pointerFocusMark}
 				>
 					<div className="py-2" ref={stick.contentRef}>
 						{loading && messages.length === 0 && (

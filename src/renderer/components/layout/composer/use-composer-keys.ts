@@ -17,7 +17,6 @@ import type { ComposerImage } from "../../../stores/composer";
 import { useUiStore } from "../../../stores/ui";
 import { chipIndexForCode, type NextPromptChipsHandle } from "./NextPromptChips";
 import { plannedDeletion } from "./paste-marker-edit";
-import { lastAttachmentStop } from "./strip-roving";
 import { arrowKeepsMenu } from "./use-completion-menu";
 import type { ComposerHistory } from "./use-composer-history";
 import type { ComposerMenu } from "./use-composer-menu";
@@ -54,7 +53,6 @@ export function useComposerKeys({
 	toggleHistorySearch,
 	runActive,
 	touchInput,
-	attachmentsRef,
 	enterSends,
 	queueEdit,
 	send,
@@ -91,8 +89,6 @@ export function useComposerKeys({
 	send: (overrideText?: string, forceMode?: "followUp") => boolean;
 	/** A touch input (phone, tablet): without a physical keyboard plain Enter adds a line and only Send sends. */
 	touchInput: boolean;
-	/** The element holding the attachment strips: Backspace in an empty field focuses its last attachment. */
-	attachmentsRef: RefObject<HTMLElement | null>;
 	/** The "Enter sends on mobile" setting: a touch device's Enter sends like the desktop's. */
 	enterSends: boolean;
 	/** A queued message is being edited in the field: Esc cancels the edit (`cancel`), ↑ does not recall history. Null when none is. */
@@ -178,26 +174,6 @@ export function useComposerKeys({
 				for (const id of widened.ids) releasePaste(id);
 				placeDraft(`${el.value.slice(0, widened.from)}${el.value.slice(widened.to)}`, widened.from);
 				return;
-			}
-			// Backspace in an empty field reaches for the last attachment (the strips are above the field): the
-			// way to them from a physical keyboard, and Delete there removes it (DI-9). A soft keyboard's
-			// Backspace on an empty field must keep the keyboard up.
-			if (
-				el &&
-				!enterNewline &&
-				e.key === "Backspace" &&
-				el.value === "" &&
-				!e.shiftKey &&
-				!e.altKey &&
-				!e.ctrlKey &&
-				!e.metaKey
-			) {
-				const last = lastAttachmentStop(attachmentsRef.current);
-				if (last) {
-					e.preventDefault();
-					last.focus();
-					return;
-				}
 			}
 		}
 		// Ghost text: Tab takes it, Esc hides it (and only then keeps Esc's other meanings off);

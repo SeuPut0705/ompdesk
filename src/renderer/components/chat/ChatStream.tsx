@@ -23,6 +23,7 @@ import { cx, formatClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { prewarmMarkdown } from "../../lib/markdown";
 import { abortActiveTurn, describeTurnError, isRenderableMessageText } from "../../lib/messages";
+import { pointerFocusMark } from "../../lib/pointer-focus";
 import { collapsibleReadTarget, groupReadRows, type ReadGroupEntry } from "../../lib/read-group";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { summarizeMessagesOutput } from "../../lib/turn-meter";
@@ -1010,6 +1011,7 @@ function SessionTranscript() {
 				onPointerUp={endScrollGesture}
 				onPointerCancel={endScrollGesture}
 				onKeyDown={handleScrollKeyDown}
+				{...pointerFocusMark}
 				tabIndex={0}
 				className="omp-transcript-scroll h-full overflow-y-auto overscroll-contain"
 			>

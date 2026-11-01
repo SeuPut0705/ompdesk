@@ -40,7 +40,6 @@ export function ComposerAttachments({
 	sendingFiles,
 	textareaRef,
 	placeDraft,
-	containerRef,
 	touch,
 }: {
 	text: string;
@@ -50,8 +49,6 @@ export function ComposerAttachments({
 	sendingFiles: readonly SendingFile[];
 	textareaRef: RefObject<HTMLTextAreaElement | null>;
 	placeDraft: (next: string, caret: number) => void;
-	/** The element the field's Backspace-on-empty looks in for the last attachment. */
-	containerRef: RefObject<HTMLDivElement | null>;
 	/** A touch input: the pictures are one row that scrolls sideways. */
 	touch: boolean;
 }) {
@@ -109,7 +106,7 @@ export function ComposerAttachments({
 		return { id, lines: blob?.lineCount ?? 0, chars: blob?.charCount ?? 0 };
 	});
 	return (
-		<div className="contents" data-composer-attachments ref={containerRef}>
+		<>
 			{images.length > 0 && (
 				<ImageStrip focusField={focusField} images={images} setImages={setImages} touch={touch} />
 			)}
@@ -140,7 +137,7 @@ export function ComposerAttachments({
 				text={text}
 			/>
 			<PastedTextDialog onAsText={pasteAsText} onClose={closePaste} onSave={savePaste} pasteId={editingPaste} />
-		</div>
+		</>
 	);
 }
 

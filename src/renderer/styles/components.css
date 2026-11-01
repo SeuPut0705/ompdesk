@@ -747,6 +747,11 @@
 	border-radius: var(--sc-radius-md);
 }
 
+/* Focused by a click (lib/pointer-focus.ts): no ring, even after a key that stays on it. */
+.omp-transcript-scroll[data-pointer-focus]:focus-visible {
+	outline: none;
+}
+
 /* Conversation navigator: one short tick per user turn, hung in the reading
    column's left gutter (its right edge sits a step left of the text edge), so
    it reads as part of the transcript rather than a detached window control.
