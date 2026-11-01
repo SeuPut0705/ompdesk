@@ -230,7 +230,9 @@ the code: `vitest … | tail` printing "Tests 1 failed | 20 passed", `tsc … | 
 with a printed failure count, a type check with an `error TS<n>` line. The card, the chips and the board read it from
 that one function. A failure's name (`commandProgram`) is the last unconditional command of a `;`/newline list (its
 exit code), past `timeout <n>` and `time`; a shell keyword or glob names nothing, and so does a `&&`/`||` chain of two
-or more commands, whose exit code is whichever step ran last: its block reads "Command failed" with the exit code.
+or more commands, whose exit code is whichever step ran last: its block reads "Command failed" with the exit code. A
+pipeline is named after its last stage, whose exit code is the pipeline's without `pipefail` (`bun run build | tail`
+fails as `tail`), and names nothing when that stage is a loop or a `{ …; }` list or the command sets `pipefail`.
 
 Replayed at the head's own functions over the same 226 turns: 38.5 red per 100 turns (57.1 before). Of 476 failed
 calls, 264 rejected edits and 2 commands are fixed by the same call, 59 reads, searches and waits are skipped, and

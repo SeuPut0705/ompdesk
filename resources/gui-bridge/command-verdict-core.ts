@@ -196,13 +196,16 @@ const ASSIGNMENT = /^[A-Za-z_]\w*=/;
  * the program) or itself (`test`, `[`, `grep`). `undefined` for an empty command, one that is only setup, a shell
  * keyword or glob (`for`, `while`, `*.sh`), and a `&&`/`||` chain of two or more commands: its exit code is the last
  * step that ran, and which one that was only the output could say. For a `;`/newline list it names the last command
- * that runs: its exit code is the list's. `timeout <n>` and `time` are skipped like the other wrappers.
+ * that runs: its exit code is the list's. A pipeline is named after its last stage, whose exit code is the pipeline's
+ * (`bun run build | tail` failed as `tail`), and not at all when that stage is no single command or the command sets
+ * `pipefail` (then any stage could have set it). `timeout <n>` and `time` are skipped like the other wrappers.
  */
 export function commandProgram(command: string): string | undefined {
+	const pipefail = PIPEFAIL.test(maskQuoted(stripHeredocs(command)));
 	// The exit code is the last unconditional command's: name the last `;`/newline segment that runs something.
 	const lists = listSegments(command);
 	for (let list = lists.length - 1; list >= 0; list--) {
-		const found = segmentProgram(lists[list] ?? "");
+		const found = segmentProgram(lists[list] ?? "", pipefail);
 		if (found !== NONE) return found;
 	}
 	return undefined;
@@ -231,13 +234,17 @@ function listSegments(command: string): string[] {
 const NONE = Symbol("setup");
 const SHELL_KEYWORD = /^(?:for|while|until|if|then|elif|else|fi|do|done|case|esac|select|function)$/;
 const DURATION = /^\d+(?:\.\d+)?[smhd]?$/;
+// `set -o pipefail`, `set -euo pipefail`, `bash -o pipefail`: a pipeline's exit code is then its last failing stage's.
+const PIPEFAIL = /(?:^|\s)-[A-Za-z]*o\s+pipefail\b/;
+// A pipeline stage that is a list (`{ sort; uniq; }`): its exit code is the list's last command, no single program's.
+const STAGE_LIST = /[;\n]\s*[^\s;})]/;
 
 // A `&&`/`||` chain's exit code is whichever step ran last, and nothing but its output could say which: only a chain
 // with one step that runs something (setup aside) has a name.
-function segmentProgram(list: string): string | undefined | typeof NONE {
+function segmentProgram(list: string, pipefail: boolean): string | undefined | typeof NONE {
 	let found: string | undefined | typeof NONE = NONE;
 	for (const segment of splitOutside(list, AND_OR)) {
-		const program = stepProgram(segment);
+		const program = pipelineProgram(segment, pipefail);
 		if (program === NONE) continue;
 		if (found !== NONE) return undefined;
 		found = program;
@@ -245,12 +252,22 @@ function segmentProgram(list: string): string | undefined | typeof NONE {
 	return found;
 }
 
+// Without `pipefail` a pipeline's exit code is its last stage's, so only that stage, a single command, names it.
+function pipelineProgram(segment: string, pipefail: boolean): string | undefined | typeof NONE {
+	const stages = splitOutside(segment, PIPE);
+	if (stages.length === 1) return stepProgram(segment);
+	const last = (stages.at(-1) ?? "").replace(/^\s*&/, "");
+	if (pipefail || STAGE_LIST.test(maskQuoted(last))) return undefined;
+	const program = stepProgram(last);
+	return program === NONE ? undefined : program;
+}
+
 function stepProgram(segment: string): string | undefined | typeof NONE {
-	const words = (splitOutside(segment, PIPE)[0] ?? "")
+	const words = segment
 		.trim()
 		.split(/\s+/)
-		.map(word => word.replace(/^[({!]+/, ""))
-		.filter(word => word && !/^[)}]+$/.test(word));
+		.map(word => word.replace(/^[({!]+/, "").replace(/[;)}]+$/, ""))
+		.filter(Boolean);
 	if (words[0] === "command" && /^-[vV]$/.test(words[1] ?? "") && words[2]) return basename(words[2]);
 	let index = 0;
 	const skip = (): boolean => {
@@ -637,6 +654,13 @@ function chainSteps(command: string): string[] | undefined {
 // A script runner's program is its script (`bun run test` is no `bun run deploy`).
 const SCRIPT_PROGRAM = /^(?:bun|npm|pnpm|yarn)\b/;
 
+// The program a chain step starts, its first stage's when it pipes: a retry redoes the same operation, whatever filters
+// its output (`git push | tail` is no `git pull | tail`).
+function firstStageProgram(step: string): string | undefined {
+	const program = stepProgram(splitOutside(step, PIPE)[0] ?? "");
+	return program === NONE ? undefined : program;
+}
+
 /**
  * Whether a later passing chain is a failed one run again: it redoes the step that may have failed (a command with the
  * same program, its arguments corrected: `git add` without the ignored path) and then runs every step the failed chain
@@ -653,11 +677,11 @@ export function retriesChain(failed: RanCommand, fix: RanCommand): boolean {
 		const tail = before.slice(at + 1);
 		const redone = after.length - tail.length - 1;
 		if (redone < 0 || !tail.every((later, index) => later === after[redone + 1 + index])) continue;
-		const program = commandProgram(step);
+		const program = firstStageProgram(step);
 		const again = after[redone] ?? "";
 		if (
 			program !== undefined &&
-			program === commandProgram(again) &&
+			program === firstStageProgram(again) &&
 			(!SCRIPT_PROGRAM.test(program) || step.split(" ", 3).join(" ") === again.split(" ", 3).join(" "))
 		)
 			return true;

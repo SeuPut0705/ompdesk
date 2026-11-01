@@ -207,7 +207,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // Taking a task over from the bot (1 Nov 2026): the takeover bar's test in `BotPane` (every tab's pane), the desk's
 // `takeovers` schema and the take-over strings; the bar and the row actions stay in the lazy desk chunk, with agent
 // browsing for remote tabs in the tree: measured 3,256,294, 1,098 bytes over the measure above.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_256_800;
+// A failed pipeline named after its last stage (1 Nov 2026): `pipelineProgram`, the `pipefail` test and
+// `firstStageProgram` in command-verdict-core.ts, which the work card reads: measured 3,257,009, 579 bytes over the
+// tree before it (3,256,430).
+const WEB_FIRST_SCREEN_JS_BYTES = 3_257_500;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
