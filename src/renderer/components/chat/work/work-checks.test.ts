@@ -854,7 +854,7 @@ describe("commandProgram", () => {
 		["bunx vitest run", "vitest run"],
 		["pnpm dlx prettier --check .", "prettier"],
 		["/usr/bin/make all", "make all"],
-		["ls | head", "ls"],
+		["ls | head", "head"],
 		["tsc", "tsc"],
 		["cd /tmp/board && magick a.png b.png +append c.png", "magick"],
 		["cd src && export A=1 && git push", "git push"],
@@ -878,6 +878,28 @@ describe("commandProgram", () => {
 		"git fetch || git pull",
 		"ls; git add -A && git commit -m wip",
 	])("names nothing for a chain whose exit code any of its steps could have set: %s", command => {
+		expect(commandProgram(command)).toBeUndefined();
+	});
+	it.each([
+		["git log --oneline | grep -q needle", "grep"],
+		["bun run build 2>&1 | tail -5", "tail"],
+		["./deploy.sh |& grep -v warn", "grep"],
+		["cd src && git push origin main 2>&1 | tee push.log", "tee"],
+		["(git push | tee push.log)", "tee"],
+		["{ git push | tee push.log; }", "tee"],
+		["git status; cat a.txt | sort -u", "sort"],
+	])("names a pipeline after its last stage, whose exit code is the pipeline's: %s", (command, expected) => {
+		expect(commandProgram(command)).toBe(expected);
+	});
+	it.each([
+		"set -o pipefail; bun run build | tail -5",
+		"set -euo pipefail\ngit push origin main | tee push.log",
+		"set -e -o pipefail && cd src && git push | tee push.log",
+		"git fetch && git log | head",
+		"ls | while read f; do echo $f; done",
+		"cat a.txt | { sort; uniq -c; }",
+		"git push | *.sh",
+	])("names no stage of a pipeline whose exit code its last stage alone does not set: %s", command => {
 		expect(commandProgram(command)).toBeUndefined();
 	});
 });
@@ -1167,6 +1189,12 @@ describe("a failed chain retried with its steps from the failing one on", () => 
 				"/repo",
 			),
 		).toHaveLength(2);
+	});
+
+	it("is not fixed by a chain whose redone step pipes another command into the same filter", () => {
+		const failedPush = op("cd /repo && git push origin main | tail -3 && gh run watch", 1);
+		const pull = op("cd /repo && git pull | tail -3 && gh run watch", 0);
+		expect(unresolvedFailures([failedPush, pull], "/repo")).toEqual([failedPush]);
 	});
 });
 

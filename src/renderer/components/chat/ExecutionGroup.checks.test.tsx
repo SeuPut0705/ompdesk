@@ -237,6 +237,18 @@ describe("work card failures", () => {
 		);
 	});
 
+	it("names a failed pipeline after its last stage, whose exit code the block shows", async () => {
+		await mount([["a", bash("./deploy.sh 2>&1 | grep -v warning", "", 1, 0)]]);
+		const block = finding("error");
+		expect(block.querySelector(".omp-work-verdict-label")?.textContent).toBe("grep failed");
+		expect(block.querySelector(".omp-work-verdict-meta")?.textContent).toBe("exit 1");
+	});
+
+	it("names no stage of a failed pipeline under pipefail: any stage could have set its exit code", async () => {
+		await mount([["a", bash("set -o pipefail; ./deploy.sh 2>&1 | tee deploy.log", "deploy: no target", 2, 0)]]);
+		expect(finding("error").querySelector(".omp-work-verdict-label")?.textContent).toBe("Command failed");
+	});
+
 	it("has no folded line for a single failure", async () => {
 		await mount([["a", bash("./first.sh", "first: boom", 1, 0)]]);
 		expect(container.querySelector('[data-work-finding="more-failed"]')).toBeNull();
