@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.92.1] - 2026-11-01
+
+지운 세션이 봇의 작업 목록에 진행 중으로 남던 문제를 고쳤어요.
+
+### 고친 것
+- 탭이 자동으로 닫힌 뒤 지운 세션이 봇의 작업 › 진행 중에 '확인'과 넘겨받기 버튼과 함께 남던 문제를 고쳤어요. 세션을 지우면 목록에서도 빠지고, 이미 남아 있던 줄은 업데이트 후 앱이 켜질 때 정리돼요.
+- 작업 카드가 실패한 명령에 엉뚱한 이름을 붙이지 않아요. `&&`/`||`로 이은 명령이 실패하면 첫 명령 이름 대신 "명령 실패"와 종료 코드를 보여 주고, 파이프는 종료 코드를 정한 마지막 단계의 이름으로 보여 줘요.
+
+<!-- en -->
+
+Deleted sessions no longer linger in the bot's tasks as in progress.
+
+### Fixed
+- A session deleted after its tab auto-closed stayed under the bot's Tasks › In progress, still offering Take over. Deleting a session now drops it there, and rows already left behind are cleared on the first launch after the update.
+- Work cards no longer blame the wrong command: a failed `&&`/`||` chain reads "Command failed" with its exit code instead of its first command's name, and a failed pipeline is named after its last stage, which set the exit code.
+
 ## [0.92.0] - 2026-11-01
 
 봇 화면이 대화 하나로 합쳐지고, 맡긴 일의 진행·결과물·승인·반복 작업·기억·음성 대화를 그 화면에서 모두 다룰 수 있어요.
