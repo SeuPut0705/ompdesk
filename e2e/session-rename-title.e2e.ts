@@ -153,6 +153,20 @@ test("a paired computer's session shows its typed name and its automatic title t
 		await send(a, "third", 3);
 		await expect(titleBar(a).locator("[data-title-auto]")).toHaveText(/^Auto [2-9]: /);
 		await expect(titleBar(a).locator("[data-title-name]")).toHaveText("My name");
+
+		// While it works, the row's name still draws (v0.94.0 drew a working row's name 0 px wide: a running session
+		// showed only its spinner), on the host's section here and in the host's own sidebar.
+		await a.evaluate(
+			tabId => window.omp.rpc.commandForTab(tabId, { type: "prompt", message: "fixture running" }),
+			remoteTab,
+		);
+		for (const name of [
+			a.locator(`[data-sidebar-device="${deviceId}"] [data-title-name]`, { hasText: "My name" }),
+			b.locator(".omp-session-sidebar [data-title-name]", { hasText: "My name" }),
+		]) {
+			await expect(name.locator('.omp-live-text[data-working="turn"]')).toHaveCount(1);
+			await expect.poll(() => name.evaluate(box => box.getBoundingClientRect().width)).toBeGreaterThan(20);
+		}
 	} finally {
 		for (const instance of [client, host]) if (instance) await exitApp(instance.app);
 		for (const instance of [client, host]) expect(instance?.errors ?? []).toEqual([]);

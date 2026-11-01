@@ -20,7 +20,7 @@ Object.assign(globalThis as Record<string, unknown>, {
 
 let root: Root | undefined;
 
-async function show(parts: TitleParts, extra: { live?: "turn" | null } = {}): Promise<void> {
+async function show(parts: TitleParts, extra: { live?: "turn" | "background" | null } = {}): Promise<void> {
 	root ??= createRoot(document.body as unknown as globalThis.Element);
 	await act(async () => {
 		root?.render(<SessionTitle parts={parts} {...extra} />);
@@ -57,5 +57,15 @@ describe("SessionTitle", () => {
 		const name = document.querySelector("[data-title-name]");
 		expect(name?.querySelector("[data-working]")).not.toBeNull();
 		expect(document.querySelector("[data-title-auto] [data-working]")).toBeNull();
+	});
+
+	// v0.94.0 put a working name inside a `.truncate` box that components.css then measured as a size container; a box
+	// sized by its words draws 0 px wide there, and a running row showed no title. The working name truncates itself.
+	it.each(["turn", "background"] as const)("truncates a working name on its own box while %s", async live => {
+		await show({ title: "게임 볼륨 확인", auto: "Check the game volume" }, { live });
+		const working = document.querySelector("[data-title-name] .omp-live-text[data-working]");
+		expect(working?.textContent).toContain("게임 볼륨 확인");
+		expect(working?.parentElement?.classList.contains("truncate")).toBe(false);
+		expect(working?.classList.contains("truncate")).toBe(true);
 	});
 });
