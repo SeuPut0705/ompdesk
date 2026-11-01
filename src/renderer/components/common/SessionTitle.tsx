@@ -39,11 +39,16 @@ export function SessionTitle({ parts, live, swapScope, noTooltip, titleClassName
 			data-session-title
 			title={noTooltip ? undefined : combined}
 		>
-			<span className={cx("max-w-full shrink-0 truncate", titleClassName)} data-title-name>
+			{/* A working name truncates itself: its light's copy of the words ends at the title's own box (components.css
+			    `--live-line`), so the copy's ellipsis falls where the name's does. */}
+			<span
+				className={cx("max-w-full shrink-0", live === undefined ? "truncate" : "flex", titleClassName)}
+				data-title-name
+			>
 				{live === undefined ? (
 					name
 				) : (
-					<LiveText state={live} text={parts.title}>
+					<LiveText className="truncate" state={live} text={parts.title}>
 						{name}
 					</LiveText>
 				)}

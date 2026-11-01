@@ -4218,18 +4218,11 @@ html[data-gpu="software"] :is(.omp-context-ring, .omp-context-ring > circle) {
 	color: var(--sc-warning);
 }
 
-/* The copy ends where the title's line does, so its ellipsis falls where the line's own does: the title's box when
-   it truncates itself, else the truncating line it starts (a sidebar row's button; measured as a size container). */
+/* The copy ends where the title's line does, so its ellipsis falls where the line's own does: a working title
+   truncates itself (common/SessionTitle.tsx). Never measure a box around it as a size container instead: a box sized
+   by its words then draws 0 px wide (v0.94.0, a running row's name vanished). */
 .omp-live-text {
 	--live-line: 100%;
-}
-
-.truncate:has(> .omp-live-text:is([data-working="turn"], [data-working="background"])) {
-	container-type: inline-size;
-}
-
-.truncate > .omp-live-text {
-	--live-line: 100cqw;
 }
 
 .omp-live-shine {
