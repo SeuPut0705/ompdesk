@@ -68,6 +68,8 @@ import {
 	type IpcSetTabViewPayload,
 	type IpcSignIn,
 	type IpcSignInEndedPayload,
+	type IpcSignInRelay,
+	type IpcSignInRelayPayload,
 	type IpcTabInfo,
 	type IpcTabListChangedPayload,
 	type IpcTabRunOutcome,
@@ -376,6 +378,8 @@ interface PoolEntry extends RunTracking {
 	signInLink?: Extract<ExtensionUIRequest, { method: "open_url" }>;
 	/** Provider ids a paired host reports it is running a `login` for on this tab (`signIn` event). */
 	hostSignIns?: string[];
+	/** This computer's stand-in for a paired host's sign-in callback (`RemoteSidecar`'s `signInRelay`). */
+	signInRelay?: IpcSignInRelay;
 	/**
 	 * The full-channel forwarders, shared by every window the tab is visible in.
 	 * Null while no window shows it (light wiring only); windows join and leave
@@ -1117,6 +1121,14 @@ export class SidecarPool {
 			entry.hostSignIns = arg.active;
 			if (arg.ended) this.#signInEnded(entry, arg.ended.providerId, arg.ended.error);
 			else if (before.length > 0 && arg.active.length === 0) this.#signInEnded(entry, before.at(-1) ?? null);
+		});
+		// This computer stands in for the host's sign-in callback (sign-in-relay.ts): the login panel says how the browser comes back.
+		sidecar.on("signInRelay", (relay: IpcSignInRelay | null) => {
+			entry.signInRelay = relay ?? undefined;
+			this.#forwardToTab(entry, IPC_EVENTS.SIGN_IN_RELAY, {
+				tabId: entry.tabId,
+				relay,
+			} satisfies IpcSignInRelayPayload);
 		});
 		// A hidden tab's subagents still start and finish: lifecycle frames keep
 		// its runtime roster (the sidebar row's count) current. Progress frames
@@ -2134,6 +2146,7 @@ export class SidecarPool {
 			active,
 			providerId: entry.signInProviders?.at(-1) ?? entry.hostSignIns?.at(-1) ?? null,
 			...(active && entry.signInLink ? { link: entry.signInLink } : {}),
+			...(active && entry.signInRelay ? { relay: entry.signInRelay } : {}),
 		};
 	}
 
@@ -2423,6 +2436,7 @@ export class SidecarPool {
 	#signInEnded(entry: PoolEntry, providerId: string | null, error?: string | null): void {
 		if (this.#signInActive(entry)) return;
 		entry.signInLink = undefined;
+		entry.signInRelay = undefined;
 		this.#forwardToTab(entry, IPC_EVENTS.SIGN_IN_ENDED, {
 			tabId: entry.tabId,
 			providerId,

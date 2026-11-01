@@ -99,6 +99,7 @@ interface MockOmp {
 		onTabConfigUpdate: Mock<() => () => void>;
 		onExtensionUi: Mock<() => () => void>;
 		onSignInEnded: Mock<() => () => void>;
+		onSignInRelay: Mock<() => () => void>;
 		onTabPromptResult: Mock<(callback: Stamped<PromptResultHandler>) => () => void>;
 		onTabCommandOutput: Mock<(callback: Stamped<CommandOutputHandler>) => () => void>;
 		onTabSessionInfoUpdate: Mock<(callback: (frame: SessionInfoUpdateFrame, tabId: string) => void) => () => void>;
@@ -196,6 +197,7 @@ function installMockOmp(): {
 			onTabConfigUpdate: vi.fn(() => () => {}),
 			onExtensionUi: vi.fn(() => () => {}),
 			onSignInEnded: vi.fn(() => () => {}),
+			onSignInRelay: vi.fn(() => () => {}),
 			onTabPromptResult: vi.fn((callback: Stamped<PromptResultHandler>) => {
 				promptResultHandler = callback;
 				return () => {};
@@ -308,6 +310,7 @@ function installTabRoutedMockOmp(): {
 			onTabConfigUpdate: noopSub,
 			onExtensionUi: noopSub,
 			onSignInEnded: noopSub,
+			onSignInRelay: noopSub,
 			onTabPromptResult: noopSub,
 			onTabCommandOutput: noopSub,
 			onTabSessionInfoUpdate: noopSub,

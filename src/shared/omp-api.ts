@@ -86,6 +86,7 @@ import type {
 	IpcSidecarStatusPayload,
 	IpcSignIn,
 	IpcSignInEndedPayload,
+	IpcSignInRelayPayload,
 	IpcSpawnTabPayload,
 	IpcSpawnTabResult,
 	IpcTabInfo,
@@ -342,6 +343,8 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				),
 			onSignInEnded: (callback: (payload: IpcSignInEndedPayload) => void) =>
 				subscribe<IpcSignInEndedPayload>(IPC_EVENTS.SIGN_IN_ENDED, callback),
+			onSignInRelay: (callback: (payload: IpcSignInRelayPayload) => void) =>
+				subscribe<IpcSignInRelayPayload>(IPC_EVENTS.SIGN_IN_RELAY, callback),
 			onLiveFrame: (callback: (frame: RpcLiveFrame) => void) =>
 				subscribeActiveTab<RpcLiveFrame>(IPC_EVENTS.LIVE_FRAME, callback),
 			onBtwFrame: (callback: (frame: RpcBtwFrame) => void) =>

@@ -32,7 +32,13 @@ interface Instance {
 	errors: string[];
 }
 
-async function launch(profile: string, name: string, port: number, customProvider: string): Promise<Instance> {
+async function launch(
+	profile: string,
+	name: string,
+	port: number,
+	customProvider: string,
+	env: Record<string, string> = {},
+): Promise<Instance> {
 	const root = path.join(profile, name);
 	const project = path.join(root, "project");
 	const desktop = path.join(root, "desktop");
@@ -65,6 +71,7 @@ async function launch(profile: string, name: string, port: number, customProvide
 			OMP_GUI_TEST_REMOTE_LOOPBACK: "1",
 			OMP_GUI_TEST_LOGIN: "1",
 			...tailscale.env,
+			...env,
 		},
 	});
 	const page = await app.firstWindow();
@@ -87,11 +94,19 @@ test("@smoke connects two computers over the tailnet with no code, runs a prompt
 	test.setTimeout(180_000);
 	const profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-"));
 	const port = await freePort();
+	// A port this test holds stands in for B's sign-in callback port taken on A's loopback (sign-in-relay.ts).
+	const taken = net.createServer();
+	const listening = Promise.withResolvers<void>();
+	taken.listen({ host: "127.0.0.1", port: 0 }, () => listening.resolve());
+	await listening.promise;
+	const takenPort = (taken.address() as net.AddressInfo).port;
 	let host: Instance | null = null;
 	let client: Instance | null = null;
 	try {
 		host = await launch(profile, "b", port, "host-b-provider");
-		client = await launch(profile, "a", port, "host-a-provider");
+		client = await launch(profile, "a", port, "host-a-provider", {
+			OMP_GUI_TEST_SIGN_IN_RELAY_PORT: String(takenPort),
+		});
 		const b = host.page;
 		const a = client.page;
 
@@ -190,8 +205,10 @@ test("@smoke connects two computers over the tailnet with no code, runs a prompt
 		await expect(settings.locator('[data-settings-nav="models"] [data-this-device-tag]')).toHaveCount(0);
 
 		// Signing in from the remote tab runs omp's login on B. The browser link
-		// is the provider's own URL (B's localhost/launch is unreachable from A),
-		// and the redirect A's browser ends on is pasted back to B's omp.
+		// is the provider's own URL (B's localhost/launch is unreachable from A).
+		// A would stand in for B's callback on its own loopback; that port is taken
+		// here (`takenPort`), so A says so, and the redirect A's browser ends on is
+		// pasted back to B's omp.
 		await client.app.evaluate(({ shell }) => {
 			const opened: string[] = [];
 			Object.assign(globalThis, { openedUrls: opened });
@@ -203,13 +220,15 @@ test("@smoke connects two computers over the tailnet with no code, runs a prompt
 		await settings.getByRole("button", { name: "Add a provider" }).click();
 		const anthropic = settings.locator("[data-login-panel]");
 		await settings.locator('button[data-provider-connect="anthropic"]').click();
-		await expect(anthropic.locator("[data-remote-login-hint]")).toContainText("the sign-in finishes on Host B");
+		await expect(anthropic.locator("[data-remote-login-hint]")).toContainText(
+			`Port ${takenPort} is in use on this computer, so the browser can't come back by itself.`,
+		);
 		await anthropic.getByRole("button", { name: "Sign in with browser" }).click();
 		await expect
 			.poll(() => client?.app.evaluate(() => Reflect.get(globalThis, "openedUrls")))
 			.toEqual([expect.stringMatching(/^https:\/\/claude\.ai\/oauth\/authorize\?/)]);
 		const redirect = "http://localhost:54545/callback?code=abc&state=xyz";
-		// B's callback is out of A's browser's reach, so the code paste starts open.
+		// B's callback port is taken on A's loopback, so the code paste starts open.
 		await anthropic.getByLabel("Authorization code or redirect address").fill(redirect);
 		await anthropic.getByRole("button", { name: "Connect", exact: true }).click();
 		await expect(a.getByText("Signed in to Claude")).toBeVisible();
@@ -268,6 +287,7 @@ test("@smoke connects two computers over the tailnet with no code, runs a prompt
 		if (host) await exitApp(host.app);
 		if (client) await exitApp(client.app);
 		await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+		taken.close();
 	}
 });
 

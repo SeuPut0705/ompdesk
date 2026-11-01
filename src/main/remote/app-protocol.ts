@@ -88,6 +88,11 @@
  *   one), `host.previewRelay.send {rtab, data}` → null (one text frame to the relay), `host.previewRelay.close {rtab}` →
  *   null; the host pushes each frame the relay sends and the socket's end as the `host.previewRelay` event. Free: no
  *   model call, no quota. An older host answers `unsupported`.
+ * - A browser sign-in on a device's browser (sign-in-relay.ts): stock's flow on the host redirects the provider to ITS
+ *   loopback callback, which the device's browser reaches on the device's own loopback, where the device listens on that
+ *   port while the host's `login` runs. `host.signIn.callback {rtab, path, query}` → SignInCallbackReply: the host
+ *   replays `query` only to the callback of the open_url its tab's running sign-in raised, and only on that path with
+ *   that flow's `state`, once; refused `sign_in_unavailable` otherwise. Free. An older host answers `unsupported`.
  *
  * - The sessions the host works on now (any of its windows' tabs, the tabs it runs for any device):
  *   `sessions.live {}` → LiveSessionsReply; the host pushes every change as the `host.liveSessions` event.
@@ -124,6 +129,7 @@ import { BLOCKING_UI_METHODS, type ExtensionUIRequest } from "../../shared/rpc-t
 import type { ScheduleCreated, SchedulesRequest, SchedulesState } from "../../shared/schedules";
 import { ScheduleFrequencySchema, ScheduleRunSchema } from "../../shared/schedules-schema";
 import type { SidebarProjectsRequest, SidebarProjectsState } from "../../shared/sidebar-projects";
+import { SIGN_IN_PAGE_MAX_CHARS } from "../sign-in-callback";
 
 /**
  * Events a host sends for a remote tab: the SidecarManager events it forwards (everything else
@@ -212,6 +218,19 @@ export const PreviewRelayEvent = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("close"), rtab: PreviewRelayRtab }),
 ]);
 export type PreviewRelayEvent = z.infer<typeof PreviewRelayEvent>;
+/**
+ * A device's browser came back with a host tab's sign-in callback (`host.signIn.callback` above). The params are strict:
+ * the host replays only to the callback its own tab's sign-in named. The reply is the page stock's server answered.
+ */
+export const SIGN_IN_CALLBACK_METHOD = "host.signIn.callback";
+export const SignInCallbackParams = z
+	.object({ rtab: PreviewRelayRtab, path: z.string().startsWith("/").max(2048), query: z.string().max(16_384) })
+	.strict();
+export const SignInCallbackReply = z.object({
+	status: z.number().int().min(100).max(599),
+	contentType: z.string().max(200),
+	body: z.string().max(SIGN_IN_PAGE_MAX_CHARS),
+});
 /**
  * The sessions this computer works on now changed (data: {@link LiveSessionsReply}): its windows' tabs and the tabs it
  * runs for any device, sent to every connected device so a row no tab of theirs holds still shows the work. An older

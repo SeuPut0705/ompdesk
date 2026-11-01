@@ -113,6 +113,7 @@ import {
 	trackRunEvent,
 } from "../sidecar-run-state";
 import { type SidecarLike, VIEW_ENDED_EVENT } from "../sidecar-types";
+import { type LoopbackCallback, loopbackCallback, replaySignInCallback } from "../sign-in-callback";
 import { stockHelperRequest } from "../stock-helper";
 import { MAX_FORMER_TAB_IDS } from "../tab-layout";
 import { sessionFolderState } from "../tab-spawn";
@@ -186,6 +187,9 @@ import {
 	SchedulesCreateParams,
 	SchedulesLogParams,
 	SESSIONS_CHANGED_EVENT,
+	SIGN_IN_CALLBACK_METHOD,
+	SignInCallbackParams,
+	type SignInCallbackReply,
 	TAB_EVENT,
 	TAB_EVENT_NAMES,
 	type TabBridgeArg,
@@ -358,6 +362,11 @@ interface HostTab extends RunTracking {
 	scheduledRetry?: IpcScheduledRetry;
 	/** Provider ids of the `login` commands running on this tab (a device's sign-in, even if its link dropped). */
 	signIns?: string[];
+	/**
+	 * The loopback callback of the browser page the running sign-in raised (its `open_url` with a `launchUrl`): the one
+	 * address a device's browser callback is replayed to (`host.signIn.callback`), once; gone with the sign-in.
+	 */
+	signInCallback?: LoopbackCallback;
 	/** `omp update` landed during a turn: the tab restarts on the new omp when it ends. */
 	ompRestartPending?: boolean;
 	/** An extension update landed during a turn: applied one tick after it ends. */
@@ -1204,6 +1213,11 @@ export class LocalHostServices implements HostServices {
 				this.#relays.close(this.#key(peer.deviceId, rtab));
 				return null;
 			}
+			// The device's browser came back to the device's own loopback with this tab's sign-in callback (sign-in-relay.ts).
+			case SIGN_IN_CALLBACK_METHOD: {
+				const { rtab, path, query } = parse(SignInCallbackParams, method, params);
+				return await this.#signInCallback(this.#tab(peer, rtab), path, query);
+			}
 			case "fs.list": {
 				const { rtab, cwd, ...payload } = parse(FsListParams, method, params);
 				return listWorkspace(this.#fsRoot(peer, rtab, cwd), payload);
@@ -2040,6 +2054,9 @@ export class LocalHostServices implements HostServices {
 			if (asks) tab.asks.set(request.id, request);
 			// omp withdrew the request (timeout, abort): no answer will follow.
 			if (asks || (request.method === "cancel" && tab.asks.delete(request.targetId))) this.#resume?.sync();
+			// The browser page of a sign-in a device runs here: its callback is what that device's browser may bring back.
+			if (request.method === "open_url" && request.launchUrl !== undefined && (tab.signIns?.length ?? 0) > 0)
+				tab.signInCallback = loopbackCallback(request.url) ?? undefined;
 		});
 		// The calls a device answers: the omp withdraws one only through a cancel frame, and a process that ends takes its own.
 		const pending = (name: PendingHostCall["name"]) => (request: { id: string }) => {
@@ -2333,10 +2350,34 @@ export class LocalHostServices implements HostServices {
 			if (at >= 0) signIns.splice(at, 1);
 		}
 		tab.signIns = signIns;
+		if (signIns.length === 0) tab.signInCallback = undefined;
 		this.#emit(tab, "signIn", {
 			active: signIns,
 			...(ended === undefined ? {} : { ended: { providerId, error: ended } }),
 		} satisfies TabSignInArg);
+	}
+
+	/**
+	 * Replays a device's browser callback to the callback server of the tab's running sign-in, on the path and with
+	 * the `state` of the page that sign-in raised, never to an address the device names; one use.
+	 */
+	async #signInCallback(tab: HostTab, path: string, query: string): Promise<z.infer<typeof SignInCallbackReply>> {
+		const callback = tab.signInCallback;
+		const state = new URLSearchParams(query).get("state");
+		if (
+			!callback ||
+			(tab.signIns?.length ?? 0) === 0 ||
+			callback.state === null ||
+			path !== callback.url.pathname ||
+			state !== callback.state
+		)
+			throw codedError("sign_in_unavailable", "No browser sign-in in this tab waits for that callback");
+		tab.signInCallback = undefined;
+		try {
+			return await replaySignInCallback(callback, query);
+		} catch {
+			throw codedError("sign_in_unavailable", "The sign-in's callback server did not answer");
+		}
 	}
 
 	/**

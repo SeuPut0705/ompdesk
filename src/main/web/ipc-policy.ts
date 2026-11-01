@@ -508,6 +508,7 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[E.TAB_LIST_CHANGED]: { dir: "push", mode: "pass" },
 	[E.EXTENSION_UI]: { dir: "push", mode: "pass" },
 	[E.SIGN_IN_ENDED]: { dir: "push", mode: "pass" },
+	[E.SIGN_IN_RELAY]: { dir: "push", mode: "pass" },
 	[E.SUBAGENT_FRAMES]: { dir: "push", mode: "pass" },
 	[E.COMMANDS_UPDATE]: { dir: "push", mode: "pass" },
 	[E.CONFIG_UPDATE]: { dir: "push", mode: "pass" },

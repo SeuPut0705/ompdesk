@@ -29,6 +29,7 @@
  * `tab.open` on the same session adopts it.
  */
 import { EventEmitter } from "node:events";
+import { z } from "zod";
 import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
 import type { IpcScheduledRetry, RemoteLinkState } from "../../shared/ipc-types";
 import { isOmpdeskWorktreeFolder } from "../../shared/project-origin";
@@ -36,9 +37,12 @@ import type { RpcCommand, RpcResponse, SidecarStatus, SidecarStatusPayload } fro
 import type { BridgeConnectResult } from "../bridge-health";
 import type { RpcClient } from "../rpc-client";
 import type { SidecarLike } from "../sidecar-types";
+import type { SignInCallbackPage } from "../sign-in-callback";
 import {
 	HOST_COMMAND_TIMEOUT_MS,
 	LINK_SLACK_MS,
+	SIGN_IN_CALLBACK_METHOD,
+	SignInCallbackReply,
 	TabBridgeArg,
 	type TabEventMessage,
 	TabOpenAsksArg,
@@ -51,6 +55,7 @@ import {
 } from "./app-protocol";
 import type { ImageBlobCache } from "./image-blob-cache";
 import { createLinkEventDecoder, createReadDecoder, encodedReadKey, type WireSubagentFrame } from "./link-events";
+import { type SignInRelay, type SignInRelayOptions, startSignInRelay } from "./sign-in-relay";
 import type { TranscriptCache } from "./transcript-cache";
 
 /** The slice of RemoteClient a tab needs. */
@@ -94,6 +99,11 @@ export interface RemoteSidecarOptions {
 	 * ask the host only for what changed since this device last read them, across relaunches. Absent: every read asks.
 	 */
 	transcripts?: TranscriptCache;
+	/**
+	 * Stand in on this computer's loopback for the host's browser sign-in callback while the host's `login` runs
+	 * (sign-in-relay.ts): `failure` is the browser page's words when the host could not take it. Absent: no stand-in.
+	 */
+	signInRelay?: Pick<SignInRelayOptions, "failure" | "port">;
 }
 
 type StatusDetail = Pick<
@@ -112,6 +122,9 @@ type BringUpStep = "link" | "open" | "start" | "ready";
 export type RemoteTabLogStep = "open" | "start" | "ready" | "stalled" | "failed";
 
 const OFFLINE_TEXT = "The device running this tab is offline";
+
+/** The browser page a sign-in raised, as far as standing in for its callback reads it. */
+const OpenUrlRequest = z.object({ method: z.literal("open_url"), url: z.string(), launchUrl: z.string().optional() });
 
 /**
  * Frames that answer a request the host's omp made (`host_tool_call`, `host_uri_request`):
@@ -195,6 +208,11 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	readonly #log: RemoteSidecarOptions["log"];
 	readonly #imageBlobs: ImageBlobCache | undefined;
 	readonly #transcripts: TranscriptCache | undefined;
+	readonly #signInRelayOptions: RemoteSidecarOptions["signInRelay"];
+	/** The provider sign-ins the host reports running on this tab (`signIn`). */
+	#hostSignIns: readonly string[] = [];
+	/** This computer's stand-in for the running sign-in's loopback callback, if one is up. */
+	#signInRelay: SignInRelay | null = null;
 	/** The bring-up in progress and the step it waits on; null once the host reported the tab running. */
 	#pending: { step: BringUpStep; at: number } | null = null;
 	#startTimer: NodeJS.Timeout | null = null;
@@ -218,6 +236,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 		this.#log = options.log;
 		this.#imageBlobs = options.imageBlobs;
 		this.#transcripts = options.transcripts;
+		this.#signInRelayOptions = options.signInRelay;
 	}
 
 	get device(): string {
@@ -345,6 +364,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	dispose(): void {
 		if (this.#disposed) return;
 		if (this.#openedOnce && !this.#keepOnHost()) this.#closeOnHost();
+		this.#endSignInRelay();
 		this.#disposed = true;
 		this.#settle(null);
 		this.#queuedReplies = [];
@@ -416,9 +436,16 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 			}
 			case "signIn": {
 				const parsed = TabSignInArg.safeParse(message.arg);
-				if (parsed.success) this.emit("signIn", parsed.data);
+				if (!parsed.success) return;
+				this.#hostSignIns = parsed.data.active;
+				if (parsed.data.active.length === 0) this.#endSignInRelay();
+				this.emit("signIn", parsed.data);
 				return;
 			}
+			case "extensionUi":
+				this.#relaySignIn(message.arg);
+				this.emit(message.name, message.arg);
+				return;
 			// The host's person deleted the session this tab shows: the pool drops the tab and remembers the delete.
 			case "sessionDeleted":
 				if (typeof message.arg === "string") this.emit("sessionDeleted", message.arg);
@@ -437,6 +464,42 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 			default:
 				this.emit(message.name, message.arg);
 		}
+	}
+
+	/**
+	 * The browser page of a sign-in the host runs: the provider will send this computer's browser to the host's
+	 * loopback callback, which is this computer's loopback here, so stand in on it (sign-in-relay.ts). A newer page
+	 * replaces the stand-in.
+	 */
+	#relaySignIn(request: unknown): void {
+		const options = this.#signInRelayOptions;
+		if (!options || this.#hostSignIns.length === 0) return;
+		const page = OpenUrlRequest.safeParse(request);
+		if (!page.success || page.data.launchUrl === undefined) return;
+		this.#endSignInRelay();
+		const relay = startSignInRelay({
+			...options,
+			authorizationUrl: page.data.url,
+			forward: (path, query) => this.#forwardSignInCallback(path, query),
+			onState: state => {
+				if (this.#signInRelay === relay) this.emit("signInRelay", state);
+			},
+		});
+		this.#signInRelay = relay;
+	}
+
+	#endSignInRelay(): void {
+		if (!this.#signInRelay) return;
+		this.#signInRelay.close();
+		this.#signInRelay = null;
+		this.emit("signInRelay", null);
+	}
+
+	async #forwardSignInCallback(path: string, query: string): Promise<SignInCallbackPage> {
+		if (this.#link.state !== "online") throw codedError("remote_offline", OFFLINE_TEXT);
+		await this.#open();
+		const reply = await this.#link.request(SIGN_IN_CALLBACK_METHOD, { rtab: this.#rtab, path, query });
+		return SignInCallbackReply.parse(reply);
 	}
 
 	/**

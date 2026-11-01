@@ -1122,6 +1122,16 @@ app.whenReady().then(() => {
 			? { startTimeoutMs: Number(process.env.OMP_GUI_REMOTE_START_TIMEOUT_MS) }
 			: {}),
 		logTab: (step, details) => writeRuntimeLog({ source: "remote-tab", message: step, details }),
+		signInRelay: {
+			failure: device => ({
+				title: mainT("remote.signInRelay.title"),
+				message: mainT("remote.signInRelay.failed", undefined, { device }),
+			}),
+			// Test seam: two apps on one computer share its loopback, so e2e/sign-in-relay.e2e.ts gives the device another port.
+			...(Number(process.env.OMP_GUI_TEST_SIGN_IN_RELAY_PORT) > 0
+				? { port: Number(process.env.OMP_GUI_TEST_SIGN_IN_RELAY_PORT) }
+				: {}),
+		},
 		// A quit (update restart included) leaves the turns a paired host runs for this computer running there, as it
 		// leaves this computer's own to continue after the relaunch. With "Continue interrupted work" off the quit
 		// dialog counted those turns and promised to stop them, so their host tabs close as before.

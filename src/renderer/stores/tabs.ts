@@ -39,6 +39,7 @@ import type {
 	IpcRetrySaga,
 	IpcScheduledRetry,
 	IpcSignIn,
+	IpcSignInRelay,
 	IpcSpawnTabResult,
 	IpcTabInfo,
 	IpcTabRunOutcome,
@@ -1400,6 +1401,7 @@ export function pushTabExtensionUiRequest(
 	else if (signIn.active) {
 		state.adoptLogin(signIn);
 		state.restoreLoginRequest(request);
+		if (signIn.relay) state.setSignInRelay(signIn.relay);
 	} else {
 		answerLeftoverSignIn(tabId, request);
 		return;
@@ -1425,6 +1427,12 @@ function answerLeftoverSignIn(tabId: string, request: ExtensionUIRequest): void 
 export function endTabSignIn(tabId: string, error?: string | null): void {
 	const state = sessionRuntimeStore<ExtensionUiStore>(tabId, "extensionUi")?.getState();
 	for (const request of state?.settleAdoptedLogin(error) ?? []) answerLeftoverSignIn(tabId, request);
+}
+
+/** This computer's stand-in for a paired host tab's sign-in callback changed (`SIGN_IN_RELAY`): the login panel reads it. */
+export function setTabSignInRelay(tabId: string, relay: IpcSignInRelay | null): void {
+	if (isTabClosed(tabId)) return;
+	sessionRuntimeStore<ExtensionUiStore>(tabId, "extensionUi")?.getState().setSignInRelay(relay);
 }
 
 /** Show again the asks and approvals a reloaded page missed: main still holds them, and answering reaches the omp that raised them. A live frame that got here first is not doubled. */

@@ -311,6 +311,7 @@ it("ends every reordered and replayed delivery around snapshot loads as the run 
 			onTabConfigUpdate: noop,
 			onExtensionUi: noop,
 			onSignInEnded: noop,
+			onSignInRelay: noop,
 			onTabPromptResult: noop,
 			onTabCommandOutput: noop,
 			onTabSessionInfoUpdate: noop,

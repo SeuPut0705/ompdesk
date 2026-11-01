@@ -3,7 +3,12 @@ import { ipcErrorCode } from "../../shared/ipc-error-codes";
 import type { ExtensionUIResponse } from "../../shared/rpc-types";
 import { translate } from "../lib/i18n";
 import { useRuntimeTabId } from "../stores/session-runtime-context";
-import { endTabSignIn, pushTabExtensionUiRequest, restoreTabExtensionUiRequests } from "../stores/tabs";
+import {
+	endTabSignIn,
+	pushTabExtensionUiRequest,
+	restoreTabExtensionUiRequests,
+	setTabSignInRelay,
+} from "../stores/tabs";
 import { toast, toastError } from "../stores/toast";
 
 /**
@@ -41,6 +46,7 @@ export function useExtensionUi(): void {
 			pushTabExtensionUiRequest(tabId, request, signIn, answeredElsewhere),
 		);
 		const offSignIn = window.omp.events.onSignInEnded(({ tabId, error }) => endTabSignIn(tabId, error));
+		const offRelay = window.omp.events.onSignInRelay(({ tabId, relay }) => setTabSignInRelay(tabId, relay));
 		// What was shown and asked before this listener existed (a reload, a new window, or frames sent while the page
 		// was still starting: nightly 39539556435 lost a status set 24 ms before the listener came up).
 		// A read a dropped link fails is no loss: a web page's resync reads both again (settleTabExtensionUiRequests).
@@ -49,6 +55,7 @@ export function useExtensionUi(): void {
 		return () => {
 			offUi();
 			offSignIn();
+			offRelay();
 		};
 	}, []);
 }

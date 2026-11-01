@@ -277,6 +277,7 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[E.TAB_LIST_CHANGED]: never(PUSH),
 	[E.EXTENSION_UI]: never(PUSH),
 	[E.SIGN_IN_ENDED]: never(PUSH),
+	[E.SIGN_IN_RELAY]: never(PUSH),
 	[E.SUBAGENT_FRAMES]: never(PUSH),
 	[E.COMMANDS_UPDATE]: never(PUSH),
 	[E.CONFIG_UPDATE]: never(PUSH),

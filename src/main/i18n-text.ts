@@ -333,6 +333,14 @@ export const MAIN_TEXT = {
 		en: "{device} has not started this session after {seconds} s. Restart to try again.",
 		ko: "{device}에서 이 세션이 {seconds}초가 지나도 시작되지 않았어요. 다시 시작해 보세요.",
 	},
+	"remote.signInRelay.title": {
+		en: "Sign-in not finished yet",
+		ko: "아직 로그인이 끝나지 않았어요",
+	},
+	"remote.signInRelay.failed": {
+		en: "OMPdesk couldn't pass this sign-in on to {device}. Copy this page's full address from the address bar and paste it into the sign-in panel in OMPdesk, or reload this page once {device} is connected again.",
+		ko: "OMPdesk가 이 로그인을 {device}에 전달하지 못했어요. 주소창에서 이 페이지의 전체 주소를 복사해 OMPdesk 로그인 패널에 붙여 넣거나, {device}에 다시 연결되면 이 페이지를 새로 고쳐 주세요.",
+	},
 	// Stats bridge failures that reach the renderer (toasts, the stats page).
 	"stats.notReady": {
 		en: "OMPdesk keeps starting it in the background. Stats appear here as soon as it answers.",

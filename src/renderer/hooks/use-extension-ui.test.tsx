@@ -75,7 +75,7 @@ describe("useExtensionUi", () => {
 		const dropped = () => Promise.reject(new Error("The link to the computer dropped"));
 		const ui = (window as unknown as { omp: { ui: Record<string, unknown>; events?: Record<string, unknown> } }).omp;
 		Object.assign(ui.ui, { shownState: vi.fn(dropped), openRequests: vi.fn(dropped) });
-		ui.events = { onExtensionUi: () => () => {}, onSignInEnded: () => () => {} };
+		ui.events = { onExtensionUi: () => () => {}, onSignInEnded: () => () => {}, onSignInRelay: () => () => {} };
 		const unhandled: unknown[] = [];
 		const listen = (reason: unknown) => unhandled.push(reason);
 		process.on("unhandledRejection", listen);

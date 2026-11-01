@@ -14,6 +14,7 @@ import type {
 	ResetPassRedeemResult,
 	UsageLimit,
 } from "../../shared/rpc-types";
+import { loopbackCallback } from "../sign-in-callback";
 import { stockHelperRequest } from "../stock-helper";
 import { LocalCommandError, type LocalHandler } from "./types";
 
@@ -92,8 +93,6 @@ const providerIdParam = z.string().min(1);
 const historyRead = z.object({ limit: z.number().int().optional(), cwd: z.string().optional() });
 const historySearch = historyRead.extend({ query: z.string() });
 
-const LOOPBACK_HOSTS: Record<string, true> = { localhost: true, "127.0.0.1": true, "[::1]": true };
-
 /**
  * Ends a browser sign-in stock's `login` RPC is waiting on. That RPC takes no
  * cancel (rpc-mode `login` passes its flow no signal), an empty answer to the
@@ -106,18 +105,12 @@ const LOOPBACK_HOSTS: Record<string, true> = { localhost: true, "127.0.0.1": tru
  * address is omp's own.
  */
 export async function cancelBrowserLogin(authorizationUrl: string): Promise<void> {
-	const authorize = new URL(authorizationUrl);
-	const redirect = authorize.searchParams.get("redirect_uri");
-	const callback = redirect && URL.canParse(redirect) ? new URL(redirect) : null;
-	if (callback?.protocol !== "http:" || !Object.hasOwn(LOOPBACK_HOSTS, callback.hostname)) {
-		throw new LocalCommandError("This sign-in has no loopback callback to end", "no_loopback_callback");
-	}
-	const state = authorize.searchParams.get("state");
-	callback.search = "";
-	callback.hash = "";
+	const flow = loopbackCallback(authorizationUrl);
+	if (!flow) throw new LocalCommandError("This sign-in has no loopback callback to end", "no_loopback_callback");
+	const callback = new URL(flow.url);
 	callback.searchParams.set("error", "access_denied");
 	callback.searchParams.set("error_description", "Sign-in cancelled in OMPdesk");
-	if (state) callback.searchParams.set("state", state);
+	if (flow.state) callback.searchParams.set("state", flow.state);
 	// Stock answers a denial with its error page (500); a closed server means the login already ended.
 	await fetch(callback, { signal: AbortSignal.timeout(5_000) }).catch(() => undefined);
 }

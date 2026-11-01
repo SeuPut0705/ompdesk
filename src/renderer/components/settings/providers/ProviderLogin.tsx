@@ -18,7 +18,8 @@
  *
  * On a paired host's tab or a web viewer, omp's callback server runs on another
  * computer. The link is the provider's own URL (never the host's localhost/launch),
- * and the paste is how the code reaches the host, so the fallback starts open.
+ * and the paste is how the code reaches the host, so the fallback starts open,
+ * unless this computer's main stands in for the host's callback (`signInRelay`).
  * Cancel before the first request keeps the panel open until the link or prompt
  * arrives, then cancels it without opening the browser.
  */
@@ -360,6 +361,10 @@ export function ProviderLoginPanel({
 	const { state } = login;
 	const host = useFocusedHost();
 	const remote = useFocusedTabDevice() !== undefined || webPwa() !== null;
+	// This computer's browser comes back to this computer's own loopback, and main hands the callback to the host
+	// (main/remote/sign-in-relay.ts); a phone's browser never reaches this computer's loopback.
+	const relay = useExtensionUiStore(store => (webPwa() === null ? store.signInRelay : null));
+	const relayed = remote && relay?.listening === true;
 	const [pasteOpen, setPasteOpen] = useState(false);
 	const pasteId = useId();
 
@@ -390,8 +395,8 @@ export function ProviderLoginPanel({
 	const fallback = state.link?.oauth === true ? state.prompt : null;
 	const primaryPrompt = fallback ? null : state.prompt;
 	const keyPage = primaryPrompt !== null && state.link?.oauth === false;
-	// A remote browser cannot reach omp's callback, so the paste is the way back.
-	const pasteShown = fallback !== null && (pasteOpen || remote);
+	// A remote browser cannot reach omp's callback, so the paste is the way back, unless this computer relays it.
+	const pasteShown = fallback !== null && (pasteOpen || (remote && !relayed));
 	const progressKey = state.progress === null ? undefined : STOCK_PROGRESS[state.progress];
 
 	return (
@@ -421,7 +426,11 @@ export function ProviderLoginPanel({
 			)}
 			{state.link && host && (
 				<p className="text-sc-xs break-keep text-(--sc-text-muted)" data-remote-login-hint="true">
-					{t("providerList.login.remoteHint", { name: host.name ?? t("remote.tab.unknownDevice") })}
+					{relayed
+						? t("providerList.login.relayHint", { name: host.name ?? t("remote.tab.unknownDevice") })
+						: relay?.listening === false
+							? t("providerList.login.relayBusy", { port: relay.port })
+							: t("providerList.login.remoteHint", { name: host.name ?? t("remote.tab.unknownDevice") })}
 				</p>
 			)}
 			{primaryPrompt ? (
@@ -458,7 +467,7 @@ export function ProviderLoginPanel({
 			)}
 			{fallback && (
 				<div className="flex flex-col gap-2 border-t border-(--sc-border-subtle) pt-3" data-login-paste="true">
-					{!remote && (
+					{(!remote || relayed) && (
 						<Button
 							aria-controls={pasteId}
 							aria-expanded={pasteShown}
@@ -474,10 +483,10 @@ export function ProviderLoginPanel({
 					{pasteShown && (
 						<div className="flex flex-col gap-2" id={pasteId}>
 							<p className="text-sc-xs break-keep text-(--sc-text-muted)" id={`${pasteId}-hint`}>
-								{t("providerList.login.pasteHint")}
+								{t(remote && !relayed ? "providerList.login.pasteHintRemote" : "providerList.login.pasteHint")}
 							</p>
 							<PromptForm
-								autoFocus={!remote}
+								autoFocus={!remote || relayed}
 								describedBy={`${pasteId}-hint`}
 								key={fallback.id}
 								label={t("providerList.login.pasteLabel")}

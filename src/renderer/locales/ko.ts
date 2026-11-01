@@ -1778,6 +1778,7 @@ export const ko: Record<string, string> = {
 	"ipcError.web_forbidden": "이 기기에는 허용되지 않은 동작이에요. 컴퓨터의 OMPdesk에서 이 기기의 권한을 바꿔 주세요.",
 	"ipcError.relay_unavailable":
 		"이 탭에서 에이전트의 브라우저가 실행 중이 아니에요. '에이전트가 이 페이지를 쓰게 하기'를 껐다가 다시 켜 주세요.",
+	"ipcError.sign_in_unavailable": "그 로그인은 더 이상 브라우저를 기다리지 않아요. 다시 시작해 주세요.",
 	"common.cancel": "취소",
 	"common.save": "저장",
 	"common.yes": "예",
@@ -6615,6 +6616,9 @@ export const ko: Record<string, string> = {
 	"providerList.login.waiting": "브라우저에서 로그인을 마칠 때까지 기다리는 중…",
 	"providerList.login.remoteHint":
 		"브라우저는 이 기기에서 열리고 로그인은 {name}에서 마무리돼요. 브라우저가 열리지 않는 페이지에서 멈추면 그 페이지의 전체 주소를 복사해 아래에 붙여 넣어 주세요.",
+	"providerList.login.relayHint": "브라우저가 이 컴퓨터로 돌아오면 OMPdesk가 로그인을 {name}에 전달해요.",
+	"providerList.login.relayBusy":
+		"이 컴퓨터의 {port}번 포트가 사용 중이라 브라우저가 바로 돌아올 수 없어요. 브라우저가 마지막에 연 주소를 아래에 붙여 넣어 주세요.",
 	"providerList.login.starting": "로그인 준비 중…",
 	"providerList.login.inProgress": "로그인을 진행하는 중…",
 	"providerList.login.exchanging": "로그인을 마무리하는 중…",
@@ -6622,6 +6626,8 @@ export const ko: Record<string, string> = {
 	"providerList.login.pasteLabel": "인증 코드 또는 리디렉션 주소",
 	"providerList.login.pasteHint":
 		"브라우저가 열리지 않는 페이지에서 멈췄을 때만 필요해요. 화면에 보이는 코드나 그 페이지의 전체 주소를 붙여 넣어 주세요.",
+	"providerList.login.pasteHintRemote":
+		"로그인을 마치면 브라우저가 열리지 않는 페이지에서 멈춰요. 그 페이지의 전체 주소를 복사해 여기에 붙여 넣어 주세요.",
 	"setup.title": "OMPdesk 시작하기",
 	"setup.connect.description": "로그인하거나 API 키를 붙여 넣으세요. 자격 증명은 이 컴퓨터에만 저장돼요.",
 	"setup.custom.title": "직접 운영하는 엔드포인트가 있나요?",

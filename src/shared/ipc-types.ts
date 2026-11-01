@@ -121,6 +121,8 @@ export const IPC_EVENTS = {
 	EXTENSION_UI: "extension-ui:request",
 	/** A tab's last in-flight provider sign-in answered */
 	SIGN_IN_ENDED: "sign-in:ended",
+	/** This computer's stand-in for a paired host tab's sign-in callback started, could not, or ended */
+	SIGN_IN_RELAY: "sign-in:relay",
 	/** Subagent frames, in order, as one batch per presentation frame (main/subagent-frames.ts) */
 	SUBAGENT_FRAMES: "subagent:frames",
 	/** Available commands updated */
@@ -897,12 +899,27 @@ export interface IpcExtensionUiRespondPayload {
  * Marks a request as a provider sign-in's own (`isSignInRequest` while its `login` ran): the login
  * panel's, never a chat card. `active`: that `login` is still in flight, so the panel shows it again;
  * otherwise the request is a leftover (stock's code paste is never closed) and is answered `cancelled`.
- * `link` is the browser page the sign-in opened, which the panel acknowledged and dropped.
+ * `link` is the browser page the sign-in opened, which the panel acknowledged and dropped. `relay`: this
+ * computer stands in for a paired host's loopback callback (`IpcSignInRelay`).
  */
 export interface IpcSignIn {
 	active: boolean;
 	providerId: string | null;
 	link?: Extract<ExtensionUIRequest, { method: "open_url" }>;
+	relay?: IpcSignInRelay;
+}
+
+/**
+ * A paired host's browser sign-in, as this computer's browser comes back from it (main/remote/sign-in-relay.ts):
+ * main listens on the host's callback port on this computer's loopback and hands the callback over (`listening`),
+ * or that port is taken here, so the address the browser ends on has to be pasted (`port`).
+ */
+export type IpcSignInRelay = { listening: true } | { listening: false; port: number };
+
+/** `SIGN_IN_RELAY` event payload: the tab's relay changed; null once it ended. */
+export interface IpcSignInRelayPayload {
+	tabId: string;
+	relay: IpcSignInRelay | null;
 }
 
 /** `EXTENSION_UI` event payload. */
@@ -2102,6 +2119,8 @@ export interface OmpApi {
 		): () => void;
 		/** A tab's provider sign-in finished while a reloaded page was showing it (`IpcSignIn.active`). */
 		onSignInEnded(callback: (payload: IpcSignInEndedPayload) => void): () => void;
+		/** This computer's stand-in for a paired host tab's sign-in callback changed (`IpcSignInRelay`). */
+		onSignInRelay(callback: (payload: IpcSignInRelayPayload) => void): () => void;
 		onLiveFrame(callback: (frame: RpcLiveFrame) => void): () => void;
 		onBtwFrame(callback: (frame: RpcBtwFrame) => void): () => void;
 		onConfigUpdate(callback: (payload: ConfigUpdateFrame) => void): () => void;

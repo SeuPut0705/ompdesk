@@ -1784,6 +1784,7 @@ export const en: Record<string, string> = {
 	"ipcError.web_forbidden": "This device isn't allowed to do that. Change its permissions in OMPdesk on the computer.",
 	"ipcError.relay_unavailable":
 		"The agent's browser isn't running for this tab. Turn Let the agent use this page off and on again.",
+	"ipcError.sign_in_unavailable": "That sign-in no longer waits for the browser. Start it again.",
 	"common.cancel": "Cancel",
 	"common.save": "Save",
 	"common.yes": "yes",
@@ -6631,6 +6632,10 @@ export const en: Record<string, string> = {
 	"providerList.login.waiting": "Waiting for you to finish in the browser…",
 	"providerList.login.remoteHint":
 		"The browser opens on this device and the sign-in finishes on {name}. If the browser ends on a page that won't load, copy that page's full address and paste it below.",
+	"providerList.login.relayHint":
+		"The browser comes back to this computer, and OMPdesk passes the sign-in on to {name}.",
+	"providerList.login.relayBusy":
+		"Port {port} is in use on this computer, so the browser can't come back by itself. Paste the address it ends on below.",
 	"providerList.login.starting": "Starting sign-in…",
 	"providerList.login.inProgress": "Sign-in in progress…",
 	"providerList.login.exchanging": "Finishing sign-in…",
@@ -6638,6 +6643,8 @@ export const en: Record<string, string> = {
 	"providerList.login.pasteLabel": "Authorization code or redirect address",
 	"providerList.login.pasteHint":
 		"Only needed when the browser ends on a page that won't load. Paste the code it shows, or that page's full address.",
+	"providerList.login.pasteHintRemote":
+		"After you sign in, the browser ends on a page that won't load. Copy its full address and paste it here.",
 	"setup.title": "Set up OMPdesk",
 	"setup.connect.description": "Sign in or paste an API key. Credentials stay on this computer.",
 	"setup.custom.title": "Running your own endpoint?",

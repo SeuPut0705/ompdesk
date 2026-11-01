@@ -1,5 +1,5 @@
 import { createStore } from "zustand/vanilla";
-import type { IpcSignIn } from "../../shared/ipc-types";
+import type { IpcSignIn, IpcSignInRelay } from "../../shared/ipc-types";
 import { BLOCKING_UI_METHODS, type ExtensionUIRequest, isSignInRequest } from "../../shared/rpc-types";
 import { isApprovalSelect } from "../../shared/tool-approval";
 import { webPwa } from "../web/pwa";
@@ -69,6 +69,9 @@ export interface ExtensionUiStore extends ExtensionUiSnapshot {
 	hideAdoptedLogin: () => void;
 	/** The panel took in the adopted sign-in's outcome. */
 	dismissAdoptedLogin: () => void;
+	/** How the running sign-in's browser comes back when its omp runs on a paired host (`IpcSignInRelay`); null: not known. */
+	signInRelay: IpcSignInRelay | null;
+	setSignInRelay: (relay: IpcSignInRelay | null) => void;
 	removeRequest: (id: string) => void;
 	clearAll: () => void;
 }
@@ -205,6 +208,7 @@ export const createExtensionUiStore = () =>
 			set({
 				inlineLogins: 0,
 				loginRequestIds: {},
+				signInRelay: null,
 				pendingRequests: pendingRequests.filter(request => !Object.hasOwn(loginRequestIds, request.id)),
 				arrivedAt: remainingArrivals,
 			});
@@ -243,6 +247,8 @@ export const createExtensionUiStore = () =>
 		hideAdoptedLogin: () =>
 			set(state => (state.adoptedLogin ? { adoptedLogin: { ...state.adoptedLogin, hidden: true } } : state)),
 		dismissAdoptedLogin: () => set({ adoptedLogin: null }),
+		signInRelay: null,
+		setSignInRelay: signInRelay => set({ signInRelay }),
 		removeRequest: id => set(withoutRequest(get(), id)),
 		// The sign-ins themselves run on until stock answers their `login`.
 		clearAll: () => set({ ...EMPTY_SNAPSHOT, loginRequestIds: {} }),

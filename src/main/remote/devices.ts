@@ -164,6 +164,11 @@ export interface RemoteDevicesDeps {
 	startTimeoutMs?: number;
 	/** A host tab's bring-up step, for the runtime log (`remote-tab`). */
 	logTab?: RemoteSidecarOptions["log"];
+	/**
+	 * A host tab's browser sign-in comes back through this computer's loopback (sign-in-relay.ts): the browser page's
+	 * words, naming the host, when the host could not take the callback. Absent: no stand-in.
+	 */
+	signInRelay?: { failure: (device: string) => { title: string; message: string }; port?: number };
 	/** An approved quit leaves interrupted work to continue: host tabs are left running, not closed (`keepOnHost`). */
 	keepHostTabsOnQuit?: () => boolean;
 	/** Electron `powerSaveBlocker` held while devices use this computer. */
@@ -616,6 +621,7 @@ export class RemoteDevices {
 		if (!link) throw codedError("remote_unknown_device", "The device is not paired");
 		// Opened again under an id the host was still to be told to close: that tab is live.
 		link.closes.cancel(rtab);
+		const relay = this.#deps.signInRelay;
 		const sidecar = new RemoteSidecar({
 			link: link.client,
 			rtab,
@@ -636,6 +642,14 @@ export class RemoteDevices {
 			...(this.#deps.logTab ? { log: this.#deps.logTab } : {}),
 			imageBlobs: this.#imageBlobs,
 			transcripts: this.#transcripts,
+			...(relay
+				? {
+						signInRelay: {
+							failure: () => relay.failure((this.#links.get(deviceId) ?? link).client.host.name),
+							...(relay.port === undefined ? {} : { port: relay.port }),
+						},
+					}
+				: {}),
 		});
 		link.tabs.set(rtab, sidecar);
 		return sidecar;

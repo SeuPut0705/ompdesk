@@ -126,6 +126,8 @@ export const IPC_ERROR_CODES = [
 	"web_forbidden",
 	// A paired host has no browser relay running for the tab a device's Preview page tunnels to (host-services.ts `host.previewRelay.*`).
 	"relay_unavailable",
+	// A paired host's tab runs no browser sign-in waiting for the callback a device's browser brought back (host-services.ts `host.signIn.callback`).
+	"sign_in_unavailable",
 ] as const;
 
 export type IpcErrorCode = (typeof IPC_ERROR_CODES)[number];
