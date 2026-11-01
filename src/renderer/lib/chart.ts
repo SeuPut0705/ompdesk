@@ -24,40 +24,12 @@ import {
 } from "chart.js";
 import { useSyncExternalStore } from "react";
 import { withAlpha as hexWithAlpha } from "./theme-color";
+import { type ScTokenKey, scTokensFor, THEMES } from "./themes";
 
 Chart.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Filler, Tooltip, Legend);
 
-/** Scheme fallbacks, used only when the theme stylesheets failed to load (OMPdesk Light / Dark). */
-const FALLBACK = {
-	light: {
-		"--sc-text": "#1b1b1f",
-		"--sc-text-secondary": "#46464f",
-		"--sc-text-muted": "#5f5f68",
-		"--sc-divider": "#ebebee",
-		"--sc-border-subtle": "#dcdce2",
-		"--sc-elevated": "#ffffff",
-		"--sc-accent": "#5b5bd6",
-		"--sc-info": "#2f62c4",
-		"--sc-success": "#18794e",
-		"--sc-warning": "#935f00",
-		"--sc-danger": "#bf3a3e",
-	},
-	dark: {
-		"--sc-text": "#ededf0",
-		"--sc-text-secondary": "#c4c4cb",
-		"--sc-text-muted": "#a1a1aa",
-		"--sc-divider": "#2a2a30",
-		"--sc-border-subtle": "#3a3a41",
-		"--sc-elevated": "#232327",
-		"--sc-accent": "#8b8df8",
-		"--sc-info": "#79a6f6",
-		"--sc-success": "#5bc98c",
-		"--sc-warning": "#e2b552",
-		"--sc-danger": "#f27a7d",
-	},
-} as const;
-
-type TokenName = keyof (typeof FALLBACK)["light"];
+/** Scheme fallbacks, used only when the theme stylesheets failed to load: OMPdesk Light / Dark's own tokens. */
+const FALLBACK = { light: scTokensFor(THEMES.light), dark: scTokensFor(THEMES.dark) } as const;
 
 function scheme(): "light" | "dark" {
 	const attr = document.documentElement.getAttribute("data-theme");
@@ -67,7 +39,7 @@ function scheme(): "light" | "dark" {
 	return osLight ? "light" : "dark";
 }
 
-function token(name: TokenName): string {
+function token(name: ScTokenKey): string {
 	return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || FALLBACK[scheme()][name];
 }
 
