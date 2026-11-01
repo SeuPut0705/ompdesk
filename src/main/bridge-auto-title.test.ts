@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { TITLE_TRIGGER } from "../../resources/gui-bridge/modes/auto-title-contracts";
+import { AUTO_TITLE_ENTRY, TITLE_TRIGGER } from "../../resources/gui-bridge/modes/auto-title-contracts";
 import { DEFAULT_GATE_RULES, titleIsAuto } from "../../resources/gui-bridge/modes/auto-title-core";
 import {
 	type AutoTitleEnv,
@@ -20,12 +20,12 @@ import { wrapAgentMessage } from "../shared/agent-control";
 import { type FakeJudge, fakeJudge, titleAnswer } from "./test-fake-judge";
 import { garbled } from "./test-mojibake";
 
-interface Entry {
-	type: "title_change";
-	title: string;
-	source: string;
-	trigger?: string;
-}
+type Entry =
+	| { type: "title_change"; title: string; source: string; trigger?: string }
+	| { type: "custom"; customType: string; data: unknown };
+
+/** What fake stock's `buildReplanTitleContext` answers: the conversation a retitle names. */
+const CONTEXT = "<recent conversation>";
 
 /** A session that behaves like stock's for what the engine reads: the title source rules, the revision counter, the journal. */
 function build(
@@ -44,6 +44,7 @@ function build(
 	let revision = 0;
 	if (name && source) entries.push({ type: "title_change", title: name, source });
 	const listeners: Array<(event: TitleEvent) => void> = [];
+	const nameListeners: Array<() => void> = [];
 	const script = {
 		/** What `generateTitle` answers (the title model). */
 		generate: vi.fn(async (_text: string): Promise<string | null> => "Fix login bug"),
@@ -74,8 +75,17 @@ function build(
 			source = from;
 			if (from === "user") revision++;
 			entries.push({ type: "title_change", title: next, source: from, ...(trigger ? { trigger } : {}) });
+			for (const listener of nameListeners) listener();
 			return true;
 		}),
+		appendCustomEntry: vi.fn((customType: string, data?: unknown) => {
+			entries.push({ type: "custom", customType, data });
+			return `e${entries.length}`;
+		}),
+		onSessionNameChanged: (listener: () => void) => {
+			nameListeners.push(listener);
+			return () => {};
+		},
 	};
 	const session = {
 		sessionManager: manager,
@@ -101,12 +111,15 @@ function build(
 				return { content: [{ type: "text", text: answer === null ? "<title/>" : `<title>${answer}</title>` }] };
 			},
 		},
+		// The title model: a first message through `script.generate`, the recent conversation (stock's
+		// `buildReplanTitleContext`) through `script.retitle`.
 		generateTitle: vi.fn(async (text: string) => {
 			script.prompts.push(titlePrompt);
-			const title = await script.generate(text);
+			const title = text === CONTEXT ? ((await script.retitle()) ?? null) : await script.generate(text);
 			script.during?.();
 			return title;
 		}),
+		messages: [] as unknown[],
 		// Stock's `renameTitle`: a typed title needs a card unless icons are boring; a request that asks a model
 		// reserves a revision first.
 		renameTitle: vi.fn(async (title?: string) => {
@@ -133,6 +146,19 @@ function build(
 }
 
 const operator = (text: string) => ({ role: "user", attribution: "user", content: text });
+
+/** The automatic titles the engine journaled beside the person's name, oldest first. */
+const autoTitles = (world: { entries: Entry[] }) =>
+	world.entries.flatMap(entry =>
+		entry.type === "custom" &&
+		entry.customType === AUTO_TITLE_ENTRY &&
+		typeof entry.data === "object" &&
+		entry.data !== null &&
+		"title" in entry.data &&
+		typeof entry.data.title === "string"
+			? [entry.data.title]
+			: [],
+	);
 
 interface FakeContext {
 	systemPrompt: string[];
@@ -178,6 +204,9 @@ const stock: AutoTitleStock = {
 		const title = value.trim();
 		return title && !/^<title\s*\/>$/i.test(title) ? title : null;
 	},
+	buildReplanTitleContext: () => CONTEXT,
+	isLowSignalTitleInput: () => false,
+	keepTitleCard: (_current, title) => title,
 };
 
 /** Every fake settles at once, so the engine's background work finishes within a few microtask turns. */
@@ -250,15 +279,21 @@ describe("first title", () => {
 		expect(world.script.generate).not.toHaveBeenCalled();
 	});
 
-	it("never replaces a name that is already there, typed or generated", async () => {
-		for (const source of ["user", "auto"] as const) {
-			const world = build({ name: "Existing", source });
-			await attach(world.session);
-			await send(world.session, { type: "message_end", message: operator("something else entirely") });
-			await flush();
-			expect(world.script.generate).not.toHaveBeenCalled();
-			expect(world.manager.setSessionName).not.toHaveBeenCalled();
-		}
+	it("never replaces a name that is already there: a generated one stays, a typed one gets its automatic title beside it", async () => {
+		const generated = build({ name: "Existing", source: "auto" });
+		await attach(generated.session);
+		await send(generated.session, { type: "message_end", message: operator("something else entirely") });
+		await flush();
+		expect(generated.script.generate).not.toHaveBeenCalled();
+		expect(generated.manager.setSessionName).not.toHaveBeenCalled();
+
+		const typed = build({ name: "Existing", source: "user" });
+		await attach(typed.session);
+		await send(typed.session, { type: "message_end", message: operator("something else entirely") });
+		await flush();
+		expect(typed.manager.setSessionName).not.toHaveBeenCalled();
+		expect(typed.manager.getSessionName()).toBe("Existing");
+		expect(autoTitles(typed)).toEqual(["🐛 Fix login bug"]);
 	});
 
 	it("names a session another agent opened from its brief, not the wrapper stock skips as low-signal", async () => {
@@ -295,7 +330,7 @@ describe("first title", () => {
 			await send(world.session, { type: "agent_end", isTerminal: true });
 			await flush();
 			expect(world.script.generate).not.toHaveBeenCalled();
-			expect(world.session.renameTitle).not.toHaveBeenCalled();
+			expect(world.script.retitle).not.toHaveBeenCalled();
 		}
 	});
 
@@ -322,7 +357,7 @@ describe("first title", () => {
 		expect(world.manager.setSessionName).toHaveBeenCalledExactlyOnceWith("Fix login bug", "auto", TITLE_TRIGGER);
 	});
 
-	it("does not apply a title when the person typed a name while it was generated", async () => {
+	it("keeps a name typed while the first title was generated, the generated title going beside it", async () => {
 		const world = build();
 		await attach(world.session);
 		world.script.during = () => void world.manager.setSessionName("Typed by me", "user");
@@ -330,6 +365,7 @@ describe("first title", () => {
 		await flush();
 		expect(world.manager.getSessionName()).toBe("Typed by me");
 		expect(world.manager.setSessionName).toHaveBeenCalledTimes(1);
+		expect(autoTitles(world)).toEqual(["🐛 Fix login bug"]);
 	});
 
 	it("names a session the title model declined (a greeting) from the conversation once the turn ends", async () => {
@@ -354,7 +390,7 @@ describe("first title", () => {
 		await flush();
 		await send(world.session, { type: "agent_end", isTerminal: true });
 		await flush();
-		expect(world.session.renameTitle).toHaveBeenCalledExactlyOnceWith(undefined);
+		expect(world.script.retitle).toHaveBeenCalledTimes(1);
 		expect(world.manager.setSessionName).not.toHaveBeenCalled();
 		expect(frames).toEqual([]);
 	});
@@ -365,7 +401,7 @@ describe("first title", () => {
 		await attach(world.session);
 		await send(world.session, { type: "agent_end", isTerminal: false });
 		await flush();
-		expect(world.session.renameTitle).not.toHaveBeenCalled();
+		expect(world.script.retitle).not.toHaveBeenCalled();
 	});
 
 	it("runs one request at a time and survives a failing title model", async () => {
@@ -390,10 +426,9 @@ describe("evolving title", () => {
 		const world = build({ name: "🐛 Fix login bug", source: "auto" });
 		await attach(world.session);
 		await turn(world.session, "edit");
-		expect(world.session.renameTitle).not.toHaveBeenCalled();
+		expect(world.script.retitle).not.toHaveBeenCalled();
 		await turn(world.session, "edit", "write");
-		expect(world.session.renameTitle).toHaveBeenCalledTimes(1);
-		expect(world.session.renameTitle).toHaveBeenCalledWith(undefined);
+		expect(world.script.retitle).toHaveBeenCalledTimes(1);
 		expect(world.manager.getSessionName()).toBe("Migrate build to Vite");
 		expect(world.manager.setSessionName).toHaveBeenLastCalledWith("Migrate build to Vite", "auto", TITLE_TRIGGER);
 		expect(frames.at(-1)).toEqual({ type: "session_info_update", title: "Migrate build to Vite", sessionId: "s1" });
@@ -405,7 +440,7 @@ describe("evolving title", () => {
 		await attach(world.session);
 		await turn(world.session, "edit");
 		await turn(world.session, "edit", "edit");
-		expect(world.session.renameTitle).toHaveBeenCalledTimes(1);
+		expect(world.script.retitle).toHaveBeenCalledTimes(1);
 		expect(world.manager.setSessionName).not.toHaveBeenCalled();
 		expect(frames).toEqual([]);
 	});
@@ -415,10 +450,10 @@ describe("evolving title", () => {
 		await attach(world.session);
 		await turn(world.session, "edit");
 		await turn(world.session, "edit", "edit");
-		expect(world.session.renameTitle).toHaveBeenCalledTimes(1);
+		expect(world.script.retitle).toHaveBeenCalledTimes(1);
 		await turn(world.session);
 		await turn(world.session);
-		expect(world.session.renameTitle).toHaveBeenCalledTimes(1);
+		expect(world.script.retitle).toHaveBeenCalledTimes(1);
 	});
 
 	it("never starts mid-turn: only a terminal agent_end counts", async () => {
@@ -430,28 +465,50 @@ describe("evolving title", () => {
 			await send(world.session, { type: "agent_end", isTerminal: false });
 		}
 		await flush();
-		expect(world.session.renameTitle).not.toHaveBeenCalled();
+		expect(world.script.retitle).not.toHaveBeenCalled();
 	});
 
-	it("never touches a title the person typed, however much work happens", async () => {
+	it("keeps naming a session the person named: the automatic title goes beside the name, which never changes", async () => {
 		const world = build({ name: "My own name", source: "user" });
 		await attach(world.session);
-		for (let i = 0; i < 4; i++) await turn(world.session, "edit", "edit", "edit");
-		expect(world.session.renameTitle).not.toHaveBeenCalled();
+		await turn(world.session, "edit");
+		expect(autoTitles(world)).toEqual(["Migrate build to Vite"]);
+		expect(frames.at(-1)).toEqual({
+			type: "session_info_update",
+			autoTitle: "Migrate build to Vite",
+			sessionId: "s1",
+		});
+		// The work moves on: the automatic title follows it, the person's name stays.
+		world.script.retitle.mockResolvedValue("Ship the release notes");
+		await turn(world.session, "edit");
+		await turn(world.session, "edit", "write");
+		expect(autoTitles(world)).toEqual(["Migrate build to Vite", "Ship the release notes"]);
+		expect(frames.at(-1)).toEqual({
+			type: "session_info_update",
+			autoTitle: "Ship the release notes",
+			sessionId: "s1",
+		});
 		expect(world.manager.setSessionName).not.toHaveBeenCalled();
+		expect(world.manager.getSessionName()).toBe("My own name");
 	});
 
-	it("stops evolving the moment the person types over an automatic title", async () => {
+	it("shows the automatic title beside a name typed over it, and keeps evolving it there", async () => {
 		const world = build({ name: "Fix login bug", source: "auto" });
 		await attach(world.session);
-		await turn(world.session, "edit");
 		await world.manager.setSessionName("Typed", "user");
+		expect(frames.at(-1)).toEqual({ type: "session_info_update", autoTitle: "Fix login bug", sessionId: "s1" });
+		await turn(world.session, "edit");
 		await turn(world.session, "edit", "edit", "edit");
-		expect(world.session.renameTitle).not.toHaveBeenCalled();
 		expect(world.manager.getSessionName()).toBe("Typed");
+		expect(autoTitles(world)).toEqual(["Migrate build to Vite"]);
+		expect(frames.at(-1)).toEqual({
+			type: "session_info_update",
+			autoTitle: "Migrate build to Vite",
+			sessionId: "s1",
+		});
 	});
 
-	it("drops a result when the person typed while it was generated", async () => {
+	it("a name typed while a title is generated stays, and the generated title becomes the automatic one", async () => {
 		const world = build({ name: "Fix login bug", source: "auto" });
 		await attach(world.session);
 		world.script.during = () => void world.manager.setSessionName("Typed mid-flight", "user");
@@ -459,6 +516,22 @@ describe("evolving title", () => {
 		await turn(world.session, "edit", "edit");
 		expect(world.manager.getSessionName()).toBe("Typed mid-flight");
 		expect(world.manager.setSessionName).toHaveBeenCalledTimes(1);
+		expect(autoTitles(world)).toEqual(["Migrate build to Vite"]);
+		expect(frames.at(-1)).toEqual({
+			type: "session_info_update",
+			autoTitle: "Migrate build to Vite",
+			sessionId: "s1",
+		});
+	});
+
+	it("drops the automatic title beside the name once the title is automatic again (the auto button)", async () => {
+		const world = build({ name: "Fix login bug", source: "auto" });
+		await attach(world.session);
+		await world.manager.setSessionName("Typed", "user");
+		world.script.retitle.mockResolvedValue("Ship the release notes");
+		expect(await regenerate(world.session)).toEqual({ title: "Ship the release notes" });
+		expect(frames).toContainEqual({ type: "session_info_update", autoTitle: null, sessionId: "s1" });
+		expect(world.manager.getSessionName()).toBe("Ship the release notes");
 	});
 
 	it("is off while the sub-switch is off, and resumes when it is turned on", async () => {
@@ -466,20 +539,20 @@ describe("evolving title", () => {
 		await attach(world.session, { enabled: true, evolve: false, suppressed: false });
 		await turn(world.session, "edit", "edit", "edit");
 		await turn(world.session, "edit", "edit", "edit");
-		expect(world.session.renameTitle).not.toHaveBeenCalled();
+		expect(world.script.retitle).not.toHaveBeenCalled();
 		await attach(world.session, { enabled: true, evolve: true, suppressed: false });
 		await turn(world.session, "edit", "edit", "edit");
 		await turn(world.session, "edit", "edit", "edit");
-		expect(world.session.renameTitle).toHaveBeenCalled();
+		expect(world.script.retitle).toHaveBeenCalled();
 	});
 
 	it("considers a quiet session after the force window", async () => {
 		const world = build({ name: "Fix login bug", source: "auto" });
 		await attach(world.session);
 		for (let i = 0; i < DEFAULT_GATE_RULES.forceTurns - 1; i++) await turn(world.session);
-		expect(world.session.renameTitle).not.toHaveBeenCalled();
+		expect(world.script.retitle).not.toHaveBeenCalled();
 		await turn(world.session);
-		expect(world.session.renameTitle).toHaveBeenCalledTimes(1);
+		expect(world.script.retitle).toHaveBeenCalledTimes(1);
 	});
 });
 
@@ -838,7 +911,7 @@ describe("evolving title with the judge's title check (judge assist)", () => {
 		expect(world.manager.setSessionName).toHaveBeenCalledTimes(1);
 	});
 
-	it("asks nothing for a first title, a typed name, a reworded title or the regenerate button", async () => {
+	it("asks nothing for a first title, a reworded title or the regenerate button", async () => {
 		withJudge("A");
 		const first = build();
 		Object.assign(first.session, { messages });
@@ -846,11 +919,6 @@ describe("evolving title with the judge's title check (judge assist)", () => {
 		await send(first.session, { type: "message_end", message: operator("fix the login bug") });
 		await flush();
 		expect(first.manager.getSessionName()).toBe("🐛 Fix login bug");
-
-		const typed = build({ name: "My own name", source: "user" });
-		Object.assign(typed.session, { messages });
-		await attach(typed.session);
-		for (let i = 0; i < 4; i++) await turn(typed.session, "edit", "edit", "edit");
 
 		const reworded = build({ name: "Fix the login bug", source: "auto" });
 		Object.assign(reworded.session, { messages });

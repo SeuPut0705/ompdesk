@@ -1,11 +1,11 @@
 /**
  * Automatic session titles on the fake omp (e2e/fixture/rpc-ui.ts serves the bridge's `auto_title_set` and
  * `regenerate_title` and names the session "Auto N: <prompt>" the way resources/gui-bridge/modes/auto-title.ts does;
- * the real bridge logic against stock is covered by src/main/bridge-auto-title*.test.ts). Covers: the first
- * prompt names the session, a typed name is never replaced (not by later turns), the editor's auto button names it
- * again and makes it automatic so it follows the work from then on, and typing stops that again. A failed request
- * (TitleBar.test.tsx) and the live Settings switch (AutoTitleRow.test.tsx, bridge-auto-title.test.ts) are
- * component-tested; a paired host's tab doing the work on the host is covered by the remote command routing tests.
+ * the real bridge logic against stock is covered by src/main/bridge-auto-title*.test.ts). Covers: the first prompt
+ * names the session; a typed name stays the person's while automatic titles go on beside it (`<name> · <automatic>`
+ * in the title bar and the sidebar row); the editor's auto button names it again and makes it automatic, alone. A
+ * failed request (TitleBar.test.tsx) and the live Settings switch (AutoTitleRow.test.tsx, bridge-auto-title.test.ts)
+ * are component-tested; a paired host's session is e2e/session-rename-title.e2e.ts.
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -75,56 +75,66 @@ async function runTurn(page: Page, replies: number, message = "hello there"): Pr
 }
 
 const titleButton = (page: Page) => page.locator("[data-titlebar-session-name]");
+const titleName = (page: Page) => titleButton(page).locator("[data-title-name]");
+const titleAuto = (page: Page) => titleButton(page).locator("[data-title-auto]");
 const renameField = (page: Page) => page.locator(".omp-titlebar-identity input");
 const autoButton = (page: Page) => page.locator(".omp-titlebar-identity [data-auto-title]");
+const sidebarRow = (page: Page, name: string) =>
+	page.locator(".omp-session-sidebar [data-title-name]", { hasText: name }).locator("xpath=..");
 
 async function typeTitle(page: Page, name: string): Promise<void> {
 	await titleButton(page).click();
 	await renameField(page).fill(name);
 	await renameField(page).press("Enter");
-	await expect(titleButton(page)).toHaveText(name);
+	await expect(titleName(page)).toHaveText(name);
 }
 
-test("names the session from the first prompt, keeps a typed name, and the auto button makes it automatic again", async () => {
+test("names the session from the first prompt, keeps naming it beside a typed name, and the auto button makes it automatic again", async () => {
 	const launched = await launch();
 	const { page, record } = launched;
 	try {
 		await runTurn(page, 1);
-		// First prompt: the title appears by itself, in the title bar and the sidebar.
+		// First prompt: the title appears by itself, in the title bar and the sidebar, alone.
 		await expect(titleButton(page)).toHaveText("Auto 1: hello there");
+		await expect(titleAuto(page)).toHaveCount(0);
 		await expect(page.locator(".omp-session-sidebar")).toContainText("Auto 1: hello there");
 		expect((await recordsOfType(record, "auto_title_set")).at(0)).toMatchObject({ enabled: true, evolve: true });
 
-		// A typed name is the person's own: the work that follows never replaces it.
+		// A typed name is the person's own and stays; the automatic title it went over shows beside it, muted.
 		await typeTitle(page, "My own name");
 		expect(await recordsOfType(record, "set_session_name")).toMatchObject([{ name: "My own name" }]);
+		await expect(titleAuto(page)).toHaveText("Auto 1: hello there");
+		await expect(sidebarRow(page, "My own name").locator("[data-title-auto]")).toHaveText("Auto 1: hello there");
+		// The work goes on: the automatic title follows it beside the name, which never changes.
 		await runTurn(page, 2);
 		await runTurn(page, 3);
-		await runTurn(page, 4);
-		await expect(titleButton(page)).toHaveText("My own name");
+		await expect(titleAuto(page)).toHaveText(/^Auto [2-9]: hello there$/);
+		await expect(titleName(page)).toHaveText("My own name");
+		await expect(sidebarRow(page, "My own name").locator("[data-title-auto]")).toHaveText(
+			/^Auto [2-9]: hello there$/,
+		);
+		expect(await recordsOfType(record, "set_session_name")).toHaveLength(1);
 
-		// The editor's auto button names it again, saves it, and closes the editor.
+		// The editor's auto button names it again, saves it, and closes the editor: one automatic title, alone.
 		await titleButton(page).click();
 		await expect(autoButton(page)).toBeVisible();
 		await expect(autoButton(page)).toHaveAccessibleName("Generate title automatically");
 		await autoButton(page).click();
-		await expect(titleButton(page)).toHaveText("Auto 2: hello there");
+		await expect(titleButton(page)).toHaveText(/^Auto \d+: hello there$/);
+		await expect(titleAuto(page)).toHaveCount(0);
 		await expect(renameField(page)).toHaveCount(0);
 		expect(await recordsOfType(record, "regenerate_title")).toHaveLength(1);
 		// The omp saved it: the editor sent no typed name over it.
 		expect(await recordsOfType(record, "set_session_name")).toHaveLength(1);
 
-		// Automatic again, so it follows the work: two finished turns later it moves on.
-		await runTurn(page, 5);
-		await runTurn(page, 6);
-		await expect(titleButton(page)).toHaveText("Auto 3: hello there");
-
-		// Typing stops that again.
+		// Typing again keeps the name, and the automatic title goes on beside it.
+		const before = await titleButton(page).innerText();
 		await typeTitle(page, "Final name");
-		await runTurn(page, 7);
-		await runTurn(page, 8);
-		await runTurn(page, 9);
-		await expect(titleButton(page)).toHaveText("Final name");
+		await expect(titleAuto(page)).toHaveText(before);
+		await runTurn(page, 4);
+		await runTurn(page, 5);
+		await expect(titleAuto(page)).not.toHaveText(before);
+		await expect(titleName(page)).toHaveText("Final name");
 		expect(await recordsOfType(record, "regenerate_title")).toHaveLength(1);
 	} finally {
 		await finish(launched);

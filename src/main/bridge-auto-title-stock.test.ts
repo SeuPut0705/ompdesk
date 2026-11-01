@@ -40,7 +40,7 @@ const PROBE = `
 import { methods } from "./modes/auto-title";
 import { methods as replyLanguage } from "./modes/reply-language";
 import { capabilitiesFor } from "./probe-helper";
-import { TITLE_TRIGGER } from "./modes/auto-title-contracts";
+import { AUTO_TITLE_ENTRY, shownAutoTitle, TITLE_TRIGGER } from "./modes/auto-title-contracts";
 import { titleIsAuto, titleInput } from "./modes/auto-title-core";
 export default function (pi) {
  pi.on("session_start", async () => {
@@ -62,7 +62,12 @@ export default function (pi) {
    out.promptOff = session.titleSystemPrompt ?? null;
    out.regenerateEmpty = await methods.regenerate_title({}, env);
    out.nameAfterEmpty = session.sessionName ?? null;
+   out.autoFirst = await manager.setSessionName("Auto first", "auto");
    out.typed = await manager.setSessionName("Typed name", "user");
+   out.besideFrame = frames.filter(frame => frame.autoTitle !== undefined).at(-1) ?? null;
+   manager.appendCustomEntry(AUTO_TITLE_ENTRY, { title: "Generated beside" });
+   out.shownBeside = shownAutoTitle(manager.getEntries()) ?? null;
+   out.nameBeside = session.sessionName ?? null;
    out.autoOverTyped = await manager.setSessionName("Generated", "auto");
    out.originTyped = titleIsAuto(session.sessionName, manager.titleSource, manager.getEntries());
    out.stamped = await manager.setSessionName("Regenerated", "user", TITLE_TRIGGER);
@@ -106,6 +111,10 @@ interface Probe {
 	regenerateEmpty: { title: string | null; reason?: string };
 	nameAfterEmpty: string | null;
 	typed: boolean;
+	autoFirst: boolean;
+	besideFrame: { autoTitle: string | null } | null;
+	shownBeside: string | null;
+	nameBeside: string | null;
 	autoOverTyped: boolean;
 	originTyped: boolean;
 	stamped: boolean;
@@ -181,6 +190,12 @@ describe.skipIf(!existsSync(omp))("automatic session titles on stock omp", () =>
 		expect(probe.nameAfterEmpty).toBeNull();
 		// A typed name wins over an automatic write (stock's rule), so a regenerated title is stamped instead.
 		expect(probe.typed).toBe(true);
+		// A name typed over an automatic one: the bridge tells the GUI the automatic title beside it, and its own
+		// journal entry (stock `appendCustomEntry`) is what stands beside the name from then on, the name untouched.
+		expect(probe.autoFirst).toBe(true);
+		expect(probe.besideFrame).toMatchObject({ type: "session_info_update", autoTitle: "Auto first" });
+		expect(probe.shownBeside).toBe("Generated beside");
+		expect(probe.nameBeside).toBe("Typed name");
 		expect(probe.autoOverTyped).toBe(false);
 		expect(probe.originTyped).toBe(false);
 		expect(probe.stamped).toBe(true);

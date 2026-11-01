@@ -67,6 +67,29 @@ describe.skipIf(!packageRoot)("sessions.createNamed on the installed omp", () =>
 		]);
 	}, 60_000);
 
+	it("lists the automatic title the bridge journaled beside a name the person set", async () => {
+		await fs.mkdir(work, { recursive: true });
+		const made = await call("sessions.createNamed", { sessionsRoot, cwd: work, title: "Jarvis" });
+		const { sessionPath } = made.result as { sessionPath: string };
+		const row = async () =>
+			((await call("sessions.list", { sessionsRoot })).result as Array<{ path: string; autoTitle?: string }>).find(
+				entry => entry.path === sessionPath,
+			);
+		// Stock's slot says the name is the person's, and nothing automatic stands beside it yet.
+		expect(await row()).not.toHaveProperty("autoTitle");
+		// What stock's `appendCustomEntry` writes for the bridge's `ompdesk.auto-title`.
+		const entry = {
+			type: "custom",
+			customType: "ompdesk.auto-title",
+			data: { title: "Watch CI" },
+			id: "a1",
+			parentId: null,
+			timestamp: new Date().toISOString(),
+		};
+		await fs.appendFile(sessionPath, `${JSON.stringify(entry)}\n`);
+		expect(await row()).toMatchObject({ title: "Jarvis", autoTitle: "Watch CI" });
+	}, 60_000);
+
 	it("refuses a folder that is not absolute and a title that is blank, making no file", async () => {
 		const before = (await call("sessions.list", { sessionsRoot })).result as unknown[];
 		expect((await call("sessions.createNamed", { sessionsRoot, cwd: "work", title: "Bot" })).error).toMatch(

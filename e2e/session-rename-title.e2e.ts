@@ -102,3 +102,60 @@ test("a paired computer's tab follows a rename made on that computer and one mad
 		await fs.rm(parent, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 	}
 });
+
+test("a paired computer's session shows its typed name and its automatic title together, on both computers", async () => {
+	test.setTimeout(240_000);
+	const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-rename-title-auto-")));
+	let host: RemoteInstance | undefined;
+	let client: RemoteInstance | undefined;
+	try {
+		// The host's omp names sessions by itself ("Auto N: <prompt>", the fake's automatic titles).
+		const hostProfile = await makeRemoteProfile(parent, "host", {
+			language: "en",
+			theme: "light",
+			env: { OMP_GUI_TEST_AUTO_TITLE: "{}", PI_NO_TITLE: "" },
+		});
+		const clientProfile = await makeRemoteProfile(parent, "client", {
+			language: "en",
+			theme: "light",
+			port: hostProfile.port,
+		});
+		host = await launchRemote(hostProfile);
+		client = await launchRemote(clientProfile);
+		const a = client.page;
+		const b = host.page;
+		const deviceId = await connectHost(b, a, "PC-B");
+		const remoteTab = await openHostFolder(a, deviceId, hostProfile.project);
+		await send(a, "hello host", 1);
+		await expect(titleBar(a)).toHaveText("Auto 1: hello host");
+		let sessionPath = "";
+		await expect
+			.poll(async () => {
+				sessionPath = (await tabOf(a, remoteTab))?.sessionPath ?? "";
+				return sessionPath;
+			})
+			.not.toBe("");
+
+		await a.evaluate(({ file, device }) => window.omp.sessions.rename(file, "My name", device), {
+			file: sessionPath,
+			device: deviceId,
+		});
+		// This computer: the title bar and the host's section of the sidebar.
+		await expect(titleBar(a).locator("[data-title-name]")).toHaveText("My name");
+		await expect(titleBar(a).locator("[data-title-auto]")).toHaveText("Auto 1: hello host");
+		const deviceRow = a.locator(`[data-sidebar-device="${deviceId}"] [data-title-name]`, { hasText: "My name" });
+		await expect(deviceRow.locator("xpath=..").locator("[data-title-auto]")).toHaveText("Auto 1: hello host");
+		// The host's own sidebar lists the session the device runs there the same way.
+		const hostRow = b.locator(".omp-session-sidebar [data-title-name]", { hasText: "My name" });
+		await expect(hostRow.locator("xpath=..").locator("[data-title-auto]")).toHaveText("Auto 1: hello host");
+		// The work goes on: the automatic title follows it beside the name, live.
+		await send(a, "second", 2);
+		await send(a, "third", 3);
+		await expect(titleBar(a).locator("[data-title-auto]")).toHaveText(/^Auto [2-9]: /);
+		await expect(titleBar(a).locator("[data-title-name]")).toHaveText("My name");
+	} finally {
+		for (const instance of [client, host]) if (instance) await exitApp(instance.app);
+		for (const instance of [client, host]) expect(instance?.errors ?? []).toEqual([]);
+		await fs.rm(parent, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
+});
