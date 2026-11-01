@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.95.0] - 2026-11-02
+
+Nord, Tokyo Night, Gruvbox, Solarized, GitHub 테마가 원작 색을 그대로 써요. 자동 업데이트가 하위 에이전트 작업을 날리지 않아요.
+
+### 바뀐 것
+- 원작이 있는 다섯 테마(GitHub 라이트, Solarized 라이트, Nord, Tokyo Night, Gruvbox 다크)가 역할마다 원작 포트의 색을 그대로 써요. 글자가 읽기 어려울 만큼 대비가 낮은 경우에만 필요한 만큼 조정해요. 사이드바·카드·메뉴 배경, 코드 색, 터미널 16색, 차트, 선택 색, diff 배경이 바뀌었어요.
+- 코드 블록의 diff에서 추가·삭제된 줄이 모든 테마에서 diff 색으로 보여요.
+
+### 고친 것
+- 자동 업데이트로 앱이 재시작되면 돌던 하위 에이전트가 이어서 일하지 못하고 0.3초 만에 "실패"로 끝나던 문제를 고쳤어요. 이제 끊긴 명령부터 다시 실행해 이어가요.
+- 자동 업데이트는 하위 에이전트나 백그라운드 작업이 도는 동안(응답이 없는 세션 포함) 최대 30분까지 기다렸다가 설치해요. "지금 재시작"을 누르면 끊길 작업을 먼저 보여 줘요.
+- 재시작으로 끊긴 하위 에이전트는 사이드바, 에이전트 페이지, 하위 에이전트 패널, 작업 카드 어디서든 "실패"가 아니라 "재시작으로 중단됨"과 그때 하던 일로 보여요.
+- omp 18.15.0의 새 Modular 제공자와 바뀐 OpenAI 등급 옵션이 설정에서 제대로 보여요.
+
+<!-- en -->
+
+Nord, Tokyo Night, Gruvbox, Solarized and GitHub keep their published colors, and an automatic update no longer throws away running subagents' work.
+
+### Changed
+- The five themes with a published original (GitHub Light, Solarized Light, Nord, Tokyo Night, Gruvbox Dark) use the original port's color for each role, adjusted only as far as a contrast floor needs: sidebar, card and menu backgrounds, syntax, the terminal's 16 colors, charts, selection and diff backgrounds changed.
+- Added and removed lines of a diff code block wear the diff colors in every theme.
+
+### Fixed
+- After an automatic update relaunched the app, running subagents ended as "failed" within a third of a second instead of carrying on. They now re-run the call that was cut and continue.
+- An automatic install waits up to 30 minutes while subagents or background jobs run, counting a session that does not answer as busy. "Restart now" first lists the work it would cut.
+- A subagent a restart cut reads "interrupted by restart" with what it was doing, on the sidebar, the agents page, the subagent panel and work cards, instead of failed.
+- omp 18.15.0's new Modular provider and the changed OpenAI tier option show properly in Settings.
+
 ## [0.94.1] - 2026-11-02
 
 작업 중인 세션의 사이드바 줄에 제목이 다시 보여요.
