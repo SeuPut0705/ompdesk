@@ -189,14 +189,14 @@ const SETUP_COMMANDS = /^(?:cd|export|set|source|\.|pushd|popd|unset|umask)$/;
 const ASSIGNMENT = /^[A-Za-z_]\w*=/;
 
 /**
- * The program a shell command starts, for naming a failure ("git push", "tsc", "bun test"): the first command after
+ * The program a shell command starts, for naming a failure ("git push", "tsc", "bun test"): the command after
  * `cd …`/`export …` setup and grouping or negation (`(`, `{`, `!`), past `VAR=…` prefixes, `env`, `sudo` and their
  * flags, and an `npx`/`bunx`/`pnpm dlx` wrapper (the tool it runs). The program's basename, plus its subcommand when
  * that is a plain word (`git push`, `bun run`); a question names what it asks about (`command -v magick`, `which gh`:
- * the program) or itself (`test`, `[`, `grep`). Never a program after it in the chain, which may not have run.
- * `undefined` for an empty command, one that is only setup, and a shell keyword or glob (`for`, `while`, `*.sh`).
- * For a `;`/newline list it names the last command that runs: its exit code is the list's. `timeout <n>` and `time`
- * are skipped like the other wrappers.
+ * the program) or itself (`test`, `[`, `grep`). `undefined` for an empty command, one that is only setup, a shell
+ * keyword or glob (`for`, `while`, `*.sh`), and a `&&`/`||` chain of two or more commands: its exit code is the last
+ * step that ran, and which one that was only the output could say. For a `;`/newline list it names the last command
+ * that runs: its exit code is the list's. `timeout <n>` and `time` are skipped like the other wrappers.
  */
 export function commandProgram(command: string): string | undefined {
 	// The exit code is the last unconditional command's: name the last `;`/newline segment that runs something.
@@ -232,52 +232,62 @@ const NONE = Symbol("setup");
 const SHELL_KEYWORD = /^(?:for|while|until|if|then|elif|else|fi|do|done|case|esac|select|function)$/;
 const DURATION = /^\d+(?:\.\d+)?[smhd]?$/;
 
+// A `&&`/`||` chain's exit code is whichever step ran last, and nothing but its output could say which: only a chain
+// with one step that runs something (setup aside) has a name.
 function segmentProgram(list: string): string | undefined | typeof NONE {
+	let found: string | undefined | typeof NONE = NONE;
 	for (const segment of splitOutside(list, AND_OR)) {
-		const words = (splitOutside(segment, PIPE)[0] ?? "")
-			.trim()
-			.split(/\s+/)
-			.map(word => word.replace(/^[({!]+/, ""))
-			.filter(word => word && !/^[)}]+$/.test(word));
-		if (words[0] === "command" && /^-[vV]$/.test(words[1] ?? "") && words[2]) return basename(words[2]);
-		let index = 0;
-		const skip = (): boolean => {
-			const word = words[index];
-			if (word === undefined) return false;
-			if (ASSIGNMENT.test(word) || PRIVILEGE_WRAPPERS.test(word)) {
-				index++;
-				return true;
-			}
-			if (word === "timeout") {
-				index++;
-				while (words[index]?.startsWith("-")) index += /^-[ks]$/.test(words[index] ?? "") ? 2 : 1;
-				if (DURATION.test(words[index] ?? "")) index++;
-				return true;
-			}
-			if (word.startsWith("-") && index > 0) {
-				index++;
-				return true;
-			}
-			if (
-				RUNNER_WRAPPERS.test(word) ||
-				(SUBCOMMAND_WRAPPERS.test(word) && /^(?:dlx|exec|x)$/.test(words[index + 1] ?? ""))
-			) {
-				index += RUNNER_WRAPPERS.test(word) ? 1 : 2;
-				return true;
-			}
-			return false;
-		};
-		while (skip()) {}
-		const first = words[index];
-		if (first === undefined || SETUP_COMMANDS.test(first)) continue;
-		if (SHELL_KEYWORD.test(first) || /[*?]/.test(first)) return undefined;
-		const program = basename(first);
-		const next = words[index + 1];
-		if (/^(?:which|type)$/.test(program) && next) return basename(next);
-		if (/^(?:test|\[\[?|grep|egrep|rg)$/.test(program)) return program;
-		return next !== undefined && /^[a-z][\w:-]*$/i.test(next) ? `${program} ${next}` : program;
+		const program = stepProgram(segment);
+		if (program === NONE) continue;
+		if (found !== NONE) return undefined;
+		found = program;
 	}
-	return NONE;
+	return found;
+}
+
+function stepProgram(segment: string): string | undefined | typeof NONE {
+	const words = (splitOutside(segment, PIPE)[0] ?? "")
+		.trim()
+		.split(/\s+/)
+		.map(word => word.replace(/^[({!]+/, ""))
+		.filter(word => word && !/^[)}]+$/.test(word));
+	if (words[0] === "command" && /^-[vV]$/.test(words[1] ?? "") && words[2]) return basename(words[2]);
+	let index = 0;
+	const skip = (): boolean => {
+		const word = words[index];
+		if (word === undefined) return false;
+		if (ASSIGNMENT.test(word) || PRIVILEGE_WRAPPERS.test(word)) {
+			index++;
+			return true;
+		}
+		if (word === "timeout") {
+			index++;
+			while (words[index]?.startsWith("-")) index += /^-[ks]$/.test(words[index] ?? "") ? 2 : 1;
+			if (DURATION.test(words[index] ?? "")) index++;
+			return true;
+		}
+		if (word.startsWith("-") && index > 0) {
+			index++;
+			return true;
+		}
+		if (
+			RUNNER_WRAPPERS.test(word) ||
+			(SUBCOMMAND_WRAPPERS.test(word) && /^(?:dlx|exec|x)$/.test(words[index + 1] ?? ""))
+		) {
+			index += RUNNER_WRAPPERS.test(word) ? 1 : 2;
+			return true;
+		}
+		return false;
+	};
+	while (skip()) {}
+	const first = words[index];
+	if (first === undefined || SETUP_COMMANDS.test(first)) return NONE;
+	if (SHELL_KEYWORD.test(first) || /[*?]/.test(first)) return undefined;
+	const program = basename(first);
+	const next = words[index + 1];
+	if (/^(?:which|type)$/.test(program) && next) return basename(next);
+	if (/^(?:test|\[\[?|grep|egrep|rg)$/.test(program)) return program;
+	return next !== undefined && /^[a-z][\w:-]*$/i.test(next) ? `${program} ${next}` : program;
 }
 
 function basename(path: string): string {

@@ -402,11 +402,14 @@ export function ExecutionGroup({
 		};
 		const checkFacts = checks.map((check, index) => checkFact(check, index));
 		// A failed command that is no check reads as a verdict too; the last one is the one shown (the run's latest word).
+		// It is named only when one program set its exit code; a chain whose failing step its exit cannot tell says so.
 		const commandFacts = commandFailures.map((command, index): WorkFact => {
-			const program = commandProgram(command.command) ?? command.command.trim().split(/\s+/)[0] ?? "";
-			const label = t("chat.work.metric.commandFailed", {
-				command: program.length > 24 ? `${program.slice(0, 23)}…` : program,
-			});
+			const program = commandProgram(command.command);
+			const label = program
+				? t("chat.work.metric.commandFailed", {
+						command: program.length > 24 ? `${program.slice(0, 23)}…` : program,
+					})
+				: t("tools.bash.failed");
 			const cause = firstErrorLine(command.text ?? "");
 			const exit = exitMeta(command.exitCode);
 			return {
