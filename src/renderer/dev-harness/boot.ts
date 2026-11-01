@@ -12,7 +12,9 @@ import { InstallPrompt } from "../web/install";
 import { PushClient } from "../web/push-client";
 import { setWebPwa } from "../web/pwa";
 import { setWebRuntime } from "../web/runtime";
+import { tabsFixture } from "./fixture";
 import { BOARD_BUSY, boardBusyStores, CHILDREN_WAIT, CHILDREN_WAIT_CALL } from "./fixture-board";
+import { BOT_ON } from "./fixture-bot";
 import { CARD_LIVE_CALL } from "./fixture-card";
 import { createHarnessTransport } from "./transport";
 
@@ -26,6 +28,11 @@ document.documentElement.dataset.platform = platform === "darwin" || platform ==
 // `?rail=all` pins Agents and Stats under the session list, the way the footer shortcut toggles do.
 const prefs: Record<string, unknown> = {};
 if (query.get("rail") === "all") prefs.sidebar = { railPins: ["usage", "agents", "stats"] };
+// `?bot=1` (./fixture-bot.ts): the bot is on and the first tab is its session.
+if (BOT_ON) {
+	prefs.botEnabled = true;
+	prefs.bot = tabsFixture()[0]?.sessionPath;
+}
 // The app takes its theme from prefs once they load (and resolves "system" from the OS, not from localStorage),
 // so `?theme=` has to be a pref too or a dark capture paints light. Any theme id works (`?theme=nord`).
 const theme = migrateThemeName(query.get("theme"));
