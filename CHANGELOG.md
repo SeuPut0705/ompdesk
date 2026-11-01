@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.93.0] - 2026-11-01
+
+봇 옆 패널이 봇에 맞게 바뀌었어요. 기억과 맡은 일은 이제 봇이 알아서 관리하고, 고칠 게 있으면 채팅으로 말하면 돼요.
+
+### 바뀐 것
+- 봇 패널은 나를 기다리는 것 → 지금 하는 일 → 진행 중인 작업 → 목표·할 일 → 루틴 → 라이브러리 → 완료 → 활동 → 맡은 일 → 사이드 챗 순서예요. 완료가 따로 한 칸이 됐고, 라이브러리·완료·맡은 일은 비어 있으면 숨어요.
+- 봇 패널에서 계정 사용량 게이지와 일반 세션의 "현재 작업" 칸을 뺐어요. 사용량은 사이드바에서 볼 수 있고, 종량제로 쓴 비용 줄은 남겼어요.
+- 기억 칸의 추가·수정·잊기·가져오기·내보내기를 뺐어요. 봇이 알아서 기억하고 잊어요. "그건 잊어"처럼 채팅으로 말하면 바로 고치고, 기억하거나 잊은 일은 활동에 남아요. 전에 적어 둔 기억은 그대로예요.
+- 맡은 일은 보기만 해요. 맡기거나 바꿀 일은 채팅으로 말하면 봇이 적어요.
+- 활동의 되돌리기와 필터를 뺐어요. 되돌릴 게 있으면 봇에게 말하면 돼요. 접힌 활동 줄에는 봇이 가장 최근에 한 일이 보여요.
+- 결정이 기다리는 동안 봇 상태가 "쉬는 중" 대신 "결정 1개"처럼 보여요.
+
+### 고친 것
+- omp 18.14.2에 새로 생긴 설정(호출별 모델 지정, 호출별 모델 허용 목록, 판정 시도 타임아웃)이 설정 화면에서 한국어로 보여요.
+
+<!-- en -->
+
+The panel beside the bot is built for the bot now. It keeps its memory and duties itself; tell it in chat when something needs changing.
+
+### Changed
+- The bot's panel runs Needs you → Now → tasks in progress → goals and todos → routines → library → completed → activity → duties → side chats. Completed is its own section; library, completed and duties hide while empty.
+- The account usage gauges and the generic "current work" section left the bot's panel. Usage stays in the sidebar; the line with what metered providers cost stays.
+- The memory section's add, edit, forget, import and export are gone. The bot remembers and forgets by itself, fixes it at once when you say so in chat, and every remember or forget shows in its activity. Memories you wrote before stay.
+- Duties are read-only; tell the bot in chat and it records them.
+- Activity lost its undo and filters; ask the bot to revert something. The folded activity line shows the newest thing the bot did.
+- While a decision waits, the bot's state reads "1 to decide" instead of idle.
+
+### Fixed
+- omp 18.14.2's new settings (per-call model, per-call model allow list, judge attempt timeout) show in Korean in Settings.
+
 ## [0.92.2] - 2026-11-01
 
 연결된 컴퓨터의 모델 계정에 브라우저로 로그인할 때, 브라우저가 localhost 오류에서 멈추지 않고 로그인이 끝나요.
