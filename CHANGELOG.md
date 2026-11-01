@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.93.1] - 2026-11-01
+
+채팅창에서 백스페이스를 눌러도 대화 영역에 파란 테두리가 생기지 않아요.
+
+### 고친 것
+- 대화를 한 번 클릭한 뒤 백스페이스를 누르면 대화 영역 전체에 파란 포커스 테두리가 생기던 문제를 고쳤어요. 클릭으로 들어간 대화 영역에는 테두리를 그리지 않고, Shift+F6이나 Tab으로 들어갈 때만 보여요.
+- 빈 입력창에서 백스페이스를 누르면 첨부로 포커스가 옮겨 가던 동작을 없앴어요. 백스페이스는 글자만 지워요. 첨부는 × 버튼이나 Tab으로 들어가서 지울 수 있어요.
+
+<!-- en -->
+
+Backspace in the chat no longer draws a blue frame around the conversation.
+
+### Fixed
+- After a click in the conversation, Backspace drew a blue focus ring around the whole transcript. A transcript focused by a click now draws no ring; Shift+F6 or Tab still shows it.
+- Backspace in an empty composer no longer moves focus to the last attachment; it only edits text. Remove an attachment with its × or by tabbing into it.
+
 ## [0.93.0] - 2026-11-01
 
 봇 옆 패널이 봇에 맞게 바뀌었어요. 기억과 맡은 일은 이제 봇이 알아서 관리하고, 고칠 게 있으면 채팅으로 말하면 돼요.
