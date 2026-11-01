@@ -217,7 +217,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // title truncated first), the parts helpers in `lib/session-title.ts` and the tabs store, and the tab-to-row lookup
 // (`hooks/use-tab-list-rows.ts`) the title bar, panes and sidebar rows draw on the first screen: measured 3,261,772,
 // 4,210 bytes over the measure above.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_262_300;
+// Published palettes kept as published (2 Nov 2026): each well-known theme's own bright ANSI row, text selection and
+// diff washes in theme-palettes.ts (the per-role source colors stay in the test-only theme-sources.ts): measured
+// 3,262,745, 719 bytes over the same tree with the palettes before (3,262,026).
+const WEB_FIRST_SCREEN_JS_BYTES = 3_262_800;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

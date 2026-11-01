@@ -69,6 +69,11 @@ export interface ThemePalette {
 	chart: readonly [string, string, string, string, string, string];
 	/** Focus ring; the accent when absent. */
 	focusRing?: string;
+	/** Text selection (page and terminal); a 24 % accent wash when absent. */
+	selection?: string;
+	/** A diff's added and removed line washes; 12 % (dark) or 10 % (light) of success and error when absent. */
+	diffAddedBg?: string;
+	diffRemovedBg?: string;
 	/** Modal scrim. */
 	overlay: string;
 	/** `r, g, b` of the shadow color. */
@@ -145,9 +150,9 @@ export function buildTheme(p: ThemePalette): ThemeDefinition {
 		"--omp-md-hr": p.borderMuted,
 		"--omp-md-list-bullet": p.muted,
 		"--omp-diff-added": p.success,
-		"--omp-diff-added-bg": withAlpha(p.success, wash),
+		"--omp-diff-added-bg": p.diffAddedBg ?? withAlpha(p.success, wash),
 		"--omp-diff-removed": p.error,
-		"--omp-diff-removed-bg": withAlpha(p.error, wash),
+		"--omp-diff-removed-bg": p.diffRemovedBg ?? withAlpha(p.error, wash),
 		"--omp-diff-context": p.muted,
 		"--omp-syntax-comment": p.syntax.comment,
 		"--omp-syntax-keyword": p.syntax.keyword,
@@ -202,7 +207,7 @@ export function buildTheme(p: ThemePalette): ThemeDefinition {
 		"--omp-sidebar-bg": p.sunken,
 		"--omp-sidebar-item-hover": withAlpha(p.text, 0.05),
 		"--omp-sidebar-item-active": withAlpha(p.text, 0.07),
-		"--omp-selection-bg": withAlpha(p.accent, 0.24),
+		"--omp-selection-bg": p.selection ?? withAlpha(p.accent, 0.24),
 		"--omp-scrollbar-thumb": mix(p.bg, p.borderStrong, 0.6),
 		"--omp-scrollbar-track": "transparent",
 		"--omp-streaming-cursor": "var(--omp-accent)",

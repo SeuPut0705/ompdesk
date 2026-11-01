@@ -6,14 +6,14 @@
 
 import { describe, expect, it } from "vitest";
 import { deltaE } from "./theme-color";
-import { contrastPairs } from "./theme-contrast";
+import { contrastPairs, textFloorFor } from "./theme-contrast";
 import { THEMES, type ThemeName } from "./themes";
 
 const NAMES = Object.keys(THEMES) as ThemeName[];
 
 describe("theme contrast (WCAG 2)", () => {
 	it.each(NAMES)("%s holds AA for text and 3:1 for interface boundaries", name => {
-		const failures = contrastPairs(name)
+		const failures = contrastPairs(THEMES[name], textFloorFor(name))
 			.filter(pair => pair.ratio < pair.floor)
 			.map(pair => `${pair.label} = ${pair.ratio.toFixed(2)} < ${pair.floor}`);
 		expect(failures).toEqual([]);

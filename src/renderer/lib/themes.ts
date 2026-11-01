@@ -207,6 +207,7 @@ export const SC_TOKEN_SOURCES = {
 	"--sc-danger": "--omp-error",
 	"--sc-danger-fg": "--omp-btn-danger-text",
 	"--sc-info": "--omp-info",
+	"--sc-selection": "--omp-selection-bg",
 	"--sc-shadow-sm": "--omp-shadow-sm",
 	"--sc-shadow-md": "--omp-shadow-md",
 	"--sc-shadow-lg": "--omp-shadow-lg",

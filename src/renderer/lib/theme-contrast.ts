@@ -9,7 +9,7 @@
  */
 
 import { contrastRatio, flatten, mix, withAlpha } from "./theme-color";
-import { resolveTokenColor, THEMES, type ThemeDefinition, type ThemeName, type ThemeTokenKey } from "./themes";
+import { resolveTokenColor, type ThemeDefinition, type ThemeName, type ThemeTokenKey } from "./themes";
 
 export const AA_TEXT = 4.5;
 export const AAA_TEXT = 7;
@@ -47,10 +47,13 @@ export interface ContrastPair {
 	floor: number;
 }
 
-/** Every pair a theme must hold, named for the failure message. */
-export function contrastPairs(name: ThemeName): ContrastPair[] {
-	const theme = THEMES[name];
-	const text = name.startsWith("hc-") ? AAA_TEXT : AA_TEXT;
+/** The text floor of a named theme: 7:1 in the High Contrast themes, AA elsewhere. */
+export function textFloorFor(name: ThemeName): number {
+	return name.startsWith("hc-") ? AAA_TEXT : AA_TEXT;
+}
+
+/** Every pair a theme must hold at `text` (its text floor, {@link textFloorFor}), named for the failure message. */
+export function contrastPairs(theme: ThemeDefinition, text: number): ContrastPair[] {
 	const out: ContrastPair[] = [];
 	const add = (label: string, fg: string, bg: string, floor: number) =>
 		out.push({ label: `${label} ${fg} on ${bg}`, ratio: contrastRatio(fg, bg), floor });

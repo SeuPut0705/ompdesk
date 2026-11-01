@@ -1109,12 +1109,12 @@ html[data-gpu="software"] .omp-indeterminate-progress {
 	--cb-danger: #934100;
 }
 :root[data-colorblind="true"][data-theme="dark"] {
-	--cb-accent: #96c5df;
+	--cb-accent: #9ecae2;
 	--cb-accent-hover: #a6cee4;
 	--cb-accent-fg: #0b0b1a;
-	--cb-success: #7acdb6;
-	--cb-warning: #ecb438;
-	--cb-danger: #ebb285;
+	--cb-success: #86d2bd;
+	--cb-warning: #eeba48;
+	--cb-danger: #edb88f;
 }
 :root[data-colorblind="true"] {
 	--sc-accent: var(--cb-accent) !important;
