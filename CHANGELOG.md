@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.94.0] - 2026-11-02
+
+이름을 바꾼 세션은 바꾼 이름과 자동 제목이 함께 보여요. 바꾼 이름은 채팅 위 제목에도 바로 반영돼요.
+
+### 새로 생긴 것
+- 세션 이름을 직접 바꾸면 `바꾼 이름 · 자동 제목`으로 보여요. 자동 제목은 흐리게, 공간이 좁으면 먼저 잘려요. 이름을 바꾼 뒤에도 자동 제목은 작업 내용에 맞춰 계속 바뀌고, 바꾼 이름은 그대로예요. 두 제목이 같거나 자동 제목이 없으면 바꾼 이름만 보여요. 사이드바, 채팅 위 제목, 창 제목, 탭, 휴대폰 화면이 모두 같고, 검색은 두 제목 모두로 찾아요.
+
+### 고친 것
+- 이름을 바꿔도 채팅 위 제목과 창 제목, 탭에 옛날 제목이 남던 문제를 고쳤어요. 이 컴퓨터와 연결된 컴퓨터 모두 바로 바뀌어요.
+- 탭에서 다른 세션으로 넘어갈 때 이전 세션의 자동 제목이 잠깐 붙어 보이던 문제를 고쳤어요.
+
+<!-- en -->
+
+A renamed session shows the name you typed together with its automatic title, and the name reaches the title above the chat at once.
+
+### New
+- After you rename a session it reads `your name · automatic title`, the automatic part muted and cut first when space is short. The automatic title keeps following the work after a rename; your name never changes. When the two match or there is no automatic title, only your name shows. The same on the sidebar, the title above the chat, the window title, tabs and the phone page; search matches both.
+
+### Fixed
+- A rename left the old title above the chat, in the window title and on the tab; it now updates at once, on this computer and a paired one.
+- Switching a tab to another session no longer shows the previous session's automatic title beside the new one.
+
 ## [0.93.1] - 2026-11-01
 
 채팅창에서 백스페이스를 눌러도 대화 영역에 파란 테두리가 생기지 않아요.
