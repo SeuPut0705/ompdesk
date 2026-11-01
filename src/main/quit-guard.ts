@@ -8,6 +8,8 @@
  * `app-quit.ts` keeps just the dialog and the event wiring.
  */
 
+import { type BackgroundWork, hasBackgroundWork } from "./background-work";
+
 export interface WindowTabFact {
 	windowId: number;
 	tabId: string;
@@ -40,6 +42,22 @@ export function assessQuitRisk(facts: readonly WindowTabFact[]): QuitRisk {
  */
 export function quitNeedsConfirmation(risk: QuitRisk, resumes: boolean): boolean {
 	return risk.workingTabs > 0 && !resumes;
+}
+
+/**
+ * What a user-initiated update restart ("Restart & install", the countdown's "Now", a paired device's apply) asks
+ * first. Setting off: the quit confirm for running turns (`quitNeedsConfirmation`; background work only exists
+ * while a run is on, so it is covered). Setting on: running turns continue after the relaunch and ask nothing, but
+ * background subagents and jobs start over from the beginning, so a restart over them is named first.
+ * The scheduler's own automatic install never asks: it waits for them (app-auto-update.ts).
+ */
+export function updateRestartConfirmation(
+	risk: QuitRisk,
+	resumes: boolean,
+	work: BackgroundWork,
+): "running work" | "background work" | null {
+	if (!resumes) return quitNeedsConfirmation(risk, resumes) ? "running work" : null;
+	return hasBackgroundWork(work) ? "background work" : null;
 }
 
 /** What closing the last shown window does. */

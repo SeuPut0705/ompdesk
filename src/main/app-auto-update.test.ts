@@ -7,6 +7,7 @@ import {
 	AutoInstallScheduler,
 	quietMoment,
 } from "./app-auto-update";
+import { type BackgroundWork, NO_BACKGROUND_WORK } from "./background-work";
 
 const MINUTE = 60 * 1000;
 
@@ -374,5 +375,132 @@ describe("AutoInstallScheduler decision log", () => {
 		const none = setup({ installable: false });
 		none.advance(0);
 		expect([...off.logs, ...none.logs]).toEqual([]);
+	});
+});
+
+/** The 2 Nov 2026 incident: LayoutSplit and StreamFast, background subagents mid-`bash`, under a running turn. */
+const SUBAGENTS: BackgroundWork = {
+	subagents: 2,
+	jobs: 0,
+	subagentLabels: ["LayoutSplit", "StreamFast"],
+	jobLabels: [],
+};
+
+describe("AutoInstallScheduler with background work (resume on)", () => {
+	it("installs nothing over a running turn's background subagents, then goes safe → countdown → install once they end", () => {
+		const t = setup({ busy: true, focused: true, resumes: true, backgroundWork: SUBAGENTS });
+		t.advance(0);
+		t.advance(10 * MINUTE);
+		expect(t.calls).toEqual([]);
+		expect(t.logs).toEqual(["waiting reason=background work waitedMs=0"]);
+		t.facts.backgroundWork = NO_BACKGROUND_WORK;
+		t.advance(1000);
+		expect(t.calls).toEqual([`announce:${AUTO_INSTALL_COUNTDOWN_MS}`]);
+		expect(t.logs.slice(1)).toEqual([
+			`safe waitedMs=${10 * MINUTE + 1000} running=true resume=true`,
+			expect.stringMatching(/^countdown restartAt=\d+$/),
+		]);
+		t.advance(AUTO_INSTALL_COUNTDOWN_MS);
+		expect(t.calls.at(-1)).toBe("install");
+	});
+
+	it("holds for running background jobs the same way", () => {
+		const t = setup({
+			busy: true,
+			resumes: true,
+			backgroundWork: { subagents: 0, jobs: 1, subagentLabels: [], jobLabels: ["dev server"] },
+		});
+		t.advance(0);
+		t.advance(MINUTE);
+		expect(t.calls).toEqual([]);
+	});
+
+	it("goes ahead after the 30 minute max wait and says why", () => {
+		const t = setup({ busy: true, focused: true, resumes: true, backgroundWork: SUBAGENTS });
+		t.advance(0);
+		t.advance(AUTO_INSTALL_MAX_WAIT_MS - 1);
+		expect(t.calls).toEqual([]);
+		t.advance(1);
+		expect(t.calls).toEqual([`announce:${AUTO_INSTALL_COUNTDOWN_MS}`]);
+		expect(t.logs.slice(1)).toEqual([
+			`forced waitedMs=${AUTO_INSTALL_MAX_WAIT_MS} maxWaitMs=${AUTO_INSTALL_MAX_WAIT_MS} resume=true reason=background work`,
+			expect.stringMatching(/^countdown restartAt=\d+$/),
+		]);
+		t.advance(AUTO_INSTALL_COUNTDOWN_MS);
+		expect(t.calls.at(-1)).toBe("install");
+	});
+
+	it("holds the restart at the countdown's end for work that started during it, and logs the hold once", () => {
+		const t = setup({ busy: true, focused: false, resumes: true });
+		t.advance(0);
+		expect(t.calls).toEqual([`announce:${AUTO_INSTALL_COUNTDOWN_MS}`]);
+		t.facts.backgroundWork = SUBAGENTS;
+		t.advance(AUTO_INSTALL_COUNTDOWN_MS);
+		t.advance(5 * MINUTE);
+		expect(t.calls).toEqual([`announce:${AUTO_INSTALL_COUNTDOWN_MS}`]);
+		expect(t.logs.filter(line => line.startsWith("held"))).toEqual(["held reason=background work"]);
+		t.facts.backgroundWork = NO_BACKGROUND_WORK;
+		t.advance(1000);
+		expect(t.calls.at(-1)).toBe("install");
+	});
+
+	it("holds the countdown's end only up to the max wait", () => {
+		const t = setup({ busy: true, focused: false, resumes: true });
+		t.advance(0);
+		t.facts.backgroundWork = SUBAGENTS;
+		t.advance(AUTO_INSTALL_COUNTDOWN_MS);
+		t.advance(AUTO_INSTALL_MAX_WAIT_MS - AUTO_INSTALL_COUNTDOWN_MS - 1);
+		expect(t.calls).toEqual([`announce:${AUTO_INSTALL_COUNTDOWN_MS}`]);
+		t.advance(1);
+		expect(t.calls.at(-1)).toBe("install");
+		expect(t.logs.slice(-2)).toEqual([
+			`forced waitedMs=${AUTO_INSTALL_MAX_WAIT_MS} maxWaitMs=${AUTO_INSTALL_MAX_WAIT_MS} resume=true reason=background work`,
+			"install trigger=auto",
+		]);
+	});
+
+	it("keeps holding for an ask or a compaction past the max wait, background work or not", () => {
+		const t = setup({ busy: true, asking: true, resumes: true, backgroundWork: SUBAGENTS });
+		t.advance(0);
+		t.advance(AUTO_INSTALL_MAX_WAIT_MS * 2);
+		expect(t.calls).toEqual([]);
+		expect(t.logs).toEqual(["waiting reason=open ask waitedMs=0"]);
+	});
+
+	it("waits for the first answer of the probe before it decides anything", () => {
+		const t = setup({ busy: true, resumes: true, backgroundWorkPending: true });
+		t.advance(0);
+		t.advance(MINUTE);
+		expect(t.calls).toEqual([]);
+		expect(t.logs).toEqual([]);
+		t.facts.backgroundWorkPending = false;
+		t.advance(1000);
+		expect(t.calls).toEqual([`announce:${AUTO_INSTALL_COUNTDOWN_MS}`]);
+	});
+
+	it("after the user's Later, running background work counts as a busy tab for the quiet moment", () => {
+		const t = setup({ busy: false, focused: false, resumes: true });
+		t.advance(0);
+		t.scheduler.postpone();
+		t.facts.backgroundWork = SUBAGENTS;
+		t.advance(0);
+		t.advance(MINUTE);
+		expect(t.calls).toEqual([`announce:${AUTO_INSTALL_COUNTDOWN_MS}`, "withdraw"]);
+		expect(t.logs.at(-1)).toBe("waiting reason=background work waitedMs=0");
+		t.facts.backgroundWork = NO_BACKGROUND_WORK;
+		t.advance(1000);
+		expect(t.calls).toEqual([
+			`announce:${AUTO_INSTALL_COUNTDOWN_MS}`,
+			"withdraw",
+			`announce:${AUTO_INSTALL_COUNTDOWN_MS}`,
+		]);
+	});
+
+	it("with resume off background work is a busy turn: the countdown drops and it waits for idle", () => {
+		const t = setup({ focused: false, resumes: false });
+		t.advance(0);
+		t.facts.backgroundWork = SUBAGENTS;
+		t.advance(AUTO_INSTALL_COUNTDOWN_MS);
+		expect(t.calls).toEqual([`announce:${AUTO_INSTALL_COUNTDOWN_MS}`, "withdraw"]);
 	});
 });

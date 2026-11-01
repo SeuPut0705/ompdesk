@@ -43,7 +43,8 @@ import * as fs from "original-fs";
 import type { UpdateAuthTestResult, UpdateInstallMode, UpdateStatus } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS } from "../shared/ipc-types";
 import { AutoInstallScheduler } from "./app-auto-update";
-import { confirmQuit, disarmQuitWatchdog, onQuitForcedExit, requestQuit } from "./app-quit";
+import { confirmUpdateRestart, disarmQuitWatchdog, onQuitForcedExit, requestQuit } from "./app-quit";
+import { type BackgroundWorkSource, NO_BACKGROUND_WORK_SOURCE } from "./background-work";
 import { markMainStep } from "./hang-watchdog";
 import { mainT } from "./i18n";
 import type { MainTextKey } from "./i18n-text";
@@ -152,6 +153,8 @@ let checkAsked = false;
 const macTransfer = new SingleTransfer();
 /** Installs a downloaded update by itself at a quiet moment (Settings › Updates & about); null before `setupUpdater`. */
 let autoInstall: AutoInstallScheduler | null = null;
+/** The probe's background-work source, for a click on "Restart & install" (asked fresh); null before `setupUpdater`. */
+let backgroundWork: BackgroundWorkSource | null = null;
 /** Each tick's look at the facts; a dev run shortens the countdown with OMP_DEV_UPDATE_AUTO_COUNTDOWN_MS. */
 const AUTO_INSTALL_TICK_MS = 1000;
 
@@ -167,6 +170,8 @@ export interface AutoInstallProbe {
 	asking: () => boolean;
 	/** A tab compacts its context: a resume-on restart waits for it (a cut compaction does not resume). */
 	compacting: () => boolean;
+	/** Running background subagents and jobs of every tab on this computer (`background-work.ts`). */
+	backgroundWork: BackgroundWorkSource;
 }
 
 /** Who started the install: the scheduler, a click on "Restart & install" (or a paired device's), or a plain quit. */
@@ -617,8 +622,9 @@ export async function applyUpdate(): Promise<void> {
 		broadcast({ state: "error", message: mainT("updates.installerMissing"), showInBanner: true });
 		return;
 	}
-	// ⌘Q's rule: running work continues after the restart (turn-resume.ts), so this asks only with that setting off.
-	if (!(await confirmQuit())) return;
+	// ⌘Q's rule: running turns continue after the restart (turn-resume.ts), so this asks only with that setting off, or
+	// when background subagents or jobs would start over (the scheduler's own install never asks: it waits for them).
+	if (!(await confirmUpdateRestart(() => (backgroundWork ?? NO_BACKGROUND_WORK_SOURCE).fresh()))) return;
 	restartIntoUpdate("user click");
 }
 
@@ -838,19 +844,30 @@ export function appAutoUpdatePrefChanged(): void {
 
 export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 	installMode = detectInstallMode();
+	backgroundWork = probe.backgroundWork;
 	reportPreviousInstall();
 	autoInstall = new AutoInstallScheduler({
 		now: Date.now,
-		facts: () => ({
-			enabled: probe.enabled(),
-			installable: restartableUpdate(),
-			resumes: probe.resumes(),
-			busy: probe.busy(),
-			asking: probe.asking(),
-			compacting: probe.compacting(),
-			focused: BrowserWindow.getAllWindows().some(win => win.isFocused()),
-			idleMs: powerMonitor.getSystemIdleTime() * 1000,
-		}),
+		facts: () => {
+			const enabled = probe.enabled();
+			const installable = restartableUpdate();
+			const resumes = probe.resumes();
+			// Only a live scheduler with the setting on needs the answer (off, `busy` covers a running turn); ask nothing else.
+			const watching = enabled && installable && resumes && !(current.state === "downloaded" && current.installing);
+			const reading = watching ? probe.backgroundWork.read() : undefined;
+			if (!reading) probe.backgroundWork.idle();
+			return {
+				enabled,
+				installable,
+				resumes,
+				busy: probe.busy(),
+				asking: probe.asking(),
+				compacting: probe.compacting(),
+				...(reading ? { backgroundWork: reading.work, backgroundWorkPending: reading.pending } : {}),
+				focused: BrowserWindow.getAllWindows().some(win => win.isFocused()),
+				idleMs: powerMonitor.getSystemIdleTime() * 1000,
+			};
+		},
 		countdownMs: Number(process.env.OMP_DEV_UPDATE_AUTO_COUNTDOWN_MS) || undefined,
 		log: (event, details) => logUpdate("scheduler", { event, ...details }),
 		effects: {

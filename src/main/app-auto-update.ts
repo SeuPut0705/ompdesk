@@ -6,9 +6,11 @@
  * restarts by itself — never a modal: one quiet line with a 60 s countdown ("지금 / 나중에") comes first.
  *
  * With Continue interrupted work on (the user's rule: running work goes on after a restart, so an unattended
- * Autopilot Mac updates itself) the countdown starts at the next safe point: no ask or approval card open and no
- * compaction under way. A running turn, a focused window and typing do not hold it; the restart itself also waits
- * for a safe point when the countdown ends. After the user's "나중에" that round falls back to the rule below.
+ * Autopilot Mac updates itself) the countdown starts at the next safe point: no ask or approval card open, no
+ * compaction under way and no background subagent or job running (a revive starts those over, so the work done so far
+ * is lost: 2 Nov 2026). A running turn, a focused window and typing do not hold it; the restart itself also waits
+ * for a safe point when the countdown ends. Background work holds for at most `MAX_WAIT_MS`. After the user's
+ * "나중에" that round falls back to the rule below.
  *
  * With it off (or after "나중에"), a good moment is no tab running a turn and no ask open, and either every window
  * unfocused or no user input for `IDLE_MS`. Still not quiet after `MAX_WAIT_MS`: with Continue interrupted work on
@@ -19,6 +21,8 @@
  * transition (never a tick that changes nothing) goes to the injected `log`, so a restart nobody
  * clicked can be explained afterwards from `gui-runtime.jsonl`.
  */
+
+import { type BackgroundWork, hasBackgroundWork, NO_BACKGROUND_WORK } from "./background-work";
 
 /** No user input for this long counts as away from the keyboard. */
 export const AUTO_INSTALL_IDLE_MS = 2 * 60 * 1000;
@@ -40,6 +44,10 @@ export interface AutoInstallFacts {
 	asking?: boolean;
 	/** Some tab compacts its context: a restart then would cut the compaction, which does not resume. */
 	compacting?: boolean;
+	/** Running background subagents and jobs of every tab on this computer (src/main/background-work.ts). */
+	backgroundWork?: BackgroundWork;
+	/** The probe has not answered yet since the update became installable: decide nothing with resume on. */
+	backgroundWorkPending?: boolean;
 	/** One of this app's windows has focus. */
 	focused: boolean;
 	/** Time since the user's last input anywhere on the computer. */
@@ -56,7 +64,12 @@ export interface AutoInstallEffects {
 }
 
 /** Why the scheduler is not installing yet. */
-export type AutoInstallWaitReason = "busy turn" | "open ask" | "compaction" | "focused+active input";
+export type AutoInstallWaitReason =
+	| "busy turn"
+	| "open ask"
+	| "compaction"
+	| "background work"
+	| "focused+active input";
 
 export type AutoInstallLogDetails = Record<string, string | number | boolean>;
 
@@ -73,18 +86,32 @@ export interface AutoInstallOptions {
 
 /** Whether this moment suits a restart. Pure; the one place the "good moment" rule lives. */
 export function quietMoment(facts: AutoInstallFacts, idleMs: number = AUTO_INSTALL_IDLE_MS): boolean {
-	return !facts.busy && (!facts.focused || facts.idleMs >= idleMs);
+	return !facts.busy && !hasBackgroundWork(workOf(facts)) && (!facts.focused || facts.idleMs >= idleMs);
+}
+
+function workOf(facts: AutoInstallFacts): BackgroundWork {
+	return facts.backgroundWork ?? NO_BACKGROUND_WORK;
 }
 
 /** What holds the install back right now; only meaningful when `quietMoment` is false. */
 function waitReason(facts: AutoInstallFacts): AutoInstallWaitReason {
-	if (facts.busy) return facts.asking ? "open ask" : facts.compacting ? "compaction" : "busy turn";
+	if (facts.busy || hasBackgroundWork(workOf(facts))) {
+		if (facts.asking) return "open ask";
+		if (facts.compacting) return "compaction";
+		return hasBackgroundWork(workOf(facts)) ? "background work" : "busy turn";
+	}
 	return "focused+active input";
 }
 
-/** What a resume-on restart must wait for: an open card (its answer would be lost) or a compaction; else none. */
-function unsafeReason(facts: AutoInstallFacts): "open ask" | "compaction" | undefined {
-	return facts.asking ? "open ask" : facts.compacting ? "compaction" : undefined;
+/**
+ * What a resume-on restart must wait for: an open card (its answer would be lost), a compaction (a cut one does not
+ * resume), or background subagents and jobs (a revive restarts them from the start, so the work done so far is lost
+ * once more: the 2 Nov 2026 update cut LayoutSplit mid-`bash` and the parent redid it all); else none.
+ */
+function unsafeReason(facts: AutoInstallFacts): "open ask" | "compaction" | "background work" | undefined {
+	if (facts.asking) return "open ask";
+	if (facts.compacting) return "compaction";
+	return hasBackgroundWork(workOf(facts)) ? "background work" : undefined;
 }
 
 export class AutoInstallScheduler {
@@ -125,10 +152,14 @@ export class AutoInstallScheduler {
 		}
 		if (this.#installed) return;
 		this.#waitingSince ??= at;
+		// The probe has not answered yet this live period: an empty reading is not "no background work".
+		if (f.resumes && f.backgroundWorkPending) return;
+		const maxWaitMs = this.#opts.maxWaitMs ?? AUTO_INSTALL_MAX_WAIT_MS;
+		const waitedMs = at - this.#waitingSince;
 		if (this.#restartAt !== undefined) {
 			if (at < this.#restartAt) return;
 			// A restart that would stop running work asks the user; this one never does, so it waits for idle again.
-			if (!f.resumes && f.busy) {
+			if (!f.resumes && (f.busy || hasBackgroundWork(workOf(f)))) {
 				this.#restartAt = undefined;
 				this.#waitingSince = at;
 				this.#loggedWait = undefined;
@@ -136,13 +167,15 @@ export class AutoInstallScheduler {
 				effects.withdraw();
 				return;
 			}
-			// Running work resumes after the restart; an open card or a compaction would not: the restart waits.
+			// Running turns resume after the restart; an open card or a compaction would not, and background work would
+			// start over: the restart waits. Background work holds only up to the max wait.
 			const hold = f.resumes ? unsafeReason(f) : undefined;
-			if (hold) {
+			if (hold && !(hold === "background work" && waitedMs >= maxWaitMs)) {
 				if (hold !== this.#loggedHold) this.#opts.log?.("held", { reason: hold });
 				this.#loggedHold = hold;
 				return;
 			}
+			if (hold) this.#opts.log?.("forced", { waitedMs, maxWaitMs, resume: true, reason: hold });
 			this.#restartAt = undefined;
 			this.#loggedHold = undefined;
 			this.#installed = true;
@@ -151,10 +184,9 @@ export class AutoInstallScheduler {
 			effects.install();
 			return;
 		}
-		const waitedMs = at - this.#waitingSince;
 		if (f.resumes && !this.#postponed) {
 			const reason = unsafeReason(f);
-			if (reason) {
+			if (reason && !(reason === "background work" && waitedMs >= maxWaitMs)) {
 				if (reason !== this.#loggedWait) {
 					this.#loggedWait = reason;
 					this.#opts.log?.("waiting", { reason, waitedMs });
@@ -162,12 +194,12 @@ export class AutoInstallScheduler {
 				return;
 			}
 			this.#loggedWait = undefined;
-			this.#opts.log?.("safe", { waitedMs, running: f.busy, resume: true });
+			if (reason) this.#opts.log?.("forced", { waitedMs, maxWaitMs, resume: true, reason });
+			else this.#opts.log?.("safe", { waitedMs, running: f.busy, resume: true });
 			this.#announce(at);
 			return;
 		}
 		const quiet = quietMoment(f, this.#opts.idleMs);
-		const maxWaitMs = this.#opts.maxWaitMs ?? AUTO_INSTALL_MAX_WAIT_MS;
 		const forced = !quiet && f.resumes && waitedMs >= maxWaitMs;
 		if (!quiet && !forced) {
 			const reason = waitReason(f);

@@ -29,7 +29,11 @@ interface Launched {
 	swapLog: string;
 }
 
-async function launch(name: string, prefs: Record<string, unknown>): Promise<Launched> {
+async function launch(
+	name: string,
+	prefs: Record<string, unknown>,
+	env: Record<string, string> = {},
+): Promise<Launched> {
 	const root = await fs.mkdtemp(path.join(os.tmpdir(), `omp-gui-app-update-${name}-`));
 	const project = path.join(root, "project");
 	const desktop = path.join(root, "desktop");
@@ -45,7 +49,7 @@ async function launch(name: string, prefs: Record<string, unknown>): Promise<Lau
 		desktop,
 		agent,
 		profile: root,
-		env: update.env,
+		env: { ...update.env, ...env },
 	});
 	const page = await app.firstWindow();
 	await page.waitForFunction(() => window.omp?.updater != null);
@@ -60,6 +64,23 @@ async function close(launched: Launched): Promise<void> {
 
 const status = (page: Page) => page.evaluate(() => window.omp.updater.getStatus());
 const read = (file: string) => fs.readFile(file, "utf8").catch(() => "");
+
+/** The automatic install's decision lines in `gui-runtime.jsonl` (source `app-update`, message `scheduler`), in order. */
+async function schedulerEvents(launched: Launched): Promise<Array<{ event: string; reason?: string }>> {
+	const log = await read(path.join(launched.root, "desktop", "logs", "gui-runtime.jsonl"));
+	return log.split("\n").flatMap(line => {
+		try {
+			const entry = JSON.parse(line) as {
+				source?: string;
+				message?: string;
+				details?: { event: string; reason?: string };
+			};
+			return entry.source === "app-update" && entry.message === "scheduler" && entry.details ? [entry.details] : [];
+		} catch {
+			return [];
+		}
+	});
+}
 
 test("with the pref on (the default), a staged update announces itself and installs without a click", async () => {
 	test.setTimeout(90_000);
@@ -102,6 +123,50 @@ test("with the pref stored off the staged update waits for a click", async () =>
 			"false",
 		);
 		expect(await read(path.join(launched.ownBundle, "Contents", "Resources", "marker"))).toBe("old");
+	} finally {
+		await close(launched);
+	}
+});
+
+test("with a turn's background subagent still working, the automatic install waits and installs once it reports", async () => {
+	test.setTimeout(120_000);
+	// The switch starts off so the turn can start before the staged update is offered to the scheduler.
+	const launched = await launch("background", { appAutoUpdate: false }, { OMP_GUI_TEST_BACKGROUND_JOB: "1" });
+	try {
+		const { page, app } = launched;
+		await expect.poll(async () => (await status(page)).state, { timeout: 15_000 }).toBe("downloaded");
+		const input = page.locator(".omp-composer-input").first();
+		await input.fill("fixture background subagent");
+		await input.press("Enter");
+		// The turn ended; its subagent (a running `task` job) keeps the session unsettled.
+		await expect(page.getByText("Watcher is on the release build in the background.")).toBeVisible({
+			timeout: 30_000,
+		});
+		const exited = new Promise<void>(resolve => app.process().once("exit", () => resolve()));
+		await page.evaluate(() => window.omp.prefs.set("appAutoUpdate", true));
+		await expect
+			.poll(async () => (await schedulerEvents(launched)).map(event => `${event.event}:${event.reason ?? ""}`), {
+				timeout: 20_000,
+			})
+			.toEqual(["waiting:background work"]);
+		// Well past the shortened countdown: nothing announced, nothing swapped, the app still runs.
+		await page.waitForTimeout(COUNTDOWN_MS + 4000);
+		expect(await status(page)).toEqual({ state: "downloaded", version: VERSION, mode: "relaunch" });
+		expect(app.process().exitCode).toBeNull();
+		expect(await read(launched.swapLog)).toBe("");
+		expect((await schedulerEvents(launched)).map(event => event.event)).toEqual(["waiting"]);
+
+		// The subagent reports back and the session settles: now it is a safe point.
+		const finished = await page.evaluate(() => window.omp.rpc.bash("fixture:finish-background"));
+		expect(finished.success).toBe(true);
+		await exited;
+		await expect.poll(() => read(launched.swapLog), { timeout: 30_000 }).toContain("installed");
+		expect((await schedulerEvents(launched)).map(event => event.event)).toEqual([
+			"waiting",
+			"safe",
+			"countdown",
+			"install",
+		]);
 	} finally {
 		await close(launched);
 	}

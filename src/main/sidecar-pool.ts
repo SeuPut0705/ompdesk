@@ -103,6 +103,7 @@ import {
 	type SplitLayout,
 	splitTabIds,
 } from "../shared/split-layout";
+import type { BackgroundWorkMember } from "./background-work";
 import { canonicalCwd } from "./canonical-cwd";
 import { deletedSessions } from "./deleted-sessions";
 import { type ExtensionApplyPlan, extensionApplyDecision, mergeApplyPlans } from "./extension-reload";
@@ -594,6 +595,21 @@ export class SidecarPool {
 			planWaiting ||= entry.planProposal !== undefined;
 		}
 		return { compacting, planWaiting };
+	}
+
+	/**
+	 * The omps of this computer's own tabs whose run is on (a turn, or background work keeping it), with their bridge
+	 * requests: the update restart's background-work probe (background-work.ts). A view of a device's tab here and a
+	 * paired host's tab are left out: the first is the device tab's (`LocalHostServices.runningBridges`), the second its host's.
+	 */
+	runningBridges(): BackgroundWorkMember[] {
+		return [...this.#entries].flatMap(entry => {
+			const { sidecar } = entry;
+			const request = sidecar.bridgeRequest?.bind(sidecar);
+			if (entry.hostedView || entry.device || !entry.run.running || !request || sidecar.status !== "ready")
+				return [];
+			return [{ key: entry.tabId, request }];
+		});
 	}
 
 	#announce(activity: TabActivity): void {

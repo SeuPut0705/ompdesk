@@ -6,7 +6,7 @@
 import type { MessageBoxOptions } from "electron";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fillText } from "../shared/fill-text";
-import { confirmQuit, installQuitGuard, requestQuit, setQuitResumes } from "./app-quit";
+import { confirmQuit, confirmUpdateRestart, installQuitGuard, requestQuit, setQuitResumes } from "./app-quit";
 import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
 import { QUIT_EXIT_TIMEOUT_MS } from "./quit-watchdog";
 
@@ -100,6 +100,62 @@ describe("confirmQuit", () => {
 		for (const listener of electron.beforeQuit) listener({ preventDefault });
 		expect(preventDefault).toHaveBeenCalled();
 		await vi.waitFor(() => expect(electron.quit).toHaveBeenCalledTimes(1));
+	});
+});
+
+describe("confirmUpdateRestart", () => {
+	const none = { subagents: 0, jobs: 0, subagentLabels: [], jobLabels: [] };
+	const work = {
+		subagents: 2,
+		jobs: 1,
+		subagentLabels: ["LayoutSplit", "StreamFast"],
+		jobLabels: ["dev server"],
+	};
+
+	it("with Continue interrupted work on names the background work it would start over, and Restart goes ahead", async () => {
+		setQuitResumes(() => true);
+		electron.showMessageBox.mockResolvedValueOnce({ response: 0 });
+		expect(await confirmUpdateRestart(async () => work)).toBe(true);
+		expect(electron.showMessageBox.mock.calls[0]?.[0]).toMatchObject({
+			type: "warning",
+			buttons: ["Restart", "Cancel"],
+			defaultId: 1,
+			cancelId: 1,
+			message: "Background work is still running",
+			detail:
+				"2 subagents (LayoutSplit, StreamFast) and 1 background job (dev server) will be interrupted and started again after the restart.",
+		});
+		electron.showMessageBox.mockResolvedValueOnce({ response: 1 });
+		expect(await confirmUpdateRestart(async () => work)).toBe(false);
+	});
+
+	it("with it on asks nothing for a running turn alone", async () => {
+		setQuitResumes(() => true);
+		expect(await confirmUpdateRestart(async () => none)).toBe(true);
+		expect(electron.showMessageBox).not.toHaveBeenCalled();
+	});
+
+	it("with it off keeps the quit prompt for running work and never reads the omps", async () => {
+		const read = vi.fn(async () => work);
+		electron.showMessageBox.mockResolvedValueOnce({ response: 1 });
+		expect(await confirmUpdateRestart(read)).toBe(false);
+		expect(electron.showMessageBox.mock.calls[0]?.[0]).toMatchObject({ buttons: ["Quit anyway", "Keep working"] });
+		expect(read).not.toHaveBeenCalled();
+		working = false;
+		expect(await confirmUpdateRestart(read)).toBe(true);
+		expect(electron.showMessageBox).toHaveBeenCalledTimes(1);
+	});
+
+	it("a second click while the prompt is open queues no second prompt", async () => {
+		setQuitResumes(() => true);
+		const answer = Promise.withResolvers<{ response: number }>();
+		electron.showMessageBox.mockReturnValueOnce(answer.promise);
+		const first = confirmUpdateRestart(async () => work);
+		await vi.waitFor(() => expect(electron.showMessageBox).toHaveBeenCalledTimes(1));
+		expect(await confirmUpdateRestart(async () => work)).toBe(false);
+		answer.resolve({ response: 0 });
+		expect(await first).toBe(true);
+		expect(electron.showMessageBox).toHaveBeenCalledTimes(1);
 	});
 });
 

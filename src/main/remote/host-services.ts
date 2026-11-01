@@ -74,6 +74,7 @@ import type { SchedulesState } from "../../shared/schedules";
 import type { SidebarProjectsState } from "../../shared/sidebar-projects";
 import type { TerminalOperation, TerminalSnapshot } from "../../shared/terminal-types";
 import { branchEvidence, branchFacts, landingFacts, mergeBranch, removeSafeWorktree } from "../agent-control/branches";
+import type { BackgroundWorkMember } from "../background-work";
 import type { BridgeConnectResult } from "../bridge-health";
 import { canonicalCwd } from "../canonical-cwd";
 import type { CheckoutMember } from "../checkout-peers";
@@ -911,6 +912,16 @@ export class LocalHostServices implements HostServices {
 					request,
 				},
 			];
+		});
+	}
+
+	/** The omps here that run a turn (or background work) for paired devices, with their bridge requests: the update restart's probe (`background-work.ts`). */
+	runningBridges(): BackgroundWorkMember[] {
+		return [...this.#tabs].flatMap(([key, tab]) => {
+			const { sidecar } = tab;
+			const request = sidecar.bridgeRequest?.bind(sidecar);
+			if (tab.viewsWindow || !tab.run.running || !request || sidecar.status !== "ready") return [];
+			return [{ key: `hosted:${key}`, request }];
 		});
 	}
 

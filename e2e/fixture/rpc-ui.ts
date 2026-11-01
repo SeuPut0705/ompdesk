@@ -470,6 +470,8 @@ export function runRpcUi(): void {
 	/** Stock `/slow` applies to the model only with `OMP_GUI_TEST_SLOW_MODE=1` (other suites keep their Run settings). */
 	const slowModeSupported = process.env.OMP_GUI_TEST_SLOW_MODE === "1";
 	let slowModeEnabled = false;
+	/** The subagent of `fixture background subagent` still works (until `fixture:finish-background`). */
+	let backgroundSubagent = false;
 	/** A user `!` bash held open by `fixture:hold-bash` until `abort_bash` settles it. */
 	let heldBash: ((data: unknown) => void) | undefined;
 	let streamTimer: Timer | undefined;
@@ -1644,6 +1646,19 @@ export function runRpcUi(): void {
 								status: "running",
 								startTime: now - 12_000,
 								resultPreview: "\u001b[32mCompiled renderer\u001b[0m\nWatching for file changes…",
+							}),
+						]
+					: []),
+				// `fixture background subagent` with `OMP_GUI_TEST_BACKGROUND_JOB=1`: its subagent keeps working.
+				...(process.env.OMP_GUI_TEST_BACKGROUND_JOB === "1" && backgroundSubagent
+					? [
+							row({
+								id: "Watcher",
+								type: "task",
+								label: "Watcher",
+								status: "running",
+								agentId: "Watcher",
+								startTime: now - 5_000,
 							}),
 						]
 					: []),
@@ -4590,6 +4605,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			appendMessage(call);
 			appendMessage(backgrounded);
 		} else if (message === "fixture background subagent") {
+			backgroundSubagent = true;
 			// The turn spawns a subagent in the background and ends; stock's prompt_result says the session is not
 			// settled (the subagent still works), so the tab's run, and its relaunch marker, stay until it reports.
 			const call: AgentMessage = {
@@ -5566,6 +5582,14 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					agent.live = false;
 					agent.lastUpdate = Date.now();
 					writeLifecycle(agent, "completed");
+					ok();
+					break;
+				}
+				// `OMP_GUI_TEST_BACKGROUND_JOB=1`: the subagent `fixture background subagent` spawned (a running `task` job in
+				// `composer.jobs`) reports back: the job completes and stock's `session_settled` ends the run.
+				if (line === "fixture:finish-background") {
+					backgroundSubagent = false;
+					write({ type: "session_settled" });
 					ok();
 					break;
 				}

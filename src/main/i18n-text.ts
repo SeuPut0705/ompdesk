@@ -382,6 +382,16 @@ export const MAIN_TEXT = {
 		en: "The latest release has no valid update information, so OMPdesk can't update from it.",
 		ko: "최신 릴리스에 올바른 업데이트 정보가 없어서 OMPdesk를 업데이트할 수 없어요.",
 	},
+	"updates.restartWork.and": { en: " and ", ko: ", " },
+	"updates.restartWork.body": {
+		en: "{work} will be interrupted and started again after the restart.",
+		ko: "재시작하면 중단되고, 재시작 뒤 처음부터 다시 시작돼요: {work}",
+	},
+	"updates.restartWork.cancel": { en: "Cancel", ko: "취소" },
+	"updates.restartWork.jobs": { en: "{count} background job{plural}", ko: "백그라운드 작업 {count}개" },
+	"updates.restartWork.restart": { en: "Restart", ko: "재시작" },
+	"updates.restartWork.subagents": { en: "{count} subagent{plural}", ko: "서브에이전트 {count}개" },
+	"updates.restartWork.title": { en: "Background work is still running", ko: "백그라운드 작업이 아직 실행 중이에요" },
 	"updates.unsupportedArchitecture": {
 		en: "This Mac architecture does not have a supported installer.",
 		ko: "이 Mac 아키텍처를 지원하는 설치 프로그램이 없어요.",

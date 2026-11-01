@@ -14,6 +14,7 @@ import {
 	lastWindowCloseAction,
 	QuitLatch,
 	quitNeedsConfirmation,
+	updateRestartConfirmation,
 	type WindowTabFact,
 } from "./quit-guard";
 
@@ -41,6 +42,28 @@ describe("quit guard risk assessment", () => {
 		// On (the default): the marker stays and the next launch continues the run, so nothing asks.
 		expect(quitNeedsConfirmation(working, true)).toBe(false);
 		expect(quitNeedsConfirmation(assessQuitRisk([]), true)).toBe(false);
+	});
+});
+
+describe("an update restart a person starts", () => {
+	const idle = assessQuitRisk([]);
+	const working = assessQuitRisk([fact(1, "a", true)]);
+	const none = { subagents: 0, jobs: 0, subagentLabels: [], jobLabels: [] };
+	const subagents = { subagents: 2, jobs: 0, subagentLabels: ["LayoutSplit", "StreamFast"], jobLabels: [] };
+
+	it("with Continue interrupted work on asks only when background subagents or jobs would start over", () => {
+		expect(updateRestartConfirmation(working, true, none)).toBeNull();
+		expect(updateRestartConfirmation(idle, true, none)).toBeNull();
+		expect(updateRestartConfirmation(working, true, subagents)).toBe("background work");
+		expect(updateRestartConfirmation(working, true, { ...none, jobs: 1, jobLabels: ["dev server"] })).toBe(
+			"background work",
+		);
+	});
+
+	it("with it off keeps the quit confirm for running turns, background work included", () => {
+		expect(updateRestartConfirmation(working, false, subagents)).toBe("running work");
+		expect(updateRestartConfirmation(working, false, none)).toBe("running work");
+		expect(updateRestartConfirmation(idle, false, none)).toBeNull();
 	});
 });
 

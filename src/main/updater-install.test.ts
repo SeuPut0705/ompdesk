@@ -8,12 +8,15 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { IPC_COMMANDS, type UpdateStatus } from "../shared/ipc-types";
+import { type BackgroundWork, type BackgroundWorkSource, NO_BACKGROUND_WORK } from "./background-work";
 import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
 import { appAutoUpdatePrefChanged, readRelaunchPresence, setupUpdater } from "./updater";
 import { type IpcCaller, IpcRegistry } from "./web/ipc-registry";
 
 const mocks = vi.hoisted(() => {
 	const updaterEvents = new Map<string, Array<(...args: unknown[]) => void>>();
+	const asked: unknown[] = [];
+	const answer = { go: true };
 	return {
 		updaterEvents,
 		// The one updater both electron-updater's `autoUpdater` (macOS) and OmpNsisUpdater (Windows) stand for.
@@ -28,6 +31,13 @@ const mocks = vi.hoisted(() => {
 		runtimeLog: [] as Array<{ message: string; details: Record<string, unknown> }>,
 		userData: { dir: "" },
 		windowVisible: true,
+		/** What the restart confirm is told: it reads the work like the real one, then answers `answer.go`. */
+		confirmUpdateRestart: vi.fn(async (readWork: () => Promise<unknown>) => {
+			asked.push(await readWork());
+			return answer.go;
+		}),
+		asked,
+		answer,
 	};
 });
 
@@ -62,7 +72,7 @@ vi.mock("./nsis-updater", () => ({
 	},
 }));
 vi.mock("./app-quit", () => ({
-	confirmQuit: async () => true,
+	confirmUpdateRestart: mocks.confirmUpdateRestart,
 	disarmQuitWatchdog: () => {},
 	onQuitForcedExit: () => {},
 	requestQuit: () => {},
@@ -88,6 +98,13 @@ const caller: IpcCaller = { win: null, browserWindow: null, sender: { id: 1, onc
 const registry = new IpcRegistry({ handle: () => {}, on: () => {} });
 const realPlatform = process.platform;
 let autoInstallOn = false;
+/** What the background-work probe answers: the cached reading the scheduler reads, and what a click asks fresh. */
+const background = { work: NO_BACKGROUND_WORK as BackgroundWork, pending: false };
+const source: BackgroundWorkSource = {
+	read: () => ({ ...background }),
+	idle: () => {},
+	fresh: async () => background.work,
+};
 
 function emitUpdater(event: string, ...args: unknown[]): void {
 	for (const listener of mocks.updaterEvents.get(event) ?? []) listener(...args);
@@ -109,6 +126,7 @@ beforeAll(() => {
 		busy: () => false,
 		asking: () => false,
 		compacting: () => false,
+		backgroundWork: source,
 	});
 });
 
@@ -128,6 +146,61 @@ beforeEach(() => {
 	mocks.runtimeLog.length = 0;
 	mocks.updater.quitAndInstall.mockReset();
 	emitUpdater("update-downloaded", { version: "0.45.0", files: [{ size: 113_241_490 }] });
+	background.work = NO_BACKGROUND_WORK;
+	background.pending = false;
+	mocks.answer.go = true;
+	mocks.asked.length = 0;
+	mocks.confirmUpdateRestart.mockClear();
+});
+
+const SUBAGENTS: BackgroundWork = {
+	subagents: 2,
+	jobs: 0,
+	subagentLabels: ["LayoutSplit", "StreamFast"],
+	jobLabels: [],
+};
+const schedulerEvents = () =>
+	mocks.runtimeLog.flatMap(report =>
+		report.message === "scheduler"
+			? [`${report.details.event}${report.details.reason ? `:${report.details.reason}` : ""}`]
+			: [],
+	);
+
+describe("Restart & install with background work running", () => {
+	it("asks with a fresh reading of the work and starts nothing when cancelled", async () => {
+		background.work = SUBAGENTS;
+		mocks.answer.go = false;
+		await restartAndInstall();
+		expect(mocks.asked).toEqual([SUBAGENTS]);
+		expect(mocks.updater.quitAndInstall).not.toHaveBeenCalled();
+		mocks.answer.go = true;
+		await restartAndInstall();
+		expect(mocks.updater.quitAndInstall).toHaveBeenCalledTimes(1);
+	});
+
+	it("the automatic install waits for it, never asks, and installs once it ends", () => {
+		background.work = SUBAGENTS;
+		autoInstallOn = true;
+		appAutoUpdatePrefChanged();
+		appAutoUpdatePrefChanged();
+		expect(schedulerEvents()).toEqual(["waiting:background work"]);
+		expect(mocks.sent.at(-1)).not.toHaveProperty("restartAt");
+		background.work = NO_BACKGROUND_WORK;
+		appAutoUpdatePrefChanged();
+		expect(schedulerEvents()).toEqual(["waiting:background work", "safe", "countdown"]);
+		expect(mocks.sent.at(-1)).toMatchObject({ state: "downloaded", restartAt: expect.any(Number) });
+		expect(mocks.confirmUpdateRestart).not.toHaveBeenCalled();
+	});
+
+	it("decides nothing until the probe has answered once", () => {
+		background.pending = true;
+		autoInstallOn = true;
+		appAutoUpdatePrefChanged();
+		expect(schedulerEvents()).toEqual([]);
+		background.pending = false;
+		appAutoUpdatePrefChanged();
+		expect(schedulerEvents()).toEqual(["safe", "countdown"]);
+	});
 });
 
 describe("Restart & install on Windows", () => {

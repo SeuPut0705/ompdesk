@@ -6,9 +6,17 @@
  * on, those runs continue after the next launch and the quit asks nothing.
  */
 import { app, autoUpdater, BrowserWindow, dialog, type MessageBoxOptions } from "electron";
+import { type BackgroundWork, backgroundWorkSentence } from "./background-work";
 import { markMainStep } from "./hang-watchdog";
 import { getMainLanguage, mainT } from "./i18n";
-import { assessQuitRisk, QuitLatch, type QuitRisk, quitNeedsConfirmation, type WindowTabFact } from "./quit-guard";
+import {
+	assessQuitRisk,
+	QuitLatch,
+	type QuitRisk,
+	quitNeedsConfirmation,
+	updateRestartConfirmation,
+	type WindowTabFact,
+} from "./quit-guard";
 import { QuitWatchdog, type QuitWatchdogReason } from "./quit-watchdog";
 import { writeRuntimeLog } from "./runtime-log";
 
@@ -79,11 +87,8 @@ export function setQuitResumes(resumes: () => boolean): void {
 export async function confirmQuit(): Promise<boolean> {
 	const risk = quitRisk();
 	if (!quitNeedsConfirmation(risk, resumesInterrupted())) return true;
-	if (asking) return false;
-	asking = true;
 	const language = getMainLanguage();
-	const owner = BrowserWindow.getFocusedWindow();
-	const options: MessageBoxOptions = {
+	return askOnce({
 		type: "warning",
 		buttons: [mainT("quit.quitAnyway", language), mainT("quit.keepWorking", language)],
 		defaultId: 1,
@@ -94,7 +99,40 @@ export async function confirmQuit(): Promise<boolean> {
 			total: risk.totalTabs,
 			windows: risk.workingWindows,
 		}),
-	};
+	});
+}
+
+/**
+ * Ask before an update restart a person started ("Restart & install", the countdown's "Now", a paired device's
+ * apply). Running turns continue after the relaunch, so with Continue interrupted work on this asks only when
+ * background subagents or jobs run: it names them (`readWork` asks the omps now) and says they start again after the
+ * restart. With the setting off it is the quit confirm. True = go ahead.
+ */
+export async function confirmUpdateRestart(readWork: () => Promise<BackgroundWork>): Promise<boolean> {
+	const resumes = resumesInterrupted();
+	if (!resumes) return confirmQuit();
+	const work = await readWork();
+	if (updateRestartConfirmation(quitRisk(), resumes, work) !== "background work") return true;
+	const language = getMainLanguage();
+	const what = backgroundWorkSentence(work, (key, params) => mainT(key, language, params));
+	return askOnce({
+		type: "warning",
+		buttons: [mainT("updates.restartWork.restart", language), mainT("updates.restartWork.cancel", language)],
+		defaultId: 1,
+		cancelId: 1,
+		message: mainT("updates.restartWork.title", language),
+		detail: mainT("updates.restartWork.body", language, { work: what }),
+	});
+}
+
+/**
+ * One native confirm at a time (⌘Q pressed again, or a second restart click, must not queue a second modal):
+ * true when the first button was chosen; false for the second, a dismissal, a failure or a prompt already open.
+ */
+async function askOnce(options: MessageBoxOptions): Promise<boolean> {
+	if (asking) return false;
+	asking = true;
+	const owner = BrowserWindow.getFocusedWindow();
 	try {
 		const result = await (owner ? dialog.showMessageBox(owner, options) : dialog.showMessageBox(options));
 		return result.response === 0;
