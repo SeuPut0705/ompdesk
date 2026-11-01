@@ -187,6 +187,12 @@ export class ServeProxy {
 	readonly #warm = new WeakSet<net.Socket>();
 	/** Requests held by `hold` until released: the path and when it may go. */
 	readonly #holds = new Set<{ path: string; until: Promise<void> }>();
+	/** The link is down (`outage`): new requests fail at once (`refuse`) or are never answered (`blackhole`). */
+	#outage: "refuse" | "blackhole" | null = null;
+	/** Connections a black hole swallowed: never answered, closed only with the proxy. */
+	readonly #swallowed = new Set<net.Socket>();
+	/** WebSockets that went silent both ways (`stallSockets`): the page still thinks them open. */
+	readonly #stalled = new WeakSet<net.Socket>();
 	#link: LinkProfile | undefined;
 	#target: ServeSite;
 	readonly bytes: WireBytes = { httpDown: 0, httpRequests: 0, wsDown: 0, wsUp: 0, wsFramesDown: 0 };
@@ -273,6 +279,42 @@ export class ServeProxy {
 	}
 
 	/**
+	 * Every open WebSocket goes silent both ways and stays open: the page still believes it, as a phone's link that
+	 * died while it slept or that moved to another network does.
+	 */
+	stallSockets(): void {
+		for (const socket of this.#sockets) this.#stalled.add(socket);
+	}
+
+	/**
+	 * Take the phone's link down until `restore`. `refuse`: every WebSocket ends and a new request or socket fails at
+	 * once (no network, and the browser knows). `blackhole`: every WebSocket goes silent (`stallSockets`) and a new
+	 * request or socket is never answered, not even after `restore`, as a connection opened on a dead route is not
+	 * (a phone that changed networks under Tailscale).
+	 */
+	outage(mode: "refuse" | "blackhole"): { restore(): void } {
+		if (mode === "refuse") this.dropSockets();
+		else this.stallSockets();
+		this.#outage = mode;
+		this.#note(`link down (${mode})`);
+		return {
+			restore: () => {
+				this.#outage = null;
+				this.#note("link up");
+			},
+		};
+	}
+
+	/** True when the link is down and `socket`'s request must not reach the host. */
+	#lost(socket: net.Socket, what: string): boolean {
+		if (this.#outage === null) return false;
+		this.#note(`${this.#outage === "refuse" ? "refused" : "swallowed"} ${what}`);
+		if (this.#outage === "refuse") socket.destroy();
+		else this.#swallowed.add(socket);
+		return true;
+	}
+
+	/**
 	 * Hold every request whose path is `path` here, with its body unread, until `release` (a test's way to see the
 	 * page while an upload is on its way). Never hold it in the browser with `page.route`: WebKit's interception can
 	 * continue a multipart request with the inspector's copy of the body, which leaves a picked file's bytes out
@@ -310,8 +352,9 @@ export class ServeProxy {
 			void Promise.all(held).then(() => this.#forward(req, res));
 			return;
 		}
-		this.bytes.httpRequests++;
 		const asked = `${req.method} ${pathOnly}`;
+		if (this.#lost(req.socket, asked)) return;
+		this.bytes.httpRequests++;
 		this.#note(`asked ${asked}`);
 		res.on("close", () => {
 			if (!res.writableFinished) this.#note(`closed by the page before the answer ended: ${asked}`);
@@ -360,6 +403,7 @@ export class ServeProxy {
 	}
 
 	#upgrade(req: http.IncomingMessage, socket: net.Socket, head: Buffer): void {
+		if (this.#lost(socket, "websocket")) return;
 		this.#sockets.add(socket);
 		let upstream: net.Socket | null = null;
 		const end = () => {
@@ -381,6 +425,7 @@ export class ServeProxy {
 				target.write(`${lines.join("\r\n")}\r\n\r\n`);
 				if (head.length > 0) target.write(head);
 				target.on("data", (chunk: Buffer) => {
+					if (this.#stalled.has(socket)) return;
 					this.bytes.wsDown += chunk.length;
 					this.bytes.wsFramesDown++;
 					this.#sendDown(chunk.length, () => {
@@ -388,6 +433,7 @@ export class ServeProxy {
 					});
 				});
 				socket.on("data", (chunk: Buffer) => {
+					if (this.#stalled.has(socket)) return;
 					this.bytes.wsUp += chunk.length;
 					this.#sendUp(socket, chunk.length, () => {
 						if (!target.destroyed) target.write(chunk);
@@ -402,6 +448,7 @@ export class ServeProxy {
 
 	async close(): Promise<void> {
 		for (const socket of this.#sockets) socket.destroy();
+		for (const socket of this.#swallowed) socket.destroy();
 		this.#server.closeAllConnections();
 		await new Promise<void>(resolve => this.#server.close(() => resolve()));
 	}
