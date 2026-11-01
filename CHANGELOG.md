@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.92.2] - 2026-11-01
+
+연결된 컴퓨터의 모델 계정에 브라우저로 로그인할 때, 브라우저가 localhost 오류에서 멈추지 않고 로그인이 끝나요.
+
+### 고친 것
+- 다른 컴퓨터의 탭에서 Claude·ChatGPT 같은 브라우저 로그인을 하면, 마지막에 이 컴퓨터 브라우저가 `localhost`로 돌아오면서 연결 오류가 나고 로그인이 끝나지 않던 문제를 고쳤어요. 이제 이 컴퓨터의 OMPdesk가 그 결과를 받아 연결된 컴퓨터로 넘겨 줘요. 그 로그인이 진행 중일 때, 같은 주소와 확인값일 때만 한 번 넘기고, 로그인 코드는 기록에 남기지 않아요.
+- 이 컴퓨터에서 그 포트를 이미 다른 프로그램이 쓰고 있거나 휴대폰에서 로그인할 때는, 로그인 창이 주소를 복사해 붙여 넣는 방법을 처음부터 보여 줘요.
+- 두 컴퓨터 모두 이 버전이어야 해요. 이전 버전 컴퓨터에 로그인하면 브라우저에 붙여 넣기 안내가 떠요.
+
+<!-- en -->
+
+Browser sign-in to a paired computer's model account now finishes instead of stopping at a localhost error.
+
+### Fixed
+- Signing in with a browser (Claude, ChatGPT…) on another computer's tab ended with this computer's browser returning to `localhost`, a connection error and no sign-in. This computer's OMPdesk now receives that return and passes it to the paired computer, only while that sign-in runs, only for its exact address and state, once; the sign-in code is never logged.
+- When that port is taken on this computer, or on the phone, the sign-in panel shows the copy-and-paste way from the start.
+- Both computers need this version; signing in on an older one shows the paste instructions in the browser.
+
 ## [0.92.1] - 2026-11-01
 
 지운 세션이 봇의 작업 목록에 진행 중으로 남던 문제를 고쳤어요.
