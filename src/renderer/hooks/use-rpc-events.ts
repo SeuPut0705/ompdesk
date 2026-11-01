@@ -895,11 +895,16 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 		const handleSessionInfo = (frame: SessionInfoUpdateFrame, tabId: string) => {
 			if (closedTabFrame(tabId)) return;
 			withSessionRuntime(tabId, () => {
-				useSessionStore.setState(state => ({
-					sessionName: frame.title === undefined ? state.sessionName : frame.title,
-					autoTitle: frame.autoTitle === undefined ? state.autoTitle : frame.autoTitle,
-					sessionId: frame.sessionId ?? state.sessionId,
-				}));
+				useSessionStore.setState(state => {
+					// Another session's automatic title is not this one's: a frame naming a new session without one drops it.
+					const switched = frame.sessionId !== undefined && frame.sessionId !== state.sessionId;
+					const autoTitle = frame.autoTitle !== undefined ? frame.autoTitle : switched ? null : state.autoTitle;
+					return {
+						sessionName: frame.title === undefined ? state.sessionName : frame.title,
+						autoTitle,
+						sessionId: frame.sessionId ?? state.sessionId,
+					};
+				});
 			});
 		};
 		const unsubSessionInfo = window.omp.events.onTabSessionInfoUpdate(handleSessionInfo);

@@ -1413,6 +1413,18 @@ describe("useRpcEvents non-transcript frames", () => {
 		expect(useSessionStore.getState().autoTitle).toBeNull();
 	});
 
+	it("drops the old session's automatic title when a session_info_update names another session", async () => {
+		const { emitSessionInfo } = installMockOmp();
+		await mount(<RpcEventsProbe />);
+		await act(async () => {
+			emitSessionInfo({ type: "session_info_update", sessionId: "A", title: "A", autoTitle: "Fix login bug" });
+		});
+		await act(async () => {
+			emitSessionInfo({ type: "session_info_update", sessionId: "B", title: "B" });
+		});
+		expect(useSessionStore.getState()).toMatchObject({ sessionId: "B", sessionName: "B", autoTitle: null });
+	});
+
 	it("rehydrates when a deferred prompt result reports a local-only extension command", async () => {
 		const { omp, emitPromptResult } = installMockOmp();
 		await mount(<RpcEventsProbe />);

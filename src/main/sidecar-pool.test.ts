@@ -2976,6 +2976,19 @@ describe("SidecarPool background tabs", () => {
 		expect(pool.tabsForWindow(fw.win)[0]).not.toHaveProperty("autoTitle");
 	});
 
+	it("drops the old session's automatic title when a session_info_update names another session first", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
+		const a = sidecars[0];
+		a?.emitSessionInfo({ sessionId: "A", title: "A", autoTitle: "Fix login bug" });
+		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({ autoTitle: "Fix login bug" });
+		a?.emitSessionInfo({ sessionId: "B", title: "B" });
+		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).not.toHaveProperty("autoTitle");
+		a?.emitSessionIdentity({ sessionId: "B", sessionFile: "/sessions/b.jsonl", sessionName: "B" });
+		expect(pool.tabsForWindow(fw.win)[0]).not.toHaveProperty("autoTitle");
+	});
+
 	it("holds one window-closed listener however many tabs the window has, and a released tab is not released again", () => {
 		// A listener per tab passed Node's limit of 10 once a window held 11 tabs (MaxListenersExceededWarning).
 		const { pool, sidecars } = fakePool();

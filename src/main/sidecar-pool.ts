@@ -1032,10 +1032,11 @@ export class SidecarPool {
 		});
 		sidecar.on("sessionInfoUpdate", (frame: SessionInfoUpdateFrame) => {
 			if (frame.title !== undefined) entry.title = frame.title;
-			if (frame.autoTitle !== undefined) entry.autoTitle = frame.autoTitle;
 			if (typeof frame.sessionId === "string") {
 				const previousId = entry.sessionId;
 				entry.sessionId = frame.sessionId;
+				// Another session's automatic title is not this one's (a frame can name the new session before get_state).
+				if (previousId !== undefined && previousId !== frame.sessionId) entry.autoTitle = undefined;
 				// F-OWN: the session under this tab changed (switch / new session
 				// / crash-restart) — the cached file→owner mapping is stale. The
 				// first attach (previousId undefined) keeps the acquire-time
@@ -1044,6 +1045,7 @@ export class SidecarPool {
 				// let-go now (`onSessionFilesChanged`), not only at the next close.
 				if (previousId !== undefined && previousId !== frame.sessionId) this.#unregisterSessionFile(entry);
 			}
+			if (frame.autoTitle !== undefined) entry.autoTitle = frame.autoTitle;
 			// Session meta changes ride the light channel too, so a background
 			// tab's title/id updates without waiting for a status flip.
 			this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
