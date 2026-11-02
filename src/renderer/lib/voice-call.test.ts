@@ -1359,7 +1359,7 @@ describe("createPcmTap", () => {
 
 	it("resamples to 16 kHz mono PCM16, carrying the fractional remainder across blocks", () => {
 		const { tap, feed } = tapOn44100();
-		tap.begin();
+		tap.begin(0);
 		feed(1000, 0.5);
 		feed(1000, 0.5);
 		const pcm = tap.end();
@@ -1372,7 +1372,7 @@ describe("createPcmTap", () => {
 		const { tap, feed } = tapOn44100();
 		feed(44_100, 0.25);
 		feed(4410, -0.5);
-		const preRoll = tap.begin();
+		const preRoll = tap.begin(0);
 		expect(preRoll).toHaveLength(6400);
 		expect(preRoll.at(-1)).toBeLessThan(0);
 		expect(preRoll[0]).toBeGreaterThan(0);
@@ -1384,6 +1384,15 @@ describe("createPcmTap", () => {
 		expect(tap.end()).toHaveLength(160);
 		feed(441, 0.25);
 		expect(tap.drain()).toHaveLength(0);
+	});
+
+	it("reaches the pre-roll back over speech already heard, up to 1.5 s", () => {
+		const { tap, feed } = tapOn44100();
+		feed(88_200, 0.25);
+		// 600 ms heard plus the 150 ms lead before its first loud tick.
+		expect(tap.begin(600)).toHaveLength(12_000);
+		tap.end();
+		expect(tap.begin(10_000)).toHaveLength(24_000);
 	});
 
 	it("releases the node", () => {

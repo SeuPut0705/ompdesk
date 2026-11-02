@@ -205,6 +205,11 @@ export const CALL_TUNING = {
 	bargeInMs: 250,
 	/** A speech candidate survives a dip this short (the gap between syllables). */
 	gapMs: 100,
+	/**
+	 * Loud stretches closer than this are one run of speech: a confirmed utterance reaches back to the run's first one, so
+	 * a short word before a pause ("Wait, stop…" over a reply) is not cut off.
+	 */
+	runGapMs: 500,
 	/** Ticks that only measure the noise floor after the mic opens. */
 	calibrationTicks: 6,
 	minThreshold: 0.02,
@@ -222,8 +227,9 @@ export type VadSignal =
 	| { kind: "candidate" }
 	/** The candidate was not speech. */
 	| { kind: "dropped" }
-	| { kind: "speech" }
-	| { kind: "bargeIn" }
+	/** `since`: the first loud tick of the run of speech it belongs to (see `runGapMs`). */
+	| { kind: "speech"; since: number }
+	| { kind: "bargeIn"; since: number }
 	/** `voicedMs`: from the speech's start to its last loud tick. */
 	| { kind: "end"; voicedMs: number };
 
@@ -240,6 +246,8 @@ export class VoiceActivity {
 	#candidateMode: VadMode = "listen";
 	#startedAt: number | null = null;
 	#lastLoudAt = 0;
+	/** The run of speech under way: its first loud tick, and the mode it was heard in; null when none. */
+	#run: { since: number; mode: VadMode } | null = null;
 
 	/** An utterance is under way (speech was confirmed, it has not ended). */
 	get active(): boolean {
@@ -264,6 +272,7 @@ export class VoiceActivity {
 		if (mode === "off") {
 			const had = this.#candidateAt !== null;
 			this.reset();
+			this.#run = null;
 			return had ? { kind: "dropped" } : null;
 		}
 		const quiet = listenThreshold(this.#floor);
@@ -286,6 +295,8 @@ export class VoiceActivity {
 		}
 		const bar = mode === "speak" ? Math.max(CALL_TUNING.minBargeThreshold, quiet * CALL_TUNING.bargeFactor) : quiet;
 		if (rms > bar) {
+			if (this.#run === null || this.#run.mode !== mode || now - this.#lastLoudAt > CALL_TUNING.runGapMs)
+				this.#run = { since: now, mode };
 			this.#lastLoudAt = now;
 			if (this.#candidateAt === null) {
 				this.#candidateAt = now;
@@ -295,7 +306,9 @@ export class VoiceActivity {
 			const need = mode === "speak" ? CALL_TUNING.bargeInMs : CALL_TUNING.startMs;
 			if (now - this.#candidateAt >= need) {
 				this.#startedAt = this.#candidateAt;
-				return { kind: mode === "speak" ? "bargeIn" : "speech" };
+				const since = this.#run.since;
+				this.#run = null;
+				return { kind: mode === "speak" ? "bargeIn" : "speech", since };
 			}
 			return null;
 		}
@@ -484,7 +497,8 @@ export function startVoiceCall(options: VoiceCallOptions): VoiceCall {
 		forget(taken.stream);
 	}
 
-	function beginUtterance(): void {
+	/** `since`: the first loud tick of the speech (`Date.now()` clock); the pre-roll reaches back to it. */
+	function beginUtterance(since: number): void {
 		if (!tap || sttMode === "batch" || utterance) return;
 		const stream = new SttStream(streams, text => {
 			if (latest === stream) dispatch({ type: "partial", text });
@@ -492,7 +506,7 @@ export function startVoiceCall(options: VoiceCallOptions): VoiceCall {
 		utterance = { stream, lastPushAt: Date.now() };
 		latest = stream;
 		inflight.add(stream);
-		stream.push(tap.begin());
+		stream.push(tap.begin(Date.now() - since));
 		void stream.opened.then(open => {
 			if (open.kind === "unsupported") {
 				sttMode = "batch";
@@ -630,7 +644,7 @@ export function startVoiceCall(options: VoiceCallOptions): VoiceCall {
 					discardCapture();
 					return;
 				}
-				beginUtterance();
+				beginUtterance(signal.since);
 				return;
 			case "end": {
 				if (state.phase !== "hearing") {

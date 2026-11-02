@@ -169,8 +169,12 @@ export class SttStream {
 // Mic PCM for the call: raw frames from the call's one mic stream, as 16 kHz mono PCM16
 // ---------------------------------------------------------------------------
 
-/** How much audio before an utterance's confirmation goes out with it: its first syllable (and a barge-in's 250 ms) must survive. */
+/** The least audio before an utterance's confirmation that goes out with it: its first syllable must survive. */
 const PRE_ROLL_MS = 400;
+/** Audio before the first loud tick of the speech that also goes out: the soft onset the level missed. */
+const PRE_ROLL_LEAD_MS = 150;
+/** The most pre-roll the tap keeps: a short word and the pause after it before talking over a reply. */
+const MAX_PRE_ROLL_MS = 1_500;
 /** The script processor's block (frames per callback): about 85 ms at 48 kHz. */
 const PCM_BLOCK_FRAMES = 4096;
 
@@ -213,8 +217,11 @@ class Downsampler {
 }
 
 export interface PcmTap {
-	/** Start keeping audio for an utterance; returns the pre-roll (the last {@link PRE_ROLL_MS} before now). */
-	begin(): Int16Array;
+	/**
+	 * Start keeping audio for an utterance; returns the pre-roll: the `heardMs` of speech already heard before now plus a
+	 * short lead, at least {@link PRE_ROLL_MS} and at most {@link MAX_PRE_ROLL_MS}.
+	 */
+	begin(heardMs: number): Int16Array;
 	/** What came in since `begin` or the last `drain`. */
 	drain(): Int16Array;
 	/** What came in since the last `drain`; stops keeping audio. */
@@ -243,7 +250,7 @@ function joinPcm(parts: Int16Array[]): Int16Array {
 export function createPcmTap(context: AudioContext, source: AudioNode): PcmTap {
 	const processor = context.createScriptProcessor(PCM_BLOCK_FRAMES, 1, 1);
 	const down = new Downsampler(context.sampleRate, STT_SAMPLE_RATE);
-	const capacity = Math.round((STT_SAMPLE_RATE * PRE_ROLL_MS) / 1000);
+	const capacity = Math.round((STT_SAMPLE_RATE * MAX_PRE_ROLL_MS) / 1000);
 	const ring = new Int16Array(capacity);
 	let written = 0;
 	let held: Int16Array[] | null = null;
@@ -261,8 +268,9 @@ export function createPcmTap(context: AudioContext, source: AudioNode): PcmTap {
 		return joinPcm(parts);
 	};
 	return {
-		begin() {
-			const count = Math.min(written, capacity);
+		begin(heardMs) {
+			const keepMs = Math.min(MAX_PRE_ROLL_MS, Math.max(PRE_ROLL_MS, heardMs + PRE_ROLL_LEAD_MS));
+			const count = Math.min(written, Math.round((STT_SAMPLE_RATE * keepMs) / 1000));
 			const preRoll = new Int16Array(count);
 			for (let i = 0; i < count; i += 1) preRoll[i] = ring[(written - count + i) % capacity]!;
 			held = [];
