@@ -11,6 +11,7 @@ import { createServer as createNetServer } from "node:net";
 import * as path from "node:path";
 import { type Browser, chromium, expect, type Locator, type Page, test } from "@playwright/test";
 import { createServer, type ViteDevServer } from "vite";
+import { cssString } from "./harness";
 
 const CAPTURES = process.env.OMP_GUI_FOLD_SUMMARY_SHOTS;
 /** The harness's projects and sessions (`src/renderer/dev-harness/fixture.ts`). */
@@ -141,9 +142,9 @@ async function seedWork(page: Page): Promise<void> {
 }
 
 const sidebar = (page: Page) => page.locator(".omp-session-sidebar").first();
-const localGroup = (page: Page, cwd: string) => sidebar(page).locator(`[data-workspace-group="${cwd}"]`);
+const localGroup = (page: Page, cwd: string) => sidebar(page).locator(`[data-workspace-group=${cssString(cwd)}]`);
 const hostSection = (page: Page) => sidebar(page).locator(`[data-sidebar-device="${HOST}"]`);
-const hostGroup = (page: Page, cwd: string) => hostSection(page).locator(`[data-device-group="${cwd}"]`);
+const hostGroup = (page: Page, cwd: string) => hostSection(page).locator(`[data-device-group=${cssString(cwd)}]`);
 const toggle = (scope: Locator) => scope.locator("button[aria-expanded]").first();
 
 async function expectCounts(
