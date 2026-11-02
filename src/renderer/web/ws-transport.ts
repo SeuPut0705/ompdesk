@@ -421,13 +421,8 @@ export class WsTransport implements OmpTransport {
 		const reconnected = this.#everConnected;
 		// The host resumes a connection only when this page had every event; a call the drop failed still
 		// left something unanswered, so the page loads its state again then.
-		const resync: ResyncCause | null = !reconnected
-			? null
-			: !frame.resumed
-				? "missed-events"
-				: this.#lostCalls
-					? "lost-calls"
-					: null;
+		const resync: ResyncCause | null =
+			reconnected && !frame.resumed ? "missed-events" : this.#lostCalls ? "lost-calls" : null;
 		this.#lostCalls = false;
 		this.#everConnected = true;
 		this.#connId = frame.connId;
@@ -578,6 +573,9 @@ export class WsTransport implements OmpTransport {
 			fail,
 			timer: this.#after(this.#connectWaitMs, () => {
 				this.#waiting.delete(entry);
+				// What it asked for was never read: the page reads its state again once the link is up, even on its first
+				// connection (a page loaded during an outage failed its boot reads this way).
+				this.#lostCalls = true;
 				fail(new Error(translate("web.call.unreachable")));
 			}),
 		};

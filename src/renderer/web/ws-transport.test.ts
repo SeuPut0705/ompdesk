@@ -187,6 +187,25 @@ describe("WsTransport", () => {
 		await expect(early).rejects.toThrow("not reachable");
 	});
 
+	it("reads its state again on its first connection when a call failed waiting for it (a page loaded offline)", async () => {
+		const { transport, last, clock, log } = setup({ connectWaitMs: 5000 });
+		transport.start();
+		const early = transport.invoke("tabs:list");
+		clock.advance(5001);
+		await expect(early).rejects.toThrow("not reachable");
+		await settle();
+		last().serve(HELLO());
+		expect(log.causes).toEqual(["lost-calls"]);
+	});
+
+	it("does not read its state again on a first connection nothing missed", async () => {
+		const { transport, last, log } = setup();
+		transport.start();
+		await settle();
+		last().serve(HELLO());
+		expect(log.causes).toEqual([]);
+	});
+
 	it("rejects a request over the frame limit without sending it", async () => {
 		const { transport, last } = setup();
 		transport.start();
