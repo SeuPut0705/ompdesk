@@ -22,7 +22,16 @@ export interface Surface {
 	density?: boolean;
 	/** Whether the surface exists at this look (a phone folds some controls behind ⋯); skipped otherwise. */
 	when?: (look: Look) => boolean;
+	/**
+	 * The parity sheet (`bun run parity`, e2e/parity.e2e.ts) can capture this surface: every view first shows this
+	 * session of the host (`work`: a session with one answered turn, `bot`: the bot's), then `open` runs. Only for a
+	 * surface whose `open` and `ready` work on a real window (a click on a real control or nothing), never through
+	 * `window.__stores`, which only the dev harness has.
+	 */
+	parity?: { session: ParitySession };
 }
+
+export type ParitySession = "work" | "bot";
 
 /** Put one extension-UI request (a card) in front of the focused session. */
 async function request(page: Page, payload: Record<string, unknown>): Promise<void> {
@@ -147,6 +156,16 @@ export const SURFACES: readonly Surface[] = [
 			await page.waitForSelector("[data-transcript-kind]", { timeout: 15_000 });
 		},
 		ready: "[data-composer-input]",
+		parity: { session: "work" },
+	},
+	{
+		id: "bot-bar",
+		area: "A",
+		title: "The bot's session (?bot=1): its bar over the conversation and an open decision docked above the composer",
+		query: "&bot=1",
+		open: async () => {},
+		ready: "[data-bot-bar] [data-bot-state]",
+		parity: { session: "bot" },
 	},
 	{
 		id: "board-strip",
@@ -188,6 +207,7 @@ export const SURFACES: readonly Surface[] = [
 		title: "Session list: the drawer on a phone, docked beside the page from 800 px",
 		open: openDrawer,
 		ready: "[data-tour='sessions'], [data-drawer]",
+		parity: { session: "work" },
 	},
 	{
 		id: "transcript-top",

@@ -37,6 +37,7 @@
     "locked": "bun scripts/build-lock.ts",
     "lock-stats": "bun scripts/lock-stats.ts",
     "flake": "bun scripts/flake.ts",
+    "parity": "bun scripts/parity.ts",
     "bench": "vitest bench",
     "readme:media": "bun scripts/readme-media/run.ts",
     "readme:check": "bun scripts/readme-media/check-readme.ts && bun scripts/readme-media/check-webp.ts",
