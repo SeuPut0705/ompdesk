@@ -173,9 +173,20 @@ export default function (pi) {
 				void fetch(frame.url, { redirect: "follow" }).catch(error => { out.browser = String(error); });
 			};
 			const env = { pi, session: () => session, context: () => ctx, emit };
-			if (${add}) out.add = await mcp.mcp_add({ name: "fake", scope: "user", config: { transport: "http", url: ${JSON.stringify(url)} } }, env);
+			if (${add}) {
+				out.add = await mcp.mcp_add({ name: "fake", scope: "user", config: { transport: "http", url: ${JSON.stringify(url)} } }, env);
+				out.added = await until(async () => {
+					const { row } = await view(env, session, "fake");
+					return row?.lastError ? row : undefined;
+				}, 15_000);
+			}
 			out.reauth = await mcp.mcp_reauth({ name: "fake" }, env);
-			await until(async () => (await view(env, session, "fake")).row?.status === "connected", 15_000);
+			// Signed in, and \`other\`'s 401 of the same reload is back (it may land after the reload's window, too).
+			await until(async () => {
+				const fake = await view(env, session, "fake");
+				const other = await view(env, session, "other");
+				return fake.row?.status === "connected" && other.row?.lastError !== undefined;
+			}, 15_000);
 			out.after = { fake: await view(env, session, "fake"), other: await view(env, session, "other") };
 		} catch (error) {
 			out.error = error.stack ?? String(error);
@@ -401,9 +412,13 @@ describe.skipIf(!installed)("MCP servers on the installed omp", () => {
 		);
 		const report = path.join(profile.root, "add-signin.json");
 		const out = await runLive(profile, addAndSignInProbe(report, fake.url), report);
-		// The add is saved and answered, the 401 is the server's state, not a failed add.
-		expect(out.add).toMatchObject({ added: true, server: { name: "fake", enabled: true, authState: "required" } });
-		expect(String((out.add as { warning?: string }).warning)).toContain("fake");
+		// The add is saved and answered, the 401 is the server's state, not a failed add. Stock's reload waits for a
+		// server only inside its startup window (250 ms, `OMP_MCP_STARTUP_TIMEOUT_MS`): a 401 that comes back later is
+		// in neither the add's `warning` nor its row, so on a busy machine the row reads the 401 a moment after the add.
+		expect(out.add).toMatchObject({ added: true, server: { name: "fake", enabled: true } });
+		const added = out.added as Record<string, unknown> | undefined;
+		expect(added).toMatchObject({ authState: "required" });
+		expect(String(added?.lastError)).toContain("401");
 		// The sign-in succeeds although `other` still fails to connect in the same reload.
 		expect(out.reauth).toEqual({ ok: true });
 		expect(out.opened).toBe(1);
