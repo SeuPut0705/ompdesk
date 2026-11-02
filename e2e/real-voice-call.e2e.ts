@@ -55,7 +55,8 @@ const heardText = (entry: LogEntry | undefined) => String(entry?.heard ?? "").re
 function measure(scenario: string, log: LogEntry[], clip: Clip, at: number, end: number): Row {
 	const after = since(log, at - 100);
 	const hearing = bars(after).find(entry => entry.phase === "hearing");
-	const left = bars(after).find(entry => entry.t > (hearing?.t ?? at) && entry.phase !== "hearing");
+	// Every bar entry: the one that leaves hearing still shows the running text (`partial`) until the final text lands.
+	const left = after.find(entry => entry.kind === "bar" && entry.t > (hearing?.t ?? at) && entry.phase !== "hearing");
 	const final = bars(after).find(
 		entry => entry.t >= (left?.t ?? at) && (entry.phase === "waiting" || entry.phase === "speaking") && entry.heard,
 	);
@@ -181,16 +182,17 @@ test("real omp voice call with the bot: streaming speech both ways, barge-in, a 
 		expect(bargeMs, "the reply stopped when talked over").not.toBeNull();
 		expect(stopRow.transcript.toLowerCase()).toMatch(/^wait\b/);
 
-		// 3. A second utterance while the first one's final text is still on its way: both reach the bot, in order.
+		// 3. A second utterance as soon as the call listens again after the first. The streamed stop then usually has
+		// already answered (a few ms to ~40 ms): the note records whether the second one started inside that window.
 		const first = await say(page, "first");
 		await expect
 			.poll(
 				async () => {
-					const after = bars(since(await log(), first.at));
+					const after = since(await log(), first.at).filter(entry => entry.kind === "bar");
 					const heard = after.findIndex(entry => entry.phase === "hearing");
 					return heard !== -1 && after.slice(heard + 1).some(entry => entry.phase !== "hearing");
 				},
-				{ timeout: 30_000, intervals: [20] },
+				{ timeout: 30_000, intervals: [10] },
 			)
 			.toBe(true);
 		const second = await say(page, "second");
@@ -202,8 +204,14 @@ test("real omp voice call with the bot: streaming speech both ways, barge-in, a 
 		expect(sent[0]?.toLowerCase()).toContain("banana");
 		expect(sent[1]?.toLowerCase()).toMatch(/two plus two|2 plus 2|2\s*\+\s*2/);
 		rows.push(measure("second utterance (en)", await log(), clip("second"), second.at, second.end));
+		const firstBars = since(await log(), first.at).filter(entry => entry.kind === "bar");
+		const firstHeard = firstBars.findIndex(entry => entry.phase === "hearing");
+		const listening = firstBars.slice(firstHeard + 1).find(entry => entry.phase !== "hearing");
+		const firstFinal = firstBars.find(entry => entry.t >= (listening?.t ?? 0) && heardText(entry).includes("banana"));
+		const stopMs = round(listening && firstFinal && firstFinal.t - listening.t);
+		const overlap = firstFinal !== undefined && second.at < firstFinal.t;
 		notes.push(
-			`Second utterance started ${Math.round(second.at - first.end)} ms after the first one's audio ended; both were sent in order.`,
+			`Second utterance: the first one's final text came ${stopMs ?? "–"} ms after the call listened again; the second clip started ${Math.round(second.at - (firstFinal?.t ?? second.at))} ms relative to that (${overlap ? "inside" : "after"} the pending stop); both were sent in order.`,
 		);
 
 		// 4. Korean: whatever the configured dictation model makes of it.
