@@ -717,6 +717,10 @@ describe.skipIf(!existsSync(omp))("autopilot on stock omp", () => {
 		const until = Date.now() + 30_000;
 		while (!blocked() && Date.now() < until) await new Promise(wake => setTimeout(wake, 200));
 		expect(blocked()).toBe(true);
+		// That turn's end journals it as cycle 2 (unreported); the tool result above lands before it.
+		await after.waitFrame(
+			frame => frame.type === "autopilot_cycle_end" && (frame.record as AutopilotCycleRecord).n === 2,
+		);
 
 		// Arm (resume) restores tools and overrides, then stock's goal resume continues at cycle 3.
 		mode = "cycle";
