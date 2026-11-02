@@ -3,6 +3,10 @@
 # Korean copy, provider ids, tool renderers, the `*-stock` bridge suites) shows
 # the day it is published, even with no push to main. ci.yml's and release.yml's
 # `check` install the same omp, so every push and release runs these tests too.
+# Their Windows job (`win-platform`) installs none, so the stock suites skip
+# there; the `windows` job here runs `test:platform` with omp installed, so a
+# stock suite that fails only on Windows (a file a live worker still holds, a
+# picture Bun reads only through the OS) shows within a day.
 # While it fails on main, one issue ("Tests against the latest omp failed")
 # stays open with the omp version and the run; a passing run on main closes it.
 # A run from another ref only tests and touches no issue.
@@ -67,8 +71,40 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read # the failure report reads this run's jobs
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      # See release.yml's win job: bun's cache on the workspace volume.
+      - name: Put bun's cache on the workspace volume
+        run: echo "BUN_INSTALL_CACHE_DIR=$RUNNER_TEMP/bun-cache" >> "$GITHUB_ENV"
+      - run: bun install --frozen-lockfile
+      - name: Ensure the Electron binary
+        run: bun node_modules/electron/install.js && test -f node_modules/electron/path.txt
+      - name: Install omp
+        run: |
+          # --minimum-release-age 0: the newest omp, not bunfig.toml's 3-day hold.
+          bun install -g --minimum-release-age 0 @oh-my-pi/pi-coding-agent
+          bun pm bin -g >> "$GITHUB_PATH"
+          "$(bun pm bin -g)/omp" --version
+      - run: bun run test:platform
+      - if: failure()
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
   issue:
-    needs: check
+    needs: [check, windows]
     if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -77,7 +113,7 @@ jobs:
     steps:
       - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
-          RESULT: ${{ needs.check.result }}
+          RESULT: ${{ needs.check.result == 'success' && needs.windows.result == 'success' && 'success' || 'failure' }}
           OMP: ${{ needs.check.outputs.omp }}
         with:
           script: |
