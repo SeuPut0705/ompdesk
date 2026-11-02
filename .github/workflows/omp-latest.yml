@@ -36,8 +36,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: node
-            args: --project=node
+          - name: node 1/2
+            args: --project=node --shard=1/2
+          - name: node 2/2
+            args: --project=node --shard=2/2
           - name: renderer 1/2
             args: --project=renderer --shard=1/2
           - name: renderer 2/2

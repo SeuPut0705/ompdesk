@@ -15,8 +15,8 @@
 # one (Linux, macOS arm64, Windows). This is the whole release gate (what
 # `bun run gate` runs locally), all of it starting right after `prepare`:
 # `build` builds the app bundle (`out/`) once and uploads it; `static` runs
-# types, biome and the surface policy; `check` runs vitest as three jobs (the
-# node project, the renderer project in two shards); `win-platform` runs the
+# types, biome and the surface policy; `check` runs vitest as four jobs (the
+# node and renderer projects in two shards each); `win-platform` runs the
 # tests outside src/renderer on Windows; `win` and `mac` install meanwhile,
 # wait for build's out/ in this run's artifacts, package it and launch the
 # result (@smoke; the real-omp suite is `mac-real`); `publish` runs only
@@ -207,10 +207,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-  # vitest on three runners at once, off every other job: the node project and
-  # the renderer project in two halves (the full suite in one job took 176 s
-  # on a 2-core host; the renderer project is most of it), against the newest
-  # published omp like ci.yml's `check`. `publish` waits for every one of them.
+  # vitest on four runners at once, off every other job: the node and renderer
+  # projects in two halves each (the full suite in one job took 176 s on a
+  # 2-core host; the renderer project is most of it; the stock suites on the
+  # newest omp, as in ci.yml's `check`, add half again to the node project). `publish`
+  # waits for every one of them.
   check:
     name: check (${{ matrix.name }})
     needs: prepare
@@ -224,8 +225,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: node
-            args: --project=node
+          - name: node 1/2
+            args: --project=node --shard=1/2
+          - name: node 2/2
+            args: --project=node --shard=2/2
           - name: renderer 1/2
             args: --project=renderer --shard=1/2
           - name: renderer 2/2
