@@ -241,7 +241,11 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // The restart-cut mark keyed to the run it cut (the subagents store's `run` count and `deliveredBy`) and the automatic
 // install's waiting notice (the sidebar card's waiting row, `waitingWhat`, the phone sheet's line naming the work and the
 // new strings) (2 Nov 2026): measured 3,278,050 on the tree before the outbox, 2,912 bytes over its own base.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_291_700;
+// A session opened on a paired device is its opener's child in every view (3 Nov 2026): the stand-ins for tabs another
+// view holds (`sessions.remoteOpened`, the hosted-sessions store, `remoteOpenedTab`), `familyRows` and the host's bot
+// family and remote children in a device's section: measured 3,294,200, about 2,500 bytes over the tree before it
+// (which a byte trim had held at 3,291,700).
+const WEB_FIRST_SCREEN_JS_BYTES = 3_294_200;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

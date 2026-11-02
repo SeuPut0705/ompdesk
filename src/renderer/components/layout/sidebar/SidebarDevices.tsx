@@ -33,7 +33,7 @@ import { useStore } from "zustand";
 import { reviewUnmerged } from "../../../../shared/agent-control";
 import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
 import type { HostView, SessionKind } from "../../../../shared/ipc-types";
-import { CHATS_ORDER_KEY, type RowSession, sidebarRows } from "../../../../shared/sidebar-rows";
+import { CHATS_ORDER_KEY, familyRows, type RowSession } from "../../../../shared/sidebar-rows";
 import { splitTabIds } from "../../../../shared/split-layout";
 import { useSessionList } from "../../../hooks/use-session-list";
 import { useShellInput } from "../../../hooks/use-shell-mode";
@@ -77,7 +77,7 @@ import { anchorFromEvent, ContextMenu, type ContextMenuItem, MenuButton } from "
 import { TimeAgo } from "../../common/TimeAgo";
 import { TabLiveAge, TabLiveTitle } from "../SessionLiveTitle";
 import { childFoldSignal, type FoldSignal, type FoldSummary, foldSummary } from "./fold-summary";
-import { hostRowState, hostSectionSummary } from "./host-row-state";
+import { hostRowState, hostSectionSummary, remoteOpenedTab } from "./host-row-state";
 import { useHostWorkspace } from "./host-workspace";
 import { SidebarChats } from "./SidebarChats";
 import { useDeviceHeaderHandle } from "./SidebarDeviceSections";
@@ -90,7 +90,6 @@ import { sessionMenuItems } from "./session-menu";
 import { canMoveWithin, type SessionList, useSessionReorder } from "./session-reorder";
 import { CHILD_TOKEN, openedChildStatus } from "./sidebar-family";
 
-const NO_OPENED: readonly FamilyOpened[] = [];
 const NO_TABS: readonly SessionTab[] = [];
 
 /** A host row: an indexed remote session, or an open remote tab the host has not listed yet. */
@@ -479,73 +478,91 @@ function DeviceSessions({
 	// The host's own project list: its empty projects show here too, and one removed there (or here) is gone from both.
 	const projectList = useProjectList(host.deviceId, read);
 
-	// The host's rows by the host's own rule (`sidebarRows`): what the host says beside each row (`openedBySession`,
-	// `heldOnHost`), what it works on now, its project list and what its git said of each folder (`worktrees`,
-	// `worktreeKinds`, `autopilotRuns`, `gone`), and this computer's tabs on it. A device cannot ask the host's git or records. A row made
-	// from a tab before the host lists its session keeps the time this section first saw the tab, as on the host.
+	// Stand-ins for the tabs the host's windows hold on paired devices that its sessions opened (`host.remoteOpened`).
+	const remoteTabs = useMemo(() => (host.remoteOpened ?? []).map(remoteOpenedTab), [host.remoteOpened]);
+	// The host's rows by the host's own rule (`familyRows`, as its own sidebar draws them): what the host says beside
+	// each row (`openedBySession`, `heldOnHost`), what it works on now, its project list and what its git said of each
+	// folder (`worktrees`, `worktreeKinds`, `autopilotRuns`, `gone`), and this computer's tabs on it. Its bot's family
+	// (what it and the conversations it ended opened, its side chats) nests under its row, and a tab its windows hold
+	// on a paired device that a session of it opened (`host.remoteOpened`, a stand-in here) nests under its opener.
+	// A device cannot ask the host's git or records. A row made from a tab before the host lists its session keeps the
+	// time this section first saw the tab, as on the host.
 	const liveSince = useRef(new Map<string, string>());
 	const tree = useMemo(() => {
 		const gone = new Set(projectList.gone ?? []);
 		const since = liveSince.current;
 		for (const id of since.keys()) if (!deviceTabs.some(tab => tab.id === id)) since.delete(id);
 		let stamp = Date.now();
-		return sidebarRows({
-			sessions: listed,
-			tabs: deviceTabs
-				.filter(tab => !tab.sessionPath || !botFiles.has(tab.sessionPath))
-				.map(tab => {
-					let seenAt = since.get(tab.id);
-					if (!seenAt) {
-						seenAt = new Date(stamp++).toISOString();
-						since.set(tab.id, seenAt);
-					}
-					return { ...tab, title: tab.title ?? tabChipLabel(tab, hostTabs), seenAt };
-				}),
-			usedThere: new Set(host.live?.map(session => session.sessionPath)),
-			// The host names an opener beside a row its windows' tabs hold (then `heldOnHost`) or that its records say it
-			// closed: a row no tab holds that names one is a closed child.
-			closed: new Set(
-				sessions.flatMap(session => (typeof session.openedBySession === "string" ? [session.path] : [])),
-			),
-			projects: projectList.projects,
-			removed: projectList.removed,
-			folder: cwd => {
-				const project = projectList.worktrees[cwd];
-				const kind = projectList.worktreeKinds?.[cwd];
-				return {
-					...(project === undefined ? {} : { project }),
-					...(kind === undefined ? {} : { kind }),
-					gone: gone.has(cwd),
-				};
-			},
-			workspace: hostWorkspace,
-			titleOf: session => sessionDisplayTitle(session, ""),
-			hasContent: sessionHasContent,
-			// The host's own reading of each worktree's branch: a run's children follow the run's row, keyed by the
-			// main checkout and the run's name as on the host.
-			runOf: session => {
-				const run = projectList.autopilotRuns?.[session.cwd];
-				const project = projectList.worktrees[session.cwd];
-				return run && project ? { child: run.child, key: `${project}\n${run.run}` } : null;
-			},
-			archived: hostArchived,
-			nested: nested ?? NO_PATHS,
-			// Kept in this computer's prefs under the host's id, so this computer's own lists never move with it.
-			order: {
-				pinnedSessions: hostPins,
-				pinnedGroups: [],
-				groupOrder: groupOrder.filter(key => key.startsWith(prefix)).map(key => key.slice(prefix.length)),
-				sessionOrder: list => sessionOrder[hostOrderKey(host.deviceId, list)],
-			},
-			query,
-			nameOf: cwd => basename(cwd) || cwd,
+		const rowTabs = deviceTabs.map(tab => {
+			let seenAt = since.get(tab.id);
+			if (!seenAt) {
+				seenAt = new Date(stamp++).toISOString();
+				since.set(tab.id, seenAt);
+			}
+			return { ...tab, title: tab.title ?? tabChipLabel(tab, hostTabs), seenAt };
 		});
+		return familyRows(
+			{
+				sessions: listed,
+				tabs: rowTabs.filter(tab => !tab.sessionPath || !botFiles.has(tab.sessionPath)),
+				usedThere: new Set(host.live?.map(session => session.sessionPath)),
+				// The host names an opener beside a row its windows' tabs hold (then `heldOnHost`) or that its records say
+				// it closed: a row no tab holds that names one is a closed child.
+				closed: new Set(
+					sessions.flatMap(session => (typeof session.openedBySession === "string" ? [session.path] : [])),
+				),
+				projects: projectList.projects,
+				removed: projectList.removed,
+				folder: cwd => {
+					const project = projectList.worktrees[cwd];
+					const kind = projectList.worktreeKinds?.[cwd];
+					return {
+						...(project === undefined ? {} : { project }),
+						...(kind === undefined ? {} : { kind }),
+						gone: gone.has(cwd),
+					};
+				},
+				workspace: hostWorkspace,
+				titleOf: session => sessionDisplayTitle(session, ""),
+				hasContent: sessionHasContent,
+				// The host's own reading of each worktree's branch: a run's children follow the run's row, keyed by the
+				// main checkout and the run's name as on the host.
+				runOf: session => {
+					const run = projectList.autopilotRuns?.[session.cwd];
+					const project = projectList.worktrees[session.cwd];
+					return run && project ? { child: run.child, key: `${project}\n${run.run}` } : null;
+				},
+				archived: hostArchived,
+				nested: nested ?? NO_PATHS,
+				// Kept in this computer's prefs under the host's id, so this computer's own lists never move with it.
+				order: {
+					pinnedSessions: hostPins,
+					pinnedGroups: [],
+					groupOrder: groupOrder.filter(key => key.startsWith(prefix)).map(key => key.slice(prefix.length)),
+					sessionOrder: list => sessionOrder[hostOrderKey(host.deviceId, list)],
+				},
+				query,
+				nameOf: cwd => basename(cwd) || cwd,
+			},
+			hostBot
+				? {
+						bot: hostBot.path,
+						ended: new Set(sessions.flatMap(session => (session.bot === "past" ? [session.path] : []))),
+						channels: new Set(hostDesk.channels.map(channel => channel.sessionPath)),
+						tabs: rowTabs,
+					}
+				: null,
+			remoteTabs,
+		);
 	}, [
 		sessions,
 		listed,
 		botFiles,
+		hostBot,
+		hostDesk.channels,
 		deviceTabs,
 		hostTabs,
+		remoteTabs,
 		host.live,
 		host.deviceId,
 		projectList,
@@ -558,7 +575,16 @@ function DeviceSessions({
 		prefix,
 		query,
 	]);
-	const { chats, groups, children: familyChildrenOf, archived: archivedRows } = tree;
+	const { chats, groups, children: familyChildrenOf, archived: archivedRows } = tree.rows;
+	// The host's tabs on paired devices its sessions opened, by the row they nest under.
+	const remoteChildrenOf = useMemo(() => {
+		const byRoot = new Map<string, SessionTab[]>();
+		for (const tab of remoteTabs) {
+			const root = tree.remote.get(tab.id);
+			if (root !== undefined) byRoot.set(root, [...(byRoot.get(root) ?? []), tab]);
+		}
+		return byRoot;
+	}, [remoteTabs, tree]);
 	const archivedOpen = useSidebarFolds(s => s.deviceArchived[host.deviceId] === true);
 	const archivedShown = archivedOpen || query.length > 0;
 
@@ -604,7 +630,7 @@ function DeviceSessions({
 	// Kept in this computer's prefs under the host's id, so this computer's own lists never move with it.
 	const reorder = useSessionReorder({
 		titleOf: path => {
-			const found = tree.sessions.find(session => session.path === path);
+			const found = tree.rows.sessions.find(session => session.path === path);
 			return found ? sessionDisplayLabel(found, "") : "";
 		},
 		save: (list, next) =>
@@ -897,10 +923,21 @@ function DeviceSessions({
 		});
 	};
 
+	/**
+	 * The sessions a row's agent opened, as family rows: the host's own (its bot's family on the bot's row), then the
+	 * tabs the host's windows hold on paired devices that it opened.
+	 */
+	const openedOf = (session: DeviceSession): FamilyOpened[] => [
+		...((session.path === hostBot?.path ? tree.bot?.sessions : familyChildrenOf.get(session.path)) ?? []).map(
+			familyChildFor,
+		),
+		...(remoteChildrenOf.get(session.path) ?? []).map(childForTab),
+	];
+
 	/** What a folded header of this host's list counts of a row: its own token, then its family's (`fold-summary.ts`). */
 	const hostFoldSignals = (session: DeviceSession): (FoldSignal | null)[] => [
 		hostRowState(tabFor(session), hostLive.get(session.path)).fold,
-		...(familyChildrenOf.get(session.path) ?? []).map(child => childFoldSignal(familyChildFor(child))),
+		...openedOf(session).map(childFoldSignal),
 	];
 
 	const renderRow = (session: DeviceSession, bot = false) => {
@@ -991,9 +1028,8 @@ function DeviceSessions({
 		) : (
 			(chat ?? (pinned ? <Pin aria-label={t("sidebar.pinned")} className="size-(--sc-icon-sm)" /> : null))
 		);
-		// Its family, as a local row's (Sidebar.tsx): the tab's subagents and the sessions its agent opened on this host.
-		const children = familyChildrenOf.get(session.path);
-		const opened = children ? children.map(familyChildFor) : NO_OPENED;
+		// Its family, as a local row's (Sidebar.tsx): the tab's subagents and the sessions its agent opened.
+		const opened = openedOf(session);
 		const family = tab !== undefined || opened.length > 0;
 		// Its own key: two hosts may keep a session at the same path, and this computer's prune never sees host rows.
 		const familyKey = `device:${host.deviceId}:${session.path}`;
@@ -1108,7 +1144,7 @@ function DeviceSessions({
 		hostBot !== undefined &&
 		(!query ||
 			botDisplayName(hostBot, t("sidebar.botBadge")).toLocaleLowerCase().includes(query.toLocaleLowerCase()));
-	if (error && tree.sessions.length === 0 && !botShown) {
+	if (error && tree.rows.sessions.length === 0 && !botShown) {
 		return (
 			<InlineNotice
 				action={
@@ -1124,7 +1160,7 @@ function DeviceSessions({
 			/>
 		);
 	}
-	if (isLoading && tree.sessions.length === 0 && !botShown) {
+	if (isLoading && tree.rows.sessions.length === 0 && !botShown) {
 		return (
 			<div aria-label={t("sidebar.loading")} className="flex justify-center py-2" role="status">
 				<Spinner size="sm" />
@@ -1177,7 +1213,7 @@ function DeviceSessions({
 				<ContextMenu
 					ariaLabel={t("sidebar.menu.moveToProject")}
 					items={[
-						...tree.allGroups
+						...tree.rows.allGroups
 							.filter(group => group.cwd !== moveMenu.session.cwd)
 							.map(group => ({
 								id: `move-${group.cwd}`,

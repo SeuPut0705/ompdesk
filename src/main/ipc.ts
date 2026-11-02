@@ -290,6 +290,8 @@ export interface IpcDeps {
 		| "onHostedSessionsChange"
 		| "liveSessions"
 		| "onLiveSessionsChange"
+		| "remoteOpened"
+		| "onRemoteOpenedChange"
 		| "windowHeldSessions"
 		| "onWindowHeldSessionsChange"
 		| "sidecarOf"
@@ -720,6 +722,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	deps.hostedTabs.onLiveSessionsChange(() =>
 		broadcast(windowManager, IPC_EVENTS.LIVE_SESSIONS_CHANGED, deps.hostedTabs.liveSessions()),
 	);
+	// The tabs this computer's sessions opened on paired devices: every other window and phone page nests them under
+	// their opener as the window holding them does.
+	deps.hostedTabs.onRemoteOpenedChange(() => {
+		const tabs = deps.hostedTabs.remoteOpened();
+		broadcast(windowManager, IPC_EVENTS.REMOTE_OPENED_TABS_CHANGED, tabs);
+		for (const page of deps.webPages?.() ?? [])
+			if (!page.isDestroyed()) page.webContents.send(IPC_EVENTS.REMOTE_OPENED_TABS_CHANGED, tabs);
+	});
 	deps.hostedTabs.onWindowHeldSessionsChange(() =>
 		broadcast(windowManager, IPC_EVENTS.SESSIONS_HELD_CHANGED, [...deps.hostedTabs.windowHeldSessions()]),
 	);
@@ -2190,6 +2200,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	});
 	ipc.handle(IPC_COMMANDS.HOSTED_SESSIONS, () => deps.hostedTabs.hostedSessions());
 	ipc.handle(IPC_COMMANDS.LIVE_SESSIONS, () => deps.hostedTabs.liveSessions());
+	ipc.handle(IPC_COMMANDS.REMOTE_OPENED_TABS, () => deps.hostedTabs.remoteOpened());
 	ipc.handle(IPC_COMMANDS.SESSIONS_HELD, () => [...deps.hostedTabs.windowHeldSessions()]);
 
 	// Full-content search over session files (raw JSONL grep on the machine

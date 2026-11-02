@@ -100,9 +100,12 @@
  *
  * - The sessions the host works on now (any of its windows' tabs, the tabs it runs for any device):
  *   `sessions.live {}` → LiveSessionsReply; the host pushes every change as the `host.liveSessions` event.
+ * - The tabs the host's windows hold on a paired device that a session of the host opened: `sessions.remoteOpened {}`
+ *   → RemoteOpenedReply; every change comes as the `host.remoteOpened` event. An older host answers `unsupported`.
  *
  * Events (B → A): `tab.event` (TabEventMessage), `sessions.changed` (no data), `host.ompUpdate.changed`,
- * `host.schedules.changed`, `host.projects.changed`, `host.botDesk.changed`, `host.previewRelay` and `host.liveSessions`.
+ * `host.schedules.changed`, `host.projects.changed`, `host.botDesk.changed`, `host.previewRelay`, `host.liveSessions`
+ * and `host.remoteOpened`.
  * Both sides parse what crosses the link with the schemas below.
  */
 import { z } from "zod";
@@ -250,6 +253,27 @@ export const HostLiveSessionSchema = z.object({
 	state: z.enum(["turn", "background", "waiting"]),
 });
 export const LiveSessionsReply = z.object({ sessions: z.array(z.unknown()) });
+/**
+ * The tabs this computer's windows hold on a paired device that a session of this computer opened changed (data:
+ * {@link RemoteOpenedReply}), sent to every connected device, so its section of this computer nests each under its
+ * opener as this computer's own window does. `sessions.remoteOpened {}` answers the same list. An older device drops
+ * the name; an older host answers `unsupported`.
+ */
+export const REMOTE_OPENED_EVENT = "host.remoteOpened";
+export const REMOTE_OPENED_METHOD = "sessions.remoteOpened";
+/** One `RemoteOpenedTab` as it crosses the link: the fields a family row needs, the rest kept as sent. */
+export const RemoteOpenedTabSchema = z
+	.object({
+		tabId: z.string().min(1),
+		device: z.string().min(1),
+		sessionPath: z.string().min(1),
+		cwd: z.string(),
+		kind: z.enum(["agent", "chat"]),
+		openedBySession: z.string().min(1),
+		status: z.string(),
+	})
+	.passthrough();
+export const RemoteOpenedReply = z.object({ tabs: z.array(z.unknown()) });
 /**
  * This computer's Mobile web address (data: {@link MobileWebLinkReply}): `https://<MagicDNS name>:<port>` while it serves
  * phones, else null. A paired device shows it to its own phone page, so a phone can go to this computer's page directly

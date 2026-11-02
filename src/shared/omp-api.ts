@@ -102,6 +102,7 @@ import type {
 	OmpApi,
 	PeerLimits,
 	RemoteDirListing,
+	RemoteOpenedTab,
 	RemoteState,
 	RunProgressState,
 	RuntimeErrorReport,
@@ -357,6 +358,8 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				subscribe<IpcHostedSession[]>(IPC_EVENTS.HOSTED_SESSIONS_CHANGED, callback),
 			onLiveSessionsChanged: (callback: (sessions: HostLiveSession[]) => void) =>
 				subscribe<HostLiveSession[]>(IPC_EVENTS.LIVE_SESSIONS_CHANGED, callback),
+			onRemoteOpenedChanged: (callback: (tabs: RemoteOpenedTab[]) => void) =>
+				subscribe<RemoteOpenedTab[]>(IPC_EVENTS.REMOTE_OPENED_TABS_CHANGED, callback),
 			onHeldSessionsChanged: (callback: (files: string[]) => void) =>
 				subscribe<string[]>(IPC_EVENTS.SESSIONS_HELD_CHANGED, callback),
 			onLogBatch: (callback: (batch: LogBatch) => void) => subscribe<LogBatch>(IPC_EVENTS.LOG_LINE, callback),
@@ -578,6 +581,7 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			consumePendingOpen: () => transport.invoke(IPC_COMMANDS.SESSION_CONSUME_PENDING) as Promise<string | null>,
 			hosted: () => transport.invoke(IPC_COMMANDS.HOSTED_SESSIONS) as Promise<IpcHostedSession[]>,
 			live: () => transport.invoke(IPC_COMMANDS.LIVE_SESSIONS) as Promise<HostLiveSession[]>,
+			remoteOpened: () => transport.invoke(IPC_COMMANDS.REMOTE_OPENED_TABS) as Promise<RemoteOpenedTab[]>,
 			held: () => transport.invoke(IPC_COMMANDS.SESSIONS_HELD) as Promise<string[]>,
 			ensureBot: () => transport.invoke(IPC_COMMANDS.SESSIONS_ENSURE_BOT) as Promise<string>,
 			/** The bot's desk (`shared/bot-desk.ts`): main keeps it, the bot's home reads and edits it. */

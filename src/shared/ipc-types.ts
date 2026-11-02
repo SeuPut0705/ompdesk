@@ -153,6 +153,8 @@ export const IPC_EVENTS = {
 	HOSTED_SESSIONS_CHANGED: "sessions:hosted-changed",
 	/** What this computer works on now changed (`HostLiveSession[]`, `LIVE_SESSIONS`) */
 	LIVE_SESSIONS_CHANGED: "sessions:live-changed",
+	/** The tabs this computer's sessions opened on paired devices changed (`RemoteOpenedTab[]`, `REMOTE_OPENED_TABS`) */
+	REMOTE_OPENED_TABS_CHANGED: "sessions:remote-opened-changed",
 	/** The session files this computer's windows' tabs hold changed (`string[]`, `SESSIONS_HELD`) */
 	SESSIONS_HELD_CHANGED: "sessions:held-changed",
 	/** Log line appended */
@@ -244,6 +246,12 @@ export const IPC_COMMANDS = {
 	 * its own holds.
 	 */
 	LIVE_SESSIONS: "sessions:live",
+	/**
+	 * The tabs of any of this computer's windows that run on a paired device and that one of this computer's sessions
+	 * opened (`RemoteOpenedTab[]`, what a paired device hears as `host.remoteOpened`): every view of this computer's
+	 * sessions nests each under its opener, as the window holding the tab does.
+	 */
+	REMOTE_OPENED_TABS: "sessions:remote-opened",
 	/**
 	 * The session files held by a tab of any of this computer's windows (a phone page's included), idle ones too
 	 * (`string[]`, what a paired device's list says as `heldOnHost`): a window's sidebar keeps a row another window's
@@ -1973,6 +1981,12 @@ export interface HostView {
 	 * computer's page can go to the host's page directly. Only while connected, from a host that answers it.
 	 */
 	webUrl?: string;
+	/**
+	 * The tabs the host's windows hold on a paired device that a session of the host opened (`host.remoteOpened`): its
+	 * section nests each under its opener as the host's own window does. `here` marks one that runs on this computer.
+	 * Only while connected, from a host that pushes it.
+	 */
+	remoteOpened?: RemoteOpenedTab[];
 }
 
 /**
@@ -1992,6 +2006,30 @@ export interface HostLiveSession {
 	sessionPath: string;
 	/** `turn`: its own turn runs; `background`: the turn ended and work it started still runs; `waiting`: an ask is open. */
 	state: "turn" | "background" | "waiting";
+}
+
+/**
+ * A tab of a computer's window that runs on a paired device (`device`) and that a session of that computer opened
+ * (`ompdesk_session_open {device}`), as the computer's other views see it: the facts the window holding it draws its
+ * family row from (`remoteOpenedChildren` and the host row rule), without the tab.
+ */
+export interface RemoteOpenedTab {
+	tabId: string;
+	/** The paired device it runs on. */
+	device: string;
+	/** The tab runs on the computer that reads this (a paired device's view of the host that opened it). */
+	here?: true;
+	sessionPath: string;
+	cwd: string;
+	kind: SessionKind;
+	/** The opener's session file: its tab's current one while that tab is open, else the one recorded. */
+	openedBySession: string;
+	status: TabStatus;
+	title?: string;
+	task?: string;
+	compacting?: boolean;
+	worktree?: IpcTabWorktree;
+	lastRun?: IpcTabRunOutcome;
 }
 
 /** A device that uses this computer (B role); recorded the first time Tailscale let it in. */
@@ -2201,6 +2239,8 @@ export interface OmpApi {
 		onHostedSessionsChanged(callback: (sessions: IpcHostedSession[]) => void): () => void;
 		/** What this computer works on now changed (the whole list, `LIVE_SESSIONS`). */
 		onLiveSessionsChanged(callback: (sessions: HostLiveSession[]) => void): () => void;
+		/** The tabs this computer's sessions opened on paired devices changed (the whole list, `REMOTE_OPENED_TABS`). */
+		onRemoteOpenedChanged(callback: (tabs: RemoteOpenedTab[]) => void): () => void;
 		/** The session files this computer's windows' tabs hold changed (the whole list, `SESSIONS_HELD`). */
 		onHeldSessionsChanged(callback: (files: string[]) => void): () => void;
 		onLogBatch(callback: (batch: LogBatch) => void): () => void;
@@ -2401,6 +2441,8 @@ export interface OmpApi {
 		hosted(): Promise<IpcHostedSession[]>;
 		/** What this computer works on now, from any of its windows or the tabs it runs for devices (`LIVE_SESSIONS`). */
 		live(): Promise<HostLiveSession[]>;
+		/** The tabs this computer's sessions opened on paired devices, as its windows hold them (`REMOTE_OPENED_TABS`). */
+		remoteOpened(): Promise<RemoteOpenedTab[]>;
 		/** The session files this computer's windows' tabs hold, idle or not (`SESSIONS_HELD`): the rows another window keeps. */
 		held(): Promise<string[]>;
 		/** The bot's session file on this computer, made first when it is missing (`SESSIONS_ENSURE_BOT`). */

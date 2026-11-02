@@ -6,12 +6,14 @@
  *
  * Beside it, what this computer works on now (`HostLiveSession`, the list a paired device hears as
  * `host.liveSessions`): a row no tab of this window holds (another window's, the computer's when this is a phone's
- * page) still wears the working cue without a tap to open it first. And the session files any window's tab holds
+ * page) still wears the working cue without a tap to open it first. The session files any window's tab holds
  * (`held`): an idle tab of another window keeps its row here as it does on a paired device's list of this computer.
+ * And the tabs any window holds on a paired device that a session here opened (`remoteOpened`): this window nests each
+ * under its opener as the window holding it does.
  */
 import { useEffect } from "react";
 import { create } from "zustand";
-import type { HostLiveSession, IpcHostedSession } from "../../shared/ipc-types";
+import type { HostLiveSession, IpcHostedSession, RemoteOpenedTab } from "../../shared/ipc-types";
 
 interface HostedSessionsStore {
 	sessions: readonly IpcHostedSession[];
@@ -24,6 +26,10 @@ interface HostedSessionsStore {
 	held: readonly string[];
 	/** `revision` of `held`. */
 	heldRevision: number;
+	/** The tabs any window here holds on a paired device that a session here opened (`sessions.remoteOpened`). */
+	remoteOpened: readonly RemoteOpenedTab[];
+	/** `revision` of `remoteOpened`. */
+	remoteOpenedRevision: number;
 }
 
 export const useHostedSessionsStore = create<HostedSessionsStore>()(() => ({
@@ -33,11 +39,13 @@ export const useHostedSessionsStore = create<HostedSessionsStore>()(() => ({
 	liveRevision: 0,
 	held: [],
 	heldRevision: 0,
+	remoteOpened: [],
+	remoteOpenedRevision: 0,
 }));
 
-/** Read both lists from main (boot, a web page's resync); a push that lands meanwhile wins over the reply. */
+/** Read every list from main (boot, a web page's resync); a push that lands meanwhile wins over the reply. */
 export async function loadHostedSessions(): Promise<void> {
-	const { revision, liveRevision, heldRevision } = useHostedSessionsStore.getState();
+	const { revision, liveRevision, heldRevision, remoteOpenedRevision } = useHostedSessionsStore.getState();
 	// The rows only gain a live state; the index still lists the sessions.
 	const hosted = async () => {
 		try {
@@ -57,7 +65,14 @@ export async function loadHostedSessions(): Promise<void> {
 			if (useHostedSessionsStore.getState().heldRevision === heldRevision) useHostedSessionsStore.setState({ held });
 		} catch {}
 	};
-	await Promise.all([hosted(), live(), held()]);
+	const remoteOpened = async () => {
+		try {
+			const remoteOpened = await window.omp.sessions.remoteOpened();
+			if (useHostedSessionsStore.getState().remoteOpenedRevision === remoteOpenedRevision)
+				useHostedSessionsStore.setState({ remoteOpened });
+		} catch {}
+	};
+	await Promise.all([hosted(), live(), held(), remoteOpened()]);
 }
 
 /** Boot wiring (App): the first read plus the pushes, once per window. */
@@ -72,11 +87,18 @@ export function useHostedSessionsSync(): void {
 		const unsubscribeHeld = window.omp.events.onHeldSessionsChanged(held =>
 			useHostedSessionsStore.setState(state => ({ held, heldRevision: state.heldRevision + 1 })),
 		);
+		const unsubscribeRemote = window.omp.events.onRemoteOpenedChanged(remoteOpened =>
+			useHostedSessionsStore.setState(state => ({
+				remoteOpened,
+				remoteOpenedRevision: state.remoteOpenedRevision + 1,
+			})),
+		);
 		void loadHostedSessions();
 		return () => {
 			unsubscribeHosted();
 			unsubscribeLive();
 			unsubscribeHeld();
+			unsubscribeRemote();
 		};
 	}, []);
 }

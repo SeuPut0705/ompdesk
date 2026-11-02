@@ -357,6 +357,37 @@ export function remoteOpenedChildren(
 	return children;
 }
 
+/**
+ * The rows every view of one computer's sessions draws (its windows, its phone pages, a paired device's section of it):
+ * `sidebarRows`, with the bot's family (`botFamily`, its tabs `bot.tabs`) left out of the lists for the bot's fixed
+ * row, and where each tab a session of that computer opened on a paired device nests (`remoteOpenedChildren`): a tab
+ * the view holds, or a stand-in for one another view of the computer holds. The openers the bot's rule reads are the
+ * ones the rows record (`openedBySession`).
+ */
+export function familyRows(
+	facts: SidebarFacts,
+	bot: Pick<BotFamilyFacts, "bot" | "ended" | "channels" | "tabs"> | null,
+	remoteTabs: readonly (FamilyTab & { device?: string })[],
+): { rows: SidebarRows; bot: BotFamily | null; remote: Map<string, string> } {
+	const base = sidebarRows(facts);
+	const family =
+		bot &&
+		botFamily({
+			...bot,
+			sessions: base.sessions,
+			recordedOpeners: new Map(
+				facts.sessions.flatMap(session =>
+					typeof session.openedBySession === "string" ? [[session.path, session.openedBySession] as const] : [],
+				),
+			),
+		});
+	const rows =
+		family && family.keys.size > 0
+			? sidebarRows({ ...facts, nested: new Set([...facts.nested, ...family.keys]) })
+			: base;
+	return { rows, bot: family, remote: remoteOpenedChildren(remoteTabs, rows, family) };
+}
+
 /** Stock's own `created` (the session header's timestamp): fixed for a session's life, unlike `modified`. */
 function createdAt(session: SessionInfo): number {
 	const timestamp = Date.parse(session.created);

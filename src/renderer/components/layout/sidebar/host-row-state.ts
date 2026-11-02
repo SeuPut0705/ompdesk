@@ -2,7 +2,7 @@
  * What a paired host's session shows on this computer's sidebar: its row's run state and what a folded section of that
  * host counts. Pure, so a host's row, its folded header and a session opened on it under its opener read one rule.
  */
-import type { HostLiveSession, HostView } from "../../../../shared/ipc-types";
+import type { HostLiveSession, HostView, RemoteOpenedTab } from "../../../../shared/ipc-types";
 import type { AskKind } from "../../../lib/attention";
 import { tabSignalPresentation } from "../../../lib/tab-signal";
 import type { SessionTab } from "../../../stores/tabs";
@@ -27,6 +27,15 @@ export function hostRowState(tab: SessionTab | undefined, live: HostLiveSession[
 	const settling = tabRuns ? known?.settling === true : live === "background";
 	const fold = sessionFoldSignal({ waiting: ask, running, done: false });
 	return { known, signal, ask, waiting, running, settling, fold };
+}
+
+/**
+ * A stand-in for a tab another view of the computer holds on a paired device (`RemoteOpenedTab`): what the family
+ * rule (`familyRows`) and the host row rule read of it, as of the tab the holding window has.
+ */
+export function remoteOpenedTab(tab: RemoteOpenedTab): SessionTab {
+	const { tabId, here: _here, ...facts } = tab;
+	return { ...facts, id: tabId, unreadDone: false };
 }
 
 /**

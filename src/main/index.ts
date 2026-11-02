@@ -1126,6 +1126,7 @@ app.whenReady().then(() => {
 		machine,
 		localTabs: sidecarPool,
 		windowLiveSessions: () => sidecarPool.liveSessions(),
+		windowRemoteOpened: () => sidecarPool.remoteOpenedTabs(),
 		sessionOpeners: () => {
 			// A record of a child main closed, for one on this computer; a tab that holds the session again wins.
 			const openers = new Map(
@@ -1256,8 +1257,10 @@ app.whenReady().then(() => {
 	// A paired web device's window is filed under the device (its window id changes every launch); a quit tears
 	// the tabs down, which must not read as the device closing them.
 	sidecarPool.onWindowTabsChanged = (win, layout) => {
-		// A window's tab took or let go of a session, or learned who opened it: paired devices may list it otherwise.
+		// A window's tab took or let go of a session, or learned who opened it: paired devices may list it otherwise, and
+		// a tab on a paired device that a session here opened is every other view's family row.
 		hostServices.listingChanged();
+		hostServices.liveSessionsChanged();
 		if (win instanceof WebClientWindow) {
 			if (!quitApproved()) webTabLayouts.save(win.deviceId, layout);
 			return;
@@ -1266,7 +1269,10 @@ app.whenReady().then(() => {
 	};
 	// Every take or let-go of a session file, a session-id change too (it re-registers only at the next get_state):
 	// the devices' "held on this host" follows each one, so no device's read in the gap can hide a later close.
-	sidecarPool.onSessionFilesChanged = () => hostServices.listingChanged();
+	sidecarPool.onSessionFilesChanged = () => {
+		hostServices.listingChanged();
+		hostServices.liveSessionsChanged();
+	};
 	// A closed window's tabs have to leave the saved session with it, or the next
 	// launch resurrects a window the user deliberately shut.
 	windowManager.subscribeWindowClosed(record => {

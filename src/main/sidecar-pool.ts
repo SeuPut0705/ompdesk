@@ -76,6 +76,7 @@ import {
 	type IpcTabRunOutcome,
 	type IpcTabStatusPayload,
 	type IpcTabWorktree,
+	type RemoteOpenedTab,
 } from "../shared/ipc-types";
 import {
 	type AgentMessage,
@@ -2379,6 +2380,38 @@ export class SidecarPool {
 			if (opener && opener !== entry.sessionFile) openers.set(entry.sessionFile, opener);
 		}
 		return openers;
+	}
+
+	/**
+	 * The tabs of this computer's windows that run on a paired device and that a session of this computer opened, for
+	 * every other view of its sessions (its other windows, its phone pages, the devices paired to it): each nests the
+	 * child under its opener as the window holding the tab does. A tab a session on a paired host opened is that
+	 * host's, and a view of a device's tab here is left out.
+	 */
+	remoteOpenedTabs(): RemoteOpenedTab[] {
+		return [...this.#entries].flatMap(entry => {
+			if (!entry.device || entry.hostedView || !entry.sessionFile) return [];
+			const opener = entry.openedBy ? this.#byTabId.get(entry.openedBy) : undefined;
+			const openedBySession = opener ? (opener.device ? undefined : opener.sessionFile) : entry.openedBySession;
+			if (!openedBySession) return [];
+			const payload = tabStatusPayload(entry);
+			return [
+				{
+					tabId: entry.tabId,
+					device: entry.device,
+					sessionPath: entry.sessionFile,
+					cwd: payload.cwd,
+					kind: entry.kind,
+					openedBySession,
+					status: payload.status,
+					...(payload.title ? { title: payload.title } : {}),
+					...(entry.task === undefined ? {} : { task: entry.task }),
+					...(payload.compacting ? { compacting: true } : {}),
+					...(entry.worktree === undefined ? {} : { worktree: entry.worktree }),
+					...(payload.lastRun === undefined ? {} : { lastRun: payload.lastRun }),
+				},
+			];
+		});
 	}
 
 	/**

@@ -32,6 +32,7 @@ import {
 	type IpcHostSchedules,
 	type IpcSessionsChanged,
 	type RemoteDirListing,
+	type RemoteOpenedTab,
 	type RemoteState,
 	type RemoteTailnetPhase,
 	type SessionInfo,
@@ -78,6 +79,10 @@ import {
 	PREVIEW_RELAY_EVENT,
 	PROJECTS_EVENT,
 	PreviewRelayEvent,
+	REMOTE_OPENED_EVENT,
+	REMOTE_OPENED_METHOD,
+	RemoteOpenedReply,
+	RemoteOpenedTabSchema,
 	SCHEDULES_EVENT,
 	SchedulesStateSchema,
 	SESSIONS_CHANGED_EVENT,
@@ -206,6 +211,8 @@ interface HostLink {
 	sessions: HostSessionList;
 	/** The host's sessions whose work goes on now (`host.liveSessions`); unset while offline or from an older host. */
 	live?: HostLiveSession[];
+	/** The tabs the host's windows hold on a paired device that its sessions opened (`host.remoteOpened`). */
+	remoteOpened?: RemoteOpenedTab[];
 	/** The host's Mobile web address (`host.mobileWeb.link`); unset while offline, not serving, or from an older host. */
 	webUrl?: string;
 	/** Open agent-browsing tunnels to this host's tab relays, by rtab (`previewRelay`). */
@@ -1017,12 +1024,14 @@ export class RemoteDevices {
 			if (state !== "online") {
 				this.#deps.modelWait?.setHostCounts(deviceId, undefined);
 				link.live = undefined;
+				link.remoteOpened = undefined;
 				link.webUrl = undefined;
 			}
 			this.#broadcastState();
 			if (state !== "online") return;
 			link.closes.flush(rtab => client.request("tab.close", { rtab }));
 			void this.#readLiveSessions(deviceId, link);
+			void this.#readRemoteOpened(link);
 			void this.#readWebLink(link);
 			// Its session list went stale while it was away (or never loaded).
 			link.sessions.stale();
@@ -1066,6 +1075,10 @@ export class RemoteDevices {
 			}
 			if (event === LIVE_SESSIONS_EVENT) {
 				this.#setLiveSessions(link, data);
+				return;
+			}
+			if (event === REMOTE_OPENED_EVENT) {
+				this.#setRemoteOpened(link, data);
 				return;
 			}
 			if (event === MOBILE_WEB_LINK_EVENT) {
@@ -1128,6 +1141,28 @@ export class RemoteDevices {
 		}
 	}
 
+	/** The tabs the host's sessions opened on paired devices, as the link comes up; an older host does not know the method. */
+	async #readRemoteOpened(link: HostLink): Promise<void> {
+		try {
+			this.#setRemoteOpened(link, await link.client.request<unknown>(REMOTE_OPENED_METHOD, {}));
+		} catch {
+			// unsupported, or the link dropped again: the next push or link-up says it.
+		}
+	}
+
+	/** One the host opened on this computer is marked `here`: it is one of the sessions this computer runs for it. */
+	#setRemoteOpened(link: HostLink, data: unknown): void {
+		const reply = RemoteOpenedReply.safeParse(data);
+		if (!reply.success || link.client.state !== "online") return;
+		link.remoteOpened = reply.data.tabs.flatMap(entry => {
+			const tab = RemoteOpenedTabSchema.safeParse(entry);
+			if (!tab.success) return [];
+			const { here: _here, ...facts } = tab.data as RemoteOpenedTab;
+			return [facts.device === this.deviceId ? { ...facts, here: true as const } : facts];
+		});
+		this.#broadcastState();
+	}
+
 	/** The host's Mobile web address as the link comes up; an older host does not know the method. */
 	async #readWebLink(link: HostLink): Promise<void> {
 		try {
@@ -1169,6 +1204,7 @@ export class RemoteDevices {
 			if (client.state === "online") view.appVersion = client.hello.appVersion;
 		}
 		if (client.state === "online" && link.live) view.live = link.live;
+		if (client.state === "online" && link.remoteOpened) view.remoteOpened = link.remoteOpened;
 		if (client.state === "online" && link.webUrl) view.webUrl = link.webUrl;
 		return view;
 	}

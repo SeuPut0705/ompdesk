@@ -56,6 +56,7 @@ import {
 	type IpcHostedSession,
 	type IpcMemoryWait,
 	type IpcScheduledRetry,
+	type RemoteOpenedTab,
 	type SessionInfo,
 } from "../../shared/ipc-types";
 import { ModelSetupRequestSchema } from "../../shared/model-setup";
@@ -182,6 +183,8 @@ import {
 	PreviewRelayOpenParams,
 	PreviewRelaySendParams,
 	ProjectsCommandParams,
+	REMOTE_OPENED_EVENT,
+	REMOTE_OPENED_METHOD,
 	SCHEDULES_EVENT,
 	SchedulesCommandParams,
 	SchedulesCreateParams,
@@ -306,6 +309,8 @@ export interface HostServicesDeps {
 	runChargesFile?: string;
 	/** The sessions this computer's own windows work on now (`SidecarPool.liveSessions`), for `liveSessions`. */
 	windowLiveSessions?: () => HostLiveSession[];
+	/** The tabs this computer's windows hold on a paired device that its sessions opened (`SidecarPool.remoteOpenedTabs`). */
+	windowRemoteOpened?: () => RemoteOpenedTab[];
 	/**
 	 * Who opened each of this computer's sessions, as far as it knows (child file → opener's file: its windows' tabs,
 	 * its records of children it closed), so a device's list nests them as this computer's own sidebar does.
@@ -617,6 +622,7 @@ export class LocalHostServices implements HostServices {
 	readonly #runningListeners = new Set<() => void>();
 	readonly #hostedListeners = new Set<() => void>();
 	readonly #liveListeners = new Set<() => void>();
+	readonly #remoteOpenedListeners = new Set<() => void>();
 	readonly #windowHeldListeners = new Set<() => void>();
 	/** `windowHeldSessions` as last announced to the windows. */
 	#windowHeldSnapshot = "[]";
@@ -629,6 +635,8 @@ export class LocalHostServices implements HostServices {
 	#hostedSnapshot = "[]";
 	/** `liveSessions` as last sent to the devices, and the timer that batches a burst of changes into one push. */
 	#liveSnapshot = "[]";
+	/** `remoteOpened` as last sent to the devices and the windows, batched with the live list. */
+	#remoteOpenedSnapshot = "[]";
 	/**
 	 * What a device's last read of the list said of who holds and who opened each session (`#listing`): a tab here
 	 * taking or letting go of one, or an opener becoming known, writes no journal, so the index never says so.
@@ -1015,6 +1023,22 @@ export class LocalHostServices implements HostServices {
 		};
 	}
 
+	/** Called whenever `remoteOpened` changed, once a burst settles; returns the unsubscribe. */
+	onRemoteOpenedChange(listener: () => void): () => void {
+		this.#remoteOpenedListeners.add(listener);
+		return () => {
+			this.#remoteOpenedListeners.delete(listener);
+		};
+	}
+
+	/**
+	 * The tabs this computer's windows hold on a paired device that a session of this computer opened: every view of its
+	 * sessions (its other windows, its phone pages, a device's section of it) nests each under its opener.
+	 */
+	remoteOpened(): RemoteOpenedTab[] {
+		return this.#deps.windowRemoteOpened?.() ?? [];
+	}
+
 	/**
 	 * The sessions this computer works on now, from its windows' tabs and the tabs it runs for every device: what a
 	 * device's section of this computer lights for rows no tab of the device holds. Waiting beats a turn, a turn beats
@@ -1042,14 +1066,22 @@ export class LocalHostServices implements HostServices {
 	}
 
 	/**
-	 * Something a session's work hangs on changed (a turn, background work, an ask, here or in a window): every
-	 * connected device and every window of this computer hears the new list once a burst settles
-	 * (`LIVE_SESSIONS_DEBOUNCE_MS`), and only when it differs.
+	 * Something a session's work hangs on changed (a turn, background work, an ask, a tab taking or leaving a session,
+	 * here or in a window): every connected device and every window of this computer hears the new lists once a burst
+	 * settles (`LIVE_SESSIONS_DEBOUNCE_MS`), each only when it differs: the live sessions and the tabs its sessions
+	 * opened on paired devices.
 	 */
 	liveSessionsChanged(): void {
 		if (this.#liveTimer) return;
 		this.#liveTimer = setTimeout(() => {
 			this.#liveTimer = undefined;
+			const tabs = this.remoteOpened();
+			const opened = JSON.stringify(tabs);
+			if (opened !== this.#remoteOpenedSnapshot) {
+				this.#remoteOpenedSnapshot = opened;
+				for (const conn of this.#conns) emitSafely(conn, REMOTE_OPENED_EVENT, { tabs });
+				for (const listener of this.#remoteOpenedListeners) listener();
+			}
 			const sessions = this.liveSessions();
 			const snapshot = JSON.stringify(sessions);
 			if (snapshot === this.#liveSnapshot) return;
@@ -1192,6 +1224,8 @@ export class LocalHostServices implements HostServices {
 				return { tabs: this.#keptTabs(peer) };
 			case LIVE_SESSIONS_METHOD:
 				return { sessions: this.liveSessions() };
+			case REMOTE_OPENED_METHOD:
+				return { tabs: this.remoteOpened() };
 			case MOBILE_WEB_LINK_METHOD:
 				return { url: this.#deps.mobileWebUrl?.() ?? null };
 			case HOST_MEMORY_STATUS_METHOD:

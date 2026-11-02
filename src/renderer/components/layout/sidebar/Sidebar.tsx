@@ -58,16 +58,13 @@ import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
 import type { HostView, IpcHostedSession, SessionInfo } from "../../../../shared/ipc-types";
 import { autopilotRunOf, worktreeKindOf, worktreeLabel } from "../../../../shared/project-origin";
 import {
-	type BotFamily,
-	botFamily,
 	CHATS_ORDER_KEY,
+	familyRows,
 	isChatSession,
 	type RowGroup,
 	type RowSession,
 	type RowTab,
-	remoteOpenedChildren,
 	type SidebarFacts,
-	sidebarRows,
 } from "../../../../shared/sidebar-rows";
 import { splitTabIds } from "../../../../shared/split-layout";
 import { useSessionAttention } from "../../../hooks/use-session-attention";
@@ -149,7 +146,7 @@ import { ForkParent } from "../ForkParent";
 import { SessionLiveAge, SessionLiveTitle } from "../SessionLiveTitle";
 import { openedChildCounts, openedChildRows } from "../work-board/opened-children";
 import { childFoldSignal, type FoldSignal, foldSummary, sessionFoldSignal } from "./fold-summary";
-import { hostRowState } from "./host-row-state";
+import { hostRowState, remoteOpenedTab } from "./host-row-state";
 import { RAIL_PIN_ICONS } from "./rail-pin-icons";
 import { SidebarChats } from "./SidebarChats";
 import { SidebarDeviceSections } from "./SidebarDeviceSections";
@@ -187,8 +184,6 @@ interface WorkspaceGroup extends RowGroup {
 	/** The full path: the group header's tooltip. */
 	tooltip: string;
 }
-
-const NO_PATHS: ReadonlySet<string> = new Set();
 
 /** The bot row's file and tab while main has not made the session (or no list row holds it yet). */
 const BOT_PENDING = "bot:pending";
@@ -552,6 +547,29 @@ export function Sidebar() {
 		[workingNow],
 	);
 	const hosts = usePairedHosts();
+	// This computer's own name: a session a host's agent opened here is named by it in that host's section.
+	const selfName = useRemoteStore(s => s.state?.host.name);
+	// A tab another window of this computer holds on a paired device that a session here opened (this page's computer's,
+	// on a phone): a stand-in, so this view nests it as the window holding it does (`familyRows`).
+	const remoteOpened = useHostedSessionsStore(s => s.remoteOpened);
+	const familyTabs = useMemo(() => {
+		const own = new Set(tabs.map(tab => tab.id));
+		const standIns = remoteOpened.filter(tab => !own.has(tab.tabId)).map(remoteOpenedTab);
+		return standIns.length === 0 ? tabs : [...tabs, ...standIns];
+	}, [tabs, remoteOpened]);
+	// What a paired host's sessions opened on this computer nests under its opener in that host's section: this list
+	// leaves it, the session and the hosted tab that runs it.
+	const openedHere = useMemo(
+		() =>
+			new Set(
+				hosts.flatMap(host =>
+					(host.remoteOpened ?? []).flatMap(tab =>
+						tab.here ? [tab.sessionPath, `hosted:${tab.sessionPath}`] : [],
+					),
+				),
+			),
+		[hosts],
+	);
 	const pinnedGroups = useSidebarPrefs(s => s.pinnedGroups);
 	const groupOrder = useSidebarPrefs(s => s.groupOrder);
 	const sessionOrder = useSidebarPrefs(s => s.sessionOrder);
@@ -808,7 +826,7 @@ export function Sidebar() {
 					: null;
 			},
 			archived: archivedIds,
-			nested: NO_PATHS,
+			nested: openedHere,
 			order: {
 				pinnedSessions,
 				pinnedGroups,
@@ -835,37 +853,38 @@ export function Sidebar() {
 			pinnedGroups,
 			groupOrder,
 			heldByOtherWindows,
+			openedHere,
 			sessionOrder,
 			filter,
 			groupAliases,
 		],
 	);
-	const baseRows = useMemo(() => sidebarRows(rowFacts), [rowFacts]);
 	// What the bot opened, and what those opened, nests under its fixed row (`renderSessionRow` "bot") like any opener's
-	// family and leaves the lists, which are rebuilt without the family (`botFamily`).
+	// family and leaves the lists, and a session an agent here opened on a paired device is that opener's child too (one
+	// family, whatever the computer): its tab, or a stand-in for one another window holds, nests where a local child of
+	// that opener would, named by its device, and leaves the device's own list (`familyRows`, every view's one rule).
 	const endedBotFiles = useMemo(
 		() => new Set(sessions.flatMap(session => (session.bot === "past" ? [session.path] : []))),
 		[sessions],
 	);
-	const botKids = useMemo<BotFamily | null>(
+	const family = useMemo(
 		() =>
-			botPath
-				? botFamily({
-						bot: botPath,
-						ended: endedBotFiles,
-						// Its side chats nest there too: they are the bot's own conversations, not plain chats.
-						channels: new Set(botDesk.channels.map(channel => channel.sessionPath)),
-						tabs: rowTabs,
-						sessions: baseRows.sessions,
-						recordedOpeners,
-					})
-				: null,
-		[botPath, endedBotFiles, rowTabs, baseRows, recordedOpeners, botDesk.channels],
+			familyRows(
+				rowFacts,
+				botPath
+					? {
+							bot: botPath,
+							ended: endedBotFiles,
+							// Its side chats nest there too: they are the bot's own conversations, not plain chats.
+							channels: new Set(botDesk.channels.map(channel => channel.sessionPath)),
+							tabs: rowTabs,
+						}
+					: null,
+				familyTabs,
+			),
+		[rowFacts, botPath, endedBotFiles, botDesk.channels, rowTabs, familyTabs],
 	);
-	const rows = useMemo(
-		() => (botKids && botKids.keys.size > 0 ? sidebarRows({ ...rowFacts, nested: botKids.keys }) : baseRows),
-		[baseRows, botKids, rowFacts],
-	);
+	const { rows, bot: botKids, remote: remoteChildTabs } = family;
 	const { listed: listedSessions, sessions: allSessions, code: codeSessions, chats: chatSessions } = rows;
 	const { runParent: runParentOf, children: familyChildrenOf, archived: archivedRows } = rows;
 	const named = useCallback(
@@ -877,13 +896,9 @@ export function Sidebar() {
 	);
 	const allGroups = useMemo(() => rows.allGroups.map(named), [rows, named]);
 	const groups = useMemo(() => rows.groups.map(named), [rows, named]);
-	// A session an agent here opened on a paired device is that opener's child too (one family, whatever the
-	// computer): its tab nests where a local child of that opener would, named by its device, and leaves the device's
-	// own list.
-	const remoteChildTabs = useMemo(() => remoteOpenedChildren(tabs, rows, botKids), [tabs, rows, botKids]);
 	const remoteChildrenOf = useMemo(() => {
 		const byRoot = new Map<string, SessionTab[]>();
-		for (const tab of tabs) {
+		for (const tab of familyTabs) {
 			const root = remoteChildTabs.get(tab.id);
 			if (root === undefined) continue;
 			const siblings = byRoot.get(root);
@@ -891,12 +906,12 @@ export function Sidebar() {
 			else byRoot.set(root, [tab]);
 		}
 		return byRoot;
-	}, [tabs, remoteChildTabs]);
+	}, [familyTabs, remoteChildTabs]);
 	// What each device's section leaves out: those children's tabs and session files, per device (two hosts can keep
 	// a session at the same path). A session a device's own agent opened there nests in that device's section.
 	const nestedRemote = useMemo(() => {
 		const byDevice = new Map<string, Set<string>>();
-		for (const tab of tabs) {
+		for (const tab of familyTabs) {
 			if (tab.device === undefined || !remoteChildTabs.has(tab.id)) continue;
 			const keys = byDevice.get(tab.device) ?? new Set<string>();
 			keys.add(tab.id);
@@ -904,7 +919,7 @@ export function Sidebar() {
 			byDevice.set(tab.device, keys);
 		}
 		return byDevice;
-	}, [tabs, remoteChildTabs]);
+	}, [familyTabs, remoteChildTabs]);
 	const totalCount = groups.length + chatSessions.length;
 	// Projects with an open tab, or one a paired device's tab here works in, start expanded so every open session is
 	// in view.
@@ -1661,8 +1676,9 @@ export function Sidebar() {
 	};
 
 	/**
-	 * A session on a paired device a tab here holds, as one family row: one this computer's agent opened there, or one
-	 * that device's own agent opened (in its section). Named by its device.
+	 * A session on a paired device as one family row, from the tab here or a stand-in for one another view of its
+	 * computer holds (`remoteOpenedTab`): one this computer's agent opened there, one a device's own agent opened (in
+	 * its section), or one a host's agent opened here (`here`, in that host's section). Named by its device.
 	 */
 	const remoteFamilyChildFor = (tab: SessionTab): FamilyOpened => {
 		// Two paired devices can keep a session at the same path: the row's identity names the device too.
@@ -1675,8 +1691,14 @@ export function Sidebar() {
 			tab.lastRun?.stopReason === "error" ||
 			tab.lastRun?.stopReason === "aborted";
 		const host = hosts.find(entry => entry.deviceId === tab.device);
-		// The host's row rule: what the tab here heard, or what the host says it runs now.
-		const run = hostRowState(tab, host?.live?.find(session => session.sessionPath === tab.sessionPath)?.state);
+		const here = hosts.some(entry => entry.remoteOpened?.some(opened => opened.here && opened.tabId === tab.id));
+		// The host's row rule: what the tab heard, or what the computer it runs on says it runs now.
+		const run = hostRowState(
+			tab,
+			here
+				? liveByPath.get(tab.sessionPath ?? "")
+				: host?.live?.find(session => session.sessionPath === tab.sessionPath)?.state,
+		);
 		const waiting = run.waiting || review?.waiting === true;
 		const status = openedChildStatus({
 			waiting,
@@ -1686,7 +1708,7 @@ export function Sidebar() {
 			unmerged: reviewUnmerged(review),
 			memoryWait: tab.memoryWait !== undefined,
 		});
-		const device = host?.name ?? tab.device ?? "";
+		const device = (here ? selfName : host?.name) ?? tab.device ?? "";
 		const title = tab.title || tab.task || t("sidebar.newSession");
 		const auto = tab.title ? sessionTitleParts(tab.title, tabAutoTitle(tab, listedRowOf(tab))).auto : undefined;
 		const statusLabel =
@@ -1731,7 +1753,11 @@ export function Sidebar() {
 						},
 					}
 				: {}),
-			onOpen: () => void useTabsStore.getState().switchTab(tab.id),
+			// A stand-in has no tab here: its session opens as any row of its computer's does.
+			onOpen: () =>
+				void (tabs.some(entry => entry.id === tab.id)
+					? useTabsStore.getState().switchTab(tab.id)
+					: openTab({ cwd: tab.cwd, sessionPath: tab.sessionPath, ...(here ? {} : { device: tab.device }) })),
 			buttonProps: { tabIndex: -1, "data-roving-item": key, onFocus: () => setFocusKey(key) },
 			rowProps: {
 				"data-active": tab.id === activeTabId,
