@@ -26,7 +26,7 @@ export function PanelToolbar({ children, className }: { children: ReactNode; cla
 }
 
 export const PANEL_ROW_SURFACE =
-	"min-h-(--sc-control-sm) rounded-(--sc-radius-sm) px-2 py-1.5 text-left text-sc-sm text-(--sc-text) transition-colors duration-(--sc-duration-fast) hover:bg-(--sc-hover) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-offset-(--sc-focus-offset) focus-visible:outline-(--sc-focus-ring)";
+	"min-h-(--sc-control-sm) rounded-(--sc-radius-sm) px-2 py-1.5 text-left text-sc-sm text-(--sc-text) transition-colors duration-(--sc-duration-fast) ease-(--sc-ease-standard) hover:bg-(--sc-hover) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-offset-(--sc-focus-offset) focus-visible:outline-(--sc-focus-ring)";
 export const PANEL_ROW = `flex w-full items-center gap-2 ${PANEL_ROW_SURFACE}`;
 
 /** A row of a panel's list; the one whose detail shows is `aria-current` (the list's current item, not a pressed toggle). */

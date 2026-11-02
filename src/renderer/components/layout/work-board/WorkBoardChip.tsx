@@ -14,6 +14,7 @@ import {
 import { useBackLayer } from "../../../hooks/use-back-layer";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { useOpenedChildren } from "../../../hooks/use-opened-children";
+import { useOverlayPresence } from "../../../hooks/use-overlay-presence";
 import { attentionClause, pendingAsks } from "../../../lib/attention";
 import { useT } from "../../../lib/i18n";
 import { useModelWait } from "../../../lib/model-wait";
@@ -34,8 +35,6 @@ import { SummaryBoard, type ZoneOpen } from "./board-parts";
 import { boardCounts, liveSubagents, todoBoard, workingSubagents } from "./work-board";
 
 const PANEL_ID = "omp-work-strip-panel";
-/** Exit time of the panel's height transition (mobile.css `omp-strip-out`). */
-const LEAVE_MS = 160;
 /** An upward drag at least this long on the strip or the grip collapses the panel. */
 const SWIPE_UP_PX = 32;
 /** Space kept between the panel's far edge and its pane's edge. */
@@ -148,19 +147,11 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 		seenReveal.current = reveal;
 		expand(true);
 	}, [reveal, expand]);
-	/** The panel stays mounted for its exit (height transition); never under reduced motion. */
-	const [leaving, setLeaving] = useState(false);
+	/** The panel stays mounted for its exit (`.omp-pop-out`, `instant`); never under reduced motion. */
+	const panel = useOverlayPresence(open, "instant");
 	const root = useRef<HTMLDivElement>(null);
 	const swipe = useRef<number | null>(null);
-	const leaveTimer = useRef<number | undefined>(undefined);
-	const close = useCallback(() => {
-		setOpen(false);
-		window.clearTimeout(leaveTimer.current);
-		if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true) return;
-		setLeaving(true);
-		leaveTimer.current = window.setTimeout(() => setLeaving(false), LEAVE_MS);
-	}, []);
-	useEffect(() => () => window.clearTimeout(leaveTimer.current), []);
+	const close = useCallback(() => setOpen(false), []);
 	useBackLayer(open, close);
 	const turnActive = useTodoStore(state => state.turnActive);
 	const modelWait = useModelWait();
@@ -272,7 +263,7 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 		<div className="omp-work-strip" data-work-strip="" ref={root}>
 			{/* controls-ok: the omp-work-chip class draws the whole control */}
 			<button
-				aria-controls={open || leaving ? PANEL_ID : undefined}
+				aria-controls={panel.mounted ? PANEL_ID : undefined}
 				aria-expanded={open}
 				className="omp-work-chip"
 				data-open={open || undefined}
@@ -291,7 +282,7 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 							<span className="sr-only">{label}</span>
 							<span aria-hidden className="omp-work-chip-plan">
 								<span className="omp-work-chip-bar">
-									<span style={{ width: `${(plan.done / plan.total) * 100}%` }} />
+									<span style={{ "--fill": plan.done / plan.total } as CSSProperties} />
 								</span>
 								<span className="tabular-nums">
 									{plan.done}/{plan.total}
@@ -330,16 +321,18 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 				)}
 				<ChevronDown
 					aria-hidden
-					className="omp-work-chip-chevron size-(--sc-icon-md) shrink-0 text-(--sc-text-muted)"
+					className="omp-disclosure-chevron omp-work-chip-chevron size-(--sc-icon-md) shrink-0 text-(--sc-text-muted)"
 				/>
 			</button>
-			{(open || leaving) && (
+			{panel.mounted && (
 				<div
-					className="omp-work-strip-panel"
-					data-leaving={!open || undefined}
+					aria-hidden={panel.closing || undefined}
+					className={`omp-work-strip-panel ${panel.closing ? "omp-pop-out" : "omp-pop-in"}`}
+					data-leaving={panel.closing || undefined}
+					data-opens={room?.up ? "up" : undefined}
 					data-work-strip-panel=""
 					id={PANEL_ID}
-					data-opens={room?.up ? "up" : undefined}
+					inert={panel.closing}
 					style={room === undefined ? undefined : ({ "--strip-room": `${room.px}px` } as CSSProperties)}
 					// A tap on a row acts (its own handler runs first) and collapses; the fold toggles and a row that
 					// expands in place (`data-board-expands`, the memory row) keep the panel open.

@@ -231,6 +231,7 @@ function AgentRow({
 		<BoardRow
 			exiting={exiting}
 			data={{ "data-board-agent": agent.id, "data-status": agent.status }}
+			flipKey={`agent:${agent.id}`}
 			label={label}
 			lead={waiting ? <KindMark icon={Bot} tone="muted" /> : <KindMark icon={Bot} tone="info" />}
 			meta={elapsed === null ? undefined : elapsedLabel(elapsed)}
@@ -519,6 +520,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 						{item => (
 							<BoardRow
 								data={{ "data-board-waiting": item.id }}
+								flipKey={`ask:${item.id}`}
 								key={item.id}
 								label={item.label}
 								lead={<Dot tone="warning" />}
@@ -557,6 +559,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 						(turnState ? (
 							<BoardRow
 								data={{ "data-board-turn": "" }}
+								flipKey="turn"
 								label={turnState}
 								lead={<Dot tone="info" />}
 								title={turnState}
@@ -569,6 +572,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 								return (
 									<BoardRow
 										data={{ "data-board-step": entry.status, ...(last ? { "data-board-turn": "" } : {}) }}
+										flipKey={`step:${entry.startTime}:${index}`}
 										key={`${entry.startTime}:${index}`}
 										label={entry.intent?.trim() && last ? entry.intent : text}
 										lead={
@@ -609,6 +613,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 							) : (
 								<BoardRow
 									data={{ "data-board-job": entry.item.id }}
+									flipKey={`job:${entry.item.id}`}
 									exiting={entry.exiting}
 									key={entry.item.id}
 									label={entry.item.label}
@@ -656,6 +661,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 					{showsGoal && goal && (
 						<BoardRow
 							data={{ "data-board-goal": goalStatus ?? "" }}
+							flipKey="goal"
 							label={goal.objective?.trim() || t("input.goal.label")}
 							lead={
 								<KindMark
@@ -688,6 +694,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 					{plan && plan.done > 0 && (
 						<BoardRow
 							data={{ "data-board-done-folded": "" }}
+							flipKey="plan-done"
 							label={
 								<span className="text-(--sc-text-subtle)">
 									{t("workBoard.doneFolded", { count: plan.done })}
@@ -699,6 +706,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 					{plan?.rows.map((row, index) => (
 						<BoardRow
 							data={{ "data-todo-status": row.status }}
+							flipKey={`plan:${index}:${row.content}`}
 							key={`${index}:${row.content}`}
 							label={
 								<span

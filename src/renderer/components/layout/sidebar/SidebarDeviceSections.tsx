@@ -329,44 +329,64 @@ function pointOf(event: Event | null): { x: number; y: number } | null {
 /**
  * The chip that follows the pointer while a section is dragged, drawn over everything in a fixed layer. It reads the
  * pointer itself: dnd-kit's drag delta includes the list's scroll, so a chip placed by it would drift off the pointer
- * whenever the sidebar scrolls during the drag. Its own component, so a pointer move re-renders only it.
+ * whenever the sidebar scrolls during the drag. Its own component, and a pointer move writes the chip's transform
+ * once a frame straight to the element: it never re-renders per move.
  */
 function DragChip({ label }: { label: (id: unknown) => string }) {
 	const [name, setName] = useState<string | null>(null);
-	const [at, setAt] = useState<{ x: number; y: number } | null>(null);
+	// Where the drag began: the chip's first place. Later moves go to the element, never back through state.
+	const [start, setStart] = useState<{ x: number; y: number } | null>(null);
+	const chip = useRef<HTMLDivElement>(null);
+	const latest = useRef<{ x: number; y: number } | null>(null);
+	const frame = useRef(0);
 	useDndMonitor({
 		onDragStart: ({ active, activatorEvent }) => {
 			setName(label(active.id));
-			setAt(pointOf(activatorEvent));
+			setStart(pointOf(activatorEvent));
 		},
 		onDragEnd: () => setName(null),
 		onDragCancel: () => setName(null),
 	});
 	useEffect(() => {
 		if (name === null) return;
+		const place = () => {
+			frame.current = 0;
+			const at = latest.current;
+			if (at && chip.current) chip.current.style.transform = chipTransform(at);
+		};
 		const follow = (event: Event) => {
 			const point = pointOf(event);
-			if (point) setAt(point);
+			if (!point) return;
+			latest.current = point;
+			if (frame.current === 0) frame.current = requestAnimationFrame(place);
 		};
 		window.addEventListener("pointermove", follow, { passive: true });
 		window.addEventListener("touchmove", follow, { passive: true });
 		return () => {
 			window.removeEventListener("pointermove", follow);
 			window.removeEventListener("touchmove", follow);
+			cancelAnimationFrame(frame.current);
+			frame.current = 0;
+			latest.current = null;
 		};
 	}, [name]);
-	if (name === null || !at) return null;
+	if (name === null || !start) return null;
 	return createPortal(
 		<div
 			aria-hidden
 			className="pointer-events-none fixed top-0 left-0 z-(--sc-z-tooltip) flex h-7 max-w-56 items-center gap-1.5 rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-elevated) px-2 text-sc-xs font-medium text-(--sc-text) shadow-(--sc-shadow-md)"
 			data-device-drag-chip
-			// Just right of the pointer, centred on it: the chip never hides the drop line it is aiming at.
-			style={{ transform: `translate3d(${at.x + 12}px, ${at.y - 14}px, 0)` }}
+			ref={chip}
+			style={{ transform: chipTransform(start) }}
 		>
 			<Monitor aria-hidden className="size-(--sc-icon-sm) shrink-0" />
 			<span className="min-w-0 truncate">{name}</span>
 		</div>,
 		document.body,
 	);
+}
+
+/** Just right of the pointer, centred on it: the chip never hides the drop line it is aiming at. */
+function chipTransform(at: { x: number; y: number }): string {
+	return `translate3d(${at.x + 12}px, ${at.y - 14}px, 0)`;
 }

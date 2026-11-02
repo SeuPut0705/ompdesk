@@ -572,7 +572,7 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 								aria-selected={session.id === selected}
 								tabIndex={session.id === (selected ?? sessions[0]?.id) ? 0 : -1}
 								title={t("panel.terminal.session", { number: index + 1 })}
-								className="min-h-(--sc-control-sm) max-w-40 truncate rounded-(--sc-radius-sm) px-2 py-1 text-sc-xs text-(--sc-text-muted) transition-colors duration-(--sc-duration-fast) hover:bg-(--sc-hover) hover:text-(--sc-text) active:bg-(--sc-pressed) aria-selected:bg-(--sc-selected) aria-selected:text-(--sc-text) motion-reduce:transition-none"
+								className="min-h-(--sc-control-sm) max-w-40 truncate rounded-(--sc-radius-sm) px-2 py-1 text-sc-xs text-(--sc-text-muted) transition-colors duration-(--sc-duration-fast) ease-(--sc-ease-standard) hover:bg-(--sc-hover) hover:text-(--sc-text) active:bg-(--sc-pressed) aria-selected:bg-(--sc-selected) aria-selected:text-(--sc-text) motion-reduce:transition-none"
 								onClick={() => {
 									keyboardSwitch.current = false;
 									setSelected(session.id);

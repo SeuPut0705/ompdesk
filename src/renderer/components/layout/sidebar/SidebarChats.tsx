@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { useT } from "../../../lib/i18n";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { IconButton } from "../../common";
+import { Collapse } from "../../common/Collapse";
 import type { FoldSummary } from "./fold-summary";
 import { SidebarFoldButton } from "./SidebarFoldButton";
 import { SidebarFoldSummary } from "./SidebarFoldSummary";
@@ -46,7 +47,10 @@ export function SidebarChats({
 	const folded = !filtering && storedFold;
 	return (
 		<section aria-label={label ?? t("sidebar.chats")} className="mt-1" data-sidebar-chats={deviceId}>
-			<div className="group/head flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)">
+			<div
+				className="group/head flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
+				data-flip-key={`chats:${deviceId}`}
+			>
 				<SidebarFoldButton
 					className="text-(--sc-text-muted) hover:text-(--sc-text)"
 					data-roving-item={`chats:${deviceId}`}
@@ -73,11 +77,11 @@ export function SidebarChats({
 					tabIndex={-1}
 				/>
 			</div>
-			{!folded && count > 0 && (
+			<Collapse open={!folded && count > 0}>
 				<div className="space-y-px" data-chat-lane>
 					{children}
 				</div>
-			)}
+			</Collapse>
 		</section>
 	);
 }

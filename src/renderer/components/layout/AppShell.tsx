@@ -16,6 +16,7 @@
 
 import { ArrowLeft, Menu, PanelLeft, X } from "lucide-react";
 import { type ComponentType, type ReactNode, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useOverlayPresence } from "../../hooks/use-overlay-presence";
 import { useCompactShell, useDrawerMode, useShellMode } from "../../hooks/use-shell-mode";
 import { lazyChunk } from "../../lib/chunk-load";
 import { activeComposerInput } from "../../lib/composer-focus";
@@ -296,6 +297,8 @@ export function AppShell() {
 	const onPage = destination !== "session";
 	const panelOpen = !onPage && panelVisible;
 	const panelDocked = panelOpen && !compact;
+	// A closed panel stays mounted for its exit: a docked one slides out (`fast`), a sheet closes on its own (`med`).
+	const panel = useOverlayPresence(panelOpen, compact ? "med" : "fast");
 
 	useLayoutEffect(() => {
 		markChromePlatform();
@@ -371,7 +374,7 @@ export function AppShell() {
 						</>
 					)
 				: sidebarVisible && <Sidebar />}
-			{panelOpen && panelSide === "left" && <PanelContainer />}
+			{panel.mounted && panelSide === "left" && <PanelContainer closing={panel.closing} />}
 
 			<main aria-label={t("shell.main")} className="omp-workspace-main relative flex min-w-0 flex-1 flex-col">
 				<div className={onPage ? "hidden" : "flex min-h-0 flex-1 flex-col"} data-session-view>
@@ -397,7 +400,7 @@ export function AppShell() {
 				)}
 			</main>
 
-			{panelOpen && panelSide === "right" && <PanelContainer />}
+			{panel.mounted && panelSide === "right" && <PanelContainer closing={panel.closing} />}
 			<ViewSheetHost />
 		</div>
 	);

@@ -546,6 +546,7 @@ function FamilyGroup({
 				<div
 					aria-label={t("sidebar.family.group")}
 					className="relative space-y-px"
+					data-flip-key={`family:${sessionKey}`}
 					data-sidebar-family={sessionKey}
 					data-sidebar-subagents={expanded ? sessionKey : undefined}
 					data-sidebar-surfaced={surfaced ? sessionKey : undefined}
@@ -673,6 +674,7 @@ export function SidebarLooseChildren({ foldKey, opened }: { foldKey: string; ope
 		<div
 			aria-label={t("sidebar.family.group")}
 			className="space-y-px"
+			data-flip-key={`loose:${foldKey}`}
 			data-sidebar-loose-children={foldKey}
 			role="group"
 		>

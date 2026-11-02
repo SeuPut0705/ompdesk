@@ -191,8 +191,11 @@ function SidePanelViews({ actionRef }: { actionRef: (element: HTMLDivElement | n
  * Docked (non-modal, resizable) at ≥ 1000px; below that it
  * is a right Sheet with a scrim. In a split view it
  * floats over the panes instead of squeezing both.
+ *
+ * `closing`: the panel was closed and only plays its exit (AppShell keeps it mounted for the exit token); a docked
+ * panel slides out inert, a sheet closes on its own exit.
  */
-export function PanelContainer() {
+export function PanelContainer({ closing = false }: { closing?: boolean }) {
 	const t = useT();
 	const togglePanel = useUiStore(s => s.togglePanel);
 	const split = useTabsStore(s => s.split);
@@ -294,7 +297,7 @@ export function PanelContainer() {
 					header={<PanelHeader bare />}
 					kind="panel"
 					onClose={togglePanel}
-					open
+					open={!closing}
 					placement="full"
 					title={t("panel.title")}
 				>
@@ -307,7 +310,7 @@ export function PanelContainer() {
 			<Sheet
 				bodyClassName="flex flex-col"
 				onClose={togglePanel}
-				open
+				open={!closing}
 				size={shellMode === null ? "md" : "lg"}
 				title={t("panel.title")}
 				header={<PanelHeader />}
@@ -324,13 +327,16 @@ export function PanelContainer() {
 	return (
 		<aside
 			aria-busy={!routeReady}
+			aria-hidden={closing || undefined}
 			aria-label={t("panel.title")}
+			inert={closing}
 			className={cx(
 				"omp-inspector relative flex h-full flex-col border-(--sc-border-subtle) bg-(--sc-surface-1)",
 				panelSide === "left" ? "border-r" : "border-l",
 				floating ? "absolute inset-y-0 right-0 z-(--sc-z-drawer) shadow-(--sc-shadow-lg)" : "shrink-0",
 				!routeReady && "pointer-events-none",
 			)}
+			data-closing={closing || undefined}
 			data-docked={floating ? "floating" : "docked"}
 			data-side={panelSide}
 			data-expanded={viewerExpanded || undefined}
@@ -378,7 +384,7 @@ export function PanelContainer() {
 					);
 				}}
 				className={cx(
-					"absolute inset-y-0 z-(--sc-z-raised) w-1 cursor-col-resize transition-colors duration-(--sc-duration-fast) hover:bg-(--sc-accent-border) focus-visible:bg-(--sc-accent) active:bg-(--sc-accent)",
+					"absolute inset-y-0 z-(--sc-z-raised) w-1 cursor-col-resize transition-colors duration-(--sc-duration-fast) ease-(--sc-ease-standard) hover:bg-(--sc-accent-border) focus-visible:bg-(--sc-accent) active:bg-(--sc-accent)",
 					panelSide === "left" ? "right-0 translate-x-1/2" : "left-0 -translate-x-1/2",
 				)}
 			/>

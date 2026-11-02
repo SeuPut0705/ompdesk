@@ -64,7 +64,7 @@ const SessionTreeNodeCard = memo(function SessionTreeNodeCard({
 	return (
 		<div
 			className={cx(
-				"group absolute flex cursor-grab flex-col rounded-(--sc-radius-md) border bg-(--sc-surface-1) px-3 py-2 transition-colors duration-(--sc-duration-fast)",
+				"group absolute flex cursor-grab flex-col rounded-(--sc-radius-md) border bg-(--sc-surface-1) px-3 py-2 transition-colors duration-(--sc-duration-fast) ease-(--sc-ease-standard)",
 				entry.onActiveBranch ? "border-(--sc-border)" : "border-(--sc-border-subtle)",
 				selected && "ring-2 ring-(--sc-focus-ring)",
 			)}
@@ -109,7 +109,7 @@ const SessionTreeNodeCard = memo(function SessionTreeNodeCard({
 			<span className="absolute -top-3 -right-3" onPointerDown={event => event.stopPropagation()}>
 				<MenuButton
 					align="end"
-					className="rounded-(--sc-radius-full) opacity-70 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+					className="rounded-(--sc-radius-full) opacity-70 transition-opacity duration-(--sc-duration-fast) ease-(--sc-ease-standard) group-hover:opacity-100 focus-visible:opacity-100"
 					disabled={branching !== null}
 					icon={branching === entry.entryId ? <Spinner inheritColor size="sm" /> : <GitBranch />}
 					items={[

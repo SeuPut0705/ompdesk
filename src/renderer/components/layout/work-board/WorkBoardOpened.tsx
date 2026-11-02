@@ -58,6 +58,7 @@ function OpenedRow({ row, now, tag }: { row: OpenedChildRow; now: number; tag?: 
 				"data-status": status ?? "open",
 				...(row.report ? { "data-board-report": row.report.kind } : {}),
 			}}
+			flipKey={`opened:${row.key}`}
 			tag={tag}
 			label={
 				<>
@@ -160,6 +161,7 @@ export function NowChildren({ rows, now }: { rows: readonly OpenedChildRow[]; no
 				<BoardRow
 					// It expands in place, so the phone's strip stays open for it.
 					data={{ "data-board-opened-done": "", "data-board-expands": "", "data-open": String(doneOpen) }}
+					flipKey="opened-done"
 					label={
 						<span className="text-(--sc-text-subtle)">{t("workBoard.doneFolded", { count: done.length })}</span>
 					}

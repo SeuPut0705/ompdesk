@@ -41,11 +41,11 @@
 
 /* The board's one running animation. Live rows stay still: while the transcript streams, every animated row
    (a pulse and a sweep per row) cost the GPU process about 2% of a core, about 13% for a busy board, whatever
-   the kind of animation (flow-performance `daily`, 1600 px); the head pulse alone costs about 1%. Rows still fade
-   in and out once (usePresence). */
+   the kind of animation (flow-performance `daily`, 1600 px); the head pulse alone costs about 1%. Rows still arrive
+   and leave once (useListMotion in BoardSection, usePresence): one-shot, and still afterwards. */
 .omp-work-board-pulse[data-state="working"] {
 	background: var(--sc-info);
-	animation: omp-pulse-dot 1.6s ease-in-out infinite; /* motion-ok: working signal */
+	animation: omp-pulse-dot 1.6s var(--sc-ease-loop) infinite; /* motion-ok: working signal */
 }
 
 .omp-work-board-pulse[data-state="waiting"] {
@@ -200,7 +200,6 @@ button.omp-work-board-row:focus-visible {
 	height: 12px;
 	flex: none;
 	color: var(--sc-text-subtle);
-	transition: transform var(--sc-duration-fast) var(--sc-ease-standard);
 }
 
 .omp-work-board-chevron[data-open] {
@@ -530,16 +529,11 @@ button.omp-work-board-row[data-board-opened][data-status="waiting"]:hover {
 	text-align: end;
 }
 
-/* Rows enter with a short fade and leave by fading and folding away (usePresence keeps them for 180 ms). */
-@media (prefers-reduced-motion: no-preference) {
-	.omp-work-board-item {
-		animation: omp-fade-in var(--sc-duration-fast) var(--sc-ease-standard) both;
-	}
-
-	.omp-work-board-item[data-exiting] {
-		pointer-events: none;
-		animation: omp-board-leave var(--sc-duration-fast) var(--sc-ease-standard) both;
-	}
+/* A row arrives with a rise and glides with its neighbours (useListMotion in BoardSection, keyed rows only: the first
+   render of a board plays nothing); one that leaves (usePresence keeps it for the exit token) fades and steps aside. */
+.omp-work-board-item[data-exiting] {
+	pointer-events: none;
+	animation: omp-board-leave var(--sc-duration-fast) var(--sc-ease-exit) both;
 }
 
 @keyframes omp-board-leave {
@@ -549,7 +543,7 @@ button.omp-work-board-row[data-board-opened][data-status="waiting"]:hover {
 	}
 	to {
 		opacity: 0;
-		transform: translateX(8px);
+		transform: translateX(var(--sc-motion-rise));
 	}
 }
 

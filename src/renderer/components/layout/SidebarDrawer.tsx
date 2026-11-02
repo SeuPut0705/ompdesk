@@ -39,7 +39,7 @@ export function leftActiveSession(
  */
 export function SidebarDrawer() {
 	const open = useUiStore(state => state.sidebarVisible);
-	const { mounted, closing } = useOverlayPresence(open);
+	const { mounted, closing } = useOverlayPresence(open, "med");
 	const panelRef = useRef<HTMLDivElement>(null);
 	useBackLayer(open, closeDrawer);
 

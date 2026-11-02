@@ -4,11 +4,13 @@
  */
 import { ChevronRight, type LucideIcon, Network } from "lucide-react";
 import { createContext, type ReactNode, useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useListMotion } from "../../../hooks/use-list-motion";
 import { translate, useT } from "../../../lib/i18n";
 import { revealAndFocus } from "../../../lib/reveal-focus";
 import { useUiStore } from "../../../stores/ui";
 import { useWorkBoardStore, type WorkBoardSectionId } from "../../../stores/work-board";
 import { IconButton } from "../../common";
+import { Collapse } from "../../common/Collapse";
 
 /**
  * A running row's clock: nothing in the first ten seconds, ten-second steps under a minute, then whole minutes, so a
@@ -204,6 +206,8 @@ export function BoardSection({
 			window.clearTimeout(stop);
 		};
 	}, [open]);
+	const list = useRef<HTMLUListElement>(null);
+	useListMotion(list, { selector: "li[data-flip-key]", enter: true });
 	const folded = !open;
 	const line = scope && folded ? summary : undefined;
 	return (
@@ -224,7 +228,11 @@ export function BoardSection({
 					title={t(folded ? "workBoard.expand" : "workBoard.collapse", { section: title })}
 					type="button"
 				>
-					<ChevronRight aria-hidden className="omp-work-board-chevron" data-open={!folded || undefined} />
+					<ChevronRight
+						aria-hidden
+						className="omp-disclosure-chevron omp-work-board-chevron"
+						data-open={!folded || undefined}
+					/>
 					<span className={mid || line ? "omp-work-board-zone-title" : "truncate"}>{title}</span>
 					{line ? <span className="omp-work-board-summary">{line.lead}</span> : mid}
 					{line ? (
@@ -241,7 +249,11 @@ export function BoardSection({
 					{live}
 				</span>
 			) : null}
-			{folded ? null : <ul className="omp-work-board-list">{children}</ul>}
+			<Collapse open={!folded}>
+				<ul className="omp-work-board-list" ref={list}>
+					{children}
+				</ul>
+			</Collapse>
 		</section>
 	);
 }
@@ -286,6 +298,7 @@ export function BoardRow({
 	title,
 	data,
 	exiting = false,
+	flipKey,
 	tag,
 }: {
 	lead: ReactNode;
@@ -295,6 +308,8 @@ export function BoardRow({
 	title?: string;
 	data?: Record<string, string>;
 	exiting?: boolean;
+	/** The row's identity among its section's rows: the list glides it to a new place and rises it in when it arrives. */
+	flipKey?: string;
 	/** Needs you's rows say what kind of thing they are, in a word of fixed width before the label ("Ask", "Check"). */
 	tag?: RowTag;
 	onClick?: () => void;
@@ -319,7 +334,12 @@ export function BoardRow({
 		</>
 	);
 	return (
-		<li aria-hidden={exiting || undefined} className="omp-work-board-item" data-exiting={exiting || undefined}>
+		<li
+			aria-hidden={exiting || undefined}
+			className="omp-work-board-item"
+			data-exiting={exiting || undefined}
+			data-flip-key={flipKey}
+		>
 			{onClick && action ? (
 				<div className="omp-work-board-row omp-work-board-row--split" {...data}>
 					{/* controls-ok: the omp-work-board-row-main class draws the row's own part */}

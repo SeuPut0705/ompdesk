@@ -267,9 +267,9 @@ export function SidebarUpdateCard() {
 			{row.progress !== undefined && (
 				<span
 					aria-hidden
-					className="absolute bottom-0 left-0 h-0.5 bg-(--sc-accent) transition-[width] duration-(--sc-duration-fast)"
+					className="absolute inset-x-0 bottom-0 h-0.5 origin-left bg-(--sc-accent) transition-transform duration-(--sc-duration-fast) ease-(--sc-ease-standard)"
 					data-update-progress
-					style={{ width: `${Math.max(0, Math.min(100, row.progress))}%` }}
+					style={{ transform: `scaleX(${Math.max(0, Math.min(100, row.progress)) / 100})` }}
 				/>
 			)}
 		</section>

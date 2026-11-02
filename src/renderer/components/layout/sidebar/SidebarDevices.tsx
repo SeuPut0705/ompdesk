@@ -72,6 +72,7 @@ import { BotDecisionsBadge } from "../../bot/BotDecisionsBadge";
 import { botState, tabBotFacts } from "../../bot/bot-status";
 import { RowBotAvatar } from "../../bot/RowBotAvatar";
 import { Button, IconButton, InlineNotice, ListRow, Spinner } from "../../common";
+import { Collapse } from "../../common/Collapse";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuItem, MenuButton } from "../../common/ContextMenu";
 import { TimeAgo } from "../../common/TimeAgo";
@@ -89,6 +90,7 @@ import { SortableProject } from "./SortableProject";
 import { sessionMenuItems } from "./session-menu";
 import { canMoveWithin, type SessionList, useSessionReorder } from "./session-reorder";
 import { CHILD_TOKEN, openedChildStatus } from "./sidebar-family";
+import { useSidebarListMotion } from "./use-sidebar-list-motion";
 
 const NO_TABS: readonly SessionTab[] = [];
 
@@ -367,8 +369,8 @@ export function SidebarDeviceSection({
 					<span className="sr-only">, {stateLabel}</span>
 				)}
 			</DeviceHeader>
-			{!collapsed &&
-				(showRows ? (
+			<Collapse open={!collapsed}>
+				{showRows ? (
 					<DeviceSessions
 						childForTab={childForTab}
 						host={host}
@@ -383,7 +385,8 @@ export function SidebarDeviceSection({
 						<Spinner size="sm" />
 						{stateLabel}
 					</p>
-				) : null)}
+				) : null}
+			</Collapse>
 		</section>
 	);
 }
@@ -587,6 +590,11 @@ function DeviceSessions({
 	}, [remoteTabs, tree]);
 	const archivedOpen = useSidebarFolds(s => s.deviceArchived[host.deviceId] === true);
 	const archivedShown = archivedOpen || query.length > 0;
+	const motionRef = useRef<HTMLDivElement>(null);
+	const groupDropped = useSidebarListMotion(
+		motionRef,
+		groups.map(group => group.cwd),
+	);
 
 	/** Moves a project of this host up or down; the other projects of every device keep their order. */
 	const saveGroupOrder = (next: readonly string[]) => {
@@ -607,6 +615,7 @@ function DeviceSessions({
 	const groupSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 	const onGroupDragEnd = ({ active, over }: DragEndEvent) => {
 		if (!over || active.id === over.id) return;
+		groupDropped();
 		saveGroupOrder(
 			reorderProjects(
 				groups.map(group => group.cwd),
@@ -972,7 +981,11 @@ function DeviceSessions({
 				);
 			};
 			return (
-				<div className="omp-sidebar-session-rename grid content-center py-0.5 pr-1 pl-1" key={session.path}>
+				<div
+					className="omp-sidebar-session-rename grid content-center py-0.5 pr-1 pl-1"
+					data-flip-key={`session:${session.path}`}
+					key={session.path}
+				>
 					<SidebarRenameField
 						onCancel={stopRenaming}
 						onChange={setRenameDraft}
@@ -1097,6 +1110,7 @@ function DeviceSessions({
 						// dropped on a row of its own list it moves there.
 						...(bot ? {} : reorder.rowDrag(session.path, list, tab ? { id: tab.id, shown: current } : undefined)),
 						"data-device-session": session.path,
+						"data-flip-key": `session:${session.path}`,
 						"data-sidebar-bot-row": bot || undefined,
 						"data-bot-decisions": botDecisions > 0 || undefined,
 						onContextMenu: bot
@@ -1241,7 +1255,7 @@ function DeviceSessions({
 		</>
 	);
 	return (
-		<div className="space-y-px">
+		<div className="space-y-px" ref={motionRef}>
 			{reorder.status}
 			{dialog}
 			{botShown && hostBot && renderRow(hostBot, true)}
@@ -1285,6 +1299,7 @@ function DeviceSessions({
 									<div data-device-group={group.cwd} data-project-missing={group.missing ? "" : undefined}>
 										<div
 											className="group/head flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
+											data-flip-key={`group:${group.cwd}`}
 											onContextMenu={event =>
 												setRowMenu({ ...anchorFromEvent(event), items: groupItems, label: name })
 											}
@@ -1315,7 +1330,7 @@ function DeviceSessions({
 												)}
 											</SidebarFoldButton>
 											<IconButton
-												className="omp-sidebar-project-menu pointer-events-none text-(--sc-text-subtle) opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100 hover:text-(--sc-text) [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+												className="omp-sidebar-project-menu pointer-events-none text-(--sc-text-subtle) opacity-0 transition-opacity duration-(--sc-duration-fast) ease-(--sc-ease-standard) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100 hover:text-(--sc-text) [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
 												icon={<MoreHorizontal />}
 												label={t("sidebar.groupMenu")}
 												onClick={event => {
@@ -1336,7 +1351,7 @@ function DeviceSessions({
 												tabIndex={-1}
 											/>
 										</div>
-										{!groupCollapsed && (
+										<Collapse open={!groupCollapsed}>
 											<div className="space-y-px">
 												{group.sessions.map(session => renderRow(session))}
 												<SidebarLooseChildren
@@ -1344,7 +1359,7 @@ function DeviceSessions({
 													opened={group.folded.map(familyChildFor)}
 												/>
 											</div>
-										)}
+										</Collapse>
 									</div>
 								)}
 							</SortableProject>
@@ -1369,7 +1384,10 @@ function DeviceSessions({
 			)}
 			{archivedRows.length > 0 && (
 				<section className="mt-1" data-sidebar-archived={host.deviceId}>
-					<div className="flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)">
+					<div
+						className="flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
+						data-flip-key="archived"
+					>
 						<SidebarFoldButton
 							className="text-(--sc-text-muted)"
 							data-roving-item={`device-archived:${host.deviceId}`}

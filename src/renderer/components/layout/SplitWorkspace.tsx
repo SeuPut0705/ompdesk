@@ -41,28 +41,40 @@ function placementFromPointer(event: DragEvent<HTMLDivElement>): SplitPlacement 
 	return Math.min(x, 1 - x) < Math.min(y, 1 - y) ? (x < 0.5 ? "left" : "right") : y < 0.5 ? "top" : "bottom";
 }
 
-// Where the dropped session lands: the half the new pane will occupy, inset
-// from the workspace edge so it reads as a floating panel, and the half the
-// current view is pushed into. Both morph between zones (inset transitions).
-const GHOST_INSET: Record<SplitPlacement, string> = {
-	left: "var(--sc-space-2) calc(50% + var(--sc-space-1)) var(--sc-space-2) var(--sc-space-2)",
-	right: "var(--sc-space-2) var(--sc-space-2) var(--sc-space-2) calc(50% + var(--sc-space-1))",
-	top: "var(--sc-space-2) var(--sc-space-2) calc(50% + var(--sc-space-1)) var(--sc-space-2)",
-	bottom: "calc(50% + var(--sc-space-1)) var(--sc-space-2) var(--sc-space-2) var(--sc-space-2)",
+// Where the dropped session lands: the half the new pane will occupy, inset from the workspace edge so it reads as a
+// floating panel, and the half the current view is pushed into. Each orientation has one box (the left and the top
+// one) and the opposite placement is that box translated by its own size, so a move between zones glides on `translate`
+// (a transform, on the motion tokens) and never lays out; the box itself changes only between orientations.
+const HORIZONTAL: Record<SplitPlacement, boolean> = { left: true, right: true, top: false, bottom: false };
+const GHOST_BOX = {
+	horizontal: "var(--sc-space-2) calc(50% + var(--sc-space-1)) var(--sc-space-2) var(--sc-space-2)",
+	vertical: "var(--sc-space-2) var(--sc-space-2) calc(50% + var(--sc-space-1)) var(--sc-space-2)",
+} as const;
+const PUSHED_BOX = { horizontal: "0 0 0 50%", vertical: "50% 0 0 0" } as const;
+const GHOST_SHIFT: Record<SplitPlacement, string | undefined> = {
+	left: undefined,
+	right: "calc(100% + var(--sc-space-2)) 0",
+	top: undefined,
+	bottom: "0 calc(100% + var(--sc-space-2))",
 };
-const PUSHED_INSET: Record<SplitPlacement, string> = {
-	left: "0 0 0 50%",
-	right: "0 50% 0 0",
-	top: "50% 0 0 0",
-	bottom: "0 0 50% 0",
+const PUSHED_SHIFT: Record<SplitPlacement, string | undefined> = {
+	left: undefined,
+	right: "-100% 0",
+	top: undefined,
+	bottom: "0 -100%",
 };
 
 function SplitDropPreview({ placement, replace }: { placement: SplitPlacement; replace: boolean }) {
-	const morph = "absolute transition-[inset] duration-(--sc-duration-fast) ease-(--sc-ease-standard)";
+	const morph = "absolute transition-[translate] duration-(--sc-duration-fast) ease-(--sc-ease-standard)";
+	const orientation = HORIZONTAL[placement] ? "horizontal" : "vertical";
 	return (
 		<div aria-hidden className="omp-fade-in pointer-events-none absolute inset-0 z-(--sc-z-drawer)">
 			{!replace && (
-				<div className={cx(morph, "bg-(--sc-bg) opacity-50")} style={{ inset: PUSHED_INSET[placement] }} />
+				<div
+					className={cx(morph, "bg-(--sc-bg) opacity-50")}
+					key={`pushed:${orientation}`}
+					style={{ inset: PUSHED_BOX[orientation], translate: PUSHED_SHIFT[placement] }}
+				/>
 			)}
 			<div
 				data-split-ghost={placement}
@@ -70,7 +82,12 @@ function SplitDropPreview({ placement, replace }: { placement: SplitPlacement; r
 					morph,
 					"rounded-(--sc-radius-lg) border border-(--sc-accent-border) bg-(--sc-accent-soft) shadow-(--sc-shadow-md)",
 				)}
-				style={{ inset: replace ? "var(--sc-space-2)" : GHOST_INSET[placement] }}
+				// A new box is a new element: only a move within one orientation glides, never a jump across the window.
+				key={replace ? "replace" : `ghost:${orientation}`}
+				style={{
+					inset: replace ? "var(--sc-space-2)" : GHOST_BOX[orientation],
+					translate: replace ? undefined : GHOST_SHIFT[placement],
+				}}
 			/>
 		</div>
 	);
@@ -130,7 +147,7 @@ function DragChip({ title }: { title: string }) {
 			ref={ref}
 			aria-hidden
 			data-split-drag-chip
-			className="pointer-events-none fixed top-0 left-0 z-(--sc-z-tooltip) max-w-60 truncate rounded-(--sc-radius-full) border border-(--sc-border-subtle) bg-(--sc-elevated) px-2.5 py-1 text-sc-xs font-medium text-(--sc-text) opacity-0 shadow-(--sc-shadow-md) transition-opacity duration-(--sc-duration-fast)"
+			className="pointer-events-none fixed top-0 left-0 z-(--sc-z-tooltip) max-w-60 truncate rounded-(--sc-radius-full) border border-(--sc-border-subtle) bg-(--sc-elevated) px-2.5 py-1 text-sc-xs font-medium text-(--sc-text) opacity-0 shadow-(--sc-shadow-md) transition-opacity duration-(--sc-duration-fast) ease-(--sc-ease-standard)"
 		>
 			{title}
 		</div>,
@@ -339,7 +356,7 @@ function SplitBranch({
 					node.axis === "columns" ? "cursor-col-resize" : "cursor-row-resize",
 				)}
 			>
-				<span className="pointer-events-none absolute inset-0 m-auto flex size-5 items-center justify-center rounded-full bg-(--sc-elevated) text-(--sc-text-muted) opacity-0 shadow-(--sc-shadow-sm) transition-opacity duration-(--sc-duration-fast) group-hover:opacity-100 group-focus-visible:opacity-100">
+				<span className="pointer-events-none absolute inset-0 m-auto flex size-5 items-center justify-center rounded-full bg-(--sc-elevated) text-(--sc-text-muted) opacity-0 shadow-(--sc-shadow-sm) transition-opacity duration-(--sc-duration-fast) ease-(--sc-ease-standard) group-hover:opacity-100 group-focus-visible:opacity-100">
 					{node.axis === "columns" ? (
 						<Columns2 className="size-3" aria-hidden />
 					) : (

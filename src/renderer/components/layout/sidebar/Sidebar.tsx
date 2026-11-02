@@ -8,7 +8,6 @@ import {
 	ArrowUp,
 	BarChart3,
 	Bot,
-	Check,
 	ChevronDown,
 	ChevronRight,
 	CircleHelp,
@@ -137,6 +136,7 @@ import {
 	SearchField,
 	SkeletonRows,
 } from "../../common";
+import { Collapse } from "../../common/Collapse";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../../common/ContextMenu";
 import { TimeAgo } from "../../common/TimeAgo";
@@ -151,6 +151,7 @@ import { RAIL_PIN_ICONS } from "./rail-pin-icons";
 import { SidebarChats } from "./SidebarChats";
 import { SidebarDeviceSections } from "./SidebarDeviceSections";
 import { SidebarDeviceSection, SidebarLocalHeader } from "./SidebarDevices";
+import { SidebarDoneMark } from "./SidebarDoneMark";
 import { SidebarFoldButton } from "./SidebarFoldButton";
 import { SidebarFoldSummary } from "./SidebarFoldSummary";
 import { PinMenu, type PinMenuState, pinMenuHandlers, SidebarPinsSheet } from "./SidebarPinsSheet";
@@ -168,6 +169,7 @@ import { SortableProject } from "./SortableProject";
 import { sessionMenuItems } from "./session-menu";
 import { canMoveWithin, type SessionList, useSessionReorder } from "./session-reorder";
 import { CHILD_TOKEN, isShownOpened, openedChildStatus } from "./sidebar-family";
+import { useSidebarListMotion } from "./use-sidebar-list-motion";
 import "../../../styles/sidebar.css";
 
 /**
@@ -518,6 +520,16 @@ export function Sidebar() {
 	// Roving focus: the session list is one tab stop; arrows move inside it.
 	const [focusKey, setFocusKey] = useState<string | null>(null);
 	const listRef = useRef<HTMLDivElement>(null);
+	// The list's non-scrolling content (this device's section): its rows glide in it (`useSidebarListMotion`).
+	const localMotionRef = useRef<HTMLDivElement>(null);
+	// Which sessions were listed, and whether each was already finished, as of the last commit: a ✓ that turns on for a
+	// row already on screen pops once (`SidebarDoneMark`); one that comes with the row stays still.
+	const doneBefore = useRef<ReadonlyMap<string, boolean>>(new Map());
+	const doneNow = useRef(new Map<string, boolean>());
+	useEffect(() => {
+		doneBefore.current = doneNow.current;
+		doneNow.current = new Map();
+	});
 	/** A row to focus after the next render, if focus is lost or still on the row `leaving`. */
 	const refocusRow = useRef<{ key: string; leaving?: string } | null>(null);
 	const openTab = useTabsStore(s => s.openTab);
@@ -896,6 +908,10 @@ export function Sidebar() {
 	);
 	const allGroups = useMemo(() => rows.allGroups.map(named), [rows, named]);
 	const groups = useMemo(() => rows.groups.map(named), [rows, named]);
+	const projectDropped = useSidebarListMotion(
+		localMotionRef,
+		groups.map(group => group.cwd),
+	);
 	const remoteChildrenOf = useMemo(() => {
 		const byRoot = new Map<string, SessionTab[]>();
 		for (const tab of familyTabs) {
@@ -1038,6 +1054,7 @@ export function Sidebar() {
 	};
 	const onProjectDragEnd = ({ active, over }: DragEndEvent) => {
 		if (!over || active.id === over.id) return;
+		projectDropped();
 		const prefs = useSidebarPrefs.getState();
 		void prefs.setGroupOrder(
 			withLocalProjectOrder(
@@ -1519,7 +1536,11 @@ export function Sidebar() {
 		};
 	};
 	const renderRenameField = (session: SidebarSession, key: string, tabId: string | undefined, indent: string) => (
-		<div className={cx("omp-sidebar-session-rename grid content-center py-0.5 pr-1", indent)} key={session.path}>
+		<div
+			className={cx("omp-sidebar-session-rename grid content-center py-0.5 pr-1", indent)}
+			data-flip-key={`session:${session.path}`}
+			key={session.path}
+		>
 			<SidebarRenameField
 				onCancel={() => {
 					refocusRow.current = { key };
@@ -1824,6 +1845,7 @@ export function Sidebar() {
 			waitingLabel,
 			statusLabel,
 		} = sessionRowState(session);
+		doneNow.current.set(session.path, done);
 		// An Autopilot child sits under its run's row inside the run's group (`runParentOf`).
 		const runChild = nested && variant === undefined && runParentOf.has(session.path);
 		const bot = variant === "bot";
@@ -1904,7 +1926,7 @@ export function Sidebar() {
 				)
 			: null;
 		const marker: ReactNode = done ? (
-			<Check aria-hidden className="size-(--sc-icon-sm) text-(--sc-success)" data-sidebar-done />
+			<SidebarDoneMark fresh={doneBefore.current.get(session.path) === false} />
 		) : botCondition ? (
 			<RowBotAvatar
 				avatar={botDesk.identity.avatar}
@@ -2041,6 +2063,7 @@ export function Sidebar() {
 						"data-signal": signal,
 						"data-session-path": session.path,
 						"data-session-run-child": runChild || undefined,
+						"data-flip-key": `session:${session.path}`,
 					}}
 					selected={active}
 					title={
@@ -2096,6 +2119,7 @@ export function Sidebar() {
 					<>
 						<div
 							className="group/head relative flex h-8 cursor-default items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
+							data-flip-key={`group:${group.cwd}`}
 							data-workspace-group={group.cwd}
 							data-project-missing={group.missing ? "" : undefined}
 							onContextMenu={event => setGroupMenu({ anchor: anchorFromEvent(event), group })}
@@ -2179,7 +2203,7 @@ export function Sidebar() {
 							{renamingGroupCwd !== group.cwd && (
 								<span className="omp-sidebar-project-actions relative flex shrink-0 items-center pr-1">
 									<IconButton
-										className="omp-sidebar-project-menu pointer-events-none opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+										className="omp-sidebar-project-menu pointer-events-none opacity-0 transition-opacity duration-(--sc-duration-fast) ease-(--sc-ease-standard) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
 										icon={<MoreHorizontal />}
 										label={t("sidebar.groupMenu")}
 										onClick={event => setGroupMenu({ anchor: anchorBelow(event.currentTarget), group })}
@@ -2203,15 +2227,14 @@ export function Sidebar() {
 								</span>
 							)}
 						</div>
-						{/* Collapsed groups render nothing: a long-lived install with
-				    hundreds of sessions must not build the full DOM per
-				    debounced refresh just to hide it. */}
-						{!groupCollapsed && (
+						{/* A folded group renders nothing once its fold has played (Collapse unmounts it): a long-lived
+						    install with hundreds of sessions must not build the full DOM per debounced refresh just to hide it. */}
+						<Collapse open={!groupCollapsed}>
 							<div className="space-y-px" data-session-group={group.cwd} data-state="expanded">
 								{group.sessions.map(session => renderSessionRow(session, true))}
 								<SidebarLooseChildren foldKey={`group:${group.cwd}`} opened={loose} />
 							</div>
-						)}
+						</Collapse>
 					</>
 				)}
 			</SortableProject>
@@ -2222,7 +2245,7 @@ export function Sidebar() {
 	const localList = (
 		<>
 			{reorder.status}
-			{!localFolded && (
+			<Collapse open={!localFolded}>
 				<>
 					{/* While the owner has the bot on (Settings › Bot), it sits first, above the projects and chats (agent-control/bot-home.ts keeps its session); a filter keeps it only when it names it. */}
 					{botOn &&
@@ -2319,6 +2342,7 @@ export function Sidebar() {
 						<section className="mt-3" data-sidebar-archived ref={archivedRef}>
 							<div
 								className="group/head relative flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
+								data-flip-key="archived"
 								onContextMenu={event => setArchivedMenu(anchorFromEvent(event))}
 							>
 								<button
@@ -2357,7 +2381,7 @@ export function Sidebar() {
 								</button>
 								<span className="relative flex shrink-0 items-center pr-1">
 									<IconButton
-										className="pointer-events-none opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+										className="pointer-events-none opacity-0 transition-opacity duration-(--sc-duration-fast) ease-(--sc-ease-standard) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
 										icon={<MoreHorizontal />}
 										label={t("sidebar.archivedMenu")}
 										onClick={event => setArchivedMenu(anchorBelow(event.currentTarget))}
@@ -2374,7 +2398,7 @@ export function Sidebar() {
 						</section>
 					)}
 				</>
-			)}
+			</Collapse>
 		</>
 	);
 
@@ -2482,6 +2506,7 @@ export function Sidebar() {
 									<div
 										aria-label={sectionHosts.length > 0 ? t("remote.sidebar.thisDevice") : undefined}
 										data-sidebar-local-device
+										ref={localMotionRef}
 										role={sectionHosts.length > 0 ? "region" : undefined}
 									>
 										{sectionHosts.length > 0 && (
@@ -2521,7 +2546,7 @@ export function Sidebar() {
 					aria-valuemax={SIDEBAR_WIDTH.max}
 					aria-valuemin={SIDEBAR_WIDTH.min}
 					aria-valuenow={Math.round(sidebarWidth)}
-					className="absolute inset-y-0 right-0 z-(--sc-z-raised) w-1 translate-x-1/2 cursor-col-resize transition-colors duration-(--sc-duration-fast) hover:bg-(--sc-accent-border) focus-visible:bg-(--sc-accent) active:bg-(--sc-accent)"
+					className="absolute inset-y-0 right-0 z-(--sc-z-raised) w-1 translate-x-1/2 cursor-col-resize transition-colors duration-(--sc-duration-fast) ease-(--sc-ease-standard) hover:bg-(--sc-accent-border) focus-visible:bg-(--sc-accent) active:bg-(--sc-accent)"
 					onKeyDown={event => {
 						if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
 						event.preventDefault();

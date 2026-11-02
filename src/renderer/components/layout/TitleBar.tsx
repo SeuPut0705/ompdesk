@@ -25,6 +25,7 @@ import { worktreeLabel } from "../../../shared/project-origin";
 import type { SessionStats } from "../../../shared/rpc-types";
 import { useAutoTitle } from "../../hooks/use-auto-title";
 import { useCurrentSessionTitle } from "../../hooks/use-current-session-title";
+import { useOverlayPresence } from "../../hooks/use-overlay-presence";
 import { useSessionAttention } from "../../hooks/use-session-attention";
 import { useSessionList } from "../../hooks/use-session-list";
 import { useDrawerMode } from "../../hooks/use-shell-mode";
@@ -119,13 +120,23 @@ function StatusPill({ tone, label }: { tone: StatusTone; label: string }) {
 export function WebLinkStatus() {
 	const t = useT();
 	const lost = useWebLinkLost();
-	if (!lost) return null;
-	const label = t(lost === "connecting" ? "web.connection.connecting" : "web.connection.lost");
+	const { mounted, closing } = useOverlayPresence(lost !== null, "fast");
+	// While the pill fades out it still says the last thing it said.
+	const said = useRef(lost);
+	if (lost) said.current = lost;
+	const state = lost ?? said.current;
+	if (!mounted || !state) return null;
+	const label = t(state === "connecting" ? "web.connection.connecting" : "web.connection.lost");
 	return (
 		<div
+			aria-hidden={closing || undefined}
 			aria-label={label}
-			className="omp-titlebar-status no-drag flex shrink-0 items-center px-1.5"
+			className={cx(
+				"omp-titlebar-status no-drag flex shrink-0 items-center px-1.5",
+				closing ? "omp-fade-out" : "omp-fade-in",
+			)}
 			data-tone="offline"
+			inert={closing}
 			role="status"
 			title={label}
 		>

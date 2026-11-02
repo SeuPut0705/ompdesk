@@ -85,7 +85,7 @@ export function SteerSubagentForm({ agent }: { agent: SubagentSnapshot }) {
 			}}
 		>
 			{/* The composer's own box and send button, compact: one field, one round send. */}
-			<div className="omp-composer-box flex items-end gap-1.5 rounded-(--sc-radius-xl) border border-(--sc-border-subtle) bg-(--sc-field) py-1.5 pr-1.5 pl-3 shadow-(--sc-shadow-sm) transition-[border-color,box-shadow] duration-(--sc-duration-fast)">
+			<div className="omp-composer-box flex items-end gap-1.5 rounded-(--sc-radius-xl) border border-(--sc-border-subtle) bg-(--sc-field) py-1.5 pr-1.5 pl-3 shadow-(--sc-shadow-sm) transition-[border-color,box-shadow] duration-(--sc-duration-fast) ease-(--sc-ease-standard)">
 				{/* Never `disabled` while sending: a focused disabled control swallows the keystrokes; Enter is ignored instead. */}
 				<textarea
 					aria-busy={sending || undefined}

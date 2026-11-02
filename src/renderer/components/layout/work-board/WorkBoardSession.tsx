@@ -435,6 +435,7 @@ function CheckRow({ check }: { check: LastCheck }) {
 	return (
 		<BoardRow
 			data={{ "data-board-session": "check", "data-state": check.state }}
+			flipKey="session:check"
 			label={label}
 			lead={
 				<KindMark icon={FlaskConical} tone={running ? "info" : check.state === "passed" ? "success" : "danger"} />
@@ -477,6 +478,7 @@ function ChangesRow(summary: FamilyChangesSummary) {
 	return (
 		<BoardRow
 			data={{ "data-board-session": "changes", ...(summary.parts.length > 0 ? { "data-board-family": "" } : {}) }}
+			flipKey="session:changes"
 			label={t("chat.work.filesChanged", { count, plural: plural(summary.files) })}
 			lead={<KindMark icon={FileDiff} tone="muted" />}
 			meta={meta}
@@ -492,6 +494,7 @@ function UnlandedRow(summary: UnlandedSummary) {
 	return (
 		<BoardRow
 			data={{ "data-board-session": "unlanded" }}
+			flipKey="session:unlanded"
 			label={rowWords(t, { kind: "unlanded", ...summary })}
 			lead={<KindMark icon={GitBranch} tone="muted" />}
 			meta={meta}
@@ -504,6 +507,7 @@ function DevServerRow({ url, host, command }: DevServer) {
 	return (
 		<BoardRow
 			data={{ "data-board-session": "dev-server" }}
+			flipKey="session:dev-server"
 			label={host}
 			lead={<KindMark icon={Globe} tone="success" />}
 			onClick={() => useUiStore.getState().openPreview(url)}
@@ -528,6 +532,7 @@ function PeersRow({ worktree, repo, shared, peers }: PeersSummary) {
 		<>
 			<BoardRow
 				data={{ "data-board-session": "peers", "data-open": String(open), "data-board-expands": "" }}
+				flipKey="session:peers"
 				label={rowWords(t, { kind: "peers", worktree, repo, shared, peers })}
 				lead={<KindMark icon={Users} tone="muted" />}
 				onClick={() => setOpen(!open)}
@@ -544,6 +549,7 @@ function PeersRow({ worktree, repo, shared, peers }: PeersSummary) {
 									"data-peer-scope": peer.scope,
 								}}
 								key={peer.id ?? peer.sessionPath ?? index}
+								flipKey={`session:peer:${peer.id ?? peer.sessionPath ?? index}`}
 								label={
 									<span className="text-(--sc-text-muted)">
 										{name(peer)}
@@ -587,6 +593,7 @@ function RecallRow({ titles }: { titles: string[] }) {
 		<>
 			<BoardRow
 				data={{ "data-board-session": "recall", "data-open": String(open), "data-board-expands": "" }}
+				flipKey="session:recall"
 				label={rowWords(t, { kind: "recall", titles })}
 				lead={<KindMark icon={Brain} tone="muted" />}
 				meta={rest.length > 0 ? `+${rest.length}` : undefined}
@@ -604,6 +611,7 @@ function RecallRow({ titles }: { titles: string[] }) {
 				? rest.map((title, index) => (
 						<BoardRow
 							data={{ "data-board-session": "recall-item" }}
+							flipKey={`session:recall:${index}:${title}`}
 							key={`${index}:${title}`}
 							label={<span className="text-(--sc-text-muted)">{title}</span>}
 							lead={null}
@@ -625,6 +633,7 @@ function SkillsRow({ skills }: { skills: WorkSkillOutcome[] }) {
 	return (
 		<BoardRow
 			data={{ "data-board-session": "skills" }}
+			flipKey="session:skills"
 			label={rowWords(t, { kind: "skills", skills })}
 			lead={<KindMark icon={BookOpen} tone="muted" />}
 			onClick={tabId && key ? () => requestRevealStep({ tabId, key }) : undefined}
@@ -643,6 +652,7 @@ function ProtectedRow({ protections }: { protections: WorkProtection[] }) {
 	return (
 		<BoardRow
 			data={{ "data-board-session": "protected" }}
+			flipKey="session:protected"
 			label={rowWords(t, { kind: "protected", protections })}
 			lead={<KindMark icon={Shield} tone="muted" />}
 			onClick={tabId && key ? () => requestRevealStep({ tabId, key }) : undefined}

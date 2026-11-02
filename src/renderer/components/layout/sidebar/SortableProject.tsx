@@ -2,6 +2,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { ReactNode } from "react";
 import { cx } from "../../../lib/format";
+import { motionEase, motionMs } from "../../../lib/motion";
 
 /**
  * A project group the user can drag to a new place. Pointer-only, armed after a
@@ -20,7 +21,12 @@ export function SortableProject({
 	className?: string;
 	children: (dragHandle: Record<string, unknown>) => ReactNode;
 }) {
-	const { setNodeRef, listeners, transform, transition, isDragging } = useSortable({ id, disabled });
+	// The siblings making room glide on the reflow tokens, like every other list move.
+	const { setNodeRef, listeners, transform, transition, isDragging } = useSortable({
+		id,
+		disabled,
+		transition: { duration: motionMs("med"), easing: motionEase("spring") },
+	});
 	return (
 		<div
 			className={cx(className, isDragging && "relative z-(--sc-z-raised) opacity-80")}
