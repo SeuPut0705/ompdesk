@@ -2262,7 +2262,8 @@ html[data-shell]
 		[data-device-state] > div > button,
 		[data-device-group] > div:first-child > button,
 		[data-sidebar-device-header] > button,
-		[data-starter-guide] > button
+		[data-starter-guide] > button,
+		[data-family-start-now]
 	) {
 	min-width: 36px;
 	min-height: 36px;

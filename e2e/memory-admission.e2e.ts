@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
-import { controlToolCaller, exitApp, launchApp, openedSessions, untilAnswered } from "./harness";
+import { controlToolCaller, exitApp, launchApp, openedSessions, openSidebarFamily, untilAnswered } from "./harness";
 
 // New agent work waits while this computer's memory is in danger (src/main/memory-admission.ts; the owner's rule of
 // 2 Nov 2026, after one call opened 8 sessions on a 16 GB Mac that then grew to 29.9 GB). The test launch reads its
@@ -40,6 +40,7 @@ test.beforeEach(async () => {
 		profile,
 		env: {
 			OMP_GUI_HEADLESS: "1",
+			OMP_GUI_TEST_SESSION_FILES: "1",
 			OMP_GUI_TEST_RECORD: record,
 			OMP_GUI_TEST_MEMORY: memory,
 			OMP_GUI_TEST_MEMORY_MS: "200",
@@ -96,6 +97,12 @@ test("a burst of 8 agent sessions waits for memory in order and starts by itself
 	expect(own).toMatchObject({ success: true });
 	expect((own as { data?: { memoryWait?: unknown } }).data?.memoryWait).toBeUndefined();
 	await untilAnswered(page, main);
+	// Its sidebar row now lists the eight under it: each family row says it waits for memory, with Start now.
+	await openSidebarFamily(page);
+	const familyRows = page.locator("[data-sidebar-opened-session][data-family-state='queued']");
+	await expect(familyRows).toHaveCount(8);
+	await expect(familyRows.locator("[data-family-memory-wait]")).toHaveText(Array(8).fill("Waiting for memory"));
+	await expect(familyRows.getByRole("button", { name: "Start now" })).toHaveCount(8);
 	expect(await positions(ids)).not.toContain(0);
 
 	// Memory frees: every waiting session starts by itself and answers its own brief.

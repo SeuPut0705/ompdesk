@@ -5,7 +5,16 @@ import { devices, expect, test, webkit } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
 import { fixtureTailscale } from "./fixture/fake-tailscale-install";
 import { phonePaired, ServeProxy, serveSites } from "./fixture/phone-serve";
-import { capture, controlToolCaller, exitApp, hitSizes, launchApp, openedSessions, untilAnswered } from "./harness";
+import {
+	capture,
+	controlToolCaller,
+	exitApp,
+	hitSizes,
+	launchApp,
+	openedSessions,
+	openSidebarFamily,
+	untilAnswered,
+} from "./harness";
 
 // A phone at 390 px views a session of this computer that waits for memory (src/main/memory-admission.ts; the
 // owner's rule of 2 Nov 2026): the waiting row says the same words as the desktop's, its Start now is a touch target
@@ -54,9 +63,12 @@ test("a phone at 390 px shows the memory wait the way the desktop does, with a S
 		await desk.waitForFunction(() => window.omp?.rpc != null);
 		await expect.poll(async () => (await desk.evaluate(() => window.omp.sidecar.getStatus())).status).toBe("ready");
 
-		// A session an agent opened, which the person has talked to (so it has a saved transcript and its own row in
-		// every session list). The agent's next message to it starts a turn: held while memory is short.
-		const call = await controlToolCaller(desk, record);
+		// The person's own session leads (it has a row), and the session its agent opens nests under it as a family
+		// row, which the person has talked to too. The agent's next message to it starts a turn: held while memory is short.
+		const main = (await desk.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId ?? "";
+		await desk.evaluate(id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "lead the work" }), main);
+		await untilAnswered(desk, main);
+		const call = await controlToolCaller(desk, record, main);
 		const open = await call("ompdesk_session_open", { show: "focus" });
 		expect(open.isError, open.text).toBe(false);
 		const [child] = openedSessions(open.text);
@@ -129,12 +141,17 @@ test("a phone at 390 px shows the memory wait the way the desktop does, with a S
 		expect(size?.hit.height, "Start now's tap reaches 36 px or more").toBeGreaterThanOrEqual(36);
 		await capture(phone, "phone-390-memory-wait");
 
-		// The session list says it too: the drawer's row of the waiting session carries the label (tab-signal's
-		// "Waiting for memory", read after the title).
+		// The session list says it too, on the family row under the person's session: the same words and its own Start
+		// now, a touch target.
 		await phone.locator("header button:has(svg.lucide-menu)").click();
 		const drawer = phone.locator("[data-drawer]");
 		await expect(drawer).toBeVisible();
-		await expect(drawer.getByRole("button", { name: "hello , Waiting for memory" })).toHaveCount(1);
+		await openSidebarFamily(phone);
+		const familyRow = drawer.locator(`[data-sidebar-opened-session][data-session-path="${sessionPath}"]`);
+		await expect(familyRow).toHaveAttribute("data-family-state", "queued");
+		await expect(familyRow.locator("[data-family-memory-wait]")).toHaveText("Waiting for memory");
+		const [familyStart] = await hitSizes(familyRow.getByRole("button", { name: "Start now" }));
+		expect(familyStart?.hit.height, "the family row's Start now reaches 36 px or more").toBeGreaterThanOrEqual(36);
 		await capture(phone, "phone-390-memory-wait-drawer");
 		await phone.goBack().catch(() => undefined);
 		await expect(drawer).toHaveCount(0);

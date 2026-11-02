@@ -105,12 +105,12 @@ test("sessions a device's agent opens on a host short of memory wait there, show
 	await expect(row).toContainText("Waiting for memory: 3 GB free of 16 GB · #1 in line · starts by itself");
 	await expect(row.getByRole("button", { name: "Start now" })).toBeVisible();
 	await capture(client.page, "device-waiting");
-	// The device's sidebar says it in the tooltip of each of the three rows of the sessions its agent opened (a family
-	// row draws no state word of its own for a session that has not started).
+	// The device's sidebar nests the three under the opener and says it on each family row, in words, with Start now.
 	await openSidebarFamily(client.page);
-	await expect(client.page.locator("[data-sidebar-opened-session] button[title*='Waiting for memory']")).toHaveCount(
-		3,
-	);
+	const familyRows = client.page.locator("[data-sidebar-opened-session][data-family-state='queued']");
+	await expect(familyRows).toHaveCount(3);
+	await expect(familyRows.locator("[data-family-memory-wait]")).toHaveText(Array(3).fill("Waiting for memory"));
+	await expect(familyRows.getByRole("button", { name: "Start now" })).toHaveCount(3);
 
 	// The host's own sidebar lists the sessions it runs for the device as waiting.
 	await expect(host.page.locator(".omp-session-sidebar").getByText("Waiting for memory")).toHaveCount(3, {

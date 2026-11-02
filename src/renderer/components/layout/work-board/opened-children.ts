@@ -75,8 +75,10 @@ const ORDER: Record<ChildStatus | "none", number> = {
 	failed: 1,
 	unmerged: 2,
 	running: 3,
-	none: 4,
-	done: 5,
+	// Waiting for memory: it starts by itself, after what runs.
+	queued: 4,
+	none: 5,
+	done: 6,
 };
 
 /**
@@ -118,6 +120,7 @@ export function openedChildRows(input: {
 			finished: tab.lastRun !== undefined,
 			failed,
 			unmerged,
+			memoryWait: tab.memoryWait !== undefined,
 		});
 		if (tab.sessionPath) shown.add(tab.sessionPath);
 		rows.push({

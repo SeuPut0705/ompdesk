@@ -12,15 +12,15 @@ import { isLiveSubagentStatus } from "../../panels/subagent-graph";
 /** What a child is: a subagent of the session, a session opened in a worktree, or a plain opened session. */
 export type FamilyKind = "subagent" | "worktree" | "session";
 
-/** One status token for every kind of child: running pulse, waiting ⚠, done ✓, failed ✕, ready to merge, or paused/nothing. */
-export type FamilyState = "running" | "waiting" | "done" | "failed" | "unmerged" | "idle";
+/** One status token for every kind of child: running pulse, waiting ⚠, queued for memory, done ✓, failed ✕, ready to merge, or paused/nothing. */
+export type FamilyState = "running" | "waiting" | "queued" | "done" | "failed" | "unmerged" | "idle";
 
 /**
  * What an opened session is, as ONE status: the row's token, the fold rule and the chip's counts all read it. `failed`
  * is an error or stopped ending; `unmerged` is a clean finish whose branch still holds work nothing merged (ready to
  * merge, never a failure).
  */
-export type ChildStatus = "running" | "waiting" | "done" | "failed" | "unmerged";
+export type ChildStatus = "running" | "waiting" | "queued" | "done" | "failed" | "unmerged";
 
 /** The facts a status is derived from (the sidebar reads them off the tab, the session list and the review queue). */
 export interface ChildFacts {
@@ -34,11 +34,14 @@ export interface ChildFacts {
 	failed: boolean;
 	/** Its branch holds commits nothing merged, or uncommitted work. */
 	unmerged: boolean;
+	/** Its start (an agent's message, a wake, a relaunch's continuation) waits for memory on the computer that runs it. */
+	memoryWait?: boolean;
 }
 
 /** First rule that holds wins. A session that has not run (merely open) has no status. */
 const CHILD_STATUS_RULES: ReadonlyArray<readonly [when: (facts: ChildFacts) => boolean, status: ChildStatus]> = [
 	[facts => facts.waiting, "waiting"],
+	[facts => facts.memoryWait === true, "queued"],
 	[facts => facts.running, "running"],
 	[facts => facts.finished && facts.failed, "failed"],
 	[facts => facts.finished && facts.unmerged, "unmerged"],
@@ -53,6 +56,7 @@ export function openedChildStatus(facts: ChildFacts): ChildStatus | null {
 export const CHILD_TOKEN: Readonly<Record<ChildStatus, FamilyState>> = {
 	running: "running",
 	waiting: "waiting",
+	queued: "queued",
 	done: "done",
 	failed: "failed",
 	unmerged: "unmerged",
