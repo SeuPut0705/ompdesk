@@ -3,6 +3,7 @@ import { useState } from "react";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import type { TodoSnapshot } from "../../../stores/todo";
+import { Collapse } from "../../common/Collapse";
 
 /**
  * A finished card's todo progress as its own todo call recorded it: one row, read-only, opening the list in place.
@@ -27,7 +28,7 @@ export function WorkTodoSnapshot({ snapshot }: { snapshot: TodoSnapshot | undefi
 				>
 					<ListTodo aria-hidden className="omp-live-step-icon" />
 					<span aria-hidden className="omp-work-todo-bar">
-						<span style={{ width: `${tasks.length ? (done / tasks.length) * 100 : 0}%` }} />
+						<span style={{ transform: `scaleX(${tasks.length ? done / tasks.length : 0})` }} />
 					</span>
 					<span className="omp-work-todo-count">
 						{done}/{tasks.length}
@@ -35,7 +36,7 @@ export function WorkTodoSnapshot({ snapshot }: { snapshot: TodoSnapshot | undefi
 					<span className="omp-work-todo-current">{t("dock.todo")}</span>
 					<ChevronRight aria-hidden className={cx("omp-work-card-chevron", open && "rotate-90")} />
 				</button>
-				{open ? (
+				<Collapse className="flow-root" open={open}>
 					<ul className="omp-work-todo-list">
 						{snapshot.phases.flatMap((phase, phaseIndex) =>
 							phase.tasks.map((task, taskIndex) => (
@@ -45,7 +46,7 @@ export function WorkTodoSnapshot({ snapshot }: { snapshot: TodoSnapshot | undefi
 							)),
 						)}
 					</ul>
-				) : null}
+				</Collapse>
 			</div>
 		</div>
 	);

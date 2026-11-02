@@ -107,11 +107,12 @@ describe("live terminal lines", () => {
 		]);
 	});
 
-	it("animates arrived lines only, and reduced motion still stops them", () => {
+	it("flashes arrived lines only, as an overlay's opacity, and reduced motion still stops it", () => {
 		const css = readFileSync(new URL("../../../styles/components.css", import.meta.url), "utf8");
-		const arrival = /\n([^\n{}]*)\{\s*animation: omp-work-arrival/.exec(css)?.[1]?.trim();
-		expect(arrival).toBe(".omp-work-motion .omp-bash-line:where([data-arrived])");
+		const arrival = /\n([^\n{}]*)\{[^}]*animation: omp-work-arrival/.exec(css)?.[1]?.trim();
+		expect(arrival).toBe(".omp-work-motion .omp-bash-line:where([data-arrived])::before");
+		expect(css).toMatch(/@keyframes omp-work-arrival \{\s*from \{\s*opacity: 1;\s*\}\s*to \{\s*opacity: 0;/);
 		const reduced = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)", css.indexOf(arrival ?? "")));
-		expect(reduced).toMatch(/\.omp-work-motion \.omp-bash-line,[^{]*\{\s*animation: none;/);
+		expect(reduced).toMatch(/\.omp-work-motion \.omp-bash-line::before,[^{]*\{\s*animation: none;/);
 	});
 });

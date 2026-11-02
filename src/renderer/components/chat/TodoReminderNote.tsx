@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { formatAgo, formatClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { Collapse } from "../common/Collapse";
 import type { TodoReminder } from "./todo-reminder";
 
 /**
@@ -37,7 +38,7 @@ export function TodoReminderNote({ message, reminder }: { message: AgentMessage;
 					</time>
 				)}
 			</button>
-			{open && (
+			<Collapse className="flow-root" open={open}>
 				<ul className="omp-todo-reminder-list">
 					{reminder.phases.map((phase, phaseIndex) => (
 						<li key={`${phaseIndex}:${phase.name}`}>
@@ -50,7 +51,7 @@ export function TodoReminderNote({ message, reminder }: { message: AgentMessage;
 						</li>
 					))}
 				</ul>
-			)}
+			</Collapse>
 		</>
 	);
 }

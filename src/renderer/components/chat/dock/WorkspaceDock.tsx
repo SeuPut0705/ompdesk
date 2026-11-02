@@ -16,6 +16,7 @@
 
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useOverlayPresence } from "../../../hooks/use-overlay-presence";
 import { useSubagentRosterPoll } from "../../../hooks/use-subagent-roster-poll";
 import { useT } from "../../../lib/i18n";
 import { usePlanApprovalStore } from "../../../stores/plan-approval";
@@ -51,7 +52,10 @@ function WorkspaceDockContent() {
 	const planCardVisible = useSessionStore(state => state.planModeEnabled) && !proposalPending;
 	const goalVisible = useSessionStore(state => state.goal !== null);
 	const todoVisible = useTodoStore(selectTodoCardVisible);
-	const cardsVisible = planCardVisible || todoVisible;
+	// A card that ends stays for its fade-out (`fast`, the exit class's own duration), then the stack closes up.
+	const plan = useOverlayPresence(planCardVisible, "fast");
+	const todo = useOverlayPresence(todoVisible, "fast");
+	const cardsVisible = plan.mounted || todo.mounted;
 
 	// Focused-card height: user-resizable via the drag handle above the stack,
 	// persisted across launches. null = fall back to the viewport-derived cap.
@@ -165,14 +169,14 @@ function WorkspaceDockContent() {
 							maxHeight: `min(${cap}, var(--omp-dock-room, 100dvh))`,
 						}}
 					>
-						{planCardVisible && (
+						{plan.mounted && (
 							<PanelErrorBoundary>
-								<PlanDockCard />
+								<PlanDockCard exiting={plan.closing} />
 							</PanelErrorBoundary>
 						)}
-						{todoVisible && (
+						{todo.mounted && (
 							<PanelErrorBoundary>
-								<TodoDockCard />
+								<TodoDockCard exiting={todo.closing} />
 							</PanelErrorBoundary>
 						)}
 					</div>

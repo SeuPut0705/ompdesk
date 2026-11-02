@@ -147,7 +147,14 @@ interface StepFeedbackState {
 	sending: boolean;
 }
 
-export function PlanDockCard({ presentation = "dock" }: { presentation?: "dock" | "sheet" }) {
+export function PlanDockCard({
+	presentation = "dock",
+	exiting = false,
+}: {
+	presentation?: "dock" | "sheet";
+	/** The dock keeps the card mounted while it fades out after plan mode ended. */
+	exiting?: boolean;
+}) {
 	const t = useT();
 	const rpc = useTabRpc();
 	const tabId = useRuntimeTabId();
@@ -360,11 +367,12 @@ export function PlanDockCard({ presentation = "dock" }: { presentation?: "dock" 
 	// Approval covers this plan text; a rewritten plan is up for review again.
 	const approved = approvedContent !== null && approvedContent === content;
 
-	if (!planModeEnabled && presentation === "dock") return null;
+	if (!planModeEnabled && presentation === "dock" && !exiting) return null;
 
 	const Frame = presentation === "sheet" ? PlanSheetFrame : DockCard;
 	return (
 		<Frame
+			exiting={exiting}
 			actions={
 				presentation === "sheet" ? (
 					// The sheet has no "Plan mode" badge beside the switch, so the switch carries its own visible label.

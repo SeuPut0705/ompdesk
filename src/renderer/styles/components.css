@@ -1,6 +1,6 @@
 /**
- * Component-level styles: streaming caret, pattern highlights, thinking
- * shimmer, highlight.js token mapping, and markdown body typography.
+ * Component-level styles: streaming caret, pattern highlights,
+ * highlight.js token mapping, and markdown body typography.
  */
 
 /* ---------------------------------------------------------------------------
@@ -71,36 +71,6 @@
 	border-radius: 3px;
 	padding: 0 2px;
 	font-weight: 600;
-}
-
-/* ---------------------------------------------------------------------------
- * Thinking block live state
- * ------------------------------------------------------------------------- */
-/* Live labels ("Thinking…") carry a slow highlight sweep across the muted
- * text instead of a spinner; reduced motion falls back to flat muted text. */
-.omp-thinking-shimmer {
-	color: var(--sc-text-muted);
-	font-weight: 500;
-	background: linear-gradient(
-			100deg,
-			var(--sc-text-muted) 35%,
-			var(--sc-text) 50%,
-			var(--sc-text-muted) 65%
-		)
-		0 0 / 250% 100%;
-	-webkit-background-clip: text;
-	background-clip: text;
-	-webkit-text-fill-color: transparent;
-	animation: omp-text-shimmer 2.4s linear infinite; /* motion-ok: live-work signal */
-}
-
-@keyframes omp-text-shimmer {
-	from {
-		background-position: 100% 0;
-	}
-	to {
-		background-position: 0 0;
-	}
 }
 
 /* ---------------------------------------------------------------------------
@@ -475,11 +445,6 @@
  * Reduced motion
  * ------------------------------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
-	.omp-thinking-shimmer {
-		animation: none;
-		background: none;
-		-webkit-text-fill-color: currentColor;
-	}
 	.omp-caret,
 	.omp-streaming-tail--markdown > .markdown-body > :is(p, h1, h2, h3, h4, h5, h6):last-child::after {
 		animation: none;
@@ -580,6 +545,30 @@
 	display: flow-root;
 }
 
+/* A dock card a deep link focused rings once: a pseudo-element's opacity, drawn inside the clipped card, never the
+   card's own border or shadow easing (no paint per frame). It sits above the sticky header and takes no input. */
+.omp-dock-card {
+	position: relative;
+}
+
+.omp-dock-card::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	z-index: 11;
+	border-radius: inherit;
+	box-shadow:
+		inset 0 0 0 1px var(--sc-accent),
+		inset 0 0 0 3px var(--sc-accent-soft);
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity var(--sc-duration-med) var(--sc-ease-standard);
+}
+
+.omp-dock-card[data-dock-flash]::after {
+	opacity: 1;
+}
+
 /* A plan under review: its text box gives way first, down to 7.5rem or its
    own height, so the first choice stays in view while the card is capped.
    Without calc-size (WebKit) the box keeps its height and the body scrolls. */
@@ -620,13 +609,31 @@
 }
 
 	.omp-split-workspace .omp-session-pane {
-	animation: omp-fade-in var(--omp-motion-fast) var(--omp-ease) both;
+	animation: omp-fade-in var(--sc-duration-fast) var(--sc-ease-standard) both;
 }
 
 .omp-split-divider::before {
 	content: "";
 	position: absolute;
 	inset: -4px;
+}
+
+/* The docked side panel's exit (PanelContainer `closing`, AppShell keeps it mounted for the exit token): it steps back
+   the way it came in, one step shorter. */
+.omp-inspector[data-closing] {
+	pointer-events: none;
+	animation: omp-inspector-out var(--sc-duration-fast) var(--sc-ease-exit) both;
+}
+
+@keyframes omp-inspector-out {
+	from {
+		opacity: 1;
+		transform: none;
+	}
+	to {
+		opacity: 0;
+		transform: translateX(calc(var(--sc-motion-rise) * 4));
+	}
 }
 
 .omp-workspace-main {
@@ -687,15 +694,13 @@
 @keyframes omp-whats-new-in {
 	from {
 		opacity: 0;
-		transform: translateY(8px);
+		transform: translateY(var(--sc-motion-rise));
 	}
 }
 
-/* No slide-in under reduced motion: the card is simply there. */
-@media (prefers-reduced-motion: no-preference) {
-	.omp-whats-new-card {
-		animation: omp-whats-new-in var(--sc-duration-med) var(--sc-ease-enter) both;
-	}
+/* The card rises in as its row grows (Collapse); the tokens are zero where motion is off, so it is simply there. */
+.omp-whats-new-card {
+	animation: omp-whats-new-in var(--sc-duration-med) var(--sc-ease-enter) both;
 }
 
 /* A narrow column (a phone, a slim window): the update notice is its title and See details; its sentence would take
@@ -837,19 +842,22 @@
 	position: absolute;
 	top: 50%;
 	right: var(--sc-space-1);
-	width: 8px;
+	width: 16px;
 	height: 2px;
 	border-radius: var(--sc-radius-full);
 	background: var(--sc-text-subtle);
+	/* The tick lengthens by scale (8, 14, 16 px of the 16 px box), never by width: no layout per frame. */
+	scale: 0.5 1;
 	transform: translateY(-50%);
+	transform-origin: right center;
 	transition:
-		width var(--sc-duration-fast) var(--sc-ease-standard),
+		scale var(--sc-duration-fast) var(--sc-ease-standard),
 		background-color var(--sc-duration-fast) var(--sc-ease-standard);
 }
 
 .omp-conversation-nav-marker:hover::after,
 .omp-conversation-nav-marker:focus-visible:where(:not(html[data-focus-modality="pointer"] *))::after {
-	width: 14px;
+	scale: 0.875 1;
 	background: var(--sc-text-muted);
 }
 
@@ -858,7 +866,7 @@
 }
 
 .omp-conversation-nav-marker.is-active::after {
-	width: 16px;
+	scale: 1 1;
 	background: var(--sc-text);
 }
 
@@ -1305,7 +1313,7 @@
 .omp-work-sub-shell {
 	display: grid;
 	grid-template-rows: 1fr;
-	transition: grid-template-rows var(--sc-duration-med) var(--sc-ease-standard);
+	transition: grid-template-rows var(--sc-duration-med) var(--sc-ease-standard); /* motion-ok: an always-mounted one-line shell that follows live content with no JS, which a Collapse (a measured height) cannot */
 }
 
 .omp-work-sub-shell[data-open="false"] {
@@ -1515,10 +1523,11 @@
 
 .omp-work-todo-bar > span {
 	position: absolute;
-	inset: 0 auto 0 0;
+	inset: 0;
 	border-radius: var(--sc-radius-full);
 	background: var(--sc-accent);
-	transition: width var(--sc-duration-med) var(--sc-ease-standard);
+	transform-origin: left;
+	transition: transform var(--sc-duration-med) var(--sc-ease-standard);
 }
 
 .omp-work-todo-count {
@@ -1758,7 +1767,7 @@
 .omp-work-stage-shell {
 	display: grid;
 	grid-template-rows: 0fr;
-	transition: grid-template-rows var(--sc-duration-med) var(--sc-ease-standard);
+	transition: grid-template-rows var(--sc-duration-med) var(--sc-ease-standard); /* motion-ok: the stage stays mounted and grows with the live output inside it; a Collapse's measured height would go stale */
 }
 .omp-work-stage-shell[data-open="true"] {
 	grid-template-rows: 1fr;
@@ -2815,10 +2824,10 @@ button.omp-file-chip-name:hover {
 }
 @keyframes omp-work-arrival {
 	from {
-		background: var(--sc-hover);
+		opacity: 1;
 	}
 	to {
-		background: transparent;
+		opacity: 0;
 	}
 }
 .omp-work-motion[data-state="running"]::before {
@@ -2853,9 +2862,19 @@ button.omp-file-chip-name:hover {
 	display: block;
 	min-height: 1lh;
 }
-/* Only lines that arrived on screen: a surface mounting with a log in it marks none of it.
+/* Only lines that arrived on screen: a surface mounting with a log in it marks none of it. The flash is an overlay's
+   opacity (a background would repaint the line every frame) and rests at 0, so no animation leaves nothing drawn.
    `:where` keeps the reduced-motion override below winning. */
 .omp-work-motion .omp-bash-line:where([data-arrived]) {
+	position: relative;
+}
+.omp-work-motion .omp-bash-line:where([data-arrived])::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background: var(--sc-hover);
+	opacity: 0;
+	pointer-events: none;
 	animation: omp-work-arrival var(--sc-duration-slow) var(--sc-ease-standard);
 }
 /* The caret belongs to the nearest card's own step: a lane's finished output inside a running
@@ -2879,6 +2898,7 @@ button.omp-file-chip-name:hover {
 	.omp-work-motion .omp-live-work-chip,
 	.omp-work-motion .omp-live-work-chip.omp-work-pulse,
 	.omp-work-motion .omp-bash-line,
+	.omp-work-motion .omp-bash-line::before,
 	.omp-work-motion .omp-bash-line::after,
 	.omp-work-motion pre code::after {
 		animation: none;
@@ -3172,12 +3192,25 @@ button.omp-file-chip-name:hover {
 
 /* Marked once per row key, so this never interrupts itself. The motion is on the
  * row rather than its virtual slot because the slot is positioned with an inline
- * transform the animation would overwrite. */
-.omp-transcript-editorial .omp-row-arrive > .omp-transcript-row {
-	animation: omp-fade-up var(--sc-duration-med) var(--sc-ease-enter) both;
+ * transform the animation would overwrite. The rise takes the `med` token and the
+ * row's own opacity only `fast`: a reply's words are never held back by a slow
+ * fade, and streaming text inside the row has no entrance of its own. */
+@keyframes omp-row-rise {
+	from {
+		transform: translateY(var(--sc-motion-rise));
+	}
+	to {
+		transform: none;
+	}
 }
 
-/* The rise above starts 10px low, and while it runs the tail row's transform
+.omp-transcript-editorial .omp-row-arrive > .omp-transcript-row {
+	animation:
+		omp-row-rise var(--sc-duration-med) var(--sc-ease-enter) both,
+		omp-fade-in var(--sc-duration-fast) var(--sc-ease-enter) both;
+}
+
+/* The rise above starts `--sc-motion-rise` low, and while it runs the tail row's transform
  * reaches past the canvas into the scroller's scrollable overflow; when it ends
  * the scroll height drops back and a bottom-pinned view jumps by that much. The
  * canvas already spans every row, so nothing below it is content. */
@@ -4107,7 +4140,7 @@ html[data-gpu="software"] :is(.omp-context-ring, .omp-context-ring > circle) {
 	font-variant-numeric: tabular-nums;
 }
 .omp-work-notes-item--arriving {
-	animation: omp-work-notes-fade var(--omp-motion-fast) var(--omp-ease);
+	animation: omp-work-notes-fade var(--sc-duration-fast) var(--sc-ease-standard);
 }
 @keyframes omp-work-notes-fade {
 	from { opacity: 0; }
@@ -4169,11 +4202,12 @@ html[data-gpu="software"] :is(.omp-context-ring, .omp-context-ring > circle) {
 	box-shadow: 0 0 0 9999px var(--omp-overlay-bg);
 	outline: var(--sc-focus-width) solid var(--sc-accent);
 	pointer-events: none;
+	/* A fixed spotlight moving between targets: it lays out only its own box, and a scale would stretch its ring. */
 	transition:
 		left var(--sc-duration-fast) var(--sc-ease-standard),
 		top var(--sc-duration-fast) var(--sc-ease-standard),
 		width var(--sc-duration-fast) var(--sc-ease-standard),
-		height var(--sc-duration-fast) var(--sc-ease-standard);
+		height var(--sc-duration-fast) var(--sc-ease-standard); /* motion-ok: fixed box, no page reflow */
 }
 .omp-starter-tour-card {
 	position: fixed;

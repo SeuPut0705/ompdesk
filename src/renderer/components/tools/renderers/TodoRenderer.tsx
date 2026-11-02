@@ -204,8 +204,8 @@ export function TodoRenderer({ args, result, isError, isPartial, partialResult }
 								className="h-1 flex-1 overflow-hidden rounded-full bg-[var(--omp-bg-tertiary)]" // surface-ok: progress bar track
 							>
 								<div
-									className="h-full rounded-full bg-[var(--omp-success)] transition-[width] duration-300"
-									style={{ width: `${phase.tasks.length ? (doneCount / phase.tasks.length) * 100 : 0}%` }}
+									className="h-full origin-left rounded-full bg-[var(--omp-success)] transition-transform duration-(--sc-duration-med) ease-(--sc-ease-standard)"
+									style={{ transform: `scaleX(${phase.tasks.length ? doneCount / phase.tasks.length : 0})` }}
 								/>
 							</div>
 							<span className="font-mono text-omp-xxs tabular-nums text-[var(--omp-dim)]">

@@ -17,9 +17,11 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { useFrameSelector } from "../../hooks/use-frame-selector";
 import { useMediaQuery } from "../../hooks/use-media-query";
+import { useOverlayPresence } from "../../hooks/use-overlay-presence";
 import { cx, formatDuration, formatElapsed, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useModelWait } from "../../lib/model-wait";
+import { motionAllowed } from "../../lib/motion";
 import { useNowTick } from "../../lib/now-tick";
 import { type MessagesStore, useMessagesStore } from "../../stores/messages";
 import { useSessionRuntime } from "../../stores/session-runtime-context";
@@ -33,9 +35,10 @@ import { ToolPathTarget } from "../tools/ToolCard";
 import { ChildrenAtWork, waitsOnChildren } from "./work/ChildrenAtWork";
 import { CoordinationSub } from "./work/CoordinationSub";
 import { isCoordination } from "./work/coordination";
+import { claimDoneMark } from "./work/done-mark";
 import { collapseWaitSteps, selectLiveStep, type WorkStripStep } from "./work/live-step";
 import { liveFocusTarget, revealLiveFocus, STAGE_SCROLL_KEYS } from "./work/stage-follow";
-import { useWorkFrameOutgoing, WorkCrossfade, workMotionDuration } from "./work/WorkCrossfade";
+import { useWorkFrameOutgoing, WorkCrossfade } from "./work/WorkCrossfade";
 import { SubagentSurface, WorkMap } from "./work/WorkMap";
 import { WorkMedia } from "./work/WorkMedia";
 import { WorkNotes } from "./work/WorkNotes";
@@ -585,21 +588,20 @@ export function LiveStepPeek({
 	const openedStage = useRef(false);
 	if (showSurface || shownAgent !== null) openedStage.current = true;
 	const stageOpen = !nested && (shownAgent !== null || (!outcomeMode && openedStage.current));
-	const [stagePresent, setStagePresent] = useState(stageOpen);
+	// The stage folds through its shell's transition, so it stays mounted for exactly the `med` token after it closes.
+	const { mounted: stagePresent } = useOverlayPresence(stageOpen, "med");
 	const retainedSurface = useRef<ReactNode>(null);
 	const retainedFrame = useRef<{ identity: string; agent: string | null; tool: string | null } | null>(null);
 	const [laneSlot, setLaneSlot] = useState<HTMLElement | null>(null);
+	// The head's check pops once, on the finish of a run this mount watched: a card that mounts finished (history,
+	// a scroll back) never pops, a failed or stopped run has no check to pop, and a card key pops only once.
+	const finishedWhileWatched = !nested && wasLive.current && headState === "complete";
+	const [donePop, setDonePop] = useState(false);
+	const doneKey = toolCallIds[0];
 	useLayoutEffect(() => {
-		if (stageOpen) setStagePresent(true);
-		else if (!motion) setStagePresent(false);
-		// Only a present stage has a fade to wait out. Reading the motion token
-		// (getComputedStyle) forced a style and layout pass for every finished card
-		// a scroll mounted, whose stage never opened.
-		else if (stagePresent) {
-			const timer = setTimeout(() => setStagePresent(false), workMotionDuration(boxRef.current));
-			return () => clearTimeout(timer);
-		}
-	}, [stageOpen, motion, stagePresent]);
+		if (donePop || !finishedWhileWatched || !motion || !motionAllowed()) return;
+		if (doneKey === undefined || claimDoneMark(doneKey)) setDonePop(true);
+	}, [donePop, finishedWhileWatched, motion, doneKey]);
 	const settled =
 		thinkingBetween ||
 		(!nested && following && turnIsLive && !!entry && !running && !shownAgent) ||
@@ -646,6 +648,7 @@ export function LiveStepPeek({
 											: "subagent.status.completed",
 						)}
 						motion={motion}
+						pop={donePop}
 					/>
 					<div className="omp-work-head-text">
 						{/* Keyed by what is shown, never by state or output: one fade per step. */}

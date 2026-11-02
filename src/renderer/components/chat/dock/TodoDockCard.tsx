@@ -15,7 +15,7 @@ import { buildTodoDockPeek } from "./dock-summary";
 import { TodoListEditor, useTodoTaskSummary } from "./TodoListEditor";
 import { useWorkspaceDockFocus } from "./WorkspaceDockFocus";
 
-export function TodoDockCard() {
+export function TodoDockCard({ exiting = false }: { exiting?: boolean }) {
 	const t = useT();
 	const { focusedCard, clearFocus } = useWorkspaceDockFocus();
 	const focused = focusedCard === "todo";
@@ -28,10 +28,11 @@ export function TodoDockCard() {
 		if (focused && !visible) clearFocus();
 	}, [clearFocus, focused, visible]);
 
-	if (!visible) return null;
+	if (!visible && !exiting) return null;
 
 	return (
 		<DockCard
+			exiting={exiting}
 			badge={<span className="min-w-0 truncate tabular-nums">{taskSummary}</span>}
 			icon={ListTodo}
 			id="todo"
@@ -43,8 +44,8 @@ export function TodoDockCard() {
 							className="relative h-1.5 w-16 shrink-0 overflow-hidden rounded-(--sc-radius-full) bg-(--sc-border)"
 						>
 							<span
-								className="absolute inset-y-0 left-0 rounded-(--sc-radius-full) bg-(--sc-accent) transition-[width] duration-(--sc-duration-med)"
-								style={{ width: `${(peek.done / peek.total) * 100}%` }}
+								className="absolute inset-0 origin-left rounded-(--sc-radius-full) bg-(--sc-accent) transition-transform duration-(--sc-duration-med) ease-(--sc-ease-standard)"
+								style={{ transform: `scaleX(${peek.done / peek.total})` }}
 							/>
 						</span>
 						<span className="shrink-0 tabular-nums">

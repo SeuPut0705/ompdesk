@@ -1,7 +1,10 @@
 import { Bot, GitBranch, SquareTerminal } from "lucide-react";
+import { useRef } from "react";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { useOpenedChildren } from "../../../hooks/use-opened-children";
+import { useOverlayPresence } from "../../../hooks/use-overlay-presence";
 import { ATTENTION_LABEL_KEY } from "../../../lib/attention";
+import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useSessionStore } from "../../../stores/session";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
@@ -30,32 +33,49 @@ export function WorkspaceIsland() {
 	const runtimeTabId = useRuntimeTabId();
 	const activeTabId = useTabsStore(state => state.activeTabId);
 	const tabId = runtimeTabId ?? activeTabId;
-	const working = useSubagentsStore(state => {
+	const workingNow = useSubagentsStore(state => {
 		let count = 0;
 		for (const agent of state.subagents.values()) if (WORKING_STATUSES[agent.status]) count++;
 		return count;
 	});
-	const waiting = useSubagentsStore(state => {
+	const waitingNow = useSubagentsStore(state => {
 		let count = 0;
 		for (const agent of state.subagents.values()) if (WAITING_STATUSES[agent.status]) count++;
 		return count;
 	});
 	const openJobs = useUiStore(state => state.openJobs);
-	const shells = useBackgroundJobs().length;
-	const agents = working + waiting;
+	const shellsNow = useBackgroundJobs().length;
 	const opened = useOpenedChildren(tabId);
 	// Only sessions at work or waiting: a finished one folds away like a finished subagent.
-	const sessions = opened.counts.running + opened.counts.waiting;
+	const now = {
+		working: workingNow,
+		waiting: waitingNow,
+		shells: shellsNow,
+		running: opened.counts.running,
+		needYou: opened.counts.waiting,
+	};
 	// While a turn runs the live work card says all of it (its lanes, the sessions its agent waits on): no second row.
 	const turnRuns = useSessionStore(state => state.isStreaming);
-
-	if (turnRuns || (agents === 0 && shells === 0 && sessions === 0)) return null;
+	const shown = !turnRuns && workingNow + waitingNow + shellsNow + now.running + now.needYou > 0;
+	const { mounted, closing } = useOverlayPresence(shown, "fast");
+	// The row fades out with the counts it last showed: its sources are already empty by then.
+	const remembered = useRef(now);
+	if (shown) remembered.current = now;
+	if (!mounted) return null;
+	const { working, waiting, shells, running, needYou } = remembered.current;
+	const agents = working + waiting;
+	const sessions = running + needYou;
 
 	return (
 		<section
+			aria-hidden={closing || undefined}
 			aria-label={t("dock.island.label")}
-			className="flex min-w-0 flex-wrap items-center gap-1 rounded-(--sc-radius-full) border border-(--sc-border-subtle) bg-(--sc-elevated) p-0.5"
+			className={cx(
+				"flex min-w-0 flex-wrap items-center gap-1 rounded-(--sc-radius-full) border border-(--sc-border-subtle) bg-(--sc-elevated) p-0.5",
+				closing ? "omp-fade-out" : "omp-fade-in",
+			)}
 			data-workspace-island
+			inert={closing}
 		>
 			{agents > 0 && (
 				<button
@@ -90,18 +110,18 @@ export function WorkspaceIsland() {
 				>
 					<GitBranch aria-hidden className="shrink-0 text-(--sc-text-muted)" size={14} />
 					<span className="shrink-0 font-medium text-(--sc-text)">{t("dock.island.sessions")}</span>
-					{opened.counts.running > 0 && (
+					{running > 0 && (
 						<span className="flex shrink-0 items-center gap-1 tabular-nums">
 							<span aria-hidden className="omp-pulse-dot size-1.5 rounded-full bg-(--sc-info)" />
-							{t("dock.island.working", { count: opened.counts.running })}
+							{t("dock.island.working", { count: running })}
 						</span>
 					)}
-					{opened.counts.waiting > 0 && (
+					{needYou > 0 && (
 						<span
 							className="shrink-0 rounded-(--sc-radius-full) bg-(--sc-warning-soft) px-1.5 tabular-nums text-(--sc-warning-on-soft)"
 							data-island-sessions-need-you
 						>
-							{t(ATTENTION_LABEL_KEY.childWaiting)} {opened.counts.waiting}
+							{t(ATTENTION_LABEL_KEY.childWaiting)} {needYou}
 						</span>
 					)}
 				</button>

@@ -9,6 +9,7 @@ import { selectToolEntry, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { stepIntent } from "../chat/work/work-steps";
 import { Spinner } from "../common";
+import { Collapse } from "../common/Collapse";
 import { type DiffStats, toolDiffStats } from "./diff-stats";
 import { getToolHeader, getToolRenderer } from "./index";
 import { PathLink } from "./media/PathLink";
@@ -431,7 +432,7 @@ export function ToolCard({
 					)}
 				/>
 			</button>
-			{expanded && (
+			<Collapse className="flow-root" open={expanded}>
 				<div className="omp-tool-body">
 					{thoughts?.body}
 					{/* A specialized renderer would claim "no matches" for a call that never
@@ -455,7 +456,7 @@ export function ToolCard({
 						</>
 					)}
 				</div>
-			)}
+			</Collapse>
 		</div>
 	);
 }

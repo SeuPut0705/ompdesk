@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { useMediaQuery } from "../../hooks/use-media-query";
 import { STREAM_FORMAT_FLUSH_MS, useThrottledText } from "../../hooks/use-throttled-text";
 import { useDisplayPreference } from "../../lib/display-preferences";
-import { cx, durationBetween, uiLocale } from "../../lib/format";
+import { durationBetween, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
+import { motionAllowed } from "../../lib/motion";
 import {
 	formatThinkingForDisplay,
 	hasDisplayableThinking,
@@ -13,7 +13,8 @@ import {
 } from "../../lib/thinking";
 import { useMessagesStore } from "../../stores/messages";
 import { useUiStore } from "../../stores/ui";
-import { DisclosureButton } from "../common";
+import { DisclosureButton, LiveText } from "../common";
+import { Collapse } from "../common/Collapse";
 import { formatTokenRate } from "./TurnOutputMeter";
 
 export interface ThinkingBlockProps {
@@ -79,30 +80,33 @@ export function ThinkingBlock({ text, live = false, startTime, endTime }: Thinki
 	) : null;
 
 	// ── Hidden-thinking glyph pulse ─────────────────────────────────────────
+	// A JS clock re-rendering this block, so it never starts where motion is off (reduced motion, software
+	// compositing, a hidden window): the glyph then rests on its first frame.
 	const [glyphFrame, setGlyphFrame] = useState(0);
-	const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
 	useEffect(() => {
-		if (!showPulse || reducedMotion) return;
+		if (!showPulse || !motionAllowed()) return;
 		let frame = 0;
 		let timer = setTimeout(function tick() {
-			frame += 1;
-			setGlyphFrame(frame);
+			if (motionAllowed()) {
+				frame += 1;
+				setGlyphFrame(frame);
+			}
 			timer = setTimeout(tick, thinkingGlyphFrameDelay(frame));
 		}, thinkingGlyphFrameDelay(0));
 		return () => clearTimeout(timer);
-	}, [showPulse, reducedMotion]);
+	}, [showPulse]);
 
 	if (!content) return null;
 
 	if (hideThinkingBlock) {
 		if (!showPulse) return null;
-		const glyph = THINKING_GLYPH_FRAMES[(reducedMotion ? 0 : glyphFrame) % THINKING_GLYPH_FRAMES.length] ?? "…";
+		const glyph = THINKING_GLYPH_FRAMES[glyphFrame % THINKING_GLYPH_FRAMES.length] ?? "…";
 		return (
 			<div className="omp-thinking-block omp-thinking-block--pulse flex min-h-7 items-center gap-2 px-1.5 text-sc-sm text-(--sc-text-muted)">
 				<span aria-hidden className="inline-block w-(--sc-icon-sm) text-center">
 					{glyph}
 				</span>
-				<span className="omp-thinking-state omp-thinking-shimmer">{t("chat.thinking.live")}</span>
+				<LiveText className="omp-thinking-state" state="turn" text={t("chat.thinking.live")} />
 				{gauge}
 			</div>
 		);
@@ -124,15 +128,17 @@ export function ThinkingBlock({ text, live = false, startTime, endTime }: Thinki
 				onToggle={() => setOpen(v => !v)}
 				open={open}
 			>
-				<span className={cx("omp-thinking-state font-medium", isLive && "omp-thinking-shimmer")}>
-					{t(isLive ? "chat.thinking.live" : "chat.thinking.done")}
-				</span>
+				{isLive ? (
+					<LiveText className="omp-thinking-state font-medium" state="turn" text={t("chat.thinking.live")} />
+				) : (
+					<span className="omp-thinking-state font-medium">{t("chat.thinking.done")}</span>
+				)}
 				{gauge}
 				{meta ? (
 					<span className="omp-thinking-meta -ms-1 shrink-0 tabular-nums text-(--sc-text-subtle)">· {meta}</span>
 				) : null}
 			</DisclosureButton>
-			{open ? (
+			<Collapse className="flow-root" open={open}>
 				<div className="omp-thinking-body text-sc-sm text-(--sc-text-muted)">
 					{isLive ? (
 						<div className="omp-streaming-tail">
@@ -143,7 +149,7 @@ export function ThinkingBlock({ text, live = false, startTime, endTime }: Thinki
 						<MarkdownRenderer content={formatted} />
 					)}
 				</div>
-			) : null}
+			</Collapse>
 		</div>
 	);
 }

@@ -7,6 +7,7 @@ import { useT } from "../../../lib/i18n";
 import { isRenderableMessageText } from "../../../lib/messages";
 import { useMessagesStore } from "../../../stores/messages";
 import { selectToolEntry, useToolsStore } from "../../../stores/tools";
+import { Collapse } from "../../common/Collapse";
 import { ReadGroupCard } from "../../tools/renderers/ReadGroupCard";
 import { type StepThoughts, ThoughtCount, TOOL_ROW_CLASS, ToolCard, ToolStatusIcon } from "../../tools/ToolCard";
 import { useStageCall } from "../LiveStepPeek";
@@ -218,14 +219,14 @@ const IntentGroup = memo(function IntentGroup({ group, hidden = null }: { group:
 					)}
 				/>
 			</button>
-			{open ? (
+			<Collapse className="flow-root" open={open}>
 				<div className="omp-step-group-body">
 					{thoughts ? <StepFrame>{thoughts.body}</StepFrame> : null}
 					{group.items.map(item =>
 						item.key === hidden ? null : <StepItemView hidden={hidden} inGroup item={item} key={item.key} />,
 					)}
 				</div>
-			) : null}
+			</Collapse>
 		</div>
 	);
 });

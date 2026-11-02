@@ -54,6 +54,7 @@ import { useUiStore } from "../../stores/ui";
 import { pageMayUse } from "../../web/runtime";
 import { Badge, type BadgeVariant } from "../common/Badge";
 import { Button } from "../common/Button";
+import { Collapse } from "../common/Collapse";
 import { DisclosureButton } from "../common/DisclosureButton";
 import { LinkButton } from "../common/LinkButton";
 import {
@@ -292,6 +293,7 @@ function CompletionRow({
 	meta?: string;
 	output?: string;
 }) {
+	const [open, setOpen] = useState(false);
 	const Icon = cut ? CirclePause : failed === undefined ? Zap : failed ? XCircle : CheckCircle2;
 	const content = (
 		<>
@@ -314,19 +316,30 @@ function CompletionRow({
 	const rowClass = "flex min-h-8 w-full items-center gap-2 rounded-md px-1.5 py-1 text-left";
 	if (!output) return <div className={rowClass}>{content}</div>;
 	return (
-		<details className="group">
-			<summary className={cx("omp-pressable cursor-pointer list-none", rowClass)}>
+		<div>
+			{/* controls-ok: rowClass draws the whole row, and its chevron sits at the row's end */}
+			<button
+				aria-expanded={open}
+				className={cx(
+					"cursor-pointer transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover) active:bg-(--sc-pressed)",
+					rowClass,
+				)}
+				onClick={() => setOpen(value => !value)}
+				type="button"
+			>
 				{content}
 				<ChevronRight
 					aria-hidden="true"
-					className="omp-disclosure-chevron ml-auto shrink-0 text-[var(--omp-dim)] group-open:rotate-90"
+					className={cx("omp-disclosure-chevron ml-auto shrink-0 text-[var(--omp-dim)]", open && "rotate-90")}
 					size={13}
 				/>
-			</summary>
-			<div className="pb-2 pl-6">
-				<CollapsibleText className="mt-0.5" lines={3} text={output} />
-			</div>
-		</details>
+			</button>
+			<Collapse open={open}>
+				<div className="pb-2 pl-6">
+					<CollapsibleText className="mt-0.5" lines={3} text={output} />
+				</div>
+			</Collapse>
+		</div>
 	);
 }
 
@@ -878,7 +891,7 @@ export function MemoryRecallNote({ message }: { message: AgentMessage }) {
 					{` · ${kinds}`}
 				</span>
 			</DisclosureButton>
-			{open && (
+			<Collapse className="flow-root" open={open}>
 				<ul
 					id={bodyId}
 					className="ms-[calc(var(--sc-icon-sm)+0.75rem)] mt-1 flex min-w-0 flex-col divide-y divide-(--sc-border-subtle) border-s-2 border-(--sc-border-subtle) ps-3 text-sc-sm"
@@ -894,7 +907,7 @@ export function MemoryRecallNote({ message }: { message: AgentMessage }) {
 						/>
 					))}
 				</ul>
-			)}
+			</Collapse>
 		</div>
 	);
 }
@@ -947,7 +960,7 @@ export function MailNote({ message }: { message: AgentMessage }) {
 				<span aria-hidden>·</span>
 				<span className={cx("shrink-0", waits && "text-(--sc-warning)")}>{t(`chat.custom.mail.kind.${kind}`)}</span>
 			</DisclosureButton>
-			{open && (
+			<Collapse className="flow-root" open={open}>
 				<div
 					id={bodyId}
 					className={cx(
@@ -996,7 +1009,7 @@ export function MailNote({ message }: { message: AgentMessage }) {
 						</div>
 					)}
 				</div>
-			)}
+			</Collapse>
 		</div>
 	);
 }

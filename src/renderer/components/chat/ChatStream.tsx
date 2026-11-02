@@ -38,6 +38,7 @@ import { type TodoSnapshot, useTodoStore } from "../../stores/todo";
 import { type ToolEntry, toolEntryKey, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { BrandMark, Button, JumpToLatest, Kbd, Skeleton, Spinner } from "../common";
+import { Collapse } from "../common/Collapse";
 import { FirstRunSetupSlot, useFirstRunActive } from "../onboarding/FirstRunSlot";
 import { ReadGroupCard } from "../tools/renderers/ReadGroupCard";
 import { ToolCard } from "../tools/ToolCard";
@@ -1683,7 +1684,7 @@ const TodoSnapshotCard = memo(function TodoSnapshotCard({ entry }: { entry: Todo
 					/>
 				)}
 			</button>
-			{expanded && !cleared && (
+			<Collapse className="flow-root" open={expanded && !cleared}>
 				<div className="mt-0.5 mb-1 ml-(--omp-step-rule-inset) space-y-0.5 border-l border-(--sc-divider) pl-3">
 					{entry.phases.map((phase, phaseIndex) => (
 						<div key={`${phase.name}-${phaseIndex}`}>
@@ -1723,7 +1724,7 @@ const TodoSnapshotCard = memo(function TodoSnapshotCard({ entry }: { entry: Todo
 						</div>
 					))}
 				</div>
-			)}
+			</Collapse>
 		</div>
 	);
 });

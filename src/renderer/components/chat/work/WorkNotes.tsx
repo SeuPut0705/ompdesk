@@ -5,6 +5,7 @@ import { formatAgo, formatClock } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { messageDisplayText } from "../../../lib/messages";
 import { Badge } from "../../common/Badge";
+import { Collapse } from "../../common/Collapse";
 import { LinkButton } from "../../common/LinkButton";
 import { advisorSeverityLabel, CustomMessageCard, workNoteSummary } from "../CustomMessageCard";
 import { TodoReminderNote } from "../TodoReminderNote";
@@ -121,7 +122,9 @@ export function WorkNotes({ messages, live = false }: { messages: readonly Agent
 									</time>
 								)}
 							</button>
-							{open && <CustomMessageCard inProcess message={message} />}
+							<Collapse className="flow-root" open={open}>
+								<CustomMessageCard inProcess message={message} />
+							</Collapse>
 						</li>
 					);
 				})}

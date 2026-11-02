@@ -114,11 +114,26 @@ export function agentWorkState(status: string | undefined): WorkState {
  * One status mark shared by the work head and agent lanes: a breathing accent
  * dot while running (static under reduced motion), a hollow ring while queued,
  * then a check, a cross or a dash. The label carries the state for assistive tech.
+ * `pop` plays the one-shot done mark (`.omp-done-pop`) on the head's check when its run finished in view.
  */
-export function WorkStatus({ state, label, motion }: { state: WorkState; label: string; motion: boolean }) {
+export function WorkStatus({
+	state,
+	label,
+	motion,
+	pop = false,
+}: {
+	state: WorkState;
+	label: string;
+	motion: boolean;
+	pop?: boolean;
+}) {
 	return (
 		<span
-			className={cx("omp-work-status", motion && state === "running" && "omp-work-pulse")}
+			className={cx(
+				"omp-work-status",
+				motion && state === "running" && "omp-work-pulse",
+				pop && state === "complete" && "omp-done-pop",
+			)}
 			data-state={state}
 			role="img"
 			aria-label={label}

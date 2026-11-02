@@ -506,3 +506,54 @@ it("says a request the model has not answered for a while as that wait, and thin
 		useMessagesStore.setState({ turnMeter: EMPTY_TURN_METER });
 	}
 });
+
+const doneMark = () => container.querySelector(".omp-work-head .omp-work-status");
+const finished = (id: string) => bash("echo hi", { status: "done", endTime: 2, startTime: 1, intent: id });
+
+it("pops the head's check once when a run finishes while watched, and never again", async () => {
+	await tools([["pop-live", bash("echo hi")]]);
+	await show(<LiveStepPeek thinkingLive={false} toolCallIds={["pop-live"]} />);
+	expect(doneMark()?.getAttribute("data-state")).toBe("running");
+	expect(doneMark()?.classList.contains("omp-done-pop")).toBe(false);
+	await tools([["pop-live", finished("pop-live")]]);
+	await show(<LiveStepPeek thinkingLive={false} toolCallIds={["pop-live"]} state="complete" />);
+	expect(doneMark()?.getAttribute("data-state")).toBe("complete");
+	expect(doneMark()?.classList.contains("omp-done-pop")).toBe(true);
+	// The same card key, mounted again after the finish, is history: no pop.
+	await act(async () => root.unmount());
+	root = createRoot(container as unknown as Element);
+	await show(<LiveStepPeek thinkingLive={false} toolCallIds={["pop-live"]} state="complete" />);
+	expect(doneMark()?.classList.contains("omp-done-pop")).toBe(false);
+});
+
+it("gives no pop to a card that mounts finished, a failed run or a stopped one", async () => {
+	await tools([["pop-history", finished("pop-history")]]);
+	await show(<LiveStepPeek thinkingLive={false} toolCallIds={["pop-history"]} state="complete" />);
+	expect(doneMark()?.getAttribute("data-state")).toBe("complete");
+	expect(doneMark()?.classList.contains("omp-done-pop")).toBe(false);
+	await act(async () => root.unmount());
+	for (const [state, mark] of [
+		["failed", "failed"],
+		["interrupted", "stopped"],
+	] as const) {
+		root = createRoot(container as unknown as Element);
+		const id = `pop-${state}`;
+		await tools([[id, bash("false")]]);
+		await show(<LiveStepPeek thinkingLive={false} toolCallIds={[id]} />);
+		await tools([[id, finished(id)]]);
+		await show(<LiveStepPeek thinkingLive={false} toolCallIds={[id]} state={state} />);
+		expect(doneMark()?.getAttribute("data-state")).toBe(mark);
+		expect(doneMark()?.classList.contains("omp-done-pop")).toBe(false);
+		await act(async () => root.unmount());
+	}
+	root = createRoot(container as unknown as Element);
+});
+
+it("plays no pop under reduced motion", async () => {
+	motionQuery.reduced = true;
+	await tools([["pop-reduced", bash("echo hi")]]);
+	await show(<LiveStepPeek thinkingLive={false} toolCallIds={["pop-reduced"]} />);
+	await tools([["pop-reduced", finished("pop-reduced")]]);
+	await show(<LiveStepPeek thinkingLive={false} toolCallIds={["pop-reduced"]} state="complete" />);
+	expect(doneMark()?.classList.contains("omp-done-pop")).toBe(false);
+});

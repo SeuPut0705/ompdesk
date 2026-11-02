@@ -12,6 +12,7 @@ import { useTabsStore } from "../../stores/tabs";
 import type { TodoSnapshot } from "../../stores/todo";
 import { callIdOfEntryKey, selectToolEntry, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
+import { Collapse } from "../common/Collapse";
 import { CopyButton } from "../common/CopyButton";
 import { openPeer, peerOpen, peerOverlap } from "../layout/work-board/open-peer";
 import { getToolActivity } from "../tools/index";
@@ -615,11 +616,11 @@ export function ExecutionGroup({
 				headline={headline}
 				runStartedAt={clock.startedAt}
 			/>
-			{expanded ? (
+			<Collapse open={expanded}>
 				<StepRevealContext.Provider value={reveal}>
 					<div className="omp-execution-group-body">{children}</div>
 				</StepRevealContext.Provider>
-			) : null}
+			</Collapse>
 		</section>
 	);
 }

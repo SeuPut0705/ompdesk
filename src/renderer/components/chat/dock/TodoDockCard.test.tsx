@@ -197,6 +197,13 @@ describe("TodoDockCard", () => {
 		expect(container.textContent).toContain("Finish me");
 
 		await act(async () => useTodoStore.getState().setTurnActive(false));
+		// The card leaves through its exit: still there, fading and out of reach, then gone.
+		const leaving = container.querySelector('section[aria-label="Todos"]');
+		expect(leaving?.getAttribute("aria-hidden")).toBe("true");
+		expect(leaving?.getAttribute("class")).toContain("omp-fade-out");
+		const { promise, resolve } = Promise.withResolvers<void>();
+		setTimeout(resolve, 250);
+		await act(async () => promise);
 		expect(container.textContent).not.toContain("Finish me");
 		expect(container.querySelector('section[aria-label="Todos"]')).toBeNull();
 	});

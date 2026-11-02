@@ -449,26 +449,36 @@ describe("MessageBubble completion events", () => {
 		expect(html).not.toContain("omp-custom-turn");
 	});
 
-	it("keeps background output behind one native disclosure row", () => {
-		const html = renderToStaticMarkup(
-			<I18nProvider>
-				<MessageBubble
-					message={{
-						role: "custom",
-						customType: "async-result",
-						content: "<system-notice>Background job bg-7 has completed.\nBUILD_OUTPUT</system-notice>",
-						details: { jobs: [{ jobId: "bg-7", type: "bash", label: "bun run build" }] },
-						display: true,
-						timestamp: "2026-08-20T00:00:00.000Z",
-					}}
-				/>
-			</I18nProvider>,
+	it("keeps background output behind one disclosure row that opens it", async () => {
+		const container = document.createElement("div");
+		document.body.append(container);
+		const root = createRoot(container);
+		await act(async () =>
+			root.render(
+				<I18nProvider>
+					<MessageBubble
+						message={{
+							role: "custom",
+							customType: "async-result",
+							content: "<system-notice>Background job bg-7 has completed.\nBUILD_OUTPUT</system-notice>",
+							details: { jobs: [{ jobId: "bg-7", type: "bash", label: "bun run build" }] },
+							display: true,
+							timestamp: "2026-08-20T00:00:00.000Z",
+						}}
+					/>
+				</I18nProvider>,
+			),
 		);
-		expect(html).toContain("bun run build");
-		expect(html).toContain("Background job completed");
-		expect(html).toContain("<details");
-		expect(html).not.toContain("<details open");
-		expect(html).toContain("BUILD_OUTPUT");
+		expect(container.textContent).toContain("bun run build");
+		expect(container.textContent).toContain("Background job completed");
+		const row = container.querySelector("button[aria-expanded]");
+		expect(row?.getAttribute("aria-expanded")).toBe("false");
+		expect(container.textContent).not.toContain("BUILD_OUTPUT");
+		await act(async () => row?.dispatchEvent(new Event("click", { bubbles: true })));
+		expect(row?.getAttribute("aria-expanded")).toBe("true");
+		expect(container.textContent).toContain("BUILD_OUTPUT");
+		await act(async () => root.unmount());
+		container.remove();
 	});
 });
 
@@ -748,26 +758,37 @@ describe("MessageBubble noise filtering", () => {
 		expect(html).not.toContain('role="alert"');
 	});
 
-	it("explains a failure in plain words with recovery actions and keeps the raw text as detail", () => {
-		const html = renderToStaticMarkup(
-			<I18nProvider>
-				<MessageBubble
-					message={{
-						role: "assistant",
-						content: [],
-						stopReason: "error",
-						errorMessage: "Unable to connect. Is the computer able to access the url?",
-						timestamp: at,
-					}}
-				/>
-			</I18nProvider>,
+	it("explains a failure in plain words with recovery actions and keeps the raw text as detail", async () => {
+		const container = document.createElement("div");
+		document.body.append(container);
+		const root = createRoot(container);
+		await act(async () =>
+			root.render(
+				<I18nProvider>
+					<MessageBubble
+						message={{
+							role: "assistant",
+							content: [],
+							stopReason: "error",
+							errorMessage: "Unable to connect. Is the computer able to access the url?",
+							timestamp: at,
+						}}
+					/>
+				</I18nProvider>,
+			),
 		);
+		const html = container.innerHTML;
 		expect(html).toContain("omp-message-error");
-		expect(html).toContain("Can&#x27;t connect");
+		expect(html).toContain("Can't connect");
 		expect(html).toContain("Try again");
 		expect(html).toContain("Open providers");
-		expect(html).toContain("<details");
-		expect(html).toContain("Unable to connect. Is the computer able to access the url?");
+		const detail = container.querySelector(".omp-message-error-detail button[aria-expanded]");
+		expect(detail?.getAttribute("aria-expanded")).toBe("false");
+		expect(container.textContent).not.toContain("Unable to connect. Is the computer able to access the url?");
+		await act(async () => detail?.dispatchEvent(new Event("click", { bubbles: true })));
+		expect(container.textContent).toContain("Unable to connect. Is the computer able to access the url?");
+		await act(async () => root.unmount());
+		container.remove();
 	});
 
 	it("offers compaction for a context overflow", () => {

@@ -13,6 +13,7 @@ import { useT } from "../../../lib/i18n";
 import { mergeReadGroupEntries, type ReadGroupEntry, type ReadGroupUsage } from "../../../lib/read-group";
 import { selectToolEntry, useToolsStore } from "../../../stores/tools";
 import { UsageRow } from "../../chat/UsageRow";
+import { Collapse } from "../../common/Collapse";
 import {
 	AFTER_INTENT_CLASS,
 	type RunningIndicator,
@@ -141,7 +142,7 @@ export function ReadGroupCard({
 					)}
 				/>
 			</button>
-			{open && (
+			<Collapse className="flow-root" open={open}>
 				<div className="omp-read-group-body">
 					{thoughts?.body}
 					{entries.map(entry => (
@@ -155,7 +156,7 @@ export function ReadGroupCard({
 						/>
 					))}
 				</div>
-			)}
+			</Collapse>
 			{usage?.map((item, index) => (
 				<UsageRow key={index} message={item} />
 			))}

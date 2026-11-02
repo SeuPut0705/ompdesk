@@ -1,4 +1,6 @@
 import { parseHTML } from "linkedom";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { AgentMessage } from "../../../shared/rpc-types";
@@ -14,6 +16,7 @@ globals.Event = Event;
 globals.HTMLElement = HTMLElement;
 globals.Element = Element;
 globals.Node = Node;
+globals.IS_REACT_ACT_ENVIRONMENT = true;
 
 function asyncResult(details: unknown, content = "Background job finished.\njobs/batch-1.log"): AgentMessage {
 	return { role: "custom", customType: "async-result", content, details, timestamp: 1 };
@@ -25,6 +28,26 @@ function html(message: AgentMessage): string {
 			<CustomMessageCard message={message} />
 		</I18nProvider>,
 	);
+}
+
+/** The card's markup once its disclosure row is opened: an output stays out of the page until then. */
+async function openedHtml(message: AgentMessage): Promise<string> {
+	const container = document.createElement("div");
+	document.body.append(container);
+	const root = createRoot(container as unknown as Element);
+	await act(async () =>
+		root.render(
+			<I18nProvider>
+				<CustomMessageCard message={message} />
+			</I18nProvider>,
+		),
+	);
+	const row = container.querySelector('button[aria-expanded="false"]');
+	await act(async () => row?.dispatchEvent(new Event("click", { bubbles: true })));
+	const markup = container.innerHTML;
+	await act(async () => root.unmount());
+	container.remove();
+	return markup;
 }
 
 describe("async-result card", () => {
@@ -46,10 +69,11 @@ describe("async-result card", () => {
 		expect(markup).not.toContain("[task]");
 	});
 
-	it("says whether a job's long output is open on its more-lines toggle", () => {
+	it("says whether a job's long output is open on its more-lines toggle", async () => {
 		const output = Array.from({ length: 8 }, (_, line) => `line ${line + 1}`).join("\n");
-		const markup = html(asyncResult({ jobs: [{ jobId: "batch-1", type: "bash", label: "gui tests" }] }, output));
-		expect(markup).toMatch(/<button[^>]*aria-expanded="false"[^>]*>[^<]*more line/);
+		const message = asyncResult({ jobs: [{ jobId: "batch-1", type: "bash", label: "gui tests" }] }, output);
+		expect(html(message)).not.toContain("more line");
+		expect(await openedHtml(message)).toMatch(/<button[^>]*aria-expanded="false"[^>]*>[^<]*more line/);
 	});
 
 	it("names a subagent job once when its id is its label", () => {
@@ -111,7 +135,7 @@ describe("standalone cards", () => {
 	});
 });
 
-it("previews the human summary inside stock task completion envelopes", () => {
+it("previews the human summary inside stock task completion envelopes", async () => {
 	const message = asyncResult(
 		{ jobs: [{ jobId: "AlphaCounter", type: "task", label: "AlphaCounter" }] },
 		'<system-notice>\nBackground job AlphaCounter has completed. Resume your work using the result below.\n<task-result id="AlphaCounter" agent="task" status="completed" duration="11.6s">\n<meta lines="3" size="46B" />\n<output>\n{\n  "summary": "alpha.txt contains 3 lines."\n}\n</output>\n</task-result>\n\nAlphaCounter is now idle — message it via `write agent://AlphaCounter` to follow up.\n</system-notice>',
@@ -127,7 +151,8 @@ it("previews the human summary inside stock task completion envelopes", () => {
 	expect(preview).not.toContain("system-notice");
 	expect(preview).not.toContain("task-result");
 	// Full completion details keep their existing disclosure/body renderer.
-	expect(html(message)).toContain("task-result");
+	expect(html(message)).not.toContain("task-result");
+	expect(await openedHtml(message)).toContain("task-result");
 });
 
 it("previews parsed bash delivery output and strips launch notification envelopes", () => {

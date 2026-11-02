@@ -16,6 +16,7 @@ import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { type DockCardId, isDockCardCollapsed, useUiStore } from "../../../stores/ui";
 import { Button } from "../../common";
+import { Collapse } from "../../common/Collapse";
 import { useWorkspaceDockFocus } from "./WorkspaceDockFocus";
 
 interface DockCardProps {
@@ -30,12 +31,14 @@ interface DockCardProps {
 	peek?: ReactNode;
 	/** Body content; WorkspaceDock owns vertical scrolling for every card. */
 	children: ReactNode;
+	/** The card is leaving (its dock keeps it mounted for the exit): it fades out and takes no input. */
+	exiting?: boolean;
 }
 
 /** How long the accent ring lingers after a focusDockCard deep link. */
 const FOCUS_FLASH_MS = 1200;
 
-export function DockCard({ id, icon: Icon, title, badge, actions, peek, children }: DockCardProps) {
+export function DockCard({ id, icon: Icon, title, badge, actions, peek, children, exiting = false }: DockCardProps) {
 	const t = useT();
 	const peekId = useId();
 	const collapsed = useUiStore(s => isDockCardCollapsed(s.dockCollapsed, id));
@@ -79,10 +82,13 @@ export function DockCard({ id, icon: Icon, title, badge, actions, peek, children
 			data-dock-card={id}
 			aria-label={title}
 			className={cx(
-				"omp-fade-up shrink-0 overflow-clip rounded-(--sc-radius-lg) border bg-(--sc-elevated) transition-shadow duration-(--sc-duration-med)",
-				flash ? "border-(--sc-accent) ring-2 ring-(--sc-accent-soft)" : "border-(--sc-border-subtle)",
+				"omp-dock-card shrink-0 overflow-clip rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated)",
+				exiting ? "omp-fade-out" : "omp-fade-up",
 				hiddenForFocus && "opacity-75",
 			)}
+			data-dock-flash={flash || undefined}
+			aria-hidden={exiting || undefined}
+			inert={exiting}
 			data-dock-focused={focused || undefined}
 			data-dock-expanded={expanded || undefined}
 		>
@@ -127,7 +133,9 @@ export function DockCard({ id, icon: Icon, title, badge, actions, peek, children
 				)}
 				{!hiddenForFocus && actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
 			</div>
-			{expanded && <div className="border-t border-(--sc-border-subtle)">{children}</div>}
+			<Collapse open={expanded}>
+				<div className="border-t border-(--sc-border-subtle)">{children}</div>
+			</Collapse>
 		</section>
 	);
 }

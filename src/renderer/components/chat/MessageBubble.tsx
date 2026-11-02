@@ -1,4 +1,4 @@
-import { Archive, ChevronRight, FileText, GitBranch, MoreHorizontal, Terminal } from "lucide-react";
+import { Archive, FileText, GitBranch, MoreHorizontal, Terminal } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useState } from "react";
 import { MAIL_CUSTOM_TYPE } from "../../../../resources/gui-bridge/agent-control-contracts";
@@ -22,6 +22,7 @@ import { toast, toastError } from "../../stores/toast";
 import { toolEntryKey } from "../../stores/tools";
 import { AssistantMarkdown } from "../bot/AssistantMarkdown";
 import { Badge, Button, CopyButton, DisclosureButton, IconButton, MenuButton } from "../common";
+import { Collapse } from "../common/Collapse";
 import type { GalleryImage } from "../common/ZoomableImage";
 import { isAbsoluteChatPath, referencedFiles } from "../tools/media/chat-media";
 import { ToolImage } from "../tools/media/ToolImage";
@@ -183,6 +184,42 @@ function ExecutionBubble({ message }: { message: AgentMessage }) {
 	);
 }
 
+/** One file the prompt mentioned: its path as the row, its content under it once opened. */
+function MentionedFile({ file }: { file: NonNullable<AgentMessage["files"]>[number] }) {
+	const t = useT();
+	const [open, setOpen] = useState(false);
+	return (
+		<div className="overflow-hidden rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-surface-1)">
+			<DisclosureButton
+				chevronClassName="size-(--sc-icon-sm) text-(--sc-text-subtle)"
+				className="px-3 py-2 font-mono text-sc-sm text-(--sc-text)"
+				onToggle={() => setOpen(value => !value)}
+				open={open}
+			>
+				<span className="min-w-0 break-all">
+					{file.path}
+					{file.skippedReason ? (
+						<span className="font-(family-name:--sc-font-sans) text-(--sc-text-muted)">
+							{` — ${file.skippedReason}`}
+						</span>
+					) : null}
+				</span>
+			</DisclosureButton>
+			<Collapse open={open}>
+				<pre
+					className={cx(
+						"border-t border-(--sc-divider) px-3 py-2.5 font-mono text-sc-xs break-words whitespace-pre-wrap text-(--sc-text-secondary)",
+						PREVIEW_SCROLL_LG,
+					)}
+				>
+					{file.content.slice(0, FILE_PREVIEW_CHARS)}
+					{file.content.length > FILE_PREVIEW_CHARS ? `\n${t("chat.context.previewTruncated")}` : ""}
+				</pre>
+			</Collapse>
+		</div>
+	);
+}
+
 function ContextBubble({ message }: { message: AgentMessage }) {
 	const t = useT();
 	const [expanded, setExpanded] = useState(false);
@@ -221,34 +258,7 @@ function ContextBubble({ message }: { message: AgentMessage }) {
 				{isFiles ? (
 					<div className="space-y-1.5">
 						{(message.files ?? []).map(file => (
-							<details
-								className="group overflow-hidden rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-surface-1)"
-								key={file.path}
-							>
-								<summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 font-mono text-sc-sm text-(--sc-text) [&::-webkit-details-marker]:hidden">
-									<ChevronRight
-										aria-hidden
-										className="omp-disclosure-chevron size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle) group-open:rotate-90"
-									/>
-									<span className="min-w-0 break-all">
-										{file.path}
-										{file.skippedReason ? (
-											<span className="font-(family-name:--sc-font-sans) text-(--sc-text-muted)">
-												{` — ${file.skippedReason}`}
-											</span>
-										) : null}
-									</span>
-								</summary>
-								<pre
-									className={cx(
-										"border-t border-(--sc-divider) px-3 py-2.5 font-mono text-sc-xs break-words whitespace-pre-wrap text-(--sc-text-secondary)",
-										PREVIEW_SCROLL_LG,
-									)}
-								>
-									{file.content.slice(0, FILE_PREVIEW_CHARS)}
-									{file.content.length > FILE_PREVIEW_CHARS ? `\n${t("chat.context.previewTruncated")}` : ""}
-								</pre>
-							</details>
+							<MentionedFile file={file} key={file.path} />
 						))}
 					</div>
 				) : message.role === "branchSummary" ? (
@@ -275,11 +285,11 @@ function ContextBubble({ message }: { message: AgentMessage }) {
 								>
 									{t("chat.context.details")}
 								</DisclosureButton>
-								{expanded && (
+								<Collapse className="flow-root" open={expanded}>
 									<div className={cx("mt-2", PREVIEW_SCROLL_LG)}>
 										<MarkdownRenderer content={message.summary} />
 									</div>
-								)}
+								</Collapse>
 							</>
 						)}
 					</>

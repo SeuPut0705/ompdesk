@@ -49,6 +49,11 @@ async function mount(element: ReactElement): Promise<void> {
 	root = createRoot(container as unknown as Element);
 	await act(async () => root.render(<I18nProvider>{element}</I18nProvider>));
 }
+/** The row's output stays out of the page until its disclosure opens. */
+async function openRow(): Promise<void> {
+	const row = (container as unknown as Element).querySelector('button[aria-expanded="false"]');
+	await act(async () => row?.dispatchEvent(new Event("click", { bubbles: true })));
+}
 
 afterEach(async () => {
 	await act(async () => root.unmount());
@@ -67,6 +72,7 @@ describe("an async-result row of a subagent a restart cut", () => {
 		useMessagesStore.setState({ messages: [named, message], liveMessages: [] });
 		await mount(<CustomMessageCard message={message} />);
 		expect(container.textContent).toContain(label);
+		await openRow();
 		expect(container.textContent).toContain("bash: probing the stream");
 		expect(container.textContent).not.toContain("SYSTEM WARNING");
 		expect(container.textContent).not.toContain("353ms");
@@ -81,6 +87,7 @@ describe("an async-result row of a subagent a restart cut", () => {
 			liveMessages: [],
 		});
 		await mount(<CustomMessageCard message={message} />);
+		await openRow();
 		expect(container.textContent).toContain("Split the layout");
 		await act(async () => root.unmount());
 		container.remove();

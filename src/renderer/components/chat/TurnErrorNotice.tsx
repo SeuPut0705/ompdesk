@@ -17,7 +17,8 @@ import { sessionRuntime, useRuntimeTabId } from "../../stores/session-runtime-co
 import { useAwaitingConnection, useScheduledRetry } from "../../stores/tabs";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Banner, Button } from "../common";
+import { Banner, Button, DisclosureButton } from "../common";
+import { Collapse } from "../common/Collapse";
 
 const ACTION_LABEL_KEYS: Record<TurnErrorAction, string> = {
 	retry: "turnError.action.retry",
@@ -51,6 +52,7 @@ export function TurnErrorNotice({
 	const awaitingConnection = useAwaitingConnection();
 	const retrying = useSessionStore(state => state.retryInfo !== null);
 	const [pending, setPending] = useState<TurnErrorAction | null>(null);
+	const [detailOpen, setDetailOpen] = useState(false);
 	const description = describeTurnError(errorMessage, stopReason);
 	// A run's messages stay live (uncommitted) until its terminal end, and stock's retry saga is one run:
 	// its failed attempts are live messages, so both checks read the live tail before the committed one.
@@ -245,14 +247,22 @@ export function TurnErrorNotice({
 				</p>
 			) : null}
 			{description.detail ? (
-				<details className="omp-message-error-detail mt-1.5">
-					<summary className="cursor-pointer text-sc-sm text-(--sc-text-muted) hover:text-(--sc-text)">
+				<div className="omp-message-error-detail mt-1.5">
+					<DisclosureButton
+						chevronClassName="size-(--sc-icon-sm) text-(--sc-text-subtle)"
+						className="-ms-1 min-h-7 rounded-(--sc-radius-sm) px-1 text-sc-sm text-(--sc-text-muted) transition-colors duration-(--sc-duration-instant) hover:text-(--sc-text)"
+						inline
+						onToggle={() => setDetailOpen(open => !open)}
+						open={detailOpen}
+					>
 						{t("turnError.details")}
-					</summary>
-					<pre className="mt-1.5 max-h-40 overflow-auto font-mono text-sc-xs break-words whitespace-pre-wrap text-(--sc-text-secondary)">
-						{description.detail}
-					</pre>
-				</details>
+					</DisclosureButton>
+					<Collapse className="flow-root" open={detailOpen}>
+						<pre className="mt-1.5 max-h-40 overflow-auto font-mono text-sc-xs break-words whitespace-pre-wrap text-(--sc-text-secondary)">
+							{description.detail}
+						</pre>
+					</Collapse>
+				</div>
 			) : null}
 		</Banner>
 	);
