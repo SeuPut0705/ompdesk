@@ -1856,6 +1856,8 @@ describe("LocalHostServices", () => {
 				})),
 				startNow,
 				blockedOn: vi.fn(),
+				turnEnded: vi.fn(),
+				forgetTab: vi.fn(),
 			},
 		});
 		const x = new FakeConnection(peer("device-x"));

@@ -307,7 +307,7 @@ export interface HostServicesDeps {
 	/** This computer's Mobile web address while it serves phones (`MobileWebState.url`), else null. */
 	mobileWebUrl?: () => string | null;
 	/** This computer's memory admission (memory-admission.ts): a device's agent work here waits on it. */
-	memoryAdmission?: Pick<MemoryAdmission, "deliver" | "status" | "startNow" | "blockedOn">;
+	memoryAdmission?: Pick<MemoryAdmission, "deliver" | "status" | "startNow" | "blockedOn" | "turnEnded" | "forgetTab">;
 	/** Where a device's attached files land (`host.files.upload`): the phones' upload folder, same limits and lifetime. */
 	uploads?: Pick<UploadStore, "store">;
 }
@@ -2097,17 +2097,22 @@ export class LocalHostServices implements HostServices {
 	 */
 	#trackRun(tab: HostTab): void {
 		const { sidecar } = tab;
-		/** `apply` says whether it changed a resume fact beyond busy (a run's end, a retry, an ask). */
-		const change = (apply: () => boolean): void => {
+		/**
+		 * `apply` says whether it changed a resume fact beyond busy (a run's end, a retry, an ask); `ended`, whether a turn
+		 * ended inside it, a fast one that started there too.
+		 */
+		const change = (apply: () => boolean, ended?: () => boolean): void => {
 			const was = runBusy(tab.run);
 			const news = apply();
-			const busyChanged = runBusy(tab.run) !== was;
-			if (busyChanged) {
+			const busy = runBusy(tab.run);
+			if (busy !== was) {
 				this.#runningChanged();
 				this.#scheduleOmpRestart(tab);
 				this.#scheduleExtensionApply(tab);
 			}
-			if (busyChanged || news) this.#resume?.sync();
+			if (busy !== was || news) this.#resume?.sync();
+			// The turn grows no more, so the memory its start reserved is free again (the pool tells of its own tabs).
+			if (!busy && (was || ended?.()) && !tab.viewsWindow) this.#deps.memoryAdmission?.turnEnded(tab.resumeId);
 		};
 		// "Running" only means something on a live connection: a restart or crash ends the run,
 		// and the asks it had open: the next process never heard of them. Windows ending the session
@@ -2136,12 +2141,18 @@ export class LocalHostServices implements HostServices {
 			}),
 		);
 		sidecar.on("events", (events: AgentSessionEvent[]) => {
-			change(() => {
-				// A fast turn can start and end inside one batch: busy never changes, yet its outcome is news.
-				let news = false;
-				for (const event of events) if (trackRunEvent(tab, event) || event.type === "auto_retry_start") news = true;
-				return news;
-			});
+			let ended = false;
+			change(
+				() => {
+					// A fast turn can start and end inside one batch: busy never changes, yet its outcome is news.
+					let news = false;
+					for (const event of events)
+						if (trackRunEvent(tab, event)) news = ended = true;
+						else if (event.type === "auto_retry_start") news = true;
+					return news;
+				},
+				() => ended,
+			);
 			// A tab a window shows is counted by the pool; a device's own tab waits on this computer's account too.
 			if (!tab.viewsWindow) this.#deps.localTabs.modelWait?.observe(`hosted:${tab.resumeId}`, "", events);
 			// A device's view of an Autopilot run it started here counts nothing: the run itself is charged (`runEvents`).
@@ -2717,6 +2728,7 @@ export class LocalHostServices implements HostServices {
 		if (!tab) return;
 		this.#tabs.delete(key);
 		this.#deps.localTabs.modelWait?.forget(`hosted:${tab.resumeId}`);
+		if (!tab.viewsWindow) this.#deps.memoryAdmission?.forgetTab(tab.resumeId);
 		clearTimeout(tab.graceTimer);
 		tab.conn = null;
 		// The windows here that show it close their tab first, quietly, while its omp still runs.
