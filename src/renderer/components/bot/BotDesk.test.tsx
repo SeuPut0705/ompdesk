@@ -354,6 +354,8 @@ describe("the bot's desk", () => {
 		]);
 		expect(query('[data-bot-routine="w3"]')?.textContent).toContain(translate("botHome.routines.off"));
 		expect(query("[data-bot-bar] [data-bot-name]")?.textContent).toBe("Jarvis");
+		// A name the bar cuts stays whole in its tooltip.
+		expect(query("[data-bot-bar] [data-bot-name]")?.getAttribute("title")).toBe("Jarvis");
 		expect(query("[data-bot-state]")?.getAttribute("data-bot-state")).toBe("idle");
 		expect(query("[data-bot-device]")?.textContent).toBe(translate("botHome.device", { device: "SeuPut's Mac" }));
 		// The earliest of the three, not the first listed.

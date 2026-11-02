@@ -110,7 +110,9 @@ export function BotBar({ tabId, device, channel }: { tabId: string; device?: str
 		<header className={BOT_BAR_FRAME.outer} data-bot-bar="">
 			<div className={BOT_BAR_FRAME.inner}>
 				<BotAvatar avatar={identity.avatar} motion={motion} size="md" />
-				<h2 className="min-w-12 shrink truncate text-sc-md font-semibold text-(--sc-text)" data-bot-name>
+				{/* A long name ellipsizes (the 390 px bar has room for a few letters); its whole text is the tooltip and, being
+				    the heading's own text, its accessible name. */}
+				<h2 className="shrink truncate text-sc-md font-semibold text-(--sc-text)" data-bot-name title={name}>
 					{name}
 				</h2>
 				{identity.tagline && (

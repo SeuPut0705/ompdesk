@@ -3222,6 +3222,12 @@ button.omp-file-chip-name:hover {
 	max-width: 100%;
 }
 
+/* The bot's bar lays its row out in the shell: its name keeps room for a few letters ("Bot" whole) while the wake and
+   computer texts give way first. The rule above zeroed it, so a phone cut "Bot" to "B…". */
+.omp-composer-shell > [data-bot-name] {
+	min-width: 3rem;
+}
+
 /* The transcript above keeps a stable scrollbar gutter; reserving the same
    gutter here centers the composer on the transcript's reading column, so
    both share one left edge and the prompt bubbles end on its right edge. */

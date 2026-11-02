@@ -1041,7 +1041,9 @@ function SessionTranscript() {
 					!switchPending &&
 					!(pageError && knownSession) &&
 					!firstRunActive && (
-						<div className="omp-empty-canvas flex min-h-full flex-col justify-center pb-20">
+						// `safe`: taller than the pane (a phone with the bot's bar, strip and decisions), plain centring spilled
+						// the top over the scroller's edge, out of reach, and left a sliver of the logo under the strip.
+						<div className="omp-empty-canvas flex min-h-full flex-col justify-center-safe pb-20">
 							<BrandMark size={36} className="omp-empty-logo mb-5 text-(--sc-text)" />
 							<h1 className="font-display text-sc-3xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)">
 								{isChat ? t("chat.empty.title.chat") : t("chat.empty.title")}
