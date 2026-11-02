@@ -21,7 +21,12 @@ const work = path.join(home, "work");
 let child: ChildProcessWithoutNullStreams | null = null;
 
 afterAll(async () => {
-	child?.kill();
+	// Windows refuses to delete history.db's files while the worker still has them open (EBUSY): it must be gone first.
+	if (child && child.exitCode === null && child.signalCode === null) {
+		const exited = once(child, "exit");
+		child.kill();
+		await exited;
+	}
 	await fs.rm(home, { recursive: true, force: true });
 });
 

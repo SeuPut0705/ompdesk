@@ -5,6 +5,7 @@
  * has one, runs against a throwaway agent dir seeded with two API-key credentials.
  */
 import { type ChildProcessWithoutNullStreams, spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import { existsSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -15,7 +16,16 @@ import { afterEach, describe, expect, it } from "vitest";
 const tempDirs: string[] = [];
 const children: ChildProcessWithoutNullStreams[] = [];
 afterEach(async () => {
-	for (const child of children.splice(0)) child.kill();
+	// Windows refuses to delete a file a live worker holds (the agent dir's databases, the native module it loaded from
+	// a private HOME): every worker is gone before its folders go.
+	await Promise.all(
+		children.splice(0).map(async child => {
+			if (child.exitCode !== null || child.signalCode !== null) return;
+			const exited = once(child, "exit");
+			child.kill();
+			await exited;
+		}),
+	);
 	await Promise.all(tempDirs.splice(0).map(dir => fs.rm(dir, { recursive: true, force: true })));
 });
 
