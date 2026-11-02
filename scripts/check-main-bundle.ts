@@ -234,7 +234,11 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // MemoryStick glyph) and `window.omp.memory`: measured 3,273,813, 3,390 bytes over the measure above.
 // A family row says it waits for memory in words, with Start now (`FamilyRow` `memoryWait`, status `queued`):
 // measured 3,275,138, 1,325 bytes over the measure above.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_275_800;
+// What a person sends while the computer is out of reach waits (2 Nov 2026): the outbox store and its delivery
+// (`stores/outbox.ts`, `lib/outbox-delivery.ts`), the composer's "Will send when connected" row (`ComposerOutbox`, its
+// glyphs) and the strings. It stays in the first screen: a page reloaded offline must show and send what waits
+// without fetching a chunk: measured 3,288,191, 13,053 bytes over the measure above.
+const WEB_FIRST_SCREEN_JS_BYTES = 3_288_700;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

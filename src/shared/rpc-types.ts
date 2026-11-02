@@ -55,7 +55,18 @@ export interface StopOrigin {
 
 export type RpcCommand =
 	| { id?: string; type: "negotiate_protocol"; protocolVersion: number }
-	| { id?: string; type: "prompt"; message: string; images?: ImageContent[]; streamingBehavior?: "steer" | "followUp" }
+	| {
+			id?: string;
+			type: "prompt";
+			message: string;
+			images?: ImageContent[];
+			streamingBehavior?: "steer" | "followUp";
+			/**
+			 * A message a page or a paired computer held while its link was down (renderer lib/outbox-delivery.ts): every
+			 * try of it carries the same id, and the computer running the tab hands it to omp once (main delivery-ledger.ts).
+			 */
+			deliveryId?: string;
+	  }
 	| { id?: string; type: "steer"; message: string; images?: ImageContent[] }
 	| { id?: string; type: "follow_up"; message: string; images?: ImageContent[] }
 	| { id?: string; type: "abort"; origin?: StopOrigin }

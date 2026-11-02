@@ -2,26 +2,34 @@ import { useCallback, useEffect } from "react";
 import { ipcErrorCode } from "../../shared/ipc-error-codes";
 import type { ExtensionUIResponse } from "../../shared/rpc-types";
 import { translate } from "../lib/i18n";
+import { holdAnswer, sendsHeld } from "../lib/outbox-delivery";
 import { useRuntimeTabId } from "../stores/session-runtime-context";
 import {
 	endTabSignIn,
 	pushTabExtensionUiRequest,
 	restoreTabExtensionUiRequests,
 	setTabSignInRelay,
+	useTabsStore,
 } from "../stores/tabs";
 import { toast, toastError } from "../stores/toast";
 
 /**
  * Answers stay attached to the originating process, even when request ids collide. The promise
- * resolves true once main handed the answer on, or once the ask turned out to be answered already by
- * another device (`already_answered`: the caller closes the card for good and the reader is told so);
- * false when it could not (a paired host's tab while its link is down): the caller keeps the card
- * open and a toast says why.
+ * resolves true once main handed the answer on, once the ask turned out to be answered already by
+ * another device (`already_answered`: the caller closes the card for good and the reader is told so),
+ * or once the answer waits in the outbox because the link to the computer running the tab is down
+ * (lib/outbox-delivery.ts sends it when the link is back); false when it could not: the caller keeps
+ * the card open and a toast says why.
  */
 export function useExtensionUiResponder(): (response: ExtensionUIResponse) => Promise<boolean> {
 	const tabId = useRuntimeTabId();
 	return useCallback(
 		async (response: ExtensionUIResponse) => {
+			const tab = useTabsStore.getState().tabs.find(entry => entry.id === tabId);
+			if (tab && sendsHeld(tab)) {
+				holdAnswer(tab, response);
+				return true;
+			}
 			try {
 				if (tabId) await window.omp.ui.respondExtensionUi(response, tabId);
 				else await window.omp.ui.respondExtensionUi(response);

@@ -81,6 +81,7 @@ import { canonicalCwd } from "../canonical-cwd";
 import type { CheckoutMember } from "../checkout-peers";
 import { controlEnvFor } from "../control-socket/env";
 import { deletedSessions } from "../deleted-sessions";
+import { deliverOnce } from "../delivery-ledger";
 import { discardOpenedWorktree, savedWorktreesForSpawn } from "../disk/saved-worktrees";
 import { type ExtensionApplyPlan, extensionApplyDecision, mergeApplyPlans } from "../extension-reload";
 import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from "../launch-profile-store";
@@ -2320,6 +2321,11 @@ export class LocalHostServices implements HostServices {
 	}
 
 	async #command(peer: PeerInfo, params: z.infer<typeof CommandParams>, admitted = false): Promise<RpcResponse> {
+		// A message the device held while its link was down may come again (its answer was lost): omp gets it once
+		// (delivery-ledger.ts).
+		const { deliveryId, ...rest } = params.command;
+		if (typeof deliveryId === "string" && deliveryId)
+			return deliverOnce(deliveryId, () => this.#command(peer, { ...params, command: rest }, admitted));
 		const tab = this.#tab(peer, params.rtab);
 		const client = tab.sidecar.rpcClient;
 		if (!client) throw codedError("sidecar_not_connected", "Sidecar not connected");

@@ -80,6 +80,7 @@ import { type AwaitedInput, awaitedInput, type ExtensionUiStore } from "./extens
 import { useForkHandoffStore } from "./fork-handoff";
 import type { MessagesStore } from "./messages";
 import { useNextPromptStore } from "./next-prompt";
+import { answerHeld } from "./outbox";
 import {
 	type PendingPlanProposal,
 	type PlanApprovalSnapshot,
@@ -1476,6 +1477,8 @@ export function pushTabExtensionUiRequest(
 		return;
 	}
 	if (!state || state.pendingRequests.some(pending => pending.id === request.id)) return;
+	// This page answered it while the link was down: the answer waits in the outbox, and the card stays closed.
+	if (answerHeld(tabId, request.id)) return;
 	if (!signIn) state.pushRequest(request);
 	else if (signIn.active) {
 		state.adoptLogin(signIn);

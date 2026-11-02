@@ -10,6 +10,7 @@ import { composerEnterNewline } from "../../../lib/hardware-keyboard";
 import { useT } from "../../../lib/i18n";
 import { parseComposerMode } from "../../../lib/input-modes";
 import { abortActiveTurn } from "../../../lib/messages";
+import { useSendsHeld } from "../../../lib/outbox-delivery";
 import { parseQueueShorthand, splitQueuedMessages } from "../../../lib/queue-input";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { type ComposerStore, useComposerStore } from "../../../stores/composer";
@@ -28,6 +29,7 @@ import { ComposerAttachments } from "./ComposerAttachments";
 import { ComposerExpandedHeader, useExternalEditor } from "./ComposerExpandedHeader";
 import { ComposerField, ComposerFieldHint } from "./ComposerField";
 import { ComposerLiveSweep } from "./ComposerLive";
+import { ComposerOutbox } from "./ComposerOutbox";
 import { ComposerPickers } from "./ComposerPickers";
 import { ComposerQueueLive, ComposerQueuePill } from "./ComposerQueue";
 import { ComposerEditBanner, useComposerQueueEdit } from "./ComposerQueueEdit";
@@ -69,8 +71,12 @@ export function InputArea() {
 	/** A chat tab only differs in wording: it has no project to work in. */
 	const isChat = useActiveTabKind() === "chat";
 	const status = useSessionStore(s => s.status);
-	// Another omp still holds the session: the tab opens it by itself, so a message waits for it as for a start.
-	const sendStatus = useSessionStore(s => (s.status === "error" && s.sidecarHeld ? "starting" : s.status));
+	// Another omp still holds the session: the tab opens it by itself, so a message waits for it as for a start. A tab
+	// whose computer is out of reach takes a message too: it waits in the outbox until the link is back.
+	const sendsHeld = useSendsHeld(runtimeTabId);
+	const sendStatus = useSessionStore(s =>
+		sendsHeld ? "ready" : s.status === "error" && s.sidecarHeld ? "starting" : s.status,
+	);
 	const sessionId = useSessionStore(s => s.sessionId);
 	const queuedMessageCount = useSessionStore(s => s.queuedMessageCount);
 	const cwd = useSessionStore(s => s.cwd);
@@ -489,6 +495,7 @@ export function InputArea() {
 						)}
 						<ComposerEditBanner onCancel={cancelQueueEdit} />
 						<ComposerRestoredQueue onSettled={focusField} />
+						<ComposerOutbox onSettled={focusField} />
 						<ComposerAttachments
 							images={images}
 							placeDraft={placeDraft}

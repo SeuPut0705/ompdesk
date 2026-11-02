@@ -54,7 +54,7 @@ Code: `lib/messages.ts` (`abortActiveTurn`, `stopFromEscape`, `restoreAbortedQue
 
 `layout/composer/`; `InputArea.tsx` only wires state and lays out; one concern per file.
 
-- Views: `ComposerToolbar` (memoised: scalar props, stable handlers via `use-stable-callback.ts`, so typing does not re-render it), `RunChip` (+ `RunSettings.tsx`), `ComposerSheet`, `ComposerQueue.tsx`, `ComposerQueueEdit`, `queue-lane.tsx`, `ComposerRestoredQueue`, `ComposerUnderField`, `ComposerField`, `ComposerAttachments`, `CompletionList`, `PasteMenu`, `ComposerPickers`, `ComposerExpandedHeader`.
+- Views: `ComposerToolbar` (memoised: scalar props, stable handlers via `use-stable-callback.ts`, so typing does not re-render it), `RunChip` (+ `RunSettings.tsx`), `ComposerSheet`, `ComposerQueue.tsx`, `ComposerQueueEdit`, `queue-lane.tsx`, `ComposerRestoredQueue`, `ComposerOutbox` (what waits for a computer out of reach: remote-devices.md › Link loss: what the person sends waits), `ComposerUnderField`, `ComposerField`, `ComposerAttachments`, `CompletionList`, `PasteMenu`, `ComposerPickers`, `ComposerExpandedHeader`.
 - Hooks `use-composer-*` (`field` owns the one `textareaRef`, `placeDraft`/`ownEdit`, `field-height.ts`; `keys`, `menu`, `commands`, `paste`, `attach`, `dictation`, `draft`, `history`, `events` for `omp:insert-mention`/`omp:fill-composer`, `suggestions`, `submit`).
 - Helpers: `strip-roving.ts`, `paste-marker-edit.ts`, `keep-focus.ts`, `common/popover-focus.ts`, `lib/composer-actions.ts`, `lib/composer-blocked.ts`, `lib/tab-focus.ts`, `lib/hardware-keyboard.ts`, `lib/listbox-nav.ts` (the keyboard model of a listbox driven from a field: the composer's menus wrap at the ends, the model, session and branch pickers stop there).
 

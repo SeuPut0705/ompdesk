@@ -43,6 +43,7 @@ import { chordFromEvent, compileKeymap, KEYMAP_ACTION_BY_ID, KEYMAP_ACTIONS, typ
 import { restoreQueuedMessages, stopFromEscape } from "./lib/messages";
 import { openNotifiedTab } from "./lib/notification-click";
 import { subscribeOmpUpdated } from "./lib/omp-update";
+import { installOutboxDelivery } from "./lib/outbox-delivery";
 import { type PaneDirection, paneInDirection, renderedPaneBoxes } from "./lib/pane-focus";
 import { watchPluginActivation } from "./lib/plugin-activation";
 import { useProjectNames } from "./lib/project-origin";
@@ -216,6 +217,8 @@ export function App() {
 	useModelWaitTogetherSync();
 	// ⌃⇥ / tab overview order and ⌘[ ⌘] history.
 	useEffect(installTabHistory, []);
+	// What the person sent while a computer was out of reach goes once its link is back.
+	useEffect(installOutboxDelivery, []);
 	useExtensionUi();
 	usePlanApproval();
 	// Session tabs: GET_TABS boot reconciliation + TAB_STATUS subscription.

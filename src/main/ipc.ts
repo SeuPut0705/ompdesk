@@ -163,6 +163,7 @@ import {
 import { createControlBackend } from "./control-socket/backend";
 import { startControlSocket } from "./control-socket/index";
 import { ensureDefaultWorkspace } from "./default-workspace";
+import { deliverOnce } from "./delivery-ledger";
 import { DesktopSlotHost } from "./desktop-slot-host";
 import { savedWorktreesForSpawn } from "./disk/saved-worktrees";
 import { openInExternalEditor } from "./editor";
@@ -820,7 +821,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		payload: IpcRpcCommandPayload,
 		/** The IPC channel the command came in on; main's own callers leave it out. */
 		channel?: string,
-	) => {
+	): Promise<RpcResponse> => {
 		// The desktop slot is app-wide, not a tab's: answered here, whatever the tab's omp is doing.
 		const slotCommand = payload.command.type;
 		if (
@@ -853,6 +854,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			return {
 				id: payload.command.id,
 				type: "response",
+				command: payload.command.type,
 				success: false,
 				error: "Sidecar not connected",
 				code: "sidecar_not_connected",
@@ -863,6 +865,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			return {
 				id: payload.command.id,
 				type: "response",
+				command: payload.command.type,
 				success: false,
 				error: "The device running this tab is offline",
 				code: "remote_offline",
@@ -872,10 +875,21 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			return {
 				id: payload.command.id,
 				type: "response",
+				command: payload.command.type,
 				success: false,
 				error: `Sidecar not ready (${sidecar.status})`,
 				code: "sidecar_not_ready",
 			};
+		}
+		// A message held while the sender's link was down comes with an id and may come again (its answer was lost): the
+		// first reaches omp, a repeat gets that one's answer (delivery-ledger.ts). A paired host's tab passes it on: that
+		// host keeps the ledger.
+		if (payload.command.type === "prompt" && payload.command.deliveryId && !sidecar.device) {
+			const { deliveryId, ...command } = payload.command;
+			const response = await deliverOnce(deliveryId, () =>
+				dispatchRpcCommand(win, sidecar, issuerTabId, { ...payload, command }, channel),
+			);
+			return { ...response, id: payload.command.id };
 		}
 		const { id: _id, ...cmd } = payload.command;
 		// A person's own prompt (an agent's is wrapped) means the session is theirs now: it never closes by itself, and no
@@ -1127,6 +1141,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			return {
 				id: _id,
 				type: "response",
+				command: cmd.type,
 				success: false,
 				code: ipcErrorCode(err) ?? "rpc_delivery_unknown",
 				error: err instanceof Error ? err.message : String(err),

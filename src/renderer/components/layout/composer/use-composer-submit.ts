@@ -21,6 +21,7 @@ import { rememberHistoryImages } from "../../../lib/history-images";
 import { useT } from "../../../lib/i18n";
 import { parseComposerMode } from "../../../lib/input-modes";
 import { abortActiveTurn, clearSessionContext } from "../../../lib/messages";
+import { holdMessage, sendsHeld } from "../../../lib/outbox-delivery";
 import { danglingPasteFragment, dropReferencedPastes, expandPasteMarkers } from "../../../lib/paste-blobs";
 import { IMAGE_ONLY_CHIP } from "../../../lib/queue-chip";
 import { parseQueueShorthand, splitQueuedMessages } from "../../../lib/queue-input";
@@ -171,6 +172,25 @@ export function useComposerSubmit({
 			// blocked send in the list, and a recalled entry replays a prompt that
 			// never ran.
 			const typedMode = parseComposerMode(message);
+			// The link to the computer is down: a message waits in the outbox, shown above the field, and goes once the
+			// link is back (lib/outbox-delivery.ts). A command, a shell line or a queue list needs the computer's answer
+			// now: it stays in the field.
+			if (originTab && sendsHeld(originTab)) {
+				if (typedMode || message.startsWith("/") || parseQueueShorthand(message) !== undefined) {
+					toast({ variant: "warning", message: t("outbox.messagesOnly") });
+					return;
+				}
+				holdMessage(originTab, {
+					text: expandedMessage,
+					images: images.map(image => image.content),
+					behavior: (forceMode ?? mode) === "followUp" ? "followUp" : "steer",
+				});
+				setText("");
+				setImages([]);
+				setMenu(null);
+				dropReferencedPastes(message);
+				return;
+			}
 			const parsed = typedMode && { ...typedMode, body: expandPasteMarkers(typedMode.body) };
 			// `! cmd` → bash, `$ code` → python mode (TUI parity): a running
 			// ExecutionBubble stands in until the transcript record lands. Python's
