@@ -55,6 +55,9 @@ async function startRun(): Promise<void> {
 	await page.locator("textarea").first().fill("fixture running");
 	await page.getByRole("button", { name: "Send", exact: true }).click();
 	await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+	// Stop shows while the prompt still waits for the automatic mode choice (use-composer-submit.ts); the fixture's
+	// request frames must come after the turn's start, which resets a wait, so wait until omp has started the turn.
+	await expect.poll(async () => (await tabs()).find(tab => tab.active)?.status).toBe("running");
 }
 
 test("sessions waiting on one provider together say so, and stop when one is answered", async () => {
