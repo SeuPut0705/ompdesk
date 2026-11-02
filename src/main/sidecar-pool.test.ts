@@ -622,13 +622,13 @@ describe("SidecarPool tabs", () => {
 		pool.acquire("/a", fw.win, "tab-a");
 		pool.acquire("/b", fw.win, "tab-b");
 		const [a, b] = sidecars;
-		// Light wiring ("events" run-tracking) is always on; full wiring adds one more.
-		expect(a?.listenerCount("events")).toBe(2);
-		expect(b?.listenerCount("events")).toBe(1);
+		// Full wiring (one `beforeResponse` listener among others) is on only for the shown tab, never twice.
+		expect(a?.listenerCount("beforeResponse")).toBe(1);
+		expect(b?.listenerCount("beforeResponse")).toBe(0);
 
 		expect(pool.setActiveTab(fw.win, "tab-b")).toBe(true);
-		expect(a?.listenerCount("events")).toBe(1);
-		expect(b?.listenerCount("events")).toBe(2);
+		expect(a?.listenerCount("beforeResponse")).toBe(0);
+		expect(b?.listenerCount("beforeResponse")).toBe(1);
 
 		fw.sent.length = 0;
 		a?.emitAgentEvents(["agent_start"]);
@@ -638,15 +638,15 @@ describe("SidecarPool tabs", () => {
 
 		// Switching back re-arms A exactly once (one batch per emit, not two).
 		expect(pool.setActiveTab(fw.win, "tab-a")).toBe(true);
-		expect(a?.listenerCount("events")).toBe(2);
-		expect(b?.listenerCount("events")).toBe(1);
+		expect(a?.listenerCount("beforeResponse")).toBe(1);
+		expect(b?.listenerCount("beforeResponse")).toBe(0);
 		fw.sent.length = 0;
 		a?.emitAgentEvents(["agent_end"]);
 		expect(fw.sentTo(IPC_EVENTS.EVENTS_BATCH)).toHaveLength(1);
 
 		// Re-setting the already-active tab is a no-op.
 		expect(pool.setActiveTab(fw.win, "tab-a")).toBe(true);
-		expect(a?.listenerCount("events")).toBe(2);
+		expect(a?.listenerCount("beforeResponse")).toBe(1);
 		// Foreign/unknown tabs are refused.
 		expect(pool.setActiveTab(fakeWindow(2).win, "tab-a")).toBe(false);
 		expect(pool.setActiveTab(fw.win, "nope")).toBe(false);
@@ -668,7 +668,7 @@ describe("SidecarPool tabs", () => {
 				ratio: 0.65,
 			}),
 		).toBe(true);
-		expect([a?.listenerCount("events"), b?.listenerCount("events"), c?.listenerCount("events")]).toEqual([2, 2, 1]);
+		expect([a, b, c].map(sidecar => sidecar?.listenerCount("beforeResponse"))).toEqual([1, 1, 0]);
 		fw.sent.length = 0;
 		a?.emitAgentEvents(["agent_start"]);
 		b?.emitAgentEvents(["agent_start"]);
@@ -697,8 +697,8 @@ describe("SidecarPool tabs", () => {
 		expect(pool.releaseTab("tab-b")).toBe(true);
 		expect(pool.activeTabForWindow(fw.win)).toBe("tab-a");
 		expect(pool.tabLayoutForWindow(fw.win)?.split).toBeUndefined();
-		expect(a?.listenerCount("events")).toBe(2);
-		expect(c?.listenerCount("events")).toBe(1);
+		expect(a?.listenerCount("beforeResponse")).toBe(1);
+		expect(c?.listenerCount("beforeResponse")).toBe(0);
 	});
 
 	it("routes four visible streams and roundtrips a two-by-two layout", () => {
@@ -712,7 +712,7 @@ describe("SidecarPool tabs", () => {
 			second: { axis: "rows" as const, ratio: 0.4, first: { tabId: "c" }, second: { tabId: "d" } },
 		};
 		expect(pool.setTabView(fw.win, "c", ["a", "b", "c", "d"], split)).toBe(true);
-		expect(sidecars.map(sidecar => sidecar.listenerCount("events"))).toEqual([2, 2, 2, 2, 1]);
+		expect(sidecars.map(sidecar => sidecar.listenerCount("beforeResponse"))).toEqual([1, 1, 1, 1, 0]);
 		const layout = pool.tabLayoutForWindow(fw.win);
 		expect(layout?.split).toEqual({
 			axis: "columns",
@@ -1012,7 +1012,7 @@ describe("SidecarPool tabs", () => {
 		expect(pool.size).toBe(1);
 		expect(pool.sidecarForWindow(fw.win)).toBe(b);
 		expect(pool.activeTabForWindow(fw.win)).toBe("tab-b");
-		expect(b?.listenerCount("events")).toBe(2);
+		expect(b?.listenerCount("beforeResponse")).toBe(1);
 
 		// Unknown tab is a no-op; closing the last tab leaves the window tab-less.
 		expect(pool.releaseTab("tab-a")).toBe(false);
@@ -3171,8 +3171,8 @@ describe("SidecarPool multi-viewer", () => {
 
 	it("fans one set of sidecar listeners out to every window that shows the tab", () => {
 		const { pool, sidecar, desktop, phone } = shared();
-		// Light wiring once plus one full wiring for both windows.
-		expect(sidecar.listenerCount("events")).toBe(2);
+		// One full wiring for both windows.
+		expect(sidecar.listenerCount("beforeResponse")).toBe(1);
 		sidecar.emitAgentEvents(["agent_start"]);
 		expect(desktop.sentTo(IPC_EVENTS.EVENTS_BATCH)).toHaveLength(1);
 		expect(phone.sentTo(IPC_EVENTS.EVENTS_BATCH)).toHaveLength(1);
@@ -3284,7 +3284,7 @@ describe("SidecarPool multi-viewer", () => {
 		expect(desktop.sentTo(IPC_EVENTS.TAB_LIST_CHANGED).at(-1)?.data).toEqual({
 			tabs: pool.tabsForWindow(desktop.win),
 		});
-		expect(sidecar.listenerCount("events")).toBe(2);
+		expect(sidecar.listenerCount("beforeResponse")).toBe(1);
 		desktop.sent.length = 0;
 		sidecar.emitAgentEvents(["agent_start"]);
 		expect(desktop.sentTo(IPC_EVENTS.EVENTS_BATCH)).toHaveLength(1);

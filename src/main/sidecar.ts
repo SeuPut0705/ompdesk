@@ -191,6 +191,12 @@ const FRAME_EVENTS: Record<string, string> = {
 	...Object.fromEntries(Object.keys(BTW_FRAME_TYPES).map(type => [type, "btwFrame"])),
 };
 
+/**
+ * Frames that settle a run: the pool turns them into the tab's status, which a window reads as the run's end. Agent
+ * events batched before one leave first, so a window has the run's agent_end (and its committed messages) by then.
+ */
+const RUN_SETTLE_FRAMES: Record<string, true> = { prompt_result: true, session_settled: true };
+
 type Frame = Record<string, unknown>;
 
 /** The live session's identity as last reported by `get_state`. */
@@ -929,6 +935,7 @@ export class SidecarManager extends EventEmitter {
 		} else if (type === "available_commands_update") {
 			this.emit("commandsUpdate", obj.commands);
 		} else if (Object.hasOwn(FRAME_EVENTS, type)) {
+			if (RUN_SETTLE_FRAMES[type] === true) this.#batcher?.flushNow();
 			this.emit(FRAME_EVENTS[type], obj);
 		}
 		this.emit("frame", obj);

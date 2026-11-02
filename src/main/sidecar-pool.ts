@@ -276,6 +276,12 @@ interface FullWiring {
 	windows: Map<number, { win: ClientWindow; slim: (events: AgentSessionEvent[]) => AgentSessionEvent[] }>;
 	/** Delivers the subagent frames still batched. */
 	flush: () => void;
+	/**
+	 * Sends an agent-event batch to every window showing the tab. Called by the tab's one `events` listener before it
+	 * sends the TAB_STATUS that batch caused: a window reads the run's end from that status, and the batch carrying
+	 * agent_end and its committed messages must be there first.
+	 */
+	forwardEvents: (events: AgentSessionEvent[]) => void;
 	/** Takes the listeners off the sidecar. */
 	remove: () => void;
 }
@@ -1236,6 +1242,7 @@ export class SidecarPool {
 		// Agent-end means one run yielded; upstream prompt/session-settled frames
 		// keep background async work represented as running until it is quiet.
 		sidecar.on("events", (events: AgentSessionEvent[]) => {
+			entry.full?.forwardEvents(events);
 			const wasBusy = runBusy(entry.run);
 			const wasSettling = runSettling(entry.run);
 			const wasPlaceholder = entry.placeholder;
@@ -1351,7 +1358,7 @@ export class SidecarPool {
 		};
 		const subagentFrames = createSubagentFrameBatcher(frames => forwardActive(IPC_EVENTS.SUBAGENT_FRAMES, frames));
 		wire("subagentFrame", (frame: SubagentFrame) => subagentFrames.push(frame));
-		wire("events", (events: AgentSessionEvent[]) => {
+		const forwardEvents = (events: AgentSessionEvent[]): void => {
 			// Subagent frames that arrived first leave first, as when each was sent alone.
 			subagentFrames.flush();
 			// Windows whose slimmers stand at the same message get the same slimmed batch, and so the same push object.
@@ -1365,7 +1372,7 @@ export class SidecarPool {
 				}
 				forwardToWindow(target.win, IPC_EVENTS.EVENTS_BATCH, data);
 			}
-		});
+		};
 		// A response (a subagent's messages, a transcript) can hold frames still batched here.
 		wire("beforeResponse", () => subagentFrames.flush());
 		wire("status", (payload: SidecarStatusPayload) => {
@@ -1377,6 +1384,7 @@ export class SidecarPool {
 		entry.full = {
 			windows,
 			flush: () => subagentFrames.flush(),
+			forwardEvents,
 			remove: () => {
 				for (const remove of removers) remove();
 			},
