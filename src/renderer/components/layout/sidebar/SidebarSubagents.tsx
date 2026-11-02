@@ -31,6 +31,7 @@ import {
 	useState,
 } from "react";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
+import type { AskKind } from "../../../lib/attention";
 import { hideNativeDragImage } from "../../../lib/drag-image";
 import { cx, formatElapsed, formatTimeAgo, formatTokens } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
@@ -72,6 +73,8 @@ export interface FamilyOpened {
 	kind: "worktree" | "session";
 	/** What the session is (`openedChildStatus`): a "done" one is not listed; null while it has not run. */
 	status: ChildStatus | null;
+	/** What a waiting one waits on (its row's word); absent, a question: a host only says that a prompt waits. */
+	ask?: AskKind;
 	/** The status as the token the row shows. */
 	state: FamilyState | null;
 	stateLabel: string;

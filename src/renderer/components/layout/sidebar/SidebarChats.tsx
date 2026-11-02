@@ -8,11 +8,14 @@ import type { ReactNode } from "react";
 import { useT } from "../../../lib/i18n";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { IconButton } from "../../common";
+import type { FoldSummary } from "./fold-summary";
 import { SidebarFoldButton } from "./SidebarFoldButton";
+import { SidebarFoldSummary } from "./SidebarFoldSummary";
 
 export function SidebarChats({
 	deviceId,
 	count,
+	summary,
 	filtering,
 	newChatLabel,
 	canAdd = true,
@@ -25,6 +28,8 @@ export function SidebarChats({
 	deviceId: string;
 	/** Rows to show; with none the header alone offers a new chat. */
 	count: number;
+	/** What the folded header says of its hidden rows (`fold-summary.ts`); asked only while folded. */
+	summary: () => FoldSummary;
 	/** A filter is typed: every match shows, folded or not. */
 	filtering: boolean;
 	newChatLabel: string;
@@ -53,6 +58,7 @@ export function SidebarChats({
 				>
 					<span className="min-w-0 flex-1 truncate">{t("sidebar.chats")}</span>
 					{folded && count > 0 && <span className="shrink-0 text-sc-2xs text-(--sc-text-subtle)">{count}</span>}
+					{folded && <SidebarFoldSummary summary={summary()} />}
 				</SidebarFoldButton>
 				<IconButton
 					className="mr-1 text-(--sc-text-subtle) hover:text-(--sc-text)"

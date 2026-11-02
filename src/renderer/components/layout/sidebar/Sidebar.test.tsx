@@ -6992,3 +6992,281 @@ describe("Sidebar remembered folds", () => {
 		expect([...useSidebarSubagentsStore.getState().expanded]).toEqual([LIST[0]?.path ?? "", "tab:t0"]);
 	});
 });
+
+describe("Sidebar folded headers say what works inside", () => {
+	const FOLD_LIST = [
+		...LIST,
+		session("/work/alpha/four.jsonl", "/work/alpha", { modified: "2026-01-04T00:00:00Z" }),
+		session("/work/alpha/five.jsonl", "/work/alpha", { modified: "2026-01-05T00:00:00Z" }),
+		session("/work/chat-1.jsonl", "/work/chat-home", { kind: "chat", firstMessage: "chat one" }),
+	];
+	const REMOTE_PATH = "/Users/kim/.omp/agent/sessions/app/one.jsonl";
+	const REMOTE = [
+		session(REMOTE_PATH, "/Users/kim/code/app", { title: "Remote fix", device: "dev-studio" }),
+		session("/Users/kim/.omp/agent/sessions/app/chat.jsonl", "/Users/kim/.omp/work", {
+			title: "Remote chat",
+			kind: "chat",
+			device: "dev-studio",
+		}),
+	];
+
+	function seedWork(): void {
+		useSessionStore.setState({ sessionId: "attached-id", cwd: "/work/gamma", isStreaming: false });
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t0", cwd: "/work/gamma", status: "ready", kind: "agent", unreadDone: false },
+				// alpha: one works, two waits on the person, four finished unseen, five is idle.
+				{
+					id: "t1",
+					cwd: "/work/alpha",
+					status: "running",
+					kind: "agent",
+					sessionPath: "/work/alpha/one.jsonl",
+					unreadDone: false,
+				},
+				{
+					id: "t2",
+					cwd: "/work/alpha",
+					status: "running",
+					kind: "agent",
+					sessionPath: "/work/alpha/two.jsonl",
+					awaitingInput: "input",
+					unreadDone: false,
+				},
+				{
+					id: "t3",
+					cwd: "/work/alpha",
+					status: "ready",
+					kind: "agent",
+					sessionPath: "/work/alpha/four.jsonl",
+					unreadDone: true,
+				},
+				{
+					id: "t4",
+					cwd: "/work/chat-home",
+					status: "running",
+					kind: "chat",
+					sessionPath: "/work/chat-1.jsonl",
+					unreadDone: false,
+				},
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+	}
+
+	function pairStudio(live?: HostView["live"]): void {
+		useRemoteStore.getState().apply({
+			tailnet: "ready",
+			host: {
+				enabled: false,
+				name: "laptop",
+				port: null,
+				addresses: [],
+				listenError: null,
+				peers: [],
+				keepAwake: true,
+				keepingAwake: false,
+				usedBy: [],
+			},
+			hosts: [{ deviceId: "dev-studio", name: "studio", state: "online", ...(live ? { live } : {}) }],
+			forgotten: [],
+		});
+	}
+
+	const summaryIn = (selector: string) => container.querySelector(`${selector} [data-fold-summary]`);
+	const counts = (summary: { getAttribute(name: string): string | null } | null) => ({
+		waiting: summary?.getAttribute("data-fold-waiting") ?? null,
+		running: summary?.getAttribute("data-fold-running") ?? null,
+		done: summary?.getAttribute("data-fold-done") ?? null,
+	});
+
+	it("a folded project counts its waiting, working and unseen-finished rows in the rows' words; open, it shows none", async () => {
+		installMockOmp(FOLD_LIST);
+		seedWork();
+		await mount(<Sidebar />);
+		// Open (its tabs keep it open): the rows show their own arcs and tokens, the header repeats nothing.
+		expect(summaryIn('[data-workspace-group="/work/alpha"]')).toBeNull();
+
+		await fire(groupToggle("/work/alpha"), "onClick");
+		const summary = summaryIn('[data-workspace-group="/work/alpha"]');
+		expect(counts(summary)).toEqual({ waiting: "1", running: "1", done: "1" });
+		// The rows' own marks: the waiting token, the working arc, the ✓; no spinner of the header's own.
+		expect(summary?.querySelector(".omp-sidebar-approval")).not.toBeNull();
+		expect(summary?.querySelector(".omp-working-arc")).not.toBeNull();
+		expect(summary?.querySelector('[data-fold-mark="done"]')).not.toBeNull();
+		expect(container.querySelector('[data-workspace-group="/work/alpha"] .omp-spinner')).toBeNull();
+		const words = [
+			translate("attention.question"),
+			translate("workBoard.head.running", { count: 1 }),
+			translate("workBoard.doneFolded", { count: 1 }),
+		].join(" · ");
+		expect(summary?.getAttribute("title")).toBe(words);
+		// Screen readers hear it with the project's name, in the toggle that opens it.
+		expect(groupToggle("/work/alpha").textContent).toContain(words);
+
+		// It follows the rows live: the working one stops, its count goes.
+		await act(async () => {
+			useTabsStore.setState({
+				tabs: useTabsStore.getState().tabs.map(tab => (tab.id === "t1" ? { ...tab, status: "ready" } : tab)),
+			});
+		});
+		await flush();
+		expect(counts(summaryIn('[data-workspace-group="/work/alpha"]'))).toEqual({
+			waiting: "1",
+			running: null,
+			done: "1",
+		});
+
+		// A quiet folded project says nothing (no tab keeps beta open: it starts folded).
+		expect(container.querySelector('[data-session-group="/work/beta"]')).toBeNull();
+		expect(summaryIn('[data-workspace-group="/work/beta"]')).toBeNull();
+
+		// A click on the counts opens the project (they sit in its toggle).
+		await fire(groupToggle("/work/alpha"), "onClick");
+		expect(container.querySelector('[data-session-group="/work/alpha"]')).not.toBeNull();
+		expect(summaryIn('[data-workspace-group="/work/alpha"]')).toBeNull();
+	});
+
+	it("counts a session its agent opened as its own row, so the opener's Child waiting is not counted twice", async () => {
+		installMockOmp(FOLD_LIST);
+		useSessionStore.setState({ sessionId: "attached-id", cwd: "/work/gamma", isStreaming: false });
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t0", cwd: "/work/gamma", status: "ready", kind: "agent", unreadDone: false },
+				{
+					id: "t1",
+					cwd: "/work/alpha",
+					status: "ready",
+					kind: "agent",
+					sessionPath: "/work/alpha/one.jsonl",
+					unreadDone: false,
+				},
+				{
+					id: "ka",
+					cwd: "/work/alpha",
+					status: "running",
+					kind: "agent",
+					sessionPath: "/work/alpha/kid-a.jsonl",
+					openedBy: "t1",
+					awaitingInput: "approval",
+					unreadDone: false,
+				},
+				{
+					id: "kb",
+					cwd: "/work/alpha",
+					status: "running",
+					kind: "agent",
+					sessionPath: "/work/alpha/kid-b.jsonl",
+					openedBy: "t1",
+					unreadDone: false,
+				},
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		await mount(<Sidebar />);
+		await fire(groupToggle("/work/alpha"), "onClick");
+		const summary = summaryIn('[data-workspace-group="/work/alpha"]');
+		// The opener waits only on its child: the child is the one waiting, by its own prompt's word.
+		expect(counts(summary)).toEqual({ waiting: "1", running: "1", done: null });
+		expect(summary?.getAttribute("title")).toBe(
+			`${translate("attention.approval")} · ${translate("workBoard.head.running", { count: 1 })}`,
+		);
+	});
+
+	it("folded Chats count a working chat; open, they show none", async () => {
+		installMockOmp(FOLD_LIST);
+		seedWork();
+		await mount(<Sidebar />);
+		expect(summaryIn('[data-sidebar-chats="local"]')).toBeNull();
+		await fire(container.querySelector('[data-sidebar-chats-toggle="local"]'), "onClick");
+		expect(counts(summaryIn('[data-sidebar-chats="local"]'))).toEqual({ waiting: null, running: "1", done: null });
+	});
+
+	it("a folded Archived section says what an archived session its index reads as mid-turn does", async () => {
+		// No tab, window or device holds an archived row (a held one stays in its list): only the index can say it runs.
+		installMockOmp(
+			FOLD_LIST.map(row => (row.path === "/work/beta/three.jsonl" ? { ...row, status: "pending" as const } : row)),
+		);
+		seedWork();
+		useSidebarPrefs.setState({ hydrated: true, archivedSessions: ["/work/beta/three.jsonl"] });
+		await mount(<Sidebar />);
+		expect(counts(summaryIn("[data-sidebar-archived]"))).toEqual({ waiting: null, running: "1", done: null });
+		await fire(container.querySelector("[data-sidebar-archived] button[aria-expanded]"), "onClick");
+		expect(summaryIn("[data-sidebar-archived]")).toBeNull();
+	});
+
+	it("a folded device section sums its sessions: this device's and a paired host's, whose list is not read", async () => {
+		const omp = installMockOmp(FOLD_LIST);
+		omp.sessions.list.mockImplementation(async (_scope, device) => (device === "dev-studio" ? REMOTE : FOLD_LIST));
+		seedWork();
+		useTabsStore.setState({
+			tabs: [
+				...useTabsStore.getState().tabs,
+				{
+					id: "r1",
+					cwd: "/Users/kim/code/app",
+					status: "running",
+					kind: "agent",
+					device: "dev-studio",
+					sessionPath: REMOTE_PATH,
+					awaitingInput: "approval",
+					unreadDone: false,
+				},
+			],
+		});
+		// The host also works on a session no tab here holds.
+		pairStudio([{ sessionPath: "/Users/kim/.omp/agent/sessions/app/other.jsonl", state: "turn" }]);
+		await mount(<Sidebar />);
+		expect(summaryIn('[data-sidebar-device-header="local"]')).toBeNull();
+
+		await fire(container.querySelector("[data-sidebar-device-toggle='local']"), "onClick");
+		// alpha's waiting and working rows, its unseen finish, and the working chat.
+		expect(counts(summaryIn('[data-sidebar-device-header="local"]'))).toEqual({
+			waiting: "1",
+			running: "2",
+			done: "1",
+		});
+
+		await fire(container.querySelector("[data-sidebar-device-toggle='dev-studio']"), "onClick");
+		const host = summaryIn('[data-sidebar-device="dev-studio"]');
+		expect(counts(host)).toEqual({ waiting: "1", running: "1", done: null });
+		expect(host?.getAttribute("title")).toBe(
+			`${translate("attention.approval")} · ${translate("workBoard.head.running", { count: 1 })}`,
+		);
+	});
+
+	it("a paired host's folded project and Chats count their rows by the host rows' rule", async () => {
+		const omp = installMockOmp(FOLD_LIST);
+		omp.sessions.list.mockImplementation(async (_scope, device) => (device === "dev-studio" ? REMOTE : FOLD_LIST));
+		seedWork();
+		useTabsStore.setState({
+			tabs: [
+				...useTabsStore.getState().tabs,
+				{
+					id: "r1",
+					cwd: "/Users/kim/code/app",
+					status: "running",
+					kind: "agent",
+					device: "dev-studio",
+					sessionPath: REMOTE_PATH,
+					awaitingInput: "approval",
+					unreadDone: false,
+				},
+			],
+		});
+		pairStudio([{ sessionPath: "/Users/kim/.omp/agent/sessions/app/chat.jsonl", state: "background" }]);
+		await mount(<Sidebar />);
+		await flush();
+		const hostGroup = '[data-sidebar-device="dev-studio"] [data-device-group="/Users/kim/code/app"]';
+		expect(summaryIn(hostGroup)).toBeNull();
+		await fire(container.querySelector(`${hostGroup} button[aria-expanded]`), "onClick");
+		expect(counts(summaryIn(hostGroup))).toEqual({ waiting: "1", running: null, done: null });
+
+		const hostChats = '[data-sidebar-chats="dev-studio"]';
+		expect(summaryIn(hostChats)).toBeNull();
+		await fire(container.querySelector('[data-sidebar-chats-toggle="dev-studio"]'), "onClick");
+		expect(counts(summaryIn(hostChats))).toEqual({ waiting: null, running: "1", done: null });
+	});
+});

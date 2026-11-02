@@ -32,11 +32,12 @@ import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from "
 import { useStore } from "zustand";
 import { reviewUnmerged } from "../../../../shared/agent-control";
 import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
-import type { HostView, SessionKind } from "../../../../shared/ipc-types";
+import type { HostLiveSession, HostView, SessionKind } from "../../../../shared/ipc-types";
 import { CHATS_ORDER_KEY, type RowSession, sidebarRows } from "../../../../shared/sidebar-rows";
 import { splitTabIds } from "../../../../shared/split-layout";
 import { useSessionList } from "../../../hooks/use-session-list";
 import { useShellInput } from "../../../hooks/use-shell-mode";
+import type { AskKind } from "../../../lib/attention";
 import { DEVICE_COLORS, type DeviceColorChoice, deviceColorOf } from "../../../lib/device-color";
 import { saveDiagnosticBundle } from "../../../lib/diagnostic-bundle";
 import { basename, cx } from "../../../lib/format";
@@ -76,10 +77,12 @@ import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuItem, MenuButton } from "../../common/ContextMenu";
 import { TimeAgo } from "../../common/TimeAgo";
 import { TabLiveAge, TabLiveTitle } from "../SessionLiveTitle";
+import { childFoldSignal, type FoldSignal, type FoldSummary, foldSummary, sessionFoldSignal } from "./fold-summary";
 import { useHostWorkspace } from "./host-workspace";
 import { SidebarChats } from "./SidebarChats";
 import { useDeviceHeaderHandle } from "./SidebarDeviceSections";
 import { SidebarFoldButton } from "./SidebarFoldButton";
+import { SidebarFoldSummary } from "./SidebarFoldSummary";
 import { SidebarRenameField } from "./SidebarRenameField";
 import { type FamilyOpened, SidebarLooseChildren, SidebarSubagents, SidebarSubagentsToggle } from "./SidebarSubagents";
 import { SortableProject } from "./SortableProject";
@@ -88,6 +91,7 @@ import { canMoveWithin, type SessionList, useSessionReorder } from "./session-re
 import { CHILD_TOKEN, openedChildStatus } from "./sidebar-family";
 
 const NO_OPENED: readonly FamilyOpened[] = [];
+const NO_TABS: readonly SessionTab[] = [];
 
 /** A host row: an indexed remote session, or an open remote tab the host has not listed yet. */
 type DeviceSession = RowSession;
@@ -106,6 +110,54 @@ const DOT_CLASS: Record<HostView["state"], string> = {
 	offline: "bg-(--sc-text-subtle)",
 };
 
+/**
+ * A host row's run state, the one rule its row and its folded headers read: a tab here that has heard the host's run,
+ * else (no tab, or one restored asleep at launch, which has heard nothing yet) the host's own live list, which only
+ * says that a prompt waits (a question, as on the row). `fold` is what a folded header counts of it (`fold-summary.ts`;
+ * a host row shows no ✓ for an unseen finish).
+ */
+function hostRowState(tab: SessionTab | undefined, live: HostLiveSession["state"] | undefined) {
+	const known = tab?.status === "asleep" ? undefined : tab;
+	const signal = known ? tabSignalPresentation(known) : null;
+	const ask: AskKind | undefined = known
+		? known.awaitingInput === undefined
+			? undefined
+			: known.awaitingInput === "approval"
+				? "approval"
+				: "question"
+		: live === "waiting"
+			? "question"
+			: undefined;
+	const waiting = ask !== undefined;
+	const running = known ? signal?.running === true && !waiting : live === "turn" || live === "background";
+	const settling = known ? known.settling === true : live === "background";
+	const fold = sessionFoldSignal({ waiting: ask, running, done: false });
+	return { known, signal, waiting, running, settling, fold };
+}
+
+/**
+ * A folded host section's summary, read without its list (a folded host's list is not read): this computer's tabs on
+ * it and the host's live list, each session once, by the rows' rule. A session a session here opened there is that
+ * opener's child (`nested`), counted in this computer's section.
+ */
+function hostSectionSummary(
+	host: HostView,
+	tabs: readonly SessionTab[],
+	nested: ReadonlySet<string> | undefined,
+): FoldSummary {
+	const live = new Map(host.live?.map(session => [session.sessionPath, session.state]));
+	const signals: (FoldSignal | null)[] = [];
+	const seen = new Set<string>();
+	for (const tab of tabs) {
+		if (tab.device !== host.deviceId || nested?.has(tab.id)) continue;
+		if (tab.sessionPath) seen.add(tab.sessionPath);
+		signals.push(hostRowState(tab, tab.sessionPath ? live.get(tab.sessionPath) : undefined).fold);
+	}
+	for (const [path, state] of live)
+		if (!seen.has(path) && !nested?.has(path)) signals.push(hostRowState(undefined, state).fold);
+	return foldSummary(signals);
+}
+
 /** A device section's header: the toggle that folds its list (glyph, name, what follows the name, chevron) and, at
  * the end, the button that opens or makes a project folder on that device (a new chat is its Chats section's). This
  * device's and every host's alike. */
@@ -120,6 +172,7 @@ function DeviceHeader({
 	local,
 	extra,
 	badge,
+	summary,
 }: {
 	deviceId: string;
 	folded: boolean;
@@ -135,6 +188,8 @@ function DeviceHeader({
 	onAction: () => void;
 	/** This device's header (`data-sidebar-device-header="local"`); a host's sits in its `[data-device-state]` section. */
 	local?: boolean;
+	/** What the folded header says of the sessions it hides (`fold-summary.ts`); asked only while folded. */
+	summary: () => FoldSummary;
 }) {
 	const t = useT();
 	const handle = useDeviceHeaderHandle();
@@ -194,6 +249,7 @@ function DeviceHeader({
 				</span>
 				<span className="min-w-0 truncate">{name}</span>
 				{children}
+				{folded && <SidebarFoldSummary summary={summary()} />}
 				<Chevron aria-hidden className="size-(--sc-icon-sm) shrink-0" />
 			</button>
 			{/* At rest with a mouse the gear gives the name its room; hovering or focusing the header, or the open menu,
@@ -245,7 +301,14 @@ function DeviceHeader({
 
 /** The header over this device's own list, shown only once a host is paired: it folds the list and, like a host's
  * header, ends in its project button here (the search row's then gives way). */
-export function SidebarLocalHeader({ onAddProject }: { onAddProject: () => void }) {
+export function SidebarLocalHeader({
+	onAddProject,
+	summary,
+}: {
+	onAddProject: () => void;
+	/** This device's whole list, by the rows' rule (Sidebar.tsx). */
+	summary: () => FoldSummary;
+}) {
 	const t = useT();
 	const folded = useSidebarFolds(s => s.devices[LOCAL_DEVICE] === true);
 	return (
@@ -255,6 +318,7 @@ export function SidebarLocalHeader({ onAddProject }: { onAddProject: () => void 
 			local
 			name={t("remote.sidebar.thisDevice")}
 			onAction={onAddProject}
+			summary={summary}
 		/>
 	);
 }
@@ -280,6 +344,8 @@ export function SidebarDeviceSection({
 }) {
 	const t = useT();
 	const collapsed = useSidebarFolds(s => s.devices[host.deviceId] === true);
+	// Only a folded section reads them (its summary); an open one's rows read their own.
+	const tabs = useTabsStore(s => (collapsed ? s.tabs : NO_TABS));
 	const online = host.state === "online";
 	const webPage = webPwa() !== null;
 	const stateLabel = t(`remote.state.${host.state}`);
@@ -331,6 +397,7 @@ export function SidebarDeviceSection({
 				}
 				folded={collapsed}
 				name={host.name}
+				summary={() => hostSectionSummary(host, tabs, nested)}
 				onAction={() =>
 					void pickRemoteDirectory(host.deviceId).then(path => {
 						if (path) void openRemote({ cwd: path, kind: "agent" });
@@ -878,17 +945,17 @@ function DeviceSessions({
 		});
 	};
 
+	/** What a folded header of this host's list counts of a row: its own token, then its family's (`fold-summary.ts`). */
+	const hostFoldSignals = (session: DeviceSession): (FoldSignal | null)[] => [
+		hostRowState(tabFor(session), hostLive.get(session.path)).fold,
+		...(familyChildrenOf.get(session.path) ?? []).map(child => childFoldSignal(familyChildFor(child))),
+	];
+
 	const renderRow = (session: DeviceSession, bot = false) => {
 		const tab = tabFor(session);
-		// A tab restored asleep when this computer launched (no omp attached until it is shown) has heard nothing of the
-		// host's run: the host's live list says it instead.
-		const known = tab?.status === "asleep" ? undefined : tab;
-		const signal = known ? tabSignalPresentation(known) : null;
+		const { known, signal, waiting, running, settling } = hostRowState(tab, hostLive.get(session.path));
 		const memoryWaiting = signal?.labelKey === MEMORY_WAIT_LABEL_KEY;
 		const live = known ? undefined : hostLive.get(session.path);
-		const waiting = known ? known.awaitingInput !== undefined : live === "waiting";
-		const running = known ? signal?.running === true && !waiting : live === "turn" || live === "background";
-		const settling = known ? known.settling === true : live === "background";
 		const working = signal?.running === true || running;
 		const current = tab !== undefined && tab.id === activeTabId;
 		// Every pane of the split on screen reads as selected, like the local list (Sidebar.tsx); the focused one adds data-pane-focus.
@@ -1246,6 +1313,14 @@ function DeviceSessions({
 											>
 												<span className="min-w-0 flex-1 truncate">{name}</span>
 												{group.missing && <span className="sr-only">, {t("sidebar.project.missing")}</span>}
+												{groupCollapsed && (
+													<SidebarFoldSummary
+														summary={foldSummary([
+															...group.sessions.flatMap(hostFoldSignals),
+															...group.folded.map(child => childFoldSignal(familyChildFor(child))),
+														])}
+													/>
+												)}
 											</SidebarFoldButton>
 											<IconButton
 												className="omp-sidebar-project-menu pointer-events-none text-(--sc-text-subtle) opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100 hover:text-(--sc-text) [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
@@ -1289,6 +1364,7 @@ function DeviceSessions({
 				<SidebarChats
 					canAdd={read}
 					count={chats.length}
+					summary={() => foldSummary(chats.flatMap(hostFoldSignals))}
 					deviceId={host.deviceId}
 					filtering={query.length > 0}
 					label={t("sidebar.chatsOn", { name: host.name })}
@@ -1313,6 +1389,9 @@ function DeviceSessions({
 							<span className="min-w-0 flex-1 truncate">
 								{t("sidebar.archived", { count: archivedRows.length })}
 							</span>
+							{!archivedShown && (
+								<SidebarFoldSummary summary={foldSummary(archivedRows.flatMap(hostFoldSignals))} />
+							)}
 						</SidebarFoldButton>
 					</div>
 					{archivedShown && (

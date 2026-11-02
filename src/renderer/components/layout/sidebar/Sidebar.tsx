@@ -138,7 +138,6 @@ import {
 	MenuButton,
 	SearchField,
 	SkeletonRows,
-	Spinner,
 } from "../../common";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../../common/ContextMenu";
@@ -148,11 +147,13 @@ import { StarterGuide } from "../../onboarding/StarterGuide";
 import { ForkParent } from "../ForkParent";
 import { SessionLiveAge, SessionLiveTitle } from "../SessionLiveTitle";
 import { openedChildCounts, openedChildRows } from "../work-board/opened-children";
+import { childFoldSignal, type FoldSignal, foldSummary, sessionFoldSignal } from "./fold-summary";
 import { RAIL_PIN_ICONS } from "./rail-pin-icons";
 import { SidebarChats } from "./SidebarChats";
 import { SidebarDeviceSections } from "./SidebarDeviceSections";
 import { SidebarDeviceSection, SidebarLocalHeader } from "./SidebarDevices";
 import { SidebarFoldButton } from "./SidebarFoldButton";
+import { SidebarFoldSummary } from "./SidebarFoldSummary";
 import { PinMenu, type PinMenuState, pinMenuHandlers, SidebarPinsSheet } from "./SidebarPinsSheet";
 import { SidebarRenameField } from "./SidebarRenameField";
 import {
@@ -1606,6 +1607,7 @@ export function Sidebar() {
 			key: child.path,
 			kind: row.tab?.worktree !== undefined || origin.worktree ? "worktree" : "session",
 			status,
+			...(status === "waiting" && isAsk(row.waiting) ? { ask: row.waiting } : {}),
 			state: status ? CHILD_TOKEN[status] : null,
 			stateLabel: statusLabel,
 			title,
@@ -1727,6 +1729,7 @@ export function Sidebar() {
 			key: id,
 			kind: tab.worktree !== undefined ? "worktree" : "session",
 			status,
+			...(status === "waiting" && tab.awaitingInput === "approval" ? { ask: "approval" as const } : {}),
 			state: status ? CHILD_TOKEN[status] : null,
 			stateLabel: statusLabel,
 			title,
@@ -1759,6 +1762,39 @@ export function Sidebar() {
 			},
 		};
 	};
+
+	/**
+	 * What a folded section says of a session (`fold-summary.ts`): its row's own token, then each session its agent
+	 * opened, this computer's and a paired device's, by its family row's (`opened`: the bot's are its own list).
+	 */
+	const sessionFoldSignals = (
+		session: SidebarSession,
+		opened: readonly SidebarSession[] = familyChildrenOf.get(session.path) ?? [],
+	): (FoldSignal | null)[] => [
+		sessionFoldSignal(sessionRowState(session)),
+		...opened.map(child => childFoldSignal(familyChildFor(child))),
+		...(remoteChildrenOf.get(session.path) ?? []).map(tab => childFoldSignal(remoteFamilyChildFor(tab))),
+	];
+	/** A project's sessions and the opened ones no opener row holds (`loose`, its own rows). */
+	const groupFoldSignals = (group: WorkspaceGroup, loose: readonly FamilyOpened[]): (FoldSignal | null)[] => [
+		...group.sessions.flatMap(session => sessionFoldSignals(session)),
+		...loose.map(childFoldSignal),
+	];
+	/** This device's whole list, while its section is folded: the bot's row, every project, the chats, the archive (an
+	 * archived row shows no family: its own token alone). A filter shows every match under it: its rows say it. */
+	const localFoldSummary = () =>
+		foldSummary(
+			query
+				? []
+				: [
+						...(botOn ? sessionFoldSignals(botSession, botKids.sessions) : []),
+						...groups.flatMap(group =>
+							groupFoldSignals(group, group.folded.map(child => familyChildFor(child)).filter(isShownOpened)),
+						),
+						...chatSessions.flatMap(session => sessionFoldSignals(session)),
+						...archivedRows.map(session => sessionFoldSignal(sessionRowState(session))),
+					],
+		);
 
 	/** `archived`: a row of the Archived section. `bot`: the bot's fixed row above the lists: no menu, rename or delete. */
 	const renderSessionRow = (session: SidebarSession, nested = false, variant?: "archived" | "bot") => {
@@ -2038,16 +2074,12 @@ export function Sidebar() {
 		const isCurrentProject = group.cwd === cwd && activeTabKind !== "chat" && !activeTabRemote;
 		const tabIndex = -1;
 		const pinned = pinnedGroups.includes(group.cwd);
-		// A collapsed project still says when something inside it is working.
-		const groupBusy =
-			groupCollapsed &&
-			group.sessions.some(
-				session => isSessionBusy(session) || (familyChildrenOf.get(session.path) ?? []).some(isSessionBusy),
-			);
 		const FolderIcon = groupCollapsed ? Folder : FolderOpen;
 		// Sessions an agent opened that no opener row holds: only the ones that need a look are listed, so a group made
 		// only of those, with nothing to show, is not drawn. A project of the list is, empty or not.
 		const loose = group.folded.map(child => familyChildFor(child)).filter(isShownOpened);
+		// A folded project still says what its hidden rows would: who waits, who works, what finished unseen.
+		const summary = groupCollapsed ? foldSummary(groupFoldSignals(group, loose)) : null;
 		if (!group.listed && !group.open && group.sessions.length === 0 && loose.length === 0) return null;
 		return (
 			<SortableProject disabled={query.length > 0 || renamingGroupCwd !== null} id={group.cwd} key={group.cwd}>
@@ -2132,14 +2164,7 @@ export function Sidebar() {
 											data-sidebar-group-pin
 										/>
 									)}
-									{groupBusy && (
-										<span className="flex shrink-0 items-center">
-											<span aria-hidden className="inline-flex">
-												<Spinner size="sm" spin />
-											</span>
-											<span className="sr-only">, {t("sidebar.signal.running")}</span>
-										</span>
-									)}
+									{summary && <SidebarFoldSummary summary={summary} />}
 								</SidebarFoldButton>
 							)}
 							{renamingGroupCwd !== group.cwd && (
@@ -2271,6 +2296,7 @@ export function Sidebar() {
 					{!listError && (chatSessions.length > 0 || (!query && !(isLoading && allSessions.length === 0))) && (
 						<SidebarChats
 							count={chatSessions.length}
+							summary={() => foldSummary(chatSessions.flatMap(session => sessionFoldSignals(session)))}
 							deviceId={LOCAL_DEVICE}
 							filtering={query.length > 0}
 							newChatData={{ "data-sidebar-new-chat": "" }}
@@ -2316,6 +2342,13 @@ export function Sidebar() {
 									<span className="min-w-0 flex-1 truncate">
 										{t("sidebar.archived", { count: archivedRows.length })}
 									</span>
+									{!archivedOpen && !query && (
+										<SidebarFoldSummary
+											summary={foldSummary(
+												archivedRows.map(session => sessionFoldSignal(sessionRowState(session))),
+											)}
+										/>
+									)}
 								</button>
 								<span className="relative flex shrink-0 items-center pr-1">
 									<IconButton
@@ -2447,7 +2480,10 @@ export function Sidebar() {
 										role={sectionHosts.length > 0 ? "region" : undefined}
 									>
 										{sectionHosts.length > 0 && (
-											<SidebarLocalHeader onAddProject={() => void openProjectFolder()} />
+											<SidebarLocalHeader
+												onAddProject={() => void openProjectFolder()}
+												summary={localFoldSummary}
+											/>
 										)}
 										{localList}
 									</div>
