@@ -75,7 +75,7 @@ import { Button, IconButton, InlineNotice, ListRow, Spinner } from "../../common
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuItem, MenuButton } from "../../common/ContextMenu";
 import { TimeAgo } from "../../common/TimeAgo";
-import { TabLiveAge, TabLiveTitle } from "../SessionLiveTitle";
+import { SessionLiveAge, SessionLiveTitle } from "../SessionLiveTitle";
 import { childFoldSignal, type FoldSignal, type FoldSummary, foldSummary } from "./fold-summary";
 import { hostRowState, hostSectionSummary, remoteOpenedTab } from "./host-row-state";
 import { useHostWorkspace } from "./host-workspace";
@@ -997,12 +997,17 @@ function DeviceSessions({
 		// This host's open decisions, on its bot's row only (the local row's rule, Sidebar.tsx): the host's own prompt
 		// takes the slot first.
 		const botDecisions = bot ? hostDecisions : 0;
+		// Its family, as a local row's (Sidebar.tsx): the tab's subagents and the sessions its agent opened. The ones
+		// running light the row as on the host, though no tab here holds it.
+		const opened = openedOf(session);
+		const runningOpened = opened.filter(child => child.status === "running").length;
 		const age =
 			botDecisions > 0 && !waiting ? (
 				<BotDecisionsBadge count={botDecisions} />
 			) : (
-				<TabLiveAge
+				<SessionLiveAge
 					iso={indexed ? session.modified : null}
+					opened={runningOpened}
 					running={running}
 					settling={settling}
 					tabId={tab?.id ?? null}
@@ -1028,8 +1033,6 @@ function DeviceSessions({
 		) : (
 			(chat ?? (pinned ? <Pin aria-label={t("sidebar.pinned")} className="size-(--sc-icon-sm)" /> : null))
 		);
-		// Its family, as a local row's (Sidebar.tsx): the tab's subagents and the sessions its agent opened.
-		const opened = openedOf(session);
 		const family = tab !== undefined || opened.length > 0;
 		// Its own key: two hosts may keep a session at the same path, and this computer's prune never sees host rows.
 		const familyKey = `device:${host.deviceId}:${session.path}`;
@@ -1108,7 +1111,8 @@ function DeviceSessions({
 					selected={active}
 					title={
 						<>
-							<TabLiveTitle
+							<SessionLiveTitle
+								opened={runningOpened}
 								parts={titleParts}
 								running={running}
 								settling={settling}

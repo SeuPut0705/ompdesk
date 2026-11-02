@@ -50,7 +50,7 @@ export function useSessionLive({ tabId, running, settling, waiting, opened }: Se
 	});
 }
 
-/** For a card that knows only its tab (a pane header, a paired host's row): the sessions it opened come from the tabs. */
+/** For a card that knows only its tab (a pane header): the sessions it opened come from the tabs. */
 export function useTabLive(props: Omit<SessionLiveProps, "opened">): LiveState | null {
 	const opened = useOpenedChildren(props.tabId).counts.running;
 	return useSessionLive({ ...props, opened });
@@ -63,14 +63,6 @@ export const SessionLiveTitle = memo(function SessionLiveTitle({
 }: SessionLiveProps & { parts: TitleParts; swapScope?: string }): ReactElement {
 	return <SessionTitle live={useSessionLive(props)} noTooltip parts={parts} swapScope={swapScope} />;
 });
-
-export function TabLiveTitle({
-	parts,
-	swapScope,
-	...props
-}: Omit<SessionLiveProps, "opened"> & { parts: TitleParts; swapScope?: string }): ReactElement {
-	return <SessionTitle live={useTabLive(props)} noTooltip parts={parts} swapScope={swapScope} />;
-}
 
 /**
  * A row's age slot: the time since the session last did something (`SessionInfo.modified`, ticking on the shared
@@ -95,10 +87,3 @@ export const SessionLiveAge = memo(function SessionLiveAge({
 }: SessionLiveProps & { iso: string | null }): ReactElement | null {
 	return <LiveAge iso={iso} state={useSessionLive(props)} />;
 });
-
-export function TabLiveAge({
-	iso,
-	...props
-}: Omit<SessionLiveProps, "opened"> & { iso: string | null }): ReactElement | null {
-	return <LiveAge iso={iso} state={useTabLive(props)} />;
-}
