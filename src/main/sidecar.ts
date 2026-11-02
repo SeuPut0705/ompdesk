@@ -49,6 +49,7 @@ import {
 	withoutSessionEnv,
 } from "./omp-launch";
 import { OMP_TELEMETRY_OFF, type OmpResolution, ompBunDefaults, ompPathEnv } from "./omp-runtime";
+import { stopOmp } from "./omp-stop";
 import { VISUALIZE_DEFINITION } from "./preview/visuals";
 import { MAX_RESTART_ATTEMPTS, restartDelay, WINDOWS_SESSION_END_EXIT_CODE } from "./restart-policy";
 import { attachNdjsonParser, supportsRpcProtocolV2 } from "./rpc-bridge";
@@ -393,38 +394,6 @@ function loadLaunchProfileFlags(read: (() => unknown) | undefined, cwd: string):
  */
 export type SidecarStartGate = (bridge: BridgeClient, cwd: string) => Promise<string | null>;
 
-/** How long the fallback of `terminate` lets an omp finish on its own after its stdin ended, before the shim is killed. */
-const TASKKILL_FALLBACK_GRACE_MS = 5_000;
-
-/**
- * Stop an omp. SIGTERM where signals exist. Windows has none: `kill` is TerminateProcess of the direct child only, and
- * omp starts through a `.cmd` or `.exe` shim whose real omp would be left running, so the whole tree goes (`taskkill
- * /T /F`, as the setup supervisor does). taskkill finds the tree through WMI and, with WMI down, exits 1 and kills
- * nothing: the omp would then run on until the app exits, holding its folder. So a taskkill that failed while the child
- * still runs falls back to ending its stdin (omp exits when it ends). The shim waits for the omp, so its exit means
- * the omp is gone: a callback waiting for that exit (a session delete, a folder removal) never runs while the omp
- * still writes its session file on the way out. Only an omp that ignores the closed stdin gets TerminateProcess of the
- * shim, after a grace period.
- */
-function terminate(child: ChildProcess): void {
-	if (process.platform === "win32" && child.pid !== undefined) {
-		const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
-		const fallBack = () => {
-			if (child.exitCode !== null || child.signalCode !== null) return;
-			child.stdin?.end();
-			const timer = setTimeout(() => child.kill(), TASKKILL_FALLBACK_GRACE_MS);
-			timer.unref();
-			child.once("exit", () => clearTimeout(timer));
-		};
-		killer.once("error", fallBack);
-		killer.once("exit", code => {
-			if (code !== 0) fallBack();
-		});
-		return;
-	}
-	child.kill("SIGTERM");
-}
-
 export class SidecarManager extends EventEmitter {
 	#child: ChildProcess | null = null;
 	#rpcClient: RpcClient | null = null;
@@ -639,7 +608,7 @@ export class SidecarManager extends EventEmitter {
 		const superseded = this.#child;
 		if (superseded) {
 			this.#cleanup();
-			terminate(superseded);
+			stopOmp(superseded);
 		}
 		const runtime = this.#runtime;
 		if (!runtime) return;
@@ -1401,7 +1370,7 @@ export class SidecarManager extends EventEmitter {
 		}
 		const child = this.#child;
 		this.#cleanup();
-		if (child) terminate(child);
+		if (child) stopOmp(child);
 	}
 
 	dispose(): void {
@@ -1415,7 +1384,7 @@ export class SidecarManager extends EventEmitter {
 			this.#restartTimer = null;
 			this.#cleanup();
 			child.stdin.end();
-			const timer = setTimeout(() => terminate(child), grace);
+			const timer = setTimeout(() => stopOmp(child), grace);
 			child.once("exit", () => clearTimeout(timer));
 		} else this.kill();
 		this.removeAllListeners();

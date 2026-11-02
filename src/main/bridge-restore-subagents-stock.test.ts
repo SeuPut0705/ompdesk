@@ -17,6 +17,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { isNewer } from "../shared/version";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
 import { parseOmpVersion } from "./omp-runtime";
+import { stopOmp } from "./omp-stop";
 import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 import { removeWhenFree } from "./test-folders";
 
@@ -193,15 +194,19 @@ interface Omp {
 	frames: Array<{ type: string; [key: string]: unknown }>;
 	send(command: Record<string, unknown>): Promise<Record<string, unknown>>;
 	/**
-	 * What a restart does to omp: an update's approved quit (SIGTERM, stock journals the exit), a crash, the way
-	 * SidecarManager stops it, closing its stdin (`EOF`; stock disposes the session and parks its background subagents),
-	 * or the app going away under it (`GONE`, an update swap: its next write to the closed stdout fails, and stock's
+	 * What a restart does to omp: OMPdesk's own stop (`STOP`, `stopOmp`: an update's approved quit or a tab restart;
+	 * stock journals the exit), a crash (`SIGKILL`), the way SidecarManager stops it while ai-memory runs, closing its
+	 * stdin (`EOF`; stock disposes the session and parks its background subagents), or the app going away under it (`GONE`, an update swap: its next write to the closed stdout fails, and stock's
 	 * stdout-disconnect handling quits at once, journaling every session's exit as `manual` and aborting nothing).
 	 */
 	kill(signal?: Signal): Promise<void>;
 }
 
-type Signal = "SIGKILL" | "SIGTERM" | "EOF" | "GONE";
+/**
+ * How the omp ends: a signal, its stdin closed (`EOF`, an app quit while ai-memory runs), its stdout gone (`GONE`, the
+ * app going away under it), or `STOP`, OMPdesk's own stop of a tab's omp (`stopOmp`: a restart, a tab close, a quit).
+ */
+type Signal = "SIGKILL" | "EOF" | "GONE" | "STOP";
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterAll(async () => {
@@ -278,7 +283,8 @@ async function startOmp(provider: Provider, isolated: string, root: string, resu
 		else if (signal === "GONE") {
 			child.stdout.destroy();
 			child.stdin.write(`${JSON.stringify({ id: "gone", type: "get_state" })}\n`);
-		} else child.kill(signal);
+		} else if (signal === "STOP") stopOmp(child);
+		else child.kill(signal);
 		await exited;
 		removeBridgeAddress(address);
 	};
@@ -438,8 +444,8 @@ describe.skipIf(!existsSync(omp))("revived subagents on stock omp", () => {
 	}, 240_000);
 
 	it("continues a parent cut off in `wait` in an eval journal: stock's restore (≥ 18.12.2) or the bridge's follow-up", async () => {
-		// v0.37.0: the parent waited on its background subagent; the update's quit (SIGTERM) cut the `wait`.
-		const { provider, isolated, outcome, id } = await cutOff([EVAL, SPAWN, WAIT], "SIGTERM");
+		// v0.37.0: the parent waited on its background subagent; the update's quit (`STOP`) cut the `wait`.
+		const { provider, isolated, outcome, id } = await cutOff([EVAL, SPAWN, WAIT], "STOP");
 		// The eval-state-context still follows the interrupted-turn record on every omp.
 		expect(mainJournal(isolated).some(entry => entry.customType === "eval-state-context")).toBe(true);
 		if (restoresEvalTurn) {
@@ -462,7 +468,7 @@ describe.skipIf(!existsSync(omp))("revived subagents on stock omp", () => {
 	// Its restored turn had also lost the prompt sections: they join through `before_agent_start`, which stock runs for
 	// a prompt, never for a turn its restore continues.
 	it("tells a turn stock's restore continues once, at once, which subagents work again, with its live prompt sections", async () => {
-		const { provider, isolated, outcome, id, parentCallsAtCut } = await cutOff([SPAWN, WAIT], "SIGTERM");
+		const { provider, isolated, outcome, id, parentCallsAtCut } = await cutOff([SPAWN, WAIT], "STOP");
 		expect(outcome).toMatchObject({ turn: true, subagents: [id], followUp: true });
 		// At once: the subagent never answers here, so the rerun `wait` could only end on the notice (stock interrupts or
 		// skips an interruptible wait for a steer), never on the subagent's result.
@@ -576,14 +582,14 @@ describe.skipIf(!existsSync(omp))("revived subagents on stock omp", () => {
 	}, 240_000);
 });
 
-// 30 Oct 2026: the parent's omp restart (SIGTERM) cut a background subagent; the session went on without it (the
+// 30 Oct 2026: the parent's omp restart (`STOP`; SIGTERM on that Mac) cut a background subagent; the session went on without it (the
 // parent's work was handed to another subagent), relaunches ran no restore for the idle session, and ten hours later a
 // relaunch with a turn running revived it, because stock's restore revives every restorable subagent whatever its age.
 describe.skipIf(!existsSync(omp))("a subagent an earlier stop cut", () => {
 	it("is not revived by a later relaunch once the session went on without it", async () => {
 		const { provider, outcome, requestsAtCut, isolated } = await cutOff(
 			[SPAWN, { text: "SPAWNED" }],
-			"SIGTERM",
+			"STOP",
 			[],
 			async ({ provider: model, isolated: dir, root }) => {
 				// The cut happened hours ago; since then the session went on (a turn) and a relaunch ran no restore.
