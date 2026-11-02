@@ -18,7 +18,15 @@ type ModelsPrompt = Extract<HostPrompt, { kind: "models" }>;
  * editor); a file that changed on the computer meanwhile asks for a reload. "Edit on computer" calls the
  * desktop handler that opens the file in the computer's editor.
  */
-export function ModelsConfigSheet({ prompt, onSettled }: { prompt: ModelsPrompt; onSettled: () => void }) {
+export function ModelsConfigSheet({
+	prompt,
+	onSettled,
+	open = true,
+}: {
+	prompt: ModelsPrompt;
+	onSettled: () => void;
+	open?: boolean;
+}) {
 	const t = useT();
 	const [file, setFile] = useState<WebModelsText | null>(null);
 	const [revision, setRevision] = useState(0);
@@ -104,7 +112,7 @@ export function ModelsConfigSheet({ prompt, onSettled }: { prompt: ModelsPrompt;
 				</>
 			}
 			onClose={close}
-			open
+			open={open}
 			placement="full"
 			title={t("hostUi.models.title")}
 		>

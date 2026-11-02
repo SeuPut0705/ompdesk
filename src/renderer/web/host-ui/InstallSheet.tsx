@@ -8,9 +8,11 @@ import type { HostPrompt } from "./host-ui-store";
 export function InstallSheet({
 	prompt,
 	onSettled,
+	open = true,
 }: {
 	prompt: Extract<HostPrompt, { kind: "install" }>;
 	onSettled: () => void;
+	open?: boolean;
 }) {
 	const t = useT();
 	return (
@@ -22,7 +24,7 @@ export function InstallSheet({
 				</Button>
 			}
 			onClose={onSettled}
-			open
+			open={open}
 			placement="bottom"
 			title={t("web.install.menu")}
 		>

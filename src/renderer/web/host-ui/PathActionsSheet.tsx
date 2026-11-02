@@ -18,7 +18,15 @@ type PathHostPrompt = Extract<HostPrompt, { kind: "openPath" | "revealPath" }>;
  * "Show in Files" and "Show on computer" for a reveal. A device without computer control gets the host's
  * refusal as a sentence under the buttons.
  */
-export function PathActionsSheet({ prompt, onSettled }: { prompt: PathHostPrompt; onSettled: () => void }) {
+export function PathActionsSheet({
+	prompt,
+	onSettled,
+	open = true,
+}: {
+	prompt: PathHostPrompt;
+	onSettled: () => void;
+	open?: boolean;
+}) {
 	const t = useT();
 	const [busy, setBusy] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -73,7 +81,7 @@ export function PathActionsSheet({ prompt, onSettled }: { prompt: PathHostPrompt
 		<Sheet
 			description={t("hostUi.openPath.description")}
 			onClose={() => finish({ ok: true })}
-			open
+			open={open}
 			placement="bottom"
 			title={t(reveal ? "hostUi.revealPath.title" : "hostUi.openPath.title", { name })}
 		>

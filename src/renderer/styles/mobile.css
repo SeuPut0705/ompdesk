@@ -55,20 +55,55 @@ html[data-kb="open"] {
 	}
 }
 
+@keyframes omp-slide-out-right {
+	from {
+		opacity: 1;
+		transform: none;
+	}
+	to {
+		opacity: 0;
+		transform: translateX(calc(var(--sc-motion-rise) * 4));
+	}
+}
+
+/* A sheet crosses the screen: the slow step on the emphasized curve in, one step shorter accelerating out (its presence
+   keeps it mounted for `med`, common/Sheet.tsx). */
 .omp-sheet-in-bottom {
-	animation: omp-sheet-in-bottom var(--omp-motion-med) var(--omp-ease-enter) both;
+	animation: omp-sheet-in-bottom var(--sc-duration-slow) var(--sc-ease-emphasized) both;
 }
 
 .omp-sheet-in-left {
-	animation: omp-sheet-in-left var(--omp-motion-med) var(--omp-ease-enter) both;
+	animation: omp-sheet-in-left var(--sc-duration-slow) var(--sc-ease-emphasized) both;
 }
 
 .omp-sheet-out {
-	animation: omp-sheet-out-bottom var(--omp-motion-fast) var(--omp-ease) both;
+	animation: omp-sheet-out-bottom var(--sc-duration-med) var(--sc-ease-exit) both;
 }
 
 [data-sheet-placement="left"] > .omp-sheet-out {
 	animation-name: omp-sheet-out-left;
+}
+
+/* The right sheet's slide is the short one (`omp-slide-in-right`): it leaves in `fast`, one step under its enter. */
+.omp-slide-out-right {
+	animation: omp-slide-out-right var(--sc-duration-fast) var(--sc-ease-exit) both;
+}
+
+/* A sheet's scrim fades on the sheet's own clock, so the dim never runs ahead of the panel or outlives it. */
+:is([data-sheet-placement], .omp-dialog-overlay--sheet, .omp-action-sheet-overlay).omp-fade-in {
+	animation-duration: var(--sc-duration-slow);
+}
+
+:is([data-sheet-placement], .omp-dialog-overlay--sheet, .omp-action-sheet-overlay).omp-fade-out {
+	animation-duration: var(--sc-duration-med);
+}
+
+[data-sheet-placement="right"].omp-fade-in {
+	animation-duration: var(--sc-duration-med);
+}
+
+[data-sheet-placement="right"].omp-fade-out {
+	animation-duration: var(--sc-duration-fast);
 }
 
 /* The grabber: a short bar in a taller touch strip. Pulling it dismisses the sheet (use-sheet-drag.ts). */
@@ -179,11 +214,11 @@ html[data-shell="phone"] .omp-dialog-panel--sheet:is(.omp-dialog-size-full, .omp
 }
 
 html[data-shell="phone"] .omp-dialog-panel--sheet.omp-scale-in {
-	animation: omp-sheet-in-bottom var(--omp-motion-med) var(--omp-ease-enter) both;
+	animation: omp-sheet-in-bottom var(--sc-duration-slow) var(--sc-ease-emphasized) both;
 }
 
 html[data-shell="phone"] .omp-dialog-panel--sheet.omp-scale-out {
-	animation: omp-sheet-out-bottom var(--omp-motion-fast) var(--omp-ease) both;
+	animation: omp-sheet-out-bottom var(--sc-duration-med) var(--sc-ease-exit) both;
 }
 
 /* The wide action row of a dialog footer stacks into full-width buttons a thumb can hit. A chromeless dialog's body
@@ -407,17 +442,16 @@ html[data-shell] .omp-composer-region.pb-3 {
 }
 
 /* The expanded strip: an inline panel under it, over the top of the transcript. No scrim, no backdrop: what is
-   below stays visible and tappable (a tap outside only collapses it). It moves only by height and the chevron by
-   transform; reduced motion and software compositing make both instant. */
+   below stays visible and tappable (a tap outside only collapses it). It opens by scale and opacity from the strip
+   (`.omp-pop-in`), never by its height, and the chevron turns by transform; reduced motion and software compositing
+   make both instant. */
 .omp-work-strip {
 	position: relative;
 	z-index: var(--sc-z-sticky);
 	flex-shrink: 0;
 }
 
-.omp-work-chip-chevron {
-	transition: transform var(--sc-duration-fast) var(--sc-ease-standard);
-}
+/* The chevron turns on `.omp-disclosure-chevron`'s own transition (global.css); the rotation is set below. */
 
 .omp-work-chip[data-open] .omp-work-chip-chevron {
 	transform: rotate(180deg);
@@ -447,21 +481,24 @@ html[data-shell] .omp-composer-region.pb-3 {
 	border-radius: var(--sc-radius-lg);
 	background: var(--sc-elevated);
 	box-shadow: var(--sc-shadow-md);
-	animation: omp-strip-in var(--sc-duration-med) var(--sc-ease-enter) both;
+	/* It grows from the strip it hangs under (`.omp-pop-in`/`.omp-pop-out` on the panel): transform and opacity only,
+	   so nothing under it is pushed or re-laid out. */
+	--omp-pop-origin: top center;
 }
 
 /* Opening upward when its pane has room above the strip (WorkBoardChip's useStripRoom): a desktop window keeps the
    strip in the dock just above the composer (the web build moves it under the header), so there it opens upward,
    clear of the composer. */
 .omp-work-strip-panel[data-opens="up"] {
+	--omp-pop-origin: bottom center;
 	top: auto;
 	bottom: 100%;
 	margin-bottom: var(--sc-space-1);
 }
 
+/* A leaving panel stays only for its exit (`.omp-pop-out`, WorkBoardChip's presence): out of the hit test at once. */
 .omp-work-strip-panel[data-leaving] {
 	pointer-events: none;
-	animation: omp-strip-out var(--sc-duration-fast) var(--sc-ease-standard) both;
 }
 
 .omp-work-strip-body {
@@ -506,33 +543,7 @@ html[data-shell] .omp-composer-region.pb-3 {
 	background: var(--sc-border);
 }
 
-@keyframes omp-strip-in {
-	from {
-		max-height: 0;
-	}
-	to {
-		max-height: min(50dvh, var(--strip-room, 50dvh));
-	}
-}
-
-@keyframes omp-strip-out {
-	from {
-		max-height: min(50dvh, var(--strip-room, 50dvh));
-	}
-	to {
-		max-height: 0;
-	}
-}
-
-@media (prefers-reduced-motion: reduce) {
-	.omp-work-strip-panel,
-	.omp-work-strip-panel[data-leaving] {
-		animation: none;
-	}
-}
-
 html[data-gpu="software"] .omp-work-strip-panel,
-html[data-gpu="software"] .omp-work-strip-panel[data-leaving],
 html[data-gpu="software"] .omp-work-chip-chevron {
 	animation: none;
 	transition: none;
@@ -1071,6 +1082,10 @@ html[data-shell="phone"][data-input="touch"] .omp-work-chip::after {
 	display: block;
 	height: 100%;
 	background: var(--sc-accent);
+	/* The fill's width is its scale (`--fill`, 0 to 1), so a step done moves it by transform, never by layout. */
+	transform: scaleX(var(--fill, 0));
+	transform-origin: left;
+	transition: transform var(--sc-duration-med) var(--sc-ease-standard);
 }
 
 .omp-work-chip-active {

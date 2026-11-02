@@ -13,7 +13,15 @@ type EditorPrompt = Extract<HostPrompt, { kind: "editor" }>;
  * The composer's "edit in $EDITOR" on a phone: a full-screen editor that returns the text (`{ok, text}`, the
  * desktop's shape), or "Edit on computer", which opens the host's own editor and waits for its text.
  */
-export function EditorSheet({ prompt, onSettled }: { prompt: EditorPrompt; onSettled: () => void }) {
+export function EditorSheet({
+	prompt,
+	onSettled,
+	open = true,
+}: {
+	prompt: EditorPrompt;
+	onSettled: () => void;
+	open?: boolean;
+}) {
 	const t = useT();
 	const text = useRef(prompt.content);
 	const [waiting, setWaiting] = useState(false);
@@ -59,7 +67,7 @@ export function EditorSheet({ prompt, onSettled }: { prompt: EditorPrompt; onSet
 				</>
 			}
 			onClose={() => finish({ ok: false, unavailable: false, text: null })}
-			open
+			open={open}
 			placement="full"
 			title={t("hostUi.editor.title")}
 		>

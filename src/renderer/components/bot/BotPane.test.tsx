@@ -36,6 +36,7 @@ globals.Element = Element;
 globals.Node = Node;
 globals.IS_REACT_ACT_ENVIRONMENT = true;
 globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0);
+globals.cancelAnimationFrame = clearTimeout;
 
 const BOT = "/work-sessions/bot.jsonl";
 
@@ -176,6 +177,12 @@ describe("BotPane", () => {
 		await act(async () =>
 			useBotDeskStore.getState().apply({ ...EMPTY_BOT_DESK, duties: [], routines: [], decisions: [] }),
 		);
+		// The dock fades out with its last decision, then goes.
+		await act(async () => {
+			const { promise, resolve } = Promise.withResolvers<void>();
+			setTimeout(resolve, 250);
+			await promise;
+		});
 		expect(query("[data-bot-decisions-dock]")).toBeNull();
 		expect(query("[data-bot-bar]")).not.toBeNull();
 	});

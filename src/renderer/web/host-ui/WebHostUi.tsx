@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import { useOverlayPresence } from "../../hooks/use-overlay-presence";
 import { translate } from "../../lib/i18n";
 import { toast } from "../../stores/toast";
 import { registerWebHostHooks } from "../host-hooks";
@@ -28,6 +29,12 @@ export function WebHostUi() {
 function WebHostSheets() {
 	const prompt = useHostUiStore(state => state.queue[0]);
 	const shift = useHostUiStore(state => state.shift);
+	const presence = useOverlayPresence(prompt !== undefined, "med");
+	const held = useRef<HostPrompt | undefined>(undefined);
+	if (prompt) held.current = prompt;
+	else if (!presence.mounted) held.current = undefined;
+	const shown = prompt ?? held.current;
+	const open = prompt !== undefined;
 
 	useEffect(
 		() =>
@@ -83,38 +90,39 @@ function WebHostSheets() {
 		[],
 	);
 
-	if (!prompt) return null;
-	// One sheet at a time; `key` gives each prompt fresh state.
-	switch (prompt.kind) {
+	if (!shown) return null;
+	// One sheet at a time; `key` gives each prompt fresh state. A settled one stays, closed, for its exit.
+	switch (shown.kind) {
 		case "openPath":
 		case "revealPath":
-			return <PathActionsSheet key={queueKey(prompt)} onSettled={shift} prompt={prompt} />;
+			return <PathActionsSheet key={queueKey(shown)} onSettled={shift} open={open} prompt={shown} />;
 		case "browse":
 			return (
 				<HostBrowserSheet
-					defaultPath={prompt.defaultPath}
-					filters={prompt.filters}
-					host={prompt.host}
-					key={queueKey(prompt)}
-					mode={prompt.mode}
+					defaultPath={shown.defaultPath}
+					filters={shown.filters}
+					host={shown.host}
+					key={queueKey(shown)}
+					mode={shown.mode}
 					onDone={paths => {
-						prompt.resolve(paths);
+						shown.resolve(paths);
 						shift();
 					}}
-					title={prompt.title}
+					open={open}
+					title={shown.title}
 				/>
 			);
 		case "saveImage":
-			return <SaveImageSheet key={queueKey(prompt)} onSettled={shift} prompt={prompt} />;
+			return <SaveImageSheet key={queueKey(shown)} onSettled={shift} open={open} prompt={shown} />;
 		case "editor":
-			return <EditorSheet key={queueKey(prompt)} onSettled={shift} prompt={prompt} />;
+			return <EditorSheet key={queueKey(shown)} onSettled={shift} open={open} prompt={shown} />;
 		case "models":
-			return <ModelsConfigSheet key={queueKey(prompt)} onSettled={shift} prompt={prompt} />;
+			return <ModelsConfigSheet key={queueKey(shown)} onSettled={shift} open={open} prompt={shown} />;
 		case "quit":
 		case "update":
-			return <ConfirmSheet key={queueKey(prompt)} onSettled={shift} prompt={prompt} />;
+			return <ConfirmSheet key={queueKey(shown)} onSettled={shift} open={open} prompt={shown} />;
 		case "install":
-			return <InstallSheet key={queueKey(prompt)} onSettled={shift} prompt={prompt} />;
+			return <InstallSheet key={queueKey(shown)} onSettled={shift} open={open} prompt={shown} />;
 	}
 }
 

@@ -13,7 +13,16 @@ type ConfirmPrompt = Extract<HostPrompt, { kind: "quit" | "update" }>;
  * computer's update waits for running background work names that work: the restart interrupts it (the host asks
  * nothing more, so this is the one place the person sees it).
  */
-export function ConfirmSheet({ prompt, onSettled }: { prompt: ConfirmPrompt; onSettled: () => void }) {
+export function ConfirmSheet({
+	prompt,
+	onSettled,
+	open = true,
+}: {
+	prompt: ConfirmPrompt;
+	onSettled: () => void;
+	/** False once settled: the sheet plays its exit before it goes. */
+	open?: boolean;
+}) {
 	const t = useT();
 	const running = useTabsStore(state => state.tabs.filter(tab => tab.status === "running").length);
 	const waiting = useUpdaterStore(state =>
@@ -38,7 +47,7 @@ export function ConfirmSheet({ prompt, onSettled }: { prompt: ConfirmPrompt; onS
 				</>
 			}
 			onClose={() => answer(false)}
-			open
+			open={open}
 			placement="bottom"
 			title={t(quit ? "hostUi.quit.title" : "hostUi.update.title")}
 		>

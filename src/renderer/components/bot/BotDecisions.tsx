@@ -8,8 +8,10 @@
  * Answered ones are the work board's Activity (`BotBoardSections`).
  */
 import { Clock, Inbox, Send } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { type BotDecision, decisionExpired } from "../../../shared/bot-desk";
+import { useListMotion } from "../../hooks/use-list-motion";
+import { usePresence } from "../../hooks/use-presence";
 import { formatClock, formatDuration } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -80,7 +82,16 @@ function useExpiry(decision: BotDecision): { expired: boolean; left: number | nu
 	return { expired: decisionExpired(decision, now), left: Date.parse(decision.expiresAt ?? "") - now };
 }
 
-function DecisionCard({ decision, device }: { decision: BotDecision; device?: string }) {
+function DecisionCard({
+	decision,
+	device,
+	exiting = false,
+}: {
+	decision: BotDecision;
+	device?: string;
+	/** Answered or lapsed: kept for its exit, out of the tab order and the screen reader. */
+	exiting?: boolean;
+}) {
 	const t = useT();
 	const answer = useBotDeskStore(state => state.answer);
 	const [freeText, setFreeText] = useState("");
@@ -103,9 +114,12 @@ function DecisionCard({ decision, device }: { decision: BotDecision; device?: st
 	const tucked = decision.context !== undefined && (decision.operation !== undefined || decision.draft !== undefined);
 	return (
 		<li
-			className="flex flex-col gap-2 px-3 py-3 data-expired:opacity-70"
+			aria-hidden={exiting || undefined}
+			className={`flex flex-col gap-2 px-3 py-3 data-expired:opacity-70${exiting ? " omp-fade-out" : ""}`}
 			data-bot-decision={decision.id}
 			data-expired={expired || undefined}
+			data-flip-key={decision.id}
+			inert={exiting}
 		>
 			<div className="flex items-baseline justify-between gap-3">
 				<p className="min-w-0 text-sc-md font-medium text-(--sc-text) [overflow-wrap:anywhere]">
@@ -200,7 +214,11 @@ function DecisionCard({ decision, device }: { decision: BotDecision; device?: st
 	);
 }
 
-/** The open decisions above the composer, in the transcript's column; nothing while none is open. */
+/**
+ * The open decisions above the composer, in the transcript's column; nothing while none is open. A decision arriving
+ * rises into the list and the others make room (`useListMotion`); one answered or lapsed fades out (`usePresence`),
+ * and the dock itself with its last one.
+ */
 export function BotDecisionDock({ device }: { device?: string }) {
 	const t = useT();
 	const { desk, loaded, loadError } = useBotDesk(device);
@@ -208,6 +226,9 @@ export function BotDecisionDock({ device }: { device?: string }) {
 	const open = useOpenBotDecisions(device);
 	const bot = useBotTab();
 	const state = botState(tabBotFacts(useTabsStore(store => store.tabs.find(tab => tab.id === bot?.tabId))));
+	const presented = usePresence(open, decision => decision.id);
+	const list = useRef<HTMLUListElement>(null);
+	useListMotion(list, { enter: true });
 	if (!loaded && loadError)
 		return (
 			<div className="omp-bot-column shrink-0 pt-2" data-bot-decisions-dock>
@@ -225,9 +246,17 @@ export function BotDecisionDock({ device }: { device?: string }) {
 				</div>
 			</div>
 		);
-	if (open.length === 0) return null;
+	if (presented.length === 0) return null;
+	// Every decision is on its way out: the dock fades as one piece, so the rows do not fade inside a fading card.
+	const leaving = open.length === 0;
+	const lead = (open[0] ?? presented[0]?.item)?.question;
 	return (
-		<div className="omp-bot-column shrink-0 pt-2" data-bot-decisions-dock>
+		<div
+			aria-hidden={leaving || undefined}
+			className={`omp-bot-column shrink-0 pt-2${leaving ? " omp-fade-out" : ""}`}
+			data-bot-decisions-dock
+			inert={leaving}
+		>
 			<div className="omp-composer-shell">
 				<DockCard
 					actions={
@@ -242,19 +271,20 @@ export function BotDecisionDock({ device }: { device?: string }) {
 							/>
 						) : undefined
 					}
-					badge={<Badge variant="warning">{open.length}</Badge>}
+					badge={<Badge variant="warning">{leaving ? presented.length : open.length}</Badge>}
 					icon={Inbox}
 					id="decisions"
-					peek={<span className="truncate">{open[0]?.question}</span>}
+					peek={<span className="truncate">{lead}</span>}
 					title={t("botHome.decisions.title")}
 				>
 					{/* A long inbox scrolls in place: the composer and the transcript's foot stay on screen. */}
 					<ul
 						className="flex max-h-[min(40dvh,320px)] flex-col divide-y divide-(--sc-border-subtle) overflow-y-auto overscroll-contain"
 						data-bot-decisions
+						ref={list}
 					>
-						{open.map(decision => (
-							<DecisionCard decision={decision} device={device} key={decision.id} />
+						{presented.map(({ item, exiting }) => (
+							<DecisionCard decision={item} device={device} exiting={exiting && !leaving} key={item.id} />
 						))}
 					</ul>
 				</DockCard>

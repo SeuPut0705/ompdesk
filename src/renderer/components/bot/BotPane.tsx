@@ -14,6 +14,7 @@ import { useBotCallStore } from "../../stores/bot-call";
 import { ensureBotDesk, useBotDesk } from "../../stores/bot-desk";
 import { sessionListFeed } from "../../stores/session-list";
 import type { SessionTab } from "../../stores/tabs";
+import { Collapse } from "../common/Collapse";
 import { BOT_BAR_FRAME } from "./bot-bar-frame";
 import { BotTabContext, useBotDeskModule, usePreloadBotDesk } from "./bot-tab";
 
@@ -47,7 +48,12 @@ function BotScreen({
 				</div>
 			)}
 			{children}
-			{desk && onCall ? <desk.BotCallBar tabId={tabId} /> : null}
+			{desk ? (
+				// The bar grows in when a call starts and folds away when it ends (its own call is over at once, `closing`).
+				<Collapse className="shrink-0" open={onCall}>
+					<desk.BotCallBar closing={!onCall} tabId={tabId} />
+				</Collapse>
+			) : null}
 			{desk ? <desk.BotDecisionDock device={device} /> : null}
 		</BotTabContext.Provider>
 	);

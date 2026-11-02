@@ -41,6 +41,7 @@ globals.Element = Element;
 globals.Node = Node;
 globals.IS_REACT_ACT_ENVIRONMENT = true;
 globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0);
+globals.cancelAnimationFrame = clearTimeout;
 
 const BOT = "/work-sessions/bot.jsonl";
 
@@ -129,6 +130,14 @@ async function enter(element: Element | null): Promise<void> {
 
 const query = (selector: string) => container.querySelector(selector);
 const queryAll = (selector: string) => [...container.querySelectorAll(selector)];
+
+/** A leaving row or card stays for its exit (the `fast` token), then goes. */
+const afterExit = () =>
+	act(async () => {
+		const { promise, resolve } = Promise.withResolvers<void>();
+		setTimeout(resolve, 250);
+		await promise;
+	});
 
 /** The parts as the bot's pane and its board draw them. */
 function Parts({ tabId, device }: { tabId: string; device?: string }) {
@@ -277,6 +286,9 @@ describe("the bot's desk", () => {
 			),
 		);
 
+		// The answered card fades out with its dock, out of the way of the tab order at once, then goes.
+		expect(query("[data-bot-decisions-dock]")?.hasAttribute("inert")).toBe(true);
+		await afterExit();
 		expect(query('[data-bot-decision="d1"]')).toBeNull();
 		expect(query("[data-bot-decisions-dock]")).toBeNull();
 		const row = query('[data-bot-answered="d1"]');
@@ -659,8 +671,14 @@ describe("the bot's tasks", () => {
 			done: true,
 		});
 
-		// Main's change lands: the marked one moves to Completed, and its mark can be taken back there.
+		// Main's change lands: the marked one leaves Tasks by an exit (out of the tab order at once) and arrives in
+		// Completed, where its mark can be taken back.
 		await act(async () => useBotDeskStore.getState().apply(desk({ tasksDone: ["/s/fin.jsonl"] })));
+		const leaving = query('[data-board-section="tasks"] [data-bot-task="/s/fin.jsonl"]')?.closest("li");
+		expect(leaving?.hasAttribute("data-exiting")).toBe(true);
+		expect(leaving?.getAttribute("aria-hidden")).toBe("true");
+		await afterExit();
+		expect(query('[data-board-section="tasks"] [data-bot-task="/s/fin.jsonl"]')).toBeNull();
 		const marked = query('[data-bot-task="/s/fin.jsonl"]');
 		expect(marked?.getAttribute("data-task-state")).toBe("done");
 		expect(marked?.closest('[data-board-section="completed"]')).not.toBeNull();

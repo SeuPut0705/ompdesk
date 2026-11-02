@@ -21,6 +21,7 @@ import {
 import { type ReactNode, useMemo } from "react";
 import type { BotDeskState } from "../../../shared/bot-desk";
 import { useOpenedChildren } from "../../hooks/use-opened-children";
+import { usePresence } from "../../hooks/use-presence";
 import { formatClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
@@ -79,7 +80,18 @@ function stopChild(tabId: string, t: Translate): void {
 	);
 }
 
-function TaskRow({ item, now, device }: { item: Extract<TaskItem, { kind: "task" }>; now: number; device?: string }) {
+function TaskRow({
+	item,
+	now,
+	device,
+	exiting = false,
+}: {
+	item: Extract<TaskItem, { kind: "task" }>;
+	now: number;
+	device?: string;
+	/** Left the list: kept for its exit, out of the tab order and the screen reader (`BoardRow`). */
+	exiting?: boolean;
+}) {
 	const t = useT();
 	const edit = useBotDeskStore(state => state.edit);
 	const { row, state } = item;
@@ -157,12 +169,14 @@ function TaskRow({ item, now, device }: { item: Extract<TaskItem, { kind: "task"
 				: undefined;
 	return (
 		<BoardRow
+			flipKey={item.key}
 			action={actions.length > 0 ? <span className="flex shrink-0 items-center">{actions}</span> : undefined}
 			data={{
 				"data-bot-task": row.sessionPath ?? row.key,
 				"data-task-state": state,
 				...(item.unread ? { "data-task-unread": "" } : {}),
 			}}
+			exiting={exiting}
 			label={title}
 			lead={
 				item.unread ? (
@@ -192,7 +206,10 @@ function DecisionRow({ item }: { item: Extract<TaskItem, { kind: "decision" }> }
 	const answer = decision.state === "answered" ? decision.answer : null;
 	return (
 		<BoardRow
-			data={{ [item.outcome === "answered" ? "data-bot-answered" : "data-bot-expired"]: decision.id }}
+			flipKey={item.key}
+			data={{
+				[item.outcome === "answered" ? "data-bot-answered" : "data-bot-expired"]: decision.id,
+			}}
 			label={decision.question}
 			lead={
 				item.outcome === "answered" ? (
@@ -238,12 +255,17 @@ function useBotTaskLists(tabId: string, desk: BotDeskState) {
 	return { lists, opened: opened.rows };
 }
 
-/** In progress: what the bot's sessions do now, the ones that need an answer first. */
+/**
+ * In progress: what the bot's sessions do now, the ones that need an answer first. A task the owner marks done leaves
+ * this list by fading out (`usePresence`, the board's own exit for a row) while the rows below it glide up (the
+ * section's `useListMotion`, rows keyed by `flipKey`); it arrives in Completed as a new row there.
+ */
 export function BotTasksSection({ tabId, desk, device }: { tabId: string; desk: BotDeskState; device?: string }) {
 	const t = useT();
 	const edit = useBotDeskStore(state => state.edit);
 	const { lists, opened } = useBotTaskLists(tabId, desk);
 	const now = useNowTick(opened.some(row => row.status === "running"));
+	const shown = usePresence(lists.progress, item => item.key);
 	const review = lists.progress.flatMap(item =>
 		item.kind === "task" && item.state === "review" && item.row.sessionPath ? [item.row.sessionPath] : [],
 	);
@@ -263,8 +285,12 @@ export function BotTasksSection({ tabId, desk, device }: { tabId: string; desk: 
 			}}
 			title={t("botHome.tasks.title")}
 		>
-			<CappedRows cap={CAP.progress} items={lists.progress}>
-				{item => (item.kind === "task" ? <TaskRow device={device} item={item} key={item.key} now={now} /> : null)}
+			<CappedRows cap={CAP.progress} items={shown}>
+				{({ item, exiting }) =>
+					item.kind === "task" ? (
+						<TaskRow device={device} exiting={exiting} item={item} key={item.key} now={now} />
+					) : null
+				}
 			</CappedRows>
 			{review.length > 1 ? (
 				<li className="omp-work-board-item">
@@ -280,7 +306,7 @@ export function BotTasksSection({ tabId, desk, device }: { tabId: string; desk: 
 					</button>
 				</li>
 			) : null}
-			{lists.progress.length === 0 ? (
+			{shown.length === 0 ? (
 				<li className="omp-work-board-more" data-bot-tasks-empty="">
 					{t("botHome.tasks.noneInProgress")}
 				</li>

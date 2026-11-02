@@ -184,17 +184,17 @@ describe("BotCallBar", () => {
 		expect(query("[data-bot-call-heard]")?.hasAttribute("data-bot-call-partial")).toBe(false);
 	});
 
-	it("draws the mic level as five bars", async () => {
+	it("draws the mic level as five bars scaled by transform", async () => {
 		await mountBar();
 		await publish({ levels: [0, 0.25, 0.5, 0.75, 1] });
 		const bars = [...container.querySelectorAll("[data-bot-call-meter] > span")];
 		expect(bars).toHaveLength(5);
 		expect(bars.map(bar => bar.getAttribute("style")?.replace(/[\s;]/g, ""))).toEqual([
-			"height:4px",
-			"height:8px",
-			"height:12px",
-			"height:16px",
-			"height:20px",
+			"transform:scaleY(0.2)",
+			"transform:scaleY(0.4)",
+			"transform:scaleY(0.6)",
+			"transform:scaleY(0.8)",
+			"transform:scaleY(1)",
 		]);
 	});
 

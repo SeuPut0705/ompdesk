@@ -26,6 +26,8 @@ export interface HostBrowserProps {
 	host: HostActions;
 	/** The chosen host paths, or null when the person closed the sheet. */
 	onDone: (paths: string[] | null) => void;
+	/** False once settled: the sheet plays its exit before it goes. */
+	open?: boolean;
 }
 
 function parentOf(path: string): string {
@@ -52,7 +54,7 @@ function matchesFilters(name: string, filters: FileFilter[] | undefined): boolea
  * filter, a typed path, the parent and home buttons. `folder` chooses the open folder, `file` a file, `save` a
  * folder plus a file name (the answer is the full path). A file mode also offers files from this device.
  */
-export function HostBrowserSheet({ mode, title, defaultPath, filters, host, onDone }: HostBrowserProps) {
+export function HostBrowserSheet({ mode, title, defaultPath, filters, host, onDone, open = true }: HostBrowserProps) {
 	const t = useT();
 	const startDir = mode === "save" && defaultPath ? parentOf(defaultPath) : defaultPath;
 	const [dir, setDir] = useState<string | undefined>(startDir || undefined);
@@ -136,7 +138,7 @@ export function HostBrowserSheet({ mode, title, defaultPath, filters, host, onDo
 		);
 
 	return (
-		<Sheet footer={footer} onClose={() => onDone(null)} open placement="full" title={heading}>
+		<Sheet footer={footer} onClose={() => onDone(null)} open={open} placement="full" title={heading}>
 			<div className="flex min-h-0 flex-col gap-3" data-host-sheet="browse" data-host-browser-mode={mode}>
 				<form
 					className="flex items-end gap-2.5 [--hit-gap-x:10px]"

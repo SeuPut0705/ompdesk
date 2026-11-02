@@ -34,6 +34,7 @@ globals.Element = Element;
 globals.Node = Node;
 globals.IS_REACT_ACT_ENVIRONMENT = true;
 globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0);
+globals.cancelAnimationFrame = clearTimeout;
 
 interface Api {
 	get: Mock<(device?: string) => Promise<BotDeskState>>;

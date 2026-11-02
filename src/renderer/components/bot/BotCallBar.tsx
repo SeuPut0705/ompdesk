@@ -6,6 +6,7 @@
  */
 import { Mic, MicOff, PhoneOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useOverlayPresence } from "../../hooks/use-overlay-presence";
 import { translate, useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { METER_BARS } from "../../lib/voice";
@@ -55,7 +56,16 @@ function phaseKey({ phase, muted }: CallSnapshot): string {
 
 const QUIET_LEVELS: readonly number[] = Array.from({ length: METER_BARS }, () => 0);
 
-export function BotCallBar({ tabId }: { tabId: string }) {
+/** A bar is 4 px quiet and 20 px at full level; the 20 px box is scaled, never resized. */
+function meterScale(level: number): number {
+	return Number(((4 + level * 16) / 20).toFixed(2));
+}
+
+/**
+ * `closing`: the pane is already taking the bar away (its height shrinks, `Collapse`), so the call is over now rather
+ * than when the bar finally unmounts.
+ */
+export function BotCallBar({ tabId, closing = false }: { tabId: string; closing?: boolean }) {
 	const t = useT();
 	const rpc = useTabRpc();
 	const rpcRef = useRef(rpc);
@@ -67,7 +77,10 @@ export function BotCallBar({ tabId }: { tabId: string }) {
 		outputLevel: 0,
 	});
 
+	// While the pane takes the bar away (`closing`) the call is over: it ends now, not when the shrinking bar finally
+	// unmounts, and a call started again meanwhile runs on this bar.
 	useEffect(() => {
+		if (closing) return;
 		let cancelled = false;
 		const call = startVoiceCall({
 			tabId,
@@ -92,10 +105,12 @@ export function BotCallBar({ tabId }: { tabId: string }) {
 			useBotCallStore.getState().setSpeaking(tabId, false);
 			publishCallLevel(0);
 		};
-	}, [tabId]);
+	}, [tabId, closing]);
 
 	const { phase, muted, heard, partial, error, levels } = snapshot;
 	const ended = phase === "ended";
+	// The meter fades out when the call ends instead of vanishing, then leaves the row.
+	const meter = useOverlayPresence(!ended, "fast");
 	const endCall = () => {
 		callRef.current?.end();
 		useBotCallStore.getState().end(tabId);
@@ -108,17 +123,22 @@ export function BotCallBar({ tabId }: { tabId: string }) {
 					className="flex min-h-9 items-center gap-2.5 rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-surface-2) py-1 ps-3 pe-1.5 text-sc-sm"
 					role="group"
 				>
-					{ended ? null : (
-						<span aria-hidden className="flex h-5 shrink-0 items-center gap-0.5" data-bot-call-meter="">
+					{meter.mounted ? (
+						<span
+							aria-hidden
+							className={`flex h-5 shrink-0 items-center gap-0.5${meter.closing ? " omp-fade-out" : ""}`}
+							data-bot-call-meter=""
+						>
 							{levels.map((level, index) => (
+								// The level already moves every frame: scaleY follows it as it comes, with no transition of its own.
 								<span
-									className="w-1 rounded-full bg-(--sc-accent) motion-safe:transition-[height] duration-(--sc-duration-fast)"
+									className="h-5 w-1 rounded-full bg-(--sc-accent)"
 									key={index}
-									style={{ height: `${Math.round(4 + level * 16)}px` }}
+									style={{ transform: `scaleY(${meterScale(level)})` }}
 								/>
 							))}
 						</span>
-					)}
+					) : null}
 					{error ? (
 						<span
 							aria-live="polite"

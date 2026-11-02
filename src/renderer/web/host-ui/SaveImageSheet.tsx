@@ -11,7 +11,15 @@ import type { HostPrompt } from "./host-ui-store";
 type SavePrompt = Extract<HostPrompt, { kind: "saveImage" }>;
 
 /** Save an image the page holds: onto this device (share sheet or download) or into a folder on the computer. */
-export function SaveImageSheet({ prompt, onSettled }: { prompt: SavePrompt; onSettled: () => void }) {
+export function SaveImageSheet({
+	prompt,
+	onSettled,
+	open = true,
+}: {
+	prompt: SavePrompt;
+	onSettled: () => void;
+	open?: boolean;
+}) {
 	const t = useT();
 	const [stage, setStage] = useState<"choose" | "browse">("choose");
 	const [busy, setBusy] = useState(false);
@@ -35,6 +43,7 @@ export function SaveImageSheet({ prompt, onSettled }: { prompt: SavePrompt; onSe
 	if (stage === "browse") {
 		return (
 			<HostBrowserSheet
+				open={open}
 				host={prompt.host}
 				mode="folder"
 				onDone={paths => {
@@ -65,7 +74,7 @@ export function SaveImageSheet({ prompt, onSettled }: { prompt: SavePrompt; onSe
 		<Sheet
 			description={t("hostUi.save.description")}
 			onClose={() => finish({ saved: false })}
-			open
+			open={open}
 			placement="bottom"
 			title={t("hostUi.save.title", { name: prompt.name })}
 		>
