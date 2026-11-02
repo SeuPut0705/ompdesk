@@ -88,6 +88,7 @@ const STOCK_PROVIDER_IDS: readonly string[] = [
 	"qwen-portal",
 	"sakana",
 	"sambanova",
+	"scaleway",
 	"siliconflow",
 	"siliconflow-cn",
 	"singularityapi-dev",

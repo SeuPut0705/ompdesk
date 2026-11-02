@@ -26,6 +26,10 @@ const SETTING_CONDITIONS: Record<string, { parent: string; visible: (values: Rec
 	},
 	planModeEnabled: { parent: "plan.enabled", visible: values => values["plan.enabled"] === true },
 	vimModeEnabled: { parent: "tui.vimMode", visible: values => values["tui.vimMode"] === true },
+	composerPredictionsEnabled: {
+		parent: "composer.predictions",
+		visible: values => values["composer.predictions"] === true,
+	},
 	planAutosaveEnabled: {
 		parent: "plan.autosave",
 		visible: values => values["plan.enabled"] === true && values["plan.autosave"] === true,

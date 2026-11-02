@@ -85,6 +85,16 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description:
 			"턴이 끝나면 현재 모델이 다음 메시지를 예측해 빈 입력창에 흐린 텍스트로 보여 줘요. Tab이나 오른쪽 화살표로 전송 없이 입력할 수 있어요. 추가 사용량: 완료된 턴마다 전체 대화를 포함한 유료 요청이 한 번 더 발생해요 (/stats에 집계돼요).",
 	},
+	"composer.predictionAlternatives": {
+		label: "예측 후보 여러 개",
+		description:
+			"예측을 하나 대신 서로 다른 후보로 최대 네 개까지, 가능성이 높은 순서로 받아요. 흐린 텍스트는 입력 중인 초안과 맞는 첫 후보를 보여 주고, 하나를 넣은 뒤 Tab을 다시 누르면 다른 후보를 골라요. 같은 요청 한 번에 출력 토큰이 조금 더 들어요.",
+	},
+	"btw.inject": {
+		label: "/btw 추가 지시 주입",
+		description:
+			"/btw에 추가 지시 프롬프트를 부탁하면 답변 안에 <inject> 태그로 초안을 써서 강조해 보여 줘요. Alt+I(app.btw.inject)로 메인 세션에 보내요.",
+	},
 	"retry.fallbackOn": {
 		label: "폴백 전환 조건",
 		description: "어떤 요청 실패 시 설정된 폴백 모델로 전환할지 정해요.",

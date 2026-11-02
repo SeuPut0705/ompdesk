@@ -236,6 +236,7 @@ export const FALLBACK_PROVIDER_IDS: readonly string[] = [
 	"muse-code",
 	"nanogpt",
 	"parallel",
+	"scaleway",
 	"singularityapi-dev",
 	"singularityapi-tech",
 	"stencil",

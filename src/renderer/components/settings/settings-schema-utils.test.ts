@@ -40,6 +40,7 @@ const CASES: Record<string, Record<string, unknown>[]> = {
 	usageAwareFallbackEnabled: [{ "retry.usageAwareFallback": true }, { "retry.usageAwareFallback": false }],
 	planModeEnabled: [{ "plan.enabled": true }, { "plan.enabled": false }],
 	vimModeEnabled: [{ "tui.vimMode": true }, { "tui.vimMode": false }],
+	composerPredictionsEnabled: [{ "composer.predictions": true }, { "composer.predictions": false }],
 	planAutosaveEnabled: [
 		{ "plan.enabled": true, "plan.autosave": true },
 		{ "plan.enabled": true, "plan.autosave": false },
