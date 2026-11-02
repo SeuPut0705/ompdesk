@@ -1,7 +1,7 @@
 import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { motionAllowed, motionEase, motionMs, resetMotionTokens } from "./motion";
-import { animateHeight, playListMotion } from "./motion-play";
+import { animateHeight, measureList, playListMotion } from "./motion-play";
 
 type Animate = (keyframes: Keyframe[], options: KeyframeAnimationOptions) => Animation;
 
@@ -86,17 +86,23 @@ describe("animateHeight", () => {
 });
 
 describe("playListMotion", () => {
+	/** Lays an element out at `top` in the page (`offsetTop`, no offset parent); `drawn` is where a glide draws it. */
+	function place(element: HTMLElement, top: number, drawn = top) {
+		Object.defineProperty(element, "offsetTop", { value: top, configurable: true });
+		Object.defineProperty(element, "offsetParent", { value: null, configurable: true });
+		element.getBoundingClientRect = () => ({ top: drawn }) as DOMRect;
+	}
+
 	function list(document: Document, rows: Record<string, number>) {
 		const container = document.createElement("ul") as unknown as HTMLElement;
 		const animations: { key: string; keyframes: Keyframe[] }[] = [];
-		const box = (top: number) => () => ({ top }) as DOMRect;
-		container.getBoundingClientRect = box(100);
+		place(container, 100);
 		Object.defineProperty(container, "clientHeight", { value: 600 });
 		(container as unknown as { animate: Animate }).animate = () => ({}) as Animation;
 		for (const [key, top] of Object.entries(rows)) {
 			const row = document.createElement("li") as unknown as HTMLElement;
 			row.dataset.flipKey = key;
-			row.getBoundingClientRect = box(100 + top);
+			place(row, 100 + top);
 			(row as unknown as { animate: Animate }).animate = keyframes => {
 				animations.push({ key, keyframes });
 				return {} as Animation;
@@ -131,7 +137,7 @@ describe("playListMotion", () => {
 		const inner = (top: number, key: string) => {
 			const row = document.createElement("div") as unknown as HTMLElement;
 			row.dataset.flipKey = key;
-			row.getBoundingClientRect = () => ({ top: 100 + top }) as DOMRect;
+			place(row, 100 + top);
 			(row as unknown as { animate: Animate }).animate = keyframes => {
 				animations.push({ key, keyframes });
 				return {} as Animation;
@@ -165,5 +171,14 @@ describe("playListMotion", () => {
 			]),
 		);
 		expect(animations).toEqual([]);
+	});
+
+	it("reads where a row lays out, not where a glide passing through draws it", () => {
+		const document = setup();
+		const { container } = list(document as unknown as Document, { a: 40 });
+		const row = container.firstElementChild as HTMLElement;
+		// Mid-glide from 0: drawn 30 px above its place.
+		place(row, 140, 110);
+		expect(measureList(container, "[data-flip-key]").get("a")).toBe(40);
 	});
 });

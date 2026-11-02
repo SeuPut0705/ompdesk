@@ -6,17 +6,27 @@
 import { motionAllowed, motionEase, motionMs, motionTravel } from "./motion";
 
 /**
- * Where each keyed (`data-flip-key`) element of a list sits, relative to the list's own box, so a scroll of the list
- * or the page moves nothing. Read after a commit, compared after the next one.
+ * Where each keyed (`data-flip-key`) element of a list lays out, relative to the list's own top, so a scroll of the
+ * list or the page moves nothing. Layout, not the drawn box: a row read mid-glide (or mid-rise) would otherwise keep
+ * the glide's passing offset as where it rests, and its next move would start from there. Read after a change,
+ * compared after the next one.
  */
 export function measureList(list: HTMLElement, selector: string): Map<string, number> {
-	const origin = list.getBoundingClientRect().top;
+	const origin = layoutTop(list);
 	const tops = new Map<string, number>();
 	for (const element of list.querySelectorAll<HTMLElement>(selector)) {
 		const key = element.dataset.flipKey;
-		if (key !== undefined) tops.set(key, element.getBoundingClientRect().top - origin);
+		if (key !== undefined) tops.set(key, layoutTop(element) - origin);
 	}
 	return tops;
+}
+
+/** An element's top in the page's layout: offsets leave transforms and scrolling out. */
+function layoutTop(element: HTMLElement): number {
+	let top = 0;
+	for (let node: HTMLElement | null = element; node; node = node.offsetParent as HTMLElement | null)
+		top += node.offsetTop;
+	return top;
 }
 
 /**
