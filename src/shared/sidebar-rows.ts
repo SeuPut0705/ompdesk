@@ -266,6 +266,60 @@ export function openerOfSessions(
 	return roots;
 }
 
+/** What the bot's family rule reads: its session, the conversations it ended, its side chats, and the computer's rows. */
+export interface BotFamilyFacts {
+	bot: string;
+	/** The bot's ended conversations (`bot: "past"`): they stand for it, so what they opened is its family too. */
+	ended: ReadonlySet<string>;
+	/** Its side chats: the bot's own conversations, not plain chats. */
+	channels: ReadonlySet<string>;
+	tabs: readonly FamilyTab[];
+	/** Every row before families take theirs (`SidebarRows.sessions` with nothing nested). */
+	sessions: readonly RowSession[];
+	recordedOpeners: ReadonlyMap<string, string>;
+}
+
+export interface BotFamily {
+	/** The rows that nest under the bot's fixed row, oldest first. */
+	sessions: RowSession[];
+	/** Their files, ids and the tabs that hold them: what the lists leave out (`SidebarFacts.nested`). */
+	keys: ReadonlySet<string>;
+}
+
+/**
+ * What the bot opened, and what those opened, nests under its fixed row like any opener's family and leaves the lists:
+ * the opener rule runs over the rows with the bot's session and its ended conversations as candidates, which no list
+ * holds.
+ */
+export function botFamily(facts: BotFamilyFacts): BotFamily {
+	const { bot, ended, channels } = facts;
+	const family = openerOfSessions(
+		facts.tabs,
+		[
+			{ path: bot, id: bot },
+			...[...ended].map(path => ({ path, id: path })),
+			...facts.sessions.map(session => ({
+				path: session.path,
+				id: session.id,
+				created: session.created,
+				...(session.liveTabId === undefined ? {} : { liveTabId: session.liveTabId }),
+			})),
+		],
+		facts.recordedOpeners,
+	);
+	const sessions = facts.sessions
+		.filter(session => {
+			const root = family.get(session.path);
+			return root === bot || (root !== undefined && ended.has(root)) || channels.has(session.path);
+		})
+		.toSorted((a, b) => (a.created < b.created ? -1 : a.created > b.created ? 1 : a.path < b.path ? -1 : 1));
+	const keys = new Set(sessions.flatMap(kid => [kid.path, kid.id, ...(kid.liveTabId ? [kid.liveTabId] : [])]));
+	for (const tab of facts.tabs)
+		if ((tab.sessionPath && keys.has(tab.sessionPath)) || (tab.sessionId && keys.has(tab.sessionId)))
+			keys.add(tab.id);
+	return { sessions, keys };
+}
+
 /**
  * Tabs on a paired device that a session of this computer opened (`ompdesk_session_open {device}`): child tab id → the
  * opener's session path. The opener is found by tab id while it is open here, else by the session file a relaunch kept

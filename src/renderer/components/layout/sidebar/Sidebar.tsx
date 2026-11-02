@@ -58,9 +58,10 @@ import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
 import type { HostView, IpcHostedSession, SessionInfo } from "../../../../shared/ipc-types";
 import { autopilotRunOf, worktreeKindOf, worktreeLabel } from "../../../../shared/project-origin";
 import {
+	type BotFamily,
+	botFamily,
 	CHATS_ORDER_KEY,
 	isChatSession,
-	openerOfSessions,
 	type RowGroup,
 	type RowSession,
 	type RowTab,
@@ -840,45 +841,22 @@ export function Sidebar() {
 	);
 	const baseRows = useMemo(() => sidebarRows(rowFacts), [rowFacts]);
 	// What the bot opened, and what those opened, nests under its fixed row (`renderSessionRow` "bot") like any opener's
-	// family and leaves the lists: the opener rule runs over the rows with the bot's session as a candidate, which no
-	// list holds, and the lists are rebuilt without the family.
-	// The conversations the bot ended stand for it: what they opened is its family too.
+	// family and leaves the lists, which are rebuilt without the family (`botFamily`).
 	const endedBotFiles = useMemo(
 		() => new Set(sessions.flatMap(session => (session.bot === "past" ? [session.path] : []))),
 		[sessions],
 	);
-	const botKids = useMemo(() => {
-		const none: { sessions: RowSession[]; keys: ReadonlySet<string> } = { sessions: [], keys: NO_PATHS };
-		if (!botPath) return none;
-		const ended = endedBotFiles;
-		const family = openerOfSessions(
-			rowTabs,
-			[
-				{ path: botPath, id: botPath },
-				...[...ended].map(path => ({ path, id: path })),
-				...baseRows.sessions.map(session => ({
-					path: session.path,
-					id: session.id,
-					created: session.created,
-					...(session.liveTabId === undefined ? {} : { liveTabId: session.liveTabId }),
-				})),
-			],
+	const botKids = useMemo<BotFamily>(() => {
+		if (!botPath) return { sessions: [], keys: NO_PATHS };
+		return botFamily({
+			bot: botPath,
+			ended: endedBotFiles,
+			// Its side chats nest there too: they are the bot's own conversations, not plain chats.
+			channels: new Set(botDesk.channels.map(channel => channel.sessionPath)),
+			tabs: rowTabs,
+			sessions: baseRows.sessions,
 			recordedOpeners,
-		);
-		// Its side chats nest there too: they are the bot's own conversations, not plain chats.
-		const channels = new Set(botDesk.channels.map(channel => channel.sessionPath));
-		const sessions = baseRows.sessions
-			.filter(session => {
-				const root = family.get(session.path);
-				return root === botPath || (root !== undefined && ended.has(root)) || channels.has(session.path);
-			})
-			.toSorted((a, b) => (a.created < b.created ? -1 : a.created > b.created ? 1 : a.path < b.path ? -1 : 1));
-		if (sessions.length === 0) return none;
-		const keys = new Set(sessions.flatMap(kid => [kid.path, kid.id, ...(kid.liveTabId ? [kid.liveTabId] : [])]));
-		for (const tab of rowTabs)
-			if ((tab.sessionPath && keys.has(tab.sessionPath)) || (tab.sessionId && keys.has(tab.sessionId)))
-				keys.add(tab.id);
-		return { sessions, keys };
+		});
 	}, [botPath, endedBotFiles, rowTabs, baseRows, recordedOpeners, botDesk.channels]);
 	const rows = useMemo(
 		() => (botKids.keys.size === 0 ? baseRows : sidebarRows({ ...rowFacts, nested: botKids.keys })),

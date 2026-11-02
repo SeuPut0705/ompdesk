@@ -32,12 +32,11 @@ import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from "
 import { useStore } from "zustand";
 import { reviewUnmerged } from "../../../../shared/agent-control";
 import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
-import type { HostLiveSession, HostView, SessionKind } from "../../../../shared/ipc-types";
+import type { HostView, SessionKind } from "../../../../shared/ipc-types";
 import { CHATS_ORDER_KEY, type RowSession, sidebarRows } from "../../../../shared/sidebar-rows";
 import { splitTabIds } from "../../../../shared/split-layout";
 import { useSessionList } from "../../../hooks/use-session-list";
 import { useShellInput } from "../../../hooks/use-shell-mode";
-import type { AskKind } from "../../../lib/attention";
 import { DEVICE_COLORS, type DeviceColorChoice, deviceColorOf } from "../../../lib/device-color";
 import { saveDiagnosticBundle } from "../../../lib/diagnostic-bundle";
 import { basename, cx } from "../../../lib/format";
@@ -77,7 +76,8 @@ import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuItem, MenuButton } from "../../common/ContextMenu";
 import { TimeAgo } from "../../common/TimeAgo";
 import { TabLiveAge, TabLiveTitle } from "../SessionLiveTitle";
-import { childFoldSignal, type FoldSignal, type FoldSummary, foldSummary, sessionFoldSignal } from "./fold-summary";
+import { childFoldSignal, type FoldSignal, type FoldSummary, foldSummary } from "./fold-summary";
+import { hostRowState, hostSectionSummary } from "./host-row-state";
 import { useHostWorkspace } from "./host-workspace";
 import { SidebarChats } from "./SidebarChats";
 import { useDeviceHeaderHandle } from "./SidebarDeviceSections";
@@ -109,47 +109,6 @@ const DOT_CLASS: Record<HostView["state"], string> = {
 	connecting: "bg-(--sc-warning) omp-pulse-dot",
 	offline: "bg-(--sc-text-subtle)",
 };
-
-/**
- * A host row's run state, the one rule its row and its folded headers read: a tab here that has heard the host's run,
- * else (no tab, or one restored asleep at launch, which has heard nothing yet) the host's own live list, which only
- * says that a prompt waits (a question, as on the row). `fold` is what a folded header counts of it (`fold-summary.ts`;
- * a host row shows no ✓ for an unseen finish).
- */
-function hostRowState(tab: SessionTab | undefined, live: HostLiveSession["state"] | undefined) {
-	const known = tab?.status === "asleep" ? undefined : tab;
-	const signal = known ? tabSignalPresentation(known) : null;
-	const asked = known ? known.awaitingInput : live === "waiting" ? "input" : undefined;
-	const ask: AskKind | undefined = asked && (asked === "approval" ? "approval" : "question");
-	const waiting = ask !== undefined;
-	const running = known ? signal?.running === true && !waiting : live === "turn" || live === "background";
-	const settling = known ? known.settling === true : live === "background";
-	const fold = sessionFoldSignal({ waiting: ask, running, done: false });
-	return { known, signal, waiting, running, settling, fold };
-}
-
-/**
- * A folded host section's summary, read without its list (a folded host's list is not read): this computer's tabs on
- * it and the host's live list, each session once, by the rows' rule. A session a session here opened there is that
- * opener's child (`nested`), counted in this computer's section.
- */
-function hostSectionSummary(
-	host: HostView,
-	tabs: readonly SessionTab[],
-	nested: ReadonlySet<string> | undefined,
-): FoldSummary {
-	const live = new Map(host.live?.map(session => [session.sessionPath, session.state]));
-	const signals: (FoldSignal | null)[] = [];
-	const seen = new Set<string>();
-	for (const tab of tabs) {
-		if (tab.device !== host.deviceId || nested?.has(tab.id)) continue;
-		if (tab.sessionPath) seen.add(tab.sessionPath);
-		signals.push(hostRowState(tab, tab.sessionPath ? live.get(tab.sessionPath) : undefined).fold);
-	}
-	for (const [path, state] of live)
-		if (!seen.has(path) && !nested?.has(path)) signals.push(hostRowState(undefined, state).fold);
-	return foldSummary(signals);
-}
 
 /** A device section's header: the toggle that folds its list (glyph, name, what follows the name, chevron) and, at
  * the end, the button that opens or makes a project folder on that device (a new chat is its Chats section's). This
