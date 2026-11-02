@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.99.0] - 2026-11-03
+
+화면이 하나의 움직임 규칙으로 부드럽게 열리고 닫혀요. 봇이 연결된 컴퓨터에 연 세션은 어느 화면에서 보든 봇 아래에 실행 중으로 보여요.
+
+### 바뀐 것
+- 메뉴, 대화상자, 툴팁, 알림, 버튼이 같은 움직임 규칙으로 나타나고 사라져요. 사이드바 행은 추가되거나 순서가 바뀌면 제자리로 미끄러지고, 접은 구역과 대화 카드는 높이를 따라 열리고 닫혀요. 휴대폰 시트와 작업 줄, 봇의 결정·할 일·통화도 데스크탑과 똑같이 움직여요. 동작 줄이기를 켜면 모두 바로 바뀌어요.
+- 봇이 연결된 컴퓨터에 연 세션이 이 컴퓨터의 다른 창, 휴대폰, 연결된 컴퓨터 화면 모두에서 봇 아래에 들어가요. 봇이 새 대화로 넘어간 뒤에도 이전 대화가 연 세션은 봇 아래에 남아요.
+- omp 18.16.0의 새 설정 "예측 후보 여러 개"와 "/btw 추가 지시 주입"이 설정에 한국어로 보이고, 공급자 목록에 Scaleway가 나와요. 두 설정은 같은 설정 파일을 쓰는 터미널 omp에만 적용돼요.
+
+### 고친 것
+- 연결된 컴퓨터에서 실행 중인 세션이 이쪽 사이드바에서 "열려 있음"으로 보이고 접은 구역 개수에서 빠지던 문제를 고쳤어요. 그 컴퓨터의 omp가 다시 시작된 뒤 연결이 다시 붙어도 실행 중과 질문 대기 상태가 남아요.
+- 연결된 컴퓨터 화면에서 봇이 연 세션이 실행 중일 때 봇 제목에 작업 중 표시가 나오지 않던 문제를 고쳤어요.
+- Windows에서 탭을 다시 시작하거나 멈추면 omp가 끝난 기록을 남기지 못해, 그때 끊긴 하위 에이전트가 몇 시간 뒤 다음 재시작에서 되살아나던 문제를 고쳤어요. 이제 omp에 먼저 정상 종료를 요청하고, 5초 안에 끝나지 않을 때만 강제로 꺼요.
+- 휴대폰 봇 화면에서 봇 이름이 "B…"로 잘리고, 아이콘과 결정 버튼의 누르는 영역이 서로 겹치고, 빈 대화의 로고가 작업 줄 아래로 가려지던 문제를 고쳤어요.
+
+<!-- en -->
+
+The app opens and closes things on one motion system, and a session the bot opened on a paired computer shows under the bot, running, in every view.
+
+### Changed
+- Menus, dialogs, tooltips, toasts and buttons enter and leave on one set of motion tokens. Sidebar rows glide to their new place when added or moved, and folded sections and transcript cards open and close with their height. The phone's sheets and work strip and the bot's decisions, tasks and call move like the desktop. Reduce motion makes all of it instant.
+- A session the bot opened on a paired computer nests under the bot in this computer's other windows, on the phone and on the paired computer alike, including one an earlier bot conversation opened before the bot renewed.
+- omp 18.16.0's new "Prediction Alternatives" and "/btw Steering Inject" settings appear in Settings with Korean names, and Scaleway appears among the providers. Both settings apply only to terminal omp sharing the same config.
+
+### Fixed
+- A session running on a paired computer read "Open" in this sidebar and was left out of the folded section's count; after that computer's omp restarted, a re-attach now keeps its running turn and its open question.
+- On a paired computer's view, the bot's title did not light while a session the bot opened was running.
+- On Windows, restarting or stopping a tab killed omp without an exit record, so a subagent that stop cut was revived hours later by the next relaunch. omp is now asked to exit first and is force-stopped only if it still runs after 5 s.
+- On the phone, the bot's name was cut to "B…", its icons' and decision buttons' touch areas overlapped, and an empty conversation's logo slid under the work strip.
+
 ## [0.98.0] - 2026-11-03
 
 접어 둔 사이드바 구역도 안에서 무슨 일이 있는지 보여 주고, 길어진 할 일 목록은 에이전트가 스스로 접어요.
