@@ -68,9 +68,9 @@ import { type SessionTab, tabChipLabel, useTabsStore } from "../../../stores/tab
 import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
 import { webPwa } from "../../../web/pwa";
-import { LiveBotAvatar } from "../../bot/BotAvatar";
 import { BotDecisionsBadge } from "../../bot/BotDecisionsBadge";
 import { botState, tabBotFacts } from "../../bot/bot-status";
+import { RowBotAvatar } from "../../bot/RowBotAvatar";
 import { Button, IconButton, InlineNotice, ListRow, Spinner } from "../../common";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuItem, MenuButton } from "../../common/ContextMenu";
@@ -956,7 +956,7 @@ function DeviceSessions({
 		const list = listOf(session);
 		const pinned = hostPins.includes(session.path);
 		const marker = bot ? (
-			<LiveBotAvatar
+			<RowBotAvatar
 				avatar={hostDesk.identity.avatar}
 				data-sidebar-bot
 				device={host.deviceId}

@@ -19,9 +19,6 @@ import { type BotMotion, useBotMotion } from "./bot-motion";
 import type { BotState } from "./bot-status";
 import "../../styles/bot-avatar.css";
 
-/** Settings' shape picker draws the lucide icons; they stay out of this first-screen module (`bot-shape-icons.ts`). */
-export { BOT_SHAPE_ICONS } from "./bot-shape-icons";
-
 type AvatarColor = (typeof BOT_AVATAR_COLORS)[number];
 
 /** A tile's wash with its on-soft text, per avatar colour. */

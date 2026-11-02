@@ -121,9 +121,9 @@ import { type SessionTab, tabAutoTitle, useTabsStore } from "../../../stores/tab
 import { toast, toastError } from "../../../stores/toast";
 import { type PageDestination, type PanelTab, useUiStore } from "../../../stores/ui";
 import { startInstall, useInstallOffered } from "../../../web/install-ui";
-import { LiveBotAvatar } from "../../bot/BotAvatar";
 import { BotDecisionsBadge } from "../../bot/BotDecisionsBadge";
 import { botState, botStateKey, nextWake, tabBotFacts } from "../../bot/bot-status";
+import { RowBotAvatar } from "../../bot/RowBotAvatar";
 import {
 	Badge,
 	BrandMark,
@@ -1851,7 +1851,7 @@ export function Sidebar() {
 		const marker: ReactNode = done ? (
 			<Check aria-hidden className="size-(--sc-icon-sm) text-(--sc-success)" data-sidebar-done />
 		) : botCondition ? (
-			<LiveBotAvatar
+			<RowBotAvatar
 				avatar={botDesk.identity.avatar}
 				data-sidebar-bot
 				label={t("sidebar.botBadge")}
