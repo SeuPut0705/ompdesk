@@ -418,6 +418,8 @@ export const IPC_COMMANDS = {
 	BRIDGE_HEALTH_TAKE: "bridge-health:take",
 	/** Cancel a tab's wait for the internet connection (payload: tab id) */
 	RESUME_CANCEL_WAIT: "resume:cancel-wait",
+	/** Start a tab's agent work now though this computer's memory is in danger (payload: tab id; true when it was waiting) */
+	MEMORY_START_NOW: "memory:start-now",
 	/** Stop what this launch resumed on one tab (the resuming row's Stop; payload: tab id) */
 	RESUME_STOP: "resume:stop",
 	/** Renderer → main fire-and-forget: the window's `online`/`offline` event (payload: boolean) */
@@ -657,6 +659,11 @@ export type RuntimeErrorSource =
 	 * names the routine and the source.
 	 */
 	| "routines"
+	/**
+	 * New agent work held or released for this computer's memory, a start that failed after its wait, and the owner's
+	 * notice of critical pressure with the sessions holding the most memory (src/main/memory-admission.ts).
+	 */
+	| "memory"
 	| "unknown";
 
 /** Bounded, serializable renderer/main failure payload written as JSONL. */
@@ -1578,6 +1585,21 @@ export interface IpcScheduledRetry {
 }
 
 /**
+ * A tab's start waits for memory on the computer that runs it (src/main/memory-admission.ts): new agent work waits
+ * while memory is in danger and starts by itself, in line order, once memory allows. Byte counts are that computer's.
+ */
+export interface IpcMemoryWait {
+	/** 1-based place in that computer's line. */
+	position: number;
+	availableBytes: number;
+	totalBytes: number;
+	/** `unknown`: that computer's memory could not be read lately (byte counts are its last good reading); new agent work waits until it can. */
+	pressure: "normal" | "warn" | "critical" | "unknown";
+	/** When the wait began (epoch ms, that computer's clock). */
+	since: number;
+}
+
+/**
  * Stock's auto-retry saga a tab's turn is in (`auto_retry_start` until `auto_retry_end`): its latest attempt. The
  * failed attempt it retries is no outcome while it lasts.
  */
@@ -1655,6 +1677,8 @@ export interface IpcTabInfo {
 	resuming?: boolean;
 	/** The tab's failed turn retries by itself at `at` (resume, src/main/turn-resume.ts). */
 	scheduledRetry?: IpcScheduledRetry;
+	/** The tab's start (an agent's first message, a scheduled wake, a relaunch's continuation) waits for memory. */
+	memoryWait?: IpcMemoryWait;
 	/**
 	 * While `status` is `running`: stock's auto-retry saga the turn is in. Rides the status because a tab that was not
 	 * shown when the saga started (a background tab, a view that joined later) never heard its `auto_retry_start`.
@@ -1770,6 +1794,8 @@ export interface IpcHostedSession {
 	sessionHeld?: true;
 	/** This computer holds the tab's turn for its internet connection (turn-resume.ts): the row says so the whole wait. */
 	awaitingConnection?: true;
+	/** This computer holds the tab's start for memory (memory-admission.ts): the row says so the whole wait. */
+	memoryWait?: IpcMemoryWait;
 	/** The paired device's name. */
 	device: string;
 }
@@ -2198,6 +2224,11 @@ export interface OmpApi {
 		stop(tabId: string): Promise<void>;
 		/** The window's `online`/`offline` event, for main's connectivity state. */
 		reportOnline(online: boolean): void;
+	};
+	/** New agent work that waits for the memory of the computer running it (src/main/memory-admission.ts). */
+	memory: {
+		/** Start a waiting tab's work now, on the computer that holds the wait; false when it no longer waits. */
+		startNow(tabId: string): Promise<boolean>;
 	};
 	/** This machine's automatic setup; remote tabs never use it (their host sets itself up). */
 	setup: {

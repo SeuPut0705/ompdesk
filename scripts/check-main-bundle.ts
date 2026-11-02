@@ -229,7 +229,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // A lost link shown in the title bar, not over it (2 Nov 2026): the bar's `offline` status (its WifiOff glyph and
 // `web/link-status.ts`) on the session and page bars, and the transport's liveness question and attempt deadlines; the
 // full-width `connection-banner.ts` is gone: measured 3,270,423, 1,203 bytes over the measure above.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_271_000;
+// New agent work waits for memory (2 Nov 2026): the tab's `memoryWait` in the tabs store, tab signal, sidebar and
+// device rows, the work board's child line and the chat pane's waiting row with Start now (`MemoryWaitRow`, its
+// MemoryStick glyph) and `window.omp.memory`: measured 3,273,813, 3,390 bytes over the measure above.
+const WEB_FIRST_SCREEN_JS_BYTES = 3_274_500;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

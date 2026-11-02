@@ -18,17 +18,18 @@
  * - an answer to an ask goes through LocalHostServices, where the first of the device and this
  *   computer's windows wins and the other's card closes as answered elsewhere (`answered:<id>`);
  * - a window that joins gets the asks open now and the session's identity (next microtask, once the
- *   pool's listeners are on), and the connection wait or scheduled retry that holds;
- * - the pool emits the window's tab's connection wait (`awaitingConnection`) and scheduled retry
- *   (`scheduledRetry`) on the view as they change, and the device's Cancel on either
- *   (`cancelHostWait`) reaches this computer's resume rules for the window's tab;
+ *   pool's listeners are on), and the connection wait, scheduled retry or memory wait that holds;
+ * - the pool emits the window's tab's connection wait (`awaitingConnection`), scheduled retry
+ *   (`scheduledRetry`) and memory wait (`memoryWait`) on the view as they change, and the device's Cancel
+ *   (`cancelHostWait`) reaches this computer's resume rules for the window's tab, its Start now
+ *   (`startHostNow`) this computer's memory admission;
  * - leaving (`dispose`) takes only the window's listeners; the device's close, delete or revoke ends
  *   the view (`VIEW_ENDED_EVENT`) before its omp goes.
  */
 import { EventEmitter } from "node:events";
 import type { PromptOrigin, PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origin-contracts";
 import { codedError } from "../../shared/ipc-error-codes";
-import type { IpcScheduledRetry } from "../../shared/ipc-types";
+import type { IpcMemoryWait, IpcScheduledRetry } from "../../shared/ipc-types";
 import type {
 	ExtensionUIRequest,
 	RpcCommand,
@@ -78,6 +79,8 @@ export interface HostedTabPort {
 	stopped(): void;
 	/** The user's Cancel on the tab's "waiting for the connection" row, or on its scheduled retry. */
 	cancelWait(): void;
+	/** The user's Start now on the tab's memory wait (memory-admission.ts); false when it no longer waits. */
+	startNow(): boolean;
 	/** The asks open now, the session's identity, the connection wait, a scheduled retry and its run, for a party that just joined. */
 	snapshot(): {
 		asks: ExtensionUIRequest[];
@@ -86,6 +89,7 @@ export interface HostedTabPort {
 		autoTitle?: string;
 		awaitingConnection?: boolean;
 		scheduledRetry?: IpcScheduledRetry;
+		memoryWait?: IpcMemoryWait;
 		run: RunReading;
 	};
 	/** The device asks for this subagent stream level; answers the level the tab's omp must hold for every viewer. */
@@ -117,7 +121,7 @@ export class HostedTabView extends EventEmitter implements SidecarLike {
 		this.#client = { command: (command, timeoutMs) => this.#command(command, timeoutMs) };
 		queueMicrotask(() => {
 			if (this.#left) return;
-			const { asks, sessionId, title, autoTitle, awaitingConnection, scheduledRetry } = port.snapshot();
+			const { asks, sessionId, title, autoTitle, awaitingConnection, scheduledRetry, memoryWait } = port.snapshot();
 			if (sessionId !== undefined || title !== undefined || autoTitle !== undefined) {
 				const frame: SessionInfoUpdateFrame = { type: "session_info_update" };
 				if (sessionId !== undefined) frame.sessionId = sessionId;
@@ -128,6 +132,7 @@ export class HostedTabView extends EventEmitter implements SidecarLike {
 			this.emit("openAsks", asks);
 			if (awaitingConnection) this.emit("awaitingConnection", true);
 			if (scheduledRetry) this.emit("scheduledRetry", scheduledRetry);
+			if (memoryWait) this.emit("memoryWait", memoryWait);
 		});
 	}
 
@@ -181,6 +186,10 @@ export class HostedTabView extends EventEmitter implements SidecarLike {
 
 	async cancelHostWait(): Promise<void> {
 		this.#port.cancelWait();
+	}
+
+	async startHostNow(): Promise<boolean> {
+		return this.#port.startNow();
 	}
 
 	// This computer's settings reach the hosted omp through LocalHostServices, once.

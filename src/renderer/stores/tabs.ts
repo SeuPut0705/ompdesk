@@ -35,6 +35,7 @@ import { useEffect } from "react";
 import { create, type StoreApi } from "zustand";
 import type { AgentControlViewEvent } from "../../shared/agent-control";
 import type {
+	IpcMemoryWait,
 	IpcOpenExtensionRequest,
 	IpcRetrySaga,
 	IpcScheduledRetry,
@@ -159,6 +160,8 @@ export interface SessionTab {
 	runningSince?: number;
 	/** The tab's failed turn retries by itself at `at` (main's turn-resume schedule); the error card counts it down. */
 	scheduledRetry?: IpcScheduledRetry;
+	/** The tab's start waits for memory on the computer that runs it (main's memory admission); it starts by itself. */
+	memoryWait?: IpcMemoryWait;
 	/** While `running`: stock's auto-retry saga the turn is in (main's `retrySaga`); hydration seeds the retry row from it. */
 	retrySaga?: IpcRetrySaga;
 	/** Another window owns this tab and this one views it (multi-viewer); closing it here only leaves it. */
@@ -321,6 +324,7 @@ function projectSessionTab(
 		...(info.settling === true ? { settling: true as const } : {}),
 		...(info.status === "running" && info.runningSince !== undefined ? { runningSince: info.runningSince } : {}),
 		...(info.scheduledRetry ? { scheduledRetry: info.scheduledRetry } : {}),
+		...(info.memoryWait ? { memoryWait: info.memoryWait } : {}),
 		...(info.status === "running" && info.retrySaga ? { retrySaga: info.retrySaga } : {}),
 		// A status push carries no viewer fields: only a tab list (GET_TABS, TAB_LIST_CHANGED) states them.
 		...(previous?.shared ? { shared: true as const } : {}),
@@ -526,6 +530,17 @@ export function useScheduledRetry(): (IpcScheduledRetry & { tabId: string }) | n
 	const tabId = useRuntimeTabId();
 	const tab = useTabsStore(state => state.tabs.find(candidate => candidate.id === (tabId ?? state.activeTabId)));
 	return tab?.scheduledRetry ? { tabId: tab.id, ...tab.scheduledRetry } : null;
+}
+
+/**
+ * The tab whose start waits for memory on the computer that runs it (main's `memoryWait`, memory-admission.ts), with
+ * the wait; null when it does not. Without `tabId`, the calling pane's tab.
+ */
+export function useMemoryWait(tabId?: string): { tabId: string; wait: IpcMemoryWait } | null {
+	const paneTabId = useRuntimeTabId();
+	const id = tabId ?? paneTabId;
+	const tab = useTabsStore(state => state.tabs.find(candidate => candidate.id === (id ?? state.activeTabId)));
+	return tab?.memoryWait ? { tabId: tab.id, wait: tab.memoryWait } : null;
 }
 
 /** A closed tab whose saved session can be opened again (⌥⌘T). */

@@ -188,6 +188,76 @@ describe("TurnStatusRow", () => {
 		await act(async () => useTabsStore.setState({ activeTabId: null, tabs: [] }));
 		await act(async () => useRemoteStore.getState().reset());
 	});
+
+	it("a tab whose start waits for memory says how much is free, its place in line and that it starts by itself, with Start now", async () => {
+		const startNow = vi.fn(async (_tabId: string) => true);
+		Object.assign(window, { omp: { memory: { startNow } } });
+		const GiB = 1024 ** 3;
+		useTabsStore.setState({
+			activeTabId: "t1",
+			tabs: [
+				{
+					id: "t1",
+					cwd: "/work",
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+					memoryWait: {
+						position: 2,
+						availableBytes: 3.14 * GiB,
+						totalBytes: 16 * GiB,
+						pressure: "warn",
+						since: 1,
+					},
+				},
+			],
+		});
+		await mount(<TurnStatusRow />);
+
+		const row = container.querySelector("[data-memory-wait]");
+		expect(row?.querySelector('[role="status"]')?.textContent).toBe(
+			"Waiting for memory: 3.1 GB free of 16 GB · #2 in line · starts by itself",
+		);
+		expect(container.querySelector(".omp-message-error")).toBeNull();
+		const buttons = container.querySelectorAll("button");
+		expect(buttons).toHaveLength(1);
+		expect(buttons[0]?.textContent).toBe("Start now");
+		await act(async () => buttons[0]?.click());
+		expect(startNow).toHaveBeenCalledWith("t1");
+		await act(async () => useTabsStore.setState({ activeTabId: null, tabs: [] }));
+	});
+
+	it("says the computer's memory can't be read instead of 0 GB free, and Start now still applies; a refused start says so", async () => {
+		const startNow = vi.fn(async (_tabId: string) => {
+			throw new Error("[remote_offline] The device running this tab is offline");
+		});
+		Object.assign(window, { omp: { memory: { startNow } } });
+		useTabsStore.setState({
+			activeTabId: "t1",
+			tabs: [
+				{
+					id: "t1",
+					cwd: "/work",
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+					device: "host-b",
+					memoryWait: { position: 1, availableBytes: 0, totalBytes: 0, pressure: "unknown", since: 1 },
+				},
+			],
+		});
+		await mount(<TurnStatusRow />);
+
+		const text = container.querySelector("[data-memory-wait] [role='status']")?.textContent;
+		expect(text).toBe(
+			"Waiting for memory: this computer's memory can't be read right now · #1 in line · starts by itself",
+		);
+		expect(text).not.toMatch(/0 GB/);
+		await act(async () => container.querySelector("button")?.click());
+		expect(startNow).toHaveBeenCalledWith("t1");
+		expect(useToastStore.getState().toasts.at(-1)?.title).toBe("Couldn't start it now");
+		await act(async () => useTabsStore.setState({ activeTabId: null, tabs: [] }));
+	});
 });
 
 describe("TranscriptHistoryStatus", () => {

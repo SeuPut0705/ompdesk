@@ -421,6 +421,10 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			reportOnline: (online: boolean) => transport.send(IPC_COMMANDS.CONNECTIVITY_REPORT, online),
 		},
 
+		memory: {
+			startNow: (tabId: string) => transport.invoke(IPC_COMMANDS.MEMORY_START_NOW, tabId) as Promise<boolean>,
+		},
+
 		setup: {
 			getState: () => transport.invoke(IPC_COMMANDS.SETUP_GET_STATE) as Promise<SetupState>,
 			retry: (item: SetupItemId) => transport.invoke(IPC_COMMANDS.SETUP_RETRY, item) as Promise<void>,

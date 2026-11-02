@@ -902,6 +902,49 @@ describe("RemoteSidecar", () => {
 		expect(ipcErrorCode(refused)).toBe("remote_offline");
 	});
 
+	it("mirrors the host's memory wait and sends the user's Start now to the host", async () => {
+		const { link, sidecar } = setup();
+		const waits: unknown[] = [];
+		sidecar.on("memoryWait", (wait: unknown) => waits.push(wait));
+		sidecar.start();
+		await settle();
+		const wait = {
+			position: 2,
+			availableBytes: 3 * 1024 ** 3,
+			totalBytes: 16 * 1024 ** 3,
+			pressure: "critical",
+			since: 4,
+		};
+		sidecar.handleEvent({ rtab: "tab-1", name: "memoryWait", arg: wait });
+		sidecar.handleEvent({ rtab: "tab-1", name: "memoryWait", arg: { position: "first" } });
+		sidecar.handleEvent({ rtab: "tab-1", name: "memoryWait", arg: null });
+		expect(waits).toEqual([wait, undefined]);
+
+		link.handlers["tab.startNow"] = () => true;
+		expect(await sidecar.startHostNow()).toBe(true);
+		expect(link.sent.at(-1)).toMatchObject({ method: "tab.startNow", params: { rtab: "tab-1" } });
+		link.state = "offline";
+		const refused = await sidecar.startHostNow().catch((error: unknown) => error);
+		expect(ipcErrorCode(refused)).toBe("remote_offline");
+	});
+
+	it("tells the host which of its tabs this computer's blocked turn waits on; a host that cannot hear it is no failure", async () => {
+		const { link, sidecar } = setup();
+		sidecar.start();
+		await settle();
+		await sidecar.memoryWaitedOn("parent-tab", true);
+		expect(link.sent.at(-1)).toMatchObject({
+			method: "tab.memoryWaitedOn",
+			params: { rtab: "tab-1", opener: "parent-tab", waited: true },
+		});
+		link.handlers["tab.memoryWaitedOn"] = () => {
+			throw Object.assign(new Error("unsupported"), { code: "unsupported" });
+		};
+		await expect(sidecar.memoryWaitedOn("parent-tab", false)).resolves.toBeUndefined();
+		link.state = "offline";
+		await expect(sidecar.memoryWaitedOn("parent-tab", false)).resolves.toBeUndefined();
+	});
+
 	it("mirrors the host's scheduled retry by this computer's clock; an unreadable one is dropped", async () => {
 		const { sidecar } = setup();
 		const retries: unknown[] = [];

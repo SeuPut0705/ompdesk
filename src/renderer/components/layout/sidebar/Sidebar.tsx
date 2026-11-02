@@ -100,7 +100,7 @@ import { clampSidebarWidth, readSidebarWidth, writeSidebarWidth } from "../../..
 import { snapshotNs, snapshots } from "../../../lib/snapshot-cache";
 import { performTabClose } from "../../../lib/tab-close";
 import { useTabRpc } from "../../../lib/tab-rpc";
-import { isSessionDown, isTabFailed, tabSignalPresentation } from "../../../lib/tab-signal";
+import { isSessionDown, isTabFailed, MEMORY_WAIT_LABEL_KEY, tabSignalPresentation } from "../../../lib/tab-signal";
 import { pickWorkspaceDirectory } from "../../../lib/workspace-dirs";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
 import { ensureBotPath, useBotStore } from "../../../stores/bot";
@@ -1068,6 +1068,7 @@ export function Sidebar() {
 					status: hosted.status,
 					awaitingInput: hosted.awaitingInput ? "input" : undefined,
 					awaitingConnection: hosted.awaitingConnection,
+					memoryWait: hosted.memoryWait,
 					sessionHeld: hosted.sessionHeld,
 					unreadDone: false,
 				})
@@ -1487,9 +1488,11 @@ export function Sidebar() {
 					? t("sidebar.row.failed")
 					: done
 						? t("tabs.done")
-						: openElsewhere
-							? t("sidebar.row.open")
-							: null);
+						: tabSignal?.labelKey === MEMORY_WAIT_LABEL_KEY
+							? t(MEMORY_WAIT_LABEL_KEY)
+							: openElsewhere
+								? t("sidebar.row.open")
+								: null);
 		return {
 			isCurrent,
 			tab,
@@ -1686,7 +1689,9 @@ export function Sidebar() {
 							? t("sidebar.signal.running")
 							: status === "done"
 								? t("tabs.done")
-								: t("sidebar.row.open");
+								: tab.memoryWait
+									? t(MEMORY_WAIT_LABEL_KEY)
+									: t("sidebar.row.open");
 		const model = childUsage[tab.sessionPath ?? tab.id]?.model;
 		return {
 			key: id,

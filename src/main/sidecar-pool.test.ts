@@ -2868,6 +2868,27 @@ describe("SidecarPool background tabs", () => {
 			expect(pool.resumeFacts()[0]?.awaitingConnection).toBe(false);
 		});
 
+		it("shows the memory wait a paired host holds for its tab (the host's `memoryWait` event)", () => {
+			const { pool, sidecars } = fakePool();
+			const fw = fakeWindow(1);
+			pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
+			const a = sidecars[0];
+			a?.emitStatus("ready");
+			const wait = {
+				position: 3,
+				availableBytes: 2 * 1024 ** 3,
+				totalBytes: 16 * 1024 ** 3,
+				pressure: "warn",
+				since: 9,
+			};
+			a?.emit("memoryWait", wait);
+			expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({ tabId: "tab-a", memoryWait: wait });
+			expect(pool.tabsForWindow(fw.win)[0]?.memoryWait).toEqual(wait);
+			a?.emit("memoryWait", undefined);
+			expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).not.toHaveProperty("memoryWait");
+			expect(pool.tabsForWindow(fw.win)[0]).not.toHaveProperty("memoryWait");
+		});
+
 		it("shows the retry a paired host scheduled for its tab (the host's `scheduledRetry` event)", () => {
 			const { pool, sidecars } = fakePool();
 			const fw = fakeWindow(1);
@@ -3728,6 +3749,34 @@ describe("SidecarPool device views (a paired device viewing a tab of a window he
 		pool.onCancelWait = cancelWait;
 		await view.cancelHostWait();
 		expect(cancelWait).toHaveBeenCalledWith("tab-a");
+	});
+
+	it("tells the device the window's memory wait live and when it joins, and sends its Start now to this computer's admission", async () => {
+		const { pool, view } = viewed();
+		const wait = {
+			position: 1,
+			availableBytes: 2 * 1024 ** 3,
+			totalBytes: 16 * 1024 ** 3,
+			pressure: "unknown",
+			since: 7,
+		} as const;
+		const waits: unknown[] = [];
+		view.on("memoryWait", (arg: unknown) => waits.push(arg));
+		pool.setMemoryWait("tab-a", wait);
+		pool.setMemoryWait("tab-a", undefined);
+		expect(waits).toEqual([wait, undefined]);
+
+		pool.setMemoryWait("tab-a", wait);
+		const late = pool.viewForDevice("/s/a.jsonl", { deviceId: "pc", name: "PC" }, "Host B");
+		const lateWaits: unknown[] = [];
+		late?.on("memoryWait", (arg: unknown) => lateWaits.push(arg));
+		await Promise.resolve();
+		expect(lateWaits).toEqual([wait]);
+
+		const startNow = vi.fn(() => true);
+		pool.onStartNow = startNow;
+		expect(await view.startHostNow()).toBe(true);
+		expect(startNow).toHaveBeenCalledWith("tab-a");
 	});
 
 	it("tells the device the window's scheduled retry and its call-off, and a device that joins while it holds", async () => {

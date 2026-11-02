@@ -50,6 +50,8 @@ export interface ResumeMarker {
 	 * message): a turn cut off before that left nothing on disk, so the relaunch sends the prompt again.
 	 */
 	prompt?: string;
+	/** Another session's agent started this work (an agent-opened tab, a device agent's prompt on a hosted tab): its continuation waits for memory. */
+	agent?: true;
 }
 
 /** What the pool knows about one tab, the only input of the marker rules. */
@@ -93,6 +95,8 @@ export interface ResumeFact {
 	/** The tab whose agent opened this one (`ompdesk_session_open`), and that opener's session file. */
 	openedBy?: string;
 	openedBySession?: string;
+	/** A paired device's agent started the hosted tab's work (host-services.ts): its continuation waits for memory here. */
+	agentWork?: boolean;
 }
 
 /**
@@ -127,6 +131,7 @@ export function deriveMarkers(
 		};
 		if (fact.peer) marker.peer = fact.peer;
 		if (fact.unsavedPrompt) marker.prompt = fact.unsavedPrompt;
+		if (fact.agentWork || fact.openedBy !== undefined || fact.openedBySession !== undefined) marker.agent = true;
 		markers.push(marker);
 	}
 	return markers;
@@ -351,7 +356,7 @@ export class InterruptedTurnStore {
 function sanitizeMarker(value: unknown): ResumeMarker | null {
 	if (typeof value !== "object" || value === null) return null;
 	const record = value as Record<string, unknown>;
-	const { window, tab, device, peer, sessionPath, cwd, kind, startedAt, reason, prompt } = record;
+	const { window, tab, device, peer, sessionPath, cwd, kind, startedAt, reason, prompt, agent } = record;
 	if (
 		typeof window !== "number" ||
 		typeof tab !== "string" ||
@@ -367,6 +372,7 @@ function sanitizeMarker(value: unknown): ResumeMarker | null {
 	const marker: ResumeMarker = { window, tab, sessionPath, cwd, kind, startedAt, reason };
 	if (typeof peer === "string" && peer) marker.peer = peer;
 	if (typeof prompt === "string" && prompt) marker.prompt = prompt;
+	if (agent === true) marker.agent = true;
 	return marker;
 }
 
@@ -429,6 +435,12 @@ export interface ResumeDeps {
 	 * turn that did not continue can be explained afterwards from the user's own files.
 	 */
 	log?: (message: "launch" | "marker" | "continue", details: ResumeLogDetails) => void;
+	/**
+	 * Memory admission (memory-admission.ts): a continuation of an agent-opened session (after a relaunch, or once
+	 * the connection is back) is new agent work and waits while this computer's memory is in danger. Resolves when
+	 * it may start; the person's own sessions never ask.
+	 */
+	admit?: (tabId: string, label: string) => Promise<unknown>;
 }
 
 export type ResumeLogDetails = Record<string, string | number | boolean>;
@@ -870,6 +882,16 @@ export class TurnResume {
 			else if (end === "personsPrompt") personTookOver = true;
 			return calledOff();
 		};
+		// Another agent's work (an agent-opened tab here, a device agent's work on a hosted tab, as the fact or the
+		// relaunch's marker says) starts its omp and its turn only once this computer's memory allows, after the
+		// connection wait. The wait shows on the tab; a closed tab's admission ends at once.
+		const fact = this.#factFor(tabId);
+		const agentWork =
+			fact?.agentWork === true ||
+			fact?.openedBy !== undefined ||
+			fact?.openedBySession !== undefined ||
+			this.#pending.get(tabId)?.agent === true;
+		if (this.#deps.admit && agentWork) await this.#deps.admit(tabId, `continue ${fact?.sessionFile ?? tabId}`);
 		const sidecar = (await stale()) ? null : this.#deps.pool.startTab(tabId);
 		const ready = sidecar ? await whenReady(sidecar) : false;
 		if (ready) await stale();

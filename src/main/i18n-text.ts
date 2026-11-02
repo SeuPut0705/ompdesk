@@ -314,6 +314,25 @@ export const MAIN_TEXT = {
 	"notify.needsInput": { en: "Needs input · {title}", ko: "답변 필요 · {title}" },
 	// A decision the bot posted for the owner (agent-control/bot-desk.ts); {title} is the bot's name.
 	"notify.botDecision": { en: "Decision needed · {title}", ko: "결정 필요 · {title}" },
+	// Memory pressure turned critical (memory-admission.ts): nothing running is stopped; new agent work waits.
+	// {free} and {total} are GB; {top} names the sessions holding the most memory.
+	"notify.memoryCritical": {
+		en: "Memory is critical: {free} GB free of {total} GB",
+		ko: "메모리가 위험해요: {total} GB 중 {free} GB 남음",
+	},
+	"notify.memoryCriticalBody": {
+		en: "Most memory: {top}. New agent work waits until memory frees; nothing running was stopped.",
+		ko: "메모리를 가장 많이 쓰는 세션: {top}. 새 에이전트 작업은 메모리가 풀릴 때까지 기다려요. 실행 중인 작업은 멈추지 않았어요.",
+	},
+	// Memory could not be read {failures} times in a row (memory-admission.ts): new agent work waits until it can.
+	"notify.memoryUnreadable": {
+		en: "Memory can't be read",
+		ko: "메모리를 읽을 수 없어요",
+	},
+	"notify.memoryUnreadableBody": {
+		en: "{failures} memory readings in a row failed. New agent work waits until memory can be read again; Start now on a waiting session starts it anyway.",
+		ko: "메모리 확인이 {failures}번 연속 실패했어요. 새 에이전트 작업은 메모리를 다시 읽을 수 있을 때까지 기다려요. 기다리는 세션의 '지금 시작'으로 바로 시작할 수 있어요.",
+	},
 	// Web Push to a paired phone (web/web-push-notifier.ts). The body reads like the desktop banner's; a device that
 	// hides content gets only the title, and the batch summary above.
 	"push.complete": { en: "Complete", ko: "완료" },

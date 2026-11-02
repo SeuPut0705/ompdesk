@@ -6,6 +6,8 @@
 
 Before you open: say which parts you will run. Write each first message with the brief template in SKILL.md. When the child writes files, give it `worktree: true` or Ownership no other child shares, so two sessions never edit one file. A `task` subagent is no substitute: it works in your checkout whatever folder you name, so a git worktree you make by hand and hand to it isolates nothing.
 
+Check capacity first: `ompdesk_sessions` ends with each computer's memory (free of total, pressure, starts still growing, waiting work, what one more session is expected to need). Open as few sessions at once as the work needs; each runs checks, tests and builds that can take gigabytes. While a computer's memory is in danger, OMPdesk holds a new session's first message (and a message that would start an idle one) and starts it by itself in order once memory frees: the result says `waiting for memory … it starts by itself`. Never send a held message again, never close and reopen to get around the wait; the owner can start one at once from its row. Waiting on your children with `ompdesk_session_result` `wait: true` never holds them back: they start ahead of other work while you wait.
+
 Track what you dispatched in `todo`: one item per session you open, named by its title, marked done when its `done` report arrives (dropped when you stop it), so the list on the user's work board is the work in flight, not an earlier task's steps.
 
 ```json

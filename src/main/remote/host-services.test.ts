@@ -52,6 +52,7 @@ import { deletedSessions, initDeletedSessions } from "../deleted-sessions";
 import { SavedWorktreeStore, setSavedWorktreeStore } from "../disk/saved-worktrees";
 import { gitSync, initRepo } from "../local/git/test-repos";
 import type { MachineServices } from "../machine-services";
+import { MemoryAdmission } from "../memory-admission";
 import { RpcTimeoutError } from "../rpc-client";
 import { SidebarProjects } from "../sidebar-projects";
 import { type SidecarLike, VIEW_ENDED_EVENT } from "../sidecar-types";
@@ -430,6 +431,7 @@ describe("LocalHostServices", () => {
 			{ rtab: "t1", name: "signIn", arg: { active: [] } },
 			{ rtab: "t1", name: "awaitingConnection", arg: false },
 			{ rtab: "t1", name: "scheduledRetry", arg: null },
+			{ rtab: "t1", name: "memoryWait", arg: null },
 		]);
 	});
 
@@ -575,6 +577,7 @@ describe("LocalHostServices", () => {
 			{ rtab: "t1", name: "signIn", arg: { active: [] } },
 			{ rtab: "t1", name: "awaitingConnection", arg: false },
 			{ rtab: "t1", name: "scheduledRetry", arg: null },
+			{ rtab: "t1", name: "memoryWait", arg: null },
 			{
 				rtab: "t1",
 				name: "status",
@@ -1254,6 +1257,7 @@ describe("LocalHostServices", () => {
 			{ rtab: "t1", name: "openAsks", arg: [] },
 			{ rtab: "t1", name: "awaitingConnection", arg: false },
 			{ rtab: "t1", name: "scheduledRetry", arg: null },
+			{ rtab: "t1", name: "memoryWait", arg: null },
 		]);
 		vi.advanceTimersByTime(5_000);
 		expect(sidecars[0]?.disposed).toBe(false);
@@ -1296,6 +1300,7 @@ describe("LocalHostServices", () => {
 			["new", "openAsks"],
 			["new", "awaitingConnection"],
 			["new", "scheduledRetry"],
+			["new", "memoryWait"],
 			["new", "events"],
 		]);
 		const old = await services
@@ -1482,6 +1487,7 @@ describe("LocalHostServices", () => {
 			"openAsks",
 			"awaitingConnection",
 			"scheduledRetry",
+			"memoryWait",
 		]);
 		expect(openAsks(fourth)).toEqual([]);
 	});
@@ -1585,6 +1591,7 @@ describe("LocalHostServices", () => {
 			"openAsks",
 			"awaitingConnection",
 			"scheduledRetry",
+			"memoryWait",
 		]);
 
 		finish.resolve({ type: "response", command: "login", success: false, error: "denied" });
@@ -1832,6 +1839,133 @@ describe("LocalHostServices", () => {
 		sidecar.emit("events", [{ type: "agent_start" }]);
 		await services.call(back.peer, "tab.command", { rtab: "t1", command: { type: "abort" } }, back);
 		expect(fact()?.stopped).toBe(true);
+	});
+
+	it("shows a device's tab its memory wait live and on every re-attach, and its Start now reaches this computer's admission", async () => {
+		const startNow = vi.fn((_tabId: string) => true);
+		const { services } = setup(60_000, {
+			memoryAdmission: {
+				deliver: vi.fn(),
+				status: vi.fn(() => ({
+					reading: null,
+					expectedBytes: 0,
+					reservedBytes: 0,
+					reserveBytes: 0,
+					waiting: [],
+					starting: 0,
+				})),
+				startNow,
+				blockedOn: vi.fn(),
+			},
+		});
+		const x = new FakeConnection(peer("device-x"));
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: "/s/one.jsonl" }, x);
+		await services.call(x.peer, "tab.start", { rtab: "t1" }, x);
+		const wait = {
+			position: 2,
+			availableBytes: 3 * 1024 ** 3,
+			totalBytes: 16 * 1024 ** 3,
+			pressure: "warn",
+			since: 5,
+		};
+		expect(x.tabEvents()).toContainEqual({ rtab: "t1", name: "memoryWait", arg: null });
+		services.setMemoryWait("peer:device-x:t1", wait as never);
+		expect(x.tabEvents().at(-1)).toEqual({ rtab: "t1", name: "memoryWait", arg: wait });
+		expect(services.hostedSessions()[0]).toMatchObject({ memoryWait: wait });
+
+		// The device lost this computer and came back: it is told the wait still holds.
+		services.disconnected(x.peer, x);
+		const back = new FakeConnection(peer("device-x"));
+		await services.call(back.peer, "tab.open", { rtab: "t1", cwd: workDir }, back);
+		expect(back.tabEvents()).toContainEqual({ rtab: "t1", name: "memoryWait", arg: wait });
+
+		expect(await services.call(back.peer, "tab.startNow", { rtab: "t1" }, back)).toBe(true);
+		expect(startNow).toHaveBeenCalledWith("peer:device-x:t1");
+		services.setMemoryWait("peer:device-x:t1", undefined);
+		expect(back.tabEvents().at(-1)).toEqual({ rtab: "t1", name: "memoryWait", arg: null });
+		expect(services.hostedSessions()[0]).not.toHaveProperty("memoryWait");
+	});
+
+	describe("memory admission for agent work on a device's tabs", () => {
+		const GiB = 1024 ** 3;
+		function admissionWith(pressure: "normal" | "critical") {
+			const admission = new MemoryAdmission({
+				now: () => Date.now(),
+				changed: () => {},
+				log: () => {},
+				critical: () => {},
+				unreadable: () => {},
+				running: () => false,
+			});
+			admission.sample({ totalBytes: 16 * GiB, availableBytes: 3 * GiB, pressure });
+			return admission;
+		}
+		async function twoHeld(pressure: "normal" | "critical") {
+			const admission = admissionWith(pressure);
+			const context = setup(60_000, { memoryAdmission: admission });
+			const x = new FakeConnection(peer("device-x"));
+			for (const rtab of ["t1", "t2"]) {
+				await context.services.call(x.peer, "tab.open", { rtab, cwd: workDir, sessionPath: `/s/${rtab}.jsonl` }, x);
+				await context.services.call(x.peer, "tab.start", { rtab }, x);
+			}
+			for (const sidecar of context.sidecars) sidecar.setStatus("ready");
+			for (const rtab of ["t1", "t2"])
+				await context.services.call(
+					x.peer,
+					"tab.command",
+					{ rtab, command: { type: "prompt", message: wrapAgentMessage("go", "parent") } },
+					x,
+				);
+			return { ...context, admission, x };
+		}
+		it("admits a hosted child ahead under tight memory while its opener on the other computer waits on it", async () => {
+			const { services, sidecars, admission, x } = await twoHeld("normal");
+			expect(sidecars.map(sidecar => sidecar.commands)).toEqual([[], []]);
+			expect(admission.waitOf("peer:device-x:t1")?.position).toBe(1);
+			expect(admission.waitOf("peer:device-x:t2")?.position).toBe(2);
+			// Held work is an agent's: a relaunch's continuation of it waits for memory too.
+			expect(services.resumeFacts().map(fact => fact.agentWork)).toEqual([true, true]);
+
+			await services.call(x.peer, "tab.memoryWaitedOn", { rtab: "t2", opener: "parent-tab", waited: true }, x);
+			await new Promise<void>(resolve => setImmediate(resolve));
+			expect(sidecars[1]?.commands.at(-1)).toMatchObject({ type: "prompt" });
+			expect(sidecars[0]?.commands).toEqual([]);
+			expect(admission.waitOf("peer:device-x:t2")).toBeUndefined();
+			expect(admission.waitOf("peer:device-x:t1")?.position).toBe(1);
+		});
+
+		it("puts the owed child first in line even at critical pressure, and back in order once its opener stops waiting", async () => {
+			const { services, admission, x } = await twoHeld("critical");
+			await services.call(x.peer, "tab.memoryWaitedOn", { rtab: "t2", opener: "parent-tab", waited: true }, x);
+			expect(admission.waitOf("peer:device-x:t2")?.position).toBe(1);
+			expect(admission.waitOf("peer:device-x:t1")?.position).toBe(2);
+			await services.call(x.peer, "tab.memoryWaitedOn", { rtab: "t2", opener: "parent-tab", waited: false }, x);
+			expect(admission.waitOf("peer:device-x:t1")?.position).toBe(1);
+			expect(admission.waitOf("peer:device-x:t2")?.position).toBe(2);
+		});
+
+		it("forgets what a device's opener waited on when its link drops", async () => {
+			const { services, admission, x } = await twoHeld("critical");
+			await services.call(x.peer, "tab.memoryWaitedOn", { rtab: "t2", opener: "parent-tab", waited: true }, x);
+			services.disconnected(x.peer, x);
+			expect(admission.waitOf("peer:device-x:t1")?.position).toBe(1);
+			expect(admission.waitOf("peer:device-x:t2")?.position).toBe(2);
+		});
+
+		it("marks a hosted tab's work as an agent's when a device's agent prompts it, and a person's own prompt takes it away", async () => {
+			const { services, sidecars } = setup();
+			const x = new FakeConnection(peer("device-x"));
+			await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: "/s/t1.jsonl" }, x);
+			await services.call(x.peer, "tab.start", { rtab: "t1" }, x);
+			sidecars[0]?.setStatus("ready");
+			const send = (message: string) =>
+				services.call(x.peer, "tab.command", { rtab: "t1", command: { type: "prompt", message } }, x);
+			expect(services.resumeFacts()[0]).not.toHaveProperty("agentWork");
+			await send(wrapAgentMessage("go", "parent"));
+			expect(services.resumeFacts()[0]?.agentWork).toBe(true);
+			await send("my own question");
+			expect(services.resumeFacts()[0]).not.toHaveProperty("agentWork");
+		});
 	});
 
 	// Review M1 and minor 5: a device's own hosted tab has no window to count its moves, and an idle held tab's new file
@@ -3020,6 +3154,34 @@ describe("LocalHostServices: a device opening a session a window of this compute
 		await services.call(x.peer, "tab.cancelWait", { rtab: "t1" }, x);
 		expect(cancelHostWait).toHaveBeenCalledTimes(1);
 		expect(resume.cancelWait).not.toHaveBeenCalled();
+	});
+
+	// 2 Nov 2026: new agent work waits for the memory of the computer that runs it; the device viewing a window's tab
+	// shows that wait and its Start now reaches the window tab's admission, whose id only the pool knows.
+	it("tells the viewing device the window's memory wait, live and on every re-open, and sends its Start now to the window's tab", async () => {
+		const { services, view, x } = await viewing();
+		const wait = {
+			position: 2,
+			availableBytes: 3 * 1024 ** 3,
+			totalBytes: 16 * 1024 ** 3,
+			pressure: "warn",
+			since: 5,
+		};
+		expect(x.tabEvents()).toContainEqual({ rtab: "t1", name: "memoryWait", arg: null });
+		view.emit("memoryWait", wait);
+		expect(x.tabEvents().at(-1)).toEqual({ rtab: "t1", name: "memoryWait", arg: wait });
+
+		services.disconnected(x.peer, x);
+		const back = new FakeConnection(peer("device-x"));
+		await services.call(back.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: SESSION }, back);
+		expect(back.tabEvents()).toContainEqual({ rtab: "t1", name: "memoryWait", arg: wait });
+
+		const startHostNow = vi.fn(async () => true);
+		Object.assign(view, { startHostNow });
+		expect(await services.call(back.peer, "tab.startNow", { rtab: "t1" }, back)).toBe(true);
+		expect(startHostNow).toHaveBeenCalledTimes(1);
+		view.emit("memoryWait", undefined);
+		expect(back.tabEvents().at(-1)).toEqual({ rtab: "t1", name: "memoryWait", arg: null });
 	});
 
 	// Review M1: a device's switch through a view moves the window's tab, whose pool entry counts it (ipc.ts does the same

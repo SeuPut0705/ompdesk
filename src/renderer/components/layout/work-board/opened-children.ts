@@ -6,6 +6,7 @@
  */
 
 import type { AgentReviewItem, ClosedChild } from "../../../../shared/agent-control";
+import type { IpcMemoryWait } from "../../../../shared/ipc-types";
 import { isTabFailed } from "../../../lib/tab-signal";
 import type { SessionTab } from "../../../stores/tabs";
 import { type ChildStatus, openedChildStatus } from "../sidebar/sidebar-family";
@@ -42,6 +43,8 @@ export interface OpenedChildRow {
 	at?: number;
 	/** What its branch holds that its base does not: commits, files and lines, and files not committed yet. */
 	diff?: { commits: number; files: number; added: number; removed: number; uncommitted: number };
+	/** Its start waits for memory on the computer that runs it (main's memory admission); it starts by itself. */
+	memoryWait?: IpcMemoryWait;
 }
 
 function diffOf(item: AgentReviewItem | undefined): Pick<OpenedChildRow, "diff"> {
@@ -133,6 +136,7 @@ export function openedChildRows(input: {
 			...(item?.question ? { question: item.question } : {}),
 			...diffOf(item),
 			...(tab.device ? { device: deviceName?.(tab.device) ?? tab.device } : {}),
+			...(tab.memoryWait ? { memoryWait: tab.memoryWait } : {}),
 		});
 	}
 	// Children this window holds no tab of: a phone viewing a session a desktop window holds lists only the tabs it

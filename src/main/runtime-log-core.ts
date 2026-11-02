@@ -56,6 +56,7 @@ const RUNTIME_ERROR_SOURCE_TABLE: Record<RuntimeErrorSource, true> = {
 	"turn-stages": true,
 	"chain-stall": true,
 	routines: true,
+	memory: true,
 	unknown: true,
 };
 

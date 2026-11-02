@@ -13,6 +13,7 @@ import { createDispatcher, type HelperMethods } from "./dispatch";
 import { UNQUEUED_METHODS as HISTORY_UNQUEUED, methods as history } from "./history";
 import { methods as images } from "./images";
 import { methods as models } from "./models";
+import { methods as processMemory } from "./process-memory";
 import { methods as search } from "./search";
 import { UNQUEUED_METHODS as SESSIONS_UNQUEUED, methods as sessions } from "./sessions";
 import { disposeTerminals, methods as terminals } from "./terminals";
@@ -21,7 +22,7 @@ import { methods as worktrees } from "./worktrees";
 const worker = process.argv[2];
 const terminalWorker = worker === "terminals";
 const methods: HelperMethods = terminalWorker
-	? terminals
+	? { ...terminals, ...processMemory }
 	: worker === "extensions"
 		? (await import("./extensions")).methods
 		: { ...sessions, ...models, ...search, ...accounts, ...images, ...worktrees, ...history };

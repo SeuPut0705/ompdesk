@@ -56,7 +56,13 @@ import {
 	type BotMemory,
 } from "../../shared/bot-desk";
 import { ipcErrorCode } from "../../shared/ipc-error-codes";
-import type { IpcSavedFolder, IpcTabRunOutcome, IpcTabWorktree, TabStatus } from "../../shared/ipc-types";
+import type {
+	IpcMemoryWait,
+	IpcSavedFolder,
+	IpcTabRunOutcome,
+	IpcTabWorktree,
+	TabStatus,
+} from "../../shared/ipc-types";
 import type {
 	AgentMessage,
 	ExtensionUIRequest,
@@ -86,6 +92,7 @@ import {
 	type RpcTurnEdits,
 	turnEdits,
 } from "../../shared/turn-edits";
+import { type AdmissionStatus, capacityText, heldWait, memoryWaitText } from "../memory-admission";
 import type { FileEdits } from "../web/file-edit-reports";
 import { AppControl, type AppPorts, AppRefusal } from "./app-control";
 import { type AutoCloseFacts, autoCloseDecision } from "./auto-close";
@@ -148,6 +155,8 @@ export interface ControlTab {
 	 * opener in this state is not idle.
 	 */
 	resuming?: boolean;
+	/** Its start (an agent's message, a wake, a relaunch's continuation) waits for memory on the computer that runs it. */
+	memoryWait?: IpcMemoryWait;
 	/** Open asks and approvals that wait for the person. */
 	asks: ControlAsk[];
 	/** A plan proposal that waits for approval (plan mode); answered like an ask with `ompdesk_session_answer`. */
@@ -443,6 +452,12 @@ export interface AgentControlHost {
 	isStopping?(callerTabId: string): boolean;
 	/** Autopilot: awaited after the child is ready and before its first prompt; a throw closes the child and fails the open. */
 	beforeFirstPrompt?(child: OpenedChild): Promise<void>;
+	/** The caller's turn is blocked waiting on `children` (`ompdesk_session_result` wait), or no longer: they may start. */
+	memoryBlockedOn?(callerTabId: string, children: ReadonlySet<string> | null): void;
+	/** This computer's memory and its line of waiting agent work (memory-admission.ts), for `ompdesk_sessions`. */
+	memory?(): AdmissionStatus | null;
+	/** A paired device's memory, asked over its link; null when it cannot tell (an older host, a lost link). */
+	deviceMemory?(device: string): Promise<AdmissionStatus | null>;
 	/** Autopilot's coordinator (`ompdesk_autopilot`); absent where there is none. */
 	autopilot?: AutopilotSource;
 	/** Card and label text in the person's language. */
@@ -1589,6 +1604,7 @@ export class AgentControl {
 		if (ask) return `waiting for the user's answer: "${oneLine(askTitle(ask.request), 120)}"`;
 		if (tab.plan)
 			return `waiting for plan approval: "${oneLine(tab.plan.title || "plan", 120)}" (${tab.plan.planFilePath})`;
+		if (tab.memoryWait) return memoryWaitText(tab.memoryWait);
 		switch (tab.status) {
 			case "asleep":
 				return "not started (it starts when shown or messaged)";
@@ -1717,6 +1733,29 @@ export class AgentControl {
 			: "No paired devices.";
 	}
 
+	/**
+	 * Each computer's memory and its line of waiting agent work: this one's, and every online paired device's. New
+	 * agent work waits by itself while memory is in danger (memory-admission.ts), so a caller plans few parallel
+	 * sessions and never retries a held one.
+	 */
+	async #capacityLines(): Promise<string> {
+		const own = this.#host.memory?.();
+		const lines = own ? [capacityText("This computer", own)] : [];
+		const online = this.#host.devices().filter(device => device.state === "online");
+		const remote = await Promise.all(
+			online.map(async device => {
+				const status = await this.#host.deviceMemory?.(device.id).catch(() => null);
+				return status
+					? capacityText(device.name, status)
+					: `${device.name}: memory unknown (an older OMPdesk there)`;
+			}),
+		);
+		lines.push(...remote);
+		return lines.length
+			? `Capacity (new agent work waits by itself while a computer's memory is in danger; open few sessions at once and never send a held one again):\n${lines.map(line => `- ${line}`).join("\n")}`
+			: "";
+	}
+
 	async #list(caller: ControlTab, listed: ControlTab[], args: ListArgs): Promise<string> {
 		const named = args.device === undefined ? undefined : this.#device(args.device);
 		// A device asked for by name is waited for while its link comes back; its tabs re-attach meanwhile.
@@ -1764,11 +1803,12 @@ export class AgentControl {
 				if (todos) parts.push(todos);
 				const head = `- ${tab.tabId} ${label(tab)}${marks.length ? ` [${marks.join(", ")}]` : ""}`;
 				const answer = session.last ? `\n  last answer: ${oneLine(session.last, SUMMARY_CHARS)}` : "";
-				const kind = waits(tab)
-					? "waiting"
-					: line.startsWith("running") || line === "starting"
-						? "running"
-						: "idle";
+				const kind =
+					waits(tab) || tab.memoryWait
+						? "waiting"
+						: line.startsWith("running") || line === "starting"
+							? "running"
+							: "idle";
 				return { kind, text: `${head}\n  ${parts.join("; ")}${answer}` };
 			}),
 		);
@@ -1790,7 +1830,7 @@ export class AgentControl {
 			.slice(0, limit)
 			.map(row => row.text)
 			.join("\n");
-		return `${kept.length} session${kept.length === 1 ? "" : "s"} ${where}:\n${shown}${more}${others}\n${this.#devicesLine()}`;
+		return `${kept.length} session${kept.length === 1 ? "" : "s"} ${where}:\n${shown}${more}${others}\n${this.#devicesLine()}\n${await this.#capacityLines()}`.trimEnd();
 	}
 
 	async #listStored(
@@ -1819,7 +1859,7 @@ export class AgentControl {
 		);
 		const where = device ? `saved on ${device.name}` : "saved on this computer";
 		const more = rows.length > limit ? `\n… ${rows.length - limit} more; narrow with folder, query or limit.` : "";
-		return `${rows.length} session${rows.length === 1 ? "" : "s"} ${where}${args.query ? ` matching "${args.query}"` : ""}:\n${lines.join("\n")}${more}\nRead one with ompdesk_session_read; open it again with ompdesk_session_open {"reopen":"<id>"}.\n${this.#devicesLine()}`;
+		return `${rows.length} session${rows.length === 1 ? "" : "s"} ${where}${args.query ? ` matching "${args.query}"` : ""}:\n${lines.join("\n")}${more}\nRead one with ompdesk_session_read; open it again with ompdesk_session_open {"reopen":"<id>"}.\n${this.#devicesLine()}\n${await this.#capacityLines()}`.trimEnd();
 	}
 
 	/** The tool call a saved session runs in a tab elsewhere (its turn's `currentStep`, from the saved transcript). */
@@ -2018,33 +2058,44 @@ export class AgentControl {
 				this.#throwaway.add(tabId);
 				notes.push("throwaway: closed and deleted once its Result: ok answer reaches you");
 			}
+			let memoryWait: IpcMemoryWait | undefined;
 			if (args.message) {
 				if (args.mode === "goal") {
 					// The goal command starts the objective turn itself.
-					responseData(
-						await this.#host.command(tabId, { type: "set_goal", objective: args.message }, 30_000),
-						"Setting the goal",
+					memoryWait = heldWait(
+						responseData(
+							await this.#host.command(tabId, { type: "set_goal", objective: args.message }, 30_000),
+							"Setting the goal",
+						),
 					);
 					notes.push("goal set");
 				} else {
-					responseData(
-						await this.#host.command(
-							tabId,
-							{
-								type: "prompt",
-								message: wrapAgentMessage(
-									withDispatch(args.message, this.#mailbox.dispatch(tabId)),
-									caller.title,
-								),
-								streamingBehavior: "followUp",
-							},
-							30_000,
+					memoryWait = heldWait(
+						responseData(
+							await this.#host.command(
+								tabId,
+								{
+									type: "prompt",
+									message: wrapAgentMessage(
+										withDispatch(args.message, this.#mailbox.dispatch(tabId)),
+										caller.title,
+									),
+									streamingBehavior: "followUp",
+								},
+								30_000,
+							),
+							"Sending the first message",
 						),
-						"Sending the first message",
 					);
 				}
 			}
-			return { tabId, notes, worktree: worktree?.branch, started: args.message !== undefined };
+			return {
+				tabId,
+				notes,
+				worktree: worktree?.branch,
+				started: args.message !== undefined && memoryWait === undefined,
+				...(memoryWait ? { memoryWait } : {}),
+			};
 		} catch (error) {
 			// A child that cannot be set up does not linger half-configured, nor does the worktree made for it.
 			opened.delete(tabId);
@@ -2077,14 +2128,16 @@ export class AgentControl {
 		const lines = results.map(result =>
 			result.tabId
 				? `Opened session ${result.tabId}${result.where ? ` in ${result.where}` : ""}${result.notes?.length ? ` (${result.notes.join(", ")})` : ""}. ${
-						result.started
-							? "It is working on your message."
-							: `It is idle; give it work with ompdesk_session_send {"session":"${result.tabId}","message":"…"}.`
+						result.memoryWait
+							? `Its first message is held, ${memoryWaitText(result.memoryWait)} on its computer: do not send it again.`
+							: result.started
+								? "It is working on your message."
+								: `It is idle; give it work with ompdesk_session_send {"session":"${result.tabId}","message":"…"}.`
 					}`
 				: `Could not open a session: ${result.error}`,
 		);
 		const ids = results.filter(result => result.tabId).map(result => result.tabId);
-		if (ids.length > 0 && results.some(result => result.started))
+		if (ids.length > 0 && results.some(result => result.started || result.memoryWait))
 			lines.push(
 				`They report back to you with ompdesk_report (done, question): end your turn and you are woken. To block now instead: ompdesk_session_result {"sessions":${JSON.stringify(ids)},"wait":true}.`,
 			);
@@ -2175,28 +2228,32 @@ export class AgentControl {
 			this.#openedBy(caller.tabId, this.#host.tabs(caller.tabId) ?? []).has(target.tabId);
 		if (ownChild) this.#mailbox.seed(target.tabId, marks.dispatch);
 		const dispatch = ownChild ? this.#mailbox.dispatch(target.tabId) : undefined;
-		responseData(
-			await this.#host.command(
-				target.tabId,
-				{
-					type: "prompt",
-					message: wrapAgentMessage(withDispatch(args.message, dispatch, args.request_id), caller.title),
-					streamingBehavior: steer ? "steer" : "followUp",
-				},
-				30_000,
+		const memoryWait = heldWait(
+			responseData(
+				await this.#host.command(
+					target.tabId,
+					{
+						type: "prompt",
+						message: wrapAgentMessage(withDispatch(args.message, dispatch, args.request_id), caller.title),
+						streamingBehavior: steer ? "steer" : "followUp",
+					},
+					30_000,
+				),
+				"Sending the message",
 			),
-			"Sending the message",
 		);
 		if (running && !steer && dispatch)
 			this.#queuedFollowUp.set(target.tabId, { n: Number(dispatch.slice(1)), id: dispatch, from: caller.tabId });
-		const how = !running
-			? "it was idle and starts on it"
-			: promoted
-				? "delivered as steer (it already reported to you in this turn, so it reads it between steps)"
-				: steer
-					? "delivered as steer (it reads it between steps)"
-					: "queued as a follow-up (it runs when the current turn ends; it is told so if it reports first)";
-		const started = !running && (await this.#turnStarts(caller.tabId, target.tabId));
+		const how = memoryWait
+			? `it was idle; its turn is held, ${memoryWaitText(memoryWait)} on its computer, so do not send it again`
+			: !running
+				? "it was idle and starts on it"
+				: promoted
+					? "delivered as steer (it already reported to you in this turn, so it reads it between steps)"
+					: steer
+						? "delivered as steer (it reads it between steps)"
+						: "queued as a follow-up (it runs when the current turn ends; it is told so if it reports first)";
+		const started = !running && !memoryWait && (await this.#turnStarts(caller.tabId, target.tabId));
 		const receipt = `Sent to ${label(target)}: accepted${started ? ", turn started" : ""}; ${how}.${dispatch ? ` Dispatch ${dispatch}: it reports back with ompdesk_report.` : ""}`;
 		if (receiptKey) this.#receipts.set(receiptKey, receipt);
 		return receipt;
@@ -2395,6 +2452,27 @@ export class AgentControl {
 			),
 		);
 		const ids = targets.map(target => ("busy" in target ? target.tabId : target.id));
+		// A turn blocked on the sessions it waits for is not new work: while it waits they start even when memory is
+		// tight (memory-admission.ts), so a parent can never hold back its own children.
+		const waitedOn = new Set(targets.flatMap(target => ("busy" in target ? [target.tabId] : [])));
+		if (args.wait && waitedOn.size > 0) this.#host.memoryBlockedOn?.(caller.tabId, waitedOn);
+		try {
+			return await this.#resultUntil(caller, targets, ids, saved, args, seconds, deadline, perAnswer);
+		} finally {
+			if (args.wait && waitedOn.size > 0) this.#host.memoryBlockedOn?.(caller.tabId, null);
+		}
+	}
+
+	async #resultUntil(
+		caller: ControlTab,
+		targets: (ControlTab | StoredSession)[],
+		ids: string[],
+		saved: ReadonlyMap<string, { settled: boolean; text: string }>,
+		args: { wait?: boolean; until?: "all" | "any" },
+		seconds: number,
+		deadline: number,
+		perAnswer: number,
+	): Promise<string> {
 		for (;;) {
 			const tabs = this.#host.tabs(caller.tabId);
 			const current = targets.map(target =>
@@ -4213,6 +4291,8 @@ interface OpenResult {
 	notes?: string[];
 	worktree?: string;
 	started?: boolean;
+	/** Its first message waits for memory on the computer that runs it (memory-admission.ts). */
+	memoryWait?: IpcMemoryWait;
 	where?: string;
 	error?: string;
 }

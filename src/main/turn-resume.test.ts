@@ -326,6 +326,8 @@ function setup(
 		goalSettled?: (tabId: string, outcome: GoalSettlement) => void;
 		/** The real connectivity monitor in place of the scripted `net` (whose `online` it then drives). */
 		network?: ResumeDeps["network"];
+		/** Memory admission: resolves when the tab's continuation may start. */
+		admit?: ResumeDeps["admit"];
 	} = {},
 ): Harness {
 	const dir = mkdtempSync(join(tmpdir(), "ompdesk-resume-"));
@@ -412,6 +414,7 @@ function setup(
 			return "opened";
 		},
 		...(options.resumeGoal ? { resumeGoal: options.resumeGoal } : {}),
+		...(options.admit ? { admit: options.admit } : {}),
 		goalSettled: (tabId, outcome) => {
 			goals.push([tabId, outcome]);
 			options.goalSettled?.(tabId, outcome);
@@ -2511,6 +2514,55 @@ describe("TurnResume races (review of v0.82.0)", () => {
 			await trackMove("get_state", tracker, async () => ok("get_state"));
 			expect(order).toEqual([]);
 		});
+	});
+});
+
+// 2 Nov 2026: the relaunch after the incident continued 10 agent sessions' turns at once (memory-admission.ts).
+describe("a relaunch's continuations of agent work wait for memory", () => {
+	let h: Harness | undefined;
+	afterEach(() => {
+		if (h) rmSync(h.dir, { recursive: true, force: true });
+		h = undefined;
+	});
+
+	it("records agent work in the marker, so a relaunch knows it before any opener is back", () => {
+		expect(deriveMarkers([fact({ running: true, openedBySession: "/s/opener.jsonl" })], [], 500)[0]?.agent).toBe(
+			true,
+		);
+		expect(deriveMarkers([fact({ running: true, agentWork: true, peer: "device-a" })], [], 500)[0]?.agent).toBe(true);
+		expect(deriveMarkers([fact({ running: true })], [], 500)[0]?.agent).toBeUndefined();
+	});
+
+	it("starts each agent session's continuation only as memory admits it, in line order, and the person's own at once", async () => {
+		const admitted = new Map<string, () => void>();
+		const asked: string[] = [];
+		h = setup({
+			answers: { restore_interrupted: RESTORED },
+			admit: tabId => {
+				asked.push(tabId);
+				const { promise, resolve } = Promise.withResolvers<void>();
+				admitted.set(tabId, resolve);
+				return promise;
+			},
+		});
+		const tabs = ["a1", "a2", "a3", "a4", "a5"];
+		const fileOf = (tab: string) => `/s/${tab}.jsonl`;
+		new InterruptedTurnStore(h.file).write([
+			...tabs.map(tab => marker({ tab, sessionPath: fileOf(tab), agent: true })),
+			marker({ tab: "own", sessionPath: fileOf("own") }),
+		]);
+		for (const tab of [...tabs, "own"]) h.facts.push(fact({ tabId: tab, sessionFile: fileOf(tab) }));
+		h.resume.launch();
+		await settle();
+		// The person's own session continues at once; every agent session asks memory first and sends nothing.
+		expect(asked).toEqual(tabs);
+		expect(h.started).toEqual(["own"]);
+		for (const [i, tab] of tabs.entries()) {
+			admitted.get(tab)?.();
+			await settle();
+			expect(h.started).toEqual(["own", ...tabs.slice(0, i + 1)]);
+		}
+		expect(h.commands.filter(cmd => cmd.type === "restore_interrupted")).toHaveLength(6);
 	});
 });
 

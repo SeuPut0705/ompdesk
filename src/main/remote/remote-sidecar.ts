@@ -45,6 +45,7 @@ import {
 	SignInCallbackReply,
 	TabBridgeArg,
 	type TabEventMessage,
+	TabMemoryWaitArg,
 	TabOpenAsksArg,
 	TabOpenResult,
 	TabRunArg,
@@ -333,6 +334,28 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 		}
 	}
 
+	/** The host holds this tab's memory wait (memory-admission.ts): the user's Start now goes there. */
+	async startHostNow(): Promise<boolean> {
+		if (this.#link.state !== "online") throw codedError("remote_offline", OFFLINE_TEXT);
+		try {
+			await this.#open();
+			return (await this.#link.request<boolean>("tab.startNow", { rtab: this.#rtab })) === true;
+		} catch (error) {
+			if (isOfflineError(error)) throw codedError("remote_offline", OFFLINE_TEXT);
+			throw error;
+		}
+	}
+
+	async memoryWaitedOn(opener: string, waited: boolean): Promise<void> {
+		if (this.#link.state !== "online") return;
+		try {
+			await this.#open();
+			await this.#link.request("tab.memoryWaitedOn", { rtab: this.#rtab, opener, waited });
+		} catch {
+			// An older host answers `unsupported`, and a lost link ends the host's wait with it: nothing to tell.
+		}
+	}
+
 	syncImageGeneration(): void {
 		this.#notify("tab.syncImageGeneration", { rtab: this.#rtab });
 	}
@@ -407,6 +430,12 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 			case "awaitingConnection":
 				if (typeof message.arg === "boolean") this.emit("awaitingConnection", message.arg);
 				return;
+			// The host's memory wait of this tab, for the window to show (null: it no longer waits).
+			case "memoryWait": {
+				const parsed = TabMemoryWaitArg.safeParse(message.arg);
+				if (parsed.success) this.emit("memoryWait", parsed.data ?? undefined);
+				return;
+			}
 			// The host's retry of the failed turn of the window's tab this one views: put on this computer's clock.
 			case "scheduledRetry": {
 				const parsed = TabScheduledRetryArg.safeParse(message.arg);

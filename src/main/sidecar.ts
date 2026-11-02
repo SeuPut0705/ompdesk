@@ -539,6 +539,11 @@ export class SidecarManager extends EventEmitter {
 		return this.#child !== null;
 	}
 
+	/** The running omp's pid, for its process tree's measured footprint (memory-sampler.ts). */
+	get pid(): number | undefined {
+		return this.#child?.pid;
+	}
+
 	start(): void {
 		if (this.#disposed) return;
 		this.#setStatus("starting");

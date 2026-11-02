@@ -177,6 +177,7 @@ import type { LogWatcher } from "./log-watcher";
 import { type LocalMachine, type MachineServices, machineFor as pickMachine } from "./machine-services";
 import type { MailAccounts } from "./mail-accounts";
 import type { MediaStreams } from "./media-stream";
+import type { MemoryAdmission } from "./memory-admission";
 import { createMenu } from "./menu";
 import { modelsPath } from "./models-config";
 import { type NoticeKind, NotificationBatcher, type ShownNotice } from "./notification-batch";
@@ -255,6 +256,8 @@ export interface IpcDeps {
 	/** Where every handler here registers (index.ts's one table). */
 	ipc: IpcRegistry;
 	sidecarPool: SidecarPool;
+	/** This computer's memory admission (memory-admission.ts): an agent's start in an idle agent-opened tab waits on it. */
+	memoryAdmission: Pick<MemoryAdmission, "deliver" | "blockedOn" | "status" | "startNow">;
 	sessionIndex: SessionIndex;
 	/** This computer's models.yml, stats server and `omp bench`; a paired host serves its own. */
 	machine: LocalMachine;
@@ -1454,12 +1457,30 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			command: (win, sidecar, tabId, command) => autopilot.handleCommand(win, sidecar, tabId, command, undefined),
 		},
 		pool: sidecarPool,
+		memoryAdmission: deps.memoryAdmission,
 		schedules: () => deps.schedules?.() ?? null,
-		dispatch: (win, sidecar, tabId, command, timeoutMs) =>
-			dispatchRpcCommand(win, sidecar, tabId, {
-				command,
-				timeoutMs,
-			} as IpcRpcCommandPayload) as Promise<RpcResponse>,
+		dispatch: (win, sidecar, tabId, command, timeoutMs) => {
+			const send = () =>
+				dispatchRpcCommand(win, sidecar, tabId, {
+					command,
+					timeoutMs,
+				} as IpcRpcCommandPayload) as Promise<RpcResponse>;
+			// An agent's message (or goal) that starts a turn in an idle session another agent opened here waits while this
+			// computer's memory is in danger (memory-admission.ts); a paired host's tab is that host's to decide.
+			const facts = sidecar.device === undefined ? sidecarPool.tabFacts(tabId) : null;
+			if (!facts?.agentOpened || facts.busy || (command.type !== "prompt" && command.type !== "set_goal"))
+				return send();
+			return deps.memoryAdmission.deliver(
+				{
+					kind: sidecarPool.sessionFileOf(tabId) ? "send" : "open",
+					tabId,
+					...(facts.openedBy ? { parentTabId: facts.openedBy } : {}),
+					label: facts.title || tabId,
+				},
+				command.type,
+				send,
+			);
+		},
 		spawnTab: (win, payload) =>
 			spawnTabForWindow(
 				{

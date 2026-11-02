@@ -29,11 +29,14 @@ export function isSessionDown(tab: { status: string }): boolean {
 	return tab.status === "starting" || tab.status === "restarting" || tab.status === "error" || tab.status === "exited";
 }
 
+/** The label of a tab whose start waits for memory (main's memory admission); the sidebar reads it off the signal. */
+export const MEMORY_WAIT_LABEL_KEY = "titlebar.status.memoryWait";
+
 /** A tab's signal; any tab-shaped state works (the sidebar's row of a paired device's tab on this computer too). */
 export function tabSignalPresentation(
 	tab: Pick<
 		SessionTab,
-		"status" | "compacting" | "awaitingInput" | "awaitingConnection" | "unreadDone" | "sessionHeld"
+		"status" | "compacting" | "awaitingInput" | "awaitingConnection" | "memoryWait" | "unreadDone" | "sessionHeld"
 	>,
 	activeRuntime = false,
 ): TabSignalPresentation {
@@ -50,6 +53,10 @@ export function tabSignalPresentation(
 	// The session's own state (down, running) and a question outrank it, as above.
 	if (tab.awaitingConnection && !isSessionDown(tab)) {
 		return { active: true, color: "var(--omp-warning)", labelKey: "titlebar.status.connectionWait", running: false };
+	}
+	// Its start waits for this computer's memory (or its paired host's) and goes on by itself: calm, like the connection wait.
+	if (tab.memoryWait && !isSessionDown(tab)) {
+		return { active: true, color: "var(--omp-warning)", labelKey: MEMORY_WAIT_LABEL_KEY, running: false };
 	}
 	if (tab.unreadDone) {
 		return { active: false, color: "var(--omp-success)", labelKey: "tabs.done", running: false };

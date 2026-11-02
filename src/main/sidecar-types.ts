@@ -31,6 +31,8 @@ export interface SidecarLike extends Pick<EventEmitter, "on" | "off" | "once" | 
 	readonly kind: "agent" | "chat";
 	readonly rpcClient: Pick<RpcClient, "command"> | null;
 	readonly processAlive: boolean;
+	/** Local sidecars: the running omp's pid (its process tree is measured for memory admission). */
+	readonly pid?: number;
 	/** Paired host deviceId the omp runs on; absent for a local sidecar. */
 	readonly device?: string;
 	/** True while a remote sidecar's link to its host is down (commands fail with `remote_offline`). */
@@ -81,4 +83,16 @@ export interface SidecarLike extends Pick<EventEmitter, "on" | "off" | "once" | 
 	 * `remote_offline` while the host is unreachable.
 	 */
 	cancelHostWait?(): Promise<void>;
+	/**
+	 * Remote sidecars and hosted views: the user's Start now on a "waiting for memory" row (memory-admission.ts). The
+	 * computer that holds the wait decides; false when the tab no longer waits. A remote sidecar rejects `remote_offline`
+	 * while the host is unreachable.
+	 */
+	startHostNow?(): Promise<boolean>;
+	/**
+	 * Remote sidecars: a turn of this computer's `opener` tab blocks (or stops blocking) on this paired host's tab, which
+	 * the host's memory admission then admits ahead (a parent never holds back the child it waits for). Failures are
+	 * ignored: an older host answers `unsupported`, a lost link takes the wait with it.
+	 */
+	memoryWaitedOn?(opener: string, waited: boolean): Promise<void>;
 }
