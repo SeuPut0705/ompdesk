@@ -24,8 +24,11 @@ url=$(jq -r '.url // empty' <<<"$job" 2>/dev/null)
 	[ -n "$step" ] && echo "- failed step: ${step}"
 	if [ -n "$id" ]; then
 		# The log of a job that is still running ends at the last finished step;
-		# the failed step's output is usually there already.
-		lines=$(gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$id/logs" 2>/dev/null |
+		# the failed step's output is usually there already. gh 2.97+ refuses a body
+		# holding terminal escapes (every colored log) without --allow-escape-sequences,
+		# which older gh does not know; the sed below strips them either way.
+		lines=$({ gh api --allow-escape-sequences "repos/$GITHUB_REPOSITORY/actions/jobs/$id/logs" 2>/dev/null ||
+			gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$id/logs" 2>/dev/null; } |
 			sed -E 's/\x1b\[[0-9;]*[A-Za-z]//g; s/^[^ ]*Z //' |
 			grep -E '(^| )(FAIL|✗|×|error TS[0-9]+|error:|Error:|AssertionError|TypeError|ReferenceError|Timed out|Timeout|Process completed with exit code|##\[error\])|^(Error|error)' |
 			head -n 15)
