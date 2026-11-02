@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.96.0] - 2026-11-02
+
+컴퓨터 메모리가 위험할 때는 새 에이전트 작업이 잠깐 기다려서, 에이전트를 많이 띄워도 컴퓨터가 멈추지 않아요.
+
+### 바뀐 것
+- 메모리가 위험할 때만 새 에이전트 작업이 기다려요. 평소에는 지금처럼 제한이 없어요. 에이전트가 여는 세션, 쉬던 에이전트 세션의 새 턴, 오토파일럿 하위 작업, 예약 실행, 재시작 후 이어하기가 대상이에요. 내가 보낸 메시지와 이미 돌고 있는 작업은 절대 기다리지 않아요.
+- "위험"은 macOS·Windows의 메모리 압박 경고, 또는 막 시작한 세션들이 곧 쓸 메모리를 뺀 여유가 모자랄 때예요. 세션 하나가 쓰는 양은 그 컴퓨터에서 잰 값으로 배워요.
+- 기다리는 세션은 사이드바, 하위 세션 줄, 작업 보드, 연결된 컴퓨터 구역, 휴대폰에서 똑같이 "메모리 대기 중"으로 보이고, "지금 시작"으로 바로 돌릴 수 있어요. 메모리가 생기면 순서대로 저절로 시작해요.
+- 하위 세션을 기다리는 세션은 자리를 비켜 줘서, 서로 기다리다 멈추지 않아요. 다른 컴퓨터에 연 하위 세션도 같아요.
+- 메모리를 읽지 못하면 마지막 정상 값으로 판단하고, 30초가 넘으면 안전하지 않다고 보고 새 작업을 세워요. 앱이 켜진 직후에는 첫 측정이 끝날 때까지 이어하기를 시작하지 않아요.
+- 메모리가 위험해지면 메모리를 많이 쓰는 세션을 한 번 알려 줘요. 돌던 작업은 멈추지 않아요.
+
+### 고친 것
+- 재시작 직후 네트워크가 연결돼 보이지만 실제로는 닿지 않을 때, 멈췄던 작업을 한꺼번에 다시 시작해 실패와 재시도가 반복되던 문제를 고쳤어요. 이제 연결이 실제로 돌아올 때까지 기다려요.
+
+<!-- en -->
+
+New agent work waits for a moment while this computer's memory is in danger, so many agents no longer freeze the machine.
+
+### Changed
+- New agent work waits only while memory is in danger; normally nothing is limited. It covers sessions an agent opens, a new turn in an idle agent-opened session, Autopilot children, scheduled wakes and relaunch continuations. Your own messages and work already running never wait.
+- "In danger" is the OS memory-pressure warning, or headroom too small once the sessions just started grow to their expected size, learned from what sessions measured on that computer.
+- A waiting session reads "Waiting for memory" alike on the sidebar, family rows, the work board, a paired computer's section and the phone, with Start now; it starts by itself, in order, once memory allows.
+- A session waiting on the sessions it opened steps aside, so they never wait on each other, also across paired computers.
+- When memory can't be read, the last good reading decides for 30 seconds, then new work holds; right after launch, continuations wait for the first reading.
+- Under critical pressure the owner hears once which sessions hold the most memory; nothing running is stopped.
+
+### Fixed
+- Right after a relaunch, a link that read up while nothing was reachable made every interrupted turn restart at once and fail in a retry storm. Continuations now wait until the connection really answers.
+
 ## [0.95.1] - 2026-11-02
 
 휴대폰과 다른 컴퓨터에서 연결이 끊겨도 몇 초 안에 조용히 다시 붙고, 위를 덮던 "다시 시도하고 있어요" 띠가 없어졌어요.
