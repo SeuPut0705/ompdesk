@@ -28,7 +28,14 @@ export interface Surface {
 	 * surface whose `open` and `ready` work on a real window (a click on a real control or nothing), never through
 	 * `window.__stores`, which only the dev harness has.
 	 */
-	parity?: { session: ParitySession };
+	parity?: {
+		session: ParitySession;
+		/**
+		 * Before it is captured, the host's bot leaves a session running on the paired computer, opened by a conversation
+		 * it has since ended and whose tab is closed, and that computer runs a session of its own (e2e/parity.e2e.ts).
+		 */
+		remoteChild?: boolean;
+	};
 }
 
 export type ParitySession = "work" | "bot";
@@ -93,6 +100,24 @@ async function openDrawer(page: Page, look: Look): Promise<void> {
 	if (sidebarDocked(look)) return;
 	await page.locator("button:visible:has(svg.lucide-menu)").first().click();
 	await page.locator("[data-drawer]").waitFor({ state: "visible", timeout: 10_000 });
+}
+
+/**
+ * The bot's row with its family opened by its chip (folded by default), and every device section but the one holding
+ * that row folded, so its header's marks say what it hides.
+ */
+async function openBotFamily(page: Page, look: Look): Promise<void> {
+	await openDrawer(page, look);
+	const bot = page.locator("[data-sidebar-bot-row]").first();
+	await bot.waitFor({ state: "visible", timeout: 30_000 });
+	const chip = page.locator("[data-sidebar-bot-row] [data-sidebar-subagents-toggle][aria-expanded='false']").first();
+	if ((await chip.count()) > 0) await chip.click();
+	const botSection = page.locator("[data-sidebar-device]:has([data-sidebar-bot-row])").first();
+	const kept = (await botSection.count()) > 0 ? await botSection.getAttribute("data-sidebar-device") : "local";
+	const toggles = page.locator("[data-sidebar-device-toggle][aria-expanded='true']");
+	const open = await toggles.evaluateAll(nodes => nodes.map(node => node.getAttribute("data-sidebar-device-toggle")));
+	for (const id of open)
+		if (id !== kept) await page.locator(`[data-sidebar-device-toggle="${id}"][aria-expanded='true']`).click();
 }
 
 async function openSettings(page: Page, section: string): Promise<void> {
@@ -208,6 +233,16 @@ export const SURFACES: readonly Surface[] = [
 		open: openDrawer,
 		ready: "[data-tour='sessions'], [data-drawer]",
 		parity: { session: "work" },
+	},
+	{
+		id: "sidebar-family",
+		area: "A",
+		title: "Session list with the bot's family open (a session its ended conversation left running on the paired computer) and the other computer's section folded to its count",
+		open: openBotFamily,
+		ready: "[data-sidebar-bot-row]",
+		// Two paired apps only: the parity sheet sets it up (`remoteChild`); the audits' harness page has no paired computer.
+		when: () => false,
+		parity: { session: "work", remoteChild: true },
 	},
 	{
 		id: "transcript-top",

@@ -15,7 +15,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { type Browser, chromium, devices, expect, type Locator, type Page, test } from "@playwright/test";
 import { phonePaired, ServeProxy, serveSites } from "./fixture/phone-serve";
-import { controlToolCaller, cssString, exitApp } from "./harness";
+import { controlToolCaller, cssString, exitApp, openedSessions, untilAnswered } from "./harness";
 import { connectHost, launchRemote, makeRemoteProfile, REMOTE_LOGIN, type RemoteInstance } from "./remote-harness";
 import { crashed, type Look, panelCrash } from "./responsive-audit";
 import { type ParitySession, SURFACES, type Surface } from "./responsive-surfaces";
@@ -59,9 +59,9 @@ interface SurfaceRecord {
 	failures: string[];
 }
 
-function paritySurfaces(): Array<Surface & { parity: { session: ParitySession } }> {
+function paritySurfaces(): Array<Surface & { parity: NonNullable<Surface["parity"]> }> {
 	const capable = SURFACES.filter(
-		(surface): surface is Surface & { parity: { session: ParitySession } } => surface.parity !== undefined,
+		(surface): surface is Surface & { parity: NonNullable<Surface["parity"]> } => surface.parity !== undefined,
 	);
 	const only = process.env.OMP_GUI_PARITY_ONLY?.split(",").filter(Boolean);
 	if (!only) return capable;
@@ -294,8 +294,72 @@ if (dir) {
 				},
 			};
 
+			/**
+			 * What a `remoteChild` surface shows, set up once before the first: B pairs with A too, B's bot opens a session
+			 * on A and leaves a turn running there, then starts a new conversation and its tab closes, so only the ended
+			 * conversation's file names the child's opener (as after a relaunch). A runs a session of its own, so B's
+			 * section of A folds to a count.
+			 */
+			let remoteChildLeft = false;
+			const leaveRemoteChild = async () => {
+				remoteChildLeft = true;
+				await connectHost(a, b, "PC-A");
+				await expect
+					.poll(
+						async () =>
+							(await b.evaluate(() => window.omp.remote.getState())).hosts.find(host => host.name === "PC-A")
+								?.state,
+						{ timeout: 30_000 },
+					)
+					.toBe("online");
+				const open = await callBot("ompdesk_session_open", {
+					device: "PC-A",
+					message: "Title: Run the Windows suites\nRun them on the other computer",
+					show: "background",
+				});
+				expect(open.isError, open.text).toBe(false);
+				const [child] = openedSessions(open.text);
+				if (!child) throw new Error(`the bot opened nothing on PC-A: ${open.text}`);
+				await untilAnswered(b, child);
+				// The fake holds "fixture running" open until `fixture:finish`.
+				await b.evaluate(
+					id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "fixture running" }),
+					child,
+				);
+				// Its tab closes first, so the tab layout keeps the ended conversation's file as the child's opener (a tab
+				// still open would move it to the new conversation's), then the conversation renews.
+				expect(await b.evaluate(id => window.omp.tabs.close(id), botTab)).toBe(true);
+				await b.evaluate(() => window.omp.sessions.botDesk.edit({ op: "new_conversation" }));
+				await expect
+					.poll(
+						async () => {
+							const value = await b.evaluate(() => window.omp.prefs.get("bot"));
+							return typeof value === "string" ? value : "";
+						},
+						{ timeout: 60_000 },
+					)
+					.not.toBe(botPath);
+				// A's own session (its start tab may be gone: it showed B's sessions), whose turn B's section of A counts.
+				const own =
+					(await a.evaluate(project => window.omp.tabs.spawn({ cwd: project }), clientProfile.project))?.tabId ??
+					"";
+				await expect
+					.poll(
+						async () => (await a.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === own)?.status,
+						{
+							timeout: 60_000,
+						},
+					)
+					.toBe("ready");
+				await a.evaluate(
+					id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "fixture running" }),
+					own,
+				);
+			};
+
 			const records: SurfaceRecord[] = [];
 			for (const surface of surfaces) {
+				if (surface.parity.remoteChild && !remoteChildLeft) await leaveRemoteChild();
 				const record: SurfaceRecord = {
 					id: surface.id,
 					title: surface.title,
