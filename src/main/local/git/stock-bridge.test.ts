@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -29,17 +29,16 @@ describe.skipIf(!existsSync(omp) || process.platform === "win32")("installed sto
 		const address = newBridgeAddress();
 		await fs.mkdir(agent, { mode: 0o700 });
 		await fs.mkdir(bin);
-		const realAgent = path.join(os.homedir(), ".omp", "agent");
-		const config = path.join(realAgent, "config.yml");
-		if (existsSync(config)) await fs.copyFile(config, path.join(agent, "config.yml"));
 		const isolatedConfig = path.join(agent, "config.yml");
-		const settings = parseDocument(existsSync(isolatedConfig) ? await fs.readFile(isolatedConfig, "utf8") : "{}");
+		const settings = parseDocument("{}");
 		settings.setIn(["worktree", "base"], root);
 		settings.setIn(["worktree", "clone"], false);
 		await fs.writeFile(isolatedConfig, settings.toString());
-		const db = path.join(realAgent, "agent.db");
-		if (existsSync(db))
-			execFileSync("sqlite3", [db, `VACUUM INTO '${path.join(agent, "agent.db").replaceAll("'", "''")}'`]);
+		// A model that is never called: rpc mode refuses to start without a default model, and a CI runner has none.
+		await fs.writeFile(
+			path.join(agent, "models.yml"),
+			"providers:\n  fixture:\n    baseUrl: http://127.0.0.1:9/v1\n    api: openai-completions\n    apiKey: unused\n    models:\n      - id: idle\n",
+		);
 		await initRepo(origin);
 		gitSync(origin, "checkout", "-q", "-b", "feature");
 		await fs.writeFile(path.join(origin, "feature.txt"), "PR head\n");
@@ -76,6 +75,8 @@ describe.skipIf(!existsSync(omp) || process.platform === "win32")("installed sto
 				"--no-extensions",
 				"--no-skills",
 				"--no-rules",
+				"--model",
+				"fixture/idle",
 				"-e",
 				path.resolve("resources/gui-bridge/index.ts"),
 			],

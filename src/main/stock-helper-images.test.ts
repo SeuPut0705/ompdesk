@@ -57,10 +57,14 @@ describe.skipIf(!existsSync(realRoot))("image.toModel on the installed omp", () 
 		const converted = await toModel(bmp(), "image/bmp");
 		expect(converted.error).toBeUndefined();
 		expect(["image/png", "image/jpeg"]).toContain(converted.result?.mimeType);
-		// A phone's AVIF takes the same road (ws-router.ts convertsForModel).
+		// A phone's AVIF takes the same road (ws-router.ts convertsForModel). Stock converts with Bun.Image, which read
+		// no AVIF on CI's Linux runner (not a platform OMPdesk ships on): there it refuses, as for any unread picture.
 		const avif = await toModel(AVIF, "image/avif");
-		expect(avif.error).toBeUndefined();
-		expect(["image/png", "image/jpeg"]).toContain(avif.result?.mimeType);
+		if (process.platform === "linux") expect(avif.error).toBeTruthy();
+		else {
+			expect(avif.error).toBeUndefined();
+			expect(["image/png", "image/jpeg"]).toContain(avif.result?.mimeType);
+		}
 
 		const broken = await toModel(Buffer.from("not a picture").toString("base64"), "image/heic");
 		expect(broken.error).toBeTruthy();

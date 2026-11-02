@@ -5,7 +5,7 @@
  * agent-relay.ts) completes stock's extension handshake so the relay offers
  * the preview page as its one CDP target.
  */
-import { execFileSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import * as fs from "node:fs/promises";
@@ -34,13 +34,11 @@ describe.skipIf(!existsSync(omp) || !existsSync(stockRoot))("stock browser relay
 		const profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-browser-relay-"));
 		const agent = path.join(profile, "agent");
 		await fs.mkdir(agent, { mode: 0o700 });
-		const realAgent = path.join(os.homedir(), ".omp/agent");
-		await fs.copyFile(path.join(realAgent, "config.yml"), path.join(agent, "config.yml")).catch(() => {});
-		if (existsSync(path.join(realAgent, "agent.db")))
-			execFileSync("sqlite3", [
-				path.join(realAgent, "agent.db"),
-				`VACUUM INTO '${path.join(agent, "agent.db").replaceAll("'", "''")}'`,
-			]);
+		// A model that is never called: rpc mode refuses to start without a default model, and a CI runner has none.
+		await fs.writeFile(
+			path.join(agent, "models.yml"),
+			"providers:\n  fixture:\n    baseUrl: http://127.0.0.1:9/v1\n    api: openai-completions\n    apiKey: unused\n    models:\n      - id: idle\n",
+		);
 		const address = newBridgeAddress();
 		const env = {
 			...process.env,
@@ -59,6 +57,8 @@ describe.skipIf(!existsSync(omp) || !existsSync(stockRoot))("stock browser relay
 				"--no-extensions",
 				"--no-skills",
 				"--no-rules",
+				"--model",
+				"fixture/idle",
 				"-e",
 				path.resolve("resources/gui-bridge/index.ts"),
 			],

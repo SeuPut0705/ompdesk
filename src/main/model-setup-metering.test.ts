@@ -241,9 +241,12 @@ describe.skipIf(!existsSync(omp))("model setup billing and metering on stock's a
 	});
 
 	it("counts a keyless catalog runtime free only on its stock endpoint", () => {
-		for (const provider of ["apple", "llama.cpp", "ollama", "local"]) {
+		// Stock's registry adds the Apple runtime on Apple silicon only; elsewhere it is no provider and fails closed.
+		const apple = process.platform === "darwin" && process.arch === "arm64";
+		for (const provider of ["llama.cpp", "ollama", "local", ...(apple ? ["apple"] : [])]) {
 			expect(probe.extra[provider], provider).toEqual({ billing: "free", basis: "local-keyless" });
 		}
+		if (!apple) expect(probe.extra.apple?.billing).toBe("metered");
 		// Stock's keyless `web` search routes to search APIs that may bill: never free.
 		expect(probe.extra.web?.billing).toBe("metered");
 		// A models.yml entry moves lm-studio in the first run, the stock endpoint env vars in the second.
@@ -251,7 +254,7 @@ describe.skipIf(!existsSync(omp))("model setup billing and metering on stock's a
 		expect(moved.extra["lm-studio"]).toEqual({ billing: "metered", basis: "base-url-changed" });
 		expect(moved.extra.ollama).toEqual({ billing: "metered", basis: "base-url-changed" });
 		expect(moved.extra["llama.cpp"]).toEqual({ billing: "free", basis: "local-keyless" });
-		expect(moved.extra.apple).toEqual({ billing: "free", basis: "local-keyless" });
+		if (apple) expect(moved.extra.apple).toEqual({ billing: "free", basis: "local-keyless" });
 	});
 
 	it("fails closed on a provider the facts do not name", () => {
