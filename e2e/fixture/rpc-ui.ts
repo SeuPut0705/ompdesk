@@ -300,6 +300,8 @@ export function runRpcUi(): void {
 				header.id = entry.id;
 				header.created = entry.timestamp;
 				if (typeof entry.cwd === "string") header.cwd = entry.cwd;
+				// Stock keeps a renamed session's title in its header too (`setSessionName`).
+				if (typeof entry.title === "string") header.title = entry.title;
 			}
 			if (entry.type === "title") header.title = String(entry.title ?? "");
 			if (entry.type === "session" || entry.type === "title") continue;
@@ -6019,8 +6021,9 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					fail(`Session file not found: ${sessionPath}`);
 					break;
 				}
-				// Stock refuses an RPC switch to a session recorded in another folder (`switchSession` without
-				// `onCwdChange`: SESSION_CWD_CHANGE_REJECTED → `{cancelled: true}`), and changes nothing.
+				// Stock refuses an RPC switch to a session recorded in another folder than the current session's
+				// (`switchSession` without `onCwdChange`: SESSION_CWD_CHANGE_REJECTED → `{cancelled: true}`), and changes
+				// nothing. Stock compares the two sessions' recorded folders, as written, not the process's real path.
 				const recordedCwd = fs
 					.readFileSync(sessionPath, "utf8")
 					.split("\n")
@@ -6032,7 +6035,8 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 						}
 					})
 					.find(entry => entry?.type === "session")?.cwd;
-				if (typeof recordedCwd === "string" && nodePath.resolve(recordedCwd) !== nodePath.resolve(process.cwd())) {
+				const currentCwd = (!fresh && resumed?.cwd) || process.cwd();
+				if (typeof recordedCwd === "string" && nodePath.resolve(recordedCwd) !== nodePath.resolve(currentCwd)) {
 					ok({ cancelled: true });
 					break;
 				}
