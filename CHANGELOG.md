@@ -1,5 +1,51 @@
 # Changelog
 
+## [0.97.0] - 2026-11-03
+
+봇이 한 대화를 끝없이 이어가지 않고 매일 새 대화로 넘어가요. 봇의 기록은 기간이 지나면 저절로 정리돼요.
+
+### 바뀐 것
+- 봇 대화가 매일 04:00 이후 봇이 쉬고 있을 때 새 대화로 넘어가요. 대화가 두 번 자동 요약됐거나 2 MB를 넘으면 더 일찍 넘어가요. 봇 바의 "새 대화"로 직접 넘길 수도 있어요.
+- 넘어갈 때 이전 대화가 인계 메모를 남기고, 맡은 일·기억·결정·예약·연 세션은 그대로 이어져요. 하위 세션의 보고와 결정 답변은 새 대화로 가요. 봇이 일하는 중에는 넘어가지 않고, 그 사이에 온 메시지는 기다렸다가 한 번만 전달돼요.
+- 이전 대화는 봇 아래 "이전 대화"에서 읽기 전용으로 보이고, 끝난 지 7일 뒤 파일까지 지워져요.
+- 봇 기록이 기간 기준으로 정리돼요: 활동 기록 7일, 완료한 작업과 답한 결정 3일, 예약 실행 기록 7일, 라이브러리의 고정하지 않은 항목 14일. 한 번만 도는 에이전트 예약은 실행되면 사라져요. 내 세션과 내 예약은 건드리지 않아요.
+- 봇 바의 연필로 봇 이름·아바타·한 줄 소개·성격을 고쳐요. 연결된 컴퓨터와 휴대폰에서도 그 컴퓨터의 봇을 고칠 수 있어요.
+- 봇 아바타가 상태(쉬는 중, 작업 중, 기다리는 중, 말하는 중, 다시 연결 중)에 따라 움직여요. 동작 줄이기를 켜면 멈춘 자세로 보여요.
+- 봇이 연 세션은 주인 허락 없이 컴파일러·툴체인·SDK 같은 프로그램을 설치하지 않아요.
+- 휴대폰이나 다른 컴퓨터에서 연결이 끊긴 동안 보낸 메시지는 기다렸다가, 연결되면 순서대로 한 번씩 전달돼요. 새로고침해도 남아요.
+- 자동 업데이트가 돌고 있는 백그라운드 작업이 끝날 때까지 기다리고, 기다리는 이유를 알려 줘요.
+- 내장 스킬 pstack 0.15.36, ecc 2.2.3으로 올렸어요.
+
+### 고친 것
+- 앱을 다시 시작하면 세션 사이의 메시지와 완료 보고가 사라지던 문제를 고쳤어요. 시간이 초과된 전송은 대기열에 남아요.
+- 연결된 컴퓨터의 세션이 끝나거나 닫혀도 메모리 예약이 남아 새 작업이 기다리던 문제를 고쳤어요.
+- 재시작 뒤 다시 살아난 하위 작업이 나중에 실패하면 "재시작으로 끊김"으로 보이던 문제를 고쳤어요.
+- 연결이 끊긴 동안 연 페이지가 연결이 돌아와도 상태를 읽지 않던 문제를 고쳤어요.
+- 휴대폰에서 세션 이름이 바뀌어도 새로고침 전까지 예전 이름이 보이던 문제를 고쳤어요.
+
+<!-- en -->
+
+The bot no longer runs one endless conversation: it renews daily, and its records age out on their own.
+
+### Changed
+- The bot's conversation renews at the first quiet moment after 04:00 each day, earlier once it auto-compacted twice or passed 2 MB, or when you press New conversation on the bot bar.
+- The old conversation leaves a handoff note; duties, memories, decisions, routines and the sessions it opened carry over, and children's reports and decision answers reach the new one. It never renews mid-turn; messages arriving meanwhile wait and are delivered once.
+- Ended conversations are listed read-only under the bot ("Earlier conversations") and deleted with their files 7 days after they ended.
+- Bot records age out: activity 7 days, done tasks and answered decisions 3 days, routine runs 7 days, unpinned Library items 14 days; one-time agent wakes disappear after they run. Your own sessions and schedules are never touched.
+- Edit the bot's name, avatar, tagline and persona from the pencil on the bot bar, also for a paired computer's bot from that computer or the phone.
+- The bot's avatar moves by its state (idle, working, waiting, speaking, reconnecting); with reduced motion it holds a still pose.
+- Sessions the bot opens never install compilers, toolchains, SDKs or similar software without the owner's approval.
+- What you send from the phone or a paired computer while the computer is out of reach waits and arrives once, in order, after reconnecting, and survives a reload.
+- The automatic update waits for background work to finish and says why it waits.
+- Built-in skills: pstack 0.15.36, ecc 2.2.3.
+
+### Fixed
+- Messages and done reports between sessions were lost across a relaunch; sends that time out are now queued.
+- A paired computer's session kept its memory reservation after its turn ended or it closed, holding new work.
+- A revived subagent that later failed read "interrupted by restart".
+- A page opened during an outage did not read its state once the link came back.
+- A session rename showed the old name on the phone until a reload.
+
 ## [0.96.0] - 2026-11-02
 
 컴퓨터 메모리가 위험할 때는 새 에이전트 작업이 잠깐 기다려서, 에이전트를 많이 띄워도 컴퓨터가 멈추지 않아요.
