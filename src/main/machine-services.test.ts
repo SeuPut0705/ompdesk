@@ -4,13 +4,14 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { AccountRotationMode } from "../shared/account-rotation";
 import { codedError, ipcErrorCode } from "../shared/ipc-error-codes";
-import type { CustomProviderInput, IpcBenchmarkRunOptions } from "../shared/ipc-types";
+import type { CustomProviderInput, IpcBenchmarkRunOptions, UpdateStatus } from "../shared/ipc-types";
 import type { OmpUpdateState } from "../shared/omp-update";
 import type { ScheduleDraft, SchedulesState } from "../shared/schedules";
 import { BENCHMARK_TIMEOUT_MS } from "./benchmark-runner";
 import { resetReaRuntimeCache } from "./builtin-mcp";
 import {
 	type AccountRotationDeps,
+	type DesktopDeps,
 	type HostRequest,
 	LocalMachine,
 	type MachineServices,
@@ -78,6 +79,7 @@ function localMachine(
 	accountRotation: AccountRotationDeps = rotationPrefs().deps,
 	updater: Pick<OmpUpdater, "state" | "updateNow"> = fakeUpdater(),
 	builtinRea: ConstructorParameters<typeof LocalMachine>[0]["builtinRea"] = { read: () => undefined, write: () => {} },
+	desktop?: DesktopDeps,
 ) {
 	return new LocalMachine({
 		stats: { port, fetch },
@@ -87,7 +89,7 @@ function localMachine(
 		benchmarkEnv: async () => ({}),
 		accountRotation,
 		builtinRea,
-		desktop: {
+		desktop: desktop ?? {
 			version: () => "1.2.3",
 			update: {
 				status: () => ({ state: "idle" }),
@@ -95,6 +97,7 @@ function localMachine(
 				download: async () => ({ state: "idle" }),
 				restartable: () => false,
 				restart: () => {},
+				postpone: () => {},
 			},
 			appearance: () => ({ themeName: "dark", language: 3 }),
 			busy: () => false,
@@ -291,6 +294,61 @@ describe("machineFor", () => {
 			statsText,
 		});
 		await expect(garbled.ompUpdate()).rejects.toThrow();
+	});
+});
+
+/** This computer's updater for a paired device, with an update ready and a turn running here. */
+function busyHost(status: UpdateStatus) {
+	const restart = vi.fn();
+	const postpone = vi.fn();
+	const desktop: DesktopDeps = {
+		version: () => "1.2.3",
+		update: {
+			status: () => status,
+			check: async () => status,
+			download: async () => status,
+			restartable: () => true,
+			restart,
+			postpone,
+		},
+		appearance: () => ({ themeName: null, language: null }),
+		busy: () => true,
+	};
+	const machine = localMachine(0, "scheduled", undefined, undefined, undefined, undefined, desktop);
+	return { machine, restart, postpone };
+}
+
+describe("a paired device on this computer's automatic-install notice", () => {
+	const ready: UpdateStatus = { state: "downloaded", version: "2.0.0", mode: "automatic" };
+
+	it("restarts on the waiting line's Restart now though work runs, as on this computer", async () => {
+		vi.useFakeTimers();
+		try {
+			const host = busyHost({ ...ready, waitingFor: { tasks: 1, names: ["Watcher"] } });
+			await host.machine.desktopUpdate("restart-now");
+			await vi.runAllTimersAsync();
+			expect(host.restart).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("still refuses a plain install, or Restart now without a notice, while work runs", async () => {
+		const withNotice = busyHost({ ...ready, restartAt: 5 });
+		await expect(withNotice.machine.desktopUpdate("install")).rejects.toSatisfy(
+			error => ipcErrorCode(error) === "host_busy",
+		);
+		const without = busyHost(ready);
+		await expect(without.machine.desktopUpdate("restart-now")).rejects.toSatisfy(
+			error => ipcErrorCode(error) === "host_busy",
+		);
+		expect([withNotice.restart, without.restart].map(restart => restart.mock.calls.length)).toEqual([0, 0]);
+	});
+
+	it("puts the notice off on Later", async () => {
+		const host = busyHost({ ...ready, waitingFor: { tasks: 1, names: [] } });
+		await host.machine.desktopUpdate("postpone");
+		expect(host.postpone).toHaveBeenCalledTimes(1);
 	});
 });
 

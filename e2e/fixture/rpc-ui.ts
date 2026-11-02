@@ -1768,6 +1768,17 @@ export function runRpcUi(): void {
 					: entry,
 			);
 		},
+		// The automatic update's last look (resources/gui-bridge/job-gate.ts): the same rows, frozen when none runs. The
+		// fake turns start no job on their own, so there is no gate to hold.
+		"composer.freeze_jobs": (params, reply) => {
+			const rows = bridgeMethods["composer.jobs"]?.(params, reply) as Array<{
+				kind: string;
+				job?: { status: string };
+			}>;
+			const running = rows.some(row => row.kind === "job" && row.job?.status === "running");
+			return { rows, frozen: !running, starting: 0 };
+		},
+		"composer.thaw_jobs": () => ({ thawed: true }),
 		"composer.cancel_job": params => {
 			cancelledJobs.add(String(params.id));
 			return { cancelled: true };

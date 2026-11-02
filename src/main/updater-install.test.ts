@@ -8,7 +8,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { IPC_COMMANDS, type UpdateStatus } from "../shared/ipc-types";
-import { type BackgroundWork, type BackgroundWorkSource, NO_BACKGROUND_WORK } from "./background-work";
+import {
+	type BackgroundWork,
+	type BackgroundWorkSource,
+	hasBackgroundWork,
+	NO_BACKGROUND_WORK,
+} from "./background-work";
 import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
 import { appAutoUpdatePrefChanged, readRelaunchPresence, setupUpdater } from "./updater";
 import { type IpcCaller, IpcRegistry } from "./web/ipc-registry";
@@ -100,13 +105,15 @@ const realPlatform = process.platform;
 let autoInstallOn = false;
 /**
  * What the background-work probe answers: the cached reading the scheduler reads (asked just now, as a probe that
- * answers at once), and what a click asks fresh.
+ * answers at once, frozen when nothing runs), and what a click asks fresh.
  */
 const background = { work: NO_BACKGROUND_WORK as BackgroundWork, pending: false };
 const source: BackgroundWorkSource = {
-	read: () => ({ ...background, askedAt: Date.now() }),
+	read: () => ({ ...background, askedAt: Date.now(), frozen: !hasBackgroundWork(background.work) }),
 	idle: () => {},
 	fresh: async () => background.work,
+	freeze: async () => background.work,
+	thaw: () => {},
 };
 
 function emitUpdater(event: string, ...args: unknown[]): void {
@@ -203,6 +210,22 @@ describe("Restart & install with background work running", () => {
 		background.pending = false;
 		appAutoUpdatePrefChanged();
 		expect(schedulerEvents()).toEqual(["safe", "countdown"]);
+	});
+
+	// Settings › Updates checks as it opens: a "checking" status in between made the scheduler drop its notice and
+	// start the max wait over.
+	it("a check while the update waits for the work keeps the waiting notice the scheduler shows", async () => {
+		background.work = SUBAGENTS;
+		autoInstallOn = true;
+		appAutoUpdatePrefChanged();
+		vi.setSystemTime(Date.now() + 31 * 60 * 1000);
+		appAutoUpdatePrefChanged();
+		const waiting = { state: "downloaded", waitingFor: { tasks: 2, names: ["LayoutSplit", "StreamFast"] } };
+		expect(mocks.sent.at(-1)).toMatchObject(waiting);
+		await registry.invoke(IPC_COMMANDS.UPDATER_CHECK, caller, []);
+		appAutoUpdatePrefChanged();
+		expect(mocks.sent.at(-1)).toMatchObject(waiting);
+		expect(schedulerEvents()).toEqual(["waiting:background work", "overdue:background work"]);
 	});
 });
 

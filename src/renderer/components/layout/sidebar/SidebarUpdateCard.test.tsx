@@ -23,7 +23,8 @@ interface TestElement {
 const check = vi.fn<() => Promise<UpdateStatus>>(() => Promise.resolve({ state: "checking" }));
 const download = vi.fn(() => Promise.resolve({ state: "idle" } as const));
 const apply = vi.fn(() => Promise.resolve());
-Object.assign(window, { omp: { updater: { check, download, apply } } });
+const postpone = vi.fn(() => Promise.resolve());
+Object.assign(window, { omp: { updater: { check, download, apply, postpone } } });
 
 let container: TestElement;
 let root: Root;
@@ -48,6 +49,7 @@ afterEach(async () => {
 	check.mockClear();
 	download.mockClear();
 	apply.mockClear();
+	postpone.mockClear();
 });
 
 describe("SidebarUpdateCard", () => {
@@ -143,6 +145,34 @@ describe("SidebarUpdateCard", () => {
 		expect(card()?.getAttribute("title")).toContain("closes by itself");
 		expect(container.querySelectorAll("button")).toHaveLength(0);
 		expect(apply).not.toHaveBeenCalled();
+	});
+
+	// Past the max wait the automatic install never cuts running background work: the card says what it waits for.
+	it("names the work an update waits for, even for a version put off with Later; Restart now says what it cuts", async () => {
+		useUpdaterStore.setState({
+			status: {
+				state: "downloaded",
+				version: "0.8.5",
+				mode: "automatic",
+				waitingFor: { tasks: 4, names: ["LayoutSplit", "StreamFast", "dev server"] },
+			},
+			dismissed: { version: "0.8.5" },
+		});
+		await mount(<SidebarUpdateCard />);
+		expect(card()?.getAttribute("aria-label")).toBe("Update 0.8.5 waits · 4 running");
+		expect(card()?.getAttribute("title")).toContain("waits for LayoutSplit, StreamFast, dev server, … to finish");
+		await act(async () => button("Restart now (interrupts LayoutSplit, StreamFast, dev server, …)")?.click());
+		expect(apply).toHaveBeenCalledTimes(1);
+		await act(async () => button("Later")?.click());
+		expect(postpone).toHaveBeenCalledTimes(1);
+	});
+
+	it("counts the work it cannot name", async () => {
+		useUpdaterStore.setState({
+			status: { state: "downloaded", version: "0.8.5", mode: "automatic", waitingFor: { tasks: 1, names: [] } },
+		});
+		await mount(<SidebarUpdateCard />);
+		expect(button("Restart now (interrupts 1 running task(s))")).toBeDefined();
 	});
 
 	describe("a check from the app menu", () => {
