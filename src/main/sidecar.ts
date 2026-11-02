@@ -49,7 +49,7 @@ import {
 	withoutSessionEnv,
 } from "./omp-launch";
 import { OMP_TELEMETRY_OFF, type OmpResolution, ompBunDefaults, ompPathEnv } from "./omp-runtime";
-import { stopOmp } from "./omp-stop";
+import { killOmp, stopOmp } from "./omp-stop";
 import { VISUALIZE_DEFINITION } from "./preview/visuals";
 import { MAX_RESTART_ATTEMPTS, restartDelay, WINDOWS_SESSION_END_EXIT_CODE } from "./restart-policy";
 import { attachNdjsonParser, supportsRpcProtocolV2 } from "./rpc-bridge";
@@ -1384,7 +1384,7 @@ export class SidecarManager extends EventEmitter {
 			this.#restartTimer = null;
 			this.#cleanup();
 			child.stdin.end();
-			const timer = setTimeout(() => stopOmp(child), grace);
+			const timer = setTimeout(() => killOmp(child), grace);
 			child.once("exit", () => clearTimeout(timer));
 		} else this.kill();
 		this.removeAllListeners();

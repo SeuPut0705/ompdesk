@@ -13,6 +13,7 @@ import type {
 } from "../shared/rpc-types";
 import { AGENT_CONTROL_DEFINITIONS } from "./agent-control/tools";
 import type { OmpResolution } from "./omp-runtime";
+import { WINDOWS_STOP_GRACE_MS } from "./omp-stop";
 import { type SidecarFailureReport, SidecarManager } from "./sidecar";
 import { RM_TEMP, writeFakeOmp } from "./test-fake-omp";
 
@@ -1251,7 +1252,7 @@ describe("SidecarManager", () => {
 				process.platform === "win32"
 					? expect(await running()).toBe(false)
 					: expect(await read()).toEqual([...before, "sigterm"]);
-			return { tempDir, binaryPath, read, stopped };
+			return { tempDir, binaryPath, read, stopped, running };
 		}
 
 		it("closes stdin first and sends no SIGTERM to an omp that shuts down by itself", async () => {
@@ -1288,21 +1289,58 @@ describe("SidecarManager", () => {
 			}
 		});
 
-		it("stops the omp at once when the grace period is 0 or absent", async () => {
-			for (const options of [{ gracefulStopMs: () => 0 }, {}]) {
-				const { tempDir, binaryPath, stopped } = await gracefulOmp(false);
-				const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, ...options });
-				try {
-					const ready = waitForReady(sidecar);
-					sidecar.start();
-					await ready;
-					sidecar.dispose();
-					await vi.waitFor(async () => stopped([]), { timeout: 10_000 });
-				} finally {
-					await fs.rm(tempDir, RM_TEMP);
+		it.skipIf(process.platform === "win32")(
+			"stops the omp at once when the grace period is 0 or absent",
+			async () => {
+				for (const options of [{ gracefulStopMs: () => 0 }, {}]) {
+					const { tempDir, binaryPath, stopped } = await gracefulOmp(false);
+					const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, ...options });
+					try {
+						const ready = waitForReady(sidecar);
+						sidecar.start();
+						await ready;
+						sidecar.dispose();
+						await vi.waitFor(async () => stopped([]), { timeout: 10_000 });
+					} finally {
+						await fs.rm(tempDir, RM_TEMP);
+					}
 				}
-			}
-		});
+			},
+		);
+
+		// A tree kill runs no handler, so the omp would journal no exit and a relaunch could not date the stop (a
+		// subagent cut by a restart was revived hours later). Its stdin ends first, as SIGTERM's handler would dispose it.
+		it.skipIf(process.platform !== "win32")(
+			"ends the omp's stdin first on Windows and kills its tree only once the stop grace has run out",
+			async () => {
+				for (const options of [{ gracefulStopMs: () => 0 }, {}]) {
+					const { tempDir, binaryPath, read, stopped, running } = await gracefulOmp(false);
+					const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, ...options });
+					try {
+						const ready = waitForReady(sidecar);
+						sidecar.start();
+						await ready;
+						vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+						try {
+							sidecar.dispose();
+							const until = Date.now() + 10_000;
+							while (!(await read()).includes("stdin-end") && Date.now() < until) {
+								await new Promise(resolve => setImmediate(resolve));
+							}
+							expect(await read()).toEqual(["stdin-end"]);
+							vi.advanceTimersByTime(WINDOWS_STOP_GRACE_MS - 1);
+							expect(await running()).toBe(true);
+							vi.advanceTimersByTime(1);
+						} finally {
+							vi.useRealTimers();
+						}
+						await vi.waitFor(async () => stopped(["stdin-end"]), { timeout: 10_000 });
+					} finally {
+						await fs.rm(tempDir, RM_TEMP);
+					}
+				}
+			},
+		);
 
 		it.skipIf(process.platform !== "win32")(
 			"still stops the omp when taskkill fails, as it does while WMI, which it walks the process tree through, is down",
