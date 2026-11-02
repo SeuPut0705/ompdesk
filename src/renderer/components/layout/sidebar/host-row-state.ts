@@ -9,19 +9,22 @@ import type { SessionTab } from "../../../stores/tabs";
 import { type FoldSignal, type FoldSummary, foldSummary, sessionFoldSignal } from "./fold-summary";
 
 /**
- * A host row's run state, the one rule its row and its folded headers read: a tab here that has heard the host's run,
- * else (no tab, or one restored asleep at launch, which has heard nothing yet) the host's own live list, which only
- * says that a prompt waits (a question, as on the row). `fold` is what a folded header counts of it (`fold-summary.ts`;
- * a host row shows no ✓ for an unseen finish).
+ * A host row's run state, the one rule its row, a session opened on it under its opener and the folded headers read.
+ * Two sources, either one enough: a tab here (unless restored asleep at launch, which has heard nothing yet) says what
+ * this computer heard of the run, and the host's own live list says what the host runs now (a tab here can miss a
+ * turn's start: the row read "Open" while the host ran it). The live list only says that a prompt waits (a question,
+ * as on the row). `fold` is what a folded header counts of it (`fold-summary.ts`; a host row shows no ✓ for an unseen
+ * finish).
  */
 export function hostRowState(tab: SessionTab | undefined, live: HostLiveSession["state"] | undefined) {
 	const known = tab?.status === "asleep" ? undefined : tab;
 	const signal = known ? tabSignalPresentation(known) : null;
-	const asked = known ? known.awaitingInput : live === "waiting" ? "input" : undefined;
+	const asked = known?.awaitingInput ?? (live === "waiting" ? "input" : undefined);
 	const ask: AskKind | undefined = asked && (asked === "approval" ? "approval" : "question");
 	const waiting = ask !== undefined;
-	const running = known ? signal?.running === true && !waiting : live === "turn" || live === "background";
-	const settling = known ? known.settling === true : live === "background";
+	const tabRuns = signal?.running === true;
+	const running = !waiting && (tabRuns || live === "turn" || live === "background");
+	const settling = tabRuns ? known?.settling === true : live === "background";
 	const fold = sessionFoldSignal({ waiting: ask, running, done: false });
 	return { known, signal, ask, waiting, running, settling, fold };
 }

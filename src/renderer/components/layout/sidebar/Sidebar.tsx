@@ -149,6 +149,7 @@ import { ForkParent } from "../ForkParent";
 import { SessionLiveAge, SessionLiveTitle } from "../SessionLiveTitle";
 import { openedChildCounts, openedChildRows } from "../work-board/opened-children";
 import { childFoldSignal, type FoldSignal, foldSummary, sessionFoldSignal } from "./fold-summary";
+import { hostRowState } from "./host-row-state";
 import { RAIL_PIN_ICONS } from "./rail-pin-icons";
 import { SidebarChats } from "./SidebarChats";
 import { SidebarDeviceSections } from "./SidebarDeviceSections";
@@ -846,20 +847,23 @@ export function Sidebar() {
 		() => new Set(sessions.flatMap(session => (session.bot === "past" ? [session.path] : []))),
 		[sessions],
 	);
-	const botKids = useMemo<BotFamily>(() => {
-		if (!botPath) return { sessions: [], keys: NO_PATHS };
-		return botFamily({
-			bot: botPath,
-			ended: endedBotFiles,
-			// Its side chats nest there too: they are the bot's own conversations, not plain chats.
-			channels: new Set(botDesk.channels.map(channel => channel.sessionPath)),
-			tabs: rowTabs,
-			sessions: baseRows.sessions,
-			recordedOpeners,
-		});
-	}, [botPath, endedBotFiles, rowTabs, baseRows, recordedOpeners, botDesk.channels]);
+	const botKids = useMemo<BotFamily | null>(
+		() =>
+			botPath
+				? botFamily({
+						bot: botPath,
+						ended: endedBotFiles,
+						// Its side chats nest there too: they are the bot's own conversations, not plain chats.
+						channels: new Set(botDesk.channels.map(channel => channel.sessionPath)),
+						tabs: rowTabs,
+						sessions: baseRows.sessions,
+						recordedOpeners,
+					})
+				: null,
+		[botPath, endedBotFiles, rowTabs, baseRows, recordedOpeners, botDesk.channels],
+	);
 	const rows = useMemo(
-		() => (botKids.keys.size === 0 ? baseRows : sidebarRows({ ...rowFacts, nested: botKids.keys })),
+		() => (botKids && botKids.keys.size > 0 ? sidebarRows({ ...rowFacts, nested: botKids.keys }) : baseRows),
 		[baseRows, botKids, rowFacts],
 	);
 	const { listed: listedSessions, sessions: allSessions, code: codeSessions, chats: chatSessions } = rows;
@@ -874,23 +878,20 @@ export function Sidebar() {
 	const allGroups = useMemo(() => rows.allGroups.map(named), [rows, named]);
 	const groups = useMemo(() => rows.groups.map(named), [rows, named]);
 	// A session an agent here opened on a paired device is that opener's child too (one family, whatever the
-	// computer): its tab nests under the opener's row, named by its device, and leaves the device's own list.
-	const remoteChildTabs = useMemo(
-		() => remoteOpenedChildren(tabs, new Set(codeSessions.map(session => session.path))),
-		[tabs, codeSessions],
-	);
+	// computer): its tab nests where a local child of that opener would, named by its device, and leaves the device's
+	// own list.
+	const remoteChildTabs = useMemo(() => remoteOpenedChildren(tabs, rows, botKids), [tabs, rows, botKids]);
 	const remoteChildrenOf = useMemo(() => {
 		const byRoot = new Map<string, SessionTab[]>();
 		for (const tab of tabs) {
-			const opener = remoteChildTabs.get(tab.id);
-			if (opener === undefined) continue;
-			const root = rows.rootOf.get(opener) ?? opener;
+			const root = remoteChildTabs.get(tab.id);
+			if (root === undefined) continue;
 			const siblings = byRoot.get(root);
 			if (siblings) siblings.push(tab);
 			else byRoot.set(root, [tab]);
 		}
 		return byRoot;
-	}, [tabs, remoteChildTabs, rows]);
+	}, [tabs, remoteChildTabs]);
 	// What each device's section leaves out: those children's tabs and session files, per device (two hosts can keep
 	// a session at the same path). A session a device's own agent opened there nests in that device's section.
 	const nestedRemote = useMemo(() => {
@@ -1673,17 +1674,19 @@ export function Sidebar() {
 			isTabFailed(tab) ||
 			tab.lastRun?.stopReason === "error" ||
 			tab.lastRun?.stopReason === "aborted";
-		const waiting = tab.awaitingInput !== undefined || review?.waiting === true;
-		const running = tab.status === "running" || tab.compacting === true;
+		const host = hosts.find(entry => entry.deviceId === tab.device);
+		// The host's row rule: what the tab here heard, or what the host says it runs now.
+		const run = hostRowState(tab, host?.live?.find(session => session.sessionPath === tab.sessionPath)?.state);
+		const waiting = run.waiting || review?.waiting === true;
 		const status = openedChildStatus({
 			waiting,
-			running,
+			running: run.running,
 			finished: tab.lastRun !== undefined,
 			failed,
 			unmerged: reviewUnmerged(review),
 			memoryWait: tab.memoryWait !== undefined,
 		});
-		const device = hosts.find(host => host.deviceId === tab.device)?.name ?? tab.device ?? "";
+		const device = host?.name ?? tab.device ?? "";
 		const title = tab.title || tab.task || t("sidebar.newSession");
 		const auto = tab.title ? sessionTitleParts(tab.title, tabAutoTitle(tab, listedRowOf(tab))).auto : undefined;
 		const statusLabel =
@@ -1694,7 +1697,7 @@ export function Sidebar() {
 					: status === "unmerged"
 						? t("sidebar.family.readyToMerge")
 						: status === "waiting"
-							? t(ATTENTION_LABEL_KEY[tab.awaitingInput === "approval" ? "approval" : "question"])
+							? t(ATTENTION_LABEL_KEY[run.ask ?? "question"])
 							: status === "running"
 								? t("sidebar.signal.running")
 								: status === "done"
@@ -1707,7 +1710,7 @@ export function Sidebar() {
 			key: id,
 			kind: tab.worktree !== undefined ? "worktree" : "session",
 			status,
-			ask: tab.awaitingInput === "approval" ? "approval" : undefined,
+			ask: run.ask,
 			state: status ? CHILD_TOKEN[status] : null,
 			stateLabel: statusLabel,
 			title,
@@ -1735,7 +1738,7 @@ export function Sidebar() {
 				"data-session-path": tab.sessionPath ?? `tab:${tab.id}`,
 				"data-sidebar-opened-session": true,
 				"data-device": tab.device,
-				"data-signal": waiting ? "waiting" : running ? "running" : status === "failed" ? "error" : undefined,
+				"data-signal": waiting ? "waiting" : run.running ? "running" : status === "failed" ? "error" : undefined,
 				"data-child-status": status ?? undefined,
 			},
 		};
@@ -1767,7 +1770,7 @@ export function Sidebar() {
 			query
 				? []
 				: [
-						...(botOn ? sessionFoldSignals(botSession, botKids.sessions) : []),
+						...(botOn ? sessionFoldSignals(botSession, botKids?.sessions ?? []) : []),
 						...groups.flatMap(group =>
 							groupFoldSignals(group, group.folded.map(child => familyChildFor(child)).filter(isShownOpened)),
 						),
@@ -1804,7 +1807,7 @@ export function Sidebar() {
 			variant === "archived"
 				? []
 				: [
-						...(bot ? botKids.sessions : (familyChildrenOf.get(session.path) ?? [])).map(child =>
+						...(bot ? (botKids?.sessions ?? []) : (familyChildrenOf.get(session.path) ?? [])).map(child =>
 							familyChildFor(child),
 						),
 						...(remoteChildrenOf.get(session.path) ?? []).map(child => remoteFamilyChildFor(child)),

@@ -280,10 +280,16 @@ export interface BotFamilyFacts {
 }
 
 export interface BotFamily {
+	bot: string;
 	/** The rows that nest under the bot's fixed row, oldest first. */
 	sessions: RowSession[];
 	/** Their files, ids and the tabs that hold them: what the lists leave out (`SidebarFacts.nested`). */
 	keys: ReadonlySet<string>;
+	/**
+	 * Whether a session of this computer is the bot's: its own file, a conversation it ended, or one of its family. What
+	 * such a session opened, here or on a paired device, nests under the bot's row.
+	 */
+	owns: (session: string) => boolean;
 }
 
 /**
@@ -307,29 +313,36 @@ export function botFamily(facts: BotFamilyFacts): BotFamily {
 		],
 		facts.recordedOpeners,
 	);
+	const owns = (session: string) => {
+		const root = family.get(session) ?? session;
+		return root === bot || ended.has(root) || channels.has(session);
+	};
 	const sessions = facts.sessions
-		.filter(session => {
-			const root = family.get(session.path);
-			return root === bot || (root !== undefined && ended.has(root)) || channels.has(session.path);
-		})
+		.filter(session => owns(session.path))
 		.toSorted((a, b) => (a.created < b.created ? -1 : a.created > b.created ? 1 : a.path < b.path ? -1 : 1));
 	const keys = new Set(sessions.flatMap(kid => [kid.path, kid.id, ...(kid.liveTabId ? [kid.liveTabId] : [])]));
 	for (const tab of facts.tabs)
 		if ((tab.sessionPath && keys.has(tab.sessionPath)) || (tab.sessionId && keys.has(tab.sessionId)))
 			keys.add(tab.id);
-	return { sessions, keys };
+	return { bot, sessions, keys, owns };
 }
 
 /**
  * Tabs on a paired device that a session of this computer opened (`ompdesk_session_open {device}`): child tab id → the
- * opener's session path. The opener is found by tab id while it is open here, else by the session file a relaunch kept
- * when that file is one of this computer's (`localSessions`). Such a child is its opener's, like a local one: it nests
- * under the opener and leaves its device's own list. A tab a session on a paired device opened stays the device's.
+ * row it nests under, the one a local session that opener opened would nest under: the bot's for anything the bot's
+ * family opened (`bot`, its ended conversations included), else the session that started the opener's chain
+ * (`rows.rootOf`). The opener is found by tab id while it is open here, else by the session file a relaunch kept when
+ * that file is one of this computer's. Such a child leaves its device's own list. A tab a session on a paired device
+ * opened stays the device's.
  */
 export function remoteOpenedChildren(
 	tabs: readonly (FamilyTab & { device?: string })[],
-	localSessions: ReadonlySet<string>,
+	rows: Pick<SidebarRows, "sessions" | "rootOf">,
+	bot: Pick<BotFamily, "bot" | "owns"> | null,
 ): Map<string, string> {
+	const local = new Set(rows.sessions.map(session => session.path));
+	const rootOf = (path: string): string | undefined =>
+		bot?.owns(path) ? bot.bot : local.has(path) ? (rows.rootOf.get(path) ?? path) : undefined;
 	const children = new Map<string, string>();
 	for (const tab of tabs) {
 		if (tab.device === undefined) continue;
@@ -337,12 +350,8 @@ export function remoteOpenedChildren(
 			(tab.openedBy ? tabs.find(entry => entry.id === tab.openedBy) : undefined) ??
 			(tab.openedBySession ? tabs.find(entry => entry.sessionPath === tab.openedBySession) : undefined);
 		const path = opener
-			? opener.device === undefined
-				? opener.sessionPath
-				: undefined
-			: tab.openedBySession && localSessions.has(tab.openedBySession)
-				? tab.openedBySession
-				: undefined;
+			? opener.device === undefined && opener.sessionPath && (rootOf(opener.sessionPath) ?? opener.sessionPath)
+			: tab.openedBySession && rootOf(tab.openedBySession);
 		if (path) children.set(tab.id, path);
 	}
 	return children;
