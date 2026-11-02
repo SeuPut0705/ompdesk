@@ -96,7 +96,15 @@ const GROUPS: ReadonlyArray<readonly [string, readonly string[]]> = [
 	["Perl", ["perl-patterns", "perl-security", "perl-testing"]],
 	[
 		"JavaScript and TypeScript (backend, tooling)",
-		["backend-patterns", "nestjs-patterns", "prisma-patterns", "bun-runtime", "vite-patterns", "mcp-server-patterns"],
+		[
+			"typescript-patterns",
+			"backend-patterns",
+			"nestjs-patterns",
+			"prisma-patterns",
+			"bun-runtime",
+			"vite-patterns",
+			"mcp-server-patterns",
+		],
 	],
 	[
 		"Frontend (React, Next.js, Vue, Nuxt, Angular, motion)",
@@ -161,6 +169,7 @@ const GROUPS: ReadonlyArray<readonly [string, readonly string[]]> = [
 			"code-tour",
 			"docs-governance",
 			"living-docs-governance",
+			"module-governance",
 		],
 	],
 	["Product", ["product-lens", "product-capability"]],
