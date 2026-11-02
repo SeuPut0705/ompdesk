@@ -103,6 +103,27 @@ describe("a subagent a restart cut", () => {
 		expect(cuts.deliveries.get(second)).toBeUndefined();
 	});
 
+	it("names an agent as cut only while the delivery that ended its newest run was the restart's", () => {
+		const cut = failedDelivery(envelope(`<output>\n${WARNING}\n</output>`), "Reader", "task", 5_000);
+		const real = failedDelivery(envelope("<error>Provider stream error</error>"), "Reader", "task", 9_000);
+		const cuts = restartCuts([note([{ id: "Reader", doing: "old" }]), cut, real]);
+		// The cut run's own delivery still reads cut; the agent's newest run (a real failure) does not.
+		expect(cuts.deliveries.get(cut)?.get("Reader")?.doing).toBe("old");
+		expect(cuts.deliveries.get(real)).toBeUndefined();
+		expect(cuts.agents.has("Reader")).toBe(false);
+		const only = restartCuts([note([{ id: "Reader" }]), cut]);
+		expect(only.deliveredBy.get("Reader")).toBe(cut);
+	});
+
+	it("marks a node only when it shows the run the cut ended", () => {
+		const cuts = new Map([["Reader", { doing: "bash", run: 1 }]]);
+		const node = (run: number | undefined, status = "failed") => ({ id: "Reader", status, run });
+		expect(markCut(node(1), cuts).status).toBe(RESTART_CUT_STATUS);
+		expect(markCut(node(2), cuts).status).toBe("failed");
+		expect(markCut(node(undefined), cuts).status).toBe("failed");
+		expect(markCut(node(1), cuts).restartCut).toEqual({ doing: "bash" });
+	});
+
 	it("indexes each transcript once, live messages joined behind the committed ones", () => {
 		const delivery = failedDelivery(envelope(`<output>\n${WARNING}\n</output>`));
 		const committed = [note([{ id: "Reader" }])];

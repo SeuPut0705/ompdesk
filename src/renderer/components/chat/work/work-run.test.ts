@@ -240,6 +240,22 @@ describe("a lane a restart ended", () => {
 		const run = runTranscript([spawn, taskResult, failed], owns);
 		expect(mergeRunAgents([], run)[0]?.status).toBe("failed");
 	});
+
+	it("reads each lane by the delivery that settled it, and a later run's live row by its own status", () => {
+		const real = {
+			...completion("<error>\nboom\n</error>\n<output>\n(no output)\n</output>", "failed (exit 1)"),
+			details: { jobs: [{ jobId: "Reader", agentId: "Reader", type: "task", status: "failed" }] },
+		};
+		// The lane's first settlement is a real failure: a restart cut a later run of the same agent.
+		const later = runTranscript([spawn, taskResult, real, note, failed], owns);
+		expect(later.cuts.has("Reader")).toBe(false);
+		expect(mergeRunAgents([], later)[0]?.status).toBe("failed");
+		// The lane's first settlement is the cut: it stays cut, while a revived run's live row that fails reads failed.
+		const run = runTranscript([spawn, taskResult, note, failed, real], owns);
+		expect(mergeRunAgents([], run)[0]?.status).toBe("restart-cut");
+		const row = { id: "Reader", index: 0, agent: "task", status: "failed", lastUpdate: 1, run: 2 };
+		expect(mergeRunAgents([{ ...row, parentToolCallId: "task-1" } as SubagentNode], run)[0]?.status).toBe("failed");
+	});
 });
 
 describe("finished head and paths", () => {

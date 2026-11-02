@@ -115,6 +115,41 @@ describe("restart-cut status in the subagents store", () => {
 		expect(subagents.getState().subagents.get("LayoutSplit")?.restartCut).toBeUndefined();
 	});
 
+	// The cut belongs to the run the restart ended, not to the agent: a later run of the same agent reads its own status.
+	it("reads failed for a later run that fails for real, whether its delivery has landed or not", () => {
+		const { messages, subagents } = bound();
+		messages.setState({ messages: [note([{ id: "LayoutSplit" }]), delivery()] });
+		subagents.getState().applyFrame(lifecycle("LayoutSplit", "failed"));
+		expect(statusOf(subagents)).toBe(RESTART_CUT_STATUS);
+		subagents.getState().applyFrame(lifecycle("LayoutSplit", "started"));
+		subagents.getState().applyFrame(lifecycle("LayoutSplit", "failed"));
+		// Its own delivery has not landed yet.
+		expect(statusOf(subagents)).toBe("failed");
+		expect(subagents.getState().subagents.get("LayoutSplit")?.restartCut).toBeUndefined();
+		messages.setState({
+			messages: [
+				note([{ id: "LayoutSplit" }]),
+				delivery(),
+				delivery("LayoutSplit", "<error>Provider stream error</error>\n<output>\nhalf</output>"),
+			],
+		});
+		expect(statusOf(subagents)).toBe("failed");
+	});
+
+	it("keeps a run the restart cut cut while it is the run shown, and cuts a later run a second restart ends", () => {
+		const { messages, subagents } = bound();
+		const first = delivery();
+		messages.setState({ messages: [note([{ id: "LayoutSplit" }]), first] });
+		subagents.getState().applyFrame(lifecycle("LayoutSplit", "failed"));
+		subagents.getState().applyFrame(lifecycle("LayoutSplit", "failed"));
+		expect(statusOf(subagents)).toBe(RESTART_CUT_STATUS);
+		subagents.getState().applyFrame(lifecycle("LayoutSplit", "started"));
+		const second = delivery();
+		messages.setState({ messages: [note([{ id: "LayoutSplit" }]), first, note([{ id: "LayoutSplit" }]), second] });
+		subagents.getState().applyFrame(lifecycle("LayoutSplit", "failed"));
+		expect(statusOf(subagents)).toBe(RESTART_CUT_STATUS);
+	});
+
 	it("marks a fetched roster row and keeps the row's identity across idle polls", async () => {
 		const { messages, subagents } = bound();
 		messages.setState({ messages: [note([{ id: "LayoutSplit" }]), delivery()] });
