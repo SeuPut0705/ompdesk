@@ -203,6 +203,16 @@ if (dir) {
 				options: ["Ship it", "Wait"],
 			});
 			expect(decision.isError, decision.text).toBe(false);
+			// B's board started reading its activity log when the bot row opened, before these entries, and reads it
+			// again only every BOT_ACTIVITY_POLL_MS (5 s); a view opened later reads it at once. Wait for B's own read,
+			// so each view shows the same log, however long the setup below takes.
+			const newest = await b.evaluate(
+				async () =>
+					(await window.omp.sessions.botDesk.activity()).entries.findLast(entry => entry.kind !== "read")?.id ??
+					"",
+			);
+			expect(newest, "the bot's seeding logged activity").not.toBe("");
+			await expect(b.locator(`[data-bot-activity="${newest}"]`)).toHaveCount(1, { timeout: 15_000 });
 
 			// B's phone page.
 			await b.evaluate(() => window.omp.mobileWeb.command({ action: "enable" }));
