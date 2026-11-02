@@ -131,6 +131,29 @@ describe("bun scripts/build-lock.ts", () => {
 		expect(entries().map(entry => entry.kind)).toEqual(["build", "playwright"]);
 	});
 
+	it("never deadlocks two holders that each nest the other's kind", async () => {
+		// Two heavy slots (24 GB): a build holder nests vitest while a vitest holder nests a build. Had the nested
+		// vitest waited for the vitest slot, each would wait on the other for ever.
+		const x = path.join(dir, "x");
+		const y = path.join(dir, "y");
+		const waitFor = (file: string) =>
+			`const fs=require("fs");const until=Date.now()+20000;while(!fs.existsSync(${JSON.stringify(file)})&&Date.now()<until){Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,20)}`;
+		const nested = (kind: string) =>
+			`const r=require("child_process").spawnSync("bun",[${JSON.stringify(LOCK)},"--kind","${kind}","--","node","-e","0"],{stdio:"inherit"});process.exit(r.status??1)`;
+		const second = path.join(dir, "second.cjs");
+		fs.writeFileSync(second, `require("fs").writeFileSync(${JSON.stringify(x)},"");${waitFor(y)};${nested("build")}`);
+		const first = path.join(dir, "first.cjs");
+		fs.writeFileSync(first, `${waitFor(x)};require("fs").writeFileSync(${JSON.stringify(y)},"");${nested("vitest")}`);
+		const start = (args: string[]) => {
+			const child = spawn("bun", [LOCK, ...args], { env: env({ OMPDESK_LOCK_RAM_GB: "24" }) });
+			return new Promise<number | null>(resolve => child.once("close", resolve));
+		};
+		const vitestHolder = start(["--kind", "vitest", "--", "node", second]);
+		await vi.waitFor(() => expect(fs.existsSync(x)).toBe(true), { timeout: 15_000 });
+		const buildHolder = start(["--kind", "build", "--", "node", first]);
+		expect(await Promise.all([buildHolder, vitestHolder])).toEqual([0, 0]);
+	}, 30_000);
+
 	it("--chunk n runs the command as n shards, one logged hold each", () => {
 		const result = locked(["--kind", "vitest", "--chunk", "3", "--", ...nodeScript("console.log(process.argv[2])")]);
 		expect(result.status).toBe(0);

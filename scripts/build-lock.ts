@@ -181,12 +181,15 @@ export function slotKindOf(command: string): SlotKind | undefined {
 
 /**
  * Take a slot for `command` unless an ancestor already holds one of that kind; waits as long as it
- * takes, behind earlier waiters.
+ * takes, behind earlier waiters. Nested under an ancestor's heavy slot a command runs inside it whatever its kind,
+ * except a build, which still takes the build slot (builds into out/ never overlap). Deadlock-free: the only wait a
+ * nested command makes is for the build slot, and a build holder never waits on anything (whatever it nests runs
+ * inside it), so no cycle of waits can close.
  */
 export async function acquireLock(command: readonly string[], options: AcquireOptions = {}): Promise<Held> {
 	const text = command.join(" ");
 	const kind = options.kind ?? slotKindOf(text) ?? "other";
-	if (covered(kind)) return { release() {} };
+	if (covered(kind) || (heavyInherited() && kind !== "build")) return { release() {} };
 	const time = new Date().toISOString();
 	const lease = await acquireHold(locks, kind, { owner: ownerId(), command: text }, { heavyHeld: heavyInherited() });
 	const hold: Hold = {
