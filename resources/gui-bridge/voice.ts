@@ -15,7 +15,7 @@ import { resolveSpeechCandidates } from "@oh-my-pi/pi-coding-agent/tools/tts";
 import { guard } from "./health";
 import { asRecord, requiredString } from "./params";
 import type { BridgeMethods } from "./types";
-import { VoiceStreams } from "./voice-stream-core";
+import { speakableSegments, VoiceStreams } from "./voice-stream-core";
 
 const WAV_HEADER_BYTES = 44;
 
@@ -112,10 +112,7 @@ const streams = new VoiceStreams<AgentSession>({
 			modelKey,
 			voice: (lookup("speech.voice")?.get(session.settings) as string | undefined) || DEFAULT_TTS_VOICE,
 			sampleRate: (TTS_LOCAL_MODELS.find(model => model.key === modelKey) ?? TTS_LOCAL_MODELS[0]).sampleRate,
-			segment(text) {
-				const speakable = new SpeakableStream();
-				return [...speakable.push(text), ...speakable.flush()];
-			},
+			segment: text => speakableSegments(text, new SpeakableStream()),
 		};
 	},
 });

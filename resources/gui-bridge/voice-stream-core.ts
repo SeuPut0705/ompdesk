@@ -165,6 +165,25 @@ export function float32ToPcm16(samples: Float32Array): string {
 	return out.toString("base64");
 }
 
+/** Stock's `SpeakableStream` (tts/speakable), the part read here. */
+export interface Speakable {
+	push(delta: string): string[];
+	flush(): string[];
+}
+
+/**
+ * `text`'s speakable segments, fed to stock's segmenter word by word as a model's deltas reach it. Its live-speech
+ * rules then apply: the first segment cuts early at a clause so the sound starts soon, and a long sentence goes out
+ * in clause-sized pieces. One push of the whole reply cuts only at sentence ends: a 276-character first sentence was
+ * one segment, and the call heard nothing for 6 s while Kokoro synthesized it (omp 18.15.0, measured).
+ */
+export function speakableSegments(text: string, speakable: Speakable): string[] {
+	const segments: string[] = [];
+	for (const piece of text.match(/\S+\s*|\s+/g) ?? []) segments.push(...speakable.push(piece));
+	segments.push(...speakable.flush());
+	return segments;
+}
+
 function waitMsOf(params: unknown): number {
 	const raw = asRecord(params).waitMs;
 	return typeof raw === "number" && Number.isFinite(raw) ? Math.min(MAX_WAIT_MS, Math.max(0, raw)) : DEFAULT_WAIT_MS;
