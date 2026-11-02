@@ -64,6 +64,7 @@ import {
 	AUTOPILOT_NOTICE_EVENT,
 	BOT_DESK_EVENT,
 	decodeBinaryRead,
+	type KeptTab,
 	LIVE_SESSIONS_EVENT,
 	MemoryConclusionPullReply,
 	MemoryPullReply,
@@ -2199,6 +2200,51 @@ describe("LocalHostServices", () => {
 		sidecars[1]?.emit("events", [{ type: "agent_end" }]);
 		vi.advanceTimersByTime(5_000);
 		expect(sidecars[1]?.disposed).toBe(false);
+	});
+
+	it("lists a revived tab whose relaunch continuation has not started its turn yet as kept for its relaunched device", async () => {
+		// 2 Nov 2026: this computer relaunched for an update and continued two of a Mac's tabs; the Mac relaunched seconds
+		// later and asked `tabs.kept` while one continuation's restore had answered but stock had not started the turn yet.
+		// That tab was left out, so the Mac's restored tab stayed "not started" while its turn ran on here unseen.
+		const { services, sidecars } = setup();
+		const continuing = new Set<string>();
+		services.attachResume({
+			sync: vi.fn(),
+			cancelWait: vi.fn(),
+			relaunchContinuation: tabId => (continuing.has(tabId) ? "after_restore" : "now"),
+		});
+		const x = peer("device-x");
+		const revive = (rtab: string) => {
+			const id = services.reviveTab(x, {
+				tab: `peer:device-x:${rtab}`,
+				cwd: workDir,
+				kind: "agent",
+				sessionPath: `/s/${rtab}.jsonl`,
+			});
+			if (!id) throw new Error("expected a revived tab");
+			continuing.add(id);
+			services.startTab(id);
+			return id;
+		};
+		const started = revive("started");
+		const owed = revive("owed");
+		for (const sidecar of sidecars) sidecar.setStatus("ready");
+		// One continuation's turn is on; the other's restore answered and stock schedules its turn for later.
+		sidecars[0]?.emit("events", [{ type: "agent_start" }]);
+		continuing.delete(started);
+
+		const kept = async () => {
+			const reply = (await services.call(x, "tabs.kept", {}, new FakeConnection(x))) as { tabs: KeptTab[] };
+			return reply.tabs.map(tab => [tab.rtab, tab.state]);
+		};
+		expect(await kept()).toEqual([
+			["started", "running"],
+			["owed", "running"],
+		]);
+
+		// The continuation found nothing to continue: the idle tab is left to its grace.
+		continuing.delete(owed);
+		expect(await kept()).toEqual([["started", "running"]]);
 	});
 
 	it("pushes one sessions.changed per burst that changed the list to every connected device, and drops a revoked peer's tabs", async () => {
