@@ -9,6 +9,7 @@ This file holds what every change needs. Each area's detailed rules (its user's 
 - `multi-viewer-web` (`.omp/rules/multi-viewer-web.md`): Tabs shared by several windows, the paired phone/web page (server, auth, threat model, reloads, PWA and push, Tailscale serve, phone preview and terminal, per-device prefs).
 - `no-loading-screens` (`.omp/rules/no-loading-screens.md`): The user's no-spinner rule: snapshot cache, skeletons, preload, ghost tabs, boot shell geometry.
 - `settings-layout-look` (`.omp/rules/settings-layout-look.md`): Settings layout and minimal-settings rule, figure headers, phone/tablet layout and touch targets, themes and contrast, profile and reply language, sidebar header, memory and projects.
+- `ui-parity` (`.omp/rules/ui-parity.md`): UI parity sheet: local, paired, phone.
 - `composer` (`.omp/rules/composer.md`): The composer: Stop/Esc/queue, delegation strength, working cue and age slot, toolbar and Run chip, phone composer, Run sheet, input mechanics, dictation, touch Enter.
 - `smart-features` (`.omp/rules/smart-features.md`): Prompt suggestions and inline completion, mojibake refusal, automatic session titles, automatic Plan/Goal choice, judge-model assists.
 - `autopilot` (`.omp/rules/autopilot.md`): Autopilot runs: board, branch and target, no soft stops, start sheet and land shipping, permissions, restart, AUTOPILOT.md guide and release facts, checked cycle reports.
@@ -183,7 +184,6 @@ Commit and push each change as it lands; release in small batches without waitin
 
 - A run takes about 6 minutes to `publish`, bound by `mac`, when the memory binary comes from the cache, and about 15 when one of its inputs (native/memory, scripts/build-memory.ts, resources/gui-bridge/memory-prompt.ts, resources/gui-bridge/redactor.ts) changed (dry runs 39240205382 and 39238195669); every blocking job starts right after `prepare`.
 - Never leave an `Unreleased` section on `main`.
-- Do not reinstall the local app unless asked; the in-app updater picks the release up.
 
 ## Release
 
