@@ -1,0 +1,95 @@
+{
+	"runs": [
+		{
+			"name": "fixed-protocol-2-omps-1-call",
+			"config": "MC.cfg",
+			"expect": "pass"
+		},
+		{
+			"name": "fixed-protocol-2-omps-2-calls",
+			"config": "MC.cfg",
+			"constants": {
+				"CallsPer": "2"
+			},
+			"expect": "pass",
+			"tier": "deep",
+			"timeoutSec": 1800
+		},
+		{
+			"name": "fixed-protocol-3-omps-1-call",
+			"config": "MC.cfg",
+			"constants": {
+				"Omps": "{o1, o2, o3}",
+				"MaxRounds": "1"
+			},
+			"expect": "pass",
+			"tier": "deep",
+			"timeoutSec": 1800
+		},
+		{
+			"name": "fixed-protocol-liveness",
+			"config": "MC_live.cfg",
+			"expect": "pass",
+			"timeoutSec": 1800
+		},
+		{
+			"name": "fixed-protocol-with-a-plain-answering-omp",
+			"config": "MC_legacy.cfg",
+			"expect": "pass"
+		},
+		{
+			"name": "bug-A-plain-look-no-gate-old-code",
+			"config": "MC_bugA.cfg",
+			"expect": "invariant",
+			"property": "NoJobCutByQuit"
+		},
+		{
+			"name": "bug-B-gate-ignores-calls-under-way",
+			"config": "MC_bugB.cfg",
+			"expect": "invariant",
+			"property": "NoJobCutByQuit"
+		},
+		{
+			"name": "bug-C-lease-expires-before-the-quit",
+			"config": "MC_bugC.cfg",
+			"expect": "invariant",
+			"property": "NoJobCutByQuit"
+		},
+		{
+			"name": "bug-A-job-cut-plain-look-no-gate-old-code",
+			"config": "MC_bugA_job.cfg",
+			"expect": "invariant",
+			"property": "NoRunningJobCutByQuit"
+		},
+		{
+			"name": "bug-B-job-cut-gate-ignores-calls-under-way",
+			"config": "MC_bugB_job.cfg",
+			"expect": "invariant",
+			"property": "NoRunningJobCutByQuit"
+		},
+		{
+			"name": "bug-C-job-cut-lease-expires-before-the-quit",
+			"config": "MC_bugC_job.cfg",
+			"expect": "invariant",
+			"property": "NoRunningJobCutByQuit"
+		},
+		{
+			"name": "sanity-the-app-can-quit",
+			"config": "MC_sanity_Quits.cfg",
+			"expect": "invariant",
+			"property": "NeverQuits"
+		},
+		{
+			"name": "sanity-a-call-can-be-held-at-the-gate",
+			"config": "MC_sanity_Held.cfg",
+			"expect": "invariant",
+			"property": "NeverHeld"
+		},
+		{
+			"name": "sanity-one-omp-frozen-while-another-runs-a-job",
+			"config": "MC_sanity_Partial.cfg",
+			"expect": "invariant",
+			"property": "NeverPartialFreeze"
+		}
+	]
+}

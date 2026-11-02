@@ -1,0 +1,449 @@
+{
+	"concern": "update-job-gate",
+	"workflow": "W1",
+	"generated_at": "2026-11-02T14:09:13.231Z",
+	"repo_commit": "d5b408b8cd (+ uncommitted fix)",
+	"summary": "With the gate (freeze counting calls under way, thaw on a partial freeze) and the lease assumed to outlast the round, NoJobCutByQuit holds for 2 omps with 1 tool call each (149,573 states, depth 27; 2 calls each: 5,781,189 states, depth 31; 3 omps: 811,851 states) and both thaw liveness properties hold (2 omps, 1 call each); the old plain look and a gate that ignores calls under way each reach a quit that cuts a running job in 9 to 10 steps, and so does a lease that expires before the quit (documented residual). Model-level traces: not yet reproduced on the unchanged code.",
+	"scope": {
+		"modeled": [
+			"JobGate enter/leave/agentEnded/freeze/thaw and the lease (job-gate.ts, composer.ts freeze_jobs/thaw_jobs/hooks)",
+			"main's freeze round: request, answers one by one, timeout, decide (install / thaw partial / hold), quit (background-work.ts, app-auto-update.ts #safeToInstall, updater.ts)",
+			"a tool call under way registering a job"
+		],
+		"abstracted": [
+			"each omp is single-threaded; freeze_jobs's tree read and gate decision are one step",
+			"main's decision and the tick that follows are one step",
+			"messages in order and reliable; the lease has no clock",
+			"jobs are a count; members fixed during the round"
+		],
+		"out_of_scope": [
+			"omps that become ready during the 3 s window",
+			"the tick's other holds, the user's postpone, idle(), a lost thaw request",
+			"relaunch continuing the cut turn, the installer"
+		],
+		"assumptions": [
+			"A1: an omp handles requests in order (a thaw cannot overtake a later freeze)",
+			"A2: the 20 s lease outlasts the round (3 s timeout) and the install start (seconds on Windows)",
+			"A5: a job starts only from a tool call that passed the gate"
+		]
+	},
+	"properties": [
+		{
+			"name": "NoJobCutByQuit",
+			"kind": "invariant",
+			"statement": "mphase = \"quit\" => \\A o \\in Omps : jobs[o] = 0 /\\ Underway(o) = {}",
+			"meaning": "When the app quits, no omp has a running job and no tool call is past the gate.",
+			"source": "job-gate.ts:1-9; app-auto-update.ts:9-15",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "Omps={o1,o2}, CallsPer=1 (deep: 2), MaxJobs=1, MaxRounds=2, CountStarting=TRUE, RequireFrozen=TRUE, Legacy={}, LeaseOutlastsRound=TRUE",
+			"evidence": "formal/update-job-gate/evidence/matrix.txt"
+		},
+		{
+			"name": "FrozenEventuallyThawed",
+			"kind": "liveness",
+			"statement": "\\A o \\in Omps : [](gate[o] = \"closed\" => <>(gate[o] = \"open\" \\/ mphase = \"quit\"))",
+			"meaning": "A gate main closed is opened by main, or the app quits; the lease is not relied on.",
+			"source": "background-work.ts:279-283",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "Omps={o1,o2}, CallsPer=1, MaxJobs=1, MaxRounds=2, weak fairness on handlers, Deliver, Enter, the decisions and Quit; none on Expire or Timeout",
+			"evidence": "formal/update-job-gate/evidence/matrix.txt"
+		},
+		{
+			"name": "HeldEventuallyRuns",
+			"kind": "liveness",
+			"statement": "\\A o \\in Omps : \\A c \\in Calls : [](call[o][c] = \"waiting\" => <>(call[o][c] # \"waiting\" \\/ mphase = \"quit\"))",
+			"meaning": "A call held at the closed gate runs once the gate opens, or the app quits.",
+			"source": "job-gate.ts:6-8",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "as FrozenEventuallyThawed",
+			"evidence": "formal/update-job-gate/evidence/matrix.txt"
+		},
+		{
+			"name": "NoJobCutByQuit (variant A: plain look)",
+			"kind": "invariant",
+			"meaning": "The old code: composer.jobs look, no gate, install when it shows no work.",
+			"result": "violated",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "Legacy={o1,o2}, RequireFrozen=FALSE, CountStarting=FALSE",
+			"evidence": "formal/update-job-gate/evidence/matrix.json"
+		},
+		{
+			"name": "NoJobCutByQuit (variant B: gate ignores calls under way)",
+			"kind": "invariant",
+			"meaning": "freeze ignores `starting`.",
+			"result": "violated",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "CountStarting=FALSE",
+			"evidence": "formal/update-job-gate/evidence/matrix.json"
+		},
+		{
+			"name": "NoJobCutByQuit (variant C: lease expires before the quit)",
+			"kind": "invariant",
+			"meaning": "The lease may fire during the round or the install.",
+			"result": "violated",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "LeaseOutlastsRound=FALSE",
+			"evidence": "formal/update-job-gate/evidence/matrix.json"
+		}
+	],
+	"findings": [
+		{
+			"id": "F1",
+			"severity": "high",
+			"status": "suspected",
+			"property": "NoJobCutByQuit",
+			"title": "A plain look and a later quit cut a job that started between them (the old code)",
+			"story": "Main asks each omp for its jobs with composer.jobs (job-gate-less). Omp o1 answers: no job. A tool call of o1 then passes stock's tool_call hook (Enter) and registers a background job (a `bash` going to the background, a `task`). Omp o2 answers no job, main decides there is no work (DecideInstall) and the install runs; the quit finds a job running on o1 and cuts it. This is the field bug of 2 Nov 2026; the uncommitted fix (freeze_jobs + JobGate) closes it in the model: the same step sequence is impossible because o1's freeze closes the gate or reports the call under way. Suspected: the trace was not yet reproduced on the unchanged code by this unit (W1.6 belongs to the owner of the fix).",
+			"trace": [
+				{
+					"step": 1,
+					"action": "Init",
+					"changed": {
+						"mstat": "(o1 :> \"none\" @@ o2 :> \"none\")",
+						"outbox": "(o1 :> <<>> @@ o2 :> <<>>)",
+						"gate": "(o1 :> \"open\" @@ o2 :> \"open\")",
+						"jobs": "(o1 :> 0 @@ o2 :> 0)",
+						"mphase": "\"idle\"",
+						"call": "(o1 :> <<\"idle\">> @@ o2 :> <<\"idle\">>)",
+						"inbox": "(o1 :> <<>> @@ o2 :> <<>>)",
+						"rounds": "0",
+						"mans": "( o1 :> [frozen |-> FALSE, work |-> TRUE, starting |-> 0] @@ o2 :> [frozen |-> FALSE, work |-> TRUE, starting |-> 0] )"
+					}
+				},
+				{
+					"step": 2,
+					"action": "StartRound",
+					"code": "src/main/app-auto-update.ts:302, src/main/updater.ts:939, src/main/background-work.ts:262-275",
+					"changed": {
+						"mstat": "(o1 :> \"none\" @@ o2 :> \"none\") -> (o1 :> \"pend\" @@ o2 :> \"pend\")",
+						"mphase": "\"idle\" -> \"asking\"",
+						"inbox": "(o1 :> <<>> @@ o2 :> <<>>) -> ( o1 :> <<[kind |-> \"freeze\", rd |-> 1]>> @@ o2 :> <<[kind |-> \"freeze\", rd |-> 1]>> )",
+						"rounds": "0 -> 1"
+					}
+				},
+				{
+					"step": 3,
+					"action": "FreezeAt(o1)",
+					"code": "resources/gui-bridge/composer.ts:435-447, resources/gui-bridge/job-gate.ts:73-80, src/main/background-work.ts:354-369",
+					"changed": {
+						"outbox": "(o1 :> <<>> @@ o2 :> <<>>) -> ( o1 :> <<[rd |-> 1, frozen |-> FALSE, work |-> FALSE, starting |-> 0]>> @@ o2 :> <<>> )",
+						"inbox": "( o1 :> <<[kind |-> \"freeze\", rd |-> 1]>> @@ o2 :> <<[kind |-> \"freeze\", rd |-> 1]>> ) -> (o1 :> <<>> @@ o2 :> <<[kind |-> \"freeze\", rd |-> 1]>>)"
+					}
+				},
+				{
+					"step": 4,
+					"action": "Deliver(o1)",
+					"code": "src/main/background-work.ts:272-274",
+					"changed": {
+						"mstat": "(o1 :> \"pend\" @@ o2 :> \"pend\") -> (o1 :> \"got\" @@ o2 :> \"pend\")",
+						"outbox": "( o1 :> <<[rd |-> 1, frozen |-> FALSE, work |-> FALSE, starting |-> 0]>> @@ o2 :> <<>> ) -> (o1 :> <<>> @@ o2 :> <<>>)",
+						"mans": "( o1 :> [frozen |-> FALSE, work |-> TRUE, starting |-> 0] @@ o2 :> [frozen |-> FALSE, work |-> TRUE, starting |-> 0] ) -> ( o1 :> [frozen |-> FALSE, work |-> FALSE, starting |-> 0] @@ o2 :> [frozen |-> FALSE, work |-> TRUE, starting |-> 0] )"
+					}
+				},
+				{
+					"step": 5,
+					"action": "Enter(o1,1)",
+					"code": "resources/gui-bridge/job-gate.ts:54-57, resources/gui-bridge/composer.ts:656-659",
+					"changed": {
+						"call": "(o1 :> <<\"idle\">> @@ o2 :> <<\"idle\">>) -> (o1 :> <<\"under\">> @@ o2 :> <<\"idle\">>)"
+					}
+				},
+				{
+					"step": 6,
+					"action": "Register(o1,1)",
+					"changed": {
+						"jobs": "(o1 :> 0 @@ o2 :> 0) -> (o1 :> 1 @@ o2 :> 0)"
+					}
+				},
+				{
+					"step": 7,
+					"action": "FreezeAt(o2)",
+					"code": "resources/gui-bridge/composer.ts:435-447, resources/gui-bridge/job-gate.ts:73-80, src/main/background-work.ts:354-369",
+					"changed": {
+						"outbox": "(o1 :> <<>> @@ o2 :> <<>>) -> ( o1 :> <<>> @@ o2 :> <<[rd |-> 1, frozen |-> FALSE, work |-> FALSE, starting |-> 0]>> )",
+						"inbox": "(o1 :> <<>> @@ o2 :> <<[kind |-> \"freeze\", rd |-> 1]>>) -> (o1 :> <<>> @@ o2 :> <<>>)"
+					}
+				},
+				{
+					"step": 8,
+					"action": "Deliver(o2)",
+					"code": "src/main/background-work.ts:272-274",
+					"changed": {
+						"mstat": "(o1 :> \"got\" @@ o2 :> \"pend\") -> (o1 :> \"got\" @@ o2 :> \"got\")",
+						"outbox": "( o1 :> <<>> @@ o2 :> <<[rd |-> 1, frozen |-> FALSE, work |-> FALSE, starting |-> 0]>> ) -> (o1 :> <<>> @@ o2 :> <<>>)",
+						"mans": "( o1 :> [frozen |-> FALSE, work |-> FALSE, starting |-> 0] @@ o2 :> [frozen |-> FALSE, work |-> TRUE, starting |-> 0] ) -> ( o1 :> [frozen |-> FALSE, work |-> FALSE, starting |-> 0] @@ o2 :> [frozen |-> FALSE, work |-> FALSE, starting |-> 0] )"
+					}
+				},
+				{
+					"step": 9,
+					"action": "DecideInstall",
+					"code": "src/main/background-work.ts:285-287, src/main/app-auto-update.ts:215-241",
+					"changed": {
+						"mstat": "(o1 :> \"got\" @@ o2 :> \"got\") -> (o1 :> \"none\" @@ o2 :> \"none\")",
+						"mphase": "\"asking\" -> \"installing\""
+					}
+				},
+				{
+					"step": 10,
+					"action": "Quit",
+					"code": "src/main/updater.ts:845-873",
+					"changed": {
+						"mphase": "\"installing\" -> \"quit\""
+					},
+					"violation": true
+				}
+			],
+			"fix": {
+				"summary": "composer.freeze_jobs + JobGate (job-gate.ts) + all-frozen decision in BackgroundWorkWatcher.freeze",
+				"model_recheck": "passes",
+				"mutation_check": "fails-as-expected"
+			},
+			"reproduction": {
+				"result_before_fix": "not-reproduced",
+				"result_after_fix": "not-run"
+			},
+			"evidence": [
+				"formal/update-job-gate/evidence/matrix.txt",
+				"formal/update-job-gate/evidence/matrix.json"
+			]
+		},
+		{
+			"id": "F2",
+			"severity": "high",
+			"status": "refuted",
+			"property": "NoJobCutByQuit",
+			"title": "Regression guard: a gate that does not count the tool calls under way would let a call register a job after the freeze",
+			"story": "Not in the shipped code: JobGate.freeze counts #underWay (job-gate.ts:74-75) and answers frozen:false with starting>0. In the variant where it does not, a tool call of o2 passes the gate, o1 and o2 both freeze (no job runs yet), main installs, and the call registers a job after the freeze; the quit cuts it. It shows why `starting` is part of the freeze and that the mutation drop-the-in-flight-check is detected.",
+			"trace": [
+				{
+					"step": 1,
+					"action": "Init",
+					"changed": {
+						"mstat": "(o1 :> \"none\" @@ o2 :> \"none\")",
+						"outbox": "(o1 :> <<>> @@ o2 :> <<>>)",
+						"gate": "(o1 :> \"open\" @@ o2 :> \"open\")",
+						"jobs": "(o1 :> 0 @@ o2 :> 0)",
+						"mphase": "\"idle\"",
+						"call": "(o1 :> <<\"idle\">> @@ o2 :> <<\"idle\">>)",
+						"inbox": "(o1 :> <<>> @@ o2 :> <<>>)",
+						"rounds": "0",
+						"mans": "( o1 :> [frozen |-> FALSE, work |-> TRUE, starting |-> 0] @@ o2 :> [frozen |-> FALSE, work |-> TRUE, starting |-> 0] )"
+					}
+				},
+				{
+					"step": 2,
+					"action": "StartRound",
+					"code": "src/main/app-auto-update.ts:302, src/main/updater.ts:939, src/main/background-work.ts:262-275",
+					"changed": {
+						"mstat": "(o1 :> \"none\" @@ o2 :> \"none\") -> (o1 :> \"pend\" @@ o2 :> \"pend\")",
+						"mphase": "\"idle\" -> \"asking\"",
+						"inbox": "(o1 :> <<>> @@ o2 :> <<>>) -> ( o1 :> <<[kind |-> \"freeze\", rd |-> 1]>> @@ o2 :> <<[kind |-> \"freeze\", rd |-> 1]>> )",
+						"rounds": "0 -> 1"
+					}
+				},
+				{
+					"step": 3,
+					"action": "FreezeAt(o1)",
+					"code": "resources/gui-bridge/composer.ts:435-447, resources/gui-bridge/job-gate.ts:73-80, src/main/background-work.ts:354-369",
+					"changed": {
+						"outbox": "(o1 :> <<>> @@ o2 :> <<>>) -> ( o1 :> <<[rd |-> 1, frozen |-> TRUE, work |-> FALSE, starting |-> 0]>> @@ o2 :> <<>> )",
+						"gate": "(o1 :> \"open\" @@ o2 :> \"open\") -> (o1 :> \"closed\" @@ o2 :> \"open\")",
+						"inbox": "( o1 :> <<[kind |-> \"freeze\", rd |-> 1]>> @@ o2 :> <<[kind |-> \"freeze\", rd |-> 1]>> ) -> (o1 :> <<>> @@ o2 :> <<[kind |-> \"freeze\", rd |-> 1]>>)"
+					}
+				},
+				{
+					"step": 4,
+					"action": "Deliver(o1)",
+					"code": "src/main/background-work.ts:272-274",
+					"changed": {
+						"mstat": "(o1 :> \"pend\" @@ o2 :> \"pend\") -> (o1 :> \"got\" @@ o2 :> \"pend\")",
+						"outbox": "( o1 :> <<[rd |-> 1, frozen |-> TRUE, work |-> FALSE, starting |-> 0]>> @@ o2 :> <<>> ) -> (o1 :> <<>> @@ o2 :> <<>>)",
+						"mans": "( o1 :> [frozen |-> FALSE, work |-> TRUE, starting |-> 0] @@ o2 :> [frozen |-> FALSE, work |-> TRUE, starting |-> 0] ) -> ( o1 :> [frozen |-> TRUE, work |-> FALSE, starting |-> 0] @@ o2 :> [frozen |-> FALSE, work |-> TRUE, starting |-> 0] )"
+					}
+				},
+				{
+					"step": 5,
+					"action": "Enter(o2,1)",
+					"code": "resources/gui-bridge/job-gate.ts:54-57, resources/gui-bridge/composer.ts:656-659",
+					"changed": {
+						"call": "(o1 :> <<\"idle\">> @@ o2 :> <<\"idle\">>) -> (o1 :> <<\"idle\">> @@ o2 :> <<\"under\">>)"
+					}
+				},
+				{
+					"step": 6,
+					"action": "FreezeAt(o2)",
+					"code": "resources/gui-bridge/composer.ts:435-447, resources/gui-bridge/job-gate.ts:73-80, src/main/background-work.ts:354-369",
+					"changed": {
+						"outbox": "(o1 :> <<>> @@ o2 :> <<>>) -> ( o1 :> <<>> @@ o2 :> <<[rd |-> 1, frozen |-> TRUE, work |-> FALSE, starting |-> 0]>> )",
+						"gate": "(o1 :> \"closed\" @@ o2 :> \"open\") -> (o1 :> \"closed\" @@ o2 :> \"closed\")",
+						"inbox": "(o1 :> <<>> @@ o2 :> <<[kind |-> \"freeze\", rd |-> 1]>>) -> (o1 :> <<>> @@ o2 :> <<>>)"
+					}
+				},
+				{
+					"step": 7,
+					"action": "Deliver(o2)",
+					"code": "src/main/background-work.ts:272-274",
+					"changed": {
+						"mstat": "(o1 :> \"got\" @@ o2 :> \"pend\") -> (o1 :> \"got\" @@ o2 :> \"got\")",
+						"outbox": "( o1 :> <<>> @@ o2 :> <<[rd |-> 1, frozen |-> TRUE, work |-> FALSE, starting |-> 0]>> ) -> (o1 :> <<>> @@ o2 :> <<>>)",
+						"mans": "( o1 :> [frozen |-> TRUE, work |-> FALSE, starting |-> 0] @@ o2 :> [frozen |-> FALSE, work |-> TRUE, starting |-> 0] ) -> ( o1 :> [frozen |-> TRUE, work |-> FALSE, starting |-> 0] @@ o2 :> [frozen |-> TRUE, work |-> FALSE, starting |-> 0] )"
+					}
+				},
+				{
+					"step": 8,
+					"action": "DecideInstall",
+					"code": "src/main/background-work.ts:285-287, src/main/app-auto-update.ts:215-241",
+					"changed": {
+						"mstat": "(o1 :> \"got\" @@ o2 :> \"got\") -> (o1 :> \"none\" @@ o2 :> \"none\")",
+						"mphase": "\"asking\" -> \"installing\""
+					}
+				},
+				{
+					"step": 9,
+					"action": "Register(o2,1)",
+					"changed": {
+						"jobs": "(o1 :> 0 @@ o2 :> 0) -> (o1 :> 0 @@ o2 :> 1)"
+					}
+				},
+				{
+					"step": 10,
+					"action": "Quit",
+					"code": "src/main/updater.ts:845-873",
+					"changed": {
+						"mphase": "\"installing\" -> \"quit\""
+					},
+					"violation": true
+				}
+			],
+			"evidence": [
+				"formal/update-job-gate/evidence/matrix.json",
+				"formal/update-job-gate/evidence/mutations.txt"
+			]
+		},
+		{
+			"id": "F3",
+			"severity": "low",
+			"status": "suspected",
+			"property": "NoJobCutByQuit",
+			"title": "Documented residual: a lease that expires before the quit opens the gate again",
+			"story": "The gate's lease (20 s, at most 25 s) opens it on its own. If it fires after omp o1 answered frozen and before main's quit (during the 3 s answers window, or the installer start, seconds on Windows), a call of o1 passes the gate, registers a job, and the quit cuts it. The model has no clock: the passing runs assume it does not fire in that window (LeaseOutlastsRound=TRUE, assumption A2); this trace is what happens when the assumption fails. Whether the real timings allow it was not measured.",
+			"trace": [
+				{
+					"step": 1,
+					"action": "Init",
+					"changed": {
+						"mstat": "(o1 :> \"none\" @@ o2 :> \"none\")",
+						"outbox": "(o1 :> <<>> @@ o2 :> <<>>)",
+						"gate": "(o1 :> \"open\" @@ o2 :> \"open\")",
+						"jobs": "(o1 :> 0 @@ o2 :> 0)",
+						"mphase": "\"idle\"",
+						"call": "(o1 :> <<\"idle\">> @@ o2 :> <<\"idle\">>)",
+						"inbox": "(o1 :> <<>> @@ o2 :> <<>>)",
+						"rounds": "0",
+						"mans": "( o1 :> [frozen |-> FALSE, work |-> TRUE, starting |-> 0] @@ o2 :> [frozen |-> FALSE, work |-> TRUE, starting |-> 0] )"
+					}
+				},
+				{
+					"step": 2,
+					"action": "StartRound",
+					"code": "src/main/app-auto-update.ts:302, src/main/updater.ts:939, src/main/background-work.ts:262-275",
+					"changed": {
+						"mstat": "(o1 :> \"none\" @@ o2 :> \"none\") -> (o1 :> \"pend\" @@ o2 :> \"pend\")",
+						"mphase": "\"idle\" -> \"asking\"",
+						"inbox": "(o1 :> <<>> @@ o2 :> <<>>) -> ( o1 :> <<[kind |-> \"freeze\", rd |-> 1]>> @@ o2 :> <<[kind |-> \"freeze\", rd |-> 1]>> )",
+						"rounds": "0 -> 1"
+					}
+				},
+				{
+					"step": 3,
+					"action": "FreezeAt(o1)",
+					"code": "resources/gui-bridge/composer.ts:435-447, resources/gui-bridge/job-gate.ts:73-80, src/main/background-work.ts:354-369",
+					"changed": {
+						"outbox": "(o1 :> <<>> @@ o2 :> <<>>) -> ( o1 :> <<[rd |-> 1, frozen |-> TRUE, work |-> FALSE, starting |-> 0]>> @@ o2 :> <<>> )",
+						"gate": "(o1 :> \"open\" @@ o2 :> \"open\") -> (o1 :> \"closed\" @@ o2 :> \"open\")",
+						"inbox": "( o1 :> <<[kind |-> \"freeze\", rd |-> 1]>> @@ o2 :> <<[kind |-> \"freeze\", rd |-> 1]>> ) -> (o1 :> <<>> @@ o2 :> <<[kind |-> \"freeze\", rd |-> 1]>>)"
+					}
+				},
+				{
+					"step": 4,
+					"action": "Deliver(o1)",
+					"code": "src/main/background-work.ts:272-274",
+					"changed": {
+						"mstat": "(o1 :> \"pend\" @@ o2 :> \"pend\") -> (o1 :> \"got\" @@ o2 :> \"pend\")",
+						"outbox": "( o1 :> <<[rd |-> 1, frozen |-> TRUE, work |-> FALSE, starting |-> 0]>> @@ o2 :> <<>> ) -> (o1 :> <<>> @@ o2 :> <<>>)",
+						"mans": "( o1 :> [frozen |-> FALSE, work |-> TRUE, starting |-> 0] @@ o2 :> [frozen |-> FALSE, work |-> TRUE, starting |-> 0] ) -> ( o1 :> [frozen |-> TRUE, work |-> FALSE, starting |-> 0] @@ o2 :> [frozen |-> FALSE, work |-> TRUE, starting |-> 0] )"
+					}
+				},
+				{
+					"step": 5,
+					"action": "Expire(o1)",
+					"changed": {
+						"gate": "(o1 :> \"closed\" @@ o2 :> \"open\") -> (o1 :> \"open\" @@ o2 :> \"open\")"
+					}
+				},
+				{
+					"step": 6,
+					"action": "Enter(o1,1)",
+					"code": "resources/gui-bridge/job-gate.ts:54-57, resources/gui-bridge/composer.ts:656-659",
+					"changed": {
+						"call": "(o1 :> <<\"idle\">> @@ o2 :> <<\"idle\">>) -> (o1 :> <<\"under\">> @@ o2 :> <<\"idle\">>)"
+					}
+				},
+				{
+					"step": 7,
+					"action": "Register(o1,1)",
+					"changed": {
+						"jobs": "(o1 :> 0 @@ o2 :> 0) -> (o1 :> 1 @@ o2 :> 0)"
+					}
+				},
+				{
+					"step": 8,
+					"action": "FreezeAt(o2)",
+					"code": "resources/gui-bridge/composer.ts:435-447, resources/gui-bridge/job-gate.ts:73-80, src/main/background-work.ts:354-369",
+					"changed": {
+						"outbox": "(o1 :> <<>> @@ o2 :> <<>>) -> ( o1 :> <<>> @@ o2 :> <<[rd |-> 1, frozen |-> TRUE, work |-> FALSE, starting |-> 0]>> )",
+						"gate": "(o1 :> \"open\" @@ o2 :> \"open\") -> (o1 :> \"open\" @@ o2 :> \"closed\")",
+						"inbox": "(o1 :> <<>> @@ o2 :> <<[kind |-> \"freeze\", rd |-> 1]>>) -> (o1 :> <<>> @@ o2 :> <<>>)"
+					}
+				},
+				{
+					"step": 9,
+					"action": "Deliver(o2)",
+					"code": "src/main/background-work.ts:272-274",
+					"changed": {
+						"mstat": "(o1 :> \"got\" @@ o2 :> \"pend\") -> (o1 :> \"got\" @@ o2 :> \"got\")",
+						"outbox": "( o1 :> <<>> @@ o2 :> <<[rd |-> 1, frozen |-> TRUE, work |-> FALSE, starting |-> 0]>> ) -> (o1 :> <<>> @@ o2 :> <<>>)",
+						"mans": "( o1 :> [frozen |-> TRUE, work |-> FALSE, starting |-> 0] @@ o2 :> [frozen |-> FALSE, work |-> TRUE, starting |-> 0] ) -> ( o1 :> [frozen |-> TRUE, work |-> FALSE, starting |-> 0] @@ o2 :> [frozen |-> TRUE, work |-> FALSE, starting |-> 0] )"
+					}
+				},
+				{
+					"step": 10,
+					"action": "DecideInstall",
+					"code": "src/main/background-work.ts:285-287, src/main/app-auto-update.ts:215-241",
+					"changed": {
+						"mstat": "(o1 :> \"got\" @@ o2 :> \"got\") -> (o1 :> \"none\" @@ o2 :> \"none\")",
+						"mphase": "\"asking\" -> \"installing\""
+					}
+				},
+				{
+					"step": 11,
+					"action": "Quit",
+					"code": "src/main/updater.ts:845-873",
+					"changed": {
+						"mphase": "\"installing\" -> \"quit\""
+					},
+					"violation": true
+				}
+			],
+			"evidence": [
+				"formal/update-job-gate/evidence/matrix.json"
+			]
+		}
+	]
+}

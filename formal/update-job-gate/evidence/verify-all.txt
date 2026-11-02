@@ -1,0 +1,57 @@
+
+== update-job-gate: Automatic update: the last look and the quit as one step (job gate, freeze, thaw, lease) (tla)
+TLC (tla2tools release 1.8.0)  java 21 (cache)  spec UpdateJobGate.tla
+  TLC reports itself as version 2026.10.28.014557
+ok    fixed-protocol-2-omps-1-call: no violation  (149573 distinct states, 953807 generated, depth 27, 11.9s)
+  ... fixed-protocol-2-omps-2-calls still running (30 s)
+  ... fixed-protocol-3-omps-1-call still running (31 s)
+  ... fixed-protocol-liveness still running (31 s)
+  ... fixed-protocol-2-omps-2-calls still running (60 s)
+  ... fixed-protocol-liveness still running (61 s)
+  [fixed-protocol-2-omps-2-calls] Progress(18) at 2026-11-02 23:02:37: 7,467,895 states generated (7,446,818 s/min), 1,263,938 distinct states found (1,257,825 ds/min), 435,870 states left on queue.
+  [fixed-protocol-liveness] Progress(18) at 2026-11-02 23:02:40: 526,809 states generated (516,987 s/min), 94,222 distinct states found (91,239 ds/min), 17,565 states left on queue.
+  ... fixed-protocol-2-omps-2-calls still running (95 s)
+  ... fixed-protocol-liveness still running (101 s)
+  [fixed-protocol-liveness] Progress(27) at 2026-11-02 23:03:28: 953,807 states generated, 149,573 distinct states found, 0 states left on queue.
+  [fixed-protocol-2-omps-2-calls] Progress(19) at 2026-11-02 23:03:37: 13,969,034 states generated (6,501,139 s/min), 2,168,986 distinct states found (905,048 ds/min), 612,887 states left on queue.
+  ... fixed-protocol-liveness still running (146 s)
+  ... fixed-protocol-2-omps-2-calls still running (155 s)
+  [fixed-protocol-2-omps-2-calls] Progress(20) at 2026-11-02 23:04:37: 20,976,951 states generated (7,007,917 s/min), 3,076,646 distinct states found (907,660 ds/min), 694,952 states left on queue.
+  ... fixed-protocol-2-omps-2-calls still running (216 s)
+  [fixed-protocol-2-omps-2-calls] Progress(22) at 2026-11-02 23:05:37: 28,476,872 states generated (7,499,921 s/min), 3,973,751 distinct states found (897,105 ds/min), 680,400 states left on queue.
+  ... fixed-protocol-2-omps-2-calls still running (276 s)
+  [fixed-protocol-2-omps-2-calls] Progress(24) at 2026-11-02 23:06:37: 37,818,605 states generated (9,341,733 s/min), 5,014,514 distinct states found (1,040,763 ds/min), 513,026 states left on queue.
+  ... fixed-protocol-2-omps-2-calls still running (336 s)
+ok    fixed-protocol-2-omps-2-calls: no violation  (5781189 distinct states, 46636867 generated, depth 31, 351.5s)
+ok    fixed-protocol-3-omps-1-call: no violation  (811851 distinct states, 6032600 generated, depth 24, 54.1s)
+ok    fixed-protocol-liveness: no violation  (149573 distinct states, 953807 generated, depth 27, 150.7s)
+ok    fixed-protocol-with-a-plain-answering-omp: no violation  (74593 distinct states, 485483 generated, depth 27, 9.3s)
+ok    bug-A-plain-look-no-gate-old-code: invariant NoJobCutByQuit (as expected)  (1316 distinct states, 4763 generated, depth 9, 3.8s)
+ok    bug-B-gate-ignores-calls-under-way: invariant NoJobCutByQuit (as expected)  (1833 distinct states, 6004 generated, depth 9, 4.1s)
+ok    bug-C-lease-expires-before-the-quit: invariant NoJobCutByQuit (as expected)  (5304 distinct states, 18974 generated, depth 10, 4.5s)
+ok    bug-A-job-cut-plain-look-no-gate-old-code: invariant NoRunningJobCutByQuit (as expected)  (2170 distinct states, 8463 generated, depth 10, 4.2s)
+ok    bug-B-job-cut-gate-ignores-calls-under-way: invariant NoRunningJobCutByQuit (as expected)  (3374 distinct states, 11804 generated, depth 10, 2.7s)
+ok    bug-C-job-cut-lease-expires-before-the-quit: invariant NoRunningJobCutByQuit (as expected)  (9077 distinct states, 35011 generated, depth 11, 2.7s)
+ok    sanity-the-app-can-quit: invariant NeverQuits (as expected)  (1046 distinct states, 3039 generated, depth 8, 3.0s)
+ok    sanity-a-call-can-be-held-at-the-gate: invariant NeverHeld (as expected)  (26 distinct states, 38 generated, depth 4, 3.4s)
+ok    sanity-one-omp-frozen-while-another-runs-a-job: invariant NeverPartialFreeze (as expected)  (86 distinct states, 168 generated, depth 5, 2.6s)
+PASS  matrix: all 14 runs ended as expected
+ok    update-job-gate: TLC matrix
+baseline: pass
+DETECTED drop-the-all-frozen-check: failed on NoJobCutByQuit
+DETECTED drop-the-in-flight-check: failed on NoJobCutByQuit
+DETECTED gate-lets-new-calls-through: failed on NoJobCutByQuit
+DETECTED drop-the-thaw-on-a-partial-freeze: failed on FrozenEventuallyThawed
+DETECTED thaw-request-ignored: failed on HeldEventuallyRuns
+WAIVED   TypeOK: Shape check only: no behaviour change breaks it without also breaking a property above it.
+covered  NoJobCutByQuit (by drop-the-all-frozen-check, drop-the-in-flight-check, gate-lets-new-calls-through)
+covered  FrozenEventuallyThawed (by drop-the-thaw-on-a-partial-freeze)
+covered  HeldEventuallyRuns (by thaw-request-ignored)
+5 of 5 mutations detected
+ok    update-job-gate: mutations
+ok    update-job-gate: @code tags resolve
+skip  update-job-gate: drift - no syncCommit yet: the model was never confirmed against the code (use --stamp)
+
+stamp: update-job-gate syncCommit = d5b408b8cd
+
+PASS  update-job-gate: 3 of 4 ok, 1 skipped

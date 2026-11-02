@@ -1,0 +1,60 @@
+{
+	"checker": {
+		"kind": "tlc",
+		"config": "MC.cfg",
+		"timeoutSec": 900
+	},
+	"properties": [
+		"TypeOK",
+		"NoJobCutByQuit",
+		"FrozenEventuallyThawed",
+		"HeldEventuallyRuns"
+	],
+	"waive": {
+		"TypeOK": "Shape check only: no behaviour change breaks it without also breaking a property above it."
+	},
+	"mutations": [
+		{
+			"name": "drop-the-all-frozen-check",
+			"why": "main installs on answers that show no work although an omp did not freeze (a plain-look answer: no `frozen`, background-work.ts:278 `stopped === asked.length` dropped): a call that starts a job after the look is cut by the quit",
+			"search": "        /\\ (RequireFrozen => mans[o].frozen)",
+			"replace": "        /\\ TRUE",
+			"config": "MC_legacy.cfg",
+			"breaks": "NoJobCutByQuit"
+		},
+		{
+			"name": "drop-the-in-flight-check",
+			"why": "freeze no longer counts the tool calls under way (job-gate.ts:74-75 `starting`): a call past the gate registers a job after the freeze",
+			"search": "starting == IF CountStarting THEN Cardinality(Underway(o)) ELSE 0",
+			"replace": "starting == 0",
+			"breaks": "NoJobCutByQuit"
+		},
+		{
+			"name": "gate-lets-new-calls-through",
+			"why": "enter no longer waits while the gate is closed (job-gate.ts:55 `while (this.#closed)` dropped): a call starts a job between the freeze and the quit",
+			"search": "    /\\ call[o][c] \\in {\"idle\", \"waiting\"}\n    /\\ gate[o] = \"open\"\n",
+			"replace": "    /\\ call[o][c] \\in {\"idle\", \"waiting\"}\n",
+			"breaks": "NoJobCutByQuit"
+		},
+		{
+			"name": "drop-the-thaw-on-a-partial-freeze",
+			"why": "main stops asking when one omp still runs work but does not thaw the omps that froze (background-work.ts:279-283 loop `thawMember` dropped): they stay frozen, holding their tool calls until the lease",
+			"search": "    /\\ mphase' = \"idle\"\n    /\\ mstat' = [o \\in Omps |-> \"none\"]\n    /\\ inbox' = [o \\in Omps |-> Append(inbox[o], [kind |-> \"thaw\", rd |-> rounds])]\n    /\\ UNCHANGED <<gate, call, jobs, outbox, mans, rounds>>\n\n\\* @code src/main/app-auto-update.ts:294-299",
+			"replace": "    /\\ mphase' = \"idle\"\n    /\\ mstat' = [o \\in Omps |-> \"none\"]\n    /\\ UNCHANGED <<gate, call, jobs, inbox, outbox, mans, rounds>>\n\n\\* @code src/main/app-auto-update.ts:294-299",
+			"config": "MC_live.cfg",
+			"deadlock": false,
+			"isolate": true,
+			"breaks": "FrozenEventuallyThawed"
+		},
+		{
+			"name": "thaw-request-ignored",
+			"why": "an omp does not open its gate on `composer.thaw_jobs` (job-gate.ts:83-91 `thaw` is a no-op): a held call waits for the lease only",
+			"search": "    /\\ gate' = [gate EXCEPT ![o] = \"open\"]\n    /\\ UNCHANGED <<call, jobs, outbox, mphase, mstat, mans, rounds>>",
+			"replace": "    /\\ UNCHANGED <<gate, call, jobs, outbox, mphase, mstat, mans, rounds>>",
+			"config": "MC_live.cfg",
+			"deadlock": false,
+			"isolate": true,
+			"breaks": "HeldEventuallyRuns"
+		}
+	]
+}
