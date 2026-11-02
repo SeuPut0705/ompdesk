@@ -1903,6 +1903,11 @@ export interface SubagentSnapshot {
 	 */
 	stockStatus?: string;
 	restartCut?: { intent?: string; doing?: string };
+	/**
+	 * Set by the renderer's subagents store, never by the wire: which run of this agent the row shows (1 for the first
+	 * the store saw, one more each time the agent starts again). The restart-cut mark belongs to a run, not to the agent.
+	 */
+	run?: number;
 }
 
 export interface RpcAgentDefinitionInfo {

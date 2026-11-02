@@ -43,8 +43,10 @@ const SESSION_CHANGING_COMMANDS = new Set<RpcCommand["type"]>([
  * store (sidebar, Agents page, subagent panel, work lanes, a paired device's page) says the same.
  */
 export function bindRestartCuts(messages: StoreApi<MessagesStore>, subagents: StoreApi<SubagentsStore>): void {
-	const apply = (state: MessagesStore) =>
-		subagents.getState().setRestartCuts(restartCutsOf(state.messages, state.liveMessages).agents);
+	const apply = (state: MessagesStore) => {
+		const { agents, deliveredBy } = restartCutsOf(state.messages, state.liveMessages);
+		subagents.getState().setRestartCuts(agents, deliveredBy);
+	};
 	messages.subscribe((state, previous) => {
 		if (state.messages !== previous.messages || state.liveMessages !== previous.liveMessages) apply(state);
 	});

@@ -29,7 +29,7 @@ export interface RunTranscript {
 	/** Agents spawned by this run's task calls, as stock's task result recorded them. */
 	agents: SubagentNode[];
 	completions: ReadonlyMap<string, AgentCompletion>;
-	/** The subagents a restart ended (`restartCuts`): a settled lane of one reads interrupted, not failed. */
+	/** Lanes whose first settlement was a restart's cut (`restartCuts().deliveries`): a lane shows that run alone. */
 	cuts: ReadonlyMap<string, RestartCut>;
 }
 
@@ -207,8 +207,11 @@ export function runTranscript(
 ): RunTranscript {
 	const agents = new Map<string, SubagentNode>();
 	const completions = new Map<string, AgentCompletion>();
-	const settle = (id: string, completion: AgentCompletion) => {
+	// The cut of the delivery that settled each lane first: a lane shows that run, so a later delivery's end is not its.
+	const cutLanes = new Map<string, RestartCut>();
+	const settle = (id: string, completion: AgentCompletion, cut?: RestartCut) => {
 		if (!agents.has(id)) return;
+		if (!completions.has(id) && cut) cutLanes.set(id, cut);
 		const existing = completions.get(id);
 		completions.set(id, {
 			...completion,
@@ -250,9 +253,26 @@ export function runTranscript(
 			if (row && typeof row.id === "string") settle(row.id, singleResultCompletion(row));
 		}
 	};
-	const settleFrom = (details: Record<string, unknown> | undefined, record: unknown, content: unknown) => {
+	const settleFrom = (
+		details: Record<string, unknown> | undefined,
+		record: unknown,
+		content: unknown,
+		message?: AgentMessage,
+	) => {
 		if (agents.size === 0) return;
-		for (const { id, ...completion } of recordTaskResults(record, content)) settle(id, completion);
+		const cutsHere = message ? restartCuts(messages).deliveries.get(message) : undefined;
+		const cutOf = (id: string): RestartCut | undefined => {
+			if (!cutsHere) return undefined;
+			const direct = cutsHere.get(id);
+			if (direct) return direct;
+			for (const value of Array.isArray(details?.jobs) ? details.jobs : []) {
+				const job = asRecord(value);
+				if (typeof job?.jobId === "string" && [job.agentId, job.id, job.jobId].includes(id))
+					return cutsHere.get(job.jobId);
+			}
+			return undefined;
+		};
+		for (const { id, ...completion } of recordTaskResults(record, content)) settle(id, completion, cutOf(id));
 		// async-result: jobs[].agentId/jobId; wait: jobs[].id. Only task jobs settle agents.
 		for (const value of Array.isArray(details?.jobs) ? details.jobs : []) {
 			const job = asRecord(value);
@@ -300,9 +320,9 @@ export function runTranscript(
 			if (!ownsCall(message.toolCallId)) continue;
 			recordTask(message.toolCallId, details, messageSourceTimestamp(message) ?? 0);
 		}
-		settleFrom(details, message, message.content);
+		settleFrom(details, message, message.content, message);
 	}
-	return { agents: [...agents.values()], completions, cuts: restartCuts(messages).agents };
+	return { agents: [...agents.values()], completions, cuts: cutLanes };
 }
 
 const TERMINAL: Record<string, true> = { completed: true, failed: true, aborted: true, cancelled: true };

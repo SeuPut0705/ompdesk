@@ -21,6 +21,11 @@ export interface RestartCut {
 	intent?: string;
 	/** The calls the stop cut, in the bridge's words (`bash: probing the stream`). */
 	doing?: string;
+	/**
+	 * The run this cut ended, as the node counts its runs (`SubagentNode.run`, the subagents store's): a node reads cut
+	 * only when it shows that run. Absent for a transcript lane, which has no runs and shows the delivery that settled it.
+	 */
+	run?: number;
 }
 
 /** Stock's `SUBAGENT_WARNING_EMPTY_MESSAGE` (task/executor.ts): what a subagent that ended with no message delivers. */
@@ -46,8 +51,10 @@ export function endedWithoutMessage(text: string | undefined): boolean {
 export interface RestartCuts {
 	/** Per `async-result` message: each task job a restart cut, by job id. */
 	deliveries: ReadonlyMap<AgentMessage, ReadonlyMap<string, RestartCut>>;
-	/** Every subagent whose delivered end was a restart's, by agent id. */
+	/** Subagents whose newest delivered end was a restart's, by agent id: a later delivery of a real end clears it. */
 	agents: ReadonlyMap<string, RestartCut>;
+	/** The delivery that was each `agents` entry's end: what tells the run a cut ended from the next one's. */
+	deliveredBy: ReadonlyMap<string, AgentMessage>;
 }
 
 const restartCutIndexes = new WeakMap<readonly AgentMessage[], RestartCuts>();
@@ -55,8 +62,9 @@ const restartCutIndexes = new WeakMap<readonly AgentMessage[], RestartCuts>();
 /**
  * The one rule for a subagent the restart ended: a delivered `task` job that failed with stock's empty-message
  * warning (or no output) and whose agent id the newest restart note before the delivery names
- * (`details.subagents[].id`: the revive ended it at once). Any other failure stays a failure. Indexed once per list
- * (every async-result card and lane of a transcript reads one pass), so a list must not be edited in place.
+ * (`details.subagents[].id`: the revive ended it at once). Any other failure stays a failure. The mark belongs to that
+ * delivery's run, not to the agent: a later delivery of the same agent that is not a cut clears `agents`. Indexed once
+ * per list (every async-result card and lane of a transcript reads one pass), so a list must not be edited in place.
  */
 export function restartCuts(messages: readonly AgentMessage[]): RestartCuts {
 	const cached = restartCutIndexes.get(messages);
@@ -64,6 +72,7 @@ export function restartCuts(messages: readonly AgentMessage[]): RestartCuts {
 	const named = new Map<string, RestartCut>();
 	const deliveries = new Map<AgentMessage, ReadonlyMap<string, RestartCut>>();
 	const agents = new Map<string, RestartCut>();
+	const deliveredBy = new Map<string, AgentMessage>();
 	for (const message of messages) {
 		if (message.role !== "custom") continue;
 		if (RESTART_NOTES.has(message.customType)) {
@@ -84,17 +93,31 @@ export function restartCuts(messages: readonly AgentMessage[]): RestartCuts {
 		for (const job of jobs) {
 			const id = [job.agentId, job.jobId].find(candidate => candidate !== undefined && named.has(candidate));
 			const was = id === undefined ? undefined : named.get(id);
-			if (id === undefined || !was) continue;
-			// A delivery settles the name: a later one for the same id needs a later note.
-			named.delete(id);
-			if (job.type !== "task" || job.status !== "failed") continue;
-			if (!endedWithoutMessage(job.jobId ? texts.get(job.jobId) : undefined)) continue;
-			cut.set(job.jobId ?? id, was);
-			agents.set(id, was);
+			if (id !== undefined && was) {
+				// A delivery settles the name: a later one for the same id needs a later note.
+				named.delete(id);
+				if (
+					job.type === "task" &&
+					job.status === "failed" &&
+					endedWithoutMessage(job.jobId ? texts.get(job.jobId) : undefined)
+				) {
+					cut.set(job.jobId ?? id, was);
+					agents.set(id, was);
+					deliveredBy.set(id, message);
+					continue;
+				}
+			}
+			// Any other end of a task run is the agent's newest: it is no longer the cut one.
+			if (job.type !== "task") continue;
+			for (const key of [job.agentId, job.jobId]) {
+				if (key === undefined) continue;
+				agents.delete(key);
+				deliveredBy.delete(key);
+			}
 		}
 		if (cut.size > 0) deliveries.set(message, cut);
 	}
-	const index = { deliveries, agents };
+	const index = { deliveries, agents, deliveredBy };
 	restartCutIndexes.set(messages, index);
 	return index;
 }
@@ -133,15 +156,17 @@ export interface CutMark {
 
 /**
  * The node as every surface reads it: a `failed` agent the transcript says a restart ended takes the
- * `restart-cut` status (stock's own kept in `stockStatus`); any other status, an agent that runs again included,
- * is returned as it is. Idempotent.
+ * `restart-cut` status (stock's own kept in `stockStatus`), but only while it shows the run that cut ended
+ * (`node.run` equals the cut's); a later run, running, completed or failed, is returned as it is. Idempotent.
  */
-export function markCut<T extends { id: string; status: string }>(
+export function markCut<T extends { id: string; status: string; run?: number }>(
 	node: T & CutMark,
 	cuts: ReadonlyMap<string, RestartCut>,
 ): T & CutMark {
 	const cut = node.status === "failed" ? cuts.get(node.id) : undefined;
-	return cut ? { ...node, status: RESTART_CUT_STATUS, stockStatus: "failed", restartCut: cut } : node;
+	if (!cut || cut.run !== node.run) return node;
+	const { run: _run, ...shown } = cut;
+	return { ...node, status: RESTART_CUT_STATUS, stockStatus: "failed", restartCut: shown };
 }
 
 /** `markCut` undone: the node with stock's own status back (when the cuts change, the node is marked again). */

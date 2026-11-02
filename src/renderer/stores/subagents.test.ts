@@ -184,13 +184,15 @@ describe("subagents store refresh", () => {
 	it("an unchanged roster poll does not notify subscribers", async () => {
 		const row = snap({ id: "a1", status: "running", lastUpdate: 5 });
 		useSubagentsStore.getState().setSnapshots([row]);
+		// The store stamps the row's run number, so the stored row is its own object.
+		const stored = useSubagentsStore.getState().subagents.get("a1");
 		const listener = vi.fn();
 		const unsubscribe = useSubagentsStore.subscribe(listener);
 		getSubagents.mockResolvedValue(ok([{ ...row }]));
 		await useSubagentsStore.getState().refresh();
 		await useSubagentsStore.getState().refresh();
 		expect(listener).not.toHaveBeenCalled();
-		expect(useSubagentsStore.getState().subagents.get("a1")).toBe(row);
+		expect(useSubagentsStore.getState().subagents.get("a1")).toBe(stored);
 
 		getSubagents.mockResolvedValue(ok([{ ...row, status: "completed" }]));
 		await useSubagentsStore.getState().refresh();
