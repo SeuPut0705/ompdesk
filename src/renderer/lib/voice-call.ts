@@ -315,6 +315,8 @@ const CALIBRATION_TICKS = CALL_TUNING.calibrationTicks;
 export interface CallSnapshot extends CallState {
 	/** The mic's level in {@link METER_BARS} bands, 0–1 (zeros while muted). */
 	readonly levels: readonly number[];
+	/** How loud the reply that plays is, 0–1 in steps of {@link OUTPUT_LEVEL_STEP}; 0 in every other phase. */
+	readonly outputLevel: number;
 }
 
 export interface VoiceCall {
@@ -349,6 +351,10 @@ interface Capture {
 }
 
 const SILENT_LEVELS: readonly number[] = Array.from({ length: METER_BARS }, () => 0);
+/** The reply's RMS that reads as full level: speech sits well under full scale, so it is raised to fill 0–1. */
+const OUTPUT_LEVEL_GAIN = 4;
+/** The reply's level goes out in this many steps per unit (every 0.05), so it publishes only when it visibly moves. */
+const OUTPUT_LEVEL_STEP = 0.05;
 /** The meter publishes every this many VAD ticks (≈ 60 ms). */
 const METER_EVERY_TICKS = 2;
 /** While hearing, a frame of mic audio goes to the transcription at most this often. */
@@ -397,11 +403,12 @@ export function startVoiceCall(options: VoiceCallOptions): VoiceCall {
 	/** Results go out in utterance order, whichever stream settles first. */
 	let delivery: Promise<void> = Promise.resolve();
 	const streams = options.streams ?? ompVoiceStreams();
+	let outputLevel = 0;
 	let lastAssistantText: string | null = null;
 	const unsubscribers: Array<() => void> = [];
 	const vad = new VoiceActivity();
 
-	const publish = (): void => options.onState({ ...state, levels });
+	const publish = (): void => options.onState({ ...state, levels, outputLevel });
 
 	function beginCapture(): void {
 		if (capture || !stream) return;
@@ -442,7 +449,11 @@ export function startVoiceCall(options: VoiceCallOptions): VoiceCall {
 
 	function startPlayback(text: string): void {
 		const target = context;
-		const started = ttsBatch || !target ? playSpeech(text) : playSpeechStream(text, streams, target);
+		const meter = outputAnalyser;
+		const started =
+			ttsBatch || !target
+				? playSpeech(text, target && meter ? { context: target, output: meter } : undefined)
+				: playSpeechStream(text, streams, target, meter ?? undefined);
 		playback = started;
 		void started.finished.then(end => {
 			if (playback !== started) return;
@@ -544,6 +555,7 @@ export function startVoiceCall(options: VoiceCallOptions): VoiceCall {
 			teardown();
 			levels = SILENT_LEVELS;
 		}
+		if (next.phase !== "speaking") outputLevel = 0;
 		publish();
 	}
 
@@ -646,9 +658,21 @@ export function startVoiceCall(options: VoiceCallOptions): VoiceCall {
 	}
 
 	let analyser: AnalyserNode | null = null;
+	let outputAnalyser: AnalyserNode | null = null;
 	let samples = new Float32Array(0);
+	let outputSamples = new Float32Array(0);
 	let bins = new Uint8Array(0);
 	let ticks = 0;
+
+	/** The reply's loudness now, quantized; 0 while nothing is speaking. */
+	function measureOutput(): number {
+		if (!outputAnalyser || state.phase !== "speaking") return 0;
+		outputAnalyser.getFloatTimeDomainData(outputSamples);
+		let sum = 0;
+		for (const sample of outputSamples) sum += sample * sample;
+		const rms = Math.sqrt(sum / Math.max(1, outputSamples.length));
+		return Math.round(Math.min(1, rms * OUTPUT_LEVEL_GAIN) / OUTPUT_LEVEL_STEP) / (1 / OUTPUT_LEVEL_STEP);
+	}
 
 	function tick(): void {
 		if (!analyser || state.phase === "starting" || state.phase === "ended") return;
@@ -664,6 +688,11 @@ export function startVoiceCall(options: VoiceCallOptions): VoiceCall {
 				levels = next;
 				publish();
 			}
+		}
+		const measured = measureOutput();
+		if (measured !== outputLevel) {
+			outputLevel = measured;
+			publish();
 		}
 		const now = Date.now();
 		const pushDue = utterance && !utterance.stream.busy && now - utterance.lastPushAt >= PUSH_EVERY_MS;
@@ -711,6 +740,11 @@ export function startVoiceCall(options: VoiceCallOptions): VoiceCall {
 			if (context.state === "suspended") void context.resume();
 			samples = new Float32Array(analyser.fftSize);
 			bins = new Uint8Array(analyser.frequencyBinCount);
+			outputAnalyser = context.createAnalyser();
+			outputAnalyser.fftSize = 512;
+			outputAnalyser.smoothingTimeConstant = 0.5;
+			outputAnalyser.connect(context.destination);
+			outputSamples = new Float32Array(outputAnalyser.fftSize);
 		} catch {
 			dispatch({ type: "fail", error: "failed" });
 			return;

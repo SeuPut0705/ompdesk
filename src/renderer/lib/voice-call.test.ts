@@ -1182,6 +1182,81 @@ describe("startVoiceCall with streaming", () => {
 		expect(vi.getTimerCount()).toBe(0);
 	});
 
+	describe("the playback level", () => {
+		const heardLevels = (): number[] => states.map(snapshot => snapshot.outputLevel);
+
+		it("follows the output analyser while the reply plays, in 0.05 steps, and is 0 otherwise", async () => {
+			const next = Promise.withResolvers<StreamReply>();
+			streams.ttsStreamNext
+				.mockImplementationOnce(async () => ok({ chunks: [CHUNK], done: false }))
+				.mockImplementationOnce(() => next.promise);
+			await startCall(streams);
+			// What the output carries before the bot speaks is not a level: the mic's phases publish none.
+			FakeAudioContext.outputLevel = 0.3;
+			await advance(CALL_TUNING.tickMs * 3);
+			expect(heardLevels().every(level => level === 0)).toBe(true);
+
+			await utterance();
+			FakeAudioContext.outputLevel = 0;
+			await botTurn(REPLY);
+			expect(phase()).toBe("speaking");
+			expect(last().outputLevel).toBe(0);
+
+			FakeAudioContext.outputLevel = 0.125;
+			await advance(CALL_TUNING.tickMs);
+			expect(last().outputLevel).toBe(0.5);
+
+			FakeAudioContext.outputLevel = 0.0713;
+			await advance(CALL_TUNING.tickMs);
+			const stepped = last().outputLevel;
+			expect(stepped).toBeCloseTo(0.3, 10);
+			expect(Math.round(stepped * 20)).toBeCloseTo(stepped * 20, 10);
+
+			FakeAudioContext.outputLevel = 2;
+			await advance(CALL_TUNING.tickMs);
+			expect(last().outputLevel).toBe(1);
+
+			// The reply ends: whatever the analyser still carries, the level is 0 outside `speaking`.
+			next.resolve(ok({ chunks: [], done: true }));
+			for (const source of audioContext().sources) source.finish();
+			await settle();
+			expect(phase()).toBe("listening");
+			await advance(CALL_TUNING.tickMs * 3);
+			expect(last().outputLevel).toBe(0);
+		});
+
+		it("plays the reply through an analyser wired to the destination", async () => {
+			await startCall(streams);
+			await utterance();
+			await botTurn(REPLY);
+			const context = audioContext();
+			expect(context.sources).toHaveLength(1);
+			expect(phase()).toBe("speaking");
+			FakeAudioContext.outputLevel = 0.1;
+			await advance(CALL_TUNING.tickMs);
+			expect(last().outputLevel).toBeGreaterThan(0);
+		});
+
+		it("meters a whole-clip reply too, by routing its audio element through the call's context", async () => {
+			streams.ttsStreamStart.mockImplementation(async () => ({
+				success: false,
+				error: "unsupported_omp",
+				code: "unsupported_omp",
+			}));
+			await startCall(streams);
+			await utterance();
+			await botTurn(REPLY);
+			expect(FakeAudio.instances).toHaveLength(1);
+			expect(audioContext().elementSources.map(source => source.element)).toEqual([FakeAudio.instances[0]]);
+			FakeAudioContext.outputLevel = 0.25;
+			await advance(CALL_TUNING.tickMs);
+			expect(last().outputLevel).toBe(1);
+			FakeAudio.instances[0]?.finish();
+			await settle();
+			expect(last().outputLevel).toBe(0);
+		});
+	});
+
 	describe("on an omp without streaming", () => {
 		const refused = (): StreamReply => ({ success: false, error: "unknown command: stt_stream_start" });
 

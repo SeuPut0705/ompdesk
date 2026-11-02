@@ -121,7 +121,7 @@ import { type SessionTab, tabAutoTitle, useTabsStore } from "../../../stores/tab
 import { toast, toastError } from "../../../stores/toast";
 import { type PageDestination, type PanelTab, useUiStore } from "../../../stores/ui";
 import { startInstall, useInstallOffered } from "../../../web/install-ui";
-import { BotAvatar } from "../../bot/BotAvatar";
+import { LiveBotAvatar } from "../../bot/BotAvatar";
 import { BotDecisionsBadge } from "../../bot/BotDecisionsBadge";
 import { botState, botStateKey, nextWake, tabBotFacts } from "../../bot/bot-status";
 import {
@@ -1834,21 +1834,8 @@ export function Sidebar() {
 		// Anything that needs the person is the warning signal; a failed run is the danger one.
 		const signal = waiting ? "waiting" : running ? "running" : failed ? "error" : undefined;
 		const WorktreeMark = worktree?.kind === "autopilot" ? Rocket : GitBranch;
-		const marker: ReactNode = done ? (
-			<Check aria-hidden className="size-(--sc-icon-sm) text-(--sc-success)" data-sidebar-done />
-		) : bot ? (
-			<BotAvatar avatar={botDesk.identity.avatar} data-sidebar-bot label={t("sidebar.botBadge")} size="inline" />
-		) : session.kind === "chat" ? (
-			<MessageCircle aria-hidden className="size-(--sc-icon-sm)" data-sidebar-session-icon />
-		) : pinned ? (
-			<Pin aria-label={t("sidebar.pinned")} className="size-(--sc-icon-sm)" />
-		) : worktree ? (
-			<WorktreeMark aria-hidden className="size-(--sc-icon-sm)" data-sidebar-worktree={worktree.kind} />
-		) : fork ? (
-			<GitFork aria-hidden className="size-(--sc-icon-sm)" data-sidebar-fork />
-		) : null;
-		// The bot's state and next wake in words (its row's tooltip and screen-reader text; the home says them too), and
-		// the decisions waiting on the owner, which take the age slot unless the row's own prompt does.
+		// The bot's state in the words of its row's tooltip and screen-reader text (the home says them too), and as the
+		// motion of its avatar.
 		const botCondition = bot
 			? botState(
 					tab
@@ -1861,6 +1848,27 @@ export function Sidebar() {
 							},
 				)
 			: null;
+		const marker: ReactNode = done ? (
+			<Check aria-hidden className="size-(--sc-icon-sm) text-(--sc-success)" data-sidebar-done />
+		) : botCondition ? (
+			<LiveBotAvatar
+				avatar={botDesk.identity.avatar}
+				data-sidebar-bot
+				label={t("sidebar.botBadge")}
+				size="inline"
+				state={botCondition}
+				tabId={tab?.id}
+			/>
+		) : session.kind === "chat" ? (
+			<MessageCircle aria-hidden className="size-(--sc-icon-sm)" data-sidebar-session-icon />
+		) : pinned ? (
+			<Pin aria-label={t("sidebar.pinned")} className="size-(--sc-icon-sm)" />
+		) : worktree ? (
+			<WorktreeMark aria-hidden className="size-(--sc-icon-sm)" data-sidebar-worktree={worktree.kind} />
+		) : fork ? (
+			<GitFork aria-hidden className="size-(--sc-icon-sm)" data-sidebar-fork />
+		) : null;
+		// The decisions waiting on the owner take the age slot unless the row's own prompt does.
 		const botWake = bot ? nextWake(botDesk.routines) : null;
 		const botLine = botCondition
 			? [t(botStateKey(botCondition)), botWake ? t("botHome.nextWake", { time: formatClock(botWake) }) : null]

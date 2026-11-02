@@ -16,7 +16,7 @@ import {
 	startVoiceCall,
 	type VoiceCall,
 } from "../../lib/voice-call";
-import { useBotCallStore } from "../../stores/bot-call";
+import { publishCallLevel, useBotCallStore } from "../../stores/bot-call";
 import { toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { Button, IconButton, LinkButton } from "../common";
@@ -61,7 +61,11 @@ export function BotCallBar({ tabId }: { tabId: string }) {
 	const rpcRef = useRef(rpc);
 	rpcRef.current = rpc;
 	const callRef = useRef<VoiceCall | null>(null);
-	const [snapshot, setSnapshot] = useState<CallSnapshot>({ ...INITIAL_CALL_STATE, levels: QUIET_LEVELS });
+	const [snapshot, setSnapshot] = useState<CallSnapshot>({
+		...INITIAL_CALL_STATE,
+		levels: QUIET_LEVELS,
+		outputLevel: 0,
+	});
 
 	useEffect(() => {
 		let cancelled = false;
@@ -74,7 +78,10 @@ export function BotCallBar({ tabId }: { tabId: string }) {
 				return response.success;
 			},
 			onState: next => {
-				if (!cancelled) setSnapshot(next);
+				if (cancelled) return;
+				setSnapshot(next);
+				useBotCallStore.getState().setSpeaking(tabId, next.phase === "speaking");
+				publishCallLevel(next.phase === "speaking" ? next.outputLevel : 0);
 			},
 		});
 		callRef.current = call;
@@ -82,6 +89,8 @@ export function BotCallBar({ tabId }: { tabId: string }) {
 			cancelled = true;
 			callRef.current = null;
 			call.end();
+			useBotCallStore.getState().setSpeaking(tabId, false);
+			publishCallLevel(0);
 		};
 	}, [tabId]);
 

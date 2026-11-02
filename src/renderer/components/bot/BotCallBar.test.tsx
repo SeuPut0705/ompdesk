@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vite
 import { I18nProvider, translate } from "../../lib/i18n";
 import type * as VoiceCallModule from "../../lib/voice-call";
 import type { CallPhase, CallSnapshot, VoiceCallOptions } from "../../lib/voice-call";
-import { useBotCallStore } from "../../stores/bot-call";
+import { subscribeCallLevel, useBotCallStore } from "../../stores/bot-call";
 import { useUiStore } from "../../stores/ui";
 import { BotCallBar } from "./BotCallBar";
 
@@ -42,6 +42,7 @@ const snapshot = (over: Partial<CallSnapshot> = {}): CallSnapshot => ({
 	pending: null,
 	playing: null,
 	levels: [0, 0, 0, 0, 0],
+	outputLevel: 0,
 	...over,
 });
 
@@ -115,6 +116,28 @@ describe("BotCallBar", () => {
 		await act(async () => root.render(<div />));
 		expect(call.end).toHaveBeenCalledTimes(1);
 		await act(async () => root.render(<div />));
+	});
+
+	it("tells the avatars the reply plays and how loud, and lets go of both when the call ends", async () => {
+		const levels: number[] = [];
+		const unsubscribe = subscribeCallLevel(level => levels.push(level));
+		await mountBar();
+		await publish({ phase: "listening", outputLevel: 0.7 });
+		expect(useBotCallStore.getState().speaking).toBe(false);
+		expect(levels.at(-1)).toBe(0);
+
+		await publish({ phase: "speaking", outputLevel: 0.45 });
+		expect(useBotCallStore.getState().speaking).toBe(true);
+		expect(levels.at(-1)).toBe(0.45);
+
+		await publish({ phase: "listening", outputLevel: 0 });
+		expect(useBotCallStore.getState().speaking).toBe(false);
+
+		await publish({ phase: "speaking", outputLevel: 0.9 });
+		await act(async () => root.render(<div />));
+		expect(useBotCallStore.getState().speaking).toBe(false);
+		expect(levels.at(-1)).toBe(0);
+		unsubscribe();
 	});
 
 	it("says each phase in words and carries it on the bar", async () => {

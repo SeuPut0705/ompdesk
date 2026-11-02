@@ -97,6 +97,8 @@ export class FakeAudioContext {
 	static instances: FakeAudioContext[] = [];
 	/** The mic's instantaneous level (every time-domain sample), which the voice call's VAD reads as RMS; tests move it. */
 	static level = 0;
+	/** The same for the analyser wired to the destination, which meters what the context plays. */
+	static outputLevel = 0;
 	readonly sampleRate = 48_000;
 	/** Moved by the test; reply chunks are scheduled against it. */
 	currentTime = 0;
@@ -109,13 +111,26 @@ export class FakeAudioContext {
 		FakeAudioContext.instances.push(this);
 	}
 	createAnalyser() {
+		let metersOutput = false;
 		return {
 			fftSize: 0,
 			smoothingTimeConstant: 0,
 			frequencyBinCount: 128,
+			connect: (node: unknown) => {
+				metersOutput = node === this.destination;
+			},
+			disconnect: () => undefined,
 			getByteFrequencyData: (bins: Uint8Array) => bins.fill(SPECTRUM_LEVEL),
-			getFloatTimeDomainData: (samples: Float32Array) => samples.fill(FakeAudioContext.level),
+			getFloatTimeDomainData: (samples: Float32Array) =>
+				samples.fill(metersOutput ? FakeAudioContext.outputLevel : FakeAudioContext.level),
 		};
+	}
+	/** Every media element routed into the context, oldest first. */
+	readonly elementSources: Array<{ element: unknown; connect: () => void; disconnect: () => void }> = [];
+	createMediaElementSource(element: unknown) {
+		const source = { element, connect: () => undefined, disconnect: () => undefined };
+		this.elementSources.push(source);
+		return source;
 	}
 	createMediaStreamSource() {
 		return { connect: () => undefined, disconnect: () => undefined };
@@ -184,6 +199,7 @@ export function installFakeMic(): FakeMic {
 	FakeMediaRecorder.nextChunks = [AUDIO_CHUNK];
 	FakeAudioContext.instances = [];
 	FakeAudioContext.level = 0;
+	FakeAudioContext.outputLevel = 0;
 	FakeOfflineAudioContext.last = null;
 	vi.stubGlobal("MediaRecorder", FakeMediaRecorder);
 	vi.stubGlobal("AudioContext", FakeAudioContext);

@@ -1,0 +1,378 @@
+/* The bot's avatar in motion (components/bot/BotAvatar.tsx, motion words in bot-motion.ts). Only transform and opacity
+   animate, so the compositor draws each frame and nothing repaints; every loop is `infinite`, so lib/cue-clock.ts holds
+   them at ten frames a second while the window is unfocused. Every duration and amplitude is a custom property below,
+   declared once, so a motion-token system can retime them. The root's box never changes with the motion: the ring is
+   absolutely positioned outside it, and the face lives inside the mark's own 24 x 24 grid (lengths in px there are grid
+   units).
+
+   The rules outside the keyframes are the still poses: each state reads by its shape and not only by its movement, so
+   reduced motion and software compositing (`html[data-gpu="software"]`) only switch the animations and the voice
+   level off (bottom of the file). A hidden window rests them (`data-paused`). */
+
+.omp-bot-avatar {
+	/* Positioned (its ring sits outside the box), so it would paint over a row's full-size click target (`ListRow`'s
+	   button ::after) and swallow the click: the avatar is never a target itself. */
+	pointer-events: none;
+	/* Breathing and blinking (idle, and slower asleep). */
+	--bot-motion-breathe-period: 4s;
+	--bot-motion-breathe-scale: 1.03;
+	--bot-motion-blink-period: 4.6s;
+	--bot-motion-blink-squash: 0.1;
+	/* Working: the body's bob and tilt, the eyes glancing side to side, a picture's arc circling. */
+	--bot-motion-work-period: 1.6s;
+	--bot-motion-work-bob: -0.9px;
+	--bot-motion-work-tilt: 4deg;
+	--bot-motion-glance-period: 2.8s;
+	--bot-motion-glance-shift: 1.1px;
+	--bot-motion-arc-period: 1.4s;
+	/* Waiting for the owner: one ring pulse, eyes wide and up. */
+	--bot-motion-wait-period: 2.4s;
+	--bot-motion-wait-ring-scale: 1.3;
+	--bot-motion-wait-eye-scale: 1.2;
+	--bot-motion-wait-eye-lift: -0.6px;
+	/* Asleep and reconnecting: dimmed, and the slow movements that say it is not gone. */
+	--bot-motion-sleep-opacity: 0.55;
+	--bot-motion-sleep-period: 6s;
+	--bot-motion-sleep-scale: 1.02;
+	--bot-motion-reconnect-period: 2.2s;
+	--bot-motion-reconnect-low: 0.35;
+	--bot-motion-reconnect-high: 0.65;
+	/* Speaking: the body's and the ring's growth and the mouth's opening at full level; the talk loop for no level. */
+	--bot-motion-voice-scale: 0.06;
+	--bot-motion-voice-ring: 0.14;
+	--bot-motion-voice-mouth: 1.1;
+	--bot-motion-voice-lag: 0.09s;
+	--bot-motion-talk-period: 0.55s;
+	/* The ring around the box: how far it sits outside, its stroke, the soft aura around a picture. */
+	--bot-motion-ring-inset: -2px;
+	--bot-motion-ring-width: 1.5px;
+	--bot-motion-aura-period: 4s;
+	--bot-motion-aura-blur: 6px;
+	--bot-ring: var(--sc-accent);
+	/* The call's playback level, 0 to 1, written by BotAvatar while speaking. */
+	--bot-voice: 0;
+}
+
+/* The face: the outline, its eyes and its mouth, each its own element. */
+.omp-bot-mark {
+	overflow: visible;
+}
+
+.omp-bot-body {
+	transform-box: view-box;
+	transform-origin: 50% 50%;
+}
+
+.omp-bot-eye,
+.omp-bot-talk {
+	transform-box: fill-box;
+	transform-origin: 50% 50%;
+}
+
+.omp-bot-talk {
+	opacity: 0;
+	transform: scaleY(0.2);
+}
+
+/* The picture and its ring. */
+.omp-bot-picture {
+	transform-origin: 50% 50%;
+}
+
+.omp-bot-ring {
+	position: absolute;
+	inset: var(--bot-motion-ring-inset);
+	border: var(--bot-motion-ring-width) solid transparent;
+	border-radius: inherit;
+	opacity: 0;
+	pointer-events: none;
+}
+
+/* The arc is the ring's stroke with a gradient circling behind it: the mask keeps only the ring's width, so the arc
+   follows the box's corners while a square turns inside. */
+.omp-bot-arc {
+	position: absolute;
+	inset: calc(var(--bot-motion-ring-width) * -1);
+	padding: var(--bot-motion-ring-width);
+	border-radius: inherit;
+	overflow: hidden;
+	opacity: 0;
+	-webkit-mask:
+		linear-gradient(#000 0 0) content-box,
+		linear-gradient(#000 0 0);
+	-webkit-mask-composite: xor;
+	mask:
+		linear-gradient(#000 0 0) content-box,
+		linear-gradient(#000 0 0);
+	mask-composite: exclude;
+}
+
+.omp-bot-arc::before {
+	content: "";
+	position: absolute;
+	inset: -50%;
+	background: conic-gradient(from 0deg, transparent 0 58%, var(--bot-ring) 100%);
+}
+
+/* ---- Idle: breathing, and a blink now and then. ---- */
+.omp-bot-avatar[data-bot-motion="idle"] .omp-bot-body {
+	animation: omp-bot-breathe var(--bot-motion-breathe-period) ease-in-out infinite;
+}
+
+.omp-bot-avatar[data-bot-motion="idle"] .omp-bot-eye {
+	animation: omp-bot-blink var(--bot-motion-blink-period) ease-in-out infinite;
+}
+
+/* A picture's soft aura. */
+.omp-bot-avatar[data-bot-avatar="image"][data-bot-motion="idle"] .omp-bot-ring {
+	box-shadow: 0 0 var(--bot-motion-aura-blur) 1px color-mix(in srgb, var(--bot-ring) 55%, transparent);
+	opacity: 0.55;
+	animation: omp-bot-aura var(--bot-motion-aura-period) ease-in-out infinite;
+}
+
+/* ---- Working: a bob and a tilt, the eyes glancing; a picture gets the circling arc. ---- */
+.omp-bot-avatar[data-bot-motion="working"] .omp-bot-body {
+	animation: omp-bot-bob var(--bot-motion-work-period) ease-in-out infinite;
+}
+
+.omp-bot-avatar[data-bot-motion="working"] .omp-bot-eyes {
+	animation: omp-bot-glance var(--bot-motion-glance-period) ease-in-out infinite;
+}
+
+.omp-bot-avatar[data-bot-avatar="image"][data-bot-motion="working"] :is(.omp-bot-ring, .omp-bot-arc) {
+	opacity: 1;
+}
+
+.omp-bot-avatar[data-bot-avatar="image"][data-bot-motion="working"] .omp-bot-arc::before {
+	animation: omp-bot-spin var(--bot-motion-arc-period) linear infinite;
+}
+
+/* ---- Waiting for the owner: eyes wide and up, a ring that goes out and fades. ---- */
+.omp-bot-avatar[data-bot-motion="waiting"] {
+	--bot-ring: var(--sc-warning);
+}
+
+.omp-bot-avatar[data-bot-motion="waiting"] .omp-bot-eye {
+	transform: translateY(var(--bot-motion-wait-eye-lift)) scale(var(--bot-motion-wait-eye-scale));
+}
+
+.omp-bot-avatar[data-bot-motion="waiting"] .omp-bot-ring {
+	border-color: var(--bot-ring);
+	opacity: 0.7;
+	transform: scale(1.1);
+	animation: omp-bot-pulse var(--bot-motion-wait-period) ease-out infinite;
+}
+
+/* ---- Asleep: dimmed, eyes closed (drawn as a line by the component), slow breathing. ---- */
+.omp-bot-avatar[data-bot-motion="asleep"] :is(.omp-bot-mark, .omp-bot-picture) {
+	opacity: var(--bot-motion-sleep-opacity);
+}
+
+.omp-bot-avatar[data-bot-motion="asleep"] .omp-bot-body {
+	animation: omp-bot-sleep var(--bot-motion-sleep-period) ease-in-out infinite;
+}
+
+/* ---- Reconnecting: dimmed, a slow pulse. ---- */
+.omp-bot-avatar[data-bot-motion="reconnecting"] :is(.omp-bot-mark, .omp-bot-picture) {
+	opacity: calc((var(--bot-motion-reconnect-low) + var(--bot-motion-reconnect-high)) / 2);
+	animation: omp-bot-dim var(--bot-motion-reconnect-period) ease-in-out infinite;
+}
+
+/* ---- Speaking: the mouth opens and the body and ring swell with the level; a talk loop where none arrives. ---- */
+.omp-bot-avatar[data-bot-motion="speaking"] .omp-bot-smile {
+	opacity: 0;
+}
+
+.omp-bot-avatar[data-bot-motion="speaking"] .omp-bot-talk {
+	opacity: 1;
+	transform: scaleY(0.6);
+}
+
+.omp-bot-avatar[data-bot-motion="speaking"]:not([data-bot-voiced]) .omp-bot-body {
+	animation: omp-bot-chatter var(--bot-motion-talk-period) ease-in-out infinite;
+}
+
+.omp-bot-avatar[data-bot-motion="speaking"]:not([data-bot-voiced]) .omp-bot-talk {
+	animation: omp-bot-chatter-mouth var(--bot-motion-talk-period) ease-in-out infinite;
+}
+
+.omp-bot-avatar[data-bot-motion="speaking"][data-bot-voiced] .omp-bot-body {
+	transform: scale(calc(1 + var(--bot-voice) * var(--bot-motion-voice-scale)));
+	transition: transform var(--bot-motion-voice-lag) linear;
+}
+
+.omp-bot-avatar[data-bot-motion="speaking"][data-bot-voiced] .omp-bot-talk {
+	transform: scaleY(calc(0.25 + var(--bot-voice) * var(--bot-motion-voice-mouth)));
+	transition: transform var(--bot-motion-voice-lag) linear;
+}
+
+.omp-bot-avatar[data-bot-avatar="image"][data-bot-motion="speaking"] .omp-bot-ring {
+	border-color: var(--bot-ring);
+	opacity: 0.85;
+}
+
+.omp-bot-avatar[data-bot-avatar="image"][data-bot-motion="speaking"]:not([data-bot-voiced]) .omp-bot-ring {
+	animation: omp-bot-aura var(--bot-motion-talk-period) ease-in-out infinite;
+}
+
+.omp-bot-avatar[data-bot-avatar="image"][data-bot-motion="speaking"][data-bot-voiced] .omp-bot-ring {
+	transform: scale(calc(1 + var(--bot-voice) * var(--bot-motion-voice-ring)));
+	transition: transform var(--bot-motion-voice-lag) linear;
+}
+
+/* ---- The keyframes. ---- */
+@keyframes omp-bot-breathe {
+	0%,
+	100% {
+		transform: scale(1);
+	}
+	50% {
+		transform: scale(var(--bot-motion-breathe-scale));
+	}
+}
+
+@keyframes omp-bot-sleep {
+	0%,
+	100% {
+		transform: scale(1);
+	}
+	50% {
+		transform: scale(var(--bot-motion-sleep-scale));
+	}
+}
+
+@keyframes omp-bot-blink {
+	0%,
+	90%,
+	100% {
+		transform: scaleY(1);
+	}
+	95% {
+		transform: scaleY(var(--bot-motion-blink-squash));
+	}
+}
+
+@keyframes omp-bot-bob {
+	0%,
+	100% {
+		transform: translateY(0) rotate(calc(var(--bot-motion-work-tilt) * -1));
+	}
+	50% {
+		transform: translateY(var(--bot-motion-work-bob)) rotate(var(--bot-motion-work-tilt));
+	}
+}
+
+@keyframes omp-bot-glance {
+	0%,
+	100% {
+		transform: translateX(0);
+	}
+	25% {
+		transform: translateX(calc(var(--bot-motion-glance-shift) * -1));
+	}
+	75% {
+		transform: translateX(var(--bot-motion-glance-shift));
+	}
+}
+
+@keyframes omp-bot-pulse {
+	0% {
+		opacity: 0.85;
+		transform: scale(0.94);
+	}
+	70%,
+	100% {
+		opacity: 0;
+		transform: scale(var(--bot-motion-wait-ring-scale));
+	}
+}
+
+@keyframes omp-bot-aura {
+	0%,
+	100% {
+		opacity: 0.3;
+		transform: scale(1);
+	}
+	50% {
+		opacity: 0.85;
+		transform: scale(1.05);
+	}
+}
+
+@keyframes omp-bot-dim {
+	0%,
+	100% {
+		opacity: var(--bot-motion-reconnect-high);
+	}
+	50% {
+		opacity: var(--bot-motion-reconnect-low);
+	}
+}
+
+@keyframes omp-bot-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@keyframes omp-bot-chatter {
+	0%,
+	100% {
+		transform: scale(1);
+	}
+	50% {
+		transform: scale(calc(1 + var(--bot-motion-voice-scale) * 0.4));
+	}
+}
+
+@keyframes omp-bot-chatter-mouth {
+	0%,
+	100% {
+		transform: scaleY(0.3);
+	}
+	35% {
+		transform: scaleY(1);
+	}
+	65% {
+		transform: scaleY(0.5);
+	}
+}
+
+/* A hidden window draws nothing, so the loops rest. The shorthand in each motion's rule would reset the play state, and
+   its selector is the more specific one: hence !important here and in the still block below. */
+.omp-bot-avatar[data-paused] *,
+.omp-bot-avatar[data-paused] *::before {
+	animation-play-state: paused !important;
+}
+
+/* Still: no loop runs and the level moves nothing. The poses above hold: asleep dim with its eyes shut, waiting with
+   its ring drawn, a picture's arc drawn at rest, reconnecting dim, speaking with the mouth open. */
+@media (prefers-reduced-motion: reduce) {
+	.omp-bot-avatar *,
+	.omp-bot-avatar *::before {
+		animation: none !important;
+		transition: none !important;
+	}
+
+	.omp-bot-avatar[data-bot-motion="speaking"] :is(.omp-bot-body, .omp-bot-ring) {
+		transform: none !important;
+	}
+
+	.omp-bot-avatar[data-bot-motion="speaking"] .omp-bot-talk {
+		transform: scaleY(0.6) !important;
+	}
+}
+
+html[data-gpu="software"] .omp-bot-avatar *,
+html[data-gpu="software"] .omp-bot-avatar *::before {
+	animation: none !important;
+	transition: none !important;
+}
+
+html[data-gpu="software"] .omp-bot-avatar[data-bot-motion="speaking"] :is(.omp-bot-body, .omp-bot-ring) {
+	transform: none !important;
+}
+
+html[data-gpu="software"] .omp-bot-avatar[data-bot-motion="speaking"] .omp-bot-talk {
+	transform: scaleY(0.6) !important;
+}

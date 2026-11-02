@@ -16,8 +16,12 @@ import { isImeKeyEvent } from "../../lib/ime";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { useNowTick } from "../../lib/now-tick";
 import { useBotDesk, useBotDeskStore, useOpenBotDecisions } from "../../stores/bot-desk";
+import { useTabsStore } from "../../stores/tabs";
 import { DockCard } from "../chat/dock/DockCard";
 import { Badge, Button, DisclosureButton, InlineNotice, Input, TextArea } from "../common";
+import { LiveBotAvatar } from "./BotAvatar";
+import { botState, tabBotFacts } from "./bot-status";
+import { useBotTab } from "./bot-tab";
 
 /** Lists, headings, fences, quotes, emphasis, code spans and links: anything else reads best as the plain text it is. */
 const MARKDOWN_HINT = /(^|\n)\s{0,3}(#{1,6}\s|[-*+]\s|\d+[.)]\s|>|```)|\*\*|`[^`\n]+`|\]\(/;
@@ -199,9 +203,11 @@ function DecisionCard({ decision, device }: { decision: BotDecision; device?: st
 /** The open decisions above the composer, in the transcript's column; nothing while none is open. */
 export function BotDecisionDock({ device }: { device?: string }) {
 	const t = useT();
-	const { loaded, loadError } = useBotDesk(device);
+	const { desk, loaded, loadError } = useBotDesk(device);
 	const refresh = useBotDeskStore(state => state.refresh);
 	const open = useOpenBotDecisions(device);
+	const bot = useBotTab();
+	const state = botState(tabBotFacts(useTabsStore(store => store.tabs.find(tab => tab.id === bot?.tabId))));
 	if (!loaded && loadError)
 		return (
 			<div className="omp-bot-column shrink-0 pt-2" data-bot-decisions-dock>
@@ -224,6 +230,18 @@ export function BotDecisionDock({ device }: { device?: string }) {
 		<div className="omp-bot-column shrink-0 pt-2" data-bot-decisions-dock>
 			<div className="omp-composer-shell">
 				<DockCard
+					actions={
+						bot ? (
+							<LiveBotAvatar
+								avatar={desk.identity.avatar}
+								data-bot-decisions-avatar
+								device={device}
+								size="inline"
+								state={state}
+								tabId={bot.tabId}
+							/>
+						) : undefined
+					}
 					badge={<Badge variant="warning">{open.length}</Badge>}
 					icon={Inbox}
 					id="decisions"

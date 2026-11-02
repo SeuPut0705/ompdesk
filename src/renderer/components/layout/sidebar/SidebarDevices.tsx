@@ -68,8 +68,9 @@ import { type SessionTab, tabChipLabel, useTabsStore } from "../../../stores/tab
 import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
 import { webPwa } from "../../../web/pwa";
-import { BotAvatar } from "../../bot/BotAvatar";
+import { LiveBotAvatar } from "../../bot/BotAvatar";
 import { BotDecisionsBadge } from "../../bot/BotDecisionsBadge";
+import { botState, tabBotFacts } from "../../bot/bot-status";
 import { Button, IconButton, InlineNotice, ListRow, Spinner } from "../../common";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuItem, MenuButton } from "../../common/ContextMenu";
@@ -955,7 +956,19 @@ function DeviceSessions({
 		const list = listOf(session);
 		const pinned = hostPins.includes(session.path);
 		const marker = bot ? (
-			<BotAvatar avatar={hostDesk.identity.avatar} data-sidebar-bot label={t("sidebar.botBadge")} size="inline" />
+			<LiveBotAvatar
+				avatar={hostDesk.identity.avatar}
+				data-sidebar-bot
+				device={host.deviceId}
+				label={t("sidebar.botBadge")}
+				size="inline"
+				state={botState(
+					known
+						? tabBotFacts(known)
+						: { open: live !== undefined, asleep: false, waiting: live === "waiting", running },
+				)}
+				tabId={tab?.id}
+			/>
 		) : (
 			(chat ?? (pinned ? <Pin aria-label={t("sidebar.pinned")} className="size-(--sc-icon-sm)" /> : null))
 		);

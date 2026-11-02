@@ -346,11 +346,18 @@ export interface SpeechPlayback {
 	readonly finished: Promise<SpeechEnd>;
 }
 
+/** Where a clip's audio element plays: through `output` on `context` (the call's level meter) instead of the page's own output. */
+export interface SpeechRoute {
+	context: AudioContext;
+	output: AudioNode;
+}
+
 /**
  * Synthesize `text` on the sidecar's local TTS and play it, stoppable at any moment. Nothing here is streamed: the
- * bridge answers with the whole clip, so the first sound waits for the full synthesis.
+ * bridge answers with the whole clip, so the first sound waits for the full synthesis. With a `route` the clip's audio
+ * element plays through that node, so the caller can meter it; without one it plays as it always did.
  */
-export function playSpeech(text: string): SpeechPlayback {
+export function playSpeech(text: string, route?: SpeechRoute): SpeechPlayback {
 	let stopped = false;
 	let audio: HTMLAudioElement | null = null;
 	let release = (): void => {};
@@ -370,6 +377,15 @@ export function playSpeech(text: string): SpeechPlayback {
 				playback.resolve();
 			};
 			audio = new Audio(url);
+			if (route) {
+				const routed = route.context.createMediaElementSource(audio);
+				routed.connect(route.output);
+				const unrouted = release;
+				release = (): void => {
+					routed.disconnect();
+					unrouted();
+				};
+			}
 			audio.onended = release;
 			audio.onerror = release;
 			// Autoplay-policy rejections are not user-facing failures.

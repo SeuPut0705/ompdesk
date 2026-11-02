@@ -297,9 +297,15 @@ const SPEECH_LEAD_SECONDS = 0.03;
 /**
  * Synthesize `text` as a stream and play each chunk as it arrives: the chunks are scheduled gaplessly on `context` (each
  * source starts where the last one ends), so the first sound waits only for the first chunk. Playback ends when the
- * stream is done and its last source ended.
+ * stream is done and its last source ended. The chunks go to `output` (the call's level meter, which feeds the
+ * speakers itself), else straight to the context's destination.
  */
-export function playSpeechStream(text: string, streams: VoiceStreams, context: AudioContext): StreamSpeechPlayback {
+export function playSpeechStream(
+	text: string,
+	streams: VoiceStreams,
+	context: AudioContext,
+	output: AudioNode = context.destination,
+): StreamSpeechPlayback {
 	let stopped = false;
 	let streamId: string | null = null;
 	let endsAt = 0;
@@ -328,7 +334,7 @@ export function playSpeechStream(text: string, streams: VoiceStreams, context: A
 		for (let i = 0; i < pcm.length; i += 1) samples[i] = pcm[i]! / 32_768;
 		const source = context.createBufferSource();
 		source.buffer = buffer;
-		source.connect(context.destination);
+		source.connect(output);
 		const ended = Promise.withResolvers<void>();
 		source.onended = () => {
 			live.delete(source);
