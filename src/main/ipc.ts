@@ -1512,6 +1512,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			if (sessionPath) deps.hostedTabs.agentReviewChanged(sessionPath, review);
 		},
 		mailOutboxFile: path.join(app.getPath("userData"), "mail-outbox.json"),
+		sendOutboxFile: path.join(app.getPath("userData"), "send-outbox.json"),
 		callJournalFile: path.join(app.getPath("userData"), "agent-control-calls.json"),
 		deviceName: id => remoteDevices.state().hosts.find(host => host.deviceId === id)?.name ?? id,
 		sessions: {

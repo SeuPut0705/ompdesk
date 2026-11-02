@@ -17,6 +17,7 @@ const botCommand = z.object({
 	identity: z.string().max(4_000).optional(),
 	channel: z.string().max(200).optional(),
 });
+const sentCommand = z.object({ marks: z.array(z.string().min(1).max(200)).min(1).max(100) });
 const judgeCommand = z.object({ system: z.string().min(1).max(20_000), user: z.string().min(1).max(200_000) });
 const mailCommand = z.object({
 	content: z.string().min(1).max(200_000),
@@ -73,6 +74,14 @@ export const handlers: Record<string, LocalHandler> = {
 	agent_control_mail: async (command, ctx) => {
 		const mail = mailCommand.parse(command);
 		return ctx.bridge.request("agent_control.mail", mail);
+	},
+	/**
+	 * Which message markers main sent this session (`[ompdesk dispatch d2:`, `[ompdesk request <id>]`) its journal
+	 * holds, and which omp process answers (`{instance, journaled}`): main sends a message again only to a new omp.
+	 */
+	agent_control_sent: async (command, ctx) => {
+		const { marks } = sentCommand.parse(command);
+		return ctx.bridge.request("agent_control.sent", { marks });
 	},
 	/** The other live sessions in this session's worktree or repository (the work board's "same checkout" row). */
 	get_checkout_peers: async (_command, ctx) => ctx.bridge.request("checkout_peers.get", {}),

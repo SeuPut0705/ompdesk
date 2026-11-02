@@ -25,3 +25,36 @@ export function hasMailEntry(entries: readonly unknown[], id: string): boolean {
 		return typeof details === "object" && details !== null && "id" in details && details.id === id;
 	});
 }
+
+/**
+ * The marker a message an opener sends its child carries (`[ompdesk dispatch d2: …]`, src/main/agent-control
+ * `withDispatch`): the dispatch alone names that message among the child's.
+ */
+export function dispatchMark(dispatch: string): string {
+	return `[ompdesk dispatch ${dispatch}:`;
+}
+
+/** The marker of a message sent with a request id (`[ompdesk request <id>]`): it names that one message. */
+export function requestMark(id: string): string {
+	return `[ompdesk request ${id}]`;
+}
+
+/**
+ * The `marks` a session's journal holds in a prompt it took (a stock user message entry, `{type: "message", message:
+ * {role: "user", content}}`): what tells main a message it sent arrived, whichever omp of the session took it.
+ */
+export function journaledMarks(entries: readonly unknown[], marks: readonly string[]): string[] {
+	const texts: string[] = [];
+	for (const entry of entries) {
+		if (typeof entry !== "object" || entry === null || !("type" in entry) || entry.type !== "message") continue;
+		const message = "message" in entry ? entry.message : undefined;
+		if (typeof message !== "object" || message === null || !("role" in message) || message.role !== "user") continue;
+		const content = "content" in message ? message.content : undefined;
+		if (typeof content === "string") texts.push(content);
+		else if (Array.isArray(content))
+			for (const part of content)
+				if (typeof part === "object" && part !== null && "text" in part && typeof part.text === "string")
+					texts.push(part.text);
+	}
+	return marks.filter(mark => texts.some(text => text.includes(mark)));
+}

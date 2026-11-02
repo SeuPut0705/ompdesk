@@ -119,6 +119,7 @@ import {
 import { CallJournal } from "./call-journal";
 import { type Mail, type MailDelivery, mailDetails, mailText } from "./mail";
 import { MailOutbox, redeliverMail } from "./mail-outbox";
+import { SendOutbox, type SentAnswer } from "./send-outbox";
 import {
 	AgentControl,
 	type AgentControlHost,
@@ -151,6 +152,8 @@ const REVIEW_SETTLE_MS = 400;
 const SWEEP_SETTLE_MS = 1_000;
 /** Opened sessions are looked at this often even without activity (a merge or push elsewhere moves no tab). */
 const SWEEP_INTERVAL_MS = 10_000;
+/** A receiver's bridge answers which messages its journal holds within this (a socket request, no omp command queue). */
+const SENT_MARKS_TIMEOUT_MS = 8_000;
 
 /** What a tab this computer runs for a paired device does now, by `LocalHostServices.liveSessions`' rule; unknown before it is up. */
 function hostedWork(session: IpcHostedSession): StoredWork | undefined {
@@ -218,6 +221,8 @@ export interface AgentControlHostDeps {
 	reviewSent?: (callerTabId: string, review: AgentReviewResult) => void;
 	/** Where accepted reports wait for their receiver's journal (`mail-outbox.ts`); absent: kept in memory only. */
 	mailOutboxFile?: string | null;
+	/** Where sent messages wait for their receiver's journal (`send-outbox.ts`); absent: kept in memory only. */
+	sendOutboxFile?: string | null;
 	/** Where the control-tool calls that change something are recorded (`call-journal.ts`); absent: in memory only. */
 	callJournalFile?: string | null;
 	/** One line of the runtime log (`gui-runtime.jsonl`) about the bot. */
@@ -364,6 +369,9 @@ export class AgentControlRuntime {
 	/** Control-tool calls by their identity, so one a paired host re-sends after a relaunch runs once. */
 	readonly #calls: CallJournal;
 	#redelivering = false;
+	/** Messages sent with `ompdesk_session_send` until the receiver's journal holds them (`send-outbox.ts`). */
+	readonly #sends: SendOutbox;
+	#resending = false;
 	/** A pass was asked for while one ran (the bot was resumed): it runs once more when that one ends. */
 	#redeliverAgain = false;
 	/** Callers outside OMPdesk by id (`runOutside`), kept while the app runs: their sessions' provenance. */
@@ -382,6 +390,7 @@ export class AgentControlRuntime {
 		this.#deps = deps;
 		this.#loggedRules = botRulesText(parseBotRules(deps.prefs.get(BOT_RULES_PREF)));
 		this.#outbox = new MailOutbox(deps.mailOutboxFile ?? null);
+		this.#sends = new SendOutbox(deps.sendOutboxFile ?? null);
 		this.#calls = new CallJournal(deps.callJournalFile ?? null);
 		this.control = new AgentControl(this.#host());
 		this.#bot = new BotFeed(this.#botDeps());
@@ -466,6 +475,7 @@ export class AgentControlRuntime {
 			setInterval(() => {
 				this.#sweepAll();
 				this.#redeliverMail();
+				this.#redeliverSends();
 				void this.#bot.role();
 			}, every).unref();
 	}
@@ -1453,23 +1463,39 @@ export class AgentControlRuntime {
 					for (const listener of this.#outsideMail) listener(tabId, content);
 					return;
 				}
-				const answer = await this.#sendMail(tabId, content, details, delivery);
-				const id = details.id;
-				if (typeof id !== "string" || (answer?.duplicate && answer.journaled)) return;
 				// A queued aside is journaled at the receiver's next step boundary (or when a quit disposes it); a killed
-				// omp loses it. Keep it until the receiver's journal holds it, and send it again to whatever omp replaces it.
+				// omp loses it, and one restarting cannot take it at all. Kept before it is sent, until the receiver's
+				// journal holds it, and sent again to whatever omp holds the receiver's session next.
+				const id = details.id;
 				const win = this.#win(tabId);
 				const info = win ? deps.pool.tabsForWindow(win).find(entry => entry.tabId === tabId) : undefined;
-				if (info?.sessionPath)
-					this.#outbox.keep({
-						id,
-						sessionPath: info.sessionPath,
-						...(info.device ? { device: info.device } : {}),
-						content,
-						details,
-						delivery,
-						at: Date.now(),
-					});
+				const kept =
+					typeof id === "string" && info?.sessionPath
+						? {
+								id,
+								sessionPath: info.sessionPath,
+								...(info.device ? { device: info.device } : {}),
+								content,
+								details,
+								delivery,
+								at: Date.now(),
+							}
+						: null;
+				if (kept) this.#outbox.keep(kept);
+				const answer = await this.#sendMail(tabId, content, details, delivery);
+				if (kept && answer?.duplicate && answer.journaled) this.#outbox.settle(kept.id);
+			},
+			sendOutbox: this.#sends,
+			sentMarks: async (tabId, marks) => {
+				const response = await this.#hostCommand(
+					tabId,
+					{ type: "agent_control_sent", marks },
+					SENT_MARKS_TIMEOUT_MS,
+				);
+				const data = response.success ? (response.data as Partial<SentAnswer> | undefined) : undefined;
+				return typeof data?.instance === "string" && Array.isArray(data.journaled)
+					? { instance: data.instance, journaled: data.journaled.filter(mark => typeof mark === "string") }
+					: null;
 			},
 			reviewChanged: parentTabId => this.#pushReview(parentTabId),
 			tabs: callerTabId => {
@@ -1834,6 +1860,28 @@ export class AgentControlRuntime {
 		return typeof response.data === "object" && response.data !== null
 			? (response.data as { duplicate?: boolean; journaled?: boolean })
 			: undefined;
+	}
+
+	/**
+	 * Messages an omp held and lost (a relaunch, a crash) go to the omp that holds the receiver's session now. A receiver
+	 * restored but not started is started: the message is work waiting for it.
+	 */
+	#redeliverSends(): void {
+		if (this.#resending) return;
+		this.#resending = true;
+		const { pool } = this.#deps;
+		void this.control
+			.redeliverSends((sessionPath, device) => {
+				const owner = pool.sessionOwner(sessionPath, device);
+				if (!owner || owner.hosted) return undefined;
+				const sidecar = pool.sidecarOf(owner.tabId);
+				// Restored and never shown: no omp yet. Started here; a later pass hands it the message.
+				if (sidecar?.status === "asleep") void pool.startTab(owner.tabId);
+				return sidecar?.status === "ready" ? owner.tabId : undefined;
+			})
+			.finally(() => {
+				this.#resending = false;
+			});
 	}
 
 	/** Accepted reports whose receiver's journal does not hold them yet, sent again to its live tab. */

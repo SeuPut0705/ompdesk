@@ -17,7 +17,7 @@
  *
  * No omp imports (not even types): the GUI's vitest installs it on a fake `pi`.
  */
-import { hasMailEntry, MAIL_CUSTOM_TYPE } from "./agent-control-contracts";
+import { hasMailEntry, journaledMarks, MAIL_CUSTOM_TYPE } from "./agent-control-contracts";
 import { crossFamily, JUDGE_ROLES, modelFamily } from "./agent-control-judge-core";
 import { completeOnSmol, type ModelLike, type NextPromptSession } from "./modes/next-prompt-engine";
 import { type PromptSectionContext, type PromptSectionHost, registerPromptSection } from "./prompt-sections";
@@ -183,6 +183,12 @@ export function install(pi: PromptSectionHost & Partial<MailHost>): void {
 /** Report ids this process handed to stock (an aside is journaled only once the receiver's loop takes it). */
 const queuedMail = new Set<string>();
 
+/**
+ * This omp process (pid and start time): the same across a reload of this module, new with every process, so main
+ * tells "the omp I handed a message to, which still queues it" from "a new omp, whose predecessor's queue is gone".
+ */
+const OMP_INSTANCE = `${process.pid}-${Math.round(performance.timeOrigin)}`;
+
 export const methods: BridgeMethods = {
 	/**
 	 * `{content, details, triggerTurn, deliverAs?}` → `{}`: a report from another session (`ompdesk_report`), as one
@@ -212,6 +218,17 @@ export const methods: BridgeMethods = {
 		const triggerTurn = record.triggerTurn === true;
 		mailHost.sendMessage(message, { triggerTurn, ...(deliverAs ? { deliverAs } : {}) });
 		return {};
+	},
+	/**
+	 * `{marks}` → `{instance, journaled}`: which of the message markers main sent (`[ompdesk dispatch d2:`, `[ompdesk
+	 * request <id>]`) this session's journal holds, and which omp process answers. Stock keeps a queued follow-up in
+	 * memory only, so a message handed to an omp that has since ended is lost unless its journal holds it.
+	 */
+	"agent_control.sent": async (params, env) => {
+		const marks = (params as { marks?: unknown } | null)?.marks;
+		if (!Array.isArray(marks) || !marks.every(mark => typeof mark === "string" && mark.length > 0))
+			throw new Error("agent_control.sent needs marks");
+		return { instance: OMP_INSTANCE, journaled: journaledMarks(env.session().sessionManager.getBranch(), marks) };
 	},
 	/** `{title, message}` → `{approved}`: a dismissed or cancelled card is a refusal. */
 	"agent_control.confirm": async (params, env) => {

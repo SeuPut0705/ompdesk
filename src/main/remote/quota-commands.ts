@@ -87,6 +87,8 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"agent_control_note",
 	"agent_control_worker",
 	"agent_control_bot",
+	// Which messages a session's journal holds (main's durable sends): a journal read, no model.
+	"agent_control_sent",
 	"autopilot_bridge",
 	"agent_control_review",
 	"agent_control_family_edits",

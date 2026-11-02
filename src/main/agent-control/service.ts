@@ -22,8 +22,9 @@
  *   never   accounts, settings, permissions (those go through `ompdesk_app`).
  */
 import { AsyncLocalStorage } from "node:async_hooks";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
+import { dispatchMark, requestMark } from "../../../resources/gui-bridge/agent-control-contracts";
 import type { SessionSpend } from "../../../resources/gui-bridge/model-setup-contracts";
 import type {
 	AutopilotShipPreset,
@@ -42,6 +43,7 @@ import {
 	type ClosedChild,
 	type CostSplit,
 	costSplitOf,
+	MAX_CLOSED_TAB_IDS,
 	parseAgentMessage,
 	parseWorkerResult,
 	AGENT_CONTROL_TOOLS as T,
@@ -93,6 +95,7 @@ import {
 	turnEdits,
 } from "../../shared/turn-edits";
 import { type AdmissionStatus, capacityText, heldWait, memoryWaitText } from "../memory-admission";
+import { RpcTimeoutError } from "../rpc-client";
 import type { FileEdits } from "../web/file-edit-reports";
 import { AppControl, type AppPorts, AppRefusal } from "./app-control";
 import { type AutoCloseFacts, autoCloseDecision } from "./auto-close";
@@ -112,6 +115,15 @@ import type { CallIntent, CallJournal, CallRecord } from "./call-journal";
 import { custodyOf } from "./custody";
 import { deliveryFor, type Mail, Mailbox, type MailboxDeps, type MailDelivery, mailDetails, mailText } from "./mail";
 import { pickupOf } from "./pickup";
+import {
+	deliverOwed,
+	type OutboxSend,
+	type OwedDeps,
+	receiverKey,
+	redeliverSends,
+	type SendOutbox,
+	type SentAnswer,
+} from "./send-outbox";
 import { tabCloseStep } from "./tab-close";
 import {
 	type AnswerArgs,
@@ -446,6 +458,13 @@ export interface AgentControlHost {
 	 * after this computer relaunched runs at most once. Absent: calls are not recorded.
 	 */
 	calls?: Pick<CallJournal, "get" | "begin" | "note" | "finish">;
+	/**
+	 * Messages sent with `ompdesk_session_send`, kept until the receiver's journal holds them (`send-outbox.ts`): a
+	 * relaunch's new omp gets one its predecessor still queued. Absent: a queued message lives only in that omp.
+	 */
+	sendOutbox?: SendOutbox;
+	/** The receiver's bridge about message markers (`agent_control_sent`); null when it cannot be asked. */
+	sentMarks?(tabId: string, marks: string[]): Promise<SentAnswer | null>;
 	/** Be called whenever any tab's run, ask or status changes; returns the unsubscribe. */
 	observe(listener: () => void): () => void;
 	/** Autopilot: a stop of the caller's work is in flight; nothing new may start. */
@@ -552,10 +571,21 @@ const DEFAULT_TIMERS: Pick<MailboxDeps, "setTimer" | "clearTimer"> = {
 /** The task text with the dispatch id its report names (a report for an older dispatch is ignored). */
 function withDispatch(message: string, dispatch: string | undefined, requestId?: string): string {
 	const marks = [
-		dispatch ? `[ompdesk dispatch ${dispatch}: report with ompdesk_report, dispatch "${dispatch}"]` : null,
-		requestId ? `[ompdesk request ${requestId}]` : null,
+		dispatch ? `${dispatchMark(dispatch)} report with ompdesk_report, dispatch "${dispatch}"]` : null,
+		requestId ? requestMark(requestId) : null,
 	].filter(Boolean);
 	return marks.length ? `${message}\n\n${marks.join("\n")}` : message;
+}
+
+/**
+ * A command that never answered: a timeout (the omp's command queue held by a long one, such as a provider sign-in) or
+ * a paired host's link timing out. The command reached the omp and runs once what holds the queue ends.
+ */
+function unanswered(error: unknown): boolean {
+	if (error instanceof RpcTimeoutError) return true;
+	if (typeof error === "object" && error !== null && "code" in error && error.code === "timeout") return true;
+	const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+	return message.startsWith("RPC timeout (");
 }
 
 const DISPATCH_MARK = /\[ompdesk dispatch d(\d+):/g;
@@ -1428,7 +1458,7 @@ export class AgentControl {
 			}
 			case T.send: {
 				const args = ARGS[T.send].parse(raw);
-				return this.#send(caller, await this.#open(tabs, args.session, caller, "send to"), args);
+				return this.#send(caller, await this.#sendTarget(caller, tabs, args.session), args);
 			}
 			case T.result: {
 				const args = ARGS[T.result].parse(raw);
@@ -2208,6 +2238,32 @@ export class AgentControl {
 		receiptKey: string | undefined,
 	): Promise<string> {
 		await this.#ensureStarted(target, caller.tabId);
+		const outbox = this.#host.sendOutbox;
+		const path = target.sessionPath;
+		if (!outbox || !path) return this.#handSend(caller, target, args, receiptKey, null);
+		// One delivery to a session at a time: what is still owed to it goes first, and the sweep never sends again what
+		// this send is handing over.
+		return outbox.lane(receiverKey(path, target.device), () =>
+			this.#handSend(caller, target, args, receiptKey, { outbox, path }),
+		);
+	}
+
+	async #handSend(
+		caller: ControlTab,
+		target: ControlTab,
+		args: { message: string; delivery?: "follow_up" | "steer"; request_id?: string },
+		receiptKey: string | undefined,
+		kept: { outbox: SendOutbox; path: string } | null,
+	): Promise<string> {
+		const from = caller.sessionPath ?? caller.tabId;
+		if (kept) {
+			// Messages an omp before this one held and lost (a relaunch) reach it first, in order.
+			await deliverOwed(kept.outbox, { ...this.#owedDeps(), tabOf: () => target.tabId }, kept.path, target.device);
+			// A resend of a message still on its way (its first send timed out, say) never runs it twice.
+			const same = kept.outbox.waiting(from, kept.path, target.device, args.message);
+			if (same)
+				return `Sent to ${label(target)}: this same message is already on its way there${same.dispatch ? ` (dispatch d${same.dispatch})` : ""} and runs once; nothing sent again.`;
+		}
 		// The target's journal is the durable record: a relaunch (or a retry whose first receipt was lost) finds the
 		// request already there, and the last dispatch it was given.
 		const marks = await this.#journalMarks(target.tabId);
@@ -2226,37 +2282,104 @@ export class AgentControl {
 		const ownChild =
 			this.#host.parentOf(target.tabId) === caller.tabId ||
 			this.#openedBy(caller.tabId, this.#host.tabs(caller.tabId) ?? []).has(target.tabId);
-		if (ownChild) this.#mailbox.seed(target.tabId, marks.dispatch);
+		// A dispatch still owed from before a relaunch is not in the journal yet: the next one is numbered past it.
+		if (ownChild)
+			this.#mailbox.seed(
+				target.tabId,
+				Math.max(marks.dispatch, kept?.outbox.lastDispatch(kept.path, target.device) ?? 0),
+			);
 		const dispatch = ownChild ? this.#mailbox.dispatch(target.tabId) : undefined;
-		const memoryWait = heldWait(
-			responseData(
-				await this.#host.command(
-					target.tabId,
-					{
-						type: "prompt",
-						message: wrapAgentMessage(withDispatch(args.message, dispatch, args.request_id), caller.title),
-						streamingBehavior: steer ? "steer" : "followUp",
-					},
-					30_000,
-				),
-				"Sending the message",
-			),
-		);
-		if (running && !steer && dispatch)
+		// Every message names itself, so the receiver's journal can tell main it arrived.
+		const requestId = args.request_id ?? (dispatch || !kept ? undefined : `m-${randomBytes(4).toString("hex")}`);
+		const message = wrapAgentMessage(withDispatch(args.message, dispatch, requestId), caller.title);
+		const streamingBehavior = steer ? "steer" : "followUp";
+		let entry: OutboxSend | undefined;
+		let instance = `tab:${target.tabId}`;
+		if (kept) {
+			const mark = dispatch ? dispatchMark(dispatch) : requestMark(requestId as string);
+			instance = (await this.#host.sentMarks?.(target.tabId, [mark]).catch(() => null))?.instance ?? instance;
+			entry = {
+				mark,
+				...(dispatch ? { dispatch: Number(dispatch.slice(1)) } : {}),
+				sessionPath: kept.path,
+				...(target.device ? { device: target.device } : {}),
+				from,
+				body: args.message,
+				message,
+				streamingBehavior,
+				at: Date.now(),
+			};
+			kept.outbox.keep(entry);
+		}
+		// A command that never answered still reached the omp: one holding its command queue (stock's `login` while a
+		// provider sign-in waits) runs the prompt once that ends. Saying it failed made senders send it again.
+		let held = false;
+		let response: RpcResponse | undefined;
+		try {
+			response = await this.#host.command(target.tabId, { type: "prompt", message, streamingBehavior }, 30_000);
+			held = !response.success && unanswered(response.error);
+		} catch (error) {
+			if (!unanswered(error)) {
+				if (entry) kept?.outbox.settle(entry);
+				throw error;
+			}
+			held = true;
+		}
+		if (!held && response && !response.success && entry) kept?.outbox.settle(entry);
+		const memoryWait = held ? undefined : heldWait(responseData(response as RpcResponse, "Sending the message"));
+		if (entry) kept?.outbox.handed(entry, instance);
+		if (running && !steer && dispatch && !held)
 			this.#queuedFollowUp.set(target.tabId, { n: Number(dispatch.slice(1)), id: dispatch, from: caller.tabId });
-		const how = memoryWait
-			? `it was idle; its turn is held, ${memoryWaitText(memoryWait)} on its computer, so do not send it again`
-			: !running
-				? "it was idle and starts on it"
-				: promoted
-					? "delivered as steer (it already reported to you in this turn, so it reads it between steps)"
-					: steer
-						? "delivered as steer (it reads it between steps)"
-						: "queued as a follow-up (it runs when the current turn ends; it is told so if it reports first)";
-		const started = !running && !memoryWait && (await this.#turnStarts(caller.tabId, target.tabId));
+		const how = held
+			? "queued: its omp is busy with another command (a provider sign-in, for one), and the message runs once that ends, so do not send it again"
+			: memoryWait
+				? `it was idle; its turn is held, ${memoryWaitText(memoryWait)} on its computer, so do not send it again`
+				: !running
+					? "it was idle and starts on it"
+					: promoted
+						? "delivered as steer (it already reported to you in this turn, so it reads it between steps)"
+						: steer
+							? "delivered as steer (it reads it between steps)"
+							: "queued as a follow-up (it runs when the current turn ends; it is told so if it reports first)";
+		const started = !running && !memoryWait && !held && (await this.#turnStarts(caller.tabId, target.tabId));
 		const receipt = `Sent to ${label(target)}: accepted${started ? ", turn started" : ""}; ${how}.${dispatch ? ` Dispatch ${dispatch}: it reports back with ompdesk_report.` : ""}`;
 		if (receiptKey) this.#receipts.set(receiptKey, receipt);
 		return receipt;
+	}
+
+	/** How an owed message reaches a receiver's omp (`send-outbox.ts`); `tabOf` is the caller's to give. */
+	#owedDeps(): Omit<OwedDeps, "tabOf"> {
+		return {
+			sent: (tabId, marks) => this.#host.sentMarks?.(tabId, marks) ?? Promise.resolve(null),
+			prompt: async (tabId, entry) => {
+				try {
+					const response = await this.#host.command(
+						tabId,
+						{ type: "prompt", message: entry.message, streamingBehavior: entry.streamingBehavior },
+						30_000,
+					);
+					return response.success || unanswered(response.error) ? "handed" : "refused";
+				} catch (error) {
+					return unanswered(error) ? "handed" : "refused";
+				}
+			},
+			drained: async tabId => {
+				const response = await this.#host.command(tabId, { type: "get_state" }, STATE_TIMEOUT_MS);
+				const state = response.success
+					? (response.data as { isStreaming?: unknown; queuedMessageCount?: unknown } | undefined)
+					: undefined;
+				return state?.isStreaming === false && state.queuedMessageCount === 0;
+			},
+		};
+	}
+
+	/**
+	 * One pass over every session still owed a message (the runtime's sweep): `tabOf` names the tab holding it now, a
+	 * relaunch's new one included.
+	 */
+	redeliverSends(tabOf: OwedDeps["tabOf"]): Promise<void> {
+		const outbox = this.#host.sendOutbox;
+		return outbox ? redeliverSends(outbox, { ...this.#owedDeps(), tabOf }) : Promise.resolve();
 	}
 
 	/** `journalMarks` of a session's recent transcript; nothing when it cannot be read (not started, gone). */
@@ -2607,8 +2730,30 @@ export class AgentControl {
 					only(tabs.filter(entry => savedId(entry)?.startsWith(name))))
 				: undefined);
 		if (tab) return { target: tab, unreached: [] };
-		// A tab closed this launch: its id still names the saved session it held (or the tab that has it open again).
-		const closed = this.#closedTabs.get(name)?.row;
+		// A tab closed this launch: its id still names the saved session it held (or the tab that has it open again);
+		// one closed before a relaunch, by the ids its record keeps.
+		const recorded = (this.#host.closedChildren?.() ?? []).findLast(child => child.tabIds?.includes(name));
+		const closed =
+			this.#closedTabs.get(name)?.row ??
+			(recorded
+				? {
+						id: name,
+						path: recorded.path,
+						title: recorded.title,
+						firstMessage: "",
+						cwd: recorded.cwd,
+						modified: "",
+						messages: 0,
+						status: "",
+						hidden: false,
+						...(recorded.device
+							? {
+									device: recorded.device,
+									deviceName: this.#host.devices().find(device => device.id === recorded.device)?.name,
+								}
+							: {}),
+					}
+				: undefined);
 		if (closed) return { target: this.#liveTab(tabs, closed) ?? closed, unreached: [] };
 		const wanted = name.toLowerCase();
 		const titled = tabs.filter(entry => !entry.hidden);
@@ -2972,6 +3117,40 @@ export class AgentControl {
 		}
 	}
 
+	/** A saved session the caller opened whose tab was closed: this launch (`#closedTabs`), or recorded under its session. */
+	#ownClosed(caller: ControlTab, row: Pick<StoredSession, "path" | "device">): boolean {
+		const same = (path: string, device: string | undefined) =>
+			path === row.path && (device ?? undefined) === (row.device ?? undefined);
+		return (
+			[...this.#closedTabs.values()].some(
+				entry => entry.opener === caller.tabId && same(entry.row.path, entry.row.device),
+			) ||
+			(caller.sessionPath !== undefined &&
+				(this.#host.closedChildren?.() ?? []).some(
+					child => child.openedBySession === caller.sessionPath && same(child.path, child.device),
+				))
+		);
+	}
+
+	/**
+	 * Where a message goes: an open session (`#open`), or a child the caller opened whose tab was closed once its work was
+	 * done, opened again in the background, since the message is more work for it (an agent was told "saved but not
+	 * open in any tab" for its own child's id, and gave the work to a new session instead).
+	 */
+	async #sendTarget(caller: ControlTab, tabs: ControlTab[], session: string): Promise<ControlTab> {
+		const row = (await this.#find(tabs, session)).target;
+		if (!row || "busy" in row || row.hidden || !this.#ownClosed(caller, row))
+			return this.#open(tabs, session, caller, "send to");
+		const home = row.device ? this.#host.devices().find(device => device.id === row.device) : undefined;
+		if (home) await this.#reach(home);
+		const { tabId } = await this.#host.spawn(caller.tabId, { sessionPath: row.path, device: row.device ?? null });
+		await this.#whenReady(tabId, caller.tabId);
+		return (
+			this.#host.tabs(caller.tabId)?.find(entry => entry.tabId === tabId) ??
+			fail(`"${oneLine(storedTitle(row), 80)}" was opened again as ${tabId}, and its tab closed before the message.`)
+		);
+	}
+
 	/**
 	 * A saved session no tab holds: nothing runs to stop or close; a delete removes its file on the device it is saved
 	 * on (the sidebar's delete). One the caller opened (its tab closed this launch, or main recorded closing it under
@@ -2988,14 +3167,7 @@ export class AgentControl {
 		if (!args.delete) return `${name} is not open in any tab: nothing to stop or close.`;
 		const same = (path: string, device: string | undefined) =>
 			path === row.path && (device ?? undefined) === (row.device ?? undefined);
-		const own =
-			[...this.#closedTabs.values()].some(
-				entry => entry.opener === caller.tabId && same(entry.row.path, entry.row.device),
-			) ||
-			(caller.sessionPath !== undefined &&
-				(this.#host.closedChildren?.() ?? []).some(
-					child => child.openedBySession === caller.sessionPath && same(child.path, child.device),
-				));
+		const own = this.#ownClosed(caller, row);
 		if (!own && !this.#host.fullEnabled()) {
 			const params = { caller: caller.title || "—", target: storedTitle(row) || row.id };
 			const approved = await this.#host.confirm(
@@ -3647,8 +3819,11 @@ export class AgentControl {
 	 * A child whose turn ended well with a verdict line (`Result: ok` / `Result: problem — <reason>`) and sent its
 	 * opener nothing on the current dispatch gets its `done` report sent for it: the final answer, through `#report`
 	 * (custody line, outbox, dedupe id, delivery). Measured: the child's own `ompdesk_report` done cost every worker
-	 * dispatch two extra model requests. Never a failed or stopped turn, one the person typed into, one a relaunch
-	 * restored, or a dispatch that already has a report. Resolves true when it sent the report.
+	 * dispatch two extra model requests. Never a failed or stopped turn, one the person typed into, or a dispatch that
+	 * already has a report. A child a relaunch restored counts once a turn of this launch ended (it went on with its
+	 * cut-off work, or took a message after the relaunch): its journal says whether it reported that work itself, and
+	 * a report main sent before the relaunch has the same id, which the opener's journal drops. Resolves true when it
+	 * sent the report.
 	 */
 	async #autoDone(caller: ControlTab, tabs: ControlTab[], tab: ControlTab, facts: AutoCloseFacts): Promise<boolean> {
 		if (
@@ -3659,10 +3834,15 @@ export class AgentControl {
 			facts.ended !== "ok" ||
 			(facts.result !== "ok" && facts.result !== "problem") ||
 			facts.userTouched ||
-			tab.restored ||
+			(tab.restored && !tab.lastRun) ||
 			this.#host.parentOf(tab.tabId) !== caller.tabId
 		)
 			return false;
+		if (tab.restored) {
+			if (!this.#mailbox.knows(tab.tabId))
+				this.#mailbox.seed(tab.tabId, (await this.#journalMarks(tab.tabId)).dispatch);
+			if (transcriptEnding(await this.#transcript(tab, false)).reportedDone) return false;
+		}
 		const dispatch = this.#mailbox.current(tab.tabId);
 		const state = this.#mailbox.state(tab.tabId, caller.tabId);
 		// A question or blocker the opener has not answered stays the child's standing word: a done would read as settled.
@@ -3876,6 +4056,8 @@ export class AgentControl {
 				title: tab.title || tab.task || "",
 				cwd: removed && tab.worktree ? tab.worktree.baseCwd : tab.cwd,
 				...(tab.device ? { device: tab.device } : {}),
+				// The ids its opener was given keep naming the session after a relaunch (`#find`).
+				tabIds: [tab.tabId, ...(tab.formerIds ?? [])].slice(0, MAX_CLOSED_TAB_IDS),
 				closedAt: Date.now(),
 				...(model ? { model: `${model.provider}/${model.id}` } : {}),
 				...(cost > 0 ? { cost } : {}),

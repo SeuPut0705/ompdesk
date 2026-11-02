@@ -176,6 +176,9 @@ export type RpcCommand =
 			triggerTurn: boolean;
 			deliverAs?: "aside";
 	  }
+	// Which message markers main sent this session its journal holds, and which omp process answers
+	// (main/agent-control/send-outbox.ts): `{instance, journaled}`.
+	| { id?: string; type: "agent_control_sent"; marks: string[] }
 	// The other live sessions in this session's worktree or repository (gui-bridge modes/checkout-peers.ts);
 	// `checkout_peers` frames keep the value current. Answers `{peers}` (null: the session works alone).
 	| { id?: string; type: "get_checkout_peers" }

@@ -232,6 +232,8 @@ export interface AgentControlViewEvent {
 export const AGENT_CLOSED_CHILDREN_PREF = "agentClosedChildren";
 /** Records kept; the oldest go first. */
 export const MAX_CLOSED_CHILDREN = 200;
+/** Tab ids a record keeps: the one it closed with, then the ids it had before relaunches. */
+export const MAX_CLOSED_TAB_IDS = 9;
 
 /** An opened session main closed after its work landed: the session file stays; the opener's "n done" row opens it again. */
 export interface ClosedChild {
@@ -245,6 +247,8 @@ export interface ClosedChild {
 	cwd: string;
 	/** The paired device it ran on, whose stock helper holds its saved file; absent = this computer. */
 	device?: string;
+	/** The tab ids its opener was given for it (newest first): they still name it, after a relaunch too. */
+	tabIds?: string[];
 	closedAt: number;
 	/** What it ran on and had cost when main closed it (an opener's family cost keeps counting it). */
 	model?: string;
@@ -259,11 +263,14 @@ export function parseClosedChildren(value: unknown): ClosedChild[] {
 	const rows: ClosedChild[] = [];
 	for (const entry of value) {
 		if (!entry || typeof entry !== "object") continue;
-		const { path, openedBySession, title, cwd, closedAt, model, cost, split, device } = entry as Record<
+		const { path, openedBySession, title, cwd, closedAt, model, cost, split, device, tabIds } = entry as Record<
 			string,
 			unknown
 		>;
 		if (typeof path !== "string" || !path || typeof openedBySession !== "string" || !openedBySession) continue;
+		const ids = Array.isArray(tabIds)
+			? tabIds.filter((id): id is string => typeof id === "string" && id.length > 0).slice(0, MAX_CLOSED_TAB_IDS)
+			: [];
 		rows.push({
 			path,
 			openedBySession,
@@ -271,6 +278,7 @@ export function parseClosedChildren(value: unknown): ClosedChild[] {
 			cwd: typeof cwd === "string" ? cwd : "",
 			closedAt: typeof closedAt === "number" ? closedAt : 0,
 			...(typeof device === "string" && device ? { device } : {}),
+			...(ids.length ? { tabIds: ids } : {}),
 			...(typeof model === "string" ? { model } : {}),
 			...(typeof cost === "number" ? { cost } : {}),
 			...(isCostSplit(split) ? { split } : {}),
