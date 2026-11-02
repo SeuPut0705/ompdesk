@@ -5345,6 +5345,10 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					write({ type: "message_end", message: answer });
 					endTurn([answer]);
 					ok();
+					// As stock's agent loop: the follow-ups queued behind the turn run once it ends, in order.
+					const followUps = lanes.followUp.splice(0);
+					if (followUps.length) emitQueue();
+					for (const text of followUps) prompt(text, () => {});
 					break;
 				}
 				// The agent proposes a plan: plan mode turns on, the bridge pushes the

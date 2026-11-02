@@ -1966,6 +1966,39 @@ describe("LocalHostServices", () => {
 			await send("my own question");
 			expect(services.resumeFacts()[0]).not.toHaveProperty("agentWork");
 		});
+
+		// A device's agent sent its follow-ups to a hosted child after a relaunch: each fast turn (answered inside one
+		// event batch) and the tab its quit closed kept reserving 2.5 GB for 10 minutes, so with 12 GB free the next
+		// message was held "waiting for memory" (e2e/send-outbox-remote.e2e.ts).
+		it("ends a hosted tab's memory reservation when its turn ends, a fast one too, and when the tab closes", async () => {
+			const admission = admissionWith("normal");
+			admission.sample({ totalBytes: 16 * GiB, availableBytes: 12 * GiB, pressure: "normal" });
+			const { services, sidecars } = setup(60_000, { memoryAdmission: admission });
+			const x = new FakeConnection(peer("device-x"));
+			await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: "/s/t1.jsonl" }, x);
+			await services.call(x.peer, "tab.start", { rtab: "t1" }, x);
+			const sidecar = sidecars[0];
+			if (!sidecar) throw new Error("expected a sidecar");
+			sidecar.setStatus("ready");
+			const send = () =>
+				services.call(
+					x.peer,
+					"tab.command",
+					{ rtab: "t1", command: { type: "prompt", message: wrapAgentMessage("go", "parent") } },
+					x,
+				);
+
+			await send();
+			expect(admission.status().starting).toBe(1);
+			sidecar.emit("events", [{ type: "agent_start" }, { type: "agent_end", messages: [] }]);
+			expect(admission.status().starting).toBe(0);
+
+			await send();
+			sidecar.emit("events", [{ type: "agent_start" }]);
+			expect(admission.status().starting).toBe(1);
+			await services.call(x.peer, "tab.close", { rtab: "t1" }, x);
+			expect(admission.status().starting).toBe(0);
+		});
 	});
 
 	// Review M1 and minor 5: a device's own hosted tab has no window to count its moves, and an idle held tab's new file
