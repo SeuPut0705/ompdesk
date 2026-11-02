@@ -593,8 +593,8 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				teach: (payload: BotTeachRequest, device?: string) =>
 					transport.invoke(IPC_COMMANDS.BOT_TEACH, payload, device) as Promise<BotTeachResult>,
 				avatarStatus: () => transport.invoke(IPC_COMMANDS.BOT_AVATAR_STATUS) as Promise<BotAvatarAnswer>,
-				generateAvatar: (prompt: string) =>
-					transport.invoke(IPC_COMMANDS.BOT_AVATAR_GENERATE, prompt) as Promise<void>,
+				generateAvatar: (prompt: string, device?: string) =>
+					transport.invoke(IPC_COMMANDS.BOT_AVATAR_GENERATE, prompt, device) as Promise<void>,
 				/** Take over a session the bot opened, or hand it back. */
 				takeover: (payload: BotTakeoverRequest, device?: string) =>
 					transport.invoke(IPC_COMMANDS.BOT_TAKEOVER, payload, device) as Promise<BotTakeoverResult>,

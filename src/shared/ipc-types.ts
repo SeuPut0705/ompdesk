@@ -2418,8 +2418,11 @@ export interface OmpApi {
 			teach(payload: BotTeachRequest, device?: string): Promise<BotTeachResult>;
 			/** Whether the image model role can draw an avatar, without drawing one (`BOT_AVATAR_STATUS`). */
 			avatarStatus(): Promise<BotAvatarAnswer>;
-			/** Draws the avatar on the image model role and sets it; the desk's push carries it (`BOT_AVATAR_GENERATE`). */
-			generateAvatar(prompt: string): Promise<void>;
+			/**
+			 * Draws the avatar on this computer's image model role and sets it on this computer's bot, or with `device`
+			 * on that paired host's; the desk's push carries it (`BOT_AVATAR_GENERATE`).
+			 */
+			generateAvatar(prompt: string, device?: string): Promise<void>;
 			/** Take over a session the bot opened (its turn stops) or hand it back with a note (`BOT_TAKEOVER`). */
 			takeover(payload: BotTakeoverRequest, device?: string): Promise<BotTakeoverResult>;
 			/** This computer's desk (no `device`) and every paired host's, as each pushes it. */

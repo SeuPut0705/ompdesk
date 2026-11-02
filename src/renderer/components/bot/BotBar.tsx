@@ -5,8 +5,8 @@
  * turn runs (the running call's own words), the model's wait, or "Thinking"; for a paired host's bot the link's state
  * comes first while it is not online ("Reconnecting to Mac mini…", "Can't reach Mac mini"). Idle, the line is not drawn.
  */
-import { Pause, Phone, Play, Square } from "lucide-react";
-import { useMemo } from "react";
+import { Pause, Pencil, Phone, Play, Square } from "lucide-react";
+import { useMemo, useState } from "react";
 import { formatClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { abortActiveTurn } from "../../lib/messages";
@@ -22,9 +22,11 @@ import { toastError } from "../../stores/toast";
 import { useTodoStore } from "../../stores/todo";
 import { useToolsStore } from "../../stores/tools";
 import { Badge, type BadgeVariant, Button, IconButton, LinkButton } from "../common";
+import { BotIdentitySheet } from "../settings/BotIdentitySettings";
 import { getToolHeader } from "../tools/index";
 import { BotAvatar } from "./BotAvatar";
 import { BOT_BAR_FRAME } from "./bot-bar-frame";
+import { useBotMotion } from "./bot-motion";
 import { type BotState, botState, botStateKey, nextWake, tabBotFacts } from "./bot-status";
 
 const STATE_BADGE: Record<BotState, { variant: BadgeVariant; live: boolean }> = {
@@ -64,6 +66,8 @@ export function BotBar({ tabId, device, channel }: { tabId: string; device?: str
 	const paused = desk.paused === true;
 	const edit = useBotDeskStore(store => store.edit);
 	const onCall = useBotCallStore(store => store.tabId === tabId);
+	// Who the bot is opens in a sheet over the pane, for this bar's bot (a host's on a paired computer or the phone).
+	const [identityOpen, setIdentityOpen] = useState(false);
 	const setPaused = (next: boolean) => void edit({ op: "paused", paused: next }, device);
 	// This computer's name, or the paired host the bot runs on, and that host's link.
 	const host = useRemoteStore(state =>
@@ -75,6 +79,7 @@ export function BotBar({ tabId, device, channel }: { tabId: string; device?: str
 	const sessionName = useSessionStore(state => state.sessionName);
 	const name = botDisplayName({ title: sessionName ?? "" }, t("sidebar.botBadge"));
 	const state = botState(tabBotFacts(tab));
+	const motion = useBotMotion({ state, device, tabId });
 	const step = useCurrentStep(state === "working");
 	const wake = nextWake(routines);
 	const badge = STATE_BADGE[state];
@@ -96,7 +101,7 @@ export function BotBar({ tabId, device, channel }: { tabId: string; device?: str
 	return (
 		<header className={BOT_BAR_FRAME.outer} data-bot-bar="">
 			<div className={BOT_BAR_FRAME.inner}>
-				<BotAvatar avatar={identity.avatar} size="md" />
+				<BotAvatar avatar={identity.avatar} motion={motion} size="md" />
 				<h2 className="min-w-0 shrink truncate text-sc-md font-semibold text-(--sc-text)" data-bot-name>
 					{name}
 				</h2>
@@ -143,6 +148,13 @@ export function BotBar({ tabId, device, channel }: { tabId: string; device?: str
 					</Button>
 				) : null}
 				<IconButton
+					data-bot-identity-edit=""
+					icon={<Pencil />}
+					label={t("botIdentity.edit")}
+					onClick={() => setIdentityOpen(true)}
+					size="sm"
+				/>
+				<IconButton
 					data-bot-call-start=""
 					icon={<Phone />}
 					label={t("botCall.start")}
@@ -182,6 +194,7 @@ export function BotBar({ tabId, device, channel }: { tabId: string; device?: str
 					<span className={link ? "text-(--sc-warning)" : undefined}>{link ?? step}</span>
 				</p>
 			) : null}
+			<BotIdentitySheet device={device} onClose={() => setIdentityOpen(false)} open={identityOpen} />
 		</header>
 	);
 }

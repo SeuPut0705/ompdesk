@@ -16,10 +16,12 @@ import { en } from "../../locales/en";
 import { ko } from "../../locales/ko";
 import { useBotActivityStore } from "../../stores/bot-activity";
 import { useBotDeskStore } from "../../stores/bot-desk";
+import { useRemoteStore } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
+import { sessionListFeed } from "../../stores/session-list";
 import { useToastStore } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { BotIdentitySettings } from "../settings/BotIdentitySettings";
+import { BotIdentityRows, BotIdentitySettings, HostBotIdentitySettings } from "../settings/BotIdentitySettings";
 import { BotBar, BotBoardSections } from "./BotDesk";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -39,7 +41,7 @@ interface Api {
 	activity: Mock<(device?: string) => Promise<BotActivityPage>>;
 	onChanged: Mock<() => () => void>;
 	avatarStatus: Mock<() => Promise<BotAvatarAnswer>>;
-	generateAvatar: Mock<(prompt: string) => Promise<void>>;
+	generateAvatar: Mock<(prompt: string, device?: string) => Promise<void>>;
 }
 
 function installApi(
@@ -102,6 +104,8 @@ afterEach(async () => {
 	useBotDeskStore.getState().reset();
 	useBotActivityStore.getState().reset();
 	useSessionStore.getState().reset();
+	useRemoteStore.setState({ state: null } as never);
+	sessionListFeed("global", "mini").store.setState({ sessions: [] });
 	useToastStore.setState({ toasts: [] } as never);
 	delete (window as unknown as { omp?: unknown }).omp;
 });
@@ -258,10 +262,10 @@ describe("Generate on the image model", () => {
 		);
 
 		await act(async () => drawn.resolve());
-		expect(document.querySelector("[role='dialog']")).toBeNull();
+		expect(document.querySelector("[data-bot-avatar-description]")).toBeNull();
 	});
 
-	it("toasts a failure and keeps the dialog open for another try", async () => {
+	it("toasts a failure and keeps the description for another try", async () => {
 		const api = installApi();
 		api.generateAvatar.mockRejectedValue(new Error("Image generation exhausted the resolved image chain"));
 		await mount(<BotIdentitySettings />);
@@ -269,10 +273,108 @@ describe("Generate on the image model", () => {
 		await change(document.querySelector("[data-bot-avatar-description]"), { value: "a fox" });
 		await click(document.querySelector("[data-bot-avatar-generate-send]"));
 		expect(useToastStore.getState().toasts.map(toast => toast.title)).toContain(en["botAvatar.failed"]);
-		expect(document.querySelector("[role='dialog']")).not.toBeNull();
+		expect(document.querySelector("[role='dialog']")).toBeNull();
 		expect(document.querySelector("[data-bot-avatar-description]")).not.toBeNull();
 		expect(props<{ disabled?: boolean }>(document.querySelector("[data-bot-avatar-generate-send]")).disabled).toBe(
 			false,
 		);
+	});
+});
+
+describe("a paired host's bot", () => {
+	const HOST_BOT = "/Users/mini/.omp/agent/sessions/bot.jsonl";
+	const hostDesk: BotDeskState = {
+		...EMPTY_BOT_DESK,
+		identity: { tagline: "Mini's helper", persona: "Calm", avatar: { kind: "mark", shape: "ghost", color: "info" } },
+	};
+	/** The host's own list marks its bot (`SessionInfo.bot`), as the device's sidebar reads it. */
+	function hostWithBot(api: Api): Mock<(path: string, name: string, device?: string) => Promise<void>> {
+		api.get.mockImplementation(async device => (device === "mini" ? hostDesk : EMPTY_BOT_DESK));
+		const rename = vi.fn(async () => {});
+		const omp = (window as unknown as { omp: { sessions: Record<string, unknown>; events?: unknown } }).omp;
+		omp.sessions.rename = rename;
+		// The host's list as the device last read it stands; a read the test never answers changes nothing.
+		omp.sessions.listShared = vi.fn(() => new Promise(() => {}));
+		omp.events = { onSessionsChanged: () => () => {} };
+		useBotDeskStore.getState().apply(hostDesk, "mini");
+		sessionListFeed("global", "mini").store.setState({
+			sessions: [{ path: HOST_BOT, title: "Juno", bot: "on" }] as never,
+			isLoading: false,
+		});
+		useRemoteStore.setState({
+			state: { host: { name: "This PC" }, hosts: [{ deviceId: "mini", name: "Mac mini", state: "online" }] },
+		} as never);
+		return rename;
+	}
+
+	it("renames that host's bot and sends its avatar, tagline, persona and drawing to that host", async () => {
+		const api = installApi();
+		const rename = hostWithBot(api);
+		await mount(<BotIdentityRows botPath={HOST_BOT} device="mini" />);
+		expect(query("[data-bot-avatar]")?.getAttribute("data-bot-avatar")).toBe("ghost");
+		expect(props<{ value: string }>(query("[data-bot-tagline-field]")).value).toBe("Mini's helper");
+
+		const name = query("[data-bot-name-field]");
+		expect(props<{ value: string }>(name).value).toBe("Juno");
+		await change(name, { value: "Nova" });
+		await act(async () =>
+			props<{ onBlur: (event: unknown) => void }>(name).onBlur({ currentTarget: { value: "Nova" } }),
+		);
+		expect(rename).toHaveBeenLastCalledWith(HOST_BOT, "Nova", "mini");
+
+		await click(query("[data-bot-avatar-shape='rocket']"));
+		expect(api.edit).toHaveBeenLastCalledWith(
+			{ op: "identity", avatar: { kind: "mark", shape: "rocket", color: "info" } },
+			"mini",
+		);
+		const tagline = query("[data-bot-tagline-field]");
+		await act(async () =>
+			props<{ onBlur: (event: unknown) => void }>(tagline).onBlur({ currentTarget: { value: "Night shift" } }),
+		);
+		expect(api.edit).toHaveBeenLastCalledWith({ op: "identity", tagline: "Night shift" }, "mini");
+		const persona = query("[data-bot-persona-field]");
+		await act(async () =>
+			props<{ onBlur: (event: unknown) => void }>(persona).onBlur({ currentTarget: { value: "Terse" } }),
+		);
+		expect(api.edit).toHaveBeenLastCalledWith({ op: "identity", persona: "Terse" }, "mini");
+
+		const edits = api.edit.mock.calls.length;
+		await click(query("[data-bot-avatar-generate]"));
+		await change(query("[data-bot-avatar-description]"), { value: "a calm blue fox" });
+		await click(query("[data-bot-avatar-generate-send]"));
+		// This computer's image role draws it; main hands the picture to the host's desk.
+		expect(api.generateAvatar).toHaveBeenLastCalledWith("a calm blue fox", "mini");
+		expect(api.edit.mock.calls.length).toBe(edits);
+	});
+
+	it("gives Settings a section for each paired host whose bot is on", async () => {
+		const api = installApi();
+		hostWithBot(api);
+		await mount(<HostBotIdentitySettings />);
+		const section = query("[data-bot-identity-host='mini']");
+		expect(section?.textContent).toContain("Mac mini");
+		expect(props<{ value: string }>(section?.querySelector("[data-bot-name-field]") ?? null).value).toBe("Juno");
+		await act(async () =>
+			sessionListFeed("global", "mini").store.setState({
+				sessions: [{ path: HOST_BOT, title: "Juno", bot: "off" }] as never,
+			}),
+		);
+		expect(query("[data-bot-identity-host]")).toBeNull();
+	});
+
+	it("opens the bot's identity from its bar, and the sheet edits the bot the bar shows", async () => {
+		const api = installApi();
+		hostWithBot(api);
+		useSessionStore.setState({ sessionName: "Juno", sessionFile: HOST_BOT } as never);
+		await mount(<BotBar device="mini" tabId="tbot" />);
+		await click(query("[data-bot-identity-edit]"));
+		const sheet = document.querySelector("[data-bot-identity-sheet]");
+		expect(sheet).not.toBeNull();
+		const tagline = sheet?.querySelector("[data-bot-tagline-field]") ?? null;
+		await act(async () =>
+			props<{ onBlur: (event: unknown) => void }>(tagline).onBlur({ currentTarget: { value: "On call" } }),
+		);
+		expect(api.edit).toHaveBeenLastCalledWith({ op: "identity", tagline: "On call" }, "mini");
+		expect(sheet?.querySelector("[data-bot-name-field]")).not.toBeNull();
 	});
 });

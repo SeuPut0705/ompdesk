@@ -13,8 +13,9 @@ import {
 	type BotAvatarAnswer,
 	type BotAvatarImage,
 } from "../../../resources/gui-bridge/bot-avatar-contracts";
+import type { BotDeskChange } from "../../shared/bot-desk-edit";
 import type { SidecarLike } from "../sidecar-types";
-import { type BotDesk, BotDeskError } from "./bot-desk";
+import { BotDeskError } from "./bot-desk";
 
 /** One request to a live omp's bridge (`SidecarLike.bridgeRequest`). */
 export type AvatarBridge = (method: string, params?: unknown, timeoutMs?: number) => Promise<unknown>;
@@ -63,7 +64,8 @@ export async function avatarStatus(bridge: AvatarBridge | null): Promise<BotAvat
 }
 
 export interface AvatarDrawDeps {
-	desk: Pick<BotDesk, "change">;
+	/** This computer's desk, or a paired host's reached over the link (`host.botDesk.edit`). */
+	desk: { change(edit: BotDeskChange, by: "owner"): unknown };
 	/** `bot-avatar.ts` `avatarFromBuffer`: the centre square at the desk's size, as a data URL. */
 	avatarFromBuffer(bytes: Buffer): string | Promise<string>;
 }
@@ -75,5 +77,5 @@ export async function generateAvatar(deps: AvatarDrawDeps, bridge: AvatarBridge 
 	if (typeof image?.base64 !== "string" || !image.base64)
 		throw new BotDeskError("The image model returned no picture.");
 	const dataUrl = await deps.avatarFromBuffer(Buffer.from(image.base64, "base64"));
-	deps.desk.change({ op: "identity", avatar: { kind: "image", dataUrl } }, "owner");
+	await deps.desk.change({ op: "identity", avatar: { kind: "image", dataUrl } }, "owner");
 }

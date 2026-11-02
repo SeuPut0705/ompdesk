@@ -1183,6 +1183,11 @@ app.whenReady().then(() => {
 		prefs: { get: key => prefs.get(key), set: (key, value) => prefs.set(key, value) },
 		broadcast: (channel, data) => {
 			for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) win.webContents.send(channel, data);
+			// A paired phone's page lists the hosts' sessions too (its drawer, a host's bot pane): what changed in a host's
+			// list reaches it as it reaches a window, or a rename made anywhere stayed off its rows until a reload.
+			if (channel === IPC_EVENTS.SESSIONS_CHANGED)
+				for (const page of webHost?.windows.all() ?? [])
+					if (!page.isDestroyed()) page.webContents.send(channel, data);
 		},
 		services: hostServices,
 		modelWait: sidecarPool.modelWait,

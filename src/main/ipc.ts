@@ -143,7 +143,13 @@ import {
 } from "./agent-browsers";
 import type { BotActivityLog } from "./agent-control/bot-activity";
 import { avatarFromBuffer, avatarFromFile } from "./agent-control/bot-avatar";
-import { avatarBridge, avatarStatus, BotAvatarPromptSchema, generateAvatar } from "./agent-control/bot-avatar-draw";
+import {
+	type AvatarDrawDeps,
+	avatarBridge,
+	avatarStatus,
+	BotAvatarPromptSchema,
+	generateAvatar,
+} from "./agent-control/bot-avatar-draw";
 import { type BotDesk, botRoutines } from "./agent-control/bot-desk";
 import { editBotDesk } from "./agent-control/bot-desk-edit";
 import type { BotHome } from "./agent-control/bot-home";
@@ -1765,13 +1771,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			sidecarFor(deps, caller),
 		);
 	ipc.handle(IPC_COMMANDS.BOT_AVATAR_STATUS, caller => avatarStatus(avatarBridgeFor(caller)));
-	ipc.handle(IPC_COMMANDS.BOT_AVATAR_GENERATE, async (caller, prompt: unknown) =>
-		generateAvatar(
-			{ desk: deps.botDesk, avatarFromBuffer },
-			avatarBridgeFor(caller),
-			BotAvatarPromptSchema.parse(prompt),
-		),
-	);
+	// With `device`, this computer's image role draws a paired host's avatar and the host's desk keeps it.
+	ipc.handle(IPC_COMMANDS.BOT_AVATAR_GENERATE, async (caller, prompt: unknown, device?: unknown) => {
+		const host = deviceOf(device);
+		const desk: AvatarDrawDeps["desk"] = host
+			? { change: edit => remoteDevices.request(host, "host.botDesk.edit", edit) }
+			: deps.botDesk;
+		await generateAvatar({ desk, avatarFromBuffer }, avatarBridgeFor(caller), BotAvatarPromptSchema.parse(prompt));
+	});
 	// The owner takes over a session the bot opened, or hands it back: with `device`, on that host.
 	ipc.handle(IPC_COMMANDS.BOT_TAKEOVER, async (_caller, payload: unknown, device?: unknown) => {
 		const request = BotTakeoverRequestSchema.parse(payload);

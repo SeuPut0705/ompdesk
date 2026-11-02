@@ -4,9 +4,14 @@
  * Duet's "how often") and whether its replies are spoken. All of it is the desk's (`shared/bot-desk.ts`), so the
  * bot's prompt, its bar and sidebar row, and a paired device's view follow every change; each control writes through
  * `useBotDeskStore.edit` and shows what main kept.
+ *
+ * Who a bot is (`BotIdentityRows`) is edited for this computer's bot and for each paired host's (`device`): Settings
+ * has a section per host whose bot is on (`HostBotIdentitySettings`), and the bot's bar opens the same rows in a
+ * sheet for the bot it shows (`BotIdentitySheet`), on this computer, a paired computer and the phone's page alike.
  */
-import { ImageUp, MessageSquareQuote, Palette, Sparkles, UserRound, Volume2 } from "lucide-react";
+import { ImageUp, MessageSquareQuote, Palette, Sparkles, Tag, UserRound, Volume2 } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
+import { useStore } from "zustand";
 import { BOT_AVATAR_PROMPT_MAX, type BotAvatarAnswer } from "../../../../resources/gui-bridge/bot-avatar-contracts";
 import {
 	BOT_AVATAR_COLORS,
@@ -20,15 +25,30 @@ import {
 	type BotNotifyKind,
 	type BotNotifyRoute,
 } from "../../../shared/bot-desk";
+import type { HostView } from "../../../shared/ipc-types";
+import { useShellMode } from "../../hooks/use-shell-mode";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
+import { onEscape } from "../../lib/keymap";
+import { botDisplayName } from "../../lib/session-title";
+import { useBotStore } from "../../stores/bot";
 import { ensureBotDesk, useBotDesk, useBotDeskStore } from "../../stores/bot-desk";
+import { useRemoteStore } from "../../stores/remote";
+import { sessionListFeed } from "../../stores/session-list";
+import { useTabsStore } from "../../stores/tabs";
 import { toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import { AvatarImageError, avatarDataUrl, BOT_AVATAR_ACCEPT } from "../bot/avatar-image";
 import { BOT_SHAPE_ICONS, BOT_TILE_CLASSES, BotAvatar } from "../bot/BotAvatar";
-import { Button, IconButton, Input, LinkButton, Modal, Select, TextArea } from "../common";
+import { useBotMotion } from "../bot/bot-motion";
+import { botState, tabBotFacts } from "../bot/bot-status";
+import { Button, IconButton, Input, LinkButton, Select, Sheet, TextArea } from "../common";
 import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
+
+/** The computer whose bot a row edits: this one's (no `device`) or a paired host's. */
+interface BotOf {
+	device?: string | undefined;
+}
 
 function notifyField(kind: BotNotifyKind, route: BotNotifyRoute): Partial<Pick<BotNotify, BotNotifyKind>> {
 	return { [kind]: route };
@@ -64,9 +84,80 @@ function useAvatarDrawing(): BotAvatarAnswer | null {
 	return answer;
 }
 
-function AvatarRow() {
+/**
+ * The bot's session file on its computer, while it is on: this computer's from pref `bot`, a paired host's from its
+ * own list (the row it marks `bot: "on"`; the caller holds that list).
+ */
+export function useBotSessionPath(device: string | undefined): string | null {
+	const local = useBotStore(state => (state.enabled ? state.path : null));
+	const hostBot = useStore(sessionListFeed("global", device).store, state =>
+		device === undefined ? null : (state.sessions.find(row => row.bot === "on")?.path ?? null),
+	);
+	return device === undefined ? local : hostBot;
+}
+
+/**
+ * The bot's name: its session's own title, renamed through stock's rename like any session (a name the owner sets is
+ * never replaced by an automatic title), on the host for a host's bot. A paired computer shows it on its fixed bot
+ * row and the bot's bar, and the bot's prompt names it by it (`botSection`), each as soon as the rename lands.
+ */
+export function BotNameRow({ path, device }: { path: string } & BotOf) {
 	const t = useT();
-	const { desk } = useBotDesk();
+	const inputId = useId();
+	const feed = sessionListFeed("global", device);
+	const listed = useStore(feed.store, s => s.sessions.find(session => session.path === path));
+	const name = botDisplayName(listed, t("sidebar.botBadge"));
+	const [draft, setDraft] = useState(name);
+	const [editing, setEditing] = useState(false);
+	useEffect(() => {
+		if (!editing) setDraft(name);
+	}, [editing, name]);
+	const commit = (value: string) => {
+		setEditing(false);
+		const next = value.trim();
+		if (!next || next === name) {
+			setDraft(name);
+			return;
+		}
+		// Through the list, so this window shows the new name at once, before the list pushes it.
+		feed.renameSession(path, next).catch((error: unknown) => {
+			setDraft(name);
+			toastError({ title: t("botRules.renameFailed"), error });
+		});
+	};
+	return (
+		<SettingsRow
+			control={
+				<Input
+					controlSize="sm"
+					data-bot-name-field
+					id={inputId}
+					maxLength={64}
+					onBlur={event => commit(event.currentTarget.value)}
+					onChange={event => setDraft(event.target.value)}
+					onFocus={() => setEditing(true)}
+					onKeyDown={event => {
+						if (isImeKeyEvent(event)) return;
+						if (event.key === "Enter") event.currentTarget.blur();
+						onEscape(event, () => {
+							setDraft(name);
+							setEditing(false);
+						});
+					}}
+					value={draft}
+				/>
+			}
+			description={t("botRules.nameDesc")}
+			htmlFor={inputId}
+			icon={<Tag />}
+			label={t("botRules.name")}
+		/>
+	);
+}
+
+function AvatarRow({ device }: BotOf) {
+	const t = useT();
+	const { desk } = useBotDesk(device);
 	const edit = useBotDeskStore(state => state.edit);
 	const fileRef = useRef<HTMLInputElement>(null);
 	const [generating, setGenerating] = useState(false);
@@ -74,11 +165,17 @@ function AvatarRow() {
 	const unavailable = drawing && !drawing.available ? (drawing.reason ?? "unavailable") : null;
 	const avatar = desk.identity.avatar;
 	const mark = avatar.kind === "mark" ? avatar : null;
+	// The preview moves as the bot does now, as on its rows and bar: the tab holding its session, if any.
+	const botPath = useBotSessionPath(device);
+	const tab = useTabsStore(state =>
+		botPath ? state.tabs.find(entry => entry.sessionPath === botPath && entry.device === device) : undefined,
+	);
+	const motion = useBotMotion({ state: botState(tabBotFacts(tab)), device, tabId: tab?.id });
 	const upload = async (file: File | undefined) => {
 		if (!file) return;
 		try {
 			const dataUrl = await avatarDataUrl(file);
-			await edit({ op: "identity", avatar: { kind: "image", dataUrl } });
+			await edit({ op: "identity", avatar: { kind: "image", dataUrl } }, device);
 		} catch (error) {
 			toastError({
 				title: t("botIdentity.uploadFailed"),
@@ -90,11 +187,11 @@ function AvatarRow() {
 		<SettingsRow
 			description={t("botIdentity.avatarDesc")}
 			icon={<Palette />}
-			id="setting-bot-avatar"
+			id={device === undefined ? "setting-bot-avatar" : undefined}
 			label={t("botIdentity.avatar")}
 		>
 			<div className="flex flex-wrap items-start gap-4 pt-2" data-bot-avatar-editor>
-				<BotAvatar avatar={avatar} label={t("botIdentity.avatarPreview")} size="lg" />
+				<BotAvatar avatar={avatar} label={t("botIdentity.avatarPreview")} motion={motion} size="lg" />
 				<div className="flex min-w-0 flex-1 flex-col gap-2">
 					<div aria-label={t("botIdentity.shape")} className="flex flex-wrap gap-1" role="group">
 						{BOT_AVATAR_SHAPES.map(shape => {
@@ -106,10 +203,10 @@ function AvatarRow() {
 									key={shape}
 									label={t(`botIdentity.shapes.${shape}`)}
 									onClick={() =>
-										void edit({
-											op: "identity",
-											avatar: { kind: "mark", shape, color: mark?.color ?? "accent" },
-										})
+										void edit(
+											{ op: "identity", avatar: { kind: "mark", shape, color: mark?.color ?? "accent" } },
+											device,
+										)
 									}
 									pressed={mark?.shape === shape}
 									size="sm"
@@ -130,7 +227,10 @@ function AvatarRow() {
 								key={color}
 								label={t(`botIdentity.colors.${color}`)}
 								onClick={() =>
-									void edit({ op: "identity", avatar: { kind: "mark", shape: mark?.shape ?? "bot", color } })
+									void edit(
+										{ op: "identity", avatar: { kind: "mark", shape: mark?.shape ?? "bot", color } },
+										device,
+									)
 								}
 								pressed={mark?.color === color}
 								size="sm"
@@ -161,10 +261,11 @@ function AvatarRow() {
 							type="file"
 						/>
 						<Button
+							aria-expanded={generating}
 							data-bot-avatar-generate
 							disabled={!drawing?.available}
 							icon={<Sparkles />}
-							onClick={() => setGenerating(true)}
+							onClick={() => setGenerating(open => !open)}
 							size="sm"
 							variant="secondary"
 						>
@@ -187,15 +288,19 @@ function AvatarRow() {
 							) : null}
 						</p>
 					)}
+					{generating && <GenerateForm device={device} onClose={() => setGenerating(false)} />}
 				</div>
 			</div>
-			<GenerateDialog onClose={() => setGenerating(false)} open={generating} />
 		</SettingsRow>
 	);
 }
 
-/** The owner describes the avatar; the app draws it on the image model role and sets it (main, `BOT_AVATAR_GENERATE`). */
-function GenerateDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+/**
+ * The owner describes the avatar; this computer draws it on its image model role and sets it (main,
+ * `BOT_AVATAR_GENERATE`), on a paired host's desk for a host's bot. In place under the avatar, not a dialog: the same
+ * rows sit in the bar's sheet, and a dialog never opens over a sheet.
+ */
+function GenerateForm({ device, onClose }: BotOf & { onClose: () => void }) {
 	const t = useT();
 	const id = useId();
 	const [description, setDescription] = useState("");
@@ -205,7 +310,10 @@ function GenerateDialog({ open, onClose }: { open: boolean; onClose: () => void 
 		if (!text || pending) return;
 		setPending(true);
 		try {
-			await window.omp.sessions.botDesk.generateAvatar(text);
+			const botDesk = window.omp.sessions.botDesk;
+			await (device === undefined ? botDesk.generateAvatar(text) : botDesk.generateAvatar(text, device));
+			// A host's push can miss this page (a paired web page hears none), as after an edit.
+			if (device !== undefined) void useBotDeskStore.getState().refresh(device);
 			setDescription("");
 			onClose();
 		} catch (error) {
@@ -214,57 +322,48 @@ function GenerateDialog({ open, onClose }: { open: boolean; onClose: () => void 
 			setPending(false);
 		}
 	};
-	const close = () => {
-		if (!pending) onClose();
-	};
 	return (
-		<Modal
-			description={t("botAvatar.desc")}
-			footer={
-				<>
-					<Button disabled={pending} onClick={close} variant="secondary">
-						{t("common.cancel")}
-					</Button>
-					<Button
-						data-bot-avatar-generate-send
-						disabled={!description.trim()}
-						loading={pending}
-						onClick={() => void send()}
-					>
-						{t("botAvatar.send")}
-					</Button>
-				</>
-			}
-			onClose={close}
-			open={open}
-			size="sm"
-			title={t("botAvatar.title")}
-		>
+		<div className="flex flex-col gap-2" data-bot-avatar-generate-form>
+			<p className="text-sc-xs text-(--sc-text-muted)" id={id}>
+				{t("botAvatar.desc")}
+			</p>
 			<TextArea
 				aria-labelledby={id}
 				data-bot-avatar-description
 				disabled={pending}
 				maxLength={BOT_AVATAR_PROMPT_MAX}
 				onChange={event => setDescription(event.target.value)}
+				onKeyDown={event => onEscape(event, () => !pending && onClose())}
 				placeholder={t("botAvatar.placeholder")}
 				value={description}
 			/>
-			<span className="sr-only" id={id}>
-				{t("botAvatar.title")}
-			</span>
-		</Modal>
+			<div className="flex justify-end gap-2">
+				<Button disabled={pending} onClick={onClose} size="sm" variant="ghost">
+					{t("common.cancel")}
+				</Button>
+				<Button
+					data-bot-avatar-generate-send
+					disabled={!description.trim()}
+					loading={pending}
+					onClick={() => void send()}
+					size="sm"
+				>
+					{t("botAvatar.send")}
+				</Button>
+			</div>
+		</div>
 	);
 }
 
-function TaglineRow() {
+function TaglineRow({ device }: BotOf) {
 	const t = useT();
 	const inputId = useId();
-	const stored = useBotDesk().desk.identity.tagline;
+	const stored = useBotDesk(device).desk.identity.tagline;
 	const edit = useBotDeskStore(state => state.edit);
 	const { draft, setDraft, setEditing } = useDraft(stored);
 	const commit = (value: string) => {
 		setEditing(false);
-		if (value.trim() !== stored) void edit({ op: "identity", tagline: value.trim() });
+		if (value.trim() !== stored) void edit({ op: "identity", tagline: value.trim() }, device);
 	};
 	return (
 		<SettingsRow
@@ -293,10 +392,10 @@ function TaglineRow() {
 	);
 }
 
-function PersonaRow() {
+function PersonaRow({ device }: BotOf) {
 	const t = useT();
 	const inputId = useId();
-	const stored = useBotDesk().desk.identity.persona;
+	const stored = useBotDesk(device).desk.identity.persona;
 	const edit = useBotDeskStore(state => state.edit);
 	const { draft, setDraft, setEditing } = useDraft(stored);
 	return (
@@ -314,7 +413,7 @@ function PersonaRow() {
 					onBlur={event => {
 						setEditing(false);
 						const next = event.currentTarget.value.trim();
-						if (next !== stored) void edit({ op: "identity", persona: next });
+						if (next !== stored) void edit({ op: "identity", persona: next }, device);
 					}}
 					onChange={event => setDraft(event.target.value)}
 					onFocus={() => setEditing(true)}
@@ -323,6 +422,18 @@ function PersonaRow() {
 				/>
 			</div>
 		</SettingsRow>
+	);
+}
+
+/** Who a bot is: its name (given its session), avatar, tagline and persona, on this computer or a paired host. */
+export function BotIdentityRows({ device, botPath }: BotOf & { botPath?: string | null }) {
+	return (
+		<>
+			{botPath ? <BotNameRow device={device} path={botPath} /> : null}
+			<AvatarRow device={device} />
+			<TaglineRow device={device} />
+			<PersonaRow device={device} />
+		</>
 	);
 }
 
@@ -389,9 +500,7 @@ export function BotIdentitySettings() {
 	return (
 		<>
 			<SettingsSection description={t("botIdentity.desc")} id="settings-bot-identity" title={t("botIdentity.title")}>
-				<AvatarRow />
-				<TaglineRow />
-				<PersonaRow />
+				<BotIdentityRows />
 			</SettingsSection>
 			<SettingsSection description={t("botNotify.desc")} id="settings-bot-notify" title={t("botNotify.title")}>
 				<NotifyRows />
@@ -407,5 +516,71 @@ export function BotIdentitySettings() {
 				/>
 			</SettingsSection>
 		</>
+	);
+}
+
+/** One paired host's bot, while the host's own list marks it on: its name and identity, edited on that host. */
+function HostBotIdentitySection({ host }: { host: Pick<HostView, "deviceId" | "name"> }) {
+	const t = useT();
+	const feed = sessionListFeed("global", host.deviceId);
+	// Settings may be open with the sidebar folded away (a phone's drawer): the section holds the host's list itself.
+	useEffect(() => feed.retain(), [feed]);
+	const botPath = useBotSessionPath(host.deviceId);
+	const { loaded } = useBotDesk(host.deviceId);
+	useEffect(() => {
+		if (botPath) ensureBotDesk(host.deviceId);
+	}, [botPath, host.deviceId]);
+	if (!botPath || !loaded) return null;
+	return (
+		<div data-bot-identity-host={host.deviceId}>
+			<SettingsSection
+				description={t("botIdentity.hostDesc", { device: host.name })}
+				id={`settings-bot-identity-${host.deviceId}`}
+				title={t("botIdentity.hostTitle", { device: host.name })}
+			>
+				<BotIdentityRows botPath={botPath} device={host.deviceId} />
+			</SettingsSection>
+		</div>
+	);
+}
+
+/** Settings › Bot: a section per paired host that is online, shown while that host's bot is on. */
+export function HostBotIdentitySettings() {
+	const hosts = useRemoteStore(state => state.state?.hosts);
+	return (
+		<>
+			{(hosts ?? [])
+				.filter(host => host.state === "online")
+				.map(host => (
+					<HostBotIdentitySection host={host} key={host.deviceId} />
+				))}
+		</>
+	);
+}
+
+/**
+ * The bot's bar opens who the bot is in a sheet, for the bot it shows: this computer's, or a paired host's on a paired
+ * computer and on the phone's page. A side chat's bar edits the bot it belongs to.
+ */
+export function BotIdentitySheet({ device, open, onClose }: BotOf & { open: boolean; onClose: () => void }) {
+	const t = useT();
+	const phone = useShellMode() === "phone";
+	const botPath = useBotSessionPath(device);
+	const computer = useRemoteStore(state =>
+		device === undefined ? undefined : state.state?.hosts.find(host => host.deviceId === device)?.name,
+	);
+	return (
+		<Sheet
+			description={computer ? t("botIdentity.hostDesc", { device: computer }) : t("botIdentity.desc")}
+			onClose={onClose}
+			open={open}
+			placement={phone ? "bottom" : "right"}
+			size="md"
+			title={t("botIdentity.sheetTitle")}
+		>
+			<div className="flex flex-col" data-bot-identity-sheet={device ?? "local"}>
+				<BotIdentityRows botPath={botPath} device={device} />
+			</div>
+		</Sheet>
 	);
 }
