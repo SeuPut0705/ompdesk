@@ -1,3 +1,5 @@
+import { connect } from "node:net";
+
 /**
  * Whether this computer can reach the internet right now, as far as a waiting
  * turn is concerned (turn-resume.ts). Electron-free so the state machine is
@@ -5,16 +7,19 @@
  * events and `powerMonitor` `suspend`/`resume` into it.
  *
  * Three things make a turn wait instead of failing: the network is down, the
- * computer just woke from sleep, or a turn failed on the network while the link
+ * computer just woke from sleep, or a turn failed to connect while the link
  * looked up and a probe found nothing reachable (a dead DNS or route). Right after
  * a wake `net.isOnline()` can say yes while the Wi-Fi has not rejoined, so a
  * `resume` holds the state at offline until a probe confirms the way out, and a
  * network-class error in the minutes after it is still treated as the wake's doing.
  *
+ * A probe resolves the name and opens a connection ({@link reaches}): after a hang on 2 Nov 2026 the resolver
+ * answered while every connection was refused, and a lookup-only probe read that as online.
+ *
  * A held continuation has no timer of its own: it waits while this says offline. So the
  * offline state must never outlive the outage: besides the events and the wake's probe
  * loop, an offline state that nothing is recovering (a missed `online` event, a `resume`
- * that never arrived) asks the resolver itself every {@link REPROBE_INTERVAL_MS} and goes
+ * that never arrived) asks again every {@link REPROBE_INTERVAL_MS} and goes
  * online the moment it answers, whatever the link flag says.
  */
 
@@ -27,15 +32,62 @@ export const REPROBE_INTERVAL_MS = 15_000;
 /** A probe that has not answered by then counts as unreachable: a dead route can hold a lookup for tens of seconds. */
 export const PROBE_TIMEOUT_MS = 2_500;
 
-/** Whether `lookup` succeeds within `ms`; a rejection or the deadline is "no". */
-export function answersWithin(lookup: Promise<unknown>, ms: number): Promise<boolean> {
+/** The probe's answer, or no when it fails or has not answered within `ms`. */
+export function answersWithin(answer: Promise<boolean>, ms: number): Promise<boolean> {
 	const { promise, resolve } = Promise.withResolvers<boolean>();
 	const timer = setTimeout(() => resolve(false), ms);
-	lookup.then(
-		() => resolve(true),
-		() => resolve(false),
-	);
+	answer.then(resolve, () => resolve(false));
 	return promise.finally(() => clearTimeout(timer));
+}
+
+export interface ProbeTarget {
+	host: string;
+	port: number;
+}
+
+/** Where a probe for `host` connects: the proxy the agent's requests go through when one is set, else `host` on HTTPS's port. */
+export function probeTarget(host: string, proxyUrl: string | undefined): ProbeTarget {
+	if (proxyUrl) {
+		try {
+			const proxy = new URL(proxyUrl);
+			const fallback = proxy.protocol === "https:" ? 443 : proxy.protocol === "http:" ? 80 : 1080;
+			if (proxy.hostname) return { host: proxy.hostname, port: Number(proxy.port) || fallback };
+		} catch {}
+	}
+	return { host, port: 443 };
+}
+
+export interface TransportDeps {
+	/** The addresses `host` resolves to, asking the resolver itself (never its cache). */
+	resolve(host: string): Promise<readonly string[]>;
+	/** Whether a TCP connection to `address:port` opens. */
+	connect(address: string, port: number): Promise<boolean>;
+}
+
+/** The name resolves and one of its addresses takes a connection; a failing step is "no". */
+export async function reaches(target: ProbeTarget, deps: TransportDeps): Promise<boolean> {
+	let addresses: readonly string[];
+	try {
+		addresses = await deps.resolve(target.host);
+	} catch {
+		return false;
+	}
+	const answers = await Promise.all(addresses.slice(0, 2).map(address => deps.connect(address, target.port)));
+	return answers.includes(true);
+}
+
+/** Whether a TCP connection to `address:port` opens within `ms`; the socket is closed either way. */
+export function tcpConnects(address: string, port: number, ms: number): Promise<boolean> {
+	const { promise, resolve } = Promise.withResolvers<boolean>();
+	const socket = connect({ host: address, port });
+	const finish = (answer: boolean) => {
+		socket.destroy();
+		resolve(answer);
+	};
+	socket.setTimeout(ms, () => finish(false));
+	socket.once("connect", () => finish(true));
+	socket.once("error", () => finish(false));
+	return promise;
 }
 
 export interface ConnectivityDeps {

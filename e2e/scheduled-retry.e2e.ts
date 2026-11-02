@@ -145,3 +145,24 @@ test("a failed lookup while the computer reads online waits for the connection i
 		await cleanup(profile);
 	}
 });
+
+// 2 Nov 2026: after a hang the link read up and the resolver answered, but every connection was refused; ten relaunched
+// turns failed with stock's "OAuth token refresh failed … ECONNREFUSED" and were retried into the dead network.
+test("a refused connection while the computer reads online waits for the connection instead of retrying", async () => {
+	test.setTimeout(120_000);
+	const profile = await makeProfile("en", "4000,4000,4000");
+	profile.env.OMP_GUI_TEST_UNREACHABLE = "1";
+	let current: ElectronApplication | undefined;
+	try {
+		const { app, page } = await launch(profile);
+		current = app;
+		await stockRetry(page, true);
+		await send(page, "fixture refused");
+		await expect(page.locator("[data-connection-wait]")).toBeVisible({ timeout: 30_000 });
+		await expect(page.locator(".omp-message-error")).toHaveCount(0);
+		await expect(page.locator("[data-scheduled-retry]")).toHaveCount(0);
+	} finally {
+		if (current) await exitApp(current);
+		await cleanup(profile);
+	}
+});

@@ -24,6 +24,7 @@ import {
 	personsPrompt,
 	RESUME_COMMAND_TIMEOUT_MS,
 	RESUME_READY_TIMEOUT_MS,
+	type ResumeDeps,
 	type ResumeFact,
 	type ResumeLogDetails,
 	type ResumeMarker,
@@ -323,6 +324,8 @@ function setup(
 		resumeGoal?: (tabId: string) => Promise<void>;
 		/** Told how a tab's launch continuation ended for its goal. */
 		goalSettled?: (tabId: string, outcome: GoalSettlement) => void;
+		/** The real connectivity monitor in place of the scripted `net` (whose `online` it then drives). */
+		network?: ResumeDeps["network"];
 	} = {},
 ): Harness {
 	const dir = mkdtempSync(join(tmpdir(), "ompdesk-resume-"));
@@ -378,7 +381,7 @@ function setup(
 	const resume = new TurnResume({
 		store,
 		pool,
-		network: {
+		network: options.network ?? {
 			get online() {
 				return net.online;
 			},
@@ -2619,8 +2622,11 @@ describe("a continuation held for the connection", () => {
 	});
 
 	it("a relaunch into a link that reads up but refuses every connection: the continued turns' failures wait, nothing retries into the dead network, each continues once it answers", async () => {
-		h = setup({ answers: { restore_interrupted: RESTORED, retry: RETRIED, get_settings: SETTINGS_ON } });
 		const { world, monitor, fireNext } = monitored();
+		h = setup({
+			network: monitor,
+			answers: { restore_interrupted: RESTORED, retry: RETRIED, get_settings: SETTINGS_ON },
+		});
 		const tabs = ["a", "b", "c"];
 		const fileOf = (tab: string) => `/s/${tab}.jsonl`;
 		new InterruptedTurnStore(h.file).write(tabs.map(tab => marker({ tab, sessionPath: fileOf(tab) })));

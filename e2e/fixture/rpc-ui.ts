@@ -4473,9 +4473,14 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			appendMessage(answer);
 			write({ type: "message_end", message: answer });
 			endTurn([user, answer]);
-		} else if (message === "fixture network error" || message === "fixture dns error") {
+		} else if (
+			message === "fixture network error" ||
+			message === "fixture dns error" ||
+			message === "fixture refused"
+		) {
 			// The connection dropped mid-turn: stock auto-retry has given up. `dns error` is stock's wording for a failed
-			// lookup (pi-ai network-cause.ts), which main probes before it decides (OMP_GUI_TEST_UNREACHABLE).
+			// lookup (pi-ai network-cause.ts) and `refused` a sign-in refresh whose connection was refused; main probes
+			// both before it decides (OMP_GUI_TEST_UNREACHABLE).
 			networkFailed = true;
 			const answer: AgentMessage = {
 				role: "assistant",
@@ -4487,7 +4492,9 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				errorMessage:
 					message === "fixture dns error"
 						? "Couldn't reach api.fixture.invalid (getaddrinfo ENOTFOUND). Check the URL, your network, or proxy."
-						: "fetch failed: other side closed",
+						: message === "fixture refused"
+							? "OAuth token refresh failed for provider fixture: fixture request to https://api.fixture.invalid/v1/oauth/token failed: ECONNREFUSED: Unable to connect. Is the computer able to access the url?"
+							: "fetch failed: other side closed",
 			};
 			appendMessage(answer);
 			write({ type: "message_end", message: answer });

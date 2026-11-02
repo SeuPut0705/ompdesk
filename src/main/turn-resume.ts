@@ -255,16 +255,20 @@ export function isNetworkError(message: string | undefined): boolean {
 	return message !== undefined && NETWORK_ERROR.test(message);
 }
 
-/** A failed name lookup: the one network failure a reachability probe can tell from a provider's own trouble. */
-const DNS_ERROR = /getaddrinfo|ENOTFOUND|EAI_AGAIN/i;
-/** The host it names: stock's "Couldn't reach <host> (getaddrinfo ENOTFOUND)" or Node's "getaddrinfo ENOTFOUND <host>". */
-const DNS_HOST = /couldn't reach ([a-z0-9.-]+)|(?:ENOTFOUND|EAI_AGAIN) ([a-z0-9.-]+)/i;
+/**
+ * A failure to connect at all (a failed lookup, a refused or unroutable connection): the network failures a
+ * reachability probe can tell from a provider's own trouble. A socket dropped mid-reply is not one of them.
+ */
+const CONNECT_ERROR =
+	/getaddrinfo|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ENETUNREACH|ENETDOWN|EHOSTUNREACH|connection.?refused|unable to connect/i;
+/** The host it names: stock's "Couldn't reach <host> (getaddrinfo ENOTFOUND)", Node's "getaddrinfo ENOTFOUND <host>", or a URL's. */
+const CONNECT_HOST = /couldn't reach ([a-z0-9.-]+)|(?:ENOTFOUND|EAI_AGAIN) ([a-z0-9.-]+)|https?:\/\/([a-z0-9.-]+)/i;
 
-/** The host a DNS failure could not resolve; `""` when it names none; `null` when the failure is not a lookup's. */
-export function dnsFailureHost(message: string | undefined): string | null {
-	if (message === undefined || !DNS_ERROR.test(message)) return null;
-	const named = DNS_HOST.exec(message);
-	const host = named?.[1] ?? named?.[2] ?? "";
+/** The host a failed connection could not reach; `""` when it names none; `null` when the failure is not a failed connection. */
+export function connectFailureHost(message: string | undefined): string | null {
+	if (message === undefined || !CONNECT_ERROR.test(message)) return null;
+	const named = CONNECT_HOST.exec(message);
+	const host = named?.[1] ?? named?.[2] ?? named?.[3] ?? "";
 	return /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i.test(host) ? host.toLowerCase() : "";
 }
 
@@ -519,6 +523,8 @@ export class TurnResume {
 	readonly #judged = new WeakSet<IpcTabRunOutcome>();
 	/** Stock auto-retries already taken over (one per `auto_retry_start`). */
 	readonly #takenOver = new WeakSet<{ errorMessage: string }>();
+	/** Stock auto-retries of a failed connection whose way out was probed while the link read up. */
+	readonly #probedRetries = new WeakSet<{ errorMessage: string }>();
 	/**
 	 * Per tab, bumped whenever its continuation is called off: Stop, Cancel, or a new run in its place.
 	 * A continuation captures it when it starts and sends nothing once it moved, so the call-off also
@@ -624,7 +630,7 @@ export class TurnResume {
 				this.#hold(fact.tabId, "retry", { sessionFile: fact.sessionFile, touched: fact.touched ?? 0 });
 				return;
 			}
-			const host = dnsFailureHost(outcome.errorMessage);
+			const host = connectFailureHost(outcome.errorMessage);
 			if (host !== null) {
 				this.#verifyNetwork(fact, outcome, host);
 				return;
@@ -790,11 +796,17 @@ export class TurnResume {
 	 * attempt. While this computer is offline none of them can succeed, so the wait takes over
 	 * at the first one: stock's pending retry is cancelled (`abort_retry`, the turn then ends
 	 * failed) and stock `retry` runs once the connection is back. Right after a wake the
-	 * network may already be up, so stock's own retry is left to run.
+	 * network may already be up, so stock's own retry is left to run. A failed connection while
+	 * the link reads up is probed first: a probe that finds nothing reachable takes the state
+	 * offline, and the takeover follows.
 	 */
 	#takeOverRetry(fact: ResumeFact): void {
 		const retry = fact.retry;
-		if (!retry || this.#takenOver.has(retry) || this.#deps.network.online) return;
+		if (!retry || this.#takenOver.has(retry)) return;
+		if (this.#deps.network.online) {
+			this.#probeRetry(retry);
+			return;
+		}
 		if (!isNetworkError(retry.errorMessage)) return;
 		this.#takenOver.add(retry);
 		this.#takenOverRuns.add(fact.tabId);
@@ -804,6 +816,16 @@ export class TurnResume {
 			.startTab(fact.tabId)
 			?.rpcClient?.command({ type: "abort_retry" })
 			.catch(() => undefined);
+	}
+
+	/** Probe the way out once for stock's retry of a failed connection; nothing reachable puts the takeover through. */
+	#probeRetry(retry: { errorMessage: string }): void {
+		const host = connectFailureHost(retry.errorMessage);
+		if (host === null || this.#probedRetries.has(retry)) return;
+		this.#probedRetries.add(retry);
+		void this.#deps.network.verify(host || undefined).then(reachable => {
+			if (!reachable) this.sync();
+		});
 	}
 
 	#hold(tabId: string, action: ResumeAction, since: HeldFor): void {

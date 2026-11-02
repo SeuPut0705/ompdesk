@@ -347,10 +347,11 @@ describe("ConnectivityMonitor", () => {
 });
 
 describe("answersWithin", () => {
-	it("is yes for a lookup that answers, no for one that fails or outlives the deadline", async () => {
+	it("is the probe's answer, and no for one that fails or outlives the deadline", async () => {
 		vi.useFakeTimers();
 		try {
-			expect(await answersWithin(Promise.resolve({}), 2_500)).toBe(true);
+			expect(await answersWithin(Promise.resolve(true), 2_500)).toBe(true);
+			expect(await answersWithin(Promise.resolve(false), 2_500)).toBe(false);
 			expect(await answersWithin(Promise.reject(new Error("ENOTFOUND")), 2_500)).toBe(false);
 			const hung = answersWithin(new Promise(() => undefined), 2_500);
 			vi.advanceTimersByTime(2_500);

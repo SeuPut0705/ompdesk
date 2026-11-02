@@ -109,7 +109,14 @@ import type { Autopilot } from "./autopilot";
 import { BackgroundWorkWatcher } from "./background-work";
 import { type BridgeConnectResult, BridgeHealth } from "./bridge-health";
 import { CliUpdater, psCommands, registerCliUpdateIpc } from "./cli-tools/updater";
-import { answersWithin, ConnectivityMonitor, PROBE_TIMEOUT_MS } from "./connectivity";
+import {
+	answersWithin,
+	ConnectivityMonitor,
+	PROBE_TIMEOUT_MS,
+	probeTarget,
+	reaches,
+	tcpConnects,
+} from "./connectivity";
 import { installCliLaunchers } from "./control-socket/cli-install";
 import { setupDeepLinks } from "./deep-link";
 import { ensureDefaultWorkspace } from "./default-workspace";
@@ -443,25 +450,43 @@ const SYSTEM_PROXY_PROBE_URL = "https://chatgpt.com";
 /** How long the stats server and setup's optional installs wait for a first ready tab before starting anyway. */
 const FIRST_TAB_GRACE_MS = 30_000;
 
-async function resolveProxyEnvForSpawn(): Promise<Record<string, string>> {
+/** The GUI's proxy pref, normalized; undefined when unset. */
+function prefProxyUrl(): string | undefined {
 	const pref = prefsStore().get("proxyUrl");
-	if (typeof pref === "string" && pref.trim()) return proxyEnvVars(normalizeProxyUrl(pref));
-	if (
+	return typeof pref === "string" && pref.trim() ? normalizeProxyUrl(pref) : undefined;
+}
+
+/** A proxy the app inherited from a terminal launch; every spawn inherits it too. */
+function inheritedProxyUrl(): string | undefined {
+	return (
 		process.env.PI_PROXY ||
 		process.env.HTTPS_PROXY ||
 		process.env.https_proxy ||
 		process.env.ALL_PROXY ||
-		process.env.all_proxy
-	) {
-		return {};
-	}
+		process.env.all_proxy ||
+		undefined
+	);
+}
+
+async function systemProxyUrl(): Promise<string | undefined> {
 	try {
-		const pac = await session.defaultSession.resolveProxy(SYSTEM_PROXY_PROBE_URL);
-		const systemProxy = parsePacResult(pac);
-		return systemProxy ? proxyEnvVars(systemProxy) : {};
+		return parsePacResult(await session.defaultSession.resolveProxy(SYSTEM_PROXY_PROBE_URL));
 	} catch {
-		return {};
+		return undefined;
 	}
+}
+
+/** The proxy the agent's requests go through, in the spawn's order. */
+async function agentProxyUrl(): Promise<string | undefined> {
+	return prefProxyUrl() ?? inheritedProxyUrl() ?? (await systemProxyUrl());
+}
+
+async function resolveProxyEnvForSpawn(): Promise<Record<string, string>> {
+	const pref = prefProxyUrl();
+	if (pref) return proxyEnvVars(pref);
+	if (inheritedProxyUrl()) return {};
+	const system = await systemProxyUrl();
+	return system ? proxyEnvVars(system) : {};
 }
 
 // Module-level instances (alive for app lifetime)
@@ -1832,13 +1857,25 @@ app.whenReady().then(() => {
 	// SIGKILL, which run no quit hook, still leaves it behind.
 	const connectivity = new ConnectivityMonitor({
 		isOnline: () => net.isOnline(),
-		// Right after a wake the OS can report a link before it carries traffic, and a dead DNS never shows in
-		// `net.isOnline()`: ask the resolver itself, never its cache, and give up after `PROBE_TIMEOUT_MS`.
-		// OMP_GUI_TEST_UNREACHABLE=1 (unpackaged e2e runs) makes every probe fail without touching the real resolver.
+		// Right after a wake the OS can report a link before it carries traffic, and a dead DNS or route never shows in
+		// `net.isOnline()`: ask the resolver itself, never its cache, then open a connection (through the agent's proxy
+		// when it has one), and give up after `PROBE_TIMEOUT_MS`.
+		// OMP_GUI_TEST_UNREACHABLE=1 (unpackaged e2e runs) makes every probe fail without touching the real network.
 		probe: host =>
 			!app.isPackaged && process.env.OMP_GUI_TEST_UNREACHABLE === "1"
 				? Promise.resolve(false)
-				: answersWithin(net.resolveHost(host ?? "example.com", { cacheUsage: "disallowed" }), PROBE_TIMEOUT_MS),
+				: answersWithin(
+						agentProxyUrl().then(proxy =>
+							reaches(probeTarget(host ?? "example.com", proxy), {
+								resolve: async name =>
+									(await net.resolveHost(name, { cacheUsage: "disallowed" })).endpoints.map(
+										endpoint => endpoint.address,
+									),
+								connect: (address, port) => tcpConnects(address, port, PROBE_TIMEOUT_MS),
+							}),
+						),
+						PROBE_TIMEOUT_MS,
+					),
 		now: Date.now,
 		schedule: (run, ms) => {
 			const timer = setTimeout(run, ms);
