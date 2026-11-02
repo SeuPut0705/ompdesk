@@ -7269,4 +7269,105 @@ describe("Sidebar folded headers say what works inside", () => {
 		await fire(container.querySelector('[data-sidebar-chats-toggle="dev-studio"]'), "onClick");
 		expect(counts(summaryIn(hostChats))).toEqual({ waiting: null, running: "1", done: null });
 	});
+
+	// Seen on a Mac (3 Nov 2026): the bot's earlier conversation opened a session on a paired Windows computer, which ran
+	// a turn the tab here never heard start. The row sat in the device's list as merely open, outside the bot's family,
+	// and neither folded header counted it.
+	it("nests what the bot's ended conversation opened on a paired host under the bot, running as the host says", async () => {
+		const BOT = "/work-sessions/bot.jsonl";
+		const PAST = "/work-sessions/bot-before.jsonl";
+		const CHILD = "/Users/kim/.omp/agent/sessions/app/bot-child.jsonl";
+		const local = [
+			...LIST,
+			session(BOT, "/default/work", { title: "Bot", kind: "chat", bot: "on" }),
+			session(PAST, "/default/work", { title: "Bot", kind: "chat", bot: "past" }),
+		];
+		const omp = installMockOmp(local);
+		omp.sessions.list.mockImplementation(async (_scope, device) =>
+			device === "dev-studio"
+				? [...REMOTE, session(CHILD, "/Users/kim/code/app", { title: "Test omp on Windows", device: "dev-studio" })]
+				: local,
+		);
+		useSessionStore.setState({ sessionId: "attached-id", cwd: "/work/gamma", isStreaming: false });
+		useBotStore.setState({ enabled: true, path: BOT });
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t0", cwd: "/work/gamma", status: "ready", kind: "agent", unreadDone: false },
+				{ id: "tbot", cwd: "/default/work", status: "ready", kind: "chat", unreadDone: false, sessionPath: BOT },
+				{
+					id: "r-child",
+					cwd: "/Users/kim/code/app",
+					status: "ready",
+					kind: "agent",
+					device: "dev-studio",
+					sessionPath: CHILD,
+					task: "Test omp on Windows",
+					openedBySession: PAST,
+					unreadDone: false,
+				},
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		ensureTabRuntime("tbot");
+		useSidebarSubagentsStore.setState({ expanded: new Set([BOT]) });
+		pairStudio([{ sessionPath: CHILD, state: "turn" }]);
+		await mount(<Sidebar />);
+		await flush();
+
+		// The store reads main's prefs on its first use, which the mock leaves unset: the bot is on again after it.
+		await act(async () => useBotStore.setState({ enabled: true, path: BOT }));
+		await flush();
+		const child = container.querySelector(`[data-sidebar-family="${BOT}"] [data-sidebar-opened-session]`);
+		expect(child?.textContent).toContain("Test omp on Windows");
+		expect(child?.getAttribute("data-child-status")).toBe("running");
+		expect(container.querySelector("[data-sidebar-bot-row] [data-family-running]")?.textContent).toBe("1");
+		const device = container.querySelector('[data-sidebar-device="dev-studio"]');
+		expect(device?.querySelector(`[data-device-session="${CHILD}"]`)).toBeNull();
+
+		await fire(container.querySelector("[data-sidebar-device-toggle='local']"), "onClick");
+		expect(counts(summaryIn('[data-sidebar-device-header="local"]'))).toEqual({
+			waiting: null,
+			running: "1",
+			done: null,
+		});
+		// The host's own section leaves it to this computer's: it is counted once.
+		await fire(container.querySelector("[data-sidebar-device-toggle='dev-studio']"), "onClick");
+		expect(summaryIn('[data-sidebar-device="dev-studio"]')).toBeNull();
+	});
+
+	it("says a host's turn on a row whose tab here missed its start, and counts it folded", async () => {
+		const omp = installMockOmp(FOLD_LIST);
+		omp.sessions.list.mockImplementation(async (_scope, device) => (device === "dev-studio" ? REMOTE : FOLD_LIST));
+		useSessionStore.setState({ sessionId: "attached-id", cwd: "/work/gamma", isStreaming: false });
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t0", cwd: "/work/gamma", status: "ready", kind: "agent", unreadDone: false },
+				{
+					id: "r1",
+					cwd: "/Users/kim/code/app",
+					status: "ready",
+					kind: "agent",
+					device: "dev-studio",
+					sessionPath: REMOTE_PATH,
+					unreadDone: false,
+				},
+			],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		pairStudio([{ sessionPath: REMOTE_PATH, state: "turn" }]);
+		await mount(<Sidebar />);
+		await flush();
+
+		const row = container.querySelector(`[data-sidebar-device="dev-studio"] [data-device-session="${REMOTE_PATH}"]`);
+		expect(row?.textContent).toContain(translate("sidebar.signal.running"));
+		expect(row?.textContent).not.toContain(translate("sidebar.row.open"));
+		await fire(container.querySelector("[data-sidebar-device-toggle='dev-studio']"), "onClick");
+		expect(counts(summaryIn('[data-sidebar-device="dev-studio"]'))).toEqual({
+			waiting: null,
+			running: "1",
+			done: null,
+		});
+	});
 });

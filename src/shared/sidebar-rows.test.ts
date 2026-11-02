@@ -9,7 +9,15 @@
 import { describe, expect, it } from "vitest";
 import { wrapAgentMessage } from "./agent-control";
 import type { SessionInfo } from "./ipc-types";
-import { type RowSession, type RowTab, type SidebarFacts, type SidebarRows, sidebarRows } from "./sidebar-rows";
+import {
+	botFamily,
+	type RowSession,
+	type RowTab,
+	remoteOpenedChildren,
+	type SidebarFacts,
+	type SidebarRows,
+	sidebarRows,
+} from "./sidebar-rows";
 
 const APP = "/u/code/app";
 const FOLDERS = {
@@ -258,5 +266,108 @@ describe("sidebarRows over every combination of folder, holder and opener", () =
 			expect(rows.rootOf.has("/s/orphan"), origin).toBe(false);
 			expect(placements(rows).get("/s/orphan"), origin).toBeUndefined();
 		}
+	});
+});
+
+describe("remoteOpenedChildren: a session opened on a paired device nests where a local one would", () => {
+	const BOT = "/s/bot.jsonl";
+	const PAST = "/s/bot-before.jsonl";
+	const KID = "/s/kid.jsonl";
+	const CHILD = "/s/child.jsonl";
+	const listed = (path: string, minute: number, openedBySession: string | null): SessionInfo => ({
+		path,
+		id: path,
+		title: path,
+		cwd: APP,
+		created: new Date(Date.UTC(2026, 9, 2) + minute * 60_000).toISOString(),
+		modified: "2026-10-02T00:00:00Z",
+		messageCount: 3,
+		size: 1,
+		status: "complete",
+		firstMessage: "hello",
+		openedBySession,
+	});
+	const remote = (id: string, opener: Pick<RowTab, "openedBy" | "openedBySession">): RowTab => ({
+		id,
+		sessionPath: `C:\\s\\${id}.jsonl`,
+		sessionId: id,
+		cwd: "C:\\work",
+		kind: "agent",
+		title: null,
+		status: "ready",
+		seenAt: "2026-10-02T00:00:00Z",
+		device: "dev-win",
+		...opener,
+	});
+	/**
+	 * This computer's rows as its sidebar builds them: the bot's files are no list's rows (its ended conversation
+	 * included), its family is nested out, and what each session opened is recorded. KID was opened by the bot's ended
+	 * conversation, CHILD by the plain session BOSS.
+	 */
+	function computer(tabs: RowTab[]) {
+		const base = world([]);
+		const sessions = [...base.sessions, listed(KID, 1, PAST), listed(CHILD, 2, BOSS)];
+		const facts: SidebarFacts = { ...base, sessions, tabs };
+		const recordedOpeners = new Map([
+			[KID, PAST],
+			[CHILD, BOSS],
+		]);
+		const bot = botFamily({
+			bot: BOT,
+			ended: new Set([PAST]),
+			channels: new Set(),
+			tabs,
+			sessions: sidebarRows(facts).sessions,
+			recordedOpeners,
+		});
+		const rows = sidebarRows({ ...facts, nested: bot.keys });
+		return { rows, bot, nest: (id: string) => remoteOpenedChildren(tabs, rows, bot).get(id) };
+	}
+
+	it("puts what the bot's ended conversation opened under the bot once that conversation's tab is gone", () => {
+		const { nest } = computer([remote("r1", { openedBySession: PAST })]);
+		expect(nest("r1")).toBe(BOT);
+	});
+
+	it("puts what a session of the bot's family opened under the bot, its tab open or not", () => {
+		const kidTab: RowTab = {
+			id: "t-kid",
+			sessionPath: KID,
+			sessionId: KID,
+			cwd: APP,
+			kind: "agent",
+			title: null,
+			status: "ready",
+			seenAt: "2026-10-02T00:00:00Z",
+		};
+		expect(computer([remote("r1", { openedBySession: KID })]).nest("r1")).toBe(BOT);
+		expect(computer([kidTab, remote("r1", { openedBy: "t-kid", openedBySession: KID })]).nest("r1")).toBe(BOT);
+	});
+
+	it("puts what the bot's current conversation opened under the bot", () => {
+		const botTab: RowTab = {
+			id: "t-bot",
+			sessionPath: BOT,
+			sessionId: BOT,
+			cwd: "/u/.omp/work",
+			kind: "chat",
+			title: null,
+			status: "ready",
+			seenAt: "2026-10-02T00:00:00Z",
+		};
+		expect(computer([botTab, remote("r1", { openedBy: "t-bot" })]).nest("r1")).toBe(BOT);
+		expect(computer([remote("r1", { openedBySession: BOT })]).nest("r1")).toBe(BOT);
+	});
+
+	it("puts what an opened session opened under the session that started its chain, as a local child", () => {
+		const { rows, nest } = computer([remote("r1", { openedBySession: CHILD })]);
+		expect(rows.rootOf.get(CHILD)).toBe(BOSS);
+		expect(nest("r1")).toBe(BOSS);
+	});
+
+	it("leaves to its device a tab whose opener is no session of this computer", () => {
+		const { nest } = computer([remote("r1", { openedBySession: "/s/elsewhere.jsonl" }), remote("r2", {})]);
+		expect(nest("r1")).toBeUndefined();
+		expect(nest("r2")).toBeUndefined();
 	});
 });
