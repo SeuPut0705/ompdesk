@@ -7418,6 +7418,12 @@ describe("Sidebar folded headers say what works inside", () => {
 		expect(child?.textContent).toContain("Test omp on Windows");
 		expect(child?.getAttribute("data-child-status")).toBe("running");
 		expect(container.querySelector("[data-sidebar-bot-row] [data-family-running]")?.textContent).toBe("1");
+		// The bot's title wears the light of work it started, as for any running child (the paired view's case below).
+		expect(
+			container
+				.querySelector("[data-sidebar-bot-row] [data-title-name] [data-working]")
+				?.getAttribute("data-working"),
+		).toBe("background");
 		const device = container.querySelector('[data-sidebar-device="dev-studio"]');
 		expect(device?.querySelector(`[data-device-session="${CHILD}"]`)).toBeNull();
 		await fire(container.querySelector("[data-sidebar-device-toggle='dev-studio']"), "onClick");
@@ -7431,7 +7437,8 @@ describe("Sidebar folded headers say what works inside", () => {
 	});
 
 	// The paired computer the child runs on, viewing its host: the host's section nests it under the host's bot, and
-	// this computer's own list, which runs it for the host, does not list it again.
+	// this computer's own list, which runs it for the host, does not list it again. The bot's row reads as on the host:
+	// its family chip, its open decision and the light of the child it started, all at once.
 	it("nests what a host's bot opened on this computer under the host's bot, not in this computer's own list", async () => {
 		const HOST_BOT = "/Users/kim/.omp/agent/sessions/bot.jsonl";
 		const HOST_PAST = "/Users/kim/.omp/agent/sessions/bot-before.jsonl";
@@ -7444,6 +7451,20 @@ describe("Sidebar folded headers say what works inside", () => {
 		const local = [...FOLD_LIST, session(CHILD, "/work/alpha", { title: "Test omp on Windows" })];
 		const omp = installMockOmp(local);
 		omp.sessions.list.mockImplementation(async (_scope, device) => (device === "dev-studio" ? hostRows : local));
+		(omp.sessions as unknown as { botDesk: unknown }).botDesk = {
+			get: vi.fn(async (device?: string) => ({
+				...EMPTY_BOT_DESK,
+				duties: [],
+				routines: [],
+				decisions:
+					device === "dev-studio"
+						? [{ id: "d", state: "open", question: "Ship it?", options: [], at: "2026-11-03T09:00:00.000Z" }]
+						: [],
+			})),
+			answer: vi.fn(async () => {}),
+			setDuties: vi.fn(async () => {}),
+			onChanged: vi.fn(() => () => {}),
+		};
 		useSessionStore.setState({ sessionId: "attached-id", cwd: "/work/gamma", isStreaming: false });
 		useTabsStore.setState({
 			tabs: [{ id: "t0", cwd: "/work/gamma", status: "ready", kind: "agent", unreadDone: false }],
@@ -7507,6 +7528,12 @@ describe("Sidebar folded headers say what works inside", () => {
 		const section = container.querySelector('[data-sidebar-device="dev-studio"]');
 		const botRow = section?.querySelector("[data-sidebar-bot-row]");
 		expect(botRow?.querySelector("[data-family-running]")?.textContent).toBe("1");
+		expect(botRow?.querySelector("[data-sidebar-bot-decisions]")?.textContent).toBe(
+			translate("sidebar.botDecisions", { count: 1 }),
+		);
+		expect(botRow?.querySelector("[data-title-name] [data-working]")?.getAttribute("data-working")).toBe(
+			"background",
+		);
 		const child = section?.querySelector("[data-sidebar-opened-session]");
 		expect(child?.textContent).toContain("Test omp on Windows");
 		expect(child?.getAttribute("data-child-status")).toBe("running");
