@@ -89,3 +89,26 @@ describe("agent_control.mail", () => {
 		});
 	});
 });
+
+describe("agent_control.sent", () => {
+	const sent = methods["agent_control.sent"];
+	const user = (text: string) => ({ type: "message", message: { role: "user", content: [{ type: "text", text }] } });
+
+	it("names the markers a prompt the journal holds carries, and the omp process that answers", async () => {
+		const branch = [
+			user('Also do C\n\n[ompdesk dispatch d2: report with ompdesk_report, dispatch "d2"]'),
+			// Quoted by the agent or a report, a marker is no message the session took.
+			{ type: "message", message: { role: "assistant", content: "[ompdesk dispatch d3: …]" } },
+			{ type: "custom_message", customType: MAIL_CUSTOM_TYPE, content: "[ompdesk request m-1]" },
+			{ type: "message", message: { role: "user", content: "plain [ompdesk request q7]" } },
+		];
+		const marks = ["[ompdesk dispatch d2:", "[ompdesk dispatch d3:", "[ompdesk request m-1]", "[ompdesk request q7]"];
+		const answer = (await sent?.({ marks }, env({ branch }))) as { instance: string; journaled: string[] };
+		expect(answer.journaled).toEqual(["[ompdesk dispatch d2:", "[ompdesk request q7]"]);
+		expect(answer.instance).toContain(String(process.pid));
+		// The same process answers the same instance: a message handed to it is never handed again.
+		expect(((await sent?.({ marks: [] as string[] }, env())) as { instance: string } | undefined)?.instance).toBe(
+			answer.instance,
+		);
+	});
+});

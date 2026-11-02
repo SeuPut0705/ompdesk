@@ -62,6 +62,8 @@ function setup(
 		sweepMs?: number;
 		/** `AgentControlHostDeps.mailOutboxFile`. */
 		mailOutboxFile?: string;
+		/** `AgentControlHostDeps.sendOutboxFile`. */
+		sendOutboxFile?: string;
 		sessions?: AgentControlHostDeps["sessions"];
 		remote?: AgentControlHostDeps["remote"];
 		hosted?: AgentControlHostDeps["hosted"];
@@ -185,6 +187,7 @@ function setup(
 		autopilot: options.autopilot,
 		sweepMs: options.sweepMs,
 		mailOutboxFile: options.mailOutboxFile,
+		sendOutboxFile: options.sendOutboxFile,
 		fileEdits,
 		releaseTab: async (target, tabId, stillReleasable) => {
 			const at = webTabs.findIndex(tab => tab.tabId === tabId);
@@ -1308,6 +1311,111 @@ describe("AgentControlRuntime", () => {
 			await vi.advanceTimersByTimeAsync(10_000);
 			expect(asks.length).toBe(asked);
 			expect(received).toEqual(["main0001", "main0009"]);
+		} finally {
+			vi.useRealTimers();
+			await fs.rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("hands a follow-up a busy child's omp queued to the omp that holds its session after a relaunch, once", async () => {
+		// One fake omp per tab: a prompt into a running turn waits in its memory, as stock's follow-up queue does, and
+		// only what a turn took is in its journal.
+		const journals = new Map<string, string[]>();
+		const prompted: { tabId: string; message: string }[] = [];
+		const attach = (deps: AgentControlHostDeps) => {
+			const inner = deps.dispatch;
+			deps.dispatch = async (target, sidecar, tabId, command, timeoutMs) => {
+				if (command.type === "agent_control_sent")
+					return ok({
+						instance: `omp-${tabId}`,
+						journaled: command.marks.filter(mark =>
+							(journals.get(tabId) ?? []).some(text => text.includes(mark)),
+						),
+					});
+				if (command.type === "prompt") prompted.push({ tabId, message: command.message });
+				return inner(target, sidecar, tabId, command, timeoutMs);
+			};
+		};
+		vi.useFakeTimers();
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-send-outbox-"));
+		try {
+			const file = path.join(dir, "send-outbox.json");
+			const before = setup({
+				tabs: [
+					{ tabId: "main0001", title: "Boss", sessionPath: "/s/boss.jsonl" },
+					{ tabId: "busy0002", title: "Kid", sessionPath: "/s/kid.jsonl", openedBy: "main0001" },
+				],
+				sweepMs: 1_000,
+				sendOutboxFile: file,
+			});
+			attach(before.deps);
+			const sent = await before.runtime.run(before.win, "main0001", T.send, {
+				session: "busy0002",
+				message: "Also do C",
+			});
+			expect(sent.text).toContain("queued as a follow-up");
+			expect(prompted.map(entry => entry.tabId)).toEqual(["busy0002"]);
+
+			// OMPdesk relaunches (an update): that omp ends with its queue; the child's session is back in a new tab.
+			const after = setup({
+				tabs: [
+					{ tabId: "main0009", title: "Boss", sessionPath: "/s/boss.jsonl" },
+					{ tabId: "kid00009", title: "Kid", sessionPath: "/s/kid.jsonl", openedBySession: "/s/boss.jsonl" },
+				],
+				sweepMs: 1_000,
+				sendOutboxFile: file,
+				owners: { "/s/kid.jsonl": "kid00009" },
+			});
+			attach(after.deps);
+			after.deps.pool.sidecarOf = () => ({ cwd: "/repo", status: "ready" }) as never;
+			await vi.advanceTimersByTimeAsync(1_000);
+			expect(prompted.map(entry => entry.tabId)).toEqual(["busy0002", "kid00009"]);
+			expect(prompted[1]?.message).toBe(prompted[0]?.message);
+			expect(prompted[1]?.message).toContain("[ompdesk dispatch d1:");
+
+			// That omp holds it now: asked again, never handed a second time.
+			await vi.advanceTimersByTimeAsync(5_000);
+			expect(prompted).toHaveLength(2);
+
+			// Its turn took it: the next look finds it in the journal, and it is owed no more.
+			journals.set("kid00009", [prompted[1]?.message ?? ""]);
+			await vi.advanceTimersByTimeAsync(1_000);
+			expect(JSON.parse(await fs.readFile(file, "utf8"))).toEqual([]);
+			expect(prompted).toHaveLength(2);
+		} finally {
+			vi.useRealTimers();
+			await fs.rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("keeps a report its opener's omp could not take yet, and hands it over once that omp answers", async () => {
+		vi.useFakeTimers();
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-mail-ahead-"));
+		try {
+			let up = false;
+			const received: string[] = [];
+			const { runtime, win, deps } = setup({
+				tabs: [
+					{ tabId: "main0001", title: "Boss", sessionPath: "/s/boss.jsonl" },
+					{ tabId: "kid00002", title: "Kid", sessionPath: "/s/kid.jsonl", openedBy: "main0001" },
+				],
+				sweepMs: 1_000,
+				mailOutboxFile: path.join(dir, "mail-outbox.json"),
+				owners: { "/s/boss.jsonl": "main0001" },
+			});
+			const inner = deps.dispatch;
+			deps.dispatch = async (target, sidecar, tabId, command, timeoutMs) => {
+				if (command.type !== "agent_control_mail") return inner(target, sidecar, tabId, command, timeoutMs);
+				// The opener's omp is starting again (a relaunch, a restart): it cannot take a report yet.
+				if (!up) return { type: "response", success: false, error: "That omp is starting." } as RpcResponse;
+				received.push(tabId);
+				return ok();
+			};
+			await runtime.run(win, "kid00002", T.report, { kind: "done", text: "All checks pass" });
+			expect(received).toEqual([]);
+			up = true;
+			await vi.advanceTimersByTimeAsync(1_000);
+			expect(received).toEqual(["main0001"]);
 		} finally {
 			vi.useRealTimers();
 			await fs.rm(dir, { recursive: true, force: true });

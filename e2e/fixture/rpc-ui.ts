@@ -7,7 +7,7 @@ import * as os from "node:os";
 import * as nodePath from "node:path";
 import { createInterface } from "node:readline";
 import JSZip from "jszip";
-import { hasMailEntry } from "../../resources/gui-bridge/agent-control-contracts";
+import { hasMailEntry, journaledMarks } from "../../resources/gui-bridge/agent-control-contracts";
 import { DESKTOP_SLOT_STALE_NOTICE } from "../../resources/gui-bridge/desktop-slot-contracts";
 import type { ModelSetupFacts } from "../../resources/gui-bridge/model-setup-contracts";
 import {
@@ -1369,6 +1369,12 @@ export function runRpcUi(): void {
 		},
 		"agent_control.note": () => ({}),
 		"agent_control.worker": () => ({}),
+		// gui-bridge agent-control.ts: which markers of main's messages the journal holds, and this process. As stock,
+		// a follow-up queued while a turn runs lives only in this process (`lanes`): a quit loses it.
+		"agent_control.sent": params => ({
+			instance: `${process.pid}-${Math.round(performance.timeOrigin)}`,
+			journaled: journaledMarks(entries, Array.isArray(params.marks) ? params.marks.map(String) : []),
+		}),
 		"agent_control.bot": () => ({ changed: true }),
 		// gui-bridge agent-control.ts `agent_control.mail` → stock `sendMessage`: the report becomes a displayed custom
 		// message in the journal; with `triggerTurn` an idle session takes a turn on it (the parent reacts by itself),
@@ -4584,7 +4590,8 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			appendMessage(answer);
 			write({ type: "message_end", message: answer });
 			endTurn([user, answer]);
-		} else if (message === "fixture running with job") {
+		} else if (message === "fixture running with job" || message.includes("fixture:running-with-job")) {
+			// The marker inside a message (an agent's, which arrives wrapped) starts the same turn.
 			// A turn cut off with a background bash job started and never settled: stock journals the call and a
 			// result whose `details.async` is still `running`; the turn itself keeps running (like "fixture running").
 			const call: AgentMessage = {

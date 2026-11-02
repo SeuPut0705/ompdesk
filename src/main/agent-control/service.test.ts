@@ -14,10 +14,12 @@ import type {
 } from "../../shared/rpc-types";
 import type { ScheduleDraft, ScheduleRun } from "../../shared/schedules";
 import type { RpcTurnEdits } from "../../shared/turn-edits";
+import { RpcTimeoutError } from "../rpc-client";
 import type { FileEdits } from "../web/file-edit-reports";
 import type { BranchEvidence, BranchFacts, LandingFacts, MergeOutcome, WorktreeRef, WorktreeRemoval } from "./branches";
 import { CallJournal } from "./call-journal";
 import type { MailDelivery } from "./mail";
+import { SendOutbox, type SentAnswer } from "./send-outbox";
 import {
 	AgentControl,
 	type AgentControlHost,
@@ -78,6 +80,9 @@ class FakeHost implements AgentControlHost {
 	seq = 0;
 	/** The control-tool calls this computer recorded (`call-journal.ts`); absent: none recorded. */
 	calls?: CallJournal;
+	/** Durable sends (`send-outbox.ts`) and what the receiver's bridge says of them; absent unless a test gives them. */
+	sendOutbox?: SendOutbox;
+	sentMarks?: (tabId: string, marks: string[]) => Promise<SentAnswer | null>;
 
 	constructor(...tabs: Partial<FakeTab>[]) {
 		for (const tab of tabs) this.add(tab);
@@ -324,6 +329,8 @@ class FakeHost implements AgentControlHost {
 			cwd: request.folder ?? "/repo",
 			...(typeof request.device === "string" ? { device: request.device, deviceName: "DESKTOP-PC" } : {}),
 			...(request.task ? { task: request.task } : {}),
+			// A reopened session's tab holds its file from the start.
+			...(request.sessionPath ? { sessionPath: request.sessionPath } : {}),
 			status: "ready",
 			...(request.worktree
 				? { worktree: { name: "w", branch: "omp/agent/w", baseCwd: "/repo", path: "/wt/w" } }
@@ -2555,6 +2562,7 @@ describe("autoClose: opened sessions whose work landed", () => {
 				openedBySession: "/s/boss.jsonl",
 				title: "Fix the parser",
 				cwd: "/repo",
+				tabIds: [child.tabId],
 				closedAt: expect.any(Number),
 				model: "openai/gpt-z",
 				cost: 0.42,
@@ -2796,6 +2804,106 @@ describe("autoClose: opened sessions whose work landed", () => {
 			const toOpener = host.mails.filter(mail => mail.to === "main0001");
 			expect(toOpener).toHaveLength(2);
 			expect(toOpener[1]?.content).toContain("Second round.");
+		});
+
+		it("sends one for a child a relaunch restored once a turn of this launch ended, unless it reported that work itself", async () => {
+			// Its cut-off turn went on after the relaunch (or it took a message): the opener's new tab hears it.
+			const resumed = await finishedChild({
+				patch: { restored: true, lastRun: { stopReason: "stop" }, last: "Titles combined.\nResult: ok" },
+			});
+			await resumed.service.autoClose("main0001");
+			const done = resumed.host.mails.filter(
+				mail => mail.to === "main0001" && mail.content.includes("Titles combined."),
+			);
+			expect(done).toHaveLength(1);
+			expect(done[0]?.details.dispatch).toBe("d1");
+
+			// Restored and not run this launch: its ending is from before, when main already told its opener.
+			const asleep = await finishedChild({
+				patch: { restored: true, status: "asleep", lastRun: undefined, last: undefined },
+			});
+			await asleep.service.autoClose("main0001");
+			expect(asleep.host.mails.filter(mail => mail.to === "main0001")).toHaveLength(0);
+
+			// Its own done report since its last prompt is in its journal: nothing more is sent.
+			const reported = await finishedChild({
+				patch: {
+					restored: true,
+					lastRun: { stopReason: "stop" },
+					messages: [
+						{ role: "user", content: [{ type: "text", text: wrapAgentMessage("fix it", "Boss") }] },
+						{
+							role: "assistant",
+							content: [
+								{
+									type: "toolCall",
+									id: "r1",
+									name: "write",
+									arguments: {
+										path: "xd://ompdesk_report",
+										content: JSON.stringify({ kind: "done", text: "Fixed." }),
+									},
+								},
+							],
+							stopReason: "toolUse",
+						},
+						{
+							role: "toolResult",
+							toolCallId: "r1",
+							toolName: "write",
+							content: [{ type: "text", text: "Delivered." }],
+						},
+						{ role: "assistant", content: "Fixed.\nResult: ok", stopReason: "stop" },
+					] as AgentMessage[],
+				},
+			});
+			await reported.service.autoClose("main0001");
+			expect(reported.host.mails.filter(mail => mail.to === "main0001")).toHaveLength(0);
+		});
+	});
+
+	describe("a message to a child whose tab was closed", () => {
+		it("opens the child it opened again and delivers, by the id it was given", async () => {
+			const { host, service, child } = await finishedChild();
+			await service.autoClose("main0001");
+			expect(closes(host)).toHaveLength(1);
+			expect(host.closedRecords[0]?.tabIds).toEqual([child.tabId]);
+			const sent = await service.run("main0001", T.send, { session: child.tabId, message: "one more thing" });
+			expect(sent.isError, sent.text).toBe(false);
+			expect(host.spawned.at(-1)).toMatchObject({ sessionPath: "/s/kid.jsonl" });
+			const again = [...host.tabsById.values()].find(tab => tab.sessionPath === "/s/kid.jsonl");
+			expect(again?.tabId).toBeDefined();
+			expect(prompts(host, again?.tabId ?? "")).toEqual([expect.stringContaining("one more thing")]);
+			expect(sent.text).toContain("Dispatch d");
+		});
+
+		it("finds it after a relaunch by any id its record keeps; another session's closed child stays closed", async () => {
+			const host = new FakeHost({ tabId: "boss0009", title: "Boss", sessionPath: "/s/boss.jsonl" });
+			host.closed = [
+				{
+					path: "/s/kid.jsonl",
+					openedBySession: "/s/boss.jsonl",
+					title: "Fix the parser",
+					cwd: "/repo",
+					closedAt: 1,
+					tabIds: ["kid00002", "kidold01"],
+				},
+				{
+					path: "/s/theirs.jsonl",
+					openedBySession: "/s/someone.jsonl",
+					title: "Not yours",
+					cwd: "/repo",
+					closedAt: 2,
+					tabIds: ["their0003"],
+				},
+			];
+			const service = control(host);
+			const sent = await service.run("boss0009", T.send, { session: "kidold01", message: "carry on" });
+			expect(sent.isError, sent.text).toBe(false);
+			expect(host.spawned).toEqual([expect.objectContaining({ sessionPath: "/s/kid.jsonl" })]);
+			const refused = await service.run("boss0009", T.send, { session: "their0003", message: "x" });
+			expect(refused.text).toContain("not open in any tab");
+			expect(host.spawned).toHaveLength(1);
 		});
 	});
 
@@ -4882,4 +4990,84 @@ describe("a control call a paired host re-sends after this computer relaunched r
 		},
 		LATER_CALLS_TIMEOUT_MS,
 	);
+});
+
+describe("messages that outlive the omp they were handed to", () => {
+	/** What the child's journal holds of the markers asked about (its user messages, as the bridge reads them). */
+	const journaled = (host: FakeHost, tabId: string, marks: string[]): string[] =>
+		marks.filter(mark =>
+			(host.tabsById.get(tabId)?.messages ?? []).some(
+				message => message.role === "user" && JSON.stringify(message.content).includes(mark),
+			),
+		);
+
+	it("says a send whose command never answered is queued, and a resend of the same message runs it once", async () => {
+		// Stock `login` holds the omp's command queue while a provider sign-in waits: the prompt waits there and runs
+		// when the sign-in ends, after main gave up waiting for its answer.
+		const host = new FakeHost(
+			{ tabId: "boss0001", title: "Boss", sessionPath: "/s/boss.jsonl" },
+			{ tabId: "kid00002", title: "Kid", sessionPath: "/s/kid.jsonl" },
+		);
+		host.parents.set("kid00002", "boss0001");
+		host.sendOutbox = new SendOutbox(null);
+		host.sentMarks = async (tabId, marks) => ({ instance: "omp-a", journaled: journaled(host, tabId, marks) });
+		const inner = host.command;
+		host.command = async (tabId, command, timeoutMs) => {
+			if (command.type !== "prompt") return inner(tabId, command, timeoutMs);
+			host.sent.push({ tabId, command });
+			throw new RpcTimeoutError(30_000, "prompt");
+		};
+		const service = control(host);
+		const first = await service.run("boss0001", T.send, { session: "kid00002", message: "Also do C" });
+		expect(first.isError, first.text).toBe(false);
+		expect(first.text).toContain("runs once that ends, so do not send it again");
+		const again = await service.run("boss0001", T.send, { session: "kid00002", message: "Also do C" });
+		expect(again.isError, again.text).toBe(false);
+		expect(again.text).toContain("already on its way");
+		expect(prompts(host, "kid00002")).toHaveLength(1);
+	});
+
+	it("hands a follow-up the child's old omp queued to its omp after a relaunch, once, ahead of the next message", async () => {
+		const outbox = new SendOutbox(null);
+		const before = new FakeHost(
+			{ tabId: "boss0001", title: "Boss", sessionPath: "/s/boss.jsonl" },
+			{ tabId: "kid00002", title: "Kid", sessionPath: "/s/kid.jsonl", busy: true },
+		);
+		before.parents.set("kid00002", "boss0001");
+		before.sendOutbox = outbox;
+		before.sentMarks = async () => ({ instance: "omp-a", journaled: [] });
+		const queued = await control(before).run("boss0001", T.send, { session: "kid00002", message: "Also do C" });
+		expect(queued.text).toContain("queued as a follow-up");
+		expect(queued.text).toContain("Dispatch d1");
+
+		// OMPdesk relaunches: the old omp is gone with its queue; the child's session is back under a new id.
+		const after = new FakeHost(
+			{ tabId: "boss0009", title: "Boss", sessionPath: "/s/boss.jsonl" },
+			{ tabId: "kid00009", title: "Kid", sessionPath: "/s/kid.jsonl", formerIds: ["kid00002"] },
+		);
+		after.parents.set("kid00009", "boss0009");
+		after.sendOutbox = outbox;
+		after.sentMarks = async (tabId, marks) => ({ instance: "omp-b", journaled: journaled(after, tabId, marks) });
+		const service = control(after);
+		const tabOf = (path: string) => (path === "/s/kid.jsonl" ? "kid00009" : undefined);
+		await service.redeliverSends(tabOf);
+		await service.redeliverSends(tabOf);
+		expect(prompts(after, "kid00009")).toEqual([expect.stringContaining("Also do C")]);
+		expect(prompts(after, "kid00009")[0]).toContain("[ompdesk dispatch d1:");
+
+		// The opener's next message, by the id it had: numbered past the one still on its way, and after it.
+		const next = await service.run("boss0009", T.send, { session: "kid00002", message: "And D" });
+		expect(next.isError, next.text).toBe(false);
+		expect(next.text).toContain("Dispatch d2");
+		expect(prompts(after, "kid00009")).toHaveLength(2);
+
+		// Its turn took both: the journal holds them, and nothing is owed any more.
+		const child = after.tabsById.get("kid00009") as FakeTab;
+		child.messages = prompts(after, "kid00009").map(
+			text => ({ role: "user", content: [{ type: "text", text }], timestamp: 1 }) as AgentMessage,
+		);
+		await service.redeliverSends(tabOf);
+		expect(outbox.pending()).toEqual([]);
+		expect(prompts(after, "kid00009")).toHaveLength(2);
+	});
 });

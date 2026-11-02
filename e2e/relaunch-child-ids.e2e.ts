@@ -2,8 +2,10 @@
  * After a relaunch every restored tab has a new id, and a child an agent opened has no title of its own (stock names
  * only a person's first message; the GUI's `task` lived in memory). The opener's agent still holds the old id and
  * expects the child's name: `ompdesk_session_send` on the old id reaches the same session, and `ompdesk_sessions`
- * names it by the `Title:` line of its first message. Fake omp with stock-shaped session files. Unit cases:
- * service.test.ts ("after a relaunch"), sidecar-pool.test.ts ("earlier tab ids"), tab-layout.test.ts.
+ * names it by the `Title:` line of its first message. A follow-up the child's omp still queued when the app quit is
+ * handed to its next omp once (main's send outbox), and the done report of the turn it runs reaches the opener's new
+ * tab. Fake omp with stock-shaped session files. Unit cases: service.test.ts ("after a relaunch", "messages that
+ * outlive the omp"), host.test.ts, send-outbox.test.ts, sidecar-pool.test.ts ("earlier tab ids"), tab-layout.test.ts.
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -19,7 +21,7 @@ interface Profile {
 	env: Record<string, string>;
 }
 
-async function makeProfile(): Promise<Profile> {
+async function makeProfile(prefs: Record<string, unknown> = {}): Promise<Profile> {
 	const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-relaunch-ids-")));
 	const project = path.join(root, "project");
 	const desktop = path.join(root, "desktop");
@@ -27,7 +29,7 @@ async function makeProfile(): Promise<Profile> {
 	await Promise.all([fs.mkdir(project), fs.mkdir(desktop), fs.mkdir(agent)]);
 	await fs.writeFile(
 		path.join(desktop, "prefs.json"),
-		JSON.stringify({ language: "en", firstRunComplete: true, lastProject: project }),
+		JSON.stringify({ language: "en", firstRunComplete: true, lastProject: project, ...prefs }),
 	);
 	const record = path.join(root, "rpc.jsonl");
 	const env: Record<string, string> = {};
@@ -67,7 +69,8 @@ async function quit(app: ElectronApplication): Promise<void> {
 		else child.once("exit", () => resolve());
 	});
 	await app.evaluate(({ app, dialog }) => {
-		dialog.showMessageBox = (async () => ({ response: 1, checkboxChecked: false })) as never;
+		// "Quit anyway" on the card that asks while turns run and interrupted work does not continue after a relaunch.
+		dialog.showMessageBox = (async () => ({ response: 0, checkboxChecked: false })) as never;
 		setImmediate(() => app.quit());
 	});
 	await exited;
@@ -183,6 +186,83 @@ test("a busy child that reports learns of the follow-up queued behind its turn, 
 			frame => frame.type === "prompt" && typeof frame.message === "string" && frame.message.includes("And D"),
 		);
 		expect(prompts.at(-1)?.streamingBehavior).toBe("steer");
+	} finally {
+		if (current) await exitApp(current);
+		await fs.rm(profile.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
+});
+
+test("a follow-up queued in a busy child survives a relaunch, its done report reaches the relaunched opener, and its old id takes the next message", async () => {
+	test.setTimeout(240_000);
+	// Interrupted turns stay stopped, so the child's restored tab is idle and takes the message it lost at once.
+	const profile = await makeProfile({ resumeInterrupted: false });
+	profile.env.OMP_GUI_TEST_AGENT_SWEEP_MS = "500";
+	let current: ElectronApplication | undefined;
+	const marked = async (mark: string) =>
+		(await readRecords(profile.record)).filter(
+			frame => frame.type === "prompt" && typeof frame.message === "string" && frame.message.includes(mark),
+		);
+	try {
+		const first = await launch(profile);
+		current = first.app;
+		const opener = (await tabs(first.page)).find(tab => tab.active)?.tabId ?? "";
+		await busy(first.page, opener);
+		// The child works on its first message (an agent's, so no person typed into it).
+		const opened = await call(profile, first.page, opener, "ompdesk_session_open", {
+			message: "Title: Combine titles\nDo part A fixture:running-with-job",
+		});
+		const oldId = /Opened session (\w+)/.exec(opened.text)?.[1] ?? "";
+		const child = async (page: Page, id: string) => (await tabs(page)).find(tab => tab.tabId === id);
+		await expect.poll(async () => (await child(first.page, oldId))?.status, { timeout: 60_000 }).toBe("running");
+		await expect.poll(async () => (await child(first.page, oldId))?.sessionPath ?? "").not.toBe("");
+		const childPath = (await child(first.page, oldId))?.sessionPath ?? "";
+		// The opener's next message waits in the child's omp's follow-up queue.
+		const queued = await call(profile, first.page, opener, "ompdesk_session_send", {
+			session: oldId,
+			message: "Also do C fixture:result-ok",
+		});
+		expect(queued.text).toContain("queued as a follow-up");
+		expect(queued.text).toContain("Dispatch d2");
+		await quit(first.app);
+		current = undefined;
+
+		// The relaunch ends that omp and its queue: the message reaches the child's new omp, once.
+		const second = await launch(profile);
+		current = second.app;
+		const boss = (await tabs(second.page)).find(tab => tab.active)?.tabId ?? "";
+		const kid = (await tabs(second.page)).find(tab => tab.sessionPath === childPath)?.tabId ?? "";
+		expect(kid).not.toBe("");
+		expect(kid).not.toBe(oldId);
+		await expect.poll(async () => (await marked("[ompdesk dispatch d2:")).length, { timeout: 60_000 }).toBe(2);
+
+		// It finishes with Result: ok: main's done report reaches the opener's new tab.
+		const doneMails = async () => {
+			const page = await second.page.evaluate(
+				id => window.omp.rpc.commandForTab(id, { type: "get_transcript_page", fromEnd: true, limit: 50 }),
+				boss,
+			);
+			const messages =
+				(page.data as { messages?: { customType?: string; details?: Record<string, unknown> }[] } | undefined)
+					?.messages ?? [];
+			return messages.filter(
+				message =>
+					message.customType === "ompdesk.mail" &&
+					message.details?.kind === "done" &&
+					message.details.dispatch === "d2",
+			);
+		};
+		await expect.poll(async () => (await doneMails()).length, { timeout: 60_000 }).toBe(1);
+
+		// Several more passes later, neither was handed over again.
+		await second.page.waitForTimeout(3_000);
+		expect(await marked("[ompdesk dispatch d2:")).toHaveLength(2);
+		expect(await doneMails()).toHaveLength(1);
+
+		// The id the opener was given before the relaunch still takes its next message (its tab closed meanwhile or not).
+		const next = await call(profile, second.page, boss, "ompdesk_session_send", { session: oldId, message: "And D" });
+		expect(next.isError, next.text).toBe(false);
+		expect(next.text).toContain("Sent to");
+		await expect.poll(async () => (await marked("[ompdesk dispatch d3:")).length, { timeout: 60_000 }).toBe(1);
 	} finally {
 		if (current) await exitApp(current);
 		await fs.rm(profile.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
