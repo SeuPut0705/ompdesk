@@ -67,3 +67,16 @@ export const ATTENTION_LABEL_KEY: Record<AttentionKind, string> = {
 	approval: "attention.approval",
 	childWaiting: "attention.childWaiting",
 };
+
+/**
+ * What a summary says of what needs the person (the board's head and strip, a folded sidebar section): one thing by
+ * its word, the title bar's and the sidebar row's ("Needs approval"), several by their count ("3 need you").
+ */
+export function attentionClause(
+	attention: Attention,
+	t: (key: string, params?: Record<string, string | number>) => string,
+): string {
+	return attention.count === 1
+		? t(ATTENTION_LABEL_KEY[attention.kind])
+		: t("workBoard.head.needs", { count: attention.count });
+}

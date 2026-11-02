@@ -14,7 +14,7 @@ import {
 import { useBackLayer } from "../../../hooks/use-back-layer";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { useOpenedChildren } from "../../../hooks/use-opened-children";
-import { pendingAsks } from "../../../lib/attention";
+import { attentionClause, pendingAsks } from "../../../lib/attention";
 import { useT } from "../../../lib/i18n";
 import { useModelWait } from "../../../lib/model-wait";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
@@ -31,7 +31,7 @@ import { useWorkBoardStore } from "../../../stores/work-board";
 import { useAutopilotStateText } from "../../autopilot/use-autopilot-state-text";
 import { useBotTab } from "../../bot/bot-tab";
 import { SummaryBoard, type ZoneOpen } from "./board-parts";
-import { attentionClause, boardCounts, liveSubagents, todoBoard, workingSubagents } from "./work-board";
+import { boardCounts, liveSubagents, todoBoard, workingSubagents } from "./work-board";
 
 const PANEL_ID = "omp-work-strip-panel";
 /** Exit time of the panel's height transition (mobile.css `omp-strip-out`). */

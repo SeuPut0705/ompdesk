@@ -5,7 +5,7 @@
 
 import type { ExtensionUIRequest, RpcGoalState, SubagentSnapshot, TodoTask } from "../../../../shared/rpc-types";
 import { APPROVAL_TITLE_PREFIX } from "../../../../shared/tool-approval";
-import { type AskKind, ATTENTION_LABEL_KEY, type Attention, sessionAttention } from "../../../lib/attention";
+import { type AskKind, type Attention, sessionAttention } from "../../../lib/attention";
 import { formatDuration } from "../../../lib/format";
 import { isApprovalRequest } from "../../../stores/extension-ui";
 import { isLiveSubagentStatus } from "../../panels/subagent-graph";
@@ -232,17 +232,4 @@ export function boardCounts(input: {
 		working,
 		pulse: input.asks.length + input.childrenWaiting > 0 ? "waiting" : working > 0 ? "working" : "idle",
 	};
-}
-
-/**
- * What the head and the strip say of what needs the person: one thing by its word, the title bar's and the sidebar's
- * ("Check failed"), several by their count ("3 need you").
- */
-export function attentionClause(
-	attention: Attention,
-	t: (key: string, params?: Record<string, string | number>) => string,
-): string {
-	return attention.count === 1
-		? t(ATTENTION_LABEL_KEY[attention.kind])
-		: t("workBoard.head.needs", { count: attention.count });
 }

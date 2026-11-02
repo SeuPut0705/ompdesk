@@ -23,7 +23,7 @@ import { useOpenedChildren } from "../../../hooks/use-opened-children";
 import { usePresence } from "../../../hooks/use-presence";
 import { useSessionSpend } from "../../../hooks/use-session-spend";
 import { useShellMode } from "../../../hooks/use-shell-mode";
-import { pendingAsks } from "../../../lib/attention";
+import { attentionClause, pendingAsks } from "../../../lib/attention";
 import { lazyChunk } from "../../../lib/chunk-load";
 import { cx, formatDuration, formatTokens } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
@@ -68,7 +68,6 @@ import {
 } from "./board-parts";
 import { WorkBoardChip } from "./WorkBoardChip";
 import {
-	attentionClause,
 	boardCounts,
 	goalMeta,
 	isWaitingSubagent,
