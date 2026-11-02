@@ -1,11 +1,15 @@
+import { createServer } from "node:net";
 import { describe, expect, it, vi } from "vitest";
 import {
 	answersWithin,
 	ConnectivityMonitor,
 	PROBE_INTERVAL_MS,
 	PROBE_TIMEOUT_MS,
+	probeTarget,
 	REPROBE_INTERVAL_MS,
 	RESUME_WINDOW_MS,
+	reaches,
+	tcpConnects,
 } from "./connectivity";
 
 function harness(initialOnline = true) {
@@ -354,5 +358,74 @@ describe("answersWithin", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+});
+
+// 2 Nov 2026: after a hang the resolver answered but every connection was refused (ECONNREFUSED), so a lookup-only
+// probe read the computer as online and ten continued turns failed into the dead network.
+describe("reaches", () => {
+	const target = { host: "api.example.com", port: 443 };
+
+	it("is no when the name resolves but the connection is refused", async () => {
+		const connected: Array<[string, number]> = [];
+		const answer = await reaches(target, {
+			resolve: async () => ["192.0.2.10"],
+			connect: async (address, port) => {
+				connected.push([address, port]);
+				return false;
+			},
+		});
+		expect(answer).toBe(false);
+		expect(connected).toEqual([["192.0.2.10", 443]]);
+	});
+
+	it("is yes when one resolved address takes the connection", async () => {
+		const answer = await reaches(target, {
+			resolve: async () => ["192.0.2.10", "192.0.2.11"],
+			connect: async address => address === "192.0.2.11",
+		});
+		expect(answer).toBe(true);
+	});
+
+	it("is no when the name does not resolve, without trying to connect", async () => {
+		let connects = 0;
+		const deps = {
+			connect: async () => {
+				connects++;
+				return true;
+			},
+		};
+		expect(await reaches(target, { ...deps, resolve: () => Promise.reject(new Error("ENOTFOUND")) })).toBe(false);
+		expect(await reaches(target, { ...deps, resolve: async () => [] })).toBe(false);
+		expect(connects).toBe(0);
+	});
+});
+
+describe("tcpConnects", () => {
+	it("is yes for a listening port and no once nothing listens there (refused)", async () => {
+		const server = createServer(socket => socket.destroy());
+		const listening = Promise.withResolvers<void>();
+		server.listen(0, "127.0.0.1", listening.resolve);
+		await listening.promise;
+		const address = server.address();
+		if (address === null || typeof address === "string") throw new Error("no port");
+		expect(await tcpConnects("127.0.0.1", address.port, PROBE_TIMEOUT_MS)).toBe(true);
+		const closed = Promise.withResolvers<void>();
+		server.close(() => closed.resolve());
+		await closed.promise;
+		expect(await tcpConnects("127.0.0.1", address.port, PROBE_TIMEOUT_MS)).toBe(false);
+	});
+});
+
+describe("probeTarget", () => {
+	it.each([
+		[undefined, { host: "api.example.com", port: 443 }],
+		["http://proxy.corp:3128", { host: "proxy.corp", port: 3128 }],
+		["socks5://127.0.0.1:7890", { host: "127.0.0.1", port: 7890 }],
+		["http://proxy.corp", { host: "proxy.corp", port: 80 }],
+		["https://proxy.corp", { host: "proxy.corp", port: 443 }],
+		["not a url", { host: "api.example.com", port: 443 }],
+	])("through proxy %s connects to %o", (proxy, expected) => {
+		expect(probeTarget("api.example.com", proxy)).toEqual(expected);
 	});
 });

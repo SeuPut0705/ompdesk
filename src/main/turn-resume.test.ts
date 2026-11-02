@@ -11,8 +11,8 @@ import { deletedSessions, initDeletedSessions } from "./deleted-sessions";
 import { RpcTimeoutError } from "./rpc-client";
 import type { SidecarLike } from "./sidecar-types";
 import {
+	connectFailureHost,
 	deriveMarkers,
-	dnsFailureHost,
 	type GoalSettlement,
 	InterruptedTurnStore,
 	isNetworkError,
@@ -62,6 +62,13 @@ function marker(patch: Partial<ResumeMarker> = {}): ResumeMarker {
 		...patch,
 	};
 }
+
+/**
+ * Stock's failure when a turn's sign-in refresh cannot connect (2 Nov 2026 incident: after a hang the link read up and
+ * the resolver answered, but every connection was refused; ten relaunched turns failed this way).
+ */
+const REFUSED =
+	"OAuth token refresh failed for provider anthropic: anthropic request to https://api.anthropic.com/v1/oauth/token failed: ECONNREFUSED: Unable to connect. Is the computer able to access the url?";
 
 describe("deriveMarkers", () => {
 	it("marks a running turn with its window, tab, session and start time", () => {
@@ -1128,6 +1135,7 @@ describe("TurnResume connection wait", () => {
 	afterEach(() => rmSync(h.dir, { recursive: true, force: true }));
 
 	const networkFailure = { stopReason: "error", errorMessage: "fetch failed: getaddrinfo ENOTFOUND api.example.com" };
+	const refused = { stopReason: "error", errorMessage: REFUSED };
 
 	it("a network error while offline waits instead of failing, and the stock retry runs once the network is back", async () => {
 		h = setup({ online: false, answers: { retry: RETRIED } });
@@ -1304,6 +1312,51 @@ describe("TurnResume connection wait", () => {
 		expect(h.awaiting.at(-1)).toEqual(["t1", false]);
 	});
 
+	it("a refused connection while the link is up and nothing answers waits for the connection: no scheduled retry, continued once the way out answers", async () => {
+		h = setup({ online: true, unreachable: true, answers: { retry: RETRIED, get_settings: SETTINGS_ON } });
+		h.resume.launch();
+		h.facts.push(fact({ running: false, lastRun: { ...refused } }));
+		h.resume.sync();
+		await settle();
+		expect(h.net.verified).toEqual(["api.anthropic.com"]);
+		expect(h.awaiting.at(-1)).toEqual(["t1", true]);
+		expect(h.retries).toEqual([]);
+		expect(h.store.read().map(entry => entry.reason)).toEqual(["network"]);
+
+		h.net.reachable = true;
+		h.net.online = true;
+		h.resume.connectivityChanged();
+		await settle();
+		expect(h.commands.map(cmd => cmd.type)).toEqual(["retry"]);
+		expect(h.awaiting.at(-1)).toEqual(["t1", false]);
+	});
+
+	it("while the link is up and nothing answers, stock's auto-retry of a refused connection is probed and taken over", async () => {
+		h = setup({ online: true, unreachable: true, answers: { retry: RETRIED } });
+		h.resume.launch();
+		h.facts.push(fact({ running: true, retry: { errorMessage: REFUSED } }));
+		h.resume.sync();
+		await settle();
+		h.resume.sync();
+		await settle();
+		expect(h.net.verified).toEqual(["api.anthropic.com"]);
+		expect(h.commands.map(cmd => cmd.type)).toEqual(["abort_retry"]);
+		expect(h.awaiting).toEqual([["t1", true]]);
+	});
+
+	it("leaves stock's auto-retry of a refused connection alone when the way out answers", async () => {
+		h = setup({ online: true });
+		h.resume.launch();
+		h.facts.push(fact({ running: true, retry: { errorMessage: REFUSED } }));
+		h.resume.sync();
+		await settle();
+		h.resume.sync();
+		await settle();
+		expect(h.net.verified).toEqual(["api.anthropic.com"]);
+		expect(h.commands).toEqual([]);
+		expect(h.awaiting).toEqual([]);
+	});
+
 	it("a network failure while the provider's way out answers keeps the scheduled retry (the failure was not the connection)", async () => {
 		h = setup({ online: true, answers: { get_settings: SETTINGS_ON } });
 		h.resume.launch();
@@ -1325,7 +1378,7 @@ describe("TurnResume connection wait", () => {
 		expect(h.awaiting.at(-1)).toEqual(["t1", false]);
 	});
 
-	it("only a failed lookup is probed: a dropped socket while online goes to the scheduled retry as before", async () => {
+	it("only a failed connection is probed: a dropped socket while online goes to the scheduled retry as before", async () => {
 		h = setup({ online: true, unreachable: true, answers: { get_settings: SETTINGS_ON } });
 		h.resume.launch();
 		h.facts.push(fact({ running: false, lastRun: { stopReason: "error", errorMessage: "socket hang up" } }));
@@ -1375,7 +1428,7 @@ describe("TurnResume connection wait", () => {
 	});
 });
 
-describe("dnsFailureHost", () => {
+describe("connectFailureHost", () => {
 	it.each([
 		[
 			"Couldn't reach api.anthropic.com (getaddrinfo ENOTFOUND). Check the URL, your network, or proxy.",
@@ -1384,10 +1437,16 @@ describe("dnsFailureHost", () => {
 		["fetch failed: getaddrinfo ENOTFOUND api.example.com", "api.example.com"],
 		["getaddrinfo EAI_AGAIN API.OpenAI.com", "api.openai.com"],
 		["fetch failed: ENOTFOUND", ""],
+		[REFUSED, "api.anthropic.com"],
+		["connect ECONNREFUSED 10.0.0.1:443", ""],
+		["Unable to connect. Is the computer able to access the url?", ""],
+		["request to https://chatgpt.com/backend-api/codex failed: ENETUNREACH", "chatgpt.com"],
+		["connect EHOSTUNREACH", ""],
 		["socket hang up", null],
+		["fetch failed: other side closed", null],
 		["503 Service unavailable", null],
 	])("%s → %s", (message, host) => {
-		expect(dnsFailureHost(message)).toBe(host);
+		expect(connectFailureHost(message)).toBe(host);
 	});
 });
 
@@ -2557,5 +2616,37 @@ describe("a continuation held for the connection", () => {
 		world.reachable = true;
 		await fireNext();
 		expect(h.commands.map(cmd => cmd.type)).toEqual(["retry"]);
+	});
+
+	it("a relaunch into a link that reads up but refuses every connection: the continued turns' failures wait, nothing retries into the dead network, each continues once it answers", async () => {
+		h = setup({ answers: { restore_interrupted: RESTORED, retry: RETRIED, get_settings: SETTINGS_ON } });
+		const { world, monitor, fireNext } = monitored();
+		const tabs = ["a", "b", "c"];
+		const fileOf = (tab: string) => `/s/${tab}.jsonl`;
+		new InterruptedTurnStore(h.file).write(tabs.map(tab => marker({ tab, sessionPath: fileOf(tab) })));
+		for (const tab of tabs) h.facts.push(fact({ tabId: tab, sessionFile: fileOf(tab) }));
+		h.resume.launch();
+		await settle();
+		expect(h.commands.map(cmd => cmd.type)).toEqual(tabs.map(() => "restore_interrupted"));
+
+		// Every continued turn fails at its first request: the resolver answered, the connection was refused.
+		for (const [i, tab] of tabs.entries())
+			h.facts[i] = fact({
+				tabId: tab,
+				sessionFile: fileOf(tab),
+				lastRun: { stopReason: "error", errorMessage: REFUSED },
+			});
+		h.resume.sync();
+		await settle();
+		expect(monitor.online).toBe(false);
+		expect(h.facts.map(entry => entry.awaitingConnection)).toEqual([true, true, true]);
+		expect(h.retries).toEqual([]);
+		for (let i = 0; i < 30; i++) await fireNext();
+		expect(h.commands.filter(cmd => cmd.type !== "restore_interrupted")).toEqual([]);
+
+		world.reachable = true;
+		await fireNext();
+		expect(h.commands.filter(cmd => cmd.type === "retry")).toHaveLength(3);
+		expect(h.facts.map(entry => entry.awaitingConnection)).toEqual([false, false, false]);
 	});
 });
