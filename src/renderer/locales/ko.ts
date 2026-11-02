@@ -4413,6 +4413,7 @@ export const ko: Record<string, string> = {
 	"bridgeHealth.feature.advisorStats": "어드바이저 비용과 조언(실행 팝오버, 인사이트)",
 	"bridgeHealth.feature.todoReminder": "거부된 할 일 호출 뒤 알림",
 	"bridgeHealth.feature.todoStale": "새 요청에 지난 할 일 목록 전달",
+	"bridgeHealth.feature.todoCompact": "길어진 할 일 목록을 에이전트가 접기",
 	"bridgeHealth.feature.turnStages": "느리거나 출력 없는 턴 기록",
 	"bridgeHealth.feature.botAvatar": "이미지 모델로 봇 아바타 그리기",
 	"bridgeHealth.feature.visuals": "다이어그램 지침(Mermaid, SVG)",

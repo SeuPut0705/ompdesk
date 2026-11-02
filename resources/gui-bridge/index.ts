@@ -102,6 +102,7 @@ const AREAS: readonly Area[] = [
 	{ name: "advisor-stats", features: ["advisorStats"], load: () => import("./advisor-stats") },
 	{ name: "todo-reminder", features: ["todoReminder"], load: () => import("./todo-reminder") },
 	{ name: "todo-stale", features: ["todoStale"], load: () => import("./todo-stale") },
+	{ name: "todo-compact", features: ["todoCompact"], load: () => import("./todo-compact") },
 	{ name: "turn-stages", features: ["turnStages"], load: () => import("./turn-stages") },
 	{ name: "bot-avatar", features: ["botAvatar"], load: () => import("./bot-avatar") },
 ];
