@@ -8,6 +8,7 @@ import { phonePaired, ServeProxy, serveSites } from "./fixture/phone-serve";
 import {
 	capture,
 	controlToolCaller,
+	cssString,
 	exitApp,
 	hitSizes,
 	launchApp,
@@ -147,7 +148,7 @@ test("a phone at 390 px shows the memory wait the way the desktop does, with a S
 		const drawer = phone.locator("[data-drawer]");
 		await expect(drawer).toBeVisible();
 		await openSidebarFamily(phone);
-		const familyRow = drawer.locator(`[data-sidebar-opened-session][data-session-path="${sessionPath}"]`);
+		const familyRow = drawer.locator(`[data-sidebar-opened-session][data-session-path=${cssString(sessionPath)}]`);
 		await expect(familyRow).toHaveAttribute("data-family-state", "queued");
 		await expect(familyRow.locator("[data-family-memory-wait]")).toHaveText("Waiting for memory");
 		const [familyStart] = await hitSizes(familyRow.getByRole("button", { name: "Start now" }));
