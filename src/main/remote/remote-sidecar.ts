@@ -191,6 +191,11 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	#omp: string | undefined;
 	/** The current `starting` is a re-open after a lost link (`reconnecting`): the host's next status decides. */
 	#reattaching = false;
+	/**
+	 * The host's reading of the turn on this re-attach, held until its status: that status may start the page over for
+	 * another omp, and the reading is the new omp's, so it goes to the pool after that start, not before it.
+	 */
+	#reattachRun: TabRunArg | null = null;
 	/** start()/restart() was called: the tab should run whenever the link is up. */
 	#wanted = false;
 	/** Session the host resumes when it has no live sidecar for this tab. */
@@ -412,6 +417,9 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 				if (this.#reattaching && (parsed.data.omp === undefined || parsed.data.omp !== this.#omp))
 					this.#setStatus("starting", {});
 				this.#omp = parsed.data.omp;
+				const run = this.#reattachRun;
+				this.#reattachRun = null;
+				if (run) this.emit("hostRun", run);
 				this.#setStatus(parsed.data.status, parsed.data.statusPayload, false);
 				return;
 			}
@@ -460,7 +468,9 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 			// The host's reading of the turn on a re-attach: the pool keeps its own through the lost link and takes this.
 			case "run": {
 				const parsed = TabRunArg.safeParse(message.arg);
-				if (parsed.success) this.emit("hostRun", parsed.data);
+				if (!parsed.success) return;
+				if (this.#reattaching) this.#reattachRun = parsed.data;
+				else this.emit("hostRun", parsed.data);
 				return;
 			}
 			case "signIn": {
@@ -556,6 +566,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 		// This link session is over: the next one must re-open (re-attach)
 		// before anything else reaches the tab on the host.
 		this.#opened = null;
+		this.#reattachRun = null;
 		if (state === "offline" && this.#status !== "asleep") this.#markOffline();
 	}
 
