@@ -139,7 +139,7 @@
 				"src/main/updater.ts#restartIntoUpdate",
 				"src/main/updater.ts:937-940"
 			],
-			"syncCommit": "d5b408b8cdda48f12a571a6a38b6d920a347002e"
+			"syncCommit": "6b9f3a5bd876867674abeb2b5eabe1263a2e8c16"
 		}
 	]
 }
