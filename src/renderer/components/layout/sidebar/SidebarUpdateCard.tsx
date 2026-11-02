@@ -20,7 +20,7 @@ import type { UpdateStatus } from "../../../../shared/ipc-types";
 import { useT } from "../../../lib/i18n";
 import { useSecondsUntil } from "../../../lib/use-seconds-until";
 import { useUiStore } from "../../../stores/ui";
-import { checkForUpdatesInPlace, runUpdaterAction, useUpdaterStore } from "../../../stores/updater";
+import { checkForUpdatesInPlace, runUpdaterAction, useUpdaterStore, waitingWhat } from "../../../stores/updater";
 import { IconButton, Spinner } from "../../common";
 
 /** How long "up to date" stays before the row goes away on its own. */
@@ -127,8 +127,10 @@ export function SidebarUpdateCard() {
 	}, [upToDate, endManualCheck]);
 
 	let row: RowModel | null = manualCheck ? manualRow(status, t, endManualCheck) : null;
-	// The automatic install's notice (Settings › Updates & about › Install updates automatically): never dismissed away, "Later" postpones.
+	// The automatic install's notices (Settings › Updates & about › Install updates automatically): never dismissed
+	// away. "Later" postpones the countdown, or hides the waiting line until the next safe point installs.
 	const countingDown = status.state === "downloaded" && status.restartAt !== undefined;
+	const waiting = status.state === "downloaded" && !status.installing ? status.waitingFor : undefined;
 	const installing = status.state === "downloaded" && status.installing === true;
 	if (!row && status.state === "downloaded" && status.installing) {
 		row = {
@@ -146,6 +148,20 @@ export function SidebarUpdateCard() {
 				icon: <RotateCw />,
 				onClick: () => runUpdaterAction("apply"),
 				primary: true,
+			},
+			onClose: () => runUpdaterAction("postpone"),
+			closeLabel: t("updater.card.later"),
+		};
+	} else if (!row && status.state === "downloaded" && waiting) {
+		const what = waitingWhat(waiting, t);
+		row = {
+			label: t("updater.card.waiting", { version: status.version, count: waiting.tasks }),
+			description: t("updater.card.waitingHint", { version: status.version, what }),
+			tone: "update",
+			action: {
+				label: t("updater.card.restartNowCuts", { what }),
+				icon: <RotateCw />,
+				onClick: () => runUpdaterAction("apply"),
 			},
 			onClose: () => runUpdaterAction("postpone"),
 			closeLabel: t("updater.card.later"),
@@ -205,9 +221,9 @@ export function SidebarUpdateCard() {
 		};
 	}
 	if (!row) return null;
-	// A version the user put off stays hidden, unless they just asked to check, or it is counting down or installing.
-	if (!countingDown && !installing && !manualCheck && "version" in status && dismissedVersion === status.version)
-		return null;
+	// A version the user put off stays hidden, unless they just asked to check, or the automatic install's notice shows.
+	const notice = countingDown || waiting !== undefined || installing;
+	if (!notice && !manualCheck && "version" in status && dismissedVersion === status.version) return null;
 
 	const icon =
 		row.tone === "busy" && row.progress === undefined ? (

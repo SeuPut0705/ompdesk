@@ -116,6 +116,8 @@ import type {
 	SessionKind,
 } from "../shared/ipc-types";
 import {
+	HOST_UPDATE_ACTIONS,
+	type HostUpdateAction,
 	IPC_COMMANDS,
 	IPC_EVENTS,
 	type IpcHostBotDesk,
@@ -2537,10 +2539,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	});
 	ipc.handle(IPC_COMMANDS.HOST_DESKTOP_GET, (caller, device?: unknown) => machineFor(caller, device).desktop());
 	ipc.handle(IPC_COMMANDS.HOST_DESKTOP_UPDATE, (caller, action: unknown, device?: unknown) => {
-		if (action !== "check" && action !== "download" && action !== "install") {
+		if (!HOST_UPDATE_ACTIONS.includes(action as HostUpdateAction)) {
 			throw codedError("invalid_preference_key", "Invalid update action");
 		}
-		return machineFor(caller, device).desktopUpdate(action);
+		return machineFor(caller, device).desktopUpdate(action as HostUpdateAction);
 	});
 	// omp's own update on a paired host: that host's OmpUpdater runs it; its state changes come back as pushed events.
 	ipc.handle(IPC_COMMANDS.HOST_OMP_UPDATE_GET, (caller, device?: unknown) => machineFor(caller, device).ompUpdate());

@@ -209,6 +209,8 @@ import {
 	appVersion,
 	checkForUpdate,
 	downloadUpdate,
+	onUpdateStatus,
+	postponeUpdate,
 	readRelaunchPresence,
 	restartableUpdate,
 	restartIntoUpdate,
@@ -1026,6 +1028,7 @@ app.whenReady().then(() => {
 				download: downloadUpdate,
 				restartable: restartableUpdate,
 				restart: () => restartIntoUpdate("user click"),
+				postpone: postponeUpdate,
 			},
 			appearance: () => ({ themeName: prefsStore().get("themeName"), language: prefsStore().get("language") }),
 			// Device tabs this computer hosts count too; their own quit prompt never reaches anyone.
@@ -2338,6 +2341,11 @@ app.whenReady().then(() => {
 		backgroundWork: new BackgroundWorkWatcher({
 			members: () => [...sidecarPool.runningBridges(), ...hostServices.runningBridges()],
 		}),
+	});
+	// A paired page shows this computer's update card and notice too: it hears every change, as the windows do.
+	onUpdateStatus(status => {
+		for (const win of webHost?.windows.all() ?? [])
+			if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.UPDATER_STATUS, status);
 	});
 });
 

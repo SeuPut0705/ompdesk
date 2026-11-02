@@ -44,7 +44,13 @@ import type { UpdateAuthTestResult, UpdateInstallMode, UpdateStatus } from "../s
 import { IPC_COMMANDS, IPC_EVENTS } from "../shared/ipc-types";
 import { AutoInstallScheduler } from "./app-auto-update";
 import { confirmUpdateRestart, disarmQuitWatchdog, onQuitForcedExit, requestQuit } from "./app-quit";
-import { type BackgroundWorkSource, NO_BACKGROUND_WORK_SOURCE } from "./background-work";
+import {
+	type BackgroundWork,
+	type BackgroundWorkSource,
+	backgroundTaskCount,
+	NO_BACKGROUND_WORK_SOURCE,
+	namedBackgroundWork,
+} from "./background-work";
 import { markMainStep } from "./hang-watchdog";
 import { mainT } from "./i18n";
 import type { MainTextKey } from "./i18n-text";
@@ -139,6 +145,8 @@ let stagedApp: string | undefined;
 let relaunchAfterSwap = false;
 /** The relaunch swap helper was started; a forced exit after `will-quit` must not start a second one. */
 let swapLaunched = false;
+/** Dev/test seam (`OMP_DEV_UPDATE_STAGED` on Windows, unpackaged): a pretend NSIS update whose install only quits. */
+let devDryInstall = false;
 /** Token the last check authenticated with, if any; the macOS asset download reuses it. */
 let updateToken: string | undefined;
 /**
@@ -590,21 +598,45 @@ export function onUpdateStatus(listener: (status: UpdateStatus) => void): () => 
 	return () => statusListeners.delete(listener);
 }
 
+/** The running work the waiting notice names (the scheduler's `overdue`), while it shows. */
+let waitingWork: BackgroundWork | undefined;
+
 function broadcast(status: UpdateStatus): void {
-	// A re-broadcast of the staged update (a manual re-check) keeps the countdown the notice shows.
-	const restartAt = autoInstall?.restartAt;
-	current =
-		status.state === "downloaded" && status.restartAt === undefined && !status.installing && restartAt !== undefined
-			? { ...status, restartAt }
-			: status;
+	current = status.state === "downloaded" && !status.installing ? withNotice(status) : status;
 	for (const win of BrowserWindow.getAllWindows()) {
 		win.webContents.send(IPC_EVENTS.UPDATER_STATUS, current);
 	}
 	for (const listener of statusListeners) listener(current);
 }
 
-/** "Restart & install" (the app's button, `updates.apply`, the tray): the one install path. */
-export async function applyUpdate(): Promise<void> {
+/**
+ * A downloaded update with the notice the scheduler shows now: the countdown (`restartAt`) or the update waiting for
+ * running work (`waitingFor`). Any status that reaches the windows goes through here, so a re-broadcast of the staged
+ * update (a manual re-check) keeps the notice and a notice that went never lingers.
+ */
+function withNotice(status: Extract<UpdateStatus, { state: "downloaded" }>): UpdateStatus {
+	const { restartAt: _restartAt, waitingFor: _waitingFor, ...plain } = status;
+	const notice = autoInstall?.notice;
+	if (notice && "restartAt" in notice) return { ...plain, restartAt: notice.restartAt };
+	if (notice && waitingWork) {
+		const named = namedBackgroundWork(waitingWork);
+		return {
+			...plain,
+			waitingFor: {
+				tasks: backgroundTaskCount(waitingWork),
+				names: [...named.subagents.names, ...named.jobs.names],
+			},
+		};
+	}
+	return plain;
+}
+
+/**
+ * "Restart & install" (the app's button, `updates.apply`, the tray): the one install path. `from` is where the person
+ * pressed it: a paired page already asked on its own screen (its confirm sheet names the running work), so nobody
+ * would answer a dialog here.
+ */
+export async function applyUpdate(from: "here" | "device" = "here"): Promise<void> {
 	if (current.state !== "downloaded" || current.installing) return;
 	if (current.mode === "manual") {
 		if (!downloadedInstallerPath) {
@@ -624,7 +656,8 @@ export async function applyUpdate(): Promise<void> {
 	}
 	// ⌘Q's rule: running turns continue after the restart (turn-resume.ts), so this asks only with that setting off, or
 	// when background subagents or jobs would start over (the scheduler's own install never asks: it waits for them).
-	if (!(await confirmUpdateRestart(() => (backgroundWork ?? NO_BACKGROUND_WORK_SOURCE).fresh()))) return;
+	if (from === "here" && !(await confirmUpdateRestart(() => (backgroundWork ?? NO_BACKGROUND_WORK_SOURCE).fresh())))
+		return;
 	restartIntoUpdate("user click");
 }
 
@@ -769,9 +802,13 @@ export function updateStatus(): UpdateStatus {
 	return current;
 }
 
-/** A user-started check; a macOS transfer in flight keeps its state. */
+/**
+ * A user-started check; a macOS transfer in flight keeps its state, and so does a downloaded update: it is the answer.
+ * Settings › Updates checks as it opens, and a "checking" status in between made the automatic install give up its
+ * round (the countdown or the waiting notice went, the max wait started over).
+ */
 export async function checkForUpdate(): Promise<UpdateStatus> {
-	if (macTransfer.running) return current;
+	if (macTransfer.running || current.state === "downloaded") return current;
 	broadcast({ state: "checking" });
 	await runCheck(true);
 	return current;
@@ -827,6 +864,10 @@ export function restartIntoUpdate(trigger: InstallTrigger): void {
 	if (current.mode === "automatic") {
 		markMainStep("update", "quit-and-install");
 		beginInstall(trigger);
+		if (devDryInstall) {
+			requestQuit();
+			return;
+		}
 		noteInstallHelper("nsis", trigger);
 		autoUpdater.quitAndInstall();
 	}
@@ -840,6 +881,11 @@ export function updateInstallMode(): UpdateInstallMode {
 /** Pref `appAutoUpdate` changed: look at once instead of at the next tick. */
 export function appAutoUpdatePrefChanged(): void {
 	autoInstall?.tick();
+}
+
+/** The automatic install's "Later" (the notice here, a paired page's or a paired computer's). */
+export function postponeUpdate(): void {
+	autoInstall?.postpone();
 }
 
 export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
@@ -867,6 +913,7 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 					? {
 							backgroundWork: reading.work,
 							backgroundWorkPending: reading.pending,
+							backgroundWorkFrozen: reading.frozen,
 							...(reading.askedAt !== undefined ? { backgroundWorkAskedAt: reading.askedAt } : {}),
 						}
 					: {}),
@@ -875,16 +922,26 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 			};
 		},
 		countdownMs: Number(process.env.OMP_DEV_UPDATE_AUTO_COUNTDOWN_MS) || undefined,
+		// Dev/test seam (unpackaged only): a short max wait, to reach the waiting notice in a test.
+		maxWaitMs: (!app.isPackaged && Number(process.env.OMP_DEV_UPDATE_AUTO_MAX_WAIT_MS)) || undefined,
 		log: (event, details) => logUpdate("scheduler", { event, ...details }),
 		effects: {
-			announce: () => broadcast(current),
+			announce: () => {
+				waitingWork = undefined;
+				broadcast(current);
+			},
 			withdraw: () => {
-				if (current.state === "downloaded" && !current.installing)
-					broadcast({ state: "downloaded", version: current.version, mode: current.mode });
+				waitingWork = undefined;
+				broadcast(current);
+			},
+			overdue: work => {
+				waitingWork = work;
+				broadcast(current);
 			},
 			install: () => restartIntoUpdate("auto"),
-			// The countdown's end decides on a fresh answer; the tick after it lands decides.
-			verify: () => void probe.backgroundWork.fresh().then(() => autoInstall?.tick()),
+			// The countdown's last look also stops every omp from starting work; the tick after it lands decides.
+			verify: () => void probe.backgroundWork.freeze().then(() => autoInstall?.tick()),
+			thaw: () => probe.backgroundWork.thaw(),
 		},
 	});
 	setInterval(() => autoInstall?.tick(), AUTO_INSTALL_TICK_MS).unref();
@@ -1002,19 +1059,21 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 
 	ipc.handle(IPC_COMMANDS.UPDATER_CHECK, () => checkForUpdate());
 	ipc.handle(IPC_COMMANDS.UPDATER_DOWNLOAD, () => downloadUpdate());
-	ipc.handle(IPC_COMMANDS.UPDATER_APPLY, () => applyUpdate());
-	ipc.handle(IPC_COMMANDS.UPDATER_POSTPONE, () => autoInstall?.postpone());
+	// A paired page's click was confirmed on its own screen (src/renderer/web/shim.ts); a window's asks here.
+	ipc.handle(IPC_COMMANDS.UPDATER_APPLY, caller => applyUpdate(caller.connId ? "device" : "here"));
+	ipc.handle(IPC_COMMANDS.UPDATER_POSTPONE, () => postponeUpdate());
 	ipc.handle(IPC_COMMANDS.UPDATER_INSTALL_MODE, () => installMode);
 	// Dev/test seam (unpackaged only): pretend this staged bundle was downloaded and verified, so the
-	// automatic install can be exercised without a release (relaunch mode with OMP_DEV_UPDATE_BUNDLE).
+	// automatic install can be exercised without a release (relaunch mode with OMP_DEV_UPDATE_BUNDLE). On Windows the
+	// update is a pretend NSIS one whose install only quits (`devDryInstall`): the decisions before it run as shipped.
 	const devStaged = app.isPackaged ? undefined : process.env.OMP_DEV_UPDATE_STAGED;
+	const devVersion = process.env.OMP_DEV_UPDATE_STAGED_VERSION ?? "0.0.0-dev";
 	if (devStaged && installMode === "relaunch" && ownBundle) {
 		stagedApp = devStaged;
-		broadcast({
-			state: "downloaded",
-			version: process.env.OMP_DEV_UPDATE_STAGED_VERSION ?? "0.0.0-dev",
-			mode: "relaunch",
-		});
+		broadcast({ state: "downloaded", version: devVersion, mode: "relaunch" });
+	} else if (devStaged && installMode === "automatic") {
+		devDryInstall = true;
+		broadcast({ state: "downloaded", version: devVersion, mode: "automatic" });
 	}
 	ipc.handle(IPC_COMMANDS.UPDATER_GET_STATUS, () => current);
 	ipc.handle(IPC_COMMANDS.UPDATER_VERSION, () => appVersion());

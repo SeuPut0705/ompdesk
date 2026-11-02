@@ -7,7 +7,7 @@
  * a broken update feed re-reports the same failure on every poll.
  */
 import { create } from "zustand";
-import type { UpdateStatus } from "../../shared/ipc-types";
+import type { UpdateStatus, UpdateWaitingFor } from "../../shared/ipc-types";
 import { translate } from "../lib/i18n";
 import { toastError } from "./toast";
 
@@ -127,4 +127,17 @@ export async function checkForUpdatesInPlace(): Promise<void> {
  */
 export function runUpdaterAction(action: "download" | "apply" | "postpone"): void {
 	void window.omp.updater[action]().catch(error => toastError({ title: translate("updater.actionFailed"), error }));
+}
+
+/**
+ * What the waiting notice says the update waits for, and what "Restart now" interrupts: up to three names
+ * ("LayoutSplit, StreamFast", "…" when more run), or the count when none has a name. One wording for the sidebar card,
+ * Settings, a paired computer's row and the phone's confirm sheet.
+ */
+export function waitingWhat(
+	waiting: UpdateWaitingFor,
+	t: (key: string, params?: Record<string, string | number>) => string,
+): string {
+	if (waiting.names.length === 0) return t("updater.card.tasks", { count: waiting.tasks });
+	return `${waiting.names.join(", ")}${waiting.tasks > waiting.names.length ? ", …" : ""}`;
 }

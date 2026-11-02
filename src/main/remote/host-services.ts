@@ -50,6 +50,7 @@ import { type BotTakeoverRequest, BotTakeoverRequestSchema, type BotTakeoverResu
 import { type BotTeachRequest, BotTeachRequestSchema, type BotTeachResult } from "../../shared/bot-teach";
 import { codedError } from "../../shared/ipc-error-codes";
 import {
+	HOST_UPDATE_ACTIONS,
 	HOST_UPLOAD_MAX_BYTES,
 	type HostLiveSession,
 	type IpcHostedSession,
@@ -532,7 +533,7 @@ const ModelSetupRunParams = z.object({ request: ModelSetupRequestSchema });
 const AccountRotationSetParams = z.object({ mode: z.enum(ACCOUNT_ROTATION_MODES) });
 const BuiltinReaSetParams = z.object({ enabled: z.boolean() });
 const TerminalParams = z.object({ rtab: Rtab, operation: z.object({ action: z.string() }).passthrough() });
-const DesktopUpdateParams = z.object({ action: z.enum(["check", "download", "install"]) });
+const DesktopUpdateParams = z.object({ action: z.enum(HOST_UPDATE_ACTIONS) });
 /** A session's worktree binding (`IpcTabWorktree`), as the device's agent names it for `host.git.*`. */
 const GitWorktree = z.object({
 	path: AbsolutePath,

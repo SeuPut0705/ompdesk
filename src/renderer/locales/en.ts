@@ -2363,9 +2363,16 @@ export const en: Record<string, string> = {
 	"updater.card.installing": "Installing update {version}…",
 	"updater.card.installingHint":
 		"OMPdesk closes by itself, installs the update and opens again. Open work, drafts and the layout come back.",
+	"updater.card.waiting": "Update {version} waits · {count} running",
+	"updater.card.waitingHint":
+		"OMPdesk {version} is ready. It waits for {what} to finish, then installs by itself. Restarting now interrupts them; they start over after the restart.",
+	"updater.card.restartNowCuts": "Restart now (interrupts {what})",
+	"updater.card.tasks": "{count} running task(s)",
+	"updater.card.cuts": "Restarting now interrupts {what}. They start over after the restart.",
+	"updater.card.restartNowConfirm": "Restart now",
 	"updates.appAuto": "Install updates automatically",
 	"updates.appAutoDesc":
-		"Installs a downloaded update with a 60 s notice, then restarts. With Continue interrupted work on, it restarts as soon as no question, approval or compaction is pending, and running work resumes afterwards. Otherwise it waits until no tab is working and you are away.",
+		"Installs a downloaded update with a 60 s notice, then restarts. With Continue interrupted work on, it restarts as soon as no question, approval, compaction or background task is pending, and running work resumes afterwards; background tasks are never cut, and after 30 minutes you are told which ones the update waits for. Otherwise it waits until no tab is working and you are away.",
 	"updates.appAutoManual":
 		"Unavailable here: this copy cannot replace itself (read-only location or App Translocation). Move OMPdesk to the Applications folder to turn it on.",
 	"updater.card.compactReady": "Update {version} ready",
@@ -5404,6 +5411,7 @@ export const en: Record<string, string> = {
 	"updates.host.download": "Download on host",
 	"updates.host.install": "Install & restart host",
 	"updates.host.installing": "The host computer is restarting into the update. Its tabs reconnect when it's back.",
+	"updates.host.restartNowTitle": "Restart the host computer now?",
 	"updates.host.manual": "Install at the host",
 	"updates.host.manualHint":
 		"The update is downloaded on the host. Its installer has to be opened by someone at that computer.",

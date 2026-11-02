@@ -181,6 +181,8 @@ export interface DesktopDeps {
 		download(): Promise<UpdateStatus>;
 		restartable(): boolean;
 		restart(): void;
+		/** The automatic install's "Later" (`AutoInstallScheduler.postpone`). */
+		postpone(): void;
 	};
 	/** prefs `themeName` and `language`, unparsed. */
 	appearance(): { themeName: unknown; language: unknown };
@@ -328,16 +330,25 @@ export class LocalMachine implements MachineServices {
 	 * A paired device drives this computer's updater. Install restarts OMPdesk
 	 * here without a dialog nobody at the device could answer, so it refuses
 	 * while anything runs (this computer's tabs or any device's) and when the
-	 * update needs someone at this computer (the macOS manual DMG).
+	 * update needs someone at this computer (the macOS manual DMG). The automatic
+	 * install's notice is the exception: its "Restart now" (`restart-now`) goes
+	 * while work runs, as on this computer, since the notice says what it cuts
+	 * (the countdown restarts anyway; the waiting line names the work), and its
+	 * "Later" (`postpone`) puts it off. Without a notice `restart-now` is `install`.
 	 */
 	async desktopUpdate(action: HostUpdateAction): Promise<HostDesktopState> {
 		const { update, busy } = this.#deps.desktop;
 		if (action === "check") await update.check();
 		else if (action === "download") await update.download();
-		else if (action === "install") {
+		else if (action === "postpone") update.postpone();
+		else if (action === "install" || action === "restart-now") {
 			if (!update.restartable())
 				throw codedError("update_not_ready", "No update is ready to install on this computer");
-			if (busy()) throw codedError("host_busy", "Work is running on this computer");
+			const status = update.status();
+			const notice =
+				status.state === "downloaded" && (status.restartAt !== undefined || status.waitingFor !== undefined);
+			if (!(action === "restart-now" && notice) && busy())
+				throw codedError("host_busy", "Work is running on this computer");
 			// Answer first: the restart closes the device's link.
 			setTimeout(update.restart, INSTALL_DELAY_MS);
 		} else throw codedError("invalid_preference_key", "Invalid update action");

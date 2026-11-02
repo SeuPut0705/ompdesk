@@ -37,13 +37,14 @@ import { useFocusedHost, useHostView } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { runUpdaterAction, useUpdaterStore } from "../../stores/updater";
+import { runUpdaterAction, useUpdaterStore, waitingWhat } from "../../stores/updater";
 import {
 	Badge,
 	Banner,
 	type BannerVariant,
 	BrandMark,
 	Button,
+	ConfirmDialog,
 	ErrorDetail,
 	Input,
 	ProgressBar,
@@ -256,8 +257,12 @@ export function UpdatesSection() {
 						{status.state === "downloaded" && status.mode === "manual" && (
 							<p className="mt-1 text-sc-xs text-(--sc-text-muted)">{t("updater.manualInstructions")}</p>
 						)}
-						{status.state === "downloaded" && status.restartAt !== undefined && (
-							<AutoRestartNotice restartAt={status.restartAt} />
+						{status.state === "downloaded" && (
+							<AutoInstallNotice
+								onLater={() => runUpdaterAction("postpone")}
+								onRestartNow={() => runUpdaterAction("apply")}
+								status={status}
+							/>
 						)}
 					</>
 				}
@@ -304,20 +309,56 @@ export function UpdatesSection() {
 	);
 }
 
-/** The quiet line before an automatic restart: the countdown, "Now" and "Later". Never a modal. */
-function AutoRestartNotice({ restartAt }: { restartAt: number }) {
+/**
+ * The automatic install's quiet line, this computer's or a paired host's: the countdown with "Now" and "Later", or the
+ * update waiting for running background work, named, with "Restart now" (it says what it interrupts) and "Later".
+ * Never a modal.
+ */
+function AutoInstallNotice({
+	status,
+	onRestartNow,
+	onLater,
+}: {
+	status: Extract<UpdateStatus, { state: "downloaded" }>;
+	onRestartNow: () => void;
+	onLater: () => void;
+}) {
 	const t = useT();
-	const seconds = useSecondsUntil(restartAt) ?? 0;
+	const seconds = useSecondsUntil(status.installing ? undefined : status.restartAt) ?? 0;
+	if (status.installing) return null;
+	if (status.restartAt !== undefined) {
+		return (
+			<p
+				className="mt-1 flex items-center gap-2 text-sc-xs text-(--sc-text-muted)"
+				data-testid="auto-restart-notice"
+			>
+				<span>{t("updater.card.autoRestart", { seconds })}</span>
+				<Button onClick={onRestartNow} size="sm" variant="primary">
+					{t("updater.card.restartNow")}
+				</Button>
+				<Button onClick={onLater} size="sm" variant="ghost">
+					{t("updater.card.later")}
+				</Button>
+			</p>
+		);
+	}
+	if (!status.waitingFor) return null;
+	const what = waitingWhat(status.waitingFor, t);
 	return (
-		<p className="mt-1 flex items-center gap-2 text-sc-xs text-(--sc-text-muted)" data-testid="auto-restart-notice">
-			<span>{t("updater.card.autoRestart", { seconds })}</span>
-			<Button onClick={() => runUpdaterAction("apply")} size="sm" variant="primary">
-				{t("updater.card.restartNow")}
-			</Button>
-			<Button onClick={() => runUpdaterAction("postpone")} size="sm" variant="ghost">
-				{t("updater.card.later")}
-			</Button>
-		</p>
+		<div
+			className="mt-1 flex flex-col items-start gap-2 text-sc-xs text-(--sc-text-muted)"
+			data-testid="auto-install-waiting"
+		>
+			<p>{t("updater.card.waitingHint", { version: status.version, what })}</p>
+			<div className="flex flex-wrap items-center gap-2">
+				<Button onClick={onRestartNow} size="sm" variant="secondary">
+					{t("updater.card.restartNowCuts", { what })}
+				</Button>
+				<Button onClick={onLater} size="sm" variant="ghost">
+					{t("updater.card.later")}
+				</Button>
+			</div>
+		</div>
 	);
 }
 
@@ -456,18 +497,24 @@ export function HostDesktopRow({ deviceId }: { deviceId: string }) {
 		void read();
 	}, [read]);
 
-	// The host's check and download run on after its reply; follow them to their end.
+	const hostUpdate = state?.update;
+	const hostNotice =
+		hostUpdate?.state === "downloaded" && (hostUpdate.restartAt !== undefined || hostUpdate.waitingFor !== undefined);
+	// The host's check and download run on after its reply, and its automatic install's notice changes there: follow them.
 	useEffect(() => {
-		if (updateState !== "checking" && updateState !== "downloading") return;
+		if (updateState !== "checking" && updateState !== "downloading" && !hostNotice) return;
 		const timer = setInterval(() => void read(), HOST_UPDATE_POLL_MS);
 		return () => clearInterval(timer);
-	}, [read, updateState]);
+	}, [read, updateState, hostNotice]);
+	/** "Restart now" on the host's waiting line asks here first: it names the work the restart interrupts. */
+	const [confirmCut, setConfirmCut] = useState(false);
 
 	const run = async (action: HostUpdateAction) => {
 		setPending(action);
 		try {
 			setState(await window.omp.hostDesktop.update(action, deviceId));
-			if (action === "install") toast({ variant: "success", message: t("updates.host.installing") });
+			if (action === "install" || action === "restart-now")
+				toast({ variant: "success", message: t("updates.host.installing") });
 		} catch (error) {
 			toastError({ title: t("updates.host.actionFailed"), error });
 		} finally {
@@ -549,7 +596,26 @@ export function HostDesktopRow({ deviceId }: { deviceId: string }) {
 						<p className="mt-1 text-sc-xs text-(--sc-text-muted)">{t("updates.host.authRequired")}</p>
 					) : status?.state === "downloaded" && status.mode === "manual" ? (
 						<p className="mt-1 text-sc-xs text-(--sc-text-muted)">{t("updates.host.manualHint")}</p>
+					) : status?.state === "downloaded" ? (
+						<AutoInstallNotice
+							onLater={() => void run("postpone")}
+							onRestartNow={() => (status.waitingFor ? setConfirmCut(true) : void run("restart-now"))}
+							status={status}
+						/>
 					) : null}
+					{status?.state === "downloaded" && status.waitingFor && (
+						<ConfirmDialog
+							confirmLabel={t("updater.card.restartNowConfirm")}
+							message={t("updater.card.cuts", { what: waitingWhat(status.waitingFor, t) })}
+							onCancel={() => setConfirmCut(false)}
+							onConfirm={() => {
+								setConfirmCut(false);
+								void run("restart-now");
+							}}
+							open={confirmCut}
+							title={t("updates.host.restartNowTitle")}
+						/>
+					)}
 				</>
 			}
 			icon={<Server />}

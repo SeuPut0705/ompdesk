@@ -697,16 +697,33 @@ export type UpdateStatus =
 	| { state: "downloading"; version: string; mode: UpdateInstallMode; percent: number }
 	/**
 	 * `restartAt` (epoch ms): the app installs by itself then (Install updates automatically); "later" postpones it.
+	 * `waitingFor`: past the max wait the automatic install still waits for running background work, never cutting it;
+	 * the notice names it, with "Restart now" and "Later".
 	 * `installing`: the install is under way (the installer starts, then the app quits); the notice says so, and
 	 * "Restart & install" does nothing meanwhile.
 	 */
-	| { state: "downloaded"; version: string; mode: UpdateInstallMode; restartAt?: number; installing?: true }
+	| {
+			state: "downloaded";
+			version: string;
+			mode: UpdateInstallMode;
+			restartAt?: number;
+			waitingFor?: UpdateWaitingFor;
+			installing?: true;
+	  }
 	| { state: "not-available"; version: string }
 	/** `message` is user-facing copy in the UI language; `detail` keeps the raw
 	 * technical cause (network/updater error text) for a secondary line or tooltip. */
 	| { state: "error"; message: string; detail?: string; showInBanner?: boolean }
 	/** The release repo refused an anonymous request, or the token cannot read it (it is private again). Settings-only, never a banner. */
 	| { state: "auth-required"; reason: "missing" | "invalid" | "denied" };
+
+/** The running background work an automatic install waits for past its max wait. */
+export interface UpdateWaitingFor {
+	/** Running subagents and jobs, and sessions that did not answer. */
+	tasks: number;
+	/** Up to three of their names, subagents first; fewer than `tasks` when some had none or more ran. */
+	names: string[];
+}
 
 /**
  * OMPdesk itself on the machine a tab runs on (Settings on a paired host's
@@ -720,8 +737,13 @@ export interface HostDesktopState {
 	appearance: { themeName: string | null; language: string | null };
 }
 
-/** What a device asks a host's updater to do; `install` restarts the host into the update. */
-export type HostUpdateAction = "check" | "download" | "install";
+/**
+ * What a device asks a host's updater to do. `install` restarts the host into the update and is refused while work
+ * runs there; `restart-now` is the notice's "Restart now" (the person saw the work it interrupts), and `postpone` its
+ * "Later".
+ */
+export const HOST_UPDATE_ACTIONS = ["check", "download", "install", "restart-now", "postpone"] as const;
+export type HostUpdateAction = (typeof HOST_UPDATE_ACTIONS)[number];
 
 /** Where the updater's GitHub token came from, in precedence order. */
 export type UpdateTokenSource = "env" | "gh" | "stored";

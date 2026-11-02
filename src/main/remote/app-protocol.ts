@@ -38,8 +38,9 @@
  *   `host.accountRotation.get {}` / `host.accountRotation.set {mode}` → AccountRotationState
  *   (the host's own pref; its sessions follow it)
  * - OMPdesk on the host: `host.desktop.get {}` → HostDesktopState (version, updater state,
- *   theme and language), `host.desktop.update {action: "check"|"download"|"install"}` → HostDesktopState
- *   (install restarts the host; refused with `host_busy` while anything runs there)
+ *   theme and language), `host.desktop.update {action: "check"|"download"|"install"|"restart-now"|"postpone"}` →
+ *   HostDesktopState (install restarts the host; refused with `host_busy` while anything runs there, except
+ *   `restart-now` while the host's automatic-install notice shows; `postpone` is that notice's "Later")
  * - omp on the host updates itself (omp-updater.ts): `host.ompUpdate.get {}` → OmpUpdateState,
  *   `host.ompUpdate.now {}` → OmpUpdateState (starts the host's own check and update in the
  *   background and answers at once); the host pushes every state change as the `host.ompUpdate.changed` event
@@ -742,6 +743,9 @@ const UpdateStatusSchema: z.ZodType<UpdateStatus> = z.discriminatedUnion("state"
 		state: z.literal("downloaded"),
 		version: z.string(),
 		mode: Mode,
+		// The automatic install's notice, so a paired computer shows the host's countdown or waiting line as the host does.
+		restartAt: z.number().optional(),
+		waitingFor: z.object({ tasks: z.number(), names: z.array(z.string()) }).optional(),
 		installing: z.literal(true).optional(),
 	}),
 	z.object({ state: z.literal("not-available"), version: z.string() }),

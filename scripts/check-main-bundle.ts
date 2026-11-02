@@ -238,7 +238,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // (`stores/outbox.ts`, `lib/outbox-delivery.ts`), the composer's "Will send when connected" row (`ComposerOutbox`, its
 // glyphs) and the strings. It stays in the first screen: a page reloaded offline must show and send what waits
 // without fetching a chunk: measured 3,288,191, 13,053 bytes over the measure above.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_288_700;
+// The restart-cut mark keyed to the run it cut (the subagents store's `run` count and `deliveredBy`) and the automatic
+// install's waiting notice (the sidebar card's waiting row, `waitingWhat`, the phone sheet's line naming the work and the
+// new strings) (2 Nov 2026): measured 3,278,050 on the tree before the outbox, 2,912 bytes over its own base.
+const WEB_FIRST_SCREEN_JS_BYTES = 3_291_700;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
