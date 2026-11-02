@@ -1,5 +1,5 @@
 import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
-import { motionPlay } from "../../lib/motion";
+import { MOTION_SETTLED, motionPlay } from "../../lib/motion";
 
 /**
  * The body of a disclosure that opens and closes with its height (`lib/motion-play.ts` `animateHeight`): the content
@@ -38,7 +38,11 @@ export function Collapse({ open, children, className }: { open: boolean; childre
 		}
 		running.onfinish = () => {
 			if (animation.current !== running) return;
-			animation.current = null;
+			// An open is done; a close holds its zero height until the body unmounts, and a reopen meanwhile cancels it.
+			if (open) animation.current = null;
+			// The rows around it are where they rest now: a list gliding them (useListMotion) reads them again before the
+			// body unmounts, so its next glide starts from here and not from where they stood before the fold.
+			element.dispatchEvent(new Event(MOTION_SETTLED, { bubbles: true }));
 			if (!open) setClosing(false);
 		};
 	}, [open]);

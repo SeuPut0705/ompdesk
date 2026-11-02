@@ -6,7 +6,12 @@ import { loadMotionPlay, resetMotionTokens } from "../../lib/motion";
 import { Collapse } from "./Collapse";
 
 const { document, window } = parseHTML("<html><body></body></html>");
-Object.assign(globalThis as Record<string, unknown>, { document, window, IS_REACT_ACT_ENVIRONMENT: true });
+Object.assign(globalThis as Record<string, unknown>, {
+	document,
+	window,
+	Event: (window as unknown as { Event: typeof Event }).Event,
+	IS_REACT_ACT_ENVIRONMENT: true,
+});
 
 interface FakeAnimation {
 	keyframes: Keyframe[];

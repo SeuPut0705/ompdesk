@@ -31,6 +31,7 @@ import {
 import { fixtureTailscale } from "./fixture/fake-tailscale-install";
 import { ServeProxy, serveSites } from "./fixture/phone-serve";
 import {
+	animationsDone,
 	controlToolCaller,
 	cssString,
 	exitApp,
@@ -959,7 +960,11 @@ async function flowEOpenSession(page: Page, title: string): Promise<void> {
 }
 
 async function flowEDragOnto(page: Page, title: string, target: Locator, fx: number, fy: number, placement: string) {
-	const rowBox = await flowERow(page, title).boundingBox();
+	const row = flowERow(page, title);
+	// A row that just arrived (or moved) glides to its place: grab it where it rests.
+	await expect(row).toBeVisible();
+	await animationsDone(row);
+	const rowBox = await row.boundingBox();
 	const pane = await target.boundingBox();
 	if (!rowBox || !pane) throw new Error("expected drag boxes");
 	await page.mouse.move(rowBox.x + rowBox.width / 2, rowBox.y + rowBox.height / 2);

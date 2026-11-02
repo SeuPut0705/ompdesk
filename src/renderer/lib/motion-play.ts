@@ -22,8 +22,9 @@ export function measureList(list: HTMLElement, selector: string): Map<string, nu
 /**
  * FLIP: every keyed element that moved since `before` starts where it was and glides to where it is (transform only,
  * the spring curve, `med`); with `enter`, an element that was not there rises in (`fast`, `--sc-motion-stagger` apart,
- * at most 8). A move longer than the list's visible height is not animated: it reads as a jump either way. Returns
- * the list's measure now, to compare against next time.
+ * at most 8). A move longer than the list's visible height is not animated: it reads as a jump either way. A keyed
+ * element inside a keyed element that glides already rides along with it, so it plays only its own share of the move.
+ * Returns the list's measure now, to compare against next time.
  */
 export function playListMotion(
 	list: HTMLElement,
@@ -36,13 +37,18 @@ export function playListMotion(
 	if (move === 0 || before.size === 0 || typeof list.animate !== "function") return after;
 	const reach = list.clientHeight || Number.POSITIVE_INFINITY;
 	const { stagger, rise } = motionTravel();
+	/** How far each keyed element is drawn from where it lays out at the glide's start: its whole move, or 0. */
+	const shifted = new Map<Element, number>();
 	let entering = 0;
 	for (const element of list.querySelectorAll<HTMLElement>(selector)) {
 		const key = element.dataset.flipKey;
 		const now = key === undefined ? undefined : after.get(key);
 		if (key === undefined || now === undefined) continue;
 		const was = before.get(key);
+		const carrier = element.parentElement?.closest(selector);
+		const carried = carrier && list.contains(carrier) ? (shifted.get(carrier) ?? 0) : 0;
 		if (was === undefined) {
+			shifted.set(element, carried);
 			if (!options.enter || entering >= 8) continue;
 			element.animate(
 				[
@@ -54,9 +60,13 @@ export function playListMotion(
 			entering += 1;
 			continue;
 		}
-		const delta = was - now;
-		if (Math.abs(delta) < 1 || Math.abs(delta) > reach) continue;
-		element.animate([{ transform: `translateY(${delta}px)` }, { transform: "none" }], {
+		const total = was - now;
+		const delta = Math.abs(total) < 1 || Math.abs(total) > reach ? 0 : total;
+		shifted.set(element, delta);
+		// What its carrier's glide does not already draw: a child that stayed put inside a moving block holds still.
+		const own = delta - carried;
+		if (Math.abs(own) < 1) continue;
+		element.animate([{ transform: `translateY(${own}px)` }, { transform: "none" }], {
 			duration: move,
 			easing: motionEase("spring"),
 			composite: "add",
@@ -67,9 +77,10 @@ export function playListMotion(
 
 /**
  * Open or close an element's height between `from` and `to` pixels (`med` decelerating open, `fast` accelerating
- * closed), clipping what overflows meanwhile. A height taller than the window is not animated: the move would run off
- * screen, and laying out that much every frame drops frames. Returns the running animation, or null when nothing
- * moves.
+ * closed), clipping what overflows meanwhile. A closing height holds its end (`fill: forwards`) until its owner
+ * unmounts it, so no frame shows it whole again in between; cancelling the animation gives the element back. A height
+ * taller than the window is not animated: the move would run off screen, and laying out that much every frame drops
+ * frames. Returns the running animation, or null when nothing moves.
  */
 export function animateHeight(element: HTMLElement, from: number, to: number): Animation | null {
 	const opening = to > from;
@@ -81,7 +92,7 @@ export function animateHeight(element: HTMLElement, from: number, to: number): A
 			{ height: `${from}px`, overflow: "clip" },
 			{ height: `${to}px`, overflow: "clip" },
 		],
-		{ duration, easing: motionEase(opening ? "enter" : "exit") },
+		{ duration, easing: motionEase(opening ? "enter" : "exit"), fill: opening ? "none" : "forwards" },
 	);
 }
 
@@ -128,7 +139,10 @@ export function leaveGhost(element: HTMLElement | null): void {
 		zIndex: "var(--sc-z-popover)",
 	});
 	document.body.append(ghost);
-	const running = ghost.getAnimations({ subtree: true });
-	if (running.length === 0) ghost.remove();
-	else void Promise.allSettled(running.map(animation => animation.finished)).then(() => ghost.remove());
+	// Only the exit decides when the copy goes: a loop inside it (a working arc, a live sweep) never finishes.
+	const exits = ghost
+		.getAnimations({ subtree: true })
+		.filter(animation => animation.effect?.getComputedTiming().endTime !== Number.POSITIVE_INFINITY);
+	if (exits.length === 0) ghost.remove();
+	else void Promise.allSettled(exits.map(animation => animation.finished)).then(() => ghost.remove());
 }

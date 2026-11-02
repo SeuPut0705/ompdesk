@@ -147,8 +147,8 @@ describe("ToastStack", () => {
 				({ top: 56, bottom: 800, height: 744, left: 1100, right: 1430, width: 330 }) as DOMRect;
 			pane.appendChild(board as never);
 			pane.setAttribute("data-work-board", "");
-			const [marks] = observers;
-			expect(marks?.options?.attributeFilter).toContain("data-work-board");
+			const marks = observers.find(observer => observer.options?.attributeFilter?.includes("data-work-board"));
+			expect(marks).toBeDefined();
 			await act(async () => marks?.callback());
 			await advance(0);
 			expect(stack()?.getAttribute("data-toast-at")).toBe("board-foot");

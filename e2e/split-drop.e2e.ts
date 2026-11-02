@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { z } from "zod";
-import { exitApp, launchApp } from "./harness";
+import { animationsDone, exitApp, launchApp } from "./harness";
 
 // Drag-to-split on the fake omp with a real mouse drag: dragging an open
 // session's sidebar row over the workspace previews the half the new pane will
@@ -54,6 +54,8 @@ test("dragging a session previews and splits on the hovered side", async () => {
 
 		const row = page.locator(`[data-session-path="tab:${first}"]`);
 		await expect(row).toContainText("Refactor auth flow");
+		// The row glides to its place as the second session's row arrives: grab it where it rests.
+		await animationsDone(row);
 		const rowBox = await row.boundingBox();
 		const box = await page.locator(".omp-split-workspace").boundingBox();
 		if (!rowBox || !box) throw new Error("expected layout boxes");
@@ -176,6 +178,8 @@ test("dragging a session previews and splits on the hovered side", async () => {
 		};
 		const dragToPane = async (id: string, paneIndex: number) => {
 			const source = page.locator(`[data-session-path="tab:${id}"]`);
+			await expect(source).toBeVisible();
+			await animationsDone(source);
 			const sourceBox = await source.boundingBox();
 			const target = await page.locator("[data-split]").nth(paneIndex).boundingBox();
 			if (!sourceBox || !target) throw new Error("expected pane drag boxes");

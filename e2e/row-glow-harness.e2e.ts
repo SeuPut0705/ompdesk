@@ -117,12 +117,16 @@ async function seedRunning(page: Page): Promise<void> {
 	await expect(page.locator("[data-sidebar-subagent]")).toHaveCount(2);
 }
 
-/** Every running loop of the page (pseudo-elements included); a fade is no loop. */
+/** Every running loop of the page (pseudo-elements included); a fade, a glide or a transition ends, so is no loop. */
 async function runningAnimations(page: Page) {
 	return page.evaluate(() =>
 		document
 			.getAnimations()
-			.filter(animation => !(animation instanceof CSSTransition) && animation.playState === "running")
+			.filter(
+				animation =>
+					animation.playState === "running" &&
+					animation.effect?.getComputedTiming().endTime === Number.POSITIVE_INFINITY,
+			)
 			.map(animation => {
 				const effect = animation.effect as KeyframeEffect;
 				return {
@@ -336,7 +340,11 @@ for (const surface of SURFACES)
 			const headerOf = (row: Element) => {
 				const device = row.closest("[data-device-group]");
 				if (device) return device.querySelector(":scope > div:first-child button");
-				return row.closest("[data-session-group]")?.previousElementSibling?.querySelector("button") ?? null;
+				// A project's rows sit in its fold body (`Collapse`), whose previous sibling is the header.
+				const group = row.closest("[data-session-group]");
+				return (
+					(group?.closest("[data-collapse]") ?? group)?.previousElementSibling?.querySelector("button") ?? null
+				);
 			};
 			const rows = [...root.querySelectorAll(".omp-sidebar-session-row")].map(row => {
 				const header = headerOf(row);

@@ -154,7 +154,7 @@ test("reference blocks stay readable and errors retain recovery actions", async 
 	const error = page.locator(".omp-message-error");
 	await expect(error.getByRole("button", { name: "Try again", exact: true })).toBeVisible();
 	await expect(error.getByRole("button", { name: "Change model", exact: true })).toBeVisible();
-	await error.locator("summary").click();
+	await error.getByRole("button", { name: "Details" }).click();
 	await expect(error.locator("pre")).toContainText("503 Service unavailable");
 	await page.getByRole("button", { name: "Copy code", exact: true }).click();
 	expect(errors).toEqual([]);

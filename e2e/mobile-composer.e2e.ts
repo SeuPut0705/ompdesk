@@ -706,6 +706,10 @@ for (const engine of ENGINES) {
 						await field(page).fill("/");
 						const menu = page.locator("[data-completion-menu]");
 						await expect(menu).toBeVisible({ timeout: 15_000 });
+						// Rows are measured at rest: the menu grows in from the pop scale (the motion tokens).
+						await menu.evaluate(el =>
+							Promise.all(el.getAnimations({ subtree: true }).map(animation => animation.finished)),
+						);
 						for (const option of await menu.locator("[role='option']").all()) {
 							expect((await boxOf(option)).height).toBeGreaterThanOrEqual(43.5);
 						}

@@ -124,6 +124,35 @@ describe("playListMotion", () => {
 		expect(animations.map(({ key }) => key).sort()).toEqual(["a", "b"]);
 	});
 
+	it("moves a row inside a gliding block only by its own share, so it never travels twice", () => {
+		const document = setup();
+		const { container, animations } = list(document as unknown as Document, { block: 40 });
+		const block = container.firstElementChild as HTMLElement;
+		const inner = (top: number, key: string) => {
+			const row = document.createElement("div") as unknown as HTMLElement;
+			row.dataset.flipKey = key;
+			row.getBoundingClientRect = () => ({ top: 100 + top }) as DOMRect;
+			(row as unknown as { animate: Animate }).animate = keyframes => {
+				animations.push({ key, keyframes });
+				return {} as Animation;
+			};
+			block.appendChild(row);
+		};
+		inner(40, "rides");
+		inner(80, "also-moved");
+		playListMotion(
+			container,
+			"[data-flip-key]",
+			new Map([
+				["block", 0],
+				["rides", 0],
+				["also-moved", 20],
+			]),
+		);
+		const moves = Object.fromEntries(animations.map(({ key, keyframes }) => [key, keyframes[0]?.transform]));
+		expect(moves).toEqual({ block: "translateY(-40px)", "also-moved": "translateY(-20px)" });
+	});
+
 	it("moves nothing where motion is off", () => {
 		const document = setup({ gpu: "software" });
 		const { container, animations } = list(document as unknown as Document, { b: 0, a: 40 });

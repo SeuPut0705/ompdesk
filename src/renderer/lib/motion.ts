@@ -97,6 +97,12 @@ export function motionTravel(): { stagger: number; rise: number } {
 	return { stagger, rise };
 }
 
+/**
+ * A bubbling event an element's own size motion sends when it has settled (a `Collapse` that finished opening or
+ * closing): a list gliding its rows (`useListMotion`) reads where they rest now.
+ */
+export const MOTION_SETTLED = "omp-motion-settled";
+
 type MotionPlay = typeof MotionPlayModule;
 let play: MotionPlay | null = null;
 let loading: Promise<MotionPlay> | null = null;

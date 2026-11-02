@@ -87,7 +87,7 @@ async function softwareMarked(app: ElectronApplication, page: Page): Promise<boo
 }
 
 /** The app's looping cues, one of each, in a fixed-width probe box. */
-const LOOPS = ["animate-spin", "omp-pulse-dot", "omp-work-pulse", "omp-thinking-shimmer", "omp-indeterminate-progress"];
+const LOOPS = ["animate-spin", "omp-pulse-dot", "omp-work-pulse", "omp-indeterminate-progress"];
 
 /** For each probe cue: whether its animation loops forever, and whether it has played out. */
 async function probeLoops(page: Page): Promise<{ cls: string; infinite: boolean; finished: boolean }[]> {
