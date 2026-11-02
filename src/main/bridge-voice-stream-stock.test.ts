@@ -15,9 +15,14 @@ import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-
 const REAL = process.env.OMPDESK_VOICE_STREAM_REAL === "1";
 const userAgentCache = join(homedir(), ".omp", "agent", "cache");
 
+const LONG_FIRST_SENTENCE =
+	"One, two, three, four, five, six, seven, eight, nine, ten, eleven, twelve, thirteen, fourteen, fifteen, sixteen, seventeen, eighteen, nineteen, twenty, twenty-one, twenty-two, twenty-three, twenty-four, twenty-five, twenty-six, twenty-seven, twenty-eight, twenty-nine, thirty. The sky looks blue by day.";
+
 const PROBE = `
 import { methods } from "./voice";
 import { probe } from "./health";
+import { speakableSegments } from "./voice-stream-core";
+import { SpeakableStream } from "@oh-my-pi/pi-coding-agent/tts/speakable";
 import { isSttModelCached } from "@oh-my-pi/pi-coding-agent/stt/downloader";
 import { DEFAULT_STT_MODEL_KEY } from "@oh-my-pi/pi-coding-agent/stt/models";
 export default function (pi) {
@@ -28,6 +33,7 @@ export default function (pi) {
    const env = { pi, session: () => session, context: () => undefined, emit: () => {} };
    out.unavailable = await probe(env, ["voice", "voiceStream"]);
    out.cached = await isSttModelCached(DEFAULT_STT_MODEL_KEY);
+   out.segments = speakableSegments(${JSON.stringify(LONG_FIRST_SENTENCE)}, new SpeakableStream());
    if (out.cached && out.unavailable.length === 0) {
     const { streamId } = await methods.stt_stream_start({}, env);
     const silence = Buffer.alloc(16000 * 2).toString("base64");
@@ -55,6 +61,7 @@ interface Probe {
 	push?: { text: string };
 	cancel?: Record<string, never>;
 	afterCancel?: string;
+	segments?: string[];
 	error?: string;
 }
 
@@ -119,6 +126,15 @@ describe.skipIf(!existsSync(omp))("streaming voice, on stock omp", () => {
 		expect(probe.push).toEqual({ text: expect.any(String) });
 		expect(probe.cancel).toEqual({});
 		expect(probe.afterCancel).toBe("unknown_stream");
+	});
+
+	it("cuts a reply's long first sentence at a clause, as stock's live speech does, so its sound starts early", () => {
+		// One push of the whole reply cut only at sentence ends: a 276-character first sentence was one segment, and the
+		// call heard nothing for 6 s while Kokoro synthesized all of it (measured, omp 18.15.0 on this Mac).
+		const segments = probe.segments ?? [];
+		expect(segments.length).toBeGreaterThan(2);
+		expect(segments[0]?.length).toBeLessThanOrEqual(140);
+		expect(segments.join(" ").replace(/\s+/g, " ")).toBe(LONG_FIRST_SENTENCE);
 	});
 });
 
