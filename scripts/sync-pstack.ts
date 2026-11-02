@@ -151,20 +151,20 @@ const RULES: Rule[] = [
 	rule(
 		"interrogate-spawn",
 		/^interrogate\/SKILL\.md$/,
-		/Launch all reviewers in a single message with the Task tool, one per entry on the[\s\S]*?(?=\nRead `references\/reviewer-prompt\.md`)/,
-		`Launch all reviewers in one \`task\` call (a \`tasks[]\` batch), labeled Reviewer A, B, and so on.\n\n| Subagent | Model |\n|----------|-------|\n| Reviewer A | \`@slow\` |\n| Reviewer B | a different model family from the parent (the \`advisor\` role, or another configured provider) |\n\nEach reviewer is \`agent: "reviewer"\` (read-only) with its model set from the table. If the \`task\` tool rejects a model, run that reviewer on \`@slow\` and say so. Do not block the review on the model issue.\n`,
+		/with four changes\. Read the `interrogate reviewers` line in place of `arena runners`\. Copy the scope's uncommitted changes into each worktree\. Spawn each adversary as `generalPurpose`\./,
+		"with three changes. Copy the scope's uncommitted changes into each worktree. Spawn each adversary as the default `task` agent (leave `agent` out): it has to run code.",
 	),
 	rule(
 		"swarm-model",
 		/^swarm\/SKILL\.md$/,
-		/4\. Pick the worker model from the `swarm workers` line[^\n]*?For a model race, name each arm's model up front\./,
-		"4. Pick the worker model: `@task` by default. If the task tool rejects a model, use `@task` and say so. For a model race, name each arm's model up front.",
+		/3\. Pick the worker model from the `swarm workers` line[^\n]*?For a model race, name each arm's model up front\./,
+		"3. Pick the worker model: `@task` by default. If the task tool rejects a model, use `@task` and say so. For a model race, name each arm's model up front.",
 	),
 	rule(
 		"swarm-spawn",
 		/^swarm\/SKILL\.md$/,
 		/Spawn all N workers in one message with `subagent_type: generalPurpose`[^\n]*\n\nWhen a worker must start from a non-default pushed branch, pass `cloud_base_branch`\./,
-		"Spawn all N workers in one `task` call (a `tasks[]` batch) with the step 4 model. A worker that writes files and needs its own checkout runs as an OMPdesk session instead: `ompdesk_session_open` with `worktree: true` (at most 4 per call), compared with `ompdesk_compare`. A worker that must start from another branch gets that base in the session brief.",
+		"Spawn all N workers in one `task` call (a `tasks[]` batch) with the step 3 model. A worker that writes files and needs its own checkout runs as an OMPdesk session instead: `ompdesk_session_open` with `worktree: true` (at most 4 per call), compared with `ompdesk_compare`. A worker that must start from another branch gets that base in the session brief.",
 	),
 	// Fan-out only pays for items of minutes each (measured 20 Oct 2026, see feature-delegate-speed).
 	rule(
@@ -246,6 +246,12 @@ const RULES: Rule[] = [
 		"hand to the user's skill-writing skill (`writing-great-skills`) when installed, else the `manage_skill` tool, and run its draft / test / iterate loop.",
 	),
 	rule(
+		"reflect-skill-copy",
+		/^reflect\/SKILL\.md$/,
+		"Never edit a skill under `plugins/cache/`. Before approval, show its destination, `.cursor/skills/<skill>/` or `~/.cursor/skills/<skill>/`. After approval, copy the skill folder there and edit the copy.",
+		"Never edit a skill in a built-in or installed pack (OMPdesk's `resources/omp-builtin/`, an omp plugin). Before approval, show its destination, `.omp/skills/<skill>/` or `~/.omp/agent/skills/<skill>/`. After approval, copy the skill folder there and edit the copy.",
+	),
+	rule(
 		"reflect-synth-example",
 		/^reflect\/references\/synthesizer\.md$/,
 		'"Bugbot flagged regex backtracking on May 2"',
@@ -272,8 +278,8 @@ const RULES: Rule[] = [
 	rule(
 		"arena-judge",
 		/^arena\/SKILL\.md$/,
-		/choose one model from the `arena cross-judge pool` line in `~\/\.cursor\/rules\/pstack-models\.mdc`\. If the rule or that line is missing, choose from `claude-opus-5-5-xhigh` and `grok-4\.7-xhigh-fast`\. Prefer a different model family from the parent's\. Spawn one readonly judge subagent on that model\./,
-		'choose a judge model from a different family than the parent\'s (the `advisor` role, or another configured provider). Spawn one read-only judge (`agent: "reviewer"`) on that model.',
+		/choose one model from the `arena cross-judge pool` line in `~\/\.cursor\/rules\/pstack-models\.mdc`\.[^\n]*? say that the family check did not run\./,
+		'choose a judge model from a different family than the parent\'s (the `advisor` role, or another configured provider). Spawn one read-only judge (`agent: "reviewer"`) on that model. If no model of another family runs, skip the judge, pick the base alone in Phase D, and say so.',
 	),
 	rule(
 		"architect-runners",

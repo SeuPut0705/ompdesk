@@ -23,12 +23,12 @@ Open a `todo` list with one entry per phase before launching anything.
 
 1. State the done predicate and the artifact or report the swarm must return.
 2. Choose the shape. Partition into slices, race N workers on identical briefs, or mix both. For a race or mixed shape, declare `first pass`, `rank all`, or `best-of` before spawning.
-4. Pick the worker model: `@task` by default. If the task tool rejects a model, use `@task` and say so. For a model race, name each arm's model up front. Pick each subagent's model role per the Subagents section of the **poteto-mode** skill.
-5. Give each worker its own writable output when it writes. When workers verify or measure commits, each brief names the exact SHAs. A measurement brief also names the method (sample count, what one sample is, order). The worker records both in its result.
+3. Pick the worker model: `@task` by default. If the task tool rejects a model, use `@task` and say so. For a model race, name each arm's model up front. Pick each subagent's model role per the Subagents section of the **poteto-mode** skill.
+4. Give each worker its own writable output when it writes. When workers verify or measure commits, each brief names the exact SHAs. A measurement brief also names the method (sample count, what one sample is, order). The worker records both in its result.
 
 ## Phase B: Fan out
 
-Spawn all N workers in one `task` call (a `tasks[]` batch) with the step 4 model. A worker that writes files and needs its own checkout runs as an OMPdesk session instead: `ompdesk_session_open` with `worktree: true` (at most 4 per call), compared with `ompdesk_compare`. A worker that must start from another branch gets that base in the session brief.
+Spawn all N workers in one `task` call (a `tasks[]` batch) with the step 3 model. A worker that writes files and needs its own checkout runs as an OMPdesk session instead: `ompdesk_session_open` with `worktree: true` (at most 4 per call), compared with `ompdesk_compare`. A worker that must start from another branch gets that base in the session brief.
 
 Every brief stands alone. Include the goal, scope, exact slice or race arm, how to verify, and what to report. Reports use `PASS`, `ISSUES`, or `BLOCKED` with evidence. A worker that can prove a defect reports `ISSUES` and lists every issue it can prove, not only the first.
 
@@ -40,4 +40,4 @@ Read the terminal results. Drop a result that does not record the SHAs and metho
 
 ## Phase D: Report
 
-Return one consolidated in-chat report with the table, issue one-liners, gaps or dropouts, and the race rule when used.
+Return one consolidated in-chat report with a result table, issue one-liners, gaps or dropouts, and the race rule when used.
