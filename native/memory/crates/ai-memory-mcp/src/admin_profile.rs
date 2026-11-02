@@ -233,6 +233,7 @@ async fn handle_status(
         "baseline_max_bytes": settings.baseline_budget(),
         "apply_max_lines": settings.apply_max_lines,
         "llm": settings.llm,
+        "harvest": settings.harvest,
         "scope": scope,
         "entries": entries,
         "digest_bytes": digest_bytes,

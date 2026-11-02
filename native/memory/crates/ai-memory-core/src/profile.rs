@@ -48,18 +48,16 @@ pub fn is_reserved_scope_project(name: &str) -> bool {
     name == crate::GLOBAL_SCOPE_PROJECT || is_profile_project(name)
 }
 
-/// `[profile] enabled`: off by default (OMPdesk's build: the zero-LLM harvest
-/// filed a test description as the user's "usual choice" and every session got
-/// it); `auto` turns the profile on for a single-operator server and off for a
-/// multi-user one.
+/// `[profile] enabled`: `auto` (the default) turns the profile on for a
+/// single-operator server and off for a multi-user one.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ProfileEnabled {
     /// On when the deployment does not distinguish operators.
+    #[default]
     Auto,
     /// On for every deployment.
     On,
     /// Off for every deployment.
-    #[default]
     Off,
 }
 
@@ -268,12 +266,19 @@ pub struct ProfileSettings {
     pub apply_max_lines: usize,
     /// Use the configured LLM provider, when there is one.
     pub llm: bool,
+    /// Let the server's own pass learn entries from prompts and curated pages
+    /// (startup, after each SessionEnd, hourly). Off in OMPdesk's build: its
+    /// zero-LLM harvest filed agents' task briefs ("Tests: host-services unit
+    /// tests …") as the user's usual choices and every session start got them.
+    /// Entries come from explicit `scope: "profile"` writes; `profile rebuild`
+    /// still runs a pass when the operator asks for one.
+    pub harvest: bool,
 }
 
 impl Default for ProfileSettings {
     fn default() -> Self {
         Self {
-            enabled: ProfileEnabled::Off,
+            enabled: ProfileEnabled::Auto,
             share: ProfileShare::Auto,
             min_projects: DEFAULT_MIN_PROJECTS,
             inject_on_session_start: true,
@@ -281,11 +286,19 @@ impl Default for ProfileSettings {
             baseline_max_bytes: DEFAULT_BASELINE_MAX_BYTES,
             apply_max_lines: DEFAULT_APPLY_MAX_LINES,
             llm: true,
+            harvest: false,
         }
     }
 }
 
 impl ProfileSettings {
+    /// Whether the background pass harvests on a deployment that does
+    /// (`true`) or does not distinguish operators.
+    #[must_use]
+    pub fn harvests(&self, distinguishes_operators: bool) -> bool {
+        self.harvest && self.effective_share(distinguishes_operators).is_some()
+    }
+
     /// The profile's scope on a deployment that does (`true`) or does not
     /// distinguish operators, or `None` when the profile is off.
     ///
@@ -914,17 +927,21 @@ mod tests {
     }
 
     #[test]
-    fn defaults_leave_the_profile_off_until_enabled() {
-        // OMPdesk: off by default (its zero-LLM harvest filed a test description as a usual choice).
+    fn defaults_turn_the_profile_on_for_one_operator_without_harvesting() {
         let defaults = ProfileSettings::default();
-        assert_eq!(defaults.effective_share(false), None);
-        assert_eq!(defaults.effective_share(true), None);
-        let auto = settings(ProfileEnabled::Auto, ProfileShare::Auto);
         assert_eq!(
-            auto.effective_share(false),
+            defaults.effective_share(false),
             Some(EffectiveProfileShare::Global)
         );
-        assert_eq!(auto.effective_share(true), None, "multi-user is opt-in");
+        assert_eq!(defaults.effective_share(true), None, "multi-user is opt-in");
+        // OMPdesk: entries are written on purpose, never harvested by default.
+        assert!(!defaults.harvests(false));
+        let harvesting = ProfileSettings {
+            harvest: true,
+            ..ProfileSettings::default()
+        };
+        assert!(harvesting.harvests(false));
+        assert!(!harvesting.harvests(true), "no harvest while the profile is off");
     }
 
     #[test]

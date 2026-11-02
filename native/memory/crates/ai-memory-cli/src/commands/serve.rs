@@ -833,7 +833,7 @@ struct ProfileWorker {
 /// after every SessionEnd (debounced) and hourly. Each pass reads only what is
 /// new past the per-project marks. The deployment's operator topology is read
 /// per pass, so adding the first database user turns an `auto` profile off
-/// without a restart.
+/// without a restart. Runs only with `[profile] harvest` on (off by default).
 async fn run_profile_worker(
     worker: ProfileWorker,
     notify: Arc<tokio::sync::Notify>,
@@ -855,7 +855,7 @@ async fn run_profile_worker(
                 true
             }
         };
-        if worker.settings.effective_share(distinguishes).is_some() {
+        if worker.settings.harvests(distinguishes) {
             let config = ai_memory_consolidate::profile::ProfilePassConfig {
                 settings: worker.settings.clone(),
                 distinguishes_operators: distinguishes,

@@ -54,6 +54,7 @@ struct StatusResponse {
     baseline_max_bytes: usize,
     apply_max_lines: usize,
     llm: bool,
+    harvest: bool,
     scope: Option<ScopeNames>,
     entries: usize,
     digest_bytes: usize,
@@ -114,8 +115,8 @@ async fn status(ep: &ServerEndpoint, scope: &ProfileScopeArgs) -> Result<()> {
         s.baseline_max_bytes
     );
     println!(
-        "  min_projects = {}, apply_max_lines = {}, llm = {}",
-        s.min_projects, s.apply_max_lines, s.llm
+        "  min_projects = {}, apply_max_lines = {}, llm = {}, harvest = {}",
+        s.min_projects, s.apply_max_lines, s.llm, s.harvest
     );
     if s.contribute_opt_outs.is_empty() {
         println!("  every project contributes");

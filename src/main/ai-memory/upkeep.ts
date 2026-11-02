@@ -1,8 +1,9 @@
 /**
  * What OMPdesk does for memory's quality once the server is up, with ai-memory's own write paths and nothing else:
  *
- * 1. **Repair, once per launch** (`retitle.ts`): session pages filed under protocol text get their task's name, and the
- *    handoffs a child session left are discarded. Idempotent, so a launch with nothing to repair does two reads.
+ * 1. **Repair, once per launch** (`retitle.ts`, `profile-leftovers.ts`): session pages filed under protocol text get
+ *    their task's name, the handoffs a child session left are discarded, and the profile entries the old harvest wrote
+ *    are retired. Idempotent, so a launch with nothing to repair only reads.
  * 2. **Learn** (`distill.ts`): ai-memory writes session pages by itself but no decisions, rules or gotchas (its own
  *    consolidation needs an LLM provider on the server, which OMPdesk keeps out). While Settings › Memory › "Learn from
  *    conversations" is on, a conversation a person has paused (10 minutes quiet) with 6 or more new messages of theirs is
@@ -39,6 +40,7 @@ import {
 	proposalPath,
 } from "./distill";
 import type { ModelResult } from "./distill-model";
+import { retireHarvestedProfile } from "./profile-leftovers";
 import { type RetitleClient, type RetitleReport, retitleSessionPages } from "./retitle";
 import { readRulesText, rulesIndex, rulesOutline, statedByRules } from "./rules-file";
 import { pageToReplace } from "./supersede";
@@ -58,7 +60,7 @@ const FIRST_TICK_MS = 2 * 60_000;
 export type UpkeepClient = RetitleClient &
 	Pick<AiMemoryClient, "sessions" | "createPage" | "retirePage" | "nameStatus" | "renameUnclaimedProject">;
 
-export type UpkeepLogMessage = "retitle" | "learn" | "failed" | "renamed";
+export type UpkeepLogMessage = "retitle" | "learn" | "failed" | "renamed" | "profile";
 export type UpkeepLogDetails = Record<string, string | number | boolean | null>;
 
 export interface UpkeepDeps {
@@ -224,6 +226,7 @@ export class MemoryUpkeep {
 	async repair(): Promise<RetitleReport | null> {
 		// First, so every later read (retitle, learning, care, the sync) can name each project again.
 		await this.#repairNames();
+		await this.#retireHarvestedProfile();
 		try {
 			const report = await retitleSessionPages(this.#deps.client, { dryRun: false });
 			if (report.retitled.length || report.childHandoffs || report.failed.length || report.unresolved.length) {
@@ -233,6 +236,17 @@ export class MemoryUpkeep {
 		} catch (error) {
 			this.#deps.log("failed", { step: "retitle", detail: error instanceof Error ? error.message : String(error) });
 			return null;
+		}
+	}
+
+	/** The old harvest's profile entries out of every session start (profile-leftovers.ts). Never rejects. */
+	async #retireHarvestedProfile(): Promise<void> {
+		try {
+			const { retired, kept } = await retireHarvestedProfile(this.#deps.client, new Date(this.#now));
+			if (retired.length || kept.length)
+				this.#deps.log("profile", { retired: retired.join(", "), kept: kept.join(", ") });
+		} catch (error) {
+			this.#deps.log("failed", { step: "profile", detail: error instanceof Error ? error.message : String(error) });
 		}
 	}
 

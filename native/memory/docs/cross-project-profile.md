@@ -280,7 +280,7 @@ In `config.toml` (or `AI_MEMORY_PROFILE__<KEY>`, for example
 
 ```toml
 [profile]
-enabled = "auto"            # auto | true | false (default false in OMPdesk's build)
+enabled = "auto"            # auto | true | false
 share = "auto"              # auto | global | workspace | user | off
 min_projects = 2
 inject_on_session_start = true
@@ -288,6 +288,7 @@ digest_max_bytes = 3000     # clamped 1500..12000
 baseline_max_bytes = 6000   # clamped 2000..20000
 apply_max_lines = 40
 llm = true
+harvest = false            # OMPdesk's build: no background learning
 ```
 
 - **`enabled`**: `auto` turns the profile on for a single-operator server and
@@ -322,6 +323,12 @@ llm = true
   rules file.
 - **`llm`**: use the configured LLM provider, when there is one, to classify and
   merge entries; `false` keeps the profile fully zero-LLM.
+- **`harvest`**: let the server learn entries on its own (the passes under
+  "How entries are learned": shortly after startup, after each session end,
+  hourly). OMPdesk's build keeps it `false`: its zero-LLM harvest filed agents'
+  task briefs as the user's usual choices. Entries then come only from
+  `memory_write_page` with `scope: "profile"` (and an explicit
+  `ai-memory profile rebuild`).
 
 `ai-memory profile status` prints the effective values.
 

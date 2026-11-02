@@ -599,7 +599,47 @@ describe("MemoryUpkeep.repair", () => {
 		expect(await upkeep(client).repair()).toBeNull();
 		expect(logs).toEqual([
 			{ message: "failed", details: { step: "rename", detail: "Memory is not running" } },
+			{ message: "failed", details: { step: "profile", detail: "Memory is not running" } },
 			{ message: "failed", details: { step: "retitle", detail: "Memory is not running" } },
 		]);
+	});
+
+	it("retires the profile entries the old harvest wrote and keeps the ones written on purpose", async () => {
+		const harvested = (statement: string) =>
+			`# ${statement}\n\n${statement}\n\n## In your words\n\n- "${statement}" (default/ompdesk, 2026-10-19)\n`;
+		const { client, retired } = fakeClient(
+			[],
+			[
+				{
+					project: "_global",
+					path: "profile/testing/tests-host-services.md",
+					title: "Tests: host-services unit tests",
+					body: harvested("Tests: host-services unit tests (grant refused, running refused)."),
+				},
+				{
+					project: "_global",
+					path: "profile/workflow/push.md",
+					title: "Push",
+					body: harvested("Push `git push origin HEAD:main` (fetch+rebase, never force)."),
+					pinned: true,
+				},
+				{
+					project: "_global",
+					path: "profile/tools/bun.md",
+					title: "Bun",
+					body: "# Bun\n\nUse bun, not npm.\n\nWhy: one toolchain in every project.",
+				},
+				{ project: "_global", path: "preferences/결론부터.md", title: "결론부터", body: harvested("결론부터") },
+				{ path: "profile/tools/x.md", title: "A project page", body: harvested("x") },
+			],
+		);
+		await upkeep(client).repair();
+		expect(retired).toEqual([
+			expect.objectContaining({ project: "_global", path: "profile/testing/tests-host-services.md" }),
+		]);
+		expect(logs).toContainEqual({
+			message: "profile",
+			details: { retired: "profile/testing/tests-host-services.md", kept: "profile/workflow/push.md" },
+		});
 	});
 });

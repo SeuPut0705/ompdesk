@@ -1113,7 +1113,7 @@ claim_on_session_start = true     # false offers metadata; explicit accept claim
 create_on_session_end = true      # false stops automatic handoffs at session end and OpenCode turn checkpoints
 
 [profile]                         # cross-project profile (docs/cross-project-profile.md)
-enabled = "auto"                  # default false (OMPdesk's build); auto: on for single-user, off for multi-user; true
+enabled = "auto"                  # auto: on for single-user, off for multi-user; true / false
 share = "auto"                    # auto | global | workspace | user | off
                                   # auto: global (all workspaces) single-user, user (private) multi-user
 min_projects = 2                  # distinct projects a choice must appear in to join the profile
@@ -1122,6 +1122,7 @@ digest_max_bytes = 3000           # UTF-8 bytes, clamped 1500..12000
 baseline_max_bytes = 6000         # digest budget for a project with no pages yet, clamped 2000..20000
 apply_max_lines = 40              # most lines `profile apply` writes into a rules file
 llm = true                        # use the configured provider when there is one
+harvest = false                   # background learning passes; off in OMPdesk's build
                                   # env: AI_MEMORY_PROFILE__<KEY>, e.g. AI_MEMORY_PROFILE__SHARE=workspace
 
 [consolidation]                    # LLM consolidation prompt sizing

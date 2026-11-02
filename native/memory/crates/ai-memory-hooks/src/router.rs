@@ -6508,12 +6508,7 @@ pub(crate) mod tests {
             ingest_gates: IngestGates::default(),
             per_user_slots: false,
             mid_session_routing: MidSessionRouting::default(),
-            // The profile tests describe a server that turned the profile on;
-            // the shipped default is off (`the_default_config_injects_no_profile_block`).
-            profile: ai_memory_core::profile::ProfileSettings {
-                enabled: ai_memory_core::profile::ProfileEnabled::Auto,
-                ..ai_memory_core::profile::ProfileSettings::default()
-            },
+            profile: ai_memory_core::profile::ProfileSettings::default(),
             ingest_drop_list: crate::drop_list::IngestDropList::default(),
         }
     }
@@ -21171,18 +21166,6 @@ pub(crate) mod tests {
             .unwrap();
         assert_eq!(
             session_start_text(&state, profile_query(cwd, "claude-code")).await,
-            None
-        );
-    }
-
-    #[tokio::test]
-    async fn the_default_config_injects_no_profile_block() {
-        let tmp = TempDir::new().unwrap();
-        let mut state = make_state(&tmp).await;
-        state.profile = ai_memory_core::profile::ProfileSettings::default();
-        seed_global_profile(&state).await;
-        assert_eq!(
-            session_start_text(&state, profile_query("/home/u/app", "claude-code")).await,
             None
         );
     }
