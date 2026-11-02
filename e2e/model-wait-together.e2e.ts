@@ -23,7 +23,14 @@ test.beforeEach(async () => {
 	const agent = path.join(profile, "agent");
 	await Promise.all([fs.mkdir(project), fs.mkdir(desktop), fs.mkdir(agent)]);
 	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language: "en", firstRunComplete: true }));
-	app = await launchApp({ project, desktop, agent, profile });
+	app = await launchApp({
+		project,
+		desktop,
+		agent,
+		profile,
+		// The automatic mode choice takes about a second, as the real judge's does: a prompt leaves after it.
+		env: { OMP_GUI_TEST_AUTO_MODE_DELAY_MS: "800" },
+	});
 	page = await app.firstWindow();
 	await page.waitForFunction(() => window.omp?.rpc != null);
 	await expect.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status).toBe("ready");
