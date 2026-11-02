@@ -11,11 +11,12 @@ import {
 	writeFileSync,
 } from "node:fs";
 import * as http from "node:http";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { afterAll, describe, expect, it } from "vitest";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
  * A relaunch continues a turn that OMPdesk's quit cut while omp was preparing its next model request (bridge
@@ -33,7 +34,6 @@ import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge
  * The test widens that window with a second extension whose `context` handler (awaited before every model request)
  * waits until the abort, then quits the way OMPdesk does: stdin closes.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 const FIRST = "FIRST-MARK say hello";
 const SECOND = "SECOND-MARK go on";
 
@@ -188,7 +188,7 @@ async function startOmp(provider: Provider, isolated: string, root: string, resu
 	const env: Record<string, string | undefined> = {
 		...process.env,
 		PI_CODING_AGENT_DIR: agentDir,
-		PI_CONFIG_DIR: isolated,
+		PI_CONFIG_DIR: configDirName(isolated),
 		OMP_PROFILE: "",
 		PI_PROFILE: "",
 		OMP_GUI_BRIDGE: address,
@@ -196,8 +196,9 @@ async function startOmp(provider: Provider, isolated: string, root: string, resu
 	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
 	for (const key of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_OAUTH_TOKEN"]) Reflect.deleteProperty(env, key);
 	const child: ChildProcessWithoutNullStreams = spawn(
-		omp,
+		OMP_COMMAND.file,
 		[
+			...OMP_COMMAND.args,
 			...["--mode", "rpc-ui", "--no-extensions", "--no-skills", "--no-rules"],
 			...(resume ? ["--continue"] : []),
 			...["--model", "fake/m1", "-e", resolve("resources/gui-bridge/index.ts")],

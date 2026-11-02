@@ -1,9 +1,10 @@
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { APPROVE_DENY, approvalChoices, sessionApprovalSubject } from "../shared/tool-approval";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
  * Pins `src/shared/tool-approval.ts` to the installed omp's own tool-approval prompt: stock `requestApproval` is run
@@ -13,7 +14,6 @@ import { APPROVE_DENY, approvalChoices, sessionApprovalSubject } from "../shared
  * GUI can send must mean what the GUI says: once this call, the session option this call and later ones, each grant
  * the folder or target for this session or every session, "Deny" no.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 
 const PROBE = `
 import { requestApproval, sessionApprovalScope } from "@oh-my-pi/pi-coding-agent/tools/approval";
@@ -67,7 +67,7 @@ function probe(): Asked[] {
 		const env: Record<string, string | undefined> = {
 			...process.env,
 			PI_CODING_AGENT_DIR: isolated,
-			PI_CONFIG_DIR: isolated,
+			PI_CONFIG_DIR: configDirName(isolated),
 			OMP_PROFILE: "",
 			PI_PROFILE: "",
 			OPENAI_API_KEY: "probe-not-a-real-key",
@@ -75,8 +75,9 @@ function probe(): Asked[] {
 			PROBE_DIR: join(isolated, "folder"),
 		};
 		const result = spawnSync(
-			omp,
+			OMP_COMMAND.file,
 			[
+				...OMP_COMMAND.args,
 				"--mode",
 				"rpc",
 				"--no-session",

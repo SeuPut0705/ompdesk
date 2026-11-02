@@ -6,7 +6,6 @@ import {
 	bridgeAt,
 	type Frame,
 	fakeAgent,
-	omp,
 	realAgent,
 	sse,
 	startOmp,
@@ -14,6 +13,7 @@ import {
 	todoOps,
 	toolCall,
 } from "./bridge-todo-stock-rig";
+import { INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
  * A long session takes request after request and kept one finished task's todo list on the work board for hours:

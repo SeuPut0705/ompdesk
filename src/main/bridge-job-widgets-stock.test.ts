@@ -1,11 +1,13 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import * as http from "node:http";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { afterAll, describe, expect, it } from "vitest";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
+import { removeWhenFree } from "./test-folders";
 
 /**
  * Stock's live job widgets (`async.widgets`, omp ≥ 18.12.3) on the installed omp, with a scripted OpenAI-compatible
@@ -15,7 +17,6 @@ import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge
  * it for every job; stock has no job read that does not view. The GUI never draws those widgets, so OMPdesk holds
  * `async.widgets` off (thinking-default-core.ts); a value in config.yml is the user's and wins.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 /** A background job that outlives stock's 15 s `authorAfterMs` and prints one line a second. */
 const JOB = "for i in $(seq 1 24); do echo line $i; sleep 1; done";
 
@@ -151,7 +152,7 @@ interface Omp {
 async function startOmp(provider: Provider, config: string): Promise<Omp> {
 	const isolated = mkdtempSync(join(tmpdir(), "ompdesk-widgets-"));
 	chmodSync(isolated, 0o700);
-	cleanups.push(() => rmSync(isolated, { recursive: true, force: true }));
+	cleanups.push(() => removeWhenFree(isolated));
 	const agentDir = join(isolated, "agent");
 	const root = join(isolated, "project");
 	mkdirSync(agentDir, { recursive: true });
@@ -176,7 +177,7 @@ async function startOmp(provider: Provider, config: string): Promise<Omp> {
 	const env: Record<string, string | undefined> = {
 		...process.env,
 		PI_CODING_AGENT_DIR: agentDir,
-		PI_CONFIG_DIR: isolated,
+		PI_CONFIG_DIR: configDirName(isolated),
 		OMP_PROFILE: "",
 		PI_PROFILE: "",
 		OMP_GUI_BRIDGE: address,
@@ -184,8 +185,9 @@ async function startOmp(provider: Provider, config: string): Promise<Omp> {
 	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
 	for (const key of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_OAUTH_TOKEN"]) Reflect.deleteProperty(env, key);
 	const child: ChildProcessWithoutNullStreams = spawn(
-		omp,
+		OMP_COMMAND.file,
 		[
+			...OMP_COMMAND.args,
 			...["--mode", "rpc-ui", "--no-extensions", "--no-skills", "--no-rules"],
 			...["--model", "fake/m1", "-e", resolve("resources/gui-bridge/index.ts")],
 		],

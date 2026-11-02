@@ -14,7 +14,7 @@
 import { spawn } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { newBridgeAddress, removeBridgeAddress } from "../src/main/bridge-client";
 
@@ -29,7 +29,10 @@ function option(name: string): string | undefined {
 	return index >= 0 ? process.argv[index + 1] : undefined;
 }
 
-const omp = option("omp") ?? process.env.OMP_GUI_OMP ?? join(homedir(), ".bun", "bin", "omp");
+const omp =
+	option("omp") ??
+	process.env.OMP_GUI_OMP ??
+	join(homedir(), ".bun", "bin", process.platform === "win32" ? "omp.exe" : "omp");
 const runs = Number(option("runs") ?? 10);
 const bridgeEntry = option("bridge") ?? resolve(import.meta.dir, "../resources/gui-bridge/index.ts");
 
@@ -46,7 +49,8 @@ async function measureOnce(isolated: string, cwd: string): Promise<Run> {
 	const env: Record<string, string | undefined> = {
 		...process.env,
 		PI_CODING_AGENT_DIR: join(isolated, "agent"),
-		PI_CONFIG_DIR: isolated,
+		// Stock joins it to the home folder (pi-utils dirs.ts): an absolute path fails on Windows.
+		PI_CONFIG_DIR: relative(homedir(), isolated),
 		OMP_PROFILE: "",
 		PI_PROFILE: "",
 		PI_DEBUG_STARTUP: "1",

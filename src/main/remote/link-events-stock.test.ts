@@ -1,13 +1,14 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import * as http from "node:http";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { afterAll, describe, expect, it } from "vitest";
 import type { AgentMessage, AgentSessionEvent } from "../../shared/rpc-types";
 import { withoutFrameBookkeeping } from "../frame-bookkeeping";
 import { completeRunMessages } from "../run-messages";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "../test-bridge-probe";
 import { createLinkEventDecoder, createLinkEventEncoder } from "./link-events";
 
 /**
@@ -16,7 +17,6 @@ import { createLinkEventDecoder, createLinkEventEncoder } from "./link-events";
  * reference (`slimEndFields`), and the device rebuilds them exactly. Stock stamps a reply's `completedAt` only after its
  * `message_end` (omp 18.12.6), so before that capability no reply of a run matched and each crossed whole twice.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 
 /** The bridge's `decorateMessages` (stream-metadata.ts, which imports omp's own modules): a read call's group target. */
 function decorateMessages(messages: AgentMessage[]): AgentMessage[] {
@@ -106,15 +106,15 @@ async function run(url: string): Promise<Frame[]> {
 	const env: Record<string, string | undefined> = {
 		...process.env,
 		PI_CODING_AGENT_DIR: agentDir,
-		PI_CONFIG_DIR: isolated,
+		PI_CONFIG_DIR: configDirName(isolated),
 		OMP_PROFILE: "",
 		PI_PROFILE: "",
 	};
 	for (const key of ["ELECTRON_RUN_AS_NODE", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OMP_GUI_BRIDGE"])
 		Reflect.deleteProperty(env, key);
 	const child: ChildProcessWithoutNullStreams = spawn(
-		omp,
-		["--mode", "rpc-ui", "--no-extensions", "--no-skills", "--no-rules", "--model", "fake/m1"],
+		OMP_COMMAND.file,
+		[...OMP_COMMAND.args, "--mode", "rpc-ui", "--no-extensions", "--no-skills", "--no-rules", "--model", "fake/m1"],
 		{ cwd: root, env: env as NodeJS.ProcessEnv },
 	);
 	const exited = new Promise<void>(done => child.once("exit", () => done()));

@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import * as http from "node:http";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
  * The automatic mode choice asked while the user types, on the installed omp with a native judge on loopback (no
@@ -14,7 +15,6 @@ import { describe, expect, it } from "vitest";
  * - a decision that arrives while that question is still asked joins it instead of asking again;
  * - any other text is asked as before, and every billed question is journaled once (purpose `auto-mode`).
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 
 const BIG = "migrate the whole app from REST to GraphQL across all services";
 const SLOW = "migrate every package slowly from webpack to vite across the repo";
@@ -164,7 +164,7 @@ async function run(url: string): Promise<Probe> {
 		const env: Record<string, string | undefined> = {
 			...process.env,
 			PI_CODING_AGENT_DIR: isolated,
-			PI_CONFIG_DIR: isolated,
+			PI_CONFIG_DIR: configDirName(isolated),
 			OMP_PROFILE: "",
 			PI_PROFILE: "",
 			AMP_LOOPBACK: url,
@@ -172,8 +172,9 @@ async function run(url: string): Promise<Probe> {
 		for (const key of ["OPENROUTER_API_KEY", "TYPESAFE_API_KEY", "TYPESAFE_BASE_URL", "ELECTRON_RUN_AS_NODE"])
 			Reflect.deleteProperty(env, key);
 		const child = spawn(
-			omp,
+			OMP_COMMAND.file,
 			[
+				...OMP_COMMAND.args,
 				"--mode",
 				"rpc",
 				"--no-session",

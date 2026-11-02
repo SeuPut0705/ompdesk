@@ -9,8 +9,9 @@ import { BOT_ENABLED_PREF, BOT_PREF, botRowOf } from "../shared/agent-control";
 import { deletedSessions, initDeletedSessions } from "./deleted-sessions";
 import { ompPackageRoot } from "./omp-runtime";
 import { SessionIndex } from "./session-index";
+import { INSTALLED_OMP } from "./test-bridge-probe";
 
-const stockRoot = ompPackageRoot(path.join(os.homedir(), ".bun", "bin", "omp"));
+const stockRoot = ompPackageRoot(INSTALLED_OMP);
 const tempDirs: string[] = [];
 const indexes: SessionIndex[] = [];
 const previousAgent = process.env.PI_CODING_AGENT_DIR;

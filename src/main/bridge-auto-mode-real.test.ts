@@ -3,6 +3,7 @@ import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, rm
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
  * Opt-in audit on the user's real omp and credentials (`OMP_GUI_REAL_WORK=1`; it spends a few tokens, one judge
@@ -11,7 +12,6 @@ import { describe, expect, it } from "vitest";
  * with its model, latency and the judge's probabilities (`AUTO_MODE_REAL` lines on stdout). The clear cases must come
  * out as the product intends; every decision must arrive inside the deadline.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 const agentDir = join(homedir(), ".omp", "agent");
 const enabled = process.env.OMP_GUI_REAL_WORK === "1" && existsSync(omp) && existsSync(join(agentDir, "agent.db"));
 
@@ -144,8 +144,9 @@ function decideAll(prompts: string[]): Row[] {
 		const project = join(isolated, "project");
 		mkdirSync(project);
 		const result = spawnSync(
-			omp,
+			OMP_COMMAND.file,
 			[
+				...OMP_COMMAND.args,
 				"--mode",
 				"rpc",
 				"--no-session",
@@ -160,7 +161,7 @@ function decideAll(prompts: string[]): Row[] {
 				env: {
 					...process.env,
 					PI_CODING_AGENT_DIR: isolated,
-					PI_CONFIG_DIR: isolated,
+					PI_CONFIG_DIR: configDirName(isolated),
 					AM_PROMPTS: JSON.stringify(prompts),
 				},
 				encoding: "utf8",

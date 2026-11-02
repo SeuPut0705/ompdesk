@@ -1,9 +1,11 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import * as http from "node:http";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { jevJudge, type PagePair } from "./ai-memory/memory-judge";
+import { configDirName, INSTALLED_OMP as omp } from "./test-bridge-probe";
+import { removeWhenFree } from "./test-folders";
 
 /**
  * Memory curation's Jev path on the installed omp, no model spend: `memory-judge-host.ts` is loaded the way main loads
@@ -12,7 +14,6 @@ import { jevJudge, type PagePair } from "./ai-memory/memory-judge";
  * `POST /v1/systemone` and the choice comes back as the verdict; with a prompted `judge` role it reports "not
  * available" and not one request leaves. `OMP_GUI_JUDGE_ASSIST=0` (the switch off) is read by stock's engine.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 
 const pair: PagePair = {
 	a: {
@@ -115,7 +116,7 @@ async function judgeWith(loopback: Loopback, role: "native" | "prompted", enable
 		mkdirSync(cwd, { recursive: true });
 		Object.assign(process.env, {
 			PI_CODING_AGENT_DIR: isolated,
-			PI_CONFIG_DIR: isolated,
+			PI_CONFIG_DIR: configDirName(isolated),
 			OMP_PROFILE: "",
 			PI_PROFILE: "",
 		});
@@ -137,7 +138,7 @@ async function judgeWith(loopback: Loopback, role: "native" | "prompted", enable
 	} finally {
 		for (const key of Object.keys(process.env)) if (!(key in saved)) Reflect.deleteProperty(process.env, key);
 		Object.assign(process.env, saved);
-		rmSync(isolated, { recursive: true, force: true });
+		await removeWhenFree(isolated);
 	}
 }
 

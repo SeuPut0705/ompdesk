@@ -1,9 +1,10 @@
 import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
  * OMPdesk's own model roles and agent tiers on the installed omp, in an empty private agent dir (a throwaway
@@ -17,7 +18,6 @@ import { parse } from "yaml";
  * - stock's bundled `security-reviewer` (no `model:` line) runs on `@slow`, then `@review`, instead of the parent's
  *   model, and a user's own agent file of that name keeps its model line.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 
 const PROBE = `
 import * as fs from "node:fs";
@@ -165,7 +165,7 @@ function isolatedEnv(isolated: string): Record<string, string | undefined> {
 	const env: Record<string, string | undefined> = {
 		...process.env,
 		PI_CODING_AGENT_DIR: isolated,
-		PI_CONFIG_DIR: isolated,
+		PI_CONFIG_DIR: configDirName(isolated),
 		OMP_PROFILE: "",
 		PI_PROFILE: "",
 		OPENAI_API_KEY: "probe-not-a-real-key",
@@ -198,7 +198,7 @@ function runProbe(config: string): Probe {
 	const { isolated, extension } = isolatedBridge(PROBE, "ompdesk-roles-probe.ts");
 	try {
 		if (config) writeFileSync(join(isolated, "config.yml"), config);
-		const result = spawnSync(omp, [...RPC_ARGS, extension], {
+		const result = spawnSync(OMP_COMMAND.file, [...OMP_COMMAND.args, ...RPC_ARGS, extension], {
 			env: isolatedEnv(isolated),
 			cwd: isolated,
 			encoding: "utf8",
@@ -259,7 +259,10 @@ async function runPresetSession(
 		PRESET_PROBE.replaceAll("__DELAY__", String(delayMs)),
 		"ompdesk-roles-preset-probe.ts",
 	);
-	const child = spawn(omp, [...RPC_ARGS, extension], { env: isolatedEnv(isolated), cwd: isolated });
+	const child = spawn(OMP_COMMAND.file, [...OMP_COMMAND.args, ...RPC_ARGS, extension], {
+		env: isolatedEnv(isolated),
+		cwd: isolated,
+	});
 	let stderr = "";
 	let stdout = "";
 	const waiting: Array<{ test: () => boolean; done: () => void }> = [];

@@ -30,6 +30,7 @@ import { slimOf } from "./remote/protocol";
 import { SessionIndex } from "./session-index";
 import { SidebarProjects } from "./sidebar-projects";
 import type { SidecarLike } from "./sidecar-types";
+import { INSTALLED_OMP } from "./test-bridge-probe";
 
 const counts = vi.hoisted(() => ({ stock: new Map<string, number>() }));
 vi.mock("./stock-helper", async importOriginal => {
@@ -47,7 +48,7 @@ const OUT = process.env.OMP_GUI_SESSION_LISTS;
 const LABEL = process.env.OMP_GUI_SESSION_LISTS_LABEL ?? "run";
 const IDLE_S = Number(process.env.OMP_GUI_SESSION_LISTS_IDLE_S) || 30;
 const BUSY_S = Number(process.env.OMP_GUI_SESSION_LISTS_BUSY_S) || 60;
-const stockRoot = ompPackageRoot(path.join(os.homedir(), ".bun", "bin", "omp"));
+const stockRoot = ompPackageRoot(INSTALLED_OMP);
 const HOST = "host-studio";
 
 /** What one renderer window (a module instance of the feed) is given as `window`. */

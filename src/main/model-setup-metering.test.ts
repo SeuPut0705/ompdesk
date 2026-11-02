@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { ModelSetupFacts } from "../../resources/gui-bridge/model-setup-contracts";
 import { billingOf, fullAutoAllows, type PlanRoleInput, type PlanRow, planRoles } from "../shared/role-plan";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
  * Pins the model setup's billing classification to stock's own auth data, on the installed omp in a private agent
@@ -17,7 +18,6 @@ import { billingOf, fullAutoAllows, type PlanRoleInput, type PlanRow, planRoles 
  * - a keyless local runtime on its stock endpoint is free, a stock OAuth login alone is a subscription;
  * - picked mode may use what the person ticked, metered included.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 const bun = join(homedir(), ".bun", "bin", "bun");
 const sdk = join(
 	homedir(),
@@ -122,7 +122,7 @@ function runProbe(options: {
 		Object.assign(spawnEnv, {
 			HOME: isolated,
 			PI_CODING_AGENT_DIR: isolated,
-			PI_CONFIG_DIR: isolated,
+			PI_CONFIG_DIR: configDirName(isolated),
 			OMP_PROFILE: "",
 			PI_PROFILE: "",
 			METERING_SEED: JSON.stringify(options.seed ?? []),
@@ -142,8 +142,18 @@ function runProbe(options: {
 			expect(seeded.status, seeded.stderr).toBe(0);
 		}
 		const result = spawnSync(
-			omp,
-			["--mode", "rpc", "--no-session", "--no-extensions", "--no-skills", "--no-rules", "-e", extension],
+			OMP_COMMAND.file,
+			[
+				...OMP_COMMAND.args,
+				"--mode",
+				"rpc",
+				"--no-session",
+				"--no-extensions",
+				"--no-skills",
+				"--no-rules",
+				"-e",
+				extension,
+			],
 			{ cwd: isolated, env: spawnEnv, encoding: "utf8", timeout: 150_000, maxBuffer: 16 * 1024 * 1024, input: "" },
 		);
 		expect(existsSync(join(isolated, "probe-out.json")), result.stderr.slice(-2500)).toBe(true);

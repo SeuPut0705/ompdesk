@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import * as http from "node:http";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
  * The judge-model assists on the installed omp, no model spend: a loopback server stands in for the provider.
@@ -15,7 +16,6 @@ import { describe, expect, it } from "vitest";
  *   mode's judgments are billed. The switch (`judge_assist_set {enabled: false}`) stops it with no request.
  * The journal is the live session's own (`getEntries()`), the probe runs under `--no-session`.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 
 const ASKING = "I found two ways to fix it: patch the parser or rewrite the lexer. Which one do you want me to take?";
 const REPORT = "I patched the parser and the tests pass. The change is in src/parser.ts.";
@@ -178,7 +178,7 @@ async function run(loopback: Loopback, judge: "native" | "prompted", images = fa
 		const env: Record<string, string | undefined> = {
 			...process.env,
 			PI_CODING_AGENT_DIR: isolated,
-			PI_CONFIG_DIR: isolated,
+			PI_CONFIG_DIR: configDirName(isolated),
 			OMP_PROFILE: "",
 			PI_PROFILE: "",
 		};
@@ -194,8 +194,9 @@ async function run(loopback: Loopback, judge: "native" | "prompted", images = fa
 		])
 			Reflect.deleteProperty(env, key);
 		const child = spawn(
-			omp,
+			OMP_COMMAND.file,
 			[
+				...OMP_COMMAND.args,
 				"--mode",
 				"rpc",
 				"--no-session",

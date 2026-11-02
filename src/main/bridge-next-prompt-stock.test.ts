@@ -1,8 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
  * Pins the built-in prompt suggestions to the installed omp, in an empty private agent dir (no model is called):
@@ -14,7 +15,6 @@ import { describe, expect, it } from "vitest";
  * - the user's own `next-prompt` extension is found through stock's loaded-extension list;
  * - the single-line reply cleaning agrees with stock's `parseComposerPrediction` on the cases both handle.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 
 const LEGACY = `
 export default function (pi) {
@@ -87,7 +87,7 @@ function run(options: { config?: string; legacy: boolean }): Probe {
 		const env: Record<string, string | undefined> = {
 			...process.env,
 			PI_CODING_AGENT_DIR: isolated,
-			PI_CONFIG_DIR: isolated,
+			PI_CONFIG_DIR: configDirName(isolated),
 			OMP_PROFILE: "",
 			PI_PROFILE: "",
 			OPENAI_API_KEY: "probe-not-a-real-key",
@@ -95,6 +95,7 @@ function run(options: { config?: string; legacy: boolean }): Probe {
 		for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"])
 			Reflect.deleteProperty(env, key);
 		const args = [
+			...OMP_COMMAND.args,
 			"--mode",
 			"rpc",
 			"--no-session",
@@ -105,7 +106,7 @@ function run(options: { config?: string; legacy: boolean }): Probe {
 			join(bridge, "np-probe.ts"),
 		];
 		if (options.legacy) args.push("-e", join(extensions, "next-prompt.ts"));
-		const result = spawnSync(omp, args, {
+		const result = spawnSync(OMP_COMMAND.file, args, {
 			env,
 			encoding: "utf8",
 			timeout: 120_000,

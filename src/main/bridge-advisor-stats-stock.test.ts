@@ -1,9 +1,10 @@
 import { spawnSync } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AdvisorUsage } from "../../resources/gui-bridge/advisor-stats-contracts";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
  * The advisor spend card on the installed omp (bridge `advisor_stats`, resources/gui-bridge/advisor-stats.ts), in an
@@ -11,7 +12,6 @@ import type { AdvisorUsage } from "../../resources/gui-bridge/advisor-stats-cont
  * journal through stock's own `appendCustomMessageEntry`, then the method's answer is compared with what stock's
  * `getAdvisorStats()` says in the same process. The probe also times the method (guard included) over 200 calls.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 
 const PROBE = `
 import { methods } from "./advisor-stats";
@@ -71,7 +71,7 @@ function isolatedRun(probe: string, file: string): { stderr: string; cleanup: ()
 	const env: Record<string, string | undefined> = {
 		...process.env,
 		PI_CODING_AGENT_DIR: isolated,
-		PI_CONFIG_DIR: isolated,
+		PI_CONFIG_DIR: configDirName(isolated),
 		TMPDIR: temp,
 		OMP_PROFILE: "",
 		PI_PROFILE: "",
@@ -80,13 +80,17 @@ function isolatedRun(probe: string, file: string): { stderr: string; cleanup: ()
 	for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]) {
 		Reflect.deleteProperty(env, key);
 	}
-	const result = spawnSync(omp, ["--mode", "rpc", "--no-extensions", "--no-skills", "--no-rules", "-e", extension], {
-		env,
-		encoding: "utf8",
-		timeout: 120_000,
-		maxBuffer: 4 * 1024 * 1024,
-		input: "",
-	});
+	const result = spawnSync(
+		OMP_COMMAND.file,
+		[...OMP_COMMAND.args, "--mode", "rpc", "--no-extensions", "--no-skills", "--no-rules", "-e", extension],
+		{
+			env,
+			encoding: "utf8",
+			timeout: 120_000,
+			maxBuffer: 4 * 1024 * 1024,
+			input: "",
+		},
+	);
 	return { stderr: result.stderr, cleanup: () => rmSync(isolated, { recursive: true, force: true }) };
 }
 

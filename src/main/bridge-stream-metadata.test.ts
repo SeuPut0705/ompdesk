@@ -13,9 +13,9 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 const agentDir = join(homedir(), ".omp", "agent");
-const omp = join(homedir(), ".bun", "bin", "omp");
 describe.skipIf(!existsSync(omp) || !existsSync(join(agentDir, "agent.db")))("real stock stream metadata", () => {
 	it("replays real read calls with stock eligibility/selectors and samples the session meter", () => {
 		const root = mkdtempSync(join(tmpdir(), "ompdesk-stream-metadata-"));
@@ -84,10 +84,26 @@ export default function(pi) {
 `,
 			);
 			const result = spawnSync(
-				omp,
-				["--mode", "rpc", "--no-session", "--no-extensions", "--no-skills", "--no-rules", "-e", extension],
+				OMP_COMMAND.file,
+				[
+					...OMP_COMMAND.args,
+					"--mode",
+					"rpc",
+					"--no-session",
+					"--no-extensions",
+					"--no-skills",
+					"--no-rules",
+					"-e",
+					extension,
+				],
 				{
-					env: { ...process.env, PI_CODING_AGENT_DIR: root, PI_CONFIG_DIR: root, OMP_PROFILE: "", PI_PROFILE: "" },
+					env: {
+						...process.env,
+						PI_CODING_AGENT_DIR: root,
+						PI_CONFIG_DIR: configDirName(root),
+						OMP_PROFILE: "",
+						PI_PROFILE: "",
+					},
 					encoding: "utf8",
 					timeout: 30000,
 					maxBuffer: 4 * 1024 * 1024,

@@ -7,7 +7,6 @@ import {
 	journaledMail,
 	mail,
 	type Omp,
-	omp,
 	PARALLEL,
 	type Provider,
 	runCleanups,
@@ -16,6 +15,7 @@ import {
 	startProvider,
 	WAIT,
 } from "./bridge-agent-mail-stock-harness";
+import { INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 afterAll(runCleanups);
 

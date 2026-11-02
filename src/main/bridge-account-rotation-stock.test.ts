@@ -1,8 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
  * Pins quota re-ranking (account-rotation.ts) to stock's own selector and ranking on the installed omp: an empty
@@ -21,7 +22,6 @@ import { describe, expect, it } from "vitest";
  *   never re-ranks.
  * - Stock's selector pick, the pin's provenance read and the comparator leave no pin behind.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 
 const PROBE = `
 import { install } from "./account-rotation";
@@ -154,7 +154,7 @@ describe.skipIf(!existsSync(omp))("bridge quota re-rank on stock's selector", ()
 			const env: Record<string, string | undefined> = {
 				...process.env,
 				PI_CODING_AGENT_DIR: isolated,
-				PI_CONFIG_DIR: isolated,
+				PI_CONFIG_DIR: configDirName(isolated),
 				OMP_PROFILE: "",
 				PI_PROFILE: "",
 				OPENAI_API_KEY: "probe-not-a-real-key",
@@ -165,8 +165,18 @@ describe.skipIf(!existsSync(omp))("bridge quota re-rank on stock's selector", ()
 				Reflect.deleteProperty(env, key);
 			}
 			const result = spawnSync(
-				omp,
-				["--mode", "rpc", "--no-session", "--no-extensions", "--no-skills", "--no-rules", "-e", extension],
+				OMP_COMMAND.file,
+				[
+					...OMP_COMMAND.args,
+					"--mode",
+					"rpc",
+					"--no-session",
+					"--no-extensions",
+					"--no-skills",
+					"--no-rules",
+					"-e",
+					extension,
+				],
 				{ env, encoding: "utf8", timeout: 120_000, maxBuffer: 4 * 1024 * 1024, input: "" },
 			);
 			const line = result.stderr.split("\n").find(value => value.startsWith("ROTATION_PROBE"));

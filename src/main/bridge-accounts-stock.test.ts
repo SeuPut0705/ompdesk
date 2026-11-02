@@ -3,9 +3,9 @@ import { chmodSync, copyFileSync, cpSync, existsSync, mkdtempSync, rmSync, write
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 const source = join(homedir(), ".omp", "agent");
-const omp = join(homedir(), ".bun", "bin", "omp");
 describe.skipIf(!existsSync(omp) || !existsSync(join(source, "agent.db")))("real stock account/reset adapters", () => {
 	it("preserves account listings, uses stock attribution/reset selectors, and logs out only a throwaway credential", () => {
 		const isolated = mkdtempSync(join(tmpdir(), "ompdesk-accounts-stock-"));
@@ -121,13 +121,23 @@ export default function(pi) {
 `,
 			);
 			const result = spawnSync(
-				omp,
-				["--mode", "rpc", "--no-session", "--no-extensions", "--no-skills", "--no-rules", "-e", extension],
+				OMP_COMMAND.file,
+				[
+					...OMP_COMMAND.args,
+					"--mode",
+					"rpc",
+					"--no-session",
+					"--no-extensions",
+					"--no-skills",
+					"--no-rules",
+					"-e",
+					extension,
+				],
 				{
 					env: {
 						...process.env,
 						PI_CODING_AGENT_DIR: isolated,
-						PI_CONFIG_DIR: isolated,
+						PI_CONFIG_DIR: configDirName(isolated),
 						OMP_PROFILE: "",
 						PI_PROFILE: "",
 					},

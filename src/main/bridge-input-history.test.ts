@@ -3,12 +3,14 @@ import { existsSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
 import { StockHelper } from "./stock-helper";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
+import { removeWhenFree } from "./test-folders";
 
 const stockRoot = path.join(os.homedir(), ".bun/install/global/node_modules/@oh-my-pi/pi-coding-agent");
-const omp = path.join(os.homedir(), ".bun/bin/omp");
 
 describe.skipIf(!existsSync(omp) || !existsSync(stockRoot))("stock history and compaction bridge", () => {
 	it("shares history bidirectionally, skips secrets, and uses stock compaction helpers", async () => {
@@ -21,21 +23,29 @@ describe.skipIf(!existsSync(omp) || !existsSync(stockRoot))("stock history and c
 			"providers:\n  fixture:\n    baseUrl: http://127.0.0.1:9/v1\n    api: openai-completions\n    apiKey: unused\n    models:\n      - id: idle\n",
 		);
 		// The developer's agent.db, when there is one, so the recent-models check below reads a non-empty MRU.
+		// node:sqlite, not the sqlite3 CLI, which Windows does not ship.
 		const realAgentDb = path.join(os.homedir(), ".omp/agent/agent.db");
-		if (existsSync(realAgentDb))
-			execFileSync("sqlite3", [realAgentDb, `VACUUM INTO '${path.join(agent, "agent.db").replaceAll("'", "''")}'`]);
+		if (existsSync(realAgentDb)) {
+			const db = new DatabaseSync(realAgentDb, { readOnly: true });
+			try {
+				db.exec(`VACUUM INTO '${path.join(agent, "agent.db").replaceAll("'", "''")}'`);
+			} finally {
+				db.close();
+			}
+		}
 		const address = newBridgeAddress();
 		const env = {
 			...process.env,
 			PI_CODING_AGENT_DIR: agent,
-			PI_CONFIG_DIR: profile,
+			PI_CONFIG_DIR: configDirName(profile),
 			OMP_PROFILE: "",
 			PI_PROFILE: "",
 			OMP_GUI_BRIDGE: address,
 		};
 		const child = spawn(
-			omp,
+			OMP_COMMAND.file,
 			[
+				...OMP_COMMAND.args,
 				"--mode",
 				"rpc-ui",
 				"--no-session",
@@ -178,15 +188,16 @@ describe.skipIf(!existsSync(omp) || !existsSync(stockRoot))("stock history and c
 			);
 			expect(execFileSync("bun", [script], { env, encoding: "utf8" }).trim()).toBe("true");
 			// Recent models are stock's own MRU order from the profile's agent.db.
-			const mru = existsSync(path.join(agent, "agent.db"))
-				? execFileSync(
-						"sqlite3",
-						[path.join(agent, "agent.db"), "SELECT model_key FROM model_usage ORDER BY last_used_at DESC"],
-						{ encoding: "utf8" },
-					)
-						.split("\n")
-						.filter(Boolean)
-				: [];
+			const mru: string[] = [];
+			if (existsSync(path.join(agent, "agent.db"))) {
+				const db = new DatabaseSync(path.join(agent, "agent.db"), { readOnly: true });
+				try {
+					for (const row of db.prepare("SELECT model_key FROM model_usage ORDER BY last_used_at DESC").all())
+						mru.push(String(row.model_key));
+				} finally {
+					db.close();
+				}
+			}
 			expect(await client.request("recent_models")).toEqual({ selectors: mru });
 			// A fresh journal has compacted nothing yet.
 			expect(await client.request("sessions.usage_history")).toMatchObject({ compactions: 0 });
@@ -200,7 +211,7 @@ describe.skipIf(!existsSync(omp) || !existsSync(stockRoot))("stock history and c
 				else child.once("exit", () => resolve());
 			});
 			removeBridgeAddress(address);
-			await fs.rm(profile, { recursive: true, force: true });
+			await removeWhenFree(profile);
 		}
 	}, 60_000);
 });

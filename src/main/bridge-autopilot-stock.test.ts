@@ -7,11 +7,10 @@ import {
 	readdirSync,
 	readFileSync,
 	realpathSync,
-	rmSync,
 	writeFileSync,
 } from "node:fs";
 import * as http from "node:http";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { afterAll, describe, expect, it, vi } from "vitest";
@@ -22,6 +21,8 @@ import {
 	AUTOPILOT_BRIDGE_METHODS as M,
 } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
+import { removeWhenFree } from "./test-folders";
 
 /**
  * Autopilot on the installed stock omp, with the real bridge and a scripted OpenAI-compatible provider on
@@ -30,7 +31,6 @@ import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge
  * a push, an edit outside the worktree and an `eval`; the cycle record and the frames arrive, and two unreported
  * cycles in a row do not stop the run; disarm restores the tool set.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 
 interface ProviderRequest {
 	system: string;
@@ -204,7 +204,7 @@ async function startOmp(provider: Provider, previous?: Harness): Promise<Harness
 	const env: Record<string, string | undefined> = {
 		...process.env,
 		PI_CODING_AGENT_DIR: agentDir,
-		PI_CONFIG_DIR: isolated,
+		PI_CONFIG_DIR: configDirName(isolated),
 		OMP_PROFILE: "",
 		PI_PROFILE: "",
 		OMP_GUI_BRIDGE: address,
@@ -212,8 +212,9 @@ async function startOmp(provider: Provider, previous?: Harness): Promise<Harness
 	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
 	for (const key of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_OAUTH_TOKEN"]) Reflect.deleteProperty(env, key);
 	const child: ChildProcessWithoutNullStreams = spawn(
-		omp,
+		OMP_COMMAND.file,
 		[
+			...OMP_COMMAND.args,
 			"--mode",
 			"rpc-ui",
 			"--no-extensions",
@@ -231,6 +232,8 @@ async function startOmp(provider: Provider, previous?: Harness): Promise<Harness
 	child.stderr.on("data", chunk => {
 		stderr += chunk;
 	});
+	const exited = Promise.withResolvers<void>();
+	child.once("exit", () => exited.resolve());
 	const frames: Harness["frames"] = [];
 	const waiters: Array<() => void> = [];
 	const responses = new Map<string, (value: Record<string, unknown>) => void>();
@@ -289,16 +292,16 @@ async function startOmp(provider: Provider, previous?: Harness): Promise<Harness
 		async stop(keep = false) {
 			bridge.close();
 			child.kill("SIGKILL");
+			await exited.promise;
 			removeBridgeAddress(address);
 			if (keep) return;
-			rmSync(isolated, { recursive: true, force: true });
-			rmSync(root, { recursive: true, force: true });
+			await removeWhenFree(isolated);
+			await removeWhenFree(root);
 		},
 		async hangUp() {
-			const exited = new Promise<void>(done => child.once("exit", () => done()));
 			bridge.close();
 			child.stdin.end();
-			await exited;
+			await exited.promise;
 			removeBridgeAddress(address);
 		},
 	};

@@ -7,17 +7,18 @@ import {
 	readdirSync,
 	readFileSync,
 	realpathSync,
-	rmSync,
 	writeFileSync,
 } from "node:fs";
 import * as http from "node:http";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { afterAll, describe, expect, it } from "vitest";
 import { isNewer } from "../shared/version";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
 import { parseOmpVersion } from "./omp-runtime";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
+import { removeWhenFree } from "./test-folders";
 
 /**
  * A relaunch revives the subagents the last omp was running (bridge `composer.restore_interrupted` → stock
@@ -35,7 +36,6 @@ import { parseOmpVersion } from "./omp-runtime";
  * stock's eval-state-context message ends the transcript and neither `restoreInterruptedTurn` nor `/retry` sees the
  * interrupted turn, oh-my-pi#16195), the bridge gives the parent one follow-up naming the revived subagents.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 /**
  * First stock omp whose restore continues a turn cut off in a session that used `eval` (oh-my-pi#16195, fixed in
  * 18.12.2 by `conversationEnd` in `session/turn-recovery.ts`). MIN_OMP_VERSION still admits older omp, where the
@@ -237,7 +237,7 @@ async function startOmp(provider: Provider, isolated: string, root: string, resu
 	const env: Record<string, string | undefined> = {
 		...process.env,
 		PI_CODING_AGENT_DIR: agentDir,
-		PI_CONFIG_DIR: isolated,
+		PI_CONFIG_DIR: configDirName(isolated),
 		OMP_PROFILE: "",
 		PI_PROFILE: "",
 		OMP_GUI_BRIDGE: address,
@@ -245,8 +245,9 @@ async function startOmp(provider: Provider, isolated: string, root: string, resu
 	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
 	for (const key of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_OAUTH_TOKEN"]) Reflect.deleteProperty(env, key);
 	const child: ChildProcessWithoutNullStreams = spawn(
-		omp,
+		OMP_COMMAND.file,
 		[
+			...OMP_COMMAND.args,
 			...["--mode", "rpc-ui", "--no-extensions", "--no-skills", "--no-rules"],
 			...(resume ? ["--continue"] : []),
 			...["--model", "fake/m1", "-e", resolve("resources/gui-bridge/index.ts")],
@@ -355,9 +356,9 @@ async function cutOff(
 	const isolated = mkdtempSync(join(tmpdir(), "ompdesk-revive-"));
 	chmodSync(isolated, 0o700);
 	const root = realpathSync(mkdtempSync(join(tmpdir(), "ompdesk-revive-repo-")));
-	cleanups.push(() => {
-		rmSync(isolated, { recursive: true, force: true });
-		rmSync(root, { recursive: true, force: true });
+	cleanups.push(async () => {
+		await removeWhenFree(isolated);
+		await removeWhenFree(root);
 	});
 	const first = await startOmp(provider, isolated, root, false);
 	await first.send({ type: "prompt", message: "start the background work" });
@@ -510,7 +511,11 @@ describe.skipIf(!existsSync(omp))("revived subagents on stock omp", () => {
 	it("revives a subagent a graceful stop cut off between a tool result and its model's answer, with its live prompt sections", async () => {
 		const READ: Step = { tool: "read", args: { path: ".", i: "listing the folder" } };
 		const { provider, second, outcome, id, requestsAtCut } = await cutOff([SPAWN, WAIT], "GONE", [READ]);
-		expect(outcome).toMatchObject({ turn: true, subagents: [id] });
+		// Stock continues the parent's cut `wait`. On Windows the broken stdout sometimes reaches stock as a dispose that
+		// still answers the `wait` and ends the turn before the process is gone (2 of ~37 runs, 3 Nov 2026: `Operation
+		// aborted` and an empty aborted reply after the `dispose` exit), and the restart follow-up wakes the parent instead.
+		expect(outcome).toMatchObject({ subagents: [id], followUp: true });
+		if (process.platform !== "win32") expect(outcome.turn).toBe(true);
 		await expect.poll(() => provider.subagentRequests, { timeout: 90_000 }).toBeGreaterThan(requestsAtCut);
 		await expect
 			.poll(() => roster(second), { timeout: 30_000 })
@@ -560,10 +565,14 @@ describe.skipIf(!existsSync(omp))("revived subagents on stock omp", () => {
 			.toBe(2);
 		// Replayed from the transcript as stock replays a fully cut batch: no new model call decided it.
 		expect(provider.subagentRequests).toBe(requestsAtCut);
-		// The parent's note says what the stop cut the subagent in, for the transcript's label.
-		expect(
-			mainJournal(isolated).find(entry => entry.customType === "ompdesk-restart-subagents")?.details,
-		).toMatchObject({ subagents: [{ id, doing: "bash: probing the stream" }] });
+		// The parent's note says what the stop cut the subagent in, for the transcript's label: the call stock's
+		// stdout-disconnect exit journals as pending. On Windows a broken stdout makes stock dispose instead (exit reason
+		// `dispose`, the call answered "Command aborted" before it), so no exit names a cut call and the note has no label.
+		if (process.platform !== "win32") {
+			expect(
+				mainJournal(isolated).find(entry => entry.customType === "ompdesk-restart-subagents")?.details,
+			).toMatchObject({ subagents: [{ id, doing: "bash: probing the stream" }] });
+		}
 	}, 240_000);
 });
 

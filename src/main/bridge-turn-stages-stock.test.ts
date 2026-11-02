@@ -1,7 +1,7 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import * as http from "node:http";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { afterAll, describe, expect, it } from "vitest";
@@ -11,6 +11,8 @@ import {
 	TURN_STAGES_LATE_ENV,
 } from "../../resources/gui-bridge/turn-stages-contracts";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
+import { removeWhenFree } from "./test-folders";
 import { turnStagesReport } from "./turn-stages-log";
 
 /**
@@ -27,7 +29,6 @@ import { turnStagesReport } from "./turn-stages-log";
  * - a slow `before_agent_start` handler: the first output came late, and the longest wait is inside the handlers;
  * - a connection that is refused: the same retries, then the run ends errored with the provider's message.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 /** Stock's first-event timer, shortened from its 300 s default (pi-ai `idle-iterator.ts`). */
 const FIRST_EVENT_TIMEOUT_MS = 3_000;
 /** The bridge's "late" threshold, shortened from 30 s. */
@@ -144,7 +145,7 @@ async function startOmp(provider: Provider, isolated: string, extension: string)
 	const env: Record<string, string | undefined> = {
 		...process.env,
 		PI_CODING_AGENT_DIR: agentDir,
-		PI_CONFIG_DIR: isolated,
+		PI_CONFIG_DIR: configDirName(isolated),
 		OMP_PROFILE: "",
 		PI_PROFILE: "",
 		OMP_GUI_BRIDGE: address,
@@ -154,8 +155,9 @@ async function startOmp(provider: Provider, isolated: string, extension: string)
 	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
 	for (const key of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_OAUTH_TOKEN"]) Reflect.deleteProperty(env, key);
 	const child: ChildProcessWithoutNullStreams = spawn(
-		omp,
+		OMP_COMMAND.file,
 		[
+			...OMP_COMMAND.args,
 			...["--mode", "rpc-ui", "--no-extensions", "--no-skills", "--no-rules"],
 			...["--model", "fake/m1", "-e", resolve("resources/gui-bridge/index.ts"), "-e", extension],
 		],
@@ -261,7 +263,7 @@ describe.skipIf(!existsSync(omp))("turn stages on stock omp", () => {
 		cleanups.push(() => provider.stop());
 		const isolated = mkdtempSync(join(tmpdir(), "ompdesk-turn-stages-"));
 		chmodSync(isolated, 0o700);
-		cleanups.push(() => rmSync(isolated, { recursive: true, force: true }));
+		cleanups.push(() => removeWhenFree(isolated));
 		const flag = join(isolated, "slow");
 		const run = await startOmp(provider, isolated, slowHandlerExtension(isolated, flag));
 		expect((await run.send({ type: "set_auto_retry", enabled: false })).success).toBe(true);

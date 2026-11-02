@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import config from "../../resources/omp-builtin/rea/rea-config.json";
 import { type ReaClient, reaClient, startTestHub, stopTestHubs, type TestHub } from "./test-fixtures/mcp-hub-fixture";
+import { removeWhenFree } from "./test-folders";
 
 const Tools = z.object({
 	tools: z.array(z.object({ name: z.string(), description: z.string(), inputSchema: z.unknown().optional() })),
@@ -39,25 +40,6 @@ const gone = (pid: number) => {
 		return true;
 	}
 };
-/**
- * Removes `folder`, waiting out EBUSY and EPERM: a process gone from the process table can hold its working folder a
- * moment longer on Windows, refused as EBUSY (v0.89.0's release run, 161 ms into the test) or EPERM (a Windows 11 PC,
- * 3 Nov 2026: refused at 104 ms, removed at 318 ms). `rmSync`'s own `maxRetries` did not retry there (that release
- * run asked 20), so this retries itself, every 200 ms for at most 8 s; the holder is not identified.
- */
-async function removeWhenFree(folder: string): Promise<void> {
-	const deadline = Date.now() + 8_000;
-	for (;;) {
-		try {
-			fs.rmSync(folder, { recursive: true, force: true });
-			return;
-		} catch (error) {
-			const code = (error as NodeJS.ErrnoException).code;
-			if ((code !== "EBUSY" && code !== "EPERM") || Date.now() > deadline) throw error;
-			await new Promise(resolve => setTimeout(resolve, 200));
-		}
-	}
-}
 afterEach(async () => {
 	for (const client of sessions.splice(0)) client.drop();
 	await stopTestHubs();

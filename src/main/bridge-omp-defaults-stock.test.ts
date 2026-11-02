@@ -1,8 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
  * Pins the stock features OMPdesk turns on by default to the installed omp, in an empty private
@@ -19,7 +20,6 @@ import { describe, expect, it } from "vitest";
  * `telemetry.otlpExportEnabled`, `display.showTurnTime`, `read.toolResultPreview`; the probe shows
  * they keep stock's value and no `runtime` layer. `astEdit.enabled` is on in stock already.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 
 /** Each held setting: OMPdesk's value, and a different one a user writes. */
 const HELD: Readonly<Record<string, readonly [held: unknown, written: unknown]>> = {
@@ -101,7 +101,7 @@ function runProbe(configYml: string | undefined, write: boolean) {
 		const env: Record<string, string | undefined> = {
 			...process.env,
 			PI_CODING_AGENT_DIR: isolated,
-			PI_CONFIG_DIR: isolated,
+			PI_CONFIG_DIR: configDirName(isolated),
 			OMP_PROFILE: "",
 			PI_PROFILE: "",
 			OPENAI_API_KEY: "probe-not-a-real-key",
@@ -111,8 +111,18 @@ function runProbe(configYml: string | undefined, write: boolean) {
 			Reflect.deleteProperty(env, key);
 		}
 		const result = spawnSync(
-			omp,
-			["--mode", "rpc", "--no-session", "--no-extensions", "--no-skills", "--no-rules", "-e", extension],
+			OMP_COMMAND.file,
+			[
+				...OMP_COMMAND.args,
+				"--mode",
+				"rpc",
+				"--no-session",
+				"--no-extensions",
+				"--no-skills",
+				"--no-rules",
+				"-e",
+				extension,
+			],
 			{ env, encoding: "utf8", timeout: 120_000, maxBuffer: 4 * 1024 * 1024, input: "" },
 		);
 		const line = result.stderr.split("\n").find(value => value.startsWith("DEFAULTS_PROBE="));

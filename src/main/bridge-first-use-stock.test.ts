@@ -1,12 +1,13 @@
 import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import * as http from "node:http";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { afterAll, describe, expect, it } from "vitest";
 import { replyLanguageInstruction } from "../../resources/gui-bridge/modes/reply-language";
 import { newBridgeAddress, removeBridgeAddress } from "./bridge-client";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
  * The bridge's area modules load at its first use (index.ts `guiBridge`), not while omp starts: loading them in the
@@ -14,7 +15,6 @@ import { newBridgeAddress, removeBridgeAddress } from "./bridge-client";
  * or a test's prompt sent right at `ready`, before main connected): it must still carry the hooks the areas install,
  * here the reply-language prompt section. Installed omp, scripted provider, no spend; nothing connects to the bridge.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterAll(async () => {
@@ -72,7 +72,7 @@ describe.skipIf(!existsSync(omp))("the bridge's first use, on stock omp", () => 
 		const env: Record<string, string | undefined> = {
 			...process.env,
 			PI_CODING_AGENT_DIR: agentDir,
-			PI_CONFIG_DIR: isolated,
+			PI_CONFIG_DIR: configDirName(isolated),
 			OMP_PROFILE: "",
 			PI_PROFILE: "",
 		};
@@ -82,8 +82,9 @@ describe.skipIf(!existsSync(omp))("the bridge's first use, on stock omp", () => 
 		env.OMP_GUI_BRIDGE = address;
 		env.OMP_GUI_REPLY_LANGUAGE = "Korean";
 		const child = spawn(
-			omp,
+			OMP_COMMAND.file,
 			[
+				...OMP_COMMAND.args,
 				"--mode",
 				"rpc-ui",
 				"--no-session",

@@ -1,8 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
  * Pins resources/gui-bridge/context-hook.ts to the installed omp, through stock's own `ExtensionRunner` on the real
@@ -10,7 +11,6 @@ import { describe, expect, it } from "vitest";
  * after a request with nothing to drop, so `emitContext` returns the very array it was given (no `structuredClone`),
  * and is back after stock's `before_agent_start` and after `armContextHook`.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 
 const PROBE = `
 import { armContextHook, installContextHook } from "./context-hook";
@@ -87,7 +87,7 @@ function runProbe(): Probe {
 		const env: Record<string, string | undefined> = {
 			...process.env,
 			PI_CODING_AGENT_DIR: isolated,
-			PI_CONFIG_DIR: isolated,
+			PI_CONFIG_DIR: configDirName(isolated),
 			OMP_PROFILE: "",
 			PI_PROFILE: "",
 			OPENAI_API_KEY: "probe-not-a-real-key",
@@ -96,8 +96,8 @@ function runProbe(): Probe {
 			Reflect.deleteProperty(env, key);
 		}
 		const result = spawnSync(
-			omp,
-			["--mode", "rpc", "--no-extensions", "--no-skills", "--no-rules", "-e", extension],
+			OMP_COMMAND.file,
+			[...OMP_COMMAND.args, "--mode", "rpc", "--no-extensions", "--no-skills", "--no-rules", "-e", extension],
 			{ env, encoding: "utf8", timeout: 120_000, maxBuffer: 4 * 1024 * 1024, input: "" },
 		);
 		const line = result.stderr.split("\n").find(value => value.startsWith("CTXHOOK_PROBE="));

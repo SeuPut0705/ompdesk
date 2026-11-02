@@ -1,10 +1,12 @@
 import { spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import * as http from "node:http";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { afterEach, describe, expect, it } from "vitest";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "../test-bridge-probe";
+import { removeWhenFree } from "../test-folders";
 import { ROOT_SERVER } from "./root";
 import { AiMemoryService } from "./service";
 import { EXTENSION_FILE, GENERATED_HEADER, MCP_FILE } from "./terminal";
@@ -17,7 +19,6 @@ import { EXTENSION_FILE, GENERATED_HEADER, MCP_FILE } from "./terminal";
  * loopback server on `session_start`, the event ai-memory's generated extension captures on); the arguments and the
  * wiring checks are `AiMemoryService.extensionArgs()`'s own.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 const SETTLE_MS = 2_500;
 const WAIT_MS = 60_000;
 
@@ -46,13 +47,21 @@ const mcpEntry = (log: string, who: string) => ({
 	],
 });
 
-/** The entry `ai-memory install-mcp` writes runs a binary named `ai-memory`; this one only reports that it started. */
+/**
+ * The entry `ai-memory install-mcp` writes runs a binary named `ai-memory` (`ai-memory.exe` on Windows); this one is
+ * this Node under that name and only reports that it started. A real program, not a script: a `.cmd` stand-in's own
+ * child outlived the omp that stopped the shell around it and held the rig's folder on Windows.
+ */
 const terminalMcpEntry = (dir: string, log: string) => {
-	const bin = join(dir, "bin", "ai-memory");
+	const bin = join(dir, "bin", process.platform === "win32" ? "ai-memory.exe" : "ai-memory");
 	mkdirSync(join(dir, "bin"), { recursive: true });
-	writeFileSync(bin, `#!/bin/sh\necho terminal-wiring >> "${log}"\nsleep 30\n`);
-	chmodSync(bin, 0o755);
-	return { command: bin, args: ["mcp-bridge"] };
+	try {
+		linkSync(process.execPath, bin);
+	} catch {
+		copyFileSync(process.execPath, bin);
+	}
+	const { args } = mcpEntry(log, "terminal-wiring");
+	return { command: bin, args };
 };
 
 async function makeRig(options: { agentWiring: boolean; disabled?: string[] }): Promise<Rig> {
@@ -146,7 +155,7 @@ async function runOmp(rig: Rig, args: string[]): Promise<string[]> {
 	const env: NodeJS.ProcessEnv = {
 		...process.env,
 		PI_CODING_AGENT_DIR: rig.agentDir,
-		PI_CONFIG_DIR: rig.agentDir,
+		PI_CONFIG_DIR: configDirName(rig.agentDir, join(rig.dir, "home")),
 		HOME: join(rig.dir, "home"),
 		USERPROFILE: join(rig.dir, "home"),
 		OMP_PROFILE: "",
@@ -155,7 +164,7 @@ async function runOmp(rig: Rig, args: string[]): Promise<string[]> {
 	for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "OPENAI_API_KEY", "OPENROUTER_API_KEY"]) {
 		Reflect.deleteProperty(env, key);
 	}
-	const child = spawn(omp, ["--mode", "rpc", "--no-session", ...args], {
+	const child = spawn(OMP_COMMAND.file, [...OMP_COMMAND.args, "--mode", "rpc", "--no-session", ...args], {
 		cwd: rig.cwd,
 		env,
 		stdio: ["pipe", "ignore", "ignore"],
@@ -169,13 +178,19 @@ async function runOmp(rig: Rig, args: string[]): Promise<string[]> {
 		await sleep(SETTLE_MS);
 		return [...rig.hits].sort();
 	} finally {
-		child.kill();
+		// Its stdin's end makes omp dispose the session and stop its MCP servers; a process still in the rig's folders
+		// would hold them past the cleanup on Windows.
+		const exited = Promise.withResolvers<void>();
+		if (child.exitCode !== null || child.signalCode !== null) exited.resolve();
+		else child.once("exit", () => exited.resolve());
+		child.stdin.end();
+		await exited.promise;
 	}
 }
 
 function mcpOwners(rig: Rig): string[] {
 	return existsSync(rig.mcpLog)
-		? [...new Set(readFileSync(rig.mcpLog, "utf8").split("\n").filter(Boolean))].sort()
+		? [...new Set(readFileSync(rig.mcpLog, "utf8").split(/\r?\n/).filter(Boolean))].sort()
 		: [];
 }
 
@@ -188,44 +203,41 @@ function personsFiles(agentDir: string): Record<string, string> {
 afterEach(async () => {
 	for (const rig of rigs.splice(0)) {
 		await rig.close();
-		rmSync(rig.dir, { recursive: true, force: true });
+		await removeWhenFree(rig.dir);
 	}
 });
 
-describe.skipIf(process.platform === "win32" || !existsSync(omp))(
-	"one memory capture per OMPdesk session on stock omp",
-	() => {
-		it("the terminal omp, which OMPdesk never passes the root to, keeps capturing through the agent dir's extension", async () => {
-			const rig = await makeRig({ agentWiring: true });
-			expect(await runOmp(rig, [])).toEqual(["terminal-wiring"]);
-		}, 120_000);
+describe.skipIf(!existsSync(omp))("one memory capture per OMPdesk session on stock omp", () => {
+	it("the terminal omp, which OMPdesk never passes the root to, keeps capturing through the agent dir's extension", async () => {
+		const rig = await makeRig({ agentWiring: true });
+		expect(await runOmp(rig, [])).toEqual(["terminal-wiring"]);
+	}, 120_000);
 
-		it("no wiring in the agent dir: the root is the one capture and the one MCP entry", async () => {
-			const rig = await makeRig({ agentWiring: false });
-			const args = await rig.service(undefined).extensionArgs(rig.cwd);
-			expect(args).toEqual(["-e", rig.rootDir]);
+	it("no wiring in the agent dir: the root is the one capture and the one MCP entry", async () => {
+		const rig = await makeRig({ agentWiring: false });
+		const args = await rig.service(undefined).extensionArgs(rig.cwd);
+		expect(args).toEqual(["-e", rig.rootDir]);
+		expect(await runOmp(rig, args)).toEqual(["ompdesk-root"]);
+		expect(mcpOwners(rig)).toEqual(["ompdesk-root"]);
+	}, 120_000);
+
+	for (const pref of [undefined, false] as const) {
+		it(`wiring in the agent dir, terminal pref ${String(pref)}: OMPdesk's root is the one capture and the one MCP server, the agent dir stays as it was`, async () => {
+			const rig = await makeRig({ agentWiring: true, disabled: ["extension-module:other"] });
+			const before = personsFiles(rig.agentDir);
+			const args = await rig.service(pref).extensionArgs(rig.cwd);
 			expect(await runOmp(rig, args)).toEqual(["ompdesk-root"]);
+			// One memory MCP server, OMPdesk's: the agent dir's `ai-memory` entry is held off for the spawn.
 			expect(mcpOwners(rig)).toEqual(["ompdesk-root"]);
+			expect(personsFiles(rig.agentDir)).toEqual(before);
 		}, 120_000);
+	}
 
-		for (const pref of [undefined, false] as const) {
-			it(`wiring in the agent dir, terminal pref ${String(pref)}: OMPdesk's root is the one capture and the one MCP server, the agent dir stays as it was`, async () => {
-				const rig = await makeRig({ agentWiring: true, disabled: ["extension-module:other"] });
-				const before = personsFiles(rig.agentDir);
-				const args = await rig.service(pref).extensionArgs(rig.cwd);
-				expect(await runOmp(rig, args)).toEqual(["ompdesk-root"]);
-				// One memory MCP server, OMPdesk's: the agent dir's `ai-memory` entry is held off for the spawn.
-				expect(mcpOwners(rig)).toEqual(["ompdesk-root"]);
-				expect(personsFiles(rig.agentDir)).toEqual(before);
-			}, 120_000);
-		}
-
-		it("wiring in the agent dir the person connected (pref true): their extension is the one capture", async () => {
-			const rig = await makeRig({ agentWiring: true });
-			const args = await rig.service(true).extensionArgs(rig.cwd);
-			expect(args).toEqual([]);
-			expect(await runOmp(rig, args)).toEqual(["terminal-wiring"]);
-			expect(mcpOwners(rig)).toEqual(["terminal-wiring"]);
-		}, 120_000);
-	},
-);
+	it("wiring in the agent dir the person connected (pref true): their extension is the one capture", async () => {
+		const rig = await makeRig({ agentWiring: true });
+		const args = await rig.service(true).extensionArgs(rig.cwd);
+		expect(args).toEqual([]);
+		expect(await runOmp(rig, args)).toEqual(["terminal-wiring"]);
+		expect(mcpOwners(rig)).toEqual(["terminal-wiring"]);
+	}, 120_000);
+});

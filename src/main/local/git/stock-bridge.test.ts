@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -10,14 +10,13 @@ import { parseDocument } from "yaml";
 import type { RpcCommand, RpcResponse } from "../../../shared/rpc-types";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "../../bridge-client";
 import { RpcClient } from "../../rpc-client";
+import { OMP_COMMAND, INSTALLED_OMP as omp } from "../../test-bridge-probe";
 import type { LocalCommandContext } from "../types";
 import { handlers as workspace } from "../workspace";
 import { gitSync, initRepo, pathExists } from "./test-repos";
 import { createWorktree, removeWorktree, stockWorktreeLocation } from "./worktree";
 
-const omp = path.join(os.homedir(), ".bun", "bin", "omp");
-
-describe.skipIf(!existsSync(omp) || process.platform === "win32")("installed stock worktree bridge", () => {
+describe.skipIf(!existsSync(omp))("installed stock worktree bridge", () => {
 	it("uses stock paths, recognises old and stock checkouts, moves stock sessions, and writes PR push metadata", async () => {
 		const scratch = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "ompdesk-stock-git-")));
 		onTestFinished(() => fs.rm(scratch, { recursive: true, force: true }));
@@ -61,14 +60,19 @@ describe.skipIf(!existsSync(omp) || process.platform === "win32")("installed sto
 				maintainerCanModify: true,
 			}),
 		);
-		await fs.writeFile(
-			path.join(bin, "gh"),
-			`#!/usr/bin/env bun\nimport { readFileSync } from 'node:fs';\nif (process.argv[2] === 'pr' && process.argv[3] === 'view') console.log(readFileSync(process.env.OMP_TEST_PR, 'utf8')); else { console.error('Unexpected gh invocation'); process.exit(1); }\n`,
-			{ mode: 0o700 },
-		);
+		const gh = `import { readFileSync } from 'node:fs';\nif (process.argv[2] === 'pr' && process.argv[3] === 'view') console.log(readFileSync(process.env.OMP_TEST_PR, 'utf8')); else { console.error('Unexpected gh invocation'); process.exit(1); }\n`;
+		if (process.platform === "win32") {
+			// The product starts only `gh.exe` on Windows (`resolveBin`), so the stand-in is compiled, as e2e's fake gh is.
+			const source = path.join(scratch, "fake-gh.ts");
+			await fs.writeFile(source, gh);
+			execFileSync("bun", ["build", "--compile", source, "--outfile", path.join(bin, "gh.exe")], {
+				stdio: "ignore",
+			});
+		} else await fs.writeFile(path.join(bin, "gh"), `#!/usr/bin/env bun\n${gh}`, { mode: 0o700 });
 		const child = spawn(
-			omp,
+			OMP_COMMAND.file,
 			[
+				...OMP_COMMAND.args,
 				"--mode",
 				"rpc-ui",
 				"--no-session",
@@ -89,7 +93,7 @@ describe.skipIf(!existsSync(omp) || process.platform === "win32")("installed sto
 					OMP_GUI_BRIDGE: address,
 					OMP_WORKTREE_DIR: "",
 					OMP_TEST_PR: payload,
-					PATH: `${bin}:${path.join(os.homedir(), ".bun", "bin")}:${process.env.PATH}`,
+					PATH: [bin, path.join(os.homedir(), ".bun", "bin"), process.env.PATH].join(path.delimiter),
 					OMP_PROFILE: "",
 					PI_PROFILE: "",
 				},

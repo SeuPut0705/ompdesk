@@ -7,24 +7,24 @@ import {
 	readdirSync,
 	readFileSync,
 	realpathSync,
-	rmSync,
 	writeFileSync,
 } from "node:fs";
 import * as http from "node:http";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { expect } from "vitest";
 import { MAIL_CUSTOM_TYPE } from "../../resources/gui-bridge/agent-control-contracts";
 import { deliveryFor, type MailKind } from "./agent-control/mail";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
+import { configDirName, OMP_COMMAND } from "./test-bridge-probe";
+import { removeWhenFree } from "./test-folders";
 
 /**
  * The installed omp and what a stock-level mail test needs around it: a scripted OpenAI-compatible provider on
  * loopback (no model spend), an omp in rpc-ui mode with the gui bridge extension, and readers for its frames and
  * session files. Shared by `bridge-agent-mail-stock.test.ts` and `bridge-agent-mail-restart-stock.test.ts`.
  */
-export const omp = join(homedir(), ".bun", "bin", "omp");
 export const HOLD = "HOLD-MARK run";
 
 /** A prompt whose turn calls the shell tool and then sits in it (`sleep`). */
@@ -194,9 +194,9 @@ export async function startOmp(
 	chmodSync(isolated, 0o700);
 	const root = again?.root ?? realpathSync(mkdtempSync(join(tmpdir(), "ompdesk-mail-repo-")));
 	if (!again)
-		atEnd(() => {
-			rmSync(isolated, { recursive: true, force: true });
-			rmSync(root, { recursive: true, force: true });
+		atEnd(async () => {
+			await removeWhenFree(isolated);
+			await removeWhenFree(root);
 		});
 	const agentDir = join(isolated, "agent");
 	mkdirSync(agentDir, { recursive: true });
@@ -219,7 +219,7 @@ export async function startOmp(
 	const env: Record<string, string | undefined> = {
 		...process.env,
 		PI_CODING_AGENT_DIR: agentDir,
-		PI_CONFIG_DIR: isolated,
+		PI_CONFIG_DIR: configDirName(isolated),
 		OMP_PROFILE: "",
 		PI_PROFILE: "",
 		OMP_GUI_BRIDGE: address,
@@ -227,8 +227,9 @@ export async function startOmp(
 	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
 	for (const key of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_OAUTH_TOKEN"]) Reflect.deleteProperty(env, key);
 	const child: ChildProcessWithoutNullStreams = spawn(
-		omp,
+		OMP_COMMAND.file,
 		[
+			...OMP_COMMAND.args,
 			...["--mode", "rpc-ui", "--no-extensions", "--no-skills", "--no-rules"],
 			...["--model", "fake/m1", "-e", resolve("resources/gui-bridge/index.ts")],
 			...(again ? ["--resume", again.session] : []),

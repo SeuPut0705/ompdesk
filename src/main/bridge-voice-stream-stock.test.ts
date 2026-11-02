@@ -3,6 +3,7 @@ import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkS
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
  * The streaming voice methods (resources/gui-bridge/voice.ts) on the installed omp: every stock internal they need
@@ -10,7 +11,6 @@ import { beforeAll, describe, expect, it } from "vitest";
  * already in the user's cache, a real stream opens on stock's worker, takes audio and is cancelled. Nothing is
  * downloaded: without the cached model the second test skips.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 /** Opt-in (never on CI); needs OMP_GUI_ALLOW_REAL_HOME=1, because it downloads into the real model cache. */
 const REAL = process.env.OMPDESK_VOICE_STREAM_REAL === "1";
 const userAgentCache = join(homedir(), ".omp", "agent", "cache");
@@ -72,7 +72,7 @@ function run<T>(source: string, marker: string, extraEnv: Record<string, string>
 		const env: Record<string, string | undefined> = {
 			...process.env,
 			PI_CODING_AGENT_DIR: isolated,
-			PI_CONFIG_DIR: isolated,
+			PI_CONFIG_DIR: configDirName(isolated),
 			OMP_PROFILE: "",
 			PI_PROFILE: "",
 			OPENAI_API_KEY: "probe-not-a-real-key",
@@ -81,8 +81,9 @@ function run<T>(source: string, marker: string, extraEnv: Record<string, string>
 		for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "OPENROUTER_API_KEY"])
 			Reflect.deleteProperty(env, key);
 		const result = spawnSync(
-			omp,
+			OMP_COMMAND.file,
 			[
+				...OMP_COMMAND.args,
 				"--mode",
 				"rpc",
 				"--no-session",

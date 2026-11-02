@@ -15,7 +15,8 @@ import type { AddressInfo } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { INSTALLED_OMP } from "./test-bridge-probe";
+import { INSTALLED_OMP, OMP_COMMAND } from "./test-bridge-probe";
+import { removeWhenFree } from "./test-folders";
 
 const installed = fs.existsSync(INSTALLED_OMP);
 const TOKEN = "good-token-0123456789";
@@ -174,6 +175,10 @@ export default function (pi) {
 			};
 			const env = { pi, session: () => session, context: () => ctx, emit };
 			if (${add}) {
+				// Added once stock's startup connect has answered (\`other\`'s 401), as a person adds one in Settings: while
+				// it runs, the omp still has mcp.json open, and on Windows stock's writer then fails its rename over it with
+				// EPERM (5 of 5 runs at session_start, none after the wait or 4 s on; macOS renames over an open file).
+				await until(async () => (await view(env, session, "other")).row?.lastError, 15_000);
 				out.add = await mcp.mcp_add({ name: "fake", scope: "user", config: { transport: "http", url: ${JSON.stringify(url)} } }, env);
 				out.added = await until(async () => {
 					const { row } = await view(env, session, "fake");
@@ -312,7 +317,7 @@ function makeProfile(): Profile {
 	fs.mkdirSync(profile.agentDir, { recursive: true });
 	fs.mkdirSync(profile.project, { recursive: true });
 	fs.cpSync(path.resolve("resources/gui-bridge"), profile.bridge, { recursive: true });
-	cleanups.push(() => fs.rmSync(root, { recursive: true, force: true }));
+	cleanups.push(() => removeWhenFree(root));
 	return profile;
 }
 
@@ -335,11 +340,15 @@ function ompEnv(profile: Profile): Record<string, string | undefined> {
 async function runLive(profile: Profile, extension: string, report: string, during?: () => Promise<void>) {
 	const file = path.join(profile.bridge, `probe-${path.basename(report)}.ts`);
 	fs.writeFileSync(file, extension);
-	const child = spawn(INSTALLED_OMP, ["--mode", "rpc-ui", "--no-extensions", "--no-rules", "-e", file], {
-		cwd: profile.project,
-		env: ompEnv(profile),
-		stdio: ["pipe", "pipe", "pipe"],
-	});
+	const child = spawn(
+		OMP_COMMAND.file,
+		[...OMP_COMMAND.args, "--mode", "rpc-ui", "--no-extensions", "--no-rules", "-e", file],
+		{
+			cwd: profile.project,
+			env: ompEnv(profile),
+			stdio: ["pipe", "pipe", "pipe"],
+		},
+	);
 	let stderr = "";
 	child.stderr.on("data", chunk => {
 		stderr += String(chunk);
@@ -383,8 +392,8 @@ describe.skipIf(!installed)("MCP servers on the installed omp", () => {
 			const signer = path.join(profile.bridge, "signer.ts");
 			fs.writeFileSync(signer, credentialProbe(fake.url));
 			const signed = spawnSync(
-				INSTALLED_OMP,
-				["--mode", "rpc", "--no-session", "--no-extensions", "--no-rules", "-e", signer],
+				OMP_COMMAND.file,
+				[...OMP_COMMAND.args, "--mode", "rpc", "--no-session", "--no-extensions", "--no-rules", "-e", signer],
 				{ cwd: profile.project, env: ompEnv(profile), encoding: "utf8", input: "", timeout: 60_000 },
 			);
 			expect(signed.stderr, signed.stderr.slice(-2000)).toContain("signed=ok");

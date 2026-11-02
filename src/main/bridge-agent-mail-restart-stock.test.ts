@@ -8,7 +8,6 @@ import {
 	journaledMail,
 	mail,
 	type Omp,
-	omp,
 	type Provider,
 	runCleanups,
 	sessionFiles,
@@ -16,6 +15,7 @@ import {
 	startProvider,
 	TOOL,
 } from "./bridge-agent-mail-stock-harness";
+import { INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
  * What stock omp does with a report its bridge accepted while a turn runs, when the omp then ends, measured on the

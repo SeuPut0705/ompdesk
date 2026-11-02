@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import type { SessionArchive } from "../shared/diagnostic-bundle";
 import { handlers } from "./local/session-dump";
 import type { LocalCommandContext } from "./local/types";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
  * "Save diagnostic bundle" on the installed omp (bridge `session_dump`, resources/gui-bridge/session-dump.ts), in
@@ -15,7 +16,6 @@ import type { LocalCommandContext } from "./local/types";
  * `/dump all` and `/dump anon` run and returns their archive, so the GUI can copy the zip: over stock RPC the slash
  * command only prints the path inside a `command_output` text frame, which is why the method exists.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 
 const SEED = `
 const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
@@ -141,7 +141,7 @@ function isolatedRun(
 	const env: Record<string, string | undefined> = {
 		...process.env,
 		PI_CODING_AGENT_DIR: isolated,
-		PI_CONFIG_DIR: isolated,
+		PI_CONFIG_DIR: configDirName(isolated),
 		TMPDIR: temp,
 		OMP_PROFILE: "",
 		PI_PROFILE: "",
@@ -150,13 +150,17 @@ function isolatedRun(
 	for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]) {
 		Reflect.deleteProperty(env, key);
 	}
-	const result = spawnSync(omp, ["--mode", "rpc", "--no-extensions", "--no-skills", "--no-rules", "-e", extension], {
-		env,
-		encoding: "utf8",
-		timeout: 120_000,
-		maxBuffer: 4 * 1024 * 1024,
-		input,
-	});
+	const result = spawnSync(
+		OMP_COMMAND.file,
+		[...OMP_COMMAND.args, "--mode", "rpc", "--no-extensions", "--no-skills", "--no-rules", "-e", extension],
+		{
+			env,
+			encoding: "utf8",
+			timeout: 120_000,
+			maxBuffer: 4 * 1024 * 1024,
+			input,
+		},
+	);
 	return body({ temp }, result).finally(() => rmSync(isolated, { recursive: true, force: true }));
 }
 

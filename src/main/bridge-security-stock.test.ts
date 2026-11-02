@@ -1,15 +1,15 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
  * The security dashboard on the installed omp shows a scan an earlier process left running as stock's coordinator
  * recovers it: failed, scan and operation alike, on the very first read (the recovery rewrites the bundle, so the
  * bridge must read the scans after it). The interrupted bundle is built with stock's SARIF importer and store.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 
 const PROBE = `
 import { methods as security } from "./security";
@@ -64,7 +64,7 @@ function run(): Probe {
 		const env: Record<string, string | undefined> = {
 			...process.env,
 			PI_CODING_AGENT_DIR: isolated,
-			PI_CONFIG_DIR: isolated,
+			PI_CONFIG_DIR: configDirName(isolated),
 			OMP_PROFILE: "",
 			PI_PROFILE: "",
 			OPENAI_API_KEY: "probe-not-a-real-key",
@@ -72,8 +72,9 @@ function run(): Probe {
 		for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "OPENROUTER_API_KEY"])
 			Reflect.deleteProperty(env, key);
 		const result = spawnSync(
-			omp,
+			OMP_COMMAND.file,
 			[
+				...OMP_COMMAND.args,
 				"--mode",
 				"rpc",
 				"--no-session",

@@ -1,8 +1,10 @@
 /**
- * A failed SSH test against the user's real omp (skipped without one, and on
- * Windows where the fake client below is a shell script): the bridge's
- * `ssh_test` reports stock's error and adds OpenSSH's own `-v` trace of one
- * fresh attempt, run without the shared ControlMaster.
+ * A failed SSH test against the user's real omp (skipped without one): the bridge's `ssh_test` reports stock's error
+ * and adds OpenSSH's own `-v` trace of one fresh attempt, run without the shared ControlMaster.
+ *
+ * Skipped on Windows: there stock has no ControlMaster, and its `ensureConnection` (ssh/connection-manager.ts) only
+ * probes the host and takes a failed probe as an unknown OS, so a refused login is a passing test (`ok: true`, OS
+ * `unknown`; tried 3 Nov 2026 with a compiled fake `ssh.exe` that refuses every login). That is stock's to fix.
  */
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -12,9 +14,9 @@ import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { RpcSshTestResult } from "../shared/rpc-types";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 const stockRoot = path.join(os.homedir(), ".bun/install/global/node_modules/@oh-my-pi/pi-coding-agent");
-const omp = path.join(os.homedir(), ".bun/bin/omp");
 
 describe.skipIf(process.platform === "win32" || !existsSync(omp) || !existsSync(stockRoot))(
 	"ssh diagnostics bridge",
@@ -42,14 +44,15 @@ describe.skipIf(process.platform === "win32" || !existsSync(omp) || !existsSync(
 				HOME: profile,
 				USERPROFILE: profile,
 				PI_CODING_AGENT_DIR: agent,
-				PI_CONFIG_DIR: profile,
+				PI_CONFIG_DIR: configDirName(profile, profile),
 				OMP_PROFILE: "",
 				PI_PROFILE: "",
 				OMP_GUI_BRIDGE: address,
 			};
 			const child = spawn(
-				omp,
+				OMP_COMMAND.file,
 				[
+					...OMP_COMMAND.args,
 					"--mode",
 					"rpc-ui",
 					"--no-session",

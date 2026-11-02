@@ -6,8 +6,9 @@ import * as path from "node:path";
 import { createInterface } from "node:readline";
 import { afterEach, describe, expect, it } from "vitest";
 import { ompPackageRoot } from "./omp-runtime";
+import { INSTALLED_OMP } from "./test-bridge-probe";
 
-const stockRoot = ompPackageRoot(path.join(os.homedir(), ".bun", "bin", "omp"));
+const stockRoot = ompPackageRoot(INSTALLED_OMP);
 const children: ChildProcessWithoutNullStreams[] = [];
 const dirs: string[] = [];
 

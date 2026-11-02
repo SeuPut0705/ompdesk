@@ -1,11 +1,12 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import * as http from "node:http";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { afterAll, describe, expect, it } from "vitest";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
  * A plan the automatic mode choice entered for one request (bridge `modes.set_plan_mode {auto: true}`) is approved
@@ -14,7 +15,6 @@ import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge
  * A plan mode the user turned on still waits for the person's answer. Installed omp, scripted loopback provider, no
  * spend.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 
 type Frame = { type: string; [key: string]: unknown };
 
@@ -100,7 +100,7 @@ async function startOmp(url: string): Promise<Omp> {
 	const env: Record<string, string | undefined> = {
 		...process.env,
 		PI_CODING_AGENT_DIR: agentDir,
-		PI_CONFIG_DIR: isolated,
+		PI_CONFIG_DIR: configDirName(isolated),
 		OMP_PROFILE: "",
 		PI_PROFILE: "",
 		OMP_GUI_BRIDGE: address,
@@ -108,8 +108,9 @@ async function startOmp(url: string): Promise<Omp> {
 	for (const key of ["ELECTRON_RUN_AS_NODE", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_OAUTH_TOKEN"])
 		Reflect.deleteProperty(env, key);
 	const child: ChildProcessWithoutNullStreams = spawn(
-		omp,
+		OMP_COMMAND.file,
 		[
+			...OMP_COMMAND.args,
 			...["--mode", "rpc-ui", "--no-extensions", "--no-skills", "--no-rules"],
 			...["--model", "fake/m1", "-e", resolve("resources/gui-bridge/index.ts")],
 		],

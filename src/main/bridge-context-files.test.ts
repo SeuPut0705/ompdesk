@@ -12,9 +12,10 @@ import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { RpcContextFilesResult } from "../shared/rpc-types";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
+import { removeWhenFree } from "./test-folders";
 
 const stockRoot = path.join(os.homedir(), ".bun/install/global/node_modules/@oh-my-pi/pi-coding-agent");
-const omp = path.join(os.homedir(), ".bun/bin/omp");
 
 describe.skipIf(!existsSync(omp) || !existsSync(stockRoot))("instruction files bridge", () => {
 	it("lists the folder's context files by stock id and turns one off through disabledExtensions", async () => {
@@ -37,14 +38,15 @@ describe.skipIf(!existsSync(omp) || !existsSync(stockRoot))("instruction files b
 			HOME: profile,
 			USERPROFILE: profile,
 			PI_CODING_AGENT_DIR: agent,
-			PI_CONFIG_DIR: profile,
+			PI_CONFIG_DIR: configDirName(profile, profile),
 			OMP_PROFILE: "",
 			PI_PROFILE: "",
 			OMP_GUI_BRIDGE: address,
 		};
 		const child = spawn(
-			omp,
+			OMP_COMMAND.file,
 			[
+				...OMP_COMMAND.args,
 				"--mode",
 				"rpc-ui",
 				"--no-session",
@@ -112,7 +114,7 @@ describe.skipIf(!existsSync(omp) || !existsSync(stockRoot))("instruction files b
 				await exited.promise;
 			}
 			removeBridgeAddress(address);
-			await fs.rm(profile, { recursive: true, force: true });
+			await removeWhenFree(profile);
 		}
 	}, 60_000);
 });

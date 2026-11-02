@@ -1,20 +1,12 @@
 import { spawnSync } from "node:child_process";
-import {
-	chmodSync,
-	cpSync,
-	existsSync,
-	mkdirSync,
-	mkdtempSync,
-	readFileSync,
-	realpathSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
-import { homedir, tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { titleLanguageLine } from "../../resources/gui-bridge/modes/auto-title-core";
 import { wrapAgentMessage } from "../shared/agent-control";
+import { ompPackageRoot } from "./omp-runtime";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
  * Pins the automatic session titles to the installed omp, in an empty private agent dir (no model is called):
@@ -28,7 +20,6 @@ import { wrapAgentMessage } from "../shared/agent-control";
  *   non-English reply language (at attach and after `reply_language_set`), the same line without the language
  *   fallback for English or off, and a person's own TITLE_SYSTEM.md stays as stock resolved it.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 
 /** Two briefs another session's agent sends (`ompdesk_session_open`): one with a `Title:` line, one without. */
 const BRIEFS = [
@@ -128,9 +119,9 @@ interface Probe {
 	briefs: Array<{ wrapped: boolean; input: string | null; inputLowSignal: boolean }>;
 }
 
-/** Stock's own title prompt, read from the omp install the probe runs (`dist/cli.js` → `src/prompts`). */
+/** Stock's own title prompt, read from the omp install the probe runs (`<package>/src/prompts`). */
 function stockTitlePrompt(): string {
-	return readFileSync(join(dirname(dirname(realpathSync(omp))), "src/prompts/system/title-system.md"), "utf8");
+	return readFileSync(join(ompPackageRoot(omp) ?? "", "src/prompts/system/title-system.md"), "utf8");
 }
 
 function run(config: string, options: { replyLanguage?: string; titleSystem?: string } = {}): Probe {
@@ -150,7 +141,7 @@ function run(config: string, options: { replyLanguage?: string; titleSystem?: st
 		const env: Record<string, string | undefined> = {
 			...process.env,
 			PI_CODING_AGENT_DIR: isolated,
-			PI_CONFIG_DIR: isolated,
+			PI_CONFIG_DIR: configDirName(isolated),
 			OMP_PROFILE: "",
 			PI_PROFILE: "",
 			OPENAI_API_KEY: "probe-not-a-real-key",
@@ -159,8 +150,9 @@ function run(config: string, options: { replyLanguage?: string; titleSystem?: st
 		for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"])
 			Reflect.deleteProperty(env, key);
 		const result = spawnSync(
-			omp,
+			OMP_COMMAND.file,
 			[
+				...OMP_COMMAND.args,
 				"--mode",
 				"rpc",
 				"--no-session",

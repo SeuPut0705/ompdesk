@@ -1,8 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
  * Pins the bridge's idle compaction timer (resources/gui-bridge/idle-compaction-core.ts) to the installed omp, in an
@@ -10,7 +11,6 @@ import { describe, expect, it } from "vitest";
  * exists, none of them a separate copy), the live session exposes `promptCacheEntry`, and stock's
  * `getCacheWarmingDelayMs` gives the refresh points the unit tests' stand-in uses.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 
 const PROBE = `
 import { getCacheWarmingDelayMs } from "@oh-my-pi/pi-coding-agent/session/cache-warmer";
@@ -48,14 +48,15 @@ function run(): Probe {
 		const env: Record<string, string | undefined> = {
 			...process.env,
 			PI_CODING_AGENT_DIR: isolated,
-			PI_CONFIG_DIR: isolated,
+			PI_CONFIG_DIR: configDirName(isolated),
 			OMP_PROFILE: "",
 			PI_PROFILE: "",
 			OPENAI_API_KEY: "probe-not-a-real-key",
 		};
 		const result = spawnSync(
-			omp,
+			OMP_COMMAND.file,
 			[
+				...OMP_COMMAND.args,
 				"--mode",
 				"rpc",
 				"--no-session",

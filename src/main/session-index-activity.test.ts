@@ -4,8 +4,9 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ompPackageRoot } from "./omp-runtime";
 import { SessionIndex } from "./session-index";
+import { INSTALLED_OMP } from "./test-bridge-probe";
 
-const stockRoot = ompPackageRoot(path.join(os.homedir(), ".bun", "bin", "omp"));
+const stockRoot = ompPackageRoot(INSTALLED_OMP);
 const previousAgent = process.env.PI_CODING_AGENT_DIR;
 let agent: string | undefined;
 let index: SessionIndex | undefined;

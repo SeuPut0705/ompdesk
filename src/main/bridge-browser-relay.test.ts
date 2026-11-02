@@ -14,9 +14,10 @@ import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
 import { PreviewRelayExtension, type RelayDebugger, relayExtensionUrl } from "./preview/agent-relay";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
+import { removeWhenFree } from "./test-folders";
 
 const stockRoot = path.join(os.homedir(), ".bun/install/global/node_modules/@oh-my-pi/pi-coding-agent");
-const omp = path.join(os.homedir(), ".bun/bin/omp");
 
 class IdleDebugger extends EventEmitter {
 	attach(): void {}
@@ -43,14 +44,15 @@ describe.skipIf(!existsSync(omp) || !existsSync(stockRoot))("stock browser relay
 		const env = {
 			...process.env,
 			PI_CODING_AGENT_DIR: agent,
-			PI_CONFIG_DIR: profile,
+			PI_CONFIG_DIR: configDirName(profile),
 			OMP_PROFILE: "",
 			PI_PROFILE: "",
 			OMP_GUI_BRIDGE: address,
 		};
 		const child = spawn(
-			omp,
+			OMP_COMMAND.file,
 			[
+				...OMP_COMMAND.args,
 				"--mode",
 				"rpc-ui",
 				"--no-session",
@@ -142,7 +144,7 @@ describe.skipIf(!existsSync(omp) || !existsSync(stockRoot))("stock browser relay
 				await exited.promise;
 			}
 			removeBridgeAddress(address);
-			await fs.rm(profile, { recursive: true, force: true });
+			await removeWhenFree(profile);
 		}
 	}, 60_000);
 });

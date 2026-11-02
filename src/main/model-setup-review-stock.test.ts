@@ -4,6 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
  * The model setup's plan reaches OMPdesk's own `review` role end to end, on the installed omp in a private agent dir
@@ -12,7 +13,6 @@ import { parse } from "yaml";
  * (`model_role_set` per ticked row). After applying the review row `@review` resolves to the planned model with
  * config.yml's bytes unchanged; after applying every row config.yml still holds no `review`.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 const bun = join(homedir(), ".bun", "bin", "bun");
 const sdk = join(
 	homedir(),
@@ -117,7 +117,7 @@ function runPlan(providers: string[]): PlanProbe {
 		Object.assign(env, {
 			HOME: isolated,
 			PI_CODING_AGENT_DIR: isolated,
-			PI_CONFIG_DIR: isolated,
+			PI_CONFIG_DIR: configDirName(isolated),
 			OMP_PROFILE: "",
 			PI_PROFILE: "",
 			OMP_GUI_OMPDESK_ROLES: join(isolated, "ompdesk-roles.json"),
@@ -129,8 +129,18 @@ function runPlan(providers: string[]): PlanProbe {
 		const seeded = spawnSync(bun, [seeder, isolated], { cwd: isolated, env, encoding: "utf8", timeout: 60_000 });
 		expect(seeded.status, seeded.stderr).toBe(0);
 		const result = spawnSync(
-			omp,
-			["--mode", "rpc", "--no-session", "--no-extensions", "--no-skills", "--no-rules", "-e", extension],
+			OMP_COMMAND.file,
+			[
+				...OMP_COMMAND.args,
+				"--mode",
+				"rpc",
+				"--no-session",
+				"--no-extensions",
+				"--no-skills",
+				"--no-rules",
+				"-e",
+				extension,
+			],
 			{ cwd: isolated, env, encoding: "utf8", timeout: 150_000, maxBuffer: 16 * 1024 * 1024, input: "" },
 		);
 		const line = result.stderr.split("\n").find(value => value.startsWith("PLAN_PROBE"));

@@ -1,8 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
  * "Branch from here" (bridge `sessions.fork_from`, resources/gui-bridge/sessions.ts) on the installed omp, in an
@@ -13,7 +14,6 @@ import { describe, expect, it } from "vitest";
  * session it came from. A branch from a prompt now starts over like stock `branch`: the copy ends before the
  * prompt and the prompt comes back as the new session's draft.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 
 const PROBE = `
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
@@ -91,7 +91,7 @@ function runProbe(): Record<"atPrompt" | "atReply" | "atAnsweredCall" | "atOpenC
 		const env: Record<string, string | undefined> = {
 			...process.env,
 			PI_CODING_AGENT_DIR: isolated,
-			PI_CONFIG_DIR: isolated,
+			PI_CONFIG_DIR: configDirName(isolated),
 			OMP_PROFILE: "",
 			PI_PROFILE: "",
 			OPENAI_API_KEY: "probe-not-a-real-key",
@@ -100,8 +100,8 @@ function runProbe(): Record<"atPrompt" | "atReply" | "atAnsweredCall" | "atOpenC
 			Reflect.deleteProperty(env, key);
 		}
 		const result = spawnSync(
-			omp,
-			["--mode", "rpc", "--no-extensions", "--no-skills", "--no-rules", "-e", extension],
+			OMP_COMMAND.file,
+			[...OMP_COMMAND.args, "--mode", "rpc", "--no-extensions", "--no-skills", "--no-rules", "-e", extension],
 			{
 				env,
 				encoding: "utf8",

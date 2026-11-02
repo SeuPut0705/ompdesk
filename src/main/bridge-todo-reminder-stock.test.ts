@@ -1,11 +1,12 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import * as http from "node:http";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { afterAll, describe, expect, it } from "vitest";
 import { newBridgeAddress, removeBridgeAddress } from "./bridge-client";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
  * A `todo` call that fails inside a turn (GPT-6.1's `op: "append"` without a phase) makes stock queue its
@@ -15,7 +16,6 @@ import { newBridgeAddress, removeBridgeAddress } from "./bridge-client";
  * error). The bridge (todo-reminder.ts) delivers that one reminder as an aside of the live turn instead: the model
  * reads it at the next step, and the session settles when the turn ends.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 
 type Frame = { type: string; id?: string; message?: { role?: string; customType?: string }; [key: string]: unknown };
 
@@ -115,7 +115,7 @@ async function startOmp(
 	const env: Record<string, string | undefined> = {
 		...process.env,
 		PI_CODING_AGENT_DIR: agentDir,
-		PI_CONFIG_DIR: isolated,
+		PI_CONFIG_DIR: configDirName(isolated),
 		OMP_PROFILE: "",
 		PI_PROFILE: "",
 		OMP_GUI_BRIDGE: address,
@@ -123,8 +123,9 @@ async function startOmp(
 	for (const key of ["ELECTRON_RUN_AS_NODE", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_OAUTH_TOKEN"])
 		Reflect.deleteProperty(env, key);
 	const child: ChildProcessWithoutNullStreams = spawn(
-		omp,
+		OMP_COMMAND.file,
 		[
+			...OMP_COMMAND.args,
 			"--mode",
 			"rpc-ui",
 			"--no-extensions",

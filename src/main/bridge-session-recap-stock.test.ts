@@ -1,8 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
  * Pins the bridge's idle recap (resources/gui-bridge/session-recap.ts) to the installed omp, in an empty
@@ -14,7 +15,6 @@ import { describe, expect, it } from "vitest";
  *   stock's transcript replay returns, while the `context` hook keeps it out of what a model is sent;
  * - `recap.enabled` (default on) and `recap.idleSeconds` (240) are stock's settings, read through `lookup`.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 
 const PROBE = `
 import { methods } from "./settings";
@@ -80,7 +80,7 @@ function runProbe(): Probe {
 		const env: Record<string, string | undefined> = {
 			...process.env,
 			PI_CODING_AGENT_DIR: isolated,
-			PI_CONFIG_DIR: isolated,
+			PI_CONFIG_DIR: configDirName(isolated),
 			OMP_PROFILE: "",
 			PI_PROFILE: "",
 			OPENAI_API_KEY: "probe-not-a-real-key",
@@ -89,8 +89,8 @@ function runProbe(): Probe {
 			Reflect.deleteProperty(env, key);
 		}
 		const result = spawnSync(
-			omp,
-			["--mode", "rpc", "--no-extensions", "--no-skills", "--no-rules", "-e", extension],
+			OMP_COMMAND.file,
+			[...OMP_COMMAND.args, "--mode", "rpc", "--no-extensions", "--no-skills", "--no-rules", "-e", extension],
 			{
 				env,
 				encoding: "utf8",

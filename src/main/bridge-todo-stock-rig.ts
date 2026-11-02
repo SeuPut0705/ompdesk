@@ -17,14 +17,12 @@ import {
 } from "node:fs";
 import * as http from "node:http";
 import { homedir, tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, expect } from "vitest";
 import { newBridgeAddress, removeBridgeAddress } from "./bridge-client";
-
-/** Bun's launcher for the global omp: `omp.exe` on Windows. */
-export const omp = join(homedir(), ".bun", "bin", process.platform === "win32" ? "omp.exe" : "omp");
+import { configDirName, OMP_COMMAND } from "./test-bridge-probe";
 
 export type Frame = {
 	type: string;
@@ -171,7 +169,7 @@ export async function startOmp(options: {
 		...process.env,
 		PI_CODING_AGENT_DIR: options.agentDir,
 		// Stock joins it to the home folder (pi-utils dirs.ts `getConfigDirName`): an absolute path would land under home.
-		PI_CONFIG_DIR: relative(homedir(), options.isolated),
+		PI_CONFIG_DIR: configDirName(options.isolated),
 		OMP_PROFILE: "",
 		PI_PROFILE: "",
 		OMP_GUI_BRIDGE: address,
@@ -181,8 +179,9 @@ export async function startOmp(options: {
 	for (const key of Object.keys(env))
 		if (key.startsWith("OMP_GUI_") && key !== "OMP_GUI_BRIDGE") Reflect.deleteProperty(env, key);
 	const child: ChildProcessWithoutNullStreams = spawn(
-		omp,
+		OMP_COMMAND.file,
 		[
+			...OMP_COMMAND.args,
 			"--mode",
 			"rpc-ui",
 			"--no-extensions",

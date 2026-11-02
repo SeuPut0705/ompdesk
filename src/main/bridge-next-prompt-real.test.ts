@@ -4,6 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { isApprovalOnly } from "../../resources/gui-bridge/modes/next-prompt-core";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
  * Opt-in audit on the user's real omp and credentials (`OMP_GUI_REAL_WORK=1`; about `RUNS` × 2 requests on the
@@ -12,7 +13,6 @@ import { isApprovalOnly } from "../../resources/gui-bridge/modes/next-prompt-cor
  * with the rules before this fix (`git show HEAD~:…next-prompt-core.ts`, set by `NEXT_PROMPT_BEFORE_REF`) and once with
  * the current ones, and counts the shown suggestions that only approve. Prints `NEXT_PROMPT_REAL` lines.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 const agentDir = join(homedir(), ".omp", "agent");
 const journal = join(
 	agentDir,
@@ -122,16 +122,23 @@ describe.skipIf(!enabled)("prompt suggestions replay the reported moment on the 
 			const project = join(isolated, "project");
 			mkdirSync(project);
 			const result = spawnSync(
-				omp,
-				["--mode", "rpc", "--no-session", "--no-extensions", "--no-skills", "--no-rules", "-e"].concat(
-					join(isolated, "bridge", "np-real.ts"),
-				),
+				OMP_COMMAND.file,
+				[
+					...OMP_COMMAND.args,
+					"--mode",
+					"rpc",
+					"--no-session",
+					"--no-extensions",
+					"--no-skills",
+					"--no-rules",
+					"-e",
+				].concat(join(isolated, "bridge", "np-real.ts")),
 				{
 					cwd: project,
 					env: {
 						...process.env,
 						PI_CODING_AGENT_DIR: isolated,
-						PI_CONFIG_DIR: isolated,
+						PI_CONFIG_DIR: configDirName(isolated),
 						NP_MESSAGES: join(isolated, "messages.json"),
 						NP_OPENED: JSON.stringify(OPENED),
 						NP_RUNS: String(RUNS),

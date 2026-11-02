@@ -15,10 +15,10 @@ import * as path from "node:path";
 import { createInterface } from "node:readline";
 import { describe, expect, it } from "vitest";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 import { RM_TEMP } from "./test-fake-omp";
 
 const stockRoot = path.join(os.homedir(), ".bun/install/global/node_modules/@oh-my-pi/pi-coding-agent");
-const omp = path.join(os.homedir(), ".bun/bin/omp");
 
 describe.skipIf(!existsSync(omp) || !existsSync(stockRoot))("gui-bridge bound again for a subagent", () => {
 	it("keeps one socket server and the user's delegation strength", async () => {
@@ -45,7 +45,7 @@ describe.skipIf(!existsSync(omp) || !existsSync(stockRoot))("gui-bridge bound ag
 		const env = {
 			...process.env,
 			PI_CODING_AGENT_DIR: agent,
-			PI_CONFIG_DIR: profile,
+			PI_CONFIG_DIR: configDirName(profile),
 			OMP_PROFILE: "",
 			PI_PROFILE: "",
 			OMP_GUI_BRIDGE: address,
@@ -54,8 +54,9 @@ describe.skipIf(!existsSync(omp) || !existsSync(stockRoot))("gui-bridge bound ag
 			OMP_GUI_DELEGATION: "solo",
 		};
 		const child = spawn(
-			omp,
+			OMP_COMMAND.file,
 			[
+				...OMP_COMMAND.args,
 				"--mode",
 				"rpc-ui",
 				"--no-session",

@@ -5,7 +5,6 @@ import {
 	bridgeAt,
 	type Frame,
 	fakeAgent,
-	omp,
 	realAgent,
 	sse,
 	startOmp,
@@ -13,6 +12,7 @@ import {
 	todoOps,
 	toolCall,
 } from "./bridge-todo-stock-rig";
+import { INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
  * A long session appended round after round to one todo list until the work board read 33/38 (todo-compact-core.ts).

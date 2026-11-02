@@ -1,10 +1,13 @@
-import { execFileSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { expect, test } from "@playwright/test";
+import { processesBelow, waitForProcessesToExit } from "./process-tree";
 
-const omp = path.join(os.homedir(), ".bun", "bin", "omp");
+/** Bun's launcher for the global omp: `omp.exe` on Windows. */
+const omp = path.join(os.homedir(), ".bun", "bin", process.platform === "win32" ? "omp.exe" : "omp");
 
 /** Runs inside stock omp, so imports use its bundled singleton resolver. */
 function stockCheckExtension(reportPath: string): string {
@@ -151,11 +154,13 @@ test("extension inventories, mutations, completions and agent validation match s
 		if (error.code !== "ENOENT") throw error;
 	});
 	if (await fs.stat(path.join(sourceDir, "agent.db")).catch(() => null)) {
-		execFileSync("sqlite3", [
-			"-readonly",
-			path.join(sourceDir, "agent.db"),
-			`VACUUM INTO '${path.join(agentDir, "agent.db").replaceAll("'", "''")}'`,
-		]);
+		// node:sqlite, not the sqlite3 CLI, which Windows does not ship.
+		const db = new DatabaseSync(path.join(sourceDir, "agent.db"), { readOnly: true });
+		try {
+			db.exec(`VACUUM INTO '${path.join(agentDir, "agent.db").replaceAll("'", "''")}'`);
+		} finally {
+			db.close();
+		}
 	}
 	await fs.mkdir(path.join(agentDir, "skills", "ompdesk-duplication-probe"), { recursive: true });
 	await fs.writeFile(
@@ -253,12 +258,18 @@ test("extension inventories, mutations, completions and agent validation match s
 			body: `${stderr}\n${output}`,
 			contentType: "text/plain",
 		});
-		child.stdin.end();
-		child.kill("SIGTERM");
-		await new Promise<void>(resolve => {
+		// omp exits on its stdin's end and stops its MCP servers; a signal would end only Windows' omp.exe launcher and
+		// leave omp and its servers holding the project folder. What it started is waited for before the folder goes.
+		const owned = process.platform === "win32" && child.pid !== undefined ? processesBelow(child.pid) : [];
+		const exited = new Promise<void>(resolve => {
 			if (child.exitCode !== null || child.signalCode !== null) resolve();
 			else child.once("exit", () => resolve());
 		});
+		child.stdin.end();
+		const guard = setTimeout(() => child.kill("SIGTERM"), 30_000);
+		await exited;
+		clearTimeout(guard);
+		await waitForProcessesToExit(owned, 10_000);
 		await fs.rm(profile, { recursive: true, force: true });
 	}
 });
