@@ -226,3 +226,24 @@ The system is tokens all the way down, so a direction is a token set, not code. 
 | Toast out | 5 → 5 | 4 → 8 | the toast leaves on its token |
 
 Unchanged on purpose: page and Settings cross-fades, the working cue, the strip's chevron. Still a cut: a session row pressed on a phone (a touch press in Chromium's emulation shows no `:active` frame in either version) and an incoming reply's row (it is claimed as arriving only while a turn streams).
+
+### The same in three places
+
+`bun run parity -- session-idle bot-bar sidebar` (e2e/parity.e2e.ts: one host's session in its own window, from a paired computer's section, and on its phone page at 390) shows the same rows, folds, bot bar and decision dock in all three views before and after. The motion itself runs through the same components and tokens in each: the capture flows film this computer's list and a paired host's section side by side (row added, row moved, menu, fold, press), and the phone at 390 for every flow above.
+
+### Cost
+
+`e2e/flow-performance.e2e.ts` on the built app, this change against `main` (c4391f5a) in alternating order on this Mac (16 GB), median of 5 runs per side (3 for `daily` at 1600 px), renderer CPU % with its range, frame p99 ms:
+
+| Flow, phase | Renderer CPU before | after | Frame p99 before → after | Note |
+| --- | --- | --- | --- | --- |
+| compose, typing | 12.6 (11.3–13.6) | 11.9 (11.6–12.5) | 19 → 19 | no difference |
+| expand, open the biggest card | 8.3 (5.8–9.0) | 10.2 (9.4–10.4) | 18 → 18 | the card's height animation is the added work; no long frame |
+| expand, close it | 8.0 (5.3–8.4) | 10.0 (8.8–15.8) | 18 → 18 | same; `collapseMs` (body gone from the DOM) 9 → 181 ms is the exit playing, the header answers in the next frame |
+| settings, walk the sections | 18.0 (17.9–18.1) | 18.2 (17.7–19.9) | 34 → 33 | no difference |
+| sidebar of 500, scroll | 23.2 (22.5–23.3) | 22.7 (21.8–23.6) | 18 → 18 | no difference |
+| sidebar of 500, filter typed | 29.0 (27.9–29.3) | 31.0 (30.4–31.8) | 18 → 18 | +2 points, no blocking time; the first build measured every row per keystroke (35.6, 25 ms blocking per 10 s) until a filtering list was held still |
+| daily (board, gauges, streaming) | 43.7 (43.3–44.1) | 44.7 (44.3–45.8) | 18 → 19 | +1 point while streaming beside the docked board |
+| daily, idle and hidden | 0.6 / 0.4 | 0.7 / 0.5 | 0 → 0 | nothing runs at rest: no new loop |
+
+The paired phone's first-screen JavaScript grew 14,292 bytes (3,291,579 → 3,305,871 on 8ba43458): the exits, folds and list keys of the components on that screen. The play-time half (`lib/motion-play.ts`: FLIP, height, the leaving clone) loads right after the first screen and is not counted.

@@ -251,8 +251,8 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // (0.1 to 0.6 KB apiece: Popover, Tooltip, ContextMenu, Toast, Sheet, the composer's overlays, the sidebar's and a paired
 // host's rows and folds, the bot's dock). They render on the first screen, so they cannot defer; what only runs once
 // a person acts (FLIP, height animation, the leaving overlay's clone: `lib/motion-play.ts`, 2.3 KB) loads right after
-// it: measured 3,305,794 on c4391f5a's 3,291,574, 14,220 bytes over its base.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_308_420;
+// it: measured 3,305,871 on 8ba43458's 3,291,579, 14,292 bytes over its base.
+const WEB_FIRST_SCREEN_JS_BYTES = 3_308_500;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

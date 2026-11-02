@@ -594,6 +594,7 @@ function DeviceSessions({
 	const groupDropped = useSidebarListMotion(
 		motionRef,
 		groups.map(group => group.cwd),
+		query.length > 0,
 	);
 
 	/** Moves a project of this host up or down; the other projects of every device keep their order. */

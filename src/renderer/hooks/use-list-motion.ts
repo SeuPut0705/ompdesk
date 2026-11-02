@@ -8,20 +8,21 @@ import { motionAllowed, motionPlay } from "../lib/motion";
  *
  * Positions are read only when the keyed rows change. Between such commits they are read again on the next frame,
  * after layout, so a row that only grew keeps an up-to-date start without a layout read in any commit. Until the
- * play-time code has loaded (right after the first screen) the list changes at once.
+ * play-time code has loaded (right after the first screen) the list changes at once. `still` holds it still and reads
+ * nothing (a list the person is filtering keystroke by keystroke: measuring 500 rows a keystroke cost ~5 % of a core).
  */
 export function useListMotion(
 	listRef: RefObject<HTMLElement | null>,
-	options: { selector?: string; enter?: boolean } = {},
+	options: { selector?: string; enter?: boolean; still?: boolean } = {},
 ): void {
-	const { selector = "[data-flip-key]", enter = false } = options;
+	const { selector = "[data-flip-key]", enter = false, still = false } = options;
 	const last = useRef<{ keys: string; tops: Map<string, number> } | null>(null);
 	const pending = useRef(false);
 
 	useLayoutEffect(() => {
 		const list = listRef.current;
 		const play = motionPlay();
-		if (!list || !play || !motionAllowed()) {
+		if (!list || !play || still || !motionAllowed()) {
 			last.current = null;
 			return;
 		}

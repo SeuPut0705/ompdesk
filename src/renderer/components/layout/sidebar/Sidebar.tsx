@@ -911,6 +911,7 @@ export function Sidebar() {
 	const projectDropped = useSidebarListMotion(
 		localMotionRef,
 		groups.map(group => group.cwd),
+		query.length > 0,
 	);
 	const remoteChildrenOf = useMemo(() => {
 		const byRoot = new Map<string, SessionTab[]>();
