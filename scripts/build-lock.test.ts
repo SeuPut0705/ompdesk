@@ -35,6 +35,8 @@ const env = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => ({
 	OMPDESK_LOCK_POLL_MS: "20",
 	OMPDESK_LOCK_REPORT_MS: "1",
 	OMPDESK_BUILD_LOCK_HELD: "",
+	// The caller's own count (an agent's OMP_GUI_WORKERS=2) would win over the share these cases measure.
+	OMP_GUI_WORKERS: "",
 	...extra,
 });
 
@@ -77,7 +79,7 @@ describe("bun scripts/build-lock.ts", () => {
 			"console.log(process.env.OMPDESK_BUILD_LOCK_HELD)",
 		]);
 		expect(result.status).toBe(0);
-		expect(result.stdout.trim()).toBe("playwright");
+		expect(result.stdout.trim()).toBe("playwright,heavy");
 		expect(entries()).toHaveLength(1);
 		expect(result.stderr).not.toContain("waiting for");
 	});
@@ -102,14 +104,31 @@ describe("bun scripts/build-lock.ts", () => {
 
 	it("gives a Playwright run fewer workers when others hold slots, and leaves a caller's own count alone", () => {
 		const print = ["--kind", "playwright", "--", ...nodeScript("console.log(process.env.OMP_GUI_WORKERS)")];
-		expect(locked(print, { OMPDESK_LOCK_SLOTS: "playwright=4" }).stdout.trim()).toBe("4");
+		expect(locked(print, { OMPDESK_LOCK_SLOTS: "playwright=4", OMPDESK_LOCK_RAM_GB: "64" }).stdout.trim()).toBe("4");
 		for (const slot of [0, 1]) {
 			const held = path.join(dir, "locks", `playwright.${slot}`);
 			fs.mkdirSync(held, { recursive: true });
 			fs.writeFileSync(path.join(held, "owner"), `other${slot}@checkout 10:00:00 pid 1\n`);
 		}
-		expect(locked(print, { OMPDESK_LOCK_SLOTS: "playwright=4" }).stdout.trim()).toBe("2");
-		expect(locked(print, { OMPDESK_LOCK_SLOTS: "playwright=4", OMP_GUI_WORKERS: "1" }).stdout.trim()).toBe("1");
+		expect(locked(print, { OMPDESK_LOCK_SLOTS: "playwright=4", OMPDESK_LOCK_RAM_GB: "64" }).stdout.trim()).toBe("2");
+		expect(
+			locked(print, {
+				OMPDESK_LOCK_SLOTS: "playwright=4",
+				OMPDESK_LOCK_RAM_GB: "64",
+				OMP_GUI_WORKERS: "1",
+			}).stdout.trim(),
+		).toBe("1");
+		// A 16 GB machine never gives a run more than two.
+		fs.rmSync(path.join(dir, "locks"), { recursive: true });
+		expect(locked(print, { OMPDESK_LOCK_SLOTS: "playwright=4", OMPDESK_LOCK_RAM_GB: "16" }).stdout.trim()).toBe("2");
+	});
+
+	it("runs a nested command of another kind under a heavy holder at once, on a one-heavy-slot machine", () => {
+		const result = locked(["--kind", "playwright", "--", "bun", LOCK, "--kind", "build", "--", "node", "-e", "0"], {
+			OMPDESK_LOCK_RAM_GB: "16",
+		});
+		expect(result.status).toBe(0);
+		expect(entries().map(entry => entry.kind)).toEqual(["build", "playwright"]);
 	});
 
 	it("--chunk n runs the command as n shards, one logged hold each", () => {
@@ -183,7 +202,8 @@ describe("bun scripts/build-lock.ts", () => {
 		await vi.waitFor(() => expect(stderr).toMatch(/waiting for .*\.legacy/), { timeout: 15_000 });
 		// Windows removes a folder's files first: the waiter sees the folder without its owner for a while. The waiter
 		// touches its queue ticket on every poll, so a touch after the owner went means it looked at least once.
-		const queue = path.join(dir, "locks", "playwright.queue");
+		// The first queue a waiter joins is the machine-wide heavy one.
+		const queue = path.join(dir, "locks", "heavy.queue");
 		const ticket = path.join(queue, fs.readdirSync(queue)[0] ?? "");
 		fs.rmSync(path.join(legacy, "owner"));
 		const removedAt = Date.now();

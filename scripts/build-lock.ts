@@ -16,10 +16,11 @@
  * hold per shard, so a long job lets waiters in between its chunks. A non-gate hold past 15 minutes
  * logs a warning that says so, and `bun run lock-stats` flags it.
  *
- * Every child gets `OMPDESK_BUILD_LOCK_HELD=<kinds held>`: a nested locked command of a kind already
- * held runs without waiting on its parent and logs nothing (a nested command of another kind, the
- * `bun run build` inside a Playwright command, takes that kind's slot). Interrupting this process
- * stops the command's whole process group (Electron and its helpers included) and releases its slots.
+ * Every child gets `OMPDESK_BUILD_LOCK_HELD=<kinds held>` (plus `heavy`): a nested locked command of a kind already
+ * held runs without waiting on its parent and logs nothing; a nested command of another kind (the `bun run build`
+ * inside a Playwright command) takes that kind's slot but never the heavy one its ancestor holds, so nesting never
+ * deadlocks. Interrupting this process stops the command's whole process group (Electron and its helpers included)
+ * and releases its slots.
  *
  * Each release appends the holder, command, slot, wait and hold times and exit code to
  * `scripts/lock-log.ts`'s log; `bun run lock-stats` summarizes it.
@@ -30,11 +31,13 @@ import * as path from "node:path";
 import { findOnPath, launcherNames, needsShell, spawnArgs, spawnCommand } from "../src/main/spawn";
 import { appendLockLog, commandKind } from "./lock-log";
 import {
-	acquireSlot,
+	acquireHold,
 	defaultLocks,
+	heavySlots,
 	inspectSlots,
 	type Lease,
 	MAX_HOLD_MS,
+	machineRam,
 	SLOT_KINDS,
 	type SlotKind,
 	WORKERS,
@@ -68,14 +71,17 @@ const holds = new Set<Hold>();
 
 const ownerId = () => process.env.OMPDESK_LOCK_OWNER || `${os.userInfo().username}@${path.basename(process.cwd())}`;
 
-/** Kinds an ancestor holds: `1` (the single lock's marker) means all of them. */
+/** Kinds an ancestor holds (`heavy` for the machine-wide slot): `1` (the single lock's marker) means all of them. */
 const inherited = new Set((process.env[HELD_ENV] ?? "").split(",").filter(Boolean));
 const covered = (kind: SlotKind) =>
 	inherited.has("1") || inherited.has(kind) || [...holds].some(h => h.lease.kind === kind);
+/** Only an ancestor's heavy slot covers a hold: two phases of one gate wait for each other like any two holds. */
+const heavyInherited = () => inherited.has("1") || inherited.has("heavy");
 
 /** Children see every kind held above them and here. */
 function syncEnv(): void {
 	const kinds = new Set([...inherited, ...[...holds].map(h => h.lease.kind)]);
+	if (holds.size > 0) kinds.add("heavy");
 	if (kinds.size === 0) delete process.env[HELD_ENV];
 	else process.env[HELD_ENV] = [...kinds].join(",");
 }
@@ -182,7 +188,7 @@ export async function acquireLock(command: readonly string[], options: AcquireOp
 	const kind = options.kind ?? slotKindOf(text) ?? "other";
 	if (covered(kind)) return { release() {} };
 	const time = new Date().toISOString();
-	const lease = await acquireSlot(locks, kind, { owner: ownerId(), command: text });
+	const lease = await acquireHold(locks, kind, { owner: ownerId(), command: text }, { heavyHeld: heavyInherited() });
 	const hold: Hold = {
 		lease,
 		command: text,
@@ -284,6 +290,18 @@ export async function runLocked(
 		held.release(1);
 		throw error;
 	}
+}
+
+/**
+ * Run `each` over `items` side by side when the machine has room for more than one heavy hold, else one after
+ * another: on 16 GB a typecheck beside a vitest run is two heavy jobs in one hold (e2e-ci-windows.md › Lock on a
+ * small machine).
+ */
+export async function runSteps<T, R>(items: readonly T[], each: (item: T) => Promise<R>): Promise<R[]> {
+	if (heavySlots(machineRam()) > 1) return Promise.all(items.map(each));
+	const results: R[] = [];
+	for (const item of items) results.push(await each(item));
+	return results;
 }
 
 function usage(message: string): never {

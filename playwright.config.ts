@@ -1,5 +1,7 @@
+import { totalmem } from "node:os";
 import { defineConfig } from "@playwright/test";
 import { claimRunTemp } from "./e2e/run-temp";
+import { ramWorkers } from "./scripts/lock-slots";
 import { pinSnapshot } from "./scripts/out-snapshot";
 import { dropGitSelectors } from "./src/shared/git-env";
 
@@ -30,8 +32,9 @@ export default defineConfig({
 	// dir, fake omp, bridge socket) and ephemeral ports, so files run side by side.
 	// GitHub's 3-core macOS and 2-core Windows runners stay at one. Keyed on
 	// GITHUB_ACTIONS, not CI: agent shells on this Mac export CI=true.
-	// OMP_GUI_WORKERS: fewer per run when several runs share the machine (AGENTS.md › Build lock and gate).
-	workers: process.env.GITHUB_ACTIONS ? 1 : Number(process.env.OMP_GUI_WORKERS) || 4,
+	// OMP_GUI_WORKERS: fewer per run when several runs share the machine; RAM caps the default (2 on 16 GB,
+	// .omp/rules/e2e-ci-windows.md › Lock and gate).
+	workers: process.env.GITHUB_ACTIONS ? 1 : Number(process.env.OMP_GUI_WORKERS) || Math.min(4, ramWorkers(totalmem())),
 	timeout: 60_000,
 	expect: { timeout: 10_000 },
 	reporter: [["list"], ["html", { open: "never" }]],

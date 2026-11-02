@@ -1,5 +1,6 @@
-import { availableParallelism } from "node:os";
+import { availableParallelism, totalmem } from "node:os";
 import { configDefaults, defineConfig } from "vitest/config";
+import { ramWorkers } from "./scripts/lock-slots";
 import { dropGitSelectors } from "./src/shared/git-env";
 
 // Tests make temp repositories with `git init` and `git config`: under `git bisect run` or a hook those would
@@ -23,10 +24,11 @@ export default defineConfig({
 		// Locally the full suite takes as long on 8 workers as on 14 (21 s on the
 		// maintainer's 15-core Mac; 4 took 28 s), so it stops at 8 and leaves the
 		// rest of the machine to whatever else runs.
-		// OMP_VITEST_WORKERS: fewer per run when several runs share the machine (AGENTS.md › Build lock and gate).
+		// OMP_VITEST_WORKERS: fewer per run when several runs share the machine; RAM caps the default (2 on 16 GB,
+		// .omp/rules/e2e-ci-windows.md › Lock and gate).
 		maxWorkers: process.env.GITHUB_ACTIONS
 			? availableParallelism()
-			: Number(process.env.OMP_VITEST_WORKERS) || Math.min(8, availableParallelism() - 1),
+			: Number(process.env.OMP_VITEST_WORKERS) || Math.min(8, availableParallelism() - 1, ramWorkers(totalmem())),
 		projects: [
 			{
 				extends: true,

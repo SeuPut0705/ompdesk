@@ -34,7 +34,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { en } from "../src/renderer/locales/en";
-import { acquireLock, describeExit, type RunResult, run, runLocked } from "./build-lock";
+import { acquireLock, describeExit, type RunResult, run, runLocked, runSteps } from "./build-lock";
 import { changedScope } from "./changed-scope";
 import { specsFor } from "./changed-specs";
 import { browsersNeeded, missingBrowsers, missingBrowsersNotice } from "./e2e-browsers";
@@ -122,21 +122,18 @@ else if (relatedFiles.length > 0) {
 }
 
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
-console.log(
-	`[check:changed] ${changed.length} changed file(s); ${CHECKS.map(([name]) => name).join(", ")} side by side`,
-);
-// The static checks and vitest side by side in one vitest slot; the build and Playwright take their own slots after.
+console.log(`[check:changed] ${changed.length} changed file(s); ${CHECKS.map(([name]) => name).join(", ")}`);
+// The static checks and vitest in one vitest slot (one after another on a one-heavy-slot machine); the build and
+// Playwright take their own slots after.
 const held = await acquireLock(["bun", "run", "check:changed"], { kind: "vitest", via: "check:changed" });
 const started = performance.now();
-const results = await Promise.all(
-	CHECKS.map(async ([name, command]): Promise<readonly [string, RunResult]> => {
-		const result = await run(command, { capture: true });
-		if (result.code !== 0)
-			console.log(`\n[check:changed] ✗ ${name} (${describeExit(result)})\n${result.output.trimEnd()}\n`);
-		console.log(`[check:changed] ${result.code === 0 ? "✓" : "✗"} ${name} ${seconds(result.ms)}`);
-		return [name, result];
-	}),
-);
+const results = await runSteps(CHECKS, async ([name, command]): Promise<readonly [string, RunResult]> => {
+	const result = await run(command, { capture: true });
+	if (result.code !== 0)
+		console.log(`\n[check:changed] ✗ ${name} (${describeExit(result)})\n${result.output.trimEnd()}\n`);
+	console.log(`[check:changed] ${result.code === 0 ? "✓" : "✗"} ${name} ${seconds(result.ms)}`);
+	return [name, result];
+});
 held.release(results.some(([, result]) => result.code !== 0) ? 1 : 0);
 const failed = results.filter(([, result]) => result.code !== 0).map(([name]) => name);
 if (failed.length > 0) {

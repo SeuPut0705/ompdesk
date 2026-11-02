@@ -16,7 +16,7 @@
  * A failed step prints its output and the gate exits non-zero; the side-by-side
  * steps always all finish, so one run reports every failing check.
  */
-import { acquireLock, describeExit, type RunResult, run, runLocked } from "./build-lock";
+import { acquireLock, describeExit, type RunResult, run, runLocked, runSteps } from "./build-lock";
 
 const CHECKS: ReadonlyArray<readonly [string, string[]]> = [
 	["types", ["bun", "run", "check:types"]],
@@ -36,16 +36,17 @@ async function step(name: string, result: Promise<RunResult>): Promise<readonly 
 	return [name, done];
 }
 
-/** The static checks and vitest side by side, in one vitest slot. */
+/** The static checks and vitest in one vitest slot: side by side, or one after another on a one-heavy-slot machine. */
 async function checks(): Promise<Array<readonly [string, RunResult]>> {
 	const held = await acquireLock(["bun", "run", "gate"], { kind: "vitest", via: "gate" });
-	const results = await Promise.all(CHECKS.map(([name, command]) => step(name, run(command, { capture: true }))));
+	const results = await runSteps(CHECKS, ([name, command]) => step(name, run(command, { capture: true })));
 	held.release(results.some(([, result]) => result.code !== 0) ? 1 : 0);
 	return results;
 }
 
 const started = performance.now();
-console.log(`[gate] ${[...CHECKS.map(([name]) => name), "build"].join(", ")} side by side`);
+console.log(`[gate] ${[...CHECKS.map(([name]) => name), "build"].join(", ")}`);
+// The build's own slot waits for the checks' heavy slot where the machine has only one.
 const results = await Promise.all([
 	checks(),
 	step("build", runLocked("build", BUILD, { via: "gate", capture: true })).then(result => [result]),
