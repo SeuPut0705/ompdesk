@@ -10,7 +10,7 @@
 
 import type { BotActivityPage } from "../../shared/bot-activity";
 import { EMPTY_GITHUB_AUTH_STATE } from "../../shared/github-auth";
-import { IPC_COMMANDS, type IpcSessionsListPayload } from "../../shared/ipc-types";
+import { IPC_COMMANDS, type IpcSessionsListPayload, type SessionInfo } from "../../shared/ipc-types";
 import type { LaunchProfile } from "../../shared/launch-profile";
 import { MOBILE_WEB_COMMAND, MOBILE_WEB_GET_STATE, WEB_BLOCKS_LIST, WEB_DEVICES_LIST } from "../../shared/mobile-web";
 import type { OmpTransport } from "../../shared/omp-api";
@@ -120,6 +120,11 @@ export interface Harness {
 	stream: { dialogs: PreviewStreamDialog[]; answers: unknown[] };
 	/** The terminal's PTY size lease as the host reports it: set `other` to show the lease banner. */
 	terminal: { lease: TerminalLeaseState };
+	/**
+	 * Sessions listed before the fixture's, on this computer and every paired host alike: push one, then emit
+	 * `sessions:changed` (with `device` for a host's section) and the list reads it as a session that just appeared.
+	 */
+	sessions: SessionInfo[];
 }
 
 declare global {
@@ -419,11 +424,15 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				return rpc({ command: (payload as RpcPayload).command });
 			case IPC_COMMANDS.RPC_COMMAND_FOR_TAB:
 				return rpc(payload as RpcPayload);
-			case IPC_COMMANDS.SESSIONS_LIST:
-				// The feed's read (`listShared`) takes the list with its version; nothing here ever changes it.
+			case IPC_COMMANDS.SESSIONS_LIST: {
+				// The feed's read (`listShared`) takes the list with its version (`epoch.n`, n only grows): it moves only with
+				// `harness.sessions`, whose newest `modified` grows with every push and touch.
+				const sessions = [...harness.sessions, ...sessionsFixture()];
+				const revision = Math.max(1, ...harness.sessions.map(row => Date.parse(row.modified)));
 				return (payload as IpcSessionsListPayload | undefined)?.versioned
-					? { version: "harness.1", sessions: sessionsFixture() }
-					: sessionsFixture();
+					? { version: `harness.${revision}`, sessions }
+					: sessions;
+			}
 			case IPC_COMMANDS.PREFS_GET: {
 				const request = payload as PrefsGetPayload | undefined;
 				return request?.key === undefined ? prefs : prefs[request.key];
@@ -620,6 +629,7 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 		calls,
 		stream: { dialogs: [], answers: [] },
 		terminal: { lease: "you" },
+		sessions: [],
 	};
 
 	const transport: OmpTransport = {
