@@ -1607,7 +1607,7 @@ export function Sidebar() {
 			key: child.path,
 			kind: row.tab?.worktree !== undefined || origin.worktree ? "worktree" : "session",
 			status,
-			...(status === "waiting" && isAsk(row.waiting) ? { ask: row.waiting } : {}),
+			ask: isAsk(row.waiting) ? row.waiting : undefined,
 			state: status ? CHILD_TOKEN[status] : null,
 			stateLabel: statusLabel,
 			title,
@@ -1729,7 +1729,7 @@ export function Sidebar() {
 			key: id,
 			kind: tab.worktree !== undefined ? "worktree" : "session",
 			status,
-			...(status === "waiting" && tab.awaitingInput === "approval" ? { ask: "approval" as const } : {}),
+			ask: tab.awaitingInput === "approval" ? "approval" : undefined,
 			state: status ? CHILD_TOKEN[status] : null,
 			stateLabel: statusLabel,
 			title,
@@ -1780,8 +1780,10 @@ export function Sidebar() {
 		...group.sessions.flatMap(session => sessionFoldSignals(session)),
 		...loose.map(childFoldSignal),
 	];
-	/** This device's whole list, while its section is folded: the bot's row, every project, the chats, the archive (an
-	 * archived row shows no family: its own token alone). A filter shows every match under it: its rows say it. */
+	/** An archived row shows no family: its own token alone. */
+	const archivedFoldSignals = () => archivedRows.map(session => sessionFoldSignal(sessionRowState(session)));
+	/** This device's whole list, while its section is folded: the bot's row, every project, the chats, the archive. A
+	 * filter shows every match under it: its rows say it. */
 	const localFoldSummary = () =>
 		foldSummary(
 			query
@@ -1792,7 +1794,7 @@ export function Sidebar() {
 							groupFoldSignals(group, group.folded.map(child => familyChildFor(child)).filter(isShownOpened)),
 						),
 						...chatSessions.flatMap(session => sessionFoldSignals(session)),
-						...archivedRows.map(session => sessionFoldSignal(sessionRowState(session))),
+						...archivedFoldSignals(),
 					],
 		);
 
@@ -2343,11 +2345,7 @@ export function Sidebar() {
 										{t("sidebar.archived", { count: archivedRows.length })}
 									</span>
 									{!archivedOpen && !query && (
-										<SidebarFoldSummary
-											summary={foldSummary(
-												archivedRows.map(session => sessionFoldSignal(sessionRowState(session))),
-											)}
-										/>
+										<SidebarFoldSummary summary={foldSummary(archivedFoldSignals())} />
 									)}
 								</button>
 								<span className="relative flex shrink-0 items-center pr-1">

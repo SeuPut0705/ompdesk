@@ -9,15 +9,15 @@ import { AlertTriangle, Check } from "lucide-react";
 import type { ReactElement } from "react";
 import { useT } from "../../../lib/i18n";
 import { WorkingArc } from "../../common/WorkingArc";
-import { type FoldSummary, foldSummaryText, isQuietFold } from "./fold-summary";
+import { type FoldSummary, foldSummaryText } from "./fold-summary";
 
 export function SidebarFoldSummary({ summary }: { summary: FoldSummary }): ReactElement | null {
 	const t = useT();
-	if (isQuietFold(summary)) return null;
 	const text = foldSummaryText(summary, t);
+	if (!text) return null;
 	return (
 		<span
-			className="flex shrink-0 items-center gap-1 text-sc-xs font-normal text-(--sc-text-muted) tabular-nums"
+			className="flex shrink-0 items-center gap-1 text-sc-xs font-normal text-(--sc-text-muted)"
 			data-fold-done={summary.done || undefined}
 			data-fold-running={summary.running || undefined}
 			data-fold-summary=""
@@ -42,7 +42,7 @@ export function SidebarFoldSummary({ summary }: { summary: FoldSummary }): React
 			)}
 			{summary.done > 0 && (
 				<span aria-hidden className="inline-flex items-center gap-0.5">
-					<Check className="size-3 text-(--sc-success)" data-fold-mark="done" />
+					<Check className="size-3 text-(--sc-success)" />
 					{summary.done > 1 && summary.done}
 				</span>
 			)}

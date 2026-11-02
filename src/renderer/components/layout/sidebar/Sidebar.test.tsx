@@ -7094,7 +7094,7 @@ describe("Sidebar folded headers say what works inside", () => {
 		// The rows' own marks: the waiting token, the working arc, the ✓; no spinner of the header's own.
 		expect(summary?.querySelector(".omp-sidebar-approval")).not.toBeNull();
 		expect(summary?.querySelector(".omp-working-arc")).not.toBeNull();
-		expect(summary?.querySelector('[data-fold-mark="done"]')).not.toBeNull();
+		expect(summary?.querySelector(".lucide-check")).not.toBeNull();
 		expect(container.querySelector('[data-workspace-group="/work/alpha"] .omp-spinner')).toBeNull();
 		const words = [
 			translate("attention.question"),

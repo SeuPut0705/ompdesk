@@ -37,23 +37,14 @@ export function childFoldSignal(child: Pick<FamilyOpened, "status" | "ask">): Fo
 }
 
 export function foldSummary(signals: Iterable<FoldSignal | null>): FoldSummary {
-	let waiting = 0;
-	let running = 0;
-	let done = 0;
-	let ask: AskKind | null = null;
-	for (const signal of signals) {
-		if (signal === "running") running++;
-		else if (signal === "done") done++;
+	const summary = { waiting: 0, running: 0, done: 0, ask: null as AskKind | null };
+	for (const signal of signals)
+		if (signal === "running" || signal === "done") summary[signal]++;
 		else if (signal) {
-			waiting++;
-			ask ??= signal;
+			summary.waiting++;
+			summary.ask ??= signal;
 		}
-	}
-	return { waiting, running, done, ask };
-}
-
-export function isQuietFold(summary: FoldSummary): boolean {
-	return summary.waiting + summary.running + summary.done === 0;
+	return summary;
 }
 
 /** "Needs approval · 2 running · 1 done" (the tooltip and screen-reader text), in the work board's words; "" when quiet. */

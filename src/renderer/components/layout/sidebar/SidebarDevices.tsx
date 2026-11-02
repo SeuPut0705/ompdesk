@@ -119,15 +119,8 @@ const DOT_CLASS: Record<HostView["state"], string> = {
 function hostRowState(tab: SessionTab | undefined, live: HostLiveSession["state"] | undefined) {
 	const known = tab?.status === "asleep" ? undefined : tab;
 	const signal = known ? tabSignalPresentation(known) : null;
-	const ask: AskKind | undefined = known
-		? known.awaitingInput === undefined
-			? undefined
-			: known.awaitingInput === "approval"
-				? "approval"
-				: "question"
-		: live === "waiting"
-			? "question"
-			: undefined;
+	const asked = known ? known.awaitingInput : live === "waiting" ? "input" : undefined;
+	const ask: AskKind | undefined = asked && (asked === "approval" ? "approval" : "question");
 	const waiting = ask !== undefined;
 	const running = known ? signal?.running === true && !waiting : live === "turn" || live === "background";
 	const settling = known ? known.settling === true : live === "background";

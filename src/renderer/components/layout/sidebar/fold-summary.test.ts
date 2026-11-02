@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { translate } from "../../../lib/i18n";
-import { childFoldSignal, foldSummary, foldSummaryText, isQuietFold, sessionFoldSignal } from "./fold-summary";
+import { childFoldSignal, foldSummary, foldSummaryText, sessionFoldSignal } from "./fold-summary";
 
 describe("sessionFoldSignal", () => {
 	it("follows the row's own token: its own prompt, then its run, then an unseen finish", () => {
@@ -32,12 +32,12 @@ describe("foldSummary", () => {
 	it("counts each session once by its signal and keeps the first prompt's kind", () => {
 		const summary = foldSummary(["running", "approval", "running", "question", "done", null, "running"]);
 		expect(summary).toEqual({ running: 3, waiting: 2, done: 1, ask: "approval" });
-		expect(isQuietFold(summary)).toBe(false);
 	});
 
 	it("is quiet when nothing inside works, waits or finished unseen", () => {
-		expect(isQuietFold(foldSummary([null, null]))).toBe(true);
-		expect(isQuietFold(foldSummary([]))).toBe(true);
+		const quiet = { waiting: 0, running: 0, done: 0, ask: null };
+		expect(foldSummary([null, null])).toEqual(quiet);
+		expect(foldSummary([])).toEqual(quiet);
 	});
 });
 
