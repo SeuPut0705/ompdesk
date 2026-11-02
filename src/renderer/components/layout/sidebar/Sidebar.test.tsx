@@ -367,7 +367,7 @@ afterEach(async () => {
 	useClosedChildrenStore.getState().reset();
 	useProjectOrigins.getState().reset();
 	useRemoteStore.getState().reset();
-	useHostedSessionsStore.setState({ sessions: [], live: [], held: [], revision: 0 });
+	useHostedSessionsStore.setState({ sessions: [], live: [], held: [], revision: 0, remoteOpened: [] });
 	useUiStore.setState({
 		panelVisible: false,
 		sessionPickerOpen: false,
@@ -7369,5 +7369,149 @@ describe("Sidebar folded headers say what works inside", () => {
 			running: "1",
 			done: null,
 		});
+	});
+
+	// The same world seen from a view that holds no tab of the child: another window of this computer, or its phone
+	// page. Main says which tabs of its windows a session here opened on a paired device (`sessions.remoteOpened`).
+	it("nests a child another window holds on a paired host under the bot, as the window holding it does", async () => {
+		const BOT = "/work-sessions/bot.jsonl";
+		const PAST = "/work-sessions/bot-before.jsonl";
+		const CHILD = "/Users/kim/.omp/agent/sessions/app/bot-child.jsonl";
+		const local = [
+			...LIST,
+			session(BOT, "/default/work", { title: "Bot", kind: "chat", bot: "on" }),
+			session(PAST, "/default/work", { title: "Bot", kind: "chat", bot: "past" }),
+		];
+		const omp = installMockOmp(local);
+		omp.sessions.list.mockImplementation(async (_scope, device) =>
+			device === "dev-studio"
+				? [...REMOTE, session(CHILD, "/Users/kim/code/app", { title: "Test omp on Windows", device: "dev-studio" })]
+				: local,
+		);
+		useSessionStore.setState({ sessionId: "attached-id", cwd: "/work/gamma", isStreaming: false });
+		useTabsStore.setState({
+			tabs: [{ id: "t0", cwd: "/work/gamma", status: "ready", kind: "agent", unreadDone: false }],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		useHostedSessionsStore.setState({
+			remoteOpened: [
+				{
+					tabId: "r-child",
+					device: "dev-studio",
+					sessionPath: CHILD,
+					cwd: "/Users/kim/code/app",
+					kind: "agent",
+					openedBySession: PAST,
+					status: "ready",
+					task: "Test omp on Windows",
+				},
+			],
+		});
+		useSidebarSubagentsStore.setState({ expanded: new Set([BOT]) });
+		pairStudio([{ sessionPath: CHILD, state: "turn" }]);
+		await mount(<Sidebar />);
+		await act(async () => useBotStore.setState({ enabled: true, path: BOT }));
+		await flush();
+
+		const child = container.querySelector(`[data-sidebar-family="${BOT}"] [data-sidebar-opened-session]`);
+		expect(child?.textContent).toContain("Test omp on Windows");
+		expect(child?.getAttribute("data-child-status")).toBe("running");
+		expect(container.querySelector("[data-sidebar-bot-row] [data-family-running]")?.textContent).toBe("1");
+		const device = container.querySelector('[data-sidebar-device="dev-studio"]');
+		expect(device?.querySelector(`[data-device-session="${CHILD}"]`)).toBeNull();
+		await fire(container.querySelector("[data-sidebar-device-toggle='dev-studio']"), "onClick");
+		expect(summaryIn('[data-sidebar-device="dev-studio"]')).toBeNull();
+		await fire(container.querySelector("[data-sidebar-device-toggle='local']"), "onClick");
+		expect(counts(summaryIn('[data-sidebar-device-header="local"]'))).toEqual({
+			waiting: null,
+			running: "1",
+			done: null,
+		});
+	});
+
+	// The paired computer the child runs on, viewing its host: the host's section nests it under the host's bot, and
+	// this computer's own list, which runs it for the host, does not list it again.
+	it("nests what a host's bot opened on this computer under the host's bot, not in this computer's own list", async () => {
+		const HOST_BOT = "/Users/kim/.omp/agent/sessions/bot.jsonl";
+		const HOST_PAST = "/Users/kim/.omp/agent/sessions/bot-before.jsonl";
+		const CHILD = "/work/alpha/for-the-host.jsonl";
+		const hostRows = [
+			...REMOTE,
+			session(HOST_BOT, "/Users/kim/.omp/work", { title: "Bot", kind: "chat", bot: "on", device: "dev-studio" }),
+			session(HOST_PAST, "/Users/kim/.omp/work", { title: "Bot", kind: "chat", bot: "past", device: "dev-studio" }),
+		];
+		const local = [...FOLD_LIST, session(CHILD, "/work/alpha", { title: "Test omp on Windows" })];
+		const omp = installMockOmp(local);
+		omp.sessions.list.mockImplementation(async (_scope, device) => (device === "dev-studio" ? hostRows : local));
+		useSessionStore.setState({ sessionId: "attached-id", cwd: "/work/gamma", isStreaming: false });
+		useTabsStore.setState({
+			tabs: [{ id: "t0", cwd: "/work/gamma", status: "ready", kind: "agent", unreadDone: false }],
+			activeTabId: "t0",
+			bundles: new Map(),
+		});
+		// This computer runs the child for the host's tab, mid-turn.
+		useHostedSessionsStore.setState({
+			sessions: [
+				{
+					sessionPath: CHILD,
+					sessionId: CHILD,
+					cwd: "/work/alpha",
+					kind: "agent",
+					status: "running",
+					device: "studio",
+					title: "Test omp on Windows",
+				} as never,
+			],
+			live: [{ sessionPath: CHILD, state: "turn" }],
+		});
+		useRemoteStore.getState().apply({
+			tailnet: "ready",
+			host: {
+				enabled: true,
+				name: "laptop",
+				port: null,
+				addresses: [],
+				listenError: null,
+				peers: [],
+				keepAwake: true,
+				keepingAwake: false,
+				usedBy: [],
+			},
+			hosts: [
+				{
+					deviceId: "dev-studio",
+					name: "studio",
+					state: "online",
+					remoteOpened: [
+						{
+							tabId: "r-child",
+							device: "dev-laptop",
+							here: true,
+							sessionPath: CHILD,
+							cwd: "/work/alpha",
+							kind: "agent",
+							openedBySession: HOST_PAST,
+							status: "running",
+							task: "Test omp on Windows",
+						},
+					],
+				},
+			],
+			forgotten: [],
+		});
+		useSidebarSubagentsStore.setState({ expanded: new Set([`device:dev-studio:${HOST_BOT}`]) });
+		await mount(<Sidebar />);
+		await flush();
+
+		const section = container.querySelector('[data-sidebar-device="dev-studio"]');
+		const botRow = section?.querySelector("[data-sidebar-bot-row]");
+		expect(botRow?.querySelector("[data-family-running]")?.textContent).toBe("1");
+		const child = section?.querySelector("[data-sidebar-opened-session]");
+		expect(child?.textContent).toContain("Test omp on Windows");
+		expect(child?.getAttribute("data-child-status")).toBe("running");
+		expect(child?.querySelector("[data-family-device]")?.textContent).toBe("laptop");
+		// This computer's own list leaves it to the host's section: one row for it, under the host's bot.
+		expect(container.querySelectorAll(`[data-session-path="${CHILD}"]`)).toHaveLength(1);
 	});
 });
