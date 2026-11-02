@@ -36,10 +36,11 @@ export function DictationOverlay({
 				<>
 					<span aria-hidden className="flex h-5 items-center gap-0.5">
 						{levels.map((level, index) => (
+							// A bar is the full 20 px lane scaled about its center: a level arrives every frame, so no transition and no layout.
 							<span
-								className="w-1 rounded-full bg-(--sc-danger) motion-safe:transition-[height] duration-(--sc-duration-fast)"
+								className="h-5 w-1 rounded-full bg-(--sc-danger)"
 								key={index}
-								style={{ height: `${Math.round(4 + level * 16)}px` }}
+								style={{ transform: `scaleY(${(4 + level * 16) / 20})` }}
 							/>
 						))}
 					</span>

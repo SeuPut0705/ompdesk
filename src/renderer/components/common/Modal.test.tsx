@@ -2,8 +2,8 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement, useLayoutEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { OVERLAY_EXIT_MS } from "../../hooks/use-overlay-presence";
 import { I18nProvider } from "../../lib/i18n";
+import { motionMs } from "../../lib/motion";
 import { Modal } from "./Modal";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -469,7 +469,7 @@ describe("Modal", () => {
 		expect(panel?.getAttribute("role")).toBe("presentation");
 
 		await act(async () => {
-			await new Promise(resolve => setTimeout(resolve, OVERLAY_EXIT_MS + 20));
+			await new Promise(resolve => setTimeout(resolve, motionMs("med") + 20));
 		});
 		expect(document.querySelector(".omp-dialog-panel")).toBeNull();
 	});

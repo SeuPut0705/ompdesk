@@ -94,7 +94,7 @@ export function UsageGauges({
 							className="omp-usage-gauge-bar"
 							role="progressbar"
 						>
-							<span className="omp-usage-gauge-fill" style={{ width: `${percent}%` }} />
+							<span className="omp-usage-gauge-fill" style={{ transform: `scaleX(${percent / 100})` }} />
 							<span aria-hidden className="omp-usage-gauge-text">
 								<span data-usage-label>{shortWindowLabel(limit)}</span>
 								<span data-usage-percent>{percent}%</span>

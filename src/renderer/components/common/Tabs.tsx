@@ -92,7 +92,8 @@ export function Tabs({ tabs, activeId, onChange, variant = "underline", compact,
 					<button
 						aria-selected={active}
 						className={cx(
-							"relative inline-flex shrink-0 items-center font-medium whitespace-nowrap transition-colors duration-(--sc-duration-fast) disabled:cursor-not-allowed disabled:opacity-50",
+							"relative inline-flex shrink-0 items-center font-medium whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50",
+							segmented ? "omp-pressable" : "transition-colors duration-(--sc-duration-fast)",
 							compact ? "text-sc-sm" : "text-sc-md",
 							segmented
 								? cx(

@@ -332,7 +332,10 @@ function SchemaSettingRow({
 			{showSource && provenance && provenance.layers.length > 0 && (
 				<details className="group/source mt-1 text-sc-xs text-(--sc-text-muted)">
 					<summary className="flex min-h-(--sc-control-sm) w-fit max-w-full cursor-pointer list-none items-center gap-1 rounded-(--sc-radius-sm) select-none hover:text-(--sc-text) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring) [&::-webkit-details-marker]:hidden">
-						<ChevronRight aria-hidden className="size-3 shrink-0 group-open/source:rotate-90" />
+						<ChevronRight
+							aria-hidden
+							className="omp-disclosure-chevron size-3 shrink-0 group-open/source:rotate-90"
+						/>
 						<span className="min-w-0">
 							{t("settings.source.label")}:{" "}
 							{provenance.layers.map(layer => t(`settings.source.${layer}`)).join(" → ")}

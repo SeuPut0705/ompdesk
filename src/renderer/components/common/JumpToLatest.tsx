@@ -26,8 +26,11 @@ export function JumpToLatest({ pinned, className, type, ...rest }: JumpToLatestP
 			aria-label={label}
 			data-jump-to-latest
 			className={cx(
-				"absolute left-1/2 flex h-9 -translate-x-1/2 items-center gap-2 rounded-full border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] px-4 text-omp-md font-medium text-[var(--omp-text)] shadow-[var(--omp-shadow-md)] transition-all hover:bg-[var(--omp-selected-bg)]",
-				pinned ? "pointer-events-none translate-y-12 opacity-0" : "translate-y-0 opacity-100",
+				"absolute left-1/2 flex h-9 -translate-x-1/2 items-center gap-2 rounded-full border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] px-4 text-omp-md font-medium text-[var(--omp-text)] shadow-[var(--omp-shadow-md)] transition-[opacity,translate,background-color] hover:bg-[var(--omp-selected-bg)]",
+				// Arrives decelerating, leaves one step shorter and accelerating (it is already at the edge: nothing to see).
+				pinned
+					? "pointer-events-none translate-y-12 opacity-0 duration-(--sc-duration-instant) ease-(--sc-ease-exit)"
+					: "translate-y-0 opacity-100 duration-(--sc-duration-fast) ease-(--sc-ease-enter)",
 				className,
 			)}
 			tabIndex={pinned ? -1 : 0}

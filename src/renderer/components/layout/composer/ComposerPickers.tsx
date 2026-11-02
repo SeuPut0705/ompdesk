@@ -4,6 +4,7 @@
  */
 import type { RefObject } from "react";
 import type { AvailableCommand } from "../../../../shared/rpc-types";
+import { useOverlayPresence } from "../../../hooks/use-overlay-presence";
 import { useUiStore } from "../../../stores/ui";
 import { HistorySearchOverlay } from "./HistorySearchOverlay";
 import { SkillPickerOverlay } from "./SkillPickerOverlay";
@@ -33,10 +34,14 @@ export function ComposerPickers({
 	onPickSkill: (name: string) => void;
 }) {
 	const openSettings = useUiStore(s => s.openSettings);
+	// Each picker stays mounted for its exit (`omp-pop-out`, the `instant` token); `closing` makes it ignore input.
+	const history = useOverlayPresence(historyOpen, "instant");
+	const skillsPicker = useOverlayPresence(skillsOpen, "instant");
 	return (
 		<>
-			{historyOpen && (
+			{history.mounted && (
 				<HistorySearchOverlay
+					closing={history.closing}
 					cwd={cwd}
 					onSelect={prompt => {
 						closeHistory();
@@ -49,8 +54,9 @@ export function ComposerPickers({
 					}}
 				/>
 			)}
-			{skillsOpen && (
+			{skillsPicker.mounted && (
 				<SkillPickerOverlay
+					closing={skillsPicker.closing}
 					skills={commands
 						.filter(command => command.name.startsWith("skill:"))
 						.map(command => ({

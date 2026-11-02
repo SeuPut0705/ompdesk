@@ -16,9 +16,10 @@
 import { AlertTriangle, CheckCircle2, Info, X, XCircle } from "lucide-react";
 import { type CSSProperties, Fragment, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useListMotion } from "../../hooks/use-list-motion";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { type ToastVariant, useToastStore } from "../../stores/toast";
+import { type ToastVariant, toastExitMs, useToastStore } from "../../stores/toast";
 
 const VARIANT_STYLES: Record<ToastVariant, { icon: string; Icon: typeof Info }> = {
 	info: { icon: "text-(--sc-info)", Icon: Info },
@@ -39,6 +40,8 @@ export interface ToastCardProps {
 	count?: number;
 	onDismiss?: () => void;
 	className?: string;
+	/** The toast's stable key, for the stack's glide when another one leaves. */
+	flipKey?: string;
 }
 
 /** A message's long paths break after a `/` or `\`, never mid-word ("compo / nents"); other text wraps as words. */
@@ -68,6 +71,7 @@ export function ToastCard({
 	action,
 	count = 1,
 	onDismiss,
+	flipKey,
 	className,
 }: ToastCardProps) {
 	const t = useT();
@@ -80,6 +84,7 @@ export function ToastCard({
 				"flex items-start gap-2.5 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) py-3 pr-2 pl-3 shadow-(--sc-shadow-md)",
 				className,
 			)}
+			data-flip-key={flipKey}
 			role={variant === "error" ? "alert" : "status"}
 		>
 			<Icon aria-hidden className={cx("mt-0.5 size-(--sc-icon-md) shrink-0", style.icon)} />
@@ -158,6 +163,19 @@ export function ToastStack() {
 		const timer = setInterval(pruneExpired, 500);
 		return () => clearInterval(timer);
 	}, [toasts.length, pruneExpired]);
+
+	// A toast that started leaving is dropped when its exit is over, so the ones below glide up then and not on the
+	// next 500 ms tick.
+	useEffect(() => {
+		const leaving = toasts.flatMap(entry => (entry.exitingAt === undefined ? [] : [entry.exitingAt]));
+		if (leaving.length === 0) return;
+		const timer = setTimeout(pruneExpired, Math.max(0, Math.min(...leaving) + toastExitMs() - Date.now()));
+		return () => clearTimeout(timer);
+	}, [toasts, pruneExpired]);
+
+	// The stack's toasts glide to their new places when one leaves.
+	const listRef = useRef<HTMLDivElement>(null);
+	useListMotion(listRef);
 
 	// A work board docked along the window's right edge holds what needs the person at its top ("Needs you"); toasts
 	// there covered it (and its rows under them). With one on screen they gather at its foot instead, which is clear of
@@ -254,6 +272,7 @@ export function ToastStack() {
 			<div
 				className="omp-toast-scroll -m-4 flex max-h-[calc(100dvh_-_var(--omp-toast-top)_+_1rem_-_var(--safe-b,0px))] flex-col gap-2 overflow-y-auto overscroll-contain p-4 [scrollbar-width:thin]"
 				data-toast-scroll
+				ref={listRef}
 			>
 				{toasts.map(entry => (
 					<ToastCard
@@ -273,6 +292,7 @@ export function ToastStack() {
 						}
 						count={entry.count}
 						detail={entry.detail}
+						flipKey={String(entry.id)}
 						key={entry.id}
 						message={entry.message}
 						onDismiss={() => dismiss(entry.id)}

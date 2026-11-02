@@ -32,6 +32,7 @@ import { useBackLayer } from "../../hooks/use-back-layer";
 import { useShellInput } from "../../hooks/use-shell-mode";
 import { cx } from "../../lib/format";
 import { isImeKeyEvent } from "../../lib/ime";
+import { motionPlay } from "../../lib/motion";
 import { Button, type ButtonSize, type ButtonVariant } from "./Button";
 import { isTopmostDialog, registerDialogLayer } from "./dialog-layer";
 import { focusNear, placeOf } from "./focus-place";
@@ -170,6 +171,9 @@ export function ContextMenu({
 	onClose,
 }: ContextMenuProps) {
 	const menuRef = useRef<HTMLDivElement>(null);
+	const overlayRef = useRef<HTMLDivElement>(null);
+	// Whoever closes the menu unmounts it: it leaves a copy that plays the exit where it stood.
+	useLayoutEffect(() => () => motionPlay()?.leaveGhost(overlayRef.current ?? menuRef.current), []);
 	const sheet = useShellInput() === "touch";
 	// The system back gesture dismisses the sheet.
 	useBackLayer(sheet, onClose);
@@ -196,6 +200,8 @@ export function ContextMenu({
 				: Math.min(y, window.innerHeight - height - 8);
 		el.style.left = `${Math.max(8, left)}px`;
 		el.style.top = `${Math.max(8, top)}px`;
+		// Grows from the corner its trigger is at: the edge the menu lines up with, on the side facing the anchor.
+		el.style.setProperty("--omp-pop-origin", `${align === "end" ? "right" : "left"} ${top < y ? "bottom" : "top"}`);
 	}, [x, y, above, align, side, sheet]);
 
 	const onCloseRef = useRef(onClose);
@@ -314,6 +320,7 @@ export function ContextMenu({
 		return createPortal(
 			<div
 				className="omp-action-sheet-overlay omp-fade-in"
+				ref={overlayRef}
 				data-action-sheet=""
 				onMouseDown={keepFocus ? event => event.preventDefault() : undefined}
 				role="presentation"

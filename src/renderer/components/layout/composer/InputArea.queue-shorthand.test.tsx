@@ -70,6 +70,11 @@ elementPrototype.getBoundingClientRect = () => ({
 });
 Object.defineProperty(window, "innerHeight", { configurable: true, value: 800 });
 Object.defineProperty(window, "innerWidth", { configurable: true, value: 1200 });
+// Keys and menus, not motion: with motion off a closed menu leaves the DOM at once instead of playing its exit.
+Object.defineProperty(window, "matchMedia", {
+	configurable: true,
+	value: () => ({ matches: true, addEventListener: () => {}, removeEventListener: () => {} }),
+});
 
 interface TestElement {
 	textContent: string | null;

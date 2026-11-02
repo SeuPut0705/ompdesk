@@ -26,6 +26,8 @@ interface HistorySearchOverlayProps {
 	cwd: string;
 	onSelect: (prompt: string) => void;
 	onClose: () => void;
+	/** Already closed, playing its exit (the host keeps it mounted for that): it ignores the pointer and the keys. */
+	closing?: boolean;
 }
 
 /** Wrap fuzzy-match tokens in <mark>, mirroring the TUI's token highlighting. */
@@ -48,7 +50,7 @@ function HighlightedPrompt({ text, tokens }: { text: string; tokens: string[] })
 	);
 }
 
-export function HistorySearchOverlay({ cwd, onSelect, onClose }: HistorySearchOverlayProps) {
+export function HistorySearchOverlay({ cwd, onSelect, onClose, closing = false }: HistorySearchOverlayProps) {
 	const t = useT();
 	const entries = useInputHistoryStore(s => s.entries);
 	const rpc = useTabRpc();
@@ -98,6 +100,7 @@ export function HistorySearchOverlay({ cwd, onSelect, onClose }: HistorySearchOv
 	// same dismissal guarantees: outside click closes it, and Escape is consumed
 	// during capture so the app-level Escape handler cannot abort a running turn.
 	useEffect(() => {
+		if (closing) return;
 		const onPointerDown = (event: PointerEvent) => {
 			if (overlayRef.current?.contains(event.target as Node)) return;
 			onClose();
@@ -114,7 +117,7 @@ export function HistorySearchOverlay({ cwd, onSelect, onClose }: HistorySearchOv
 			document.removeEventListener("pointerdown", onPointerDown);
 			document.removeEventListener("keydown", onKeyDown, true);
 		};
-	}, [onClose]);
+	}, [onClose, closing]);
 
 	const pick = (entry: InputHistoryEntry | undefined) => {
 		if (entry) onSelect(entry.prompt);
@@ -144,8 +147,12 @@ export function HistorySearchOverlay({ cwd, onSelect, onClose }: HistorySearchOv
 	return (
 		<div
 			ref={overlayRef}
-			className="omp-pop-in absolute right-0 bottom-full left-0 z-(--sc-z-popover) mb-2 overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) shadow-(--sc-shadow-md)"
-			role="dialog"
+			className={cx(
+				"absolute right-0 bottom-full left-0 z-(--sc-z-popover) mb-2 overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) shadow-(--sc-shadow-md) [--omp-pop-origin:bottom_center]",
+				closing ? "omp-pop-out" : "omp-pop-in",
+			)}
+			inert={closing}
+			role={closing ? "presentation" : "dialog"}
 			aria-label={t("input.history.title")}
 			aria-modal="false"
 		>

@@ -5,6 +5,7 @@
 
 import { create } from "zustand";
 import { errorDetail, errorMessage } from "../lib/error-detail";
+import { motionMs } from "../lib/motion";
 import { reportRuntimeError } from "../lib/runtime-errors";
 
 export type ToastVariant = "info" | "success" | "warning" | "error";
@@ -54,8 +55,9 @@ interface ToastStore {
 }
 
 let nextId = 1;
-/** How long a dismissed toast lingers for its exit animation. */
-const TOAST_EXIT_MS = 200;
+
+/** How long a dismissed toast lingers for its exit animation: `.omp-toast-out`'s token, 0 where motion is off. */
+export const toastExitMs = (): number => motionMs("fast");
 
 export const useToastStore = create<ToastStore>()(set => ({
 	toasts: [],
@@ -119,9 +121,12 @@ export const useToastStore = create<ToastStore>()(set => ({
 		}),
 	dismiss: id =>
 		set(state => ({
-			toasts: state.toasts.map(toast =>
-				toast.id === id && toast.exitingAt === undefined ? { ...toast, exitingAt: Date.now() } : toast,
-			),
+			toasts:
+				toastExitMs() === 0
+					? state.toasts.filter(toast => toast.id !== id)
+					: state.toasts.map(toast =>
+							toast.id === id && toast.exitingAt === undefined ? { ...toast, exitingAt: Date.now() } : toast,
+						),
 		})),
 	pruneExpired: () => {
 		const now = Date.now();
@@ -141,7 +146,7 @@ export const useToastStore = create<ToastStore>()(set => ({
 			});
 			const kept = marked.filter(toast => {
 				if (toast.exitingAt === undefined) return true;
-				return now < toast.exitingAt + TOAST_EXIT_MS;
+				return now < toast.exitingAt + toastExitMs();
 			});
 			if (!changed && kept.length === state.toasts.length) return state;
 			return { toasts: kept };

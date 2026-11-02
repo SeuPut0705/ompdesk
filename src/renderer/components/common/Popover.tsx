@@ -21,6 +21,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useBackLayer } from "../../hooks/use-back-layer";
+import { useOverlayPresence } from "../../hooks/use-overlay-presence";
 import { useShellInput, useShellMode } from "../../hooks/use-shell-mode";
 import { cx } from "../../lib/format";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -86,18 +87,22 @@ export function Popover({
 	const panelRef = useRef<HTMLDivElement>(null);
 	const onCloseRef = useRef(onClose);
 	onCloseRef.current = onClose;
-	const [position, setPosition] = useState<{ left: number; top: number; room: number } | null>(null);
+	const [position, setPosition] = useState<{ left: number; top: number; room: number; origin: string } | null>(null);
 	const sheet = useShellMode() === "phone";
+	// The panel stays mounted for its exit (a sheet's is longer than a popover's); the effects below follow `open`,
+	// so the layer, focus and listeners are gone the moment it closes while the panel finishes leaving.
+	const { mounted, closing } = useOverlayPresence(open, sheet ? "med" : "instant");
 	const touch = useShellInput() === "touch";
 	// The system back gesture dismisses it on any touch screen, as it does a touch ContextMenu: on a tablet (where it
 	// stays a popover) back otherwise left the page, or closed the installed app.
 	useBackLayer(open && (sheet || touch), onClose);
 
 	useLayoutEffect(() => {
-		if (!open || sheet) {
+		if (sheet) {
 			setPosition(null);
 			return;
 		}
+		if (!open) return;
 		const place = () => {
 			const anchor = anchorRef.current?.getBoundingClientRect();
 			const panel = panelRef.current;
@@ -112,7 +117,9 @@ export function Popover({
 			if (top < MARGIN) top = anchor.bottom + GAP;
 			left = Math.min(Math.max(MARGIN, left), window.innerWidth - width - MARGIN);
 			top = Math.min(Math.max(MARGIN, top), window.innerHeight - height - MARGIN);
-			setPosition({ left, top, room: Math.max(0, preferredRoom(anchor, placement)) });
+			// Grows from the trigger's side: its center on the edge facing the panel.
+			const origin = `${Math.min(Math.max(anchor.left + anchor.width / 2 - left, 0), width)}px ${top >= anchor.bottom ? "0" : "100%"}`;
+			setPosition({ left, top, room: Math.max(0, preferredRoom(anchor, placement)), origin });
 		};
 		place();
 		window.addEventListener("resize", place);
@@ -161,17 +168,22 @@ export function Popover({
 		};
 	}, [open, anchorRef, sheet]);
 
-	if (!open) return null;
+	if (!mounted) return null;
 	// On a phone the popover is a bottom sheet: a panel anchored to a thumb-sized trigger has no room beside it.
 	if (sheet) {
 		return createPortal(
-			<div className="omp-action-sheet-overlay omp-fade-in" data-action-sheet="" role="presentation">
+			<div
+				className={cx("omp-action-sheet-overlay", closing ? "omp-fade-out" : "omp-fade-in")}
+				data-action-sheet=""
+				inert={closing}
+				role="presentation"
+			>
 				<div
 					aria-label={ariaLabel}
-					aria-modal
-					className="omp-action-sheet omp-sheet-in-bottom outline-none"
+					aria-modal={!closing}
+					className={cx("omp-action-sheet outline-none", closing ? "omp-sheet-out" : "omp-sheet-in-bottom")}
 					ref={panelRef}
-					role="dialog"
+					role={closing ? "presentation" : "dialog"}
 					tabIndex={-1}
 				>
 					<SheetHandle onClose={onClose} panelRef={panelRef} />
@@ -185,9 +197,10 @@ export function Popover({
 		<div
 			aria-label={ariaLabel}
 			aria-modal={false}
-			className="omp-pop-in fixed z-(--sc-z-popover) outline-none"
+			className={cx(closing ? "omp-pop-out" : "omp-pop-in", "fixed z-(--sc-z-popover) outline-none")}
+			inert={closing}
 			ref={panelRef}
-			role="dialog"
+			role={closing ? "presentation" : "dialog"}
 			// Unpositioned first frame: transparent rather than hidden, so focus can land inside.
 			style={
 				position
@@ -195,6 +208,7 @@ export function Popover({
 							left: position.left,
 							top: position.top,
 							"--omp-popover-room": `${position.room}px`,
+							"--omp-pop-origin": position.origin,
 						} as CSSProperties)
 					: { left: 0, top: 0, opacity: 0 }
 			}

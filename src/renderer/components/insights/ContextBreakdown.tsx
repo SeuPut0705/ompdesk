@@ -113,7 +113,7 @@ export function ContextBreakdown({ refreshKey = 0 }: { refreshKey?: number }) {
 			>
 				{filled.map(row => (
 					<span
-						className="h-full min-w-0.5 transition-[width] duration-(--sc-duration-med)"
+						className="h-full min-w-0.5"
 						key={row.key}
 						style={{ width: `${(row.tokens / barDenominator) * 100}%`, backgroundColor: row.color }}
 					/>

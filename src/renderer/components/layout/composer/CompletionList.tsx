@@ -6,8 +6,10 @@
  */
 import { memo, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { currentShellMode, useShellInput } from "../../../hooks/use-shell-mode";
+import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { Kbd, OptionRow } from "../../common";
+import { useHeldOverlay } from "../../common/use-held-overlay";
 import type { CompletionItem, CompletionMenu } from "./use-completion-menu";
 
 /** The label with the spans the query matched set in the accent colour (the history search's `<mark>` look). */
@@ -41,12 +43,12 @@ function HighlightedLabel({ label, ranges }: { label: string; ranges: readonly [
  * margin, re-measured when the pane, the window or the visual viewport (the soft keyboard) resizes. The menu's own
  * `60vh` ceiling reached past the header when the keyboard left 190 px. `null` keeps the CSS ceiling.
  */
-function useMenuRoom(menuRef: RefObject<HTMLElement | null>): number | null {
+function useMenuRoom(menuRef: RefObject<HTMLElement | null>, present: boolean): number | null {
 	const [room, setRoom] = useState<number | null>(null);
 	useLayoutEffect(() => {
 		const menu = menuRef.current;
 		const anchor = menu?.parentElement;
-		if (!menu || !anchor || currentShellMode() === null) return;
+		if (!present || !menu || !anchor || currentShellMode() === null) return;
 		const pane = menu.closest<HTMLElement>(".omp-session-pane");
 		const measure = () => {
 			const floor = pane?.getBoundingClientRect().top ?? 0;
@@ -62,17 +64,17 @@ function useMenuRoom(menuRef: RefObject<HTMLElement | null>): number | null {
 			window.visualViewport?.removeEventListener("resize", measure);
 			observer?.disconnect();
 		};
-	}, [menuRef]);
+	}, [menuRef, present]);
 	return room;
 }
 
 export const CompletionList = memo(function CompletionList({
-	menu,
+	menu: live,
 	menuId,
 	onPick,
 	onHover,
 }: {
-	menu: CompletionMenu;
+	menu: CompletionMenu | null;
 	/** The listbox id; row `i` is `${menuId}-${i}` (the field's `aria-activedescendant`). */
 	menuId: string;
 	onPick: (item: CompletionItem) => void;
@@ -80,20 +82,29 @@ export const CompletionList = memo(function CompletionList({
 	onHover: (index: number) => void;
 }) {
 	const t = useT();
-	const menuIndex = menu.index;
+	// The menu leaves with its last rows (it is `null` the moment the field stops completing).
+	const { shown: menu, closing } = useHeldOverlay(live, "instant");
+	const menuIndex = menu?.index;
 	// Home/End/PageDown/↓ can land on a row below the listbox's fold.
 	useEffect(() => {
-		document.getElementById(`${menuId}-${menuIndex}`)?.scrollIntoView?.({ block: "nearest" });
+		if (menuIndex !== undefined)
+			document.getElementById(`${menuId}-${menuIndex}`)?.scrollIntoView?.({ block: "nearest" });
 	}, [menuId, menuIndex]);
-	const footer = menu.footer;
 	/** Key hints are for a hardware keyboard: a touch screen (phone or tablet) shows the notes only. */
 	const touch = useShellInput() === "touch";
 	const ref = useRef<HTMLDivElement>(null);
-	const room = useMenuRoom(ref);
+	const room = useMenuRoom(ref, menu !== null);
+	if (!menu) return null;
+	const footer = menu.footer;
 	return (
 		<div
-			className="absolute bottom-full left-0 z-(--sc-z-popover) mb-2 flex max-h-[60vh] w-[min(440px,100%)] flex-col overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) shadow-(--sc-shadow-md)"
+			aria-hidden={closing || undefined}
+			className={cx(
+				"absolute bottom-full left-0 z-(--sc-z-popover) mb-2 flex max-h-[60vh] w-[min(440px,100%)] flex-col overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) shadow-(--sc-shadow-md) [--omp-pop-origin:bottom_left]",
+				closing ? "omp-pop-out" : "omp-pop-in",
+			)}
 			data-completion-menu={menu.source}
+			inert={closing}
 			ref={ref}
 			style={room === null ? undefined : { maxHeight: room }}
 		>

@@ -4,12 +4,14 @@
  * ←/→ (or ↑/↓, Tab) walk the four actions and Enter takes the one marked; a click elsewhere keeps the paste inline.
  */
 import type { RefObject } from "react";
+import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { Button } from "../../common";
+import { useHeldOverlay } from "../../common/use-held-overlay";
 import type { PendingPaste } from "./use-composer-paste";
 
 export function PasteMenu({
-	paste,
+	paste: live,
 	menuRef,
 	active,
 	onInline,
@@ -17,7 +19,7 @@ export function PasteMenu({
 	onSaveFile,
 	onCancel,
 }: {
-	paste: PendingPaste;
+	paste: PendingPaste | null;
 	menuRef: RefObject<HTMLDivElement | null>;
 	/** The action the keyboard is on: 0 inline, 1 wrapped, 2 file, 3 cancel. */
 	active: number;
@@ -27,6 +29,9 @@ export function PasteMenu({
 	onCancel: () => void;
 }) {
 	const t = useT();
+	// The choice leaves with its last content: `pending` is `null` the moment a way is taken.
+	const { shown: paste, closing } = useHeldOverlay(live, "instant");
+	if (!paste) return null;
 	const title = t("input.paste.title", { lines: paste.lineCount, chars: paste.content.length });
 	const lines = paste.content.split("\n");
 	const preview =
@@ -40,9 +45,13 @@ export function PasteMenu({
 	return (
 		<div
 			ref={menuRef}
-			role="dialog"
+			role={closing ? "presentation" : "dialog"}
 			aria-label={title}
-			className="omp-pop-in absolute right-0 bottom-full left-0 z-(--sc-z-popover) mb-2 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) p-3 shadow-(--sc-shadow-md)"
+			inert={closing}
+			className={cx(
+				"absolute right-0 bottom-full left-0 z-(--sc-z-popover) mb-2 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) p-3 shadow-(--sc-shadow-md) [--omp-pop-origin:bottom_center]",
+				closing ? "omp-pop-out" : "omp-pop-in",
+			)}
 		>
 			<div className="flex items-baseline justify-between gap-3">
 				<span className="text-sc-md font-medium text-(--sc-text)">{title}</span>

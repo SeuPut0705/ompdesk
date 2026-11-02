@@ -31,6 +31,12 @@ Object.assign(globalThis as Record<string, unknown>, {
 // The popover is positioned off the viewport box, which linkedom leaves unset.
 (window as unknown as Record<string, unknown>).innerHeight = 900;
 (window as unknown as Record<string, unknown>).innerWidth = 1200;
+// These cases are about what the popover does, not how it moves: motion off, so a closed popover is gone at once.
+(window as unknown as Record<string, unknown>).matchMedia = () => ({
+	matches: true,
+	addEventListener: () => {},
+	removeEventListener: () => {},
+});
 const elementPrototype = HTMLElement.prototype as unknown as Record<string, unknown>;
 if (typeof elementPrototype.focus !== "function") elementPrototype.focus = () => {};
 

@@ -22,6 +22,7 @@ import {
 } from "../../lib/whats-new";
 import { useUiStore } from "../../stores/ui";
 import { BrandMark, Button, IconButton } from "../common";
+import { Collapse } from "../common/Collapse";
 
 /** Focused, unhovered time before the card hides itself. */
 export const WHATS_NEW_AUTO_HIDE_MS = 60_000;
@@ -113,12 +114,21 @@ function WhatsNewCardBody({ version, since }: { version: string; since: string |
 	);
 }
 
-/** Mounted once in the shell's main column under the title bar; renders the card while the ui store holds one. */
+/**
+ * Mounted once in the shell's main column under the title bar; renders the card while the ui store holds one. It
+ * grows in when one arrives and folds away with its last text when dismissed (`Collapse`: the row is in the layout
+ * flow, so the workspace below follows it).
+ */
 export function WhatsNewCard() {
 	const card = useUiStore(state => state.whatsNewCard);
+	const held = useRef(card);
+	if (card) held.current = card;
+	const shown = held.current;
 	return (
 		<div aria-atomic="true" aria-live="polite" className="shrink-0" role="status">
-			{card && <WhatsNewCardBody key={card.version} since={card.since} version={card.version} />}
+			<Collapse open={card !== null}>
+				{shown && <WhatsNewCardBody key={shown.version} since={shown.since} version={shown.version} />}
+			</Collapse>
 		</div>
 	);
 }

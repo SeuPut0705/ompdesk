@@ -24,9 +24,10 @@ const TRACK: Record<SwitchSize, string> = {
 	md: "h-[18px] w-8",
 };
 
-const KNOB: Record<SwitchSize, { off: string; on: string }> = {
-	sm: { off: "size-2 translate-x-[3px]", on: "size-3 translate-x-[12px]" },
-	md: { off: "size-2.5 translate-x-[3px]", on: "size-3.5 translate-x-[14px]" },
+/** One knob size per switch, drawn at its on size; off is the same knob scaled down about its center (no size transition). */
+const KNOB: Record<SwitchSize, { base: string; off: string; on: string }> = {
+	sm: { base: "size-3", off: "translate-x-[1px] scale-[0.667]", on: "translate-x-[12px] scale-100" },
+	md: { base: "size-3.5", off: "translate-x-[1px] scale-[0.714]", on: "translate-x-[14px] scale-100" },
 };
 
 export interface SwitchProps
@@ -77,7 +78,8 @@ export function Switch({
 			>
 				<span
 					className={cx(
-						"rounded-(--sc-radius-full) transition-[transform,width,height,background-color] duration-(--sc-duration-fast) ease-(--sc-ease-standard)",
+						"rounded-(--sc-radius-full) transition-[translate,scale,background-color] duration-(--sc-duration-instant) ease-(--sc-ease-standard)",
+						KNOB[size].base,
 						checked ? `bg-(--sc-accent-fg) ${KNOB[size].on}` : `bg-(--sc-text-muted) ${KNOB[size].off}`,
 					)}
 				/>

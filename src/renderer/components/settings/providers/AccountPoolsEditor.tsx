@@ -146,7 +146,7 @@ function AgentPool({
 					<ChevronDown
 						aria-hidden
 						className={cx(
-							"size-(--sc-icon-sm) text-(--sc-text-muted) transition-transform duration-(--sc-duration-fast) motion-reduce:transition-none",
+							"omp-disclosure-chevron size-(--sc-icon-sm) text-(--sc-text-muted)",
 							expanded && "rotate-180",
 						)}
 					/>

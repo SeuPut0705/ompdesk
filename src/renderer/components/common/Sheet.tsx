@@ -34,7 +34,7 @@ const WIDTH: Record<SheetSize, string> = {
 	lg: "w-[min(560px,calc(100vw-48px))]",
 };
 
-/** Panel geometry and the entrance per placement; the exit of the non-right ones is `omp-sheet-out` (mobile.css). */
+/** Panel geometry and the entrance per placement; the exit is `omp-sheet-out`, or `omp-slide-out-right` for the right one (mobile.css). */
 const PLACEMENT: Record<SheetPlacement, { overlay: string; panel: string; enter: string; surface: string }> = {
 	right: { overlay: "justify-end", panel: "h-full", enter: "omp-slide-in-right", surface: "border-l" },
 	left: { overlay: "justify-start", panel: "h-full", enter: "omp-sheet-in-left", surface: "border-r" },
@@ -166,7 +166,8 @@ export interface SheetProps
 export function Sheet({ open, onClose, size = "md", placement = "right", kind, ...surface }: SheetProps) {
 	const titleId = useId();
 	const panelRef = useRef<HTMLDivElement>(null);
-	const { mounted, closing } = useOverlayPresence(open);
+	// A side sheet's slide is short (`omp-slide-in-right`, `med`), so it leaves in `fast`; the others cross the screen.
+	const { mounted, closing } = useOverlayPresence(open, placement === "right" ? "fast" : "med");
 	useModalLayer(open, panelRef, onClose);
 	if (!mounted) return null;
 	const sideEdge = placement === "right" || placement === "left";
@@ -193,7 +194,7 @@ export function Sheet({ open, onClose, size = "md", placement = "right", kind, .
 					geometry.panel,
 					sideEdge && WIDTH[size],
 					placement === "bottom" && "max-h-[calc(100dvh-var(--safe-t)-1rem)]",
-					closing ? placement !== "right" && "omp-sheet-out" : geometry.enter,
+					closing ? (placement === "right" ? "omp-slide-out-right" : "omp-sheet-out") : geometry.enter,
 				)}
 				data-sheet-kind={kind}
 				data-sheet-panel=""

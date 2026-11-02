@@ -2,8 +2,8 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
-import { OVERLAY_EXIT_MS } from "../../hooks/use-overlay-presence";
 import { I18nProvider } from "../../lib/i18n";
+import { motionMs } from "../../lib/motion";
 import { ZoomableImage } from "./ZoomableImage";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -66,7 +66,7 @@ describe("ZoomableImage", () => {
 		expect(viewer()?.querySelector("[data-image-viewer]")?.getAttribute("aria-pressed")).toBe("true");
 
 		await click(viewer()?.querySelector('button[aria-label="Close"]') ?? null);
-		await settle(OVERLAY_EXIT_MS + 20);
+		await settle(motionMs("med") + 20);
 		expect(viewer()).toBeNull();
 
 		// Reopening starts fitted again.

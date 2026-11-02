@@ -7,8 +7,8 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { OVERLAY_EXIT_MS } from "../../hooks/use-overlay-presence";
 import { I18nProvider, translate } from "../../lib/i18n";
+import { motionMs } from "../../lib/motion";
 import { useMachineSetupStore } from "../../stores/machine-setup";
 import { fakeSetupApi, setupState } from "../../test-support/machine-setup";
 import { SetupTakeover } from "./SetupTakeover";
@@ -181,7 +181,7 @@ describe("SetupTakeover", () => {
 		expect(closing?.className).toContain("omp-fade-out");
 		expect(closing?.hasAttribute("inert")).toBe(true);
 		expect(closing?.getAttribute("role")).toBe("presentation");
-		await act(async () => vi.advanceTimersByTime(OVERLAY_EXIT_MS));
+		await act(async () => vi.advanceTimersByTime(motionMs("med")));
 		expect(query('[data-testid="setup-takeover"]')).toBeNull();
 	});
 

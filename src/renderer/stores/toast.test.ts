@@ -23,7 +23,7 @@ describe("toast hold", () => {
 		expect(useToastStore.getState().toasts[0]?.exitingAt).toBeUndefined();
 		vi.advanceTimersByTime(200);
 		store.pruneExpired();
-		expect(useToastStore.getState().toasts[0]?.exitingAt).toBeDefined();
+		expect(useToastStore.getState().toasts.filter(toast => toast.exitingAt === undefined)).toEqual([]);
 	});
 });
 

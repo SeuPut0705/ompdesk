@@ -101,7 +101,7 @@ export function SegmentedChoice<V extends string>({
 						aria-checked={checked}
 						aria-label={option.name === undefined ? undefined : name}
 						className={cx(
-							"flex h-(--sc-hit-min) items-center justify-center gap-1 rounded-(--sc-radius-sm) text-sc-sm font-medium whitespace-nowrap transition-colors duration-(--sc-duration-fast) disabled:cursor-not-allowed disabled:opacity-50",
+							"omp-pressable flex h-(--sc-hit-min) items-center justify-center gap-1 rounded-(--sc-radius-sm) text-sc-sm font-medium whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50",
 							SEGMENT[fit],
 							checked
 								? "bg-(--sc-elevated) text-(--sc-text) shadow-(--sc-shadow-sm)"

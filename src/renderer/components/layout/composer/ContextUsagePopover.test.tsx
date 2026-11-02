@@ -3,8 +3,8 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { RpcContextReportResult, RpcResponse } from "../../../../shared/rpc-types";
-import { OVERLAY_EXIT_MS } from "../../../hooks/use-overlay-presence";
 import { I18nProvider, translate } from "../../../lib/i18n";
+import { motionMs } from "../../../lib/motion";
 import { useForkHandoffStore } from "../../../stores/fork-handoff";
 import { useModelStore } from "../../../stores/model";
 import { useSessionStore } from "../../../stores/session";
@@ -122,7 +122,7 @@ async function mount(): Promise<void> {
 /** Past the exit-animation hold, when a closed overlay is finally unmounted. */
 async function settleExit(): Promise<void> {
 	await act(async () => {
-		await new Promise(resolve => setTimeout(resolve, OVERLAY_EXIT_MS + 20));
+		await new Promise(resolve => setTimeout(resolve, motionMs("med") + 20));
 	});
 }
 

@@ -1,6 +1,7 @@
 import { Paperclip } from "lucide-react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useInlineCompletion } from "../../../hooks/use-inline-completion";
+import { useOverlayPresence } from "../../../hooks/use-overlay-presence";
 import { useShellInput } from "../../../hooks/use-shell-mode";
 import type { ComposerWindowAction } from "../../../lib/composer-actions";
 import { COMPOSER_BLOCKED_PLACEHOLDER, useComposerBlockedBy } from "../../../lib/composer-blocked";
@@ -171,6 +172,8 @@ export function InputArea() {
 		textareaRef,
 		regionRef,
 	});
+	// The drop overlay leaves with a fade: a drag that ends (dropped or cancelled) is not a cut.
+	const drop = useOverlayPresence(dragActive, "fast");
 	const paste = useComposerPaste({ text, textareaRef, placeDraft, attachFiles, runtimeTabId });
 	const pasteMenu = paste.pending;
 	const chipsRef = useRef<NextPromptChipsHandle>(null);
@@ -413,28 +416,24 @@ export function InputArea() {
 				{/* Anchoring context for completion/history overlays: they sit directly
 				    above the input box instead of the surrounding composer region. */}
 				<div className="omp-composer-anchor relative">
-					{pasteMenu && (
-						<PasteMenu
-							active={paste.active}
-							menuRef={paste.menuRef}
-							onCancel={() => {
-								paste.cancel();
-								textareaRef.current?.focus();
-							}}
-							onInline={paste.chooseInline}
-							onSaveFile={paste.chooseSaveFile}
-							onWrap={paste.chooseWrapped}
-							paste={pasteMenu}
-						/>
-					)}
-					{menu && (
-						<CompletionList
-							menu={menu}
-							menuId={menuId}
-							onHover={index => setMenu({ ...menu, index })}
-							onPick={insertCompletion}
-						/>
-					)}
+					<PasteMenu
+						active={paste.active}
+						menuRef={paste.menuRef}
+						onCancel={() => {
+							paste.cancel();
+							textareaRef.current?.focus();
+						}}
+						onInline={paste.chooseInline}
+						onSaveFile={paste.chooseSaveFile}
+						onWrap={paste.chooseWrapped}
+						paste={pasteMenu}
+					/>
+					<CompletionList
+						menu={menu}
+						menuId={menuId}
+						onHover={index => menu && setMenu({ ...menu, index })}
+						onPick={insertCompletion}
+					/>
 					<CompletionStatus count={menu?.items.length ?? 0} empty={menuEmpty} />
 
 					<ComposerPickers
@@ -470,8 +469,11 @@ export function InputArea() {
 						data-drag-active={dragActive || undefined}
 					>
 						<ComposerLiveSweep />
-						{dragActive && (
-							<div aria-hidden className="omp-composer-drop omp-fade-in">
+						{drop.mounted && (
+							<div
+								aria-hidden
+								className={cx("omp-composer-drop", drop.closing ? "omp-fade-out" : "omp-fade-in")}
+							>
 								<Paperclip aria-hidden className="size-(--sc-icon-md)" />
 								{t("input.dropFiles")}
 							</div>

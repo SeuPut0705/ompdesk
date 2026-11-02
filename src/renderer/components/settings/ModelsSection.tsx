@@ -47,14 +47,7 @@ export function ModelsSection({ sub }: { sub?: string }) {
 							<Button
 								aria-controls={compareId}
 								aria-expanded={compareOpen}
-								icon={
-									<ChevronDown
-										className={cx(
-											"transition-transform duration-(--sc-duration-fast) motion-reduce:transition-none",
-											compareOpen && "rotate-180",
-										)}
-									/>
-								}
+								icon={<ChevronDown className={cx("omp-disclosure-chevron", compareOpen && "rotate-180")} />}
 								onClick={() => setCompareOpen(open => !open)}
 								size="sm"
 								variant="ghost"

@@ -139,7 +139,7 @@ export function SettingsAdvanced({ children, label }: { children: ReactNode; lab
 			<summary className="flex min-h-(--sc-control-sm) w-fit max-w-full cursor-pointer list-none items-center gap-1.5 rounded-(--sc-radius-sm) text-sc-sm font-medium text-(--sc-text-secondary) select-none hover:text-(--sc-text) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring) [&::-webkit-details-marker]:hidden">
 				<ChevronRight
 					aria-hidden
-					className="size-(--sc-icon-sm) shrink-0 transition-transform duration-(--sc-duration-fast) group-open/advanced:rotate-90 motion-reduce:transition-none"
+					className="omp-disclosure-chevron size-(--sc-icon-sm) shrink-0 group-open/advanced:rotate-90"
 				/>
 				{label ?? t("settings.advancedGroup")}
 			</summary>

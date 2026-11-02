@@ -182,10 +182,7 @@ export function AdvancedAndRoles({ onClose }: { onClose: () => void }) {
 					icon={
 						<ChevronRight
 							aria-hidden
-							className={cx(
-								"text-(--sc-text-muted) transition-transform duration-(--sc-duration-fast) motion-reduce:transition-none",
-								advancedOpen && "rotate-90",
-							)}
+							className={cx("omp-disclosure-chevron text-(--sc-text-muted)", advancedOpen && "rotate-90")}
 						/>
 					}
 					onClick={() => setAdvancedOpen(value => !value)}

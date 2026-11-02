@@ -203,10 +203,13 @@ export function Modal({
 	const titleId = useId();
 	const descriptionId = useId();
 	const panelRef = useRef<HTMLDivElement>(null);
+	// On a phone every dialog is a bottom sheet (mobile.css lays it out); a dialog scoped to a container stays put.
+	const sheet = useShellMode() === "phone" && !container;
 	// Exit phase lives in the shared overlay-presence hook: `mounted` — not `open` —
 	// gates the portal, the phase starts in the SAME commit's effect while the panel
-	// is still in the DOM, and reduced motion skips straight to unmount.
-	const { mounted, closing } = useOverlayPresence(open);
+	// is still in the DOM for its exit (a sheet's is longer), and where motion is off it
+	// skips straight to unmount.
+	const { mounted, closing } = useOverlayPresence(open, sheet ? "med" : "fast");
 
 	// What actually animates out. A dialog whose payload clears on close rebuilds
 	// its children from `null`, so the fading panel would collapse to an empty box;
@@ -223,8 +226,6 @@ export function Modal({
 	const shown = shownRef.current;
 
 	useModalLayer(open, panelRef, onClose);
-	// On a phone every dialog is a bottom sheet (mobile.css lays it out); a dialog scoped to a container stays put.
-	const sheet = useShellMode() === "phone" && !container;
 
 	// Render on the opening commit so the focus/layer effect sees a real panel.
 	// `mounted` only extends the closing phase for the exit animation.

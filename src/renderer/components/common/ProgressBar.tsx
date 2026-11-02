@@ -72,9 +72,10 @@ export function ProgressBar({
 				{indeterminate ? (
 					<div className="omp-indeterminate-progress h-full rounded-full" style={{ backgroundColor: fill }} />
 				) : (
+					// scaleX from the left edge, not `width`: the fill's size change is a compositor transform, not a layout.
 					<div
-						className="h-full rounded-full transition-[width] duration-(--sc-duration-med) ease-out"
-						style={{ width: `${clamped * 100}%`, backgroundColor: fill }}
+						className="h-full origin-left transition-transform duration-(--sc-duration-med) ease-(--sc-ease-standard)"
+						style={{ transform: `scaleX(${clamped})`, backgroundColor: fill }}
 					/>
 				)}
 			</div>

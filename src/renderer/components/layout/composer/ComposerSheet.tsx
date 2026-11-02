@@ -9,6 +9,7 @@
 import { type ReactNode, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useBackLayer } from "../../../hooks/use-back-layer";
+import { useOverlayPresence } from "../../../hooks/use-overlay-presence";
 import { cx } from "../../../lib/format";
 import { isImeKeyEvent } from "../../../lib/ime";
 import { PopoverSurface } from "../../common/Popover";
@@ -32,6 +33,8 @@ export function ComposerSheet({
 	const closeRef = useRef(onClose);
 	closeRef.current = onClose;
 	useBackLayer(open, onClose);
+	// The sheet leaves in `med` (`omp-sheet-out`), the panel's pull and the scrim on the same clock.
+	const { mounted, closing } = useOverlayPresence(open, "med");
 	useEffect(() => {
 		if (!open) return;
 		const fieldHadFocus = document.activeElement?.matches("[data-composer-input]") === true;
@@ -48,13 +51,14 @@ export function ComposerSheet({
 			if (field?.isConnected && (!document.activeElement || document.activeElement === document.body)) field.focus();
 		};
 	}, [open]);
-	if (!open) return null;
+	if (!mounted) return null;
 	return createPortal(
 		<div
 			{...keepFocus}
-			className="omp-action-sheet-overlay omp-fade-in"
+			className={cx("omp-action-sheet-overlay", closing ? "omp-fade-out" : "omp-fade-in")}
 			data-action-sheet=""
 			data-composer-sheet=""
+			inert={closing}
 			onClick={event => {
 				if (event.target === event.currentTarget) onClose();
 			}}
@@ -63,9 +67,9 @@ export function ComposerSheet({
 			<div
 				aria-label={label}
 				aria-modal="false"
-				className="omp-action-sheet omp-sheet-in-bottom outline-none"
+				className={cx("omp-action-sheet outline-none", closing ? "omp-sheet-out" : "omp-sheet-in-bottom")}
 				ref={panelRef}
-				role="dialog"
+				role={closing ? "presentation" : "dialog"}
 			>
 				<SheetHandle onClose={onClose} panelRef={panelRef} />
 				<PopoverSurface className={cx("omp-action-sheet-surface", className)}>{children}</PopoverSurface>

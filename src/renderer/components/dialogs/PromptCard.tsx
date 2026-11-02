@@ -16,12 +16,14 @@ import {
 	type RefObject,
 	useContext,
 	useEffect,
+	useLayoutEffect,
 	useRef,
 } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
+import { motionPlay } from "../../lib/motion";
 import { useSessionRuntime } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { Badge } from "../common";
@@ -97,6 +99,8 @@ export function PromptCard({
 	};
 	const cardRef = useRef<HTMLElement>(null);
 	useCardFocus(cardRef);
+	// The agent's request is answered by unmounting the card: it leaves a copy that plays the exit where it stood.
+	useLayoutEffect(() => () => motionPlay()?.leaveGhost(cardRef.current), []);
 	const onKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
 		if (isImeKeyEvent(event.nativeEvent)) return;
 		if (event.key === "Escape") {
@@ -115,7 +119,7 @@ export function PromptCard({
 		<PromptDock>
 			<section
 				aria-label={label}
-				className="omp-pop-in omp-prompt-card mb-2 flex flex-col overflow-hidden rounded-(--sc-radius-xl) border border-(--sc-border-subtle) bg-(--sc-elevated) text-(--sc-text) shadow-(--sc-shadow-md) outline-none"
+				className="omp-pop-in omp-prompt-card mb-2 flex flex-col overflow-hidden rounded-(--sc-radius-xl) border border-(--sc-border-subtle) bg-(--sc-elevated) text-(--sc-text) shadow-(--sc-shadow-md) outline-none [--omp-pop-origin:bottom_center]"
 				data-prompt-card
 				onKeyDown={onKeyDown}
 				onPointerDownCapture={focusPane}

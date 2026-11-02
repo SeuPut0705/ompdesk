@@ -82,7 +82,8 @@ export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "
 	const buttonRef = useRef<HTMLButtonElement>(null);
 	const popoverRef = useRef<HTMLDivElement>(null);
 	const closeTimer = useRef<number | undefined>(undefined);
-	const { mounted, closing } = useOverlayPresence(open);
+	// The popover leaves in `instant` (`omp-pop-out`); the phone's sheet has its own presence (ComposerSheet).
+	const { mounted, closing } = useOverlayPresence(open, "instant");
 	/** Opened with Enter or Space: focus moves into the breakdown once it is on screen (never on a hover or a focus). */
 	const focusPanel = useRef(false);
 
@@ -251,7 +252,14 @@ export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "
 			: t("contextUsage.ring", { percent: percentRounded, used, window: capacity });
 
 	const popoverStyle: CSSProperties | undefined = anchor
-		? { bottom: anchor.bottom, left: anchor.left, top: anchor.top, width: anchor.width }
+		? ({
+				bottom: anchor.bottom,
+				left: anchor.left,
+				top: anchor.top,
+				width: anchor.width,
+				// Grows from the ring: out of the edge that faces it.
+				"--omp-pop-origin": anchor.bottom === undefined ? "top center" : "bottom center",
+			} as CSSProperties)
 		: undefined;
 
 	const frame = (panel: ReactElement) =>
@@ -306,7 +314,7 @@ export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "
 				</button>
 			</Tooltip>
 
-			{(sheet ? open : mounted && anchor) &&
+			{(sheet || (mounted && anchor)) &&
 				frame(
 					<div
 						aria-hidden={closing || undefined}
@@ -315,7 +323,7 @@ export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "
 							sheet
 								? "px-3 pt-1 pb-1 break-keep text-(--sc-text)"
 								: "fixed z-(--sc-z-popover) rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) px-4 pt-4 pb-2 break-keep text-(--sc-text) shadow-(--sc-shadow-md)",
-							!sheet && (closing ? "omp-scale-out pointer-events-none" : "omp-pop-in"),
+							!sheet && (closing ? "omp-pop-out pointer-events-none" : "omp-pop-in"),
 						)}
 						id="omp-context-usage-popover"
 						inert={closing}

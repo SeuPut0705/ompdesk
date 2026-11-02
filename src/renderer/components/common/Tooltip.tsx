@@ -11,6 +11,7 @@
  */
 
 import {
+	type CSSProperties,
 	cloneElement,
 	type FocusEvent,
 	type HTMLAttributes,
@@ -35,8 +36,20 @@ const SHOW_DELAY_MS = 450;
 /** A finger: how long a press must hold to open the bubble, and how long the bubble then stays. */
 const TOUCH_PRESS_MS = 500;
 const TOUCH_LINGER_MS = 4000;
+/** A bubble that closed this recently hands over to the next one at once, without delay or animation (a toolbar's icons). */
+const WARM_MS = 300;
 const GAP = 6;
 const MARGIN = 8;
+
+/** The bubble's edge that faces its trigger: it grows from there. */
+const ORIGIN: Record<TooltipSide, string> = {
+	top: "bottom center",
+	bottom: "top center",
+	left: "right center",
+	right: "left center",
+};
+
+let lastClosedAt = Number.NEGATIVE_INFINITY;
 
 export interface TooltipBubbleProps {
 	id?: string;
@@ -89,9 +102,13 @@ export function Tooltip({ content, shortcut, side = "top", describe = true, hidd
 	/** The press that opened the bubble: the click it leads to is swallowed. */
 	const pressedRef = useRef(false);
 	const touch = useShellInput() === "touch";
+	/** The bubble that opened on a warm hand-over skips its entrance. */
+	const handedOverRef = useRef(false);
 
 	const hide = () => {
 		clearTimeout(timerRef.current);
+		if (anchor) lastClosedAt = performance.now();
+		handedOverRef.current = false;
 		setAnchor(null);
 		setPosition(null);
 	};
@@ -118,6 +135,8 @@ export function Tooltip({ content, shortcut, side = "top", describe = true, hidd
 	useEffect(() => {
 		if (!anchor) return;
 		const dismiss = () => {
+			lastClosedAt = performance.now();
+			handedOverRef.current = false;
 			setAnchor(null);
 			setPosition(null);
 		};
@@ -162,6 +181,11 @@ export function Tooltip({ content, shortcut, side = "top", describe = true, hidd
 			if (fingerDown(event)) return;
 			const target = event.currentTarget;
 			clearTimeout(timerRef.current);
+			if (performance.now() - lastClosedAt < WARM_MS) {
+				handedOverRef.current = true;
+				setAnchor(target);
+				return;
+			}
 			timerRef.current = window.setTimeout(() => setAnchor(target), SHOW_DELAY_MS);
 		},
 		onPointerLeave: (event: PointerEvent<HTMLElement>) => {
@@ -230,9 +254,16 @@ export function Tooltip({ content, shortcut, side = "top", describe = true, hidd
 					<div
 						// The bubble takes no pointer, and neither does its frame: a tooltip a focused control shows over a
 						// control next to it (the mic's over a failed take's Details) must not take that control's clicks.
-						className="pointer-events-none fixed z-(--sc-z-tooltip)"
+						className={cx("pointer-events-none fixed z-(--sc-z-tooltip)", !handedOverRef.current && "omp-pop-in")}
 						ref={bubbleRef}
-						style={position ?? { left: 0, top: 0, visibility: "hidden" }}
+						style={
+							{
+								left: position?.left ?? 0,
+								top: position?.top ?? 0,
+								visibility: position ? undefined : "hidden",
+								"--omp-pop-origin": ORIGIN[side],
+							} as CSSProperties
+						}
 					>
 						<TooltipBubble content={content} id={id} shortcut={shortcut} />
 					</div>,

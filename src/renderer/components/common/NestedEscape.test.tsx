@@ -3,6 +3,7 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
+import { motionMs } from "../../lib/motion";
 import { ModelValueSelect } from "../settings/ModelValueSelect";
 import { ContextMenu } from "./ContextMenu";
 import { Modal } from "./Modal";
@@ -145,6 +146,7 @@ describe("nested Escape layers", () => {
 		});
 		expect(document.body.textContent).toContain("Action");
 		await pressEscape();
+		await act(async () => vi.advanceTimersByTime(motionMs("instant") + 20));
 		expect(document.body.textContent).not.toContain("Action");
 		expect(close).not.toHaveBeenCalled();
 		await pressEscape();

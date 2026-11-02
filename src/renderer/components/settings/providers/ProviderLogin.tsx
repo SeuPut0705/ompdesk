@@ -28,6 +28,7 @@ import { ChevronDown, ExternalLink, Eye, EyeOff } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useId, useRef, useState } from "react";
 import type { ExtensionUIRequest } from "../../../../shared/rpc-types";
 import { useExtensionUiResponder } from "../../../hooks/use-extension-ui";
+import { cx } from "../../../lib/format";
 import { translate, useT } from "../../../lib/i18n";
 import { openExternal } from "../../../lib/open-external";
 import { useTabRpc } from "../../../lib/tab-rpc";
@@ -474,7 +475,7 @@ export function ProviderLoginPanel({
 							className="-ml-2.5 self-start"
 							onClick={() => setPasteOpen(open => !open)}
 							size="sm"
-							trailingIcon={<ChevronDown className={pasteShown ? "rotate-180" : undefined} />}
+							trailingIcon={<ChevronDown className={cx("omp-disclosure-chevron", pasteShown && "rotate-180")} />}
 							variant="ghost"
 						>
 							{t("providerList.login.pasteToggle")}

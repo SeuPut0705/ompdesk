@@ -1,7 +1,7 @@
 import { Puzzle } from "lucide-react";
 import type { KeyboardEvent } from "react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { oneLine } from "../../../lib/format";
+import { cx, oneLine } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
 import { Kbd, LinkButton, OptionRow, SearchField } from "../../common";
@@ -24,6 +24,8 @@ interface SkillPickerOverlayProps {
 	onSelect: (name: string) => void;
 	onManage: () => void;
 	onClose: () => void;
+	/** Already closed, playing its exit (the host keeps it mounted for that): it ignores the pointer and the keys. */
+	closing?: boolean;
 }
 
 /** Name matches first (prefix before substring), then description matches; token-AND. */
@@ -45,7 +47,7 @@ export function filterSkills(skills: readonly SkillPickerSkill[], query: string)
 	return ranked.sort((a, b) => a.rank - b.rank).map(entry => entry.skill);
 }
 
-export function SkillPickerOverlay({ skills, onSelect, onManage, onClose }: SkillPickerOverlayProps) {
+export function SkillPickerOverlay({ skills, onSelect, onManage, onClose, closing = false }: SkillPickerOverlayProps) {
 	const t = useT();
 	const [query, setQuery] = useState("");
 	const [index, setIndex] = useState(0);
@@ -66,6 +68,7 @@ export function SkillPickerOverlay({ skills, onSelect, onManage, onClose }: Skil
 	// and Escape is consumed in capture so the app-level handler cannot abort a
 	// running turn. A non-empty search clears first (SearchField), then Esc closes.
 	useEffect(() => {
+		if (closing) return;
 		const onPointerDown = (event: PointerEvent) => {
 			if (overlayRef.current?.contains(event.target as Node)) return;
 			onClose();
@@ -83,7 +86,7 @@ export function SkillPickerOverlay({ skills, onSelect, onManage, onClose }: Skil
 			document.removeEventListener("pointerdown", onPointerDown);
 			document.removeEventListener("keydown", onKeyDown, true);
 		};
-	}, [onClose]);
+	}, [onClose, closing]);
 
 	const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
 		if (isImeKeyEvent(event)) return;
@@ -110,10 +113,14 @@ export function SkillPickerOverlay({ skills, onSelect, onManage, onClose }: Skil
 		<div
 			aria-label={t("input.skills.title")}
 			aria-modal="false"
-			className="omp-pop-in absolute bottom-full left-0 z-(--sc-z-popover) mb-2 flex max-h-[60vh] w-[min(440px,100%)] flex-col overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) shadow-(--sc-shadow-md)"
+			className={cx(
+				"absolute bottom-full left-0 z-(--sc-z-popover) mb-2 flex max-h-[60vh] w-[min(440px,100%)] flex-col overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) shadow-(--sc-shadow-md) [--omp-pop-origin:bottom_left]",
+				closing ? "omp-pop-out" : "omp-pop-in",
+			)}
 			data-skill-picker
+			inert={closing}
 			ref={overlayRef}
-			role="dialog"
+			role={closing ? "presentation" : "dialog"}
 		>
 			<div className="border-b border-(--sc-divider) p-1.5">
 				<SearchField

@@ -9,7 +9,8 @@ export type SheetDragEdge = "bottom" | "left";
 /**
  * Drag-to-dismiss for a sheet's handle: the panel follows the finger toward its edge (down for a bottom or
  * full sheet, left for a left drawer), then closes past a distance or a flick, or springs back. Moves are
- * written straight to the panel's transform (no render per frame).
+ * written straight to the panel's `translate` (no render per frame): its enter and exit animations own `transform`
+ * and fill it, so a dismiss starts its exit from where the finger let go, and a refused one springs back.
  */
 export function useSheetDrag(
 	panelRef: RefObject<HTMLElement | null>,
@@ -24,8 +25,7 @@ export function useSheetDrag(
 	const place = (distance: number) => {
 		const panel = panelRef.current;
 		if (!panel) return;
-		panel.style.transform =
-			distance === 0 ? "" : edge === "bottom" ? `translateY(${distance}px)` : `translateX(${-distance}px)`;
+		panel.style.translate = distance === 0 ? "" : edge === "bottom" ? `0 ${distance}px` : `${-distance}px 0`;
 	};
 
 	const onPointerDown = useCallback(
@@ -56,14 +56,20 @@ export function useSheetDrag(
 		if (!current || current.id !== event.pointerId) return;
 		drag.current = null;
 		const panel = panelRef.current;
-		if (panel) panel.style.transition = "";
+		const springBack = () => {
+			if (!panel) return;
+			panel.style.transition = "translate var(--sc-duration-med) var(--sc-ease-spring)";
+			place(0);
+		};
 		const dismiss =
 			!cancelled && (current.last >= SHEET_DISMISS_DISTANCE || current.velocity >= SHEET_DISMISS_VELOCITY);
-		if (dismiss) {
-			onClose();
-			// A close that is refused (an unsaved-changes prompt) leaves the panel where it was dropped.
-			window.setTimeout(() => place(0), 400);
-		} else place(0);
+		if (!dismiss) return springBack();
+		// The panel stays where it was dropped and its exit slides on from there. A close that is refused (an unsaved-changes
+		// prompt) leaves it open: it springs back once the commit shows it did not start leaving.
+		onClose();
+		requestAnimationFrame(() => {
+			if (panel?.isConnected && !panel.closest("[inert]")) springBack();
+		});
 	};
 
 	return {

@@ -66,7 +66,7 @@ export function Button({
 		<button
 			type={type ?? "button"}
 			className={cx(
-				"inline-flex shrink-0 select-none items-center justify-center border font-medium whitespace-nowrap transition-[background-color,border-color,color,box-shadow,filter] duration-(--sc-duration-fast) [&>svg]:shrink-0",
+				"omp-pressable inline-flex shrink-0 select-none items-center justify-center border font-medium whitespace-nowrap [&>svg]:shrink-0",
 				"disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none",
 				BUTTON_VARIANT_CLASSES[variant],
 				SIZE_CLASSES[size],

@@ -175,8 +175,9 @@ function Level({ label, value }: { label: string; value: number }) {
 			<span className="text-(--sc-text-muted)">{label}</span>
 			<div className="h-2 overflow-hidden rounded-(--sc-radius-full) bg-(--sc-border-subtle)">
 				<div
-					className="h-full bg-(--sc-accent) transition-[width] duration-(--sc-duration-instant) motion-reduce:transition-none"
-					style={{ width: `${percent}%` }}
+					className="h-full origin-left bg-(--sc-accent)"
+					// A level arrives every frame: scaleX on the compositor, no transition.
+					style={{ transform: `scaleX(${percent / 100})` }}
 				/>
 			</div>
 			<span className="text-right tabular-nums text-(--sc-text-muted)">{percent}%</span>
