@@ -714,7 +714,7 @@ describe("the bot's library", () => {
 						removed: 2,
 						uncommitted: 0,
 						answer: "",
-						report: { kind: "done", text: "Opened https://github.com/acme/app/pull/12", at: 1_000 },
+						report: { kind: "done", text: "Opened https://github.com/acme/app/pull/12", at: Date.now() },
 					},
 				],
 			},

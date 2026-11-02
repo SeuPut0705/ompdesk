@@ -17,6 +17,7 @@ export type WorkBoardSectionId =
 	| "activity"
 	| "duties"
 	| "channels"
+	| "pastConversations"
 	| "current";
 
 const PREF = "workBoardCollapsed";
@@ -37,6 +38,7 @@ const SECTION_IDS: readonly WorkBoardSectionId[] = [
 	"activity",
 	"duties",
 	"channels",
+	"pastConversations",
 	"current",
 ];
 

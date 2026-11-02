@@ -1909,10 +1909,10 @@ export interface SessionInfo {
 	kind?: "chat";
 	/**
 	 * The computer's bot session (`botRowOf`), set by the computer that lists it: `on` while its owner has the bot on
-	 * (the fixed row, here and on a paired device), `off` while not (no row; no list shows it). Absent from a host that
-	 * predates it.
+	 * (the fixed row, here and on a paired device), `off` while not (no row; no list shows it), `past` for a conversation
+	 * the bot ended (listed read-only under its row, `BotConversations`). Absent from a host that predates it.
 	 */
-	bot?: "on" | "off";
+	bot?: "on" | "off" | "past";
 	firstMessage: string;
 	/** Stock's `parentSessionPath`: the session this one was forked from (its file path, or its id). */
 	parentSessionPath?: string;

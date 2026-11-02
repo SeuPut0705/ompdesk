@@ -40,8 +40,9 @@ import {
 
 type SessionScope = "local" | "global";
 
-/** A conversation the picker lists: one with content, never the bot's while the owner has it off. */
-const pickable = (session: SessionInfo): boolean => sessionHasContent(session) && session.bot !== "off";
+/** A conversation the picker lists: one with content, never the bot's while it is off nor one the bot ended. */
+const pickable = (session: SessionInfo): boolean =>
+	sessionHasContent(session) && (session.bot === undefined || session.bot === "on");
 
 /** Delay before the main-process content grep is consulted for the current query. */
 const CONTENT_SEARCH_DEBOUNCE_MS = 200;

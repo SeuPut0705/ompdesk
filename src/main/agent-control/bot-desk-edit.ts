@@ -3,6 +3,7 @@
  * (`host.botDesk.edit`) both come here. Most edits are the desk's own (`BotDesk.change`); a side chat is a session
  * made or deleted first.
  */
+import { BOT_MAIN_SLOT } from "../../shared/agent-control";
 import type { BotDeskEdit } from "../../shared/bot-desk-edit";
 import { type BotDesk, type BotDeskActor, BotDeskError } from "./bot-desk";
 
@@ -12,6 +13,8 @@ export interface BotDeskEditDeps {
 	createSideChat(topic: string): Promise<string>;
 	/** Deletes a session as the sidebar's Delete does (its tab closes first; refused while it runs a turn). */
 	deleteSession(sessionPath: string): Promise<void>;
+	/** Asks for a fresh conversation of the slot (`BOT_MAIN_SLOT` or a side chat's id); false when the bot has none. */
+	newConversation(slot: string): boolean;
 }
 
 export async function editBotDesk(deps: BotDeskEditDeps, edit: BotDeskEdit, by: BotDeskActor): Promise<void> {
@@ -30,6 +33,10 @@ export async function editBotDesk(deps: BotDeskEditDeps, edit: BotDeskEdit, by: 
 			desk.removeChannel(channel.id, by);
 			return;
 		}
+		case "new_conversation":
+			if (!deps.newConversation(edit.channel ?? BOT_MAIN_SLOT))
+				throw new BotDeskError("The bot has no conversation to renew (is it on?).");
+			return;
 		default:
 			desk.change(edit, by);
 	}

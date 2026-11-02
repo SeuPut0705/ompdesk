@@ -155,7 +155,7 @@ export function BotLibrarySection({
 				? [{ path: entry.args.path, at: entry.endTime ?? entry.startTime }]
 				: [],
 		);
-		return botLibrary({ rows: opened.rows, replies, writes, pins });
+		return botLibrary({ rows: opened.rows, replies, writes, pins, now: Date.now() });
 	}, [messages, finished, finishedVersion, opened.rows, pins]);
 	if (items.length === 0) return null;
 	const lead = items[0];

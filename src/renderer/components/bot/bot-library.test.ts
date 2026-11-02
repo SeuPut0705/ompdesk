@@ -42,6 +42,7 @@ describe("botLibrary", () => {
 			replies: [{ text: "The report is [here](/tmp/report.pdf).", at: 200 }],
 			writes: [],
 			pins: ["file:/tmp/report.pdf"],
+			now: 10_000,
 		});
 		expect(items.map(item => [item.key, item.pinned])).toEqual([
 			["file:/tmp/report.pdf", true],
@@ -66,6 +67,7 @@ describe("botLibrary", () => {
 				{ path: "/work/out/other.pdf", at: 9_000 },
 			],
 			pins: [],
+			now: 10_000,
 		});
 		expect(items).toMatchObject([{ kind: "file", path: "out/plan.pdf", updated: 4_000 }]);
 		const before = botLibrary({
@@ -73,7 +75,23 @@ describe("botLibrary", () => {
 			replies: [{ text: "Draft: `out/plan.pdf`", at: 1_000 }],
 			writes: [{ path: "out/plan.pdf", at: 500 }],
 			pins: [],
+			now: 10_000,
 		});
 		expect(before[0]).not.toHaveProperty("updated");
+	});
+
+	it("leaves out unpinned items 14 days old, and keeps a pinned one however old", () => {
+		const day = 24 * 60 * 60_000;
+		const items = botLibrary({
+			rows: [],
+			replies: [
+				{ text: "Old [notes](/tmp/old.md) and [kept](/tmp/kept.md).", at: 1 },
+				{ text: "New [plan](/tmp/new.md).", at: 13 * day },
+			],
+			writes: [],
+			pins: ["file:/tmp/kept.md"],
+			now: 14 * day + 2,
+		});
+		expect(items.map(item => item.key)).toEqual(["file:/tmp/kept.md", "file:/tmp/new.md"]);
 	});
 });

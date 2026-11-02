@@ -88,6 +88,7 @@ import { accountRotationDeps } from "./account-rotation";
 import { BotActivityLog } from "./agent-control/bot-activity";
 import { BotDesk } from "./agent-control/bot-desk";
 import { BotHome } from "./agent-control/bot-home";
+import { TurnGate } from "./agent-control/turn-gate";
 import { agentDir } from "./agent-paths";
 import { migrateAgentPowers } from "./agent-power-migration";
 import { lowerAgentPriority } from "./agent-priority";
@@ -844,6 +845,8 @@ app.whenReady().then(() => {
 	});
 	app.on("will-quit", () => botActivity.flush());
 	const botDeskPush: IpcDeps["botDeskPush"] = { current: null };
+	// What would start a turn in the bot's conversation waits here while it renews: a window's and a paired device's.
+	const botTurns = new TurnGate();
 	const botPush: IpcDeps["botPush"] = { current: null };
 	// The desktop slot's host is built in ipc.ts next to the pool's wiring; the factory reads it from here.
 	const desktopSlotRef: { current: DesktopSlotHost | null } = { current: null };
@@ -937,8 +940,10 @@ app.whenReady().then(() => {
 		changed: key => {
 			// Its row in the list carries `bot` (a paired device draws it from there).
 			sessionIndex.relist();
-			for (const win of windowManager.getAllWindows()) {
-				win.webContents.send(IPC_EVENTS.PREFS_CHANGED, { key } satisfies IpcPrefsChangedPayload);
+			// Every window and paired page: a renewal moves the bot to a new file while a phone views it.
+			for (const win of [...windowManager.getAllWindows(), ...(webHost?.windows.all() ?? [])]) {
+				if (!win.isDestroyed())
+					win.webContents.send(IPC_EVENTS.PREFS_CHANGED, { key } satisfies IpcPrefsChangedPayload);
 			}
 			// Its wakes are the schedules naming this file.
 			botDeskPush.current?.();
@@ -1108,6 +1113,8 @@ app.whenReady().then(() => {
 		hostName: (): string => devices.deviceName(),
 		sessionIndex,
 		agentHidden: () => agentHiddenPaths(prefs.get(AGENT_HIDDEN_PREFS_KEY)),
+		botEnded: sessionPath => botRowOf(sessionPath, key => prefs.get(key as never)) === "past",
+		turnGate: botTurns,
 		memoryAdmission,
 		renameStoredSession: async (sessionPath, name) => {
 			const omp = await systemOmp();
@@ -2134,6 +2141,7 @@ app.whenReady().then(() => {
 		mediaStreams,
 		uploads: { store: (deviceId, name, bytes) => hostUploads().store(deviceId, name, bytes) },
 		schedules: () => scheduleService,
+		botTurns,
 		mailAccounts: () => mailAccounts,
 		sidebarProjects,
 		// `webHost` is created below: the prompt origins read it when a prompt is sent, never at registration.

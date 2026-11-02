@@ -1,6 +1,7 @@
 /**
  * The bot's activity log (`shared/bot-activity.ts`): main appends, windows read a page on demand. Kept in
- * `<userData>/bot-activity.json`, the newest `BOT_ACTIVITY_KEPT` entries; written a moment after a burst of appends
+ * `<userData>/bot-activity.json`, the newest `BOT_ACTIVITY_KEPT` entries and none older than
+ * `BOT_RETENTION_MS.activity` (dropped at load and at each `prune`); written a moment after a burst of appends
  * (a turn's tool calls come many at once) and at `flush`, never once per entry.
  */
 import { randomBytes } from "node:crypto";
@@ -15,6 +16,7 @@ import {
 	type BotActivityPage,
 	BotActivitySchema,
 } from "../../shared/bot-activity";
+import { BOT_RETENTION_MS, olderThan } from "../../shared/bot-retention";
 import { writeFileAtomicDeferred } from "../atomic-file";
 
 /** Appends within this long go to disk together. */
@@ -59,7 +61,12 @@ export class BotActivityLog {
 		this.#file = options.file;
 		this.#now = options.now ?? (() => new Date());
 		this.#newId = options.newId ?? (() => randomBytes(6).toString("hex"));
-		this.#entries = options.file ? read(options.file).slice(-BOT_ACTIVITY_KEPT) : [];
+		const now = this.#now().getTime();
+		this.#entries = options.file
+			? read(options.file)
+					.filter(entry => !olderThan(entry.at, BOT_RETENTION_MS.activity, now))
+					.slice(-BOT_ACTIVITY_KEPT)
+			: [];
 	}
 
 	append(draft: BotActivityDraft): BotActivity {
@@ -86,6 +93,14 @@ export class BotActivityLog {
 			entries: this.#entries.slice(-Math.max(1, Math.min(limit, BOT_ACTIVITY_PAGE))),
 			revision: this.#revision,
 		};
+	}
+
+	/** Drops the entries older than `BOT_RETENTION_MS.activity` at `now` (launch and hourly). */
+	prune(now: number): void {
+		const kept = this.#entries.filter(entry => !olderThan(entry.at, BOT_RETENTION_MS.activity, now));
+		if (kept.length === this.#entries.length) return;
+		this.#entries = kept;
+		this.#changed();
 	}
 
 	/** Writes what is waiting now (quit, tests). */

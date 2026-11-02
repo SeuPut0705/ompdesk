@@ -8,7 +8,8 @@
  */
 
 import { stat } from "node:fs/promises";
-import { isAbsolute, posix, resolve } from "node:path";
+import { basename, isAbsolute, posix, resolve } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import type { AutopilotAction, AutopilotStatus } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import {
 	MAX_NEXT_PROMPT_CHILDREN,
@@ -37,14 +38,18 @@ import {
 	agentControlFullEnabled,
 	agentControlManageEnabled,
 	agentHiddenPaths,
+	BOT_CONVERSATIONS_PREF,
+	botConversationsOf,
 	type ClosedChild,
+	currentBotConversation,
 	isAgentControlTool,
 	MAX_CLOSED_CHILDREN,
 	type PrivacyPane,
 	parseClosedChildren,
 	sidebarViewOf,
 } from "../../shared/agent-control";
-import { type BotRoutine, botRoleDesk, EMPTY_BOT_DESK_FILE } from "../../shared/bot-desk";
+import { type BotRoutine, botRoleDesk, EMPTY_BOT_DESK_FILE, openBotDecisions } from "../../shared/bot-desk";
+import { BOT_RETENTION_MS, olderThan } from "../../shared/bot-retention";
 import { BOT_RULES_PREF, botRulesText, parseBotRules } from "../../shared/bot-rules";
 import { botToolActivity } from "../../shared/bot-tool-activity";
 import type {
@@ -183,7 +188,7 @@ export interface AgentControlHostDeps {
 		| "sessionOwner"
 		| "whenTabExited"
 	> &
-		Partial<Pick<SidecarPool, "observeToolCalls">>;
+		Partial<Pick<SidecarPool, "observeToolCalls" | "closeSessionTab">>;
 	/** This computer's session index (stored sessions the control tools list, search and read). */
 	sessions?: {
 		list(): Promise<SessionInfo[]>;
@@ -238,6 +243,8 @@ export interface AgentControlHostDeps {
 		routines(): BotRoutine[];
 		activity: BotActivityLog;
 		avatarFromFile(path: string): Promise<string>;
+		/** Asks for a new conversation of the slot `sessionPath` holds now (`bot-rotation.ts`); false when it holds none. */
+		newConversation?(sessionPath: string): boolean;
 	};
 	/** The owner's notice that a decision waits for them (desktop banner on the bot's tab, paired phones). */
 	botDecisionNotice?: (tabId: string, decision: OpenDecision) => void;
@@ -540,6 +547,7 @@ export class AgentControlRuntime {
 				);
 			},
 			activity: () => source.activity.entries(),
+			newConversation: sessionPath => source.newConversation?.(sessionPath) ?? false,
 		};
 	}
 
@@ -717,6 +725,166 @@ export class AgentControlRuntime {
 	}
 
 	/**
+	 * The bot's conversation in `sessionPath` is at a quiet moment for its renewal (`bot-rotation.ts`): no live tab holds
+	 * it, or that tab's omp is ready with no turn (a wait on its children is one), no question or approval open, no
+	 * compaction or retry pending.
+	 */
+	botQuiet(sessionPath: string): boolean {
+		const { pool } = this.#deps;
+		const tabId = pool.sessionOwner(sessionPath)?.tabId;
+		if (!tabId) return true;
+		const tab = this.#botTab(tabId);
+		if (!tab || tab.status === "asleep" || tab.status === "exited" || tab.status === "error") return true;
+		if (tab.status !== "ready") return false;
+		const facts = pool.tabFacts(tabId);
+		if (!facts || facts.busy || facts.compacting || facts.retrying || facts.scheduledRetry) return false;
+		return this.#botDeps().openAsks(tabId).length === 0;
+	}
+
+	/**
+	 * The live tab of `sessionPath` answers `question` on the side (stock `btw`: never part of its conversation), within
+	 * `timeoutMs`; null with no ready tab, a failure, or no answer in time (the side question is cancelled then).
+	 */
+	async botSideAnswer(sessionPath: string, question: string, timeoutMs: number): Promise<string | null> {
+		const tabId = this.#deps.pool.sessionOwner(sessionPath)?.tabId;
+		if (!tabId || this.#botTab(tabId)?.status !== "ready") return null;
+		const asked = await this.#hostCommand(tabId, { type: "btw", question }, 15_000);
+		const recordId = asked.success
+			? (asked.data as { record?: { id?: unknown } } | undefined)?.record?.id
+			: undefined;
+		if (typeof recordId !== "string") return null;
+		const deadline = Date.now() + timeoutMs;
+		while (Date.now() < deadline) {
+			await sleep(1_000, undefined, { ref: false });
+			const history = await this.#hostCommand(tabId, { type: "get_btw_history" }, 15_000);
+			if (!history.success) return null;
+			const records = (history.data as { records?: BtwRecord[] } | undefined)?.records ?? [];
+			const record = records.find(entry => entry.id === recordId);
+			const turn = record?.followUps?.at(-1) ?? record;
+			if (!turn || turn.status === "running") continue;
+			return turn.status === "complete" && turn.answer.trim() ? turn.answer.trim() : null;
+		}
+		void this.#hostCommand(tabId, { type: "btw_cancel", recordId }).catch(() => undefined);
+		return null;
+	}
+
+	/**
+	 * A handoff note built from what main knows when the outgoing conversation wrote none: the sessions it opened that
+	 * are still open and their states, the decisions waiting on the owner, its duties and its scheduled wakes.
+	 */
+	botDeskNote(sessionPath: string): string {
+		const ownerTab = this.#deps.pool.sessionOwner(sessionPath)?.tabId;
+		const children = ownerTab ? this.#allTabs(undefined).filter(tab => this.#openerOf(tab.tabId) === ownerTab) : [];
+		const desk = this.#deps.botDesk;
+		const state = desk?.desk.state() ?? EMPTY_BOT_DESK_FILE;
+		const open = openBotDecisions(state);
+		const wakes = (desk?.routines() ?? []).filter(routine => routine.enabled);
+		const line = (items: string[], none: string) => (items.length > 0 ? items.join("\n") : none);
+		return [
+			"The previous conversation ended without writing a note; this is what OMPdesk knows.",
+			`Sessions you opened that are still open:\n${line(
+				children.map(
+					tab =>
+						`- ${tab.sessionPath ? sessionIdOfPath(tab.sessionPath) : tab.tabId} “${tab.title}”: ${tab.busy ? "running" : tab.asks.length > 0 ? "waiting for an answer" : tab.lastRun?.stopReason === "error" ? "failed" : "idle"}`,
+				),
+				"- none",
+			)}`,
+			`Decisions waiting on the owner:\n${line(
+				open.map(decision => `- ${decision.id}: ${decision.question}`),
+				"- none",
+			)}`,
+			`Your scheduled wakes:\n${line(
+				wakes.map(routine => `- ${routine.id} “${routine.name}”${routine.next ? ` next ${routine.next}` : ""}`),
+				"- none",
+			)}`,
+		].join("\n\n");
+	}
+
+	/**
+	 * The commit point of a renewal (`bot-rotation.ts`, run while its `TurnGate` holds `from`): the tab holding the bot
+	 * conversation `from` moves onto `to` with stock `switch_session` and keeps its id, so the sessions it opened and
+	 * everything addressed to the tab reach the new conversation. Stock's switch aborts a running turn first, so it is
+	 * sent only while the tab is quiet (`botQuiet`), and refused otherwise. A tab with no omp running is closed (the bot
+	 * reopens on `to`). Rejects, having changed nothing, when the tab is not quiet, stock refuses the switch (it keeps
+	 * `from`, `{cancelled: true}`) or the close is refused: a tab is never closed or switched under a turn.
+	 */
+	async botMoveTab(from: string, to: string): Promise<void> {
+		const { pool } = this.#deps;
+		const tabId = pool.sessionOwner(from)?.tabId;
+		const tab = tabId ? this.#botTab(tabId) : null;
+		if (!tab || !tabId) return;
+		if (!this.botQuiet(from)) throw new Error("The bot's conversation is busy.");
+		if (tab.status === "asleep" || tab.status === "exited" || tab.status === "error") {
+			if ((await pool.closeSessionTab?.(from)) === false) throw new Error("The bot's tab could not be closed.");
+			return;
+		}
+		const moved = await this.#hostCommand(tabId, { type: "switch_session", sessionPath: to }, 60_000);
+		const cancelled = moved.success && (moved.data as { cancelled?: unknown } | undefined)?.cancelled === true;
+		if (!moved.success || cancelled)
+			throw new Error(`The bot's tab stayed on its conversation: ${moved.success ? "stock refused" : moved.error}`);
+		this.#bot.renewed(tabId);
+	}
+
+	/**
+	 * What follows a renewal's commit (`botMoveTab`; the slot's pref is `to` by now), never failing it: mail and messages
+	 * still owed to `from` go to `to`, the closed children's records name `to` as their opener, and the note reaches `to`
+	 * first, shown, with no turn: the role prompt and desk come with its next turn.
+	 */
+	botAdopted(input: { from: string; to: string; note: string }): void {
+		const { from, to, note } = input;
+		this.#outbox.move(from, to);
+		this.#sends.move(from, to);
+		const { prefs } = this.#deps;
+		if (prefs.set) {
+			const rows = parseClosedChildren(prefs.get(AGENT_CLOSED_CHILDREN_PREF));
+			if (rows.some(row => row.openedBySession === from && !row.device)) {
+				prefs.set(
+					AGENT_CLOSED_CHILDREN_PREF,
+					rows.map(row => (row.openedBySession === from && !row.device ? { ...row, openedBySession: to } : row)),
+				);
+				prefs.changed?.(AGENT_CLOSED_CHILDREN_PREF);
+			}
+		}
+		this.#keepAndSend(
+			to,
+			{
+				id: `bot-handoff-${sessionIdOfPath(from)}`,
+				from: "ompdesk",
+				fromTitle: "Handoff from your previous conversation",
+				to: "",
+				kind: "note",
+				text: note,
+				instruction:
+					"OMPdesk started this fresh conversation for you; the previous one ended and is kept read-only for 7 days. Your desk, duties, memories and routines carried over. Continue from this note.",
+				at: Date.now(),
+			},
+			{ triggerTurn: false },
+		);
+		void this.#bot.role();
+	}
+
+	/**
+	 * Closed children's records of the bot (opened by its conversation now or one it ended) older than
+	 * `BOT_RETENTION_MS.closedChildren`, and those of `sessions` (tasks the owner marked done that aged out), are dropped.
+	 */
+	pruneBotRecords(now: number, sessions: readonly string[]): void {
+		const { prefs } = this.#deps;
+		if (!prefs.set) return;
+		const bot = activeBotPath(key => prefs.get(key));
+		const past = new Set(botConversationsOf(prefs.get(BOT_CONVERSATIONS_PREF)).past.map(entry => entry.path));
+		const ofBot = (row: ClosedChild) => !row.device && (row.openedBySession === bot || past.has(row.openedBySession));
+		const rows = parseClosedChildren(prefs.get(AGENT_CLOSED_CHILDREN_PREF));
+		const kept = rows.filter(
+			row =>
+				!sessions.includes(row.path) &&
+				!(ofBot(row) && olderThan(row.closedAt, BOT_RETENTION_MS.closedChildren, now)),
+		);
+		if (kept.length === rows.length) return;
+		prefs.set(AGENT_CLOSED_CHILDREN_PREF, kept);
+		prefs.changed?.(AGENT_CLOSED_CHILDREN_PREF);
+	}
+
+	/**
 	 * A session's own wake-up came due (`ompdesk_schedule` with `target: "self"`, a routine of the bot's, run by
 	 * `ScheduleService`): the schedule's prompt reaches that session as a mail that starts a turn, through the outbox like
 	 * every report (an omp that misses it gets it again). A session no tab here holds is opened in a background tab of
@@ -726,8 +894,9 @@ export class AgentControlRuntime {
 	 * it. `stop()` stops that turn.
 	 */
 	async wakeSession(schedule: Schedule, runId: string): Promise<RunProcess> {
-		const sessionPath = schedule.wakeSession;
-		if (sessionPath === undefined) throw new Error("This schedule wakes no session");
+		if (schedule.wakeSession === undefined) throw new Error("This schedule wakes no session");
+		// A wake set by a conversation the bot since ended wakes its current one.
+		const sessionPath = currentBotConversation(schedule.wakeSession, key => this.#deps.prefs.get(key));
 		// A paused bot's routines skip their runs (pausing never cancels them, and nothing piles up for its resume).
 		if (
 			this.#deps.botDesk?.desk.state().paused === true &&
@@ -813,7 +982,9 @@ export class AgentControlRuntime {
 	 * asleep tab is started, and with no tab the session is opened in a background tab of the front window. Rejects
 	 * when there is no window to open it in, or the open fails; the mail stays kept.
 	 */
-	async #reach(sessionPath: string, mail: Mail, delivery: MailDelivery): Promise<void> {
+	async #reach(target: string, mail: Mail, delivery: MailDelivery): Promise<void> {
+		// A conversation the bot ended is never woken: its current one is.
+		const sessionPath = currentBotConversation(target, key => this.#deps.prefs.get(key));
 		const owner = this.#deps.pool.sessionOwner(sessionPath);
 		const tab = owner ? this.#botTab(owner.tabId) : null;
 		this.#keepAndSend(sessionPath, { ...mail, to: tab?.tabId ?? "" }, delivery);
@@ -878,7 +1049,10 @@ export class AgentControlRuntime {
 	#restoredOpener(info: IpcTabInfo): string | undefined {
 		const { pool } = this.#deps;
 		if (info.openedBy && pool.sidecarOf(info.openedBy)) return info.openedBy;
-		return info.openedBySession ? (pool.sessionOwner(info.openedBySession)?.tabId ?? undefined) : undefined;
+		if (!info.openedBySession) return undefined;
+		// A conversation the bot ended stands for its current one: what it opened reports there.
+		const opener = currentBotConversation(info.openedBySession, key => this.#deps.prefs.get(key));
+		return pool.sessionOwner(opener)?.tabId ?? undefined;
 	}
 
 	/**
@@ -1921,4 +2095,18 @@ export class AgentControlRuntime {
 				}) as RpcResponse,
 		);
 	}
+}
+
+/** The side question's record as stock `get_btw_history` lists it (pi-tui `BtwHistoryRecord`). */
+interface BtwRecord {
+	id: string;
+	answer: string;
+	status: "running" | "complete" | "cancelled" | "error" | "interrupted";
+	followUps?: readonly { answer: string; status: BtwRecord["status"] }[];
+}
+
+/** A stored session's id as the lists show it: its file name after the timestamp (`<time>_<id>.jsonl`). */
+function sessionIdOfPath(sessionPath: string): string {
+	const name = basename(sessionPath).replace(/\.jsonl$/, "");
+	return name.slice(name.indexOf("_") + 1);
 }

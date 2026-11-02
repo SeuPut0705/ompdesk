@@ -76,6 +76,7 @@ import type { SchedulesState } from "../../shared/schedules";
 import type { SidebarProjectsState } from "../../shared/sidebar-projects";
 import type { TerminalOperation, TerminalSnapshot } from "../../shared/terminal-types";
 import { branchEvidence, branchFacts, landingFacts, mergeBranch, removeSafeWorktree } from "../agent-control/branches";
+import { TURN_COMMANDS, type TurnGate } from "../agent-control/turn-gate";
 import type { BackgroundWorkMember } from "../background-work";
 import type { BridgeConnectResult } from "../bridge-health";
 import { canonicalCwd } from "../canonical-cwd";
@@ -258,6 +259,10 @@ export interface HostServicesDeps {
 	>;
 	/** Session files this computer's user hid from agents (Sidebar › Hide from other agents); a device's agent never reads them. */
 	agentHidden?: () => ReadonlySet<string>;
+	/** A conversation this computer's bot ended (`botRowOf` `past`): kept to read, never continued from a device. */
+	botEnded?: (sessionPath: string) => boolean;
+	/** What would start a turn waits here while the bot's conversation in the tab renews (`TurnGate`). */
+	turnGate?: Pick<TurnGate, "pass">;
 	/** Stored-file rename for a session no live tab holds (`omp` on this machine). */
 	renameStoredSession: (sessionPath: string, name: string) => Promise<void>;
 	/** The GUI-owned Work workspace, created on demand. */
@@ -2338,6 +2343,33 @@ export class LocalHostServices implements HostServices {
 			session: tab.sessionFile ?? tab.resumeSessionPath,
 			peer: peer.deviceId,
 		});
+		// While the bot's conversation in this tab renews a turn start waits, then goes to whatever the tab holds then;
+		// it counts as in flight until answered, so the renewal never switches under it.
+		const turn = TURN_COMMANDS.has(command.type);
+		const passed = turn ? await this.#deps.turnGate?.pass(() => tab.sessionFile ?? tab.resumeSessionPath) : undefined;
+		try {
+			return await this.#admitted(peer, params, admitted, tab, command, turn);
+		} finally {
+			passed?.();
+		}
+	}
+
+	async #admitted(
+		peer: PeerInfo,
+		params: z.infer<typeof CommandParams>,
+		admitted: boolean,
+		tab: HostTab,
+		command: RpcCommand,
+		turn: boolean,
+	): Promise<RpcResponse> {
+		const client = tab.sidecar.rpcClient;
+		if (!client) throw codedError("sidecar_not_connected", "Sidecar not connected");
+		const file = tab.sessionFile ?? tab.resumeSessionPath;
+		if (turn && file && this.#deps.botEnded?.(file))
+			throw codedError(
+				"bot_conversation_ended",
+				"This is an earlier conversation of the bot, kept to read. Write to the bot in its current conversation.",
+			);
 		// The user's Stop: nothing continues this turn after a crash (ipc.ts does the same for a local tab).
 		if (STOP_COMMANDS[command.type]) this.noteStopped(tab.resumeId);
 		// A view's moves are its window tab's (the pool counts them, ipc.ts as for a window's own); found by the file it

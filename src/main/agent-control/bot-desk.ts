@@ -40,6 +40,7 @@ import {
 	parseBotDeskFile,
 } from "../../shared/bot-desk";
 import type { BotDeskChange } from "../../shared/bot-desk-edit";
+import { BOT_RETENTION_MS, olderThan } from "../../shared/bot-retention";
 import { describeFrequency, SCHEDULE_RUNS_PER_SCHEDULE, type SchedulesState } from "../../shared/schedules";
 import { writeFileAtomicSync } from "../atomic-file";
 
@@ -321,7 +322,14 @@ export class BotDesk {
 				const tasksDone = edit.done
 					? [...this.#data.tasksDone, ...changed].slice(-BOT_TASKS_DONE_MAX)
 					: this.#data.tasksDone.filter(session => !changed.includes(session));
-				this.#commit({ ...this.#data, tasksDone });
+				const stamp = this.#stamp();
+				const tasksDoneAt = Object.fromEntries(
+					tasksDone.map(session => [
+						session,
+						changed.includes(session) ? stamp : (this.#data.tasksDoneAt[session] ?? stamp),
+					]),
+				);
+				this.#commit({ ...this.#data, tasksDone, tasksDoneAt });
 				this.#log({
 					kind: "desk",
 					action: edit.done ? "task_done" : "task_reopen",
@@ -376,6 +384,41 @@ export class BotDesk {
 	/** The side chat whose session is `sessionPath`. */
 	channelOf(sessionPath: string): BotChannel | undefined {
 		return this.#data.channels.find(channel => channel.sessionPath === sessionPath);
+	}
+
+	/** The side chat `id` lives in `sessionPath` from now on (its conversation was renewed). */
+	moveChannel(id: string, sessionPath: string): void {
+		if (!this.#data.channels.some(channel => channel.id === id)) return;
+		this.#commit({
+			...this.#data,
+			channels: this.#data.channels.map(channel => (channel.id === id ? { ...channel, sessionPath } : channel)),
+		});
+	}
+
+	/**
+	 * Forgets what is finished `BOT_RETENTION_MS.finished` before `now`: an answered decision (by its answer), an
+	 * expired one (by its expiry) and a done mark (by when it was made) whose session `live` says no tab holds. Returns
+	 * the sessions whose marks went, so the caller drops their closed records with them. A mark with no time yet is dated
+	 * now. Nothing is written when nothing changed.
+	 */
+	prune(now: number, live: (sessionPath: string) => boolean): string[] {
+		const data = this.#data;
+		const stamp = new Date(now).toISOString();
+		const decisions = data.decisions.filter(decision =>
+			decision.state === "answered"
+				? !olderThan(decision.answeredAt, BOT_RETENTION_MS.finished, now)
+				: !(decisionExpired(decision, now) && olderThan(decision.expiresAt, BOT_RETENTION_MS.finished, now)),
+		);
+		const gone = data.tasksDone.filter(
+			session => !live(session) && olderThan(data.tasksDoneAt[session], BOT_RETENTION_MS.finished, now),
+		);
+		const tasksDone = data.tasksDone.filter(session => !gone.includes(session));
+		const tasksDoneAt = Object.fromEntries(tasksDone.map(session => [session, data.tasksDoneAt[session] ?? stamp]));
+		const dated = tasksDone.every(session => data.tasksDoneAt[session] !== undefined);
+		const extra = Object.keys(data.tasksDoneAt).length !== tasksDone.length;
+		if (decisions.length === data.decisions.length && gone.length === 0 && dated && !extra) return [];
+		this.#commit({ ...data, decisions, tasksDone, tasksDoneAt });
+		return gone;
 	}
 
 	#log(draft: BotActivityDraft): void {

@@ -70,4 +70,17 @@ export class BotHome {
 		this.#deps.markChat(made.sessionId);
 		return made.sessionPath;
 	}
+
+	/** A fresh conversation for the bot or a side chat (`bot-rotation.ts`), titled as the one it replaces. */
+	async createConversation(title: string): Promise<string> {
+		const made = await this.#deps.create({ cwd: this.#deps.workspace(), title: title.trim() || this.#deps.title() });
+		this.#deps.markChat(made.sessionId);
+		return made.sessionPath;
+	}
+
+	/** The bot lives in `sessionPath` from now on. */
+	moveBot(sessionPath: string): void {
+		this.#deps.prefs.set(BOT_PREF, sessionPath);
+		this.#deps.changed(BOT_PREF);
+	}
 }

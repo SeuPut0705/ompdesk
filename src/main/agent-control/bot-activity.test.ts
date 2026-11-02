@@ -50,6 +50,24 @@ describe("BotActivityLog", () => {
 		}
 	});
 
+	it("drops entries older than 7 days at load and at each prune, newest kept", () => {
+		let now = Date.parse("2026-11-01T09:00:00.000Z");
+		const log = new BotActivityLog({ file, now: () => new Date(now) });
+		log.append({ kind: "run", action: "tool", by: "bot", text: "old" });
+		now += 6 * 24 * 60 * 60_000;
+		log.append({ kind: "run", action: "tool", by: "bot", text: "recent" });
+		log.prune(now);
+		expect(log.entries().map(entry => entry.text)).toEqual(["old", "recent"]);
+		now += 1.5 * 24 * 60 * 60_000;
+		const revision = log.page().revision;
+		log.prune(now);
+		expect(log.entries().map(entry => entry.text)).toEqual(["recent"]);
+		expect(log.page().revision).toBeGreaterThan(revision);
+		log.flush();
+		now += 7 * 24 * 60 * 60_000;
+		expect(new BotActivityLog({ file, now: () => new Date(now) }).entries()).toEqual([]);
+	});
+
 	it("lists each file and page the bot read once, newest first", () => {
 		const log = new BotActivityLog({ file: null });
 		const read = (type: "file" | "url", value: string) =>
@@ -103,6 +121,7 @@ describe("editBotDesk", () => {
 				return `/s/${created.length}.jsonl`;
 			},
 			deleteSession: async (sessionPath: string) => void deleted.push(sessionPath),
+			newConversation: () => false,
 		};
 		return { activity, desk, deps, created, deleted };
 	}

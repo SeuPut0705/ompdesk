@@ -199,6 +199,11 @@ export class BotFeed {
 		return this.#botTabs().find(entry => entry.tab.tabId === tabId)?.channel;
 	}
 
+	/** `tabId` moved onto a new conversation (`bot-rotation.ts`): its omp is told the role again, as at a start. */
+	renewed(tabId: string): void {
+		this.#told.delete(tabId);
+	}
+
 	/** The bot's tab and its side chats' tabs, while the bot is on. */
 	#botTabs(): { tab: BotTab; channel?: { id: string; title: string } }[] {
 		if (!activeBotPath(key => this.#deps.prefs.get(key))) return [];

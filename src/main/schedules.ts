@@ -28,6 +28,8 @@ import { createWriteStream, existsSync } from "node:fs";
 import { mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { finished } from "node:stream/promises";
+import { AGENT_SCHEDULE_PREFIX } from "../shared/agent-control";
+import { BOT_RETENTION_MS, olderThan } from "../shared/bot-retention";
 import { codedError } from "../shared/ipc-error-codes";
 import {
 	nextRunAt,
@@ -573,6 +575,56 @@ export class ScheduleService {
 		const run = this.#runs.find(entry => entry.id === runId);
 		const schedule = run && this.#schedules.find(entry => entry.id === run.scheduleId);
 		if (run && schedule) this.#options.runEnded?.({ ...schedule }, { ...run });
+		// An agent's one-time wake that did its work is spent and gone: nothing is left to read but a success.
+		if (run && schedule && run.trigger === "schedule" && run.status === "succeeded" && spentAgentOnce(schedule)) {
+			this.#delete(schedule.id);
+			this.#changed();
+		}
+	}
+
+	/**
+	 * Ages out what agents left (`BOT_RETENTION_MS`; launch and hourly): an agent schedule's finished runs past
+	 * `routineRuns`, and a spent one-time agent schedule, at once when its run did not fail (or it never ran: an older
+	 * build kept them), or `failedOnce` after a failed run ended. The owner's own schedules keep their history.
+	 */
+	prune(now: number): void {
+		let changed = false;
+		for (const schedule of [...this.#schedules]) {
+			if (!spentAgentOnce(schedule) || this.#active.has(schedule.id)) continue;
+			const last = this.#runs.find(run => run.scheduleId === schedule.id);
+			const failed = last !== undefined && last.status !== "succeeded";
+			if (failed && !olderThan(last.endedAt ?? last.startedAt, BOT_RETENTION_MS.failedOnce, now)) continue;
+			this.#delete(schedule.id);
+			changed = true;
+		}
+		const agent = new Set(
+			this.#schedules
+				.filter(schedule => schedule.name.startsWith(AGENT_SCHEDULE_PREFIX))
+				.map(schedule => schedule.id),
+		);
+		const old = this.#runs.filter(
+			run =>
+				run.status !== "running" &&
+				agent.has(run.scheduleId) &&
+				olderThan(run.endedAt ?? run.startedAt, BOT_RETENTION_MS.routineRuns, now),
+		);
+		if (old.length > 0) {
+			this.#runs = this.#runs.filter(run => !old.includes(run));
+			this.#removeLogs(old);
+			changed = true;
+		}
+		if (changed) this.#changed();
+	}
+
+	/** Every schedule that wakes `from` wakes `to` from now on (the bot's conversation was renewed). */
+	moveWakes(from: string, to: string): void {
+		let moved = false;
+		for (const schedule of this.#schedules)
+			if (schedule.wakeSession === from) {
+				schedule.wakeSession = to;
+				moved = true;
+			}
+		if (moved) this.#changed();
 	}
 
 	#stopSchedule(scheduleId: string): void {
@@ -800,4 +852,9 @@ export function ompRunLauncher(options: {
 		});
 		return { stop: () => child.stdin?.end(), done };
 	};
+}
+
+/** A one-time schedule an agent made (`[agent] …`) whose start is spent (it turned itself off). */
+function spentAgentOnce(schedule: Schedule): boolean {
+	return schedule.frequency.kind === "once" && !schedule.enabled && schedule.name.startsWith(AGENT_SCHEDULE_PREFIX);
 }

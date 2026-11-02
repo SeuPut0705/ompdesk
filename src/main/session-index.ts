@@ -60,7 +60,7 @@ export class SessionIndex {
 	/** GUI-side chat labels for sessions whose header carries no kind (stock omp writes none). */
 	#isChat: (sessionId: string) => boolean;
 	/** What the computer's bot session is to the list (`botRowOf`): its row carries it, on or off. */
-	#botRow: (sessionPath: string) => "on" | "off" | null;
+	#botRow: (sessionPath: string) => "on" | "off" | "past" | null;
 	#store: StockSessionStore;
 	/**
 	 * Each listed session file's legacy chat flag, with the session id its header named: a header never changes, so a
@@ -88,7 +88,7 @@ export class SessionIndex {
 		cwd: string,
 		isChat: (sessionId: string) => boolean = () => false,
 		bridgeDir = resolve("resources/gui-bridge"),
-		botRow: (sessionPath: string) => "on" | "off" | null = () => null,
+		botRow: (sessionPath: string) => "on" | "off" | "past" | null = () => null,
 	) {
 		this.#sessionsDir = sessionsDir ?? join(agentDir(), "sessions");
 		this.#cwd = resolve(cwd);

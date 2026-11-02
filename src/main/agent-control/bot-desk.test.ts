@@ -295,6 +295,42 @@ describe("BotDesk", () => {
 		expect(() => desk.answer(lapsing.id, "Yes")).toThrow(/expired/);
 		expect(desk.state().decisions.find(decision => decision.id === lapsing.id)?.state).toBe("open");
 	});
+
+	it("forgets answered and expired decisions and done tasks 3 days on, keeping open ones and live tasks", () => {
+		let now = Date.parse("2026-11-01T09:00:00.000Z");
+		const desk = new BotDesk({ file, now: () => new Date(now) });
+		const answered = desk.postDecision({ question: "Ship?" });
+		desk.answer(answered.id, "Yes");
+		const lapsed = desk.postDecision({ question: "Hold?", expiresInMinutes: 1 });
+		const open = desk.postDecision({ question: "Still open?" });
+		desk.change({ op: "tasks_done", sessions: ["/s/old.jsonl", "/s/live.jsonl"], done: true }, "owner");
+		now += 2 * 24 * 60 * 60_000;
+		desk.change({ op: "tasks_done", sessions: ["/s/new.jsonl"], done: true }, "owner");
+		// Two days on, nothing is old yet.
+		expect(desk.prune(now, () => false)).toEqual([]);
+		expect(desk.state().decisions).toHaveLength(3);
+		now += 1.5 * 24 * 60 * 60_000;
+		const live = (sessionPath: string) => sessionPath === "/s/live.jsonl";
+		expect(desk.prune(now, live)).toEqual(["/s/old.jsonl"]);
+		const state = new BotDesk({ file }).state();
+		expect(state.decisions.map(decision => decision.id)).toEqual([open.id]);
+		expect(state.tasksDone).toEqual(["/s/live.jsonl", "/s/new.jsonl"]);
+		expect(Object.keys(state.tasksDoneAt).sort()).toEqual(["/s/live.jsonl", "/s/new.jsonl"]);
+		expect(lapsed.id).not.toBe(open.id);
+	});
+
+	it("dates the done marks a desk written before their times kept from its first prune on", () => {
+		writeFileSync(
+			file,
+			JSON.stringify({ ...EMPTY_BOT_DESK_FILE, tasksDoneAt: undefined, tasksDone: ["/s/a.jsonl"] }),
+		);
+		let now = Date.parse("2026-11-01T09:00:00.000Z");
+		const desk = new BotDesk({ file, now: () => new Date(now) });
+		expect(desk.prune(now, () => false)).toEqual([]);
+		now += 3.5 * 24 * 60 * 60_000;
+		expect(desk.prune(now, () => false)).toEqual(["/s/a.jsonl"]);
+		expect(desk.state().tasksDone).toEqual([]);
+	});
 });
 
 describe("botRoutines", () => {

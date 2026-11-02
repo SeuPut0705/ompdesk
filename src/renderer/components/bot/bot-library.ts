@@ -6,8 +6,11 @@
  *   use; a session's report only by absolute path, as its relative ones are its own worktree's) and the GitHub pull
  *   requests, issues, releases and commits they link;
  * - its own write and edit calls: a file it named and wrote again later reads "Updated HH:MM".
- * Pinned items (the desk's `libraryPins`) come first, then the newest.
+ * Pinned items (the desk's `libraryPins`) come first, then the newest. An unpinned item older than
+ * `BOT_RETENTION_MS.library` is left out, as is one whose session is gone (its row with it) or whose branch has nothing
+ * left to show.
  */
+import { BOT_RETENTION_MS, olderThan } from "../../../shared/bot-retention";
 import type { OpenedChildRow } from "../layout/work-board/opened-children";
 import { type ChatFileReference, referencedFiles } from "../tools/media/chat-media";
 
@@ -65,8 +68,9 @@ export function botLibrary(input: {
 	/** The files the bot's own write and edit calls changed, with when each ended. */
 	writes: readonly { path: string; at: number }[];
 	pins: readonly string[];
+	now: number;
 }): LibraryItem[] {
-	const { rows, replies, writes, pins } = input;
+	const { rows, replies, writes, pins, now } = input;
 	const pinned = new Set(pins);
 	const items = new Map<string, LibraryItem>();
 	const add = (item: LibraryItem) => {
@@ -106,11 +110,15 @@ export function botLibrary(input: {
 			mentions(text, { kind: "session", title: row.title, row }, at, true);
 		}
 	}
-	return [...items.values()]
-		.map(item => {
-			if (item.kind !== "file") return item;
-			const later = writes.filter(write => write.at > item.at && samePath(write.path, item.path));
-			return later.length > 0 ? { ...item, updated: Math.max(...later.map(write => write.at)) } : item;
-		})
-		.sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.at - a.at);
+	return (
+		[...items.values()]
+			// An item with no known time (0) is never aged out on a guess.
+			.filter(item => item.pinned || item.at === 0 || !olderThan(item.at, BOT_RETENTION_MS.library, now))
+			.map(item => {
+				if (item.kind !== "file") return item;
+				const later = writes.filter(write => write.at > item.at && samePath(write.path, item.path));
+				return later.length > 0 ? { ...item, updated: Math.max(...later.map(write => write.at)) } : item;
+			})
+			.sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.at - a.at)
+	);
 }

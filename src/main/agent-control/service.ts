@@ -345,6 +345,8 @@ export interface BotDeskPort {
 	identity(change: { tagline?: string; persona?: string; avatarFile?: string }): Promise<void>;
 	/** The activity log, oldest first. */
 	activity(): readonly BotActivity[];
+	/** Asks for a new conversation of the caller's slot (the bot's, or a side chat's); false when none is known. */
+	newConversation(sessionPath: string): boolean;
 }
 export type ShipLevel = "commit" | "push" | "release";
 
@@ -4179,7 +4181,7 @@ export class AgentControl {
 		const start = (word: string) =>
 			row.frequency.kind === "event" ? "it waits for its event" : `next ${word} ${row.nextRun ?? "—"}`;
 		if (wakeSession !== undefined)
-			return `Scheduled “${row.name}” ${when}: it wakes this session with the prompt, opening it in the background if no tab holds it; id ${row.id}; ${start("wake")}. It runs only while OMPdesk is open on this computer; the owner sees it among your routines with its runs. ${frequency.kind === "once" ? "It turns itself off after its run." : `Cancel it when you no longer need it with ompdesk_schedule {"action":"cancel","id":"${row.id}"}.`}${webhookLine(row)}`;
+			return `Scheduled “${row.name}” ${when}: it wakes this session with the prompt, opening it in the background if no tab holds it; id ${row.id}; ${start("wake")}. It runs only while OMPdesk is open on this computer; the owner sees it among your routines with its runs. ${frequency.kind === "once" ? "It is deleted once its run succeeds (a failed one stays a day)." : `Cancel it when you no longer need it with ompdesk_schedule {"action":"cancel","id":"${row.id}"}.`}${webhookLine(row)}`;
 		return `Scheduled “${row.name}” ${when} in ${cwd} ${where}; id ${row.id}; ${start("run")}. It runs only while OMPdesk is open ${where}, never with auto-approve; cancel it with ompdesk_schedule {"action":"cancel","id":"${row.id}"${deviceArg}}.${webhookLine(row)}`;
 	}
 
@@ -4310,6 +4312,11 @@ export class AgentControl {
 								`- ${entry.at} [${entry.by}${entry.channel ? `, side chat ${entry.channel}` : ""}] ${entry.action === "tool" ? entry.text : `${entry.action}: ${entry.text}`}`,
 						)
 						.join("\n")}`;
+				}
+				case "new_conversation": {
+					if (!caller.sessionPath || !desk.newConversation(caller.sessionPath))
+						fail("This conversation has no saved file yet; there is nothing to renew.");
+					return "A fresh conversation starts once this turn is over and nothing waits on you: you will be asked for a handoff note (what you do, what you wait for, next steps, the sessions you opened), and your desk, duties, memories and routines carry over. Finish what you are doing now.";
 				}
 			}
 		} catch (error) {

@@ -2267,3 +2267,129 @@ describe("the bot's desk", () => {
 		expect(commands.filter(entry => entry.command.type === "agent_control_bot")).toHaveLength(2);
 	});
 });
+
+describe("the bot's conversation renews", () => {
+	const OLD = "/s/2026-11-02T09-00-00-000Z_old.jsonl";
+	const NEW = "/s/2026-11-03T04-05-00-000Z_new.jsonl";
+	const mails = (commands: { tabId: string; command: RpcCommand }[]) =>
+		commands.filter(entry => entry.command.type === "agent_control_mail");
+
+	function renewed() {
+		const owners: Record<string, string> = { [OLD]: "main0001" };
+		const desk = new BotDesk({ file: null });
+		const rig = setup({
+			prefs: {
+				bot: OLD,
+				botEnabled: true,
+				botConversations: {
+					current: {},
+					past: [{ path: OLD, slot: "bot", startedAt: 0, endedAt: 1 }],
+				},
+			},
+			tabs: [
+				{ tabId: "main0001", sessionPath: OLD, kind: "chat" },
+				// A child the old conversation opened before a relaunch: only its opener's file is known.
+				{ tabId: "kid00002", title: "Kid", sessionPath: "/s/kid.jsonl", openedBySession: OLD },
+			],
+			owners,
+			botDesk: { desk },
+		});
+		rig.sidecars.set("kid00002", { cwd: "/repo" });
+		return { ...rig, owners, desk };
+	}
+
+	it("moves the bot's tab onto the new conversation and seeds the handoff note there, with no turn", async () => {
+		const { runtime, commands, prefs, owners } = renewed();
+		prefs.bot = NEW;
+		owners[NEW] = "main0001";
+		await runtime.botMoveTab(OLD, NEW);
+		runtime.botAdopted({ from: OLD, to: NEW, note: "Waiting on the release run (kid00002)." });
+		expect(commands.find(entry => entry.command.type === "switch_session")).toMatchObject({
+			tabId: "main0001",
+			command: { type: "switch_session", sessionPath: NEW },
+		});
+		await vi.waitFor(() => expect(mails(commands)).toHaveLength(1));
+		const [seed] = mails(commands);
+		expect(seed?.tabId).toBe("main0001");
+		expect(seed?.command).toMatchObject({ triggerTurn: false, details: { id: "bot-handoff-old" } });
+		expect(String((seed?.command as { content?: string } | undefined)?.content)).toContain(
+			"Waiting on the release run (kid00002).",
+		);
+	});
+
+	it("never switches or closes a tab under a turn, and changes nothing when stock keeps the old file", async () => {
+		const busy = setup({
+			prefs: { bot: OLD, botEnabled: true },
+			tabs: [{ tabId: "busy0002", sessionPath: OLD, kind: "chat" }],
+			owners: { [OLD]: "busy0002" },
+		});
+		const closed: string[] = [];
+		busy.deps.pool.closeSessionTab = async sessionPath => {
+			closed.push(sessionPath);
+			return true;
+		};
+		await expect(busy.runtime.botMoveTab(OLD, NEW)).rejects.toThrow(/busy/);
+		expect(busy.commands.filter(entry => entry.command.type === "switch_session")).toEqual([]);
+		expect(closed).toEqual([]);
+
+		const { runtime, deps, spawned, commands } = renewed();
+		deps.pool.closeSessionTab = async sessionPath => {
+			closed.push(sessionPath);
+			return true;
+		};
+		const inner = deps.dispatch;
+		deps.dispatch = async (target, sidecar, tabId, command, timeoutMs) =>
+			command.type === "switch_session"
+				? ok({ cancelled: true })
+				: inner(target, sidecar, tabId, command, timeoutMs);
+		await expect(runtime.botMoveTab(OLD, NEW)).rejects.toThrow(/stayed on its conversation/);
+		expect(closed).toEqual([]);
+		expect(spawned).toEqual([]);
+		expect(commands.filter(entry => entry.command.type === "agent_control_mail")).toEqual([]);
+	});
+
+	it("brings a decision answer and a report of a child the old conversation opened to the new one", async () => {
+		const { runtime, commands, win, prefs, owners, desk } = renewed();
+		prefs.bot = NEW;
+		delete owners[OLD];
+		owners[NEW] = "main0001";
+		const open = desk.postDecision({ question: "Ship?" });
+		await runtime.botDecisionAnswered(desk.answer(open.id, "Yes"));
+		const reported = await runtime.run(win, "kid00002", T.report, { kind: "done", text: "Release run is green" });
+		expect(reported.isError, reported.text).toBe(false);
+		await vi.waitFor(() => expect(mails(commands)).toHaveLength(2));
+		expect(mails(commands).map(entry => entry.tabId)).toEqual(["main0001", "main0001"]);
+		expect(String((mails(commands)[1]?.command as { content?: string } | undefined)?.content)).toContain(
+			"Release run is green",
+		);
+	});
+
+	it("waits for a quiet moment: not while a turn runs or a question is open", () => {
+		const busy = setup({
+			prefs: { bot: OLD, botEnabled: true },
+			tabs: [{ tabId: "busy0002", sessionPath: OLD }],
+			owners: { [OLD]: "busy0002" },
+		});
+		expect(busy.runtime.botQuiet(OLD)).toBe(false);
+		const asking = setup({
+			prefs: { bot: OLD, botEnabled: true },
+			tabs: [{ tabId: "main0001", sessionPath: OLD }],
+			owners: { [OLD]: "main0001" },
+			requests: [
+				{
+					tabId: "main0001",
+					request: { type: "extension_ui_request", id: "r1", method: "confirm", title: "Go?", message: "" },
+				},
+			],
+		});
+		expect(asking.runtime.botQuiet(OLD)).toBe(false);
+		const idle = setup({
+			prefs: { bot: OLD, botEnabled: true },
+			tabs: [{ tabId: "main0001", sessionPath: OLD }],
+			owners: { [OLD]: "main0001" },
+		});
+		expect(idle.runtime.botQuiet(OLD)).toBe(true);
+		// No tab holds it: nothing to interrupt.
+		expect(idle.runtime.botQuiet("/s/elsewhere.jsonl")).toBe(true);
+	});
+});

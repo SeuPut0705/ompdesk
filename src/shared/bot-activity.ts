@@ -81,6 +81,7 @@ export const BOT_ACTIVITY_ACTIONS = [
 	"library_unpin",
 	"take_over",
 	"hand_back",
+	"conversation_new",
 ] as const;
 export type BotActivityAction = (typeof BOT_ACTIVITY_ACTIONS)[number];
 

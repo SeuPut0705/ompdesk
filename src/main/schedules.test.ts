@@ -592,6 +592,57 @@ describe("routines: event triggers, once, run history", () => {
 		service.dispose();
 	});
 
+	it("an agent's once routine goes once its run succeeds; a failed one stays a day so its reason can be read", async () => {
+		fakeClock(new Date(2026, 9, 15, 12, 0));
+		const dir = await tempDir();
+		const { service, turns, woke } = routineHarness(dir);
+		await service.start();
+		const at = new Date(2026, 9, 15, 12, 30).toISOString();
+		const once = (name: string) => ({ name, prompt: name, frequency: { kind: "once" as const, at } });
+		const done = await routine(service, dir, once("[agent] check"));
+		const failed = await routine(service, dir, once("[agent] recheck"));
+		const owners = await routine(service, dir, once("Mine"));
+		await vi.advanceTimersByTimeAsync(30 * 60_000 + SCHEDULE_TICK_MS);
+		await woke(3);
+		for (const turn of turns)
+			turn.end(turn.prompt === "[agent] recheck" ? { code: null, error: "model unreachable" } : { code: 0 });
+		const ids = () => service.state().schedules.map(schedule => schedule.id);
+		await vi.waitFor(() => expect(service.state().runs.every(run => run.status !== "running")).toBe(true));
+		await vi.waitFor(() => expect(ids()).not.toContain(done));
+		expect(ids()).toEqual(expect.arrayContaining([failed, owners]));
+		expect(service.state().runs.find(run => run.scheduleId === failed)?.error).toBe("model unreachable");
+		service.prune(Date.now() + 23 * 60 * 60_000);
+		expect(ids()).toContain(failed);
+		service.prune(Date.now() + 25 * 60 * 60_000);
+		expect(ids()).toEqual([owners]);
+		expect(service.state().runs.map(run => run.scheduleId)).toEqual([owners]);
+		service.dispose();
+	});
+
+	it("forgets an agent routine's runs after 7 days and leaves the owner's own schedules' history", async () => {
+		const dir = await tempDir();
+		const { service, turns, woke } = routineHarness(dir);
+		await service.start();
+		const agent = await routine(service, dir, { name: "[agent] watch" });
+		const mine = await routine(service, dir, { name: "Watch" });
+		service.fire(agent, "a");
+		service.fire(mine, "b");
+		await woke(2);
+		for (const turn of turns) turn.end({ code: 0 });
+		await ended(service, 2);
+		service.prune(Date.now() + 6 * 24 * 60 * 60_000);
+		expect(service.state().runs).toHaveLength(2);
+		service.prune(Date.now() + 8 * 24 * 60 * 60_000);
+		expect(service.state().runs.map(run => run.scheduleId)).toEqual([mine]);
+		expect(
+			service
+				.state()
+				.schedules.map(schedule => schedule.id)
+				.sort(),
+		).toEqual([agent, mine].sort());
+		service.dispose();
+	});
+
 	it("a Test before a once routine's moment keeps that moment; moving a spent one to a new moment schedules it again", async () => {
 		fakeClock(new Date(2026, 9, 15, 12, 0));
 		const dir = await tempDir();

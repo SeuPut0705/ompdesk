@@ -1,11 +1,11 @@
 /**
  * The bot's bar, on top of its pane while the conversation runs below it. Its first line: the bot's mark and name, its
- * state, its next self-wake and the computer it runs on (the name truncates first, then the computer), and Stop now
- * while it works. Its second line says what it does this moment, as Muse's avatar does ("Is working…"): the step its
+ * state, its next self-wake and the computer it runs on (the computer goes first, then the wake text, while the name
+ * keeps room for a few letters), and Stop now while it works. Its second line says what it does this moment, as Muse's avatar does ("Is working…"): the step its
  * turn runs (the running call's own words), the model's wait, or "Thinking"; for a paired host's bot the link's state
  * comes first while it is not online ("Reconnecting to Mac mini…", "Can't reach Mac mini"). Idle, the line is not drawn.
  */
-import { Pause, Pencil, Phone, Play, Square } from "lucide-react";
+import { MessageSquarePlus, Pause, Pencil, Phone, Play, Square } from "lucide-react";
 import { useMemo, useState } from "react";
 import { formatClock } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -18,7 +18,7 @@ import { useBotDesk, useBotDeskStore } from "../../stores/bot-desk";
 import { useRemoteStore } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
-import { toastError } from "../../stores/toast";
+import { toast, toastError } from "../../stores/toast";
 import { useTodoStore } from "../../stores/todo";
 import { useToolsStore } from "../../stores/tools";
 import { Badge, type BadgeVariant, Button, IconButton, LinkButton } from "../common";
@@ -69,6 +69,14 @@ export function BotBar({ tabId, device, channel }: { tabId: string; device?: str
 	// Who the bot is opens in a sheet over the pane, for this bar's bot (a host's on a paired computer or the phone).
 	const [identityOpen, setIdentityOpen] = useState(false);
 	const setPaused = (next: boolean) => void edit({ op: "paused", paused: next }, device);
+	// A fresh conversation for this one (the bot's or this side chat's): it starts at the bot's next quiet moment.
+	const channelId = desk.channels.find(entry => entry.sessionPath === tab?.sessionPath)?.id;
+	const renew = () =>
+		void edit({ op: "new_conversation", ...(channelId === undefined ? {} : { channel: channelId }) }, device).then(
+			done => {
+				if (done) toast({ variant: "success", message: t("botHome.newConversationAsked") });
+			},
+		);
 	// This computer's name, or the paired host the bot runs on, and that host's link.
 	const host = useRemoteStore(state =>
 		device === undefined ? undefined : state.state?.hosts.find(entry => entry.deviceId === device),
@@ -102,7 +110,7 @@ export function BotBar({ tabId, device, channel }: { tabId: string; device?: str
 		<header className={BOT_BAR_FRAME.outer} data-bot-bar="">
 			<div className={BOT_BAR_FRAME.inner}>
 				<BotAvatar avatar={identity.avatar} motion={motion} size="md" />
-				<h2 className="min-w-0 shrink truncate text-sc-md font-semibold text-(--sc-text)" data-bot-name>
+				<h2 className="min-w-12 shrink truncate text-sc-md font-semibold text-(--sc-text)" data-bot-name>
 					{name}
 				</h2>
 				{identity.tagline && (
@@ -124,7 +132,7 @@ export function BotBar({ tabId, device, channel }: { tabId: string; device?: str
 				</Badge>
 				<span
 					data-bot-next-wake
-					className="shrink-0 text-sc-sm whitespace-nowrap text-(--sc-text-muted) tabular-nums"
+					className="min-w-0 shrink-[3] truncate text-sc-sm whitespace-nowrap text-(--sc-text-muted) tabular-nums"
 				>
 					{wakeText}
 				</span>
@@ -146,6 +154,15 @@ export function BotBar({ tabId, device, channel }: { tabId: string; device?: str
 					>
 						{t("botHome.stop")}
 					</Button>
+				) : null}
+				{loaded ? (
+					<IconButton
+						data-bot-new-conversation=""
+						icon={<MessageSquarePlus />}
+						label={t("botHome.newConversation")}
+						onClick={renew}
+						size="sm"
+					/>
 				) : null}
 				<IconButton
 					data-bot-identity-edit=""

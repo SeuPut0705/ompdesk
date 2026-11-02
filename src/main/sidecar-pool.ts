@@ -216,7 +216,9 @@ export type TabActivity =
 	 * A running turn moved on: a tool call started or ended, or a reply was written (its step and cost changed). Once
 	 * per event batch; what the work board re-reads a running child for (agent-control/host.ts `liveReview`).
 	 */
-	| { type: "step"; tabId: string };
+	| { type: "step"; tabId: string }
+	/** An automatic compaction of the tab's context produced a result (the bot's renewal counts them: `bot-rotation.ts`). */
+	| { type: "compacted"; tabId: string };
 
 /** A tab's facts an observer reads when its debounce ends. */
 export interface TabFacts {
@@ -233,6 +235,8 @@ export interface TabFacts {
 	openedBy?: string;
 	/** Another session's agent opened this one (`openedBy` or, after a relaunch, its opener's file): its starts may wait for memory. */
 	agentOpened?: boolean;
+	/** The tab compacts its context now. */
+	compacting?: boolean;
 }
 
 /** A plan proposal awaiting approval: its title and plan file. */
@@ -587,6 +591,7 @@ export class SidecarPool {
 			retrying: entry.retry !== undefined,
 			scheduledRetry: entry.scheduledRetry !== undefined,
 			...(entry.openedBy !== undefined ? { openedBy: entry.openedBy } : {}),
+			...(entry.run.compacting === true ? { compacting: true } : {}),
 			...(entry.openedBy !== undefined || entry.openedBySession !== undefined ? { agentOpened: true } : {}),
 		};
 	}
@@ -1243,6 +1248,7 @@ export class SidecarPool {
 			let retryStarted = false;
 			const unsavedBefore = entry.unsavedPrompt;
 			let stepped = false;
+			let compacted = false;
 			this.modelWait.observe(entry.tabId, entry.device ?? "", events);
 			for (const event of events) {
 				if (trackRunEvent(entry, event)) runEnded = true;
@@ -1260,6 +1266,8 @@ export class SidecarPool {
 								console.warn(`[sidecar-pool] a tool observer failed: ${error}`);
 							}
 				} else if (event.type === "auto_retry_start") retryStarted = true;
+				else if (event.type === "auto_compaction_end" && event.result && !event.aborted && !event.skipped)
+					compacted = true;
 				else if (event.type === "plan_proposal" || event.type === "plan_proposal_resolved") {
 					if (event.type === "plan_proposal")
 						entry.planProposal = { title: event.title ?? "", planFilePath: event.planFilePath };
@@ -1285,6 +1293,7 @@ export class SidecarPool {
 			if (busyChanged || runEnded || retryStarted || entry.unsavedPrompt !== unsavedBefore) this.onRunningChange?.();
 			if (busyChanged || (runEnded && !busy)) this.#announceRun(entry);
 			else if (stepped && busy) this.#announce({ type: "step", tabId: entry.tabId });
+			if (compacted) this.#announce({ type: "compacted", tabId: entry.tabId });
 			if (runSettling(entry.run) !== wasSettling) this.settleWatch?.track(entry.tabId, runSettling(entry.run));
 			if (
 				busyChanged ||

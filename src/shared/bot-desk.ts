@@ -210,6 +210,12 @@ export const BotDeskFileSchema = z.object({
 	 * newest last; the bot's own report never completes one. Bounded: the oldest marks go first.
 	 */
 	tasksDone: z.array(z.string().min(1).max(4096)).max(BOT_TASKS_DONE_MAX).default([]),
+	/**
+	 * When each `tasksDone` mark was made (ISO, by session file): a mark and the closed task's record go
+	 * `BOT_RETENTION_MS.finished` later (`BotDesk.prune`). A mark from before the times were kept is dated at the first
+	 * prune that finds it.
+	 */
+	tasksDoneAt: z.record(z.string(), z.string()).default({}),
 	/** Library items the owner pinned, newest last (`library_pin`). */
 	libraryPins: z.array(z.string().min(1).max(4096)).max(BOT_LIBRARY_PINS_MAX).default([]),
 });
@@ -243,6 +249,7 @@ export const EMPTY_BOT_DESK_FILE: BotDeskFile = {
 	voice: { speakReplies: false },
 	channels: [],
 	tasksDone: [],
+	tasksDoneAt: {},
 	libraryPins: [],
 };
 export const EMPTY_BOT_DESK: BotDeskState = { ...EMPTY_BOT_DESK_FILE, routines: [] };

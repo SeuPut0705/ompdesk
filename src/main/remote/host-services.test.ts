@@ -3818,6 +3818,7 @@ describe("LocalHostServices host.* calls", () => {
 						desk,
 						createSideChat: async () => "/s/side.jsonl",
 						deleteSession: async () => {},
+						newConversation: () => false,
 					},
 					edit,
 					"owner",

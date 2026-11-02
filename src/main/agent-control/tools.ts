@@ -620,7 +620,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		label: "OMPdesk bot desk",
 		description:
 			"The owner's bot: read its desk, post decisions, keep duties and memory.\n" +
-			"The desk of the owner's bot, usable only from the bot's own session and its side chats (Settings › Bot); any other session is refused. desk reads your standing duties, memories, the decisions still waiting for the owner and the wakes you scheduled. decide posts what only the owner can decide and returns at once: keep working, the owner's answer arrives later as a message that starts your turn. duty_add records a standing responsibility the owner gave you; it stays in your prompt through a new conversation and a compaction. duty_remove drops one by id. remember keeps one fact about the owner or their work in your memory (in your prompt every turn; the owner sees changes in the Activity log and has no screen to edit it, so you fix it when they say it is wrong); forget drops one by id. identity sets your tagline, persona or avatar (avatar_file: a PNG, JPEG or WebP you made, e.g. with generate_image). visited lists the files and pages you read; activity lists what you did, newest last. See skill://ompdesk.",
+			"The desk of the owner's bot, usable only from the bot's own session and its side chats (Settings › Bot); any other session is refused. desk reads your standing duties, memories, the decisions still waiting for the owner and the wakes you scheduled. decide posts what only the owner can decide and returns at once: keep working, the owner's answer arrives later as a message that starts your turn. duty_add records a standing responsibility the owner gave you; it stays in your prompt through a new conversation and a compaction. duty_remove drops one by id. remember keeps one fact about the owner or their work in your memory (in your prompt every turn; the owner sees changes in the Activity log and has no screen to edit it, so you fix it when they say it is wrong); forget drops one by id. identity sets your tagline, persona or avatar (avatar_file: a PNG, JPEG or WebP you made, e.g. with generate_image). visited lists the files and pages you read; activity lists what you did, newest last. new_conversation ends this conversation once your turn is over and starts a fresh one from a handoff note (OMPdesk renews it daily on its own); your desk carries over. See skill://ompdesk.",
 		parameters: {
 			type: "object",
 			properties: {
@@ -636,6 +636,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 						"identity",
 						"visited",
 						"activity",
+						"new_conversation",
 					],
 				},
 				question: { type: "string", description: "decide: what the owner is asked, one clear sentence." },
@@ -1029,6 +1030,7 @@ export const ARGS = {
 		z
 			.object({ action: z.literal("activity"), limit: z.number().int().min(1).max(BOT_ACTIVITY_PAGE).optional() })
 			.strict(),
+		z.object({ action: z.literal("new_conversation") }).strict(),
 	]),
 } as const;
 

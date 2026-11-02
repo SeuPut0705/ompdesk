@@ -22,6 +22,8 @@ export const IPC_ERROR_CODES = [
 	"login_in_progress",
 	"session_owned_elsewhere",
 	"session_kind_mismatch",
+	// A conversation the bot ended is kept to read only (agent-control/bot-rotation.ts).
+	"bot_conversation_ended",
 	"session_open_in_tab",
 	"session_hidden",
 	"session_not_open",

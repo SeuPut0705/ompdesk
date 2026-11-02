@@ -130,6 +130,23 @@ export class SendOutbox {
 		return [...this.#entries.values()];
 	}
 
+	/**
+	 * What is still owed to `from` (this computer's) is owed to `to` instead: the bot's conversation was renewed. Its
+	 * omp never held it there, so it is handed over again.
+	 */
+	move(from: string, to: string): void {
+		const moved = [...this.#entries.values()].filter(
+			entry => entry.device === undefined && entry.sessionPath === from,
+		);
+		if (moved.length === 0) return;
+		for (const entry of moved) {
+			this.#entries.delete(entryKey(entry));
+			const { instance: _instance, ...rest } = entry;
+			this.#entries.set(entryKey({ ...rest, sessionPath: to }), { ...rest, sessionPath: to });
+		}
+		this.#save();
+	}
+
 	/** The messages still owed to one receiver session, oldest first. */
 	owedTo(sessionPath: string, device: string | undefined): OutboxSend[] {
 		const key = receiverKey(sessionPath, device);

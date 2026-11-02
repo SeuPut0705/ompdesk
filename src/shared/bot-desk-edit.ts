@@ -54,7 +54,12 @@ export const BotDeskEditSchema = z.discriminatedUnion("op", [
 		.strict(),
 	/** Pin a Library item to its top, or unpin it; `key` is the item's own (`components/bot/bot-library.ts`). */
 	z.object({ op: z.literal("library_pin"), key: z.string().min(1).max(4096), pinned: z.boolean() }).strict(),
+	/**
+	 * Start a fresh conversation for the bot (or the side chat `channel`) at its next quiet moment
+	 * (`agent-control/bot-rotation.ts`): the old one is kept read-only, the desk carries over.
+	 */
+	z.object({ op: z.literal("new_conversation"), channel: id.optional() }).strict(),
 ]);
 export type BotDeskEdit = z.infer<typeof BotDeskEditSchema>;
 
-export type BotDeskChange = Exclude<BotDeskEdit, { op: "channel_add" | "channel_remove" }>;
+export type BotDeskChange = Exclude<BotDeskEdit, { op: "channel_add" | "channel_remove" | "new_conversation" }>;

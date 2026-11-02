@@ -12,6 +12,8 @@ import { BotActivitySection } from "./BotActivity";
 import { BotChannelRows } from "./BotChannels";
 import { BotDutyRows } from "./BotDuties";
 import { BotLibrarySection } from "./BotLibrary";
+import { BotPastConversationsSection } from "./BotPastConversations";
+
 import { BotRoutineRows } from "./BotRoutines";
 import { BotCompletedSection, BotTasksSection } from "./BotTasks";
 import { BotTeachControl } from "./BotTeach";
@@ -21,6 +23,7 @@ export { LiveBotAvatar } from "./BotAvatar";
 export { BotBar } from "./BotBar";
 export { BotCallBar } from "./BotCallBar";
 export { BotDecisionDock } from "./BotDecisions";
+export { EndedConversationNote } from "./BotPastConversations";
 export { AssistantText } from "./BotSources";
 export { BotTakeoverBar } from "./BotTakeover";
 
@@ -42,8 +45,8 @@ export function BotBoardTasks({ tabId, device }: { tabId: string; device?: strin
 /**
  * The rest of the bot's board, in the order the owner looks for it: what is scheduled (its routines, with Record a
  * workflow), what it delivered (Library), what it finished and did lately (Completed, Activity), then what it is
- * responsible for (its duties, which it keeps itself) and its side chats. Library, Completed and Duties are absent
- * while empty.
+ * responsible for (its duties, which it keeps itself), its side chats and the conversations it ended. Library, Completed
+ * and Duties are absent while empty.
  */
 export function BotBoardSections({ tabId, device }: { tabId: string; device?: string }) {
 	const t = useT();
@@ -99,6 +102,7 @@ export function BotBoardSections({ tabId, device }: { tabId: string; device?: st
 			>
 				{loaded && <BotChannelRows channels={desk.channels} device={device} />}
 			</BoardSection>
+			<BotPastConversationsSection device={device} />
 		</>
 	);
 }
