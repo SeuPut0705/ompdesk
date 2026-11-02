@@ -13,7 +13,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { cssString, exitApp } from "./harness";
+import { animationsDone, cssString, exitApp } from "./harness";
 
 export interface DeleteProfile {
 	desktop: string;
@@ -68,6 +68,8 @@ async function confirmDialog(page: Page): Promise<void> {
 async function deleteByTrash(page: Page, session: Seeded): Promise<void> {
 	const row = rowOf(page, session);
 	await expect(row).toBeVisible();
+	// The rows glide up after the last delete: hover the row where it rests.
+	await animationsDone(row);
 	await row.hover();
 	await row.locator("[data-sidebar-row-menu]").click();
 	await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
@@ -79,6 +81,7 @@ async function deleteByTrash(page: Page, session: Seeded): Promise<void> {
 async function deleteByMenu(page: Page, session: Seeded): Promise<void> {
 	const row = rowOf(page, session);
 	await expect(row).toBeVisible();
+	await animationsDone(row);
 	await row.click({ button: "right" });
 	await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
 	await confirmDialog(page);

@@ -16,7 +16,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp, pressShortcutUntilVisible, variants } from "./harness";
+import { animationsDone, exitApp, fixtureOmp, pressShortcutUntilVisible, variants } from "./harness";
 
 const NAMES = ["Alpha", "Beta", "Gamma", "Delta"] as const;
 const OVERVIEW = { en: "Tab overview", ko: "탭 개요" } as const;
@@ -128,7 +128,11 @@ async function openSession(page: Page, title: string): Promise<string> {
 
 /** Drag a session's sidebar row onto a spot (fx/fy within `target`'s box) of the workspace and drop it. */
 async function dragOnto(page: Page, title: string, target: Locator, fx: number, fy: number, placement: string) {
-	const rowBox = await rowOf(page, title).boundingBox();
+	const row = rowOf(page, title);
+	// A row that just arrived (or moved) glides to its place: grab it where it rests.
+	await expect(row).toBeVisible();
+	await animationsDone(row);
+	const rowBox = await row.boundingBox();
 	const pane = await target.boundingBox();
 	if (!rowBox || !pane) throw new Error("expected drag boxes");
 	await page.mouse.move(rowBox.x + rowBox.width / 2, rowBox.y + rowBox.height / 2);
