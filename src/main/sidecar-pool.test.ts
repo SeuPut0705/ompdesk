@@ -14,6 +14,7 @@ import type {
 	SidecarStatus,
 } from "../shared/rpc-types";
 import { deletedSessions, initDeletedSessions } from "./deleted-sessions";
+import { RemoteSidecar } from "./remote/remote-sidecar";
 import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
 import { SidecarPool, type TabActivity } from "./sidecar-pool";
 import { type SidecarLike, VIEW_ENDED_EVENT } from "./sidecar-types";
@@ -3482,6 +3483,60 @@ describe("SidecarPool tab activity (the observer Web Push listens to)", () => {
 		expect(pool.tabFacts("tab-a")?.busy).toBe(true);
 		a.emitStatus("ready");
 		expect(pool.tabFacts("tab-a")?.busy).toBe(false);
+	});
+
+	// The device's own RemoteSidecar in front of the pool: the order of its frames is what the pool reads.
+	it("keeps a paired host's turn and ask through a re-attach that finds the host's omp restarted", async () => {
+		const link = {
+			deviceId: "host-b",
+			state: "online" as "online" | "offline",
+			request: async <T>(method: string): Promise<T> =>
+				(method === "tab.open" ? { cwd: "/a", kind: "agent", attached: true } : null) as T,
+		};
+		const remote = new RemoteSidecar({
+			link,
+			rtab: "r1",
+			cwd: "/a",
+			kind: "agent",
+			fresh: true,
+			offlineMessage: () => "offline",
+			stalledMessage: () => "stalled",
+			deferClose: () => {},
+		});
+		const pool = new SidecarPool(() => remote as unknown as SidecarLike);
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		const seen: TabActivity[] = [];
+		pool.observeTabs(activity => seen.push(activity));
+		const settle = async () => {
+			for (let i = 0; i < 5; i++) await Promise.resolve();
+		};
+		const event = (name: string, arg: unknown) => remote.handleEvent({ rtab: "r1", name, arg } as never);
+		const hostStatus = (omp: string) =>
+			event("status", { status: "ready", statusPayload: {}, processAlive: true, cwd: "/a", kind: "agent", omp });
+		remote.start();
+		await settle();
+		hostStatus("omp-1");
+		event("events", [{ type: "agent_start" }]);
+		const ask = { type: "extension_ui_request", id: "ask-1", method: "input", title: "Name?" };
+		event("extensionUi", ask);
+		expect(pool.tabFacts("tab-a")?.busy).toBe(true);
+
+		link.state = "offline";
+		remote.linkStateChanged("offline");
+		link.state = "online";
+		remote.linkStateChanged("online");
+		await settle();
+		// The host restarted its omp while the link was down, and the new one runs the turn on and asks again (a resumed
+		// turn): it re-sends its reading, its status naming the new omp, then the asks still open.
+		event("run", { running: true, turn: true, elapsedMs: 4_000 });
+		hostStatus("omp-2");
+		event("openAsks", [ask]);
+
+		expect(pool.tabFacts("tab-a")?.busy).toBe(true);
+		const status = fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data as IpcTabStatusPayload | undefined;
+		expect(status?.status).toBe("running");
+		expect(seen.filter(activity => activity.type === "idle" || activity.type === "askClosed")).toEqual([]);
 	});
 
 	it("never announces a provider sign-in's own requests as asks", () => {
