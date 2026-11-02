@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.98.0] - 2026-11-03
+
+접어 둔 사이드바 구역도 안에서 무슨 일이 있는지 보여 주고, 길어진 할 일 목록은 에이전트가 스스로 접어요.
+
+### 바뀐 것
+- 접은 프로젝트·채팅·보관함·기기 구역이 숨은 세션의 표시(기다리는 중, 작업 중, 안 본 완료)를 개수와 함께 보여 줘요. 이 컴퓨터와 연결된 컴퓨터 구역 모두 같아요. 툴팁과 화면 낭독기는 작업판과 같은 말("승인 필요", "3개가 기다려요", "1개 실행 중")을 써요.
+- 할 일을 계속 덧붙여 20개를 넘고 10개 이상 끝났으면, 에이전트가 끝난 일을 한 줄 요약으로 접고 다음 일은 새 단계로 시작해요. 끝나지 않은 일과 막힌 일은 이유와 함께 그대로 남아요.
+
+### 고친 것
+- 두 컴퓨터가 함께 다시 시작하면 연결된 컴퓨터에서 이어서 일하던 세션이 이쪽에서 "시작 안 함"으로 남던 문제를 고쳤어요.
+
+<!-- en -->
+
+A folded sidebar section now shows what is going on inside it, and agents fold a todo list that grew long.
+
+### Changed
+- A folded project, Chats, Archived or device section shows its hidden sessions' marks (waiting, working, unseen finish) with a count, for this computer and a paired one alike; the tooltip and screen reader use the work board's words ("Needs approval", "3 need you", "1 running").
+- Once appends leave a todo list over 20 items with at least 10 finished, the agent folds the finished work into one summary item and starts later rounds in their own phase; unfinished and blocked items stay, blocked ones with their reason.
+
+### Fixed
+- When both computers relaunched together, a paired computer's session that its relaunch continued stayed "not started" here.
+
 ## [0.97.0] - 2026-11-03
 
 봇이 한 대화를 끝없이 이어가지 않고 매일 새 대화로 넘어가요. 봇의 기록은 기간이 지나면 저절로 정리돼요.
