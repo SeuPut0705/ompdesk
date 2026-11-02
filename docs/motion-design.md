@@ -246,4 +246,18 @@ Unchanged on purpose: page and Settings cross-fades, the working cue, the strip'
 | daily (board, gauges, streaming) | 43.7 (43.3–44.1) | 44.7 (44.3–45.8) | 18 → 19 | +1 point while streaming beside the docked board |
 | daily, idle and hidden | 0.6 / 0.4 | 0.7 / 0.5 | 0 → 0 | nothing runs at rest: no new loop |
 
-The paired phone's first-screen JavaScript grew 15,148 bytes (3,291,579 → 3,306,727 on 8ba43458): the exits, folds and list keys of the components on that screen. The play-time half (`lib/motion-play.ts`: FLIP, height, the leaving clone) loads right after the first screen and is not counted.
+The list hook was rebuilt last (it watches the list's DOM, see Patterns), so the flows it touches ran again on the final build against `main` (8ba43458), same method (5 runs per side; `daily` 4 before, the fifth cut by the test's time limit):
+
+| Flow, phase | Renderer CPU before | after | Frame p99 before → after | Blocking ms per 10 s before → after |
+| --- | --- | --- | --- | --- |
+| sidebar of 500, scroll | 22.7 (21.9–23.1) | 22.2 (21.3–23.5) | 19 → 19 | 0 → 0 |
+| sidebar of 500, filter typed | 29.3 (28.8–30.1) | 30.5 (29.3–30.6) | 19 → 19 | 0 → 0 |
+| sidebar of 500, a row streaming | 19.1 (19.0–37.6) | 21.6 (20.2–24.5) | 19 → 19 | 0 → 0 |
+| daily, streaming beside the board | 45.4 (43.7–46.4) | 44.5 (43.1–46.0) | 18 → 19 | 0 → 0 |
+| daily, typing | 8.8 (8.6–9.7) | 9.3 (8.6–10.6) | 19 → 19 | 0 → 0 |
+| daily, switching tabs | 21.8 (21.2–22.2) | 21.4 (20.0–22.1) | 66 → 50 | 101 → 83 |
+| daily, idle / hidden | 0.7 / 0.45 | 0.7 / 0.4 | 0 → 0 | 0 → 0 |
+
+A streaming row in a 500-row sidebar costs about 2 points more: each burst of changes reads the rows' places once, on a task after the frame's layout, so the next added or moved row glides from where it really was.
+
+The paired phone's first-screen JavaScript grew 15,148 bytes (3,294,067 → 3,309,215 on 3dbeeff4; the budget rose by exactly that, 3,294,200 → 3,309,348): the exits, folds and list keys of the components on that screen. The play-time half (`lib/motion-play.ts`: FLIP, height, the leaving clone) loads right after the first screen and is not counted.
