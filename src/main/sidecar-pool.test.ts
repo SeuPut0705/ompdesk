@@ -384,6 +384,28 @@ describe("SidecarPool tabs", () => {
 		]);
 	});
 
+	it("sends a shown tab the batch that starts or ends its run before the status it changes", () => {
+		// A window reads the run's end from TAB_STATUS (`isStreaming`); the batch holding agent_end and its committed
+		// messages must already be there, or a reader of "the run's last reply" (the voice call) finds none.
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		const [a] = sidecars;
+		a?.emitStatus("ready");
+		fw.sent.length = 0;
+		a?.emitAgentEvents(["agent_start"]);
+		a?.emitAgentEvents(["agent_end"]);
+		expect(
+			fw.sent
+				.filter(entry => entry.channel === IPC_EVENTS.EVENTS_BATCH || entry.channel === IPC_EVENTS.TAB_STATUS)
+				.map(entry =>
+					entry.channel === IPC_EVENTS.TAB_STATUS
+						? (entry.data as IpcTabStatusPayload).status
+						: (entry.data as { payload: Array<{ type: string }> }).payload[0]?.type,
+				),
+		).toEqual(["agent_start", "running", "agent_end", "ready"]);
+	});
+
 	it("routes a hidden tab's plan proposals and subagent lifecycle to its own runtime, once", () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);

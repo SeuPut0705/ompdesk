@@ -386,6 +386,7 @@ describe("SidecarManager", () => {
 			'\tif (command.type === "prompt") {',
 			'\t\tout({ type: "agent_end", messages: [userMessage] });',
 			'\t\tout({ type: "prompt_result", id: command.id, agentInvoked: true });',
+			'\t\tout({ type: "session_settled" });',
 			"\t}",
 			"});",
 			'process.stdin.on("end", () => process.exit(0));',
@@ -395,6 +396,12 @@ describe("SidecarManager", () => {
 		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, bridgeDir: tempDir });
 		const frames: Array<{ type: string; messages?: Array<{ entryId?: string }> }> = [];
 		sidecar.on("frame", frame => frames.push(frame));
+		// What listeners hear: agent events leave in batches, the run's settle frames on their own. A tab's status follows
+		// the settle frames, so they must not overtake the batch that holds agent_end.
+		const heard: string[] = [];
+		sidecar.on("events", (events: Array<{ type: string }>) => heard.push(...events.map(event => event.type)));
+		sidecar.on("promptResult", () => heard.push("promptResult"));
+		sidecar.on("sessionSettled", () => heard.push("sessionSettled"));
 		try {
 			const ready = waitForReady(sidecar);
 			sidecar.start();
@@ -411,8 +418,11 @@ describe("SidecarManager", () => {
 			});
 
 			await client.command({ type: "prompt", message: "hi" });
-			await expect.poll(() => frames.map(frame => frame.type)).toEqual(["agent_end", "prompt_result"]);
+			await expect
+				.poll(() => frames.map(frame => frame.type))
+				.toEqual(["agent_end", "prompt_result", "session_settled"]);
 			expect(frames[0]?.messages?.[0]?.entryId).toBe("e1");
+			expect(heard).toEqual(["agent_end", "promptResult", "sessionSettled"]);
 			// Transcript and entry-id matching go through the bridge, never raw get_entries.
 			const commands = JSON.parse(await fs.readFile(commandLog, "utf8")) as string[];
 			expect(commands).not.toContain("get_transcript");
