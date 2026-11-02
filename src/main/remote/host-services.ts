@@ -646,7 +646,7 @@ export class LocalHostServices implements HostServices {
 	#liveTimer: NodeJS.Timeout | undefined;
 	#quota: PeerQuota | null = null;
 	#memory: HostMemory | null = null;
-	#resume: Pick<TurnResume, "sync" | "cancelWait"> | null = null;
+	#resume: Pick<TurnResume, "sync" | "cancelWait" | "relaunchContinuation"> | null = null;
 	#autopilot: HostedAutopilot | null = null;
 	#agentReview: HostedAgentReview | null = null;
 	#botDesk: HostedBotDesk | null = null;
@@ -694,7 +694,7 @@ export class LocalHostServices implements HostServices {
 	 * it keeps their markers, continues them after a crash or quit, and holds a network failure
 	 * until this computer's connection is back. Its hosted-tab ids are {@link resumeId}s.
 	 */
-	attachResume(resume: Pick<TurnResume, "sync" | "cancelWait">): void {
+	attachResume(resume: Pick<TurnResume, "sync" | "cancelWait" | "relaunchContinuation">): void {
 		this.#resume = resume;
 	}
 
@@ -1915,14 +1915,17 @@ export class LocalHostServices implements HostServices {
 
 	/**
 	 * The tabs `peer`'s last connection left that still have work (`tabs.kept`): in their grace period, on a session
-	 * file (a fresh tab with none cannot be opened again by its path), running a turn, settling, waiting on an ask
-	 * or held for this computer's connection. An idle one is left to its grace.
+	 * file (a fresh tab with none cannot be opened again by its path), running a turn, settling, waiting on an ask,
+	 * held for this computer's connection, or about to be continued by this computer's relaunch (its restore answered
+	 * but stock starts the turn later, or its omp is still coming up). An idle one is left to its grace.
 	 */
 	#keptTabs(peer: PeerInfo): KeptTab[] {
 		const kept: KeptTab[] = [];
 		for (const tab of this.#tabs.values()) {
 			if (tab.peerId !== peer.deviceId || tab.conn !== null || tab.viewsWindow || !tab.sessionFile) continue;
-			const state = keptState(tab);
+			// Read as running: the turn goes on here, and every device version knows that state.
+			const continuing = this.#resume?.relaunchContinuation(tab.resumeId) === "after_restore";
+			const state = keptState(tab) ?? (continuing ? "running" : null);
 			if (!state) continue;
 			kept.push({
 				rtab: tab.rtab,

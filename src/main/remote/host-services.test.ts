@@ -1719,7 +1719,7 @@ describe("LocalHostServices", () => {
 
 	it("keeps a hosted turn running when Windows ended the session under its omp", async () => {
 		const { services, sidecars } = setup();
-		services.attachResume({ sync: vi.fn(), cancelWait: vi.fn() });
+		services.attachResume({ sync: vi.fn(), cancelWait: vi.fn(), relaunchContinuation: vi.fn() });
 		const x = new FakeConnection(peer("device-x"));
 		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: "/s/one.jsonl" }, x);
 		await services.call(x.peer, "tab.start", { rtab: "t1" }, x);
@@ -1769,7 +1769,7 @@ describe("LocalHostServices", () => {
 
 	it("gives this computer's resume coordinator the hosted turns: facts, Stop, asks, the wait and its Cancel", async () => {
 		const { services, sidecars } = setup();
-		const resume = { sync: vi.fn(), cancelWait: vi.fn() };
+		const resume = { sync: vi.fn(), cancelWait: vi.fn(), relaunchContinuation: vi.fn() };
 		services.attachResume(resume);
 		const x = new FakeConnection(peer("device-x"));
 		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: "/s/one.jsonl" }, x);
@@ -2008,7 +2008,7 @@ describe("LocalHostServices", () => {
 	// ran no rules, so a wait held there outlived a switch (and a first turn's wait never saw one at all).
 	it("counts a device's session or branch move on its own hosted tab for the resume rules, and wakes them when a held tab's file moves", async () => {
 		const { services, sidecars } = setup();
-		const resume = { sync: vi.fn(), cancelWait: vi.fn() };
+		const resume = { sync: vi.fn(), cancelWait: vi.fn(), relaunchContinuation: vi.fn() };
 		services.attachResume(resume);
 		const x = new FakeConnection(peer("device-x"));
 		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: "/s/one.jsonl" }, x);
@@ -2045,7 +2045,7 @@ describe("LocalHostServices", () => {
 	// A11: a prompt the person types on the device while this computer's continuation of the tab is on its way.
 	it("counts a device's own prompt on its hosted tab for the resume rules, never an agent's wrapped message or another command", async () => {
 		const { services, sidecars } = setup();
-		const resume = { sync: vi.fn(), cancelWait: vi.fn() };
+		const resume = { sync: vi.fn(), cancelWait: vi.fn(), relaunchContinuation: vi.fn() };
 		services.attachResume(resume);
 		const x = new FakeConnection(peer("device-x"));
 		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: "/s/one.jsonl" }, x);
@@ -2071,7 +2071,7 @@ describe("LocalHostServices", () => {
 	// and a move that timed out (omp may have run it: `switch_leaf` with a summary outlives the renderer's 8 s) counts too.
 	it("holds the resume rules while a device's move is on its way, and counts one whose command timed out", async () => {
 		const { services, sidecars } = setup();
-		const resume = { sync: vi.fn(), cancelWait: vi.fn() };
+		const resume = { sync: vi.fn(), cancelWait: vi.fn(), relaunchContinuation: vi.fn() };
 		services.attachResume(resume);
 		const x = new FakeConnection(peer("device-x"));
 		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: "/s/one.jsonl" }, x);
@@ -2153,7 +2153,7 @@ describe("LocalHostServices", () => {
 	it("lets a revived turn with no device run to its end: the grace closes only an idle tab, and its fact stays meanwhile", async () => {
 		vi.useFakeTimers();
 		const { services, sidecars } = setup(1_000);
-		services.attachResume({ sync: vi.fn(), cancelWait: vi.fn() });
+		services.attachResume({ sync: vi.fn(), cancelWait: vi.fn(), relaunchContinuation: vi.fn() });
 		const x = peer("device-x");
 		const fact = (id: string) => services.resumeFacts().find(entry => entry.tabId === id);
 
@@ -3228,7 +3228,7 @@ describe("LocalHostServices: a device opening a session a window of this compute
 
 	it("sends the device's Cancel to the window's tab, never to a device tab's resume id", async () => {
 		const { services, view, x } = await viewing();
-		const resume = { sync: vi.fn(), cancelWait: vi.fn() };
+		const resume = { sync: vi.fn(), cancelWait: vi.fn(), relaunchContinuation: vi.fn() };
 		services.attachResume(resume);
 		const cancelHostWait = vi.fn(async () => {});
 		Object.assign(view, { cancelHostWait });
