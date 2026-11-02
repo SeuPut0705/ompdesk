@@ -291,12 +291,16 @@ for (const look of TOUCH_LOOKS) {
 					/\[data-ask-step\]|\[data-figure-header\]|\[data-switch-tile\]/.test(issue.at);
 				// The work strip under the header is 28 px drawn and reaches 36 down over the transcript's top.
 				const workStrip = issue.kind === "small-target" && issue.at.includes("[data-work-chip]");
+				// The bot's pane (3 Nov 2026): its bar's icons and a decision's controls are 36 px targets, the decisions
+				// dock's head too.
+				const botTarget = issue.kind === "small-target" && /\[data-bot-|\[data-dock-card\]/.test(issue.at);
 				if (
 					["stolen-tap", "safe-area", "overlap"].includes(issue.kind) ||
 					summaryCut ||
 					sidebarTarget ||
 					spacedTarget ||
-					workStrip
+					workStrip ||
+					botTarget
 				)
 					found.push(`${id}: ${issue.kind} ${issue.at} ${issue.detail}`);
 			}
@@ -312,6 +316,9 @@ for (const look of TOUCH_LOOKS) {
 		const busy = await openLook(browser, look, { origin, query: "&board=busy" });
 		await check(busy, "board-strip");
 		await busy.context().close();
+		const bot = await openLook(browser, look, { origin, query: "&bot=1" });
+		await check(bot, "bot-bar");
+		await bot.context().close();
 		expect(found).toEqual([]);
 	});
 }
