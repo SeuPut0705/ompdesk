@@ -1147,6 +1147,31 @@ describe("startVoiceCall with streaming", () => {
 		expect(send).toHaveBeenCalledTimes(2);
 	});
 
+	it("keeps a short word said just before talking over the reply: the pre-roll reaches back to it", async () => {
+		// Measured on a real call: "Wait, stop. Tell me…" over a reply reached the bot as "Stop, tell me…". "Wait" was
+		// loud for less than the 250 ms a barge-in needs, so only "stop" confirmed it and the 400 ms pre-roll began after
+		// "Wait".
+		const held = Promise.withResolvers<StreamReply>();
+		streams.ttsStreamNext
+			.mockImplementationOnce(async () => ok({ chunks: [CHUNK], done: false }))
+			.mockImplementationOnce(() => held.promise);
+		await startCall(streams);
+		await utterance();
+		await botTurn(REPLY);
+		expect(phase()).toBe("speaking");
+		const pushes = streams.sttStreamPush.mock.calls.length;
+		await talk(220);
+		await advance(150);
+		expect(phase()).toBe("speaking");
+		await talk(600);
+		await settle();
+		expect(phase()).toBe("hearing");
+		const [, firstFrame] = streams.sttStreamPush.mock.calls[pushes] ?? [];
+		const voiced = decodePcm(firstFrame ?? "").filter(sample => sample !== 0).length;
+		// More than 400 ms of voice: the word before the pause and the start of what confirmed the barge-in.
+		expect(voiced).toBeGreaterThan(6400);
+	});
+
 	it("goes back to listening, with the reason, when the reply stream fails", async () => {
 		streams.ttsStreamNext.mockImplementationOnce(async () => ({ success: false, error: "tts down" }));
 		await startCall(streams);
