@@ -5,6 +5,7 @@ import { RootErrorBoundary } from "./components/common/RootErrorBoundary";
 import { installTranscriptSeeding } from "./hooks/session-hydration";
 import { lazyChunk, watchChunkFailures } from "./lib/chunk-load";
 import { getCurrentLanguage, I18nProvider, loadLocale } from "./lib/i18n";
+import { loadMotionPlay } from "./lib/motion";
 import { installGlobalRuntimeErrorHandlers, reportRuntimeError } from "./lib/runtime-errors";
 import "./styles/global.css";
 import "./styles/tokens.css";
@@ -30,6 +31,9 @@ void import("./lib/cue-clock").then(({ installCueClock }) => installCueClock());
 // A modifier pressed alone after a click never rings what the click focused (lib/focus-modality.ts); loaded after the
 // first screen, which it never changes.
 void import("./lib/focus-modality").then(({ installFocusModality }) => installFocusModality());
+// What moves a list, a disclosure's height or a leaving overlay (lib/motion-play.ts); loaded after the first screen,
+// where nothing moves before a person acts.
+void loadMotionPlay();
 
 const container = document.getElementById("root");
 if (!container) {

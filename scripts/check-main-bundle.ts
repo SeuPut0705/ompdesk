@@ -245,7 +245,14 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // view holds (`sessions.remoteOpened`, the hosted-sessions store, `remoteOpenedTab`), `familyRows` and the host's bot
 // family and remote children in a device's section: measured 3,294,200, about 2,500 bytes over the tree before it
 // (which a byte trim had held at 3,291,700).
-const WEB_FIRST_SCREEN_JS_BYTES = 3_294_200;
+// One motion system (3 Nov 2026, docs/motion-design.md): the token reader and presence timers (`lib/motion.ts`, 1.6 KB,
+// in the toast chunk the stores share), `Collapse` (0.8 KB), the list hooks (`useListMotion`, the sidebar's), the
+// done mark, and in each of about sixty components the exit state, `Collapse` body and `data-flip-key` wiring
+// (0.1 to 0.6 KB apiece: Popover, Tooltip, ContextMenu, Toast, Sheet, the composer's overlays, the sidebar's and a paired
+// host's rows and folds, the bot's dock). They render on the first screen, so they cannot defer; what only runs once
+// a person acts (FLIP, height animation, the leaving overlay's clone: `lib/motion-play.ts`, 2.3 KB) loads right after
+// it: measured 3,305,794 on c4391f5a's 3,291,574, 14,220 bytes over its base.
+const WEB_FIRST_SCREEN_JS_BYTES = 3_308_420;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

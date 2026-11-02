@@ -1,17 +1,5 @@
 import { useEffect, useState } from "react";
-
-/**
- * Duration of every overlay exit animation. The closing classes animate at
- * `--omp-motion-fast`; unmount waits exactly that long so the last painted
- * frame of the exit is the frame the element disappears on.
- */
-export const OVERLAY_EXIT_MS = 150;
-
-/** True when the OS asks for reduced motion; exit phases are skipped then. */
-export function prefersReducedMotion(): boolean {
-	if (typeof window.matchMedia !== "function") return false;
-	return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
+import { type MotionDuration, motionMs } from "../lib/motion";
 
 export interface OverlayPresence {
 	/** Render gate: true while the overlay is open or still playing its exit animation. */
@@ -39,16 +27,18 @@ type Phase = "closed" | "open" | "closing";
  * `open` flips, so callers keep their `open` checks for handlers and ARIA state and
  * hide the exiting element from assistive tech instead of leaving it actionable.
  */
-export function useOverlayPresence(open: boolean): OverlayPresence {
+export function useOverlayPresence(open: boolean, exit: MotionDuration = "fast"): OverlayPresence {
 	const [phase, setPhase] = useState<Phase>(open ? "open" : "closed");
 	if (open && phase !== "open") setPhase("open");
-	else if (!open && phase === "open") setPhase(prefersReducedMotion() ? "closed" : "closing");
+	// The exit lasts its token (`exit`, the class's own duration): unmount comes on the frame the exit ends, at once
+	// where motion is off.
+	else if (!open && phase === "open") setPhase(motionMs(exit) > 0 ? "closing" : "closed");
 
 	useEffect(() => {
 		if (phase !== "closing") return;
-		const timer = setTimeout(() => setPhase("closed"), OVERLAY_EXIT_MS);
+		const timer = setTimeout(() => setPhase("closed"), motionMs(exit));
 		return () => clearTimeout(timer);
-	}, [phase]);
+	}, [phase, exit]);
 
 	return { closing: phase === "closing", mounted: phase !== "closed" };
 }

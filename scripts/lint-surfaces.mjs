@@ -16,10 +16,8 @@
  * reason next to it). The styles/ directory (token definitions) is skipped
  * for fill/type checks.
  *
- * Motion (styles/*.css only): interaction durations must use
- * var(--sc-duration-fast) or var(--sc-duration-med) (the legacy
- * --omp-motion-fast/-med aliases still pass). Bare Nms values are errors unless
- * the line has `motion-ok` (loops like caret, token definitions).
+ * Motion (durations, curves, keyframes, reduced motion) is checked by
+ * src/renderer/styles/motion-system.test.ts, not here.
  *
  * IME (renderer .ts/.tsx, tests excluded): a function that tests a key for
  * "Enter" must use the isImeKeyEvent guard (see scripts/lint-ime.mjs); an
@@ -55,10 +53,8 @@ import { findUnhandledCalls } from "./lint-unhandled.mjs";
 
 // fileURLToPath, not URL.pathname: the latter is "/D:/…" on Windows runners.
 const ROOT = fileURLToPath(new URL("../src/renderer", import.meta.url));
-const STYLES = join(ROOT, "styles");
 const BRIDGE = fileURLToPath(new URL("../resources/gui-bridge", import.meta.url));
 const EXTENSIONS = new Set([".ts", ".tsx"]);
-const BARE_MS = /(?<!var\(--omp-motion-(?:fast|med)\))(?<![-\w])(\d+(?:\.\d+)?)ms\b/g;
 
 const FILL_PAREN = /(?:[a-z-]+:)*bg-\(--omp-bg-(?:primary|secondary|tertiary)\)/g;
 const FILL_BRACKET = /(?:[a-z-]+:)*bg-\[var\(--omp-bg-(?:primary|secondary|tertiary)\)\]/g;
@@ -110,24 +106,6 @@ for (const file of collect(ROOT)) {
 			violations.push(`${rel}:${hit.line}  OS locale  ${hit.text}  (pass uiLocale(), or locale-ok: <reason>)`);
 		}
 	}
-}
-
-for (const name of readdirSync(STYLES)) {
-	if (!name.endsWith(".css")) continue;
-	const file = join(STYLES, name);
-	const lines = readFileSync(file, "utf8").split("\n");
-	lines.forEach((line, index) => {
-		if (line.includes("motion-ok")) return;
-		if (/--(sc-duration|omp-motion)-(fast|med)\b/.test(line)) return;
-		BARE_MS.lastIndex = 0;
-		for (const match of line.matchAll(BARE_MS)) {
-			const ms = Number.parseFloat(match[1]);
-			if (ms === 0 || ms === 0.01) continue;
-			violations.push(
-				`styles/${name}:${index + 1}  bare motion duration  ${match[0]}  (use --sc-duration-fast/-med)`,
-			);
-		}
-	});
 }
 
 // prompt-sections.ts itself is the one hook that may add to the prompt.

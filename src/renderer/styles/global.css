@@ -204,7 +204,7 @@ html[data-mica="true"] .omp-session-sidebar {
 	border-radius: 99px;
 	border: 2px solid transparent;
 	background-clip: content-box;
-	transition: background-color var(--omp-motion-fast) var(--omp-ease);
+	transition: background-color var(--sc-duration-fast) var(--sc-ease-standard);
 }
 
 :where(html:not([data-input="touch"])) ::-webkit-scrollbar-thumb:hover {
@@ -350,29 +350,20 @@ html[data-platform="win32"] .omp-inspector:not([data-side="left"]) .omp-panel-to
 }
 
 /* ============================================================================
-   Motion system — spring-flavored entrances, instant-feeling state changes,
-   no layout animation on rows
+   Motion system (docs/motion-design.md). Every duration, curve and distance is
+   a token (tokens.css); enters decelerate, exits run one step shorter and
+   accelerate; one-shot motion only, except the working cues; transform and
+   opacity only, so nothing lays out or repaints per frame.
    ============================================================================ */
-
-/* Legacy motion names, now resolving to the --sc-duration-* / --sc-ease-* scale. */
-:root {
-	--omp-motion-instant: var(--sc-duration-instant);
-	--omp-motion-fast: var(--sc-duration-fast);
-	--omp-motion-med: var(--sc-duration-med);
-	--omp-motion-slow: var(--sc-duration-slow);
-	--omp-ease: var(--sc-ease-standard);
-	--omp-ease-enter: var(--sc-ease-enter);
-	--omp-ease-spring: cubic-bezier(0.34, 1.42, 0.64, 1);
-}
 
 @keyframes omp-fade-up {
 	from {
 		opacity: 0;
-		transform: translateY(10px) scale(0.995);
+		transform: translateY(var(--sc-motion-rise));
 	}
 	to {
 		opacity: 1;
-		transform: translateY(0) scale(1);
+		transform: none;
 	}
 }
 
@@ -385,47 +376,65 @@ html[data-platform="win32"] .omp-inspector:not([data-side="left"]) .omp-panel-to
 	}
 }
 
+/* A dialog: grows from the pop scale while rising into place. */
 @keyframes omp-scale-in {
 	from {
 		opacity: 0;
-		transform: scale(0.93) translateY(10px);
+		transform: translateY(var(--sc-motion-rise)) scale(var(--sc-motion-pop-scale));
 	}
 	to {
 		opacity: 1;
-		transform: scale(1) translateY(0);
+		transform: none;
 	}
 }
 
 @keyframes omp-toast-in {
 	from {
 		opacity: 0;
-		transform: translateY(14px) scale(0.95);
+		transform: translateY(calc(var(--sc-motion-rise) * 2)) scale(var(--sc-motion-pop-scale));
 	}
 	to {
 		opacity: 1;
-		transform: translateY(0) scale(1);
+		transform: none;
 	}
 }
 
+/* A menu or popover: grows from its anchor (`transform-origin`, set by the surface; top center otherwise). */
 @keyframes omp-pop-in {
 	from {
 		opacity: 0;
-		transform: scale(0.95) translateY(-6px);
+		transform: scale(var(--sc-motion-pop-scale));
 	}
 	to {
 		opacity: 1;
-		transform: scale(1) translateY(0);
+		transform: none;
 	}
 }
 
 @keyframes omp-slide-in-right {
 	from {
 		opacity: 0;
-		transform: translateX(28px);
+		transform: translateX(calc(var(--sc-motion-rise) * 4));
 	}
 	to {
 		opacity: 1;
-		transform: translateX(0);
+		transform: none;
+	}
+}
+
+/* A one-shot mark of something finished (a turn's done check): pops past full size once and settles. */
+@keyframes omp-done-pop {
+	0% {
+		opacity: 0;
+		transform: scale(0.6);
+	}
+	60% {
+		opacity: 1;
+		transform: scale(1.12);
+	}
+	100% {
+		opacity: 1;
+		transform: none;
 	}
 }
 
@@ -450,55 +459,6 @@ html[data-platform="win32"] .omp-inspector:not([data-side="left"]) .omp-panel-to
 	}
 }
 
-.omp-fade-up {
-	animation: omp-fade-up var(--omp-motion-med) var(--omp-ease-enter) both;
-}
-
-.omp-fade-in {
-	animation: omp-fade-in var(--omp-motion-fast) var(--omp-ease) both;
-}
-
-.omp-scale-in {
-	animation: omp-scale-in var(--omp-motion-med) var(--omp-ease-spring) both;
-}
-
-.omp-toast-in {
-	animation: omp-toast-in var(--omp-motion-med) var(--omp-ease-spring) both;
-}
-@keyframes omp-toast-out {
-	from {
-		opacity: 1;
-		transform: translateY(0) scale(1);
-	}
-	to {
-		opacity: 0;
-		transform: translateY(8px) scale(0.96);
-	}
-}
-
-.omp-toast-out {
-	animation: omp-toast-out var(--omp-motion-fast) var(--omp-ease) both;
-}
-
-.omp-pop-in {
-	animation: omp-pop-in var(--omp-motion-fast) var(--omp-ease-spring) both;
-}
-
-.omp-slide-in-right {
-	animation: omp-slide-in-right var(--omp-motion-med) var(--omp-ease-enter) both;
-}
-
-/* The exit half of the enter utilities above. Keyframes alone are not a class:
- * an overlay that swaps to `omp-scale-out` gets `animation: none` unless the
- * utility exists, which is why every exit silently snapped instead of fading. */
-.omp-fade-out {
-	animation: omp-fade-out var(--omp-motion-fast) var(--omp-ease) both;
-}
-
-.omp-scale-out {
-	animation: omp-scale-out var(--omp-motion-fast) var(--omp-ease) both;
-}
-
 @keyframes omp-fade-out {
 	from {
 		opacity: 1;
@@ -511,12 +471,84 @@ html[data-platform="win32"] .omp-inspector:not([data-side="left"]) .omp-panel-to
 @keyframes omp-scale-out {
 	from {
 		opacity: 1;
-		transform: scale(1);
+		transform: none;
 	}
 	to {
 		opacity: 0;
-		transform: scale(0.96) translateY(6px);
+		transform: translateY(calc(var(--sc-motion-rise) * 0.5)) scale(var(--sc-motion-pop-scale));
 	}
+}
+
+@keyframes omp-pop-out {
+	from {
+		opacity: 1;
+		transform: none;
+	}
+	to {
+		opacity: 0;
+		transform: scale(var(--sc-motion-pop-scale));
+	}
+}
+
+@keyframes omp-toast-out {
+	from {
+		opacity: 1;
+		transform: none;
+	}
+	to {
+		opacity: 0;
+		transform: translateY(var(--sc-motion-rise)) scale(var(--sc-motion-pop-scale));
+	}
+}
+
+/* Enters. */
+.omp-fade-up {
+	animation: omp-fade-up var(--sc-duration-med) var(--sc-ease-enter) both;
+}
+
+.omp-fade-in {
+	animation: omp-fade-in var(--sc-duration-fast) var(--sc-ease-enter) both;
+}
+
+.omp-scale-in {
+	animation: omp-scale-in var(--sc-duration-med) var(--sc-ease-enter) both;
+}
+
+.omp-toast-in {
+	animation: omp-toast-in var(--sc-duration-med) var(--sc-ease-enter) both;
+}
+
+.omp-pop-in {
+	transform-origin: var(--omp-pop-origin, top center);
+	animation: omp-pop-in var(--sc-duration-fast) var(--sc-ease-enter) both;
+}
+
+.omp-slide-in-right {
+	animation: omp-slide-in-right var(--sc-duration-med) var(--sc-ease-enter) both;
+}
+
+.omp-done-pop {
+	animation: omp-done-pop var(--sc-duration-slow) var(--sc-ease-enter) both;
+}
+
+/* Exits: one step shorter than the enter they undo, accelerating away. Keyframes alone are not a class: an overlay
+ * that swaps to an exit class gets `animation: none` unless the utility exists, and snaps instead of leaving. A
+ * presence hook keeps the element mounted for exactly that duration (hooks/use-overlay-presence.ts). */
+.omp-fade-out {
+	animation: omp-fade-out var(--sc-duration-fast) var(--sc-ease-exit) both;
+}
+
+.omp-scale-out {
+	animation: omp-scale-out var(--sc-duration-fast) var(--sc-ease-exit) both;
+}
+
+.omp-pop-out {
+	transform-origin: var(--omp-pop-origin, top center);
+	animation: omp-pop-out var(--sc-duration-instant) var(--sc-ease-exit) both;
+}
+
+.omp-toast-out {
+	animation: omp-toast-out var(--sc-duration-fast) var(--sc-ease-exit) both;
 }
 
 /* The shape of content nothing is known of yet (a first visit): still. A sweep repainted every frame it was up
@@ -559,7 +591,7 @@ html[data-gpu="software"] .omp-updating-hint {
 }
 
 .omp-pulse-dot {
-	animation: omp-pulse-dot 1.6s ease-in-out infinite; /* motion-ok: waiting signal */
+	animation: omp-pulse-dot 1.6s var(--sc-ease-loop) infinite; /* motion-ok: waiting signal */
 }
 
 .omp-indeterminate-progress {
@@ -569,26 +601,30 @@ html[data-gpu="software"] .omp-updating-hint {
 
 .omp-disclosure-chevron {
 	transition:
-		transform var(--omp-motion-fast) var(--omp-ease-spring),
-		rotate var(--omp-motion-fast) var(--omp-ease-spring);
+		transform var(--sc-duration-fast) var(--sc-ease-spring),
+		rotate var(--sc-duration-fast) var(--sc-ease-spring);
 }
 
 /* ============================================================================
    Interactive micro-interactions
    ============================================================================ */
 
+/* Press feedback for a compact control (a button, a chip, an icon button): it gives a little under the pointer at
+   once and springs back on release. `scale` is its own property, so a control's `transform` stays untouched. A row
+   or a card that spans the column never scales (it reads as the page shifting): it gets `--sc-pressed` instead. */
 .omp-pressable {
 	transition:
-		background-color var(--omp-motion-fast) var(--omp-ease),
-		border-color var(--omp-motion-fast) var(--omp-ease),
-		color var(--omp-motion-fast) var(--omp-ease),
-		box-shadow var(--omp-motion-fast) var(--omp-ease),
-		opacity var(--omp-motion-fast) var(--omp-ease),
-		transform var(--omp-motion-fast) var(--omp-ease);
+		background-color var(--sc-duration-fast) var(--sc-ease-standard),
+		border-color var(--sc-duration-fast) var(--sc-ease-standard),
+		color var(--sc-duration-fast) var(--sc-ease-standard),
+		box-shadow var(--sc-duration-fast) var(--sc-ease-standard),
+		opacity var(--sc-duration-fast) var(--sc-ease-standard),
+		scale var(--sc-duration-med) var(--sc-ease-spring);
 }
 
-.omp-pressable:active {
-	opacity: 0.72;
+.omp-pressable:active:not(:disabled, [aria-disabled="true"]) {
+	scale: var(--sc-motion-press-scale);
+	transition-duration: var(--sc-duration-instant);
 }
 
 /* Hover, focus and selection color changes were instant on every control that
@@ -607,9 +643,9 @@ html[data-gpu="software"] .omp-updating-hint {
 	[role="option"],
 	[role="tab"] {
 		transition:
-			background-color var(--omp-motion-fast) var(--omp-ease),
-			border-color var(--omp-motion-fast) var(--omp-ease),
-			color var(--omp-motion-fast) var(--omp-ease);
+			background-color var(--sc-duration-fast) var(--sc-ease-standard),
+			border-color var(--sc-duration-fast) var(--sc-ease-standard),
+			color var(--sc-duration-fast) var(--sc-ease-standard);
 	}
 }
 
@@ -697,35 +733,35 @@ html[data-platform="darwin"] .omp-sidebar-search {
 
 /* Empty-state entrance — logo, title, subtitle and starter cards cascade in. */
 .omp-empty-canvas > * {
-	animation: omp-fade-up var(--omp-motion-med) var(--omp-ease-enter) both;
+	animation: omp-fade-up var(--sc-duration-med) var(--sc-ease-enter) both;
 }
 
 .omp-empty-canvas > *:nth-child(2) {
-	animation-delay: calc(var(--omp-motion-fast) * 0.35);
+	animation-delay: calc(var(--sc-duration-fast) * 0.35);
 }
 
 .omp-empty-canvas > *:nth-child(3) {
-	animation-delay: calc(var(--omp-motion-fast) * 0.7);
+	animation-delay: calc(var(--sc-duration-fast) * 0.7);
 }
 
 .omp-empty-canvas > *:nth-child(4) {
-	animation-delay: calc(var(--omp-motion-fast) * 1.05);
+	animation-delay: calc(var(--sc-duration-fast) * 1.05);
 }
 
 .omp-starter-grid > * {
-	animation: omp-fade-up var(--omp-motion-med) var(--omp-ease-enter) both;
+	animation: omp-fade-up var(--sc-duration-med) var(--sc-ease-enter) both;
 }
 
 .omp-starter-grid > *:nth-child(2) {
-	animation-delay: calc(var(--omp-motion-fast) * 0.9);
+	animation-delay: calc(var(--sc-duration-fast) * 0.9);
 }
 
 .omp-starter-grid > *:nth-child(3) {
-	animation-delay: calc(var(--omp-motion-fast) * 1.15);
+	animation-delay: calc(var(--sc-duration-fast) * 1.15);
 }
 
 .omp-starter-grid > *:nth-child(4) {
-	animation-delay: calc(var(--omp-motion-fast) * 1.4);
+	animation-delay: calc(var(--sc-duration-fast) * 1.4);
 }
 
 /* Sidebar widths live in Sidebar.tsx (248px docked, resizable; 56px rail). */
@@ -759,7 +795,7 @@ html[data-platform="darwin"] .omp-sidebar-search {
 /* Docked side panel. Below 1000px it is a right Sheet instead (PanelContainer). */
 .omp-inspector {
 	container: omp-inspector / inline-size;
-	animation: omp-slide-in-right var(--omp-motion-med) var(--omp-ease-enter) both;
+	animation: omp-slide-in-right var(--sc-duration-med) var(--sc-ease-enter) both;
 }
 
 /* ============================================================================
@@ -1050,7 +1086,7 @@ html[data-platform="darwin"] .omp-sidebar-search {
 	*,
 	*::before,
 	*::after {
-		animation-duration: 0.01ms !important;
+		animation-duration: 0.01ms !important; /* motion-ok: reduced motion ends every animation at once */
 		animation-iteration-count: 1 !important;
 		transition-duration: 0s !important;
 		transition-delay: 0s !important;
@@ -1066,7 +1102,7 @@ html[data-platform="darwin"] .omp-sidebar-search {
 
 /* Software compositing (`html[data-gpu="software"]`, set by main's `#markSoftwareCompositing`: no GPU, a crash
    fallback, a CI runner) paints every frame on the CPU, so no loop runs there: each looping cue (spinners,
-   pulses, shimmers, carets, sweeps) plays once and rests. One-shot animations and transitions are untouched. */
+   pulses, shimmers, carets, sweeps) plays once and rests. One-shot motion is instant through the tokens above. */
 html[data-gpu="software"] *,
 html[data-gpu="software"] *::before,
 html[data-gpu="software"] *::after {

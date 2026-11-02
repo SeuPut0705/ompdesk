@@ -1,9 +1,10 @@
 /* The bot's avatar in motion (components/bot/BotAvatar.tsx, motion words in bot-motion.ts). Only transform and opacity
    animate, so the compositor draws each frame and nothing repaints; every loop is `infinite`, so lib/cue-clock.ts holds
-   them at ten frames a second while the window is unfocused. Every duration and amplitude is a custom property below,
-   declared once, so a motion-token system can retime them. The root's box never changes with the motion: the ring is
-   absolutely positioned outside it, and the face lives inside the mark's own 24 x 24 grid (lengths in px there are grid
-   units).
+   them at ten frames a second while the window is unfocused. It is part of the motion system (docs/motion-design.md):
+   the loops ease on its `--sc-ease-loop` (the ring's pulse on `--sc-ease-enter`) and each loop's period and amplitude is
+   a custom property below, declared once; a loop's period is its own clock, never a duration token (those read 0 where
+   motion is off). The root's box never changes with the motion: the ring is absolutely positioned outside it, and the
+   face lives inside the mark's own 24 x 24 grid (lengths in px there are grid units).
 
    The rules outside the keyframes are the still poses: each state reads by its shape and not only by its movement, so
    reduced motion and software compositing (`html[data-gpu="software"]`) only switch the animations and the voice
@@ -116,27 +117,27 @@
 
 /* ---- Idle: breathing, and a blink now and then. ---- */
 .omp-bot-avatar[data-bot-motion="idle"] .omp-bot-body {
-	animation: omp-bot-breathe var(--bot-motion-breathe-period) ease-in-out infinite;
+	animation: omp-bot-breathe var(--bot-motion-breathe-period) var(--sc-ease-loop) infinite;
 }
 
 .omp-bot-avatar[data-bot-motion="idle"] .omp-bot-eye {
-	animation: omp-bot-blink var(--bot-motion-blink-period) ease-in-out infinite;
+	animation: omp-bot-blink var(--bot-motion-blink-period) var(--sc-ease-loop) infinite;
 }
 
 /* A picture's soft aura. */
 .omp-bot-avatar[data-bot-avatar="image"][data-bot-motion="idle"] .omp-bot-ring {
 	box-shadow: 0 0 var(--bot-motion-aura-blur) 1px color-mix(in srgb, var(--bot-ring) 55%, transparent);
 	opacity: 0.55;
-	animation: omp-bot-aura var(--bot-motion-aura-period) ease-in-out infinite;
+	animation: omp-bot-aura var(--bot-motion-aura-period) var(--sc-ease-loop) infinite;
 }
 
 /* ---- Working: a bob and a tilt, the eyes glancing; a picture gets the circling arc. ---- */
 .omp-bot-avatar[data-bot-motion="working"] .omp-bot-body {
-	animation: omp-bot-bob var(--bot-motion-work-period) ease-in-out infinite;
+	animation: omp-bot-bob var(--bot-motion-work-period) var(--sc-ease-loop) infinite;
 }
 
 .omp-bot-avatar[data-bot-motion="working"] .omp-bot-eyes {
-	animation: omp-bot-glance var(--bot-motion-glance-period) ease-in-out infinite;
+	animation: omp-bot-glance var(--bot-motion-glance-period) var(--sc-ease-loop) infinite;
 }
 
 .omp-bot-avatar[data-bot-avatar="image"][data-bot-motion="working"] :is(.omp-bot-ring, .omp-bot-arc) {
@@ -160,7 +161,7 @@
 	border-color: var(--bot-ring);
 	opacity: 0.7;
 	transform: scale(1.1);
-	animation: omp-bot-pulse var(--bot-motion-wait-period) ease-out infinite;
+	animation: omp-bot-pulse var(--bot-motion-wait-period) var(--sc-ease-enter) infinite;
 }
 
 /* ---- Asleep: dimmed, eyes closed (drawn as a line by the component), slow breathing. ---- */
@@ -169,13 +170,13 @@
 }
 
 .omp-bot-avatar[data-bot-motion="asleep"] .omp-bot-body {
-	animation: omp-bot-sleep var(--bot-motion-sleep-period) ease-in-out infinite;
+	animation: omp-bot-sleep var(--bot-motion-sleep-period) var(--sc-ease-loop) infinite;
 }
 
 /* ---- Reconnecting: dimmed, a slow pulse. ---- */
 .omp-bot-avatar[data-bot-motion="reconnecting"] :is(.omp-bot-mark, .omp-bot-picture) {
 	opacity: calc((var(--bot-motion-reconnect-low) + var(--bot-motion-reconnect-high)) / 2);
-	animation: omp-bot-dim var(--bot-motion-reconnect-period) ease-in-out infinite;
+	animation: omp-bot-dim var(--bot-motion-reconnect-period) var(--sc-ease-loop) infinite;
 }
 
 /* ---- Speaking: the mouth opens and the body and ring swell with the level; a talk loop where none arrives. ---- */
@@ -189,11 +190,11 @@
 }
 
 .omp-bot-avatar[data-bot-motion="speaking"]:not([data-bot-voiced]) .omp-bot-body {
-	animation: omp-bot-chatter var(--bot-motion-talk-period) ease-in-out infinite;
+	animation: omp-bot-chatter var(--bot-motion-talk-period) var(--sc-ease-loop) infinite;
 }
 
 .omp-bot-avatar[data-bot-motion="speaking"]:not([data-bot-voiced]) .omp-bot-talk {
-	animation: omp-bot-chatter-mouth var(--bot-motion-talk-period) ease-in-out infinite;
+	animation: omp-bot-chatter-mouth var(--bot-motion-talk-period) var(--sc-ease-loop) infinite;
 }
 
 .omp-bot-avatar[data-bot-motion="speaking"][data-bot-voiced] .omp-bot-body {
@@ -212,7 +213,7 @@
 }
 
 .omp-bot-avatar[data-bot-avatar="image"][data-bot-motion="speaking"]:not([data-bot-voiced]) .omp-bot-ring {
-	animation: omp-bot-aura var(--bot-motion-talk-period) ease-in-out infinite;
+	animation: omp-bot-aura var(--bot-motion-talk-period) var(--sc-ease-loop) infinite;
 }
 
 .omp-bot-avatar[data-bot-avatar="image"][data-bot-motion="speaking"][data-bot-voiced] .omp-bot-ring {

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { type MotionDuration, motionMs } from "../lib/motion";
 
 export interface Presence<T> {
 	item: T;
@@ -7,11 +8,15 @@ export interface Presence<T> {
 }
 
 /**
- * Keeps an item that left `items` in the list, flagged `exiting`, for `ms` so CSS can animate it out;
- * nothing is kept under `prefers-reduced-motion`. A removed item returns to its old position (clamped),
- * and one that comes back before the time is up is live again.
+ * Keeps an item that left `items` in the list, flagged `exiting`, for its `exit` token so CSS can animate it out;
+ * nothing is kept where motion is off (reduced motion, software compositing). A removed item returns to its old
+ * position (clamped), and one that comes back before the time is up is live again.
  */
-export function usePresence<T>(items: readonly T[], keyOf: (item: T) => string, ms = 180): Presence<T>[] {
+export function usePresence<T>(
+	items: readonly T[],
+	keyOf: (item: T) => string,
+	exit: MotionDuration = "fast",
+): Presence<T>[] {
 	const previous = useRef<readonly T[]>(items);
 	const [ghosts, setGhosts] = useState<{ item: T; key: string; index: number }[]>([]);
 	// One timer per leaving key: a key that comes back cancels its exit, so leaving again starts a whole new one.
@@ -27,12 +32,13 @@ export function usePresence<T>(items: readonly T[], keyOf: (item: T) => string, 
 			window.clearTimeout(timer);
 			timers.current.delete(key);
 		}
-		const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
-		const gone = reduced
-			? []
-			: previous.current
-					.map((item, index) => ({ item, index, key: keyRef.current(item) }))
-					.filter(entry => !keys.has(entry.key));
+		const ms = motionMs(exit);
+		const gone =
+			ms === 0
+				? []
+				: previous.current
+						.map((item, index) => ({ item, index, key: keyRef.current(item) }))
+						.filter(entry => !keys.has(entry.key));
 		previous.current = items;
 		setGhosts(current => {
 			const kept = current.filter(ghost => !keys.has(ghost.key));
@@ -49,7 +55,7 @@ export function usePresence<T>(items: readonly T[], keyOf: (item: T) => string, 
 				}, ms),
 			);
 		}
-	}, [items, ms]);
+	}, [items, exit]);
 
 	useEffect(
 		() => () => {

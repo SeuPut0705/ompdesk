@@ -81,16 +81,63 @@
 	   (2dppx) screens below, so hairlines stay hairline-thin on Retina. */
 	--sc-hairline: 1px;
 
-	/* ── Motion ───────────────────────────────────────────────────────── */
+	/* ── Motion ─────────────────────────────────────────────────────────
+	   The one motion scale (docs/motion-design.md). Durations by the size of
+	   the change: instant for a control's own state (hover, press, a toggle's
+	   knob), fast for small surfaces (menus, popovers, tooltips, a row), med
+	   for cards and dialogs (expand, enter, a list's reflow), slow for what
+	   crosses the window (sheets, drawers, the side panel). An exit runs one
+	   step shorter than its enter. Reduced motion and software compositing set
+	   every duration to (almost) zero below, so whatever reads a token is
+	   instant there; lib/motion.ts reads the same tokens for Web Animations. */
 	--sc-duration-instant: 90ms; /* motion-ok: token definition */
 	--sc-duration-fast: 150ms; /* motion-ok: token definition */
 	--sc-duration-med: 220ms; /* motion-ok: token definition */
 	--sc-duration-slow: 320ms; /* motion-ok: token definition */
 	/* One clock for every spinner (Tailwind's animate-spin reads it). */
 	--sc-motion-spin: 900ms; /* motion-ok: token definition */
+	/* standard: a change in place (color, a chevron, a knob). enter: something
+	   arriving, decelerating into place. exit: something leaving, accelerating
+	   away. emphasized: a large surface crossing the window. spring: a move or a
+	   resize the eye follows (a list's reflow, a card opening, a done mark),
+	   sampled from a damped spring as linear(). */
 	--sc-ease-standard: cubic-bezier(0.25, 1, 0.35, 1);
 	--sc-ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
 	--sc-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+	--sc-ease-emphasized: cubic-bezier(0.32, 0.72, 0, 1);
+	--sc-ease-spring: linear(
+		0,
+		0.056,
+		0.184,
+		0.338,
+		0.491,
+		0.628,
+		0.741,
+		0.831,
+		0.897,
+		0.945,
+		0.977,
+		0.997,
+		1.008,
+		1.013,
+		1.015,
+		1.015,
+		1.013,
+		1.01,
+		1.008,
+		1.006,
+		1
+	);
+	/* A loop's curve (breathing, a pulse, a bob: there and back, the same speed both ways). A loop's period is its own
+	   clock, never a duration token, which reads 0 where motion is off. */
+	--sc-ease-loop: cubic-bezier(0.37, 0, 0.63, 1);
+	/* How far things travel: an arriving surface rises this much, a popover
+	   grows from this scale, a pressed control shrinks to this one. */
+	--sc-motion-rise: 6px;
+	--sc-motion-pop-scale: 0.96;
+	--sc-motion-press-scale: 0.97;
+	/* Siblings arriving together start this far apart, at most 8 of them. */
+	--sc-motion-stagger: 30ms; /* motion-ok: token definition */
 
 	/* ── Layers ─────────────────────────────────────────────────────────
 	   Menus and popovers sit above dialogs: they open from inside them. */
@@ -250,3 +297,25 @@
 		--sc-hairline: 0.5px;
 	}
 }
+
+/* Every motion token reads zero where motion is off: whatever reads one (a transition, a one-shot, lib/motion.ts's Web
+   Animations, a presence hook's timer) is instant there, without a rule per surface. The loops keep their own clocks
+   (a spinner, the working cues) and global.css rests them. */
+@media (prefers-reduced-motion: reduce) {
+	:root {
+		--sc-duration-instant: 0s;
+		--sc-duration-fast: 0s;
+		--sc-duration-med: 0s;
+		--sc-duration-slow: 0s;
+		--sc-motion-stagger: 0s;
+	}
+}
+
+html[data-gpu="software"] {
+	--sc-duration-instant: 0s;
+	--sc-duration-fast: 0s;
+	--sc-duration-med: 0s;
+	--sc-duration-slow: 0s;
+	--sc-motion-stagger: 0s;
+}
+
