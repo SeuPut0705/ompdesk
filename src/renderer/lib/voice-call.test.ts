@@ -1301,6 +1301,26 @@ describe("startVoiceCall with streaming", () => {
 		await settle();
 		expect(streams.ttsStreamCancel).toHaveBeenCalledWith("t1");
 		expect(vi.getTimerCount()).toBe(0);
+
+		// A chunk the synthesis answers after End is never scheduled.
+		next.resolve(ok({ chunks: [CHUNK], done: true }));
+		await settle();
+		expect(sources).toHaveLength(1);
+	});
+
+	it("plays nothing of a reply whose synthesis started answering only after the call ended", async () => {
+		const start = Promise.withResolvers<StreamReply>();
+		streams.ttsStreamStart.mockImplementationOnce(() => start.promise);
+		call = await startCall(streams);
+		await utterance();
+		await botTurn(REPLY);
+		expect(phase()).toBe("speaking");
+		call.end();
+		start.resolve(ok({ streamId: "t1", sampleRate: 24_000 }));
+		await settle();
+		expect(streams.ttsStreamNext).not.toHaveBeenCalled();
+		expect(streams.ttsStreamCancel).toHaveBeenCalledWith("t1");
+		expect(FakeAudioContext.instances.flatMap(context => context.sources)).toHaveLength(0);
 	});
 
 	describe("the playback level", () => {
