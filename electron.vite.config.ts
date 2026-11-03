@@ -1,7 +1,7 @@
 import { dirname, resolve } from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
-import type { Plugin } from "vite";
+import type { Plugin, Rollup } from "vite";
 import { precompressPlugin } from "./scripts/precompress-plugin";
 import { pwaPlugin } from "./scripts/pwa-plugin";
 
@@ -31,10 +31,11 @@ const MAIN_DEFINES = {
 
 /**
  * Heavy renderer vendor libs split out of the eager main chunk. Patterns match
- * node_modules path segments; the first matching rule names the chunk. Rollup
- * also pulls a chunk's unassigned static deps into it, so a lazily imported
- * family must name its own deps explicitly (above any eager rule whose prefix
- * would match them), or they ride along with an eager chunk.
+ * node_modules path segments; the first matching rule names the chunk. A chunk
+ * also takes its modules' static deps no rule names (`chunkByModule`, as Rollup
+ * does by default), so a lazily imported family must name its own deps explicitly
+ * (above any eager rule whose prefix would match them), or they ride along with
+ * an eager chunk.
  */
 const VENDOR_CHUNK_RULES: ReadonlyArray<readonly [RegExp, string]> = [
 	// React core: every chunk depends on it, so shared interop helpers land
@@ -89,7 +90,8 @@ const VENDOR_CHUNK_RULES: ReadonlyArray<readonly [RegExp, string]> = [
  */
 const RUNTIME_HELPER = /^\0(vite\/preload-helper|commonjsHelpers)/;
 
-function manualChunks(id: string): string | undefined {
+/** The chunk a module's own rule names: Rollup's helpers, a vendor package. */
+function namedChunk(id: string): string | undefined {
 	if (RUNTIME_HELPER.test(id)) return "react";
 	// A vendor stylesheet stays with the module that imports it. Assigned to its
 	// package's chunk, TerminalPanel's static `@xterm/xterm/css/xterm.css` import
@@ -99,6 +101,36 @@ function manualChunks(id: string): string | undefined {
 		if (pattern.test(id)) return chunk;
 	}
 	return undefined;
+}
+
+/**
+ * Every module's manual chunk, computed once per build output (Rollup hands each call of one output the same
+ * `getModuleInfo`). The output sets `onlyExplicitManualChunks`, so the pull Rollup does by default (a named module's
+ * static imports no rule names join its chunk) is done here.
+ */
+const chunkByModuleByBuild = new WeakMap<Rollup.GetModuleInfo, Map<string, string>>();
+function chunkByModule({ getModuleIds, getModuleInfo }: Rollup.ManualChunkMeta): Map<string, string> {
+	const known = chunkByModuleByBuild.get(getModuleInfo);
+	if (known) return known;
+	const chunks = new Map<string, string>();
+	for (const id of getModuleIds()) {
+		const name = namedChunk(id);
+		if (name) chunks.set(id, name);
+	}
+	for (const [id, name] of [...chunks]) {
+		const pending = [...(getModuleInfo(id)?.importedIds ?? [])];
+		for (let dependency = pending.pop(); dependency !== undefined; dependency = pending.pop()) {
+			if (chunks.has(dependency)) continue;
+			chunks.set(dependency, name);
+			pending.push(...(getModuleInfo(dependency)?.importedIds ?? []));
+		}
+	}
+	chunkByModuleByBuild.set(getModuleInfo, chunks);
+	return chunks;
+}
+
+function manualChunks(id: string, meta: Rollup.ManualChunkMeta): string | undefined {
+	return chunkByModule(meta).get(id);
 }
 
 /**
@@ -205,6 +237,9 @@ export default defineConfig({
 				},
 				output: {
 					manualChunks,
+					// Only the modules manualChunks names go into its chunks: which unnamed imports join a named
+					// module's chunk (Rollup's default pull) is chunkByModule's to decide.
+					onlyExplicitManualChunks: true,
 					// Rollup's default (1) merges code-free re-export chunks into an
 					// importer when that looks side-effect-free — which folded the
 					// lib/markdown-katex lazy boundary into the entry and made KaTeX
