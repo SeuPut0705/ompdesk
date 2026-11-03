@@ -5044,6 +5044,8 @@ export const ko: Record<string, string> = {
 	"voice.dictation.insert": "넣기",
 	"voice.dictation.discard": "버리기",
 	"voice.dictation.transcribing": "받아 적는 중이에요…",
+	"voice.dictation.preparing": "{language} 인식을 준비하는 중…",
+	"voice.dictation.preparingAny": "음성 인식을 준비하는 중…",
 	"voice.dictation.stopAndSend": "멈추고 보내기",
 	"voice.fail.denied": "시스템 설정에서 마이크 접근을 허용한 뒤 다시 시도해 주세요.",
 	"voice.fail.noDevice": "마이크를 찾지 못했어요. 마이크를 연결한 뒤 다시 시도해 주세요.",

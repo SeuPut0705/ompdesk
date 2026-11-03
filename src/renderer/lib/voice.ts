@@ -120,6 +120,8 @@ export interface DictationListener {
 	onLevels?: (levels: readonly number[]) => void;
 	/** Capture ended with audio; the take is being transcribed. */
 	onTranscribing?: () => void;
+	/** The take waits for the speech model its language needs: how far that model's download got (0–100). */
+	onPreparing?: (language: string | null, percent: number) => void;
 }
 
 /** Bars in the dictation level meter. */
@@ -244,7 +246,27 @@ export async function recordAndTranscribe(listener: DictationListener = {}): Pro
 	if (state.cancelled) return { error: "" };
 	if (state.chunks.length === 0) return { error: translate("voice.mic.empty"), failure: "empty" };
 	listener.onTranscribing?.();
-	return transcribeBlob(new Blob(state.chunks, { type: recorder.mimeType || "audio/webm" }));
+	const onPreparing = listener.onPreparing;
+	if (!onPreparing) return transcribeBlob(new Blob(state.chunks, { type: recorder.mimeType || "audio/webm" }));
+	// `transcribe_audio` waits for the language's model to download; meanwhile the bar says how far it got. The call's
+	// prepare loop loads with its module, off the phone's first screen.
+	let transcribed = false;
+	void import("./voice-stream")
+		.then(({ ompVoiceStreams, prepareRecognition }) =>
+			prepareRecognition(
+				ompVoiceStreams(),
+				(language, percent) => {
+					if (!transcribed) onPreparing(language, percent);
+				},
+				() => transcribed,
+			),
+		)
+		.catch(() => {});
+	try {
+		return await transcribeBlob(new Blob(state.chunks, { type: recorder.mimeType || "audio/webm" }));
+	} finally {
+		transcribed = true;
+	}
 }
 
 /**

@@ -23,10 +23,18 @@ export interface DictationFailureView {
 	detail: string;
 }
 
+/** The speech model a take's language needs, downloading while the take waits for it. */
+export interface DictationPreparing {
+	language: string | null;
+	percent: number;
+}
+
 export interface ComposerDictation {
 	phase: DictationPhase;
 	levels: readonly number[];
 	startedAt: number | null;
+	/** While transcribing: how far the language's speech model got; null when it is here. */
+	preparing: DictationPreparing | null;
 	/** The last take's error, shown under the field until dismissed or the next take starts. */
 	failure: DictationFailureView | null;
 	dismissFailure: () => void;
@@ -51,6 +59,7 @@ export function useComposerDictation({
 	const [phase, setPhase] = useState<DictationPhase>("idle");
 	const [levels, setLevels] = useState<readonly number[]>(() => Array(METER_BARS).fill(0));
 	const [startedAt, setStartedAt] = useState<number | null>(null);
+	const [preparing, setPreparing] = useState<DictationPreparing | null>(null);
 	const [failure, setFailure] = useState<DictationFailureView | null>(null);
 	const dismissFailure = useCallback(() => setFailure(null), []);
 	/** "Stop and send": submit the draft once the take is transcribed into it. */
@@ -90,6 +99,9 @@ export function useComposerDictation({
 			onTranscribing: () => {
 				if (mountedRef.current) setPhase("transcribing");
 			},
+			onPreparing: (language, percent) => {
+				if (mountedRef.current) setPreparing({ language, percent });
+			},
 		}).then(async result => {
 			ownsTake.current = false;
 			if (!mountedRef.current) return;
@@ -97,6 +109,7 @@ export function useComposerDictation({
 			sendAfterDictationRef.current = false;
 			setPhase("idle");
 			setStartedAt(null);
+			setPreparing(null);
 			setLevels(Array(METER_BARS).fill(0));
 			if ("error" in result) {
 				if (result.error) setFailure({ kind: result.failure ?? "failed", detail: result.error });
@@ -153,5 +166,5 @@ export function useComposerDictation({
 		return () => window.removeEventListener("keydown", onKey, true);
 	}, [phase]);
 
-	return { phase, levels, startedAt, failure, dismissFailure, toggle, stopAndSend };
+	return { phase, levels, startedAt, preparing, failure, dismissFailure, toggle, stopAndSend };
 }

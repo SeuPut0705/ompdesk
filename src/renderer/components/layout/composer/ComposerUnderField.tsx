@@ -7,11 +7,16 @@ import type { ComposerDictation } from "./use-composer-dictation";
 export function ComposerUnderField({
 	dictation,
 }: {
-	dictation: Pick<ComposerDictation, "phase" | "levels" | "startedAt" | "failure" | "dismissFailure">;
+	dictation: Pick<ComposerDictation, "phase" | "levels" | "startedAt" | "preparing" | "failure" | "dismissFailure">;
 }) {
 	const bar =
 		dictation.phase !== "idle"
-			? { phase: dictation.phase, levels: dictation.levels, startedAt: dictation.startedAt }
+			? {
+					phase: dictation.phase,
+					levels: dictation.levels,
+					startedAt: dictation.startedAt,
+					preparing: dictation.preparing,
+				}
 			: null;
 	// The bar folds away with its last content (`Collapse` keeps it mounted for that).
 	const held = useRef(bar);
@@ -23,6 +28,7 @@ export function ComposerUnderField({
 					<DictationOverlay
 						levels={held.current.levels}
 						phase={held.current.phase}
+						preparing={held.current.preparing}
 						startedAt={held.current.startedAt}
 					/>
 				)}

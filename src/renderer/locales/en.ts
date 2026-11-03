@@ -5047,6 +5047,8 @@ export const en: Record<string, string> = {
 	"voice.dictation.insert": "insert",
 	"voice.dictation.discard": "discard",
 	"voice.dictation.transcribing": "Transcribing…",
+	"voice.dictation.preparing": "Preparing {language} recognition…",
+	"voice.dictation.preparingAny": "Preparing speech recognition…",
 	"voice.dictation.stopAndSend": "Stop and send",
 	"voice.fail.denied": "Allow microphone access in System Settings, then try again.",
 	"voice.fail.noDevice": "No microphone found. Connect one and try again.",

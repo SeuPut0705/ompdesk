@@ -1863,6 +1863,27 @@ describe("InputArea dictation", () => {
 		expect(prompt).not.toHaveBeenCalled();
 	});
 
+	it("shows how far the language's speech model got while the take waits for its download", async () => {
+		await mountWithMic();
+		const transcribed = Promise.withResolvers<unknown>();
+		transcribeAudio.mockImplementationOnce(() => transcribed.promise);
+		const sttPrepare = vi.fn(async () =>
+			ok({ language: "ko", modelKey: "whisper-large-v3-turbo", state: "downloading", percent: 42 }),
+		);
+		Object.assign(window.omp.rpc, { sttPrepare });
+		await startTake();
+		await windowKey("Enter");
+		expect(phase()).toBe("transcribing");
+		const progress = document.querySelector("[data-dictation-download]");
+		expect(progress?.getAttribute("data-dictation-download")).toBe("42");
+		expect(document.querySelector("[data-dictation]")?.textContent).toContain("Preparing Korean recognition…");
+
+		await act(async () => transcribed.resolve(ok({ text: "안녕하세요" })));
+		await flush();
+		expect(phase()).toBeNull();
+		expect(useComposerStore.getState().draft).toBe("안녕하세요 ");
+	});
+
 	it("discards the take on Esc and keeps the draft", async () => {
 		await mountWithMic();
 		await typeInto(findTextarea(), "keep me");

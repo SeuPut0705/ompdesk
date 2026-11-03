@@ -1,28 +1,34 @@
 import { useState } from "react";
+import { languageName } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useNowTick } from "../../../lib/now-tick";
 import { useUiStore } from "../../../stores/ui";
-import { Button, InlineNotice, Kbd } from "../../common";
-import type { DictationFailureView } from "./use-composer-dictation";
+import { Button, InlineNotice, Kbd, ProgressBar } from "../../common";
+import type { DictationFailureView, DictationPreparing } from "./use-composer-dictation";
 
 export type DictationPhase = "idle" | "starting" | "recording" | "transcribing";
 
 /**
  * A slim bar between the field and the toolbar while dictating: "Starting microphone…" until the mic opens, then a
  * live level meter with the take's m:ss and the keys that end it (Enter inserts, Esc discards), then
- * "Transcribing…". It never covers the field: the draft stays readable and editable, and the transcript lands at
+ * "Transcribing…", or, while the take waits for its language's speech model to download, that language and how far
+ * the download got. It never covers the field: the draft stays readable and editable, and the transcript lands at
  * its caret.
  */
 export function DictationOverlay({
 	phase,
 	levels,
 	startedAt,
+	preparing,
 }: {
 	phase: Exclude<DictationPhase, "idle">;
 	levels: readonly number[];
 	startedAt: number | null;
+	preparing: DictationPreparing | null;
 }) {
 	const t = useT();
+	const language = languageName(preparing?.language ?? null);
+	const preparingLabel = language ? t("voice.dictation.preparing", { language }) : t("voice.dictation.preparingAny");
 	const now = useNowTick(phase === "recording");
 	const seconds = startedAt === null ? 0 : Math.max(0, Math.floor((now - startedAt) / 1000));
 	const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
@@ -52,6 +58,13 @@ export function DictationOverlay({
 						{t("voice.dictation.insert")}
 						<Kbd shortcut="Esc" />
 						{t("voice.dictation.discard")}
+					</span>
+				</>
+			) : phase === "transcribing" && preparing ? (
+				<>
+					<span className="min-w-0 shrink-[2] truncate text-(--sc-text)">{preparingLabel}</span>
+					<span className="min-w-16 max-w-60 flex-1" data-dictation-download={preparing.percent}>
+						<ProgressBar ariaLabel={preparingLabel} tone="progress" value={preparing.percent / 100} />
 					</span>
 				</>
 			) : (
