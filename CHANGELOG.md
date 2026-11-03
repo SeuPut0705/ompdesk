@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.101.0] - 2026-11-03
+
+휴대폰에서 OMPdesk가 더 가볍게 열려요. 화면은 그대로예요.
+
+### 바뀐 것
+- 휴대폰이 첫 화면에 받는 JavaScript가 3.31 MB에서 2.16 MB로 줄었어요. 세션 목록은 서랍이 닫혀 있는 동안 따로 받아요. 처음 방문할 때만 목록까지 받은 뒤 그려서, ☰를 바로 눌러도 서랍이 기다리지 않아요.
+- 이 컴퓨터가 휴대폰에 보내는 파일을 빌드할 때 미리 가장 작게 압축해 둬요. 첫 화면 전송량이 51 KB 줄고, 첫 요청 때 압축하느라 기다리던 시간이 없어졌어요.
+
+<!-- en -->
+
+OMPdesk opens lighter on the phone, looking the same.
+
+### Changed
+- The phone's first screen loads 2.16 MB of JavaScript instead of 3.31 MB. The session list arrives on its own while the drawer is closed; on a first visit the page waits for it before drawing, so ☰ opens at once.
+- The files this computer serves to the phone are compressed at the highest level when the app is built: the first screen is 51 KB smaller on the wire, and the first request no longer waits for compression.
+
 ## [0.100.0] - 2026-11-03
 
 봇과 한국어로 음성 대화할 수 있어요. 봇의 답은 첫 구절부터 바로 들리고, 말을 시작한 첫 단어도 빠지지 않아요.
