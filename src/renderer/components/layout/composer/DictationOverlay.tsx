@@ -2,9 +2,10 @@ import { useState } from "react";
 import { languageName } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useNowTick } from "../../../lib/now-tick";
+import type { SpeechModelDownload } from "../../../lib/voice";
 import { useUiStore } from "../../../stores/ui";
 import { Button, InlineNotice, Kbd, ProgressBar } from "../../common";
-import type { DictationFailureView, DictationPreparing } from "./use-composer-dictation";
+import type { DictationFailureView } from "./use-composer-dictation";
 
 export type DictationPhase = "idle" | "starting" | "recording" | "transcribing";
 
@@ -24,7 +25,7 @@ export function DictationOverlay({
 	phase: Exclude<DictationPhase, "idle">;
 	levels: readonly number[];
 	startedAt: number | null;
-	preparing: DictationPreparing | null;
+	preparing: SpeechModelDownload | null;
 }) {
 	const t = useT();
 	const language = languageName(preparing?.language ?? null);

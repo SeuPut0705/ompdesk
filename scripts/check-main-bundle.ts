@@ -254,8 +254,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // it: measured 3,309,215 on 3dbeeff4's 3,294,067, 15,148 bytes over its base, added to the budget above.
 // Composer dictation shows the download of its language's speech model (3 Nov 2026): the dictation bar's preparing
 // line and its `ProgressBar`, the take's `onPreparing` and the strings; the prepare loop itself loads with the call's
-// `voice-stream` module on the take's first wait: measured 3,310,945, 1,597 bytes over the budget above.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_310_945;
+// `voice-stream` module on the take's first wait: measured 3,310,945, 1,597 bytes over the budget above. The take's
+// `onPreparing(null)` once the model is here, so the bar says "Transcribing…" again (3 Nov 2026): measured 3,310,970.
+const WEB_FIRST_SCREEN_JS_BYTES = 3_310_970;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

@@ -160,7 +160,7 @@ describe("recordAndTranscribe", () => {
 		await expect(take).resolves.toEqual({ error: "stt unavailable", failure: "failed" });
 	});
 
-	it("says how far the language's speech model got while the take waits for its download, and stops asking after", async () => {
+	it("says how far the language's speech model got while the take waits for its download, and that it is here once it is", async () => {
 		const transcribed = Promise.withResolvers<RpcReply>();
 		transcribeAudio.mockImplementationOnce(() => transcribed.promise);
 		const answers = [10, 55].map(percent => ({
@@ -175,19 +175,35 @@ describe("recordAndTranscribe", () => {
 		expect(sttPrepare).not.toHaveBeenCalled();
 		stopVoiceRecording();
 		// The prepare loop loads with the call's module, on the take's first wait.
-		await vi.waitFor(() => expect(onPreparing.mock.calls).toEqual([["ko", 10]]));
+		await vi.waitFor(() => expect(onPreparing.mock.calls).toEqual([[{ language: "ko", percent: 10 }]]));
 		await vi.advanceTimersByTimeAsync(500);
-		expect(onPreparing.mock.calls).toEqual([
-			["ko", 10],
-			["ko", 55],
-		]);
+		expect(onPreparing.mock.calls).toEqual([[{ language: "ko", percent: 10 }], [{ language: "ko", percent: 55 }]]);
+
+		// The model is here and the take is being transcribed on it: the bar no longer shows the download.
+		await vi.advanceTimersByTimeAsync(500);
+		expect(onPreparing.mock.calls.at(-1)).toEqual([null]);
 
 		transcribed.resolve({ success: true, data: { text: "안녕하세요" } });
 		await expect(take).resolves.toEqual({ text: "안녕하세요" });
 		const asked = sttPrepare.mock.calls.length;
 		await vi.advanceTimersByTimeAsync(2_000);
 		expect(sttPrepare).toHaveBeenCalledTimes(asked);
-		expect(onPreparing).toHaveBeenCalledTimes(2);
+		expect(onPreparing).toHaveBeenCalledTimes(3);
+	});
+
+	it("says nothing more about the download once the take's transcript is back", async () => {
+		const sttPrepare = vi.fn(async () => ({
+			success: true,
+			data: { language: "ko", modelKey: "whisper-large-v3-turbo", state: "downloading", percent: 10 },
+		}));
+		vi.stubGlobal("window", { omp: { rpc: { transcribeAudio, sttPrepare } } });
+		const onPreparing = vi.fn();
+		const take = recordAndTranscribe({ onPreparing });
+		await flush();
+		stopVoiceRecording();
+		await take;
+		await vi.advanceTimersByTimeAsync(2_000);
+		expect(onPreparing.mock.calls.flat()).not.toContain(null);
 	});
 
 	it("tells a blocked mic, a missing one and a busy one apart by the rejection's name", async () => {

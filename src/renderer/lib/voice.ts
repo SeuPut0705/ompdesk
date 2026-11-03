@@ -120,8 +120,17 @@ export interface DictationListener {
 	onLevels?: (levels: readonly number[]) => void;
 	/** Capture ended with audio; the take is being transcribed. */
 	onTranscribing?: () => void;
-	/** The take waits for the speech model its language needs: how far that model's download got (0–100). */
-	onPreparing?: (language: string | null, percent: number) => void;
+	/**
+	 * The take waits for the speech model its language needs: how far that model's download got; null once it is here
+	 * (the take is then being transcribed on it).
+	 */
+	onPreparing?: (download: SpeechModelDownload | null) => void;
+}
+
+/** The speech model a take's language needs, downloading: its language (a code) and how far it got (0–100). */
+export interface SpeechModelDownload {
+	language: string | null;
+	percent: number;
 }
 
 /** Bars in the dictation level meter. */
@@ -256,11 +265,15 @@ export async function recordAndTranscribe(listener: DictationListener = {}): Pro
 			prepareRecognition(
 				ompVoiceStreams(),
 				(language, percent) => {
-					if (!transcribed) onPreparing(language, percent);
+					if (!transcribed) onPreparing({ language, percent });
 				},
 				() => transcribed,
 			),
 		)
+		// Here, failed or unknown to this omp: nothing more to wait for but the pass itself.
+		.then(() => {
+			if (!transcribed) onPreparing(null);
+		})
 		.catch(() => {});
 	try {
 		return await transcribeBlob(new Blob(state.chunks, { type: recorder.mimeType || "audio/webm" }));
