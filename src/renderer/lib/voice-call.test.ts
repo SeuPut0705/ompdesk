@@ -140,6 +140,23 @@ describe("nextPhase", () => {
 		expect(nextPhase(quiet, { type: "streamTranscript", text: "  " })).toBe(quiet);
 	});
 
+	it("counts a streamed utterance as being transcribed until its words, or nothing, come back", () => {
+		const ended = nextPhase(at("hearing"), { type: "speechEnd", streamed: true });
+		expect(ended).toMatchObject({ phase: "listening", finishing: 1 });
+		const again = nextPhase(nextPhase(ended, { type: "speechStart" }), { type: "speechEnd", streamed: true });
+		expect(again).toMatchObject({ phase: "listening", finishing: 2 });
+		expect(nextPhase(again, { type: "streamTranscript", text: "hello" })).toMatchObject({
+			phase: "waiting",
+			finishing: 1,
+			heard: "hello",
+		});
+		expect(nextPhase(ended, { type: "streamTranscript", text: "  " })).toMatchObject({
+			phase: "listening",
+			finishing: 0,
+		});
+		expect(nextPhase(at("hearing"), { type: "speechEnd" })).toMatchObject({ phase: "transcribing", finishing: 0 });
+	});
+
 	it("keeps the running text of the utterance apart from the phase", () => {
 		const hearing = nextPhase(at("hearing"), { type: "partial", text: "what is" });
 		expect(hearing).toMatchObject({ phase: "hearing", partial: "what is" });
@@ -1049,6 +1066,34 @@ describe("startVoiceCall with streaming", () => {
 		first.resolve(ok({ text: "first" }));
 		await settle();
 		expect(send.mock.calls.map(([text]) => text)).toEqual(["first", "said s2"]);
+	});
+
+	it("shows a model with no running words transcribing between the end of the speech and its final text", async () => {
+		streams.sttStreamPush.mockImplementation(async () => ok({ text: "" }));
+		const stop = Promise.withResolvers<StreamReply>();
+		streams.sttStreamStop.mockImplementationOnce(() => stop.promise);
+		await startCall(streams);
+		await talk(600);
+		await settle();
+		expect(last()).toMatchObject({ phase: "hearing", partial: "", finishing: 0 });
+
+		await advance(CALL_TUNING.endMs + 100);
+		await settle();
+		expect(last()).toMatchObject({ phase: "listening", finishing: 1 });
+
+		stop.resolve(ok({ text: "하늘은 무슨 색인가요?" }));
+		await settle();
+		expect(last()).toMatchObject({ phase: "waiting", heard: "하늘은 무슨 색인가요?", finishing: 0 });
+	});
+
+	it("stops showing an utterance as transcribing when its stop failed or heard nothing", async () => {
+		streams.sttStreamStop.mockImplementationOnce(async () => ({ success: false, error: "stt crashed" }));
+		await startCall(streams);
+		await utterance();
+		expect(last()).toMatchObject({ phase: "listening", finishing: 0, error: "failed" });
+		streams.sttStreamStop.mockImplementationOnce(async () => ok({ text: "" }));
+		await utterance();
+		expect(last()).toMatchObject({ phase: "listening", finishing: 0 });
 	});
 
 	it("goes back to listening on an empty final text, and shows the failure of a stop that failed", async () => {

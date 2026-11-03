@@ -14,6 +14,7 @@ import {
 	SttModels,
 	sttLanguageCode,
 	sttModelForLanguage,
+	sttPreviewsSpeech,
 } from "./stt-language-core";
 
 export const IDLE_MS = 30_000;
@@ -49,9 +50,22 @@ export interface TtsStreamHandle {
 }
 
 export interface SttSetup {
-	client: { startStream(modelKey: string, options: SttStreamOptions): SttStreamHandle };
+	/** Stock's `SttClient` (stt/asr-client), the part used here. */
+	client: {
+		startStream(modelKey: string, options: SttStreamOptions): SttStreamHandle;
+		/** One whole-clip pass. */
+		transcribe(
+			modelKey: string,
+			audio: Float32Array,
+			options?: { language?: string; signal?: AbortSignal },
+		): Promise<string>;
+		/** Stock's download request: fetches what is missing, then loads the weights into the worker and keeps them warm. */
+		downloadModel(modelKey: string): Promise<unknown>;
+	};
 	/** The dictation role's model, as stock's catalog describes it. */
 	selected: SttModelFacts;
+	/** Any model of stock's catalog by key. */
+	model(key: string): SttModelFacts;
 	/** The language speech is in when a request names none: the conversation language, else the `stt.language` setting. */
 	language: string | undefined;
 }
@@ -151,6 +165,42 @@ function transcript(text: SttText): string {
 		.map(part => part.trim())
 		.filter(Boolean)
 		.join(" ");
+}
+
+/**
+ * A stream on a model that does not preview speech ({@link sttPreviewsSpeech}): the utterance's audio is kept as it comes
+ * and transcribed in one pass at the stop. The model starts loading now, as stock's stream does at its start, so that
+ * pass does not also load the weights.
+ */
+function transcribeOnStop(setup: SttSetup, modelKey: string, language: string | undefined): SttStreamHandle {
+	const parts: Float32Array[] = [];
+	const abort = new AbortController();
+	setup.client.downloadModel(modelKey).catch(() => {});
+	return {
+		pushAudio: audio => {
+			if (!abort.signal.aborted) parts.push(audio);
+		},
+		stop: async () => {
+			const audio = new Float32Array(parts.reduce((length, part) => length + part.length, 0));
+			let offset = 0;
+			for (const part of parts.splice(0)) {
+				audio.set(part, offset);
+				offset += part.length;
+			}
+			if (audio.length === 0 || abort.signal.aborted) return "";
+			try {
+				return await setup.client.transcribe(modelKey, audio, { language, signal: abort.signal });
+			} catch (cause) {
+				// Cancelled, as stock's stream resolves a cancelled stop: with nothing.
+				if (abort.signal.aborted) return "";
+				throw cause;
+			}
+		},
+		cancel: () => {
+			parts.length = 0;
+			abort.abort();
+		},
+	};
 }
 
 export function pcm16ToFloat32(base64: string): Float32Array {
@@ -258,16 +308,18 @@ export class VoiceStreams<Ctx> {
 	async sttStart(params: unknown, ctx: Ctx): Promise<{ streamId: string }> {
 		const { setup, modelKey, language } = await this.sttModel(params, ctx, "stream");
 		const text: SttText = { committed: [], partial: "" };
-		const handle = setup.client.startStream(modelKey, {
-			language,
-			onPartial: partial => {
-				text.partial = partial;
-			},
-			onSegment: segment => {
-				text.committed.push(segment);
-				text.partial = "";
-			},
-		});
+		const handle = sttPreviewsSpeech(setup.model(modelKey))
+			? setup.client.startStream(modelKey, {
+					language,
+					onPartial: partial => {
+						text.partial = partial;
+					},
+					onSegment: segment => {
+						text.committed.push(segment);
+						text.partial = "";
+					},
+				})
+			: transcribeOnStop(setup, modelKey, language);
 		return { streamId: this.#stt.add({ handle, text }) };
 	}
 

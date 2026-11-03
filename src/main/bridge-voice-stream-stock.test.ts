@@ -3,7 +3,11 @@ import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkS
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
-import { LANGUAGE_FALLBACK_STT_MODEL, MODEL_LANGUAGES } from "../../resources/gui-bridge/stt-language-core";
+import {
+	LANGUAGE_FALLBACK_STT_MODEL,
+	MODEL_LANGUAGES,
+	sttPreviewsSpeech,
+} from "../../resources/gui-bridge/stt-language-core";
 import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
@@ -34,7 +38,7 @@ export default function (pi) {
    const env = { pi, session: () => session, context: () => undefined, emit: () => {} };
    out.unavailable = await probe(env, ["voice", "voiceStream"]);
    out.cached = await isSttModelCached(DEFAULT_STT_MODEL_KEY);
-   out.catalog = STT_MODELS.map(model => ({ key: model.key, englishOnly: model.englishOnly, description: model.description }));
+   out.catalog = STT_MODELS.map(model => ({ key: model.key, englishOnly: model.englishOnly, engine: model.engine, description: model.description }));
    out.segments = speakableSegments(${JSON.stringify(LONG_FIRST_SENTENCE)}, new SpeakableStream());
    if (out.cached && out.unavailable.length === 0) out.preparedEn = await methods.stt_prepare({ language: "en" }, env);
    if (out.cached && out.unavailable.length === 0) {
@@ -64,7 +68,7 @@ interface Probe {
 	push?: { text: string };
 	cancel?: Record<string, never>;
 	afterCancel?: string;
-	catalog?: Array<{ key: string; englishOnly: boolean; description: string }>;
+	catalog?: Array<{ key: string; englishOnly: boolean; engine: "transformers" | "sherpa"; description: string }>;
 	preparedEn?: unknown;
 	segments?: string[];
 	error?: string;
@@ -144,6 +148,16 @@ describe.skipIf(!existsSync(omp))("streaming voice, on stock omp", () => {
 		}
 		const fallback = catalog.find(model => model.key === LANGUAGE_FALLBACK_STT_MODEL);
 		expect(fallback).toMatchObject({ englishOnly: false, description: expect.stringMatching(/99 languages/) });
+	});
+
+	it("transcribes stock's Whisper tiers once after the speech, and previews Parakeet and Nemotron while it is spoken", () => {
+		const previews = Object.fromEntries((probe.catalog ?? []).map(model => [model.key, sttPreviewsSpeech(model)]));
+		expect(previews).toMatchObject({
+			"whisper-large-v3-turbo": false,
+			"whisper-small": false,
+			"parakeet-tdt-0.6b-v3": true,
+			"nemotron-streaming-en-0.6b": true,
+		});
 	});
 
 	it("prepares English on the cached default model at once", ctx => {

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { SttModelFacts } from "../../resources/gui-bridge/stt-language-core";
 import {
 	float32ToPcm16,
 	IDLE_MS,
@@ -11,7 +12,13 @@ import {
 	VoiceStreams,
 } from "../../resources/gui-bridge/voice-stream-core";
 
-/** Stock's STT stream: the test plays the worker through `options`. */
+/** Stock's catalog entries (stt/models.ts), the facts the bridge reads. */
+const CATALOG: Record<string, SttModelFacts> = {
+	"parakeet-tdt-0.6b-v3": { key: "parakeet-tdt-0.6b-v3", englishOnly: false, engine: "sherpa" },
+	"whisper-large-v3-turbo": { key: "whisper-large-v3-turbo", englishOnly: false, engine: "transformers" },
+};
+
+/** Stock's STT client: the test plays the worker's stream through `options`, and answers whole passes itself. */
 class FakeStt {
 	pushed: Float32Array[] = [];
 	cancelled = false;
@@ -21,10 +28,23 @@ class FakeStt {
 	/** Stock's `stop()` stays pending until the worker answers; `cancel()` resolves it empty. */
 	holdStop = false;
 	#cancelStop: (() => void) | undefined;
+	/** Every whole-clip pass asked of the worker (`transcribe`), with its audio. */
+	passes: { modelKey: string; audio: number[]; language: string | undefined; signal: AbortSignal | undefined }[] = [];
+	/** What a pass answers; a pass stays pending while `holdPass` is set, until `answerPass()`. */
+	passText = "";
+	holdPass = false;
+	#answerPass: (() => void) | undefined;
+	/** Models the worker was asked to have loaded (`downloadModel`). */
+	loaded: string[] = [];
+
+	answerPass(): void {
+		this.#answerPass?.();
+	}
 
 	setup(language?: string): SttSetup {
 		return {
-			selected: { key: "parakeet-tdt-0.6b-v3", englishOnly: false },
+			selected: CATALOG["parakeet-tdt-0.6b-v3"] as SttModelFacts,
+			model: key => CATALOG[key] ?? (CATALOG["parakeet-tdt-0.6b-v3"] as SttModelFacts),
 			language,
 			client: {
 				startStream: (modelKey, options) => {
@@ -43,6 +63,18 @@ class FakeStt {
 							this.#cancelStop?.();
 						},
 					};
+				},
+				transcribe: (modelKey, audio, options = {}) => {
+					this.passes.push({ modelKey, audio: [...audio], language: options.language, signal: options.signal });
+					if (!this.holdPass) return Promise.resolve(this.passText);
+					const { promise, resolve, reject } = Promise.withResolvers<string>();
+					this.#answerPass = () => resolve(this.passText);
+					options.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+					return promise;
+				},
+				downloadModel: async modelKey => {
+					this.loaded.push(modelKey);
+					return { ok: true };
 				},
 			},
 		};
@@ -168,16 +200,13 @@ describe("PCM16 over the bridge", () => {
 });
 
 describe("stt_stream_*", () => {
-	it("opens English on the selected Parakeet, and Korean on Whisper large-v3-turbo once it is here", async () => {
+	it("opens English on the selected Parakeet, and has Korean's Whisper large-v3-turbo loaded once it is here", async () => {
 		models.cached.add("whisper-large-v3-turbo");
 		await streams.sttStart({ language: "en" }, null);
 		await streams.sttStart({}, null);
 		await streams.sttStart({ language: "ko-KR" }, null);
-		expect(stt.opened).toEqual([
-			{ modelKey: "parakeet-tdt-0.6b-v3", language: "en" },
-			{ modelKey: "whisper-large-v3-turbo", language: "ko" },
-			{ modelKey: "whisper-large-v3-turbo", language: "ko" },
-		]);
+		expect(stt.opened).toEqual([{ modelKey: "parakeet-tdt-0.6b-v3", language: "en" }]);
+		expect(stt.loaded).toEqual(["whisper-large-v3-turbo", "whisper-large-v3-turbo"]);
 		expect(models.downloads).toEqual([]);
 	});
 
@@ -205,7 +234,7 @@ describe("stt_stream_*", () => {
 			state: "ready",
 		});
 		await streams.sttStart({}, null);
-		expect(stt.opened).toEqual([{ modelKey: "whisper-large-v3-turbo", language: "ko" }]);
+		expect(stt.loaded).toEqual(["whisper-large-v3-turbo"]);
 	});
 
 	it("a whole clip waits for the language's model, and says so when it cannot be had", async () => {
@@ -281,6 +310,63 @@ describe("stt_stream_*", () => {
 	it("knows no stream it never opened", async () => {
 		await expect(streams.sttPush({ streamId: "nope", pcm16: pcm(0) })).rejects.toThrow("unknown_stream");
 		await expect(streams.sttPush({ pcm16: pcm(0) })).rejects.toThrow("Missing streamId");
+	});
+});
+
+// The owner's decision (3 Nov 2026): Whisper is an offline model, so a call in its language is transcribed once, after the
+// speech ended. Its running text cost a whole pass of the utterance every few hundred ms (about 6 s each for
+// large-v3-turbo on this Mac), and the final text came 14.9 s after the speech.
+describe("a stream on Whisper large-v3-turbo", () => {
+	beforeEach(() => {
+		models.cached.add("whisper-large-v3-turbo");
+	});
+
+	it("asks no pass while the person speaks, and one pass of the whole utterance after the stop", async () => {
+		stt.passText = "안녕하세요";
+		const { streamId } = await streams.sttStart({ language: "ko" }, null);
+		expect(await streams.sttPush({ streamId, pcm16: pcm(16384) })).toEqual({ text: "" });
+		expect(await streams.sttPush({ streamId, pcm16: pcm(-16384, 0) })).toEqual({ text: "" });
+		expect(stt.passes).toEqual([]);
+		expect(stt.opened).toEqual([]);
+
+		expect(await streams.sttStop({ streamId })).toEqual({ text: "안녕하세요" });
+		expect(stt.passes).toEqual([
+			{ modelKey: "whisper-large-v3-turbo", audio: [0.5, -0.5, 0], language: "ko", signal: expect.any(AbortSignal) },
+		]);
+		await expect(streams.sttPush({ streamId, pcm16: pcm(0) })).rejects.toThrow("unknown_stream");
+	});
+
+	it("has the model loaded from the stream's start, so the pass after the speech does not load it too", async () => {
+		await streams.sttStart({ language: "ko" }, null);
+		expect(stt.loaded).toEqual(["whisper-large-v3-turbo"]);
+	});
+
+	it("asks no pass of an utterance that carried no audio", async () => {
+		const { streamId } = await streams.sttStart({ language: "ko" }, null);
+		expect(await streams.sttStop({ streamId })).toEqual({ text: "" });
+		expect(stt.passes).toEqual([]);
+	});
+
+	it("cancel aborts a pass under way, and its stop answers nothing", async () => {
+		stt.holdPass = true;
+		stt.passText = "안녕하세요";
+		const { streamId } = await streams.sttStart({ language: "ko" }, null);
+		await streams.sttPush({ streamId, pcm16: pcm(16384) });
+		const stopped = streams.sttStop({ streamId });
+		await vi.advanceTimersByTimeAsync(0);
+		expect(stt.passes).toHaveLength(1);
+		expect(await streams.sttCancel({ streamId })).toEqual({});
+		expect(stt.passes[0]?.signal?.aborted).toBe(true);
+		expect(await stopped).toEqual({ text: "" });
+	});
+
+	it("leaves English on Parakeet with its running words", async () => {
+		const { streamId } = await streams.sttStart({ language: "en" }, null);
+		expect(stt.opened).toEqual([{ modelKey: "parakeet-tdt-0.6b-v3", language: "en" }]);
+		stt.options.onPartial("hello");
+		expect(await streams.sttPush({ streamId, pcm16: pcm(0) })).toEqual({ text: "hello" });
+		expect(stt.passes).toEqual([]);
+		expect(stt.loaded).toEqual([]);
 	});
 });
 

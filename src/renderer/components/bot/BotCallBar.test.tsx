@@ -39,6 +39,7 @@ const snapshot = (over: Partial<CallSnapshot> = {}): CallSnapshot => ({
 	busy: false,
 	heard: "",
 	partial: "",
+	finishing: 0,
 	pending: null,
 	playing: null,
 	language: null,
@@ -207,6 +208,29 @@ describe("BotCallBar", () => {
 		await publish({ phase: "listening", heard: "what is on my calendar", partial: "" });
 		expect(text("[data-bot-call-heard]")).toBe("“what is on my calendar”");
 		expect(query("[data-bot-call-heard]")?.hasAttribute("data-bot-call-partial")).toBe(false);
+	});
+
+	it("says it is transcribing while an utterance's words have not come back, and not the words said before", async () => {
+		await mountBar();
+		for (const phase of ["listening", "waiting"] as const) {
+			await publish({ phase, heard: "earlier", partial: "", finishing: 1 });
+			expect(query("[data-bot-call-bar]")?.hasAttribute("data-bot-call-transcribing")).toBe(true);
+			expect(text("[data-bot-call-status]")).toBe("Transcribing…");
+			expect(text("[data-bot-call-heard]")).toBe("");
+		}
+		await publish({ phase: "speaking", heard: "earlier", finishing: 1 });
+		expect(text("[data-bot-call-status]")).toBe(translate("botCall.phase.speaking"));
+		expect(query("[data-bot-call-bar]")?.hasAttribute("data-bot-call-transcribing")).toBe(false);
+		await publish({ phase: "waiting", heard: "now", finishing: 0 });
+		expect(query("[data-bot-call-bar]")?.hasAttribute("data-bot-call-transcribing")).toBe(false);
+		expect(text("[data-bot-call-heard]")).toBe("“now”");
+	});
+
+	it("shows no words while the person talks on a model with no running text", async () => {
+		await mountBar();
+		await publish({ phase: "hearing", heard: "earlier", partial: "" });
+		expect(text("[data-bot-call-status]")).toBe(translate("botCall.phase.hearing"));
+		expect(text("[data-bot-call-heard]")).toBe("");
 	});
 
 	it("draws the mic level as five bars scaled by transform", async () => {

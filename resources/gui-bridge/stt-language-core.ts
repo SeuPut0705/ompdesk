@@ -8,11 +8,13 @@
  */
 import type { SttModelState } from "./stt-language-contracts";
 
-/** The part of stock's `SttModelSpec` (stt/models.ts) the rule reads. */
+/** The part of stock's `SttModelSpec` (stt/models.ts) the rules read. */
 export interface SttModelFacts {
 	key: string;
 	/** Stock's own flag: an English-only checkpoint. */
 	englishOnly: boolean;
+	/** Stock's runtime for the model: transformers.js (the Whisper tiers) or sherpa-onnx (Parakeet, Nemotron). */
+	engine: "transformers" | "sherpa";
 }
 
 /** Stock's catalog entry that covers the most languages: Whisper large-v3-turbo, 99 languages (~600 MB). */
@@ -70,6 +72,18 @@ export function sttModelSupports(model: SttModelFacts, language: string | undefi
 /** The model `language` is transcribed on when `selected` is the dictation model. */
 export function sttModelForLanguage(selected: SttModelFacts, language: string | undefined): string {
 	return sttModelSupports(selected, language) ? selected.key : LANGUAGE_FALLBACK_STT_MODEL;
+}
+
+/**
+ * Whether a live stream on `model` previews the words while they are spoken. Stock's stream previews the segment under
+ * way by decoding all of it again (`pumpSession`, stt/asr-worker.ts). Whisper on transformers.js is an offline model:
+ * each preview is a whole pass, about 6 s for large-v3-turbo on an M-series Mac's CPU, stock drops previews only after
+ * two slow ones, and the final pass queued behind them (a Korean call's text came 15.4 s after the speech, 3 Nov 2026).
+ * The owner's decision: such a model transcribes the utterance once, after the speech ended. sherpa-onnx decodes a
+ * Parakeet preview in milliseconds, and Nemotron streams natively.
+ */
+export function sttPreviewsSpeech(model: SttModelFacts): boolean {
+	return model.engine !== "transformers";
 }
 
 const ENGLISH_NAMES = new Intl.DisplayNames(["en"], { type: "language", fallback: "none" });

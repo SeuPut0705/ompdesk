@@ -41,16 +41,22 @@ function decodeWav(bytes: Uint8Array): { samples: Float32Array; sampleRate: numb
 	return { samples, sampleRate };
 }
 
+/** Stock's catalog entry for `key`, the facts the rules read (an unknown key reads as stock's default model). */
+function sttModelFacts(key: string | undefined) {
+	const spec = resolveSttModelSpec(key);
+	return { key: spec.key, englishOnly: spec.englishOnly, engine: spec.engine };
+}
+
 /**
  * Same resolution as the TUI stt-controller: stale/legacy keys fall back to the default model. The language is the
  * conversation's (Settings › General, the device language by default), else stock's `stt.language`.
  */
 function sttSetup(session: AgentSession): SttSetup {
 	const pool = roleCandidatePool("dictation", session.settings, session.modelRegistry);
-	const spec = resolveSttModelSpec(resolveRoleChain("dictation", session.settings, pool)[0]?.model.id);
 	return {
 		client: sttClient,
-		selected: { key: spec.key, englishOnly: spec.englishOnly },
+		selected: sttModelFacts(resolveRoleChain("dictation", session.settings, pool)[0]?.model.id),
+		model: sttModelFacts,
 		language:
 			speechLanguageOfName(currentReplyLanguage()) ??
 			((lookup("stt.language")?.get(session.settings) as string | undefined) || undefined),

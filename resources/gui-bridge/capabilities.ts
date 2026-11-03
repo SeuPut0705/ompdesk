@@ -1009,7 +1009,11 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			[`${AGENT}/config/model-resolver`]: ["resolveRoleChain()"],
 			[`${AGENT}/config/model-roles`]: ["roleCandidatePool()"],
 			[`${AGENT}/config/registry`]: ["lookup()"],
-			[`${AGENT}/stt/asr-client`]: ["sttClient.startStream()"],
+			[`${AGENT}/stt/asr-client`]: [
+				"sttClient.startStream()",
+				"sttClient.transcribe()",
+				"sttClient.downloadModel()",
+			],
 			[`${AGENT}/stt/downloader`]: ["downloadSttModel()", "isSttModelCached()"],
 			[`${AGENT}/stt/models`]: ["resolveSttModelSpec()"],
 			[`${AGENT}/tts/models`]: ["DEFAULT_TTS_VOICE", "TTS_LOCAL_MODELS"],

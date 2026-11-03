@@ -10,9 +10,9 @@ import {
 } from "../../resources/gui-bridge/stt-language-core";
 
 // Stock's catalog entries (stt/models.ts), as the rule reads them.
-const PARAKEET = { key: "parakeet-tdt-0.6b-v3", englishOnly: false };
-const NEMOTRON = { key: "nemotron-streaming-en-0.6b", englishOnly: true };
-const WHISPER_SMALL = { key: "whisper-small", englishOnly: false };
+const PARAKEET = { key: "parakeet-tdt-0.6b-v3", englishOnly: false, engine: "sherpa" } as const;
+const NEMOTRON = { key: "nemotron-streaming-en-0.6b", englishOnly: true, engine: "sherpa" } as const;
+const WHISPER_SMALL = { key: "whisper-small", englishOnly: false, engine: "transformers" } as const;
 
 describe("which dictation model hears a language", () => {
 	it("keeps Parakeet v3 for its languages and sends Korean, Japanese and Chinese to Whisper large-v3-turbo", () => {

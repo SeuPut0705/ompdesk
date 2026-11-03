@@ -10,7 +10,9 @@
  * Streaming: when the omp answers the bridge's `stt_stream_*` / `tts_stream_*` commands, an utterance is transcribed while
  * it is spoken (16 kHz PCM frames from the mic's script processor, every ~200 ms, the running text shown as it comes), the
  * call listens again the moment the speech ends (the stop resolves in the background, and results are sent in utterance
- * order), and a reply starts playing at its first synthesized chunk. An omp without them answers `unsupported_omp` /
+ * order; until it does, `finishing` counts it and the bar says it is transcribing), and a reply starts playing at its
+ * first synthesized chunk. A model with no running text (Whisper: the bridge transcribes it once, at the stop) answers
+ * every frame with no words. An omp without them answers `unsupported_omp` /
  * unknown-command at the first start and the call uses the whole-clip path for the rest of its life: a MediaRecorder per
  * utterance transcribed once it ended (the VAD is off meanwhile, so speech in that gap is not heard) and a reply played
  * once fully synthesized.
@@ -72,6 +74,11 @@ export interface CallState {
 	readonly heard: string;
 	/** What the person is saying right now, as far as the running transcription has it (blank: nothing yet). */
 	readonly partial: string;
+	/**
+	 * Streamed utterances whose final text has not come back: the call listens on meanwhile. A model with no running
+	 * text (Whisper) is transcribed only now, so this is when the bar says it is transcribing.
+	 */
+	readonly finishing: number;
 	/** A reply held back while the person talks; spoken when they stop. */
 	readonly pending: string | null;
 	/** The reply being spoken now (set on entering `speaking`). */
@@ -96,7 +103,7 @@ export type CallEvent =
 	/** The utterance was too short to be speech. */
 	| { type: "speechDropped" }
 	| { type: "transcript"; text: string }
-	/** The words of a streamed utterance, whenever its transcription settles: unlike `transcript` it lands in any phase. */
+	/** The words of a streamed utterance (blank: none) whenever its transcription settles: unlike `transcript` it lands in any phase. */
 	| { type: "streamTranscript"; text: string }
 	/** The running text of the utterance being heard. */
 	| { type: "partial"; text: string }
@@ -122,6 +129,7 @@ export const INITIAL_CALL_STATE: CallState = {
 	busy: false,
 	heard: "",
 	partial: "",
+	finishing: 0,
 	pending: null,
 	playing: null,
 	language: null,
@@ -166,7 +174,9 @@ export function nextPhase(state: CallState, event: CallEvent): CallState {
 				: state;
 		case "speechEnd":
 			if (state.phase !== "hearing") return state;
-			return event.streamed ? rest(state) : { ...state, phase: "transcribing" };
+			return event.streamed
+				? rest({ ...state, finishing: state.finishing + 1 })
+				: { ...state, phase: "transcribing" };
 		case "speechDropped":
 			return state.phase === "hearing" ? rest(state) : state;
 		case "transcript": {
@@ -176,8 +186,9 @@ export function nextPhase(state: CallState, event: CallEvent): CallState {
 		}
 		case "streamTranscript": {
 			const text = event.text.trim();
-			if (!text) return state;
-			const next = { ...state, heard: text, busy: true };
+			const settled = state.finishing > 0 ? { ...state, finishing: state.finishing - 1 } : state;
+			if (!text) return settled;
+			const next = { ...settled, heard: text, busy: true };
 			return state.phase === "listening" ? rest(next) : next;
 		}
 		case "partial":
@@ -628,6 +639,8 @@ export function startVoiceCall(options: VoiceCallOptions): VoiceCall {
 			return;
 		}
 		const failure = result.failure ?? "failed";
+		// A stream that settled without words is no longer being transcribed.
+		if (background) dispatch({ type: "streamTranscript", text: "" });
 		if (failure === "no-model") dispatch({ type: "fail", error: "no-model" });
 		else if (failure === "empty" || failure === "busy") {
 			if (!background) dispatch({ type: "transcript", text: "" });

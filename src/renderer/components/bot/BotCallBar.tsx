@@ -3,12 +3,14 @@
  * phase in words, the last words heard, Mute and End. Mounting it starts the call (`lib/voice-call.ts`) and unmounting
  * it (the tab closes or the pane goes) ends it. A call that cannot go on (no microphone, no dictation model) keeps the
  * bar up with one line saying why until End is pressed; the words carry every state, so nothing here is a spinner.
- * While the language's speech model downloads (`preparing`) the bar names the language and shows how far it got.
+ * While the language's speech model downloads (`preparing`) the bar names the language and shows how far it got. While
+ * an utterance's words have not come back (a model with no running text, such as Whisper, transcribes only after the
+ * speech) it says "Transcribing…" and shows no earlier words.
  */
 import { Mic, MicOff, PhoneOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useOverlayPresence } from "../../hooks/use-overlay-presence";
-import { uiLocale } from "../../lib/format";
+import { languageName } from "../../lib/format";
 import { translate, useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { METER_BARS } from "../../lib/voice";
@@ -38,17 +40,9 @@ const ERROR_MESSAGE: Record<CallError, string> = {
 	recognition: "botCall.error.recognition",
 };
 
-/** The call's language in the UI's words (`ko` → "Korean" / "한국어"); null before the bridge named one. */
-function languageName(code: string | null): string | null {
-	if (!code) return null;
-	try {
-		return new Intl.DisplayNames([uiLocale()], { type: "language" }).of(code) ?? code;
-	} catch {
-		return code;
-	}
-}
-
-function phaseKey({ phase, muted, language }: CallSnapshot): string {
+/** `finishing`: the call listens on while an utterance's final text is still coming. */
+function phaseKey({ phase, muted, language }: CallSnapshot, finishing: boolean): string {
+	if (finishing) return "botCall.phase.transcribing";
 	switch (phase) {
 		case "starting":
 			return "botCall.phase.starting";
@@ -125,6 +119,9 @@ export function BotCallBar({ tabId, closing = false }: { tabId: string; closing?
 	const { phase, muted, heard, partial, error, levels, preparing } = snapshot;
 	const language = languageName(snapshot.language) ?? "";
 	const ended = phase === "ended";
+	const finishing = snapshot.finishing > 0 && (phase === "listening" || phase === "waiting");
+	// Earlier words are stale while new ones are spoken or transcribed; only the running text, if any, shows then.
+	const said = phase === "hearing" || finishing ? "" : heard;
 	// The meter fades out when the call ends instead of vanishing, then leaves the row. While the speech model downloads
 	// the mic is not open yet, and the row needs the room for the language and the progress.
 	const meter = useOverlayPresence(!ended && phase !== "preparing", "fast");
@@ -133,7 +130,12 @@ export function BotCallBar({ tabId, closing = false }: { tabId: string; closing?
 		useBotCallStore.getState().end(tabId);
 	};
 	return (
-		<div className="omp-bot-column shrink-0 pt-2" data-bot-call-bar="" data-bot-call-phase={phase}>
+		<div
+			className="omp-bot-column shrink-0 pt-2"
+			data-bot-call-bar=""
+			data-bot-call-phase={phase}
+			data-bot-call-transcribing={finishing ? "" : undefined}
+		>
 			<div className="omp-composer-shell">
 				<div
 					aria-label={t("botCall.bar")}
@@ -184,12 +186,12 @@ export function BotCallBar({ tabId, closing = false }: { tabId: string; closing?
 								data-bot-call-status=""
 								role="status"
 							>
-								{t(phaseKey(snapshot), { language })}
+								{t(phaseKey(snapshot, finishing), { language })}
 							</span>
 							{preparing !== null ? (
 								<span className="min-w-16 flex-1" data-bot-call-progress={preparing}>
 									<ProgressBar
-										ariaLabel={t(phaseKey(snapshot), { language })}
+										ariaLabel={t(phaseKey(snapshot, finishing), { language })}
 										tone="progress"
 										value={preparing / 100}
 									/>
@@ -202,12 +204,12 @@ export function BotCallBar({ tabId, closing = false }: { tabId: string; closing?
 									title={
 										partial
 											? t("botCall.partial", { text: partial })
-											: heard
-												? t("botCall.heard", { text: heard })
+											: said
+												? t("botCall.heard", { text: said })
 												: undefined
 									}
 								>
-									{partial ? `“${partial}…”` : heard ? `“${heard}”` : null}
+									{partial ? `“${partial}…”` : said ? `“${said}”` : null}
 								</span>
 							)}
 						</>

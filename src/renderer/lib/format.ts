@@ -17,6 +17,16 @@ export function uiLocale(): string {
 	return UI_LANGUAGE_INTL[getCurrentLanguage()];
 }
 
+/** A language code in the UI's words (`ko` → "Korean" / "한국어"); null when there is none. */
+export function languageName(code: string | null): string | null {
+	if (!code) return null;
+	try {
+		return new Intl.DisplayNames([uiLocale()], { type: "language" }).of(code) ?? code;
+	} catch {
+		return code;
+	}
+}
+
 /** "just now" / "8m" / "3h" / "2d" / "Aug 2" (Korean "8. 2."), of an ISO time or epoch ms. */
 export function formatTimeAgo(value: number | string | undefined | null): string {
 	const then = toMs(value);
