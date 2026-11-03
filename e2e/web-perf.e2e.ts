@@ -18,6 +18,8 @@
  *   frame per delta, frame times, frames over 50 ms, long tasks, main-thread time per delta.
  * - input: keypress → next paint in the composer (Event Timing in Chromium, keydown → frame in both), the
  *   drawer opening, switching sessions, a 3 s fling through the long transcript (frames over 1.5 vsync).
+ * - firsttap: ☰ tapped the moment the composer shows and 1 s later, cold and warm: tap → the drawer's list on
+ *   screen. A view loaded after the first screen makes an early tap wait for it; this says how long.
  * - memory: OMP_GUI_WEB_PERF_MINUTES (default 10) of replies streaming one after another, then the JS heap
  *   (Chromium, after a GC) and the DOM node count.
  *
@@ -47,7 +49,7 @@ import { exitApp, fixtureOmp } from "./harness";
 const OUT = process.env.OMP_GUI_WEB_PERF;
 const RUNS = Number(process.env.OMP_GUI_WEB_PERF_RUNS ?? 3);
 const MINUTES = Number(process.env.OMP_GUI_WEB_PERF_MINUTES ?? 10);
-const PHASES = new Set((process.env.OMP_GUI_WEB_PERF_PHASES ?? "load,ws,stream,input,memory").split(","));
+const PHASES = new Set((process.env.OMP_GUI_WEB_PERF_PHASES ?? "load,ws,stream,input,firsttap,memory").split(","));
 const ENGINES = (process.env.OMP_GUI_WEB_PERF_ENGINES ?? "chromium,webkit").split(",");
 const SUBJECTS = (process.env.OMP_GUI_WEB_PERF_SUBJECTS ?? `after=${process.cwd()}`).split(",").map(entry => {
 	const at = entry.indexOf("=");
@@ -538,17 +540,7 @@ async function loadMetrics(page: Page): Promise<Metrics> {
 async function coldLoad(rig: Rig): Promise<Metrics> {
 	const { page } = rig;
 	const origin = new URL(rig.proxy.url).origin;
-	if (rig.cdp) {
-		await rig.cdp.send("Network.enable");
-		await rig.cdp.send("Storage.clearDataForOrigin", { origin, storageTypes: "cache_storage,service_workers" });
-		await rig.cdp.send("Network.clearBrowserCache");
-	} else {
-		await page.evaluate(async () => {
-			for (const registration of await navigator.serviceWorker.getRegistrations()) await registration.unregister();
-			for (const key of await caches.keys()) await caches.delete(key);
-		});
-		await page.route("**/*", route => route.continue());
-	}
+	await forgetCaches(rig);
 	await page.goto("about:blank");
 	const bytes = { ...rig.proxy.bytes };
 	await page.goto(`${origin}/`);
@@ -558,7 +550,32 @@ async function coldLoad(rig: Rig): Promise<Metrics> {
 	metrics.wireWsBytes = rig.proxy.bytes.wsDown - bytes.wsDown;
 	metrics.httpRequests = rig.proxy.bytes.httpRequests - bytes.httpRequests;
 	if (!rig.cdp) await page.unrouteAll();
-	// The worker the load registered installs its shell before the next load.
+	await workerInstalled(page);
+	metrics.wireHttpBytesWithInstall = rig.proxy.bytes.httpDown - bytes.httpDown;
+	return metrics;
+}
+
+/** A first visit's state, the device still paired (see `coldLoad`). */
+async function forgetCaches(rig: Rig): Promise<void> {
+	const { page } = rig;
+	if (rig.cdp) {
+		await rig.cdp.send("Network.enable");
+		await rig.cdp.send("Storage.clearDataForOrigin", {
+			origin: new URL(rig.proxy.url).origin,
+			storageTypes: "cache_storage,service_workers",
+		});
+		await rig.cdp.send("Network.clearBrowserCache");
+	} else {
+		await page.evaluate(async () => {
+			for (const registration of await navigator.serviceWorker.getRegistrations()) await registration.unregister();
+			for (const key of await caches.keys()) await caches.delete(key);
+		});
+		await page.route("**/*", route => route.continue());
+	}
+}
+
+/** The worker the load registered has installed its shell, before the next load. */
+async function workerInstalled(page: Page): Promise<void> {
 	await page.waitForFunction(
 		async () => {
 			const registration = await navigator.serviceWorker.getRegistration();
@@ -568,8 +585,47 @@ async function coldLoad(rig: Rig): Promise<Metrics> {
 		{ timeout: 120_000, polling: 500 },
 	);
 	await page.waitForTimeout(1000);
-	metrics.wireHttpBytesWithInstall = rig.proxy.bytes.httpDown - bytes.httpDown;
-	return metrics;
+}
+
+/**
+ * ☰ tapped the moment the composer shows and 1 s after it, on a cold load and on a warm one: ms from the tap to the
+ * drawer's list on screen. Code the first screen leaves for later (a lazy chunk the drawer needs) shows here as an
+ * early tap waiting for it; a tap long after the load is the input phase's `drawerOpenP50`.
+ */
+async function firstTapPhase(rig: Rig): Promise<Metrics> {
+	const { page } = rig;
+	const out: Metrics = {};
+	for (const after of [0, 1000]) {
+		const taps: Record<"cold" | "warm", number[]> = { cold: [], warm: [] };
+		for (let run = 0; run < RUNS; run++) {
+			for (const kind of ["cold", "warm"] as const) {
+				if (kind === "cold") await forgetCaches(rig);
+				await page.goto("about:blank");
+				await page.goto(`${rig.proxy.url}/`, { waitUntil: "commit" });
+				await page.locator("[data-composer-input]").first().waitFor({ timeout: 60_000 });
+				if (after > 0) await page.waitForTimeout(after);
+				await page.evaluate(() =>
+					(Reflect.get(window, "__wp") as PageProbe).armInteraction("[data-drawer] .omp-session-sidebar"),
+				);
+				await page.getByRole("button", { name: "Open menu" }).click();
+				taps[kind].push(
+					await page.evaluate(() => (Reflect.get(window, "__wp") as PageProbe).interaction ?? Promise.resolve(-1)),
+				);
+				await closeDrawer(page);
+				await settledLoad(page);
+				if (kind === "cold") {
+					if (!rig.cdp) await page.unrouteAll();
+					await workerInstalled(page);
+				}
+			}
+		}
+		for (const kind of ["cold", "warm"] as const) {
+			out[`firstTap.${kind}At${after}DrawerP50`] = round(median(taps[kind].filter(ms => ms >= 0)));
+			out[`firstTap.${kind}At${after}DrawerMax`] = round(Math.max(...taps[kind]));
+			out[`firstTap.${kind}At${after}Misses`] = taps[kind].filter(ms => ms < 0).length;
+		}
+	}
+	return out;
 }
 
 interface CpuProfile {
@@ -1024,6 +1080,7 @@ for (const engine of ENGINES)
 				if (PHASES.has("ws")) await save(await wsPhase(rig));
 				if (PHASES.has("stream")) await save(await streamPhase(rig));
 				if (PHASES.has("input")) await save(await inputPhase(rig));
+				if (PHASES.has("firsttap")) await save(await firstTapPhase(rig));
 				if (PHASES.has("memory")) await save(await memoryPhase(rig));
 			} finally {
 				await stopRig(rig);
