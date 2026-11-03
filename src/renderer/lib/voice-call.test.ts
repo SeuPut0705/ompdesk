@@ -26,7 +26,7 @@ import {
 	VoiceActivity,
 	type VoiceCall,
 } from "./voice-call";
-import { createPcmTap, type StreamReply, type VoiceStreams } from "./voice-stream";
+import { createPcmTap, PREPARE_POLL_MS, type StreamReply, type VoiceStreams } from "./voice-stream";
 
 // ---------------------------------------------------------------------------
 // The state machine
@@ -535,6 +535,7 @@ beforeEach(() => {
 				// The default omp here lacks the streaming commands: these cases cover the whole-clip path.
 				...Object.fromEntries(
 					[
+						"sttPrepare",
 						"sttStreamStart",
 						"sttStreamPush",
 						"sttStreamStop",
@@ -868,6 +869,8 @@ describe("startVoiceCall", () => {
 			const opened = Promise.withResolvers<FakeStream>();
 			mic.getUserMedia.mockImplementationOnce(() => opened.promise);
 			call = startVoiceCall({ tabId: "t-bot", send, onState: snapshot => states.push(snapshot) });
+			await settle();
+			expect(mic.getUserMedia).toHaveBeenCalledTimes(1);
 			call.end();
 			const stream = new FakeStream();
 			opened.resolve(stream);
@@ -967,6 +970,9 @@ describe("startVoiceCall with streaming", () => {
 	beforeEach(() => {
 		started = 0;
 		streams = {
+			sttPrepare: vi.fn<VoiceStreams["sttPrepare"]>(async () =>
+				ok({ language: "en", modelKey: "parakeet-tdt-0.6b-v3", state: "ready" }),
+			),
 			sttStreamStart: vi.fn<VoiceStreams["sttStreamStart"]>(async () => ok({ streamId: `s${++started}` })),
 			sttStreamPush: vi.fn<VoiceStreams["sttStreamPush"]>(async () => ok({ text: "hello" })),
 			sttStreamStop: vi.fn<VoiceStreams["sttStreamStop"]>(async id => ok({ text: `said ${id}` })),
@@ -1074,6 +1080,51 @@ describe("startVoiceCall with streaming", () => {
 		await settle();
 		expect(streams.sttStreamCancel).toHaveBeenCalledWith("s2");
 		expect(last().partial).toBe("");
+	});
+
+	it("gets the language's speech model first: says how far its download got, then opens the mic and listens", async () => {
+		const downloading = (percent: number) =>
+			ok({ language: "ko", modelKey: "whisper-large-v3-turbo", state: "downloading", percent });
+		streams.sttPrepare.mockResolvedValueOnce(downloading(12)).mockResolvedValueOnce(downloading(64));
+		call = startVoiceCall({ tabId: "t-bot", send, streams, onState: snapshot => states.push(snapshot) });
+		await settle();
+		expect(last()).toMatchObject({ phase: "preparing", language: "ko", preparing: 12 });
+		expect(mic.getUserMedia).not.toHaveBeenCalled();
+		await advance(PREPARE_POLL_MS);
+		await settle();
+		expect(last()).toMatchObject({ phase: "preparing", preparing: 64 });
+		await advance(PREPARE_POLL_MS);
+		await settle();
+		expect(mic.getUserMedia).toHaveBeenCalledTimes(1);
+		expect(last()).toMatchObject({ phase: "listening", language: "ko", preparing: null });
+		expect(last().error).toBeUndefined();
+		expect(streams.sttPrepare).toHaveBeenCalledTimes(3);
+	});
+
+	it("goes on with the selected model, saying so, when the language's model could not be downloaded", async () => {
+		streams.sttPrepare.mockResolvedValueOnce(
+			ok({ language: "ko", modelKey: "whisper-large-v3-turbo", state: "failed", error: "offline" }),
+		);
+		await startCall(streams);
+		expect(last()).toMatchObject({ phase: "listening", language: "ko", error: "recognition" });
+		await talk(600);
+		await settle();
+		expect(phase()).toBe("hearing");
+		expect(last().error).toBeUndefined();
+	});
+
+	it("stops asking and never opens the mic when the call ends while the model downloads", async () => {
+		streams.sttPrepare.mockResolvedValue(
+			ok({ language: "ko", modelKey: "whisper-large-v3-turbo", state: "downloading", percent: 5 }),
+		);
+		call = startVoiceCall({ tabId: "t-bot", send, streams, onState: snapshot => states.push(snapshot) });
+		await settle();
+		call.end();
+		await advance(PREPARE_POLL_MS * 3);
+		await settle();
+		expect(streams.sttPrepare).toHaveBeenCalledTimes(1);
+		expect(mic.getUserMedia).not.toHaveBeenCalled();
+		expect(phase()).toBe("ended");
 	});
 
 	it("ends with the reason when the stream start says no dictation model is configured", async () => {

@@ -95,6 +95,7 @@ function viaBridge(method: string): LocalHandler {
 export const handlers: Record<string, LocalHandler> = {
 	transcribe_audio: viaBridge("transcribe_audio"),
 	synthesize_speech: viaBridge("synthesize_speech"),
+	stt_prepare: viaBridge("stt_prepare"),
 	stt_stream_start: viaBridge("stt_stream_start"),
 	stt_stream_push: viaBridge("stt_stream_push"),
 	stt_stream_stop: viaBridge("stt_stream_stop"),

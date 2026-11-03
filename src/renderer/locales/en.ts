@@ -1459,7 +1459,8 @@ export const en: Record<string, string> = {
 	"modelRoles.use.image": "The image generation tool.",
 	"modelRoles.use.web": "The web search tool.",
 	"modelRoles.use.speech": "Reads text aloud (text to speech).",
-	"modelRoles.use.dictation": "Turns what you say into text with the microphone.",
+	"modelRoles.use.dictation":
+		"Turns what you say into text with the microphone. Speech in a language the chosen model lacks (Korean on Parakeet v3, anything but English on Nemotron) uses Whisper large-v3-turbo, downloaded once (~600 MB).",
 	"modelRoles.use.judge": "Short judgments: picking the thinking level in auto mode and semantic find.",
 	"modelRoles.use.review":
 		"Code review: the code-reviewer agent runs on it, and the security reviewer when Thinking has no model. A model of another family than the one writing the code gives a second view.",
@@ -5936,6 +5937,8 @@ export const en: Record<string, string> = {
 	"botCall.start": "Voice chat",
 	"botCall.bar": "Voice chat with the bot",
 	"botCall.phase.starting": "Starting the microphone…",
+	"botCall.phase.preparing": "Preparing {language} recognition…",
+	"botCall.phase.preparingAny": "Preparing speech recognition…",
 	"botCall.phase.listening": "Listening…",
 	"botCall.phase.hearing": "Hearing you",
 	"botCall.phase.transcribing": "Transcribing…",
@@ -5950,6 +5953,8 @@ export const en: Record<string, string> = {
 	"botCall.endTitle": "End the voice chat",
 	"botCall.error.failed": "Couldn't make out that audio. Keep talking, or try again.",
 	"botCall.error.noModel": "Voice chat needs dictation: turn it on and pick a model in Settings.",
+	"botCall.error.recognition":
+		"Couldn't get {language} recognition ready, so the call uses the chosen dictation model, which may mishear it.",
 	"botSources.label": "Sources",
 	"botSources.openUrl": "Open the link",
 	"botSources.openFile": "Open the file",

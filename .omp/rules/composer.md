@@ -117,6 +117,7 @@ User's rule, from phone screenshots (descriptions under every row, a full-width 
 ### Dictation and steer box
 
 - The take shows as a bar under the field (`ComposerUnderField`, `DictationOverlay.tsx`, `use-composer-dictation.ts`, `lib/voice.ts`), never over the draft. A failed take keeps a `failure` kind (denied, no-device, in-use, busy, empty, no-model, failed): one sentence plus a Details toggle (none for busy/empty); only no-model offers Open Settings.
+- The take is heard on the model its language needs (panels-sidebar.md › Which model hears the speech): Korean on Parakeet v3 goes to Whisper large-v3-turbo, and a take before that model is in omp's cache waits for its download inside `transcribe_audio`.
 - The + menu lists "Dictation" while `stt.enabled` is off and opens Settings (`agent:setting-stt.enabled`) without writing it.
 - The subagent steer box (`SteerSubagentForm`) grows like the main field (`fitFieldHeight`) and is never `disabled` while sending (`aria-busy`).
 

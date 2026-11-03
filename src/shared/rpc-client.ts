@@ -293,6 +293,7 @@ export interface SessionRpcClient {
 	synthesizeSpeech(text: string): Promise<RpcResponse>;
 	// Streaming voice (gui-bridge voice.ts): base64 little-endian PCM16 mono, 16 kHz in, the model's rate out. An omp without
 	// the bridge methods answers an error and the caller falls back to the batch pair above.
+	sttPrepare(language?: string): Promise<RpcResponse>;
 	sttStreamStart(language?: string): Promise<RpcResponse>;
 	sttStreamPush(streamId: string, pcm16: string): Promise<RpcResponse>;
 	sttStreamStop(streamId: string): Promise<RpcResponse>;
@@ -658,6 +659,7 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 			rpcCommand({ type: "transcribe_audio", audioBase64, mimeType }, 120_000),
 		synthesizeSpeech: text => rpcCommand({ type: "synthesize_speech", text }, 60_000),
 		// Streaming voice: start loads the model (up to 30 s); the long poll waits `waitMs` (default 1500) on the host.
+		sttPrepare: language => rpcCommand({ type: "stt_prepare", language }, 15_000),
 		sttStreamStart: language => rpcCommand({ type: "stt_stream_start", language }, 30_000),
 		sttStreamPush: (streamId, pcm16) => rpcCommand({ type: "stt_stream_push", streamId, pcm16 }, 10_000),
 		sttStreamStop: streamId => rpcCommand({ type: "stt_stream_stop", streamId }, 30_000),

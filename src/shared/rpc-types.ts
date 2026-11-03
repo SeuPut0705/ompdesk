@@ -425,6 +425,9 @@ export type RpcCommand =
 	// model's `sampleRate` out of TTS. An omp without these answers an unknown-command or `unsupported_omp`
 	// error, which the renderer takes as "use the batch commands above". A stream nothing pushes to or polls for
 	// 30 s is cancelled; an unknown or finished `streamId` is the error `unknown_stream`.
+	// The model the speech's language needs (`language`: a tag; default the conversation language): starts its download
+	// into omp's model cache without waiting, so the call asks again until it answers `ready` or `failed`.
+	| { id?: string; type: "stt_prepare"; language?: string }
 	| { id?: string; type: "stt_stream_start"; language?: string }
 	| { id?: string; type: "stt_stream_push"; streamId: string; pcm16: string }
 	| { id?: string; type: "stt_stream_stop"; streamId: string }

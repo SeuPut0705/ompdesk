@@ -94,7 +94,13 @@ test("real omp voice call with the bot: streaming speech both ways, barge-in, a 
 	test.skip(process.env.OMP_GUI_REAL_WORK !== "1", "Opt-in model audit");
 	test.skip(process.platform !== "darwin", "Speech comes from macOS `say`");
 	test.setTimeout(900_000);
-	const { profile, project, desktop, agent } = await realOmpProfile({ botEnabled: true, theme: "light" });
+	// English first: the conversation language is the call's (the bridge picks the dictation model for it), and this Mac's
+	// device language may be Korean.
+	const { profile, project, desktop, agent } = await realOmpProfile({
+		botEnabled: true,
+		theme: "light",
+		replyLanguage: "English",
+	});
 	await fs.symlink(path.join(os.homedir(), ".omp/agent/cache"), path.join(agent, "cache"));
 	const clips = new Map<string, Clip>();
 	for (const utterance of UTTERANCES) clips.set(utterance.name, await speak(profile, utterance));
@@ -214,12 +220,7 @@ test("real omp voice call with the bot: streaming speech both ways, barge-in, a 
 			`Second utterance: the first one's final text came ${stopMs ?? "–"} ms after the call listened again; the second clip started ${Math.round(second.at - (firstFinal?.t ?? second.at))} ms relative to that (${overlap ? "inside" : "after"} the pending stop); both were sent in order.`,
 		);
 
-		// 4. Korean: whatever the configured dictation model makes of it.
-		const korean = await say(page, "korean");
-		await settled(korean.at);
-		rows.push(measure("question (ko)", await log(), clip("korean"), korean.at, korean.end));
-
-		// 5. Muted: nothing is heard, the mic track is off.
+		// 4. Muted: nothing is heard, the mic track is off.
 		const mute = bar.locator("[data-bot-call-mute]");
 		await mute.click();
 		await expect(mute).toHaveAttribute("aria-pressed", "true");
@@ -237,9 +238,44 @@ test("real omp voice call with the bot: streaming speech both ways, barge-in, a 
 		await expect(mute).toHaveAttribute("aria-pressed", "false");
 		await page.waitForTimeout(500);
 
+		// 5. A call in Korean: the conversation language turns Korean, which Parakeet v3 lacks, so the next call gets
+		// Whisper large-v3-turbo ready first (downloading it into omp's model cache when it is not there yet).
+		await bar.locator("[data-bot-call-end]").click();
+		await expect(bar).toHaveCount(0);
+		await page.evaluate(() => window.omp.prefs.set("replyLanguage", "Korean"));
+		const koreanCallAt = await now();
+		await pane.locator("[data-bot-call-start]").click();
+		await expect
+			.poll(async () => bar.getAttribute("data-bot-call-phase"), { timeout: 600_000, intervals: [100] })
+			.toMatch(/^(preparing|listening)$/);
+		if ((await bar.getAttribute("data-bot-call-phase")) === "preparing") await capture("desktop-call-preparing-ko");
+		await expect(phase).toHaveAttribute("data-bot-call-phase", "listening", { timeout: 600_000 });
+		const prepared = bars(since(await log(), koreanCallAt));
+		const preparing = prepared.filter(entry => entry.phase === "preparing");
+		const listeningAt = prepared.find(entry => entry.phase === "listening")?.t;
+		notes.push(
+			preparing.length > 0
+				? `Korean call: preparing Korean recognition showed ${preparing.length} steps (${preparing.map(entry => `${entry.progress}%`).join(", ")}) and listened ${round(listeningAt && listeningAt - koreanCallAt)} ms after the click.`
+				: `Korean call: Whisper large-v3-turbo was already in the model cache; the call listened ${round(listeningAt && listeningAt - koreanCallAt)} ms after the click.`,
+		);
+		await page.waitForTimeout(800);
+		const korean = await say(page, "korean");
+		await settled(korean.at);
+		const koreanRow = measure("question (ko)", await log(), clip("korean"), korean.at, korean.end);
+		rows.push(koreanRow);
+		expect(koreanRow.transcript).toMatch(/하늘/);
+		const koreanSent = since(await log(), korean.at).find(
+			entry => entry.kind === "message_start" && entry.role === "user",
+		);
+		const koreanReply = since(await log(), koreanSent?.t ?? korean.at).find(
+			entry => entry.kind === "message_end" && entry.role === "assistant" && String(entry.text).trim() !== "",
+		);
+		notes.push(`Korean reply: ${String(koreanReply?.text ?? "–").replace(/\s+/g, " ")}`);
+		expect(String(koreanReply?.text ?? "")).not.toMatch(/이해하지 못했/);
+
 		// 6. End while the reply is being spoken: the bar goes, the mic is released, nothing plays afterwards.
-		await say(page, "sky");
-		await expect(phase).toHaveAttribute("data-bot-call-phase", "speaking", { timeout: 120_000 });
+		await say(page, "korean");
+		await expect(phase).toHaveAttribute("data-bot-call-phase", "speaking", { timeout: 180_000 });
 		await capture("desktop-call-speaking");
 		const endAt = await now();
 		await bar.locator("[data-bot-call-end]").click();

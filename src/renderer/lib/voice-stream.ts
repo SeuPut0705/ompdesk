@@ -3,6 +3,7 @@
  * gapless chunk playback. Only the call (`voice-call.ts`, in the bot's lazy chunk) imports it, so the phone's first
  * screen does not carry it.
  */
+import type { SttPrepareResult } from "../../../resources/gui-bridge/stt-language-contracts";
 import {
 	base64ToBytes,
 	bytesToBase64,
@@ -24,6 +25,8 @@ export type StreamReply = { success: true; data?: unknown } | { success: false; 
  * parameter ({@link ompVoiceStreams} by default) so tests inject fakes.
  */
 export interface VoiceStreams {
+	/** `SttPrepareResult`: the model the speech's language needs, downloading it in the background if it is not here. */
+	sttPrepare(): Promise<StreamReply>;
 	/** `{ streamId }`. Rejects like `transcribe_audio` when the dictation model is missing. */
 	sttStreamStart(language?: string): Promise<StreamReply>;
 	/** `pcm16`: base64 little-endian PCM16 mono 16 kHz. Answers `{ text }`: the committed segments and the current partial. */
@@ -42,6 +45,7 @@ export interface VoiceStreams {
 export function ompVoiceStreams(): VoiceStreams {
 	const rpc = () => window.omp.rpc;
 	return {
+		sttPrepare: () => rpc().sttPrepare(),
 		sttStreamStart: language => rpc().sttStreamStart(language),
 		sttStreamPush: (streamId, pcm16) => rpc().sttStreamPush(streamId, pcm16),
 		sttStreamStop: streamId => rpc().sttStreamStop(streamId),
@@ -52,9 +56,15 @@ export function ompVoiceStreams(): VoiceStreams {
 	};
 }
 
-/** An omp without the streaming commands, or one that does not know the stream: the call falls back to whole clips. */
+/**
+ * An omp without the streaming commands, or one that does not know the stream, or a paired host's older bridge
+ * ("Unknown bridge method"): the call falls back to whole clips, and a call skips preparing.
+ */
 export function isStreamUnsupported(reply: { error: string; code?: string }): boolean {
-	return reply.code === "unsupported_omp" || /unsupported_omp|unknown[ _]command|unknown_stream/i.test(reply.error);
+	return (
+		reply.code === "unsupported_omp" ||
+		/unsupported_omp|unknown[ _]command|unknown bridge method|unknown_stream/i.test(reply.error)
+	);
 }
 
 /** A streaming command's reply; a command that throws is a failed reply. */
@@ -74,6 +84,42 @@ function field(data: unknown, key: string): unknown {
 function textOf(data: unknown): string {
 	const text = field(data, "text");
 	return typeof text === "string" ? text : "";
+}
+
+/** How often the call asks again while the speech model downloads. */
+export const PREPARE_POLL_MS = 500;
+
+export type SttPrepared =
+	| { kind: "ready" }
+	/** The model the language needs could not be had: the bridge goes on with the selected dictation model. */
+	| { kind: "failed"; language: string | null; error: string }
+	/** An omp without `stt_prepare`: nothing to wait for. */
+	| { kind: "unsupported" };
+
+/**
+ * Get the speech model the conversation's language needs before the call listens: ask the bridge, and while it
+ * downloads tell `onProgress` and ask again every {@link PREPARE_POLL_MS} until it is here, failed, or `stopped()`.
+ */
+export async function prepareRecognition(
+	streams: VoiceStreams,
+	onProgress: (language: string | null, percent: number) => void,
+	stopped: () => boolean,
+): Promise<SttPrepared> {
+	for (;;) {
+		const reply = await settled(() => streams.sttPrepare());
+		if (!reply.success) {
+			if (isStreamUnsupported(reply)) return { kind: "unsupported" };
+			return { kind: "failed", language: null, error: reply.error };
+		}
+		const data = reply.data as SttPrepareResult | undefined;
+		if (!data || data.state === "ready") return { kind: "ready" };
+		if (data.state === "failed") return { kind: "failed", language: data.language, error: data.error };
+		onProgress(data.language, data.percent);
+		const { promise, resolve } = Promise.withResolvers<void>();
+		setTimeout(resolve, PREPARE_POLL_MS);
+		await promise;
+		if (stopped()) return { kind: "ready" };
+	}
 }
 
 export type SttOpen =

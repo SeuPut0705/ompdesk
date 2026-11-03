@@ -7,6 +7,14 @@
  * worker's model never keeps decoding for nobody.
  */
 import { asRecord, requiredString } from "./params";
+import type { SttPrepareResult } from "./stt-language-contracts";
+import {
+	type SttModelFacts,
+	type SttModelStore,
+	SttModels,
+	sttLanguageCode,
+	sttModelForLanguage,
+} from "./stt-language-core";
 
 export const IDLE_MS = 30_000;
 const DEFAULT_WAIT_MS = 1_500;
@@ -42,8 +50,9 @@ export interface TtsStreamHandle {
 
 export interface SttSetup {
 	client: { startStream(modelKey: string, options: SttStreamOptions): SttStreamHandle };
-	modelKey: string;
-	/** The `stt.language` setting; a `language` the client sends wins. */
+	/** The dictation role's model, as stock's catalog describes it. */
+	selected: SttModelFacts;
+	/** The language speech is in when a request names none: the conversation language, else the `stt.language` setting. */
 	language: string | undefined;
 }
 
@@ -60,6 +69,8 @@ export interface TtsSetup {
 export interface VoiceStock<Ctx> {
 	stt(ctx: Ctx): Promise<SttSetup>;
 	tts(ctx: Ctx): Promise<TtsSetup>;
+	/** Stock's speech-model downloader. */
+	sttModels: SttModelStore;
 }
 
 /** A client's streams by id; a stream idle for `idleMs` is dropped through `onDrop`. */
@@ -192,6 +203,7 @@ function waitMsOf(params: unknown): number {
 export class VoiceStreams<Ctx> {
 	readonly #stt: StreamTable<SttEntry>;
 	readonly #tts: StreamTable<TtsEntry>;
+	readonly #models: SttModels;
 
 	constructor(
 		private readonly stock: VoiceStock<Ctx>,
@@ -199,14 +211,55 @@ export class VoiceStreams<Ctx> {
 	) {
 		this.#stt = new StreamTable(idleMs, entry => entry.handle.cancel());
 		this.#tts = new StreamTable(idleMs, entry => this.#close(entry));
+		this.#models = new SttModels(stock.sttModels);
+	}
+
+	/** The speech's language (a `language` the request names wins) and the model the rule picks for it. */
+	async #route(params: unknown, ctx: Ctx): Promise<{ setup: SttSetup; language: string | undefined; wanted: string }> {
+		const requested = asRecord(params).language;
+		const setup = await this.stock.stt(ctx);
+		const language = sttLanguageCode((typeof requested === "string" && requested) || setup.language);
+		return { setup, language, wanted: sttModelForLanguage(setup.selected, language) };
+	}
+
+	/**
+	 * The model an utterance is transcribed on. `batch` (dictation's whole clip) waits for the language's model to
+	 * download. A stream never does: until `stt_prepare` has the language's model here (or after its download failed),
+	 * it opens on the selected model, which downloads as it always did.
+	 */
+	async sttModel(
+		params: unknown,
+		ctx: Ctx,
+		mode: "stream" | "batch",
+	): Promise<{ setup: SttSetup; modelKey: string; language?: string }> {
+		const { setup, language, wanted } = await this.#route(params, ctx);
+		if (wanted !== setup.selected.key) {
+			if (mode === "batch") {
+				try {
+					await this.#models.ensure(wanted);
+				} catch (cause) {
+					const message = cause instanceof Error ? cause.message : String(cause);
+					throw new Error(`Could not download ${wanted} for ${language} speech: ${message}`);
+				}
+				return { setup, modelKey: wanted, language };
+			}
+			if (await this.#models.isReady(wanted)) return { setup, modelKey: wanted, language };
+		}
+		await this.#models.ensure(setup.selected.key);
+		return { setup, modelKey: setup.selected.key, language };
+	}
+
+	/** Start getting the model the speech's language needs, without waiting; the call asks again until it is ready. */
+	async sttPrepare(params: unknown, ctx: Ctx): Promise<SttPrepareResult> {
+		const { language, wanted } = await this.#route(params, ctx);
+		return { language: language ?? null, modelKey: wanted, ...(await this.#models.prepare(wanted)) };
 	}
 
 	async sttStart(params: unknown, ctx: Ctx): Promise<{ streamId: string }> {
-		const requested = asRecord(params).language;
-		const { client, modelKey, language } = await this.stock.stt(ctx);
+		const { setup, modelKey, language } = await this.sttModel(params, ctx, "stream");
 		const text: SttText = { committed: [], partial: "" };
-		const handle = client.startStream(modelKey, {
-			language: (typeof requested === "string" && requested) || language || undefined,
+		const handle = setup.client.startStream(modelKey, {
+			language,
 			onPartial: partial => {
 				text.partial = partial;
 			},

@@ -1449,7 +1449,8 @@ export const ko: Record<string, string> = {
 	"modelRoles.use.image": "이미지 생성 도구가 써요.",
 	"modelRoles.use.web": "웹 검색 도구가 써요.",
 	"modelRoles.use.speech": "텍스트를 소리 내어 읽어 줘요.",
-	"modelRoles.use.dictation": "마이크로 말한 내용을 글로 바꿔요.",
+	"modelRoles.use.dictation":
+		"마이크로 말한 내용을 글로 바꿔요. 고른 모델에 없는 언어(Parakeet v3의 한국어, Nemotron의 영어 외 언어)는 Whisper large-v3-turbo로 들어요. 처음 한 번 내려받아요(약 600 MB).",
 	"modelRoles.use.judge": "자동 사고 수준 선택과 의미 기반 찾기처럼 짧은 판정에 써요.",
 	"modelRoles.use.review":
 		"코드 리뷰에 써요. 코드 리뷰어 에이전트가 이 모델로 돌고, 사고 모델이 비어 있으면 보안 리뷰어도 이 모델을 써요. 코드를 쓰는 모델과 다른 계열이면 다른 눈으로 봐요.",
@@ -5927,6 +5928,8 @@ export const ko: Record<string, string> = {
 	"botCall.start": "음성 대화",
 	"botCall.bar": "봇과 음성 대화 중",
 	"botCall.phase.starting": "마이크를 켜는 중이에요…",
+	"botCall.phase.preparing": "{language} 인식을 준비하는 중…",
+	"botCall.phase.preparingAny": "음성 인식을 준비하는 중…",
 	"botCall.phase.listening": "듣는 중…",
 	"botCall.phase.hearing": "말씀을 듣는 중",
 	"botCall.phase.transcribing": "받아 적는 중이에요…",
@@ -5941,6 +5944,8 @@ export const ko: Record<string, string> = {
 	"botCall.endTitle": "음성 대화 끝내기",
 	"botCall.error.failed": "소리를 알아듣지 못했어요. 계속 말씀하시거나 다시 시도해 주세요.",
 	"botCall.error.noModel": "음성 대화에는 받아쓰기가 필요해요. 설정에서 켜고 모델을 골라 주세요.",
+	"botCall.error.recognition":
+		"{language} 인식을 준비하지 못해서 고른 받아쓰기 모델로 들어요. 잘못 알아들을 수 있어요.",
 	"botSources.label": "출처",
 	"botSources.openUrl": "링크 열기",
 	"botSources.openFile": "파일 열기",

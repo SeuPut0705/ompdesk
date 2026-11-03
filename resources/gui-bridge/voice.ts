@@ -13,9 +13,11 @@ import { downloadSttModel, isSttModelCached } from "@oh-my-pi/pi-coding-agent/st
 import { resolveSttModelSpec } from "@oh-my-pi/pi-coding-agent/stt/models";
 import { resolveSpeechCandidates } from "@oh-my-pi/pi-coding-agent/tools/tts";
 import { guard } from "./health";
+import { currentReplyLanguage } from "./modes/reply-language";
 import { asRecord, requiredString } from "./params";
+import { speechLanguageOfName } from "./stt-language-core";
 import type { BridgeMethods } from "./types";
-import { speakableSegments, VoiceStreams } from "./voice-stream-core";
+import { type SttSetup, speakableSegments, VoiceStreams } from "./voice-stream-core";
 
 const WAV_HEADER_BYTES = 44;
 
@@ -39,26 +41,30 @@ function decodeWav(bytes: Uint8Array): { samples: Float32Array; sampleRate: numb
 	return { samples, sampleRate };
 }
 
-/** Same resolution as the TUI stt-controller: stale/legacy keys fall back to the default model; a missing model is downloaded. */
-async function sttModelKey(session: AgentSession): Promise<string> {
+/**
+ * Same resolution as the TUI stt-controller: stale/legacy keys fall back to the default model. The language is the
+ * conversation's (Settings › General, the device language by default), else stock's `stt.language`.
+ */
+function sttSetup(session: AgentSession): SttSetup {
 	const pool = roleCandidatePool("dictation", session.settings, session.modelRegistry);
-	const modelKey = resolveSttModelSpec(resolveRoleChain("dictation", session.settings, pool)[0]?.model.id).key;
-	if (!(await isSttModelCached(modelKey))) await downloadSttModel(modelKey);
-	return modelKey;
+	const spec = resolveSttModelSpec(resolveRoleChain("dictation", session.settings, pool)[0]?.model.id);
+	return {
+		client: sttClient,
+		selected: { key: spec.key, englishOnly: spec.englishOnly },
+		language:
+			speechLanguageOfName(currentReplyLanguage()) ??
+			((lookup("stt.language")?.get(session.settings) as string | undefined) || undefined),
+	};
 }
 
-function sttLanguage(session: AgentSession): string | undefined {
-	return (lookup("stt.language")?.get(session.settings) as string | undefined) || undefined;
-}
-
-async function transcribe(session: AgentSession, audioBase64: string) {
-	const { samples, sampleRate } = decodeWav(Buffer.from(audioBase64, "base64"));
+async function transcribe(session: AgentSession, params: unknown) {
+	const { samples, sampleRate } = decodeWav(Buffer.from(requiredString(params, "audioBase64"), "base64"));
 	if (sampleRate !== 16_000) {
 		throw new Error(`Unsupported sample rate ${sampleRate} Hz — transcribe_audio expects 16 kHz mono PCM16 WAV`);
 	}
 	if (samples.length === 0) return { text: "" };
-	const modelKey = await sttModelKey(session);
-	return { text: await sttClient.transcribe(modelKey, samples, { language: sttLanguage(session) }) };
+	const { modelKey, language } = await streams.sttModel(params, session, "batch");
+	return { text: await sttClient.transcribe(modelKey, samples, { language }) };
 }
 
 /**
@@ -98,7 +104,11 @@ async function synthesize(session: AgentSession, rawText: string) {
 /** Stock behind the stream seam. The tts modules load here, on the first stream, like `synthesize` above. */
 const streams = new VoiceStreams<AgentSession>({
 	async stt(session) {
-		return { client: sttClient, modelKey: await sttModelKey(session), language: sttLanguage(session) };
+		return sttSetup(session);
+	},
+	sttModels: {
+		isCached: isSttModelCached,
+		download: (key, onProgress) => downloadSttModel(key, progress => onProgress(progress.loaded, progress.total)),
 	},
 	async tts(session) {
 		const [{ DEFAULT_TTS_VOICE, TTS_LOCAL_MODELS }, { ttsClient }, { SpeakableStream }] = await Promise.all([
@@ -119,7 +129,7 @@ const streams = new VoiceStreams<AgentSession>({
 
 export const methods: BridgeMethods = {
 	...guard("voice", {
-		transcribe_audio: async (params, env) => transcribe(env.session(), requiredString(params, "audioBase64")),
+		transcribe_audio: async (params, env) => transcribe(env.session(), params),
 		synthesize_speech: async (params, env) => {
 			const text = asRecord(params).text;
 			return synthesize(env.session(), typeof text === "string" ? text : "");
@@ -127,6 +137,7 @@ export const methods: BridgeMethods = {
 	}),
 	// Its own feature: an omp without the stream APIs refuses only these, and the renderer falls back to the batch pair.
 	...guard("voiceStream", {
+		stt_prepare: async (params, env) => streams.sttPrepare(params, env.session()),
 		stt_stream_start: async (params, env) => streams.sttStart(params, env.session()),
 		stt_stream_push: async params => streams.sttPush(params),
 		stt_stream_stop: async params => streams.sttStop(params),

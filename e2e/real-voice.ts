@@ -89,22 +89,28 @@ export async function instrument(page: Page, clips: readonly Clip[]): Promise<vo
 			const heard = bar?.querySelector("[data-bot-call-heard]")?.textContent ?? "";
 			const partial = bar?.querySelector("[data-bot-call-partial]") !== null && bar !== null;
 			const error = bar?.querySelector("[data-bot-call-error]")?.getAttribute("data-bot-call-error") ?? "";
-			const key = [phase, heard, partial, error].join("|");
+			const progress = bar?.querySelector("[data-bot-call-progress]")?.getAttribute("data-bot-call-progress") ?? "";
+			const key = [phase, heard, partial, error, progress].join("|");
 			if (key === last) return;
 			last = key;
-			push("bar", { phase, heard, partial, error });
+			push("bar", { phase, heard, partial, error, progress });
 		};
 		new MutationObserver(watch).observe(document.body, {
 			subtree: true,
 			childList: true,
 			characterData: true,
 			attributes: true,
-			attributeFilter: ["data-bot-call-phase", "data-bot-call-error", "data-bot-call-partial"],
+			attributeFilter: [
+				"data-bot-call-phase",
+				"data-bot-call-error",
+				"data-bot-call-partial",
+				"data-bot-call-progress",
+			],
 		});
 		window.omp.events.onTabBatch(events => {
 			for (const event of events) {
 				if (event.type === "agent_start" || event.type === "agent_end") push(event.type);
-				else if (event.type === "message_start") {
+				else if (event.type === "message_start" || event.type === "message_end") {
 					const message = Reflect.get(event, "message") as { role?: string; content?: unknown } | undefined;
 					const content = message?.content;
 					const text =
@@ -113,12 +119,13 @@ export async function instrument(page: Page, clips: readonly Clip[]): Promise<vo
 							: Array.isArray(content)
 								? content.map(part => (typeof part?.text === "string" ? part.text : "")).join("")
 								: "";
-					push("message_start", { role: message?.role, text: text.slice(0, 300) });
+					push(event.type, { role: message?.role, text: text.slice(0, 300) });
 				}
 			}
 		});
 		const rpc = window.omp.rpc as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>;
 		for (const name of [
+			"sttPrepare",
 			"sttStreamStart",
 			"sttStreamStop",
 			"sttStreamCancel",

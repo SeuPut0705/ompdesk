@@ -36,6 +36,7 @@ import {
 	ompVoiceStreams,
 	type PcmTap,
 	playSpeechStream,
+	prepareRecognition,
 	type StreamSpeechPlayback,
 	SttStream,
 	type VoiceStreams,
@@ -45,10 +46,22 @@ import {
 // The state machine
 // ---------------------------------------------------------------------------
 
-export type CallPhase = "starting" | "listening" | "hearing" | "transcribing" | "waiting" | "speaking" | "ended";
+/** `preparing`: the speech model the conversation's language needs is downloading; the mic opens once it is here. */
+export type CallPhase =
+	| "starting"
+	| "preparing"
+	| "listening"
+	| "hearing"
+	| "transcribing"
+	| "waiting"
+	| "speaking"
+	| "ended";
 
-/** A failed mic or transcription (as dictation names them), or a reply that could not be played. */
-export type CallError = DictationFailure | "speak";
+/**
+ * A failed mic or transcription (as dictation names them), a reply that could not be played, or (`recognition`) the
+ * speech model the language needs could not be downloaded, so the call hears it on the selected dictation model.
+ */
+export type CallError = DictationFailure | "speak" | "recognition";
 
 export interface CallState {
 	readonly phase: CallPhase;
@@ -65,10 +78,18 @@ export interface CallState {
 	readonly playing: string | null;
 	/** Why the call ended (fatal), or what went wrong with the last utterance or reply (the call goes on). */
 	readonly error?: CallError;
+	/** The language the call hears (a code), once the bridge named it; null before or when none is set. */
+	readonly language: string | null;
+	/** How far the speech model's download got (0–100) while `preparing`; null otherwise. */
+	readonly preparing: number | null;
 }
 
 export type CallEvent =
 	| { type: "micReady" }
+	/** The speech model for `language` is downloading. */
+	| { type: "preparing"; language: string | null; percent: number }
+	/** It could not be downloaded: the call goes on with the selected dictation model. */
+	| { type: "recognitionFailed"; language: string | null }
 	| { type: "speechStart" }
 	/** `streamed`: the words are transcribed on a stream that goes on after this, so the call listens again at once instead of waiting in `transcribing`. */
 	| { type: "speechEnd"; streamed?: boolean }
@@ -103,6 +124,8 @@ export const INITIAL_CALL_STATE: CallState = {
 	partial: "",
 	pending: null,
 	playing: null,
+	language: null,
+	preparing: null,
 };
 
 function withoutError(state: CallState): CallState {
@@ -130,7 +153,13 @@ export function nextPhase(state: CallState, event: CallEvent): CallState {
 			return event.on && state.phase === "hearing" ? rest(next) : next;
 		}
 		case "micReady":
-			return state.phase === "starting" ? rest(state) : state;
+			return state.phase === "starting" || state.phase === "preparing" ? rest({ ...state, preparing: null }) : state;
+		case "preparing":
+			return state.phase === "starting" || state.phase === "preparing"
+				? { ...state, phase: "preparing", language: event.language, preparing: event.percent }
+				: state;
+		case "recognitionFailed":
+			return { ...state, language: event.language, error: "recognition" };
 		case "speechStart":
 			return (state.phase === "listening" || state.phase === "waiting") && !state.muted
 				? { ...withoutError(state), phase: "hearing" }
@@ -719,6 +748,16 @@ export function startVoiceCall(options: VoiceCallOptions): VoiceCall {
 	}
 
 	async function open(): Promise<void> {
+		// A function, not a narrowed check: `state` changes while each await below is pending.
+		const ended = () => state.phase === "ended";
+		// The language's speech model first: the mic is not held while hundreds of MB download.
+		const prepared = await prepareRecognition(
+			streams,
+			(language, percent) => dispatch({ type: "preparing", language, percent }),
+			ended,
+		);
+		if (ended()) return;
+		if (prepared.kind === "failed") dispatch({ type: "recognitionFailed", language: prepared.language });
 		let opened: MediaStream;
 		try {
 			if (!navigator.mediaDevices?.getUserMedia) {
@@ -733,7 +772,7 @@ export function startVoiceCall(options: VoiceCallOptions): VoiceCall {
 			dispatch({ type: "fail", error: classifyMicError(cause) });
 			return;
 		}
-		if (state.phase === "ended") {
+		if (ended()) {
 			for (const track of opened.getTracks()) track.stop();
 			return;
 		}

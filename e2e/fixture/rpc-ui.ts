@@ -1354,8 +1354,70 @@ export function runRpcUi(): void {
 	const pendingOrigins: Array<{ deviceId: string; name: string; text: string }> = [];
 	/** OMPdesk control tools' confirmation cards (`agent_control.confirm`) waiting for the person's answer. */
 	const agentCards = new Map<string, Reply>();
+	/**
+	 * gui-bridge voice.ts. `stt_prepare` always answers (the dictation model is ready, as on a machine with it cached);
+	 * with `OMP_GUI_TEST_VOICE_FILE` the streams answer too, scripted by that JSON file, read on every call so a spec can
+	 * change it between calls: `{prepare?: {language, percent}}` keeps the language's model downloading at that percent,
+	 * `language` names the call's language, `transcript` is what every utterance was (a prompt of exactly it is answered
+	 * with `reply`, streamed as a real turn is), `replySeconds` how long each spoken reply's audio (silence) lasts.
+	 */
+	const voiceFile = process.env.OMP_GUI_TEST_VOICE_FILE;
+	const voiceScript = (): {
+		prepare?: { language: string; percent: number };
+		language?: string;
+		transcript?: string;
+		reply?: string;
+		replySeconds?: number;
+	} => {
+		try {
+			return voiceFile ? JSON.parse(fs.readFileSync(voiceFile, "utf8")) : {};
+		} catch {
+			return {};
+		}
+	};
+	const speechLeft = new Map<string, number>();
+	/** One second of silence at 24 kHz, base64 PCM16. */
+	const silentSecond = Buffer.alloc(24_000 * 2).toString("base64");
+	const voiceMethods: Record<string, (params: Params, reply: Reply) => unknown> = {
+		stt_prepare: () => {
+			const script = voiceScript();
+			return script.prepare
+				? { ...script.prepare, modelKey: "whisper-large-v3-turbo", state: "downloading" }
+				: { language: script.language ?? "en", modelKey: "parakeet-tdt-0.6b-v3", state: "ready" };
+		},
+		...(voiceFile
+			? {
+					stt_stream_start: () => ({
+						streamId: `fixture-stt-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+					}),
+					stt_stream_push: () => ({ text: voiceScript().transcript ?? "" }),
+					stt_stream_stop: () => ({ text: voiceScript().transcript ?? "" }),
+					stt_stream_cancel: () => ({}),
+					tts_stream_start: () => {
+						const streamId = `fixture-tts-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+						speechLeft.set(streamId, voiceScript().replySeconds ?? 2);
+						return { streamId, sampleRate: 24_000 };
+					},
+					tts_stream_next: params => {
+						const streamId = String(params.streamId);
+						const left = speechLeft.get(streamId) ?? 0;
+						if (left <= 0) {
+							speechLeft.delete(streamId);
+							return { chunks: [], done: true };
+						}
+						speechLeft.set(streamId, left - 1);
+						return { chunks: [silentSecond], done: false };
+					},
+					tts_stream_cancel: params => {
+						speechLeft.delete(String(params.streamId));
+						return {};
+					},
+				}
+			: {}),
+	};
 	/** A handler returning `undefined` replies itself (deferred, or ahead of the events it pushes). */
 	const bridgeMethods: Record<string, (params: Params, reply: Reply) => unknown> = {
+		...voiceMethods,
 		// gui-bridge agent-control.ts: stock's extension-UI confirm, answered by the person (extension_ui_response).
 		"agent_control.confirm": (params, reply) => {
 			const id = `agent-card-${agentCards.size + 1}-${Date.now()}`;
@@ -4703,6 +4765,29 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				},
 				Number(process.env.OMP_GUI_TEST_LATER_MS ?? 3000),
 			);
+		} else if (voiceFile && message === voiceScript().transcript) {
+			// A voice call's words (`voiceScript`): the reply streams for a moment and then ends, as a real turn does, so
+			// the call has its text when the turn ends and speaks it.
+			const text = voiceScript().reply ?? "하늘은 맑은 날 파란색이에요.";
+			const answer: AgentMessage = {
+				role: "assistant",
+				content: [{ type: "text", text }],
+				timestamp: Date.now(),
+				provider: model.provider,
+				model: model.id,
+			};
+			write({ type: "message_start", message: answer });
+			write({
+				type: "message_update",
+				message: answer,
+				assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: text, partial: answer },
+			});
+			setTimeout(() => {
+				const done: AgentMessage = { ...answer, stopReason: "stop" };
+				appendMessage(done);
+				write({ type: "message_end", message: done });
+				endTurn([user, done]);
+			}, 300);
 		} else if (message !== "fixture running") {
 			if (message === "fixture reply actions") {
 				// Stock auto thinking names the effort it classified for this turn.

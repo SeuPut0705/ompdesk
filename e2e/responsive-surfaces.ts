@@ -1,3 +1,4 @@
+import * as fs from "node:fs/promises";
 import type { Page } from "@playwright/test";
 import type { Look } from "./responsive-audit";
 
@@ -39,6 +40,49 @@ export interface Surface {
 }
 
 export type ParitySession = "work" | "bot";
+
+/** The fake omp's voice script (`voiceScript`, e2e/fixture/rpc-ui.ts); e2e/parity.e2e.ts names the file. */
+async function scriptVoice(script: Record<string, unknown>): Promise<void> {
+	const file = process.env.OMP_GUI_TEST_VOICE_FILE;
+	if (!file) throw new Error("the voice call surfaces need OMP_GUI_TEST_VOICE_FILE (e2e/parity.e2e.ts sets it)");
+	await fs.writeFile(file, JSON.stringify(script));
+}
+
+/**
+ * Start a voice call on the bot's pane, ending one a surface before left running. `speak`: the page's microphone is a
+ * tone that stays silent while the call measures its floor, then sounds for 1.5 s, so the call hears one utterance.
+ */
+async function startBotCall(page: Page, speak: boolean): Promise<void> {
+	const bar = page.locator("[data-bot-call-bar]");
+	if ((await bar.count()) > 0) {
+		await bar.locator("[data-bot-call-end]").click();
+		await bar.waitFor({ state: "detached", timeout: 10_000 });
+	}
+	if (speak) {
+		await page.evaluate(() => {
+			const getUserMedia = async () => {
+				const context = new AudioContext();
+				await context.resume().catch(() => undefined);
+				const tone = context.createOscillator();
+				tone.frequency.value = 180;
+				const gain = context.createGain();
+				gain.gain.value = 0;
+				const destination = context.createMediaStreamDestination();
+				tone.connect(gain).connect(destination);
+				tone.start();
+				gain.gain.setValueAtTime(0.3, context.currentTime + 1.2);
+				gain.gain.setValueAtTime(0, context.currentTime + 2.7);
+				return destination.stream;
+			};
+			// A phone page on plain http has no `navigator.mediaDevices` at all.
+			Object.defineProperty(navigator, "mediaDevices", {
+				configurable: true,
+				value: Object.assign(navigator.mediaDevices ?? {}, { getUserMedia }),
+			});
+		});
+	}
+	await page.locator("[data-bot-call-start]").first().click();
+}
 
 /** Put one extension-UI request (a card) in front of the focused session. */
 async function request(page: Page, payload: Record<string, unknown>): Promise<void> {
@@ -190,6 +234,31 @@ export const SURFACES: readonly Surface[] = [
 		query: "&bot=1",
 		open: async () => {},
 		ready: "[data-bot-bar] [data-bot-state]",
+		parity: { session: "bot" },
+	},
+	{
+		id: "bot-call-preparing",
+		area: "A",
+		title: "A voice call with the bot getting Korean recognition ready: the language's speech model downloading, its progress in the call bar",
+		open: async page => {
+			await scriptVoice({ prepare: { language: "ko", percent: 42 } });
+			await startBotCall(page, false);
+		},
+		ready: '[data-bot-call-phase="preparing"] [data-bot-call-progress]',
+		// The fake omp's voice script exists only in the parity sheet's two apps; the audits' harness page has no call.
+		when: () => false,
+		parity: { session: "bot" },
+	},
+	{
+		id: "bot-call-speaking",
+		area: "A",
+		title: "A voice call in Korean: what the person said heard, and the bot's reply being spoken",
+		open: async page => {
+			await scriptVoice({ language: "ko", transcript: "하늘은 무슨 색인가요?", replySeconds: 60 });
+			await startBotCall(page, true);
+		},
+		ready: '[data-bot-call-phase="speaking"]',
+		when: () => false,
 		parity: { session: "bot" },
 	},
 	{

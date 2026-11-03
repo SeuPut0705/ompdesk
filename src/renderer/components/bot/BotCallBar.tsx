@@ -3,10 +3,12 @@
  * phase in words, the last words heard, Mute and End. Mounting it starts the call (`lib/voice-call.ts`) and unmounting
  * it (the tab closes or the pane goes) ends it. A call that cannot go on (no microphone, no dictation model) keeps the
  * bar up with one line saying why until End is pressed; the words carry every state, so nothing here is a spinner.
+ * While the language's speech model downloads (`preparing`) the bar names the language and shows how far it got.
  */
 import { Mic, MicOff, PhoneOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useOverlayPresence } from "../../hooks/use-overlay-presence";
+import { uiLocale } from "../../lib/format";
 import { translate, useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { METER_BARS } from "../../lib/voice";
@@ -20,7 +22,7 @@ import {
 import { publishCallLevel, useBotCallStore } from "../../stores/bot-call";
 import { toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, IconButton, LinkButton } from "../common";
+import { Button, IconButton, LinkButton, ProgressBar } from "../common";
 
 const STT_SETTING_TARGET = "agent:setting-stt.enabled";
 
@@ -33,12 +35,25 @@ const ERROR_MESSAGE: Record<CallError, string> = {
 	busy: "botCall.error.failed",
 	empty: "botCall.error.failed",
 	speak: "voice.speak.failed",
+	recognition: "botCall.error.recognition",
 };
 
-function phaseKey({ phase, muted }: CallSnapshot): string {
+/** The call's language in the UI's words (`ko` → "Korean" / "한국어"); null before the bridge named one. */
+function languageName(code: string | null): string | null {
+	if (!code) return null;
+	try {
+		return new Intl.DisplayNames([uiLocale()], { type: "language" }).of(code) ?? code;
+	} catch {
+		return code;
+	}
+}
+
+function phaseKey({ phase, muted, language }: CallSnapshot): string {
 	switch (phase) {
 		case "starting":
 			return "botCall.phase.starting";
+		case "preparing":
+			return language ? "botCall.phase.preparing" : "botCall.phase.preparingAny";
 		case "listening":
 			return muted ? "botCall.phase.muted" : "botCall.phase.listening";
 		case "hearing":
@@ -107,10 +122,12 @@ export function BotCallBar({ tabId, closing = false }: { tabId: string; closing?
 		};
 	}, [tabId, closing]);
 
-	const { phase, muted, heard, partial, error, levels } = snapshot;
+	const { phase, muted, heard, partial, error, levels, preparing } = snapshot;
+	const language = languageName(snapshot.language) ?? "";
 	const ended = phase === "ended";
-	// The meter fades out when the call ends instead of vanishing, then leaves the row.
-	const meter = useOverlayPresence(!ended, "fast");
+	// The meter fades out when the call ends instead of vanishing, then leaves the row. While the speech model downloads
+	// the mic is not open yet, and the row needs the room for the language and the progress.
+	const meter = useOverlayPresence(!ended && phase !== "preparing", "fast");
 	const endCall = () => {
 		callRef.current?.end();
 		useBotCallStore.getState().end(tabId);
@@ -146,8 +163,8 @@ export function BotCallBar({ tabId, closing = false }: { tabId: string; closing?
 							data-bot-call-error={error}
 							role="status"
 						>
-							<span className="min-w-0 truncate" title={t(ERROR_MESSAGE[error])}>
-								{t(ERROR_MESSAGE[error])}
+							<span className="min-w-0 truncate" title={t(ERROR_MESSAGE[error], { language })}>
+								{t(ERROR_MESSAGE[error], { language })}
 							</span>
 							{error === "no-model" ? (
 								<LinkButton
@@ -167,22 +184,32 @@ export function BotCallBar({ tabId, closing = false }: { tabId: string; closing?
 								data-bot-call-status=""
 								role="status"
 							>
-								{t(phaseKey(snapshot))}
+								{t(phaseKey(snapshot), { language })}
 							</span>
-							<span
-								className={`min-w-0 flex-1 truncate ${partial ? "italic text-(--sc-text)" : "text-(--sc-text-muted)"}`}
-								data-bot-call-heard=""
-								data-bot-call-partial={partial ? "" : undefined}
-								title={
-									partial
-										? t("botCall.partial", { text: partial })
-										: heard
-											? t("botCall.heard", { text: heard })
-											: undefined
-								}
-							>
-								{partial ? `“${partial}…”` : heard ? `“${heard}”` : null}
-							</span>
+							{preparing !== null ? (
+								<span className="min-w-16 flex-1" data-bot-call-progress={preparing}>
+									<ProgressBar
+										ariaLabel={t(phaseKey(snapshot), { language })}
+										tone="progress"
+										value={preparing / 100}
+									/>
+								</span>
+							) : (
+								<span
+									className={`min-w-0 flex-1 truncate ${partial ? "italic text-(--sc-text)" : "text-(--sc-text-muted)"}`}
+									data-bot-call-heard=""
+									data-bot-call-partial={partial ? "" : undefined}
+									title={
+										partial
+											? t("botCall.partial", { text: partial })
+											: heard
+												? t("botCall.heard", { text: heard })
+												: undefined
+									}
+								>
+									{partial ? `“${partial}…”` : heard ? `“${heard}”` : null}
+								</span>
+							)}
 						</>
 					)}
 					{ended ? null : (

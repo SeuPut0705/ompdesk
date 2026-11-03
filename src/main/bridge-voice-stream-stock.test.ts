@@ -3,6 +3,7 @@ import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkS
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
+import { LANGUAGE_FALLBACK_STT_MODEL, MODEL_LANGUAGES } from "../../resources/gui-bridge/stt-language-core";
 import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
@@ -24,7 +25,7 @@ import { probe } from "./health";
 import { speakableSegments } from "./voice-stream-core";
 import { SpeakableStream } from "@oh-my-pi/pi-coding-agent/tts/speakable";
 import { isSttModelCached } from "@oh-my-pi/pi-coding-agent/stt/downloader";
-import { DEFAULT_STT_MODEL_KEY } from "@oh-my-pi/pi-coding-agent/stt/models";
+import { DEFAULT_STT_MODEL_KEY, STT_MODELS } from "@oh-my-pi/pi-coding-agent/stt/models";
 export default function (pi) {
  pi.on("session_start", async () => {
   const out = {};
@@ -33,7 +34,9 @@ export default function (pi) {
    const env = { pi, session: () => session, context: () => undefined, emit: () => {} };
    out.unavailable = await probe(env, ["voice", "voiceStream"]);
    out.cached = await isSttModelCached(DEFAULT_STT_MODEL_KEY);
+   out.catalog = STT_MODELS.map(model => ({ key: model.key, englishOnly: model.englishOnly, description: model.description }));
    out.segments = speakableSegments(${JSON.stringify(LONG_FIRST_SENTENCE)}, new SpeakableStream());
+   if (out.cached && out.unavailable.length === 0) out.preparedEn = await methods.stt_prepare({ language: "en" }, env);
    if (out.cached && out.unavailable.length === 0) {
     const { streamId } = await methods.stt_stream_start({}, env);
     const silence = Buffer.alloc(16000 * 2).toString("base64");
@@ -61,6 +64,8 @@ interface Probe {
 	push?: { text: string };
 	cancel?: Record<string, never>;
 	afterCancel?: string;
+	catalog?: Array<{ key: string; englishOnly: boolean; description: string }>;
+	preparedEn?: unknown;
 	segments?: string[];
 	error?: string;
 }
@@ -83,6 +88,8 @@ function run<T>(source: string, marker: string, extraEnv: Record<string, string>
 			OMP_PROFILE: "",
 			PI_PROFILE: "",
 			OPENAI_API_KEY: "probe-not-a-real-key",
+			// The stream opens in the setting's English, whatever conversation language the shell running vitest carries.
+			OMP_GUI_REPLY_LANGUAGE: "",
 			...extraEnv,
 		};
 		for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "OPENROUTER_API_KEY"])
@@ -126,6 +133,22 @@ describe.skipIf(!existsSync(omp))("streaming voice, on stock omp", () => {
 		expect(probe.push).toEqual({ text: expect.any(String) });
 		expect(probe.cancel).toEqual({});
 		expect(probe.afterCancel).toBe("unknown_stream");
+	});
+
+	it("names only stock's catalog models in its language table, as many languages as stock says", () => {
+		const catalog = probe.catalog ?? [];
+		for (const [key, languages] of Object.entries(MODEL_LANGUAGES)) {
+			const entry = catalog.find(model => model.key === key);
+			expect(entry, key).toMatchObject({ englishOnly: false });
+			expect(Number(/(\d+) languages/.exec(entry?.description ?? "")?.[1]), key).toBe(languages.length);
+		}
+		const fallback = catalog.find(model => model.key === LANGUAGE_FALLBACK_STT_MODEL);
+		expect(fallback).toMatchObject({ englishOnly: false, description: expect.stringMatching(/99 languages/) });
+	});
+
+	it("prepares English on the cached default model at once", ctx => {
+		if (!probe.cached) ctx.skip();
+		expect(probe.preparedEn).toEqual({ language: "en", modelKey: "parakeet-tdt-0.6b-v3", state: "ready" });
 	});
 
 	it("cuts a reply's long first sentence at a clause, as stock's live speech does, so its sound starts early", () => {

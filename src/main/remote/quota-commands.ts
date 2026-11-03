@@ -316,6 +316,8 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"ssh_test",
 	// The streams a paired device starts (`stt_stream_start`, `tts_stream_start`: MODEL_COMMAND_TYPES) are one request;
 	// their pushes, polls, stops and cancels run on that stream and would otherwise spend a device's day per chunk.
+	// `stt_prepare` only checks or downloads the speech model's weights, polled while they download.
+	"stt_prepare",
 	"stt_stream_cancel",
 	"stt_stream_push",
 	"stt_stream_stop",

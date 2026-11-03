@@ -41,6 +41,8 @@ const snapshot = (over: Partial<CallSnapshot> = {}): CallSnapshot => ({
 	partial: "",
 	pending: null,
 	playing: null,
+	language: null,
+	preparing: null,
 	levels: [0, 0, 0, 0, 0],
 	outputLevel: 0,
 	...over,
@@ -159,6 +161,29 @@ describe("BotCallBar", () => {
 		}
 		expect(translate("botCall.phase.speaking")).toBe("Speaking — talk to interrupt");
 		expect(query(".omp-spinner")).toBeNull();
+	});
+
+	it("names the language whose recognition it prepares and shows how far the download got", async () => {
+		await mountBar();
+		await publish({ phase: "preparing", language: "ko", preparing: 42 });
+		expect(query("[data-bot-call-bar]")?.getAttribute("data-bot-call-phase")).toBe("preparing");
+		expect(text("[data-bot-call-status]")).toBe("Preparing Korean recognition…");
+		expect(query("[data-bot-call-progress]")?.getAttribute("data-bot-call-progress")).toBe("42");
+		expect(text("[data-bot-call-progress]")).toContain("42%");
+		expect(query("[data-bot-call-heard]")).toBeNull();
+
+		await publish({ phase: "preparing", language: null, preparing: 0 });
+		expect(text("[data-bot-call-status]")).toBe("Preparing speech recognition…");
+		await publish({ phase: "listening" });
+		expect(query("[data-bot-call-progress]")).toBeNull();
+	});
+
+	it("says the call hears on the chosen model when the language's model could not be downloaded", async () => {
+		await mountBar();
+		await publish({ phase: "listening", language: "ko", error: "recognition" });
+		expect(query("[data-bot-call-error]")?.getAttribute("data-bot-call-error")).toBe("recognition");
+		expect(text("[data-bot-call-error]")).toBe(translate("botCall.error.recognition", { language: "Korean" }));
+		expect(query("[data-bot-call-settings]")).toBeNull();
 	});
 
 	it("shows the last words heard, and what was heard in full as its tooltip", async () => {

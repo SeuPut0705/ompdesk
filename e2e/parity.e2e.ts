@@ -116,6 +116,8 @@ if (dir) {
 		const out = path.resolve(dir);
 		await fs.mkdir(out, { recursive: true });
 		const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-parity-")));
+		// The voice call surfaces script the fake omp's speech through this file (e2e/fixture/rpc-ui.ts `voiceScript`).
+		process.env.OMP_GUI_TEST_VOICE_FILE = path.join(parent, "voice.json");
 		let host: RemoteInstance | undefined;
 		let client: RemoteInstance | undefined;
 		let proxy: ServeProxy | undefined;
