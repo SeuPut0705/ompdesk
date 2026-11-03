@@ -85,16 +85,19 @@ interface MarkdownRendererProps {
 // ReactMarkdown from treating the pipeline as changed on every render.
 // remark-math must precede rehype-katex: it parses $...$/$$...$$ into math
 // nodes that rehype-katex (rehype chain below) then renders. The CJK passes
-// bold `**0.1%**이며` and cut bare URLs at glued Korean text.
+// bold `**0.1%**이며` and cut bare URLs at glued Korean text. GFM's single
+// `~` strikethrough is off: Korean writes ranges as `170~230초`, and two such
+// ranges in one line would strike everything between them; `~~x~~` still strikes.
+const GFM_OPTIONS = { singleTilde: false } as const;
 const REMARK_PLUGINS: Options["remarkPlugins"] = [
-	remarkGfm,
+	[remarkGfm, GFM_OPTIONS],
 	remarkMath,
 	remarkLatexMath,
 	remarkCjkStrong,
 	remarkCjkAutolink,
 ];
 const REMARK_PLUGINS_USER_TEXT: Options["remarkPlugins"] = [
-	remarkGfm,
+	[remarkGfm, GFM_OPTIONS],
 	[remarkMath, { singleDollarTextMath: false }],
 	remarkLatexMath,
 	remarkCjkStrong,

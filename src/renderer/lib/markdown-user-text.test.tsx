@@ -33,3 +33,13 @@ describe("a person's own text", () => {
 		expect(reply.querySelector("p br")).toBeNull();
 	});
 });
+
+describe("tildes", () => {
+	it.each([true, false])("keeps `170~230초` ranges as text and strikes only `~~x~~` (userText %s)", userText => {
+		const page = render("파일당 170~230초, 평소 93~166초보다 1.2~2.5배.\n\n~~취소~~", userText);
+		const [ranges, struck] = [...page.querySelectorAll("p")];
+		expect(ranges?.querySelector("del")).toBeNull();
+		expect(ranges?.textContent).toBe("파일당 170~230초, 평소 93~166초보다 1.2~2.5배.");
+		expect(struck?.querySelector("del")?.textContent).toBe("취소");
+	});
+});
