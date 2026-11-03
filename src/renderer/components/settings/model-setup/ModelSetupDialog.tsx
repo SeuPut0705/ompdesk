@@ -1,7 +1,8 @@
 /**
  * Model setup assistant. Two modes over one live proposal, planned in the renderer by `planRoles` (no model call):
  * full auto (subscription and free models only) opens straight onto its proposal; picked mode lets the person tick
- * the models first (metered ones included). One line per role from `get_model_roles`; its reason sits behind ⓘ.
+ * the models first (metered ones included). One line per role from `get_model_roles`, the groups side by side on a
+ * wide dialog; its reason sits behind ⓘ.
  * Apply writes only the ticked rows and stores what it wrote (for Undo) with the signature "new models or
  * accounts since" is judged against. "Find more evidence" is the one action that spends tokens: it shows its cost
  * first, then runs the research on the focused tab's machine and lays its picks over the rules' rows.
@@ -364,7 +365,7 @@ export function ModelSetupDialog() {
 
 	return (
 		<Modal footer={footer} onClose={close} open size="lg" title={t("modelSetup.title")}>
-			<div className="space-y-4" data-model-setup-mode={mode}>
+			<div className="@container space-y-4" data-model-setup-mode={mode}>
 				{!sidecarReady && <InlineNotice title={t("modelSetup.notConnected")} tone="info" />}
 				{loadError !== null && <InlineNotice detail={loadError} title={t("modelSetup.loadFailed")} tone="danger" />}
 
@@ -413,23 +414,34 @@ export function ModelSetupDialog() {
 											{t("modelSetup.pick.count", { count: pickedModels.length })}
 										</span>
 									</div>
-									<div className="max-h-56 space-y-3 overflow-y-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) p-3">
+									<div className="max-h-64 space-y-1.5 overflow-y-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-3 py-2">
 										{visibleGroups.map(group => (
-											<fieldset className="space-y-1" key={group.provider}>
-												<legend className="pb-1 text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase">
+											<div
+												aria-labelledby={`model-setup-provider-${group.provider}`}
+												className="flex flex-col @md:flex-row @md:items-start @md:gap-x-3"
+												key={group.provider}
+												role="group"
+											>
+												<span
+													className="shrink-0 truncate pt-1.5 text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase @md:w-24"
+													id={`model-setup-provider-${group.provider}`}
+													title={providerName(group.provider)}
+												>
 													{providerName(group.provider)}
-												</legend>
-												{group.models.map(option => (
-													<ModelCheckbox
-														checked={pickedModels.includes(option.selector)}
-														disabled={running}
-														isDefault={option.selector === defaultModel}
-														key={option.selector}
-														onChange={checked => togglePicked(option.selector, checked)}
-														option={option}
-													/>
-												))}
-											</fieldset>
+												</span>
+												<div className="flex min-w-0 flex-1 flex-wrap gap-x-1">
+													{group.models.map(option => (
+														<ModelCheckbox
+															checked={pickedModels.includes(option.selector)}
+															disabled={running}
+															isDefault={option.selector === defaultModel}
+															key={option.selector}
+															onChange={checked => togglePicked(option.selector, checked)}
+															option={option}
+														/>
+													))}
+												</div>
+											</div>
 										))}
 									</div>
 								</div>
@@ -497,13 +509,20 @@ export function ModelSetupDialog() {
 							</div>
 						)}
 
-						<div className="space-y-3">
-							{rowGroups.map(group => (
-								<section data-model-setup-group={group.id} key={group.id}>
-									<h3 className="pb-1 text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase">
+						{/* One grid for every role: a group's heading takes a row of its own, its roles then fill two or three
+						    columns as the dialog widens; the phone keeps one column. */}
+						<div className="grid grid-cols-1 gap-x-6 gap-y-0.5 @2xl:grid-cols-2 @5xl:grid-cols-3 [html[data-input=touch]_&]:gap-y-1">
+							{rowGroups.map((group, index) => (
+								<section className="contents" data-model-setup-group={group.id} key={group.id}>
+									<h3
+										className={cx(
+											"col-span-full pb-0.5 text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase",
+											index > 0 && "pt-2",
+										)}
+									>
 										{t(`modelRoles.group.${group.id}`)}
 									</h3>
-									<ul className="space-y-0.5 [html[data-input=touch]_&]:space-y-1">
+									<ul className="contents">
 										{group.rows.map(row => (
 											<RoleRow
 												key={row.role}
@@ -620,12 +639,15 @@ function RoleRow({
 	const label = stock ? effective : labelOf(row.model ?? undefined);
 	return (
 		<li
-			className="flex min-h-(--sc-control-md) items-center gap-2 text-sc-sm [html[data-input=touch]_&]:min-h-10"
+			className={cx(
+				"flex min-h-(--sc-control-md) items-center gap-1.5 rounded-(--sc-radius-sm) px-1.5 text-sc-sm hover:bg-(--sc-hover) [html[data-input=touch]_&]:min-h-10",
+				stock && "opacity-80",
+			)}
 			data-model-setup-role={row.role}
 			data-model-setup-state={stock ? "stock" : unchanged ? "unchanged" : row.manual ? "manual" : "plan"}
 		>
 			{/* The label carries the checkbox's touch reach, and a tap on the role's name ticks it too. */}
-			<label className="flex w-28 shrink-0 items-center gap-2 self-stretch sm:w-40">
+			<label className="flex w-27 shrink-0 items-center gap-2 self-stretch">
 				{stock ? (
 					<span aria-hidden className="size-4 shrink-0" />
 				) : (
