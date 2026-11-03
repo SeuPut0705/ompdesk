@@ -7,7 +7,8 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetShellModeForTests, TOUCH_QUERY } from "../../hooks/use-shell-mode";
+import { TOUCH_QUERY } from "../../hooks/shell-queries";
+import { resetShellModeForTests } from "../../hooks/use-shell-mode";
 import { Tooltip, type TooltipProps } from "./Tooltip";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");

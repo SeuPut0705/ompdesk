@@ -29,6 +29,7 @@ import { builtinModules } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { SESSION_LIST_META } from "../src/renderer/web/session-list-preload";
 
 // `URL.pathname` keeps a leading slash on Windows (`/E:/…`), which no API opens.
 const BUNDLE = fileURLToPath(new URL("../out/main/index.js", import.meta.url));
@@ -261,7 +262,14 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // its `name` for stacks and React's component stacks; main and preload keep their names. The phone parses ~29% less
 // before its first frame (14 files, 3,310,970 → 2,349,974, 960,996 bytes less; brotli on the wire 674,087 → 615,573):
 // measured 2,349,974.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_349_974;
+// The session list is one chunk of its own (3 Nov 2026, components/layout/sidebar-chunk.ts, the `session-list` manual
+// chunk in electron.vite.config.ts): a phone keeps it in a closed drawer. This budget counts the static closure, which is
+// what a later visit (a page the service worker controls) loads before its first frame; the list loads after it, from
+// the worker's cache. A first visit (no worker yet) and a page that docks the list also wait for the list's one file,
+// checked below and printed with the total. Sidebar.tsx, its device sections, subagents and update card, the icons only
+// it draws and dnd-kit leave the static closure, sidebar.css stays (14 files 2,349,974 → 13 files 2,155,282; brotli
+// 615,171 → 567,205; the list's file 197,360, brotli 53,932): measured 2,155,282.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_155_282;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
@@ -383,8 +391,25 @@ if (panelChunk || firstScreenBytes > WEB_FIRST_SCREEN_JS_BYTES) {
 	process.exit(1);
 }
 
+// The session list's files beside the first screen (web.html's meta, scripts/pwa-plugin.ts): one chunk, so a page that
+// waits for it pays one round trip, not one per file (Rollup had split it into 16 by who else imports them).
+const sessionListFiles =
+	new RegExp(`<meta name="${SESSION_LIST_META}" content="([^"]*)"`)
+		.exec(webHtml)?.[1]
+		?.split(" ")
+		.filter(file => file.endsWith(".js")) ?? [];
+if (sessionListFiles.length !== 1) {
+	console.error(
+		`out/renderer/web.html names ${sessionListFiles.length} JavaScript files for the session list (${sessionListFiles.join(", ")}), ` +
+			"not one: a module only it needs was left out of the `session-list` chunk (electron.vite.config.ts).",
+	);
+	process.exit(1);
+}
+const sessionListBytes = (await fs.stat(path.join(RENDERER, sessionListFiles[0] as string))).size;
+
 console.log(
 	"main bundle is self-contained: no un-bundled runtime imports, no optional-peer stubs, the bundled ws carries " +
 		`masked frames; the renderer ships no axe-core and no .woff/.ttf fonts; the phone's first screen loads ` +
-		`${(firstScreenBytes / 1e6).toFixed(2)} MB of JavaScript`,
+		`${(firstScreenBytes / 1e6).toFixed(2)} MB of JavaScript, a first visit ` +
+		`${((firstScreenBytes + sessionListBytes) / 1e6).toFixed(2)} MB with the session list`,
 );

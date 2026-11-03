@@ -1,7 +1,7 @@
 import { dirname, resolve } from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
-import type { Plugin, Rollup } from "vite";
+import { normalizePath, type Plugin, type Rollup } from "vite";
 import { precompressPlugin } from "./scripts/precompress-plugin";
 import { pwaPlugin } from "./scripts/pwa-plugin";
 
@@ -77,8 +77,6 @@ const VENDOR_CHUNK_RULES: ReadonlyArray<readonly [RegExp, string]> = [
 	// via lowlight in the markdown chunk) and CodeBlock (dynamic import of
 	// highlight.js/lib/common). Kept lowlight-free so chunk imports stay one-way.
 	[/[\\/]node_modules[\\/]highlight\.js[\\/]/, "highlight"],
-	// dnd-kit drag and drop.
-	[/[\\/]node_modules[\\/]@dnd-kit[\\/]/, "dnd-kit"],
 ];
 
 /**
@@ -90,9 +88,95 @@ const VENDOR_CHUNK_RULES: ReadonlyArray<readonly [RegExp, string]> = [
  */
 const RUNTIME_HELPER = /^\0(vite\/preload-helper|commonjsHelpers)/;
 
-/** The chunk a module's own rule names: Rollup's helpers, a vendor package. */
-function namedChunk(id: string): string | undefined {
+/** The session list's module (components/layout/sidebar-chunk.ts loads it as a chunk of its own). */
+const SESSION_LIST_MODULE = resolve(__dirname, "src/renderer/components/layout/sidebar/Sidebar.tsx");
+/** What every first screen evaluates: the app, and the paired web page's boot in front of it. */
+const FIRST_SCREEN_MODULES = [
+	resolve(__dirname, "src/renderer/main.tsx"),
+	resolve(__dirname, "src/renderer/web/web-boot.ts"),
+];
+
+type ModuleNode = Rollup.ProgramNode["body"][number];
+type ModuleName = { type: "Identifier"; name: string } | { type: "Literal"; value: unknown };
+
+const nameOf = (node: ModuleName): string => (node.type === "Identifier" ? node.name : String(node.value));
+
+/** The module ids of `info`'s import and re-export sources, by source: Rollup lists `importedIds` in that order. */
+function idsBySource(info: Rollup.ModuleInfo): Map<string, string> | null {
+	const sources: string[] = [];
+	for (const node of info.ast?.body ?? []) {
+		const source = "source" in node && node.source ? String(node.source.value) : null;
+		if (source !== null && !sources.includes(source)) sources.push(source);
+	}
+	if (!info.ast || sources.length !== info.importedIds.length) return null;
+	return new Map(sources.map((source, index) => [source, info.importedIds[index] as string]));
+}
+
+/** A module with no code of its own: imports and re-exports only (lucide-react's, components/common/index.ts). */
+const reexportsOnly = (body: readonly ModuleNode[]): boolean =>
+	body.every(
+		node =>
+			node.type === "ImportDeclaration" ||
+			node.type === "ExportAllDeclaration" ||
+			(node.type === "ExportNamedDeclaration" && !node.declaration),
+	);
+
+/**
+ * The modules that define the `names` module `id` exports: through re-export-only modules to the ones with code, or
+ * `id` itself (also when a name comes from `export *`, which this does not follow).
+ */
+function definersOf(id: string, names: readonly string[], getModuleInfo: Rollup.GetModuleInfo): string[] {
+	const info = getModuleInfo(id);
+	const ids = info && idsBySource(info);
+	if (!info?.ast || !ids || !reexportsOnly(info.ast.body)) return [id];
+	const missing = new Set(names);
+	const definers: string[] = [];
+	for (const node of info.ast.body) {
+		if (node.type !== "ExportNamedDeclaration" || !node.source) continue;
+		const target = ids.get(String(node.source.value));
+		const inner = node.specifiers.flatMap(specifier =>
+			missing.delete(nameOf(specifier.exported)) ? [nameOf(specifier.local)] : [],
+		);
+		if (target && inner.length > 0) definers.push(...definersOf(target, inner, getModuleInfo));
+	}
+	return missing.size > 0 ? [id] : definers;
+}
+
+/**
+ * `id`'s static imports as Rollup includes them. `importedIds` names every module a re-export-only module re-exports
+ * (lucide-react's barrel names all its icons), so a named import from one counts the modules that define the names.
+ */
+function includedImports(id: string, getModuleInfo: Rollup.GetModuleInfo): readonly string[] {
+	const info = getModuleInfo(id);
+	const ids = info && idsBySource(info);
+	if (!info?.ast || !ids) return info?.importedIds ?? [];
+	const imports = new Set<string>();
+	for (const node of info.ast.body) {
+		if (!("source" in node) || !node.source) continue;
+		const target = ids.get(String(node.source.value));
+		if (!target) continue;
+		const named =
+			node.type === "ImportDeclaration" &&
+			node.specifiers.length > 0 &&
+			node.specifiers.every(specifier => specifier.type === "ImportSpecifier");
+		const definers = named
+			? definersOf(
+					target,
+					node.specifiers.map(specifier =>
+						specifier.type === "ImportSpecifier" ? nameOf(specifier.imported) : "",
+					),
+					getModuleInfo,
+				)
+			: [target];
+		for (const definer of definers) imports.add(definer);
+	}
+	return [...imports];
+}
+
+/** The chunk a module's own rule names: Rollup's helpers, the session list, a vendor package. */
+function namedChunk(id: string, sessionList: Set<string>): string | undefined {
 	if (RUNTIME_HELPER.test(id)) return "react";
+	if (sessionList.has(id)) return "session-list";
 	// A vendor stylesheet stays with the module that imports it. Assigned to its
 	// package's chunk, TerminalPanel's static `@xterm/xterm/css/xterm.css` import
 	// made the entry import the whole lazy xterm chunk (416 KB) on every launch.
@@ -105,19 +189,34 @@ function namedChunk(id: string): string | undefined {
 
 /**
  * Every module's manual chunk, computed once per build output (Rollup hands each call of one output the same
- * `getModuleInfo`). The output sets `onlyExplicitManualChunks`, so the pull Rollup does by default (a named module's
- * static imports no rule names join its chunk) is done here.
+ * `getModuleInfo`). The session list's modules are its static closure less the first screen's: one chunk, so a page
+ * that waits for the list fetches one file, not the 16 Rollup split it into by who else imports them (3 Nov 2026).
+ * The output sets `onlyExplicitManualChunks`, so the pull Rollup does by default (a named module's static imports no
+ * rule names join its chunk) is done here for the other chunks; the session list's closure needs none.
  */
 const chunkByModuleByBuild = new WeakMap<Rollup.GetModuleInfo, Map<string, string>>();
 function chunkByModule({ getModuleIds, getModuleInfo }: Rollup.ManualChunkMeta): Map<string, string> {
 	const known = chunkByModuleByBuild.get(getModuleInfo);
 	if (known) return known;
+	const closure = (roots: string[]): Set<string> => {
+		const seen = new Set<string>();
+		const pending = [...roots];
+		for (let id = pending.pop(); id !== undefined; id = pending.pop()) {
+			if (seen.has(id)) continue;
+			seen.add(id);
+			pending.push(...includedImports(id, getModuleInfo));
+		}
+		return seen;
+	};
+	const firstScreen = closure(FIRST_SCREEN_MODULES.map(normalizePath));
+	const sessionList = new Set([...closure([normalizePath(SESSION_LIST_MODULE)])].filter(id => !firstScreen.has(id)));
 	const chunks = new Map<string, string>();
 	for (const id of getModuleIds()) {
-		const name = namedChunk(id);
+		const name = namedChunk(id, sessionList);
 		if (name) chunks.set(id, name);
 	}
 	for (const [id, name] of [...chunks]) {
+		if (name === "session-list") continue;
 		const pending = [...(getModuleInfo(id)?.importedIds ?? [])];
 		for (let dependency = pending.pop(); dependency !== undefined; dependency = pending.pop()) {
 			if (chunks.has(dependency)) continue;
@@ -212,13 +311,14 @@ export default defineConfig({
 	},
 	renderer: {
 		esbuild: RENDERER_NAMES,
-		// Builds `sw.js`, the web page's service worker, with the shell precache list (scripts/pwa-plugin.ts).
+		// Builds `sw.js`, the web page's service worker, with the shell precache list (scripts/pwa-plugin.ts), and names
+		// the session list's chunk in web.html for a docked list's first frame (src/renderer/web/session-list-preload.ts).
 		// woff2OnlyFonts after tailwindcss: both are `pre`, and it must see global.css with its imports inlined.
 		// precompressPlugin writes the brotli the web server sends a phone (scripts/precompress-plugin.ts).
 		plugins: [
 			tailwindcss(),
 			woff2OnlyFonts(),
-			pwaPlugin({ entry: resolve(__dirname, "src/renderer/web/sw.ts") }),
+			pwaPlugin({ entry: resolve(__dirname, "src/renderer/web/sw.ts"), sessionList: SESSION_LIST_MODULE }),
 			precompressPlugin(),
 		],
 		resolve: {
@@ -235,10 +335,17 @@ export default defineConfig({
 					index: resolve(__dirname, "src/renderer/index.html"),
 					web: resolve(__dirname, "src/renderer/web.html"),
 				},
+				// A circular chunk means a module between two of a manual chunk's was left out of it (the session list's
+				// closure above), and a chunk can then run before what it imports is defined.
+				onwarn(warning, warn) {
+					if (warning.code === "CIRCULAR_CHUNK") throw new Error(warning.message);
+					warn(warning);
+				},
 				output: {
 					manualChunks,
-					// Only the modules manualChunks names go into its chunks: which unnamed imports join a named
-					// module's chunk (Rollup's default pull) is chunkByModule's to decide.
+					// Only the modules manualChunks names go into its chunks; Rollup's default also pulls each named
+					// module's unassigned static imports in, which would pull the app modules the session list shares
+					// with the first screen into its chunk (and that chunk into the first screen).
 					onlyExplicitManualChunks: true,
 					// Rollup's default (1) merges code-free re-export chunks into an
 					// importer when that looks side-effect-free — which folded the

@@ -3,7 +3,7 @@ import { useBackLayer } from "../../hooks/use-back-layer";
 import { useOverlayPresence } from "../../hooks/use-overlay-presence";
 import { type TabsStore, useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
-import { Sidebar } from "./sidebar/Sidebar";
+import { useSidebar } from "./sidebar-chunk";
 
 /** A finger this far left of where it landed, mostly horizontal, closes the drawer. */
 const CLOSE_SWIPE_PX = 72;
@@ -35,10 +35,11 @@ export function leftActiveSession(
  * The session list as a drawer: phone and portrait tablet (design §6.3). The docked `sidebarVisible` flag is
  * the drawer's open state, so ☰, the sidebar shortcut and the command palette all drive it as before. It closes
  * on whatever leaves the list behind (another session, a page), on the scrim, on Escape, on a swipe to the left
- * and on the system back gesture.
+ * and on the system back gesture. It opens once the list's chunk is here (sidebar-chunk.ts), never empty.
  */
 export function SidebarDrawer() {
-	const open = useUiStore(state => state.sidebarVisible);
+	const Sidebar = useSidebar();
+	const open = useUiStore(state => state.sidebarVisible) && Sidebar !== null;
 	const { mounted, closing } = useOverlayPresence(open, "med");
 	const panelRef = useRef<HTMLDivElement>(null);
 	useBackLayer(open, closeDrawer);
@@ -113,7 +114,7 @@ export function SidebarDrawer() {
 				data-drawer-panel=""
 				ref={panelRef}
 			>
-				<Sidebar />
+				{Sidebar && <Sidebar />}
 			</div>
 		</div>
 	);

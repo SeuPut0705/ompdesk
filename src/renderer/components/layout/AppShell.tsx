@@ -20,6 +20,7 @@ import { useOverlayPresence } from "../../hooks/use-overlay-presence";
 import { useCompactShell, useDrawerMode, useShellMode } from "../../hooks/use-shell-mode";
 import { lazyChunk } from "../../lib/chunk-load";
 import { activeComposerInput } from "../../lib/composer-focus";
+import { loadDeferredChunk } from "../../lib/deferred-chunk";
 import { useT } from "../../lib/i18n";
 import { whenIdle } from "../../lib/idle";
 import { actionShortcut } from "../../lib/keymap";
@@ -30,8 +31,11 @@ import { type PageDestination, setSidebarDrawerMode, useUiStore } from "../../st
 import { Button, IconButton, Skeleton, Tooltip } from "../common";
 import { PanelContainer, preloadPanelViews } from "./PanelContainer";
 import { EdgeSwipeZone, SidebarDrawer } from "./SidebarDrawer";
+// The session list's look stays on the first screen, where the list's own chunk (sidebar-chunk.ts) is not: 7.6 KB,
+// one request less for a page that waits for the list, and the stylesheet keeps its place in the cascade.
+import "../../styles/sidebar.css";
 import { SplitWorkspace } from "./SplitWorkspace";
-import { Sidebar } from "./sidebar/Sidebar";
+import { loadSidebar, useSidebar } from "./sidebar-chunk";
 import { TabHousekeeping } from "./TabHousekeeping";
 import { TitleBar, WebLinkStatus } from "./TitleBar";
 import { UpdateBanner } from "./UpdateBanner";
@@ -294,6 +298,23 @@ export function AppShell() {
 	const drawer = useDrawerMode();
 	const compact = useCompactShell();
 	const drawerReady = useDrawerSidebarSync(drawer);
+	const Sidebar = useSidebar();
+	// A list loaded before the first render (sidebar-chunk.ts) is drawn from the first frame on; otherwise a drawer's
+	// loads once the page idles, or at the first touch or key (the ☰ tap among them), and a load that failed is tried
+	// again at the next one. What asked to open the drawer meanwhile is taken back on a failure, so the next ☰ opens it
+	// rather than closes it.
+	useEffect(() => {
+		if (!drawer) {
+			loadSidebar().catch(() => {});
+			return;
+		}
+		return loadDeferredChunk({
+			load: loadSidebar,
+			onLoaded: () => {},
+			onFailed: () => useUiStore.setState({ sidebarVisible: false }),
+			start: "idle",
+		});
+	}, [drawer]);
 	const onPage = destination !== "session";
 	const panelOpen = !onPage && panelVisible;
 	const panelDocked = panelOpen && !compact;
@@ -373,7 +394,7 @@ export function AppShell() {
 							<EdgeSwipeZone />
 						</>
 					)
-				: sidebarVisible && <Sidebar />}
+				: sidebarVisible && Sidebar && <Sidebar />}
 			{panel.mounted && panelSide === "left" && <PanelContainer closing={panel.closing} />}
 
 			<main aria-label={t("shell.main")} className="omp-workspace-main relative flex min-w-0 flex-1 flex-col">

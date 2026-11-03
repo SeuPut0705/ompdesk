@@ -20,25 +20,22 @@ import { useEffect, useSyncExternalStore } from "react";
 import { startBackLayers } from "../lib/back-layer";
 import { startKeyboardInset } from "../lib/keyboard-inset";
 import { startLongPressMenu } from "../lib/long-press-menu";
+import {
+	isDrawerMode,
+	PHONE_QUERY,
+	SHELL_MODES,
+	type ShellMode,
+	shellModeFor,
+	TABLET_DOCK_QUERY,
+	TABLET_PORTRAIT_QUERY,
+	TOUCH_QUERY,
+} from "./shell-queries";
 
-export type ShellMode = "phone" | "tablet-portrait" | "tablet-landscape";
 export type ShellInput = "touch" | "mouse";
 
-export const SHELL_MODES: readonly ShellMode[] = ["phone", "tablet-portrait", "tablet-landscape"];
-
-export const PHONE_QUERY = "(max-width: 599px), (max-height: 499px) and (orientation: landscape)";
-export const TABLET_PORTRAIT_QUERY = "(max-width: 999px)";
-export const TOUCH_QUERY = "(pointer: coarse)";
-/** A portrait tablet at least this wide docks the session list instead of a drawer. */
-export const TABLET_DOCK_QUERY = "(min-width: 800px)";
 const QUERIES = [PHONE_QUERY, TABLET_PORTRAIT_QUERY, TOUCH_QUERY, TABLET_DOCK_QUERY] as const;
 
 const DEV_KEY = "omp.shell";
-
-/** The mode the two width queries give; pure so the breakpoints are testable. */
-export function shellModeFor(phone: boolean, narrow: boolean): ShellMode {
-	return phone ? "phone" : narrow ? "tablet-portrait" : "tablet-landscape";
-}
 
 interface Snapshot {
 	mode: ShellMode | null;
@@ -173,22 +170,18 @@ export function useCompactShell(): boolean {
 	);
 }
 
-/** Phone and tablet portrait keep the session list in a drawer; a landscape tablet docks it. */
-export function isDrawerMode(mode: ShellMode | null): boolean {
-	return mode === "phone" || mode === "tablet-portrait";
-}
-
 /**
  * Whether the session list lives in a drawer: the phone and a narrow portrait tablet. A portrait tablet from
  * 800 px (iPad Air and Pro) docks it as a second pane (two panes, list and transcript), so the page never
  * waits behind a menu button while there is room.
  */
+export function drawerModeNow(): boolean {
+	return isDrawerMode(currentShellMode()) && !snapshot().listDocked;
+}
+
+/** `drawerModeNow`, live. */
 export function useDrawerMode(): boolean {
-	return useSyncExternalStore(
-		subscribe,
-		() => isDrawerMode(currentShellMode()) && !snapshot().listDocked,
-		() => false,
-	);
+	return useSyncExternalStore(subscribe, drawerModeNow, () => false);
 }
 
 export function applyShellAttributes(root: HTMLElement = document.documentElement): void {

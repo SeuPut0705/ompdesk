@@ -8,6 +8,7 @@
  * not pull the app in.
  */
 import { IPC_EVENTS } from "../../shared/ipc-types";
+import { sessionListInDrawer } from "../hooks/shell-queries";
 import { getCurrentLanguage, loadLocale, translate } from "../lib/i18n";
 import { blockPageZoom } from "../lib/no-page-zoom";
 import { snapshots } from "../lib/snapshot-cache";
@@ -23,6 +24,7 @@ import { flushReloadReasons, noteReload, type ReloadReason } from "./reload-reas
 import { PageResync } from "./resync";
 import { setWebRuntime } from "./runtime";
 import { fetchTicket } from "./session";
+import { preloadSessionList } from "./session-list-preload";
 import { createWebOmp } from "./shim";
 import {
 	appGoneMoment,
@@ -278,7 +280,16 @@ async function bootApp(): Promise<void> {
 	window.addEventListener("hashchange", () => route(location.hash));
 
 	transport.start();
-	await import("../main");
+	const app = import("../main");
+	// The session list's chunk joins the first render where the list is docked (a landscape or wide portrait tablet)
+	// and on a page no worker serves yet, so its file loads beside the app's rather than after it
+	// (components/layout/sidebar-chunk.ts). Asked for after the app's files, which the import above has just asked
+	// for: first, it took one of the six connections a phone's HTTP/1.1 link has from them and the first frame came
+	// 77 ms later. A phone's drawer otherwise loads it from the worker once the page idles.
+	if (!sessionListInDrawer(query => matchMedia(query).matches) || !navigator.serviceWorker?.controller) {
+		preloadSessionList(document);
+	}
+	await app;
 	appLoaded.resolve();
 	moment = (await import("./safe-moment")).pageSafeMoment();
 	gate.launched(Date.now());

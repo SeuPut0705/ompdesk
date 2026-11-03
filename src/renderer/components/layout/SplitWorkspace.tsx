@@ -3,8 +3,9 @@ import { type CSSProperties, type DragEvent, type ReactNode, useEffect, useMemo,
 import { createPortal } from "react-dom";
 import { worktreeLabel } from "../../../shared/project-origin";
 import { type SplitNode, splitTabIds } from "../../../shared/split-layout";
+import { isDrawerMode } from "../../hooks/shell-queries";
 import { useSessionList } from "../../hooks/use-session-list";
-import { isDrawerMode, maxSplitPanes, useShellMode } from "../../hooks/use-shell-mode";
+import { maxSplitPanes, useShellMode } from "../../hooks/use-shell-mode";
 import { useTabListRows } from "../../hooks/use-tab-list-rows";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";

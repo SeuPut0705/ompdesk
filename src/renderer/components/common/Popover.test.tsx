@@ -8,7 +8,8 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it } from "vitest";
-import { resetShellModeForTests, TABLET_PORTRAIT_QUERY, TOUCH_QUERY } from "../../hooks/use-shell-mode";
+import { TABLET_PORTRAIT_QUERY, TOUCH_QUERY } from "../../hooks/shell-queries";
+import { resetShellModeForTests } from "../../hooks/use-shell-mode";
 import { startBackLayers } from "../../lib/back-layer";
 import { Popover } from "./Popover";
 

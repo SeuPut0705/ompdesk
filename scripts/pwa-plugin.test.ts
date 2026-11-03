@@ -4,7 +4,7 @@ import type { Rollup } from "vite";
 import { describe, expect, it } from "vitest";
 import { selectPrecache } from "../src/renderer/web/sw-core";
 import { PWA_ICON_FILES } from "./brand-svgs";
-import { buildIdOf, precacheCandidates, pwaPlugin } from "./pwa-plugin";
+import { buildIdOf, precacheCandidates, pwaPlugin, withSessionListMeta } from "./pwa-plugin";
 
 const PUBLIC_DIR = path.join(import.meta.dirname, "..", "src", "renderer", "public");
 
@@ -15,6 +15,7 @@ function chunk(fileName: string, code: string, extra: Partial<Rollup.OutputChunk
 		code,
 		imports: [],
 		dynamicImports: [],
+		moduleIds: [],
 		isEntry: false,
 		viteMetadata: { importedCss: new Set(), importedAssets: new Set() },
 		...extra,
@@ -87,6 +88,53 @@ describe("precache list", () => {
 		expect(buildIdOf(list, HTML)).toBe(buildIdOf(list, HTML));
 		expect(buildIdOf(list, `${HTML}<!-- -->`)).not.toBe(buildIdOf(list, HTML));
 		expect(buildIdOf(list.slice(1), HTML)).not.toBe(buildIdOf(list, HTML));
+	});
+
+	it("names the session list's files the first screen lacks in the page, and precaches them after the first screen", () => {
+		const files = {
+			...bundle(),
+			"assets/main-ddd.js": chunk("assets/main-ddd.js", "m".repeat(1000), {
+				imports: ["assets/markdown-eee.js"],
+				dynamicImports: ["assets/Sidebar-hhh.js", "assets/mermaid-fff.js"],
+				viteMetadata: { importedCss: new Set(["assets/main-ggg.css"]), importedAssets: new Set() },
+			}),
+			"assets/Sidebar-hhh.js": chunk("assets/Sidebar-hhh.js", "s".repeat(200), {
+				moduleIds: [
+					"/repo/src/renderer/components/layout/sidebar/SidebarRow.tsx",
+					"/repo/src/renderer/components/layout/sidebar/Sidebar.tsx",
+				],
+				imports: ["assets/markdown-eee.js", "assets/dnd-kit-iii.js"],
+				viteMetadata: { importedCss: new Set(["assets/Sidebar-jjj.css"]), importedAssets: new Set() },
+			}),
+			"assets/dnd-kit-iii.js": chunk("assets/dnd-kit-iii.js", "d".repeat(40)),
+			"assets/Sidebar-jjj.css": {
+				type: "asset",
+				fileName: "assets/Sidebar-jjj.css",
+				source: "s",
+			} as Rollup.OutputAsset,
+		};
+		const page = withSessionListMeta(
+			files,
+			`<head>${HTML}</head>`,
+			"\\repo\\src\\renderer\\components\\layout\\sidebar\\Sidebar.tsx",
+		);
+		expect(page).toContain(
+			'<meta name="omp-session-list" content="./assets/Sidebar-hhh.js ./assets/Sidebar-jjj.css ./assets/dnd-kit-iii.js" />',
+		);
+		expect(precacheCandidates(files, page).map(entry => entry.url)).toEqual([
+			"/assets/web-aaa.js",
+			"/assets/react-bbb.js",
+			"/assets/index-ccc.css",
+			"/assets/main-ddd.js",
+			"/assets/main-ggg.css",
+			"/assets/markdown-eee.js",
+			"/assets/Sidebar-hhh.js",
+			"/assets/Sidebar-jjj.css",
+			"/assets/dnd-kit-iii.js",
+		]);
+		expect(() =>
+			withSessionListMeta(bundle(), HTML, "/repo/src/renderer/components/layout/sidebar/Sidebar.tsx"),
+		).toThrow();
 	});
 });
 

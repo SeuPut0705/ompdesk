@@ -8,7 +8,7 @@
  * is still closing a frame after it switched, so the take waits a few frames for a dialog to go (or for the new pane's
  * field to exist) and gives up after that. A touch device keeps the keyboard down: focusing a field there would raise it.
  */
-import { TOUCH_QUERY } from "../hooks/use-shell-mode";
+import { TOUCH_QUERY } from "../hooks/shell-queries";
 import { useSessionStore } from "../stores/session";
 import { useTabsStore } from "../stores/tabs";
 import { useUiStore } from "../stores/ui";

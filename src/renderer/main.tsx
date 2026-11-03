@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { RootErrorBoundary } from "./components/common/RootErrorBoundary";
+import { loadSidebar, sessionListBeforeFirstRender } from "./components/layout/sidebar-chunk";
 import { installTranscriptSeeding } from "./hooks/session-hydration";
 import { lazyChunk, watchChunkFailures } from "./lib/chunk-load";
 import { getCurrentLanguage, I18nProvider, loadLocale } from "./lib/i18n";
@@ -55,7 +56,9 @@ const root = createRoot(container, {
 });
 
 // The UI's strings are a chunk per language (lib/i18n.tsx): the first render waits for the current one, so no
-// text ever paints as its key; a chunk that fails to load still renders (English keys) rather than nothing.
+// text ever paints as its key; a chunk that fails to load still renders (English keys) rather than nothing. The
+// session list's chunk joins it where the list is in the first frame or the next touch must not wait on the network
+// (components/layout/sidebar-chunk.ts).
 const render = () =>
 	root.render(
 		<RootErrorBoundary>
@@ -70,4 +73,7 @@ const render = () =>
 			</I18nProvider>
 		</RootErrorBoundary>,
 	);
-void loadLocale(getCurrentLanguage()).then(render, render);
+void Promise.all([loadLocale(getCurrentLanguage()), sessionListBeforeFirstRender() ? loadSidebar() : null]).then(
+	render,
+	render,
+);

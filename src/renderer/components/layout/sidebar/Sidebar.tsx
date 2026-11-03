@@ -170,7 +170,6 @@ import { sessionMenuItems } from "./session-menu";
 import { canMoveWithin, type SessionList, useSessionReorder } from "./session-reorder";
 import { CHILD_TOKEN, isShownOpened, openedChildStatus } from "./sidebar-family";
 import { useSidebarListMotion } from "./use-sidebar-list-motion";
-import "../../../styles/sidebar.css";
 
 /**
  * A sidebar row: an indexed session, or one synthesized from an open tab the

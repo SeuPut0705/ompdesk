@@ -5,17 +5,19 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { keyboardInset } from "../lib/keyboard-inset";
 import {
-	applyShellAttributes,
-	currentShellInput,
-	currentShellMode,
 	isDrawerMode,
-	maxSplitPanes,
 	PHONE_QUERY,
-	resetShellModeForTests,
 	shellModeFor,
 	TABLET_DOCK_QUERY,
 	TABLET_PORTRAIT_QUERY,
 	TOUCH_QUERY,
+} from "./shell-queries";
+import {
+	applyShellAttributes,
+	currentShellInput,
+	currentShellMode,
+	maxSplitPanes,
+	resetShellModeForTests,
 	useDrawerMode,
 	useShellMode,
 } from "./use-shell-mode";
