@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.103.0] - 2026-11-04
+
+모델 구성 도우미가 한 화면에 들어와요.
+
+### 바뀐 것
+- 모델 구성 도우미의 역할 목록이 창이 넓으면 2~3열로 나란히 놓여요. 그룹 이름만 한 줄을 쓰고, 행 높이와 여백도 줄여서 1280×800 창에서 스크롤 없이 다 보여요. 휴대폰은 그대로 한 열이에요.
+- "모델 선택 + 자동"의 모델 목록은 프로바이더 이름 옆에 그 모델들이 한 줄로 이어져요. 휴대폰에서는 이름 아래로 접혀요.
+
+<!-- en -->
+
+The model setup assistant fits on one screen.
+
+### Changed
+- Its roles flow in two or three columns on a wide dialog; a group's name takes one line, rows and gaps are tighter, so a 1280×800 window shows everything without scrolling. The phone keeps one column.
+- In "Pick models + auto", each provider's models sit on one line beside its name; the phone wraps them below it.
+
 ## [0.102.0] - 2026-11-03
 
 답변에 `170~230초` 같은 범위가 두 번 나와도 그 사이 글이 취소선으로 그어지지 않아요.
