@@ -365,7 +365,7 @@ export function ModelSetupDialog() {
 
 	return (
 		<Modal footer={footer} onClose={close} open size="lg" title={t("modelSetup.title")}>
-			<div className="@container space-y-4" data-model-setup-mode={mode}>
+			<div className="@container space-y-2.5" data-model-setup-mode={mode}>
 				{!sidecarReady && <InlineNotice title={t("modelSetup.notConnected")} tone="info" />}
 				{loadError !== null && <InlineNotice detail={loadError} title={t("modelSetup.loadFailed")} tone="danger" />}
 
@@ -398,7 +398,7 @@ export function ModelSetupDialog() {
 							(options.length === 0 ? (
 								<InlineNotice title={t("modelSetup.pick.none")} tone="warning" />
 							) : (
-								<div className="space-y-2">
+								<div className="space-y-1.5">
 									<div className="flex items-center gap-3">
 										<SearchField
 											className="min-w-0 flex-1"
@@ -414,7 +414,7 @@ export function ModelSetupDialog() {
 											{t("modelSetup.pick.count", { count: pickedModels.length })}
 										</span>
 									</div>
-									<div className="max-h-64 space-y-1.5 overflow-y-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-3 py-2">
+									<div className="max-h-64 space-y-0.5 overflow-y-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-2 py-1">
 										{visibleGroups.map(group => (
 											<div
 												aria-labelledby={`model-setup-provider-${group.provider}`}
@@ -423,7 +423,7 @@ export function ModelSetupDialog() {
 												role="group"
 											>
 												<span
-													className="shrink-0 truncate pt-1.5 text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase @md:w-24"
+													className="shrink-0 truncate pt-1 text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase @md:w-24"
 													id={`model-setup-provider-${group.provider}`}
 													title={providerName(group.provider)}
 												>
@@ -511,13 +511,13 @@ export function ModelSetupDialog() {
 
 						{/* One grid for every role: a group's heading takes a row of its own, its roles then fill two or three
 						    columns as the dialog widens; the phone keeps one column. */}
-						<div className="grid grid-cols-1 gap-x-6 gap-y-0.5 @2xl:grid-cols-2 @5xl:grid-cols-3 [html[data-input=touch]_&]:gap-y-1">
+						<div className="grid grid-cols-1 gap-x-4 @2xl:grid-cols-2 @5xl:grid-cols-3 [html[data-input=touch]_&]:gap-y-0.5">
 							{rowGroups.map((group, index) => (
 								<section className="contents" data-model-setup-group={group.id} key={group.id}>
 									<h3
 										className={cx(
-											"col-span-full pb-0.5 text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase",
-											index > 0 && "pt-2",
+											"col-span-full text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase",
+											index > 0 && "pt-1.5",
 										)}
 									>
 										{t(`modelRoles.group.${group.id}`)}
@@ -640,7 +640,7 @@ function RoleRow({
 	return (
 		<li
 			className={cx(
-				"flex min-h-(--sc-control-md) items-center gap-1.5 rounded-(--sc-radius-sm) px-1.5 text-sc-sm hover:bg-(--sc-hover) [html[data-input=touch]_&]:min-h-10",
+				"flex min-h-7 items-center gap-1.5 rounded-(--sc-radius-sm) px-1 text-sc-sm hover:bg-(--sc-hover) [html[data-input=touch]_&]:min-h-9",
 				stock && "opacity-80",
 			)}
 			data-model-setup-role={row.role}
@@ -709,7 +709,7 @@ function ModelCheckbox({
 	return (
 		<label
 			className={cx(
-				"flex items-center gap-2.5 rounded-(--sc-radius-sm) px-1.5 py-1 hover:bg-(--sc-hover)",
+				"flex min-h-7 items-center gap-2 rounded-(--sc-radius-sm) px-1 hover:bg-(--sc-hover) [html[data-input=touch]_&]:min-h-9",
 				disabled && "opacity-60",
 			)}
 			title={option.selector}
