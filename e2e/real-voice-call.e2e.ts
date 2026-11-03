@@ -116,6 +116,7 @@ test("real omp voice call with the bot: streaming speech both ways, barge-in, a 
 	const artifacts = process.env.OMP_GUI_REAL_WORK_ARTIFACTS ?? os.tmpdir();
 	await fs.mkdir(artifacts, { recursive: true });
 	const notes: string[] = [];
+	let end: Record<string, unknown> | null = null;
 	try {
 		app = await launchApp({
 			project,
@@ -273,15 +274,29 @@ test("real omp voice call with the bot: streaming speech both ways, barge-in, a 
 		notes.push(`Korean reply: ${String(koreanReply?.text ?? "–").replace(/\s+/g, " ")}`);
 		expect(String(koreanReply?.text ?? "")).not.toMatch(/이해하지 못했/);
 
-		// 6. End while the reply is being spoken: the bar goes, the mic is released, nothing plays afterwards.
+		// 6. End while the reply is being spoken: the bar goes, the mic is released, nothing plays afterwards. End counts
+		// from the call's own handling of it (`micReleased`, in the click's task), not from a clock read before the click:
+		// Playwright's actionability checks run between the two, and a chunk the reply scheduled meanwhile was scheduled
+		// before End (one such 525 ms chunk failed a run that compared against the earlier read).
 		await say(page, "korean");
 		await expect(phase).toHaveAttribute("data-bot-call-phase", "speaking", { timeout: 180_000 });
 		await capture("desktop-call-speaking");
-		const endAt = await now();
+		const clickAt = await now();
 		await bar.locator("[data-bot-call-end]").click();
 		await expect(bar).toHaveCount(0);
 		await page.waitForTimeout(3_000);
-		expect(since(await log(), endAt).filter(entry => entry.kind === "play")).toEqual([]);
+		const afterEnd = await log();
+		const endedAt = since(afterEnd, clickAt).find(entry => entry.kind === "micReleased")?.t;
+		expect(endedAt, "the call handled End").toBeDefined();
+		const handled = endedAt ?? Number.POSITIVE_INFINITY;
+		const plays = afterEnd.filter(entry => entry.kind === "play");
+		expect(plays.filter(entry => entry.t > handled)).toEqual([]);
+		// A sound scheduled before End that would still be playing at End was stopped by it (50 ms for the audio clock).
+		const cut = new Set(
+			afterEnd.filter(entry => entry.kind === "stopSound" && entry.t <= handled).map(entry => entry.id),
+		);
+		const sounding = plays.filter(entry => Number(entry.at) + Number(entry.ms) > handled + 50);
+		expect(sounding.filter(entry => !cut.has(entry.id))).toEqual([]);
 		expect(
 			await page.evaluate(() =>
 				(Reflect.get(window, "__voiceMic") as { destination: MediaStreamAudioDestinationNode }).destination.stream
@@ -289,11 +304,27 @@ test("real omp voice call with the bot: streaming speech both ways, barge-in, a 
 					.map(track => track.readyState),
 			),
 		).toEqual(["ended"]);
-		const endBar = bars(since(await log(), endAt)).find(entry => entry.phase === "ended" || entry.phase === "none");
-		notes.push(`End during a reply: the call ended ${round(endBar && endBar.t - endAt) ?? "–"} ms after the click.`);
+		const endBar = bars(since(afterEnd, clickAt)).find(entry => entry.phase === "ended" || entry.phase === "none");
+		const beforeEnd = plays.filter(entry => entry.t >= clickAt && entry.t <= handled);
+		// What the synthesis still answered after End: synthesized, never scheduled.
+		const unplayed = afterEnd
+			.filter(entry => entry.kind === "rpc" && entry.name === "ttsStreamNext" && entry.phase === "answered")
+			.filter(entry => entry.t > handled)
+			.reduce((sum, entry) => sum + Number(Reflect.get(Object(entry.data), "chunks") ?? 0), 0);
+		end = {
+			handledAfterClockRead: round(handled - clickAt),
+			barGoneAfterHandled: round(endBar && endBar.t - handled),
+			soundsCutAtEnd: sounding.length,
+			scheduledBetweenClockReadAndEnd: beforeEnd.map(entry => round(Number(entry.ms))),
+			chunksAnsweredAfterEnd: unplayed,
+			scheduledAfterEnd: plays.filter(entry => entry.t > handled).length,
+		};
+		notes.push(
+			`End during a reply: the call handled End ${end.handledAfterClockRead} ms after the test read the clock before clicking, and the bar was gone ${end.barGoneAfterHandled ?? "–"} ms after that. ${sounding.length} scheduled sounds were cut at End; ${beforeEnd.length} were scheduled between the clock read and End (${beforeEnd.map(entry => `${round(Number(entry.ms))} ms`).join(", ") || "none"}); the synthesis answered ${unplayed} chunks after End, none scheduled.`,
+		);
 	} finally {
 		if (app) await exitApp(app);
-		await fs.writeFile(path.join(artifacts, "real-voice-call.json"), JSON.stringify({ rows, notes }, null, 2));
+		await fs.writeFile(path.join(artifacts, "real-voice-call.json"), JSON.stringify({ rows, notes, end }, null, 2));
 		await fs.writeFile(path.join(artifacts, "real-voice-call.md"), table(rows, notes));
 		console.log(table(rows, notes));
 		await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });

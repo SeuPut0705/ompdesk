@@ -75,7 +75,8 @@ export interface LogEntry {
  * - `bar`: every change of the call bar's phase, words and error;
  * - `rpc`: each streaming voice command and the turn's prompt/follow-up, sent and answered;
  * - `agent_start`/`agent_end`/`message_start` frames of the tab;
- * - `play`/`stopSound`: each sound the call schedules (not the mixer's).
+ * - `play`/`stopSound`: each sound the call schedules (not the mixer's), by `id`;
+ * - `micReleased`: the call's End handled (its teardown stops the mic track, in the same task as it stops the sounds).
  */
 export async function instrument(page: Page, clips: readonly Clip[]): Promise<void> {
 	await page.evaluate(() => {
@@ -130,6 +131,7 @@ export async function instrument(page: Page, clips: readonly Clip[]): Promise<vo
 			"sttStreamStop",
 			"sttStreamCancel",
 			"ttsStreamStart",
+			"ttsStreamNext",
 			"ttsStreamCancel",
 			"transcribeAudio",
 			"synthesizeSpeech",
@@ -140,12 +142,16 @@ export async function instrument(page: Page, clips: readonly Clip[]): Promise<vo
 				const id = Math.random().toString(36).slice(2, 8);
 				push("rpc", { name, id, phase: "sent" });
 				const reply = (await original.apply(rpc, args)) as { success?: boolean; data?: unknown; error?: string };
+				const chunks = name === "ttsStreamNext" ? Reflect.get(Object(reply?.data), "chunks") : undefined;
 				push("rpc", {
 					name,
 					id,
 					phase: "answered",
 					success: reply?.success,
-					data: reply?.data,
+					// A chunk is base64 PCM: only how many came.
+					data: Array.isArray(chunks)
+						? { chunks: chunks.length, done: Reflect.get(Object(reply?.data), "done") }
+						: reply?.data,
 					error: reply?.error,
 				});
 				return reply;
@@ -156,18 +162,31 @@ export async function instrument(page: Page, clips: readonly Clip[]): Promise<vo
 			destination: null,
 		};
 		const decoded = new Map<string, AudioBuffer>();
+		const sourceIds = new WeakMap<AudioBufferSourceNode, number>();
+		let nextSourceId = 0;
 		const start = AudioBufferSourceNode.prototype.start;
 		AudioBufferSourceNode.prototype.start = function (when = 0, ...rest: number[]) {
 			if (this.context !== mic.context) {
 				const lead = Math.max(0, when - this.context.currentTime);
-				push("play", { at: performance.now() + lead * 1000, ms: (this.buffer?.duration ?? 0) * 1000 });
+				nextSourceId += 1;
+				sourceIds.set(this, nextSourceId);
+				push("play", {
+					id: nextSourceId,
+					at: performance.now() + lead * 1000,
+					ms: (this.buffer?.duration ?? 0) * 1000,
+				});
 			}
 			return start.call(this, when, ...rest);
 		};
 		const stop = AudioBufferSourceNode.prototype.stop;
 		AudioBufferSourceNode.prototype.stop = function (when?: number) {
-			if (this.context !== mic.context) push("stopSound");
+			if (this.context !== mic.context) push("stopSound", { id: sourceIds.get(this) });
 			return stop.call(this, when);
+		};
+		const stopTrack = MediaStreamTrack.prototype.stop;
+		MediaStreamTrack.prototype.stop = function () {
+			if (mic.destination?.stream.getTracks().includes(this)) push("micReleased");
+			return stopTrack.call(this);
 		};
 		const play = HTMLMediaElement.prototype.play;
 		HTMLMediaElement.prototype.play = function () {
