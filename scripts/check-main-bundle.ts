@@ -256,7 +256,12 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // line and its `ProgressBar`, the take's `onPreparing` and the strings; the prepare loop itself loads with the call's
 // `voice-stream` module on the take's first wait: measured 3,310,945, 1,597 bytes over the budget above. The take's
 // `onPreparing(null)` once the model is here, so the bar says "Transcribing…" again (3 Nov 2026): measured 3,310,970.
-const WEB_FIRST_SCREEN_JS_BYTES = 3_310_970;
+// Local names shortened in the renderer (3 Nov 2026): its esbuild minify pass went from `minifyIdentifiers: false` to
+// `keepNames: true` (electron.vite.config.ts), so locals and parameters read short while every function and class keeps
+// its `name` for stacks and React's component stacks; main and preload keep their names. The phone parses ~29% less
+// before its first frame (14 files, 3,310,970 → 2,349,974, 960,996 bytes less; brotli on the wire 674,087 → 615,573):
+// measured 2,349,974.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_349_974;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

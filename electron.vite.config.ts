@@ -108,6 +108,13 @@ function manualChunks(id: string): string | undefined {
  */
 const KEEP_NAMES = { minifyIdentifiers: false };
 
+/**
+ * The renderer is what a paired phone downloads and parses before its first frame, so it also shortens local
+ * identifiers. `keepNames` gives every function and class its source `name` back, which V8 prints in stacks
+ * (`at sendPrompt`) and React in component stacks; only local variables and parameters read short.
+ */
+const RENDERER_NAMES = { keepNames: true };
+
 /** Font packages whose @font-face rules list .woff/.ttf fallbacks after their .woff2. */
 const WOFF2_ONLY_FONT_PACKAGES = ["katex", "@fontsource/jetbrains-mono"];
 
@@ -171,7 +178,7 @@ export default defineConfig({
 		},
 	},
 	renderer: {
-		esbuild: KEEP_NAMES,
+		esbuild: RENDERER_NAMES,
 		// Builds `sw.js`, the web page's service worker, with the shell precache list (scripts/pwa-plugin.ts).
 		// woff2OnlyFonts after tailwindcss: both are `pre`, and it must see global.css with its imports inlined.
 		plugins: [tailwindcss(), woff2OnlyFonts(), pwaPlugin({ entry: resolve(__dirname, "src/renderer/web/sw.ts") })],
