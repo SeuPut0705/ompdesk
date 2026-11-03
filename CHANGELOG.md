@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.100.0] - 2026-11-03
+
+봇과 한국어로 음성 대화할 수 있어요. 봇의 답은 첫 구절부터 바로 들리고, 말을 시작한 첫 단어도 빠지지 않아요.
+
+### 바뀐 것
+- 음성 통화와 입력창 받아쓰기가 설정 › 일반의 대화 언어로 알아들어요. 고른 음성 인식 모델이 그 언어를 모르면(한국어와 Parakeet v3, 영어가 아닌 말과 Nemotron) 그 언어만 Whisper large-v3-turbo로 알아들어요. 영어는 그대로 Parakeet을 써요. 연결된 컴퓨터와 휴대폰은 그 컴퓨터의 설정을 따라요.
+- Whisper는 말이 끝난 뒤 한 번만 받아 적어요. 그동안 통화 바는 "받아 적는 중"을 보여 줘요. 이 맥미니에서 한국어 질문이 받아 적히기까지 약 7초 걸려요.
+- 처음 한국어로 말하면 Whisper 모델(약 600MB)을 한 번 내려받아요. 통화 바와 입력창 받아쓰기에 내려받는 정도가 보이고, 다 받으면 "받아 적는 중"으로 바뀌어요. 실패하면 이유를 보여 주고 고른 모델로 계속해요.
+- 봇의 답이 첫 문장 전체가 아니라 첫 구절이 나오면 바로 들리기 시작해요.
+
+### 고친 것
+- 실행이 끝났다는 신호가 마지막 내용보다 먼저 창에 도착해서, 음성 통화에서 봇의 답이 소리로 나오지 않을 수 있던 문제를 고쳤어요.
+- 음성 통화에서 말을 시작한 첫 단어와, 봇의 답에 끼어들기 직전에 한 짧은 말이 잘리던 문제를 고쳤어요.
+
+<!-- en -->
+
+Talk to the bot in Korean. The bot's reply starts speaking at its first clause, and the first word you say is no longer cut off.
+
+### Changed
+- Voice calls and composer dictation listen in the conversation language from Settings › General. When the chosen dictation model lacks that language (Korean on Parakeet v3, anything but English on Nemotron), that language is heard on Whisper large-v3-turbo; English stays on Parakeet. A paired computer and the phone follow that computer's setting.
+- Whisper transcribes once, after the speech ends; meanwhile the call bar says "Transcribing…". On this Mac mini a Korean question takes about 7 s to transcribe.
+- The first time you speak Korean, the Whisper model (about 600 MB) downloads once, with its progress on the call bar and in composer dictation, then the bar says "Transcribing…". A failed download says so and keeps the chosen model.
+- The bot's reply starts speaking at its first clause instead of after its whole first sentence.
+
+### Fixed
+- A run's end could reach the window before its last events, so a voice call might not speak the bot's reply.
+- A voice call cut the first word of an utterance, and the short word said just before talking over the bot's reply.
+
 ## [0.99.0] - 2026-11-03
 
 화면이 하나의 움직임 규칙으로 부드럽게 열리고 닫혀요. 봇이 연결된 컴퓨터에 연 세션은 어느 화면에서 보든 봇 아래에 실행 중으로 보여요.
