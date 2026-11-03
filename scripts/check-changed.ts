@@ -27,6 +27,8 @@
  * 3. A change to e2e shared support (harness, fixtures) matches no single spec:
  *    the run says so and runs none; use `bunx playwright test <spec>` for the
  *    ones you touched.
+ * 4. A change that picks the parity sheet's spec (`e2e/parity.e2e.ts`, which registers nothing on its own) runs
+ *    every parity surface forward and in reverse order instead (`bun run parity -- --both-orders`, about 3 min).
  *
  * `--list` prints the chosen specs and exits without taking the lock.
  */
@@ -174,7 +176,15 @@ const e2e = await runLocked("playwright", ["bunx", "playwright", "test", "--pass
 	via: "check:changed",
 });
 if (e2e.code !== 0 && browserNotice) console.log(`[check:changed] ${browserNotice}`);
+// The parity sheet's spec registers nothing without its env, so picking it checks nothing: a change to the sheet or to
+// the surfaces it captures runs every parity surface in one capture and again in reverse order (`bun run parity --
+// --both-orders`, about 3 minutes), which fails when a surface leaves something behind for the one after it.
+const parityOrder =
+	e2e.code === 0 && specs.includes("e2e/parity.e2e.ts")
+		? await run(["bun", "scripts/parity.ts", "--both-orders"])
+		: undefined;
+const ok = e2e.code === 0 && (parityOrder?.code ?? 0) === 0;
 console.log(
-	`[check:changed] ${e2e.code === 0 ? "PASSED" : "FAILED: playwright"} in ${seconds(performance.now() - started)}`,
+	`[check:changed] ${ok ? "PASSED" : `FAILED: ${e2e.code !== 0 ? "playwright" : "parity order"}`} in ${seconds(performance.now() - started)}`,
 );
-process.exit(e2e.code === 0 ? 0 : 1);
+process.exit(ok ? 0 : 1);
