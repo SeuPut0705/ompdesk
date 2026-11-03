@@ -27,6 +27,7 @@ const BUILD_SCRIPTS = [
 	"scripts/build-cache.ts",
 	"scripts/check-main-bundle.ts",
 	"scripts/pwa-plugin.ts",
+	"scripts/precompress-plugin.ts",
 	"scripts/ws-bundle-probe.config.ts",
 	"scripts/ws-bundle-probe.ts",
 	// The pinned certificate the shipped ai-memory's requirement names (src/main/ai-memory/binary.ts).

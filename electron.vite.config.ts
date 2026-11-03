@@ -2,6 +2,7 @@ import { dirname, resolve } from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import type { Plugin } from "vite";
+import { precompressPlugin } from "./scripts/precompress-plugin";
 import { pwaPlugin } from "./scripts/pwa-plugin";
 
 /**
@@ -181,7 +182,13 @@ export default defineConfig({
 		esbuild: RENDERER_NAMES,
 		// Builds `sw.js`, the web page's service worker, with the shell precache list (scripts/pwa-plugin.ts).
 		// woff2OnlyFonts after tailwindcss: both are `pre`, and it must see global.css with its imports inlined.
-		plugins: [tailwindcss(), woff2OnlyFonts(), pwaPlugin({ entry: resolve(__dirname, "src/renderer/web/sw.ts") })],
+		// precompressPlugin writes the brotli the web server sends a phone (scripts/precompress-plugin.ts).
+		plugins: [
+			tailwindcss(),
+			woff2OnlyFonts(),
+			pwaPlugin({ entry: resolve(__dirname, "src/renderer/web/sw.ts") }),
+			precompressPlugin(),
+		],
 		resolve: {
 			alias: {
 				"@renderer": resolve(__dirname, "src/renderer"),

@@ -12,6 +12,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import http from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { brotliCompressSync, constants as zlibConstants } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { IPC_COMMANDS } from "../../shared/ipc-types";
@@ -334,6 +335,24 @@ describe("static files", () => {
 		expect(head.status).toBe(200);
 		expect(head.body).toBe("");
 		expect((await raw("/", { origin: origin() }, "POST")).status).toBe(405);
+	});
+
+	it("sends the build's own brotli beside a file when there is one, and compresses a file without one", async () => {
+		// A build's `.br` (scripts/precompress-plugin.ts) told apart from the server's own quality 9 by its size.
+		const quality = (level: number) =>
+			brotliCompressSync(Buffer.from(SCRIPT), { params: { [zlibConstants.BROTLI_PARAM_QUALITY]: level } });
+		const built = quality(0);
+		expect(built.byteLength).not.toBe(quality(9).byteLength);
+		writeFileSync(join(staticRoot, "assets", "built-abc.js"), SCRIPT);
+		writeFileSync(join(staticRoot, "assets", "built-abc.js.br"), built);
+		const fetchBr = (path: string) => fetch(`${base}${path}`, { headers: { "accept-encoding": "br" } });
+		const packed = await fetchBr("/assets/built-abc.js");
+		expect(packed.headers.get("content-encoding")).toBe("br");
+		expect(Number(packed.headers.get("content-length"))).toBe(built.byteLength);
+		expect(await packed.text()).toBe(SCRIPT);
+		const own = await fetchBr("/assets/app-abc.js");
+		expect(Number(own.headers.get("content-length"))).toBe(quality(9).byteLength);
+		expect(await own.text()).toBe(SCRIPT);
 	});
 
 	it("refuses traversal, backslashes, NULs and encoded separators", async () => {

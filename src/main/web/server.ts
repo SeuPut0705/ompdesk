@@ -749,10 +749,12 @@ export class WebServer {
 		}
 		if (!root) throw new HttpError(404, "not found");
 		const relative = page ? PAGE_FILE : pathname.slice(1);
+		let base = root;
 		let file = await this.#resolveFile(root, relative);
 		if (!file && pathname.startsWith("/assets/")) {
 			for (const previous of this.#deps.previousBuilds?.() ?? []) {
 				file = await this.#resolveFile(previous, relative);
+				base = previous;
 				if (file) break;
 			}
 		}
@@ -774,7 +776,7 @@ export class WebServer {
 
 		const wantsBrotli = /\bbr\b/.test(singleHeader(req.headers["accept-encoding"]) ?? "");
 		if (wantsBrotli && COMPRESSIBLE.test(type) && file.size > 1024) {
-			const body = await this.#brotliOf(file.path, file.size, file.mtimeMs);
+			const body = await this.#brotliOf(file, base, relative);
 			headers["content-encoding"] = "br";
 			headers["content-length"] = String(body.length);
 			res.writeHead(200, headers);
@@ -808,13 +810,28 @@ export class WebServer {
 		}
 	}
 
-	async #brotliOf(file: string, size: number, mtimeMs: number): Promise<Buffer> {
-		const key = `${file}:${size}:${mtimeMs}`;
+	/**
+	 * The file brotli-compressed: the build's own `.br` beside it (quality 11, scripts/precompress-plugin.ts), else
+	 * compressed here once at quality 9 (11 is too slow for a request). Kept in memory either way.
+	 */
+	async #brotliOf(
+		file: { path: string; size: number; mtimeMs: number },
+		root: string,
+		relative: string,
+	): Promise<Buffer> {
+		const key = `${file.path}:${file.size}:${file.mtimeMs}`;
 		const cached = this.#compressed.get(key);
 		if (cached) return cached;
-		const packed = await brotli(await fsp.readFile(file), {
-			params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 9, [zlibConstants.BROTLI_PARAM_SIZE_HINT]: size },
-		});
+		const built = await this.#resolveFile(root, `${relative}.br`);
+		const packed =
+			built && built.mtimeMs >= file.mtimeMs
+				? await fsp.readFile(built.path)
+				: await brotli(await fsp.readFile(file.path), {
+						params: {
+							[zlibConstants.BROTLI_PARAM_QUALITY]: 9,
+							[zlibConstants.BROTLI_PARAM_SIZE_HINT]: file.size,
+						},
+					});
 		if (this.#compressedBytes + packed.length <= COMPRESSED_CACHE_MAX_BYTES) {
 			this.#compressed.set(key, packed);
 			this.#compressedBytes += packed.length;
