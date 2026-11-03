@@ -24,7 +24,7 @@ class FakeStt {
 
 	setup(language?: string): SttSetup {
 		return {
-			modelKey: "parakeet",
+			selected: { key: "parakeet-tdt-0.6b-v3", englishOnly: false },
 			language,
 			client: {
 				startStream: (modelKey, options) => {
@@ -125,11 +125,30 @@ let stt: FakeStt;
 let tts: FakeTts;
 let streams: VoiceStreams<null>;
 
+/** Stock's speech-model cache: what is here, and every download asked for (each lands at once). */
+class FakeModels {
+	cached = new Set(["parakeet-tdt-0.6b-v3"]);
+	downloads: string[] = [];
+	isCached = async (key: string) => this.cached.has(key);
+	download = async (key: string, onProgress: (loaded: number, total: number) => void) => {
+		this.downloads.push(key);
+		onProgress(1, 1);
+		this.cached.add(key);
+	};
+}
+
+let models: FakeModels;
+
 beforeEach(() => {
 	vi.useFakeTimers();
 	stt = new FakeStt();
 	tts = new FakeTts();
-	streams = new VoiceStreams<null>({ stt: async () => stt.setup("ko"), tts: async () => tts.setup() });
+	models = new FakeModels();
+	streams = new VoiceStreams<null>({
+		stt: async () => stt.setup("ko"),
+		tts: async () => tts.setup(),
+		sttModels: models,
+	});
 });
 
 afterEach(() => {
@@ -149,13 +168,59 @@ describe("PCM16 over the bridge", () => {
 });
 
 describe("stt_stream_*", () => {
-	it("opens on the dictation model, the request's language over the setting's", async () => {
-		await streams.sttStart({}, null);
+	it("opens English on the selected Parakeet, and Korean on Whisper large-v3-turbo once it is here", async () => {
+		models.cached.add("whisper-large-v3-turbo");
 		await streams.sttStart({ language: "en" }, null);
+		await streams.sttStart({}, null);
+		await streams.sttStart({ language: "ko-KR" }, null);
 		expect(stt.opened).toEqual([
-			{ modelKey: "parakeet", language: "ko" },
-			{ modelKey: "parakeet", language: "en" },
+			{ modelKey: "parakeet-tdt-0.6b-v3", language: "en" },
+			{ modelKey: "whisper-large-v3-turbo", language: "ko" },
+			{ modelKey: "whisper-large-v3-turbo", language: "ko" },
 		]);
+		expect(models.downloads).toEqual([]);
+	});
+
+	it("never makes a stream wait for the language's model: before it is here the selected model hears it", async () => {
+		await streams.sttStart({}, null);
+		expect(stt.opened).toEqual([{ modelKey: "parakeet-tdt-0.6b-v3", language: "ko" }]);
+		expect(models.downloads).toEqual([]);
+	});
+
+	it("prepares the language's model: Korean downloads Whisper large-v3-turbo, English is ready on Parakeet", async () => {
+		expect(await streams.sttPrepare({ language: "en" }, null)).toEqual({
+			language: "en",
+			modelKey: "parakeet-tdt-0.6b-v3",
+			state: "ready",
+		});
+		expect(await streams.sttPrepare({}, null)).toMatchObject({
+			language: "ko",
+			modelKey: "whisper-large-v3-turbo",
+			state: "downloading",
+		});
+		expect(models.downloads).toEqual(["whisper-large-v3-turbo"]);
+		expect(await streams.sttPrepare({}, null)).toEqual({
+			language: "ko",
+			modelKey: "whisper-large-v3-turbo",
+			state: "ready",
+		});
+		await streams.sttStart({}, null);
+		expect(stt.opened).toEqual([{ modelKey: "whisper-large-v3-turbo", language: "ko" }]);
+	});
+
+	it("a whole clip waits for the language's model, and says so when it cannot be had", async () => {
+		expect(await streams.sttModel({}, null, "batch")).toMatchObject({
+			modelKey: "whisper-large-v3-turbo",
+			language: "ko",
+		});
+		expect(models.downloads).toEqual(["whisper-large-v3-turbo"]);
+		models.cached.delete("whisper-large-v3-turbo");
+		models.download = async () => {
+			throw new Error("Failed to download speech model (onnx-community/whisper-large-v3-turbo): offline");
+		};
+		await expect(streams.sttModel({}, null, "batch")).rejects.toThrow(
+			/whisper-large-v3-turbo for ko speech: .*offline/,
+		);
 	});
 
 	it("feeds floats to the worker and answers the committed segments plus the current partial", async () => {
@@ -224,6 +289,7 @@ describe("tts_stream_*", () => {
 		streams = new VoiceStreams<null>({
 			stt: async () => stt.setup(),
 			tts: async () => tts.setup(text => text.split(". ")),
+			sttModels: models,
 		});
 		const started = await streams.ttsStart({ text: "One. Two. Three" }, null);
 		expect(started).toMatchObject({ sampleRate: 24_000 });
@@ -279,7 +345,11 @@ describe("tts_stream_*", () => {
 	});
 
 	it("answers done without chunks for text with nothing to speak", async () => {
-		streams = new VoiceStreams<null>({ stt: async () => stt.setup(), tts: async () => tts.setup(() => []) });
+		streams = new VoiceStreams<null>({
+			stt: async () => stt.setup(),
+			tts: async () => tts.setup(() => []),
+			sttModels: models,
+		});
 		const { streamId } = await streams.ttsStart({ text: "```code```" }, null);
 		await vi.advanceTimersByTimeAsync(0);
 		tts.finish();
