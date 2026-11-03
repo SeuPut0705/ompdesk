@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.102.0] - 2026-11-03
+
+답변에 `170~230초` 같은 범위가 두 번 나와도 그 사이 글이 취소선으로 그어지지 않아요.
+
+### 고친 것
+- 물결표 하나(`~`)는 이제 글자 그대로 보여요. 범위를 `~`로 쓴 줄에서 첫 `~`부터 다음 `~`까지가 줄 그어져 보이던 문제예요. 취소선은 `~~이렇게~~` 두 개로 감쌀 때만 그어져요. 내가 보낸 메시지에도 똑같이 적용돼요.
+
+<!-- en -->
+
+Ranges like `170~230s` no longer strike out the text between two of them.
+
+### Fixed
+- A single tilde (`~`) now stays as text. A line that wrote two ranges with `~` was struck through from the first `~` to the next; only `~~two tildes~~` strike now, in replies and in your own messages alike.
+
 ## [0.101.0] - 2026-11-03
 
 휴대폰에서 OMPdesk가 더 가볍게 열려요. 화면은 그대로예요.
