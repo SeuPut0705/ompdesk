@@ -116,7 +116,7 @@ if (dir) {
 		const out = path.resolve(dir);
 		await fs.mkdir(out, { recursive: true });
 		const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-parity-")));
-		// The voice call surfaces script the fake omp's speech through this file (e2e/fixture/rpc-ui.ts `voiceScript`).
+		// The voice surfaces (calls and composer dictation) script the fake omp's speech through this file (e2e/fixture/rpc-ui.ts `voiceScript`).
 		process.env.OMP_GUI_TEST_VOICE_FILE = path.join(parent, "voice.json");
 		let host: RemoteInstance | undefined;
 		let client: RemoteInstance | undefined;
@@ -403,6 +403,12 @@ if (dir) {
 							const lines = error instanceof Error ? error.message.split("\n") : [String(error)];
 							const on = lines.find(line => line.includes("waiting for"))?.trim();
 							record.failures.push(`${view}: ${lines[0]}${on ? ` (${on})` : ""}`);
+						}
+						try {
+							await surface.parity.after?.(page);
+						} catch (error) {
+							const first = error instanceof Error ? error.message.split("\n")[0] : String(error);
+							record.failures.push(`${view}: putting back what the surface changed: ${first}`);
 						}
 					}
 					const { local, remote, phone: phoneShot } = record.shots;

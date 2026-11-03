@@ -36,6 +36,11 @@ export interface Surface {
 		 * it has since ended and whose tab is closed, and that computer runs a session of its own (e2e/parity.e2e.ts).
 		 */
 		remoteChild?: boolean;
+		/**
+		 * Runs in each view after its capture (also when the capture failed): puts back what `open` changed beyond the
+		 * page (the host's settings, a take waiting on the fake omp), so the next surface starts from the same host.
+		 */
+		after?(page: Page): Promise<void>;
 	};
 }
 
@@ -48,40 +53,58 @@ async function scriptVoice(script: Record<string, unknown>): Promise<void> {
 	await fs.writeFile(file, JSON.stringify(script));
 }
 
+/** A fake microphone's tone: silent for `silentMs` (the call measures its noise floor), then sounding for `toneMs`. */
+interface Tone {
+	silentMs: number;
+	toneMs: number;
+}
+
+/** The one utterance of the call surfaces that end speech: 1.2 s of floor, then 1.5 s of sound. */
+const SHORT_UTTERANCE: Tone = { silentMs: 1200, toneMs: 1500 };
+
 /**
- * Start a voice call on the bot's pane, ending one a surface before left running. `speak`: the page's microphone is a
- * tone that stays silent while the call measures its floor, then sounds for 1.5 s, so the call hears one utterance.
+ * The page's microphone is an oscillator through a gain that follows `tone` from the moment the page asks for it
+ * (`getUserMedia`: a call's start, a dictation take's start), so the app hears it as a person speaking.
  */
-async function startBotCall(page: Page, speak: boolean): Promise<void> {
+async function fakeMicrophone(page: Page, tone: Tone): Promise<void> {
+	await page.evaluate(tone => {
+		const getUserMedia = async () => {
+			const context = new AudioContext();
+			await context.resume().catch(() => undefined);
+			const oscillator = context.createOscillator();
+			oscillator.frequency.value = 180;
+			const gain = context.createGain();
+			gain.gain.value = 0;
+			const destination = context.createMediaStreamDestination();
+			oscillator.connect(gain).connect(destination);
+			oscillator.start();
+			gain.gain.setValueAtTime(0.3, context.currentTime + tone.silentMs / 1000);
+			gain.gain.setValueAtTime(0, context.currentTime + (tone.silentMs + tone.toneMs) / 1000);
+			return destination.stream;
+		};
+		// A phone page on plain http has no `navigator.mediaDevices` at all.
+		Object.defineProperty(navigator, "mediaDevices", {
+			configurable: true,
+			value: Object.assign(navigator.mediaDevices ?? {}, { getUserMedia }),
+		});
+	}, tone);
+}
+
+/** Start a voice call on the bot's pane, ending one a surface before left running. `tone`: the page's microphone. */
+async function startBotCall(page: Page, tone?: Tone): Promise<void> {
 	const bar = page.locator("[data-bot-call-bar]");
 	if ((await bar.count()) > 0) {
 		await bar.locator("[data-bot-call-end]").click();
 		await bar.waitFor({ state: "detached", timeout: 10_000 });
 	}
-	if (speak) {
-		await page.evaluate(() => {
-			const getUserMedia = async () => {
-				const context = new AudioContext();
-				await context.resume().catch(() => undefined);
-				const tone = context.createOscillator();
-				tone.frequency.value = 180;
-				const gain = context.createGain();
-				gain.gain.value = 0;
-				const destination = context.createMediaStreamDestination();
-				tone.connect(gain).connect(destination);
-				tone.start();
-				gain.gain.setValueAtTime(0.3, context.currentTime + 1.2);
-				gain.gain.setValueAtTime(0, context.currentTime + 2.7);
-				return destination.stream;
-			};
-			// A phone page on plain http has no `navigator.mediaDevices` at all.
-			Object.defineProperty(navigator, "mediaDevices", {
-				configurable: true,
-				value: Object.assign(navigator.mediaDevices ?? {}, { getUserMedia }),
-			});
-		});
-	}
+	if (tone) await fakeMicrophone(page, tone);
 	await page.locator("[data-bot-call-start]").first().click();
+}
+
+/** Write omp's `stt.enabled` the way the Settings row does (`set_setting`; the composer reads it back on `config_update`). */
+async function setDictation(page: Page, enabled: boolean): Promise<void> {
+	const reply = await page.evaluate(enabled => window.omp.rpc.setSetting("stt.enabled", enabled), enabled);
+	if (!reply.success) throw new Error(`stt.enabled was not written: ${reply.error}`);
 }
 
 /** Put one extension-UI request (a card) in front of the focused session. */
@@ -242,7 +265,7 @@ export const SURFACES: readonly Surface[] = [
 		title: "A voice call with the bot getting Korean recognition ready: the language's speech model downloading, its progress in the call bar",
 		open: async page => {
 			await scriptVoice({ prepare: { language: "ko", percent: 42 } });
-			await startBotCall(page, false);
+			await startBotCall(page);
 		},
 		ready: '[data-bot-call-phase="preparing"] [data-bot-call-progress]',
 		// The fake omp's voice script exists only in the parity sheet's two apps; the audits' harness page has no call.
@@ -255,11 +278,68 @@ export const SURFACES: readonly Surface[] = [
 		title: "A voice call in Korean: what the person said heard, and the bot's reply being spoken",
 		open: async page => {
 			await scriptVoice({ language: "ko", transcript: "하늘은 무슨 색인가요?", replySeconds: 60 });
-			await startBotCall(page, true);
+			await startBotCall(page, SHORT_UTTERANCE);
 		},
 		ready: '[data-bot-call-phase="speaking"]',
 		when: () => false,
 		parity: { session: "bot" },
+	},
+	{
+		id: "bot-call-hearing",
+		area: "A",
+		title: "A voice call in Korean on Whisper: the person talking, heard without running words",
+		open: async page => {
+			// Whisper large-v3-turbo is offline: no running words while the person speaks. The tone sounds for a minute, so
+			// the call stays on the one utterance.
+			await scriptVoice({ language: "ko", transcript: "하늘은 무슨 색인가요?", partials: false, holdStop: true });
+			await startBotCall(page, { silentMs: 1200, toneMs: 60_000 });
+		},
+		ready: '[data-bot-call-phase="hearing"]',
+		when: () => false,
+		parity: { session: "bot" },
+	},
+	{
+		id: "bot-call-transcribing",
+		area: "A",
+		title: "A voice call in Korean on Whisper: the speech ended, its words being transcribed once",
+		open: async page => {
+			// The fake omp holds `stt_stream_stop` unanswered: the call waits for the one transcription.
+			await scriptVoice({ language: "ko", transcript: "하늘은 무슨 색인가요?", partials: false, holdStop: true });
+			await startBotCall(page, SHORT_UTTERANCE);
+		},
+		ready: "[data-bot-call-bar][data-bot-call-transcribing]",
+		when: () => false,
+		parity: { session: "bot" },
+	},
+	{
+		id: "composer-dictation-preparing",
+		area: "A",
+		title: "Composer dictation in Korean, its first take waiting for the Korean speech model's download, with its progress",
+		open: async page => {
+			await scriptVoice({ prepare: { language: "ko", percent: 42 } });
+			await fakeMicrophone(page, { silentMs: 0, toneMs: 60_000 });
+			await setDictation(page, true);
+			// The desktop's mic sits in the toolbar (a paired computer's view is the same window); on the phone the empty
+			// Send slot is the mic, and once a take runs the toolbar's mic is the one that ends it.
+			await page.locator('button[aria-label="Start dictation"]').first().click({ timeout: 15_000 });
+			await page.locator('[data-dictation="recording"]').waitFor({ state: "visible", timeout: 15_000 });
+			// A second of audio (the take's clock reads 0:01), which the take needs before it transcribes anything.
+			await page.locator('[data-dictation="recording"]', { hasText: "0:01" }).waitFor({ timeout: 15_000 });
+			await page.locator('button[aria-label="Stop recording and insert text"]').first().click({ timeout: 15_000 });
+		},
+		ready: '[data-dictation="transcribing"] [data-dictation-download]',
+		when: () => false,
+		parity: {
+			session: "work",
+			after: async page => {
+				// A take still recording (the surface failed before stopping it) is discarded with Esc.
+				if ((await page.locator('[data-dictation="recording"]').count()) > 0) await page.keyboard.press("Escape");
+				// Dropping the script answers the held take with no text (nothing is inserted); then the mic goes away again.
+				await scriptVoice({});
+				await page.locator("[data-dictation]").waitFor({ state: "detached", timeout: 10_000 });
+				await setDictation(page, false);
+			},
+		},
 	},
 	{
 		id: "board-strip",

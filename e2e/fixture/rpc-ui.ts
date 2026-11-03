@@ -1357,23 +1357,59 @@ export function runRpcUi(): void {
 	/**
 	 * gui-bridge voice.ts. `stt_prepare` always answers (the dictation model is ready, as on a machine with it cached);
 	 * with `OMP_GUI_TEST_VOICE_FILE` the streams answer too, scripted by that JSON file, read on every call so a spec can
-	 * change it between calls: `{prepare?: {language, percent}}` keeps the language's model downloading at that percent,
+	 * change it between calls: `{prepare?: {language, percent}}` keeps the language's model downloading at that percent
+	 * (and `transcribe_audio`, which waits for that download as the real bridge does, unanswered while it is set),
 	 * `language` names the call's language, `transcript` is what every utterance was (a prompt of exactly it is answered
 	 * with `reply`, streamed as a real turn is), `replySeconds` how long each spoken reply's audio (silence) lasts.
+	 * `partials: false` is Whisper large-v3-turbo, an offline model: `stt_stream_push` answers no running words, only
+	 * `stt_stream_stop` carries the text; `holdStop: true` leaves `stt_stream_stop` unanswered while it is set (the
+	 * call's "Transcribing…" state). A held reply is answered once the script no longer holds it (a spec that writes
+	 * another script ends the wait; `stt_stream_cancel` answers its stream's at once), so nothing leaks past a surface.
+	 * `transcribe_audio` (composer dictation) answers `{text: transcript ?? ""}`.
 	 */
 	const voiceFile = process.env.OMP_GUI_TEST_VOICE_FILE;
-	const voiceScript = (): {
+	interface VoiceScript {
 		prepare?: { language: string; percent: number };
 		language?: string;
 		transcript?: string;
 		reply?: string;
 		replySeconds?: number;
-	} => {
+		partials?: boolean;
+		holdStop?: boolean;
+	}
+	const voiceScript = (): VoiceScript => {
 		try {
 			return voiceFile ? JSON.parse(fs.readFileSync(voiceFile, "utf8")) : {};
 		} catch {
 			return {};
 		}
+	};
+	/** A reply a voice script holds back; it is answered, with no text, once `held(script)` is false or its stream is cancelled. */
+	interface HeldVoiceReply {
+		streamId?: string;
+		held: (script: VoiceScript) => boolean;
+		reply: Reply;
+	}
+	const heldVoice = new Set<HeldVoiceReply>();
+	let heldVoiceTimer: NodeJS.Timeout | undefined;
+	const answerEmpty = (held: HeldVoiceReply) => {
+		heldVoice.delete(held);
+		try {
+			held.reply({ text: "" });
+		} catch {
+			// The caller went away.
+		}
+	};
+	const holdVoice = (held: HeldVoiceReply) => {
+		heldVoice.add(held);
+		heldVoiceTimer ??= setInterval(() => {
+			const script = voiceScript();
+			for (const entry of [...heldVoice]) if (!entry.held(script)) answerEmpty(entry);
+			if (heldVoice.size === 0) {
+				clearInterval(heldVoiceTimer);
+				heldVoiceTimer = undefined;
+			}
+		}, 200);
 	};
 	const speechLeft = new Map<string, number>();
 	/** One second of silence at 24 kHz, base64 PCM16. */
@@ -1390,9 +1426,26 @@ export function runRpcUi(): void {
 					stt_stream_start: () => ({
 						streamId: `fixture-stt-${Date.now()}-${Math.random().toString(36).slice(2)}`,
 					}),
-					stt_stream_push: () => ({ text: voiceScript().transcript ?? "" }),
-					stt_stream_stop: () => ({ text: voiceScript().transcript ?? "" }),
-					stt_stream_cancel: () => ({}),
+					// Whisper large-v3-turbo has no running words (`partials: false`); the others answer the transcript.
+					stt_stream_push: () => ({
+						text: voiceScript().partials === false ? "" : (voiceScript().transcript ?? ""),
+					}),
+					stt_stream_stop: (params, reply) => {
+						if (!voiceScript().holdStop) return { text: voiceScript().transcript ?? "" };
+						holdVoice({ streamId: String(params.streamId), held: script => script.holdStop === true, reply });
+						return undefined;
+					},
+					stt_stream_cancel: params => {
+						for (const entry of [...heldVoice])
+							if (entry.streamId === String(params.streamId)) answerEmpty(entry);
+						return {};
+					},
+					// Composer dictation: the whole take at once. The real bridge waits inside it for the language's model.
+					transcribe_audio: (_params, reply) => {
+						if (!voiceScript().prepare) return { text: voiceScript().transcript ?? "" };
+						holdVoice({ held: script => script.prepare !== undefined, reply });
+						return undefined;
+					},
 					tts_stream_start: () => {
 						const streamId = `fixture-tts-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 						speechLeft.set(streamId, voiceScript().replySeconds ?? 2);
