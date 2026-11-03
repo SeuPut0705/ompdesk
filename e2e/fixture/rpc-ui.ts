@@ -1365,7 +1365,8 @@ export function runRpcUi(): void {
 	 * `stt_stream_stop` carries the text; `holdStop: true` leaves `stt_stream_stop` unanswered while it is set (the
 	 * call's "Transcribing…" state). A held reply is answered once the script no longer holds it (a spec that writes
 	 * another script ends the wait; `stt_stream_cancel` answers its stream's at once), so nothing leaks past a surface.
-	 * `transcribe_audio` (composer dictation) answers `{text: transcript ?? ""}`.
+	 * `transcribe_audio` (composer dictation) answers `{text: transcript ?? ""}`; `holdTranscribe: true` leaves it unanswered
+	 * while it is set, with the model here (the take being transcribed).
 	 */
 	const voiceFile = process.env.OMP_GUI_TEST_VOICE_FILE;
 	interface VoiceScript {
@@ -1376,6 +1377,7 @@ export function runRpcUi(): void {
 		replySeconds?: number;
 		partials?: boolean;
 		holdStop?: boolean;
+		holdTranscribe?: boolean;
 	}
 	const voiceScript = (): VoiceScript => {
 		try {
@@ -1442,8 +1444,9 @@ export function runRpcUi(): void {
 					},
 					// Composer dictation: the whole take at once. The real bridge waits inside it for the language's model.
 					transcribe_audio: (_params, reply) => {
-						if (!voiceScript().prepare) return { text: voiceScript().transcript ?? "" };
-						holdVoice({ held: script => script.prepare !== undefined, reply });
+						const holds = (script: VoiceScript) => script.prepare !== undefined || script.holdTranscribe === true;
+						if (!holds(voiceScript())) return { text: voiceScript().transcript ?? "" };
+						holdVoice({ held: holds, reply });
 						return undefined;
 					},
 					tts_stream_start: () => {

@@ -107,6 +107,29 @@ async function setDictation(page: Page, enabled: boolean): Promise<void> {
 	if (!reply.success) throw new Error(`stt.enabled was not written: ${reply.error}`);
 }
 
+/**
+ * A composer dictation take in Korean, its first wait on the Korean speech model's download (held at 42 %): sound at
+ * once, a click on the composer's mic (the toolbar's `Start dictation` on the desktop and a paired computer's view of it,
+ * the empty Send slot on the phone), and once the take's clock reads 0:01 (a second of audio, which the take needs
+ * before it transcribes anything) the toolbar's stop, which on the phone too is the one that ends a running take.
+ */
+async function startKoreanDictationTake(page: Page): Promise<void> {
+	await scriptVoice({ prepare: { language: "ko", percent: 42 } });
+	await fakeMicrophone(page, { silentMs: 0, toneMs: 60_000 });
+	await setDictation(page, true);
+	await page.locator('button[aria-label="Start dictation"]').first().click({ timeout: 15_000 });
+	await page.locator('[data-dictation="recording"]', { hasText: "0:01" }).waitFor({ timeout: 15_000 });
+	await page.locator('button[aria-label="Stop recording and insert text"]').first().click({ timeout: 15_000 });
+}
+
+/** Ends a dictation surface on the host: Esc discards a take still recording, a dropped script answers a held one with no text. */
+async function endDictationTake(page: Page): Promise<void> {
+	if ((await page.locator('[data-dictation="recording"]').count()) > 0) await page.keyboard.press("Escape");
+	await scriptVoice({});
+	await page.locator("[data-dictation]").waitFor({ state: "detached", timeout: 10_000 });
+	await setDictation(page, false);
+}
+
 /** Put one extension-UI request (a card) in front of the focused session. */
 async function request(page: Page, payload: Record<string, unknown>): Promise<void> {
 	await page.evaluate(request => {
@@ -315,31 +338,24 @@ export const SURFACES: readonly Surface[] = [
 		id: "composer-dictation-preparing",
 		area: "A",
 		title: "Composer dictation in Korean, its first take waiting for the Korean speech model's download, with its progress",
-		open: async page => {
-			await scriptVoice({ prepare: { language: "ko", percent: 42 } });
-			await fakeMicrophone(page, { silentMs: 0, toneMs: 60_000 });
-			await setDictation(page, true);
-			// The desktop's mic sits in the toolbar (a paired computer's view is the same window); on the phone the empty
-			// Send slot is the mic, and once a take runs the toolbar's mic is the one that ends it.
-			await page.locator('button[aria-label="Start dictation"]').first().click({ timeout: 15_000 });
-			await page.locator('[data-dictation="recording"]').waitFor({ state: "visible", timeout: 15_000 });
-			// A second of audio (the take's clock reads 0:01), which the take needs before it transcribes anything.
-			await page.locator('[data-dictation="recording"]', { hasText: "0:01" }).waitFor({ timeout: 15_000 });
-			await page.locator('button[aria-label="Stop recording and insert text"]').first().click({ timeout: 15_000 });
-		},
+		open: startKoreanDictationTake,
 		ready: '[data-dictation="transcribing"] [data-dictation-download]',
 		when: () => false,
-		parity: {
-			session: "work",
-			after: async page => {
-				// A take still recording (the surface failed before stopping it) is discarded with Esc.
-				if ((await page.locator('[data-dictation="recording"]').count()) > 0) await page.keyboard.press("Escape");
-				// Dropping the script answers the held take with no text (nothing is inserted); then the mic goes away again.
-				await scriptVoice({});
-				await page.locator("[data-dictation]").waitFor({ state: "detached", timeout: 10_000 });
-				await setDictation(page, false);
-			},
+		parity: { session: "work", after: endDictationTake },
+	},
+	{
+		id: "composer-dictation-downloaded",
+		area: "A",
+		title: "Composer dictation in Korean after the Korean speech model's download: the take being transcribed on it",
+		open: async page => {
+			await startKoreanDictationTake(page);
+			await page.locator('[data-dictation="transcribing"] [data-dictation-download]').waitFor({ timeout: 15_000 });
+			// The download is done; the fake omp keeps the transcription running.
+			await scriptVoice({ holdTranscribe: true });
 		},
+		ready: '[data-dictation="transcribing"]:not(:has([data-dictation-download]))',
+		when: () => false,
+		parity: { session: "work", after: endDictationTake },
 	},
 	{
 		id: "board-strip",
