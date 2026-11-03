@@ -90,15 +90,23 @@ async function fakeMicrophone(page: Page, tone: Tone): Promise<void> {
 	}, tone);
 }
 
-/** Start a voice call on the bot's pane, ending one a surface before left running. `tone`: the page's microphone. */
+/** Start a voice call on the bot's pane. `tone`: the page's microphone. */
 async function startBotCall(page: Page, tone?: Tone): Promise<void> {
+	if (tone) await fakeMicrophone(page, tone);
+	await page.locator("[data-bot-call-start]").first().click();
+}
+
+/**
+ * Ends a call surface on its view: a call stays on until its person ends it, and one left running shows its bar over
+ * every surface after it. A dropped script answers a reply it held with no text.
+ */
+async function endBotCall(page: Page): Promise<void> {
 	const bar = page.locator("[data-bot-call-bar]");
 	if ((await bar.count()) > 0) {
 		await bar.locator("[data-bot-call-end]").click();
 		await bar.waitFor({ state: "detached", timeout: 10_000 });
 	}
-	if (tone) await fakeMicrophone(page, tone);
-	await page.locator("[data-bot-call-start]").first().click();
+	await scriptVoice({});
 }
 
 /** Write omp's `stt.enabled` the way the Settings row does (`set_setting`; the composer reads it back on `config_update`). */
@@ -293,7 +301,7 @@ export const SURFACES: readonly Surface[] = [
 		ready: '[data-bot-call-phase="preparing"] [data-bot-call-progress]',
 		// The fake omp's voice script exists only in the parity sheet's two apps; the audits' harness page has no call.
 		when: () => false,
-		parity: { session: "bot" },
+		parity: { session: "bot", after: endBotCall },
 	},
 	{
 		id: "bot-call-speaking",
@@ -305,7 +313,7 @@ export const SURFACES: readonly Surface[] = [
 		},
 		ready: '[data-bot-call-phase="speaking"]',
 		when: () => false,
-		parity: { session: "bot" },
+		parity: { session: "bot", after: endBotCall },
 	},
 	{
 		id: "bot-call-hearing",
@@ -319,7 +327,7 @@ export const SURFACES: readonly Surface[] = [
 		},
 		ready: '[data-bot-call-phase="hearing"]',
 		when: () => false,
-		parity: { session: "bot" },
+		parity: { session: "bot", after: endBotCall },
 	},
 	{
 		id: "bot-call-transcribing",
@@ -332,7 +340,7 @@ export const SURFACES: readonly Surface[] = [
 		},
 		ready: "[data-bot-call-bar][data-bot-call-transcribing]",
 		when: () => false,
-		parity: { session: "bot" },
+		parity: { session: "bot", after: endBotCall },
 	},
 	{
 		id: "composer-dictation-preparing",

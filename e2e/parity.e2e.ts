@@ -147,7 +147,7 @@ if (dir) {
 				.toBe("online");
 
 			// B's work: a titled session with one answered turn.
-			const sessions = {} as Record<ParitySession, HostSession>;
+			let work: HostSession = { path: "", cwd: "" };
 			const start = (await b.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId ?? "";
 			await b.evaluate(
 				id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:title:Parity work" }),
@@ -161,27 +161,24 @@ if (dir) {
 				.poll(
 					async () => {
 						const tab = (await b.evaluate(() => window.omp.tabs.list())).find(entry => entry.tabId === start);
-						sessions.work = { path: tab?.sessionPath ?? "", cwd: tab?.cwd ?? "" };
-						return sessions.work.path;
+						work = { path: tab?.sessionPath ?? "", cwd: tab?.cwd ?? "" };
+						return work.path;
 					},
 					{ timeout: 30_000 },
 				)
 				.not.toBe("");
 
 			// B's bot, awake, with a duty and an open decision, so its bar and decision dock draw.
+			/** The bot's conversation now: renewing it (`new_conversation`) moves the bot to a new file. */
+			const botConversation = async () => {
+				const value = await b.evaluate(() => window.omp.prefs.get("bot"));
+				return typeof value === "string" ? value : "";
+			};
 			let botPath = "";
-			await expect
-				.poll(
-					async () => {
-						const value = await b.evaluate(() => window.omp.prefs.get("bot"));
-						botPath = typeof value === "string" ? value : "";
-						return botPath;
-					},
-					{ timeout: 30_000 },
-				)
-				.not.toBe("");
+			await expect.poll(async () => (botPath = await botConversation()), { timeout: 30_000 }).not.toBe("");
 			await b.locator("[data-sidebar-bot-row]").first().click();
 			let botTab = "";
+			let botCwd = "";
 			await expect
 				.poll(
 					async () => {
@@ -189,7 +186,7 @@ if (dir) {
 							entry => entry.sessionPath === botPath,
 						);
 						botTab = tab?.tabId ?? "";
-						sessions.bot = { path: botPath, cwd: tab?.cwd ?? "" };
+						botCwd = tab?.cwd ?? "";
 						return tab?.status;
 					},
 					{ timeout: 60_000 },
@@ -268,39 +265,49 @@ if (dir) {
 					)
 					.toBe(sessionPath);
 			};
-			const phoneTabs = new Map<ParitySession, string>();
+			/**
+			 * B's `session` as it is when a view shows it, read from B each time and never kept from the setup: a step
+			 * between surfaces may move it (`leaveRemoteChild` renews the bot's conversation), and a view of the file it
+			 * left shows no bot.
+			 */
+			const hostSession = async (session: ParitySession): Promise<HostSession> =>
+				session === "work" ? work : { path: await botConversation(), cwd: botCwd };
+			/** The phone's tab on each of B's session files. */
+			const phoneTabs = new Map<string, string>();
 			/** Put `view` on B's `session`, with nothing left open from the surface before. */
 			const show: Record<View, (session: ParitySession) => Promise<void>> = {
-				local: session =>
-					openRow(
+				local: async session => {
+					const { path: sessionPath } = await hostSession(session);
+					await openRow(
 						b,
 						session === "bot"
 							? b.locator("[data-sidebar-bot-row]")
-							: b.locator(`.omp-sidebar-session-row[data-session-path=${cssString(sessions.work.path)}]`),
-						sessions[session].path,
-					),
-				remote: session =>
-					openRow(
+							: b.locator(`.omp-sidebar-session-row[data-session-path=${cssString(sessionPath)}]`),
+						sessionPath,
+					);
+				},
+				remote: async session => {
+					const { path: sessionPath } = await hostSession(session);
+					await openRow(
 						a,
-						a.locator(
-							`[data-sidebar-device="${deviceId}"] [data-device-session=${cssString(sessions[session].path)}]`,
-						),
-						sessions[session].path,
-					),
+						a.locator(`[data-sidebar-device="${deviceId}"] [data-device-session=${cssString(sessionPath)}]`),
+						sessionPath,
+					);
+				},
 				phone: async session => {
 					// A fresh load: nothing a surface before opened survives it.
 					await phone.goto(`${phoneUrl}/`, { timeout: 60_000 });
 					await phonePaired(phone);
-					let tabId = phoneTabs.get(session);
+					const { path: sessionPath, cwd } = await hostSession(session);
+					let tabId = phoneTabs.get(sessionPath);
 					if (!tabId) {
-						const { path: sessionPath, cwd } = sessions[session];
 						const viewed = await phone.evaluate(
 							spawn => window.omp.tabs.spawn(spawn),
 							session === "bot" ? { cwd, kind: "chat" as const, sessionPath } : { cwd, sessionPath },
 						);
 						tabId = viewed?.tabId ?? undefined;
 						if (!tabId) throw new Error(`the phone could not view ${session}: ${JSON.stringify(viewed)}`);
-						phoneTabs.set(session, tabId);
+						phoneTabs.set(sessionPath, tabId);
 					}
 					await phone.goto(`${phoneUrl}/#/open?tab=${tabId}`);
 				},
@@ -342,15 +349,7 @@ if (dir) {
 				// still open would move it to the new conversation's), then the conversation renews.
 				expect(await b.evaluate(id => window.omp.tabs.close(id), botTab)).toBe(true);
 				await b.evaluate(() => window.omp.sessions.botDesk.edit({ op: "new_conversation" }));
-				await expect
-					.poll(
-						async () => {
-							const value = await b.evaluate(() => window.omp.prefs.get("bot"));
-							return typeof value === "string" ? value : "";
-						},
-						{ timeout: 60_000 },
-					)
-					.not.toBe(botPath);
+				await expect.poll(botConversation, { timeout: 60_000 }).not.toBe(botPath);
 				// A's own session (its start tab may be gone: it showed B's sessions), whose turn B's section of A counts.
 				const own =
 					(await a.evaluate(project => window.omp.tabs.spawn({ cwd: project }), clientProfile.project))?.tabId ??
