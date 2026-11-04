@@ -53,15 +53,30 @@ export function createTypedPrompts(now: () => number = Date.now): TypedPrompts {
 		take(prompt, reader) {
 			live();
 			const batch = prompt.trim();
-			const found = notes.filter(
-				note => !note.taken.has(reader) && (note.text === batch || batch.includes(note.text)),
-			);
-			for (const note of found) note.taken.add(reader);
+			// As many notes of a text as the batch carries, oldest first: two identical steers queued one at a time are
+			// two batches, and the second keeps its note for its own turn.
+			const room = new Map<string, number>();
+			const found: Note[] = [];
+			for (const note of notes) {
+				if (note.taken.has(reader)) continue;
+				const left = room.get(note.text) ?? occurrences(batch, note.text);
+				if (left === 0) continue;
+				room.set(note.text, left - 1);
+				found.push(note);
+				note.taken.add(reader);
+			}
 			notes = notes.filter(note => !READERS.every(name => note.taken.has(name)));
 			return found.map(({ text, steer }) => ({ text, steer }));
 		},
 		size: () => notes.length,
 	};
+}
+
+/** How many times `text` sits in `batch`, without overlap. */
+function occurrences(batch: string, text: string): number {
+	let count = 0;
+	for (let at = batch.indexOf(text); at >= 0; at = batch.indexOf(text, at + text.length)) count++;
+	return count;
 }
 
 /** The process's notes, shared by every reader (a subagent's rebind sees the same module). */

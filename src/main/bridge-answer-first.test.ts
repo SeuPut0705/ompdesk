@@ -102,6 +102,20 @@ describe("typed prompts", () => {
 		expect(typed.size()).toBe(0);
 	});
 
+	it("keeps a second identical steer's note for its own batch (one-at-a-time delivers them one by one)", () => {
+		const { typed, run } = hook(() => true);
+		typed.note("어느정도 됐어?", true);
+		typed.note("어느정도 됐어?", true);
+		expect(run("어느정도 됐어?")).toEqual(COMPANION);
+		expect(run("어느정도 됐어?")).toEqual(COMPANION);
+		expect(run("어느정도 됐어?")).toBeUndefined();
+		// A batch that carries both at once takes both.
+		typed.note("x", true);
+		typed.note("x", true);
+		expect(typed.take("x\n\nx", "answerFirst")).toHaveLength(2);
+		expect(typed.take("x", "answerFirst")).toEqual([]);
+	});
+
 	it("keeps a note no longer than its TTL, at most the newest few, and never an empty one", () => {
 		let now = 1_000;
 		const typed = createTypedPrompts(() => now);
