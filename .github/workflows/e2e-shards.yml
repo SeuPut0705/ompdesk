@@ -15,6 +15,9 @@
 # 41916393486): five shards put ~1350 s on each against the 1500 s `--global-timeout`, and shard 3 stopped with 9
 # tests not run (36 in 41817431850, with four shards). Six leave ~1050 s each. `fail-fast: false`: one run reports
 # every failing shard, and `gh run rerun <id> --failed` reruns only those.
+#
+# `specs` (space-separated e2e/*.e2e.ts paths) runs those files alone in one shard instead of the whole suite: the
+# check after a fix, at the cost of the files plus ~1 min of setup, not ~25 min (e2e-nightly.yml's dispatch input).
 name: e2e-shards
 
 on:
@@ -24,6 +27,10 @@ on:
         description: "Name of this run's artifact that holds the built out/ bundle"
         type: string
         default: out
+      specs:
+        description: "Space-separated e2e spec files to run alone in one shard; empty runs the whole suite"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -36,10 +43,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: ${{ fromJSON(inputs.specs != '' && '[1]' || '[1, 2, 3, 4, 5, 6]') }}
     env:
       SHARD: ${{ matrix.shard }}
       SHARDS: ${{ strategy.job-total }}
+      SPECS_INPUT: ${{ inputs.specs }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -69,9 +77,17 @@ jobs:
       - name: Playwright, this shard's spec files
         run: |
           set -euo pipefail
-          # A failed listing must stop here: an empty list would run every spec.
-          FILES=$(bun scripts/e2e-shard.ts "$SHARD/$SHARDS")
-          read -r -a SPECS <<< "$FILES"
+          if [ -n "$SPECS_INPUT" ]; then
+            read -r -a SPECS <<< "$SPECS_INPUT"
+            # Only existing spec files: a typo must fail here, not match nothing or (as a Playwright regex) more.
+            for spec in "${SPECS[@]}"; do
+              [[ "$spec" =~ ^e2e/[A-Za-z0-9._/-]+\.e2e\.ts$ && -f "$spec" ]] || { echo "::error::not an e2e spec file: $spec"; exit 1; }
+            done
+          else
+            # A failed listing must stop here: an empty list would run every spec.
+            FILES=$(bun scripts/e2e-shard.ts "$SHARD/$SHARDS")
+            read -r -a SPECS <<< "$FILES"
+          fi
           test "${#SPECS[@]}" -gt 0
           # Playwright stops itself 5 minutes before the job's limit, so a shard that runs long still prints every
           # failure and leaves its traces (nightly 39749113072: shard 2 hit 30 minutes and its one failure left nothing).

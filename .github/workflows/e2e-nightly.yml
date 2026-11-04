@@ -2,18 +2,28 @@
 # no longer part of a release (release.yml runs @smoke on mac and win and
 # real-core on mac); a failing shard here is a bug to fix, never a release block.
 # The shards need the app bundle, built once on Linux (byte-identical on every OS).
+#
+# After a fix, check only the failing files (one shard, ~1 min of setup plus their own time, instead of ~25 min):
+#   gh workflow run e2e-nightly.yml --ref main -f specs="e2e/a.e2e.ts e2e/b.e2e.ts"
+# A targeted run has its own concurrency group, so it never cancels a full run (and a full run never cancels it).
 name: e2e-nightly
+run-name: ${{ inputs.specs && format('e2e {0}', inputs.specs) || 'e2e-nightly' }}
 
 on:
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
+    inputs:
+      specs:
+        description: "Space-separated e2e spec files to run alone (empty: the whole suite)"
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 concurrency:
-  group: e2e-nightly-${{ github.ref }}
+  group: e2e-nightly-${{ github.ref }}-${{ inputs.specs && 'specs' || 'full' }}
   cancel-in-progress: true
 
 jobs:
@@ -41,3 +51,5 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/e2e-shards.yml
+    with:
+      specs: ${{ inputs.specs || '' }}
