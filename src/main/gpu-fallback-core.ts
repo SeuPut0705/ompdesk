@@ -26,9 +26,17 @@ export interface GpuMarker {
 	seen?: GpuIdentity;
 	/** Epoch ms of the last hardware trial. */
 	trialAt?: number;
+	/** The crash policy ({@link MARKER_POLICY}) the marker was written under; absent in older builds' markers. */
+	policy?: number;
 }
 
 export const HARDWARE_RETRY_AFTER_MS = 7 * 24 * 60 * 60_000;
+/**
+ * The crash policy of this build. 2 (4 Nov 2026): a crash in a launch up `GPU_CRASH_SETTLED_MS` writes no marker. A
+ * marker without it came from a build that wrote one for every crash, a mid-run one included, so the next launch
+ * tries hardware once under this policy instead of serving out the week.
+ */
+export const MARKER_POLICY = 2;
 /** SwiftShader's device, which a software launch lists beside the real adapter. */
 const SWIFTSHADER_VENDOR = 0xffff;
 
@@ -81,13 +89,15 @@ export function parseGpuMarker(text: string): GpuMarker {
 		...(gpu ? { gpu } : {}),
 		...(seen ? { seen } : {}),
 		...(typeof value.trialAt === "number" ? { trialAt: value.trialAt } : {}),
+		...(typeof value.policy === "number" ? { policy: value.policy } : {}),
 	};
 }
 
-export type MarkerDecision = { software: true } | { software: false; trial: GpuChange | "cool-off" };
+export type MarkerDecision = { software: true } | { software: false; trial: GpuChange | "cool-off" | "policy" };
 
 /** Whether a launch under this marker renders in software or tries hardware once. */
 export function gpuMarkerDecision(marker: GpuMarker, now: number): MarkerDecision {
+	if (marker.policy !== MARKER_POLICY) return { software: false, trial: "policy" };
 	const change = marker.gpu && marker.seen ? gpuChange(marker.gpu, marker.seen) : undefined;
 	if (change) return { software: false, trial: change };
 	if (now - Math.max(marker.at, marker.trialAt ?? 0) >= HARDWARE_RETRY_AFTER_MS) {
@@ -99,5 +109,5 @@ export function gpuMarkerDecision(marker: GpuMarker, now: number): MarkerDecisio
 /** The marker a hardware trial leaves before it runs: the GPU it tries is the crash GPU from now on. */
 export function markerForTrial(marker: GpuMarker, now: number): GpuMarker {
 	const { seen, ...rest } = marker;
-	return { ...rest, gpu: seen ?? marker.gpu, trialAt: now };
+	return { ...rest, gpu: seen ?? marker.gpu, trialAt: now, policy: MARKER_POLICY };
 }

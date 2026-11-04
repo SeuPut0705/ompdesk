@@ -12,6 +12,7 @@ import type {
 } from "../../shared/rpc-types";
 import { workTurnStartedAt } from "../components/chat/work/work-turn";
 import { MODEL_WRITE_DELAY_MS, seedModelStore, writeModelSnapshot } from "../lib/model-snapshot";
+import { reportRuntimeError } from "../lib/runtime-errors";
 import {
 	reuseSeededRows,
 	seedTranscript,
@@ -487,6 +488,11 @@ export async function loadOlderTranscript(
 		return true;
 	} catch (error) {
 		store.setState({ pageError: error instanceof Error ? error.message : String(error) });
+		// The banner says only that the page failed; the cause goes to gui-runtime.jsonl (4 Nov 2026: a paired host's
+		// page failed on the Windows PC while that host restarted for an update, and nothing recorded why).
+		reportRuntimeError("background-task", error, {
+			details: { task: "transcript-page", tabId: tabId ?? null, cursor: cursor ?? null },
+		});
 		return false;
 	} finally {
 		store.setState({ isLoadingPage: false });

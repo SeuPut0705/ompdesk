@@ -109,7 +109,7 @@ test("three running rows add no visible renderer or GPU cost", async () => {
 		};
 		await fs.writeFile(test.info().outputPath("edge-light-cost.json"), `${JSON.stringify(report, null, 2)}\n`);
 		console.log(`EDGE_LIGHT_COST ${JSON.stringify(report)}`);
-		// The light's own cost (animated vs the same page with it stopped); a software compositor draws it still.
+		// The light's own cost (animated vs the same page with it stopped); a software compositor steps it at ten frames a second.
 		expect(lit.gpu - still.gpu).toBeLessThan(software ? 5 : 4);
 		expect(lit.renderer - still.renderer).toBeLessThan(software ? 5 : 2);
 	} finally {

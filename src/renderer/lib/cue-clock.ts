@@ -11,15 +11,21 @@
  * all together every `CUE_STEP_MS` to where they would be: they keep moving (the owner reads a still cue as stalled)
  * at ten frames a second, all on the same frame. Focus gives them back their own pace on the same phase. A hidden window
  * draws nothing anyway, so the clock stops there (the cues also rest, `data-paused`).
+ *
+ * Under software compositing (`html[data-gpu="software"]`, set by main once Chromium reports: no GPU, a crash
+ * fallback, a CI runner) every frame is painted on the CPU, so the same clock holds the loops at ten frames a second
+ * focused or not. Until 4 Nov 2026 the CSS rested every loop there (a still 270° arc, a still spinner): the owner's
+ * Windows PC falls back to software after a GPU process crash, and read the still cues as the app having stopped.
  */
 
 /** How often the shared clock moves the held loops while the window is unfocused: ten frames a second. */
 export const CUE_STEP_MS = 100;
 
 /**
- * Follow the window's focus for every looping animation of `view`'s document: held and moved by one clock while
- * visible and unfocused, their own pace otherwise. A loop that starts meanwhile (a session starts working) joins at
- * its `animationstart`. Returns the uninstall, which gives every held loop its pace back.
+ * Follow the window's focus and compositing for every looping animation of `view`'s document: held and moved by one
+ * clock while visible and unfocused, or while the document composites in software; their own pace otherwise. A loop
+ * that starts meanwhile (a session starts working) joins at its `animationstart`. Returns the uninstall, which gives
+ * every held loop its pace back.
  */
 export function installCueClock(view: Window = window): () => void {
 	const doc = view.document;
@@ -64,7 +70,8 @@ export function installCueClock(view: Window = window): () => void {
 		queued = false;
 		// hasFocus() also holds while focus sits in a child frame (a preview), where window blur fires.
 		const away = doc.visibilityState === "visible" && !doc.hasFocus();
-		if (!away) {
+		const software = doc.visibilityState === "visible" && doc.documentElement.dataset.gpu === "software";
+		if (!away && !software) {
 			release();
 			return;
 		}
@@ -83,12 +90,18 @@ export function installCueClock(view: Window = window): () => void {
 	view.addEventListener("blur", later);
 	doc.addEventListener("visibilitychange", later);
 	doc.addEventListener("animationstart", onStart, true);
+	// Main marks software compositing once Chromium has reported, after the first paint. A test's fake view brings
+	// its own observer; a real window's is the global.
+	const Observer = "MutationObserver" in view ? (view.MutationObserver as typeof MutationObserver) : MutationObserver;
+	const compositing = new Observer(later);
+	compositing.observe(doc.documentElement, { attributes: true, attributeFilter: ["data-gpu"] });
 	later();
 	return () => {
 		view.removeEventListener("focus", later);
 		view.removeEventListener("blur", later);
 		doc.removeEventListener("visibilitychange", later);
 		doc.removeEventListener("animationstart", onStart, true);
+		compositing.disconnect();
 		release();
 	};
 }

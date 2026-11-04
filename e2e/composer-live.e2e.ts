@@ -175,9 +175,9 @@ for (const language of variants(["en", "ko"] as const))
 							state: animation.playState,
 						})),
 				);
-				// Software compositing (the app's own `html[data-gpu]` signal) draws the cue still: no animation at all.
-				if (software) expect(animated).toEqual([]);
-				else expect(animated).toEqual([{ name: "omp-live-shine-sweep", props: ["transform"], state: "running" }]);
+				// Software compositing (the app's own `html[data-gpu]` signal) keeps the same loop, held to ten frames a
+				// second by the cue clock (its play state stays running).
+				expect(animated).toEqual([{ name: "omp-live-shine-sweep", props: ["transform"], state: "running" }]);
 
 				// Typing during the turn: the light stays behind the text (the field is above it), at the same strength.
 				const input = page.locator("textarea").first();
@@ -286,11 +286,10 @@ test("reduced motion gets a still indicator, and a hidden window pauses the ligh
 		expect(await loops()).toEqual([]);
 		await expect(live).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 		await page.emulateMedia({ reducedMotion: "no-preference" });
-		// Software compositing keeps the still form whatever the media says; hardware gets the moving sweep.
-		const software = await softwareMarked(app, page);
-		await expect.poll(async () => (await loops()).length > 0).toBe(!software);
-		// Hardware compositing keeps every looping cue looping (the software rule must not leak).
-		if (!software) expect((await probeLoops(page)).filter(loop => !loop.infinite).map(loop => loop.cls)).toEqual([]);
+		// Hardware and software compositing alike get the moving sweep once the media allows motion.
+		await expect.poll(async () => (await loops()).length > 0).toBe(true);
+		// Every looping cue keeps looping (no still rule leaks from the reduced-motion block).
+		expect((await probeLoops(page)).filter(loop => !loop.infinite).map(loop => loop.cls)).toEqual([]);
 		await page.evaluate(() => {
 			Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
 			document.dispatchEvent(new Event("visibilitychange"));
@@ -303,7 +302,7 @@ test("reduced motion gets a still indicator, and a hidden window pauses the ligh
 	}
 });
 
-test("software compositing draws the cue still (and, measured, the cost stays flat)", async () => {
+test("software compositing keeps every cue looping, held to ten frames a second (and, measured, the cost stays flat)", async () => {
 	test.setTimeout(120_000);
 	// `--disable-gpu` is the same switch the crash fallback honours (main/gpu-fallback.ts): Chromium composites in software.
 	const { app, page, root } = await launch("en", "light", ["--disable-gpu"]);
@@ -316,24 +315,35 @@ test("software compositing draws the cue still (and, measured, the cost stays fl
 		await send(page, "fixture stream");
 		const live = page.locator(".omp-composer-box > .omp-live-sweep");
 		await expect(live).toHaveAttribute("data-working", "turn");
-		const running = await live.evaluate(
-			sweep => sweep.getAnimations({ subtree: true }).filter(animation => animation.playState === "running").length,
-		);
-		// No loop runs anywhere under software compositing: each looping cue plays once and rests, and the
-		// indeterminate bar settles visible, full width (global.css).
-		expect((await probeLoops(page)).filter(loop => loop.infinite).map(loop => loop.cls)).toEqual([]);
+		// Every looping cue loops there too (the owner, 4 Nov 2026: the Windows PC's software fallback drew still cues
+		// that read as the app having stopped), each held by lib/cue-clock.ts: running, playback rate 0, moved by the
+		// clock every CUE_STEP_MS.
+		expect((await probeLoops(page)).filter(loop => !loop.infinite).map(loop => loop.cls)).toEqual([]);
+		const held = () =>
+			page.evaluate(() =>
+				document
+					.getAnimations()
+					.filter(animation => animation.effect?.getComputedTiming().iterations === Number.POSITIVE_INFINITY)
+					.map(animation => ({
+						state: animation.playState,
+						rate: animation.playbackRate,
+						time: Number(animation.currentTime),
+					})),
+			);
+		// A loop that just started joins the clock at its animationstart, a task later.
 		await expect
-			.poll(async () => (await probeLoops(page)).filter(loop => !loop.finished).map(loop => loop.cls), {
-				timeout: 10_000,
+			.poll(async () => {
+				const loops = (await held()).filter(loop => loop.state === "running");
+				return loops.length > 0 && loops.every(loop => loop.rate === 0);
 			})
-			.toEqual([]);
-		const bar = page.locator("[data-loop-probe] > .omp-indeterminate-progress");
-		await expect(bar).toHaveCSS("width", "200px");
-		await expect(bar).toHaveCSS("transform", "none");
-		await expect(bar).toHaveCSS("opacity", "0.55");
-		expect(running).toBe(0);
-		await expect(live).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-		// The still cue costs nothing next to the running turn's own work: compare it with the cue absent
+			.toBe(true);
+		const first = (await held()).filter(loop => loop.state === "running");
+		await page.waitForTimeout(350);
+		const later = (await held()).filter(loop => loop.state === "running");
+		// Moved on, in steps: at most a few frames in 350 ms.
+		const steps = later.map((loop, index) => loop.time - (first[index]?.time ?? loop.time));
+		expect(steps.every(step => step > 0 && step < 600)).toBe(true);
+		// The held cue costs little next to the running turn's own work: compare it with the cue absent
 		// (10 s of sampling; with the other performance measurements, OMP_GUI_PERFORMANCE=1).
 		if (process.env.OMP_GUI_PERFORMANCE === "1") {
 			await page.waitForTimeout(1000);
@@ -342,8 +352,8 @@ test("software compositing draws the cue still (and, measured, the cost stays fl
 			await page.waitForTimeout(1000);
 			const without = await cpu(app, 4000);
 			console.log(`composer-live software cpu ${JSON.stringify({ withCue, without })}`);
-			expect(withCue.gpu - without.gpu).toBeLessThan(2);
-			expect(withCue.renderer - without.renderer).toBeLessThan(2);
+			expect(withCue.gpu - without.gpu).toBeLessThan(3);
+			expect(withCue.renderer - without.renderer).toBeLessThan(3);
 		}
 	} finally {
 		await exitApp(app);

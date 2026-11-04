@@ -1610,7 +1610,7 @@
 	border-radius: var(--sc-radius-full);
 	background: var(--sc-accent);
 	opacity: 0;
-	animation: omp-work-ring calc(var(--sc-duration-slow) * 5) var(--sc-ease-standard) infinite;
+	animation: omp-work-ring calc(var(--sc-motion-loop) * 5) var(--sc-ease-standard) infinite;
 }
 
 /* Agent lanes ─────────────────────────────────────────────────────────── */
@@ -2835,7 +2835,7 @@ button.omp-file-chip-name:hover {
 	}
 }
 .omp-work-motion[data-state="running"]::before {
-	animation: omp-work-sweep calc(var(--sc-duration-slow) * 6) linear infinite;
+	animation: omp-work-sweep calc(var(--sc-motion-loop) * 6) linear infinite;
 }
 .omp-work-motion .omp-work-card,
 .omp-work-motion .omp-work-parallel > li {
@@ -2857,10 +2857,10 @@ button.omp-file-chip-name:hover {
 .omp-work-motion .omp-live-work-chip.omp-work-pulse {
 	animation:
 		omp-work-pop var(--sc-duration-med) var(--sc-ease-enter),
-		omp-work-pulse calc(var(--sc-duration-slow) * 4) var(--sc-ease-standard) var(--sc-duration-med) infinite;
+		omp-work-pulse calc(var(--sc-motion-loop) * 4) var(--sc-ease-standard) var(--sc-duration-med) infinite;
 }
 .omp-work-pulse {
-	animation: omp-work-pulse calc(var(--sc-duration-slow) * 4) var(--sc-ease-standard) infinite;
+	animation: omp-work-pulse calc(var(--sc-motion-loop) * 4) var(--sc-ease-standard) infinite;
 }
 .omp-bash-line {
 	display: block;
@@ -2889,7 +2889,7 @@ button.omp-file-chip-name:hover {
 	code:not(.omp-live-step[data-running="false"] *)::after {
 	content: "▏";
 	color: var(--sc-accent);
-	animation: omp-work-caret calc(var(--sc-duration-slow) * 2) steps(1, end) infinite;
+	animation: omp-work-caret calc(var(--sc-motion-loop) * 2) steps(1, end) infinite;
 }
 @media (prefers-reduced-motion: reduce) {
 	.omp-work-pulse,
@@ -4430,9 +4430,9 @@ html[data-gpu="software"] :is(.omp-context-ring, .omp-context-ring > circle) {
 	opacity: 0;
 }
 
-/* Reduced motion and software compositing (`html[data-gpu="software"]`: every animated frame costs real CPU there):
-   no sweep runs. A working title is still text with an accent cast (fainter for background work), the box a still
-   accent tint; waiting keeps its warning colour. */
+/* Reduced motion: no sweep runs. A working title is still text with an accent cast (fainter for background work),
+   the box a still accent tint; waiting keeps its warning colour. Software compositing (`html[data-gpu="software"]`)
+   keeps the sweep and the shine, held to ten frames a second by lib/cue-clock.ts. */
 @media (prefers-reduced-motion: reduce) {
 	.omp-live-sweep[data-working]::before,
 	.omp-live-text[data-working] :is(.omp-live-shine-window, .omp-live-shine-words) {
@@ -4463,36 +4463,6 @@ html[data-gpu="software"] :is(.omp-context-ring, .omp-context-ring > circle) {
 	.omp-live-sweep[data-working="background"] {
 		background: color-mix(in srgb, var(--sc-accent) 3%, transparent);
 	}
-}
-
-html[data-gpu="software"] .omp-live-sweep[data-working]::before,
-html[data-gpu="software"] .omp-live-text[data-working] :is(.omp-live-shine-window, .omp-live-shine-words) {
-	animation: none;
-}
-
-html[data-gpu="software"] .omp-live-shine {
-	display: none;
-}
-
-html[data-gpu="software"] .omp-live-text:is([data-working="turn"], [data-working="background"]) {
-	-webkit-text-fill-color: currentColor;
-	color: color-mix(in srgb, var(--sc-accent) 55%, var(--sc-text));
-}
-
-html[data-gpu="software"] .omp-live-text[data-working="background"] {
-	color: color-mix(in srgb, var(--sc-accent) 30%, var(--sc-text));
-}
-
-html[data-gpu="software"] .omp-live-sweep::before {
-	display: none;
-}
-
-html[data-gpu="software"] .omp-live-sweep[data-working="turn"] {
-	background: color-mix(in srgb, var(--sc-accent) 5%, transparent);
-}
-
-html[data-gpu="software"] .omp-live-sweep[data-working="background"] {
-	background: color-mix(in srgb, var(--sc-accent) 3%, transparent);
 }
 
 /* A working session's arc in its row's age slot (common/WorkingArc.tsx): two arcs of 140° (head, tail) turn on
@@ -4720,14 +4690,6 @@ html[data-gpu="software"] .omp-live-sweep[data-working="background"] {
 	.omp-working-arc-part[data-arc="head"] {
 		transform: rotate(130deg);
 	}
-}
-
-html[data-gpu="software"] .omp-working-arc .omp-working-arc-part {
-	animation: none;
-}
-
-html[data-gpu="software"] .omp-working-arc-part[data-arc="head"] {
-	transform: rotate(130deg);
 }
 
 /* A row's age slot while the session works: the age keeps its width (hidden), the arc sits at its end, so the row

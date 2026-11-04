@@ -96,6 +96,10 @@
 	--sc-duration-slow: 320ms; /* motion-ok: token definition */
 	/* One clock for every spinner (Tailwind's animate-spin reads it). */
 	--sc-motion-spin: 900ms; /* motion-ok: token definition */
+	/* The beat the work card's loops (ring, sweep, pulse, caret) are multiples of: a loop's own clock, never a
+	   duration token, so it is not zeroed where one-shots are instant (reduced motion rests those loops by their own
+	   rules; software compositing keeps them, held by the cue clock). */
+	--sc-motion-loop: 320ms; /* motion-ok: token definition */
 	/* standard: a change in place (color, a chevron, a knob). enter: something
 	   arriving, decelerating into place. exit: something leaving, accelerating
 	   away. emphasized: a large surface crossing the window. spring: a move or a

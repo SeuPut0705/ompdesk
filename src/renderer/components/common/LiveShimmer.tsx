@@ -15,7 +15,8 @@
  * every light moves by transform alone, so the compositor draws each frame and nothing repaints. The box's light is
  * one band; a title's is a copy of its own words in a masked window that slides across while the copy slides back
  * (the letters stay put, the soft band passes over them). Both rest while the window is hidden (`data-paused`), and
- * reduced motion and software compositing (`html[data-gpu="software"]`) draw still text and a still tint.
+ * reduced motion draws still text and a still tint; software compositing (`html[data-gpu="software"]`) keeps
+ * the sweep, held to ten frames a second by lib/cue-clock.ts.
  */
 import { type CSSProperties, type ReactElement, type ReactNode, useMemo, useSyncExternalStore } from "react";
 import { cx } from "../../lib/format";

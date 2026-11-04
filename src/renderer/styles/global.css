@@ -1117,19 +1117,9 @@ html[data-platform="darwin"] .omp-sidebar-search {
 }
 
 /* Software compositing (`html[data-gpu="software"]`, set by main's `#markSoftwareCompositing`: no GPU, a crash
-   fallback, a CI runner) paints every frame on the CPU, so no loop runs there: each looping cue (spinners,
-   pulses, shimmers, carets, sweeps) plays once and rests. One-shot motion is instant through the tokens above. */
-html[data-gpu="software"] *,
-html[data-gpu="software"] *::before,
-html[data-gpu="software"] *::after {
-	animation-iteration-count: 1 !important;
-}
-
-html[data-gpu="software"] .omp-indeterminate-progress {
-	width: 100%;
-	transform: none;
-	opacity: 0.55;
-}
+   fallback, a CI runner) paints every frame on the CPU. One-shot motion is instant through the tokens above; the
+   loops (spinners, arcs, pulses, sweeps, carets) keep running, held to ten frames a second by lib/cue-clock.ts, the
+   way an unfocused window shows them: a still cue read as the app having stopped (the owner, 4 Nov 2026). */
 
 /* GUI density changes conversation spacing without scaling text or scroll
    coordinates: it retunes the transcript spacing scale (components.css). */
@@ -1188,8 +1178,3 @@ html[data-gpu="software"] .omp-indeterminate-progress {
 	min-height: min(65dvh, 640px);
 }
 
-/* Software compositing draws every frame on the CPU: a wait that has to show at all shows still (the arc stays,
-   nothing turns). */
-html[data-gpu="software"] .animate-spin {
-	animation: none;
-}

@@ -60,14 +60,28 @@ export function crashLoopDetected(previous: readonly LaunchRecord[], now: number
 
 export type GpuRelaunchDecision =
 	| { relaunch: true }
-	| { relaunch: false; why: "software" | "safe-mode" | "cooldown" | "test-launch"; lastRelaunchAt?: number };
+	| {
+			relaunch: false;
+			why: "software" | "safe-mode" | "cooldown" | "test-launch" | "settled";
+			lastRelaunchAt?: number;
+	  };
+
+/**
+ * A hardware launch up this long before its GPU process crashed is not one whose GPU cannot start: the crash is a
+ * one-off (a driver reset, a device lost), Chromium restarts the GPU process by itself and the window stays up
+ * (measured on Electron 36). The owner's Windows PC (RTX 4080 SUPER, 4 Nov 2026) crashed after 32 and 45 minutes
+ * up, was relaunched into software within a second each time and drew every cue still for the next week.
+ */
+export const GPU_CRASH_SETTLED_MS = 5 * 60_000;
 
 /**
  * Whether a GPU process crash may relaunch the app into software rendering. Never from a launch that already
  * renders in software (Windows still runs a GPU process for SwiftShader/WARP, and its crash would start the
  * same launch again forever), never in safe mode, never in a test launch (`testLaunch`, OMP_GUI_HEADLESS: the
  * process the test drives would exit and the relaunched one run unwatched; Chromium restarts the GPU process
- * itself), and at most once per `GPU_RELAUNCH_COOLDOWN_MS`.
+ * itself), never for the first crash of a launch up `GPU_CRASH_SETTLED_MS` (`upMs`; a second crash within
+ * `GPU_RELAUNCH_COOLDOWN_MS` of it, `crashedBefore`, is a GPU that keeps dying), and at most once per
+ * `GPU_RELAUNCH_COOLDOWN_MS`.
  */
 export function gpuRelaunchDecision(input: {
 	software: boolean;
@@ -75,10 +89,16 @@ export function gpuRelaunchDecision(input: {
 	testLaunch: boolean;
 	history: readonly LaunchRecord[];
 	now: number;
+	/** How long this launch had run when its GPU process crashed. */
+	upMs?: number;
+	/** When this launch's GPU process crashed before, if it did. */
+	crashedBefore?: number;
 }): GpuRelaunchDecision {
 	if (input.testLaunch) return { relaunch: false, why: "test-launch" };
 	if (input.safeMode) return { relaunch: false, why: "safe-mode" };
 	if (input.software) return { relaunch: false, why: "software" };
+	const repeated = input.crashedBefore !== undefined && input.now - input.crashedBefore < GPU_RELAUNCH_COOLDOWN_MS;
+	if ((input.upMs ?? 0) >= GPU_CRASH_SETTLED_MS && !repeated) return { relaunch: false, why: "settled" };
 	const last = input.history.reduce<number | undefined>(
 		(latest, launch) =>
 			launch.gpuRelaunchAt !== undefined && (latest === undefined || launch.gpuRelaunchAt > latest)

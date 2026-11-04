@@ -555,6 +555,16 @@ function SessionTranscript() {
 		if (!prevCursor || isLoadingPage) return;
 		await loadOlderTranscript(tabId ?? undefined, capturePrependAnchor, prewarmPageTail);
 	}, [prevCursor, isLoadingPage, tabId, capturePrependAnchor]);
+	// A page that failed while the session's process was away (a paired host restarting for an update closed the link
+	// mid-request, 4 Nov 2026) is read again by itself once the session is ready again, instead of leaving the failure
+	// over the transcript until the person presses Retry.
+	const readyRetryRef = useRef(status);
+	useEffect(() => {
+		const wasReady = readyRetryRef.current === "ready";
+		readyRetryRef.current = status;
+		if (status !== "ready" || wasReady || !pageError) return;
+		void (rows.length === 0 && tabId ? hydrateTabSession(tabId) : requestOlder());
+	}, [status, pageError, rows.length, tabId, requestOlder]);
 	useLayoutEffect(() => {
 		const anchor = prependAnchorRef.current;
 		if (!anchor || isLoadingPage || totalSize === 0) return;
@@ -1758,12 +1768,14 @@ export function TranscriptHistoryStatus({
 			)}
 		>
 			{error ? (
-				<>
+				// On its own surface: it lies over the first row (the failed page's place), and bare text there read as
+				// part of the message under it (the owner's Windows PC, 4 Nov 2026).
+				<span className="pointer-events-auto flex items-center gap-2 rounded-(--sc-radius-full) border border-(--sc-border-subtle) bg-(--sc-elevated) py-1 pr-1 pl-3 shadow-(--sc-shadow-sm)">
 					<span>{t("chat.history.failed")}</span>
-					<Button className="pointer-events-auto" size="sm" onClick={onRetry}>
+					<Button size="sm" onClick={onRetry}>
 						{t("common.retry")}
 					</Button>
-				</>
+				</span>
 			) : (
 				<span className="rounded-(--sc-radius-full) bg-(--sc-surface-2) px-2.5 py-0.5">
 					{loading ? t("chat.history.loading") : t("chat.history.updating")}

@@ -7,8 +7,9 @@
    face lives inside the mark's own 24 x 24 grid (lengths in px there are grid units).
 
    The rules outside the keyframes are the still poses: each state reads by its shape and not only by its movement, so
-   reduced motion and software compositing (`html[data-gpu="software"]`) only switch the animations and the voice
-   level off (bottom of the file). A hidden window rests them (`data-paused`). */
+   reduced motion only switches the animations and the voice level off (bottom of the file); software compositing
+   (`html[data-gpu="software"]`) keeps the loops, held to ten frames a second by lib/cue-clock.ts. A hidden window
+   rests them (`data-paused`). */
 
 .omp-bot-avatar {
 	/* Positioned (its ring sits outside the box), so it would paint over a row's full-size click target (`ListRow`'s
@@ -362,18 +363,4 @@
 	.omp-bot-avatar[data-bot-motion="speaking"] .omp-bot-talk {
 		transform: scaleY(0.6) !important;
 	}
-}
-
-html[data-gpu="software"] .omp-bot-avatar *,
-html[data-gpu="software"] .omp-bot-avatar *::before {
-	animation: none !important;
-	transition: none !important;
-}
-
-html[data-gpu="software"] .omp-bot-avatar[data-bot-motion="speaking"] :is(.omp-bot-body, .omp-bot-ring) {
-	transform: none !important;
-}
-
-html[data-gpu="software"] .omp-bot-avatar[data-bot-motion="speaking"] .omp-bot-talk {
-	transform: scaleY(0.6) !important;
 }

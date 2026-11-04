@@ -8,8 +8,9 @@
  * compositor; nothing repaints. The motion is stepped at 24 positions a second on one grid every arc shares (the delay
  * comes from the document clock), so ten arcs cost the compositor one 24 fps stream, not ten 60 fps ones.
  *
- * It rests while the window is hidden (`data-paused`), and reduced motion and software compositing
- * (`html[data-gpu="software"]`) draw it still: a 270° arc that still reads as work going on. `background` only fades
+ * It rests while the window is hidden (`data-paused`), and reduced motion draws it still: a 270° arc that still reads
+ * as work going on. Software compositing (`html[data-gpu="software"]`) keeps it turning, held to ten frames a second
+ * by lib/cue-clock.ts. `background` only fades
  * its colour. Styles and the generated keyframes: components.css `.omp-working-arc`.
  */
 import { type CSSProperties, type ReactElement, useMemo } from "react";

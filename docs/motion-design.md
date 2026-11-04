@@ -7,7 +7,7 @@ The owner's decisions this system keeps (each pinned by its own tests; see `.omp
 - Working state is a light over content already on screen: no border light, no comet. Background work is the same light at lower contrast.
 - No loading shimmer and no skeleton sweep; a spinner turns only for work happening.
 - Unfocused window: endless cues step at 10 fps (`lib/cue-clock.ts`); hidden: paused.
-- Reduced motion and `html[data-gpu="software"]`: still or instant.
+- Reduced motion: still or instant. `html[data-gpu="software"]`: one-shots instant, the loops held at 10 fps by the cue clock (4 Nov 2026; a still cue read as the app having stopped).
 - Anything that loops animates transform and opacity only; the work board runs one animation.
 
 ## 1. Prior art

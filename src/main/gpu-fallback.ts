@@ -24,6 +24,7 @@ import {
 	gpuChange,
 	gpuIdentityOf,
 	gpuMarkerDecision,
+	MARKER_POLICY,
 	markerForTrial,
 	parseGpuMarker,
 } from "./gpu-fallback-core";
@@ -189,6 +190,8 @@ export function softwareCompositing(): Promise<boolean> {
 let softwareCompositingResult: Promise<boolean> | undefined;
 
 let gpuCrashHandled = false;
+/** When this launch's GPU process last crashed while the launch went on (a settled crash Chromium recovered). */
+let gpuCrashedAt: number | undefined;
 
 /**
  * GPU-process exits that mean compositing is dead. clean-exit is lifecycle; killed is an outside
@@ -210,12 +213,17 @@ export function markerForcesSoftware(marker: string): boolean {
 }
 
 /**
- * Called from the `child-process-gone` handler. A hardware launch whose GPU process dies writes the marker and
- * relaunches into software rendering, once; every other launch leaves recovery to Chromium.
+ * Called from the `child-process-gone` handler. A hardware launch whose GPU process dies early writes the marker and
+ * relaunches into software rendering, once. A launch up for `GPU_CRASH_SETTLED_MS` leaves its first crash to Chromium
+ * (it restarts the GPU process and the window stays up) and writes no marker, so hardware stays, here and on the
+ * next launch; a second crash within the cooldown of that one is a GPU that keeps dying and takes the marker path.
+ * Every other launch leaves recovery to Chromium. `upMs` is this launch's age (a test passes its own).
  */
-export function handleGpuProcessGone(details: { type: string; reason: string; exitCode: number | undefined }): void {
+export function handleGpuProcessGone(
+	details: { type: string; reason: string; exitCode: number | undefined },
+	upMs = process.uptime() * 1000,
+): void {
 	if (!isGpuProcessCrash(details) || gpuCrashHandled) return;
-	gpuCrashHandled = true;
 	const exit = { reason: details.reason, exitCode: details.exitCode ?? null };
 	const now = Date.now();
 	const decision = gpuRelaunchDecision({
@@ -224,12 +232,24 @@ export function handleGpuProcessGone(details: { type: string; reason: string; ex
 		testLaunch: process.env.OMP_GUI_HEADLESS === "1",
 		history: launchHistory(),
 		now,
+		upMs,
+		crashedBefore: gpuCrashedAt,
 	});
+	if (!decision.relaunch && decision.why === "settled") {
+		gpuCrashedAt = now;
+		writeRuntimeLog({
+			source: "gpu-fallback",
+			message: `GPU process exited (${details.reason}) after ${Math.round(upMs / 1000)} s up: Chromium restarts it, hardware acceleration stays`,
+			details: { ...exit, why: decision.why, upMs: Math.round(upMs) },
+		});
+		return;
+	}
+	gpuCrashHandled = true;
 	if (!softwareLaunch) {
 		// A crash in a hardware trial starts the cool-off again with the GPU it crashed on.
 		const before = readMarkerText();
 		const gpu = currentGpu ?? (before === undefined ? undefined : parseGpuMarker(before).gpu);
-		writeMarker({ at: now, ...exit, ...(gpu ? { gpu } : {}) });
+		writeMarker({ at: now, policy: MARKER_POLICY, ...exit, ...(gpu ? { gpu } : {}) });
 	}
 	if (!decision.relaunch) {
 		writeRuntimeLog({

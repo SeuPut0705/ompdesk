@@ -67,7 +67,7 @@ describe("GPU crash relaunch", () => {
 		// dies too, a relaunch from here starts the same software launch again: on, off, on, off.
 		writeFileSync(
 			join(electron.userData, "gpu-fallback.json"),
-			JSON.stringify({ at: new Date().toISOString(), reason: "crashed", exitCode: -1 }),
+			JSON.stringify({ at: new Date().toISOString(), reason: "crashed", exitCode: -1, policy: 2 }),
 		);
 		const gpu = await launch();
 		expect(electron.softwareCalls).toBe(1);
@@ -216,10 +216,52 @@ describe("hardware acceleration comes back by itself", () => {
 		const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60_000).toISOString();
 		writeFileSync(
 			join(electron.userData, "gpu-fallback.json"),
-			JSON.stringify({ at: eightDaysAgo, reason: "crashed", exitCode: -1 }),
+			JSON.stringify({ at: eightDaysAgo, reason: "crashed", exitCode: -1, policy: 2 }),
 		);
 		await launchWith(iGpu("27.20.100.9466"));
 		expect(electron.softwareCalls).toBe(0);
 		expect(readLog()).toContain("trying hardware acceleration again (cool-off)");
+	});
+});
+
+describe("a crash in a launch that has run for a while", () => {
+	const settled = 40 * 60_000;
+
+	it("leaves the first crash of a settled hardware launch to Chromium: no relaunch, no marker, hardware next time", async () => {
+		const gpu = await launchWith(iGpu("27.20.100.9466"));
+		gpu.handleGpuProcessGone(crash, settled);
+		expect(electron.relaunches).toBe(0);
+		expect(electron.exits).toBe(0);
+		expect(readLog()).toContain("Chromium restarts it, hardware acceleration stays");
+		await launchWith(iGpu("27.20.100.9466"));
+		expect(electron.softwareCalls).toBe(0);
+	});
+
+	it("a second crash within the cooldown of the first is a GPU that keeps dying: marker and relaunch", async () => {
+		const gpu = await launchWith(iGpu("27.20.100.9466"));
+		gpu.handleGpuProcessGone(crash, settled);
+		gpu.handleGpuProcessGone(crash, settled + 30_000);
+		expect(electron.relaunches).toBe(1);
+		expect(electron.exits).toBe(1);
+		await launchWith(iGpu("27.20.100.9466"));
+		expect(electron.softwareCalls).toBe(1);
+	});
+
+	it("an early crash still relaunches into software", async () => {
+		(await launchWith(iGpu("27.20.100.9466"))).handleGpuProcessGone(crash, 3_000);
+		expect(electron.relaunches).toBe(1);
+	});
+
+	it("a marker an older build wrote (every crash, mid-run ones included) gets one hardware trial under this policy", async () => {
+		writeFileSync(
+			join(electron.userData, "gpu-fallback.json"),
+			JSON.stringify({ at: new Date().toISOString(), reason: "crashed", exitCode: 34, gpu: iGpu("32.0.16.2101") }),
+		);
+		const trial = await launchWith(iGpu("32.0.16.2101"));
+		expect(electron.softwareCalls).toBe(0);
+		expect(readLog()).toContain("trying hardware acceleration again (policy)");
+		trial.confirmHardwareTrial();
+		await launchWith(iGpu("32.0.16.2101"));
+		expect(electron.softwareCalls).toBe(0);
 	});
 });

@@ -229,13 +229,12 @@ describe("the composer's sweep in the stylesheet", () => {
 		}
 	});
 
-	it("holds the working arc still, as a 270° arc, under reduced motion and software compositing", () => {
+	it("holds the working arc still, as a 270° arc, under reduced motion only: software compositing keeps it looping", () => {
 		const reduced = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce) {\n\t.omp-working-arc"));
 		const block = reduced.slice(0, reduced.indexOf("\n}\n"));
 		expect(block).toMatch(/\.omp-working-arc \.omp-working-arc-part\s*\{\s*animation: none/);
 		expect(block).toMatch(/\[data-arc="head"\]\s*\{\s*transform: rotate\(130deg\)/);
-		expect(rule('html[data-gpu="software"] .omp-working-arc .omp-working-arc-part')).toContain("animation: none");
-		expect(rule('html[data-gpu="software"] .omp-working-arc-part[data-arc="head"]')).toContain("rotate(130deg)");
+		expect(css).not.toContain('html[data-gpu="software"] .omp-working-arc');
 		expect(rule(".omp-working-arc[data-paused] .omp-working-arc-part")).toContain("animation-play-state: paused");
 	});
 
@@ -244,25 +243,17 @@ describe("the composer's sweep in the stylesheet", () => {
 		expect(ring).toContain("opacity: 0");
 	});
 
-	it("holds every working cue still under reduced motion and software compositing", () => {
-		for (const opener of [
-			"@media (prefers-reduced-motion: reduce) {\n\t.omp-live-",
-			'html[data-gpu="software"] .omp-live-',
-		]) {
-			const at = css.indexOf(opener);
-			expect(at, opener).toBeGreaterThan(0);
-		}
-		const reduced = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce) {\n\t.omp-live-"));
+	it("holds every working cue still under reduced motion only: software compositing keeps the sweep and the shine", () => {
+		const opener = "@media (prefers-reduced-motion: reduce) {\n\t.omp-live-";
+		expect(css.indexOf(opener)).toBeGreaterThan(0);
+		const reduced = css.slice(css.indexOf(opener));
 		const block = reduced.slice(0, reduced.indexOf("\n}\n"));
 		expect(block).toMatch(
 			/\.omp-live-sweep\[data-working\]::before,\s*\.omp-live-text\[data-working\] :is\(\.omp-live-shine-window, \.omp-live-shine-words\)\s*\{\s*animation: none/,
 		);
 		expect(block).toMatch(/\.omp-live-shine \{\s*display: none/);
-		expect(
-			rule(
-				'html[data-gpu="software"] .omp-live-sweep[data-working]::before,\nhtml[data-gpu="software"] .omp-live-text[data-working] :is(.omp-live-shine-window, .omp-live-shine-words)',
-			),
-		).toContain("animation: none");
-		expect(rule('html[data-gpu="software"] .omp-live-shine')).toContain("display: none");
+		// The loops run there, held to ten frames a second by lib/cue-clock.ts (the owner, 4 Nov 2026: a still cue on
+		// the Windows PC's software fallback read as the app having stopped).
+		expect(css).not.toContain('html[data-gpu="software"] .omp-live-');
 	});
 });

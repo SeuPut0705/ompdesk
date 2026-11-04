@@ -15,6 +15,7 @@ class FakeAnimation {
 
 function fakeView(animations: FakeAnimation[]) {
 	const now = { at: 1000 };
+	const attributeWatchers: Array<() => void> = [];
 	const doc = Object.assign(new EventTarget(), {
 		visibilityState: "visible" as DocumentVisibilityState,
 		focused: true,
@@ -22,20 +23,35 @@ function fakeView(animations: FakeAnimation[]) {
 			return this.focused;
 		},
 		getAnimations: () => animations,
+		documentElement: { dataset: {} as Record<string, string | undefined> },
 		timeline: {
 			get currentTime() {
 				return now.at;
 			},
 		},
 	});
+	/** Main marks `html[data-gpu]`; the clock watches the attribute. */
+	const markGpu = (value: string | undefined) => {
+		doc.documentElement.dataset.gpu = value;
+		for (const watcher of attributeWatchers) watcher();
+	};
 	const view = Object.assign(new EventTarget(), {
 		document: doc,
 		setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
 		setInterval: (fn: () => void, ms: number) => setInterval(fn, ms),
 		clearInterval: (id: number | undefined) => clearInterval(id),
 		performance: { now: () => now.at },
+		MutationObserver: class {
+			constructor(readonly callback: () => void) {}
+			observe() {
+				attributeWatchers.push(this.callback);
+			}
+			disconnect() {
+				attributeWatchers.splice(attributeWatchers.indexOf(this.callback), 1);
+			}
+		},
 	});
-	return { view: view as unknown as Window, doc, now };
+	return { view: view as unknown as Window, doc, now, markGpu };
 }
 
 afterEach(() => vi.useRealTimers());
@@ -94,5 +110,40 @@ describe("installCueClock", () => {
 		expect(loop.playbackRate).toBe(0);
 		uninstall();
 		expect(loop.playbackRate).toBe(1);
+	});
+
+	it("holds the loops while the document composites in software, focused or not, from the moment main marks it", async () => {
+		vi.useFakeTimers();
+		const loop = new FakeAnimation(400, Number.POSITIVE_INFINITY);
+		const once = new FakeAnimation(900, 1);
+		const { view, doc, now, markGpu } = fakeView([loop, once]);
+		const uninstall = installCueClock(view);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(loop.playbackRate).toBe(1);
+
+		markGpu("software");
+		await vi.advanceTimersByTimeAsync(0);
+		expect([loop.playbackRate, once.playbackRate, loop.playState]).toEqual([0, 1, "running"]);
+		now.at = 1250;
+		await vi.advanceTimersByTimeAsync(CUE_STEP_MS);
+		expect(loop.currentTime).toBe(850);
+		// Focus changes nothing there: the CPU paints every frame whoever has the keyboard.
+		doc.focused = false;
+		view.dispatchEvent(new Event("blur"));
+		doc.focused = true;
+		view.dispatchEvent(new Event("focus"));
+		await vi.advanceTimersByTimeAsync(0);
+		expect(loop.playbackRate).toBe(0);
+		// Hidden, the loops rest on their own (data-paused) and the clock stops.
+		doc.visibilityState = "hidden";
+		doc.dispatchEvent(new Event("visibilitychange"));
+		await vi.advanceTimersByTimeAsync(0);
+		expect(loop.playbackRate).toBe(1);
+
+		doc.visibilityState = "visible";
+		markGpu(undefined);
+		await vi.advanceTimersByTimeAsync(0);
+		expect([loop.playbackRate, loop.startTime]).toEqual([1, 400]);
+		uninstall();
 	});
 });

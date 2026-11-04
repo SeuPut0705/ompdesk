@@ -163,7 +163,6 @@ test("three running tabs sweep their titles and a split's running pane header ti
 		const ids = await threeRunning(page);
 		const running = ids.slice(0, 3);
 		const idle = ids[3] ?? "";
-		const software = (await page.locator("html").getAttribute("data-gpu")) === "software";
 		for (const id of running) {
 			await expect(row(page, id)).toHaveAttribute("data-signal", "running");
 			await expect(row(page, id).locator('.omp-live-text[data-working="turn"]')).toHaveCount(1);
@@ -175,26 +174,23 @@ test("three running tabs sweep their titles and a split's running pane header ti
 
 		// The sweep is two transforms per working title (the masked window and the copy of its words going back),
 		// and the age slot's working arc two more (head and tail, 21 Oct 2026), nothing that repaints; software
-		// compositing keeps them still.
+		// compositing keeps the same loops, held to ten frames a second (their play state stays running).
 		const moving = await lightAnimations(page, ".omp-session-sidebar");
-		if (software) expect(moving).toEqual([]);
-		else {
-			// Only the working rows move, nothing else in the sidebar.
-			expect([...new Set(moving.map(animation => animation.owner))].toSorted()).toEqual(
-				running.map(id => `tab:${id}`).toSorted(),
-			);
-			const titles = moving.filter(animation => animation.title);
-			expect(titles.map(animation => animation.name).toSorted()).toEqual(
-				running.flatMap(() => ["omp-live-shine-text", "omp-live-shine-text-hold"]).toSorted(),
-			);
-			expect(
-				moving
-					.filter(animation => !animation.title)
-					.map(animation => animation.name)
-					.toSorted(),
-			).toEqual(running.flatMap(() => ["omp-working-arc-head", "omp-working-arc-tail"]).toSorted());
-			for (const animation of moving) expect(animation).toMatchObject({ props: ["transform"], duration: 3000 });
-		}
+		// Only the working rows move, nothing else in the sidebar.
+		expect([...new Set(moving.map(animation => animation.owner))].toSorted()).toEqual(
+			running.map(id => `tab:${id}`).toSorted(),
+		);
+		const titles = moving.filter(animation => animation.title);
+		expect(titles.map(animation => animation.name).toSorted()).toEqual(
+			running.flatMap(() => ["omp-live-shine-text", "omp-live-shine-text-hold"]).toSorted(),
+		);
+		expect(
+			moving
+				.filter(animation => !animation.title)
+				.map(animation => animation.name)
+				.toSorted(),
+		).toEqual(running.flatMap(() => ["omp-working-arc-head", "omp-working-arc-tail"]).toSorted());
+		for (const animation of moving) expect(animation).toMatchObject({ props: ["transform"], duration: 3000 });
 		for (const theme of ["light", "dark"] as const) {
 			await page.emulateMedia({ colorScheme: theme });
 			await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
@@ -226,14 +222,11 @@ test("three running tabs sweep their titles and a split's running pane header ti
 		await expect(header(behind)).not.toHaveAttribute("data-pane-running", "true");
 		await expect(row(page, behind).locator('.omp-live-text[data-working="background"]')).toHaveCount(1);
 		await expect(header(behind).locator('.omp-live-text[data-working="background"]')).toHaveCount(1);
-		if (!software)
-			expect(
-				new Set(
-					(await lightAnimations(page, `[data-session-path="tab:${behind}"]`)).map(
-						animation => animation.duration,
-					),
-				),
-			).toEqual(new Set([3000]));
+		expect(
+			new Set(
+				(await lightAnimations(page, `[data-session-path="tab:${behind}"]`)).map(animation => animation.duration),
+			),
+		).toEqual(new Set([3000]));
 		for (const theme of ["light", "dark"] as const) {
 			await page.emulateMedia({ colorScheme: theme });
 			await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
