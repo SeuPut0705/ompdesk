@@ -551,6 +551,8 @@ const MESSAGE_CHARS = 1_500;
 const AUTO_CLOSE_WAIT_MS = 2_000;
 /** Closed tabs whose id still names their saved session (`AgentControl.#closedTabs`); one launch's worth. */
 const CLOSED_TABS_MAX = 500;
+/** Ids of sessions deleted this launch (`AgentControl.#deletedIds`): a repeated delete of one is a success. */
+const DELETED_IDS_MAX = 2000;
 const LIST_DEFAULT_ROWS = 30;
 /** A sent message's receipt waits this long to see the target's turn start. */
 const TURN_START_WAIT_MS = 1_500;
@@ -661,6 +663,22 @@ export function elapsedText(ms: number): string {
 function oneLine(text: string, max: number): string {
 	const flat = text.replace(/\s+/g, " ").trim();
 	return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+}
+
+/** The id a session path carries: stock names a session file `<time>_<session id>.jsonl`. */
+function savedIdOfPath(path: string | undefined): string | undefined {
+	return path ? /_([^_/\\]+)\.jsonl$/.exec(path)?.[1] : undefined;
+}
+
+/** A name as an agent typed it, without the quotes it may have wrapped around the id. */
+function unquoted(session: string): string {
+	return session.replace(/^["'“”‘’]+|["'“”‘’]+$/g, "").trim();
+}
+
+/** Every id that names an open session: its tab id, the ids it had before relaunches and its saved id. */
+function idsOf(tab: ControlTab): string[] {
+	const saved = savedIdOfPath(tab.sessionPath);
+	return [tab.tabId, ...(tab.formerIds ?? []), ...(saved ? [saved] : [])];
 }
 
 function cut(text: string, max: number): string {
@@ -1191,6 +1209,11 @@ export class AgentControl {
 	 * opened it, so the id the opener was given still names that saved session (read, delete) after the tab is gone.
 	 */
 	readonly #closedTabs = new Map<string, { row: StoredSession; opener: string }>();
+	/**
+	 * Ids of every session deleted this launch (by the tool, a throwaway's auto-close or `ompdesk_session_stop` of a
+	 * saved id): a delete of one again succeeds as "already deleted" instead of failing "No session".
+	 */
+	readonly #deletedIds = new Set<string>();
 	/** Reports between sessions (`mail.ts`): dispatch ids, coalescing, the last report of each child. */
 	readonly #mailbox: Mailbox;
 	/** Receipts of `ompdesk_session_send` by `caller|target|request_id`: a repeat is never delivered twice. */
@@ -1514,7 +1537,15 @@ export class AgentControl {
 			case T.stop: {
 				const args = ARGS[T.stop].parse(raw);
 				const device = args.device === undefined ? undefined : this.#device(args.device);
-				const target = await this.#resolveAny(tabs, args.session, caller, "stop", device);
+				const target = await this.#resolveAny(tabs, args.session, caller, "stop", device).catch(
+					(error: unknown) => {
+						// A second delete of what is already gone: nothing to do, and no error for the agent to read.
+						if (args.delete && this.#deletedIds.has(unquoted(args.session)))
+							return `"${unquoted(args.session)}" is already deleted: nothing to do.`;
+						throw error;
+					},
+				);
+				if (typeof target === "string") return target;
 				return "busy" in target ? this.#stop(caller, tabs, target, args) : this.#stopStored(caller, target, args);
 			}
 			case T.compare: {
@@ -2807,7 +2838,7 @@ export class AgentControl {
 		session: string,
 		device?: ControlDevice | null,
 	): Promise<{ target?: ControlTab | StoredSession; unreached: string[] }> {
-		const name = session.replace(/^["'“”‘’]+|["'“”‘’]+$/g, "").trim();
+		const name = unquoted(session);
 		const only = (matches: ControlTab[]): ControlTab | undefined => {
 			if (matches.length > 1)
 				fail(
@@ -2818,18 +2849,16 @@ export class AgentControl {
 				);
 			return matches[0];
 		};
-		// Stock names a session file `<time>_<session id>.jsonl`.
-		const savedId = (tab: ControlTab): string | undefined =>
-			tab.sessionPath ? /_([^_/\\]+)\.jsonl$/.exec(tab.sessionPath)?.[1] : undefined;
+		// Stock names a session file `<time>_<session id>.jsonl` (`savedIdOfPath`).
 		const listed = this.#stored.get(name);
 		const tab =
 			tabs.find(entry => entry.tabId === name) ??
 			tabs.find(entry => entry.formerIds?.includes(name)) ??
-			tabs.find(entry => savedId(entry) === name) ??
+			tabs.find(entry => savedIdOfPath(entry.sessionPath) === name) ??
 			(listed ? this.#liveTab(tabs, listed) : undefined) ??
 			(name.length >= SESSION_PREFIX_MIN
 				? (only(tabs.filter(entry => entry.tabId.startsWith(name))) ??
-					only(tabs.filter(entry => savedId(entry)?.startsWith(name))))
+					only(tabs.filter(entry => savedIdOfPath(entry.sessionPath)?.startsWith(name))))
 				: undefined);
 		if (tab) return { target: tab, unreached: [] };
 		// A tab closed this launch: its id still names the saved session it held (or the tab that has it open again);
@@ -3143,8 +3172,10 @@ export class AgentControl {
 					target,
 					args.close && !args.delete ? ABORT_BEFORE_CLOSE_MS : STOP_WAIT_MS,
 				);
-			if (args.delete) await this.#deleteWhenIdle(caller, target);
-			else if (args.close) {
+			if (args.delete) {
+				await this.#deleteWhenIdle(caller, target);
+				this.#rememberDeleted(idsOf(target));
+			} else if (args.close) {
 				// The card and the lines took time: the person may have opened it meanwhile.
 				const now = this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === target.tabId);
 				if (now && (now.looked || now.userTouched))
@@ -3281,8 +3312,12 @@ export class AgentControl {
 		}
 		await this.#host.deleteStored(row);
 		this.#stored.delete(row.id);
+		this.#rememberDeleted([row.id]);
 		for (const [tabId, entry] of this.#closedTabs)
-			if (same(entry.row.path, entry.row.device)) this.#closedTabs.delete(tabId);
+			if (same(entry.row.path, entry.row.device)) {
+				this.#closedTabs.delete(tabId);
+				this.#rememberDeleted([tabId]);
+			}
 		return `Deleted ${name}.`;
 	}
 
@@ -4095,6 +4130,18 @@ export class AgentControl {
 		}
 	}
 
+	/** `ids` name sessions that are deleted now; the oldest go past `DELETED_IDS_MAX`. */
+	#rememberDeleted(ids: Iterable<string>): void {
+		for (const id of ids) {
+			this.#deletedIds.delete(id);
+			this.#deletedIds.add(id);
+		}
+		for (const oldest of this.#deletedIds) {
+			if (this.#deletedIds.size <= DELETED_IDS_MAX) break;
+			this.#deletedIds.delete(oldest);
+		}
+	}
+
 	/**
 	 * A throwaway child's saved session goes with its tab, on the computer it is saved on (the sidebar's delete), and its
 	 * opener gets one quiet line saying so. Not when a tab holds the session again (the person reopened it meanwhile)
@@ -4108,6 +4155,7 @@ export class AgentControl {
 		} catch {
 			return false;
 		}
+		this.#rememberDeleted(idsOf(tab));
 		const text = `Deleted ${label(tab)}: it was opened as throwaway and its answer reached you.`;
 		await this.#host
 			.mail(

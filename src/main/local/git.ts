@@ -46,7 +46,7 @@ export const handlers: Record<string, LocalHandler> = {
 			{
 				name: str(command.name) ?? "",
 				baseCwd: str(command.baseCwd),
-				baseRef: command.baseRef === "default" ? "default" : "HEAD",
+				baseRef: str(command.baseRef) || "HEAD",
 				branchPrefix: str(command.branchPrefix),
 				branch: worktreeBranchSource(command.branch),
 			},

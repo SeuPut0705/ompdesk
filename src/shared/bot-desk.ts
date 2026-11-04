@@ -276,6 +276,8 @@ export interface BotRoleDesk {
 	duties: string;
 	memory: string;
 	identity: string;
+	/** The reference of the tools the bot uses most, built from their schemas in main (`bot-tools.ts`); absent from a caller that predates it. */
+	tools?: string;
 }
 
 export function botRoleDesk(desk: Pick<BotDeskFile, "duties" | "memories" | "identity">): BotRoleDesk {

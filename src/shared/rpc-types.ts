@@ -176,6 +176,7 @@ export type RpcCommand =
 			duties?: string;
 			memory?: string;
 			identity?: string;
+			tools?: string;
 			channel?: string;
 	  }
 	| { id?: string; type: "agent_control_judge"; system: string; user: string }
@@ -515,7 +516,8 @@ export type RpcCommand =
 			type: "worktree_create";
 			name: string;
 			baseCwd?: string;
-			baseRef?: "HEAD" | "default";
+			/** `HEAD` (default), `default` (the remote's default branch), or any branch, tag or commit the repository resolves. */
+			baseRef?: string;
 			branchPrefix?: string;
 			/**
 			 * The exact branch the worktree gets instead of `<branchPrefix><name>` (Autopilot's picker): `new` cuts it off

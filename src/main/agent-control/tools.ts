@@ -95,7 +95,11 @@ const OPEN_ONE = {
 				type: "object",
 				properties: {
 					branch: { type: "string", description: "Branch name; default omp/agent/<slug>." },
-					base: { type: "string", description: "Start ref; default the HEAD of your folder's repo." },
+					base: {
+						type: "string",
+						description:
+							'Start ref: "HEAD" (default: the HEAD of your folder\'s repo), "default" (the remote\'s default branch), or any branch, tag or commit the repo resolves.',
+					},
 				},
 				additionalProperties: false,
 			},
@@ -671,7 +675,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 				},
 				text: {
 					type: "string",
-					description: "duty_add: the duty, one sentence. remember: the fact, one sentence.",
+					description: `duty_add, remember: one sentence. At most ${BOT_DUTY_TEXT_MAX} characters for a duty, ${BOT_MEMORY_TEXT_MAX} for a fact.`,
 				},
 				id: { type: "string", description: "duty_remove, forget: the id desk shows." },
 				tagline: { type: "string", description: "identity: one line under your name." },

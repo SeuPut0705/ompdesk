@@ -109,6 +109,7 @@ import { BotFeed, type BotTab } from "./bot";
 import type { BotActivityLog } from "./bot-activity";
 import type { AnsweredDecision, BotDesk, OpenDecision } from "./bot-desk";
 import type { TeachMail } from "./bot-teach";
+import { BOT_TOOL_REFERENCE } from "./bot-tools";
 import {
 	type BranchEvidence,
 	type BranchFacts,
@@ -300,7 +301,7 @@ function askOf(request: ControlAsk["request"]): boolean {
 }
 
 /** What a worktree for a new session is made from (`worktree_create`'s fields). */
-type WorktreeInput = { name: string; baseCwd: string; baseRef: "HEAD" | "default"; branchPrefix: string };
+type WorktreeInput = { name: string; baseCwd: string; baseRef: string; branchPrefix: string };
 
 /** The binding `host.git.*` takes: exactly the checkout, its branch and its parent (never the tab's own name). */
 function gitRef(worktree: WorktreeRef): WorktreeRef {
@@ -578,7 +579,7 @@ export class AgentControlRuntime {
 				const owner = deps.pool.sessionOwner(sessionPath);
 				return owner ? this.#botTab(owner.tabId) : null;
 			},
-			desk: () => botRoleDesk(deps.botDesk?.desk.state() ?? EMPTY_BOT_DESK_FILE),
+			desk: () => ({ ...botRoleDesk(deps.botDesk?.desk.state() ?? EMPTY_BOT_DESK_FILE), tools: BOT_TOOL_REFERENCE }),
 			channels: () => deps.botDesk?.desk.state().channels ?? [],
 			tell: async (tabId, rules, desk, channel) => {
 				const response = await this.#hostCommand(
@@ -1435,14 +1436,9 @@ export class AgentControlRuntime {
 		let worktree: IpcTabWorktree | undefined;
 		let prepared: string | null = null;
 		if (request.worktree && cwd !== undefined) {
-			const base = request.worktree.base;
-			if (base !== undefined && base !== "HEAD" && base !== "default")
-				throw new Error(
-					'worktree.base must be "HEAD" (the folder\'s current commit) or "default" (the default branch).',
-				);
 			const slug = `agent-${Math.random().toString(36).slice(2, 8)}`;
 			const { branchPrefix, name } = splitBranch(request.worktree.branch, slug);
-			const input = { name, baseCwd: cwd, baseRef: base === "default" ? "default" : "HEAD", branchPrefix } as const;
+			const input = { name, baseCwd: cwd, baseRef: request.worktree.base ?? "HEAD", branchPrefix } as const;
 			// The worktree is made on the computer the new session runs on: the caller's own through its tab,
 			// another one without a tab of the caller there.
 			const made =

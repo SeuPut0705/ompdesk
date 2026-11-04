@@ -94,6 +94,19 @@ describe("bot role", () => {
 		expect(botSection(RULES, "Bot", { memory })).not.toContain("side chat on");
 	});
 
+	it("prints the tool reference main sent, journals it once, and prints none for an entry that predates it", async () => {
+		const tools = "- ompdesk_session_send — Send a message | session: string, message: string";
+		const entries: JournalEntry[] = [{ type: "custom", customType: BOT_ENTRY, data: { rules: RULES, tools } }];
+		const text = hook()({ systemPrompt: BASE }, session(entries))?.systemPrompt?.at(-1) ?? "";
+		expect(text).toContain(`without reading their xd:// docs first:\n${tools}\n`);
+		expect(botSection(RULES)).not.toContain("Tool reference");
+		const journal: JournalEntry[] = [];
+		const env = envOver(journal);
+		await expect(methods["agent_control.bot"]?.({ rules: RULES, tools }, env)).resolves.toEqual({ changed: true });
+		await expect(methods["agent_control.bot"]?.({ rules: RULES, tools }, env)).resolves.toEqual({ changed: false });
+		await expect(methods["agent_control.bot"]?.({ rules: RULES, tools: 5 }, env)).rejects.toThrow("tools");
+	});
+
 	it("journals memory, identity and topic changes once each", async () => {
 		const journal: JournalEntry[] = [];
 		const env = envOver(journal);

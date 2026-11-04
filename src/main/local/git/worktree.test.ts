@@ -107,6 +107,33 @@ describe("removeWorktree", () => {
 			code: "invalid_name",
 		});
 	});
+	it("starts the worktree's branch at the branch, tag or commit baseRef names, and refuses one that is no commit or reads as an option", async () => {
+		await initRepo(outside);
+		const mainTip = gitSync(outside, "rev-parse", "HEAD");
+		gitSync(outside, "switch", "-q", "-c", "release");
+		gitSync(outside, "commit", "-q", "--allow-empty", "-m", "release work");
+		const releaseTip = gitSync(outside, "rev-parse", "HEAD");
+		gitSync(outside, "tag", "v1");
+		gitSync(outside, "switch", "-q", "main");
+		const startOf = async (name: string, baseRef?: string) =>
+			gitSync(
+				(await createWorktree(outside, { name, ...(baseRef ? { baseRef } : {}) }, bridge)).path,
+				"rev-parse",
+				"HEAD",
+			);
+		expect(await startOf("by-default")).toBe(mainTip);
+		expect(await startOf("by-head", "HEAD")).toBe(mainTip);
+		expect(await startOf("by-branch", "release")).toBe(releaseTip);
+		expect(await startOf("by-tag", "v1")).toBe(releaseTip);
+		expect(await startOf("by-sha", releaseTip)).toBe(releaseTip);
+		for (const baseRef of ["no-such-ref", "--upload-pack=x", "-b"])
+			await expect(createWorktree(outside, { name: "bad", baseRef }, bridge)).rejects.toMatchObject({
+				code: "invalid_base",
+			});
+		// A refused base created nothing: no branch, no folder.
+		expect(gitSync(outside, "branch", "--list", "omp/gui/bad")).toBe("");
+		expect(await pathExists(path.join(root, "gui-bad-abc1234"))).toBe(false);
+	});
 	it("checks out the exact branch the caller names: a new one, an existing local one, a remote one it then tracks", async () => {
 		await initRepo(outside);
 		const bare = path.join(scratch, "remote.git");

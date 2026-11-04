@@ -141,12 +141,31 @@ async function addNamedWorktree(
 	});
 }
 
+/**
+ * The commit a new worktree branch starts at: `HEAD` (the default), `default` (the remote's default branch, else
+ * HEAD), or any branch, tag or commit the repository resolves. A ref that resolves to no commit, or reads as a git
+ * option, is refused before anything is created.
+ */
+async function startPointOf(baseCwd: string, primary: string, baseRef: string | undefined): Promise<string> {
+	if (baseRef === undefined || baseRef === "HEAD") return "HEAD";
+	if (baseRef === "default") return (await defaultBranchRef(primary)) ?? "HEAD";
+	const resolves =
+		!baseRef.startsWith("-") &&
+		(await gitRaw(baseCwd, ["rev-parse", "--verify", "--quiet", `${baseRef}^{commit}`])).code === 0;
+	if (!resolves)
+		throw new LocalCommandError(
+			`The base "${baseRef}" is not a branch, tag or commit of ${baseCwd}. Use "HEAD" (default), "default" (the remote's default branch) or a ref the repository has.`,
+			"invalid_base",
+		);
+	return baseRef;
+}
+
 export async function createWorktree(
 	sessionCwd: string,
 	input: {
 		name: string;
 		baseCwd?: string;
-		baseRef?: "HEAD" | "default";
+		baseRef?: string;
 		branchPrefix?: string;
 		branch?: WorktreeBranchSource;
 	},
@@ -174,7 +193,7 @@ export async function createWorktree(
 		(await realOf(baseCwd).catch(() => null)) === (await realOf(primary).catch(() => undefined))
 			? path.resolve(baseCwd)
 			: primary;
-	const startPoint = input.baseRef === "default" ? ((await defaultBranchRef(primary)) ?? "HEAD") : "HEAD";
+	const startPoint = await startPointOf(baseCwd, primary, input.baseRef);
 	const location = await stockWorktreeLocation(bridge, primary);
 
 	const made = await withRepoLock(primary, async (): Promise<RpcWorktreeCreateResult> => {

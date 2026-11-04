@@ -1426,6 +1426,23 @@ describe("ompdesk_session_stop", () => {
 		expect(host.cards).toHaveLength(0);
 	});
 
+	it("answers a repeated delete of a session it deleted as already deleted, and still fails an id it never knew", async () => {
+		const host = new FakeHost({ tabId: "main0001" });
+		const service = control(host);
+		await service.run("main0001", T.open, { message: "work" });
+		const child = [...host.tabsById.keys()].find(id => id !== "main0001") as string;
+		expect((await service.run("main0001", T.stop, { session: child, delete: true })).isError).toBe(false);
+		const again = await service.run("main0001", T.stop, { session: `"${child}"`, delete: true });
+		expect(again.isError).toBe(false);
+		expect(again.text).toContain("already deleted");
+		expect(host.deleted).toEqual([child]);
+		const unknown = await service.run("main0001", T.stop, { session: "nope9999", delete: true });
+		expect(unknown.isError).toBe(true);
+		expect(unknown.text).toMatch(/No session/);
+		// Only a delete is a success: closing a session that is gone is still an unknown id.
+		expect((await service.run("main0001", T.stop, { session: child, close: true })).isError).toBe(true);
+	});
+
 	it("asks the user before touching a session it did not open, and a refusal stops nothing", async () => {
 		const host = new FakeHost(
 			{ tabId: "main0001", title: "Boss" },

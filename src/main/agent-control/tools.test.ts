@@ -134,3 +134,36 @@ describe("ompdesk_bot arguments", () => {
 		expect(() => args.parse({ action: "activity", limit: 0 })).toThrow();
 	});
 });
+
+describe("schema text states what the parser accepts", () => {
+	interface Property {
+		description?: string;
+		anyOf?: { properties?: Record<string, Property> }[];
+	}
+	const properties = (name: string): Record<string, Property> => {
+		const definition = AGENT_CONTROL_DEFINITIONS.find(entry => entry.name === name);
+		if (!definition) throw new Error(`no tool ${name}`);
+		// The tools' parameters are JSON schemas of an object with properties (tools.test.ts above parses them as such).
+		const schema = definition.parameters as { properties: Record<string, Property> };
+		return schema.properties;
+	};
+
+	it("gives the ompdesk_bot text cap the parser enforces, for a duty and for a fact", () => {
+		const bot = ARGS[AGENT_CONTROL_TOOLS.bot];
+		expect(properties(AGENT_CONTROL_TOOLS.bot).text?.description).toMatch(/at most 300|300 characters/i);
+		for (const action of ["duty_add", "remember"]) {
+			expect(bot.parse({ action, text: "x".repeat(300) })).toMatchObject({ action });
+			expect(() => bot.parse({ action, text: "x".repeat(301) })).toThrow();
+		}
+	});
+
+	it("says worktree.base takes any ref, and the parser passes one on", () => {
+		const base = properties(AGENT_CONTROL_TOOLS.open).worktree?.anyOf?.[1]?.properties?.base?.description;
+		expect(base).toContain('"HEAD"');
+		expect(base).toContain('"default"');
+		expect(base).toContain("any branch, tag or commit the repo resolves");
+		expect(ARGS[AGENT_CONTROL_TOOLS.open].parse({ worktree: { base: "origin/release-1.2" } })).toMatchObject({
+			worktree: { base: "origin/release-1.2" },
+		});
+	});
+});

@@ -563,7 +563,7 @@ const GitWorktreeCreateParams = z.object({
 	// createWorktree checks the name's and the prefix's own shape and says why it refuses one.
 	name: z.string().min(1).max(64),
 	branchPrefix: z.string().max(200).optional(),
-	baseRef: z.enum(["HEAD", "default"]),
+	baseRef: z.string().min(1).max(200),
 });
 /** `runChargesFile`: Autopilot runs devices started here, by worktree root (the run's session, when known). */
 const RunChargesSchema = z.record(z.object({ device: z.string().min(1), session: z.string().optional() }).strict());

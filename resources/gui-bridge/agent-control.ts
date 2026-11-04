@@ -57,6 +57,8 @@ const BOT_DUTIES_MAX_CHARS = 20_000;
 /** The memory text is a line per memory (fifty at most, 300 characters each). */
 const BOT_MEMORY_MAX_CHARS = 40_000;
 const BOT_IDENTITY_MAX_CHARS = 4_000;
+/** The tool reference is generated from the tools' schemas in main; this is the last guard on its size. */
+const BOT_TOOLS_MAX_CHARS = 20_000;
 const BOT_CHANNEL_MAX_CHARS = 200;
 
 /** What main tells a bot tab besides its rules (`botRoleDesk`, and a side chat's topic). */
@@ -64,11 +66,13 @@ export interface BotDeskText {
 	duties: string;
 	memory: string;
 	identity: string;
+	/** The reference of the tools the bot uses most (`botToolReference` in main); empty from a caller that predates it. */
+	tools: string;
 	/** The side chat's topic; absent in the bot's main conversation. */
 	channel?: string;
 }
 
-const NO_DESK: BotDeskText = { duties: "", memory: "", identity: "" };
+const NO_DESK: BotDeskText = { duties: "", memory: "", identity: "", tools: "" };
 
 /** What a session opened by another agent should know about its role; kept short and plain. */
 export const WORKER_CONTRACT = `<ompdesk-worker>
@@ -89,6 +93,7 @@ export function botSection(rules: string, name?: string, desk: Partial<BotDeskTe
 	const duties = desk.duties?.trim() ?? "";
 	const memory = desk.memory?.trim() ?? "";
 	const identity = desk.identity?.trim() ?? "";
+	const tools = desk.tools?.trim() ?? "";
 	const channel = desk.channel?.trim();
 	return `<ompdesk-bot>
 You are ${called ? `"${called}", ` : ""}the owner's always-on bot.${called ? " The owner names you in Settings › Bot; answer to that name." : ""}
@@ -111,7 +116,7 @@ ${channel ? `This conversation is your side chat on "${channel}", apart from you
 - Plan follow-ups and wake yourself to check later with ompdesk_schedule {"target":"self"}: a one-time wake (in_minutes, at) is deleted once it ran; cancel a repeating one you no longer need.
 - Your conversation renews: OMPdesk starts a fresh one each day after 04:00 and when this one grows long, at a moment you are not working, and the owner can start one any time. You are asked for a short handoff note first, and the new conversation starts from it; ompdesk_bot {"action":"new_conversation"} asks for one yourself. Your desk, duties, memory, rules and routines carry over, the old conversation does not: keep what must last on your desk or in memory, never only in this chat.
 - Act on your own by default: carry the work through without asking. Ask the owner, wait for their go-ahead or hand them the step only where a rule below says so.
-${duties ? `Standing duties:\n${duties}` : "Standing duties: none yet."}
+${tools ? `Tool reference (argument names and types; ? marks an optional one, [action] the actions that take it; session is the id ompdesk_sessions lists, or a saved id). Call these tools directly, without reading their xd:// docs first:\n${tools}\n` : ""}${duties ? `Standing duties:\n${duties}` : "Standing duties: none yet."}
 ${memory ? `What you remember:\n${memory}` : "What you remember: nothing yet."}
 ${rules.trim() ? `Rules:\n${rules.trim()}` : "The owner set no rules: act on your own."}
 </ompdesk-bot>`;
@@ -131,13 +136,14 @@ export function botEntryOf(ctx: PromptSectionContext): ({ rules: string } & BotD
 		const data: unknown = entry.data;
 		if (!data || typeof data !== "object" || !("rules" in data) || typeof data.rules !== "string") return undefined;
 		const record = data as Record<string, unknown>;
-		// An entry journaled before the desk existed has no duties; one before memory has no memory or identity.
+		// An entry journaled before the desk existed has no duties; one before memory has no memory or identity; one before the tool reference has no tools.
 		const channel = textField(record, "channel");
 		return {
 			rules: data.rules,
 			duties: textField(record, "duties"),
 			memory: textField(record, "memory"),
 			identity: textField(record, "identity"),
+			tools: textField(record, "tools"),
 			...(channel ? { channel } : {}),
 		};
 	}
@@ -255,16 +261,16 @@ export const methods: BridgeMethods = {
 		return {};
 	},
 	/**
-	 * `{rules, duties?, memory?, identity?, channel?}` → `{changed}`: this is the owner's bot session (or its side chat on
+	 * `{rules, duties?, memory?, identity?, tools?, channel?}` → `{changed}`: this is the owner's bot session (or its side chat on
 	 * `channel`), and these are the owner's rules for its actions (the text `botRulesText` builds, empty when the owner set
 	 * none) and its desk (`botRoleDesk`: duties, memories, identity, each empty when there is none; absent from a caller
-	 * that predates them). Journaled as `ompdesk.bot` only when any differs from the newest entry, so a session main tells
+	 * that predates them) and the reference of the tools it uses most (`tools`, main's `botToolReference`). Journaled as `ompdesk.bot` only when any differs from the newest entry, so a session main tells
 	 * again at every start journals them once; the newest entry wins.
 	 */
 	"agent_control.bot": async (params, env) => {
 		const record: Record<string, unknown> = params && typeof params === "object" ? { ...params } : {};
 		if (typeof record.rules !== "string") throw new Error("agent_control needs rules");
-		for (const key of ["duties", "memory", "identity", "channel"] as const)
+		for (const key of ["duties", "memory", "identity", "tools", "channel"] as const)
 			if (record[key] !== undefined && typeof record[key] !== "string")
 				throw new Error(`agent_control needs ${key} as text`);
 		const manager = env.session().sessionManager;
@@ -274,6 +280,7 @@ export const methods: BridgeMethods = {
 			duties: textField(record, "duties").slice(0, BOT_DUTIES_MAX_CHARS),
 			memory: textField(record, "memory").slice(0, BOT_MEMORY_MAX_CHARS),
 			identity: textField(record, "identity").slice(0, BOT_IDENTITY_MAX_CHARS),
+			tools: textField(record, "tools").slice(0, BOT_TOOLS_MAX_CHARS),
 			...(channel ? { channel } : {}),
 		};
 		const last = botEntryOf({ sessionManager: manager, agent: { kind: "main" } }) ?? { rules: undefined, ...NO_DESK };
@@ -282,6 +289,7 @@ export const methods: BridgeMethods = {
 			last.duties === next.duties &&
 			last.memory === next.memory &&
 			last.identity === next.identity &&
+			last.tools === next.tools &&
 			last.channel === next.channel
 		)
 			return { changed: false };

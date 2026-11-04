@@ -34,6 +34,7 @@ import type { ClientWindow } from "../web/client-window";
 import { FileEditReports } from "../web/file-edit-reports";
 import { BotActivityLog } from "./bot-activity";
 import { BotDesk, type OpenDecision } from "./bot-desk";
+import { BOT_TOOL_REFERENCE } from "./bot-tools";
 import { type AgentControlHostDeps, AgentControlRuntime, splitBranch } from "./host";
 
 const ok = (data: unknown = {}): RpcResponse => ({ type: "response", success: true, data }) as RpcResponse;
@@ -619,11 +620,13 @@ describe("AgentControlRuntime", () => {
 		expect(sent.at(-1)).toMatchObject({ tabId: "new00003", command: { type: "get_autopilot" } });
 	});
 
-	it("rejects a worktree base that is not HEAD or default, and a folder that does not exist", async () => {
-		const { runtime, win, spawned } = setup();
-		expect((await runtime.run(win, "main0001", T.open, { worktree: { base: "feature/x" } })).text).toMatch(
-			/must be "HEAD"/,
-		);
+	it("starts a worktree from any ref the caller names and refuses a folder that does not exist", async () => {
+		const { runtime, win, commands, spawned } = setup();
+		await runtime.run(win, "main0001", T.open, { worktree: { base: "feature/x" } });
+		expect(commands.find(entry => entry.command.type === "worktree_create")?.command).toMatchObject({
+			baseRef: "feature/x",
+		});
+		spawned.length = 0;
 		expect((await runtime.run(win, "main0001", T.open, { folder: "/definitely/not/a/folder" })).text).toMatch(
 			/not a folder/,
 		);
@@ -1841,6 +1844,7 @@ describe("the bot's role and a session's own wake-up", () => {
 			duties: "",
 			memory: "",
 			identity: "",
+			tools: BOT_TOOL_REFERENCE,
 		});
 		// The same rules are not told again with the next mail.
 		await runtime.wakeSession(wakeable(file), "run-9");
@@ -1858,6 +1862,7 @@ describe("the bot's role and a session's own wake-up", () => {
 			duties: "",
 			memory: "",
 			identity: "",
+			tools: BOT_TOOL_REFERENCE,
 		});
 	});
 

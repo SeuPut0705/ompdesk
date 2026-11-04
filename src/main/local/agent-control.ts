@@ -15,6 +15,7 @@ const botCommand = z.object({
 	duties: z.string().max(20_000).optional(),
 	memory: z.string().max(40_000).optional(),
 	identity: z.string().max(4_000).optional(),
+	tools: z.string().max(20_000).optional(),
 	channel: z.string().max(200).optional(),
 });
 const sentCommand = z.object({ marks: z.array(z.string().min(1).max(200)).min(1).max(100) });
@@ -50,12 +51,13 @@ export const handlers: Record<string, LocalHandler> = {
 	 * is none); its bridge journals them and adds the bot role.
 	 */
 	agent_control_bot: async (command, ctx) => {
-		const { rules, duties, memory, identity, channel } = botCommand.parse(command);
+		const { rules, duties, memory, identity, tools, channel } = botCommand.parse(command);
 		return ctx.bridge.request("agent_control.bot", {
 			rules,
 			duties: duties ?? "",
 			memory: memory ?? "",
 			identity: identity ?? "",
+			tools: tools ?? "",
 			...(channel ? { channel } : {}),
 		});
 	},

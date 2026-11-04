@@ -2,7 +2,7 @@
 
 ## Open
 
-`ompdesk_session_open` takes one session's fields or `sessions: [ … ]` for several at once. Each: `message`, `folder`, `model` (`provider/id`), `mode` (`plan` or `goal`; `goal` needs a `message`, which becomes the goal), `worktree` (`true`, or `{branch, base}` with `base` `HEAD` or `default`). Shared: `show` (`background` default, `focus`, `split-right`, `split-down`). It returns the ids. On a paired host's tab it opens on that host.
+`ompdesk_session_open` takes one session's fields or `sessions: [ … ]` for several at once. Each: `message`, `folder`, `model` (`provider/id`), `mode` (`plan` or `goal`; `goal` needs a `message`, which becomes the goal), `worktree` (`true`, or `{branch, base}` where `base` is `HEAD` (default), `default` (the remote's default branch) or any branch, tag or commit the repo resolves). Shared: `show` (`background` default, `focus`, `split-right`, `split-down`). It returns the ids. On a paired host's tab it opens on that host.
 
 Before you open: say which parts you will run. Write each first message with the brief template in SKILL.md. When the child writes files, give it `worktree: true` or Ownership no other child shares, so two sessions never edit one file. A `task` subagent is no substitute: it works in your checkout whatever folder you name, so a git worktree you make by hand and hand to it isolates nothing.
 
