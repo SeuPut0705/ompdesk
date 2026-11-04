@@ -52,10 +52,13 @@ export function changedLines(previous: ReadonlyMap<string, string>, jobs: readon
 	return lines;
 }
 
-const ERROR_LINE =
-	/(^| )(FAIL|✗|×|error TS[0-9]+|error:|Error:|AssertionError|TypeError|ReferenceError|Timed out|Timeout|Process completed with exit code|##\[error\])|^(Error|error)|^\S+:\d+:\d+ \S+/;
+// What a test or lint run says about its verdict. Chatter that merely contains "error:" (a sidecar's stderr, a
+// logged rejection) counts only when no verdict line exists: it filled the first 15 lines of a vitest failure.
+const VERDICT_LINE =
+	/^\s*(FAIL\b|✗|×)|\bFAIL\b|AssertionError|error TS[0-9]+|##\[error\]|^\S+:\d+:\d+ \S+|Process completed with exit code/;
+const ERROR_LINE = /(^| )(error:|Error:|TypeError|ReferenceError|Timed out|Timeout)|^(Error|error)/;
 
-/** The first error lines of a job log: what `scripts/ci-failure.sh` greps, plus `file:line:col rule` diagnostics (biome, tsc). */
+/** The first error lines of a job log: verdict lines first, then what `scripts/ci-failure.sh` greps, then the log's tail. */
 export function errorLines(log: string, limit = ERROR_LINES): string[] {
 	const clean = log.split("\n").map(line =>
 		line
@@ -63,7 +66,8 @@ export function errorLines(log: string, limit = ERROR_LINES): string[] {
 			.replace(/^\S*Z /, "")
 			.trimEnd(),
 	);
-	const hits = clean.filter(line => ERROR_LINE.test(line));
+	const verdicts = clean.filter(line => VERDICT_LINE.test(line));
+	const hits = verdicts.length > 0 ? verdicts : clean.filter(line => ERROR_LINE.test(line));
 	return (hits.length > 0 ? hits : clean.filter(line => line.trim() !== "").slice(-limit)).slice(0, limit);
 }
 

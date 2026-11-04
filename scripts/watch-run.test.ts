@@ -46,6 +46,19 @@ describe("watch-run: the first error lines of a job log", () => {
 		]);
 	});
 
+	it("puts a vitest verdict ahead of the chatter that also says error:", () => {
+		const chatter = Array.from({ length: 20 }, () => "[sidecar stderr] error: Could not restore model gone/model-x");
+		const log = [
+			...chatter,
+			"   × a quit that aborted a tool > goes on with the turn 3870ms",
+			"AssertionError: expected 'toolUse' to be 'aborted' // Object.is equality",
+		].join("\n");
+		expect(errorLines(log)).toEqual([
+			"   × a quit that aborted a tool > goes on with the turn 3870ms",
+			"AssertionError: expected 'toolUse' to be 'aborted' // Object.is equality",
+		]);
+	});
+
 	it("caps the lines, and falls back to the log's tail when nothing looks like an error", () => {
 		const many = Array.from({ length: 40 }, (_, i) => `FAIL test ${i}`).join("\n");
 		expect(errorLines(many, 15)).toHaveLength(15);
