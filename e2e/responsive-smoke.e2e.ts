@@ -277,6 +277,9 @@ const HOST_SURFACES = ["host-path-actions", "host-browser-folder"];
 
 for (const look of TOUCH_LOOKS) {
 	test(`responsive smoke ${lookTag(look)}: every tap reaches the control it aims at`, async () => {
+		// It walks every tap surface in one page: 23 s here, and past the default 60 s on a hosted runner in both
+		// tries of nightly 41886483957 (834P), though it passed in 41880669356.
+		test.setTimeout(150_000);
 		if (!browser) throw new Error("the browser is not up");
 		const found: string[] = [];
 		const check = async (page: Page, id: string) => {
