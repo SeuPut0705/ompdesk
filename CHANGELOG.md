@@ -5,14 +5,14 @@
 반복 확인 경고는 같은 것을 두 번째로 볼 때만 떠요.
 
 ### 고친 것
-- 실패한 실행을 처음 들여다보는 `gh run view <id> --json …`, `gh run view <id> --log-failed`, `gh run list`, `pgrep`, `read proc://…`에도 "this polled" 경고가 붙고 Pace의 `polled ×N`에 세졌어요. 이제 같은 대상(실행 id, `gh run list`의 인자, `pgrep` 패턴, `proc://` 경로)을 두 번째로 볼 때부터 반복 확인이에요. `gh run view --log`·`--log-failed`는 원인 진단이라 반복 확인이 아니고, `sleep N` 뒤에 명령이 오는 경우·`while … sleep`·`tail -f`·포그라운드 `gh run watch`는 처음부터 반복 확인으로 세요. 경고 판정과 Pace 집계는 같은 분류기를 써요. 최근 14일 세션 12개에서 Pace의 반복 확인은 150회에서 67회로 줄었어요.
+- 실패한 실행을 처음 들여다보는 `gh run view <id> --json …`, `gh run view <id> --log-failed`, `gh run list`, `pgrep`, `read proc://…`에도 "this polled" 경고가 붙고 Pace의 `polled ×N`에 세졌어요. 이제 같은 대상(실행 id, `gh run list`의 인자, `pgrep` 패턴, `proc://` 프로세스 id)을 두 번째로 볼 때부터 반복 확인이에요. `gh run view --log`·`--log-failed`는 원인 진단이라 반복 확인이 아니고, `sleep N` 뒤에 명령이 오는 경우·`while … sleep`·`tail -f`·포그라운드 `gh run watch`는 처음부터 반복 확인으로 세요. 경고 판정과 Pace 집계는 같은 분류기를 써요. 최근 14일 세션 13개에서 Pace의 반복 확인은 139회에서 56회로 줄었어요.
 
 <!-- en -->
 
 The repeated-look warning now fires only at the second look at the same thing.
 
 ### Fixed
-- A first look at a failure, such as `gh run view <id> --json …`, `gh run view <id> --log-failed`, `gh run list`, `pgrep` or `read proc://…`, drew the "this polled" hint and counted toward Pace's `polled ×N`. A poll now starts at the second look at the same target (run id, `gh run list` arguments, `pgrep` pattern, `proc://` path). `gh run view --log` and `--log-failed` are diagnosis, never a poll; `sleep N` followed by a command, `while … sleep`, `tail -f` and a foreground `gh run watch` still count at first sight. The hint and Pace use one classifier. Across the last 14 days' 12 sessions Pace's polls fell from 150 to 67.
+- A first look at a failure, such as `gh run view <id> --json …`, `gh run view <id> --log-failed`, `gh run list`, `pgrep` or `read proc://…`, drew the "this polled" hint and counted toward Pace's `polled ×N`. A poll now starts at the second look at the same target (run id, `gh run list` arguments, `pgrep` pattern, `proc://` process id). `gh run view --log` and `--log-failed` are diagnosis, never a poll; `sleep N` followed by a command, `while … sleep`, `tail -f` and a foreground `gh run watch` still count at first sight. The hint and Pace use one classifier. Across the last 14 days' 13 sessions Pace's polls fell from 139 to 56.
 
 ## [0.110.0] - 2026-11-05
 
