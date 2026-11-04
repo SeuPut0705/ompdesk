@@ -78,8 +78,10 @@ const writeText = vi.fn(async (_text: string) => {});
 
 Object.assign(window as unknown as Record<string, unknown>, {
 	omp: {
+		events: { onModelsConfigChanged: () => () => {} },
 		rpc: routeCommands({ getProviders, getProviderAccounts, getSettings, setSetting, getAgentDefinitions }),
 		models: { listProviders: vi.fn(async () => ({ providers: [], options: fixtureProviderOptions })) },
+		localEngines: { get: vi.fn(async () => ({ enabled: true })), set: vi.fn() },
 		ui: { respondExtensionUi: vi.fn() },
 		system: { openExternal: vi.fn(async () => {}) },
 		accountRotation: { get: vi.fn(async () => ({ mode: "quota", evenSupported: true })), set: vi.fn(async () => {}) },

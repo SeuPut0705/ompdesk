@@ -218,6 +218,18 @@ async function openBotFamily(page: Page, look: Look): Promise<void> {
 		if (id !== kept) await page.locator(`[data-sidebar-device-toggle="${id}"][aria-expanded='true']`).click();
 }
 
+/** Settings › Models & accounts through the sidebar's Settings row and the section's own nav entry, as a person does; the local engine switch under Custom endpoints in view. */
+async function openSettingsModels(page: Page, look: Look): Promise<void> {
+	await openDrawer(page, look);
+	await page.locator('[data-destination="settings"]').first().click();
+	const nav = page.locator('[data-settings-section="models"]');
+	await nav.waitFor({ state: "visible", timeout: 15_000 });
+	await nav.click();
+	const row = page.locator("[data-settings-page] [data-local-engine-detect]");
+	await row.waitFor({ state: "visible", timeout: 30_000 });
+	await row.scrollIntoViewIfNeeded();
+}
+
 async function openSettings(page: Page, section: string): Promise<void> {
 	await ui(page, "openSettings", section);
 	const nav = page.locator(`[data-settings-section="${section.split(":")[0]}"]`);
@@ -584,7 +596,7 @@ export const SURFACES: readonly Surface[] = [
 	},
 
 	// ── Area B: Settings, centers, dialogs ────────────────────────────────────────────────────
-	...SETTINGS_SECTIONS.map(
+	...SETTINGS_SECTIONS.filter(section => section !== "models").map(
 		(section): Surface => ({
 			id: `settings-${section}`,
 			area: "B",
@@ -594,6 +606,15 @@ export const SURFACES: readonly Surface[] = [
 			settle: 900,
 		}),
 	),
+	{
+		id: "settings-models",
+		area: "B",
+		title: "Settings › Models & accounts, scrolled to the local engine switch under Custom endpoints",
+		open: openSettingsModels,
+		ready: "[data-settings-page] [data-local-engine-detect]",
+		settle: 900,
+		parity: { session: "work" },
+	},
 	// Settings › Memory: every tab, and the list → detail states of Pages, Handoffs and Sessions.
 	...(["overview", "search", "pages", "handoffs", "sessions", "profile", "maintenance"] as const).map(
 		(tab): Surface => ({

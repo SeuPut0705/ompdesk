@@ -116,6 +116,12 @@ export function useProviderCatalog({
 		if (active) void load();
 	}, [active, load]);
 
+	// OMPdesk wrote models.yml itself (a local engine came or went): the open list follows without a click.
+	useEffect(() => {
+		if (!active) return;
+		return window.omp.events.onModelsConfigChanged(() => void load(true));
+	}, [active, load]);
+
 	useEffect(() => {
 		// `refreshPending`: the sidecar stopped waiting on discovery for this read
 		// and nothing pushes the answer here, so keep asking with cheap reads.

@@ -28,6 +28,7 @@ import type {
 	ModelOverrideInput,
 	UpdateStatus,
 } from "../shared/ipc-types";
+import { type LocalEngineDetectState, localEngineDetectEnabled } from "../shared/local-engines";
 import { MODEL_SETUP_TIMEOUT_MS, type ModelSetupRequest, type ModelSetupStatus } from "../shared/model-setup";
 import type { OmpUpdateState } from "../shared/omp-update";
 import type { ScheduleCreated, ScheduleDraft, SchedulesRequest, SchedulesState } from "../shared/schedules";
@@ -45,6 +46,7 @@ import {
 	HOST_STATS_TIMEOUT_MS,
 	HostDesktopStateSchema,
 	LINK_SLACK_MS,
+	LocalEngineDetectStateSchema,
 	ModelSetupStatusSchema,
 	OmpUpdateStateSchema,
 	ScheduleCreatedSchema,
@@ -81,6 +83,9 @@ export interface MachineServices {
 	setAccountRotation(mode: AccountRotationMode): Promise<AccountRotationState>;
 	builtinRea(): Promise<BuiltinReaState>;
 	setBuiltinRea(enabled: boolean): Promise<BuiltinReaState>;
+	/** Whether that machine looks for local inference engines (FreeToken, colibri) and lists their models by itself. */
+	localEngineDetect(): Promise<LocalEngineDetectState>;
+	setLocalEngineDetect(enabled: boolean): Promise<LocalEngineDetectState>;
 	/** OMPdesk on that machine: version, updater state, theme and UI language. */
 	desktop(): Promise<HostDesktopState>;
 	/** Drive that machine's updater; `install` restarts it into the downloaded update. */
@@ -148,6 +153,12 @@ export interface LocalMachineDeps {
 	benchmarkOmp: () => Promise<OmpResolution>;
 	benchmarkEnv: () => Promise<NodeJS.ProcessEnv>;
 	accountRotation: AccountRotationDeps;
+	localEngines: {
+		/** The stored pref `LOCAL_ENGINE_DETECT_PREF`, unparsed. */
+		read(): unknown;
+		/** Store the switch and let the detector follow it (`LocalEngineDetector.setEnabled`). */
+		set(enabled: boolean): Promise<void>;
+	};
 	builtinRea: {
 		read(): unknown;
 		write(enabled: boolean): void;
@@ -296,6 +307,18 @@ export class LocalMachine implements MachineServices {
 		if (!isAccountRotationMode(mode)) throw codedError("invalid_preference_key", "Invalid account rotation");
 		this.#deps.accountRotation.write(mode);
 		return this.accountRotation();
+	}
+
+	async localEngineDetect(): Promise<LocalEngineDetectState> {
+		return { enabled: localEngineDetectEnabled(this.#deps.localEngines.read()) };
+	}
+
+	async setLocalEngineDetect(enabled: boolean): Promise<LocalEngineDetectState> {
+		if (typeof enabled !== "boolean") {
+			throw codedError("invalid_preference_key", "Invalid local engine detection preference");
+		}
+		await this.#deps.localEngines.set(enabled);
+		return this.localEngineDetect();
 	}
 
 	async builtinRea(): Promise<BuiltinReaState> {
@@ -491,6 +514,14 @@ export class RemoteMachine implements MachineServices {
 
 	async setBuiltinRea(enabled: boolean): Promise<BuiltinReaState> {
 		return BuiltinReaStateSchema.parse(await this.#request<unknown>("host.builtinRea.set", { enabled }));
+	}
+
+	async localEngineDetect(): Promise<LocalEngineDetectState> {
+		return LocalEngineDetectStateSchema.parse(await this.#request<unknown>("host.localEngines.get", {}));
+	}
+
+	async setLocalEngineDetect(enabled: boolean): Promise<LocalEngineDetectState> {
+		return LocalEngineDetectStateSchema.parse(await this.#request<unknown>("host.localEngines.set", { enabled }));
 	}
 
 	async desktop(): Promise<HostDesktopState> {

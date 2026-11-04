@@ -543,6 +543,7 @@ const BenchRunParams = z.object({ ...FsRoot, options: BenchmarkOptionsSchema });
 const ModelSetupRunParams = z.object({ request: ModelSetupRequestSchema });
 const AccountRotationSetParams = z.object({ mode: z.enum(ACCOUNT_ROTATION_MODES) });
 const BuiltinReaSetParams = z.object({ enabled: z.boolean() });
+const LocalEnginesSetParams = z.object({ enabled: z.boolean() });
 const TerminalParams = z.object({ rtab: Rtab, operation: z.object({ action: z.string() }).passthrough() });
 const DesktopUpdateParams = z.object({ action: z.enum(HOST_UPDATE_ACTIONS) });
 /** A session's worktree binding (`IpcTabWorktree`), as the device's agent names it for `host.git.*`. */
@@ -1465,6 +1466,10 @@ export class LocalHostServices implements HostServices {
 				return this.#deps.machine.builtinRea();
 			case "host.builtinRea.set":
 				return this.#deps.machine.setBuiltinRea(parse(BuiltinReaSetParams, method, params).enabled);
+			case "host.localEngines.get":
+				return this.#deps.machine.localEngineDetect();
+			case "host.localEngines.set":
+				return this.#deps.machine.setLocalEngineDetect(parse(LocalEnginesSetParams, method, params).enabled);
 			case "host.desktop.get":
 				return this.#deps.machine.desktop();
 			case "host.desktop.update":

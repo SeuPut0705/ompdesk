@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { parse } from "yaml";
 import type { CustomProviderInput } from "../shared/ipc-types";
+import { engineProviderInput } from "./local-engines";
 import {
 	deleteModelsProvider,
 	listModelsProviders,
@@ -82,6 +83,29 @@ describe.skipIf(!available)("models.yml through installed stock", () => {
 			discovery: { type: "openai-models-list" },
 			models: [],
 		});
+	});
+
+	test("accepts the entry the local engine detector writes and lists it as discovery-only", async () => {
+		await upsertModelsProvider(
+			engineProviderInput({ id: "freetoken", name: "FreeToken", baseUrl: "http://127.0.0.1:1919/v1" }),
+		);
+		expect(parse(readFileSync(modelsPath(), "utf8")).providers.freetoken).toEqual({
+			api: "openai-completions",
+			baseUrl: "http://127.0.0.1:1919/v1",
+			auth: "none",
+			discovery: { type: "openai-models-list" },
+			models: [],
+		});
+		expect((await listModelsProviders()).find(provider => provider.id === "freetoken")).toMatchObject({
+			api: "openai-completions",
+			baseUrl: "http://127.0.0.1:1919/v1",
+			auth: "none",
+			discovery: { type: "openai-models-list" },
+			models: [],
+			builtin: false,
+		});
+		await deleteModelsProvider("freetoken");
+		expect((await listModelsProviders()).some(provider => provider.id === "freetoken")).toBe(false);
 	});
 
 	test("keeps a key unless explicitly cleared and never exposes it in a list", async () => {

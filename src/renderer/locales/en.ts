@@ -6563,6 +6563,9 @@ export const en: Record<string, string> = {
 	"settings.models.compareHide": "Hide",
 	"settings.models.custom": "Custom endpoints",
 	"settings.models.customDesc": "Your own OpenAI- or Anthropic-compatible servers, saved in models.yml.",
+	"settings.models.localEngines": "Detect local inference engines",
+	"settings.models.localEnginesDesc":
+		"Checks every minute for FreeToken and colibri on the computer that runs these models. When one answers, its models join the list; when it stops, they leave. An entry you delete is not made again.",
 	"modelOverrides.title": "Model overrides",
 	"modelOverrides.description":
 		"Change a model a provider already has, built-in ones included. Saved in models.yml; an empty field keeps the model's own value.",

@@ -114,6 +114,7 @@ import type {
 	UpdateStatus,
 } from "./ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS } from "./ipc-types";
+import type { LocalEngineDetectState } from "./local-engines";
 import { MAIL_ACCOUNTS_COMMAND, type MailAccountsApi } from "./mail-accounts";
 import {
 	MOBILE_WEB_COMMAND,
@@ -373,6 +374,8 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				}),
 			onTabModelCatalogUpdate: (callback: (frame: ModelCatalogUpdateFrame, tabId: string) => void) =>
 				subscribeTab<ModelCatalogUpdateFrame>(IPC_EVENTS.MODEL_CATALOG_UPDATE, callback),
+			onModelsConfigChanged: (callback: () => void) =>
+				subscribe<undefined>(IPC_EVENTS.MODELS_CONFIG_CHANGED, () => callback()),
 			onTabCommandsUpdate: (callback: (commands: AvailableCommand[], tabId: string) => void) =>
 				subscribeTab<AvailableCommand[]>(IPC_EVENTS.COMMANDS_UPDATE, callback),
 			onTabConfigUpdate: (callback: (frame: ConfigUpdateFrame, tabId: string) => void) =>
@@ -783,6 +786,12 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			get: (device?: string) => transport.invoke(IPC_COMMANDS.BUILTIN_REA_GET, device) as Promise<BuiltinReaState>,
 			set: (enabled: boolean, device?: string) =>
 				transport.invoke(IPC_COMMANDS.BUILTIN_REA_SET, enabled, device) as Promise<BuiltinReaState>,
+		},
+		localEngines: {
+			get: (device?: string) =>
+				transport.invoke(IPC_COMMANDS.LOCAL_ENGINES_GET, device) as Promise<LocalEngineDetectState>,
+			set: (enabled: boolean, device?: string) =>
+				transport.invoke(IPC_COMMANDS.LOCAL_ENGINES_SET, enabled, device) as Promise<LocalEngineDetectState>,
 		},
 		hostDesktop: {
 			get: (device?: string) => transport.invoke(IPC_COMMANDS.HOST_DESKTOP_GET, device) as Promise<HostDesktopState>,

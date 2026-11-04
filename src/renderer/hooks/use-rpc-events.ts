@@ -853,6 +853,16 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 			withSessionRuntime(tabId, () => useModelStore.getState().applyCatalogUpdate(frame));
 		};
 		const unsubModelCatalog = window.omp.events.onTabModelCatalogUpdate(handleModelCatalog);
+		// OMPdesk wrote this computer's models.yml itself (a local engine came or went): the focused tab reads the
+		// catalog again, since stock pushes no model_catalog_update for a file the app changed.
+		const unsubModelsConfig = window.omp.events.onModelsConfigChanged(() => {
+			withSessionRuntime(focusedTabId(), () => {
+				void useModelStore
+					.getState()
+					.refreshProviders(true)
+					.catch(() => undefined);
+			});
+		});
 
 		// Agent config edits (set_setting from any client, slash-command config
 		// changes) push config_update — re-read the thinking-display settings so
@@ -950,6 +960,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 			unsubStatus();
 			unsubSubagent();
 			unsubModelCatalog();
+			unsubModelsConfig();
 			unsubConfig();
 			unsubPromptResult();
 			unsubExtensionUi();
