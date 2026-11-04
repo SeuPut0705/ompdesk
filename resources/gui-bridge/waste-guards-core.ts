@@ -381,9 +381,9 @@ function commandLooks(command: string, background: boolean): Look[] {
 /** The status looks this tool call makes (none for most calls). */
 export function pollLooks(toolName: string, input: Record<string, unknown>): Look[] {
 	if (toolName === "read") {
-		return typeof input.path === "string" && input.path.startsWith("proc://")
-			? [{ kind: "proc", key: input.path.replace(/\/+$/, "") }]
-			: [];
+		// The key is the process id: `proc://bg_1`, `proc://bg_1/streams/0` and `proc://bg_1:1-20` are looks at bg_1.
+		const proc = typeof input.path === "string" ? /^proc:\/\/([^/:?#]+)/.exec(input.path)?.[1] : undefined;
+		return proc ? [{ kind: "proc", key: proc }] : [];
 	}
 	if (toolName !== "bash" || typeof input.command !== "string") return [];
 	const command = withoutHeredocs(input.command);

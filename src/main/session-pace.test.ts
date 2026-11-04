@@ -161,6 +161,7 @@ describe("session-pace", () => {
 			expect(pace(session(bash("gh run view 1 --json status"), bash("gh run view 1 --json status"))).polls).toBe(1);
 			expect(pace(session(bash("gh run view 1"), bash("gh run view 2"))).polls).toBe(0);
 			expect(pace(session(proc("proc://bg_1"), proc("proc://bg_1"))).polls).toBe(1);
+			expect(pace(session(proc("proc://bg_1"), proc("proc://bg_1/streams/0"), proc("proc://bg_2"))).polls).toBe(1);
 		});
 
 		it("counts sleeping to wait and a foreground watch at first sight, an async watch never", () => {

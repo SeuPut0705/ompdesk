@@ -215,6 +215,19 @@ describe("poll hints", () => {
 		expect(hints.note("read", { path: "proc://bg_1" })).toBeUndefined();
 	});
 
+	it("takes every path under one proc:// id as a look at that process", () => {
+		expect(
+			polled(
+				["read", { path: "proc://bg_1" }],
+				["read", { path: "proc://bg_1/streams/0" }],
+				["read", { path: "proc://bg_1:1-20" }],
+				["read", { path: "proc://bg_2/streams/0" }],
+			),
+		).toEqual([[], ["proc"], ["proc"], []]);
+		const hints = createHints();
+		expect(hints.note("read", { path: "proc://bg_1" })).toBeUndefined();
+		expect(hints.note("read", { path: "proc://bg_1/streams/0" })).toBe(POLL_HINT);
+	});
 	it("count a kind the call carried with a new one as told", () => {
 		const hints = createHints();
 		expect(hints.note("bash", { command: "sleep 5; gh run list" })).toBe(POLL_HINT);
