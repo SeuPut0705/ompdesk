@@ -398,16 +398,12 @@ describe.skipIf(!existsSync(omp))(
 			await first.quit();
 			const lines = readFileSync(journalFile(isolated), "utf8").split("\n").filter(Boolean);
 			const last = JSON.parse(lines.at(-1) ?? "{}") as { id?: string };
-			// Stock journals the aborted tool result and then the aborted reply, unless its graceful exit ends the process
-			// first: then the tool result is last (1 run in about 8 before the bridge had a `tool_result` handler), or not
-			// journaled at all and the assistant's tool call is last (every run with one: the extra await on the aborted
-			// call's way to the journal lets the exit win). Stock's own restore takes the turn up from either.
+			// Stock journals the aborted reply after the aborted tool result, unless its graceful exit ends the process first
+			// (1 run in about 8 here): then the tool result is last and stock's own restore takes the turn up.
 			const end = messagesOf(journal(isolated)).at(-1)?.message;
-			const replyJournaled = end?.role === "assistant" && end.stopReason === "aborted";
-			if (!replyJournaled) {
-				if (end?.role === "assistant") expect(end.stopReason).toBe("toolUse");
-				else expect(end?.role).toBe("toolResult");
-			}
+			const replyJournaled = end?.role === "assistant";
+			if (replyJournaled) expect(end?.stopReason).toBe("aborted");
+			else expect(end?.role).toBe("toolResult");
 			// What v0.49.0's bridge journaled after the abort: a session report, displayed, in the model's context.
 			const note = {
 				type: "custom_message",
