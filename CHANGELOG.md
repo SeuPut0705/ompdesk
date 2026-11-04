@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.110.2] - 2026-11-05
+
+봇이 매 대화마다 `xd://ompdesk_*` 문서를 다시 읽던 일을 줄이고, 봇이 자주 맞던 도구 오류 세 가지를 없앴어요.
+
+### 고친 것
+- 봇의 프롬프트에 자주 쓰는 도구(`ompdesk_sessions`, `_session_open`, `_send`, `_result`, `_read`, `_stop`, `ompdesk_schedule`, `ompdesk_bot`, `ompdesk_notify`)의 인자 이름과 타입이 들어가요. 도구의 JSON 스키마에서 만들어서 스키마와 어긋나지 않아요. 지난 14일 동안 봇은 대화 8개에서 도구 문서를 49번 다시 읽었고(약 19분), 대화는 매일 새로 시작돼요. 봇 프롬프트 섹션은 6,562자에서 9,268자로 늘었어요(참조 2,496바이트, 약 700토큰).
+- 이미 지운 세션을 `ompdesk_session_stop {delete: true}`로 다시 지우면 "already deleted" 성공으로 답해요(전에는 "No session … open in this app or saved" 오류 7번). 모르는 id는 그대로 오류예요. 이번 실행 중에 지운 id만 기억해요.
+- `ompdesk_session_open`의 `worktree.base`가 스키마 설명대로 저장소가 해석하는 모든 ref(브랜치, 태그, 커밋)를 받아요. 전에는 `HEAD`와 `default`만 받고 나머지는 거부했어요. 커밋으로 풀리지 않거나 `-`로 시작하는 ref는 브랜치나 폴더를 만들기 전에 거부해요.
+- `ompdesk_bot`의 `text` 설명에 최대 300자(의무와 기억 각각)를 적었어요.
+- 열린 세션이 잠깐 "Sidecar not ready"일 때 첫 메시지를 기다렸다가 다시 보내는 처리는 v0.108.0에 이미 들어 있어요. 원인(`get_state` 8초 시간 초과가 omp를 `error`로 잠시 붙잡음)과 함께 규칙 문서에 적어 두었어요.
+
+<!-- en -->
+
+The bot no longer re-reads the `xd://ompdesk_*` docs in every conversation, and three tool errors it kept hitting are gone.
+
+### Fixed
+- The bot's prompt now lists the arguments and types of the tools it uses most (`ompdesk_sessions`, `_session_open`, `_send`, `_result`, `_read`, `_stop`, `ompdesk_schedule`, `ompdesk_bot`, `ompdesk_notify`), generated from the tools' own JSON schemas so it cannot drift from them. Over the last 14 days the bot read tool docs 49 times in 8 conversations (about 19 minutes), and its conversation renews daily. Its prompt section grew from 6,562 to 9,268 characters (2,496 bytes of reference, about 700 tokens).
+- `ompdesk_session_stop {delete: true}` on a session that is already deleted answers "already deleted" instead of failing "No session … open in this app or saved" (7 failures). An unknown id still fails. Only ids deleted since this launch are remembered.
+- `ompdesk_session_open`'s `worktree.base` takes any ref the repository resolves (branch, tag or commit), as its schema said. It accepted only `HEAD` and `default` before. A ref that resolves to no commit or starts with `-` is refused before any branch or folder is made.
+- The `ompdesk_bot` `text` description states the 300-character cap (for a duty and for a fact).
+- Waiting for a briefly not-ready child ("Sidecar not ready") and sending the first message again already shipped in v0.108.0. Its cause (an 8 s `get_state` timeout holds the omp in `error` for a moment) is in the rules doc.
+
 ## [0.110.1] - 2026-11-05
 
 반복 확인 경고는 같은 것을 두 번째로 볼 때만 떠요.
