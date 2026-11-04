@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.107.0] - 2026-11-04
+
+worktree 세션을 합칠 때 저장소의 pre-merge·post-merge 훅이 돌아요.
+
+### 새 기능
+- 저장소에 `.ompdesk/worktree-pre-merge`(윈도우는 `.cmd`)가 있으면 `ompdesk_merge`(와 `ompdesk merge` CLI)가 합치기 전에 그 worktree에서 실행해요. 0이 아닌 코드로 끝나거나 120초를 넘기면 합치지 않고 출력 끝부분과 로그 경로를 결과에 담아요. `.ompdesk/worktree-post-merge`는 합친 뒤 메인 체크아웃에서 실행하고, 실패해도 합친 건 그대로 두고 보고만 해요. 둘 다 `.ompdesk/worktree-setup`과 같은 감독·시간 제한·로그 자리를 써요. 파일이 없으면 아무 일도 없어요. 페어링된 컴퓨터의 worktree를 합치면 훅도 그 컴퓨터에서 돌아요.
+
+### 고친 것
+- 로컬 추론 엔진 자동 탐지 스위치를 껐다 켜면 직접 지웠던 자동 프로바이더가 되살아났어요. 이제 지운 건 그대로 지워진 채예요.
+
+<!-- en -->
+
+Merging a worktree session runs the repository's pre-merge and post-merge hooks.
+
+### Added
+- A repository's `.ompdesk/worktree-pre-merge` (`.cmd` on Windows) runs in the worktree before `ompdesk_merge` (and the `ompdesk merge` CLI) merges. A non-zero exit or 120 s stops the merge, and the result carries the output's tail and the log path. `.ompdesk/worktree-post-merge` runs in the main checkout after the merge; a failure is reported and the merge stays. Both use the supervisor, time limit and log location of `.ompdesk/worktree-setup`. Without the file nothing runs. A merge of a paired computer's worktree runs the hooks there.
+
+### Fixed
+- Switching local inference engine detection off and on brought back an automatic provider you had deleted. It stays deleted.
+
 ## [0.106.0] - 2026-11-04
 
 이 컴퓨터에서 도는 로컬 추론 엔진(FreeToken, colibri)을 알아서 찾아 모델 목록에 올려요.
