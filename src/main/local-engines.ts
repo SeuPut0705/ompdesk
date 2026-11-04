@@ -85,7 +85,8 @@ export interface LocalEngineDetectorDeps {
 	probe(baseUrl: string): Promise<boolean>;
 	providers: {
 		ids(): Promise<Set<string>>;
-		upsert(input: CustomProviderInput): Promise<void>;
+		/** Writes the entry only while none has its id, in one turn of models.yml's mutation chain; false: one does. */
+		insert(input: CustomProviderInput): Promise<boolean>;
 		delete(id: string): Promise<void>;
 	};
 	/** models.yml was changed by a pass: windows read the model list again. */
@@ -205,7 +206,9 @@ export class LocalEngineDetector {
 	async #apply(action: EngineAction, engine: LocalEngineSpec): Promise<boolean> {
 		switch (action) {
 			case "register":
-				await this.#deps.providers.upsert(engineProviderInput(engine));
+				// `present` was read before the probes: an entry the person added meanwhile stays theirs, and the
+				// ledger does not claim it (a later "unregister" would delete it).
+				if (!(await this.#deps.providers.insert(engineProviderInput(engine)))) return false;
 				this.#edit(ledger => ({ ...ledger, registered: [...ledger.registered, engine.id] }));
 				return true;
 			case "tombstone":

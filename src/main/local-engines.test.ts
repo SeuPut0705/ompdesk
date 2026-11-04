@@ -48,9 +48,11 @@ function rig() {
 		},
 		providers: {
 			ids: async () => new Set(world.file),
-			upsert: async input => {
+			insert: async input => {
+				if (world.file.has(input.id)) return false;
 				world.upserts.push(input);
 				world.file.add(input.id);
+				return true;
 			},
 			delete: async id => {
 				if (world.deleteFails > 0) {
@@ -228,6 +230,25 @@ describe("LocalEngineDetector", () => {
 		expect(world.ledger).toEqual({ registered: [], removed: [] });
 	});
 
+	it("a provider the person adds while the probe runs is theirs: not overwritten, not claimed by the ledger", async () => {
+		const { world, detector } = rig();
+		world.up.add("freetoken");
+		world.hold = gate();
+		const pass = detector.tick();
+		await vi.advanceTimersByTimeAsync(0);
+		world.file.add("freetoken");
+		world.hold.release();
+		await pass;
+		expect(world.upserts).toEqual([]);
+		expect(world.ledger).toEqual({ registered: [], removed: [] });
+		expect(world.changed).toBe(0);
+		// Engine down later: the person's entry is not the detector's to delete.
+		world.up.delete("freetoken");
+		await detector.tick();
+		expect(world.deletes).toEqual([]);
+		expect(world.file.has("freetoken")).toBe(true);
+	});
+
 	it("runs one pass for any number of callers at once", async () => {
 		const { world, detector } = rig();
 		world.up.add("freetoken");
@@ -331,7 +352,7 @@ describe("LocalEngineDetector", () => {
 				ids: async () => {
 					throw new Error("invalid YAML");
 				},
-				upsert: async () => {},
+				insert: async () => true,
 				delete: async () => {},
 			},
 			changed: () => void world.changed++,

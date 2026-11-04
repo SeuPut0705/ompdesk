@@ -21,6 +21,7 @@ import {
 	deleteModelsProvider,
 	listModelsProviders,
 	modelsPath,
+	insertModelsProvider,
 	setModelOverride,
 	upsertModelsProvider,
 } from "./models-config";
@@ -86,9 +87,8 @@ describe.skipIf(!available)("models.yml through installed stock", () => {
 	});
 
 	test("accepts the entry the local engine detector writes and lists it as discovery-only", async () => {
-		await upsertModelsProvider(
-			engineProviderInput({ id: "freetoken", name: "FreeToken", baseUrl: "http://127.0.0.1:1919/v1" }),
-		);
+		const engine = engineProviderInput({ id: "freetoken", name: "FreeToken", baseUrl: "http://127.0.0.1:1919/v1" });
+		expect(await insertModelsProvider(engine)).toBe(true);
 		expect(parse(readFileSync(modelsPath(), "utf8")).providers.freetoken).toEqual({
 			api: "openai-completions",
 			baseUrl: "http://127.0.0.1:1919/v1",
@@ -106,6 +106,15 @@ describe.skipIf(!available)("models.yml through installed stock", () => {
 		});
 		await deleteModelsProvider("freetoken");
 		expect((await listModelsProviders()).some(provider => provider.id === "freetoken")).toBe(false);
+		// The person's own entry with that id, even one written while the detector's insert queued, is never replaced.
+		const own = { ...minimal, id: "freetoken", baseUrl: "http://127.0.0.1:1919/v1", apiKey: "sk-own" };
+		const [kept, inserted] = await Promise.all([upsertModelsProvider(own), insertModelsProvider(engine)]);
+		expect(kept).toBeUndefined();
+		expect(inserted).toBe(false);
+		expect(parse(readFileSync(modelsPath(), "utf8")).providers.freetoken).toMatchObject({
+			api: own.api,
+			apiKey: "sk-own",
+		});
 	});
 
 	test("keeps a key unless explicitly cleared and never exposes it in a list", async () => {

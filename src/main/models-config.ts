@@ -416,10 +416,23 @@ function mergeModel(existingModels: unknown, input: CustomProviderModelInput): R
 
 /** Insert or update a custom provider. Keeps the stored apiKey unless the input
  * re-supplies one or sets `clearApiKey`. */
+export function upsertModelsProvider(input: CustomProviderInput): Promise<void> {
+	return writeProvider(input, false).then(() => undefined);
+}
+
+/**
+ * Insert a custom provider only while no entry has its id; false when one does (nothing written). The check and
+ * the write share one turn of the mutation chain, so an entry the person adds meanwhile is never overwritten
+ * (local-engines.ts registers an engine it detected through this).
+ */
+export function insertModelsProvider(input: CustomProviderInput): Promise<boolean> {
+	return writeProvider(input, true);
+}
+
 // The old synchronous writers were serialized by main's event loop. Keep that guarantee across helper awaits.
 let mutation: Promise<void> = Promise.resolve();
 
-export function upsertModelsProvider(input: CustomProviderInput): Promise<void> {
+function writeProvider(input: CustomProviderInput, onlyIfAbsent: boolean): Promise<boolean> {
 	const operation = mutation.then(async () => {
 		options = await modelsConfigMetadata();
 		if (options.builtinProviders.includes(input.id)) {
@@ -430,6 +443,7 @@ export function upsertModelsProvider(input: CustomProviderInput): Promise<void> 
 		}
 		const data = await readModelsFile();
 		const existingRaw = data.providers[input.id];
+		if (onlyIfAbsent && existingRaw !== undefined) return false;
 		const existing = toView(input.id, existingRaw);
 		const apiKey = input.clearApiKey
 			? undefined
@@ -460,8 +474,12 @@ export function upsertModelsProvider(input: CustomProviderInput): Promise<void> 
 		entry.models = input.models.map(m => mergeModel(entry.models, m));
 		applyYamlDiff(data.doc, data.doc.toJS()?.providers?.[input.id], entry, ["providers", input.id]);
 		await writeModelsFile(data.doc, data.stamp);
+		return true;
 	});
-	mutation = operation.catch(() => undefined);
+	mutation = operation.then(
+		() => undefined,
+		() => undefined,
+	);
 	return operation;
 }
 

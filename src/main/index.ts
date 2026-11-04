@@ -165,7 +165,7 @@ import { MEDIA_SCHEME, MediaStreams } from "./media-stream";
 import { type ProcessRow, testMemoryReading } from "./memory-sampler";
 import { startMemoryWatch } from "./memory-watch";
 import { createMenu } from "./menu";
-import { deleteModelsProvider, listModelsProviders, upsertModelsProvider } from "./models-config";
+import { deleteModelsProvider, insertModelsProvider, listModelsProviders } from "./models-config";
 import { followSetupState } from "./omp-availability";
 import { ompPackageRoot, ompPathEnv, refreshSystemOmp, systemOmp } from "./omp-runtime";
 import { OmpUpdater, registerOmpUpdateIpc } from "./omp-updater";
@@ -1034,7 +1034,7 @@ app.whenReady().then(() => {
 		probe: baseUrl => probeLocalEngine(baseUrl),
 		providers: {
 			ids: async () => new Set((await listModelsProviders()).map(provider => provider.id)),
-			upsert: upsertModelsProvider,
+			insert: insertModelsProvider,
 			delete: deleteModelsProvider,
 		},
 		changed: () => {
