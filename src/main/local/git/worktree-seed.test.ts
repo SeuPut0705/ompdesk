@@ -6,7 +6,7 @@ import { itWithFileSymlinks } from "../../test-symlinks";
 import type { BridgeClient } from "../types";
 import { gitSync, initRepo, pathExists } from "./test-repos";
 import { createWorktree } from "./worktree";
-import { includePattern, runWorktreeSetup, SEED_MAX_BYTES, SETUP_SCRIPT, seedWorktree } from "./worktree-seed";
+import { includePattern, runWorktreeHook, SEED_MAX_BYTES, seedWorktree, WORKTREE_HOOK_SCRIPTS } from "./worktree-seed";
 
 let scratch: string;
 let repo: string;
@@ -222,7 +222,7 @@ describe.skipIf(process.platform === "win32")("worktree setup hook", () => {
 	it("runs .ompdesk/worktree-setup in the new worktree through createWorktree", async () => {
 		await fs.mkdir(path.join(repo, ".ompdesk"));
 		await fs.writeFile(
-			path.join(repo, SETUP_SCRIPT),
+			path.join(repo, WORKTREE_HOOK_SCRIPTS.setup),
 			'echo "setup in $PWD"\nprintf "%s" "$OMPDESK_ROOT_PATH" > from-root.txt\n',
 		);
 		await fs.writeFile(path.join(repo, ".worktreeinclude"), ".env\n");
@@ -241,7 +241,7 @@ describe.skipIf(process.platform === "win32")("worktree setup hook", () => {
 
 	it("reports a failing hook without failing the worktree", async () => {
 		await fs.mkdir(path.join(repo, ".ompdesk"));
-		await fs.writeFile(path.join(repo, SETUP_SCRIPT), "echo broken >&2\nexit 3\n");
+		await fs.writeFile(path.join(repo, WORKTREE_HOOK_SCRIPTS.setup), "echo broken >&2\nexit 3\n");
 
 		const made = await createWorktree(repo, { name: "broken" }, bridge);
 
@@ -252,15 +252,47 @@ describe.skipIf(process.platform === "win32")("worktree setup hook", () => {
 
 	it("kills a hook past its timeout and never takes its exit code as success", async () => {
 		await fs.mkdir(path.join(repo, ".ompdesk"));
-		await fs.writeFile(path.join(repo, SETUP_SCRIPT), "trap 'exit 0' TERM\nsleep 30\n");
+		await fs.writeFile(path.join(repo, WORKTREE_HOOK_SCRIPTS.setup), "trap 'exit 0' TERM\nsleep 30\n");
 		const target = await freshWorktree("slow");
 
-		const report = await runWorktreeSetup(repo, target, 500);
+		const report = await runWorktreeHook("setup", { primary: repo, worktree: target, cwd: target, timeoutMs: 500 });
 
 		expect(report).toMatchObject({ ok: false, timedOut: true, exitCode: null });
 	});
 
 	it("runs nothing without the script", async () => {
-		expect(await runWorktreeSetup(repo, await freshWorktree("plain"))).toBeNull();
+		expect(
+			await runWorktreeHook("setup", { primary: repo, worktree: await freshWorktree("plain"), cwd: repo }),
+		).toBeNull();
+	});
+
+	it.each(["pre-merge", "post-merge"] as const)(
+		"finds the %s script, the worktree's own before the main checkout's",
+		async hook => {
+			await fs.mkdir(path.join(repo, ".ompdesk"));
+			await fs.writeFile(path.join(repo, WORKTREE_HOOK_SCRIPTS[hook]), 'echo "primary $OMPDESK_HOOK"\n');
+			const target = await freshWorktree(`own-${hook}`);
+
+			const fromPrimary = await runWorktreeHook(hook, { primary: repo, worktree: target, cwd: target });
+			expect(fromPrimary).toMatchObject({ ok: true, script: `.ompdesk/worktree-${hook}` });
+			expect(fromPrimary?.outputTail).toContain(`primary ${hook}`);
+			expect(path.basename(fromPrimary?.logPath ?? "")).toBe(`ompdesk-worktree-${hook}.log`);
+
+			await fs.mkdir(path.join(target, ".ompdesk"), { recursive: true });
+			await fs.writeFile(path.join(target, WORKTREE_HOOK_SCRIPTS[hook]), "echo own\nexit 4\n");
+			const fromWorktree = await runWorktreeHook(hook, { primary: repo, worktree: target, cwd: target });
+			expect(fromWorktree).toMatchObject({ ok: false, exitCode: 4 });
+			expect(fromWorktree?.outputTail).toContain("own");
+		},
+	);
+
+	it("runs a hook in the folder it is told, with no script for another hook", async () => {
+		await fs.mkdir(path.join(repo, ".ompdesk"));
+		await fs.writeFile(path.join(repo, WORKTREE_HOOK_SCRIPTS["pre-merge"]), "pwd\n");
+		const target = await freshWorktree("cwd");
+
+		expect(await runWorktreeHook("post-merge", { primary: repo, worktree: target, cwd: target })).toBeNull();
+		const report = await runWorktreeHook("pre-merge", { primary: repo, worktree: target, cwd: repo });
+		expect(report?.outputTail.trim()).toBe(await fs.realpath(repo));
 	});
 });

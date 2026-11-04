@@ -28,6 +28,7 @@ OMPdesk is built mostly on macOS. This page lists what a developer (or an agent)
 | `bun run sync:rea-skill` | Needs `npm` and `tar` (`tar.exe` ships with Windows 10 1803+). |
 | `bun run package:win` | Builds the NSIS setup locally. `package:mac` cannot run. |
 | `.ompdesk/worktree-setup.cmd` | The Windows form of the worktree setup hook, checked in beside the POSIX `.ompdesk/worktree-setup`: `bun install --frozen-lockfile`, then `bun scripts/ensure-electron.ts`. |
+| `.ompdesk/worktree-pre-merge.cmd`, `.ompdesk/worktree-post-merge.cmd` | The Windows names of the two `ompdesk_merge` hooks (POSIX: no extension). Neither is checked in here; a repository adds them as it needs. |
 
 ## Tests
 

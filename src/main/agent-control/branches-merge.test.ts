@@ -8,6 +8,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { gitSync } from "../local/git/test-repos";
+import { WORKTREE_HOOK_SCRIPTS } from "../local/git/worktree-seed";
 import { BranchError, landingFacts, mergeBranch, removeSafeWorktree } from "./branches";
 import { agentWorktree, commitIn, installBranchesRig, repo, root } from "./branches-test-rig";
 
@@ -58,6 +59,47 @@ describe("mergeBranch", () => {
 		gitSync(repo, "checkout", "-q", "--detach");
 		await expect(mergeBranch(wt, "")).rejects.toBeInstanceOf(BranchError);
 		await expect(mergeBranch(wt, "")).rejects.toThrow(/detached/);
+	});
+});
+
+describe.skipIf(process.platform === "win32")("mergeBranch hooks", () => {
+	async function hookedWorktree(name: string, hooks: Partial<Record<"pre-merge" | "post-merge", string>>) {
+		await fs.mkdir(path.join(repo, ".ompdesk"), { recursive: true });
+		for (const [hook, body] of Object.entries(hooks))
+			await fs.writeFile(path.join(repo, WORKTREE_HOOK_SCRIPTS[hook as "pre-merge"]), body);
+		gitSync(repo, "add", ".ompdesk");
+		gitSync(repo, "commit", "-q", "-m", "hooks");
+		const wt = await agentWorktree(name);
+		await commitIn(wt.path, "feature.ts", "export const x = 1;\n");
+		return wt;
+	}
+
+	it("merges when pre-merge exits 0, with no postMerge report", async () => {
+		const wt = await hookedWorktree("hk1", { "pre-merge": "exit 0\n", "post-merge": "exit 0\n" });
+		const outcome = await mergeBranch(wt, "Worker");
+		expect(outcome).toMatchObject({ merged: true });
+		expect(outcome).not.toHaveProperty("postMerge");
+	});
+
+	it("never starts git merge when pre-merge fails, and runs it in the worktree", async () => {
+		const wt = await hookedWorktree("hk2", { "pre-merge": "pwd\necho nope >&2\nexit 7\n" });
+		const head = gitSync(repo, "rev-parse", "HEAD");
+		const outcome = await mergeBranch(wt, "Worker");
+		expect(outcome).toMatchObject({ merged: false, reason: "hook", hook: { ok: false, exitCode: 7 } });
+		if (outcome.merged || outcome.reason !== "hook") throw new Error("expected a hook outcome");
+		expect(outcome.hook.outputTail).toContain(await fs.realpath(wt.path));
+		expect(outcome.hook.outputTail).toContain("nope");
+		expect(gitSync(repo, "rev-parse", "HEAD")).toBe(head);
+		expect(existsSync(path.join(repo, "feature.ts"))).toBe(false);
+	});
+
+	it("keeps the merge when post-merge fails, and runs it in the parent checkout", async () => {
+		const wt = await hookedWorktree("hk3", { "post-merge": "pwd\nexit 5\n" });
+		const outcome = await mergeBranch(wt, "Worker");
+		expect(outcome).toMatchObject({ merged: true, postMerge: { ok: false, exitCode: 5 } });
+		if (!outcome.merged) throw new Error("expected a merge");
+		expect(outcome.postMerge?.outputTail).toContain(await fs.realpath(repo));
+		expect(gitSync(repo, "log", "-1", "--format=%s")).toBe("Merge omp/agent/hk3 into main (Worker)");
 	});
 });
 

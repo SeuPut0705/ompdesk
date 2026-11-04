@@ -7,8 +7,10 @@
  */
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
+import type { WorktreeSetupReport } from "../../shared/rpc-types";
 import { fs } from "../fenced-fs";
 import { git, gitRaw } from "../local/git/exec";
+import { runWorktreeHook } from "../local/git/worktree-seed";
 import type { BeforeRemove } from "../worktree-orphans";
 
 // Fenced: the worktree removals run inside the repository lock, and a holder past its bound must not touch the disk.
@@ -63,7 +65,10 @@ export interface BranchEvidence {
 }
 
 export type MergeOutcome =
-	| { merged: true; sha: string; summary: string }
+	/** `postMerge`: the post-merge hook ran and failed; the merge stays. */
+	| { merged: true; sha: string; summary: string; postMerge?: WorktreeSetupReport }
+	/** The pre-merge hook failed or timed out: `git merge` never started. */
+	| { merged: false; reason: "hook"; hook: WorktreeSetupReport }
 	/** `predicted`: found by `merge-tree` before any merge ran, so the parent's checkout was never touched. */
 	| { merged: false; reason: "conflict"; files: string[]; predicted: boolean };
 
@@ -580,6 +585,8 @@ export function mergeProblem(worktree: WorktreeRef, facts: BranchFacts): string 
 /**
  * Merge the worktree's branch into the parent checkout's current branch with a merge commit. Refuses what a
  * merge would lose or tangle (`mergeProblem`), and a merge `predictMerge` says would conflict is never started.
+ * The repository's `.ompdesk/worktree-pre-merge` (in the worktree) gates it, `worktree-post-merge` (in the parent
+ * checkout) runs once it landed and never undoes it.
  */
 export async function mergeBranch(worktree: WorktreeRef, label: string): Promise<MergeOutcome> {
 	const facts = await branchFacts(worktree);
@@ -588,6 +595,12 @@ export async function mergeBranch(worktree: WorktreeRef, label: string): Promise
 	const prediction = await predictMerge(worktree);
 	if (prediction.kind === "conflict")
 		return { merged: false, reason: "conflict", files: prediction.files, predicted: true };
+	const pre = await runWorktreeHook("pre-merge", {
+		primary: worktree.baseCwd,
+		worktree: worktree.path,
+		cwd: worktree.path,
+	});
+	if (pre && !pre.ok) return { merged: false, reason: "hook", hook: pre };
 	const message = `Merge ${worktree.branch} into ${facts.baseBranch}${label ? ` (${label})` : ""}`;
 	const result = await gitRaw(worktree.baseCwd, ["merge", "--no-ff", "--no-edit", "-m", message, worktree.branch], {
 		timeoutMs: TIMEOUT_MS,
@@ -601,5 +614,10 @@ export async function mergeBranch(worktree: WorktreeRef, label: string): Promise
 	}
 	const sha = await text(worktree.baseCwd, ["rev-parse", "--short", "HEAD"]);
 	const summary = await text(worktree.baseCwd, ["diff", "--shortstat", "HEAD~1", "HEAD"]);
-	return { merged: true, sha, summary };
+	const post = await runWorktreeHook("post-merge", {
+		primary: worktree.baseCwd,
+		worktree: worktree.path,
+		cwd: worktree.baseCwd,
+	});
+	return { merged: true, sha, summary, ...(post && !post.ok ? { postMerge: post } : {}) };
 }
