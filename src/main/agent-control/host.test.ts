@@ -1146,6 +1146,7 @@ describe("AgentControlRuntime", () => {
 			outputTokens: 0,
 			tools: {},
 			thinkGaps: [4, 4, 4],
+			polls: 0,
 		};
 		const request = vi.fn(async (_device: string, method: string) =>
 			method === "sessions.list"

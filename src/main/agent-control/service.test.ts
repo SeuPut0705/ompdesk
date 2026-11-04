@@ -2927,6 +2927,7 @@ describe("autoClose: opened sessions whose work landed", () => {
 			outputTokens: 0,
 			tools: { bash: { seconds: 120, calls: 60, errors: 6 } },
 			thinkGaps: [4, 4, 4],
+			polls: 0,
 		} satisfies Pace;
 		const LINE = "Pace: wall 22 min";
 		const SHORT = "pace 22 min, 156 calls, median 4.0 s";

@@ -2360,6 +2360,7 @@ describe("LocalHostServices", () => {
 			outputTokens: 0,
 			tools: {},
 			thinkGaps: [1],
+			polls: 0,
 		};
 		const { services } = setup(60_000, {
 			sessionIndex: {
