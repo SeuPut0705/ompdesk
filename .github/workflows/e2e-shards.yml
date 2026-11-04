@@ -9,9 +9,12 @@
 # omp (real-core and deep-audit) and the fake omp (everything else); playwright
 # runs one worker per shard (3-core runner; playwright.config.ts).
 #
-# At most 5 macOS jobs run at once on a public repo's free tier, so four shards
-# fit in one wave even beside a release's `mac` and `mac-real`. Raise the
-# matrix only together with that cap. `fail-fast: false`: one run reports every
+# At most 5 macOS jobs run at once on a public repo's free tier, so five shards
+# fit in one wave when nothing else runs on macOS (the nightly, or ci.yml's manual
+# `e2e=true`); beside a release's `mac` and `mac-real` the last ones queue. Four
+# shards summed ~1430 s of test time each against the 1500 s `--global-timeout`
+# (nightly 41817431850: shard 3 stopped with 36 tests not run). Raise the matrix
+# only together with that cap. `fail-fast: false`: one run reports every
 # failing shard, and `gh run rerun <id> --failed` reruns only those.
 name: e2e-shards
 
@@ -34,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5]
     env:
       SHARD: ${{ matrix.shard }}
       SHARDS: ${{ strategy.job-total }}
