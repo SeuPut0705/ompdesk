@@ -836,11 +836,14 @@ test("deep GUI audit: settings pages and command discoverability", async () => {
 		await expect(page.locator('aside button[data-command-center-entry="true"]').first()).toHaveAccessibleName(
 			/^(Command palette|명령 팔레트)$/,
 		);
+		// The advertised list is read before the palette opens: the palette reads its own when it opens, and REA's
+		// prompts (rea:*) join the list once it has started, so a list read after the open can name commands the open
+		// palette never had (nightly 41880669356: six rea:* prompts "missing").
+		const available = await page.evaluate(async () => window.omp.rpc.getAvailableCommands());
 		await page.locator('aside button[data-command-center-entry="true"]').first().click();
 		const palette = page.getByRole("dialog");
 		await expect(palette).toBeVisible();
 		const search = palette.getByRole("combobox").first();
-		const available = await page.evaluate(async () => window.omp.rpc.getAvailableCommands());
 		if (available.success) {
 			const commandEntries =
 				(available.data as { commands?: Array<{ name: string; textModeExecutable?: boolean }> } | undefined)

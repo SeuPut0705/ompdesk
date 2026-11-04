@@ -186,7 +186,13 @@ for (const language of variants(["en", "ko"] as const))
 				// Playwright's intercepted drag fires dragover per move; the last nudge settles it on the target.
 				await page.mouse.move(to.x + to.width * 0.6 + 2, to.y + to.height / 2, { steps: 12 });
 				await page.mouse.move(to.x + to.width * 0.6, to.y + to.height / 2, { steps: 2 });
-				await expect(page.locator("[data-subagent-ghost]")).toBeVisible();
+				// A real browser repeats dragover while the pointer rests; Playwright's intercepted drag fires it per move
+				// only, so a slow runner that missed the settling nudge has to be nudged again (nightly 41880669356).
+				await expect(async () => {
+					await page.mouse.move(to.x + to.width * 0.6 + 1, to.y + to.height / 2);
+					await page.mouse.move(to.x + to.width * 0.6, to.y + to.height / 2);
+					await expect(page.locator("[data-subagent-ghost]")).toBeVisible({ timeout: 1_000 });
+				}).toPass({ timeout: 15_000 });
 				await capture(page, `${language}-${theme}-subagent-drag`);
 				await page.mouse.up();
 				const aside = page.locator("aside[data-docked]");
