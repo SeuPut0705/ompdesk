@@ -13,12 +13,13 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AUTOPILOT_STATE_ENTRY } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import { setJudgeAssistStockLoader } from "../../resources/gui-bridge/modes/judge-assist-engine";
-import { install, methods } from "../../resources/gui-bridge/modes/memory-recall";
+import { install } from "../../resources/gui-bridge/modes/memory-recall";
 import {
 	MEMORY_ENV,
 	MEMORY_RECALL_MESSAGE_TYPE,
 	RECALL_TIMEOUT_MS,
 } from "../../resources/gui-bridge/modes/memory-recall-contracts";
+import { createTypedPrompts, type TypedPrompts } from "../../resources/gui-bridge/typed-prompts";
 
 type Hook = (event: { prompt: string }, ctx: unknown) => Promise<unknown>;
 
@@ -104,7 +105,7 @@ afterEach(async () => {
 	await rm(dir, { recursive: true, force: true });
 });
 
-function hook(): Hook {
+function hook(typed: TypedPrompts = createTypedPrompts()): Hook {
 	let registered: Hook | undefined;
 	const pi = {
 		on: (event: string, handler: Hook) => {
@@ -113,7 +114,7 @@ function hook(): Hook {
 		logger: { debug: () => {} },
 		pi: { MAIN_AGENT_ID: "main", AgentRegistry: { global: () => ({ get: () => undefined }) } },
 	};
-	install(pi as never);
+	install(pi as never, typed);
 	if (!registered) throw new Error("no before_agent_start hook");
 	return registered;
 }
@@ -190,9 +191,10 @@ describe("memory recall hook", () => {
 	});
 
 	it("recalls for a prompt a person typed into an Autopilot run's tab, once, and never for the run's own", async () => {
-		const run = hook();
+		const typed = createTypedPrompts();
+		const run = hook(typed);
 		const armed = [{ type: "custom", customType: AUTOPILOT_STATE_ENTRY, data: { state: "running" } }];
-		await methods.memory_recall_typed({ text: `  ${PROMPT}\n` });
+		typed.note(`  ${PROMPT}\n`, false);
 		expect(await run({ prompt: PROMPT }, ctx("main", armed))).toMatchObject({
 			message: { customType: MEMORY_RECALL_MESSAGE_TYPE },
 		});

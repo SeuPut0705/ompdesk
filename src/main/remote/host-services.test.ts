@@ -702,29 +702,35 @@ describe("LocalHostServices", () => {
 		services.attachQuota(quota);
 		const x = new FakeConnection(peer("device-x"));
 		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
-		const send = (type: string) => services.call(x.peer, "tab.command", { rtab: "t1", command: { type } }, x);
+		const send = (type: string, message?: string) =>
+			services.call(x.peer, "tab.command", { rtab: "t1", command: { type, ...(message ? { message } : {}) } }, x);
 
-		await send("prompt");
+		await send("prompt", "start");
 		// Reading state never counts.
 		await send("get_state");
 		sidecars[0]?.emit("events", [
 			{ type: "message_end", message: { role: "assistant", usage: { totalTokens: 1_200 } } },
 			{ type: "message_end", message: { role: "user" } },
 		]);
-		await send("follow_up");
+		await send("follow_up", "then this");
 		expect(stored.get("device-x")?.usage).toMatchObject({ requests: 2, tokens: 1_200 });
 
-		const refused = await send("steer").catch((error: unknown) => error);
+		const refused = await send("steer", "and this").catch((error: unknown) => error);
 		expect(ipcErrorCode(refused)).toBe("remote_limit_reached");
 		await expect(send("get_state")).resolves.toMatchObject({ success: true });
-		// Each prompt that went in was named typed first (memory recall in an Autopilot run's tab); a refused one was not.
+		// Each prompt that went in was named typed first (memory recall in an Autopilot run's tab, answer-first for one
+		// that joins the turn); a refused one was not.
 		expect(sidecars[0]?.commands.map(command => command.type)).toEqual([
-			"memory_recall_typed",
+			"typed_prompt",
 			"prompt",
 			"get_state",
-			"memory_recall_typed",
+			"typed_prompt",
 			"follow_up",
 			"get_state",
+		]);
+		expect(sidecars[0]?.commands.filter(command => command.type === "typed_prompt")).toEqual([
+			{ type: "typed_prompt", text: "start", steer: false },
+			{ type: "typed_prompt", text: "then this", steer: false },
 		]);
 	});
 
@@ -823,7 +829,7 @@ describe("LocalHostServices", () => {
 			const outcomes = await Promise.all(settled);
 			expect(outcomes.filter(outcome => outcome === "ran")).toHaveLength(1);
 			expect(outcomes.filter(outcome => outcome === "remote_limit_reached")).toHaveLength(4);
-			expect(sidecar.commands.filter(command => command.type !== "memory_recall_typed")).toHaveLength(1);
+			expect(sidecar.commands.filter(command => command.type !== "typed_prompt")).toHaveLength(1);
 			expect(used(stored)).toBe(3);
 		});
 

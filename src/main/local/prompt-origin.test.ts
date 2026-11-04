@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { localHandlerFor } from "./index";
-import { handlers } from "./prompt-origin";
+import { handlers, noteTypedPrompt } from "./prompt-origin";
 import type { LocalCommandContext } from "./types";
 
 function fakeCtx() {
@@ -42,5 +42,55 @@ describe("prompt_origin_set", () => {
 			set({ type: "prompt_origin_set", origin: { deviceId: "d", name: "iPhone" } }, ctx),
 		).rejects.toThrow();
 		expect(request).not.toHaveBeenCalled();
+	});
+});
+
+describe("noteTypedPrompt", () => {
+	const client = () => {
+		const command = vi.fn(async (_command: unknown) => ({}));
+		return { client: { command }, command };
+	};
+
+	it("names a person's steer as one, a prompt or follow-up as none", async () => {
+		const { client: c, command } = client();
+		await noteTypedPrompt(c, { type: "steer", message: "how far?" });
+		await noteTypedPrompt(c, { type: "prompt", message: "join", streamingBehavior: "steer" });
+		await noteTypedPrompt(c, { type: "prompt", message: "later", streamingBehavior: "followUp" });
+		await noteTypedPrompt(c, { type: "follow_up", message: "after" });
+		await noteTypedPrompt(c, { type: "prompt", message: "fresh" });
+		expect(command.mock.calls.map(([sent]) => sent)).toEqual([
+			{ type: "typed_prompt", text: "how far?", steer: true },
+			{ type: "typed_prompt", text: "join", steer: true },
+			{ type: "typed_prompt", text: "later", steer: false },
+			{ type: "typed_prompt", text: "after", steer: false },
+			{ type: "typed_prompt", text: "fresh", steer: false },
+		]);
+	});
+
+	it("says nothing for an agent's wrapped message, a retry or a command without text", async () => {
+		const { client: c, command } = client();
+		await noteTypedPrompt(c, {
+			type: "steer",
+			message: '<ompdesk-agent-message from="bot">\nstatus?\n</ompdesk-agent-message>',
+		});
+		await noteTypedPrompt(c, { type: "abort_and_prompt", message: "again" });
+		await noteTypedPrompt(c, { type: "get_state" });
+		expect(command).not.toHaveBeenCalled();
+	});
+
+	it("waits for a slow bridge no longer than its bound and swallows a refusal", async () => {
+		vi.useFakeTimers();
+		try {
+			const never = vi.fn(() => new Promise<never>(() => {}));
+			const slow = noteTypedPrompt({ command: never }, { type: "steer", message: "x" });
+			await vi.advanceTimersByTimeAsync(600);
+			await expect(slow).resolves.toBeUndefined();
+		} finally {
+			vi.useRealTimers();
+		}
+		const refusing = vi.fn(async () => {
+			throw new Error("Unknown bridge method: typed_prompt");
+		});
+		await expect(noteTypedPrompt({ command: refusing }, { type: "steer", message: "x" })).resolves.toBeUndefined();
 	});
 });

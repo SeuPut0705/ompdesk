@@ -4406,6 +4406,8 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.sessionRecap": "Idle recap",
 	"bridgeHealth.feature.contextInspector": "Context inspector",
 	"bridgeHealth.feature.promptOrigin": "Which device sent each prompt",
+	"bridgeHealth.feature.typedPrompts": "Prompts a person typed, told to the agent",
+	"bridgeHealth.feature.answerFirst": "A message sent into a running turn is answered first",
 	"bridgeHealth.feature.recentModels": "Recent models in the model picker",
 	"bridgeHealth.feature.inputHistory": "Shared prompt history",
 	"bridgeHealth.feature.accountPools": "Agent account pools",

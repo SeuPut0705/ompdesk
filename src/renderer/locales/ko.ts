@@ -4401,6 +4401,8 @@ export const ko: Record<string, string> = {
 	"bridgeHealth.feature.sessionRecap": "자리 비운 뒤 요약",
 	"bridgeHealth.feature.contextInspector": "컨텍스트 들여다보기",
 	"bridgeHealth.feature.promptOrigin": "프롬프트를 보낸 기기 표시",
+	"bridgeHealth.feature.typedPrompts": "사람이 입력한 프롬프트를 에이전트에 알림",
+	"bridgeHealth.feature.answerFirst": "작업 중 보낸 메시지에 먼저 답하기",
 	"bridgeHealth.feature.recentModels": "모델 선택기의 최근 사용 모델",
 	"bridgeHealth.feature.inputHistory": "공유 프롬프트 기록",
 	"bridgeHealth.feature.accountPools": "에이전트 계정 풀",

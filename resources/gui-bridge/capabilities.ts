@@ -59,6 +59,8 @@ export const FEATURES = {
 	sessionRecap: "Idle recap (recap.enabled)",
 	contextInspector: "Context inspector (per-entry tokens)",
 	promptOrigin: "Prompt origins (from another device)",
+	typedPrompts: "Prompts a person typed, told to the omp (memory recall, answering first)",
+	answerFirst: "A person's message that joins a running turn is answered in text before the next tool call",
 	recentModels: "Recent models in the model picker",
 	inputHistory: "Shared prompt history",
 	accountPools: "Agent account pools",
@@ -1296,6 +1298,13 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	/** prompt-origin.ts: a host tab journals its device per user message (public `message_end` hook). */
 	promptOrigin: {
 		session: ["sessionManager.appendCustomEntry()", "sessionManager.getEntries()"],
+	},
+	/** typed-prompts.ts: main's word on who typed, kept in the bridge's own store. Imports nothing from omp. */
+	typedPrompts: {},
+	/** answer-first.ts: whether the agent loop owns a turn when a queued batch is prepared (public `before_agent_start` hook). */
+	answerFirst: {
+		pkg: ["AgentRegistry.global()", "AgentRegistry.prototype.get()", "MAIN_AGENT_ID"],
+		session: ["agent.state"],
 	},
 	/** context-inspect.ts: every tool, skill, context file, prompt block and message with stock's own estimators. */
 	contextInspector: {

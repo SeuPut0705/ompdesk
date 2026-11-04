@@ -1134,8 +1134,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				if (origin)
 					await client.command({ type: "prompt_origin_set", origin, text: cmd.message }).catch(() => undefined);
 			}
-			// A person typed it: memory recall runs for it even in an Autopilot run's tab (gui-bridge modes/memory-recall.ts).
-			if (!sidecar.device) await noteTypedPrompt(client, cmd as RpcCommand);
+			// A person typed it (it came in on an IPC channel: a window or the paired phone page; main's own callers, an
+			// agent's, Autopilot's and a relaunch's, pass none): memory recall runs for it even in an Autopilot run's tab, and
+			// one that joins the running turn is answered first (gui-bridge typed-prompts.ts, answer-first.ts).
+			if (!sidecar.device && channel !== undefined) await noteTypedPrompt(client, cmd as RpcCommand);
 			// Every Stop leaves one line naming who asked (turn-stop-log.ts); omp gets it without that origin, while a
 			// paired host's tab gets it with, so the host logs it too.
 			const outgoing = dispatchedCommand({ ...cmd, id: _id } as RpcCommand, {

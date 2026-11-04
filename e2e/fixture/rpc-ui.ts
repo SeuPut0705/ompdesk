@@ -1563,6 +1563,9 @@ export function runRpcUi(): void {
 			pendingOrigins.push({ deviceId: origin.deviceId, name: origin.name, text: String(params.text) });
 			return { pending: pendingOrigins.length };
 		},
+		// gui-bridge typed-prompts.ts: main's word that a person typed the message about to come, and whether it joins the
+		// running turn (recorded like every bridge request: specs read `typed_prompt {text, steer}` before the command).
+		typed_prompt: () => ({ ok: true }),
 		capabilities: () => ({
 			ompVersion: FIXTURE_OMP_VERSION,
 			unavailable:
