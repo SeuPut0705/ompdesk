@@ -77,6 +77,7 @@ import type {
 	RpcSessionState,
 	SubagentSnapshot,
 	TodoPhase,
+	WorktreeSetupReport,
 } from "../../shared/rpc-types";
 import {
 	describeFrequency,
@@ -610,6 +611,11 @@ class ToolError extends Error {}
 
 function fail(message: string): never {
 	throw new ToolError(message);
+}
+
+/** `<script> failed (exit 3)` or `<script> failed (timed out after 120s)`, for a hook's failure text. */
+function hookFailure(hook: WorktreeSetupReport): string {
+	return `${hook.script} failed (${hook.timedOut ? `timed out after ${Math.round(hook.durationMs / 1000)}s` : `exit ${hook.exitCode}`})`;
 }
 
 /** A stored session's recorded folder is gone (`folder-missing` from the tab spawn); `saved` = disk care kept it. */
@@ -3439,6 +3445,10 @@ export class AgentControl {
 
 	async #runMerge(target: ControlTab, worktree: WorktreeRef): Promise<string> {
 		const outcome = await this.#host.mergeBranch(worktree, target.title, target.device);
+		if (!outcome.merged && outcome.reason === "hook")
+			fail(
+				`Pre-merge hook ${hookFailure(outcome.hook)} in ${worktree.path}; the merge was not started. Output tail:\n${outcome.hook.outputTail}\nLog: ${outcome.hook.logPath}`,
+			);
 		if (!outcome.merged) {
 			this.#conflicts.set(target.tabId, outcome.files);
 			const ask = `Ask ${label(target)} to merge the parent's branch into its own and resolve, then try again.`;
@@ -3451,7 +3461,10 @@ export class AgentControl {
 		this.#conflicts.delete(target.tabId);
 		this.#reviewed.add(target.tabId);
 		this.#collected.add(target.tabId);
-		return `Merged ${worktree.branch} into ${worktree.baseCwd} (${outcome.sha}${outcome.summary ? `: ${outcome.summary}` : ""}). Nothing was pushed.`;
+		const post = outcome.postMerge
+			? ` Post-merge hook ${hookFailure(outcome.postMerge)}; the merge stays. Output tail:\n${outcome.postMerge.outputTail}\nLog: ${outcome.postMerge.logPath}`
+			: "";
+		return `Merged ${worktree.branch} into ${worktree.baseCwd} (${outcome.sha}${outcome.summary ? `: ${outcome.summary}` : ""}). Nothing was pushed.${post}`;
 	}
 
 	/**

@@ -85,7 +85,7 @@ import type { FamilyEdits } from "../../shared/turn-edits";
 import { deletedSessions } from "../deleted-sessions";
 import { discardOpenedWorktree } from "../disk/saved-worktrees";
 import { createWorktree, tablessWorktreeBridge, WORKTREE_COMMAND_BUDGETS_MS } from "../local/git/worktree";
-import { describePreparation } from "../local/git/worktree-seed";
+import { describePreparation, MERGE_HOOKS_BUDGET_MS } from "../local/git/worktree-seed";
 import { type MemoryAdmission, parseAdmissionStatus } from "../memory-admission";
 import {
 	GIT_METHODS,
@@ -1521,8 +1521,14 @@ export class AgentControlRuntime {
 	}
 
 	/** Git on the computer a session's worktree is on: this one's own, or the paired host's (`host.git.*`). */
-	async #git<T>(device: string | undefined, method: string, params: object, local: () => Promise<T>): Promise<T> {
-		return device ? this.#remote().request<T>(device, method, params, GIT_REQUEST_TIMEOUT_MS) : local();
+	async #git<T>(
+		device: string | undefined,
+		method: string,
+		params: object,
+		local: () => Promise<T>,
+		extraMs = 0,
+	): Promise<T> {
+		return device ? this.#remote().request<T>(device, method, params, GIT_REQUEST_TIMEOUT_MS + extraMs) : local();
 	}
 
 	/**
@@ -1847,8 +1853,12 @@ export class AgentControlRuntime {
 					branchEvidence(worktree, diffChars),
 				),
 			mergeBranch: (worktree, label, device) =>
-				this.#git<MergeOutcome>(device, GIT_METHODS.merge, { worktree: gitRef(worktree), label }, () =>
-					mergeBranch(worktree, label),
+				this.#git<MergeOutcome>(
+					device,
+					GIT_METHODS.merge,
+					{ worktree: gitRef(worktree), label },
+					() => mergeBranch(worktree, label),
+					MERGE_HOOKS_BUDGET_MS,
 				),
 			landing: (worktree, device) =>
 				this.#git<LandingFacts>(device, GIT_METHODS.landing, { worktree: gitRef(worktree) }, () =>

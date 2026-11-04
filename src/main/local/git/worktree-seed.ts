@@ -15,6 +15,9 @@
  *    reported, never fatal: the worktree stays. The script is the repository's own, run with the user's rights, as
  *    the agent's first `bun install` there would be.
  *
+ * `runWorktreeHook` also runs `.ompdesk/worktree-pre-merge` (in the worktree, before `ompdesk_merge` starts git) and
+ * `.ompdesk/worktree-post-merge` (in the parent checkout, after the merge landed), found and logged the same way.
+ *
  * Stock omp (18.12.1) has neither: no `worktreeinclude` and no worktree hook in its sources, and worktree creation
  * here is OMPdesk's own (`worktree.ts`), so nothing of stock is duplicated.
  */
@@ -33,7 +36,16 @@ const MAX_INCLUDE_BYTES = 64 * 1024;
 const MAX_PATTERNS = 200;
 export const SETUP_TIMEOUT_MS = 120_000;
 const SETUP_OUTPUT_TAIL = 4096;
-export const SETUP_SCRIPT = process.platform === "win32" ? ".ompdesk/worktree-setup.cmd" : ".ompdesk/worktree-setup";
+/** The repository's own scripts around a worktree's life: when it is made, and either side of `ompdesk_merge`. */
+export type WorktreeHook = "setup" | "pre-merge" | "post-merge";
+const HOOK_EXTENSION = process.platform === "win32" ? ".cmd" : "";
+export const WORKTREE_HOOK_SCRIPTS: Record<WorktreeHook, string> = {
+	setup: `.ompdesk/worktree-setup${HOOK_EXTENSION}`,
+	"pre-merge": `.ompdesk/worktree-pre-merge${HOOK_EXTENSION}`,
+	"post-merge": `.ompdesk/worktree-post-merge${HOOK_EXTENSION}`,
+};
+/** What `ompdesk_merge` may spend in hooks: one before the merge, one after. */
+export const MERGE_HOOKS_BUDGET_MS = 2 * SETUP_TIMEOUT_MS;
 /** Longest `prepareWorktree` holds `worktree_create`'s answer (check-ignore runs, the git dir, the hook). */
 export const WORKTREE_PREPARE_BUDGET_MS = 3 * DEFAULT_TIMEOUT_MS + SETUP_TIMEOUT_MS;
 
@@ -267,25 +279,28 @@ export async function seedWorktree(primary: string, target: string): Promise<Wor
 	return { copied: state.files, bytes: state.bytes, skipped: state.skipped };
 }
 
-async function setupScript(target: string, primary: string): Promise<string | null> {
-	for (const dir of [target, primary]) {
-		const file = path.join(dir, SETUP_SCRIPT);
+async function hookScript(hook: WorktreeHook, dirs: string[]): Promise<string | null> {
+	for (const dir of dirs) {
+		const file = path.join(dir, WORKTREE_HOOK_SCRIPTS[hook]);
 		if ((await fs.stat(file).catch(() => null))?.isFile()) return file;
 	}
 	return null;
 }
 
-/** Runs the repository's worktree setup script in `target`; null when there is none. Never throws. */
-export async function runWorktreeSetup(
-	primary: string,
-	target: string,
-	timeoutMs = SETUP_TIMEOUT_MS,
+/**
+ * Runs the repository's script for `hook` in `where.cwd`; null when there is none (the worktree's own file wins over
+ * the main checkout's). The log lands in the worktree's git dir. Never throws.
+ */
+export async function runWorktreeHook(
+	hook: WorktreeHook,
+	where: { primary: string; worktree: string; cwd: string; timeoutMs?: number },
 ): Promise<WorktreeSetupReport | null> {
-	const script = await setupScript(target, primary);
+	const { primary, worktree, cwd, timeoutMs = SETUP_TIMEOUT_MS } = where;
+	const script = await hookScript(hook, [worktree, primary]);
 	if (!script) return null;
-	const gitDir = await gitRaw(target, ["rev-parse", "--absolute-git-dir"]);
-	const logDir = gitDir.code === 0 ? gitDir.stdout.toString("utf8").trim() : target;
-	const logPath = path.join(logDir, "ompdesk-worktree-setup.log");
+	const gitDir = await gitRaw(worktree, ["rev-parse", "--absolute-git-dir"]);
+	const logDir = gitDir.code === 0 ? gitDir.stdout.toString("utf8").trim() : worktree;
+	const logPath = path.join(logDir, `ompdesk-worktree-${hook}.log`);
 	const windows = process.platform === "win32";
 	const spec = windows
 		? { file: `"${script}"`, args: [], shell: true }
@@ -296,8 +311,8 @@ export async function runWorktreeSetup(
 		let timedOut = false;
 		const child = spawnSupervised(
 			spec,
-			{ ...process.env, OMPDESK_ROOT_PATH: primary, OMPDESK_WORKTREE_PATH: target },
-			target,
+			{ ...process.env, OMPDESK_ROOT_PATH: primary, OMPDESK_WORKTREE_PATH: worktree, OMPDESK_HOOK: hook },
+			cwd,
 		);
 		const timer = setTimeout(() => {
 			timedOut = true;
@@ -338,7 +353,7 @@ export async function prepareWorktree(
 			skipped: [{ path: WORKTREE_INCLUDE_FILE, reason: error instanceof Error ? error.message : String(error) }],
 		}),
 	);
-	const setup = await runWorktreeSetup(primary, target);
+	const setup = await runWorktreeHook("setup", { primary, worktree: target, cwd: target });
 	return { ...(seed ? { seed } : {}), ...(setup ? { setup } : {}) };
 }
 

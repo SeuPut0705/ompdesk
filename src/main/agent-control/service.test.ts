@@ -1543,6 +1543,45 @@ describe("ompdesk_merge", () => {
 		expect(result.text).not.toContain("aborted");
 	});
 
+	it("names a failed pre-merge hook with its output tail, and a failed post-merge hook beside the success", async () => {
+		const { host, service, ids } = await withWorktreeChildren();
+		host.manage = true;
+		const report = {
+			script: ".ompdesk/worktree-pre-merge",
+			ok: false,
+			exitCode: 3,
+			timedOut: false,
+			durationMs: 900,
+			logPath: "/repo/.git/worktrees/a/ompdesk-worktree-pre-merge.log",
+			outputTail: "lint failed: src/a.ts",
+		};
+		host.mergeResult = { merged: false, reason: "hook", hook: report };
+		const pre = await service.run("main0001", T.merge, { session: ids[0] });
+		expect(pre.isError).toBe(true);
+		expect(pre.text).toContain("Pre-merge hook .ompdesk/worktree-pre-merge failed (exit 3)");
+		expect(pre.text).toContain("the merge was not started");
+		expect(pre.text).toContain("lint failed: src/a.ts");
+
+		host.mergeResult = {
+			merged: true,
+			sha: "abc1234",
+			summary: "",
+			postMerge: {
+				...report,
+				script: ".ompdesk/worktree-post-merge",
+				timedOut: true,
+				exitCode: null,
+				durationMs: 120_000,
+			},
+		};
+		const post = await service.run("main0001", T.merge, { session: ids[1] });
+		expect(post.isError).toBeFalsy();
+		expect(post.text).toContain("Merged omp/agent/b into /repo (abc1234). Nothing was pushed.");
+		expect(post.text).toContain(
+			"Post-merge hook .ompdesk/worktree-post-merge failed (timed out after 120s); the merge stays.",
+		);
+	});
+
 	it("refuses a session without a branch, a hidden one, and itself", async () => {
 		const host = new FakeHost({ tabId: "main0001" }, { tabId: "plain002" }, { tabId: "priv0003", hidden: true });
 		const service = control(host);
