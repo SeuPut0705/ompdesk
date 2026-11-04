@@ -20,6 +20,8 @@ import * as fs from "node:fs/promises";
 const IDLE_S = 600;
 /** Model calls per tool call from which a session is reading and thinking instead of working. */
 export const WASTE_CALL_RATIO = 1.5;
+/** Polling shell commands or `proc://` reads from which a session should have backgrounded the job and `wait`ed. */
+export const WASTE_POLLS = 5;
 /**
  * Tool calls below which the ratio says nothing: every session ends with one answer past its last tool call, so one
  * tool call always reads 2.0 and two read 1.5 (measured on a two-call child, 4 Nov 2026).
@@ -47,8 +49,11 @@ interface Entry {
 interface ToolCallPart {
 	type?: string;
 	name?: string;
-	arguments?: { path?: unknown };
+	arguments?: { path?: unknown; command?: unknown };
 }
+
+/** A shell command that waits for something by hand instead of a backgrounded job or `wait`. */
+const POLL_COMMAND = /\bsleep\s+\d|\bgh run (?:list|view|watch)\b|\bpgrep\b|\btail -f\b|\bwhile\b.*\bsleep\b/;
 
 export interface ToolRow {
 	seconds: number;
@@ -71,6 +76,8 @@ export interface Pace {
 	thinkGaps: number[];
 	/** The file `read` most often and how often; absent until a file was read twice. */
 	repeatRead?: { path: string; count: number };
+	/** Shell commands that poll (`sleep N`, `gh run view/list/watch`, `pgrep`, `tail -f`) and reads of `proc://`. */
+	polls: number;
 }
 
 function seconds(entry: Entry): number | undefined {
@@ -111,6 +118,7 @@ export function pace(lines: Iterable<string>): Pace {
 	let first: number | undefined;
 	let modelCalls = 0;
 	let outputTokens = 0;
+	let polls = 0;
 	let prev: number | undefined;
 	const gaps: [number, number][] = [];
 	for (const line of lines) {
@@ -140,6 +148,14 @@ export function pace(lines: Iterable<string>): Pace {
 				for (const part of entry.message.content as ToolCallPart[]) {
 					const target = readTarget(part);
 					if (target !== undefined) reads.set(target, (reads.get(target) ?? 0) + 1);
+					if (target?.startsWith("proc://")) polls++;
+					if (
+						part.type === "toolCall" &&
+						part.name === "bash" &&
+						typeof part.arguments?.command === "string" &&
+						POLL_COMMAND.test(part.arguments.command)
+					)
+						polls++;
 				}
 		} else if (role === "toolResult") {
 			const name = entry.message.toolName ?? "?";
@@ -169,6 +185,7 @@ export function pace(lines: Iterable<string>): Pace {
 		outputTokens,
 		tools,
 		thinkGaps,
+		polls,
 		...(repeatRead ? { repeatRead } : {}),
 	};
 }
@@ -205,6 +222,7 @@ export function waste(result: Pace): string | undefined {
 	const calls = toolCalls(result);
 	if (calls >= WASTE_MIN_TOOL_CALLS && result.modelCalls / calls >= WASTE_CALL_RATIO)
 		parts.push(`${(result.modelCalls / calls).toFixed(1)} model calls per tool call`);
+	if (result.polls >= WASTE_POLLS) parts.push(`polled ×${result.polls}`);
 	return parts.length > 0 ? parts.join(", ") : undefined;
 }
 

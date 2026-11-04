@@ -123,6 +123,48 @@ describe("session-pace", () => {
 		expect(waste(pace([...steady(1), assistant(20, [])]))).toBeUndefined();
 	});
 
+	it("counts polling shells and proc:// reads; five name waste, four are none", () => {
+		const poll = (atS: number, id: string, command: string) =>
+			JSON.stringify({
+				type: "message",
+				message: {
+					role: "assistant",
+					timestamp: T0 + atS * 1000,
+					usage: { output: 1 },
+					content: [{ type: "toolCall", id, name: "bash", arguments: { command } }],
+				},
+			});
+		const lines = [
+			user(0),
+			poll(5, "a", "sleep 25; gh run list --limit 1"),
+			start(5, "a"),
+			result(30, "a"),
+			poll(35, "b", "gh run view 123 --json status"),
+			start(35, "b"),
+			result(40, "b"),
+			poll(45, "c", "while true; do sleep 5; done"),
+			start(45, "c"),
+			result(50, "c"),
+			assistant(55, [{ id: "d", name: "read", path: "proc://bg_1" }]),
+			start(55, "d"),
+			result(60, "d", "read"),
+			poll(65, "e", "ls -la"),
+			start(65, "e"),
+			result(70, "e"),
+		];
+		const four = pace(lines);
+		expect(four.polls).toBe(4);
+		expect(waste(four)).toBeUndefined();
+		lines.push(
+			assistant(75, [{ id: "f", name: "read", path: "proc://bg_1" }]),
+			start(75, "f"),
+			result(80, "f", "read"),
+		);
+		const five = pace(lines);
+		expect(five.polls).toBe(5);
+		expect(waste(five)).toBe("polled ×5");
+	});
+
 	it("reads a session file once per change and answers undefined for a missing one", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "pace-"));
 		const file = join(dir, "s.jsonl");
