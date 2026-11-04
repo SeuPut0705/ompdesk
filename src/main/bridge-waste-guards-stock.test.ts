@@ -1,0 +1,64 @@
+import { existsSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { describe, expect, it } from "vitest";
+import { fakeAgent, sse, startOmp, startProvider, toolCall } from "./bridge-todo-stock-rig";
+import { INSTALLED_OMP as omp } from "./test-bridge-probe";
+
+/**
+ * The waste guards (waste-guards.ts) on the installed omp with a scripted provider, no spend:
+ * a service start whose `ready.log` cannot match is refused before it runs (it would wait `ready.timeout`), and the
+ * first poll gets the hint in the request after its result, the second poll none.
+ */
+
+const REFUSED = "ready.log can never match";
+const HINT = "OMPdesk: this polled.";
+
+function occurrences(text: string, needle: string): number {
+	return text.split(needle).length - 1;
+}
+
+describe.skipIf(!existsSync(omp))("waste guards, on stock omp", () => {
+	it("refuses a ready.log that cannot match at once, without running the command", async () => {
+		const script = [
+			toolCall("bash", {
+				command: "sleep 120 > x.log 2>&1",
+				name: "tests",
+				ready: { log: "Running \\d+ tests", timeout: 600 },
+			}),
+		];
+		const provider = await startProvider(step =>
+			step <= script.length ? sse(script[step - 1], "tool_calls") : sse([{ content: "DONE" }], "stop"),
+		);
+		const session = await startOmp({
+			...fakeAgent(provider.url),
+			model: "fake/m1",
+			bridge: resolve("resources/gui-bridge/index.ts"),
+		});
+		const started = Date.now();
+		await session.turn("Run the tests as a service");
+		// Without the guard this call waits the whole 600 s.
+		expect(Date.now() - started).toBeLessThan(60_000);
+		expect(provider.bodies[1]).toContain(REFUSED);
+		expect(existsSync(join(session.root, "x.log"))).toBe(false);
+	}, 180_000);
+
+	it("hints at the first poll of a kind only", async () => {
+		const poll = { command: "sleep 0.1; echo POLLRESULT" };
+		const script = [toolCall("bash", poll), toolCall("bash", poll)];
+		const provider = await startProvider(step =>
+			step <= script.length ? sse(script[step - 1], "tool_calls") : sse([{ content: "DONE" }], "stop"),
+		);
+		const session = await startOmp({
+			...fakeAgent(provider.url),
+			model: "fake/m1",
+			bridge: resolve("resources/gui-bridge/index.ts"),
+		});
+		await session.turn("Look twice");
+		const [, afterFirst, afterSecond] = provider.bodies;
+		expect(occurrences(afterFirst, HINT)).toBe(1);
+		// The first hint stays in the history; the second call adds none.
+		expect(occurrences(afterSecond, HINT)).toBe(1);
+		// After the call's result: the cached prefix in front of it stays as it was.
+		expect(afterFirst.lastIndexOf(HINT)).toBeGreaterThan(afterFirst.lastIndexOf("POLLRESULT"));
+	}, 180_000);
+});
