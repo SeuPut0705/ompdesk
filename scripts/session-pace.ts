@@ -5,10 +5,11 @@
  *   bun scripts/session-pace.ts --latest [N]        the N (default 3) most recently changed sessions under ~/.omp
  *
  * Reads stock omp's session journal: a `tool_execution_start` custom entry marks when a tool began and the
- * `toolResult` message when it ended (their difference is the tool's own time); an assistant message's timestamp is
- * the end of its generation, so what is neither a tool running nor a gap longer than `IDLE_S` (the person away, a
- * `wait` that returned) is the model: thinking, first-token wait and output. Measured 4 Nov 2026 on two sessions:
- * harness overhead between a tool call's emission and its start was 0.00 s median; the model was 90 % of the wall.
+ * `toolResult` message when it ended; tool time is the union of those intervals (parallel calls overlap). A gap
+ * longer than `IDLE_S` between messages is idle only where no tool ran through it (a `wait` that returned after
+ * 20 min is that tool's time). An assistant message's timestamp is the end of its generation, so the residual
+ * (wall − tools − idle) is the model's generation plus whatever the harness spent between calls; the two are not
+ * separated here. Per-tool rows sum each tool's own durations and may add up to more than the union.
  */
 
 import * as fs from "node:fs";
@@ -33,8 +34,11 @@ interface Entry {
 	};
 }
 
-interface Pace {
+export interface Pace {
 	wallS: number;
+	/** Union of tool intervals. */
+	toolS: number;
+	/** wall − tools − idle: model generation plus harness time between calls. */
 	modelS: number;
 	idleS: number;
 	modelCalls: number;
@@ -50,17 +54,33 @@ function seconds(entry: Entry): number | undefined {
 	return undefined;
 }
 
+/** Total length of the union of `[start, end]` intervals (parallel tool calls overlap). */
+export function unionSeconds(intervals: readonly (readonly [number, number])[]): number {
+	const sorted = [...intervals].sort((a, b) => a[0] - b[0]);
+	let total = 0;
+	let open: [number, number] | undefined;
+	for (const [start, end] of sorted) {
+		if (open && start <= open[1]) open[1] = Math.max(open[1], end);
+		else {
+			if (open) total += open[1] - open[0];
+			open = [start, end];
+		}
+	}
+	if (open) total += open[1] - open[0];
+	return total;
+}
+
 export function pace(lines: Iterable<string>): Pace {
 	const starts = new Map<string, number>();
 	const tools = new Map<string, { seconds: number; calls: number; errors: number }>();
+	const intervals: [number, number][] = [];
 	const thinkGaps: number[] = [];
 	let first: number | undefined;
 	let last: number | undefined;
-	let toolS = 0;
-	let idleS = 0;
 	let modelCalls = 0;
 	let outputTokens = 0;
 	let lastResult: number | undefined;
+	const gaps: [number, number][] = [];
 	for (const line of lines) {
 		let entry: Entry;
 		try {
@@ -76,7 +96,7 @@ export function pace(lines: Iterable<string>): Pace {
 		}
 		if (entry.type !== "message" || !entry.message) continue;
 		first ??= at;
-		if (last !== undefined && at - last > IDLE_S) idleS += at - last;
+		if (last !== undefined && at - last > IDLE_S) gaps.push([last, at]);
 		last = at;
 		const { role } = entry.message;
 		if (role === "assistant") {
@@ -90,7 +110,7 @@ export function pace(lines: Iterable<string>): Pace {
 			const began = entry.message.toolCallId ? starts.get(entry.message.toolCallId) : undefined;
 			if (began !== undefined) {
 				row.seconds += at - began;
-				toolS += at - began;
+				intervals.push([began, at]);
 			}
 			row.calls++;
 			if (entry.message.isError) row.errors++;
@@ -98,7 +118,25 @@ export function pace(lines: Iterable<string>): Pace {
 		}
 	}
 	const wallS = first !== undefined && last !== undefined ? last - first : 0;
-	return { wallS, modelS: Math.max(0, wallS - toolS - idleS), idleS, modelCalls, outputTokens, tools, thinkGaps };
+	const toolS = unionSeconds(intervals);
+	// A long gap is idle only where no tool ran through it (a `wait` that returned after 20 min is that tool's time).
+	const idleS = gaps.reduce((sum, [from, to]) => sum + (to - from) - unionSeconds(clip(intervals, from, to)), 0);
+	return {
+		wallS,
+		toolS,
+		modelS: Math.max(0, wallS - toolS - idleS),
+		idleS,
+		modelCalls,
+		outputTokens,
+		tools,
+		thinkGaps,
+	};
+}
+
+function clip(intervals: readonly [number, number][], from: number, to: number): [number, number][] {
+	return intervals
+		.filter(([start, end]) => end > from && start < to)
+		.map(([start, end]) => [Math.max(start, from), Math.min(end, to)]);
 }
 
 function percentile(values: number[], p: number): number {
@@ -110,10 +148,9 @@ function percentile(values: number[], p: number): number {
 const minutes = (s: number): string => `${(s / 60).toFixed(1)} min`;
 
 export function report(label: string, result: Pace): string {
-	const toolS = [...result.tools.values()].reduce((sum, row) => sum + row.seconds, 0);
 	const out = [
 		`== ${label}`,
-		`wall ${minutes(result.wallS)} = model ${minutes(result.modelS)} (${result.modelCalls} calls, median ${percentile(result.thinkGaps, 0.5).toFixed(1)} s, p90 ${percentile(result.thinkGaps, 0.9).toFixed(1)} s, ${Math.round(result.outputTokens / 1000)}k output tokens) + tools ${minutes(toolS)} + idle ${minutes(result.idleS)}`,
+		`wall ${minutes(result.wallS)} = model+between-calls ${minutes(result.modelS)} (${result.modelCalls} calls, median ${percentile(result.thinkGaps, 0.5).toFixed(1)} s, p90 ${percentile(result.thinkGaps, 0.9).toFixed(1)} s, ${Math.round(result.outputTokens / 1000)}k output tokens) + tools ${minutes(result.toolS)} + idle ${minutes(result.idleS)}`,
 	];
 	const rows = [...result.tools.entries()].sort((a, b) => b[1].seconds - a[1].seconds);
 	for (const [name, row] of rows)
