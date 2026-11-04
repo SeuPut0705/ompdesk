@@ -5,8 +5,11 @@
  */
 import { createHash } from "node:crypto";
 import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
+import { BlobStore } from "@oh-my-pi/pi-coding-agent/session/blob-store";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
+import { getBlobsDir } from "@oh-my-pi/pi-utils";
 import { guard } from "./health";
+import { withImageRefs } from "./image-refs";
 import { promptOrigin } from "./prompt-origin";
 import { labelPromptOrigins } from "./prompt-origin-contracts";
 import { attachEntryIds, buildTranscript, flattenSessionTree } from "./session-display";
@@ -65,6 +68,13 @@ function pageNumber(params: unknown, key: string, fallback: number): number {
 	return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : fallback;
 }
 
+let blobs: BlobStore | undefined;
+/** The store stock's session manager writes this session's pictures to (`read_image_blob` reads the same). */
+function blobStore(): BlobStore {
+	blobs ??= new BlobStore(getBlobsDir());
+	return blobs;
+}
+
 export const methods: BridgeMethods = {
 	// stream-metadata is imported per call, not statically: a vanished read/URL
 	// export then fails only these two (feature streamMetadata), not the tree.
@@ -77,12 +87,15 @@ export const methods: BridgeMethods = {
 			// A page starts with a run (a typed prompt, or after a run that ended), never with an orphan tool result
 			// or an assistant step whose call/read group is on the preceding page.
 			if (param(params, "snapToTurn") === true) offset = transcriptRunStart(messages, offset, end);
+			const page = transcriptPageMessages(messages.slice(offset, end));
+			// `imageRefs`: a paired device reads each picture once by its reference (image-refs.ts).
+			const shown = param(params, "imageRefs") === true ? withImageRefs(page, blobStore()) : page;
 			return {
 				leafId,
 				version,
 				total: messages.length,
 				startIndex: offset,
-				messages: decorateMessages(transcriptPageMessages(messages.slice(offset, end))),
+				messages: decorateMessages(shown),
 			};
 		},
 		"sessions.attach_entry_ids": async (params, env) => {

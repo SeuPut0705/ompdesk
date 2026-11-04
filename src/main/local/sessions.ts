@@ -58,25 +58,35 @@ interface TranscriptPage {
 }
 
 /**
- * The last tail page each omp answered (keyed by its bridge), per limit, with its version. A window asks for the tail
- * at every tab switch and hydration, a paired device at every open, an agent's control tools at their own limit; read
- * again while the transcript is unchanged, it costs the metadata read alone instead of a page, its budget measure and
- * its messages over the bridge. A new version replaces every limit's page, so each holds at most the current one.
+ * The last tail page each omp answered (keyed by its bridge), per limit and picture form, with its version. A window
+ * asks for the tail at every tab switch and hydration, a paired device at every open, an agent's control tools at
+ * their own limit; read again while the transcript is unchanged, it costs the metadata read alone instead of a page,
+ * its budget measure and its messages over the bridge. A new version replaces every page, so each holds at most the
+ * current one.
  */
-const lastTails = new WeakMap<object, { version: string; pages: Map<number, MessagesPage> }>();
+const lastTails = new WeakMap<object, { version: string; pages: Map<string, MessagesPage> }>();
 
 /**
  * One page of the bridge's cached stock replay. Pages, never the whole
  * transcript: the bridge socket answers in order, so one multi-MB reply would
  * stall every other bridge request (history, compaction, completions) behind it.
+ * `imageRefs`: the page's pictures as stock's blob references (gui-bridge image-refs.ts), for a paired device that
+ * reads each once (`read_image_blob`); a session's pictures were 92 % of an 18.4 MB tail page the link's 16 MiB
+ * frame could not carry (4 Nov 2026).
  */
 function transcriptPage(
 	ctx: LocalCommandContext,
 	offset: number,
 	limit: number,
 	snapToTurn = false,
+	imageRefs = false,
 ): Promise<TranscriptPage> {
-	return ctx.bridge.request("sessions.transcript", { offset, limit, ...(snapToTurn ? { snapToTurn } : {}) });
+	return ctx.bridge.request("sessions.transcript", {
+		offset,
+		limit,
+		...(snapToTurn ? { snapToTurn } : {}),
+		...(imageRefs ? { imageRefs } : {}),
+	});
 }
 
 function pageLimit(raw: unknown): number {
@@ -112,25 +122,27 @@ export const handlers: Record<string, LocalHandler> = {
 
 	get_transcript_page: async (command, ctx): Promise<MessagesPage> => {
 		const limit = pageLimit(command.limit);
+		const imageRefs = command.imageRefs === true;
 		const cursor = command.cursor === undefined ? undefined : decodeCursor(command.cursor);
 		const backward = command.fromEnd === true || cursor?.backward === true;
 		const metadata = backward && !cursor ? await transcriptPage(ctx, 0, 0) : undefined;
 		const version = metadata?.version;
+		const tailKey = `${limit}${imageRefs ? ":refs" : ""}`;
 		if (version !== undefined) {
 			// The caller holds this very transcript: nothing to send. A fresh caller gets the page this omp last read.
 			if (command.ifVersion === version)
 				return { messages: [], totalMessages: metadata?.total ?? 0, version, unchanged: true };
 			const last = lastTails.get(ctx.bridge);
-			const kept = last?.version === version ? last.pages.get(limit) : undefined;
+			const kept = last?.version === version ? last.pages.get(tailKey) : undefined;
 			if (kept) return kept;
 		}
 		const endIndex = cursor?.offset ?? metadata?.total ?? limit;
 		let take = backward ? Math.min(limit, endIndex) : limit;
 		let offset = backward ? endIndex - take : (cursor?.offset ?? 0);
-		let page = await transcriptPage(ctx, offset, take, backward);
+		let page = await transcriptPage(ctx, offset, take, backward, imageRefs);
 		while (backward && take > MIN_BACKWARD_PAGE && JSON.stringify(page.messages).length > BACKWARD_PAGE_BUDGET) {
 			take = Math.max(MIN_BACKWARD_PAGE, Math.floor(take / 2));
-			const smaller = await transcriptPage(ctx, endIndex - take, take, true);
+			const smaller = await transcriptPage(ctx, endIndex - take, take, true, imageRefs);
 			// One run longer than the budget: the bridge snaps every shorter read back to its start, the same page.
 			if ((smaller.startIndex ?? endIndex - take) === (page.startIndex ?? offset)) break;
 			offset = endIndex - take;
@@ -159,8 +171,8 @@ export const handlers: Record<string, LocalHandler> = {
 		if (metadata && page.version !== undefined && page.version === version) {
 			result.version = page.version;
 			const last = lastTails.get(ctx.bridge);
-			if (last?.version === version) last.pages.set(limit, result);
-			else lastTails.set(ctx.bridge, { version, pages: new Map([[limit, result]]) });
+			if (last?.version === version) last.pages.set(tailKey, result);
+			else lastTails.set(ctx.bridge, { version, pages: new Map([[tailKey, result]]) });
 		}
 		return result;
 	},

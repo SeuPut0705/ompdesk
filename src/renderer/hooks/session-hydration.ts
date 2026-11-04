@@ -616,17 +616,20 @@ function commitHydration({
 	const restored = messages?.getState().restoredAt != null;
 	if (messagesResult.status !== "fulfilled" || !messagesResult.value.success) {
 		if (restored) messages?.setState({ restoredAt: null });
+		const failed = messagesResult.status === "fulfilled" ? messagesResult.value : null;
+		const reason =
+			messagesResult.status === "rejected"
+				? messagesResult.reason instanceof Error
+					? messagesResult.reason.message
+					: String(messagesResult.reason)
+				: (failed && !failed.success && failed.error) || "Transcript page could not be loaded";
+		// The cause goes to gui-runtime.jsonl, as a history page's does: a paired host's 18.4 MB tail page refused by
+		// the link left nothing but the banner on the Windows PC (4 Nov 2026).
+		reportRuntimeError("background-task", messagesResult.status === "rejected" ? messagesResult.reason : reason, {
+			details: { task: "transcript-tail", code: (failed && !failed.success && failed.code) || null },
+		});
 		// Nothing of the transcript is on screen: the failure is shown with Retry, never an empty session.
-		if (messages && messages.getState().messages.length === 0) {
-			const failed = messagesResult.status === "fulfilled" ? messagesResult.value : null;
-			const reason =
-				messagesResult.status === "rejected"
-					? messagesResult.reason instanceof Error
-						? messagesResult.reason.message
-						: String(messagesResult.reason)
-					: (failed && !failed.success && failed.error) || "Transcript page could not be loaded";
-			messages.setState({ pageError: reason });
-		}
+		if (messages && messages.getState().messages.length === 0) messages.setState({ pageError: reason });
 		return;
 	}
 	// Only rows with no read error and no seed asked `ifVersion`: an unchanged answer has nothing to clear.

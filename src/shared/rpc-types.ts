@@ -304,6 +304,8 @@ export type RpcCommand =
 			 * that has not changed since is answered `unchanged`, with no messages.
 			 */
 			ifVersion?: string;
+			/** The page's pictures as stock's `blob:sha256:` references for the caller to read (`read_image_blob`): a paired device. */
+			imageRefs?: boolean;
 	  }
 	| { id?: string; type: "get_copy_targets" }
 	/** The newest http(s) link in an assistant message (stock `extractLastLink`), for `/open`. */

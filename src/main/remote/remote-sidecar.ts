@@ -785,16 +785,27 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 			if (command.type === "get_subagent_messages" || command.type === "get_subagent_transcript")
 				return await this.#journalRead(command, sent => ask(sent, false));
 			const page = this.#tailKey(command);
+			// The page's pictures come as references this device reads once (`ImageBlobCache`), as a journal's do: a
+			// session's pictures inline were 92 % of an 18.4 MB tail page the link's 16 MiB frame could not carry
+			// (4 Nov 2026). An older host ignores `imageRefs` and sends the bytes.
+			const pictured = this.#imageBlobs !== undefined && command.type === "get_transcript_page";
 			const kept =
 				page && command.type === "get_transcript_page" && command.ifVersion === undefined
 					? await page.cache.page(page.key)
 					: null;
 			// A fresh reader (a relaunch, a reload) asks for the page this device kept, if the transcript is unchanged.
 			const sent: RpcCommand =
-				kept && command.type === "get_transcript_page" ? { ...command, ifVersion: kept.version } : command;
+				command.type === "get_transcript_page"
+					? {
+							...command,
+							...(kept ? { ifVersion: kept.version } : {}),
+							...(pictured ? { imageRefs: true } : {}),
+						}
+					: command;
 			const response = await ask(sent, false);
 			const read = encodedReadKey(command);
-			if (!read || !response.success) return response;
+			if (!response.success) return response;
+			if (!read) return pictured ? await this.#withPictures(response) : response;
 			// The answer may be a delta of an earlier one (`slimAutopilotReads`, `slimListReads`); one this side lacks is
 			// asked again whole.
 			let decode = this.#reads.get(read.key);
@@ -810,11 +821,15 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 			}
 			if (page) {
 				const tail = data as { unchanged?: unknown; version?: unknown } | null;
-				if (kept && tail?.unchanged === true) return { ...response, data: kept.page };
+				if (kept && tail?.unchanged === true) {
+					const answer = { ...response, data: kept.page };
+					return pictured ? await this.#withPictures(answer) : answer;
+				}
 				if (typeof tail?.version === "string" && tail.unchanged !== true && typeof data === "object" && data)
 					void page.cache.keepPage(page.key, tail.version, data);
 			}
-			return { ...response, data };
+			const answer = { ...response, data };
+			return pictured ? await this.#withPictures(answer) : answer;
 		} catch (error) {
 			// The link dropped mid-request: same refusal as a command sent while offline.
 			if (isOfflineError(error)) throw codedError("remote_offline", OFFLINE_TEXT);
@@ -830,6 +845,18 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 			cache: this.#transcripts,
 			key: `${this.#link.deviceId}\0${this.#resume}\0tail\0${String(command.limit)}`,
 		};
+	}
+
+	/**
+	 * A page's pictures in place of their references, on a copy: the answer as it came is the delta base the decoder
+	 * holds and the page the transcript cache keeps, both with references, as the host's next answer expects.
+	 */
+	async #withPictures(response: RpcResponse): Promise<RpcResponse> {
+		const data = response.data;
+		if (!this.#imageBlobs || typeof data !== "object" || data === null || !("messages" in data)) return response;
+		const shown = structuredClone(data);
+		await this.#imageBlobs.resolve(shown.messages, ref => this.#imageBlob(ref));
+		return { ...response, data: shown };
 	}
 
 	/**

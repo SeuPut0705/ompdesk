@@ -223,6 +223,32 @@ describe("get_transcript_page", () => {
 		expect((await page({ type: "get_transcript_page", limit: 2 }, ctx)).version).toBeUndefined();
 	});
 
+	it("asks the bridge for a device's page with its pictures as references, kept apart from the window's page", async () => {
+		const entries = chain(30);
+		const { ctx, requested } = pagedBridge(entries, () => `u${entries.length - 1}`, true);
+		const page = handlers.get_transcript_page as (
+			command: Record<string, unknown>,
+			ctx: LocalCommandContext,
+		) => Promise<MessagesPage>;
+		const shown = await page({ type: "get_transcript_page", fromEnd: true, limit: 200 }, ctx);
+		const referenced = await page({ type: "get_transcript_page", fromEnd: true, limit: 200, imageRefs: true }, ctx);
+		expect(referenced).not.toBe(shown);
+		expect(requested.at(-1)).toEqual({ offset: 0, limit: 30, snapToTurn: true, imageRefs: true });
+		// Each form is read once per version; a window's read never carries the device's flag.
+		await expect(
+			page({ type: "get_transcript_page", fromEnd: true, limit: 200, imageRefs: true }, ctx),
+		).resolves.toBe(referenced);
+		await expect(page({ type: "get_transcript_page", fromEnd: true, limit: 200 }, ctx)).resolves.toBe(shown);
+		expect(
+			requested.filter(params => typeof params === "object" && params !== null && "imageRefs" in params),
+		).toHaveLength(1);
+		// An older page read by cursor carries the flag too.
+		const short = await page({ type: "get_transcript_page", fromEnd: true, limit: 8, imageRefs: true }, ctx);
+		if (!short.prevCursor) throw new Error("no prevCursor");
+		await page({ type: "get_transcript_page", cursor: short.prevCursor, limit: 8, imageRefs: true }, ctx);
+		expect(requested.at(-1)).toEqual({ offset: 14, limit: 8, snapToTurn: true, imageRefs: true });
+	});
+
 	it("snaps a tool result/assistant step back to the start of its run", () => {
 		const messages = [
 			{ role: "user" },

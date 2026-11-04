@@ -1,10 +1,15 @@
+import { createHash } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
 import { type AddressInfo, createServer as createNetServer } from "node:net";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
 import type { RemoteLinkState } from "../../shared/ipc-types";
 import type { RpcResponse, SidecarStatusPayload } from "../../shared/rpc-types";
 import type { BridgeConnectResult } from "../bridge-health";
 import { SIGN_IN_CALLBACK_METHOD, type TabEventMessage, type TabStatusArg } from "./app-protocol";
+import { ImageBlobCache } from "./image-blob-cache";
 import { createReadEncoder } from "./link-events";
 import { PendingTabCloses, type RemoteLink, RemoteSidecar, type RemoteSidecarOptions } from "./remote-sidecar";
 
@@ -58,6 +63,7 @@ function setup(
 		keepOnHost?: () => boolean;
 		cwd?: string;
 		signInRelay?: RemoteSidecarOptions["signInRelay"];
+		imageBlobs?: ImageBlobCache;
 	} = {},
 ): {
 	link: FakeLink;
@@ -286,6 +292,70 @@ describe("RemoteSidecar", () => {
 		expect(
 			link.sent.filter(request => request.method === "tab.command").map(request => request.params.fresh),
 		).toEqual([undefined, undefined, undefined, undefined]);
+	});
+
+	it("reads a page's pictures by reference, once each, and keeps the delta chain on the host's referenced pages", async () => {
+		const dir = await mkdtemp(path.join(tmpdir(), "ompdesk-sidecar-pictures-"));
+		try {
+			const { link, sidecar } = setup({ imageBlobs: new ImageBlobCache(dir) });
+			sidecar.start();
+			await settle();
+			sidecar.handleEvent(hostStatus("ready"));
+			const picture = Buffer.from("a generated picture, 4 Nov 2026");
+			const ref = `blob:sha256:${createHash("sha256").update(picture).digest("hex")}`;
+			const page = (n: number) => ({
+				messages: [
+					{ role: "toolResult", content: [{ type: "image", data: ref, mimeType: "image/webp" }] },
+					...Array.from({ length: n }, (_, i) => ({ role: "user", content: `m${i}` })),
+				],
+				totalMessages: n + 1,
+				version: `v${n}`,
+			});
+			const encode = createReadEncoder();
+			let n = 1;
+			let blobReads = 0;
+			link.handlers["tab.command"] = params => {
+				const command = params.command as { type: string; imageRefs?: boolean; cursor?: string };
+				if (command.type === "read_image_blob") {
+					blobReads++;
+					return {
+						type: "response",
+						command: command.type,
+						success: true,
+						data: { data: picture.toString("base64") },
+					};
+				}
+				expect(command.imageRefs).toBe(true);
+				const data = command.cursor ? page(0) : encode(page(n), params.fresh === true);
+				return { type: "response", command: command.type, success: true, data: JSON.parse(JSON.stringify(data)) };
+			};
+			const shown = (n: number) => ({
+				...page(n),
+				messages: page(n).messages.map((message, i) =>
+					i === 0
+						? {
+								...message,
+								content: [{ type: "image", data: picture.toString("base64"), mimeType: "image/webp" }],
+							}
+						: message,
+				),
+			});
+			const tail = () => sidecar.rpcClient?.command({ type: "get_transcript_page", fromEnd: true, limit: 200 });
+			await expect(tail()).resolves.toMatchObject({ data: shown(1) });
+			n = 2;
+			// The delta against the first page applies: the device's copy of it still names the picture by reference.
+			await expect(tail()).resolves.toMatchObject({ data: shown(2) });
+			await expect(
+				sidecar.rpcClient?.command({ type: "get_transcript_page", cursor: "c1", limit: 200 }),
+			).resolves.toMatchObject({ data: shown(0) });
+			// One read of the picture for three pages; then it is on this device's disk.
+			expect(blobReads).toBe(1);
+			expect(
+				link.sent.filter(request => request.method === "tab.command").map(request => request.params.fresh),
+			).toEqual([undefined, undefined, undefined, undefined]);
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
 	});
 
 	it("forwards commands, side-channel frames and lifecycle calls to its rtab on the host", async () => {
