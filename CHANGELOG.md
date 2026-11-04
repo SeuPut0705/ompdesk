@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.109.1] - 2026-11-05
+
+자동 업데이트는 서브에이전트나 백그라운드 작업이 돌고 있어도 바로 재시작해요.
+
+### 고친 것
+- 업데이트를 내려받은 뒤에도 서브에이전트나 백그라운드 bash·eval 작업이 돌고 있으면 자동 재시작이 계속 미뤄졌어요. 재시작 뒤에는 서브에이전트와 끊긴 명령을 다시 시작해 이어가니, 이제 그 작업들은 재시작을 막지 않고 평소처럼 60초 카운트다운 뒤에 설치해요. 열린 질문·승인·계획 카드와 진행 중인 컴팩션만 계속 기다려요(잘린 컴팩션은 이어지지 않아서요). 사이드바의 "Update X waits · N running" 카드와 설정의 같은 안내, 폰과 페어링된 컴퓨터의 같은 안내는 없어졌어요. 직접 "Restart & install"을 누르면 무엇이 끊기는지 알려 주는 확인은 그대로예요.
+
+<!-- en -->
+
+The automatic update restarts at once even while subagents or background jobs run.
+
+### Fixed
+- After an update downloaded, running subagents or background bash/eval jobs kept the automatic restart waiting. Since the relaunch starts subagents and cut commands again and carries on, they no longer hold it: the update goes through the usual 60 s countdown and installs. Only an open ask, approval or plan card and a compaction under way still wait (a cut compaction does not resume). The sidebar's "Update X waits · N running" card, the same line in Settings, and the same notice on the phone and a paired computer are gone. The confirm that names what a person's own "Restart & install" interrupts stays.
+
 ## [0.109.0] - 2026-11-05
 
 자식 세션의 완료 보고와 세션 목록이 그 세션의 속도(모델 호출 수·호출당 시간·낭비)를 보여 주고, 봇은 브리프를 가볍게 씁니다.
