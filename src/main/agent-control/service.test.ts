@@ -376,7 +376,21 @@ class FakeHost implements AgentControlHost {
 					prevCursor: command.cursor ? undefined : "cur1",
 				});
 			case "get_available_models":
-				return ok({ models: [{ provider: "anthropic", id: "claude-x" }] });
+				return ok({
+					models: [
+						{ provider: "anthropic", id: "claude-x" },
+						{ provider: "fake", id: "m1" },
+						{ provider: "fake", id: "m2" },
+					],
+				});
+			case "get_model_roles":
+				return ok({
+					roles: [
+						{ id: "task", model: "fake/m1", effective: { model: "fake/m1", source: "configured" } },
+						{ id: "smol", effective: { model: "fake/m2", source: "fallback", via: "default" } },
+						{ id: "plan" },
+					],
+				});
 			case "get_turn_edits":
 				return tab.turn ? ok(tab.turn) : bad("unknown command: get_turn_edits");
 			case "get_git_unlanded":
@@ -596,6 +610,28 @@ describe("ompdesk_session_open", () => {
 		const firstPrompt = host.sent.findIndex(entry => entry.tabId === one && entry.command.type === "prompt");
 		const mark = host.sent.findIndex(entry => entry.tabId === one && entry.command.type === "agent_control_worker");
 		expect(mark).toBeLessThan(firstPrompt);
+	});
+
+	it("opens on the model a role runs on now (task, smol, …) and refuses an empty role by name", async () => {
+		const host = new FakeHost({ tabId: "main0001", title: "Boss" });
+		const service = control(host);
+		const setModel = (tabId: string) =>
+			host.sent.find(entry => entry.tabId === tabId && entry.command.type === "set_model")?.command as
+				| { provider?: string; modelId?: string }
+				| undefined;
+		const task = await service.run("main0001", T.open, { message: "mechanical edit", model: "task" });
+		expect(task.isError, task.text).toBe(false);
+		const [child] = [...host.tabsById.keys()].filter(id => id !== "main0001");
+		expect(setModel(child as string)).toMatchObject({ provider: "fake", modelId: "m1" });
+		// A role resolved through stock's fallback chain still names a model.
+		const smol = await service.run("main0001", T.open, { message: "lookup", model: "Smol" });
+		expect(smol.isError, smol.text).toBe(false);
+		const [, second] = [...host.tabsById.keys()].filter(id => id !== "main0001");
+		expect(setModel(second as string)).toMatchObject({ provider: "fake", modelId: "m2" });
+		const plan = await service.run("main0001", T.open, { message: "plan it", model: "plan" });
+		expect(plan.isError).toBe(true);
+		expect(plan.text).toContain("The plan role names no model");
+		expect(host.tabsById.size).toBe(3);
 	});
 
 	it("runs beforeFirstPrompt before the first prompt and closes the child when it throws", async () => {

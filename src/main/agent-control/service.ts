@@ -72,6 +72,7 @@ import type {
 	MessageContent,
 	MessagesPage,
 	ModelInfo,
+	ModelRolesResult,
 	RpcCommand,
 	RpcResponse,
 	RpcSessionState,
@@ -1999,6 +2000,11 @@ export class AgentControl {
 		return promise;
 	}
 
+	/**
+	 * `wanted` is a `provider/id`, a model id, or one of the person's model roles (`task`, `smol`, …: stock's
+	 * `modelRoles` in config.yml, read through the caller's omp at open time), which names what that role runs on now.
+	 * Never a model id written down anywhere in OMPdesk (the owner's rule, 4 Nov 2026).
+	 */
 	async #resolveModel(send: OpenCommand, wanted: string): Promise<ModelInfo> {
 		const data = responseData<{ models?: ModelInfo[] }>(
 			await send({ type: "get_available_models" }, 15_000),
@@ -2006,6 +2012,25 @@ export class AgentControl {
 		);
 		const models = data?.models ?? [];
 		const lowered = wanted.toLowerCase();
+		if (!wanted.includes("/")) {
+			const roles = responseData<ModelRolesResult>(
+				await send({ type: "get_model_roles", compact: true }, 15_000),
+				"Reading the model roles",
+			);
+			const role = roles?.roles.find(entry => entry.id.toLowerCase() === lowered);
+			if (role) {
+				const selector = role.effective?.model ?? role.model;
+				const found = selector
+					? models.find(model => `${model.provider}/${model.id}`.toLowerCase() === selector.toLowerCase())
+					: undefined;
+				if (found) return found;
+				fail(
+					selector
+						? `The ${role.id} role is set to "${selector}", which no available model matches. Fix the role in Settings › Models, or give provider/id.`
+						: `The ${role.id} role names no model. Set it in Settings › Models, or give provider/id.`,
+				);
+			}
+		}
 		const exact = models.find(model => `${model.provider}/${model.id}`.toLowerCase() === lowered);
 		if (exact) return exact;
 		const byId = models.filter(model => model.id.toLowerCase() === lowered);

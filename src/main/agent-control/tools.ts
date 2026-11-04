@@ -81,7 +81,7 @@ const OPEN_ONE = {
 	model: {
 		type: "string",
 		description:
-			"Model as provider/id or an id from the model list; default the session's default model. A narrow, mechanical implementation: the model your task role uses.",
+			"provider/id, an id from the model list, or one of the person's model roles (task, smol, plan, …), resolved to what that role runs on when the session opens; default the session's default model. A narrow, mechanical implementation: task.",
 	},
 	mode: {
 		type: "string",
