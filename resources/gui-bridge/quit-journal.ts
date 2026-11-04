@@ -18,6 +18,14 @@ import { createPendingToolCalls } from "./quit-journal-core";
 /** Longer than a tool needs to see its abort and return; a tool that ignores the abort does not hold the quit past it. */
 export const QUIT_TOOL_SETTLE_MS = 1_500;
 
+/**
+ * The one tool the quit leaves as stock does. A `wait` cut by a quit stays pending in the journal (its result never
+ * reaches it, before and after v0.110.0), and stock's restore runs it again; with its aborted result and the aborted
+ * reply journaled the restore reads the turn as ended and the parent is told by a follow-up instead
+ * (`bridge-restore-subagents-stock.test.ts`: "while the parent waited on it", red 10 of 10 with the hold on `wait`).
+ */
+const LEFT_PENDING_TOOL = "wait";
+
 /** The live registry as omp's package index reaches it: a session's agent loop by its agent id. */
 interface RegistryApi {
 	pi: {
@@ -31,7 +39,7 @@ interface RegistryApi {
 export function install(pi: ExtensionAPI): void {
 	const calls = createPendingToolCalls();
 	pi.on("tool_execution_start", event => {
-		calls.start(event.toolCallId);
+		if (event.toolName !== LEFT_PENDING_TOOL) calls.start(event.toolCallId);
 	});
 	pi.on("message_end", event => {
 		if (event.message.role === "toolResult") calls.settle(event.message.toolCallId);
