@@ -13,7 +13,9 @@
  *   ({@link titleInput}), since stock declines the wrapper as low-signal.
  * - Evolving: while the title is automatic ({@link titleIsAuto}), a terminal `agent_end` asks
  *   {@link EvolveGate} whether the work moved; if so `renameTitle()` makes a fresh title for the recent
- *   conversation, applied only when it is not a reword of the current one.
+ *   conversation, applied only when it is not a reword of the current one. Inside a long turn the gate
+ *   asks the same every few minutes of work (`tool_execution_end`), so a run of an hour is not named by
+ *   its first message to the end.
  * - The person's name is never replaced by a background run: a typed name is "user" source, and every
  *   write re-checks that the name and the title revision are the ones the request started from.
  * - `regenerate_title` (the editor's auto button) is `/rename` without a title on the live session; the
@@ -192,7 +194,7 @@ let settings: AutoTitleSettings = parseAutoTitleEnv(process.env.OMP_GUI_AUTO_TIT
 interface Tracking {
 	sessionId: string;
 	gate: EvolveGate;
-	/** A first-title or evolve request is running: another one waits for the next turn. */
+	/** A first-title or evolve request is running: another one waits for the next event the gate opens on. */
 	busy: boolean;
 	/** The automatic title the GUI was last told stands beside the name (`session_info_update.autoTitle`). */
 	shownAuto: string | null;
@@ -490,6 +492,12 @@ function runBackground(session: TitleSession, work: () => Promise<void>): void {
 async function onEvent(event: TitleEvent, session: TitleSession): Promise<void> {
 	const state = tracking(session);
 	state.gate.note(event);
+	if (event.type === "tool_execution_end") {
+		// The gate first: it is a counter, while the current title reads the journal.
+		if (evolveEffective(settings) && state.gate.workMoved(clock()) && currentAutoTitle(session))
+			runBackground(session, () => evolveTitle(session));
+		return;
+	}
 	if (event.type !== "message_end" && event.type !== "agent_end") return;
 	followNameChanges(session);
 	if (!titleEffective(settings)) return;

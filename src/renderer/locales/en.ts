@@ -6431,7 +6431,7 @@ export const en: Record<string, string> = {
 	"settings.gui.autoTitleEvolveDesc":
 		"Re-titles an automatic title when the work moves on. A title you typed never changes.",
 	"settings.gui.autoTitleEvolveCost":
-		"At most one extra request per two finished turns, and only after files, the plan or the goal changed (or after six quiet turns).",
+		"At most one extra request per finished turn, after files, the plan or the goal changed (or after three quiet turns), and every five minutes inside a long turn while the work moves.",
 	"input.suggestion.unavailable.no_model": "Suggestions are off: no small model is set up",
 	"input.suggestion.unavailable.no_credentials": "Suggestions are off: the small model has no credentials",
 	"input.suggestion.unavailable.refused": "Suggestions are off: the provider refused the request",

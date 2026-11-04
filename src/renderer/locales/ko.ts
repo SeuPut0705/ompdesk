@@ -6422,7 +6422,7 @@ export const ko: Record<string, string> = {
 	"settings.gui.autoTitleEvolveDesc":
 		"자동으로 지은 제목은 작업이 달라지면 다시 지어요. 직접 입력한 제목은 바뀌지 않아요.",
 	"settings.gui.autoTitleEvolveCost":
-		"턴이 두 번 끝날 때마다 한 번 이하로, 파일·계획·목표가 바뀐 뒤에만 요청해요. 변화가 없으면 여섯 턴 뒤에 확인해요.",
+		"턴이 끝날 때마다 한 번 이하로, 파일·계획·목표가 바뀐 뒤에만 요청해요. 변화가 없으면 세 턴 뒤에 확인하고, 긴 턴 안에서는 작업이 이어지는 동안 5분마다 확인해요.",
 	"input.suggestion.unavailable.no_model": "제안이 꺼져 있어요: 작은 모델이 설정되지 않았어요",
 	"input.suggestion.unavailable.no_credentials": "제안이 꺼져 있어요: 작은 모델에 자격 증명이 없어요",
 	"input.suggestion.unavailable.refused": "제안이 꺼져 있어요: 프로바이더가 요청을 거부했어요",

@@ -456,16 +456,50 @@ describe("evolving title", () => {
 		expect(world.script.retitle).toHaveBeenCalledTimes(1);
 	});
 
-	it("never starts mid-turn: only a terminal agent_end counts", async () => {
-		const world = build({ name: "Fix login bug", source: "auto" });
+	it("re-titles inside a long turn once the work moved and the work interval passed, once per interval", async () => {
+		const world = build({ name: "🐛 Fix login bug", source: "auto" });
 		await attach(world.session);
-		for (let i = 0; i < 4; i++) {
-			await send(world.session, { type: "tool_execution_end", toolName: "edit" });
-			now += DEFAULT_GATE_RULES.minIntervalMs;
-			await send(world.session, { type: "agent_end", isTerminal: false });
+		const work = async () => {
+			for (const toolName of ["edit", "edit", "write"])
+				await send(world.session, { type: "tool_execution_end", toolName });
+			await flush();
+		};
+		await work();
+		expect(world.script.retitle).not.toHaveBeenCalled();
+		now += DEFAULT_GATE_RULES.workIntervalMs;
+		await work();
+		expect(world.script.retitle).toHaveBeenCalledTimes(1);
+		expect(world.manager.getSessionName()).toBe("Migrate build to Vite");
+		// The same interval: more work asks nothing until the next one.
+		await work();
+		expect(world.script.retitle).toHaveBeenCalledTimes(1);
+		now += DEFAULT_GATE_RULES.workIntervalMs;
+		await work();
+		expect(world.script.retitle).toHaveBeenCalledTimes(2);
+		// A pause (a non-terminal agent_end) is no turn end: the window stays the one the last look started.
+		await send(world.session, { type: "agent_end", isTerminal: false });
+		await flush();
+		expect(world.script.retitle).toHaveBeenCalledTimes(2);
+	});
+
+	it("asks nothing inside a turn whose work has not moved, and nothing until the title exists", async () => {
+		const quiet = build({ name: "🐛 Fix login bug", source: "auto" });
+		await attach(quiet.session);
+		for (let i = 0; i < 20; i++) {
+			now += DEFAULT_GATE_RULES.workIntervalMs;
+			await send(quiet.session, { type: "tool_execution_end", toolName: "bash" });
 		}
 		await flush();
-		expect(world.script.retitle).not.toHaveBeenCalled();
+		expect(quiet.script.retitle).not.toHaveBeenCalled();
+
+		const unnamed = build();
+		await attach(unnamed.session);
+		now += DEFAULT_GATE_RULES.workIntervalMs;
+		for (const toolName of ["edit", "edit", "write"])
+			await send(unnamed.session, { type: "tool_execution_end", toolName });
+		await flush();
+		expect(unnamed.script.retitle).not.toHaveBeenCalled();
+		expect(unnamed.manager.setSessionName).not.toHaveBeenCalled();
 	});
 
 	it("keeps naming a session the person named: the automatic title goes beside the name, which never changes", async () => {

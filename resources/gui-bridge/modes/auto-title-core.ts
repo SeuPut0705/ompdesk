@@ -102,17 +102,28 @@ const FILE_TOOLS: Readonly<Record<string, true>> = { edit: true, write: true, as
 export const WEIGHT = { file: 1, plan: 2, goal: 3 } as const;
 
 export interface GateRules {
-	/** Terminal turns that must pass since the title was set or last considered. */
-	minTurns: number;
 	/** Weight the work must have moved by (or {@link GateRules.forceTurns} turns must pass). */
 	threshold: number;
 	/** Turns after which a quiet session is considered anyway (a long conversation that changed course in words). */
 	forceTurns: number;
-	/** Shortest time between two considerations. */
+	/** Shortest time between two considerations at a turn's end. */
 	minIntervalMs: number;
+	/** Shortest time between two considerations inside a turn (the work moved by {@link GateRules.threshold}). */
+	workIntervalMs: number;
 }
 
-export const DEFAULT_GATE_RULES: GateRules = { minTurns: 2, threshold: 3, forceTurns: 6, minIntervalMs: 60_000 };
+/**
+ * Every finished turn whose work moved, every third quiet turn, and inside a long turn every five minutes of
+ * work. Measured on the owner's bot session of 3 Nov 2026 (three unrelated tasks over six hours, four turns, two
+ * of them an hour long, one omp restart between): the earlier rules (two turns since the last look, six quiet
+ * ones) asked once and the title named the first task to the end.
+ */
+export const DEFAULT_GATE_RULES: GateRules = {
+	threshold: 3,
+	forceTurns: 3,
+	minIntervalMs: 60_000,
+	workIntervalMs: 5 * 60_000,
+};
 
 export interface GateEvent {
 	type: string;
@@ -122,9 +133,10 @@ export interface GateEvent {
 
 /**
  * Decides cheaply, with no model call, when a re-title is worth asking the title model for: after a
- * terminal `agent_end` once enough turns passed and the work has moved (files edited, todo plan or
- * goal changed), or many turns passed regardless. One consideration per window: it resets the counters
- * whether or not the title then changes, which is also the debounce.
+ * terminal `agent_end` once the work has moved (files edited, todo plan or goal changed), or after a
+ * few turns regardless; and inside a long turn once the work moved and enough time passed. One
+ * consideration per window: it resets the counters whether or not the title then changes, which is
+ * also the debounce.
  */
 export class EvolveGate {
 	#turns = 0;
@@ -156,10 +168,17 @@ export class EvolveGate {
 	/** A terminal turn ended: true when the title model should be asked now (the window then restarts). */
 	turnEnded(now: number): boolean {
 		this.#turns++;
-		const { minTurns, threshold, forceTurns, minIntervalMs } = this.#rules;
+		const { threshold, forceTurns, minIntervalMs } = this.#rules;
 		if (now - this.#since < minIntervalMs) return false;
-		if (this.#turns < minTurns) return false;
 		if (this.#weight < threshold && this.#turns < forceTurns) return false;
+		this.reset(now);
+		return true;
+	}
+
+	/** Work happened inside a turn: true when it moved enough and the work interval passed (the window then restarts). */
+	workMoved(now: number): boolean {
+		const { threshold, workIntervalMs } = this.#rules;
+		if (this.#weight < threshold || now - this.#since < workIntervalMs) return false;
 		this.reset(now);
 		return true;
 	}

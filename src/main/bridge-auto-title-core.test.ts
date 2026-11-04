@@ -121,17 +121,40 @@ describe("EvolveGate", () => {
 	const rules = DEFAULT_GATE_RULES;
 	const edit = { type: "tool_execution_end", toolName: "edit" };
 
-	it("waits for the minimum turns and for the work to move", () => {
+	it("asks at the end of a turn whose work moved, and not before", () => {
 		let now = 0;
 		const gate = new EvolveGate(now);
 		now += rules.minIntervalMs;
 		gate.note(edit);
-		expect(gate.turnEnded(now)).toBe(false);
-		// One edit is not enough weight, and two turns have passed only now.
+		// One edit is not enough weight.
 		expect(gate.turnEnded(now)).toBe(false);
 		gate.note(edit);
 		gate.note(edit);
 		expect(gate.turnEnded(now)).toBe(true);
+	});
+
+	it("asks inside a long turn once the work moved and the work interval passed, once per interval", () => {
+		const gate = new EvolveGate(0);
+		gate.note(edit);
+		gate.note(edit);
+		gate.note(edit);
+		expect(gate.workMoved(rules.workIntervalMs - 1)).toBe(false);
+		expect(gate.workMoved(rules.workIntervalMs)).toBe(true);
+		// The window restarted: the same weight is spent, and the next look needs new work and a new interval.
+		expect(gate.workMoved(rules.workIntervalMs * 2)).toBe(false);
+		gate.note({ type: "goal_updated" });
+		expect(gate.workMoved(rules.workIntervalMs * 2 - 1)).toBe(false);
+		expect(gate.workMoved(rules.workIntervalMs * 2)).toBe(true);
+		// A turn ending right after a look inside it asks nothing more without new work.
+		expect(gate.turnEnded(rules.workIntervalMs * 3)).toBe(false);
+	});
+
+	it("never asks inside a turn whose work has not moved, however long it runs", () => {
+		const gate = new EvolveGate(0);
+		gate.note({ type: "tool_execution_end", toolName: "bash" });
+		gate.note(edit);
+		gate.note(edit);
+		expect(gate.workMoved(rules.workIntervalMs * 10)).toBe(false);
 	});
 
 	it("weighs files, the todo plan and the goal, and ignores failed tools and reads", () => {
