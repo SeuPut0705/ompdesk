@@ -274,7 +274,8 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // The Windows caption band (4 Nov 2026, global.css `--sc-caption-band`, components.css `--sc-dialog-room`, and
 // `chromePlatform` keeping a mark the page set): measured 2,155,355. The same day: the cue clock holding the loops
 // under software compositing, a failed history page's pill and its retry on `ready`, its runtime-log line: 2,155,734.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_155_734;
+// A failed tail read's runtime-log line with its response code (session-hydration.ts `transcript-tail`): 2,155,854.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_155_854;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

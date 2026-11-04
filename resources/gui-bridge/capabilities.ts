@@ -1055,10 +1055,13 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 				"SessionManager.prototype.getSessionId()",
 			],
 			[`${AGENT}/session/session-context`]: ["buildSessionContext()"],
+			// A paired device's page names its pictures by stock's blob reference (image-refs.ts).
+			[`${AGENT}/session/blob-store`]: ["BlobStore()", "externalizeImageDataSync()", "isBlobRef()"],
+			[`${AGENT}/session/session-persistence`]: ["isExternalizableImagePosition()"],
 			[`${AGENT}/session/turn-persistence`]: ["sessionMessagePersistenceKey()", "sameMessageContent()"],
 			[`${AGENT}/session/session-pins`]: ["loadPinnedSessionIds()"],
 			[`${AGENT}/utils/atomic-file`]: ["replaceFileAtomically()"],
-			[UTILS]: ["getAgentDir()", "withFileLock()"],
+			[UTILS]: ["getAgentDir()", "withFileLock()", "getBlobsDir()"],
 		},
 	},
 	sessionImport: {

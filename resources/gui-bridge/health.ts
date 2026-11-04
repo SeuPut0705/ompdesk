@@ -141,6 +141,8 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 	"@oh-my-pi/pi-coding-agent/session/session-loader": () => import("@oh-my-pi/pi-coding-agent/session/session-loader"),
 	"@oh-my-pi/pi-coding-agent/session/session-manager": () =>
 		import("@oh-my-pi/pi-coding-agent/session/session-manager"),
+	"@oh-my-pi/pi-coding-agent/session/session-persistence": () =>
+		import("@oh-my-pi/pi-coding-agent/session/session-persistence"),
 	"@oh-my-pi/pi-coding-agent/session/session-pins": () => import("@oh-my-pi/pi-coding-agent/session/session-pins"),
 	"@oh-my-pi/pi-coding-agent/session/session-workspace": () =>
 		import("@oh-my-pi/pi-coding-agent/session/session-workspace"),
