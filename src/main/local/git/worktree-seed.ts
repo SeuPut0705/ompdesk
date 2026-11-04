@@ -7,7 +7,9 @@
  *    only when git ignores it there (`git check-ignore`, which never reports a tracked file), so a tracked file is
  *    never copied over the checkout git made. Absolute paths, `..`, `.git` and `!` negations are refused; a match
  *    whose real path leaves the main checkout is refused, and a symlink inside a copied folder is recreated only when
- *    it points inside the main checkout. At most `SEED_MAX_BYTES` / `SEED_MAX_FILES` are copied; the rest is skipped
+ *    it points inside the main checkout. At most `SEED_MAX_FILES` files are copied, and `SEED_MAX_BYTES` bytes
+ *    unless the filesystem clones (the first file is copied with `COPYFILE_FICLONE_FORCE`; when that works every file
+ *    is a reflink that takes no disk, so only the file count, the walk's cost, bounds the seed); the rest is skipped
  *    with a note. Existing files in the worktree are never overwritten.
  * 2. `.ompdesk/worktree-setup` (`.ompdesk/worktree-setup.cmd` on Windows), only when that file exists in the new
  *    worktree or the main checkout: run in the worktree under the setup supervisor (its whole process tree dies with
@@ -22,6 +24,7 @@
  * here is OMPdesk's own (`worktree.ts`), so nothing of stock is duplicated.
  */
 
+import { execFile } from "node:child_process";
 import * as path from "node:path";
 import type { WorktreeSeedReport, WorktreeSetupReport } from "../../../shared/rpc-types";
 import { fs } from "../../fenced-fs";
@@ -118,9 +121,52 @@ async function candidates(root: string, patterns: string[]): Promise<string[]> {
 	return [...found].sort();
 }
 
+/**
+ * `fs.copyFile` plus what Node lacks on macOS: there libuv answers `COPYFILE_FICLONE_FORCE` with ENOSYS and
+ * `COPYFILE_FICLONE` copies in full, so a clone is `cp -c` (clonefile), asked only on an APFS volume the file and its
+ * destination share. Elsewhere (Linux btrfs/XFS) libuv's own reflink does it.
+ */
+export function cloningCopier(): CopyFile {
+	const apfs = new Map<number, Promise<boolean>>();
+	const cloneable = async (from: string, to: string): Promise<boolean> => {
+		const source = await fs.stat(from);
+		if ((await fs.stat(path.dirname(to))).dev !== source.dev) return false;
+		let known = apfs.get(source.dev);
+		if (!known) {
+			// `df -T apfs <path>` prints a row only when the path's volume is APFS.
+			known = new Promise<boolean>(resolve =>
+				execFile("/bin/df", ["-T", "apfs", from], (error, stdout) =>
+					resolve(!error && stdout.trim().split("\n").length > 1),
+				),
+			);
+			apfs.set(source.dev, known);
+		}
+		return known;
+	};
+	return async (from, to, mode = 0) => {
+		const wantsClone = (mode & (fs.constants.COPYFILE_FICLONE | fs.constants.COPYFILE_FICLONE_FORCE)) !== 0;
+		if (process.platform === "darwin" && wantsClone) {
+			const cloned =
+				(await cloneable(from, to)) &&
+				(await new Promise<boolean>(resolve =>
+					execFile("/bin/cp", ["-c", "--", from, to], error => resolve(!error)),
+				));
+			if (cloned) return;
+			if (mode & fs.constants.COPYFILE_FICLONE_FORCE) throw new Error("ENOTSUP: no clone on this volume");
+		}
+		await fs.copyFile(from, to, mode);
+	};
+}
+
+/** `seedWorktree`'s copy seam: a test passes one that refuses `COPYFILE_FICLONE_FORCE`, as a filesystem without reflinks does. */
+export type CopyFile = (from: string, to: string, mode?: number) => Promise<void>;
+
 interface CopyState {
 	root: string;
 	target: string;
+	copyFile: CopyFile;
+	/** Whether the filesystem clones: null until the first file was tried. */
+	clone: boolean | null;
 	files: number;
 	bytes: number;
 	skipped: { path: string; reason: string }[];
@@ -198,13 +244,29 @@ async function copyEntry(state: CopyState, rel: string): Promise<void> {
 			return;
 		}
 	}
-	if (state.files + 1 > SEED_MAX_FILES || state.bytes + stat.size > SEED_MAX_BYTES) {
+	const overBytes = state.bytes + stat.size > SEED_MAX_BYTES;
+	if (state.files + 1 > SEED_MAX_FILES || (state.clone === false && overBytes)) {
 		state.skipped.push({ path: rel, reason: "budget" });
 		state.full = true;
 		return;
 	}
 	await fs.mkdir(path.dirname(to), { recursive: true });
-	await fs.copyFile(from, to, fs.constants.COPYFILE_FICLONE);
+	if (state.clone === null) {
+		// A failed forced clone leaves no file, so the plain copy below starts clean. Over the byte budget the file is
+		// copied only if the clone worked: a filesystem that cannot clone would pay for it in disk.
+		try {
+			await state.copyFile(from, to, fs.constants.COPYFILE_FICLONE_FORCE);
+			state.clone = true;
+		} catch {
+			state.clone = false;
+			if (overBytes) {
+				state.skipped.push({ path: rel, reason: "budget" });
+				state.full = true;
+				return;
+			}
+			await state.copyFile(from, to, fs.constants.COPYFILE_FICLONE);
+		}
+	} else await state.copyFile(from, to, fs.constants.COPYFILE_FICLONE);
 	state.files++;
 	state.bytes += stat.size;
 }
@@ -224,7 +286,11 @@ async function pointLinksAtWorktree(state: CopyState): Promise<void> {
 }
 
 /** Copies the main checkout's `.worktreeinclude` matches into `target`; null when the repo has no such file. */
-export async function seedWorktree(primary: string, target: string): Promise<WorktreeSeedReport | null> {
+export async function seedWorktree(
+	primary: string,
+	target: string,
+	deps: { copyFile?: CopyFile } = {},
+): Promise<WorktreeSeedReport | null> {
 	const root = await fs.realpath(primary);
 	const listFile = path.join(root, WORKTREE_INCLUDE_FILE);
 	const stat = await fs.stat(listFile).catch(() => null);
@@ -232,6 +298,8 @@ export async function seedWorktree(primary: string, target: string): Promise<Wor
 	const state: CopyState = {
 		root,
 		target: await fs.realpath(target),
+		copyFile: deps.copyFile ?? cloningCopier(),
+		clone: null,
 		files: 0,
 		bytes: 0,
 		skipped: [],
@@ -240,7 +308,7 @@ export async function seedWorktree(primary: string, target: string): Promise<Wor
 	};
 	if (stat.size > MAX_INCLUDE_BYTES) {
 		state.skipped.push({ path: WORKTREE_INCLUDE_FILE, reason: "too_large" });
-		return { copied: 0, bytes: 0, skipped: state.skipped };
+		return { copied: 0, bytes: 0, cloned: false, skipped: state.skipped };
 	}
 	const patterns: string[] = [];
 	for (const line of (await fs.readFile(listFile, "utf8")).split(/\r?\n/)) {
@@ -276,7 +344,7 @@ export async function seedWorktree(primary: string, target: string): Promise<Wor
 		}
 	}
 	await pointLinksAtWorktree(state);
-	return { copied: state.files, bytes: state.bytes, skipped: state.skipped };
+	return { copied: state.files, bytes: state.bytes, cloned: state.clone === true, skipped: state.skipped };
 }
 
 async function hookScript(hook: WorktreeHook, dirs: string[]): Promise<string | null> {
@@ -350,6 +418,7 @@ export async function prepareWorktree(
 		(error): WorktreeSeedReport => ({
 			copied: 0,
 			bytes: 0,
+			cloned: false,
 			skipped: [{ path: WORKTREE_INCLUDE_FILE, reason: error instanceof Error ? error.message : String(error) }],
 		}),
 	);
@@ -363,7 +432,7 @@ export function describePreparation(result: { seed?: WorktreeSeedReport; setup?:
 	if (result.seed) {
 		const skipped = result.seed.skipped.length;
 		parts.push(
-			`.worktreeinclude copied ${result.seed.copied} file(s)${
+			`.worktreeinclude copied ${result.seed.copied} file(s)${result.seed.cloned ? " (reflink)" : ""}${
 				skipped
 					? `, skipped ${skipped} (${result.seed.skipped
 							.slice(0, 3)

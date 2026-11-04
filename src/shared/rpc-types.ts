@@ -1244,6 +1244,8 @@ export interface RpcGitStatus {
 export interface WorktreeSeedReport {
 	copied: number;
 	bytes: number;
+	/** The filesystem cloned the files (reflink), so only the file count bounded the seed, not its bytes. */
+	cloned: boolean;
 	/** Matches left out: `not_ignored` (tracked or not ignored), `budget`, `symlink_outside`, `exists`, a refused pattern. */
 	skipped: { path: string; reason: string }[];
 }

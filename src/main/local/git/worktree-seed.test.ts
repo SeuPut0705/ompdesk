@@ -6,7 +6,15 @@ import { itWithFileSymlinks } from "../../test-symlinks";
 import type { BridgeClient } from "../types";
 import { gitSync, initRepo, pathExists } from "./test-repos";
 import { createWorktree } from "./worktree";
-import { includePattern, runWorktreeHook, SEED_MAX_BYTES, seedWorktree, WORKTREE_HOOK_SCRIPTS } from "./worktree-seed";
+import {
+	type CopyFile,
+	cloningCopier,
+	includePattern,
+	runWorktreeHook,
+	SEED_MAX_BYTES,
+	seedWorktree,
+	WORKTREE_HOOK_SCRIPTS,
+} from "./worktree-seed";
 
 let scratch: string;
 let repo: string;
@@ -36,6 +44,27 @@ async function freshWorktree(name: string): Promise<string> {
 	const target = path.join(scratch, name);
 	gitSync(repo, "worktree", "add", "-q", "-b", name, target);
 	return target;
+}
+
+/** A filesystem without reflinks: the forced clone is refused, a plain copy works. */
+const noReflink: CopyFile = async (from, to, mode) => {
+	if (mode !== undefined && mode & fs.constants.COPYFILE_FICLONE_FORCE) throw new Error("ENOTSUP: no reflink");
+	await fs.copyFile(from, to, mode);
+};
+
+/** Whether this machine's temp volume clones (APFS, btrfs, XFS reflink), as the seed will find out itself. */
+async function canClone(): Promise<boolean> {
+	const probe = path.join(scratch, ".clone-probe");
+	await fs.writeFile(probe, "x");
+	try {
+		await cloningCopier()(probe, `${probe}.copy`, fs.constants.COPYFILE_FICLONE_FORCE);
+		return true;
+	} catch {
+		return false;
+	} finally {
+		await fs.rm(probe, { force: true });
+		await fs.rm(`${probe}.copy`, { force: true });
+	}
 }
 
 describe("includePattern", () => {
@@ -86,7 +115,7 @@ describe("seedWorktree", () => {
 		expect(await seedWorktree(repo, await freshWorktree("none"))).toBeNull();
 	});
 
-	it("stops at the size budget with a skip note", async () => {
+	it("stops at the size budget with a skip note when the filesystem cannot clone", async () => {
 		await fs.writeFile(path.join(repo, ".gitignore"), "*.bin\n");
 		gitSync(repo, "commit", "-qam", "ignore bins");
 		await fs.writeFile(path.join(repo, "a.bin"), Buffer.alloc(SEED_MAX_BYTES - 10));
@@ -94,11 +123,43 @@ describe("seedWorktree", () => {
 		await fs.writeFile(path.join(repo, ".worktreeinclude"), "*.bin\n");
 		const target = await freshWorktree("budget");
 
-		const report = await seedWorktree(repo, target);
+		const report = await seedWorktree(repo, target, { copyFile: noReflink });
 
-		expect(report?.copied).toBe(1);
+		expect(report).toMatchObject({ copied: 1, cloned: false });
 		expect(report?.skipped).toEqual([{ path: "b.bin", reason: "budget" }]);
 		expect(await pathExists(path.join(target, "b.bin"))).toBe(false);
+	});
+
+	it("skips a first file over the budget when the clone fails, and copies nothing of it", async () => {
+		await fs.writeFile(path.join(repo, ".gitignore"), "*.bin\n");
+		gitSync(repo, "commit", "-qam", "ignore bins");
+		await fs.writeFile(path.join(repo, "a.bin"), Buffer.alloc(SEED_MAX_BYTES + 1));
+		await fs.writeFile(path.join(repo, ".worktreeinclude"), "*.bin\n");
+		const target = await freshWorktree("big-first");
+
+		const report = await seedWorktree(repo, target, { copyFile: noReflink });
+
+		expect(report).toMatchObject({ copied: 0, cloned: false });
+		expect(report?.skipped).toEqual([{ path: "a.bin", reason: "budget" }]);
+		expect(await pathExists(path.join(target, "a.bin"))).toBe(false);
+	});
+
+	it("copies past the byte budget when the filesystem clones, bounded only by the file count", async () => {
+		await fs.writeFile(path.join(repo, ".gitignore"), "*.bin\n");
+		gitSync(repo, "commit", "-qam", "ignore bins");
+		await fs.writeFile(path.join(repo, "a.bin"), Buffer.alloc(SEED_MAX_BYTES + 1));
+		await fs.writeFile(path.join(repo, "b.bin"), Buffer.alloc(SEED_MAX_BYTES + 1));
+		await fs.writeFile(path.join(repo, ".worktreeinclude"), "*.bin\n");
+		const target = await freshWorktree("clone");
+		const clones = await canClone();
+
+		const report = await seedWorktree(repo, target);
+
+		if (clones) {
+			expect(report).toMatchObject({ copied: 2, cloned: true });
+			expect(report?.skipped).toEqual([]);
+			expect((await fs.stat(path.join(target, "b.bin"))).size).toBe(SEED_MAX_BYTES + 1);
+		} else expect(report).toMatchObject({ copied: 0, cloned: false });
 	});
 
 	itWithFileSymlinks("refuses symlinks that lead outside the main checkout", async () => {
