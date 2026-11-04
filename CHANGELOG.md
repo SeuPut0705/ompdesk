@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.104.0] - 2026-11-04
+
+자동으로 지은 세션 제목이 작업을 따라 계속 바뀌어요.
+
+### 바뀐 것
+- 파일·계획·목표가 바뀐 턴이 끝나면 바로 제목을 다시 지어요. 전에는 두 턴을 더 기다렸고, 대화만 이어지면 여섯 턴 뒤에야 봤어요. 이제 조용한 세션도 세 턴마다 봐요.
+- 한 턴이 길게 이어질 때(봇이나 열어 준 세션의 한 시간짜리 작업)는 작업이 진행되는 동안 5분마다 제목을 다시 봐요. 첫 메시지로 지은 제목이 끝까지 남던 문제예요.
+- 직접 입력한 제목은 그대로예요. 새 제목은 그 옆에 붙어요.
+
+<!-- en -->
+
+Automatic session titles keep following the work.
+
+### Changed
+- A finished turn that changed files, the plan or the goal gets a fresh title at once; before, two more turns had to pass, and a conversation without such changes waited six turns. A quiet session is now looked at every third turn.
+- Inside a long turn (a bot's or an opened session's hour of work) the title is reconsidered every five minutes while the work moves; a title made from the first message used to stand to the end.
+- A title you typed stays as it is; the fresh one goes beside it.
+
 ## [0.103.0] - 2026-11-04
 
 모델 구성 도우미가 한 화면에 들어와요.
