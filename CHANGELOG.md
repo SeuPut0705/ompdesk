@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.110.0] - 2026-11-05
+
+에이전트가 시간을 헛되이 쓰는 두 가지를 브리지가 막고, 세션 속도 보고가 폴링을 낭비로 셉니다.
+
+### 추가한 것
+- `ready.log`가 절대 일치할 수 없는 bash 호출은 실행 전에 거부해요. 서비스 이름을 준 bash 호출이 마지막 명령의 stdout을 파일로 보내면(`> file 2>&1`, `>> file`, `&> file`, `1> file` 등) 로그 줄이 보일 수 없어서 `ready.timeout` 내내 기다렸어요(한 세션에서 5번, 55분). 거부 사유가 `async: true`와 `wait`, 또는 `| tee file`을 알려줘요. `| tee`, `2> file`만 쓴 경우, heredoc 본문 안의 `>`는 그대로 통과해요.
+- 폴링에는 힌트가 한 줄 붙어요. `sleep N` 뒤에 다른 명령이 오는 경우, `gh run list|view|watch`, `pgrep`, `tail -f`, `read proc://…`가 종류별로 프로세스당 한 번만 모델에게 "백그라운드 작업은 결과를 스스로 전달하고, `wait`가 기다려 주며, CI는 `gh run watch`를 async로 또는 `ompdesk_schedule {on: github}`로" 하라고 알려요. 차단은 하지 않고 도구 결과도 바꾸지 않아요.
+- 봇의 경량 브리프 규칙에 "폴링하지 말 것(sleep 뒤 확인, gh run list/view, proc:// 읽기): 작업을 백그라운드로 돌리고 기다리거나 확인을 예약"이 들어갔어요.
+- 세션 속도 줄의 Pace에서 `polled ×N`(sleep 뒤 확인, `gh run view`, `pgrep`, `tail -f`, `proc://` 읽기)을 낭비로 세고, `scripts/session-pace.ts --days`가 날짜별 표를 보여 줘요.
+
+### 고친 것
+- 자동완성 제안이 `<user-style>`에 적힌 반말·존댓말 같은 말투 단어를 그대로 베끼면 그 제안을 버려요.
+
+<!-- en -->
+
+The bridge stops two ways agents waste time, and the session pace line counts polling as waste.
+
+### Added
+- A `bash` call whose `ready.log` can never match is refused before it runs. A named-service call whose last command sends stdout to a file (`> file 2>&1`, `>> file`, `&> file`, `1> file`, …) can never show the log line and waited the whole `ready.timeout` (5 calls, 55 minutes in one session). The reason names `async: true` with `wait`, or `| tee file`. `| tee`, a lone `2> file` and a `>` inside a heredoc body pass.
+- A polling call gets one hint line: `sleep N` followed by another command, `gh run list|view|watch`, `pgrep`, `tail -f`, `read proc://…`. Each kind is told once per process, saying that a backgrounded job delivers its result by itself, `wait` blocks until then, and a CI run wants `gh run watch` under async or `ompdesk_schedule {on: github}`. Nothing is blocked and the tool result is untouched.
+- The bot's light-brief rule now says never to poll (sleep-then-check, gh run list/view, proc:// reads): background the job and wait, or schedule a check.
+- The Pace line counts `polled ×N` (sleep then check, `gh run view`, `pgrep`, `tail -f`, `proc://` reads) as waste, and `scripts/session-pace.ts --days` prints a per-day table.
+
+### Fixed
+- A prompt suggestion that copies a register word from `<user-style>` (반말, 존댓말) is dropped.
+
 ## [0.109.1] - 2026-11-05
 
 자동 업데이트는 서브에이전트나 백그라운드 작업이 돌고 있어도 바로 재시작해요.
