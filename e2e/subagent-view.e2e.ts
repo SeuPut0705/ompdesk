@@ -204,7 +204,17 @@ for (const language of variants(["en", "ko"] as const))
 					await scroller.hover();
 					await page.mouse.wheel(0, -400);
 					await expect(jump).toBeVisible();
-					const held = await scroller.evaluate(element => element.scrollTop);
+					// The wheel's scroll can still be landing when the button shows (400 px later in nightly 41911961277):
+					// the held position is the one two reads a frame apart agree on.
+					let held = await scroller.evaluate(element => element.scrollTop);
+					await expect
+						.poll(async () => {
+							const before = held;
+							await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+							held = await scroller.evaluate(element => element.scrollTop);
+							return held === before;
+						})
+						.toBe(true);
 					await fixture(page, "fixture:subagents:append");
 					await expect(view.getByText("Tests are still running (update 11).")).toHaveCount(1, { timeout: 15_000 });
 					expect(Math.abs((await scroller.evaluate(element => element.scrollTop)) - held)).toBeLessThanOrEqual(1);

@@ -151,7 +151,8 @@ test("finished opened sessions are not listed and their tabs close; unmerged wor
 			{ timeout: 30_000 },
 		)
 		.toBe(false);
-	expect(git(project, "branch", "--list", b.branch)).toBe("");
+	// The branch goes after the folder (two steps of the sweep): wait for it, not for the folder only.
+	await expect.poll(() => git(project, "branch", "--list", b.branch), { timeout: 30_000 }).toBe("");
 	expect((await tabs()).some(tab => tab.tabId === c.tabId)).toBe(true);
 	await fs.stat(c.path);
 	expect(git(project, "branch", "--list", c.branch)).toContain(c.branch);
