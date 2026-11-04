@@ -59,11 +59,11 @@ type Lang = "en" | "ko";
 async function openPhone(lang: Lang, theme: "light" | "dark" = "light"): Promise<Page> {
 	const context = await browser.newContext({ ...devices["Pixel 8"] });
 	const page = await context.newPage();
-	await reassertTouch(page);
 	page.on("pageerror", error => {
 		throw error;
 	});
 	await page.goto(`${origin}/harness.html?theme=${theme}&lang=${lang}`);
+	await reassertTouch(page);
 	await expect(page.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 30_000 });
 	await page.waitForFunction(() => window.__stores?.nextPrompt !== undefined, undefined, { timeout: 45_000 });
 	await expect(page.locator("html")).toHaveAttribute("data-input", "touch");

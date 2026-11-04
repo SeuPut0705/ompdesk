@@ -180,7 +180,6 @@ export async function openLook(browser: Browser, look: Look, options: OpenOption
 		reducedMotion: "reduce",
 	});
 	const page = await context.newPage();
-	if (touch) await reassertTouch(page);
 	// A surface whose control is missing fails in seconds (reported as failed), never hangs the sweep.
 	page.setDefaultTimeout(8_000);
 	const errors: string[] = [];
@@ -209,6 +208,7 @@ export async function openLook(browser: Browser, look: Look, options: OpenOption
 		`${options.origin}/harness.html?theme=${look.theme}&lang=${look.lang}&rail=all&stress=1${look.device === "electron" ? "&platform=darwin" : ""}${options.query ?? ""}`,
 		{ timeout: 90_000 },
 	);
+	if (touch) await reassertTouch(page);
 	await expect(page.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 45_000 });
 	// A touch look whose page reads `mouse` has no edge zone and draws 24 px controls: nightlies 41896581267 (26 stolen taps
 	// over three settings pages) and 41921143051 ("no edge strip") fit that. Fail naming the browser's pointer media.

@@ -1,16 +1,17 @@
 import { expect, type Page } from "@playwright/test";
 
 /**
- * Send Chromium's touch emulation to a phone page again, before the app loads into it.
+ * Send Chromium's touch emulation to a phone page again, after the harness has loaded into it (the app then re-reads
+ * `(pointer: coarse)` on the media change).
  *
  * Hosted runners have given a Chromium page of an `iPhone 15` / `Pixel 8` context no touch at all: `(pointer: coarse)`
  * false, `navigator.maxTouchPoints` 0, so the app read `data-input="mouse"` and drew its 24 px desktop controls
- * (nightlies 41880669356 mobile-composer, 41891147987 mobile-suggestions, 41902079883 and 41916393486 mobile-pages;
- * never seen locally).
- * Playwright sends `Emulation.setTouchEmulationEnabled` once per page, and Chromium is known to drop that state
- * (microsoft/playwright#42607: after a beyond-viewport capture, and only `setTouchEmulationEnabled` brings it back).
- * Sending it again with the value `hasTouch` already means changes nothing when the emulation is intact. A workaround
- * for a browser defect, not a retry: it is not shown to fix these failures until the nightlies after it hold.
+ * (nightlies 41880669356 mobile-composer, 41891147987 mobile-suggestions, 41902079883 and 41916393486 mobile-pages,
+ * 41921143051 responsive-smoke and mobile-shell; never seen locally). Sending it before the navigation did not help
+ * (41931516185: pixel8 still read 0 touch points), so it is sent once the page has loaded. Playwright sends
+ * `Emulation.setTouchEmulationEnabled` once per page and Chromium is known to drop that state
+ * (microsoft/playwright#42607); only sending it again brings it back. A workaround for a browser defect, not a
+ * retry, and not shown to work until the nightlies after it hold.
  */
 export async function reassertTouch(page: Page): Promise<void> {
 	const context = page.context();

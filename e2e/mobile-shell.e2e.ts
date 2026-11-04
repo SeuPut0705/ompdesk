@@ -97,11 +97,11 @@ async function openHarness(
 			: { ...preset },
 	);
 	const page = await context.newPage();
-	await reassertTouch(page);
 	page.on("pageerror", error => {
 		throw error;
 	});
 	await page.goto(`${origin}/harness.html?theme=${look.theme}&lang=${look.lang}`);
+	await reassertTouch(page);
 	await expect(page.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 30_000 });
 	if (preset.hasTouch) await expectTouchInput(page);
 	return page;

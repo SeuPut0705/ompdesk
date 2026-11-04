@@ -118,11 +118,11 @@ async function openPhone(engine: Engine, options: PhoneOptions = {}): Promise<Pa
 		screen: { width, height },
 	});
 	const page = await context.newPage();
-	await reassertTouch(page);
 	page.on("pageerror", error => {
 		throw error;
 	});
 	await page.goto(`${origin}/harness.html?theme=${theme}&lang=${lang}`);
+	await reassertTouch(page);
 	await expect(page.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 45_000 });
 	await page.waitForFunction(() => window.__stores?.nextPrompt !== undefined, undefined, { timeout: 45_000 });
 	// Twice on hosted runners (Chromium, iPhone 15) the page kept `mouse` for 10 s; never seen locally in 500+ loads.
