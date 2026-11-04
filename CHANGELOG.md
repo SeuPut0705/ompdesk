@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.109.0] - 2026-11-05
+
+자식 세션의 완료 보고와 세션 목록이 그 세션의 속도(모델 호출 수·호출당 시간·낭비)를 보여 주고, 봇은 브리프를 가볍게 씁니다.
+
+### 추가한 것
+- 자식 세션이 보내는 done 보고 끝에 `Pace:` 한 줄이 붙어요: 전체 시간, 모델 호출 수와 호출당 중앙값, 도구 실행 시간, 오류 수, 그리고 낭비(같은 파일을 10번 이상 읽음, 도구 호출당 모델 호출 1.5회 이상)가 있으면 그것까지. `ompdesk_sessions`(저장된 세션 포함)와 `ompdesk_session_result`의 세션 행에도 짧은 형태(`pace 22 min, 156 calls, median 4.0 s`)가 들어가요. 페어링된 컴퓨터의 세션은 그 컴퓨터가 계산해 보내고, 읽을 수 없으면 보고와 목록은 전과 같아요.
+- 봇의 기본 지시와 ompdesk 스킬에 경량 브리프 규칙: 검사는 끝에 1회, 릴리스는 작업당 1회, 페어링 기기·폰 parity e2e는 UI가 바뀐 때만, 재현은 수정 전후 1회씩, 독립 항목은 병렬 세션, 좁고 기계적인 구현은 `model`에 역할 이름 `task`를 줘서(역할 이름은 열 때 그 역할이 쓰는 모델로 풀려요; 모델 id는 어디에도 적지 않아요). done 보고의 `Pace:` 줄이 낭비를 보이면 다음 브리프에서 그 낭비를 짚어 줄이도록 해요.
+
+### 고친 것
+- 작업 중인 세션에 같은 내용의 메시지를 두 번 보내면 두 번째는 먼저 답하는 글을 잃었어요. 이제 각 묶음이 자기 답을 지켜요.
+
+<!-- en -->
+
+A child session's done report and the session lists show how the session spent its time (model calls, time per call, waste), and the bot writes lighter briefs.
+
+### Added
+- Every done report a child session sends ends with one `Pace:` line: wall time, model calls and the median per call, tool time, errors, and waste when there is any (one file read ten times or more, 1.5 model calls per tool call or more). The session rows of `ompdesk_sessions` (saved sessions included) and `ompdesk_session_result` carry the short form (`pace 22 min, 156 calls, median 4.0 s`). A paired computer's session is measured there; one that cannot be read leaves the report and the list as they were.
+- The bot's instructions and the ompdesk skill carry the light-brief rule: one check at the end, one release per piece of work, the paired-device and phone parity e2e only when the UI changed, a reproduction once before and once after the fix, independent items as parallel sessions, a narrow mechanical change opened with `model` set to the role name `task` (`ompdesk_session_open` now takes a role name, resolved to the model it runs on at open time, beside `provider/id`; no model id is written down anywhere). When a done report's `Pace:` line names waste, the next brief names it to cut it.
+
+### Fixed
+- A second identical message sent to a working session lost its answer-first note; each batch now keeps its own.
+
 ## [0.108.0] - 2026-11-04
 
 작업 중인 세션에 보낸 메시지에 에이전트가 먼저 글로 답해요.
