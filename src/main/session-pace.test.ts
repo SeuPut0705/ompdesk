@@ -123,46 +123,82 @@ describe("session-pace", () => {
 		expect(waste(pace([...steady(1), assistant(20, [])]))).toBeUndefined();
 	});
 
-	it("counts polling shells and proc:// reads; five name waste, four are none", () => {
-		const poll = (atS: number, id: string, command: string) =>
+	describe("polls are repeated looks", () => {
+		const call = (atS: number, id: string, name: string, args: Record<string, unknown>) =>
 			JSON.stringify({
 				type: "message",
 				message: {
 					role: "assistant",
 					timestamp: T0 + atS * 1000,
 					usage: { output: 1 },
-					content: [{ type: "toolCall", id, name: "bash", arguments: { command } }],
+					content: [{ type: "toolCall", id, name, arguments: args }],
 				},
 			});
-		const lines = [
-			user(0),
-			poll(5, "a", "sleep 25; gh run list --limit 1"),
-			start(5, "a"),
-			result(30, "a"),
-			poll(35, "b", "gh run view 123 --json status"),
-			start(35, "b"),
-			result(40, "b"),
-			poll(45, "c", "while true; do sleep 5; done"),
-			start(45, "c"),
-			result(50, "c"),
-			assistant(55, [{ id: "d", name: "read", path: "proc://bg_1" }]),
-			start(55, "d"),
-			result(60, "d", "read"),
-			poll(65, "e", "ls -la"),
-			start(65, "e"),
-			result(70, "e"),
+		/** One tool call each, five seconds of tool time apiece. */
+		const session = (...calls: [name: string, args: Record<string, unknown>][]): string[] => {
+			const lines = [user(0)];
+			calls.forEach(([name, args], i) => {
+				const at = 5 + i * 10;
+				lines.push(call(at, `c${i}`, name, args), start(at, `c${i}`), result(at + 5, `c${i}`, name));
+			});
+			return lines;
+		};
+		const bash = (command: string, extra: Record<string, unknown> = {}): [string, Record<string, unknown>] => [
+			"bash",
+			{ command, ...extra },
 		];
-		const four = pace(lines);
-		expect(four.polls).toBe(4);
-		expect(waste(four)).toBeUndefined();
-		lines.push(
-			assistant(75, [{ id: "f", name: "read", path: "proc://bg_1" }]),
-			start(75, "f"),
-			result(80, "f", "read"),
-		);
-		const five = pace(lines);
-		expect(five.polls).toBe(5);
-		expect(waste(five)).toBe("polled ×5");
+		const proc = (path: string): [string, Record<string, unknown>] => ["read", { path }];
+
+		it("counts a lone look at a failed run's log, status or list as none", () => {
+			expect(pace(session(bash("gh run view 41866157920 --log-failed"))).polls).toBe(0);
+			expect(pace(session(bash("gh run view 41866157920 --json jobs,headSha -q '.jobs[] | .name'"))).polls).toBe(0);
+			expect(pace(session(bash("gh run list --limit 3"), bash("pgrep -f vitest"), proc("proc://bg_1"))).polls).toBe(
+				0,
+			);
+		});
+
+		it("counts the second look at one target, and no look at another run", () => {
+			expect(pace(session(bash("gh run view 1 --json status"), bash("gh run view 1 --json status"))).polls).toBe(1);
+			expect(pace(session(bash("gh run view 1"), bash("gh run view 2"))).polls).toBe(0);
+			expect(pace(session(proc("proc://bg_1"), proc("proc://bg_1"))).polls).toBe(1);
+		});
+
+		it("counts sleeping to wait and a foreground watch at first sight, an async watch never", () => {
+			expect(pace(session(bash("sleep 30; gh run list"))).polls).toBe(1);
+			expect(pace(session(bash("while true; do sleep 5; done"))).polls).toBe(1);
+			expect(pace(session(bash("gh run watch 1 --exit-status"))).polls).toBe(1);
+			expect(pace(session(bash("gh run watch 1 --exit-status", { async: true }))).polls).toBe(0);
+		});
+
+		it("names waste from five polls, four are none", () => {
+			const four = pace(
+				session(
+					bash("sleep 25; gh run list --limit 1"),
+					bash("gh run view 123 --json status"),
+					bash("while true; do sleep 5; done"),
+					proc("proc://bg_1"),
+					bash("ls -la"),
+					bash("gh run view 123 --json status"),
+					proc("proc://bg_1"),
+				),
+			);
+			expect(four.polls).toBe(4);
+			expect(waste(four)).toBeUndefined();
+			const five = pace(
+				session(
+					bash("sleep 25; gh run list --limit 1"),
+					bash("gh run view 123 --json status"),
+					bash("while true; do sleep 5; done"),
+					proc("proc://bg_1"),
+					bash("ls -la"),
+					bash("gh run view 123 --json status"),
+					proc("proc://bg_1"),
+					bash("tail -f t.log"),
+				),
+			);
+			expect(five.polls).toBe(5);
+			expect(waste(five)).toBe("polled ×5");
+		});
 	});
 
 	it("reads a session file once per change and answers undefined for a missing one", async () => {

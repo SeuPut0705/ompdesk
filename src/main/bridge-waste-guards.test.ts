@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
 	createHints,
+	createPollTracker,
 	EDIT_HINT,
 	POLL_HINT,
-	pollKinds,
 	READY_LOG_REASON,
 	readyLogCannotMatch,
 } from "../../resources/gui-bridge/waste-guards-core";
@@ -77,23 +77,91 @@ describe("ready.log that can never match", () => {
 	});
 });
 
+/** The kinds polled by a session that made these calls in order (a fresh tracker per case). */
+function polled(...calls: [tool: string, input: Record<string, unknown>][]): string[][] {
+	const tracker = createPollTracker();
+	return calls.map(([tool, input]) => tracker.observe(tool, input));
+}
+
 describe("polling kinds", () => {
 	it.each([
 		["sleep then a command", "bash", { command: "sleep 5; echo hi" }, ["sleep"]],
-		["sleep 15 then gh run list", "bash", { command: "sleep 15 && gh run list --limit 3" }, ["sleep", "gh-run"]],
-		["after other work", "bash", { command: "git push; sleep 30; gh run view 123" }, ["sleep", "gh-run"]],
+		["sleep 15 then gh run list", "bash", { command: "sleep 15 && gh run list --limit 3" }, ["sleep"]],
+		["after other work", "bash", { command: "git push; sleep 30; gh run view 123" }, ["sleep"]],
 		["a while loop with sleep", "bash", { command: "while ! curl -s localhost:3000; do sleep 2; done" }, ["sleep"]],
-		["gh run list", "bash", { command: "gh run list --workflow release.yml" }, ["gh-run"]],
-		["gh run view", "bash", { command: "gh run view 42 --log-failed" }, ["gh-run"]],
-		["gh run watch", "bash", { command: "gh run watch 42 --exit-status" }, ["gh-run"]],
-		["pgrep", "bash", { command: "pgrep -f vitest" }, ["pgrep"]],
+		["gh run watch in the foreground", "bash", { command: "gh run watch 42 --exit-status" }, ["gh-run"]],
 		["tail -f", "bash", { command: "tail -f /tmp/t.log" }, ["tail-f"]],
 		["tail -n 20 -f", "bash", { command: "tail -n 20 -f t.log" }, ["tail-f"]],
 		["tail --follow", "bash", { command: "tail --follow t.log" }, ["tail-f"]],
-		["a proc:// read", "read", { path: "proc://bg_1" }, ["proc"]],
-		["a proc:// read of a stream", "read", { path: "proc://bg_1/streams/0" }, ["proc"]],
-	] as const)("%s", (_label, tool, input, kinds) => {
-		expect(pollKinds(tool, { ...input })).toEqual(kinds);
+	] as const)("%s polls at first sight", (_label, tool, input, kinds) => {
+		expect(createPollTracker().observe(tool, { ...input })).toEqual(kinds);
+	});
+
+	it.each([
+		["gh run list", "bash", { command: "gh run list --workflow release.yml" }],
+		["gh run view", "bash", { command: "gh run view 42" }],
+		[
+			"gh run view --json with a quoted pipe",
+			"bash",
+			{ command: "gh run view 41866157920 --json jobs,headSha -q '.jobs[] | .name'" },
+		],
+		["gh run view --log-failed", "bash", { command: "gh run view 42 --log-failed" }],
+		["gh run view --log of a job", "bash", { command: "gh run view 42 --job 7 --log" }],
+		["pgrep", "bash", { command: "pgrep -f vitest" }],
+		["a proc:// read", "read", { path: "proc://bg_1" }],
+		["a proc:// read of a stream", "read", { path: "proc://bg_1/streams/0" }],
+	] as const)("%s is a look, not a poll, the first time", (_label, tool, input) => {
+		expect(createPollTracker().observe(tool, { ...input })).toEqual([]);
+	});
+
+	it("tells the second look at one target from a look at another", () => {
+		expect(
+			polled(
+				["bash", { command: "gh run view 1 --json status" }],
+				["bash", { command: "gh run view 1 --json jobs" }],
+				["bash", { command: "gh run view 2" }],
+				["bash", { command: "gh run list --limit 3" }],
+				["bash", { command: "gh run list --limit 3" }],
+				["bash", { command: "gh run list --limit 5" }],
+				["bash", { command: "pgrep -f vitest" }],
+				["bash", { command: "pgrep -f vitest" }],
+				["bash", { command: "pgrep -f vite" }],
+				["read", { path: "proc://bg_1" }],
+				["read", { path: "proc://bg_1" }],
+				["read", { path: "proc://bg_2" }],
+			),
+		).toEqual([[], ["gh-run"], [], [], ["gh-run"], [], [], ["pgrep"], [], [], ["proc"], []]);
+	});
+
+	it("never counts a diagnosis of a run as a look at it", () => {
+		expect(
+			polled(
+				["bash", { command: "gh run view 1 --log-failed" }],
+				["bash", { command: "gh run view 1 --log-failed" }],
+				["bash", { command: "gh run view 1" }],
+				["bash", { command: "gh run view 1 --job 9 --log" }],
+				["bash", { command: "gh run view 1" }],
+			),
+		).toEqual([[], [], [], [], ["gh-run"]]);
+	});
+
+	it("reads a run id past the flags that take a number", () => {
+		expect(
+			polled(
+				["bash", { command: "gh run view --job 77 --json status" }],
+				["bash", { command: "gh run view 5 --job 77" }],
+				["bash", { command: "gh run view --job 78" }],
+				["bash", { command: "gh run view --job 77" }],
+				["bash", { command: "gh run view 5 -a 2" }],
+				["bash", { command: "gh run view 5 -a 3" }],
+			),
+		).toEqual([[], [], [], ["gh-run"], [], ["gh-run"]]);
+	});
+
+	it("sees every gh run look of one call", () => {
+		expect(polled(["bash", { command: "gh run view 1; gh run view 1 && sleep 1 && echo x" }])).toEqual([
+			["sleep", "gh-run"],
+		]);
 	});
 
 	it.each([
@@ -110,29 +178,49 @@ describe("polling kinds", () => {
 		["another tool", "grep", { pattern: "sleep 5; x" }],
 		["gh run watch under async: true", "bash", { command: "gh run watch 42 --exit-status", async: true }],
 	] as const)("%s is no poll", (_label, tool, input) => {
-		expect(pollKinds(tool, { ...input })).toEqual([]);
+		expect(polled([tool, { ...input }], [tool, { ...input }])[0]).toEqual([]);
 	});
 });
 
 describe("poll hints", () => {
+	it("keep quiet at the first look of a target and speak at the second", () => {
+		const hints = createHints();
+		expect(hints.note("bash", { command: "gh run view 41866157920 --log-failed" })).toBeUndefined();
+		expect(hints.note("bash", { command: "gh run view 41866157920 --json jobs,headSha" })).toBeUndefined();
+		expect(hints.note("bash", { command: "gh run view 41866157921 --json jobs,headSha" })).toBeUndefined();
+		expect(hints.note("bash", { command: "gh run view 41866157920 --json jobs,headSha" })).toBe(POLL_HINT);
+		expect(hints.note("bash", { command: "gh run view 41866157920 --json jobs,headSha" })).toBeUndefined();
+	});
+
+	it("speak for sleeping to wait and for the second read of a proc://", () => {
+		expect(createHints().note("bash", { command: "sleep 30; gh run list" })).toBe(POLL_HINT);
+		const hints = createHints();
+		expect(hints.note("read", { path: "proc://bg_1" })).toBeUndefined();
+		expect(hints.note("read", { path: "proc://bg_1" })).toBe(POLL_HINT);
+	});
+
 	it("speak once per kind, then keep quiet", () => {
 		const hints = createHints();
 		expect(hints.note("bash", { command: "sleep 5; echo hi" })).toBe(POLL_HINT);
 		expect(hints.note("bash", { command: "sleep 5; echo hi" })).toBeUndefined();
 		expect(hints.note("bash", { command: "sleep 9; ls" })).toBeUndefined();
+		expect(hints.note("bash", { command: "gh run list" })).toBeUndefined();
 		expect(hints.note("bash", { command: "gh run list" })).toBe(POLL_HINT);
-		expect(hints.note("bash", { command: "gh run view 1" })).toBeUndefined();
+		expect(hints.note("bash", { command: "gh run list" })).toBeUndefined();
+		expect(hints.note("bash", { command: "pgrep node" })).toBeUndefined();
 		expect(hints.note("bash", { command: "pgrep node" })).toBe(POLL_HINT);
 		expect(hints.note("bash", { command: "tail -f t.log" })).toBe(POLL_HINT);
+		expect(hints.note("read", { path: "proc://bg_1" })).toBeUndefined();
 		expect(hints.note("read", { path: "proc://bg_1" })).toBe(POLL_HINT);
-		expect(hints.note("read", { path: "proc://bg_2" })).toBeUndefined();
+		expect(hints.note("read", { path: "proc://bg_1" })).toBeUndefined();
 	});
 
 	it("count a kind the call carried with a new one as told", () => {
 		const hints = createHints();
 		expect(hints.note("bash", { command: "sleep 5; gh run list" })).toBe(POLL_HINT);
+		expect(hints.note("bash", { command: "gh run list" })).toBe(POLL_HINT);
 		expect(hints.note("bash", { command: "gh run list" })).toBeUndefined();
-		expect(hints.note("bash", { command: "sleep 5; pgrep x" })).toBe(POLL_HINT);
+		expect(hints.note("bash", { command: "sleep 5; pgrep x" })).toBeUndefined();
 	});
 
 	it("say nothing for a call that is no poll", () => {
@@ -145,7 +233,9 @@ describe("poll hints", () => {
 	it("keep their count per instance", () => {
 		const first = createHints();
 		const second = createHints();
+		expect(first.note("bash", { command: "pgrep x" })).toBeUndefined();
 		expect(first.note("bash", { command: "pgrep x" })).toBe(POLL_HINT);
+		expect(second.note("bash", { command: "pgrep x" })).toBeUndefined();
 		expect(second.note("bash", { command: "pgrep x" })).toBe(POLL_HINT);
 	});
 });

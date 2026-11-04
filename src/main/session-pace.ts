@@ -16,6 +16,7 @@
  */
 
 import * as fs from "node:fs/promises";
+import { createPollTracker } from "../../resources/gui-bridge/waste-guards-core";
 
 const IDLE_S = 600;
 /** Model calls per tool call from which a session is reading and thinking instead of working. */
@@ -49,11 +50,8 @@ interface Entry {
 interface ToolCallPart {
 	type?: string;
 	name?: string;
-	arguments?: { path?: unknown; command?: unknown };
+	arguments?: { path?: unknown; command?: unknown; async?: unknown };
 }
-
-/** A shell command that waits for something by hand instead of a backgrounded job or `wait`. */
-const POLL_COMMAND = /\bsleep\s+\d|\bgh run (?:list|view|watch)\b|\bpgrep\b|\btail -f\b|\bwhile\b.*\bsleep\b/;
 
 export interface ToolRow {
 	seconds: number;
@@ -119,6 +117,7 @@ export function pace(lines: Iterable<string>): Pace {
 	let modelCalls = 0;
 	let outputTokens = 0;
 	let polls = 0;
+	const pollTracker = createPollTracker();
 	let prev: number | undefined;
 	const gaps: [number, number][] = [];
 	for (const line of lines) {
@@ -148,12 +147,11 @@ export function pace(lines: Iterable<string>): Pace {
 				for (const part of entry.message.content as ToolCallPart[]) {
 					const target = readTarget(part);
 					if (target !== undefined) reads.set(target, (reads.get(target) ?? 0) + 1);
-					if (target?.startsWith("proc://")) polls++;
 					if (
 						part.type === "toolCall" &&
-						part.name === "bash" &&
-						typeof part.arguments?.command === "string" &&
-						POLL_COMMAND.test(part.arguments.command)
+						part.name &&
+						part.arguments &&
+						pollTracker.observe(part.name, part.arguments).length > 0
 					)
 						polls++;
 				}

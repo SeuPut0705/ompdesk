@@ -4,8 +4,9 @@
  * 1. A `bash` service start whose `ready.log` can never match. Stock watches the service's output for the pattern, and a
  *    command whose stdout goes to a file shows none of it: the call waited the whole `ready.timeout` (5 calls, 55 min in
  *    one session, `> file 2>&1` with `ready.log` and 600 to 900 s).
- * 2. Polling: a look at a job (sleep then check, `gh run`, `pgrep`, `tail -f`, `read proc://`) that a backgrounded job or
- *    a schedule delivers by itself. One non-blocking hint per kind and process.
+ * 2. Polling: a repeated look at a job (sleep then check, the same `gh run` or `pgrep` or `read proc://` again,
+ *    `tail -f`) that a backgrounded job or a schedule delivers by itself. The first look at a target is not a poll, and
+ *    `gh run view --log-failed` is diagnosis. One non-blocking hint per kind and process.
  * 3. An `edit` the tool refused for anchoring to lines the latest read never showed, or a tag the session never got
  *    (36 errors in 14 days, all agent misuse). One non-blocking hint per process.
  *
@@ -271,25 +272,150 @@ export function readyLogCannotMatch(input: Record<string, unknown>): boolean {
 
 export type PollKind = "sleep" | "gh-run" | "pgrep" | "tail-f" | "proc";
 
+/**
+ * One status look a call makes. A look with a `key` (the thing looked at: a run id, a list's arguments, a pattern, a
+ * proc path) is a poll only when the same key was looked at before; one without is a poll at first sight (sleeping to
+ * wait, `tail -f`, a foreground `gh run watch`).
+ */
+export interface Look {
+	kind: PollKind;
+	key?: string;
+}
+
 const SLEEP_THEN_COMMAND = /\bsleep\s+[\d.]+[smhd]?\s*(?:;|&&|\|\||\||&|\n)\s*\S/;
 const WHILE_SLEEP = /\bwhile\b[\s\S]*\bsleep\b/;
 const GH_RUN = /\bgh\s+run\s+(list|view|watch)\b/;
 const PGREP = /\bpgrep\b/;
 const TAIL_FOLLOW = /\btail\b[^|;&\n]*?\s(?:-[A-Za-z]*[fF][A-Za-z0-9]*|--follow(?:=\w+)?)(?=\s|$)/;
+/** `gh run view` flags that take a value, so the number after one is not the run id. */
+const GH_VIEW_VALUE_FLAG = /^(?:-a|--attempt|-j|--job|--json|-q|--jq|-t|--template|-R|--repo)$/;
 
-/** The kinds of polling this tool call is (none for most calls). */
-export function pollKinds(toolName: string, input: Record<string, unknown>): PollKind[] {
-	if (toolName === "read") return typeof input.path === "string" && input.path.startsWith("proc://") ? ["proc"] : [];
+/** The command cut at `; & | newline` outside quotes. */
+function segments(command: string): string[] {
+	const out: string[] = [];
+	let start = 0;
+	let quote = "";
+	for (let i = 0; i < command.length; i++) {
+		const ch = command[i];
+		if (quote) {
+			if (ch === "\\" && quote === '"') i++;
+			else if (ch === quote) quote = "";
+			continue;
+		}
+		if (ch === "\\") i++;
+		else if (ch === '"' || ch === "'") quote = ch;
+		else if (ch === ";" || ch === "&" || ch === "|" || ch === "\n") {
+			out.push(command.slice(start, i));
+			start = i + 1;
+		}
+	}
+	out.push(command.slice(start));
+	return out;
+}
+
+/** Words of one segment, quotes removed; `( ) \`` end a word and redirections are dropped. */
+function words(src: string): string[] {
+	const out: string[] = [];
+	let cur = "";
+	let has = false;
+	let quote = "";
+	for (let i = 0; i < src.length; i++) {
+		const ch = src[i];
+		if (quote) {
+			if (ch === "\\" && quote === '"' && i + 1 < src.length) cur += src[++i];
+			else if (ch === quote) quote = "";
+			else cur += ch;
+		} else if (ch === '"' || ch === "'") {
+			quote = ch;
+			has = true;
+		} else if (ch === "\\" && i + 1 < src.length) {
+			cur += src[++i];
+			has = true;
+		} else if (/[\s()`]/.test(ch)) {
+			if (has) out.push(cur);
+			cur = "";
+			has = false;
+		} else {
+			cur += ch;
+			has = true;
+		}
+	}
+	if (has) out.push(cur);
+	return out.filter(word => !/^\d*[<>]/.test(word));
+}
+
+/** The `gh run` and `pgrep` looks of a command: what each one looks at, so a repeat can be told from a first look. */
+function commandLooks(command: string, background: boolean): Look[] {
+	const looks: Look[] = [];
+	for (const part of segments(command)) {
+		const gh = GH_RUN.exec(part);
+		if (gh) {
+			const args = words(part.slice(gh.index + gh[0].length));
+			if (gh[1] === "watch") {
+				// Under `async: true` the result is delivered, which is the way the hint recommends, not a poll.
+				if (!background) looks.push({ kind: "gh-run" });
+			} else if (gh[1] === "list") {
+				looks.push({ kind: "gh-run", key: `list ${args.join(" ")}` });
+			} else if (!args.some(arg => arg === "--log" || arg === "--log-failed")) {
+				// `view --log`/`--log-failed` reads what failed: a diagnosis, never a status look.
+				let run: string | undefined;
+				let job: string | undefined;
+				for (let i = 0; i < args.length; i++) {
+					const arg = args[i];
+					const inline = /^(?:--job|-j)=(.+)$/.exec(arg);
+					if (inline) job = inline[1];
+					else if (arg === "--job" || arg === "-j") job = args[++i];
+					else if (GH_VIEW_VALUE_FLAG.test(arg)) i++;
+					else if (run === undefined) run = /^\d+$/.exec(arg)?.[0] ?? /\/runs\/(\d+)/.exec(arg)?.[1];
+				}
+				const target = run ? `${run}${job ? ` job ${job}` : ""}` : job ? `job ${job}` : args.join(" ");
+				looks.push({ kind: "gh-run", key: `view ${target}` });
+			}
+		}
+		const pgrep = PGREP.exec(part);
+		if (pgrep) looks.push({ kind: "pgrep", key: words(part.slice(pgrep.index + pgrep[0].length)).join(" ") });
+	}
+	return looks;
+}
+
+/** The status looks this tool call makes (none for most calls). */
+export function pollLooks(toolName: string, input: Record<string, unknown>): Look[] {
+	if (toolName === "read") {
+		return typeof input.path === "string" && input.path.startsWith("proc://")
+			? [{ kind: "proc", key: input.path.replace(/\/+$/, "") }]
+			: [];
+	}
 	if (toolName !== "bash" || typeof input.command !== "string") return [];
 	const command = withoutHeredocs(input.command);
-	const kinds: PollKind[] = [];
-	if (SLEEP_THEN_COMMAND.test(command) || WHILE_SLEEP.test(command)) kinds.push("sleep");
-	const gh = GH_RUN.exec(command)?.[1];
-	// `gh run watch` under `async: true` is the way the hint recommends, not a poll.
-	if (gh && !(gh === "watch" && input.async === true)) kinds.push("gh-run");
-	if (PGREP.test(command)) kinds.push("pgrep");
-	if (TAIL_FOLLOW.test(command)) kinds.push("tail-f");
-	return kinds;
+	const looks: Look[] = [];
+	if (SLEEP_THEN_COMMAND.test(command) || WHILE_SLEEP.test(command)) looks.push({ kind: "sleep" });
+	looks.push(...commandLooks(command, input.async === true));
+	if (TAIL_FOLLOW.test(command)) looks.push({ kind: "tail-f" });
+	return looks;
+}
+
+/**
+ * A poll is a repeated look at the same thing, not a look: the first `gh run view <id>`, `gh run list <args>`, `pgrep
+ * <pattern>` or `read proc://<path>` of a session is how a person finds out; the second is waiting by hand. One tracker
+ * per session (the bridge keeps one per omp process, the pace reader one per journal).
+ */
+export function createPollTracker(): { observe(toolName: string, input: Record<string, unknown>): PollKind[] } {
+	const seen = new Set<string>();
+	return {
+		observe(toolName, input) {
+			const kinds = new Set<PollKind>();
+			for (const { kind, key } of pollLooks(toolName, input)) {
+				if (key === undefined) {
+					kinds.add(kind);
+					continue;
+				}
+				const id = `${kind}\0${key}`;
+				if (seen.has(id)) kinds.add(kind);
+				else seen.add(id);
+			}
+			return [...kinds];
+		},
+	};
 }
 
 const EDIT_MISUSE = /anchors to lines|not from this session/i;
@@ -313,6 +439,7 @@ export function createHints(): {
 	note(toolName: string, input: Record<string, unknown>, outcome?: ToolOutcome): string | undefined;
 } {
 	const told = new Set<PollKind | "edit-misuse">();
+	const polls = createPollTracker();
 	return {
 		note(toolName, input, outcome) {
 			if (editMisuse(toolName, outcome)) {
@@ -320,7 +447,7 @@ export function createHints(): {
 				told.add("edit-misuse");
 				return EDIT_HINT;
 			}
-			const kinds = pollKinds(toolName, input);
+			const kinds = polls.observe(toolName, input);
 			const fresh = kinds.filter(kind => !told.has(kind));
 			for (const kind of kinds) told.add(kind);
 			return fresh.length > 0 ? POLL_HINT : undefined;
