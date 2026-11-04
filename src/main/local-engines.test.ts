@@ -180,19 +180,22 @@ describe("LocalEngineDetector", () => {
 		expect(world.probes).toBe(before);
 	});
 
-	it("turning the switch on again forgets the tombstones and registers at once", async () => {
+	it("turning the switch on again registers at once and keeps what the person deleted", async () => {
 		const { world, detector } = rig();
 		world.up.add("freetoken");
+		world.up.add("colibri");
 		await detector.tick();
 		world.file.delete("freetoken");
 		await detector.tick();
 		expect(world.ledger.removed).toEqual(["freetoken"]);
 		world.enabled = false;
 		await detector.setEnabled(false);
+		expect(world.file.size).toBe(0);
 		world.enabled = true;
 		await detector.setEnabled(true);
-		expect(world.ledger).toEqual({ registered: ["freetoken"], removed: [] });
-		expect(world.file.has("freetoken")).toBe(true);
+		expect(world.ledger).toEqual({ registered: ["colibri"], removed: ["freetoken"] });
+		expect(world.file.has("colibri")).toBe(true);
+		expect(world.file.has("freetoken")).toBe(false);
 	});
 
 	it("a pass that began before the switch went off writes nothing", async () => {

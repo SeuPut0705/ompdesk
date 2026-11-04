@@ -129,7 +129,7 @@ export class LocalEngineDetector {
 
 	/**
 	 * The switch, called after `LOCAL_ENGINE_DETECT_PREF` is stored. Off: the entries the detector wrote go and the
-	 * timer stops. On: a deliberate choice, so entries the person had deleted come back too, and a pass runs now.
+	 * timer stops. On: a pass runs now; an entry the person deleted stays deleted (the tombstones outlive the switch).
 	 */
 	async setEnabled(on: boolean): Promise<void> {
 		if (this.#disposed) return;
@@ -140,8 +140,6 @@ export class LocalEngineDetector {
 			await this.#unregisterAll();
 			return;
 		}
-		const ledger = this.#deps.ledger.get();
-		if (ledger.removed.length > 0) this.#deps.ledger.set({ ...ledger, removed: [] });
 		await this.#run();
 	}
 

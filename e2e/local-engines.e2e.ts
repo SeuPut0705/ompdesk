@@ -141,17 +141,15 @@ test("real omp: a local engine that answers lists its models by itself, and leav
 		await expect(customRow).toHaveCount(0);
 		await shoot("7-deleted-stays-deleted");
 
-		// 6. Switch off and on again is the person's way back: the entry returns at once.
+		// 6. Off and on again keeps the deletion: on registers only engines the person never removed.
 		const toggle = page.locator("[data-local-engine-detect] [role=switch]");
 		await toggle.click();
 		await expect(toggle).not.toBeChecked();
 		await toggle.click();
-		await expect(customRow).toBeVisible({ timeout: 30_000 });
-		await shoot("8-switched-on-again");
-
-		// 7. Off removes the entry the detector made.
-		await toggle.click();
-		await expect(customRow).toHaveCount(0, { timeout: 30_000 });
+		await expect(toggle).toBeChecked();
+		await page.waitForTimeout(PAUSE_MS * 4);
+		await expect(customRow).toHaveCount(0);
+		await shoot("8-still-deleted-after-switch");
 	} finally {
 		engine.close();
 		await exitApp(app);
