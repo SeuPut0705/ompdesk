@@ -13,6 +13,7 @@ import {
 	webkit,
 } from "@playwright/test";
 import { createServer, type ViteDevServer } from "vite";
+import { reassertTouch } from "./fixture/touch-emulation";
 import { animationsDone, hitSizes, variants } from "./harness";
 
 // Settings, the centers and the model picker on a phone and a portrait tablet (mobile web, design §6/§9 W-F) in
@@ -88,6 +89,7 @@ const LIGHT_EN: Look = { theme: "light", lang: "en" };
 async function openHarness(browser: Browser, device: Device, look: Look, extra = ""): Promise<Page> {
 	const context = await browser.newContext(device.options);
 	const page = await context.newPage();
+	await reassertTouch(page);
 	page.on("pageerror", error => {
 		throw error;
 	});

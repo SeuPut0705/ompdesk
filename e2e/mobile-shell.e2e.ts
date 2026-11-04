@@ -13,6 +13,7 @@ import {
 	webkit,
 } from "@playwright/test";
 import { createServer, type ViteDevServer } from "vite";
+import { reassertTouch } from "./fixture/touch-emulation";
 import { hitSizes, variants } from "./harness";
 import { composerGeometry, seedPaused, seedQueue, tapProbe } from "./queue-harness";
 
@@ -96,6 +97,7 @@ async function openHarness(
 			: { ...preset },
 	);
 	const page = await context.newPage();
+	await reassertTouch(page);
 	page.on("pageerror", error => {
 		throw error;
 	});

@@ -13,6 +13,7 @@ import {
 	webkit,
 } from "@playwright/test";
 import { createServer, type ViteDevServer } from "vite";
+import { reassertTouch } from "./fixture/touch-emulation";
 import { hitSizes, variants } from "./harness";
 
 /**
@@ -117,6 +118,7 @@ async function openPhone(engine: Engine, options: PhoneOptions = {}): Promise<Pa
 		screen: { width, height },
 	});
 	const page = await context.newPage();
+	await reassertTouch(page);
 	page.on("pageerror", error => {
 		throw error;
 	});

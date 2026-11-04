@@ -3,6 +3,7 @@ import { createServer as createNetServer } from "node:net";
 import * as path from "node:path";
 import { type Browser, chromium, devices, expect, type Locator, type Page, test } from "@playwright/test";
 import { createServer, type ViteDevServer } from "vite";
+import { reassertTouch } from "./fixture/touch-emulation";
 import { variants } from "./harness";
 
 // Prompt suggestions on a phone (touch input, Chromium device emulation on the dev harness): the best candidate
@@ -58,6 +59,7 @@ type Lang = "en" | "ko";
 async function openPhone(lang: Lang, theme: "light" | "dark" = "light"): Promise<Page> {
 	const context = await browser.newContext({ ...devices["Pixel 8"] });
 	const page = await context.newPage();
+	await reassertTouch(page);
 	page.on("pageerror", error => {
 		throw error;
 	});
