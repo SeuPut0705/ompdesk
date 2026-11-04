@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.104.1] - 2026-11-04
+
+윈도우에서 창 오른쪽 위의 최소화·최대화·닫기 버튼 아래에 앱 버튼이 숨지 않아요.
+
+### 고친 것
+- 오른쪽에서 열리는 시트(세션 트리, 에이전트 편집, 컨텍스트, 하위 에이전트 기록, 플러그인 상세, 좁은 창의 사이드 패널)의 닫기 ✕가 윈도우의 닫기 버튼 바로 아래 있어서 누르면 창이 닫히거나 아무 반응이 없었어요. 이제 그 버튼들 왼쪽에 놓여요.
+- 낮은 창에서 긴 대화상자의 윗부분이 최소화 버튼 아래로 들어가던 문제도 고쳤어요. 대화상자는 그 띠 아래에서 시작해요.
+
+<!-- en -->
+
+On Windows, no app button hides under the window's minimize, maximize and close buttons any more.
+
+### Fixed
+- A sheet opening from the right (session tree, agent editor, context, a subagent's transcript, plugin details, a narrow window's side panel) put its close ✕ right under Windows' own close button, so a click closed the window or did nothing. It now sits left of those buttons.
+- In a short window a tall dialog's top edge slid under the minimize button; a dialog now starts below that band.
+
 ## [0.104.0] - 2026-11-04
 
 자동으로 지은 세션 제목이 작업을 따라 계속 바뀌어요.
