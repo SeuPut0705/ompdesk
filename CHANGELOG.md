@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.110.4] - 2026-11-05
+
+앱을 끄거나 업데이트로 재시작할 때 실행 중이던 도구의 중단 결과가 기록에 다시 남아요.
+
+### 고친 것
+- v0.110.0부터 도구가 도는 중에 앱을 끄면 그 도구의 "중단됨" 결과가 세션 기록에 들어가지 않았어요(측정: 6번 중 6번 기록이 도구 호출에서 끝남. 전에는 11번 중 11번 결과가 남음). 브리지가 `tool_result` 훅을 하나 더 달면서, omp가 훅마다 한 번씩 기다리는 사이에 종료가 먼저 끝났어요. 이제 종료 시점에 시작된 도구가 결과를 기록할 때까지(최대 1.5초) 종료를 붙잡아요. 훅이 몇 개든 결과는 같아요(`quit-journal.ts`).
+- 다시 켠 뒤 omp가 중단된 bash를 한 번 더 실행하는 건 전과 같아요(omp 자체 동작이에요). 중단 결과는 이제 "Command aborted"로 남고, 전에는 "outcome is unknown"이 들어갔어요.
+
+<!-- en -->
+
+A quit or an update restart while a tool runs keeps that tool's aborted result in the session journal again.
+
+### Fixed
+- Since v0.110.0 a quit during a tool left no aborted result for it in the session journal (measured: the journal ended on the tool call in 6 of 6 runs; before, the result was there in 11 of 11). The bridge's second `tool_result` hook made omp wait once more per hook, and the exit finished first. A quit now holds until every tool that started has journaled its result (at most 1.5 s), whatever number of hooks listen (`quit-journal.ts`).
+- After the relaunch omp still runs the cut-off bash once more, as before (stock omp's own replay). The journaled result now reads "Command aborted"; it used to read "outcome is unknown".
+
 ## [0.110.3] - 2026-11-05
 
 이미 지운 세션을 다시 지우라는 봇의 요청이 지운 사람이 누구든, 앱을 다시 켠 뒤에도 "이미 지움"으로 끝나요.
