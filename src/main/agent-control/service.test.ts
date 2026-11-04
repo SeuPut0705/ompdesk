@@ -529,6 +529,41 @@ describe("elapsedText", () => {
 	});
 });
 
+/**
+ * `host` refuses its `type` command as a tab that cannot take it yet: the tab reads `status` meanwhile. With `recoverMs`
+ * only the first is refused and the tab reads `ready` again that long after (an omp busy at its start whose health
+ * check timed out until its probe was answered); without it every one is refused and the tab stays.
+ */
+function refuseCommand(
+	host: FakeHost,
+	type: string,
+	refusal: { code: string; error: string; status: FakeTab["status"]; recoverMs?: number },
+): void {
+	const original = host.command;
+	let refused = false;
+	host.command = async (tabId, command, timeoutMs) => {
+		const tab = host.tabsById.get(tabId);
+		if (!tab || command.type !== type || (refused && refusal.recoverMs !== undefined))
+			return original(tabId, command, timeoutMs);
+		refused = true;
+		host.sent.push({ tabId, command });
+		tab.status = refusal.status;
+		host.emit();
+		if (refusal.recoverMs !== undefined)
+			setTimeout(() => {
+				tab.status = "ready";
+				host.emit();
+			}, refusal.recoverMs);
+		return {
+			type: "response",
+			command: type,
+			success: false,
+			error: refusal.error,
+			code: refusal.code,
+		} as RpcResponse;
+	};
+}
+
 describe("ompdesk_session_open", () => {
 	it("fans out several sessions in one call and returns the ids", async () => {
 		const host = new FakeHost({ tabId: "main0001", title: "Boss" });
@@ -593,6 +628,90 @@ describe("ompdesk_session_open", () => {
 		const child = [...host.tabsById.keys()].find(id => id !== "main0001") ?? "";
 		expect(prompts(host, child)).toHaveLength(1);
 		expect(host.discarded).toEqual([]);
+	});
+
+	it.each([
+		["agent_control_worker", "sidecar_not_connected", "Sidecar not connected", { message: "go" }],
+		["set_model", "sidecar_not_ready", "Sidecar not ready (error)", { message: "go", model: "claude-x" }],
+		["set_plan_mode", "sidecar_not_ready", "Sidecar not ready (error)", { message: "go", mode: "plan" }],
+		["prompt", "sidecar_not_ready", "Sidecar not ready (error)", { message: "go" }],
+		["set_goal", "sidecar_not_ready", "Sidecar not ready (error)", { message: "go", mode: "goal" }],
+	] as const)(
+		"waits for a child that refuses %s as not ready and sends it again once it is ready",
+		async (type, code, error, args) => {
+			const host = new FakeHost({ tabId: "main0001", title: "Boss" });
+			refuseCommand(host, type, { code, error, status: "error", recoverMs: 20 });
+			const result = await onFakeClock(() => control(host).run("main0001", T.open, { ...args, worktree: true }));
+			expect(result.isError).toBe(false);
+			expect(result.text).toContain("Opened session");
+			const child = [...host.tabsById.keys()].find(id => id !== "main0001") ?? "";
+			expect(host.sent.filter(entry => entry.tabId === child && entry.command.type === type)).toHaveLength(2);
+			expect(host.tabsById.get(child)?.status).toBe("ready");
+			expect(host.discarded).toEqual([]);
+			expect(host.views.some(view => view.how === "close")).toBe(false);
+		},
+	);
+
+	it("sends the first message once more after a refusal, and still reads a start held for memory", async () => {
+		const host = new FakeHost({ tabId: "main0001", title: "Boss" });
+		refuseCommand(host, "prompt", {
+			code: "sidecar_not_ready",
+			error: "Sidecar not ready (error)",
+			status: "error",
+			recoverMs: 20,
+		});
+		const original = host.command;
+		host.command = async (tabId, command, timeoutMs) =>
+			command.type === "prompt" && host.sent.some(entry => entry.command.type === "prompt")
+				? ok({
+						memoryWait: {
+							position: 1,
+							availableBytes: 1 << 30,
+							totalBytes: 16 << 30,
+							pressure: "warn",
+							since: 0,
+						},
+					})
+				: original(tabId, command, timeoutMs);
+		const result = await onFakeClock(() => control(host).run("main0001", T.open, { message: "go" }));
+		expect(result.isError).toBe(false);
+		expect(result.text).toContain("Its first message is held");
+		expect(result.text).toContain("do not send it again");
+	});
+
+	it("fails an open whose child stays not ready past the bound, naming the refusal, and takes back its worktree", async () => {
+		const host = new FakeHost({ tabId: "main0001" });
+		refuseCommand(host, "prompt", { code: "sidecar_not_ready", error: "Sidecar not ready (error)", status: "error" });
+		const { result, waitedMs } = await onFakeClock(async () => {
+			const started = Date.now();
+			const result = await control(host).run("main0001", T.open, { message: "go", worktree: true });
+			return { result, waitedMs: Date.now() - started };
+		});
+		expect(result.isError).toBe(true);
+		expect(result.text).toContain("Sending the first message failed: Sidecar not ready (error)");
+		expect(waitedMs).toBeGreaterThanOrEqual(30_000);
+		expect(host.sent.filter(entry => entry.command.type === "prompt")).toHaveLength(1);
+		expect(host.views.some(view => view.how === "close")).toBe(true);
+		expect(host.discarded).toEqual([{ branch: "omp/agent/w", device: undefined }]);
+	});
+
+	it("does not wait for a child that exited, or send again after any other refusal", async () => {
+		const exited = new FakeHost({ tabId: "main0001" });
+		refuseCommand(exited, "prompt", {
+			code: "sidecar_not_ready",
+			error: "Sidecar not ready (exited)",
+			status: "exited",
+		});
+		const gone = await control(exited).run("main0001", T.open, { message: "go", worktree: true });
+		expect(gone.text).toContain("Sending the first message failed: Sidecar not ready (exited)");
+		expect(exited.sent.filter(entry => entry.command.type === "prompt")).toHaveLength(1);
+		expect(exited.discarded).toEqual([{ branch: "omp/agent/w", device: undefined }]);
+
+		const busy = new FakeHost({ tabId: "main0001" });
+		refuseCommand(busy, "prompt", { code: "busy", error: "Session is busy", status: "ready" });
+		const refused = await control(busy).run("main0001", T.open, { message: "go" });
+		expect(refused.text).toContain("Sending the first message failed: Session is busy");
+		expect(busy.sent.filter(entry => entry.command.type === "prompt")).toHaveLength(1);
 	});
 
 	it("takes back the worktree and branch a failed open made, and says when git kept them", async () => {

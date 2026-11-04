@@ -523,6 +523,15 @@ const READY_TIMEOUT_MS = 90_000;
  * With several sessions working that took past the default 8 s and failed an open whose omp was fine (v0.46.0).
  */
 const FIRST_COMMAND_TIMEOUT_MS = 60_000;
+/**
+ * How long one open waits, all its commands together, for a child that answered `sidecar_not_ready` or
+ * `sidecar_not_connected` to be ready again. A live omp whose ready-time health check (`get_state`, 8 s) found it busy
+ * reads `error` until its recovery probe is answered (sidecar.ts `markUnhealthy`, re-probed every 5 s), which
+ * refused the first message of three opens (2, 2 and 4 Nov 2026); a tab not ready within this is not briefly so.
+ */
+const OPEN_READY_RETRY_MS = 30_000;
+/** After such an answer an open looks at the tab again no sooner than this, tab event or not (a tab that reads ready yet refuses must not be hammered). */
+const OPEN_READY_PAUSE_MS = 250;
 /** A wait re-reads the session at least this often even when no tab event arrives. */
 const POLL_MS = 3_000;
 const STATE_TIMEOUT_MS = 5_000;
@@ -1141,6 +1150,9 @@ type OpenArgs = OpenOne & { show?: "background" | AgentControlViewEvent["how"] }
 
 /** What closing a tab came to: gone, still open, or (a paired web page's tab) held back by what its page says. */
 type TabClose = "closed" | "kept" | "dirty";
+
+/** One command of an open to its child: `AgentControl.#openCommands`. */
+type OpenCommand = (command: RpcCommand, timeoutMs?: number) => Promise<RpcResponse>;
 
 export class AgentControl {
 	readonly #host: AgentControlHost;
@@ -1906,16 +1918,51 @@ export class AgentControl {
 		return currentStep(await this.#host.storedMessages(row).catch((): AgentMessage[] => []));
 	}
 
-	async #whenReady(tabId: string, callerTabId: string): Promise<void> {
-		const deadline = Date.now() + READY_TIMEOUT_MS;
+	/**
+	 * Waits for a started tab to be ready. `recoverUntil` (a deadline) is for a tab that was ready and then refused a
+	 * command: its `error` is a failed health check that re-probes (sidecar.ts `markUnhealthy`), so it is waited out
+	 * until then; without it `error` is a tab that never started.
+	 */
+	async #whenReady(tabId: string, callerTabId: string, recoverUntil?: number): Promise<void> {
+		const deadline = recoverUntil ?? Date.now() + READY_TIMEOUT_MS;
 		for (;;) {
 			const tab = this.#host.tabs(callerTabId)?.find(entry => entry.tabId === tabId);
 			if (!tab) fail("The new session's tab closed before it was ready.");
 			if (tab.status === "ready" || tab.status === "running") return;
-			if (tab.status === "error" || tab.status === "exited") fail(`The session could not start (${tab.status}).`);
+			if (tab.status === "exited" || (tab.status === "error" && recoverUntil === undefined))
+				fail(`The session could not start (${tab.status}).`);
 			if (Date.now() >= deadline) fail("The session did not become ready in time.");
 			await this.#nextChange(Math.min(500, deadline - Date.now()));
 		}
+	}
+
+	/**
+	 * The commands of an open (worker marker, model, plan mode, first message or goal) to the child `tabId`. A child
+	 * that answers `sidecar_not_ready` or `sidecar_not_connected` is briefly not ready (`OPEN_READY_RETRY_MS`): wait for
+	 * its status to read ready again, then send the command once more. Any other answer, a child that exited or closed,
+	 * and the bound itself return the answer as it came, so the caller fails with it as before. A start held for
+	 * memory (`heldWait`) is a success answer and never comes back here.
+	 */
+	#openCommands(tabId: string, callerTabId: string): OpenCommand {
+		let until: number | undefined;
+		return async (command, timeoutMs) => {
+			for (;;) {
+				const response = await this.#host.command(tabId, command, timeoutMs);
+				if (
+					response.success ||
+					(response.code !== "sidecar_not_ready" && response.code !== "sidecar_not_connected")
+				)
+					return response;
+				until ??= Date.now() + OPEN_READY_RETRY_MS;
+				if (Date.now() >= until) return response;
+				try {
+					await this.#nextChange(Math.min(OPEN_READY_PAUSE_MS, until - Date.now()));
+					await this.#whenReady(tabId, callerTabId, until);
+				} catch {
+					return response;
+				}
+			}
+		};
 	}
 
 	/** Resolves on the next tab event or after `ms`, whichever comes first. */
@@ -1931,9 +1978,9 @@ export class AgentControl {
 		return promise;
 	}
 
-	async #resolveModel(tabId: string, wanted: string): Promise<ModelInfo> {
+	async #resolveModel(send: OpenCommand, wanted: string): Promise<ModelInfo> {
 		const data = responseData<{ models?: ModelInfo[] }>(
-			await this.#host.command(tabId, { type: "get_available_models" }, 15_000),
+			await send({ type: "get_available_models" }, 15_000),
 			"Reading the model list",
 		);
 		const models = data?.models ?? [];
@@ -2055,32 +2102,29 @@ export class AgentControl {
 		if (call) this.#host.calls?.note(call.key, tabId);
 		try {
 			await this.#whenReady(tabId, caller.tabId);
+			const send = this.#openCommands(tabId, caller.tabId);
 			const notes: string[] = [];
 			// Journaled in the child, so its main agent gets the worker contract (gui-bridge agent-control.ts) from its
 			// first turn on, across relaunches; a session the user opened (and reopened here) never carries it.
 			if (sessionPath) notes.push("reopened");
 			else
 				responseData(
-					await this.#host.command(
-						tabId,
+					await send(
 						{ type: "agent_control_worker", from: caller.title || "another session" },
 						FIRST_COMMAND_TIMEOUT_MS,
 					),
 					"Marking the session as a worker",
 				);
 			if (args.model) {
-				const model = await this.#resolveModel(tabId, args.model);
+				const model = await this.#resolveModel(send, args.model);
 				responseData(
-					await this.#host.command(tabId, { type: "set_model", provider: model.provider, modelId: model.id }),
+					await send({ type: "set_model", provider: model.provider, modelId: model.id }),
 					"Setting the model",
 				);
 				notes.push(`model ${model.provider}/${model.id}`);
 			}
 			if (args.mode === "plan") {
-				responseData(
-					await this.#host.command(tabId, { type: "set_plan_mode", enabled: true }),
-					"Turning on plan mode",
-				);
+				responseData(await send({ type: "set_plan_mode", enabled: true }), "Turning on plan mode");
 				notes.push("plan mode");
 			}
 			if (worktree) notes.push(`worktree ${worktree.branch}`);
@@ -2101,17 +2145,13 @@ export class AgentControl {
 				if (args.mode === "goal") {
 					// The goal command starts the objective turn itself.
 					memoryWait = heldWait(
-						responseData(
-							await this.#host.command(tabId, { type: "set_goal", objective: args.message }, 30_000),
-							"Setting the goal",
-						),
+						responseData(await send({ type: "set_goal", objective: args.message }, 30_000), "Setting the goal"),
 					);
 					notes.push("goal set");
 				} else {
 					memoryWait = heldWait(
 						responseData(
-							await this.#host.command(
-								tabId,
+							await send(
 								{
 									type: "prompt",
 									message: wrapAgentMessage(
