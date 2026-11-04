@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.107.1] - 2026-11-04
+
+APFS에서는 worktree 시드가 50 MB 한도 없이 복제돼요.
+
+### 성능
+- `.worktreeinclude`로 새 worktree에 복사하는 파일은 이제 파일마다 복제(clonefile, 디스크를 쓰지 않는 복사)를 시도하고, 복제가 되는 동안은 50 MB 상한을 두지 않고 파일 수(10,000개)만 세요. 복제가 안 되는 볼륨에서는 전처럼 실제 디스크를 쓰는 양에 50 MB 상한이 걸려요. 맥에서는 Node가 복제를 못 해서(`COPYFILE_FICLONE_FORCE`가 ENOSYS, `COPYFILE_FICLONE`은 전체 복사) 같은 APFS 볼륨 안에서는 `cp -c`로 복제해요(파일당 1.4 ms 측정). 준비 알림에 "(reflink)"가 붙어요.
+
+<!-- en -->
+
+On APFS a worktree seed clones with no 50 MB cap.
+
+### Performance
+- Files `.worktreeinclude` copies into a new worktree are now cloned file by file (clonefile, a copy that takes no disk), and while cloning works only the file count (10,000) bounds the seed, not the 50 MB cap. On a volume that cannot clone the 50 MB cap still applies to what takes real disk. On a Mac Node cannot clone (`COPYFILE_FICLONE_FORCE` answers ENOSYS and `COPYFILE_FICLONE` copies in full), so within one APFS volume the seed clones with `cp -c` (measured 1.4 ms a file). The preparation note gains "(reflink)".
+
 ## [0.107.0] - 2026-11-04
 
 worktree 세션을 합칠 때 저장소의 pre-merge·post-merge 훅이 돌아요.
