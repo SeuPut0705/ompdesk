@@ -96,7 +96,7 @@ async function openHarness(browser: Browser, device: Device, look: Look, extra =
 	await expect(page.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 30_000 });
 	// A touch device whose page reads `mouse` gets the 24 px desktop controls, which fails the size checks far from the
 	// cause (nightly 41902079883, picker controls 24 px high). Name what the browser said, as mobile-composer does.
-	if (device.options.hasTouch)
+	if (device.options?.hasTouch)
 		await expect(page.locator("html"))
 			.toHaveAttribute("data-input", "touch")
 			.catch(async (error: Error) => {

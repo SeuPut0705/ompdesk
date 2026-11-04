@@ -18,7 +18,7 @@ import * as path from "node:path";
 import { type BrowserType, chromium, devices, expect, type Page, test, webkit } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
 import { fixtureTailscale } from "./fixture/fake-tailscale-install";
-import { phonePaired, ServeProxy, serveSites } from "./fixture/phone-serve";
+import { phonePaired, recordPhoneLoads, ServeProxy, serveSites } from "./fixture/phone-serve";
 import { exitApp, fixtureOmp } from "./harness";
 
 const ENGINES: { name: string; type: BrowserType; device: (typeof devices)[string] }[] = [
@@ -112,10 +112,11 @@ for (const engine of ENGINES)
 			const link = proxy;
 			const context = await browser.newContext({ ...engine.device, colorScheme: "light" });
 			const phone = await context.newPage();
+			const loads = recordPhoneLoads(phone);
 			const pending = new Set<string>();
 			phone.on("request", request => pending.add(request.url()));
-			for (const event of ["requestfinished", "requestfailed"] as const)
-				phone.on(event, request => pending.delete(request.url()));
+			phone.on("requestfinished", request => pending.delete(request.url()));
+			phone.on("requestfailed", request => pending.delete(request.url()));
 			await phone.goto(`${link.url}/`, { timeout: 60_000 });
 			await phonePaired(phone);
 			const tabId = (await phone.evaluate(cwd => window.omp.tabs.spawn({ cwd, kind: "agent" }), project))?.tabId;
@@ -161,9 +162,12 @@ for (const engine of ENGINES)
 			await expect(rows).toHaveCount(2);
 
 			// iOS kills a page left in the background: the reload still shows what waits.
-			await phone.reload({ timeout: 60_000 }).catch((error: Error) => {
-				// `load` waits for every request; name the ones still open (nightlies 41886483957, 41902079883: the trace has
-				// no page network), so the next failure says what the refused link left hanging.
+			await phone.reload({ timeout: 60_000 }).catch(async (error: Error) => {
+				// `load` waits for every request. The trace holds no page network (nightlies 41886483957, 41902079883), so the
+				// failure carries three views: what the page still had open, what it loaded, and what the proxy saw reach
+				// the host or get refused.
+				await loads.attach("phone-loads.txt");
+				await test.info().attach("serve-requests.txt", { body: link.requestLog() });
 				throw new Error(`${error.message}\nrequests still open: ${JSON.stringify([...pending])}`);
 			});
 			await expect(tray(phone)).toBeVisible({ timeout: 30_000 });

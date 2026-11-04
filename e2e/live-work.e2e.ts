@@ -379,6 +379,11 @@ test("live work follows tool kinds and streams output", async () => {
 			return sampler.samples;
 		});
 		if (directory) await fs.writeFile(path.join(directory, "live-card-frames.json"), JSON.stringify(frames));
+		// Every run's own numbers, so a nightly's log shows the rate against the floor below, not only a failure's.
+		const spanMs = frames.length > 1 ? (frames.at(-1)?.at ?? 0) - (frames[0]?.at ?? 0) : 0;
+		console.log(
+			`[live-work] frames=${frames.length} span=${Math.round(spanMs)}ms fps=${spanMs > 0 ? ((frames.length - 1) / (spanMs / 1000)).toFixed(1) : "n/a"}`,
+		);
 		// One sample per animation frame: enough of them to judge the heights below, not a frame rate. A hosted
 		// runner's virtual GPU paints 40 to 75 in this run; a busy Mac 67 to 83 (21 Oct 2026, it once read over 100).
 		expect(frames.length).toBeGreaterThan(40);
