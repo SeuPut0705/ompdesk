@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.107.2] - 2026-11-04
+
+로컬 추론 엔진 자동 탐지가 페어링된 컴퓨터에도 전해지고, 지운 프로바이더는 어떤 순서로도 되살아나지 않아요.
+
+### 고친 것
+- 페어링된 컴퓨터의 세션을 보는 중에 그 컴퓨터에서 엔진이 켜지거나 꺼져도, 열어 둔 Models & accounts 목록과 모델 선택기가 그대로였어요. 이제 호스트가 바뀔 때마다 연결된 기기에 알려 바로 다시 읽어요.
+- 자동 프로바이더를 지운 직후(다음 탐지 전에) 스위치를 껐다 켜면 되살아났어요. 끌 때도 지운 걸 기억해요.
+
+<!-- en -->
+
+Local engine detection reaches paired computers, and a deleted provider never comes back in any order.
+
+### Fixed
+- While viewing a paired computer's session, an engine starting or stopping there left the open Models & accounts list and the model picker as they were. The host now tells every connected device on each change, which re-reads at once.
+- Deleting an automatic provider and switching detection off and on before the next pass brought it back. Switching off remembers the deletion too.
+
 ## [0.107.1] - 2026-11-04
 
 APFS에서는 worktree 시드가 50 MB 한도 없이 복제돼요.
