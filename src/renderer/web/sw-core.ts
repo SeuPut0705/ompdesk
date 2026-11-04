@@ -173,6 +173,14 @@ const RUNTIME_PREFIX = "omp-assets-";
 export const SHELL_URL = "/";
 /** Never answered or stored by the worker: the API, the socket, blobs, uploads, the health probe. */
 const NEVER_CACHED = ["/api/", "/ws", "/blob/", "/upload", "/healthz"] as const;
+/**
+ * The page's head loads these two un-hashed files before anything paints (`web.html`: the blocking `pre-paint.js`, the
+ * manifest link). They are kept beside the shell, or a reload while the host is out of reach waits on a network that
+ * never answers them and the page never finishes loading (nightlies 41886483957, 41902079883, 41906983008: WebKit,
+ * both requests left open).
+ */
+export const SHELL_FILES = ["/pre-paint.js", "/manifest.webmanifest"] as const;
+const isShellFile = (path: string): boolean => (SHELL_FILES as readonly string[]).includes(path);
 
 export function cacheNameFor(build: string): string {
 	return `${CACHE_PREFIX}${build}`;
@@ -216,14 +224,14 @@ const INSTALL_PARALLEL = 6;
  */
 export async function installShell(deps: ShellDeps): Promise<{ cached: number }> {
 	const cache = await deps.caches.open(cacheNameFor(deps.build));
-	const urls = [SHELL_URL, ...deps.precache.map(entry => entry.url)];
+	const urls = [SHELL_URL, ...SHELL_FILES, ...deps.precache.map(entry => entry.url)];
 	let cached = 0;
 	for (let start = 0; start < urls.length; start += INSTALL_PARALLEL) {
 		await Promise.all(
 			urls.slice(start, start + INSTALL_PARALLEL).map(async url => {
 				try {
 					const response = await deps.fetch(url, {
-						cache: url === SHELL_URL ? "reload" : "default",
+						cache: url === SHELL_URL || isShellFile(url) ? "reload" : "default",
 						credentials: "same-origin",
 					});
 					// The shell of an unpaired browser is a redirect or an error: not worth keeping.
@@ -364,19 +372,33 @@ export function respondToFetch(
 	}
 	const name = cacheNameFor(deps.build);
 	if (path.startsWith("/assets/")) return respondWithAsset(path, request.url, deps, waitUntil);
-	if (request.mode === "navigate" && path === SHELL_URL) {
-		return (async () => {
-			const cache = await deps.caches.open(name);
-			const refresh = deps.fetch(request.url).then(async response => {
-				if (response.ok && !response.redirected) await cache.put(SHELL_URL, response.clone());
-				return response;
-			});
-			const cached = await cache.match(SHELL_URL);
-			if (!cached) return refresh;
-			const settled = refresh.catch(() => undefined);
-			waitUntil?.(settled);
-			return cached;
-		})();
-	}
+	if (request.mode === "navigate" && path === SHELL_URL)
+		return respondStale(SHELL_URL, request.url, deps, name, waitUntil);
+	if (isShellFile(path)) return respondStale(path, request.url, deps, name, waitUntil);
 	return null;
+}
+
+/**
+ * The copy in this build's shell cache at once while a fetch refreshes it in the background (`waitUntil` keeps the
+ * worker alive for it); from the network, stored, when this build has none.
+ */
+function respondStale(
+	key: string,
+	url: string,
+	deps: ShellDeps,
+	cacheName: string,
+	waitUntil?: (promise: Promise<unknown>) => void,
+): Promise<Response> {
+	return (async () => {
+		const cache = await deps.caches.open(cacheName);
+		const refresh = deps.fetch(url).then(async response => {
+			if (response.ok && !response.redirected) await cache.put(key, response.clone());
+			return response;
+		});
+		const cached = await cache.match(key);
+		if (!cached) return refresh;
+		const settled = refresh.catch(() => undefined);
+		waitUntil?.(settled);
+		return cached;
+	})();
 }

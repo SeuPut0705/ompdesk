@@ -416,12 +416,21 @@ test("after a session switch in the same tab, the room above the composer follow
 		// The side panel takes the board's margin: the strip appears and the card's room gives up its height.
 		await page.keyboard.press("ControlOrMeta+j");
 		await expect(page.locator("[data-work-strip]")).toBeVisible();
+		let seen = {};
 		await expect
-			.poll(async () => {
-				const { room, strip, transcript } = await promptRoom(page);
-				return strip > 0 && transcript >= 240 && Math.abs(docked.room - strip - room) <= 1;
-			})
-			.toBe(true);
+			.poll(
+				async () => {
+					const { room, strip, transcript } = await promptRoom(page);
+					seen = { docked, room, strip, transcript };
+					return strip > 0 && transcript >= 240 && Math.abs(docked.room - strip - room) <= 1;
+				},
+				{ message: "the room above the composer follows the strip" },
+			)
+			.toBe(true)
+			// Nightly 41906983008 failed here after the baseline wait above; the poll's own message holds no numbers.
+			.catch((error: Error) => {
+				throw new Error(`${error.message}\nlast read ${JSON.stringify(seen)}`);
+			});
 
 		// Closed again: the strip goes and the room comes back.
 		await page.keyboard.press("ControlOrMeta+j");

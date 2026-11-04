@@ -264,11 +264,13 @@ const GET = (path: string, mode = "no-cors") => ({
 describe("shell cache", () => {
 	it("installs the shell page and the eager assets into this build's cache", async () => {
 		const { deps, caches, network } = shellDeps();
-		expect(await installShell(deps)).toEqual({ cached: 3 });
+		expect(await installShell(deps)).toEqual({ cached: 5 });
 		expect([...(caches.named.get(cacheNameFor("b1"))?.store.keys() ?? [])].sort()).toEqual([
 			"/",
 			"/assets/index-bbb.css",
 			"/assets/web-aaa.js",
+			"/manifest.webmanifest",
+			"/pre-paint.js",
 		]);
 		expect(network).toHaveBeenCalledWith("/", expect.objectContaining({ cache: "reload" }));
 		// The hashed assets the page just loaded come out of the HTTP cache, not a second download.
@@ -283,8 +285,12 @@ describe("shell cache", () => {
 				return new Response("ok");
 			},
 		});
-		expect(await installShell(deps)).toEqual({ cached: 1 });
-		expect([...(caches.named.get(cacheNameFor("b1"))?.store.keys() ?? [])]).toEqual(["/assets/index-bbb.css"]);
+		expect(await installShell(deps)).toEqual({ cached: 3 });
+		expect([...(caches.named.get(cacheNameFor("b1"))?.store.keys() ?? [])].sort()).toEqual([
+			"/assets/index-bbb.css",
+			"/manifest.webmanifest",
+			"/pre-paint.js",
+		]);
 	});
 
 	it("deletes the shell and asset caches of other builds and nothing else", async () => {
@@ -425,6 +431,21 @@ describe("shell cache", () => {
 		await expect(respondToFetch(GET("/", "navigate"), deps)).rejects.toThrow("offline");
 	});
 
+	it("keeps the head's un-hashed files with the shell and answers them from there while the host is out of reach", async () => {
+		const { deps, caches, network } = shellDeps();
+		await installShell(deps);
+		const store = caches.named.get(cacheNameFor("b1"))?.store;
+		expect([...(store?.keys() ?? [])]).toEqual(expect.arrayContaining(["/pre-paint.js", "/manifest.webmanifest"]));
+		expect(network).toHaveBeenCalledWith("/pre-paint.js", expect.objectContaining({ cache: "reload" }));
+		network.mockRejectedValue(new TypeError("refused"));
+		const background: Promise<unknown>[] = [];
+		for (const path of ["/pre-paint.js", "/manifest.webmanifest"]) {
+			const response = await respondToFetch(GET(path), deps, promise => background.push(promise));
+			expect(await response?.text()).toBe(`net:${path}`);
+		}
+		await Promise.all(background);
+	});
+
 	it("never touches the API, the socket, blobs, uploads, other methods, other origins or other pages", () => {
 		const { deps } = shellDeps();
 		for (const path of ["/api/push", "/api/session", "/ws", "/blob/abc", "/upload", "/healthz"]) {
@@ -434,7 +455,7 @@ describe("shell cache", () => {
 		expect(respondToFetch({ ...GET("/", "navigate"), method: "POST" }, deps)).toBeNull();
 		expect(respondToFetch({ method: "GET", url: "https://elsewhere.example/", mode: "navigate" }, deps)).toBeNull();
 		expect(respondToFetch(GET("/pair", "navigate"), deps)).toBeNull();
-		expect(respondToFetch(GET("/manifest.webmanifest"), deps)).toBeNull();
+		expect(respondToFetch(GET("/icons/icon-192.png"), deps)).toBeNull();
 		expect(respondToFetch({ method: "GET", url: "not a url", mode: "navigate" }, deps)).toBeNull();
 	});
 });
