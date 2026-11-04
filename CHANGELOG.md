@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.106.0] - 2026-11-04
+
+이 컴퓨터에서 도는 로컬 추론 엔진(FreeToken, colibri)을 알아서 찾아 모델 목록에 올려요.
+
+### 새 기능
+- OMPdesk가 시작할 때와 60초마다 `127.0.0.1:1919`(FreeToken)와 `127.0.0.1:8000`(colibri)의 `/v1/models`를 두드려요. 답하는 엔진은 설정 없이 커스텀 프로바이더로 등록되어 모델 선택기에 그 모델들이 보이고, 엔진이 꺼지면 목록에서 사라졌다가 다시 켜면 돌아와요. 직접 지운 자동 프로바이더는 다시 만들지 않아요. 같은 id로 직접 만든 프로바이더는 건드리지 않아요.
+- 설정 › Models & accounts › Custom endpoints에 "로컬 추론 엔진 자동 탐지" 스위치가 있어요(기본 켜짐). 끄면 자동으로 등록한 것만 지우고, 다시 켜면 지웠던 기록도 잊고 바로 다시 찾아요. 페어링된 컴퓨터의 세션을 보는 중에는 그 컴퓨터의 스위치예요: 탐지는 컴퓨터마다 따로 돌아요.
+
+<!-- en -->
+
+Local inference engines running on this computer (FreeToken, colibri) are found by themselves and their models listed.
+
+### Added
+- At launch and every 60 s OMPdesk asks `127.0.0.1:1919` (FreeToken) and `127.0.0.1:8000` (colibri) for `/v1/models`. An engine that answers is registered as a custom provider with no setup, its models show in the model picker, and they leave the list when the engine stops and return when it starts again. An automatic provider you removed yourself is never made again, and a provider you made under the same id is never touched.
+- Settings › Models & accounts › Custom endpoints has a "Detect local inference engines" switch (on by default). Off removes only what detection registered; on again forgets what you removed and looks at once. While you view a paired computer's session it is that computer's switch: each computer detects on its own.
+
 ## [0.105.1] - 2026-11-04
 
 그림이 많은 원격 세션도 다른 컴퓨터에서 기록을 불러와요.
