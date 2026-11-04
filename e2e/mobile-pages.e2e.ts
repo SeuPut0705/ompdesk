@@ -94,6 +94,19 @@ async function openHarness(browser: Browser, device: Device, look: Look, extra =
 	// `rail=all` pins Agents and Stats under the session list, so the drawer reaches every page.
 	await page.goto(`${origin}/harness.html?theme=${look.theme}&lang=${look.lang}&rail=all${extra}`);
 	await expect(page.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 30_000 });
+	// A touch device whose page reads `mouse` gets the 24 px desktop controls, which fails the size checks far from the
+	// cause (nightly 41902079883, picker controls 24 px high). Name what the browser said, as mobile-composer does.
+	if (device.options.hasTouch)
+		await expect(page.locator("html"))
+			.toHaveAttribute("data-input", "touch")
+			.catch(async (error: Error) => {
+				const media = await page.evaluate(() => ({
+					coarse: matchMedia("(pointer: coarse)").matches,
+					hoverNone: matchMedia("(hover: none)").matches,
+					maxTouchPoints: navigator.maxTouchPoints,
+				}));
+				throw new Error(`${error.message}\nthe browser now says ${JSON.stringify(media)}`);
+			});
 	return page;
 }
 

@@ -112,6 +112,10 @@ for (const engine of ENGINES)
 			const link = proxy;
 			const context = await browser.newContext({ ...engine.device, colorScheme: "light" });
 			const phone = await context.newPage();
+			const pending = new Set<string>();
+			phone.on("request", request => pending.add(request.url()));
+			for (const event of ["requestfinished", "requestfailed"] as const)
+				phone.on(event, request => pending.delete(request.url()));
 			await phone.goto(`${link.url}/`, { timeout: 60_000 });
 			await phonePaired(phone);
 			const tabId = (await phone.evaluate(cwd => window.omp.tabs.spawn({ cwd, kind: "agent" }), project))?.tabId;
@@ -157,7 +161,11 @@ for (const engine of ENGINES)
 			await expect(rows).toHaveCount(2);
 
 			// iOS kills a page left in the background: the reload still shows what waits.
-			await phone.reload({ timeout: 60_000 });
+			await phone.reload({ timeout: 60_000 }).catch((error: Error) => {
+				// `load` waits for every request; name the ones still open (nightlies 41886483957, 41902079883: the trace has
+				// no page network), so the next failure says what the refused link left hanging.
+				throw new Error(`${error.message}\nrequests still open: ${JSON.stringify([...pending])}`);
+			});
 			await expect(tray(phone)).toBeVisible({ timeout: 30_000 });
 			await expect(tray(phone).locator("[data-outbox-item]")).toHaveCount(2);
 			await expect(tray(phone).locator("[data-outbox-item]").nth(0)).toContainText(texts[0]);
