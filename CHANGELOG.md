@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.107.3] - 2026-11-04
+
+엔진을 탐지하는 사이에 같은 id로 직접 추가한 프로바이더는 그대로 남아요.
+
+### 고친 것
+- 로컬 엔진 탐지는 목록을 읽은 뒤 최대 2초 동안 엔진에 물어보는데, 그 사이에 같은 id(`freetoken`, `colibri`)로 프로바이더를 직접 추가하면 자동 등록이 그 설정을 덮어썼어요. 이제 "없을 때만 넣기"가 models.yml 쓰기 줄 한 차례 안에서 확인과 함께 일어나고, 먼저 들어간 항목은 그대로 두며 탐지가 자기 것으로 기록하지도 않아요(엔진이 꺼져도 지우지 않아요).
+
+<!-- en -->
+
+A provider you add by hand with an engine's id while detection probes it stays yours.
+
+### Fixed
+- Local engine detection read the provider list, then probed the engine for up to 2 s; a provider added by hand with the same id (`freetoken`, `colibri`) in that window was overwritten by the automatic registration. The insert now checks and writes in one turn of the models.yml mutation chain, leaves an entry that got there first alone, and the detector never claims it (an engine going down does not delete it).
+
 ## [0.107.2] - 2026-11-04
 
 로컬 추론 엔진 자동 탐지가 페어링된 컴퓨터에도 전해지고, 지운 프로바이더는 어떤 순서로도 되살아나지 않아요.
