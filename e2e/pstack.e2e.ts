@@ -16,6 +16,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { z } from "zod";
+import { AGENT_POWERS_MIGRATION_PREF, AGENT_POWERS_MIGRATION_VERSION } from "../src/main/agent-power-migration";
 import { cleanupAp, command, launchAp, mainTab, makeApProfile, startRun, waitForStatus } from "./autopilot-harness";
 import { exitApp, launchApp, recordsOfType } from "./harness";
 
@@ -32,7 +33,13 @@ async function launch(prefs: Record<string, unknown>) {
 	await Promise.all([fs.mkdir(desktop), fs.mkdir(project), fs.mkdir(agent)]);
 	await fs.writeFile(
 		path.join(desktop, "prefs.json"),
-		JSON.stringify({ language: "en", firstRunComplete: true, ...prefs }),
+		JSON.stringify({
+			language: "en",
+			firstRunComplete: true,
+			// The launch migration turns every power a profile stored off back on, once; a stored-off switch only holds past it.
+			[AGENT_POWERS_MIGRATION_PREF]: AGENT_POWERS_MIGRATION_VERSION,
+			...prefs,
+		}),
 	);
 	const app = await launchApp({
 		project,

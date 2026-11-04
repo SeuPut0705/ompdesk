@@ -90,11 +90,11 @@ test("sessions a device's agent opens on a host short of memory wait there, show
 	expect(open.text.match(WAITING)).toHaveLength(3);
 	expect(open.text).toContain("do not send it again");
 
-	// The device's tabs carry the wait (the host's line, 1..3), and nothing ran on the host's omp yet.
-	await expect
-		.poll(async () => [...(await positions(client?.page as Page, ids))].sort(), { timeout: 30_000 })
-		.toEqual([1, 2, 3]);
-	expect(await positions(client.page, ids)).toEqual([1, 2, 3]);
+	// The device's tabs carry the wait (the host's line, 1..3), and nothing ran on the host's omp yet. `sessions[]` opens
+	// in parallel (`#openMany`), so which session reaches the host first, and takes #1, is not the argument order.
+	const lineOf = async () => [...(await positions(client?.page as Page, ids))].sort();
+	await expect.poll(lineOf, { timeout: 30_000 }).toEqual([1, 2, 3]);
+	expect(await lineOf()).toEqual([1, 2, 3]);
 	const asked = (await fs.readFile(hostProfile.record, "utf8").catch(() => ""))
 		.split("\n")
 		.filter(line => line.includes("Remote task"));
