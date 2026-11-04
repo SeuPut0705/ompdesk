@@ -25,6 +25,7 @@ import {
 	AGENT_CONTROL_PREF,
 	AGENT_CONTROL_REVIEW,
 	AGENT_CONTROL_VIEW,
+	AGENT_DELETED_IDS_PREF,
 	AGENT_HIDDEN_PREFS_KEY,
 	AGENT_SCHEDULE_PREFIX,
 	type AgentControlToolName,
@@ -44,8 +45,10 @@ import {
 	currentBotConversation,
 	isAgentControlTool,
 	MAX_CLOSED_CHILDREN,
+	MAX_DELETED_IDS,
 	type PrivacyPane,
 	parseClosedChildren,
+	parseDeletedIds,
 	sidebarViewOf,
 } from "../../shared/agent-control";
 import { type BotRoutine, botRoleDesk, EMPTY_BOT_DESK_FILE, openBotDecisions } from "../../shared/bot-desk";
@@ -1171,10 +1174,22 @@ export class AgentControlRuntime {
 		const { prefs } = this.#deps;
 		if (!prefs.set) return;
 		const rows = parseClosedChildren(prefs.get(AGENT_CLOSED_CHILDREN_PREF));
-		const kept = rows.filter(row => !deletedSessions().has(row.path, row.device));
-		if (kept.length === rows.length) return;
-		prefs.set(AGENT_CLOSED_CHILDREN_PREF, kept);
+		const gone = rows.filter(row => deletedSessions().has(row.path, row.device));
+		if (gone.length === 0) return;
+		// The ids its opener was given keep naming a deleted session: a delete of one again succeeds (`ompdesk_session_stop`).
+		this.#recordDeletedIds(gone.flatMap(row => row.tabIds ?? []));
+		prefs.set(
+			AGENT_CLOSED_CHILDREN_PREF,
+			rows.filter(row => !gone.includes(row)),
+		);
 		prefs.changed?.(AGENT_CLOSED_CHILDREN_PREF);
+	}
+
+	#recordDeletedIds(ids: readonly string[]): void {
+		const { prefs } = this.#deps;
+		if (!prefs.set || ids.length === 0) return;
+		const known = parseDeletedIds(prefs.get(AGENT_DELETED_IDS_PREF));
+		prefs.set(AGENT_DELETED_IDS_PREF, [...known.filter(id => !ids.includes(id)), ...ids].slice(-MAX_DELETED_IDS));
 	}
 
 	/** Execute one control host-tool call made by `callerTabId`'s main agent; `call` is the host tool call (service.ts `run`). */
@@ -1887,6 +1902,9 @@ export class AgentControlRuntime {
 				),
 			recordClosed: child => this.#recordClosed(child),
 			closedChildren: () => parseClosedChildren(deps.prefs.get(AGENT_CLOSED_CHILDREN_PREF)),
+			deletedIds: () => parseDeletedIds(deps.prefs.get(AGENT_DELETED_IDS_PREF)),
+			recordDeleted: ids => this.#recordDeletedIds(ids),
+			isSavedIdDeleted: id => deletedSessions().hasId(id),
 			botDesk: deps.botDesk ? this.#botDeskPort(deps.botDesk) : undefined,
 			schedules: device => {
 				// The machine that runs the schedules: this computer's service, or a paired host's own over the link

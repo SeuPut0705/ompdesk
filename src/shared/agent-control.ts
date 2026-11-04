@@ -309,6 +309,15 @@ export const MAX_CLOSED_CHILDREN = 200;
 /** Tab ids a record keeps: the one it closed with, then the ids it had before relaunches. */
 export const MAX_CLOSED_TAB_IDS = 9;
 
+/** Prefs key (written by main): ids of sessions deleted by agents or whose closed record a delete dropped, newest last, so a repeated delete of one succeeds across relaunches. */
+export const AGENT_DELETED_IDS_PREF = "agentDeletedIds";
+export const MAX_DELETED_IDS = 2000;
+
+/** The stored ids, tolerating anything unreadable as none. */
+export function parseDeletedIds(value: unknown): string[] {
+	return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string" && id.length > 0) : [];
+}
+
 /** An opened session main closed after its work landed: the session file stays; the opener's "n done" row opens it again. */
 export interface ClosedChild {
 	/** The child's session file. */

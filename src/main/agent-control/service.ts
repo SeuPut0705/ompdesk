@@ -456,6 +456,12 @@ export interface AgentControlHost {
 	recordClosed(child: ClosedChild): void;
 	/** The sessions main closed after their work landed (`recordClosed`), newest last. */
 	closedChildren?(): readonly ClosedChild[];
+	/** Ids of sessions deleted, from any path and any launch (`recordDeleted`, and the closed records a delete dropped). */
+	deletedIds?(): readonly string[];
+	/** Keep the ids of sessions this service deleted, across relaunches. */
+	recordDeleted?(ids: readonly string[]): void;
+	/** A saved session id some tombstone (`deleted-sessions.ts`) names: the sidebar's delete, an earlier launch's. */
+	isSavedIdDeleted?(id: string): boolean;
 	/** The Schedules service of this computer (no `device`) or of the paired host `device`, or null where there is none. */
 	schedules(device?: string): ScheduleSource | null;
 	/** The bot's desk (`ompdesk_bot`); absent where there is none. */
@@ -1540,7 +1546,7 @@ export class AgentControl {
 				const target = await this.#resolveAny(tabs, args.session, caller, "stop", device).catch(
 					(error: unknown) => {
 						// A second delete of what is already gone: nothing to do, and no error for the agent to read.
-						if (args.delete && this.#deletedIds.has(unquoted(args.session)))
+						if (args.delete && this.#wasDeleted(unquoted(args.session)))
 							return `"${unquoted(args.session)}" is already deleted: nothing to do.`;
 						throw error;
 					},
@@ -4130,8 +4136,17 @@ export class AgentControl {
 		}
 	}
 
+	/** Whether `id` names a session that was deleted: by this service, by anyone (a tombstone), or before a relaunch. */
+	#wasDeleted(id: string): boolean {
+		return (
+			this.#deletedIds.has(id) ||
+			this.#host.isSavedIdDeleted?.(id) === true ||
+			(this.#host.deletedIds?.() ?? []).includes(id)
+		);
+	}
+
 	/** `ids` name sessions that are deleted now; the oldest go past `DELETED_IDS_MAX`. */
-	#rememberDeleted(ids: Iterable<string>): void {
+	#rememberDeleted(ids: readonly string[]): void {
 		for (const id of ids) {
 			this.#deletedIds.delete(id);
 			this.#deletedIds.add(id);
@@ -4140,6 +4155,7 @@ export class AgentControl {
 			if (this.#deletedIds.size <= DELETED_IDS_MAX) break;
 			this.#deletedIds.delete(oldest);
 		}
+		this.#host.recordDeleted?.(ids);
 	}
 
 	/**

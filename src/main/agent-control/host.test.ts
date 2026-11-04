@@ -1127,6 +1127,56 @@ describe("AgentControlRuntime", () => {
 		}
 	});
 
+	it("answers a delete of a session someone else deleted as already deleted: by its saved id, or by the id its opener was given, after a relaunch too", async () => {
+		const prefs = new Map<string, unknown>([
+			[
+				AGENT_CLOSED_CHILDREN_PREF,
+				[
+					{
+						path: "/s/2026-11-04T10-00-00-000Z_01abc-kid.jsonl",
+						openedBySession: "/s/bot.jsonl",
+						title: "kid",
+						cwd: "/repo",
+						closedAt: 1,
+						tabIds: ["15bece0493c7d52b"],
+					},
+				],
+			],
+		]);
+		const launch = () => {
+			const started = setup();
+			started.deps.prefs = {
+				get: key => prefs.get(key),
+				set: (key, value) => void prefs.set(key, value),
+				changed: () => undefined,
+			};
+			return started;
+		};
+		const stop = (started: { runtime: AgentControlRuntime; win: ClientWindow }, session: string) =>
+			started.runtime.run(started.win, "main0001", T.stop, { session, delete: true });
+		initDeletedSessions(null);
+		try {
+			const first = launch();
+			// Before anyone deleted it, the saved id is unknown too.
+			expect((await stop(first, "01abc-kid")).isError).toBe(true);
+			// The owner deletes it from the sidebar: a tombstone, then the delete listener.
+			deletedSessions().add("/s/2026-11-04T10-00-00-000Z_01abc-kid.jsonl");
+			first.runtime.forgetDeleted();
+			for (const session of ["01abc-kid", "15bece0493c7d52b"]) {
+				const outcome = await stop(first, session);
+				expect(outcome.isError, session).toBe(false);
+				expect(outcome.text, session).toContain("already deleted");
+			}
+			// A relaunch keeps knowing both; an id nobody deleted still fails.
+			const second = launch();
+			expect((await stop(second, "15bece0493c7d52b")).text).toContain("already deleted");
+			expect((await stop(second, "01abc-kid")).text).toContain("already deleted");
+			expect((await stop(second, "15bece0493c7d5ff")).isError).toBe(true);
+		} finally {
+			initDeletedSessions(null);
+		}
+	});
+
 	it("lists and reads saved sessions of this computer and of a paired device", async () => {
 		const row = {
 			path: "/s/p/a.jsonl",

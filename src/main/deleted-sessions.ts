@@ -54,6 +54,14 @@ export class DeletedSessions {
 		return path !== undefined && this.#entries.has(keyOf(path, device));
 	}
 
+	/** A tombstone names the saved session `id` (stock names a session file `<time>_<session id>.jsonl`), on any device. */
+	hasId(id: string): boolean {
+		if (!id || /[\\/]/.test(id)) return false;
+		const tail = `_${id}.jsonl`;
+		for (const entry of this.#entries.values()) if (entry.path.endsWith(tail)) return true;
+		return false;
+	}
+
 	add(path: string, device?: string, now = Date.now()): void {
 		const key = keyOf(path, device);
 		this.#entries.delete(key);
