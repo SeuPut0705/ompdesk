@@ -495,6 +495,10 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				return EMPTY_GITHUB_AUTH_STATE;
 			case IPC_COMMANDS.MODELS_PROVIDERS_LIST:
 				return { providers: [] };
+			case IPC_COMMANDS.LOCAL_ENGINES_GET:
+				return { enabled: true };
+			case IPC_COMMANDS.LOCAL_ENGINES_SET:
+				return { enabled: args[0] === true };
 			case IPC_COMMANDS.SETUP_GET_STATE:
 				return SETUP_STATE;
 			case IPC_COMMANDS.REMOTE_GET_STATE:

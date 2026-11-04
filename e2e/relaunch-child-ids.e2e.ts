@@ -230,8 +230,13 @@ test("a follow-up queued in a busy child survives a relaunch, its done report re
 		const second = await launch(profile);
 		current = second.app;
 		const boss = (await tabs(second.page)).find(tab => tab.active)?.tabId ?? "";
+		// The window lists its restored tabs as they come up; the child's is not necessarily there at the first read.
+		await expect
+			.poll(async () => (await tabs(second.page)).find(tab => tab.sessionPath === childPath)?.tabId ?? "", {
+				timeout: 30_000,
+			})
+			.not.toBe("");
 		const kid = (await tabs(second.page)).find(tab => tab.sessionPath === childPath)?.tabId ?? "";
-		expect(kid).not.toBe("");
 		expect(kid).not.toBe(oldId);
 		await expect.poll(async () => (await marked("[ompdesk dispatch d2:")).length, { timeout: 60_000 }).toBe(2);
 

@@ -137,7 +137,9 @@ test("a parent waiting on its held child with ompdesk_session_result gets its an
 	// Memory stays at 3 GB: only the parent's wait lets the child start.
 	const result = await call("ompdesk_session_result", { session: id, wait: true, timeout_seconds: 60 });
 	expect(result.isError, result.text).toBe(false);
-	expect(result.text).toContain("Local fixture reply");
+	// The child answered its brief; main asks a child that ended with no `Result:` line to report (62182090,
+	// `#nudgeSilent`) about a second later, and the fake's answer to that note can already be the last answer.
+	expect(result.text).toMatch(/Local fixture reply|Read the note report from \w+\./);
 	expect(result.text).not.toContain("Still running");
 });
 
