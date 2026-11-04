@@ -977,10 +977,14 @@ describe("nothing to approve (reported: '좋아 그 방향으로 가' for work a
  * small model wrote that the person would never send, whatever the prompt says, is caught in code.
  */
 describe("candidates the person would never send (measured on 16 real moments)", () => {
-	it("drops a line naming the request's own field names", () => {
+	it("drops a line naming the request's own field names or the register it was told", () => {
 		expect(cleanCandidates("그 last-failure 어디서 난 거야?\n처리함 기능은 언제 들어가?")).toEqual([
 			"처리함 기능은 언제 들어가?",
 		]);
+		// Reported 4 Nov 2026: the model put `<user-style>`'s "반말" into the request itself.
+		expect(
+			cleanCandidates("이거 반말로 어디까지 확인됐는지 정리해줘\n존댓말로 다시 써줘\n어디까지 확인됐는지 정리해줘"),
+		).toEqual(["어디까지 확인됐는지 정리해줘"]);
 	});
 
 	it("takes the user's own openers and final punctuation, so a reworded duplicate goes too", () => {

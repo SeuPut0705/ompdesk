@@ -299,9 +299,13 @@ export function matchRegister(text: string, register: KoreanRegister | undefined
 	return register === "casual" && DEFERENCE.test(out) ? undefined : out;
 }
 
-/** The request's own tags and `<app-state>` field names: the model quoting its input ("그 last-failure 어디서 난 거야?"). */
+/**
+ * The request's own tags, `<app-state>` field names and the words of `<user-style>`'s register line: the model quoting
+ * its input ("그 last-failure 어디서 난 거야?"; reported 4 Nov 2026: "이거 반말로 어디까지 확인됐는지 정리해줘", where the
+ * user had asked for a summary and the model put the register it was told into the request).
+ */
 const PROMPT_WORDS =
-	/<\/?(?:app-state|user-style|conversation|draft)>|\b(?:last-failure|last-turn|last-reply|files-changed|running-now|sessions-working-now|sessions-waiting-for-an-answer|question-answered|user-ran)\b/;
+	/<\/?(?:app-state|user-style|conversation|draft)>|\b(?:last-failure|last-turn|last-reply|files-changed|running-now|sessions-working-now|sessions-waiting-for-an-answer|question-answered|user-ran)\b|반말|존댓말/u;
 
 /** Openers a model puts before a request ("좋아, …", "응, …", "OK, …"); kept only when this user opens that way. */
 const OPENER = /^(좋아|좋아요|응|그래|오케이|ㅇㅋ|네|넵|ok|okay|great|sure|alright)\s*[,.!]\s+(?=\S)/iu;
