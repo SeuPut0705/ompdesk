@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.105.1] - 2026-11-04
+
+그림이 많은 원격 세션도 다른 컴퓨터에서 기록을 불러와요.
+
+### 고친 것
+- 다른 컴퓨터의 세션에 생성한 그림이나 읽은 캡처가 많으면 "이전 메시지를 불러오지 못했어요"만 뜨고 다시 시도해도 그대로였어요. 그 세션의 기록 한 페이지가 그림을 품은 채 18 MB가 되어 두 컴퓨터 사이 연결이 한 번에 보낼 수 있는 16 MiB를 넘었던 거예요. 이제 페이지는 그림을 참조로만 담고, 보는 쪽 컴퓨터가 각 그림을 한 번만 받아 보관해요(하위 에이전트 기록과 같은 방식). 두 컴퓨터 모두 이 버전이어야 해요.
+- 원격 세션의 기록을 처음 불러오다 실패한 원인이 진단 로그에 남아요.
+
+<!-- en -->
+
+A picture-heavy remote session's history loads on another computer.
+
+### Fixed
+- A session on another computer with many generated pictures or read captures showed only "Couldn't load earlier messages", and Retry changed nothing: one page of its history carried the pictures inline, 18 MB, over the 16 MiB the link between the two computers sends in one frame. A page now names its pictures by reference, and the viewing computer reads each once and keeps it (as it does for a subagent's journal). Both computers need this version.
+- A failed first read of a remote session's history is written to the diagnostics log with its cause.
+
 ## [0.105.0] - 2026-11-04
 
 윈도우에서 작업 중 표시가 멈추지 않고, GPU가 한 번 흔들려도 하드웨어 가속을 유지해요.
