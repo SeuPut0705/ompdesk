@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.105.0] - 2026-11-04
+
+윈도우에서 작업 중 표시가 멈추지 않고, GPU가 한 번 흔들려도 하드웨어 가속을 유지해요.
+
+### 고친 것
+- GPU 프로세스가 한 번 죽으면 앱이 소프트웨어 렌더링으로 다시 켜져 일주일을 그렇게 지냈고, 그동안 스피너·작업 중 호·스윕이 모두 멈춘 그림으로 남아 앱이 멈춘 것처럼 보였어요(데스크탑 RTX 4080 SUPER: 32분·45분 돌다 난 크래시). 이제 5분 넘게 잘 돌던 창의 GPU 크래시는 Chromium이 GPU 프로세스를 다시 띄우게 두고 하드웨어 가속을 유지해요. 10분 안에 또 죽으면 전처럼 소프트웨어로 넘어가요. 이전 버전이 남긴 소프트웨어 표시는 다음 실행에서 하드웨어를 한 번 다시 시도해요.
+- 소프트웨어 렌더링일 때도 작업 중 표시(스피너, 호, 스윕, 펄스)가 창이 흐려졌을 때처럼 초당 10프레임으로 계속 움직여요.
+- 원격 세션에서 이전 메시지를 못 불러왔을 때의 안내가 첫 메시지 위에 글자만 겹쳐 보였어요. 이제 테두리 있는 알약 모양으로 떠요. 상대 컴퓨터가 업데이트로 재시작하는 동안 실패한 요청은 세션이 다시 준비되면 자동으로 다시 불러와요. 실패 원인은 진단 로그에 남아요.
+
+<!-- en -->
+
+On Windows the working cues keep moving, and one GPU hiccup no longer costs hardware acceleration.
+
+### Fixed
+- One GPU process crash relaunched the app into software rendering for a week, where every spinner, arc and sweep stood still and the app read as stopped (the desktop's RTX 4080 SUPER: crashes after 32 and 45 minutes up). A crash in a window up more than five minutes is now left to Chromium, which restarts the GPU process, and hardware acceleration stays; a second crash within ten minutes still falls back as before. A software marker an earlier version left gets one hardware retry on the next launch.
+- Under software rendering the working cues (spinners, arcs, sweeps, pulses) keep moving at ten frames a second, as they do in an unfocused window.
+- A remote session's "couldn't load earlier messages" note was bare text over the first message; it is now a bordered pill. A page that failed while the other computer restarted for an update is read again by itself once the session is ready, and the cause is written to the diagnostics log.
+
 ## [0.104.1] - 2026-11-04
 
 윈도우에서 창 오른쪽 위의 최소화·최대화·닫기 버튼 아래에 앱 버튼이 숨지 않아요.
