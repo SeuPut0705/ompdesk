@@ -73,6 +73,7 @@ const prefsApi = {
 Object.assign(window as unknown as Record<string, unknown>, {
 	omp: {
 		rpc,
+		events: { onModelsConfigChanged: () => () => {} },
 		models: { listProviders, signedIn: vi.fn(async () => signedIn) },
 		prefs: prefsApi,
 		ui: { respondExtensionUi: vi.fn() },

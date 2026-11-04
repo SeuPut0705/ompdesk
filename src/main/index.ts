@@ -70,6 +70,12 @@ import {
 import { ECC_PREF } from "../shared/ecc";
 import { nativeAccelerator } from "../shared/hotkeys";
 import { IPC_COMMANDS, IPC_EVENTS, type IpcPrefsChangedPayload, type SessionKind } from "../shared/ipc-types";
+import {
+	LOCAL_ENGINE_DETECT_PREF,
+	LOCAL_ENGINES_LEDGER_PREF,
+	localEngineDetectEnabled,
+	parseLocalEnginesLedger,
+} from "../shared/local-engines";
 import { MOBILE_WEB_COMMAND, MOBILE_WEB_GET_STATE, MOBILE_WEB_PORT, MOBILE_WEB_STATE } from "../shared/mobile-web";
 import { VISUAL_SCHEME } from "../shared/preview";
 import { PSTACK_PREF } from "../shared/pstack";
@@ -148,6 +154,7 @@ import { CRASH_LOOP_LAUNCHES, STABLE_AFTER_MS } from "./launch-guard-core";
 import { migrateLegacyUserData } from "./legacy-user-data";
 import { stockWorktreeLocation, tablessWorktreeBridge } from "./local/git/worktree";
 import { renameStoredSession } from "./local/session-files";
+import { LocalEngineDetector, localEngineSettings, probeLocalEngine } from "./local-engines";
 import { LogWatcher } from "./log-watcher";
 import { askMacPermissionsOnce } from "./mac-permissions";
 import { LocalMachine } from "./machine-services";
@@ -158,6 +165,7 @@ import { MEDIA_SCHEME, MediaStreams } from "./media-stream";
 import { type ProcessRow, testMemoryReading } from "./memory-sampler";
 import { startMemoryWatch } from "./memory-watch";
 import { createMenu } from "./menu";
+import { deleteModelsProvider, listModelsProviders, upsertModelsProvider } from "./models-config";
 import { followSetupState } from "./omp-availability";
 import { ompPackageRoot, ompPathEnv, refreshSystemOmp, systemOmp } from "./omp-runtime";
 import { OmpUpdater, registerOmpUpdateIpc } from "./omp-updater";
@@ -525,6 +533,7 @@ const webTabLayouts = new WebTabLayouts({
 let mobileWebService = null as MobileWebService | null;
 let ompUpdater: OmpUpdater | null = null;
 let cliUpdater: CliUpdater | null = null;
+let localEngines: LocalEngineDetector | null = null;
 let aiMemoryService: AiMemoryService | null = null;
 let aiMemoryUpkeep: MemoryUpkeep | null = null;
 let aiMemoryCare: MemoryCare | null = null;
@@ -1011,6 +1020,37 @@ app.whenReady().then(() => {
 	// This computer's models.yml, stats server and `omp bench`, for its own
 	// windows and for the devices that use it as their host.
 	statsClient = new StatsClient();
+	// FreeToken and colibri on loopback are listed as providers by themselves (src/main/local-engines.ts). A test
+	// launch never probes the developer's real ports unless its spec names a table (OMP_GUI_TEST_LOCAL_ENGINES).
+	const engineSettings = localEngineSettings(process.env, app.isPackaged);
+	const detector = new LocalEngineDetector({
+		...engineSettings,
+		ledger: {
+			get: () => parseLocalEnginesLedger(prefsStore().get(LOCAL_ENGINES_LEDGER_PREF)),
+			set: value => prefsStore().set(LOCAL_ENGINES_LEDGER_PREF, value),
+		},
+		enabled: () => localEngineDetectEnabled(prefsStore().get(LOCAL_ENGINE_DETECT_PREF)),
+		probe: baseUrl => probeLocalEngine(baseUrl),
+		providers: {
+			ids: async () => new Set((await listModelsProviders()).map(provider => provider.id)),
+			upsert: upsertModelsProvider,
+			delete: deleteModelsProvider,
+		},
+		changed: () => {
+			for (const win of BrowserWindow.getAllWindows())
+				if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.MODELS_CONFIG_CHANGED);
+			for (const win of webHost?.windows.all() ?? [])
+				if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.MODELS_CONFIG_CHANGED);
+		},
+		failed: (error, engine) =>
+			writeRuntimeLog({
+				source: "background-task",
+				message: "local-engine-failed",
+				details: { engine: engine?.id ?? null, error: error instanceof Error ? error.message : String(error) },
+			}),
+	});
+	localEngines = detector;
+	if (app.isPackaged || process.env.OMP_GUI_TEST_LOCAL_ENGINES !== undefined) detector.start();
 	const machine = new LocalMachine({
 		stats: statsClient,
 		// Until omp is resolved below there is no manager yet, but one is coming: a read in
@@ -1019,6 +1059,13 @@ app.whenReady().then(() => {
 		statsText: mainT,
 		benchmarkOmp: systemOmp,
 		benchmarkEnv: async () => ({ ...process.env, ...(await shellSpawnEnv()), ...(await resolveProxyEnvForSpawn()) }),
+		localEngines: {
+			read: () => prefsStore().get(LOCAL_ENGINE_DETECT_PREF),
+			set: async enabled => {
+				prefsStore().set(LOCAL_ENGINE_DETECT_PREF, enabled);
+				await detector.setEnabled(enabled);
+			},
+		},
 		builtinRea: {
 			read: () => prefsStore().get(REA_PREF),
 			write: enabled => prefsStore().set(REA_PREF, enabled),
@@ -2404,6 +2451,7 @@ installQuitGuard(
 			["stats-server", () => void statsServer?.kill()],
 			["mcp-hub", () => void mcpHub?.kill()],
 			["omp-updater", () => ompUpdater?.dispose()],
+			["local-engines", () => localEngines?.dispose()],
 			["cli-updater", () => cliUpdater?.dispose()],
 			["extension-updater", () => extensionUpdater?.dispose()],
 			["setup", () => setupService?.dispose()],

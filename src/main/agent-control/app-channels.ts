@@ -11,6 +11,7 @@ import { ACCOUNT_ROTATION_PREF } from "../../shared/account-rotation";
 import { AGENT_CONTROL_APP, AGENT_CONTROL_REVIEW, AGENT_CONTROL_VIEW } from "../../shared/agent-control";
 import { REA_PREF } from "../../shared/builtin-mcp";
 import { IPC_COMMANDS, IPC_EVENTS } from "../../shared/ipc-types";
+import { LOCAL_ENGINE_DETECT_PREF } from "../../shared/local-engines";
 import { MAIL_ACCOUNTS_COMMAND } from "../../shared/mail-accounts";
 import {
 	MOBILE_WEB_COMMAND,
@@ -170,6 +171,8 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[C.ACCOUNT_ROTATION_SET]: sensitive("app.undo", hostPrefRow(ACCOUNT_ROTATION_PREF)),
 	[C.BUILTIN_REA_GET]: read("settings.get", hostPrefRow(REA_PREF)),
 	[C.BUILTIN_REA_SET]: sensitive("app.undo", hostPrefRow(REA_PREF)),
+	[C.LOCAL_ENGINES_GET]: read("settings.get", hostPrefRow(LOCAL_ENGINE_DETECT_PREF)),
+	[C.LOCAL_ENGINES_SET]: change(settingActionId("localEngines")),
 	[C.SIDECAR_RESTART]: never(DENY),
 	[C.SIDECAR_STATUS_GET]: never(DENY),
 	[C.SIDECAR_SELECT_PROJECT]: never(DENY),
@@ -291,6 +294,7 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[E.LIVE_FRAME]: never(PUSH),
 	[E.BTW_FRAME]: never(PUSH),
 	[E.MODEL_CATALOG_UPDATE]: never(PUSH),
+	[E.MODELS_CONFIG_CHANGED]: never(PUSH),
 	[E.SESSIONS_CHANGED]: never(PUSH),
 	[E.BOT_DESK_CHANGED]: never(PUSH),
 	[E.HOST_BOT_DESK_STATE]: never(PUSH),

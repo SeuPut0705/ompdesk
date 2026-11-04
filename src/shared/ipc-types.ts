@@ -38,6 +38,7 @@ import type { ExtensionUpdateState } from "./extension-update";
 import type { GithubAuthState, GithubStarState } from "./github-auth";
 import type { IpcErrorCode } from "./ipc-error-codes";
 import type { LaunchProfile } from "./launch-profile";
+import type { LocalEngineDetectState } from "./local-engines";
 import type { MailAccountsApi } from "./mail-accounts";
 import type { MobileWebApi } from "./mobile-web";
 import type { ModelSetupPlan, ModelSetupRequest, ModelSetupStatus } from "./model-setup";
@@ -143,6 +144,8 @@ export const IPC_EVENTS = {
 	BTW_FRAME: "btw:frame",
 	/** Model/provider discovery completed after a bounded listing response. */
 	MODEL_CATALOG_UPDATE: "model-catalog:update",
+	/** models.yml was changed by OMPdesk itself (a local inference engine came or went); windows read the model list again. */
+	MODELS_CONFIG_CHANGED: "models-config:changed",
 	/** Session list changed */
 	SESSIONS_CHANGED: "sessions:changed",
 	/** The bot's desk changed (`BotDeskState`) */
@@ -349,6 +352,10 @@ export const IPC_COMMANDS = {
 	ACCOUNT_ROTATION_SET: "account-rotation:set",
 	BUILTIN_REA_GET: "builtin-rea:get",
 	BUILTIN_REA_SET: "builtin-rea:set",
+	/** Whether the focused tab's machine looks for local inference engines (`LocalEngineDetectState`); `device` absent = this computer */
+	LOCAL_ENGINES_GET: "local-engines:get",
+	/** Switch that detection on or off there; it lists or drops the engines' models by itself */
+	LOCAL_ENGINES_SET: "local-engines:set",
 	/** OMPdesk on the focused tab's machine (HostDesktopState); `device` absent = this computer */
 	HOST_DESKTOP_GET: "host-desktop:get",
 	/** Drive that machine's updater (HostUpdateAction) */
@@ -2227,6 +2234,8 @@ export interface OmpApi {
 		/** Called once per frame; a batch's frames are delivered in one task (one React commit). */
 		onTabSubagentFrame(callback: (frame: SubagentFrame, tabId: string) => void): () => void;
 		onTabModelCatalogUpdate(callback: (frame: ModelCatalogUpdateFrame, tabId: string) => void): () => void;
+		/** OMPdesk changed this computer's models.yml by itself (`MODELS_CONFIG_CHANGED`): read providers and models again. */
+		onModelsConfigChanged(callback: () => void): () => void;
 		onTabCommandsUpdate(callback: (commands: AvailableCommand[], tabId: string) => void): () => void;
 		onTabConfigUpdate(callback: (payload: ConfigUpdateFrame, tabId: string) => void): () => void;
 		onTabPromptResult(callback: (frame: PromptResultFrame, tabId: string) => void): () => void;
@@ -2624,6 +2633,11 @@ export interface OmpApi {
 	builtinRea: {
 		get(device?: string): Promise<BuiltinReaState>;
 		set(enabled: boolean, device?: string): Promise<BuiltinReaState>;
+	};
+	/** Local inference engine detection of the machine that runs the focused session. */
+	localEngines: {
+		get(device?: string): Promise<LocalEngineDetectState>;
+		set(enabled: boolean, device?: string): Promise<LocalEngineDetectState>;
 	};
 	/** OMPdesk on a paired host (`device`), or this computer when absent. */
 	hostDesktop: {

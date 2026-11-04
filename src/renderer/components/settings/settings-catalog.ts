@@ -541,6 +541,15 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 			"models.yml providers endpoint API baseUrl transport discovery price capabilities 직접 추가 엔드포인트 URL 가격",
 	},
 	{
+		id: "localEngines",
+		section: "models",
+		sub: "custom",
+		rowId: "setting-models-localEngines",
+		labelKey: "settings.models.localEngines",
+		aliases:
+			"FreeToken colibri local inference engine detect loopback ollama 로컬 추론 엔진 자동 탐지 프리토큰 콜리브리",
+	},
+	{
 		id: "modelOverrides",
 		section: "models",
 		sub: "custom",

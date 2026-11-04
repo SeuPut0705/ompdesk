@@ -130,6 +130,7 @@ import {
 	type RunProgressState,
 	type TrayState,
 } from "../shared/ipc-types";
+import { LOCAL_ENGINE_DETECT_PREF } from "../shared/local-engines";
 import { MAIL_ACCOUNTS_COMMAND, type MailAccountDraft } from "../shared/mail-accounts";
 import type { ModelSetupRequest } from "../shared/model-setup";
 import { PREVIEW_VISUAL, type PreviewVisualEvent } from "../shared/preview";
@@ -2471,6 +2472,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				throw codedError("invalid_preference_key", "Invalid built-in REA preference");
 			return deps.machine.setBuiltinRea(payload.value).then(() => prefChanged(caller.win, payload.key));
 		}
+		if (payload.key === LOCAL_ENGINE_DETECT_PREF) {
+			if (typeof payload.value !== "boolean") {
+				throw codedError("invalid_preference_key", "Invalid local engine detection preference");
+			}
+			return deps.machine.setLocalEngineDetect(payload.value).then(() => prefChanged(caller.win, payload.key));
+		}
 		// `undefined` clears the key: electron-store rejects set(key, undefined) with
 		// "Use `delete()` to clear values", which broke the one-time prompt-history
 		// migration on every launch and with it loading the composer's ↑ history.
@@ -2709,6 +2716,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipc.handle(IPC_COMMANDS.BUILTIN_REA_SET, (caller, enabled: unknown, device?: unknown) => {
 		if (typeof enabled !== "boolean") throw codedError("invalid_preference_key", "Invalid built-in REA preference");
 		return machineFor(caller, device).setBuiltinRea(enabled);
+	});
+	ipc.handle(IPC_COMMANDS.LOCAL_ENGINES_GET, (caller, device?: unknown) =>
+		machineFor(caller, device).localEngineDetect(),
+	);
+	ipc.handle(IPC_COMMANDS.LOCAL_ENGINES_SET, (caller, enabled: unknown, device?: unknown) => {
+		if (typeof enabled !== "boolean") {
+			throw codedError("invalid_preference_key", "Invalid local engine detection preference");
+		}
+		return machineFor(caller, device).setLocalEngineDetect(enabled);
 	});
 	ipc.handle(IPC_COMMANDS.HOST_DESKTOP_GET, (caller, device?: unknown) => machineFor(caller, device).desktop());
 	ipc.handle(IPC_COMMANDS.HOST_DESKTOP_UPDATE, (caller, action: unknown, device?: unknown) => {

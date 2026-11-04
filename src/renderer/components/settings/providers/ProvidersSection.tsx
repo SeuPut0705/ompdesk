@@ -47,6 +47,7 @@ import { SettingsAdvanced, SettingsSection } from "../SettingsLayout";
 import { AccountPoolsEditor } from "./AccountPoolsEditor";
 import { ProviderGroupItem } from "./ConnectedRow";
 import { CustomProviderForm } from "./CustomProviderForm";
+import { LocalEnginesRow } from "./LocalEnginesRow";
 import { ModelOverrides } from "./ModelOverrides";
 import { ProviderAccountRows, useProviderAccounts } from "./ProviderAccounts";
 import {
@@ -207,6 +208,7 @@ function CustomEndpoints({
 			title={t("settings.models.custom")}
 		>
 			{catalog.configError && <InlineNotice title={catalog.configError} tone="warning" />}
+			<LocalEnginesRow device={device} />
 			{configs.length > 0 && (
 				<ul>
 					{configs.map(config => {

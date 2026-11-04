@@ -101,9 +101,13 @@ const respondExtensionUi = vi.fn();
 const openExternal = vi.fn(async () => {});
 
 const accountRotationGet = vi.fn(async () => ({ mode: "quota" as const, evenSupported: true }));
+const localEnginesGet = vi.fn(async (_device?: string) => ({ enabled: true }));
+const localEnginesSet = vi.fn(async (enabled: boolean, _device?: string) => ({ enabled }));
+const onModelsConfigChanged = vi.fn((_callback: () => void) => () => {});
 
 Object.assign(window as unknown as Record<string, unknown>, {
 	omp: {
+		events: { onModelsConfigChanged },
 		rpc: routeCommands({
 			getProviders,
 			logout,
@@ -116,6 +120,7 @@ Object.assign(window as unknown as Record<string, unknown>, {
 		models: { listProviders },
 		ui: { respondExtensionUi },
 		system: { openExternal },
+		localEngines: { get: localEnginesGet, set: localEnginesSet },
 		accountRotation: { get: accountRotationGet, set: vi.fn(async () => {}) },
 	},
 });
@@ -255,6 +260,62 @@ afterEach(async () => {
 });
 
 describe("ProvidersSection", () => {
+	it("offers the local engine switch, on until the person turns it off", async () => {
+		useSessionStore.setState({ status: "ready" });
+		focusTab(undefined);
+		await mount(<ProvidersSection />);
+		const row = document.querySelector("[data-local-engine-detect]");
+		const toggle = row?.querySelector('[role="switch"]') as HTMLButtonElement | null;
+		expect(localEnginesGet).toHaveBeenCalledWith(undefined);
+		expect(toggle?.getAttribute("aria-checked")).toBe("true");
+
+		await act(async () => toggle?.click());
+		expect(localEnginesSet).toHaveBeenCalledWith(false, undefined);
+		expect(row?.querySelector('[role="switch"]')?.getAttribute("aria-checked")).toBe("false");
+	});
+
+	it("shows a paired host's own switch under the host's endpoints, and turns that host's detection", async () => {
+		useSessionStore.setState({ status: "ready" });
+		localEnginesGet.mockResolvedValueOnce({ enabled: false });
+		focusTab(HOST_ID);
+		await mount(<ProvidersSection />);
+		expect(localEnginesGet).toHaveBeenCalledWith(HOST_ID);
+		const toggle = document.querySelector('[data-local-engine-detect] [role="switch"]') as HTMLButtonElement | null;
+		expect(toggle?.getAttribute("aria-checked")).toBe("false");
+
+		await act(async () => toggle?.click());
+		expect(localEnginesSet).toHaveBeenCalledWith(true, HOST_ID);
+		expect(toggle?.getAttribute("aria-checked")).toBe("true");
+	});
+
+	it("has no switch where the host cannot answer it (an older OMPdesk)", async () => {
+		useSessionStore.setState({ status: "ready" });
+		localEnginesGet.mockRejectedValueOnce(new Error("unsupported"));
+		focusTab(HOST_ID);
+		await mount(<ProvidersSection />);
+		expect(document.querySelector("[data-local-engine-detect]")).toBeNull();
+	});
+
+	it("lists an endpoint OMPdesk wrote to models.yml by itself without the person reloading, and drops it when it goes", async () => {
+		useSessionStore.setState({ status: "ready" });
+		focusTab(undefined);
+		await mount(<ProvidersSection />);
+		expect(document.querySelector('[data-custom-provider="freetoken"]')).toBeNull();
+		const changed = onModelsConfigChanged.mock.calls.at(-1)?.[0];
+		if (!changed) throw new Error("the list never subscribed to models.yml changes");
+
+		listProviders.mockResolvedValue({
+			providers: [config("freetoken", { auth: "none", baseUrl: "http://127.0.0.1:1919/v1" })],
+			options: fixtureProviderOptions,
+		});
+		await act(async () => changed());
+		expect(document.querySelector('[data-custom-provider="freetoken"]')?.textContent).toContain("127.0.0.1:1919");
+
+		listProviders.mockResolvedValue({ providers: [], options: fixtureProviderOptions });
+		await act(async () => changed());
+		expect(document.querySelector('[data-custom-provider="freetoken"]')).toBeNull();
+	});
+
 	it("shows a provider list that a catalog push replaces, not just the read it made on mount", async () => {
 		useSessionStore.setState({ status: "ready" });
 		await mount(<ProvidersSection />);

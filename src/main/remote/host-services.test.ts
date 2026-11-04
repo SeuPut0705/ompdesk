@@ -323,6 +323,8 @@ function fakeMachine() {
 		),
 		builtinRea: vi.fn(async () => ({ enabled: true, available: true })),
 		setBuiltinRea: vi.fn(async (enabled: boolean) => ({ enabled, available: true })),
+		localEngineDetect: vi.fn(async () => ({ enabled: true })),
+		setLocalEngineDetect: vi.fn(async (enabled: boolean) => ({ enabled })),
 		desktop: vi.fn(async (): Promise<HostDesktopState> => DESKTOP),
 		desktopUpdate: vi.fn(async (_action: HostUpdateAction): Promise<HostDesktopState> => DESKTOP),
 		ompUpdate: vi.fn(async (): Promise<OmpUpdateState> => OMP_UPDATE_IDLE),
@@ -3677,6 +3679,22 @@ describe("LocalHostServices host.* calls", () => {
 			);
 		}
 		expect(machine.setBuiltinRea).toHaveBeenCalledTimes(1);
+	});
+
+	it("reads the host's local engine detection and validates writes", async () => {
+		const { services, machine } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		await expect(services.call(x.peer, "host.localEngines.get", {}, x)).resolves.toEqual({ enabled: true });
+		await expect(services.call(x.peer, "host.localEngines.set", { enabled: false }, x)).resolves.toEqual({
+			enabled: false,
+		});
+		expect(machine.setLocalEngineDetect).toHaveBeenCalledWith(false);
+		for (const bad of [{}, { enabled: "false" }, { enabled: 1 }]) {
+			await expect(services.call(x.peer, "host.localEngines.set", bad, x)).rejects.toThrow(
+				/Invalid host.localEngines.set/,
+			);
+		}
+		expect(machine.setLocalEngineDetect).toHaveBeenCalledTimes(1);
 	});
 
 	it("reads this machine's stats server", async () => {

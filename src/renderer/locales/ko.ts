@@ -6547,6 +6547,9 @@ export const ko: Record<string, string> = {
 	"settings.models.compareHide": "접기",
 	"settings.models.custom": "직접 추가한 엔드포인트",
 	"settings.models.customDesc": "models.yml에 저장된 OpenAI·Anthropic 호환 서버예요.",
+	"settings.models.localEngines": "로컬 추론 엔진 자동 탐지",
+	"settings.models.localEnginesDesc":
+		"이 모델을 돌리는 컴퓨터에서 FreeToken과 colibri가 켜져 있는지 1분마다 살펴봐요. 응답하면 모델 목록에 올리고, 꺼지면 내려요. 직접 지운 항목은 다시 만들지 않아요.",
 	"modelOverrides.title": "모델 재정의",
 	"modelOverrides.description":
 		"프로바이더에 이미 있는 모델을 바꿔요. 내장 프로바이더도 돼요. models.yml에 저장되고, 비워 둔 칸은 모델의 원래 값을 써요.",

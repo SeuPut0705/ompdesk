@@ -80,6 +80,10 @@ function localMachine(
 	updater: Pick<OmpUpdater, "state" | "updateNow"> = fakeUpdater(),
 	builtinRea: ConstructorParameters<typeof LocalMachine>[0]["builtinRea"] = { read: () => undefined, write: () => {} },
 	desktop?: DesktopDeps,
+	localEngines: ConstructorParameters<typeof LocalMachine>[0]["localEngines"] = {
+		read: () => undefined,
+		set: async () => {},
+	},
 ) {
 	return new LocalMachine({
 		stats: { port, fetch },
@@ -88,6 +92,7 @@ function localMachine(
 		benchmarkOmp: async () => ({ ok: false, error: "omp missing" }),
 		benchmarkEnv: async () => ({}),
 		accountRotation,
+		localEngines,
 		builtinRea,
 		desktop: desktop ?? {
 			version: () => "1.2.3",
@@ -225,6 +230,43 @@ describe("machineFor", () => {
 			statsText,
 		});
 		await expect(garbled.builtinRea()).rejects.toThrow();
+	});
+
+	it("reads and sets a machine's local engine detection: on until stored off, own switch on each host", async () => {
+		const stored: unknown[] = [undefined];
+		const followed: boolean[] = [];
+		const local = localMachine(0, "scheduled", undefined, undefined, undefined, undefined, undefined, {
+			read: () => stored.at(-1),
+			set: async enabled => {
+				stored.push(enabled);
+				followed.push(enabled);
+			},
+		});
+		await expect(local.localEngineDetect()).resolves.toEqual({ enabled: true });
+		await expect(local.setLocalEngineDetect(false)).resolves.toEqual({ enabled: false });
+		await expect(local.localEngineDetect()).resolves.toEqual({ enabled: false });
+		expect(followed).toEqual([false]);
+		await expect(local.setLocalEngineDetect("no" as unknown as boolean)).rejects.toThrow(/Invalid local engine/);
+		expect(followed).toEqual([false]);
+
+		const host = fakeHost((method, params) =>
+			method === "host.localEngines.set" && typeof params === "object" && params !== null && "enabled" in params
+				? { enabled: params.enabled }
+				: { enabled: true },
+		);
+		const remote = new RemoteMachine({ request: host.request, device: "host-b", statsText });
+		await expect(remote.localEngineDetect()).resolves.toEqual({ enabled: true });
+		await expect(remote.setLocalEngineDetect(false)).resolves.toEqual({ enabled: false });
+		expect(host.calls.map(({ method, params }) => ({ method, params }))).toEqual([
+			{ method: "host.localEngines.get", params: {} },
+			{ method: "host.localEngines.set", params: { enabled: false } },
+		]);
+		const garbled = new RemoteMachine({
+			request: fakeHost(() => ({ enabled: "yes" })).request,
+			device: "host-b",
+			statsText,
+		});
+		await expect(garbled.localEngineDetect()).rejects.toThrow();
 	});
 
 	it("sends Settings › Schedules to a paired host's own service and checks its state", async () => {

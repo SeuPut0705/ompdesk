@@ -130,6 +130,7 @@ import {
 	HOST_UPLOAD_FRAME_BYTES,
 	HOST_UPLOAD_PART_BYTES,
 } from "../../shared/ipc-types";
+import type { LocalEngineDetectState } from "../../shared/local-engines";
 import type { ModelSetupStatus } from "../../shared/model-setup";
 import { OMP_UPDATE_FAILURE_REASONS, type OmpUpdateState } from "../../shared/omp-update";
 import { BLOCKING_UI_METHODS, type ExtensionUIRequest } from "../../shared/rpc-types";
@@ -749,6 +750,9 @@ export const BuiltinReaStateSchema: z.ZodType<BuiltinReaState> = z.object({
 	nodeVersion: z.string().optional(),
 	reason: z.enum(["node-missing", "npx-missing", "node-version", "node-failed", "npx-failed"]).optional(),
 });
+
+/** `host.localEngines.*` reply: whether the host looks for local inference engines. */
+export const LocalEngineDetectStateSchema: z.ZodType<LocalEngineDetectState> = z.object({ enabled: z.boolean() });
 
 /** `host.modelSetup.status` reply: whether this device's research runs on the host, and its last tool call. */
 export const ModelSetupStatusSchema: z.ZodType<ModelSetupStatus> = z.object({

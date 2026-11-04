@@ -289,6 +289,8 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[C.ACCOUNT_ROTATION_SET]: { dir: "invoke", permission: "accounts-admin", mode: "pass" },
 	[C.BUILTIN_REA_GET]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.BUILTIN_REA_SET]: { dir: "invoke", permission: "settings-write", mode: "pass" },
+	[C.LOCAL_ENGINES_GET]: { dir: "invoke", permission: "workspace", mode: "pass" },
+	[C.LOCAL_ENGINES_SET]: { dir: "invoke", permission: "settings-write", mode: "pass" },
 
 	// The tab's project and files.
 	[C.SIDECAR_RESTART]: { dir: "invoke", permission: "workspace", mode: "pass" },
@@ -520,6 +522,7 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[E.LIVE_FRAME]: { dir: "push", mode: "pass" },
 	[E.BTW_FRAME]: { dir: "push", mode: "pass" },
 	[E.MODEL_CATALOG_UPDATE]: { dir: "push", mode: "pass" },
+	[E.MODELS_CONFIG_CHANGED]: { dir: "push", mode: "pass" },
 	[E.SESSIONS_CHANGED]: { dir: "push", mode: "pass" },
 	[E.BOT_DESK_CHANGED]: { dir: "push", mode: "pass" },
 	[E.HOST_BOT_DESK_STATE]: { dir: "push", mode: "pass" },

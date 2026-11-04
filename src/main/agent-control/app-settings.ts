@@ -26,6 +26,7 @@ import {
 	TOOLS_AUTO_UPDATE_PREF,
 } from "../../shared/desktop-prefs";
 import { IPC_COMMANDS } from "../../shared/ipc-types";
+import { LOCAL_ENGINE_DETECT_PREF } from "../../shared/local-engines";
 import { REPLY_LANGUAGE_PREF } from "../../shared/reply-language";
 import { THEME_NAMES } from "../../shared/theme-names";
 import type { PropSchema } from "./app-schema";
@@ -274,6 +275,13 @@ export const SETTINGS: readonly Setting[] = [
 			manage: { lifts: "picks which signed-in account a session uses next; no credential is read or changed" },
 		},
 	),
+	pref(
+		"localEngines",
+		LOCAL_ENGINE_DETECT_PREF,
+		"models",
+		"Detect local inference engines",
+		"로컬 추론 엔진 자동 탐지",
+	),
 	stock("steeringMode", "agent", "Steering mode", "스티어링 방식", options("all", "one-at-a-time")),
 	stock("followUpMode", "agent", "Follow-up mode", "후속 메시지 방식", options("all", "one-at-a-time")),
 	stock("interruptMode", "agent", "Interrupt mode", "중단 방식", options("immediate", "wait")),
@@ -330,6 +338,11 @@ export const HOST_PREFS: Readonly<Record<string, HostPref>> = {
 	[REA_PREF]: {
 		get: IPC_COMMANDS.BUILTIN_REA_GET,
 		set: IPC_COMMANDS.BUILTIN_REA_SET,
+		read: field("enabled"),
+	},
+	[LOCAL_ENGINE_DETECT_PREF]: {
+		get: IPC_COMMANDS.LOCAL_ENGINES_GET,
+		set: IPC_COMMANDS.LOCAL_ENGINES_SET,
 		read: field("enabled"),
 	},
 };

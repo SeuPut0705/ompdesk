@@ -96,6 +96,7 @@ interface MockOmp {
 		onTabSidecarStatus: Mock<() => () => void>;
 		onTabSubagentFrame: Mock<() => () => void>;
 		onTabModelCatalogUpdate: Mock<(callback: Stamped<ModelCatalogUpdateHandler>) => () => void>;
+		onModelsConfigChanged: Mock<(callback: () => void) => () => void>;
 		onTabConfigUpdate: Mock<() => () => void>;
 		onExtensionUi: Mock<() => () => void>;
 		onSignInEnded: Mock<() => () => void>;
@@ -123,12 +124,14 @@ function installMockOmp(): {
 	emitSessionInfo: (frame: SessionInfoUpdateFrame, tabId?: string) => void;
 	emitPromptResult: PromptResultHandler;
 	emitModelCatalogUpdate: ModelCatalogUpdateHandler;
+	emitModelsConfigChanged: () => void;
 } {
 	let batchHandler: Stamped<BatchHandler> = () => {};
 	let commandOutputHandler: Stamped<CommandOutputHandler> = () => {};
 	let sessionInfoHandler: (frame: SessionInfoUpdateFrame, tabId: string) => void = () => {};
 	let promptResultHandler: Stamped<PromptResultHandler> = () => {};
 	let modelCatalogUpdateHandler: Stamped<ModelCatalogUpdateHandler> = () => {};
+	let modelsConfigChangedHandler: () => void = () => {};
 	// Mirror the real server: get_state reports isStreaming=true mid-run, and
 	// agent_start triggers refreshSessionState — a static mock would overwrite
 	// the event-set flag with stale state and test a race production never has.
@@ -196,6 +199,10 @@ function installMockOmp(): {
 				modelCatalogUpdateHandler = callback;
 				return () => {};
 			}),
+			onModelsConfigChanged: vi.fn((callback: () => void) => {
+				modelsConfigChangedHandler = callback;
+				return () => {};
+			}),
 			onTabConfigUpdate: vi.fn(() => () => {}),
 			onExtensionUi: vi.fn(() => () => {}),
 			onSignInEnded: vi.fn(() => () => {}),
@@ -240,6 +247,7 @@ function installMockOmp(): {
 		emitSessionInfo: (frame, tabId = focusedTab()) => sessionInfoHandler(frame, tabId),
 		emitPromptResult: frame => promptResultHandler(frame, focusedTab()),
 		emitModelCatalogUpdate: frame => modelCatalogUpdateHandler(frame, focusedTab()),
+		emitModelsConfigChanged: () => modelsConfigChangedHandler(),
 	};
 }
 
@@ -313,6 +321,7 @@ function installTabRoutedMockOmp(): {
 			}),
 			onTabSubagentFrame: noopSub,
 			onTabModelCatalogUpdate: noopSub,
+			onModelsConfigChanged: noopSub,
 			onTabConfigUpdate: noopSub,
 			onExtensionUi: noopSub,
 			onSignInEnded: noopSub,
@@ -1470,6 +1479,32 @@ describe("useRpcEvents non-transcript frames", () => {
 			catalogRefreshPending: false,
 			catalogGeneration: 2,
 		});
+	});
+
+	it("reads the catalog again when OMPdesk changed models.yml itself, so a found engine's models appear", async () => {
+		const { omp, emitModelsConfigChanged } = installMockOmp();
+		await mount(<RpcEventsProbe />);
+		useModelStore.setState({ providers: [], availableModels: [], catalogGeneration: 1 });
+		omp.rpc.command.mockResolvedValueOnce(
+			success({
+				providers: [{ id: "freetoken" }],
+				models: [{ provider: "freetoken", id: "test-model" }],
+				discoveryStates: [],
+				generation: 2,
+			}),
+		);
+
+		await act(async () => {
+			emitModelsConfigChanged();
+		});
+		await flush();
+
+		expect(omp.rpc.command.mock.calls.map(([command]) => command)).toContainEqual({
+			type: "get_providers",
+			forceRefresh: true,
+		});
+		expect(useModelStore.getState().availableModels).toEqual([{ provider: "freetoken", id: "test-model" }]);
+		expect(useModelStore.getState().providers).toEqual([{ id: "freetoken" }]);
 	});
 
 	it("keeps the outgoing tab's frames out of the selected tab while the route catches up", async () => {
