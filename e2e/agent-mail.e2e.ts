@@ -143,9 +143,11 @@ test("children report, one asks and is answered, and the parent reacts to each w
 	});
 	const doneA = page.locator("[data-agent-mail='done']").first();
 	await expect(doneA).toBeVisible();
-	await expect(page.getByText("A finished, old API kept")).toHaveCount(0);
+	// The work board lists the same words as its child's activity, so the card's text is read inside the transcript.
+	const transcriptText = page.getByLabel("Session transcript").getByText("A finished, old API kept");
+	await expect(transcriptText).toHaveCount(0);
 	await doneA.locator("button[aria-expanded]").press("Enter");
-	await expect(page.getByText("A finished, old API kept")).toBeVisible();
+	await expect(transcriptText).toBeVisible();
 });
 
 test("a report shows without a prompt: at once to an idle parent, and during the turn of a busy one", async () => {

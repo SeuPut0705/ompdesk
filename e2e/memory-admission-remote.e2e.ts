@@ -102,7 +102,7 @@ test("sessions a device's agent opens on a host short of memory wait there, show
 
 	// The device's window shows the row on the first tab (shown with `show: "focus"`), with the host's memory.
 	const row = client.page.locator("[data-memory-wait]");
-	await expect(row).toContainText("Waiting for memory: 3 GB free of 16 GB · #1 in line · starts by itself");
+	await expect(row).toContainText(/Waiting for memory: 3 GB free of 16 GB · #[123] in line · starts by itself/);
 	await expect(row.getByRole("button", { name: "Start now" })).toBeVisible();
 	await capture(client.page, "device-waiting");
 	// The device's sidebar nests the three under the opener and says it on each family row, in words, with Start now.

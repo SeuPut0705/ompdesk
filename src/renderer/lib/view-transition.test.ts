@@ -83,4 +83,30 @@ describe("transitionView", () => {
 		await Promise.resolve();
 		expect(order).toEqual(["close", "open"]);
 	});
+
+	it("an aborted transition's rejected ready promise is handled, not a page error", async () => {
+		// Chromium rejects `ready` ("Transition was aborted because of timeout in DOM update") when the update callback is
+		// late on a busy machine; nothing awaits it, so an unhandled rejection reaches the window's error handler.
+		const unhandled: unknown[] = [];
+		const onUnhandled = (reason: unknown) => unhandled.push(reason);
+		process.on("unhandledRejection", onUnhandled);
+		// A fresh module: the tests above leave a transition running that never finishes, which makes every later swap plain.
+		vi.resetModules();
+		const { transitionView: freshTransitionView } = await import("./view-transition");
+		try {
+			const ready = Promise.reject(new Error("aborted"));
+			const start = vi.fn((callback: () => void) => {
+				callback();
+				return { finished: Promise.resolve(), ready };
+			});
+			install({ startViewTransition: start });
+			freshTransitionView(() => {});
+			expect(start).toHaveBeenCalledTimes(1);
+			// Node reports an unhandled rejection after the microtask queue drains: one macrotask turn is the signal, not a delay.
+			await new Promise(resolve => setImmediate(resolve));
+			expect(unhandled).toEqual([]);
+		} finally {
+			process.off("unhandledRejection", onUnhandled);
+		}
+	});
 });

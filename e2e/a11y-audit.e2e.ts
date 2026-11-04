@@ -244,10 +244,17 @@ for (const [language, theme] of variants([
 			await page.keyboard.press("ControlOrMeta+,");
 			const settings = page.locator("[data-settings-page]");
 			await expect(settings).toBeVisible();
-			const sections = await settings
-				.locator("[data-settings-section]")
-				.evaluateAll(nodes => nodes.map(node => node.getAttribute("data-settings-section") ?? ""));
-			for (const section of sections) {
+			// The list is read again at every step: "Other settings" is offered until the schema has loaded and drops out
+			// when omp has no stock setting that no other section owns (SettingsPage `advancedHidden`), so a list read at
+			// the start named a section that was gone by the time the walk reached it (4 of the last 8 nightlies, always
+			// `advanced`, always this click).
+			const sectionsNow = () =>
+				settings
+					.locator("[data-settings-section]")
+					.evaluateAll(nodes => nodes.map(node => node.getAttribute("data-settings-section") ?? ""));
+			for (let index = 0; ; index++) {
+				const section = (await sectionsNow())[index];
+				if (section === undefined) break;
 				await settings.locator(`[data-settings-section="${section}"]`).click();
 				await expect(settings.locator(".settings-content .animate-spin")).toHaveCount(0, { timeout: 30_000 });
 				await scan(`settings-${section}`);

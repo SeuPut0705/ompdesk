@@ -9,7 +9,11 @@
 import { flushSync } from "react-dom";
 
 interface TransitionDocument {
-	startViewTransition?: (update: () => void) => { finished: Promise<unknown>; updateCallbackDone?: Promise<unknown> };
+	startViewTransition?: (update: () => void) => {
+		finished: Promise<unknown>;
+		ready?: Promise<unknown>;
+		updateCallbackDone?: Promise<unknown>;
+	};
 }
 
 let running = false;
@@ -50,6 +54,9 @@ export function transitionView(update: () => void): void {
 		running = false;
 	};
 	transition.finished.then(release, release);
+	// `ready` rejects when the transition is skipped or its update callback is late ("Transition was aborted because of
+	// timeout in DOM update"); `finished` settles the state, and an unobserved rejection is a page error.
+	transition.ready?.catch(() => {});
 	if (applied || !transition.updateCallbackDone) return;
 	const done = transition.updateCallbackDone;
 	pendingUpdate = done;
