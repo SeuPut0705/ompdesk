@@ -233,17 +233,25 @@ export class LocalEngineDetector {
 		}
 	}
 
+	/**
+	 * The switch going off: every entry the detector wrote goes, and one already gone was deleted by the person (the
+	 * same rule as a pass: a tombstone, so switching on again does not bring it back).
+	 */
 	async #unregisterAll(): Promise<void> {
+		let present: Set<string>;
+		try {
+			present = await this.#deps.providers.ids();
+		} catch (error) {
+			this.#deps.failed?.(error);
+			return;
+		}
 		let wrote = false;
 		for (const id of [...this.#deps.ledger.get().registered]) {
+			const engine = this.#deps.engines.find(item => item.id === id) ?? { id, name: id, baseUrl: "" };
 			try {
-				await this.#release(id);
-				wrote = true;
+				wrote = (await this.#apply(present.has(id) ? "unregister" : "tombstone", engine)) || wrote;
 			} catch (error) {
-				this.#deps.failed?.(
-					error,
-					this.#deps.engines.find(engine => engine.id === id),
-				);
+				this.#deps.failed?.(error, engine);
 			}
 		}
 		if (wrote) this.#deps.changed();

@@ -198,6 +198,21 @@ describe("LocalEngineDetector", () => {
 		expect(world.file.has("freetoken")).toBe(false);
 	});
 
+	it("a deletion right before the switch goes off is a tombstone too: on again does not bring it back", async () => {
+		const { world, detector } = rig();
+		world.up.add("freetoken");
+		await detector.tick();
+		world.file.delete("freetoken");
+		world.enabled = false;
+		await detector.setEnabled(false);
+		expect(world.ledger).toEqual({ registered: [], removed: ["freetoken"] });
+		expect(world.deletes).toEqual([]);
+		world.enabled = true;
+		await detector.setEnabled(true);
+		expect(world.file.has("freetoken")).toBe(false);
+		expect(world.ledger).toEqual({ registered: [], removed: ["freetoken"] });
+	});
+
 	it("a pass that began before the switch went off writes nothing", async () => {
 		const { world, detector } = rig();
 		world.up.add("freetoken");
