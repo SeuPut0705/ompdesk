@@ -11,6 +11,7 @@
  * shows that image as unavailable. A paired device asks for the references
  * instead (`imageRefs`) and reads each blob once (remote/image-blob-cache.ts).
  */
+import { createHash } from "node:crypto";
 import type { BridgeClient } from "./types";
 
 export const BLOB_REF_PREFIX = "blob:sha256:";
@@ -71,4 +72,44 @@ export async function resolveImageBlobs(messages: unknown, bridge: BridgeClient)
 		}
 		if (data !== null) site.data = data;
 	}
+}
+
+/** Stock's `BLOB_EXTERNALIZE_THRESHOLD` (session-persistence.ts): shorter base64 never left the journal. */
+const INLINE_BELOW = 1024;
+
+/**
+ * `messages` with every picture's bytes replaced by the reference stock minted for them (the SHA-256 of the bytes:
+ * blob-store.ts `put`), on copies, the originals untouched. A stored session a paired device's agent reads
+ * (`sessions.messages`, `ompdesk_session_read`) comes from stock's loader with its pictures inline; the agent renders
+ * text only (agent-control `contentText`), and one session's sixteen pictures made the answer 18.4 MB, past the
+ * link's 16 MiB frame (4 Nov 2026). The address is the store's, so a reader that needs the bytes can still ask
+ * `read_image_blob` for them.
+ */
+export function withImageRefs<T>(value: T, key?: string): T {
+	if (Array.isArray(value)) {
+		let copy: unknown[] | null = null;
+		value.forEach((item, index) => {
+			const replaced = withImageRefs(item, key);
+			if (replaced === item) return;
+			copy ??= [...value];
+			copy[index] = replaced;
+		});
+		return (copy ?? value) as T;
+	}
+	if (typeof value !== "object" || value === null) return value;
+	const record = value as Record<string, unknown>;
+	if (typeof record.data === "string" && isImagePosition(record, key)) {
+		const { data } = record;
+		if (BLOB_REF.test(data) || data.length < INLINE_BELOW) return value;
+		const hash = createHash("sha256").update(Buffer.from(data, "base64")).digest("hex");
+		return { ...record, data: `${BLOB_REF_PREFIX}${hash}` } as T;
+	}
+	let copy: Record<string, unknown> | null = null;
+	for (const [childKey, child] of Object.entries(record)) {
+		const replaced = withImageRefs(child, childKey);
+		if (replaced === child) continue;
+		copy ??= { ...record };
+		copy[childKey] = replaced;
+	}
+	return (copy ?? value) as T;
 }

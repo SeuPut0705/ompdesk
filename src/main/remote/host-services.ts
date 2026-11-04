@@ -89,6 +89,7 @@ import { discardOpenedWorktree, savedWorktreesForSpawn } from "../disk/saved-wor
 import { type ExtensionApplyPlan, extensionApplyDecision, mergeApplyPlans } from "../extension-reload";
 import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from "../launch-profile-store";
 import { createWorktree, tablessWorktreeBridge } from "../local/git/worktree";
+import { withImageRefs } from "../local/image-blobs";
 import { noteTypedPrompt } from "../local/prompt-origin";
 import type { BridgeClient } from "../local/types";
 import type { MachineServices } from "../machine-services";
@@ -1272,10 +1273,12 @@ export class LocalHostServices implements HostServices {
 			}
 			case "sessions.messages": {
 				// A paired device's agent reads a stored session here (`ompdesk_session_read`), never one this computer's user hid.
+				// Its pictures go as references (image-blobs.ts `withImageRefs`): the agent reads text, and one session's
+				// sixteen pictures inline were 18.4 MB, past the link's frame cap.
 				const { sessionPath } = parse(SessionPathParams, method, params);
 				if (this.#deps.agentHidden?.().has(sessionPath))
 					throw codedError("session_hidden", "The user hid that session from agents.");
-				return this.#deps.sessionIndex.readMessages(sessionPath);
+				return withImageRefs(await this.#deps.sessionIndex.readMessages(sessionPath));
 			}
 			case "sessions.kindFor":
 				return this.#deps.sessionIndex.kindFor(parse(SessionPathParams, method, params).sessionPath);

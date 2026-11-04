@@ -5,8 +5,10 @@
  * screenshot draws; a reference whose blob is gone stays for the renderer to
  * show as unavailable.
  */
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type { AgentMessage } from "../../shared/rpc-types";
+import { withImageRefs } from "./image-blobs";
 import { localHandlerFor } from "./index";
 import type { BridgeClient, LocalCommandContext } from "./types";
 
@@ -208,5 +210,47 @@ describe("subagent transcript images", () => {
 				],
 			});
 		}
+	});
+});
+
+describe("withImageRefs", () => {
+	it("names every picture by stock's content address on copies, and leaves small ones, references and text alone", () => {
+		const bytes = Buffer.alloc(3000, 5);
+		const data = bytes.toString("base64");
+		const ref = `blob:sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+		const small = Buffer.alloc(100, 1).toString("base64");
+		const messages = [
+			{
+				role: "user",
+				content: [
+					{ type: "text", text: "see" },
+					{ type: "image", data, mimeType: "image/png" },
+				],
+			},
+			{
+				role: "toolResult",
+				content: "made",
+				details: { xdev: { inner: { images: [{ data, mimeType: "image/webp" }] } } },
+			},
+			{
+				role: "toolResult",
+				content: [
+					{ type: "image", data: small, mimeType: "image/png" },
+					{ type: "image", data: COLLECTED },
+				],
+			},
+			{ role: "assistant", content: [{ type: "text", text: data }] },
+		];
+		const before = JSON.stringify(messages);
+		const shown = withImageRefs(messages);
+		expect(shown[0]?.content).toEqual([
+			{ type: "text", text: "see" },
+			{ type: "image", data: ref, mimeType: "image/png" },
+		]);
+		expect(shown[1]?.details).toEqual({ xdev: { inner: { images: [{ data: ref, mimeType: "image/webp" }] } } });
+		expect(shown[2]).toBe(messages[2]);
+		// Text that happens to be base64 is not a picture.
+		expect(shown[3]).toBe(messages[3]);
+		expect(JSON.stringify(messages)).toBe(before);
 	});
 });
