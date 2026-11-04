@@ -48,6 +48,10 @@ for (const [language, theme] of variants([
 		const project = path.join(root, "project");
 		const agent = path.join(root, "agent");
 		const record = path.join(root, "rpc.jsonl");
+		// Runs wait for memory while the machine is short (memory-admission.ts); a 7 GB hosted runner is, so the
+		// reading is fixed: plenty free, and every run here starts at once.
+		const memory = path.join(root, "memory.json");
+		await fs.writeFile(memory, JSON.stringify({ totalGb: 16, availableGb: 14, pressure: "normal" }));
 		await Promise.all([fs.mkdir(desktop), fs.mkdir(project), fs.mkdir(agent)]);
 		await fs.writeFile(
 			path.join(desktop, "prefs.json"),
@@ -61,6 +65,7 @@ for (const [language, theme] of variants([
 			env: {
 				OMP_GUI_TEST_RECORD: record,
 				OMP_GUI_TEST_SESSION_FILES: "1",
+				OMP_GUI_TEST_MEMORY: memory,
 			},
 		});
 		const page = await app.firstWindow();

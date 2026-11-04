@@ -1856,15 +1856,11 @@ app.whenReady().then(() => {
 		extensionArgs: cwd => aiMemoryService?.extensionArgs(cwd) ?? Promise.resolve([]),
 		extensionEnv: cwd => mcpHub?.ompEnv(cwd) ?? Promise.resolve({}),
 	});
-	const scheduledStart = (schedule: { name: string }) =>
-		memoryAdmission.request({ kind: "schedule", label: `schedule "${schedule.name}"` }).outcome;
 	scheduleService = new ScheduleService({
 		file: join(app.getPath("userData"), "schedules.json"),
 		logDir: join(app.getPath("userData"), "schedule-runs"),
-		launch: async (schedule, files) => {
-			await scheduledStart(schedule);
-			return launchScheduledRun(schedule, files);
-		},
+		launch: launchScheduledRun,
+		admit: schedule => memoryAdmission.request({ kind: "schedule", label: `schedule "${schedule.name}"` }),
 		onState: state => {
 			for (const win of BrowserWindow.getAllWindows()) {
 				if (!win.isDestroyed()) win.webContents.send(SCHEDULES_STATE, state);
@@ -1879,7 +1875,6 @@ app.whenReady().then(() => {
 		// A session's own wake-up (`ompdesk_schedule` with `target: "self"`) is delivered into that session by the control
 		// tools; the test launches shorten the check and the minute so a wake comes within seconds.
 		wake: async (schedule, runId) => {
-			await scheduledStart(schedule);
 			if (!sessionWake.current) throw new Error("OMPdesk is still starting");
 			return sessionWake.current(schedule, runId);
 		},

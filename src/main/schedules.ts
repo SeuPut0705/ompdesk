@@ -47,6 +47,7 @@ import {
 	scheduleDraftProblem,
 } from "../shared/schedules";
 import { writeFileAtomic, writeFileAtomicSync } from "./atomic-file";
+import type { AdmissionTicket } from "./memory-admission";
 import { OMP_TELEMETRY_OFF, type OmpResolution, ompPathEnv } from "./omp-runtime";
 import { SUPERVISOR_STOPPED_CODE, spawnSupervised } from "./setup/supervisor";
 import { needsShell, spawnArgs, spawnCommand } from "./spawn";
@@ -92,6 +93,11 @@ export interface ScheduleServiceOptions {
 	reserve?: (device: string) => ScheduleCharge;
 	/** A run ended (or was skipped), as recorded; the bot's routines go to its activity log (index.ts). */
 	runEnded?: (schedule: Schedule, run: ScheduleRun) => void;
+	/**
+	 * A run is new agent work: it asks to start here and waits while this computer's memory is in danger
+	 * (memory-admission.ts). Stop (and a quit) cancels the wait, so a run that never started ends stopped. Absent: no wait.
+	 */
+	admit?: (schedule: Schedule) => Pick<AdmissionTicket, "outcome" | "cancel">;
 }
 
 interface StoredSchedules {
@@ -105,6 +111,8 @@ interface ActiveRun {
 	runId: string;
 	process: RunProcess | null;
 	stopRequested: boolean;
+	/** Gives up the run's place in line for memory while it waits there. */
+	cancelWait: (() => void) | null;
 }
 
 /** What a webhook call came to (`ScheduleService.webhook`): started or kept for after the running one, or why not. */
@@ -319,6 +327,7 @@ export class ScheduleService {
 		const now = new Date().toISOString();
 		for (const [scheduleId, active] of this.#active) {
 			active.stopRequested = true;
+			active.cancelWait?.();
 			active.process?.stop();
 			this.#runs = this.#runs.map(run =>
 				run.id === active.runId && run.status === "running"
@@ -512,7 +521,7 @@ export class ScheduleService {
 			error: null,
 			...(detail === undefined ? {} : { detail }),
 		};
-		const active: ActiveRun = { runId: run.id, process: null, stopRequested: false };
+		const active: ActiveRun = { runId: run.id, process: null, stopRequested: false, cancelWait: null };
 		this.#active.set(schedule.id, active);
 		this.#record(run);
 		// A one-time start is spent: the schedule is off from now on (a test run leaves it as it was).
@@ -534,19 +543,23 @@ export class ScheduleService {
 		let launched: RunProcess | null = null;
 		try {
 			await mkdir(this.#options.logDir, { recursive: true });
-			if (schedule.wakeSession !== undefined) {
-				const wake = this.#options.wake;
-				if (!wake) throw new Error("Waking a session is not available here");
-				launched = await wake({ ...schedule, prompt }, run.id);
-				await writeFile(files.log, `Woke ${schedule.wakeSession}\n${prompt}\n`);
+			if (!(await this.#admitted(schedule, active))) {
+				result = { code: SUPERVISOR_STOPPED_CODE };
 			} else {
-				await writeFile(files.prompt, prompt);
-				if (!existsSync(schedule.cwd)) throw new Error(`Project folder not found: ${schedule.cwd}`);
-				launched = await this.#options.launch({ ...schedule, prompt }, files);
+				if (schedule.wakeSession !== undefined) {
+					const wake = this.#options.wake;
+					if (!wake) throw new Error("Waking a session is not available here");
+					launched = await wake({ ...schedule, prompt }, run.id);
+					await writeFile(files.log, `Woke ${schedule.wakeSession}\n${prompt}\n`);
+				} else {
+					await writeFile(files.prompt, prompt);
+					if (!existsSync(schedule.cwd)) throw new Error(`Project folder not found: ${schedule.cwd}`);
+					launched = await this.#options.launch({ ...schedule, prompt }, files);
+				}
+				active.process = launched;
+				if (active.stopRequested || this.#disposed) launched.stop();
+				result = await launched.done;
 			}
-			active.process = launched;
-			if (active.stopRequested || this.#disposed) launched.stop();
-			result = await launched.done;
 		} catch (error) {
 			result = {
 				code: null,
@@ -631,7 +644,19 @@ export class ScheduleService {
 		const active = this.#active.get(scheduleId);
 		if (!active) return;
 		active.stopRequested = true;
+		active.cancelWait?.();
 		active.process?.stop();
+	}
+
+	/** True once the run may start: memory allows (or nothing asks), false when Stop or a quit called it off in line. */
+	async #admitted(schedule: Schedule, active: ActiveRun): Promise<boolean> {
+		const ticket = this.#options.admit?.(schedule);
+		if (!ticket) return true;
+		active.cancelWait = ticket.cancel;
+		if (active.stopRequested || this.#disposed) ticket.cancel();
+		const outcome = await ticket.outcome;
+		active.cancelWait = null;
+		return outcome !== "cancelled";
 	}
 
 	/** Newest first; each schedule keeps its `SCHEDULE_RUNS_PER_SCHEDULE` newest, all together `SCHEDULE_RUNS_KEPT`. */
