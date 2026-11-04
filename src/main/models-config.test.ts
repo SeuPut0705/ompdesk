@@ -19,9 +19,9 @@ import type { CustomProviderInput } from "../shared/ipc-types";
 import { engineProviderInput } from "./local-engines";
 import {
 	deleteModelsProvider,
+	insertModelsProvider,
 	listModelsProviders,
 	modelsPath,
-	insertModelsProvider,
 	setModelOverride,
 	upsertModelsProvider,
 } from "./models-config";
