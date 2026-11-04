@@ -9,15 +9,12 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import type { AssistantMessage } from "@oh-my-pi/pi-ai";
-import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent/extensibility/extensions";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import type { RestoreOptions } from "@oh-my-pi/pi-coding-agent/task/restore";
 import type { AgentMessage } from "../../src/shared/rpc-types";
 import { requireFn } from "./capabilities";
 import { buildCopyTargets } from "./copy-targets";
 import { guard } from "./health";
-import { processJobGate } from "./job-gate";
-import type { BridgeJobFreeze } from "./jobs-contracts";
 import { jobRows } from "./jobs-core";
 import { keepSectionsOnRestore } from "./prompt-sections";
 import {
@@ -428,27 +425,6 @@ export const methods: BridgeMethods = {
 			return tree ? jobRows(tree, buildJobTree, id => session.inspectAsyncJob(id)) : [];
 		},
 
-		/**
-		 * The automatic update's last look (job-gate.ts): the same rows as `composer.jobs` and, in the same synchronous
-		 * step, the gate closed on every new tool call when no job runs and none is under way, for `leaseMs` at most.
-		 */
-		"composer.freeze_jobs": async (params, env): Promise<BridgeJobFreeze> => {
-			const session = env.session() as Session;
-			requireFn(session, "getAsyncJobTree", "composer");
-			requireFn(session, "inspectAsyncJob", "composer");
-			// A late import, as in `composer.jobs`: a moved stock internal fails this method, not the whole bridge.
-			const { buildJobTree } = await import("@oh-my-pi/pi-tui/overlays/job-tree");
-			// No await from here on: the tree read and the gate's decision are one step.
-			const tree = session.getAsyncJobTree();
-			const rows = tree ? jobRows(tree, buildJobTree, id => session.inspectAsyncJob(id)) : [];
-			const { leaseMs } = record(params);
-			const lease = typeof leaseMs === "number" && Number.isFinite(leaseMs) ? leaseMs : 0;
-			return { rows, ...processJobGate().freeze((tree?.running.length ?? 0) > 0, lease) };
-		},
-
-		/** Lets the tool calls the last freeze held run; false when the gate was open. */
-		"composer.thaw_jobs": async () => ({ thawed: processJobGate().thaw() }),
-
 		/** Stock's `cancelAsyncJob`: it stops only jobs the session's own agent owns; a subagent's job answers false. */
 		"composer.cancel_job": async (params, env) => {
 			const session = env.session() as Session;
@@ -646,21 +622,3 @@ export const methods: BridgeMethods = {
 		},
 	}),
 };
-
-/**
- * The job gate on every session of this process, subagents included (stock binds the extension again for each and the
- * bridge reruns this install): each tool call waits at the gate while it is closed, then counts as under way until it
- * ends or its agent's loop does.
- */
-export function install(pi: ExtensionAPI): void {
-	pi.on("tool_call", async (event, ctx) => {
-		await processJobGate().enter(event.toolCallId, ctx.agent.id);
-		return undefined;
-	});
-	pi.on("tool_execution_end", event => {
-		processJobGate().leave(event.toolCallId);
-	});
-	pi.on("agent_end", (_event, ctx) => {
-		processJobGate().agentEnded(ctx.agent.id);
-	});
-}

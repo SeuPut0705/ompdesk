@@ -360,13 +360,13 @@ function busyHost(status: UpdateStatus) {
 	return { machine, restart, postpone };
 }
 
-describe("a paired device on this computer's automatic-install notice", () => {
+describe("a paired device on this computer's automatic-install countdown", () => {
 	const ready: UpdateStatus = { state: "downloaded", version: "2.0.0", mode: "automatic" };
 
-	it("restarts on the waiting line's Restart now though work runs, as on this computer", async () => {
+	it("restarts on the countdown's Restart now though work runs, as on this computer", async () => {
 		vi.useFakeTimers();
 		try {
-			const host = busyHost({ ...ready, waitingFor: { tasks: 1, names: ["Watcher"] } });
+			const host = busyHost({ ...ready, restartAt: 5 });
 			await host.machine.desktopUpdate("restart-now");
 			await vi.runAllTimersAsync();
 			expect(host.restart).toHaveBeenCalledTimes(1);
@@ -387,8 +387,8 @@ describe("a paired device on this computer's automatic-install notice", () => {
 		expect([withNotice.restart, without.restart].map(restart => restart.mock.calls.length)).toEqual([0, 0]);
 	});
 
-	it("puts the notice off on Later", async () => {
-		const host = busyHost({ ...ready, waitingFor: { tasks: 1, names: [] } });
+	it("puts the countdown off on Later", async () => {
+		const host = busyHost({ ...ready, restartAt: 5 });
 		await host.machine.desktopUpdate("postpone");
 		expect(host.postpone).toHaveBeenCalledTimes(1);
 	});

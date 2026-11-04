@@ -37,14 +37,13 @@ import { useFocusedHost, useHostView } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { runUpdaterAction, useUpdaterStore, waitingWhat } from "../../stores/updater";
+import { runUpdaterAction, useUpdaterStore } from "../../stores/updater";
 import {
 	Badge,
 	Banner,
 	type BannerVariant,
 	BrandMark,
 	Button,
-	ConfirmDialog,
 	ErrorDetail,
 	Input,
 	ProgressBar,
@@ -310,8 +309,7 @@ export function UpdatesSection() {
 }
 
 /**
- * The automatic install's quiet line, this computer's or a paired host's: the countdown with "Now" and "Later", or the
- * update waiting for running background work, named, with "Restart now" (it says what it interrupts) and "Later".
+ * The automatic install's quiet line, this computer's or a paired host's: the countdown with "Now" and "Later".
  * Never a modal.
  */
 function AutoInstallNotice({
@@ -342,24 +340,7 @@ function AutoInstallNotice({
 			</p>
 		);
 	}
-	if (!status.waitingFor) return null;
-	const what = waitingWhat(status.waitingFor, t);
-	return (
-		<div
-			className="mt-1 flex flex-col items-start gap-2 text-sc-xs text-(--sc-text-muted)"
-			data-testid="auto-install-waiting"
-		>
-			<p>{t("updater.card.waitingHint", { version: status.version, what })}</p>
-			<div className="flex flex-wrap items-center gap-2">
-				<Button onClick={onRestartNow} size="sm" variant="secondary">
-					{t("updater.card.restartNowCuts", { what })}
-				</Button>
-				<Button onClick={onLater} size="sm" variant="ghost">
-					{t("updater.card.later")}
-				</Button>
-			</div>
-		</div>
-	);
+	return null;
 }
 
 /**
@@ -498,16 +479,13 @@ export function HostDesktopRow({ deviceId }: { deviceId: string }) {
 	}, [read]);
 
 	const hostUpdate = state?.update;
-	const hostNotice =
-		hostUpdate?.state === "downloaded" && (hostUpdate.restartAt !== undefined || hostUpdate.waitingFor !== undefined);
+	const hostNotice = hostUpdate?.state === "downloaded" && hostUpdate.restartAt !== undefined;
 	// The host's check and download run on after its reply, and its automatic install's notice changes there: follow them.
 	useEffect(() => {
 		if (updateState !== "checking" && updateState !== "downloading" && !hostNotice) return;
 		const timer = setInterval(() => void read(), HOST_UPDATE_POLL_MS);
 		return () => clearInterval(timer);
 	}, [read, updateState, hostNotice]);
-	/** "Restart now" on the host's waiting line asks here first: it names the work the restart interrupts. */
-	const [confirmCut, setConfirmCut] = useState(false);
 
 	const run = async (action: HostUpdateAction) => {
 		setPending(action);
@@ -599,23 +577,10 @@ export function HostDesktopRow({ deviceId }: { deviceId: string }) {
 					) : status?.state === "downloaded" ? (
 						<AutoInstallNotice
 							onLater={() => void run("postpone")}
-							onRestartNow={() => (status.waitingFor ? setConfirmCut(true) : void run("restart-now"))}
+							onRestartNow={() => void run("restart-now")}
 							status={status}
 						/>
 					) : null}
-					{status?.state === "downloaded" && status.waitingFor && (
-						<ConfirmDialog
-							confirmLabel={t("updater.card.restartNowConfirm")}
-							message={t("updater.card.cuts", { what: waitingWhat(status.waitingFor, t) })}
-							onCancel={() => setConfirmCut(false)}
-							onConfirm={() => {
-								setConfirmCut(false);
-								void run("restart-now");
-							}}
-							open={confirmCut}
-							title={t("updates.host.restartNowTitle")}
-						/>
-					)}
 				</>
 			}
 			icon={<Server />}

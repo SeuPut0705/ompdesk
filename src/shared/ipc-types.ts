@@ -712,8 +712,6 @@ export type UpdateStatus =
 	| { state: "downloading"; version: string; mode: UpdateInstallMode; percent: number }
 	/**
 	 * `restartAt` (epoch ms): the app installs by itself then (Install updates automatically); "later" postpones it.
-	 * `waitingFor`: past the max wait the automatic install still waits for running background work, never cutting it;
-	 * the notice names it, with "Restart now" and "Later".
 	 * `installing`: the install is under way (the installer starts, then the app quits); the notice says so, and
 	 * "Restart & install" does nothing meanwhile.
 	 */
@@ -722,7 +720,6 @@ export type UpdateStatus =
 			version: string;
 			mode: UpdateInstallMode;
 			restartAt?: number;
-			waitingFor?: UpdateWaitingFor;
 			installing?: true;
 	  }
 	| { state: "not-available"; version: string }
@@ -731,14 +728,6 @@ export type UpdateStatus =
 	| { state: "error"; message: string; detail?: string; showInBanner?: boolean }
 	/** The release repo refused an anonymous request, or the token cannot read it (it is private again). Settings-only, never a banner. */
 	| { state: "auth-required"; reason: "missing" | "invalid" | "denied" };
-
-/** The running background work an automatic install waits for past its max wait. */
-export interface UpdateWaitingFor {
-	/** Running subagents and jobs, and sessions that did not answer. */
-	tasks: number;
-	/** Up to three of their names, subagents first; fewer than `tasks` when some had none or more ran. */
-	names: string[];
-}
 
 /**
  * OMPdesk itself on the machine a tab runs on (Settings on a paired host's

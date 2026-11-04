@@ -354,10 +354,10 @@ export class LocalMachine implements MachineServices {
 	 * here without a dialog nobody at the device could answer, so it refuses
 	 * while anything runs (this computer's tabs or any device's) and when the
 	 * update needs someone at this computer (the macOS manual DMG). The automatic
-	 * install's notice is the exception: its "Restart now" (`restart-now`) goes
-	 * while work runs, as on this computer, since the notice says what it cuts
-	 * (the countdown restarts anyway; the waiting line names the work), and its
-	 * "Later" (`postpone`) puts it off. Without a notice `restart-now` is `install`.
+	 * install's countdown is the exception: its "Restart now" (`restart-now`) goes
+	 * while work runs, as on this computer (the countdown restarts anyway, and
+	 * the restart continues the work), and its "Later" (`postpone`) puts it off.
+	 * Without a countdown `restart-now` is `install`.
 	 */
 	async desktopUpdate(action: HostUpdateAction): Promise<HostDesktopState> {
 		const { update, busy } = this.#deps.desktop;
@@ -368,8 +368,7 @@ export class LocalMachine implements MachineServices {
 			if (!update.restartable())
 				throw codedError("update_not_ready", "No update is ready to install on this computer");
 			const status = update.status();
-			const notice =
-				status.state === "downloaded" && (status.restartAt !== undefined || status.waitingFor !== undefined);
+			const notice = status.state === "downloaded" && status.restartAt !== undefined;
 			if (!(action === "restart-now" && notice) && busy())
 				throw codedError("host_busy", "Work is running on this computer");
 			// Answer first: the restart closes the device's link.

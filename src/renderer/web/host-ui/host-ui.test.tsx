@@ -14,7 +14,6 @@ import { I18nProvider, translate } from "../../lib/i18n";
 import { useTabsStore } from "../../stores/tabs";
 import { useToastStore } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { useUpdaterStore } from "../../stores/updater";
 import { type HostActions, webHostHooks } from "../host-hooks";
 import { setWebRuntime } from "../runtime";
 import { ConfirmSheet } from "./ConfirmSheet";
@@ -265,27 +264,6 @@ describe("ConfirmSheet", () => {
 		expect(text()).toContain(translate("hostUi.update.title"));
 		await clickText(translate("hostUi.cancel"));
 		expect(resolve).toHaveBeenCalledWith(false);
-	});
-
-	// The computer asks nothing more for a phone's restart: the sheet is where the person sees what it interrupts.
-	it("an update restart names the background work the computer's update waits for", async () => {
-		seedRunning(0);
-		useUpdaterStore.setState({
-			status: {
-				state: "downloaded",
-				version: "2.0.0",
-				mode: "automatic",
-				waitingFor: { tasks: 2, names: ["LayoutSplit", "StreamFast"] },
-			},
-		});
-		try {
-			await mount(<ConfirmSheet onSettled={() => {}} prompt={{ kind: "update", resolve: vi.fn() }} />);
-			expect($("[data-host-cuts]")?.textContent).toBe(
-				translate("updater.card.cuts", { what: "LayoutSplit, StreamFast" }),
-			);
-		} finally {
-			useUpdaterStore.setState({ status: { state: "idle" } });
-		}
 	});
 });
 

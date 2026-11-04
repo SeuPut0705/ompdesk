@@ -49,7 +49,8 @@ export function quitNeedsConfirmation(risk: QuitRisk, resumes: boolean): boolean
  * first. Setting off: the quit confirm for running turns (`quitNeedsConfirmation`; background work only exists
  * while a run is on, so it is covered). Setting on: running turns continue after the relaunch and ask nothing, but
  * background subagents and jobs start over from the beginning, so a restart over them is named first.
- * The scheduler's own automatic install never asks: it waits for them (app-auto-update.ts).
+ * The scheduler's own automatic install never asks: it restarts at once and the relaunch starts them again
+ * (app-auto-update.ts).
  */
 export function updateRestartConfirmation(
 	risk: QuitRisk,

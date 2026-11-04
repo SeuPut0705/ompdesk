@@ -9,7 +9,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { IPC_COMMANDS, type UpdateStatus } from "../shared/ipc-types";
-import { NO_BACKGROUND_WORK_SOURCE } from "./background-work";
+import { NO_BACKGROUND_WORK } from "./background-work";
 import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
 import { setupUpdater } from "./updater";
 import { type IpcCaller, IpcRegistry } from "./web/ipc-registry";
@@ -90,7 +90,7 @@ beforeAll(() => {
 		busy: () => false,
 		asking: () => false,
 		compacting: () => false,
-		backgroundWork: NO_BACKGROUND_WORK_SOURCE,
+		backgroundWork: async () => NO_BACKGROUND_WORK,
 	});
 });
 

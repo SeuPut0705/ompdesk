@@ -128,7 +128,7 @@ test("with the pref stored off the staged update waits for a click", async () =>
 	}
 });
 
-test("with a turn's background subagent still working, the automatic install waits and installs once it reports", async () => {
+test("with a turn's background subagent still working, the automatic install counts down and installs without waiting for it", async () => {
 	test.setTimeout(120_000);
 	// The switch starts off so the turn can start before the staged update is offered to the scheduler.
 	const launched = await launch("background", { appAutoUpdate: false }, { OMP_GUI_TEST_BACKGROUND_JOB: "1" });
@@ -138,35 +138,19 @@ test("with a turn's background subagent still working, the automatic install wai
 		const input = page.locator(".omp-composer-input").first();
 		await input.fill("fixture background subagent");
 		await input.press("Enter");
-		// The turn ended; its subagent (a running `task` job) keeps the session unsettled.
+		// The turn ended; its subagent (a running `task` job) keeps the session unsettled, and stays so: never finished here.
 		await expect(page.getByText("Watcher is on the release build in the background.")).toBeVisible({
 			timeout: 30_000,
 		});
 		const exited = new Promise<void>(resolve => app.process().once("exit", () => resolve()));
 		await page.evaluate(() => window.omp.prefs.set("appAutoUpdate", true));
+		// Running background work does not hold the restart: the notice with its countdown, then the quit.
 		await expect
-			.poll(async () => (await schedulerEvents(launched)).map(event => `${event.event}:${event.reason ?? ""}`), {
-				timeout: 20_000,
-			})
-			.toEqual(["waiting:background work"]);
-		// Well past the shortened countdown: nothing announced, nothing swapped, the app still runs.
-		await page.waitForTimeout(COUNTDOWN_MS + 4000);
-		expect(await status(page)).toEqual({ state: "downloaded", version: VERSION, mode: "relaunch" });
-		expect(app.process().exitCode).toBeNull();
-		expect(await read(launched.swapLog)).toBe("");
-		expect((await schedulerEvents(launched)).map(event => event.event)).toEqual(["waiting"]);
-
-		// The subagent reports back and the session settles: now it is a safe point.
-		const finished = await page.evaluate(() => window.omp.rpc.bash("fixture:finish-background"));
-		expect(finished.success).toBe(true);
+			.poll(async () => ("restartAt" in (await status(page)) ? "announced" : "waiting"), { timeout: 20_000 })
+			.toBe("announced");
 		await exited;
 		await expect.poll(() => read(launched.swapLog), { timeout: 30_000 }).toContain("installed");
-		expect((await schedulerEvents(launched)).map(event => event.event)).toEqual([
-			"waiting",
-			"safe",
-			"countdown",
-			"install",
-		]);
+		expect((await schedulerEvents(launched)).map(event => event.event)).toEqual(["safe", "countdown", "install"]);
 	} finally {
 		await close(launched);
 	}

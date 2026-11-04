@@ -44,13 +44,7 @@ import type { UpdateAuthTestResult, UpdateInstallMode, UpdateStatus } from "../s
 import { IPC_COMMANDS, IPC_EVENTS } from "../shared/ipc-types";
 import { AutoInstallScheduler } from "./app-auto-update";
 import { confirmUpdateRestart, disarmQuitWatchdog, onQuitForcedExit, requestQuit } from "./app-quit";
-import {
-	type BackgroundWork,
-	type BackgroundWorkSource,
-	backgroundTaskCount,
-	NO_BACKGROUND_WORK_SOURCE,
-	namedBackgroundWork,
-} from "./background-work";
+import { type BackgroundWork, NO_BACKGROUND_WORK } from "./background-work";
 import { markMainStep } from "./hang-watchdog";
 import { mainT } from "./i18n";
 import type { MainTextKey } from "./i18n-text";
@@ -161,8 +155,8 @@ let checkAsked = false;
 const macTransfer = new SingleTransfer();
 /** Installs a downloaded update by itself at a quiet moment (Settings › Updates & about); null before `setupUpdater`. */
 let autoInstall: AutoInstallScheduler | null = null;
-/** The probe's background-work source, for a click on "Restart & install" (asked fresh); null before `setupUpdater`. */
-let backgroundWork: BackgroundWorkSource | null = null;
+/** The probe's background-work ask, for a click on "Restart & install"; null before `setupUpdater`. */
+let askBackgroundWork: (() => Promise<BackgroundWork>) | null = null;
 /** Each tick's look at the facts; a dev run shortens the countdown with OMP_DEV_UPDATE_AUTO_COUNTDOWN_MS. */
 const AUTO_INSTALL_TICK_MS = 1000;
 
@@ -178,8 +172,8 @@ export interface AutoInstallProbe {
 	asking: () => boolean;
 	/** A tab compacts its context: a resume-on restart waits for it (a cut compaction does not resume). */
 	compacting: () => boolean;
-	/** Running background subagents and jobs of every tab on this computer (`background-work.ts`). */
-	backgroundWork: BackgroundWorkSource;
+	/** Running background subagents and jobs of every tab on this computer, asked fresh (`background-work.ts`). */
+	backgroundWork: () => Promise<BackgroundWork>;
 }
 
 /** Who started the install: the scheduler, a click on "Restart & install" (or a paired device's), or a plain quit. */
@@ -598,9 +592,6 @@ export function onUpdateStatus(listener: (status: UpdateStatus) => void): () => 
 	return () => statusListeners.delete(listener);
 }
 
-/** The running work the waiting notice names (the scheduler's `overdue`), while it shows. */
-let waitingWork: BackgroundWork | undefined;
-
 function broadcast(status: UpdateStatus): void {
 	current = status.state === "downloaded" && !status.installing ? withNotice(status) : status;
 	for (const win of BrowserWindow.getAllWindows()) {
@@ -610,25 +601,14 @@ function broadcast(status: UpdateStatus): void {
 }
 
 /**
- * A downloaded update with the notice the scheduler shows now: the countdown (`restartAt`) or the update waiting for
- * running work (`waitingFor`). Any status that reaches the windows goes through here, so a re-broadcast of the staged
- * update (a manual re-check) keeps the notice and a notice that went never lingers.
+ * A downloaded update with the countdown the scheduler shows now (`restartAt`). Any status that reaches the windows
+ * goes through here, so a re-broadcast of the staged update (a manual re-check) keeps the countdown and one that went
+ * never lingers.
  */
 function withNotice(status: Extract<UpdateStatus, { state: "downloaded" }>): UpdateStatus {
-	const { restartAt: _restartAt, waitingFor: _waitingFor, ...plain } = status;
-	const notice = autoInstall?.notice;
-	if (notice && "restartAt" in notice) return { ...plain, restartAt: notice.restartAt };
-	if (notice && waitingWork) {
-		const named = namedBackgroundWork(waitingWork);
-		return {
-			...plain,
-			waitingFor: {
-				tasks: backgroundTaskCount(waitingWork),
-				names: [...named.subagents.names, ...named.jobs.names],
-			},
-		};
-	}
-	return plain;
+	const { restartAt: _restartAt, ...plain } = status;
+	const restartAt = autoInstall?.restartAt;
+	return restartAt === undefined ? plain : { ...plain, restartAt };
 }
 
 /**
@@ -655,8 +635,11 @@ export async function applyUpdate(from: "here" | "device" = "here"): Promise<voi
 		return;
 	}
 	// ⌘Q's rule: running turns continue after the restart (turn-resume.ts), so this asks only with that setting off, or
-	// when background subagents or jobs would start over (the scheduler's own install never asks: it waits for them).
-	if (from === "here" && !(await confirmUpdateRestart(() => (backgroundWork ?? NO_BACKGROUND_WORK_SOURCE).fresh())))
+	// when background subagents or jobs would start over (the scheduler's own install never asks).
+	if (
+		from === "here" &&
+		!(await confirmUpdateRestart(() => (askBackgroundWork ?? (async () => NO_BACKGROUND_WORK))()))
+	)
 		return;
 	restartIntoUpdate("user click");
 }
@@ -890,7 +873,7 @@ export function postponeUpdate(): void {
 
 export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 	installMode = detectInstallMode();
-	backgroundWork = probe.backgroundWork;
+	askBackgroundWork = probe.backgroundWork;
 	reportPreviousInstall();
 	autoInstall = new AutoInstallScheduler({
 		now: Date.now,
@@ -898,10 +881,6 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 			const enabled = probe.enabled();
 			const installable = restartableUpdate();
 			const resumes = probe.resumes();
-			// Only a live scheduler with the setting on needs the answer (off, `busy` covers a running turn); ask nothing else.
-			const watching = enabled && installable && resumes && !(current.state === "downloaded" && current.installing);
-			const reading = watching ? probe.backgroundWork.read() : undefined;
-			if (!reading) probe.backgroundWork.idle();
 			return {
 				enabled,
 				installable,
@@ -909,39 +888,18 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 				busy: probe.busy(),
 				asking: probe.asking(),
 				compacting: probe.compacting(),
-				...(reading
-					? {
-							backgroundWork: reading.work,
-							backgroundWorkPending: reading.pending,
-							backgroundWorkFrozen: reading.frozen,
-							...(reading.askedAt !== undefined ? { backgroundWorkAskedAt: reading.askedAt } : {}),
-						}
-					: {}),
 				focused: BrowserWindow.getAllWindows().some(win => win.isFocused()),
 				idleMs: powerMonitor.getSystemIdleTime() * 1000,
 			};
 		},
 		countdownMs: Number(process.env.OMP_DEV_UPDATE_AUTO_COUNTDOWN_MS) || undefined,
-		// Dev/test seam (unpackaged only): a short max wait, to reach the waiting notice in a test.
+		// Dev/test seam (unpackaged only): a short max wait, to reach the forced restart after "Later" in a test.
 		maxWaitMs: (!app.isPackaged && Number(process.env.OMP_DEV_UPDATE_AUTO_MAX_WAIT_MS)) || undefined,
 		log: (event, details) => logUpdate("scheduler", { event, ...details }),
 		effects: {
-			announce: () => {
-				waitingWork = undefined;
-				broadcast(current);
-			},
-			withdraw: () => {
-				waitingWork = undefined;
-				broadcast(current);
-			},
-			overdue: work => {
-				waitingWork = work;
-				broadcast(current);
-			},
+			announce: () => broadcast(current),
+			withdraw: () => broadcast(current),
 			install: () => restartIntoUpdate("auto"),
-			// The countdown's last look also stops every omp from starting work; the tick after it lands decides.
-			verify: () => void probe.backgroundWork.freeze().then(() => autoInstall?.tick()),
-			thaw: () => probe.backgroundWork.thaw(),
 		},
 	});
 	setInterval(() => autoInstall?.tick(), AUTO_INSTALL_TICK_MS).unref();

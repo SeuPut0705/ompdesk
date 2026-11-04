@@ -113,7 +113,7 @@ import { MemoryUpkeep } from "./ai-memory/upkeep";
 import { appIconPath, appNotification, holdTestNotifications } from "./app-icon";
 import { installQuitGuard, quitApproved, quitRisk, requestQuit, setQuitResumes } from "./app-quit";
 import type { Autopilot } from "./autopilot";
-import { BackgroundWorkWatcher } from "./background-work";
+import { askBackgroundWork } from "./background-work";
 import { type BridgeConnectResult, BridgeHealth } from "./bridge-health";
 import { CliUpdater, psCommands, registerCliUpdateIpc } from "./cli-tools/updater";
 import {
@@ -2408,9 +2408,8 @@ app.whenReady().then(() => {
 			[...sidecarPool.resumeFacts(), ...hostServices.resumeFacts()].some(fact => fact.awaitingUi),
 		compacting: () => sidecarPool.restartHolds().compacting || hostServices.compacting(),
 		// Running subagents and background jobs: `composer.jobs` of every omp whose run is on (background-work.ts).
-		backgroundWork: new BackgroundWorkWatcher({
-			members: () => [...sidecarPool.runningBridges(), ...hostServices.runningBridges()],
-		}),
+		backgroundWork: () =>
+			askBackgroundWork(() => [...sidecarPool.runningBridges(), ...hostServices.runningBridges()]),
 	});
 	// A paired page shows this computer's update card and notice too: it hears every change, as the windows do.
 	onUpdateStatus(status => {

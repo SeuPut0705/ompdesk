@@ -29,14 +29,3 @@ export interface BridgeJobItem {
 export type BridgeJobRow =
 	| { kind: "job"; job: BridgeJobItem; depth: number; cancellable: boolean }
 	| { kind: "agent"; agentId: string; depth: number };
-
-/**
- * What `composer.freeze_jobs` sends main (the automatic update's last look, src/main/background-work.ts `freeze`): the
- * same rows, whether this omp now holds every new tool call (it ran no job and no call was under way), and how many tool
- * calls under way kept it from doing so.
- */
-export interface BridgeJobFreeze {
-	rows: BridgeJobRow[];
-	frozen: boolean;
-	starting: number;
-}

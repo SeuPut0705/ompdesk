@@ -2358,16 +2358,9 @@ export const ko: Record<string, string> = {
 	"updater.card.installing": "{version} 업데이트 설치 중…",
 	"updater.card.installingHint":
 		"OMPdesk가 저절로 닫히고 업데이트를 설치한 뒤 다시 열려요. 열어 둔 작업, 작성 중인 글, 화면 배치는 그대로 돌아와요.",
-	"updater.card.waiting": "{version} 업데이트 대기 중 · 실행 중 {count}개",
-	"updater.card.waitingHint":
-		"OMPdesk {version} 준비가 끝났어요. {what} 작업이 실행되는 동안은 다시 시작하지 않고, 끝나면 저절로 설치해요. 지금 다시 시작하면 그 작업이 중단되고, 다시 시작한 뒤 처음부터 다시 실행돼요.",
-	"updater.card.restartNowCuts": "지금 다시 시작 ({what} 중단)",
-	"updater.card.tasks": "실행 중인 작업 {count}개",
-	"updater.card.cuts": "지금 다시 시작하면 {what} 작업이 중단돼요. 다시 시작한 뒤 처음부터 다시 실행돼요.",
-	"updater.card.restartNowConfirm": "지금 다시 시작",
 	"updates.appAuto": "업데이트 자동 설치",
 	"updates.appAutoDesc":
-		"다운로드한 업데이트를 60초 알림 후 설치하고 다시 시작해요. 중단된 작업 이어가기가 켜져 있으면 대기 중인 질문·승인·압축·백그라운드 작업이 없을 때 바로 시작하고, 하던 작업은 이어서 진행해요. 백그라운드 작업은 끊지 않고, 30분이 지나면 어떤 작업을 기다리는지 알려 줘요. 꺼져 있으면 작업 중인 탭이 없고 자리를 비울 때까지 기다려요.",
+		"다운로드한 업데이트를 60초 알림 후 설치하고 다시 시작해요. 중단된 작업 이어가기가 켜져 있으면 대기 중인 질문·승인·압축이 없을 때 바로 시작해요. 실행 중인 서브에이전트와 백그라운드 작업은 중단됐다가 다시 시작한 뒤 처음부터 다시 실행돼요. 꺼져 있으면 작업 중인 탭이 없고 자리를 비울 때까지 기다려요.",
 	"updates.appAutoManual":
 		"여기서는 쓸 수 없어요. 이 사본은 스스로 교체할 수 없어요 (읽기 전용 위치 또는 App Translocation). OMPdesk를 응용 프로그램 폴더로 옮기면 켤 수 있어요.",
 	"updater.card.compactReady": "{version} 업데이트 준비됨",
@@ -5414,7 +5407,6 @@ export const ko: Record<string, string> = {
 	"updates.host.download": "호스트에서 다운로드",
 	"updates.host.install": "설치 후 호스트 다시 시작",
 	"updates.host.installing": "호스트 컴퓨터가 업데이트로 다시 시작하고 있어요. 돌아오면 탭이 다시 연결돼요.",
-	"updates.host.restartNowTitle": "호스트 컴퓨터를 지금 다시 시작할까요?",
 	"updates.host.manual": "호스트에서 설치",
 	"updates.host.manualHint": "업데이트가 호스트에 다운로드됐어요. 설치 파일은 그 컴퓨터 앞에서 열어야 해요.",
 	"updates.host.authRequired":

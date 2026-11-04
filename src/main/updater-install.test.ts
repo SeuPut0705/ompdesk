@@ -8,12 +8,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { IPC_COMMANDS, type UpdateStatus } from "../shared/ipc-types";
-import {
-	type BackgroundWork,
-	type BackgroundWorkSource,
-	hasBackgroundWork,
-	NO_BACKGROUND_WORK,
-} from "./background-work";
+import { type BackgroundWork, NO_BACKGROUND_WORK } from "./background-work";
 import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
 import { appAutoUpdatePrefChanged, readRelaunchPresence, setupUpdater } from "./updater";
 import { type IpcCaller, IpcRegistry } from "./web/ipc-registry";
@@ -103,18 +98,8 @@ const caller: IpcCaller = { win: null, browserWindow: null, sender: { id: 1, onc
 const registry = new IpcRegistry({ handle: () => {}, on: () => {} });
 const realPlatform = process.platform;
 let autoInstallOn = false;
-/**
- * What the background-work probe answers: the cached reading the scheduler reads (asked just now, as a probe that
- * answers at once, frozen when nothing runs), and what a click asks fresh.
- */
-const background = { work: NO_BACKGROUND_WORK as BackgroundWork, pending: false };
-const source: BackgroundWorkSource = {
-	read: () => ({ ...background, askedAt: Date.now(), frozen: !hasBackgroundWork(background.work) }),
-	idle: () => {},
-	fresh: async () => background.work,
-	freeze: async () => background.work,
-	thaw: () => {},
-};
+/** What a click on "Restart & install" asks fresh: the running work the confirm names. */
+const background = { work: NO_BACKGROUND_WORK as BackgroundWork };
 
 function emitUpdater(event: string, ...args: unknown[]): void {
 	for (const listener of mocks.updaterEvents.get(event) ?? []) listener(...args);
@@ -136,7 +121,7 @@ beforeAll(() => {
 		busy: () => false,
 		asking: () => false,
 		compacting: () => false,
-		backgroundWork: source,
+		backgroundWork: async () => background.work,
 	});
 });
 
@@ -157,7 +142,6 @@ beforeEach(() => {
 	mocks.updater.quitAndInstall.mockReset();
 	emitUpdater("update-downloaded", { version: "0.45.0", files: [{ size: 113_241_490 }] });
 	background.work = NO_BACKGROUND_WORK;
-	background.pending = false;
 	mocks.answer.go = true;
 	mocks.asked.length = 0;
 	mocks.confirmUpdateRestart.mockClear();
@@ -188,44 +172,32 @@ describe("Restart & install with background work running", () => {
 		expect(mocks.updater.quitAndInstall).toHaveBeenCalledTimes(1);
 	});
 
-	it("the automatic install waits for it, never asks, and installs once it ends", () => {
+	it("the automatic install does not wait for it: countdown at once, install at the deadline, no question", () => {
 		background.work = SUBAGENTS;
 		autoInstallOn = true;
 		appAutoUpdatePrefChanged();
 		appAutoUpdatePrefChanged();
-		expect(schedulerEvents()).toEqual(["waiting:background work"]);
-		expect(mocks.sent.at(-1)).not.toHaveProperty("restartAt");
-		background.work = NO_BACKGROUND_WORK;
+		expect(schedulerEvents()).toEqual(["safe", "countdown"]);
+		const countdown = mocks.sent.at(-1);
+		if (countdown?.state !== "downloaded" || countdown.restartAt === undefined) throw new Error("no countdown");
+		vi.setSystemTime(countdown.restartAt);
 		appAutoUpdatePrefChanged();
-		expect(schedulerEvents()).toEqual(["waiting:background work", "safe", "countdown"]);
-		expect(mocks.sent.at(-1)).toMatchObject({ state: "downloaded", restartAt: expect.any(Number) });
+		expect(schedulerEvents()).toEqual(["safe", "countdown", "install"]);
+		expect(mocks.updater.quitAndInstall).toHaveBeenCalledTimes(1);
 		expect(mocks.confirmUpdateRestart).not.toHaveBeenCalled();
 	});
 
-	it("decides nothing until the probe has answered once", () => {
-		background.pending = true;
-		autoInstallOn = true;
-		appAutoUpdatePrefChanged();
-		expect(schedulerEvents()).toEqual([]);
-		background.pending = false;
-		appAutoUpdatePrefChanged();
-		expect(schedulerEvents()).toEqual(["safe", "countdown"]);
-	});
-
-	// Settings › Updates checks as it opens: a "checking" status in between made the scheduler drop its notice and
-	// start the max wait over.
-	it("a check while the update waits for the work keeps the waiting notice the scheduler shows", async () => {
+	// Settings › Updates checks as it opens: a "checking" status in between made the scheduler drop its notice.
+	it("a check while the countdown shows keeps the countdown the scheduler shows", async () => {
 		background.work = SUBAGENTS;
 		autoInstallOn = true;
 		appAutoUpdatePrefChanged();
-		vi.setSystemTime(Date.now() + 31 * 60 * 1000);
-		appAutoUpdatePrefChanged();
-		const waiting = { state: "downloaded", waitingFor: { tasks: 2, names: ["LayoutSplit", "StreamFast"] } };
-		expect(mocks.sent.at(-1)).toMatchObject(waiting);
+		const countdown = { state: "downloaded", restartAt: expect.any(Number) };
+		expect(mocks.sent.at(-1)).toMatchObject(countdown);
 		await registry.invoke(IPC_COMMANDS.UPDATER_CHECK, caller, []);
 		appAutoUpdatePrefChanged();
-		expect(mocks.sent.at(-1)).toMatchObject(waiting);
-		expect(schedulerEvents()).toEqual(["waiting:background work", "overdue:background work"]);
+		expect(mocks.sent.at(-1)).toMatchObject(countdown);
+		expect(schedulerEvents()).toEqual(["safe", "countdown"]);
 	});
 });
 

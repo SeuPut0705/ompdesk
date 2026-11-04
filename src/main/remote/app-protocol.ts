@@ -776,9 +776,8 @@ const UpdateStatusSchema: z.ZodType<UpdateStatus> = z.discriminatedUnion("state"
 		state: z.literal("downloaded"),
 		version: z.string(),
 		mode: Mode,
-		// The automatic install's notice, so a paired computer shows the host's countdown or waiting line as the host does.
+		// The automatic install's countdown, so a paired computer shows the host's as the host does.
 		restartAt: z.number().optional(),
-		waitingFor: z.object({ tasks: z.number(), names: z.array(z.string()) }).optional(),
 		installing: z.literal(true).optional(),
 	}),
 	z.object({ state: z.literal("not-available"), version: z.string() }),

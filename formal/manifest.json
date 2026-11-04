@@ -112,34 +112,6 @@
 			],
 			"syncCommit": "65377d09421b55e9a89cf22f8b6d73aa084361f8",
 			"verifySkill": ".omp/skills/checkout-claims-verify/SKILL.md"
-		},
-		{
-			"id": "update-job-gate",
-			"title": "Automatic update: the last look and the quit as one step (job gate, freeze, thaw, lease)",
-			"kind": "tla",
-			"dir": "update-job-gate/tla",
-			"spec": "UpdateJobGate.tla",
-			"matrix": "matrix.json",
-			"mutations": "mutations.json",
-			"covers": [
-				"resources/gui-bridge/job-gate.ts#JobGate.enter",
-				"resources/gui-bridge/job-gate.ts#JobGate.leave",
-				"resources/gui-bridge/job-gate.ts#JobGate.agentEnded",
-				"resources/gui-bridge/job-gate.ts#JobGate.freeze",
-				"resources/gui-bridge/job-gate.ts#JobGate.thaw",
-				"resources/gui-bridge/composer.ts:431-450",
-				"resources/gui-bridge/composer.ts#install",
-				"src/main/background-work.ts#BackgroundWorkWatcher.freeze",
-				"src/main/background-work.ts#BackgroundWorkWatcher.thaw",
-				"src/main/background-work.ts#freezeMember",
-				"src/main/background-work.ts#thawMember",
-				"src/main/background-work.ts#requestInTime",
-				"src/main/app-auto-update.ts#AutoInstallScheduler.#safeToInstall",
-				"src/main/app-auto-update.ts:215-241",
-				"src/main/updater.ts#restartIntoUpdate",
-				"src/main/updater.ts:937-940"
-			],
-			"syncCommit": "6b9f3a5bd876867674abeb2b5eabe1263a2e8c16"
 		}
 	]
 }

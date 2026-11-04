@@ -108,22 +108,15 @@ describe("HostDesktopRow", () => {
 		expect(document.body.textContent).toContain(translate("updates.host.manualHint"));
 	});
 
-	it("shows the host's waiting line, asks before Restart now cuts the work it names, and puts it off on Later", async () => {
+	it("shows the host's countdown, restarts now on the button and puts it off on Later", async () => {
 		current = hostState({
 			state: "downloaded",
 			version: "1.3.0",
 			mode: "relaunch",
-			waitingFor: { tasks: 1, names: ["Watcher"] },
+			restartAt: Date.now() + 60_000,
 		});
 		await mount();
-		const cut = translate("updater.card.restartNowCuts", { what: "Watcher" });
-		expect(document.body.textContent).toContain(
-			translate("updater.card.waitingHint", { version: "1.3.0", what: "Watcher" }),
-		);
-		await click(cut);
-		expect(hostDesktop.update).not.toHaveBeenCalledWith("restart-now", "dev-studio");
-		expect(document.body.textContent).toContain(translate("updater.card.cuts", { what: "Watcher" }));
-		await click(translate("updater.card.restartNowConfirm"));
+		await click(translate("updater.card.restartNow"));
 		expect(hostDesktop.update).toHaveBeenCalledWith("restart-now", "dev-studio");
 		await click(translate("updater.card.later"));
 		expect(hostDesktop.update).toHaveBeenCalledWith("postpone", "dev-studio");
