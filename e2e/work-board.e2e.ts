@@ -396,7 +396,21 @@ test("after a session switch in the same tab, the room above the composer follow
 		await expect(page.locator("[data-prompt-card]")).toContainText("Follow-up 8");
 		await expect(page.locator("aside[data-work-board-panel]")).toBeVisible();
 		await expect.poll(async () => (await promptRoom(page)).transcript).toBeGreaterThanOrEqual(240);
-		const docked = await promptRoom(page);
+		// The card writes its room as it lays out (547 px, 563 px under load, then back): the baseline is read once two
+		// reads a frame apart agree, or the later comparison measures the layout still settling.
+		let docked = await promptRoom(page);
+		await expect
+			.poll(async () => {
+				const before = docked;
+				docked = await promptRoom(page);
+				await page.evaluate(() => {
+					const { promise, resolve } = Promise.withResolvers<null>();
+					requestAnimationFrame(() => resolve(null));
+					return promise;
+				});
+				return docked.room === before.room && docked.transcript === before.transcript;
+			})
+			.toBe(true);
 		expect(docked.strip).toBe(0);
 
 		// The side panel takes the board's margin: the strip appears and the card's room gives up its height.

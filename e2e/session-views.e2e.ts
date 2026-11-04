@@ -19,7 +19,7 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import { tinyPptx, tinyXlsx } from "./file-viewer-fixtures";
 import { capture, exitApp, launchApp, openDestination, openSidebarFamily, variants } from "./harness";
 import { tinyPdf } from "./tiny-pdf";
@@ -177,8 +177,21 @@ for (const language of variants(["en", "ko"] as const))
 				await openSidebarFamily(page);
 				const explore = page.locator('[data-sidebar-subagent="sa-explore"]');
 				const pane = page.locator(".omp-session-pane").first();
-				const from = await explore.boundingBox();
-				const to = await pane.boundingBox();
+				// The family opens with a transition, and a press on the row's box read mid-move lands beside the row: no
+				// drag starts and no nudge brings a ghost (nightly 41891147987, 15 s of nudges). Press once both boxes rest.
+				const restingBox = async (target: Locator) => {
+					let box = await target.boundingBox();
+					await expect
+						.poll(async () => {
+							const before = box;
+							box = await target.boundingBox();
+							return before !== null && box !== null && JSON.stringify(before) === JSON.stringify(box);
+						})
+						.toBe(true);
+					return box;
+				};
+				const from = await restingBox(explore);
+				const to = await restingBox(pane);
 				if (!from || !to) throw new Error("expected the subagent row and the session pane");
 				await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
 				await page.mouse.down();
@@ -186,13 +199,7 @@ for (const language of variants(["en", "ko"] as const))
 				// Playwright's intercepted drag fires dragover per move; the last nudge settles it on the target.
 				await page.mouse.move(to.x + to.width * 0.6 + 2, to.y + to.height / 2, { steps: 12 });
 				await page.mouse.move(to.x + to.width * 0.6, to.y + to.height / 2, { steps: 2 });
-				// A real browser repeats dragover while the pointer rests; Playwright's intercepted drag fires it per move
-				// only, so a slow runner that missed the settling nudge has to be nudged again (nightly 41880669356).
-				await expect(async () => {
-					await page.mouse.move(to.x + to.width * 0.6 + 1, to.y + to.height / 2);
-					await page.mouse.move(to.x + to.width * 0.6, to.y + to.height / 2);
-					await expect(page.locator("[data-subagent-ghost]")).toBeVisible({ timeout: 1_000 });
-				}).toPass({ timeout: 15_000 });
+				await expect(page.locator("[data-subagent-ghost]")).toBeVisible();
 				await capture(page, `${language}-${theme}-subagent-drag`);
 				await page.mouse.up();
 				const aside = page.locator("aside[data-docked]");
