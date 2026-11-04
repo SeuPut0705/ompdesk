@@ -284,6 +284,8 @@ html[data-focus-modality="pointer"] :focus-visible::after {
 :root {
 	--sc-traffic-lights: 0px;
 	--sc-caption-buttons: 0px;
+	/* The height of the band the caption buttons take at the window's top edge (0 where there are none). */
+	--sc-caption-band: 0px;
 }
 
 html[data-platform="darwin"] {
@@ -292,6 +294,20 @@ html[data-platform="darwin"] {
 
 html[data-platform="win32"] {
 	--sc-caption-buttons: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
+	--sc-caption-band: env(titlebar-area-height, 0px);
+}
+
+/* Overlays that reach the window's top edge: a right or full-screen sheet's header holds its close ✕ at the top-right
+   corner, where Windows draws its own ✕ over it (the native buttons take every click), so the header keeps its
+   controls left of them; a dialog's panel and the room it is centered in stop under the band (components.css sizes
+   every dialog by --sc-dialog-room), so a tall one's header never slides under the buttons. The compact window's
+   panel sheet has its own header, .omp-panel-topbar below. */
+:is([data-sheet-placement="right"], [data-sheet-placement="full"]) .omp-sheet-head {
+	padding-right: calc(var(--sc-space-3) + var(--sc-caption-buttons));
+}
+
+html[data-platform="win32"] body > .omp-dialog-overlay {
+	padding-top: calc(var(--sc-space-4) + var(--sc-caption-band));
 }
 
 .omp-sidebar-header {

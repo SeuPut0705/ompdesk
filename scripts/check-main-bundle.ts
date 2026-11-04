@@ -271,7 +271,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // 615,171 → 567,205; the list's file 197,360, brotli 53,932): measured 2,155,282.
 // Markdown keeps a single `~` as text (3 Nov 2026, remark-gfm `singleTilde: false` in lib/markdown.tsx), so two Korean
 // ranges like `170~230초` on one line no longer strike everything between them: measured 2,155,315.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_155_315;
+// The Windows caption band (4 Nov 2026, global.css `--sc-caption-band`, components.css `--sc-dialog-room`, and
+// `chromePlatform` keeping a mark the page set): measured 2,155,355.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_155_355;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

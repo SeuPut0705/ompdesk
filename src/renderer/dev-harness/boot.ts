@@ -24,6 +24,23 @@ const query = new URLSearchParams(location.search);
 // the OS's title-bar room): the responsive audit's desktop looks. Without it the page is the web client.
 const platform = query.get("platform");
 document.documentElement.dataset.platform = platform === "darwin" || platform === "win32" ? platform : "web";
+// A browser page has no Window Controls Overlay, so `env(titlebar-area-*)` reads as none: paint Windows' three
+// caption buttons (3 × 46 px at 100 % scale, the 48 px band) the way the native ones sit over the app, so a capture
+// shows what they cover and e2e/windows-caption.e2e.ts can measure what sits under them.
+if (platform === "win32") {
+	// A style tag, not inline properties: the theme rewrites <html>'s inline style when it applies.
+	const style = document.createElement("style");
+	style.textContent = "html[data-platform='win32']:root{--sc-caption-buttons:138px;--sc-caption-band:48px}";
+	document.head.appendChild(style);
+	const buttons = document.createElement("div");
+	buttons.dataset.captionButtons = "";
+	buttons.setAttribute("aria-hidden", "true");
+	buttons.style.cssText =
+		"position:fixed;top:0;right:0;width:138px;height:48px;z-index:2147483647;pointer-events:none;display:grid;grid-template-columns:repeat(3,1fr);place-items:center;font:16px system-ui;color:var(--sc-text);background:var(--sc-bg)";
+	for (const glyph of ["\u2014", "\u2610", "\u2715"])
+		buttons.appendChild(document.createElement("span")).textContent = glyph;
+	document.body.appendChild(buttons);
+}
 
 // `?rail=all` pins Agents and Stats under the session list, the way the footer shortcut toggles do.
 const prefs: Record<string, unknown> = {};

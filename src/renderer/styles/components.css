@@ -455,37 +455,41 @@
  * Dialog geometry — scale with the window while keeping each dialog archetype
  * readable. `dvh` prevents controls from falling below the visible desktop
  * area when the macOS title bar or a compact window reduces usable height.
+ * --sc-dialog-room is the height a dialog may take: the window less the
+ * overlay's padding and, on Windows, the caption buttons' band (global.css
+ * --sc-caption-band), which the overlay keeps clear above the panel.
  * ------------------------------------------------------------------------- */
 .omp-dialog-panel {
+	--sc-dialog-room: calc(100dvh - 2rem - var(--sc-caption-band));
 	min-width: 0;
 	max-width: calc(100vw - 2rem);
-	max-height: calc(100dvh - 2rem);
+	max-height: var(--sc-dialog-room);
 }
 
 .omp-dialog-size-sm {
 	width: min(clamp(26rem, 32vw, 30rem), calc(100vw - 2rem));
-	max-height: min(86dvh, 50rem);
+	max-height: min(86dvh, 50rem, var(--sc-dialog-room));
 }
 
 .omp-dialog-size-md {
 	width: min(clamp(36rem, 42vw, 46rem), calc(100vw - 2rem));
-	max-height: min(88dvh, 56rem);
+	max-height: min(88dvh, 56rem, var(--sc-dialog-room));
 }
 
 .omp-dialog-size-lg {
 	width: min(clamp(48rem, 64vw, 72rem), calc(100vw - 2rem));
-	max-height: min(90dvh, 64rem);
+	max-height: min(90dvh, 64rem, var(--sc-dialog-room));
 }
 
 .omp-dialog-size-picker {
 	width: min(clamp(40rem, 48vw, 54rem), calc(100vw - 2rem));
-	max-height: min(76dvh, 56rem);
+	max-height: min(76dvh, 56rem, var(--sc-dialog-room));
 }
 
 /* Dense list picker (model picker): one-line rows, so a narrow column fits. */
 .omp-dialog-size-picker-compact {
 	width: min(clamp(22rem, 28vw, 30rem), calc(100vw - 2rem));
-	max-height: min(72dvh, 36rem);
+	max-height: min(72dvh, 36rem, var(--sc-dialog-room));
 }
 
 /* A dialog placed above its anchor (the model picker over the composer) is no taller than the room above it. */
@@ -495,7 +499,7 @@
 
 .omp-dialog-size-full {
 	width: calc(100vw - 2rem);
-	height: calc(100dvh - 2rem);
+	height: var(--sc-dialog-room);
 }
 
 /* More commands below: a shade along the list's bottom edge says so, where a row cut mid-line read as the list's end.

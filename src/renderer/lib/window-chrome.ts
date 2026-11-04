@@ -8,9 +8,14 @@
 
 export type ChromePlatform = "darwin" | "win32" | "other" | "web";
 
-/** `web`: a browser page (the mobile web client), whose boot marks `html[data-platform="web"]` before React mounts. */
+/**
+ * `web`: a browser page (the mobile web client), whose boot marks `html[data-platform="web"]` before React mounts.
+ * A mark of `darwin` or `win32` already on the root stands too: the dev harness paints the page as that OS's window
+ * (`?platform=win32` on a Mac), and reading `navigator.platform` over it turned every Windows look into a Mac one.
+ */
 export function chromePlatform(): ChromePlatform {
-	if (typeof document !== "undefined" && document.documentElement.dataset.platform === "web") return "web";
+	const marked = typeof document === "undefined" ? undefined : document.documentElement.dataset.platform;
+	if (marked === "web" || marked === "darwin" || marked === "win32") return marked;
 	const platform = typeof navigator === "undefined" ? "" : navigator.platform.toLowerCase();
 	if (platform.startsWith("mac")) return "darwin";
 	if (platform.startsWith("win")) return "win32";
