@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-	createPollHints,
+	createHints,
+	EDIT_HINT,
 	POLL_HINT,
 	pollKinds,
 	READY_LOG_REASON,
@@ -115,7 +116,7 @@ describe("polling kinds", () => {
 
 describe("poll hints", () => {
 	it("speak once per kind, then keep quiet", () => {
-		const hints = createPollHints();
+		const hints = createHints();
 		expect(hints.note("bash", { command: "sleep 5; echo hi" })).toBe(POLL_HINT);
 		expect(hints.note("bash", { command: "sleep 5; echo hi" })).toBeUndefined();
 		expect(hints.note("bash", { command: "sleep 9; ls" })).toBeUndefined();
@@ -128,23 +129,56 @@ describe("poll hints", () => {
 	});
 
 	it("count a kind the call carried with a new one as told", () => {
-		const hints = createPollHints();
+		const hints = createHints();
 		expect(hints.note("bash", { command: "sleep 5; gh run list" })).toBe(POLL_HINT);
 		expect(hints.note("bash", { command: "gh run list" })).toBeUndefined();
 		expect(hints.note("bash", { command: "sleep 5; pgrep x" })).toBe(POLL_HINT);
 	});
 
 	it("say nothing for a call that is no poll", () => {
-		const hints = createPollHints();
+		const hints = createHints();
 		expect(hints.note("bash", { command: "bun test" })).toBeUndefined();
 		expect(hints.note("read", { path: "a.ts" })).toBeUndefined();
 		expect(hints.note("bash", { command: "sleep 5; echo hi" })).toBe(POLL_HINT);
 	});
 
 	it("keep their count per instance", () => {
-		const first = createPollHints();
-		const second = createPollHints();
+		const first = createHints();
+		const second = createHints();
 		expect(first.note("bash", { command: "pgrep x" })).toBe(POLL_HINT);
 		expect(second.note("bash", { command: "pgrep x" })).toBe(POLL_HINT);
+	});
+});
+
+const ANCHORS =
+	"This edit anchors to lines 9 of CHANGELOG.md that [CHANGELOG.md#F9F4] never displayed (it showed a partial range, a search hit, or a folded summary).";
+const FOREIGN_TAG = "Tag #0000 is not from this session; re-read the file with `read` to get its tag.";
+
+describe("hint on a refused edit", () => {
+	it("speaks once for edits anchored to unseen lines or a tag the session never got", () => {
+		const hints = createHints();
+		expect(hints.note("edit", {}, { isError: true, text: ANCHORS })).toBe(EDIT_HINT);
+		expect(hints.note("edit", {}, { isError: true, text: ANCHORS })).toBeUndefined();
+		expect(hints.note("edit", {}, { isError: true, text: FOREIGN_TAG })).toBeUndefined();
+		const other = createHints();
+		expect(other.note("edit", {}, { isError: true, text: FOREIGN_TAG })).toBe(EDIT_HINT);
+	});
+
+	it("ignores a successful edit, another refusal and another tool", () => {
+		const hints = createHints();
+		expect(hints.note("edit", {}, { isError: false, text: ANCHORS })).toBeUndefined();
+		expect(
+			hints.note("edit", {}, { isError: true, text: "Edit rejected: file changed between read and edit." }),
+		).toBeUndefined();
+		expect(hints.note("read", {}, { isError: true, text: ANCHORS })).toBeUndefined();
+		expect(hints.note("edit", {})).toBeUndefined();
+		expect(hints.note("edit", {}, { isError: true, text: ANCHORS })).toBe(EDIT_HINT);
+	});
+
+	it("tells the rule: shown lines, a read after a grep hit, a tag from a read, tags from the response", () => {
+		expect(EDIT_HINT).toContain("latest read");
+		expect(EDIT_HINT).toContain("grep hit");
+		expect(EDIT_HINT).toContain("never invent");
+		expect(EDIT_HINT).toContain("response");
 	});
 });

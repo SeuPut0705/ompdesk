@@ -87,7 +87,7 @@ export const FEATURES = {
 	todoStale: "A todo list left from earlier work is named to the agent when a new request starts a turn",
 	todoCompact: "A todo list grown long by appends is asked to fold its finished items",
 	wasteGuards:
-		"A bash service start whose ready.log cannot match is refused; a polling call is told once to background or schedule",
+		"A bash service start whose ready.log cannot match is refused; a polling call or a refused edit is told once what to do instead",
 	turnStages: "Turn stages recorded when a turn waits long for the model or ends without output (gui-runtime.jsonl)",
 	botAvatar: "Bot avatar drawn on the image model role (Settings › Bot › Generate)",
 } as const;
@@ -539,7 +539,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	},
 	/** todo-compact.ts: the public `tool_result` hook and its `additionalContext` only. Imports nothing from omp. */
 	todoCompact: {},
-	/** waste-guards.ts: the public `tool_call` (`block`) and `tool_result` (`additionalContext`) hooks only. Imports nothing from omp. */
+	/** waste-guards.ts: the public `tool_call` (`block`) and `tool_result` (`content`) hooks only. Imports nothing from omp. */
 	wasteGuards: {},
 	/**
 	 * turn-stages.ts: the main session's `subscribe` and live `model`/`isStreaming`, and three instance methods wrapped

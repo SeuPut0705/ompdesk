@@ -12,6 +12,7 @@ import { INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 const REFUSED = "ready.log can never match";
 const HINT = "OMPdesk: this polled.";
+const EDIT_HINT_START = "OMPdesk: this edit was refused.";
 
 function occurrences(text: string, needle: string): number {
 	return text.split(needle).length - 1;
@@ -53,12 +54,43 @@ describe.skipIf(!existsSync(omp))("waste guards, on stock omp", () => {
 			model: "fake/m1",
 			bridge: resolve("resources/gui-bridge/index.ts"),
 		});
-		await session.turn("Look twice");
+		const frames = await session.turn("Look twice");
+		// The first result carries the hint at its end; the second is the command's output alone.
+		const results = frames
+			.filter(frame => frame.type === "tool_execution_end" && frame.toolName === "bash")
+			.map(frame => JSON.stringify(frame.result));
+		expect(results).toHaveLength(2);
+		expect(results[0]).toContain(HINT);
+		expect(results[0]?.indexOf(HINT)).toBeGreaterThan(results[0]?.indexOf("POLLRESULT") ?? Number.POSITIVE_INFINITY);
+		expect(results[1]).toContain("POLLRESULT");
+		expect(results[1]).not.toContain(HINT);
 		const [, afterFirst, afterSecond] = provider.bodies;
 		expect(occurrences(afterFirst, HINT)).toBe(1);
 		// The first hint stays in the history; the second call adds none.
 		expect(occurrences(afterSecond, HINT)).toBe(1);
-		// After the call's result: the cached prefix in front of it stays as it was.
-		expect(afterFirst.lastIndexOf(HINT)).toBeGreaterThan(afterFirst.lastIndexOf("POLLRESULT"));
+	}, 180_000);
+
+	it("hints once at an edit anchored to lines the session never read", async () => {
+		const blind = { input: "[notes.txt#0000]\nPUT 2.=2:\n+changed" };
+		const script = [
+			toolCall("bash", { command: "printf 'one\\ntwo\\nthree\\n' > notes.txt" }),
+			toolCall("edit", blind),
+			toolCall("edit", blind),
+		];
+		const provider = await startProvider(step =>
+			step <= script.length ? sse(script[step - 1], "tool_calls") : sse([{ content: "DONE" }], "stop"),
+		);
+		const session = await startOmp({
+			...fakeAgent(provider.url),
+			model: "fake/m1",
+			bridge: resolve("resources/gui-bridge/index.ts"),
+		});
+		const frames = await session.turn("Edit without reading");
+		const results = frames
+			.filter(frame => frame.type === "tool_execution_end" && frame.toolName === "edit")
+			.map(frame => JSON.stringify(frame.result));
+		expect(results).toHaveLength(2);
+		expect(results[0]).toContain(EDIT_HINT_START);
+		expect(results[1]).not.toContain(EDIT_HINT_START);
 	}, 180_000);
 });

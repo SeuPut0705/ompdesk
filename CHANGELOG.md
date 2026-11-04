@@ -2,12 +2,13 @@
 
 ## [0.110.0] - 2026-11-05
 
-에이전트가 시간을 헛되이 쓰는 두 가지를 브리지가 막고, 세션 속도 보고가 폴링을 낭비로 셉니다.
+에이전트가 시간을 헛되이 쓰는 세 가지(소용없는 ready.log 대기, 폴링, 읽지 않고 한 edit)를 브리지가 막거나 알려 주고, 세션 속도 보고가 폴링을 낭비로 셉니다.
 
 ### 추가한 것
 - `ready.log`가 절대 일치할 수 없는 bash 호출은 실행 전에 거부해요. 서비스 이름을 준 bash 호출이 마지막 명령의 stdout을 파일로 보내면(`> file 2>&1`, `>> file`, `&> file`, `1> file` 등) 로그 줄이 보일 수 없어서 `ready.timeout` 내내 기다렸어요(한 세션에서 5번, 55분). 거부 사유가 `async: true`와 `wait`, 또는 `| tee file`을 알려줘요. `| tee`, `2> file`만 쓴 경우, heredoc 본문 안의 `>`는 그대로 통과해요.
-- 폴링에는 힌트가 한 줄 붙어요. `sleep N` 뒤에 다른 명령이 오는 경우, `gh run list|view|watch`, `pgrep`, `tail -f`, `read proc://…`가 종류별로 프로세스당 한 번만 모델에게 "백그라운드 작업은 결과를 스스로 전달하고, `wait`가 기다려 주며, CI는 `gh run watch`를 async로 또는 `ompdesk_schedule {on: github}`로" 하라고 알려요. 차단은 하지 않고 도구 결과도 바꾸지 않아요.
+- 폴링에는 힌트가 한 줄 붙어요. `sleep N` 뒤에 다른 명령이 오는 경우, `gh run list|view|watch`, `pgrep`, `tail -f`, `read proc://…`의 결과 끝에, 종류별로 프로세스당 한 번만 "백그라운드 작업은 결과를 스스로 전달하고, `wait`가 기다려 주며, CI는 `gh run watch`를 async로 또는 `ompdesk_schedule {on: github}`로" 하라는 줄이 덧붙어요. 차단은 하지 않아요.
 - 봇의 경량 브리프 규칙에 "폴링하지 말 것(sleep 뒤 확인, gh run list/view, proc:// 읽기): 작업을 백그라운드로 돌리고 기다리거나 확인을 예약"이 들어갔어요.
+- 읽지 않은 줄에 붙이거나("anchors to lines") 이 세션이 받은 적 없는 해시를 쓴 `edit` 거부에도 같은 한 줄 안내가 한 번 붙어요: 마지막 `read`가 보여 준 줄만 고치고, grep 결과나 생략된 읽기 뒤에는 그 범위를 먼저 읽고, `[파일#태그]`는 그 읽기나 직전 edit 응답에서 복사하라는 내용이에요. 14일간 로컬 세션의 edit 오류 36건이 전부 이런 사용 실수였어요.
 - 세션 속도 줄의 Pace에서 `polled ×N`(sleep 뒤 확인, `gh run view`, `pgrep`, `tail -f`, `proc://` 읽기)을 낭비로 세고, `scripts/session-pace.ts --days`가 날짜별 표를 보여 줘요.
 
 ### 고친 것
@@ -15,11 +16,12 @@
 
 <!-- en -->
 
-The bridge stops two ways agents waste time, and the session pace line counts polling as waste.
+The bridge stops or flags three ways agents waste time (a ready.log wait that cannot end, polling, an edit made without reading), and the session pace line counts polling as waste.
 
 ### Added
 - A `bash` call whose `ready.log` can never match is refused before it runs. A named-service call whose last command sends stdout to a file (`> file 2>&1`, `>> file`, `&> file`, `1> file`, …) can never show the log line and waited the whole `ready.timeout` (5 calls, 55 minutes in one session). The reason names `async: true` with `wait`, or `| tee file`. `| tee`, a lone `2> file` and a `>` inside a heredoc body pass.
-- A polling call gets one hint line: `sleep N` followed by another command, `gh run list|view|watch`, `pgrep`, `tail -f`, `read proc://…`. Each kind is told once per process, saying that a backgrounded job delivers its result by itself, `wait` blocks until then, and a CI run wants `gh run watch` under async or `ompdesk_schedule {on: github}`. Nothing is blocked and the tool result is untouched.
+- A polling call gets one hint line appended to its result: `sleep N` followed by another command, `gh run list|view|watch`, `pgrep`, `tail -f`, `read proc://…`. Each kind is told once per process, saying that a backgrounded job delivers its result by itself, `wait` blocks until then, and a CI run wants `gh run watch` under async or `ompdesk_schedule {on: github}`. Nothing is blocked.
+- An `edit` the tool refuses for anchoring to lines the latest read never showed, or for a hash the session never received, gets the same kind of one-time hint: edit only lines shown by the latest read, read the exact range after a grep hit or an elided read, copy `[FILE#TAG]` from that read or the last edit's response. All 36 `edit` errors in 14 days of local sessions were this kind of misuse.
 - The bot's light-brief rule now says never to poll (sleep-then-check, gh run list/view, proc:// reads): background the job and wait, or schedule a check.
 - The Pace line counts `polled ×N` (sleep then check, `gh run view`, `pgrep`, `tail -f`, `proc://` reads) as waste, and `scripts/session-pace.ts --days` prints a per-day table.
 

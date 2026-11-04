@@ -1,11 +1,13 @@
 /**
- * Two measured wastes of agent sessions (rules; wiring: waste-guards.ts; `.omp/rules/waste-guards.md`).
+ * Three measured wastes of agent sessions (rules; wiring: waste-guards.ts; `.omp/rules/waste-guards.md`).
  *
  * 1. A `bash` service start whose `ready.log` can never match. Stock watches the service's output for the pattern, and a
  *    command whose stdout goes to a file shows none of it: the call waited the whole `ready.timeout` (5 calls, 55 min in
  *    one session, `> file 2>&1` with `ready.log` and 600 to 900 s).
  * 2. Polling: a look at a job (sleep then check, `gh run`, `pgrep`, `tail -f`, `read proc://`) that a backgrounded job or
  *    a schedule delivers by itself. One non-blocking hint per kind and process.
+ * 3. An `edit` the tool refused for anchoring to lines the latest read never showed, or a tag the session never got
+ *    (36 errors in 14 days, all agent misuse). One non-blocking hint per process.
  *
  * No omp imports: the GUI's vitest runs it (src/main/bridge-waste-guards.test.ts).
  */
@@ -15,6 +17,9 @@ export const READY_LOG_REASON =
 
 export const POLL_HINT =
 	"OMPdesk: this polled. A backgrounded job (async: true, or a bash that outlives 60 s) delivers its result by itself; `wait` blocks until then; for a CI run `gh run watch` under async, or ompdesk_schedule {on: github}. Each look costs a model call.";
+
+export const EDIT_HINT =
+	"OMPdesk: this edit was refused. Edit only lines shown by the latest read of that file; after a grep hit or an elided or declarations-only read, read the exact range first. Copy the `[FILE#TAG]` from that read or the last edit's response, never invent one; after each edit use the tags and line numbers its response returns.";
 
 type Token =
 	| { kind: "word"; text: string }
@@ -287,11 +292,34 @@ export function pollKinds(toolName: string, input: Record<string, unknown>): Pol
 	return kinds;
 }
 
-/** Remembers which kinds of polling were already pointed out; one per process, since an omp process is one session. */
-export function createPollHints(): { note(toolName: string, input: Record<string, unknown>): string | undefined } {
-	const told = new Set<PollKind>();
+const EDIT_MISUSE = /anchors to lines|not from this session/i;
+
+/** What a finished tool call looked like, for the kinds that read the outcome (an `edit` the tool refused). */
+export interface ToolOutcome {
+	isError: boolean;
+	text: string;
+}
+
+/** True for an `edit` the tool refused because its anchors or tag were not from a read the session made. */
+export function editMisuse(toolName: string, outcome: ToolOutcome | undefined): boolean {
+	return toolName === "edit" && outcome?.isError === true && EDIT_MISUSE.test(outcome.text);
+}
+
+/**
+ * Remembers which kinds were already pointed out (a poll of each kind, an edit the tool refused); one per process, since
+ * an omp process is one session. Returns the hint to append to the call's result, once per kind.
+ */
+export function createHints(): {
+	note(toolName: string, input: Record<string, unknown>, outcome?: ToolOutcome): string | undefined;
+} {
+	const told = new Set<PollKind | "edit-misuse">();
 	return {
-		note(toolName, input) {
+		note(toolName, input, outcome) {
+			if (editMisuse(toolName, outcome)) {
+				if (told.has("edit-misuse")) return undefined;
+				told.add("edit-misuse");
+				return EDIT_HINT;
+			}
 			const kinds = pollKinds(toolName, input);
 			const fresh = kinds.filter(kind => !told.has(kind));
 			for (const kind of kinds) told.add(kind);
