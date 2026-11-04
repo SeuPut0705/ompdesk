@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.110.5] - 2026-11-05
+
+하위 에이전트를 기다리던 중에 앱을 끄면, 다시 켠 뒤 그 기다림이 v0.110.4 전처럼 조용히 이어져요.
+
+### 고친 것
+- v0.110.4에서 종료가 `wait` 도구까지 붙잡아 그 중단 결과와 중단된 답을 기록에 남겼어요. 그래서 다시 켠 뒤 omp가 부모의 턴을 끝난 것으로 읽고(`turn: false`), 이어 가는 대신 살아난 하위 에이전트 소식을 새 턴으로 받아 재시작을 설명했어요(측정: 10번 중 10번). 이제 종료는 `wait`를 붙잡지 않고, omp 자체 복원이 기다림을 다시 실행해요. bash 같은 다른 도구의 중단 결과는 그대로 남아요(`quit-journal.ts`).
+
+<!-- en -->
+
+A quit while a session waits on its subagents resumes that wait silently after the relaunch again, as before v0.110.4.
+
+### Fixed
+- v0.110.4's quit hold also held a `wait`, so the aborted `wait` result and the aborted reply reached the journal. The relaunch then read the parent's turn as ended (`turn: false`) and the parent got the revived-subagents follow-up as a new turn and narrated the restart (measured: 10 of 10). The quit no longer holds a `wait`; stock omp's restore runs it again. Other tools, bash included, still journal their aborted result (`quit-journal.ts`).
+
 ## [0.110.4] - 2026-11-05
 
 앱을 끄거나 업데이트로 재시작할 때 실행 중이던 도구의 중단 결과가 기록에 다시 남아요.
