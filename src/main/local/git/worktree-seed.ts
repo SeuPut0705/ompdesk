@@ -8,9 +8,10 @@
  *    never copied over the checkout git made. Absolute paths, `..`, `.git` and `!` negations are refused; a match
  *    whose real path leaves the main checkout is refused, and a symlink inside a copied folder is recreated only when
  *    it points inside the main checkout. At most `SEED_MAX_FILES` files are copied, and `SEED_MAX_BYTES` bytes
- *    unless the filesystem clones (the first file is copied with `COPYFILE_FICLONE_FORCE`; when that works every file
- *    is a reflink that takes no disk, so only the file count, the walk's cost, bounds the seed); the rest is skipped
- *    with a note. Existing files in the worktree are never overwritten.
+ *    unless the filesystem clones (every file is tried with `COPYFILE_FICLONE_FORCE`; while that works each is a
+ *    reflink that takes no disk, so only the file count, the walk's cost, bounds the seed; from the first clone that
+ *    fails the byte cap counts what takes real disk); the rest is skipped with a note. Existing files in the
+ *    worktree are never overwritten.
  * 2. `.ompdesk/worktree-setup` (`.ompdesk/worktree-setup.cmd` on Windows), only when that file exists in the new
  *    worktree or the main checkout: run in the worktree under the setup supervisor (its whole process tree dies with
  *    a timeout, a quit or a crash), `SETUP_TIMEOUT_MS`, output logged to the worktree's own git dir. A failure is
@@ -169,6 +170,8 @@ interface CopyState {
 	clone: boolean | null;
 	files: number;
 	bytes: number;
+	/** Bytes that took real disk (a clone takes none): what `SEED_MAX_BYTES` bounds. */
+	disk: number;
 	skipped: { path: string; reason: string }[];
 	full: boolean;
 	/** Links recreated with an absolute target in the main checkout, and where that target is in the worktree. */
@@ -244,31 +247,35 @@ async function copyEntry(state: CopyState, rel: string): Promise<void> {
 			return;
 		}
 	}
-	const overBytes = state.bytes + stat.size > SEED_MAX_BYTES;
-	if (state.files + 1 > SEED_MAX_FILES || (state.clone === false && overBytes)) {
+	if (state.files + 1 > SEED_MAX_FILES || (state.clone === false && state.disk + stat.size > SEED_MAX_BYTES)) {
 		state.skipped.push({ path: rel, reason: "budget" });
 		state.full = true;
 		return;
 	}
 	await fs.mkdir(path.dirname(to), { recursive: true });
-	if (state.clone === null) {
-		// A failed forced clone leaves no file, so the plain copy below starts clean. Over the byte budget the file is
-		// copied only if the clone worked: a filesystem that cannot clone would pay for it in disk.
+	if (state.clone !== false) {
+		// Every file of clone mode is a forced clone: a plain copy here would take real disk past the byte budget,
+		// which clone mode has switched off. A failed forced clone leaves no file, so the plain copy below starts clean.
 		try {
 			await state.copyFile(from, to, fs.constants.COPYFILE_FICLONE_FORCE);
 			state.clone = true;
+			state.files++;
+			state.bytes += stat.size;
+			return;
 		} catch {
+			// The bytes cloned so far took no disk: the byte budget starts here.
 			state.clone = false;
-			if (overBytes) {
+			if (stat.size > SEED_MAX_BYTES) {
 				state.skipped.push({ path: rel, reason: "budget" });
 				state.full = true;
 				return;
 			}
-			await state.copyFile(from, to, fs.constants.COPYFILE_FICLONE);
 		}
-	} else await state.copyFile(from, to, fs.constants.COPYFILE_FICLONE);
+	}
+	await state.copyFile(from, to, 0);
 	state.files++;
 	state.bytes += stat.size;
+	state.disk += stat.size;
 }
 
 /**
@@ -302,6 +309,7 @@ export async function seedWorktree(
 		clone: null,
 		files: 0,
 		bytes: 0,
+		disk: 0,
 		skipped: [],
 		full: false,
 		absolute: [],

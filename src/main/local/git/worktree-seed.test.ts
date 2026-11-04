@@ -162,6 +162,38 @@ describe("seedWorktree", () => {
 		} else expect(report).toMatchObject({ copied: 0, cloned: false });
 	});
 
+	it("goes back to the byte budget when a later clone fails, counting only what took disk", async () => {
+		await fs.writeFile(path.join(repo, ".gitignore"), "*.bin\n");
+		gitSync(repo, "commit", "-qam", "ignore bins");
+		// Sorted: a (clones), b (the clone fails: a plain copy, within budget), c (plain, over budget), d (never reached).
+		await fs.writeFile(path.join(repo, "a.bin"), Buffer.alloc(SEED_MAX_BYTES + 1));
+		await fs.writeFile(path.join(repo, "b.bin"), Buffer.alloc(SEED_MAX_BYTES - 10));
+		await fs.writeFile(path.join(repo, "c.bin"), Buffer.alloc(100));
+		await fs.writeFile(path.join(repo, "d.bin"), Buffer.alloc(1));
+		await fs.writeFile(path.join(repo, ".worktreeinclude"), "*.bin\n");
+		const target = await freshWorktree("clone-then-not");
+		let clones = 0;
+		const flaky: CopyFile = async (from, to, mode) => {
+			if (mode !== undefined && mode & fs.constants.COPYFILE_FICLONE_FORCE) {
+				if (clones++ > 0) throw new Error("ENOTSUP: no clone across this mount");
+				await fs.copyFile(from, to);
+				return;
+			}
+			expect(mode).toBe(0);
+			await fs.copyFile(from, to);
+		};
+
+		const report = await seedWorktree(repo, target, { copyFile: flaky });
+
+		expect(report).toMatchObject({ copied: 2, cloned: false });
+		expect(report?.skipped).toEqual([
+			{ path: "c.bin", reason: "budget" },
+			{ path: "d.bin", reason: "budget" },
+		]);
+		expect(await pathExists(path.join(target, "b.bin"))).toBe(true);
+		expect(await pathExists(path.join(target, "c.bin"))).toBe(false);
+	});
+
 	itWithFileSymlinks("refuses symlinks that lead outside the main checkout", async () => {
 		const secret = path.join(scratch, "outside-secret");
 		await fs.writeFile(secret, "nope\n");
