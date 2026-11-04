@@ -284,7 +284,22 @@ for (const look of TOUCH_LOOKS) {
 		const found: string[] = [];
 		const check = async (page: Page, id: string) => {
 			await show(page, look, id);
-			for (const issue of await measure(page, look)) {
+			const issues = await measure(page, look);
+			if (issues.some(issue => issue.kind === "stolen-tap")) {
+				// Nightly 41896581267: 26 stolen taps over three settings surfaces, none of them again in 12 runs here under
+				// load. Name what the page was doing, so the next one tells a running view transition or input mode from a layout.
+				const state = await page.evaluate(() => ({
+					input: document.documentElement.dataset.input,
+					viewTransitions: document
+						.getAnimations()
+						.map(animation => String((animation.effect as KeyframeEffect | null)?.pseudoElement ?? ""))
+						.filter(pseudo => pseudo.startsWith("::view-transition")).length,
+					scroll: [window.scrollX, window.scrollY],
+					visualViewport: [window.visualViewport?.scale, window.visualViewport?.offsetTop],
+				}));
+				found.push(`${id}: page state at the stolen taps ${JSON.stringify(state)}`);
+			}
+			for (const issue of issues) {
 				const summaryCut = issue.kind === "truncated" && issue.at.includes("omp-summary-part");
 				const sidebarTarget = issue.kind === "small-target" && issue.at.includes("[data-sidebar-");
 				// A question card's step tabs, a figure header's buttons and a Run sheet tile's (i) and switch reach 36
