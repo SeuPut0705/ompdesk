@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.108.0] - 2026-11-04
+
+작업 중인 세션에 보낸 메시지에 에이전트가 먼저 글로 답해요.
+
+### 새로운 것
+- 턴이 돌아가는 세션에 메시지를 보내면(끼어들기), 에이전트가 다음 도구 호출이나 대기 전에 그 메시지에 먼저 글로 답하고 작업을 이어가요. 전에는 "어느정도 진행되고 있어?"를 보내도 `wait`를 다시 부르기만 하고 답이 없었어요. 이 창, 페어링된 컴퓨터의 탭, 휴대폰 화면에서 보낸 메시지 모두 같고, 다른 에이전트가 보낸 메일이나 자동 알림에는 적용되지 않아요. 사람이 입력한 메시지라는 표시는 메모리 회상과 같은 경로로 전해져요(`typed_prompt`).
+
+### 고친 것
+- 에이전트가 세션을 열 때 "Sending the first message failed: Sidecar not ready (error)"로 실패하고 바로 다시 시도하면 되던 문제. 막 시작한 omp가 바빠 준비 확인이 8초를 넘기면 잠깐 오류로 읽혔던 거예요. 이제 열기 경로는 최대 30초 동안 탭이 다시 준비되길 기다렸다가 같은 명령을 다시 보내요.
+
+<!-- en -->
+
+The agent answers a message sent into a running session before its next tool call.
+
+### Added
+- A message sent while a turn runs (a steer) is answered in text before the next tool call or wait; the work then goes on. Before, "how far along are you?" got another `wait` and no reply. The same from this window, a paired computer's tab and the phone page; never for another agent's mail or automatic reminders. The note that a person typed the message travels the memory-recall path (`typed_prompt`).
+
+### Fixed
+- An agent's session open failed with "Sending the first message failed: Sidecar not ready (error)" and worked on an immediate retry: a busy omp whose ready check ran past 8 s read as an error for a moment. The open now waits up to 30 s for the tab to be ready again and sends the command once more.
+
 ## [0.107.3] - 2026-11-04
 
 엔진을 탐지하는 사이에 같은 id로 직접 추가한 프로바이더는 그대로 남아요.
