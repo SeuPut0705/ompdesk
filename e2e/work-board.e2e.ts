@@ -322,7 +322,13 @@ for (const language of variants(["en", "ko"] as const))
 		});
 
 /** The pane's transcript, the room the ask dock wrote for its card, and the work strip's height (0 without one). */
-const promptRoom = (page: Page) =>
+interface PromptRoom {
+	transcript: number;
+	room: number;
+	strip: number;
+}
+
+const promptRoom = (page: Page): Promise<PromptRoom> =>
 	page.evaluate(() => {
 		const pane = document.querySelector(".omp-session-pane");
 		const transcript = pane?.querySelector(".omp-transcript-editorial")?.getBoundingClientRect().height ?? 0;
@@ -414,29 +420,38 @@ test("after a session switch in the same tab, the room above the composer follow
 		expect(docked.strip).toBe(0);
 
 		// The side panel takes the board's margin: the strip appears and the card's room gives up its height.
+		const settled = async (until: (read: PromptRoom) => boolean) => {
+			let last = await promptRoom(page);
+			await expect
+				.poll(async () => {
+					const before = last;
+					last = await promptRoom(page);
+					await page.evaluate(() => {
+						const { promise, resolve } = Promise.withResolvers<null>();
+						requestAnimationFrame(() => resolve(null));
+						return promise;
+					});
+					return until(last) && last.room === before.room && last.transcript === before.transcript;
+				})
+				.toBe(true);
+			return last;
+		};
 		await page.keyboard.press("ControlOrMeta+j");
 		await expect(page.locator("[data-work-strip]")).toBeVisible();
-		let seen = {};
-		await expect
-			.poll(
-				async () => {
-					const { room, strip, transcript } = await promptRoom(page);
-					seen = { docked, room, strip, transcript };
-					return strip > 0 && transcript >= 240 && Math.abs(docked.room - strip - room) <= 1;
-				},
-				{ message: "the room above the composer follows the strip" },
-			)
-			.toBe(true)
-			// Nightly 41906983008 failed here after the baseline wait above; the poll's own message holds no numbers.
-			.catch((error: Error) => {
-				throw new Error(`${error.message}\nlast read ${JSON.stringify(seen)}`);
-			});
+		const open = await settled(read => read.strip > 0 && read.transcript >= 240);
 
 		// Closed again: the strip goes and the room comes back.
 		await page.keyboard.press("ControlOrMeta+j");
 		await expect(page.locator("[data-work-strip]")).toHaveCount(0);
-		await expect.poll(async () => (await promptRoom(page)).room).toBe(docked.room);
-		expect((await promptRoom(page)).transcript).toBeGreaterThanOrEqual(240);
+		const closed = await settled(read => read.strip === 0 && read.transcript >= 240);
+		// Nightlies 41906983008 and 41921143051: the baseline read 563 px where the run settled at 547 (open 507 + a 40 px
+		// strip), so every number goes into the message, not only the one that failed.
+		const numbers = JSON.stringify({ docked, open, closed });
+		expect(
+			Math.abs(docked.room - open.strip - open.room),
+			`room follows the strip in: ${numbers}`,
+		).toBeLessThanOrEqual(1);
+		expect(closed.room, `room comes back out: ${numbers}`).toBe(docked.room);
 		expect(errors).toEqual([]);
 	} finally {
 		await exitApp(app);

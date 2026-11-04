@@ -13,7 +13,7 @@ import {
 	webkit,
 } from "@playwright/test";
 import { createServer, type ViteDevServer } from "vite";
-import { reassertTouch } from "./fixture/touch-emulation";
+import { expectTouchInput, reassertTouch } from "./fixture/touch-emulation";
 import { hitSizes, variants } from "./harness";
 import { composerGeometry, seedPaused, seedQueue, tapProbe } from "./queue-harness";
 
@@ -103,6 +103,7 @@ async function openHarness(
 	});
 	await page.goto(`${origin}/harness.html?theme=${look.theme}&lang=${look.lang}`);
 	await expect(page.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 30_000 });
+	if (preset.hasTouch) await expectTouchInput(page);
 	return page;
 }
 

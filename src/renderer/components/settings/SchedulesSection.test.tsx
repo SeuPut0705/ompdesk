@@ -319,6 +319,28 @@ describe("SchedulesSection", () => {
 		expect(command.mock.calls.every(([, device]) => device === "host-studio")).toBe(true);
 	});
 
+	it("a command's late reply never overwrites a push that came while it was in flight", async () => {
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t1", cwd: "C:\\work", status: "ready", kind: "agent", unreadDone: false, device: "host-studio" },
+			],
+			activeTabId: "t1",
+		});
+		setFocusedSessionRuntime("t1");
+		state = { ...emptyState(), schedules: [{ ...SCHEDULE, cwd: "C:\\work" }] };
+		await mount();
+		// Stop's reply carries the state at the moment it was asked (running); the run ended at once and main pushed
+		// that (stopped) first. The slow reply must not put the row back on "running".
+		const reply = Promise.withResolvers<SchedulesState>();
+		command.mockImplementationOnce(async () => reply.promise);
+		const before = state;
+		await click(document.body.querySelector('[data-schedule="s1"] [data-schedule-run]'));
+		await act(async () => hostListener?.("host-studio", { ...before, paused: true }));
+		expect(document.body.querySelector("[data-schedule-next]")?.textContent).toBe("Paused");
+		await act(async () => reply.resolve(before));
+		expect(document.body.querySelector("[data-schedule-next]")?.textContent).toBe("Paused");
+	});
+
 	it("says what starts a one-time or event schedule and what fired its runs", async () => {
 		const github: Schedule = {
 			...SCHEDULE,

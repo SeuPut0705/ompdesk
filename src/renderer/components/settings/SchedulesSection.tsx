@@ -20,7 +20,7 @@ import {
 	Square,
 	Trash2,
 } from "lucide-react";
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { Schedule, ScheduleDraft, ScheduleRun, SchedulesRequest, SchedulesState } from "../../../shared/schedules";
 import { AnsiText } from "../../lib/ansi";
 import { basename, durationBetween, formatClock, formatTimeAgo } from "../../lib/format";
@@ -61,39 +61,54 @@ export function SchedulesSection() {
 	const [showAllRuns, setShowAllRuns] = useState(false);
 	const masterId = useId();
 
+	// Main pushes every change (`onState`) and also answers the command that caused it with the state at that moment.
+	// A run that ends right after Stop (a wait for memory cancelled, a process that exits at once) pushes "stopped"
+	// before a slow reply with "running" arrives: that reply is older than the push, and applying it left the row on
+	// "Running 61 ms" for good (nightlies 41622973444, 41817431850, 41921143051). A push seen while a command was in
+	// flight stands; the reply then only repeats what it already says.
+	const pushes = useRef(0);
+	const pushed = useCallback((next: SchedulesState) => {
+		pushes.current++;
+		setState(next);
+	}, []);
+	const settle = useCallback(async (reply: Promise<SchedulesState>) => {
+		const seen = pushes.current;
+		const next = await reply;
+		if (pushes.current === seen) setState(next);
+	}, []);
 	const load = useCallback(async () => {
 		setLoadError(null);
 		try {
-			setState(await window.omp.schedules.command({ action: "get" }, device));
+			await settle(window.omp.schedules.command({ action: "get" }, device));
 		} catch (error) {
 			setLoadError(error);
 		}
-	}, [device]);
+	}, [device, settle]);
 	useEffect(() => {
 		// Another machine's schedules never paint over this one's while it loads.
 		setState(null);
 		setOpenLog(null);
 		const unsubscribe =
 			device === undefined
-				? window.omp.schedules.onState(setState)
+				? window.omp.schedules.onState(pushed)
 				: window.omp.schedules.onHostState((from, next) => {
-						if (from === device) setState(next);
+						if (from === device) pushed(next);
 					});
 		void load();
 		return unsubscribe;
-	}, [load, device]);
+	}, [load, device, pushed]);
 
 	const send = async (request: SchedulesRequest): Promise<void> => {
 		try {
-			setState(await window.omp.schedules.command(request, device));
+			await settle(window.omp.schedules.command(request, device));
 		} catch (error) {
 			toastError({ title: t("schedules.actionFailed"), error });
 		}
 	};
 	const save = async (draft: ScheduleDraft) => {
 		const id = editing?.schedule?.id;
-		setState(
-			await window.omp.schedules.command(id ? { action: "save", id, draft } : { action: "save", draft }, device),
+		await settle(
+			window.omp.schedules.command(id ? { action: "save", id, draft } : { action: "save", draft }, device),
 		);
 		setEditing(null);
 	};

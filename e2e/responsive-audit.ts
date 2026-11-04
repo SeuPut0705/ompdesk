@@ -1,6 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { type Browser, devices, expect, type Page } from "@playwright/test";
+import { expectTouchInput, reassertTouch } from "./fixture/touch-emulation";
 import { outsideRoundedOutline as roundedOutline } from "./rounded-outline";
 
 // The responsive audit: a named list of surfaces (e2e/responsive-surfaces.ts) opened on the dev harness
@@ -179,6 +180,7 @@ export async function openLook(browser: Browser, look: Look, options: OpenOption
 		reducedMotion: "reduce",
 	});
 	const page = await context.newPage();
+	if (touch) await reassertTouch(page);
 	// A surface whose control is missing fails in seconds (reported as failed), never hangs the sweep.
 	page.setDefaultTimeout(8_000);
 	const errors: string[] = [];
@@ -208,6 +210,10 @@ export async function openLook(browser: Browser, look: Look, options: OpenOption
 		{ timeout: 90_000 },
 	);
 	await expect(page.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 45_000 });
+	// A touch look whose page reads `mouse` has no edge zone and draws 24 px controls: nightlies 41896581267 (26 stolen taps
+	// over three settings pages) and 41921143051 ("no edge strip") fit that. Fail naming the browser's pointer media.
+	// A page painted as an Electron window (`platform=`) is the desktop shell, which sets no `data-input`.
+	if (touch && !options.query?.includes("platform=")) await expectTouchInput(page);
 	await page.waitForFunction(() => window.__stores !== undefined, undefined, { timeout: 45_000 });
 	return page;
 }
