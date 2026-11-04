@@ -71,6 +71,7 @@ import {
 	MOBILE_WEB_LINK_EVENT,
 	MOBILE_WEB_LINK_METHOD,
 	MODEL_WAIT_EVENT,
+	MODELS_CHANGED_EVENT,
 	MobileWebLinkReply,
 	NAME_METHODS,
 	NameParams,
@@ -701,6 +702,11 @@ export class RemoteDevices {
 		this.#deps.services.botDeskChanged(state);
 	}
 
+	/** This machine's models.yml changed by itself (a local engine): devices showing its providers read them again. */
+	hostModelsChanged(): void {
+		this.#deps.services.modelsChanged();
+	}
+
 	/** This machine's sidebar project list changed: devices showing its section follow. */
 	hostSidebarProjectsChanged(state: SidebarProjectsState): void {
 		this.#deps.services.sidebarProjectsChanged(state);
@@ -1071,6 +1077,11 @@ export class RemoteDevices {
 					this.#deps.broadcast(IPC_EVENTS.HOST_BOT_DESK_STATE, update);
 					for (const listener of this.#hostBotDesks) listener(deviceId, state.data);
 				}
+				return;
+			}
+			if (event === MODELS_CHANGED_EVENT) {
+				// No data: the windows read the focused tab's catalog and the open list again, which is that host's when a tab of it is focused.
+				this.#deps.broadcast(IPC_EVENTS.MODELS_CONFIG_CHANGED, undefined);
 				return;
 			}
 			if (event === LIVE_SESSIONS_EVENT) {

@@ -69,6 +69,7 @@ import {
 	MemoryConclusionPullReply,
 	MemoryPullReply,
 	MOBILE_WEB_LINK_EVENT,
+	MODELS_CHANGED_EVENT,
 	OMP_UPDATE_EVENT,
 	PREVIEW_RELAY_EVENT,
 	PREVIEW_RELAY_METHODS,
@@ -3982,6 +3983,22 @@ describe("LocalHostServices host.* calls", () => {
 		services.botDeskChanged(state);
 		expect(y.events.filter(entry => entry.event === BOT_DESK_EVENT)).toHaveLength(1);
 		expect(x.events.filter(entry => entry.event === BOT_DESK_EVENT)).toHaveLength(2);
+	});
+
+	it("tells every connected device once when this computer's models.yml changed by itself, and none that left", async () => {
+		const { services } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		const y = new FakeConnection(peer("device-y"));
+		// A connection is known to the host once it has called it.
+		await services.call(x.peer, "host.localEngines.get", {}, x);
+		await services.call(y.peer, "host.localEngines.get", {}, y);
+		services.modelsChanged();
+		for (const conn of [x, y])
+			expect(conn.events.filter(entry => entry.event === MODELS_CHANGED_EVENT)).toHaveLength(1);
+		services.disconnected(y.peer, y);
+		services.modelsChanged();
+		expect(y.events.filter(entry => entry.event === MODELS_CHANGED_EVENT)).toHaveLength(1);
+		expect(x.events.filter(entry => entry.event === MODELS_CHANGED_EVENT)).toHaveLength(2);
 	});
 
 	it("counts a device's answer to the bot as one request of its day and refunds an answer the desk refused", async () => {

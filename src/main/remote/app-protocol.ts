@@ -104,7 +104,7 @@
  *   → RemoteOpenedReply; every change comes as the `host.remoteOpened` event. An older host answers `unsupported`.
  *
  * Events (B → A): `tab.event` (TabEventMessage), `sessions.changed` (no data), `host.ompUpdate.changed`,
- * `host.schedules.changed`, `host.projects.changed`, `host.botDesk.changed`, `host.previewRelay`, `host.liveSessions`
+ * `host.schedules.changed`, `host.projects.changed`, `host.botDesk.changed`, `host.models.changed`, `host.previewRelay`, `host.liveSessions`
  * and `host.remoteOpened`.
  * Both sides parse what crosses the link with the schemas below.
  */
@@ -208,6 +208,11 @@ export const MODEL_WAIT_EVENT = "host.modelWait.changed";
 export const SCHEDULES_EVENT = "host.schedules.changed";
 /** The host's bot desk changed (data: BotDeskState); sent to every connected device. */
 export const BOT_DESK_EVENT = "host.botDesk.changed";
+/**
+ * The host's models.yml was changed by the host itself (a local inference engine came or went; no data); sent to every
+ * connected device, whose open provider list and model picker of that host read again. An older device drops it.
+ */
+export const MODELS_CHANGED_EVENT = "host.models.changed";
 /** The host's sidebar project list changed (data: SidebarProjectsState); sent to every connected device. */
 export const PROJECTS_EVENT = "host.projects.changed";
 /**

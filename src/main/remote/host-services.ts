@@ -175,6 +175,7 @@ import {
 	MOBILE_WEB_LINK_EVENT,
 	MOBILE_WEB_LINK_METHOD,
 	MODEL_WAIT_EVENT,
+	MODELS_CHANGED_EVENT,
 	ModelOverrideInputSchema,
 	OMP_UPDATE_EVENT,
 	PREVIEW_RELAY_EVENT,
@@ -1691,6 +1692,11 @@ export class LocalHostServices implements HostServices {
 	/** This computer's bot desk changed: every connected device showing it follows. */
 	botDeskChanged(state: BotDeskState): void {
 		for (const conn of this.#conns) emitSafely(conn, BOT_DESK_EVENT, state);
+	}
+
+	/** This computer's models.yml changed by itself (a local engine came or went): every connected device reads that host's list again. */
+	modelsChanged(): void {
+		for (const conn of this.#conns) emitSafely(conn, MODELS_CHANGED_EVENT, {});
 	}
 
 	#hostedBotDesk(): HostedBotDesk {

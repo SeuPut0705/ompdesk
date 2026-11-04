@@ -76,7 +76,11 @@ export interface Computer {
 	confirm: { answer: boolean; asked: string[] };
 	allowed: string[];
 	/** The fake host services: `call`'s 4th argument is the connection a device's request came on. */
-	services: { call: ReturnType<typeof vi.fn>; botDeskChanged: ReturnType<typeof vi.fn> };
+	services: {
+		call: ReturnType<typeof vi.fn>;
+		botDeskChanged: ReturnType<typeof vi.fn>;
+		modelsChanged: ReturnType<typeof vi.fn>;
+	};
 }
 
 export class DevicesRig {
@@ -115,6 +119,7 @@ export class DevicesRig {
 			call: vi.fn(async () => null),
 			disconnected: vi.fn(),
 			botDeskChanged: vi.fn(),
+			modelsChanged: vi.fn(),
 		};
 		const devices = new RemoteDevices({
 			userData: dir,

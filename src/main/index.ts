@@ -1022,6 +1022,7 @@ app.whenReady().then(() => {
 	statsClient = new StatsClient();
 	// FreeToken and colibri on loopback are listed as providers by themselves (src/main/local-engines.ts). A test
 	// launch never probes the developer's real ports unless its spec names a table (OMP_GUI_TEST_LOCAL_ENGINES).
+	const hostModelsChanged = { current: () => {} };
 	const engineSettings = localEngineSettings(process.env, app.isPackaged);
 	const detector = new LocalEngineDetector({
 		...engineSettings,
@@ -1041,6 +1042,8 @@ app.whenReady().then(() => {
 				if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.MODELS_CONFIG_CHANGED);
 			for (const win of webHost?.windows.all() ?? [])
 				if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.MODELS_CONFIG_CHANGED);
+			// Devices showing this computer's providers read them again (the detector is built before `devices`).
+			hostModelsChanged.current();
 		},
 		failed: (error, engine) =>
 			writeRuntimeLog({
@@ -1240,7 +1243,7 @@ app.whenReady().then(() => {
 			for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) win.webContents.send(channel, data);
 			// A paired phone's page lists the hosts' sessions too (its drawer, a host's bot pane): what changed in a host's
 			// list reaches it as it reaches a window, or a rename made anywhere stayed off its rows until a reload.
-			if (channel === IPC_EVENTS.SESSIONS_CHANGED)
+			if (channel === IPC_EVENTS.SESSIONS_CHANGED || channel === IPC_EVENTS.MODELS_CONFIG_CHANGED)
 				for (const page of webHost?.windows.all() ?? [])
 					if (!page.isDestroyed()) page.webContents.send(channel, data);
 		},
@@ -1293,6 +1296,7 @@ app.whenReady().then(() => {
 		logLink: (message, details) => writeRuntimeLog({ source: "remote-link", message, details }),
 	});
 	remoteDevices = devices;
+	hostModelsChanged.current = () => devices.hostModelsChanged();
 	// Devices that use this computer as their host say "n sessions wait together" from its own count (its account).
 	let lastModelWaitLocal = "{}";
 	sidecarPool.modelWait.onChange(({ local }) => {

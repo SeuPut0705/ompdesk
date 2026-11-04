@@ -13,6 +13,7 @@ import {
 	BOT_DESK_EVENT,
 	LIVE_SESSIONS_EVENT,
 	MOBILE_WEB_LINK_EVENT,
+	MODELS_CHANGED_EVENT,
 	PREVIEW_RELAY_EVENT,
 	TAB_EVENT,
 } from "./app-protocol";
@@ -558,6 +559,18 @@ describe("a host's bot desk", () => {
 		// This computer's own desk goes out to the devices that use it as a host.
 		b.devices.hostBotDeskChanged(OPEN);
 		expect(b.services.botDeskChanged).toHaveBeenCalledWith(OPEN);
+	});
+
+	it("tells this computer's windows once when a host's models.yml changed by itself, and sends this computer's own change to its devices", async () => {
+		const { a, b } = await rig.connected();
+		await vi.waitFor(() => expect(b.services.call.mock.calls.some(call => call[1] === "sessions.live")).toBe(true));
+		const conn = b.services.call.mock.calls.find(call => call[1] === "sessions.live")?.[3] as HostConnection;
+		const pushes = () => a.broadcasts.filter(entry => entry.channel === "models-config:changed");
+		conn.emit(MODELS_CHANGED_EVENT, {});
+		await vi.waitFor(() => expect(pushes()).toHaveLength(1));
+
+		b.devices.hostModelsChanged();
+		expect(b.services.modelsChanged).toHaveBeenCalledTimes(1);
 	});
 
 	it("is read, answered and edited on the host the device names, over the link", async () => {
