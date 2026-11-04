@@ -88,6 +88,7 @@ export const FEATURES = {
 	todoCompact: "A todo list grown long by appends is asked to fold its finished items",
 	wasteGuards:
 		"A bash service start whose ready.log cannot match is refused; a polling call or a refused edit is told once what to do instead",
+	quitJournal: "A quit while a tool runs journals the tool's aborted result before the process ends",
 	turnStages: "Turn stages recorded when a turn waits long for the model or ends without output (gui-runtime.jsonl)",
 	botAvatar: "Bot avatar drawn on the image model role (Settings › Bot › Generate)",
 } as const;
@@ -541,6 +542,14 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	todoCompact: {},
 	/** waste-guards.ts: the public `tool_call` (`block`) and `tool_result` (`content`) hooks only. Imports nothing from omp. */
 	wasteGuards: {},
+	/**
+	 * quit-journal.ts: the public `tool_execution_start`, `message_end` and `session_shutdown` hooks, and the
+	 * session's agent loop reached through the registry to abort it a moment before stock's dispose does.
+	 */
+	quitJournal: {
+		pkg: ["AgentRegistry.global()", "AgentRegistry.prototype.get()"],
+		session: ["agent.abort()"],
+	},
 	/**
 	 * turn-stages.ts: the main session's `subscribe` and live `model`/`isStreaming`, and three instance methods wrapped
 	 * once: `prompt` (a prompt's wait, and its setup ending before `agent_start`), `extensionRunner.emitBeforeAgentStart`

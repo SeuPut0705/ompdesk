@@ -4411,6 +4411,7 @@ export const ko: Record<string, string> = {
 	"bridgeHealth.feature.todoStale": "새 요청에 지난 할 일 목록 전달",
 	"bridgeHealth.feature.todoCompact": "길어진 할 일 목록을 에이전트가 접기",
 	"bridgeHealth.feature.wasteGuards": "일치할 수 없는 bash ready.log 거부와 폴링 방지 안내",
+	"bridgeHealth.feature.quitJournal": "도구 실행 중 종료해도 중단된 도구 결과 기록",
 	"bridgeHealth.feature.turnStages": "느리거나 출력 없는 턴 기록",
 	"bridgeHealth.feature.botAvatar": "이미지 모델로 봇 아바타 그리기",
 	"bridgeHealth.feature.visuals": "다이어그램 지침(Mermaid, SVG)",
