@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.110.3] - 2026-11-05
+
+이미 지운 세션을 다시 지우라는 봇의 요청이 지운 사람이 누구든, 앱을 다시 켠 뒤에도 "이미 지움"으로 끝나요.
+
+### 고친 것
+- `ompdesk_session_stop {delete: true}`가 이미 지워진 세션에 오류 대신 "already deleted"로 답하는 범위가 넓어졌어요. v0.110.2는 이번 실행 중 도구가 지운 세션만 알았어요. 이제 사이드바에서 지운 세션(저장된 id), 자동으로 닫힌 뒤 지워진 자식 세션의 id, 앱을 다시 켜기 전에 지운 세션도 알아요(`agentDeletedIds` 설정값과 삭제 기록). 모르는 id와 `delete` 없는 `close`는 그대로 오류예요.
+
+<!-- en -->
+
+A repeated delete of an already deleted session now ends as "already deleted" whoever deleted it, and after a relaunch.
+
+### Fixed
+- `ompdesk_session_stop {delete: true}` answering "already deleted" instead of an error now covers more than v0.110.2 did, which knew only sessions the tool deleted since the current launch. It also knows a session deleted from the sidebar (by its saved id), the ids of an auto-closed child that was deleted afterwards, and sessions deleted before a relaunch (the `agentDeletedIds` pref and the delete records). An unknown id, and `close` without `delete`, still fail.
+
 ## [0.110.2] - 2026-11-05
 
 봇이 매 대화마다 `xd://ompdesk_*` 문서를 다시 읽던 일을 줄이고, 봇이 자주 맞던 도구 오류 세 가지를 없앴어요.
