@@ -264,9 +264,9 @@ async function copyEntry(state: CopyState, rel: string): Promise<void> {
 				state.full = true;
 				return;
 			}
-			await state.copyFile(from, to, fs.constants.COPYFILE_FICLONE);
+			await state.copyFile(from, to, 0);
 		}
-	} else await state.copyFile(from, to, fs.constants.COPYFILE_FICLONE);
+	} else await state.copyFile(from, to, state.clone ? fs.constants.COPYFILE_FICLONE : 0);
 	state.files++;
 	state.bytes += stat.size;
 }
