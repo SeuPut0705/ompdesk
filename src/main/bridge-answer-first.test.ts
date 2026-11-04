@@ -38,7 +38,9 @@ function hook(loopStreaming: () => boolean, typed = createTypedPrompts()) {
 	return { typed, run: (prompt: string, kind = "main") => run({ prompt }, { agent: { kind } }) };
 }
 
-const COMPANION = { message: { customType: ANSWER_FIRST_MESSAGE_TYPE, content: ANSWER_FIRST_TEXT, display: false } };
+const COMPANION = {
+	message: { customType: ANSWER_FIRST_MESSAGE_TYPE, content: ANSWER_FIRST_TEXT, display: false, attribution: "agent" },
+};
 
 describe("answer-first companion", () => {
 	it("follows a person's steer delivered while the agent loop owns a turn", () => {

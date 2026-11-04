@@ -10,6 +10,13 @@
  * would cost one more model turn at a stop boundary). It says the person wrote the message above while the agent was
  * working and asks for a text answer in this turn before any further tool call, then to go on with the work.
  *
+ * It carries `attribution: "agent"`, not the batch's `user`: a user-attributed hidden message reaches the model as one
+ * more user turn, which it skipped as readily as the message itself (measured 4 Nov 2026 on claude-fable-5-1, a fresh
+ * session waiting on `sleep 120`: with the stock interjection envelope alone the steer went unanswered in 1 of 3 runs;
+ * with a user-attributed companion after it, in 2 of 4). An agent-attributed developer message that follows the
+ * user's turn and ends the request is upgraded by pi-ai's Anthropic provider to a mid-conversation `system` turn
+ * (`anthropic.ts` `developerParams`), the authority a "do this before anything else" note needs.
+ *
  * Only for a message a person typed (main's `typed_prompt`, typed-prompts.ts: never an agent's mail, a todo reminder
  * or an Autopilot nudge), sent to join the turn (`steer`; a follow-up is delivered when the turn would end, where the
  * answer is the natural reply), and delivered while the agent loop owns a turn (`agent.state.isStreaming`: a prompt
@@ -25,6 +32,14 @@ export const ANSWER_FIRST_MESSAGE_TYPE = "ompdesk-answer-first";
 export const ANSWER_FIRST_TEXT =
 	"The person wrote the message above while you were working. Answer it in text now, in this turn, before any further tool call or wait; then continue the work.";
 
+/** The hidden companion, as `before_agent_start` returns it. */
+export interface AnswerFirstMessage {
+	customType: string;
+	content: string;
+	display: false;
+	attribution: "agent";
+}
+
 /** The slice of omp's ExtensionAPI this module uses; the GUI's vitest installs it on a fake `pi`. */
 export interface AnswerFirstHost {
 	on(
@@ -32,7 +47,7 @@ export interface AnswerFirstHost {
 		handler: (
 			event: { prompt: string },
 			ctx: { agent: { kind?: string } },
-		) => { message: { customType: string; content: string; display: boolean } } | undefined,
+		) => { message: AnswerFirstMessage } | undefined,
 	): void;
 }
 
@@ -55,11 +70,11 @@ export function answerFirstCompanion(
 	agentKind: string | undefined,
 	loopStreaming: boolean,
 	notes: TypedPrompts,
-): { customType: string; content: string; display: boolean } | undefined {
+): AnswerFirstMessage | undefined {
 	if (agentKind !== "main") return undefined;
 	const typed = notes.take(prompt, "answerFirst");
 	if (!loopStreaming || !typed.some(note => note.steer)) return undefined;
-	return { customType: ANSWER_FIRST_MESSAGE_TYPE, content: ANSWER_FIRST_TEXT, display: false };
+	return { customType: ANSWER_FIRST_MESSAGE_TYPE, content: ANSWER_FIRST_TEXT, display: false, attribution: "agent" };
 }
 
 /** The hook on a fake `pi` (tests) or on omp's; `loopStreaming` reads the live loop at each turn's start. */
