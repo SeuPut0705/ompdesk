@@ -305,7 +305,7 @@ async function dispatch(probe: Probe, osChoice: OsChoice): Promise<number> {
 		const fresh = listRuns(branch).find(row => !before.has(row.databaseId));
 		if (fresh) {
 			console.log(`[flake] ${WORKFLOW} on ${branch} (${head.slice(0, 9)}): ${fresh.url}`);
-			console.log(`[flake] watch: gh run watch ${fresh.databaseId} --exit-status`);
+			console.log(`[flake] watch: bun scripts/watch-run.ts ${fresh.databaseId} (bash async: true, then wait)`);
 			return 0;
 		}
 		await Bun.sleep(2_000);
