@@ -1622,6 +1622,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			list: () => sessionIndex.list("global"),
 			search: (query, paths) => sessionIndex.searchContent(query, paths),
 			read: sessionPath => sessionIndex.readMessages(sessionPath),
+			pace: sessionPath => sessionIndex.pace(sessionPath),
 		},
 		remote: {
 			hosts: () => remoteDevices.state().hosts,

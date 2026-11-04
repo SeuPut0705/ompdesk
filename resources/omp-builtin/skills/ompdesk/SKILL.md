@@ -46,7 +46,7 @@ Observable acceptance: <what proves it works, and the command that shows it>
 End your final answer with a short summary of what changed and anything left undone.
 ```
 
-Children that write files get `worktree: true` or disjoint Ownership. Full flow: skill://ompdesk/references/orchestration.md
+Children that write files get `worktree: true` or disjoint Ownership. Keep each brief light (the check once at the end, one release per piece of work, the parity e2e only when the UI changed, a reproduction once before and once after the fix, independent items as parallel sessions, a narrow mechanical change on your `task` role's model) and read the `Pace:` line a done report ends with: when it names waste, say it in your next brief. Full flow: skill://ompdesk/references/orchestration.md
 
 ## The loop: dispatch, hear back, judge, merge
 

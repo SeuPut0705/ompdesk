@@ -2350,6 +2350,39 @@ describe("LocalHostServices", () => {
 		).rejects.toThrow("hid that session");
 	});
 
+	it("answers sessions.pace with the index's pace, null when there is none, and refuses a hidden session", async () => {
+		const pace = {
+			wallS: 60,
+			toolS: 0,
+			modelS: 60,
+			idleS: 0,
+			modelCalls: 3,
+			outputTokens: 0,
+			tools: {},
+			thinkGaps: [1],
+		};
+		const { services } = setup(60_000, {
+			sessionIndex: {
+				list: async () => [],
+				relist: () => {},
+				searchContent: async () => [],
+				kindFor: async () => "chat",
+				recordedCwd: async () => null,
+				deleteSession: async () => {},
+				moveSession: async (path: string) => path,
+				sessionsDir: join(workDir, "sessions"),
+				readMessages: async () => [],
+				pace: async (path: string) => (path === "/s/a.jsonl" ? pace : undefined),
+			},
+		});
+		const x = new FakeConnection(peer("device-x"));
+		expect(await services.call(x.peer, "sessions.pace", { sessionPath: "/s/a.jsonl" }, x)).toEqual(pace);
+		expect(await services.call(x.peer, "sessions.pace", { sessionPath: "/s/none.jsonl" }, x)).toBeNull();
+		await expect(services.call(x.peer, "sessions.pace", { sessionPath: "/hidden/session.jsonl" }, x)).rejects.toThrow(
+			"hid that session",
+		);
+	});
+
 	it("names who opened each session it lists to a device, and says null where it knows none", async () => {
 		const row = (path: string) => ({ path, id: path, title: path, cwd: workDir, firstMessage: "" });
 		const { services } = setup(60_000, {

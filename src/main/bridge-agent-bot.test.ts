@@ -48,6 +48,8 @@ describe("bot role", () => {
 		expect(text).toContain("ompdesk_session_open");
 		expect(text).toContain("ompdesk_notify");
 		expect(text).toContain('ompdesk_schedule {"target":"self"}');
+		expect(text).toContain("Keep every brief light");
+		expect(text).toContain("done report ends with a Pace: line");
 		expect(text).toContain("- Make payments or purchases: ask the owner before taking it.");
 		expect(text).toContain("- Edit code: take it without asking.");
 	});

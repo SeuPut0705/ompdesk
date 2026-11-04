@@ -80,7 +80,8 @@ const OPEN_ONE = {
 	},
 	model: {
 		type: "string",
-		description: "Model as provider/id or an id from the model list; default the session's default model.",
+		description:
+			"Model as provider/id or an id from the model list; default the session's default model. A narrow, mechanical implementation: the model your task role uses.",
 	},
 	mode: {
 		type: "string",

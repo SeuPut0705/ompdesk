@@ -97,6 +97,7 @@ import {
 } from "../../shared/turn-edits";
 import { type AdmissionStatus, capacityText, heldWait, memoryWaitText } from "../memory-admission";
 import { RpcTimeoutError } from "../rpc-client";
+import { type Pace, paceLine, paceShort } from "../session-pace";
 import type { FileEdits } from "../web/file-edit-reports";
 import { AppControl, type AppPorts, AppRefusal } from "./app-control";
 import { type AutoCloseFacts, autoCloseDecision } from "./auto-close";
@@ -400,6 +401,8 @@ export interface AgentControlHost {
 	stored(device: string | undefined, query?: string): Promise<StoredSession[]>;
 	/** A saved session's transcript, read-only (this computer's stock helper, or the paired host). */
 	storedMessages(session: StoredSession): Promise<AgentMessage[]>;
+	/** How a saved or open session spent its time (session-pace.ts); undefined when unreadable. Never blocks a caller. */
+	sessionPace?(session: { path: string; device?: string }): Promise<Pace | undefined>;
 	/** A command through the GUI's RPC dispatcher for `tabId` (local handlers, host link, quota). */
 	command(tabId: string, command: RpcCommand, timeoutMs?: number): Promise<RpcResponse>;
 	/**
@@ -1840,7 +1843,10 @@ export class AgentControl {
 						kind: "idle",
 						text: `- ${tab.tabId} (hidden from agents by the user)${marks.length ? ` [${marks.join(", ")}]` : ""}`,
 					};
-				const session = await this.#state(tab);
+				const [session, pace] = await Promise.all([
+					this.#state(tab),
+					tab.sessionPath ? this.#paceOf(tab.sessionPath, tab.device) : undefined,
+				]);
 				const line = this.#stateLine(tab, session);
 				const parts = [this.#withPickup(caller, tab, session, line), `folder ${tab.cwd}`];
 				if (tab.worktree) parts.push(`worktree ${tab.worktree.branch}`);
@@ -1851,6 +1857,7 @@ export class AgentControl {
 				if (session.subagents.length) parts.push(`${session.subagents.length} subagent(s) running`);
 				const todos = todoProgress(session.state?.todoPhases);
 				if (todos) parts.push(todos);
+				if (pace) parts.push(paceShort(pace));
 				const head = `- ${tab.tabId} ${label(tab)}${marks.length ? ` [${marks.join(", ")}]` : ""}`;
 				const answer = session.last ? `\n  last answer: ${oneLine(session.last, SUMMARY_CHARS)}` : "";
 				const kind =
@@ -1897,14 +1904,19 @@ export class AgentControl {
 			.filter(row => (!args.folder || row.cwd.includes(args.folder)) && (!args.mine || mine.has(row.path)))
 			.sort((a, b) => b.modified.localeCompare(a.modified));
 		for (const row of rows) this.#stored.set(row.id, row);
+		const paces = await Promise.all(
+			rows.slice(0, limit).map(row => (row.hidden ? undefined : this.#paceOf(row.path, row.device))),
+		);
 		const lines = await Promise.all(
-			rows.slice(0, limit).map(async row => {
+			rows.slice(0, limit).map(async (row, index) => {
 				if (row.hidden) return `- ${row.id} (hidden from agents by the user)`;
 				const title = storedTitle(row);
 				const elsewhere = row.tabId ? "" : openElsewhereText(row, await this.#storedStep(row));
 				const open = row.tabId ? `; open in tab ${row.tabId}` : elsewhere ? `; ${elsewhere}` : "";
 				const hit = row.snippet ? `\n  match: ${oneLine(row.snippet, SUMMARY_CHARS)}` : "";
-				return `- ${row.id} "${oneLine(title, 80)}"\n  folder ${row.cwd}; ${row.messages} message(s); ${row.status}; changed ${row.modified}${open}${hit}`;
+				// Before `changed`: the row ends with when it changed and where it is open, as every reader of it expects.
+				const pace = paces[index] ? `; ${paceShort(paces[index])}` : "";
+				return `- ${row.id} "${oneLine(title, 80)}"\n  folder ${row.cwd}; ${row.messages} message(s); ${row.status}${pace}; changed ${row.modified}${open}${hit}`;
 			}),
 		);
 		const where = device ? `saved on ${device.name}` : "saved on this computer";
@@ -1916,6 +1928,15 @@ export class AgentControl {
 	async #storedStep(row: StoredSession): Promise<string | null> {
 		if (row.work !== "turn") return null;
 		return currentStep(await this.#host.storedMessages(row).catch((): AgentMessage[] => []));
+	}
+
+	/** A session's pace, or undefined: a pace never blocks or fails the caller. */
+	async #paceOf(path: string, device?: string): Promise<Pace | undefined> {
+		try {
+			return await this.#host.sessionPace?.({ path, ...(device ? { device } : {}) });
+		} catch {
+			return undefined;
+		}
 	}
 
 	/**
@@ -2497,13 +2518,17 @@ export class AgentControl {
 				? args.kind
 				: "note";
 		// A worktree child that says it is done reports what its git holds with it (custody.ts).
-		const custody =
-			to === parent && (kind === "done" || kind === "review") && caller.worktree
-				? await this.#host
+		const reportsDone = to === parent && (kind === "done" || kind === "review");
+		const [custody, pace] = await Promise.all([
+			reportsDone && caller.worktree
+				? this.#host
 						.branchFacts(caller.worktree, caller.device)
 						.then(facts => custodyOf(facts, args.files))
 						.catch(() => null)
-				: null;
+				: null,
+			// How the finished session spent its time; the opener sees waste it can brief away next time.
+			reportsDone && caller.sessionPath ? this.#paceOf(caller.sessionPath, caller.device) : undefined,
+		]);
 		const mail: Mail = {
 			// The same report from the same session file is the same id, so a call stock re-runs after a relaunch
 			// (its result lost in the crash) is recognized by the receiver's journal instead of arriving twice.
@@ -2526,7 +2551,7 @@ export class AgentControl {
 			fromTitle: caller.title,
 			to,
 			kind,
-			text: custody ? `${args.text}\n\n${custody.line}` : args.text,
+			text: [args.text, custody?.line, pace ? paceLine(pace) : undefined].filter(Boolean).join("\n\n"),
 			...(args.files ? { files: args.files } : {}),
 			...(args.checks ? { checks: args.checks } : {}),
 			...(args.dispatch ? { dispatch: args.dispatch } : {}),
@@ -2585,9 +2610,10 @@ export class AgentControl {
 		const todos = todoProgress(session.state?.todoPhases);
 		const hint = waits(tab) ? " It needs an answer: ompdesk_session_answer, or tell the user." : "";
 		const body = session.last ? cut(session.last, perAnswer) : "(no answer yet)";
+		const pace = tab.sessionPath ? await this.#paceOf(tab.sessionPath, tab.device) : undefined;
 		return {
 			settled: settled || waits(tab),
-			text: `${label(tab)} [${tab.tabId}]: ${this.#withPickup(caller, tab, session, line)}.${todos ? ` ${todos}.` : ""}${hint}\nLast answer:\n${body}`,
+			text: `${label(tab)} [${tab.tabId}]: ${this.#withPickup(caller, tab, session, line)}.${todos ? ` ${todos}.` : ""}${hint}\n${pace ? `${paceShort(pace)}\n` : ""}Last answer:\n${body}`,
 		};
 	}
 
@@ -2607,14 +2633,17 @@ export class AgentControl {
 					if ("busy" in target) return [];
 					if (target.hidden) fail("The user hid a session you asked about from other agents.");
 					return [
-						this.#overLink(target.device, () => this.#host.storedMessages(target)).then(messages => {
+						Promise.all([
+							this.#overLink(target.device, () => this.#host.storedMessages(target)),
+							this.#paceOf(target.path, target.device),
+						]).then(([messages, pace]) => {
 							const last = transcriptEnding(messages).last;
 							const where = `saved${target.deviceName ? ` on ${target.deviceName}` : ""}, not open in any tab`;
 							return [
 								target.id,
 								{
 									settled: true,
-									text: `"${oneLine(storedTitle(target), 80)}" [${target.id}]: ${where}.\nLast answer:\n${last ? cut(last, perAnswer) : "(no answer)"}`,
+									text: `"${oneLine(storedTitle(target), 80)}" [${target.id}]: ${where}.\n${pace ? `${paceShort(pace)}\n` : ""}Last answer:\n${last ? cut(last, perAnswer) : "(no answer)"}`,
 								},
 							] as const;
 						}),

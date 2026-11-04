@@ -96,6 +96,7 @@ import {
 	WorktreeCreateReply,
 } from "../remote/app-protocol";
 import { type RunProcess, type ScheduleService, ScheduleSkip } from "../schedules";
+import type { Pace } from "../session-pace";
 import { SUPERVISOR_STOPPED_CODE } from "../setup/supervisor";
 import type { SidecarPool } from "../sidecar-pool";
 import type { SidecarLike } from "../sidecar-types";
@@ -194,6 +195,7 @@ export interface AgentControlHostDeps {
 		list(): Promise<SessionInfo[]>;
 		search(query: string, paths: string[]): Promise<SessionContentMatch[]>;
 		read(sessionPath: string): Promise<AgentMessage[]>;
+		pace?(sessionPath: string): Promise<Pace | undefined>;
 	};
 	/** The paired hosts this computer runs sessions on (Settings › Devices) and a request to one of them. */
 	remote?: {
@@ -1781,6 +1783,21 @@ export class AgentControlRuntime {
 				const sessions = deps.sessions;
 				if (!sessions) return Promise.reject(new Error("Stored sessions are not available here."));
 				return sessions.read(session.path);
+			},
+			sessionPace: async session => {
+				try {
+					if (session.device) {
+						const remote = deps.remote;
+						if (!remote) return undefined;
+						const pace = await remote.request<Pace | null>(session.device, "sessions.pace", {
+							sessionPath: session.path,
+						});
+						return pace ?? undefined;
+					}
+					return await deps.sessions?.pace?.(session.path);
+				} catch {
+					return undefined;
+				}
 			},
 			command: (tabId, command, timeoutMs) => {
 				const win = this.#win(tabId) ?? [...this.#windows.values()][0];

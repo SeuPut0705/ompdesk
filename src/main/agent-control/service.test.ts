@@ -15,6 +15,7 @@ import type {
 import type { ScheduleDraft, ScheduleRun } from "../../shared/schedules";
 import type { RpcTurnEdits } from "../../shared/turn-edits";
 import { RpcTimeoutError } from "../rpc-client";
+import type { Pace } from "../session-pace";
 import type { FileEdits } from "../web/file-edit-reports";
 import type { BranchEvidence, BranchFacts, LandingFacts, MergeOutcome, WorktreeRef, WorktreeRemoval } from "./branches";
 import { CallJournal } from "./call-journal";
@@ -300,6 +301,8 @@ class FakeHost implements AgentControlHost {
 	};
 	storedTranscripts = new Map<string, AgentMessage[]>();
 	storedMessages = async (row: StoredSession) => this.storedTranscripts.get(row.path) ?? [];
+	paces = new Map<string, Pace>();
+	sessionPace = async (row: { path: string; device?: string }): Promise<Pace | undefined> => this.paces.get(row.path);
 	judged: string[] = [];
 	judgeReply = "";
 	/** What the bridge answers besides the text: the judge model, its role and families. */
@@ -2876,6 +2879,82 @@ describe("autoClose: opened sessions whose work landed", () => {
 		const before = host.mails.length;
 		await service.autoClose("main0001");
 		expect(host.mails.slice(before).filter(mail => mail.to === child.tabId)).toHaveLength(0);
+	});
+
+	describe("the pace of a session", () => {
+		const slow = {
+			wallS: 1320,
+			toolS: 120,
+			modelS: 1200,
+			idleS: 0,
+			modelCalls: 156,
+			outputTokens: 0,
+			tools: { bash: { seconds: 120, calls: 60, errors: 6 } },
+			thinkGaps: [4, 4, 4],
+		} satisfies Pace;
+		const LINE = "Pace: wall 22 min";
+		const SHORT = "pace 22 min, 156 calls, median 4.0 s";
+
+		it("ends the auto done report the opener receives with the Pace line", async () => {
+			const { host, service } = await finishedChild({ patch: { last: "Parser fixed in a.ts.\nResult: ok" } });
+			host.paces.set("/s/kid.jsonl", slow);
+			await service.autoClose("main0001");
+			const [mail] = host.mails.filter(entry => entry.to === "main0001");
+			expect(mail?.content).toContain(LINE);
+			expect(mail?.details).toMatchObject({ text: expect.stringMatching(/\n\nPace: wall 22 min[^\n]*$/) });
+		});
+
+		it("ends a child's own done report with it and keeps the mail id when only the pace differs", async () => {
+			const { host, service, child } = await finishedChild();
+			host.paces.set("/s/kid.jsonl", slow);
+			const first = await service.run(child.tabId, T.report, { kind: "done", text: "finished" });
+			expect(first.text).toBe("Delivered.");
+			expect(host.mails.at(-1)?.content).toContain(LINE);
+			host.paces.set("/s/kid.jsonl", { ...slow, wallS: 3000, modelS: 2800, modelCalls: 300 });
+			const again = await service.run(child.tabId, T.report, { kind: "done", text: "finished" });
+			expect(again.text).toContain("was already delivered");
+		});
+
+		it("shows a short pace on the open row and in the session result, before the last answer", async () => {
+			const { host, service, child } = await finishedChild();
+			host.paces.set("/s/kid.jsonl", slow);
+			expect((await service.run("main0001", T.list, { mine: true })).text).toContain(SHORT);
+			const result = (await service.run("main0001", T.result, { session: child.tabId })).text;
+			expect(result).toMatch(/pace 22 min, 156 calls, median 4\.0 s[^\n]*\nLast answer:/);
+		});
+
+		it("asks for a stored row's pace with its device and shows it, in the list and the result", async () => {
+			const host = new FakeHost({ tabId: "main0001", title: "Boss" });
+			host.deviceList = [desktop];
+			host.storedRows = [
+				storedRow({ id: "33333333-cccc", path: "C:/s/three.jsonl", title: "PC refactor", device: desktop.id }),
+			];
+			host.paces.set("C:/s/three.jsonl", slow);
+			const asked: { path: string; device?: string }[] = [];
+			const read = host.sessionPace;
+			host.sessionPace = async row => {
+				asked.push(row);
+				return read(row);
+			};
+			const service = control(host);
+			const listed = (await service.run("main0001", T.list, { scope: "stored", device: desktop.id })).text;
+			expect(listed).toMatch(new RegExp(`folder [^\\n]*; ${SHORT}`));
+			expect(asked[0]).toEqual({ path: "C:/s/three.jsonl", device: desktop.id });
+			const result = (await service.run("main0001", T.result, { session: "33333333-cccc" })).text;
+			expect(result).toMatch(/pace 22 min, 156 calls, median 4\.0 s[^\n]*\nLast answer:/);
+		});
+
+		it("leaves the report and the rows without a line when the pace cannot be read", async () => {
+			const { host, service, child } = await finishedChild();
+			host.sessionPace = async () => {
+				throw new Error("link down");
+			};
+			const sent = await service.run(child.tabId, T.report, { kind: "done", text: "finished" });
+			expect(sent.text).toBe("Delivered.");
+			expect(host.mails.at(-1)?.content).not.toContain("Pace:");
+			expect((await service.run("main0001", T.list, { mine: true })).text).not.toContain("pace ");
+			expect((await service.run("main0001", T.result, { session: child.tabId })).text).not.toContain("pace ");
+		});
 	});
 
 	describe("the done report main sends for a child", () => {

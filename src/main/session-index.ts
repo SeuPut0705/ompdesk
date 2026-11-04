@@ -14,6 +14,7 @@ import { deletedSessions } from "./deleted-sessions";
 import { OmpUnavailableError } from "./omp-availability";
 import { StampedLru } from "./session-cache";
 import { SessionListShare } from "./session-list-share";
+import { type Pace, readPace } from "./session-pace";
 import { contentSnippet } from "./session-snippet";
 import { StockSessionStore } from "./session-store";
 
@@ -276,6 +277,16 @@ export class SessionIndex {
 			throw codedError("invalid_session_path", "Invalid session path");
 		}
 		return this.#store.messages(target);
+	}
+
+	/** The pace of a stored session's journal (session-pace.ts); undefined when it cannot be read. */
+	async pace(sessionPath: string): Promise<Pace | undefined> {
+		const target = resolve(sessionPath);
+		const root = `${resolve(this.#sessionsDir)}${sep}`;
+		if (!target.startsWith(root) || !target.endsWith(".jsonl")) {
+			throw codedError("invalid_session_path", "Invalid session path");
+		}
+		return readPace(target);
 	}
 
 	/** Move a stored session to another project folder (stock `SessionManager.moveTo`); returns its new path. */

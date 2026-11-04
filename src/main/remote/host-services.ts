@@ -261,7 +261,8 @@ export interface HostServicesDeps {
 		| "moveSession"
 		| "sessionsDir"
 		| "readMessages"
-	>;
+	> &
+		Partial<Pick<SessionIndex, "pace">>;
 	/** Session files this computer's user hid from agents (Sidebar › Hide from other agents); a device's agent never reads them. */
 	agentHidden?: () => ReadonlySet<string>;
 	/** A conversation this computer's bot ended (`botRowOf` `past`): kept to read, never continued from a device. */
@@ -1281,6 +1282,12 @@ export class LocalHostServices implements HostServices {
 				if (this.#deps.agentHidden?.().has(sessionPath))
 					throw codedError("session_hidden", "The user hid that session from agents.");
 				return withImageRefs(await this.#deps.sessionIndex.readMessages(sessionPath));
+			}
+			case "sessions.pace": {
+				const { sessionPath } = parse(SessionPathParams, method, params);
+				if (this.#deps.agentHidden?.().has(sessionPath))
+					throw codedError("session_hidden", "The user hid that session from agents.");
+				return (await this.#deps.sessionIndex.pace?.(sessionPath)) ?? null;
 			}
 			case "sessions.kindFor":
 				return this.#deps.sessionIndex.kindFor(parse(SessionPathParams, method, params).sessionPath);

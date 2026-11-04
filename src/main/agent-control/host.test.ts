@@ -1137,16 +1137,29 @@ describe("AgentControlRuntime", () => {
 			status: "complete" as const,
 			firstMessage: "hi",
 		};
+		const PACE = {
+			wallS: 1320,
+			toolS: 120,
+			modelS: 1200,
+			idleS: 0,
+			modelCalls: 156,
+			outputTokens: 0,
+			tools: {},
+			thinkGaps: [4, 4, 4],
+		};
 		const request = vi.fn(async (_device: string, method: string) =>
 			method === "sessions.list"
 				? [{ ...row, path: "C:/s/b.jsonl", id: "bbbb2222-y", title: "Saved on PC" }]
-				: [{ role: "assistant", content: "from the PC" }],
+				: method === "sessions.pace"
+					? PACE
+					: [{ role: "assistant", content: "from the PC" }],
 		);
 		const { runtime, win } = setup({
 			sessions: {
 				list: async () => [row],
 				search: async () => [],
 				read: async () => [{ role: "assistant", content: "from here" }] as never,
+				pace: async path => (path === "/s/p/a.jsonl" ? PACE : undefined),
 			},
 			remote: { hosts: () => [{ deviceId: "dev-1", name: "PC", state: "online" }], request: request as never },
 		});
@@ -1159,6 +1172,9 @@ describe("AgentControlRuntime", () => {
 		);
 		expect((await runtime.run(win, "main0001", T.read, { session: "bbbb2222-y" })).text).toContain("from the PC");
 		expect(request).toHaveBeenCalledWith("dev-1", "sessions.messages", { sessionPath: "C:/s/b.jsonl" });
+		const paced = await runtime.run(win, "main0001", T.list, { scope: "stored", device: "PC" });
+		expect(paced.text).toContain("pace 22 min, 156 calls, median 4.0 s");
+		expect(request).toHaveBeenCalledWith("dev-1", "sessions.pace", { sessionPath: "C:/s/b.jsonl" });
 	});
 
 	it("names the saved worktree of a reopen whose folder is gone, and restore: true restores it and opens there", async () => {
