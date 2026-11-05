@@ -97,6 +97,13 @@ export function useTimeAgo(iso: string | number | undefined | null): string {
 	return useAgeLabels([iso], formatTimeAgo)[0] ?? "";
 }
 
+const shortAge = (value: AgeValue): string => formatTimeAgo(value, { older: "age" });
+
+/** {@link useTimeAgo} that stays an age past a week ("3w", "5mo"): a session row's slot, never a date. */
+export function useShortAge(iso: string | number | undefined | null): string {
+	return useAgeLabels([iso], shortAge)[0] ?? "";
+}
+
 /** {@link useAgeLabels} with {@link formatTimeAgo}, for a list's ages (strings or epoch ms). */
 export function useTimeAgos(values: readonly AgeValue[]): readonly string[] {
 	return useAgeLabels(values, formatTimeAgo);

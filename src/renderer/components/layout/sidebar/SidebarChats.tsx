@@ -48,7 +48,7 @@ export function SidebarChats({
 	return (
 		<section aria-label={label ?? t("sidebar.chats")} className="mt-1" data-sidebar-chats={deviceId}>
 			<div
-				className="group/head flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
+				className="group/head flex h-7 [html[data-input=touch]_&]:h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
 				data-flip-key={`chats:${deviceId}`}
 			>
 				<SidebarFoldButton

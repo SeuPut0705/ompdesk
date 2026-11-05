@@ -34,7 +34,6 @@ import {
 	RefreshCw,
 	Rocket,
 	Search,
-	SearchX,
 	Settings,
 	Sparkles,
 	SquareTerminal,
@@ -2048,7 +2047,16 @@ export function Sidebar() {
 							{botLine && <span className="sr-only">, {botLine}</span>}
 						</>
 					}
-					titleText={[title, botLine, worktree?.label, fork?.tooltip, statusLabel, botDecisionsTip]
+					// The age slot reads "3w"; the exact time is here, since hovering puts the ⋯ in the age's place.
+					titleText={[
+						title,
+						botLine,
+						worktree?.label,
+						fork?.tooltip,
+						statusLabel,
+						botDecisionsTip,
+						indexed ? formatClock(session.modified) : null,
+					]
 						.filter(Boolean)
 						.join("\n")}
 					trailing={
@@ -2082,7 +2090,7 @@ export function Sidebar() {
 				{dragHandle => (
 					<>
 						<div
-							className="group/head relative flex h-8 cursor-default items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
+							className="group/head relative flex h-7 [html[data-input=touch]_&]:h-8 cursor-default items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
 							data-flip-key={`group:${group.cwd}`}
 							data-workspace-group={group.cwd}
 							data-project-missing={group.missing ? "" : undefined}
@@ -2251,35 +2259,25 @@ export function Sidebar() {
 						!listError &&
 						totalCount === 0 &&
 						(query ? (
-							<EmptyState
-								actions={
-									<Button onClick={() => setFilter("")} size="sm" variant="ghost">
-										{t("sidebar.clearFilter")}
-									</Button>
-								}
-								className="omp-sidebar-empty"
-								icon={<SearchX />}
-								size="sm"
-								title={t("sidebar.noMatch")}
-							/>
+							<div className="omp-sidebar-empty-line" data-sidebar-empty="filter">
+								<span>{t("sidebar.noMatch")}</span>
+								<Button onClick={() => setFilter("")} size="sm" variant="ghost">
+									{t("sidebar.clearFilter")}
+								</Button>
+							</div>
 						) : (
-							<EmptyState
-								actions={
-									<Button
-										icon={<FolderOpen />}
-										onClick={() => setWorkspaceDialog("new-session")}
-										size="sm"
-										variant="secondary"
-									>
-										{t("sidebar.project.open")}
-									</Button>
-								}
-								className="omp-sidebar-empty"
-								description={t("sidebar.emptyCodeHint")}
-								icon={<SquareTerminal />}
-								size="sm"
-								title={t("sidebar.emptyCode")}
-							/>
+							// One line, as a host's empty section reads (SidebarDevices), not a card above the next device.
+							<div className="omp-sidebar-empty-line" data-sidebar-empty="code">
+								<span>{t("sidebar.emptyCode")}</span>
+								<Button
+									icon={<FolderOpen />}
+									onClick={() => setWorkspaceDialog("new-session")}
+									size="sm"
+									variant="ghost"
+								>
+									{t("sidebar.project.open")}
+								</Button>
+							</div>
 						))}
 					{groups.length > 0 && (
 						<DndContext collisionDetection={closestCenter} onDragEnd={onProjectDragEnd} sensors={projectSensors}>
@@ -2305,7 +2303,7 @@ export function Sidebar() {
 					{archivedRows.length > 0 && (
 						<section className="mt-3" data-sidebar-archived ref={archivedRef}>
 							<div
-								className="group/head relative flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
+								className="group/head relative flex h-7 [html[data-input=touch]_&]:h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
 								data-flip-key="archived"
 								onContextMenu={event => setArchivedMenu(anchorFromEvent(event))}
 							>

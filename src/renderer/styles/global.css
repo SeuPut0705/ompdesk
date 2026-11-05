@@ -739,6 +739,18 @@ html[data-platform="darwin"] .omp-sidebar-search {
 	overflow-wrap: anywhere;
 }
 
+/* An empty list or a filter with no match: one quiet line with its action at its end, as a host's empty section. */
+.omp-sidebar-empty-line {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0 var(--sc-space-1);
+	padding: var(--sc-space-0-5) var(--sc-space-1) var(--sc-space-0-5) 10px;
+	font-size: var(--sc-font-xs);
+	color: var(--sc-text-muted);
+	word-break: keep-all;
+}
+
 /* Footer shortcut hints: quiet text, not chips. */
 .omp-sidebar-kbd kbd {
 	border-color: transparent;

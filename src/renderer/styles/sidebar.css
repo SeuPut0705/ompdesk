@@ -1,7 +1,13 @@
 /* Sidebar-only polish; shared controls and the theme scales stay unchanged. */
+/* A session row is 32 px for a mouse (one more row in view at 1280×800) and 36 px under a finger. */
 .omp-session-sidebar .omp-sidebar-session-row,
 .omp-sidebar-session-rename {
-	min-height: var(--sc-control-lg);
+	--omp-sidebar-row-h: var(--sc-control-md);
+	min-height: var(--omp-sidebar-row-h);
+}
+
+html[data-input="touch"] :is(.omp-session-sidebar .omp-sidebar-session-row, .omp-sidebar-session-rename) {
+	--omp-sidebar-row-h: var(--sc-control-lg);
 }
 
 /* A session row out of view skips style, layout and paint. With 500 stored
@@ -15,7 +21,7 @@
 	   `auto var(--sc-control-lg)` a row never rendered stood 44px against a
 	   rendered 36px, and with the list's scroll anchoring off, each row above the
 	   view that rendered while scrolling up moved the rows on screen by 8px. */
-	contain-intrinsic-size: auto calc(var(--sc-control-lg) - 2 * var(--sc-space-1));
+	contain-intrinsic-size: auto calc(var(--omp-sidebar-row-h) - 2 * var(--sc-space-1));
 }
 
 /* No leading slot: a session row's title starts where its group header's content does (the header button's `pl-2`),
@@ -33,8 +39,16 @@
 	padding-left: calc(var(--sc-space-2) + var(--sc-icon-md));
 }
 
-.omp-session-sidebar [data-workspace-group],
+/* A project or device header: 28 / 32 px for a mouse, 36 px under a finger. */
+.omp-session-sidebar [data-workspace-group] {
+	min-height: var(--sc-control-sm);
+}
+
 .omp-session-sidebar [data-device-group] > div:first-child {
+	min-height: var(--sc-control-md);
+}
+
+html[data-input="touch"] .omp-session-sidebar :is([data-workspace-group], [data-device-group] > div:first-child) {
 	min-height: var(--sc-control-lg);
 }
 

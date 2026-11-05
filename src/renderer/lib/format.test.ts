@@ -90,6 +90,29 @@ it("never rounds a relative age down to zero minutes", () => {
 	}
 });
 
+it("keeps a session row's age an age past a week, never a date, in English and Korean", () => {
+	vi.useFakeTimers();
+	const realLocalStorage = (globalThis as Record<string, unknown>).localStorage;
+	try {
+		const now = Date.parse("2026-11-06T12:00:00Z");
+		vi.setSystemTime(now);
+		const day = 86_400_000;
+		const ages = [6 * day, 7 * day, 29 * day, 30 * day, 364 * day, 365 * day, 800 * day];
+		const short = () => ages.map(age => formatTimeAgo(now - age, { older: "age" }));
+		expect(short()).toEqual(["6d", "1w", "4w", "1mo", "12mo", "1y", "2y"]);
+		// Without the option the rest of the app still reads a date past a week.
+		expect(formatTimeAgo(now - 30 * day)).toBe("Oct 7");
+		(globalThis as Record<string, unknown>).localStorage = {
+			getItem: (key: string) => (key === "omp.lang" ? "ko" : null),
+			setItem: () => {},
+		};
+		expect(short()).toEqual(["6일", "1주", "4주", "1개월", "12개월", "1년", "2년"]);
+	} finally {
+		(globalThis as Record<string, unknown>).localStorage = realLocalStorage;
+		vi.useRealTimers();
+	}
+});
+
 describe("UI-language dates", () => {
 	const realLocalStorage = (globalThis as Record<string, unknown>).localStorage;
 	afterEach(() => {

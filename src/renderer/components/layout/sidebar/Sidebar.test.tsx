@@ -1846,7 +1846,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		const sidebarCss = readFileSync(new URL("../../../styles/sidebar.css", import.meta.url), "utf8");
 		// One rule sizes both, so the rename can never drift from the row height.
 		expect(sidebarCss).toMatch(
-			/\.omp-sidebar-session-row,\s*\.omp-sidebar-session-rename\s*\{[^}]*min-height:\s*var\(--sc-control-lg\)/,
+			/\.omp-sidebar-session-row,\s*\.omp-sidebar-session-rename\s*\{[^}]*min-height:\s*var\(--omp-sidebar-row-h\)/,
 		);
 	});
 
@@ -2589,16 +2589,17 @@ describe("Sidebar menus and pinned ordering", () => {
 			name
 				? translate("session.fork.tooltip", { name, time: formatTimeAgo(created) })
 				: translate("session.fork.tooltipNoParent", { time: formatTimeAgo(created) });
-		expect(fork.querySelector("button")?.getAttribute("title")).toBe(
+		// A stored row's tooltip ends with its exact time (the age slot reads "3w"): the fork lines come before it.
+		const title = (button: Element | null | undefined) =>
+			button?.getAttribute("title")?.replace(/\n[^\n]*\d{2}:\d{2}$/, "");
+		expect(title(fork.querySelector("button"))).toBe(
 			`Refactor the parser\n${tooltip("2026-01-01T00:00:00Z", "Refactor the parser")}`,
 		);
 		// Screen readers hear it in words.
 		expect(fork.textContent).toContain(translate("sidebar.row.forkedFrom", { name: "Refactor the parser" }));
-		expect(parent.querySelector("button")?.getAttribute("title")).toBe("Refactor the parser");
-		expect(rowButton("Moved").getAttribute("title")).toBe(
-			`Moved\n${tooltip("2026-01-01T00:00:00Z", "Refactor the parser")}`,
-		);
-		expect(rowButton("Orphan").getAttribute("title")).toBe(`Orphan\n${tooltip("2026-01-01T00:00:00Z")}`);
+		expect(title(parent.querySelector("button"))).toBe("Refactor the parser");
+		expect(title(rowButton("Moved"))).toBe(`Moved\n${tooltip("2026-01-01T00:00:00Z", "Refactor the parser")}`);
+		expect(title(rowButton("Orphan"))).toBe(`Orphan\n${tooltip("2026-01-01T00:00:00Z")}`);
 		expect(rowFor("Orphan").querySelector("[data-fork-parent]")).toBeNull();
 	});
 });

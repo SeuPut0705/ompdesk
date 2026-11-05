@@ -39,7 +39,7 @@ import { useSessionList } from "../../../hooks/use-session-list";
 import { useShellInput } from "../../../hooks/use-shell-mode";
 import { DEVICE_COLORS, type DeviceColorChoice, deviceColorOf } from "../../../lib/device-color";
 import { saveDiagnosticBundle } from "../../../lib/diagnostic-bundle";
-import { basename, cx } from "../../../lib/format";
+import { basename, cx, formatClock } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { openExternal } from "../../../lib/open-external";
 import { hostOrderKey, moveInOrder, reorderProjects } from "../../../lib/project-order";
@@ -1141,6 +1141,8 @@ function DeviceSessions({
 						title,
 						botDecisions > 0 ? t("sidebar.botDecisionsTip", { count: botDecisions }) : null,
 						openElsewhere && !working ? t("sidebar.row.open") : null,
+						// The age slot reads "3w"; the exact time is here, since hovering puts the ⋯ in the age's place.
+						indexed ? formatClock(session.modified) : null,
 					]
 						.filter(Boolean)
 						.join("\n")}
@@ -1296,7 +1298,7 @@ function DeviceSessions({
 								{dragHandle => (
 									<div data-device-group={group.cwd} data-project-missing={group.missing ? "" : undefined}>
 										<div
-											className="group/head flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
+											className="group/head flex h-7 [html[data-input=touch]_&]:h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
 											data-flip-key={`group:${group.cwd}`}
 											onContextMenu={event =>
 												setRowMenu({ ...anchorFromEvent(event), items: groupItems, label: name })
@@ -1383,7 +1385,7 @@ function DeviceSessions({
 			{archivedRows.length > 0 && (
 				<section className="mt-1" data-sidebar-archived={host.deviceId}>
 					<div
-						className="flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
+						className="flex h-7 [html[data-input=touch]_&]:h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
 						data-flip-key="archived"
 					>
 						<SidebarFoldButton

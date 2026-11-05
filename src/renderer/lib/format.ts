@@ -27,8 +27,12 @@ export function languageName(code: string | null): string | null {
 	}
 }
 
-/** "just now" / "8m" / "3h" / "2d" / "Aug 2" (Korean "8. 2."), of an ISO time or epoch ms. */
-export function formatTimeAgo(value: number | string | undefined | null): string {
+/**
+ * "just now" / "8m" / "3h" / "2d" / "Aug 2" (Korean "8. 2."), of an ISO time or epoch ms. With `older: "age"` it stays
+ * an age past a week, "3w" / "5mo" / "2y" (a sidebar row's slot: the owner's call of 6 Nov 2026, the exact time in its
+ * title instead of a date that took a third of the row).
+ */
+export function formatTimeAgo(value: number | string | undefined | null, options?: { older?: "date" | "age" }): string {
 	const then = toMs(value);
 	if (then == null) return "";
 	const seconds = Math.max(0, (Date.now() - then) / 1000);
@@ -36,7 +40,13 @@ export function formatTimeAgo(value: number | string | undefined | null): string
 	if (seconds < 3600) return translate("time.minutesShort", { count: Math.floor(seconds / 60) });
 	if (seconds < 86_400) return translate("time.hoursShort", { count: Math.floor(seconds / 3600) });
 	if (seconds < 604_800) return translate("time.daysShort", { count: Math.floor(seconds / 86_400) });
-	// Korean's short month is a word ("10월 17일", a sidebar row's widest age, ~1.4× "Oct 17"): numbers there.
+	if (options?.older === "age") {
+		const days = Math.floor(seconds / 86_400);
+		if (days < 30) return translate("time.weeksShort", { count: Math.floor(days / 7) });
+		if (days < 365) return translate("time.monthsShort", { count: Math.floor(days / 30) });
+		return translate("time.yearsShort", { count: Math.floor(days / 365) });
+	}
+	// Korean's short month is a word ("10월 17일", ~1.4× "Oct 17"): numbers there.
 	const month = getCurrentLanguage() === "ko" ? "numeric" : "short";
 	return new Date(then).toLocaleDateString(uiLocale(), { month, day: "numeric" });
 }
