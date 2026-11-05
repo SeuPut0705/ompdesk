@@ -101,7 +101,7 @@ export function JobsPanel() {
 		const title = (job.type === "task" && job.agentId ? agentTitle(job.agentId) : undefined) ?? job.label;
 		return (
 			<li
-				className="relative pb-2"
+				className="relative pb-1 [html[data-input=touch]_&]:pb-2"
 				data-job-depth={row.depth}
 				data-job-id={job.id}
 				key={job.id}
@@ -155,7 +155,7 @@ export function JobsPanel() {
 						</span>
 					</div>
 					{preview && (
-						<details className="group/job mt-1.5" open={live}>
+						<details className="group/job mt-1 [html[data-input=touch]_&]:mt-1.5" open={live}>
 							<summary className="flex min-h-(--sc-control-sm) cursor-pointer list-none items-center gap-1 rounded-(--sc-radius-sm) text-sc-xs text-(--sc-text-muted) hover:text-(--sc-text) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring) [&::-webkit-details-marker]:hidden">
 								<ChevronRight aria-hidden className="size-3 shrink-0 group-open/job:rotate-90" />
 								{t("jobs.result")}

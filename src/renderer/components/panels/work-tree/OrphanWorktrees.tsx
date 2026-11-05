@@ -156,7 +156,7 @@ export function OrphanWorktrees() {
 							<li
 								className={cx(
 									PANEL_ROW_SURFACE,
-									"omp-work-tree-row flex h-(--sc-control-md) items-center gap-1.5 rounded-none py-0 pl-3",
+									"omp-work-tree-row flex h-(--sc-control-sm) items-center gap-1.5 rounded-none py-0 pl-3",
 								)}
 								data-orphan-worktree={worktree.path}
 								data-state={worktree.state}

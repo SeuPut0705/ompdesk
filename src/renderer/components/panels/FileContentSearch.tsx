@@ -115,15 +115,34 @@ export function FileContentSearch({ tabId, focusSeq }: { tabId: string | undefin
 						size="sm"
 					/>
 				</div>
-				<input
-					aria-label={t("filesPanel.contentSearch.glob")}
-					className="h-(--sc-control-sm) min-w-0 rounded-(--sc-radius-sm) border border-(--sc-border) bg-(--sc-field) px-2 font-mono text-sc-xs text-(--sc-text) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring)"
-					placeholder={t("filesPanel.contentSearch.globPlaceholder")}
-					spellCheck={false}
-					autoCapitalize="none"
-					value={glob}
-					onChange={event => setGlob(event.target.value)}
-				/>
+				{/* The result count shares the glob field's line, never a line of its own above the results. */}
+				<div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+					<input
+						aria-label={t("filesPanel.contentSearch.glob")}
+						className="h-(--sc-control-sm) min-w-32 flex-1 rounded-(--sc-radius-sm) border border-(--sc-border) bg-(--sc-field) px-2 font-mono text-sc-xs text-(--sc-text) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring)"
+						placeholder={t("filesPanel.contentSearch.globPlaceholder")}
+						spellCheck={false}
+						autoCapitalize="none"
+						value={glob}
+						onChange={event => setGlob(event.target.value)}
+					/>
+					{state.status === "done" && groups.length > 0 && (
+						<span
+							className="text-sc-xs whitespace-nowrap tabular-nums text-(--sc-text-subtle)"
+							data-content-search-count
+						>
+							{t(
+								state.result.limited ? "filesPanel.contentSearch.countMore" : "filesPanel.contentSearch.count",
+								{
+									matches: state.result.matches.length,
+									files: groups.length,
+									matchPlural: state.result.matches.length === 1 ? "" : "es",
+									filePlural: groups.length === 1 ? "" : "s",
+								},
+							)}
+						</span>
+					)}
+				</div>
 			</div>
 			<div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2" aria-live="polite">
 				{state.status === "idle" ? (
@@ -141,50 +160,37 @@ export function FileContentSearch({ tabId, focusSeq }: { tabId: string | undefin
 				) : groups.length === 0 ? (
 					<EmptyState icon={<FileText />} size="sm" title={t("filesPanel.contentSearch.none")} />
 				) : (
-					<>
-						<p className="px-2 py-1.5 text-sc-xs tabular-nums text-(--sc-text-subtle)" data-content-search-count>
-							{t(
-								state.result.limited ? "filesPanel.contentSearch.countMore" : "filesPanel.contentSearch.count",
-								{
-									matches: state.result.matches.length,
-									files: groups.length,
-									matchPlural: state.result.matches.length === 1 ? "" : "es",
-									filePlural: groups.length === 1 ? "" : "s",
-								},
-							)}
-						</p>
-						<ul>
-							{groups.map(group => (
-								<li key={group.path} className="pb-1">
-									<div
-										className="truncate px-2 py-1 text-sc-sm font-medium text-(--sc-text)"
-										title={group.path}
-										data-content-search-file={group.path}
-									>
-										{group.path}
-									</div>
-									<ul>
-										{group.lines.map(hit => (
-											<li key={hit.line}>
-												<button
-													type="button"
-													className="flex w-full min-w-0 items-baseline gap-2 rounded-(--sc-radius-sm) px-2 py-0.5 text-left text-sc-xs hover:bg-(--sc-hover) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring)"
-													onClick={() => openFilePreview(group.path, { line: hit.line })}
-												>
-													<span className="w-8 shrink-0 text-right tabular-nums text-(--sc-text-subtle)">
-														{hit.line}
-													</span>
-													<span className="min-w-0 flex-1 truncate font-mono text-(--sc-text-muted)">
-														{hit.text.trim()}
-													</span>
-												</button>
-											</li>
-										))}
-									</ul>
-								</li>
-							))}
-						</ul>
-					</>
+					<ul className="pt-1">
+						{groups.map(group => (
+							<li key={group.path} className="pb-1">
+								<div
+									className="truncate px-2 py-1 text-sc-sm font-medium text-(--sc-text)"
+									title={group.path}
+									data-content-search-file={group.path}
+								>
+									{group.path}
+								</div>
+								<ul>
+									{group.lines.map(hit => (
+										<li key={hit.line}>
+											<button
+												type="button"
+												className="flex w-full min-w-0 items-baseline gap-2 rounded-(--sc-radius-sm) px-2 py-0.5 text-left text-sc-xs hover:bg-(--sc-hover) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring)"
+												onClick={() => openFilePreview(group.path, { line: hit.line })}
+											>
+												<span className="w-8 shrink-0 text-right tabular-nums text-(--sc-text-subtle)">
+													{hit.line}
+												</span>
+												<span className="min-w-0 flex-1 truncate font-mono text-(--sc-text-muted)">
+													{hit.text.trim()}
+												</span>
+											</button>
+										</li>
+									))}
+								</ul>
+							</li>
+						))}
+					</ul>
 				)}
 			</div>
 		</div>

@@ -23,7 +23,7 @@ import {
 	Trash2,
 	X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ipcErrorCode } from "../../../shared/ipc-error-codes";
 import type { FsTreeEntry, IpcFsMutation } from "../../../shared/ipc-types";
 import type { RpcGitChanges } from "../../../shared/rpc-types";
@@ -399,12 +399,14 @@ function FilePreview({
 						size="sm"
 					/>
 					<FileIcon className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)" path={path} />
+					{/* The head names the file; the line under it, the panel's full width, says its folder, kind and
+					    size, wrapping at the folder's slashes: the path is shown once and never clipped. */}
 					<span
-						className={`min-w-0 flex-1 truncate text-sc-sm ${isPreviewTab ? "italic" : ""}`}
+						className={`min-w-0 flex-1 text-sc-sm [overflow-wrap:anywhere] ${isPreviewTab ? "italic" : ""}`}
 						data-file-preview-title
 						title={isPreviewTab ? `${path} — ${t("filesPanel.previewTab")}` : path}
 					>
-						{path}
+						{path.slice(path.lastIndexOf("/") + 1)}
 					</span>
 					<div className="flex shrink-0 items-center gap-0.5">
 						{isPreviewTab && (
@@ -465,12 +467,20 @@ function FilePreview({
 						)}
 					</div>
 				</div>
-				<div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 ps-9">
-					<span
-						className="me-auto max-w-full truncate text-sc-xs text-(--sc-text-subtle) tabular-nums"
-						data-file-meta
-						title={info?.mime}
-					>
+				<div className="flex min-w-0 flex-wrap items-baseline gap-x-2 ps-9 text-sc-xs text-(--sc-text-subtle)">
+					{path.includes("/") && (
+						<span className="min-w-0 [overflow-wrap:anywhere]" data-file-folder>
+							{path
+								.slice(0, path.lastIndexOf("/"))
+								.split("/")
+								.map((part, index) => (
+									<Fragment key={index}>
+										{part}/<wbr />
+									</Fragment>
+								))}
+						</span>
+					)}
+					<span className="whitespace-nowrap tabular-nums" data-file-meta title={info?.mime}>
 						{info ? `${kindLabel} · ${formatBytes(info.size)}` : kindLabel}
 					</span>
 				</div>

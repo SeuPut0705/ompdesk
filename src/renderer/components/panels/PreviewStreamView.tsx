@@ -356,7 +356,7 @@ export function PreviewStreamView({ active, tab }: { active: boolean; tab: strin
 				placement="bottom"
 				title={t(`panel.preview.stream.dialog.${dialog?.kind ?? "alert"}`)}
 			>
-				<div className="space-y-3 px-5 py-4" data-preview-dialog={dialog?.kind}>
+				<div className="space-y-3" data-preview-dialog={dialog?.kind}>
 					<p className="text-sc-md break-words whitespace-pre-wrap text-(--sc-text)">{dialog?.message}</p>
 					{dialog?.kind === "prompt" && (
 						<input

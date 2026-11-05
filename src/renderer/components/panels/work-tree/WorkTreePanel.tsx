@@ -170,7 +170,7 @@ const TreeRow = memo(function TreeRow({
 				aria-label={[title, stateLabel, node.device].filter(Boolean).join(", ")}
 				className={cx(
 					PANEL_ROW_SURFACE,
-					"omp-work-tree-row flex h-(--sc-control-md) w-full items-center gap-1.5 rounded-none py-0",
+					"omp-work-tree-row flex h-(--sc-control-sm) w-full items-center gap-1.5 rounded-none py-0",
 					node.target === null && "cursor-default hover:bg-transparent",
 				)}
 				data-work-tree-row={node.key}
@@ -255,7 +255,7 @@ function FamilyTree({ family, billing }: { family: WorkTreeFamily; billing?: Rea
 						chevronClassName="size-(--sc-icon-sm)"
 						className={cx(
 							PANEL_ROW_SURFACE,
-							"omp-work-tree-row h-(--sc-control-md) gap-1.5 rounded-none py-0 text-(--sc-text-muted)",
+							"omp-work-tree-row h-(--sc-control-sm) gap-1.5 rounded-none py-0 text-(--sc-text-muted)",
 						)}
 						data-work-tree-finished={family.finished.length}
 						onToggle={() => setFinishedOpen(value => !value)}

@@ -112,7 +112,7 @@ export function SavedWorktrees() {
 						<li
 							className={cx(
 								PANEL_ROW_SURFACE,
-								"omp-work-tree-row @container flex min-h-(--sc-control-md) items-center gap-1.5 rounded-none py-0! pl-3",
+								"omp-work-tree-row @container flex min-h-(--sc-control-sm) items-center gap-1.5 rounded-none py-0! pl-3",
 							)}
 							data-saved-worktree={worktree.id}
 							key={worktree.id}

@@ -243,13 +243,25 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 			<div className="omp-changes-top flex shrink-0 flex-col">
 				<PanelToolbar>
 					{sourceSelector}
-					{changes?.isRepo && (
-						<span className="ml-auto text-sc-xs text-(--sc-text-muted)">
-							{t("diffPanel.repositorySummary", {
-								count: changes.files.length,
-							})}
-						</span>
-					)}
+					{/* One line says how many files changed and how many of them are staged: the stage-all box and its
+					    count sit in the toolbar, never a second line under the search. */}
+					{changes?.isRepo &&
+						(changes.files.length > 0 ? (
+							<label className="ml-auto flex min-w-0 items-center gap-2 text-sc-xs text-(--sc-text-muted)">
+								<Checkbox
+									aria-checked={allChecked ? "true" : staged > 0 ? "mixed" : "false"}
+									checked={allChecked}
+									disabled={scmBusy}
+									indeterminate={!allChecked && staged > 0}
+									onChange={() => setStaged("all", !allChecked)}
+								/>
+								<span>{t("scm.stagedSummary", { staged, total: changes.files.length })}</span>
+							</label>
+						) : (
+							<span className="ml-auto text-sc-xs text-(--sc-text-muted)">
+								{t("diffPanel.repositorySummary", { count: 0 })}
+							</span>
+						))}
 					{counted && (
 						<>
 							<span aria-hidden className="text-(--sc-text-subtle)">
@@ -309,38 +321,25 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 				changes && (
 					<div className="omp-changes-body min-h-0 flex-1" data-open={!!selected}>
 						<div ref={setListScroller} className="omp-changes-list min-h-0 overflow-y-auto px-3 pb-3">
-							<div className="sticky top-0 z-(--sc-z-sticky) bg-(--sc-surface-1) pt-2 pb-1">
-								<SearchField
-									controlSize="sm"
-									label={t("diffPanel.search")}
-									onValueChange={setQuery}
-									placeholder={t("diffPanel.search")}
-									value={query}
-								/>
-								<div className="mt-1 flex items-center gap-2 px-2 text-sc-xs text-(--sc-text-muted)">
-									<label className="flex min-w-0 items-center gap-2">
-										<Checkbox
-											aria-checked={allChecked ? "true" : staged > 0 ? "mixed" : "false"}
-											checked={allChecked}
-											disabled={scmBusy}
-											indeterminate={!allChecked && staged > 0}
-											onChange={() => setStaged("all", !allChecked)}
-										/>
-										<span className="truncate">
-											{t("scm.stagedSummary", { staged, total: changes.files.length })}
-										</span>
-									</label>
-									<Button
-										className="ml-auto"
-										disabled={scmBusy || changes.files.length === 0}
-										icon={<Undo2 />}
-										onClick={() => setDiscarding(changes.files.map(file => file.path))}
-										size="sm"
-										variant="ghost"
-									>
-										{t("scm.discardAll")}
-									</Button>
+							<div className="sticky top-0 z-(--sc-z-sticky) flex items-center gap-2 bg-(--sc-surface-1) pt-2 pb-1">
+								<div className="min-w-0 flex-1">
+									<SearchField
+										controlSize="sm"
+										label={t("diffPanel.search")}
+										onValueChange={setQuery}
+										placeholder={t("diffPanel.search")}
+										value={query}
+									/>
 								</div>
+								<Button
+									disabled={scmBusy || changes.files.length === 0}
+									icon={<Undo2 />}
+									onClick={() => setDiscarding(changes.files.map(file => file.path))}
+									size="sm"
+									variant="ghost"
+								>
+									{t("scm.discardAll")}
+								</Button>
 							</div>
 							<div>
 								<VirtualRows estimate={30} itemKey={file => file.path} items={files} scroller={listScroller}>

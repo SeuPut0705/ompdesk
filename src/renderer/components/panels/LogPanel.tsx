@@ -130,6 +130,17 @@ export function LogPanel() {
 						label: t(LEVEL_LABEL_KEY[level]),
 					}))}
 				/>
+				{/* The search shares the toolbar's line and wraps under it only where the sheet is too narrow. */}
+				<div className="min-w-40 flex-1 basis-40">
+					<SearchField
+						controlSize="sm"
+						label={t("logPanel.searchLabel")}
+						onValueChange={setQuery}
+						placeholder={t("logPanel.placeholder")}
+						value={query}
+					/>
+					<span className="sr-only">{t("logPanel.scope")}</span>
+				</div>
 				{/* The empty state already says there is nothing; a count needs its unit. */}
 				{filtered.length > 0 && (
 					<span className="text-sc-xs whitespace-nowrap tabular-nums text-(--sc-text-subtle)" data-log-count>
@@ -151,16 +162,6 @@ export function LogPanel() {
 					/>
 				</div>
 			</PanelToolbar>
-			<div className="px-3 pb-1.5">
-				<SearchField
-					controlSize="sm"
-					label={t("logPanel.searchLabel")}
-					onValueChange={setQuery}
-					placeholder={t("logPanel.placeholder")}
-					value={query}
-				/>
-				<span className="sr-only">{t("logPanel.scope")}</span>
-			</div>
 			<div className="relative min-h-0 flex-1">
 				<div
 					className="h-full overflow-y-auto px-3 py-1 font-mono text-sc-xs leading-(--sc-leading-normal)"

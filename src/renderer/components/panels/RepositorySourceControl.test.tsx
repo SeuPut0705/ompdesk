@@ -141,7 +141,11 @@ describe("Changes panel source control", () => {
 		expect(sent()).toContainEqual({ type: "git_stage", paths: ["src/a.ts"] });
 		await toggle(byLabel("Unstage src/b.ts")!);
 		expect(sent()).toContainEqual({ type: "git_unstage", paths: ["src/b.ts"] });
-		const all = queryAll('input[type="checkbox"]')[1]!;
+		const all = queryAll("label")
+			.filter(label => label.textContent?.includes("staged"))
+			.map(
+				label => (label as unknown as Element).querySelector('input[type="checkbox"]') as unknown as TestElement,
+			)[0]!;
 		expect(all.getAttribute("aria-checked")).toBe("mixed");
 		await toggle(all);
 		expect(sent()).toContainEqual({ type: "git_stage", paths: "all" });
