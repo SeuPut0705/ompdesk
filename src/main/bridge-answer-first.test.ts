@@ -145,6 +145,27 @@ describe("answer-first gate", () => {
 		fire("agent_end", { messages: [] });
 		expect(respond([waitCall], "wait")).toEqual([undefined]);
 	});
+
+	it("counts a narration block as the answer, as stock shows it, and never plain reasoning", () => {
+		const { typed, run, respond } = hook(() => true);
+		typed.note("성능저하 기능저하 없이 제대로 작동하는것이 중요함", true);
+		run("성능저하 기능저하 없이 제대로 작동하는것이 중요함");
+		// The bot's response 987 in 01a1a7f1 (claude-opus-5-5, 5 Nov 2026): its reasoning, then its answer to the person
+		// as a narration block (Anthropic's signature kind; pi-ai `presentNarrationAsAnswer` renders it as text), then
+		// the call. The gate refused it.
+		const reasoning = {
+			type: "thinking",
+			thinking: "The gate seems to be catching me, so I'm going to answer first.",
+		};
+		expect(respond([reasoning, waitCall], "write")).toEqual([expect.objectContaining({ block: true })]);
+		const narration = {
+			type: "thinking",
+			narration: true,
+			thinking:
+				"세 가지 조건(더 느려지지 않을 것, 기존 기능 유지, 기존 시험 통과)을 지키는 변경만 넣겠다고 정했어요.",
+		};
+		expect(respond([reasoning, narration, waitCall], "write")).toEqual([undefined]);
+	});
 });
 
 describe("typed prompts", () => {
