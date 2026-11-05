@@ -671,6 +671,45 @@ describe("each failure shape of the replayed turns", () => {
 			],
 			{ unresolved: ["mcp__agent_desktop_desktop_click"], recovered: [] },
 		],
+		[
+			"an agent-desktop find that asked wrongly (the real smoke's INVALID_ARGS, as stock wraps it)",
+			[
+				{
+					name: "write",
+					args: {
+						path: "xd://mcp__agent_desktop_desktop_find",
+						content: '{"app":"TextEdit","surface":"menubar"}',
+					},
+					text: 'Error: {"command":"find","error":{"code":"INVALID_ARGS","message":"Rectangle must contain finite bounded coordinates"},"ok":false}',
+					isError: true,
+				},
+			],
+			{ unresolved: [], recovered: [] },
+		],
+		[
+			"an agent-desktop screenshot denied by macOS stays standing",
+			[
+				{
+					name: "mcp__agent_desktop_desktop_screenshot",
+					args: { app: "TextEdit" },
+					text: '{"ok":false,"command":"screenshot","error":{"code":"PERM_DENIED","message":"Screen Recording"}}',
+					isError: true,
+				},
+			],
+			{ unresolved: ["mcp__agent_desktop_desktop_screenshot"], recovered: [] },
+		],
+		[
+			"an agent-desktop snapshot whose server failed (no envelope) stays standing",
+			[
+				{
+					name: "mcp__agent_desktop_desktop_snapshot",
+					args: { app: "TextEdit" },
+					text: "MCP error -32000: Connection closed",
+					isError: true,
+				},
+			],
+			{ unresolved: ["mcp__agent_desktop_desktop_snapshot"], recovered: [] },
+		],
 	])("%s", (_, steps, expected) => {
 		expect(verdict(steps)).toEqual(expected);
 	});

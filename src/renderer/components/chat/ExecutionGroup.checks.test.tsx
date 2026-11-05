@@ -430,7 +430,16 @@ describe("work card without output", () => {
 			toolName: `mcp__agent_desktop_desktop_${tool}`,
 			args,
 			...(failed ? { status: "error" as const, isError: true } : {}),
-			result: { content: [{ type: "text", text: failed ? '{"ok":false,"command":"find"}' : '{"ok":true}' }] },
+			result: {
+				content: [
+					{
+						type: "text",
+						text: failed
+							? 'Error: {"ok":false,"command":"find","error":{"code":"ELEMENT_NOT_FOUND","message":"no match"}}'
+							: '{"ok":true}',
+					},
+				],
+			},
 			startTime: at,
 			endTime: at + 100,
 		});
@@ -457,6 +466,39 @@ describe("work card without output", () => {
 		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe(
 			"3 desktop steps · Read 1 file",
 		);
+	});
+
+	it("shows an agent-desktop look that matched nothing as such, and a refused action as Failed though a retry fixed it", async () => {
+		const call = (tool: string, args: Record<string, unknown>, at: number, error?: string): ToolEntry => ({
+			...edit,
+			toolName: `mcp__agent_desktop_desktop_${tool}`,
+			args,
+			...(error ? { status: "error" as const, isError: true } : {}),
+			result: {
+				content: [
+					{
+						type: "text",
+						text: error ? `Error: {"ok":false,"command":"${tool}","error":{"code":"${error}"}}` : '{"ok":true}',
+					},
+				],
+			},
+			startTime: at,
+			endTime: at + 100,
+		});
+		await mount(
+			[
+				["f1", call("find", { app: "TextEdit", name: "File" }, 0, "ELEMENT_NOT_FOUND")],
+				["c1", call("click", { ref_id: "@s1:e86" }, 200, "APP_UNRESPONSIVE")],
+				["c2", call("click", { ref_id: "@s1:e86" }, 400)],
+			],
+			() => {},
+			true,
+		);
+		expect(mark()?.getAttribute("data-state")).toBe("complete");
+		const state = (id: string) =>
+			container.querySelector(`[data-tool-call-id="${id}"] .omp-tool-state`)?.textContent ?? "";
+		expect(state("f1")).toBe("Nothing matched");
+		expect(state("c1")).toBe("Failed");
 	});
 });
 
