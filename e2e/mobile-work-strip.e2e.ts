@@ -86,6 +86,10 @@ for (const engine of ENGINES)
 				await phone.goto(`${proxy.url}/`, { timeout: 60_000 });
 				await phonePaired(phone);
 				await phone.evaluate(cwd => window.omp.tabs.spawn({ cwd, kind: "agent" }), project);
+				// The page's own boot may still reload it once (a chunk that failed before the app loaded reloads at once,
+				// web-boot.ts): the nightly that failed here recorded `chunk-load-failed` and three loads of `/` within 57 ms,
+				// this reload among them. The app is up (its composer takes input) before this one asks for another.
+				await expect(phone.locator("[data-composer-input]").first()).toBeEditable({ timeout: 60_000 });
 				await phone.reload({ timeout: 60_000 });
 			} catch (error) {
 				await loads.attach("phone-loads.txt");
