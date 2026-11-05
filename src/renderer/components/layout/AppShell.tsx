@@ -24,10 +24,12 @@ import { loadDeferredChunk } from "../../lib/deferred-chunk";
 import { useT } from "../../lib/i18n";
 import { whenIdle } from "../../lib/idle";
 import { actionShortcut } from "../../lib/keymap";
+import { whenLinkOpen } from "../../lib/when-link-open";
 import { markChromePlatform, syncWindowControls } from "../../lib/window-chrome";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
 import { type PageDestination, setSidebarDrawerMode, useUiStore } from "../../stores/ui";
+import { webRuntime } from "../../web/runtime";
 import { Button, IconButton, Skeleton, Tooltip } from "../common";
 import { PanelContainer, preloadPanelViews } from "./PanelContainer";
 import { EdgeSwipeZone, SidebarDrawer } from "./SidebarDrawer";
@@ -348,17 +350,22 @@ export function AppShell() {
 	// and a preload in those gaps took the phone's link and CPU from it.
 	useEffect(() => {
 		let cancelIdle = () => {};
+		let cancelLink = () => {};
 		const timer = setTimeout(
 			() => {
-				cancelIdle = whenIdle(() => {
-					for (const page of ["settings", "agents", "insights"] as const) void preloadPage(page);
-					void preloadPanelViews().catch(() => {});
-				}, IDLE_PRELOAD_TIMEOUT_MS);
+				// A paired page preloads only while its computer answers (lib/when-link-open.ts).
+				cancelLink = whenLinkOpen(webRuntime(), () => {
+					cancelIdle = whenIdle(() => {
+						for (const page of ["settings", "agents", "insights"] as const) void preloadPage(page);
+						void preloadPanelViews().catch(() => {});
+					}, IDLE_PRELOAD_TIMEOUT_MS);
+				});
 			},
 			document.documentElement.dataset.platform === "web" ? WEB_PRELOAD_DELAY_MS : 0,
 		);
 		return () => {
 			clearTimeout(timer);
+			cancelLink();
 			cancelIdle();
 		};
 	}, []);

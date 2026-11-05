@@ -3,6 +3,7 @@ import { act, type ReactNode, Suspense } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	chunkFailureDetail,
 	isChunkLoadError,
 	lazyChunk,
 	loadChunk,
@@ -68,6 +69,7 @@ describe("loadChunk (a failed dynamic import retries once, then the build counts
 		await expect(loadChunk(load)).rejects.toThrow("Importing a module script failed.");
 		expect(load).toHaveBeenCalledTimes(2);
 		expect(useChunkFailureStore.getState().failed).toBe(true);
+		expect(chunkFailureDetail()).toBe("loadChunk: Importing a module script failed.");
 	});
 
 	it("never retries an error that is not a chunk load", async () => {
@@ -123,6 +125,7 @@ describe("watchChunkFailures (every other dynamic import that fails for good)", 
 		expect(useChunkFailureStore.getState().failed).toBe(false);
 		timers[0]?.();
 		expect(useChunkFailureStore.getState().failed).toBe(true);
+		expect(chunkFailureDetail()).toBe("vite:preloadError: Importing a module script failed.");
 		expect(RECOVERY_GRACE_MS).toBeGreaterThan(0);
 	});
 

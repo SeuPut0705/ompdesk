@@ -38,6 +38,16 @@ export const useChunkFailureStore = create<{ failed: boolean; appGone: boolean }
 }));
 
 let recoveredAt = 0;
+let lastFailure = "";
+
+/** What made the build count as stale ("loadChunk: Importing a module script failed."), for the reload's record. */
+export function chunkFailureDetail(): string {
+	return lastFailure;
+}
+
+function noteFailure(source: string, error: unknown): void {
+	lastFailure = `${source}: ${error instanceof Error ? error.message : String(error)}`.slice(0, 300);
+}
 
 /** Load a chunk, once more when the first try failed as a chunk load. */
 export async function loadChunk<T>(load: () => Promise<T>, now: () => number = Date.now): Promise<T> {
@@ -50,7 +60,10 @@ export async function loadChunk<T>(load: () => Promise<T>, now: () => number = D
 			recoveredAt = now();
 			return value;
 		} catch (second) {
-			if (isChunkLoadError(second)) useChunkFailureStore.setState({ failed: true });
+			if (isChunkLoadError(second)) {
+				noteFailure("loadChunk", second);
+				useChunkFailureStore.setState({ failed: true });
+			}
 			throw second;
 		}
 	}
@@ -75,10 +88,13 @@ export function watchChunkFailures(
 	setTimer: (callback: () => void, ms: number) => unknown = (callback, ms) => setTimeout(callback, ms),
 ): void {
 	target.addEventListener("vite:preloadError", event => {
-		if (!isChunkLoadError("payload" in event ? event.payload : undefined)) return;
+		const payload = "payload" in event ? event.payload : undefined;
+		if (!isChunkLoadError(payload)) return;
 		const failedAt = now();
 		setTimer(() => {
-			if (recoveredAt < failedAt) useChunkFailureStore.setState({ failed: true });
+			if (recoveredAt >= failedAt) return;
+			noteFailure("vite:preloadError", payload);
+			useChunkFailureStore.setState({ failed: true });
 		}, RECOVERY_GRACE_MS);
 	});
 }
