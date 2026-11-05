@@ -1148,6 +1148,23 @@ app.whenReady().then(() => {
 		...(process.env.OMP_GUI_TEST_MEMORY_MS && !app.isPackaged
 			? { sampleMs: Number(process.env.OMP_GUI_TEST_MEMORY_MS) }
 			: {}),
+		// A quiet tab gives its omp back while memory is short (idle-release.ts); the pool checks again first.
+		release: tabId =>
+			void sidecarPool.releaseIdle(tabId).then(
+				released => {
+					if (!released)
+						writeRuntimeLog({ source: "memory", message: "memory release kept", details: { tab: tabId } });
+				},
+				(error: unknown) =>
+					writeRuntimeLog({
+						source: "memory",
+						message: "memory release failed",
+						details: { tab: tabId, error: String(error) },
+					}),
+			),
+		...(process.env.OMP_GUI_TEST_IDLE_RELEASE_MS && !app.isPackaged
+			? { releaseQuietMs: Number(process.env.OMP_GUI_TEST_IDLE_RELEASE_MS) }
+			: {}),
 	});
 	const memoryAdmission = memoryWatch.admission;
 	// A turn that ended has finished its growth (it reserves nothing more); a released tab leaves the line.

@@ -47,6 +47,8 @@ export interface SidecarLike extends Pick<EventEmitter, "on" | "off" | "once" | 
 	readonly statusFromLink?: boolean;
 	start(): void;
 	restart(cwd?: string, resumeSessionPath?: string): void;
+	/** Local sidecars only: stop the omp of an idle tab and read asleep; the next start resumes its session (`idle-release.ts`). */
+	sleep?(): void;
 	/** Local sidecars only: pick up an extension update or another session's MCP change in the live session. */
 	reloadExtensions?(plan: Pick<ExtensionApplyPlan, "reconnect" | "mcp"> & { reload: boolean }): Promise<void>;
 	adoptCwd(cwd: string): boolean;

@@ -1380,6 +1380,17 @@ export class SidecarManager extends EventEmitter {
 		if (child) stopOmp(child);
 	}
 
+	/**
+	 * Stop the omp of an idle tab and read `asleep`, as a restored tab reads before its first start: the pool restarts it
+	 * on its session file when it is shown or messaged (`idle-release.ts`). The omp stops as a restart stops it.
+	 */
+	sleep(): void {
+		if (this.#disposed || !this.#child) return;
+		this.kill();
+		this.#restartCount = 0;
+		this.#setStatus("asleep");
+	}
+
 	dispose(): void {
 		this.#disposed = true;
 		const grace = this.#options.gracefulStopMs?.() ?? 0;
