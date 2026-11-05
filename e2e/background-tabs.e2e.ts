@@ -111,7 +111,27 @@ function sidebarRow(tabId: string) {
 
 async function switchTo(tabId: string): Promise<void> {
 	await sidebarRow(tabId).locator("button[data-roving-item]").click();
-	await expect.poll(activeTab).toBe(tabId);
+	try {
+		await expect.poll(activeTab).toBe(tabId);
+	} catch (error) {
+		// Nightly 41936718739: the click did not take the front tab away (once in 16 nightlies, none in 60 CI repeats). The
+		// tabs as main lists them and where each sidebar row sits now show whether the rows moved under the click.
+		const rows = await page.locator("[data-session-path]").evaluateAll(nodes =>
+			nodes.map(node => {
+				const box = node.getBoundingClientRect();
+				return {
+					path: node.getAttribute("data-session-path"),
+					text: node.textContent?.slice(0, 60),
+					y: box.y,
+					h: box.height,
+				};
+			}),
+		);
+		await test
+			.info()
+			.attach("switch-to.json", { body: JSON.stringify({ tabId, tabs: await tabs(), rows }, null, 1) });
+		throw error;
+	}
 }
 
 function notifications(): Promise<Notification[]> {
