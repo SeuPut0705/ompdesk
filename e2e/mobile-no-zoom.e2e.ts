@@ -175,13 +175,16 @@ test("two fingers zoom an opened file, never the page; one finger then moves it 
 		});
 	const zoomed = await transform();
 	expect(zoomed.scale).toBeGreaterThan(1.6);
-	await cdp.send("Input.synthesizeScrollGesture", {
-		...center,
-		xDistance: 0,
-		yDistance: -60,
-		gestureSourceType: "touch",
-		speed: 400,
-	});
+	// One finger, as touch events the area reads. Windows Chromium's Input.synthesizeScrollGesture sends a touch's
+	// pointer moves but never its touchmove (measured, Chromium 153 on win32: a blank page's listener saw touchstart,
+	// 11 pointermoves, touchend), so the finger is dispatched point by point.
+	await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [center] });
+	for (let step = 1; step <= 6; step++)
+		await cdp.send("Input.dispatchTouchEvent", {
+			type: "touchMove",
+			touchPoints: [{ x: center.x, y: center.y - step * 10 }],
+		});
+	await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
 	await page.waitForTimeout(300);
 	expect((await transform()).y).toBeLessThan(zoomed.y - 20);
 	// Another file starts at its own size.
