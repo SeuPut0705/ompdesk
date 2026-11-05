@@ -10,6 +10,12 @@
 - 대화의 모든 메시지 시간이 마우스를 올리지 않아도 보여요. 복사·분기 버튼은 지금처럼 마우스를 올리거나 포커스할 때 나타나요.
 - 내가 보낸 짧은 메시지는 시간과 버튼이 말풍선 왼쪽 옆에 붙어, 메시지마다 아래에 비워 두던 줄(22px)을 돌려받아요. 말풍선이 줄을 다 채우면 지금처럼 아래 줄에 놓여요. 글자를 덮는 일은 없어요.
 - 마우스로 쓸 때 알림(토스트)·업데이트 안내·컨텍스트 사용량 분해의 여백이 줄었어요(토스트 하나에 8px, 안내 6px). 토스트의 상세 내용은 세 줄 대신 네 줄까지 보여요. 터치 화면은 그대로예요.
+- 사이드바 세션의 시간이 일주일이 지나도 "10. 17." 같은 날짜 대신 "3주", "5개월", "2년"처럼 짧게 보여요. 그만큼 제목이 더 보이고, 정확한 날짜와 시각은 시간이나 행에 마우스를 올리면 보여요. 이 컴퓨터, 페어링한 컴퓨터, 폰 모두 같아요.
+- 마우스로 쓸 때 사이드바 세션 행(36 → 32px)과 프로젝트 머리줄(32 → 28px)이 낮아져 한 화면에 세션이 더 보여요. 세션이 없을 때 안내는 큰 상자 대신 한 줄이에요. 터치 크기는 그대로예요.
+- 좁은 창의 설정에서 섹션 칩이 다섯 줄로 쌓이지 않고 옆으로 넘기는 한 줄이 돼요. 800×800 창에서 설정 내용이 188px 위에서 시작해요. 설정 행과 묶음 사이 간격, 메모리 목록 행도 마우스에서 더 촘촘해요.
+- 페어링한 컴퓨터의 설정에서 "PC-B의 탭은 그 기기의 설정을 따라요" 문장이 행마다 되풀이되지 않고 일반 섹션 위에 한 번만 나와요.
+- 통계의 "이 세션 / 모든 세션" 전환이 탭 줄 오른쪽으로 올라가 내용이 약 56px 위에서 시작해요. 폰에서는 열 개의 보기가 한 줄로 넘어가고, 잘리던 "전체 기간"이 보여요. 사용량 한도는 창마다 세 줄에서 두 줄로 줄었어요(재설정 시간이 이름 옆으로).
+- 에이전트 Live 행이 제목과 같은 설명을 한 번 더 쓰지 않아요. PR 제목과 첫 실행의 제공자 이름("Grok (SuperGrok or X Premium+)")은 잘리지 않고 두 줄까지 보여요.
 
 ### 고친 것
 - 일하는 중에 보낸 메시지에 에이전트가 먼저 글로 답했는데도, 앱이 그 답을 못 알아보고 다음 도구를 두 번 막았어요. 일부 모델(Claude Opus 5.5)은 사람에게 하는 말을 생각 블록 형태로 보내는데, 그 말을 답으로 치지 않았기 때문이에요. 이제 화면에 답으로 보이는 말이면 답으로 쳐요.
@@ -27,6 +33,12 @@ A message an agent sends to a working session now reaches it right away instead 
 - Every message's time shows without hovering. Copy and branch still appear on hover or focus.
 - A short prompt of yours carries its time and buttons beside its bubble, giving back the row each prompt kept empty under it (22 px). A bubble that fills the row keeps them on the line under it, as before. Nothing covers text.
 - With a mouse, toasts, the update notice and the context usage breakdown take tighter padding (8 px less per toast, 6 px for the notice), and a toast's detail shows four lines instead of three. Touch screens are unchanged.
+- A sidebar session's age stays short past a week: "3w", "5mo", "2y" instead of a date such as "Oct 17", so titles get the room. The exact date and time show when you hover the age or the row. The same on this computer, a paired computer and the phone.
+- With a mouse, sidebar session rows (36 → 32 px) and project headers (32 → 28 px) are shorter, so more sessions fit. An empty list says so in one line instead of a large box. Touch sizes are unchanged.
+- On a narrow Settings page the section chips are one sideways row instead of five wrapped rows: in an 800×800 window the section starts 188 px higher. Settings rows, the gaps between groups and memory's list rows are denser with a mouse.
+- A paired computer's Settings says "Tabs on PC-B follow that device's own setting" once, above the General section, instead of under each row.
+- Stats' "This session / All sessions" switch sits on the tab row, so the content starts about 56 px higher. On a phone the ten views are one sideways row and "All time" is no longer cut off. Each usage window is two lines instead of three (its reset time beside its name).
+- An Agents Live row no longer repeats its title as its description. Pull request titles and the first-run provider names ("Grok (SuperGrok or X Premium+)") wrap to two lines instead of being cut.
 
 ### Fixed
 - A message sent while the agent worked got a written answer, yet the app missed the answer and refused the agent's next tool call twice. Some models (Claude Opus 5.5) send what they say to the person as a narration block, which the app did not count as an answer. What shows as an answer on screen now counts as one.
