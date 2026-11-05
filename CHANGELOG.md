@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.112.3] - 2026-11-06
+
+읽을 수 없는 그림이 있는 답변 때문에 대화창이 좌우로 스크롤되던 문제를 고쳤어요.
+
+### 고친 것
+- 답변 속 그림 파일을 이 기기에서 읽지 못하면(옮겨졌거나 지워졌거나 아직 읽는 중) 캡션과 경로를 담은 칩으로 보여요. 이 칩의 경로가 줄어들지 않아서, 그림 두 장을 나란히 놓은 줄에서는 긴 경로가 칸 밖으로 최대 273 px 삐져나왔고 대화창 전체에 좌우 스크롤 막대가 생겼어요. 이제 경로는 칩 안에서 말줄임으로 줄고, 칩에 마우스를 올리면 전체 경로가 보여요. 이 컴퓨터, 페어링한 컴퓨터, 휴대폰에서 모두 같아요.
+
+<!-- en -->
+
+A reply with a picture the device cannot read no longer makes the chat scroll sideways.
+
+### Fixed
+- A reply's picture whose file this device cannot read (moved, deleted, or still being read) shows as a chip with its caption and path. The path could not shrink, so in a row of two pictures a long path spilled up to 273 px out of its cell and gave the whole chat a horizontal scrollbar. The path now truncates inside the chip, and hovering the chip shows it in full. The same on this computer, a paired computer and the phone.
+
 ## [0.112.2] - 2026-11-06
 
 에이전트가 일하면서 쓴 말이 대화창에서 사라지지 않고, 일하는 중에 보낸 메시지에는 먼저 글로 답해요.
