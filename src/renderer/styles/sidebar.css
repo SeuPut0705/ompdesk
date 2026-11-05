@@ -39,7 +39,8 @@ html[data-input="touch"] :is(.omp-session-sidebar .omp-sidebar-session-row, .omp
 	padding-left: calc(var(--sc-space-2) + var(--sc-icon-md));
 }
 
-/* A project or device header: 28 / 32 px for a mouse, 36 px under a finger. */
+/* A project or device header: 28 / 32 px for a mouse. Under a finger mobile.css makes a project header a
+   `--sc-row-touch` row; a device header keeps `--sc-control-lg`, as before. */
 .omp-session-sidebar [data-workspace-group] {
 	min-height: var(--sc-control-sm);
 }
@@ -48,7 +49,7 @@ html[data-input="touch"] :is(.omp-session-sidebar .omp-sidebar-session-row, .omp
 	min-height: var(--sc-control-md);
 }
 
-html[data-input="touch"] .omp-session-sidebar :is([data-workspace-group], [data-device-group] > div:first-child) {
+html[data-input="touch"] .omp-session-sidebar [data-device-group] > div:first-child {
 	min-height: var(--sc-control-lg);
 }
 
