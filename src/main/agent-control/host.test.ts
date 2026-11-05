@@ -1422,6 +1422,7 @@ describe("AgentControlRuntime", () => {
 			const sent = await before.runtime.run(before.win, "main0001", T.send, {
 				session: "busy0002",
 				message: "Also do C",
+				delivery: "follow_up",
 			});
 			expect(sent.text).toContain("queued as a follow-up");
 			expect(prompted.map(entry => entry.tabId)).toEqual(["busy0002"]);

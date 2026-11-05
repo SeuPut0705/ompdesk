@@ -945,17 +945,6 @@ describe("ompdesk_session_send", () => {
 		}
 	});
 
-	it("delivers a steer to a running session and a follow-up by default", async () => {
-		const host = new FakeHost({ tabId: "main0001" }, { tabId: "work0002", busy: true });
-		const service = control(host);
-		await service.run("main0001", T.send, { session: "work0002", message: "now", delivery: "steer" });
-		await service.run("main0001", T.send, { session: "work0002", message: "later" });
-		const behaviours = host.sent
-			.filter(entry => entry.command.type === "prompt")
-			.map(entry => (entry.command as { streamingBehavior?: string }).streamingBehavior);
-		expect(behaviours).toEqual(["steer", "followUp"]);
-	});
-
 	it("refuses a self-send, a hidden session, an unknown id and an ambiguous prefix", async () => {
 		const host = new FakeHost(
 			{ tabId: "main0001" },
@@ -4688,7 +4677,11 @@ describe("after a relaunch: ids, titles, and messages a busy child waits for", (
 		const opened = await service.run("boss0001", T.open, { message: "Title: part A\nDo A" });
 		const kid = /Opened session (\w+)/.exec(opened.text)?.[1] as string;
 		// The child works (its first prompt made it busy); the opener queues more work behind its turn.
-		const queued = await service.run("boss0001", T.send, { session: kid, message: "Also do C" });
+		const queued = await service.run("boss0001", T.send, {
+			session: kid,
+			message: "Also do C",
+			delivery: "follow_up",
+		});
 		expect(queued.text).toContain("queued as a follow-up");
 		// It reports done and would keep waiting in the same turn: the report must say a message waits for it.
 		const report = await service.run(kid, T.report, { kind: "done", text: "A done", dispatch: "d2" });
@@ -4707,7 +4700,7 @@ describe("after a relaunch: ids, titles, and messages a busy child waits for", (
 		const service = control(host);
 		const opened = await service.run("boss0001", T.open, { message: "Do A" });
 		const kid = /Opened session (\w+)/.exec(opened.text)?.[1] as string;
-		await service.run("boss0001", T.send, { session: kid, message: "Also do C" });
+		await service.run("boss0001", T.send, { session: kid, message: "Also do C", delivery: "follow_up" });
 		const tab = host.tabsById.get(kid);
 		if (tab)
 			tab.messages = [
@@ -4876,7 +4869,7 @@ describe("situation matrix", () => {
 		"read · unknown": { tool: T.read, args: { session: "nothing-like-it" }, error: /ompdesk_sessions/ },
 
 		"send · local": { tool: T.send, args: { session: "loca1111", message: "go" }, ok: /Sent to/ },
-		"send · title": { tool: T.send, args: { session: "Busy builder", message: "go" }, ok: /queued as a follow-up/ },
+		"send · title": { tool: T.send, args: { session: "Busy builder", message: "go" }, ok: /delivered as steer/ },
 		"send · saved id of an open tab": { tool: T.send, args: { session: LOCAL_STOCK, message: "go" }, ok: /Sent to/ },
 		"send · paired device": { tool: T.send, args: { session: "remo2222", message: "go" }, ok: /Sent to/ },
 		"send · device reconnecting": { tool: T.send, args: { session: "blip5555", message: "go" }, ok: /Sent to/ },
@@ -5345,7 +5338,11 @@ describe("messages that outlive the omp they were handed to", () => {
 		before.parents.set("kid00002", "boss0001");
 		before.sendOutbox = outbox;
 		before.sentMarks = async () => ({ instance: "omp-a", journaled: [] });
-		const queued = await control(before).run("boss0001", T.send, { session: "kid00002", message: "Also do C" });
+		const queued = await control(before).run("boss0001", T.send, {
+			session: "kid00002",
+			message: "Also do C",
+			delivery: "follow_up",
+		});
 		expect(queued.text).toContain("queued as a follow-up");
 		expect(queued.text).toContain("Dispatch d1");
 

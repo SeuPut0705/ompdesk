@@ -170,7 +170,11 @@ test("a busy child that reports learns of the follow-up queued behind its turn, 
 		// The child's next turn keeps running (the fake omp's long turn), as a worker's does while it works.
 		await busy(page, kid);
 
-		const queued = await call(profile, page, opener, "ompdesk_session_send", { session: kid, message: "Also do C" });
+		const queued = await call(profile, page, opener, "ompdesk_session_send", {
+			session: kid,
+			message: "Also do C",
+			delivery: "follow_up",
+		});
 		expect(queued.text).toContain("queued as a follow-up");
 		expect(queued.text).toContain("Dispatch d2");
 
@@ -180,7 +184,11 @@ test("a busy child that reports learns of the follow-up queued behind its turn, 
 		expect(report.text).toContain("(dispatch d2) waits for you");
 		expect(report.text).toContain("end your turn now");
 
-		const next = await call(profile, page, opener, "ompdesk_session_send", { session: kid, message: "And D" });
+		const next = await call(profile, page, opener, "ompdesk_session_send", {
+			session: kid,
+			message: "And D",
+			delivery: "follow_up",
+		});
 		expect(next.text).toContain("delivered as steer (it already reported to you in this turn");
 		const prompts = (await readRecords(profile.record)).filter(
 			frame => frame.type === "prompt" && typeof frame.message === "string" && frame.message.includes("And D"),
@@ -220,6 +228,7 @@ test("a follow-up queued in a busy child survives a relaunch, its done report re
 		const queued = await call(profile, first.page, opener, "ompdesk_session_send", {
 			session: oldId,
 			message: "Also do C fixture:result-ok",
+			delivery: "follow_up",
 		});
 		expect(queued.text).toContain("queued as a follow-up");
 		expect(queued.text).toContain("Dispatch d2");

@@ -2403,12 +2403,13 @@ export class AgentControl {
 		// Only a send that will deliver waits on the person's draft: a repeat of a delivered request answers at once.
 		await this.#untilDraftSent(caller, target);
 		const running = target.busy || (await this.#state(target)).state?.isStreaming === true;
-		// One that already reported back to the caller in this turn waits in it (an answer) or wraps up: a follow-up
-		// would sit unseen behind that turn, so it reaches it between steps instead.
+		// Steer unless a follow-up is asked for (the owner's call, 6 Nov 2026: an agent's instruction to a running session
+		// waited for its whole turn). A follow-up to one that already reported back to the caller in this turn waits in
+		// it (an answer) or wraps up: it would sit unseen behind that turn, so it reaches it between steps instead.
 		const reported = this.#reportedAt.get(`${target.tabId}\n${caller.tabId}`);
-		const promoted =
-			running && args.delivery !== "steer" && reported !== undefined && reported >= (target.busySince ?? 0);
-		const steer = args.delivery === "steer" || promoted;
+		const followUp = args.delivery === "follow_up";
+		const promoted = running && followUp && reported !== undefined && reported >= (target.busySince ?? 0);
+		const steer = !followUp || promoted;
 		// The opener gives its child new work: a new dispatch (its older reports turn stale) and its question is answered.
 		const ownChild =
 			this.#host.parentOf(target.tabId) === caller.tabId ||

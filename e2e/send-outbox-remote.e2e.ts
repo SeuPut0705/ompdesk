@@ -173,7 +173,7 @@ async function queuedOnHost(resume = true): Promise<Paired> {
 		["d2", "Also do C"],
 		["d3", "Then D fixture:result-ok"],
 	] as const) {
-		const queued = await call("ompdesk_session_send", { session: kid, message });
+		const queued = await call("ompdesk_session_send", { session: kid, message, delivery: "follow_up" });
 		expect(queued.isError, queued.text).toBe(false);
 		expect(queued.text).toContain("queued as a follow-up");
 		expect(queued.text).toContain(`Dispatch ${dispatch}`);

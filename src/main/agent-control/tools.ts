@@ -176,7 +176,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		label: "Message OMPdesk session",
 		description:
 			"Send a message to another open session.\n" +
-			"Send a message to any other open session. An idle session starts on it; a running one gets it as steer (now, between steps) or follow_up (queued until its turn ends, the default). The session sees it as sent by you, an agent, with your session's title. It cannot answer that session's pending question: only the user does. See skill://ompdesk.",
+			"Send a message to any other open session. An idle session starts on it; a running one gets it as steer (now, between steps, the default) or follow_up (queued until its turn ends). The session sees it as sent by you, an agent, with your session's title. It cannot answer that session's pending question: only the user does. See skill://ompdesk.",
 		parameters: {
 			type: "object",
 			properties: {
@@ -185,7 +185,8 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 				delivery: {
 					type: "string",
 					enum: ["follow_up", "steer"],
-					description: "For a running session; default follow_up.",
+					description:
+						"For a running session; default steer (between its steps), follow_up waits for its turn to end.",
 				},
 				request_id: {
 					type: "string",
