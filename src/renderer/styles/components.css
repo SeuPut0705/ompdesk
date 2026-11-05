@@ -437,7 +437,7 @@
 }
 .markdown-body details[open] > summary {
 	margin-bottom: var(--sc-space-2);
-	border-bottom: 1px solid var(--sc-divider);
+	border-bottom: var(--sc-hairline) solid var(--sc-divider);
 }
 .markdown-body details[open] > :last-child {
 	margin-bottom: var(--sc-space-3);
