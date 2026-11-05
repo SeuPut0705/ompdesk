@@ -14,7 +14,7 @@ import {
 	type Tree,
 	withFootprints,
 } from "../scripts/session-footprint";
-import { exitApp, launchApp } from "./harness";
+import { cssString, exitApp, launchApp } from "./harness";
 
 // Opt-in benchmark (`bun scripts/session-footprint.ts run`): what the app and each session cost in RSS and CPU, at
 // idle, while streaming, after visiting every tab and on a long transcript, with the fake omp for scale and a few
@@ -235,7 +235,7 @@ test("session footprint: app fixed cost and per-session cost", async () => {
 			const show = async (tabId: string) => {
 				const file = (await tabs()).find(tab => tab.tabId === tabId)?.sessionPath ?? "";
 				const started = performance.now();
-				await run.page.locator(`[data-session-path="${file}"] button[data-roving-item]`).click();
+				await run.page.locator(`[data-session-path=${cssString(file)}] button[data-roving-item]`).click();
 				await expect(
 					run.page.locator(`.omp-session-pane[data-tab-id="${tabId}"] [data-transcript-kind]`).first(),
 				).toBeVisible({ timeout: 10_000 });

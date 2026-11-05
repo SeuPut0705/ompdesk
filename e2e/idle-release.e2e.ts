@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { expect, test } from "@playwright/test";
-import { exitApp, launchApp, untilAnswered } from "./harness";
+import { cssString, exitApp, launchApp, untilAnswered } from "./harness";
 
 // While memory is short, a quiet session gives its omp back and starts again on its session when it is shown
 // (src/main/idle-release.ts, SidecarPool.releaseIdle). The decision is unit-tested in idle-release.test.ts and the
@@ -91,7 +91,7 @@ test("a quiet hidden session is released only while memory is short, and comes b
 		await setMemory(8);
 		const file = (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === quiet)?.sessionPath;
 		expect(file).toBeTruthy();
-		await page.locator(`[data-session-path="${file}"] button[data-roving-item]`).click();
+		await page.locator(`[data-session-path=${cssString(file ?? "")}] button[data-roving-item]`).click();
 		await expect(
 			page.locator(`.omp-session-pane[data-tab-id="${quiet}"] [data-transcript-kind]`).first(),
 		).toBeVisible({ timeout: 1_000 });
