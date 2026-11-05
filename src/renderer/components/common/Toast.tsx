@@ -81,7 +81,7 @@ export function ToastCard({
 	return (
 		<div
 			className={cx(
-				"flex items-start gap-2.5 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) py-3 pr-2 pl-3 shadow-(--sc-shadow-md)",
+				"flex items-start gap-2.5 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) py-2 pr-2 pl-3 shadow-(--sc-shadow-md)",
 				className,
 			)}
 			data-flip-key={flipKey}
@@ -97,7 +97,7 @@ export function ToastCard({
 				</div>
 				{detail && (
 					<div
-						className="mt-1 line-clamp-3 font-mono text-sc-xs [overflow-wrap:anywhere] text-(--sc-text-subtle) select-text"
+						className="mt-1 line-clamp-4 font-mono text-sc-xs [overflow-wrap:anywhere] text-(--sc-text-subtle) select-text"
 						data-toast-detail
 						title={detail}
 					>

@@ -27,7 +27,7 @@ export function UpdateBanner() {
 	if (manualCheck || status.state !== "error" || status.showInBanner === false || dismissed.error) return null;
 	const tooltip = status.detail ? `${status.message}\n${status.detail}` : status.message;
 	return (
-		<div className="shrink-0 px-(--omp-column-pad) pt-2 pb-1" data-update-notice role="status">
+		<div className="shrink-0 px-(--omp-column-pad) pt-1 pb-0.5" data-update-notice role="status">
 			<div className="mx-auto flex max-w-(--omp-column-reading) items-center gap-2 rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-surface-2) py-1 pr-1 pl-2.5 text-sc-sm">
 				<AlertCircle aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-warning)" />
 				<span className="line-clamp-2 min-w-0 flex-1 text-(--sc-text-secondary)" title={tooltip}>

@@ -419,7 +419,7 @@ export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "
 								</Button>
 							</div>
 						) : (
-							<div className="mt-3 space-y-2">
+							<div className={cx("mt-3", sheet ? "space-y-2" : "space-y-1")}>
 								{categories.map(category => (
 									<div className="flex items-center gap-2.5" key={category.key}>
 										<span
