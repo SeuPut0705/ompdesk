@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.113.0] - 2026-11-06
+
+메모리가 모자랄 때만, 숨어서 쉬고 있는 세션이 omp 프로세스를 내려놓아요.
+
+### 새로 생긴 것
+- 컴퓨터 메모리가 모자랄 때만(macOS가 메모리 압박을 알리거나 남은 메모리가 15% 아래로 내려갈 때) 5분 넘게 아무 일도 하지 않은 채 뒤에 숨어 있는 세션이 omp 프로세스를 내려놓아요. 세션 하나에 약 265 MB가 돌아와요. 내려놓은 세션을 다시 열면 첫 답이 최대 1.5초 늦어질 수 있어요(대화는 바로 보이고 omp가 다시 시작되는 시간이에요). 메모리가 넉넉할 때는 아무것도 바뀌지 않아요.
+- 살아 있는 것이 하나라도 있는 세션은 내려놓지 않아요: 보고 있는 탭, 일하는 중이거나 질문·계획·입력 중인 글·다시 시도가 있는 세션, 대기열·백그라운드 작업·하위 에이전트가 남은 세션, eval 작업자나 실행 중인 자식 프로세스가 있는 세션, 에이전트가 연 세션은 그대로예요.
+
+<!-- en -->
+
+Only while memory is short, a hidden session at rest lets its omp process go.
+
+### New
+- Only while this computer is short of memory (macOS reports memory pressure, or under 15% is free), a hidden session that has done nothing for 5 minutes lets its omp process go. Each one gives back about 265 MB. When a released session is reopened, its first reply can wait up to 1.5 s (the conversation shows at once; the wait is omp starting again). While memory is ample nothing changes.
+- A session with anything live is never let go: the tab on screen, a session working or holding a question, plan, draft or retry, one with a queue, background jobs or subagents, one with an eval worker or a running child process, and sessions an agent opened.
+
 ## [0.112.3] - 2026-11-06
 
 읽을 수 없는 그림이 있는 답변 때문에 대화창이 좌우로 스크롤되던 문제를 고쳤어요.
