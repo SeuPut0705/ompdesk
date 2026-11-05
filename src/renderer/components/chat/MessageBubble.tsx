@@ -300,10 +300,9 @@ function ContextBubble({ message }: { message: AgentMessage }) {
 }
 
 /**
- * Hover/focus-revealed message actions (time, copy, branch). Placed by CSS
- * (`.omp-message-actions`) in the action row the turn reserves in its own
- * bottom padding, so they never cover text and showing them moves nothing;
- * opacity + :focus-within, never display:none.
+ * Message actions (time, copy, branch). The time always shows; the buttons are hover/focus-revealed (opacity +
+ * :focus-within, never display:none). Placed by CSS (`.omp-message-actions`): beside a user's bubble or in the
+ * action row a turn reserves in its own bottom padding, so they never cover text and revealing them moves nothing.
  */
 function MessageActions({
 	className,
@@ -528,14 +527,14 @@ export const MessageBubble = memo(function MessageBubble({
 						return null;
 					})}
 					<PromptFiles files={userMentions.files} />
-					<MessageActions
-						branchDisabled={branching || switchPending}
-						className="omp-user-actions"
-						copyText={messageText}
-						onBranch={() => void handleBranch()}
-						timestamp={timestamp}
-					/>
 				</div>
+				<MessageActions
+					branchDisabled={branching || switchPending}
+					className="omp-user-actions"
+					copyText={messageText}
+					onBranch={() => void handleBranch()}
+					timestamp={timestamp}
+				/>
 			</div>
 		);
 	}
