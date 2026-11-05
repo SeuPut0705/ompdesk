@@ -6,7 +6,7 @@
 import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../../lib/i18n";
 import { getToolHeader, getToolRenderer, getToolSummary } from "../index";
 import { AgentDesktopRenderer } from "./AgentDesktopRenderer";
@@ -193,9 +193,7 @@ describe("AgentDesktopRenderer", () => {
 });
 
 describe("agent-desktop tool calls in the registry", () => {
-	it("renders a direct call and a `write xd://` call with this renderer", async () => {
-		expect(getToolRenderer(`${PREFIX}desktop_click`)).toBe(AgentDesktopRenderer);
-
+	it("renders a `write xd://` call through this renderer", async () => {
 		const Write = getToolRenderer("write");
 		const envelope = {
 			ok: true,
@@ -219,7 +217,8 @@ describe("agent-desktop tool calls in the registry", () => {
 			/>,
 		);
 
-		expect(text()).toContain("Done · Delivered, not verified");
+		// The renderer is its own chunk: the call shows once it loaded.
+		await vi.waitFor(() => expect(text()).toContain("Done · Delivered, not verified"));
 	});
 
 	it("heads a call as the desktop command with its target, with the computer-use pointer", () => {

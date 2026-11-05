@@ -39,13 +39,13 @@ import {
 	Volume2,
 	Wrench,
 } from "lucide-react";
-import type { ComponentType } from "react";
-import { agentDesktopCommand, agentDesktopSummary, isAgentDesktopTool } from "../../lib/agent-desktop";
+import { type ComponentType, Suspense } from "react";
+import { agentDesktopCommand, agentDesktopSummary, isAgentDesktopTool } from "../../lib/agent-desktop-name";
+import { lazyChunk } from "../../lib/chunk-load";
 import { sanitizeToolText } from "../../lib/format";
 import { translate } from "../../lib/i18n";
 import { decodeXdevPayload, xdevDispatch, xdevInnerResult, xdevWriteTarget } from "../../lib/xdev";
 import { editArgumentPaths, editArgumentSummary } from "./edit-args";
-import { AgentDesktopRenderer } from "./renderers/AgentDesktopRenderer";
 import { AskRenderer } from "./renderers/AskRenderer";
 import { AstEditRenderer } from "./renderers/AstEditRenderer";
 import { AstGrepRenderer } from "./renderers/AstGrepRenderer";
@@ -210,6 +210,19 @@ const REGISTRY: Record<string, ComponentType<ToolRendererProps>> = {
 	yield: YieldRenderer,
 	...NOTE_DEVICES,
 };
+
+// Its own chunk: the paired phone's first screen stays inside its JavaScript budget (scripts/check-main-bundle.ts).
+const LazyAgentDesktopRenderer = lazyChunk(() =>
+	import("./renderers/AgentDesktopRenderer").then(module => ({ default: module.AgentDesktopRenderer })),
+);
+
+function AgentDesktopRenderer(props: ToolRendererProps) {
+	return (
+		<Suspense fallback={null}>
+			<LazyAgentDesktopRenderer {...props} />
+		</Suspense>
+	);
+}
 
 export function getToolRenderer(name: string): ComponentType<ToolRendererProps> {
 	if (REGISTRY[name]) return REGISTRY[name];

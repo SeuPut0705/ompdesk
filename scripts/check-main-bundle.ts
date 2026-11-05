@@ -283,7 +283,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // A paragraph holding a player or a document card renders as a block of its own (`rendersAsBlock`): 2,158,239.
 // What a reply writes beside its tool calls stays a row of its own under its work card (6 Nov 2026,
 // chat-stream-utils.ts `buildHistoryRows` narration, `liveWorkTail`; the transcript is the first screen): 2,158,572.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_158_572;
+// agent-desktop as the default computer use (6 Nov 2026): its tool rows' header and summary (`agent-desktop-name.ts`),
+// the fallback note (`ComputerUseNote.tsx`) and their strings in the English catalog; the renderer and its result
+// parser are a chunk of their own (tools/index.tsx `LazyAgentDesktopRenderer`, 5,255 bytes kept out): 2,160,895.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_160_895;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

@@ -18,7 +18,7 @@ import type { AgentMessage } from "../../../shared/rpc-types";
 import { useFrameSelector } from "../../hooks/use-frame-selector";
 import { useMediaQuery } from "../../hooks/use-media-query";
 import { useOverlayPresence } from "../../hooks/use-overlay-presence";
-import { isAgentDesktopTool } from "../../lib/agent-desktop";
+import { isAgentDesktopTool } from "../../lib/agent-desktop-name";
 import { cx, formatDuration, formatElapsed, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useModelWait } from "../../lib/model-wait";

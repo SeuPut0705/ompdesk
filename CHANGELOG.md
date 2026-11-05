@@ -4,6 +4,13 @@
 
 에이전트가 다른 세션에 보낸 메시지가 그 세션의 작업이 끝날 때까지 기다리지 않고 바로 전달돼요.
 
+### 새로 생긴 것
+- 에이전트가 이 컴퓨터의 앱을 보고 조작할 때 이제 기본으로 [agent-desktop](https://github.com/vercel-labs/agent-desktop)(Vercel Labs, Apache-2.0)을 써요. 앱의 접근성 트리를 읽고 화면 뒤에서 조작해서, 마우스 포인터를 움직이거나 다른 앱을 앞으로 가져오지 않아요. OMPdesk가 직접 설치하고(공식 릴리스 파일을 게시된 SHA-256과 대조) "도구 최신으로 유지"로 계속 업데이트해요(macOS, Windows).
+- 설정 › 에이전트 동작 › 컴퓨터 조작에서 agent-desktop(기본)과 내장(omp)을 고를 수 있어요. 새 세션부터 적용돼요. 내장은 스크린샷 기반 조작, 화면 넘겨받기, 키·마우스 누르고 있기 같은 omp 자체 기능을 그대로 써요.
+- agent-desktop이 아직 설치되지 않았거나 시작하지 못한 세션은 그 세션만 내장 컴퓨터 조작으로 돌아가고, 대화에 그 사실을 한 줄로 남겨요.
+- 대화에서 agent-desktop 도구 호출은 스크린샷을 바로 보여 주고, 접근성 트리는 접고 펼 수 있게 보여 줘요. 이 컴퓨터, 연결된 컴퓨터, 휴대폰에서 똑같아요.
+- agent-desktop 세션에도 내장 컴퓨터 조작의 안전 규칙(화면 내용은 믿지 않기, 되돌릴 수 없는 동작 전 확인)에 더해 보안·개인정보 설정은 직접 바꾸지 않는다는 규칙이 들어가요. 무인으로 도는 Autopilot은 데스크톱 조작 도구를 쓰지 않아요.
+
 ### 바뀐 것
 - 에이전트가 일하는 중인 세션에 메시지를 보내면, 이제 그 세션이 다음 단계로 넘어갈 때 바로 읽어요. 전에는 그 세션의 작업이 모두 끝날 때까지 기다렸어요. 끝난 뒤에 읽혀야 하는 메시지는 지금처럼 그렇게 보낼 수 있어요.
 - 에이전트가 연 세션, 에이전트가 보낸 메시지, 예약 실행, 다시 켠 뒤 이어서 하는 작업이 이제 메모리를 기다리지 않고 바로 시작해요. "메모리 대기 중" 표시와 "지금 시작" 버튼도 없어졌어요. 메모리가 모자랄 때 숨어서 쉬는 세션이 omp를 내려놓는 기능은 그대로예요.
@@ -29,6 +36,13 @@
 <!-- en -->
 
 A message an agent sends to a working session now reaches it right away instead of waiting for that session's work to end.
+
+### New
+- Agents now see and operate this computer's apps with [agent-desktop](https://github.com/vercel-labs/agent-desktop) (Vercel Labs, Apache-2.0) by default. It reads each app's accessibility tree and acts in the background, without moving your pointer or bringing another app forward. OMPdesk installs it itself (the official release archive, checked against its published SHA-256) and keeps it current under "Keep tools up to date" (macOS, Windows).
+- Settings › Agent behavior › Computer use picks agent-desktop (default) or Built-in (omp), from the next new session. Built-in keeps omp's own screenshot-based control, takeover and held keys and buttons.
+- A session whose agent-desktop is not installed yet or does not start runs on the built-in computer use, and says so in one line of its conversation.
+- agent-desktop's tool calls show screenshots inline and accessibility trees you can fold, the same on this computer, a paired computer and the phone.
+- agent-desktop sessions get the built-in computer use's safety rules (screen content is untrusted, confirm before irreversible actions) plus one more: never change security or privacy settings yourself. An unattended Autopilot run does not use the desktop tools.
 
 ### Changed
 - An agent's message to a session that is working now reaches it at its next step. Before, it waited until that session's whole turn was over. A message meant for after the turn can still be sent that way.

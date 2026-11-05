@@ -4,9 +4,9 @@ import {
 	type AgentDesktopError,
 	type AgentDesktopNode,
 	agentDesktopNodes,
-	agentDesktopSummary,
 	parseAgentDesktopResult,
 } from "../../../lib/agent-desktop";
+import { agentDesktopSummary } from "../../../lib/agent-desktop-name";
 import { extractImageDataUrls } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { MarkdownRenderer } from "../../../lib/markdown";

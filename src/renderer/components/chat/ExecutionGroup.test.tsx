@@ -532,7 +532,9 @@ describe("ExecutionGroup", () => {
 		await mount([name], true);
 		await flushFrame();
 		expect(container.querySelector(".omp-live-step")?.getAttribute("data-surface")).toBe("computer");
-		expect(container.querySelector(".omp-live-step img")?.getAttribute("src")).toBe("data:image/png;base64,cG5n");
+		await vi.waitFor(() =>
+			expect(container.querySelector(".omp-live-step img")?.getAttribute("src")).toBe("data:image/png;base64,cG5n"),
+		);
 	});
 
 	it("shows the latest lines of a long live write and streams search results", async () => {
