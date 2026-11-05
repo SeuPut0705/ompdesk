@@ -282,9 +282,11 @@ if (dir) {
 					tabId,
 				);
 				let sessionPath = "";
-				// The pictures' turn, then every other way a reply presents something (src/renderer/dev-harness/reply-showcase.ts).
+				// The pictures' turn, the media turn, then every other way a reply presents something
+				// (src/renderer/dev-harness/reply-showcase.ts).
 				for (const [message, answer] of [
 					["fixture reply images", "Here is the changed look."],
+					["fixture reply media", "The numbers:"],
 					["fixture reply components", "Footnotes link both ways."],
 				] as const) {
 					await b.evaluate(([id, sent]) => window.omp.rpc.commandForTab(id, { type: "prompt", message: sent }), [

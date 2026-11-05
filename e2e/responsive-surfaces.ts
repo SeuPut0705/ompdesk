@@ -330,6 +330,37 @@ export const SURFACES: readonly Surface[] = [
 		when: () => false,
 		parity: { session: "reply" },
 	},
+	{
+		id: "reply-media",
+		area: "A",
+		title: "A reply's files and figures: an svg figure, a video and a sound in their players, a table file's card",
+		open: async page => {
+			await page.locator(".markdown-body [data-file-card]").first().waitFor({ timeout: 15_000 });
+			await showInReply(
+				page,
+				page
+					.locator(".markdown-body h2")
+					.filter({ hasText: /^\s*Media\s*$/ })
+					.first(),
+			);
+		},
+		ready: ".markdown-body video",
+		settle: 900,
+		when: () => false,
+		parity: { session: "reply" },
+	},
+	{
+		id: "reply-media-zoom",
+		area: "A",
+		title: "The reply's svg figure enlarged from its header",
+		open: async page => {
+			await page.locator(".markdown-body [data-figure='svg'] [data-figure-expand]").first().click();
+		},
+		ready: "[role='dialog'] [data-image-viewer] img",
+		settle: 900,
+		when: () => false,
+		parity: { session: "reply" },
+	},
 	// Every other way a reply presents something, one heading of src/renderer/dev-harness/reply-showcase.ts each.
 	...(
 		[

@@ -2821,6 +2821,34 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			`![Social preview](${shot("social.png")})`,
 		].join("\n");
 	};
+	// The rest of what a reply can show by file or fence: an svg figure, a video, a sound and a table file's card, the
+	// files written into the session's folder (parity surfaces `reply-media`, `reply-media-zoom`).
+	const replyMedia = (): string => {
+		const out = nodePath.join(process.cwd(), "shots");
+		fs.mkdirSync(out, { recursive: true });
+		for (const name of ["clip.webm", "tone.mp3"])
+			fs.copyFileSync(nodePath.join(E2E_DIR, "media", name), nodePath.join(out, name));
+		fs.writeFileSync(nodePath.join(out, "results.csv"), "check,before,after\nfirst screen JS,2156302,2158239\n");
+		return [
+			"## Media",
+			"",
+			"```svg",
+			'<svg viewBox="0 0 360 120" xmlns="http://www.w3.org/2000/svg">',
+			'  <rect x="10" y="20" width="100" height="80" rx="10" fill="none" stroke="var(--accent)" stroke-width="3"/>',
+			'  <text x="60" y="66" font-size="16" text-anchor="middle" fill="var(--fg)">Before</text>',
+			'  <path d="M120 60 H230" stroke="var(--border)" stroke-width="3"/>',
+			'  <rect x="240" y="20" width="100" height="80" rx="10" fill="none" stroke="var(--success)" stroke-width="3"/>',
+			'  <text x="290" y="66" font-size="16" text-anchor="middle" fill="var(--fg)">After</text>',
+			"</svg>",
+			"```",
+			"",
+			`![The recorded run](${nodePath.join(out, "clip.webm")})`,
+			"",
+			`![The alert sound](${nodePath.join(out, "tone.mp3")})`,
+			"",
+			`The numbers: ![results](${nodePath.join(out, "results.csv")})`,
+		].join("\n");
+	};
 
 	// One reply holding every kind of figure box: a mermaid fence, an svg fence and a code block.
 	const FIGURES_REPLY = [
@@ -4877,27 +4905,29 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 						text:
 							message === "fixture reply images"
 								? replyImages()
-								: message === "fixture reply components"
-									? REPLY_SHOWCASE
-									: message === "fixture math"
-										? MATH_REPLY
-										: message === "fixture image"
-											? "Here is the chart:\n\n![chart](pixel.png)"
-											: message === "fixture svg"
-												? SVG_REPLY
-												: message === "fixture figures"
-													? FIGURES_REPLY
-													: message === "fixture svg viewbox"
-														? SVG_VIEWBOX_REPLY
-														: message === "fixture markdown"
-															? MARKDOWN_REPLY
-															: message === "fixture paths"
-																? PATHS_REPLY
-																: message === "fixture reply actions"
-																	? ACTIONS_REPLY
-																	: message === "fixture documents"
-																		? DOCUMENTS_REPLY
-																		: `Local fixture reply${message.includes("fixture:result-ok") ? "\nResult: ok" : message.includes("fixture:result-problem") ? "\nResult: problem — tests failed" : ""}`,
+								: message === "fixture reply media"
+									? replyMedia()
+									: message === "fixture reply components"
+										? REPLY_SHOWCASE
+										: message === "fixture math"
+											? MATH_REPLY
+											: message === "fixture image"
+												? "Here is the chart:\n\n![chart](pixel.png)"
+												: message === "fixture svg"
+													? SVG_REPLY
+													: message === "fixture figures"
+														? FIGURES_REPLY
+														: message === "fixture svg viewbox"
+															? SVG_VIEWBOX_REPLY
+															: message === "fixture markdown"
+																? MARKDOWN_REPLY
+																: message === "fixture paths"
+																	? PATHS_REPLY
+																	: message === "fixture reply actions"
+																		? ACTIONS_REPLY
+																		: message === "fixture documents"
+																			? DOCUMENTS_REPLY
+																			: `Local fixture reply${message.includes("fixture:result-ok") ? "\nResult: ok" : message.includes("fixture:result-problem") ? "\nResult: problem — tests failed" : ""}`,
 					},
 				],
 				timestamp: Date.now(),
