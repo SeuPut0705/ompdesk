@@ -10,6 +10,7 @@
  * side, labelled) and `<dir>/parity.json`. A view that cannot reach a surface (its `ready` never shows, the renderer
  * or a panel crashed) fails the test naming the surface and the view, and that surface gets no sheet.
  */
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -19,6 +20,27 @@ import { controlToolCaller, cssString, exitApp, openedSessions, untilAnswered } 
 import { connectHost, launchRemote, makeRemoteProfile, REMOTE_LOGIN, type RemoteInstance } from "./remote-harness";
 import { crashed, type Look, panelCrash } from "./responsive-audit";
 import { type ParitySession, SURFACES, type Surface } from "./responsive-surfaces";
+
+const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+
+/**
+ * B's project is a git checkout with uncommitted work, so the work session's Changes panel shows its source control
+ * and a changed file list, and its Files view has a nested file to open (`panel-diff`, `panel-files-viewer`).
+ */
+async function seedProject(project: string): Promise<void> {
+	const nested = path.join(project, "src/renderer/components/layout/sidebar");
+	await fs.mkdir(nested, { recursive: true });
+	await fs.writeFile(path.join(project, "README.md"), "# Project\n");
+	await fs.writeFile(path.join(nested, "Sidebar.tsx"), "export const rows = 1;\n");
+	git(project, "init", "-q", "-b", "main");
+	git(project, "config", "user.email", "parity@example.com");
+	git(project, "config", "user.name", "Parity");
+	git(project, "config", "commit.gpgsign", "false");
+	git(project, "add", ".");
+	git(project, "commit", "-qm", "feat: seed the project");
+	await fs.writeFile(path.join(nested, "Sidebar.tsx"), "export const rows = 2;\nexport const gap = 4;\n");
+	await fs.writeFile(path.join(project, "wait-for.ts"), "export const waitFor = () => {};\n");
+}
 
 const dir = process.env.OMP_GUI_PARITY;
 
@@ -129,6 +151,7 @@ if (dir) {
 				theme: "light",
 				prefs: { botEnabled: true },
 			});
+			await seedProject(hostProfile.project);
 			const clientProfile = await makeRemoteProfile(parent, "client", {
 				language: "en",
 				theme: "light",

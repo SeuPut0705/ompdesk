@@ -166,6 +166,31 @@ async function ui(page: Page, action: string, ...args: unknown[]): Promise<void>
 	);
 }
 
+/**
+ * Show the side panel's `name` view by clicks a person makes, on a real window as on the harness: the title bar's Side
+ * panel button when the panel is closed, then the view's button (the panel's top bar; a phone's tab bar at its foot).
+ */
+async function openPanelView(page: Page, name: string): Promise<void> {
+	const view = page
+		.locator(".omp-panel-topbar:visible, [data-panel-tabbar]:visible")
+		.getByRole("button", { name, exact: true })
+		.first();
+	if (!(await view.isVisible().catch(() => false)))
+		await page.getByRole("button", { name: "Side panel", exact: true }).first().click();
+	await view.click();
+}
+
+/**
+ * Open the command palette by clicks: the sidebar's search button (Command palette), behind the phone's Open menu
+ * drawer where the sidebar is one.
+ */
+async function clickCommandPalette(page: Page): Promise<void> {
+	const entry = page.locator("[data-command-center-entry]:visible").first();
+	if (!(await entry.isVisible().catch(() => false)))
+		await page.getByRole("button", { name: "Open menu", exact: true }).first().click();
+	await entry.click();
+}
+
 /** Put a prompt of the web host's sheet layer (`?host=1` pages) in front of the person. */
 async function hostPrompt(page: Page, prompt: Record<string, unknown>): Promise<void> {
 	await page.evaluate(prompt => {
@@ -761,9 +786,12 @@ export const SURFACES: readonly Surface[] = [
 			area: "A",
 			title: `Side panel › ${panel}`,
 			open: async page => {
-				await ui(page, "setPanelTab", panel);
+				if (panel !== "diff") return ui(page, "setPanelTab", panel);
+				await openPanelView(page, "Changes");
+				await page.locator("[data-scm-bar]:visible").first().waitFor({ timeout: 20_000 });
 			},
 			ready: "[data-sheet-panel], [data-panel-tabbar], .omp-panel-topbar",
+			...(panel === "diff" ? { parity: { session: "work" as const } } : {}),
 			settle: 900,
 		}),
 	),
@@ -783,7 +811,16 @@ export const SURFACES: readonly Surface[] = [
 		id: "panel-files-viewer",
 		area: "A",
 		title: "Files viewer on a changed file",
-		open: page => ui(page, "openFilePreview", "src/renderer/components/layout/sidebar/Sidebar.tsx"),
+		open: async page => {
+			await openPanelView(page, "Files");
+			await page.getByLabel("Search files", { exact: true }).first().fill("Sidebar.tsx");
+			await page
+				.getByRole("treeitem", { name: /Sidebar\.tsx/ })
+				.first()
+				.click();
+		},
+		ready: "[data-file-viewer-head]",
+		parity: { session: "work" },
 		settle: 1200,
 	},
 
@@ -966,7 +1003,13 @@ export const SURFACES: readonly Surface[] = [
 			id: dialog.id,
 			area: "B",
 			title: dialog.title,
-			open: page => ui(page, dialog.action, ...(dialog.args ?? [])),
+			open: page =>
+				dialog.id === "dialog-command-palette"
+					? clickCommandPalette(page)
+					: ui(page, dialog.action, ...(dialog.args ?? [])),
+			...(dialog.id === "dialog-command-palette"
+				? { ready: "[role=dialog] [role=listbox]", parity: { session: "work" as const } }
+				: {}),
 			settle: 700,
 		}),
 	),
