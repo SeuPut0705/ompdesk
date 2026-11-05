@@ -25,7 +25,8 @@ export interface Surface {
 	when?: (look: Look) => boolean;
 	/**
 	 * The parity sheet (`bun run parity`, e2e/parity.e2e.ts) can capture this surface: every view first shows this
-	 * session of the host (`work`: a session with one answered turn, `bot`: the bot's), then `open` runs. Only for a
+	 * session of the host (`work`: a session with one answered turn, `bot`: the bot's, `reply`: a session whose answer
+	 * shows what an agent presents in a reply, e2e/fixture/rpc-ui.ts `replyImages`), then `open` runs. Only for a
 	 * surface whose `open` and `ready` work on a real window (a click on a real control or nothing), never through
 	 * `window.__stores`, which only the dev harness has.
 	 */
@@ -44,7 +45,7 @@ export interface Surface {
 	};
 }
 
-export type ParitySession = "work" | "bot";
+export type ParitySession = "work" | "bot" | "reply";
 
 /** The fake omp's voice script (`voiceScript`, e2e/fixture/rpc-ui.ts); e2e/parity.e2e.ts names the file. */
 async function scriptVoice(script: Record<string, unknown>): Promise<void> {
@@ -292,6 +293,37 @@ export const SURFACES: readonly Surface[] = [
 		},
 		ready: "[data-composer-input]",
 		parity: { session: "work" },
+	},
+	{
+		id: "reply-images",
+		area: "A",
+		title: "A reply showing the changed look: a before/after pair and a gallery of three screenshots, by absolute path",
+		open: async page => {
+			await page
+				.locator("[data-zoomable-image]")
+				.first()
+				.evaluate(image => image.scrollIntoView({ block: "start" }));
+		},
+		ready: "[data-zoomable-image] img",
+		settle: 900,
+		// The audits' harness page has no such reply; the parity sheet asks the fake omp for it.
+		when: () => false,
+		parity: { session: "reply" },
+	},
+	{
+		id: "reply-images-zoom",
+		area: "A",
+		title: "The reply's after picture opened full size from its pair, its partner one step away",
+		open: async page => {
+			await page
+				.getByRole("button", { name: /After: one project open/ })
+				.first()
+				.click();
+		},
+		ready: "[role='dialog'] [data-image-viewer] img",
+		settle: 900,
+		when: () => false,
+		parity: { session: "reply" },
 	},
 	{
 		id: "bot-bar",

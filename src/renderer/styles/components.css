@@ -406,6 +406,34 @@
 .markdown-body :is([data-figure], [data-svg-preview]) img {
 	border: 0;
 }
+/* A paragraph of pictures only (markdown.tsx `FigureRow`): a before/after pair or a gallery, each picture large with
+   its alt text as caption, side by side while each keeps 14rem, stacked on a phone's column. */
+.markdown-body .omp-md-figures {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+	gap: var(--sc-space-3);
+	align-items: start;
+	margin: 0.9em 0;
+}
+.markdown-body .omp-md-figure {
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+	gap: var(--sc-space-1-5);
+	margin: 0;
+}
+.markdown-body .omp-md-figure-image {
+	display: block;
+	width: 100%;
+	height: auto;
+	max-height: 32rem;
+	object-fit: contain;
+}
+.markdown-body .omp-md-figure figcaption {
+	color: var(--sc-text-muted);
+	font-size: var(--sc-font-sm);
+	line-height: var(--sc-leading-normal);
+}
 .markdown-body a {
 	color: var(--sc-accent);
 	text-decoration: underline;

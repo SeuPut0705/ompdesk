@@ -278,7 +278,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // Local inference engine detection (4 Nov 2026): the `models-config:changed` event and its focused-tab catalog re-read
 // (use-rpc-events.ts), the `localEngines` get/set of the API (a paired host has its own switch) and the Custom
 // endpoints switch's two strings in the English catalog: measured 2,156,302, 448 bytes over the budget above.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_156_302;
+// A reply's paragraph of pictures as one captioned figure row (5 Nov 2026, markdown.tsx `FigureRow`, `useImageReads`;
+// replies are the first screen): measured 2,157,926, 1,624 bytes over the budget above.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_157_926;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

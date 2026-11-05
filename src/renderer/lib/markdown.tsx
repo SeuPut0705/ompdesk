@@ -1,3 +1,4 @@
+import type { Element as HastElement } from "hast";
 import {
 	Film,
 	ImageIcon,
@@ -22,7 +23,7 @@ import {
 	useState,
 	useSyncExternalStore,
 } from "react";
-import ReactMarkdown, { type Components, defaultUrlTransform, type Options } from "react-markdown";
+import ReactMarkdown, { type Components, defaultUrlTransform, type ExtraProps, type Options } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -713,6 +714,35 @@ export function classifyImageSrc(src: string | undefined): MarkdownImageSrc {
 
 const MARKDOWN_IMAGE_CLASS = `my-1 ${PREVIEW_HEIGHT_LG} max-w-full rounded-md border border-[var(--omp-border-muted)] object-contain`;
 
+/** What a local picture's read gave: its data URL, false when it failed; absent while it runs. */
+type ImageReads = ReadonlyMap<string, string | false>;
+
+/** Reads `paths` (fs.readImage: this device's file, or the paired host's for its tab) once each while they stay the same. */
+function useImageReads(paths: readonly string[]): ImageReads {
+	const tabId = useRuntimeTabId();
+	const [reads, setReads] = useState<ImageReads>(new Map());
+	const key = paths.join("\n");
+	useEffect(() => {
+		let cancelled = false;
+		setReads(current => (current.size === 0 ? current : new Map()));
+		for (const path of new Set(key ? key.split("\n") : [])) {
+			window.omp.fs
+				.readImage(path, tabId ?? undefined)
+				.then(
+					result => (result.ok && result.dataUrl ? result.dataUrl : false),
+					() => false as const,
+				)
+				.then(read => {
+					if (!cancelled) setReads(current => new Map(current).set(path, read));
+				});
+		}
+		return () => {
+			cancelled = true;
+		};
+	}, [key, tabId]);
+	return reads;
+}
+
 function MarkdownImageFallback({ alt, path }: { alt: string; path?: string }) {
 	return (
 		<span
@@ -759,31 +789,96 @@ function RemoteMarkdownImage({ src, alt, media }: { src: string; alt: string; me
 
 function LocalMarkdownImage({ path, alt, title }: { path: string; alt: string; title?: string }) {
 	const t = useT();
-	const tabId = useRuntimeTabId();
-	const [resolved, setResolved] = useState<{ url: string } | { error: true } | null>(null);
-	useEffect(() => {
-		let cancelled = false;
-		window.omp.fs
-			.readImage(path, tabId ?? undefined)
-			.then(result => {
-				if (!cancelled) setResolved(result.ok && result.dataUrl ? { url: result.dataUrl } : { error: true });
-			})
-			.catch(() => {
-				if (!cancelled) setResolved({ error: true });
-			});
-		return () => {
-			cancelled = true;
-		};
-	}, [path, tabId]);
-	if (!resolved) return <MarkdownImageFallback alt={alt} path={path} />;
-	if ("error" in resolved) {
+	const read = useImageReads([path]).get(path);
+	if (read === undefined) return <MarkdownImageFallback alt={alt} path={path} />;
+	if (read === false) {
 		return (
 			<span title={t("markdown.imageFailed")}>
 				<MarkdownImageFallback alt={alt} path={path} />
 			</span>
 		);
 	}
-	return <ZoomableImage src={resolved.url} alt={alt} title={title ?? alt} className={MARKDOWN_IMAGE_CLASS} />;
+	return <ZoomableImage src={read} alt={alt} title={title ?? alt} className={MARKDOWN_IMAGE_CLASS} />;
+}
+
+/** A picture of a figure paragraph: inline data, or a local file read like any reply picture. */
+interface FigureImage {
+	alt: string;
+	title?: string;
+	source: { kind: "direct"; src: string } | { kind: "local"; path: string };
+}
+
+/**
+ * The pictures of a paragraph that holds only pictures (the line breaks between them aside), or null. Such a
+ * paragraph is a figure row: each picture large, its alt text its caption, side by side while the column has room
+ * (a before/after pair, a gallery) and stacked on a narrow one. A media file, a document or a remote URL in it leaves
+ * the paragraph as written.
+ */
+function figureImages(node: HastElement | undefined): FigureImage[] | null {
+	if (!node) return null;
+	const images: FigureImage[] = [];
+	for (const child of node.children) {
+		if (child.type === "text" && child.value.trim() === "") continue;
+		if (child.type === "element" && child.tagName === "br") continue;
+		if (child.type !== "element" || child.tagName !== "img") return null;
+		const { src, alt, title } = child.properties;
+		const classified = classifyImageSrc(typeof src === "string" ? src : undefined);
+		const caption = { alt: typeof alt === "string" ? alt : "", title: typeof title === "string" ? title : undefined };
+		if (classified.kind === "direct") images.push({ ...caption, source: classified });
+		else if (
+			classified.kind === "local" &&
+			!chatMediaKind(classified.path) &&
+			(chatReferenceKind(classified.path) ?? "image") === "image"
+		)
+			images.push({ ...caption, source: classified });
+		else return null;
+	}
+	return images.length > 0 ? images : null;
+}
+
+function FigureRow({ images }: { images: readonly FigureImage[] }) {
+	const t = useT();
+	const reads = useImageReads(images.flatMap(image => (image.source.kind === "local" ? [image.source.path] : [])));
+	const shown = images.map(({ source }) => ({
+		path: source.kind === "local" ? source.path : undefined,
+		src: source.kind === "local" ? reads.get(source.path) : source.src,
+	}));
+	const gallery = images.flatMap((image, index) => {
+		const { src, path } = shown[index] ?? {};
+		return typeof src === "string" ? [{ src, alt: image.alt, path }] : [];
+	});
+	return (
+		<div className="omp-md-figures" data-figure-row={images.length}>
+			{images.map((image, index) => {
+				const { src, path } = shown[index] ?? {};
+				return (
+					<figure className="omp-md-figure" key={index}>
+						{typeof src === "string" ? (
+							<ZoomableImage
+								alt={image.alt}
+								className="omp-md-figure-image"
+								gallery={gallery}
+								path={path}
+								src={src}
+								thumbClassName="block w-full"
+								title={image.title ?? image.alt}
+							/>
+						) : (
+							<span title={src === false ? t("markdown.imageFailed") : undefined}>
+								<MarkdownImageFallback alt={image.alt} path={path} />
+							</span>
+						)}
+						{image.alt && <figcaption>{image.alt}</figcaption>}
+					</figure>
+				);
+			})}
+		</div>
+	);
+}
+
+function Paragraph({ node, ...props }: ComponentPropsWithoutRef<"p"> & ExtraProps) {
+	const images = figureImages(node);
+	return images ? <FigureRow images={images} /> : <p {...props} />;
 }
 
 function MarkdownImage({ src, alt, title, ...props }: ComponentPropsWithoutRef<"img">) {
@@ -824,6 +919,7 @@ function MarkdownMedia({ src, kind }: { src: unknown; kind: "video" | "audio" })
 }
 
 const COMPONENTS: Components = {
+	p: Paragraph,
 	a: MarkdownLink,
 	table: StyledTable,
 	code: CodeBlock,

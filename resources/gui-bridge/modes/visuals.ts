@@ -12,6 +12,8 @@
  * - Both settings off, or a prompt that already carries the section (an omp
  *   whose rpc-ui sets `tuiTranscript`): nothing is appended, so the prompt
  *   stays byte-identical to stock.
+ *
+ * Beside it, `reply-presentation` (visuals-core.ts): how a reply shows a visual result, for the main agent only.
  */
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import { cfgTuiRenderMermaid, cfgTuiRenderSvg } from "@oh-my-pi/pi-coding-agent/modes/settings";
@@ -19,7 +21,12 @@ import { prompt } from "@oh-my-pi/pi-utils";
 import { guard } from "../health";
 import { registerPromptSection } from "../prompt-sections";
 import { errorMessage, ompPrompt } from "./shared";
-import { visualsInstruction, visualsTemplate } from "./visuals-core";
+import {
+	REPLY_PRESENTATION_SECTION,
+	REPLY_PRESENTATION_SECTION_ID,
+	visualsInstruction,
+	visualsTemplate,
+} from "./visuals-core";
 
 /** Called once per extension instance (main and every subagent rebinding) by index.ts. */
 export function install(pi: ExtensionAPI): void {
@@ -39,6 +46,10 @@ export function install(pi: ExtensionAPI): void {
 			return undefined;
 		}
 	});
+	// The person reads the main agent's reply; a subagent's goes to its parent.
+	registerPromptSection(pi, REPLY_PRESENTATION_SECTION_ID, ctx =>
+		ctx.agent.kind === "sub" ? undefined : REPLY_PRESENTATION_SECTION,
+	);
 }
 
 /** Hook only; `capabilities` reports the feature when an internal it needs is gone. */

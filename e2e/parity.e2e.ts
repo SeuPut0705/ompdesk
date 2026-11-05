@@ -265,13 +265,55 @@ if (dir) {
 					)
 					.toBe(sessionPath);
 			};
+			/** B's `reply` session, made the first time a surface shows it: its one turn is the fake's `replyImages` answer. */
+			let reply: HostSession | undefined;
+			const replySession = async (): Promise<HostSession> => {
+				if (reply) return reply;
+				const tabId = (await b.evaluate(cwd => window.omp.tabs.spawn({ cwd }), work.cwd))?.tabId ?? "";
+				if (!tabId) throw new Error("B opened no tab for the reply session");
+				await expect
+					.poll(
+						async () => (await b.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === tabId)?.status,
+						{ timeout: 60_000 },
+					)
+					.toBe("ready");
+				for (const command of [
+					{ type: "bash", command: "fixture:title:Parity reply" },
+					{ type: "prompt", message: "fixture reply images" },
+				] as const)
+					await b.evaluate(([id, sent]) => window.omp.rpc.commandForTab(id, sent), [tabId, command] as const);
+				let sessionPath = "";
+				await expect
+					.poll(
+						async () =>
+							(sessionPath = await b.evaluate(async id => {
+								const tab = (await window.omp.tabs.list()).find(entry => entry.tabId === id);
+								if (tab?.status !== "ready") return "";
+								const page = await window.omp.rpc.commandForTab(id, {
+									type: "get_transcript_page",
+									fromEnd: true,
+									limit: 10,
+								});
+								const answered = JSON.stringify(page.data ?? null).includes("Here is the changed look.");
+								return answered ? (tab.sessionPath ?? "") : "";
+							}, tabId)),
+						{ timeout: 30_000 },
+					)
+					.not.toBe("");
+				reply = { path: sessionPath, cwd: work.cwd };
+				return reply;
+			};
 			/**
 			 * B's `session` as it is when a view shows it, read from B each time and never kept from the setup: a step
 			 * between surfaces may move it (`leaveRemoteChild` renews the bot's conversation), and a view of the file it
 			 * left shows no bot.
 			 */
 			const hostSession = async (session: ParitySession): Promise<HostSession> =>
-				session === "work" ? work : { path: await botConversation(), cwd: botCwd };
+				session === "work"
+					? work
+					: session === "reply"
+						? replySession()
+						: { path: await botConversation(), cwd: botCwd };
 			/** The phone's tab on each of B's session files. */
 			const phoneTabs = new Map<string, string>();
 			/** Put `view` on B's `session`, with nothing left open from the surface before. */

@@ -2794,6 +2794,32 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		"</svg>",
 		"```",
 	].join("\n");
+	// The answer to "show me the changed look" (owner, 5 Nov 2026): a before/after pair and a gallery of three, as
+	// absolute paths in the session's folder, the way an agent names the screenshots it took.
+	const replyImages = (): string => {
+		const shots = nodePath.join(process.cwd(), "shots");
+		fs.mkdirSync(shots, { recursive: true });
+		const docs = nodePath.join(E2E_DIR, "../native/memory/docs");
+		const files = {
+			"before.png": nodePath.join(docs, "web-projects-home.png"),
+			"after.png": nodePath.join(docs, "web-project-view.png"),
+			"social.png": nodePath.join(E2E_DIR, "../resources/brand/social-preview.png"),
+		};
+		for (const [name, from] of Object.entries(files)) fs.copyFileSync(from, nodePath.join(shots, name));
+		const shot = (name: string) => nodePath.join(shots, name);
+		return [
+			"Here is the changed look.",
+			"",
+			`![Before: the projects home](${shot("before.png")})`,
+			`![After: one project open](${shot("after.png")})`,
+			"",
+			"The project view now opens from the home list.",
+			"",
+			`![Home](${shot("before.png")})`,
+			`![Project](${shot("after.png")})`,
+			`![Social preview](${shot("social.png")})`,
+		].join("\n");
+	};
 
 	// One reply holding every kind of figure box: a mermaid fence, an svg fence and a code block.
 	const FIGURES_REPLY = [
@@ -4848,25 +4874,27 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					{
 						type: "text",
 						text:
-							message === "fixture math"
-								? MATH_REPLY
-								: message === "fixture image"
-									? "Here is the chart:\n\n![chart](pixel.png)"
-									: message === "fixture svg"
-										? SVG_REPLY
-										: message === "fixture figures"
-											? FIGURES_REPLY
-											: message === "fixture svg viewbox"
-												? SVG_VIEWBOX_REPLY
-												: message === "fixture markdown"
-													? MARKDOWN_REPLY
-													: message === "fixture paths"
-														? PATHS_REPLY
-														: message === "fixture reply actions"
-															? ACTIONS_REPLY
-															: message === "fixture documents"
-																? DOCUMENTS_REPLY
-																: `Local fixture reply${message.includes("fixture:result-ok") ? "\nResult: ok" : message.includes("fixture:result-problem") ? "\nResult: problem — tests failed" : ""}`,
+							message === "fixture reply images"
+								? replyImages()
+								: message === "fixture math"
+									? MATH_REPLY
+									: message === "fixture image"
+										? "Here is the chart:\n\n![chart](pixel.png)"
+										: message === "fixture svg"
+											? SVG_REPLY
+											: message === "fixture figures"
+												? FIGURES_REPLY
+												: message === "fixture svg viewbox"
+													? SVG_VIEWBOX_REPLY
+													: message === "fixture markdown"
+														? MARKDOWN_REPLY
+														: message === "fixture paths"
+															? PATHS_REPLY
+															: message === "fixture reply actions"
+																? ACTIONS_REPLY
+																: message === "fixture documents"
+																	? DOCUMENTS_REPLY
+																	: `Local fixture reply${message.includes("fixture:result-ok") ? "\nResult: ok" : message.includes("fixture:result-problem") ? "\nResult: problem — tests failed" : ""}`,
 					},
 				],
 				timestamp: Date.now(),
