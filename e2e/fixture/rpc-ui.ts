@@ -484,6 +484,8 @@ export function runRpcUi(): void {
 	let streamedParts: AgentMessage | undefined;
 	/** `fixture stream parts paused` holds its stream at these steps, one `fixture:parts:resume` each. */
 	let partsGates: number[] = [];
+	/** Ends the `fixture narrated then work` reply held after its text, and runs on (`fixture:narrated:resume`). */
+	let narratedResume: (() => void) | undefined;
 	let streamTick: (() => void) | undefined;
 	/** get_subagents roster; `fixture:subagents` fills it (running, finished, nested). */
 	let subagentRoster: SubagentSnapshot[] = [];
@@ -4452,13 +4454,21 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			}, 16);
 		} else if (message.startsWith("fixture checkout:")) {
 			void checkout.run(user, JSON.parse(message.slice("fixture checkout:".length)));
-		} else if (message === "fixture narrated" || message === "fixture narrated live") {
+		} else if (
+			message === "fixture narrated" ||
+			message === "fixture narrated live" ||
+			message === "fixture narrated then work"
+		) {
 			// A call, then a reply that says a few lines to the person and calls a tool in the same message (stock's
 			// text_delta stream, then message_end carrying both), then the final answer. `live` leaves the second call
-			// running and the turn open: the moment the text used to fold into the work card.
+			// running and the turn open: the moment the text used to fold into the work card. `then work` holds that reply
+			// after its text until `fixture:narrated:resume`, then ends it, follows it with a reply that only calls a tool,
+			// and leaves the turn open in the next model call, silent: the owner saw the text twice there after coming back
+			// to the tab (6 Nov 2026).
 			const turn: AgentMessage[] = [user];
 			const live = message === "fixture narrated live";
-			const call = (id: string, text: string, args: Record<string, unknown>, done: boolean) => {
+			const thenWork = message === "fixture narrated then work";
+			const call = (id: string, text: string, args: Record<string, unknown>, done: boolean, hold = false) => {
 				const shell: AgentMessage = { role: "assistant", content: [], timestamp: Date.now() };
 				write({ type: "message_start", message: shell });
 				for (const delta of text.match(/.{1,24}/g) ?? [])
@@ -4467,45 +4477,65 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 						message: shell,
 						assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta, partial: shell },
 					});
-				const reply: AgentMessage = {
-					role: "assistant",
-					content: [
-						...(text ? [{ type: "text" as const, text }] : []),
-						{ type: "toolCall", id, name: "bash", arguments: args },
-					],
-					timestamp: shell.timestamp,
-					provider: model.provider,
-					model: model.id,
-					stopReason: "toolUse",
+				const finish = () => {
+					const reply: AgentMessage = {
+						role: "assistant",
+						content: [
+							...(text ? [{ type: "text" as const, text }] : []),
+							{ type: "toolCall", id, name: "bash", arguments: args },
+						],
+						timestamp: shell.timestamp,
+						provider: model.provider,
+						model: model.id,
+						stopReason: "toolUse",
+					};
+					appendMessage(reply);
+					write({ type: "message_end", message: reply });
+					turn.push(reply);
+					write({ type: "tool_execution_start", toolCallId: id, toolName: "bash", args });
+					if (!done) return;
+					const result: AgentMessage = {
+						role: "toolResult",
+						toolCallId: id,
+						toolName: "bash",
+						content: [{ type: "text", text: "ok" }],
+						isError: false,
+						timestamp: Date.now(),
+					};
+					write({
+						type: "tool_execution_end",
+						toolCallId: id,
+						toolName: "bash",
+						result: { content: result.content },
+						isError: false,
+					});
+					appendMessage(result);
+					write({ type: "message_end", message: result });
+					turn.push(result);
 				};
-				appendMessage(reply);
-				write({ type: "message_end", message: reply });
-				turn.push(reply);
-				write({ type: "tool_execution_start", toolCallId: id, toolName: "bash", args });
-				if (!done) return;
-				const result: AgentMessage = {
-					role: "toolResult",
-					toolCallId: id,
-					toolName: "bash",
-					content: [{ type: "text", text: "ok" }],
-					isError: false,
-					timestamp: Date.now(),
-				};
-				write({
-					type: "tool_execution_end",
-					toolCallId: id,
-					toolName: "bash",
-					result: { content: result.content },
-					isError: false,
-				});
-				appendMessage(result);
-				write({ type: "message_end", message: result });
-				turn.push(result);
+				if (hold) return finish;
+				finish();
+				return undefined;
 			};
 			const stamp = Date.now();
 			call(`narrated-prep-${stamp}`, "", { command: "git status", intent: "Checking the tree" }, true);
 			setTimeout(() => {
-				call(`narrated-test-${stamp}`, NARRATION_TEXT, { command: "bun test", intent: "Running the tests" }, !live);
+				const args = { command: "bun test", intent: "Running the tests" };
+				if (thenWork) {
+					const finish = call(`narrated-test-${stamp}`, NARRATION_TEXT, args, true, true);
+					narratedResume = () => {
+						finish?.();
+						call(
+							`narrated-after-${stamp}`,
+							"",
+							{ command: "git diff --stat", intent: "Reviewing the diff" },
+							true,
+						);
+						write({ type: "message_start", message: { role: "assistant", content: [], timestamp: Date.now() } });
+					};
+					return;
+				}
+				call(`narrated-test-${stamp}`, NARRATION_TEXT, args, !live);
 				if (live) return;
 				setTimeout(() => {
 					const answer: AgentMessage = {
@@ -5559,6 +5589,14 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				// Lets a `fixture stream parts paused` reply go on to its next pause, or to the end (the tab was switched away meanwhile).
 				if (line === "fixture:parts:resume") {
 					partsGates.shift();
+					ok();
+					break;
+				}
+				// Lets the held `fixture narrated then work` reply end and the run go on (the tab was switched away meanwhile).
+				if (line === "fixture:narrated:resume") {
+					const resume = narratedResume;
+					narratedResume = undefined;
+					resume?.();
 					ok();
 					break;
 				}

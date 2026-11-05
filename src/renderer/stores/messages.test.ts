@@ -198,6 +198,36 @@ describe("attaching to a message already streaming", () => {
 		store.getState().applyEvents([{ type: "message_start", message: streamingMessage }, delta("a"), delta("b")]);
 		expect(store.getState().streamingText).toBe("ab");
 	});
+
+	it("closes a stream the fetched transcript already holds: it ended while the tab was away", () => {
+		const store = createMessagesStore();
+		store.getState().applyEvents([{ type: "message_start", message: streamingMessage }, delta("Here is the plan.")]);
+		// Back on the tab, the next model call is silent: only the transcript says the reply ended.
+		const ended: AgentMessage = {
+			role: "assistant",
+			content: [
+				{ type: "text", text: "Here is the plan." },
+				{ type: "toolCall", id: "call-1", name: "bash", arguments: {} },
+			],
+			timestamp: 1,
+			entryId: "reply",
+		};
+		store.getState().reconcileFetched([userMessage("prompt"), ended]);
+		expect(store.getState()).toMatchObject({ streamingMessage: null, streamingText: "", streamingThinking: "" });
+
+		// A reply still streaming is not in the transcript yet: it keeps streaming.
+		const next: AgentMessage = { ...streamingMessage, timestamp: 2 };
+		store.getState().applyEvents([
+			{ type: "message_start", message: next },
+			{
+				type: "message_update",
+				message: next,
+				assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "More", partial: next },
+			},
+		]);
+		store.getState().reconcileFetched([userMessage("prompt"), ended]);
+		expect(store.getState()).toMatchObject({ streamingMessage: { timestamp: 2 }, streamingText: "More" });
+	});
 });
 
 describe("committed transcript ownership", () => {
