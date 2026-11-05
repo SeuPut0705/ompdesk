@@ -126,7 +126,7 @@ describe("answer-first gate", () => {
 		expect(respond([waitCall], "bash")).toEqual([undefined]);
 	});
 
-	it("holds only after a person's steer, only the main agent, and gives way after two silent responses", () => {
+	it("holds only after a person's steer and only the main agent, through silent reads, until text or the turn's end", () => {
 		const mail = hook(() => true);
 		expect(mail.run('<ompdesk-agent-message from="x">\nstatus?\n</ompdesk-agent-message>')).toBeUndefined();
 		expect(mail.respond([waitCall], "wait")).toEqual([undefined]);
@@ -135,15 +135,13 @@ describe("answer-first gate", () => {
 		typed.note("how far?", true);
 		run("how far?");
 		expect(call("wait", "sub")).toBeUndefined();
-		expect(respond([{ type: "text", text: "." }, waitCall], "wait")).toEqual([
-			expect.objectContaining({ block: true }),
-		]);
+		// Silent reads go through, and never count as the answer: the wait after them is still refused.
+		expect(respond([{ type: "text", text: "." }], "read")).toEqual([undefined]);
+		expect(respond([], "read")).toEqual([undefined]);
 		expect(respond([waitCall], "wait")).toEqual([expect.objectContaining({ block: true })]);
-		// A model that will not answer is not held forever.
-		expect(respond([waitCall], "wait")).toEqual([undefined]);
+		expect(respond([waitCall], "wait")).toEqual([expect.objectContaining({ block: true })]);
 
-		typed.note("and now?", true);
-		run("and now?");
+		// The turn's end (a Stop included) closes it.
 		fire("agent_end", { messages: [] });
 		expect(respond([waitCall], "wait")).toEqual([undefined]);
 	});

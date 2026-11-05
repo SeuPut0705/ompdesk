@@ -6,7 +6,7 @@
 
 ### 고친 것
 - 에이전트가 도구를 부르면서 함께 쓴 말(계획, 진행 상황)이 적히다가 도구가 시작되면 접힌 작업 카드 안으로 사라졌어요. 이제 그 말은 그 도구들을 담은 카드 바로 아래 대화에 그대로 남고, 다음 작업은 그 아래 새 카드에서 이어져요. 이 컴퓨터, 페어링한 컴퓨터, 휴대폰에서 모두 같아요.
-- 일하는 중인 세션에 보낸 메시지("언제 끝나?")에 에이전트가 답 없이 다시 기다리거나 명령을 이어가곤 했어요. 이제 글로 답하기 전에는 기다리기, 명령 실행, 다른 세션에 보내기 같은 도구가 거절되고 답하라는 이유가 돌아가요. 답에 필요한 읽기와 되묻기는 그대로 되고, 두 번 거절된 뒤에는 더 막지 않아요. 에이전트끼리 보낸 메시지와 알림에는 적용되지 않아요.
+- 일하는 중인 세션에 보낸 메시지("언제 끝나?")에 에이전트가 답 없이 다시 기다리거나 명령을 이어가곤 했어요. 이제 글로 답할 때까지 기다리기, 명령 실행, 다른 세션에 보내기 같은 도구가 거절되고 먼저 답하라는 이유가 돌아가요. 답에 필요한 읽기와 되묻기는 그대로 돼요. 에이전트끼리 보낸 메시지와 알림에는 적용되지 않아요.
 
 <!-- en -->
 
@@ -14,7 +14,7 @@ What the agent writes while it works no longer vanishes from the chat, and a mes
 
 ### Fixed
 - Text the agent wrote beside its tool calls (a plan, a status) streamed in and then disappeared into the collapsed work card once the tools started. It now stays in the chat right under the card holding those calls, and the work after it continues in a new card below. The same on this computer, a paired computer and the phone.
-- A message sent into a running session ("when will it finish?") was often met with another wait or more commands and no answer. Until the agent answers in text, waits, commands, messages to other sessions and other tools are now refused with a reason telling it to answer first. Reads and questions the answer needs still run, and after two refused replies it is no longer held. Messages between agents and reminders are not affected.
+- A message sent into a running session ("when will it finish?") was often met with another wait or more commands and no answer. Until the agent answers in text, waits, commands, messages to other sessions and other tools are now refused with a reason telling it to answer first. Reads and questions the answer needs still run. Messages between agents and reminders are not affected.
 
 ## [0.112.1] - 2026-11-05
 

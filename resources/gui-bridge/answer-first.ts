@@ -29,9 +29,9 @@
  * {@link ANSWER_TOOLS}, which the answer itself may need. The gate closes as soon as a response's text streams
  * (`message_update`: agent-core prepares a message's calls, `tool_call` included, when its stream is done and before
  * its `message_end`, so the text is seen first and that response's own calls go through; `message_end` covers a
- * message that never streamed), at the turn's end (`agent_end`), and after {@link MAX_SILENT_RESPONSES} refused
- * responses, so a model that will not answer is not held forever. Only after the companion, so only for a person's
- * steer, and only for the main agent.
+ * message that never streamed), and at the turn's end (`agent_end`; the person's Stop ends a turn too). Nothing else
+ * opens it: a give-way after N silent responses let a model that read twice and then called `wait` skip the answer
+ * again. Only after the companion, so only for a person's steer, and only for the main agent.
  *
  * No omp imports (not even types): the GUI's vitest and typecheck load this file directly
  * (src/main/bridge-answer-first.test.ts), as for modes/memory-recall.ts.
@@ -53,9 +53,6 @@ export const ANSWER_FIRST_REFUSAL =
  * messages to other sessions, todo) waits for the text.
  */
 const ANSWER_TOOLS: Record<string, true> = { read: true, grep: true, glob: true, find: true, ask: true };
-
-/** Responses without text the gate refuses before it gives way. */
-const MAX_SILENT_RESPONSES = 2;
 
 /** The hidden companion, as `before_agent_start` returns it. */
 export interface AnswerFirstMessage {
@@ -128,26 +125,24 @@ export function installAnswerFirst(
 	loopStreaming: LoopStreaming,
 	notes: TypedPrompts = typedPrompts,
 ): void {
-	/** Refused responses since the person's steer; undefined while nothing is owed. */
-	let owed: number | undefined;
+	/** A person's steer this turn has not answered in text yet. */
+	let owed = false;
 	pi.on("before_agent_start", (event, ctx) => {
 		const message = answerFirstCompanion(event.prompt, ctx.agent.kind, loopStreaming(), notes);
 		if (!message) return undefined;
-		owed = 0;
+		owed = true;
 		return { message };
 	});
-	pi.on("message_update", event => {
-		if (owed !== undefined && saysSomething(event.message)) owed = undefined;
-	});
-	pi.on("message_end", event => {
-		if (owed === undefined || event.message.role !== "assistant") return;
-		if (saysSomething(event.message) || ++owed >= MAX_SILENT_RESPONSES) owed = undefined;
-	});
+	const heard = (event: AssistantEvent) => {
+		if (owed && saysSomething(event.message)) owed = false;
+	};
+	pi.on("message_update", heard);
+	pi.on("message_end", heard);
 	pi.on("agent_end", () => {
-		owed = undefined;
+		owed = false;
 	});
 	pi.on("tool_call", (event, ctx) => {
-		if (owed === undefined || ctx.agent.kind !== "main" || ANSWER_TOOLS[event.toolName]) return undefined;
+		if (!owed || ctx.agent.kind !== "main" || ANSWER_TOOLS[event.toolName]) return undefined;
 		return { block: true, reason: ANSWER_FIRST_REFUSAL };
 	});
 }
