@@ -281,7 +281,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // A reply's paragraph of pictures as one captioned figure row (5 Nov 2026, markdown.tsx `FigureRow`, `useImageReads`;
 // replies are the first screen): measured 2,157,926, 1,624 bytes over the budget above.
 // A paragraph holding a player or a document card renders as a block of its own (`rendersAsBlock`): 2,158,239.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_158_239;
+// What a reply writes beside its tool calls stays a row of its own under its work card (6 Nov 2026,
+// chat-stream-utils.ts `buildHistoryRows` narration, `liveWorkTail`; the transcript is the first screen): 2,158,572.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_158_572;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

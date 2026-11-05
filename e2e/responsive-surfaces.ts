@@ -389,6 +389,23 @@ export const SURFACES: readonly Surface[] = [
 		}),
 	),
 	{
+		id: "reply-narration",
+		area: "A",
+		title: "A run whose reply writes to the person beside its tool call: the text stays under the card holding the call",
+		open: async page => {
+			await page.getByText("Narrated run finished.", { exact: true }).last().waitFor({ timeout: 15_000 });
+			await page
+				.locator(".omp-user-bubble")
+				.getByText("fixture narrated", { exact: true })
+				.last()
+				.evaluate(element => element.scrollIntoView({ block: "start" }));
+		},
+		ready: "[data-transcript-kind='process']",
+		settle: 900,
+		when: () => false,
+		parity: { session: "reply" },
+	},
+	{
 		id: "bot-bar",
 		area: "A",
 		title: "The bot's session (?bot=1): its bar over the conversation and an open decision docked above the composer",

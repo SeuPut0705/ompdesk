@@ -42,7 +42,7 @@ function toolResult(toolCallId: string, isError = false): AgentMessage {
 
 const toolRun: AgentMessage[] = [
 	assistant([
-		{ type: "text", text: "I will inspect the source." },
+		{ type: "text", text: "." },
 		{ type: "toolCall", id: "call-read", name: "read", arguments: { path: "src/a.ts" } },
 	]),
 	toolResult("call-read"),
@@ -116,57 +116,60 @@ describe("compact transcript rows", () => {
 		).toEqual([]);
 	});
 
-	it("folds narrated phases and filler tool calls into one activity summary before the final answer", () => {
+	it("keeps what a reply writes beside its calls in the chat, under the card holding those calls", () => {
+		const steer: AgentMessage = {
+			role: "user",
+			content: [{ type: "text", text: "언제 끝나" }],
+			steering: true,
+			timestamp: "2026-08-05T04:00:01.000Z",
+		};
 		const rows = buildHistoryRows(
 			[
 				assistant([
-					{ type: "text", text: "Validate the updater." },
+					{ type: "text", text: "." },
 					{ type: "toolCall", id: "call-check", name: "bash", arguments: { command: "bun check" } },
 				]),
 				assistant([
-					{ type: "text", text: "." },
-					{ type: "toolCall", id: "call-format", name: "bash", arguments: { command: "bun format" } },
-				]),
-				{
-					role: "custom",
-					customType: "launch-completion",
-					content: "Supervised process audit failed with exit code 1.",
-					details: { daemons: [{ name: "audit", state: "failed", exitCode: 1 }] },
-					display: true,
-					timestamp: at,
-				},
-				assistant([
-					{ type: "thinking", thinking: "The checks passed; launch the audit build." },
-					{ type: "text", text: "Launch the audit build." },
+					{ type: "thinking", thinking: "The checks passed; tell them the plan." },
+					{ type: "text", text: "Checks pass. Next I build and launch the audit; about five minutes." },
 					{ type: "toolCall", id: "call-build", name: "bash", arguments: { command: "bun run build" } },
 				]),
-				assistant([
-					{ type: "text", text: "." },
-					{ type: "toolCall", id: "call-launch", name: "hub", arguments: { name: "gui-final" } },
-				]),
+				steer,
 				{
 					role: "custom",
 					customType: "async-result",
 					content: "<system-notice>Background job bg-1 has completed.\npassed</system-notice>",
 					details: { jobs: [{ jobId: "bg-1", type: "bash", label: "tests" }] },
 					display: true,
-					timestamp: at,
+					timestamp: "2026-08-05T04:00:02.000Z",
 				},
+				{
+					...assistant([{ type: "toolCall", id: "call-launch", name: "hub", arguments: { name: "gui-final" } }]),
+					timestamp: "2026-08-05T04:00:03.000Z",
+				},
+				{ ...assistant([{ type: "text", text: "Launched." }]), timestamp: "2026-08-05T04:00:04.000Z" },
 			],
 			"compact",
 		);
 
-		expect(rows.map(row => row.kind)).toEqual(["process"]);
-		const process = rows[0];
-		if (process?.kind !== "process") throw new Error("process row missing");
-		expect(process.stepCount).toBe(5);
-		expect(process.failedEvents).toBe(1);
-		expect(process.toolNames).toEqual(["bash", "bash", "bash", "hub"]);
-		expect(process.notes?.map(message => message.customType).filter(Boolean)).toEqual([
-			"launch-completion",
-			"async-result",
+		expect(rows.map(row => row.kind)).toEqual(["process", "message", "process", "message"]);
+		const [before, narration, after, answer] = rows;
+		if (before?.kind !== "process" || narration?.kind !== "message" || after?.kind !== "process")
+			throw new Error("rows missing");
+		// The card above the text holds the calls of the message that wrote it, and its thinking.
+		expect(before.toolCallIds).toEqual(["call-check", "call-build"]);
+		expect(before.stepCount).toBe(3);
+		expect(narration.message.content).toEqual([
+			{ type: "text", text: "Checks pass. Next I build and launch the audit; about five minutes." },
 		]);
-		expect(buildTimelineMarkers(rows)[0]?.state).toBe("error");
+		// A steer and a job note arriving after the text still join the run they interrupted.
+		expect(before.notes).toEqual([steer, expect.objectContaining({ customType: "async-result" })]);
+		expect(after.toolCallIds).toEqual(["call-launch"]);
+		expect(answer?.kind === "message" && answer.message.content).toEqual([{ type: "text", text: "Launched." }]);
+		// While the text's calls run the card above it stays live; the next reply's work starts under the text.
+		const running = rows.slice(0, 2);
+		expect(liveWorkTail(running, true, false)).toEqual({ liveTail: true, lastWorkRow: 0 });
+		expect(liveWorkTail(running, true, true).liveTail).toBe(false);
 	});
 });
 
@@ -568,8 +571,8 @@ describe("mergeTodoSnapshots", () => {
 		]);
 		expect(rows.map(row => row.kind)).toEqual(["process"]);
 		expect(rows[0]?.kind === "process" && rows[0].todoSnapshots?.[0]?.id).toBe("s1");
-		expect(liveWorkTail(rows, true)).toEqual({ liveTail: true, lastWorkRow: 0 });
-		expect(liveWorkTail(rows, false)).toEqual({ liveTail: false, lastWorkRow: 0 });
+		expect(liveWorkTail(rows, true, false)).toEqual({ liveTail: true, lastWorkRow: 0 });
+		expect(liveWorkTail(rows, false, false)).toEqual({ liveTail: false, lastWorkRow: 0 });
 	});
 	it("keeps the finished reply next to its work and carries the last todo state", () => {
 		const rows = mergeTodoSnapshots(buildHistoryRows(toolRun, "compact"), [

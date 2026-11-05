@@ -64,7 +64,7 @@ describe("steer inside a running turn", () => {
 		const delivered = [prompt, call("bash", "bash", 200), result("bash", "bash", 250), steer];
 		const live = buildHistoryRows(delivered, "compact");
 		expect(live.map(row => row.kind)).toEqual(["message", "process"]);
-		expect(liveWorkTail(live, true).liveTail).toBe(true);
+		expect(liveWorkTail(live, true, false).liveTail).toBe(true);
 		const continued = buildHistoryRows([...delivered, call("task", "task", 400)], "compact");
 		expect(continued.map(row => row.kind)).toEqual(["message", "process"]);
 		const [work] = processes(continued);

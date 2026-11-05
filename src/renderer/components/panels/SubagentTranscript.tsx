@@ -199,7 +199,8 @@ export const SubagentTranscript = memo(function SubagentTranscript({
 		return { rows: reused, keys: rowKeys };
 	}, [messages, detail]);
 	const results = useMemo(() => pairResults(messages), [messages]);
-	const { liveTail, lastWorkRow } = liveWorkTail(rows, live);
+	// A subagent's transcript has no streaming reply: only its finalized messages.
+	const { liveTail, lastWorkRow } = liveWorkTail(rows, live, false);
 	const currentWork = liveTail ? lastWorkRow : rows.findLastIndex(row => row.kind === "process");
 
 	const setProcessExpanded = useMemo(

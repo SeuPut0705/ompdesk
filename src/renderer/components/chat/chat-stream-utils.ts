@@ -290,7 +290,16 @@ export function claimRowEntrances(state: RowEntranceState, pass: RowEntrancePass
 }
 
 export type HistoryRow =
-	| { kind: "message"; message: AgentMessage; reaction?: string }
+	| {
+			kind: "message";
+			message: AgentMessage;
+			reaction?: string;
+			/**
+			 * Text a reply wrote beside its tool calls, cut from the message whose calls the work card above it holds.
+			 * The run goes on after it: the card above stays the live one, and steers and notes still join the run.
+			 */
+			narration?: true;
+	  }
 	| { kind: "readGroup"; entries: ReadGroupEntry[]; usage?: ReadGroupUsage[] }
 	| ({ kind: "process"; messages: AgentMessage[] } & ProcessMeta)
 	| { kind: "todoSnapshot"; entry: TodoSnapshot };
@@ -464,10 +473,14 @@ export function replyMarkdownTail(messages: readonly AgentMessage[], limit: numb
 	let replies = 0;
 	for (let index = messages.length - 1; index >= 0 && replies < limit; index--) {
 		const message = messages[index];
-		if (message?.role !== "assistant" || messageContent(message).some(block => block.type === "toolCall")) continue;
+		if (message?.role !== "assistant") continue;
+		// A reply's text renders as its own row, also beside tool calls (`buildHistoryRows`).
+		const texts = messageContent(splitMessageReaction(message).message).flatMap(block =>
+			block.type === "text" && isRenderableMessageText(block.text) ? [block.text] : [],
+		);
+		if (texts.length === 0) continue;
 		replies++;
-		for (const block of messageContent(splitMessageReaction(message).message))
-			if (block.type === "text" && isRenderableMessageText(block.text)) sources.push(block.text);
+		sources.push(...texts);
 	}
 	return sources;
 }
@@ -576,11 +589,14 @@ export function buildHistoryRows(
 	// Stock's persisted todo reminders, folded into the run they continued once rows exist.
 	const reminders = new Set<AgentMessage>();
 	let processMessages: AgentMessage[] = [];
+	// The last visible row is a reply's narration and its run goes on (steers and notes still join it).
+	let narrated = false;
 	let reactionTargetIndex: number | undefined;
 	let turnStartedAt: number | undefined;
 	// Skill prompts seen since the last run or user prompt: the next work row's leading skills.
 	let leadingSkills: string[] = [];
 	const flushProcess = () => {
+		narrated = false;
 		if (processMessages.length === 0) return;
 		rows.push({
 			kind: "process",
@@ -599,7 +615,10 @@ export function buildHistoryRows(
 		// Stock delivers a queued steer as a `steering` user message inside the
 		// running loop. It redirects the open run instead of starting a turn.
 		const steersRun =
-			detail === "compact" && incoming.role === "user" && incoming.steering === true && processMessages.length > 0;
+			detail === "compact" &&
+			incoming.role === "user" &&
+			incoming.steering === true &&
+			(processMessages.length > 0 || narrated);
 		if (incoming.role === "user" && !steersRun) {
 			flushProcess();
 			turnStartedAt = messageTimestampMs(incoming);
@@ -642,7 +661,7 @@ export function buildHistoryRows(
 		if (
 			detail === "compact" &&
 			isCustomMessageCardType(message.customType) &&
-			processMessages.some(entry => messageContent(entry).some(block => block.type === "toolCall"))
+			(narrated || processMessages.some(entry => messageContent(entry).some(block => block.type === "toolCall")))
 		) {
 			rows.push({ kind: "message", message });
 			duringRunNotes.set(message, messageTimestampMs(message));
@@ -666,10 +685,17 @@ export function buildHistoryRows(
 		const hasToolCall = message.content.some(block => block.type === "toolCall");
 		const hasImage = message.content.some(block => block.type === "image");
 		if (hasToolCall && !hasImage) {
-			// Text accompanying a tool call is intermediate narration. Keep every
-			// narrated phase in the same disclosure until the API delivers the final
-			// answer, so a long run leaves one activity summary instead of a stack of
-			// nearly identical completed rows.
+			// What a reply writes beside its calls is said to the person: it stays in the chat, right under the card that
+			// holds this message's calls (where it streamed), and the run's next calls start a card under it. Folded into
+			// the card, it showed while streaming and vanished once the calls started (the owner's report, 6 Nov 2026).
+			const text = message.content.filter(block => block.type === "text");
+			if (text.some(block => isRenderableMessageText(block.text))) {
+				processMessages.push({ ...message, content: message.content.filter(block => block.type !== "text") });
+				flushProcess();
+				rows.push({ kind: "message", message: { ...message, content: text }, narration: true });
+				narrated = true;
+				continue;
+			}
 			processMessages.push(message);
 			continue;
 		}
@@ -809,7 +835,7 @@ function processRuns(rows: readonly HistoryRow[], notes?: ReadonlyMap<AgentMessa
 			const previous = runs.at(-1);
 			if (previous) previous.end = Math.min(previous.end, previous.turn === boundary ? start : boundary);
 			runs.push({ index, start: Math.max(start, boundary), turn: boundary, end: Number.POSITIVE_INFINITY });
-		} else if (row.kind === "message" && isWorkReply(row.message)) {
+		} else if (row.kind === "message" && !row.narration && isWorkReply(row.message)) {
 			const run = runs.at(-1);
 			if (run) run.reply ??= messageTimestampMs(row.message);
 		}
@@ -1014,14 +1040,24 @@ export function mergeTodoSnapshots(rows: readonly HistoryRow[], snapshots: reado
 	return out;
 }
 
-/** Which finalized process row absorbs the running turn's live steps. */
+/**
+ * Which finalized process row absorbs the running turn's live steps. A reply's narration after it keeps it live while
+ * that reply's calls run; once the next reply streams (`streamingStarted`), that reply's work starts its own card under
+ * the narration, as it will finalize.
+ */
 export function liveWorkTail(
 	rows: readonly HistoryRow[],
 	isStreaming: boolean,
+	streamingStarted: boolean,
 ): { liveTail: boolean; lastWorkRow: number } {
 	let lastWorkRow = rows.length - 1;
-	while (lastWorkRow >= 0 && rows[lastWorkRow]?.kind === "todoSnapshot") lastWorkRow--;
-	const liveTail = isStreaming && rows[lastWorkRow]?.kind === "process";
+	let narrated = false;
+	for (; lastWorkRow >= 0; lastWorkRow--) {
+		const row = rows[lastWorkRow];
+		if (row?.kind === "message" && row.narration) narrated = true;
+		else if (row?.kind !== "todoSnapshot") break;
+	}
+	const liveTail = isStreaming && rows[lastWorkRow]?.kind === "process" && !(narrated && streamingStarted);
 	return { liveTail, lastWorkRow };
 }
 

@@ -59,6 +59,7 @@ import { recordHistory } from "../history-store-fixture";
 import { tinyPdf } from "../tiny-pdf";
 import { createAutopilotFake } from "./autopilot";
 import { createCheckoutFake } from "./checkout-peers";
+import { NARRATION_TEXT } from "./narration";
 import { FIXTURE_MIN_OMP_VERSION, FIXTURE_OMP_VERSION } from "./version";
 
 /** `e2e/`: the recordings, media and `../resources` the fixture reads sit beside the specs, not in `fixture/`. */
@@ -4451,6 +4452,77 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			}, 16);
 		} else if (message.startsWith("fixture checkout:")) {
 			void checkout.run(user, JSON.parse(message.slice("fixture checkout:".length)));
+		} else if (message === "fixture narrated" || message === "fixture narrated live") {
+			// A call, then a reply that says a few lines to the person and calls a tool in the same message (stock's
+			// text_delta stream, then message_end carrying both), then the final answer. `live` leaves the second call
+			// running and the turn open: the moment the text used to fold into the work card.
+			const turn: AgentMessage[] = [user];
+			const live = message === "fixture narrated live";
+			const call = (id: string, text: string, args: Record<string, unknown>, done: boolean) => {
+				const shell: AgentMessage = { role: "assistant", content: [], timestamp: Date.now() };
+				write({ type: "message_start", message: shell });
+				for (const delta of text.match(/.{1,24}/g) ?? [])
+					write({
+						type: "message_update",
+						message: shell,
+						assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta, partial: shell },
+					});
+				const reply: AgentMessage = {
+					role: "assistant",
+					content: [
+						...(text ? [{ type: "text" as const, text }] : []),
+						{ type: "toolCall", id, name: "bash", arguments: args },
+					],
+					timestamp: shell.timestamp,
+					provider: model.provider,
+					model: model.id,
+					stopReason: "toolUse",
+				};
+				appendMessage(reply);
+				write({ type: "message_end", message: reply });
+				turn.push(reply);
+				write({ type: "tool_execution_start", toolCallId: id, toolName: "bash", args });
+				if (!done) return;
+				const result: AgentMessage = {
+					role: "toolResult",
+					toolCallId: id,
+					toolName: "bash",
+					content: [{ type: "text", text: "ok" }],
+					isError: false,
+					timestamp: Date.now(),
+				};
+				write({
+					type: "tool_execution_end",
+					toolCallId: id,
+					toolName: "bash",
+					result: { content: result.content },
+					isError: false,
+				});
+				appendMessage(result);
+				write({ type: "message_end", message: result });
+				turn.push(result);
+			};
+			const stamp = Date.now();
+			call(`narrated-prep-${stamp}`, "", { command: "git status", intent: "Checking the tree" }, true);
+			setTimeout(() => {
+				call(`narrated-test-${stamp}`, NARRATION_TEXT, { command: "bun test", intent: "Running the tests" }, !live);
+				if (live) return;
+				setTimeout(() => {
+					const answer: AgentMessage = {
+						role: "assistant",
+						content: [{ type: "text", text: "Narrated run finished." }],
+						timestamp: Date.now(),
+						provider: model.provider,
+						model: model.id,
+						stopReason: "stop",
+					};
+					appendMessage(answer);
+					write({ type: "message_start", message: answer });
+					write({ type: "message_end", message: answer });
+					turn.push(answer);
+					endTurn(turn);
+				}, 300);
+			}, 300);
 		} else if (message === "fixture steps") {
 			// A run of separate assistant messages, each thinking then calling a
 			// tool, with gaps between them — the shape that used to mount a new

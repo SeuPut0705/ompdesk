@@ -253,7 +253,7 @@ function SessionTranscript() {
 	// summary and its live log window never remount and flicker. Only the
 	// reply text streams as its own row. History process rows exist in compact
 	// detail only; full detail keeps per-message rows.
-	const { liveTail, lastWorkRow } = liveWorkTail(historyRows, isStreaming);
+	const { liveTail, lastWorkRow } = liveWorkTail(historyRows, isStreaming, streamingMessage !== null);
 	const tailRowIndex = liveTail ? (hiddenCount > 0 ? 1 : 0) + lastWorkRow : -1;
 	const showStreamingRow = hasStreamedContent && (!liveTail || hasStreamingText);
 	// Streaming deltas rerender this component for the live row, but they do not
