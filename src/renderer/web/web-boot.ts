@@ -175,11 +175,12 @@ async function bootApp(): Promise<void> {
 		noteReason(reloadFor ?? fallback, details);
 		location.reload();
 	};
-	// Bound where lib/chunk-load.ts is imported below (it stays off the boot path); nothing is stale before that.
-	let chunkDetail = (): string => "";
 	const purgeNow = (): Promise<boolean> => {
 		const forChunk = chunkStale && transport.state !== "outdated";
-		noteReason(forChunk ? "chunk-load-failed" : "outdated", forChunk ? { chunk: chunkDetail() } : undefined);
+		noteReason(
+			forChunk ? "chunk-load-failed" : "outdated",
+			forChunk ? { cause: useChunkFailureStore.getState().cause ?? null } : undefined,
+		);
 		if (forChunk) sessionStorage.setItem(CHUNK_RELOAD_KEY, String(Date.now()));
 		return purge(() => !moment || safeToReload(moment));
 	};
@@ -300,8 +301,7 @@ async function bootApp(): Promise<void> {
 	// a prompt. When the failure took the whole app down the composer's text was saved as it unmounted, so the page
 	// reloads once hidden or at a launch/return moment (`reloadWhenUnused`) unless a picture, an unsaved edit, a pick
 	// or an upload would be lost (`appGoneMoment`).
-	const { useChunkFailureStore, chunkFailureDetail } = await import("../lib/chunk-load");
-	chunkDetail = chunkFailureDetail;
+	const { useChunkFailureStore } = await import("../lib/chunk-load");
 	const onChunkFailure = ({ failed, appGone }: { failed: boolean; appGone: boolean }) => {
 		const current = moment;
 		if (!failed || !current) return;
