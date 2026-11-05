@@ -87,13 +87,14 @@ export function changelogSection(markdown: string, version: string, lang = "ko")
 	return body || null;
 }
 
-/** The whole changelog (without its `# Changelog` title) with every release in `lang`. */
+/** The whole changelog (without its `# Changelog` title) with every release in `lang`; an `## Unreleased` section is not a release and is left out. */
 export function changelogReleases(markdown: string, lang = "ko"): string {
-	const parts = markdown.replace(/^# [^\n]*\n+/, "").split(/^(?=## \[)/m);
+	const parts = markdown.replace(/^# [^\n]*\n+/, "").split(/^(?=## )/m);
 	return parts
+		.filter(part => part.startsWith("## ["))
 		.map(part => {
 			const newline = part.indexOf("\n");
-			if (!part.startsWith("## [") || newline < 0) return part;
+			if (newline < 0) return part;
 			return `${part.slice(0, newline)}\n\n${pick(part.slice(newline + 1), lang)}\n\n`;
 		})
 		.join("")

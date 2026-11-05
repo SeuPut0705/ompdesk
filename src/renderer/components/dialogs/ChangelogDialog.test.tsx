@@ -21,9 +21,9 @@ import { useUiStore } from "../../stores/ui";
 import { WHATS_NEW_AUTO_HIDE_MS, WhatsNewCard } from "../layout/WhatsNewCard";
 import { ChangelogDialog, WhatsNewNotice } from "./ChangelogDialog";
 
-// The first release heading of the bundled file (e.g. "[0.1.0] - Unreleased"),
-// so the test follows the shipped changelog instead of pinning its wording.
-const firstRelease = changelogMarkdown.match(/^## (.+)$/m)?.[1] ?? "";
+// The first versioned release heading of the bundled file (e.g. "[0.1.0] - 2026-10-14"), so the test follows the
+// shipped changelog instead of pinning its wording. An `## Unreleased` section above it is not a release.
+const firstRelease = changelogMarkdown.match(/^## (\[.+)$/m)?.[1] ?? "";
 const latest = firstRelease.match(/^\[([^\]]+)\]/)?.[1] ?? "";
 const older = changelogMarkdown.match(/^## \[([^\]]+)\]/gm)?.[1]?.slice(4, -1) ?? "";
 // The window shows a heading as `<version> · <date>`, never the file's `[version] - date`.

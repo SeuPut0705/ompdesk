@@ -77,6 +77,13 @@ describe("changelog languages", () => {
 		expect(changelogReleases(BILINGUAL, "ko")).not.toContain("<!-- en -->");
 	});
 
+	it("never lists an Unreleased section, which waits for its release", () => {
+		const withPending = BILINGUAL.replace("## [0.5.0]", "## Unreleased\n\n- 아직 나오지 않음\n\n## [0.5.0]");
+		for (const lang of ["ko", "en"]) {
+			expect(changelogReleases(withPending, lang)).toBe(changelogReleases(BILINGUAL, lang));
+		}
+	});
+
 	it("gives every release from 0.26 on an English part", () => {
 		const versions = [...changelogMarkdown.matchAll(/^## \[(\d+)\.(\d+)\.(\d+)\]/gm)].filter(
 			([, major, minor]) => Number(major) > 0 || Number(minor) >= 26,
