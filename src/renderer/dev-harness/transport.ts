@@ -34,7 +34,7 @@ import {
 	type PreviewStreamPoll,
 	type PreviewStreamPollRequest,
 } from "../../shared/preview";
-import type { RpcCommand, SettingsSchemaResult } from "../../shared/rpc-types";
+import type { RpcCommand, RpcContextReportResult, SettingsSchemaResult } from "../../shared/rpc-types";
 import { SCHEDULES_COMMAND, SCHEDULES_LOG } from "../../shared/schedules";
 import { SIDEBAR_PROJECTS_COMMAND, type SidebarProjectsRequest } from "../../shared/sidebar-projects";
 import type { TerminalLeaseState, TerminalOperation, TerminalSnapshot } from "../../shared/terminal-types";
@@ -467,6 +467,22 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				return respond(command, ADVISOR_USAGE);
 			case "get_context_inspect":
 				return respond(command, CONTEXT_INSPECT);
+			case "get_context_report":
+				// The composer's context ring breakdown: the 38.4k the harness session reports, split as stock splits it.
+				return respond(command, {
+					contextWindow: 1_000_000,
+					model: "claude-sonnet-5-5",
+					breakdown: {
+						contextWindow: 1_000_000,
+						anchored: true,
+						usedTokens: 38_400,
+						systemPromptTokens: 6_200,
+						systemToolsTokens: 14_800,
+						systemContextTokens: 2_100,
+						skillsTokens: 900,
+						messagesTokens: 14_400,
+					},
+				} satisfies RpcContextReportResult);
 			case "get_desktop_slot":
 				return respond(command, { holder: null, queue: [] });
 			case "pr_comments":
