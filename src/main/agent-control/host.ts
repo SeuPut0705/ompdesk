@@ -838,6 +838,7 @@ export class AgentControlRuntime {
 	 */
 	botAdopted(input: { from: string; to: string; note: string }): void {
 		const { from, to, note } = input;
+		const previous = sessionIdOfPath(from);
 		this.#outbox.move(from, to);
 		this.#sends.move(from, to);
 		const { prefs } = this.#deps;
@@ -854,14 +855,15 @@ export class AgentControlRuntime {
 		this.#keepAndSend(
 			to,
 			{
-				id: `bot-handoff-${sessionIdOfPath(from)}`,
+				id: `bot-handoff-${previous}`,
 				from: "ompdesk",
 				fromTitle: "Handoff from your previous conversation",
 				to: "",
 				kind: "note",
 				text: note,
-				instruction:
-					"OMPdesk started this fresh conversation for you; the previous one ended and is kept read-only for 7 days. Your desk, duties, memories and routines carried over. Continue from this note.",
+				// The saved id names the ended conversation for ompdesk_session_read (no tab holds it): without it the bot
+				// told the owner it could not see its previous conversation (6 Nov 2026).
+				instruction: `OMPdesk started this fresh conversation for you; the previous one (saved id ${previous}) ended and is kept read-only for 7 days. When the owner refers to something this note lacks, read it: ompdesk_session_read {"session":"${previous}"} gives its last messages and a before cursor for earlier ones; ompdesk_sessions {"scope":"stored"} lists it with your other past conversations. Your desk, duties, memories and routines carried over. Continue from this note.`,
 				at: Date.now(),
 			},
 			{ triggerTurn: false },
