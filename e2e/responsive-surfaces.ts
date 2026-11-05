@@ -280,20 +280,36 @@ async function pressUntilVisible(page: Page, shortcut: string, target: Locator):
 	await target.waitFor({ state: "visible", timeout: 1_000 });
 }
 
-/** Agents › Live through ⌥A, the shortcut every view has. */
-async function openAgentsLive(page: Page): Promise<void> {
-	await pressUntilVisible(page, "Alt+KeyA", page.locator('section[data-destination="agents"]'));
-}
-
-/** Stats through the palette's "stats" row (All sessions), then the page's own tab when one is named. */
-async function openInsightsTab(page: Page, tab: "This session" | "Usage" | null): Promise<void> {
-	const search = page.getByRole("dialog").getByRole("combobox");
+/**
+ * A page through the palette's command (`stats` opens Stats › All sessions, `agents` Agents › Definitions; command
+ * names are the same in every UI language), then the page's own tab by its id when one is named, so a Korean look
+ * clicks the same tab. ⌥A for Agents missed now and then on a freshly loaded harness page; the palette did not.
+ */
+async function openPageTab(
+	page: Page,
+	command: "stats" | "agents",
+	tab: "session" | "usage" | "live" | null,
+): Promise<void> {
+	// The palette's own field: another dialog a harness page left open has a combobox too.
+	const search = page.locator('[role="dialog"]:has([data-palette-index]) [role="combobox"]');
 	await pressUntilVisible(page, "ControlOrMeta+k", search);
-	await search.fill("stats");
+	await search.fill(command);
 	await search.press("Enter");
-	const insights = page.locator('section[data-destination="insights"]');
-	await insights.waitFor({ state: "visible", timeout: 15_000 });
-	if (tab) await insights.getByRole("tab", { name: tab, exact: true }).click();
+	const section = page.locator(`section[data-destination="${command === "stats" ? "insights" : "agents"}"]`);
+	await section.waitFor({ state: "visible", timeout: 15_000 });
+	if (!tab) return;
+	const target = section.locator(`[role="tab"][data-tab-id="${tab}"]`);
+	// The harness's resetPage presses Escape twice, which the composer reads as its double Esc and answers with the
+	// rewind picker a moment later, over the page: close it once and click again. A real window has no such picker.
+	if (
+		!(await target.click({ timeout: 3_000 }).then(
+			() => true,
+			() => false,
+		))
+	) {
+		await page.keyboard.press("Escape");
+		await target.click();
+	}
 }
 
 async function openSettings(page: Page, section: string): Promise<void> {
@@ -938,8 +954,8 @@ export const SURFACES: readonly Surface[] = [
 			id: `agents-${tab}`,
 			area: "B",
 			title: `Agents › ${tab}`,
-			// Live opens through ⌥A (a real shortcut), so the parity sheet takes it.
-			open: tab === "live" ? openAgentsLive : page => ui(page, "openAgents", tab),
+			// Live opens through the palette and its tab (real controls), so the parity sheet takes it.
+			open: tab === "live" ? page => openPageTab(page, "agents", "live") : page => ui(page, "openAgents", tab),
 			settle: 900,
 			...(tab === "live" ? { parity: { session: "work" as const } } : {}),
 		}),
@@ -948,7 +964,7 @@ export const SURFACES: readonly Surface[] = [
 		id: "stats",
 		area: "B",
 		title: "Insights › Stats (this session)",
-		open: page => openInsightsTab(page, "This session"),
+		open: page => openPageTab(page, "stats", "session"),
 		settle: 900,
 		parity: { session: "work" },
 	},
@@ -956,7 +972,7 @@ export const SURFACES: readonly Surface[] = [
 		id: "stats-all",
 		area: "B",
 		title: "Insights › Stats (all sessions)",
-		open: page => openInsightsTab(page, null),
+		open: page => openPageTab(page, "stats", null),
 		settle: 1200,
 		parity: { session: "work" },
 	},
@@ -964,7 +980,7 @@ export const SURFACES: readonly Surface[] = [
 		id: "usage",
 		area: "B",
 		title: "Insights › Usage",
-		open: page => openInsightsTab(page, "Usage"),
+		open: page => openPageTab(page, "stats", "usage"),
 		settle: 900,
 		parity: { session: "work" },
 	},
