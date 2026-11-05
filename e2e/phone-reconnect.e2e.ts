@@ -398,6 +398,9 @@ for (const engine of ENGINES)
 				},
 				{ timeoutMs: 20_000 },
 			);
+			// What the proxy saw of the requests around the blip (when each came and when the host answered), to set beside
+			// the page's own timeline: the second ticket request took 970 ms of the 1080 to 1146 ms.
+			const blipRequests = link.requestLog().split("\n").slice(-14).join(" | ");
 			// (2) No network for 1.5 s (the browser knows: requests fail at once).
 			const short = await scenario(
 				"short-outage",
@@ -533,7 +536,10 @@ for (const engine of ENGINES)
 				expect.soft(any.scrollMovedPx ?? Infinity, `${any.scenario}: reading position kept`).toBeLessThanOrEqual(4);
 			}
 			expect
-				.soft(blip.reconnectMs ?? Infinity, `blip reconnects at once: ${blip.timeline.join(" | ")}`)
+				.soft(
+					blip.reconnectMs ?? Infinity,
+					`blip reconnects at once: ${blip.timeline.join(" | ")}\nproxy saw: ${blipRequests}`,
+				)
 				.toBeLessThan(1000);
 			expect.soft(short.reconnectMs ?? Infinity, "back within a second of the network").toBeLessThan(1500);
 			// Silence is asked about after 5 s and given up 2.5 s later: 4 s of it were inside the outage.

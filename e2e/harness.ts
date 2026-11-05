@@ -476,7 +476,17 @@ export async function exitApp(app: ElectronApplication): Promise<void> {
 	} finally {
 		clearTimeout(timer);
 	}
-	await exited.promise;
+	// `app.exit(0)` was asked and answered, yet the app can stay: nightly 41931516185's judge-preview-check finished every
+	// assertion in 2.3 s and then waited here until the 90 s test timeout (its trace ends at exitApp's evaluate). The wait
+	// is bounded like the ask above: a late app is killed and the spec goes on, with a line saying so.
+	const late = Promise.withResolvers<"late">();
+	const lateTimer = setTimeout(() => late.resolve("late"), EXIT_GRACE_MS);
+	if ((await Promise.race([exited.promise.then(() => "exited" as const), late.promise])) === "late") {
+		console.warn(`[exitApp] the app did not exit ${EXIT_GRACE_MS} ms after app.exit(0); killed it`);
+		child.kill("SIGKILL");
+		await exited.promise;
+	}
+	clearTimeout(lateTimer);
 	await waitForProcessesToExit(owned, EXIT_GRACE_MS);
 }
 

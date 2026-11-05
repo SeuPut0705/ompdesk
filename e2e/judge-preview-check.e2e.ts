@@ -18,10 +18,7 @@ interface Frame {
 
 for (const judge of ["error", "none"] as const) {
 	test(`gui_visualize: preview check with ${judge === "error" ? "a native judge seeing an error" : "no native judge"}`, async () => {
-		// The steps' own bounds add up to 60 s (sidecar ready) + 20 s (the tool result) + the app's exit, so a 90 s test
-		// timeout ended a slow run ("no native judge" in nightlies 41163981967 and 41931516185) with nothing named. The
-		// steps now fail on their own bound, which says which one was slow.
-		test.setTimeout(150_000);
+		test.setTimeout(90_000);
 		const profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-judge-preview-"));
 		const desktop = path.join(profile, "desktop");
 		const project = path.join(profile, "project");
