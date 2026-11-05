@@ -16,7 +16,7 @@ import { BotPastConversationsSection } from "./BotPastConversations";
 
 import { BotRoutineRows } from "./BotRoutines";
 import { BotCompletedSection, BotTasksSection } from "./BotTasks";
-import { BotTeachControl } from "./BotTeach";
+import { BotTeachRecord, BotTeachRecording } from "./BotTeach";
 import { nextWake } from "./bot-status";
 
 export { LiveBotAvatar } from "./BotAvatar";
@@ -58,6 +58,7 @@ export function BotBoardSections({ tabId, device }: { tabId: string; device?: st
 			<BoardSection
 				aside={wake ? formatClock(wake) : undefined}
 				count={desk.routines.length > 0 ? desk.routines.length : undefined}
+				empty={loaded && desk.routines.length === 0 ? t("botHome.routines.empty") : undefined}
 				id="routines"
 				summary={{
 					lead: firstRoutine?.name ?? t("botHome.routines.empty"),
@@ -68,8 +69,8 @@ export function BotBoardSections({ tabId, device }: { tabId: string; device?: st
 				{loaded ? (
 					<>
 						<BotRoutineRows device={device} routines={desk.routines} />
-						<li className="omp-work-board-item flex items-center py-1">
-							<BotTeachControl device={device} />
+						<li className={desk.teaching ? "omp-work-board-item flex items-center py-1" : "omp-work-board-item"}>
+							{desk.teaching ? <BotTeachRecording device={device} /> : <BotTeachRecord device={device} />}
 						</li>
 					</>
 				) : (
@@ -93,6 +94,7 @@ export function BotBoardSections({ tabId, device }: { tabId: string; device?: st
 			)}
 			<BoardSection
 				count={desk.channels.length > 0 ? desk.channels.length : undefined}
+				empty={loaded && desk.channels.length === 0 ? t("botChannels.none") : undefined}
 				id="channels"
 				summary={{
 					lead: desk.channels[0]?.title ?? t("botChannels.none"),

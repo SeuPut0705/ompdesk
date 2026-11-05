@@ -380,8 +380,12 @@ describe("the bot's desk", () => {
 		installApi();
 		await mountDesk(desk());
 
-		expect(query("[data-bot-tasks-empty]")?.textContent).toBe(translate("botHome.tasks.noneInProgress"));
-		expect(query("[data-bot-routines-empty]")).not.toBeNull();
+		expect(query('[data-board-section="tasks"] [data-board-empty]')?.textContent).toBe(
+			translate("botHome.tasks.noneInProgress"),
+		);
+		expect(query('[data-board-section="routines"] [data-board-empty]')?.textContent).toBe(
+			translate("botHome.routines.empty"),
+		);
 		expect(query('[data-board-section="duties"]')).toBeNull();
 		expect(query('[data-board-section="library"]')).toBeNull();
 		expect(query('[data-board-section="completed"]')).toBeNull();

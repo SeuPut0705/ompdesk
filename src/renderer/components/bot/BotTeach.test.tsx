@@ -10,9 +10,20 @@ import { type BotDeskState, EMPTY_BOT_DESK } from "../../../shared/bot-desk";
 import type { BotTeachRequest, BotTeachResult } from "../../../shared/bot-teach";
 import { formatElapsed } from "../../lib/format";
 import { I18nProvider, translate } from "../../lib/i18n";
-import { useBotDeskStore } from "../../stores/bot-desk";
+import { useBotDesk, useBotDeskStore } from "../../stores/bot-desk";
 import { useToastStore } from "../../stores/toast";
-import { BotTeachControl } from "./BotTeach";
+import { BotTeachRecord, BotTeachRecording } from "./BotTeach";
+
+/** As the bot's Routines places them: Record in the head while nothing records, the recording as a row. */
+function TeachControls({ device }: { device?: string }) {
+	const teaching = useBotDesk(device).desk.teaching;
+	return (
+		<>
+			{teaching ? null : <BotTeachRecord device={device} />}
+			<BotTeachRecording device={device} />
+		</>
+	);
+}
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 
@@ -59,7 +70,7 @@ async function mount(device?: string): Promise<void> {
 	await act(async () => {
 		root.render(
 			<I18nProvider>
-				<BotTeachControl device={device} />
+				<TeachControls device={device} />
 			</I18nProvider>,
 		);
 	});
@@ -102,7 +113,7 @@ afterEach(async () => {
 	delete (window as unknown as { omp?: unknown }).omp;
 });
 
-describe("BotTeachControl", () => {
+describe("BotTeachRecord and BotTeachRecording", () => {
 	it("offers Record while nothing is recorded and starts it on this computer", async () => {
 		const api = installApi();
 		useBotDeskStore.getState().apply(desk(null));

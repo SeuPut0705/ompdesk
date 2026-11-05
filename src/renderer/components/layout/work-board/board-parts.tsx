@@ -157,6 +157,7 @@ export function BoardSection({
 	action,
 	tone,
 	live,
+	empty,
 	summary,
 	children,
 }: {
@@ -176,6 +177,11 @@ export function BoardSection({
 	 * opens it in place.
 	 */
 	summary?: { lead: string; count?: ReactNode };
+	/**
+	 * What an empty section says, in its head after the title (the bot's Tasks: "Nothing in progress"), instead of a
+	 * row of its own under it: the section stays, one line shorter. It wraps rather than clips.
+	 */
+	empty?: string;
 	children: ReactNode;
 }) {
 	const t = useT();
@@ -233,8 +239,16 @@ export function BoardSection({
 						className="omp-disclosure-chevron omp-work-board-chevron"
 						data-open={!folded || undefined}
 					/>
-					<span className={mid || line ? "omp-work-board-zone-title" : "truncate"}>{title}</span>
-					{line ? <span className="omp-work-board-summary">{line.lead}</span> : mid}
+					<span className={mid || line || empty ? "omp-work-board-zone-title" : "truncate"}>{title}</span>
+					{line ? (
+						<span className="omp-work-board-summary">{line.lead}</span>
+					) : empty ? (
+						<span className="omp-work-board-empty" data-board-empty={id}>
+							{empty}
+						</span>
+					) : (
+						mid
+					)}
 					{line ? (
 						line.count !== undefined && <span className="omp-work-board-count">{line.count}</span>
 					) : count !== undefined ? (

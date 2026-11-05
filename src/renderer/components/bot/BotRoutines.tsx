@@ -252,13 +252,7 @@ function RoutineRow({ routine, device }: { routine: BotRoutine; device?: string 
 }
 
 export function BotRoutineRows({ routines, device }: { routines: readonly BotRoutine[]; device?: string }) {
-	const t = useT();
-	if (routines.length === 0)
-		return (
-			<li className="omp-work-board-more" data-bot-routines-empty>
-				{t("botHome.routines.empty")}
-			</li>
-		);
+	if (routines.length === 0) return null;
 	return (
 		<CappedRows cap={SECTION_CAP.routines} items={routines}>
 			{routine => <RoutineRow device={device} key={routine.id} routine={routine} />}

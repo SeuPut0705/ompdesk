@@ -234,6 +234,19 @@ button.omp-work-board-row:focus-visible {
 	color: var(--sc-text-muted);
 }
 
+/* An empty section's words in its head, after the title: quiet, and wrapped rather than clipped (they are the
+   section's whole content). */
+.omp-work-board-empty {
+	min-width: 0;
+	flex: 1 1 auto;
+	padding-block: 2px;
+	text-align: start;
+	font-weight: 400;
+	line-height: 16px;
+	overflow-wrap: anywhere;
+	color: var(--sc-text-subtle);
+}
+
 .omp-work-board-list {
 	display: flex;
 	flex-direction: column;
@@ -254,7 +267,7 @@ button.omp-work-board-row:focus-visible {
 	min-width: 0;
 	align-items: flex-start;
 	gap: var(--sc-space-2);
-	padding: 3px var(--sc-space-1-5);
+	padding: 2px var(--sc-space-1-5);
 	border-radius: var(--sc-radius-sm);
 	font-size: var(--sc-font-sm);
 	line-height: 20px;
@@ -285,7 +298,7 @@ button.omp-work-board-row:hover {
 	flex: 1;
 	align-items: flex-start;
 	gap: var(--sc-space-2);
-	padding-block: 3px;
+	padding-block: 2px;
 	border-radius: var(--sc-radius-sm);
 	text-align: start;
 	color: inherit;

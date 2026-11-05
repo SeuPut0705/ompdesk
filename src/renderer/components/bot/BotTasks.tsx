@@ -275,6 +275,7 @@ export function BotTasksSection({ tabId, desk, device }: { tabId: string; desk: 
 		<BoardSection
 			action={opened.length > 0 ? <WorkTreeButton /> : null}
 			count={count}
+			empty={shown.length === 0 ? t("botHome.tasks.noneInProgress") : undefined}
 			id="tasks"
 			summary={{
 				lead:
@@ -304,11 +305,6 @@ export function BotTasksSection({ tabId, desk, device }: { tabId: string; desk: 
 						<CheckCheck aria-hidden className="me-1.5 size-3.5" />
 						{t("botHome.tasks.markAllDone", { count: review.length })}
 					</button>
-				</li>
-			) : null}
-			{shown.length === 0 ? (
-				<li className="omp-work-board-more" data-bot-tasks-empty="">
-					{t("botHome.tasks.noneInProgress")}
 				</li>
 			) : null}
 		</BoardSection>

@@ -38,32 +38,46 @@ async function send(action: BotTeachRequest["action"], device: string | undefine
 	if (device !== undefined) void useBotDeskStore.getState().refresh(device);
 }
 
-export function BotTeachControl({ device }: { device?: string }) {
-	const t = useT();
-	const teaching = useBotDesk(device).desk.teaching ?? null;
-	const now = useNowTick(teaching !== null);
+function useTeachAction(device: string | undefined) {
 	const [pending, setPending] = useState(false);
 	const act = async (action: BotTeachRequest["action"]) => {
 		setPending(true);
 		await send(action, device);
 		setPending(false);
 	};
-	if (!teaching)
-		return (
-			<div className="flex items-center gap-2" data-bot-teach="">
-				<Button
-					data-bot-teach-record
-					disabled={pending}
-					icon={<CircleDot />}
-					onClick={() => void act("start")}
-					size="sm"
-					title={t("botTeach.hint")}
-					variant="secondary"
-				>
-					{t("botTeach.record")}
-				</Button>
-			</div>
-		);
+	return { pending, act };
+}
+
+/**
+ * Record, while no recording runs: a one-line row of the bot's Routines with its label, drawn as the board's "+N more"
+ * rows are, not a full-size button of its own.
+ */
+export function BotTeachRecord({ device }: { device?: string }) {
+	const t = useT();
+	const { pending, act } = useTeachAction(device);
+	return (
+		// controls-ok: the omp-work-board-more class draws the whole row
+		<button
+			className="omp-work-board-more gap-1.5 disabled:opacity-50"
+			data-bot-teach-record=""
+			disabled={pending}
+			onClick={() => void act("start")}
+			title={t("botTeach.hint")}
+			type="button"
+		>
+			<CircleDot aria-hidden className="size-3.5 shrink-0" />
+			{t("botTeach.record")}
+		</button>
+	);
+}
+
+/** A recording under way: how long it has run, Stop and Cancel; a row of the Routines section. */
+export function BotTeachRecording({ device }: { device?: string }) {
+	const t = useT();
+	const teaching = useBotDesk(device).desk.teaching ?? null;
+	const now = useNowTick(teaching !== null);
+	const { pending, act } = useTeachAction(device);
+	if (!teaching) return null;
 	const elapsed = formatElapsed(Math.max(1000, now - Date.parse(teaching.since)));
 	return (
 		<div className="flex flex-wrap items-center gap-2" data-bot-teach="recording">

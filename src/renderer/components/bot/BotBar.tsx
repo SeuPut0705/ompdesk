@@ -135,6 +135,7 @@ export function BotBar({ tabId, device, channel }: { tabId: string; device?: str
 				<span
 					data-bot-next-wake
 					className="min-w-0 shrink-[3] truncate text-sc-sm whitespace-nowrap text-(--sc-text-muted) tabular-nums"
+					title={wakeText || undefined}
 				>
 					{wakeText}
 				</span>

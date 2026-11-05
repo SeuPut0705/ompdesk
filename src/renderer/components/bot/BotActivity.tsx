@@ -74,9 +74,11 @@ function ActivityRow({ entry, channels }: { entry: BotActivity; channels: readon
  */
 export function BotActivitySection({ channels, device }: { channels: readonly BotChannel[]; device?: string }) {
 	const t = useT();
-	const newest = useBotActivity(device, false).page?.entries.findLast(entry => entry.kind !== "read");
+	const page = useBotActivity(device, false).page;
+	const newest = page?.entries.findLast(entry => entry.kind !== "read");
 	return (
 		<BoardSection
+			empty={page && !newest ? t("botActivity.none") : undefined}
 			id="activity"
 			summary={{ lead: newest ? activityLine(newest, t) : "" }}
 			title={t("botActivity.title")}
@@ -101,9 +103,7 @@ function BotActivityRows({ channels, device }: { channels: readonly BotChannel[]
 				<li>
 					<SkeletonRows label={t("botHome.loading")} widths={[70, 50, 60]} />
 				</li>
-			) : shown.length === 0 ? (
-				<li className="omp-work-board-more">{t("botActivity.none")}</li>
-			) : (
+			) : shown.length === 0 ? null : (
 				<CappedRows cap={CAP} items={shown}>
 					{entry => <ActivityRow channels={channels} entry={entry} key={entry.id} />}
 				</CappedRows>
