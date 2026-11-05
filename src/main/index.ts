@@ -57,6 +57,7 @@ import {
 } from "../shared/agent-control";
 import { AI_MEMORY_TERMINAL_PREF } from "../shared/ai-memory";
 import { REA_PREF, reaEnabled } from "../shared/builtin-mcp";
+import { COMPUTER_USE_PREF } from "../shared/computer-use";
 import { DEFAULT_BROWSER_PREF } from "../shared/default-browser";
 import {
 	APP_AUTO_UPDATE_PREF,
@@ -910,6 +911,7 @@ app.whenReady().then(() => {
 		sessionKinds,
 		replyLanguagePref: () => prefsStore().get(REPLY_LANGUAGE_PREF),
 		defaultBrowserPref: () => prefsStore().get(DEFAULT_BROWSER_PREF),
+		computerUse: { pref: () => prefsStore().get(COMPUTER_USE_PREF), toolsDir, platform },
 		userProfilePref: () => prefsStore().get(USER_PROFILE_PREF),
 		nextPromptPrefs: () =>
 			nextPromptFromPrefs(prefsStore().get(NEXT_PROMPT_PREF), prefsStore().get(NEXT_PROMPT_INLINE_PREF)),

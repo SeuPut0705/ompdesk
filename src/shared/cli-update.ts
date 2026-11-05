@@ -1,15 +1,25 @@
 /**
  * The command-line tools of connected accounts, kept current (src/main/cli-tools/): for each provider with
  * a stored credential, its vendor's CLI (Claude Code, Codex, Gemini CLI, Cursor Agent, GitHub CLI and its
- * Copilot), plus the tools machine setup installs (GitHub CLI, Node.js in the managed tools dir). OMPdesk only
- * updates a CLI that is already installed, through the method that owns it (its own updater, npm or Bun
+ * Copilot), plus the tools machine setup installs (GitHub CLI, Node.js and agent-desktop in the managed tools
+ * dir). OMPdesk only updates a CLI that is already installed, through the method that owns it (its own updater, npm or Bun
  * global, Homebrew, winget, or the managed tools dir), never one it would have to install, never with sudo,
  * and never a system-owned or app-bundled copy. Each computer updates its own tools; a paired host does its own.
  * The renderer shows this state and may ask for "Update now" by tool id; it never names a command or a path.
  */
 
 /** Display order. */
-export const CLI_TOOLS = ["claude", "codex", "gemini", "cursor-agent", "copilot", "gh", "gh-copilot", "node"] as const;
+export const CLI_TOOLS = [
+	"claude",
+	"codex",
+	"gemini",
+	"cursor-agent",
+	"copilot",
+	"gh",
+	"gh-copilot",
+	"node",
+	"agent-desktop",
+] as const;
 export type CliToolId = (typeof CLI_TOOLS)[number];
 
 export function isCliToolId(value: unknown): value is CliToolId {
@@ -26,6 +36,7 @@ export const CLI_TOOL_NAMES: Record<CliToolId, string> = {
 	gh: "GitHub CLI",
 	"gh-copilot": "GitHub Copilot (gh extension)",
 	node: "Node.js",
+	"agent-desktop": "agent-desktop",
 };
 
 /**

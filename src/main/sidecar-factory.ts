@@ -20,7 +20,9 @@ import { parseDefaultBrowser, resolveAgentBrowser } from "../shared/default-brow
 import { eccEnabled } from "../shared/ecc";
 import { pstackEnabled } from "../shared/pstack";
 import { deviceLanguageTag, replyLanguageName, resolveReplyLanguage } from "../shared/reply-language";
+import type { SetupPlatform } from "../shared/setup";
 import { agentBrowserStatus, resolveEgoBrowser } from "./agent-browsers";
+import { computerUseSpawn } from "./agent-desktop";
 import { agentPriorityLowerer } from "./agent-priority";
 import { bootModelSelector } from "./boot-model";
 import type { BridgeConnectResult, BridgeHealth } from "./bridge-health";
@@ -67,6 +69,13 @@ export interface LocalSidecarDeps {
 	replyLanguagePref: () => unknown;
 	/** The stored Settings › Agent behavior › Default browser pref (`defaultBrowser`), read per spawn; absent = built-in (tests only). */
 	defaultBrowserPref?: () => unknown;
+	/**
+	 * Settings › Agent behavior › Computer use (`computerUse`, default agent-desktop), read per spawn, with the managed
+	 * tools dir the executable lives in; absent = the built-in prelude with no engine env (tests only). Scheduled runs
+	 * (`ompRunLauncher`) load no bridge and none of these roots, so stock's `computer.enabled` stays off there
+	 * whichever engine is picked.
+	 */
+	computerUse?: { pref: () => unknown; toolsDir: string; platform: SetupPlatform };
 	/** The stored Settings › General profile pref (`userProfile`), read per use. */
 	userProfilePref: () => unknown;
 	/** The prompt-suggestion switches (`nextPromptSuggestions`, `nextPromptInline`; both default on), read per use. */
@@ -182,14 +191,19 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 				const formal = ["-e", join(deps.builtinDir, "formal")];
 				const memory = (await deps.aiMemoryExtensionArgs?.(cwd)) ?? [];
 				const hub = rea.length || memory.length ? ((await deps.mcpHubEnv?.(cwd)) ?? {}) : {};
+				// One table for this computer's tabs and the tabs it hosts for a paired device.
+				const computer = deps.computerUse
+					? computerUseSpawn({ ...deps.computerUse, pref: deps.computerUse.pref(), builtinDir: deps.builtinDir })
+					: undefined;
 				return {
-					args: [...own, ...rea, ...pstack, ...ecc, ...formal, ...memory],
+					args: [...own, ...rea, ...(computer?.args ?? []), ...pstack, ...ecc, ...formal, ...memory],
 					...(rea.length ? { root: reaRoot } : {}),
 					// A chat (no project) keeps the packs' roots but not their section texts.
 					env: {
 						OMP_GUI_PSTACK: pstack.length && kind === "agent" ? "1" : "0",
 						OMP_GUI_ECC: ecc.length && kind === "agent" ? "1" : "0",
 						...(deps.memoryStateFile ? { [MEMORY_ENV]: deps.memoryStateFile } : {}),
+						...(computer?.env ?? {}),
 						...hub,
 					},
 				};

@@ -35,6 +35,9 @@ interface Area {
 // Dynamic on purpose: a static import of an area whose omp export vanished
 // fails the whole extension at link time (verified on omp 18.8.0).
 const AREAS: readonly Area[] = [
+	// First: its `before_agent_start` hook (it waits for the engine's startup check) must run before the sections hook
+	// the first `registerPromptSection` caller adds, so a first turn's prompt is built after the check settled.
+	{ name: "modes/computer-use", features: ["computerUse"], load: () => import("./modes/computer-use") },
 	{ name: "composer", features: ["composer", "share"], load: () => import("./composer") },
 	{ name: "sessions", features: ["sessionTree"], load: () => import("./sessions") },
 	{

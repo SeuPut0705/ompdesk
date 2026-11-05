@@ -6,7 +6,7 @@
 import { join, win32 } from "node:path";
 import type { SetupItemId, SetupMethod, SetupPlatform, SetupPresence } from "../../shared/setup";
 import { needsShell, spawnArgs, spawnCommand } from "../spawn";
-import { managedGitRoot } from "./paths";
+import { managedAgentDesktopDir, managedGitRoot } from "./paths";
 
 export const OMP_PACKAGE = "@oh-my-pi/pi-coding-agent";
 
@@ -33,9 +33,9 @@ export const WINGET_IDS = {
 	tailscale: "Tailscale.Tailscale",
 } as const;
 
-/** A downloaded release for an `archive` install (macOS without Homebrew): URL and its published SHA-256. */
+/** A downloaded release for an `archive` install (gh, Node.js) or an `agent-desktop-archive` install: URL and its published SHA-256. */
 export interface ArchiveRelease {
-	item: "gh" | "node";
+	item: "gh" | "node" | "agent-desktop";
 	version: string;
 	file: string;
 	url: string;
@@ -140,6 +140,9 @@ export function selectMethod(item: SetupItemId, presence: SetupPresence, ctx: Pl
 		case "node":
 			if (mac) return ctx.brew ? "brew" : "archive";
 			return ctx.winget ? "winget" : null;
+		case "agent-desktop":
+			// Releases exist for arm64 and x64 only; anything else is `unavailable`, not a failed download.
+			return ctx.arch === "arm64" || ctx.arch === "x64" ? "agent-desktop-archive" : null;
 		case "tailscale":
 			if (mac) return "tailscale-zip";
 			return ctx.winget ? "winget" : tailscaleMsiArch(ctx.arch) ? "tailscale-msi" : null;
@@ -229,6 +232,99 @@ export function archiveScript(release: ArchiveRelease, toolsDir: string, downloa
 		`rm -rf ${shQuote(dest)}`,
 		`mv "$tmp/x" ${shQuote(dest)}`,
 		`echo ${shQuote(`${release.item} ${release.version} is in ${dest}`)}`,
+	].join("\n");
+}
+
+/**
+ * Verify the agent-desktop archive main downloaded and install it into `<tools>/agent-desktop` (bash, macOS). The
+ * archive must hold exactly the CLI and its helper (`agent-desktop-macos-helper` has to sit beside the CLI) and
+ * both must be regular files; the staged CLI must print `agent-desktop <version>` before anything is replaced. The
+ * old folder is moved aside and the new one moved in (never copied over), so a running `agent-desktop mcp` keeps
+ * its own inode; running `--version` from the final place also stops a command host an older version left
+ * (upstream's own postinstall does the same). A copy that fails that check is taken out and the old one comes back.
+ */
+export function agentDesktopArchiveScript(release: ArchiveRelease, toolsDir: string, download: PlanDownload): string {
+	const dest = managedAgentDesktopDir(toolsDir);
+	const archive = shQuote(download.file);
+	return [
+		downloadedLine(download),
+		"set -euo pipefail",
+		`echo ${shQuote(`${download.sha256}  ${download.file}`)} | shasum -a 256 -c -`,
+		`listing="$(tar -tzf ${archive} | LC_ALL=C sort | paste -sd' ' -)"`,
+		`[ "$listing" = 'agent-desktop agent-desktop-macos-helper' ] || { echo "Unexpected archive contents: $listing"; exit 1; }`,
+		`mkdir -p ${shQuote(toolsDir)}`,
+		`tmp="$(mktemp -d ${shQuote(join(toolsDir, ".agent-desktop."))}XXXXXX)"`,
+		`trap 'rm -rf "$tmp"' EXIT`,
+		'mkdir "$tmp/new"',
+		`tar -xzf ${archive} -C "$tmp/new"`,
+		"for name in agent-desktop agent-desktop-macos-helper; do",
+		'\tif [ ! -f "$tmp/new/$name" ] || [ -L "$tmp/new/$name" ]; then echo "$name is not a regular file"; exit 1; fi',
+		'\tchmod 755 "$tmp/new/$name"',
+		"done",
+		'chmod 755 "$tmp/new"',
+		`want=${shQuote(`agent-desktop ${release.version}`)}`,
+		'[ "$("$tmp/new/agent-desktop" --version)" = "$want" ] || { echo "The downloaded agent-desktop does not print $want"; exit 1; }',
+		`dest=${shQuote(dest)}`,
+		'if [ -e "$dest" ]; then mv "$dest" "$tmp/old"; fi',
+		'mv "$tmp/new" "$dest" || { [ ! -e "$tmp/old" ] || mv "$tmp/old" "$dest"; exit 1; }',
+		'if [ "$("$dest/agent-desktop" --version)" != "$want" ]; then',
+		'\trm -rf "$dest"',
+		'\t[ ! -e "$tmp/old" ] || mv "$tmp/old" "$dest"',
+		'\techo "agent-desktop in $dest does not print $want"',
+		"\texit 1",
+		"fi",
+		'echo "$want is in $dest"',
+	].join("\n");
+}
+
+/**
+ * The same install on Windows (PowerShell, `tar.exe` from System32). Windows cannot delete a running executable
+ * but can rename it, so an existing `agent-desktop.exe` is moved aside to `agent-desktop.exe.ompdesk-<ticks>` (those
+ * of earlier runs are dropped first, when nothing holds them any more), the new one moved in and its `--version`
+ * checked; on a failure the old one is moved back. Modelled on `bunInstallScript`.
+ */
+export function agentDesktopWindowsScript(release: ArchiveRelease, toolsDir: string, download: PlanDownload): string {
+	return [
+		downloadedLine(download),
+		"$ErrorActionPreference = 'Stop'",
+		`$dest = ${psQuote(managedAgentDesktopDir(toolsDir))}`,
+		"$exe = Join-Path $dest 'agent-desktop.exe'",
+		`$file = ${psQuote(download.file)}`,
+		"$part = $dest + '.partial'",
+		"$hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $file).Hash.ToLowerInvariant()",
+		`if ($hash -ne ${psQuote(download.sha256)}) { throw ('SHA-256 mismatch: expected ${download.sha256}, got ' + $hash) }`,
+		"Write-Output 'SHA-256 verified'",
+		"$tar = Join-Path $env:SystemRoot 'System32\\tar.exe'",
+		"$listing = (& $tar -tzf $file | Sort-Object) -join ' '",
+		"if ($LASTEXITCODE -ne 0) { throw ('tar.exe could not list the archive (exit ' + $LASTEXITCODE + ')') }",
+		"if ($listing -ne 'agent-desktop.exe') { throw ('Unexpected archive contents: ' + $listing) }",
+		"if (Test-Path -LiteralPath $part) { Remove-Item -Recurse -Force -LiteralPath $part }",
+		"New-Item -ItemType Directory -Force -Path $part | Out-Null",
+		"& $tar -xzf $file -C $part",
+		"if ($LASTEXITCODE -ne 0) { throw ('tar.exe could not extract the archive (exit ' + $LASTEXITCODE + ')') }",
+		"$new = Join-Path $part 'agent-desktop.exe'",
+		"if (-not (Test-Path -LiteralPath $new -PathType Leaf)) { throw 'agent-desktop.exe is missing after extraction' }",
+		"New-Item -ItemType Directory -Force -Path $dest | Out-Null",
+		"Get-ChildItem -Path ($exe + '.ompdesk-*') -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue",
+		"$aside = $null",
+		"if (Test-Path -LiteralPath $exe) {",
+		"\t$aside = $exe + '.ompdesk-' + [DateTime]::UtcNow.Ticks",
+		"\tMove-Item -LiteralPath $exe -Destination $aside",
+		"}",
+		"try { Move-Item -LiteralPath $new -Destination $exe } catch {",
+		"\tif ($aside -and -not (Test-Path -LiteralPath $exe)) { Move-Item -LiteralPath $aside -Destination $exe }",
+		"\tthrow",
+		"}",
+		`$want = ${psQuote(`agent-desktop ${release.version}`)}`,
+		"$version = (& $exe --version | Out-String).Trim()",
+		"if ($LASTEXITCODE -ne 0 -or $version -ne $want) {",
+		"\tRemove-Item -LiteralPath $exe -Force -ErrorAction SilentlyContinue",
+		"\tif ($aside) { Move-Item -LiteralPath $aside -Destination $exe }",
+		"\tthrow ('The downloaded agent-desktop.exe does not print ' + $want)",
+		"}",
+		"if ($aside) { Remove-Item -LiteralPath $aside -Force -ErrorAction SilentlyContinue }",
+		"Remove-Item -Recurse -Force -LiteralPath $part -ErrorAction SilentlyContinue",
+		"Write-Output ($want + ' is in ' + $exe)",
 	].join("\n");
 }
 
@@ -469,7 +565,7 @@ export function buildPlan(
 			};
 		}
 		case "archive": {
-			if (!release || release.item !== item) return null;
+			if (!release || release.item !== item || release.item === "agent-desktop") return null;
 			const download = {
 				url: release.url,
 				sha256: release.sha256,
@@ -482,6 +578,39 @@ export function buildPlan(
 				spawn: { file: "/bin/bash", args: ["-c", script], shell: false },
 				command: script,
 				location: join(ctx.toolsDir, release.item),
+				prompt: null,
+				download,
+			};
+		}
+		case "agent-desktop-archive": {
+			if (!release || item !== "agent-desktop" || release.item !== "agent-desktop" || ctx.platform === "other") {
+				return null;
+			}
+			const download = {
+				url: release.url,
+				sha256: release.sha256,
+				file: join(ctx.toolsDir, ".downloads", release.file),
+			};
+			const dir = managedAgentDesktopDir(ctx.toolsDir);
+			if (win) {
+				const script = agentDesktopWindowsScript(release, ctx.toolsDir, download);
+				return {
+					item,
+					method,
+					spawn: powershellScript(ctx, script),
+					command: script,
+					location: dir,
+					prompt: null,
+					download,
+				};
+			}
+			const script = agentDesktopArchiveScript(release, ctx.toolsDir, download);
+			return {
+				item,
+				method,
+				spawn: { file: "/bin/bash", args: ["-c", script], shell: false },
+				command: script,
+				location: dir,
 				prompt: null,
 				download,
 			};
@@ -521,6 +650,8 @@ const MANUAL_URLS: Record<Exclude<SetupItemId, "bun" | "omp">, string> = {
 	git: "https://git-scm.com/downloads",
 	gh: "https://cli.github.com/",
 	node: "https://nodejs.org/en/download",
+	// OMPdesk installs it itself from this page's release assets; no package manager is involved.
+	"agent-desktop": "https://github.com/vercel-labs/agent-desktop/releases",
 	tailscale: "https://tailscale.com/download",
 };
 
@@ -543,6 +674,8 @@ export function manualSteps(item: SetupItemId, platform: SetupPlatform): { comma
 				],
 				url,
 			};
+		case "agent-desktop":
+			return { commands: [], url };
 		case "tailscale":
 			return {
 				commands: [win ? `winget install --id ${WINGET_IDS.tailscale} -e` : "brew install --cask tailscale-app"],

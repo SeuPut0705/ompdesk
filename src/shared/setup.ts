@@ -6,13 +6,13 @@
  *
  * Required: Bun and omp everywhere, plus Git for Windows on Windows (stock
  * omp's shell tools resolve Git Bash there). Optional: Git (macOS), GitHub CLI
- * and Node.js (the built-in REA MCP server) install on their own in the
- * background; Tailscale (Mobile web) never does: only `installForConnection`
+ * and Node.js (the built-in REA MCP server) and agent-desktop (the default computer-use engine) install on their
+ * own in the background; Tailscale (Mobile web) never does: only `installForConnection`
  * and an explicit Retry install it, because the user's click is its consent.
  */
 
 /** Display and install order: Bun before omp (omp installs through it), Git before omp on Windows. */
-export const SETUP_ITEMS = ["bun", "git", "omp", "gh", "node", "tailscale"] as const;
+export const SETUP_ITEMS = ["bun", "git", "omp", "gh", "node", "agent-desktop", "tailscale"] as const;
 export type SetupItemId = (typeof SETUP_ITEMS)[number];
 
 export function isSetupItemId(value: unknown): value is SetupItemId {
@@ -73,6 +73,8 @@ export type SetupMethod =
 	| "bun-upgrade"
 	/** `<bun> install -g @oh-my-pi/pi-coding-agent`, with a compiled omp in the launcher's place moved aside first. */
 	| "bun-global"
+	/** agent-desktop's release archive (GitHub), verified against its published checksums, into `<tools>/agent-desktop`. */
+	| "agent-desktop-archive"
 	| "omp-update"
 	| "portable-git"
 	| "xcode-select"

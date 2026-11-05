@@ -58,8 +58,8 @@ export interface CliUpdaterDeps {
 	env: () => Promise<NodeJS.ProcessEnv>;
 	/** `OMP_GUI_TEST_INSTALLER`: checks run `<installer> cli-<tool> <method> check` (it prints the newest version). */
 	testInstaller: string | null;
-	/** The newest release of machine setup's archive for gh or Node. */
-	managedLatest: (item: "gh" | "node") => Promise<string>;
+	/** The newest release of machine setup's archive for gh, Node or agent-desktop. */
+	managedLatest: (item: "gh" | "node" | "agent-desktop") => Promise<string>;
 	runUpdate: (request: ToolUpdateRequest) => Promise<ToolUpdateOutcome>;
 	/** Command lines of the running processes (`ps`); macOS only. */
 	processes: () => Promise<string>;

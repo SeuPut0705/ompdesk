@@ -65,6 +65,20 @@ export default function (pi) {
    out.advisorEnabled = session.isAdvisorEnabled?.();
    out.tools = session.getEnabledToolNames?.() ?? [];
    out.computerPrelude = session.getEvalPreludes?.().some(definition => definition.name === "computer") ?? null;
+   if (process.env.DEFAULTS_PROBE_FALLBACK === "1") {
+    // The engine's startup check failed (modes/computer-use.ts): stock's own listener must reconcile the live prelude.
+    const { holdBuiltinComputerPrelude } = await import("./thinking-default");
+    holdBuiltinComputerPrelude(session.settings);
+    // Stock's listener recomputes in a microtask.
+    await Promise.resolve();
+    await Promise.resolve();
+    const { values, provenance } = await methods.settings_get({ paths: ["computer.enabled"] }, env);
+    out.afterFallback = {
+     value: values["computer.enabled"],
+     layers: provenance["computer.enabled"].layers,
+     prelude: session.getEvalPreludes?.().some(definition => definition.name === "computer") ?? null,
+    };
+   }
    const { resolveAdvisorRoleSelection } = await import("@oh-my-pi/pi-coding-agent/config/model-resolver");
    const advisor = resolveAdvisorRoleSelection(session.settings, session.modelRegistry.getAvailable());
    out.advisorRole = advisor ? { model: advisor.model.id, thinkingLevel: advisor.thinkingLevel } : null;
@@ -89,7 +103,7 @@ interface Reading {
 }
 type Readings = Record<string, Reading>;
 
-function runProbe(configYml: string | undefined, write: boolean) {
+function runProbe(configYml: string | undefined, write: boolean, extraEnv: Record<string, string> = {}) {
 	const isolated = mkdtempSync(join(tmpdir(), "ompdesk-defaults-"));
 	chmodSync(isolated, 0o700);
 	try {
@@ -107,9 +121,16 @@ function runProbe(configYml: string | undefined, write: boolean) {
 			OPENAI_API_KEY: "probe-not-a-real-key",
 			DEFAULTS_PROBE_WRITE: write ? "1" : "0",
 		};
-		for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]) {
+		// Never the launching OMPdesk session's own engine: a test run from one would hold the prelude off.
+		for (const key of [
+			"ANTHROPIC_API_KEY",
+			"ANTHROPIC_OAUTH_TOKEN",
+			"CLAUDE_CODE_OAUTH_TOKEN",
+			"OMP_GUI_COMPUTER_USE",
+		]) {
 			Reflect.deleteProperty(env, key);
 		}
+		Object.assign(env, extraEnv);
 		const result = spawnSync(
 			OMP_COMMAND.file,
 			[
@@ -135,6 +156,7 @@ function runProbe(configYml: string | undefined, write: boolean) {
 			advisorRole: { model: string; thinkingLevel?: string } | null;
 			written?: Readings;
 			reset?: Readings;
+			afterFallback?: { value: unknown; layers: string[]; prelude: boolean | null };
 		};
 		const config = existsSync(configPath) ? readFileSync(configPath, "utf8") : "";
 		return { probe, config };
@@ -197,6 +219,21 @@ describe.skipIf(!existsSync(omp))("OMPdesk's held stock defaults on stock omp", 
 		expect(probe.advisorEnabled).toBe(false);
 		// The rest of the list is still held.
 		expect(probe.initial["lsp.diagnosticsOnEdit"]).toEqual({ value: true, layers: ["runtime"] });
+		expect(probe.initial["astGrep.enabled"]).toEqual({ value: true, layers: ["runtime"] });
+	}, 130_000);
+
+	it("holds the prelude off for an omp started on agent-desktop, and a failed engine puts it back live", () => {
+		const { probe, config } = runProbe(undefined, false, {
+			OMP_GUI_COMPUTER_USE: "agent-desktop",
+			DEFAULTS_PROBE_FALLBACK: "1",
+		});
+		// Held off as a runtime override: stock's eval prelude is not mounted beside the engine's MCP tools.
+		expect(probe.initial["computer.enabled"]).toEqual({ value: false, layers: ["runtime"] });
+		expect(probe.computerPrelude).toBe(false);
+		// The fallback turns the held value on and stock's listener reconciles the live prelude; nothing is written.
+		expect(probe.afterFallback).toEqual({ value: true, layers: ["runtime"], prelude: true });
+		expect(config).not.toContain("computer");
+		// The rest of the list is held as for the built-in engine.
 		expect(probe.initial["astGrep.enabled"]).toEqual({ value: true, layers: ["runtime"] });
 	}, 130_000);
 });

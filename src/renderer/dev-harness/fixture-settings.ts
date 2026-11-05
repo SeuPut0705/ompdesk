@@ -358,6 +358,7 @@ export const SETUP_STATE: SetupState = {
 		setupItem("omp", true, "18.11.1"),
 		setupItem("gh", false, "2.60.0"),
 		setupItem("node", false, "22.11.0"),
+		setupItem("agent-desktop", false, "1.2.0"),
 		setupItem("tailscale", false, "1.78.1"),
 	],
 };

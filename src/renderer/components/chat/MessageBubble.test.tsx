@@ -591,6 +591,33 @@ describe("MessageBubble memory recall line", () => {
 	});
 });
 
+describe("MessageBubble computer use fallback line", () => {
+	const fallback = (details: unknown): AgentMessage => ({
+		role: "custom",
+		customType: "ompdesk-computer-use",
+		content: "agent-desktop is not available; this session uses the built-in computer use.",
+		details,
+		display: true,
+		attribution: "agent",
+		timestamp: "2026-11-06T10:00:00.000Z",
+	});
+	const render = (message: AgentMessage) =>
+		renderToStaticMarkup(
+			<I18nProvider>
+				<MessageBubble message={message} />
+			</I18nProvider>,
+		);
+
+	it("is one muted line with the reason, never a message bubble labelled with the custom type", () => {
+		const html = render(fallback({ v: 1, reason: "missing" }));
+		expect(html).toContain('data-computer-use-note="missing"');
+		expect(html).toContain("Not installed yet.");
+		expect(html).not.toContain("ompdesk-computer-use");
+		expect(html).not.toContain("omp-user-bubble");
+		expect(render({ ...fallback({ v: 1, reason: "missing" }), display: false })).toBe("");
+	});
+});
+
 describe("MessageBubble noise filtering", () => {
 	const at = "2026-08-02T12:00:00.000Z";
 

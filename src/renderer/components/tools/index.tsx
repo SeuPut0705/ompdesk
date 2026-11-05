@@ -40,10 +40,12 @@ import {
 	Wrench,
 } from "lucide-react";
 import type { ComponentType } from "react";
+import { agentDesktopCommand, agentDesktopSummary, isAgentDesktopTool } from "../../lib/agent-desktop";
 import { sanitizeToolText } from "../../lib/format";
 import { translate } from "../../lib/i18n";
 import { decodeXdevPayload, xdevDispatch, xdevInnerResult, xdevWriteTarget } from "../../lib/xdev";
 import { editArgumentPaths, editArgumentSummary } from "./edit-args";
+import { AgentDesktopRenderer } from "./renderers/AgentDesktopRenderer";
 import { AskRenderer } from "./renderers/AskRenderer";
 import { AstEditRenderer } from "./renderers/AstEditRenderer";
 import { AstGrepRenderer } from "./renderers/AstGrepRenderer";
@@ -210,7 +212,9 @@ const REGISTRY: Record<string, ComponentType<ToolRendererProps>> = {
 };
 
 export function getToolRenderer(name: string): ComponentType<ToolRendererProps> {
-	return REGISTRY[name] ?? (name.startsWith(MCP_TOOL_NAME_PREFIX) ? McpRenderer : GenericRenderer);
+	if (REGISTRY[name]) return REGISTRY[name];
+	if (isAgentDesktopTool(name)) return AgentDesktopRenderer;
+	return name.startsWith(MCP_TOOL_NAME_PREFIX) ? McpRenderer : GenericRenderer;
 }
 
 /** Keys tried in order for a device call's header: the verb, then its object. */
@@ -231,6 +235,7 @@ function argLine(args: Record<string, unknown>, keys: readonly string[]): string
  */
 function xdevSummary(device: string, content: unknown): string {
 	const args = decodeXdevPayload(content);
+	if (isAgentDesktopTool(device)) return agentDesktopSummary(args);
 	const detail = [argLine(args, DEVICE_VERB_KEYS), argLine(args, DEVICE_OBJECT_KEYS)].filter(Boolean).join(" ");
 	return detail ? `${device} · ${detail}` : device;
 }
@@ -297,6 +302,7 @@ const FALLBACK_ARG_KEYS = ["path", "file", "name", "pattern", "query", "command"
 
 /** Header text for any tool call; unknown tools fall back to their first scalar argument. */
 export function getToolSummary(name: string, args: Record<string, unknown>): string {
+	if (isAgentDesktopTool(name)) return clipCardText(agentDesktopSummary(args));
 	const summary = SUMMARIES[name];
 	return clipCardText(summary ? summary(args) : argLine(args, FALLBACK_ARG_KEYS));
 }
@@ -413,18 +419,28 @@ export function getToolHeader(name: string, args: Record<string, unknown>): Tool
 		target: "",
 	};
 	// `mcp__server_tool` (direct or as an `xd://` device) reads as "server · tool" with a plug.
-	const mcp = meta ? null : parseMcpToolName(tool);
+	const desktop = !meta && isAgentDesktopTool(tool);
+	const mcp = meta || desktop ? null : parseMcpToolName(tool);
 	if (mcp) {
 		header.labelKey = "tools.label.mcpTool";
 		header.labelParams = mcp;
 		header.icon = Plug;
+	}
+	// agent-desktop's tools read as "Desktop · snapshot" with the computer-use pointer, like the built-in `computer`.
+	if (desktop) {
+		header.labelKey = "tools.label.agentDesktop";
+		header.labelParams = { command: agentDesktopCommand(tool) };
+		header.icon = MousePointer2;
 	}
 	if (device) {
 		const payload = decodeXdevPayload(args.content);
 		// A prose device (propose, report_issue) heads with its first line, as stock's device call preview does.
 		const prose = NOTE_DEVICES[device] && Object.keys(payload).length === 0 ? argLine(args, ["content"]) : "";
 		header.target = clipCardText(
-			prose || [argLine(payload, DEVICE_VERB_KEYS), argLine(payload, DEVICE_OBJECT_KEYS)].filter(Boolean).join(" "),
+			desktop
+				? agentDesktopSummary(payload)
+				: prose ||
+						[argLine(payload, DEVICE_VERB_KEYS), argLine(payload, DEVICE_OBJECT_KEYS)].filter(Boolean).join(" "),
 		);
 		return header;
 	}

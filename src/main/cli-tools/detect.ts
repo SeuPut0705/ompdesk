@@ -9,6 +9,7 @@ import { accessSync, constants, existsSync, readFileSync, realpathSync } from "n
 import { dirname, join, win32 } from "node:path";
 import type { CliSkipReason, CliToolId } from "../../shared/cli-update";
 import { parseOmpVersion } from "../omp-runtime";
+import { managedBinDirs } from "../setup/paths";
 import { brewBinDirs } from "../shell-env";
 import { findOnPath, launcherNames, needsShell, spawnArgs, spawnCommand } from "../spawn";
 import { CLI_TOOL_SPECS, type CliToolSpec } from "./catalog";
@@ -33,7 +34,7 @@ export type CliOwner =
 	| { method: "npm"; name: string; prefix: string; root: string }
 	| { method: "bun"; name: string; bunRoot: string; root: string }
 	| { method: "winget"; id: string }
-	| { method: "managed"; item: "gh" | "node" }
+	| { method: "managed"; item: "gh" | "node" | "agent-desktop" }
 	| { method: "self" };
 
 export interface InstallContext {
@@ -212,10 +213,15 @@ export async function detectCliTool(id: CliToolId, deps: DetectDeps): Promise<Cl
 	const win = ctx.platform === "win32";
 	// Never the bare name on Windows: npm writes one beside its `.cmd` for POSIX shells, which Windows cannot start.
 	const names = launcherNames(spec.bin, ctx.platform);
+	// A managed-only tool is the copy in the managed tools dir: looked up there first, so one the user put earlier
+	// on PATH (npm, Homebrew) never hides it. Others are found along the spawn PATH.
+	const lookupPath = spec.managedOnly
+		? [...managedBinDirs(ctx.toolsDir, ctx.platform), deps.pathEnv].join(win ? ";" : ":")
+		: deps.pathEnv;
 	// Homebrew's prefixes count even when the login shell's PATH omits them (the same lookup `resolveBin` makes).
 	const path = findOnPath(
 		names,
-		deps.pathEnv,
+		lookupPath,
 		ctx.platform,
 		win ? [] : brewBinDirs().flatMap(dir => names.map(name => join(dir, name))),
 	);

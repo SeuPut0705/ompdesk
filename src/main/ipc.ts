@@ -56,6 +56,7 @@ import { BOT_RULES_PREF } from "../shared/bot-rules";
 import { BotTakeoverRequestSchema, BotTakeoverResultSchema } from "../shared/bot-takeover";
 import { BotTeachRequestSchema, BotTeachResultSchema } from "../shared/bot-teach";
 import { REA_PREF } from "../shared/builtin-mcp";
+import { COMPUTER_USE_PREF, isComputerUseEngine } from "../shared/computer-use";
 import {
 	type AgentBrowserStatus,
 	CHROMIUM_BROWSER_IDS,
@@ -2423,6 +2424,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		const defaultBrowser = payload.key === DEFAULT_BROWSER_PREF;
 		if (defaultBrowser && !isDefaultBrowserPref(payload.value)) {
 			throw codedError("invalid_preference_key", "Invalid default browser");
+		}
+		// The engine is spawn-time (the MCP root mounts when omp starts): a change reaches a session's next start, so
+		// there is nothing to push to the live ones.
+		if (payload.key === COMPUTER_USE_PREF && !isComputerUseEngine(payload.value)) {
+			throw codedError("invalid_preference_key", "Invalid computer use engine");
 		}
 		const userProfile = payload.key === USER_PROFILE_PREF;
 		if (userProfile && !isUserProfile(payload.value)) {

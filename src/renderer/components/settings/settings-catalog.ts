@@ -246,6 +246,13 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 			"default browser ego ego-browser chrome built-in builtin web browse browsing agent 기본 브라우저 브라우저 크롬 웹 에이전트 자동 내장",
 	},
 	{
+		id: "computerUse",
+		section: "agent",
+		labelKey: "settings.gui.computerUse",
+		aliases:
+			"computer use engine agent-desktop desktop accessibility screen control mouse keyboard built-in builtin 컴퓨터 컴퓨터 조작 데스크톱 접근성 화면 조작 엔진 내장",
+	},
+	{
 		id: "autoTitle",
 		section: "agent",
 		labelKey: "settings.gui.autoTitle",

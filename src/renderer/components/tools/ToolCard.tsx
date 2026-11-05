@@ -298,11 +298,14 @@ export function ToolCard({
 	const label = header.labelKey ? t(header.labelKey, header.labelParams) : header.tool;
 	// With no other target the tool's label follows the intent on the row; otherwise a screen reader hears it first.
 	const labelAfterIntent = intent !== undefined && !header.path && !target && !streamingSummary;
-	// An MCP server's tool or a device is named on the row whatever its target: the intent cannot say which one ran.
+	// An MCP server's tool (agent-desktop's included) or a device is named on the row whatever its target: the intent
+	// cannot say which one ran.
 	const namedTool =
 		intent !== undefined &&
 		!labelAfterIntent &&
-		(header.labelKey === "tools.label.mcpTool" || header.tool !== toolName);
+		(header.labelKey === "tools.label.mcpTool" ||
+			header.labelKey === "tools.label.agentDesktop" ||
+			header.tool !== toolName);
 	// The text the row's target shows: a change measures it again even when its box keeps its size.
 	const targetText = header.path ?? (target || streamingSummary || (labelAfterIntent ? label : ""));
 	useSliverGuard(rowRef, targetText);

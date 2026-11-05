@@ -4,6 +4,7 @@ import {
 	nodeArchiveFile,
 	parseShasums,
 	pickNodeLts,
+	resolveAgentDesktopRelease,
 	resolveArchiveRelease,
 	resolveTailscaleRelease,
 } from "./archives";
@@ -62,6 +63,72 @@ describe("archive releases", () => {
 		});
 		await expect(resolveArchiveRelease("gh", "x64", fetchText)).rejects.toThrow(/No published SHA-256/);
 		await expect(resolveArchiveRelease("node", "arm64", async () => "[]")).rejects.toThrow(/no supported LTS/);
+	});
+});
+
+describe("agent-desktop release lookup", () => {
+	const API = "https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest";
+	const SUMS = "https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/checksums.txt";
+	const listing = [
+		`${"1".repeat(64)}  agent-desktop-v1.2.0-aarch64-apple-darwin.tar.gz`,
+		`${"2".repeat(64)}  agent-desktop-v1.2.0-x86_64-apple-darwin.tar.gz`,
+		`${"3".repeat(64)}  agent-desktop-v1.2.0-x86_64-pc-windows-msvc.tar.gz`,
+		`${"4".repeat(64)}  agent-desktop-v1.2.0-aarch64-pc-windows-msvc.tar.gz`,
+	].join("\n");
+	const serve = (pages: Record<string, string> = {}) => {
+		const all: Record<string, string> = { [API]: JSON.stringify({ tag_name: "v1.2.0" }), [SUMS]: listing, ...pages };
+		const asked: string[] = [];
+		return {
+			asked,
+			fetchText: async (url: string) => {
+				asked.push(url);
+				const page = all[url];
+				if (page === undefined) throw new Error(`${url} answered 404`);
+				return page;
+			},
+		};
+	};
+
+	it("takes the newest release's archive for each target with the hash its checksums.txt lists", async () => {
+		const base = "https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0";
+		const cases = [
+			["darwin", "arm64", "aarch64-apple-darwin", "1"],
+			["darwin", "x64", "x86_64-apple-darwin", "2"],
+			["win32", "x64", "x86_64-pc-windows-msvc", "3"],
+			["win32", "arm64", "aarch64-pc-windows-msvc", "4"],
+		] as const;
+		for (const [platform, arch, target, digit] of cases) {
+			await expect(resolveAgentDesktopRelease(platform, arch, serve().fetchText)).resolves.toEqual({
+				item: "agent-desktop",
+				version: "1.2.0",
+				file: `agent-desktop-v1.2.0-${target}.tar.gz`,
+				url: `${base}/agent-desktop-v1.2.0-${target}.tar.gz`,
+				sha256: digit.repeat(64),
+			});
+		}
+	});
+
+	it("refuses an architecture without a release before asking GitHub anything", async () => {
+		const server = serve();
+		await expect(resolveAgentDesktopRelease("win32", "ia32", server.fetchText)).rejects.toThrow(
+			/no release for win32 ia32/,
+		);
+		expect(server.asked).toEqual([]);
+	});
+
+	it("refuses a tag that is no plain version, and a release whose checksums.txt omits the file", async () => {
+		for (const tag of ["nightly", "v1.2", "v1.2.0-rc.1", "../v1.2.0"]) {
+			await expect(
+				resolveAgentDesktopRelease(
+					"darwin",
+					"arm64",
+					serve({ [API]: JSON.stringify({ tag_name: tag }) }).fetchText,
+				),
+			).rejects.toThrow(/no agent-desktop release/);
+		}
+		await expect(
+			resolveAgentDesktopRelease("darwin", "arm64", serve({ [SUMS]: `${"1".repeat(64)}  other.tar.gz` }).fetchText),
+		).rejects.toThrow(/No published SHA-256 for agent-desktop-v1.2.0-aarch64-apple-darwin.tar.gz/);
 	});
 });
 

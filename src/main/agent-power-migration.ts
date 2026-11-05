@@ -33,7 +33,8 @@ const POWER_PREFS: readonly string[] = [
 
 /**
  * Stock settings in config.yml that gate an agent's power. A value that is not the on one is removed so stock's
- * default (`tools.approvalMode` yolo) and OMPdesk's held default (`computer.enabled` on) apply again.
+ * default (`tools.approvalMode` yolo) and OMPdesk's held default (`computer.enabled`: on for the built-in engine, held
+ * off while an omp runs on agent-desktop, src/shared/computer-use.ts) apply again.
  */
 const STOCK_POWERS: readonly { path: readonly string[]; on: (value: unknown) => boolean }[] = [
 	{ path: ["computer", "enabled"], on: value => value === true },

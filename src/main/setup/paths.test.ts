@@ -8,6 +8,7 @@ import { RM_TEMP } from "../test-fake-omp";
 import {
 	expandWindowsEnv,
 	findGitBash,
+	managedAgentDesktop,
 	managedGitRoot,
 	managedToolEnv,
 	managedToolsDir,
@@ -84,6 +85,20 @@ describe("managed tools", () => {
 		expect(managedToolEnv({ PATH: "/usr/bin" }, tools, "darwin", exists)).toEqual({
 			PATH: ["/usr/bin", join(tools, "node", "bin")].join(":"),
 		});
+	});
+
+	it("keeps agent-desktop and its macOS helper in one folder that is on PATH once it exists, on both platforms", () => {
+		const tools = join("T", "tools");
+		const dir = join(tools, "agent-desktop");
+		expect(managedAgentDesktop(tools, "darwin")).toBe(join(dir, "agent-desktop"));
+		expect(managedAgentDesktop(tools, "win32")).toBe(join(dir, "agent-desktop.exe"));
+		for (const platform of ["darwin", "win32"] as const) {
+			const sep = platform === "win32" ? ";" : ":";
+			expect(managedToolEnv({ PATH: "A" }, tools, platform, file => file === dir)).toEqual({
+				PATH: ["A", dir].join(sep),
+			});
+			expect(managedToolEnv({ PATH: "A" }, tools, platform, () => false).PATH).toBe("A");
+		}
 	});
 });
 

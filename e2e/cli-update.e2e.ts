@@ -82,8 +82,8 @@ async function launch(name: string, prefs: Record<string, unknown>): Promise<Lau
 		path.join(desktop, "prefs.json"),
 		JSON.stringify({ firstRunComplete: true, themeName: "light", ...prefs }),
 	);
-	// Machine setup's optional gh and Node have nothing to install here: keep the launch quiet.
-	await seedSetupBackoff(desktop, ["gh", "node"]);
+	// Machine setup's optional gh, Node and agent-desktop have nothing to install here: keep the launch quiet.
+	await seedSetupBackoff(desktop, ["gh", "node", "agent-desktop"]);
 
 	// Claude Code 2.0.1, installed with its own updater and found on PATH: on POSIX under …/share/claude/versions/…,
 	// linked from a bin dir; on Windows a `.cmd` shim in the bin dir. The Codex inside the ChatGPT app, which updates

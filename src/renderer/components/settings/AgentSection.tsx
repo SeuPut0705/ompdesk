@@ -4,6 +4,7 @@ import { AutoModeRow } from "./AutoModeRow";
 import { AutoChangesRow, AutoPreviewRow } from "./AutoPanelRows";
 import { AutoTitleRow } from "./AutoTitleRow";
 import { CompactionLimitsSection } from "./CompactionLimitsSection";
+import { ComputerUseRow } from "./ComputerUseRow";
 import { DefaultBrowserRow } from "./DefaultBrowserRow";
 import { EccRow } from "./EccRow";
 import { JudgeAssistRow } from "./JudgeAssistRow";
@@ -72,6 +73,7 @@ export function AgentSection() {
 				<PstackRow />
 				<EccRow />
 				<DefaultBrowserRow />
+				<ComputerUseRow />
 			</SettingsSection>
 			<SettingsSection id="settings-agent-modes" title={t("settings.agent.modes")}>
 				<AgentModes />

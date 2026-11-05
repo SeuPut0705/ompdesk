@@ -1,8 +1,9 @@
 /**
  * Health check for what machine setup (src/main/setup/) downloads on a user's
- * first launch: both pinned PortableGits (plans.ts) and the gh and Node.js
- * archives a Mac without Homebrew installs (archives.ts, resolved exactly the
- * way the app resolves them). Each file is downloaded in full through the
+ * first launch: both pinned PortableGits (plans.ts), the gh and Node.js
+ * archives a Mac without Homebrew installs and the agent-desktop archives of
+ * macOS and Windows (archives.ts, resolved exactly the way the app resolves
+ * them). Each file is downloaded in full through the
  * app's own downloader (download.ts), so it passes only when the URL still
  * resolves and its bytes still match the pinned or published SHA-256.
  *
@@ -15,7 +16,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type FetchText, resolveArchiveRelease } from "../src/main/setup/archives";
+import { type FetchText, resolveAgentDesktopRelease, resolveArchiveRelease } from "../src/main/setup/archives";
 import { type DownloadFetch, downloadVerified } from "../src/main/setup/download";
 import { PORTABLE_GIT } from "../src/main/setup/plans";
 
@@ -54,6 +55,23 @@ export async function pinnedAssets(fetchText: FetchText): Promise<{ assets: Pinn
 			} catch (error) {
 				failures.push(`${name} lookup (${platform}): ${error instanceof Error ? error.message : String(error)}`);
 			}
+		}
+	}
+	for (const [platform, arch] of [
+		["darwin", "arm64"],
+		["darwin", "x64"],
+		["win32", "x64"],
+	] as const) {
+		const where = `${platform === "darwin" ? "macOS" : "Windows"} ${arch}`;
+		try {
+			const release = await resolveAgentDesktopRelease(platform, arch, fetchText);
+			assets.push({
+				label: `agent-desktop ${release.version} (${where})`,
+				url: release.url,
+				sha256: release.sha256,
+			});
+		} catch (error) {
+			failures.push(`agent-desktop lookup (${where}): ${error instanceof Error ? error.message : String(error)}`);
 		}
 	}
 	return { assets, failures };

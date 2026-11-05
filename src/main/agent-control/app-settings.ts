@@ -362,6 +362,9 @@ export const ROW_NOT_WRITTEN: Readonly<Record<string, RowDecision>> = {
 	machineSetup: { never: "machine setup installs tools by itself; there is nothing to set" },
 	pstack: { never: "the engineering-mode pack changes the prompt and skills every session runs with" },
 	ecc: { never: "the ECC skill pack changes which skills and slash commands every session runs with" },
+	computerUse: {
+		never: "the computer-use engine decides how every session sees and drives the desktop: a power switch",
+	},
 	agentControl: { never: "this switch gates the agent's own power over the app" },
 	ssh: { never: "SSH hosts and keys are credentials and network reach" },
 	remote: { covered: "remote.connect" },

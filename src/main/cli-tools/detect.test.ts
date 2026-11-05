@@ -170,6 +170,17 @@ describe("classifyInstall", () => {
 			owner: { method: "managed", item: "gh" },
 			skip: null,
 		});
+		// agent-desktop too, with its macOS helper beside it or as the Windows exe; a user's npm or Homebrew copy is theirs.
+		expect(
+			classifyInstall(`${MAC.toolsDir}/agent-desktop/agent-desktop`, CLI_TOOL_SPECS["agent-desktop"], MAC),
+		).toEqual({ owner: { method: "managed", item: "agent-desktop" }, skip: null });
+		expect(
+			classifyInstall(`${WIN.toolsDir}\\agent-desktop\\agent-desktop.exe`, CLI_TOOL_SPECS["agent-desktop"], WIN),
+		).toEqual({ owner: { method: "managed", item: "agent-desktop" }, skip: null });
+		expect(classifyInstall("/opt/homebrew/bin/agent-desktop", CLI_TOOL_SPECS["agent-desktop"], MAC)).toEqual({
+			owner: null,
+			skip: "unknown-install",
+		});
 	});
 
 	it("skips what the operating system owns", () => {
@@ -227,17 +238,23 @@ describe("writableTarget", () => {
 
 describe("relevantTools", () => {
 	it("maps each connected provider to its vendor CLI and always lists machine setup's tools", () => {
-		expect([...relevantTools([], CLI_TOOLS).keys()]).toEqual(["gh", "node"]);
-		expect([...relevantTools(["anthropic"], CLI_TOOLS).keys()]).toEqual(["claude", "gh", "node"]);
+		expect([...relevantTools([], CLI_TOOLS).keys()]).toEqual(["gh", "node", "agent-desktop"]);
+		expect([...relevantTools(["anthropic"], CLI_TOOLS).keys()]).toEqual(["claude", "gh", "node", "agent-desktop"]);
 		expect(relevantTools(["openai-codex", "openai", "cursor"], CLI_TOOLS).get("codex")).toEqual([
 			"openai-codex",
 			"openai",
 		]);
 		expect([...relevantTools(["google-gemini-cli"], CLI_TOOLS).keys()]).toContain("gemini");
 		expect([...relevantTools(["cursor"], CLI_TOOLS).keys()]).toContain("cursor-agent");
-		expect([...relevantTools(["github-copilot"], CLI_TOOLS).keys()]).toEqual(["copilot", "gh", "gh-copilot", "node"]);
+		expect([...relevantTools(["github-copilot"], CLI_TOOLS).keys()]).toEqual([
+			"copilot",
+			"gh",
+			"gh-copilot",
+			"node",
+			"agent-desktop",
+		]);
 		// A provider with no vendor CLI adds nothing.
-		expect([...relevantTools(["openrouter"], CLI_TOOLS).keys()]).toEqual(["gh", "node"]);
+		expect([...relevantTools(["openrouter"], CLI_TOOLS).keys()]).toEqual(["gh", "node", "agent-desktop"]);
 	});
 });
 
@@ -460,6 +477,30 @@ describe.skipIf(process.platform === "win32")("detectCliTool", () => {
 			probe: async () => "v24.11.0\n",
 		});
 		expect(detection).toMatchObject({ owner: { method: "managed", item: "node" }, installed: "24.11.0", skip: null });
+	});
+
+	it("lists agent-desktop as the managed copy even when the user's own sits earlier on PATH", async () => {
+		const { root, bin } = await sandbox();
+		const tools = path.join(root, "tools");
+		const mine = await script(path.join(root, "npm-bin", "agent-desktop"));
+		await fs.symlink(mine, path.join(bin, "agent-desktop"));
+		const ctx: InstallContext = { platform: "darwin", toolsDir: tools, brew: null };
+		// Only the user's copy: nothing of OMPdesk's to list.
+		expect(await detectCliTool("agent-desktop", { pathEnv: bin, env: {}, ctx })).toBeNull();
+
+		const managed = await script(path.join(tools, "agent-desktop", "agent-desktop"));
+		const detection = await detectCliTool("agent-desktop", {
+			pathEnv: bin,
+			env: {},
+			ctx,
+			probe: async () => "agent-desktop 1.2.0\n",
+		});
+		expect(detection).toMatchObject({
+			path: managed,
+			owner: { method: "managed", item: "agent-desktop" },
+			installed: "1.2.0",
+			skip: null,
+		});
 	});
 
 	it("detects the gh-copilot extension through gh, and nothing when gh lists none", async () => {

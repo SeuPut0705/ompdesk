@@ -508,6 +508,33 @@ describe("ExecutionGroup", () => {
 		}
 	});
 
+	it("gives agent-desktop's screenshot the same live surface as the built-in computer use", async () => {
+		const name = "mcp__agent_desktop_desktop_screenshot";
+		useToolsStore.setState(
+			toolEntriesState([
+				[
+					name,
+					{
+						...toolEntry("running"),
+						toolName: name,
+						args: { app: "Notes" },
+						status: "done",
+						result: {
+							content: [
+								{ type: "text", text: '{"ok":true,"command":"screenshot","data":{"app":"Notes"}}' },
+								{ type: "image", data: "cG5n", mimeType: "image/png" },
+							],
+						},
+					},
+				],
+			]),
+		);
+		await mount([name], true);
+		await flushFrame();
+		expect(container.querySelector(".omp-live-step")?.getAttribute("data-surface")).toBe("computer");
+		expect(container.querySelector(".omp-live-step img")?.getAttribute("src")).toBe("data:image/png;base64,cG5n");
+	});
+
 	it("shows the latest lines of a long live write and streams search results", async () => {
 		const lines = Array.from({ length: 700 }, (_, index) => `line ${index}`);
 		useToolsStore.setState(

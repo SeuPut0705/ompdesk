@@ -32,6 +32,8 @@ import {
 	configuredIn,
 	GUI_THINKING_DEFAULTS,
 	NATIVE_DEFAULTS,
+	noteComputerUseFallback,
+	refreshThinkingDefault,
 	releaseThinkingDefault,
 	settleThinkingDefault,
 	type ThinkingDefaultSetting,
@@ -107,4 +109,15 @@ export function releaseThinkingDefaultFor(settingId: string, scope: object): voi
 	if (!(settingId in GUI_THINKING_DEFAULTS)) return;
 	const setting = asThinkingDefaultSetting(lookup(settingId));
 	if (setting) releaseThinkingDefault(setting, scope);
+}
+
+/**
+ * This omp's agent-desktop engine could not serve it (modes/computer-use.ts): hold the built-in `computer` prelude on,
+ * for this process only. Stock's own `computer.enabled` listener then reconciles the live prelude. A value the user
+ * set in config.yml or a project config (or `/computer off`) stays as it is.
+ */
+export function holdBuiltinComputerPrelude(scope: object): void {
+	noteComputerUseFallback();
+	const setting = asThinkingDefaultSetting(lookup("computer.enabled"));
+	if (setting) refreshThinkingDefault(setting, scope, persistedIn(scope as PersistedLayers, setting));
 }

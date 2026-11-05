@@ -177,8 +177,8 @@ async function launch(name: string, prefs: Record<string, unknown>, held: boolea
 		path.join(desktop, "prefs.json"),
 		JSON.stringify({ firstRunComplete: true, themeName: "light", ...prefs }),
 	);
-	// Machine setup's optional gh and Node have nothing to install here: keep the launch quiet.
-	await seedSetupBackoff(desktop, ["gh", "node"]);
+	// Machine setup's optional gh, Node and agent-desktop have nothing to install here: keep the launch quiet.
+	await seedSetupBackoff(desktop, ["gh", "node", "agent-desktop"]);
 
 	// `mcp-thing`: a script in a global npm package, with the command npm links or shims for it.
 	const pkgDir = path.join(npmPrefix, ...NPM_PACKAGE);

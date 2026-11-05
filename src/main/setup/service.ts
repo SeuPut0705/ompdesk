@@ -35,7 +35,13 @@ import { manifestBunMinimum, ompUpdateEnv, parseUpdateCheck } from "../omp-runti
 import { writeRuntimeLog } from "../runtime-log";
 import { SerialChain, stepStalled, throwIfStepStalled } from "../serial-chain";
 import { needsShell, spawnArgs, spawnCommand } from "../spawn";
-import { type FetchText, fetchText, resolveArchiveRelease, resolveTailscaleRelease } from "./archives";
+import {
+	type FetchText,
+	fetchText,
+	resolveAgentDesktopRelease,
+	resolveArchiveRelease,
+	resolveTailscaleRelease,
+} from "./archives";
 import { setAsideCompiledOmp, settleSetAside } from "./compiled-launcher";
 import { type Detection, detectMachine } from "./detect";
 import { DownloadError, type DownloadFetch, downloadVerified } from "./download";
@@ -99,7 +105,7 @@ export interface SetupServiceDeps {
 	onOmpReady: () => void;
 	/** Resolves when setup's automatic optional installs may start (main: once the first tab is ready). */
 	beforeOptional?: () => Promise<void>;
-	detect?: (platform: SetupPlatform, bunInstall: string) => Promise<Detection>;
+	detect?: (platform: SetupPlatform, bunInstall: string, toolsDir: string) => Promise<Detection>;
 	runner?: SetupRunner;
 	fetchText?: FetchText;
 	/** Downloads main runs itself (download.ts). */
@@ -215,7 +221,7 @@ export interface ToolUpdateRequest {
 	/** The owner's update command; null with `managed`. */
 	spawn: SpawnSpec | null;
 	/** Machine setup's own archive of this item again (the copy in the managed tools dir). */
-	managed?: "gh" | "node";
+	managed?: "gh" | "node" | "agent-desktop";
 	/** Added to the installer environment (BUN_INSTALL, HOMEBREW_NO_AUTO_UPDATE). */
 	env: Record<string, string>;
 }
@@ -391,10 +397,19 @@ export class SetupService {
 		return parsed.latestVersion;
 	}
 
-	/** The newest release of machine setup's verified archive for gh or Node (`runToolUpdate`'s `managed` update installs it). */
-	async latestManaged(item: "gh" | "node"): Promise<string> {
-		const release = await resolveArchiveRelease(item, this.#deps.arch, this.#deps.fetchText ?? fetchText);
+	/** The newest release of machine setup's verified archive for gh, Node or agent-desktop (`runToolUpdate`'s `managed` update installs it). */
+	async latestManaged(item: "gh" | "node" | "agent-desktop"): Promise<string> {
+		const release = await this.#resolveManaged(item);
 		return release.version;
+	}
+
+	/** The release machine setup's verified archive install of `item` downloads (agent-desktop has its own source and targets). */
+	#resolveManaged(item: "gh" | "node" | "agent-desktop"): Promise<ArchiveRelease> {
+		const fetchLatest = this.#deps.fetchText ?? fetchText;
+		if (item !== "agent-desktop") return resolveArchiveRelease(item, this.#deps.arch, fetchLatest);
+		if (this.#deps.platform === "other")
+			return Promise.reject(new Error("agent-desktop has no release for this platform"));
+		return resolveAgentDesktopRelease(this.#deps.platform, this.#deps.arch, fetchLatest);
 	}
 
 	/**
@@ -435,14 +450,15 @@ export class SetupService {
 			const detection = this.#detection;
 			let release: ArchiveRelease;
 			try {
-				release = await resolveArchiveRelease(request.managed, this.#deps.arch, this.#deps.fetchText ?? fetchText);
+				release = await this.#resolveManaged(request.managed);
 				throwIfStepStalled();
 			} catch (error) {
 				throwIfStepStalled();
 				return { kind: "failed", detail: error instanceof Error ? error.message : String(error) };
 			}
-			const plan = detection ? buildPlan(request.managed, "archive", this.#planContext(detection), release) : null;
-			if (!plan) return { kind: "failed", detail: `no archive plan for ${request.managed}` };
+			const method = request.managed === "agent-desktop" ? "agent-desktop-archive" : "archive";
+			const plan = detection ? buildPlan(request.managed, method, this.#planContext(detection), release) : null;
+			if (!plan) return { kind: "failed", detail: `no ${method} plan for ${request.managed}` };
 			spawn = plan.spawn;
 			download = plan.download;
 		} else return { kind: "skipped" };
@@ -610,7 +626,11 @@ export class SetupService {
 	}
 
 	async #detect(): Promise<void> {
-		const detection = await (this.#deps.detect ?? detectMachine)(this.#deps.platform, this.#deps.bunInstall);
+		const detection = await (this.#deps.detect ?? detectMachine)(
+			this.#deps.platform,
+			this.#deps.bunInstall,
+			this.#deps.toolsDir,
+		);
 		throwIfStepStalled();
 		const git = detection.presence.git;
 		if (git.kind === "present" && git.gitAslrOverride && git.path) {
@@ -839,11 +859,14 @@ export class SetupService {
 		}
 		item.method = method;
 		let release: ArchiveRelease | undefined;
-		if (method === "archive" && (id === "gh" || id === "node")) {
+		if (
+			(method === "archive" && (id === "gh" || id === "node")) ||
+			(method === "agent-desktop-archive" && id === "agent-desktop")
+		) {
 			if (this.#deps.testInstaller) release = { item: id, ...TEST_RELEASE };
 			else {
 				try {
-					release = await resolveArchiveRelease(id, this.#deps.arch, this.#deps.fetchText ?? fetchText);
+					release = await this.#resolveManaged(id);
 					throwIfStepStalled();
 				} catch (error) {
 					throwIfStepStalled();

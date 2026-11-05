@@ -43,6 +43,7 @@ export const SETUP_ITEM_NAMES: Record<SetupItemId, string> = {
 	omp: "omp",
 	gh: "GitHub CLI",
 	node: "Node.js",
+	"agent-desktop": "agent-desktop",
 	tailscale: "Tailscale",
 };
 

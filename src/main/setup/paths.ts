@@ -41,11 +41,21 @@ export function managedGitRoot(toolsDir: string): string {
 	return join(toolsDir, "git");
 }
 
+/** Where setup unpacks agent-desktop's release archive: the CLI (plus its macOS helper beside it). */
+export function managedAgentDesktopDir(toolsDir: string): string {
+	return join(toolsDir, "agent-desktop");
+}
+
+/** The managed agent-desktop executable (src/shared/computer-use.ts: the default computer-use engine). */
+export function managedAgentDesktop(toolsDir: string, platform: SetupPlatform): string {
+	return join(managedAgentDesktopDir(toolsDir), platform === "win32" ? "agent-desktop.exe" : "agent-desktop");
+}
+
 /** Directories inside the managed tools dir that belong on a spawned process's PATH. */
 export function managedBinDirs(toolsDir: string, platform: SetupPlatform): string[] {
 	return platform === "win32"
-		? [join(managedGitRoot(toolsDir), "cmd")]
-		: [join(toolsDir, "node", "bin"), join(toolsDir, "gh", "bin")];
+		? [join(managedGitRoot(toolsDir), "cmd"), managedAgentDesktopDir(toolsDir)]
+		: [join(toolsDir, "node", "bin"), join(toolsDir, "gh", "bin"), managedAgentDesktopDir(toolsDir)];
 }
 
 /** `base` plus every `addition` it lacks, in order (case-insensitive on Windows, like its PATH). */

@@ -1,6 +1,19 @@
 import { spawnSync } from "node:child_process";
-import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
+import {
+	chmodSync,
+	copyFileSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import type { SetupPresence } from "../../shared/setup";
 import {
 	type ArchiveRelease,
@@ -297,6 +310,192 @@ describe("manualSteps", () => {
 			expect(manualSteps("bun", platform)).toEqual({ commands: [], url: "" });
 			expect(manualSteps("omp", platform)).toEqual({ commands: [], url: "" });
 		}
+	});
+});
+
+describe("agent-desktop plans", () => {
+	const release: ArchiveRelease = {
+		item: "agent-desktop",
+		version: "1.2.0",
+		file: "agent-desktop-v1.2.0-aarch64-apple-darwin.tar.gz",
+		url: "https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/agent-desktop-v1.2.0-aarch64-apple-darwin.tar.gz",
+		sha256: "a".repeat(64),
+	};
+	const winRelease: ArchiveRelease = {
+		...release,
+		file: "agent-desktop-v1.2.0-x86_64-pc-windows-msvc.tar.gz",
+		url: "https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/agent-desktop-v1.2.0-x86_64-pc-windows-msvc.tar.gz",
+		sha256: "b".repeat(64),
+	};
+
+	it("installs on macOS and Windows on its own, replaces a missing, outdated or broken copy, and has no build for other CPUs", () => {
+		const outdatedCopy: SetupPresence = { kind: "outdated", version: "1.1.0", minimum: "1.2.0", path: "/x" };
+		const broken: SetupPresence = { kind: "broken", detail: "x", path: "/x" };
+		for (const ctx of [mac, win, { ...mac, brew: null }, { ...win, winget: null }, { ...win, arch: "arm64" }]) {
+			for (const presence of [missing, outdatedCopy, broken]) {
+				expect(selectMethod("agent-desktop", presence, ctx)).toBe("agent-desktop-archive");
+			}
+			expect(selectMethod("agent-desktop", present, ctx)).toBeNull();
+		}
+		expect(selectMethod("agent-desktop", missing, { ...win, arch: "ia32" })).toBeNull();
+		expect(selectMethod("agent-desktop", missing, { ...mac, platform: "other" })).toBeNull();
+	});
+
+	it("points at the release page and asks for no command: OMPdesk installs it itself", () => {
+		expect(manualSteps("agent-desktop", "darwin")).toEqual({
+			commands: [],
+			url: "https://github.com/vercel-labs/agent-desktop/releases",
+		});
+	});
+
+	it("needs the release it downloaded, and no other item's", () => {
+		expect(buildPlan("agent-desktop", "agent-desktop-archive", mac)).toBeNull();
+		expect(buildPlan("gh", "agent-desktop-archive", mac, release)).toBeNull();
+		expect(buildPlan("agent-desktop", "archive", mac, release)).toBeNull();
+		expect(buildPlan("agent-desktop", "agent-desktop-archive", { ...mac, platform: "other" }, release)).toBeNull();
+	});
+
+	it("on macOS checks the hash and the archive's exact contents before it replaces the old folder, then asks the new CLI for its version", () => {
+		const plan = buildPlan("agent-desktop", "agent-desktop-archive", mac, release);
+		const file = join("/data/tools", ".downloads", release.file);
+		expect(plan?.download).toEqual({ url: release.url, sha256: release.sha256, file });
+		expect(plan?.location).toBe(join("/data/tools", "agent-desktop"));
+		expect(plan?.spawn.file).toBe("/bin/bash");
+		const script = plan?.spawn.args[1] ?? "";
+		expect(plan?.command).toBe(script);
+		expect(script.split("\n")[0]).toBe(`# OMPdesk downloaded ${release.url} (SHA-256 ${release.sha256}) to ${file}`);
+		expect(script).toContain("set -euo pipefail");
+		expect(script).not.toContain("curl");
+		const order = [
+			`echo '${"a".repeat(64)}  ${file}' | shasum -a 256 -c -`,
+			"tar -tzf",
+			"'agent-desktop agent-desktop-macos-helper'",
+			"tar -xzf",
+			"[ -L ",
+			"chmod 755",
+			'"$tmp/new/agent-desktop" --version',
+			'mv "$dest" "$tmp/old"',
+			'mv "$tmp/new" "$dest"',
+			'"$dest/agent-desktop" --version',
+		].map(part => {
+			const at = script.indexOf(part);
+			expect(at, part).toBeGreaterThan(0);
+			return at;
+		});
+		expect(order).toEqual([...order].sort((a, b) => a - b));
+		expect(script).toContain(`want='agent-desktop 1.2.0'`);
+		expect(script).toContain(`dest='${join("/data/tools", "agent-desktop")}'`);
+	});
+
+	it("on Windows checks the hash and tar.exe's listing, moves a running exe aside, and puts it back when the new one fails", () => {
+		const plan = buildPlan("agent-desktop", "agent-desktop-archive", win, winRelease);
+		const script = plan?.command ?? "";
+		expect(decodePowerShell(plan?.spawn.args ?? [])).toBe(script);
+		expect(plan?.spawn.file).toBe("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+		expect(plan?.location).toBe(join(win.toolsDir, "agent-desktop"));
+		expect(plan?.download?.sha256).toBe(winRelease.sha256);
+		const lines = script.split("\n");
+		expect(lines[0]).toContain(`(SHA-256 ${winRelease.sha256})`);
+		const at = (part: string) => {
+			const index = lines.findIndex(line => line.includes(part));
+			expect(index, part).toBeGreaterThanOrEqual(0);
+			return index;
+		};
+		const order = [
+			"Get-FileHash -Algorithm SHA256",
+			"$env:SystemRoot 'System32\\tar.exe'",
+			"-ne 'agent-desktop.exe'",
+			"& $tar -xzf $file -C $part",
+			"$aside = $exe + '.ompdesk-' + [DateTime]::UtcNow.Ticks",
+			"Move-Item -LiteralPath $new -Destination $exe",
+			"& $exe --version",
+		].map(at);
+		expect(order).toEqual([...order].sort((a, b) => a - b));
+		// A failed --version puts the old exe back, after the check.
+		const restore = lines.findLastIndex(line => line.includes("Move-Item -LiteralPath $aside -Destination $exe"));
+		expect(restore).toBeGreaterThan(order.at(-1) ?? 0);
+		expect(script).toContain("Get-ChildItem -Path ($exe + '.ompdesk-*') -ErrorAction SilentlyContinue | Remove-Item");
+		expect(script).toContain("$want = 'agent-desktop 1.2.0'");
+		expect(script).toContain("Remove-Item -LiteralPath $aside -Force -ErrorAction SilentlyContinue");
+	});
+
+	describe.runIf(process.platform === "darwin")("the macOS script, run", () => {
+		const roots: string[] = [];
+		afterEach(() => {
+			for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+		});
+
+		/** A release archive holding `entries` (name → content), put where setup downloads it; `run` runs the plan's script. */
+		function stage(entries: Record<string, string>) {
+			const root = mkdtempSync(join(tmpdir(), "ompdesk-agent-desktop-"));
+			roots.push(root);
+			const tools = join(root, "tools");
+			const source = join(root, "source");
+			mkdirSync(tools);
+			mkdirSync(source);
+			for (const [name, content] of Object.entries(entries)) {
+				writeFileSync(join(source, name), content);
+				chmodSync(join(source, name), 0o755);
+			}
+			const archive = join(root, "release.tar.gz");
+			expect(spawnSync("tar", ["-czf", archive, "-C", source, ...Object.keys(entries)]).status).toBe(0);
+			const sha256 = createHash("sha256").update(readFileSync(archive)).digest("hex");
+			const plan = buildPlan(
+				"agent-desktop",
+				"agent-desktop-archive",
+				{ ...mac, toolsDir: tools },
+				{ ...release, sha256 },
+			);
+			const downloaded = plan?.download?.file ?? "";
+			mkdirSync(dirname(downloaded), { recursive: true });
+			copyFileSync(archive, downloaded);
+			const script = plan?.command ?? "";
+			return {
+				tools,
+				dest: join(tools, "agent-desktop"),
+				run: () => spawnSync("/bin/bash", ["-c", script], { encoding: "utf8" }),
+			};
+		}
+		const cli = (version: string) => `#!/bin/sh\necho "agent-desktop ${version}"\n`;
+		const GOOD = { "agent-desktop": cli("1.2.0"), "agent-desktop-macos-helper": "#!/bin/sh\n" };
+
+		it("installs the CLI with its helper beside it, prints its version, and leaves nothing else in the tools dir", () => {
+			const { tools, dest, run } = stage(GOOD);
+			const result = run();
+			expect(result.status, result.stderr).toBe(0);
+			expect(result.stdout).toContain("agent-desktop 1.2.0 is in");
+			expect(readdirSync(dest).sort()).toEqual(["agent-desktop", "agent-desktop-macos-helper"]);
+			expect(spawnSync(join(dest, "agent-desktop"), ["--version"], { encoding: "utf8" }).stdout.trim()).toBe(
+				"agent-desktop 1.2.0",
+			);
+			expect(readdirSync(tools).sort()).toEqual([".downloads", "agent-desktop"]);
+		});
+
+		it("replaces an installed copy by moving the new folder in", () => {
+			const { dest, run } = stage(GOOD);
+			mkdirSync(dest);
+			writeFileSync(join(dest, "agent-desktop"), cli("1.1.0"));
+			writeFileSync(join(dest, "stale-file"), "left by an older release");
+			const result = run();
+			expect(result.status, result.stderr).toBe(0);
+			expect(readdirSync(dest).sort()).toEqual(["agent-desktop", "agent-desktop-macos-helper"]);
+		});
+
+		it("touches nothing when the archive holds more than the CLI and its helper, or a CLI that prints another version", () => {
+			for (const entries of [
+				{ ...GOOD, "install.sh": "#!/bin/sh\n" },
+				{ ...GOOD, "agent-desktop": cli("1.1.0") },
+			]) {
+				const { tools, dest, run } = stage(entries);
+				mkdirSync(dest);
+				writeFileSync(join(dest, "agent-desktop"), cli("1.1.5"));
+				const result = run();
+				expect(result.status).not.toBe(0);
+				expect(readFileSync(join(dest, "agent-desktop"), "utf8")).toBe(cli("1.1.5"));
+				expect(readdirSync(tools).filter(name => name.startsWith(".agent-desktop."))).toEqual([]);
+				expect(existsSync(join(dest, "agent-desktop-macos-helper"))).toBe(false);
+			}
+		});
 	});
 });
 

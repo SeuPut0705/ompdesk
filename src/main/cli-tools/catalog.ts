@@ -23,7 +23,7 @@ export interface CliToolSpec {
 	/** Its winget id (Windows). */
 	winget?: string;
 	/** Machine setup's archive for it (`managed`: updated only when it lives in the managed tools dir). */
-	managed?: "gh" | "node";
+	managed?: "gh" | "node" | "agent-desktop";
 	/** Only the managed copy counts: a system or version-manager copy of it is the user's, never listed. */
 	managedOnly?: boolean;
 	/**
@@ -64,6 +64,14 @@ export const CLI_TOOL_SPECS: Record<CliToolId, CliToolSpec> = {
 		lazyLoads: false,
 	},
 	node: { bin: "node", providers: [], setup: true, managed: "node", managedOnly: true, lazyLoads: false },
+	"agent-desktop": {
+		bin: "agent-desktop",
+		providers: [],
+		setup: true,
+		managed: "agent-desktop",
+		managedOnly: true,
+		lazyLoads: false,
+	},
 };
 
 /** The tools a set of connected providers (and machine setup) makes relevant, in display order. */

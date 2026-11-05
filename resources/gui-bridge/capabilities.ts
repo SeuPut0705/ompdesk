@@ -77,6 +77,7 @@ export const FEATURES = {
 	eccHint: "ECC skills named for the project's languages (prompt section)",
 	formalHint: "Formal-verification skill named for race, retry and never-happens requests (prompt section)",
 	defaultBrowser: "Default browser for agents: ego-browser, the user's own browser or built-in (prompt section)",
+	computerUse: "Computer use engine: agent-desktop, falling back to the built-in prelude (prompt section, notice)",
 	backgroundChecks: "Long checks run as background jobs (prompt section)",
 	checkoutPeers: "Sessions sharing a checkout (prompt section and git guard)",
 	xdevNotice: "No xd:// device listed twice in a request (mount notice)",
@@ -459,6 +460,19 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 				"cfgBrowserRelayUrl.override()",
 				"cfgBrowserRelayUrl.clearOverride()",
 			],
+		},
+	},
+	/**
+	 * modes/computer-use.ts: stock's MCP manager for the `agent-desktop` server's startup, `computer.enabled` by id
+	 * (held on again on a fallback, thinking-default.ts), and the public `before_agent_start` hook for the section and
+	 * the note.
+	 */
+	computerUse: {
+		pkg: ["Settings.instance"],
+		session: ["sessionManager.getBranch()"],
+		modules: {
+			[`${AGENT}/config/registry`]: ["lookup()"],
+			[`${AGENT}/mcp/manager`]: ["MCPManager.instance()", "MCPManager.prototype.waitForStartup()"],
 		},
 	},
 	/** modes/background-checks.ts: reads stock `async.enabled` by id. */

@@ -9,6 +9,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { MCP_AUTH_ENV, MCP_CWD_ENV, MCP_HUB_ENV } from "../../resources/gui-bridge/mcp-hub-contracts";
 import type { AutoTitleSettings } from "../../resources/gui-bridge/modes/auto-title-contracts";
+import { AGENT_DESKTOP_ENV, COMPUTER_USE_ENV } from "../../resources/gui-bridge/modes/computer-use-contracts";
 import { agentBrowserEnv } from "../../resources/gui-bridge/modes/default-browser-contracts";
 import type { DelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
 import { JUDGE_ASSIST_ENV } from "../../resources/gui-bridge/modes/judge-assist-contracts";
@@ -35,6 +36,8 @@ export const SESSION_OWNED_ENV = [
 	"OMP_GUI_BRIDGE",
 	"OMP_GUI_REPLY_LANGUAGE",
 	DEFAULT_BROWSER_ENV,
+	COMPUTER_USE_ENV,
+	AGENT_DESKTOP_ENV,
 	"OMP_GUI_USER_PROFILE",
 	"OMP_GUI_NEXT_PROMPT",
 	"OMP_GUI_AUTO_TITLE",

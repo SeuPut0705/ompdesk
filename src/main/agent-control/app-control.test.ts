@@ -387,6 +387,7 @@ describe("what agents can never reach, by any route", () => {
 		"ecc",
 		"aiMemory",
 		"computer",
+		"computerUse",
 		"sidebar",
 		"githubToken",
 	];

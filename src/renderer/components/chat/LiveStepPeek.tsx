@@ -18,6 +18,7 @@ import type { AgentMessage } from "../../../shared/rpc-types";
 import { useFrameSelector } from "../../hooks/use-frame-selector";
 import { useMediaQuery } from "../../hooks/use-media-query";
 import { useOverlayPresence } from "../../hooks/use-overlay-presence";
+import { isAgentDesktopTool } from "../../lib/agent-desktop";
 import { cx, formatDuration, formatElapsed, resultDetails, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useModelWait } from "../../lib/model-wait";
@@ -627,7 +628,8 @@ export function LiveStepPeek({
 			ref={boxRef}
 			data-following={live}
 			data-running={running}
-			data-surface={kind}
+			// agent-desktop's screenshots fill the peek as the built-in computer use's do (components.css `data-surface`).
+			data-surface={isAgentDesktopTool(kind) ? "computer" : kind}
 			data-outcome={outcomeMode}
 			data-nested={nested}
 			data-state={nested ? undefined : headState}

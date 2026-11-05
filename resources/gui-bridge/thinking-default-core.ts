@@ -15,6 +15,9 @@
  *   job's live widget with a `widget`-role model call once anything views the job,
  *   and the GUI's jobs poll (stock `inspectAsyncJob`, which always views) does, for
  *   widgets the GUI never draws (bridge-job-widgets-stock.test.ts).
+ * - `computer.enabled` on (stock: off): the built-in `computer` eval prelude, except in an omp started on the
+ *   agent-desktop engine (`OMP_GUI_COMPUTER_USE`, src/shared/computer-use.ts), where it is held off; that omp's
+ *   fallback to the built-in prelude turns it on (`noteComputerUseFallback`, modes/computer-use.ts).
  *
  * All are runtime overrides on the omp process's Settings: never written to
  * config.yml, so the omp CLI outside OMPdesk keeps stock behavior.
@@ -33,6 +36,8 @@
  * this file directly (src/main/bridge-thinking-default.test.ts).
  */
 
+import { COMPUTER_USE_ENV, parseComputerUseEnv } from "./modes/computer-use-contracts";
+
 /** The setting ids OMPdesk holds a default for, and that default. */
 export const GUI_THINKING_DEFAULTS: Readonly<Record<string, unknown>> = {
 	defaultThinkingLevel: "auto",
@@ -45,7 +50,7 @@ export const GUI_THINKING_DEFAULTS: Readonly<Record<string, unknown>> = {
 	"lsp.formatOnWrite": true,
 	// The tool is a native addon shipped with omp (`@oh-my-pi/pi-natives`); thinking-default.ts feature-detects it.
 	"astGrep.enabled": true,
-	// The scriptable host-desktop eval prelude (screenshots, input, accessibility); an omp without the setting is skipped.
+	// The built-in engine's value. An omp started on agent-desktop holds it off instead (`defaultValueOf`).
 	"computer.enabled": true,
 	// Stock pins it off for RPC/ACP hosts (`protocolDefault`); a pinned default is not the user's choice.
 	"advisor.enabled": true,
@@ -60,6 +65,28 @@ export const PROTOCOL_PINNED: Readonly<Record<string, true>> = { "advisor.enable
 
 /** Held defaults that need a native feature, and the export that proves it (see thinking-default.ts). */
 export const NATIVE_DEFAULTS: Readonly<Record<string, string>> = { "astGrep.enabled": "astGrep" };
+
+/** The held setting whose value follows the Computer use engine (modes/computer-use.ts). */
+const COMPUTER_ENABLED = "computer.enabled";
+
+/** This process's agent-desktop engine could not serve it: the built-in prelude's held value is on again. */
+let computerUseFellBack = false;
+
+export function noteComputerUseFallback(): void {
+	computerUseFellBack = true;
+}
+
+/**
+ * The value OMPdesk holds for `id`: {@link GUI_THINKING_DEFAULTS}, except `computer.enabled` while this omp runs on
+ * the agent-desktop engine (`OMP_GUI_COMPUTER_USE`, set at spawn) and it has not fallen back: stock's prelude is off
+ * then, so two engines never drive the desktop side by side.
+ */
+export function defaultValueOf(id: string): unknown {
+	if (id === COMPUTER_ENABLED && parseComputerUseEnv(process.env[COMPUTER_USE_ENV]) === "agent-desktop") {
+		return computerUseFellBack;
+	}
+	return GUI_THINKING_DEFAULTS[id];
+}
 
 /** The stock `Setting` handle members used here (`lookup("defaultThinkingLevel")`). */
 export interface ThinkingDefaultSetting {
@@ -119,7 +146,7 @@ function pinnedOnly(setting: ThinkingDefaultSetting, scope: object, persisted: b
  */
 export function applyThinkingDefault(setting: ThinkingDefaultSetting, scope: object, persisted = false): boolean {
 	if (isHeld(setting, scope)) return true;
-	const value = GUI_THINKING_DEFAULTS[setting.id];
+	const value = defaultValueOf(setting.id);
 	if (value === undefined) return false;
 	if (setting.isConfigured(scope) && !pinnedOnly(setting, scope, persisted)) return false;
 	setting.override(scope, value);
@@ -133,6 +160,18 @@ export function applyThinkingDefault(setting: ThinkingDefaultSetting, scope: obj
 export function releaseThinkingDefault(setting: ThinkingDefaultSetting, scope: object): void {
 	if (!held.get(scope)?.delete(setting.id)) return;
 	setting.clearOverride(scope);
+}
+
+/**
+ * The held value changed (`defaultValueOf`): put it on a setting this omp holds, so stock's own listeners reconcile.
+ * A setting some layer sets is the user's and stays; one not held yet is taken up now, as `settleThinkingDefault` does.
+ */
+export function refreshThinkingDefault(setting: ThinkingDefaultSetting, scope: object, persisted: boolean): void {
+	if (isHeld(setting, scope)) {
+		setting.override(scope, defaultValueOf(setting.id));
+		return;
+	}
+	applyThinkingDefault(setting, scope, persisted);
 }
 
 /**

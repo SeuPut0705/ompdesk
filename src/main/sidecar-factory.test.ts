@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -6,6 +7,7 @@ import type { NextPromptSettings } from "../../resources/gui-bridge/modes/next-p
 import { BridgeHealth } from "./bridge-health";
 import { setControlEndpoint } from "./control-socket/env";
 import { SessionKindStore } from "./session-kinds";
+import { managedAgentDesktop } from "./setup/paths";
 import type { SidecarOptions } from "./sidecar";
 import { localSidecarFactory } from "./sidecar-factory";
 
@@ -355,6 +357,63 @@ describe("localSidecarFactory", () => {
 		memory = ["-e", "/ud/ai-memory/omp-ext"];
 		expect((await options?.builtinMcp?.())?.env).toMatchObject({ OMP_GUI_MCP_CWD: "%2Fw%2Falpha" });
 		expect(hubAsked).toEqual(["/w/alpha", "/w/alpha"]);
+	});
+
+	it("mounts agent-desktop on every tab it spawns, hosted ones included, only while it is picked and installed, read per spawn", async () => {
+		const tools = fs.mkdtempSync(path.join(os.tmpdir(), "omp-gui-factory-tools-"));
+		try {
+			let pick: unknown;
+			const create = localSidecarFactory({
+				bridgeDir: "/bridge",
+				builtinDir: "/builtin",
+				builtinReaPref: () => false,
+				proxyEnv: async () => ({}),
+				bridgeHealth: new BridgeHealth(() => {}),
+				sessionKinds: new SessionKindStore(path.join(os.tmpdir(), "omp-gui-factory-kinds.json")),
+				replyLanguagePref: () => undefined,
+				userProfilePref: () => undefined,
+				nextPromptPrefs: () => ({ suggestions: true, inline: true }),
+				autoTitlePrefs: () => ({ enabled: true, evolve: true, suppressed: false }),
+				judgeAssistPref: () => true,
+				delegationPref: () => undefined,
+				accountRotationPref: () => undefined,
+				accountRotationLedger: "/ledger.json",
+				launchProfilesPref: () => undefined,
+				computerUse: { pref: () => pick, toolsDir: tools, platform: "darwin" },
+			});
+			created.length = 0;
+			create("/w/alpha", "agent", false);
+			create("/w/alpha", "agent", true, { deviceId: "peer-1", name: "Laptop", hostName: "Desk" });
+			const executable = managedAgentDesktop(tools, "darwin");
+
+			// Picked (the default) but not installed yet: nothing mounted, and the bridge is told.
+			for (const options of created) {
+				const missing = await options.builtinMcp?.();
+				expect(missing?.args).toEqual(FORMAL);
+				expect(missing?.env).toMatchObject({ OMP_GUI_COMPUTER_USE: "missing" });
+				expect(missing?.env).not.toHaveProperty("OMP_GUI_AGENT_DESKTOP");
+			}
+
+			fs.mkdirSync(path.dirname(executable), { recursive: true });
+			fs.writeFileSync(executable, "");
+			for (const options of created) {
+				const mounted = await options.builtinMcp?.();
+				expect(mounted?.args).toEqual(["-e", path.join("/builtin", "agent-desktop"), ...FORMAL]);
+				expect(mounted?.env).toMatchObject({
+					OMP_GUI_COMPUTER_USE: "agent-desktop",
+					OMP_GUI_AGENT_DESKTOP: executable,
+				});
+			}
+
+			pick = "builtin";
+			for (const options of created) {
+				const builtin = await options.builtinMcp?.();
+				expect(builtin?.args).toEqual(FORMAL);
+				expect(builtin?.env).toMatchObject({ OMP_GUI_COMPUTER_USE: "builtin" });
+			}
+		} finally {
+			fs.rmSync(tools, { recursive: true, force: true });
+		}
 	});
 
 	it("wakes the shared-checkout pass on the bridge's checkout_files frame of any tab, and on no other frame", () => {

@@ -16,10 +16,12 @@ const FULL: OmpLaunch = {
 	builtin: {
 		args: ["-e", "/builtin", "-e", "/builtin/rea"],
 		root: "/builtin/rea",
-		// sidecar-factory.ts `builtinMcp` with every pack and memory on, and the MCP hub's address.
+		// sidecar-factory.ts `builtinMcp` with every pack and memory on, agent-desktop mounted, and the MCP hub's address.
 		env: {
 			OMP_GUI_PSTACK: "1",
 			OMP_GUI_ECC: "1",
+			OMP_GUI_COMPUTER_USE: "agent-desktop",
+			OMP_GUI_AGENT_DESKTOP: "/tools/agent-desktop/agent-desktop",
 			OMP_GUI_MEMORY: "/ud/recall.json",
 			OMP_GUI_MCP_HUB: "http://127.0.0.1:4100",
 			OMP_GUI_MCP_AUTH: "Bearer s",

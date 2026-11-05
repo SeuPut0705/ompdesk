@@ -332,6 +332,31 @@ describe("CliUpdater", () => {
 		}
 	});
 
+	it("updates the managed agent-desktop to its own newest release at once, never waiting for a running server", async () => {
+		const asked: string[] = [];
+		const h = harness({
+			testInstaller: null,
+			managedLatest: async item => {
+				asked.push(item);
+				return "1.3.0";
+			},
+		});
+		h.providers.value = [];
+		h.processes.value = "/tools/agent-desktop/agent-desktop mcp\n";
+		h.detections = {
+			"agent-desktop": {
+				...codex({ id: "agent-desktop", path: "/tools/agent-desktop/agent-desktop", installed: "1.2.0" }),
+				owner: { method: "managed", item: "agent-desktop" },
+			},
+		};
+		await h.updater.updateNow("agent-desktop");
+		expect(asked).toEqual(["agent-desktop"]);
+		expect(h.checks).toEqual([]);
+		expect(h.updates).toEqual([
+			{ tool: "agent-desktop", method: "managed", spawn: null, managed: "agent-desktop", env: {} },
+		]);
+	});
+
 	it("checks scheduled passes only while the pref is on, lists tools either way, and 'Update now' ignores the pref", async () => {
 		const h = harness();
 		h.pref.enabled = false;

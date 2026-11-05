@@ -590,6 +590,11 @@ describe("autopilot guard: other tools", () => {
 	it("blocks eval, debug, ssh and ask outright", () => {
 		for (const tool of ["eval", "debug", "ssh", "ask"]) expect(call(tool, {}).block, tool).toBe(true);
 	});
+	it("blocks agent-desktop's desktop control, direct and as an xd:// device", () => {
+		expect(call("mcp__agent_desktop_desktop_click", { ref: "@s1:e2" }).block).toBe(true);
+		expect(call("write", { path: "xd://mcp__agent_desktop_desktop_type", content: "{}" }).block).toBe(true);
+		expect(call("write", { path: "mcp__agent_desktop_notes.md", content: "x" }).block).toBe(false);
+	});
 	it("leaves read-only and unrelated tools alone", () => {
 		for (const tool of ["read", "grep", "glob", "todo", "task", "ompdesk_session_open", "web_search", "browser"]) {
 			expect(call(tool, { path: "/etc/hosts", command: "git reset --hard" }).block, tool).toBe(false);

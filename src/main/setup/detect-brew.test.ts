@@ -33,7 +33,7 @@ describe.skipIf(process.platform !== "darwin")("machine setup's GitHub CLI looku
 		process.env.PATH = `${shellDir}:/usr/bin:/bin`;
 		process.env.OMP_GUI_TEST_BREW_DIRS = brewBin;
 		resetLoginShellEnvCache();
-		const detection = await detectMachine("darwin", path.join(root, "bun"));
+		const detection = await detectMachine("darwin", path.join(root, "bun"), path.join(root, "tools"));
 		expect(detection.presence.gh).toMatchObject({
 			kind: "present",
 			version: "2.99.0",

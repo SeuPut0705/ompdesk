@@ -1,0 +1,9 @@
+{
+	"mcpServers": {
+		"agent-desktop": {
+			"type": "stdio",
+			"command": "${OMP_GUI_AGENT_DESKTOP}",
+			"args": ["mcp"]
+		}
+	}
+}

@@ -156,6 +156,7 @@ describe.skipIf(bun === null)("omp update with a real bun install -g", () => {
 				git: present,
 				gh: present,
 				node: present,
+				"agent-desktop": present,
 				tailscale: present,
 				omp: await ompPresence(),
 			},
@@ -231,7 +232,15 @@ describe.skipIf(bun === null)("omp update with a real bun install -g", () => {
 			detect: async () => {
 				const omp = await ompPresence();
 				return {
-					presence: { bun: present, git: present, gh: present, node: present, tailscale: present, omp },
+					presence: {
+						bun: present,
+						git: present,
+						gh: present,
+						node: present,
+						"agent-desktop": present,
+						tailscale: present,
+						omp,
+					},
 					bun,
 					omp: omp.kind === "present" ? shellOmp : null,
 					brew: null,

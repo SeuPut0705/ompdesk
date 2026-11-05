@@ -1,7 +1,7 @@
 /**
  * The Autopilot hard limits as pure rules, shared by three callers: the bridge's `tool_call` guard
  * (autopilot.ts), main's approver (a remaining approval card is Denied when its text violates a ban)
- * and main's post-cycle audit. Nothing here imports anything (main imports this file directly).
+ * and main's post-cycle audit. It imports only dependency-free contracts (main imports this file directly).
  *
  * What it reads is the tool call itself: `bash` is split into simple commands (quotes, `$(...)`,
  * backticks, `sh -c`, heredocs, `env`/`xargs`/`find -exec` wrappers) and each one is classified;
@@ -12,6 +12,7 @@
  * banned phrases we scan for, shell aliases/functions defined elsewhere, symlinks out of the worktree).
  */
 import type { AutopilotShipLevel } from "./autopilot-contracts";
+import { AGENT_DESKTOP_TOOL_PREFIX } from "./computer-use-contracts";
 
 export interface GuardInput {
 	/** The hook's tool name, without any prefix (`bash`, `edit`, `github`, ...). */
@@ -1789,6 +1790,15 @@ export function evaluateToolCall(call: GuardInput): GuardDecision {
 		defaultBranch: call.defaultBranch,
 	});
 	const input = typeof call.input === "object" && call.input !== null ? (call.input as Record<string, unknown>) : {};
+	// An unattended run has no person to confirm a consequential desktop action, as its missing `eval` takes the
+	// built-in `computer` prelude away: agent-desktop's tools (direct or as an `xd://` device) are refused alike.
+	const device = call.toolName === "write" && typeof input.path === "string" ? input.path.replace(/^xd:\/\//, "") : "";
+	if (
+		call.toolName.startsWith(AGENT_DESKTOP_TOOL_PREFIX) ||
+		(input.path !== device && device.startsWith(AGENT_DESKTOP_TOOL_PREFIX))
+	) {
+		return deny("desktop control needs a person to confirm its actions, and an Autopilot run has none");
+	}
 	switch (call.toolName) {
 		case "bash": {
 			const command = typeof input.command === "string" ? input.command : "";

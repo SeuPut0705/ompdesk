@@ -95,7 +95,7 @@ for (const language of variants(["en", "ko"] as const)) {
 			JSON.stringify({ language, themeName: "light", firstRunComplete: true }),
 		);
 		// Three automatic misses today: the launch leaves gh alone ("Paused after failed attempts").
-		await seedSetupBackoff(desktop, ["gh", "node"]);
+		await seedSetupBackoff(desktop, ["gh", "node", "agent-desktop"]);
 		const fakeGh = await writeFakeGh(root);
 		const ghState = path.join(root, "gh-state.json");
 		await seedFakeGh(ghState, []);

@@ -1,7 +1,8 @@
 /**
- * Release lookup for `archive` installs (macOS without Homebrew): the current
- * Node.js LTS and GitHub CLI releases, each with the SHA-256 its publisher
- * lists next to the download (Node's SHASUMS256.txt, gh's checksums.txt).
+ * Release lookup for the archives setup downloads itself: the current Node.js LTS and GitHub CLI releases
+ * (`archive`, macOS without Homebrew) and the newest agent-desktop release (`agent-desktop-archive`, macOS and
+ * Windows), each with the SHA-256 its publisher lists next to the download (Node's SHASUMS256.txt, gh's and
+ * agent-desktop's checksums.txt).
  */
 import { reaNodeSupported } from "../../shared/builtin-mcp";
 import type { ArchiveRelease, TailscaleRelease } from "./plans";
@@ -48,7 +49,7 @@ function checked(item: ArchiveRelease["item"], version: string, file: string, ur
 
 /** Look up the release an `archive` install of `item` downloads. Throws with a readable reason. */
 export async function resolveArchiveRelease(
-	item: ArchiveRelease["item"],
+	item: "gh" | "node",
 	arch: string,
 	fetchText: FetchText,
 ): Promise<ArchiveRelease> {
@@ -79,6 +80,51 @@ export async function resolveArchiveRelease(
 		parseShasums(await fetchText(`${base}/gh_${version}_checksums.txt`), file),
 	);
 }
+
+/**
+ * The oldest agent-desktop OMPdesk accepts: `agent-desktop mcp` (the stdio MCP server the computer-use engine
+ * runs) exists since 1.2.0. A managed copy below it is `outdated` and gets reinstalled.
+ */
+export const AGENT_DESKTOP_MIN_VERSION = "1.2.0";
+
+const AGENT_DESKTOP_REPO = "vercel-labs/agent-desktop";
+
+/** The Rust target of agent-desktop's release archive for this machine; throws for one it ships none for. */
+function agentDesktopTarget(platform: "darwin" | "win32", arch: string): string {
+	if (arch !== "arm64" && arch !== "x64") throw new Error(`agent-desktop has no release for ${platform} ${arch}`);
+	const cpu = arch === "arm64" ? "aarch64" : "x86_64";
+	return platform === "darwin" ? `${cpu}-apple-darwin` : `${cpu}-pc-windows-msvc`;
+}
+
+/**
+ * The newest stable agent-desktop release (GitHub's `releases/latest`: never a draft or pre-release) for this
+ * machine, with the SHA-256 its `checksums.txt` lists. No release-age hold, like gh and Node: the checksum comes
+ * from the publisher's own release. Throws with a readable reason.
+ */
+export async function resolveAgentDesktopRelease(
+	platform: "darwin" | "win32",
+	arch: string,
+	fetchText: FetchText,
+): Promise<ArchiveRelease> {
+	// An unsupported architecture is refused before any request.
+	const target = agentDesktopTarget(platform, arch);
+	const latest: unknown = JSON.parse(
+		await fetchText(`https://api.github.com/repos/${AGENT_DESKTOP_REPO}/releases/latest`),
+	);
+	const tag = typeof latest === "object" && latest !== null && "tag_name" in latest ? latest.tag_name : undefined;
+	if (typeof tag !== "string" || !VERSION.test(tag)) throw new Error("GitHub lists no agent-desktop release");
+	const version = tag.replace(/^v/, "");
+	const file = `agent-desktop-v${version}-${target}.tar.gz`;
+	const base = `https://github.com/${AGENT_DESKTOP_REPO}/releases/download/v${version}`;
+	return checked(
+		"agent-desktop",
+		version,
+		file,
+		`${base}/${file}`,
+		parseShasums(await fetchText(`${base}/checksums.txt`), file),
+	);
+}
+
 const TAILSCALE_BASE = "https://pkgs.tailscale.com/stable";
 const SHA256_TOKEN = /\b[0-9a-fA-F]{64}\b/;
 /** A plain file name of the index: no path, no query. */

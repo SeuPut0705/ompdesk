@@ -1,7 +1,8 @@
 /**
  * What this machine has: Bun, omp (through omp-runtime's own resolution and
  * version gate), Git, GitHub CLI and Node.js (through the built-in REA probe),
- * plus the package managers setup may use (Homebrew, winget).
+ * agent-desktop (the managed copy only), plus the package managers setup may
+ * use (Homebrew, winget).
  */
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -16,8 +17,9 @@ import { brewBinDirs, spawnPath } from "../shell-env";
 import { executableName, findOnPath, needsShell, spawnArgs, spawnCommand } from "../spawn";
 import { execFileExecutor } from "../tailscale/cli";
 import { locateTailscale, systemLocateDeps } from "../tailscale/locate";
+import { AGENT_DESKTOP_MIN_VERSION } from "./archives";
 import { readGitAslrOverride } from "./git-aslr";
-import { findGitBash } from "./paths";
+import { findGitBash, managedAgentDesktop } from "./paths";
 
 export interface Detection {
 	presence: Record<SetupItemId, SetupPresence>;
@@ -209,6 +211,34 @@ async function detectNode(): Promise<SetupPresence> {
 			return { kind: "broken", detail: rea.reason ?? "node-failed", path: null };
 	}
 }
+
+/**
+ * agent-desktop (the default computer-use engine): only the copy setup keeps in the managed tools dir counts. One
+ * the user put on PATH (npm, brew) is theirs; OMPdesk neither runs nor updates it, so the engine never depends
+ * on a version OMPdesk did not verify. Below `AGENT_DESKTOP_MIN_VERSION` (no `agent-desktop mcp` before 1.2.0) it
+ * is `outdated`; one that does not answer `--version` is `broken`. Both get reinstalled.
+ */
+export async function detectAgentDesktop(
+	platform: SetupPlatform,
+	toolsDir: string,
+	env: NodeJS.ProcessEnv,
+): Promise<SetupPresence> {
+	if (platform === "other") return { kind: "missing" };
+	const exe = managedAgentDesktop(toolsDir, platform);
+	if (!existsSync(exe)) return { kind: "missing" };
+	let version: string | null;
+	try {
+		version = parseOmpVersion(await probe(exe, ["--version"], env, platform));
+	} catch (error) {
+		return { kind: "broken", detail: error instanceof Error ? error.message : String(error), path: exe };
+	}
+	if (!version) return { kind: "broken", detail: "agent-desktop printed no version", path: exe };
+	if (isNewer(AGENT_DESKTOP_MIN_VERSION, version)) {
+		return { kind: "outdated", version, minimum: AGENT_DESKTOP_MIN_VERSION, path: exe };
+	}
+	return { kind: "present", version, path: exe };
+}
+
 /**
  * Tailscale (Mobile web): installed when its CLI is found where Mobile web looks for it (tailscale/locate.ts). Whether
  * the daemon runs or is signed in is Mobile web's own state machine, never an install question, so a CLI that
@@ -230,8 +260,8 @@ export async function detectTailscale(platform: SetupPlatform, pathEnv: string):
 	return { kind: "present", version: /\d+\.\d+\.\d+/.exec(first)?.[0] ?? null, path: located.path };
 }
 
-/** Detect every setup item. `bunInstall` is where Bun's own installer puts it. */
-export async function detectMachine(platform: SetupPlatform, bunInstall: string): Promise<Detection> {
+/** Detect every setup item. `bunInstall` is where Bun's own installer puts it, `toolsDir` the managed tools dir (agent-desktop lives only there). */
+export async function detectMachine(platform: SetupPlatform, bunInstall: string, toolsDir: string): Promise<Detection> {
 	const pathEnv = await spawnPath();
 	const env = { ...process.env, PATH: pathEnv };
 	const win = platform === "win32";
@@ -254,12 +284,13 @@ export async function detectMachine(platform: SetupPlatform, bunInstall: string)
 		platform,
 		win ? [] : brewBinDirs().map(dir => join(dir, "gh")),
 	);
-	const [foundBun, omp, git, ghPresence, node, tailscale] = await Promise.all([
+	const [foundBun, omp, git, ghPresence, node, agentDesktop, tailscale] = await Promise.all([
 		bun ? versionOf(bun, env, platform) : Promise.resolve<SetupPresence>({ kind: "missing" }),
 		detectOmp(),
 		detectGit(platform, pathEnv, env),
 		gh ? versionOf(gh, env, platform) : Promise.resolve<SetupPresence>({ kind: "missing" }),
 		detectNode(),
+		detectAgentDesktop(platform, toolsDir, env),
 		detectTailscale(platform, pathEnv),
 	]);
 	// The Bun omp runs on, when omp's resolution found that one too old: the Bun `bun upgrade` must reach.
@@ -269,7 +300,15 @@ export async function detectMachine(platform: SetupPlatform, bunInstall: string)
 		omp.bunMinimum,
 	);
 	return {
-		presence: { bun: bunPresence, omp: omp.presence, git, gh: ghPresence, node, tailscale },
+		presence: {
+			bun: bunPresence,
+			omp: omp.presence,
+			git,
+			gh: ghPresence,
+			node,
+			"agent-desktop": agentDesktop,
+			tailscale,
+		},
 		// An outdated Bun still installs packages and upgrades itself.
 		bun: bunPresence.kind === "present" || bunPresence.kind === "outdated" ? bunPath : null,
 		omp: omp.bin,

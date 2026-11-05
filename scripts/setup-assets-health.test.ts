@@ -8,7 +8,7 @@ const sha = createHash("sha256").update(bytes).digest("hex");
 const asset: PinnedAsset = { label: "PortableGit 2.56.0.2 (x64)", url: "https://example.test/git.7z.exe", sha256: sha };
 const noWait = async () => {};
 
-/** nodejs.org and GitHub, as `resolveArchiveRelease` reads them. */
+/** nodejs.org and GitHub, as `resolveArchiveRelease` and `resolveAgentDesktopRelease` read them. */
 function listings(overrides: Record<string, string> = {}): (url: string) => Promise<string> {
 	const pages: Record<string, string> = {
 		"https://nodejs.org/dist/index.json": JSON.stringify([{ version: "v24.11.0", lts: "Krypton" }]),
@@ -21,6 +21,12 @@ function listings(overrides: Record<string, string> = {}): (url: string) => Prom
 			`${"c".repeat(64)}  gh_2.83.0_macOS_arm64.zip`,
 			`${"d".repeat(64)}  gh_2.83.0_macOS_amd64.zip`,
 		].join("\n"),
+		"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest": JSON.stringify({ tag_name: "v1.2.0" }),
+		"https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/checksums.txt": [
+			`${"e".repeat(64)}  agent-desktop-v1.2.0-aarch64-apple-darwin.tar.gz`,
+			`${"f".repeat(64)}  agent-desktop-v1.2.0-x86_64-apple-darwin.tar.gz`,
+			`${"1".repeat(64)}  agent-desktop-v1.2.0-x86_64-pc-windows-msvc.tar.gz`,
+		].join("\n"),
 		...overrides,
 	};
 	return async url => {
@@ -31,7 +37,7 @@ function listings(overrides: Record<string, string> = {}): (url: string) => Prom
 }
 
 describe("pinnedAssets", () => {
-	it("lists both pinned PortableGits and the gh and Node archives the app would download, with their checksums", async () => {
+	it("lists both pinned PortableGits and the gh, Node and agent-desktop archives the app would download, with their checksums", async () => {
 		const { assets, failures } = await pinnedAssets(listings());
 		expect(failures).toEqual([]);
 		expect(assets).toEqual([
@@ -57,6 +63,21 @@ describe("pinnedAssets", () => {
 				url: "https://github.com/cli/cli/releases/download/v2.83.0/gh_2.83.0_macOS_amd64.zip",
 				sha256: "d".repeat(64),
 			},
+			{
+				label: "agent-desktop 1.2.0 (macOS arm64)",
+				url: "https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/agent-desktop-v1.2.0-aarch64-apple-darwin.tar.gz",
+				sha256: "e".repeat(64),
+			},
+			{
+				label: "agent-desktop 1.2.0 (macOS x64)",
+				url: "https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/agent-desktop-v1.2.0-x86_64-apple-darwin.tar.gz",
+				sha256: "f".repeat(64),
+			},
+			{
+				label: "agent-desktop 1.2.0 (Windows x64)",
+				url: "https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/agent-desktop-v1.2.0-x86_64-pc-windows-msvc.tar.gz",
+				sha256: "1".repeat(64),
+			},
 		]);
 	});
 
@@ -65,6 +86,7 @@ describe("pinnedAssets", () => {
 			listings({
 				"https://github.com/cli/cli/releases/download/v2.83.0/gh_2.83.0_checksums.txt": `${"c".repeat(64)}  other.zip`,
 				"https://nodejs.org/dist/index.json": "[]",
+				"https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/checksums.txt": `${"e".repeat(64)}  other.tar.gz`,
 			}),
 		);
 		expect(assets.map(entry => entry.label)).toEqual(["PortableGit 2.56.0.2 (x64)", "PortableGit 2.56.0.2 (arm64)"]);
@@ -73,6 +95,9 @@ describe("pinnedAssets", () => {
 			"Node.js lookup (macOS x64): nodejs.org lists no supported LTS release",
 			"GitHub CLI lookup (macOS arm64): No published SHA-256 for gh_2.83.0_macOS_arm64.zip",
 			"GitHub CLI lookup (macOS amd64): No published SHA-256 for gh_2.83.0_macOS_amd64.zip",
+			"agent-desktop lookup (macOS arm64): No published SHA-256 for agent-desktop-v1.2.0-aarch64-apple-darwin.tar.gz",
+			"agent-desktop lookup (macOS x64): No published SHA-256 for agent-desktop-v1.2.0-x86_64-apple-darwin.tar.gz",
+			"agent-desktop lookup (Windows x64): No published SHA-256 for agent-desktop-v1.2.0-x86_64-pc-windows-msvc.tar.gz",
 		]);
 	});
 });

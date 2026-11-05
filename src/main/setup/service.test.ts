@@ -93,7 +93,19 @@ function harness(
 	const onOmpReady = vi.fn();
 	const itemOf = (spec: SpawnSpec): SetupItemId | "tool" => {
 		const id = spec.args[0];
-		if (id === "bun" || id === "omp" || id === "git" || id === "gh" || id === "node" || id === "tailscale") return id;
+		if (
+			id === "bun" ||
+			id === "omp" ||
+			id === "git" ||
+			id === "gh" ||
+			id === "node" ||
+			id === "agent-desktop" ||
+			id === "tailscale"
+		) {
+			return id;
+		}
+		// A real plan's script (`bash -c <script>`, as `runToolUpdate` spawns it with no test installer).
+		if (id === "-c") return "tool";
 		// A vendor CLI's update (`SetupService.runToolUpdate`): the fake installer's `cli-<tool> …` or a test's own spec.
 		if (id?.startsWith("cli-")) return "tool";
 		throw new Error(`unexpected spec ${JSON.stringify(spec)}`);
@@ -183,6 +195,7 @@ function machine(partial: Partial<Record<SetupItemId, SetupPresence>>, managers:
 			omp: present("18.9.0"),
 			gh: present(),
 			node: present("v24.11.0"),
+			"agent-desktop": present("1.2.0"),
 			tailscale: present("1.104.1"),
 			...partial,
 		},
@@ -352,6 +365,28 @@ describe("SetupService", () => {
 		expect(h.spawned[1]?.spec.args).toEqual(["git", "xcode-select"]);
 		expect(h.spawned[2]?.spec.args).toEqual(["node", "brew"]);
 		expect(h.onOmpReady).toHaveBeenCalledTimes(1);
+	});
+
+	it("installs agent-desktop on its own on macOS and Windows, with an archive and no package manager", async () => {
+		const mac = harness(machine({ "agent-desktop": missing }));
+		await mac.service.start();
+		expect(mac.spawned.map(entry => entry.spec.args)).toEqual([["agent-desktop", "agent-desktop-archive"]]);
+		expect(mac.phase("agent-desktop")).toBe("present");
+		const windows = harness(machine({ "agent-desktop": missing }, { winget: null }), { platform: "win32" });
+		await windows.service.start();
+		expect(windows.spawned.map(entry => entry.spec.args)).toEqual([["agent-desktop", "agent-desktop-archive"]]);
+		// Optional: nothing waits for it, and a failure never shows the setup takeover.
+		expect(windows.service.state().items.find(item => item.id === "agent-desktop")?.required).toBe(false);
+	});
+
+	it("reinstalls an agent-desktop older than agent-desktop mcp's first release", async () => {
+		const h = harness(
+			machine({
+				"agent-desktop": { kind: "outdated", version: "1.1.0", minimum: "1.2.0", path: "/t/agent-desktop" },
+			}),
+		);
+		await h.service.start();
+		expect(h.spawned.map(entry => entry.spec.args)).toEqual([["agent-desktop", "agent-desktop-archive"]]);
 	});
 
 	it("holds the optional installs until main lets them start (the first tab boots alone)", async () => {
@@ -626,7 +661,7 @@ describe("SetupService", () => {
 		expect(progressWhileRunning("omp")).toEqual({ step: 1, steps: 1, startedAt: 5000, download: null });
 		expect(progressWhileRunning("gh")).toEqual({ step: 1, steps: 2, startedAt: 5000, download: null });
 		expect(progressWhileRunning("node")).toEqual({ step: 2, steps: 2, startedAt: 5000, download: null });
-		expect(h.service.state().items.map(item => item.progress)).toEqual([null, null, null, null, null, null]);
+		expect(h.service.state().items.map(item => item.progress)).toEqual([null, null, null, null, null, null, null]);
 	});
 
 	it("downloads a plan's file itself with byte progress before its installer runs, then removes it", async () => {
@@ -1154,6 +1189,38 @@ process.exit(1);`,
 			expect(outcome).toMatchObject({ kind: "failed", detail: expect.stringContaining("no network in tests") });
 			expect(h.spawned).toEqual([]);
 		});
+
+		it("updates the managed agent-desktop from its own release: the verified archive, then the swap script", async () => {
+			const bytes = new TextEncoder().encode("agent-desktop archive");
+			const sha = createHash("sha256").update(bytes).digest("hex");
+			const h = harness(machine({}), {
+				testInstaller: null,
+				fetch: (async () => new Response(bytes)) as unknown as DownloadFetch,
+				fetchText: async url => {
+					if (url === "https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest") {
+						return JSON.stringify({ tag_name: "v1.2.0" });
+					}
+					if (url.endsWith("/v1.2.0/checksums.txt")) {
+						return `${sha}  agent-desktop-v1.2.0-aarch64-apple-darwin.tar.gz\n`;
+					}
+					throw new Error(`unexpected ${url}`);
+				},
+			});
+			const outcome = await h.service.runToolUpdate({
+				tool: "agent-desktop",
+				method: "managed",
+				spawn: null,
+				managed: "agent-desktop",
+				env: {},
+			});
+			expect(outcome).toEqual({ kind: "succeeded" });
+			const script = h.spawned[0]?.spec.args[1] ?? "";
+			expect(h.spawned[0]?.spec.file).toBe("/bin/bash");
+			expect(script).toContain(`(SHA-256 ${sha})`);
+			expect(script).toContain("agent-desktop-macos-helper");
+			// main removes the downloaded archive once the install ended.
+			expect(await readdir(join(dir, "tools", ".downloads"))).toEqual([]);
+		});
 	});
 
 	describe("latestManaged", () => {
@@ -1172,6 +1239,24 @@ process.exit(1);`,
 		it("rejects with the lookup's reason", async () => {
 			const h = harness(machine({}));
 			await expect(h.service.latestManaged("node")).rejects.toThrow("no network in tests");
+		});
+
+		it("is agent-desktop's own newest release, and refuses a platform it has no release for", async () => {
+			const sha = "a".repeat(64);
+			const fetchText = async (url: string) => {
+				if (url === "https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest") {
+					return JSON.stringify({ tag_name: "v1.3.1" });
+				}
+				if (url.endsWith("/v1.3.1/checksums.txt")) {
+					return `${sha}  agent-desktop-v1.3.1-aarch64-apple-darwin.tar.gz\n`;
+				}
+				throw new Error(`unexpected ${url}`);
+			};
+			await expect(harness(machine({}), { fetchText }).service.latestManaged("agent-desktop")).resolves.toBe(
+				"1.3.1",
+			);
+			const other = harness(machine({}), { fetchText, platform: "other" });
+			await expect(other.service.latestManaged("agent-desktop")).rejects.toThrow(/no release for this platform/);
 		});
 	});
 });

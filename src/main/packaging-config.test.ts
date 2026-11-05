@@ -13,6 +13,7 @@ import { type PlistObject, parsePlistFile, savePlistFile } from "app-builder-lib
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { REA_HUB_ENTRY } from "../../resources/gui-bridge/mcp-hub-contracts";
+import { AGENT_DESKTOP_SERVER } from "../../resources/gui-bridge/modes/computer-use-contracts";
 import { REA_VERSION } from "../shared/builtin-mcp";
 import { UPDATE_ASSETS } from "./update-release";
 
@@ -220,10 +221,27 @@ describe("mac bundle configs", () => {
 		});
 	});
 
+	it("ships the agent-desktop root: one stdio server whose command is the executable the spawn names", () => {
+		// `-e omp-builtin/agent-desktop` only while the engine is agent-desktop and the executable exists
+		// (src/main/agent-desktop.ts); stock expands `${…}` in a plugin root's `.mcp.json` from the omp's env.
+		const declaration: unknown = JSON.parse(
+			fs.readFileSync(path.join(PACKAGE_ROOT, "resources/omp-builtin/agent-desktop/.mcp.json"), "utf8"),
+		);
+		expect(declaration).toEqual({
+			mcpServers: {
+				[AGENT_DESKTOP_SERVER]: {
+					type: "stdio",
+					command: "$" + "{OMP_GUI_AGENT_DESKTOP}",
+					args: ["mcp"],
+				},
+			},
+		});
+	});
+
 	it("keeps OMPdesk's own extension root to its skill, so loading it never starts REA", () => {
 		// The control tools load `-e omp-builtin` on their own switch; REA is the separate `-e omp-builtin/rea`.
 		const root = path.join(PACKAGE_ROOT, "resources/omp-builtin");
-		expect(fs.readdirSync(root).sort()).toEqual(["ecc", "formal", "pstack", "rea", "skills"]);
+		expect(fs.readdirSync(root).sort()).toEqual(["agent-desktop", "ecc", "formal", "pstack", "rea", "skills"]);
 		expect(fs.readdirSync(path.join(root, "skills"))).toEqual(["ompdesk"]);
 		const skill = fs.readFileSync(path.join(root, "skills/ompdesk/SKILL.md"), "utf8");
 		expect(skill).toMatch(/^---\nname: ompdesk\ndescription: \S/);
