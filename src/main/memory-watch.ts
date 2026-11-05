@@ -7,6 +7,7 @@
 import { readFileSync } from "node:fs";
 import type { IpcMemoryWait } from "../shared/ipc-types";
 import { writeFileAtomicDeferred } from "./atomic-file";
+import { IdleRelease } from "./idle-release";
 import {
 	MemoryAdmission as Admission,
 	gb,
@@ -24,6 +25,8 @@ export interface MemoryTab {
 	pid?: number;
 	label: string;
 	busy: boolean;
+	/** Nothing in it is live (`idle-release.ts`): it may give its omp back while memory is short. */
+	quiet?: boolean;
 }
 
 export interface MemoryWatchDeps {
@@ -48,6 +51,10 @@ export interface MemoryWatchDeps {
 	/** A fixed reading for tests (`OMP_GUI_TEST_MEMORY`, a JSON file read each sample); undefined reads the OS. */
 	testReading?: () => MemoryReading | null;
 	sampleMs?: number;
+	/** Give a quiet tab's omp back (`SidecarPool.releaseIdle`, which checks again first). */
+	release?(tabId: string): void;
+	/** How long a tab stays quiet before it may be released (`IDLE_RELEASE_QUIET_MS`). */
+	releaseQuietMs?: number;
 }
 
 function readPeaks(file: string): number[] {
@@ -96,6 +103,7 @@ export function startMemoryWatch(deps: MemoryWatchDeps): { admission: MemoryAdmi
 		savePeaks: peaks => writeFileAtomicDeferred(deps.peaksFile, JSON.stringify(peaks)),
 	});
 	let sampling = false;
+	const idle = new IdleRelease(deps.releaseQuietMs);
 	const sample = async (): Promise<void> => {
 		if (sampling) return;
 		sampling = true;
@@ -122,6 +130,25 @@ export function startMemoryWatch(deps: MemoryWatchDeps): { admission: MemoryAdmi
 			for (const waiting of admission.status().waiting)
 				if (waiting.tabId !== undefined && !known.has(waiting.tabId)) admission.forgetTab(waiting.tabId);
 			admission.sample(reading, footprints);
+			const release = deps.release;
+			if (rows && release) {
+				const tabId = idle.pick(
+					Date.now(),
+					reading,
+					tabs.map(tab => ({ tabId: tab.tabId, pid: tab.pid, quiet: tab.quiet === true })),
+					rows,
+				);
+				const tab = tabs.find(entry => entry.tabId === tabId);
+				if (tab) {
+					deps.log("memory release", {
+						tab: tab.tabId,
+						label: tab.label,
+						...(tab.pid !== undefined ? { gb: gb(treeBytes(rows, tab.pid)) } : {}),
+						...(reading ? { availableGb: gb(reading.availableBytes), pressure: reading.pressure } : {}),
+					});
+					release(tab.tabId);
+				}
+			}
 		} finally {
 			sampling = false;
 		}

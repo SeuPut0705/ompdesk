@@ -53,7 +53,10 @@ async function profile(name: string) {
 	return dirs;
 }
 
-async function start(name: string, env: Record<string, string | undefined> = {}): Promise<Run & { project: string }> {
+async function start(
+	name: string,
+	env: Record<string, string | undefined> = {},
+): Promise<Run & { project: string; agent: string }> {
 	const dirs = await profile(name);
 	const baseline = samplePs();
 	const app = await launchApp({ ...dirs, env });
@@ -61,7 +64,41 @@ async function start(name: string, env: Record<string, string | undefined> = {})
 	await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1440, 900));
 	await page.waitForFunction(() => window.omp?.rpc != null);
 	await allReady(page, 1);
-	return { app, page, mainPid: app.process().pid ?? 0, baseline, project: dirs.project };
+	return { app, page, mainPid: app.process().pid ?? 0, baseline, project: dirs.project, agent: dirs.agent };
+}
+
+/** A saved session in `cwd` with one user turn and one `!` run (no model named: a credential-less omp opens it). */
+async function seedSession(agent: string, cwd: string, index: number): Promise<string> {
+	const file = path.join(agent, "sessions", "footprint", `seeded-${index}.jsonl`);
+	await fs.mkdir(path.dirname(file), { recursive: true });
+	const at = new Date().toISOString();
+	const entries = [
+		{ type: "session", version: 3, id: crypto.randomUUID(), timestamp: at, cwd },
+		{
+			type: "message",
+			id: "seed0001",
+			parentId: null,
+			timestamp: at,
+			message: { role: "user", content: [{ type: "text", text: `session ${index}` }], timestamp: Date.now() },
+		},
+		{
+			type: "message",
+			id: "seed0002",
+			parentId: "seed0001",
+			timestamp: at,
+			message: {
+				role: "bashExecution",
+				command: "printf ok",
+				output: "ok",
+				exitCode: 0,
+				cancelled: false,
+				truncated: false,
+				timestamp: Date.now(),
+			},
+		},
+	];
+	await fs.writeFile(file, `${entries.map(entry => JSON.stringify(entry)).join("\n")}\n`);
+	return file;
 }
 
 async function allReady(page: Page, count: number, timeout = 120_000): Promise<void> {
@@ -165,19 +202,77 @@ test("session footprint: app fixed cost and per-session cost", async () => {
 		}
 	}
 
-	// Real omp: what a session's own process costs.
+	// Real omp: what a session's own process costs, and what a short spell of memory gives back (idle-release.ts).
 	if (REAL > 0) {
-		const run = await start("real", { OMP_GUI_OMP: undefined });
+		const memory = path.join(await fs.mkdtemp(path.join(os.tmpdir(), "ompdesk-footprint-memory-")), "memory.json");
+		const setMemory = (availableGb: number) =>
+			fs.writeFile(memory, JSON.stringify({ totalGb: 16, availableGb, pressure: "normal" }));
+		await setMemory(12);
+		const run = await start("real", {
+			OMP_GUI_OMP: undefined,
+			OMP_GUI_TEST_MEMORY: memory,
+			OMP_GUI_TEST_MEMORY_MS: "500",
+			OMP_GUI_TEST_IDLE_RELEASE_MS: "5000",
+		});
+		const tabs = () => run.page.evaluate(() => window.omp.tabs.list());
 		try {
 			// Startup work (session index, stats ingest, extension loads) settles first: idle means idle.
 			await delay(20_000);
 			phases.push(await phase(run, "real: 1 session idle", 20_000));
-			for (let index = 1; index < REAL; index++) restoreMs.real?.push((await spawnReady(run.page, run.project)).ms);
+			// Saved sessions, as a person's open tabs are: one turn each, the shape a credential-less omp can open. The
+			// first, new tab closes first, so no more than REAL omps run.
+			const fresh = (await tabs())[0]?.tabId ?? "";
+			const cwd = await fs.realpath(run.project);
+			const seeded: string[] = [];
+			for (let index = 1; index <= REAL; index++) {
+				const spawned = await spawnReady(run.page, run.project, await seedSession(run.agent, cwd, index));
+				restoreMs.real?.push(spawned.ms);
+				seeded.push(spawned.tabId);
+				if (index === 1) await run.page.evaluate(id => window.omp.tabs.close(id), fresh);
+			}
 			await allReady(run.page, REAL);
+			/** Click the tab's sidebar row: ms until its rows are on screen, and until its omp reads ready. */
+			const show = async (tabId: string) => {
+				const file = (await tabs()).find(tab => tab.tabId === tabId)?.sessionPath ?? "";
+				const started = performance.now();
+				await run.page.locator(`[data-session-path="${file}"] button[data-roving-item]`).click();
+				await expect(
+					run.page.locator(`.omp-session-pane[data-tab-id="${tabId}"] [data-transcript-kind]`).first(),
+				).toBeVisible({ timeout: 10_000 });
+				const shown = performance.now() - started;
+				await expect
+					.poll(async () => (await tabs()).find(tab => tab.tabId === tabId)?.status, {
+						timeout: 60_000,
+						intervals: [50],
+					})
+					.toBe("ready");
+				return { shown, ready: performance.now() - started };
+			};
+			// The person looks at each session once and stays on the last: the others are hidden with a live omp.
+			restoreMs.showLive = [];
+			for (const tabId of seeded) restoreMs.showLive.push((await show(tabId)).shown);
+			const opened = seeded.slice(0, -1);
 			await delay(20_000);
 			phases.push(await phase(run, `real: ${REAL} sessions idle`, 20_000));
+			// Memory short for a moment: the hidden quiet sessions give their omp back.
+			await setMemory(1.5);
+			await expect
+				.poll(async () => (await tabs()).filter(tab => tab.status === "asleep").length, { timeout: 120_000 })
+				.toBe(opened.length);
+			await setMemory(12);
+			await delay(5_000);
+			phases.push(await phase(run, `real: ${REAL} sessions, ${opened.length} released after a short spell`, 20_000));
+			// Shown again: its rows paint from the tab's snapshot at once, its omp reads ready after its start.
+			restoreMs.showReleased = [];
+			restoreMs.readyReleased = [];
+			for (const tabId of opened) {
+				const { shown, ready } = await show(tabId);
+				restoreMs.showReleased.push(shown);
+				restoreMs.readyReleased.push(ready);
+			}
 		} finally {
 			await exitApp(run.app);
+			await fs.rm(path.dirname(memory), { recursive: true, force: true });
 		}
 	}
 
