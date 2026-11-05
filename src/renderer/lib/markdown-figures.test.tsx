@@ -109,7 +109,7 @@ describe("figure rows in a reply", () => {
 		]);
 	});
 
-	it("keeps a picture inside prose inline, and leaves a paragraph with a video or document as written", async () => {
+	it("keeps a picture inside prose inline, and holds a video or document card in a block, never inside a <p>", async () => {
 		await render(
 			[
 				"The chart ![chart](/shots/chart.png) shows the drop.",
@@ -123,6 +123,8 @@ describe("figure rows in a reply", () => {
 		);
 		expect(rows()).toEqual([]);
 		expect(container.querySelector("p")?.textContent).toContain("shows the drop.");
+		expect(container.querySelectorAll(".omp-md-p")).toHaveLength(2);
+		expect(container.querySelector("p [data-file-card], p video, p audio")).toBeNull();
 	});
 
 	it("shows a picture that cannot be read as its caption and path, never a broken image", async () => {

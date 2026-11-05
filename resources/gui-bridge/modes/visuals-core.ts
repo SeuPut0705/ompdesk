@@ -38,13 +38,19 @@ export function visualsInstruction(render: PromptRender, template: string, flags
 export const REPLY_PRESENTATION_SECTION_ID = "reply-presentation";
 
 /**
- * How a reply shows a visual result. OMPdesk renders a reply's Markdown, a local picture included (markdown.tsx reads
- * `![…](/abs/path.png)` through fs.readImage, a paired device's and the phone's view through the host), but nothing told
- * the agent: asked to show a changed look, it described the screenshots and left them as small tool-card thumbnails
- * (owner, 5 Nov 2026; this machine's 283 longer replies named a picture's path 21 times and embedded one once). A
- * paragraph of pictures only renders as a figure row (`FigureRow`): side by side, alt text as caption.
- * Static text: the prompt cache holds across turns.
+ * Which form a reply gives each kind of content. OMPdesk renders a reply's Markdown, a local picture included
+ * (markdown.tsx reads `![…](/abs/path.png)` through fs.readImage, a paired device's and the phone's view through the
+ * host), but nothing told the agent: asked to show a changed look, it described the screenshots and left them as small
+ * tool-card thumbnails (owner, 5 Nov 2026; this machine's 283 longer replies named a picture's path 21 times and
+ * embedded one once, held 76 tables and 133 bold-key lists). A paragraph of pictures only renders as a figure row
+ * (`FigureRow`): side by side, alt text as caption. Each other form named here renders in every view
+ * (`src/renderer/dev-harness/reply-showcase.ts`, parity surfaces `reply-*`). Static text: the prompt cache holds.
  */
 export const REPLY_PRESENTATION_SECTION = `<reply-presentation>
-The person reads your reply rendered as Markdown. A visual result (a screenshot, a page, a generated image, a before/after) goes in the reply itself as \`![caption](/absolute/path.png)\`, never only described or named by path. Pictures on consecutive lines of one paragraph show side by side, each large with its alt text as caption: a before/after is \`![Before: …](…)\` then \`![After: …](…)\` on the next line; several screenshots form a gallery the same way. Prose adds only what the pictures do not show.
+The person reads your reply rendered as Markdown; give each part the form that fits it:
+- A visual result (a screenshot, a page, a generated image, a before/after): the picture itself, \`![caption](/absolute/path.png)\`, never only described or named by path. Pictures on consecutive lines of one paragraph show side by side, each large with its alt text as caption: a before/after is \`![Before: …](…)\` then \`![After: …](…)\` on the next line; several screenshots form a gallery the same way. Prose adds only what the pictures do not show.
+- Several items compared on the same points: a table; a status as ✅/❌/⚠️ plus a word.
+- Facts about one thing: a \`- **Key**: value\` list. Steps in order: a numbered list.
+- A change worth reading line by line: a \`\`\`diff fence. Code and commands: a fence with its language.
+- What must not be missed: \`> [!WARNING]\` (or NOTE, TIP, IMPORTANT, CAUTION). A long log: \`<details><summary>…</summary>\` around it.
 </reply-presentation>`;

@@ -48,6 +48,7 @@ import {
 } from "../../resources/gui-bridge/restart-core";
 import { type ForkEntry, forkCut } from "../../resources/gui-bridge/session-fork-core";
 import { transcriptPageMessages, transcriptRunStart } from "../../resources/gui-bridge/transcript-page";
+import { REPLY_SHOWCASE } from "../../src/renderer/dev-harness/reply-showcase";
 import type {
 	AgentMessage,
 	ImageContent,
@@ -4876,25 +4877,27 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 						text:
 							message === "fixture reply images"
 								? replyImages()
-								: message === "fixture math"
-									? MATH_REPLY
-									: message === "fixture image"
-										? "Here is the chart:\n\n![chart](pixel.png)"
-										: message === "fixture svg"
-											? SVG_REPLY
-											: message === "fixture figures"
-												? FIGURES_REPLY
-												: message === "fixture svg viewbox"
-													? SVG_VIEWBOX_REPLY
-													: message === "fixture markdown"
-														? MARKDOWN_REPLY
-														: message === "fixture paths"
-															? PATHS_REPLY
-															: message === "fixture reply actions"
-																? ACTIONS_REPLY
-																: message === "fixture documents"
-																	? DOCUMENTS_REPLY
-																	: `Local fixture reply${message.includes("fixture:result-ok") ? "\nResult: ok" : message.includes("fixture:result-problem") ? "\nResult: problem — tests failed" : ""}`,
+								: message === "fixture reply components"
+									? REPLY_SHOWCASE
+									: message === "fixture math"
+										? MATH_REPLY
+										: message === "fixture image"
+											? "Here is the chart:\n\n![chart](pixel.png)"
+											: message === "fixture svg"
+												? SVG_REPLY
+												: message === "fixture figures"
+													? FIGURES_REPLY
+													: message === "fixture svg viewbox"
+														? SVG_VIEWBOX_REPLY
+														: message === "fixture markdown"
+															? MARKDOWN_REPLY
+															: message === "fixture paths"
+																? PATHS_REPLY
+																: message === "fixture reply actions"
+																	? ACTIONS_REPLY
+																	: message === "fixture documents"
+																		? DOCUMENTS_REPLY
+																		: `Local fixture reply${message.includes("fixture:result-ok") ? "\nResult: ok" : message.includes("fixture:result-problem") ? "\nResult: problem — tests failed" : ""}`,
 					},
 				],
 				timestamp: Date.now(),

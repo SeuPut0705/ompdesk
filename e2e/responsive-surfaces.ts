@@ -1,5 +1,5 @@
 import * as fs from "node:fs/promises";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import type { Look } from "./responsive-audit";
 
 // The surfaces the responsive audit opens, split by owner (A: sidebar, transcript, composer and its popovers, side
@@ -25,8 +25,8 @@ export interface Surface {
 	when?: (look: Look) => boolean;
 	/**
 	 * The parity sheet (`bun run parity`, e2e/parity.e2e.ts) can capture this surface: every view first shows this
-	 * session of the host (`work`: a session with one answered turn, `bot`: the bot's, `reply`: a session whose answer
-	 * shows what an agent presents in a reply, e2e/fixture/rpc-ui.ts `replyImages`), then `open` runs. Only for a
+	 * session of the host (`work`: a session with one answered turn, `bot`: the bot's, `reply`: a session whose turns
+	 * show what an agent presents in a reply, e2e/fixture/rpc-ui.ts `replyImages` and `REPLY_SHOWCASE`), then `open` runs. Only for a
 	 * surface whose `open` and `ready` work on a real window (a click on a real control or nothing), never through
 	 * `window.__stores`, which only the dev harness has.
 	 */
@@ -281,6 +281,16 @@ const DIALOG_FLAGS: ReadonlyArray<{ id: string; action: string; args?: unknown[]
 	{ id: "dialog-worktree", action: "openWorktreeDialog", title: "New worktree" },
 ];
 
+/**
+ * Brings `target` of a reply to the top of its transcript once the reply's math and mermaid chart have drawn: their
+ * late height otherwise moves the transcript back to its end after the scroll.
+ */
+async function showInReply(page: Page, target: Locator): Promise<void> {
+	for (const drawn of [".markdown-body .katex-display", ".markdown-body [data-figure] img"])
+		await page.locator(drawn).last().waitFor({ state: "visible", timeout: 15_000 });
+	await target.evaluate(element => element.scrollIntoView({ block: "start" }));
+}
+
 export const SURFACES: readonly Surface[] = [
 	// ── Area A: sidebar, transcript, composer, panels ─────────────────────────────────────────
 	{
@@ -298,12 +308,7 @@ export const SURFACES: readonly Surface[] = [
 		id: "reply-images",
 		area: "A",
 		title: "A reply showing the changed look: a before/after pair and a gallery of three screenshots, by absolute path",
-		open: async page => {
-			await page
-				.locator("[data-zoomable-image]")
-				.first()
-				.evaluate(image => image.scrollIntoView({ block: "start" }));
-		},
+		open: page => showInReply(page, page.locator("[data-zoomable-image]").first()),
 		ready: "[data-zoomable-image] img",
 		settle: 900,
 		// The audits' harness page has no such reply; the parity sheet asks the fake omp for it.
@@ -325,6 +330,33 @@ export const SURFACES: readonly Surface[] = [
 		when: () => false,
 		parity: { session: "reply" },
 	},
+	// Every other way a reply presents something, one heading of src/renderer/dev-harness/reply-showcase.ts each.
+	...(
+		[
+			["reply-text", "Text", "Prose with inline marks, a key-value list, numbered steps and a task list"],
+			["reply-tables", "Tables", "A comparison table with status marks, and a seven-column table"],
+			["reply-code", "Code", "A long typed code line, a diff and a JSON fence"],
+			["reply-callouts", "Callouts", "Alerts, a plain quote, a folded log and a rule"],
+			["reply-math", "Math and diagrams", "Inline and block math, a mermaid chart and a footnote"],
+		] as const
+	).map(
+		([id, heading, what]): Surface => ({
+			id,
+			area: "A",
+			title: `A reply's ${heading.toLowerCase()}: ${what}`,
+			open: page =>
+				showInReply(
+					page,
+					page
+						.locator(".markdown-body h2")
+						.filter({ hasText: new RegExp(`^\\s*${heading}\\s*$`) })
+						.first(),
+				),
+			ready: ".markdown-body h2",
+			settle: 900,
+			parity: { session: "reply" },
+		}),
+	),
 	{
 		id: "bot-bar",
 		area: "A",

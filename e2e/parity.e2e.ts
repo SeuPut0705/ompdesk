@@ -277,29 +277,40 @@ if (dir) {
 						{ timeout: 60_000 },
 					)
 					.toBe("ready");
-				for (const command of [
-					{ type: "bash", command: "fixture:title:Parity reply" },
-					{ type: "prompt", message: "fixture reply images" },
-				] as const)
-					await b.evaluate(([id, sent]) => window.omp.rpc.commandForTab(id, sent), [tabId, command] as const);
+				await b.evaluate(
+					id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:title:Parity reply" }),
+					tabId,
+				);
 				let sessionPath = "";
-				await expect
-					.poll(
-						async () =>
-							(sessionPath = await b.evaluate(async id => {
-								const tab = (await window.omp.tabs.list()).find(entry => entry.tabId === id);
-								if (tab?.status !== "ready") return "";
-								const page = await window.omp.rpc.commandForTab(id, {
-									type: "get_transcript_page",
-									fromEnd: true,
-									limit: 10,
-								});
-								const answered = JSON.stringify(page.data ?? null).includes("Here is the changed look.");
-								return answered ? (tab.sessionPath ?? "") : "";
-							}, tabId)),
-						{ timeout: 30_000 },
-					)
-					.not.toBe("");
+				// The pictures' turn, then every other way a reply presents something (src/renderer/dev-harness/reply-showcase.ts).
+				for (const [message, answer] of [
+					["fixture reply images", "Here is the changed look."],
+					["fixture reply components", "Footnotes link both ways."],
+				] as const) {
+					await b.evaluate(([id, sent]) => window.omp.rpc.commandForTab(id, { type: "prompt", message: sent }), [
+						tabId,
+						message,
+					] as const);
+					await expect
+						.poll(
+							async () =>
+								(sessionPath = await b.evaluate(
+									async ([id, text]) => {
+										const tab = (await window.omp.tabs.list()).find(entry => entry.tabId === id);
+										if (tab?.status !== "ready") return "";
+										const page = await window.omp.rpc.commandForTab(id, {
+											type: "get_transcript_page",
+											fromEnd: true,
+											limit: 10,
+										});
+										return JSON.stringify(page.data ?? null).includes(text) ? (tab.sessionPath ?? "") : "";
+									},
+									[tabId, answer] as const,
+								)),
+							{ timeout: 30_000 },
+						)
+						.not.toBe("");
+				}
 				reply = { path: sessionPath, cwd: work.cwd };
 				return reply;
 			};

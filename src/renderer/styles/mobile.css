@@ -586,8 +586,9 @@ html[data-input="touch"] .omp-edge-zone {
 	touch-action: none;
 }
 
-/* Shortcut chips mean nothing without a keyboard; a tablet keeps them (a hardware keyboard may be attached). */
-html[data-shell="phone"] kbd {
+/* Shortcut chips mean nothing without a keyboard; a tablet keeps them (a hardware keyboard may be attached). A key a
+   reply names is content, not a chip, and stays. */
+html[data-shell="phone"] kbd:not(.markdown-body kbd) {
 	display: none;
 }
 

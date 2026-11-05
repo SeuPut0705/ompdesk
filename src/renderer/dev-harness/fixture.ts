@@ -16,6 +16,7 @@ import type {
 import type { SidebarProjectsState } from "../../shared/sidebar-projects";
 import { BOARD_BUSY, boardTurnMessages, CHILDREN_WAIT } from "./fixture-board";
 import { cardTurnMessages } from "./fixture-card";
+import { REPLY_SHOWCASE } from "./reply-showcase";
 
 const NOW = Date.parse("2026-10-17T09:30:00Z");
 const MINUTE = 60_000;
@@ -407,6 +408,14 @@ function stressMessages(base: number): Record<string, unknown>[] {
 			stopReason: "stop",
 			model: MODEL.id,
 			timestamp: base + 10_000,
+		},
+		{ role: "user", content: "Show every way a reply presents something.", timestamp: base + 20_000 },
+		{
+			role: "assistant",
+			content: [{ type: "text", text: REPLY_SHOWCASE }],
+			stopReason: "stop",
+			model: MODEL.id,
+			timestamp: base + 24_000,
 		},
 	];
 }

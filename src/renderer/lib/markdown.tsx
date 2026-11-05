@@ -1,4 +1,4 @@
-import type { Element as HastElement } from "hast";
+import type { ElementContent, Element as HastElement } from "hast";
 import {
 	Film,
 	ImageIcon,
@@ -808,6 +808,19 @@ interface FigureImage {
 	source: { kind: "direct"; src: string } | { kind: "local"; path: string };
 }
 
+/** A local file `![…](path)` shows as a block of its own (a media player, a document's card) rather than a picture. */
+function isBlockFile(path: string): boolean {
+	return chatMediaKind(path) !== null || (chatReferenceKind(path) ?? "image") !== "image";
+}
+
+/** Whether `child` renders as a block (a player or a document card from `![…]`, `<video>` or `<audio>`), which a `<p>` cannot hold. */
+function rendersAsBlock(child: ElementContent): boolean {
+	if (child.type !== "element" || !["img", "video", "audio"].includes(child.tagName)) return false;
+	const { src } = child.properties;
+	const classified = classifyImageSrc(typeof src === "string" ? src : undefined);
+	return classified.kind === "local" && (child.tagName !== "img" || isBlockFile(classified.path));
+}
+
 /**
  * The pictures of a paragraph that holds only pictures (the line breaks between them aside), or null. Such a
  * paragraph is a figure row: each picture large, its alt text its caption, side by side while the column has room
@@ -824,12 +837,7 @@ function figureImages(node: HastElement | undefined): FigureImage[] | null {
 		const { src, alt, title } = child.properties;
 		const classified = classifyImageSrc(typeof src === "string" ? src : undefined);
 		const caption = { alt: typeof alt === "string" ? alt : "", title: typeof title === "string" ? title : undefined };
-		if (classified.kind === "direct") images.push({ ...caption, source: classified });
-		else if (
-			classified.kind === "local" &&
-			!chatMediaKind(classified.path) &&
-			(chatReferenceKind(classified.path) ?? "image") === "image"
-		)
+		if (classified.kind === "direct" || (classified.kind === "local" && !isBlockFile(classified.path)))
 			images.push({ ...caption, source: classified });
 		else return null;
 	}
@@ -878,7 +886,9 @@ function FigureRow({ images }: { images: readonly FigureImage[] }) {
 
 function Paragraph({ node, ...props }: ComponentPropsWithoutRef<"p"> & ExtraProps) {
 	const images = figureImages(node);
-	return images ? <FigureRow images={images} /> : <p {...props} />;
+	if (images) return <FigureRow images={images} />;
+	// A player or a document card is a block: inside a <p> the browser would end the paragraph before it.
+	return node?.children.some(rendersAsBlock) ? <div className="omp-md-p" {...props} /> : <p {...props} />;
 }
 
 function MarkdownImage({ src, alt, title, ...props }: ComponentPropsWithoutRef<"img">) {
