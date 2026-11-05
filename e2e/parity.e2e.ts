@@ -450,6 +450,23 @@ if (dir) {
 							if (await crashed(page)) throw new Error("the renderer crashed (Reload interface)");
 							const panel = await panelCrash(page);
 							if (panel !== null) throw new Error(`a panel crashed: ${panel.slice(0, 300)}`);
+							// What the surface is about is on screen, so the capture shows it and the sideways check below
+							// measures it (6 Nov 2026: two views of `reply-text` captured the transcript's end instead).
+							const sample = surface.parity.inView;
+							if (sample) {
+								const shown = page.locator(sample).first();
+								if ((await shown.count()) === 0) throw new Error(`${sample} is not mounted`);
+								const where = await shown.evaluate(element => {
+									const scroller = element.closest(".omp-transcript-scroll");
+									if (!scroller) return "outside the transcript";
+									const box = element.getBoundingClientRect();
+									const view = scroller.getBoundingClientRect();
+									return box.top >= view.top - 1 && box.bottom <= view.bottom + 1
+										? null
+										: `at ${Math.round(box.top - view.top)}..${Math.round(box.bottom - view.top)}px of a ${Math.round(view.height)}px transcript`;
+								});
+								if (where !== null) throw new Error(`${sample} is out of view: ${where}`);
+							}
 							const file = path.join(folder, `${view}.png`);
 							await page.screenshot({ path: file, scale: "css", animations: "disabled" });
 							record.shots[view] = file;

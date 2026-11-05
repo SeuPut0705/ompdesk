@@ -42,6 +42,12 @@ export interface Surface {
 		 * page (the host's settings, a take waiting on the fake omp), so the next surface starts from the same host.
 		 */
 		after?(page: Page): Promise<void>;
+		/**
+		 * A part of the surface each view must have mounted and inside its transcript's visible box before the sheet
+		 * measures it (the sideways-scroll check measures only what is mounted, and a capture of the transcript's end
+		 * shows nothing of it).
+		 */
+		inView?: string;
 	};
 }
 
@@ -283,8 +289,10 @@ const DIALOG_FLAGS: ReadonlyArray<{ id: string; action: string; args?: unknown[]
 
 /**
  * Brings `target` of a reply to the top of its transcript once the reply's math and mermaid chart have drawn and every
- * picture of a figure row has its read's answer (the picture, or the failed chip with its reason): their late height
- * otherwise moves the transcript back to its end after the scroll.
+ * picture of a figure row has its read's answer (the picture, or the failed chip with its reason). It scrolls as a
+ * reader does, an upward wheel first: a programmatic scroll leaves the transcript following its end (ChatStream's
+ * `pinned`, released only by a wheel, touch, key or scrollbar gesture), so a row measured after it moved the view back
+ * to the end (6 Nov 2026: the local and phone views of `reply-text` showed the narrated run, not the Text section).
  */
 async function showInReply(page: Page, target: Locator): Promise<void> {
 	for (const drawn of [".markdown-body .katex-display", ".markdown-body [data-figure] img"])
@@ -293,6 +301,12 @@ async function showInReply(page: Page, target: Locator): Promise<void> {
 		.locator("[data-figure-row] figure:not(:has(img)):not(:has(> span[title]))")
 		.first()
 		.waitFor({ state: "detached", timeout: 15_000 });
+	await page
+		.locator(".omp-transcript-scroll")
+		.first()
+		.evaluate(scroller =>
+			scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -120, bubbles: true, cancelable: true })),
+		);
 	await target.evaluate(element => element.scrollIntoView({ block: "start" }));
 }
 
@@ -394,7 +408,14 @@ export const SURFACES: readonly Surface[] = [
 				),
 			ready: ".markdown-body h2",
 			settle: 900,
-			parity: { session: "reply" },
+			// Each view shows its section; the Text one, the row whose chips spilled their paths sideways.
+			parity: {
+				session: "reply",
+				inView:
+					heading === "Text"
+						? '.markdown-body [data-figure-row]:has-text("Before: one word per line")'
+						: `.markdown-body h2:text-is("${heading}")`,
+			},
 		}),
 	),
 	{
