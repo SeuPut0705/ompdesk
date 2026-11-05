@@ -16,6 +16,9 @@
 - 페어링한 컴퓨터의 설정에서 "PC-B의 탭은 그 기기의 설정을 따라요" 문장이 행마다 되풀이되지 않고 일반 섹션 위에 한 번만 나와요.
 - 통계의 "이 세션 / 모든 세션" 전환이 탭 줄 오른쪽으로 올라가 내용이 약 56px 위에서 시작해요. 폰에서는 열 개의 보기가 한 줄로 넘어가고, 잘리던 "전체 기간"이 보여요. 사용량 한도는 창마다 세 줄에서 두 줄로 줄었어요(재설정 시간이 이름 옆으로).
 - 에이전트 Live 행이 제목과 같은 설명을 한 번 더 쓰지 않아요. PR 제목과 첫 실행의 제공자 이름("Grok (SuperGrok or X Premium+)")은 잘리지 않고 두 줄까지 보여요.
+- 봇의 작업 보드에서 비어 있는 섹션(작업, 루틴, 활동, 사이드 챗)이 "진행 중인 작업이 없어요" 같은 말을 머리줄에 붙여 한 줄로 보여요. "작업 녹화"는 큰 버튼 대신 루틴 섹션의 한 줄 행이에요. 보드 행은 2px씩 낮아졌어요. 봇 막대의 다음 깨움 시각이 잘리면 마우스를 올려 전체를 볼 수 있어요.
+- 사이드 패널이 같은 사실을 한 번만, 더 적은 줄에 보여요. 파일 뷰어는 머리줄에 파일 이름, 그 아래 줄에 폴더와 종류·크기를 보여 주고 경로를 자르지 않아요. 변경 패널은 "3개 중 3개 스테이징됨"과 전체 선택 상자를 도구 막대에, "모두 버리기"를 검색 옆에 둬요. 로그의 검색 칸과 파일 내용 검색의 결과 개수도 위 줄로 올라갔고, 작업 목록과 작업 트리의 행은 마우스로 쓸 때 조금 낮아졌어요.
+- 대화상자와 시트의 머리·본문·아래 여백이 마우스로 쓸 때 좁아졌어요(터치에서는 그대로예요). 명령 팔레트처럼 두 줄짜리 목록 행은 마우스에서 36px이에요. 대화 속 질문·승인 카드의 여백이 줄고, 계획 승인은 데스크톱에서 계획을 더 길게 보여 줘요. 도구 강제 대화상자는 지금 강제된 도구를 아래 줄에 두고, 가져오기는 제목 없는 세션의 첫 메시지를 한 번만 보여 줘요.
 
 ### 고친 것
 - 일하는 중에 보낸 메시지에 에이전트가 먼저 글로 답했는데도, 앱이 그 답을 못 알아보고 다음 도구를 두 번 막았어요. 일부 모델(Claude Opus 5.5)은 사람에게 하는 말을 생각 블록 형태로 보내는데, 그 말을 답으로 치지 않았기 때문이에요. 이제 화면에 답으로 보이는 말이면 답으로 쳐요.
@@ -39,6 +42,9 @@ A message an agent sends to a working session now reaches it right away instead 
 - A paired computer's Settings says "Tabs on PC-B follow that device's own setting" once, above the General section, instead of under each row.
 - Stats' "This session / All sessions" switch sits on the tab row, so the content starts about 56 px higher. On a phone the ten views are one sideways row and "All time" is no longer cut off. Each usage window is two lines instead of three (its reset time beside its name).
 - An Agents Live row no longer repeats its title as its description. Pull request titles and the first-run provider names ("Grok (SuperGrok or X Premium+)") wrap to two lines instead of being cut.
+- On the bot's work board an empty section (Tasks, Routines, Activity, Side chats) says so after its title, on one line ("Nothing in progress"). Record a workflow is a one-line row of Routines instead of a full-size button. Board rows are 2 px shorter. The bot bar's next wake shows its whole text on hover when it is cut.
+- Side panels say each fact once, on fewer lines. The file viewer names the file in its head and puts its folder, kind and size on the line under it, never clipping the path. The Changes panel puts "3 of 3 staged" and its select-all box in the toolbar and Discard all beside the search. The log search and the content search's result count moved up a line, and job and work tree rows are a little shorter under a mouse.
+- Dialogs and sheets use tighter head, body and footer insets under a mouse (touch keeps its own). Two-line picker rows such as the command palette's are 36 px under a mouse. Question and approval cards in the conversation are tighter, and plan approval shows more of the plan on a desktop. Force tool shows the tool forced now in its footer, and Import shows an untitled session's first message once.
 
 ### Fixed
 - A message sent while the agent worked got a written answer, yet the app missed the answer and refused the agent's next tool call twice. Some models (Claude Opus 5.5) send what they say to the person as a narration block, which the app did not count as an answer. What shows as an answer on screen now counts as one.
