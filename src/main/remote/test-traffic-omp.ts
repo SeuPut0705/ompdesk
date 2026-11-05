@@ -558,39 +558,43 @@ function subagentTranscript(subagentId: string, fromByte = 0): Record<string, un
 	};
 }
 
-createInterface({ input: process.stdin }).on("line", line => {
-	const command = JSON.parse(line) as {
-		id?: string;
-		type: string;
-		level?: string;
-		message?: string;
-		subagentId?: string;
-		fromByte?: number;
-	};
-	if (command.type === "set_subagent_subscription" && command.level) level = command.level;
-	if (command.type === "get_subagent_messages" && command.subagentId) {
-		out({
-			type: "response",
-			id: command.id,
-			command: command.type,
-			success: true,
-			data: subagentTranscript(command.subagentId, command.fromByte),
-		});
-		return;
-	}
-	// Stock's slash command list as the built-in skill packs make it: about 300 commands, most a long description.
-	const data =
-		command.type === "get_state"
-			? { sessionFile: join(process.cwd(), "session.jsonl"), sessionId: `session-${process.pid}` }
-			: command.type === "get_available_commands"
-				? {
-						commands: Array.from({ length: 300 }, (_, index) => ({
-							name: `skill:pack-${index}`,
-							source: "skill",
-							description: `Use this skill when the work touches area ${index}: ${WORDS.join(" ")}`,
-						})),
-					}
-				: {};
-	out({ type: "response", id: command.id, command: command.type, success: true, data });
-	if (command.type === "prompt" && command.message) void run(JSON.parse(command.message) as Scenario);
-});
+// Like stock rpc mode: the host closing stdin ends the process. The bridge server would otherwise keep it alive under
+// launchd after a test worker that died without disposing its sidecars (four were found running a day later).
+createInterface({ input: process.stdin })
+	.on("close", () => process.exit(0))
+	.on("line", line => {
+		const command = JSON.parse(line) as {
+			id?: string;
+			type: string;
+			level?: string;
+			message?: string;
+			subagentId?: string;
+			fromByte?: number;
+		};
+		if (command.type === "set_subagent_subscription" && command.level) level = command.level;
+		if (command.type === "get_subagent_messages" && command.subagentId) {
+			out({
+				type: "response",
+				id: command.id,
+				command: command.type,
+				success: true,
+				data: subagentTranscript(command.subagentId, command.fromByte),
+			});
+			return;
+		}
+		// Stock's slash command list as the built-in skill packs make it: about 300 commands, most a long description.
+		const data =
+			command.type === "get_state"
+				? { sessionFile: join(process.cwd(), "session.jsonl"), sessionId: `session-${process.pid}` }
+				: command.type === "get_available_commands"
+					? {
+							commands: Array.from({ length: 300 }, (_, index) => ({
+								name: `skill:pack-${index}`,
+								source: "skill",
+								description: `Use this skill when the work touches area ${index}: ${WORDS.join(" ")}`,
+							})),
+						}
+					: {};
+		out({ type: "response", id: command.id, command: command.type, success: true, data });
+		if (command.type === "prompt" && command.message) void run(JSON.parse(command.message) as Scenario);
+	});
