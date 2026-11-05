@@ -54,8 +54,10 @@ test("a pinch and a double tap on a phone's page leave it unzoomed", async () =>
 	expect(await scale()).toBe(1);
 
 	const cdp = await context.newCDPSession(page);
-	// Over the transcript, then over the composer: both spread apart to three times the size.
-	for (const target of ["[data-transcript-kind]", ".omp-composer-box"]) {
+	// Over the transcript, then over the composer: both spread apart to three times the size. The transcript is aimed at
+	// through its scroller, which is always on screen: a transcript taller than the screen opens at its latest row, so its
+	// first row sits above the top and a gesture aimed there is out of bounds.
+	for (const target of [".omp-transcript-scroll", ".omp-composer-box"]) {
 		const box = await page.locator(target).first().boundingBox();
 		if (!box) throw new Error(`no ${target}`);
 		await cdp.send("Input.synthesizePinchGesture", {
