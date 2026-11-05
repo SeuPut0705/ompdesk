@@ -505,15 +505,27 @@ for (const engine of ENGINES)
 				},
 				{ timeoutMs: 20_000 },
 			);
-			await expect
-				.poll(
-					async () =>
-						(await fs.readFile(record, "utf8"))
-							.split("\n")
-							.filter(line => line.includes(sent) && /"type":"(prompt|steer|follow_up)"/.test(line)).length,
-					{ timeout: 20_000 },
-				)
-				.toBe(1);
+			try {
+				await expect
+					.poll(
+						async () =>
+							(await fs.readFile(record, "utf8"))
+								.split("\n")
+								.filter(line => line.includes(sent) && /"type":"(prompt|steer|follow_up)"/.test(line)).length,
+						{ timeout: 20_000 },
+					)
+					.toBe(1);
+			} catch (error) {
+				// The message that never reached omp: where it is (the page's outbox), what omp did receive, and the numbers so far.
+				const outbox = await phone
+					.evaluate(() => localStorage.getItem("omp.outbox.v1"))
+					.catch((cause: unknown) => `unreadable: ${String(cause)}`);
+				const received = (await fs.readFile(record, "utf8")).split("\n").slice(-12).join("\n");
+				await test.info().attach("send-while-down.txt", {
+					body: `outbox: ${outbox}\nomp received (last 12):\n${received}\nnumbers: ${JSON.stringify(numbers)}`,
+				});
+				throw error;
+			}
 			await phone.waitForTimeout(2000);
 			expect(
 				(await fs.readFile(record, "utf8"))

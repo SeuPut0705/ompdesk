@@ -217,6 +217,22 @@ for (const language of variants(["en", "ko"] as const))
 					expect.objectContaining({ subagentId: "sa-explore", message: "Check the keyboard settings too" }),
 				]);
 				expect(errors).toEqual([]);
+			} catch (error) {
+				// What main holds (shown state, open asks) against what the page draws: tells a frame that never arrived from
+				// one that arrived and was not drawn or came in another order (CI repeats: the error notice missing, and the
+				// confirm shown before the editor).
+				const view = await page
+					.evaluate(async () => ({
+						shown: await window.omp.ui.shownState(),
+						open: await window.omp.ui.openRequests(),
+						alerts: [...document.querySelectorAll('[role="alert"], [role="status"]')].map(
+							node => node.textContent,
+						),
+						card: document.querySelector(".omp-ask-dock")?.textContent ?? null,
+					}))
+					.catch((cause: unknown) => `unreadable: ${String(cause)}`);
+				await test.info().attach("extension-ui-view.json", { body: JSON.stringify(view, null, 1) });
+				throw error;
 			} finally {
 				await exitApp(app);
 				await fs.rm(profile, { recursive: true, force: true });
