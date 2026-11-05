@@ -18,7 +18,8 @@ const stockFile = path.join(
 const normalize = (text: string): string => text.replace(/\s+/g, " ").trim();
 
 describe.skipIf(!fs.existsSync(stockFile))("the computer-use section against stock's computer-use.md", () => {
-	const stock = fs.readFileSync(stockFile, "utf8");
+	// vitest collects a skipped describe's body too: read only when the file is there (a runner without omp).
+	const stock = fs.existsSync(stockFile) ? fs.readFileSync(stockFile, "utf8") : "";
 	const critical = /<critical>([\s\S]*?)<\/critical>/.exec(stock);
 
 	it("carries every bullet of stock's <critical> block", () => {
