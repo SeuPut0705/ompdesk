@@ -749,6 +749,19 @@ describe("each failure shape of the replayed turns", () => {
 			],
 			{ unresolved: ["mcp__agent_desktop_desktop_mouse_click"], recovered: [] },
 		],
+		[
+			"a click stock refused for naming its element `ref`, clicked again with `ref_id` (the real smoke)",
+			[
+				{
+					name: "write",
+					args: { path: "xd://mcp__agent_desktop_desktop_click", content: '{"ref":"@s2:e86"}' },
+					text: "Invalid args for xd://mcp__agent_desktop_desktop_click: Validation failed\n  - ref_id: is required",
+					isError: true,
+				},
+				{ name: "write", args: { path: "xd://mcp__agent_desktop_desktop_click", content: '{"ref_id":"@s2:e86"}' } },
+			],
+			{ unresolved: [], recovered: ["xd://mcp__agent_desktop_desktop_click"] },
+		],
 	])("%s", (_, steps, expected) => {
 		expect(verdict(steps)).toEqual(expected);
 	});

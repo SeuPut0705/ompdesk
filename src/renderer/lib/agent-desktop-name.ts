@@ -117,9 +117,11 @@ const NOT_TARGET: Record<string, true> = { text: true, value: true, i: true, int
  * retry, while a cmd+c never stands for a failed cmd+s, nor a click at one point for a click at another.
  */
 export function agentDesktopTargetKey(call: AgentDesktopCall): string {
+	// `ref` is the name a model guesses for `ref_id` (stock refuses it: "ref_id is required"): the same element.
+	const named = (key: string) => (key === "ref" ? "ref_id" : key);
 	const target = Object.keys(call.args)
 		.filter(key => !NOT_TARGET[key] && call.args[key] !== undefined)
-		.sort()
-		.map(key => [key, call.args[key]]);
+		.map(key => [named(key), call.args[key]] as const)
+		.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
 	return `desktop\0${call.command}\0${JSON.stringify(target)}`;
 }
