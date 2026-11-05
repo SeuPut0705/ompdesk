@@ -5,6 +5,7 @@
 
 import type { ModelSetupFacts, SessionSpend } from "../../../resources/gui-bridge/model-setup-contracts";
 import type { RemoteState } from "../../shared/ipc-types";
+import type { MailAccountsState } from "../../shared/mail-accounts";
 import { type MobileWebState, type WebBlockedInfo, type WebDeviceInfo, webDeviceTier } from "../../shared/mobile-web";
 import type { ModelRoleCandidate, ModelRoleEntry } from "../../shared/rpc-types";
 import type { SchedulesState } from "../../shared/schedules";
@@ -373,5 +374,31 @@ export const ACTIVE_TOOLS = {
 		{ name: "write", description: "Write a file", source: "builtin" },
 		{ name: "bash", description: "Run a shell command in the project", source: "builtin" },
 		{ name: "web_search", description: "Search the web", source: "mcp:search" },
+	],
+};
+
+/** Settings › Schedules › Email accounts: two mailboxes the email routines poll (`mail-accounts:command`). */
+export const MAIL_STATE: MailAccountsState = {
+	accounts: [
+		{
+			id: "mail-1",
+			label: "Work inbox",
+			host: "imap.fastmail.com",
+			port: 993,
+			username: "dev@example.com",
+			mailbox: "INBOX",
+			address: "dev@example.com",
+			hasPassword: true,
+		},
+		{
+			id: "mail-2",
+			label: "CI alerts",
+			host: "imap.gmail.com",
+			port: 993,
+			username: "ci-alerts@example.com",
+			mailbox: "Alerts",
+			address: "ci-alerts@example.com",
+			hasPassword: true,
+		},
 	],
 };

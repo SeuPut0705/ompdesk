@@ -31,11 +31,17 @@ const ref = (path: string, title: string, kind: string, tier: string, minutes: n
 
 const PAGES = [
 	ref("_rules/style.md", "Keep functions short", "rule", "semantic", 300),
+	ref("_rules/no-comments.md", "Comment only the non-obvious why", "rule", "semantic", 2100),
 	ref("decisions/0007-db.md", "Use SQLite for the cache", "decision", "semantic", 1500),
+	ref("decisions/0011-updates.md", "Updates stay manual, never automatic", "decision", "semantic", 6200),
 	ref("gotchas/ime.md", "Enter during IME composition sends the message", "gotcha", "semantic", 4000),
+	ref("gotchas/sidebar-flake.md", "Sidebar tests assert before the row mounts", "gotcha", "semantic", 12_500),
 	ref("procedures/release.md", "Cut a release", "procedure", "procedural", 9000),
+	ref("procedures/harness.md", "Run the dev harness for layout audits", "procedure", "procedural", 21_000),
 	ref("sessions/s1.md", "Complete assignment thoroughly:", "session", "episodic", 20),
+	ref("sessions/s2.md", "Fill the harness fixtures for the density audit", "session", "episodic", 190),
 	ref("notes/ideas.md", "Ideas", "note", "semantic", 700),
+	ref("notes/phone-layout.md", "Phone settings use master-detail", "note", "semantic", 31_000),
 ];
 
 const SESSION = {
@@ -47,6 +53,79 @@ const SESSION = {
 	observations: 60,
 	consolidation: null,
 };
+
+const SESSION_ROWS: [
+	id: string,
+	cwd: string,
+	startedMinutesAgo: number,
+	lengthMinutes: number,
+	observations: number,
+	consolidation: string | null,
+][] = [
+	["s-2", "/Users/me/Desktop/GitHub/ompdesk", 900, 100, 12, "pending"],
+	["s-3", "/Users/me/Desktop/GitHub/ompdesk", 1600, 240, 184, "completed"],
+	["s-4", "/Users/me/Desktop/GitHub/ompdesk-web", 2900, 75, 96, "failed"],
+	["s-5", "/Users/me/Desktop/GitHub/infra", 4300, 38, 41, "completed"],
+	["s-6", "/Users/me/Desktop/GitHub/ompdesk", 7200, 310, 402, "running"],
+	["s-7", "/Users/me/scratch/stats-probe", 11_000, 22, 18, null],
+];
+const SESSIONS = [
+	SESSION,
+	...SESSION_ROWS.map(([id, cwd, started, length, observations, consolidation]) => ({
+		...SESSION,
+		id,
+		cwd,
+		startedAt: ago(started),
+		endedAt: ago(started - length),
+		observations,
+		consolidation,
+	})),
+];
+
+const handoff = (
+	id: string,
+	minutes: number,
+	state: "open" | "accepted",
+	summary: string,
+	openQuestions: string[],
+	nextSteps: string[],
+) => ({ ...PROJECT, id, agent: "omp", createdAt: ago(minutes), summary, openQuestions, nextSteps, state });
+
+const HANDOFFS = [
+	handoff(
+		"h-1",
+		30,
+		"open",
+		"Cache fix half done; next: add the eviction test and wire the settings row.",
+		["Which eviction policy?"],
+		["Add the eviction test"],
+	),
+	handoff(
+		"h-2",
+		260,
+		"open",
+		"Settings search ranks by label only; descriptions still need to count, and the phone list needs a pass.",
+		[],
+		["Rank descriptions below labels", "Compare the phone and desktop results"],
+	),
+	handoff(
+		"h-3",
+		1700,
+		"open",
+		"Update flow reads the release feed; the install timing still needs a decision.",
+		["Install on quit or on next launch?"],
+		["Write the quit-time install test"],
+	),
+	handoff("h-0", 3000, "accepted", "Earlier work.", [], []),
+	handoff(
+		"h-00",
+		8200,
+		"accepted",
+		"Sidebar flake traced to a row asserted before it mounts.",
+		[],
+		["Wait for the row in every sidebar spec"],
+	),
+];
 
 /** The answer for a Memory channel, or `undefined` when the channel is not one of them. */
 export function memoryAnswer(channel: string, args: unknown[]): { value: unknown } | undefined {
@@ -62,7 +141,7 @@ export function memoryAnswer(channel: string, args: unknown[]): { value: unknown
 					sessions: 23,
 					observations: 3982,
 					lastCaptureAt: ago(3),
-					openHandoffs: 2,
+					openHandoffs: HANDOFFS.filter(handoff => handoff.state === "open").length,
 					activity7d: { sessions: 23, observations: 3982, pagesUpdated: 12 },
 					health: { stale: 0, duplicates: 8, contradictions: 0, orphans: 10 },
 				},
@@ -92,34 +171,9 @@ export function memoryAnswer(channel: string, args: unknown[]): { value: unknown
 			return { value: full };
 		}
 		case IPC_COMMANDS.AI_MEMORY_HANDOFFS:
-			return {
-				value: [
-					{
-						...PROJECT,
-						id: "h-1",
-						agent: "omp",
-						createdAt: ago(30),
-						summary: "Cache fix half done; next: add the eviction test and wire the settings row.",
-						openQuestions: ["Which eviction policy?"],
-						nextSteps: ["Add the eviction test"],
-						state: "open",
-					},
-					{
-						...PROJECT,
-						id: "h-0",
-						agent: "omp",
-						createdAt: ago(3000),
-						summary: "Earlier work.",
-						openQuestions: [],
-						nextSteps: [],
-						state: "accepted",
-					},
-				],
-			};
+			return { value: HANDOFFS };
 		case IPC_COMMANDS.AI_MEMORY_SESSIONS:
-			return {
-				value: [SESSION, { ...SESSION, id: "s-2", startedAt: ago(900), endedAt: ago(800), observations: 12 }],
-			};
+			return { value: SESSIONS };
 		case IPC_COMMANDS.AI_MEMORY_OBSERVATIONS: {
 			const offset = (args[2] as number | undefined) ?? 0;
 			const value: AiMemoryObservations = {

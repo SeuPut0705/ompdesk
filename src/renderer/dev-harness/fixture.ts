@@ -543,32 +543,74 @@ export const GIT_DIFFS: Record<string, string> = {
 	].join("\n"),
 };
 
-/** The workspace tree `fs:list` answers: the three changed files and a folder around them. */
-export const FILE_TREE = [
-	{
-		name: "src",
-		path: "src",
-		kind: "dir",
-		children: [
-			{
-				name: "renderer",
-				path: "src/renderer",
-				kind: "dir",
-				children: [
-					{
-						name: "lib",
-						path: "src/renderer/lib",
-						kind: "dir",
-						children: [{ name: "wait-for.ts", path: "src/renderer/lib/wait-for.ts", kind: "file" }],
-					},
-				],
-			},
-		],
-	},
-	{ name: "package.json", path: "package.json", kind: "file" },
-	{ name: "README.md", path: "README.md", kind: "file" },
-	{ name: "page.html", path: "page.html", kind: "file" },
+interface FileTreeNode {
+	name: string;
+	path: string;
+	kind: "dir" | "file";
+	children?: FileTreeNode[];
+}
+
+/** The project's files; `FILE_TREE` nests them by path in first-seen order (src first, then the three root files the specs open). */
+const PROJECT_FILES = [
+	"src/renderer/lib/wait-for.ts",
+	"package.json",
+	"README.md",
+	"page.html",
+	"src/renderer/lib/format.ts",
+	"src/renderer/App.tsx",
+	"src/renderer/main.tsx",
+	"src/renderer/components/layout/Sidebar.tsx",
+	"src/renderer/components/layout/Composer.tsx",
+	"src/renderer/components/panels/FilesPanel.tsx",
+	"src/renderer/components/panels/SessionTreeSheet.tsx",
+	"src/renderer/components/settings/SettingsPage.tsx",
+	"src/renderer/hooks/use-stats.ts",
+	"src/renderer/stores/ui.ts",
+	"src/renderer/stores/tabs.ts",
+	"src/main/index.ts",
+	"src/main/ipc.ts",
+	"src/main/updater.ts",
+	"src/main/schedules.ts",
+	"src/shared/ipc-types.ts",
+	"src/shared/rpc-types.ts",
+	"src/shared/stats-types.ts",
+	"tsconfig.json",
+	"biome.json",
+	"bun.lock",
+	"vite.config.ts",
+	"e2e/sidebar.e2e.ts",
+	"e2e/settings.e2e.ts",
+	"e2e/composer.e2e.ts",
+	"docs/architecture.md",
+	"docs/releasing.md",
+	"docs/images/board.png",
+	"scripts/build-memory.ts",
+	"scripts/parity.ts",
 ];
+
+function nestFiles(paths: string[]): FileTreeNode[] {
+	const roots: FileTreeNode[] = [];
+	for (const path of paths) {
+		const parts = path.split("/");
+		let level = roots;
+		parts.forEach((name, index) => {
+			const nodePath = parts.slice(0, index + 1).join("/");
+			const isFile = index === parts.length - 1;
+			let node = level.find(entry => entry.path === nodePath);
+			if (!node) {
+				node = isFile
+					? { name, path: nodePath, kind: "file" }
+					: { name, path: nodePath, kind: "dir", children: [] };
+				level.push(node);
+			}
+			level = node.children ?? level;
+		});
+	}
+	return roots;
+}
+
+/** The workspace tree `fs:list` answers. */
+export const FILE_TREE = nestFiles(PROJECT_FILES);
 
 /** What `fs:read` answers per path. */
 export const FILE_CONTENTS: Record<string, string> = {

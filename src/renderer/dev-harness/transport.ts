@@ -13,10 +13,13 @@ import { EMPTY_GITHUB_AUTH_STATE } from "../../shared/github-auth";
 import {
 	IPC_COMMANDS,
 	type IpcFsReadImageResult,
+	type IpcFsReadPlanResult,
 	type IpcSessionsListPayload,
+	type IpcStatsFetchPayload,
 	type SessionInfo,
 } from "../../shared/ipc-types";
 import type { LaunchProfile } from "../../shared/launch-profile";
+import { MAIL_ACCOUNTS_COMMAND } from "../../shared/mail-accounts";
 import { MOBILE_WEB_COMMAND, MOBILE_WEB_GET_STATE, WEB_BLOCKS_LIST, WEB_DEVICES_LIST } from "../../shared/mobile-web";
 import type { OmpTransport } from "../../shared/omp-api";
 import {
@@ -72,6 +75,7 @@ import { memoryAnswer } from "./fixture-memory";
 import {
 	ACTIVE_TOOLS,
 	DIRECTORIES,
+	MAIL_STATE,
 	MARKETPLACES,
 	MOBILE_WEB_STATE,
 	MODEL_ROLES,
@@ -88,6 +92,8 @@ import {
 	WEB_BLOCKS,
 	WEB_DEVICES,
 } from "./fixture-settings";
+import { PLAN_FILE_PATH, PLAN_MARKDOWN, SESSION_TREE } from "./fixture-sheets";
+import { statsAnswer } from "./fixture-stats";
 import { diskCareState, orphanWorktrees, savedWorktreeRestore, savedWorktrees } from "./fixture-work-tree";
 
 type Listener = (data: unknown) => void;
@@ -168,6 +174,10 @@ const SETTINGS_SCHEMA: SettingsSchemaResult = {
 	tabs: [
 		{ id: "agent", label: "Agent", groups: ["Behavior"] },
 		{ id: "tools", label: "Tools", groups: ["Approvals"] },
+		{ id: "lsp", label: "Language servers", groups: ["Language servers"] },
+		{ id: "edit", label: "Editing", groups: ["Editing"] },
+		{ id: "read", label: "Reading", groups: ["Reading"] },
+		{ id: "search", label: "Search", groups: ["Interception"] },
 	],
 	entries: [
 		{
@@ -208,6 +218,77 @@ const SETTINGS_SCHEMA: SettingsSchemaResult = {
 				{ value: "ask", label: "Ask" },
 				{ value: "auto", label: "Auto" },
 			],
+		},
+		// No curated row and no owner regex: stock's own tabs `lsp`, `edit`, `read` and `search` land in Other settings.
+		{
+			path: "lsp.enabled",
+			type: "boolean",
+			value: true,
+			default: true,
+			label: "Language servers",
+			description: "Start language servers for the files the agent edits.",
+			tab: "lsp",
+			group: "Language servers",
+		},
+		{
+			path: "lsp.formatOnWrite",
+			type: "boolean",
+			value: false,
+			default: false,
+			label: "Format on write",
+			description: "Run the language server's formatter after each write.",
+			tab: "lsp",
+			group: "Language servers",
+		},
+		{
+			path: "lsp.diagnosticsOnEdit",
+			type: "boolean",
+			value: true,
+			default: true,
+			label: "Diagnostics on edit",
+			description: "Show the agent the diagnostics an edit introduced.",
+			tab: "lsp",
+			group: "Language servers",
+		},
+		{
+			path: "edit.fuzzyMatch",
+			type: "boolean",
+			value: true,
+			default: true,
+			label: "Fuzzy matching",
+			description: "Accept high-confidence fuzzy matches for whitespace differences.",
+			tab: "edit",
+			group: "Editing",
+		},
+		{
+			path: "edit.fuzzyThreshold",
+			type: "number",
+			value: 0.95,
+			default: 0.95,
+			label: "Fuzzy threshold",
+			description: "How close a fuzzy match must be, from 0 to 1.",
+			tab: "edit",
+			group: "Editing",
+		},
+		{
+			path: "read.defaultLimit",
+			type: "number",
+			value: 300,
+			default: 300,
+			label: "Default read limit",
+			description: "Lines a read returns when the agent gives no limit.",
+			tab: "read",
+			group: "Reading",
+		},
+		{
+			path: "bashInterceptor.enabled",
+			type: "boolean",
+			value: false,
+			default: false,
+			label: "Bash interceptor",
+			description: "Block shell commands that a dedicated tool already covers.",
+			tab: "search",
+			group: "Interception",
 		},
 	],
 };
@@ -343,6 +424,13 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				return respond(command, { steering: [], followUp: [] });
 			case "agent_control_review":
 				return respond(command, BOARD_BUSY ? boardReview() : { items: [] });
+			case "get_session_tree":
+				return respond(command, SESSION_TREE);
+			case "get_plan_mode":
+				// The Plan sheet reads the document; `enabled` stays false so no composer, Run chip or dock shows plan mode.
+				return respond(command, { enabled: false, planFilePath: PLAN_FILE_PATH });
+			// `get_usage` also feeds the sidebar usage meter, the composer's account limit and the turn-error notice,
+			// so its reports stay behind `?board=busy`.
 			case "get_usage":
 				return respond(command, BOARD_BUSY ? boardUsage() : { reports: [] });
 			case "get_orphan_worktrees":
@@ -530,6 +618,12 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				return { agent: "none", agentKeys: [], keyFiles: [], keygen: false };
 			case IPC_COMMANDS.FS_LIST:
 				return { ok: true, entries: FILE_TREE, truncated: false };
+			case MAIL_ACCOUNTS_COMMAND:
+				return MAIL_STATE;
+			case IPC_COMMANDS.STATS_FETCH:
+				return statsAnswer((payload as IpcStatsFetchPayload).path);
+			case IPC_COMMANDS.FS_READ_PLAN:
+				return { ok: true, path: PLAN_FILE_PATH, content: PLAN_MARKDOWN } satisfies IpcFsReadPlanResult;
 			case IPC_COMMANDS.FS_READ: {
 				const path = (payload as { path: string }).path;
 				const content = FILE_CONTENTS[path];
