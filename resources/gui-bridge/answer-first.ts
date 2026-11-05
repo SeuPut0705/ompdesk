@@ -22,6 +22,17 @@
  * answer is the natural reply), and delivered while the agent loop owns a turn (`agent.state.isStreaming`: a prompt
  * that starts a turn is prepared before the loop runs). Never for a subagent.
  *
+ * The companion alone is ignored often enough (6 Nov 2026, session 15c2371b50c02c9b on 0.112.1: "언제 끝나" during a
+ * `wait` got another `wait`, "언제 배포하냐고 물어보잖아" two bash calls and two session messages, and no text for 7
+ * minutes). So the hook that adds it also opens a gate: until a response of this turn says something in text, every
+ * tool call is refused with {@link ANSWER_FIRST_REFUSAL} (stock's public `tool_call` hook, `block`), except
+ * {@link ANSWER_TOOLS}, which the answer itself may need. The gate closes as soon as a response's text streams
+ * (`message_update`: agent-core prepares a message's calls, `tool_call` included, when its stream is done and before
+ * its `message_end`, so the text is seen first and that response's own calls go through; `message_end` covers a
+ * message that never streamed), at the turn's end (`agent_end`), and after {@link MAX_SILENT_RESPONSES} refused
+ * responses, so a model that will not answer is not held forever. Only after the companion, so only for a person's
+ * steer, and only for the main agent.
+ *
  * No omp imports (not even types): the GUI's vitest and typecheck load this file directly
  * (src/main/bridge-answer-first.test.ts), as for modes/memory-recall.ts.
  */
@@ -32,6 +43,20 @@ export const ANSWER_FIRST_MESSAGE_TYPE = "ompdesk-answer-first";
 export const ANSWER_FIRST_TEXT =
 	"The person wrote the message above while you were working. Answer it in text now, in this turn, before any further tool call or wait; then continue the work.";
 
+/** The tool result of a call the gate refused. */
+export const ANSWER_FIRST_REFUSAL =
+	"Not run: the person wrote to you while you were working and you have not answered yet. Answer their message in text first, then call tools again.";
+
+/**
+ * Calls the gate lets through: reading (a job's progress in proc://, a file, an agent's output) is what an answer to
+ * "how far along is it?" needs, and `ask` is itself addressed to the person. Everything else (wait, bash, edits,
+ * messages to other sessions, todo) waits for the text.
+ */
+const ANSWER_TOOLS: Record<string, true> = { read: true, grep: true, glob: true, find: true, ask: true };
+
+/** Responses without text the gate refuses before it gives way. */
+const MAX_SILENT_RESPONSES = 2;
+
 /** The hidden companion, as `before_agent_start` returns it. */
 export interface AnswerFirstMessage {
 	customType: string;
@@ -40,15 +65,35 @@ export interface AnswerFirstMessage {
 	attribution: "agent";
 }
 
-/** The slice of omp's ExtensionAPI this module uses; the GUI's vitest installs it on a fake `pi`. */
+/** The events this module hears, as omp's ExtensionAPI delivers them; the GUI's vitest installs them on a fake `pi`. */
+interface HookContext {
+	agent: { kind?: string };
+}
+interface AssistantEvent {
+	message: { role: string; content?: unknown };
+}
+
+/** The slice of omp's ExtensionAPI this module uses. */
 export interface AnswerFirstHost {
 	on(
 		event: "before_agent_start",
-		handler: (
-			event: { prompt: string },
-			ctx: { agent: { kind?: string } },
-		) => { message: AnswerFirstMessage } | undefined,
+		handler: (event: { prompt: string }, ctx: HookContext) => { message: AnswerFirstMessage } | undefined,
 	): void;
+	on(event: "message_update" | "message_end", handler: (event: AssistantEvent) => void): void;
+	on(event: "agent_end", handler: () => void): void;
+	on(
+		event: "tool_call",
+		handler: (event: { toolName: string }, ctx: HookContext) => { block: true; reason: string } | undefined,
+	): void;
+}
+
+/** Whether an assistant message says anything in text (a lone "." or blank text is not an answer). */
+function saysSomething(message: AssistantEvent["message"]): boolean {
+	if (message.role !== "assistant" || !Array.isArray(message.content)) return false;
+	return message.content.some(
+		(block: { type?: unknown; text?: unknown }) =>
+			block?.type === "text" && typeof block.text === "string" && /[\p{L}\p{N}]/u.test(block.text),
+	);
 }
 
 /** The live main session's agent loop, as omp's package index reaches it. */
@@ -83,9 +128,27 @@ export function installAnswerFirst(
 	loopStreaming: LoopStreaming,
 	notes: TypedPrompts = typedPrompts,
 ): void {
+	/** Refused responses since the person's steer; undefined while nothing is owed. */
+	let owed: number | undefined;
 	pi.on("before_agent_start", (event, ctx) => {
 		const message = answerFirstCompanion(event.prompt, ctx.agent.kind, loopStreaming(), notes);
-		return message ? { message } : undefined;
+		if (!message) return undefined;
+		owed = 0;
+		return { message };
+	});
+	pi.on("message_update", event => {
+		if (owed !== undefined && saysSomething(event.message)) owed = undefined;
+	});
+	pi.on("message_end", event => {
+		if (owed === undefined || event.message.role !== "assistant") return;
+		if (saysSomething(event.message) || ++owed >= MAX_SILENT_RESPONSES) owed = undefined;
+	});
+	pi.on("agent_end", () => {
+		owed = undefined;
+	});
+	pi.on("tool_call", (event, ctx) => {
+		if (owed === undefined || ctx.agent.kind !== "main" || ANSWER_TOOLS[event.toolName]) return undefined;
+		return { block: true, reason: ANSWER_FIRST_REFUSAL };
 	});
 }
 

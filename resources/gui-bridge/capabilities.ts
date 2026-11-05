@@ -1314,7 +1314,10 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	},
 	/** typed-prompts.ts: main's word on who typed, kept in the bridge's own store. Imports nothing from omp. */
 	typedPrompts: {},
-	/** answer-first.ts: whether the agent loop owns a turn when a queued batch is prepared (public `before_agent_start` hook). */
+	/**
+	 * answer-first.ts: whether the agent loop owns a turn when a queued batch is prepared. Its hooks are public
+	 * (`before_agent_start` for the companion; `message_update`, `message_end`, `tool_call` and `agent_end` for the gate).
+	 */
 	answerFirst: {
 		pkg: ["AgentRegistry.global()", "AgentRegistry.prototype.get()", "MAIN_AGENT_ID"],
 		session: ["agent.state"],

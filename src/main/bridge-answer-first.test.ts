@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	ANSWER_FIRST_MESSAGE_TYPE,
+	ANSWER_FIRST_REFUSAL,
 	ANSWER_FIRST_TEXT,
 	methods as answerFirstMethods,
 	installAnswerFirst,
@@ -21,22 +22,41 @@ import {
 } from "../../resources/gui-bridge/typed-prompts";
 
 type Hook = (event: { prompt: string }, ctx: { agent: { kind?: string } }) => unknown;
+type Handler = (event: Record<string, unknown>, ctx: { agent: { kind?: string } }) => unknown;
 
 function hook(loopStreaming: () => boolean, typed = createTypedPrompts()) {
-	let registered: Hook | undefined;
+	const handlers = new Map<string, Handler>();
 	installAnswerFirst(
 		{
-			on: (event, handler) => {
-				if (event === "before_agent_start") registered = handler as Hook;
+			on: (event: string, handler: unknown) => {
+				handlers.set(event, handler as Handler);
 			},
 		},
 		loopStreaming,
 		typed,
 	);
+	const registered = handlers.get("before_agent_start") as Hook | undefined;
 	if (!registered) throw new Error("no before_agent_start hook");
 	const run = registered;
-	return { typed, run: (prompt: string, kind = "main") => run({ prompt }, { agent: { kind } }) };
+	const fire = (event: string, payload: Record<string, unknown>, kind = "main") =>
+		handlers.get(event)?.({ type: event, ...payload }, { agent: { kind } });
+	const call = (toolName: string, kind = "main") =>
+		fire("tool_call", { toolName, toolCallId: `${toolName}-1`, input: {} }, kind);
+	/**
+	 * One assistant response in stock's order: its text streams (`message_update`), its calls are prepared when the
+	 * stream is done (`tool_call`, agent-core's prepare before `message_end`), then `message_end`. The calls' answers.
+	 */
+	const respond = (content: Array<Record<string, unknown>>, ...tools: string[]) => {
+		const message = { role: "assistant", content };
+		fire("message_update", { message, assistantMessageEvent: { type: "text_delta" } });
+		const results = tools.map(tool => call(tool));
+		fire("message_end", { message });
+		return results;
+	};
+	return { typed, run: (prompt: string, kind = "main") => run({ prompt }, { agent: { kind } }), fire, call, respond };
 }
+
+const waitCall = { type: "toolCall", id: "wait-1", name: "wait", arguments: {} };
 
 const COMPANION = {
 	message: { customType: ANSWER_FIRST_MESSAGE_TYPE, content: ANSWER_FIRST_TEXT, display: false, attribution: "agent" },
@@ -88,6 +108,44 @@ describe("answer-first companion", () => {
 		await expect(methods.typed_prompt({ text: "x", steer: true })).resolves.toEqual({ ok: true });
 		expect(typedPrompts.take("x", "answerFirst")).toEqual([{ text: "x", steer: true }]);
 		await expect(methods.typed_prompt({ steer: true })).rejects.toThrow("needs text");
+	});
+});
+
+describe("answer-first gate", () => {
+	it("refuses a wait the agent calls without a word after a person's steer, and lets work resume once it answered", () => {
+		const { typed, run, respond } = hook(() => true);
+		typed.note("언제 끝나", true);
+		expect(run("언제 끝나")).toEqual(COMPANION);
+		// The session 15c2371b50c02c9b's reply to the steer: another wait, no text. What an answer needs (a read of
+		// the job, a question to the person) goes through.
+		const refused = { block: true, reason: ANSWER_FIRST_REFUSAL };
+		expect(respond([waitCall], "wait", "bash", "read", "ask")).toEqual([refused, refused, undefined, undefined]);
+		// The next response says something to the person: its own calls run, and so does the work after it.
+		const answer = { type: "text", text: "release-check는 e2e 2/2 단계이고 10분쯤 남았습니다." };
+		expect(respond([answer, waitCall], "wait")).toEqual([undefined]);
+		expect(respond([waitCall], "bash")).toEqual([undefined]);
+	});
+
+	it("holds only after a person's steer, only the main agent, and gives way after two silent responses", () => {
+		const mail = hook(() => true);
+		expect(mail.run('<ompdesk-agent-message from="x">\nstatus?\n</ompdesk-agent-message>')).toBeUndefined();
+		expect(mail.respond([waitCall], "wait")).toEqual([undefined]);
+
+		const { typed, run, call, respond, fire } = hook(() => true);
+		typed.note("how far?", true);
+		run("how far?");
+		expect(call("wait", "sub")).toBeUndefined();
+		expect(respond([{ type: "text", text: "." }, waitCall], "wait")).toEqual([
+			expect.objectContaining({ block: true }),
+		]);
+		expect(respond([waitCall], "wait")).toEqual([expect.objectContaining({ block: true })]);
+		// A model that will not answer is not held forever.
+		expect(respond([waitCall], "wait")).toEqual([undefined]);
+
+		typed.note("and now?", true);
+		run("and now?");
+		fire("agent_end", { messages: [] });
+		expect(respond([waitCall], "wait")).toEqual([undefined]);
 	});
 });
 
