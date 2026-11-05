@@ -1,21 +1,5 @@
 # Changelog
 
-## [0.113.0] - 2026-11-06
-
-메모리가 모자랄 때 쉬고 있는 세션이 메모리를 돌려줘서, 세션을 많이 열어 둬도 컴퓨터가 버벅이지 않아요.
-
-### 새로 생긴 것
-- 컴퓨터 메모리가 모자라면(macOS가 메모리 압박을 알리거나 남은 메모리가 15% 아래로 내려가면), 5분 넘게 아무 일도 하지 않은 채 뒤에 숨어 있는 세션이 omp 프로세스를 내려놓아요. 세션 하나에 260 MB 이상이 돌아와요(측정: 세션 3개 1,338 MB → 숨은 2개를 내려놓은 뒤 808 MB). 탭을 다시 누르면 대화가 바로 보이고(47–53 ms) 그 세션이 이어서 시작돼요(1.5초, 다시 연 앱의 탭과 같아요). 그동안 보낸 메시지는 준비되는 대로 보내져요.
-- 무엇이든 살아 있는 세션은 내려놓지 않아요: 보고 있는 탭, 일하는 중이거나 질문·계획·입력 중인 글이 있는 세션, 백그라운드 작업·하위 에이전트·eval 상태·실행 중인 명령이나 서버가 남은 세션, 다시 시도나 이어가기를 기다리는 세션, 에이전트가 연 세션은 그대로예요. 메모리가 넉넉할 때는 아무것도 바뀌지 않아요.
-
-<!-- en -->
-
-When memory runs short, sessions that sit idle give their memory back, so many open sessions no longer weigh the computer down.
-
-### New
-- When this computer is short of memory (macOS reports memory pressure, or under 15% is free), a hidden session that has done nothing for 5 minutes lets its omp process go. Each one gives back 260 MB or more (measured: three sessions 1,338 MB → 808 MB once the two hidden ones were let go). Click its tab and the conversation is there at once (47–53 ms) while the session starts again (1.5 s, as a tab in a relaunched app does); a message sent meanwhile goes out as soon as it is ready.
-- A session with anything live is never let go: the tab on screen, a session working or waiting on a question, a plan or a draft, one with background jobs, subagents, eval state or a command or server still running, one waiting to retry or continue, and sessions an agent opened. While memory is ample nothing changes.
-
 ## [0.112.3] - 2026-11-06
 
 읽을 수 없는 그림이 있는 답변 때문에 대화창이 좌우로 스크롤되던 문제를 고쳤어요.
