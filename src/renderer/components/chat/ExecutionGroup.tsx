@@ -3,6 +3,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { checkKind, commandProgram } from "../../../../resources/gui-bridge/command-verdict-core";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { useFrameSelector } from "../../hooks/use-frame-selector";
+import { agentDesktopCall } from "../../lib/agent-desktop-name";
 import { cx, formatDuration, resultText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { asRecord } from "../../lib/wire-value";
@@ -113,7 +114,7 @@ export function ExecutionGroup({
 	const activeTabId = useTabsStore(state => state.activeTabId);
 	const device = tabs.find(tab => tab.id === (runtimeTabId ?? activeTabId))?.device;
 	const { tools, messages } = useRunStores();
-	// Primitive selector: encode (running, skipped, interrupted, span, reads, searches)
+	// Primitive selector: encode (running, skipped, interrupted, span, reads, searches, desktop steps)
 	// so unrelated tool events — partial results on cards outside this group — never re-render it.
 	const encoded = useToolsStore(s => {
 		let running = 0;
@@ -121,6 +122,7 @@ export function ExecutionGroup({
 		let interrupted = 0;
 		let reads = 0;
 		let searches = 0;
+		let desktop = 0;
 		let start = Number.POSITIVE_INFINITY;
 		let end = 0;
 		for (const id of toolCallIds) {
@@ -135,17 +137,19 @@ export function ExecutionGroup({
 			if (entry.status === "pending" || entry.status === "running") running++;
 			else if (isInterruptedError(entry, stoppedAt)) interrupted++;
 			const { activity } = getToolActivity(entry.toolName, entry.args);
-			if (activity === "read") reads++;
+			if (agentDesktopCall(entry.toolName, entry.args)) desktop++;
+			// A read of `xd://<tool>` is the tool's own docs, read before its first use: no file was read.
+			else if (activity === "read" && !(typeof entry.args.path === "string" && entry.args.path.startsWith("xd://")))
+				reads++;
 			else if (activity === "search") searches++;
 			start = Math.min(start, entry.startTime);
 			end = Math.max(end, entry.endTime ?? 0);
 		}
 		const span = Number.isFinite(start) && end > start ? end - start : 0;
-		return [running, skipped, interrupted, span, reads, searches].join(":");
+		return [running, skipped, interrupted, span, reads, searches, desktop].join(":");
 	});
-	const [running = 0, skipped = 0, interruptedTools = 0, toolSpanMs = 0, reads = 0, searches = 0] = encoded
-		.split(":")
-		.map(Number);
+	const [running = 0, skipped = 0, interruptedTools = 0, toolSpanMs = 0, reads = 0, searches = 0, desktopSteps = 0] =
+		encoded.split(":").map(Number);
 	const { outcome, agents } = useRunOutcome(toolCallIds, stoppedAt);
 	// The run's clock as a primitive: a history page prepended or a message committed
 	// elsewhere re-renders only the cards whose own clock it moved.
@@ -249,6 +253,8 @@ export function ExecutionGroup({
 	if (agents.length) say(t("chat.work.agentsDone", { count: agents.length }));
 	const readFacts: string[] = [];
 	if (facts.length === produced) {
+		// agent-desktop's calls, looks and actions alike, head a card that changed nothing else: they are what it did.
+		if (desktopSteps) readFacts.push(t("chat.work.desktopSteps", { count: desktopSteps }));
 		if (reads) readFacts.push(t("chat.process.kind.read", { count: reads }));
 		if (searches)
 			readFacts.push(t("chat.process.kind.search", { count: searches, plural: searches === 1 ? "" : "es" }));
@@ -265,8 +271,8 @@ export function ExecutionGroup({
 					: facts.join(" · ");
 	const spanMs = clock.spanMs || toolSpanMs;
 	const duration = state !== "running" && spanMs > 0 ? formatDuration(spanMs) : null;
-	// A running card says its step count; a finished one that produced nothing (only reads and searches) says what it
-	// read and searched instead, so its head is not an empty "7 steps".
+	// A running card says its step count; a finished one that produced nothing (only desktop steps, reads and searches)
+	// says what it did instead, so its head is not an empty "7 steps".
 	const shownParts =
 		state !== "running" && readFacts.length ? readFacts : [t("chat.work.stepCount", { total: totalSteps, plural })];
 	const commandFailures = verdict.failedCommands.filter(command => !checkKind(command.command));

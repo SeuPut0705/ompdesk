@@ -423,6 +423,41 @@ describe("work card without output", () => {
 		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("Read 2 files · 1 search");
 		expect(container.querySelector(".omp-execution-group-summary")?.textContent).not.toContain("3 steps");
 	});
+
+	it("counts agent-desktop's calls as desktop steps, and an empty find among them leaves the card complete", async () => {
+		const desktop = (tool: string, args: Record<string, unknown>, at: number, failed = false): ToolEntry => ({
+			...edit,
+			toolName: `mcp__agent_desktop_desktop_${tool}`,
+			args,
+			...(failed ? { status: "error" as const, isError: true } : {}),
+			result: { content: [{ type: "text", text: failed ? '{"ok":false,"command":"find"}' : '{"ok":true}' }] },
+			startTime: at,
+			endTime: at + 100,
+		});
+		await mount([
+			[
+				"r1",
+				{ ...edit, toolName: "read", args: { path: "a.md" }, result: { content: [{ type: "text", text: "x" }] } },
+			],
+			// The tool's docs, read before its first use (the Windows run, 6 Nov 2026): never a file read.
+			[
+				"x1",
+				{
+					...edit,
+					toolName: "read",
+					args: { path: "xd://mcp__agent_desktop_desktop_find" },
+					result: { content: [{ type: "text", text: "schema" }] },
+				},
+			],
+			["d1", desktop("find", { app: "TextEdit", name: "File" }, 200, true)],
+			["d2", desktop("click", { ref_id: "@s1:e86" }, 400)],
+			["d3", desktop("type", { ref_id: "@s2:e2", text: "hello" }, 600)],
+		]);
+		expect(mark()?.getAttribute("data-state")).toBe("complete");
+		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe(
+			"3 desktop steps · Read 1 file",
+		);
+	});
 });
 
 describe("work card changes", () => {

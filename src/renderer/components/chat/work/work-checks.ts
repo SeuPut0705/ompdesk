@@ -19,6 +19,7 @@ import {
 	testCounts,
 } from "../../../../../resources/gui-bridge/command-verdict-core";
 import { TURN_EDIT_TOOLS } from "../../../../shared/turn-edits";
+import { agentDesktopCall, agentDesktopTargetKey } from "../../../lib/agent-desktop-name";
 import { xdevWriteTarget } from "../../../lib/xdev";
 import { editArgumentPaths, workFilePathKey } from "../../tools/edit-args";
 
@@ -125,8 +126,9 @@ function canonical(value: unknown): unknown {
 
 /**
  * What makes a later call the same call: a command's text (whitespace collapsed) in its folder (stock bash `cwd`, else
- * the session's, then a leading `cd <dir> &&`); each file an edit touches; any other tool, an `xd://` write included,
- * its arguments (the model's intent aside). Empty for an edit without a path: nothing resolves it.
+ * the session's, then a leading `cd <dir> &&`); each file an edit touches; an agent-desktop action, its command and the
+ * element it acts on (`agentDesktopTargetKey`); any other tool, an `xd://` write included, its arguments (the model's
+ * intent aside). Empty for an edit without a path: nothing resolves it.
  */
 export function callKeys(call: OperationCall, cwd = ""): readonly string[] {
 	const { command, cwd: folder } = call.args;
@@ -151,8 +153,10 @@ export function callKeys(call: OperationCall, cwd = ""): readonly string[] {
 	// Stock's arguments object of a call never changes once the call is made: its keys are read once per folder.
 	const cached = argumentKeys.get(call.args);
 	if (cached?.cwd === cwd && cached.toolName === call.toolName) return cached.keys;
-	const keys =
-		TURN_EDIT_TOOLS.includes(call.toolName) && !xdevWriteTarget(call.args)
+	const desktop = agentDesktopCall(call.toolName, call.args);
+	const keys = desktop
+		? [agentDesktopTargetKey(desktop)]
+		: TURN_EDIT_TOOLS.includes(call.toolName) && !xdevWriteTarget(call.args)
 			? [
 					...new Set(
 						editArgumentPaths(call.args).map(
