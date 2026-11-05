@@ -750,7 +750,7 @@ function MarkdownImageFallback({ alt, path }: { alt: string; path?: string }) {
 			className="my-1 inline-flex max-w-full items-center gap-1.5 rounded-md border border-[var(--omp-border-muted)] px-2 py-1 text-omp-md text-[var(--omp-dim)]"
 		>
 			<span className="truncate">{alt || path || "image"}</span>
-			{alt && path && <span className="shrink-0 truncate font-mono text-omp-xs opacity-70">{path}</span>}
+			{alt && path && <span className="truncate font-mono text-omp-xs opacity-70">{path}</span>}
 		</span>
 	);
 }

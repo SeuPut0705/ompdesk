@@ -10,7 +10,12 @@
 
 import type { BotActivityPage } from "../../shared/bot-activity";
 import { EMPTY_GITHUB_AUTH_STATE } from "../../shared/github-auth";
-import { IPC_COMMANDS, type IpcSessionsListPayload, type SessionInfo } from "../../shared/ipc-types";
+import {
+	IPC_COMMANDS,
+	type IpcFsReadImageResult,
+	type IpcSessionsListPayload,
+	type SessionInfo,
+} from "../../shared/ipc-types";
 import type { LaunchProfile } from "../../shared/launch-profile";
 import { MOBILE_WEB_COMMAND, MOBILE_WEB_GET_STATE, WEB_BLOCKS_LIST, WEB_DEVICES_LIST } from "../../shared/mobile-web";
 import type { OmpTransport } from "../../shared/omp-api";
@@ -420,6 +425,9 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 			case IPC_COMMANDS.SET_TAB_VIEW:
 				activeTabId = (payload as ViewPayload).focusedTabId;
 				return true;
+			// The harness has no files: a reply's picture reads as main answers a missing one, so it settles on its chip.
+			case IPC_COMMANDS.FS_READ_IMAGE:
+				return { ok: false, dataUrl: null, mime: null, size: 0, error: "ENOENT" } satisfies IpcFsReadImageResult;
 			case IPC_COMMANDS.RPC_COMMAND:
 				return rpc({ command: (payload as RpcPayload).command });
 			case IPC_COMMANDS.RPC_COMMAND_FOR_TAB:

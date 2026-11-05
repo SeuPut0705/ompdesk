@@ -282,12 +282,17 @@ const DIALOG_FLAGS: ReadonlyArray<{ id: string; action: string; args?: unknown[]
 ];
 
 /**
- * Brings `target` of a reply to the top of its transcript once the reply's math and mermaid chart have drawn: their
- * late height otherwise moves the transcript back to its end after the scroll.
+ * Brings `target` of a reply to the top of its transcript once the reply's math and mermaid chart have drawn and every
+ * picture of a figure row has its read's answer (the picture, or the failed chip with its reason): their late height
+ * otherwise moves the transcript back to its end after the scroll.
  */
 async function showInReply(page: Page, target: Locator): Promise<void> {
 	for (const drawn of [".markdown-body .katex-display", ".markdown-body [data-figure] img"])
 		await page.locator(drawn).last().waitFor({ state: "visible", timeout: 15_000 });
+	await page
+		.locator("[data-figure-row] figure:not(:has(img)):not(:has(> span[title]))")
+		.first()
+		.waitFor({ state: "detached", timeout: 15_000 });
 	await target.evaluate(element => element.scrollIntoView({ block: "start" }));
 }
 
