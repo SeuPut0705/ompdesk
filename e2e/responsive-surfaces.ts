@@ -237,6 +237,15 @@ async function openSettingsModels(page: Page, look: Look): Promise<void> {
 	await row.scrollIntoViewIfNeeded();
 }
 
+async function openSettingsGeneral(page: Page, look: Look): Promise<void> {
+	await openDrawer(page, look);
+	await page.locator('[data-destination="settings"]').first().click();
+	const nav = page.locator('[data-settings-section="general"]');
+	await nav.waitFor({ state: "visible", timeout: 15_000 });
+	await nav.click();
+	await page.locator("[data-settings-page] #setting-gui-language").waitFor({ state: "visible", timeout: 30_000 });
+}
+
 async function openSettings(page: Page, section: string): Promise<void> {
 	await ui(page, "openSettings", section);
 	const nav = page.locator(`[data-settings-section="${section.split(":")[0]}"]`);
@@ -743,9 +752,11 @@ export const SURFACES: readonly Surface[] = [
 			id: `settings-${section}`,
 			area: "B",
 			title: `Settings › ${section}`,
-			open: page => openSettings(page, section),
+			// General opens through real controls (the sidebar's Settings, then its section), so the parity sheet takes it.
+			open: section === "general" ? openSettingsGeneral : page => openSettings(page, section),
 			ready: "[data-settings-page]",
 			settle: 900,
+			...(section === "general" ? { parity: { session: "work" } } : {}),
 		}),
 	),
 	{

@@ -40,12 +40,28 @@ export function InsightsPage() {
 		<PageLayout
 			panelLabel={t(TAB_LABEL_KEY[tab])}
 			tabs={
-				<Tabs
-					activeId={tab}
-					ariaLabel={t("insights.title")}
-					onChange={id => openInsights(id as InsightsTab)}
-					tabs={(Object.keys(TAB_LABEL_KEY) as InsightsTab[]).map(id => ({ id, label: t(TAB_LABEL_KEY[id]) }))}
-				/>
+				// Stats' scope sits at the end of the tab row instead of on a row of its own above the content.
+				<div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+					<Tabs
+						activeId={tab}
+						ariaLabel={t("insights.title")}
+						className="min-w-0 flex-1"
+						onChange={id => openInsights(id as InsightsTab)}
+						tabs={(Object.keys(TAB_LABEL_KEY) as InsightsTab[]).map(id => ({ id, label: t(TAB_LABEL_KEY[id]) }))}
+					/>
+					{tab === "stats" && (
+						<Tabs
+							activeId={scope}
+							ariaLabel={t("insights.scope.label")}
+							onChange={id => openInsights("stats", id as InsightsStatsScope)}
+							tabs={(Object.keys(SCOPE_LABEL_KEY) as InsightsStatsScope[]).map(id => ({
+								id,
+								label: t(SCOPE_LABEL_KEY[id]),
+							}))}
+							variant="segmented"
+						/>
+					)}
+				</div>
 			}
 			title={t("insights.title")}
 		>
@@ -58,22 +74,12 @@ export function InsightsPage() {
 			)}
 			<HostScoped>
 				{tab === "stats" ? (
-					<div className="flex flex-col gap-6">
-						<div className="flex flex-wrap items-center gap-3">
-							<Tabs
-								activeId={scope}
-								ariaLabel={t("insights.scope.label")}
-								onChange={id => openInsights("stats", id as InsightsStatsScope)}
-								tabs={(Object.keys(SCOPE_LABEL_KEY) as InsightsStatsScope[]).map(id => ({
-									id,
-									label: t(SCOPE_LABEL_KEY[id]),
-								}))}
-								variant="segmented"
-							/>
-						</div>
-						{/* Another machine is another stats server: start its page over. */}
-						{scope === "session" ? <SessionInsights /> : <AllSessionsStats key={host?.deviceId ?? ""} />}
-					</div>
+					// Another machine is another stats server: start its page over.
+					scope === "session" ? (
+						<SessionInsights />
+					) : (
+						<AllSessionsStats key={host?.deviceId ?? ""} />
+					)
 				) : (
 					<UsageQuotas />
 				)}

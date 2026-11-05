@@ -244,7 +244,7 @@ const DefinitionRow = memo(function DefinitionRow({
 	}, [editing, override]);
 
 	return (
-		<li className="flex flex-col gap-2.5 py-4">
+		<li className="flex flex-col gap-2.5 py-2.5 [html[data-input=touch]_&]:py-4">
 			<div className="flex items-start gap-4">
 				<div className="min-w-0 flex-1">
 					<div className="flex flex-wrap items-center gap-2">

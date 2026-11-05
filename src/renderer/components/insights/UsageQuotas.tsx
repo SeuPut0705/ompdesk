@@ -70,9 +70,18 @@ function LimitRow({ limit, t, now }: { limit: UsageLimit; t: Translate; now: num
 	const countdown = resetCountdown(limit.resetsAt, t, now);
 	const label = usageLimitLabel(limit, t);
 	return (
-		<li className="flex flex-col gap-1.5 py-3 first:pt-0 last:pb-0">
+		<li className="flex flex-col gap-1.5 py-2 first:pt-0 last:pb-0 [html[data-input=touch]_&]:py-3">
 			<div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
-				<span className="min-w-0 flex-1 basis-32 text-sc-md font-medium break-words text-(--sc-text)">{label}</span>
+				{/* The reset time rides the label's line, so a window is two lines: words, then its bar. */}
+				<span className="min-w-0 flex-1 basis-32 break-words">
+					<span className="text-sc-md font-medium text-(--sc-text)">{label}</span>
+					{countdown && (
+						<span className="text-sc-xs text-(--sc-text-muted)" data-limit-reset>
+							{" · "}
+							{countdown}
+						</span>
+					)}
+				</span>
 				<div className="ml-auto flex flex-wrap items-center justify-end gap-2">
 					{limit.status && limit.status !== "ok" && (
 						<Badge variant={limit.status === "exhausted" ? "error" : "warning"}>
@@ -83,7 +92,6 @@ function LimitRow({ limit, t, now }: { limit: UsageLimit; t: Translate; now: num
 				</div>
 			</div>
 			<ProgressBar ariaLabel={label} value={fraction} valueText="" />
-			{countdown && <span className="text-sc-xs text-(--sc-text-muted)">{countdown}</span>}
 			<Notes notes={limit.notes} />
 		</li>
 	);

@@ -193,7 +193,7 @@ export function StatTable<T>({
 							{columns.map(column => (
 								<td
 									className={cx(
-										"px-3 py-3 align-top",
+										"px-3 py-2 align-top [html[data-input=touch]_&]:py-3",
 										column.align === "right" && "text-right whitespace-nowrap tabular-nums",
 									)}
 									key={column.key}

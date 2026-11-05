@@ -127,9 +127,11 @@ export function AllSessionsStats() {
 	return (
 		<div className="flex min-w-0 flex-col gap-6 lg:flex-row lg:gap-8">
 			<nav aria-label={t("stats.sectionsAria")} className="min-w-0 shrink-0 lg:w-40" data-stats-nav>
-				<ul className="flex flex-wrap gap-1 lg:sticky lg:top-0 lg:flex-col lg:gap-0.5">
+				{/* A phone keeps the ten views on one row that scrolls sideways (three wrapped rows sat above the data);
+				    the row's padding holds the pills' 5 px touch reach, which a scroller would clip. */}
+				<ul className="flex flex-wrap gap-1 lg:sticky lg:top-0 lg:flex-col lg:gap-0.5 [html[data-shell=phone]_&]:flex-nowrap [html[data-shell=phone]_&]:overflow-x-auto [html[data-shell=phone]_&]:py-[5px] [html[data-shell=phone]_&]:[scrollbar-width:none]">
 					{ROUTES.map(item => (
-						<li key={item.id}>
+						<li className="shrink-0" key={item.id}>
 							<button
 								aria-current={route === item.id ? "page" : undefined}
 								className={cx(
@@ -154,6 +156,8 @@ export function AllSessionsStats() {
 						<Tabs
 							activeId={range}
 							ariaLabel={t("stats.rangeAria")}
+							// Six ranges are wider than a phone: they wrap rather than cut "All time" off.
+							className="max-w-full flex-wrap"
 							onChange={id => setRange(id as StatsRange)}
 							tabs={STATS_RANGES.map(value => ({ id: value, label: t(`stats.range.${value}`) }))}
 							variant="segmented"

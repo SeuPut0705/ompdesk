@@ -75,8 +75,10 @@ const AgentRow = memo(function AgentRow({
 		agent.agentSource ? agentSourceLabel(t, agent.agentSource) : undefined,
 		agent.kind === "advisor" ? t("agentHub.hub.readOnly") : t("agentHub.hub.kind.sub"),
 		agent.progress?.resolvedModel,
+		// What it is doing, unless the title already says it (the title often is that description).
+		agent.progress?.description !== title ? agent.progress?.description : undefined,
 		// A restart ended it: what it was doing, in place of stock's empty-message warning.
-		agent.progress?.description ?? restartCutNote(agent),
+		agent.progress?.description ? undefined : restartCutNote(agent),
 	]
 		.filter(Boolean)
 		.join(" · ");

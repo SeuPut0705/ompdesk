@@ -63,7 +63,7 @@ function PrListRow({ item, active, onSelect }: { item: RpcPrListItem; active: bo
 		<ListButton active={active} onSelect={onSelect}>
 			<span className="flex w-full items-center gap-2">
 				<ChecksIcon item={item} />
-				<span className="min-w-0 flex-1 truncate text-sc-md text-(--sc-text)">{item.title}</span>
+				<span className="line-clamp-2 min-w-0 flex-1 text-sc-md break-words text-(--sc-text)">{item.title}</span>
 			</span>
 			<span className="flex w-full items-center gap-2 pl-6 text-sc-xs text-(--sc-text-muted)">
 				{/* A draft's mark rides the meta line: at the title's end it cut that one title short of its neighbours. */}
