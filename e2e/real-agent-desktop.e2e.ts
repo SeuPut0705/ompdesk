@@ -172,6 +172,19 @@ test("a session falls back visibly without agent-desktop, then drives the text e
 		const journalFile = test.info().outputPath("session.jsonl");
 		await fs.writeFile(journalFile, journal);
 		await test.info().attach("session.jsonl", { path: journalFile, contentType: "application/x-ndjson" });
+		// A long turn can be compacted on the small model: its cards then sit behind "Show N earlier messages".
+		const earlier = page.getByRole("button", { name: /Show \d+ earlier messages/ });
+		while (await earlier.isVisible()) await earlier.click();
+		// A turn that did its work reads complete on every card (advisor notes and narration can split it into several),
+		// and the heads say what it did on the desktop, never a tool's docs as files.
+		const cards = page.locator(".omp-execution-group");
+		await expect(cards.first()).toBeVisible();
+		await expect(cards.filter({ hasText: "Work failed" })).toHaveCount(0);
+		await expect(cards.filter({ hasText: "Work complete" }).first()).toBeVisible();
+		const heads = (await page.locator(".omp-execution-group-summary").allTextContents()).join(" | ");
+		await test.info().attach("card heads", { body: heads, contentType: "text/plain" });
+		expect(heads).toContain("desktop step");
+		expect(heads).not.toMatch(/Read \d+ file/);
 		expect(journal).toContain(AGENT_DESKTOP_TOOL_PREFIX);
 		expect(journal).toContain(stamp);
 		expect(journal).not.toContain('"name":"eval"');
