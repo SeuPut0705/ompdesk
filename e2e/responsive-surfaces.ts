@@ -364,7 +364,11 @@ export const SURFACES: readonly Surface[] = [
 	// Every other way a reply presents something, one heading of src/renderer/dev-harness/reply-showcase.ts each.
 	...(
 		[
-			["reply-text", "Text", "Prose with inline marks, a key-value list, numbered steps and a task list"],
+			[
+				"reply-text",
+				"Text",
+				"Prose with inline marks, a key-value list, numbered steps, a task list and a row of pictures whose files are gone",
+			],
 			["reply-tables", "Tables", "A comparison table with status marks, and a seven-column table"],
 			["reply-code", "Code", "A long typed code line, a diff and a JSON fence"],
 			["reply-callouts", "Callouts", "Alerts, a plain quote, a folded log and a rule"],

@@ -453,6 +453,15 @@ if (dir) {
 							const file = path.join(folder, `${view}.png`);
 							await page.screenshot({ path: file, scale: "css", animations: "disabled" });
 							record.shots[view] = file;
+							// The transcript scrolls down only, in every view (a reply's picture chip spilled its path out of
+							// a figure cell and gave it a horizontal scrollbar, 6 Nov 2026).
+							const sideways = await page.evaluate(() =>
+								[...document.querySelectorAll<HTMLElement>(".omp-transcript-scroll")]
+									.filter(scroller => scroller.clientWidth > 0)
+									.map(scroller => scroller.scrollWidth - scroller.clientWidth),
+							);
+							const extra = Math.max(0, ...sideways);
+							if (extra > 1) throw new Error(`the transcript scrolls sideways by ${extra}px`);
 						} catch (error) {
 							// Playwright's first line says what timed out, its call log's "waiting for" line on what.
 							const lines = error instanceof Error ? error.message.split("\n") : [String(error)];

@@ -17,7 +17,7 @@ import { outsideRoundedOutline as roundedOutline } from "./rounded-outline";
 export type IssueKind =
 	| "overflow-page" // the document scrolls sideways
 	| "overflow-el" // an element escapes the viewport and no clipping or scrolling ancestor holds it
-	| "overflow-sideways" // a vertical list that must never scroll sideways (the work board) is wider than its box
+	| "overflow-sideways" // a vertical list that must never scroll sideways (the work board, the transcript) is wider than its box
 	| "truncated" // an ellipsis on a control, heading, tab or label, where the full text is required
 	| "clipped" // text cut by an overflow-hidden ancestor, or spilling out of its own box
 	| "offscreen-popover" // a dialog, menu, listbox, tooltip or toast partly outside the viewport
@@ -471,12 +471,34 @@ function measureInPage(
 	}
 
 	// ── Vertical lists that never scroll sideways ──────────────────────────────────────────────────
-	// The work board (docked, and inside the phone strip) scrolls down only: a row wider than it (a branch, a path,
-	// a title that does not truncate) gives it a horizontal scrollbar, which no viewport check sees.
-	for (const list of document.querySelectorAll("[data-work-board-panel], .omp-work-strip-body")) {
+	// The work board (docked, and inside the phone strip) and the transcript scroll down only: a row wider than it (a
+	// branch, a path, a title that does not truncate) gives it a horizontal scrollbar, which no viewport check sees. A
+	// wide table or code block scrolls inside its own box and never widens the transcript (a reply's picture chip
+	// spilled its 497 px path out of a figure cell, 6 Nov 2026).
+	for (const list of document.querySelectorAll(
+		"[data-work-board-panel], .omp-work-strip-body, .omp-transcript-scroll",
+	)) {
 		if (!shown(list)) continue;
 		const extra = list.scrollWidth - list.clientWidth;
-		if (extra > 1) push("overflow-sideways", list, `scrolls sideways by ${extra}px (box ${list.clientWidth})`);
+		if (extra <= 1) continue;
+		// What widens it: the descendant reaching farthest past its right edge that no inner scroller or clip holds.
+		const edge = list.getBoundingClientRect().left + list.clientWidth;
+		let widest: { element: Element; right: number } | null = null;
+		for (const element of list.querySelectorAll("*")) {
+			const right = element.getBoundingClientRect().right;
+			if (right <= edge + 1 || (widest && right <= widest.right)) continue;
+			let held = false;
+			for (let node = element.parentElement; node && node !== list; node = node.parentElement)
+				if (style(node).overflowX !== "visible") {
+					held = node.getBoundingClientRect().right <= edge + 1;
+					break;
+				}
+			if (!held) widest = { element, right };
+		}
+		const cause = widest
+			? `, widened by ${widest.element.tagName.toLowerCase()}${[...widest.element.classList].map(name => `.${name}`).join("")} (+${Math.round(widest.right - edge)}px)`
+			: "";
+		push("overflow-sideways", list, `scrolls sideways by ${extra}px (box ${list.clientWidth})${cause}`);
 	}
 
 	// ── Text: truncated, clipped, small ─────────────────────────────────────────────────────────────

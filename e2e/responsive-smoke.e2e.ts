@@ -13,7 +13,8 @@ import { SURFACES } from "./responsive-surfaces";
 // nothing under the home indicator, 36 px targets in a docked tablet sidebar, whole summary figures on a work card),
 // a tap on the drawer's edge strip reaches the control under it, and a 1100 px desktop window keeps Memory's tabs clear
 // of its project picker and cuts no Run popover choice. An Autopilot run's board (an iPad mini sideways, docked; a
-// phone's strip) never scrolls sideways, its controls are 36 px targets, and the goal bar's buttons keep their taps. The full matrix (every surface × width × orientation × theme ×
+// phone's strip) never scrolls sideways, its controls are 36 px targets, and the goal bar's buttons keep their taps. An
+// 800 px and a 1280 px desktop window keep the transcript from scrolling sideways. The full matrix (every surface × width × orientation × theme ×
 // language × touch, web and Electron desktop) is e2e/responsive-audit.e2e.ts, behind OMP_GUI_RESPONSIVE=<dir>.
 
 const LOOKS: readonly Look[] = [
@@ -137,6 +138,37 @@ test("responsive smoke phone landscape: the session's controls keep their taps a
 	expect(found).toEqual([]);
 	await page.context().close();
 });
+
+/**
+ * A desktop window, the narrowest the app allows and a laptop's, dark and light: nothing overflows and the transcript
+ * never scrolls sideways (a reply's picture chip spilled its path out of a figure cell, 6 Nov 2026, in an 800 px window).
+ */
+const DESKTOP_LOOKS: readonly Look[] = [
+	{ width: 800, height: 900, dpr: 2, orientation: "landscape", theme: "dark", lang: "ko", device: "electron" },
+	{ width: 1280, height: 860, dpr: 2, orientation: "landscape", theme: "light", lang: "en", device: "electron" },
+];
+const DESKTOP_SURFACES = ["session-idle", "transcript-stress", "reply-text", "reply-tables", "reply-code"];
+
+for (const look of DESKTOP_LOOKS) {
+	test(`responsive smoke desktop ${lookTag(look)}: the transcript never scrolls sideways`, async () => {
+		if (!browser) throw new Error("the browser is not up");
+		const page = await openLook(browser, look, { origin });
+		for (const id of DESKTOP_SURFACES) {
+			const surface = SURFACES.find(entry => entry.id === id);
+			if (!surface) throw new Error(`no surface ${id}`);
+			if (!(await resetPage(page))) {
+				await page.reload();
+				await expect(page.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 30_000 });
+			}
+			await surface.open(page, look);
+			if (surface.ready) await page.locator(surface.ready).first().waitFor({ state: "visible", timeout: 8_000 });
+			await page.waitForTimeout(surface.settle ?? 450);
+			const hard = (await measure(page, look)).filter(issue => HARD.has(issue.kind));
+			expect(hard, `${id} at ${look.width}`).toEqual([]);
+		}
+		await page.context().close();
+	});
+}
 
 /**
  * The work board with everything at once and long Korean content (?board=busy: long titles, an `omp/agent/…`

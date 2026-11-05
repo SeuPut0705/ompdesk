@@ -2,7 +2,9 @@
  * One reply holding every way a reply presents something, grouped under a heading each (Text, Tables, Code, Callouts,
  * Math and diagrams), as agents write them. The fake omp answers `fixture reply components` with it (parity surfaces
  * `reply-*`, e2e/responsive-surfaces.ts) and the harness's `?stress=1` page carries it (the responsive audit's dark and
- * narrow looks). Plain text: nothing here runs.
+ * narrow looks). Plain text: nothing here runs. Its pictures name files that do not exist, as a reply's do once their
+ * files are moved or while a read runs: each shows as its chip with the full path (an 80-character path spilled out of
+ * its figure cell and scrolled the transcript sideways, 6 Nov 2026).
  */
 export const REPLY_SHOWCASE = [
 	"## Text",
@@ -20,6 +22,11 @@ export const REPLY_SHOWCASE = [
 	"",
 	"- [x] Types pass",
 	"- [ ] Captures in both themes",
+	"",
+	"A row of pictures whose files are gone:",
+	"",
+	"![Before: one word per line](/tmp/ompdesk-showcase/motion-shots/reply-components/before/reply-tables/sheet.png)",
+	"![After: the columns keep their width](/tmp/ompdesk-showcase/motion-shots/reply-components/after/reply-tables/sheet.png)",
 	"",
 	"## Tables",
 	"",
