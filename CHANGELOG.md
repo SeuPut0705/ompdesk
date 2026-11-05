@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.112.0] - 2026-11-05
+
+답변의 모든 표현 요소를 이 컴퓨터, 페어링한 컴퓨터, 휴대폰에서 다시 점검해 고쳤고, 에이전트가 내용마다 맞는 표현을 스스로 고르도록 안내를 넓혔어요.
+
+### 새로 생긴 것
+- 에이전트 안내(`<reply-presentation>`, 약 250토큰)가 내용별로 맞는 형식을 알려 줘요. 결과 그림은 답변 안에, 여러 항목 비교는 표와 ✅/❌/⚠️, 한 대상의 사실은 `- **항목**: 값` 목록, 순서 있는 단계는 번호 목록, 줄 단위로 볼 변경은 `diff` 코드 블록, 놓치면 안 되는 내용은 `> [!WARNING]` 같은 알림, 긴 로그는 `<details>`로 접어요.
+
+### 고친 것
+- 휴대폰에서 열이 많은 표가 칸마다 한 단어씩 세로로 접혀 한 칸이 12줄까지 늘어났어요. 이제 좁은 화면에서는 칸 폭을 지키고 표를 옆으로 밀어 봐요.
+- 휴대폰에서 답변 속 `<kbd>` 키 표시가 통째로 사라져 "Press + to copy"처럼 읽혔어요. 이제 답변의 키는 키캡 모양으로 보이고, 앱 자체의 단축키 칩만 휴대폰에서 숨겨요.
+- `<mark>`가 브라우저 기본 노란색(#ff0)으로 두 테마 모두에서 튀었어요. 이제 테마의 경고색을 옅게 깔아요.
+- `<details>` 접기가 맨 삼각형으로만 보였어요. 이제 테두리 상자 안에 요약이 머리줄로 서요.
+- 같은 문단에 동영상이나 문서 카드(`![…](demo.mp4)`, `![…](q3.xlsx)`)가 있으면 `<p>` 안에 블록이 들어가 잘못된 HTML이 됐어요. 이제 그런 문단은 블록으로 그려요.
+
+<!-- en -->
+
+Every way a reply presents something was rechecked on this computer, a paired computer and the phone, and fixed; the agent's guide now names which form fits which content, so it picks on its own.
+
+### Added
+- The agent's guide (`<reply-presentation>`, about 250 tokens) names the form for each kind of content: result pictures in the reply, comparisons as a table with ✅/❌/⚠️, facts about one thing as a `- **Key**: value` list, ordered steps as a numbered list, a change to read line by line as a `diff` fence, what must not be missed as an alert such as `> [!WARNING]`, and a long log folded in `<details>`.
+
+### Fixed
+- On a phone a table with many columns squeezed each cell to a word per line, one cell up to 12 lines tall. A narrow column now keeps its cells' width and the table scrolls sideways.
+- On a phone a reply's `<kbd>` keys vanished, reading "Press + to copy". A reply's keys now show as keycaps; only the app's own shortcut chips stay hidden on a phone.
+- `<mark>` showed the browser's #ff0 yellow in both themes. It now uses a light wash of the theme's warning color.
+- `<details>` showed as a bare triangle. It is now one bordered box with its summary as the header.
+- A paragraph holding a video or a document card (`![…](demo.mp4)`, `![…](q3.xlsx)`) put a block inside a `<p>`, which is invalid HTML. Such a paragraph now renders as a block.
+
 ## [0.111.0] - 2026-11-05
 
 답변 안에 스크린샷을 크게 보여 줘요. 그림만 있는 문단은 캡션이 붙은 한 줄로 나란히 놓이고, 에이전트도 결과 그림을 답변에 직접 넣도록 안내받아요.
