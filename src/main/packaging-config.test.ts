@@ -223,11 +223,12 @@ describe("mac bundle configs", () => {
 
 	it("ships the agent-desktop root: one stdio server whose command is the executable the spawn names", () => {
 		// `-e omp-builtin/agent-desktop` only while the engine is agent-desktop and the executable exists
-		// (src/main/agent-desktop.ts); stock expands `${…}` in a plugin root's `.mcp.json` from the omp's env.
+		// (src/main/agent-desktop.ts); stock expands `${…}` in a plugin root's `.mcp.json` from the omp's env. Its request
+		// deadline is pinned against stock in bridge-computer-use-mcp-stock.test.ts.
 		const declaration: unknown = JSON.parse(
 			fs.readFileSync(path.join(PACKAGE_ROOT, "resources/omp-builtin/agent-desktop/.mcp.json"), "utf8"),
 		);
-		expect(declaration).toEqual({
+		expect(declaration).toMatchObject({
 			mcpServers: {
 				[AGENT_DESKTOP_SERVER]: {
 					type: "stdio",

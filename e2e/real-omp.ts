@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 export interface RealOmpProfile {
 	profile: string;
@@ -62,10 +63,13 @@ export async function realOmpProfile(
 		path.join(agent, "config.yml"),
 		options.keepDefaultRole ? config : config.replace(/^ {2}default:\s*\S+\s*$/m, `  default: ${smol}`),
 	);
-	execFileSync("sqlite3", [
-		path.join(os.homedir(), ".omp/agent/agent.db"),
-		`VACUUM INTO '${path.join(agent, "agent.db").replaceAll("'", "''")}'`,
-	]);
+	// node:sqlite, not the sqlite3 CLI, which Windows does not ship.
+	const db = new DatabaseSync(path.join(os.homedir(), ".omp/agent/agent.db"), { readOnly: true });
+	try {
+		db.exec(`VACUUM INTO '${path.join(agent, "agent.db").replaceAll("'", "''")}'`);
+	} finally {
+		db.close();
+	}
 	execFileSync("git", ["init", "--quiet"], { cwd: project });
 	await fs.writeFile(
 		path.join(desktop, "prefs.json"),

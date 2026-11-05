@@ -1,10 +1,12 @@
 /**
- * The agent-desktop startup check (resources/gui-bridge/modes/computer-use-core.ts `checkServer`) against the installed
- * omp's real MCP manager: the `agent-desktop` root (`resources/omp-builtin/agent-desktop/.mcp.json`) is mounted with
- * `-e`, its command comes from `OMP_GUI_AGENT_DESKTOP` as in a session OMPdesk spawns, and the verdict is read once
- * the omp has started its MCP servers. A stand-in stdio server plays agent-desktop (the real one is not needed to pin
- * what stock reports): one that answers, one that does not exist, one that exits at once, one that never answers.
- * Skipped without an installed omp, and on Windows (the stand-in is a shell script).
+ * The agent-desktop root (`resources/omp-builtin/agent-desktop/.mcp.json`) against the installed omp's real MCP
+ * manager, mounted with `-e` and its command from `OMP_GUI_AGENT_DESKTOP` as in a session OMPdesk spawns:
+ * - the startup check (resources/gui-bridge/modes/computer-use-core.ts `checkServer`), read once the omp has started its
+ *   MCP servers. A stand-in stdio server plays agent-desktop (the real one is not needed to pin what stock reports):
+ *   one that answers, one that does not exist, one that exits at once, one that never answers. Skipped on Windows (the
+ *   stand-in is a shell script).
+ * - the request deadline stock gives agent-desktop's calls, which needs no server and runs on Windows too.
+ * Skipped without an installed omp.
  */
 import { spawnSync } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -53,18 +55,30 @@ export default function (pi) {
 }
 `;
 
+/** The server config stock's manager holds for `agent-desktop`: what its transport takes each request's deadline from. */
+const CONFIG_PROBE = `
+import { MCPManager } from "@oh-my-pi/pi-coding-agent/mcp/manager";
+export default function (pi) {
+ pi.on("session_start", async () => {
+  const config = MCPManager.instance()?.getServerConfig("agent-desktop");
+  console.error("CHECK_PROBE=" + JSON.stringify({ found: config !== undefined, timeout: config?.timeout ?? null }));
+  process.exit(0);
+ });
+}
+`;
+
 interface Probe {
 	verdict: { ok: true } | { ok: false; error: string };
 	ms: number;
 }
 
-function runCheck(command: (dir: string) => string, mode: string, checkMs: number): Probe {
+function runCheck<T = Probe>(command: (dir: string) => string, mode: string, checkMs: number, probe = PROBE): T {
 	const isolated = mkdtempSync(join(tmpdir(), "ompdesk-computer-use-"));
 	chmodSync(isolated, 0o700);
 	try {
 		cpSync(resolve("resources/gui-bridge"), join(isolated, "bridge"), { recursive: true });
 		const extension = join(isolated, "bridge", "check-probe.ts");
-		writeFileSync(extension, PROBE);
+		writeFileSync(extension, probe);
 		const server = join(isolated, "fake-agent-desktop");
 		writeFileSync(server, FAKE_SERVER);
 		chmodSync(server, 0o755);
@@ -79,7 +93,13 @@ function runCheck(command: (dir: string) => string, mode: string, checkMs: numbe
 			CHECK_MS: String(checkMs),
 			[AGENT_DESKTOP_ENV]: command(isolated),
 		};
-		for (const key of ["ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]) {
+		// An `OMP_MCP_TIMEOUT_MS` of the shell would override every server's own deadline.
+		for (const key of [
+			"ANTHROPIC_API_KEY",
+			"ANTHROPIC_OAUTH_TOKEN",
+			"CLAUDE_CODE_OAUTH_TOKEN",
+			"OMP_MCP_TIMEOUT_MS",
+		]) {
 			Reflect.deleteProperty(env, key);
 		}
 		const result = spawnSync(
@@ -98,9 +118,9 @@ function runCheck(command: (dir: string) => string, mode: string, checkMs: numbe
 			],
 			{ env, encoding: "utf8", timeout: 120_000, maxBuffer: 4 * 1024 * 1024, input: "" },
 		);
-		const line = result.stderr.split("\n").find(value => value.startsWith("CHECK_PROBE="));
+		const line = result.stderr.split(/\r?\n/).find(value => value.startsWith("CHECK_PROBE="));
 		expect(line, result.stderr.slice(-2500)).toMatch(/^CHECK_PROBE=/);
-		return JSON.parse(line?.slice("CHECK_PROBE=".length) ?? "{}") as Probe;
+		return JSON.parse(line?.slice("CHECK_PROBE=".length) ?? "{}") as T;
 	} finally {
 		rmSync(isolated, { recursive: true, force: true });
 	}
@@ -133,3 +153,18 @@ describe.skipIf(!existsSync(omp) || process.platform === "win32")(
 		}, 130_000);
 	},
 );
+
+describe.skipIf(!existsSync(omp))("agent-desktop's request deadline on stock's MCP manager", () => {
+	it("outlasts agent-desktop's own 30 s waits, which a Windows launch of Notepad runs out before it answers", () => {
+		const probe = runCheck<{ found: boolean; timeout: number | null }>(
+			dir => join(dir, "no-such-agent-desktop"),
+			"",
+			0,
+			CONFIG_PROBE,
+		);
+		expect(probe.found).toBe(true);
+		// Without its own value stock cuts every request off at 30 s, the moment agent-desktop's launch, `wait` and
+		// `--wait-for` give up and answer.
+		expect(probe.timeout).toBeGreaterThanOrEqual(60_000);
+	}, 130_000);
+});
