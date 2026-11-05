@@ -161,6 +161,12 @@ for (const language of variants(["en", "ko"] as const))
 				]);
 
 				// ── Terminal-only slash commands never reach the model ─────────
+				// The composer reads the tab's commands again after the reload (use-composer-commands.ts); until they are in,
+				// `/record` is not known to be terminal-only and its menu is empty (nightly 41936718739 and a CI repeat left
+				// the text in the composer with no notice).
+				await page.locator(".omp-composer-input").fill("/collab");
+				await expect(page.locator(".omp-composer-input")).toHaveAttribute("aria-expanded", "true");
+				await page.locator(".omp-composer-input").fill("");
 				for (const command of ["/collab start", "/join https://relay.example/s/1", "/leave", "/record"]) {
 					await submit(page, command);
 				}
