@@ -710,6 +710,45 @@ describe("each failure shape of the replayed turns", () => {
 			],
 			{ unresolved: ["mcp__agent_desktop_desktop_snapshot"], recovered: [] },
 		],
+		[
+			"a failed cmd+s, then only a cmd+c in the same app",
+			[
+				{
+					name: "mcp__agent_desktop_desktop_press",
+					args: { app: "TextEdit", combo: "cmd+s" },
+					text: '{"ok":false,"command":"press","error":{"code":"ACTION_FAILED"}}',
+					isError: true,
+				},
+				{ name: "mcp__agent_desktop_desktop_press", args: { app: "TextEdit", combo: "cmd+c" } },
+			],
+			{ unresolved: ["mcp__agent_desktop_desktop_press"], recovered: [] },
+		],
+		[
+			"a failed cmd+s, pressed again",
+			[
+				{
+					name: "mcp__agent_desktop_desktop_press",
+					args: { app: "TextEdit", combo: "cmd+s" },
+					text: '{"ok":false,"command":"press","error":{"code":"ACTION_FAILED"}}',
+					isError: true,
+				},
+				{ name: "mcp__agent_desktop_desktop_press", args: { combo: "cmd+s", app: "TextEdit", i: "Saving again" } },
+			],
+			{ unresolved: [], recovered: ["mcp__agent_desktop_desktop_press"] },
+		],
+		[
+			"a failed click at one point, then only a click at another point of the same window",
+			[
+				{
+					name: "mcp__agent_desktop_desktop_mouse_click",
+					args: { window_id: "w-1", xy: "100,200" },
+					text: '{"ok":false,"command":"mouse-click","error":{"code":"ACTION_FAILED"}}',
+					isError: true,
+				},
+				{ name: "mcp__agent_desktop_desktop_mouse_click", args: { window_id: "w-1", xy: "300,40" } },
+			],
+			{ unresolved: ["mcp__agent_desktop_desktop_mouse_click"], recovered: [] },
+		],
 	])("%s", (_, steps, expected) => {
 		expect(verdict(steps)).toEqual(expected);
 	});
