@@ -389,18 +389,26 @@ for (const engine of ENGINES)
 			};
 
 			// (1) A blip: the sockets are cut, the network is fine.
+			let cutAtProxyMs = 0;
 			const blip = await scenario(
 				"blip",
 				async () => {
 					const at = await now(phone);
+					cutAtProxyMs = link.elapsedMs();
 					link.dropSockets();
 					return at;
 				},
 				{ timeoutMs: 20_000 },
 			);
-			// What the proxy saw of the requests around the blip (when each came and when the host answered), to set beside
-			// the page's own timeline: the second ticket request took 970 ms of the 1080 to 1146 ms.
-			const blipRequests = link.requestLog().split("\n").slice(-14).join(" | ");
+			// What the proxy saw of the ticket requests around the blip, on the proxy's clock beside the moment of the cut: the
+			// page's timeline has the second one starting at about +120 ms and ending near +1100 ms (CI webkit); this says
+			// whether it reached the proxy at once and the host held it, or the browser sent it late.
+			const blipRequests = `cut at proxy +${cutAtProxyMs}ms; ${link
+				.requestLog()
+				.split("\n")
+				.filter(line => line.includes("/api/session"))
+				.slice(-6)
+				.join(" | ")}`;
 			// (2) No network for 1.5 s (the browser knows: requests fail at once).
 			const short = await scenario(
 				"short-outage",
@@ -491,15 +499,19 @@ for (const engine of ENGINES)
 			const queued = await scenario(
 				"send-while-down",
 				async () => {
+					// The outage is meant to heal inside the notice grace (LINK_NOTICE_GRACE_MS, 3 s): its length is fixed here, not
+					// left to how long the fill and the click take. A CI repeat showed the notice for 945 ms, so the outage had lasted
+					// about 3.9 s against the 2 s of waits it was written around.
 					const down = link.outage("refuse");
-					await phone.waitForTimeout(800);
+					const began = Date.now();
+					await phone.waitForTimeout(400);
 					await field.fill(sent);
 					await phone
 						.locator(".omp-composer-box")
 						.getByRole("button", { name: /^(Send|Queue|Steer)/ })
 						.first()
 						.click();
-					await phone.waitForTimeout(1200);
+					await phone.waitForTimeout(Math.max(0, 1600 - (Date.now() - began)));
 					down.restore();
 					return now(phone);
 				},

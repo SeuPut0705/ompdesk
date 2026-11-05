@@ -224,16 +224,33 @@ for (const resume of [true, false])
 		// Without the resume nothing holds the child's turn: A hands both follow-ups to B's new omp, which runs them at once,
 		// and the child's tab is done and gone within seconds of its restore (CI repeats, 2 of 30 and two nightlies: the
 		// final tab list held only the opener, whose last reply read the done report from the child's tab). It is read often
-		// and only for its id; where the test holds the turn (`resume`) it must also be up.
-		await expect
-			.poll(
-				async () => {
-					kid = (await tabs(a)).find(tab => tab.sessionPath === childPath)?.tabId ?? kid;
-					return kid;
-				},
-				{ timeout: 60_000, intervals: [25, 50, 100] },
-			)
-			.not.toBe("");
+		// and only for its id; where the test holds the turn (`resume`) it must also be up. The child is the tab that is not
+		// the opener: its session path may not be on the restored tab yet when it is first listed.
+		const seen: string[] = [];
+		try {
+			await expect
+				.poll(
+					async () => {
+						const list = await tabs(a);
+						const summary = JSON.stringify(
+							list.map(tab => [
+								tab.tabId === opener,
+								tab.device !== undefined,
+								tab.status,
+								tab.sessionPath === childPath,
+							]),
+						);
+						if (seen.at(-1) !== summary) seen.push(summary);
+						kid = list.find(tab => tab.tabId !== opener)?.tabId ?? kid;
+						return kid;
+					},
+					{ timeout: 60_000, intervals: [25, 50, 100] },
+				)
+				.not.toBe("");
+		} catch (error) {
+			await test.info().attach("relaunched-tabs.txt", { body: seen.join("\n") });
+			throw error;
+		}
 		if (resume)
 			await expect
 				.poll(async () => (await tabs(a)).find(tab => tab.tabId === kid)?.status, { timeout: 60_000 })

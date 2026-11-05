@@ -208,6 +208,11 @@ export class ServeProxy {
 		return this.#requests.join("\n");
 	}
 
+	/** The clock the log's `+Nms` marks are on, for placing a moment of the test among them. */
+	elapsedMs(): number {
+		return Date.now() - this.#started;
+	}
+
 	#note(line: string): void {
 		this.#requests.push(`+${Date.now() - this.#started}ms ${line}`);
 		if (this.#requests.length > 200) this.#requests.shift();
