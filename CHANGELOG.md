@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.110.6] - 2026-11-05
+
+호스트에 닿지 않을 때 휴대폰 페이지를 새로고침해도 멈추지 않고, 예약 작업 목록이 멈춘 실행을 "실행 중"으로 되돌리지 않아요.
+
+### 고친 것
+- 호스트에 닿지 않는 동안 페이지를 새로고침하면, 서비스 워커가 해시 없는 머리말 파일 두 개(`/pre-paint.js`, `/manifest.webmanifest`)를 네트워크에서 기다려 새로고침이 끝나지 않았어요(WebKit에서 요청 두 개가 열린 채 남음). 이제 설치할 때 두 파일을 받아 두고, 캐시된 것을 먼저 내준 뒤 뒤에서 갱신해요(`sw-core.ts`).
+- 예약 작업 설정에서 실행을 멈췄는데, 늦게 도착한 명령 응답이 푸시로 이미 받은 "멈춤" 상태를 덮어써 그 줄이 다시 "실행 중"으로 보였어요. 이제 푸시로 받은 상태가 늦은 응답보다 우선해요(`SchedulesSection.tsx`).
+- 화면 전환이 중간에 취소되면 그 `ready` 약속의 거부가 처리되지 않은 채 남았어요. 이제 처리해요(`view-transition.ts`).
+
+<!-- en -->
+
+A phone page reloaded while the host is out of reach no longer hangs, and the schedules list no longer puts a stopped run back on Running.
+
+### Fixed
+- A reload while the host was unreachable waited on the service worker's network fetch of the head's two un-hashed files (`/pre-paint.js`, `/manifest.webmanifest`), so it never finished (WebKit left two requests open). The worker now fetches both at install and answers from its cache first, refreshing in the background (`sw-core.ts`).
+- Stopping a run in the schedules settings could be undone by a late command reply that overwrote the "stopped" state a push had already delivered, so the row read Running again. A state pushed by the host now wins over a late reply (`SchedulesSection.tsx`).
+- A view transition aborted midway left its rejected `ready` promise unhandled; it is handled now (`view-transition.ts`).
+
 ## [0.110.5] - 2026-11-05
 
 하위 에이전트를 기다리던 중에 앱을 끄면, 다시 켠 뒤 그 기다림이 v0.110.4 전처럼 조용히 이어져요.
