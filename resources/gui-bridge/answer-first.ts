@@ -84,13 +84,23 @@ export interface AnswerFirstHost {
 	): void;
 }
 
-/** Whether an assistant message says anything in text (a lone "." or blank text is not an answer). */
+/**
+ * Whether an assistant message says anything to the person (a lone "." or blank text is not an answer). A narration
+ * block counts: Anthropic streams prose addressed to the person as a thinking block whose signature names it
+ * narration (pi-ai `ThinkingContent.narration`), and stock shows it as answer text (pi-ai `presentNarrationAsAnswer`).
+ * The bot's claude-opus-5-5 answered a steer that way and the gate refused its call twice (01a1a7f1, 5 Nov 2026).
+ */
 function saysSomething(message: AssistantEvent["message"]): boolean {
 	if (message.role !== "assistant" || !Array.isArray(message.content)) return false;
-	return message.content.some(
-		(block: { type?: unknown; text?: unknown }) =>
-			block?.type === "text" && typeof block.text === "string" && /[\p{L}\p{N}]/u.test(block.text),
-	);
+	return message.content.some((block: { type?: unknown; text?: unknown; thinking?: unknown; narration?: unknown }) => {
+		const said =
+			block?.type === "text"
+				? block.text
+				: block?.type === "thinking" && block.narration === true
+					? block.thinking
+					: undefined;
+		return typeof said === "string" && /[\p{L}\p{N}]/u.test(said);
+	});
 }
 
 /** The live main session's agent loop, as omp's package index reaches it. */
