@@ -128,7 +128,7 @@ export function PromptCard({
 				role="region"
 				tabIndex={-1}
 			>
-				<div className="flex shrink-0 items-center gap-2 px-4 pt-3 pb-2">
+				<div className="flex shrink-0 items-center gap-2 px-4 pt-2 pb-1.5 [html[data-input=touch]_&]:pt-3 [html[data-input=touch]_&]:pb-2">
 					<Icon aria-hidden className={cx("size-(--sc-icon-md) shrink-0 text-(--sc-accent)", iconClassName)} />
 					<span className="min-w-0 flex-1 truncate text-sc-md font-semibold">{label}</span>
 					{waiting > 0 && (
@@ -138,7 +138,7 @@ export function PromptCard({
 					)}
 					{headerAside}
 				</div>
-				<div className="min-h-0 flex-1 overflow-y-auto px-4 pb-3">{children}</div>
+				<div className="min-h-0 flex-1 overflow-y-auto px-4 pb-2 [html[data-input=touch]_&]:pb-3">{children}</div>
 				{footer && (
 					<div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-(--sc-divider) px-4 py-2.5">
 						{footer}

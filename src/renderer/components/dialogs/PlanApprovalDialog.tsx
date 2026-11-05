@@ -235,7 +235,7 @@ export function PlanApprovalDialog() {
 					</span>
 				</div>
 				<div
-					className="max-h-[min(32vh,20rem)] overflow-y-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-3 py-2"
+					className="max-h-[min(40vh,28rem)] overflow-y-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-3 py-2 [html[data-shell=phone]_&]:max-h-[min(32vh,20rem)]"
 					data-plan-content
 				>
 					{pending.planContent.trim().length > 0 ? (

@@ -28,6 +28,14 @@ import { useSheetDrag } from "./use-sheet-drag";
 export type SheetSize = "sm" | "md" | "lg";
 export type SheetPlacement = "right" | "bottom" | "left" | "full";
 
+/**
+ * A dialog's and a sheet's shell insets: tight under a mouse, the roomier touch values under a finger (a phone's own
+ * are mobile.css's). Head, body and foot share one side inset, so the body lines up with the title.
+ */
+export const SHELL_HEAD_PAD = "py-2 pr-3 pl-4 [html[data-input=touch]_&]:py-3 [html[data-input=touch]_&]:pl-5";
+export const SHELL_BODY_PAD = "omp-body-pad px-4 py-3 [html[data-input=touch]_&]:px-5 [html[data-input=touch]_&]:py-4";
+export const SHELL_FOOT_PAD = "px-4 py-2 [html[data-input=touch]_&]:px-5 [html[data-input=touch]_&]:py-3";
+
 const WIDTH: Record<SheetSize, string> = {
 	sm: "w-[min(360px,calc(100vw-48px))]",
 	md: "w-[min(440px,calc(100vw-48px))]",
@@ -102,7 +110,7 @@ export function SheetSurface({
 	onClose,
 	footer,
 	className,
-	bodyClassName = "omp-body-pad px-5 py-4",
+	bodyClassName = SHELL_BODY_PAD,
 	children,
 	header,
 	placement = "right",
@@ -126,7 +134,12 @@ export function SheetSurface({
 					{header}
 				</>
 			) : (
-				<div className="omp-sheet-head flex shrink-0 items-start justify-between gap-3 border-b border-(--sc-divider) py-3 pr-3 pl-5">
+				<div
+					className={cx(
+						"omp-sheet-head flex shrink-0 items-start justify-between gap-3 border-b border-(--sc-divider)",
+						SHELL_HEAD_PAD,
+					)}
+				>
 					<div className="min-w-0 pt-1">
 						<h2 className="text-sc-lg font-semibold tracking-(--sc-tracking-tight) break-words" id={titleId}>
 							{title}
@@ -140,7 +153,12 @@ export function SheetSurface({
 			)}
 			<div className={cx("omp-sheet-body min-h-0 flex-1 overflow-y-auto", bodyClassName)}>{children}</div>
 			{footer && (
-				<div className="omp-sheet-foot flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-(--sc-divider) px-5 py-3">
+				<div
+					className={cx(
+						"omp-sheet-foot flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-(--sc-divider)",
+						SHELL_FOOT_PAD,
+					)}
+				>
 					{footer}
 				</div>
 			)}

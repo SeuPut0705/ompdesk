@@ -140,6 +140,28 @@ export function ForceToolDialog() {
 			title={t("forceTool.title")}
 			footer={
 				<>
+					{/* The tool forced now, with Clear, at the footer's start: one line with the actions, not a box of its
+					    own over the list. */}
+					<div className="me-auto flex min-w-0 items-center gap-2 text-sc-sm" data-force-tool-current>
+						<Wrench aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
+						{current ? (
+							<span className="truncate font-medium text-(--sc-text)">{current}</span>
+						) : (
+							<span className="text-(--sc-text-muted)">{t("forceTool.none")}</span>
+						)}
+						{current ? (
+							<Button
+								disabled={busy || !sidecarReady}
+								icon={<X />}
+								onClick={() => void clear()}
+								size="sm"
+								title={!sidecarReady ? t("modelPicker.notConnected") : undefined}
+								variant="ghost"
+							>
+								{t("forceTool.clear")}
+							</Button>
+						) : null}
+					</div>
 					<Button onClick={close} variant="secondary">
 						{t("common.cancel")}
 					</Button>
@@ -156,29 +178,6 @@ export function ForceToolDialog() {
 			}
 		>
 			<div className="flex min-h-0 flex-1 flex-col gap-3">
-				{/* Current forced tool + clear */}
-				<div className="flex min-w-0 items-center justify-between gap-3 rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-3 py-2">
-					<div className="flex min-w-0 items-center gap-2 text-sc-md">
-						<Wrench aria-hidden className="size-(--sc-icon-md) shrink-0 text-(--sc-text-muted)" />
-						{current ? (
-							<span className="truncate font-medium text-(--sc-text)">{current}</span>
-						) : (
-							<span className="text-(--sc-text-muted)">{t("forceTool.none")}</span>
-						)}
-					</div>
-					{current ? (
-						<Button
-							disabled={busy || !sidecarReady}
-							icon={<X />}
-							onClick={() => void clear()}
-							size="sm"
-							title={!sidecarReady ? t("modelPicker.notConnected") : undefined}
-						>
-							{t("forceTool.clear")}
-						</Button>
-					) : null}
-				</div>
-
 				{/* Tool picker */}
 				<SearchField
 					label={t("forceTool.filterPlaceholder")}

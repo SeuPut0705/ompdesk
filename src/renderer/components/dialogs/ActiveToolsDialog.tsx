@@ -96,7 +96,7 @@ export function ActiveToolsDialog() {
 									</div>
 									<div className="divide-y divide-(--sc-divider)">
 										{group.tools.map(tool => (
-											<div className="px-3 py-2" key={`${group.source}:${tool.name}`}>
+											<div className="px-3 py-1.5" key={`${group.source}:${tool.name}`}>
 												<div className="font-mono text-sc-sm font-medium text-(--sc-text)">{tool.name}</div>
 												{tool.description ? (
 													<div className="mt-0.5 text-sc-sm break-words text-(--sc-text-muted)">

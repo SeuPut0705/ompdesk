@@ -30,7 +30,7 @@ import { useShellMode } from "../../hooks/use-shell-mode";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { IconButton } from "./IconButton";
-import { SheetHandle } from "./Sheet";
+import { SHELL_BODY_PAD, SHELL_FOOT_PAD, SHELL_HEAD_PAD, SheetHandle } from "./Sheet";
 import { useModalLayer } from "./use-modal-layer";
 
 export type ModalSize = "sm" | "md" | "lg" | "full" | "picker" | "picker-compact";
@@ -86,7 +86,7 @@ export const DialogSurface = forwardRef<HTMLDivElement, DialogSurfaceProps>(func
 		descriptionId,
 		onClose,
 		chromeless,
-		bodyClassName = "omp-body-pad px-5 py-4",
+		bodyClassName = SHELL_BODY_PAD,
 		handle,
 		footer,
 		className,
@@ -115,7 +115,12 @@ export const DialogSurface = forwardRef<HTMLDivElement, DialogSurfaceProps>(func
 		>
 			{handle}
 			{!chromeless && (
-				<div className="omp-dialog-head flex min-h-13 shrink-0 items-start justify-between gap-3 py-3 pr-3 pl-5">
+				<div
+					className={cx(
+						"omp-dialog-head flex min-h-11 shrink-0 items-start justify-between gap-3 [html[data-input=touch]_&]:min-h-13",
+						SHELL_HEAD_PAD,
+					)}
+				>
 					<div className="min-w-0 pt-0.5">
 						<h2 className="text-sc-xl font-semibold tracking-(--sc-tracking-tight) break-words" id={titleId}>
 							{title}
@@ -139,7 +144,12 @@ export const DialogSurface = forwardRef<HTMLDivElement, DialogSurfaceProps>(func
 				{children}
 			</div>
 			{footer && (
-				<div className="omp-dialog-foot flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-(--sc-divider) px-5 py-3">
+				<div
+					className={cx(
+						"omp-dialog-foot flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-(--sc-divider)",
+						SHELL_FOOT_PAD,
+					)}
+				>
 					{footer}
 				</div>
 			)}
@@ -167,8 +177,8 @@ export interface ModalProps {
 	/** Extra classes for the panel. */
 	panelClassName?: string;
 	/**
-	 * Body container classes. Defaults to `px-5 py-4` so the body aligns with the
-	 * title (also inset 20px). Pass "p-0" for dialogs that manage their own inner
+	 * Body container classes. Defaults to `SHELL_BODY_PAD` (16 px under a mouse, 20 px under a finger), the title's
+	 * own inset, so the body aligns with it. Pass "p-0" for dialogs that manage their own inner
 	 * layout (Settings, chromeless pickers, tree/hub windows).
 	 */
 	bodyClassName?: string;
@@ -195,7 +205,7 @@ export function Modal({
 	backdrop = true,
 	ariaLabel,
 	panelClassName,
-	bodyClassName = "omp-body-pad px-5 py-4",
+	bodyClassName = SHELL_BODY_PAD,
 	footer,
 	container,
 	children,

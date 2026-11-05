@@ -46,6 +46,10 @@ const DAY_MS = 86_400_000;
 /** The selection / completion key of one source's session. */
 const sessionKey = (source: Source, id: string) => `${source}:${id}`;
 
+/** A title of its own, not the first message again (a source that names a session after its first prompt). */
+const titled = (session: RpcForeignSessionInfo): boolean =>
+	session.title !== undefined && session.title.trim() !== (session.firstMessage ?? "").trim();
+
 interface SourceState {
 	loading: boolean;
 	error: InlineFailure | null;
@@ -422,15 +426,24 @@ export function ImportForeignDialog() {
 								className="mt-1"
 							/>
 							<span className="min-w-0 flex-1">
-								<span className="block truncate text-sc-md font-medium text-(--sc-text)">
-									{session.title ?? session.firstMessage ?? t("import.untitled")}
+								{/* A session whose title is missing or is its first message reads as that message: shown once,
+								    whole, never twice. */}
+								<span
+									className={cx(
+										"block text-sc-md font-medium text-(--sc-text)",
+										titled(session) ? "truncate" : "whitespace-pre-wrap break-words",
+									)}
+								>
+									{(titled(session) ? session.title : session.firstMessage) ?? t("import.untitled")}
 									{completed.has(`${source}:${session.id}`) && (
 										<span className="ml-2 text-(--sc-success)">{t("import.done")}</span>
 									)}
 								</span>
-								<span className="mt-0.5 block whitespace-pre-wrap text-sc-sm break-words text-(--sc-text-secondary)">
-									{session.firstMessage}
-								</span>
+								{titled(session) && session.firstMessage ? (
+									<span className="mt-0.5 block whitespace-pre-wrap text-sc-sm break-words text-(--sc-text-secondary)">
+										{session.firstMessage}
+									</span>
+								) : null}
 								<span className="mt-0.5 block truncate font-mono text-sc-xs text-(--sc-text-muted)">
 									{session.cwd}
 								</span>
