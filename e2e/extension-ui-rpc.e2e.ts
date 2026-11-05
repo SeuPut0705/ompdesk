@@ -231,7 +231,24 @@ for (const language of variants(["en", "ko"] as const))
 						card: document.querySelector(".omp-ask-dock")?.textContent ?? null,
 					}))
 					.catch((cause: unknown) => `unreadable: ${String(cause)}`);
-				await test.info().attach("extension-ui-view.json", { body: JSON.stringify(view, null, 1) });
+				const tabs = await page
+					.evaluate(async () =>
+						(await window.omp.tabs.list()).map(tab => ({
+							tabId: tab.tabId,
+							status: tab.status,
+							sessionId: tab.sessionId,
+						})),
+					)
+					.catch((cause: unknown) => `unreadable: ${String(cause)}`);
+				// Whether the tab started or restarted around the fixture's frames (a frame sent to a runtime the page then
+				// replaced is lost; main replays only the statuses and the open asks).
+				const log = await fs
+					.readFile(path.join(profile, "desktop", "logs", "gui-runtime.jsonl"), "utf8")
+					.then(text => text.split("\n").filter(Boolean).slice(-40).join("\n"))
+					.catch((cause: unknown) => `unreadable: ${String(cause)}`);
+				await test.info().attach("extension-ui-view.json", {
+					body: `${JSON.stringify({ view, tabs }, null, 1)}\n--- gui-runtime.jsonl (last 40)\n${log}`,
+				});
 				throw error;
 			} finally {
 				await exitApp(app);

@@ -221,41 +221,23 @@ for (const resume of [true, false])
 		const opener = (await tabs(a)).find(tab => tab.active && tab.device === undefined)?.tabId ?? "";
 		expect(opener).not.toBe("");
 		let kid = "";
-		try {
+		// Without the resume nothing holds the child's turn: A hands both follow-ups to B's new omp, which runs them at once,
+		// and the child's tab is done and gone within seconds of its restore (CI repeats, 2 of 30 and two nightlies: the
+		// final tab list held only the opener, whose last reply read the done report from the child's tab). It is read often
+		// and only for its id; where the test holds the turn (`resume`) it must also be up.
+		await expect
+			.poll(
+				async () => {
+					kid = (await tabs(a)).find(tab => tab.sessionPath === childPath)?.tabId ?? kid;
+					return kid;
+				},
+				{ timeout: 60_000, intervals: [25, 50, 100] },
+			)
+			.not.toBe("");
+		if (resume)
 			await expect
-				.poll(
-					async () => {
-						const tab = (await tabs(a)).find(tab => tab.sessionPath === childPath);
-						kid = tab?.tabId ?? "";
-						return tab?.status;
-					},
-					{ timeout: 60_000 },
-				)
+				.poll(async () => (await tabs(a)).find(tab => tab.tabId === kid)?.status, { timeout: 60_000 })
 				.toMatch(/^(ready|running)$/);
-		} catch (error) {
-			// Nightlies 41886483957 and 41921143051 and 2 of 30 CI repeats: the relaunched A never lists the child. Its tabs, its
-			// link to B and the line its launch wrote about the tabs it restored or left out say which step lost it.
-			const state = await a
-				.evaluate(async () => ({
-					tabs: await window.omp.tabs.list(),
-					hosts: (await window.omp.remote.getState()).hosts,
-				}))
-				.catch((cause: unknown) => `unreadable: ${String(cause)}`);
-			const log = await fs
-				.readFile(path.join(clientProfile.desktop, "logs", "gui-runtime.jsonl"), "utf8")
-				.then(text =>
-					text
-						.split("\n")
-						.filter(line => /tab-layout|tab\.open|session_deleted|remote/.test(line))
-						.slice(-30)
-						.join("\n"),
-				)
-				.catch((cause: unknown) => `unreadable: ${String(cause)}`);
-			await test.info().attach("relaunched-opener.txt", {
-				body: `child: ${childPath}\n${JSON.stringify(state, null, 1)}\n--- gui-runtime.jsonl\n${log}`,
-			});
-			throw error;
-		}
 
 		if (resume) {
 			// The quit left the child's turn running on B, in the omp that queued both: A hands neither again.

@@ -520,9 +520,32 @@ for (const engine of ENGINES)
 				const outbox = await phone
 					.evaluate(() => localStorage.getItem("omp.outbox.v1"))
 					.catch((cause: unknown) => `unreadable: ${String(cause)}`);
-				const received = (await fs.readFile(record, "utf8")).split("\n").slice(-12).join("\n");
+				const lines = (await fs.readFile(record, "utf8")).split("\n").filter(Boolean);
+				// The outbox item names a session id; the tab it goes to must hold that id (stores/outbox.ts outboxSession). Which
+				// omp processes recorded commands, and what the page's tabs say now, show whether the id the item waits for is gone.
+				const processes = [...new Set(lines.map(line => /"recordedBy":"([^"]+)"/.exec(line)?.[1] ?? "?"))];
+				const tabs = await phone
+					.evaluate(async () =>
+						(await window.omp.tabs.list()).map(tab => ({
+							tabId: tab.tabId,
+							sessionId: tab.sessionId,
+							status: tab.status,
+							active: tab.active,
+						})),
+					)
+					.catch((cause: unknown) => `unreadable: ${String(cause)}`);
+				const sessionCommands = lines
+					.filter(line => /new_session|switch_session|"type":"prompt"/.test(line))
+					.slice(-12);
 				await test.info().attach("send-while-down.txt", {
-					body: `outbox: ${outbox}\nomp received (last 12):\n${received}\nnumbers: ${JSON.stringify(numbers)}`,
+					body: [
+						`outbox: ${outbox}`,
+						`tabs: ${JSON.stringify(tabs)}`,
+						`omp processes that recorded: ${processes.join(", ")}`,
+						`session commands (last 12):\n${sessionCommands.join("\n")}`,
+						`omp received (last 12):\n${lines.slice(-12).join("\n")}`,
+						`numbers: ${JSON.stringify(numbers)}`,
+					].join("\n"),
 				});
 				throw error;
 			}
