@@ -2672,8 +2672,8 @@ export class SidecarPool {
 		);
 	}
 
-	/** The tabs whose omp runs on this computer, for memory admission: pid, title, whether a turn runs, whether it is quiet. */
-	memoryTabs(): Array<{ tabId: string; pid?: number; label: string; busy: boolean; quiet: boolean }> {
+	/** The tabs whose omp runs on this computer, for memory admission: pid, title, whether a turn runs. */
+	memoryTabs(): Array<{ tabId: string; pid?: number; label: string; busy: boolean }> {
 		return [...this.#entries].flatMap(entry =>
 			entry.hostedView || entry.device !== undefined
 				? []
@@ -2683,52 +2683,9 @@ export class SidecarPool {
 							...(entry.sidecar.pid !== undefined ? { pid: entry.sidecar.pid } : {}),
 							label: entry.title || entry.autoTitle || entry.tabId,
 							busy: runBusy(entry.run),
-							quiet: this.#quiet(entry),
 						},
 					],
 		);
-	}
-
-	/**
-	 * Nothing in the tab is live as the pool sees it (`idle-release.ts`): this computer's own ready tab on a saved
-	 * session, shown in no window, split pane or device, opened by the person (an agent's child closes by itself once its
-	 * work is over), with no turn, compaction, ask, plan, draft, retry, continuation, sign-in or pending restart.
-	 */
-	#quiet(entry: PoolEntry): boolean {
-		if (entry.hostedView || entry.device !== undefined || entry.placeholder || entry.unstarted) return false;
-		if (entry.status !== "ready" || !entry.sidecar.sleep || !entry.sessionFile) return false;
-		if (entry.full || (entry.deviceViews?.size ?? 0) > 0) return false;
-		if (runBusy(entry.run) || entry.run.compacting === true) return false;
-		if (entry.openedBy !== undefined || entry.openedBySession !== undefined) return false;
-		if (entry.awaitingConnection || entry.memoryWait || entry.planProposal || entry.resuming) return false;
-		if (entry.unsavedPrompt !== undefined || entry.scheduledRetry || entry.retry) return false;
-		if (entry.signIns || entry.ompRestartPending || entry.extensionPending) return false;
-		if (this.hasDraft(entry.tabId)) return false;
-		for (const owner of this.#requestOwners.values()) if (owner === entry) return false;
-		return true;
-	}
-
-	/**
-	 * Give a quiet tab's omp back while memory is short (`idle-release.ts`): checked again, then stock's own settle
-	 * predicate (`isSettled`: idle, nothing queued, no background job or delivery that could wake it), then once more
-	 * after that answer. Resolves whether it went asleep.
-	 */
-	async releaseIdle(tabId: string): Promise<boolean> {
-		const entry = this.#byTabId.get(tabId);
-		const client = entry?.sidecar.rpcClient;
-		if (!entry || !client || !this.#quiet(entry)) return false;
-		const response = await client.command({ type: "get_state" }).catch(() => null);
-		const state: unknown = response?.success ? response.data : undefined;
-		const settled =
-			typeof state === "object" &&
-			state !== null &&
-			"isSettled" in state &&
-			state.isSettled === true &&
-			!("isStreaming" in state && state.isStreaming === true);
-		if (!settled) return false;
-		if (this.#byTabId.get(tabId) !== entry || !this.#quiet(entry)) return false;
-		entry.sidecar.sleep?.();
-		return true;
 	}
 
 	/**

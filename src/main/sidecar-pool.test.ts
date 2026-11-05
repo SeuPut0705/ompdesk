@@ -53,21 +53,12 @@ class FakeSidecar extends EventEmitter {
 	currentStatus: SidecarStatus = "asleep";
 	/** Whether a child process is running (a failed health check reports `error` over a live one). */
 	processAlive = false;
-	/** Stock's settle predicate as `get_state` reports it. */
-	settled = true;
-	slept = 0;
 	readonly rpcClient = {
 		command: async (command: RpcCommand): Promise<RpcResponse> => {
 			this.rpcCommands.push(command);
-			const data =
-				command.type === "get_state" ? { isSettled: this.settled, isStreaming: false } : { cancelled: false };
-			return { type: "response", command: command.type, success: true, data };
+			return { type: "response", command: command.type, success: true, data: { cancelled: false } };
 		},
 	};
-	sleep(): void {
-		this.slept++;
-		this.emitStatus("asleep");
-	}
 	start(): void {
 		this.started = true;
 		if (this.currentStatus === "asleep") this.emitStatus("starting");
@@ -1158,77 +1149,6 @@ describe("SidecarPool restartOnNewOmp (omp updated on this computer)", () => {
 		b.emitAgentEvents(["agent_end"]);
 		await tick();
 		expect(b.restartArgs).toHaveLength(before);
-	});
-});
-
-describe("SidecarPool releaseIdle (a quiet tab gives its omp back while memory is short)", () => {
-	function tabs() {
-		const { pool, sidecars } = fakePool();
-		const fw = fakeWindow(1);
-		pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
-		pool.acquire("/b", fw.win, "tab-b", "/sessions/b.jsonl");
-		const [a, b] = sidecars;
-		for (const sidecar of [a, b]) sidecar?.emitStatus("ready");
-		pool.setActiveTab(fw.win, "tab-a");
-		return { pool, fw, a: a!, b: b! };
-	}
-	const quiet = (pool: SidecarPool) => Object.fromEntries(pool.memoryTabs().map(tab => [tab.tabId, tab.quiet]));
-
-	it("releases a hidden, settled tab and starts it again on its own session when it is shown", async () => {
-		const { pool, fw, a, b } = tabs();
-		expect(quiet(pool)).toEqual({ "tab-a": false, "tab-b": true });
-		expect(await pool.releaseIdle("tab-a")).toBe(false);
-		expect(await pool.releaseIdle("tab-b")).toBe(true);
-		expect(a.slept).toBe(0);
-		expect(b.slept).toBe(1);
-		expect(pool.sidecarOf("tab-b")?.status).toBe("asleep");
-		const before = b.restartArgs.length;
-		pool.setActiveTab(fw.win, "tab-b");
-		expect(b.restartArgs.slice(before)).toEqual([{ cwd: undefined, sessionPath: "/sessions/b.jsonl" }]);
-	});
-
-	it("keeps a tab while anything in it is live: a turn, an ask, a draft, unsettled work, a viewer", async () => {
-		const turn = tabs();
-		turn.b.emitAgentEvents(["agent_start"]);
-		expect(await turn.pool.releaseIdle("tab-b")).toBe(false);
-
-		const ask = tabs();
-		ask.b.emitExtensionUi("ask-1");
-		expect(await ask.pool.releaseIdle("tab-b")).toBe(false);
-
-		const draft = tabs();
-		draft.pool.noteDraft("tab-b", 1, "set_next_prompt_draft", false);
-		expect(await draft.pool.releaseIdle("tab-b")).toBe(false);
-
-		// Stock still has a background job or delivery that could wake it.
-		const pending = tabs();
-		pending.b.settled = false;
-		expect(await pending.pool.releaseIdle("tab-b")).toBe(false);
-
-		const viewed = tabs();
-		viewed.pool.attachViewer(fakeWindow(2).win, "tab-b");
-		expect(await viewed.pool.releaseIdle("tab-b")).toBe(false);
-
-		for (const rig of [turn, ask, draft, pending, viewed]) expect(rig.b.slept).toBe(0);
-		for (const rig of [turn, ask, draft, viewed]) expect(quiet(rig.pool)["tab-b"]).toBe(false);
-		// Nothing live but stock's own word: the pool reads it quiet and asks stock before it releases.
-		expect(quiet(pending.pool)["tab-b"]).toBe(true);
-	});
-
-	it("leaves a tab an agent opened, and one on no saved session", async () => {
-		const { pool, sidecars } = fakePool();
-		const fw = fakeWindow(1);
-		pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
-		pool.acquire("/b", fw.win, "tab-b", "/sessions/b.jsonl");
-		// A new session nothing was written to yet: no file to start again from.
-		pool.acquire("/c", fw.win, "tab-c");
-		for (const sidecar of sidecars) sidecar.emitStatus("ready");
-		pool.setActiveTab(fw.win, "tab-a");
-		expect(await pool.releaseIdle("tab-c")).toBe(false);
-		expect(quiet(pool)["tab-b"]).toBe(true);
-		pool.setTabOpener("tab-b", "tab-a");
-		expect(await pool.releaseIdle("tab-b")).toBe(false);
-		expect(sidecars[1]?.slept).toBe(0);
 	});
 });
 
