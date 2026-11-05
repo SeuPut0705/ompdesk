@@ -4664,6 +4664,24 @@ describe("after a relaunch: ids, titles, and messages a busy child waits for", (
 		);
 	});
 
+	it("steers a running session by default, and queues a follow-up only when asked", async () => {
+		// The owner's call (6 Nov 2026): an agent's instruction to a running session waited for that session's whole turn.
+		const host = new FakeHost({ tabId: "boss0001", title: "Boss" });
+		const service = control(host);
+		const opened = await service.run("boss0001", T.open, { message: "Title: part A\nDo A" });
+		const kid = /Opened session (\w+)/.exec(opened.text)?.[1] as string;
+		const behavior = () => {
+			const last = host.sent.filter(entry => entry.tabId === kid && entry.command.type === "prompt").at(-1)?.command;
+			return last?.type === "prompt" ? last.streamingBehavior : undefined;
+		};
+		const now = await service.run("boss0001", T.send, { session: kid, message: "Stop at B" });
+		expect(now.text).toContain("delivered as steer (it reads it between steps)");
+		expect(behavior()).toBe("steer");
+		const later = await service.run("boss0001", T.send, { session: kid, message: "Then C", delivery: "follow_up" });
+		expect(later.text).toContain("queued as a follow-up");
+		expect(behavior()).toBe("followUp");
+	});
+
 	it("tells a busy child that reports of a follow-up queued for it, and steers the next one", async () => {
 		const host = new FakeHost({ tabId: "boss0001", title: "Boss" });
 		const service = control(host);
