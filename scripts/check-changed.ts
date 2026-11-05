@@ -12,7 +12,10 @@
  *
  * 1. Side by side: typecheck (always whole: a type error shows up far from the
  *    edit), biome on the changed files, the surface policy, and `vitest related`
- *    (every test file that imports a changed file, directly or transitively), and
+ *    (every test file that imports a changed file, directly or transitively, and every
+ *    one whose text names a changed file, CHANGELOG.md included: a test that reads a
+ *    stylesheet or a component as text, or imports the changelog raw, has no import
+ *    `vitest related` could follow), and
  *    `scripts/lint-fix-tests.mjs` over this branch's unpublished commits.
  * 2. Then, unless `--no-e2e` or nothing matches: `bun run build` (reused when
  *    out/ matches) and the Playwright specs that touch what changed: a changed
@@ -49,11 +52,10 @@ const git = (...a: string[]) =>
 	execFileSync("git", a, { encoding: "utf8", maxBuffer: 64 << 20 })
 		.split("\n")
 		.filter(Boolean);
-const scope = changedScope(
-	[...git("diff", "--name-only", base, "--"), ...git("ls-files", "-o", "--exclude-standard")].filter(file =>
-		existsSync(file),
-	),
+const paths = [...git("diff", "--name-only", base, "--"), ...git("ls-files", "-o", "--exclude-standard")].filter(file =>
+	existsSync(file),
 );
+const scope = changedScope(paths);
 const changed = scope.files;
 const sourceChanged = changed.filter(file => /^(?:src|e2e|resources|scripts)\//.test(file));
 
@@ -82,6 +84,30 @@ function rendererSourcesNaming(className: string): string[] {
 	}
 }
 
+/**
+ * The unit tests whose text names a changed file by its file name (`git grep`, tracked files). Such a test reads the file
+ * as text (a stylesheet's rules, a component's classes, CHANGELOG.md raw), so `vitest related` never reached it: on
+ * 6 Nov 2026 a settings row's padding and then a changelog section turned main red while check:changed passed.
+ */
+function testsNaming(files: readonly string[]): string[] {
+	const names = [...new Set(files.map(file => path.basename(file)))];
+	if (names.length === 0) return [];
+	try {
+		return git(
+			"grep",
+			"-l",
+			"-F",
+			...names.flatMap(name => ["-e", name]),
+			"--",
+			"*.test.ts",
+			"*.test.tsx",
+			"*.test.mjs",
+		);
+	} catch {
+		return [];
+	}
+}
+
 const BIOME_EXT = /\.(?:[cm]?[jt]sx?|json|jsonc|css)$/;
 const BIOME_DIRS = /^(?:(?:src|e2e|resources|scripts)\/|[^/]+$)/;
 const specs = flag("--no-e2e")
@@ -98,19 +124,26 @@ const specs = flag("--no-e2e")
 			usersOf: className => rendererSourcesNaming(className),
 		});
 const supportChanged = changed.some(file => /^e2e\/(?!.*\.e2e\.ts$)/.test(file));
+const readers = testsNaming(paths);
 
 if (flag("--list")) {
 	console.log(`changed (${changed.length}):\n${changed.map(file => `  ${file}`).join("\n")}`);
+	console.log(`tests naming them (${readers.length}):\n${readers.map(file => `  ${file}`).join("\n")}`);
 	console.log(`specs (${specs.length}):\n${specs.map(spec => `  ${spec}`).join("\n")}`);
 	process.exit(0);
 }
-if (changed.length === 0) {
+if (changed.length === 0 && readers.length === 0) {
 	console.log(`[check:changed] nothing changed against ${base}`);
 	process.exit(0);
 }
 
 const biomeFiles = changed.filter(file => BIOME_DIRS.test(file) && BIOME_EXT.test(file));
-const relatedFiles = changed.filter(file => /^(?:src|resources|scripts)\//.test(file) && /\.[cm]?[jt]sx?$/.test(file));
+const relatedFiles = [
+	...new Set([
+		...changed.filter(file => /^(?:src|resources|scripts)\//.test(file) && /\.[cm]?[jt]sx?$/.test(file)),
+		...readers,
+	]),
+];
 const CHECKS: Array<readonly [string, string[]]> = [["types", ["bun", "run", "check:types"]]];
 // biome.json ignores some of these (stylesheets): a change of only those is no failure.
 if (biomeFiles.length > 0)
