@@ -974,6 +974,7 @@ export const SURFACES: readonly Surface[] = [
 		area: "A",
 		title: "Context usage: a popover, a bottom sheet on a phone",
 		open: page => page.locator(".omp-context-usage-trigger").first().click(),
+		parity: { session: "work" },
 	},
 	{
 		id: "composer-attach-menu",
