@@ -841,11 +841,9 @@ html[data-platform="darwin"] .omp-sidebar-search {
 	width: 13.5rem;
 }
 
-/* A narrow page (the sidebar plus the page under ~820px) gives the sections the full width:
-   the nav becomes a wrapping bar on top — title and search on one row, every section a chip —
-   instead of a 240px column beside a 300px body. On a short page (the minimum window at 200%
-   zoom is 400×300 CSS px) the wrapped chips would fill the whole height and leave the section
-   none, so the bar takes at most half and scrolls its own chips. */
+/* A narrow page (the sidebar plus the page under ~820px) gives the sections the full width: the nav becomes a bar on
+   top, title, search and every section a chip, instead of a 240px column beside a 300px body. A phone's stacked list
+   (mobile.css) starts from this rule and turns it back into rows. */
 @container settings-root (max-width: 700px) {
 	.settings-page {
 		flex-direction: column;
@@ -881,6 +879,25 @@ html[data-platform="darwin"] .omp-sidebar-search {
 	.settings-nav [data-settings-nav] > span:nth-child(3) {
 		display: none;
 	}
+	/* Beside the section (every shell but a phone's stacked list) the bar is ONE row that scrolls sideways, the open
+	   section's chip kept in view (SettingsPage). Wrapped, the twelve chips took five rows (~240px, a third of an
+	   800×800 window) above the section; a tablet's bar already worked this way (mobile.css). */
+	.settings-page:not([data-stacked]) .settings-nav {
+		max-height: none;
+		flex-wrap: nowrap;
+		overflow: auto hidden;
+		padding-top: var(--sc-space-3);
+		padding-bottom: var(--sc-space-2);
+	}
+	.settings-page:not([data-stacked]) .settings-nav > * {
+		flex: none;
+	}
+	.settings-page:not([data-stacked]) .settings-nav > div:has(input) {
+		flex: 0 0 12rem;
+	}
+	.settings-page:not([data-stacked]) .settings-nav [data-settings-nav] {
+		white-space: nowrap;
+	}
 }
 
 .settings-content {
@@ -895,7 +912,7 @@ html[data-platform="darwin"] .omp-sidebar-search {
 
 .settings-section + .settings-section,
 .settings-sections > * + .settings-section {
-	margin-top: var(--sc-space-6);
+	margin-top: var(--sc-space-4);
 }
 
 .settings-section-nested + .settings-section-nested {
@@ -910,7 +927,7 @@ html[data-platform="darwin"] .omp-sidebar-search {
 
 /* "Advanced" folds a section's rarely changed groups behind a hairline at its end. */
 .settings-sections > * + .settings-advanced {
-	margin-top: var(--sc-space-6);
+	margin-top: var(--sc-space-4);
 }
 
 .settings-advanced {

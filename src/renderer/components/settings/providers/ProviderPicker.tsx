@@ -212,7 +212,9 @@ function FeaturedCard({
 			{connected ? (
 				<div className={frame} data-provider-connected={def.id}>
 					<ProviderMark provider={mark} />
-					<span className="min-w-0 flex-1 truncate text-sc-md font-medium text-(--sc-text)">{card.label}</span>
+					<span className="line-clamp-2 min-w-0 flex-1 text-sc-md font-medium break-words text-(--sc-text)">
+						{card.label}
+					</span>
 					<Badge dot variant="success">
 						{t("providerList.connected")}
 					</Badge>
@@ -229,7 +231,7 @@ function FeaturedCard({
 				>
 					<ProviderMark provider={mark} />
 					<span className="flex min-w-0 flex-1 flex-col">
-						<span className="truncate text-sc-md font-medium">{card.label}</span>
+						<span className="line-clamp-2 text-sc-md font-medium break-words">{card.label}</span>
 						<span className="truncate text-sc-sm text-(--sc-text-muted)">
 							{subscription ? t("providers.featured.subscription") : t("providers.featured.apiKey")}
 						</span>

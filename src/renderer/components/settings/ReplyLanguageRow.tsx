@@ -2,7 +2,7 @@
  * Settings › General › Conversation language: which language the agent
  * replies in (prefs `replyLanguage`, src/shared/reply-language.ts). Main pushes
  * a change to every open local session, effective from its next turn. A tab
- * on a paired host follows the host's own setting, and the row says so.
+ * on a paired host follows the host's own setting, as General's scope line says once (SettingsPage).
  */
 
 import { MessagesSquare } from "lucide-react";
@@ -17,7 +17,6 @@ import {
 } from "../../../shared/reply-language";
 import { saveGuiPreference } from "../../lib/display-preferences";
 import { useLang, useT } from "../../lib/i18n";
-import { useFocusedHost } from "../../stores/remote";
 import { toastError } from "../../stores/toast";
 import { Select } from "../common";
 import { SettingsRow } from "./SettingsLayout";
@@ -49,7 +48,6 @@ export function ReplyLanguageRow() {
 	const t = useT();
 	const { lang } = useLang();
 	const id = useId();
-	const host = useFocusedHost();
 	const [pref, setPref] = useState<ReplyLanguagePref | null>(null);
 	const [deviceTag, setDeviceTag] = useState<string | null>(null);
 
@@ -107,13 +105,6 @@ export function ReplyLanguageRow() {
 				/>
 			}
 			description={description}
-			footer={
-				host && (
-					<p className="mt-1 text-sc-xs break-keep text-(--sc-text-muted)" data-reply-language-host="true">
-						{t("settings.gui.replyLanguageHost", { name: host.name ?? t("remote.tab.unknownDevice") })}
-					</p>
-				)
-			}
 			htmlFor={id}
 			id="setting-gui-replyLanguage"
 			icon={<MessagesSquare />}

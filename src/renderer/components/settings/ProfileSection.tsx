@@ -3,7 +3,7 @@
  * development background it assumes (prefs `userProfile`, contracts in
  * resources/gui-bridge/modes/user-profile-contracts.ts). Main pushes a change to
  * every open local session, effective from its next turn; a tab on a paired
- * host follows the host's own setting, and the section says so.
+ * host follows the host's own setting, as General's scope line says once (SettingsPage).
  */
 
 import { GraduationCap, UserRound } from "lucide-react";
@@ -19,14 +19,12 @@ import {
 import { saveGuiPreference } from "../../lib/display-preferences";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
-import { useFocusedHost } from "../../stores/remote";
 import { toastError } from "../../stores/toast";
 import { Input, Select } from "../common";
 import { SettingsRow, SettingsSection } from "./SettingsLayout";
 
 export function ProfileSection() {
 	const t = useT();
-	const host = useFocusedHost();
 	const nameId = useId();
 	const experienceId = useId();
 	const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -131,13 +129,6 @@ export function ProfileSection() {
 					/>
 				}
 				description={t("settings.gui.profileExperienceDesc")}
-				footer={
-					host && (
-						<p className="mt-1 text-sc-xs break-keep text-(--sc-text-muted)" data-profile-host="true">
-							{t("settings.gui.replyLanguageHost", { name: host.name ?? t("remote.tab.unknownDevice") })}
-						</p>
-					)
-				}
 				htmlFor={experienceId}
 				id="setting-gui-profileExperience"
 				icon={<GraduationCap />}

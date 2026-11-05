@@ -191,7 +191,11 @@ export function SettingsRow({
 	const tipOnlyContext = useContext(SettingsTipOnlyContext);
 	const { inline, tip, note } = splitDescription(description, tipOnly ?? tipOnlyContext);
 	return (
-		<div className={cx("settings-row scroll-mt-4 py-1", className)} data-setting-row="true" id={id}>
+		<div
+			className={cx("settings-row scroll-mt-4 py-0.5 [html[data-input=touch]_&]:py-1", className)}
+			data-setting-row="true"
+			id={id}
+		>
 			<div
 				className={cx(
 					"settings-field-row",

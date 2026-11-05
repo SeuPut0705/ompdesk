@@ -195,7 +195,11 @@ describe("Settings for a tab on a paired host", () => {
 		await openSettings("general");
 		expect(query("#setting-gui-language")).not.toBeNull();
 		expect(query(".settings-column [data-this-device-tag]")?.textContent).toBe("This device");
-		expect(query("[data-reply-language-host]")?.textContent).toBe("Tabs on Studio follow that device's own setting.");
+		// Said once, on the section's scope line, never again under each row it applies to.
+		expect(Array.from(document.querySelectorAll("[data-settings-host-note]"), node => node.textContent)).toEqual([
+			"Tabs on Studio follow that device's own setting.",
+		]);
+		expect(document.body.textContent?.split("follow that device's own setting").length).toBe(2);
 		expect(query("[data-host-offline]")).toBeNull();
 		expect(query("#setting-steeringMode")).toBeNull();
 	});
@@ -206,7 +210,7 @@ describe("Settings for a tab on a paired host", () => {
 		expect(query("[data-settings-device-banner]")).toBeNull();
 		expect(query("[data-this-device-tag]")).toBeNull();
 		expect(query("[data-host-offline]")).toBeNull();
-		expect(query("[data-reply-language-host]")).toBeNull();
+		expect(query("[data-settings-host-note]")).toBeNull();
 		expect(query("#setting-steeringMode")).toBeNull();
 		// No "This device" / "Selected host" lines anywhere for a local tab.
 		expect(query("[data-settings-section-scope]")).toBeNull();

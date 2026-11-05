@@ -99,7 +99,7 @@ export function MemoryPages({ project }: { project: AiMemoryProjectRef }) {
 					<section data-memory-group={group} key={group}>
 						<DisclosureButton
 							chevronClassName="size-(--sc-icon-sm)"
-							className="min-h-10 gap-1 px-1 text-sc-xs [html[data-input=touch]_&]:min-h-11 font-semibold text-(--sc-text-muted) uppercase"
+							className="min-h-8 gap-1 px-1 text-sc-xs [html[data-input=touch]_&]:min-h-11 font-semibold text-(--sc-text-muted) uppercase"
 							data-memory-group-toggle={group}
 							onToggle={() => toggle(group)}
 							open={!folded}

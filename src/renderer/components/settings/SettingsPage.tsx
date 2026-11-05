@@ -557,7 +557,17 @@ export function SettingsPage() {
 												data-settings-section-scope={SECTION_SCOPE[section]}
 											>
 												{SECTION_SCOPE[section] === "app" ? (
-													<ThisDeviceTag />
+													<>
+														<ThisDeviceTag />
+														{/* Once for the section, not under each row a host's tabs ignore (reply language, profile). */}
+														{section === "general" && (
+															<span className="ml-2 break-keep" data-settings-host-note="true">
+																{t("settings.gui.replyLanguageHost", {
+																	name: host.name ?? t("remote.tab.unknownDevice"),
+																})}
+															</span>
+														)}
+													</>
 												) : (
 													<>
 														{t(

@@ -73,5 +73,6 @@ export function MutedLine({
 	);
 }
 
+/** A list row: 32 px for a mouse, 44 px under a finger. */
 export const LIST_ROW =
-	"flex min-h-10 w-full min-w-0 [html[data-input=touch]_&]:min-h-11 items-center gap-2 rounded-(--sc-radius-sm) px-2 py-1.5 text-left text-sc-sm text-(--sc-text) transition-colors duration-(--sc-duration-fast) hover:bg-(--sc-hover) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-offset-(--sc-focus-offset) focus-visible:outline-(--sc-focus-ring) aria-[current=true]:bg-(--sc-selected)";
+	"flex min-h-8 w-full min-w-0 [html[data-input=touch]_&]:min-h-11 items-center gap-2 rounded-(--sc-radius-sm) px-2 py-1 [html[data-input=touch]_&]:py-1.5 text-left text-sc-sm text-(--sc-text) transition-colors duration-(--sc-duration-fast) hover:bg-(--sc-hover) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-offset-(--sc-focus-offset) focus-visible:outline-(--sc-focus-ring) aria-[current=true]:bg-(--sc-selected)";
