@@ -1935,8 +1935,8 @@ html[data-shell] [data-terminal-keybar] > div {
 	--hit-gap-y: 10px;
 }
 
-/* Inline code in prose keeps to the 12 px floor (0.85em of a 13.5 px reply is 11.5). */
-html[data-shell="phone"] :is(.markdown-body, .omp-streaming-tail) :not(pre) > code {
+/* Inline code and a reply's keys (<kbd>) keep to the 12 px floor (0.85em of a 13.5 px reply is 11.5). */
+html[data-shell="phone"] :is(.markdown-body, .omp-streaming-tail) :is(:not(pre) > code, kbd) {
 	font-size: max(12px, 0.88em);
 }
 

@@ -503,10 +503,11 @@ function measureInPage(
 		if (!shown(element) || srOnly(element) || covered(element)) continue;
 		const computed = style(element);
 		const rect = element.getBoundingClientRect();
-		// Small text: an SVG's text is measured through its own scale.
+		// Small text: an SVG's text is measured through its own scale. A sub- or superscript and a formula's script
+		// levels (KaTeX's `mtight`) are small by meaning: at the floor beside a reply's 13 px they read as body text.
 		let size = Number.parseFloat(computed.fontSize);
 		if (element instanceof SVGGraphicsElement) size *= element.getScreenCTM()?.a ?? 1;
-		if (size < 11.5 && !element.closest("[data-audit-ignore], .xterm")) {
+		if (size < 11.5 && !element.closest("[data-audit-ignore], .xterm, sub, sup, .katex .mtight")) {
 			push("small-text", element, `${size.toFixed(1)}px`);
 		}
 		const overflowsBox = element.scrollWidth > element.clientWidth + 1 && element.clientWidth > 0;
