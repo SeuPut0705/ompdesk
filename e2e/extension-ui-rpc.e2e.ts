@@ -85,6 +85,11 @@ async function launch(
 	await expect
 		.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 60_000 })
 		.toBe("ready");
+	// The page registers its extension UI listener when the app mounts (App.tsx useExtensionUi), and main may be ready
+	// before that. A frame sent earlier is lost unless main replays it, and it replays only statuses, widgets, titles and
+	// open asks: the error notice vanished in 7 of 8 failures of 40 CI repeats, and the editor card came after the
+	// confirm in the eighth.
+	await expect(page.locator(".omp-composer-input")).toBeVisible({ timeout: 30_000 });
 	return { app, page, profile, record };
 }
 
