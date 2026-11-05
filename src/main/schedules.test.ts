@@ -454,7 +454,7 @@ describe("routines: event triggers, once, run history", () => {
 			file: join(dir, "schedules.json"),
 			logDir: join(dir, "runs"),
 			launch,
-			onState: () => {},
+			onState: stateChanged,
 			wake,
 		});
 		return { service, turns, woke, wake };
@@ -465,8 +465,23 @@ describe("routines: event triggers, once, run history", () => {
 		return id;
 	}
 
-	const ended = (service: ScheduleService, count: number) =>
-		vi.waitFor(() => expect(service.state().runs.filter(run => run.status !== "running")).toHaveLength(count));
+	/** Every state change of a service built with `onState: stateChanged` re-checks the waits on `ended`. */
+	const stateWaits = new Set<() => void>();
+	const stateChanged = () => {
+		for (const check of [...stateWaits]) check();
+	};
+	/** Settles once `count` runs have ended: decided on the service's own state changes, never a wall-clock poll. */
+	const ended = (service: ScheduleService, count: number): Promise<void> => {
+		const { promise, resolve } = Promise.withResolvers<void>();
+		const check = () => {
+			if (service.state().runs.filter(run => run.status !== "running").length !== count) return;
+			stateWaits.delete(check);
+			resolve();
+		};
+		stateWaits.add(check);
+		check();
+		return promise;
+	};
 
 	it("an event starts a run told what fired it; events during it make exactly one more run with all of them", async () => {
 		const dir = await tempDir();
@@ -726,7 +741,7 @@ describe("routines: event triggers, once, run history", () => {
 			file: join(dir, "schedules.json"),
 			logDir: join(dir, "runs"),
 			launch,
-			onState: () => {},
+			onState: stateChanged,
 			wake,
 			runEnded: (schedule, run) => ends.push([schedule.name, run.status, run.error]),
 		});
