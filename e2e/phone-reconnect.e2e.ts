@@ -149,8 +149,11 @@ function noticeTime(log: LinkLog, from: number, to: number): { ms: number; kinds
 
 /**
  * The transcript's scroller (the same element?) and the row the person reads: the topmost one wholly in view, by its key
- * and its distance from the scroller's top. A re-read may change rows above it (a prompt gains "from <device>"), and
- * the list then moves its scroll position to hold that row still, so the position itself is not what the person sees.
+ * and the distance of its text from the scroller's top. A re-read may change rows (a prompt gains "from <device>"), and
+ * the list then holds the topmost row it left alone still (`content-anchor.ts`), so a row that itself changed grows
+ * upward: its box moves while its text, the thing the person reads, stays. The text block is what is measured; the
+ * row's box moved 22 px in the blip case of nightlies 41911961277 and 41936718739 and in 27 of 30 runs under load here;
+ * the compensation log of those runs showed the three rows above the reader compensated exactly (22 px each).
  */
 async function transcriptState(
 	phone: Page,
@@ -165,10 +168,11 @@ async function transcriptState(
 			const row = wanted
 				? rows.find(el => el.dataset.rowKey === wanted)
 				: rows.find(el => el.getBoundingClientRect().top >= box.top);
+			const text = row?.querySelector<HTMLElement>(".omp-user-text, .markdown-body") ?? row;
 			return {
 				kept: Reflect.get(node, "__kept") === true,
 				key: row?.dataset.rowKey ?? null,
-				top: row ? row.getBoundingClientRect().top - box.top : null,
+				top: text ? text.getBoundingClientRect().top - box.top : null,
 			};
 		}, key);
 }
