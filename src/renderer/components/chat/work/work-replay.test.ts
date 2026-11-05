@@ -608,6 +608,69 @@ describe("each failure shape of the replayed turns", () => {
 			],
 			{ unresolved: ["xd://ompdesk_report"], recovered: [] },
 		],
+		[
+			"an agent-desktop find and a wait that matched nothing, direct and as a device",
+			[
+				{
+					name: "mcp__agent_desktop_desktop_find",
+					args: { app: "TextEdit", name: "파일" },
+					text: '{"ok":false,"command":"find","error":{"code":"ELEMENT_NOT_FOUND","message":"no match"}}',
+					isError: true,
+				},
+				{
+					name: "write",
+					args: { path: "xd://mcp__agent_desktop_desktop_wait", content: '{"element":"button:OK"}' },
+					text: '{"ok":false,"command":"wait","error":{"code":"TIMEOUT","message":"no match"}}',
+					isError: true,
+				},
+			],
+			{ unresolved: [], recovered: [] },
+		],
+		[
+			"an agent-desktop click refused, then clicked again on the same element",
+			[
+				{
+					name: "mcp__agent_desktop_desktop_click",
+					args: { ref_id: "@s4:e86" },
+					text: '{"ok":false,"command":"click","error":{"code":"APP_UNRESPONSIVE"}}',
+					isError: true,
+				},
+				{ name: "mcp__agent_desktop_desktop_click", args: { ref_id: "@s4:e86", i: "Opening the File menu" } },
+			],
+			{ unresolved: [], recovered: ["mcp__agent_desktop_desktop_click"] },
+		],
+		[
+			"an agent-desktop type refused, then typed into the same field with other text, as a device",
+			[
+				{
+					name: "write",
+					args: { path: "xd://mcp__agent_desktop_desktop_type", content: '{"ref_id":"@s5:e2","text":"helo"}' },
+					text: '{"ok":false,"command":"type","error":{"code":"ACTION_FAILED"}}',
+					isError: true,
+				},
+				{
+					name: "write",
+					args: {
+						path: "xd://mcp__agent_desktop_desktop_type",
+						content: '{ "text": "hello", "ref_id": "@s5:e2" }',
+					},
+				},
+			],
+			{ unresolved: [], recovered: ["xd://mcp__agent_desktop_desktop_type"] },
+		],
+		[
+			"an agent-desktop click that failed, then only a click on another element",
+			[
+				{
+					name: "mcp__agent_desktop_desktop_click",
+					args: { ref_id: "@s4:e86" },
+					text: '{"ok":false,"command":"click","error":{"code":"STALE_REF"}}',
+					isError: true,
+				},
+				{ name: "mcp__agent_desktop_desktop_click", args: { ref_id: "@s4:e87" } },
+			],
+			{ unresolved: ["mcp__agent_desktop_desktop_click"], recovered: [] },
+		],
 	])("%s", (_, steps, expected) => {
 		expect(verdict(steps)).toEqual(expected);
 	});
