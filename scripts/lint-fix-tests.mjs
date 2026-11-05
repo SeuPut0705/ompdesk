@@ -9,8 +9,9 @@
  *
  *   bun scripts/lint-fix-tests.mjs [<rev-range>]
  *
- * Without a range it checks this branch's commits not yet published: `origin/main..HEAD` on `main`, `main..HEAD`
- * on any other branch (another session's commits on local `main` are theirs to fix). Merge commits are skipped.
+ * Without a range it checks this branch's commits not yet published: those origin/main lacks on `main`; on any other
+ * branch those neither origin/main nor local `main` has (another session's commits on local `main` are theirs to fix,
+ * and a local `main` behind origin/main must not hand this branch origin's commits). Merge commits are skipped.
  * Git runs without the repository selectors an enclosing hook or bisect exports (`withoutGitSelectors`), so it
  * reads the checkout it is run in (or `cwd`), never another one. Bun, not node: that helper is TypeScript.
  */
@@ -43,28 +44,32 @@ export function fixCommitsWithoutTests(commits) {
 const git = (args, cwd) =>
 	execFileSync("git", args, { cwd, env: withoutGitSelectors(process.env), encoding: "utf8", maxBuffer: 64 << 20 });
 
-/** The default range: this branch's unpublished commits. */
-function defaultRange() {
-	const branch = git(["rev-parse", "--abbrev-ref", "HEAD"]).trim();
+/**
+ * The default revisions: this branch's unpublished commits.
+ * @param {string} [cwd]
+ * @returns {string[]}
+ */
+export function defaultRevs(cwd) {
+	const branch = git(["rev-parse", "--abbrev-ref", "HEAD"], cwd).trim();
 	const hasMain = (() => {
 		try {
-			git(["rev-parse", "--verify", "--quiet", "refs/heads/main"]);
+			git(["rev-parse", "--verify", "--quiet", "refs/heads/main"], cwd);
 			return true;
 		} catch {
 			return false;
 		}
 	})();
-	return branch === "main" || !hasMain ? "origin/main..HEAD" : "main..HEAD";
+	return branch === "main" || !hasMain ? ["origin/main..HEAD"] : ["HEAD", "^origin/main", "^main"];
 }
 
 /**
- * @param {string} range
+ * @param {string[]} revs
  * @param {string} [cwd]
  * @returns {Commit[]}
  */
-export function readCommits(range, cwd) {
+export function readCommits(revs, cwd) {
 	// One record per commit: NUL-separated header fields, then the changed files, records split by \x1e.
-	const out = git(["log", "--no-merges", "--name-only", "--format=%x1e%H%x00%s%x00%b%x00", range, "--"], cwd);
+	const out = git(["log", "--no-merges", "--name-only", "--format=%x1e%H%x00%s%x00%b%x00", ...revs, "--"], cwd);
 	return out
 		.split("\x1e")
 		.filter(Boolean)
@@ -75,8 +80,9 @@ export function readCommits(range, cwd) {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-	const range = process.argv[2] ?? defaultRange();
-	const bad = fixCommitsWithoutTests(readCommits(range));
+	const revs = process.argv[2] ? [process.argv[2]] : defaultRevs();
+	const range = revs.join(" ");
+	const bad = fixCommitsWithoutTests(readCommits(revs));
 	if (bad.length > 0) {
 		console.error(`fix commits without a test (${range}):`);
 		for (const commit of bad) console.error(`  ${commit.sha.slice(0, 9)} ${commit.subject}`);

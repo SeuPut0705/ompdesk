@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fixCommitsWithoutTests, readCommits } from "./lint-fix-tests.mjs";
+import { defaultRevs, fixCommitsWithoutTests, readCommits } from "./lint-fix-tests.mjs";
 
 const commit = (subject, files, body = "") => ({ sha: subject, subject, body, files });
 
@@ -91,11 +91,27 @@ describe("readCommits", () => {
 		vi.stubEnv("GIT_DIR", path.join(other.dir, ".git"));
 		vi.stubEnv("GIT_WORK_TREE", other.dir);
 
-		const commits = readCommits("HEAD~1..HEAD", repo);
+		const commits = readCommits(["HEAD~1..HEAD"], repo);
 		expect(commits.map(({ subject, body, files }) => ({ subject, body: body.trim(), files }))).toEqual([
 			{ subject: "fix(b): b breaks", body: "", files: ["src/a.test.ts", "src/b.ts"] },
 			{ subject: "fix: a breaks", body: "Body line.\n\nno-test: none possible", files: ["src/a.ts"] },
 		]);
 		expect(fixCommitsWithoutTests(commits)).toEqual([]);
+	});
+
+	it("on a branch, leaves out origin/main's commits that a stale local main lacks", () => {
+		const { dir: repo, git } = newRepo();
+		// Another session's published fix: on origin/main, never fetched into local `main`.
+		writeFileSync(path.join(repo, "theirs.ts"), "t");
+		git("add", ".");
+		git("commit", "-q", "-m", "fix: theirs, published without a test");
+		git("update-ref", "refs/remotes/origin/main", "HEAD");
+		git("reset", "-q", "--hard", "HEAD~1");
+		git("checkout", "-q", "-b", "work", "origin/main");
+		writeFileSync(path.join(repo, "mine.ts"), "m");
+		git("add", ".");
+		git("commit", "-q", "-m", "feat: mine");
+
+		expect(readCommits(defaultRevs(repo), repo).map(commit => commit.subject)).toEqual(["feat: mine"]);
 	});
 });
