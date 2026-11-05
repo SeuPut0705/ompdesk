@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.114.0] - 2026-11-06
+
+에이전트가 다른 세션에 보낸 메시지가 그 세션의 작업이 끝날 때까지 기다리지 않고 바로 전달돼요.
+
+### 바뀐 것
+- 에이전트가 일하는 중인 세션에 메시지를 보내면, 이제 그 세션이 다음 단계로 넘어갈 때 바로 읽어요. 전에는 그 세션의 작업이 모두 끝날 때까지 기다렸어요. 끝난 뒤에 읽혀야 하는 메시지는 지금처럼 그렇게 보낼 수 있어요.
+
+### 고친 것
+- 일하는 중에 보낸 메시지에 에이전트가 먼저 글로 답했는데도, 앱이 그 답을 못 알아보고 다음 도구를 두 번 막았어요. 일부 모델(Claude Opus 5.5)은 사람에게 하는 말을 생각 블록 형태로 보내는데, 그 말을 답으로 치지 않았기 때문이에요. 이제 화면에 답으로 보이는 말이면 답으로 쳐요.
+- 봇의 대화가 새로 시작된 뒤 봇이 "이전 대화를 볼 수 없다"고 답했어요. 새 대화가 받는 인계 메모에 이전 대화의 id도, 읽는 방법도 없었기 때문이에요. 이제 메모에 둘 다 들어 있어서, 봇이 이전 대화를 직접 열어 읽어요.
+
+<!-- en -->
+
+A message an agent sends to a working session now reaches it right away instead of waiting for that session's work to end.
+
+### Changed
+- An agent's message to a session that is working now reaches it at its next step. Before, it waited until that session's whole turn was over. A message meant for after the turn can still be sent that way.
+
+### Fixed
+- A message sent while the agent worked got a written answer, yet the app missed the answer and refused the agent's next tool call twice. Some models (Claude Opus 5.5) send what they say to the person as a narration block, which the app did not count as an answer. What shows as an answer on screen now counts as one.
+- After the bot's conversation renewed, the bot said it could not see its previous conversation. The handoff note the new conversation starts from held neither that conversation's id nor how to read it. It now holds both, so the bot opens and reads the previous conversation itself.
+
 ## [0.113.0] - 2026-11-06
 
 메모리가 모자랄 때만, 숨어서 쉬고 있는 세션이 omp 프로세스를 내려놓아요.
