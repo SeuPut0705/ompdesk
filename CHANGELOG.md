@@ -7,6 +7,9 @@
 ### 바뀐 것
 - 에이전트가 일하는 중인 세션에 메시지를 보내면, 이제 그 세션이 다음 단계로 넘어갈 때 바로 읽어요. 전에는 그 세션의 작업이 모두 끝날 때까지 기다렸어요. 끝난 뒤에 읽혀야 하는 메시지는 지금처럼 그렇게 보낼 수 있어요.
 - 에이전트가 연 세션, 에이전트가 보낸 메시지, 예약 실행, 다시 켠 뒤 이어서 하는 작업이 이제 메모리를 기다리지 않고 바로 시작해요. "메모리 대기 중" 표시와 "지금 시작" 버튼도 없어졌어요. 메모리가 모자랄 때 숨어서 쉬는 세션이 omp를 내려놓는 기능은 그대로예요.
+- 대화의 모든 메시지 시간이 마우스를 올리지 않아도 보여요. 복사·분기 버튼은 지금처럼 마우스를 올리거나 포커스할 때 나타나요.
+- 내가 보낸 짧은 메시지는 시간과 버튼이 말풍선 왼쪽 옆에 붙어, 메시지마다 아래에 비워 두던 줄(22px)을 돌려받아요. 말풍선이 줄을 다 채우면 지금처럼 아래 줄에 놓여요. 글자를 덮는 일은 없어요.
+- 마우스로 쓸 때 알림(토스트)·업데이트 안내·컨텍스트 사용량 분해의 여백이 줄었어요(토스트 하나에 8px, 안내 6px). 토스트의 상세 내용은 세 줄 대신 네 줄까지 보여요. 터치 화면은 그대로예요.
 
 ### 고친 것
 - 일하는 중에 보낸 메시지에 에이전트가 먼저 글로 답했는데도, 앱이 그 답을 못 알아보고 다음 도구를 두 번 막았어요. 일부 모델(Claude Opus 5.5)은 사람에게 하는 말을 생각 블록 형태로 보내는데, 그 말을 답으로 치지 않았기 때문이에요. 이제 화면에 답으로 보이는 말이면 답으로 쳐요.
@@ -21,6 +24,9 @@ A message an agent sends to a working session now reaches it right away instead 
 ### Changed
 - An agent's message to a session that is working now reaches it at its next step. Before, it waited until that session's whole turn was over. A message meant for after the turn can still be sent that way.
 - Sessions an agent opens, an agent's messages, scheduled runs and the work a relaunch continues now start at once instead of waiting for memory. The "Waiting for memory" label and its Start now button are gone. A hidden session at rest still lets its omp go while memory is short.
+- Every message's time shows without hovering. Copy and branch still appear on hover or focus.
+- A short prompt of yours carries its time and buttons beside its bubble, giving back the row each prompt kept empty under it (22 px). A bubble that fills the row keeps them on the line under it, as before. Nothing covers text.
+- With a mouse, toasts, the update notice and the context usage breakdown take tighter padding (8 px less per toast, 6 px for the notice), and a toast's detail shows four lines instead of three. Touch screens are unchanged.
 
 ### Fixed
 - A message sent while the agent worked got a written answer, yet the app missed the answer and refused the agent's next tool call twice. Some models (Claude Opus 5.5) send what they say to the person as a narration block, which the app did not count as an answer. What shows as an answer on screen now counts as one.
