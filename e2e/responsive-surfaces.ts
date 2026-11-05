@@ -445,6 +445,47 @@ export const SURFACES: readonly Surface[] = [
 		parity: { session: "reply" },
 	},
 	{
+		id: "tool-agent-desktop",
+		area: "A",
+		title: "agent-desktop's tool calls: the snapshot tree unfolded, the typed line and the screenshot",
+		open: async page => {
+			await page.getByText("agent-desktop run finished.", { exact: true }).last().waitFor({ timeout: 15_000 });
+			const card = page.locator(".omp-execution-group").last();
+			const head = card.locator(".omp-execution-group-header").first();
+			if ((await head.getAttribute("aria-expanded")) !== "true") await head.click();
+			// The snapshot's tree is what the surface is about; the typed line and the picture open beside it.
+			for (const command of ["screenshot", "type", "snapshot"]) {
+				const row = card
+					.locator(".omp-tool-card")
+					.filter({ hasText: new RegExp(`Desktop · ${command}`) })
+					.first()
+					.locator("button[aria-expanded]")
+					.first();
+				if ((await row.getAttribute("aria-expanded")) !== "true") await row.click();
+			}
+			// The picture and the lazy tree settle the rows' heights (the transcript is virtualized): scroll again after
+			// each, as a reader would, until the tree stays at the top.
+			await card.locator("[data-zoomable-image] img").first().waitFor({ state: "visible", timeout: 15_000 });
+			const tree = card.locator('[data-tool-agent-desktop="tree"]').first();
+			for (let attempt = 0; attempt < 3; attempt++) {
+				// An upward wheel first, as `showInReply` does: a programmatic scroll leaves the transcript pinned to its end.
+				await page
+					.locator(".omp-transcript-scroll")
+					.first()
+					.evaluate(scroller =>
+						scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -120, bubbles: true, cancelable: true })),
+					);
+				await tree.evaluate(element => element.scrollIntoView({ block: "start" }));
+				await page.waitForTimeout(300);
+			}
+		},
+		ready: '[data-tool-agent-desktop="tree"] [role="tree"] [data-tree-id]',
+		settle: 900,
+		// The audits' harness page has no such run; the parity sheet asks the fake omp for it.
+		when: () => false,
+		parity: { session: "reply", inView: '[data-tool-agent-desktop="tree"]' },
+	},
+	{
 		id: "bot-bar",
 		area: "A",
 		title: "The bot's session (?bot=1): its bar over the conversation and an open decision docked above the composer",

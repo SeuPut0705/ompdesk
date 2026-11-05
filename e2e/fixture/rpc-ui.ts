@@ -4553,6 +4553,104 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					endTurn(turn);
 				}, 300);
 			}, 300);
+		} else if (message === "fixture agent-desktop") {
+			// agent-desktop's MCP tools as stock hands them to the transcript: `mcp__agent_desktop_desktop_<command>`
+			// calls whose text block is the JSON envelope (again as `details.structuredContent`, image bytes left out).
+			const turn: AgentMessage[] = [user];
+			const stamp = Date.now();
+			const ok = (command: string, data: Record<string, unknown>) => ({ version: "2.6", ok: true, command, data });
+			const png = fs.readFileSync(nodePath.join(E2E_DIR, "../resources/icon.png")).toString("base64");
+			const calls: { name: string; args: Record<string, unknown>; envelope: object; image?: string }[] = [
+				{
+					name: "mcp__agent_desktop_desktop_snapshot",
+					args: { app: "TextEdit", interactive_only: true },
+					envelope: ok("snapshot", {
+						app: "TextEdit",
+						snapshot_id: "s1",
+						ref_count: 5,
+						tree: {
+							role: "window",
+							name: "Untitled",
+							children: [
+								{ role: "menubar", children: [{ role: "menuitem", name: "File", ref_id: "@s1:e2" }] },
+								{ role: "textarea", name: "Body", ref_id: "@s1:e5", available_actions: ["SetValue"] },
+							],
+						},
+					}),
+				},
+				{
+					name: "mcp__agent_desktop_desktop_type",
+					args: { ref_id: "@s1:e5", text: "hello from agent-desktop" },
+					envelope: ok("type", { disposition: { delivery: "delivered_verified", retry: "unsafe" } }),
+				},
+				{
+					name: "mcp__agent_desktop_desktop_screenshot",
+					args: { app: "TextEdit" },
+					envelope: ok("screenshot", { app: "TextEdit" }),
+					image: png,
+				},
+			];
+			const run = (index: number) => {
+				const item = calls[index];
+				if (!item) {
+					const answer: AgentMessage = {
+						role: "assistant",
+						content: [{ type: "text", text: "agent-desktop run finished." }],
+						timestamp: Date.now(),
+						provider: model.provider,
+						model: model.id,
+						stopReason: "stop",
+					};
+					appendMessage(answer);
+					write({ type: "message_start", message: answer });
+					write({ type: "message_end", message: answer });
+					turn.push(answer);
+					endTurn(turn);
+					return;
+				}
+				const id = `agent-desktop-${stamp}-${index}`;
+				const reply: AgentMessage = {
+					role: "assistant",
+					content: [{ type: "toolCall", id, name: item.name, arguments: item.args }],
+					timestamp: Date.now(),
+					provider: model.provider,
+					model: model.id,
+					stopReason: "toolUse",
+				};
+				appendMessage(reply);
+				write({ type: "message_start", message: reply });
+				write({ type: "message_end", message: reply });
+				turn.push(reply);
+				write({ type: "tool_execution_start", toolCallId: id, toolName: item.name, args: item.args });
+				setTimeout(() => {
+					const content = [
+						{ type: "text" as const, text: JSON.stringify(item.envelope) },
+						...(item.image ? [{ type: "image" as const, data: item.image, mimeType: "image/png" }] : []),
+					];
+					const details = { structuredContent: item.envelope };
+					const result: AgentMessage = {
+						role: "toolResult",
+						toolCallId: id,
+						toolName: item.name,
+						content,
+						details,
+						isError: false,
+						timestamp: Date.now(),
+					};
+					write({
+						type: "tool_execution_end",
+						toolCallId: id,
+						toolName: item.name,
+						result: { content, details },
+						isError: false,
+					});
+					appendMessage(result);
+					write({ type: "message_end", message: result });
+					turn.push(result);
+					setTimeout(() => run(index + 1), 250);
+				}, 250);
+			};
+			run(0);
 		} else if (message === "fixture steps") {
 			// A run of separate assistant messages, each thinking then calling a
 			// tool, with gaps between them — the shape that used to mount a new

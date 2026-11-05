@@ -289,6 +289,7 @@ if (dir) {
 					["fixture reply media", "The numbers:"],
 					["fixture reply components", "Footnotes link both ways."],
 					["fixture narrated", "Narrated run finished."],
+					["fixture agent-desktop", "agent-desktop run finished."],
 				] as const) {
 					await b.evaluate(([id, sent]) => window.omp.rpc.commandForTab(id, { type: "prompt", message: sent }), [
 						tabId,
