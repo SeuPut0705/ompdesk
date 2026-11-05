@@ -4,9 +4,11 @@ import { chmod, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from 
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
+import { setTimeout as sleep } from "node:timers/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MEMORY_HUB_ENTRY } from "../../../resources/gui-bridge/mcp-hub-contracts";
 import type { AiMemoryState } from "../../shared/ai-memory";
+import { isRenameBlocked } from "../atomic-file";
 import type { SpawnSpec } from "../setup/plans";
 import { SetupRunner, type SupervisedChild } from "../setup/runner";
 import { SUPERVISOR_STOPPED_CODE } from "../setup/supervisor";
@@ -1169,8 +1171,19 @@ describe("AiMemoryService", () => {
 			await service.start();
 			removed = true;
 			// Gone in one step: a poll (every 10 ms) that saw it half removed would heal it into the folder being removed.
+			// Windows refuses the rename while that poll has a file in it open (EPERM, main ci 41947739874, win-platform
+			// 1/2, 5 Nov 2026). The holder is the service's own poll on the real file system, which no fake clock
+			// releases; it lets go within milliseconds, so the move is tried again (at most 1 s).
 			const gone = join(dirname(dirname(rootDir)), "omp-ext.gone");
-			await rename(rootDir, gone);
+			for (let attempt = 1; ; attempt++) {
+				try {
+					await rename(rootDir, gone);
+					break;
+				} catch (error) {
+					if (!isRenameBlocked(error) || attempt === 50) throw error;
+					await sleep(20);
+				}
+			}
 			await rm(gone, RM_TEMP);
 			await healed.promise;
 			expect(commands().filter(command => command === SETUP)).toHaveLength(2);
