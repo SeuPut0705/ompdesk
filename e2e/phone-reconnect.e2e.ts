@@ -49,6 +49,21 @@ function watchLink(): void {
 	const link: LinkLog = { log: [], calls: [], bytesDown: [] };
 	Reflect.set(window, "__link", link);
 	const note = (what: string, detail?: unknown) => link.log.push({ at: performance.now(), what, detail });
+	// The ticket request of each connection attempt (`/api/ticket`-style fetches), so the timeline shows where the time went.
+	const nativeFetch = window.fetch.bind(window);
+	window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		const url = typeof input === "string" ? input : input instanceof Request ? input.url : String(input);
+		const watched = url.includes("/api/");
+		if (watched) note("fetch:start", new URL(url, location.href).pathname);
+		try {
+			const response = await nativeFetch(input, init);
+			if (watched) note("fetch:end", `${new URL(url, location.href).pathname} ${response.status}`);
+			return response;
+		} catch (error) {
+			if (watched) note("fetch:failed", `${new URL(url, location.href).pathname} ${String(error).slice(0, 60)}`);
+			throw error;
+		}
+	}) as typeof fetch;
 	const Native = window.WebSocket;
 	class Watched extends Native {
 		constructor(url: string | URL, protocols?: string | string[]) {
@@ -97,6 +112,7 @@ interface Numbers {
 	scrollMovedPx: number | null;
 	transcriptKept: boolean;
 	pageLoads: number;
+	timeline: string[];
 }
 
 async function now(phone: Page): Promise<number> {
@@ -359,6 +375,14 @@ for (const engine of ENGINES)
 						state.top === null || reading.top === null ? null : Math.round(Math.abs(state.top - reading.top)),
 					transcriptKept: state.kept,
 					pageLoads: loads,
+					// Close, ticket request, new socket and hello, from the drop (the 1080 to 1146 ms the blip took on hosted
+					// WebKit, against 64 to 140 ms here, shows nowhere else).
+					timeline: log.log
+						.filter(entry => entry.at >= start - 1 && entry.at <= (hello?.at ?? end) + 50)
+						.map(
+							entry =>
+								`+${Math.round(entry.at - start)}ms ${entry.what}${entry.detail === undefined ? "" : ` ${JSON.stringify(entry.detail)}`}`,
+						),
 				};
 				numbers.push(result);
 				return result;
@@ -508,7 +532,9 @@ for (const engine of ENGINES)
 				expect.soft(any.transcriptKept, `${any.scenario}: same transcript`).toBe(true);
 				expect.soft(any.scrollMovedPx ?? Infinity, `${any.scenario}: reading position kept`).toBeLessThanOrEqual(4);
 			}
-			expect.soft(blip.reconnectMs ?? Infinity, "blip reconnects at once").toBeLessThan(1000);
+			expect
+				.soft(blip.reconnectMs ?? Infinity, `blip reconnects at once: ${blip.timeline.join(" | ")}`)
+				.toBeLessThan(1000);
 			expect.soft(short.reconnectMs ?? Infinity, "back within a second of the network").toBeLessThan(1500);
 			// Silence is asked about after 5 s and given up 2.5 s later: 4 s of it were inside the outage.
 			expect.soft(dead.reconnectMs ?? Infinity, "a silent socket is given up within seconds").toBeLessThan(6000);
