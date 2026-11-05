@@ -2384,9 +2384,12 @@ describe("the bot's conversation renews", () => {
 		const [seed] = mails(commands);
 		expect(seed?.tabId).toBe("main0001");
 		expect(seed?.command).toMatchObject({ triggerTurn: false, details: { id: "bot-handoff-old" } });
-		expect(String((seed?.command as { content?: string } | undefined)?.content)).toContain(
-			"Waiting on the release run (kid00002).",
-		);
+		const seeded = String((seed?.command as { content?: string } | undefined)?.content);
+		expect(seeded).toContain("Waiting on the release run (kid00002).");
+		// The bot told the owner it could not see its previous conversation (6 Nov 2026): the note names it and how to
+		// read it, by the saved id ompdesk_session_read resolves for a session no tab holds.
+		expect(seeded).toContain('ompdesk_session_read {"session":"old"}');
+		expect(seeded).toContain('ompdesk_sessions {"scope":"stored"}');
 	});
 
 	it("never switches or closes a tab under a turn, and changes nothing when stock keeps the old file", async () => {
