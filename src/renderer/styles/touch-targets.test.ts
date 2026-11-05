@@ -151,7 +151,10 @@ describe("hit areas that fill the room they have", () => {
 			/--hit-gap-y:\s*initial/,
 		);
 		expect(rule('html[data-shell="phone"]')).toMatch(/--sc-row-touch:\s*36px/);
-		expect(read("../components/settings/SettingsLayout.tsx")).toContain('"settings-row scroll-mt-4 py-1"');
+		// The pitch is the touch padding's: a mouse row may be denser, and has no 44 px reach (data-input="touch" only).
+		expect(read("../components/settings/SettingsLayout.tsx")).toMatch(
+			/"settings-row scroll-mt-4 [^"]*\[html\[data-input=touch\]_&\]:py-1[\s"]/,
+		);
 	});
 
 	it("lets a terminal key reach through the bar's padding, which its scroller holds so the reach is not clipped", () => {
