@@ -38,7 +38,7 @@ function gb(bytes: number): number {
 /** Start reading memory; a quiet tab is released while it is short. */
 export function startMemoryWatch(deps: MemoryWatchDeps): void {
 	let sampling = false;
-	const idle = new IdleRelease(deps.releaseQuietMs);
+	const idle = new IdleRelease(deps.releaseQuietMs, deps.sampler.platform);
 	const sample = async (): Promise<void> => {
 		if (sampling) return;
 		sampling = true;

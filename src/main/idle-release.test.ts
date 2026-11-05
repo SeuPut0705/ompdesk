@@ -34,14 +34,14 @@ describe("memoryShort", () => {
 
 describe("IdleRelease", () => {
 	it("releases nothing while memory is fine, however long a tab has been quiet", () => {
-		const idle = new IdleRelease(QUIET);
+		const idle = new IdleRelease(QUIET, "darwin");
 		expect(idle.pick(0, reading(8), tabs, rows)).toBeNull();
 		expect(idle.pick(10 * QUIET, reading(8), tabs, rows)).toBeNull();
 		expect(idle.pick(10 * QUIET, null, tabs, rows)).toBeNull();
 	});
 
 	it("while memory is short, releases the largest tab quiet for the whole quiet time, one per sample", () => {
-		const idle = new IdleRelease(QUIET);
+		const idle = new IdleRelease(QUIET, "darwin");
 		idle.pick(0, reading(8), tabs, rows);
 		expect(idle.pick(QUIET - 1, reading(1), tabs, rows)).toBeNull();
 		expect(idle.pick(QUIET, reading(1), tabs, rows)).toBe("b");
@@ -52,7 +52,7 @@ describe("IdleRelease", () => {
 	});
 
 	it("never releases a tab whose omp started a process: eval state, a job, a daemon or an MCP server lives there", () => {
-		const idle = new IdleRelease(QUIET);
+		const idle = new IdleRelease(QUIET, "darwin");
 		const withEval = [...rows, { pid: 21, ppid: 20, bytes: 0.3 * GiB }];
 		idle.pick(0, reading(1), tabs, withEval);
 		expect(idle.pick(QUIET, reading(1), tabs, withEval)).toBe("c");
@@ -63,7 +63,7 @@ describe("IdleRelease", () => {
 	});
 
 	it("a tab that stops being quiet (shown, a turn, a draft) starts its quiet time again", () => {
-		const idle = new IdleRelease(QUIET);
+		const idle = new IdleRelease(QUIET, "darwin");
 		const only = [{ tabId: "a", pid: 10, quiet: true }];
 		idle.pick(0, reading(1), only, rows);
 		idle.pick(QUIET / 2, reading(1), [{ tabId: "a", pid: 10, quiet: false }], rows);
@@ -74,10 +74,41 @@ describe("IdleRelease", () => {
 	});
 
 	it("forgets a tab that is gone and never picks one without an omp", () => {
-		const idle = new IdleRelease(QUIET);
+		const idle = new IdleRelease(QUIET, "darwin");
 		idle.pick(0, reading(1), [{ tabId: "a", pid: 10, quiet: true }], rows);
 		idle.pick(1, reading(1), [], rows);
 		expect(idle.pick(QUIET, reading(1), [{ tabId: "a", pid: 10, quiet: true }], rows)).toBeNull();
 		expect(idle.pick(10 * QUIET, reading(1), [{ tabId: "x", quiet: true }], rows)).toBeNull();
+	});
+
+	it("on Windows sees through the launcher and its console host: only processes the omp started keep a tab", () => {
+		// What Windows lists for each tab: its pid is the launcher (bun's `omp.exe` shim, or cmd.exe for an `omp.cmd`),
+		// whose children are its console host and the omp itself.
+		const tree = (launcher: number, ...work: ProcessRow[]): ProcessRow[] => [
+			{ pid: launcher, ppid: 1, bytes: 0.01 * GiB, name: "omp.exe" },
+			{ pid: launcher + 1, ppid: launcher, bytes: 0.01 * GiB, name: "conhost.exe" },
+			{ pid: launcher + 2, ppid: launcher, bytes: 0.3 * GiB, name: "bun.exe" },
+			...work,
+		];
+		const windowsRows = [
+			...tree(10),
+			// The eval worker, with the console host Windows gives it.
+			...tree(
+				20,
+				{ pid: 23, ppid: 22, bytes: 0.2 * GiB, name: "python.exe" },
+				{ pid: 24, ppid: 23, bytes: 0.01 * GiB, name: "conhost.exe" },
+			),
+			// An MCP server.
+			...tree(30, { pid: 33, ppid: 32, bytes: 0.1 * GiB, name: "node.exe" }),
+		];
+		const idle = new IdleRelease(QUIET, "win32");
+		idle.pick(0, reading(1), tabs, windowsRows);
+		expect(idle.pick(QUIET, reading(1), tabs, windowsRows)).toBe("a");
+		expect(idle.pick(QUIET + 1, reading(1), tabs, windowsRows)).toBeNull();
+		// A launcher whose omp is not (or no longer) its one child is not read as quiet.
+		const odd = [{ tabId: "d", pid: 40, quiet: true }];
+		const oddRows = [{ pid: 40, ppid: 1, bytes: 0.01 * GiB, name: "omp.exe" }];
+		idle.pick(0, reading(1), odd, oddRows);
+		expect(idle.pick(QUIET, reading(1), odd, oddRows)).toBeNull();
 	});
 });

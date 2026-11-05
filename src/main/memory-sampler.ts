@@ -30,6 +30,8 @@ export interface ProcessRow {
 	ppid: number;
 	/** Resident bytes. */
 	bytes: number;
+	/** Image name (`conhost.exe`), Windows only: `ps` names none. */
+	name?: string;
 }
 
 /** macOS `kern.memorystatus_vm_pressure_level` values. */

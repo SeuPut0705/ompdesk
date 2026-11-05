@@ -11,6 +11,7 @@
 ### 고친 것
 - 일하는 중에 보낸 메시지에 에이전트가 먼저 글로 답했는데도, 앱이 그 답을 못 알아보고 다음 도구를 두 번 막았어요. 일부 모델(Claude Opus 5.5)은 사람에게 하는 말을 생각 블록 형태로 보내는데, 그 말을 답으로 치지 않았기 때문이에요. 이제 화면에 답으로 보이는 말이면 답으로 쳐요.
 - 봇의 대화가 새로 시작된 뒤 봇이 "이전 대화를 볼 수 없다"고 답했어요. 새 대화가 받는 인계 메모에 이전 대화의 id도, 읽는 방법도 없었기 때문이에요. 이제 메모에 둘 다 들어 있어서, 봇이 이전 대화를 직접 열어 읽어요.
+- 윈도우에서는 메모리가 모자라도 숨어서 쉬는 세션이 omp를 내려놓지 않았어요. 윈도우는 omp를 실행기(`omp.exe`나 `omp.cmd`)와 콘솔 창 프로세스를 거쳐 띄우는데, 앱이 omp 자신과 콘솔 프로세스를 그 세션이 띄운 작업으로 셌기 때문이에요. 이제 omp가 직접 띄운 프로세스(eval, 백그라운드 작업, MCP 서버)만 세요.
 
 <!-- en -->
 
@@ -23,6 +24,7 @@ A message an agent sends to a working session now reaches it right away instead 
 ### Fixed
 - A message sent while the agent worked got a written answer, yet the app missed the answer and refused the agent's next tool call twice. Some models (Claude Opus 5.5) send what they say to the person as a narration block, which the app did not count as an answer. What shows as an answer on screen now counts as one.
 - After the bot's conversation renewed, the bot said it could not see its previous conversation. The handoff note the new conversation starts from held neither that conversation's id nor how to read it. It now holds both, so the bot opens and reads the previous conversation itself.
+- On Windows a hidden session at rest never let its omp go while memory was short. Windows starts omp through a launcher (`omp.exe` or `omp.cmd`) with a console host beside it, and the app counted the omp itself and that console host as work the session had started. Only processes the omp starts (eval, background jobs, MCP servers) count now.
 
 ## [0.113.0] - 2026-11-06
 

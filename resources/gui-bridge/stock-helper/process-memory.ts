@@ -1,9 +1,10 @@
 /**
  * Every Windows process with its parent and working set, for main's memory admission (`src/main/memory-sampler.ts`):
  * Electron's main has no FFI, and WMI answers "call cancelled" on a loaded machine (`.omp/rules/e2e-ci-windows.md`).
- * A Toolhelp32 snapshot names pid and parent (x64 `PROCESSENTRY32W`: pid at 8, parent at 32, as `e2e/win-processes.ts`
- * reads it); `K32GetProcessMemoryInfo` gives each process's working set (`PROCESS_MEMORY_COUNTERS.WorkingSetSize`
- * at 16). A process this user may not open counts 0 bytes. Runs in the terminals worker, whose requests never queue.
+ * A Toolhelp32 snapshot names pid, parent and image (x64 `PROCESSENTRY32W`: pid at 8, parent at 32, `szExeFile` at 44,
+ * as `e2e/win-processes.ts` reads it; idle release tells a console host from work by it); `K32GetProcessMemoryInfo`
+ * gives each process's working set (`PROCESS_MEMORY_COUNTERS.WorkingSetSize` at 16). A process this user may not open
+ * counts 0 bytes. Runs in the terminals worker, whose requests never queue.
  */
 import { dlopen, FFIType, type Library, ptr } from "bun:ffi";
 
@@ -17,6 +18,7 @@ interface ProcessRow {
 	pid: number;
 	ppid: number;
 	bytes: number;
+	name: string;
 }
 
 const KERNEL32 = {
@@ -65,7 +67,14 @@ export function listProcessMemory(): ProcessRow[] {
 			more = native.Process32NextW(snapshot, ptr(entry))
 		) {
 			const pid = entry.readUInt32LE(8);
-			rows.push({ pid, ppid: entry.readUInt32LE(32), bytes: pid === 0 ? 0 : workingSet(pid, counters) });
+			const exe = entry.toString("utf16le", 44, ENTRY_SIZE);
+			const end = exe.indexOf("\0");
+			rows.push({
+				pid,
+				ppid: entry.readUInt32LE(32),
+				bytes: pid === 0 ? 0 : workingSet(pid, counters),
+				name: end === -1 ? exe : exe.slice(0, end),
+			});
 		}
 	} finally {
 		native.CloseHandle(snapshot);

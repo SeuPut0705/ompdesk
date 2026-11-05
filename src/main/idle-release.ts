@@ -9,9 +9,11 @@
  * Only a quiet tab goes: the pool says nothing in it is live (hidden in every window and device, idle, no ask, plan,
  * draft, retry or continuation, not opened by an agent), and its omp has started no process. A child process is live
  * state a restart would lose: the eval worker holds the session's eval state, a background job or a daemon runs, an
- * MCP server is connected. It has been quiet for `IDLE_RELEASE_QUIET_MS`, and the largest such tree goes first, one per
- * sample, so a short spell frees what it needs and no more. A released tab reads asleep and starts again on its session
- * file the way a restored tab does: when it is shown or messaged.
+ * MCP server is connected. A console host (conhost.exe, which Windows starts beside a console program) is not work.
+ * On Windows the tab's pid is a launcher, bun's `omp.exe` shim or cmd.exe for an `omp.cmd` (spawn.ts), whose one
+ * other child is the omp itself; the omp's own children are the work. It has been quiet for `IDLE_RELEASE_QUIET_MS`,
+ * and the largest such tree goes first, one per sample, so a short spell frees what it needs and no more. A released
+ * tab reads asleep and starts again on its session file the way a restored tab does: when it is shown or messaged.
  */
 import { type MemoryReading, type ProcessRow, treeBytes } from "./memory-sampler";
 
@@ -35,13 +37,28 @@ export function memoryShort(reading: MemoryReading | null): boolean {
 	return reading.pressure !== "normal" || reading.availableBytes < reading.totalBytes * RESERVE_FRACTION;
 }
 
+/**
+ * Whether the omp under `pid` started a process; a console host (Toolhelp32 image `conhost.exe`) is none. On Windows
+ * `pid` is the launcher: its one child besides the console host is the omp, and a launcher of any other shape reads
+ * as busy, so it is never released on a guess.
+ */
+function hasWork(rows: readonly ProcessRow[], pid: number, platform: NodeJS.Platform): boolean {
+	const children = (parent: number) =>
+		rows.filter(row => row.ppid === parent && row.name?.toLowerCase() !== "conhost.exe");
+	if (platform !== "win32") return children(pid).length > 0;
+	const [omp, ...more] = children(pid);
+	return !omp || more.length > 0 || children(omp.pid).length > 0;
+}
+
 export class IdleRelease {
 	readonly #quietMs: number;
+	readonly #platform: NodeJS.Platform;
 	/** Since when each quiet tab has been quiet with no child process. */
 	readonly #quietSince = new Map<string, number>();
 
-	constructor(quietMs = IDLE_RELEASE_QUIET_MS) {
+	constructor(quietMs = IDLE_RELEASE_QUIET_MS, platform: NodeJS.Platform = process.platform) {
 		this.#quietMs = quietMs;
+		this.#platform = platform;
 	}
 
 	/** One sample: the tab to release now, or null. A tab picked starts its quiet time again. */
@@ -51,11 +68,10 @@ export class IdleRelease {
 		tabs: readonly ReleaseTab[],
 		rows: readonly ProcessRow[],
 	): string | null {
-		const parents = new Set(rows.map(row => row.ppid));
 		const seen = new Set<string>();
 		for (const tab of tabs) {
 			seen.add(tab.tabId);
-			if (tab.quiet && tab.pid !== undefined && !parents.has(tab.pid)) {
+			if (tab.quiet && tab.pid !== undefined && !hasWork(rows, tab.pid, this.#platform)) {
 				if (!this.#quietSince.has(tab.tabId)) this.#quietSince.set(tab.tabId, now);
 			} else this.#quietSince.delete(tab.tabId);
 		}
