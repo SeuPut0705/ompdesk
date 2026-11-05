@@ -3606,6 +3606,7 @@ export const en: Record<string, string> = {
 	"tools.agentDesktop.treeLabel": "Elements",
 	"tools.agentDesktop.refs": "{count} ref{plural}",
 	"tools.agentDesktop.moreElements": "… {count} more element{plural}",
+	"tools.agentDesktop.noMatch": "Nothing matched",
 	"tools.agentDesktop.unread": "({count} not read)",
 	"tools.agentDesktop.cutShort": "(cut short)",
 	"tools.agentDesktop.partial": "Partial tree: agent-desktop couldn't read the whole window in time.",

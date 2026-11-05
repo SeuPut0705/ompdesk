@@ -3600,6 +3600,7 @@ export const ko: Record<string, string> = {
 	"tools.agentDesktop.treeLabel": "요소",
 	"tools.agentDesktop.refs": "참조 {count}개",
 	"tools.agentDesktop.moreElements": "… 요소 {count}개 더 있어요",
+	"tools.agentDesktop.noMatch": "일치하는 것 없음",
 	"tools.agentDesktop.unread": "(읽지 않은 하위 {count}개)",
 	"tools.agentDesktop.cutShort": "(중간에 끊김)",
 	"tools.agentDesktop.partial": "일부만 읽은 트리예요: agent-desktop이 창 전체를 제때 읽지 못했어요.",

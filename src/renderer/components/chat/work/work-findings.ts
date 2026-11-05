@@ -3,7 +3,7 @@
  * Copy puts on the clipboard, derived from the run's ledger alone (no model call). Pure; `ExecutionGroup.tsx` draws it.
  */
 import { TURN_EDIT_TOOLS } from "../../../../shared/turn-edits";
-import { agentDesktopCall, isAgentDesktopLookup } from "../../../lib/agent-desktop-name";
+import { agentDesktopCall, isAgentDesktopLookupMiss } from "../../../lib/agent-desktop-name";
 import { xdevWriteTarget } from "../../../lib/xdev";
 import type { ToolEntry } from "../../../stores/tools";
 import { editArgumentPaths } from "../../tools/edit-args";
@@ -15,7 +15,7 @@ import { guardRefusal } from "./work-view";
 
 /**
  * The card's main-agent calls other than commands (those come from the ledger, `commandOperation`) that can decide its
- * verdict: each settled failed call that is no read, search, `wait` or agent-desktop lookup, and the later calls of the same tool, the only
+ * verdict: each settled failed call that is no read, search, `wait` or agent-desktop look that missed (`isAgentDesktopLookupMiss`), and the later calls of the same tool, the only
  * ones that can fix it. A card without such a failure has none, and costs nothing past the scan.
  */
 export function stepOperations(entries: readonly (readonly [string, ToolEntry])[], stoppedAt?: number): StepCall[] {
@@ -24,10 +24,10 @@ export function stepOperations(entries: readonly (readonly [string, ToolEntry])[
 		entry.status !== "pending" &&
 		entry.status !== "running" &&
 		!isInterruptedError(entry, stoppedAt);
-	// An agent-desktop lookup that came up empty is its answer, as a read's or a search's is.
+	// An agent-desktop look that found nothing or asked wrongly decides nothing, as a read's or a search's does not.
 	const isAgentDesktopLookupCall = (entry: ToolEntry) => {
 		const desktop = agentDesktopCall(entry.toolName, entry.args);
-		return desktop !== undefined && isAgentDesktopLookup(desktop);
+		return desktop !== undefined && isAgentDesktopLookupMiss(desktop, entry.result);
 	};
 	// A call the shared-checkout guard refused is protection: neither a failure nor a fix.
 	const failure = (entry: ToolEntry) =>

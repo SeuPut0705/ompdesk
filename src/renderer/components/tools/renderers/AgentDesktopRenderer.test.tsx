@@ -134,6 +134,26 @@ describe("AgentDesktopRenderer", () => {
 		expect(text()).toContain("Full result");
 	});
 
+	it("says Nothing matched for a find with no matches and for an element that is not there, never an error", async () => {
+		await mount(
+			<AgentDesktopRenderer
+				args={{ app: "TextEdit", name: "zzz" }}
+				result={answer({ ok: true, command: "find", data: { matches: [], total_matches: 0 } })}
+			/>,
+		);
+		expect(container.querySelector('[data-tool-agent-desktop="no-match"]')?.textContent).toBe("Nothing matched");
+		await act(async () => root.unmount());
+		await mount(
+			<AgentDesktopRenderer
+				args={{ ref_id: "@s1:e9" }}
+				isError
+				result={answer({ ok: false, command: "get", error: { code: "ELEMENT_NOT_FOUND", message: "gone" } })}
+			/>,
+		);
+		expect(container.querySelector('[data-tool-agent-desktop="no-match"]')).not.toBeNull();
+		expect(container.querySelector('[data-tool-agent-desktop="error"]')).toBeNull();
+	});
+
 	it("shows a screenshot as an image the reader can open", async () => {
 		await mount(
 			<AgentDesktopRenderer

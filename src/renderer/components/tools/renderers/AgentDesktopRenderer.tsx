@@ -6,7 +6,7 @@ import {
 	agentDesktopNodes,
 	parseAgentDesktopResult,
 } from "../../../lib/agent-desktop";
-import { agentDesktopSummary } from "../../../lib/agent-desktop-name";
+import { agentDesktopSummary, isAgentDesktopNoMatch } from "../../../lib/agent-desktop-name";
 import { extractImageDataUrls } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { MarkdownRenderer } from "../../../lib/markdown";
@@ -170,7 +170,19 @@ export function AgentDesktopRenderer(props: ToolRendererProps) {
 			</CaptureResult>
 		);
 	}
-	if (envelope.error) return <FailedCall error={envelope.error} />;
+	const noMatch = (
+		<div className="text-sc-xs text-(--sc-text-muted)" data-tool-agent-desktop="no-match">
+			{t("tools.agentDesktop.noMatch")}
+		</div>
+	);
+	if (envelope.error) {
+		const command = `desktop_${envelope.command.replaceAll("-", "_")}`;
+		return isAgentDesktopNoMatch({ command, args }, envelope.error.code) ? (
+			noMatch
+		) : (
+			<FailedCall error={envelope.error} />
+		);
+	}
 
 	const guide = asString(data?.content);
 	if (guide !== undefined)
@@ -181,6 +193,7 @@ export function AgentDesktopRenderer(props: ToolRendererProps) {
 		);
 
 	const elements = agentDesktopNodes(data);
+	if (elements && elements.nodes.length === 0 && elements.omitted === 0) return noMatch;
 	if (elements) {
 		const app = asString(data?.app);
 		const refs = asNumber(data?.ref_count);

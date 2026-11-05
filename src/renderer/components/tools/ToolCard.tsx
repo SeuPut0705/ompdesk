@@ -1,5 +1,6 @@
 import { Ban, ChevronRight, CircleX } from "lucide-react";
 import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { agentDesktopCall, agentDesktopErrorCode, isAgentDesktopNoMatch } from "../../lib/agent-desktop-name";
 import { basename, cx, dirname, durationBetween, resultDetails } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
@@ -270,7 +271,11 @@ export function ToolCard({
 	// "pending" (args still streaming) is a live sub-state: spinner, not a check.
 	const status = entryStatus === "pending" ? "running" : entryStatus;
 	const isError = Boolean(entry?.isError);
-	const failed = status === "error" || isError;
+	// An agent-desktop look that matched nothing answered: its row says so, as a search with no hits does, never Failed.
+	const desktopCall = status === "error" || isError ? agentDesktopCall(toolName, args) : undefined;
+	const noMatch =
+		desktopCall !== undefined && isAgentDesktopNoMatch(desktopCall, agentDesktopErrorCode(entry?.result));
+	const failed = (status === "error" || isError) && !noMatch;
 	const isPartial = status === "running";
 	const isAborted = status === "aborted";
 	const now = useNowTick(isPartial);
@@ -411,6 +416,10 @@ export function ToolCard({
 				{failed ? (
 					<span className="omp-tool-state shrink-0 text-sc-xs font-medium text-(--sc-danger)">
 						{t("tools.status.failed")}
+					</span>
+				) : noMatch ? (
+					<span className="omp-tool-state shrink-0 text-sc-xs text-(--sc-text-muted)">
+						{t("tools.agentDesktop.noMatch")}
 					</span>
 				) : isAborted ? (
 					<span className="omp-tool-state shrink-0 text-sc-xs text-(--sc-text-muted)">
