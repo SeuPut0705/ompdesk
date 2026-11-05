@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.112.1] - 2026-11-05
+
+휴대폰에서 답변 속 키 표시(`<kbd>`)가 앱의 최소 글자 크기보다 작게 나오던 문제를 고쳤어요.
+
+### 고친 것
+- 0.112.0부터 휴대폰에서 보이게 된 답변의 키캡(`Ctrl`, `C`)이 11 px로, 앱이 휴대폰에서 지키는 12 px보다 작았어요. 이제 인라인 코드와 같이 12 px 아래로 내려가지 않아요.
+- 펼친 `<details>`의 요약 아래 구분선이 고해상도 화면에서 두껍게 그려졌어요. 이제 답변의 다른 구분선처럼 화면 픽셀 하나 두께예요.
+
+<!-- en -->
+
+On a phone a reply's keys (`<kbd>`) showed smaller than the app's smallest text, and now they don't.
+
+### Fixed
+- A reply's keycaps (`Ctrl`, `C`), shown on a phone since 0.112.0, were 11 px, under the 12 px the app keeps on a phone. Like inline code, they no longer go below 12 px.
+- An open `<details>` drew the rule under its summary thick on dense screens. It is now one device pixel, like a reply's other rules.
+
 ## [0.112.0] - 2026-11-05
 
 답변의 모든 표현 요소를 이 컴퓨터, 페어링한 컴퓨터, 휴대폰에서 다시 점검해 고쳤고, 에이전트가 내용마다 맞는 표현을 스스로 고르도록 안내를 넓혔어요.
