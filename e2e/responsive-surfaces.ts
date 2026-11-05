@@ -271,6 +271,31 @@ async function openSettingsGeneral(page: Page, look: Look): Promise<void> {
 	await page.locator("[data-settings-page] #setting-gui-language").waitFor({ state: "visible", timeout: 30_000 });
 }
 
+/** Press `shortcut` until `target` shows: the first press can land before the page's key handler is in place. */
+async function pressUntilVisible(page: Page, shortcut: string, target: Locator): Promise<void> {
+	for (let attempt = 0; attempt < 3 && !(await target.isVisible()); attempt++) {
+		await page.keyboard.press(shortcut);
+		await target.waitFor({ state: "visible", timeout: 8_000 }).catch(() => undefined);
+	}
+	await target.waitFor({ state: "visible", timeout: 1_000 });
+}
+
+/** Agents › Live through ⌥A, the shortcut every view has. */
+async function openAgentsLive(page: Page): Promise<void> {
+	await pressUntilVisible(page, "Alt+KeyA", page.locator('section[data-destination="agents"]'));
+}
+
+/** Stats through the palette's "stats" row (All sessions), then the page's own tab when one is named. */
+async function openInsightsTab(page: Page, tab: "This session" | "Usage" | null): Promise<void> {
+	const search = page.getByRole("dialog").getByRole("combobox");
+	await pressUntilVisible(page, "ControlOrMeta+k", search);
+	await search.fill("stats");
+	await search.press("Enter");
+	const insights = page.locator('section[data-destination="insights"]');
+	await insights.waitFor({ state: "visible", timeout: 15_000 });
+	if (tab) await insights.getByRole("tab", { name: tab, exact: true }).click();
+}
+
 async function openSettings(page: Page, section: string): Promise<void> {
 	await ui(page, "openSettings", section);
 	const nav = page.locator(`[data-settings-section="${section.split(":")[0]}"]`);
@@ -913,30 +938,35 @@ export const SURFACES: readonly Surface[] = [
 			id: `agents-${tab}`,
 			area: "B",
 			title: `Agents › ${tab}`,
-			open: page => ui(page, "openAgents", tab),
+			// Live opens through ⌥A (a real shortcut), so the parity sheet takes it.
+			open: tab === "live" ? openAgentsLive : page => ui(page, "openAgents", tab),
 			settle: 900,
+			...(tab === "live" ? { parity: { session: "work" as const } } : {}),
 		}),
 	),
 	{
 		id: "stats",
 		area: "B",
 		title: "Insights › Stats (this session)",
-		open: page => ui(page, "openInsights", "stats", "session"),
+		open: page => openInsightsTab(page, "This session"),
 		settle: 900,
+		parity: { session: "work" },
 	},
 	{
 		id: "stats-all",
 		area: "B",
 		title: "Insights › Stats (all sessions)",
-		open: page => ui(page, "openInsights", "stats", "all"),
+		open: page => openInsightsTab(page, null),
 		settle: 1200,
+		parity: { session: "work" },
 	},
 	{
 		id: "usage",
 		area: "B",
 		title: "Insights › Usage",
-		open: page => ui(page, "openInsights", "usage"),
+		open: page => openInsightsTab(page, "Usage"),
 		settle: 900,
+		parity: { session: "work" },
 	},
 	{
 		id: "autopilot-start",
